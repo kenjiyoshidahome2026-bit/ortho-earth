@@ -12,7 +12,7 @@
 //   { type:"part", q, n, pos, attr, lon, lat, time, meta } … 層 q の中身（同じ q は置き換え）
 //   { type:"done", n, skipped } / { type:"error", message }
 import { GeoPBF } from "geopbf/pbf-base";
-import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "../quakes-mirror/usgs.js";   // ビルドスクリプトと同じ規則で焼く
+import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "../../packages/quakes/src/usgs.js";   // ビルドスクリプトと同じ規則で焼く
 
 // 文言＝英語キー（i18n/ui.json）。worker は訳さない＝{ key, args } を main へ渡すだけ（args に入れ子可・数値は main が桁区切り）
 const t = (key, ...args) => ({ key, args });

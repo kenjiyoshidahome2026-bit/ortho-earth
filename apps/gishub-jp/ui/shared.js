@@ -1,6 +1,6 @@
 // 都道府県・市区町村コードの知識（県名・系番号・政令市・振興局・郡）は jp/codes.js が正本。
 // ここは既存 import 互換のための再輸出のみ。旧テーブルは兵庫/和歌山の系が入れ替わっていた（正本側で修正済み）
-export { PREFS, cityArea } from '../jp/codes.js';
+export { PREFS, cityArea } from '@ortho-earth/jp/codes';
 
 export function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

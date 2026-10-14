@@ -90,9 +90,9 @@ ok(f0.geometry.type === "Polygon" && ring.length === 5 && ring[0][0] === ring[4]
 ok(Math.abs(ring[0][1] - 36.009) < 0.002 && Math.abs(ring[0][0] - 139.8555) < 0.003, `平面直角 9 系 → WGS84（${ring[0].map(v => v.toFixed(5))}）`);
 ok(gj.features[2].properties["大字名"] === "馬場通り" && gj.features[2].geometry.coordinates[0][0][1] < 36, "stored 内側 zip の筆（原点の南西）");
 
-// ---- 都道府県→系番号の表＝正本（apps/gishub-jp/jp/codes.js）と一致（2026-10-03・旧表は 8 県が誤りだった）----
+// ---- 都道府県→系番号の表＝正本（packages/jp/src/codes.js）と一致（2026-10-03・旧表は 8 県が誤りだった）----
 {
-	const { PREF_SYS: canon } = await import("../../../apps/gishub-jp/jp/codes.js");
+	const { PREF_SYS: canon } = await import("../../jp/src/codes.js");
 	const mod = await import(new URL("../src/decoder/moj.js", import.meta.url).href + "?v=" + (++runSeq));
 	const diff = Object.keys(canon).filter(k => mod.PREF_SYS[k] !== canon[k]);
 	ok(diff.length === 0 && Object.keys(mod.PREF_SYS).length === Object.keys(canon).length, `PREF_SYS が正本（jp/codes.js）と一致${diff.length ? "（違い: " + diff.join(" ") + "）" : ""}`);

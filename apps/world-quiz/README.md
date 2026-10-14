@@ -8,7 +8,7 @@ www.ortho-earth.com/quiz/ ＝ World（apps/world）の国名・国旗・首都�
 - **1 セット 10 問**：選ぶ→その場で○×→地球儀が正解の国へ寄る（spotlight）→首都と人口のひとこと→次へ（正解は 1.6 秒で自動、間違いは押すまで）。数字キー 1〜4・Enter で進む
 - **覚える工夫**：間違えた国は次のセットに優先して混ざる（間隔反復＝正解すると 1 日→2 日→4 日と間が延び、3 回続けて正解で消える）・最近出た 40 か国は避ける・図鑑（正解した国の数）・星（10/8/5 問）・最高記録（モード×レベル×地域）・連続正解・バッジ 9 種。全部 localStorage（`world-quiz.v1`）
 - **言語**：26 言語。UI 文言は `i18n/pages/quiz.json`（`npm run i18n:build` で `i18n/lang/quiz/` へ）。国名・首都・地域名は World の台帳の訳（bucket `GIS/world/i18n/<lang>.json`）をそのまま。ja の文言は漢字で書く。World の yomi は並べ替え用の鍵なのでルビには使わない
-- **データ**：World と同じ bucket（`apps/world/src/data.js` の `loadWorld`＝IDB 優先・裏で更新）。国旗は `flags/<key>.svg`。地球儀は `@ortho-earth/globe`（dev はソース直・build は共有エンジン）＝World の地図パネルと同じ配線。Lv.3 の「押して当てる」は World の `worldlayers.js`（ne-cultural base）で押した所の国を引く。小さい国は指で押し損ねるので、外れても国の形から 24px 以内なら正解（海を押した時は国の大小を問わず、隣の国を押した時は画面で 40px 未満の国だけ＝`quiz.js` の `reachOf`・`tapHits`）。マウスの下の国は黄色の線で囲む（名前は出さない＝答えを探し当てられないように。指とドラッグ中は出さない）
+- **データ**：World と同じ bucket（`packages/world/src/data.js` の `loadWorld`＝IDB 優先・裏で更新）。国旗は `flags/<key>.svg`。地球儀は `@ortho-earth/globe`（dev はソース直・build は共有エンジン）＝World の地図パネルと同じ配線。Lv.3 の「押して当てる」は World の `worldlayers.js`（ne-cultural base）で押した所の国を引く。小さい国は指で押し損ねるので、外れても国の形から 24px 以内なら正解（海を押した時は国の大小を問わず、隣の国を押した時は画面で 40px 未満の国だけ＝`quiz.js` の `reachOf`・`tapHits`）。マウスの下の国は黄色の線で囲む（名前は出さない＝答えを探し当てられないように。指とドラッグ中は出さない）
 
 ```
 npm run dev -w world-quiz      # http://localhost:5198/quiz/（/api → api.ortho-earth.com）

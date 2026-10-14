@@ -1,8 +1,8 @@
 // 共有データ（gishub-jp と census2020 が読む小地域 CSV・人口推移・郵便番号）→ bucket GIS/shared/…（2026-09-30・縮小計画 項目6b）。
-// 正本＝apps/gishub-jp/shared-data/。キーは manifest.json（gishub-jp の scripts/shared-data.mjs が中身のハッシュから書く）に従う。
+// 正本＝packages/jp/shared-data/。キーは manifest.json（gishub-jp の scripts/shared-data.mjs が中身のハッシュから書く）に従う。
 // 同じキー＝同じ中身＝既にあれば置き直さない。古いキーは消さない（前の版のアプリが読み続けられる）。
 // 中身は dev server の /@fs で monorepo から直に読む＝dev でだけ動く（build した uploader に 22MB を抱えさせない）。
-import manifest from "../../gishub-jp/shared-data/manifest.json";
+import manifest from "@ortho-earth/jp/shared-data/manifest.json";
 
 const MIME = { csv: "text/csv", json: "application/json" };
 

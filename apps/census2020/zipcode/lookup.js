@@ -7,14 +7,14 @@
 // 依存方向は一方向: census/ui.js → 本モジュール。本モジュールは census を参照しない。
 // 公開API: prefetchZip()（先読み）, fillZips(root)（[data-zip-code]スロット埋め）
 
-import { fetchSharedData } from 'gishub-jp/shared-data/index.js';
+import { fetchSharedData } from '@ortho-earth/jp/shared-data';
 import { API_BASE } from '../ui/config.js';
 let _map = null, _mapP = null;
 
 // 2.2MBのためバンドルせずランタイムfetch（多重実行しない）
 export function prefetchZip() {
     if (_map) return Promise.resolve(_map);
-    if (!_mapP) _mapP = fetchSharedData('zipcode/area-zip.json', API_BASE, 'json')   // 正本は R2（gishub-jp/shared-data・2026-09-30）
+    if (!_mapP) _mapP = fetchSharedData('zipcode/area-zip.json', API_BASE, 'json')   // 正本は R2（packages/jp/shared-data・2026-09-30）
         .then(j => { _map = j || {}; return _map; })
         .catch(e => { console.warn('[zipcode] load failed:', e); _mapP = null; return {}; });
     return _mapP;

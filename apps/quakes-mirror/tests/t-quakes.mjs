@@ -4,7 +4,7 @@
 //   読み手：apps/ortho-globe/quakes-worker.js に archive（GeoPBF）＋USGS 直取り（偽 USGS）を渡し、月ごとに届いて件数が合うこと・USGS 落ちは archive だけで出す
 //   node apps/quakes-mirror/tests/t-quakes.mjs
 import { serve } from "../worker.js";
-import { buildGeoPBF, parseCsvTexts } from "../usgs.js";
+import { buildGeoPBF, parseCsvTexts } from "../../../packages/quakes/src/usgs.js";
 
 // ── 偽 R2（get/put/delete と onlyIf の If-None-Match だけ）───────────────────
 const store = new Map();

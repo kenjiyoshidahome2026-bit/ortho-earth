@@ -16,9 +16,9 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../shared-data/census/2015-small.csv');
+const OUT   = join(__dir, '../../../packages/jp/shared-data/census/2015-small.csv');
 
-const outDir = join(__dir, '../shared-data/census');
+const outDir = join(__dir, '../../../packages/jp/shared-data/census');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 function decode(buf) {
