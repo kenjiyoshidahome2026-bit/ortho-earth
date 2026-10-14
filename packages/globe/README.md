@@ -25,9 +25,9 @@ from the whole Earth to street level. The MapLibre face (`@ortho-earth/globe/map
 
 ## Guides
 
-- [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre.html) — change one import
-- [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium.html) — 3D Tiles, quantized-mesh, glTF, the ellipsoid, CZML and the clock, side by side
-- [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth.html) — the flat world map of this project
+- [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre) — change one import
+- [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium) — 3D Tiles, quantized-mesh, glTF, the ellipsoid, CZML and the clock, side by side
+- [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth) — the flat world map of this project
 
 ## Plugins
 
