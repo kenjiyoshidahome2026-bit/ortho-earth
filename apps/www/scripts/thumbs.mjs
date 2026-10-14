@@ -3,7 +3,7 @@
 //   既定＝画像がまだ無いデモだけ（サンプルが増えたら足した分だけ撮れる）。`--only a,b` で撮り直し・`--all` で全部。
 //   demos.json の各デモに任意の shot: { url（既定＝https://www.ortho-earth.com + href）, wait（秒・既定 12）, from（既存画像から切り出す）,
 //     eval（撮る直前に頁で走らせる JS＝一時的な通知を隠す・最初のダイアログを閉じる等。Promise を返せば終わるまで待つ）, after（eval の後に待つ秒・既定 1.5）,
-//     size（[幅, 高さ]・既定 1280×800。文字の多い頁は小さめに撮ると、640×400 に縮めた後も読める）}
+//     size（[幅, 高さ]・既定 1280×800。文字の多い頁は小さめに撮ると、640×400 に縮めた後も読める）, scheme（"dark"＝prefers-color-scheme を暗くして撮る）}
 // 生 CDP（依存は node 標準の fetch / WebSocket と sharp だけ）。使い捨てのプロファイル（本人の Chrome の保存データには触れない）。
 // ⚠ GPU で描く頁が多い＝サンドボックス外で走らせる（--use-angle=metal）。ポートは空きを取る（他セッションの CDP 台と衝突しない）。
 import { spawn } from "node:child_process";
@@ -59,6 +59,7 @@ for (const d of live) {
 	if (!u.searchParams.has("lang")) u.searchParams.set("lang", "en");   // 画像の中の文字は英語に揃える（頁の既定言語が端末任せのため）
 	const [w, h] = d.shot?.size ?? [W, H];
 	await cdp("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+	await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: d.shot?.scheme ?? "" }] });   // shot.scheme＝"dark"：白地の頁を暗い配色で撮る（一覧の他のカードと並ぶ・2026-10-14 本人「白地になっている」）
 	await cdp("Page.navigate", { url: u.href });
 	await new Promise(r => setTimeout(r, (d.shot?.wait ?? 12) * 1000));
 	if (d.shot?.eval) { await cdp("Runtime.evaluate", { expression: d.shot.eval, awaitPromise: true }); await new Promise(r => setTimeout(r, (d.shot.after ?? 1.5) * 1000)); }
