@@ -8,6 +8,7 @@
 //
 // 表現の決め事
 //   色   … 獣種で色分け（イノシシ・シカが大半＝この 2 つを強い色に）
+//   大分類 … 利用区分をジビエ（施設搬入・食肉利用・ジビエ用アプリ）／捕獲のみ（廃棄）／不明に束ねる。色分けを獣種⇄大分類で切り替えられる
 //   絞り … 獣種・利用区分・捕獲日（から／まで）・市区町村（セレクタ＝選ぶとそこへ飛ぶ・内訳を出す）。?m=市区町村コード で共有できる
 //   案内 … ホバーの札と詳細に受付番号・捕獲者 ID（CSV にあれば）
 //   座標 … 捕獲地点の無い記録は送信位置・補完住所の座標（座標の出所）＝点を白抜きにする
@@ -17,6 +18,13 @@ const SP = ["イノシシ", "シカ", "サル", "タヌキ", "アナグマ", "�
 const SP_COLORS = ["#b4532a", "#2f6b55", "#7a5aa6", "#8a7a3a", "#3f7fb0", "#c0457a", "#d08a1a", "#5a8a2a", "#4a4f57", "#9a9a9a"];
 const CLS = ["ジビエ（施設搬入）", "食肉利用（自家消費など）", "廃棄（埋設・焼却）", "ジビエ用アプリで登録", "不明（処分方法が未記入）"];
 const SRC = ["捕獲地点", "送信位置", "補完住所"];
+// 大分類＝利用区分を「ジビエ（食肉として利用）」と「捕獲のみ（被害対策で捕って廃棄）」に束ねる。処分方法の無い記録は「不明」
+export const GROUPS = [
+	{ name: "ジビエ（食肉利用）", ks: [0, 1, 3], color: "#c0702a" },
+	{ name: "捕獲のみ（廃棄）", ks: [2], color: "#3f6fa8" },
+	{ name: "不明", ks: [4], color: "#9aa3ad" },
+];
+export const groupOf = k => GROUPS.findIndex(g => g.ks.includes(k));
 const SEL = "#d7263d";
 
 // RFC 4180 の CSV（BOM・引用・引用内の改行）を行のオブジェクトへ
@@ -71,9 +79,10 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const dMin = recs.reduce((a, d) => Math.min(a, d.d), 99999999), dMax = recs.reduce((a, d) => Math.max(a, d.d), 0);
 
 	// ── 層 ──
-	const feats = recs.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: [d.lon, d.lat] }, properties: { i: d.i, s: d.s, k: d.k, d: d.d, m: d.code, o: d.o } }));
+	const feats = recs.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: [d.lon, d.lat] }, properties: { i: d.i, s: d.s, k: d.k, g: groupOf(d.k), d: d.d, m: d.code, o: d.o } }));
 	map.addSource("cj-pts", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
-	const color = ["match", ["get", "s"], ...SP_COLORS.flatMap((c, i) => [i, c]), "#9a9a9a"];
+	const COLORS = { sp: ["match", ["get", "s"], ...SP_COLORS.flatMap((c, i) => [i, c]), "#9a9a9a"], g: ["match", ["get", "g"], ...GROUPS.flatMap((g, i) => [i, g.color]), "#9a9a9a"] };
+	const color = COLORS.sp;
 	const radius = ["interpolate", ["linear"], ["zoom"], 4, 2.2, 8, 3.6, 12, 6];
 	const LAYERS = {
 		"cj-pt": { type: "circle", source: "cj-pts", filter: ["==", ["get", "o"], 0], paint: { "circle-radius": radius, "circle-color": color, "circle-opacity": 0.8, "circle-stroke-color": "#fff", "circle-stroke-width": 0.8 } },
@@ -108,7 +117,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const tip = map.gadget.tip();
 	const HIT = ["cj-pt", "cj-est"];
 	const top = e => (e.features || []).find(f => f.properties?.i != null);
-	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(CLS[d.k]),
+	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(`${GROUPS[groupOf(d.k)].name}・${CLS[d.k]}`),
 		...(d.rno ? [`受付番号 ${esc(d.rno)}`] : []), ...(d.uid ? [`捕獲者 ID ${esc(d.uid)}`] : [])] : null); });
 	map.on("mouseleave", HIT, () => tip(null));
 	map.on("click", HIT, e => { const f = top(e); if (f) select(f.properties.i); });
@@ -124,11 +133,13 @@ export async function mountChoju(map, { base = "./" } = {}) {
 			<label class="msel"><span>市区町村</span><select class="muni"><option value="">すべての市区町村</option>${prefs.map(p => `<optgroup label="${esc(p)}">${munis.filter(m => m.pref === p).map(m => `<option value="${m.code}">${esc(m.name.replace(p, "") || m.name)}（${fmt(recs.filter(d => d.code === m.code).length)}）</option>`).join("")}</optgroup>`).join("")}</select></label>
 			<p class="total"><b></b> 件を表示中</p>
 			<div class="detail" hidden></div>
+			<label class="msel"><span>色分け</span><select class="cmode"><option value="sp">獣種</option><option value="g">大分類（ジビエ／捕獲のみ）</option></select></label>
 			<h2>獣種</h2>
 			${SP.map((s, i) => `<label class="grp"><input type="checkbox" data-s="${i}" checked><span class="sw" style="background:${SP_COLORS[i]}"></span>${esc(s)}<small data-ns="${i}"></small></label>`).join("")}
 			<div class="all"><button type="button" data-all="1">すべて</button><button type="button" data-all="0">なし</button></div>
-			<h2>利用区分</h2>
-			${CLS.map((c, i) => `<label class="grp"><input type="checkbox" data-k="${i}" checked>${esc(c)}<small data-nk="${i}"></small></label>`).join("")}
+			<h2>大分類・利用区分</h2>
+			${GROUPS.map((g, gi) => `<label class="grp top"><input type="checkbox" data-g="${gi}" checked><span class="sw" style="background:${g.color}"></span><b>${esc(g.name)}</b><small data-ng="${gi}"></small></label>
+				${g.ks.length > 1 ? g.ks.map(i => `<label class="grp sub"><input type="checkbox" data-k="${i}" checked>${esc(CLS[i])}<small data-nk="${i}"></small></label>`).join("") : `<input type="checkbox" data-k="${g.ks[0]}" checked hidden><small data-nk="${g.ks[0]}" hidden></small>`}`).join("")}
 			<h2>捕獲日</h2>
 			<div class="dates"><label>から<input type="date" class="d0" value="${ymd(dMin)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label><label>まで<input type="date" class="d1" value="${ymd(dMax)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label></div>
 			<div class="all"><button type="button" data-fy="">全期間</button>${[...new Set(recs.map(d => Math.floor(d.d / 10000) - (d.d % 10000 < 401 ? 1 : 0)))].sort().map(y => `<button type="button" data-fy="${y}">${y}年度</button>`).join("")}</div>
@@ -138,7 +149,13 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const $ = s => panel.querySelector(s);
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll("input[data-s]").forEach(inp => inp.onchange = () => { inp.checked ? st.sp.add(+inp.dataset.s) : st.sp.delete(+inp.dataset.s); apply(); });
-	panel.querySelectorAll("input[data-k]").forEach(inp => inp.onchange = () => { inp.checked ? st.cls.add(+inp.dataset.k) : st.cls.delete(+inp.dataset.k); apply(); });
+	// 大分類の箱＝中の利用区分をまとめて切る。中を一部だけ切った時は大分類の箱を「一部」（indeterminate）に
+	const syncGroups = () => GROUPS.forEach((g, gi) => { const box = $(`input[data-g="${gi}"]`), on = g.ks.filter(k => st.cls.has(k)).length;
+		box.checked = on === g.ks.length; box.indeterminate = on > 0 && on < g.ks.length; });
+	const setCls = (k, on) => { on ? st.cls.add(k) : st.cls.delete(k); $(`input[data-k="${k}"]`).checked = on; };
+	panel.querySelectorAll("input[data-k]").forEach(inp => inp.onchange = () => { setCls(+inp.dataset.k, inp.checked); syncGroups(); apply(); });
+	panel.querySelectorAll("input[data-g]").forEach(inp => inp.onchange = () => { for (const k of GROUPS[+inp.dataset.g].ks) setCls(k, inp.checked); syncGroups(); apply(); });
+	$(".cmode").onchange = e => { const c = COLORS[e.target.value] || COLORS.sp; map.setPaintProperty("cj-pt", "circle-color", c); map.setPaintProperty("cj-est", "circle-stroke-color", c); };
 	panel.querySelectorAll("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll("input[data-s]").forEach(inp => { inp.checked = b.dataset.all === "1"; inp.checked ? st.sp.add(+inp.dataset.s) : st.sp.delete(+inp.dataset.s); }); apply(); });
 	const D0 = $(".d0"), D1 = $(".d1"), num = v => +v.replaceAll("-", "");
 	const setDates = (a, b) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
@@ -170,6 +187,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 		}
 		ns.forEach((v, i) => { $(`[data-ns="${i}"]`).textContent = fmt(v); });
 		nk.forEach((v, i) => { $(`[data-nk="${i}"]`).textContent = fmt(v); });
+		GROUPS.forEach((g, gi) => { $(`[data-ng="${gi}"]`).textContent = fmt(g.ks.reduce((a, k) => a + nk[k], 0)); });
 		$(".total b").textContent = fmt(n);
 	}
 
@@ -180,7 +198,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 		el.hidden = false;
 		el.innerHTML = `<div class="dh"><span class="sw" style="background:${SP_COLORS[d.s]}"></span><div><b class="nm">${esc(SP[d.s])}</b><small>${esc(d.tm)}</small></div><button class="x" type="button" aria-label="閉じる">×</button></div>
 			${row("市区町村", `${muniOf.get(d.code)?.pref || ""}${(d.muni || "").replace(muniOf.get(d.code)?.pref || "", "")}（${d.code}）`)}
-			${row("利用区分", CLS[d.k])}
+			${row("大分類", GROUPS[groupOf(d.k)].name)}${row("利用区分", CLS[d.k])}
 			${row("体長", d.len ? `${d.len} cm` : null)}${row("体重", d.wt ? `${d.wt} kg` : null)}
 			${row("座標", `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}（${SRC[d.o]}）`)}
 			${row("受付番号", d.rno)}${row("捕獲者 ID", d.uid)}`;
@@ -212,6 +230,9 @@ const CSS = `
 .cj-panel .grp{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
 .cj-panel .grp small{margin-left:auto;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%}
+.cj-panel .grp.top b{font-weight:600;color:var(--qm-ink)}
+.cj-panel .grp.sub{padding-left:20px;font-size:12.5px}
+.cj-panel .msel + h2,.cj-panel .msel{margin-top:8px}
 .cj-panel .all{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0}
 .cj-panel .all button{font:inherit;font-size:11.5px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);border-radius:6px;padding:1px 8px;cursor:pointer}
 .cj-panel .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px}
