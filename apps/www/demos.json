@@ -229,7 +229,6 @@
 			"icon": "🧩",
 			"title": "MapLibre examples",
 			"lang": "en",
-			"proper": true,
 			"desc": "All 139 official MapLibre GL JS examples, run unchanged on the ortho-earth globe. Each card shows how closely it matches MapLibre; press Run to try it, or copy the code.",
 			"img": "/thumbs/maplibre.webp",
 			"shot": {
