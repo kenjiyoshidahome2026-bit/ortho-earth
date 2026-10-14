@@ -125,6 +125,20 @@
 			}
 		},
 		{
+			"id": "clock",
+			"href": "/globe/clock",
+			"group": "earth",
+			"icon": "🕰️",
+			"title": "World clock",
+			"lang": "26",
+			"desc": "What time is it there? The local time of every time zone on a 3D globe, with daylight saving time and the night side — hover a place, or hold Shift for a whole country.",
+			"img": "/thumbs/clock.webp",
+			"shot": {
+				"url": "/globe/clock?lang=en#2.4/25/20",
+				"wait": 14
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",
