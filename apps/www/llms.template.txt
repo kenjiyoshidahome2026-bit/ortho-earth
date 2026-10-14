@@ -8,9 +8,9 @@ Ortho Earth reads the open data of the Earth in your own browser — on a round 
 
 - [Build with Ortho Earth](https://www.ortho-earth.com/start.md): Step-by-step recipe for putting the globe in your own page — with Vite (npm `@ortho-earth/globe`) or without a bundler (npm `@ortho-earth/japan`). Written for people and AI coding agents; every step is run by an automated test against the published packages.
 - [MapLibre GL JS examples on ortho-earth](https://www.ortho-earth.com/maplibre/): Ortho Earth is MapLibre GL JS compatible — `import * as maplibregl from "@ortho-earth/globe/maplibre"` runs existing MapLibre code on the globe (recipe section A8). The page lists all 139 official MapLibre GL JS examples running unchanged, each with its source (in the ortho-earth form), how closely it matches MapLibre, and a Run button.
-- [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre.html): Change one import and MapLibre GL JS code runs on the globe — what carries over, the 139 official examples, and what works differently.
-- [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium.html): A table of CesiumJS features (3D Tiles, I3S, quantized-mesh terrain, glTF/GLB, the WGS84 ellipsoid, CZML, the clock) and how to write each one in Ortho Earth, with a live example per row.
-- [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth.html): How the Equal Earth world map is drawn — the projection in the shader, a central meridian that follows the view, and a morph from the globe.
+- [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre): Change one import and MapLibre GL JS code runs on the globe — what carries over, the 139 official examples, and what works differently.
+- [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium): A table of CesiumJS features (3D Tiles, I3S, quantized-mesh terrain, glTF/GLB, the WGS84 ellipsoid, CZML, the clock) and how to write each one in Ortho Earth, with a live example per row.
+- [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth): How the Equal Earth world map is drawn — the projection in the shader, a central meridian that follows the view, and a morph from the globe.
 
 ## Apps
 
@@ -18,9 +18,9 @@ Ortho Earth reads the open data of the Earth in your own browser — on a round 
 
 ## Formats and libraries
 
-- [GeoPBF](https://www.ortho-earth.com/docs/geopbf.html): Compact binary format for geometry and an in-browser converter — 18 formats in, 14 out. npm `geopbf` (MIT).
-- [Gint](https://www.ortho-earth.com/docs/gint.html): Shared-edge topology in a GPU-readable form (GPL-3.0-or-later).
-- [AltPBF](https://www.ortho-earth.com/docs/altpbf.html): Elevation tiles in Protocol Buffers (MIT).
+- [GeoPBF](https://www.ortho-earth.com/docs/geopbf): Compact binary format for geometry and an in-browser converter — 18 formats in, 14 out. npm `geopbf` (MIT).
+- [Gint](https://www.ortho-earth.com/docs/gint): Shared-edge topology in a GPU-readable form (GPL-3.0-or-later).
+- [AltPBF](https://www.ortho-earth.com/docs/altpbf): Elevation tiles in Protocol Buffers (MIT).
 - glbconv: GLB → glTF / OBJ / PLY / STL / USDZ / 3D Tiles in the browser. npm `glbconv` (MIT).
 
 ## Documentation

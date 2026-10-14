@@ -6,7 +6,7 @@ A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from 
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com) · **ortho-japan (flagship 3D map):** [/japan/](https://www.ortho-earth.com/japan/) · **world globe:** [/globe/](https://www.ortho-earth.com/globe/) · **GIS-HUB (apps):** [/gishub/](https://www.ortho-earth.com/gishub/) · **MapLibre examples:** [/maplibre/](https://www.ortho-earth.com/maplibre/) · **technical documents:** [/#technologies](https://www.ortho-earth.com/#technologies)
 
-**Guides:** [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre.html) · [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium.html) · [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth.html)
+**Guides:** [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre) · [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium) · [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth)
 
 ## Why Ortho Earth
 
