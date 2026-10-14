@@ -69,7 +69,14 @@
 		"i3s",
 		"terrain",
 		"gis",
-		"ortho-earth"
+		"ortho-earth",
+		"maplibre",
+		"maplibre-gl",
+		"cesium",
+		"3d-globe",
+		"equal-earth",
+		"quantized-mesh",
+		"gltf"
 	],
 	"repository": {
 		"type": "git",
