@@ -92,12 +92,11 @@ export async function mountChoju(map, { base = "./" } = {}) {
 
 	// 絞り込みの状態
 	const st = { sp: new Set(SP.keys()), cls: new Set(CLS.keys()), d0: dMin, d1: dMax, muni: "" };
-	const shown = d => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1 && (!st.muni || d.code === st.muni);
+	const shown = d => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1;
 	const filterExpr = () => ["all",
 		["match", ["get", "s"], st.sp.size ? [...st.sp] : [-1], true, false],
 		["match", ["get", "k"], st.cls.size ? [...st.cls] : [-1], true, false],
-		[">=", ["get", "d"], st.d0], ["<=", ["get", "d"], st.d1],
-		...(st.muni ? [["==", ["get", "m"], st.muni]] : [])];
+		[">=", ["get", "d"], st.d0], ["<=", ["get", "d"], st.d1]];
 	function apply() {
 		const f = filterExpr();
 		map.setFilter("cj-pt", ["all", LAYERS["cj-pt"].filter, f]); map.setFilter("cj-est", ["all", LAYERS["cj-est"].filter, f]);
@@ -141,7 +140,6 @@ export async function mountChoju(map, { base = "./" } = {}) {
 				${g.ks.length > 1 ? g.ks.map(i => `<label class="grp sub"><input type="checkbox" data-k="${i}" checked>${esc(CLS[i])}<small data-nk="${i}"></small></label>`).join("") : `<input type="checkbox" data-k="${g.ks[0]}" checked hidden><small data-nk="${g.ks[0]}" hidden></small>`}`).join("")}
 			<h2>捕獲日</h2>
 			<div class="dates"><label>から<input type="date" class="d0" value="${ymd(dMin)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label><label>まで<input type="date" class="d1" value="${ymd(dMax)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label></div>
-			<div class="all"><button type="button" data-fy="">全期間</button>${[...new Set(recs.map(d => Math.floor(d.d / 10000) - (d.d % 10000 < 401 ? 1 : 0)))].sort().map(y => `<button type="button" data-fy="${y}">${y}年度</button>`).join("")}</div>
 			<p class="note">白抜きの点は捕獲地点の座標が無く、送信位置か住所の座標で置いた記録です。獣種と利用区分は書き出しのコードからの推定です。</p>
 		</div>`;
 	mapEl.appendChild(panel);
@@ -160,16 +158,13 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const setDates = (a, b) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
 	D0.onchange = () => D0.value && setDates(num(D0.value), st.d1);
 	D1.onchange = () => D1.value && setDates(st.d0, num(D1.value));
-	panel.querySelectorAll("button[data-fy]").forEach(b => b.onclick = () => { const y = +b.dataset.fy; y ? setDates(y * 10000 + 401, (y + 1) * 10000 + 331) : setDates(dMin, dMax); });
 	$(".muni").onchange = e => setMuni(e.target.value);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 
-	// 市区町村を選ぶ＝絞って、そこへ飛ぶ。URL の ?m= に残す
+	// 市区町村を選ぶ＝そこへ飛ぶだけ（点は絞らず全国を出したまま・本人指摘 2026-10-14）。URL の ?m= に残す
 	async function setMuni(code, { fly = true } = {}) {
 		st.muni = muniOf.has(code) ? code : ""; $(".muni").value = st.muni;
 		const u = new URL(location.href); st.muni ? u.searchParams.set("m", st.muni) : u.searchParams.delete("m"); history.replaceState(null, "", u);
-		if (sel && st.muni && sel.code !== st.muni) select(null);
-		apply();
 		if (!fly) return;
 		const pts = (st.muni ? recs.filter(d => d.code === st.muni) : recs).map(d => [d.lon, d.lat]);
 		const bb = bboxOf(pts);
@@ -179,7 +174,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	function renderCounts() {
 		const ns = SP.map(() => 0), nk = CLS.map(() => 0); let n = 0;
 		for (const d of recs) {
-			if (d.d < st.d0 || d.d > st.d1 || (st.muni && d.code !== st.muni)) continue;
+			if (d.d < st.d0 || d.d > st.d1) continue;
 			if (st.cls.has(d.k)) ns[d.s]++;
 			if (st.sp.has(d.s)) nk[d.k]++;
 			if (st.sp.has(d.s) && st.cls.has(d.k)) n++;

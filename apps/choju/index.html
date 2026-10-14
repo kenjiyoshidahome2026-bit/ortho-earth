@@ -31,7 +31,8 @@
 		startPage("choju", async () => {
 			const [{ default: orthoJapan }, { mountChoju }] = await Promise.all([import("../ortho-japan/app.js"), import("./choju.js")]);
 			// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D・施設・鉄道・道路は出さない（捕獲の点が主役）
-			const map = await orthoJapan({ target: "#map", view: location.hash || "#4.6/36.0/137.5/25t", chips: false, mesh: false, lang: "ja",
+			// terrain:false＝地形を平らに（circle 層の点は海面の高さに描かれ地形に乗らない＝山で傾けると点が地形からずれる・本人指摘 2026-10-14）
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#4.6/36.0/137.5/25t", chips: false, mesh: false, lang: "ja", terrain: false,
 				layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
 			const choju = await mountChoju(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ + "choju/" });
