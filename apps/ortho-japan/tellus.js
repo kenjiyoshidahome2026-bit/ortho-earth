@@ -44,43 +44,46 @@ const NEXT = {
 };
 
 const CSS = `
-#side { font-size: 13px; }
-#side h1 { margin: 0; padding: 14px 16px 2px; font-size: 17px; letter-spacing: .01em; }
-#side h1 small { display: block; font-size: 11.5px; font-weight: 400; color: #6b7385; margin-top: 2px; }
+/* 黒地・白文字（本人指摘 2026-10-14・choju と揃える）。板は縦に溢れたら板ごとスクロール＝一覧は最低限の高さを保つ */
+#side { font-size: 13px; color: #f1f3f6; color-scheme: dark; }
+#side h1 { margin: 0; padding: 14px 16px 2px; font-size: 17px; letter-spacing: .01em; color: #fff; }
+#side h1 small { display: block; font-size: 11.5px; font-weight: 400; color: rgba(255,255,255,.62); margin-top: 2px; }
 #side .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 16px 0; }
-#side .tab { border: 1px solid #cdd3dd; background: #fff; border-radius: 9px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; text-align: left; line-height: 1.3; min-width: 0; }
+#side .tab { border: 1px solid rgba(255,255,255,.22); background: #1b1f26; border-radius: 9px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; text-align: left; line-height: 1.3; min-width: 0; }
 #side .tab b { display: block; font-size: 13px; }
-#side .tab span { display: block; font-size: 10.5px; color: #6b7385; }
-#side .tab.on { border-color: #3f4757; background: #eef1f6; }
+#side .tab span { display: block; font-size: 10.5px; color: rgba(255,255,255,.62); }
+#side .tab.on { border-color: rgba(255,255,255,.75); background: #2b3240; }
 #side .row { display: flex; gap: 6px; align-items: center; padding: 8px 16px 0; flex-wrap: wrap; }
-#side .row label { color: #6b7385; font-size: 11.5px; }
+#side .row label { color: rgba(255,255,255,.62); font-size: 11.5px; }
 #side .row[hidden] { display: none; }
-#side input[type=date] { flex: 1; min-width: 0; font: 12px system-ui; color: inherit; border: 1px solid #cdd3dd; border-radius: 6px; padding: 3px 5px; background: #fff; }
-#side .seg { border: 1px solid #cdd3dd; background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; font: inherit; font-size: 11.5px; color: inherit; }
-#side .seg.on { border-color: #3f4757; background: #eef1f6; }
-#side .hint { padding: 8px 16px 0; color: #6b7385; font-size: 12px; }
-#side .status { padding: 6px 16px 0; color: #8a93a3; min-height: 1.4em; font-size: 12px; }
-#side .list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 6px; }
+#side input[type=date] { flex: 1; min-width: 0; font: 12px system-ui; color: inherit; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 3px 5px; background: #1b1f26; }
+#side .seg { border: 1px solid rgba(255,255,255,.22); background: #1b1f26; border-radius: 6px; padding: 3px 9px; cursor: pointer; font: inherit; font-size: 11.5px; color: inherit; }
+#side .seg.on { border-color: rgba(255,255,255,.75); background: #2b3240; }
+#side .hint { padding: 8px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; }
+#side .status { padding: 6px 16px 0; color: rgba(255,255,255,.5); min-height: 1.4em; font-size: 12px; }
+#side .list { flex: 1 0 auto; min-height: 136px; padding: 4px 10px 6px; }
 #side .scene { display: flex; gap: 10px; align-items: center; width: 100%; border: 0; background: none; text-align: left; padding: 6px; border-radius: 10px; cursor: pointer; font: inherit; color: inherit; }
-#side .scene:hover { background: #eef1f6; }
-#side .scene.on { background: #e2ecff; }
-#side .scene canvas { width: 56px; height: 56px; border-radius: 8px; background: #dfe3ea; flex: none; object-fit: cover; }
+#side .scene:hover { background: rgba(255,255,255,.07); }
+#side .scene.on { background: rgba(110,160,255,.24); }
+#side .scene canvas { width: 56px; height: 56px; border-radius: 8px; background: #20252e; flex: none; object-fit: cover; }
 #side .scene .d { font-weight: 600; }
-#side .scene .c { color: #8a93a3; font-size: 11.5px; }
-#side .nav { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid #eef0f4; }
-#side .nav button, #side .foot button, #side .share { border: 1px solid #cdd3dd; background: #fff; border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; color: inherit; }
+#side .scene .c { color: rgba(255,255,255,.55); font-size: 11.5px; }
+#side .nav { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid rgba(255,255,255,.1); }
+#side .nav button, #side .foot button, #side .share { border: 1px solid rgba(255,255,255,.22); background: #1b1f26; border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; color: inherit; }
 #side .nav button:disabled { opacity: .4; cursor: default; }
-#side .nav .n { flex: 1; text-align: center; color: #6b7385; font-size: 12px; }
-#side .opac { display: flex; gap: 8px; align-items: center; padding: 0 16px 8px; color: #6b7385; font-size: 11.5px; }
+#side .nav .n { flex: 1; text-align: center; color: rgba(255,255,255,.62); font-size: 12px; }
+#side .opac { display: flex; gap: 8px; align-items: center; padding: 0 16px 8px; color: rgba(255,255,255,.62); font-size: 11.5px; }
 #side .opac input { flex: 1; }
-#side details { border-top: 1px solid #eef0f4; padding: 6px 16px; font-size: 12px; }
-#side details summary { cursor: pointer; font-weight: 600; color: #3f4757; padding: 4px 0; }
-#side details ul { margin: 4px 0 6px; padding-left: 18px; color: #4b5364; }
+#side details { border-top: 1px solid rgba(255,255,255,.1); padding: 6px 16px; font-size: 12px; }
+#side details summary { cursor: pointer; font-weight: 600; color: #fff; padding: 4px 0; }
+#side details ul { margin: 4px 0 6px; padding-left: 18px; color: rgba(255,255,255,.78); }
 #side details li { margin: 3px 0; }
-#side details code { font-size: 11px; background: #f2f4f8; padding: 1px 4px; border-radius: 4px; }
-#side .metrics { font: 11px ui-monospace, Menlo, monospace; color: #6b7385; padding: 2px 0 4px; }
-#side .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 16px 12px; border-top: 1px solid #eef0f4; color: #8a93a3; font-size: 11px; }
-#side .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: #2b3242; color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#side details a { color: #9cc2ff; }
+#side details code { font-size: 11px; background: rgba(255,255,255,.1); padding: 1px 4px; border-radius: 4px; }
+#side .metrics { font: 11px ui-monospace, Menlo, monospace; color: rgba(255,255,255,.62); padding: 2px 0 4px; }
+#side .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.1); color: rgba(255,255,255,.5); font-size: 11px; }
+#side .toast { position: fixed; left: 176px; bottom: 14px; transform: translateX(-50%); z-index: 2; background: #f1f3f6; color: #0a0c10; border-radius: 8px; padding: 6px 12px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+@media (max-width: 760px) { #side .toast { left: 50%; } }
 #side .toast.on { opacity: 1; }`;
 
 // クイックルックの置き場（IDB・鍵＝データセット/シーン/見せ方・値＝{w,h,rgba}＝56×56×4 以下）。失敗は全て null＝無かったことに
