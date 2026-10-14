@@ -17,6 +17,7 @@ const recs = toRecords(caps, munis);
 t("変換：座標の無い行・未知の獣種は落とす", recs.length === 2, String(recs.length));
 t("変換：獣種・利用区分・日付・市区町村", recs[0].s === 1 && recs[0].k === 4 && recs[0].d === 20250101 && recs[0].tm === "2025/01/01 08:22" && recs[0].muni === "群馬県利根郡川場村");
 t("変換：座標の出所と体長・体重（空は null）", recs[0].o === 0 && recs[0].len === 125.2 && recs[1].o === 1 && recs[1].len === null && recs[1].wt === null);
+t("変換：受付番号・捕獲者 ID", recs[0].rno === "202501010001" && recs[0].uid === "10444a18");
 t("変換：通し番号は詰めて振る", recs.map(d => d.i).join() === "0,1");
 console.log(`\n${ng ? "✗" : "✓"} choju: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

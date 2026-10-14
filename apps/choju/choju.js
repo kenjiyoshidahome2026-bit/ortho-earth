@@ -9,6 +9,7 @@
 // 表現の決め事
 //   色   … 獣種で色分け（イノシシ・シカが大半＝この 2 つを強い色に）
 //   絞り … 獣種・利用区分・捕獲日（から／まで）・市区町村（セレクタ＝選ぶとそこへ飛ぶ・内訳を出す）。?m=市区町村コード で共有できる
+//   案内 … ホバーの札と詳細に受付番号・捕獲者 ID（CSV にあれば）
 //   座標 … 捕獲地点の無い記録は送信位置・補完住所の座標（座標の出所）＝点を白抜きにする
 //   UI は日本語のみ（日本の自治体の捕獲記録）
 
@@ -46,7 +47,8 @@ export function toRecords(caps, munis) {
 		const code = r["市区町村コード"];
 		out.push({ i: out.length, s, k, lon, lat, d: +(m[1] + m[2] + m[3]), tm: `${m[1]}/${m[2]}/${m[3]} ${m[4]}`, code,
 			muni: name.get(code)?.name || code, o: Math.max(0, SRC.indexOf(r["座標の出所"])),
-			len: r["estimate_length"] === "" ? null : +r["estimate_length"], wt: r["estimate_weight"] === "" ? null : +r["estimate_weight"] });
+			len: r["estimate_length"] === "" ? null : +r["estimate_length"], wt: r["estimate_weight"] === "" ? null : +r["estimate_weight"],
+			rno: r["receipt_no"] || "", uid: r["hkk_user_id"] || "" });
 	}
 	return out;
 }
@@ -106,7 +108,8 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const tip = map.gadget.tip();
 	const HIT = ["cj-pt", "cj-est"];
 	const top = e => (e.features || []).find(f => f.properties?.i != null);
-	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(CLS[d.k])] : null); });
+	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(CLS[d.k]),
+		...(d.rno ? [`受付番号 ${esc(d.rno)}`] : []), ...(d.uid ? [`捕獲者 ID ${esc(d.uid)}`] : [])] : null); });
 	map.on("mouseleave", HIT, () => tip(null));
 	map.on("click", HIT, e => { const f = top(e); if (f) select(f.properties.i); });
 
@@ -179,7 +182,8 @@ export async function mountChoju(map, { base = "./" } = {}) {
 			${row("市区町村", `${muniOf.get(d.code)?.pref || ""}${(d.muni || "").replace(muniOf.get(d.code)?.pref || "", "")}（${d.code}）`)}
 			${row("利用区分", CLS[d.k])}
 			${row("体長", d.len ? `${d.len} cm` : null)}${row("体重", d.wt ? `${d.wt} kg` : null)}
-			${row("座標", `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}（${SRC[d.o]}）`)}`;
+			${row("座標", `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}（${SRC[d.o]}）`)}
+			${row("受付番号", d.rno)}${row("捕獲者 ID", d.uid)}`;
 		el.querySelector(".x").onclick = () => select(null);
 	}
 
