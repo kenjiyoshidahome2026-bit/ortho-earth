@@ -21,7 +21,7 @@ const ENTRY = [
 	[/^\/globe\/(physical|quakes|sats|clouds|parks|clock)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
 	[/^\/globe\//, "ortho-globe/index.html"],
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri-demo/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
-	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
+	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
 ];
 export const entryOf = href => { for (const [re, to] of ENTRY) { const m = href.match(re); if (m) return typeof to === "function" ? to(m) : to; } return null; };
 
