@@ -200,8 +200,8 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const groups = new Map();
 		for (const f of raw) {
 			let comps = compsOf(f.geometry ?? {});
-			if (!comps.length || !zoneHitsCity(comps)) continue;   // 少しでも市にかかる区域だけ（安い前ふるい）
-			if (cut) { comps = comps.flatMap(cut); if (!comps.length) continue; }   // 区の境界で切った切れ端（市ポリゴン無し＝feature 単位で丸ごと）
+			comps = cut ? comps.flatMap(cut) : zoneHitsCity(comps) ? comps : [];   // 区の境界で切った切れ端（市ポリゴン無し＝少しでも市にかかれば feature 単位で丸ごと）
+			if (!comps.length) continue;
 			const kbn = +f.properties?.A33_002 === 2 ? 2 : 1, gensho = A33_GENSHO[+f.properties?.A33_001] ?? "";
 			const k = `${kbn}/${gensho}`;
 			if (!groups.has(k)) groups.set(k, { props: { _src: "a33", kbn, gensho }, comps: [] });
