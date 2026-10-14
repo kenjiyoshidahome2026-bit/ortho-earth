@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#0b1021}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<title>World clock — ortho-globe</title>
+	<meta name="description" content="What time is it there? Hover over the globe to see the local time of every time zone, with daylight saving time — or hold Shift to see all the time zones of a country.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は実描画から撮る（1200×630） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/clock">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="World clock — ortho-globe">
+	<meta property="og:description" content="The local time of every time zone on a 3D globe, with daylight saving time and the night side — hover a place, or a whole country.">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/clock">
+	<meta property="og:image" content="https://www.ortho-earth.com/globe/og/clock.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="World clock — ortho-globe">
+	<meta name="twitter:description" content="The local time of every time zone on a 3D globe, with daylight saving time and the night side — hover a place, or a whole country.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/og/clock.jpg">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 世界時計（issue #309）＝その場所がいま何時か。NE の時間帯の面＋admin0 の国 → IANA の名前 → ブラウザの Intl（夏時間つき）。
+		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域の申告なし）を起こし、部品 ./clock.js（遅延 chunk）を置く。
+		// 時刻＝地図の共通の時計（既定は実時間・#…/t=<UTC> で決まった時刻・時計の操作盤で動かす＝夜の側も同じ時刻）。
+		// ?tz=URL で時間帯の面を差し替え可（既定＝Natural Earth の S3 を直読み）。
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("clock", async () => {
+			const [{ createGlobe, geopbf }, { mountClock }] = await Promise.all([import("@ortho-earth/globe"), import("./clock.js")]);
+			// 初期視点＝見ている人の経度を正面に（UTC との差 1 時間＝15°）。共有 URL の hash があればそちら
+			const lon = Math.max(-180, Math.min(180, Math.round(-new Date().getTimezoneOffset() / 4)));
+			const map = await createGlobe({ target: "#map", view: location.hash || `#2.4/20/${lon}`, chips: false, zoomMax: 8,   // 世界のアプリ＝地球儀（地域の申告なし）
+				mesh: false, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });   // countryTip:false＝国名は時計の tip が出す（Shift の国の一覧と重ねない）
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock(); map.gadget.lang();   // clock＝共通の時計（#42）＝時刻を動かすと夏時間の切り替わりと夜の側が一緒に動く
+			const tzSrc = new URLSearchParams(location.search).get("tz") || undefined;
+			const clock = await mountClock(map, geopbf, { tzSrc });
+			window.__map = map; window.__clock = clock;   // console 検証用
+			return map;
+		}, { page: c => import(`./i18n/lang/clock/${c}.json`) });
+	</script>
+</body>
+</html>
