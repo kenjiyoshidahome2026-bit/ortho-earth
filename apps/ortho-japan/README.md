@@ -94,7 +94,7 @@ for language / boot cover / visible startup failure, and the common gadgets `zoo
 | Fireworks over Sumida | `/japan/fireworks` | `fireworks.html` + `fireworks.js` / `fireworks-gl.js` | 26 |
 | Scenes editor | `/japan/scene` | `scene.html` + `demo/editor.js` (desktop only) | 26 (UI), ja/en tab title |
 | geoedit | `/japan/geoedit` | `geoedit.html` → `map.gadget.geoedit()` (`packages/geoedit`) | 26 |
-| Tellus × ortho-earth | `/japan/tellus` | `tellus.html` + `tellus.js` | UI 26, guide text ja/en |
+| Tellus × ortho-earth | `/japan/tellus` | `tellus.html` + `tellus.js` | UI 26, guide text 26 (`i18n/pages/tellus.json`) |
 | census2020 | `/japan/census2020/` | `apps/census2020` (own app, same engine) | ja |
 
 Browser checks: `verify:ui` covers `t-fireworks` and `t-scene`; `verify:prod` boots `/japan/`, `/japan/scene` and `/japan/geoedit?verify=1`.

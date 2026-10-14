@@ -4,7 +4,7 @@
 // 見せ方はデータ側（tellus-api の cogOpts）: PALSAR-2 は HH/HV の偽色合成（切替でグレー）・GCOM-C SST はカラーマップ。
 // クイックルック（行のサムネイル）は COG の最粗 overview を Range 1〜2 本で描く＝サムネイル API が無くても出せる
 //（Tellus の検索応答にサムネイルが無い・AVNIR-2 の thumb.png は署名 URL 要＝どのみち 1 往復）。描けたら IDB に置く＝再訪は無通信。
-import { tr } from "@ortho-earth/globe/i18n.js";
+import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { DATASETS, defaultRange, searchScenes, getScene, cogUrl, cogOpts, renewingFetch, orbitLabel } from "@ortho-earth/globe/gadgets/tellus-api.js";
 import { createFootprint } from "@ortho-earth/globe/gadgets/footprint.js";
 import { openCog, lonlatTarget } from "geopbf/cog/core";   // クイックルック＝DOM 不要経路（worker 無し・最粗 overview だけ）
@@ -12,75 +12,63 @@ import { openCog, lonlatTarget } from "geopbf/cog/core";   // クイックルッ
 const t = tr();
 const DESC = { palsar2: "L-band SAR, HH/HV polarisation, ortho-corrected (2016–)", palsar: "L-band SAR on ALOS (2006–2011)", avnir2: "Optical 10 m, true colour (2006–2011)", sst: "SGLI sea surface temperature, 8-day mean, global (2018–)" };
 
-const BACK = {
-	ja: [
-		"衛星画像はタイル化していません。Tellus が置いている <b>Cloud Optimized GeoTIFF</b>（*_webcog.tif）を、ブラウザが <b>HTTP Range</b> で必要な部分だけ読んでいます。384 MB のシーンでも最初の表示は数百 KB です。",
-		"読んだ画素はその場で経緯度に並べ直し、<b>地形（DEM10B）の上にドレープ</b>します。傾けると立体になるのはそのためです。",
-		"PALSAR-2 の webcog は HH/HV の 2 偏波を持っています。既定は <b>R=HH・G=HV・B=HH−HV</b> の偽色合成（森が緑・市街が紫・水が黒）で、切替でグレー（HH）に戻せます。",
-		"GCOM-C の海面水温は 8640×4320 の float32 GeoTIFF 1 枚（全球）。℃ の値をその場で 0〜32 ℃ のカラーマップに通しています。読んだタイルはメモリに残るので、◀▶ の往復は通信ゼロです。",
-		"Tellus の API にはブラウザから直接触れない（CORS 無し・要トークン）ので、小さな中継（Cloudflare Worker）がトークンを付けて検索と署名 URL 発行だけを代行しています。画像のバイトは中継を素通りするだけです。",
-	],
-	en: [
-		"Nothing is pre-tiled. The browser reads Tellus's own <b>Cloud Optimized GeoTIFF</b> (*_webcog.tif) with <b>HTTP Range</b> requests, fetching only what the view needs — a 384 MB scene first appears after a few hundred KB.",
-		"Pixels are re-gridded to lon/lat on the fly and <b>draped over terrain (DEM10B)</b>, which is why tilting shows relief.",
-		"The PALSAR-2 webcog carries both HH and HV. The default view is a <b>R=HH, G=HV, B=HH−HV</b> false-colour composite (forest green, built-up magenta, water black); a toggle returns to HH grey.",
-		"GCOM-C sea surface temperature is one global 8640×4320 float32 GeoTIFF. Values in °C go through a 0–32 °C colour map on the fly. Fetched tiles stay in memory, so stepping ◀▶ back and forth costs no network.",
-		"Tellus's API is not reachable from a browser (no CORS, token required), so a tiny relay (Cloudflare Worker) adds the token for search and signed-URL issuance only. Image bytes just pass through it.",
-	],
-};
-const NEXT = {
-	ja: [
-		"署名 URL の CORS が <code>tellusxdp.com</code> 固定です。<code>Access-Control-Allow-Origin: *</code> になれば中継なしでブラウザが直接読めます。",
-		"検索応答にサムネイルがありません。この画面は COG の overview から作って IDB に置いていますが、STAC の <code>assets.thumbnail</code> があれば初回から一瞬です。",
-		"Traveler API は STAC にとても近い形です。<code>/stac</code> 互換の入口が一つあれば、ortho-earth に限らず既存の STAC クライアントがそのまま Tellus を引けます。",
-		"「Tellus 環境でのみ利用可」のデータ（ASNARO・PALSAR-2 L2.1 など）は外から 403 です。表示だけの用途を認める区分があると、この画面にそのまま並びます。",
-	],
-	en: [
-		"Signed URLs pin CORS to <code>tellusxdp.com</code>. With <code>Access-Control-Allow-Origin: *</code> the browser could read them directly, no relay.",
-		"Search responses carry no thumbnails; this page renders them from the COG overviews and keeps them in IndexedDB. A STAC <code>assets.thumbnail</code> would make the first visit instant too.",
-		"The Traveler API is already very close to STAC. A <code>/stac</code>-compatible entry point would let any STAC client, not just ortho-earth, query Tellus as-is.",
-		"Datasets marked “Tellus environment only” (ASNARO, PALSAR-2 L2.1, …) return 403 from outside. A view-only tier would let them appear here unchanged.",
-	],
-};
+// 案内板の長文（英語キー）＝訳は頁の辞書 i18n/pages/tellus.json（26 言語・tellus.html が startPage の page で足す）
+const BACK = [
+	"Nothing is pre-tiled. The browser reads Tellus's own <b>Cloud Optimized GeoTIFF</b> (*_webcog.tif) with <b>HTTP Range</b> requests, fetching only what the view needs — a 384 MB scene first appears after a few hundred KB.",
+	"Pixels are re-gridded to lon/lat on the fly and <b>draped over terrain (DEM10B)</b>, which is why tilting shows relief.",
+	"The PALSAR-2 webcog carries both HH and HV. The default view is a <b>R=HH, G=HV, B=HH−HV</b> false-colour composite (forest green, built-up magenta, water black); a toggle returns to HH grey.",
+	"GCOM-C sea surface temperature is one global 8640×4320 float32 GeoTIFF. Values in °C go through a 0–32 °C colour map on the fly. Fetched tiles stay in memory, so stepping ◀▶ back and forth costs no network.",
+	"Tellus's API is not reachable from a browser (no CORS, token required), so a tiny relay (Cloudflare Worker) adds the token for search and signed-URL issuance only. Image bytes just pass through it.",
+];
+const NEXT = [
+	"Signed URLs pin CORS to <code>tellusxdp.com</code>. With <code>Access-Control-Allow-Origin: *</code> the browser could read them directly, no relay.",
+	"Search responses carry no thumbnails; this page renders them from the COG overviews and keeps them in IndexedDB. A STAC <code>assets.thumbnail</code> would make the first visit instant too.",
+	"The Traveler API is already very close to STAC. A <code>/stac</code>-compatible entry point would let any STAC client, not just ortho-earth, query Tellus as-is.",
+	"Datasets marked “Tellus environment only” (ASNARO, PALSAR-2 L2.1, …) return 403 from outside. A view-only tier would let them appear here unchanged.",
+];
 
 const CSS = `
-#side { font-size: 13px; }
-#side h1 { margin: 0; padding: 14px 16px 2px; font-size: 17px; letter-spacing: .01em; }
-#side h1 small { display: block; font-size: 11.5px; font-weight: 400; color: #6b7385; margin-top: 2px; }
+/* 黒地・白文字（本人指摘 2026-10-14・choju の案内板と同じ色づかい）。板全体が 1 本でスクロール（一覧だけの内側スクロールだと、解説を開くと下が切れて届かなかった） */
+#side { font-size: 13px; color: #f1f3f6; background: #0b0d12; border-color: rgba(255,255,255,.14); overflow-y: auto; overscroll-behavior: contain; color-scheme: dark; }
+#side .head { display: flex; gap: 8px; align-items: flex-start; padding: 14px 16px 2px; }
+#side .head .lang { flex: none; max-width: 110px; font-size: 12px; padding: 2px 4px; margin-top: 2px; background: #1b1f26; color: inherit; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; }
+#side h1 { flex: 1; min-width: 0; margin: 0; font-size: 17px; letter-spacing: .01em; color: #fff; }
+#side h1 small { display: block; font-size: 11.5px; font-weight: 400; color: rgba(255,255,255,.62); margin-top: 2px; }
 #side .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 16px 0; }
-#side .tab { border: 1px solid #cdd3dd; background: #fff; border-radius: 9px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; text-align: left; line-height: 1.3; min-width: 0; }
+#side .tab { border: 1px solid rgba(255,255,255,.22); background: #151920; border-radius: 9px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; text-align: left; line-height: 1.3; min-width: 0; }
 #side .tab b { display: block; font-size: 13px; }
-#side .tab span { display: block; font-size: 10.5px; color: #6b7385; }
-#side .tab.on { border-color: #3f4757; background: #eef1f6; }
+#side .tab span { display: block; font-size: 10.5px; color: rgba(255,255,255,.62); }
+#side .tab.on { border-color: #fff; background: #2a303b; }
 #side .row { display: flex; gap: 6px; align-items: center; padding: 8px 16px 0; flex-wrap: wrap; }
-#side .row label { color: #6b7385; font-size: 11.5px; }
+#side .row label { color: rgba(255,255,255,.62); font-size: 11.5px; }
 #side .row[hidden] { display: none; }
-#side input[type=date] { flex: 1; min-width: 0; font: 12px system-ui; color: inherit; border: 1px solid #cdd3dd; border-radius: 6px; padding: 3px 5px; background: #fff; }
-#side .seg { border: 1px solid #cdd3dd; background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; font: inherit; font-size: 11.5px; color: inherit; }
-#side .seg.on { border-color: #3f4757; background: #eef1f6; }
-#side .hint { padding: 8px 16px 0; color: #6b7385; font-size: 12px; }
-#side .status { padding: 6px 16px 0; color: #8a93a3; min-height: 1.4em; font-size: 12px; }
-#side .list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 6px; }
+#side input[type=date] { flex: 1; min-width: 0; font: 12px system-ui; color: inherit; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 3px 5px; background: #1b1f26; }
+#side .seg { border: 1px solid rgba(255,255,255,.22); background: #151920; border-radius: 6px; padding: 3px 9px; cursor: pointer; font: inherit; font-size: 11.5px; color: inherit; }
+#side .seg.on { border-color: #fff; background: #2a303b; }
+#side .hint { padding: 8px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; }
+#side .status { padding: 6px 16px 0; color: rgba(255,255,255,.5); min-height: 1.4em; font-size: 12px; }
+#side .list { flex: none; padding: 4px 10px 6px; }
 #side .scene { display: flex; gap: 10px; align-items: center; width: 100%; border: 0; background: none; text-align: left; padding: 6px; border-radius: 10px; cursor: pointer; font: inherit; color: inherit; }
-#side .scene:hover { background: #eef1f6; }
-#side .scene.on { background: #e2ecff; }
-#side .scene canvas { width: 56px; height: 56px; border-radius: 8px; background: #dfe3ea; flex: none; object-fit: cover; }
+#side .scene:hover { background: rgba(255,255,255,.08); }
+#side .scene.on { background: rgba(120,160,255,.22); }
+#side .scene canvas { width: 56px; height: 56px; border-radius: 8px; background: #20252e; flex: none; object-fit: cover; }
 #side .scene .d { font-weight: 600; }
-#side .scene .c { color: #8a93a3; font-size: 11.5px; }
-#side .nav { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid #eef0f4; }
-#side .nav button, #side .foot button, #side .share { border: 1px solid #cdd3dd; background: #fff; border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; color: inherit; }
+#side .scene .c { color: rgba(255,255,255,.5); font-size: 11.5px; }
+#side .nav { position: sticky; bottom: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid rgba(255,255,255,.12); background: #0b0d12; }
+#side .nav button, #side .foot button, #side .share { border: 1px solid rgba(255,255,255,.22); background: #151920; border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; color: inherit; }
 #side .nav button:disabled { opacity: .4; cursor: default; }
-#side .nav .n { flex: 1; text-align: center; color: #6b7385; font-size: 12px; }
-#side .opac { display: flex; gap: 8px; align-items: center; padding: 0 16px 8px; color: #6b7385; font-size: 11.5px; }
+#side .nav .n { flex: 1; text-align: center; color: rgba(255,255,255,.62); font-size: 12px; }
+#side .opac { display: flex; gap: 8px; align-items: center; padding: 8px 16px; color: rgba(255,255,255,.62); font-size: 11.5px; }
 #side .opac input { flex: 1; }
-#side details { border-top: 1px solid #eef0f4; padding: 6px 16px; font-size: 12px; }
-#side details summary { cursor: pointer; font-weight: 600; color: #3f4757; padding: 4px 0; }
-#side details ul { margin: 4px 0 6px; padding-left: 18px; color: #4b5364; }
+#side details { border-top: 1px solid rgba(255,255,255,.12); padding: 6px 16px; font-size: 12px; }
+#side details summary { cursor: pointer; font-weight: 600; color: #fff; padding: 4px 0; }
+#side details ul { margin: 4px 0 6px; padding-inline-start: 18px; color: rgba(255,255,255,.78); }
 #side details li { margin: 3px 0; }
-#side details code { font-size: 11px; background: #f2f4f8; padding: 1px 4px; border-radius: 4px; }
-#side .metrics { font: 11px ui-monospace, Menlo, monospace; color: #6b7385; padding: 2px 0 4px; }
-#side .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 16px 12px; border-top: 1px solid #eef0f4; color: #8a93a3; font-size: 11px; }
-#side .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: #2b3242; color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#side details b { color: #fff; }
+#side details code { font-size: 11px; background: rgba(255,255,255,.1); padding: 1px 4px; border-radius: 4px; }
+#side .metrics { font: 11px ui-monospace, Menlo, monospace; color: rgba(255,255,255,.62); padding: 2px 0 4px; }
+#side .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.5); font-size: 11px; }
+#side .toast { position: sticky; bottom: 56px; margin: 0 auto; width: max-content; max-width: 90%; background: #fff; color: #0b0d12; border-radius: 8px; padding: 6px 12px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #side .toast.on { opacity: 1; }`;
 
 // クイックルックの置き場（IDB・鍵＝データセット/シーン/見せ方・値＝{w,h,rgba}＝56×56×4 以下）。失敗は全て null＝無かったことに
@@ -97,7 +85,7 @@ const quickDb = (() => {
 })();
 
 export async function mountTellus(map, side) {
-	const lang = document.documentElement.lang === "en" ? "en" : "ja";
+	const lang = getLang();
 	const mapEl = map.mapEl;
 	const st = document.createElement("style"); st.textContent = CSS; side.append(st);
 	const q = new URLSearchParams(location.search);
@@ -105,7 +93,7 @@ export async function mountTellus(map, side) {
 	let pol = q.get("pol") === "gray" ? "gray" : "color";   // PALSAR-2 の見せ方（偽色 HH·HV／HH グレー）＝共有 URL に乗る
 
 	side.insertAdjacentHTML("beforeend", `
-		<h1>Tellus × ortho-earth<small>${t("Satellite data on a 3D globe, with no server")}</small></h1>
+		<div class="head"><h1>Tellus × ortho-earth<small>${t("Satellite data on a 3D globe, with no server")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
 		<div class="tabs">${Object.values(DATASETS).map(d => `<button class="tab" data-k="${d.key}"><b>${d.label}</b><span>${t(DESC[d.key])}</span></button>`).join("")}</div>
 		<div class="row"><label>${t("Period")}</label><input type="date" id="tl-from"><span>–</span><input type="date" id="tl-to"></div>
 		<div class="row" id="tl-polrow"><label>${t("Render")}</label><button class="seg" data-pol="color">${t("False colour HH·HV")}</button><button class="seg" data-pol="gray">${t("HH grey")}</button></div>
@@ -119,8 +107,8 @@ export async function mountTellus(map, side) {
 			<button id="tl-fit">${t("Zoom to scene")}</button>
 		</div>
 		<div class="opac"><span>${t("Map lines")}</span><input type="range" id="tl-opac" min="0" max="100" value="55"></div>
-		<details><summary>${t("How this works")}</summary><ul>${BACK[lang].map(x => `<li>${x}</li>`).join("")}</ul><div class="metrics" id="tl-metrics"></div></details>
-		<details><summary>${t("Next steps (asks for Tellus)")}</summary><ul>${NEXT[lang].map(x => `<li>${x}</li>`).join("")}</ul></details>
+		<details><summary>${t("How this works")}</summary><ul>${BACK.map(x => `<li>${t(x)}</li>`).join("")}</ul><div class="metrics" id="tl-metrics"></div></details>
+		<details><summary>${t("Next steps (asks for Tellus)")}</summary><ul>${NEXT.map(x => `<li>${t(x)}</li>`).join("")}</ul></details>
 		<div class="foot"><span id="tl-credit"></span><span><button class="share" id="tl-share">${t("Copy share link")}</button> <button id="tl-clear">${t("Remove imagery")}</button></span></div>
 		<div class="toast" id="tl-toast"></div>`);
 	const $ = (id) => side.querySelector(id);
@@ -256,6 +244,7 @@ export async function mountTellus(map, side) {
 	};
 
 	// ---- 配線 ----
+	$(".lang").addEventListener("change", e => { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.assign(u); });   // 言語＝読み直す（視点・シーンは URL に残る）
 	side.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => { if (b.dataset.k === src.key) return; applySrc(b.dataset.k); if (lastClick) search(lastClick); }));
 	side.querySelectorAll(".seg").forEach(b => b.addEventListener("click", () => {   // 偽色⇄グレー＝同じシーンを見せ方だけ変えて載せ直す（生タイルはキャッシュ済＝通信なし）
 		if (b.dataset.pol === pol) return;
