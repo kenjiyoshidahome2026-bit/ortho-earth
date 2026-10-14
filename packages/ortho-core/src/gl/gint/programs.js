@@ -495,6 +495,53 @@ bool fidPointStyle(int feat_id, inout float r, inout vec4 col, inout vec4 scol, 
 	if (rec.a != 0u && w8 != 0u) { scol = vec4(float(rec.a >> 24u), float((rec.a >> 16u) & 255u), float((rec.a >> 8u) & 255u), float(rec.a & 255u)) / 255.0; sw = float(w8) * 0.125 * u_dpr; }
 	return true;
 }
+// 点を地形へドレープ（線の drapeRelW と同式＝基図の線・塗りと同じ高さ）。標高 uniform は bindDepthUniforms が配る＝
+// 未設定（真俯瞰・地形なし）なら u_elevScale=0＝rel のまま＝従来どおり海面高。無いと起伏のある地図で傾けた時に
+// 点だけ海面に残り地形からずれる（choju 本人指摘 2026-10-14）
+uniform float      u_fogFar;
+uniform vec3       u_origin_pt;
+uniform sampler2D  u_elevTex;
+uniform vec4       u_elevBounds;
+uniform float      u_elevScale;
+uniform float      u_hasElev;
+uniform float      u_elevEdgeFade;
+uniform vec4       u_meshQ;
+uniform float      u_meshG;
+float elevAt(vec2 ll) {
+	if (u_hasElev < 0.5) return 0.0;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	float fade = 1.0;
+	if (u_elevEdgeFade > 0.0) {
+		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return texture(u_elevTex, uv).r * fade;
+}
+float elevQAt(vec2 ll) {
+	if (u_meshG < 1.5) return elevAt(ll);
+	vec2 g = (ll - u_meshQ.xy) / u_meshQ.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) return elevAt(ll);
+	float N = u_meshG - 1.0;
+	vec2 gc = min(g * N, vec2(N - 1e-4));
+	vec2 gi = floor(gc);
+	vec2 gf = gc - gi;
+	vec2 st = u_meshQ.zw / N;
+	vec2 b0 = u_meshQ.xy + gi * st;
+	float h00 = elevAt(b0), h10 = elevAt(b0 + vec2(st.x, 0.0)), h01 = elevAt(b0 + vec2(0.0, st.y)), h11 = elevAt(b0 + st);
+	return (gf.x + gf.y < 1.0)
+		? h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00)
+		: h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}
+vec3 ptDrapeRelW(vec3 rel, vec2 dLL) {
+	if (!(u_elevScale > 0.0 && u_hasElev > 0.5)) return rel;
+	vec3 dir = u_origin_pt + rel;
+	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
+	vec2 ll = u_origin + dLL;
+	float h = elevQAt(ll) * u_elevScale * df;
+	if (u_ell > 0.5) { float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p); dir = vec3(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l)); }
+	return rel + h * dir;
+}
 vec3 fetchPoint(int pt_id) {
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	uvec4 px = texelFetch(u_pt_tex, tc, 0);
@@ -505,7 +552,7 @@ vec3 fetchPoint(int pt_id) {
 	float dlat = float(int(iy - u_iy_center)) * 1e-7;
 	vec3 rel = deltaToRel(dlon, dlat);            // 頂点3D − 原点3D（小・正確）
 	float zr = u_origin_zr + dot(rel, u_eye);     // = dot(dir,eye)-1（相殺回避）
-	vec4 clip = u_clipT + u_mvp * vec4(rel, 0.0); // = mvp*[dir,1]（相殺回避）
+	vec4 clip = u_clipT + u_mvp * vec4(ptDrapeRelW(rel, vec2(dlon, dlat)), 0.0); // = mvp*[dir,1]（相殺回避）＋地形の高さ
 	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);
 	vec2 ndc = clip.xy / clip.w;
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y, zr);
@@ -942,6 +989,7 @@ const PT_UNIFORM_NAMES = [
 	'u_ix_center','u_iy_center','u_ell_trig','u_ell',
 	'u_fid_style','u_fidstyle_w','u_has_fidstyle','u_dpr',   // per-fid 点スタイル（paint）＝描画/pick 両プログラム
 	'u_vbase',   // index の 4 頂点（P3）
+	...DEPTH_UNIFORM_NAMES,   // 点の地形ドレープ（fetchPoint の ptDrapeRelW・bindPointUniforms が bindDepthUniforms で配る）
 ];
 
 // ── 旧 6 頂点/辺の drawArrays（?quad4=0・perf plan P3 の逃げ道）への書き換え＝gpu/gintwgsl.js quad6WGSL と対 ──

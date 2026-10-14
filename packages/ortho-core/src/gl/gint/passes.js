@@ -148,6 +148,7 @@ function bindPointUniforms(s, u, data) {
 	if (u.u_ell) gl.uniform1f(u.u_ell, pell ? 1 : 0);
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
+	bindDepthUniforms(gl, u, data);   // 点も地形の高さへ（線・塗りと同じドレープ）。u_elevTex の unit7 割当もここ（sampler 型の衝突回避）
 }
 
 export function renderCleanScene(s, data, targetFBO = null) {
