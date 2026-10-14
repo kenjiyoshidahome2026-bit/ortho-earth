@@ -92,12 +92,11 @@ export async function mountChoju(map, { base = "./" } = {}) {
 
 	// 絞り込みの状態
 	const st = { sp: new Set(SP.keys()), cls: new Set(CLS.keys()), d0: dMin, d1: dMax, muni: "" };
-	const shown = d => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1 && (!st.muni || d.code === st.muni);
+	const shown = d => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1;
 	const filterExpr = () => ["all",
 		["match", ["get", "s"], st.sp.size ? [...st.sp] : [-1], true, false],
 		["match", ["get", "k"], st.cls.size ? [...st.cls] : [-1], true, false],
-		[">=", ["get", "d"], st.d0], ["<=", ["get", "d"], st.d1],
-		...(st.muni ? [["==", ["get", "m"], st.muni]] : [])];
+		[">=", ["get", "d"], st.d0], ["<=", ["get", "d"], st.d1]];
 	function apply() {
 		const f = filterExpr();
 		map.setFilter("cj-pt", ["all", LAYERS["cj-pt"].filter, f]); map.setFilter("cj-est", ["all", LAYERS["cj-est"].filter, f]);
@@ -141,7 +140,6 @@ export async function mountChoju(map, { base = "./" } = {}) {
 				${g.ks.length > 1 ? g.ks.map(i => `<label class="grp sub"><input type="checkbox" data-k="${i}" checked>${esc(CLS[i])}<small data-nk="${i}"></small></label>`).join("") : `<input type="checkbox" data-k="${g.ks[0]}" checked hidden><small data-nk="${g.ks[0]}" hidden></small>`}`).join("")}
 			<h2>捕獲日</h2>
 			<div class="dates"><label>から<input type="date" class="d0" value="${ymd(dMin)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label><label>まで<input type="date" class="d1" value="${ymd(dMax)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label></div>
-			<div class="all"><button type="button" data-fy="">全期間</button>${[...new Set(recs.map(d => Math.floor(d.d / 10000) - (d.d % 10000 < 401 ? 1 : 0)))].sort().map(y => `<button type="button" data-fy="${y}">${y}年度</button>`).join("")}</div>
 			<p class="note">白抜きの点は捕獲地点の座標が無く、送信位置か住所の座標で置いた記録です。獣種と利用区分は書き出しのコードからの推定です。</p>
 		</div>`;
 	mapEl.appendChild(panel);
@@ -160,16 +158,13 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	const setDates = (a, b) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
 	D0.onchange = () => D0.value && setDates(num(D0.value), st.d1);
 	D1.onchange = () => D1.value && setDates(st.d0, num(D1.value));
-	panel.querySelectorAll("button[data-fy]").forEach(b => b.onclick = () => { const y = +b.dataset.fy; y ? setDates(y * 10000 + 401, (y + 1) * 10000 + 331) : setDates(dMin, dMax); });
 	$(".muni").onchange = e => setMuni(e.target.value);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 
-	// 市区町村を選ぶ＝絞って、そこへ飛ぶ。URL の ?m= に残す
+	// 市区町村を選ぶ＝そこへ飛ぶだけ（点は絞らず全国を出したまま・本人指摘 2026-10-14）。URL の ?m= に残す
 	async function setMuni(code, { fly = true } = {}) {
 		st.muni = muniOf.has(code) ? code : ""; $(".muni").value = st.muni;
 		const u = new URL(location.href); st.muni ? u.searchParams.set("m", st.muni) : u.searchParams.delete("m"); history.replaceState(null, "", u);
-		if (sel && st.muni && sel.code !== st.muni) select(null);
-		apply();
 		if (!fly) return;
 		const pts = (st.muni ? recs.filter(d => d.code === st.muni) : recs).map(d => [d.lon, d.lat]);
 		const bb = bboxOf(pts);
@@ -179,7 +174,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	function renderCounts() {
 		const ns = SP.map(() => 0), nk = CLS.map(() => 0); let n = 0;
 		for (const d of recs) {
-			if (d.d < st.d0 || d.d > st.d1 || (st.muni && d.code !== st.muni)) continue;
+			if (d.d < st.d0 || d.d > st.d1) continue;
 			if (st.cls.has(d.k)) ns[d.s]++;
 			if (st.sp.has(d.s)) nk[d.k]++;
 			if (st.sp.has(d.s) && st.cls.has(d.k)) n++;
@@ -213,8 +208,10 @@ export async function mountChoju(map, { base = "./" } = {}) {
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝onsen と同じ）──
 const CSS = `
+/* 黒地・白文字（本人指摘 2026-10-14）＝共通の qm 色をこの板の中だけ白系に差し替える */
+.cj-panel{--qm-ink:#fff;--qm-text:#f1f3f6;--qm-text-dim:rgba(255,255,255,.72);--qm-text-faint:rgba(255,255,255,.5);--qm-border-soft:rgba(255,255,255,.22);color-scheme:dark}
 .cj-panel{position:absolute;top:12px;right:12px;z-index:30;width:300px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
+	padding:12px 14px;border-radius:var(--qm-r-l);background:rgba(10,12,16,.9);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
 	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
 .cj-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .cj-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink)}
@@ -222,13 +219,13 @@ const CSS = `
 .cj-panel.min .body{display:none}
 .cj-panel .span{margin:2px 0 8px;color:var(--qm-text-dim);font-size:12px}
 .cj-panel .msel{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--qm-text-dim)}
-.cj-panel select,.cj-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);padding:5px 6px;min-width:0}
+.cj-panel select,.cj-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
 .cj-panel .total{margin:10px 0 4px;color:var(--qm-text-dim)}
 .cj-panel .total b{font-size:20px;color:var(--qm-ink);font-variant-numeric:tabular-nums}
 .cj-panel h2{font-size:12px;margin:10px 0 2px;color:var(--qm-text-dim);font-weight:600}
 .cj-panel .grp{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
 .cj-panel .grp small{margin-left:auto;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
-.cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%}
+.cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.35)}
 .cj-panel .grp.top b{font-weight:600;color:var(--qm-ink)}
 .cj-panel .grp.sub{padding-left:20px;font-size:12.5px}
 .cj-panel .msel + h2,.cj-panel .msel{margin-top:8px}
@@ -237,7 +234,7 @@ const CSS = `
 .cj-panel .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .cj-panel .dates label{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--qm-text-dim)}
 .cj-panel .note{color:var(--qm-text-dim);font-size:12px;margin:10px 0 0}
-.cj-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(43,59,87,.04);border:1px solid var(--qm-border-soft)}
+.cj-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
 .cj-panel .dh{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
 .cj-panel .dh .sw{margin-top:4px}
 .cj-panel .dh > div{flex:1;min-width:0}
