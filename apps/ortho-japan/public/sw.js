@@ -7,7 +7,7 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v5";      // v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
+const CACHE = "oj-assets-v6";      // v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
 const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
 // パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget が作る/消すたびに postMessage で取り直す
 let packOn = null;
@@ -19,7 +19,11 @@ self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn =
 //   /japan/lib/assets/ … SDK（外へ配る物）のチャンク＝配布 zip と同一物
 //   /globe/engine/     … 共有エンジン（本番の japan が食うエンジン実体・2026-09-30）＝<版>が中身のハッシュ＝不変。
 //                        古い版の入口は今の版へ 302 される（ortho-globe の Worker）＝転送された応答は掴まない（下の !res.redirected）
+//                        ただし入口（/globe/engine/<版>/globe.js 等＝名前が版を跨いで同じ）は cache-first にしない＝下の ENGINE_ENTRY
 const ASSETS = ["/japan/assets/", "/japan/lib/assets/", "/globe/engine/"];
+// 共有エンジンの入口＝network-first（HTTP キャッシュも再検証）。cache-first だと版が退役した後も旧版の入口で動き続け、
+// まだ掴んでいない遅延チャンクを消えた旧版の住所へ取りに行って 404 になる（2026-10-14・tellus の cog-*.js）。今の版なら 304 で済む
+const ENGINE_ENTRY = /^\/globe\/engine\/[0-9a-f]{10}\/((globe|maplibre|i18n|core|geopbf|h3)\.js|globe\.css)$/;
 // lib の入口2枚（ortho-japan.js / .css）はハッシュ無し＝不変と扱えない。navigate と同じ
 // network-first＋キャッシュ退避＝新デプロイを常に拾いつつオフライン起動も守る。
 const LIB_ENTRY = ["/japan/lib/ortho-japan.js", "/japan/lib/ortho-japan.css"];
@@ -47,6 +51,21 @@ self.addEventListener("fetch", e => {
 			if (!(await hasPack())) return fetch(req);
 			const hit = await caches.match(req.url, { cacheName: PACK }).catch(() => null);
 			return hit || fetch(req);
+		})());
+		return;
+	}
+
+	// ⓪' 共有エンジンの入口＝network-first（cache: "no-cache"＝HTTP キャッシュの immutable も再検証）・失敗時はキャッシュ（オフライン起動の保険）。
+	//     旧版の入口は Worker が今の版へ 302 する＝転送された応答は掴まない（掴むと旧版の名前に今の版の中身が載り、相対 import の住所がずれる）
+	if (ENGINE_ENTRY.test(url.pathname)) {
+		e.respondWith((async () => {
+			try {
+				const res = await fetch(req, { cache: "no-cache" });
+				if (res.ok && !res.redirected) (await caches.open(CACHE)).put(req, res.clone());
+				return res;
+			} catch {
+				return (await caches.match(req)) || Response.error();
+			}
 		})());
 		return;
 	}

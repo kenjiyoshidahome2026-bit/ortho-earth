@@ -19,6 +19,9 @@
 		],
 		"onsen": [
 			"onsen.js"
+		],
+		"tellus": [
+			"tellus.js"
 		]
 	}
 }
