@@ -8,7 +8,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"verify:prod": "node scripts/verify-prod.mjs",
-		"deploy": "node ../ortho-japan/scripts/check-i18n-tables.mjs && npm run verify:prod && rm -rf dist/site/census2020 dist/site/japan/census2020/moj-local dist/site/japan/census2020/ai && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"deploy": "node ../../scripts/check-i18n-tables.mjs && npm run verify:prod && rm -rf dist/site/census2020 dist/site/japan/census2020/moj-local dist/site/japan/census2020/ai && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {

@@ -15,6 +15,7 @@
 		"dev:world": "npm run dev -w ortho-world",
 		"test:mirrors": "node apps/quakes-mirror/tests/t-quakes.mjs && node apps/sats-mirror/tests/t-mirror.mjs",
 		"deploy:engine": "node scripts/deploy-engine.mjs",
+		"verify:app-imports": "node scripts/check-app-imports.mjs",
 		"test": "node scripts/test-all.mjs",
 		"test:list": "node scripts/test-all.mjs --list",
 		"verify:i18n": "node scripts/test-all.mjs --gate i18n"

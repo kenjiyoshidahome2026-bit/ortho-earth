@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"deploy": "node ../ortho-japan/scripts/check-i18n-tables.mjs && vite build && rm -rf dist/site/nl/moj-local && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"deploy": "node ../../scripts/check-i18n-tables.mjs && vite build && rm -rf dist/site/nl/moj-local && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {
