@@ -890,6 +890,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		device.queue.writeBuffer(L.gpBuf, 0, gpAB);
 
 		const aux = auxGroup(L, ctx?.elevView, ctx?.elevSampler);
+		L._pickElev = ctx?.elevView ? [ctx.elevView, ctx.elevSampler] : null;   // pick の点も描画と同じ標高で地形へ乗せる（点 VS のドレープ）
 		// ① ID 蓄積パス（main パスより前・fr.enc の別 render pass）＝winding 和を rg16float へ。基準メタ・rank0・pivot 有効
 		if (idFill) {
 			idRCPU[0] = L.fidStyleW || 1; idRCPU[1] = L.fidStyleCount; idRCPU[2] = L.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
@@ -1051,7 +1052,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		packGP(ROLE.pickLine, { width: (data.lineWidth ?? 1.0) + pickMargin });
 		packGP(ROLE.pickPoint, { radius: Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5), dpr: V.dpr });
 		device.queue.writeBuffer(L.gpBuf, ROLE.pickLine * GP_SLOT, gpAB, ROLE.pickLine * GP_SLOT, GP_SLOT * 2);
-		const aux = auxGroup(L, null, null);
+		const aux = auxGroup(L, L._pickElev?.[0] ?? null, L._pickElev?.[1] ?? null);   // 点の pick＝描画と同じドレープ（線の pick はドレープしない＝標高を読まない）
 		const enc = device.createCommandEncoder();
 		const pass = enc.beginRenderPass({
 			colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }],
