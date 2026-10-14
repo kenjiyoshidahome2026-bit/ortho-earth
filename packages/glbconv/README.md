@@ -2,6 +2,8 @@
 
 GLB（glTF バイナリ）を他の 3D 形式へ変換する小さな道具。**依存ゼロ**、ブラウザでも Node でも同じコードで動く。
 
+Live: [www.ortho-earth.com/japan/models](https://www.ortho-earth.com/japan/models)（GLB の模型を地球儀に置き、いろいろな 3D 形式で落とせる）— part of [Ortho Earth](https://www.ortho-earth.com/).
+
 ```js
 import { convertToFile } from "glbconv";
 
