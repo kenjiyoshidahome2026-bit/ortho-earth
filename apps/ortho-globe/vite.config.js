@@ -10,7 +10,8 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData } f
 //   /globe/sats    … 人工衛星（データ＝apps/sats-mirror の /sats/active.csv）
 //   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
 //   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は GitHub Pages の ortho-data/globe/）
-//   /globe/hex      … 世界の人口を H3 の六角形の柱で（issue #310・データ＝bucket GIS/h3/kontur-20231101/＝uploader の「Kontur population」が置く）
+//   /globe/clock    … 世界時計（issue #309・NE の時間帯の面＝S3 直読み＋admin0 の国 → IANA の名前 → ブラウザの Intl）
+//   /globe/hex      … 世界の人口を H3 の六角形の柱で（issue #310・データ＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/＝scripts/kontur-h3.mjs が焼く）
 //   /globe/parks    … アメリカ合衆国の国立公園 63（/japan/parks と同型・台帳 parks-us.json・外周 parks-us.geopbf・他ユニット nps-units.geopbf＝本番は GitHub Pages の ortho-data/us/・正本はリポの根の ortho-data/us/）
 // エンジンは共有エンジン（/globe/engine/<版>/・縮小計画 項目 9・本人裁定 2026-09-30）を URL で読む＝build の時だけ（dev はソース直）。
 // 共有エンジンの置き場はこの家（/globe/*）＝build の最後に dist/engine/<版>/ を dist/site/globe/engine/<版>/ へ写す。japan の殻（app.js）も jp パックも通らない。
@@ -30,7 +31,7 @@ export default defineConfig(({ command }) => ({
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), hex: resolve(import.meta.dirname, "hex.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), clock: resolve(import.meta.dirname, "clock.html"), hex: resolve(import.meta.dirname, "hex.html") },
 		...noChunkOptimization,   // rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker にも同じ物
 	} },
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）

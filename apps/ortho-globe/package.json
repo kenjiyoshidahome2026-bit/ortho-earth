@@ -2,7 +2,7 @@
 	"name": "ortho-globe",
 	"version": "0.0.1",
 	"private": true,
-	"description": "The globe's own pages, with no region: Globe ⇄ Equal Earth, world earthquakes, satellites, clouds and physical geography. Served at www.ortho-earth.com/globe/.",
+	"description": "The globe's own pages, with no region: Globe ⇄ Equal Earth, world earthquakes, satellites, clouds, physical geography, US national parks and a world clock. Served at www.ortho-earth.com/globe/.",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
@@ -10,6 +10,8 @@
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"build:engine": "node scripts/build-engine.mjs",
 		"preview": "vite preview",
+		"test": "node --test tests/t-clock.mjs",
+		"clock:zones": "node scripts/clock-zones-build.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",

@@ -4,7 +4,7 @@
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない
-//   ② 実走: 7 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds・/globe/physical・/globe/hex）＝地球儀が立ち、地震・衛星・雲・地形・人口はデータが載る
+//   ② 実走: 8 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex）＝地球儀が立ち、地震・衛星・雲・地形・人口はデータが載る
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -101,6 +101,8 @@ const PAGES = [
 	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 240000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える。GIBS の応答が夜に 9 秒級まで揺れる（2026-10-12 に 120s で 2 回落ち・3 回目 54s）＝上限 240s
 	// 地形＝GitHub Pages（ortho-data/globe/）の TerrainDB・ne-physical.geopbf（npm run publish:pages -w world-data で置いてから）。物理量（流量など）が載った版かも見る
 	{ name: "physical", url: "/globe/physical", ready: `${BOOTED} && window.__physical && window.__physical.items.length > 900 && window.__physical.shapes.length > 1000 && window.__physical.items.some(d => d.discharge > 0)`, ms: 60000 },
+	// 世界時計＝NE の時間帯の面（S3 直読み）と admin0 が載り、東京が Asia/Tokyo・アンカラが Europe/Istanbul（NE の面は +2 のまま＝国が勝つ）に決まる
+	{ name: "clock", url: "/globe/clock", ready: `${BOOTED} && window.__clock && window.__clock.at([139.7, 35.7]).resolved.tz === "Asia/Tokyo" && window.__clock.at([32.85, 39.93]).resolved.tz === "Europe/Istanbul"`, ms: 90000 },
 	// 人口の六角形＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/（scripts/kontur-h3.mjs → publish-pages.mjs）。全景で解像度 3 の柱が 1 万本以上立つ
 	{ name: "hex", url: "/globe/hex", ready: `${BOOTED} && window.__hex && window.__hex.cells > 10000`, ms: 90000 },
 ];
