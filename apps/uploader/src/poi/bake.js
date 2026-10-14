@@ -3,7 +3,7 @@
 // 分配 → タイルごとに geopbf 化して GIS/pbf/poi/14/x/y へ save。読み側は geopbf("poi/14/x/y") で対称に戻る。
 // v1 は P29学校（京都26）から。withAnno=true で experimental注記の位置採用・鮮度判定を足す（§8・遅い＝z16を数千枚）。
 import { geopbf } from "geopbf";
-import * as POI from "./schema.js";
+import * as POI from "@ortho-earth/jp/poi-schema";
 
 export async function poi(q, { Bucket }, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = false } = {}) {
 	q.clear();

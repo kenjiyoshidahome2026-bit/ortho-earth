@@ -24,7 +24,7 @@ const PROGRESS_FILE = join(__dir, 'pbf-progress.json');
 const MIN_SIZE    = 5000; // バイト未満は空データとみなしてスキップ
 
 // 任意座標系XMLの都道府県→系番号フォールバック（正本: jp/codes.js・1か所管理）
-import { PREF_SYS } from '../jp/codes.js';
+import { PREF_SYS } from '@ortho-earth/jp/codes';
 // 地図XML の読み（座標変換・筆の yield）＝moj-xml.js に 1 本（moj-batch / moj-convert と共通・2026-10-03）
 import { xmlToFeatures, scanSysNum } from './moj-xml.js';
 

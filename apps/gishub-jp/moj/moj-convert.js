@@ -12,7 +12,7 @@ import { mkdirSync, createWriteStream, statSync } from 'fs';
 import { join } from 'path';
 import AdmZip from 'adm-zip';
 // 都道府県→系番号フォールバック（正本: jp/codes.js・1か所管理）
-import { PREF_SYS } from '../jp/codes.js';
+import { PREF_SYS } from '@ortho-earth/jp/codes';
 
 // 地図XML の読み（座標変換・筆の yield）＝moj-xml.js に 1 本（moj-batch / moj-xml-to-pbf と共通・2026-10-03）
 import { xmlToFeatures, xmlHeader, parseSysNum } from './moj-xml.js';

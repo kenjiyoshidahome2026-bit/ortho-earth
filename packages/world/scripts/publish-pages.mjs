@@ -10,7 +10,7 @@
 //     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/space）
 //     人口（H3）    h3/kontur-<版>/＝/globe/hex が読む Kontur Population（焼く＝apps/ortho-globe/scripts/kontur-h3.mjs）
 //   目録            manifest.json＝{ updated, files: { 相対パス: 中身の sha1 の頭 12 桁 } }＝置くたびに globe/ 全体から作り直す。
-//                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（apps/world/src/data.js）
+//                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（packages/world/src/data.js）
 //   使い方: node scripts/publish-pages.mjs            … 予行（何も書かない＝今の Pages と比べて 新規／変更／同じ を出す）
 //           node scripts/publish-pages.mjs --write    … commit して push（反映＝配備 30 秒ほど＋エッジのキャッシュ 10 分）
 //           --only=NationDB.json,NationDB.i18n … 名指しした物だけ（カンマ区切り・ファイルかフォルダ）

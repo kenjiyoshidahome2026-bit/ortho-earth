@@ -3,7 +3,7 @@
 //   数える物＝apps/<A> のソース（js/mjs/html/css・vite.config・package.json の scripts）から apps/<B>（B≠A）へ届く参照
 //     ・相対パスの文字列（'../ortho-japan/app.js'・new URL("../../census2020/…", import.meta.url)・path.resolve(__dirname, '../ortho-globe/public')）
 //     ・アプリの workspace 名での import（import("ortho-equal/src/equal.js")）
-//     ・package.json の scripts の中の ../<B>/ の道
+//     ・package.json の scripts の中の ../<B>/ の道・依存（dependencies 等）に B の workspace 名
 //   例外＝www（他のアプリの dist と docs を束ねて載せる集約役・本人 2026-10-14「やっていいのは、www だけ」）。
 //   許可表＝scripts/app-imports-allow.json（A→B ごとの数と理由）。超えたら・表に無い組が出たら落ちる。減ったら `--ratchet` で枠を下げる（上げない）。
 //   移し先＝2 つ以上で使う物は packages/*、実行時に共有する物は /globe/engine/<版>/ の入口（modules/proposal-2026-10-14.md §6）。
@@ -48,7 +48,12 @@ for (const from of apps) {
 		const rel = path.relative(ROOT, file);
 		const base = path.dirname(file);
 		if (path.basename(file) === "package.json") {
-			const scripts = JSON.parse(fs.readFileSync(file, "utf8")).scripts || {};
+			const pj = JSON.parse(fs.readFileSync(file, "utf8"));
+			const scripts = pj.scripts || {};
+			for (const dep of Object.keys({ ...pj.dependencies, ...pj.devDependencies, ...pj.peerDependencies })) {   // 別のアプリの workspace 名を依存に書く（2026-10-14 に足した）
+				const to = pkgName.get(dep);
+				if (to && to !== from) hits.push([from, to, rel, `依存 ${dep}`]);
+			}
 			for (const cmd of Object.values(scripts))
 				for (const m of cmd.matchAll(/(?:^|[\s=])((?:\.\.\/)+[^\s&|;"'<>]+)/g)) {
 					const to = target([dir], m[1]);
@@ -78,13 +83,15 @@ const allow = allowDoc.allow;
 
 if (process.argv.includes("--list")) for (const [from, to, file, ref] of hits) console.log(`${from} → ${to}\t${file}\t${ref}`);
 
+// 1 組 1 行で書く（差分が読める）
+const writeAllow = doc => fs.writeFileSync(ALLOW_FILE, `{\n\t"_": ${JSON.stringify(doc._)},\n\t"allow": {\n${Object.entries(doc.allow).map(([k, v]) => `\t\t${JSON.stringify(k)}: { "n": ${v.n}, "why": ${JSON.stringify(v.why)} }`).join(",\n")}\n\t}\n}\n`);
 const over = [], under = [];
 for (const [k, n] of Object.entries(count)) { const a = allow[k]?.n ?? 0; if (n > a) over.push([k, n, a]); else if (n < a) under.push([k, n, a]); }
 for (const [k, a] of Object.entries(allow)) if (!(k in count)) under.push([k, 0, a.n]);
 
 if (process.argv.includes("--ratchet")) {
 	for (const [k, n] of under) { if (n === 0) delete allow[k]; else allow[k].n = n; }
-	fs.writeFileSync(ALLOW_FILE, JSON.stringify(allowDoc, null, "\t") + "\n");
+	writeAllow(allowDoc);
 	console.log(`ratchet: ${under.length} 組の枠を下げた`);
 }
 if (over.length) {
