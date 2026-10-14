@@ -2,15 +2,15 @@
 	"_": "見比べ帳のコメント（例の名前 → { ja, en }）。問題のある例に、原因・処置・残りを添える（台帳 §8 と対・2026-09-30 本人「問題がある時はコメントを添えて」）。gallery.html の HTML 覗き窓に英日で載る（2026-09-30 本人「Note もそちらに英語と日本語で」）",
 	"add-a-3d-model-with-babylonjs": {
 		"ja": "本物の側が描けない：babylon は毎フレーム 32 回 draw を出すが直後に GL_INVALID_OPERATION＝MapLibre と GL の状態を共有する時の食い違い（材質・行列は正常）。こちらは別 canvas に描くので皿 2 基が出る。分母の外（REF_BROKEN）。",
-		"en": "The reference side draws nothing: Babylon issues 32 draw calls per frame but each ends in GL_INVALID_OPERATION — a mismatch when sharing GL state with MapLibre (materials and matrices are fine). ortho renders custom layers on a separate canvas, so both antennas appear. Excluded from the denominator (reference broken)."
+		"en": "The reference side draws nothing: Babylon issues 32 draw calls per frame but each ends in GL_INVALID_OPERATION — a mismatch when sharing GL state with MapLibre (materials and matrices are fine). ortho-earth renders custom layers on a separate canvas, so both antennas appear. Excluded from the denominator (reference broken)."
 	},
 	"toggle-deckgl-layer": {
 		"ja": "本物の側が読めない：style の API キーが Referer https://maplibre.org/ に縛られ、この走らせ台では両側 401（curl で確認）。こちらは既定の基図に落ち、deck.gl の overlay（5 点）は描ける。分母の外（REF_BROKEN）。",
-		"en": "The reference side cannot load its style: the API key is locked to Referer https://maplibre.org/, so both sides get 401 on this rig (verified with curl). ortho falls back to its default basemap and the deck.gl overlay (5 points) draws. Excluded from the denominator (reference broken)."
+		"en": "The reference side cannot load its style: the API key is locked to Referer https://maplibre.org/, so both sides get 401 on this rig (verified with curl). ortho-earth falls back to its default basemap and the deck.gl overlay (5 points) draws. Excluded from the denominator (reference broken)."
 	},
 	"sync-movement-of-multiple-maps": {
 		"ja": "3 枚とも生きて連動（段 2〜3＝撮る時に動いているかで揺れる）。本物の例外（unpkg の CommonJS プラグインの module is not defined）は害なし＝両側同じ例外は落ちに数えない。通訳の live な Map は 1 頁 4 枚まで（2026-09-30 本人裁定・旧 2）＝3 枚とも生きて連動する。見た目＝本物はメルカトル 3 分割・こちらは球 3 つ（文書の違い）。",
-		"en": "All three maps are live and synchronized. The exception thrown on the reference side (the CommonJS plugin from unpkg: module is not defined) is harmless and identical on both sides, so it is not counted. ortho allows up to four live maps per page. Visually, MapLibre shows three Mercator panes; ortho shows three globes — a documented difference."
+		"en": "All three maps are live and synchronized. The exception thrown on the reference side (the CommonJS plugin from unpkg: module is not defined) is harmless and identical on both sides, so it is not counted. ortho-earth allows up to four live maps per page. Visually, MapLibre shows three Mercator panes; ortho-earth shows three globes — a documented difference."
 	},
 	"add-a-custom-layer-with-tiles-to-a-globe": {
 		"ja": "直した：custom 層に球の variant（例が setProjection(globe) か style の projection で球を頼んだ時だけ＝メルカトルで書かれた層は従来どおり）（MapLibre の projectionGlobe と同じ関数名・極の頂点・裏側の面）＋ createTileMesh／subdivisionGranularity。基図 9→96/156。残り＝注記と経緯線の色の細部。",
@@ -18,7 +18,7 @@
 	},
 	"pmtiles-source-and-protocol": {
 		"ja": "直した：頁が addProtocol(\"pmtiles\") を登録している時、基図の読み口にアーカイブの URL だけを渡していた（pmtiles.js は何も返さない）→ MapLibre と同じ pmtiles://…/{z}/{x}/{y} の形で頼む。",
-		"en": "Fixed: when the page registers addProtocol(\"pmtiles\"), ortho used to hand the archive URL alone to the protocol (pmtiles.js returns nothing for that). It now requests pmtiles://…/{z}/{x}/{y} exactly as MapLibre does."
+		"en": "Fixed: when the page registers addProtocol(\"pmtiles\"), ortho-earth used to hand the archive URL alone to the protocol (pmtiles.js returns nothing for that). It now requests pmtiles://…/{z}/{x}/{y} exactly as MapLibre does."
 	},
 	"adding-3d-models-using-threejs-on-terrain": {
 		"ja": "直した：queryTerrainElevation（同期＝標高のメモ）。残り＝基図の色（地形の上の模型の位置は標高のメモが届いた後に決まる）。",
@@ -78,7 +78,7 @@
 	},
 	"add-a-raster-tile-source": {
 		"ja": "低ズームの球とメルカトルの見え方の差（本物は画面いっぱいのメルカトル・こちらは小さな球）＝意図した違い。地の色は白に揃えた。",
-		"en": "At low zoom a globe and a Mercator map look different by design (MapLibre fills the screen with Mercator; ortho shows a small globe). The ground color is white on both."
+		"en": "At low zoom a globe and a Mercator map look different by design (MapLibre fills the screen with Mercator; ortho-earth shows a small globe). The ground color is white on both."
 	},
 	"render-world-copies": {
 		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。",
@@ -126,6 +126,6 @@
 	},
 	"add-a-cog-raster-source": {
 		"ja": "maplibre-cog-protocol の tile は addLayer の型紙の形と合わない（Request failed）＝COG はこちらの geopbf の cog で読む道が別にある。",
-		"en": "Tiles from maplibre-cog-protocol do not fit ortho's addLayer URL templates (Request failed). ortho reads COGs through its own geopbf cog reader instead."
+		"en": "Tiles from maplibre-cog-protocol do not fit ortho-earth's addLayer URL templates (Request failed). ortho-earth reads COGs through its own geopbf cog reader instead."
 	}
 }

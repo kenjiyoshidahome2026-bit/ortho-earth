@@ -48,6 +48,7 @@ www のデモ一覧（`demos.json`・21 枚・入口 HTML 17 頁）を横並び�
 | /globe/（equal 入口） | 26 | — | — | — | — | console のみ（script は PR #218 の持ち物＝head だけ直した） | verify:prod | ✓ |
 | /globe/physical | 26 | select（頁） | ✓ | ✓ | URL | ✓ | verify:prod | ✓ |
 | /globe/parks | 26 | select（頁） | ✓ | ✓ | URL | ✓ | — | ✓（2026-10-07・/japan/parks と同型＝器ごと startPage） |
+| /globe/clock | 26 | gadget | ✓ | ✓ | URL | ✓ | t-clock（時刻の芯・node） | ✓（2026-10-14・issue #309・共有画像とサムネイルは器（SwiftShader）で撮った仮＝deploy の後に撮り直す） |
 | /globe/quakes・sats・clouds | 26 | gadget | ✓ | ✓ | URL | ✓ | verify:prod | ✓ |
 | /world/ | 26 | 自前 | — | — | URL | 文言あり | verify:prod | ✓ |
 | /equal/ | 26 | select（パネル） | — | — | URL | トースト（WebGL2 無し） | — | ✓ |
