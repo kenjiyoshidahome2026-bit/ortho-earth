@@ -286,6 +286,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		return new Promise(resolve => {
 			const sphere = !from && morph?.sphere ? morph.sphere : { lat: from?.lat ?? view.lat, zoom: from?.zoom ?? view.zoom, dlon: from?.lon != null ? wrapLon(from.lon - view.lon) : 0 };   // from.lon＝球の中心が地図の中心と違う（japan の「この地点を中心に」）
 			morph?.resolve?.();
+			entry = { lat: sphere.lat, zoom: sphere.zoom, vlat: view.lat, vzoom: view.zoom };   // 開いた時の球と地図＝畳む時は差分だけ運ぶ（下の morphOut）
 			morph = { dir: 1, phase: "morph", t0: performance.now(), hold, sphere, resolve };
 			fadeTop("0"); hoverFid = -1; setTip(null);
 			syncGlobeBtn(); emit("morph", 1); requestDraw();
@@ -294,9 +295,20 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// 球の中心経度＝地図の中心経度＋dlon（「この地点を球体へ」＝地図は動かさず、その地点が画面中心へ集まりながら球に畳まれる）。
 	// 球のまま横ドラッグすると view.lon が動く＝球も回る（dlon は保つ）
 	const sphereLon = () => wrapLon(view.lon + (morph?.sphere?.dlon || 0));
-	function morphOut(to) {   // Equal Earth から球のフレームへ畳む。畳み終えたら park（球のまま）。to＝球の視点 { lon, lat, zoom }（省略＝今の view・倍率は維持）
+	// 球から開いた時の視点（entry）＝{ lat, zoom（球）, vlat, vzoom（その時の地図＝clamp 後）}。地図は「余白を出さない」clamp で緯度・倍率が動く
+	//（縦長の画面＝スマホは球の距離だと中心緯度が 0 に寄せられる）＝畳む時に今の view をそのまま球へ渡すと、触っていなくても球が赤道へ跳ぶ。
+	// 畳む先は「開いた時の球＋地図で動かした分」＝見ていただけなら元の球へ戻る（2026-10-14・スマホで japan への戻りがずれる件）
+	let entry = null;
+	const backTarget = () => !entry ? null : {
+		lon: view.lon,
+		lat: Math.max(-89, Math.min(89, entry.lat + (view.lat - entry.vlat))),
+		zoom: entry.zoom + (view.zoom - entry.vzoom),
+	};
+	function morphOut(to) {   // Equal Earth から球のフレームへ畳む。畳み終えたら park（球のまま）。to＝球の視点 { lon, lat, zoom }（省略＝開いた時の球＋地図で動かした分・無ければ今の view）
 		return new Promise(resolve => {
 			if (morph?.phase === "park" && !to) return resolve();
+			const bt = backTarget();
+			if (!to) to = bt; else if (to.zoom == null && bt) to = { ...to, zoom: bt.zoom };   // 「この地点を球体へ」も倍率は開いた時の球から
 			morph?.resolve?.();
 			const dlon = to?.lon != null ? wrapLon(to.lon - view.lon) : 0;
 			morph = { dir: -1, phase: "veil", t0: performance.now(), hold: false, sphere: { lat: to?.lat ?? view.lat, zoom: to?.zoom ?? view.zoom, dlon }, resolve };
@@ -893,8 +905,20 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		} else grab = null;
 		dragging = ps.length > 0;
 	}
-	canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); tapStart = [e.clientX, e.clientY, performance.now()]; coarseTip = false; });
+	// 長押し（指）＝右クリックと同じメニュー（「この地点を球体へ」）。iOS Safari は長押しで contextmenu を出さない＝自前で数える（Android は両方来るが同じ所に開くだけ）
+	const LONG_PRESS_MS = 550;
+	let pressT = 0;
+	const cancelPress = () => { clearTimeout(pressT); pressT = 0; };
+	canvas.addEventListener("pointerdown", e => {
+		canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); tapStart = [e.clientX, e.clientY, performance.now()]; coarseTip = false;
+		cancelPress();
+		if (e.pointerType === "touch" && pointers.size === 1) {
+			const p0 = local(e);
+			pressT = setTimeout(() => { pressT = 0; if (pointers.size !== 1) return; pointers.clear(); regrab(); openMenu(p0.cx, p0.cy); }, LONG_PRESS_MS);   // 掴みを放す＝指を離すまでドラッグしない
+		}
+	});
 	canvas.addEventListener("pointermove", e => {
+		if (pressT && tapStart && Math.hypot(e.clientX - tapStart[0], e.clientY - tapStart[1]) >= 8) cancelPress();   // 動かした＝ドラッグ（長押しではない）
 		pointer = local(e); pos.style.display = "block";
 		if (!pointers.has(e.pointerId)) { if (raf) hoverDirty = true; else identify(); return; }   // 描画待ちなら描いた後に・そうでなければ今の ID バッファで
 		pointers.set(e.pointerId, pointer);
@@ -908,6 +932,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		}
 	});
 	const release = e => {
+		cancelPress();
 		const tap = e.pointerType === "touch" && pointers.size === 1 && tapStart && Math.hypot(e.clientX - tapStart[0], e.clientY - tapStart[1]) < 8 && performance.now() - tapStart[2] < 400;
 		pointers.delete(e.pointerId); regrab();
 		if (tap) { pointer = local(e); coarseTip = true; }   // タップ＝指の下の国を識別して吹き出し（ホバーの代わり・指の上に出す）
