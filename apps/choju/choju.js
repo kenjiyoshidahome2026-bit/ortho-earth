@@ -8,7 +8,7 @@
 //
 // 表現の決め事
 //   色   … 獣種で色分け（イノシシ・シカが大半＝この 2 つを強い色に）
-//   大分類 … 利用区分をジビエ（施設搬入・食肉利用・ジビエ用アプリ）／捕獲のみ（廃棄）／不明に束ねる。色分けを獣種⇄大分類で切り替えられる
+//   大分類 … 利用区分をジビエ（施設搬入・食肉利用・ジビエ用アプリ）／捕獲（廃棄・処分方法が未記入）の 2 つに束ねる。色分けを獣種⇄大分類で切り替えられる
 //   絞り … 獣種・利用区分・捕獲日（から／まで）・市区町村（セレクタ＝選ぶとそこへ飛ぶ・内訳を出す）。?m=市区町村コード で共有できる
 //   案内 … ホバーの札と詳細に受付番号・捕獲者 ID（CSV にあれば）
 //   座標 … 捕獲地点の無い記録は送信位置・補完住所の座標（座標の出所）＝点を白抜きにする
@@ -18,11 +18,10 @@ const SP = ["イノシシ", "シカ", "サル", "タヌキ", "アナグマ", "�
 const SP_COLORS = ["#b4532a", "#2f6b55", "#7a5aa6", "#8a7a3a", "#3f7fb0", "#c0457a", "#d08a1a", "#5a8a2a", "#4a4f57", "#9a9a9a"];
 const CLS = ["ジビエ（施設搬入）", "食肉利用（自家消費など）", "廃棄（埋設・焼却）", "ジビエ用アプリで登録", "不明（処分方法が未記入）"];
 const SRC = ["捕獲地点", "送信位置", "補完住所"];
-// 大分類＝利用区分を「ジビエ（食肉として利用）」と「捕獲のみ（被害対策で捕って廃棄）」に束ねる。処分方法の無い記録は「不明」
+// 大分類＝利用区分を「ジビエ（食肉として利用）」と「捕獲（被害対策で捕って廃棄）」の 2 つに束ねる。処分方法の無い記録は捕獲に入れる（本人裁定 2026-10-14）
 export const GROUPS = [
 	{ name: "ジビエ（食肉利用）", ks: [0, 1, 3], color: "#c0702a" },
-	{ name: "捕獲のみ（廃棄）", ks: [2], color: "#3f6fa8" },
-	{ name: "不明", ks: [4], color: "#9aa3ad" },
+	{ name: "捕獲（廃棄・不明）", ks: [2, 4], color: "#3f6fa8" },
 ];
 export const groupOf = k => GROUPS.findIndex(g => g.ks.includes(k));
 const SEL = "#d7263d";
@@ -133,7 +132,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 			<label class="msel"><span>市区町村</span><select class="muni"><option value="">すべての市区町村</option>${prefs.map(p => `<optgroup label="${esc(p)}">${munis.filter(m => m.pref === p).map(m => `<option value="${m.code}">${esc(m.name.replace(p, "") || m.name)}（${fmt(recs.filter(d => d.code === m.code).length)}）</option>`).join("")}</optgroup>`).join("")}</select></label>
 			<p class="total"><b></b> 件を表示中</p>
 			<div class="detail" hidden></div>
-			<label class="msel"><span>色分け</span><select class="cmode"><option value="sp">獣種</option><option value="g">大分類（ジビエ／捕獲のみ）</option></select></label>
+			<label class="msel"><span>色分け</span><select class="cmode"><option value="sp">獣種</option><option value="g">大分類（ジビエ／捕獲）</option></select></label>
 			<h2>獣種</h2>
 			${SP.map((s, i) => `<label class="grp"><input type="checkbox" data-s="${i}" checked><span class="sw" style="background:${SP_COLORS[i]}"></span>${esc(s)}<small data-ns="${i}"></small></label>`).join("")}
 			<div class="all"><button type="button" data-all="1">すべて</button><button type="button" data-all="0">なし</button></div>
