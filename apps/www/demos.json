@@ -234,7 +234,8 @@
 			"img": "/thumbs/himekuri.webp",
 			"shot": {
 				"url": "/himekuri/?d=2026-10-08&lat=35.6812&lon=139.7671&alt=3",
-				"wait": 6
+				"wait": 6,
+				"scheme": "dark"
 			}
 		},
 		{
