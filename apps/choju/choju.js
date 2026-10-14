@@ -208,8 +208,10 @@ export async function mountChoju(map, { base = "./" } = {}) {
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝onsen と同じ）──
 const CSS = `
+/* 黒地・白文字（本人指摘 2026-10-14）＝共通の qm 色をこの板の中だけ白系に差し替える */
+.cj-panel{--qm-ink:#fff;--qm-text:#f1f3f6;--qm-text-dim:rgba(255,255,255,.72);--qm-text-faint:rgba(255,255,255,.5);--qm-border-soft:rgba(255,255,255,.22);color-scheme:dark}
 .cj-panel{position:absolute;top:12px;right:12px;z-index:30;width:300px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
+	padding:12px 14px;border-radius:var(--qm-r-l);background:rgba(10,12,16,.9);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
 	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
 .cj-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .cj-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink)}
@@ -217,13 +219,13 @@ const CSS = `
 .cj-panel.min .body{display:none}
 .cj-panel .span{margin:2px 0 8px;color:var(--qm-text-dim);font-size:12px}
 .cj-panel .msel{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--qm-text-dim)}
-.cj-panel select,.cj-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);padding:5px 6px;min-width:0}
+.cj-panel select,.cj-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
 .cj-panel .total{margin:10px 0 4px;color:var(--qm-text-dim)}
 .cj-panel .total b{font-size:20px;color:var(--qm-ink);font-variant-numeric:tabular-nums}
 .cj-panel h2{font-size:12px;margin:10px 0 2px;color:var(--qm-text-dim);font-weight:600}
 .cj-panel .grp{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
 .cj-panel .grp small{margin-left:auto;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
-.cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%}
+.cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.35)}
 .cj-panel .grp.top b{font-weight:600;color:var(--qm-ink)}
 .cj-panel .grp.sub{padding-left:20px;font-size:12.5px}
 .cj-panel .msel + h2,.cj-panel .msel{margin-top:8px}
@@ -232,7 +234,7 @@ const CSS = `
 .cj-panel .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .cj-panel .dates label{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--qm-text-dim)}
 .cj-panel .note{color:var(--qm-text-dim);font-size:12px;margin:10px 0 0}
-.cj-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(43,59,87,.04);border:1px solid var(--qm-border-soft)}
+.cj-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
 .cj-panel .dh{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
 .cj-panel .dh .sw{margin-top:4px}
 .cj-panel .dh > div{flex:1;min-width:0}
