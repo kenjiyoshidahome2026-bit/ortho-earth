@@ -4,7 +4,7 @@
    equal 固有の規則は .eq で囲い、持ち主の家具（.qm-panel・#pos・容れ物の container-type）へ漏らさない */
 .eq { color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
 .eq > #c, .eq > #labels { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.eq > #c { touch-action: none; cursor: grab; }
+.eq > #c { touch-action: none; cursor: grab; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }   /* 長押し＝自前のメニュー（iOS の吹き出し・選択を出さない） */
 .eq > #c:active { cursor: grabbing; }
 .eq > #labels { pointer-events: none; }
 /* 持ち主のボタン（addButton＝戻る など）＝#gadgets の縦並びの末尾・計器と同じ ui-dark の下地 */
