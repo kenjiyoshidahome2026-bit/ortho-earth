@@ -1,5 +1,5 @@
 // H3 のセルごとの人口（Kontur Population）の置き形＝「セルの id と人口」だけの小さな二進（/globe/hex・issue #310・2026-10-14）。
-// 書く側＝uploader（apps/uploader/src/population/kontur.js：Kontur の gpkg を読んで bucket GIS/h3/kontur-<日付>/ へ置く）・読む側＝hex.js。
+// 書く側＝scripts/kontur-h3.mjs（Kontur の gpkg を読んで焼く→ GitHub Pages の ortho-data/globe/h3/kontur-<日付>/ へ）・読む側＝hex.js。
 // DOM・地図無し＝node の検定（tests/t-hex-pop.mjs）が直接読む。
 //
 // 形（little endian）：
@@ -69,7 +69,7 @@ export function sumToParent(cells, pop, res) {
 	return out;
 }
 
-// 入った物が gzip のままでも読む（bucket は gzip で置く＝配り方によっては Content-Encoding が付かずに来る）
+// 入った物が gzip のままでも読む（Pages には gzip のまま置く＝Content-Encoding が付かずに来る。?data= の配り手が解いて送っても読める）
 export async function bytesOf(res) {
 	const u8 = new Uint8Array(await res.arrayBuffer());
 	if (u8[0] !== 0x1f || u8[1] !== 0x8b) return u8;

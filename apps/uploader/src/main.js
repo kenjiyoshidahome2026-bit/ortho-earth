@@ -7,7 +7,6 @@
 //   poi/           POI 台帳（schema.js は ortho-japan の検定と共用＝動かさない）
 //   world/         国別 DB（自前の節を持つ）
 //   models.js      名所 3D 模型（自前の節を持つ）
-//   population/   Kontur の人口（H3）→ /globe/hex
 //   shared-data.js gishub-jp・census2020 の共有データ（manifest のキー）
 //   lib/           共通の手順（bakeEach）と画像変換
 // ボタンを足す時は MENU に一行（と、中身は分野のモジュールへ）。
@@ -28,7 +27,6 @@ import { worldAtlas } from "./terrain/worldatlas.js";
 import { worldUI } from "./world/index.js";
 import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
 import { sharedData } from "./shared-data.js";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
-import { konturR4, konturR6 } from "./population/kontur.js";   // Kontur の人口（H3 のセル）→ GIS/h3（/globe/hex）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -68,10 +66,6 @@ const MENU = [
 		["KSJ 鉄道/高速道路 (N02/N06)", japan.ksj],
 		["国立公園 (環境省 nps_all)", japan.nps],
 		["行政区域 (N03 admin_all)", japan.admin],
-	]],
-	["人口（H3）", [
-		["Kontur population r4（全球・22 km）", konturR4],
-		["Kontur population r6（地域ごと・3 km）", konturR6],
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],
