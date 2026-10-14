@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equal Earth 図法を GPU で描く — 動かせる世界図</title>
+<meta name="description" content="Ortho Earth が Equal Earth の世界図を WebGPU と WebGL2 で描く仕組み：図法はシェーダの中・中央経線は視点に付いてくる・3D の地球儀から変形して開く。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/equal-earth-jp.html">
+<meta property="og:title" content="Equal Earth 図法を GPU で描く — 動かせる世界図">
+<meta property="og:description" content="図法はシェーダの中・中央経線は視点に付いてくる・3D の地球儀から変形して開く。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/equal-earth-jp.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">Equal Earth</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium-jp.html">CesiumJS から</a>
+		<a href="from-maplibre-jp.html">MapLibre から</a>
+		<span class="nav-cur">Equal Earth</span>
+		<a href="equal-earth.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Equal Earth 図法を GPU で描く</h1>
+<p class="lead">Equal Earth 図法の、動かせる世界図<br>
+<span style="font-size:0.85em">
+正積 &middot; WebGPU、無ければ WebGL2 &middot; 中央経線は視点に付いてくる &middot; 地球儀からの変形
+</span></p>
+
+<p>
+地球儀は一度に地球の半分しか見せられません。地球全体を 1 枚に見せるため、Ortho Earth は
+<strong>Equal Earth</strong> 図法（Šavrič・Patterson・Jenny、2018）を使います。正積の擬円筒図法で、どの国も本当の大きさの比で描かれます。
+<a href="/equal/">/equal/</a> で試せます。地球儀を Equal Earth の側で開くなら <a href="/globe/?start=equal">/globe/?start=equal</a> です。
+</p>
+
+<h2 id="shader">1. 図法はシェーダの中</h2>
+
+<p>
+世界のデータ（Natural Earth 10m の国境・海岸線・湖・川・都市。Gint として読む）は、経緯度のまま一度だけ GPU へ送ります。
+図法そのものはシェーダの中にあり、頂点の段が毎フレーム各点を Equal Earth の座標へ写します。
+CPU で同じ式を使うのはカメラ（中心・ポインタの下の錨・縮小の下限）だけです。
+</p>
+
+<pre><code><span class="cm">// Equal Earth（単位球）。θ＝パラメトリック緯度、Δλ＝経度 − 中央経線</span>
+sin θ = (√3 / 2) · sin φ
+y  = θ · (A1 + A2·θ² + θ⁶·(A3 + A4·θ²))
+x  = Δλ · cos θ / ((√3 / 2) · (A1 + 3·A2·θ² + θ⁶·(7·A3 + 9·A4·θ²)))
+<span class="cm">// A1 = 1.340264, A2 = −0.081106, A3 = 0.000893, A4 = 0.003796</span></code></pre>
+
+<p>
+2 つの描き手は同じ絵を描きます。既定は WebGPU、WebGPU が無ければ WebGL2 で、実機の GPU で互いに見比べています。
+</p>
+
+<h2 id="meridian">2. 中央経線は視点に付いてくる</h2>
+
+<p>
+中央経線は、いつも画面の中心の経度です。経度は中心からの差 Δλ としてしか図法に入らないので、横にスクロールすると新しい中心のまわりで描き直されます。
+東へも西へも継ぎ目なく続き、見ている場所がいつも歪みの一番小さい所になります。縮小やスクロールで、地図の外形の外の余白は見せません。
+</p>
+
+<h2 id="morph">3. 地球儀から変形して開く</h2>
+
+<p>
+地球儀の頁では、Equal Earth の世界図は今見ている地球儀から開きます。最初の 1 枚は同じカメラの同じ球で、画素まで一致させています。
+そこから球が 1 秒あまりで Equal Earth の 1 枚へ開き、地図のデータはその動きの裏で読まれます。
+地球儀の上で右クリックすると、その地点を中心に世界図を開けます。戻る時は、世界図が今の視点の地球儀へ畳まれます。
+どちらも同じ頁の中で 1 つのエンジンを分け合うので、二度読みはしません。
+</p>
+
+<h2 id="data">4. 地図に載るもの</h2>
+
+<ul>
+	<li>国名と都市名は 26 言語。</li>
+	<li>世界の台帳からの階級区分図、または国で結び付けた自分の CSV。</li>
+	<li>地形（GEBCO）と気候（ケッペン）の層。</li>
+</ul>
+
+<p>
+他の道具から来た人は <a href="from-maplibre-jp.html">MapLibre GL JS のコードを 3D の球へ</a> と <a href="from-cesium-jp.html">CesiumJS から来た人へ</a> も見てください。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	ortho-equal · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
