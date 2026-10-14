@@ -9,7 +9,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"test": "node tests/t-choju.mjs",
-		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {

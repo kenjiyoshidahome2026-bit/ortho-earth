@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
+import { engineStale } from "../../packages/globe/scripts/lib/engine-stale.mjs";
 
 // 共有エンジンの 5 本目の入口 maplibre.js（MapLibre GL JS 互換の口・www の /maplibre/ が import map で指す）を**別に**焼く（2026-10-01）。
 // 本体の lib ビルド（vite.engine.config.js）の入口に足すと、本体が globe.js から共有チャンク assets/globe-*.js へ移り、
@@ -19,7 +20,7 @@ const toEngineEntry = {
 };
 export default defineConfig({
 	root: import.meta.dirname,
-	plugins: [toEngineEntry],
+	plugins: [toEngineEntry, engineStale()],
 	publicDir: false,
 	build: {
 		outDir: "dist/engine/_build",

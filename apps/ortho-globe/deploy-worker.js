@@ -30,7 +30,8 @@ export default {
 		const h = new Headers(res.headers);
 		for (const [k, v] of Object.entries(COI)) h.set(k, v);
 		const m = res.ok && url.pathname.match(ENGINE);
-		if (m) h.set("Cache-Control", ENTRY.test(m[2]) ? "no-cache" : "public, max-age=31536000, immutable");   // 入口＝再検証（旧版になったら 302 へ乗る）・チャンク＝版の中身は変わらない
+		if (m) h.set("Cache-Control", ENTRY.test(m[2]) ? "no-cache" : "public, max-age=31536000, immutable");
+		if (url.pathname === "/globe/engine/current.json") h.set("Cache-Control", "no-cache");   // 今の版の札＝エンジンの「古い版を握ったまま」の確かめ（engine-stale.mjs）が読む＝常に再検証   // 入口＝再検証（旧版になったら 302 へ乗る）・チャンク＝版の中身は変わらない
 		return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 	},
 };

@@ -70,6 +70,10 @@ self.addEventListener("fetch", e => {
 		return;
 	}
 
+	// ⓪" 共有エンジンの今の版の札（/globe/engine/current.json）＝掴まない（素通し）。エンジンが「旧版を握ったままか」を確かめる時に読む
+	//     （packages/globe/scripts/lib/engine-stale.mjs・2026-10-14）＝下の ① の cache-first に入ると古い札を返し続けて確かめが効かない
+	if (url.pathname === "/globe/engine/current.json") return;
+
 	// ① ハッシュ名の不変資産＝cache-first（掴んでいれば無通信、無ければ取って保存）。worker/wasm/css/lazyチャンクが全部ここ。
 	if (ASSETS.some(p => url.pathname.startsWith(p))) {
 		e.respondWith((async () => {

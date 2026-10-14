@@ -1,7 +1,8 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { urlAsFile, wasmAsFile, assetUrlAsFile } from "../../packages/globe/scripts/lib/vite-lib-plugins.mjs";
-import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // 部品の worker を作らない版へ・MLT／点群のプラグイン（アプリ共通）
+import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";
+import { engineStale } from "../../packages/globe/scripts/lib/engine-stale.mjs";   // 旧版の入口を握ったままの頁が部品で 404 に落ちたら 1 回だけ読み直す（恒久対策 A・2026-10-14）   // 部品の worker を作らない版へ・MLT／点群のプラグイン（アプリ共通）
 const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EGM96 の格子と気候場の PNG を実体に（base64 で globe.js に埋めない）
 
 // 共有エンジン（縮小計画 項目 9・本人裁定 2026-09-30「アプリ間でエンジンのチャンクを共有」）＝@ortho-earth/globe を
@@ -18,7 +19,7 @@ const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EG
 const ROOT = resolve(import.meta.dirname, "../..");
 export default defineConfig({
 	root: import.meta.dirname,   // outDir はここ起点（どこから呼んでも apps/ortho-globe/dist/engine）
-	plugins: [urlAsFile, wasmAsFile, assetAsFile],
+	plugins: [urlAsFile, wasmAsFile, assetAsFile, engineStale()],
 	publicDir: false,
 	base: "./",   // worker・チャンクの URL を import.meta.url 起点に＝どこに置いても動く（japan の SDK と同じ・/ だと worker がドメイン直下を指す）
 	build: {
