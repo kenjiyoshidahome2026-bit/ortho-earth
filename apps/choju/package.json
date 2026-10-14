@@ -1,0 +1,21 @@
+{
+	"name": "choju",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "鳥獣の捕獲記録を日本の 3D 地図に（獣種・利用区分・捕獲日・市区町村で絞る）。www のデモ一覧には載せない単独の頁",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"test": "node tests/t-choju.mjs",
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"dependencies": {
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"@ortho-earth/japan": "*"
+	}
+}
