@@ -11,6 +11,7 @@ import { loadMoj, mojSource, probeBucket } from "./moj.js";
 import { loadMaff, maffCode } from "./maff.js";
 import { escHtml } from "./ui/shared.js";
 import { DESIGNATED_CITIES } from "./jp/codes.js";
+import { cityClipper } from "./clip-city.js";   // 洪水浸水を区の境界で切り抜く（2026-10-14）
 
 const API = "https://api.ortho-earth.com";
 const HINAN_MAX = 1500;                        // 市区町村 bbox 内マーカー上限（DOM 予算）
@@ -195,14 +196,16 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (!raw) return null;
 		// ②生KSJ props(A33_002区分/A33_001現象)→{kbn,gensho} へ写像し kbn/gensho で束ねて fid を1桁に（gint idfill fid≤2047）。
 		const zoneHitsCity = makeCityClip(code);
+		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;   // 浸水と同じく区の境界で切り抜く（2026-10-14）
 		const groups = new Map();
 		for (const f of raw) {
-			const comps = compsOf(f.geometry ?? {});
-			if (!comps.length || !zoneHitsCity(comps)) continue;   // 境界クリップ（少しでも市にかかる区域だけ・feature 単位で丸ごと）
+			let comps = compsOf(f.geometry ?? {});
+			comps = cut ? comps.flatMap(cut) : zoneHitsCity(comps) ? comps : [];   // 区の境界で切った切れ端（市ポリゴン無し＝少しでも市にかかれば feature 単位で丸ごと）
+			if (!comps.length) continue;
 			const kbn = +f.properties?.A33_002 === 2 ? 2 : 1, gensho = A33_GENSHO[+f.properties?.A33_001] ?? "";
 			const k = `${kbn}/${gensho}`;
 			if (!groups.has(k)) groups.set(k, { props: { _src: "a33", kbn, gensho }, comps: [] });
-			groups.get(k).comps.push(...comps);
+			for (const q of comps) groups.get(k).comps.push(q);
 		}
 		return groupsToFeats(groups);
 	}
@@ -254,6 +257,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m));
 		if (!targets.length) { if (mode === "plan") say("この市区町村の計画規模データは未整備です"); return null; }
 		const zoneHitsCity = makeCityClip(code);
+		// 区の境界で切り抜く（本人裁定 2026-10-14「境界で切る」）＝A31b は区域が大きな面にまとまっていて、丸ごと採ると区外まで塗れた。
+		// 市ポリゴンが無い時だけ従来の「少しでもかかれば丸ごと」
+		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;
 		const groups = new Map();
 		const N = targets.length;
 		for (let mi = 0; mi < N; mi++) {
@@ -277,9 +283,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 				const k = `r${rank}`;
 				let bkt = groups.get(k);
 				for (const poly of polys) {
-					if (!zoneHitsCity([poly])) continue;   // セル単位の市クリップ（外周頂点が1つでも市内→採用）
+					const parts = cut ? cut(poly) : zoneHitsCity([poly]) ? [poly] : [];   // 区の境界で切った切れ端（市ポリゴン無し＝外周頂点が1つでも市内→丸ごと）
+					if (!parts.length) continue;
 					if (!bkt) { bkt = { props: { _src: "a31", mode, rank, depth: A31_DEPTH[rank] ?? "" }, comps: [] }; groups.set(k, bkt); }
-					bkt.comps.push(poly);   // 単一push＝スプレッド無し
+					for (const q of parts) bkt.comps.push(q);   // 単一push＝スプレッド無し
 				}
 			}
 		}
