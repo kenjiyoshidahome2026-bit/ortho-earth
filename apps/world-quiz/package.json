@@ -12,7 +12,7 @@
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"test": "node tests/t-quiz.mjs && node tests/t-progress.mjs && node scripts/verify-i18n.mjs",
-		"deploy": "npm run build && wrangler deploy"
+		"deploy": "npm run build && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy"
 	},
 	"devDependencies": {
 		"@ortho-earth/core": "*",
