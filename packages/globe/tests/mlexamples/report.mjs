@@ -83,6 +83,9 @@ export const toOrthoForm = src => src
 	.replace(/(['"])\.\.\/\.\.\/dist\/maplibre-gl\.css\1/g, "\"https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css\"");
 // 走らせる頁＝ortho の形の本文に import map を 1 つ差すだけ（bare の "@ortho-earth/globe/maplibre" → 共有エンジンの maplibre 入口）
 export const runnableForm = (src, engineUrl) => toOrthoForm(src).replace(/<head([^>]*)>/i, (m) => `${m}\n<script type="importmap">{"imports":{"@ortho-earth/globe/maplibre":${JSON.stringify(engineUrl)}}}</script>`);
+// 公開の頁の head（www のデモ一覧に載る頁の作法＝apps/www/tests/t-demo-pages.mjs・2026-10-14 本人「このページも一つのアプリとして www に」）
+const PUBLISH_DESC = "All 139 official MapLibre GL JS examples, run unchanged on the ortho-earth globe, with how closely each one matches MapLibre.";
+const PUBLISH_HEAD = `<meta name="description" content="${PUBLISH_DESC}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/maplibre/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="MapLibre examples on ortho-earth"><meta property="og:description" content="${PUBLISH_DESC}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/maplibre.webp"><meta property="og:url" content="https://www.ortho-earth.com/maplibre/"><meta name="twitter:card" content="summary_large_image">`;
 export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "" }) {
 	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
@@ -100,7 +103,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sou
 <p class="meta"><button type="button" class="cat" data-cat="${esc(r.category || "")}" title="Show this category">${esc(r.category || "")}</button> ${pct}${note ? ` <span class="nt" title="Has a note">note</span>` : ""}</p>
 </div></article>`;
 	};
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre examples on ortho</title>
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre examples on ortho-earth</title>${publish ? PUBLISH_HEAD : ""}
 <style>
 :root{--bg:#f7f7f5;--fg:#17170f;--muted:#6f6e68;--card:#ffffff;--line:#e6e5e0;--acc:#d99a2b;--code:#f1f0ec;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -12px rgba(0,0,0,.18)}
 @media (prefers-color-scheme:dark){:root{--bg:#121211;--fg:#eeede8;--muted:#9c9b94;--card:#1c1c1a;--line:#2d2d2a;--code:#161615;--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.7)}}
@@ -130,15 +133,15 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 .hw{margin:12px 18px 0;font-size:13px;line-height:1.55;color:var(--muted)} .hw p{margin:0} .hw p+p{margin-top:4px} .hw code{font-size:12px;background:var(--code);padding:1px 5px;border-radius:4px} .hw a{color:inherit}
 pre{margin:12px 0 0;padding:16px 18px 20px;background:var(--code);font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;tab-size:4;white-space:pre}
 </style></head><body><main>
-<header class="top">${publish ? `<p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a></p>` : ""}<h1>MapLibre GL JS examples, on ortho</h1>
-<p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho globe engine through its MapLibre-compatible API. Each card shows ortho's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Click a card for the example's source in its ortho form — run it here, copy it, or download it.</p>
-<p><b>Sorry — Mercator cannot be displayed here.</b> ortho always draws the globe (orthographic) and has no flat Mercator view, so examples that fill the screen with a world map at low zoom look different by design; the notes say so where it matters.</p></header>
+<header class="top">${publish ? `<p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a></p>` : ""}<h1>MapLibre GL JS examples, on ortho-earth</h1>
+<p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho-earth globe engine through its MapLibre-compatible API. Each card shows ortho-earth's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Click a card for the example's source in its ortho-earth form — run it here, copy it, or download it.</p>
+<p><b>Sorry — Mercator cannot be displayed here.</b> ortho-earth always draws the globe (orthographic) and has no flat Mercator view, so examples that fill the screen with a world map at low zoom look different by design; the notes say so where it matters.</p></header>
 <nav><button data-f="all" class="on">All</button><button data-f="note">With notes</button><span class="count" id="count"></span><span class="sp"></span>
 <select id="cat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
-<footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see the attribution inside each example.<br>
+<footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho-earth is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see the attribution inside each example.<br>
 Match % = level-2 checks passed (unsupported ops, engine errors, layer list, query answers, markers, popups, camera) weighted 40%, plus sampled-pixel agreement with MapLibre weighted 60% when both sides settled (animated examples: checks only). Hover the number for the counts.<br>
-${publish ? `Pictures and match numbers: ortho engine${engine ? ` (@ortho-earth/globe ${esc(engine)})` : ""} captured ${esc(when.slice(0, 10))} against MapLibre GL JS 6.11.2, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.` : `Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).`}</footer>
+${publish ? `Pictures and match numbers: ortho-earth engine${engine ? ` (@ortho-earth/globe ${esc(engine)})` : ""} captured ${esc(when.slice(0, 10))} against MapLibre GL JS 6.11.2, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.` : `Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).`}</footer>
 </main>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><button type="button" id="run" title="Run this example here">Run</button><button type="button" id="cp">Copy</button><button type="button" id="dl">Download</button><button type="button" id="cl">Close</button></div>
 <div class="fr" id="fr" hidden></div>
