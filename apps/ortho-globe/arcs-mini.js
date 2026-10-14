@@ -1,11 +1,10 @@
 // 弧の頁（arcs.html）の右下の小さなメルカトル図（本人 2026-10-12「右下に globe ではなく mercator の小さな地図を置き、表示されている領域・選択されている路線を表示すると違いがわかって面白い」）。
 // 球の上で真っすぐな大円は、ここでは曲がって見える。等角航路はここで真っすぐ＝同じ 2 点の 2 本の道の違いが一目で分かる。
-// 描くもの：陸（NE admin_0 50m＝エンジンが読むのと同じ geopbf・同じキャッシュ）・地球儀に今見えている所（画面の格子を逆投影して塗る）・頁が渡す線。
+// 描くもの：陸（NE admin_0 50m＝エンジンが読むのと同じ geopbf・同じキャッシュ）・地球儀に今見えている所（図の画素ごとに地球儀へ投影して塗る）・頁が渡す線。
 // 中心の経度は地球儀の中心に合わせて回す（見えている所が図の端で割れない）。緯度は ±80°まで。canvas 2D・依存は arcs-data.js だけ。
-import { mercY, wrap180 } from "./arcs-data.js";
+import { mercY, invMercY, wrap180 } from "./arcs-data.js";
 
 const LAT_MAX = 80, Y_MAX = mercY(LAT_MAX);
-const GX = 36, GY = 24;   // 見えている所の格子（画面を GX×GY に割って逆投影）
 
 export function createMini(map, { host, label = "Mercator", hideLabel = "Hide map", showLabel = "Show map" } = {}) {
 	const el = document.createElement("div");
@@ -14,7 +13,7 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 	(host || map.mapEl).appendChild(el);
 	const cv = el.querySelector("canvas"), ctx = cv.getContext("2d"), cap = el.querySelector(".cap"), tog = el.querySelector(".tog");
 	cap.textContent = label;
-	const setOpen = on => { el.classList.toggle("min", !on); tog.textContent = on ? "−" : "＋"; tog.setAttribute("aria-expanded", on); tog.setAttribute("aria-label", on ? hideLabel : showLabel); if (on) draw(); };
+	const setOpen = on => { el.classList.toggle("min", !on); tog.textContent = on ? "−" : "＋"; tog.setAttribute("aria-expanded", on); tog.setAttribute("aria-label", on ? hideLabel : showLabel); if (on) { footKey = ""; draw(); schedule(); } };
 	tog.addEventListener("click", () => setOpen(el.classList.contains("min")));
 
 	let W = 0, H = 0, dpr = 1, land = null, landStrip = null, lines = [], marks = [], foot = null, footKey = "", centerLon = 0;
@@ -38,41 +37,27 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		g.fill("evenodd");
 		landStrip = c;
 	};
-	// 地球儀に今見えている所。引いている時＝経緯度の格子（STEP 度）の升の中心を投影し、手前の半球で画面の中にある升を塗る。
-	// 寄っている時（当たる升が少ない）＝画面の格子を逆投影し、4 隅が全部地球に当たる升をメルカトルの四辺形にして塗る
-	const STEP = 3;
+	// 地球儀に今見えている所＝図の画素ごとに逆メルカトル → 地球儀へ投影し、手前の半球で画面の中に落ちる画素を塗る（縁が滑らか・寄っても引いても同じ作り）。
+	// 投影は地形を引かない版（makeProjectorH terrain:false＝海面の球）＝画素の数だけ呼んでも高さの取得が走らない。画素は多くて 12 万に抑える
+	const PIX_MAX = 120000;
 	const footprint = () => {
-		const mw = map.mapEl.clientWidth, mh = map.mapEl.clientHeight, prj = map.makeProjector(), cells = [];
-		for (let lat = -LAT_MAX; lat < LAT_MAX; lat += STEP) for (let lon = -180; lon < 180; lon += STEP) {
-			const p = prj(lon + STEP / 2, lat + STEP / 2);
-			if (p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh) cells.push(lon, lat);
-		}
-		if (cells.length >= 12) return { cells };
-		const ll = new Array((GX + 1) * (GY + 1));
-		for (let j = 0; j <= GY; j++) for (let i = 0; i <= GX; i++) { const p = map.unproject([i / GX * mw, j / GY * mh]); ll[j * (GX + 1) + i] = p ? [p.lng, p.lat] : null; }
-		return { ll };
-	};
-	const drawFoot = (g, F) => {
-		if (F.cells) {
-			const c = F.cells, w = STEP / 360 * W + 0.6;
-			for (let k = 0; k < c.length; k += 2) { const y0 = yOf(c[k + 1] + STEP), y1 = yOf(c[k + 1]); g.fillRect(xOf(c[k]) - 0.3, y0 - 0.3, w, y1 - y0 + 0.6); }
-			return;
-		}
-		const ll = F.ll;
-		const quad = (a, b, c, d) => {
-			const base = a[0], pts = [a, b, c, d].map(p => [base + wrap180(p[0] - base), p[1]]);   // 升の中は連続に（日付変更線）
-			for (const off of [-360, 0, 360]) {
-				g.beginPath();
-				pts.forEach((p, k) => { const x = (wrap180(pts[0][0] - centerLon) + (p[0] - pts[0][0]) + off) / 360 * W + W / 2, y = yOf(p[1]); k ? g.lineTo(x, y) : g.moveTo(x, y); });
-				g.closePath(); g.fill(); g.stroke();
+		const mw = map.mapEl.clientWidth, mh = map.mapEl.clientHeight;
+		const prj = map.makeProjectorH ? map.makeProjectorH({ terrain: false }) : map.makeProjector();
+		const s = Math.min(dpr, Math.sqrt(PIX_MAX / (W * H)));
+		const fw = Math.max(1, Math.round(W * s)), fh = Math.max(1, Math.round(H * s));
+		const img = new ImageData(fw, fh), d = img.data, lats = new Float64Array(fh);
+		for (let j = 0; j < fh; j++) lats[j] = invMercY(Y_MAX - (j + 0.5) / fh * 2 * Y_MAX);
+		for (let i = 0; i < fw; i++) {
+			const lon = wrap180(centerLon + ((i + 0.5) / fw - 0.5) * 360);
+			for (let j = 0; j < fh; j++) {
+				const p = prj(lon, lats[j], 0);
+				if (p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh) d[(j * fw + i) * 4 + 3] = 255;
 			}
-		};
-		for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
-			const a = ll[j * (GX + 1) + i], b = ll[j * (GX + 1) + i + 1], c = ll[(j + 1) * (GX + 1) + i + 1], d = ll[(j + 1) * (GX + 1) + i];
-			if (a && b && c && d) quad(a, b, c, d);
 		}
+		for (let k = 0; k < d.length; k += 4) d[k] = d[k + 1] = d[k + 2] = 255;
+		const c = document.createElement("canvas"); c.width = fw; c.height = fh; c.getContext("2d").putImageData(img, 0, 0);
+		return c;
 	};
-	const footCanvas = document.createElement("canvas");
 	const draw = () => {
 		if (el.classList.contains("min")) return;
 		if (!W || el.clientWidth !== W) resize();
@@ -86,13 +71,8 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		for (let lon = -180; lon < 180; lon += 30) { const x = Math.round(xOf(lon)) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, H); }
 		ctx.stroke();
 		if (landStrip) { const x0 = W / 2 - (centerLon + 180) / 360 * W; for (const o of [-W, 0, W]) ctx.drawImage(landStrip, x0 + o, 0, W, H); }
-		// 見えている所（重なりで濃くならないよう、別の canvas に不透明で塗ってから薄く重ねる）
-		if (foot) {
-			footCanvas.width = cv.width; footCanvas.height = cv.height;
-			const g = footCanvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = "#fff"; g.strokeStyle = "#fff"; g.lineWidth = 0.6; g.lineJoin = "round";
-			drawFoot(g, foot);
-			ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.22; ctx.drawImage(footCanvas, 0, 0); ctx.restore();
-		}
+		// 見えている所（図の中心の経度で焼いた画素の面を薄く重ねる）
+		if (foot) { ctx.save(); ctx.globalAlpha = 0.22; ctx.imageSmoothingEnabled = true; ctx.drawImage(foot, 0, 0, W, H); ctx.restore(); }
 		// 線（頁が渡す）＝経度は連続の点列。図の中心に寄せてから −W/0/+W の 3 回描く（日付変更線を跨いでも途切れない）
 		ctx.lineCap = "round"; ctx.lineJoin = "round";
 		for (const L of lines) {
@@ -117,7 +97,9 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		const go = () => {
 			pend = false; tm = performance.now();
 			const cm = map.cam, key = cm ? `${cm.center[0].toFixed(3)},${cm.center[1].toFixed(3)},${cm.zoom.toFixed(3)},${(cm.bearing || 0).toFixed(1)},${(cm.pitch || 0).toFixed(1)},${map.mapEl.clientWidth}x${map.mapEl.clientHeight}` : "";
-			if (key !== footKey) { footKey = key; foot = footprint(); draw(); }
+			if (el.classList.contains("min")) return;   // 畳んでいる間は数えない（開いた時に setOpen が数え直させる）
+			if (!W || el.clientWidth !== W) resize();
+			if (key !== footKey) { footKey = key; centerLon = map.getCenter().lng; foot = footprint(); draw(); }
 		};
 		const wait = Math.max(0, 80 - (performance.now() - tm));
 		wait ? setTimeout(go, wait) : requestAnimationFrame(go);
