@@ -153,6 +153,20 @@
 			}
 		},
 		{
+			"id": "arcs",
+			"href": "/globe/arcs",
+			"group": "earth",
+			"icon": "✈️",
+			"title": "The shortest way is an arc",
+			"lang": "26",
+			"desc": "On a globe the shortest way between two places is a great circle. Arcs from anywhere to every capital, 37,000 air routes, great circle vs rhumb line, and your own CSV.",
+			"img": "/thumbs/arcs.webp",
+			"shot": {
+				"url": "/globe/arcs?lang=en#1.9/20/140",
+				"wait": 16
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",
