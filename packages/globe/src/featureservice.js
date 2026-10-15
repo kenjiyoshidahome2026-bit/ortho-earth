@@ -11,7 +11,7 @@ import { openFeatureService, featureId, parseServiceUrl } from "geopbf/featurese
 
 export { parseServiceUrl };
 export const WHOLE_MAX = 50000;       // 丸ごと読む件数の上限（これを超えたら視野追従）
-export const VIEW_MAX = 100000;       // 視野追従で手元に置く地物の上限（超えたら遠い枡から捨てる）
+const VIEW_MAX = 100000;       // 視野追従で手元に置く地物の上限（超えたら遠い枡から捨てる）
 
 export const openService = (url, { fetch, signal } = {}) => openFeatureService(url, { fetch, signal });
 

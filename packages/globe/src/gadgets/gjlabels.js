@@ -12,7 +12,7 @@ const merc = (lon, lat) => { const s = Math.sin(Math.max(-85.05, Math.min(85.05,
 const tileBbox = (z, x, y) => { const n = 2 ** z, lat = v => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 
 // GeoJSON → 線の地物（LineString／MultiLineString だけ・点と面は捨てる＝MapLibre の line 配置と同じ）。parts＝世界メルカトル [0,1] の平らな列・bbox＝同じ単位
-export function gjLineFeatures(src) {
+function gjLineFeatures(src) {
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.type && src?.coordinates ? [{ type: "Feature", properties: {}, geometry: src }] : src?.features || [];
 	const out = [];
 	for (const f of feats) {
@@ -30,13 +30,6 @@ export function gjLineFeatures(src) {
 	}
 	return out;
 }
-
-// 層の symbol-placement が線か（文字列・式なら今のズームで評価＝地物の属性は見ない）
-export const isLinePlacement = (layer, zoom, evalExpr) => {
-	const p = layer.layout?.["symbol-placement"]; if (p == null) return false;
-	const v = typeof p === "string" ? p : evalExpr(p, { zoom, props: {}, geom: "LineString", vars: {}, origin: "ml" });
-	return v === "line" || v === "line-center";
-};
 
 // 呼び手の口：cam・size()＝{ w, h }（device px）・dpr・sendLabels(id, list|null, meta)（globe の vtdraw と同じ）
 export function createGJLabels(map, { cam, size, dpr = 1, sendLabels }) {

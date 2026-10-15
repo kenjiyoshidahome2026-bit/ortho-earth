@@ -32,7 +32,7 @@ export function m4affineInv(m) {
 	return Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0,
 		-(L[0]*tx + L[3]*ty + L[6]*tz), -(L[1]*tx + L[4]*ty + L[7]*tz), -(L[2]*tx + L[5]*ty + L[8]*tz), 1);
 }
-export const m4fromLT = (L, t) => Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0, t[0], t[1], t[2], 1);   // 3x3（列優先）＋平行移動 → 4x4
+const m4fromLT = (L, t) => Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0, t[0], t[1], t[2], 1);   // 3x3（列優先）＋平行移動 → 4x4
 
 // ── rig の抽出（worker・postProcessGLTF の後の gltf）─────────────────────────
 // loaders.gl の postProcessGLTF は nodes（children・mesh を実体へ）と accessors（value＝型付き配列）を解決するが animations は生のまま＝sampler の
