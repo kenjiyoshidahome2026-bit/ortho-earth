@@ -28,9 +28,9 @@ export default class Pbf {
 	writeFixed32(val: number): void; writeSFixed32(val: number): void; writeFixed64(val: number): void; writeSFixed64(val: number): void;
 	writeFloat(val: number): void; writeDouble(val: number): void; writeString(str: string): void; writeBytes(buffer: Uint8Array | ArrayLike<number>): void;
 	writeRawMessage<T>(fn: (obj: T, pbf: Pbf) => void, obj?: T): void; writeMessage<T>(tag: number, fn: (obj: T, pbf: Pbf) => void, obj?: T): void;
-	writePackedVarint(tag: number, arr: number[]): void; writePackedSVarint(tag: number, arr: number[]): void; writePackedBoolean(tag: number, arr: boolean[]): void;
-	writePackedFloat(tag: number, arr: number[]): void; writePackedDouble(tag: number, arr: number[]): void;
-	writePackedFixed32(tag: number, arr: number[]): void; writePackedSFixed32(tag: number, arr: number[]): void; writePackedFixed64(tag: number, arr: number[]): void; writePackedSFixed64(tag: number, arr: number[]): void;
+	writePackedVarint(tag: number, arr: ArrayLike<number>): void; writePackedSVarint(tag: number, arr: ArrayLike<number>): void; writePackedBoolean(tag: number, arr: boolean[]): void;
+	writePackedFloat(tag: number, arr: ArrayLike<number>): void; writePackedDouble(tag: number, arr: ArrayLike<number>): void;
+	writePackedFixed32(tag: number, arr: ArrayLike<number>): void; writePackedSFixed32(tag: number, arr: ArrayLike<number>): void; writePackedFixed64(tag: number, arr: ArrayLike<number>): void; writePackedSFixed64(tag: number, arr: ArrayLike<number>): void;
 	writeVarintField(tag: number, val: number): void; writeSVarintField(tag: number, val: number): void; writeBooleanField(tag: number, val: boolean): void;
 	writeStringField(tag: number, str: string): void; writeBytesField(tag: number, buffer: Uint8Array | ArrayLike<number>): void; writeFloatField(tag: number, val: number): void; writeDoubleField(tag: number, val: number): void;
 	writeFixed32Field(tag: number, val: number): void; writeSFixed32Field(tag: number, val: number): void; writeFixed64Field(tag: number, val: number): void; writeSFixed64Field(tag: number, val: number): void;

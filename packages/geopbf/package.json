@@ -147,11 +147,23 @@
 			"types": "./types/load.d.ts",
 			"default": "./src/modules/geojson-load.js"
 		},
-		"./gzip": "./src/modules/gzip.js",
-		"./encodeZIP": "./src/modules/encodeZIP.js",
+		"./gzip": {
+			"types": "./types/gzip.d.ts",
+			"default": "./src/modules/gzip.js"
+		},
+		"./encodeZIP": {
+			"types": "./types/encodeZIP.d.ts",
+			"default": "./src/modules/encodeZIP.js"
+		},
 		"./encodeXLSX": "./src/modules/encodeXLSX.js",
-		"./decodeZIP": "./src/modules/decodeZIP.js",
-		"./fname2mime": "./src/modules/fname2mime.js",
+		"./decodeZIP": {
+			"types": "./types/decodeZIP.d.ts",
+			"default": "./src/modules/decodeZIP.js"
+		},
+		"./fname2mime": {
+			"types": "./types/fname2mime.d.ts",
+			"default": "./src/modules/fname2mime.js"
+		},
 		"./internal/*": "./src/*"
 	},
 	"scripts": {
