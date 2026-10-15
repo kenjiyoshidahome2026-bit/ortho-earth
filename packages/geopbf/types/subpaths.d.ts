@@ -31,10 +31,6 @@ declare module "geopbf/leaflet-cog";
 declare module "geopbf/sanitize";
 declare module "geopbf/edit";
 declare module "geopbf/edit/*";
-declare module "geopbf/gzip";
-declare module "geopbf/encodeZIP";
 declare module "geopbf/encodeXLSX";
-declare module "geopbf/decodeZIP";
-declare module "geopbf/fname2mime";
 // src/* をそのまま指す口（monorepo の検定・焼きスクリプトが src の深い相対 import を書かないため・2026-10-15）。公開 API ではない＝予告なく変わる
 declare module "geopbf/internal/*";
