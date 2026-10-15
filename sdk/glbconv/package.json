@@ -4,16 +4,20 @@
 	"description": "GLB（glTF バイナリ）を他の 3D 形式へ変換する小さな道具。依存ゼロ・ブラウザと Node の両方で動く。Draco は注入口（decodeDraco）で受ける。",
 	"license": "MIT",
 	"type": "module",
-	"main": "src/index.js",
+	"main": "src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./zip": "./src/zip.js"
+		".": "./src/index.ts",
+		"./zip": "./src/zip.ts"
 	},
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/t-glbconv.mjs"
 	},
 	"files": [
 		"src",
+		"dist",
 		"README.md",
 		"LICENSE"
 	],
