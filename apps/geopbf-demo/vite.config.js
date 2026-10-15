@@ -5,9 +5,7 @@ import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs
 import { crossOriginIsolation, noChunkOptimization, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // 地球儀＝@ortho-earth/globe（地域なしのホスト）＝dev はソース直・build は共有エンジン（/globe/engine/<版>/・2026-09-30 に A 裁定を改めた）。
-// 実行時アセット（koppen-clim.png 等）は globe の家（apps/ortho-globe/public）：本番＝/globe/（ortho-globe の Worker が配る）・dev＝/@fs で直読み。
 const ROOT = resolve(import.meta.dirname, '../..');
-const GLOBE_PUBLIC = resolve(import.meta.dirname, '../ortho-globe/public');
 // noChunkOptimization＝rolldown（vite 8）の決まり（2026-09-25・理由は vite-app.mjs）。worker は別ビルド＝build と worker の両方に要る。
 
 export default defineConfig(({ command }) => ({
@@ -17,7 +15,6 @@ export default defineConfig(({ command }) => ({
 		wasm(),
 		sharedEngine(),
 	],
-	define: { __GLOBE_ASSETS__: JSON.stringify(command === 'serve' ? `/geopbf/@fs${GLOBE_PUBLIC}/` : '/globe/') },
 	server: {
 		fs: { allow: [ROOT] },
 	},

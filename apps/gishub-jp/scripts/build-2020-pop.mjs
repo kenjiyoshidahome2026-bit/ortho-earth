@@ -14,7 +14,7 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../census/2020-pop.json');
+const OUT   = join(__dir, '../../../packages/jp/census/2020-pop.json');
 
 const outDir = dirname(OUT);
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });

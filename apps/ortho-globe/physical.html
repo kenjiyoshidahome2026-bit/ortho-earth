@@ -49,7 +49,7 @@
 				worldContent: { groups: ["lakes"] }, worldLines: false, night: false, countryTip: "shift",   // Shift＋ホバー＝国名（本人 2026-10-01）・ふだんは地形の tip
 				 mesh: false,   // night:false＝夜の半球を減光しない（地形図＝全面を同じ明るさで・本人 2026-10-01「ハイプソが地球全面ではない」）
 				   // worldLines:false＝世界帯の NE 河川を読まない（川は形状台帳で描く＝二重に描かない）   // 世界帯は湖の岸線だけ（国名・都市・道路は出さない＝地形が主役）。海岸線と国境は別系統で常に出る
-				 instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL,
+				 instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false,
 				debugGlobals: /[?&]debug=1/.test(location.search) });   // ?debug=1＝検証窓（__perf…）
 			dismissBoot();
 			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
