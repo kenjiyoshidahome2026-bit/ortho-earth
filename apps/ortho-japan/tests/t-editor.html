@@ -511,9 +511,11 @@ try {
 		editor.destroy();
 		await idbSave({ buf, gridExp: 6, t: Date.now() });
 		const ed2 = initEditor(map, { adopt: false });   // 復元経路の検定＝ビューア取り込み（下で別途）は切る
-		for (let i = 0; i < 200 && !(ed2.model && ed2.model.feats.size); i++) await sleep(100);
+		// バナーは loadBuffer の後（fly の着地待ちの後）に出る＝図形が載った瞬間はまだ無い（2026-10-15 に数十 ms 差で落ちていた）＝両方を待つ
+		const restoreBn = () => [...document.querySelectorAll("#map #dock .ge-banner")].find(b => b.textContent.includes("復元"));
+		for (let i = 0; i < 200 && !(ed2.model && ed2.model.feats.size && restoreBn()); i++) await sleep(100);
 		ok("autoRestore", ed2.model?.stats().features === nf);
-		const bn = document.querySelector("#map #dock .ge-banner");
+		const bn = restoreBn();
 		ok("restoreBanner", !!bn && bn.textContent.includes("復元"));
 		bn?.querySelector("button")?.click();   // 新規で始める
 		for (let i = 0; i < 50 && ed2.model?.feats.size; i++) await sleep(100);
@@ -522,7 +524,8 @@ try {
 		// ビューア取り込み（adopt 既定）：表示中のユーザー gint（直前のエディタが焼いた束＝map.userPbf）をそのまま編集へ＝自動保存より優先・__eid は剥がす
 		await idbSave({ buf: buf.slice(0), gridExp: 6, t: Date.now() });
 		const ed3 = initEditor(map);
-		for (let i = 0; i < 200 && !(ed3.model && ed3.model.feats.size); i++) await sleep(100);
+		const adoptBn = () => /取り込み/.test(document.querySelector("#map #dock .ge-banner")?.textContent || "");   // バナーは図形の後＝両方を待つ（上の restoreBn と同じ）
+		for (let i = 0; i < 200 && !(ed3.model && ed3.model.feats.size && adoptBn()); i++) await sleep(100);
 		ok("adoptViewer", !!map.userPbf?.() && ed3.model?.stats().features === nf && /取り込み/.test(document.querySelector("#map #dock .ge-banner")?.textContent || "") && ![...ed3.model.feats.values()].some(f => f.properties && "__eid" in f.properties));
 		ok("zoomFloor", map.zoomMin() === 2.5);   // 編集中＝縮尺は z>2.5（本人裁定）
 		ed3.destroy();
