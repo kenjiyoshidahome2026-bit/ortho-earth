@@ -29,6 +29,9 @@ export interface GltfJson {
 /** parseGlb の戻り＝JSON チャンクと BIN チャンク（無ければ空） */
 export interface ParsedGlb { json: GltfJson; bin: Uint8Array }
 
+// 末尾の \0 を落とす（JSON チャンクの詰め物）。正規表現 /\0+$/ は \0 が多い入力で二乗の後戻りになる（CodeQL）＝添字で削る
+const trimNul = (s: string): string => { let e = s.length; while (e > 0 && s.charCodeAt(e - 1) === 0) e--; return e === s.length ? s : s.slice(0, e); };
+
 export function parseGlb(input: Uint8Array | ArrayBuffer | ArrayLike<number>): ParsedGlb {
 	const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
 	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -38,7 +41,7 @@ export function parseGlb(input: Uint8Array | ArrayBuffer | ArrayLike<number>): P
 	while (off + 8 <= total) {
 		const len = dv.getUint32(off, true), type = dec.decode(bytes.subarray(off + 4, off + 8));
 		const body = bytes.subarray(off + 8, off + 8 + len);
-		if (type.startsWith("JSON")) json = JSON.parse(dec.decode(body).replace(/\0+$/, "")) as GltfJson;
+		if (type.startsWith("JSON")) json = JSON.parse(trimNul(dec.decode(body))) as GltfJson;
 		else if (type.startsWith("BIN")) bin = body;
 		off += 8 + len;
 	}
