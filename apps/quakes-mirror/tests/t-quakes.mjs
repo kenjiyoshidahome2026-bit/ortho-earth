@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// quakes-mirror の検定＝偽 R2（合成 CSV を焼いた archive）。USGS へは一度も触れない。
+// quakes-mirror の検定＝偽 R2（中身を問わない bytes を archive として置く）。USGS へは一度も触れない。
 //   配信：空は 503 → archive.geopbf / archive.json / status → CORS → ETag 一致で 304 → 知らない道は 404 → POST は 405
-//   読み手（globe の quakes-worker.js）の検定は apps/ortho-globe/tests/t-quakes-reader.mjs（形の約束＝packages/quakes/src/usgs.js・2026-10-15 に分けた＝アプリはアプリを読まない）
+//   読み手（globe の quakes-worker.js）の検定は apps/quakes/tests/t-quakes-reader.mjs（形の約束＝apps/quakes/usgs.js。ここは焼いた bytes をそのまま返すだけ＝中身は問わない＝アプリはアプリを読まない）
 //   node apps/quakes-mirror/tests/t-quakes.mjs
 import { serve } from "../worker.js";
-import { buildGeoPBF, parseCsvTexts } from "@ortho-earth/quakes/usgs";
 
 // ── 偽 R2（get/put/delete と onlyIf の If-None-Match だけ）───────────────────
 const store = new Map();
@@ -22,7 +21,6 @@ const r2 = {
 };
 const env = { QUAKES: r2 };
 
-const HEAD = "time,latitude,longitude,depth,mag,magType,nst,gap,dmin,rms,net,id,updated,place,type";
 const get = (p, headers) => serve(new Request("https://www.ortho-earth.com/quakes" + p, { headers }), env);
 let fail = 0;
 const ok = (name, cond, got) => { if (!cond) fail++; console.log(`${cond ? "ok  " : "FAIL"} ${name}${got !== undefined ? "  (" + got + ")" : ""}`); };
@@ -37,8 +35,7 @@ ok("POST → 405", (await serve(new Request("https://www.ortho-earth.com/quakes/
 ok("OPTIONS → 204 + CORS", (await serve(new Request("https://www.ortho-earth.com/quakes/archive.geopbf", { method: "OPTIONS" }), env)).headers.get("access-control-allow-origin") === "*");
 
 // 2) 中身あり：archive.geopbf・archive.json を置いて配る
-const archCols = parseCsvTexts([HEAD + "\n" + `2020-01-01T00:00:00.000Z,35,139,10,5.5,mw,,,,,us,a1,,"x",earthquake\n2020-02-01T00:00:00.000Z,36,140,20,,mw,,,,,us,a2,,"no mag",earthquake\n`]);
-await r2.put("archive.geopbf", await buildGeoPBF(archCols, { minmag: 2, start: "1967-01-01", end: "2026-05-31" }));
+await r2.put("archive.geopbf", new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]));   // 中身は問わない（Worker は bytes を返すだけ）＝空の gzip
 await r2.put("archive.json", JSON.stringify({ start: "1967-01-01", end: "2026-06-01" }));
 ok("archive.json served + CORS", (await (await get("/archive.json")).json()).end === "2026-06-01" && (await get("/archive.json")).headers.get("access-control-allow-origin") === "*");
 ok("status", (await (await get("/status")).json()).archive.end === "2026-06-01");

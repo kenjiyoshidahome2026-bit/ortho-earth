@@ -18,31 +18,31 @@
 	<title>World earthquakes — ortho-globe</title>
 	<meta name="description" content="USGS earthquake catalog (1967–, M2+, about 1.5 million events) shown in 3D on the globe by hypocenter depth and energy.">
 	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
-	<link rel="canonical" href="https://www.ortho-earth.com/globe/quakes">
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/quakes/">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="ortho-earth">
 	<meta property="og:locale" content="en_US">
 	<meta property="og:title" content="World earthquakes — ortho-globe">
 	<meta property="og:description" content="1.5 million earthquakes since 1967, placed at their true hypocenter depth inside a see-through globe. Sized by energy, coloured by depth, replayable year by year.">
-	<meta property="og:url" content="https://www.ortho-earth.com/globe/quakes">
-	<meta property="og:image" content="https://www.ortho-earth.com/globe/og/quakes.jpg">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/quakes/">
+	<meta property="og:image" content="https://www.ortho-earth.com/globe/quakes/og.jpg">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta name="twitter:card" content="summary_large_image">
 	<meta name="twitter:title" content="World earthquakes — ortho-globe">
 	<meta name="twitter:description" content="1.5 million earthquakes since 1967, placed at their true hypocenter depth inside a see-through globe. Sized by energy, coloured by depth, replayable year by year.">
-	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/og/quakes.jpg">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/quakes/og.jpg">
 </head>
 <body>
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<script type="module">
-		// 世界の地震ビューア＝USGS ComCat（scripts/usgs-quakes-build.mjs が作る GeoPBF）を地球儀に立体表示する。
+		// 世界の地震ビューア＝USGS ComCat（apps/quakes/scripts/usgs-quakes-build.mjs が作る GeoPBF）を地球儀に立体表示する。
 		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を自分の束に焼いてエンジンを起こし、
 		// 描画と案内板は ./quakes.js（遅延 chunk）。
 		// データ＝本番は apps/quakes-mirror（同一オリジン /quakes/・archive を配るだけ）の archive（確定した過去分・GeoPBF）＋直近分（archive.json の
 		// end〜今をブラウザが USGS FDSN から直接取り、月ごとに GeoPBF へ焼いて IDB に置く＝quakes-worker.js）を連結。
-		// dev は public/quakes/usgs-quakes-m2.geopbf（scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
+		// dev は public/dev/usgs-quakes-m2.geopbf（apps/quakes/scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
 		// 言語（html の lang/dir）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。文言（title/description/パネル）は quakes.js が t() で組む
 		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 		startPage("quakes", async () => {
@@ -55,7 +55,7 @@
 			dismissBoot();
 			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 			const src = new URLSearchParams(location.search).get("src")
-				|| (import.meta.env.DEV ? `${import.meta.env.BASE_URL}quakes/usgs-quakes-m2.geopbf` : ["/quakes/archive.geopbf", { usgs: "/quakes/archive.json" }]);
+				|| (import.meta.env.DEV ? `${import.meta.env.BASE_URL}dev/usgs-quakes-m2.geopbf` : ["/quakes/archive.geopbf", { usgs: "/quakes/archive.json" }]);
 			const quakes = await mountQuakes(map, { src });
 			window.__map = map; window.__quakes = quakes;   // console 検証用
 		});

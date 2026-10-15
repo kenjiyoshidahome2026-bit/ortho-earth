@@ -21,6 +21,7 @@ const APPS = [
 	["japan-sdk", "@ortho-earth/japan", "build", "sdk/japan/dist/lib"],
 	["japan-site", "ortho-japan", "build", "apps/ortho-japan/dist/site"],
 	["globe", "ortho-globe", "build", "apps/ortho-globe/dist/site"],
+	["quakes", "ortho-quakes", "build", "apps/quakes/dist/site"],
 	["world-lib", "ortho-world", "build:lib", "apps/world/dist/lib"],
 	["world", "ortho-world", "build", "apps/world/dist/site"],
 	["www", "www", "build", "apps/www/dist"],
@@ -34,7 +35,7 @@ const APPS = [
 	["uploader", "uploader", "build", "apps/uploader/dist"],
 ];
 // www は build:all で他アプリの dist を複写して抱える＝単体ビルドの www だけを計る（複写分は各アプリで数える）
-const PACKAGES = ["altpbf", "common", "ephem", "geoedit", "geopbf", "sdk/glbconv", "globe", "himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];   // 道は packages/ から（sdk/ の物は "sdk/<名>"）
+const PACKAGES = ["altpbf", "common", "ephem", "geoedit", "geopbf", "sdk/glbconv", "globe", "sdk/himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];   // 道は packages/ から（sdk/ の物は "sdk/<名>"）
 
 const COMPRESSIBLE = /\.(m?js|css|json|html|wasm|svg|txt|csv|geojson|webmanifest|xml)$/i;
 const kindOf = f => /\.m?js$/.test(f) ? "js" : f.endsWith(".css") ? "css" : f.endsWith(".wasm") ? "wasm" : /\.(json|geojson)$/.test(f) ? "json" : f.endsWith(".html") ? "html" : /\.(png|jpe?g|webp|avif|gif|svg|ico)$/i.test(f) ? "img" : "data";

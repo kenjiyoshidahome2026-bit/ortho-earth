@@ -168,7 +168,7 @@
 		},
 		{
 			"id": "quakes",
-			"href": "/globe/quakes",
+			"href": "/globe/quakes/",
 			"group": "earth",
 			"icon": "🌋",
 			"title": "World earthquakes",
@@ -176,7 +176,7 @@
 			"desc": "Reads USGS earthquake data directly and shows each quake in 3D by its energy and depth. It can also play year by year or month by month.",
 			"img": "/thumbs/quakes.webp",
 			"shot": {
-				"url": "/globe/quakes#2.8/18/165",
+				"url": "/globe/quakes/#2.8/18/165",
 				"wait": 18
 			}
 		},

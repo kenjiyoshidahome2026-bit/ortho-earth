@@ -1,5 +1,5 @@
 // 世界の地震（USGS ANSS ComCat・M2+）の確定した過去分（archive）を配るだけの Worker。
-// 2026-09-19 本人裁定：直近分は取り込まない＝ビューア（apps/ortho-globe/quakes-worker.js）がブラウザから USGS FDSN を直接取り、
+// 2026-09-19 本人裁定：直近分は取り込まない＝ビューア（apps/quakes/quakes-worker.js）がブラウザから USGS FDSN を直接取り、
 //   月ごとに GeoPBF へ焼いて IDB に置く（「直接取りに行くのが ortho 流」）。cron と CSV 置き場（recent/）は同日に撤去した。
 // 形：R2（binding QUAKES）
 //   archive.geopbf … 確定した過去分（手元で焼いて置く。下の手順）
@@ -7,7 +7,7 @@
 // 配信（CORS 開放・ETag で 304）：
 //   GET /quakes/archive.geopbf   GET /quakes/archive.json   GET /quakes/status（見張り用＝archive.json の中身）
 // archive の焼き直し（年 1 回程度＝直近分が 2 年に近づいたら。境目は月初にそろえる。M≥7 の地名が既定で載る）：
-//   node scripts/usgs-quakes-build.mjs --end 2026-08-31 --manifest --out usgs-quakes-archive.geopbf
+//   node apps/quakes/scripts/usgs-quakes-build.mjs --end 2026-08-31 --manifest --out usgs-quakes-archive.geopbf
 //   npx wrangler r2 object put ortho-quakes/archive.geopbf --file usgs-quakes-archive.geopbf --remote
 //   npx wrangler r2 object put ortho-quakes/archive.json --file usgs-quakes-archive.geopbf.json --remote
 const K = { archive: "archive.geopbf", archiveMeta: "archive.json" };

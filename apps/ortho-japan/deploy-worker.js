@@ -9,7 +9,7 @@
 // 旧 /japan/… → /globe/…（apps/ortho-globe）。.html 付きの旧形も受ける
 const MOVED_TO_GLOBE = {
 	"/japan/earth": "/globe/", "/japan/earth.html": "/globe/",
-	"/japan/quakes": "/globe/quakes", "/japan/quakes.html": "/globe/quakes",
+	"/japan/quakes": "/globe/quakes/", "/japan/quakes.html": "/globe/quakes/",
 	"/japan/sats": "/globe/sats", "/japan/sats.html": "/globe/sats",
 };
 export default {

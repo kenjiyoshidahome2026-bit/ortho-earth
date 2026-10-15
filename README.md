@@ -70,7 +70,6 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`geoedit`](packages/geoedit) | 0.3.3 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
 | [`altpbf`](packages/altpbf) | 1.1.2 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
 | [`native-bucket`](packages/native-bucket) | 1.0.2 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
-| [`himekuri`](packages/himekuri) | 1.0.1 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 | [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
 | [`quiet-mono`](packages/quiet-mono) | 1.0.1 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
 | [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages; sky names (constellations, Messier objects, Solar-System bodies, 2,023 lunar place names) in `sky/` |
@@ -90,6 +89,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/plugin-scene`](sdk/plugin-scene) | 0.1.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.1.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz`) as a `map.addData` kind |
 | [`glbconv`](sdk/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
+| [`himekuri`](sdk/himekuri) | 1.0.1 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 
 ### Apps
 
@@ -98,8 +98,9 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 | URL | App | What it shows |
 |---|---|---|
 | [/japan/](https://www.ortho-earth.com/japan/) | `apps/ortho-japan` | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
-| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/quakes`, `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
+| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
 | [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` | The shared engine: one versioned build of `@ortho-earth/globe` and the modules two or more apps use, loaded by URL |
+| [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` | World earthquakes since 1967 at their true hypocenter depth (data: `apps/quakes-mirror` + USGS, fetched by the browser) |
 | [/world/](https://www.ortho-earth.com/world/) | `apps/world` | Nations of the world as cards |
 | [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
@@ -150,7 +151,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
+- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv` and `himekuri`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
