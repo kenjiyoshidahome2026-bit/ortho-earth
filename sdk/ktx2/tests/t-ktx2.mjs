@@ -1,6 +1,6 @@
 // @ortho-earth/ktx2 — node checks (no WASM): header parsing, plugin shape, library path in the URL hash, input validation before any download
-import { ktx2Plugin, transcoderUrl, isKTX2, isBasis, ktx2Header, libraryPath, DEFAULT_LIBRARY_PATH } from "../src/index.js";
-import { transcode } from "../src/transcode.js";
+import { ktx2Plugin, transcoderUrl, isKTX2, isBasis, ktx2Header, libraryPath, DEFAULT_LIBRARY_PATH } from "../src/index.ts";
+import { transcode } from "../src/transcode.ts";
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 // a KTX2 header: 64×32, 1 layer, 1 face, 3 levels, Basis supercompression (vkFormat 0, scheme 1)
 const hdr = new Uint8Array(80); hdr.set([0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A], 0);
