@@ -106,7 +106,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 ## instanced・billboard・3D 文字（@ortho-earth/plugin-scene）
 
-`map.use(scenePlugin())` で `addData` の kind が 3 つ増える（第 3 波 W9）。`dataKinds` と同一フレームのオーバーレイだけで作った見本でもある（`sdk/plugin-scene/src/index.js`＝main で焼く、`scene-gl.js`＝worker で描く・深度・当たり）。手綱がいくつあっても一つの map に一つのオーバーレイ（`above` の物は別にもう一つ）で描き、手綱の id を `addLayerId` で名乗る。
+`map.use(scenePlugin())` で `addData` の kind が 3 つ増える（第 3 波 W9）。`dataKinds` と同一フレームのオーバーレイだけで作った見本でもある（`sdk/plugin-scene/src/index.ts`＝main で焼く、`scene-gl.ts`＝worker で描く・深度・当たり）。手綱がいくつあっても一つの map に一つのオーバーレイ（`above` の物は別にもう一つ）で描き、手綱の id を `addLayerId` で名乗る。
 
 ```js
 import { scenePlugin } from "@ortho-earth/plugin-scene";
