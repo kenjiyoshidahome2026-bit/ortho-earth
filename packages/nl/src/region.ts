@@ -56,7 +56,7 @@ export async function nlStyle(): Promise<NlStyle | null> {
 	} catch (err) { console.warn("[nl] basemap style unavailable — starting without a basemap", err); return null; }
 }
 // 標高＝Mapterhorn（terrarium・512px・z14 まで）。dtm:true＝裸地として扱う＝建物を地面へ載せる（R01 の JAXA は表層＝屋根が裂ける）。
-export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium", tileSize: 512, maxzoom: 14, dtm: true } };
+export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium" as const, tileSize: 512, maxzoom: 14, dtm: true } };
 
 /** 建物の 1 枠（3D Tiles の tileset を街の矩形で切った物） */
 export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox }
