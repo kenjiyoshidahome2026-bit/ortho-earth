@@ -8,7 +8,7 @@ import { staleTables } from "@ortho-earth/globe/scripts/lib/i18n-tables.mjs";
 const APP = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), "apps/ortho-japan");   // 頁の辞書の殻＝japan（正本の ui.json は packages/globe）
 const stale = staleTables(APP);
 if (stale.length) {
-	console.error(`✗ ${stale.length} runtime translation table(s) are stale — run: npm run i18n:build -w @ortho-earth/japan (and commit the result)`);
+	console.error(`✗ ${stale.length} runtime translation table(s) are stale — run: npm run i18n:build -w ortho-japan (and commit the result)`);
 	for (const [f, why] of stale) console.error(`   ${path.relative(process.cwd(), f)}  (${why})`);
 	process.exit(1);
 }

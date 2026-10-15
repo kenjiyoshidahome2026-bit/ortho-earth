@@ -1,0 +1,80 @@
+{
+	"name": "@ortho-earth/japan",
+	"version": "1.14.0",
+	"publishConfig": {
+		"access": "public"
+	},
+	"description": "Serverless, dependency-free 3D globe of Japan for any web page — GSI vector tiles and MLIT PLATEAU buildings drawn on a true sphere with WebGPU/WebGL2. No API keys, no billing, no servers.",
+	"keywords": [
+		"japan",
+		"map",
+		"3d",
+		"globe",
+		"gis",
+		"webgpu",
+		"webgl",
+		"plateau",
+		"gsi",
+		"vector-tiles",
+		"geospatial",
+		"serverless"
+	],
+	"homepage": "https://www.ortho-earth.com/japan/",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "sdk/japan"
+	},
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"main": "./dist/lib/ortho-japan.js",
+	"types": "./dist/lib/ortho-japan.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/lib/ortho-japan.d.ts",
+			"default": "./dist/lib/ortho-japan.js"
+		},
+		"./ortho-japan.css": "./dist/lib/ortho-japan.css",
+		"./assets/*": "./assets/*",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist/lib",
+		"!dist/lib/**/*.map",
+		"assets",
+		"sdk/example.html",
+		"sdk/verify-example.mjs",
+		"sdk/skill",
+		"README-ja.md"
+	],
+	"scripts": {
+		"build": "vite build && node scripts/build-dts.mjs dist/lib/ortho-japan.d.ts",
+		"verify": "node scripts/verify-lib.mjs",
+		"verify:livedecode": "node scripts/verify-livedecode.mjs",
+		"measure": "node scripts/measure-lib.mjs",
+		"pack": "node scripts/pack-sdk.mjs",
+		"prepack": "npm run build && node scripts/stage-npm-assets.mjs",
+		"verify:npm": "node scripts/verify-npm.mjs"
+	},
+	"devDependencies": {
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"@loaders.gl/gltf": "^4.3.0",
+		"@ortho-earth/core": "*",
+		"@ortho-earth/equal": "*",
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/regions": "*",
+		"@ortho-earth/tile-formats": "*",
+		"adm-zip": "^0.5.18",
+		"altpbf": "*",
+		"draco3d": "^1.5.7",
+		"earcut": "^3.2.3",
+		"fzstd": "^0.1.1",
+		"geoedit": "*",
+		"geopbf": "*",
+		"glbconv": "*"
+	}
+}

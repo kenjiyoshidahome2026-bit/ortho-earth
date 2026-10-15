@@ -9,7 +9,7 @@
 //  - プロファイルは毎回新規（同一オリジンの OPFS/IDB に前回の完成品が残ると「12 秒で完走」の偽陽性になる）
 //  - bake は存在しない URL を指す（?bake=…/nobake/）＝manifest 404 → 生経路
 //  - worker のコンソールは CDP の Target.setAutoAttach（flatten）で拾う（stall 時の子の足跡が要る）
-// 使い方: apps/ortho-japan で `npm run verify:livedecode`（内部で build:lib）。要ローカル Chrome（環境変数 CHROME）・要ネット
+// 使い方: sdk/japan で `npm run verify:livedecode`（内部で build）。要ローカル Chrome（環境変数 CHROME）・要ネット
 //（api.plateauview.mlit.go.jp からタイル実取得＝40 秒前後）。区は環境変数 VIEW で変更可（既定＝那覇 z15 45°）。
 import { spawn, execFileSync } from "node:child_process";
 import fsSync from "node:fs";
@@ -19,6 +19,7 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 実行時アセットの正本＝packages/jp/assets（2026-10-15 に SDK を sdk/japan へ分けた）
 import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -28,15 +29,15 @@ const VIEW = process.env.VIEW || "#15/26.2124/127.6809/45t";   // 那覇市＝�
 const LIMIT_MS = 150000;
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".wasm": "application/wasm", ".png": "image/png" };
 
-if (process.env.SKIP_BUILD !== "1") { console.log("… build:lib"); execFileSync("npm", ["run", "build:lib"], { cwd: APP, stdio: "inherit" }); }
+if (process.env.SKIP_BUILD !== "1") { console.log("… build"); execFileSync("npm", ["run", "build"], { cwd: APP, stdio: "inherit" }); }
 
-// 素の静的サーバ：/ → tests/livedecode-host.html・/lib/ → dist/lib・/assets/ → public（実行時アセット）。/nobake/ は 404。
+// 素の静的サーバ：/ → tests/livedecode-host.html・/lib/ → dist/lib・/assets/ → packages/jp/assets（実行時アセット）。/nobake/ は 404。
 const hits = [];
 const server = createServer(async (req, res) => {
 	const url = new URL(req.url, "http://x"); hits.push(url.pathname);
 	const file = url.pathname === "/" ? path.join(APP, "tests/livedecode-host.html")
 		: url.pathname.startsWith("/lib/") ? path.join(APP, "dist/lib", url.pathname.slice(5))
-		: url.pathname.startsWith("/assets/") ? path.join(APP, "public", url.pathname.slice(8))
+		: url.pathname.startsWith("/assets/") ? path.join(fileURLToPath(JP_ASSETS), url.pathname.slice(8))
 		: null;
 	try {
 		if (!file) throw new Error("404");

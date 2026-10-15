@@ -2,7 +2,7 @@
 // SDK 配布物の束ね：dist/lib（ライブラリビルド）＋実行時アセット＋README/LICENSE を一つの zip へ。
 // 「利用者が public/ から手でコピーする」形を卒業し、これ一つ渡せば埋め込みが完結する出荷形にする。
 //
-//   使い方: apps/ortho-japan で `npm run pack:sdk` → dist/sdk/ortho-japan-sdk-<version>.zip
+//   使い方: sdk/japan で `npm run pack` → dist/sdk/ortho-japan-sdk-<version>.zip
 //
 //   同梱するもの：
 //     lib/      … dist/lib 一式（ortho-japan.js / .css / worker・動的importチャンク）。**sourcemapは除外**
@@ -22,8 +22,10 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, statSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 実行時アセットの正本＝packages/jp/assets（2026-10-15 に SDK を sdk/japan へ分けた）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const ASSETS = fileURLToPath(JP_ASSETS);
 const { version } = JSON.parse(readFileSync(path.join(APP, "package.json"), "utf8"));
 
 // 実行時アセットの正典（app.js / gadgets の ASSET_BASE fetch 全数調査 2026-08-19）。
@@ -31,15 +33,15 @@ const { version } = JSON.parse(readFileSync(path.join(APP, "package.json"), "utf
 const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "plateau-exclude.json", "koppen-clim.png"];   // plateau-exclude＝建物除外表（app.js の ASSET_BASE fetch・2026-09-10 追加）
 const FORBIDDEN = ["lib/sw.js", "assets/sw.js", "assets/moj-local", "assets/plateau-names.json"];
 
-console.log("… build:lib");
-execFileSync("npx", ["vite", "build", "--config", "vite.lib.config.js", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
+console.log("… build");
+execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
 
 const NAME = `ortho-japan-sdk-${version}`;
 const OUT = path.join(APP, "dist/sdk", NAME);
 rmSync(path.join(APP, "dist/sdk"), { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-// lib/ を写す：.map は置いていく・.js は末尾の sourceMappingURL 行を剥がす（デバッグしたい人は build:lib の dist/lib へ）
+// lib/ を写す：.map は置いていく・.js は末尾の sourceMappingURL 行を剥がす（デバッグしたい人は build の dist/lib へ）
 cpSync(path.join(APP, "dist/lib"), path.join(OUT, "lib"), { recursive: true, filter: src => !src.endsWith(".map") });
 const stripMapRef = dir => { for (const e of readdirSync(dir, { withFileTypes: true })) {
 	const p = path.join(dir, e.name);
@@ -49,8 +51,8 @@ const stripMapRef = dir => { for (const e of readdirSync(dir, { withFileTypes: t
 stripMapRef(path.join(OUT, "lib"));
 cpSync(path.join(APP, "sdk/example.html"), path.join(OUT, "example/index.html"));
 for (const f of WHITELIST) {
-	const src = path.join(APP, "public", f);
-	if (!existsSync(src)) { console.error(`✗ 実行時アセットが無い: public/${f}（WHITELIST と public/ がズレた）`); process.exit(1); }
+	const src = path.join(ASSETS, f);
+	if (!existsSync(src)) { console.error(`✗ 実行時アセットが無い: packages/jp/assets/${f}（WHITELIST と jp の assets がズレた）`); process.exit(1); }
 	cpSync(src, path.join(OUT, "assets", f), { recursive: true });
 }
 cpSync(path.join(APP, "README.md"), path.join(OUT, "README.md"));         // 英語主体（npm/配布物の正面・2026-08-20裁定）
@@ -58,7 +60,7 @@ cpSync(path.join(APP, "README-ja.md"), path.join(OUT, "README-ja.md"));   // 日
 cpSync(path.join(APP, "LICENSE"), path.join(OUT, "LICENSE"));
 // AI開発者向けの三点セット（2026-08-20）：llms.txt（1枚正典・配信版は /japan/llms.txt）＋
 // 型定義（lib/ に同居＝エディタ/AIの補完が効く）＋ Claude Code スキル（.claude/skills/ へ置くだけで発動）
-cpSync(path.join(APP, "public/llms.txt"), path.join(OUT, "llms.txt"));
+cpSync(path.join(APP, "llms.txt"), path.join(OUT, "llms.txt"));
 execFileSync(process.execPath, [path.join(APP, "scripts/build-dts.mjs"), path.join(OUT, "lib/ortho-japan.d.ts")]);   // 型＝globe.d.ts＋SDK の入口
 cpSync(path.join(APP, "sdk/verify-example.mjs"), path.join(OUT, "verify-example.mjs"));   // 実時間 CDP 検証の雛形（AI エージェント向け・依存ゼロ）
 cpSync(path.join(APP, "sdk/skill"), path.join(OUT, "skill"), { recursive: true });
