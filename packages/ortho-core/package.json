@@ -20,6 +20,7 @@
 			"types": "./types/tileformat.d.ts",
 			"default": "./src/tileformat.js"
 		},
+		"./tileformats-mlt": "./src/tileformats-mlt.js",
 		"./gpu": {
 			"types": "./types/gpu.d.ts",
 			"default": "./src/gpu/backend.js"
@@ -154,6 +155,12 @@
 		"pmtiles": "^4.5.0",
 		"native-bucket": "^1.0.0"
 	},
+	"peerDependencies": {
+		"@ortho-earth/tile-formats": ">=0.2.0"
+	},
+	"peerDependenciesMeta": {
+		"@ortho-earth/tile-formats": { "optional": true }
+	},
 	"keywords": [
 		"map",
 		"globe",
@@ -188,6 +195,7 @@
 		"./src/workers/sceneworker.js",
 		"./src/gint/bakeworker.js",
 		"./src/gl/gint/worker.js",
-		"./src/elevation/worker.js"
+		"./src/elevation/worker.js",
+		"./src/tileformats-mlt.js"
 	]
 }

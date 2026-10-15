@@ -1332,7 +1332,7 @@ try {
 		// ── MLT（MapLibre Tile・#88）＝同じ場所・同じ style で、MVT の源と MLT の源を切り替えて同じ絵・同じ答えになるか。試料＝fixtures/mlcompat/make-mlt.mjs（vt/ の MVT を MLT へ）。
 		//    MLT の源は 3 通り：XYZ の .mlt（"encoding":"mlt"）・TileJSON 経由（2 本目の source）・PMTiles（tileType 6＝ヘッダで決まる・申告なし）。
 		//    通す経路は 4 つ：基図の配管（style の fill＝core の tileworker）・押し出し（vtextrude）・描く層（vtdraw）・問い合わせ（queryTiles＝main で解く）。
-		//    器（packages/globe/vite.config.js）は "#tile-formats" を @ortho-earth/tile-formats/register へ alias＝解読器は最初の MLT タイルで動的 import。
+		//    器（packages/globe/vite.config.js）は "#tile-formats" を @ortho-earth/core/tileformats-mlt へ alias＝解読器は最初の MLT タイルで動的 import。
 		const { cameraState, project, worldRadiusM } = await import("@ortho-earth/core");   // worldRadiusM＝今の世界の半径（球 6371000・楕円体 a＝#43）
 		const FX = new URL("./fixtures/mlcompat/", location.href).href;
 		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner, D = VB.draw;

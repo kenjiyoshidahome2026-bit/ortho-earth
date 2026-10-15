@@ -1,7 +1,7 @@
 # @ortho-earth/tile-formats
 
-Format plugins for [`@ortho-earth/core`](../ortho-core) and [`@ortho-earth/globe`](../globe): formats the engine does
-not want as a dependency. The core ships MVT (Mapbox Vector Tile) built in; this package adds:
+Format decoders for [`@ortho-earth/core`](../ortho-core) and [`@ortho-earth/globe`](../globe): formats the engine does
+not want as a dependency. This package imports neither of them. The core ships MVT (Mapbox Vector Tile) built in; this package adds:
 
 | Format | Registered name | PMTiles `tileType` | Decoder |
 |---|---|---|---|
@@ -13,12 +13,13 @@ draw) is format-agnostic.
 
 ## Enable it in an app (build-time, recommended)
 
-The core reads `"#tile-formats"` (a `package.json` `imports` slot, default: nothing extra). Point it at this
-package's register module in your bundler:
+The core reads `"#tile-formats"` (a `package.json` `imports` slot, default: nothing extra). Install this package
+next to the core and point the slot at the core's MLT module in your bundler (the core owns the registration;
+this package does not depend on the core):
 
 ```js
 // vite.config.js
-resolve: { alias: [{ find: "#tile-formats", replacement: "@ortho-earth/tile-formats/register" }] }
+resolve: { alias: [{ find: "#tile-formats", replacement: "@ortho-earth/core/tileformats-mlt" }] }
 ```
 
 That registers `"mlt"` in every realm that decodes tiles (main thread and workers). Then tell the style which
@@ -35,8 +36,9 @@ Without the alias, an `"encoding": "mlt"` source (or an MLT archive) draws nothi
 ## Programmatic use
 
 ```js
-import { registerMLT, decodeMLT } from "@ortho-earth/tile-formats";
-registerMLT();                       // same as the alias, for the realm you call it in
+import { registerTileFormat } from "@ortho-earth/core/tileformat";
+import { MLT_FORMAT, decodeMLT } from "@ortho-earth/tile-formats";
+registerTileFormat(MLT_FORMAT);      // same as the alias, for the realm you call it in
 const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, no registry involved
 ```
 

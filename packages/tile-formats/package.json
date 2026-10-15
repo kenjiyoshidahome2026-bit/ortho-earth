@@ -1,13 +1,12 @@
 {
 	"name": "@ortho-earth/tile-formats",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "Format plugins for @ortho-earth/core and @ortho-earth/globe: MLT (MapLibre Tile) as the \"mlt\" tile format on top of @maplibre/mlt, and LAZ point records for COPC point clouds on top of laz-perf — each decoder loaded lazily on first use.",
+	"description": "Format decoders for @ortho-earth/core and @ortho-earth/globe (no dependency on either): MLT (MapLibre Tile) as the \"mlt\" tile format on top of @maplibre/mlt, and LAZ point records for COPC point clouds on top of laz-perf — each decoder loaded lazily on first use.",
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
-		"./register": "./src/register.js",
 		"./format": "./src/format.js",
 		"./decode": "./src/mlt.js",
 		"./pointcloud": "./src/pointcloud.js",
@@ -17,7 +16,6 @@
 		"./scripts/*": "./scripts/*"
 	},
 	"sideEffects": [
-		"./src/register.js",
 		"./src/node-register.mjs"
 	],
 	"scripts": {
@@ -27,9 +25,6 @@
 	"dependencies": {
 		"@maplibre/mlt": "^1.3.0",
 		"laz-perf": "^0.0.7"
-	},
-	"peerDependencies": {
-		"@ortho-earth/core": "^1.4.0"
 	},
 	"devDependencies": {
 		"@ortho-earth/core": "*",
