@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 共通の時計（clock.js・#42）の常設ハーネス（Node）。偽の now() で実時間の張り付き・段・範囲・URL・anchor を確かめる。
 // 使い方: node packages/ephem/tests/t-clock.mjs
-import { createClock, clockNow, fmtUTC, CLOCK_MIN, CLOCK_MAX } from "../src/clock.js";
+import { createClock, clockNow, fmtUTC, CLOCK_MIN, CLOCK_MAX } from "../src/clock.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) return; fails++; console.error(`  ✗ ${label}`); };

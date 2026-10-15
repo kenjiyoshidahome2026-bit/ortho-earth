@@ -20,7 +20,8 @@
 		"verify:app-imports": "node scripts/check-app-imports.mjs",
 		"test": "node scripts/test-all.mjs",
 		"test:list": "node scripts/test-all.mjs --list",
-		"verify:i18n": "node scripts/test-all.mjs --gate i18n"
+		"verify:i18n": "node scripts/test-all.mjs --gate i18n",
+		"typecheck": "node scripts/typecheck.mjs"
 	},
 	"devDependencies": {
 		"rollup-plugin-visualizer": "^7.0.1",
