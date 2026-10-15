@@ -7,9 +7,8 @@
 // 使い方:
 //   node scripts/bake-dem10b.mjs --cells E138N035,E135N035     # 指定セルのみ（検証用）
 //   node scripts/bake-dem10b.mjs --japan                        # JAXA index ∩ 日本bbox の全セル
-//   node scripts/bake-dem10b.mjs --upload                       # out の *.gz を bucket GIS/alt へ（要 ORTHO_API_KEY）
-//   （--cells/--japan に --upload を併記すれば焼いた直後に上げる）
-// 出力: apps/ortho-japan/dem10b-out/（gitignore 済み）
+// 出力: repo 直下の bake-out/alt/（gitignore 済み・R10 の bake-r10-jp.mjs と同じ置き場）
+// 上げ方＝uploader の画面の「標高タイル（bake-out/alt）→ GIS/alt」ボタン（R2 へ出す物は uploader のボタンから＝本人 2026-09-30・スクリプトは鍵を読まない 2026-10-15）
 
 import Pbf from "geopbf/pbf";
 import { deflateRawSync, gzipSync, inflateSync } from 'node:zlib';
@@ -18,8 +17,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { JP_BOX } from "@ortho-earth/jp/dtm";
 
-const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dem10b-out');
+const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..', 'bake-out/alt');
 mkdirSync(OUT, { recursive: true });
+// 置き場の目録＝uploader の「標高タイル（bake-out/alt）→ GIS/alt」ボタンが読む（dev の /@fs ではフォルダを列挙できない）
+const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(readdirSync(OUT).filter(f => f.endsWith('.gz')).sort()) + '\n');
 const W = 3600, Z = 12, TZ = 256;            // 出力格子 1秒 / 地理院 dem_png z12（1.24秒/px＝格子と同オーダー）
 const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
 const L3 = n => String(n).padStart(3, '0');
@@ -205,32 +206,6 @@ async function japanCells() {
 	return cells;
 }
 
-// ── アップロード（bucket GIS/alt・put＝gzip 済みをそのまま）──
-async function upload() {
-	// キーの所在は uploader と同じ流儀＝apps/uploader/.env.local の VITE_API_KEY（gitignore済み）。env が優先。
-	let key = process.env.ORTHO_API_KEY;
-	if (!key) {
-		const envPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../uploader/.env.local');
-		if (existsSync(envPath)) {
-			const txt = readFileSync(envPath, 'utf8');
-			// VITE_API_KEY=... 形式（uploader 用）とキー裸置きの両対応
-			key = txt.match(/^VITE_API_KEY=(.+)$/m)?.[1]?.trim() ?? (/^\S+$/.test(txt.trim()) ? txt.trim() : null);
-		}
-	}
-	if (!key) { console.error('APIキー未設定：ORTHO_API_KEY env か apps/uploader/.env.local の VITE_API_KEY'); process.exit(1); }
-	const files = readdirSync(OUT).filter(f => f.endsWith('.gz'));
-	for (const f of files) {
-		const name = f.replace(/\.gz$/, '');
-		const body = readFileSync(path.join(OUT, f));
-		const res = await fetch(`https://api.ortho-earth.com/bucket/GIS/alt/${name}`, {
-			method: 'POST', body,
-			headers: { 'X-Action': 'put', 'X-API-Key': key, 'X-Metadata-Type': 'application/octet-stream', 'X-Content-Encoding': 'gzip' },
-		});
-		console.log(res.ok ? `↑ ${name} (${(body.length / 1e6).toFixed(1)}MB)` : `✗ ${name} HTTP ${res.status}`);
-		if (!res.ok) process.exit(1);
-	}
-}
-
 // ── main ──
 const args = process.argv.slice(2);
 const arg = k => { const i = args.indexOf(k); return i >= 0 ? (args[i + 1] ?? true) : null; };
@@ -249,5 +224,6 @@ if (targets.length) {
 		await bakeCell(lng, lat);
 	}
 }
-if (args.includes('--upload')) await upload();
-if (!targets.length && !args.includes('--upload')) console.log('使い方: --cells E138N035,... | --japan [--force] [--upload]');
+writeIndex();
+if (args.includes('--upload')) console.log('--upload は無くなった＝上げるのは uploader の画面の「標高タイル（bake-out/alt）→ GIS/alt」ボタン');
+if (!targets.length) console.log('使い方: --cells E138N035,... | --japan [--force]（上げるのは uploader のボタン）');

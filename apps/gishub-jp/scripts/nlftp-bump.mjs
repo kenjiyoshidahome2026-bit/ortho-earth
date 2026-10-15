@@ -3,27 +3,30 @@
  * 全量の作り直し（extract-geojson → make-catalog-json）をせずに、公開された新年版だけ足す道具。
  *
  *   node scripts/nlftp-bump.mjs L02-2025 L02-2026            … 下見（何も書かない）
- *   node scripts/nlftp-bump.mjs L02-2025 L02-2026 --check-data --upload   … catalog/L02-2026.json を置き、index.json の行を差し替える
+ *   node scripts/nlftp-bump.mjs L02-2025 L02-2026 --check-data --write    … bake-out/catalog/ に L02-2026.json と差し替え後の index.json を書く
+ *   → uploader の画面の「国土数値情報カタログ（bake-out/catalog）→ catalog/」ボタンで上げる（R2 へ出す物は uploader のボタンから＝本人 2026-09-30）
  *
  * 作り方：前年版の JSON（bucket）を土台に、
  *   files      … 新年版ページの DownLd / DownLd_new の zip のうち新年版のものを、zip の中身（Range で目次だけ読む）から組み直す
  *   attributes … 前年版のラベル・コードリストを引き継ぐ。--check-data で新年版の実データの列を確かめ、
  *                前年のラベル付き列が消えていたら止まる（ラベル・コードリストの読み直しは全量の作り直しで）
- * 鍵は apps/uploader/.env.local の VITE_API_KEY（git 管理外・uploader と同じ bucket の書き込み鍵）。
+ * このスクリプトは鍵を読まない（2026-10-15・旧＝--upload で apps/uploader/.env.local の鍵を読んで直に置いていた）。
+ * plan.json の base＝土台にした index.json（JSON.stringify し直した文字列）の SHA-256＝上げる時に bucket の index が変わっていたら uploader が止める（古い差し替えで上書きしない）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listGeoFilesInZip } from './zip-reader.js';
-import { Bucket } from '../../../packages/native-bucket/src/Bucket.js';
+import { createHash } from 'node:crypto';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = 'https://api.ortho-earth.com';
 const PAGE = code => `https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-${code}.html`;
 
 const [prevCode, nextCode] = process.argv.slice(2).filter(a => !a.startsWith('--'));
-const upload = process.argv.includes('--upload');
-if (!prevCode || !nextCode) { console.error('usage: node scripts/nlftp-bump.mjs <前年版コード> <新年版コード> [--upload]'); process.exit(1); }
+const write = process.argv.includes('--write');
+if (process.argv.includes('--upload')) { console.error('✖ --upload は無くなった＝--write で bake-out/catalog/ に書き、uploader の画面のボタンで上げる'); process.exit(1); }
+if (!prevCode || !nextCode) { console.error('usage: node scripts/nlftp-bump.mjs <前年版コード> <新年版コード> [--check-data] [--write]'); process.exit(1); }
 const nextYear = +nextCode.match(/-(\d{4})$/)?.[1];
 const yy = String(nextYear).slice(2);
 
@@ -95,17 +98,14 @@ const nextIndex = index.map(d => d === row ? nextRow : d);
 
 console.log(`files: ${files.length}（全国 ${files.filter(f => f.scope === '全国').length}・都道府県 ${files.filter(f => f.pref_code).length}）例:`, JSON.stringify(files.slice(0, 3)));
 console.log('index 行:', JSON.stringify(nextRow));
-if (!upload) { console.log('\n下見のみ（--upload で bucket へ置く）'); process.exit(0); }
+if (!write) { console.log('\n下見のみ（--write で bake-out/catalog/ に書く → uploader のボタンで上げる）'); process.exit(0); }
 
-// ---- bucket へ ----
-const env = { ...process.env };
-for (const f of [path.join(HERE, '../../uploader/.env.local')]) {
-	try { for (const line of fs.readFileSync(f, 'utf8').split('\n')) { const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/); if (m && !(m[1] in env)) env[m[1]] = m[2].replace(/^["']|["']$/g, ''); } } catch { }
-}
-if (!env.VITE_API_KEY) { console.error('✖ VITE_API_KEY が無い（apps/uploader/.env.local）'); process.exit(1); }
-const bucket = await Bucket('catalog', { baseUrl: `${API_BASE}/bucket/`, apiKey: env.VITE_API_KEY, silent: true });
-if (!bucket) { console.error('✖ bucket catalog に届かない'); process.exit(1); }
-const put = (name, obj) => bucket.put(new File([JSON.stringify(obj)], name, { type: 'application/json' }));
-await put(`${nextCode}.json`, next);   // 先に本体（index が先に変わると一瞬 404 の行ができる）
-await put('index.json', nextIndex);
-console.log(`✓ catalog/${nextCode}.json と index.json を置いた（${prevCode}.json は残す＝旧リンク用）`);
+// ---- bake-out/catalog/ へ（上げるのは uploader）----
+const OUT = path.join(HERE, '../../../bake-out/catalog');
+fs.rmSync(OUT, { recursive: true, force: true });   // 1 回に 1 件の差し替え＝前の下書きは残さない
+fs.mkdirSync(OUT, { recursive: true });
+const put = [`${nextCode}.json`, 'index.json'];   // 上げる順＝先に本体（index が先に変わると一瞬 404 の行ができる）
+fs.writeFileSync(path.join(OUT, put[0]), JSON.stringify(next));
+fs.writeFileSync(path.join(OUT, put[1]), JSON.stringify(nextIndex));
+fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify({ files: put, base: createHash('sha256').update(JSON.stringify(index)).digest('hex'), from: prevCode, to: nextCode }, null, '\t') + '\n');
+console.log(`✓ bake-out/catalog/ に ${put.join('・')} を書いた（${prevCode}.json は残す＝旧リンク用）→ uploader の「国土数値情報カタログ（bake-out/catalog）→ catalog/」で上げる`);
