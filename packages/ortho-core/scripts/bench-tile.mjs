@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import { decodeMVT, neededSourceLayers } from "../src/decode.js";
 import { buildTilePayload } from "../src/tilepayload.js";
 import { mergeTiles } from "../src/scene.js";
-import gsi from "../../globe/src/style-gsi.js";
-import mono from "../../globe/src/style-mono.js";
-import { pmLayers } from "../../globe/src/style-pm.js";
+import gsi from "@ortho-earth/globe/style-gsi.js";
+import mono from "@ortho-earth/globe/style-mono.js";
+import { pmLayers } from "@ortho-earth/globe/style-pm.js";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);

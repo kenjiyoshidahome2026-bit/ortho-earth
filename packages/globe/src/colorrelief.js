@@ -41,7 +41,7 @@ export function reliefAt(R, h) {
 }
 
 // 1 タイルの色（h＝標高の画素・n×n）→ RGBA（事前乗算を戻した 0〜255＝ImageData）
-export function reliefTile(h, n, R) {
+function reliefTile(h, n, R) {
 	const out = new Uint8ClampedArray(n * n * 4);
 	for (let i = 0; i < n * n; i++) {
 		const [r, g, b, a] = reliefAt(R, h[i]);

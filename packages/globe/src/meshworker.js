@@ -3,7 +3,7 @@
 // 重複面dedup→RTE delta を行い、完成したバッチから順に render worker へ直結ポートで transfer 送信＝逐次表示。
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
-import { decodeBatch, setDecodeEnv, fetchJSON, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.js";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
+import { decodeBatch, setDecodeEnv, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.js";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
 import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.js";
 import { Cache } from "native-bucket";
 import { opfsStore } from "./meshfs.js";
@@ -22,7 +22,6 @@ let BATCH_TILES = 32;       // 1バッチのタイル数。小さいほど初表
                             // 64→32（2026-07-27）：デモ中「メモリ14G級」の実害＝過渡~2.5GB/区の半減を優先（バッチ数は倍＝描画影響は軽微）。
 const FAR_VER = 3;            // 遠景far-DB（#far）の形式版。抽出方法を変えたら上げる＝次のロードで自然再導出。v2=頂点溶接（v1は三角形単位に退化＝83k箱/区の轍）・v3=先細り塔の除外（スカイツリー箱化対策）
 let FAR_MIN_H = 200;          // far-DBの高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・15m/50m/100mは実機比較で却下）。init(farH)/?farh=Nで上書き
-const R2D = 180 / Math.PI;
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
 // main へ返すのは ok/失敗の ack だけ＝~160MB の typed array がメインスレッドで構造化クローンされるのを断つ。

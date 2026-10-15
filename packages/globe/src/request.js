@@ -9,7 +9,7 @@
 const protocols = new Map();   // scheme → loader（地図をまたいで共有＝MapLibre の addProtocol と同じ大域）
 export function addProtocol(scheme, loader) { protocols.set(String(scheme).replace(/:\/*$/, ""), loader); }
 export function removeProtocol(scheme) { protocols.delete(String(scheme).replace(/:\/*$/, "")); }
-export const protocolOf = url => { const m = /^([a-z][\w+.-]*):\/\//i.exec(url || ""); return m && protocols.has(m[1]) ? protocols.get(m[1]) : null; };
+const protocolOf = url => { const m = /^([a-z][\w+.-]*):\/\//i.exec(url || ""); return m && protocols.has(m[1]) ? protocols.get(m[1]) : null; };
 
 // 読み口の戻り（data）を欲しい形へ
 async function asBuffer(data) {

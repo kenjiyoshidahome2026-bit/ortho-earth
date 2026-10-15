@@ -127,7 +127,7 @@ function xyzToFaceUV(p) {
 const llToXYZ = (lon, lat) => { const a = lon * D2R, b = lat * D2R, c = Math.cos(b); return [c * Math.cos(a), c * Math.sin(a), Math.sin(b)]; };
 const xyzToLL = p => [Math.atan2(p[1], p[0]) * R2D, Math.atan2(p[2], Math.hypot(p[0], p[1])) * R2D];
 const stToIJ = s => Math.max(0, Math.min((1 << S2_MAX) - 1, Math.floor(s * (1 << S2_MAX))));
-export function s2FromFaceIJ(face, i, j, level = S2_MAX) {
+function s2FromFaceIJ(face, i, j, level = S2_MAX) {
 	let n = BigInt(face) << 60n, bits = face & S2_SWAP;
 	for (let k = 7; k >= 0; k--) {
 		const mask = (1 << S2_LOOKUP_BITS) - 1;
@@ -141,7 +141,7 @@ export function s2FromFaceIJ(face, i, j, level = S2_MAX) {
 	if (level < S2_MAX) { const lsb = 1n << BigInt(2 * (S2_MAX - level)); id = (id & ~(lsb - 1n)) | lsb; }
 	return id;
 }
-export function s2ToFaceIJ(id) {
+function s2ToFaceIJ(id) {
 	const face = Number(id >> 61n); let bits = face & S2_SWAP, i = 0, j = 0;
 	for (let k = 7; k >= 0; k--) {
 		const nbits = k === 7 ? S2_MAX - 7 * S2_LOOKUP_BITS : S2_LOOKUP_BITS;
@@ -153,9 +153,9 @@ export function s2ToFaceIJ(id) {
 	}
 	return { face, i, j };
 }
-export const s2Level = id => { let n = 0; while (((id >> BigInt(n)) & 1n) === 0n) n++; return S2_MAX - n / 2; };
-export const s2Token = id => { if (id === 0n) return "X"; let s = id.toString(16).padStart(16, "0"); while (s.endsWith("0")) s = s.slice(0, -1); return s; };
-export const s2FromToken = t => t === "X" || t === "x" ? 0n : BigInt("0x" + t.padEnd(16, "0"));
+const s2Level = id => { let n = 0; while (((id >> BigInt(n)) & 1n) === 0n) n++; return S2_MAX - n / 2; };
+const s2Token = id => { if (id === 0n) return "X"; let s = id.toString(16).padStart(16, "0"); while (s.endsWith("0")) s = s.slice(0, -1); return s; };
+const s2FromToken = t => t === "X" || t === "x" ? 0n : BigInt("0x" + t.padEnd(16, "0"));
 export const s2 = {
 	encode(lon, lat, level = 10) { const { face, u, v } = xyzToFaceUV(llToXYZ(lon, lat)); return s2Token(s2FromFaceIJ(face, stToIJ(uvToST(u)), stToIJ(uvToST(v)), level)); },
 	// セルの (face, i0, j0, size)＝ij の範囲。中心の ij は id の末尾の 1 ビットの位置から

@@ -12,7 +12,7 @@ import { setLang, getLang, isRTL, loadPage, tr } from "@ortho-earth/globe/i18n.j
 const t = tr();
 
 // ① ② 言語を決め、<html> に lang/dir を書き、頁の辞書を足す。UI を組む前に await する（モジュール評価時に t() を呼ばない掟とセット）
-export async function preparePage({ page, lang } = {}) {
+async function preparePage({ page, lang } = {}) {
 	await setLang(lang);
 	if (page) await loadPage(page);
 	const code = getLang();
