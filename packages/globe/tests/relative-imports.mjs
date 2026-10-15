@@ -8,7 +8,7 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const files = [];
 const walk = d => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.(js|mjs)$/.test(n)) files.push(p); } };
 walk(SRC);
-const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])(\.{1,2}\/[^"'`]+)\1/g;
+const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\bnew URL\(\s*)(["'])(\.{1,2}\/[^"'`]+)\1/g;
 let bad = 0, n = 0;
 for (const f of files) {
 	const src = readFileSync(f, "utf8").replace(/^\s*\/\/.*$/gm, "");   // 行コメントの中の例は見ない
