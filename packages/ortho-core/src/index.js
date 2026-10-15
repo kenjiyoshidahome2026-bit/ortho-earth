@@ -17,8 +17,7 @@ export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
 export { buildBuildings, buildExtrudedParcels, buildDrapedGeometry } from "./buildings.js";
 export { downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
-export { cameraState, project, unproject, lonlatTo3D, WORLD_PX,
-	setEllipsoid, ellipsoidOn, worldRadiusM, betaOf, geodeticOf, ellNormal3D, worldToLonLat, betaToLonLat } from "./camera.js";
+export * from "./camera.js";   // カメラは全部（types/camera.d.ts と同じ口＝projectClip・viewRays・sphereRayUniforms・anchorUV・ellAxisRatio も根から読める・2.0）
 export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan, easePlan } from "./flight.js";
 export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES, bezierEase, inertiaOf, inertiaOf2, snapZoom } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
