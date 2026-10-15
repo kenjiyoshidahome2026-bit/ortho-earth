@@ -146,6 +146,7 @@ Combines this instance with other instances into a new instance (named after thi
 | `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/load` | map library adapters (§8–§11) and the shared loader |
 | `geopbf/tilesource` | on-demand MVT tiles from a GeoPBF+Gint (`createTileSource`; the `geopbf://…/{z}/{x}/{y}` protocol's engine) |
 | `geopbf/sanitize`, `geopbf/czml`, `geopbf/gzip`, `geopbf/encodeZIP`, `geopbf/decodeZIP`, `geopbf/encodeXLSX`, `geopbf/fname2mime` | utilities |
+| `geopbf/internal/*` | `src/*` as is (e.g. `geopbf/internal/cog/tiff.js`) — for the monorepo's own tests and bake scripts, so they never reach into `packages/geopbf/src/…` by relative path. Not public API: no types, may change without notice |
 
 ---
 

@@ -34,7 +34,7 @@ for (const [key, val] of Object.entries(pkg.exports)) {
 		if (shorthand.has(spec)) missing.push(`${key} は型ありなのに subpaths.d.ts にも省略宣言がある（二重）`);
 	} else {
 		const target = typeof val === "object" ? val.default : val;
-		if (!existsSync(path.join(PKG, target.replace("*", "model")))) missing.push(`${key} → ${target} が無い`);
+		if (!existsSync(path.join(PKG, target.includes("*") ? target.split("*")[0] : target))) missing.push(`${key} → ${target} が無い`);   // ワイルドカードは手前のディレクトリの有無
 		if (!shorthand.has(spec)) missing.push(`${key} は型も省略宣言も無い（TS 利用者に TS7016 が出る）`);
 	}
 }
