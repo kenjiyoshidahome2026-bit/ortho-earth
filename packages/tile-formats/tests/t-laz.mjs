@@ -6,9 +6,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createLazPerf } from "laz-perf";
-import { decodeLazChunk } from "../src/laz.js";
+import { decodeLazChunk, decodeLazFile } from "../src/laz.js";
 import { POINTCLOUD_FORMATS, POINTCLOUD_NAMES } from "../src/pointcloud.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, geoKeysEpsg, hasRgb } from "../src/las.js";   // LAS/COPC の形を読む純関数
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, geoKeysEpsg, hasRgb } from "../src/las.js";   // LAS/COPC の形を読む純関数
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
@@ -69,10 +69,26 @@ await t("GeoTIFF キーの EPSG 番号（平面直角 VIII 系＋JGD2011 の標�
 	assert.deepEqual(geoKeysEpsg(new Uint8Array(user.buffer)), { horizontal: null, vertical: null });
 });
 
-await t("差し込み口の形＝{ laz: () => Promise<decode> }", () => {
-	assert.deepEqual(Object.keys(POINTCLOUD_FORMATS), ["laz"]);
-	assert.equal(typeof POINTCLOUD_FORMATS.laz, "function");
-	assert.deepEqual(POINTCLOUD_NAMES, Object.keys(POINTCLOUD_FORMATS));   // globe 本体は名前だけ読む（capabilities）＝表とずれない
+await t("LAZ を丸ごと解く（COPC の印を消した＝普通の LAZ 1.4）・記録のままの整数の列", () => {
+	const plain = buf.slice(), hdr = parseHeader(plain), ci = listVlrs(plain, hdr.headerSize, hdr.vlrCount).find(v => v.userId === "copc");
+	plain.set(new TextEncoder().encode("copx"), ci.offset - 54 + 2);   // userId を書き換える＝COPC の読み手からは普通の LAZ
+	assert.ok(!listVlrs(plain, hdr.headerSize, hdr.vlrCount).some(v => v.userId === "copc"));
+	let total = 0, batches = 0, first = null;
+	const r = decodeLazFile(lp, plain, (rec, k) => { if (!first) first = rec.slice(0, 3 * hdr.recordLength); total += k; batches++; }, { batch: 30000 });
+	assert.deepEqual(r, { count: 100000, recordLength: hdr.recordLength, format: 7 });
+	assert.equal(total, 100000); assert.equal(batches, 4);
+	const a = readRecords(first, 3, hdr), b = readRecordsRaw(first, 3, hdr, { shift: 8 });
+	for (let i = 0; i < 3; i++) {
+		assert.equal(b.X[i] * hdr.scale[0] + hdr.offset[0], a.x[i]); assert.equal(b.Z[i] * hdr.scale[2] + hdr.offset[2], a.z[i]);
+		assert.equal(b.intensity[i], a.intensity[i]); assert.equal(b.classification[i], a.classification[i]); assert.equal(b.rgb[i * 3], a.rgb[i * 3] >> 8);
+	}
+	assert.equal(rgbMax(first, 3, hdr), Math.max(...a.rgb));
+});
+
+await t("差し込み口の形＝{ laz: () => Promise<decode>, lazFile }", () => {
+	assert.deepEqual(Object.keys(POINTCLOUD_FORMATS), ["laz", "lazFile"]);
+	assert.equal(typeof POINTCLOUD_FORMATS.laz, "function"); assert.equal(typeof POINTCLOUD_FORMATS.lazFile, "function");
+	assert.deepEqual(POINTCLOUD_NAMES, ["laz"]);   // globe 本体は名前だけ読む（capabilities）
 });
 
 console.log(`\n全 ${n} 件通過`);

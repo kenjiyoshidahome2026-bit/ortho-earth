@@ -1181,6 +1181,11 @@ export interface OrthoJapanMap {
 	addCOPC(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;
 	/** COPC を外す（id を省く＝全部） */
 	removeCOPC(id?: string): Promise<boolean>;
+	/** 点群（LAS／LAZ／COPC）を足す（addCOPC の新しい名）。COPC は節だけ範囲読み。普通の LAS/LAZ（1.0〜1.4・点の形式 0〜10）はファイルを丸ごと読み、その場で八分木を作る。
+	 *  丸ごと読みの上限＝2,000 万点・URL は 500 MB（超えたら COPC への変換を案内して reject）。.las／.laz のドロップも同じ */
+	addPointCloud(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;
+	/** 点群を外す（id を省く＝全部） */
+	removePointCloud(id?: string): Promise<boolean>;
 	addI3S(url: string, opts?: Tiles3DOptions & { lodScale?: number; token?: string }): Promise<{ id: string; name: string | null; copyright: string | null; readonly stats: Tiles3DHandle["stats"]; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions> & { lodScale?: number }): void }>;
 	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
@@ -1425,11 +1430,15 @@ export interface COPCOptions {
 	/** 段彩の範囲（m・既定＝ファイルの z の範囲）・強度の範囲（既定 0〜65535） */ elevationRange?: [number, number]; intensityRange?: [number, number];
 	opacity?: number;
 	/** 読んだら範囲へ寄る（既定 true） */ fit?: boolean;
+	/** 水平の座標系（"EPSG:6676" か WKT）＝ファイルの WKT・GeoTIFF キーより先。座標系の書かれていないファイルに要る */ crs?: string;
+	/** 鉛直（ファイルに書かれていない時だけ効く）＝"orthometric"（標高）か "ellipsoidal"（楕円体高）。既定＝投影座標系なら標高 */ vertical?: "orthometric" | "ellipsoidal";
 }
 export interface COPCHandle {
 	id: string;
-	/** count＝点の総数・hasRgb・bbox・center・crs（WKT の名）・vertical（"ellipsoidal" か鉛直の CRS の名）・spacing（根の点の間隔） */
-	info: { count: number; format: number; hasRgb: boolean; bbox: Bbox; center: LonLat; zRange: [number, number]; crs: string; vertical: string; spacing: number; size: number };
+	/** count＝点の総数・hasRgb・bbox・center・crs（座標系の名）・crsFrom（どこから決めたか）・vertical（"ellipsoidal" か鉛直の CRS の名）・spacing（根の点の間隔）・
+	 *  copc（COPC か）・inMemory（丸ごと読み）・load（丸ごと読みの ms＝read・decode・build） */
+	info: { count: number; format: number; hasRgb: boolean; bbox: Bbox; center: LonLat; zRange: [number, number]; crs: string; crsFrom?: "opts" | "wkt" | "geokeys"; vertical: string; spacing: number; size: number;
+		version?: string; copc?: boolean; inMemory?: boolean; nodeCount?: number; load?: { read: number; decode: number; build: number } };
 	readonly stats: { nodes: number; shown: number; points: number; shownPoints: number; failed: number; requests: number; inflight: number; budget: number };
 	readonly bbox: Bbox;
 	setOptions(o: Partial<COPCOptions>): COPCHandle;
