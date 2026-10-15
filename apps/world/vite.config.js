@@ -14,11 +14,6 @@ import { crossOriginIsolation, coepHeadersFile, noChunkOptimization, CSS_TARGET 
 export default defineConfig(({ command }) => ({
 	plugins: [crossOriginIsolation(), wasm(), coepHeadersFile(path.resolve(__dirname, 'dist/site')), sharedEngine()],   // dev/preview＝middleware（エンジンは worker と越境取得を使う＝japan/census2020 と同じ credentialless・旧 server.headers＝dev だけ）
 	base: '/world/',   // 公開パス＝ortho-earth.com/world/（gishub と同じ配置）
-	resolve: {
-		alias: {
-			'common': path.resolve(__dirname, '../../packages/common/src'),
-		}
-	},
 	optimizeDeps: { exclude: ['common', 'geopbf', 'native-bucket'] },
 	server: {
 		fs: { allow: ['../..'] },
