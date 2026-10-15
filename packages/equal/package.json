@@ -1,0 +1,20 @@
+{
+	"name": "@ortho-earth/equal",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "Equal Earth の全球図の部品（createEqual）＝equal・ortho-globe・ortho-japan が共に使う。本番は共有エンジンの入口 /globe/engine/<版>/equal.js（2026-10-15）",
+	"exports": {
+		".": "./src/equal.js",
+		"./*": "./src/*"
+	},
+	"dependencies": {
+		"altpbf": "*",
+		"geopbf": "*",
+		"native-bucket": "*",
+		"@ortho-earth/core": "*",
+		"quiet-mono": "*",
+		"@ortho-earth/globe": "*"
+	}
+}

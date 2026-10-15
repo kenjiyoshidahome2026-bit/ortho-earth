@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { uiTables, writeTables, printRows } from "@ortho-earth/globe/scripts/lib/i18n-tables.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const ui = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui ?? {};
+const ui = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/equal/i18n/ui.json"), "utf8")).ui ?? {};
 const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
-const { files, rows, total } = uiTables(ui, langs, path.join(APP, "i18n/lang"));   // 作る中身は globe の i18n-tables.mjs と同じ関数（4 アプリで 1 本・2026-10-03）
+const { files, rows, total } = uiTables(ui, langs, path.join(APP, "../../packages/equal/i18n/lang"));   // 作る中身は globe の i18n-tables.mjs と同じ関数（4 アプリで 1 本・2026-10-03）
 writeTables(files);
 printRows(rows, total);
