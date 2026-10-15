@@ -19,10 +19,10 @@ export const ENTRIES = [
 	["@ortho-earth/h3/core", "h3", P("packages/h3/src/core.js")],
 	// 地域の切り替え口（packages/regions＝orthoJapan・2026-10-15 に jp から出した）と地域パック（jp・nl）＝japan・census2020・choju・ortho-nl・gishub-jp が共に読む（2026-10-14）
 	["@ortho-earth/regions/app", "regions/app", resolve(import.meta.dirname, "regions-app.js")],
-	["@ortho-earth/jp", "jp/index", P("packages/jp/src/index.js")],
-	["@ortho-earth/jp/region", "jp/region", P("packages/jp/src/region.js")],
-	["@ortho-earth/jp/codes", "jp/codes", P("packages/jp/src/codes.js")],
-	["@ortho-earth/jp/shared-data", "jp/shared-data", P("packages/jp/shared-data/index.js")],
+	["@ortho-earth/jp", "jp/index", P("packages/jp/src/index.ts")],
+	["@ortho-earth/jp/region", "jp/region", P("packages/jp/src/region.ts")],
+	["@ortho-earth/jp/codes", "jp/codes", P("packages/jp/src/codes.ts")],
+	["@ortho-earth/jp/shared-data", "jp/shared-data", P("packages/jp/shared-data/index.ts")],
 	["@ortho-earth/nl", "nl/index", P("packages/nl/src/region.js")],
 	// Equal Earth の部品（packages/equal）＝ortho-globe・ortho-japan（div で重ねる）・equal の頁が共に読む（2026-10-15）。言語の状態は equal 自前（globe の i18n とは別の口）
 	["@ortho-earth/equal", "equal", resolve(import.meta.dirname, "equal.js")],
@@ -43,7 +43,7 @@ export const ENTRIES = [
 		// common＝world・GeoPBF・gishub-jp／common の d3 部品＝GeoPBF・gishub-jp／world の読込と国の層＝world・quiz／xlsx の書き出し＝GeoPBF・gishub-jp／
 		// 国勢調査のグラフ＝census2020・gishub-jp／Wikipedia の枠＝world・census2020・ortho-globe・ortho-japan
 		"common", "common/geoExec", "common/screenLogger", "common/gintView",
-		"world-data/src/data.js", "world-data/src/worldlayers.js", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts.mjs", "@ortho-earth/globe/wiki.js",
+		"world-data/src/data.js", "world-data/src/worldlayers.js", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts", "@ortho-earth/globe/wiki.js",
 	].map(spec => [spec, sub(spec), src(spec)]),
 ];
 // 入口の隣に複写する実行時データ（orthoJapan の assetBase の既定＝<版>/assets/）。

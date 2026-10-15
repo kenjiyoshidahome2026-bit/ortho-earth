@@ -1,6 +1,6 @@
 // 地名検索の窓：UIは Quiet Mono の作法（白の静かな箱、候補は下に）。ヒット→ onResult(hit) と onGo(lon, lat, zoom, tilt) を呼ぶだけ＝
 // 飛び方（球面フライト）は呼び出し側の領分。何をどこへ問い合わせるか（API・前処理・着地ズーム）は供給元
-// （日本＝packages/jp/src/search-gsi.js の地理院 AddressSearch・世界＝worldsearch.js・外の geocoder＝geocoder.js）＝窓は国を知らない（2026-09-22 分離）。
+// （日本＝packages/jp/src/search-gsi.ts の地理院 AddressSearch・世界＝worldsearch.js・外の geocoder＝geocoder.js）＝窓は国を知らない（2026-09-22 分離）。
 //
 // 供給元の契約（#175 で広げた・今の形は無改修で動く）：
 //   { histKey?, query(q, signal) → Promise<hit[]>, viewFor?(title) → { zoom, tilt? } }

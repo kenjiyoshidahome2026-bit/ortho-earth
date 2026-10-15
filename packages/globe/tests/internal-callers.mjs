@@ -39,7 +39,7 @@ const walk = d => {
 		const p = path.join(d, e.name), rel = path.relative(ROOT, p);
 		if (SKIP.test(rel)) continue;
 		if (e.isDirectory()) walk(p);
-		else if (/\.(m?js|html)$/.test(e.name)) {
+		else if (/\.(m?js|ts|html)$/.test(e.name)) {
 			const s = fs.readFileSync(p, "utf8");
 			let n = 0; for (const re of RE) n += (s.match(re) || []).length;
 			if (n) found[rel] = n;
