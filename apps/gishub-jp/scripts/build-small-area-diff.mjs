@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../census/small-area-diff.json');
+const OUT   = join(__dir, '../../../packages/jp/census/small-area-diff.json');
 
 // 5桁市区町村 → Set<9桁コード>
 function loadCityCodeSets(file) {

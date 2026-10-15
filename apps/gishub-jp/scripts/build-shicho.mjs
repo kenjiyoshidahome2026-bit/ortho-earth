@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../census/shicho.json');
+const OUT   = join(__dir, '../../../packages/jp/census/shicho.json');
 
 // 振興局名 → 所属市町村コード
 const SHICHO = {
@@ -44,7 +44,7 @@ for (const [name, codes] of Object.entries(SHICHO))
     for (const c of codes) out[c] = name;
 
 // 検証: 札幌区を除く市町村数（179）を manifest と突合
-const man = JSON.parse(readFileSync(join(__dir, '../census/manifest.json'), 'utf8'));
+const man = JSON.parse(readFileSync(join(__dir, '../../../packages/jp/census/manifest.json'), 'utf8'));
 const munis = man.filter(e => e.code.startsWith('01') && !e.code.endsWith('000')
     && !(parseInt(e.code, 10) >= 1101 && parseInt(e.code, 10) <= 1110));
 const missing = munis.filter(e => !out[e.code]);

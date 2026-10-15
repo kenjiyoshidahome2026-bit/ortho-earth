@@ -13,7 +13,7 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../census/2020-ages.json');
+const OUT   = join(__dir, '../../../packages/jp/census/2020-ages.json');
 
 const BASE_URL = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const STATS_ID = 'T001082';

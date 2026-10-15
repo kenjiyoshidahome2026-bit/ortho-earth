@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../census/2020-household.json');
+const OUT   = join(__dir, '../../../packages/jp/census/2020-household.json');
 const PROXY = 'https://api.ortho-earth.com/proxy/?url=';
 const GIS   = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 

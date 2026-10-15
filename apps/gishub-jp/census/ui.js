@@ -1,20 +1,20 @@
-import CENSUS_MANIFEST    from './manifest.json'    with { type: 'json' };
-import CENSUS_2025_POP    from './2025-pop.json'    with { type: 'json' };
-import CENSUS_2020_POP    from './2020-pop.json'    with { type: 'json' };
-import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
-import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
-import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
-import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
-import CENSUS_2015_AGES      from './2015-ages.json'      with { type: 'json' };
-import CENSUS_2015_HOUSEHOLD from './2015-household.json' with { type: 'json' };
-import SMALL_AREA_DIFF        from './small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
+import CENSUS_MANIFEST    from '@ortho-earth/jp/census/manifest.json'    with { type: 'json' };
+import CENSUS_2025_POP    from '@ortho-earth/jp/census/2025-pop.json'    with { type: 'json' };
+import CENSUS_2020_POP    from '@ortho-earth/jp/census/2020-pop.json'    with { type: 'json' };
+import CENSUS_2020_STATS  from '@ortho-earth/jp/census/2020-stats.json'  with { type: 'json' };
+import CENSUS_2015_STATS  from '@ortho-earth/jp/census/2015-stats.json'  with { type: 'json' };
+import CENSUS_2020_AGES   from '@ortho-earth/jp/census/2020-ages.json'   with { type: 'json' };
+import CENSUS_2020_HOUSEHOLD from '@ortho-earth/jp/census/2020-household.json' with { type: 'json' };
+import CENSUS_2015_AGES      from '@ortho-earth/jp/census/2015-ages.json'      with { type: 'json' };
+import CENSUS_2015_HOUSEHOLD from '@ortho-earth/jp/census/2015-household.json' with { type: 'json' };
+import SMALL_AREA_DIFF        from '@ortho-earth/jp/census/small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
 import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
-import CENSUS_KANA        from './kana.json'        with { type: 'json' };
+import CENSUS_KANA        from '@ortho-earth/jp/census/kana.json'        with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 // 政令市・振興局・郡などの行政コード知識は jp/codes.js が正本（1か所管理）
 import { DESIGNATED_CITIES, wardParent as _wardParent,
          SHICHO as CENSUS_SHICHO, GUN as CENSUS_GUN } from '@ortho-earth/jp/codes';
-import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from './charts.mjs';
+import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from '@ortho-earth/jp/census/charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
 import { prefetchZip, fillZips } from '../zipcode/lookup.js';   // 上位で小地域↔郵便番号を突合
