@@ -19,6 +19,13 @@ const GEOG_TOKYO = `GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",63
 const GEOG_JGD2000 = `GEOGCS["JGD2000",DATUM["Japanese_Geodetic_Datum_2000",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]`;
 const GEOG_JGD2011 = `GEOGCS["JGD2011",DATUM["Japanese_Geodetic_Datum_2011",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]`;
 
+// JGD2024（PROJ 9.6 以降の EPSG 辞書が平面直角に付ける名前）＝JGD2011 と同じに読む（2026-10-15・PDAL 2.10.2 が書いた熱海の点群の WKT の形）
+{
+	const viii = `PROJCS["JGD2024 / Japan Plane Rectangular CS VIII",GEOGCS["JGD2024",DATUM["Japanese_Geodetic_Datum_2024",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",36],PARAMETER["central_meridian",138.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1],AUTHORITY["EPSG","6676"]]`;
+	const c = crsFromWKT(viii), ll = c.toLonLat?.([53000, -98850]);
+	ok(c.kind !== "other" && ll && near(ll[0], 139.08, 0.01) && near(ll[1], 35.11, 0.01), `JGD2024 の平面直角 VIII 系＝JGD2011 と同じに読む（熱海 ${ll?.map(v => v.toFixed(4))}）`);
+}
+
 // ── 投影 ──────────────────────────────────────────────────────────────────────
 {
 	const IX = { a: 6378137, f: 1 / 298.257222101, k0: 0.9999, lat0: 36, lon0: 139 + 50 / 60, fe: 0, fn: 0 };
