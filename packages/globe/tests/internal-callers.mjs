@@ -24,7 +24,8 @@ const ALLOW = {
 	"apps/ortho-japan/onsen.js": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/choju/choju.js": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
-	"packages/globe/src/globe.js": 8,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
+	"packages/globe/src/api/query.js": 1,   // 層イベントの問い合わせ（hitsFor）＝globe.js から切り出した（globe.js の分割 ②・2026-10-15）
+	"packages/globe/src/globe.js": 7,     // コメント 1（層イベントの hitsFor は api/query.js へ）。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
 	                                      // ＋検査表示の下地（#174）＝利用者の層を伏せる／戻す setLayoutProperty の visibility 2（利用者の口と同じ意味で伏せる＝戻すと同じ姿）
 	                                      // ＋map.addData の面・線・柱（deck.gl 差分 PR-4・2026-10-12）4＝addSource・addLayer・setLayoutProperty（visibility）・queryRenderedFeatures（h.pick）
 	                                      //   ＝利用者の層と同じ MapLibre の意味で良い（H3 と同じく既存の層経路に乗せる＝利用者が addLayer で描いたのと同じ姿・当たり）
