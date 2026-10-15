@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["census2020", "ortho-nl", "world-quiz", "choju", "world", "ortho-japan"];   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan"];   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const pick = process.argv.slice(2);
 const bad = pick.filter(a => !APPS.includes(a));
 if (bad.length) { console.error(`✗ 知らないアプリ：${bad.join(" ")}（${APPS.join("・")}）`); process.exit(1); }

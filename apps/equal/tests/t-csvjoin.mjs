@@ -1,6 +1,6 @@
 // CSV → 国の結合の検定（列の自動判定・文字コード・数値の読み・世界銀行形式）
 import assert from "node:assert/strict";
-import { parseCSV, decodeText, buildNationIndex, joinCSV, csvPreset } from "../src/csvjoin.js";
+import { parseCSV, decodeText, buildNationIndex, joinCSV, csvPreset } from "../../../packages/equal/src/csvjoin.js";
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const eq = (a, b, m) => { assert.deepEqual(a, b, m); n++; };

@@ -96,6 +96,6 @@
 		"geoedit": "*",
 		"geopbf": "*",
 		"glbconv": "*",
-		"ortho-equal": "*"
+		"@ortho-earth/equal": "*"
 	}
 }

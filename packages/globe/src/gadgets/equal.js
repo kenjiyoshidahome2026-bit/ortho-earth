@@ -5,9 +5,9 @@
 //   球は japan の今の視点と 0 px で一致（実測）。ページは移らず地図の上に重ねる＝読み込みは変形の裏。
 //   右クリック「この地点を中心に全球図へ」＝equalHereItem：Equal Earth の中心はその地点・球は今の視点（morph=lon,lat）。
 // 重ね方は 2 つ（2026-10-04・本人「iframe でなく div で済むように」）：
-//   div（既定・load を渡した時）＝部品 createEqual（apps/equal/src/equal.js）を同じ頁の div に組む。別文書を起こさない＝
+//   div（既定・load を渡した時）＝部品 createEqual（packages/equal/src/equal.js）を同じ頁の div に組む。別文書を起こさない＝
 //     エンジン（globe/i18n/core/geopbf）と worker・bucket・IDB を japan と分かち合う（共有エンジン＝状態 1 つ）。
-//     load＝() => import("ortho-equal/src/equal.js")（殻が渡す＝globe はアプリ equal に依存しない・依存の向き LAYERS.md）。
+//     load＝() => import("@ortho-earth/equal")（本番＝共有エンジンの入口 equal.js）（殻が渡す＝globe はアプリ equal に依存しない・依存の向き LAYERS.md）。
 //     合図は postMessage でなく部品の口そのもの（on("frame")・releaseMorph()・on("closed")）。
 //   iframe（load が無い時＝旧来・SDK の利用者など equal を束ねられない頁）＝/equal/?embed=1 を透明で重ね、postMessage で話す。
 //   ①チルト/回転≠0 なら 0 へ（着地待ち）②透明で置く ③equal が最初の 1 枚（japan と同じ球のフレーム）を描いたら 0.3s で重ね
@@ -51,7 +51,7 @@ export async function goEqual(map, { url, center, morph: doMorph = true, view, l
 			const { createEqual } = await load();
 			const params = new URLSearchParams({ embed: "1", lang: getLang() });   // embed=1＝「地球儀」と Esc は持ち主へ返す（closed）・morph は hold（合図まで球のまま）
 			if (morph) params.set("morph", morph);
-			app = await createEqual({ target: box, params, view: viewHash, hash: false, assetBase: new URL(dest, location.href), geopbf: false });   // hash:false＝頁の URL は japan の物・geopbf:false＝エンジンが起こした bucket 基盤をそのまま使う
+			app = await createEqual({ target: box, params, view: viewHash, hash: false, ...(url != null && { assetBase: new URL(dest, location.href) }), geopbf: false });   // hash:false＝頁の URL は japan の物・geopbf:false＝エンジンが起こした bucket 基盤をそのまま使う
 			if (ac.signal.aborted) { app.destroy(); return; }
 			const shown = () => { box.style.opacity = "1"; onFrame?.(); if (doMorph) setTimeout(() => app.releaseMorph(), 320); };   // 重なり切ってから開く
 			if (app.drawn) shown(); else app.on("frame", shown);
@@ -79,7 +79,7 @@ export async function goEqual(map, { url, center, morph: doMorph = true, view, l
 	}, { signal: ac.signal });
 	mapEl.append(fr);   // 後置＝家具ごと覆う（equal は自分の家具を持つ）
 }
-// url＝equal の置き場（既定＝/equal/・dev は :5198）＝div でも koppen-clim.png の置き場・iframe の src。load＝部品の読み込み口（div 方式の鍵）
+// url＝equal の置き場（既定＝/equal/・dev は :5198）＝iframe の src（div は url を渡した時だけ koppen-clim.png の置き場にも・既定は部品の同梱）。load＝部品の読み込み口（div 方式の鍵）
 export function equal({ url, load } = {}) {
 	const mapEl = this.mapEl, map = this;
 	if (load) LOADERS.set(map, load);   // equalHere／equalStart も同じ口で開く

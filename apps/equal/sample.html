@@ -23,7 +23,7 @@
 	<div class="frame" id="slot"></div>
 	<pre id="log"></pre>
 	<script type="module">
-		import { createEqual } from "./src/equal.js";
+		import { createEqual } from "@ortho-earth/equal";
 		const slot = document.getElementById("slot"), logEl = document.getElementById("log");
 		const log = s => { logEl.textContent = `${new Date().toISOString().slice(11, 19)}  ${s}\n` + logEl.textContent; };
 		let app = null;

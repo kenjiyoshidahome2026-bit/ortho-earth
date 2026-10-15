@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（部品 createEqual も入口 equal.js を URL で読む・2026-10-15）
 import { crossOriginIsolation, noChunkOptimization } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // COOP/COEP（japan と同じ 2 ヘッダ・2026-09-20）：japan は COEP=credentialless で配信しており、その iframe に載る文書も
@@ -9,7 +10,7 @@ import { crossOriginIsolation, noChunkOptimization } from "../../packages/globe/
 
 // base './'＝どのパスにマウントしても動く相対参照（solar と同じ型）。
 export default defineConfig({
-	plugins: [crossOriginIsolation({ corp: true })],
+	plugins: [crossOriginIsolation({ corp: true }), sharedEngine()],
 	base: "./",
 	build: { outDir: "dist/site/equal", emptyOutDir: true, target: "es2022", rolldownOptions: noChunkOptimization },   // target＝トップレベル await を許す（起動時に UI の訳を揃える）
 	worker: { format: "es", rolldownOptions: noChunkOptimization },   // geopbf は module worker 連鎖＝既定 iife だとビルドが落ちる（ortho-japan と同じ轍）
