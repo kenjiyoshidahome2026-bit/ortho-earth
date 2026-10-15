@@ -1,7 +1,7 @@
 // node の検定：読み手（.ply・.splat・.spz v2/v3）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
 import { gzipSync } from "node:zlib";
-import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.js";
-import { sortOrder, enuBasis } from "../src/splat-gl.js";
+import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { sortOrder, enuBasis } from "../src/splat-gl.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-5) => Math.abs(a - b) <= e;

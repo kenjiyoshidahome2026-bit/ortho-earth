@@ -1,40 +1,54 @@
 // 書き出し口。入力は全部 scene（scene.js の中立形）。戻りは { name, bytes } の配列＝呼び手が 1 本なら保存、複数なら zip。
-import { buildGlb } from "./glb.js";
-import { zipStore } from "./zip.js";
+import { buildGlb } from "./glb.ts";
+import type { GltfJson, GltfAccessor, GltfBufferView, GltfImage, GltfMaterial, GltfMesh, GltfNode, GltfScene, GltfTexture, GltfBuffer } from "./glb.ts";
+import { zipStore } from "./zip.ts";
+import type { Scene, SceneImage } from "./scene.ts";
+
+/** 書き出した 1 本 */
+export interface OutFile { name: string; bytes: Uint8Array }
+export interface WriteOptions { name?: string }
 
 const enc = new TextEncoder();
-const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/ktx2": "ktx2" };
-const extOf = m => EXT[m] || "bin";
-const pad4 = n => (4 - (n % 4)) % 4;
+const EXT: Record<string, string | undefined> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/ktx2": "ktx2" };
+const extOf = (m: string): string => EXT[m] || "bin";
+const pad4 = (n: number): number => (4 - (n % 4)) % 4;
+
+// 組み立て中の glTF（配列は全部ある）
+interface GltfOut extends GltfJson {
+	scenes: GltfScene[]; nodes: GltfNode[]; meshes: GltfMesh[]; materials: GltfMaterial[]; accessors: GltfAccessor[]; bufferViews: GltfBufferView[];
+	images: GltfImage[]; textures: GltfTexture[]; samplers: Array<Record<string, unknown>>; buffers: GltfBuffer[];
+}
+type AccessorType = "SCALAR" | "VEC2" | "VEC3" | "VEC4";
+const NCOMP: Record<AccessorType, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 
 // ── glTF / GLB ──────────────────────────────────────────────────────────────
 // Draco も量子化も解いた「素の」glTF を組む＝どの読み手でも開く（配布用）。
 // 頂点は scene の座標そのまま＝CESIUM_RTC があれば拡張として書き戻す（3D Tiles 由来の模型が地球上の場所を保つ）。
-function buildGltf(scene, { binUri = null, embed = false } = {}) {
-	const json = { asset: { version: "2.0", generator: "glbconv" }, scene: 0, scenes: [{ nodes: [] }],
+function buildGltf(scene: Scene, { binUri = null, embed = false }: { binUri?: string | null; embed?: boolean } = {}): { json: GltfOut; bin: Uint8Array } {
+	const json: GltfOut = { asset: { version: "2.0", generator: "glbconv" }, scene: 0, scenes: [{ nodes: [] }],
 		nodes: [], meshes: [], materials: [], accessors: [], bufferViews: [], images: [], textures: [], samplers: [], buffers: [] };
-	const chunks = []; let len = 0;
-	const push = (bytes, target) => {   // bufferView を 1 本足す（4 byte 境界）
+	const chunks: Uint8Array[] = []; let len = 0;
+	const push = (bytes: Uint8Array, target?: number): number => {   // bufferView を 1 本足す（4 byte 境界）
 		const p = pad4(len); if (p) { chunks.push(new Uint8Array(p)); len += p; }
-		const bv = { buffer: 0, byteOffset: len, byteLength: bytes.length };
+		const bv: GltfBufferView = { buffer: 0, byteOffset: len, byteLength: bytes.length };
 		if (target) bv.target = target;
 		chunks.push(bytes); len += bytes.length;
 		json.bufferViews.push(bv); return json.bufferViews.length - 1;
 	};
-	const accessor = (arr, type, comp, target, minmax = false) => {
+	const accessor = (arr: Float32Array | Uint8Array | Uint32Array, type: AccessorType, comp: number, target: number, minmax = false): number => {
 		const bv = push(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength), target);
-		const n = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[type];
-		const a = { bufferView: bv, componentType: comp, count: arr.length / n, type };
+		const n = NCOMP[type];
+		const a: GltfAccessor = { bufferView: bv, componentType: comp, count: arr.length / n, type };
 		if (comp === 5121) a.normalized = true;
-		if (minmax) { const mn = new Array(n).fill(Infinity), mx = new Array(n).fill(-Infinity);
+		if (minmax) { const mn = new Array<number>(n).fill(Infinity), mx = new Array<number>(n).fill(-Infinity);
 			for (let i = 0; i < arr.length; i += n) for (let c = 0; c < n; c++) { const v = arr[i + c]; if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; }
 			a.min = mn; a.max = mx; }
 		json.accessors.push(a); return json.accessors.length - 1;
 	};
-	const imgIndex = new Map();
-	const texOf = img => {
+	const imgIndex = new Map<Uint8Array, number>();
+	const texOf = (img: SceneImage | null): number | null => {
 		if (!img) return null;
-		if (imgIndex.has(img.bytes)) return imgIndex.get(img.bytes);
+		if (imgIndex.has(img.bytes)) return imgIndex.get(img.bytes)!;
 		const bv = push(img.bytes);
 		json.images.push({ mimeType: img.mime, bufferView: bv });
 		if (!json.samplers.length) json.samplers.push({ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 });
@@ -43,18 +57,18 @@ function buildGltf(scene, { binUri = null, embed = false } = {}) {
 	};
 	for (const p of scene.prims) {
 		const tex = texOf(p.material.image);
-		const mat = { name: p.material.name, doubleSided: p.material.doubleSided,
+		const mat: GltfMaterial = { name: p.material.name, doubleSided: p.material.doubleSided,
 			pbrMetallicRoughness: { baseColorFactor: p.material.baseColor, metallicFactor: 0, roughnessFactor: 1 } };
-		if (tex != null) mat.pbrMetallicRoughness.baseColorTexture = { index: tex };
+		if (tex != null) mat.pbrMetallicRoughness!.baseColorTexture = { index: tex };
 		json.materials.push(mat);
-		const attributes = { POSITION: accessor(p.positions, "VEC3", 5126, 34962, true) };
+		const attributes: Record<string, number> = { POSITION: accessor(p.positions, "VEC3", 5126, 34962, true) };
 		if (p.normals) attributes.NORMAL = accessor(p.normals, "VEC3", 5126, 34962);
 		if (p.uvs) attributes.TEXCOORD_0 = accessor(p.uvs, "VEC2", 5126, 34962);
 		if (p.colors) attributes.COLOR_0 = accessor(p.colors, "VEC4", 5121, 34962);
 		const idx = accessor(p.indices instanceof Uint32Array ? p.indices : Uint32Array.from(p.indices), "SCALAR", 5125, 34963);
 		json.meshes.push({ primitives: [{ attributes, indices: idx, material: json.materials.length - 1, mode: 4 }] });
 		json.nodes.push({ mesh: json.meshes.length - 1 });
-		json.scenes[0].nodes.push(json.nodes.length - 1);
+		json.scenes[0].nodes!.push(json.nodes.length - 1);
 	}
 	if (scene.rtc) { json.extensions = { CESIUM_RTC: { center: scene.rtc } }; json.extensionsUsed = ["CESIUM_RTC"]; json.extensionsRequired = ["CESIUM_RTC"]; }
 	const bin = new Uint8Array(len); { let o = 0; for (const c of chunks) { bin.set(c, o); o += c.length; } }
@@ -65,11 +79,11 @@ function buildGltf(scene, { binUri = null, embed = false } = {}) {
 	return { json, bin };
 }
 
-export function toGlb(scene, { name = "model" } = {}) {
+export function toGlb(scene: Scene, { name = "model" }: WriteOptions = {}): OutFile[] {
 	const { json, bin } = buildGltf(scene);
 	return [{ name: `${name}.glb`, bytes: buildGlb(json, bin) }];
 }
-export function toGltf(scene, { name = "model", embed = false } = {}) {
+export function toGltf(scene: Scene, { name = "model", embed = false }: WriteOptions & { embed?: boolean } = {}): OutFile[] {
 	if (embed) { const { json } = buildGltf(scene, { embed: true });
 		return [{ name: `${name}.gltf`, bytes: enc.encode(JSON.stringify(json, null, "\t")) }]; }
 	const { json, bin } = buildGltf(scene, { binUri: `${name}.bin` });
@@ -78,8 +92,8 @@ export function toGltf(scene, { name = "model", embed = false } = {}) {
 
 // ── OBJ（+ MTL + テクスチャ画像）─────────────────────────────────────────────
 // 位置情報は OBJ に入らない＝CESIUM_RTC を先頭のコメントに書き残す（相手が地球へ戻せるように）。
-export function toObj(scene, { name = "model" } = {}) {
-	const files = [], used = new Map();
+export function toObj(scene: Scene, { name = "model" }: WriteOptions = {}): OutFile[] {
+	const files: OutFile[] = [], used = new Map<string, boolean>();
 	let obj = `# ${name} — glbconv\n`;
 	if (scene.rtc) obj += `# CESIUM_RTC (ECEF origin, metres): ${scene.rtc.join(" ")}\n`;
 	obj += `mtllib ${name}.mtl\n`;
@@ -96,15 +110,15 @@ export function toObj(scene, { name = "model" } = {}) {
 			mtl += `map_Kd ${fn}\n`;
 		}
 		const n = p.positions.length / 3;
-		const v = [], vn = [], vt = [];
+		const v: string[] = [], vn: string[] = [], vt: string[] = [];
 		for (let k = 0; k < n; k++) v.push(`v ${p.positions[k * 3]} ${p.positions[k * 3 + 1]} ${p.positions[k * 3 + 2]}`);
 		if (p.normals) for (let k = 0; k < n; k++) vn.push(`vn ${p.normals[k * 3]} ${p.normals[k * 3 + 1]} ${p.normals[k * 3 + 2]}`);
 		if (p.uvs) for (let k = 0; k < n; k++) vt.push(`vt ${p.uvs[k * 2]} ${1 - p.uvs[k * 2 + 1]}`);   // OBJ の v は下が 0
 		obj += `\no ${nm}\n${v.join("\n")}\n${vt.length ? vt.join("\n") + "\n" : ""}${vn.length ? vn.join("\n") + "\n" : ""}usemtl ${nm}\n`;
-		const f = [];
+		const f: string[] = [];
 		for (let k = 0; k < p.indices.length; k += 3) {
 			const a = p.indices[k] + base, b = p.indices[k + 1] + base, cc = p.indices[k + 2] + base;
-			const s = (x) => vt.length && vn.length ? `${x}/${x}/${x}` : vt.length ? `${x}/${x}` : vn.length ? `${x}//${x}` : `${x}`;
+			const s = (x: number): string => vt.length && vn.length ? `${x}/${x}/${x}` : vt.length ? `${x}/${x}` : vn.length ? `${x}//${x}` : `${x}`;
 			f.push(`f ${s(a)} ${s(b)} ${s(cc)}`);
 		}
 		obj += f.join("\n") + "\n";
@@ -116,7 +130,7 @@ export function toObj(scene, { name = "model" } = {}) {
 }
 
 // ── PLY（binary little endian・頂点色つき）──────────────────────────────────
-export function toPly(scene, { name = "model" } = {}) {
+export function toPly(scene: Scene, { name = "model" }: WriteOptions = {}): OutFile[] {
 	let nv = 0, nf = 0;
 	for (const p of scene.prims) { nv += p.positions.length / 3; nf += p.indices.length / 3; }
 	const head = enc.encode(`ply\nformat binary_little_endian 1.0\ncomment glbconv${scene.rtc ? `\ncomment CESIUM_RTC ${scene.rtc.join(" ")}` : ""}\n`
@@ -152,7 +166,7 @@ export function toPly(scene, { name = "model" } = {}) {
 }
 
 // ── STL（binary・形だけ。3D プリント向け）──────────────────────────────────
-export function toStl(scene, { name = "model" } = {}) {
+export function toStl(scene: Scene, { name = "model" }: WriteOptions = {}): OutFile[] {
 	let nf = 0; for (const p of scene.prims) nf += p.indices.length / 3;
 	const out = new Uint8Array(84 + nf * 50), dv = new DataView(out.buffer);
 	out.set(enc.encode(`glbconv ${name}${scene.rtc ? ` RTC ${scene.rtc.map(v => v.toFixed(1)).join(",")}` : ""}`.slice(0, 79)), 0);
@@ -180,27 +194,27 @@ export function toStl(scene, { name = "model" } = {}) {
 // ── USDZ（Apple の AR クイックルック）───────────────────────────────────────
 // 中身は .usda（テキスト）＋テクスチャ。USDZ の掟＝無圧縮 zip・各ファイルのデータ先頭を 64 byte 境界に揃える・先頭は usd ファイル。
 // glTF は Y-up、USD の既定も Y-up＝軸の入れ替えは不要（upAxis = "Y" を明記する）。
-export function toUsdz(scene, { name = "model", metersPerUnit = 1 } = {}) {
-	const files = [], texName = new Map();
+export function toUsdz(scene: Scene, { name = "model", metersPerUnit = 1 }: WriteOptions & { metersPerUnit?: number } = {}): OutFile[] {
+	const files: OutFile[] = [], texName = new Map<Uint8Array, string>();
 	let usd = `#usda 1.0\n(\n\tdefaultPrim = "root"\n\tmetersPerUnit = ${metersPerUnit}\n\tupAxis = "Y"\n)\n\ndef Xform "root"\n{\n`;
 	for (const [i, p] of scene.prims.entries()) {
 		const id = `mesh_${i}`, n = p.positions.length / 3;
-		const pts = [];
+		const pts: string[] = [];
 		for (let k = 0; k < n; k++) pts.push(`(${p.positions[k * 3]}, ${p.positions[k * 3 + 1]}, ${p.positions[k * 3 + 2]})`);
 		const fvi = Array.from(p.indices).join(", ");
-		const fvc = new Array(p.indices.length / 3).fill(3).join(", ");
+		const fvc = new Array<number>(p.indices.length / 3).fill(3).join(", ");
 		usd += `\tdef Mesh "${id}"\n\t{\n`;
 		usd += `\t\tint[] faceVertexCounts = [${fvc}]\n\t\tint[] faceVertexIndices = [${fvi}]\n`;
 		usd += `\t\tpoint3f[] points = [${pts.join(", ")}]\n`;
-		if (p.normals) { const nn = [];
+		if (p.normals) { const nn: string[] = [];
 			for (let k = 0; k < n; k++) nn.push(`(${p.normals[k * 3]}, ${p.normals[k * 3 + 1]}, ${p.normals[k * 3 + 2]})`);
 			usd += `\t\tnormal3f[] normals = [${nn.join(", ")}] (interpolation = "vertex")\n`; }
-		if (p.uvs) { const uu = [];
+		if (p.uvs) { const uu: string[] = [];
 			for (let k = 0; k < n; k++) uu.push(`(${p.uvs[k * 2]}, ${1 - p.uvs[k * 2 + 1]})`);
 			usd += `\t\ttexCoord2f[] primvars:st = [${uu.join(", ")}] (interpolation = "vertex")\n`; }
 		usd += `\t\tuniform token subdivisionScheme = "none"\n`;
 		usd += `\t\trel material:binding = </root/mat_${i}>\n\t}\n`;
-		let tex = null;
+		let tex: string | null | undefined = null;
 		if (p.material.image) {
 			tex = texName.get(p.material.image.bytes);
 			if (!tex) { tex = `textures/tex_${texName.size}.${extOf(p.material.image.mime)}`; texName.set(p.material.image.bytes, tex);
@@ -227,7 +241,7 @@ export function toUsdz(scene, { name = "model", metersPerUnit = 1 } = {}) {
 // ── 3D Tiles（Cesium などへ戻す）────────────────────────────────────────────
 // tileset.json ＋ content の glb。位置は glb の CESIUM_RTC が持つ＝tileset に transform は要らない。
 // 境界は ECEF の球（sphere）＝region と違って測地の計算が要らず、どの実装でも読める。
-export function toTileset(scene, { name = "model", glb = null } = {}) {
+export function toTileset(scene: Scene, { name = "model", glb = null }: WriteOptions & { glb?: Uint8Array | null } = {}): OutFile[] {
 	const content = glb || toGlb(scene, { name: "model" })[0].bytes;
 	const c = scene.rtc || [0, 0, 0];
 	const b = scene.bbox;

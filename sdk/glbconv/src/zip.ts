@@ -6,14 +6,19 @@ const enc = new TextEncoder();
 const CRC = (() => { const t = new Uint32Array(256);
 	for (let i = 0; i < 256; i++) { let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; }
 	return t; })();
-const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = (c >>> 8) ^ CRC[(c ^ b[i]) & 255]; return (c ^ -1) >>> 0; };
+const crc32 = (b: Uint8Array): number => { let c = -1; for (let i = 0; i < b.length; i++) c = (c >>> 8) ^ CRC[(c ^ b[i]) & 255]; return (c ^ -1) >>> 0; };
+
+/** zip に入れる 1 本（bytes は Uint8Array でなくても new Uint8Array(bytes) で受ける） */
+export interface ZipInputFile { name: string; bytes: Uint8Array | ArrayBuffer | ArrayLike<number> }
+export interface ZipStoreOptions { align?: number }
+interface CentralEntry { name: Uint8Array; crc: number; size: number; off: number; dosTime: number; dosDate: number }
 
 // files＝[{ name, bytes }]。戻り＝Uint8Array
-export function zipStore(files, { align = 0 } = {}) {
-	const parts = [], cd = [];
+export function zipStore(files: ZipInputFile[], { align = 0 }: ZipStoreOptions = {}): Uint8Array {
+	const parts: Uint8Array[] = [], cd: CentralEntry[] = [];
 	let off = 0;
-	const dosTime = (d => ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)))(new Date());
-	const dosDate = (d => (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()))(new Date());
+	const dosTime = ((d: Date) => ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)))(new Date());
+	const dosDate = ((d: Date) => (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()))(new Date());
 	for (const f of files) {
 		const name = enc.encode(f.name), bytes = f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes);
 		let extra = 0;
