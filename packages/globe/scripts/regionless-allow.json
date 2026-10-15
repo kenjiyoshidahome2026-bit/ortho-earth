@@ -7,6 +7,12 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
+		"packages/globe/src/columnar/view.js": {
+			"cos35°": {
+				"n": 1,
+				"why": "負債（地域）：視野 bbox の m/px を東京の緯度 cos35° で固定（globe.js の approxViewBbox と同式・2026-10-15 に旧 @ortho-earth/columnar から移って数に入った）。cos(lat) にする"
+			}
+		},
 		"packages/globe/src/extrude-keys.js": {
 			"和文": {
 				"n": 5,
