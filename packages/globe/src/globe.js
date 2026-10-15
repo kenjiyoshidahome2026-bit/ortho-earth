@@ -10,7 +10,6 @@ import { curveZoomKey } from "./extrude-ml.js";
 import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
-import { normPost } from "@ortho-earth/core/postfx";
 import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 import { installOverlays } from "./api/overlays.js";
@@ -59,7 +58,7 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
-export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
+export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";

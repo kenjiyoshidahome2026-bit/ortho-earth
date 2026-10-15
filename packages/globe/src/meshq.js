@@ -136,9 +136,9 @@ function tierOf(t3, lodCounts) { let k = 0; for (let i = 1; i < lodCounts.length
 //   ③全辺が同じ b に落ちれば角柱 {rings, t, b}。天面三角形分割はリング頂点の添字（内部頂点があれば不採用）
 //   ④底（下向き水平）は、成分が丸ごと角柱＋壁＋底で説明できた時だけ落とす（上空からは決して見えない面＝片面描画の裏面）
 // 段状建物は上段だけが角柱（下段の天の辺は上段の壁と接し自分の壁を持たない）＝下段はメッシュのまま。失敗は常に「元のまま」側。
-export const prismDebug = { on: false, counts: {} };
+const prismDebug = { on: false, counts: {} };
 const fail = why => { if (prismDebug.on) prismDebug.counts[why] = (prismDebug.counts[why] || 0) + 1; return null; };
-export function extractPrisms(mesh) {
+function extractPrisms(mesh) {
 	const { pos, nrm, idx, origin } = mesh;
 	const nt = idx.length / 3, nv = pos.length / 3;
 	const lodCounts = mesh.lodCounts || [idx.length];

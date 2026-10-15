@@ -3,7 +3,7 @@
 //   SplatData＝{ n, positions: Float32Array(n*3), scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数 x,y,z,w）, colors: Uint8Array(n*4)（RGBA 0〜255）, sh?: Float32Array, crs?: "lnglat"|"ecef" }
 //   positions は crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交（m）。plugin はこの形で受け取る＝normSplat が検める
 export const SPLAT_FORMATS = Object.freeze(["ply", "splat", "spz"]);
-export const SPLAT_CRS = Object.freeze(["lnglat", "ecef"]);
+const SPLAT_CRS = Object.freeze(["lnglat", "ecef"]);
 export const isSplatUrl = u => typeof u === "string" && /\.(ply|splat|spz)(\?|#|$)/i.test(u);
 const f32 = (v, name, len) => {
 	if (!(v instanceof Float32Array)) throw new TypeError(`splat: ${name} must be a Float32Array`);

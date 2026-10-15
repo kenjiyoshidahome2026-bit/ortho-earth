@@ -82,7 +82,7 @@ export function hitExtrusion(polys, bottom, top, q, env) {
 
 // 経緯度の面の内外（外周に入り・穴に入らない）
 const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
-export const inPolygonLL = (rings, x, y) => inRing(rings[0], x, y) && !rings.slice(1).some(h => inRing(h, x, y));
+const inPolygonLL = (rings, x, y) => inRing(rings[0], x, y) && !rings.slice(1).some(h => inRing(h, x, y));
 // 画面の多角形（[x, y, …]）の内外・線分の交差
 const pipXY = (x, y, P) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) if ((P[i][1] > y) !== (P[j][1] > y) && x < (P[j][0] - P[i][0]) * (y - P[i][1]) / (P[j][1] - P[i][1]) + P[i][0]) c = !c; return c; };
 const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (b[0] - o[0]) * (a[1] - o[1]);
@@ -92,7 +92,7 @@ const inBox = (p, [x0, y0, x1, y1]) => p[0] >= x0 && p[0] <= x1 && p[1] >= y0 &&
 const segHitsBox = (a, b, box) => inBox(a, box) || inBox(b, box) || boxEdges(box).some(([c, d]) => segsCross(a, b, c, d));
 const quadHitsBox = (Q, box) => Q.some(p => inBox(p, box)) || boxEdges(box).some(([c]) => pipXY(c[0], c[1], Q)) || Q.some((p, i) => boxEdges(box).some(([c, d]) => segsCross(p, Q[(i + 1) % Q.length], c, d)));
 // 平らな面の上の点 (x, y) の奥行き＝画面の重心座標で 1/w を補間（面の最初の退化していない三角形で・外でも同じ平面＝そのまま外挿）
-export function depthAt(F, x, y) {
+function depthAt(F, x, y) {
 	const a = F[0];
 	for (let k = 1; k + 1 < F.length; k++) {
 		const b = F[k], c = F[k + 1], D = cross(a, b, c);

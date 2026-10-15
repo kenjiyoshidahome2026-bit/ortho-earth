@@ -9,7 +9,7 @@ import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル�
 import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.js";
 import { computeSunShadow, computeViewshed } from "./sunshadow.js";   // 日影・可視域・見通し線（#44）＝kind:"sunshadow"/"viewshed"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
 
-export const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"];   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象
+const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"];   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象
 const transferOf = batches => {
 	const tr = new Set();
 	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col"]) if (b.mesh[k]?.buffer) tr.add(b.mesh[k].buffer); if (b.features?.ids) tr.add(b.features.ids.buffer); if (b.features?.tblV) tr.add(b.features.tblV.buffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k].bitmap); if (b[k]?.rgba) tr.add(b[k].rgba.buffer); } }

@@ -7,7 +7,7 @@
 import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { getLang } from "./i18n.js";
 
-export const WORLD_SEARCH_URL = WORLD_DATA + "search/";
+const WORLD_SEARCH_URL = WORLD_DATA + "search/";
 const FORMAT = 1;   // 索引の形の版（build/search.js の SEARCH_VERSION と対）
 
 // ── 正規化（照合の両側に掛ける）──
@@ -25,7 +25,7 @@ const compact = s => s.replace(/ /g, "");
 const CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
 
 // ── 索引の読み（base＋言語の表）＝検定からも呼ぶ ──
-export function decodeIndex(base, table = null) {
+function decodeIndex(base, table = null) {
 	if (!base || base.v !== FORMAT) throw new Error(`world search index: format v${base?.v} (expected v${FORMAT})`);
 	const n = base.n, lon = new Float64Array(n), lat = new Float64Array(n);
 	let x = 0, y = 0;
@@ -57,7 +57,7 @@ function viewOf(v, lon, lat) {
 }
 
 /** 照合：q→[{ i, tier }]（tier 0＝完全一致・1＝前方一致（名前の頭か語の頭＝「Fuji」→ Fujian と Mount Fuji を重みで）・2＝部分）を重みで並べて上位 limit 件 */
-export function searchIndex(idx, q, limit = 8) {
+function searchIndex(idx, q, limit = 8) {
 	const nq = normalizeName(q), cq = compact(nq);
 	if (!cq) return [];
 	const sub = cq.length >= 2 || CJK.test(cq);   // 1 文字の部分一致は拾わない（ラテン文字 1 字で全件になる）
@@ -73,7 +73,7 @@ export function searchIndex(idx, q, limit = 8) {
 }
 
 /** 添字 → 検索窓の候補（title・note は今の言語） */
-export function hitOf(idx, i) {
+function hitOf(idx, i) {
 	const b = idx.base, kind = b.kinds[b.kind[i]];
 	const ni = b.nation[i], pi = b.parent[i];
 	const note = kind === "country" ? "" : kind === "state" ? (ni >= 0 ? idx.names[ni] : "")
@@ -85,7 +85,7 @@ export function hitOf(idx, i) {
 }
 
 const loaded = new Map();   // url＋言語 → Promise<索引>（1 頁 1 回・失敗したら次の問い合わせで取り直す）
-export function loadWorldIndex(url = WORLD_SEARCH_URL, lang = getLang()) {
+function loadWorldIndex(url = WORLD_SEARCH_URL, lang = getLang()) {
 	const key = url + "|" + lang;
 	if (!loaded.has(key)) {
 		const p = Promise.all([fetchJsonMaybeGz(url + "base.json"), lang === "en" ? null : fetchJsonMaybeGz(`${url}${lang}.json`).catch(e => { console.warn(`[search] world names ${lang}: ${e.message ?? e} (English names only)`); return null; })])

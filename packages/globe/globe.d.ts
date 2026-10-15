@@ -254,6 +254,12 @@ export interface OrthoJapanOptions {
 	time?: Date | string | number;
 	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
 	debugGlobals?: boolean;
+	/** 基図の行政界（赤線）を常に隠す（派生アプリが自前の境界を描く時・外来 style では効かない） */
+	hideAdminBoundary?: boolean;
+	/** 起動時の後処理（map.setPostProcess と同じ形＝bloom／vignette・PR-8） */
+	postProcess?: PostProcessOptions | PostPass[] | null;
+	/** 小地域（町丁目）のホバー＝点 in 面で識別して名前の tip と境界の太線（census の e-Stat の口が使う・既定 false） */
+	smallAreaHover?: boolean;
 	/** addGint の paint/filter の表を GPU で組む（WebGPU の層だけ・2026-10-12〜・opt-in＝URL の ?gintexpr=1 と同じ）。式を WGSL に、属性を列にして一度だけ送り、
 	 *  feature-state／zoom の差し替えは列の 1 セル書き＝CPU の全 fid 再評価が消える。載らない式（MapLibre 出自・文字列どうしの大小比較…）と WebGL2 は CPU の表へ自動で落ちる（見た目は不変） */
 	gpuExpr?: boolean;
@@ -348,6 +354,16 @@ export interface ContextMenuItem {
 
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
+/** anno ガジェットの手綱（gadgets/anno.js の createAnno の戻り） */
+export interface AnnoHandle { set(pbf: GeoPBF | null): void; clear(): void; /** 描いた画素の検査窓（worker に問う） */ pixels(): Promise<unknown>; readonly pbf: GeoPBF | null; readonly count: number; readonly hits: unknown[] }
+/** cog ガジェットの load のオプション＝fit／fetch 以外は geopbf/cog の openCog へそのまま（stretch・composite・colormap・cacheKey…＝見せ方はデータ側が決める） */
+export interface CogOptions { fit?: boolean; fetch?: typeof fetch | null; [k: string]: unknown }
+export interface CogHandle { load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null }
+/** demo ガジェットの opts（台本の形＝demo/scene-format.md） */
+export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean }
+export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
+/** equal／equalHere／equalStart の opts。url＝Equal Earth の置き場・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe） */
+export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown }
 export interface Gadgets {
 	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
 	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
@@ -436,9 +452,51 @@ export interface Gadgets {
 	 *  検査の間は基図・利用者の層・画像タイル層・注記を伏せ、陸を backgroundColor に。検査の層の id は公式と同じ（source_sourceLayer_polygon|line|circle・geojson は source__kind）。
 	 *  MapLibre の口では `map.addControl(new MaplibreInspect({...}))`（@ortho-earth/globe/maplibre）。二重搭載（ボタンつき）は null */
 	inspect(opts?: InspectOptions): InspectHandle | null;
+	// ---- 2.0.0 まで宣言が無かった（実行時にはあった）ガジェット＝TS 化 段 2「契約を正す」（2026-10-15）。opts の形は各ガジェットの源（src/gadgets/*.js・src/api/*.js）から ----
+	/** 注釈レイヤ（geoedit の @スタイル付き GeoPBF を canvas2D で再生・単一スロット＝呼ぶたび置換・null で消す）。本体は遅延 chunk。戻り値＝手綱（set／clear・count＝描いた地物の数・pixels＝描いた画素の検査窓） */
+	anno(pbf: GeoPBF | null): Promise<AnnoHandle>;
+	/** 閉じる ×（埋め込み用・右上）。押す（or Esc）と mapEl から CustomEvent "ortho:close"（bubbles）を飛ばすだけ＝閉じる実務（モーダルを畳む・destroy）は埋め込み側。二重搭載は undefined */
+	close(): HTMLButtonElement | undefined;
+	/** COG（Cloud Optimized GeoTIFF）を球に貼る（geopbf/cog のリーダ・Range 直読み・単一スロット・本体は遅延 chunk）。src＝URL か File。fit＝範囲へ寄る（既定 true）・fetch＝読み口の差し替え・
+	 *  残り（stretch／composite／colormap／cacheKey…）は geopbf/cog の openCog へそのまま。戻り値＝手綱（load／clear／metrics）。?cog=<URL> と同じ */
+	cog(src: string | File | Blob, opts?: CogOptions): Promise<CogHandle>;
+	/** デモ（発表の台本の上映＝demo/scene-format.md）。scenes＝台本（配列）・slide＝幕（字幕）を出す（既定 true）・hold＝自動上演の静止秒（既定 5.5）・slideHold＝幕の表示秒（既定 4）・
+	 *  mobile＝縦長画面でシーンの z に足す Δz・lang＝台本の言語（省略＝画面の言語）・preload＝先読みの一覧・btn＝▶ を引き継ぐ要素・player＝素のプレーヤー（▶ 無し・start で台本を持ち込む）。
+	 *  台本が空（player:false）は搭載しない＝undefined。戻り値＝{ start, next, prev, exit, play, pause }（map.playScenes／stopScenes はこの手綱を使う） */
+	demo(opts?: DemoOptions): DemoHandle | undefined;
+	/** 編集ボタン（左上スタック）。押すと map.gadget.geoedit() を部品として搭載／解除＝地図が持つ 1 つの図形（ドロップ／?g= で読んだ物）を編集し、× で結果を受け取って置き換える（次の起動へ持ち越す）。
+	 *  戻り値＝{ toggle, editor }（二重搭載は undefined） */
+	edit(opts?: { zoom?: [number, number]; narrow?: boolean }): { toggle(): Promise<unknown>; readonly editor: unknown } | undefined;
+	/** Equal Earth（ortho-equal・平らな全球図）への口＝34px 規格のボタン。url＝equal の置き場（既定 /equal/・dev は :5198）・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe）。
+	 *  equalHere／equalStart も同じ load で開く。二重搭載は undefined */
+	equal(opts?: EqualOptions): HTMLButtonElement | undefined;
+	/** 右クリックメニューの項目「ここを中心に Equal Earth」＝contextmenu の items へ渡す材料（搭載ではない） */
+	equalHere(opts?: EqualOptions): ContextMenuItem;
+	/** 入口＝Equal Earth を最初から上に載せる（?start=equal・変形なし）。球は裏で起動したまま＝戻ると同じ視点の球が続く。center＝全球図の中心（省略＝今の視点）・view＝全球図の視点・onFrame＝最初の 1 枚が重なった合図 */
+	equalStart(opts?: EqualOptions & { center?: LonLat; view?: { zoom: number; lat: number; lon: number }; onFrame?: () => void }): Promise<void>;
+	/** 上辺の説明パネル（主題の解説・お知らせ＝読み物の枠）。戻り値＝内容の setter：set(html) で表示・set(null) で消す・関数を渡すと器の要素を受け取って DOM を組める。permanent＝× を出さない・width＝最大幅 px */
+	explain(opts?: { permanent?: boolean; width?: number }): (html: string | null | ((body: HTMLElement) => unknown)) => unknown;
+	/** GeoPBF のトポロジカル編集（geoedit・npm・遅延 chunk）を部品として搭載＝公開面だけで動く。data＝編集する図形（GeoPBF の ArrayBuffer・null＝空）・adopt＝表示中のユーザーデータ（ドロップ／?g=）を取り込む（既定 true）・
+	 *  persist＝自動保存（既定 true）・onClose＝ツールバー右端の ×（持ち主が editor.result() で結果を受け取る）。搭載中はドロップをエディタが所有（dropFile は譲る）。戻り値＝Promise<editor>（geoedit の initEditor の戻り） */
+	geoedit(opts?: { data?: ArrayBuffer | null; adopt?: boolean; persist?: boolean; onClose?: () => void; [k: string]: unknown }): Promise<unknown>;
+	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
+	globe(opts?: { size?: number; maxZoom?: number; land?: string; sea?: string; line?: string }): unknown;
+	/** 計測器 HUD（メモリ・タイル・GPU・階層の状態表＝右下）。URL の ?hud=1|0 で起動した地図にだけ登録される（本体は遅延 chunk・起動時に自動で搭載＝1 は開いて・0 は畳んで）。それ以外の地図では undefined */
+	hud?(opts?: { open?: boolean }): void;
+	/** UI 言語の切替（34px 規格・透明な select・26 言語）。onChange(code)＝既定の「?lang= を書いて読み直す」を差し替える口。二重搭載は undefined */
+	lang(opts?: { onChange?: (code: OrthoJapanLang) => unknown }): HTMLButtonElement | undefined;
+	/** 輪郭＝「この形の線だけ」（ホバーの合図）。src は spotlight と同じ（GeoJSON か ISO 3166-1 の 2／3 字）・null で消す。マスク（spotlight）とは別スロット＝両立する。color＝[r,g,b,a]（0..1）・width＝px。形が引けなければ null */
+	outline(src: string | GeoJSONFeatureCollection | GeoJSONFeature | { type: string; coordinates: unknown } | null, opts?: { color?: [number, number, number, number] | null; width?: number }): Promise<{ clear(): void } | null>;
+	/** POI 台帳の手差分編集（作者用・§12）。URL の ?poiedit=1 の時だけ本体を読んで登録し自動で搭載する（一般のビルドには載らない）＝それ以外の地図では undefined。戻り値＝{ close } */
+	poiedit?(opts?: Record<string, unknown>): { close(): void };
+	/** 画像タイル（ラスタ）の切替パネル＝地域パックのカタログ（基図 1 枚＋重ね n 枚）と map.raster（select／toggle）。表示域は zoom で。二重搭載は undefined */
+	raster(opts?: { zoom?: [number, number]; narrow?: boolean }): unknown;
+	/** 太陽系（ortho-solar）への口＝34px 規格のアイコン。url＝行き先（既定 /solar/・dev は :5199）・共通の時計が実時間でなければその時刻を hash に添える。二重搭載は undefined */
+	solar(opts?: { url?: string; zoom?: [number, number]; narrow?: boolean }): unknown;
+	/** 衛星シーン検索（STAC＝Earth Search／Tellus→選んだシーンの COG を球へ＝cog ガジェット）。ボタンだけ常駐・本体は初回クリックで遅延 chunk。戻り値＝no-op */
+	stac(opts?: { zoom?: [number, number]; narrow?: boolean }): () => void;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
 	(name: string, fn: (this: OrthoJapanMap, ...args: unknown[]) => unknown): void;
-	[name: string]: unknown;
 }
 
 /** paint() の式（リテラルか Mapbox 風の配列式） */
@@ -597,7 +655,15 @@ export interface RasterAPI {
 	/** 地域パックのカタログ（基図＝1 枚のラジオ・重ね＝トグル）。?r= と同期 */
 	select(catalogId: string | null): Promise<RasterInfo | null>;
 	toggle(catalogId: string, on?: boolean): Promise<boolean>;
+	/** 地域パックが宣言したカタログ（region.rasters を束ねた物・地域の申告が無ければ []）＝raster ガジェットと ?r= の鍵 */
+	readonly catalog: RasterCatalogEntry[];
+	/** カタログの今の選択（base＝基図の catalogId・overs＝重ねの catalogId） */
+	selected(): { base: string | null; overs: string[] };
+	/** render worker の画像タイルの統計（在庫・読込中…・形は版で変わる）。5 秒で答えが無ければ null */
+	stats(): Promise<Record<string, unknown> | null>;
 }
+/** 地域パックのカタログの 1 枚（region.rasters の要素）。key＝名前の訳の鍵（name の代わり）・order＝基図（under＝ラジオ）か重ね（over＝トグル） */
+export interface RasterCatalogEntry { id: string; url: string; key?: string; name?: string; order: "under" | "over"; opacity?: number; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox | null; subdomains?: string[]; tms?: boolean; attribution?: { href?: string; key?: string; text?: string } | null; [k: string]: unknown }
 
 /** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal ほか。
  *  1.3.0〜 at・sin/cos/tan/asin/acos/atan・to-rgba・cubic-bezier 補間・index-of の開始位置・get/has の object 引数）。
@@ -820,6 +886,8 @@ export interface Capability { status: CapabilityStatus; via?: string | null; not
 /** 鍵の例："projection.globe"・"projection.mercator"（never）・"camera.roll"・"light.directional"・"light.point"・"sky"・"post.bloom"・"post.ssr"・"data.points"・"data.<plugin の kind>"・
  *  "gadget.<名>"・"tiles.<形式>"・"tiles3d.requestTransform"・"tiles3d.attribution"・"terrain.sample"・"camera.walk"・"gltf.animation"・"texture.ktx2"・"render.webgpu"・"pointcloud.laz"・"react"・"types.shim" */
 export type CapabilityKey = string;
+/** この版の静的な答え（map.capabilities() の土台＝dynamic な鍵 data.*／gadget.*／tiles.*／post.*／light.*／texture.*／render.webgpu／pointcloud.laz はそこで足す）。凍結済み */
+export const STATIC_CAPABILITIES: Readonly<Record<CapabilityKey, Capability>>;
 
 /** 後処理の鎖の 1 段（F3・2026-10-12）。bloom・vignette は描く（PR-8 と同じ）。fxaa/smaa/tonemap/lut/dof/ssr は**受けて保つだけ**（map.supports("post.fxaa") は false・capabilities "spec"）＝実 GPU の段か plugin（registry.postEffects）が描く。enabled:false＝鎖に残すが掛けない */
 export type PostPass =
@@ -1072,6 +1140,27 @@ export interface OrthoJapanMap {
 	 *  init の第 3 引数 host に depthGLSL（FS に貼る GLSL）。省メモリ端末（LOW_MEM）・作れない環境では api.depth＝null（従来どおり＝隠れ無し）。
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
 	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): OverlayHandle;
+	/** 統一 picking（deck.gl の onHover／onClick の object 相当・PR-1）＝同一フレームのオーバーレイのうち module が pick(x, y, r, ctx) を持つ物に当てる（手前から）。x／y／radius＝CSS px・names＝オーバーレイの名前か、その上の層の id（addLayerId）。
+	 *  3 秒で答えが無ければ []。層イベント（map.on(ev, overlayName, cb)）と queryRenderedFeatures({ layers:[overlayName] }) にも同じ答えが Feature の形で混ざる */
+	pickOverlays(x: number, y: number, opts?: { radius?: number; names?: string[] }): Promise<OverlayPick[]>;
+	/** three.js を render worker の中で描く（PR-3・gadgets/three-draw.js）。three＝three.module.js の URL（利用者が持ち込む＝依存にしない）・module＝利用者のモジュールの URL（export setup(THREE, scene, h)／update?(dt, h)／onMessage?(d, h)／dispose?(h)）・
+	 *  origin＝[lon, lat, hM]（シーンの ENU m の原点＝RTE・省略＝今の中心）・depth＝地形・建物に隠れる（既定 true）・params＝setup へ渡す物・name＝オーバーレイの名前（既定 "three"）・above＝注記の上。
+	 *  戻り値＝オーバーレイの手綱＋ready（setup が済んだら解決・module の読み込み失敗は reject） */
+	addThree(opts: { three: string; module?: string; origin?: [number, number, number]; depth?: boolean; params?: unknown; name?: string; above?: boolean }): OverlayHandle & { ready: Promise<OverlayHandle> };
+	/** deck.gl の Layer（配列＋accessor）の相当（PR-4／PR-6・src/adddata.js）。kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）・"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth／getHeight 弦長比）・
+	 *  "trips"（getPath [[lon,lat,h?]…]／getTimestamps／currentTime／trailLength／fadeTrail／clock）は同一フレームの overlay（RTE・統一 picking）。"polygons"（getPolygon）・"paths"（getPath）・"columns"（getPosition＋getRadius m）＋ getFillColor／getLineColor／getLineWidth／getElevation m は
+	 *  GeoJSON の addSource／addLayer（fill／line／fill-extrusion）。builtin 以外の kind は plugin（registry.dataKinds・"splat" は予約された契約＝SplatData）。data＝配列・GeoJSON FeatureCollection・iterable。setData は差分でなく全焼き（deck.gl と同じ） */
+	addData(data: unknown, opts?: DataLayerOptions): DataLayerHandle;
+	/** H3 のセル（@ortho-earth/h3・PR-2・本体は遅延 import）＝点をセルに集約（count／sum／mean／min／max）か、セル id の並びをそのまま面に。fill か fill-extrusion の層（既存の層経路＝描画・当たりは addLayer と同じ） */
+	addH3(src: unknown, opts?: CellsLayerOptions): Promise<CellsLayerHandle>;
+	/** セル（deck.gl の GridLayer／GeohashLayer／QuadkeyLayer／S2Layer 相当・PR-5・src/cells/）。kind＝"grid"（m）・"mesh"（地域メッシュの段）・"geohash"・"quadkey"・"s2"（id の意味は reference library と同じ）。res＝セルの大きさ／段（"auto" も）。H3 と同じ手綱 */
+	addCells(src: unknown, opts?: CellsLayerOptions & { kind?: "grid" | "mesh" | "geohash" | "quadkey" | "s2" }): Promise<CellsLayerHandle>;
+	/** 等値線／等値帯（ContourLayer 相当・PR-5）＝格子の場（cellSize m・weight・agg）→ thresholds（線・line の層）か bands（帯・fill の層）。smooth＝場のぼかしの回数 */
+	addContour(src: unknown, opts?: ContourLayerOptions): Promise<ContourLayerHandle>;
+	/** 画面に固定の格子（ScreenGridLayer 相当・PR-5）＝overlay（毎フレーム投影して数える・統一 picking で count）。cellPx＝格子の px・colorRange＝色の段・agg＝sum／count／mean／min／max */
+	addScreenGrid(src: unknown, opts?: ScreenGridOptions): Promise<ScreenGridHandle>;
+	/** 集約の振り分け（PR-5）＝kind "h3" → addH3・"screen" → addScreenGrid・"contour" → addContour・それ以外 → addCells */
+	addAggregate(src: unknown, opts?: { kind?: "h3" | "screen" | "contour" | "grid" | "mesh" | "geohash" | "quadkey" | "s2"; [k: string]: unknown }): Promise<CellsLayerHandle | ContourLayerHandle | ScreenGridHandle>;
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
 	/** 基図（紙・線）・球体（globe/terrain）・全球ハイプソ（低ズームの段彩＝0 で陸の地色だけ・1.7.x〜）の不透明度（0..1） */
 	setOpacity(o: { base?: number; globe?: number; hypso?: number }): void;
@@ -1229,6 +1318,8 @@ export interface OrthoJapanMap {
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
 	setTerrain(terrain: { source: string | RasterDemSource | QuantizedMeshSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;
 	getTerrain(): { source: RasterDemSource | QuantizedMeshSource; exaggeration: 1 } | null;
+	/** 地形の標高 m（MapLibre 同名・同期）＝地形（setTerrain／style の terrain）がある時だけ。手元に無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も未着は null）。待てる口は sampleTerrain・既定の DTM は getHeight */
+	queryTerrainElevation(lon: number, lat: number): number | null;
 	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
 	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
 	/** 独自スキーム（"myscheme://…"）の取得を関数に任せる（大域・export の addProtocol と同じ） */
@@ -1257,6 +1348,8 @@ export interface OrthoJapanMap {
 	setCustomLayerHost(host: object | null): OrthoJapanMap;
 	/** custom 層の canvas（層が 1 つでも足された後・無ければ null） */
 	getCustomLayerCanvas(): HTMLCanvasElement | null;
+	/** worker 経路の custom 層（addLayer({ type:"custom", url })）のオーバーレイの手綱（post＝層の onMessage へ・onmessage・remove）。main の canvas の経路（url 無し）や無い id は null */
+	getCustomLayerHandle(id: string): OverlayHandle | null;
 
 	// ---- 台本の上映・撮影（scene エディタ・公開サムネの土台）----
 	/** 台本オブジェクトを直に上映（要 demo ガジェット・既に上映中なら false）。台本の形＝demo/scene-format.md。言語は台本の ja:/en:… を画面の言語で選ぶ */
@@ -1558,3 +1651,27 @@ export interface OverlayHandle {
 	addLayerId(id: string): OverlayHandle;
 	removeLayerId(id: string): OverlayHandle;
 }
+
+/** map.pickOverlays の 1 件（module の pick の答え＝name はオーバーレイ・layer は addLayerId で名乗った層の id） */
+export interface OverlayPick { name: string; layer?: string; id?: number | string | null; distance?: number; lngLat?: LonLat | null; properties?: Record<string, any>; [k: string]: unknown }
+/** map.addData の opts＝kind と deck.gl 風の accessor（d => 値 か定数）。点・弧・軌跡の共通＝getFilterValue＋filterRange・brush／brushRadius・mask・points の transition */
+export interface DataLayerOptions {
+	kind?: "points" | "arcs" | "trips" | "polygons" | "paths" | "columns" | (string & {});
+	id?: string; before?: string; above?: boolean; paint?: Record<string, StyleExpression>;
+	[accessor: string]: unknown;
+}
+/** map.addData の手綱。points／arcs／trips＝同一フレームの overlay（setFilter／brush／setMask・trips は setCurrentTime／setTrail／animate／useClock）・polygons／paths／columns＝GeoJSON の層（pick は queryRenderedFeatures） */
+export interface DataLayerHandle {
+	readonly id: string; readonly kind: string; ready: Promise<unknown>; n?: number; timeRange?: [number, number]; overlay?: OverlayHandle;
+	setData(data: unknown): Promise<unknown>; setProps(accessors: Record<string, unknown>): Promise<unknown>; setVisible(on: boolean): DataLayerHandle;
+	pick(x: number, y: number, radius?: number): Promise<any[]>; remove(): void;
+	setFilter?(range: [number, number] | null): DataLayerHandle; setBrush?(x: number | null, y?: number, r?: number): DataLayerHandle; brush?(on?: boolean, r?: number): DataLayerHandle; setMask?(polygon: unknown, opts?: Record<string, unknown>): Promise<DataLayerHandle>;
+	setCurrentTime?(t: number): DataLayerHandle; setTrail?(len: number, fade?: boolean): DataLayerHandle; animate?(opts?: false | { on?: boolean; from?: number; to?: number; speed?: number; loop?: boolean }): DataLayerHandle; useClock?(on?: boolean): DataLayerHandle;
+}
+/** addH3／addCells の opts（src＝点の並び・GeoJSON・セル id の並び）。weight＝集約の値（列名か d => 数）・paint＝fill の paint（式は ["get","count"|"sum"|…]）・extrude＝fill-extrusion の高さ（paint の式）・outline＝縁の line の paint（null で無し） */
+export interface CellsLayerOptions { id?: string; res?: number | "auto"; weight?: string | ((d: any) => number) | null; paint?: Record<string, StyleExpression> | null; extrude?: Record<string, StyleExpression> | StyleExpression | null; outline?: Record<string, StyleExpression> | null; props?: Record<string, unknown> | null; before?: string; minzoom?: number; maxzoom?: number }
+export interface CellsLayerHandle { readonly id: string; readonly cells: unknown; readonly geojson: GeoJSONFeatureCollection; readonly res: number; setData(src: unknown): Promise<CellsLayerHandle>; setPaint(paint: Record<string, StyleExpression>): CellsLayerHandle; setRes(res: number | "auto"): Promise<CellsLayerHandle>; remove(): void }
+export interface ContourLayerOptions { id?: string; cellSize?: number; thresholds?: number[] | null; bands?: number[] | null; weight?: string | ((d: any) => number) | null; agg?: "count" | "sum" | "mean" | "min" | "max"; smooth?: number; paint?: Record<string, StyleExpression> | null; linePaint?: Record<string, StyleExpression> | null; props?: Record<string, unknown> | null; before?: string; bbox?: Bbox | null }
+export interface ContourLayerHandle { readonly id: string; readonly field: unknown; readonly geojson: GeoJSONFeatureCollection; setData(src: unknown): Promise<ContourLayerHandle>; setThresholds(thresholds?: number[] | null, bands?: number[] | null): Promise<ContourLayerHandle>; remove(): void }
+export interface ScreenGridOptions { id?: string; cellPx?: number; colorRange?: Array<[number, number, number, number?]> | string[]; weight?: string | ((d: any) => number) | null; agg?: "count" | "sum" | "mean" | "min" | "max"; opacity?: number; gap?: number; above?: boolean }
+export interface ScreenGridHandle { readonly id: string; n?: number; setData(points: unknown): ScreenGridHandle; setStyle(style: Record<string, unknown>): ScreenGridHandle; pick(x: number, y: number, radius?: number): Promise<any[]>; remove(): void }

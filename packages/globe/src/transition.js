@@ -4,7 +4,7 @@
 // 走っている途中に同じ性質を set し直したら、その瞬間の補間値から次の遷移を始める（MapLibre の transitionable と同じ）。
 import { parseRGBA, isColor, bezierEase } from "@ortho-earth/core";
 
-export const DEFAULT_TRANSITION = Object.freeze({ duration: 300, delay: 0 });
+const DEFAULT_TRANSITION = Object.freeze({ duration: 300, delay: 0 });
 export const EASE = bezierEase(0.25, 0.1, 0.25, 1);   // MapLibre の util.ease（遷移の既定の曲線）
 
 // 層の `<name>-transition` → style の根の `transition` → 既定。{ duration, delay }（ms・負や数でない物は 0）

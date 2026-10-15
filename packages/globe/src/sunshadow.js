@@ -17,7 +17,7 @@ export function sunAt(latDeg, decl, solarHour) {
 	return { alt, az: azS + Math.PI };   // 北から時計回り
 }
 // 日付 → 赤緯（度）と均時差（時）。時計の時刻を真太陽時へ直すのに使う
-export function declOf(date) {
+function declOf(date) {
 	const N = Math.floor((Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) - Date.UTC(date.getUTCFullYear(), 0, 0)) / 864e5);
 	const decl = 23.44 * Math.sin(2 * Math.PI * (284 + N) / 365);
 	const B = 2 * Math.PI * (N - 81) / 364, eot = (9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B)) / 60;

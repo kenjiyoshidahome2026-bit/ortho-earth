@@ -108,7 +108,6 @@ const ensureCss = () => {
 	const s = document.createElement("style"); s.setAttribute("data-oe-wiki", ""); s.textContent = BASE_CSS;
 	document.head.prepend(s);   // 先頭＝呼び手の CSS（後で読まれる）が同じ強さで勝つ
 };
-const escHtml = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 export function createWikiFrame({ host, className = "", labels = {}, mobile = true, esc = true, logo = true, onOpen, onClose, stopEvents = true } = {}) {
 	if (!host) throw new Error("createWikiFrame: host is required");
