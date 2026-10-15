@@ -7,7 +7,7 @@
 //
 // ⚠ .empty() は d3 と意味が違う（common/d3 の流儀を継承）＝「空か？」ではなく「中身を空にする」。
 //    d3 の empty() 相当が要るなら .size() === 0 を使う。
-import { isString, isFunction } from "../utility.js";
+import { isString, isFunction } from "common";   // 名前で読む＝共有エンジンを読む頁ではエンジンの入口 common（束に二重に焼かない・2026-10-15）
 import "./dom.scss";
 
 const SVG = "http://www.w3.org/2000/svg";

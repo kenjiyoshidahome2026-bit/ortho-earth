@@ -1,7 +1,7 @@
 // common/dom の highlight ── common/d3/highlight.js の native 版（走査ロジックは同一）。
 // import するだけで Sel.prototype に .highlight() が生える。
 import { Sel } from "./index.js";
-import { isString, isArray } from "../utility.js";
+import { isString, isArray } from "common";   // 名前で読む＝共有エンジンを読む頁ではエンジンの入口 common（束に二重に焼かない・2026-10-15）
 import "./highlight.scss";
 
 Sel.prototype.highlight = function (strs, sense = false) {
