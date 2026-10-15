@@ -1,4 +1,6 @@
-# @ortho-earth/columnar
+# 列チャンク層（columnar）
+
+> 2026-10-15：旧 npm `@ortho-earth/columnar` は `@ortho-earth/globe` に吸収した（`packages/globe/src/columnar`）。読むのは globe だけ（`map.addColumnar`・GeoParquet／大きな GeoPBF の取り込み）。以下は吸収前の説明のまま。
 
 A **column-chunk layer** for [`@ortho-earth/globe`](../globe): draws GeoPBF and GeoParquet
 *without* the Gint topology pass. Data goes reader → flat arrays → GPU in spatial chunks

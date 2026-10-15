@@ -1,4 +1,4 @@
-// @ortho-earth/columnar の検定（Node・#90 段 1）。node packages/columnar/tests/t-columnar.mjs
+// 列チャンク層（packages/globe/src/columnar・#90）の検定（Node・段 1）。node packages/globe/tests/t-columnar.mjs
 //  ① 同じデータを GeoPBF から作ったチャンクと toGeoParquet → row group から作ったチャンクで、feature 数・型・座標・面の外周と穴・行番号が一致
 //  ② addWkb（直詰め）＝parseWkb → addGeoJSON（参照経路）
 //  ③ buildChunk：1° 超の辺の細分・三角形の面積＝面の面積・LOD の単調減・小さな面は四角に潰れて消えない・原点相対・±180° 跨ぎ
@@ -10,16 +10,16 @@ globalThis.ImageData ??= class ImageData { };   // pbf-base の makeKeys が触�
 import { GeoPBF } from "geopbf/pbf-base";
 import { toGeoParquet } from "geopbf/geoparquet";
 import { parseWkb } from "geopbf/parquet";
-import { flatBuilder, addGeoJSON, addWkb, K, T } from "../src/flat.js";
-import { buildChunk, buildLevels, unwrapAntimeridian, cellOfZoom, LOD_ZOOMS, toXYZ, chunkBuffers, levelBuffers, copyChunk } from "../src/chunk.js";
-import { cacheKey, cacheRecord, buildTag } from "../src/cache.js";
-import { identifyIn } from "../src/identify.js";
-import { tableFor, paintColumns, DEFAULT_PAINT } from "../src/style.js";
-import { GEOPBF_SOURCE } from "../src/sources/geopbf.js";
-import { GEOPARQUET_SOURCE } from "../src/sources/geoparquet.js";
-import { registerColumnarSource, findColumnarSource } from "../src/sources/registry.js";
-import { FGB_SOURCE } from "../src/sources/fgb.js";
-import { shareStats, gintPreferred } from "../src/share.js";
+import { flatBuilder, addGeoJSON, addWkb, K, T } from "../src/columnar/flat.js";
+import { buildChunk, buildLevels, unwrapAntimeridian, cellOfZoom, LOD_ZOOMS, toXYZ, chunkBuffers, levelBuffers, copyChunk } from "../src/columnar/chunk.js";
+import { cacheKey, cacheRecord, buildTag } from "../src/columnar/cache.js";
+import { identifyIn } from "../src/columnar/identify.js";
+import { tableFor, paintColumns, DEFAULT_PAINT } from "../src/columnar/style.js";
+import { GEOPBF_SOURCE } from "../src/columnar/sources/geopbf.js";
+import { GEOPARQUET_SOURCE } from "../src/columnar/sources/geoparquet.js";
+import { registerColumnarSource, findColumnarSource } from "../src/columnar/sources/registry.js";
+import { FGB_SOURCE } from "../src/columnar/sources/fgb.js";
+import { shareStats, gintPreferred } from "../src/columnar/share.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { buildFidStyle } from "@ortho-earth/core/fidstyle";

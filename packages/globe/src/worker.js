@@ -21,7 +21,7 @@ const ROLES = {
 	iiif:           () => import("./iiif-worker.js"),          // 基準点で歪みを直した IIIF の地図画像をタイルに焼いて配る（同じ "port" 契約・#177）
 	copc:           () => import("./copc-worker.js"),          // COPC の点群＝節だけ Range で取って LAZ を laz-perf で解く（#178・解読器は "#pointcloud-formats" のプラグイン）
 	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・meshdecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
-	columnar:       () => import("@ortho-earth/columnar/worker"),  // 列チャンク層の読み手（GeoParquet の Range 読み・GeoPBF の切り分け・三角形分割・#90）＝旧 parquet 役の後継
+	columnar:       () => import("./columnar/worker.js"),  // 列チャンク層の読み手（GeoParquet の Range 読み・GeoPBF の切り分け・三角形分割・#90）＝旧 parquet 役の後継
 	vtextrude:      () => import("./vtextrude-worker.js"),         // ベクタタイルの押し出し（MapLibre の fill-extrusion を vector source で・段 8①・2026-09-26）
 	vtdraw:         () => import("./vtdraw-worker.js"),            // ベクタタイルの描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27）
 	// 部品の worker（2026-09-22・標準の作法＝各部品の setWorkerFactory / 役割名 → この入口）。geopbf の役割（decoder:/encoder:/geopbf:）は下の正規表現
