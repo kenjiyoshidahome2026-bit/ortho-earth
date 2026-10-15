@@ -4,8 +4,8 @@
 //  ④ cellRing／cellsToGeoJSON＝閉じた環・六角（五角は 5）・±180° を跨ぐセルは一つの面で東へ伸びる・不正な id は飛ばす・Map/配列/オブジェクトの入口
 //  ⑤ createH3Layer＝偽の map で addSource/addLayer の形（fill＋輪郭・fill-extrusion）・setData・setPaint の写し替え・remove・res "auto" の zoomend
 import assert from "node:assert/strict";
-import { h3, EDGE_M, resForZoom, binPoints, cellRing, cellsToGeoJSON, pointsOf, weightFn, latLngToCell } from "../src/core.js";
-import { createH3Layer } from "../src/index.js";
+import { h3, EDGE_M, resForZoom, binPoints, cellRing, cellsToGeoJSON, pointsOf, weightFn, latLngToCell } from "../src/core.ts";
+import { createH3Layer } from "../src/index.ts";
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };

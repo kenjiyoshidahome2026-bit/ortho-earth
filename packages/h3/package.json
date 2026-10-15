@@ -4,13 +4,16 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "H3 cells for @ortho-earth/globe: cell ids → GeoJSON polygons, point binning into H3 cells (count/sum/mean/min/max with MapLibre expressions), zoom → resolution, and map.addH3() which draws the cells as a fill or fill-extrusion layer.",
-	"main": "src/index.js",
+	"main": "./src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./core": "./src/core.js"
+		".": "./src/index.ts",
+		"./core": "./src/core.ts"
 	},
 	"sideEffects": false,
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/t-h3.mjs"
 	},
 	"dependencies": {
@@ -22,12 +25,23 @@
 	"devDependencies": {
 		"@ortho-earth/core": "*"
 	},
-	"keywords": ["h3", "hexagon", "binning", "globe", "ortho-earth"],
+	"keywords": [
+		"h3",
+		"hexagon",
+		"binning",
+		"globe",
+		"ortho-earth"
+	],
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
 		"directory": "packages/h3"
 	},
 	"homepage": "https://www.ortho-earth.com/",
-	"files": ["src", "LICENSE", "README.md"]
+	"files": [
+		"src",
+		"dist",
+		"LICENSE",
+		"README.md"
+	]
 }
