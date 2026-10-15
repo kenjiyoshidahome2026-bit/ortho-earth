@@ -16,7 +16,8 @@
 		"common": "*",
 		"native-bucket": "*",
 		"d3": "^7.9.0",
-		"@ortho-earth/globe": "*"
+		"@ortho-earth/globe": "*",
+		"world-data": "*"
 	},
 	"description": "GeoPBF demo: convert GIS files in the browser (www.ortho-earth.com/geopbf/)"
 }

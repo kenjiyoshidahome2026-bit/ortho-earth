@@ -20,7 +20,8 @@
 		"geopbf": "*",
 		"native-bucket": "*",
 		"@ortho-earth/globe": "*",
-		"@ortho-earth/core": "*"
+		"@ortho-earth/core": "*",
+		"world-data": "*"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"
