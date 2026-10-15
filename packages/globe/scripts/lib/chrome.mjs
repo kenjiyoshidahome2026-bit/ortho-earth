@@ -64,7 +64,8 @@ export async function installChrome(version = CFT_VERSION, { log = console.log }
 export function noKeychain(bin) {
 	if (process.platform !== "darwin") return bin;
 	const wrap = path.join(ROOT, `chrome-nokeychain-${createHash("sha1").update(bin).digest("hex").slice(0, 10)}.sh`);
-	const body = `#!/bin/sh\nexec "${bin.replace(/"/g, '\\"')}" --use-mock-keychain "$@"\n`;
+	const q = `'${bin.split("'").join("'\\''")}'`;   // sh の一重引用（' だけを '\'' に＝中では \ も $ も文字のまま）
+	const body = `#!/bin/sh\nexec ${q} --use-mock-keychain "$@"\n`;
 	if (!fs.existsSync(wrap) || fs.readFileSync(wrap, "utf8") !== body) { fs.mkdirSync(ROOT, { recursive: true }); fs.writeFileSync(wrap, body, { mode: 0o755 }); }
 	return wrap;
 }
