@@ -96,7 +96,7 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			}
 			b.onResolve({ filter: /^(common|native-bucket)\// }, a => { if (a.pluginData === "alias") return null; const [pk, ...rest] = a.path.split("/"); return b.resolve("./" + rest.join("/"), { kind: a.kind, resolveDir: path.join(ROOT, "packages", pk, "src"), pluginData: "alias" }); });
 			b.onResolve({ filter: /^#tile-formats$/ }, () => ({ path: path.join(ROOT, "packages/ortho-core/src/tileformats-mlt.js") }));
-			b.onResolve({ filter: /^#pointcloud-formats$/ }, () => ({ path: path.join(ROOT, "packages/tile-formats/src/pointcloud.js") }));
+			b.onResolve({ filter: /^#pointcloud-formats$/ }, () => ({ path: path.join(ROOT, "packages/tile-formats/src/pointcloud.ts") }));
 			b.onLoad({ filter: /\.(m?js|ts)$/ }, a => {
 				if (a.path.includes("node_modules")) return null;
 				const src = fs.readFileSync(a.path, "utf8");

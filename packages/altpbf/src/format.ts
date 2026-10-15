@@ -5,8 +5,8 @@
 import Pbf from "geopbf/pbf";
 import { deflateRaw, inflateRaw } from "geopbf/gzip";
 
-const pad = (n, len) => String(n).padStart(len, '0');
-const L2 = n => pad(n, 2), L3 = n => pad(n, 3);
+const pad = (n: number, len: number): string => String(n).padStart(len, '0');
+const L2 = (n: number): string => pad(n, 2), L3 = (n: number): string => pad(n, 3);
 
 const TAGS = {
 	NAME: 1,    // tile name
@@ -19,7 +19,35 @@ const TAGS = {
 	DATA: 10    // elevation data body (packed SVarint delta-coded)
 };
 
-export async function encode(obj) {
+/** encode() に渡すタイル（data＝行優先の標高・幅×高さ） */
+export interface AltpbfTile {
+	name: string;
+	source: string;
+	lng: number;
+	lat: number;
+	range: number;
+	width: number;
+	height: number;
+	data: ArrayLike<number>;
+}
+/** decode() が返すタイル（data＝Int16Array）。形式の規約＝全フィールドが書かれている（encode() がそう書く） */
+export interface AltpbfDecoded {
+	name: string;
+	source: string;
+	lng: number;
+	lat: number;
+	range: number;
+	width: number;
+	height: number;
+	data: Int16Array;
+}
+/** decode() の入力＝Blob・Response など arrayBuffer() を持つ物 */
+export interface AltpbfSource { arrayBuffer(): Promise<ArrayBuffer> }
+/** 標高（m）→ [r, g, b, a] */
+export type AltpbfColorMap = (h: number) => number[];
+export interface Altpbf2PngOptions { size?: number; colorMap?: AltpbfColorMap }
+
+export async function encode(obj: AltpbfTile): Promise<Uint8Array> {
 	const pbf = new Pbf();
 	const { name, source, lng, lat, range, width, height, data } = obj;
 	pbf.writeStringField(TAGS.NAME, name);
@@ -43,8 +71,8 @@ export async function encode(obj) {
 // セルを取り続けるパン中に数百MBが居座る＝「メモリが解放されない」の正体だった。直書きは 21ms / +12MB。
 // 語順は encode() が WIDTH/HEIGHT を DATA より先に書く＝DATA 到達時に寸法は既知。念のため未知の場合は
 // 「1値≥1バイト」の上界で確保して最後に正寸へ詰める（旧キャッシュ・別実装の産物への保険）。
-export async function decode(v) {
-	const pbf = new Pbf(await inflateRaw(await v.arrayBuffer())), obj = {};
+export async function decode(v: AltpbfSource): Promise<AltpbfDecoded> {
+	const pbf = new Pbf(await inflateRaw(await v.arrayBuffer())), obj: Partial<AltpbfDecoded> = {};
 	pbf.readFields(tag => {
 		if (tag === TAGS.NAME) obj.name = pbf.readString();
 		else if (tag === TAGS.SOURCE) obj.source = pbf.readString();
@@ -55,32 +83,32 @@ export async function decode(v) {
 		else if (tag === TAGS.RANGE) obj.range = pbf.readSVarint();
 		else if (tag === TAGS.DATA) {
 			const end = pbf.readPackedEnd();
-			const known = (obj.width | 0) * (obj.height | 0);
+			const known = (obj.width! | 0) * (obj.height! | 0);   // 未知（undefined）は | 0 で 0＝旧来どおり上界で確保
 			const out = new Int16Array(known || (end - pbf.pos));
 			let sum = 0, i = 0;
 			while (pbf.pos < end) { sum += pbf.readSVarint(); out[i++] = sum; }
 			obj.data = (known || i === out.length) ? out : out.slice(0, i);
 		}
 	});
-	return obj;
+	return obj as AltpbfDecoded;   // 形式の規約＝encode() が全フィールドを書く（欠けた入力は旧来どおり undefined のまま返す）
 }
 
-export function encodeName(lng, lat, range) {
+export function encodeName(lng: number, lat: number, range?: number): string {
 	const latlng = `${(lat < 0 ? "S" : "N")}${L3(Math.abs(lat))}${(lng < 0 ? "W" : "E")}${L3(Math.abs(lng))}`;
 	return (range ? `R${L2(range)}` : "") + latlng;
 }
-export function decodeName(s) {
+export function decodeName(s: string): [lng: number, lat: number, range: number] {
 	const range = +s.substring(1, 3);
 	const lat = +s.substring(4, 7) * (s.substring(3, 4) == "S" ? -1 : 1);
 	const lng = +s.substring(8, 11) * (s.substring(7, 8) == "W" ? -1 : 1);
 	return [lng, lat, range];
 }
 
-export async function altpbf2png(pbf, opts = {}) {
-	const { size, colorMap: cm } = Object.assign({ size: 256, colorMap: defaultColorMap }, opts);
+export async function altpbf2png(pbf: AltpbfSource, opts: Altpbf2PngOptions = {}): Promise<Blob> {
+	const { size, colorMap: cm } = Object.assign({ size: 256, colorMap: defaultColorMap as AltpbfColorMap }, opts);
 	const { width, height, data } = await decode(pbf);
 	const canvas = new OffscreenCanvas(size, size);
-	const ctx = canvas.getContext('2d');
+	const ctx = canvas.getContext('2d')!;
 	const imageData = ctx.createImageData(size, size);
 	const pixels = imageData.data;
 	const xRatio = width / size, yRatio = height / size;
@@ -102,15 +130,15 @@ export async function altpbf2png(pbf, opts = {}) {
 	ctx.putImageData(imageData, 0, 0);
 	return canvas.convertToBlob({ type: 'image/png' });
 }
-function defaultColorMap(n, flag = false) {
-	const Altitude = n =>
+function defaultColorMap(n: number, flag = false): number[] {
+	const Altitude = (n: number): number[] =>
 		n < 200 ? [85, 107, 47, 255] :
 		n < 500 ? [124, 150, 90, 255] :
 		n < 1000 ? [189, 183, 107, 255] :
 		n < 2000 ? [180, 130, 70, 255] :
 		n < 4000 ? [130, 80, 60, 255] :
 		n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
-	const Depth = n =>
+	const Depth = (n: number): number[] =>
 		n < 200 ? [170, 220, 240, 255] :
 		n < 2000 ? [100, 180, 210, 255] :
 		n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];

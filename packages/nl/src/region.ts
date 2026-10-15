@@ -12,9 +12,15 @@
 // 移設でもこの振る舞いを変えていない）。
 const TILESET = "https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json";
 
+/** 矩形 [west, south, east, north]（度） */
+export type NlBBox = [number, number, number, number];
+/** 視点 [経度, 緯度, ズーム, チルト°, 方位°] */
+export type NlView = [number, number, number, number, number];
+export interface NlPlace { key: string; name: string; bbox: NlBBox; view: NlView }
+
 // 街の一覧＝建物の枠（bbox で 3DBAG を切る）と、その街へ飛んだ時の視点 [経度, 緯度, ズーム, チルト°, 方位°]。
 // /nl/ の街のボタン（apps/ortho-nl/index.html）もこの表を読む＝街を足すのはここ 1 か所。名前は現地の綴り（26 言語の画面で共通）。
-export const NL_PLACES = [
+export const NL_PLACES: NlPlace[] = [
 	{ key: "delft", name: "Delft", bbox: [4.336, 51.978, 4.393, 52.026], view: [4.3571, 52.0116, 16, 45, 0] },
 	{ key: "rotterdam", name: "Rotterdam", bbox: [4.452, 51.905, 4.510, 51.935], view: [4.4800, 51.9195, 16.2, 62, 20] },
 	{ key: "amsterdam", name: "Amsterdam", bbox: [4.869, 52.360, 4.925, 52.386], view: [4.8930, 52.3731, 16, 55, -20] },
@@ -24,6 +30,11 @@ export const NL_PLACES = [
 	{ key: "groningen", name: "Groningen", bbox: [6.540, 53.205, 6.595, 53.232], view: [6.5670, 53.2185, 16, 55, 0] },
 	{ key: "maastricht", name: "Maastricht", bbox: [5.665, 50.835, 5.720, 50.862], view: [5.6925, 50.8490, 15.6, 60, 170] },   // 南向き＝奥にシント・ピーテルスベルフの丘（標高が効く唯一の街）
 ];
+
+/** MapLibre の style（必要な所だけ）。sources の type と layers の type／source で絞る */
+export interface NlStyleSource { type?: string; attribution?: string; [k: string]: unknown }
+export interface NlStyleLayer { type?: string; source?: string; [k: string]: unknown }
+export interface NlStyle { sources?: Record<string, NlStyleSource>; layers?: NlStyleLayer[]; [k: string]: unknown }
 
 // 基図＝OpenFreeMap（OpenMapTiles の形のベクタタイル・OSM）の style「liberty」を外来 style の口（opts.style）で描く（2026-10-01）。
 // 自前のベクタ基図は持たない国＝旧は basemap:null で白い地面に建物だけ＝貧相だった。鍵も登録も要らない配信を借りる。
@@ -35,19 +46,32 @@ const NL_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const NL_ATTR_HTML = `<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>`
 	+ `・<a href="https://3dbag.nl/" target="_blank">3DBAG (TU Delft), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank">© Mapterhorn</a>`;
 // 取れなければ null＝基図なしの従来の絵で起動する（借り物の配信が落ちていても建物は出る）。8 秒で見切る＝起動を人質に取らせない。
-export async function nlStyle() {
+export async function nlStyle(): Promise<NlStyle | null> {
 	try {
 		const r = await fetch(NL_STYLE_URL, { credentials: "omit", signal: AbortSignal.timeout(8000) });
 		if (!r.ok) throw new Error(`HTTP ${r.status}`);
-		const ms = await r.json();
-		const sources = Object.fromEntries(Object.entries(ms.sources || {}).filter(([, sp]) => sp.type === "vector").map(([id, sp]) => [id, { ...sp, attribution: NL_ATTR_HTML }]));
+		const ms = await r.json() as NlStyle;
+		const sources: Record<string, NlStyleSource> = Object.fromEntries(Object.entries(ms.sources || {}).filter(([, sp]) => sp.type === "vector").map(([id, sp]) => [id, { ...sp, attribution: NL_ATTR_HTML }]));
 		return { ...ms, sources, layers: (ms.layers || []).filter(L => L.type !== "fill-extrusion" && (!L.source || sources[L.source])) };
 	} catch (err) { console.warn("[nl] basemap style unavailable — starting without a basemap", err); return null; }
 }
 // 標高＝Mapterhorn（terrarium・512px・z14 まで）。dtm:true＝裸地として扱う＝建物を地面へ載せる（R01 の JAXA は表層＝屋根が裂ける）。
 export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium", tileSize: 512, maxzoom: 14, dtm: true } };
 
-export const NL_REGION = {
+/** 建物の 1 枠（3D Tiles の tileset を街の矩形で切った物） */
+export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox }
+/** 出典の 1 片（key＝辞書の鍵・text＝そのままの文） */
+export interface NlAttributionItem { href?: string; key?: string; text?: string }
+export interface NlRegion {
+	code: string;
+	dtm: null;
+	buildings: { sets: NlBuildingSet[] };
+	basemap: null;
+	attribution: { lines: NlAttributionItem[][]; note: string };
+	view: string;
+}
+
+export const NL_REGION: NlRegion = {
 	code: "nl",
 	dtm: null,                    // AHN の焼き直しは持っていない＝標高は外来の標高タイル（上の NL_TERRAIN）を入口が渡す
 	buildings: {
@@ -72,5 +96,6 @@ export const NL_REGION = {
 //   "only"    … /nl/ ＝独立の入口。**この地域だけ**（日本の台帳も基図も持ち込まない）。アドレス欄が /nl/ のまま
 //                ＝共有 URL として日本と混ざらない。基図を宣言しない地域の既定（＝全面水域）はこの道で効く。
 //   "with-jp" … ?nl=1 ＝開発の重ね確認。日本に**足す**（そのまま日本へ飛べば日本の建物も出る）。
-export const nlEntry = () => /^\/nl(\/|$)/.test(location.pathname) ? "only"
+export type NlEntry = "only" | "with-jp";
+export const nlEntry = (): NlEntry | null => /^\/nl(\/|$)/.test(location.pathname) ? "only"
 	: /[?&]nl=1/.test(location.search) ? "with-jp" : null;

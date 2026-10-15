@@ -4,9 +4,15 @@
 	"private": true,
 	"description": "国別データベース（seed＝正本・build＝Wikidata/統計 API からの組み立て・データは CC BY-SA 4.0）",
 	"type": "module",
+	"exports": {
+		"./data": "./src/data.ts",
+		"./worldlayers": "./src/worldlayers.ts",
+		"./i18n/ui-table": "./i18n/ui-table.ts",
+		"./i18n/langs.json": "./i18n/langs.json"
+	},
 	"scripts": {
-		"test": "node sky/tests/t-names.mjs && node sky/tests/t-moon.mjs",
 		"build": "node build/cli.js",
+		"test": "node sky/tests/t-names.mjs && node sky/tests/t-moon.mjs",
 		"build:fresh": "node build/cli.js --fresh",
 		"ne:cultural": "node scripts/ne-cultural.mjs",
 		"terrains": "node scripts/terrains-from-ne.mjs",

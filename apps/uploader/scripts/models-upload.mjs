@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Bucket } from "../../../packages/native-bucket/src/Bucket.js";   // Cache（IndexedDB）を持つ index.js は Node で読まない＝Bucket だけ（exports はルートだけ＝相対で）
+import { Bucket } from "../../../packages/native-bucket/src/Bucket.ts";   // Cache（IndexedDB）を持つ index.js は Node で読まない＝Bucket だけ（exports はルートだけ＝相対で）
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), APP = path.join(HERE, "..");
 const CATALOG = path.join(APP, "../../ortho-data/japan/models.json");

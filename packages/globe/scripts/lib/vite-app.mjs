@@ -77,5 +77,5 @@ export const orthoData = (command, base, root, scope) => JSON.stringify(command 
 export const engineAliases = root => [
 	{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(root, "packages/geopbf/src/modules/builtinWorkers.none.js") },
 	{ find: "#tile-formats", replacement: resolve(root, "packages/ortho-core/src/tileformats-mlt.js") },
-	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.js") },
+	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.ts") },
 ];

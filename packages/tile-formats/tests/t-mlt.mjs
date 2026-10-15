@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { register } from "node:module";
 register("../src/node-hook.mjs", import.meta.url);
-const { decodeMLT } = await import("../src/mlt.js");
+const { decodeMLT } = await import("../src/mlt.ts");
 const { decodeMVT, polygons, decodeTile, loadTileFormat, fetchMVT } = await import("@ortho-earth/core/decode");
 const { hasTileFormat, tileFormatOfPmtilesType, tileFormatReady } = await import("@ortho-earth/core/tileformat");
 const { evalExpr } = await import("@ortho-earth/core/expr");

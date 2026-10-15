@@ -4,14 +4,14 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "Format decoders for @ortho-earth/core and @ortho-earth/globe (no dependency on either): MLT (MapLibre Tile) as the \"mlt\" tile format on top of @maplibre/mlt, and LAZ point records for COPC point clouds on top of laz-perf — each decoder loaded lazily on first use.",
-	"main": "src/index.js",
+	"main": "./src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./format": "./src/format.js",
-		"./decode": "./src/mlt.js",
-		"./pointcloud": "./src/pointcloud.js",
-		"./laz": "./src/laz.js",
-		"./las": "./src/las.js",
+		".": "./src/index.ts",
+		"./format": "./src/format.ts",
+		"./decode": "./src/mlt.ts",
+		"./pointcloud": "./src/pointcloud.ts",
+		"./laz": "./src/laz.ts",
+		"./las": "./src/las.ts",
 		"./node-hook": "./src/node-hook.mjs",
 		"./node-register": "./src/node-register.mjs",
 		"./scripts/*": "./scripts/*"
@@ -20,6 +20,9 @@
 		"./src/node-register.mjs"
 	],
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/t-mlt.mjs && node tests/t-laz.mjs",
 		"mvt2mlt": "node scripts/mvt2mlt.mjs"
 	},
@@ -51,6 +54,7 @@
 	"homepage": "https://www.ortho-earth.com/",
 	"files": [
 		"src",
+		"dist",
 		"scripts",
 		"LICENSE",
 		"README.md"

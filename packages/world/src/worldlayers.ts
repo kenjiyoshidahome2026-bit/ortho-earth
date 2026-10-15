@@ -8,39 +8,82 @@
 import { WORLD_STYLE_THEMES, css } from "@ortho-earth/core/worldstyle";
 // 名前の順・URL・キャッシュ名・都市/空港の規則・飛行機の形＝世界帯の中身の正本（equal・globe と共有・2026-09-24 に写しを畳んだ）
 import { culturalUrl, culturalName, cityName as cityNameOf, cityLabelRule, airportLabelRule, loadI18n, loadNeCities, WORLD_Z, PLANE_PATH as PLANE } from "@ortho-earth/core/worldcontent";
+import type { GeoPBF, GeopbfFn, Feature, Geometry, Position, Properties } from "geopbf";
+
+/** worldstyle のテーマのうち、ここが読む項（WORLD_STYLE_THEMES は Record<string, unknown> の口＝形はここで宣言） */
+interface WorldTheme {
+	admin1: number[]; disputed: number[]; disputedLine: number[]; road: number[]; rail: number[]; urban: number[]; airport: number[];
+	capital: string; labelColor: { city: string; halo: string };
+}
+/** addGint の手綱（@ortho-earth/globe の口のうち使う物だけ・古い版は style が無い） */
+export interface GintHandle {
+	setVisible(v: boolean): void;
+	style?: (s: Record<string, unknown>) => void;
+	ready?: Promise<unknown>;
+	setPaint(paint: unknown, filter: unknown): Promise<unknown> | unknown;
+}
+/** 描く先（@ortho-earth/globe の map のうち使う物だけ） */
+export interface WorldMap {
+	addGint?: (pbf: GeoPBF, opts: Record<string, unknown>) => GintHandle | null | undefined;
+	addImage(id: string, image: HTMLCanvasElement, opts: { pixelRatio: number }): Promise<unknown> | unknown;
+	gadget: {
+		symbols(fc: unknown, opts: Record<string, unknown>): Promise<unknown> | unknown;
+		anno(a: unknown): Promise<unknown> | unknown;
+	};
+}
+/** NationDB の 1 件のうち寄り先に使う物（coord＝[経度, 緯度]・area＝km²） */
+export interface NationLike { coord?: number[]; area?: number }
+export type BBox4 = [number, number, number, number];
+export interface CountryShape { fc: { type: "FeatureCollection"; features: Feature[] }; bbox: BBox4 | null }
+export interface CountryQuery { key: string; layer: string; fid: number; admin1: string }
+/** countryLayers() の手綱。古いエンジン（addGint が無い）では shape／show／clear だけの静かな版 */
+export interface CountryLayers {
+	shape(k: string, nation?: NationLike): Promise<CountryShape | null>;
+	show(k: string): Promise<void>;
+	clear(): void;
+	labels?(k: string, lang?: string): Promise<void>;
+	fills?(k: string): Promise<void>;
+	airports?(k: string): Promise<void>;
+	query?(ll: number[] | null | undefined, lang?: string): CountryQuery | null;
+	geometry?(fid: number): Geometry | null;
+}
+type Ring = Position[];
+/** geopbf の器＋fmap（地物の表＝長さが地物の数。型定義の公開面に無いのでここで足す） */
+type WorldPbf = GeoPBF & { fmap?: ArrayLike<unknown> | null };
+type NameTables = { i18n?: Record<string, unknown> | null; ne?: unknown };
 
 // 色＝ortho-core worldstyle の正本（WORLD_STYLE_THEMES.mono＝equal・globe と同じ表＝2 つのアプリで同じ世界に見える・2026-09-23 段階 3）
-const T = WORLD_STYLE_THEMES.mono;
+const T = WORLD_STYLE_THEMES.mono as unknown as WorldTheme;
 const C = { admin1: css(T.admin1), admin1Fill: css(T.admin1, 0.14), disputed: css(T.disputed), disputedLine: css(T.disputedLine),
 	road: css(T.road), rail: css(T.rail), urban: css(T.urban, 0.4), city: T.labelColor.city, capital: T.capital, halo: T.labelColor.halo, airport: css(T.airport) };
 const LINES_Z = WORLD_Z.roads;   // 道路・鉄道を出すズーム（正本＝equal・globe と同値）
 
 // 都市名の表（言語ごと・1 ページ 1 回）＝正本の読み込み口（World DB の台帳名＋NE の言語別表）。en・ja は表を引かない
-const nameTables = {};
-const namesFor = lang => nameTables[lang] ||= (lang === "en" || lang === "ja") ? Promise.resolve({})
+const nameTables: Record<string, Promise<NameTables>> = {};
+const namesFor = (lang: string): Promise<NameTables> => nameTables[lang] ||= (lang === "en" || lang === "ja") ? Promise.resolve({})
 	: Promise.all([loadI18n(lang).catch(() => null), loadNeCities(lang)]).then(([i18n, ne]) => ({ i18n, ne }));
 // 州の名前（NE admin_1 の name/name_en/name_ja＝base に残した列）
-const admin1Name = (p, lang) => (lang === "ja" && p.name_ja) || p.name_en || p.name || "";
-const cityName = (p, lang, t) => cityNameOf(p, lang, t.i18n, t.ne);
+const admin1Name = (p: NonNullable<Properties>, lang: string): string => (lang === "ja" && p.name_ja) || p.name_en || p.name || "";
+const cityName = (p: NonNullable<Properties>, lang: string, t: NameTables): string => cityNameOf(p, lang, t.i18n, t.ne);
 
-const got = {};   // group → Promise<GeoPBF>（1 ページ 1 回）
-const fetchGroup = (geopbf, g) => got[g] ||= geopbf(culturalUrl(g), { name: culturalName(g) })
-	.catch(e => { got[g] = null; console.warn("[world] ne-cultural", g, e); return null; });
+const got: Record<string, Promise<GeoPBF | null> | null> = {};   // group → Promise<GeoPBF>（1 ページ 1 回）
+const fetchGroup = (geopbf: GeopbfFn, g: string): Promise<GeoPBF | null> => got[g] ||= geopbf(culturalUrl(g), { name: culturalName(g) })
+	.catch((e: unknown) => { got[g] = null; console.warn("[world] ne-cultural", g, e); return null; });
 
 // 寄り先の矩形＝国の形のうち中心の近くにある塊だけ。中心と広さは NationDB（coord・area）が持っている＝
 // 「どこまでが本体か」を規則で書かずデータに決めさせる。許容＝広さから出した半径の 3 倍・最低 10°
 // （France は海外県が外れ、日本は南鳥島が外れ、United States はアラスカが入る）。
-const nearBbox = (feats, coord, area) => {
+const nearBbox = (feats: Feature[], coord: number[] | undefined, area: number | undefined): BBox4 | null => {
 	const limit = Math.max(10, 3 * Math.sqrt((area || 0) / Math.PI) / 111.32);
 	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
 	// ⚠ 地物ごとではなく**塊（ポリゴン）ごと**に測る：東京都は 1 地物で小笠原・南鳥島まで含む＝
 	// 地物の外接矩形で見ると「本体の近く」と判定されて 154°E まで引っぱられる（2026-09-23 実測）。
 	for (const f of feats) {
 		const g = f.geometry;
-		const parts = g?.type === "MultiPolygon" ? g.coordinates : g?.type === "Polygon" ? [g.coordinates] : [];
+		const parts: Ring[][] = g?.type === "MultiPolygon" ? g.coordinates : g?.type === "Polygon" ? [g.coordinates] : [];
 		for (const poly of parts) {
 			const ring = poly?.[0]; if (!ring?.length) continue;
-			let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity, lon = null;
+			let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity, lon: number | null = null;
 			for (const p of ring) {
 				if (!p || p.length < 2) continue;
 				lon = lon == null ? p[0] : p[0] + 360 * Math.round((lon - p[0]) / 360);   // 前の頂点に近い方へ解く
@@ -57,12 +100,12 @@ const nearBbox = (feats, coord, area) => {
 
 // 面の頂点を一度だけ間引く（Douglas–Peucker・度）。canvas2D は毎フレーム全頂点を投影する＝大国の州（NE 10m で数十万頂点）を
 // そのまま描かない。薄い塗りなので z8（1px≈0.0055°）で見えない差＝tol 0.006°。
-const simplify = (ring, tol) => {
+const simplify = (ring: Ring, tol: number): Ring => {
 	if (ring.length <= 4) return ring;
 	const keep = new Uint8Array(ring.length); keep[0] = keep[ring.length - 1] = 1;
-	const stack = [[0, ring.length - 1]];
+	const stack: [number, number][] = [[0, ring.length - 1]];
 	while (stack.length) {
-		const [a, b] = stack.pop(); if (b - a < 2) continue;
+		const [a, b] = stack.pop()!; if (b - a < 2) continue;
 		const [ax, ay] = ring[a], [bx, by] = ring[b], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
 		let best = -1, bi = -1;
 		for (let i = a + 1; i < b; i++) {
@@ -72,31 +115,31 @@ const simplify = (ring, tol) => {
 		}
 		if (best > tol) { keep[bi] = 1; stack.push([a, bi], [bi, b]); }
 	}
-	const out = []; for (let i = 0; i < ring.length; i++) if (keep[i]) out.push(ring[i]);
+	const out: Ring = []; for (let i = 0; i < ring.length; i++) if (keep[i]) out.push(ring[i]);
 	return out.length >= 4 ? out : ring;
 };
-const simplifyGeom = (g, tol) => g.type === "Polygon" ? { type: "Polygon", coordinates: g.coordinates.map(r => simplify(r, tol)) }
+const simplifyGeom = (g: Geometry, tol: number): Geometry => g.type === "Polygon" ? { type: "Polygon", coordinates: g.coordinates.map(r => simplify(r, tol)) }
 	: g.type === "MultiPolygon" ? { type: "MultiPolygon", coordinates: g.coordinates.map(poly => poly.map(r => simplify(r, tol))) } : g;
 
 /** 国の形（スポットライトへ渡す）と中身（州境・道路・鉄道・市街地）。shape(key,nation) / show(key) / clear() */
-export function countryLayers(map, geopbf) {
+export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined): CountryLayers {
 	if (!geopbf || !map.addGint) return { shape: async () => null, show: async () => {}, clear: () => {} };   // 古いエンジン＝静かに何もしない
-	const layer = {}, held = {};   // group → addGint のハンドル／原本
-	let key = null, dotAdded = false, planeAdded = false;
-	const planeBitmap = () => { const s = 40, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d");
+	const layer: Record<string, GintHandle | null | undefined> = {}, held: Record<string, WorldPbf> = {};   // group → addGint のハンドル／原本
+	let key: string | null = null, dotAdded = false, planeAdded = false;
+	const planeBitmap = (): HTMLCanvasElement => { const s = 40, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d")!;
 		cx.translate(4, 4); cx.scale(32 / 24, 32 / 24); const path = new Path2D(PLANE); cx.lineWidth = 3; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.lineJoin = "round"; cx.stroke(path); cx.fillStyle = C.airport; cx.fill(path); return cv; };
 	// 都市の丸（首都は大きく）＝equal の dot と同じ形。記号帳に一度だけ登録して icon-size で伸縮
 	// 首都は赤っぽく・少し大きく（本人 2026-09-23）＝丸を 2 種（色）にして icon-size で大きさを分ける
-	const dotBitmap = (color = C.city) => { const s = 16, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d");
+	const dotBitmap = (color: string = C.city): HTMLCanvasElement => { const s = 16, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d")!;
 		cx.beginPath(); cx.arc(s / 2, s / 2, 5, 0, Math.PI * 2); cx.fillStyle = color; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.stroke(); return cv; };
-	const ensure = async g => {
+	const ensure = async (g: string): Promise<GintHandle | null | undefined> => {
 		if (layer[g] !== undefined) return layer[g];
 		layer[g] = null;   // 取得中の二重起動を止める
 		const pbf = await fetchGroup(geopbf, g);
 		if (!pbf) return null;
 		held[g] = pbf;
 		// fillMaxEdges＝面を塗る上限（市街地の塗りが要る detail だけ開ける）。interactive:false＝識別はスポットライトの領分
-		const h = map.addGint(pbf, { order: g === "base" ? -6 : -5, interactive: false, minZoom: g === "base" ? 2.5 : LINES_Z, fillMaxEdges: 0 });   // 線だけ（面は anno）
+		const h = map.addGint!(pbf, { order: g === "base" ? -6 : -5, interactive: false, minZoom: g === "base" ? 2.5 : LINES_Z, fillMaxEdges: 0 });   // 線だけ（面は anno）
 		h?.setVisible(false);   // 国で絞るまで出さない＝焼き上がり直後の 1 枚で他国の市街地が閃くのを断つ
 		// カメラが動いている間、gint はポリゴンを「単色のベタ塗り」に落とす（fid 別の塗りは止まる）。その色が既定スタイル
 		// （#FF6B35＝オレンジ）で、しかも filter を見ない＝遷移中に全世界の面がオレンジに塗られる（本人指摘 2026-09-23）。
@@ -106,12 +149,12 @@ export function countryLayers(map, geopbf) {
 	};
 	// 線は gint（州境・係争地の線・道路・鉄道）。**面は gint に塗らせない**（本人裁定 2026-09-23「1 で」）＝gint の fid 別の塗りは
 	// カメラ移動中に止まる設計＝面が消える。面（州の薄い色・係争地・市街地）は anno（同一フレームの canvas2D）が毎フレーム塗る＝fills()
-	const paintOf = g => g === "base"
+	const paintOf = (g: string): Record<string, unknown> => g === "base"
 		? { "line-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputedLine, C.admin1],
 			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.4, 0.25] }   // line-width は CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		: { "line-color": ["match", ["get", "layer"], "roads", C.road, "railroads", C.rail, "rgba(0,0,0,0)"],
 			"line-width": 0.4 };
-	const filterOf = g => g === "base"
+	const filterOf = (g: string): unknown[] => g === "base"
 		? ["all", ["==", ["get", "key"], key], ["match", ["get", "layer"], ["admin_1", "admin_0"], true, false]]
 		: ["all", ["==", ["get", "key"], key], ["match", ["get", "layer"], ["roads", "railroads", "urban_areas"], true, false]];
 	return {
@@ -119,14 +162,14 @@ export function countryLayers(map, geopbf) {
 		async shape(k, nation = {}) {
 			await ensure("base");
 			const pbf = held.base; if (!pbf) return null;
-			const n = pbf.fmap?.length ?? 0, feats = [];
+			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || (p.layer !== "admin_1" && p.layer !== "admin_0")) continue;   // admin_0＝admin_1 に形の無い係争主体
 				const f = pbf.getFeature(i); if (f?.geometry) feats.push(f);
 			}
 			if (!feats.length) return null;
-			return { fc: { type: "FeatureCollection", features: feats.map(f => ({ ...f, geometry: simplifyGeom(f.geometry, 0.004) })) }, bbox: nearBbox(feats, nation.coord, nation.area) };   // マスク/輪郭の扇と線＝間引いた形で十分（z≤8）
+			return { fc: { type: "FeatureCollection", features: feats.map(f => ({ ...f, geometry: simplifyGeom(f.geometry!, 0.004) })) }, bbox: nearBbox(feats, nation.coord, nation.area) };   // マスク/輪郭の扇と線＝間引いた形で十分（z≤8）
 		},
 		/** その国の都市（NE populated_places）を名前つきで置く。首都＝ADM0CAP・出すズーム＝NE の MIN_ZOOM・大きさ/優先＝SCALERANK（equal の cityLabels と同じ） */
 		async labels(k, lang = "en") {
@@ -134,7 +177,7 @@ export function countryLayers(map, geopbf) {
 			const pbf = held.base; if (!pbf) return;
 			const t = await namesFor(lang);
 			if (k !== key) return;
-			const n = pbf.fmap?.length ?? 0, feats = [];
+			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "populated_places") continue;
@@ -163,15 +206,15 @@ export function countryLayers(map, geopbf) {
 				if (k !== key) return;   // 待っている間に別の国が押された＝古い方は出さない
 				h.setVisible(true);      // 絞り終えてから出す
 			}
-			await this.fills(k);
-			await this.airports(k);
+			await this.fills!(k);
+			await this.airports!(k);
 		},
 		/** 面（州の薄い色・係争地・市街地）＝anno（同一フレームの canvas2D）が毎フレーム塗る＝カメラ移動中も消えない（本人裁定 2026-09-23「1 で」） */
 		async fills(k) {
-			const feats = [], TOL = 0.006;
-			const take = (pbf, want) => { const n = pbf?.fmap?.length ?? 0; for (let i = 0; i < n; i++) {
-				const p = pbf.getProperties(i) || {}; const fill = p.key === k ? want[p.layer] : null; if (!fill) continue;
-				const f = pbf.getFeature(i); const g = f?.geometry; if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) continue;
+			const feats: Feature[] = [], TOL = 0.006;
+			const take = (pbf: WorldPbf | undefined, want: Record<string, string>): void => { const n = pbf?.fmap?.length ?? 0; for (let i = 0; i < n; i++) {
+				const p = pbf!.getProperties(i) || {}; const fill = p.key === k ? want[p.layer] : null; if (!fill) continue;
+				const f = pbf!.getFeature(i); const g = f?.geometry; if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) continue;
 				feats.push({ type: "Feature", geometry: simplifyGeom(g, TOL), properties: { "@fill": fill, "@stroke": "rgba(0,0,0,0)", "@width": 0.01 } }); } };   // 線は gint＝anno の輪郭は透明
 			take(held.base, { admin_1: C.admin1Fill, admin_0: C.disputed });
 			take(held.detail, { urban_areas: C.urban });
@@ -181,7 +224,7 @@ export function countryLayers(map, geopbf) {
 		/** 空港＝✈ の記号だけ（名前は出さない・z>5・大ハブほど先＝equal の airportLabels と同じ）。detail に airports が無い焼き（旧）なら何も出ない */
 		async airports(k) {
 			const pbf = held.detail; if (!pbf) return;
-			const n = pbf.fmap?.length ?? 0, feats = [];
+			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "airports") continue;

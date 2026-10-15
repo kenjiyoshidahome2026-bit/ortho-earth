@@ -1,5 +1,5 @@
 import './demo.scss';
-import nativeBucket from '../src/index.js';
+import nativeBucket from '../src/index.ts';
 
 const output = document.getElementById('log-screen');
 const startBtn = document.getElementById('start-story');

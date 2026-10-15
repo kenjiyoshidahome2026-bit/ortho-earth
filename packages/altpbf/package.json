@@ -23,14 +23,20 @@
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
-	"main": "./src/format.js",
+	"main": "./src/format.ts",
 	"files": [
-		"src/format.js"
+		"src",
+		"dist",
+		"LICENSE",
+		"README.md"
 	],
 	"exports": {
-		".": "./src/format.js"
+		".": "./src/format.ts"
 	},
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/roundtrip.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"mirror": "git -C ../.. subtree split --prefix=packages/altpbf -b altpbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/altpbf.git altpbf-mirror:main --force && git -C ../.. branch -D altpbf-mirror"
