@@ -57,6 +57,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | アメリカの国立公園：`parks-us.json`・`parks-us.geopbf`・`nps-units.geopbf` | `us/` | /globe/parks |
 | 日本の頁の台帳：`parks.*`・`terrain.*`・`terrain.i18n/`・`onsen.json`・`models.json` | `japan/` | /japan/parks・terrain・onsen・models（uploader も `models.json` を直読み） |
 | 観測点：`jishin/seismic`・`jishin/fault`・`jma/amedas`（.geopbf） | `japan/` | gishub-jp |
+| 点群の見本：`pointcloud/atami-08NF2392.copc.laz`（熱海 951 万点・77 MB・COPC＝**gzip しない**＝範囲読みするので生のまま）＋出典の `README.md` | `japan/`（**正本は git に入れない**＝大きすぎる。置く元は作業場所・`--scope=japan --from=<作業場所> --only=pointcloud`・2026-10-15・gh-pages 5397d2a） | t-copcbench（点群の計測・`packages/globe/scripts/copc-bench.mjs`）。VIRTUAL SHIZUOKA（静岡県）CC BY 4.0 |
 | 見本 `showcase/*`（人口密度の 3D・江戸の古地図） | **japan の `public/` に残す**（下の 5） | www のデモ（`?g=showcase/…`・`?iiif=/japan/showcase/…`） |
 | エンジンの実行時アセット：`plateau-sets`・`airports`・`plateau-landmarks`・`plateau-exclude` | **japan の `public/` に残す**（npm の SDK に同梱＝`assetBase` の契約） | エンジン |
 | 形状 `ne-cultural-base`／`-detail`・`rivers.json` | **bucket GIS/world に残す** | 全アプリ |
