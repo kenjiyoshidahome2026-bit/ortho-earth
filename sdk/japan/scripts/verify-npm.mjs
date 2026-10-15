@@ -24,7 +24,7 @@ const PORT = 5246, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".wasm": "application/wasm", ".txt": "text/plain", ".md": "text/markdown" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
-// ① pack（prepack が build:lib + d.ts + assets staging を実施）→ 一時ディレクトリへ展開
+// ① pack（prepack が build（＋ d.ts） + assets staging を実施）→ 一時ディレクトリへ展開
 console.log("… npm pack");
 const packOut = execFileSync("npm", ["pack", "--json"], { cwd: APP, encoding: "utf8" });
 // --json でも prepack のビルドログが stdout に混ざる＝末尾の "filename" を正規表現で拾う（JSON.parse直は不可）

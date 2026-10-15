@@ -58,7 +58,7 @@ for (const f of siteJs) {
 console.log("ok:fingerprint（全サイトチャンクにエンジン指紋なし）");
 
 // ② SDK実体
-for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css", "japan/lib/ortho-japan.d.ts", "japan/llms.txt"]) {   // d.ts＝build:lib が複写（CDN の 404 根治 2026-09-10）・llms.txt＝AI 正典（public/）
+for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css", "japan/lib/ortho-japan.d.ts", "japan/llms.txt"]) {   // d.ts＝sdk/japan の build が作り build:prod が複写（CDN の 404 根治 2026-09-10）・llms.txt＝AI 正典（public/ から sdk/japan/llms.txt への symlink）
 	if (!existsSync(path.join(SITE, f))) fail(`${f} が無い（build:prod の複写漏れ）`);
 }
 console.log("ok:lib（ortho-japan.js/.css/.d.ts・llms.txt 同梱）");

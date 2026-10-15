@@ -1,8 +1,6 @@
 dem10b-out/
 plateau-names-out/
 *.tmp.png
-/assets/
-*.tgz
 plateau-bake-out/
 
 # 開発専用の登記所地図ローカルデータ（123 MB・6 ファイル）＝git 管理外（2026-09-14）。
