@@ -24,6 +24,7 @@
 		"typecheck": "node scripts/typecheck.mjs"
 	},
 	"devDependencies": {
+		"@types/d3": "^7.4.3",
 		"rollup-plugin-visualizer": "^7.0.1",
 		"sass-embedded": "^1.99.0",
 		"typescript": "^6.0.3",
