@@ -1,7 +1,7 @@
 // common/dom の tip / pop ── 旧 common/d3/tip-pop.js（d3 版・2026-09-25 に削除）の native 版。
 // import するだけで Sel.prototype に .tip() / .pop() が生える（v1 の tip-pop.js と同じ流儀）。
 import { Sel, sel } from "./index.js";
-import { isFunction } from "../utility.js";
+import { isFunction } from "common";   // 名前で読む＝共有エンジンを読む頁ではエンジンの入口 common（束に二重に焼かない・2026-10-15）
 import "./tip.scss";
 
 const tostr = s => s ? s instanceof Element ? s.outerHTML :
