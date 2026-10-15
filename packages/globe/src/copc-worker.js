@@ -11,6 +11,7 @@ import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
 import { crsFromWKT, parseWKTTree } from "geopbf/proj";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
+import { placeNode } from "./copc-place.js";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 
 let LAZ = null;
@@ -86,22 +87,14 @@ async function node(m) {
 	const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
 	const r = readRecords(rec, n, hdr);
 	const t2 = performance.now();
-	const EW = earthW(), dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0), vu = set.vUnit;
-	const pos = new Float32Array(n * 3), elev = new Float32Array(n), w = [0, 0, 0];
-	let origin = null;
-	for (let i = 0; i < n; i++) {
-		const [lon, lat] = ll([r.x[i], r.y[i]]), h = r.z[i] * vu + dz;
-		geoWorld(lon * D2R, lat * D2R, h / EW, w);
-		if (!origin) origin = [w[0], w[1], w[2]];
-		pos[i * 3] = w[0] - origin[0]; pos[i * 3 + 1] = w[1] - origin[1]; pos[i * 3 + 2] = w[2] - origin[2];
-		elev[i] = h;
-	}
+	const dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0);
+	const { pos, origin, elev, affine } = placeNode(r, n, { ll, vUnit: set.vUnit, dz, EW: earthW(), bounds: nodeBounds(set.info, m.node.key) });   // 節ごとの一次式（ずれ 1 cm 超は 1 点ずつ）＝copc-place.js
 	let rgb = null;
 	if (r.rgb) {   // LAS の RGB は 16bit が作法だが 8bit のまま入れる書き手もいる＝最大値で見分ける
 		let mx = 0; for (let i = 0; i < r.rgb.length; i++) if (r.rgb[i] > mx) mx = r.rgb[i];
 		const sh = mx > 255 ? 8 : 0; rgb = new Uint8Array(n * 3); for (let i = 0; i < rgb.length; i++) rgb[i] = r.rgb[i] >> sh;
 	}
-	return { n, pos, origin: origin || [0, 0, 0], rgb, intensity: r.intensity, cls: r.classification, elev, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
+	return { n, pos, origin, affine, rgb, intensity: r.intensity, cls: r.classification, elev, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
 }
 
 self.onmessage = async e => {
