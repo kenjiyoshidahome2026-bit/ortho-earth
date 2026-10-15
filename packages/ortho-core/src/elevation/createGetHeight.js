@@ -9,6 +9,19 @@ import { Cache } from "native-bucket";
 // 判定は「brand 銘のあるタイルだけ信用」の向き：source フィールド導入前に焼かれた旧タイルは
 // source=undefined＝旧判定（"ALOS"で始まる時だけ失効）をすり抜けて DSM が永久に生き残っていた
 //（東新橋の屋上斜面＝PLATEAU 接地リフトが旧 DSM を食った実測。札幌は初取得が bucket 側で無症状）。
+// 1 枚のタイルの中の標高（x,y＝タイルの中の位置 0〜1・y は南から）。値は画素の中心にある（row0＝北・焼き＝bake-dem10b の lat0+1−(r+½)/H）＝
+//   描く側（elevation.js downsampleFlipped・renderer の resampleCell＝gx = u·w − ½）と同じ規約で一次補間する。
+//   旧＝画素の角に値があるとして読んでいた（行 = h − ⌊y·h⌋・y||1）＝半画素ずれ（R01 で東へ・南へ 0.5 秒＝熱海で東西 13 m・南北 15 m の所の値）。
+//   点群の地面と地理院 DEM5A で確かめた（点群計画 段 4・2026-10-15）。データが無い時は 0（呼び手が粗い段へ落とす）
+export function sampleCell(v, x, y) {
+	if (!v || !v.data) return 0;
+	const a = v.data, w = v.width, h = v.height;
+	const X = Math.min(Math.max(x * w - 0.5, 0), w - 1), Y = Math.min(Math.max((1 - y) * h - 0.5, 0), h - 1);   // Y＝北から
+	const x0 = X | 0, y0 = Y | 0, x1 = Math.min(x0 + 1, w - 1), y1 = Math.min(y0 + 1, h - 1), fx = X - x0, fy = Y - y0;
+	const top = a[y0 * w + x0] + (a[y0 * w + x1] - a[y0 * w + x0]) * fx, bot = a[y1 * w + x0] + (a[y1 * w + x1] - a[y1 * w + x0]) * fx;
+	return top + (bot - top) * fy;
+}
+
 export const staleDSM = (name, obj, dtm) => {
 	if (!obj || !dtm) return false;
 	if (String(obj.source || "").startsWith(dtm.brand)) return false;   // 焼き直し済み＝信用
@@ -202,14 +215,7 @@ export async function createGetHeight(opts = {}) {
 			}
 		});
 	}
-	function calcHeight(x,y,v) { if (!v || !v.data) return 0;
-		const a = v.data, w = v.width, h = v.height;
-		const H = (x,y)=> a[(h - (y||1)) * w + ((x==w)?w-1:x)];
-		const avg = (v1, v2, f) => v1 + (v2 - v1) * f;
-		const [X,Y] = [x*w,y*h], [x0,y0] = [X|0,Y|0], [x1,y1] = [x0+1,y0+1];
-		const [v00,v01,v10,v11] = [H(x0,y0),H(x0,y1),H(x1,y0),H(x1,y1)];
-		return avg(avg(v00,v10,X-x0), avg(v01,v11,X-x0),Y-y0);
-	}
+	const calcHeight = (x, y, v) => sampleCell(v, x, y);
 	async function hgt90(lng,lat,wait)  { const range = 90;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
 		const v = await load(lng0, lat0, range, wait);
