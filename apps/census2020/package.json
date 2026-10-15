@@ -20,6 +20,6 @@
 		"quiet-mono": "*",
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/japan": "*",
-		"gishub-jp": "*"
+		"@ortho-earth/jp": "*"
 	}
 }

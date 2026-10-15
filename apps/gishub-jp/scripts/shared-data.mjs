@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../shared-data");
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../packages/jp/shared-data")   // 正本の置き場＝packages/jp（2026-10-14・旧 packages/jp/shared-data＝census2020・uploader も読む）;
 const PREFIX = "GIS/shared";
 
 const manifest = {};

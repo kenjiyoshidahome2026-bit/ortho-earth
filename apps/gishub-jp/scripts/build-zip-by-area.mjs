@@ -18,9 +18,9 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../shared-data/zipcode/area-zip.json');
+const OUT   = join(__dir, '../../../packages/jp/shared-data/zipcode/area-zip.json');
 mkdirSync(dirname(OUT), { recursive: true });
-const SMALL = join(__dir, '../shared-data/census/2020-small.csv');
+const SMALL = join(__dir, '../../../packages/jp/shared-data/census/2020-small.csv');
 const ZIPURL = 'https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip';
 const REFERER = 'https://www.post.japanpost.jp/service/search/zipcode/download/utf-zip.html';
 
