@@ -27,7 +27,7 @@ import { installTools } from "./api/tools.js";
 import { installStyle } from "./api/style.js";
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
-import { POINTCLOUD_FORMATS } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は {}）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
+import { POINTCLOUD_NAMES } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は []）＝名前だけ読む（表を読むと解読器のチャンクが本体側にもできる）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
@@ -2513,7 +2513,7 @@ const pluginHost = createPluginHost(map, {
 	getBackend: () => dbgHost.__backend || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
 	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: registerTileFormat, has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
-	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: POST_TYPES, builtinLights: LIGHT_TYPES,
+	pointcloud: Object.fromEntries(POINTCLOUD_NAMES.map(n => [n, true])), builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: POST_TYPES, builtinLights: LIGHT_TYPES,
 });
 map.use = (p, o) => pluginHost.use(p, o);
 map.unuse = name => pluginHost.unuse(name);

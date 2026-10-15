@@ -11,6 +11,7 @@
 		"./decode": "./src/mlt.js",
 		"./pointcloud": "./src/pointcloud.js",
 		"./laz": "./src/laz.js",
+		"./las": "./src/las.js",
 		"./node-hook": "./src/node-hook.mjs",
 		"./node-register": "./src/node-register.mjs",
 		"./scripts/*": "./scripts/*"
