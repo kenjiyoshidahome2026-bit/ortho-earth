@@ -26,7 +26,8 @@
    地域でない和文（天体の和名・診断文）も数に入る＝許可表で「言語（地域ではない）」と書き分ける。
 2. **消費者は公開面（`packages/globe/globe.d.ts`＝SDK の `lib/ortho-japan.d.ts` も同じ物）だけを使う**。`map.estat` のような地域の口は japan の拡張面であって globe の口ではない。`dbgHost`／`__*` はアプリから触らない。
 3. **地域の無い内製アプリは共有エンジンを版つきの URL で読む**（本人裁定 2026-09-30・旧＝「エンジンを自分の束に焼く」2026-09-23）。
-   `@ortho-earth/globe` を lib×ES で 1 度だけ焼き（`apps/ortho-globe/vite.engine.config.js`）、`www.ortho-earth.com/globe/engine/<版>/` に置く。
+   `@ortho-earth/globe` を lib×ES で 1 度だけ焼き（`apps/engine/vite.config.js`）、`www.ortho-earth.com/globe/engine/<版>/` に置く。
+   エンジンは独立のデプロイ単位（`apps/engine`・Worker `ortho-engine`・route `/globe/engine/*`・2026-10-15〜）＝ortho-globe はただの消費者。配り方＝repo 直下の `npm run deploy:engine`。
    `<版>`＝出力の中身のハッシュ＝不変（immutable）。各アプリの build は `sharedEngine()`（`packages/globe/scripts/lib/shared-engine.mjs`）で
    エンジン・i18n・core・geopbf の 4 つを外に出し、その時の `<版>` の URL を指す（dev はソース直のまま）。同じ URL＝ブラウザのキャッシュがアプリを跨ぐ。
    4 つに限る訳＝状態（言語・楕円体の切替・worker の口・既定の bucket）を 1 つの実体に保つため。状態の無い部品（ephem・common 等）は従来どおり各アプリの束。
@@ -36,7 +37,7 @@
    いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp・japan のサイト（後の 4 つは 2026-09-30）。
    japan 系は**二段**＝共有エンジン（地域を知らない）＋ `orthoJapan`（`packages/jp/src/app.js`）と jp パック。
    **2026-10-14〜** 二段目も共有エンジンの入口＝`/globe/engine/<版>/jp/app.js`（orthoJapan）・`jp/index|region|codes|shared-data.js`・`nl/index.js`（掟 6）。
-   入口の一覧は `apps/ortho-globe/engine/entries.mjs`（current.json の `imports` へ書かれ、sharedEngine が読む）。jp の台帳（airports・plateau-*）は
+   入口の一覧は `apps/engine/src/entries.mjs`（current.json の `imports` へ書かれ、sharedEngine が読む）。jp の台帳（airports・plateau-*）は
    `packages/jp/assets` が正本で `<版>/assets/` に複写＝orthoJapan の `assetBase` の既定（SDK と japan のサイトは従来どおり自分の BASE_URL）。
    地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.js`）。
    `orthoJapan` は `assetBase` の既定を自分の束の `BASE_URL` にする（エンジンの束の BASE_URL は別物）。

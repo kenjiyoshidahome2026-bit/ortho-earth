@@ -29,13 +29,14 @@ const bye = code => { try { chrome && process.kill(-chrome.pid); } catch { chrom
 // ① 静的
 const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl"];
 const regionIn = file => { const s = fs.readFileSync(file, "utf8"); return REGION.find(pat => s.includes(pat)); };
-const ENGINE_DIR = path.join(SITE, "globe/engine");
+// 共有エンジン＝独立のデプロイ単位 apps/engine（2026-10-15〜）＝この家の dist には無い＝/globe/engine/ はエンジンの手元の置き場を同じ住所で配る（本番と同じ形）
+import { ENGINE_DIR } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";
+const engineFile = p => path.join(ENGINE_DIR, p.slice("/globe/engine/".length));
 if (!fs.existsSync(path.join(SITE, "globe/index.html"))) fail("dist/site/globe が無い（先に npm run build）");
 {
 	const bad = [];
-	// globe/engine/ は外す＝共有エンジンは jp・nl の入口も配る（2026-10-14〜・全アプリの共有物）＝地域の物が居て正しい。
-	// globe の頁がそれを読まないことは ③ で見る（実際に取りに行ったエンジンのファイルに地域の物が居ないか）
-	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (p !== ENGINE_DIR) walk(p); } else if (/\.(js|html)$/.test(e.name)) { const hit = regionIn(p); if (hit) bad.push(`${path.relative(SITE, p)}: ${hit}`); } } };
+	// 共有エンジンはこの dist に無い（jp・nl の入口も配る全アプリの共有物＝地域の物が居て正しい）。globe の頁がそれを読まないことは ③ で見る（実際に取りに行ったエンジンのファイルに地域の物が居ないか）
+	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(js|html)$/.test(e.name)) { const hit = regionIn(p); if (hit) bad.push(`${path.relative(SITE, p)}: ${hit}`); } } };
 	walk(path.join(SITE, "globe"));
 	if (bad.length) fail(`static: 地域／japan の物が束に混ざっている\n  ${bad.join("\n  ")}`);
 	console.log("ok:static（japan の SDK・地域の申告なし）");
@@ -49,12 +50,12 @@ server = createServer(async (req, res) => {
 	try {
 		if (p === "/globe") { res.writeHead(301, { Location: "/globe/" + u.search }); return res.end(); }
 		if (p.startsWith("/globe/")) {
-			let f = path.join(SITE, p);
+			let f = p.startsWith("/globe/engine/") ? engineFile(p) : path.join(SITE, p);
 			if (p.endsWith("/")) f = path.join(f, "index.html");
 			// 拡張子なし＝<名前>.html（本番の Workers assets と同じ）。同名のフォルダがあっても .html が勝つ＝dev の地震データ public/quakes/（gitignore）が
 			// ある機械では dist に quakes/ ができ、旧＝「在るがファイルでない」で 404＝quakes だけ「起動しない」で落ちていた（2026-10-01）
 			else if ((!fs.existsSync(f) || fs.statSync(f).isDirectory()) && fs.existsSync(f + ".html")) f += ".html";
-			if (!f.startsWith(SITE) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404, COI); return res.end(); }
+			if (!(f.startsWith(SITE) || f.startsWith(ENGINE_DIR)) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404, COI); return res.end(); }
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
 			return fs.createReadStream(f).pipe(res);
 		}
@@ -130,7 +131,7 @@ for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.O
 const japan = [...new Set(seen.filter(p => p.startsWith("/japan")))];
 if (japan.length) fail(`address: /japan/ への要求がある\n  ${japan.slice(0, 8).join("\n  ")}`);
 // 共有エンジンから実際に読んだファイル＝地域の物（jp・nl の入口とその塊）が居ない＝globe の頁は地域を読まない（① で外した globe/engine/ の分）
-const engineRegion = [...new Set(seen.filter(p => p.startsWith("/globe/engine/")))].map(p => [p, path.join(SITE, p)])
+const engineRegion = [...new Set(seen.filter(p => p.startsWith("/globe/engine/")))].map(p => [p, engineFile(p)])
 	.filter(([, f]) => /\.(js|html)$/.test(f) && fs.existsSync(f)).map(([p, f]) => [p, regionIn(f)]).filter(([, hit]) => hit);
 if (engineRegion.length) fail(`address: 共有エンジンの地域の物を読んでいる\n  ${engineRegion.slice(0, 8).map(([p, hit]) => `${p}: ${hit}`).join("\n  ")}`);
 console.log(`ok:address（/japan/ への要求ゼロ・共有エンジンの地域の物も読まない・受付 ${seen.length} 件）`);

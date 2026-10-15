@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-import { cpSync, rmSync } from "node:fs";
-import { sharedEngine, engineVersion } from "../../packages/globe/scripts/lib/shared-engine.mjs";
+import { rmSync } from "node:fs";
+import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
 import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-globe＝地球儀（@ortho-earth/globe）の家＝地域の申告を持たない頁だけを置く（LAYERS.md「globe の家」2026-09-24）。
@@ -15,10 +15,9 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData } f
 //   /globe/arcs     … いちばん近い道は弧になる（弧＝map.addData の arcs・首都＝world の台帳・路線＝OpenFlights をブラウザが直読み・issue #311）
 //   /globe/parks    … アメリカ合衆国の国立公園 63（/japan/parks と同型・台帳 parks-us.json・外周 parks-us.geopbf・他ユニット nps-units.geopbf＝本番は GitHub Pages の ortho-data/us/・正本はリポの根の ortho-data/us/）
 // エンジンは共有エンジン（/globe/engine/<版>/・縮小計画 項目 9・本人裁定 2026-09-30）を URL で読む＝build の時だけ（dev はソース直）。
-// 共有エンジンの置き場はこの家（/globe/*）＝build の最後に dist/engine/<版>/ を dist/site/globe/engine/<版>/ へ写す。japan の殻（app.js）も jp パックも通らない。
+// 共有エンジンの置き場は独立のデプロイ単位 apps/engine（route /globe/engine/*・2026-10-15〜）＝この家の dist には入らない。japan の殻（app.js）も jp パックも通らない。
 // COOP/COEP（credentialless）＝gint の SharedArrayBuffer（ゼロコピー）の点火条件＝crossOriginIsolation()（vite-app.mjs・japan と同じ標準解）。本番は deploy-worker.js が同じ 2 ヘッダを刻む。
 const ROOT = resolve(import.meta.dirname, "../..");
-const placeEngine = { name: "place-engine", apply: "build", closeBundle() { const v = engineVersion(); cpSync(resolve(import.meta.dirname, "dist/engine", v), resolve(import.meta.dirname, "dist/site/globe/engine", v), { recursive: true }); cpSync(resolve(import.meta.dirname, "dist/engine/current.json"), resolve(import.meta.dirname, "dist/site/globe/engine/current.json")); } };   // current.json＝Worker が旧版の入口を今の版へ送る時に読む
 
 // dev の地震データ（public/quakes/*.geopbf・gitignore・24MB）は出荷しない＝本番は /quakes/（quakes-mirror）から読む。置いたままだと dist に
 // quakes/ ができ、頁 /globe/quakes と同名のフォルダが並ぶ（検札の配り方が 404 にしていた・本番へ 24MB が上がる・2026-10-01）
@@ -38,5 +37,5 @@ export default defineConfig(({ command }) => ({
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), placeEngine, dropDevData],
+	plugins: [crossOriginIsolation(), sharedEngine(), dropDevData],
 }));

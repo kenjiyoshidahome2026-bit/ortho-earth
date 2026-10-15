@@ -23,7 +23,7 @@ const BASE = new URL(self.registration.scope).pathname;
 //   <base>assets/      … サイト殻（japan＝site.js・scenes台本・scene.html エディタ）のチャンク
 //   <base>lib/assets/  … SDK（外へ配る物・japan だけ）のチャンク＝配布 zip と同一物
 //   /globe/engine/     … 共有エンジン（本番の japan が食うエンジン実体・2026-09-30）＝<版>が中身のハッシュ＝不変。
-//                        古い版の入口は今の版へ 302 される（ortho-globe の Worker）＝転送された応答は掴まない（下の !res.redirected）
+//                        古い版の入口は今の版へ 302 される（エンジンの Worker ortho-engine）＝転送された応答は掴まない（下の !res.redirected）
 //                        ただし入口（/globe/engine/<版>/globe.js 等＝名前が版を跨いで同じ）は cache-first にしない＝下の ENGINE_ENTRY
 const ASSETS = [BASE + "assets/", BASE + "lib/assets/", "/globe/engine/"];
 // 共有エンジンの入口＝network-first（HTTP キャッシュも再検証）。cache-first だと版が退役した後も旧版の入口で動き続け、
