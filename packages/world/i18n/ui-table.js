@@ -4,4 +4,6 @@ import UI from "./ui.json";
 
 const slice = (table, lang) => Object.fromEntries(Object.entries(table || {}).map(([k, v]) => [k, v[lang]]).filter(([, v]) => v));
 /** { ui, categories, plateBoundaries }＝英語キー → その言語（未訳は入らない＝読む側が英語キーへ落とす）。en は空 */
+/** 分類名の全言語の表（英語キー → { 言語: 名前 }）＝地形の頁が直に引く（共有エンジンの入口 world-data/i18n/ui-table 越しに・2026-10-15） */
+export const categories = UI.categories;
 export const uiTable = lang => ({ ui: slice(UI.ui, lang), categories: slice(UI.categories, lang), plateBoundaries: slice(UI.plateBoundaries, lang) });

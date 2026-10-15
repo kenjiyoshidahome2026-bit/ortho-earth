@@ -21,7 +21,8 @@ import { readFile, readFileSync, readdirSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
-import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";
+import { ENGINE_DIR as ENGINE } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";   // 共有モジュール（native-bucket・core/worldcontent・world-data/i18n）は /globe/engine/<版>/ から読む＝本番の形どおりマウント（2026-10-15）   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SITE = path.join(APP, "dist/site");
@@ -78,7 +79,7 @@ export async function geopbf() {
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
 	if (p === "/__engine-stub.js") { requests.push("200 " + p); res.writeHead(200, { "Content-Type": "text/javascript" }); return res.end(ENGINE_STUB); }
-	const file = path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
+	const file = p.startsWith("/globe/engine/") ? path.join(ENGINE, p.slice("/globe/engine/".length)) : path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
 	if (file.endsWith("index.html")) {   // 注入口＝main の module script より前に偽エンジンを window.__orthoEngine へ（module script は文書順に実行される）
 		try {
 			const html = (await read(file, "utf8")).replace("<script type=\"module\"", "<script type=\"module\">import * as e from \"/__engine-stub.js\"; window.__orthoEngine = e;</script><script type=\"module\"");

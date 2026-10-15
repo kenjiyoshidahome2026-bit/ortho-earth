@@ -182,6 +182,10 @@ for (const [n, dir] of Object.entries(dirs)) {
 		for (const dep of Object.keys({ ...pj.dependencies, ...pj.peerDependencies })) if (dirs[dep]?.startsWith("packages/")) edges[n].add(dep);
 	}
 }
+// エンジンの中身（全入口の和）＝束に入るファイルのうち、これと重なる物が二重焼き
+const engineAll = new Set();
+for (const [spec] of ENTRIES) for (const f of (await engineFiles(spec)).files) engineAll.add(rel(f));
+for (const r of rows) r.doubled = Object.values(r.baked).flat().filter(f => engineAll.has(f)).sort();
 const commit = execSync("git rev-parse --short HEAD", { cwd: ROOT }).toString().trim();
 const sets = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v].sort()]));
 process.stdout.write(JSON.stringify({ rows, edges: sets(edges), npmEdges: sets(npmEdges), dirs, unused: unused.sort(), engine: ENTRIES.map(([spec, name, src]) => ({ spec, name, pkg: ownerOf(src) })), commit }, null, "\t") + "\n");
