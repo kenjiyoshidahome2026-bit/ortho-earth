@@ -42,7 +42,7 @@ const updated = b => { try { return JSON.parse(b.toString("utf8")).updated ?? nu
 const kb = n => `${(n / 1024).toFixed(0)} KB`;
 const group = f => f.includes("/") ? f.slice(0, f.indexOf("/")) + "/" : f;
 
-if (LIST.includes("TerrainDB.json")) {   // 検札（置く前）＝publish-physical.mjs と同じ線
+if (LIST.includes("TerrainDB.json")) {   // 検札（置く前）
 	const T = JSON.parse(fs.readFileSync(path.join(SRC, "TerrainDB.json"), "utf8")), items = T.items || T;
 	if (items.length < 900 || !items.some(d => d.discharge > 0)) { console.error(`TerrainDB が古い（${items.length} 件・物理量なし）＝npm run build を回す`); process.exit(1); }
 }
