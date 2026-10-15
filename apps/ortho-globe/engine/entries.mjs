@@ -19,6 +19,9 @@ export const ENTRIES = [
 	["@ortho-earth/jp/codes", "jp/codes", P("packages/jp/src/codes.js")],
 	["@ortho-earth/jp/shared-data", "jp/shared-data", P("packages/jp/shared-data/index.js")],
 	["@ortho-earth/nl", "nl/index", P("packages/nl/src/region.js")],
+	// Equal Earth の部品（packages/equal）＝ortho-globe・ortho-japan（div で重ねる）・equal の頁が共に読む（2026-10-15）。言語の状態は equal 自前（globe の i18n とは別の口）
+	["@ortho-earth/equal", "equal", resolve(import.meta.dirname, "equal.js")],
+	["@ortho-earth/equal/i18n.js", "equal-i18n", P("packages/equal/src/i18n.js")],
 ];
 // 入口の隣に複写する実行時データ（orthoJapan の assetBase の既定＝<版>/assets/）。
 // koppen-clim.png（packages/jp/assets の symlink＝dev でも同じ置き場から引ける・2026-10-15）＝assetBase を指した頁は気候場もそこから読む（globe.js の CLIM_URL）＝jp の頁が読む 1 枚（読まない頁は従来のハッシュ名の同梱を読む＝どちらか 1 枚だけ）

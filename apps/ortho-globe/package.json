@@ -24,7 +24,7 @@
 		"@ortho-earth/h3": "*",
 		"@ortho-earth/tile-formats": "*",
 		"geopbf": "*",
-		"ortho-equal": "*",
+		"@ortho-earth/equal": "*",
 		"world-data": "*"
 	}
 }

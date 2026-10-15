@@ -7,8 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { THEMES, THEME_NAMES, normTheme, hex } from "../src/themes.js";
-import { PALETTE } from "../src/layers.js";
+import { THEMES, THEME_NAMES, normTheme, hex } from "../../../packages/equal/src/themes.js";
+import { PALETTE } from "../../../packages/equal/src/layers.js";
 import { WORLD_PAL_THEMES, resolveWorldPal, WORLD_PAL_DEFAULT } from "@ortho-earth/core/worldpal";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -29,7 +29,7 @@ for (const name of THEME_NAMES) {
 
 // ② 同じオブジェクト literal に同じキーを二度書いていない（JS は黙って後勝ち＝上の轍の根）
 {
-	const src = fs.readFileSync(path.join(APP, "src/themes.js"), "utf8");
+	const src = fs.readFileSync(path.join(APP, "../../packages/equal/src/themes.js"), "utf8");
 	let cur = null; const seen = {}; const dup = [];
 	for (const line of src.split("\n")) {
 		const t = line.match(/^\t(\w+): \{/); if (t) { cur = t[1]; seen[cur] = new Set(); continue; }
@@ -66,7 +66,7 @@ ok(THEME_NAMES.includes("mono") && THEME_NAMES[0] === "mono", "mono が既定（
 
 // ⑥ テーマの表示名は辞書にある（equal 固有 or japan 共有）＝選択 UI が英語のまま残らない
 {
-	const own = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui;
+	const own = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/equal/i18n/ui.json"), "utf8")).ui;
 	const jp = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/globe/src/i18n/ui.json"), "utf8")).ui;
 	for (const name of THEME_NAMES) {
 		const label = THEMES[name].label;

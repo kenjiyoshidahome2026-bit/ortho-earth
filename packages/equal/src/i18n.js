@@ -9,7 +9,7 @@
 import LANGS from "@ortho-earth/globe/i18n/langs.js";   // 言語一覧は world が正本（japan が写しを持つ）＝ここは写しの写しを作らない
 import { createI18n } from "@ortho-earth/globe/i18n/core.js";
 
-const SHARED = import.meta.glob("../../../packages/globe/src/i18n/lang/*.json");
+const SHARED = import.meta.glob("../../globe/src/i18n/lang/*.json");
 const OWN = import.meta.glob("../i18n/lang/*.json");
 const grab = async (mods, code) => { const k = Object.keys(mods).find(p => p.endsWith(`/${code}.json`)); if (!k) return {}; try { return (await mods[k]()).default || {}; } catch { return {}; } };
 const i18n = createI18n({ langs: LANGS, load: async c => { const [shared, own] = await Promise.all([grab(SHARED, c), grab(OWN, c)]); return { ...shared, ...own }; } });   // equal 固有が共有を上書き

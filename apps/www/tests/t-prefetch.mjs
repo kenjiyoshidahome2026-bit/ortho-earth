@@ -54,7 +54,7 @@ test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", ()
 	const s = src("packages/globe/src/globe.js");
 	assert.match(s, /LOW_MEM \? "50m" : "10m"/); assert.match(s, /ne_\$\{RES\}_lakes/);
 	assert.match(s, /geopbf\(NAME, \{ gint: false \}\)/); assert.match(s, /geopbf\("below_sea_land", \{ gint: false \}\)/);
-	assert.match(src("apps/equal/src/layers.js"), /"ne_10m_lakes"/);
+	assert.match(src("packages/equal/src/layers.js"), /"ne_10m_lakes"/);
 });
 test("恒星：sky/theater は GitHub Pages の sky/stars.6.geopbf を読む＝先読みも同じ URL（HTTP キャッシュを温める）", () => {
 	assert.match(src("packages/globe/src/sky/theater.js"), /skyPbf\(geopbf, "stars\.6"\)/);
@@ -71,7 +71,7 @@ test("ミニ地球儀：gadgets/globe.js は ne_110m_land を gint:false", () =>
 test("河川・海洋境界：globe（gint あり・LOW_MEM は読まない）と equal", () => {
 	const s = src("packages/globe/src/gint/layers.js");
 	for (const n of ["ne_10m_rivers_lake_centerlines", "ne_10m_admin_0_boundary_lines_maritime_indicator"]) {
-		assert.ok(s.includes(`"${n}"`), n); assert.ok(src("apps/equal/src/layers.js").includes(`"${n}"`), n);
+		assert.ok(s.includes(`"${n}"`), n); assert.ok(src("packages/equal/src/layers.js").includes(`"${n}"`), n);
 	}
 	assert.match(s, /geopbf\(def\.name\)/); assert.match(s, /worldLinesState \|\| LOW_MEM/);
 });
@@ -84,7 +84,7 @@ test("ne-cultural：equal・world・globe が同じ URL・同じ name で読む�
 	assert.ok(core.includes('WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/"'));
 	assert.ok(core.includes("culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`"));
 	assert.ok(core.includes("culturalName = g => `ne-cultural-${g}.geopbf`"));
-	for (const f of ["apps/equal/src/equal.js", "packages/world/src/worldlayers.js", "packages/globe/src/gint/worldcontent.js"]) {   // 三者とも正本の口で読む（写しを持たない）
+	for (const f of ["packages/equal/src/equal.js", "packages/world/src/worldlayers.js", "packages/globe/src/gint/worldcontent.js"]) {   // 三者とも正本の口で読む（写しを持たない）
 		assert.match(src(f), /culturalUrl\(g\), \{ name: culturalName\(g\) \}|culturalUrl\("base"\), \{ name: culturalName\("base"\) \}/, f);
 		assert.ok(!src(f).includes("bucket/GIS/world/ne-cultural-"), f + "：URL の写しを持たない");
 	}
