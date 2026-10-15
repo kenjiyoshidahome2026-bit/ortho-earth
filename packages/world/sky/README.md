@@ -1,7 +1,7 @@
-# space — 宇宙（天球）の名前データ
+# sky — 宇宙（天球）の名前データ（world-data の一部）
 
-星座 88・メシエ天体の通称・太陽系の天体（太陽・惑星・月・冥王星・衛星 20）の名前を 26 言語で持つ、データだけのパッケージ（コードを配らない）。
-読む側（globe の星空・ortho-solar）は **GitHub Pages の JSON・GeoPBF を読むだけ**＝このパッケージの import で繋がない
+星座 88・メシエ天体の通称・太陽系の天体（太陽・惑星・月・冥王星・衛星 20）の名前を 26 言語で持つ、データだけの置き場（コードを配らない）。2026-10-15 まで独立のパッケージ space-data（packages/space）だった＝読むのが world-data の npm run sky だけなので world-data に入れた。
+読む側（globe の星空・ortho-solar）は **GitHub Pages の JSON・GeoPBF を読むだけ**＝ここの import で繋がない
 （2026-09-19 本人裁定「japan がデータを読む形に」＝コード依存でなくデータ共有）。
 
 ## 置き場所
@@ -10,7 +10,7 @@
 |---|---|
 | 正本 | `names.json`＝`{ constellations: { <IAU 略号>: { <lang>: 名前 } }, messier: { "M42": { <lang>: 通称 } }, bodies: { <ephem の id>: { <lang>: 名前 } } }`・`moon.json`（月の地名）・`constellation-lines.json`（星座線・d3-celestial 由来） |
 | 配信 | GitHub Pages `ortho-data/globe/sky/`＝`names/<lang>.json`（`{ updated, c: 星座, m: メシエ通称, b: 天体 }`・その言語に在るものだけ・1 本 ~3KB）・`moon_nomenclature.i18n/<lang>.json`・`constellation_lines`／`messier`／`stars.6`／`moon_nomenclature`（.geopbf） |
-| 焼く | `npm run sky -w world-data`（`packages/world/scripts/sky.mjs`＝`packs.js` で言語ごとに割り、GeoPBF を焼いて `packages/world/out/sky/` へ） |
+| 焼く | `npm run sky -w world-data`（`packages/world/scripts/sky.mjs`＝`sky/packs.js` で言語ごとに割り、GeoPBF を焼いて `packages/world/out/sky/` へ） |
 | 置く | `npm run publish:pages -w world-data -- --only=sky --write`（git push だけ・鍵が要らない） |
 
 URL＝`https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/names/<lang>.json`（言語は `packages/world/i18n/langs.json` の 26）。素の JSON＝`fetch().json()` で読める。
@@ -35,4 +35,4 @@ URL＝`https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/names/<la
 
 ## 検定
 
-`npm test`＝88 星座の網羅・en/ja の必須・同言語内の重複（取り違えの疑い）・26 言語の一致・パックの形と大きさ。
+`npm test -w world-data`＝88 星座の網羅・en/ja の必須・同言語内の重複（取り違えの疑い）・26 言語の一致・パックの形と大きさ。

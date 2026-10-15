@@ -1,7 +1,7 @@
-// 天体の名前（星座・メシエ・太陽・惑星・月・衛星）＝GitHub Pages の ortho-data/globe/sky/names/<lang>.json（正本 packages/space・sky/data.js・
+// 天体の名前（星座・メシエ・太陽・惑星・月・衛星）＝GitHub Pages の ortho-data/globe/sky/names/<lang>.json（正本 packages/world/sky・sky/data.js・
 // ortho-solar と同じ JSON）を読む口。コードでなくデータで繋ぐ（2026-09-19 本人裁定）。UI の言語の 1 本＋英語・欠けは英語
 // （星座＝IAU 名・メシエ＝英語の通称・天体＝英語名）。旧 skynames.js（日本語固定＝UI が英語でも「オリオン座」）の表は
-// packages/space/names.json の ja 列へ移した。
+// packages/world/sky/names.json の ja 列へ移した。
 // 2026-10-13 まで bucket GIS/space/i18n/（uploader が gzip で置く＝native-bucket の get で読んでいた）。Pages は素の JSON。
 // 1 回だけ取る（memo）＝星空ドーム（sky/theater.js）と太陽系圏（solarsky.js）が同じ約束を共有
 import { skyJson } from "./data.js";

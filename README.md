@@ -75,8 +75,7 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`himekuri`](packages/himekuri) | 1.0.0 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 | [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
 | [`quiet-mono`](packages/quiet-mono) | 1.0.0 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
-| [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages |
-| [`space-data`](packages/space) | 1.0.0 | CC BY-SA 4.0 (data) | Constellations, Messier objects, Solar-System bodies and 2,023 lunar place names in 26 languages |
+| [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages; sky names (constellations, Messier objects, Solar-System bodies, 2,023 lunar place names) in `sky/` |
 
 `geopbf` and `altpbf` are also published to standalone repositories as read-only mirrors on each release.
 
@@ -141,6 +140,6 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 - Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/react`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
-- Data packages (`world-data`, `space-data`): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
+- Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
 For commercial use without GPL obligations, a separate commercial license is available — contact kenji.yoshida.home.2026@gmail.com.

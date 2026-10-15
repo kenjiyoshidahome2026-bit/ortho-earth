@@ -1,12 +1,14 @@
 国別データベース（ortho-earth world）のライセンス / Licensing
 
-■ データ（seed/、build の出力＝NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・i18n/、地形.csv）
+■ データ（seed/、build の出力＝NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・i18n/、地形.csv、
+  sky/ の宇宙の名前＝names.json・moon.json・constellation-lines.json と npm run sky の出力）
   Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
   https://creativecommons.org/licenses/by-sa/4.0/
   © 2010–2026 Kenji Yoshida and contributors.
   出所（Wikipedia / Wikidata / World Bank / IMF / UNDP / Natural Earth 等）と各々の条件は SOURCES.md を参照。
+  sky/ の出所＝Wikidata（CC0）の見出し・IAU 名・日本天文学会の標準和名・月の地名は USGS（パブリックドメイン）・星座線は d3-celestial。詳細は sky/README.md。
 
-■ ビルドスクリプト（build/、scripts/）
+■ ビルドスクリプト（build/、scripts/、sky/scripts/、sky/packs.js）
   MIT License
   Copyright (c) 2026 Kenji Yoshida
   Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated

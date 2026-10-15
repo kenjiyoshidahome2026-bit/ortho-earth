@@ -7,7 +7,7 @@
 //     形状台帳      ne-physical.geopbf・plates.geopbf・ne-physical-lines.geopbf・climate-koppen.geopbf（地形の頁）
 //     検索の索引    search/base.json・search/<lang>.json（scripts/search-index.mjs）
 //     資産          ne-cities/<lang>.json・flags/<key>.svg・geoms/<key>.png・sfx.zip（uploader が作る物＝手元に在れば）
-//     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/space・焼く＝npm run sky）
+//     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/world/sky・焼く＝npm run sky）
 //     人口（H3）    h3/kontur-<版>/＝/globe/hex が読む Kontur Population（焼く＝apps/ortho-globe/scripts/kontur-h3.mjs）
 //   目録            manifest.json＝{ updated, files: { 相対パス: 中身の sha1 の頭 12 桁 } }＝置くたびに globe/ 全体から作り直す。
 //                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（packages/world/src/data.js）

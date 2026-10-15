@@ -875,7 +875,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		}
 		if (sky.messier) {
 			// v1 の記号語彙：gc=球状星団 銀河=楕円 oc=散開星団 他=矩形。銀河は d3-celestial の種別で s/e/i（渦巻・楕円・不規則）
-			// で来る＝旧版は gx/gg だけを見ていて銀河が全部矩形になっていた（2026-09-19・packages/space README と solar の messierKind と同じ読み）
+			// で来る＝旧版は gx/gg だけを見ていて銀河が全部矩形になっていた（2026-09-19・packages/world/sky README と solar の messierKind と同じ読み）
 			const sz = 5, P2 = Math.PI * 2;
 			ctx.lineWidth = 0.8;
 			ctx.strokeStyle = `rgba(255,200,100,${0.75 * fade})`;
