@@ -1,0 +1,25 @@
+{
+	"name": "ortho-engine",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The shared engine served at www.ortho-earth.com/globe/engine/<version>/: one versioned build of @ortho-earth/globe and the modules two or more apps use (i18n, core, geopbf, h3, the jp/nl region packs, Equal Earth). Apps import it by URL instead of each bundling a copy.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"scripts": {
+		"build": "node scripts/build.mjs",
+		"check": "node scripts/check.mjs",
+		"deploy": "node ../../scripts/deploy-engine.mjs --engine-only",
+		"deploy:built": "node scripts/check.mjs && wrangler deploy",
+		"test": "node --test tests/t-engine-stale.mjs tests/t-worker.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/equal": "*",
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/h3": "*",
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/nl": "*",
+		"@ortho-earth/tile-formats": "*",
+		"geopbf": "*"
+	}
+}

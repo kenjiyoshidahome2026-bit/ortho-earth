@@ -8,14 +8,14 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "node scripts/verify-i18n.mjs && vite build",
-		"build:engine": "node scripts/build-engine.mjs",
 		"preview": "vite preview",
 		"clock:zones": "node scripts/clock-zones-build.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
-		"deploy": "npm run build && npm run verify:prod && wrangler deploy",
-		"test": "node tests/t-hex-pop.mjs && node --test tests/t-clock.mjs tests/t-arcs-data.mjs tests/t-engine-stale.mjs"
+		"deploy": "npm run build && npm run verify:prod && npm run deploy:built",
+		"deploy:built": "node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"test": "node tests/t-hex-pop.mjs && node --test tests/t-clock.mjs tests/t-arcs-data.mjs"
 	},
 	"dependencies": {
 		"@ortho-earth/core": "*",

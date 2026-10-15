@@ -2,11 +2,9 @@
 	"_": "アプリ→アプリの参照の許可表（scripts/check-app-imports.mjs の爪車・2026-10-14 の凍結）。どれも負債＝消す予定。移し先は why に書く（2 つ以上で使う物は packages/*・実行時の共有は /globe/engine/<版>/ の入口）。消したら --ratchet で枠を下げる。足すのは禁止（例外は www だけ＝門の外）",
 	"allow": {
 		"census2020 → gishub-jp": { "n": 1, "why": "gen-maff-codes が gishub-jp/maff を読む（codes・shared-data は 2026-10-14 に packages/jp へ移した）→ maff の台帳を packages/jp へ" },
-		"census2020 → ortho-globe": { "n": 1, "why": "verify-prod がエンジンの dist を読む → エンジンを独立デプロイ（apps/engine）にした時に道を移す" },
 		"geopbf-demo → ortho-globe": { "n": 1, "why": "ortho-globe/public（koppen-clim.png 等）を dev で読む → エンジンの資産へ" },
 		"gishub-jp → uploader": { "n": 1, "why": "焼きスクリプトが uploader/.env.local（鍵）を読む → 鍵の置き場を root に" },
 		"ortho-japan → census2020": { "n": 1, "why": "showcase スクリプトが census の manifest を読む → packages/jp の実行時データ" },
-		"ortho-japan → ortho-globe": { "n": 1, "why": "verify-prod がエンジンの dist を読む → エンジンを独立デプロイにした時に道を移す" },
 		"ortho-japan → uploader": { "n": 2, "why": "焼きスクリプトが uploader/.env.local（鍵）を読む → 鍵の置き場を root に（本人の Mac のファイルを動かす手間が要る＝後回し）" },
 		"quakes-mirror → ortho-globe": { "n": 1, "why": "結合テスト（mirror の焼き × globe の quakes-worker の読み）が globe の worker を読む → worker の読み手を packages/quakes へ切り出す時に" },
 		"world → ortho-globe": { "n": 1, "why": "ortho-globe/public（koppen-clim.png 等）を dev で読む → エンジンの資産へ" },
