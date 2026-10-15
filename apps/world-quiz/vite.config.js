@@ -16,11 +16,6 @@ const noChunkOptimization = { experimental: { chunkOptimization: false } };   //
 export default defineConfig(({ command }) => ({
 	plugins: [wasm(), coepHeaders(), sharedEngine()],
 	base: '/quiz/',
-	resolve: {
-		alias: {
-			'common': path.resolve(__dirname, '../../packages/common/src'),
-		}
-	},
 	optimizeDeps: { exclude: ['common', 'geopbf', 'native-bucket'] },
 	server: {
 		port: 5198,

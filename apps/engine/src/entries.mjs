@@ -4,8 +4,11 @@
 // 地域パック（jp・nl）の入口は地域を知らない globe・core のコードに入らない＝別の入口・読まないアプリには 0 バイト。
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync, realpathSync } from "node:fs";
 const sub = spec => { const n = spec.replace(/^@ortho-earth\//, "").replace(/\.m?js$/, ""); return n.includes("/") ? n : `${n}/index`; };   // ephem → ephem/index（入口が下の階にある物と揃える）
 const ROOT = resolve(import.meta.dirname, "../../..");
+// サブパスの実体＝exports の "./*" は拡張子を補わない（common/gintView → src/gintView）＝.js を足し、symlink（node_modules の workspace）は実体へ
+const src = spec => { const f = fileURLToPath(import.meta.resolve(spec)); return realpathSync(existsSync(f) ? f : f + ".js"); };
 const P = p => resolve(ROOT, p);
 // [import の名前, 入口の名（出力＝<名>.js）, ソース]
 export const ENTRIES = [
@@ -31,12 +34,17 @@ export const ENTRIES = [
 		"native-bucket",
 		"geopbf/gzip", "geopbf/decodeZIP", "geopbf/pbf", "geopbf/pbf-base", "geopbf/geoparquet", "geopbf/cog/core", "geopbf/edit/sphere", "geopbf/pmtiles",
 		"@ortho-earth/core/worldcontent", "@ortho-earth/core/worldpal", "@ortho-earth/core/worldstyle", "@ortho-earth/core/viewurl",
-		"@ortho-earth/ephem", "@ortho-earth/ephem/sgp4", "@ortho-earth/ephem/sun",
+		"@ortho-earth/ephem", "@ortho-earth/ephem/sgp4", "@ortho-earth/ephem/sun", "@ortho-earth/ephem/clock",
 		"@ortho-earth/globe/i18n/core.js", "@ortho-earth/globe/i18n/langs.js", "@ortho-earth/globe/demo/scene-adapter.js",
 		"@ortho-earth/globe/gadgets/cloud.js", "@ortho-earth/globe/gadgets/compose.js", "@ortho-earth/globe/gadgets/dropfile.js",
 		"@ortho-earth/globe/gadgets/footprint.js", "@ortho-earth/globe/gadgets/tellus-api.js",
 		"world-data/i18n/ui-table.js",
-	].map(spec => [spec, sub(spec), fileURLToPath(import.meta.resolve(spec))]),
+		// 2 つ以上のアプリが束に焼いていた物（2026-10-15・依存マップの残り）＝エンジンに無かったので門番に掛からなかった。
+		// common＝world・GeoPBF・gishub-jp／common の d3 部品＝GeoPBF・gishub-jp／world の読込と国の層＝world・quiz／xlsx の書き出し＝GeoPBF・gishub-jp／
+		// 国勢調査のグラフ＝census2020・gishub-jp／Wikipedia の枠＝world・census2020・ortho-globe・ortho-japan
+		"common", "common/geoExec", "common/screenLogger", "common/gintView",
+		"world-data/src/data.js", "world-data/src/worldlayers.js", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts.mjs", "@ortho-earth/globe/wiki.js",
+	].map(spec => [spec, sub(spec), src(spec)]),
 ];
 // 入口の隣に複写する実行時データ（orthoJapan の assetBase の既定＝<版>/assets/）。
 // koppen-clim.png（packages/jp/assets の symlink＝dev でも同じ置き場から引ける・2026-10-15）＝assetBase を指した頁は気候場もそこから読む（globe.js の CLIM_URL）＝jp の頁が読む 1 枚（読まない頁は従来のハッシュ名の同梱を読む＝どちらか 1 枚だけ）

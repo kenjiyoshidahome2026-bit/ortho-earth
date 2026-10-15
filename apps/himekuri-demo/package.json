@@ -12,7 +12,7 @@
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"test": "node tests/t-astro.mjs && node tests/t-elevation.mjs && node tests/t-ical.mjs && node tests/t-week.mjs && node scripts/verify-i18n.mjs",
-		"deploy": "npm run build && wrangler deploy"
+		"deploy": "npm run build && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy"
 	},
 	"dependencies": {
 		"himekuri": "*",
