@@ -5,11 +5,15 @@
 // 共有エンジンを読むアプリ（vite.config.js に sharedEngine()）は apps/engine/src/entries.mjs の入口を外に出して束を辿り、
 // 外に出た入口は入口のソースから辿り直して「エンジン経由」とする。new URL("…", import.meta.url) の worker も入口として足す。
 // scss は @use／@import／@forward を辿り、build:css の生成物（GENERATED）はその正本の scss を辿る（2026-10-15・quiet-mono の線が出るように）。
-// 限り：import.meta.glob（i18n の言語表など）は辿らない。大きさは出さない（全言語の遅延 chunk を足してしまう）。
+// 大きさ＝esbuild で minify した出力の中で各ファイルが占めるバイト（tree-shake 後）。動的 import で後から読む分も含む（頁が読みうる最大）。
+// gz は出力全体を gzip -9 した比率で割り振った見積り。画像・wasm・フォント等の資産は数えない（JSON の import は数える）。
+// 言語ファイル（i18n/lang/*.json）は "(lang)" として別に数える（頁が読むのは 1 言語分）。
+// 限り：import.meta.glob は辿らない。
 import * as esbuild from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { gzipSync } from "node:zlib";
 
 // DEPS_ROOT＝別の checkout（前の版と比べる時）。入口の一覧が無い古い版（2026-10-15 より前）は当時の 5 つ
 const ROOT = path.resolve(process.env.DEPS_ROOT || path.join(import.meta.dirname, ".."));
@@ -63,6 +67,8 @@ const scssDeps = file => [...fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?
 // 辿り先を JS の import に書き直す（sass と同じく、まず自分の dir から解く・無ければ裸の名＝esbuild に解かせる）
 const asImports = (file, specs) => specs.map(spec => sassRel(path.dirname(file), spec) || (spec.startsWith(".") ? null : spec)).filter(Boolean).map(x => `import ${JSON.stringify(x)};`).join("\n");
 
+// 言語ファイル（i18n/lang/<言語>.json 等）＝頁は 1 言語分だけ読む＝大きさは「全言語の和」として別に数える
+const LANG = /\/i18n\/lang\/(?:[^/]+\/)*[a-z]{2,3}(?:-[A-Za-z]+)?\.json$/;
 // ---- 1 つの入口から辿る ----
 const ASSET = Object.fromEntries(["css", "scss", "sass", "png", "jpg", "jpeg", "webp", "svg", "gif", "glb", "wasm", "bin", "ttf", "woff", "woff2", "mp3", "wav", "ktx2", "txt", "html", "geopbf", "pbf", "zip", "gz"].map(e => ["." + e, "empty"]));
 async function trace(entry, { engine, stdin, inEngine }) {
@@ -101,7 +107,7 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			});
 		},
 	};
-	const opts = { absWorkingDir: ROOT, bundle: true, write: false, metafile: true, format: "esm", platform: "browser", splitting: true, outdir: "/tmp/deps-map-out", logLevel: "silent", loader: { ...ASSET, ".json": "json" }, plugins: [plugin], define: { "import.meta.env": "{}" }, conditions: ["browser", "import", "default"], external: ["node:*"] };
+	const opts = { absWorkingDir: ROOT, bundle: true, write: false, metafile: true, minify: true, format: "esm", platform: "browser", splitting: true, outdir: "/tmp/deps-map-out", logLevel: "silent", loader: { ...ASSET, ".json": "json" }, plugins: [plugin], define: { "import.meta.env": "{}" }, conditions: ["browser", "import", "default"], external: ["node:*"] };
 	let r;
 	for (let i = 0; ; i++) {   // 解決できない import（vite だけの別名など）は外に出して辿り直す＝stderr に出す
 		try { r = stdin ? await esbuild.build({ ...opts, stdin }) : await esbuild.build({ ...opts, entryPoints: [entry] }); break; }
@@ -112,24 +118,27 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			opts.external = [...opts.external, ...miss];
 		}
 	}
-	return { meta: r.metafile, hits, workers };
+	const bytes = new Map(); let min = 0, gz = 0;
+	for (const o of Object.values(r.metafile.outputs)) for (const [f, v] of Object.entries(o.inputs)) bytes.set(f, (bytes.get(f) || 0) + v.bytesInOutput);
+	for (const o of r.outputFiles || []) if (/\.js$/.test(o.path)) { min += o.contents.length; gz += gzipSync(o.contents, { level: 9 }).length; }
+	return { meta: r.metafile, hits, workers, bytes, min, gz };
 }
 
 // 入口 → 辿れたファイルの集合＋外に出たエンジンの入口（worker は入口に足して繰り返す）
 async function walk(roots, engine, inEngine = false) {
-	const files = new Set(), hits = new Set(), seen = new Set(), q = [...roots], edges = new Set();
+	const files = new Set(), hits = new Set(), seen = new Set(), q = [...roots], edges = new Set(), size = new Map(); let min = 0, gz = 0;
 	while (q.length) {
 		const e = q.shift(); const key = e.stdin ? e.stdin.sourcefile : e;
 		if (seen.has(key)) continue; seen.add(key);
-		const { meta, hits: h, workers } = await trace(e.stdin ? null : e, { engine, stdin: e.stdin, inEngine });
+		const { meta, hits: h, workers, bytes, min: m1, gz: g1 } = await trace(e.stdin ? null : e, { engine, stdin: e.stdin, inEngine });
 		for (const [f, v] of Object.entries(meta.inputs)) {
 			const inline = /#inline\d+$/.test(f) || f === "<stdin>";   // HTML の中の script（stdin）＝その HTML のコードとして数える
-			const abs = f === "<stdin>" ? e.stdin.sourcefile.replace(/#inline\d+$/, "") : path.resolve(ROOT, f.replace(/#inline\d+$/, "")); if (!fs.existsSync(abs)) continue; if (!inline) files.add(abs);
+			const abs = f === "<stdin>" ? e.stdin.sourcefile.replace(/#inline\d+$/, "") : path.resolve(ROOT, f.replace(/#inline\d+$/, "")); if (!fs.existsSync(abs)) continue; if (!inline) files.add(abs); size.set(abs, (size.get(abs) || 0) + (bytes.get(f) || 0));
 			for (const im of v.imports) { const t = path.resolve(ROOT, im.path); if (fs.existsSync(t)) edges.add(abs + "\n" + t); }
 		}
-		h.forEach(x => hits.add(x)); workers.forEach(w => q.push(w));
+		h.forEach(x => hits.add(x)); workers.forEach(w => q.push(w)); min += m1; gz += g1;
 	}
-	return { files, hits, edges };
+	return { files, hits, edges, size, min, gz };
 }
 
 function htmlRoots(html, appDir) {
@@ -169,14 +178,25 @@ for (const d of demos) {
 	const isMl = d.id === "maplibre";
 	const shared = isMl || usesEngine(appDir);
 	const roots = entry.endsWith(".html") ? htmlRoots(path.join(ROOT, entry), appDir) : [path.join(ROOT, entry)];
-	const own = isMl ? { files: new Set(), hits: new Set([...SPEC.keys()].filter(s => s === "@ortho-earth/globe")), edges: new Set() } : await walk(roots, shared);
+	const own = isMl ? { files: new Set(), hits: new Set([...SPEC.keys()].filter(s => s === "@ortho-earth/globe")), edges: new Set(), size: new Map(), min: 0, gz: 0 } : await walk(roots, shared);
 	if (isMl) { const w = await walk(roots, true); w.hits.forEach(h => own.hits.add(h)); w.edges.forEach(e => allEdges.add(e)); }
 	own.edges.forEach(e => allEdges.add(e));
 	const cells = {}, appName = ownerOf(path.join(ROOT, appDir, "package.json"));
 	const mark = (f, k) => { const o = ownerOf(f); if (!o || o === appName || o === "ortho-engine") return; const n = npmFamily(o); if (!shown(n)) return; cells[n] = (cells[n] || "").includes(k) ? cells[n] : (cells[n] || "") + k; };
 	const baked = {};   // 束に入る内製パッケージのファイル（共有エンジンを読む頁で、どのサブパスが焼かれるか）
 	for (const f of own.files) if (!isMl) { mark(f, "B"); const o = ownerOf(f); if (shared && o && o !== appName && !o.startsWith("npm:") && /\.m?js$/.test(f)) (baked[o] ??= []).push(rel(f)); }
-	for (const h of own.hits) { const e = await engineFiles(h); e.edges.forEach(x => allEdges.add(x)); for (const f of e.files) mark(f, "E"); }
+	// 大きさ：束＝own.size の和（worker の束ごとに数える）・エンジン＝読む入口の和集合（同じファイルは 1 つ＝エンジンの chunk は入口を跨いで共有）
+	const sizeOf = {}, add = (k, n, kind) => { if (!n) return; const s = sizeOf[k] ??= { B: 0, E: 0 }; s[kind] += n; };
+	const keyOf = f => { if (LANG.test(f)) return "(lang)"; const o = ownerOf(f); return !o ? null : o === appName ? "(app)" : npmFamily(o).startsWith("npm:") ? (shown(npmFamily(o)) ? npmFamily(o) : "npm:(other)") : o; };
+	if (!isMl) for (const [f, n] of own.size) add(keyOf(f), n, "B");
+	const engSize = new Map(); let engMin = 0, engGz = 0;
+	for (const h of own.hits) { const e = await engineFiles(h); e.edges.forEach(x => allEdges.add(x)); for (const f of e.files) mark(f, "E"); for (const [f, n] of e.size) engSize.set(f, Math.max(engSize.get(f) || 0, n)); }
+	for (const [f, n] of engSize) { add(keyOf(f), n, "E"); engMin += n; }
+	const ratio = w => w.min ? w.gz / w.min : 0.3;
+	const engRatio = own.hits.size ? [...own.hits].reduce((a, h) => { const e = engineCache.get(h); return [a[0] + e.gz, a[1] + e.min]; }, [0, 0]) : [0, 0];
+	engGz = Math.round(engMin * (engRatio[1] ? engRatio[0] / engRatio[1] : 0.3));
+	const ownMin = isMl ? 0 : [...own.size.values()].reduce((a, b) => a + b, 0);
+	const sizes = { own: { min: ownMin, gz: Math.round(ownMin * ratio(own)) }, engine: { min: engMin, gz: engGz }, byPkg: sizeOf, top: [...own.size].filter(() => !isMl).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([f, n]) => [rel(f), n]), gzRatio: { own: +ratio(own).toFixed(3), engine: engRatio[1] ? +(engRatio[0] / engRatio[1]).toFixed(3) : null } };
 	for (const k in cells) cells[k] = cells[k].includes("E") && cells[k].includes("B") ? "EB" : cells[k];
 	// 直に import＝アプリのファイルから出る辺の先
 	const direct = new Set();
@@ -185,7 +205,7 @@ for (const d of demos) {
 	const pkgOfSpec = h => h.startsWith("@") ? h.split("/").slice(0, 2).join("/") : h.split("/")[0];
 	const texts = [...appFiles, ...(entry.endsWith(".html") ? [path.join(ROOT, entry)] : [])].map(a => fs.readFileSync(a, "utf8"));   // HTML の中の script も＝アプリのコード
 	for (const h of own.hits) if (texts.some(t => t.includes(`"${h}"`) || t.includes(`'${h}'`))) direct.add(pkgOfSpec(h));
-	rows.push({ id: d.id, title: d.title, href: d.href, app: appName, appDir, entry, shared, engineEntries: [...own.hits].map(h => ENTRIES.find(e => e[0] === h)[1]), cells, direct: [...direct].sort(), baked });
+	rows.push({ id: d.id, title: d.title, href: d.href, app: appName, appDir, entry, shared, engineEntries: [...own.hits].map(h => ENTRIES.find(e => e[0] === h)[1]), cells, direct: [...direct].sort(), baked, sizes });
 	process.stderr.write(`${d.id} ${Object.keys(cells).length}\n`);
 }
 
@@ -219,6 +239,10 @@ for (const [n, dir] of Object.entries(dirs)) {
 const engineAll = new Set();
 for (const [spec] of ENTRIES) for (const f of (await engineFiles(spec)).files) engineAll.add(rel(f));
 for (const r of rows) r.doubled = Object.values(r.baked).flat().filter(f => engineAll.has(f)).sort();
+// エンジン全体（全入口の和集合）の大きさ＝パッケージごと・大きいファイル上位
+const engineTop = new Map(), engineByPkg = {};
+for (const [spec] of ENTRIES) for (const [f, n] of (await engineFiles(spec)).size) engineTop.set(rel(f), Math.max(engineTop.get(rel(f)) || 0, n));
+for (const [f, n] of engineTop) { const o = ownerOf(path.join(ROOT, f)), k = LANG.test(f) ? "(lang)" : !o ? null : shown(npmFamily(o)) ? npmFamily(o) : "npm:(other)"; if (k) engineByPkg[k] = (engineByPkg[k] || 0) + n; }
 const commit = execSync("git rev-parse --short HEAD", { cwd: ROOT }).toString().trim();
 const sets = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v].sort()]));
-process.stdout.write(JSON.stringify({ rows, edges: sets(edges), npmEdges: sets(npmEdges), dirs, unused: unused.sort(), engine: ENTRIES.map(([spec, name, src]) => ({ spec, name, pkg: ownerOf(src) })), commit }, null, "\t") + "\n");
+process.stdout.write(JSON.stringify({ rows, edges: sets(edges), npmEdges: sets(npmEdges), dirs, unused: unused.sort(), engine: ENTRIES.map(([spec, name, src]) => ({ spec, name, pkg: ownerOf(src) })), engineByPkg, engineTop: [...engineTop].sort((x, y) => y[1] - x[1]).slice(0, 15), commit }, null, "\t") + "\n");
