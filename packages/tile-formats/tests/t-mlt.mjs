@@ -73,8 +73,8 @@ await t("need＝参照する層だけ（他の層はブロックの頭で捨て�
 	assert.deepEqual(Object.keys(decodeMLT(mlt, new Set(["nothing"]))), []);
 	assert.deepEqual(decodeMLT(new Uint8Array(0)), {});
 });
-await t("登録簿経由：#tile-formats の差し替え先（register.js）→ loadTileFormat → decodeTile(…,\"mlt\")・fetchMVT の本体経路・PMTiles tileType 6", async () => {
-	await import("../src/register.js");
+await t("登録簿経由：#tile-formats の差し替え先（core の tileformats-mlt.js）→ loadTileFormat → decodeTile(…,\"mlt\")・fetchMVT の本体経路・PMTiles tileType 6", async () => {
+	await import("@ortho-earth/core/tileformats-mlt");
 	assert.equal(hasTileFormat("mlt"), true); assert.equal(tileFormatOfPmtilesType(6), "mlt"); assert.equal(tileFormatReady("mlt"), false);
 	assert.throws(() => decodeTile(new Uint8Array(0), null, "mlt"), /not loaded yet/);
 	await loadTileFormat("mlt");
