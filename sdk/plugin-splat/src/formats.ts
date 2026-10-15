@@ -3,19 +3,55 @@
 //   下ごしらえ（toEnu）は SplatData（lnglat／ecef／local）を「錨（経度・緯度・高さ）＋東北上 m の中心＋東北上の共分散（6 個）＋RGBA」にする＝worker はこれだけ描く。
 // 四元数は x,y,z,w（契約＝globe の SplatData）。scales は楕円の各軸の σ（m・線形）。colors の A は不透明度。sh は持つが描かない（DC＝colors だけ）。
 export const SH_C0 = 0.28209479177387814;
-const sigmoid = x => 1 / (1 + Math.exp(-x));
-const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
+const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
+const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+
+// ---- 公開の型 ----
+export type SplatCrs = "lnglat" | "ecef" | "local";
+export type SplatAxes = "z" | "y" | "-y";
+export type SplatFormat = "ply" | "splat" | "spz";
+/** the SplatData contract of @ortho-earth/globe, plus crs "local" for file sources (meters, axes as in the file) */
+export interface SplatData {
+	n?: number;
+	/** crs "lnglat" (default): [lng, lat, alt m]; "ecef": earth-centered meters; "local": meters in the file's axes */
+	positions: Float32Array;
+	/** sigma of each ellipsoid axis in meters (linear) */
+	scales: Float32Array;
+	/** quaternion x, y, z, w (local ENU for "lnglat", ECEF for "ecef", file axes for "local") */
+	rotations: Float32Array;
+	/** RGBA 0..255; A is the opacity */
+	colors: Uint8Array;
+	/** spherical harmonics beyond DC (kept, not drawn) */
+	sh?: Float32Array;
+	crs?: SplatCrs;
+	/** "local" only: which file axis is up ("z"; "y" = right-up-back; "-y" = right-down-forward) */
+	axes?: SplatAxes;
+}
+/** 読み手の戻り＝n・crs "local"・axes が必ず入った SplatData */
+export interface LocalSplatData extends SplatData { n: number; crs: "local"; axes: SplatAxes }
+/** [heading (clockwise from north), pitch, roll] degrees */
+export type Hpr = [number, number?, number?];
+export type Origin = [number, number, number?];
+export interface ToEnuOptions { origin?: Origin; upAxis?: SplatAxes; orientation?: Hpr; scale?: number; opacity?: number }
+/** SplatData → what the overlay draws: an anchor, ENU centers (m), ENU covariances (m², xx xy xz yy yz zz) */
+export interface EnuSplats { n: number; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number }
+type Mat3 = number[];
+type BinSource = ArrayBuffer | Uint8Array | ArrayLike<number>;
+const toU8 = (buf: BinSource): Uint8Array => buf instanceof Uint8Array ? buf : new Uint8Array(buf as ArrayBuffer);
 
 // ---- .ply（3D Gaussian Splatting の書き出し＝binary_little_endian・x y z・f_dc_0..2・opacity（logit）・scale_0..2（log）・rot_0..3（w x y z）・f_rest_*） ----
-const PLY_TYPES = { char: ["getInt8", 1], int8: ["getInt8", 1], uchar: ["getUint8", 1], uint8: ["getUint8", 1], short: ["getInt16", 2], int16: ["getInt16", 2], ushort: ["getUint16", 2], uint16: ["getUint16", 2], int: ["getInt32", 4], int32: ["getInt32", 4], uint: ["getUint32", 4], uint32: ["getUint32", 4], float: ["getFloat32", 4], float32: ["getFloat32", 4], double: ["getFloat64", 8], float64: ["getFloat64", 8] };
-export function parsePly(buf) {
-	const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+type DvGetter = "getInt8" | "getUint8" | "getInt16" | "getUint16" | "getInt32" | "getUint32" | "getFloat32" | "getFloat64";
+const PLY_TYPES: Record<string, [DvGetter, number]> = { char: ["getInt8", 1], int8: ["getInt8", 1], uchar: ["getUint8", 1], uint8: ["getUint8", 1], short: ["getInt16", 2], int16: ["getInt16", 2], ushort: ["getUint16", 2], uint16: ["getUint16", 2], int: ["getInt32", 4], int32: ["getInt32", 4], uint: ["getUint32", 4], uint32: ["getUint32", 4], float: ["getFloat32", 4], float32: ["getFloat32", 4], double: ["getFloat64", 8], float64: ["getFloat64", 8] };
+interface PlyProp { name: string; get: DvGetter; size: number }
+interface PlyElement { name: string; count: number; props: PlyProp[] }
+export function parsePly(buf: BinSource): LocalSplatData {
+	const u8 = toU8(buf);
 	const head = new TextDecoder().decode(u8.subarray(0, Math.min(u8.length, 65536)));
 	const end = head.indexOf("end_header");
 	if (!head.startsWith("ply") || end < 0) throw new Error("plugin-splat: not a PLY file");
 	const lines = head.slice(0, end).split(/\r?\n/), body = end + "end_header".length + (head[end + 10] === "\r" ? 2 : 1);
 	if (!lines.some(l => /^format\s+binary_little_endian\b/.test(l))) throw new Error("plugin-splat: only binary_little_endian PLY is supported");
-	const elements = []; let el = null;
+	const elements: PlyElement[] = []; let el: PlyElement | null = null;
 	for (const l of lines) {
 		const w = l.trim().split(/\s+/);
 		if (w[0] === "element") elements.push(el = { name: w[1], count: +w[2], props: [] });
@@ -26,11 +62,11 @@ export function parsePly(buf) {
 	for (const e of elements) {
 		const stride = e.props.reduce((s, p) => s + p.size, 0);
 		if (e.name !== "vertex") { off += stride * e.count; continue; }
-		const n = e.count, at = {}; let o = 0;
+		const n = e.count, at: Record<string, { o: number; get: DvGetter } | undefined> = {}; let o = 0;
 		for (const p of e.props) { at[p.name] = { o, get: p.get }; o += p.size; }
 		if (!at.x || !at.y || !at.z) throw new Error("plugin-splat: PLY vertex needs x y z");
 		if (off + stride * n > u8.length) throw new Error("plugin-splat: PLY is truncated");
-		const rd = (i, name, d = 0) => { const a = at[name]; return a ? dv[a.get](off + i * stride + a.o, true) : d; };
+		const rd = (i: number, name: string, d = 0): number => { const a = at[name]; return a ? dv[a.get](off + i * stride + a.o, true) : d; };
 		const positions = new Float32Array(n * 3), scales = new Float32Array(n * 3), rotations = new Float32Array(n * 4), colors = new Uint8Array(n * 4);
 		const gs = !!at.scale_0, hasRot = !!at.rot_0, dc = !!at.f_dc_0, rgb = !!at.red;
 		const rest = Object.keys(at).filter(k => /^f_rest_\d+$/.test(k)).sort((a, b) => +a.slice(7) - +b.slice(7));
@@ -54,8 +90,8 @@ export function parsePly(buf) {
 }
 
 // ---- .splat（32 byte／個＝位置 f32×3・尺 f32×3（線形）・RGBA u8×4・回転 u8×4（w x y z を (v−128)/128）） ----
-export function parseSplat(buf) {
-	const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+export function parseSplat(buf: BinSource): LocalSplatData {
+	const u8 = toU8(buf);
 	if (u8.length % 32) throw new Error("plugin-splat: .splat length must be a multiple of 32");
 	const n = u8.length / 32, dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	const positions = new Float32Array(n * 3), scales = new Float32Array(n * 3), rotations = new Float32Array(n * 4), colors = new Uint8Array(n * 4);
@@ -70,15 +106,15 @@ export function parseSplat(buf) {
 }
 
 // ---- .spz（Niantic の gzip 圧縮の形・v2／v3）＝gzip は素の DecompressionStream で解く（WASM は要らない）。軸は RUB（右・上・後）＝axes "y" ----
-export async function gunzip(buf) {
-	const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+export async function gunzip(buf: BinSource): Promise<Uint8Array> {
+	const u8 = toU8(buf);
 	if (u8[0] !== 0x1f || u8[1] !== 0x8b) return u8;   // 既に解いた中身
 	if (typeof DecompressionStream === "undefined") throw new Error("plugin-splat: DecompressionStream is not available; pass splatPlugin({ decoders: { spz } })");
-	const s = new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"));
+	const s = new Blob([u8 as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream("gzip"));
 	return new Uint8Array(await new Response(s).arrayBuffer());
 }
-export async function parseSpz(buf) { return decodeSpz(await gunzip(buf)); }
-export function decodeSpz(u8) {
+export async function parseSpz(buf: BinSource): Promise<LocalSplatData> { return decodeSpz(await gunzip(buf)); }
+export function decodeSpz(u8: Uint8Array): LocalSplatData {
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	if (u8.length < 16 || dv.getUint32(0, true) !== 0x5053474e) throw new Error("plugin-splat: not an SPZ file (magic)");
 	const version = dv.getUint32(4, true), n = dv.getUint32(8, true), shDeg = u8[12], frac = u8[13];
@@ -95,7 +131,7 @@ export function decodeSpz(u8) {
 	for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++, o++) colors[i * 4 + k] = clamp255((0.5 + SH_C0 * ((u8[o] / 255 - 0.5) / 0.15)) * 255);
 	for (let i = 0; i < n * 3; i++, o++) scales[i] = Math.exp(u8[o] / 16 - 10);
 	for (let i = 0; i < n; i++) {
-		let q = [0, 0, 0, 0];
+		let q: number[] = [0, 0, 0, 0];
 		if (version >= 3) {   // 最大成分を落とした 3 成分（各 9 bit＋符号）＋最大成分の番号 2 bit
 			let c = dv.getUint32(o, true); o += 4;
 			const big = c >>> 30; let ss = 0;
@@ -110,48 +146,48 @@ export function decodeSpz(u8) {
 	if (sh) for (let i = 0; i < n * shN; i++, o++) sh[i] = (u8[o] - 128) / 128;
 	return { n, crs: "local", axes: "y", positions, scales, rotations, colors, ...(sh ? { sh } : {}) };
 }
-export const formatOf = u => { const m = String(u).match(/\.(ply|splat|spz)(\?|#|$)/i); return m ? m[1].toLowerCase() : null; };
+export const formatOf = (u: unknown): SplatFormat | null => { const m = String(u).match(/\.(ply|splat|spz)(\?|#|$)/i); return m ? m[1].toLowerCase() as SplatFormat : null; };
 
 // ---- 下ごしらえ ----
 const R_SPHERE = 6371000, WGS_A = 6378137, WGS_E2 = 6.69437999014e-3;
 const D2R = Math.PI / 180;
 // 四元数（x,y,z,w）→ 3×3（行優先）
-export function quatMat(x, y, z, w) {
+export function quatMat(x: number, y: number, z: number, w: number): number[] {
 	return [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
 		2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
 		2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)];
 }
-const mul3 = (A, B) => { const C = new Array(9); for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) C[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c]; return C; };
+const mul3 = (A: ArrayLike<number>, B: ArrayLike<number>): Mat3 => { const C: number[] = new Array(9); for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) C[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c]; return C; };
 // file の軸 → 東北上（x 東 y 北 z 上）。"z"＝そのまま、"y"＝y が上・z が後（RUB）、"-y"＝y が下・z が前（RDF＝3DGS の .ply／.splat）
-export const AXES = Object.freeze({ z: [1, 0, 0, 0, 1, 0, 0, 0, 1], y: [1, 0, 0, 0, 0, -1, 0, 1, 0], "-y": [1, 0, 0, 0, 0, 1, 0, -1, 0] });
+export const AXES: Readonly<Record<SplatAxes, number[]>> = Object.freeze({ z: [1, 0, 0, 0, 1, 0, 0, 0, 1], y: [1, 0, 0, 0, 0, -1, 0, 1, 0], "-y": [1, 0, 0, 0, 0, 1, 0, -1, 0] });
 // heading（北から時計回り）・pitch・roll（度）×大きさ＝東北上の中の向き
-export function placeMat(axes = "z", [hd = 0, pt = 0, rl = 0] = [], scale = 1) {
-	const A = AXES[axes]; if (!A) throw new Error(`plugin-splat: upAxis must be ${Object.keys(AXES).join(" | ")}`);
+export function placeMat(axes: SplatAxes = "z", [hd = 0, pt = 0, rl = 0]: Hpr | [] = [], scale = 1): number[] {
+	const A = (AXES as Partial<Record<string, number[]>>)[axes]; if (!A) throw new Error(`plugin-splat: upAxis must be ${Object.keys(AXES).join(" | ")}`);
 	const h = -hd * D2R, p = pt * D2R, r = rl * D2R;
 	const Rz = [Math.cos(h), -Math.sin(h), 0, Math.sin(h), Math.cos(h), 0, 0, 0, 1], Rx = [1, 0, 0, 0, Math.cos(p), -Math.sin(p), 0, Math.sin(p), Math.cos(p)], Ry = [Math.cos(r), 0, Math.sin(r), 0, 1, 0, -Math.sin(r), 0, Math.cos(r)];
 	return mul3(mul3(mul3(Rz, Rx), Ry), A).map(v => v * scale);
 }
 // 共分散（6 個＝xx xy xz yy yz zz）＝(T·R·S)(T·R·S)ᵀ
-function covOf(T, q, s, out, k) {
+function covOf(T: ArrayLike<number>, q: ArrayLike<number>, s: ArrayLike<number>, out: Float32Array, k: number): void {
 	const R = quatMat(q[0], q[1], q[2], q[3]), M = mul3(T, R);
 	for (let c = 0; c < 3; c++) { M[c] *= s[c]; M[3 + c] *= s[c]; M[6 + c] *= s[c]; }
-	const d = (a, b) => M[a * 3] * M[b * 3] + M[a * 3 + 1] * M[b * 3 + 1] + M[a * 3 + 2] * M[b * 3 + 2];
+	const d = (a: number, b: number): number => M[a * 3] * M[b * 3] + M[a * 3 + 1] * M[b * 3 + 1] + M[a * 3 + 2] * M[b * 3 + 2];
 	out[k] = d(0, 0); out[k + 1] = d(0, 1); out[k + 2] = d(0, 2); out[k + 3] = d(1, 1); out[k + 4] = d(1, 2); out[k + 5] = d(2, 2);
 }
-const enuBasis = (lon, lat) => { const l = lon * D2R, f = lat * D2R, sl = Math.sin(l), cl = Math.cos(l), sf = Math.sin(f), cf = Math.cos(f); return [-sl, cl, 0, -sf * cl, -sf * sl, cf, cf * cl, cf * sl, sf]; };   // 行＝東・北・上（ECEF）
-export function ecefToLngLat(x, y, z) {
+const enuBasis = (lon: number, lat: number): Mat3 => { const l = lon * D2R, f = lat * D2R, sl = Math.sin(l), cl = Math.cos(l), sf = Math.sin(f), cf = Math.cos(f); return [-sl, cl, 0, -sf * cl, -sf * sl, cf, cf * cl, cf * sl, sf]; };   // 行＝東・北・上（ECEF）
+export function ecefToLngLat(x: number, y: number, z: number): [number, number, number] {
 	const lon = Math.atan2(y, x), p = Math.hypot(x, y); let lat = Math.atan2(z, p * (1 - WGS_E2)), h = 0;
 	for (let i = 0; i < 6; i++) { const s = Math.sin(lat), N = WGS_A / Math.sqrt(1 - WGS_E2 * s * s); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - WGS_E2 * N / (N + h))); }
 	return [lon / D2R, lat / D2R, h];
 }
 // SplatData（lnglat／ecef／local）→ { n, anchor:[lng,lat,alt], ctr: Float32Array(n*3)（東北上 m）, cov: Float32Array(n*6)（東北上 m²）, rgba, radius（m） }
 //   local＝origin（[lng,lat,alt]）・upAxis（既定は file の axes）・orientation（[heading,pitch,roll] 度）・scale で置く。lnglat の回転は東北上の中の向き、ecef の回転は地心直交の中の向き
-export function toEnu(d, { origin, upAxis, orientation, scale = 1, opacity = 1 } = {}) {
+export function toEnu(d: SplatData & { n: number }, { origin, upAxis, orientation, scale = 1, opacity = 1 }: ToEnuOptions = {}): EnuSplats {
 	const n = d.n, P = d.positions, ctr = new Float32Array(n * 3), cov = new Float32Array(n * 6);
-	let anchor, T;
+	let anchor: [number, number, number], T: Mat3;
 	if (d.crs === "local") {
 		if (!origin || !Number.isFinite(+origin[0]) || !Number.isFinite(+origin[1])) throw new Error("plugin-splat: a .ply/.splat/.spz source needs opts.origin [lng, lat, alt?]");
-		anchor = [+origin[0], +origin[1], +origin[2] || 0]; T = placeMat(upAxis ?? d.axes ?? "z", orientation, scale);
+		anchor = [+origin[0], +origin[1], +(origin[2] as number) || 0]; T = placeMat(upAxis ?? d.axes ?? "z", orientation, scale);
 		for (let i = 0; i < n; i++) { const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2]; ctr[i * 3] = T[0] * x + T[1] * y + T[2] * z; ctr[i * 3 + 1] = T[3] * x + T[4] * y + T[5] * z; ctr[i * 3 + 2] = T[6] * x + T[7] * y + T[8] * z; }
 	} else if (d.crs === "ecef") {
 		let sx = 0, sy = 0, sz = 0; for (let i = 0; i < n; i++) { sx += P[i * 3]; sy += P[i * 3 + 1]; sz += P[i * 3 + 2]; }
@@ -175,4 +211,4 @@ export function toEnu(d, { origin, upAxis, orientation, scale = 1, opacity = 1 }
 	return { n, anchor, ctr, cov, rgba, radius: Math.sqrt(r2) };
 }
 // 中心の経緯度（当たりの答え用・近似＝錨の東北上から）
-export function enuToLngLat(anchor, e, n) { return [anchor[0] + e / (Math.cos(anchor[1] * D2R) * D2R * R_SPHERE), anchor[1] + n / (D2R * R_SPHERE)]; }
+export function enuToLngLat(anchor: ArrayLike<number>, e: number, n: number): [number, number] { return [anchor[0] + e / (Math.cos(anchor[1] * D2R) * D2R * R_SPHERE), anchor[1] + n / (D2R * R_SPHERE)]; }
