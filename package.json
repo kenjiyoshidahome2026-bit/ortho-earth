@@ -6,7 +6,7 @@
 		"packages/*",
 		"sdk/*",
 		"apps/*",
-		"apps/himekuri-demo/himekuri"
+		"apps/himekuri/lib"
 	],
 	"scripts": {
 		"dev:www": "npm run dev -w www",
