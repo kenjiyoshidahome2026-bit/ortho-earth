@@ -28,7 +28,7 @@ const provider: BucketProvider = (apiBase, options) => ({
 async function main() {
 	// ── full の入口
 	const g = createGeopbf(undefined, { worker: false, prewarm: false, bucket: provider, tky2jgd: null });
-	const opts: GeopbfOptions = { name: "x", gint: true, clean: { maxPasses: 2 }, cacheKey: "k", validate: "strict", noeval: false, tky2jgd: null };
+	const opts: GeopbfOptions = { name: "x", gint: true, clean: { maxPasses: 2 }, cacheKey: "k", validate: "strict", tky2jgd: null };
 	const pbf = await g(fc, opts);
 	if (!pbf) return;
 	const n: number = pbf.length;
@@ -105,8 +105,10 @@ async function main() {
 void main;
 
 // ── 型が効いている証（この行の error が消えたら d.ts が緩んだ＝tsc が TS2578 で落ちる）
-// @ts-expect-error validate は "lenient" | "strict" | "legacy"
-new GeoPBF({ validate: "loose" });
+// @ts-expect-error validate は "lenient" | "strict"（"legacy" は 2.0 で撤去）
+new GeoPBF({ validate: "legacy" });
+// @ts-expect-error noeval は 2.0 で撤去（FUNC は常にソース文字列）
+new GeoPBF({ noeval: false });
 // @ts-expect-error identifyAt の引数は数
 new GeoPBF().identifyAt("0", 0);
 // @ts-expect-error core の GeoPBF は拡張メソッド（centroid）を持たない

@@ -109,7 +109,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 			if (off + 46 > cd.length) throw new Error(`Invalid ZIP: central directory entry ${i} is truncated`);
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
 			const time = cv.getUint16(off + 12, true), date = cv.getUint16(off + 14, true);
-			const crc = cv.getUint32(off + 16, true), cSiz = cv.getUint32(off + 20, true), uSiz = cv.getUint32(off + 24, true);
+			const cSiz = cv.getUint32(off + 20, true), uSiz = cv.getUint32(off + 24, true);   // off+16＝CRC32（読まない＝伸長後の照合はしない）
 			const nLen = cv.getUint16(off + 28, true), eLen = cv.getUint16(off + 30, true), cLen = cv.getUint16(off + 32, true);
 			const loc = cv.getUint32(off + 42, true);
 			const name = ((flags & 0x0800) ? decUtf8 : decOther).decode(cd.subarray(off + 46, off + 46 + nLen)).normalize("NFC");

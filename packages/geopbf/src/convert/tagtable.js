@@ -64,10 +64,3 @@ export function tagReader(T) {
 		return out;
 	};
 }
-
-// [[key, value]] 配列（既存 API・検定用）から同じ表を作る
-export function tagTableFromArrays(tagsArr, fields = null) {
-	const n = tagsArr.length, keys = [], keyIdx = new Map();
-	const pbf = { length: n, keys: [], props: null, getProperties: (i) => Object.fromEntries(tagsArr[i]) };
-	return buildTagTable(pbf, null, fields);
-}
