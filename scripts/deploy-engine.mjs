@@ -11,14 +11,17 @@
 //   node scripts/deploy-engine.mjs --engine-only （①② だけ＝apps/engine の npm run deploy）
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan", "solar", "ortho-himekuri"];   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const args = process.argv.slice(2), engineOnly = args.includes("--engine-only");
 const pick = args.filter(a => !a.startsWith("--"));
 const bad = pick.filter(a => !APPS.includes(a));
 if (bad.length) { console.error(`✗ 知らないアプリ：${bad.join(" ")}（${APPS.join("・")}）`); process.exit(1); }
+const lost = APPS.filter(a => !fs.existsSync(path.join(ROOT, "apps", a, "package.json")));   // 置き場の名を改めた時の取り違え（2026-10-15 himekuri-demo→himekuri で、無い cwd に黙って落ちた）を配る前に止める
+if (lost.length) { console.error(`✗ apps/ に無いアプリ：${lost.join(" ")}（APPS は apps/ の下の置き場の名）`); process.exit(1); }
 const apps = engineOnly ? [] : pick.length ? APPS.filter(a => pick.includes(a)) : APPS;
 // [名前, 場所, npm の引数, 配り終えた印]
 const steps = [
@@ -32,6 +35,7 @@ for (const [name, dir, cmd, fin] of steps) {
 	console.log(`\n=== ${name}（npm ${cmd.join(" ")}）`);
 	const r = spawnSync("npm", cmd, { cwd: path.join(ROOT, "apps", dir), stdio: "inherit" });
 	if (r.status !== 0) {
+		if (r.error) console.error(`✗ ${r.error.message}`);
 		const left = ["engine", ...apps].filter(a => !done.includes(a));
 		console.error(`\n✗ ${name} が落ちた＝ここで止める（済み：${done.join("・") || "なし"}／未：${left.join("・")}）`);
 		process.exit(1);
