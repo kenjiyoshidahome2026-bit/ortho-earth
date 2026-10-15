@@ -87,11 +87,13 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 }
 
 // ── 通訳の境界：呼ぶのは ../globe.js の公開面だけ（RAW・core・内部の部品を import しない）──
+//   例外＝../zoomscale.js（zoom の目盛りの正典・依存ゼロの純関数）：mercatorDz はここから読む（2.0.0 まで globe.js がそのためだけに root から再 export していた＝TS 化 段 2 で止めた）
+const SHIM_IMPORTS = new Set(["../globe.js", "../zoomscale.js"]);
 {
 	const dir = path.join(HERE, "../src/maplibre"), bad = [];
 	for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".js"))) {
 		const src = fs.readFileSync(path.join(dir, f), "utf8").replace(/\/\/.*$/gm, "");
-		for (const m of src.matchAll(/\bfrom\s+["']([^"']+)["']/g)) if (!/^\.\/[\w-]+\.js$/.test(m[1]) && m[1] !== "../globe.js") bad.push(`${f}: ${m[1]}`);
+		for (const m of src.matchAll(/\bfrom\s+["']([^"']+)["']/g)) if (!/^\.\/[\w-]+\.js$/.test(m[1]) && !SHIM_IMPORTS.has(m[1])) bad.push(`${f}: ${m[1]}`);
 		if (/\bRAW\b|Symbol\.for\(["']ortho-earth\.map\.raw/.test(src)) bad.push(`${f}: RAW`);
 	}
 	ok("通訳の import は ../globe.js と同じ家の部品だけ・RAW 無し", !bad.length, bad.join(" "));

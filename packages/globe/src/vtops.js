@@ -57,7 +57,7 @@ export function clipLineGeom(geom, E, { skipBoundary = false } = {}) {
 	return oEnds.length ? { coords: Float64Array.from(out), ends: oEnds } : null;
 }
 const onEdge = ([ax, ay, bx, by], E) => (ax === bx && (ax <= 0 || ax >= E)) || (ay === by && (ay <= 0 || ay >= E));
-export function clipSeg(ax, ay, bx, by, E) {
+function clipSeg(ax, ay, bx, by, E) {
 	const dx = bx - ax, dy = by - ay;
 	let t0 = 0, t1 = 1;
 	for (const [p, q] of [[-dx, ax], [dx, E - ax], [-dy, ay], [dy, E - ay]]) {
@@ -70,7 +70,7 @@ export function clipSeg(ax, ay, bx, by, E) {
 }
 
 // 点がタイルの中（バッファを除く・右と下は含まない＝隣のタイルと二重にならない）
-export const inTile = (x, y, E) => x >= 0 && x < E && y >= 0 && y < E;
+const inTile = (x, y, E) => x >= 0 && x < E && y >= 0 && y < E;
 
 // 地物の頂点（circle＝MapLibre は線と面も頂点ごとに円を描く）。閉じた輪の最後の点（先頭の複製）は数えない。タイルの中の物だけ
 export function verticesOf(f, E) {

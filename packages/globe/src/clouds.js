@@ -9,7 +9,8 @@
 import { lonlatTo3D } from "@ortho-earth/core";
 import { batchXf } from "./gltf-anim.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-export const STEP_DEG = 0.5, MAX_IMG = 4096, LAT_DRIFT_MAX = 10;   // 殻の格子＝0.5°（弦の垂れ＝R(1−cos 0.25°) ≈ 61 m＝高度 3000 m の殻でも地面に潜らない）
+export const STEP_DEG = 0.5;
+const MAX_IMG = 4096, LAT_DRIFT_MAX = 10;   // 殻の格子＝0.5°（弦の垂れ＝R(1−cos 0.25°) ≈ 61 m＝高度 3000 m の殻でも地面に潜らない）
 // 東西 θlon°（経度が増える向き）と南北 θlat°（視点の中心の経度 lonC の子午線上で緯度が増える向き）の回転＝3x3 列優先。L = Rlon · Rlat
 export function cloudRotation(thetaLonDeg, thetaLatDeg, lonCenterDeg) {
 	const a = thetaLonDeg * D2R, c = Math.cos(a), s = Math.sin(a);

@@ -15,7 +15,7 @@ const { hasTileFormat, tileFormatOfPmtilesType, tileFormatReady } = await import
 const { evalExpr } = await import("@ortho-earth/core/expr");
 const { encodeTile } = await import("@maplibre/mlt");
 const { toMLTLayers, mvtToMLT, writePMTiles } = await import("../scripts/mvt2mlt.mjs");
-const { classifyRings } = await import("../../globe/src/vtmesh.js");   // 相対の巻き方で外周と穴を分ける（globe の押し出し・描く層）
+const { classifyRings } = await import("@ortho-earth/globe/internal/vtmesh.js");   // 相対の巻き方で外周と穴を分ける（globe の押し出し・描く層）
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
