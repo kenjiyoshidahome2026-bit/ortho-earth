@@ -10,8 +10,7 @@ import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
 import { runInWorker } from "./modules/workerPool.js";
 
-GeoPBF.setProperty('concatinate', { value: concatinate, configurable: false, enumerable: false });
-
+// 旧 static GeoPBF.concatinate は 2.0 で撤去（setProperty に descriptor を値として渡していた＝object で呼べなかった）。結合は pbf.concat(...others)
 GeoPBF.setPrototype("centroid", function(i) { return centroid(this, i); });
 GeoPBF.setPrototype("lineLength", function (i) { return lineLength(this, i); });
 GeoPBF.setPrototype("area", function (i) { return area(this, i); });
