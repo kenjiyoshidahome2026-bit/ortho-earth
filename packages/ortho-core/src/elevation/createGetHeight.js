@@ -215,7 +215,7 @@ export async function createGetHeight(opts = {}) {
 			}
 		});
 	}
-	const calcHeight = (x, y, v) => sampleCell(v, x, y);
+	function calcHeight(x, y, v) { return sampleCell(v, x, y); }   // 宣言（巻き上げ）＝return より後ろに置いても hgt01 などから呼べる（const だと TDZ で getHeight が全部 0 になった）
 	async function hgt90(lng,lat,wait)  { const range = 90;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
 		const v = await load(lng0, lat0, range, wait);
