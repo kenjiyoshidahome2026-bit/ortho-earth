@@ -1,4 +1,4 @@
-// オランダの地域宣言（3DBAG）。日本と同じ形＝建物の枠は国に依らないことの実証（packages/jp/src/region.js を見よ）。
+// オランダの地域宣言（3DBAG）。日本と同じ形＝建物の枠は国に依らないことの実証（packages/jp/src/region.ts を見よ）。
 //
 // TU Delft が BAG（建物登記）＋AHN（国土 LiDAR）から自動生成した全国 1000 万棟の LoD2.2・CC BY 4.0。
 // PLATEAU と違い「国土まるごと 1 枚のタイルセット」（外部 tileset 474 本）なので、街ごとの矩形（clip）で
@@ -56,7 +56,7 @@ export async function nlStyle(): Promise<NlStyle | null> {
 	} catch (err) { console.warn("[nl] basemap style unavailable — starting without a basemap", err); return null; }
 }
 // 標高＝Mapterhorn（terrarium・512px・z14 まで）。dtm:true＝裸地として扱う＝建物を地面へ載せる（R01 の JAXA は表層＝屋根が裂ける）。
-export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium", tileSize: 512, maxzoom: 14, dtm: true } };
+export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium" as const, tileSize: 512, maxzoom: 14, dtm: true } };
 
 /** 建物の 1 枠（3D Tiles の tileset を街の矩形で切った物） */
 export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox }

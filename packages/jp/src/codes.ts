@@ -23,7 +23,7 @@ import SHICHO from './shicho.json' with { type: 'json' };
 import GUN    from './gun.json'    with { type: 'json' };
 export { SHICHO, GUN };
 
-export const PREFS = {
+export const PREFS: Record<string, string> = {
     '01':'北海道','02':'青森','03':'岩手','04':'宮城','05':'秋田',
     '06':'山形','07':'福島','08':'茨城','09':'栃木','10':'群馬',
     '11':'埼玉','12':'千葉','13':'東京','14':'神奈川','15':'新潟',
@@ -41,7 +41,7 @@ export const PREFS = {
  * 値は国土地理院の系一覧と照合済み（2026-07-16、旧テーブルは8県が誤りだった）。
  * 県単位で系が一意でない地域（北海道・鹿児島・沖縄・東京島嶼）は cityArea が市区町村で特例判定。
  */
-export const PREF_SYS = {
+export const PREF_SYS: Record<string, number> = {
     '01': 12, '02': 10, '03': 10, '04': 10, '05': 10, '06': 10,
     '07':  9, '08':  9, '09':  9, '10':  9, '11':  9, '12':  9, '13':  9, '14':  9,
     '15':  8, '16':  7, '17':  7, '18':  6, '19':  8, '20':  8, '21':  7, '22':  8, '23':  7,
@@ -70,8 +70,8 @@ const AMAMI_CODES     = new Set([46207,46222,46523,46524,46525,46527,46529,46530
 const SAKISHIMA_CODES = new Set([47207,47214,47381,47382]);
 
 // 市区町村コード → 平面直角座標系の系番号（特例込み）
-export function cityArea(code5) {
-    const num  = parseInt(code5, 10);
+export function cityArea(code5: string | number): number {
+    const num  = parseInt(code5 as string, 10);
     const pref = Math.floor(num / 1000);
     if (pref === 1)  { return HOKKAIDO_AREA11.has(num) ? 11 : HOKKAIDO_AREA13.has(num) ? 13 : 12; }
     if (pref === 46) { return AMAMI_CODES.has(num) ? 1 : 2; }
@@ -85,7 +85,7 @@ export function cityArea(code5) {
 }
 
 // 政令指定都市コード（20市）
-export const DESIGNATED_CITIES = new Set([
+export const DESIGNATED_CITIES: Set<string> = new Set([
     '01100','04100','11100','12100',
     '14100','14130','14150','15100',
     '22100','22130','23100','26100',
@@ -96,10 +96,10 @@ export const DESIGNATED_CITIES = new Set([
 // code が政令指定都市の区なら親市コードを返す（違えば null）
 // 政令市が複数ある県（神奈川=横浜/川崎/相模原、福岡=北九州/福岡 等）では、
 // 政令市自身が近い方の政令市の区に誤判定されるためガードする
-export function wardParent(code) {
+export function wardParent(code: string): string | null {
     if (DESIGNATED_CITIES.has(code)) return null;   // 政令市自体は区ではない
     const cNum = parseInt(code, 10);
-    let best = null, bestDiff = 40;
+    let best: string | null = null, bestDiff = 40;
     for (const dc of DESIGNATED_CITIES) {
         if (dc.slice(0, 2) !== code.slice(0, 2)) continue;
         const diff = cNum - parseInt(dc, 10);

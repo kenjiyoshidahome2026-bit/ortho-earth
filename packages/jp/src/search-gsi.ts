@@ -5,16 +5,27 @@
 // 候補には bbox・zoom・kind・id を任意で足せる（#175・あれば viewFor より優先）＝契約の正本は globe の search.js と d.ts の SearchProvider。
 const API = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
 
+/** 地理院 AddressSearch の生の 1 件 */
+export interface GsiHit { properties: { title: string; addressCode?: string }; geometry: { coordinates: [number, number] } }
+/** 前処理後の候補（title＝生タイトル・note＝表示専用の県名・i＝API の並び・national＝広域地物） */
+export interface SearchCandidate { title: string; note: string; lon: number; lat: number; i: number; national: boolean }
+/** 供給元の契約（globe の SearchProvider と同形） */
+export interface SearchProvider {
+	histKey: string;
+	query(q: string, signal?: AbortSignal): Promise<SearchCandidate[]>;
+	viewFor(title: string): { zoom: number; tilt?: number };
+}
+
 // addressCode（JIS市区町村コード）先頭2桁→都道府県名。'' は市区町村に属さない広域地物（本物の富士山等）。
 // export＝PLATEAUデータ管理モーダル（meshdb.js）の都道府県ブロック見出しでも使う。
-export const PREF = ",北海道,青森県,岩手県,宮城県,秋田県,山形県,福島県,茨城県,栃木県,群馬県,埼玉県,千葉県,東京都,神奈川県,新潟県,富山県,石川県,福井県,山梨県,長野県,岐阜県,静岡県,愛知県,三重県,滋賀県,京都府,大阪府,兵庫県,奈良県,和歌山県,鳥取県,島根県,岡山県,広島県,山口県,徳島県,香川県,愛媛県,高知県,福岡県,佐賀県,長崎県,熊本県,大分県,宮崎県,鹿児島県,沖縄県".split(",");
+export const PREF: string[] = ",北海道,青森県,岩手県,宮城県,秋田県,山形県,福島県,茨城県,栃木県,群馬県,埼玉県,千葉県,東京都,神奈川県,新潟県,富山県,石川県,福井県,山梨県,長野県,岐阜県,静岡県,愛知県,三重県,滋賀県,京都府,大阪府,兵庫県,奈良県,和歌山県,鳥取県,島根県,岡山県,広島県,山口県,徳島県,香川県,愛媛県,高知県,福岡県,佐賀県,長崎県,熊本県,大分県,宮崎県,鹿児島県,沖縄県".split(",");
 
 // 前処理：APIの生の全件（切り詰め前）を候補に整える。
 // 1) 同タイトルで近接（〜2km）は真の重複（東京駅=路線別座標、スカイツリー=データ源違い）＝平均座標で1件に統合。
 // 2) 統合後も同タイトルが複数残る＝全国散在の同名（富士山は完全一致だけで25件）＝県名の添え書きで区別。
 //    添え書きは表示専用：検索マッチ（rerank）にも input への書き戻しにも viewFor にも使わない＝「長野」で富士山が引っかかったりしない。
-export function preprocess(hits) {
-	const byTitle = new Map();
+export function preprocess(hits: GsiHit[]): SearchCandidate[] {
+	const byTitle = new Map<string, { x: number; y: number; n: number; i: number; code: string }[]>();
 	hits.forEach((h, i) => {
 		const t = h.properties.title, [x, y] = h.geometry.coordinates;
 		let group = byTitle.get(t);
@@ -23,7 +34,7 @@ export function preprocess(hits) {
 		if (near) { near.x += x; near.y += y; near.n++; }
 		else group.push({ x, y, n: 1, i, code: h.properties.addressCode || "" });
 	});
-	const out = [];
+	const out: SearchCandidate[] = [];
 	for (const [title, group] of byTitle) for (const c of group)
 		out.push({
 			title,                                                                       // マッチ・入力値・viewFor は生タイトル
@@ -40,12 +51,12 @@ export function preprocess(hits) {
 // 序列：広域地物の完全一致（本物の富士山=addressCode無し）＞ 市区の本体名一致（渋谷→東京都渋谷区）＞
 // 字名の完全一致（全国の渋谷・上田市の富士山）。市区ブーストが無いと有名市区が全国の同名字名に埋もれる。
 // 町村まで広げると字名の「〜町」（○○市渋谷町等）を誤って掬うので市・区に限定。1文字クエリも誤爆源（山→富山市）なので除外。
-export function rerank(q, cands) {
-	const muni = c => q.length >= 2 && (c.title.endsWith(q + "市") || c.title.endsWith(q + "区"));
-	const score = c => c.title === q ? (c.national ? 0 : 0.001)
+export function rerank(q: string, cands: SearchCandidate[]): SearchCandidate[] {
+	const muni = (c: SearchCandidate): boolean => q.length >= 2 && (c.title.endsWith(q + "市") || c.title.endsWith(q + "区"));
+	const score = (c: SearchCandidate): number => c.title === q ? (c.national ? 0 : 0.001)
 		: muni(c) ? 0.0005
 		: c.title.includes(q) ? 1 + (c.title.length - q.length) / 100 : 2;
-	return cands.map(c => [score(c), c.i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+	return cands.map(c => [score(c), c.i, c] as [number, number, SearchCandidate]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
 
 
@@ -53,16 +64,16 @@ export function rerank(q, cands) {
 // 自然地名（山・湖・岬…）は山岳レジーム（z13・チルト55°）＝地形が主役の着地。
 // 住所・地名は z15.5＝PLATEAU自動ロード圏＝着地で街が立つ。
 const NATURE = /([山岳峰湖沼池岬崎峠島滝湾](\s*\(.*\))?|高原|湿原|ヶ原|渓谷|盆地|平野|半島|諸島|列島)$/;
-function viewFor(title) {
+function viewFor(title: string): { zoom: number; tilt?: number } {
 	if (/^(東京都|北海道|(京都|大阪)府|.{2,3}県)$/.test(title)) return { zoom: 10 };     // 都道府県
 	if (NATURE.test(title)) return { zoom: 12.8, tilt: 55 };                            // 自然地名＝地形ビュー
 	if (/[市区町村]$/.test(title)) return { zoom: 13 };                                 // 市区町村
 	return { zoom: 15.5 };                                                              // 住所・丁目・施設
 }
 
-export const gsiSearch = {
+export const gsiSearch: SearchProvider = {
 	histKey: "ortho-japan.searches",   // 検索履歴の localStorage 鍵（分離前と同じ＝利用者の履歴を引き継ぐ）
-	async query(q, signal) {
+	async query(q: string, signal?: AbortSignal): Promise<SearchCandidate[]> {
 		const res = await fetch(API + encodeURIComponent(q), { signal });
 		return rerank(q, preprocess(await res.json())).slice(0, 8);
 	},

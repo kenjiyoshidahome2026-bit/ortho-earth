@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // tsconfig.json を持つ package（packages/*・sdk/*）を strict で型検査する（TS化 段 1・2026-10-15）。root の `npm run typecheck`＝npm test の門の一つ。
 // 使い方: node scripts/typecheck.mjs [絞り込み語…]（例：ephem）
+// worker の入口を持つ package は tsconfig.worker.json（lib webworker・include＝worker の入口だけ）を並べて置き、本体の tsconfig.json はその入口を exclude する
+//（DOM と webworker の lib は一つの program に同居できない）。ここは tsconfig.worker.json があればそれも検査する（例：packages/jp の estat-worker.ts・2026-10-15）。
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,7 +13,10 @@ const words = process.argv.slice(2);
 const dirs = [];
 for (const base of ["packages", "sdk"]) for (const e of fs.readdirSync(path.join(ROOT, base), { withFileTypes: true })) {
 	const d = path.join(base, e.name);
-	if (e.isDirectory() && fs.existsSync(path.join(ROOT, d, "tsconfig.json")) && (!words.length || words.some(w => d.includes(w)))) dirs.push(d);
+	if (!e.isDirectory() || !fs.existsSync(path.join(ROOT, d, "tsconfig.json")) || (words.length && !words.some(w => d.includes(w)))) continue;
+	dirs.push(d);
+	const w = path.join(d, "tsconfig.worker.json");
+	if (fs.existsSync(path.join(ROOT, w))) dirs.push(w);
 }
 let bad = 0;
 for (const d of dirs) {
