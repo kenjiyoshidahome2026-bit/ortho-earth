@@ -9,7 +9,41 @@
 //   "unbounded"（UNBOUNDED）＝縛らない（区間は時間バーの目安だけ）。clearRange() で外す（外の枠 [min, max] はいつも効く）。URL には書かない（データを読めばまた写る）
 export const CLOCK_MIN = Date.UTC(1800, 0, 1), CLOCK_MAX = Date.UTC(2049, 11, 31);
 // label/neg は英語＝辞書のキー。neg＝逆行時だけ言い方が変わる段（実時間→1秒/秒）
-export const CLOCK_SPEEDS = [
+export interface ClockSpeed { v: number; label: string; neg?: string }
+export type ClockRangeMode = "clamped" | "loop" | "unbounded";
+/** setRange の mode に渡せる名（Cesium の ClockRange の名も受ける） */
+export type ClockRangeModeName = ClockRangeMode | "CLAMPED" | "LOOP_STOP" | "UNBOUNDED";
+/** worker へ渡す基準（受け手は clockNow） */
+export interface ClockAnchor { sim: number; wall: number; rate: number }
+export type ClockEvent = "change" | "tick";
+export type ClockListener = (clock: Clock) => void;
+export interface ClockOptions { min?: number; max?: number; time?: number | null; step?: number; now?: () => number }
+export interface Clock {
+	readonly time: number;
+	readonly date: Date;
+	readonly step: number;
+	readonly speed: number;
+	readonly playing: boolean;
+	readonly range: [number, number];
+	readonly rangeMode: ClockRangeMode | null;
+	setRange(start: number | Date, end: number | Date, mode?: ClockRangeModeName): Clock;
+	clearRange(): Clock;
+	isLive(): boolean;
+	label(tr?: (s: string) => string): string;
+	setTime(ms: number | Date): Clock;
+	setStep(L: number): Clock;
+	slower(): Clock;
+	faster(): Clock;
+	toggle(): Clock;
+	live(): Clock;
+	tick(dt: number): boolean;
+	anchor(): ClockAnchor;
+	toParams(p?: URLSearchParams): URLSearchParams;
+	fromParams(p: URLSearchParams | string): Clock;
+	on(ev: ClockEvent, f: ClockListener): Clock;
+	off(ev: ClockEvent, f: ClockListener): Clock;
+}
+export const CLOCK_SPEEDS: ClockSpeed[] = [
 	{ v: 0, label: "Paused" }, { v: 1, label: "Real time", neg: "1 sec/s" },
 	{ v: 60, label: "1 min/s" }, { v: 3600, label: "1 hour/s" },
 	{ v: 21600, label: "6 hours/s" }, { v: 86400, label: "1 day/s" },
@@ -17,27 +51,27 @@ export const CLOCK_SPEEDS = [
 	{ v: 31557600, label: "1 year/s" },
 ];
 const LIVE_MS = 60e3;   // 「今」との差がこれ未満で step 1 なら実時間扱い（solar と同じ）
-export const fmtUTC = ms => { const iso = new Date(ms).toISOString(); return iso.slice(17, 19) === "00" ? iso.slice(0, 16) + "Z" : iso.slice(0, 19) + "Z"; };
-export const clockNow = (a, w = Date.now()) => a ? a.sim + a.rate * (w - a.wall) : w;
+export const fmtUTC = (ms: number): string => { const iso = new Date(ms).toISOString(); return iso.slice(17, 19) === "00" ? iso.slice(0, 16) + "Z" : iso.slice(0, 19) + "Z"; };
+export const clockNow = (a: ClockAnchor | null | undefined, w: number = Date.now()): number => a ? a.sim + a.rate * (w - a.wall) : w;
 
-export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, step = 1, now = () => Date.now() } = {}) {
+export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, step = 1, now = () => Date.now() }: ClockOptions = {}): Clock {
 	const N = CLOCK_SPEEDS.length - 1;
 	let t = time ?? now(), st = 1, lastPlay = 5, follow = time == null;   // follow＝実時間に張り付いている（now() を読む）
-	let win = null;   // 範囲 { start, end, mode }｜null
-	const fns = new Map();
-	const emit = (ev, v) => { for (const f of fns.get(ev) || []) try { f(v); } catch (err) { console.error("[clock]", err); } };
-	const binds = () => win && win.mode !== "unbounded";   // 範囲が時刻を縛るか
-	const lo = () => binds() ? Math.max(min, win.start) : min, hi = () => binds() ? Math.min(max, win.end) : max;
-	const clamp = v => Math.min(hi(), Math.max(lo(), v));
-	const MODES = { clamped: "clamped", CLAMPED: "clamped", loop: "loop", LOOP_STOP: "loop", unbounded: "unbounded", UNBOUNDED: "unbounded" };
+	let win: { start: number; end: number; mode: ClockRangeMode } | null = null;   // 範囲 { start, end, mode }｜null
+	const fns = new Map<ClockEvent, Set<ClockListener>>();
+	const emit = (ev: ClockEvent, v: Clock) => { for (const f of fns.get(ev) || []) try { f(v); } catch (err) { console.error("[clock]", err); } };
+	const binds = (): boolean => win !== null && win.mode !== "unbounded";   // 範囲が時刻を縛るか
+	const lo = () => win && binds() ? Math.max(min, win.start) : min, hi = () => win && binds() ? Math.min(max, win.end) : max;
+	const clamp = (v: number) => Math.min(hi(), Math.max(lo(), v));
+	const MODES: Record<string, ClockRangeMode | undefined> = { clamped: "clamped", CLAMPED: "clamped", loop: "loop", LOOP_STOP: "loop", unbounded: "unbounded", UNBOUNDED: "unbounded" };
 	const rate = () => Math.sign(st) * CLOCK_SPEEDS[Math.abs(st)].v;
-	const self = {
+	const self: Clock = {
 		get time() { return follow ? now() : t; },
 		get date() { return new Date(self.time); },
 		get step() { return st; },
 		get speed() { return rate(); },   // 実 1 秒あたりのシミュレート秒（符号つき）
 		get playing() { return st !== 0; },
-		get range() { return win ? [win.start, win.end] : [min, max]; },   // 範囲があればその区間（時間バーの両端）・無ければ外の枠
+		get range(): [number, number] { return win ? [win.start, win.end] : [min, max]; },   // 範囲があればその区間（時間バーの両端）・無ければ外の枠
 		get rangeMode() { return win ? win.mode : null; },
 		// 範囲を写す（start < end・ms）。今の時刻が外なら端へ寄せる（実時間の張り付きは中に居る時だけ続く）
 		setRange(start, end, mode = "clamped") {
@@ -50,7 +84,7 @@ export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, ste
 		},
 		clearRange() { if (win) { win = null; emit("change", self); } return self; },
 		isLive: () => follow || (st === 1 && Math.abs(t - now()) < LIVE_MS),
-		label(tr = s => s) { const m = CLOCK_SPEEDS[Math.abs(st)], s = tr(st < 0 ? (m.neg || m.label) : m.label); return st < 0 ? "−" + s : s; },
+		label(tr = (s: string) => s) { const m = CLOCK_SPEEDS[Math.abs(st)], s = tr(st < 0 ? (m.neg || m.label) : m.label); return st < 0 ? "−" + s : s; },
 		setTime(ms) { const v = +ms; if (!Number.isFinite(v)) return self; t = clamp(v); follow = false; emit("change", self); return self; },
 		setStep(L) {
 			if (follow) t = now();
@@ -86,15 +120,15 @@ export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, ste
 			return p;
 		},
 		fromParams(p) {
-			if (typeof p === "string") p = new URLSearchParams(p.replace(/^[#?]/, ""));
-			const tv = p.get("t"), sv = p.get("s");
+			const q = typeof p === "string" ? new URLSearchParams(p.replace(/^[#?]/, "")) : p;
+			const tv = q.get("t"), sv = q.get("s");
 			if (tv) { const v = new Date(tv).getTime(); if (Number.isFinite(v)) { t = clamp(v); follow = false; } }
 			else if (sv == null || sv === "" || sv === "1") { follow = true; t = now(); }   // 生きたリンク（t 無し＋実時間）＝開いた瞬間の「今」
 			if (sv != null && sv !== "") { st = Math.max(-N, Math.min(N, Math.round(+sv) || 0)); if (st !== 0) lastPlay = st; if (st !== 1) { if (follow) t = now(); follow = false; } }
 			else st = 1;
 			emit("change", self); return self;
 		},
-		on(ev, f) { if (!fns.has(ev)) fns.set(ev, new Set()); fns.get(ev).add(f); return self; },
+		on(ev, f) { let set = fns.get(ev); if (!set) fns.set(ev, set = new Set()); set.add(f); return self; },
 		off(ev, f) { fns.get(ev)?.delete(f); return self; },
 	};
 	if (step !== 1) self.setStep(step);

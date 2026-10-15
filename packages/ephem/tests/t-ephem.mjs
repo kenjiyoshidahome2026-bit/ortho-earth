@@ -7,7 +7,7 @@
 //   ガリレオ衛星     円軌道モデル（実測 最大 1.2°＝離心率と秤動を捨てた分）
 //   他の衛星         Laplace 面まわりの歳差楕円（1800–2050 全域 ~2,600 標本/衛星の実測最大の約 2 倍を衛星ごとに＝SAT_LIMIT）
 import fs from "node:fs";
-import { bodyPos, moonGeo, satRel, satPos, orientation, SATELLITES, satById, AU_KM } from "../src/index.js";
+import { bodyPos, moonGeo, satRel, satPos, orientation, SATELLITES, satById, AU_KM } from "../src/index.ts";
 
 const fix = JSON.parse(fs.readFileSync(new URL("./horizons-fixture.json", import.meta.url), "utf8"));
 const ang = (a, b) => Math.acos(Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / Math.hypot(...a) / Math.hypot(...b))) * 180 / Math.PI;
