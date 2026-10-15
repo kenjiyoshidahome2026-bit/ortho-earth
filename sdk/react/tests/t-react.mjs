@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { renderToString } from "react-dom/server";
-import { Globe, Source, Layer, Data, Marker, diffProps, syncLayer, layerSpecOf, splitDataProps, shallowEqual } from "../src/index.js";
+import { Globe, Source, Layer, Data, Marker, diffProps, syncLayer, layerSpecOf, splitDataProps, shallowEqual } from "../src/index.ts";
 let n = 0; const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 const fakeMap = () => { const calls = []; const rec = k => (...a) => { calls.push([k, ...a]); }; return { calls, setPaintProperty: rec("paint"), setLayoutProperty: rec("layout"), setFilter: rec("filter"), setLayerZoomRange: rec("zoom") }; };
 
