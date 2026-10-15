@@ -1,6 +1,6 @@
 # @ortho-earth/ktx2
 
-KTX2 / Basis Universal texture transcoder for [`@ortho-earth/globe`](../globe). It fills the `registry.textureTranscoders` extension point: once installed, `KHR_texture_basisu` textures in glb models (`map.gadget.model`, drag & drop, `?g=`) and in 3D Tiles (`add3DTiles`) are transcoded to plain RGBA inside the globe's model worker and drawn like any other texture.
+KTX2 / Basis Universal texture transcoder for [`@ortho-earth/globe`](../../packages/globe). It fills the `registry.textureTranscoders` extension point: once installed, `KHR_texture_basisu` textures in glb models (`map.gadget.model`, drag & drop, `?g=`) and in 3D Tiles (`add3DTiles`) are transcoded to plain RGBA inside the globe's model worker and drawn like any other texture.
 
 ```js
 import { createGlobe } from "@ortho-earth/globe";

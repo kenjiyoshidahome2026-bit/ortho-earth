@@ -23,7 +23,7 @@
 		"react-dom": "^19.3.0"
 	},
 	"keywords": ["react", "globe", "maplibre", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/react" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/react" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "react.d.ts", "LICENSE", "README.md"]
 }

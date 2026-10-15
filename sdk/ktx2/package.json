@@ -18,7 +18,7 @@
 		"@ortho-earth/globe": "^1.14.0"
 	},
 	"keywords": ["ktx2", "basis", "basis-universal", "texture", "gltf", "globe", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/ktx2" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/ktx2" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "ktx2.d.ts", "LICENSE", "README.md"]
 }

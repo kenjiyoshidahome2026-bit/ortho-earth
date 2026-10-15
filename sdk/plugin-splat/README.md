@@ -1,6 +1,6 @@
 # @ortho-earth/plugin-splat
 
-Gaussian splats for [`@ortho-earth/globe`](../globe). The plugin fills the reserved `map.addData` kind `"splat"`. The globe already checks the contract (`SplatData` in `src/splat.js`, or a `.ply` / `.splat` / `.spz` URL); this package reads the files and draws them.
+Gaussian splats for [`@ortho-earth/globe`](../../packages/globe). The plugin fills the reserved `map.addData` kind `"splat"`. The globe already checks the contract (`SplatData` in `src/splat.js`, or a `.ply` / `.splat` / `.spz` URL); this package reads the files and draws them.
 
 - **Drawing** is a same-frame overlay with the globe's camera (WebGL2). Each splat is an ellipse projected from its 3D covariance. Splats are blended back to front, re-sorted by view depth when the view direction turns.
 - Splats are **hidden by terrain and buildings** through the scene depth.

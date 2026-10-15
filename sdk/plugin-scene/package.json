@@ -17,7 +17,7 @@
 		"@ortho-earth/globe": "^1.14.0"
 	},
 	"keywords": ["instancing", "billboard", "3d-text", "globe", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/plugin-scene" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-scene" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "plugin-scene.d.ts", "LICENSE", "README.md"]
 }

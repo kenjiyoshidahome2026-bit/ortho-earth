@@ -1,6 +1,6 @@
 # @ortho-earth/plugin-scene
 
-Instanced meshes, billboards and 3D text for [`@ortho-earth/globe`](../globe). The plugin registers three `map.addData` kinds on the `dataKinds` extension point. Each kind draws as a same-frame overlay with the globe's camera.
+Instanced meshes, billboards and 3D text for [`@ortho-earth/globe`](../../packages/globe). The plugin registers three `map.addData` kinds on the `dataKinds` extension point. Each kind draws as a same-frame overlay with the globe's camera.
 
 - **`instanced`** draws one mesh many times. The mesh can be a box, cylinder, cone, sphere, your own mesh or an uncompressed `.glb`. Each item has a position, a scale in meters, a heading, pitch and roll, and a color.
 - **`billboards`** draws images at 3D positions. They can face the screen, lie flat on the ground or stand upright, sized in pixels or meters.

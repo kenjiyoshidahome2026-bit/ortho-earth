@@ -17,7 +17,7 @@
 		"@ortho-earth/globe": "^1.14.0"
 	},
 	"keywords": ["gaussian-splatting", "3dgs", "splat", "ply", "spz", "globe", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/plugin-splat" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-splat" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "plugin-splat.d.ts", "LICENSE", "README.md"]
 }
