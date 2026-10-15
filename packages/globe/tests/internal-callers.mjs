@@ -17,7 +17,7 @@ const RE = [
 
 // 2026-09-26 の数（段 0）。ファイル→呼び出しの数
 const ALLOW = {
-	"packages/world/src/worldlayers.js": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
+	"packages/world/src/worldlayers.ts": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
 	"apps/ortho-globe/physical.js": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
 	"apps/ortho-globe/hex.js": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
 	"apps/ortho-japan/terrain.js": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
@@ -39,7 +39,7 @@ const walk = d => {
 		const p = path.join(d, e.name), rel = path.relative(ROOT, p);
 		if (SKIP.test(rel)) continue;
 		if (e.isDirectory()) walk(p);
-		else if (/\.(m?js|html)$/.test(e.name)) {
+		else if (/\.(m?js|ts|html)$/.test(e.name)) {   // .ts＝TS 化した package（world 等）も数える
 			const s = fs.readFileSync(p, "utf8");
 			let n = 0; for (const re of RE) n += (s.match(re) || []).length;
 			if (n) found[rel] = n;

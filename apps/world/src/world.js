@@ -15,7 +15,7 @@ import { setTipRoot } from "common/dom/tip.js";
 import "common/dom/highlight.js";
 import { escape, download } from "common";
 import { createWikiFrame } from "@ortho-earth/globe/wiki.js";   // Wikipedia の枠＝アプリ横断の共通の芯（2026-10-03）
-import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "world-data/src/data.js";
+import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "world-data/data";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";

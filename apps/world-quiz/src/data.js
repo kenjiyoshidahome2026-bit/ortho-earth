@@ -1,6 +1,6 @@
 // World（apps/world）の台帳をそのまま食う＝国名・国旗・首都・位置を重複して持たない（データは bucket GIS/world・IDB の写しで即起動）。
 // 読込は World の data.js（loadWorld＝IDB 優先・裏で更新）。ここでは NationDB の 1 件をクイズ向けに平らにするだけ。
-import { loadWorld, ASSET_BASE } from "world-data/src/data.js";
+import { loadWorld, ASSET_BASE } from "world-data/data";
 
 export const flagURL = key => `${ASSET_BASE}flags/${encodeURIComponent(key)}.svg`;
 const latest = series => Array.isArray(series) ? (series.slice(1).find(v => v) || 0) : 0;   // [年, 最新, 前年…]（欠測は null）
