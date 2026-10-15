@@ -67,6 +67,8 @@ resolve: { alias: [{ find: "#pointcloud-formats", replacement: "@ortho-earth/til
 Without the alias, `addCOPC` rejects before fetching anything, with a message that names this package.
 The decoder alone: `decodeLazChunk(lazPerfInstance, bytes, { format, recordLength, count })` from
 `@ortho-earth/tile-formats/laz` returns the raw LAS point records of one LAZ chunk.
+The LAS/COPC structure readers (header, VLRs, COPC hierarchy pages, point records), pure and dependency-free,
+are in `@ortho-earth/tile-formats/las`.
 
 ## Notes
 

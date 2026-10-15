@@ -39,7 +39,8 @@ export function parseWKTTree(wkt) {
 const child = (n, name) => n?.args.find(a => a && typeof a === "object" && a.name === name);
 const children = (n, name) => n?.args.filter(a => a && typeof a === "object" && a.name === name) ?? [];
 
-const LONLAT_DATUMS = /Not_specified_based_on_GRS_1980|WGS_?1984|WGS_?84|JGD_?2011|Japanese_Geodetic_Datum_2011|ITRF|ETRS_?(19)?89|European_Terrestrial|NAD_?(19)?83|North_American_1983|GDA_?(19)?94|GDA_?2020|Geocentric_Datum_of_Australia|CGCS2000|China_2000|Korea_2000|KGD2002|SIRGAS|Hartebeesthoek94|NZGD_?2000|PZ-?90|CH1903\+|Swiss/i;
+// JGD2024（2025-04 施行）＝水平は JGD2011 と同じ（変わったのは標高の基準）＝経緯度として素通し。PROJ 9.6 以降の EPSG 辞書は 6668・6669–6687 の名前を JGD2024 にした（PDAL 2.10 の WKT に出る・2026-10-15 熱海の点群で踏んだ）
+const LONLAT_DATUMS = /Not_specified_based_on_GRS_1980|WGS_?1984|WGS_?84|JGD_?2011|Japanese_Geodetic_Datum_2011|JGD_?2024|Japanese_Geodetic_Datum_2024|ITRF|ETRS_?(19)?89|European_Terrestrial|NAD_?(19)?83|North_American_1983|GDA_?(19)?94|GDA_?2020|Geocentric_Datum_of_Australia|CGCS2000|China_2000|Korea_2000|KGD2002|SIRGAS|Hartebeesthoek94|NZGD_?2000|PZ-?90|CH1903\+|Swiss/i;
 
 /** WKT → 判定と逆変換。 */
 export function crsFromWKT(wkt, opts = {}) {

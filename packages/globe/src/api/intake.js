@@ -127,6 +127,11 @@ export function installIntake(map, live, {
 			draw: async (file, ctx) => { live.annoCtl?.clear(); gint.clearUserGint(); const h = await map.addCOPC(file, { id: "drop", fit: ctx?.fit !== false }); return { length: h.info.count }; },
 		},
 		{
+			name: "las",   // COPC でない LAS/LAZ（点群計画 段 1-2・2026-10-15）＝まだ読めない＝本道（GeoPBF）へ回すと分かりにくい失敗になるので、ここで言う。丸ごと読み（段 3）ができたら差し替える
+			test: f => /\.(las|laz)$/i.test(f.name),
+			draw: async () => { throw new Error(tr()("This point cloud is not a COPC (.copc.laz). Plain LAS/LAZ files cannot be read yet.")); },
+		},
+		{
 			name: "georef",   // 基準点の注記（Georeference Annotation・Allmaps の JSON・#177）＝IIIF の古地図を地面に貼る。注記でない .json は本道（従来どおり）へ
 			test: f => /\.json$/i.test(f.name) && f.size < 32e6,
 			draw: async (file, ctx) => {
