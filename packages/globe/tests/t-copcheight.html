@@ -1,6 +1,7 @@
 <!doctype html>
 <!-- 点群の地面と地図の地形の高さの差（点群計画 段 4-3・2026-10-15）。検定ではない＝verify:ui には入れない（外の DEM・外の COPC を読む＝回線の要る所で）。
      ?src=<COPC の URL>（既定＝ortho-data の熱海 951 万点）・?depth=3（読む節の深さの上限）・?cell=30（升の一辺 m）・?min=8（升に要る地面の点の数）
+     ?shift=30&step=5＝地形を引く所を ±30 m（5 m 刻み）動かして |差| の中央値が最小の所を探す（水平のずれ・DEM の読みの向きの検査）
      段取り＝COPC の上の方の節（depth 以下）を読む → 分類 2（地面）の点だけを経緯度と標高（m）にする → cell m 四方の升ごとに中央値 →
        升の中心で map.sampleTerrain（地図の地形＝描いている DEM と同じ出どころ）→ 差（点群 − 地形）の分布を表題の JSON に書く。
      見る数字＝median（ずれの偏り＝heightOffset が要るか）・p10／p90・|差| の中央値・升の数。急な斜面（DEM の 10 m 升では尾根や谷が丸まる）ほど散る＝傾きで分けた行も出す -->
@@ -61,7 +62,21 @@ try {
 		diff.push(d); (s < 0.15 ? flat : s < 0.5 ? mid : steep).push(d);
 		if (rows.length < 12 || Math.abs(d) > 10) rows.push({ ll: pos[i].map(v => Math.round(v * 1e5) / 1e5), pc: r2(med.get(k)), dem: r2(h), d: r2(d), slope: r2(s) });
 	});
-	const out = { src: SRC.split("/").pop(), crs: crs.label, vertical: crs.verticalName, depth: DEPTH, cell: CELL, nodes: nodes.length, read, ground, cells: keys.length,
+	// ④ 水平のずれの探し（?shift=30&step=5）＝地形を引く所を東西南北に動かし、|差| の中央値が最小になる所。DEM の読みの向き・升の半分のずれを見分ける
+	let shift = null;
+	const SH = +(q.get("shift") || 0), ST = +(q.get("step") || 5);
+	if (SH) {
+		const okKeys = keys.filter((k, i) => Number.isFinite(terr[i]?.height) && terr[i].height !== 0), okPos = okKeys.map(k => pos[keys.indexOf(k)]);
+		const mLat = 1 / 111320, mLon = 1 / (111320 * Math.cos(c[1] * Math.PI / 180)), tries = [];
+		for (let dy = -SH; dy <= SH; dy += ST) for (let dx = -SH; dx <= SH; dx += ST) {
+			const tt = await map.sampleTerrain(okPos.map(p => [p[0] + dx * mLon, p[1] + dy * mLat]), { concurrency: 16 });
+			const d = okKeys.map((k, i) => med.get(k) - tt[i].height);
+			tries.push({ dx, dy, ...stats(d) });
+		}
+		tries.sort((a, b) => a.absMedian - b.absMedian);
+		shift = { best: tries.slice(0, 5).map(t => ({ dx: t.dx, dy: t.dy, median: t.median, absMedian: t.absMedian })), zero: (({ median, absMedian }) => ({ median, absMedian }))(tries.find(t => !t.dx && !t.dy)) };
+	}
+	const out = { shift, src: SRC.split("/").pop(), crs: crs.label, vertical: crs.verticalName, depth: DEPTH, cell: CELL, nodes: nodes.length, read, ground, cells: keys.length,
 		all: stats(diff), flat: stats(flat), mid: stats(mid), steep: stats(steep), sample: rows.slice(0, 20), ms: Math.round(performance.now() - t0) };
 	document.title = `${diff.length ? "PASS" : "FAIL"} [height] ${JSON.stringify(out)}`;
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
