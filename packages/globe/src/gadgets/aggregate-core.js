@@ -20,7 +20,7 @@ export function pointsOf(src) {
 }
 // ["heatmap-density"] を変数へ差し替えた式（評価器は heatmap-density を知らない＝var で渡す）
 const withDensity = e => Array.isArray(e) ? (e[0] === "heatmap-density" ? ["var", "__hd"] : e.map(withDensity)) : e;
-export const HEAT_DEFAULT_COLOR = ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0, 0, 255, 0)", 0.1, "royalblue", 0.3, "cyan", 0.5, "lime", 0.7, "yellow", 1, "red"];
+const HEAT_DEFAULT_COLOR = ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0, 0, 255, 0)", 0.1, "royalblue", 0.3, "cyan", 0.5, "lime", 0.7, "yellow", 1, "red"];
 export function heatStyle(paint = {}, zoomNow = 10, origin = undefined, gs = undefined) {
 	const ZS = 0.5, zs = []; for (let z = 0; z <= 24; z += ZS) zs.push(z);
 	const tab = (e, def) => Float32Array.from(zs.map(z => { const v = evalExpr(e ?? def, ctxOf(z, {}, origin, gs)); return +(v === undefined && origin ? def : v); }));   // ML の評価エラー（undefined）＝既定値・ネイティブは従来どおり
@@ -70,7 +70,7 @@ export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, mi
 	return { levels, minLevel: minZoom, maxLevel: top };
 }
 export const abbr = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
-export const CLUSTER_DEFAULT = {
+const CLUSTER_DEFAULT = {
 	paint: { "circle-color": ["step", ["get", "point_count"], "#51bbd6", 100, "#f1f075", 750, "#f28cb1"], "circle-radius": ["step", ["get", "point_count"], 20, 100, 30, 750, 40], "circle-stroke-width": 0, "circle-stroke-color": "#fff", "circle-opacity": 0.9 },
 	unclustered: { paint: { "circle-color": "#11b4da", "circle-radius": 4, "circle-stroke-width": 1, "circle-stroke-color": "#fff" } },
 	text: { color: "#222", size: 12 },

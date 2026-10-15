@@ -4,7 +4,7 @@
 // 予算を超えたら古い順に捨てる（捨てた分は答えに出ない＝maplibre-compat.md §4）。
 import { decodeTile, loadTileFormat } from "@ortho-earth/core/decode";
 
-export const RAW_Q_BUDGET = 24 << 20;   // 24 MiB（vtdraw の RAW_BUDGET と同じ桁＝渋谷 z14 の建物タイルで約 200 枚）
+const RAW_Q_BUDGET = 24 << 20;   // 24 MiB（vtdraw の RAW_BUDGET と同じ桁＝渋谷 z14 の建物タイルで約 200 枚）
 
 export function createRawStore(budget = RAW_Q_BUDGET) {
 	const tiles = new Map();   // "sid|key" → { sid, key, ab, enc, bytes, used, data, owners: Set }

@@ -9,8 +9,8 @@ import { isTypingTarget } from "@ortho-earth/core";
 const D2R = Math.PI / 180;
 const KEYS = { forward: ["w", "W", "ArrowUp"], back: ["s", "S", "ArrowDown"], left: ["a", "A"], right: ["d", "D"], turnL: ["ArrowLeft", "q", "Q"], turnR: ["ArrowRight", "e", "E"], lookUp: ["r", "R"], lookDown: ["f", "F"] };
 const KEY_ALL = new Set(Object.values(KEYS).flat());
-export const WALK_DEFAULTS = Object.freeze({ speed: 1.4, eyeHeight: 1.7, collide: true, keys: true, lookDown: 5, turnSpeed: 90, lookSpeed: 45, lookDistance: 30, mouse: true, run: 3 });
-export const KNEE_M = 0.5;
+const WALK_DEFAULTS = Object.freeze({ speed: 1.4, eyeHeight: 1.7, collide: true, keys: true, lookDown: 5, turnSpeed: 90, lookSpeed: 45, lookDistance: 30, mouse: true, run: 3 });
+const KNEE_M = 0.5;
 export function createWalk(map, opts, deps) {
 	const o = { ...WALK_DEFAULTS, ...opts };
 	const R = deps.radiusM || 6371000, mDeg = R * D2R;   // 1° の m（緯線は cos で割る）

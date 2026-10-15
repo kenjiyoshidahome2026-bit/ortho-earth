@@ -2,7 +2,8 @@
 //   createTileMesh(options, forceIndicesSize)＝タイル 1 枚を覆う格子の頂点（Int16・0..EXTENT）と索引（MapLibre GL JS 6.11.2 src/render/mesh_utils.ts の写し・BSD-3-Clause）
 //   SubdivisionGranularityExpression／SubdivisionGranularitySetting＝球で描く時の細分の粒度（src/render/subdivision_granularity_settings.ts の写し）
 // 極の頂点＝y が NORTH_POLE_Y（-32768）／SOUTH_POLE_Y（32767）＝球の prelude（customgl.js）が rawPos.y で見分けて極へ置く（MapLibre と同じ約束）
-export const EXTENT = 8192, EXTENT_STENCIL_BORDER = EXTENT / 128, NORTH_POLE_Y = -32768, SOUTH_POLE_Y = 32767;
+export const EXTENT = 8192, NORTH_POLE_Y = -32768, SOUTH_POLE_Y = 32767;
+const EXTENT_STENCIL_BORDER = EXTENT / 128;
 
 export function createTileMesh(options = {}, forceIndicesSize) {
 	const granularity = options.granularity !== undefined ? Math.max(options.granularity, 1) : 1;

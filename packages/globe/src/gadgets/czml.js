@@ -9,7 +9,7 @@ import { CLOCK_SPEEDS } from "@ortho-earth/ephem/clock";
 import { sanitizeHTML } from "geopbf/sanitize";
 
 // CZML の document の clock → { start, end, current, multiplier, range }｜null
-export function clockOfCzml(packets) {
+function clockOfCzml(packets) {
 	const d = Array.isArray(packets) ? packets.find(p => p?.id === "document") : null, c = d?.clock;
 	if (!c) return null;
 	const iv = parseIntervals(c.interval)?.[0];
@@ -18,7 +18,7 @@ export function clockOfCzml(packets) {
 	return { start: iv[0], end: iv[1], current: Number.isFinite(cur) ? cur : iv[0], multiplier: Number.isFinite(+c.multiplier) ? +c.multiplier : 1, range: c.range || "LOOP_STOP" };
 }
 // clock の無いデータ（GPX・clock の無い CZML）＝Cesium の DataSourceClock の既定と同じ組み方
-export function clockOfTracks(tracks) {
+function clockOfTracks(tracks) {
 	let a = Infinity, b = -Infinity;
 	for (const tr of tracks) {
 		if (tr.avail) for (const [s, e] of tr.avail) { a = Math.min(a, s); b = Math.max(b, e); }
@@ -28,7 +28,7 @@ export function clockOfTracks(tracks) {
 	return { start: a, end: b, current: a, multiplier: Math.round(Math.min(Math.max((b - a) / 1000 / 120, 1), 5184000)), range: "LOOP_STOP" };
 }
 // 速さ（実 1 秒あたりのシミュレート秒・符号つき）→ 時計の段（離散 9 段）＝対数で最も近い段
-export function stepOfMultiplier(m) {
+function stepOfMultiplier(m) {
 	if (!m) return 0;
 	let best = 1, bd = Infinity;
 	for (let i = 1; i < CLOCK_SPEEDS.length; i++) { const d = Math.abs(Math.log(CLOCK_SPEEDS[i].v) - Math.log(Math.abs(m))); if (d < bd) { bd = d; best = i; } }

@@ -26,7 +26,7 @@ export function parseIntervals(v) {
 	const list = (Array.isArray(v) ? v : [v]).map(s => typeof s === "string" ? s.split("/") : null).filter(q => q && q.length === 2).map(([a, b]) => [Date.parse(a), Date.parse(b)]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
 	return list.length ? list : null;
 }
-export const inIntervals = (ivs, ms) => !ivs || ivs.some(([a, b]) => ms >= a && ms <= b);
+const inIntervals = (ivs, ms) => !ivs || ivs.some(([a, b]) => ms >= a && ms <= b);
 
 // 時刻付きの値（CZML の number プロパティ）：数・{ number }・区間ごと [{ interval, number（数か [t, v, …]）, epoch }]。標本の数列は線形（区間の外は dflt）
 export function numberAt(v, ms, dflt = null) {

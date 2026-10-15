@@ -56,7 +56,7 @@ export function ellipsoidMode({ opt = "auto", search = "", LOW_MEM = false, MID_
 
 // --- 描画の質の旗（#46・2026-09-26）：?pbr=1／?ao=1／?atmosphere=1 で点ける純関数（t-tier で検定）。ell と同じ作法＝既定は全端末で 0（本人裁定 2026-09-26）。
 // URL が勝つ（?pbr=0 は opts より強い）。opts.render.<name>:true＝組み込みで点ける口（既定 false）。WebGL2 は実装を持たない＝旗が立っても絵は変わらない。
-export const FX_NAMES = ["atmosphere", "pbr", "ao"];
+const FX_NAMES = ["atmosphere", "pbr", "ao"];
 export function renderFx({ render = null, search = "" } = {}) {
 	const fx = {};
 	for (const n of FX_NAMES) { const m = search.match(new RegExp(`[?&]${n}=([01])`)); fx[n] = m ? m[1] === "1" : render?.[n] === true; }

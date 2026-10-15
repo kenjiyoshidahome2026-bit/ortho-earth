@@ -28,9 +28,9 @@ const ymd = (x) => x.toISOString().slice(0, 10);
 // ソースの既定期間 [from, to]（YYYY-MM-DD）
 export const defaultRange = (src) => src.period || [ymd(new Date(Date.now() - src.days * 864e5)), ymd(new Date())];
 
-export const bboxPoly = ([w, s, e, n]) => ({ type: "Polygon", coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
+const bboxPoly = ([w, s, e, n]) => ({ type: "Polygon", coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
 // Tellus の intersects は Polygon 限定（Point は 422）＝中心点を極小四角で（「その地点が写っているシーン」の意味論は同じ）
-export const pointPoly = ([lon, lat], eps = 5e-4) => bboxPoly([lon - eps, lat - eps, lon + eps, lat + eps]);
+const pointPoly = ([lon, lat], eps = 5e-4) => bboxPoly([lon - eps, lat - eps, lon + eps, lat + eps]);
 
 // シーン検索 → 正規形 [{id, date, sub, cloud, geometry, props}]
 //   c＝[lon,lat]（無ければ bbox）・from/to＝"YYYY-MM-DD"・size は 10 以上（cursor は null でも必須＝422）
