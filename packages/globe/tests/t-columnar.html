@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- 実描画の検分：列チャンク層（@ortho-earth/columnar・#90）＝GeoPBF と GeoParquet を gint を通さず描く。
+<!-- 実描画の検分：列チャンク層（src/columnar・#90）＝GeoPBF と GeoParquet を gint を通さず描く。
      g=same（既定）：同じデータ（面＝穴あり・線・点）を gint（map.addGint）と列チャンク層（map.addColumnar）で同じ paint で描き、
        同じ標本点（面の内側・穴の中・線の上・点）の「当たり／外れ」が一致する。列チャンク層の画素は paint の色そのもの（premultiplied を戻して）。
        setFilter で 1 枚だけ隠す・query が行を返す・setVisible・remove。GeoParquet（toGeoParquet → File）も同じ標本で同じ当たり。

@@ -128,7 +128,7 @@ function inferColumns(pbf, keep = null) {
 	return cols;
 }
 
-export { spatialOrder } from "./spatial-order.js";   // 行の空間整列（str/hilbert/morton/none）＝列チャンク（@ortho-earth/columnar）と共有＝別ファイル（#90）
+export { spatialOrder } from "./spatial-order.js";   // 行の空間整列（str/hilbert/morton/none）＝列チャンク（@ortho-earth/globe の src/columnar）と共有＝別ファイル（#90）
 
 // opts: { gpu, codec: "zstd"|"gzip"|"none"（既定＝Node は zstd・ブラウザは gzip）, level（zstd・既定 9）, pageSize, rowGroupSize, compress,
 //         geometryName="geometry", bboxColumn=true|"auto"|false, order="str"|"hilbert"|"morton"|"none", include/exclude/excludeAll }

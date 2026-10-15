@@ -3687,7 +3687,7 @@ async function loadServiceG(svc, u) {
 		} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
 	})();
 }
-// 列チャンク層（@ortho-earth/columnar・#90）＝GeoPBF と GeoParquet を gint を通さず描く（読み→詰め替え→GPU 直行・最初の 1 枚が速い）。
+// 列チャンク層（src/columnar・#90・2026-10-15 に旧 @ortho-earth/columnar を吸収）＝GeoPBF と GeoParquet を gint を通さず描く（読み→詰め替え→GPU 直行・最初の 1 枚が速い）。
 // GeoParquet は大きさに依らず常にこちら（旧 8MB の分かれ道は無し）。GeoPBF は大きさで自動＝COLUMNAR_BYTES を超えたら列チャンク層・以下は gint
 //（位相・識別の精度・ドレープ・編集はそのまま）。?columnar=1|0 で強制／opts.columnarBytes で閾値。編集ボタンは編集の時だけ gint（geoedit）へ載せ替える。
 // 本体（worker の読み手・オーバーレイ）は動的 import＝GeoParquet や大きな GeoPBF を受けた時だけ降りてくる（起動の束には 0 バイト）。
@@ -3705,7 +3705,7 @@ let columnarCtl = null;
 ownDestroy.push(() => { columnarCtl?.remove(); columnarCtl = null; });
 const columnarView = async (src, name, o = {}) => {
 	annoCtl?.clear(); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null;
-	const m = await import("@ortho-earth/columnar");
+	const m = await import("./columnar/index.js");
 	const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 	try { columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!opts.perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
 	catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
@@ -3719,7 +3719,7 @@ const columnarView = async (src, name, o = {}) => {
 };
 // 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 map.addColumnar = async (src, o = {}) => {
-	const m = await import("@ortho-earth/columnar");
+	const m = await import("./columnar/index.js");
 	return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 };
 // three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
@@ -4154,7 +4154,7 @@ const INTAKE = [
 		},
 	},
 	{
-		name: "geoparquet-columnar",   // GeoParquet＝大きさに依らず列チャンク層（@ortho-earth/columnar・#90）。File は slice で Range 同等。?columnar=0・ctx.gint・規則が gint（塗り分け）なら下の gint 経路へ
+		name: "geoparquet-columnar",   // GeoParquet＝大きさに依らず列チャンク層（src/columnar・#90）。File は slice で Range 同等。?columnar=0・ctx.gint・規則が gint（塗り分け）なら下の gint 経路へ
 		test: (f, ctx) => /\.(parquet|geoparquet)$/i.test(f.name) && !ctx?.gint && columnarOn(Infinity),
 		draw: async (file, ctx) => { const r = await columnarView(file, file.name, { fit: ctx?.fit !== false, probe: columnarProbe(file.size) }); return r ?? mainRoad(await parquetToGeopbf(file), ctx); },
 	},
