@@ -19,10 +19,10 @@ import { uploadGintTextures, uploadBaked, addBakedTier, finishBakedTiers, delete
 import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
-import { computeDrawData, zoomInRange } from './drawdata.js';
+import { computeDrawData, zoomInRange } from '../../gint/drawdata.js';
 import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
-import { gintDataOf } from './bake.js';
+import { gintDataOf } from '../../gint/bake.js';
 
 export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
 	s.embedded = true;

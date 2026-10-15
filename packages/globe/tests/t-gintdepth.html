@@ -26,7 +26,7 @@ try {
 	const { createGintPrograms } = await import("../../../packages/ortho-core/src/gl/gint/programs.js");
 	const { uploadGintTextures } = await import("../../../packages/ortho-core/src/gl/gint/textures.js");
 	const { renderCleanScene } = await import("../../../packages/ortho-core/src/gl/gint/passes.js");
-	const { computeDrawData } = await import("../../../packages/ortho-core/src/gl/gint/drawdata.js");
+	const { computeDrawData } = await import("../../../packages/ortho-core/src/gint/drawdata.js");
 
 	const gl = document.getElementById("g").getContext("webgl2", { antialias: false, stencil: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
 	if (!gl) throw new Error("WebGL2なし");

@@ -7,7 +7,7 @@
 | :--- | :--- |
 | 版 | **1.0（2026-09-26）**＝draft 0.1（2026-07-25）を実装に合わせて確定した版（Issue #10）。以後の変更は §13 に足す |
 | 正典 | 本書。本書・実装・`globe.d.ts`・説明書の食い違いは不具合＝見つけたら揃える。実装と本書の意図がずれている所は §12-B に**未決**として並べた |
-| 実装 | main＝`packages/globe/src/gint/layers.js`（層の手綱・照会）／WebGL2＝`packages/ortho-core/src/gl/gint/`／WebGPU＝`packages/ortho-core/src/gpu/gint.js`・`gintwgsl.js`／式＝`packages/ortho-core/src/expr.js`・`gl/gint/style.js` |
+| 実装 | main＝`packages/globe/src/gint/layers.js`（層の手綱・照会）／共通＝`packages/ortho-core/src/gint/`（状態・描画データ・焼き・属性列・style・辺の表＝両方が読む）／WebGL2＝`packages/ortho-core/src/gl/gint/`／WebGPU＝`packages/ortho-core/src/gpu/gint.js`・`gintwgsl.js`／式＝`packages/ortho-core/src/expr.js`・`gint/style.js` |
 | 型 | `packages/globe/globe.d.ts`（`GintLayerOptions`・`GintLayerHandle`・`GintPaint`・`GintDrawStyle`） |
 | 利用者向け | `apps/docs/gint.html`・`gint-jp.html`（Part I＝使い方・§6＝リファレンス・書式は geopbf の `reference.md` に揃えた） |
 | 公開の線（本人裁定 2026-09-26） | 外向きに約束する式＝§6.1 の契約の集合（d.ts の一覧と同じ）。診断プローブ（§7.12）は内部のまま＝API にしない |

@@ -1,5 +1,5 @@
 // MapLibre 形の fill / line / circle の層 → gint の地物ごとの表（2026-09-26・MapLibre 互換の台帳 maplibre-compat.md 段 4・約束 4/6）。
-// ネイティブの buildFidStyle（gl/gint/style.js＝map.paint・addGint の意味）は触らない＝MapLibre の意味はここで組む。純関数＝node で検定。
+// ネイティブの buildFidStyle（gint/style.js＝map.paint・addGint の意味）は触らない＝MapLibre の意味はここで組む。純関数＝node で検定。
 //
 // 詰め方（packMLLayers）：同じ source で MapLibre の重ね順に連続する層だけを 1 枚の gint 層（pass）へ詰める。
 //   1 枚の gint 層は下から 塗り → 線 → 点 の順に描く＝層の型の順（fill < line < circle）を崩さない間だけ同じ pass に入れる。

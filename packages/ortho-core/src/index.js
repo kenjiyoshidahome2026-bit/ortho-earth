@@ -10,7 +10,7 @@ export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
 export { createGintLayer } from "./gl/gint/embed.js";
-export { buildFidStyle } from "./gl/gint/style.js";
+export { buildFidStyle } from "./gint/style.js";
 export { buildLabels } from "./labels.js";
 export { parseFontStack, fontCss } from "./fontstack.js";   // text-font → CSS の書体（段 2）
 export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";

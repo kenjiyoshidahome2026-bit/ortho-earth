@@ -6,7 +6,7 @@
 
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms, bindPivot, bindDepthUniforms, farPivotGlobal, layerBboxOf } from './utility.js';
-import { drapeSubs, subPlan } from './drawdata.js';
+import { drapeSubs, subPlan } from '../../gint/drawdata.js';
 import { SUB_NB } from './utility.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';

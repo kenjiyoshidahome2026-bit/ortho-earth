@@ -12,8 +12,8 @@
 //   flags bit0 = visible（filter の実体）
 // width はスタイル正味のみ（pick マージン等のパス増分は uniform 側＝仕様 §7.1）。
 
-import { evalExpr, truthy } from "../../expr.js";
-import { parseRGBA } from "../../color.js";
+import { evalExpr, truthy } from "../expr.js";
+import { parseRGBA } from "../color.js";
 
 // 色になり得る式の評価 → [r,g,b,a] (0..1)。
 // expr.js の interpolate は数値 lerp（色文字列を混ぜると NaN）なので、色停留の interpolate
