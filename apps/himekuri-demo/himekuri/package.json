@@ -35,7 +35,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"mirror": "git -C ../.. subtree split --prefix=sdk/himekuri -b himekuri-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../.. branch -D himekuri-mirror"
+		"mirror": "git -C ../../.. subtree split --prefix=apps/himekuri-demo/himekuri -b himekuri-mirror && git -C ../../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../../.. branch -D himekuri-mirror"
 	},
 	"devDependencies": {
 		"vite": "^8.3.1"
