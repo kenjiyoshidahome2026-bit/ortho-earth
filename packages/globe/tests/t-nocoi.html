@@ -27,7 +27,7 @@ try {
 		ok("SAB不在（フォールバック経路を実際に踏む）", hasSAB === false);
 	}
 
-	const { createGeopbf, geopbf } = await import("../../../packages/geopbf/src/index.js");
+	const { createGeopbf, geopbf } = await import("geopbf");
 	// worker の入口はホストが渡す＝部品は自前で new Worker しない（worker 入口 1 本の作法・2026-09-22）。
 	// これを渡さないと builtinWorkers の「作らない版」が null を返し、encoder:gint が立たずに
 	// 「Cannot set properties of null」で落ちる（2026-09-24 に気づいた＝この頁は長く赤だった）。

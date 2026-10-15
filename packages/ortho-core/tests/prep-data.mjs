@@ -3,9 +3,9 @@
 //   例: bash prep-data.sh nps_all nps   → tests/data/nps-*.bin（国立公園＝離散ポリゴンの基準データ）
 // geopbf は拡張子なし import を含むため素の Node では動かない＝prep-data.sh が esbuild でバンドルして実行する。
 import init from '../../geopbf/wasm/pkg/gint_wasm.js';
-import { GeoPBF } from '../../geopbf/src/pbf.js';
-import { gint } from '../../geopbf/src/extension/gint.js';
-import { topology } from '../../geopbf/src/extension/topology.js';
+import { GeoPBF } from 'geopbf';
+import { gint } from 'geopbf/gint';
+import { topology } from 'geopbf/topology';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';

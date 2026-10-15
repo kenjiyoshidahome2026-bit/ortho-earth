@@ -4,7 +4,7 @@
 // 押し出しの見本：2020 年国勢調査の人口密度を高さにした市区町村の 3D 地図（境界＝bucket admin_all・人口/面積/密度＝census2020 の manifest）
 globalThis.ImageData ??= class ImageData { };
 import fs from "node:fs"; import zlib from "node:zlib";
-import { GeoPBF } from "../../../packages/geopbf/src/pbf.js";
+import { GeoPBF } from "geopbf";
 const S = process.env.SHOWCASE_SRC || new URL("../.showcase-src/", import.meta.url).pathname;
 const TOL = +(process.argv[2] || 0.002), M_PER = +(process.argv[3] || 2);
 const buf = zlib.gunzipSync(fs.readFileSync(S + "admin_all.gz"));
