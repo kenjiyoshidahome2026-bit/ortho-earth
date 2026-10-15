@@ -1,0 +1,187 @@
+#!/usr/bin/env node
+// 依存マップの元データ：www と www に並ぶデモ（apps/www/demos.json）が、どのパッケージを
+// 共有エンジン経由（URL で読む）と自分の束（各アプリに焼く）のどちらで使うかを esbuild で辿る。
+//   node scripts/deps-map.mjs > deps.json
+// 共有エンジンを読むアプリ（vite.config.js に sharedEngine()）は apps/engine/src/entries.mjs の入口を外に出して束を辿り、
+// 外に出た入口は入口のソースから辿り直して「エンジン経由」とする。new URL("…", import.meta.url) の worker も入口として足す。
+// 限り：import.meta.glob（i18n の言語表など）は辿らない。大きさは出さない（全言語の遅延 chunk を足してしまう）。
+import * as esbuild from "esbuild";
+import fs from "node:fs";
+import path from "node:path";
+import { execSync } from "node:child_process";
+
+// DEPS_ROOT＝別の checkout（前の版と比べる時）。入口の一覧が無い古い版（2026-10-15 より前）は当時の 5 つ
+const ROOT = path.resolve(process.env.DEPS_ROOT || path.join(import.meta.dirname, ".."));
+const ENTRIES = fs.existsSync(path.join(ROOT, "apps/engine/src/entries.mjs")) ? (await import(path.join(ROOT, "apps/engine/src/entries.mjs"))).ENTRIES
+	: [["@ortho-earth/globe", "globe", "apps/ortho-globe/engine/globe.js"], ["@ortho-earth/globe/i18n.js", "i18n", "packages/globe/src/i18n.js"], ["@ortho-earth/core", "core", "packages/ortho-core/src/index.js"], ["geopbf", "geopbf", "packages/geopbf/src/index.js"], ["@ortho-earth/h3/core", "h3", "packages/h3/src/core.js"]].map(([a, b, c]) => [a, b, path.join(ROOT, c)]);
+const rel = p => path.relative(ROOT, p);
+const SPEC = new Map(ENTRIES.map(([spec, , src]) => [spec, src]));
+const NONE = path.join(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.js");
+const usesEngine = dir => fs.existsSync(path.join(ROOT, dir, "vite.config.js")) && /sharedEngine\(\)/.test(fs.readFileSync(path.join(ROOT, dir, "vite.config.js"), "utf8").replace(/\/\/.*$/gm, ""));
+
+// ---- 置き場（ファイル → パッケージ名） ----
+const owners = new Map();
+function ownerOf(file) {
+	const nm = file.lastIndexOf("node_modules/");
+	if (nm >= 0) { const p = file.slice(nm + 13).split("/"); return "npm:" + (p[0].startsWith("@") ? p[0] + "/" + p[1] : p[0]); }
+	let d = path.dirname(file);
+	while (d.startsWith(ROOT) && d !== ROOT) {
+		if (owners.has(d)) return owners.get(d);
+		const pj = path.join(d, "package.json");
+		if (fs.existsSync(pj)) { const n = JSON.parse(fs.readFileSync(pj, "utf8")).name || rel(d); owners.set(d, n); return n; }
+		d = path.dirname(d);
+	}
+	return null;
+}
+const dirs = {};
+for (const top of ["apps", "packages"]) for (const n of fs.readdirSync(path.join(ROOT, top))) {
+	const pj = path.join(ROOT, top, n, "package.json");
+	if (fs.existsSync(pj)) dirs[JSON.parse(fs.readFileSync(pj, "utf8")).name] = `${top}/${n}`;
+}
+// npm は内製パッケージの package.json に名がある物だけ出す（その下の依存は出さない）・@loaders.gl/* は 1 つにまとめる
+const npmDirect = new Set();
+for (const dir of Object.values(dirs)) { const pj = JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8")); for (const k of Object.keys({ ...pj.dependencies, ...pj.peerDependencies })) if (!dirs[k]) npmDirect.add(k); }
+const npmFamily = n => n.replace(/^npm:@loaders\.gl\/.*/, "npm:loaders.gl");
+const shown = n => !n.startsWith("npm:") || n === "npm:loaders.gl" || npmDirect.has(n.slice(4));
+
+// ---- 1 つの入口から辿る ----
+const ASSET = Object.fromEntries(["css", "scss", "sass", "png", "jpg", "jpeg", "webp", "svg", "gif", "glb", "wasm", "bin", "ttf", "woff", "woff2", "mp3", "wav", "ktx2", "txt", "html", "geopbf", "pbf", "zip", "gz"].map(e => ["." + e, "empty"]));
+async function trace(entry, { engine, stdin, inEngine }) {
+	const hits = new Set(), workers = new Set();
+	const plugin = {
+		name: "trace",
+		setup(b) {
+			b.onResolve({ filter: /^https?:|^data:|^\/globe\/engine\// }, a => ({ path: a.path, external: true }));
+			b.onResolve({ filter: /\?/ }, async a => {
+				const [p, q] = a.path.split("?");
+				const r = await b.resolve(p, { kind: a.kind, resolveDir: a.resolveDir, importer: a.importer });
+				if (/worker/.test(q) && r.path) workers.add(r.path);
+				return { path: r.path, namespace: /raw|url|worker/.test(q) ? "asset" : "file", external: false };
+			});
+			b.onLoad({ filter: /.*/, namespace: "asset" }, () => ({ contents: "", loader: "empty" }));
+			if (engine) {
+				if (!inEngine) b.onResolve({ filter: /.*/ }, a => SPEC.has(a.path) ? (hits.add(a.path), { path: a.path, external: true }) : null);
+				b.onResolve({ filter: /builtinWorkers\.js$/ }, () => ({ path: NONE }));   // engineAliases と同じ＝エンジンは builtin worker を焼かない
+			}
+			b.onResolve({ filter: /^(common|native-bucket)\// }, a => { if (a.pluginData === "alias") return null; const [pk, ...rest] = a.path.split("/"); return b.resolve("./" + rest.join("/"), { kind: a.kind, resolveDir: path.join(ROOT, "packages", pk, "src"), pluginData: "alias" }); });
+			b.onResolve({ filter: /^#tile-formats$/ }, () => ({ path: path.join(ROOT, "packages/tile-formats/src/register.js") }));
+			b.onResolve({ filter: /^#pointcloud-formats$/ }, () => ({ path: path.join(ROOT, "packages/tile-formats/src/pointcloud.js") }));
+			b.onLoad({ filter: /\.(m?js|ts)$/ }, a => {
+				if (a.path.includes("node_modules")) return null;
+				const src = fs.readFileSync(a.path, "utf8");
+				for (const m of src.matchAll(/new URL\(\s*["'`]([^"'`]+\.m?js)["'`]\s*,\s*import\.meta\.url\s*\)/g)) {
+					const w = path.resolve(path.dirname(a.path), m[1]); if (fs.existsSync(w)) workers.add(w);
+				}
+				return null;
+			});
+		},
+	};
+	const opts = { absWorkingDir: ROOT, bundle: true, write: false, metafile: true, format: "esm", platform: "browser", splitting: true, outdir: "/tmp/deps-map-out", logLevel: "silent", loader: { ...ASSET, ".json": "json" }, plugins: [plugin], define: { "import.meta.env": "{}" }, conditions: ["browser", "import", "default"], external: ["node:*"] };
+	let r;
+	for (let i = 0; ; i++) {   // 解決できない import（vite だけの別名など）は外に出して辿り直す＝stderr に出す
+		try { r = stdin ? await esbuild.build({ ...opts, stdin }) : await esbuild.build({ ...opts, entryPoints: [entry] }); break; }
+		catch (err) {
+			const miss = (err.errors || []).map(x => x.text.match(/Could not resolve "([^"]+)"/)?.[1]).filter(Boolean);
+			if (!miss.length || i > 20) throw err;
+			process.stderr.write(`  外に出した: ${miss.join(", ")}（${rel(entry || stdin.sourcefile)}）\n`);
+			opts.external = [...opts.external, ...miss];
+		}
+	}
+	return { meta: r.metafile, hits, workers };
+}
+
+// 入口 → 辿れたファイルの集合＋外に出たエンジンの入口（worker は入口に足して繰り返す）
+async function walk(roots, engine, inEngine = false) {
+	const files = new Set(), hits = new Set(), seen = new Set(), q = [...roots], edges = new Set();
+	while (q.length) {
+		const e = q.shift(); const key = e.stdin ? e.stdin.sourcefile : e;
+		if (seen.has(key)) continue; seen.add(key);
+		const { meta, hits: h, workers } = await trace(e.stdin ? null : e, { engine, stdin: e.stdin, inEngine });
+		for (const [f, v] of Object.entries(meta.inputs)) {
+			const inline = /#inline\d+$/.test(f) || f === "<stdin>";   // HTML の中の script（stdin）＝その HTML のコードとして数える
+			const abs = f === "<stdin>" ? e.stdin.sourcefile.replace(/#inline\d+$/, "") : path.resolve(ROOT, f.replace(/#inline\d+$/, "")); if (!fs.existsSync(abs)) continue; if (!inline) files.add(abs);
+			for (const im of v.imports) { const t = path.resolve(ROOT, im.path); if (fs.existsSync(t)) edges.add(abs + "\n" + t); }
+		}
+		h.forEach(x => hits.add(x)); workers.forEach(w => q.push(w));
+	}
+	return { files, hits, edges };
+}
+
+function htmlRoots(html, appDir) {
+	const src = fs.readFileSync(html, "utf8"), out = [];
+	for (const m of src.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)) {   // 手元の HTML を読むだけ（無害化ではない）
+		if (!/type\s*=\s*["']?module/i.test(m[1])) continue;
+		const s = m[1].match(/src\s*=\s*["']([^"']+)["']/i);
+		if (s) out.push(s[1].startsWith("/") ? path.join(ROOT, appDir, s[1]) : path.resolve(path.dirname(html), s[1]));
+		else if (m[2].trim()) out.push({ stdin: { contents: m[2], resolveDir: path.dirname(html), sourcefile: html + "#inline" + out.length, loader: "js" } });
+	}
+	return out;
+}
+
+const ENTRY = {
+	"/": "apps/www/index.html", "/quiz/": "apps/world-quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
+	"/himekuri/": "apps/himekuri-demo/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
+	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html",
+};
+const entryOf = href => {
+	const p = href.replace(/[?#].*$/, "");
+	if (ENTRY[p]) return ENTRY[p];
+	const m = p.match(/^\/(japan|globe)\/(.*)$/);
+	const dir = m[1] === "japan" ? "apps/ortho-japan" : "apps/ortho-globe";
+	return `${dir}/${m[2] ? m[2] + ".html" : "index.html"}`;
+};
+
+const demos = [{ id: "www", title: "www (top page)", href: "/" }, ...JSON.parse(fs.readFileSync(path.join(ROOT, "apps/www/demos.json"), "utf8")).demos];
+const engineCache = new Map();
+async function engineFiles(spec) {
+	if (!engineCache.has(spec)) engineCache.set(spec, await walk([SPEC.get(spec)], true, true));
+	return engineCache.get(spec);
+}
+const allEdges = new Set();
+const rows = [];
+for (const d of demos) {
+	const entry = entryOf(d.href), appDir = entry.split("/").slice(0, 2).join("/");
+	const isMl = d.id === "maplibre";
+	const shared = isMl || usesEngine(appDir);
+	const roots = entry.endsWith(".html") ? htmlRoots(path.join(ROOT, entry), appDir) : [path.join(ROOT, entry)];
+	const own = isMl ? { files: new Set(), hits: new Set([...SPEC.keys()].filter(s => s === "@ortho-earth/globe")), edges: new Set() } : await walk(roots, shared);
+	if (isMl) { const w = await walk(roots, true); w.hits.forEach(h => own.hits.add(h)); w.edges.forEach(e => allEdges.add(e)); }
+	own.edges.forEach(e => allEdges.add(e));
+	const cells = {}, appName = ownerOf(path.join(ROOT, appDir, "package.json"));
+	const mark = (f, k) => { const o = ownerOf(f); if (!o || o === appName || o === "ortho-engine") return; const n = npmFamily(o); if (!shown(n)) return; cells[n] = (cells[n] || "").includes(k) ? cells[n] : (cells[n] || "") + k; };
+	const baked = {};   // 束に入る内製パッケージのファイル（共有エンジンを読む頁で、どのサブパスが焼かれるか）
+	for (const f of own.files) if (!isMl) { mark(f, "B"); const o = ownerOf(f); if (shared && o && o !== appName && !o.startsWith("npm:") && /\.m?js$/.test(f)) (baked[o] ??= []).push(rel(f)); }
+	for (const h of own.hits) { const e = await engineFiles(h); e.edges.forEach(x => allEdges.add(x)); for (const f of e.files) mark(f, "E"); }
+	for (const k in cells) cells[k] = cells[k].includes("E") && cells[k].includes("B") ? "EB" : cells[k];
+	// 直に import＝アプリのファイルから出る辺の先
+	const direct = new Set();
+	const appFiles = [...own.files].filter(f => ownerOf(f) === appName);
+	for (const e of own.edges) { const [a, b] = e.split("\n"); if (ownerOf(a) === appName || a.endsWith(".html")) { const o = ownerOf(b); if (o && o !== appName) direct.add(npmFamily(o)); } }
+	const pkgOfSpec = h => h.startsWith("@") ? h.split("/").slice(0, 2).join("/") : h.split("/")[0];
+	const texts = [...appFiles, ...(entry.endsWith(".html") ? [path.join(ROOT, entry)] : [])].map(a => fs.readFileSync(a, "utf8"));   // HTML の中の script も＝アプリのコード
+	for (const h of own.hits) if (texts.some(t => t.includes(`"${h}"`) || t.includes(`'${h}'`))) direct.add(pkgOfSpec(h));
+	rows.push({ id: d.id, title: d.title, href: d.href, app: appName, appDir, entry, shared, engineEntries: [...own.hits].map(h => ENTRIES.find(e => e[0] === h)[1]), cells, direct: [...direct].sort(), baked });
+	process.stderr.write(`${d.id} ${Object.keys(cells).length}\n`);
+}
+
+// 層の図の辺＝実際の import（パッケージ → パッケージ）＋どこからも辿れないパッケージは package.json の依存
+const edges = {}, npmEdges = {};
+for (const e of allEdges) {
+	const [a, b] = e.split("\n").map(ownerOf); if (!a || !b || a === b || a.startsWith("npm:")) continue;
+	if (b.startsWith("npm:")) { if (shown(npmFamily(b))) (npmEdges[a] ??= new Set()).add(npmFamily(b).slice(4)); } else (edges[a] ??= new Set()).add(b);
+}
+for (const r of rows) { edges[r.app] ??= new Set(); for (const k of r.direct) if (!k.startsWith("npm:")) edges[r.app].add(k); }
+const reached = new Set(rows.flatMap(r => Object.keys(r.cells)));
+const unused = [];
+for (const [n, dir] of Object.entries(dirs)) {
+	if (!dir.startsWith("packages/")) continue;
+	edges[n] ??= new Set();
+	if (!reached.has(n)) {
+		unused.push(n);
+		const pj = JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8"));
+		for (const dep of Object.keys({ ...pj.dependencies, ...pj.peerDependencies })) if (dirs[dep]?.startsWith("packages/")) edges[n].add(dep);
+	}
+}
+const commit = execSync("git rev-parse --short HEAD", { cwd: ROOT }).toString().trim();
+const sets = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [...v].sort()]));
+process.stdout.write(JSON.stringify({ rows, edges: sets(edges), npmEdges: sets(npmEdges), dirs, unused: unused.sort(), engine: ENTRIES.map(([spec, name, src]) => ({ spec, name, pkg: ownerOf(src) })), commit }, null, "\t") + "\n");
