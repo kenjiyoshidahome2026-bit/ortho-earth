@@ -16,3 +16,11 @@ test("入口にだけ助け手を置く", () => {
 	assert.doesNotMatch(p.renderChunk("import(`./a.js`)", { isEntry: false }).code, /__oeR\?\?=/);
 	assert.equal(p.renderChunk("let a=1", { isEntry: false }), null);
 });
+test("助け手の current.json は入口の階に依らず /globe/engine/current.json", () => {
+	const code = engineStale().renderChunk("", { isEntry: true }).code;
+	assert.doesNotMatch(code, /\(\/\//);   // 正規表現の / が template literal で落ちて // （行の注釈）にならない
+	const src = code.match(/import\.meta\.url\.replace\(\/(.*?)\/,"\/current\.json"\)/)[1];
+	const re = new RegExp(src);
+	for (const u of ["https://x/globe/engine/0123456789/globe.js", "https://x/globe/engine/0123456789/jp/app.js"])
+		assert.equal(u.replace(re, "/current.json"), "https://x/globe/engine/current.json");
+});

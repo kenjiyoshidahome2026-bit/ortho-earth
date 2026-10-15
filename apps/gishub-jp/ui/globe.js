@@ -3,7 +3,7 @@
 // 地図の口は common/gintView（map.addGint の薄い1枚）に封じる＝このファイルの外はエンジンを知らない。
 import { createGintView, showRasterMeshes } from 'common/gintView';
 
-const engineP = import('../../ortho-japan/app.js');
+const engineP = import('@ortho-earth/jp/app');   // orthoJapan＝本番は共有エンジンの入口（jp/app.js・2026-10-14）
 
 // 地球の半径＝画面短辺の 1/4（旧 v1 と同じ構図）。待ち受けは日本の上空で自転
 const _overviewZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
@@ -17,7 +17,6 @@ const _mapP = engineP.then(m => m.default({
     countryTip: false,             // データの tip と国名 tip を混ぜない
     persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
     keyboard: () => _viewing,      // 矢印キーは地図に入っている間だけ（待ち受け中は一覧の ↑↓ 移動のもの）
-    assetBase: __JAPAN_ASSETS__,   // 実行時アセット＝本番 /japan/・dev は ortho-japan/public を /@fs で
 }));
 const _viewP = _mapP.then(map => {
     map.mapEl.addEventListener('ortho:close', exitGlobeView);
