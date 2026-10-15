@@ -16,7 +16,6 @@ import path from "node:path";
 import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const JAPAN = path.resolve(APP, "../ortho-japan");
 const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（apps/ortho-globe/scripts/build-engine.mjs）
 const OUT = path.join(APP, "dist/site");
 const PORT = 5242, CHROME = await resolveChrome();
@@ -35,17 +34,16 @@ for (const f of chunks) {
 	const src = readFileSync(path.join(assetsDir, f), "utf8");
 	if (src.includes("/japan/lib/ortho-japan.js")) fail(`${f} が /japan/lib/ortho-japan.js を import している（実行時 SDK への逆戻り＝japan を出さないと動かない形）`);
 	if (src.includes("互換描画(WebGL2)")) fail(`${f} にエンジンが焼かれている（共有エンジンの外出しが効いていない）`);
-	if (src.includes(`/globe/engine/${VERSION}/globe.js`)) pointsAtEngine = true;
+	if (src.includes(`/globe/engine/${VERSION}/globe.js`) || src.includes(`/globe/engine/${VERSION}/jp/app.js`)) pointsAtEngine = true;   // jp/app.js＝orthoJapan の入口（その先で globe.js を読む・2026-10-14）
 }
-if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/globe.js を指していない`);
+if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/（globe.js か jp/app.js）を指していない`);
 console.log(`ok:entry（${chunks.length}チャンク・エンジン非同梱・/globe/engine/${VERSION}/ を指す・lib参照なし）`);
 
-// ② 実走：census dist ＋ /globe/engine/（ortho-globe の dist/engine）＋ /japan/*（共有棚 public）を一つの静的サーバで
+// ② 実走：census dist ＋ /globe/engine/（ortho-globe の dist/engine）を一つの静的サーバで（2026-10-14〜 jp の台帳もエンジンの assets/ から・/japan/ の棚は読まない）
 const read = promisify(readFile);
 const roots = p =>
 	p.startsWith("/globe/engine/") ? path.join(ENGINE, p.slice("/globe/engine/".length))
-	: p.startsWith("/japan/census2020") ? path.join(OUT, p.endsWith("/") ? p + "index.html" : p)
-	: path.join(JAPAN, "public", p.replace(/^\/japan\//, ""));   // plateau-sets.json 等＝本番はortho-japan Workerの棚
+	: path.join(OUT, p.endsWith("/") ? p + "index.html" : p);   // それ以外（/japan/ の棚など）は census の dist に無い＝404＝別のアプリを読んでいたら落ちる
 const requests = [];   // 「ブラウザが実際に何を取りに来たか」の台帳＝実走判定の根拠
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
@@ -76,7 +74,8 @@ const need = [
 	["/japan/census2020/assets/index-", "census入口チャンク"],
 	[`/globe/engine/${VERSION}/globe.js`, "共有エンジンの入口"],
 	[`/globe/engine/${VERSION}/assets/renderworker-`, "render worker（共有エンジン）"],
-	["/japan/airports.json", "assetBase（/japan/共有棚）"],   // 証拠＝起動時に必ず読む共有棚のファイル（旧 plateau-sets.json は 2026-09-22 から寄った時だけ読む）
+	[`/globe/engine/${VERSION}/jp/app.js`, "orthoJapan（共有エンジンの入口 jp/app.js）"],
+	[`/globe/engine/${VERSION}/assets/airports.json`, "jp の台帳（共有エンジンの assets/）"],   // 証拠＝起動時に必ず読む台帳（旧＝/japan/airports.json＝japan の棚・2026-10-14 まで）
 ];
 // 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
 const errs = [];   // 自オリジンの console.error / 例外（受動）

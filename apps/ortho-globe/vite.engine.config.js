@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { urlAsFile, wasmAsFile, assetUrlAsFile } from "../../packages/globe/scripts/lib/vite-lib-plugins.mjs";
 import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";
+import { libEntry } from "./engine/entries.mjs";
 import { engineStale } from "../../packages/globe/scripts/lib/engine-stale.mjs";   // 旧版の入口を握ったままの頁が部品で 404 に落ちたら 1 回だけ読み直す（恒久対策 A・2026-10-14）   // 部品の worker を作らない版へ・MLT／点群のプラグイン（アプリ共通）
 const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EGM96 の格子と気候場の PNG を実体に（base64 で globe.js に埋めない）
 
@@ -16,6 +17,7 @@ const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EG
 //   core   … 楕円体の切替（ellipsoidOn）等の状態＝quakes/sats が読む
 //   geopbf … worker の口（setWorkerFactory）と既定の bucket（createGeopbf）＝geopbf-demo が設定する
 //   h3     … h3-js（@ortho-earth/h3/core）＝状態は無いが重い（約 65KB）。エンジンの map.addH3 も同じ実体を読む＝/globe/hex が 2 つ目を束に持たない（2026-10-14）
+//   jp/*・nl/* … 2 つ以上のアプリが使う地域パック（orthoJapan・コード表・共有データの口）＝各アプリに焼かない（2026-10-14・engine/entries.mjs）
 const ROOT = resolve(import.meta.dirname, "../..");
 export default defineConfig({
 	root: import.meta.dirname,   // outDir はここ起点（どこから呼んでも apps/ortho-globe/dist/engine）
@@ -27,13 +29,7 @@ export default defineConfig({
 		emptyOutDir: true,
 		sourcemap: true,
 		lib: {
-			entry: {
-				globe: resolve(import.meta.dirname, "engine/globe.js"),
-				i18n: resolve(ROOT, "packages/globe/src/i18n.js"),
-				core: resolve(ROOT, "packages/ortho-core/src/index.js"),
-				geopbf: resolve(ROOT, "packages/geopbf/src/index.js"),
-				h3: resolve(ROOT, "packages/h3/src/core.js"),
-			},
+			entry: libEntry(),   // 入口の一覧＝engine/entries.mjs（globe・i18n・core・geopbf・h3・jp/*・nl/*）
 			formats: ["es"],
 		},
 		rollupOptions: {

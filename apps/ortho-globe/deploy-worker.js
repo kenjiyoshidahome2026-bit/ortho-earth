@@ -9,7 +9,7 @@
 //   手元に旧版の globe.js が残った閲覧者は、302 を通らずに旧版のまま動き、遅延チャンク（cog-*.js 等）を旧版の住所へ取りに行って 404
 //  （tellus の「Failed to fetch dynamically imported module …/engine/916d5c0d18/assets/cog-*.js」）。チャンクは中身のハッシュ名＝immutable のまま。
 const ENGINE = /^\/globe\/engine\/([0-9a-f]{10})\/(.+)$/;
-const ENTRY = /^(globe|maplibre|i18n|core|geopbf|h3)\.js$|^globe\.css$/;   // maplibre＝MapLibre 互換の口（www の /maplibre/ の例が import map で指す・2026-10-01）・h3＝5 本目の lib 入口（#348）
+const ENTRY = /^(?!assets\/)[\w/-]+\.(js|css)$/;   // 入口＝assets/ の外の js・css（globe・maplibre・i18n・core・geopbf・h3・jp/*・nl/*・globe.css＝apps/ortho-globe/engine/entries.mjs）。チャンクと実行時データは assets/ の中（名前はハッシュか、版の中身）
 const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
 const toCurrent = async (env, url) => {
 	const m = url.pathname.match(ENGINE); if (!m) return null;

@@ -14,7 +14,7 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
 //   出すたびに全消費者が同時に変わり、9/20 の map.overlay 上書きで本番の census2020 が 3 日間起動不能だった。
 //   代償＝エンジン分（gzip 300KB 台）の重複＝japan とのブラウザキャッシュ共有は無くなる。実行時アセット（airports.json 等）は
 //   引き続き /japan/ の共有棚（データであってコードではない）。
-const engineP = import("../ortho-japan/app.js");
+const engineP = import("@ortho-earth/jp/app");   // orthoJapan＝本番は共有エンジンの入口 /globe/engine/<版>/jp/app.js（2026-10-14・旧 ../ortho-japan/app.js を束に焼いていた）
 import { setup } from "./ui/ctx.js";
 import { renderCensusSmall2020, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
@@ -54,8 +54,8 @@ const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() =
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";
-// assetBase: 本番=/japan/（ortho-japan Worker の共有棚＝実行時アセット。コードは同梱・データは共有）・dev=自分のbase（publicDir共有＝従来どおり）
-engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true, assetBase: import.meta.env.PROD ? "/japan/" : import.meta.env.BASE_URL })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
+// assetBase: 本番＝指さない＝orthoJapan の既定（共有エンジンの assets/＝jp の台帳・2026-10-14・旧＝/japan/ の棚を実行時に読んでいた）・dev＝自分の base（publicDir 共有・moj-local 等の手元の道具）
+engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true, ...(import.meta.env.PROD ? {} : { assetBase: import.meta.env.BASE_URL }) })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
 	dismissBoot();
 	window.__map = map;   // console 検証用（デバッグの手すり）
 	// 道具箱（census2020 に要る道具だけ・日本語のみ）

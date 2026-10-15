@@ -1,0 +1,21 @@
+{
+ "_readme": "焼き（scripts/bake-plateau.mjs）と生経路（decodeBatch）で捨てる地物＝base URL → gml_id の配列。理由はコメント欄。2026-09-08 新宿区橋梁の精査＝真上に重なる/厚み 12m 超の 7 件（本人「要確認を外して焼いて」）",
+ "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13104-brid-lod2-texture-latest/": [
+  "brid_c31d14e8-c71d-4bf7-8313-5914aa00a1fb",
+  "brid_d334ce6c-ba71-481b-84e3-dc7b306a2a30",
+  "brid_251cb7ef-27bb-474b-bf47-015f371ec471",
+  "brid_fbaf83a6-8ff0-4d9c-926c-2e9004adf1d6",
+  "brid_4bf859e4-5b27-4b5e-aa64-a9717653688b",
+  "brid_269cd22d-1705-42bf-9005-96871df9b289",
+  "brid_c73f9465-d10e-4ff4-94a1-954959c114cc"
+ ],
+ "_why:https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13104-brid-lod2-texture-latest/": {
+  "brid_c31d14e8-c71d-4bf7-8313-5914aa00a1fb": "above 98c70089",
+  "brid_d334ce6c-ba71-481b-84e3-dc7b306a2a30": "above 7dd0d7f6",
+  "brid_251cb7ef-27bb-474b-bf47-015f371ec471": "thick 23m",
+  "brid_fbaf83a6-8ff0-4d9c-926c-2e9004adf1d6": "thick 14m",
+  "brid_4bf859e4-5b27-4b5e-aa64-a9717653688b": "thick 14m",
+  "brid_269cd22d-1705-42bf-9005-96871df9b289": "thick 13m",
+  "brid_c73f9465-d10e-4ff4-94a1-954959c114cc": "thick 24m"
+ }
+}

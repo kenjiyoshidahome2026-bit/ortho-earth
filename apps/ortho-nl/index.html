@@ -70,8 +70,8 @@
 	<script type="module">
 		// 中身は ortho-japan と同じエンジン（app.js）＝1行で立ち上がる。違うのは入口URL(/nl/)と既定の視点だけ。
 		// 日本固有のガジェット（地名検索・日本ボタン・デモ台本・太陽系への口）は載せない＝この画面はオランダ一本。
-		import orthoJapan from "../ortho-japan/app.js";
-		import { NL_PLACES } from "../ortho-japan/nl/region.js";   // 街の一覧（建物の枠と同じ表＝街を足すのは region.js だけ）
+		import orthoJapan from "@ortho-earth/jp/app";   // 本番は共有エンジンの入口（jp/app.js・2026-10-14）
+		import { NL_PLACES } from "@ortho-earth/nl";   // 街の一覧（建物の枠と同じ表＝街を足すのは region.js だけ）
 		const dismissBoot = () => {
 			requestAnimationFrame(() => requestAnimationFrame(() => {
 				const boot = document.getElementById("boot");

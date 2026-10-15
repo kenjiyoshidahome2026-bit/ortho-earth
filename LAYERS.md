@@ -34,7 +34,10 @@
    ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
    前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
    いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp・japan のサイト（後の 4 つは 2026-09-30）。
-   japan 系は**二段**＝共有エンジン（地域を知らない）＋各アプリの束に入る `orthoJapan`（`apps/ortho-japan/app.js`）と jp パック。
+   japan 系は**二段**＝共有エンジン（地域を知らない）＋ `orthoJapan`（`packages/jp/src/app.js`）と jp パック。
+   **2026-10-14〜** 二段目も共有エンジンの入口＝`/globe/engine/<版>/jp/app.js`（orthoJapan）・`jp/index|region|codes|shared-data.js`・`nl/index.js`（掟 6）。
+   入口の一覧は `apps/ortho-globe/engine/entries.mjs`（current.json の `imports` へ書かれ、sharedEngine が読む）。jp の台帳（airports・plateau-*）は
+   `packages/jp/assets` が正本で `<版>/assets/` に複写＝orthoJapan の `assetBase` の既定（SDK と japan のサイトは従来どおり自分の BASE_URL）。
    地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.js`）。
    `orthoJapan` は `assetBase` の既定を自分の束の `BASE_URL` にする（エンジンの束の BASE_URL は別物）。
    japan のサイト殻も同じ二段（本人裁定「A」2026-09-30・旧＝本番だけ `/japan/lib/` の SDK を実行時に食う二重構成）。
