@@ -17,7 +17,7 @@ A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from 
 - **Reads the formats you already have.** 3D Tiles (b3dm · i3dm · pnts · cmpt · glb), I3S, COPC point clouds, quantized-mesh and raster-dem terrain, COG, WMS/WMTS, CZML/KML/GPX, GeoParquet, FlatGeobuf, Shapefile, GeoPackage, File Geodatabase, MVT and MLT — in the browser, with no server of your own ([`geopbf`](packages/geopbf): 18 formats in, 14 out).
 - **Data layers without a second engine.** `map.addData(array, { kind, getPosition, getColor, … })` takes an array or GeoJSON with accessor functions: points, arcs, polygons, paths, columns and trips, with GPU range filters, brushing and masks. `map.addH3` / `addCells` (grid · geohash · quadkey · S2) / `addContour` / `addScreenGrid` bin points into cells, isolines and screen grids. deck.gl's `MapboxOverlay` and MapLibre-style custom layers (in the render worker, occluded by terrain and buildings) and three.js modules ride on the same camera.
 - **Analysis built in.** Sun shadows and shadow hours, viewshed, line of sight, profiles, clipping, measurement, `sampleTerrain`, sun and moon position. 26 UI languages.
-- **React, if you want it.** [`@ortho-earth/react`](packages/react): `<Globe>`, `<Source>`, `<Layer>`, `<Data>`, `<Marker>`, `useGlobe`, `useGlobeEvent`.
+- **React, if you want it.** [`@ortho-earth/react`](sdk/react): `<Globe>`, `<Source>`, `<Layer>`, `<Data>`, `<Marker>`, `useGlobe`, `useGlobeEvent`.
 
 ## Quick start
 
@@ -62,7 +62,7 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`@ortho-earth/core`](packages/ortho-core) | 1.15.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
 | [`@ortho-earth/globe`](packages/globe) | 1.16.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 | GPL-3.0-or-later | Japan region pack |
-| [`@ortho-earth/react`](packages/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
+| [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/columnar`](packages/columnar) | 0.1.1 | GPL-3.0-or-later | Column-chunk layer: GeoPBF / GeoParquet without the topology pass |
 | [`@ortho-earth/h3`](packages/h3) | 0.1.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.1.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |

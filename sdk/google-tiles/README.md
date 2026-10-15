@@ -1,6 +1,6 @@
 # @ortho-earth/google-tiles
 
-Google Photorealistic 3D Tiles for [`@ortho-earth/globe`](../globe). The globe already streams any 3D Tiles tileset (`map.add3DTiles`) and lets a tileset rewrite each of its requests (`requestTransform`). This package adds the Google-specific part on top of that:
+Google Photorealistic 3D Tiles for [`@ortho-earth/globe`](../../packages/globe). The globe already streams any 3D Tiles tileset (`map.add3DTiles`) and lets a tileset rewrite each of its requests (`requestTransform`). This package adds the Google-specific part on top of that:
 
 - **API key.** Every request to `tile.googleapis.com` gets `key=…`. Requests to any other host are returned untouched, so the key is not sent elsewhere.
 - **Session token.** Google puts `session=…` in the child tileset URIs. The content URIs inside those child tilesets are relative and come without it. The transform remembers the token and adds it to later requests that lack one.
