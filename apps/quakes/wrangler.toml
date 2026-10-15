@@ -1,0 +1,16 @@
+# ortho-quakes＝世界の地震の頁（www.ortho-earth.com/globe/quakes/）。2026-10-15 に ortho-globe から独立（本人「quakes を独立させて、その中に持った方が」）。
+# route は /globe/quakes と /globe/quakes/* だけ＝ortho-globe の /globe/* より specific＝こちらが受ける（共有エンジンの /globe/engine/* と同じ理屈）。
+# データ＝同一オリジンの /quakes/*（apps/quakes-mirror・archive を配るだけ）＋直近分はブラウザが USGS FDSN から直接取る（quakes-worker.js）。
+name = "ortho-quakes"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+routes = [
+	{ pattern = "www.ortho-earth.com/globe/quakes/*", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/globe/quakes", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む

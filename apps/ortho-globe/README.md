@@ -6,7 +6,6 @@ Served at `www.ortho-earth.com/globe/` by this app's own Worker.
 | Page | URL | Data |
 |---|---|---|
 | Globe ⇄ Equal Earth | `/globe/` (`?start=equal` opens on the Equal Earth side) | bucket `GIS/world/` (rules: `@ortho-earth/core/worldcontent`) |
-| World earthquakes | `/globe/quakes` | `/quakes/*` (`apps/quakes-mirror`) + USGS FDSN, fetched by the browser |
 | Satellites | `/globe/sats` | `/sats/active.csv` (`apps/sats-mirror`), CelesTrak as fallback |
 | The shortest way is an arc | `/globe/arcs` (`?mode=cmp\|air\|csv` · `?csv=URL`) | Capitals from the world ledger (`NationDB` + `CityDB`, GitHub Pages `ortho-data/globe/`); airports and routes from OpenFlights (`airports.dat`, `routes.dat`, ODbL, frozen in June 2014) read by the browser from raw.githubusercontent.com and kept in the Cache API; country shapes = NE admin_0 50m (the engine's own geopbf). Arcs, lights and dots are `map.addData` (`arcs` / `trips` / `points`) |
 | Landforms of the World | `/globe/physical` (`?data=URL` swaps the catalogue) | GitHub Pages `ortho-data/globe/` (`packages/world` TerrainDB + `ne-physical.geopbf`), Köppen grid, PB2002 plates |
@@ -30,7 +29,7 @@ plus `map.gadget.lang()` (physical and parks keep their own language `<select>` 
 npm run dev -w ortho-globe          # http://localhost:5186/globe/
 ```
 
-The earthquake page reads `public/quakes/usgs-quakes-m2.geopbf` in dev (not in git; build it with `scripts/usgs-quakes-build.mjs` at the repository root), or any `?src=URL`.
+World earthquakes (`/globe/quakes/`) moved to its own app, [`apps/quakes`](../quakes), on 2026-10-15.
 
 ## UI text
 

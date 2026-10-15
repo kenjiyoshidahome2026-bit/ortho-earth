@@ -35,11 +35,11 @@ apps/gishub-jp/scripts/catalog-geojson.csv
 apps/gishub-jp/scripts/catalog.json
 .dev.vars
 
-# USGS 地震カタログの月別 CSV キャッシュ（scripts/usgs-quakes-build.mjs）
+# USGS 地震カタログの月別 CSV キャッシュ（apps/quakes/scripts/usgs-quakes-build.mjs）
 .cache/
-# 地震ビューア（apps/ortho-globe/quakes.html）の dev 用データ＝scripts/usgs-quakes-build.mjs で再生成できる（25MB）
-apps/ortho-globe/public/quakes/*.geopbf
-# USGS 地震データ本体（scripts/usgs-quakes-build.mjs で再生成できる・25MB）
+# 地震ビューア（apps/quakes/index.html）の dev 用データ＝apps/quakes/scripts/usgs-quakes-build.mjs で再生成できる（25MB）
+apps/quakes/public/dev/*.geopbf
+# USGS 地震データ本体（apps/quakes/scripts/usgs-quakes-build.mjs で再生成できる・25MB）
 /usgs-quakes-*.geopbf
 /usgs-quakes-*.geopbf.json
 # Claude の作業出力（プレビュー画像など）
