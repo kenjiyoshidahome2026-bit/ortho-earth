@@ -26,6 +26,8 @@ import { installData } from "./api/data.js";
 import { installIntake } from "./api/intake.js";
 import { installImages } from "./api/images.js";
 import { installShadows } from "./api/shadows.js";
+import { installGadgets } from "./api/gadgets.js";
+import { installRaster } from "./api/raster.js";
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は {}）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
@@ -51,13 +53,13 @@ export { addProtocol, removeProtocol };
 export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
-import { clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
+import { clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, sourceFeatures, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, sourceFeatures, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
@@ -78,26 +80,8 @@ import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, 
 import { mountGadgets } from "./gadgets/mount.js";
 import { attributionHTML } from "./gadgets/instruments.js";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
-import { search as searchGadget } from "./gadgets/searchbox.js";
-import { hint as hintGadget } from "./gadgets/hint.js";
-import { compass as compassGadget } from "./gadgets/compass.js";
-import { solar as solarGadget } from "./gadgets/solar.js";
-import { equal as equalGadget, equalHereItem, goEqual } from "./gadgets/equal.js";
-import { lang as langGadget } from "./gadgets/lang.js";   // UI 言語の切替（26 言語・?lang= を書いて読み直す）＝デモ頁の共通装備（2026-10-04）
-import { mesh as meshGadget } from "./gadgets/mesh.js";
-import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
-import { zoom as zoomGadget } from "./gadgets/zoom.js";
-import { full as fullGadget } from "./gadgets/full.js";
-import { cpos as cposGadget } from "./gadgets/cpos.js";
-import { contextmenu as contextmenuGadget } from "./gadgets/contextmenu.js";
-import { tip as tipGadget } from "./gadgets/tip.js";
-import { pop as popGadget } from "./gadgets/pop.js";
-import { explain as explainGadget } from "./gadgets/explain.js";
-import { legend as legendGadget } from "./gadgets/legend.js";
-import { measure as measureGadget } from "./gadgets/measure-stub.js";
 import { inspect as inspectGadget } from "./gadgets/inspect-stub.js";   // 検査表示（maplibre-gl-inspect 相当・#174）の玄関スタブ＝ボタン常駐、本体(inspect.js)は初回クリックで import()
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
-import { profile as profileGadget } from "./gadgets/profile-stub.js";
 import { raster as rasterGadget } from "./gadgets/raster.js";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
 import { globe as globeGadget } from "./gadgets/globe.js";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
@@ -2936,267 +2920,25 @@ installTerrain(map, {
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
 }, { EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
-// ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
-// ここは台帳（id→spec/opts/info）と指示（rasterAdd/Remove/Set）・ローカル容器（gpkg/mbtiles）のプロバイダ worker・
-// カタログ（地域パック rasters＝外から定義）と ?r= の同期。外から定義できる口＝三つ：地域パック（REGION.rasters）／
-// URL（?xyz= ?pm= ?r=）／公開 API（map.raster.add＝自前契約の URL テンプレ・ラスタ PMTiles・MessagePort プロバイダ）。
-const rasterReg = new Map();   // id → { spec, opts, info, error, worker, attrHTML, _res, _rej }
-ownDestroy.push(() => { for (const r of rasterReg.values()) { r.worker?.terminate(); r.port?.close(); r._rej?.(new Error("destroyed")); } rasterReg.clear(); });   // 提供側 worker（main 所有）
-const rasterCbs = new Set();
-const rasterStatWait = new Map(); let rasterStatSeq = 0;
-const rasterChanged = () => { attrZone = null; requestDraw(); for (const cb of rasterCbs) { try { cb(); } catch (e) { console.error("[raster] onChange", e); } } };
-const imageAttrs = new Map();   // 四隅で貼った画像（覆う＝オーバーレイ）の出典 id → 消毒済み HTML（画像層の出典と同じ欄に並べる）
-const rasterAttrHTML = () => [...rasterReg.values()].map(r => r.attrHTML).concat([...imageAttrs.values()]).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join("・");
-const hostOf = u => { try { return new URL(String(u).replace(/^pmtiles:\/\//, "")).host; } catch { return null; } };
-function onRasterInfo(id, info) {
-	const rec = rasterReg.get(id); if (!rec) return;
-	rec.info = info;
-	// 出典＝ソースの自己申告（PMTiles/MBTiles の metadata・カタログの宣言）を消毒して出す。無ければホスト名（無出典で他人の絵を出さない）
-	rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : (info?.name ? sanitizeHTML(String(info.name)) : null));
-	rec._res?.(info); rec._res = rec._rej = null;
-	rasterChanged();
-}
-function onRasterError(id, error) {
-	const rec = rasterReg.get(id); if (!rec) return;
-	rec.error = error;
-	if (rec._rej) { rasterReg.delete(id); rec.worker?.terminate(); rec._rej(new Error(error)); rec._res = rec._rej = null; rasterChanged(); }
-	else console.warn("[raster]", id, error);
-}
-const catalogSpec = c => ({ url: c.url, tileSize: c.tileSize || 256, minZoom: c.minZoom, maxZoom: c.maxZoom, bbox: c.bbox || null, subdomains: c.subdomains, tms: c.tms,
-	name: c.key ? t(c.key) : (c.name || c.id),
-	attribution: c.attribution ? (c.attribution.href ? `<a href="${c.attribution.href}" target="_blank" rel="noopener">${c.attribution.key ? t(c.attribution.key) : c.attribution.text}</a>` : (c.attribution.key ? t(c.attribution.key) : c.attribution.text)) : null });
-// ?r=<id,id…>＝今の選択（基図＋重ね）を URL の search に写す（hash＝視点とは別の静的パラメータ）。埋め込み（target）ではホストの URL に触れない
-const rasterSyncURL = () => {
-	if (opts.target || !URL_OWN) return;   // 埋め込み・URL の持ち主でない地図は書かない
-	try {
-		const sel = map.raster.selected(), ids = [sel.base, ...sel.overs].filter(Boolean);
-		const u = new URL(location.href);
-		if (ids.length) u.searchParams.set("r", ids.join(",")); else u.searchParams.delete("r");
-		if (u.href !== location.href) history.replaceState(history.state, "", u.href);
-	} catch { /* 履歴 API 不可の環境＝無害 */ }
-};
-// 独自スキームの画像タイル（addProtocol・#37）＝port プロバイダの契約（raster-src.js）で main から画像を渡す：
-// info を 1 通 → 要求 { id, z, x, y } に読み口で本体を取り、ImageBitmap にして返す（transfer）。中断 { id, abort } は読み口の AbortController へ
-function serveProtocolRaster(port, tpl, spec) {
-	const acs = new Map();
-	const subs = typeof spec.subdomains === "string" ? spec.subdomains.split("") : spec.subdomains || null;
-	port.postMessage({ type: "info", info: { tileSize: spec.tileSize || 256, minZoom: spec.minZoom ?? 0, maxZoom: spec.maxZoom ?? 18, bbox: spec.bbox || null, attribution: spec.attribution || null, name: spec.name || null } });
-	port.onmessage = async e => {
-		const { id, z, x, y, abort } = e.data || {};
-		if (abort) { acs.get(id)?.abort(); acs.delete(id); return; }
-		const ac = new AbortController(); acs.set(id, ac);
-		try {
-			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
-			// 独自スキームは MapLibre と同じく type:"image" で頼む（maplibre-cog-protocol は "image" だけを受ける・公式例の門 2 巡目）。返りは画像・ImageBitmap・ImageData・Blob・ArrayBuffer のどれでも
-			const d = rq.load ? await rq.load("image", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
-			const bitmap = await protocolBitmap(d);
-			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
-		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
-		finally { acs.delete(id); }
-	};
-}
-// 独自の読み口（addProtocol）が type:"image" に返す物→ImageBitmap（画像・ImageBitmap・ImageData・canvas・Blob・ArrayBuffer のどれでも）。画像タイル層と raster-dem（陰影・段彩）で共有（2026-09-30）
-async function protocolBitmap(d) {
-	const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
-	return d == null ? null
-		: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
-		: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) || (typeof OffscreenCanvas !== "undefined" && d instanceof OffscreenCanvas) ? await createImageBitmap(d, bmOpts)
-		: d instanceof Blob ? await createImageBitmap(d, bmOpts)
-		: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
-}
-// 四隅の動画（#49）＝覆いのオーバーレイ（imagequad の組み込み・注記の下）へ毎コマ差し替え。動画を使うまで chunk も overlay も作らない
 let videoCtl = null;
-const videoGet = async () => videoCtl ??= (await import("./gadgets/videoquad.js")).createVideoQuads({ overlay: () => map.overlay({ builtin: "imagequad" }, { name: "videoquad" }), maxSide: LOW_MEM ? 1024 : 2048 });
-ownDestroy.push(() => videoCtl?.clear());
-map.raster = {
-	catalog: REGION_RASTERS,
-	// add(id, spec, opts)：spec＝{ url:"…/{z}/{x}/{y}.png", minZoom, maxZoom, bbox, attribution, subdomains, tms, headers }｜{ pmtiles:"…" }｜{ file: File(.gpkg/.mbtiles), table? }｜{ port: MessagePort }
-	//                     ｜{ image: Blob|ImageBitmap, corners: [[lon,lat]×4 左上→右上→右下→左下], name? }（四隅で貼る＝MapLibre の image source 相当・2026-09-21）
-	//                     ｜{ video: HTMLVideoElement|URL|[URL…], corners }（四隅の動画＝MapLibre の video source 相当・#49）＝地面に焼かず覆う（基図の上・注記の下）。戻り＝{ getVideo, play, pause, seek, setCoordinates }
-	//                     opts＝{ order:"under"|"over", opacity, visible, hideFills（under 既定 true）, minZoom, maxZoom（表示域） }。戻り＝ソースの自己申告（info）
-	async add(id, spec, o = {}) {
-		if (rasterReg.has(id) || videoCtl?.get(id)) map.raster.remove(id);
-		if (spec?.canvas) return (await videoGet()).add(id, { canvas: spec.canvas, corners: spec.corners, opacity: o.opacity ?? 1, animate: spec.animate !== false });   // 四隅の canvas（MapLibre の canvas source・C3）＝動画と同じ覆い
-		if (spec?.video) {   // 四隅の動画＝毎コマ差し替える覆いの口（gadgets/videoquad.js・遅延 chunk）
-			const v = spec.video, isEl = typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement;
-			return (await videoGet()).add(id, { video: isEl ? v : null, urls: isEl ? null : v, corners: spec.corners, opacity: o.opacity ?? 1 });
-		}
-		const rec = { spec, opts: { tileBias: TILE_BIAS, ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };   // tileBias＝目盛り "mercator" で画像タイルの z も MapLibre と同じに
-		rasterReg.set(id, rec);
-		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
-		// 取得の前の手入れ（#37）：URL の型紙は worker が組む＝ヘッダ/credentials はソース単位で一度だけ決める。独自スキーム＝main が読み口で取って port で渡す
-		if (spec && (spec.url || spec.wms) && !spec.pmtiles && !/\.pmtiles(\?|#|$)|^pmtiles:/i.test(spec.url || "")) {
-			const tpl = spec.url || wmsTemplate(spec.wms), rq = requester.resolve(tpl, "Tile");
-			if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null }; transfer = [ch.port2]; rec.port = ch.port1; }
-			else if (rq.url !== tpl || rq.headers || rq.credentials) wireSpec = { ...spec, wms: undefined, url: rq.url, headers: rq.headers ? { ...(spec.headers || {}), ...rq.headers } : spec.headers, credentials: rq.credentials ?? spec.credentials };
-		}
-		let iiifMaps = null, iiifAttr = null, iiifFallback = null;
-		if (spec?.iiif) {   // 基準点の注記（Georeference Annotation・#177）＝main で読んで解き、画像と写像は worker が持つ
-			try { ({ maps: iiifMaps, attribution: iiifAttr, fallback: iiifFallback } = await iiifOpen(spec.iiif, spec.attribution)); }
-			catch (err) { if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
-		}
-		if (spec && (spec.file || spec.image || spec.iiif)) {   // ローカル容器／四隅で貼る画像／IIIF の古地図＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
-			const w = spec.iiif
-				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "iiif" })   // 基準点で歪みを直した IIIF の画像＝タイルに焼く（iiif-worker.js・#177）
-				: spec.image
-				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
-				: new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "rastertiles" });
-			rec.worker = w;
-			const ch = new MessageChannel();
-			const opened = new Promise((res, rej) => {
-				w.onmessage = e => { const d = e.data || {}; if (d.type === "opened") res(d.info); else if (d.type === "error") rej(Object.assign(new Error(d.error), { vectorLayers: d.vectorLayers })); };
-				w.onerror = e => rej(new Error(e.message || "raster provider worker error"));
-			});
-			if (spec.iiif) w.postMessage({ type: "open", maps: iiifMaps, name: spec.name || null, attribution: iiifAttr, fallbackAttribution: iiifFallback, port: ch.port1 }, [ch.port1]);
-			else if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, attribution: spec.attribution || null, maxSide: LOW_MEM ? 2048 : 4096, port: ch.port1 }, [ch.port1]);   // 省メモリ機＝長辺 2048（RGBA＋ミップ ≈21MB・4096 だと ≈85MB＝Air3 jetsam の轍）
-			else w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
-			try { await opened; } catch (err) { w.terminate(); if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
-			if (rasterReg.get(id) !== rec) { w.terminate(); throw new Error("removed while opening"); }
-			const opened_ = await opened.catch(() => null);   // 開いた時の情報（iiif＝info.json の attribution・ホスト名まで決まった出典）
-			wireSpec = { port: ch.port2, name: spec.name || spec.file?.name || (spec.iiif ? "iiif" : "image"), attribution: (spec.iiif ? opened_?.attribution ?? iiifAttr : spec.attribution) || null }; transfer = [ch.port2];
-		}
-		const done = new Promise((res, rej) => { rec._res = res; rec._rej = rej; });
-		wPost({ type: "set", cmd: "rasterAdd", prop: id, data: { spec: wireSpec, opts: rec.opts } }, transfer);
-		rasterChanged();
-		return done;
-	},
-	remove(id) { if (videoCtl?.remove(id)) { requestDraw(); return true; } const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
-	set(id, o) { if (videoCtl?.get(id)) return o.opacity != null ? videoCtl.setOpacity(id, o.opacity) : true; const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
-	list: () => [...rasterReg].map(([id, r]) => ({ id, info: r.info, spec: r.spec, opts: r.opts, error: r.error })),
-	info: id => rasterReg.get(id)?.info ?? null,
-	stats: () => new Promise(res => { const sid = ++rasterStatSeq; rasterStatWait.set(sid, res); wPost({ type: "rasterStats", id: sid }); setTimeout(() => { if (rasterStatWait.delete(sid)) res(null); }, 5000); }),
-	onChange(cb) { rasterCbs.add(cb); return () => rasterCbs.delete(cb); },
-	// カタログ（地域パック）から：基図（under）はラジオ＝1 枚（null＝ベクタ地図に戻す）／重ね（over）はトグル。?r= を同期
-	async select(cid) {
-		const c = cid ? REGION_RASTERS.find(x => x.id === cid && (x.order || "under") !== "over") : null;
-		if (cid && !c) throw new Error(`raster: unknown base "${cid}"`);
-		if (!c) { map.raster.remove("base"); rasterSyncURL(); return null; }
-		const info = await map.raster.add("base", catalogSpec(c), { order: "under", opacity: c.opacity ?? 1, hideFills: true, catalogId: c.id });
-		rasterSyncURL(); return info;
-	},
-	async toggle(cid, on) {
-		const c = REGION_RASTERS.find(x => x.id === cid && x.order === "over");
-		if (!c) throw new Error(`raster: unknown overlay "${cid}"`);
-		const id = "ov:" + c.id, has = rasterReg.has(id), want = on == null ? !has : !!on;
-		if (want === has) return has;
-		if (want) await map.raster.add(id, catalogSpec(c), { order: "over", opacity: c.opacity ?? 0.7, hideFills: false, catalogId: c.id }); else map.raster.remove(id);
-		rasterSyncURL(); return want;
-	},
-	selected: () => ({ base: rasterReg.get("base")?.opts?.catalogId ?? null, overs: [...rasterReg].filter(([id]) => id.startsWith("ov:")).map(([, r]) => r.opts.catalogId).filter(Boolean) }),
-};
-{	// 起動待ち行列の解放＝初フレーム後（render worker 初期化前の set は捨てられる）
-	const off = map.onFrame(() => { off(); rasterBoot = fn => fn(); for (const fn of rasterBootQ.splice(0)) fn(); });
-}
-// ガジェットの表示宣言（プラットフォームの掟 2026-09-03「アイコン配列は全zで一本」）：搭載時 opts に
-//   zoom: [zmin, zmax)  … このズーム域でだけ表示（旧・solar の showBelow 内蔵と z5 一括退場CSSの置き換え）
-//   narrow: false       … 狭画面（narrowMq=480px＝#pos の狭画面掟と同じ境界）では出さない（左上溢れ対策）
-// を添えると、その搭載でスタック(#gadgets)へ生えた要素をプラットフォームが裁く（圏外は display:none＝
-// スタックは上詰め・並び順不変）。ガジェット自身は zoom も画面幅も知らない＝定義がシンプルに保たれる。
-// 契約：同期でスタックへ生やすガジェットに効く。自前で display を裁くガジェット（compass の3D限定等）に併用しない。
-const gadgetGates = [];
-const applyGadgetGate = g => {
-	const on = cam.zoom >= g.min && cam.zoom < g.max && !(g.hideNarrow && narrowMq.matches);
-	if (on !== g.on) { g.on = on; g.el.style.display = on ? "" : "none"; }
-};
-frameHooks.add(() => gadgetGates.forEach(applyGadgetGate));   // 圏の出入りは動いた時にしか起きない＝render のフックで足りる
-narrowMq.addEventListener("change", () => { gadgetGates.forEach(applyGadgetGate); requestDraw(); }, { signal: ac.signal });   // 回転・窓リサイズの跨ぎは即応（静止中でも）
-map.gadget = function (name, func) {
-	typeof name == "function" && name.name && (func = name, name = func.name);
-	map.gadget[name] = function (opts) {
-		const st = mapEl.querySelector("#gadgets"), before = st && new Set(st.children);
-		const ret = func.apply(map, arguments);
-		const zr = opts?.zoom, hideNarrow = opts?.narrow === false;
-		if (zr || hideNarrow) {
-			const now = mapEl.querySelector("#gadgets");
-			const added = now ? [...now.children].filter(el => !before?.has(el)) : [];
-			if (!added.length) console.warn(`[gadget] ${name}: display declaration (zoom/narrow) but no stack element appeared synchronously (gate not bound)`);
-			for (const el of added) { const g = { el, min: zr?.[0] ?? -Infinity, max: zr?.[1] ?? Infinity, hideNarrow, on: null }; gadgetGates.push(g); applyGadgetGate(g); }   // 搭載した瞬間から現状態で裁く（コンパスの update() 即呼びと同じ作法）
-		}
-		return ret;
-	};
-};
-map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
-	return searchGadget.call(this, { provider: REGION_SEARCH, signal: ac.signal, ...opts });
-});
-map.gadget("hint", function (opts) {   // 操作説明カード … map.gadget.hint() → { open, close }。キー(?)用に signal を注入
-	const h = hintGadget.call(this, { signal: ac.signal, onOpen: () => toolOpen("hint"), ...opts });
-	if (h) toolClose.set("hint", () => h.close(false));   // 道具に場所を譲る＝記憶には書かない（次の起動で初見の人にはまた開く）
-	return h;
-});
-map.gadget("compass", function (opts) {   // コンパス兼リセット … 内部の手綱（フライト中断・onMove）はここで注入
-	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
-	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
-});
-map.gadget("equal", function (opts) {   // 全球図（ortho-equal・Equal Earth）への口＝球のフレームから開く受け渡し（?morph=1）。右クリック項目は map.gadget.equalHere()
-	return equalGadget.call(this, opts);
-});
-map.gadget("equalHere", function (opts) { return equalHereItem(this, opts); });   // 右クリックメニューの項目＝contextmenu の setter へ渡す材料
-map.gadget("lang", function (opts) { return langGadget.call(this, opts); });   // 言語切替（34px 規格・透明な select）… map.gadget.lang({ onChange? })
-map.gadget("equalStart", function (opts) { return goEqual(this, { morph: false, ...opts }); });   // 入口＝Equal Earth を最初から上に（?start=equal）。japan は裏で起動
-map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）＝34px規格アイコン。表示域を絞るなら搭載側で opts.zoom
-	return solarGadget.call(this, opts);
-});
-map.gadget("mesh", function (opts) {   // 建物3Dデータ管理 … モーダルを開く手綱と地域のアイコンはここで注入
-	if (!meshOn) { console.warn("[mesh] opts.mesh=false = feature disabled; gadget not mounted"); return; }
-	return meshGadget.call(this, { onOpen: meshMgr.openDb, icon: REGION_BLD_ICON, labels: REGION_BLD_LABELS, ...opts });
-});
-map.gadget("plateau", function (opts) { return map.gadget.mesh.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
-map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
-	if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
-	return paletteGadget.call(this, { current: themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）
-});
-map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
-	// zoomMin はカメラ実床（太陽系圏込み）＝ズームボタンでも太陽系の底まで降りられる（旧床2の取り残し解消 2026-08-10）
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: () => zoomMinCur, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });   // 床は関数＝編集中の z2.5 に追随
-});
-map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
-	return fullGadget.call(this, { signal: ac.signal, ...opts });
-});
-map.gadget("cpos", function (opts) {   // 現在地（GPS） … マーカー追随の座標ブリッジを注入し update を render のフックへ
-	const update = cposGadget.call(this, { projectLL, signal: ac.signal, ...opts });
-	if (update) { frameHooks.add(update); update(); }
-});
-map.gadget("contextmenu", function (opts) {   // 右クリックメニュー … 逆投影と destroy用signalを注入。戻り値＝項目差し替えの setter
-	return contextmenuGadget.call(this, { unprojectAt, signal: ac.signal, ...opts });
-});
-map.gadget("tip", function (opts) {   // カーソル追従の吹き出し … destroy用signalを注入。戻り値＝内容の setter
-	return tipGadget.call(this, { signal: ac.signal, ...opts });
-});
-map.gadget("pop", function (opts) {   // 地点に紐づく吹き出し … 座標ブリッジを注入し _update を render のフックへ。戻り値＝pop 関数
-	const p = popGadget.call(this, { projectLL, signal: ac.signal, ...opts });
-	if (p && p._update) { frameHooks.add(p._update); p._update(); }
-	return p;
-});
-map.gadget("explain", function (opts) { return explainGadget.call(this, opts); });   // 上辺の説明パネル … 戻り値＝内容の setter
-map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });     // 左下の凡例パネル … 戻り値＝内容の setter
-map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入。本体は初回クリック/Mで import()＝frame hook は onBody で本体到着後に配線
-	return measureGadget.call(this, {
-		makeProjector, unprojectXY, signal: ac.signal,
-		setClick: fn => { measureClick = fn; fn && toolOpen("measure"); },   // 計測ON＝他の道具OFF（排他）
-		requestDraw: requestDraw,
-		onBody: m => { measureBody = m; if (m && m._update) { frameHooks.add(m._update); m._update(); } },   // 抽象アクセス：本体(measure.js)到着後に _update を毎フレ描画へ（frameHooks は core 側）
-		...opts,
-	});
-});
-map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・クリック横取り・標高サンプラを注入。本体は初回クリックで import()
-	return profileGadget.call(this, {
-		makeProjector, unprojectXY, signal: ac.signal,
-		setClick: fn => { profileClick = fn; fn && toolOpen("profile"); },   // 断面図ON＝他の道具OFF（排他）
-		// 標高サンプラ＝zoom=99 固定で最良解像度（日本=R01 DEM10B 10m・海外=ALOS/GEBCOへ自動フォールバック）。
-		// getHeightP 経由＝ローダ未着でも待って照会（map.getHeight の「未着=0m」縮退はグラフには不適）。
-		sampleHeight: (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => (f ? f(lon, lat, 99) : 0))).then(h => +h || 0),   // 外来の DEM（#36）が先
-		onBody: p => { profileBody = p; if (p && p._update) { frameHooks.add(p._update); p._update(); } },   // 抽象アクセス：本体到着後に _update を毎フレ描画へ（measure と同型）
-		// 3D で切る（#111）＝経路の両端 a→b の鉛直面。既定はカメラ（目の直下）の側を外す＝切り口がこちらを向く・flip で反対側
-		canCut: () => renderBackend === "webgpu",
-		cut: (a, b, flip) => {
-			if (!a) return map.setClipping(false);
-			const eye = betaToLonLat(cameraState(cam, size.w, size.h).eye), pl = clipPlanes({ vertical: [[a, b]] });
-			const eyeKept = pl.length && clipDistanceM(pl, eye[0], eye[1], 0) >= 0;
-			map.setClipping({ vertical: [eyeKept !== !!flip ? [b, a] : [a, b]] });
-		},
-		...opts,
-	});
-});
+// 画像タイル層（map.raster）＝src/api/raster.js（live＝createGlobe の変数を読み書きする口）
+const { onRasterInfo, onRasterError, rasterStatWait, rasterAttrHTML, imageAttrs, rasterChanged, protocolBitmap } = installRaster(map, {
+	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
+	get videoCtl() { return videoCtl; }, set videoCtl(v) { videoCtl = v; },
+	get iiifOpen() { return iiifOpen; },
+	get rasterBoot() { return rasterBoot; }, set rasterBoot(v) { rasterBoot = v; },
+}, { LOW_MEM, REGION_RASTERS, TILE_BIAS, URL_OWN, opts, ownDestroy, rasterBootQ, requestDraw, requester, t, wPost });
+// 組み込みの gadget（map.gadget の登録口と各 gadget）＝src/api/gadgets.js（live＝createGlobe の変数を読み書きする口）
+installGadgets(map, {
+	get mapEl() { return mapEl; },
+	get themeName() { return themeName; },
+	get zoomMinCur() { return zoomMinCur; },
+	get measureClick() { return measureClick; }, set measureClick(v) { measureClick = v; },
+	get measureBody() { return measureBody; }, set measureBody(v) { measureBody = v; },
+	get profileClick() { return profileClick; }, set profileClick(v) { profileClick = v; },
+	get profileBody() { return profileBody; }, set profileBody(v) { profileBody = v; },
+	get renderBackend() { return renderBackend; },
+}, { REGION_BLD_ICON, REGION_BLD_LABELS, REGION_SEARCH, ZOOM_MAX, ac, cam, demFirst, flightCtl, frameHooks, getHeightP, makeProjector, meshMgr, meshOn, narrowMq, onMove, projectLL, requestDraw, requestSnapshot, saveView, size, switchTheme, themeFixed, toolClose, toolOpen, unprojectAt, unprojectXY });
 let clipSpec = null, clipMain = null, clipByT = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
 // 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.js（live＝createGlobe の変数を読み書きする口）
 const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
