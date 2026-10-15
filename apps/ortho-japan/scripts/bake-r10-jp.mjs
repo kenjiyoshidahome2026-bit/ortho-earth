@@ -33,7 +33,7 @@ mkdirSync(SRC, { recursive: true });
 // 置き場の目録＝uploader の「標高タイル（bake-out/alt）→ GIS/alt」ボタンが読む（dev の /@fs ではフォルダを列挙できない）
 const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(readdirSync(OUT).filter(f => f.endsWith('.gz')).sort()) + '\n');
 
-const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
+const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.ts が正本（複製禁止・実行時の申告と同じ数字）
 const R10W = 2400, R01W = 3600, SUB = 240, BLK = 15;               // 240=2400/10（1°分）・15=3600/240
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;

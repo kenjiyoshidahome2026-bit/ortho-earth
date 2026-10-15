@@ -35,11 +35,11 @@
    ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
    前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
    いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp・japan のサイト（後の 4 つは 2026-09-30）。
-   japan 系は**二段**＝共有エンジン（地域を知らない）＋ `orthoJapan`（`packages/regions/src/app.js`）と地域パック jp・nl（互いを知らない兄弟＝両方を知るのは切り替え口の regions だけ・2026-10-15）。
+   japan 系は**二段**＝共有エンジン（地域を知らない）＋ `orthoJapan`（`packages/regions/src/app.ts`）と地域パック jp・nl（互いを知らない兄弟＝両方を知るのは切り替え口の regions だけ・2026-10-15）。
    **2026-10-14〜** 二段目も共有エンジンの入口＝`/globe/engine/<版>/regions/app.js`（orthoJapan）・`jp/index|region|codes|shared-data.js`・`nl/index.js`（掟 6）。
    入口の一覧は `apps/engine/src/entries.mjs`（current.json の `imports` へ書かれ、sharedEngine が読む）。jp の台帳（airports・plateau-*）は
    `packages/jp/assets` が正本で `<版>/assets/` に複写＝orthoJapan の `assetBase` の既定（SDK と japan のサイトは従来どおり自分の BASE_URL）。
-   地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.js`）。
+   地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.ts`）。
    `orthoJapan` は `assetBase` の既定を自分の束の `BASE_URL` にする（エンジンの束の BASE_URL は別物）。
    japan のサイト殻も同じ二段（本人裁定「A」2026-09-30・旧＝本番だけ `/japan/lib/` の SDK を実行時に食う二重構成）。
    SDK（`/japan/lib/`・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く（サイトはもう食わない）。
@@ -63,7 +63,7 @@
 
 | 消費者 | 入口 | 地域の持ち物 |
 |---|---|---|
-| PLATEAU（日本） | `meshworker` の区ロード | `packages/jp/src/region.js` の `buildings`（catalog／exclude／landmarks／bakeBase／group／icon） |
+| PLATEAU（日本） | `meshworker` の区ロード | `packages/jp/src/region.ts` の `buildings`（catalog／exclude／landmarks／bakeBase／group／icon） |
 | 3DBAG（オランダ） | 同上（同じ関数） | `apps/ortho-japan/nl/region.js` の `buildings.sets`（base／bbox／tilesetUrl／clip） |
 | 任意の 3D Tiles（#41） | `tiles3d-decode.js` → `decodeModel` | — |
 | I3S（#48）／glb 模型 | `i3s-decode.js` → `finishMesh` | — |
@@ -89,7 +89,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 - **2（済 2026-09-23）** 「動作を変えない移動」を刻む：
   - S1 済：地域の選び方（URL→JP/NL）をホストから包み `orthoJapan` へ。ホスト `createGlobe` は `opts.region` しか見ない・既定の視点は世界
   - S2 済：airports.json＝地域の申告（`JP_REGION.airports`）
-  - S3 済：e-Stat（overlay.js の estat 部）を jp 側へ（`packages/jp/src/estat.js`・`estat-worker.js`・`install.js`）。overlay.js は地球儀の臓器（identify／mask／hover 輪郭／`use(ext)`）だけ。ホストは**拡張面** `hostEnv`＝`{ opts, renderer, cam, size, dpr, requestDraw, overlay, spawnWorker, ownTip, hooks.hover[], t, dbg, onDestroy }` を出し、地域宣言の `install(map, hostEnv)` が `map.estat` を生やす（`map.overlay` への同名 alias は census2020 互換）。轍：install の dynamic import は verify:ui（仮想時間）で解決しない＝region.js から静的 import
+  - S3 済：e-Stat（overlay.js の estat 部）を jp 側へ（`packages/jp/src/estat.ts`・`estat-worker.ts`・`install.ts`）。overlay.js は地球儀の臓器（identify／mask／hover 輪郭／`use(ext)`）だけ。ホストは**拡張面** `hostEnv`＝`{ opts, renderer, cam, size, dpr, requestDraw, overlay, spawnWorker, ownTip, hooks.hover[], t, dbg, onDestroy }` を出し、地域宣言の `install(map, hostEnv)` が `map.estat` を生やす（`map.overlay` への同名 alias は census2020 互換）。轍：install の dynamic import は verify:ui（仮想時間）で解決しない＝region.ts から静的 import
   - S3b 済：残っていた地域の露出を申告へ。`gadget("home")`（顔・札・DOM id は `home` 宣言＝日本は列島ブロック図・"Show all of Japan"・#japan-btn／`japan` は非推奨の別名）・`extTipOwn`（拡張が tip を握る合図の一般名・旧 estatTipOwn）・`__tokyo` は jp の install が生やす
   - S3c 済：app.js を二分＝`globe.js`（ホスト＝createGlobe・地域の import ゼロ）と `app.js`（包み＝orthoJapan・URL で JP/NL を選ぶ・SDK の公開面は据え置き）。S4 は globe.js 一式の git mv だけになる
   - S3d 済（①〜③′）：①POI 台帳の実装は `poi.create(env)`（宣言が動的 import を握る＝ホストは @ortho-earth/jp/poi を知らない） ②出典の圏名 "jp"→"region"（attrRegionHTML） ③′建物データ管理モーダルの並び/見出し（都道府県）は `buildings.group(set)`＝meshdb.js は地域を知らない（門＝t-mesh dbGroups）

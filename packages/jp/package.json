@@ -4,25 +4,29 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"main": "src/index.js",
+	"main": "src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./dtm": "./src/dtm.js",
-		"./region": "./src/region.js",
-		"./poi": "./src/poi.js",
-		"./search-gsi": "./src/search-gsi.js",
-		"./n02": "./src/n02.js",
-		"./estat": "./src/estat.js",
-		"./estat-worker": "./src/estat-worker.js",
-		"./install": "./src/install.js",
-		"./codes": "./src/codes.js",
-		"./poi-schema": "./src/poi-schema.js",
-		"./shared-data": "./shared-data/index.js",
+		".": "./src/index.ts",
+		"./dtm": "./src/dtm.ts",
+		"./region": "./src/region.ts",
+		"./poi": "./src/poi.ts",
+		"./search-gsi": "./src/search-gsi.ts",
+		"./n02": "./src/n02.ts",
+		"./estat": "./src/estat.ts",
+		"./estat-worker": "./src/estat-worker.ts",
+		"./install": "./src/install.ts",
+		"./codes": "./src/codes.ts",
+		"./poi-schema": "./src/poi-schema.ts",
+		"./shared-data": "./shared-data/index.ts",
 		"./shared-data/manifest.json": "./shared-data/manifest.json",
+		"./census/charts": "./census/charts.ts",
 		"./census/*": "./census/*",
-		"./assets": "./src/assets.js"
+		"./assets": "./src/assets.ts"
 	},
 	"description": "日本の地域パック（地域宣言＝裸地標高・建物台帳・基図・画像タイル・出典・検索・POI台帳・路線）＝@ortho-earth/core は日本を知らない",
+	"scripts": {
+		"build": "tsc -p . && tsc -p tsconfig.worker.json"
+	},
 	"dependencies": {
 		"@ortho-earth/core": "*",
 		"geopbf": "^1.11.0"
