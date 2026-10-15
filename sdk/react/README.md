@@ -1,6 +1,6 @@
 # @ortho-earth/react
 
-React bindings for [`@ortho-earth/globe`](../globe). No JSX runtime is required by the package itself (it uses `createElement`), so it works with any React ≥ 18 setup.
+React bindings for [`@ortho-earth/globe`](../../packages/globe). No JSX runtime is required by the package itself (it uses `createElement`), so it works with any React ≥ 18 setup.
 
 ```jsx
 import { Globe, Source, Layer, Data, Marker, useGlobe, useGlobeEvent } from "@ortho-earth/react";

@@ -17,7 +17,7 @@
 		"@ortho-earth/globe": "^1.14.0"
 	},
 	"keywords": ["3d-tiles", "google", "photorealistic", "globe", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/google-tiles" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/google-tiles" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "google-tiles.d.ts", "LICENSE", "README.md"]
 }
