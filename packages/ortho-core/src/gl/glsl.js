@@ -42,7 +42,7 @@ float elev(vec2 ll) {
 }
 `;
 
-export const PROJECT = /* glsl */`
+const PROJECT = /* glsl */`
 uniform mat4  u_mvp;
 uniform vec3  u_eye;        // カメラ位置（単位球ワールド）
 uniform vec2  u_origin;     // シーン原点 lon/lat (deg)

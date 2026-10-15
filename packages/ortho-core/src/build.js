@@ -6,7 +6,7 @@ import earcut from "earcut";
 
 // 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
 // 極の頂点はタイル座標では表せない＝末尾に置き、呼び手が経緯度（緯度 ±90）を直に書く。境界の辺が無ければ何もしない（配列はそのまま返す）
-export function extendToPole(flat, tris, extent, pole) {
+function extendToPole(flat, tris, extent, pole) {
 	// 端の頂点の印を先に 1 回だけ（旧＝三角形ごと・辺ごとに座標を見直し＝全球のタイルで細分の後の数万三角形×6 回）。辺の鍵は端の頂点どうしの辺だけ
 	const nv = flat.length >> 1, on = new Uint8Array(nv);
 	let any = 0;

@@ -44,7 +44,6 @@ export function truthy(v: unknown): boolean;
 export function formatSections(e: Expression, ctx: ExprContext): FormatSection[] | null;
 export const ORIGIN_KEY: "ortho:origin";
 export function originOfLayer(L: { metadata?: Record<string, unknown> } | null | undefined): "ml" | undefined;
-export const originOfCtx: (ctx: ExprContext | null | undefined) => "ml" | "native";
 /** 評価器が知っている演算子。 */
 export const KNOWN_OPS: Set<string>;
 /** 式の中の知らない演算子を集める（式の位置だけを見る）。 */
@@ -52,7 +51,3 @@ export function unknownOps(e: Expression, out?: Set<string>): Set<string>;
 export function setGlobalState(obj: Record<string, unknown> | null | undefined): void;
 export function getGlobalState(): Record<string, unknown>;
 export function usesGlobalState(x: unknown): boolean;
-/** 2 色を Lab で補間（["interpolate-lab"] の中身）。入力は CSS 色文字列か [r, g, b, a]・戻りは "rgba(r,g,b,a)"。 */
-export function lerpColorLab(a: string | readonly number[], b: string | readonly number[], t: number): string;
-/** 2 色を HCL で補間（["interpolate-hcl"] の中身・色相は近い方へ回る）。 */
-export function lerpColorHcl(a: string | readonly number[], b: string | readonly number[], t: number): string;

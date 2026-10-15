@@ -21,7 +21,6 @@ export function loadGeoid() {
 		return (grid = q);
 	})();
 }
-export const geoidReady = () => !!grid;
 // N（m）＝楕円体高 − 標高。双一次（経度は周回）。格子を読む前は NaN
 export function geoidHeight(lon, lat) {
 	if (!grid) return NaN;

@@ -9,8 +9,8 @@ import { SUB_S0, SUB_NB } from './utility.js';
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
 const SE = 1e7;
-export function toMortonX(lon) { return (Math.round((lon + 180) * SE)) >>> 0; }
-export function toMortonY(lat) { return (Math.round((lat +  90) * SE)) >>> 0; }
+function toMortonX(lon) { return (Math.round((lon + 180) * SE)) >>> 0; }
+function toMortonY(lat) { return (Math.round((lat +  90) * SE)) >>> 0; }
 
 // 現ズームが実描画レンジ内か（データ導出レンジ × style 指定レンジの積）。s＝minZoom/maxZoom を持つ状態（層）。
 export function zoomInRange(s, data) {

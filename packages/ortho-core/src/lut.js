@@ -4,7 +4,7 @@
 //   ② 画像（png/webp など）＝横に size 枚の板を並べた size²×size の帯。x＝B の板番号×size＋R・y＝G（上の行が G=0）。size は呼ぶ側の指定（既定 32）＝幅が size² でなければ幅から推定（幅＝h²）
 // 戻り＝{ size, data: Uint8Array（RGBA8・幅 size²・高さ size・上の行から） }。シェーダは 2D の帯として読む（R・G は線形補間・B は隣の板との手計算の補間）
 const isCube = (url, text) => /\.cube(\?|#|$)/i.test(url) || /^\s*(TITLE|LUT_3D_SIZE|DOMAIN_MIN)/m.test(text || "");
-export function parseCube(text) {
+function parseCube(text) {
 	let size = 0, lo = [0, 0, 0], hi = [1, 1, 1];
 	const rows = [];
 	for (const raw of text.split(/\r?\n/)) {
@@ -27,7 +27,7 @@ export function parseCube(text) {
 	}
 	return { size, data };
 }
-export function imageToStrip(bitmap, sizeHint) {
+function imageToStrip(bitmap, sizeHint) {
 	const w = bitmap.width, h = bitmap.height;
 	const size = w === h * h ? h : (sizeHint && w === sizeHint * sizeHint && h === sizeHint ? sizeHint : 0);
 	if (!size) throw new Error(`lut: image must be size²×size (got ${w}×${h})`);

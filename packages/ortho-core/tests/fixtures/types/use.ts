@@ -43,16 +43,15 @@ const hn: HandlerName = "scrollZoom";
 void [inr?.dur, snapZoom(3.3, 0.5), hn];
 
 // 段 2（2.0）：契約を正した口
-import { projectClip, viewRays, sphereRayUniforms, anchorUV, ellAxisRatio, featureGeomLL, withinGeom, distanceGeom, setWorkerFactory } from "@ortho-earth/core";
-import type { WorkerRole, GeoJSONGeometry } from "@ortho-earth/core";
+import { projectClip, viewRays, sphereRayUniforms, anchorUV, ellAxisRatio, setWorkerFactory } from "@ortho-earth/core";
+import type { WorkerRole } from "@ortho-earth/core";
 import { normPost, TONEMAP_MODES, LUT_SIZES } from "@ortho-earth/core/postfx";
-import { lerpColorLab, lerpColorHcl } from "@ortho-earth/core/expr";
 import { worldAtlasCell, decodeName, createGetHeight, createTileLoader, staleDSM, WORLD_ATLAS_CELL } from "@ortho-earth/core/elevation";
 import type { AltTile } from "@ortho-earth/core/elevation";
 import { paintKeys, compileFidStyleWGSL, buildPropColumns, Dict } from "@ortho-earth/core/fidexpr";
 import { createGintLayerGPU, createRendererGPU } from "@ortho-earth/core/gpu";
 import { createLabelLayer } from "@ortho-earth/core/labels";
-import { WORLD_DATA, loadNames } from "@ortho-earth/core/worldcontent";
+import { WORLD_DATA } from "@ortho-earth/core/worldcontent";
 import type { RGBA } from "@ortho-earth/core/color";
 // camera.js は根から全部（projectClip など）
 const clip4: number[] = projectClip(st, 139.7, 35.6);
@@ -64,10 +63,6 @@ const ratio: number = ellAxisRatio();
 const black: RGBA = parseRGBA(42);
 const passed: readonly [number, number, number, number] = parseRGBA([1, 0, 0, 1] as const);
 const r0: number = parseRGBA("red")[0];
-// 式の地理
-const geom: GeoJSONGeometry | null = featureGeomLL(ctx);
-const inside: boolean = withinGeom({ type: "Point", coordinates: [0, 0] }, [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]]);
-const dist: number | null = distanceGeom(geom, { type: "Point", coordinates: [1, 1] });
 // worker 工場は役割だけを受け取る
 const role: WorkerRole = "ortho:height";
 setWorkerFactory(r => (r === role ? null : undefined));
@@ -77,9 +72,6 @@ const np = normPost({ bloom: true, fxaa: true, tonemap: { mode: "agx", exposure:
 const tm: string | undefined = np?.tonemap?.mode;
 const modes: readonly string[] = TONEMAP_MODES;
 const sizes: readonly number[] = LUT_SIZES;
-// 色の補間
-const lab: string = lerpColorLab("red", "#00f", 0.5);
-const hcl: string = lerpColorHcl([1, 0, 0, 1], "blue", 0.5);
 // 標高
 declare const atlas: AltTile;
 const cell: Float32Array = worldAtlasCell(atlas, 2, 1, 256);
@@ -110,5 +102,4 @@ async function gpuLayer() { const ren = await createRendererGPU(canvas); return 
 const ll2 = createLabelLayer(canvas, { glyphAtlas: false, lineFlatPx: [4, 6] });
 // worldcontent
 const wd: string = WORLD_DATA;
-const names = loadNames("ja", ["NationDB"]);
-void [clip4, rays.F, sru.c, auv, ratio, black, passed, r0, inside, dist, tm, modes, sizes, lab, hcl, cell, nm, cellN, stale, heights, hasK, code, gpuLayer, ll2, wd, names];
+void [clip4, rays.F, sru.c, auv, ratio, black, passed, r0, tm, modes, sizes, cell, nm, cellN, stale, heights, hasK, code, gpuLayer, ll2, wd];

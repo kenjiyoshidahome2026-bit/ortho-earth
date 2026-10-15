@@ -99,7 +99,7 @@ function applyArtifacts(s, art) {
 	s.tiersDone = false;
 }
 
-// 従来経路（同期ベイク）：worker モード（gishub 検証/t-gintlod）と、bake worker 不在時のフォールバック。
+// 従来経路（同期ベイク）＝bake worker 不在時のフォールバック。
 export function uploadGintTextures(s) {
 	const { gl, gintData } = s;
 	if (!gl || !gintData) return;

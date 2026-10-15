@@ -27,7 +27,7 @@ export function encodeValue(v, dict, kinds = null) {
 export const newKinds = () => ({ undef: false, nul: false, num: false, bool: false, str: false, numStr: false, other: false });
 
 // 式が読む鍵を集める → { props: Set, states: Set, geom, zoom, dyn }（dyn＝鍵が式＝列にできない）
-export function exprKeys(e, out = { props: new Set(), states: new Set(), geom: false, zoom: false, dyn: false }) {
+function exprKeys(e, out = { props: new Set(), states: new Set(), geom: false, zoom: false, dyn: false }) {
 	if (!Array.isArray(e) || typeof e[0] !== "string") return out;
 	const op = e[0];
 	if (op === "get" || op === "has") { if (typeof e[1] === "string" && e.length === 2) out.props.add(e[1]); else out.dyn = true; return out; }

@@ -118,7 +118,7 @@ export function sourceFeatures(data, t, { sourceLayer, filter = null, zoom = 0, 
 	return out;
 }
 
-export function toGeoJSON(f, t, ext) {
+function toGeoJSON(f, t, ext) {
 	const { coords: c, ends } = f.geom;
 	const ll = i => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], ext);
 	const run = (s, e) => { const a = []; for (let i = s; i < e; i += 2) a.push(ll(i)); return a; };

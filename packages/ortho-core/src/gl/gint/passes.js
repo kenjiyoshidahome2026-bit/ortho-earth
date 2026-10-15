@@ -1,5 +1,4 @@
-// renderCleanScene:    ハイライト無しの全景（canvas か baseFBO へ）
-// drawOverlay:         baseFBO を blit → アクティブ地物のハイライト＋mask
+// renderCleanScene:    ハイライト無しの全景（default framebuffer か地面アトラスの窓へ）
 // renderPickingBuffer: feature ID を RGB24 で pick FBO へ
 // v1(ortho-map) の gintRenderPasses を移植。site 2 の点bind を mvp/eye/origin へ。
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
@@ -159,7 +158,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-	if ((s.embedded && !targetFBO) || data.atlas) {   // atlas＝地面アトラスの窓へ上書き（色は消さない・stencil だけ）
+	if (!targetFBO || data.atlas) {   // atlas＝地面アトラスの窓へ上書き（色は消さない・stencil だけ）
 		// embedded＝地図が既に描かれた default framebuffer の上に blend で重ねる＝色は消さない。
 		// stencil だけ消す（塗りの winding 判定用。renderer 側の stencil 利用は都度 clear する規約＝衝突しない）。
 		// ★bit7(0x80)＝renderer の建物マスク（面ドレープの深度統合 2026-08-14）＝消さない（0x7F＝winding 側だけ）
@@ -341,23 +340,8 @@ function drawQ(gl, programs, u, first, count, inst = 1) {
 	}
 }
 
-export function drawOverlay(s) {
-	const { gl, baseFBO, lastDrawData, width, height } = s;
-	if (!baseFBO || !lastDrawData) return;
-
-	// baseFBO → canvas を blit して前フレームの overlay を消す。
-	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, baseFBO);
-	gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-	gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	gl.stencilMask(0xFF);
-	gl.clear(gl.STENCIL_BUFFER_BIT);
-
-	drawHighlight(s, lastDrawData);
-}
-
 // アクティブ地物のハイライト（太線＋黄・点拡大・外側マスク）。blit を含まない純描画＝
-// worker モードは drawOverlay（blit 後）から、embedded モードは毎フレームの gint パス末尾から呼ぶ。
+// 毎フレームの gint パス末尾（embed.js）から呼ぶ。
 export function drawHighlight(s, data) {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height,

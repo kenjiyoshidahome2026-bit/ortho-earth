@@ -994,7 +994,7 @@ const PT_UNIFORM_NAMES = [
 
 // ── 旧 6 頂点/辺の drawArrays（?quad4=0・perf plan P3 の逃げ道）への書き換え＝gpu/gintwgsl.js quad6WGSL と対 ──
 // 原本は index の 4 頂点（u_vbase + gl_VertexID/4・%4・角 4 通り）。旧＝index 無しの 6 頂点（gl_VertexID/6・%6・角 6 通り）。二重管理をしない＝機械変換（漏れは例外）
-export function quad6GLSL(code) {
+function quad6GLSL(code) {
 	const R = [
 		[/u_vbase \+ gl_VertexID \/ 4;/g, "gl_VertexID / 6;"],
 		[/gl_VertexID % 4;/g, "gl_VertexID % 6;"],
@@ -1009,7 +1009,7 @@ export function quad6GLSL(code) {
 	return out;
 }
 // index の 4 頂点/辺（P3）の固定パターン＝[4k,4k+1,4k+2, 4k,4k+2,4k+3]×QK（u32・ELEMENT_ARRAY）。run は u_vbase＝先頭辺・QK 超は割る（passes.js drawQ）
-export const QUAD_K = 1 << 17;
+const QUAD_K = 1 << 17;
 
 export function createGintPrograms(gl, { quad4 = true } = {}) {
 	const Q = quad4 ? c => c : quad6GLSL;   // ?quad4=0＝旧 6 頂点の VS（線・点・pick）

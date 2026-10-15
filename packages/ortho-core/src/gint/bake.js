@@ -14,19 +14,19 @@ import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
 
 // 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先
 //（ortho-map と同判断）。描画コストは段階別tier＋可視チャンクカリングが回収する。
-export const MAX_SAFE_EDGES = 10_000_000;
+const MAX_SAFE_EDGES = 10_000_000;
 // 巨大ポリゴンデータは自動ベタ塗りを止める（塗り stencil は tier/カリング非対応の全密度＝斑点根治の設計判断）。
 export const FILL_MAX_EDGES = 2_000_000;
 // 段階別 LOD メタの梯子は固定 rank 表でなく weightHist の分位点から層ごとに適応生成する（tierPlan）。
 // 旧固定表 [26,30,…,58] は海岸線/行政界級（重みが高域まで分布）が前提で、筆ポリゴン級＝重みが 9〜25 に
 // 集中する層では w26 の1段しか立たず、pickLineTier の過負荷フォールバックが常時 w26 を描いて
 // 孤立筆が三角形化した（観音寺市 2026-08-26・v1 ortho-map はフォールバック無し＝基準メタ直描きで無事）。
-export const TIER_COUNT = 9;   // 梯子の最大段数（旧固定表と同数＝構築コスト/テクスチャ総量を旧来の枠に保つ）
+const TIER_COUNT = 9;   // 梯子の最大段数（旧固定表と同数＝構築コスト/テクスチャ総量を旧来の枠に保つ）
 // tier 1段の辺数上限。これより細い（＝辺数の多い）段は作らない：その帯は視界がデータの一部＝可視チャンク
 // カリングが基準メタを十分絞る（国立公園4.5Mで w14=306万辺≈49MBテクスチャの無駄を防ぐ・Air3 jetsam圏）。
 // pickLineTier の過負荷フォールバックは finest×1.5 を閾に基準メタへ倒れる＝finest がこの上限近くにあれば
 // 近接ズームは自然に基準メタ＋カリングで正しく描かれる。
-export const TIER_MAX_EDGES = 600_000;
+const TIER_MAX_EDGES = 600_000;
 // 空間カリング用チャンク粒度（旧65536は筆層でカリングがほぼ効かなかった＝16384で可視1-3チャンクへ）。
 export const CHUNK_EDGES = 16384;
 

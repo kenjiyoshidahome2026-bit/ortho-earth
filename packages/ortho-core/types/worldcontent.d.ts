@@ -1,5 +1,4 @@
 // @ortho-earth/core/worldcontent — 世界の内容（Natural Earth の国・都市・空港・多言語名）。
-export const WORLD_GIS: string;
 /** 台帳・名前・検索の索引（ortho-data の GitHub Pages）。 */
 export const WORLD_DATA: string;
 export const culturalUrl: (g: string) => string;
@@ -9,8 +8,6 @@ export const F: (p: Record<string, unknown>, k: string) => unknown;
 export const stripJaCitySuffix: (s: string) => string;
 export const fetchJsonMaybeGz: (url: string) => Promise<unknown>;
 export function loadNations(): Promise<unknown[]>;
-/** {WORLD_DATA}{db}.i18n/{lang}.json を dbs の分だけ読んで 1 つに畳む（loadI18n の中身）。 */
-export const loadNames: (lang: string, dbs: string[]) => Promise<Record<string, unknown>>;
 export const loadI18n: (lang: string) => Promise<Record<string, unknown> | null>;
 export function loadNeCities(lang: string): Promise<unknown>;
 export const countryName: (n: Record<string, unknown>, i18n: unknown, shortEn: Map<string, string> | null | undefined) => string;
