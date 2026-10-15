@@ -118,6 +118,7 @@
 		"./featureservice": "./src/service/featureservice.js",
 		"./georef": "./src/georef/index.js",
 		"./proj": "./src/convert/proj.js",
+		"./epsg": "./src/convert/epsg.js",
 		"./datum": "./src/convert/datum.js",
 		"./table": "./src/convert/table.js",
 		"./convert/node-gint": "./src/convert/node-gint.js",

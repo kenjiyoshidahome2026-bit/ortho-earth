@@ -38,7 +38,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		sets.set(id, set);
 		let url = src, headers;
 		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }   // transformRequest＝鍵・独自スキームは未対応（Range を読むため）
-		const opened = await rpc({ type: "open", id, src: url, headers }, `o${id}`);
+		const opened = await rpc({ type: "open", id, src: url, headers, crs: set.opts.crs, vertical: set.opts.vertical }, `o${id}`);
 		if (!sets.has(id)) throw new Error("removed while opening");
 		set.info = opened.info;
 		if (set.info.vertical === "ellipsoidal") await loadGeoid().catch(() => {});

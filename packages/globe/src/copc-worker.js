@@ -1,18 +1,18 @@
 // COPC（Cloud Optimized Point Cloud）の読み手 worker（#178）。main（gadgets/copc.js）が選んだ節だけを Range で取って LAZ を解き、原点相対の点にして返す。
-//   開く  { type:"open", id, src: URL | Blob, headers?, ell } → { type:"opened", id, info, root: { nodes, pages } }
+//   開く  { type:"open", id, src: URL | Blob, headers?, crs?, vertical?, ell } → { type:"opened", id, info, root: { nodes, pages } }
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
 //   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), ms: { read, decode, proj } }
 // 解読＝"#pointcloud-formats" の laz（プラグイン @ortho-earth/tile-formats/pointcloud＝laz-perf 0.0.7 の ChunkDecoder・WASM・Apache-2.0）。
 //   globe 自身は laz-perf に依存しない（本人裁定＝プラグインの形）・差し込まれていなければ open で何を足すかを返す。最初の節で一度だけ起こす（起動の重さは 0）。
-// 座標＝WKT（LASF_Projection 2112）→ geopbf/proj の crsFromWKT（TM・メルカトル・LCC・Albers・経緯度）→ 経緯度。高さ＝z（鉛直の単位）
+// 座標＝opts.crs／WKT（LASF_Projection 2112）／GeoTIFF キー（34735）→ pointcloud-crs.js（geopbf/proj の crsFromWKT＝TM・メルカトル・LCC・Albers・経緯度）→ 経緯度。高さ＝z（鉛直の単位）
 //   ＋楕円体高なら N（main が節の中心で EGM96 から引いて渡す）を引いて標高へ（この地図の標高はジオイド基準）・鉛直の CRS がジオイド系を申告していればそのまま。
 // 世界座標＝meshdecode の geoWorld（建物メッシュ・3D Tiles の点と同じ式・楕円体表示も）。
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
-import { crsFromWKT, parseWKTTree } from "geopbf/proj";
+import { resolveCrs } from "./pointcloud-crs.js";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
 import { placeNode } from "./copc-place.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 
 let LAZ = null;
 const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and alias "#pointcloud-formats" to "@ortho-earth/tile-formats/pointcloud" in your bundler';
@@ -30,24 +30,13 @@ function withSpheres(set, page) {
 	return page;
 }
 
-// 鉛直：COMPD_CS／COMPOUNDCRS の鉛直側（VERT_CS・VERTCRS）＝ジオイド系（標高）と見る・単位はその UNIT。無ければ楕円体高・単位は水平と同じ
-function verticalOf(wkt) {
-	const t = parseWKTTree(wkt);
-	const find = (n, re) => { if (!n || typeof n !== "object") return null; if (re.test(n.name)) return n; for (const a of n.args || []) { const r = find(a, re); if (r) return r; } return null; };
-	const unitOf = n => { const u = (n?.args || []).filter(a => a && typeof a === "object" && /^(UNIT|LENGTHUNIT)$/.test(a.name)).pop(); return u && typeof u.args[1] === "number" ? u.args[1] : null; };
-	const v = find(t, /^(VERT_CS|VERTCRS|VERTICALCRS)$/);
-	const horiz = find(t, /^(PROJCS|PROJCRS)$/);
-	const ellipsoidalV = v && /ellipsoid/i.test(JSON.stringify(v));
-	return { orthometric: !!v && !ellipsoidalV, unit: (v && unitOf(v)) || (horiz && unitOf(horiz)) || 1, name: v && typeof v.args[0] === "string" ? v.args[0] : null };
-}
-
 async function open(m) {
 	if (!POINTCLOUD_FORMATS.laz) throw new Error(NO_LAZ);   // 取りに行く前に
 	const fetchFn = m.headers ? (u, init = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...m.headers } }) : undefined;
 	const src = await openSource(m.src, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) });
 	let head = new Uint8Array(src.head);
 	const hdr = parseHeader(head);
-	if (!hdr.compressed && hdr.format < 6) throw new Error("copc: not a LAZ 1.4 point cloud");
+	if (hdr.version[1] < 4 || (!hdr.compressed && hdr.format < 6)) throw new Error(`copc: not a LAZ 1.4 point cloud (LAS ${hdr.version.join(".")}, format ${hdr.format})`);
 	if (hdr.pointOffset > head.byteLength) head = new Uint8Array(await src.read(0, hdr.pointOffset));
 	const vlrs = listVlrs(head, hdr.headerSize, hdr.vlrCount);
 	const ci = vlrs.find(v => v.userId === "copc" && v.recordId === 1);
@@ -60,20 +49,18 @@ async function open(m) {
 		const ev = listVlrs(tail, 0, hdr.evlrCount, true).find(v => v.userId === "LASF_Projection" && v.recordId === 2112);
 		if (ev) wkt = new TextDecoder().decode(tail.subarray(ev.offset, ev.offset + ev.length)).replace(/\0[\s\S]*$/, "");
 	}
-	if (!wkt) throw new Error("copc: no coordinate system (WKT VLR 2112) in the file");
-	const crs = crsFromWKT(wkt);
-	if (crs.kind === "other") throw new Error(`copc: coordinate system not supported (${crs.label}) — TM/UTM, Mercator, Lambert conformal conic, Albers and lon/lat are`);
-	const ll = crs.toLonLat || (p => p);
-	const vert = verticalOf(wkt);
-	const set = { src, hdr, info, crs, ll, vUnit: vert.unit, orthometric: vert.orthometric, lonlat: crs.kind === "lonlat" || (crs.kind === "datum" && !/PROJ/i.test(wkt.slice(0, 20))) };
+	const gk = vlrs.find(v => v.userId === "LASF_Projection" && v.recordId === 34735);
+	const r = resolveCrs({ wkt, geoKeys: gk ? geoKeysEpsg(head, gk.offset, gk.length) : null, crs: m.crs, vertical: m.vertical });   // 水平・鉛直の決め方＝pointcloud-crs.js
+	const { crs, ll } = r, vert = { unit: r.vUnit };
+	const set = { src, hdr, info, crs, ll, vUnit: r.vUnit, orthometric: r.orthometric, lonlat: r.lonlat };
 	sets.set(m.id, set);
 	const corners = [[hdr.min[0], hdr.min[1]], [hdr.max[0], hdr.min[1]], [hdr.max[0], hdr.max[1]], [hdr.min[0], hdr.max[1]]].map(ll);
 	const bbox = [Math.min(...corners.map(c => c[0])), Math.min(...corners.map(c => c[1])), Math.max(...corners.map(c => c[0])), Math.max(...corners.map(c => c[1]))];
 	const rootBuf = new Uint8Array(await src.read(info.rootHierOffset, info.rootHierSize));
 	return {
-		info: { count: hdr.pointCount, format: hdr.format, hasRgb: hdr.format === 7 || hdr.format === 8, bbox, center: ll([info.center[0], info.center[1]]),
+		info: { count: hdr.pointCount, format: hdr.format, hasRgb: hasRgb(hdr.format), bbox, center: ll([info.center[0], info.center[1]]),
 			zRange: [hdr.min[2] * vert.unit, hdr.max[2] * vert.unit], cube: { center: info.center, halfsize: info.halfsize }, spacing: info.spacing, unit: vert.unit,
-			crs: crs.label, vertical: vert.orthometric ? (vert.name || "orthometric") : "ellipsoidal", size: src.size },
+			crs: r.label, crsFrom: r.from, vertical: r.verticalName, size: src.size },
 		root: withSpheres(set, parseHierarchyPage(rootBuf)),
 	};
 }
