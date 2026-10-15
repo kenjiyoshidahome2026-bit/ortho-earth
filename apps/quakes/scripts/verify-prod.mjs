@@ -57,11 +57,11 @@ server = createServer(async (req, res) => {
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
 			return fs.createReadStream(f).pipe(res);
 		}
-		const up = await fetch(UPSTREAM + req.url, { headers: { "Accept-Encoding": "identity" } });
+		const up = await fetch(`${UPSTREAM}/${u.pathname.slice(1)}${u.search}`, { headers: { "Accept-Encoding": "identity" } });
 		const h = { ...COI, "Content-Type": up.headers.get("content-type") || "application/octet-stream" };
 		res.writeHead(up.status, h);
 		res.end(Buffer.from(await up.arrayBuffer()));
-	} catch (e) { res.writeHead(502, COI); res.end(String(e)); }
+	} catch (e) { console.error(e); res.writeHead(502, COI); res.end("upstream error"); }
 });
 const port = await new Promise(r => server.listen(0, "127.0.0.1", () => r(server.address().port)));
 // 名前＝localhost 以外（ortho-globe の検定と同じ）。127.0.0.1 へ向け、安全なオリジン扱い（WebGPU・COI が立つ）
