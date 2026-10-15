@@ -5,7 +5,8 @@
 	"workspaces": [
 		"packages/*",
 		"sdk/*",
-		"apps/*"
+		"apps/*",
+		"apps/himekuri-demo/himekuri"
 	],
 	"scripts": {
 		"dev:www": "npm run dev -w www",

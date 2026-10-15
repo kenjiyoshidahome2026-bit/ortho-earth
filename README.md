@@ -89,7 +89,6 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/plugin-scene`](sdk/plugin-scene) | 0.1.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.1.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz`) as a `map.addData` kind |
 | [`glbconv`](sdk/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
-| [`himekuri`](sdk/himekuri) | 1.0.1 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 
 ### Apps
 
@@ -105,7 +104,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 | [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
 | [/solar/](https://www.ortho-earth.com/solar/) | `apps/solar` | The planets and their moons, now and replayed over time |
-| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri-demo` | Daily calendar with sunrise, sunset, twilight and the Moon |
+| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri-demo` | Daily calendar with sunrise, sunset, twilight and the Moon. Owns the npm package [`himekuri`](apps/himekuri-demo/himekuri) (1.0.1, MIT, tear-off calendar and world-clock SVG widgets) |
 | [/nl/](https://www.ortho-earth.com/nl/) | `apps/ortho-nl` | The Netherlands from 3DBAG |
 | [/geopbf/](https://www.ortho-earth.com/geopbf/) | `apps/geopbf-demo` | Drop a GIS file, check it on the globe, write it in another format |
 | [/gishub-jp/](https://www.ortho-earth.com/gishub-jp/) | `apps/gishub-jp` | Japan's open GIS data: view and convert |
@@ -151,7 +150,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv` and `himekuri`): **GPL-3.0-or-later**
+- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
