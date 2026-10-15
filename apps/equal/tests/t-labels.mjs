@@ -1,6 +1,6 @@
 // ラベル層の検定：衝突・フェード（到達後に振動しない）・国名の上下ずらし
 import assert from "node:assert/strict";
-import { createLabels, countryLabels, cityLabels, stripJaCitySuffix, LABEL_SCALE } from "../src/labels.js";
+import { createLabels, countryLabels, cityLabels, stripJaCitySuffix, LABEL_SCALE } from "../../../packages/equal/src/labels.js";
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const ctx = new Proxy({}, { get: (t, k) => k === "measureText" ? s => ({ width: s.length * 7 }) : (() => {}), set: () => true });
 const L = createLabels({ width: 0, height: 0, getContext: () => ctx });

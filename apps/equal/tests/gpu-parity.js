@@ -1,7 +1,7 @@
 // equal の GL ⇄ GPU 突き合わせ（gpu-parity.html から）。データは t-bake.mjs と同じ手組みの GintBUF（回線に頼らない）。
-import { bakeLayer, bakeGraticule } from "../src/bake.js";
-import { createRenderer } from "../src/renderer.js";
-import { createRendererGPU } from "../src/renderer-gpu.js";
+import { bakeLayer, bakeGraticule } from "../../../packages/equal/src/bake.js";
+import { createRenderer } from "../../../packages/equal/src/renderer.js";
+import { createRendererGPU } from "../../../packages/equal/src/renderer-gpu.js";
 import { resolveWorldPal } from "@ortho-earth/core/worldpal";
 
 const spread16 = x => { x &= 0xFFFF; x = (x | (x << 8)) & 0x00FF00FF; x = (x | (x << 4)) & 0x0F0F0F0F; x = (x | (x << 2)) & 0x33333333; x = (x | (x << 1)) & 0x55555555; return x >>> 0; };

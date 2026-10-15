@@ -40,9 +40,11 @@ const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? M
 
 // target＝置き場（要素か CSS セレクタ・大きさは持ち主が決める）。lang＝UI と地名の言語（省略＝params の lang → ブラウザ）。
 // params＝設定（?labels ?hypso ?choro ?choroA ?year ?g ?csv と同じ書式の文字列/URLSearchParams）。view＝初期視点（"#z/lat/lon/l=…" 書式）。
-// hash＝頁の URL と往復する（殻＝true・埋め込み＝false）。keyboard＝矢印/+/− を聞く。assetBase＝koppen-clim.png の置き場（既定＝この頁）
+// hash＝頁の URL と往復する（殻＝true・埋め込み＝false）。keyboard＝矢印/+/− を聞く。assetBase＝koppen-clim.png の置き場（既定＝パッケージ同梱＝globe と同じ 1 枚・置き場の頁に依存しない・2026-10-15）
 // geopbf＝false なら bucket 基盤（createGeopbf）を起こさない＝持ち主（globe のエンジン）が同じ geopbf を既に起こしている頁（japan の上に div で重ねる時）
-export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = new URL(import.meta.env.BASE_URL, location.href), geopbf: ownGeopbf = true } = {}) {
+// 気候場の既定＝globe と同じ同梱の 1 枚（globe.js の CLIM_URL と同じ実体＝共有エンジンでは同じ assets/ のファイル・各アプリの build では資産として出る）
+const CLIM_URL = new URL("../../globe/src/assets/koppen-clim.png", import.meta.url).href;
+export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = null, geopbf: ownGeopbf = true } = {}) {
 	const host = typeof target === "string" ? document.querySelector(target) : target;
 	if (!host) throw new Error("createEqual: target not found");
 	const q = params instanceof URLSearchParams ? params : new URLSearchParams(params || "");   // 殻＝location.search・埋め込み＝持ち主の指定
@@ -177,7 +179,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	let near = null;      // 近景 R10 窓（R90 読込後に起動）
 	async function loadHypso() {
 		hypsoState = 1; busy.add("Hypsometry"); updateToast();
-		const clim = loadClimate(new URL("koppen-clim.png", assetBase).href)
+		const clim = loadClimate(assetBase != null ? new URL("koppen-clim.png", new URL(assetBase, location.href)).href : CLIM_URL)
 			.then(img => { R.setClimate(img); requestDraw(); })
 			.catch(e => console.warn("[hypso] climate texture failed (latitude approximation)", e));
 		const maxTex = R.maxTex;
