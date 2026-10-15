@@ -41,3 +41,65 @@ import { inertiaOf, INERTIA, snapZoom, type HandlerName } from "@ortho-earth/cor
 const inr = inertiaOf([{ t: 0, v: 10 }, { t: 50, v: 10 }], 60, INERTIA.rotate);
 const hn: HandlerName = "scrollZoom";
 void [inr?.dur, snapZoom(3.3, 0.5), hn];
+
+// 段 2（2.0）：契約を正した口
+import { projectClip, viewRays, sphereRayUniforms, anchorUV, ellAxisRatio, setWorkerFactory } from "@ortho-earth/core";
+import type { WorkerRole } from "@ortho-earth/core";
+import { normPost, TONEMAP_MODES, LUT_SIZES } from "@ortho-earth/core/postfx";
+import { worldAtlasCell, decodeName, createGetHeight, createTileLoader, staleDSM, WORLD_ATLAS_CELL } from "@ortho-earth/core/elevation";
+import type { AltTile } from "@ortho-earth/core/elevation";
+import { paintKeys, compileFidStyleWGSL, buildPropColumns, Dict } from "@ortho-earth/core/fidexpr";
+import { createGintLayerGPU, createRendererGPU } from "@ortho-earth/core/gpu";
+import { createLabelLayer } from "@ortho-earth/core/labels";
+import { WORLD_DATA } from "@ortho-earth/core/worldcontent";
+import type { RGBA } from "@ortho-earth/core/color";
+// camera.js は根から全部（projectClip など）
+const clip4: number[] = projectClip(st, 139.7, 35.6);
+const rays = viewRays(st.mvp, st.invMvp!);
+const sru = sphereRayUniforms(st, [1, 0, 0]);
+const auv: number[] = anchorUV([1, 0, 0], [0, 0, 1, 1]);
+const ratio: number = ellAxisRatio();
+// parseRGBA は配列を素通し・null は返さない
+const black: RGBA = parseRGBA(42);
+const passed: readonly [number, number, number, number] = parseRGBA([1, 0, 0, 1] as const);
+const r0: number = parseRGBA("red")[0];
+// worker 工場は役割だけを受け取る
+const role: WorkerRole = "ortho:height";
+setWorkerFactory(r => (r === role ? null : undefined));
+setWorkerFactory(null);
+// postfx：fxaa/tonemap/lut
+const np = normPost({ bloom: true, fxaa: true, tonemap: { mode: "agx", exposure: 1.2 }, lut: { url: "x.cube", size: 32 } });
+const tm: string | undefined = np?.tonemap?.mode;
+const modes: readonly string[] = TONEMAP_MODES;
+const sizes: readonly number[] = LUT_SIZES;
+// 標高
+declare const atlas: AltTile;
+const cell: Float32Array = worldAtlasCell(atlas, 2, 1, 256);
+const big = new Float32Array(1024 * 512);
+worldAtlasCell(atlas, 0, 0, 256, big, 1024, 0, 256);
+const nm: [number, number, number] = decodeName("R90N000E000");
+const cellN: number = WORLD_ATLAS_CELL;
+const stale: boolean = staleDSM("R10N030E130", atlas, { brand: "GSI", range: 10, bbox: [122, 20, 154, 46] });
+async function heights() {
+	const gh = await createGetHeight({ level1: 7, level2: 12 });
+	const h: number = await gh(139.7, 35.6, 14, { wait: true });
+	gh.terminate();
+	const load = await createTileLoader({ apiUrl: "https://x/" });
+	const t: AltTile | null = await load(130, 30, 10);
+	const w: AltTile | null = await load.byName("WORLD1024_1");
+	void [h, t, w];
+}
+// fidexpr：paintKeys(paint, filter)・compile の戻り
+const keys = paintKeys({ "fill-color": ["get", "c"] }, ["==", ["get", "k"], 1]);
+const hasK: boolean = keys.props.has("k");
+const dict = new Dict();
+const cols = buildPropColumns([{ properties: { c: "red" } }], [...keys.props], dict);
+const compiled = compileFidStyleWGSL({ "fill-color": ["get", "c"] }, null, { dict, kinds: cols.kinds });
+const code: string | null = "wgsl" in compiled ? compiled.wgsl : null;
+// gpu：createGintLayerGPU は renderer を受け取る
+async function gpuLayer() { const ren = await createRendererGPU(canvas); return createGintLayerGPU(ren, { quad4: true, layerH: 0 }); }
+// labels：glyphAtlas・lineFlatPx
+const ll2 = createLabelLayer(canvas, { glyphAtlas: false, lineFlatPx: [4, 6] });
+// worldcontent
+const wd: string = WORLD_DATA;
+void [clip4, rays.F, sru.c, auv, ratio, black, passed, r0, tm, modes, sizes, cell, nm, cellN, stale, heights, hasK, code, gpuLayer, ll2, wd];

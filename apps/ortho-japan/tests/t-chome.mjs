@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { decodeMVT } from "../../../packages/ortho-core/src/decode.js";
+import { decodeMVT } from "@ortho-earth/core/decode";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM } from "@ortho-earth/globe/themes.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

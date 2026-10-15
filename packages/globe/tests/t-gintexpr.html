@@ -16,10 +16,10 @@ const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const A = await import("../../../packages/ortho-core/src/gint/attrcols.js");
-	const { compileFidStyleWGSL, dictTables } = await import("../../../packages/ortho-core/src/gpu/gintexpr.js");
-	const { createFidExprRunner } = await import("../../../packages/ortho-core/src/gpu/gintexprgpu.js");
-	const { buildFidStyle } = await import("../../../packages/ortho-core/src/gint/style.js");
+	const A = await import("@ortho-earth/core/fidexpr");
+	const { compileFidStyleWGSL, dictTables } = await import("@ortho-earth/core/fidexpr");
+	const { createFidExprRunner } = await import("@ortho-earth/core/internal/gpu/gintexprgpu.js");
+	const { buildFidStyle } = await import("@ortho-earth/core/fidstyle");
 	const adapter = await navigator.gpu.requestAdapter();
 	const device = await adapter.requestDevice();
 	const errs = [];

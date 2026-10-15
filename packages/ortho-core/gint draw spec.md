@@ -517,7 +517,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | `packages/globe/tests/t-backfill.html` | globe `verify:webgpu`・japan deploy の頭 | 裏半球の塗り（ゴースト・跨ぎ面・キャップ）12 項目 |
 | `packages/globe/tests/t-gintdepth.html` | globe `verify:ui`・`verify:nocoi` | 隠線の破線・rank の退避・標高ドレープ 5 項目 |
 | `packages/globe/tests/t-gintswap.html` | globe `verify:ui`・`verify:nocoi` | 単一スロットの入れ替え（再焼きなし）・bake-ahead の点火 12 項目 |
-| `t-gintembed`（5）・`t-gintlod`（10） | globe `verify:ui`・`verify:nocoi` | 埋め込みと LOD |
+| `t-gintembed`（5） | globe `verify:ui`・`verify:nocoi` | 埋め込み（LOD の頁 `t-gintlod` は独立 worker の経路ごと 2.0 で廃止＝LOD は `t-gintgpu`・`gint-lod.mjs` が見る） |
 | `apps/ortho-japan/tests/t-gndfaces.html` | japan `verify:ui`・`verify:webgpu` | 地面アトラスの面（`setPaint` の ID 塗りがアトラスへ焼かれる）9 項目 |
 | `packages/ortho-core/tests/gint-expr.mjs` | ルートの `npm test`（ortho-core の test） | **§6.1 の契約の演算子すべて**が fid 表まで届く・§6.2 の評価規約（=== の比較・欠けた値・throw しない・入れ子の色の補間）・§7.1 の詰め方（幅 1/8・半径 1/4・visible・点の色・opacity・dash-id 0）・色の書式＝20 項目（2026-09-26・説明書の「約束する範囲」の裏打ち） |
 | node：`gint-bake` `gint-drape` `gint-jitter` `gint-lod` `gint-seam`（ortho-core）・`t-anchors.mjs`（geopbf） | ルートの `npm test` | 焼き・ドレープ・周期・度アンカー |

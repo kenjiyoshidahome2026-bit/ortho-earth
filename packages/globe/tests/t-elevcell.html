@@ -14,12 +14,12 @@ try {
 	if (!navigator.gpu && !/[?&]gl2=1/.test(location.search)) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
 	const cpu = /[?&]cpuelev=1/.test(location.search), gl2 = /[?&]gl2=1/.test(location.search);
-	const { downsampleFlipped, cropResample } = await import("../../ortho-core/src/elevation.js");
-	const { worldAtlasCell } = await import("../../ortho-core/src/elevation/worldatlas.js");
-	const { f32ToF16, f16ToF32 } = await import("../../ortho-core/src/gpu/f16.js");
+	const { downsampleFlipped, cropResample } = await import("@ortho-earth/core/internal/elevation.js");
+	const { worldAtlasCell } = await import("@ortho-earth/core/elevation");
+	const { f32ToF16, f16ToF32 } = await import("@ortho-earth/core/f16");
 	// gl2=1＝WebGL2 レンダラ（R16F の描き込み＝EXT_color_buffer_float・無い環境は CPU 退避＝厳密一致で通る）
-	const r = gl2 ? (await import("../../ortho-core/src/gl/renderer.js")).createRenderer(document.getElementById("c"), { cpuElev: cpu })
-		: await (await import("../../ortho-core/src/gpu/backend.js")).createRendererGPU(document.getElementById("c"), { cpuElev: cpu });
+	const r = gl2 ? (await import("@ortho-earth/core/gl")).createRenderer(document.getElementById("c"), { cpuElev: cpu })
+		: await (await import("@ortho-earth/core/gpu")).createRendererGPU(document.getElementById("c"), { cpuElev: cpu });
 	ok(`gpuResample=${r.gpuResample}（cpuelev=${cpu ? 1 : 0}・${gl2 ? "webgl2" : "webgpu"}）`, gl2 ? (cpu ? r.gpuResample === false : typeof r.gpuResample === "boolean") : r.gpuResample === !cpu);
 	if (gl2 && !cpu && !r.gpuResample) console.log("[t] EXT_color_buffer_float なし＝CPU 退避の検定になる");
 

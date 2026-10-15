@@ -44,7 +44,6 @@ export function truthy(v: unknown): boolean;
 export function formatSections(e: Expression, ctx: ExprContext): FormatSection[] | null;
 export const ORIGIN_KEY: "ortho:origin";
 export function originOfLayer(L: { metadata?: Record<string, unknown> } | null | undefined): "ml" | undefined;
-export const originOfCtx: (ctx: ExprContext | null | undefined) => "ml" | "native";
 /** 評価器が知っている演算子。 */
 export const KNOWN_OPS: Set<string>;
 /** 式の中の知らない演算子を集める（式の位置だけを見る）。 */

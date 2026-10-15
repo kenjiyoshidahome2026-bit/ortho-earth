@@ -22,8 +22,8 @@ const e7 = d => Math.round(d * 1e7) >>> 0;
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
-	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const { createRendererGPU, createGintLayerGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project } = await import("@ortho-earth/core/camera");
 	const canvas = document.getElementById("g");
 	const r = await createRendererGPU(canvas);
 	const noSB = /[?&]gintsb=0/.test(location.search);   // verify が両経路を回す（既定=storage・?gintsb=0=テクスチャ）
@@ -134,7 +134,7 @@ try {
 	// ── ②c 遠方の要（塗り扇の画面カリング・2026-10-13・t-gintlod ②c の WebGPU 対）：視野よりずっと大きい凹の環（穴・離れ島つき）に寄って、
 	// 塗りの画素が CPU の内外判定と一致するか（境界から 3px 以内は判定しない）。stencil 単色（境界メタ＝単一要）と ID 塗り（per-fid の要）の両経路 ──
 	{
-		const { unproject } = await import("../../../packages/ortho-core/src/camera.js");
+		const { unproject } = await import("@ortho-earth/core/camera");
 		const N = 1800, outer = [], hole = [];
 		for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, rr = 1.6 + 0.5 * Math.sin(7 * a) + 0.03 * Math.sin(97 * a);
 			outer.push([C[0] + rr * Math.cos(a) * 1.4, C[1] + rr * Math.sin(a) * 0.7]); }

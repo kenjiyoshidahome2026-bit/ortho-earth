@@ -51,42 +51,6 @@ export function buildBuildings({ layers, z, x, y }, origin, schema = null) {
 	return pos.length ? { pos: new Float32Array(pos), shade: new Float32Array(shade), anchor: new Float32Array(anchor) } : null;
 }
 
-// moj筆/ドロップGISポリゴンの3D押し出し（一律の薄い高さ）＝buildBuildings の機構を GeoJSON 直で再利用。
-// ★earcut を使わない：moj は自己交差/穴/巨大ポリゴンが混じり earcut が詰まる。屋根は stencil-then-cover の
-//   fan（anchor, v_i, v_{i+1}）＝巻き数で穴/凹/自己交差を処理（geojson.js の overlay 塗りと同流儀）。
-//   全頂点 z=h・shade=1 にするので屋根も壁と同じ BUILDING_VS/bldProg で描ける（専用シェーダ不要）。renderer が
-//   屋根だけ描画の仕方を stencil に変える。壁は各辺の quad（0→h）＝三角形分割不要。base は anchor の標高＝平屋根/垂直壁。
-const ringsOf = g => !g ? [] : g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-export function buildExtrudedParcels(features, origin, { heightM = 4, exag = EXAG } = {}) {
-	if (!features || !features.length) return null;
-	const [ox, oy] = origin;
-	const h = heightM * exag / EARTH_M();                          // 一律の高さ（単位球スケール）＝壁の頂点z・屋根のz
-	const wPos = [], wSh = [], wAnc = [], rPos = [], rSh = [], rAnc = [];
-	for (const f of features) {
-		for (const poly of ringsOf(f && f.geometry)) {
-			if (!poly.length || !poly[0] || poly[0].length < 3) continue;
-			const ax = poly[0][0][0] - ox, ay = poly[0][0][1] - oy;   // 筆の基準点（外周先頭）＝一筆で単一標高（平屋根・垂直壁）。穴も同じ anchor で巻き数減算
-			for (const ring of poly) {
-				const n = ring.length; if (n < 3) continue;
-				const closed = ring[0][0] === ring[n - 1][0] && ring[0][1] === ring[n - 1][1];
-				const end = closed ? n - 1 : n; if (end < 3) continue;
-				for (let i = 0; i < end; i++) {
-					const p0 = ring[i], p1 = ring[(i + 1) % end];
-					const x0 = p0[0] - ox, y0 = p0[1] - oy, x1 = p1[0] - ox, y1 = p1[1] - oy;
-					wPos.push(x0, y0, 0, x1, y1, 0, x1, y1, h); wSh.push(WALL, WALL, WALL); wAnc.push(ax, ay, ax, ay, ax, ay);
-					wPos.push(x0, y0, 0, x1, y1, h, x0, y0, h); wSh.push(WALL, WALL, WALL); wAnc.push(ax, ay, ax, ay, ax, ay);
-					rPos.push(ax, ay, h, x0, y0, h, x1, y1, h); rSh.push(ROOF, ROOF, ROOF); rAnc.push(ax, ay, ax, ay, ax, ay);
-				}
-			}
-		}
-	}
-	if (!wPos.length) return null;
-	return {
-		walls: { pos: new Float32Array(wPos), shade: new Float32Array(wSh), anchor: new Float32Array(wAnc) },
-		roof:  { pos: new Float32Array(rPos), shade: new Float32Array(rSh), anchor: new Float32Array(rAnc) },
-	};
-}
-
 // ドロップGIS/moj筆のジオメトリを地形に沿わせて描く（fillなし）＝各頂点を「自分の標高」に落とす。ポリゴン/線/点の全型。
 // ★anchor をその頂点自身の位置にする＝BUILDING_VS の base=elev(anchor) が各点の実標高になり、辺/点が地形に沿う（平屋根の単一標高と対照）。
 //   線（ポリゴン境界＋LineString）＝GL_LINES で辺ごと端点2つ。点（Point）＝GL_POINTS。liftM=地形へ微上げして潜り/z-fight を避ける。

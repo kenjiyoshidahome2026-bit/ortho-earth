@@ -125,10 +125,6 @@
 			"types": "./types/workers/gintbake.d.ts",
 			"default": "./src/gint/bakeworker.js"
 		},
-		"./workers/gint": {
-			"types": "./types/workers/gint.d.ts",
-			"default": "./src/gl/gint/worker.js"
-		},
 		"./worldstyle": {
 			"types": "./types/worldstyle.d.ts",
 			"default": "./src/worldstyle.js"
@@ -144,7 +140,8 @@
 		"./workers/elevation": {
 			"types": "./types/workers/elevation.d.ts",
 			"default": "./src/elevation/worker.js"
-		}
+		},
+		"./internal/*": "./src/*"
 	},
 	"description": "The core of the Ortho Earth 3D globe map engine: draws vector tiles, terrain at true scale, rasters and labels on a sphere with WebGPU (WebGL2 fallback). Used through @ortho-earth/globe.",
 	"dependencies": {
@@ -194,7 +191,6 @@
 		"./src/workers/tileworker.js",
 		"./src/workers/sceneworker.js",
 		"./src/gint/bakeworker.js",
-		"./src/gl/gint/worker.js",
 		"./src/elevation/worker.js",
 		"./src/tileformats-mlt.js"
 	]

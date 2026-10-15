@@ -64,7 +64,7 @@ export function farPivotGlobal(d, vbb, lb) {
 export const SUB_S0 = 1000;   // バケット 0 の下限スパン（e7）＝1e-4°
 export const SUB_NB = 16;     // バケット数（2^15·SUB_S0 = 3.3° > 度アンカー上限 1°）
 export const SUB_DUP = 0x80;  // 複製行の印（meta.b の style バイト bit7）。b>>8 = 元の辺 id
-export function makeSpanTracker(arcBuffer) {
+function makeSpanTracker(arcBuffer) {
 	if (!arcBuffer?.length) return null;
 	const u32 = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
 	let lastIdx = -1, lx = 0, ly = 0, px = 0, py = 0;
