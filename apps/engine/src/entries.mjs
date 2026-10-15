@@ -1,4 +1,4 @@
-// 共有エンジン（/globe/engine/<版>/）の入口の一覧＝vite.engine.config.js（lib の entry）と scripts/build-engine.mjs（current.json の imports）の正本。
+// 共有エンジン（/globe/engine/<版>/）の入口の一覧＝apps/engine の vite.config.js（lib の entry）と scripts/build.mjs（current.json の imports）の正本。
 // imports＝アプリの import の名前 → 入口の出力（各アプリの build の sharedEngine が external にして URL で読む）。
 // 2 つ以上のアプリが使う物は各アプリに焼かず、ここに入口として足す（本人 2026-10-14「各アプリに焼くのは問題」・LAYERS.md 掟 6）。
 // 地域パック（jp・nl）の入口は地域を知らない globe・core のコードに入らない＝別の入口・読まないアプリには 0 バイト。

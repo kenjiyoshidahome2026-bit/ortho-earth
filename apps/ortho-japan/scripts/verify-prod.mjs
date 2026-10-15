@@ -27,7 +27,7 @@ import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SITE = path.join(APP, "dist/site");
-const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（本番は ortho-globe の Worker が /globe/engine/ で配る）
+import { ENGINE_DIR as ENGINE } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";   // build の頭で sharedEngine() が焼く（本番はエンジンの Worker ortho-engine が /globe/engine/ で配る）
 const PORT = 5241, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };

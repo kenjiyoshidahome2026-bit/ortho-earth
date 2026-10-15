@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // census2020 本番組立の検定（共有エンジン＝LAYERS.md 掟 3・2026-09-30）。deploy の必須ゲート。
-//   本番の census はエンジン（globe・i18n・core・geopbf）を /globe/engine/<版>/（ortho-globe Worker が配る）から読む＝ここでは
-//   build の頭で焼かれた apps/ortho-globe/dist/engine を /globe/engine/ にマウントした静的サーバで本番の形を再現する。
+//   本番の census はエンジン（globe・i18n・core・geopbf）を /globe/engine/<版>/（エンジンの Worker ortho-engine が配る）から読む＝ここでは
+//   build の頭で焼かれたエンジン（apps/engine/dist/site/globe/engine）を /globe/engine/ にマウントした静的サーバで本番の形を再現する。
 // 検査項目：
 //   ①静的: census の束がエンジンを**焼いていない**（指紋＝エンジン固有の UI 文字列「互換描画(WebGL2)」が居ない。
 //          minify でも文字列リテラルは生き残る＝サイズ閾値より頑丈な指紋）・/globe/engine/<今の版>/globe.js を指す・/japan/lib/ を指さない
@@ -16,7 +16,7 @@ import path from "node:path";
 import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（apps/ortho-globe/scripts/build-engine.mjs）
+import { ENGINE_DIR as ENGINE } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";   // build の頭で sharedEngine() が焼く（apps/engine/scripts/build.mjs）
 const OUT = path.join(APP, "dist/site");
 const PORT = 5242, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".csv": "text/csv", ".webp": "image/webp" };
@@ -39,7 +39,7 @@ for (const f of chunks) {
 if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/（globe.js か jp/app.js）を指していない`);
 console.log(`ok:entry（${chunks.length}チャンク・エンジン非同梱・/globe/engine/${VERSION}/ を指す・lib参照なし）`);
 
-// ② 実走：census dist ＋ /globe/engine/（ortho-globe の dist/engine）を一つの静的サーバで（2026-10-14〜 jp の台帳もエンジンの assets/ から・/japan/ の棚は読まない）
+// ② 実走：census dist ＋ /globe/engine/（apps/engine の dist）を一つの静的サーバで（2026-10-14〜 jp の台帳もエンジンの assets/ から・/japan/ の棚は読まない）
 const read = promisify(readFile);
 const roots = p =>
 	p.startsWith("/globe/engine/") ? path.join(ENGINE, p.slice("/globe/engine/".length))

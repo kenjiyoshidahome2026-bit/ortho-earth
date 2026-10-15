@@ -25,6 +25,7 @@ const APPS = [
 	["world", "ortho-world", "build", "apps/world/dist/site"],
 	["www", "www", "build", "apps/www/dist"],
 	["equal", "ortho-equal", "build", "apps/equal/dist/site"],
+	["engine", "ortho-engine", "build", "apps/engine/dist/site"],
 	["geopbf-demo", "geopbf-demo", "build", "apps/geopbf-demo/dist"],
 	["solar", "solar", "build", "apps/solar/dist/site"],
 	["census2020", "census2020", "build", "apps/census2020/dist/site"],
