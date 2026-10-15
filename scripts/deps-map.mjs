@@ -109,9 +109,9 @@ async function walk(roots, engine, inEngine = false) {
 
 function htmlRoots(html, appDir) {
 	const src = fs.readFileSync(html, "utf8"), out = [];
-	for (const m of src.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
-		if (!/type=["']?module/.test(m[1])) continue;
-		const s = m[1].match(/src=["']([^"']+)["']/);
+	for (const m of src.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)) {   // 手元の HTML を読むだけ（無害化ではない）
+		if (!/type\s*=\s*["']?module/i.test(m[1])) continue;
+		const s = m[1].match(/src\s*=\s*["']([^"']+)["']/i);
 		if (s) out.push(s[1].startsWith("/") ? path.join(ROOT, appDir, s[1]) : path.resolve(path.dirname(html), s[1]));
 		else if (m[2].trim()) out.push({ stdin: { contents: m[2], resolveDir: path.dirname(html), sourcefile: html + "#inline" + out.length, loader: "js" } });
 	}
