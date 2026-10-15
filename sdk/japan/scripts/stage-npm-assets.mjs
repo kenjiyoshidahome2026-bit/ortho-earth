@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+// npm 配布用の実行時アセット staging（prepack から呼ばれる）。zip の assets/ と同じホワイトリストを
+// パッケージ直下 ./assets へ複写＝npm 利用者は node_modules/ortho-japan/assets を自サイトへ置き assetBase で指す。
+// 正典リストは pack-sdk.mjs と同じ（ズレたら存在検査で fail）。./assets は gitignore（生成物）。
+import { cpSync, rmSync, mkdirSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 実行時アセットの正本＝packages/jp/assets（2026-10-15 に SDK を sdk/japan へ分けた）
+
+const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const ASSETS = fileURLToPath(JP_ASSETS);
+const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "plateau-exclude.json", "koppen-clim.png"];   // plateau-exclude＝建物除外表（1.2KB・無いと 404 を黙って捨て除外なしで動く＝npm 1.0.3 検札で発見）
+const OUT = path.join(APP, "assets");
+rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+for (const f of WHITELIST) {
+	const src = path.join(ASSETS, f);
+	if (!existsSync(src)) { console.error(`✗ packages/jp/assets/${f} が無い（WHITELIST と jp の assets がズレた）`); process.exit(1); }
+	cpSync(src, path.join(OUT, f), { recursive: true });
+}
+cpSync(path.join(APP, "llms.txt"), path.join(OUT, "llms.txt"));   // AI 向けの 1 枚正典（配信版は /japan/llms.txt）
+console.log(`✓ npm assets staged（${WHITELIST.length + 1}点 → assets/）`);

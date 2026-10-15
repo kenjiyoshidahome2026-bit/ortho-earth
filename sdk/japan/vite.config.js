@@ -10,7 +10,7 @@ import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";  
 // ＝下の output.minify:true で rolldown に空白まで任せる（JS 総量 3.26→3.19MB・gzip 1.300→1.266MB＝vite 5 の追い minify 版より小）。
 
 // SDK ビルド（ライブラリ形式）＝第三者のページへ埋め込むための出荷形。
-// サイトビルド（vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。
+// 日本のサイトのビルド（apps/ortho-japan/vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。
 //
 // 出荷物（dist/lib/）：
 //   ortho-japan.js   … ESM 本体（npm名=@ortho-earth/japan）。worker チャンクは同ディレクトリへ分割出力
@@ -30,13 +30,13 @@ export default defineConfig({
 		emptyOutDir: true,
 		sourcemap: true,
 		lib: {
-			entry: resolve(import.meta.dirname, "app.js"),
+			entry: resolve(import.meta.dirname, "src/index.js"),
 			name: "orthoJapan",
 			formats: ["es"],            // UMD は不可＝worker/動的 import を含む以上 ESM 一択
 			fileName: () => "ortho-japan.js",
 		},
 		rollupOptions: {
-			// rolldown（vite 8）のチャンク最適化を切る＝サイト側 vite.config.js と同じ理由（mesh-loaders の静的 import）。worker にも同じ物
+			// rolldown（vite 8）のチャンク最適化を切る＝サイト側（apps/ortho-japan/vite.config.js）と同じ理由（mesh-loaders の静的 import）。worker にも同じ物
 			experimental: { chunkOptimization: false },
 			output: {
 				minify: true,   // 空白まで rolldown に縮めさせる（lib×ES の既定 codegen:false を上書き＝上の冒頭の注）
@@ -51,7 +51,7 @@ export default defineConfig({
 	// 実行時アセットは assetBase で指す設計（同梱すると数MBを全利用者に配ることになる）＝ここで断つ。
 	// ★sw.js の混入は特に不可：SDK がホストのオリジンへ Service Worker を持ち込む口になる
 	//   （本体は index.html が登録する＝スタンドアロン専用の作法。ライブラリ経路は一切登録しない）。
-	// 利用者へ渡すアセットは apps/ortho-japan/public/ からアプリ側で配る（README の assetBase 節）。
+	// 利用者へ渡すアセットは packages/jp/assets が正本＝pack・prepack が assets/ に写す（README の assetBase 節）。
 	publicDir: false,
 	// worker の別ビルドには `plugins` が効かない（build では worker.plugins のみ・vite 8 も同じ）＝.wasm 実体化をここにも挿す。
 	// 空白 minify は vite 8 では worker 側（lib 扱いでない）が既定で縮める＝追い minify は不要（renderworker 6 行・meshworker 1 行を実測）。

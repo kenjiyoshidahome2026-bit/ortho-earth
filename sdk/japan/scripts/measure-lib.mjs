@@ -5,7 +5,7 @@
 //   ② モジュール単位で「複製」を数える：同じモジュールが n チャンクにあれば (n−1) 本分を「失われている」と数える。
 //   ③ 出所別（geopbf / ortho-core / app / node_modules / その他）の占有と複製を出す。
 //   ④ 閾値ゲート：--max-dup-ratio=0.xx を超えたら exit 1（軽量化の後退を CI で止める）。
-// 使い方: apps/ortho-japan で `npm run measure:lib` （dist/measure/ に stats-*.json と report.json、標準出力に要約）。
+// 使い方: sdk/japan で `npm run measure` （dist/measure/ に stats-*.json と report.json、標準出力に要約）。
 //   オプション: --max-dup-ratio=0.30   複製率がこれを超えたら失敗
 //              --top=20                複製上位の表示本数
 //   出荷物本体（dist/lib）は触らない＝別ディレクトリへビルドする。sourcemap は計量から除外。
@@ -24,10 +24,10 @@ const MAX_DUP = arg("max-dup-ratio", null) == null ? null : Number(arg("max-dup-
 const TOP = Number(arg("top", 20));
 const fmt = b => b >= 1e6 ? (b / 1e6).toFixed(2) + " MB" : b >= 1e3 ? Math.round(b / 1e3) + " KB" : b + " B";
 
-// ── ビルド（vite.lib.config.js をそのまま継ぎ、visualizer を主ビルドと worker ビルドの両方へ挿す）
+// ── ビルド（vite.config.js をそのまま継ぎ、visualizer を主ビルドと worker ビルドの両方へ挿す）
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
-const base = (await import(path.join(APP, "vite.lib.config.js"))).default;
+const base = (await import(path.join(APP, "vite.config.js"))).default;
 let n = 0;
 const cfg = mergeConfig(base, {
 	configFile: false,
@@ -50,9 +50,9 @@ const norm = id => {                                   // visualizer の id → 
 };
 const origin = rel => {
 	if (rel.includes("node_modules/")) return "node_modules";
-	const m = rel.match(/^(packages\/[^/]+|apps\/[^/]+)/);
+	const m = rel.match(/^(packages\/[^/]+|apps\/[^/]+|sdk\/[^/]+)/);
 	if (!m) return "app";
-	if (m[1] === "apps/ortho-japan") return "app";
+	if (m[1] === "sdk/japan") return "app";
 	return m[1].startsWith("packages/") ? m[1].slice(9) : m[1];
 };
 const chunks = new Map();                              // chunk file → { build, mods: [{rel, rendered}] }

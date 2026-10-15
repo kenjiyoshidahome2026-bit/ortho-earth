@@ -6,7 +6,7 @@
 
 ```html
 <script type="module">
-  import orthoJapan from "./app.js";
+  import orthoJapan from "./lib/ortho-japan.js";
   orthoJapan();   // body直下に #map を自作して起動
 </script>
 ```
@@ -105,9 +105,9 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 ## SDK として埋め込む（ライブラリビルド）
 
-`npm run build:lib` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
+sdk/japan で `npm run build` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
 
-**配布物一式は `npm run pack:sdk`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット6点・約230KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
+**配布物一式は `npm run pack`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット6点・約230KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
 
 ```html
 <link rel="stylesheet" href="/ortho-japan/ortho-japan.css">
@@ -128,7 +128,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 | **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
 | **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
 
-**ホストページに対する約束**（`npm run verify:lib` が毎回検定する）：
+**ホストページに対する約束**（sdk/japan の `npm run verify` が毎回検定する）：
 
 - `html` / `body` に一切書かない（背景・余白・overflow・文字色・書体・visibility・スクロール量が埋め込み前後で同一）
 - 描画は預かった div の中だけ（全画面を乗っ取らない）
@@ -139,6 +139,8 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 ## 開発
 
+SDK の包（この sdk/japan）と日本のサイト（apps/ortho-japan）は 2026-10-15 に分けた。下の表の `verify` は sdk/japan、それ以外はサイトの apps/ortho-japan で回す。
+
 UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。ガジェットスタック・起動opts・destroy・タッチ操作・狭画面の掟を headless で一括検証します（tests/*.html＝判定はページ内、scripts/verify-ui.mjs＝巡回）。
 
 | コマンド | 何を守るか |
@@ -146,18 +148,16 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 | `npm run verify:ui` | UI回帰（18ページ・仮想時間・`lang=ja`固定） |
 | `npm run verify:webgpu` | WebGPU バックエンドの起動（実時間） |
 | `npm run verify:nocoi` | **COI 無しでも動く**（COOP/COEP を外して7ページ・実時間）＝SDK の前提 |
-| `npm run verify:lib` | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
+| `npm run verify`（sdk/japan） | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
 | `node scripts/bake-plateau.mjs` | **PLATEAU の R2 焼き**（全セットを Node で焼いて量子化 PLQ を `plateau-bake-out/` へ。`--upload`＝R2 へ put・要 `API_KEY`。`--shard=i/n` で並列・`--only=名前` で絞り込み・球/楕円体を同時に焼く・`--reverse` で別マシンと両端から挟む・`--redo-unbaked` で取れなかったタイルの仕上げ・`--repack` で焼き済みを PLQ2（溶接＋角柱）に詰め直す・`--stats` で角柱率の統計）。ブラウザは OPFS→R2 焼き→MLIT 生経路の順で引き、`?nobake=1` で封印・`?bake=URL` で置き場差し替え。`node tests/t-plateauq.mjs --real` が形式の往復検定 |
 | `npm run verify:prod` | **本番組立**（下記の二重構成＝入口がSDKを参照・エンジン非再バンドル・組み上がりの実走・request台帳404ゼロ・**遅延ガジェット7種の実クリック**＝動的importチャンク疎通と例外ゼロ）。`deploy` の必須ゲート |
 
-### 二重構成（dev=ソース直・本番=SDK）
+### サイトと SDK の関係
 
-本番の `/japan/` は **SDK配布物そのもの**（`/japan/lib/ortho-japan.js`＝pack:sdk が配る物と同一）を食う。分岐は [site.js](site.js) 冒頭の1か所＝`import.meta.env.PROD`。
+本番の `/japan/` は SDK を食わない＝エンジン（globe・core・geopbf 等）は共有エンジン `/globe/engine/<版>/` から読む（2026-09-30〜）。SDK の出荷物は外へ配る物として `/japan/lib/` に同梱する。
 
-- `npm run dev` … `./app.js` ソース直（HMR・編集即反映＝従来どおり）
-- `npm run build:prod` … `build:lib` → サイト殻の vite build → `dist/lib` を `dist/site/japan/lib/` へ複写
-- 旗艦サイトが毎日SDKを実戦検証する＝配布zipが腐る事故を構造的に封じる。dev/本番の乖離バグは `verify:prod` が deploy 前に捕まえる
-- scene.html（エディタ）は工場内の作業台＝ソース直のまま
+- サイトの `npm run build:prod` … sdk/japan の `npm run build` → サイト殻の vite build → `sdk/japan/dist/lib` を `dist/site/japan/lib/` へ複写
+- `verify:prod`（サイト）が「入口が /japan/lib/ を読まない」ことと `/japan/lib/` の同梱を見張る
 
 ## 制約
 

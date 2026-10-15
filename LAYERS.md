@@ -49,7 +49,8 @@
 6. **アプリはアプリを読まない**（本人 2026-10-14「アプリがアプリを読んでいるのが基本的な問題。2 つ以上で使うならモジュールにして共に参照」）。
    2 つ以上で使う物は `packages/*` に置き、実行時は各アプリに焼かず `/globe/engine/<版>/` の入口として共に読む（「各アプリに焼くのは問題」本人同日）。
    例外は **www だけ**（他のアプリの dist と docs を束ねて載せる集約役・本人同日「やっていいのは、www だけ」）。
-   どのアプリからも読まない SDK 利用者向けの包（google-tiles・ktx2・plugin-scene・plugin-splat・react）は `sdk/*` に分ける（本人 2026-10-15）＝`packages/*` はアプリが使う物だけ。
+   外の利用者へ配る SDK と単体の道具は `sdk/*` に分ける（本人 2026-10-15）＝google-tiles・ktx2・plugin-scene・plugin-splat・react・japan（npm `@ortho-earth/japan`＝日本のサイト apps/ortho-japan から分けた）・glbconv。
+   `packages/*` はエンジンとアプリの部品（h3 のように地球儀本体が読む物はこちら）。
    **機械の門**：root の `npm run verify:app-imports`（`scripts/check-app-imports.mjs`）＝apps/A から apps/B への参照（相対の道・アプリの workspace 名の import・
    publicDir・package.json の scripts）を A→B ごとに数える爪車。許可表 `scripts/app-imports-allow.json` は 2026-10-14 の凍結＝全部が負債（移し先つき）。
    超えたら落ち、減ったら `--ratchet` で下げる。`npm test` に入っている。
