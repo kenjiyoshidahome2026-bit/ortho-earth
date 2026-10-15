@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 export const CFT_VERSION = "154.0.8037.92";   // 上げる時はここだけ（取得は次の起動で自動）
@@ -56,15 +57,27 @@ export async function installChrome(version = CFT_VERSION, { log = console.log }
 	return p;
 }
 
-// 検定が使う Chrome（env CHROME → 検定専用〔無ければ取る〕→ /Applications）
+// macOS のキーチェーンを触らせない包み（2026-10-15）。検定は毎回まっさらの --user-data-dir で起こす＝Chrome は
+//   「Chrome for Testing Safe Storage」の鍵をキーチェーンへ取りに行く＝起動のたびに許可の窓が出る（本人の Mac で何度も出た）。
+//   --use-mock-keychain＝キーチェーンの代わりに偽の鍵（検定は保存したパスワード等を使わない＝要らない）。
+//   起こし方は検定ごとにばらばら（spawn・CDP・playwright の executablePath）＝実行ファイル自体を旗つきの sh に包めば全部に効く
+export function noKeychain(bin) {
+	if (process.platform !== "darwin") return bin;
+	const wrap = path.join(ROOT, `chrome-nokeychain-${createHash("sha1").update(bin).digest("hex").slice(0, 10)}.sh`);
+	const body = `#!/bin/sh\nexec "${bin.replace(/"/g, '\\"')}" --use-mock-keychain "$@"\n`;
+	if (!fs.existsSync(wrap) || fs.readFileSync(wrap, "utf8") !== body) { fs.mkdirSync(ROOT, { recursive: true }); fs.writeFileSync(wrap, body, { mode: 0o755 }); }
+	return wrap;
+}
+
+// 検定が使う Chrome（env CHROME → 検定専用〔無ければ取る〕→ /Applications）。macOS は noKeychain で包む（env CHROME はそのまま）
 let warned = false;
 export async function resolveChrome() {
 	if (process.env.CHROME) return process.env.CHROME;
-	const have = cftPath(); if (have) return have;
-	try { return await installChrome(); }
+	const have = cftPath(); if (have) return noKeychain(have);
+	try { return noKeychain(await installChrome()); }
 	catch (err) {
 		if (!warned) { warned = true; console.warn(`[chrome] 検定専用の Chrome を取れなかった（${err.message}）→ /Applications の Chrome を使う＝検定の間は普段の Chrome を開き直せない`); }
-		return APP_CHROME;
+		return noKeychain(APP_CHROME);
 	}
 }
 
