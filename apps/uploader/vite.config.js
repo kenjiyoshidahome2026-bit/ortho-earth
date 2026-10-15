@@ -8,7 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
 	plugins: [crossOriginIsolation({ coep: 'require-corp' })],   // uploader だけ従来どおり require-corp（dev と preview の全リクエスト・旧 server.headers＝dev だけ）
 	// 共有データの正本（packages/jp/shared-data）の絶対パス＝src/shared-data.js が dev の /@fs で読む
-	define: { __SHARED_DATA_DIR__: JSON.stringify(path.resolve(__dirname, '../../packages/jp/shared-data')) },
+	// 焼きスクリプトの出力（repo 直下の bake-out/）＝src/bake-out.js が dev の /@fs で読む
+	define: { __SHARED_DATA_DIR__: JSON.stringify(path.resolve(__dirname, '../../packages/jp/shared-data')), __BAKE_OUT_DIR__: JSON.stringify(path.resolve(__dirname, '../../bake-out')) },
 	resolve: {
 		// 旧パスエイリアス（src直指し）。geopbf だけは撤去（2026-08-21）＝exports のサブパス
 		// （geopbf/encodeZIP 等）を迂回して解決不能になるため、workspace 解決に委ねる。
