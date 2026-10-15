@@ -1,6 +1,6 @@
 // オフラインパック（#40・2026-09-25）＝範囲（bbox）とズーム上限を決めて、基図タイル・標高・（任意で）建物を先に取って残す。
 // ここは純関数と実行器だけ（DOM なし・node の検定が回る）。UI は gadgets/offline.js、保存の仕組みは：
-//   ・基図タイル・ラスタ・bucket の JSON … Cache Storage（PACK_CACHE）に URL ごと。配信は Service Worker（japan の public/sw.js）が
+//   ・基図タイル・ラスタ・bucket の JSON … Cache Storage（PACK_CACHE）に URL ごと。配信は Service Worker（packages/globe/scripts/lib/sw.js＝各アプリ共通）が
 //     「パックにある URL」だけ cache-first で返す＝エンジン（fetchMVT）は触らない。SW の無い埋め込み先では単なる先読み（HTTP キャッシュ）
 //   ・標高（R10/R01）… core の loadTile.byName＝IDB GIS/alt へ（描画なしの先読み口・www の prefetch と同じ）
 //   ・建物（PLATEAU 等）… 既存の meshMgr.prefetch（IDB＋OPFS・予算と LRU はそちら）

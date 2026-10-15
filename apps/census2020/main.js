@@ -54,8 +54,8 @@ const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() =
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";
-// assetBase: 本番＝指さない＝orthoJapan の既定（共有エンジンの assets/＝jp の台帳・2026-10-14・旧＝/japan/ の棚を実行時に読んでいた）・dev＝自分の base（publicDir 共有・moj-local 等の手元の道具）
-engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true, ...(import.meta.env.PROD ? {} : { assetBase: import.meta.env.BASE_URL }) })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
+// assetBase は指さない＝orthoJapan の既定（本番＝共有エンジンの assets/・dev＝packages/jp/assets を直＝jp の台帳・2026-10-14〜・旧＝/japan/ の棚を実行時に読んでいた）
+engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
 	dismissBoot();
 	window.__map = map;   // console 検証用（デバッグの手すり）
 	// 道具箱（census2020 に要る道具だけ・日本語のみ）

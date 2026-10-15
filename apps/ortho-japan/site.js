@@ -69,7 +69,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	}
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 }).catch(e => failedP.then(m => m.startupFailed("japan", e), () => console.error("[japan] startup failed", e)));
-// サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
+// サービスワーカー登録（public/sw.js→packages/globe/scripts/lib/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
 // 本番 https と localhost（検定の頁 tests/*.html は site.js を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
 // updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。
 // localhost（http でも安全な文脈）も掛ける（2026-09-25・#40）＝オフラインパックは SW が配るので dev で確かめられる。?nosw=1 で外す
