@@ -51,10 +51,11 @@ const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, n
   Node cannot resolve. Bundlers are fine; in Node use
   `node --import @ortho-earth/tile-formats/node-register script.mjs`.
 
-## Point clouds: LAZ for COPC (`@ortho-earth/globe`)
+## Point clouds: LAZ for COPC and plain LAS/LAZ (`@ortho-earth/globe`)
 
-`map.addCOPC(url | File)` in [`@ortho-earth/globe`](../globe) streams a
-[COPC](https://copc.io/) point cloud node by node. It reads the COPC hierarchy by itself, but the points of each node are LAZ
+`map.addPointCloud(url | File)` (also `addCOPC`) in [`@ortho-earth/globe`](../globe) streams a
+[COPC](https://copc.io/) point cloud node by node. Plain LAS/LAZ files (LAS 1.0–1.4, point formats 0–10, up to
+20 million points) are read whole and indexed into an octree in memory. It reads the COPC hierarchy by itself, but the points of each node are LAZ
 (LASzip-compressed LAS 1.4). The globe does not depend on a LAZ decoder. This package provides one on top of
 [`laz-perf`](https://www.npmjs.com/package/laz-perf) (WASM), loaded lazily on the first node. The globe reads
 `"#pointcloud-formats"` (a `package.json` `imports` slot, default: none). Point it at this package in your bundler:
@@ -66,7 +67,8 @@ resolve: { alias: [{ find: "#pointcloud-formats", replacement: "@ortho-earth/til
 
 Without the alias, `addCOPC` rejects before fetching anything, with a message that names this package.
 The decoder alone: `decodeLazChunk(lazPerfInstance, bytes, { format, recordLength, count })` from
-`@ortho-earth/tile-formats/laz` returns the raw LAS point records of one LAZ chunk.
+`@ortho-earth/tile-formats/laz` returns the raw LAS point records of one LAZ chunk, and
+`decodeLazFile(lazPerfInstance, bytes, onBatch)` decodes a whole (non-COPC) LAZ file in batches.
 The LAS/COPC structure readers (header, VLRs, COPC hierarchy pages, point records), pure and dependency-free,
 are in `@ortho-earth/tile-formats/las`.
 
