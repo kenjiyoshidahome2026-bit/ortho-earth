@@ -4,9 +4,12 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"main": "src/region.js",
+	"main": "src/region.ts",
 	"exports": {
-		".": "./src/region.js"
+		".": "./src/region.ts"
 	},
-	"description": "オランダの地域パック（3DBAG の建物台帳・基図・標高の申告）＝@ortho-earth/jp と同じ形"
+	"description": "オランダの地域パック（3DBAG の建物台帳・基図・標高の申告）＝@ortho-earth/jp と同じ形",
+	"scripts": {
+		"build": "tsc -p ."
+	}
 }
