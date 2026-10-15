@@ -4,7 +4,7 @@
 //   ② 地図は預かった div の中だけ（全画面を乗っ取らない）
 //   ③ ホストの window を汚さない（__cam 等のデバッグ手は target 指定時は生えない）
 //   ④ destroy で綺麗に剥がれ、ホストは元のまま
-// 使い方: apps/ortho-japan で `npm run verify:lib`（内部で build:lib を実行）。要ローカルChrome（環境変数 CHROME）。
+// 使い方: sdk/japan で `npm run verify`（内部で build を実行）。要ローカルChrome（環境変数 CHROME）。
 // COOP/COEP は敢えて刻まない＝埋め込み先に COI を要求しない設計の確認も兼ねる（fallback-ladder.md §3.5）。
 import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -19,8 +19,8 @@ const PORT = 5240, CDP = 9337;
 const CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".map": "application/json", ".json": "application/json" };
 
-console.log("… build:lib");
-execFileSync("npx", ["vite", "build", "--config", "vite.lib.config.js", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
+console.log("… build");
+execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
 
 // 素の静的サーバ（vite を挟まない＝出荷物そのものを配る。ホストのバンドラ差を持ち込まない）
 const server = createServer(async (req, res) => {

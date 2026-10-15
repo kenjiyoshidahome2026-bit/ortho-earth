@@ -40,11 +40,11 @@ import maplibregl from "@ortho-earth/globe/maplibre";
 const map = new maplibregl.Map({ container: "map", style: "https://demotiles.maplibre.org/style.json", center: [139.77, 35.68], zoom: 3 });
 ```
 
-For Japan, [`@ortho-earth/japan`](apps/ortho-japan) is a self-contained bundle of the same engine plus the Japan region pack (GSI vector tiles, DEM, PLATEAU buildings, POI, search).
+For Japan, [`@ortho-earth/japan`](sdk/japan) is a self-contained bundle of the same engine plus the Japan region pack (GSI vector tiles, DEM, PLATEAU buildings, POI, search).
 
 ## Repository layout
 
-The monorepo is one npm workspace (`packages/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom ([`LAYERS.md`](LAYERS.md)):
+The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom ([`LAYERS.md`](LAYERS.md)):
 
 | Layer | Where | What |
 |---|---|---|
@@ -52,6 +52,7 @@ The monorepo is one npm workspace (`packages/*` and `apps/*`). Parts are arrange
 | globe | [`packages/globe`](packages/globe) (`@ortho-earth/globe`) | The globe host: boot, world layers, region-independent gadgets, the MapLibre face, plugins, SDK types, gates |
 | region pack | [`packages/jp`](packages/jp) (`@ortho-earth/jp`) | A region's declaration (terrain, buildings, basemap, rasters, search, POI, rail) and the parts only that region needs |
 | apps | [`apps/*`](apps) | Shells. `japan` = globe + jp pack + Japanese UI; `world`, `equal`, `census2020`, `solar`, … |
+| sdk | [`sdk/*`](sdk) | SDKs and standalone tools for outside users: `@ortho-earth/japan` (the Japan SDK bundle), React bindings, KTX2, Google 3D Tiles, scene and splat plugins, `glbconv` |
 
 Region names never appear in core or globe code (the `verify:regionless` gate counts them). Apps without a region load the shared engine from a versioned, immutable URL (`www.ortho-earth.com/globe/engine/<hash>/`); the Japan apps are two-stage: shared engine + their own bundle with `orthoJapan` and the jp pack.
 
@@ -70,7 +71,7 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`geopbf`](packages/geopbf) | 1.19.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
 | [`geoedit`](packages/geoedit) | 0.3.2 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
 | [`altpbf`](packages/altpbf) | 1.1.1 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
-| [`glbconv`](packages/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
+| [`glbconv`](sdk/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
 | [`native-bucket`](packages/native-bucket) | 1.0.1 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
 | [`himekuri`](packages/himekuri) | 1.0.0 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 | [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
@@ -105,7 +106,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 Node 22 and npm. `npm install` at the root installs every workspace.
 
-- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w @ortho-earth/japan`, `-w ortho-globe`).
+- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w ortho-japan`, `-w ortho-globe`).
 - `npm run build:all` — builds www, geopbf-demo, gishub-jp and world and assembles `apps/www/dist` (docs, geopbf, gishub-jp, world, the shared engine).
 - Each package README documents its own API; [`packages/globe/README.md`](packages/globe/README.md) is the place to start for the engine, [`packages/geopbf/README.md`](packages/geopbf/README.md) for the data layer.
 

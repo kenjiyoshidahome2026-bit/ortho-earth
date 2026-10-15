@@ -1,24 +1,8 @@
 {
-	"name": "@ortho-earth/japan",
+	"name": "ortho-japan",
 	"version": "1.14.0",
-	"publishConfig": {
-		"access": "public"
-	},
-	"description": "Serverless, dependency-free 3D globe of Japan for any web page — GSI vector tiles and MLIT PLATEAU buildings drawn on a true sphere with WebGPU/WebGL2. No API keys, no billing, no servers.",
-	"keywords": [
-		"japan",
-		"map",
-		"3d",
-		"globe",
-		"gis",
-		"webgpu",
-		"webgl",
-		"plateau",
-		"gsi",
-		"vector-tiles",
-		"geospatial",
-		"serverless"
-	],
+	"private": true,
+	"description": "日本の 3D 地図のサイト（www.ortho-earth.com/japan/）。SDK（@ortho-earth/japan）は sdk/japan に分けた（2026-10-15）。",
 	"homepage": "https://www.ortho-earth.com/japan/",
 	"repository": {
 		"type": "git",
@@ -28,32 +12,12 @@
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"main": "./dist/lib/ortho-japan.js",
-	"types": "./dist/lib/ortho-japan.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/lib/ortho-japan.d.ts",
-			"default": "./dist/lib/ortho-japan.js"
-		},
-		"./ortho-japan.css": "./dist/lib/ortho-japan.css",
-		"./assets/*": "./assets/*",
-		"./package.json": "./package.json"
-	},
-	"files": [
-		"dist/lib",
-		"!dist/lib/**/*.map",
-		"assets",
-		"sdk/example.html",
-		"sdk/verify-example.mjs",
-		"sdk/skill",
-		"README-ja.md"
-	],
 	"scripts": {
 		"dev": "vite",
 		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-extrude.mjs && node tests/t-aggregate.mjs && node tests/t-symbols.mjs && node tests/t-linedeco.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs && node tests/t-pbrdecode.mjs && node tests/t-poioverrides.mjs && node tests/t-landmarks.mjs && node tests/t-meshq.mjs && node tests/t-fireworks.mjs && node tests/t-offline.mjs && node tests/t-terrain.mjs && node tests/t-onsen.mjs && node tests/t-deploy.mjs",
 		"test:net": "node tests/t-chome.mjs",
 		"build": "vite build",
-		"build:prod": "npm run build:lib && vite build && cp -R dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
+		"build:prod": "npm run build -w @ortho-earth/japan && vite build && cp -R ../../sdk/japan/dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
 		"i18n:extract": "node scripts/i18n-extract.mjs",
 		"i18n:import": "node scripts/i18n-import.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
@@ -69,13 +33,6 @@
 		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "npm --prefix ../../packages/globe run verify:nocoi",
 		"verify:elevburst": "node scripts/verify-elevburst.mjs",
-		"verify:livedecode": "node scripts/verify-livedecode.mjs",
-		"build:lib": "vite build --config vite.lib.config.js && node scripts/build-dts.mjs dist/lib/ortho-japan.d.ts",
-		"verify:lib": "node scripts/verify-lib.mjs",
-		"measure:lib": "node scripts/measure-lib.mjs",
-		"pack:sdk": "node scripts/pack-sdk.mjs",
-		"prepack": "npm run build:lib && node scripts/stage-npm-assets.mjs",
-		"verify:npm": "node scripts/verify-npm.mjs",
 		"models:thumbs": "node scripts/models-thumbs.mjs",
 		"og": "node scripts/og-shot.mjs"
 	},

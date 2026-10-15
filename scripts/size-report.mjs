@@ -18,8 +18,8 @@ const arg = k => { const a = process.argv.find(s => s === `--${k}` || s.startsWi
 
 // 配布の単位＝[名前, ワークスペース, ビルドの script, 計る dist]
 const APPS = [
-	["japan-sdk", "@ortho-earth/japan", "build:lib", "apps/ortho-japan/dist/lib"],
-	["japan-site", "@ortho-earth/japan", "build", "apps/ortho-japan/dist/site"],
+	["japan-sdk", "@ortho-earth/japan", "build", "sdk/japan/dist/lib"],
+	["japan-site", "ortho-japan", "build", "apps/ortho-japan/dist/site"],
 	["globe", "ortho-globe", "build", "apps/ortho-globe/dist/site"],
 	["world-lib", "ortho-world", "build:lib", "apps/world/dist/lib"],
 	["world", "ortho-world", "build", "apps/world/dist/site"],
@@ -34,7 +34,7 @@ const APPS = [
 	["uploader", "uploader", "build", "apps/uploader/dist"],
 ];
 // www は build:all で他アプリの dist を複写して抱える＝単体ビルドの www だけを計る（複写分は各アプリで数える）
-const PACKAGES = ["altpbf", "columnar", "common", "ephem", "geoedit", "geopbf", "glbconv", "globe", "himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];
+const PACKAGES = ["altpbf", "columnar", "common", "ephem", "geoedit", "geopbf", "sdk/glbconv", "globe", "himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];   // 道は packages/ から（sdk/ の物は "sdk/<名>"）
 
 const COMPRESSIBLE = /\.(m?js|css|json|html|wasm|svg|txt|csv|geojson|webmanifest|xml)$/i;
 const kindOf = f => /\.m?js$/.test(f) ? "js" : f.endsWith(".css") ? "css" : f.endsWith(".wasm") ? "wasm" : /\.(json|geojson)$/.test(f) ? "json" : f.endsWith(".html") ? "html" : /\.(png|jpe?g|webp|avif|gif|svg|ico)$/i.test(f) ? "img" : "data";
@@ -68,7 +68,7 @@ for (const [name, , , dir] of APPS) {
 
 const packages = {};
 for (const p of PACKAGES) {
-	const out = execSync("npm pack --dry-run --json --ignore-scripts", { cwd: path.join(REPO, "packages", p), stdio: ["ignore", "pipe", "ignore"] }).toString();
+	const out = execSync("npm pack --dry-run --json --ignore-scripts", { cwd: path.join(REPO, p.startsWith("sdk/") ? p : path.join("packages", p)), stdio: ["ignore", "pipe", "ignore"] }).toString();
 	const j = JSON.parse(out)[0];
 	packages[j.name] = { tgz: j.size, unpacked: j.unpackedSize, files: j.entryCount };
 }

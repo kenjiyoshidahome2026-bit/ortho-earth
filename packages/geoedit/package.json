@@ -43,7 +43,7 @@
 		"i18n:check": "node scripts/i18n-check.mjs",
 		"build": "npm run build:css && npm run i18n:build",
 		"prepack": "npm run build && npm run i18n:check",
-		"test": "npm run i18n:check && npm run -w @ortho-earth/japan verify:editor",
+		"test": "npm run i18n:check && npm run -w ortho-japan verify:editor",
 		"mirror": "git -C ../.. subtree split --prefix=packages/geoedit -b geoedit-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geoedit.git geoedit-mirror:main --force && git -C ../.. branch -D geoedit-mirror"
 	},
 	"dependencies": {

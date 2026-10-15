@@ -1,0 +1,176 @@
+# ortho-earth SDK (ortho-japan) — LLM向け正典 / canonical guide for AI agents
+# This file is for AI coding agents building apps on the ortho-earth 3D globe SDK.
+# Content is in Japanese (the project's working language). Latest copy: https://www.ortho-earth.com/japan/llms.txt
+
+## これは何か
+ortho-japan＝日本地図の3D地球儀エンジン（自作WebGL2/WebGPU・ライブラリゼロ・タイルからGPU描画まで自前）を、
+1関数で任意のWebページに埋め込めるSDK。GISデータの読み書き（GeoPBF形式・変換各種）と、
+トポロジ知性層（gint）による大規模ベクタの描画・識別を持つ。
+実例＝ https://www.ortho-earth.com/japan/ （本体）・/japan/census2020/（統計）・/japan/geoedit（トポロジカルGISエディタ＝ortho-japan のガジェット）。
+
+## 最小の使い方（ビルド不要・1枚のHTML）
+www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを直接importするだけ：
+
+    <link rel="stylesheet" href="https://www.ortho-earth.com/japan/lib/ortho-japan.css">
+    <div id="map" style="width:100%;height:100vh"></div>
+    <script type="module">
+      import orthoJapan from "https://www.ortho-earth.com/japan/lib/ortho-japan.js";
+      const map = await orthoJapan({ target: "#map", view: "#13/35.68/139.76",
+                                     assetBase: "https://www.ortho-earth.com/japan/" });
+      map.gadget.search(); map.gadget.zoom(); map.gadget.compass();
+    </script>
+
+- 他ドメインのページ＝SDK zip（下記）を自サイトに展開して相対パスで読む（CDNのlibはCORS未開放）。
+- file:// では動かない（ES module/fetch制約）。`npx serve .` 等でHTTP配信して開く。
+- 動作床＝WebGL2＋OffscreenCanvas。COOP/COEP（crossOriginIsolated）は不要（SABはあれば速いだけ）。
+
+## SDK zip（self-host）
+`ortho-japan-sdk-<version>.zip` ＝ lib/（本体）＋ assets/（実行時アセット）＋ example/ ＋ 型定義 ＋ このファイル。
+展開して `lib/ortho-japan.js` をimport、`assetBase` に assets/ の配信URLを渡す。example/index.html が動く最小形。
+
+## orthoJapan(opts) — 主要オプション
+| opts | 既定 | 意味 |
+|---|---|---|
+| target | 自作 | 埋め込み先（セレクタ/要素）。idは"map"に正規化される（家具規格）。容れ物のサイズ指定は#idでなくclass/inlineで |
+| view | 前回 | 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） |
+| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト）。**指定すると palette ガジェットは載らない**＝利用者が切替できる初期配色は view の c=dark で。worldHypso={sea,lowHumid,…,grat}で全球配色も差し替え可 |
+| layers | — | {place,terrain,rail,road,facility} を true/false で焼き付け/封印。未記述=チップで利用者が選ぶ |
+| chips / instruments | true | 右上チップ帯／下部計器盤の表示制御 |
+| mesh | true | 建物3D機能スイッチ（1.2.0〜）。false=関連通信・workerごと停止（軽量埋め込み）。旧名 plateau は非推奨の別名（mesh が優先） |
+| lang | 自動 | "ja"/"en"（UIの衣のみ。地図中の地名は対象外）。live 切替 API なし＝view: map.view.hash を持って destroy()→再生成 |
+| maxPitch | 75° | チルト上限（**ラジアン**）。0=俯瞰固定（編集系アプリ向け） |
+| assetBase | "./" | 実行時アセット（plateau-sets.json等）の配信ベースURL（既定＝ページと同じ階層） |
+| urlHash | 埋め込みは false | ページ URL のハッシュに視点を書き続ける（1.0.4〜埋め込みでは既定 off＝SPA ルータを汚さない） |
+| debugGlobals | false | window.__cam 等のデバッグ手（target 指定時は既定で生えない） |
+
+## map（戻り値）の公式面
+- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?)→Promise（着地/中止で解決・1.0.5〜）/ getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
+  destroy()＝容れ物を id/子要素/class まで元へ。再生成は view: map.view.hash（lang/theme の変更もこれ）。1.0.3 以前は WebGPU 起動後 20s 以内の destroy でホストが reload（罠⑭）
+- on("load"|"move"|"settle"|"mesh"|"click", cb)→map / off(ev, cb)（1.0.5〜）。settle（1.0.5〜）＝カメラ静止（移動が 150ms 止まった時）{center,zoom,pitch,bearing,hash}。
+  mesh（1.2.0〜・旧名 plateau＝1.0.4〜も同じ合図を受ける）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 MeshEvent・旧名 PlateauEvent は別名）
+- DOM オーバレイの定型（マーカー等）：`const off = map.onFrame(() => { const P = map.makeProjector(); for (const m of markers) { const [x,y,f] = P(m.lon, m.lat);
+  m.el.hidden = f < 0; if (f >= 0) m.el.style.transform = `translate(${x}px,${y}px)`; } }); map.requestDraw();`
+  ＝座標は mapEl 左上原点の CSS px（自分の層と rect が違えば差を足す）・front<0＝見えない（[0,0,-1]・x,y 無効）・描画はオンデマンドなので載せた直後に requestDraw()。
+  実測 500 点で 0.06ms/frame（projectLL 個別呼びの約 16 倍速）。単位＝view.pitch/bearing は rad・flyTo の tilt/bearing は度・maxPitch は rad
+- projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
+  ＝いずれも **mapEl（canvas）左上原点の CSS px**（ページ座標ではない＝pointer 合成は getBoundingClientRect を足す）
+- makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
+  投影の front<0＝見えない点。その x,y は地平線（可視キャップの縁）へクランプした位置＝面の塗りはそのまま結ぶ（切ると環が割れ evenodd で相殺）・線は符号で切る
+- setEditClick(fn|null)＝クリック横取りスロット（編集アプリ用。クリックvsドラッグの4px弁別はエンジンが済ませる）
+- getHeight(lon,lat)→Promise<標高m>（api.ortho-earth.com 経由の DEM タイル・格子は今のズーム＝z<12 は粗い R10（山頂は低め）・z≥12 は 10m の R01。2026-09-25 修正前の版は z≥12 でも R10。1.0.4〜ローダ着荷を待って返す／1.0.3 以前は未着の間 0）
+  / fitZoomForBbox([w,s,e,n]) / makeProjectorH()＝地形込み投影 (lon,lat,liftM=0)（projectLL/makeProjector は海面基準＝チルトで視差）
+- MapLibre 互換の口（addSource/addLayer/setStyle・型は d.ts の MapLibreSource/MapLibreLayer）：旧式フィルタ・{ stops }・"{name}" は addLayer でも読み替える（1.3.0〜）・style.json のズームは基図も geojson の層も MapLibre の z（この地図の z−1）・addLayer のズームはこの地図の z（層の metadata["ortho:dz"]:1 で MapLibre の z）。**起動オプション zoomScale:"maplibre"（1.3.0〜）＝公開面の数の zoom を全部 MapLibre の z で受け渡す**（カメラ・イベント・層・gadget・raster の表示窓・addGint。URL hash/view と source の tile z はそのまま・素の map は map[RAW]）。maxPitch/setMaxPitch は度（1.3.0〜）。MapLibre の文書から来た式（style.json・addLayer・ML 形 gadget・問い合わせの filter）は MapLibre の型の約束で評価（型の合わない比較・真偽でない条件＝評価エラー＝filter 偽/paint 既定値・get の欠損は null・to-number の予備）。map.paint/addGint のネイティブの式は従来どおり。addLayer の fill/line/circle は MapLibre の意味（1.3.0〜・型がジオメトリを選ぶ・層ごとの filter・既定値＝黒/線 1px/点 5px・同じ source のハイライト層や縁取りも可）。line-dasharray（先頭の対）と circle-stroke（中空の円も）も描く（1.3.0〜）。知らない演算子の層は名前を挙げて投げる（1.3.0〜）。層の minzoom/maxzoom はどの種類でも効き、押し出しと canvas2D の線の ["zoom"] は止まるたびに評価し直す。source（1.3.0〜）：geojson の data の相対 URL・promoteId・clusterProperties と cluster_id・getClusterExpansionZoom／raster の url（TileJSON）・{quadkey}・既定 tileSize 512/maxzoom 22／raster-dem の custom と既定 512・22／style の複数 sprite（"id:名前"）／記号は面（到達不能極）と線（最初の頂点）にも置く。feature-state と問い合わせの id は MapLibre の id（Feature.id→promoteId→並び順）。基図の層も setPaintProperty/setLayoutProperty(visibility)/setFilter/setLayerZoomRange/removeLayer/getLayer で触れる（1.3.0〜・重ね順は固定）。**vector source の fill-extrusion（MVT の 3D 建物・1.3.0〜）**：addSource({type:"vector", url|tiles})（TileJSON・pmtiles://・独自スキーム）か基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）に fill-extrusion を足す／style.json の building-3d も立つ。タイルごとに流す・実寸で地表から・半透明は裏面を除いて重ねる・["zoom"] の paint は止まった所で評価・問い合わせは屋根と壁の立体で当てる（sourceLayer/id つき）。**vector source の fill/line/circle/symbol（1.3.0〜）**：同じ source（addSource の vector・基図の source 名・style.json の 2 本目以降の vector source）の層を基図の塗りと線の上に描く（利用者の層どうしの順は正確・beforeId／moveLayer が基図の層を指せばその層の直前＝1.9.0〜・style の 2 本目以降の source の層は style の順・3D では塗りは基図の線より下・注記は基図と同じ衝突で常に一番上）・paint/layout の ["zoom"] は止まった所で評価・circle は画面に向いた円・symbol は点と面の注記（線の上の注記・アイコンはまだ）・問い合わせは基図と同じ当て方・feature-state は押し出しと描く層（1.9.0〜）の paint に効く＝setFeatureState({source, sourceLayer, id}, state)（sourceLayer が要る・getFeatureState も・状態が変わった地物のタイルだけ組み直す＝即座ではなく数十 ms・問い合わせの地物に state）・isSourceLoaded は見えているタイルが組み上がって描画側に載るまで false。source の出典（TileJSON の attribution）は出典の欄に出る。**日本の基図の自動の 3D 建物＝層 "building-extrusion"**：map.setLayoutProperty("building-extrusion","visibility","none")（か removeLayer）で伏せて OSM などの押し出しに差し替えられる（色等は変えられない・PLATEAU は別の口 opts.mesh）。geojson の line-gradient（["line-progress"]）・line-offset（画面 px・右が正）の線と
+  video source（四隅の動画・map.raster.add(id,{video,corners})→VideoHandle も同じ）は同一フレームの canvas2D の覆い＝地形の遮蔽なし（#49）。外来 style の基図の line-offset は GPU の線でずらす
+  geojson source の cacheKey（拡張・1.14.0 より後・data が object の時）＝fill/line/circle の層のために焼いた結果（GeoPBF＋GintBUF）を IndexedDB に控え、同じ鍵の source は焼かずに戻す（数十万頂点の焼きは秒の桁）。中身は見比べない＝data が変わったら鍵も変える（data の要約や版を鍵に）。setData／updateData で鍵は外れる
+- gadget＝オプトインUI部品。map.gadget.search()/zoom()/compass()/full()/shot()/measure()/profile()/contextmenu({items})/
+  legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。profile()=断面図（クリックで経路指定→標高グラフ）。contextmenuのitems=[{name,onClick(c)}]、
+  c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
+- 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
+- gadget.dropFile({onLoad(pbf,file), loadFile?, clearGint?})→{say(text,sticky),clear(),destroy()}：受け口は map.mapEl のみ。既定＝geopbf(file)→applyGintData（単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。
+- gadget.model(src: File|url, {at?:[lon,lat], heading?:deg, scale?, fit?})→Promise<{stats:{triangles,vertices,mode:"anchor"|"rtc"|"ecef",bbox}, clear(), destroy()}>：glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地）。マテリアルは baseColor（factor×COLOR_0×baseColorTexture・KHR_texture_transform・pbrSpecularGlossiness の diffuse）＝マテリアルごとに 1 バッチ・stats に materials/textures。metallic/roughness/normal/emissive は読まない。alphaMode＝OPAQUE(α無視)/MASK(alphaCutoff で抜く)/BLEND(半透明＝奥から手前・深度書き込み無し・stats.blended)。テクスチャは三線形ミップ＋異方性 8（両バックエンド）。置き場所＝at（ドロップは落とした地点・省略＝画面中心）／glb に CESIUM_RTC や ECEF が埋まっていればそちらが勝つ。.glb/.gltf のドロップと ?g=…glb（&at=lon,lat[,heading[,scale]]）は INTAKE 表からここへ。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト 55°。
+  onLoad で結果を受ける（1.0.5〜。1.0.4 は loadFile を差し替えて横取り）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす・二重搭載は no-op
+- ガジェットの手綱（1.0.4 の d.ts）：shot()→{open(),composite()→Blob} / qr()・print()・palette()→{open,close} / measure()・profile()→{start,stop,stats()}
+  / tip()→setter(rows|null)（自動搭載済み）/ contextmenu({items})→項目差し替え関数。操作系＝measure/profile はクリックで頂点・ダブルクリック確定
+
+## データ知性層（geopbf ＋ gint）
+GeoPBF＝座標svarint差分圧縮のバイナリGIS形式（仕様 https://www.ortho-earth.com/docs/geopbf）。
+**入手＝SDK の named export**（1.0.3〜）：`import orthoJapan, { geopbf } from ".../lib/ortho-japan.js"`。同梱・初期化済み＝
+createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の bucket 設定ごとアクティブインスタンスが差し替わる）。
+バンドラも import map も不要＝同梱の worker チャンクがそのまま動く。npm の geopbf（単体・MIT）は地球儀の外で使う物＝
+同一ページで混ぜない（別インスタンス・二重同梱）。@ortho-earth/japan 1.0.2 以前は未 export＝更新する。
+- geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
+  geopbf/.pbf/geojson/ndjson・geojsonl（1 行 1 地物）/topojson/fgb/shape(zip)/kml/kmz/gpx/czml（Cesium・.json に入った CZML も嗅ぎ分け）/gml/moj(zip)/gpkg/sqlite（SpatiaLite）/dxf（crs: EPSG 番号か WKT・省略時は経緯度の範囲なら経緯度）/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
+  1.0.4 以前は console.warn "illegal file" だけで 0 件の pbf）。KML の <name> は feature.id と properties.name（1.0.5〜）
+- 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile()/czmlFile() → File
+  忠実度＝geopbf/geojson：完全（型も）／kmz：件数維持・属性は全て文字列化／gpx：点と線のみ（面は落ちる）・属性は name/desc/type、trk/rte の各点の ele/time は点数と同じ長さの配列属性（trkseg ごとに入れ子・rte は route:true）／czml：静的パケットは等価（position→Point・sampled position→LineString + time 配列・polyline/polygon/rectangle・他は czml 属性に温存）・document の clock は残らない。
+  File 名は opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る（表示用の name は階層なしで）
+- pbf.identifyAt(lng,lat,{point:m,polyline:m})→fid（描画レス識別・点→線→面優先・面はsmallest-wins）
+- geopbf() は入力形式を問わず既定で gint を焼く（opts.gint=false で抑止）。`await pbf.gint()` の明示呼びは焼き済みなら no-op＝害なし
+- **辺の意味＝完全球体の大円**（gint v5・2026-09-14）：隣接頂点は大円で結んで描く/識別する（1°以下の大円アンカーを焼き時に挿入・
+  antimeridian 切断も球面交点）。RFC 7946 の「経緯度で直線」とは違う＝2 頂点だけの緯線（例 49°N の国境）は極側へ膨らむ＝
+  緯線に沿わせたいなら中間頂点を打つ。geoedit も同じ球で編集（移動＝球の中心まわりの回転・円＝球面上の小円・矩形＝対角線の大円中点の接平面で点対称な 4 角＝経緯度の角ではない・@spline＝単位ベクトルの球面 Catmull-Rom＝回転不変・ell=0）
+- **Blob/Fileをプロパティ値にそのまま入れられる**：エンコード時にBUFSプールへ一個書き
+  （バイナリ等価は自動dedup＋deflate圧縮）、読み戻しはFile復元＋同一参照共有。アイコン等の正道
+
+gint の多層口（追加・層ごとのハンドル・両バックエンド）:
+- map.addGint(pbf, {order,minZoom,maxZoom,interactive,style,label,tip,fillMaxEdges,lowFill})→handle（pbf は geopbf(…,{gint:true}) 済み・無効なら null）。
+  handle＝on('hover'|'click'|'mouseenter'|'mouseleave')・query(ll)・setPaint(paint,filter)・setFilter・setFeatureState/removeFeatureState・
+  setData(pbf)・setOrder(n)・setLabel・style・setVisible・activate・remove・ready（Promise<boolean>）。**追加であって置換ではない**
+- map.queryAll(ll)＝層をまたぐ照会（手前から）＝**{layer, fid} の対**で扱う（fid は層内添字・layer:null＝下の単一スロット層）
+
+単一スロットの gint 口（v1・呼ぶたび置換＝多層とは混ぜない・**必ず薄いモジュール1枚に封じて使う**）:
+- map.applyGintData(pbf, label, moveCamera, {style,minZoom,interactive,hover,drape,drapeFill,tip,fillMaxEdges,lowFill,onReady})
+  ＝ユーザー層の搭載（呼ぶたび置換）。minZoom 未指定＝線/面（arc）を含むデータは範囲から自動（狭域は 13〜14・
+  "[gint] minZoom auto-set" ログ＝**render worker のコンソール**＝ページの CDP には出ない）＝それ未満では描かれない。
+  **点だけのデータは自動なし＝全ズームで描く**。指定で上書き（1.0.3〜）。省メモリ端末だけ z<minZoom（既定 7）で層を眠らせる。
+  gintFeatures()/paintTable は applyGintData 直後に同期で呼べる。**自分の値はエンコード前に properties へ**（paint/tip/書き出しは pbf 側を読む）
+  tip=(props)=>string[]（空/null＝tip なし）。style={lineWidth,fillColor:[r,g,b,a],styleTable,dashTable,ptRadius}（型 GintDrawStyle）
+  **チルト（pitch>約1°）ではこの層は非表示＝drapeFill:true で地形の上に描き続ける**（スタイル付きの線/塗り）。drape:true＝別描画の細い地形沿い線（固定幅・色は style.fillColor・moj 筆向け）
+- map.onGintClick((fid, props, [lng,lat])=>{}) / map.gintFeatures()＝fid整列properties。click はホバーの識別結果を使う
+  （pointer 移動なしの合成クリックは拾えない）。[lng,lat]＝**カーソルの当たり位置**（フィーチャ座標ではない・点でも同じ。1.0.3 で [null,null] になる回帰を修正）。
+  **非ヒット（海など）では呼ばれない**＝選択解除は `map.mapEl` の click（4px ドラッグ弁別は自前）＋ `map.unprojectXY(x,y)` ＋ `pbf.contain(ll)===null`
+- map.paint(paint, filter?)→Promise（Mapbox 風・呼び出し時に一度評価）：キー＝fill-color/fill-opacity/line-color/line-opacity/line-width/
+  circle-color/circle-radius。演算子＝get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number
+  to-string concat zoom geometry-type feature-state + - * / % ^ min max literal。色＝#hex/rgb()/rgba()（名前色は transparent/white/black のみ）。
+  コロプレス＋選択枠の例：{ "fill-color": ["step", ["get","pop"], "#eff3ff", 1,"#bdd7e7", 2,"#6baed6", 4,"#3182bd", 8,"#08519c"],
+  "fill-opacity": 0.85, "line-color": ["case", ["==", ["get","id"], sel], "#ff2d55", "#1f2a44"], "line-width": ["case", ["==", ["get","id"], sel], 3.5, 0.9] }
+  型＝GintPaint（d.ts）。null＝解除。表の色欄は fill と line/circle の 2 つ＝点は circle-color・線/面は line-color（1.0.5〜ジオメトリで選ぶ。
+  1.0.4 以前は line-color があると circle-color 無視・["geometry-type"] は常に空＝混在データの色分けは paintTable で）。/ map.paintTable(u32, count)＝fid→スタイル表の直書き。レコード=4×u32/fid：
+  [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
+  flags bit0=visible（フィーチャ単位の表示/非表示はここ）
+  点(Point)＝[1]が circle 色（α=0 は既定 #FF6B35）・[2]の radius(1/4px 単位・0=描かない)・bit0 を使う。線＝width(1/8px・0=描かない)。
+  ※npm @ortho-earth/japan 1.0.2 以前の lib は点だけ表を無視（固定色 1.5px）＝点に色を付けるなら 1.0.3 以降
+- fid⇄自分のid管理：全フィーチャのpropertiesに一意キー（例 __eid）を入れてエンコードすれば
+  fid=フィーチャ並び順が保証される（同一プロパティ行は併合される仕様への対策）
+
+## @プロパティ規約（スタイルをデータに乗せる・geoedit発）
+properties に `@fill @stroke @width @icon @shape @text @size @tip @pop` を書くと、対応ビューア（geoedit）が
+描画に反映する。@fill/@stroke=CSS色、@width=px、@icon=内蔵名かFile(Blob)、@shape=pin/circle/square/
+triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\nで改行）。ただのプロパティ＝全形式を往復。
+
+## 罠台帳（実事故由来・順不同）
+1. **geopbf は SDK の export から**（1.0.3〜）。npm の geopbf を自分のバンドルに混ぜると SDK 内とは別インスタンス＝
+   その側で createGeopbf() を呼び忘れると本番だけデータ読込が死ぬ（dev はソース直配信で動く）。混ぜないのが正
+2. viteでCDN libを外部参照する時は rollupOptions.external=["…/ortho-japan.js"] ＋ importはURL変数経由で
+   `import(/* @vite-ignore */ LIB)`（リテラルだとdevで解決に行って404）
+3. CSSは自動注入されない＝ ortho-japan.css の<link>をページが貼る
+4. gintは単一スロット＝applyGintDataは常に置換（null＝空に）。複数データを 1 画面に出す手順＝各 pbf の .geojson.features を集め、
+   __src/__row 等の一意キーを**エンコード前**に足して 1 FeatureCollection に再エンコード→1 スロットで identify も書き出しも通る（多層は v2 addGint）
+5. 容れ物のサイズをCSSの#idセレクタで当てない（idは"map"へ正規化される）。1ページ1マップ
+6. maxPitchはラジアン（0=俯瞰固定）。共有URLのt=も同じ上限でクランプされる
+7. COOP/COEPは不要（あればSABゼロコピーで速いだけ）。Service Workerは持ち込まない
+8. 大量フィーチャの識別は identifyAt/GPU pickを使う（自前JS全走査を書かない）
+9. ズーム換算：画面px→mは `40075016.686*cos(lat)/(256*2^zoom)` 近似が実用十分（クリック許容量など）
+10. **`npm i geopbf` は不要**＝`import { geopbf } from ".../ortho-japan.js"`（1.0.3〜）。1.0.2 以前の lib は未 export（更新する）
+11. **geopbf(URL) は api.ortho-earth.com の proxy で check する**（許可ホスト制）。1.0.4〜＝proxy が断れば直 fetch へ自動フォールバック
+    （相手ホストの CORS 許可が要る）。**1.0.3 以前は許可ホスト外を 0 件の pbf として黙って返す**＝`fetch(url)`→`new File([blob], "x.topojson")`
+    （拡張子で形式判定）を geopbf() に渡す。**相対パス（"/data/x.gpx"）は 1.0.3 以前は bucket 名と誤認**（api/bucket/GIS/pbf//data/… の 404）＝
+    1.0.4〜は location 基準の URL として読む。1.0.4〜読めなければ例外（0 件を黙って返さない）。GPX＝track→LineString/MultiLineString（trkpt の ele/time は配列属性 ele/time に残る・2026-09-17〜）
+12. pbf.getBbox() は引数なしだとフィーチャ別 bbox の**配列**。全体は `pbf.bbox`（fitZoomForBbox に渡すのはこちら）
+13. **チルト時のホバー/クリック識別は海面基準**（GPU pick）＝drapeFill で地形に乗った線とは視差があり当たりにくい。確実なのは
+    setEditClick((x,y)) ＋ makeProjectorH() で頂点を投影して最近傍、または pbf.identifyAt(lng,lat,{polyline:m})
+17. **全球スケールの世界層（海面下の陸・湖・国界・星＝約 5MB）は on("load")（初回フレーム）の 3 秒ほど後に着地**＝z<4 のスクショ/検証は 8〜10 秒待つ。
+    星は z<4 でテーマに関係なく描かれる（テーマが変えるのは海/陸/大気の色）
+18. **theme をオプションで渡すと view.hash に c= が入らない**＝`view: map.view.hash` で再生成する時は theme を渡し直す（palette で選んだ時だけ c= が入る）
+14. **destroy() の番犬 reload（1.0.3 以前）**：WebGPU 起動後 20 秒以内に destroy すると番犬タイマーがホストページを location.reload()。1.0.4 で解除。
+    それ以前は生成から 21 秒待つか `?stay=1`
+15. **theme を指定すると palette ガジェットは載らない**（console.warn）。contextmenu は既定 2 項目を持ち items は置換。print は pointer:coarse で非搭載・
+    小さな枠では低精細の注意が出る。ガジェット列は 2.5 秒無操作でフェード（ui-idle・スクショ/検証で驚かない）
+16. **PLATEAU/標高の通信量**：建物は R2 焼き（1 区で数〜十数 MB・周辺区も先読み）、標高タイルは mesh:false でも来る（セッションで数十 MB）。
+    読込の合図＝1.2.0〜 map.on("mesh", e=>…)（1.0.4〜1.1.x は map.on("plateau")＝今も別名で効く。1.0.3 以前のコンソール文字列 "[plateau] …" のフックは 1.2.0 でログの札が "[mesh]" になり効かない＝map.on へ）。backend＝map.backend
+
+## 検証の作法（このリポジトリの流儀）
+- 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む
+- エンジン起動込みの対話テストは仮想時間(--virtual-time-budget)がworker並走と相性が悪い＝実時間+CDPでtitleを監視
+- 本番組立の検定＝静的（エンジン再同梱がないか指紋文字列で）＋実走（サーバ側で取得台帳を観測・404ゼロ）
+- 雛形＝SDK 同梱 `verify-example.mjs`（npm: node_modules/@ortho-earth/japan/sdk/・zip: ルート。依存ゼロ・Node 22+）
+  `node verify-example.mjs http://127.0.0.1:4174/ 9555`＝title 実時間監視・スクショ・4xx 台帳・console。Chrome 引数は
+  --headless=new --remote-debugging-port=N --user-data-dir=<tmp> --enable-unsafe-swiftshader --disable-gpu-vsync（GPU 無しでも WebGL/WebGPU が点く・vsync 待ちで初回フレームが 50s 止まるのを防ぐ）
+
+## 参照
+- README（オプション正典・埋め込み契約・出典義務）: npm の node_modules/@ortho-earth/japan/README.md ＝ SDK zip 同梱と同一
+- 形式仕様（API ではない）: https://www.ortho-earth.com/docs/geopbf / https://www.ortho-earth.com/docs/gint
+  ＝GeoPBF/gint のバイナリ形式。フィーチャ別スタイル等の API 正典はこの llms.txt 本文と d.ts
+- 消費実例（公開ページ・ソースは https://github.com/kenjiyoshidahome2026-bit/ortho-earth の apps/）:
+  https://www.ortho-earth.com/japan/census2020/（統計・コロプレス）/ https://www.ortho-earth.com/japan/geoedit/（編集・@プロパティ・BUFSアイコン）
+- 型定義: https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts（SDK zip・npm の dist/lib にも同梱）
