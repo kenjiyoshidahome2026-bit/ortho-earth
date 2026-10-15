@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';   // 共有エンジン（LAYERS.md 掟 3）
 import { crossOriginIsolation, noChunkOptimization, CSS_TARGET, orthoData } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
-// 地球儀＝@ortho-earth/jp/app（orthoJapan＝globe＋jp パック）。build はエンジンと orthoJapan を共有エンジンの版つき URL から読む（jp/app.js・2026-10-14）
+// 地球儀＝@ortho-earth/regions/app（orthoJapan＝globe＋jp パック）。build はエンジンと orthoJapan を共有エンジンの版つき URL から読む（regions/app.js・2026-10-14）
 // （2026-09-30・LAYERS.md 掟 3）＝束に残るのは jp パックと gishub の殻。dev はソース直のまま。
 // 実行時アセット（plateau-sets.json 等）は packages/jp/assets が正本＝orthoJapan の既定（本番＝共有エンジンの assets/・dev＝/@fs で直読み・2026-10-14）。
 // 観測点の GeoPBF（jishin/seismic・jishin/fault・jma/amedas）は ortho-data/japan/：本番＝GitHub Pages・dev＝手元の正本（vite-app.mjs の orthoData・DATA.md）。

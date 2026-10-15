@@ -28,7 +28,7 @@ const BASE = new URL(self.registration.scope).pathname;
 const ASSETS = [BASE + "assets/", BASE + "lib/assets/", "/globe/engine/"];
 // 共有エンジンの入口＝network-first（HTTP キャッシュも再検証）。cache-first だと版が退役した後も旧版の入口で動き続け、
 // まだ掴んでいない遅延チャンクを消えた旧版の住所へ取りに行って 404 になる（2026-10-14・tellus の cog-*.js）。今の版なら 304 で済む
-const ENGINE_ENTRY = /^\/globe\/engine\/[0-9a-f]{10}\/(?!assets\/)[\w/-]+\.(js|css)$/;   // 入口＝assets/ の外（jp/app.js 等も・2026-10-14）
+const ENGINE_ENTRY = /^\/globe\/engine\/[0-9a-f]{10}\/(?!assets\/)[\w/-]+\.(js|css)$/;   // 入口＝assets/ の外（regions/app.js 等も・2026-10-14）
 // lib の入口（japan＝ortho-japan.js / .css＝<base>lib/ 直下の js・css）はハッシュ無し＝不変と扱えない。navigate と同じ
 // network-first＋キャッシュ退避＝新デプロイを常に拾いつつオフライン起動も守る。
 const isLibEntry = p => p.startsWith(BASE + "lib/") && !p.slice(BASE.length + 4).includes("/") && /\.(js|css)$/.test(p);
