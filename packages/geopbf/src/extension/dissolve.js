@@ -27,7 +27,7 @@ export async function dissolve(pbfInstance, key = false) {
 	pbfInstance.forEach(i => {
 		const pkey = keyAt(i);
 		if (!propTub.has(pkey)) propTub.set(pkey, [i, [[], [], []], new Set()]);
-		const [id, a, ptSet] = propTub.get(pkey);
+		const [, a, ptSet] = propTub.get(pkey);
 		const geom = pbfInstance.getGeometry(i);
 		if (!geom) return;
 		geom.type === geometryTypes[6] ? geom.geometries.forEach(elem) : elem(geom);

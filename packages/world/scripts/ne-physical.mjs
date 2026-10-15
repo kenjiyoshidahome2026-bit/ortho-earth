@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "../../geopbf/src/pbf-base.js";
+import { GeoPBF } from "geopbf/pbf-base";
 import { parseCSV } from "../build/csv.js";
 import { rangeAxis, parseAxis } from "../build/geom.js";
 import { plates as pb2002Plates, steps as pb2002Steps, PLATE_NAMES } from "./lib/pb2002.mjs";

@@ -140,12 +140,12 @@ function guid(b, p) {
 }
 
 // ───────────────────────────── 幾何（Esri shape buffer・FGDB 圧縮形） ─────────────────────────────
-const Z_TYPES = new Set([9, 10, 11, 13, 15, 18, 19, 20]), M_TYPES = new Set([11, 13, 15, 18, 21, 23, 25, 28, 31]);
-/** 幾何 BLOB → GeoJSON geometry（null＝空/多パッチ/未対応）。ctx に vertices/curves/multipatch を積む。 */
+/** 幾何 BLOB → GeoJSON geometry（null＝空/多パッチ/未対応）。ctx に vertices/curves/multipatch を積む。
+ *  Z／M（type code の 0x80000000／0x40000000 と Z/M 付きの型番号）は読まない＝XY だけ（下の「打ち切り」） */
 export function parseShape(b, gf, ctx, xf) {
 	const s = { p: 0 };
 	const code = vu(b, s), base = code & 0xff;
-	const hasZ = !!(code & 0x80000000) || Z_TYPES.has(base), hasM = !!(code & 0x40000000) || M_TYPES.has(base), hasCurves = !!(code & 0x20000000);
+	const hasCurves = !!(code & 0x20000000);
 	const { xOrigin: xo, yOrigin: yo, xyScale: sc } = gf;
 	const pt = (x, y) => { const c = [x / sc + xo, y / sc + yo]; return xf ? xf(c) : c; };
 	if (base === 1 || base === 9 || base === 11 || base === 21 || base === 52) {   // point

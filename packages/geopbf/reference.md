@@ -26,8 +26,8 @@ Creates a new GeoPBF instance (`import { GeoPBF } from "geopbf"` (1.20; `geopbf/
 * **`options.noprop`** (Boolean): If true, skips property encoding to save space.
 * **`options.cut`** (Boolean): `false` disables the antimeridian split at encode time (for a container that must round-trip shapes unchanged, e.g. an editor session). Default `true`; `pbf.cutCount` counts the features that were split.
 * **`options.description` / `license` / `attribution` / `minZoom` / `maxZoom`**: header metadata (see §3).
-* **`options.validate`** (`"lenient"` | `"strict"` | `"legacy"`): the encode-time validation layer (1.20). **`"lenient"` (default)** repairs what it can and counts the rest: `NaN`/`±Infinity` property values become null (not written), latitudes outside ±90 are only counted (values untouched, never thrown — CRS-less drawings keep their numbers), broken positions (non-finite or non-numeric) are dropped, empty coordinates / degenerate rings (< 3 vertices) / null geometries are dropped (a polygon whose outer ring is degenerate is dropped; a hole is just removed), GeometryCollection members are checked one by one. What happened is in **`pbf.issues`** (first 100 `{ kind, index, detail }`; `index` = position in the input) and **`pbf.issueCount`** (per kind: `nullGeometry`, `emptyCoords`, `badCoordinate`, `latitude`, `degenerateRing`, `badNumber`, plus the informational `multiDegraded` = single-member Multi* written as the singular type, which is the wire contract and never an error), and `close()` logs one summary line. **`"strict"`** throws on the first problem (`err.issue = { kind, index, detail }`) — use it as an ingestion gate. **`"legacy"`** is the pre-1.20 behaviour (`NaN` → 0, `Infinity` throws, `Point` `[]` → (0,0), latitudes untouched, geometry-less features dropped with one warning). `pbf.dropped` counts dropped features in every mode.
-* **`options.noeval`** (Boolean): FUNC-typed property values (wire type 7, written when a property is a JavaScript function) are returned as their source string. **Default `true`** since 1.19: opening an unknown file never runs code from it, and decoding works under a CSP without `unsafe-eval`. Pass `{ noeval: false }` to opt back into the old behaviour (`new Function(\`return ${src}\`)`, i.e. a thunk that returns the function).
+* **`options.validate`** (`"lenient"` | `"strict"`): the encode-time validation layer (1.20). **`"lenient"` (default)** repairs what it can and counts the rest: `NaN`/`±Infinity` property values become null (not written), latitudes outside ±90 are only counted (values untouched, never thrown — CRS-less drawings keep their numbers), broken positions (non-finite or non-numeric) are dropped, empty coordinates / degenerate rings (< 3 vertices) / null geometries are dropped (a polygon whose outer ring is degenerate is dropped; a hole is just removed), GeometryCollection members are checked one by one. What happened is in **`pbf.issues`** (first 100 `{ kind, index, detail }`; `index` = position in the input) and **`pbf.issueCount`** (per kind: `nullGeometry`, `emptyCoords`, `badCoordinate`, `latitude`, `degenerateRing`, `badNumber`, plus the informational `multiDegraded` = single-member Multi* written as the singular type, which is the wire contract and never an error), and `close()` logs one summary line. **`"strict"`** throws on the first problem (`err.issue = { kind, index, detail }`) — use it as an ingestion gate. `pbf.dropped` counts dropped features in both modes. (The pre-1.20 `"legacy"` mode — `NaN` → 0, `Point` `[]` → (0,0) — was removed in 2.0; an unknown value falls back to `"lenient"`.)
+* FUNC-typed property values (wire type 7, written when a property is a JavaScript function) are always returned as their source string: opening an unknown file never runs code from it, and decoding works under a CSP without `unsafe-eval`. (The 1.19 `noeval: false` opt-in that revived them with `new Function` was removed in 2.0.)
 
 ---
 
@@ -84,14 +84,14 @@ Length in metres, per-feature bbox, dataset bbox, all bboxes.
 ### `await pbf.dissolve(propertyName)`
 Merges adjacent polygons that share the same value for the specified property (`true` = everything, omitted = all properties equal, compared by type: `1` and `"1"` differ).
 
-### `await pbf.map(mapFunc)` / `await pbf.closeFilter(filterFunc)` / `await pbf.cloneMap({ map, filter })`
-Returns a new instance with properties modified by `mapFunc` / only the features passing `filterFunc`.
+### `await pbf.map(mapFunc)` / `await pbf.cloneMap({ map, filter })`
+Returns a new instance with properties modified by `mapFunc` / only the features passing `filter`. (`closeFilter(filterFunc)`, an alias of `cloneMap({ filter })`, was removed in 2.0.)
 
 ### `await pbf.classify(keyOrFunc)`
 Splits the dataset into multiple instances based on a property key or a custom classification function.
 
-### `pbf.clone()` / `pbf.cloneHead()` / `pbf.getPropertyTable()` / `pbf.getCSV()` / `pbf.propertiesTable` / `pbf.propsRow(i)`
-Copies and attribute tables. `propsRow(i)` is the row of values in `keys` order, decoded lazily.
+### `await pbf.clone()` / `await pbf.cloneHead()` / `pbf.getPropertyTable()` / `pbf.getCSV()` / `pbf.propertiesTable` / `pbf.propsRow(i)`
+Copies (asynchronous: the bytes are decoded into a new instance) and attribute tables. `propsRow(i)` is the row of values in `keys` order, decoded lazily.
 
 ### `pbf.simplified(minRank)`
 A FeatureCollection thinned to vertices of Gint rank ≥ `minRank` (for baking dedicated low-detail data, not for drawing).
@@ -121,8 +121,8 @@ Bake, attach, clean and read the GintBUF (format 5). `options.clean` runs the in
 
 ## 7. Combining & export
 
-### `pbf.concat(...others)` / `GeoPBF.concatinate([a, b, …], name)`
-Combines this instance with other instances into a new instance (named after this one).
+### `await pbf.concat(...others)`
+Combines this instance with other instances into a new instance (named after this one; `null` when the precisions differ). The static `GeoPBF.concatinate` was removed in 2.0 (it was never callable).
 
 ### Export (methods added by `createGeopbf()`)
 `await pbf.geopbfFile()`, `geojsonFile()`, `topojsonFile()`, `shapeFile()`, `kmzFile()`, `gpxFile()`, `czmlFile()`, `gmlFile()`, `fgbFile()` → a `File`/`Blob` of that format, encoded in a worker (`{ gz: true }` where the format is text). `await pbf.save()` stores to the configured bucket; `await pbf.preview(canvas, props)` draws a thumbnail; `await pbf.profile()` measures sizes; `await pbf.gintbuf()` returns the GintBUF.
@@ -146,6 +146,7 @@ Combines this instance with other instances into a new instance (named after thi
 | `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/load` | map library adapters (§8–§11) and the shared loader |
 | `geopbf/tilesource` | on-demand MVT tiles from a GeoPBF+Gint (`createTileSource`; the `geopbf://…/{z}/{x}/{y}` protocol's engine) |
 | `geopbf/sanitize`, `geopbf/czml`, `geopbf/gzip`, `geopbf/encodeZIP`, `geopbf/decodeZIP`, `geopbf/encodeXLSX`, `geopbf/fname2mime` | utilities |
+| `geopbf/internal/*` | `src/*` as is (e.g. `geopbf/internal/cog/tiff.js`) — for the monorepo's own tests and bake scripts, so they never reach into `packages/geopbf/src/…` by relative path. Not public API: no types, may change without notice |
 
 ---
 
@@ -254,7 +255,7 @@ The inverse: a GeoParquet (or any Parquet with a WKB geometry column) → `{ pbf
 `getDevice()` / `setGPU(gpu)` / `findGPU()` — device acquisition; `createEngine(device)` / `cpuEngine()` — the kernel contract (`project`, `lodCount`, `lodWrite`, `wkb`, `bbox`); `await writePMTiles(tiles, metadata, opts)` / `await assemblePMTiles(items, contents, metadata, opts)` / `await readPMTiles(u8)` (async `getTile`) / `zxyToTileId` / `tileIdToZxy`; `encodeTile(layer)` (MVT, dependency-free) / `decodeTile(u8)` (test decoder, `geopbf/convert` only); `await writeParquet({ schema, columns, numRows }, opts)` (columns take `values` arrays or `get(row)`, `stats:false`, `dict:false`); `attrFilter(opts)`; `gzip(u8)` / `gunzip(u8)` (zlib in Node, `CompressionStream` elsewhere) / `zstd(u8, level)` / `unzstd(u8)` / `hasZstd()` (Node ≥ 22.15 only).
 
 ### TypeScript (1.20)
-The package ships hand-written declarations (`types/*.d.ts`, `"types"` in `package.json`, and a `"types"` condition on each typed subpath): `geopbf`, `geopbf/core`, `geopbf/pbf`, `geopbf/pbf-base`, `geopbf/load`, `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/identify`, `geopbf/topology`, `geopbf/worker`. The `GeoPBF` class, its options (`validate`, `noeval`, `worker`, `cut`, …), `geopbf(input, options)`, the Gint structures (`UnPackGint`) and the protocol handlers are typed; the remaining subpaths (converters, COG, edit, …) are declared as shorthand ambient modules (`any`) in `types/subpaths.d.ts`, so importing them type-checks without `TS7016`. GeoJSON types are minimal and self-contained (structurally compatible with `@types/geojson`). `tests/t-dts.mjs` keeps the declarations, `sideEffects` and the `geopbf/core` closure honest, and type-checks `tests/fixtures/dts/consumer.ts` in strict mode when `typescript` is resolvable.
+The package ships hand-written declarations (`types/*.d.ts`, `"types"` in `package.json`, and a `"types"` condition on each typed subpath): `geopbf`, `geopbf/core`, `geopbf/pbf`, `geopbf/pbf-base`, `geopbf/load`, `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/identify`, `geopbf/topology`, `geopbf/worker`. The `GeoPBF` class, its options (`validate`, `noeval`, `worker`, `cut`, …), `geopbf(input, options)`, the Gint structures (`UnPackGint`) and the protocol handlers are typed; the remaining subpaths (converters, COG, edit, …) are declared as shorthand ambient modules (`any`) in `types/subpaths.d.ts`, so importing them type-checks without `TS7016`. GeoJSON types are minimal and self-contained (structurally compatible with `@types/geojson`). `tests/t-dts.mjs` keeps the declarations, `sideEffects` and the `geopbf/core` closure honest, checks that every typed subpath's runtime exports match the value exports of its `.d.ts` one to one, and type-checks `tests/fixtures/dts/consumer.ts` in strict mode (`typescript` is a root devDependency; the test fails when it cannot be resolved). `GeoPBFBase` is a type-only name (`import type`) — no entry exports it at runtime.
 
 `"sideEffects"` lists the modules that must survive tree shaking: the worker bodies (top-level `onmessage`), `pbf.js` / `pbf-base.js` / `index.js` (they add methods to `GeoPBF.prototype` at load) and the WASM glue. Everything else (loaders, identify, converters) is side-effect free and can be dropped when unused.
 

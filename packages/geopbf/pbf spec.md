@@ -86,7 +86,7 @@ A `FEATURE` message is `GEOMETRY` followed by the `VALUE` messages and the `INDE
 | 4 | `STRING` | String |
 | 5 | `DATE` | SVarint: Unix time in **seconds** (milliseconds are rounded away). |
 | 6 | `COLOR` | Bytes (RGBA 4-byte array). Written only for strings in the exact canonical forms `rgb(r,g,b)` / `rgba(r,g,b,a)` (no spaces, 0–255 integers, `a` in 0–1); read back as that string (`rgba` alpha as `a/255` with two decimals, `rgb` when alpha is 255). Any other colour notation (`#hex`, spaces, …) is a plain `STRING`. |
-| 7 | `FUNC` | String: the source text of a JavaScript function (`Function.prototype.toString()`). The reference reader returns it **as a string** by default (`noeval`, 1.19+); reviving it is an explicit opt-in and non-JavaScript readers treat it as `STRING`. |
+| 7 | `FUNC` | String: the source text of a JavaScript function (`Function.prototype.toString()`). The reference reader returns it **as a string** (always since 2.0; the 1.19 `noeval: false` opt-in that revived it is gone) and non-JavaScript readers treat it as `STRING`. |
 | 8 | `JSON` | String (JSON-serialized object or array) |
 | 9 | `BBOX` | Packed Double (4 values: `[minX, minY, maxX, maxY]`) |
 | 10 | `BLOB` | String metadata (`Name:Mime:ID`) pointing to `BUFS` |

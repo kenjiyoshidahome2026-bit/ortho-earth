@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../../../packages/geopbf/src/pbf-base.js";
+import { GeoPBF } from "geopbf/pbf-base";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };

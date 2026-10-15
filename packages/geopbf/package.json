@@ -151,7 +151,8 @@
 		"./encodeZIP": "./src/modules/encodeZIP.js",
 		"./encodeXLSX": "./src/modules/encodeXLSX.js",
 		"./decodeZIP": "./src/modules/decodeZIP.js",
-		"./fname2mime": "./src/modules/fname2mime.js"
+		"./fname2mime": "./src/modules/fname2mime.js",
+		"./internal/*": "./src/*"
 	},
 	"scripts": {
 		"prepack": "rm -f wasm/pkg/.gitignore",

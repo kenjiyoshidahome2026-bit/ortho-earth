@@ -51,7 +51,7 @@ export function sanitizeProperties(properties) {
 export async function decodeToGeojson(data, { sanitize = true } = {}) {
 	let blob = data instanceof Blob ? data : new Blob([data]);
 	if (await isGzip(blob)) blob = await gunzip(blob);                               // ファイル全体gzipの透過（マジック1f 8b判定）
-	const pbf = await new GeoPBF({ noeval: true }).set(await blob.arrayBuffer());
+	const pbf = await new GeoPBF().set(await blob.arrayBuffer());   // FUNC は常にソース文字列（旧 { noeval: true } は 2.0 で唯一の挙動）
 	const geojson = pbf.geojson;
 	if (sanitize) geojson.features.forEach(f => f.properties = sanitizeProperties(f.properties));
 	const meta = {

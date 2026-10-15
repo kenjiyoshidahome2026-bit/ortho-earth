@@ -12,8 +12,8 @@
 //   f32 の log/tan を GPU で回すより精度が高く、しかも決定的。
 export const LON_FULL = 3600000000;         // 360e7
 export const LAT_FULL = 1800000000;         // 180e7
-export const LAT_HALF = 900000000;          // 90e7
-export const YT_SHIFT = 13, YT_STEP = 1 << YT_SHIFT, YT_MASK = YT_STEP - 1;
+const LAT_HALF = 900000000;          // 90e7
+const YT_SHIFT = 13, YT_STEP = 1 << YT_SHIFT, YT_MASK = YT_STEP - 1;
 export const YT_LEN = (LAT_HALF >>> YT_SHIFT) + 2;   // 109,864 entries（最終区間の右端 +1）
 const MAX_LAT = 85.05112877980659;
 const IY_MAX = Math.round(MAX_LAT * 1e7);   // 北限（0° 起点の e-7 単位）
@@ -96,7 +96,7 @@ fn compact16(m0: u32) -> u32 {
 `;
 
 // JS 側の Morton 展開（ortho-core normalizeRingOrientation と同式）
-export function compact16(m) {
+function compact16(m) {
 	m &= 0x55555555;
 	m = (m | (m >>> 1)) & 0x33333333;
 	m = (m | (m >>> 2)) & 0x0F0F0F0F;

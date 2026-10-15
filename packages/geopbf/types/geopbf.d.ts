@@ -18,8 +18,8 @@ export type Properties = { [key: string]: any } | null;
 export interface Feature<G extends Geometry | null = Geometry | null, P = Properties> { type: "Feature"; geometry: G; properties: P; id?: string | number; bbox?: BBox }
 export interface FeatureCollection<G extends Geometry | null = Geometry | null, P = Properties> { type: "FeatureCollection"; features: Feature<G, P>[]; bbox?: BBox }
 
-/** 符号化の検証層（§1 `options.validate`・1.20〜） */
-export type ValidateMode = "lenient" | "strict" | "legacy";
+/** 符号化の検証層（§1 `options.validate`・1.20〜。"legacy" は 2.0 で撤去） */
+export type ValidateMode = "lenient" | "strict";
 export type IssueKind = "nullGeometry" | "emptyCoords" | "badCoordinate" | "latitude" | "degenerateRing" | "badNumber" | "multiDegraded";
 export interface ValidateIssue { kind: IssueKind; /** setFeature が見た地物の通し番号 */ index: number; detail?: string }
 
@@ -34,8 +34,6 @@ export interface GeoPBFOptions extends HeaderMeta {
 	noprop?: boolean;
 	/** false＝符号化時の antimeridian 切断を掛けない（既定 true・切った数は pbf.cutCount） */
 	cut?: boolean;
-	/** FUNC 型の属性を new Function で復元しない（既定 true・1.19〜）。false＝旧挙動（関数へ復元） */
-	noeval?: boolean;
 	/** false＝このインスタンスの set(ArrayBuffer)／setGintBUF を呼んだスレッドで解く（createGeopbf が worker を配線していても） */
 	worker?: boolean;
 	/** 符号化の検証層（既定 "lenient"） */
@@ -79,8 +77,14 @@ export interface TopoFilterOptions { filter?: (a: Properties, b?: Properties) =>
 /** createGeopbf() が足す書き出し（§7 Export）。gz＝文字形式を gzip・silent／message＝ConvertStart/End イベントを出さない */
 export interface ExportOptions { gz?: boolean; silent?: boolean; message?: boolean; [key: string]: any }
 
-/** GeoPBF の器（geopbf/pbf-base）＝符号化・復号・ヘッダ・地物の読み書き */
-export class GeoPBFBase {
+/** ワイヤのタグ番号（pbf spec.md・GeoPBF.TAGS） */
+export interface WireTags { readonly NAME: 1; readonly KEYS: 2; readonly PRECISION: 3; readonly BUFS: 4; readonly FARRAY: 5; readonly FEATURE: 6; readonly GEOMETRY: 7; readonly GTYPE: 8; readonly LENGTH: 9; readonly COORDS: 10; readonly VALUE: 11; readonly INDEX: 12; readonly GARRAY: 13; readonly DESCRIPTION: 14; readonly LICENSE: 15; readonly ATTRIBUTION: 16; readonly MIN_ZOOM: 17; readonly MAX_ZOOM: 18 }
+/** 属性の行から鍵の一覧（dotted・ソート済み）と Blob／ImageData の中身（BUFS）を集める（setHead の引数）。行の Blob／ImageData には id が書き込まれる */
+export type MakeKeys = (properties: readonly (object | null | undefined)[]) => Promise<[keys: string[], bufs: ArrayBuffer[]]>;
+
+/** GeoPBF の器（geopbf/pbf-base）＝符号化・復号・ヘッダ・地物の読み書き。
+ *  型だけの名前（実行時には "geopbf"／"geopbf/core"／"geopbf/pbf-base" のどれも GeoPBFBase を export しない＝器の class は各入口の GeoPBF）。`import type { GeoPBFBase }` で使う */
+declare class GeoPBFBase {
 	constructor(options?: GeoPBFOptions);
 	static setProperty(name: string | Record<string, any>, value?: any): void;
 	static setGetter(name: string, func: (this: GeoPBF) => any): void;
@@ -88,9 +92,17 @@ export class GeoPBFBase {
 	/** createGeopbf() が配線する復号 worker の入口（ブラウザ用） */
 	static _workerFactory?: () => Worker | null;
 	static _gintWorkerFactory?: () => Worker | null;
+	// ── 静的な名簿（pbf-base.js が GeoPBF.setProperty で載せる）
+	static readonly TAGS: WireTags;
+	static readonly makeKeys: MakeKeys;
+	/** 属性値のワイヤ型（dataTypeNames の添字・不明＝-1） */
+	static dataType(value: unknown): number;
+	static readonly dataTypeNames: readonly string[];
+	static readonly geometryTypes: readonly GeometryType[];
+	static readonly geometryMap: Readonly<Record<GeometryType, number>>;
 
 	// ── §1 の options の写し
-	readonly noprop: boolean; readonly noeval: boolean; readonly validate: ValidateMode;
+	readonly noprop: boolean; readonly validate: ValidateMode;
 	/** 符号化の検証層が見つけた問題（先頭 100 件） */
 	readonly issues: ValidateIssue[];
 	/** 種類ごとの件数 */
@@ -101,8 +113,9 @@ export class GeoPBFBase {
 	readonly cutCount: number;
 
 	// ── §2 読み込みと出力
-	/** GeoJSON（FeatureCollection／Feature／Geometry）・ArrayBuffer・TypedArray を読む。ArrayBuffer は worker 経路では転送されて detached になる */
-	set(data: FeatureCollection | Feature | Geometry | ArrayBuffer | ArrayBufferView | SharedArrayBuffer): Promise<this>;
+	/** FeatureCollection・ArrayBuffer・TypedArray（SharedArrayBuffer の上の view も可）を読む。ArrayBuffer は worker 経路では転送されて detached になる。
+	 *  Feature／Geometry 単体・裸の SharedArrayBuffer は受けない（createGeopbf() の入口 geopbf(input) は Feature／Geometry／TopoJSON も FeatureCollection に包む） */
+	set(data: FeatureCollection | ArrayBuffer | ArrayBufferView): Promise<this>;
 	readonly geojson: FeatureCollection;
 	readonly arrayBuffer: ArrayBuffer;
 	readonly headerBuffer: ArrayBuffer;
@@ -143,9 +156,12 @@ export class GeoPBFBase {
 	/** ストリーム符号化（set() を自前でなぞる呼び手向け）。setHead → setFeature… → close */
 	setHead(keys: string[], bufs?: any[], meta?: HeaderMeta): this;
 	setFeature(feature: Feature): this;
-	setGeometry(feature: { geometry: Geometry | null }): this;
-	setProperties(feature: { properties?: Properties }): this;
-	setBody(obj: FeatureCollection | Feature | Geometry): this;
+	/** 幾何そのものを書く（setFeature の内側・検証層は通らない） */
+	setGeometry(geometry: Geometry): this;
+	/** 属性そのものを書く（返り値なし） */
+	setProperties(properties: Properties | undefined): void;
+	/** FARRAY を書く＝FeatureCollection の全地物か、setFeature／setMessage を自前で呼ぶ関数 */
+	setBody(body: FeatureCollection | (() => void)): this;
 	close(): this;
 	getGeometryBuffer(index: number, j?: number): Uint8Array;
 	setGeometryBuffer(bytes: Uint8Array): this;
@@ -159,12 +175,10 @@ export class GeoPBFBase {
 	_cacheKey?: string;
 	cacheMeta?: Record<string, any> | null;
 }
+export type { GeoPBFBase };
 
 /** GeoPBF（geopbf/pbf・"geopbf"）＝器＋解析・操作・位相の拡張メソッド */
 export class GeoPBF extends GeoPBFBase {
-	/** 複数インスタンスを 1 つに（名前は name） */
-	static concatinate(list: GeoPBF[], name?: string): GeoPBF;
-
 	// ── §4 幾何の解析
 	centroid(index: number): LngLat;
 	/** m² */
@@ -183,12 +197,14 @@ export class GeoPBF extends GeoPBFBase {
 	// ── §5 操作
 	dissolve(property?: string | true): Promise<GeoPBF>;
 	map(map: (properties: Properties, index: number) => Properties): Promise<GeoPBF>;
-	closeFilter(filter: (properties: Properties, index: number) => boolean): Promise<GeoPBF>;
 	cloneMap(options?: { map?: (properties: Properties, index: number) => Properties; filter?: (properties: Properties, index: number) => boolean }): Promise<GeoPBF>;
 	classify(keyOrFunc: string | ((properties: Properties, index: number) => string | number)): Promise<Record<string, GeoPBF>>;
-	clone(): GeoPBF;
-	cloneHead(): GeoPBF;
-	concat(...others: GeoPBF[]): GeoPBF;
+	/** 丸ごとの写し（arrayBuffer を読み直す＝非同期） */
+	clone(): Promise<GeoPBF>;
+	/** ヘッダだけの写し（keys・bufs・meta） */
+	cloneHead(): Promise<GeoPBF>;
+	/** 自分と others を 1 つに（名前は自分の name・precision が揃っていなければ null） */
+	concat(...others: GeoPBF[]): Promise<GeoPBF | null>;
 	getPropertyTable(): any[][];
 	getCSV(): string;
 	/** Gint の rank ≥ minRank の頂点に間引いた FeatureCollection */
@@ -247,8 +263,8 @@ export interface GeopbfOptions extends GeoPBFOptions {
 	layer?: string; sheet?: string;
 	/** CRS（EPSG コード・WKT）と、ファイルの CRS を無視する印 */
 	crs?: string | number; wkt?: string; ignoreCrs?: boolean;
-	/** JGD の変換（TKY2JGD・PatchJGD のパラメータ） */
-	tky?: any; patchjgd?: any;
+	/** JGD の変換（TKY2JGD・PatchJGD のパラメータ・createGeopbf の options と同名で、こちらが優先） */
+	tky2jgd?: any; patchjgd?: any;
 	/** CSV／TSV の列名と区切り */
 	lon?: string; lat?: string; geometryColumn?: string; delimiter?: string; fallbackEncoding?: string;
 	/** GPX／KML の閉じた線を面に */
@@ -265,6 +281,18 @@ export type GeopbfFn = (input: GeopbfInput, options?: GeopbfOptions | string) =>
 /** worker の入口（役割名 "decoder:shape"・"encoder:gint" …→ Worker・null＝既定） */
 export type WorkerFactory = (role: string) => Worker | null | undefined;
 
+/** bucket provider が返す棚（名前引き・保存・削除）。url＝null は素の代役（名前引き不可） */
+export interface BucketStore { url: string | null; list(): Promise<any[]>; put(file: File | Blob): Promise<unknown>; del(name: string): Promise<unknown>; etag(name: string): Promise<string | null>; [key: string]: any }
+/** IDB の控え（3 形）＝cache()（鍵の一覧）・cache(key)（読む）・cache(key, value)（置く・null＝消す） */
+export type BucketCache = (key?: string, value?: any) => Promise<any>;
+/** bucket provider（createGeopbf(apiBase, { bucket })・例: native-bucket の nativeBucket）。(apiBase, options) → { Bucket, Cache, Fetch } */
+export type BucketProvider = (apiBase: string | undefined, options: CreateGeopbfOptions) => {
+	Bucket: (dir: string, options?: Record<string, any>) => Promise<BucketStore>;
+	Cache: (dir: string) => Promise<BucketCache>;
+	/** URL（zip の中は { target }）→ File */
+	Fetch: (url: string, options?: { target?: string; encoding?: string; [key: string]: any }) => Promise<File | Blob>;
+};
+
 export interface CreateGeopbfOptions {
 	/** false＝全インスタンスを呼んだスレッドで解く（Worker を起こさない） */
 	worker?: boolean;
@@ -272,8 +300,9 @@ export interface CreateGeopbfOptions {
 	workerFactory?: WorkerFactory;
 	/** 復号レーンを起動直後に起こす（既定 false） */
 	prewarm?: boolean;
-	/** IDB の棚の名前 */
-	bucket?: string;
-	tky?: any; patchjgd?: any;
+	/** bucket provider の注入口（IDB の控え・proxy fetch・バケツ名前引き）。未注入＝素の fetch・控え無し */
+	bucket?: BucketProvider;
+	/** JGD の変換（TKY2JGD・PatchJGD のパラメータ）の既定＝geopbf(input, { tky2jgd, patchjgd }) が無い時に使う */
+	tky2jgd?: any; patchjgd?: any;
 	[key: string]: any;
 }

@@ -31,7 +31,7 @@ export function* dxfPairs(text) {
 // ───────────────────────────── 構文木（セクション → エンティティ） ─────────────────────────────
 function parseDxf(text) {
 	const header = {}, layers = new Map(), blocks = new Map(), entities = [];
-	let section = null, cur = null, curOwner = null, varName = null, blockName = null;
+	let section = null, cur = null, curOwner = null, varName = null;
 	const push = (e) => { if (curOwner) curOwner.push(e); };
 	const flush = () => { if (cur && cur.type !== "BLOCK" && cur.type !== "LAYER") push(cur); cur = null; };   // BLOCK/LAYER は器＝エンティティ列へは積まない
 	for (const [code, value] of dxfPairs(text)) {
@@ -45,7 +45,7 @@ function parseDxf(text) {
 			if (section === "BLOCKS") {
 				flush();
 				if (value === "BLOCK") { cur = { type: "BLOCK" }; curOwner = null; continue; }
-				if (value === "ENDBLK") { curOwner = null; blockName = null; continue; }   // flush 済み（直上）
+				if (value === "ENDBLK") { curOwner = null; continue; }   // flush 済み（直上）
 				cur = { type: value }; continue;
 			}
 			if (section === "ENTITIES") { flush(); cur = { type: value }; curOwner = entities; continue; }
@@ -61,7 +61,7 @@ function parseDxf(text) {
 		if (!cur) continue;
 		if (cur.type === "LAYER") { if (code === 2) { cur.name = value; layers.set(value, cur); } else if (code === 62) cur.color = +value; else if (code === 6) cur.ltype = value; continue; }
 		if (cur.type === "BLOCK") {
-			if (code === 2) { blockName = value; cur.name = value; blocks.set(value, cur); cur.entities = []; curOwner = cur.entities; }
+			if (code === 2) { cur.name = value; blocks.set(value, cur); cur.entities = []; curOwner = cur.entities; }
 			else if (code === 10) cur.x = +value; else if (code === 20) cur.y = +value;
 			continue;
 		}
