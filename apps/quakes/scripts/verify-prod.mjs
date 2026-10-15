@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const SITE = path.join(APP, "dist/site"), UPSTREAM = "https://www.ortho-earth.com";
+const SITE = path.join(APP, "dist/site");
 const CHROME = await resolveChrome();
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".wasm": "application/wasm", ".geopbf": "application/octet-stream" };
 const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
@@ -57,7 +57,7 @@ server = createServer(async (req, res) => {
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
 			return fs.createReadStream(f).pipe(res);
 		}
-		const up = await fetch(`${UPSTREAM}/${u.pathname.slice(1)}${u.search}`, { headers: { "Accept-Encoding": "identity" } });
+		const up = await fetch(`https://www.ortho-earth.com/${u.pathname.slice(1)}${u.search}`, { headers: { "Accept-Encoding": "identity" } });
 		const h = { ...COI, "Content-Type": up.headers.get("content-type") || "application/octet-stream" };
 		res.writeHead(up.status, h);
 		res.end(Buffer.from(await up.arrayBuffer()));
