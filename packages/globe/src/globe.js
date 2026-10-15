@@ -25,11 +25,12 @@ import { installTerrain } from "./api/terrain.js";
 import { installData } from "./api/data.js";
 import { installIntake } from "./api/intake.js";
 import { installImages } from "./api/images.js";
+import { installShadows } from "./api/shadows.js";
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は {}）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import { nativeBucket } from "native-bucket";
-import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
+import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
 // 部品の worker（geopbf の変換・解析・COG・タイル書き出し／エンジンのタイル・シーン／エンジンの標高／geoedit の編集モデル）も
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
@@ -50,7 +51,7 @@ export { addProtocol, removeProtocol };
 export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
-import { normClip, clipPlanesFor, clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
+import { clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
@@ -97,17 +98,8 @@ import { measure as measureGadget } from "./gadgets/measure-stub.js";
 import { inspect as inspectGadget } from "./gadgets/inspect-stub.js";   // 検査表示（maplibre-gl-inspect 相当・#174）の玄関スタブ＝ボタン常駐、本体(inspect.js)は初回クリックで import()
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";
-import { clockGadget } from "./gadgets/clock.js";   // 時計の操作盤（#42）＝map.clock の ◀◀ ▶ ▶▶・日時・今
-import { viewshed as viewshedGadget } from "./gadgets/viewshed.js";   // 可視域・見通し線（#44）＝同じ worker
-import { offline as offlineGadget } from "./gadgets/offline.js";   // オフラインパック（#40）＝範囲とズーム上限を決めて先に取る（配るのは殻の SW）
-import { sunShadow as sunShadowGadget } from "./gadgets/sunshadow.js";   // 日影（#44）＝ボタン＋小さなパネル（計算は model 役の worker・sunshadow.js）   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
-import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
-import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
-import { home as homeGadget } from "./gadgets/home.js";   // 地域の全体へ戻る（顔と着地点は地域宣言 home が持つ）
 import { raster as rasterGadget } from "./gadgets/raster.js";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
 import { globe as globeGadget } from "./gadgets/globe.js";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
-import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
-import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
 import { edit as editGadget } from "./gadgets/edit.js";
 import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は geoedit（npm） の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
@@ -3205,168 +3197,21 @@ map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・�
 		...opts,
 	});
 });
-// ── 日影（#44・2026-09-23）＝建物の影を地面に描く。map.sunShadow({ mode:"duration"|"instant", date, planeH, hours, step, bbox, tilesets, probe:[[lon,lat]…] })
-//   建物＝既定は地域の建物台帳（日本＝PLATEAU）・tilesets で任意の 3D Tiles。範囲＝既定は画面に見えている所（中心から一辺 3km まで）。
-//   結果＝四隅の画像として地面に貼る（map.raster の "sunshadow"）。戻り＝stats（三角形数・最大の日影時間ほか）
-let sunWorker = null, sunSeq = 0;
-const sunWaiting = new Map();
-ownDestroy.push(() => { sunWorker?.terminate(); sunWorker = null; for (const p of sunWaiting.values()) p.rej(new Error("destroyed")); sunWaiting.clear(); });
-map.sunShadow = async (o = {}) => {
-	sunWorker ??= (() => { const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
-	let bb = o.bbox || map.getBounds() || approxViewBbox(cam);
-	const c = [cam.center[0], cam.center[1]], half = 1500 / 111320, hx = half / Math.max(0.2, Math.cos(c[1] * D2R));
-	bb = [Math.max(bb[0], c[0] - hx), Math.max(bb[1], c[1] - half), Math.min(bb[2], c[0] + hx), Math.min(bb[3], c[1] + half)];   // 一辺 3km まで
-	const opts = { mode: o.mode || "duration", date: (o.date instanceof Date ? o.date : o.date ? new Date(o.date) : new Date()).toISOString(), planeH: o.planeH ?? 4, hours: o.hours || [8, 16], step: o.step ?? 0.5, decl: o.decl, bbox: bb,
-		tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), maxCells: LOW_MEM ? 512 * 512 : 1024 * 1024, probe: o.probe || null };
-	const r = await new Promise((res, rej) => { const id = ++sunSeq; sunWaiting.set(id, { res, rej }); sunWorker.postMessage({ id, kind: "sunshadow", opts }); });
-	const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
-	const [w, s, e, n] = r.bbox;
-	await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
-	return { ...r.stats, probes: r.probes };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
-};
-// ── 建物の影（リアルタイム・2026-09-24）＝描画の中で太陽から建物の深度を描き、地面・建物に落とす（WebGPU 専用。
-// GL2 はフォールバック＝影をかけない仕様（本人裁定 2026-09-24）＝GL レンダラは "shadow" を素通しする）。
-// map.setShadows(true | false | { on, time: Date|ms|ISO, darkness: 0..1 })。time 無指定＝共通の時計（view.clock）。z13 以上・太陽が出ている時だけ。
-// 消している間は描画に一切関与しない（資源も持たない）。
-map.setShadows = (o = true) => {
-	const v = typeof o === "object" && o ? { ...o, on: o.on !== false } : { on: !!o };
-	if (v.time != null) v.time = v.time instanceof Date ? +v.time : typeof v.time === "string" ? Date.parse(v.time) : +v.time;
-	renderer.set("shadow", v); requestDraw(); onMove();
-};
-dbgHost.__shadow = o => map.setShadows(o);   // 検証窓（t-shadow・実機の切り分け）
-// ── 断面とクリッピング平面（#111・2026-09-29）＝建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane 相当・WebGPU 専用）。
-// map.setClipping(false | { vertical?: [[a, b]…], horizontal?: [{ at, h, keep }…], box?: { center, size, h, bearing }, planes?, cap?, edge? })
-//   vertical＝2 点 a→b（[lon,lat]）を通る鉛直面（a→b に向かって右側を残す）・horizontal＝高さ h(m) の水平面（keep "below"＝既定／"above"）・
-//   box＝箱の内側（center・size [幅, 奥行き] m・h [底, 天] m・bearing 度）。面は全部の交わり・6 枚まで。cap:false＝蓋なし・edge:false|{ width, color }＝縁の帯。
-// 切れる物＝地形（切り口に土の色の蓋）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は疑似の蓋）・模型/3D Tiles/I3S・gint・外部ベクタ・注記・
-// 同一フレームのオーバーレイ（api.clip）。影は切った形で落ちる。日影図・可視域・見通し線（worker の計算）は切らない＝実物の地形と建物で測る。
-// GL2 では何もしない（影と同じ扱い・本人裁定 2026-09-29）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
 let clipSpec = null, clipMain = null, clipByT = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
-const clipFor = t => clipByT?.[t] ?? null;
-map.setClipping = (o = false) => {
-	const v = Array.isArray(o) ? (o.length ? o.map(g => ({ ...g })) : null) : o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
-	const apply = () => {
-		if (v && renderBackend !== "webgpu") { console.warn("[clip] setClipping needs WebGPU (WebGL2 = no-op)"); return; }
-		const n = normClip(v);
-		clipSpec = n ? v : null;
-		clipByT = n ? Object.fromEntries(["terrain", "buildings", "models", "vector", "labels"].map(t => { const a = clipPlanesFor(n, t); return [t, a.length ? a : null]; })) : null;
-		clipMain = clipFor("vector");
-		renderer.set("clip", clipSpec || { on: false }); requestDraw(); onMove();
-	};
-	if (mapLoaded) apply(); else mapOn.load.push(apply);   // 描画 worker のレンダラが立つ前の set は落ちる＝初描画を待つ
-};
-map.getClipping = () => clipSpec ? (Array.isArray(clipSpec) ? clipSpec.map(g => ({ ...g })) : { ...clipSpec }) : null;
-dbgHost.__clip = o => map.setClipping(o);   // 検証窓
-{ const q = new URLSearchParams(location.search).get("clip"); if (q) map.setClipping({ param: q }); }
-// 画素 (x, y)（CSS px）の地面（海抜 0）が切られた側か＝識別・ホバー・問い合わせで外す
-const clipCutXY = (x, y) => { if (!clipMain) return false; const ll = unprojectXY(x, y); return !!ll && clipDistanceM(clipMain, ll[0], ll[1], 0) < 0; };
-// 地物の形が全部切られた側か（座標を最大 400 点だけ見る）＝箱の問い合わせと押し出しの当たりで外す
-const clipAllCut = (g, hM = 0, pl = clipMain) => {
-	if (!pl || !g) return false;
-	const cs = []; const walk = c => { if (cs.length > 400) return; if (typeof c[0] === "number") cs.push(c); else for (const x of c) walk(x); };
-	walk(g.type === "GeometryCollection" ? g.geometries.map(x => x.coordinates) : g.coordinates || []);
-	return cs.length > 0 && cs.every(c => clipDistanceM(pl, c[0], c[1], hM) < 0);
-};
-// ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
-// map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）
-// map.lineOfSight(a, b, { eyeH, targetH, buildings })＝視点 a→目標 b。見えるか・遮る最初の点・断面（距離・地表・視線）。線を地図に引く（見える区間＝緑・遮られた先＝赤）
-// 地表＝render worker の地形のセル（外来 DEM の上書き込み）を升目で・建物＝地域の建物台帳（PLATEAU）か任意の 3D Tiles（日影と同じ読み方）
-const elevGridWait = new Map(); let elevGridSeq = 0;
-const elevGrid = (bbox, N) => new Promise(res => { const id = ++elevGridSeq; elevGridWait.set(id, res); wPost({ type: "elevGrid", id, bbox, N }); });
-const sunCall = (kind, opts) => new Promise((res, rej) => {
-	sunWorker ??= (() => { const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
-	const id = ++sunSeq; sunWaiting.set(id, { res, rej }); sunWorker.postMessage({ id, kind, opts });
-});
-const visArea = async (center, radius, extra, o) => {
-	const R = Math.min(5000, Math.max(50, radius)), dLat = R * 1.02 / 111320, dLon = dLat / Math.max(0.2, Math.cos(center[1] * D2R));
-	const bbox = [center[0] - dLon, center[1] - dLat, center[0] + dLon, center[1] + dLat];
-	const N = Math.max(64, Math.min(LOW_MEM ? 384 : 768, Math.round(2 * R / (o.cell ?? 2))));
-	const ground = await elevGrid(bbox, N);
-	return sunCall("viewshed", { bbox, N, ground, eyeH: o.eyeH ?? 1.6, targetH: o.targetH ?? 0, radius: R, buildings: o.buildings !== false,
-		tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), ...extra });
-};
-map.viewshed = async (o = {}) => {
-	const obs = o.observer ?? [cam.center[0], cam.center[1]];
-	const r = await visArea(obs, o.radius ?? 1000, { observer: obs, probe: o.probe || null }, o);
-	const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
-	const [w, s, e, n] = r.bbox;
-	await map.raster.add("viewshed", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "viewshed" }, { order: "over", opacity: 1, hideFills: false });
-	return { ...r.stats, probes: r.probes };
-};
-map.lineOfSight = async (a, b, o = {}) => {
-	const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], half = Math.hypot((b[0] - a[0]) * 111320 * Math.cos(mid[1] * D2R), (b[1] - a[1]) * 111320) / 2;
-	const r = await visArea(mid, half + 60, { observer: a, los: b }, { ...o, cell: o.cell ?? Math.max(1, half / 300) });
-	const L = r.los, cut = L.blockAt;
-	const line = (c, from, to) => ({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: [from, to] } });
-	const data = { type: "FeatureCollection", features: cut ? [line("ok", a, cut), line("ng", cut, b)] : [line("ok", a, b)] };
-	if (map.getSource("los")) await map.getSource("los").setData(data);
-	else { addSourceAt("los", { type: "geojson", data }, 0); await addLayerAt({ id: "los", type: "line", source: "los", paint: { "line-color": ["match", ["get", "c"], "ok", "#1faa55", "#d23c3c"], "line-width": 4 } }, undefined, 0); }   // 内部の層＝エンジンの目盛り（dz 0）を明示
-	return { ...L, triangles: r.stats.triangles };
-};
-// オフラインパック（#40）：地域の申告（基図・標高・建物・ラスタ）を読んだ結果だけを渡す＝gadget は地域を知らない。
-// 標高は core のローダ（IDB GIS/alt）を要る時に一度だけ作る。建物は meshMgr（起こしてから台帳を読む）
-let offlineDem = null;
-map.gadget("offline", function (opts) {
-	const sources = {
-		// XYZ の基図だけ（PMTiles・基図なしは tileUrl が型紙にならない＝gadget は載らない）
-		basemap: typeof BASE_SOURCE.tileUrl === "function" && /^https?:/.test(String(BASE_SOURCE.tileUrl(1, 0, 0) ?? "")) ? { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) } : null,
-		dem: noTerr || EXT ? null : { byName: async n => (offlineDem ??= await createTileLoader({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM })).byName(n) },
-		rasters: { list: () => map.raster.list().filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22, subdomains: r.spec.subdomains || null, tms: !!r.spec.tms })) },
-		mesh: meshOn ? { warm: () => wakeMesh(), sets: () => meshMgr.sets, prefetch: (names, onProg) => meshMgr.prefetch([], names, onProg) } : null,
-	};
-	const h = offlineGadget.call(this, { sources, bounds: () => map.getBounds(), onOpen: () => toolOpen("offline"), signal: ac.signal, ...opts });
-	if (h?.close) toolClose.set("offline", h.close);
-	return h;
-});
-map.gadget("sunshadow", function (opts) {
-	const h = sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => renderBackend === "webgpu", onOpen: () => toolOpen("sunshadow"), signal: ac.signal, ...opts });
-	if (h?.close) toolClose.set("sunshadow", h.close);
-	return h;
-});
-map.clearViewshed = async () => { map.raster.remove("viewshed"); if (map.getLayer("los")) { map.removeLayer("los"); map.removeSource("los"); } };
-map.gadget("clock", function (opts) { return clockGadget.call(this, { signal: ac.signal, ...opts }); });
-map.gadget("viewshed", function (opts) {
-	const h = viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, onOpen: () => toolOpen("viewshed"), signal: ac.signal, ...opts });
-	if (h?.close) toolClose.set("viewshed", h.close);
-	return h;
-});
-map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
-	return shotGadget.call(this, { requestSnapshot, attribution: attrTextNow, signal: ac.signal, ...opts });   // attribution＝#attr の無い画面で焼く出典（今の圏）
-});
-map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+path+search+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
-	// location.search を挟む＝アドレスバーの ?hud=1 等のフラグもQRに載る（スキャン先で同じ計器/条件が点く）。順は path→?query→#hash＝URLの正順。
-	return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + location.search + viewHash(), signal: ac.signal, ...opts });
-});
-map.gadget("home", function (opts) {   // 地域の全体へ戻る（真俯瞰・北向き）… 着地点は地域宣言の home（日本＝列島ビュー）・J キー
-	if (!REGION_HOME) return null;   // 戻り先を宣言しない地域（/nl/・地球儀）＝ボタンを出さない
-	return homeGadget.call(this, { view: REGION_HOME.view, icon: REGION_HOME.icon, label: REGION_HOME.label, id: REGION_HOME.id, signal: ac.signal, ...opts });
-});
-map.gadget("japan", function (opts) { return map.gadget.home.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
-map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
-	return printGadget.call(this, { capture: printCapture, attribution: () => REGION_PRINT_ATTR.length ? REGION_PRINT_ATTR.map(k => t(k)) : attrTextNow(), signal: ac.signal, ...opts });
-});
-map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
-	return closeGadget.call(this, { signal: ac.signal, ...opts });
-});
-// POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
-// 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
-// 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
-if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("./gadgets/poiedit.js")).then(({ poiedit }) => {
-	setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
-	map.gadget("poiedit", function (opts) {
-		const L = poiReal;   // ?poiedit=1 は下で poi.ready() を待ってから搭載＝ここでは必ず本物
-		return poiedit.call(this, {
-			// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
-			// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
-			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: L.distM,
-			apiBase: L.apiBase, name: L.ovrName,
-			getPOI: () => L.patchedAll(), getOvr: L.getOvr,
-			setOvr: L.setOvr,
-			signal: ac.signal, ...opts,
-		});
-	});
-	map.gadget.poiedit();
-}).catch(e => console.error("[poiedit] load failed", e));
+// 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.js（live＝createGlobe の変数を読み書きする口）
+const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
+	get clipByT() { return clipByT; }, set clipByT(v) { clipByT = v; },
+	get renderBackend() { return renderBackend; },
+	get clipSpec() { return clipSpec; }, set clipSpec(v) { clipSpec = v; },
+	get clipMain() { return clipMain; }, set clipMain(v) { clipMain = v; },
+	get mapLoaded() { return mapLoaded; },
+	get addSourceAt() { return addSourceAt; },
+	get addLayerAt() { return addLayerAt; },
+	get noTerr() { return noTerr; },
+	get EXT() { return EXT; },
+	get poiReal() { return poiReal; },
+	get poiClick() { return poiClick; }, set poiClick(v) { poiClick = v; },
+}, { BASE_SOURCE, D2R, LOW_MEM, REGION_DTM, REGION_HOME, REGION_PRINT_ATTR, TILE_MINZOOM, ac, approxViewBbox, attrTextNow, cam, dbgHost, makeProjector, mapOn, meshMgr, meshOn, onMove, ownDestroy, poi, printCapture, renderer, requestDraw, requestSnapshot, setLayer, t, toolClose, toolOpen, unprojectXY, viewHash, wPost, wakeMesh });
 let gFollow = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
 let columnarCtl = null;
 // データを載せる口（シーン台本・フィーチャーサービス・addColumnar・addThree・addData・addCells 等）＝src/api/data.js（live＝createGlobe の変数を読み書きする口）
