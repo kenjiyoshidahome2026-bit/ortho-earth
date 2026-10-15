@@ -8,7 +8,7 @@
 <body><div id="map"></div>
 <script type="module">
 import orthoJapan from "../app.js";
-import { PACK_CACHE, tileCount } from "@ortho-earth/globe/offline-pack.js";
+import { PACK_CACHE, tileCount } from "@ortho-earth/globe/internal/offline-pack.js";
 import { Cache } from "native-bucket";
 const t = [], ok = (n, c, note = "") => t.push(`${c ? "ok" : "NG"}:${n}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
