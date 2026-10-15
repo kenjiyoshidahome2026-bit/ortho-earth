@@ -1,5 +1,5 @@
 export function antimeridianCut(points, isLine = false) {
-	const { PI, sin, cos, sqrt, atan2, abs } = Math, d2r = PI / 180, tub = [];
+	const { PI, sin, cos, atan2, abs } = Math, d2r = PI / 180, tub = [];
 	if (!points?.length) return tub;
 	const is_ring = _ => _.length > 1 && _[0][0] === _[_.length - 1][0] && _[0][1] === _[_.length - 1][1];
 	const fix = x => x === 180 ? 180 : ((((x + 180) % 360) + 360) % 360) - 180;   // +180 は保つ（-180 へ書き換えると西側の縫い目頂点が偽の跨ぎになる）

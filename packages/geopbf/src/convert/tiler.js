@@ -243,7 +243,7 @@ export function columnJob(P, { z, out, zo, zc, zb, txFrom, txTo }) {
 
 export async function toPMTiles(pbf, opts = {}) {
 	const P = await prepareTiling(pbf, opts);
-	const { A, eng, proj, arcs, params, counts, bbox, offsets, total, zoomTotal, S, stats, minZoom, maxZoom, zoomCount, t0 } = P;
+	const { A, eng, proj, arcs, params, counts, bbox, offsets, zoomTotal, S, stats, minZoom, maxZoom, zoomCount, t0 } = P;
 	const tileGzip = (opts.tileCompression ?? "gzip") === "gzip";
 
 	// ── worker プール（失敗したらインライン）

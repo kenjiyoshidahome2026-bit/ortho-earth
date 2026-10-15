@@ -10,7 +10,7 @@ export async function fetchGeopbfTiles(innerUrl, { signal, fetch: fetchImpl, bak
 	if (!res.ok) throw new Error(`geopbf protocol: fetch failed (${res.status}) ${innerUrl}`);
 	let blob = await res.blob();
 	if (await isGzip(blob)) blob = await gunzip(blob);
-	const pbf = await new GeoPBF({ noeval: true, worker: false }).set(await blob.arrayBuffer());
+	const pbf = await new GeoPBF({ worker: false }).set(await blob.arrayBuffer());   // FUNC は常にソース文字列（旧 { noeval: true } は 2.0 で唯一の挙動）
 	if (bake) await bake(pbf);
 	else if (typeof pbf.gint === "function") await pbf.gint();   // 本体（createGeopbf）が読まれていれば Worker で焼く
 	else {   // geopbf/maplibre だけを読んだ頁＝main の wasm で焼く（Node は convert/node-gint の initGintWasm を先に）

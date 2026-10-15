@@ -119,10 +119,10 @@ export async function assemblePMTiles(items, contents, metadata = {}, opts = {})
 		else entries.push({ tileId: it.id, offset: rec.offset, length: rec.length, runLength: 1 });
 	}
 	// 2) root / leaf
-	let root, leaves = new Uint8Array(0), rootBytes;
+	let leaves = new Uint8Array(0), rootBytes;
 	const ROOT_MAX = 16384 - 127;
 	const rootOnly = await compress(serializeDirectory(entries), ic);
-	if (rootOnly.length <= ROOT_MAX) { root = entries; rootBytes = rootOnly; }
+	if (rootOnly.length <= ROOT_MAX) { rootBytes = rootOnly; }
 	else {
 		for (let leafSize = 4096; ; leafSize *= 2) {
 			const rootEntries = [], parts = [];
@@ -136,7 +136,7 @@ export async function assemblePMTiles(items, contents, metadata = {}, opts = {})
 			}
 			const rb = await compress(serializeDirectory(rootEntries), ic);
 			if (rb.length <= ROOT_MAX) {
-				root = rootEntries; rootBytes = rb;
+				rootBytes = rb;
 				leaves = new Uint8Array(off); let p = 0; for (const l of parts) { leaves.set(l, p); p += l.length; }
 				break;
 			}

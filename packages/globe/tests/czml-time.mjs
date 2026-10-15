@@ -8,8 +8,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { czmlToFeatures } from "../../geopbf/src/modules/czml.js";
-import { GeoPBF } from "../../geopbf/src/pbf-base.js";
+import { czmlToFeatures } from "geopbf/czml";
+import { GeoPBF } from "geopbf/pbf-base";
 import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.js";
 globalThis.ImageData ??= class ImageData {};
 

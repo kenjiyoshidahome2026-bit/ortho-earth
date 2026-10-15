@@ -67,7 +67,7 @@ export function clipLineHalf(line, axis, val, less) {
 }
 
 // kind: 0 点列 / 1 線の配列 / 2 環の配列（ポリゴン）。半平面で切った結果（空なら null）
-export function clipHalf(parts, kind, axis, val, less) {
+function clipHalf(parts, kind, axis, val, less) {
 	if (kind === 0) {
 		const out = [];
 		for (let i = 0; i < parts.length; i += 2) { const v = axis === 0 ? parts[i] : parts[i + 1]; if (less ? v <= val : v >= val) out.push(parts[i], parts[i + 1]); }
@@ -87,7 +87,7 @@ export function clipHalf(parts, kind, axis, val, less) {
 	return out;
 }
 
-export function bboxOf(parts, kind) {
+function bboxOf(parts, kind) {
 	let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
 	const scan = (a) => { for (let i = 0; i < a.length; i += 2) { const x = a[i], y = a[i + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; } };
 	if (kind === 0) scan(parts); else for (const p of parts) scan(p);

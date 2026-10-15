@@ -33,10 +33,8 @@ class GeoPBF {
 		// 器」として使う時（geoedit のセッション保存）。既定は切断（表示/識別/相互運用の正典）。cutCount＝切断した feature 数。
 		this.cutCount = 0;
 		this._am = { cut: options.cut !== false, onCut: () => { this.cutCount++; } };
-		// noeval＝FUNC 値（型 7）を new Function で復元せず、関数ソース文字列のまま返す。既定 true（2026-10-11・安全既定）＝
-		// 未知のファイルの属性を呼ぶだけで任意コードが走る経路を閉じ、CSP（unsafe-eval 無し）でも復号が落ちない。
-		// 旧挙動（関数へ復元）は { noeval: false } の明示 opt-in。書く側（dataType/writeValue）は従来どおり関数のソースを FUNC で書く。
-		this.noeval = options.noeval !== false;
+		// FUNC 値（型 7）は常に関数ソース文字列のまま返す（1.19 で既定・2.0 で唯一の挙動＝{ noeval: false } の new Function 復元は撤去）。
+		// 未知のファイルの属性を呼ぶだけで任意コードが走る経路は無く、CSP（unsafe-eval 無し）でも復号が落ちない。書く側（dataType/writeValue）は従来どおり関数のソースを FUNC で書く。
 		// worker:false＝このインスタンスの set(ArrayBuffer)／setGintBUF を main スレッドで解く（createGeopbf の { worker:false } が各インスタンスへ渡す）。
 		// 旧＝クラス静的な _workerFactory だけを見ていた＝一度 createGeopbf() を呼ぶと以後の全インスタンスが worker 経路に固定され、
 		// Node では `Worker is not defined` で落ちた（2026-10-11・俯瞰 §2-B 5）。undefined＝クラス既定（createGeopbf が配線していれば worker）
@@ -45,9 +43,9 @@ class GeoPBF {
 		//   "lenient"（既定）＝直せる物は直して数える（NaN／±Infinity の属性 → null、壊れた座標・空の座標・退化した環 → 落とす、
 		//                     幾何なし → 落とす。緯度の範囲外は数えるだけで値は変えない）。何を何件直したかは pbf.issues（先頭 100 件＝{ kind, index, detail }）と pbf.issueCount（種別ごと）に残り、close() で 1 行だけ warn
 		//   "strict"        ＝最初の問題で throw（Error.issue に { kind, index, detail }）＝取り込みの門にする時
-		//   "legacy"        ＝1.19 までの挙動（NaN → 0、Infinity → 例外、Point の [] → (0,0)、緯度は丸めない、幾何なしは warn 1 行で落とす）
+		//   （"legacy"＝1.19 までの挙動（NaN → 0・Point の [] → (0,0)）は 2.0 で撤去＝lenient に落ちる）
 		// 単要素の Multi* を単数型に落とす（ワイヤの約束）のは問題ではない＝issueCount.multiDegraded に数えるだけ（throw しない）
-		this.validate = options.validate === "strict" ? "strict" : options.validate === "legacy" ? "legacy" : "lenient";
+		this.validate = options.validate === "strict" ? "strict" : "lenient";
 		this.issues = []; this.issueCount = {}; this._fi = 0;   // _fi＝setFeature が見た地物の通し番号（issues の index）
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
 	}
@@ -89,7 +87,7 @@ class GeoPBF {
 	async set(q) {
 		if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
 			// ArrayBuffer は worker へ transfer される＝呼び手の q は detach（byteLength 0）。残したい時は q.slice(0) を渡す（reference.md §2）
-			if (canUseWorker(this, GeoPBF._workerFactory, GeoPBF._workerUrl)) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+			if (canUseWorker(this, GeoPBF._workerFactory)) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
 			this.pbf = new Pbf(q);
 		} else if (isSimpleObject(q)) {
 			const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
@@ -237,14 +235,14 @@ class GeoPBF {
 		return this;
 	}
 	setFeature(q) {
-		const fi = this._fi++;
+		this._fi++;
 		// 幾何なし（null / 型不明）の地物はワイヤに載せられない＝書かずに数える（旧＝GTYPE 抜けの壊れたレコードを書き、読み側が TypeError で飛ばしていた）
 		if (!q.geometry || geometryMap[q.geometry.type] == null) {
-			if (this.validate !== "legacy") this._issue("nullGeometry", q.geometry ? `type ${q.geometry.type}` : "geometry null");
-			if (!this.dropped++ && this.validate === "legacy") console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`);
+			this._issue("nullGeometry", q.geometry ? `type ${q.geometry.type}` : "geometry null");
+			this.dropped++;
 			return this;
 		}
-		if (this.validate !== "legacy") {   // 検証層：壊れた座標・空の座標・退化した環・緯度の範囲外を直すか落とす（幾何が空になった地物は書かない）
+		{   // 検証層：壊れた座標・空の座標・退化した環・緯度の範囲外を直すか落とす（幾何が空になった地物は書かない）
 			const g = normalizeGeometry(this, q.geometry);
 			if (!g) { this.dropped++; return this; }
 			if (g !== q.geometry) q = { ...q, geometry: g };
@@ -349,7 +347,7 @@ function dataType(q) {
 	if (type === "string") return isColor(q) ? DATATYPE.COLOR : DATATYPE.STRING;
 	// 整数でも |q| > 2^52 は FLOAT（double＝bit 同一）で書く。INTEGER の zigzag は 2 倍して varint に乗せるので 2^53 を越えると
 	// 読み戻しの Number で丸まり（-(2^53-1) が +(2^53-2) に化けた）、2^64 以上は varint に入らず例外だった（2026-10-12・t-encode-edge）
-	else if (type === "number") return isFloat(q) || (Number.isFinite(q) && Math.abs(q) > 4503599627370496) ? DATATYPE.FLOAT : DATATYPE.INTEGER;   // NaN／±Infinity は validate 層が先に裁く（legacy＝NaN → 0・Infinity → 例外のまま）
+	else if (type === "number") return isFloat(q) || (Number.isFinite(q) && Math.abs(q) > 4503599627370496) ? DATATYPE.FLOAT : DATATYPE.INTEGER;   // NaN／±Infinity は validate 層が先に裁く（badNumber＝書かない）
 	else if (type === "boolean") return DATATYPE.BOOL;
 	else if (type === "function") return DATATYPE.FUNC;
 	else if (q instanceof Date) return DATATYPE.DATE;
@@ -387,7 +385,7 @@ function readValue(self) {
 		case DATATYPE.BOOL: return pbf.readBoolean();
 		case DATATYPE.JSON: return JSON.parse(pbf.readString());
 		case DATATYPE.BLOB: return blob(pbf.readString());
-		case DATATYPE.FUNC: { const s = pbf.readString(); return self.noeval ? s : new Function(`return ${s}`); }
+		case DATATYPE.FUNC: return pbf.readString();   // 関数のソース文字列のまま（new Function で復元しない＝2.0 で唯一の挙動）
 		case DATATYPE.IMAGE: return image(pbf.readString());
 		case DATATYPE.DATE: return new Date(pbf.readSVarint() * 1000);
 		case DATATYPE.BBOX: return new Float64Array(pbf.readPackedDouble());
@@ -409,7 +407,7 @@ function readValue(self) {
 function writeProperties(self, q) {
 	const { pbf, keytub } = self;
 	var index = []; if (self.noprop) return
-	const badNum = (v, k) => typeof v === "number" && !Number.isFinite(v) && self.validate !== "legacy" && (self._issue("badNumber", `${k}: ${v}`), true);   // NaN／±Infinity → null（書かない）。legacy＝NaN → 0・Infinity → 例外
+	const badNum = (v, k) => typeof v === "number" && !Number.isFinite(v) && (self._issue("badNumber", `${k}: ${v}`), true);   // NaN／±Infinity → null（書かない）
 	for (var key in q) if (q[key] != null) {
 		var v = q[key];
 		if (isSimpleObject(v) && Object.keys(v).every(k => `${key}.${k}` in keytub)) {
@@ -482,7 +480,7 @@ function writeGeometry(self, q) {
 		const fix = n => { while (n < -180) n += 360; while (n > 180) n -= 360; return n; };
 		let type = geometryMap[q.type], c = q.coordinates;
 		if (type == null) return console.error("illegal geometry type: ", q.type);
-		if (type % 2 == 1 && c.length == 1) { type--; c = c[0]; if (self.validate !== "legacy") self._issue("multiDegraded", q.type, true); }   // 単要素の Multi* → 単数型（ワイヤの約束・数えるだけ）
+		if (type % 2 == 1 && c.length == 1) { type--; c = c[0]; self._issue("multiDegraded", q.type, true); }   // 単要素の Multi* → 単数型（ワイヤの約束・数えるだけ）
 		pbf.writeVarintField(TAGS.GTYPE, type);
 		if (type == 6) return pbf.writeMessage(TAGS.GARRAY, () => q.geometries.forEach(t => writeGeometry(self, t)));
 		[write0, write1, write1, write2, write2, write3][type]();
@@ -535,20 +533,19 @@ function readGeometry(self, n, m) {
 
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
 
-// worker 経路を使うか：インスタンスの worker:false が最優先。次にクラスに配線（createGeopbf）があるか。配線が geopbf 自身の
-// 入口（builtinWorker＝new Worker）に頼る時は、その場に Worker が居る時だけ（Node の main には無い＝main スレッドで解く）。
-// ホストの入口（setWorkerFactory）があれば Worker の有無はホストの責任
-export function canUseWorker(self, factory, url) {
+// worker 経路を使うか：インスタンスの worker:false が最優先。次にクラスに配線（createGeopbf の _workerFactory／_gintWorkerFactory）があるか。
+// 配線が geopbf 自身の入口（builtinWorker＝new Worker）に頼る時は、その場に Worker が居る時だけ（Node の main には無い＝main スレッドで解く）。
+// ホストの入口（setWorkerFactory）があれば Worker の有無はホストの責任。
+// 旧の _workerUrl（URL 変数から new Worker）の経路は 2.0 で撤去＝誰も代入していなかった（URL 変数経由はビルドで data:URL 化して死ぬので factory 直書きが正）
+export function canUseWorker(self, factory) {
 	if (self._useWorker === false) return false;
-	if (!factory && !url) return false;
+	if (!factory) return false;
 	return hasWorkerFactory() || typeof Worker !== "undefined";
 }
 
 function _setViaWorker(self, buf) {
-	// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）。
 	// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）
-	const factory = GeoPBF._workerFactory || (() => new Worker(GeoPBF._workerUrl, { type: "module" }));
-	return runInWorker("decoder:pbf", factory, { buf }, [buf])
+	return runInWorker("decoder:pbf", GeoPBF._workerFactory, { buf }, [buf])
 		.then(r => {
 			self.init();
 			self.pbf          = new Pbf(r.buf);

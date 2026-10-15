@@ -43,7 +43,6 @@ export function esriToGeoJSON(json) {
 }
 
 // 範囲を経緯度へ（ArcGIS の extent は層の座標系＝4326 系と Web メルカトルだけ解く・他は null）
-const R = 6378137;
 function extentToLonLat(e) {
 	if (!e || ![e.xmin, e.ymin, e.xmax, e.ymax].every(Number.isFinite)) return null;
 	const wkid = e.spatialReference?.latestWkid ?? e.spatialReference?.wkid;

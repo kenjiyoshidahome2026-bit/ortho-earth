@@ -1,6 +1,6 @@
 // t-dts の消費者（TypeScript）＝公開面を strict で型検査する。@ts-expect-error の行は「型が効いている」ことの証（消すと tsc が落ちる）
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune, setWorkerFactory, GeoPBF } from "geopbf";
-import type { GeopbfOptions, ValidateIssue, FeatureCollection, UnPackGint } from "geopbf";
+import type { GeopbfOptions, ValidateIssue, FeatureCollection, UnPackGint, GeoPBFBase, BucketProvider, Properties } from "geopbf";
 import { GeoPBF as CoreGeoPBF, loadGeopbf, decodeToGeojson, gunzip } from "geopbf/core";
 import { GeoPBF as BaseGeoPBF, makeKeys } from "geopbf/pbf-base";
 import Pbf from "geopbf/pbf";
@@ -18,10 +18,17 @@ const fc: FeatureCollection = { type: "FeatureCollection", features: [
 	{ type: "Feature", geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] }, properties: { name: "a", n: 1 } },
 ] };
 
+// bucket provider（createGeopbf(apiBase, { bucket })）の形＝(apiBase, options) → { Bucket, Cache, Fetch }
+const provider: BucketProvider = (apiBase, options) => ({
+	Bucket: async (dir, opts) => ({ url: apiBase ? `${apiBase}/${dir}/` : null, list: async () => [], put: async () => {}, del: async () => {}, etag: async () => null, lazy: opts?.lazy }),
+	Cache: async () => async () => null,
+	Fetch: async (url, opts) => new File([], url + (opts?.target ?? ""), { type: String(options.worker) }),
+});
+
 async function main() {
 	// ── full の入口
-	const g = createGeopbf(undefined, { worker: false, prewarm: false });
-	const opts: GeopbfOptions = { name: "x", gint: true, clean: { maxPasses: 2 }, cacheKey: "k", validate: "strict", noeval: false };
+	const g = createGeopbf(undefined, { worker: false, prewarm: false, bucket: provider, tky2jgd: null });
+	const opts: GeopbfOptions = { name: "x", gint: true, clean: { maxPasses: 2 }, cacheKey: "k", validate: "strict", tky2jgd: null };
 	const pbf = await g(fc, opts);
 	if (!pbf) return;
 	const n: number = pbf.length;
@@ -45,8 +52,11 @@ async function main() {
 	const legacy: GeoPBF | null = await geopbf(fc, "named");
 	setWorkerFactory(role => role.startsWith("decoder:") ? null : undefined);
 	setWorkerFactory(null);
-	const joined: GeoPBF = GeoPBF.concatinate([pbf, d], "both");
-	void [n, fid, c, area, name, self1, prec, re, issues, k, u, fc2, m, cls, f, cached, pruned, legacy, joined];
+	const copy: GeoPBF = await pbf.clone();
+	const head: GeoPBF = await pbf.cloneHead();
+	const joined: GeoPBF | null = await pbf.concat(d, m);
+	const asBase: GeoPBFBase = pbf;   // 器の型は型だけの名前（実行時の export ではない）
+	void [n, fid, c, area, name, self1, prec, re, issues, k, u, fc2, m, cls, f, cached, pruned, legacy, copy, head, joined, asBase];
 
 	// ── core（器だけ）
 	const core = await new CoreGeoPBF({ precision: 7, validate: "lenient" }).set(fc);
@@ -55,9 +65,22 @@ async function main() {
 	const feats: FeatureCollection = loaded.geojson;
 	const attribution: string | undefined = loaded.attribution;
 	const dec = await decodeToGeojson(await gunzip(new Blob([bytes])));
-	const base = new BaseGeoPBF();
-	const wire = new Pbf(); wire.writeStringField(1, "x"); const raw: Uint8Array = wire.finish();
-	void [bytes, feats, attribution, dec.meta.name, makeKeys(["a"]), base.length, raw];
+	// ── ストリーム符号化（setHead → setBody（関数）→ close）と静的な名簿
+	const rows: Properties[] = [{ a: 1 }, null];
+	const [keys, bufs]: [string[], ArrayBuffer[]] = await makeKeys(rows);
+	const [keys2]: [string[], ArrayBuffer[]] = await BaseGeoPBF.makeKeys(rows);
+	const base = new BaseGeoPBF().setHead(keys, bufs);
+	base.setBody(() => { base.setGeometry({ type: "Point", coordinates: [0, 0] }); const none: void = base.setProperties({ a: 1 }); void none; }).close();
+	const tag: 6 = BaseGeoPBF.TAGS.FEATURE;
+	const gi: number = GeoPBF.geometryMap.Polygon;
+	const dt: number = GeoPBF.dataType("x");
+	const names: readonly string[] = GeoPBF.dataTypeNames;
+	// ── wire（geopbf/pbf）
+	const wire = new Pbf(); wire.writeStringField(1, "x"); wire.writeFixed64Field(2, 2 ** 40); wire.writeSFixed32Field(3, -1); const raw: Uint8Array = wire.finish();
+	const seen: number[] = [];
+	new Pbf(raw).readFields(tag => { seen.push(tag); });   // result 無し
+	const o = new Pbf(raw).readMessage((tag, out) => { if (tag === 2) out.v = new Pbf().readVarint64(); }, { v: 0 });
+	void [bytes, feats, attribution, dec.meta.name, keys2, base.length, tag, gi, dt, names, raw, seen, o.v, GeoPBF.geometryTypes[0]];
 
 	// ── 地図ライブラリの統合
 	const h = makeGeopbfProtocol({ onMeta: (url, meta) => void [url, meta], tiler: { layer: "x" } });
@@ -81,12 +104,23 @@ async function main() {
 }
 void main;
 
-// ── 型が効いている証（この 4 行の error が消えたら d.ts が緩んだ＝tsc が TS2578 で落ちる）
-// @ts-expect-error validate は "lenient" | "strict" | "legacy"
-new GeoPBF({ validate: "loose" });
+// ── 型が効いている証（この行の error が消えたら d.ts が緩んだ＝tsc が TS2578 で落ちる）
+// @ts-expect-error validate は "lenient" | "strict"（"legacy" は 2.0 で撤去）
+new GeoPBF({ validate: "legacy" });
+// @ts-expect-error noeval は 2.0 で撤去（FUNC は常にソース文字列）
+new GeoPBF({ noeval: false });
 // @ts-expect-error identifyAt の引数は数
 new GeoPBF().identifyAt("0", 0);
 // @ts-expect-error core の GeoPBF は拡張メソッド（centroid）を持たない
 new CoreGeoPBF().centroid(0);
 // @ts-expect-error precision(値) は Promise（同期の number ではない）
 const p: number = new GeoPBF().precision(7);
+// @ts-expect-error clone() は Promise（同期の GeoPBF ではない）
+const q: GeoPBF = new GeoPBF().clone();
+// @ts-expect-error set() は Feature 単体を受けない（FeatureCollection か bytes）
+new GeoPBF().set(fc.features[0]);
+// @ts-expect-error static concatinate は 2.0 で撤去（concat を使う）
+GeoPBF.concatinate([]);
+// @ts-expect-error GeoPBFBase は型だけ（実行時の export ではない＝値として使えない）
+import { GeoPBFBase as RuntimeBase } from "geopbf"; void RuntimeBase;
+void [p, q];

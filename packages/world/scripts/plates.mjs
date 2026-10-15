@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "../../geopbf/src/pbf-base.js";
+import { GeoPBF } from "geopbf/pbf-base";
 import { PLATE_NAMES, STEP_CLASSES, plates, steps, boundaryLines } from "./lib/pb2002.mjs";
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
