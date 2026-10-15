@@ -19,7 +19,8 @@
 		"./poi-schema": "./src/poi-schema.js",
 		"./shared-data": "./shared-data/index.js",
 		"./shared-data/manifest.json": "./shared-data/manifest.json",
-		"./app": "./src/app.js"
+		"./app": "./src/app.js",
+		"./census/*": "./census/*"
 	},
 	"description": "日本の地域パック（地域宣言＝裸地標高・建物台帳・基図・画像タイル・出典・検索・POI台帳・路線）＝@ortho-earth/core は日本を知らない",
 	"dependencies": {

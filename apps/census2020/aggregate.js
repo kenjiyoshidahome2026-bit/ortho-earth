@@ -8,10 +8,10 @@
 // 1feature 参照のみ残す＝内部境界が消えて外周だけ＝そのまま geopbf({gint:true}) で新しい gint 層に焼き直す。
 import { geopbf } from "geopbf";
 import { PREFS, DESIGNATED_CITIES, wardParent, SHICHO, GUN } from "./jp/codes.js";
-import POP2020 from "./census/2020-pop.json" with { type: "json" };
-import CENSUS_MANIFEST from "./census/manifest.json" with { type: "json" };
-import STATS2015 from "./census/2015-stats.json" with { type: "json" };
-import AGES2020 from "./census/2020-ages.json" with { type: "json" };
+import POP2020 from "@ortho-earth/jp/census/2020-pop.json" with { type: "json" };
+import CENSUS_MANIFEST from "@ortho-earth/jp/census/manifest.json" with { type: "json" };
+import STATS2015 from "@ortho-earth/jp/census/2015-stats.json" with { type: "json" };
+import AGES2020 from "@ortho-earth/jp/census/2020-ages.json" with { type: "json" };
 
 const NAME_BY_CODE = new Map(CENSUS_MANIFEST.map(e => [e.code, e.name]));
 const MB = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));

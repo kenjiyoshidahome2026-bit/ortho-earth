@@ -1,6 +1,6 @@
 // 押し出しの見本 public/showcase/pop-density-2020.geopbf を作る（node scripts/showcase-pop3d.mjs [間引き度=0.002] [1人/km²あたりの高さm=2]）。
 // 入力：SHOWCASE_SRC（既定 .showcase-src/）に admin_all.gz ＝ curl -o .showcase-src/admin_all.gz https://api.ortho-earth.com/bucket/GIS/pbf/admin_all
-//       人口・面積・密度＝apps/census2020/census/manifest.json（令和2年国勢調査）。
+//       人口・面積・密度＝packages/jp/census/manifest.json（令和2年国勢調査）。
 // 押し出しの見本：2020 年国勢調査の人口密度を高さにした市区町村の 3D 地図（境界＝bucket admin_all・人口/面積/密度＝census2020 の manifest）
 globalThis.ImageData ??= class ImageData { };
 import fs from "node:fs"; import zlib from "node:zlib";
@@ -9,7 +9,7 @@ const S = process.env.SHOWCASE_SRC || new URL("../.showcase-src/", import.meta.u
 const TOL = +(process.argv[2] || 0.002), M_PER = +(process.argv[3] || 2);
 const buf = zlib.gunzipSync(fs.readFileSync(S + "admin_all.gz"));
 const src = (await new GeoPBF().set(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))).geojson;
-const census = Object.fromEntries(JSON.parse(fs.readFileSync(new URL("../../census2020/census/manifest.json", import.meta.url), "utf8")).map(r => [r.code, r]));
+const census = Object.fromEntries(JSON.parse(fs.readFileSync(new URL("../../../packages/jp/census/manifest.json", import.meta.url), "utf8")).map(r => [r.code, r]));
 // Douglas-Peucker（度・経度は緯度で縮める）
 const dp = (pts, tol) => {
 	if (pts.length < 5) return pts;

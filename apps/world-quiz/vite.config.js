@@ -11,12 +11,10 @@ const coepHeaders = () => ({
 	name: "coep-headers",
 	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
 });
-const GLOBE_PUBLIC = path.resolve(__dirname, '../ortho-globe/public');   // 地球儀の実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/）
 const noChunkOptimization = { experimental: { chunkOptimization: false } };   // world と同じ理由（mesh-loaders の合流を避ける）
 
 export default defineConfig(({ command }) => ({
 	plugins: [wasm(), coepHeaders(), sharedEngine()],
-	define: { __GLOBE_ASSETS__: JSON.stringify(command === 'serve' ? `/quiz/@fs${GLOBE_PUBLIC}/` : '/globe/') },
 	base: '/quiz/',
 	resolve: {
 		alias: {
