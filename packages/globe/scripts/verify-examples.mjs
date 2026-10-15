@@ -26,6 +26,7 @@ import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
 import { buildReport, buildGallery, runnableForm } from "../tests/mlexamples/report.mjs";
+import { ENGINE_DIR } from "./lib/shared-engine.mjs";   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(CACHE, "..");   // <repo>/.cache/mlexamples
@@ -262,12 +263,12 @@ function compareRuns(la, lb, side) {
 // ── www に置く一式（--publish <dir>・2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）──
 //   <dir>/index.html＝一覧（写し・題・分類 (一致度 %)・カードで覗き窓＝ortho の形の本文・英日の注釈・Run／Copy／Download）
 //   <dir>/thumbs/<例>.webp＝こちらの写し（full.png を 480×360 に）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
-//   import map の先＝共有エンジンの maplibre 入口（/globe/engine/<版>/maplibre.js・版は apps/ortho-globe/dist/engine/current.json＝先に build:engine）。
-//   旧い版の入口は ortho-globe の配信口が今の版へ 302 で送る＝www を焼き直さなくても動き続ける
+//   import map の先＝共有エンジンの maplibre 入口（/globe/engine/<版>/maplibre.js・版は apps/engine の current.json＝先に npm run build -w ortho-engine）。
+//   旧い版の入口はエンジンの配信口（apps/engine/deploy-worker.js）が今の版へ 302 で送る＝www を焼き直さなくても動き続ける
 let publishP = null;   // 書き出し（sharp の縮小）は非同期＝process.exit の前に待つ
 function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
-	const cur = JSON.parse(fs.readFileSync(path.join(PKG, "../../apps/ortho-globe/dist/engine/current.json"), "utf8"));
-	if (!cur.entries?.includes("maplibre")) throw new Error("共有エンジンに maplibre の入口が無い＝npm run build:engine -w ortho-globe");
+	const cur = JSON.parse(fs.readFileSync(path.join(ENGINE_DIR, "current.json"), "utf8"));
+	if (!cur.entries?.includes("maplibre")) throw new Error("共有エンジンに maplibre の入口が無い＝npm run build -w ortho-engine");
 	const engineUrl = `/globe/engine/${cur.version}/maplibre.js`;
 	fs.rmSync(out, { recursive: true, force: true });
 	fs.mkdirSync(path.join(out, "thumbs"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });

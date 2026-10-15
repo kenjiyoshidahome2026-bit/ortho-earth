@@ -7,7 +7,7 @@ if (!document.querySelector("link[data-ortho-engine]")) {
 	link.setAttribute("data-ortho-engine", "");
 	document.head.appendChild(link);
 }
-// worker＝エンジンの部品（geopbf・core の標高）は「作らない版」で焼いてある（vite.engine.config.js の engineAliases）＝ふだんは globe.js が
+// worker＝エンジンの部品（geopbf・core の標高）は「作らない版」で焼いてある（apps/engine の vite.config.js の engineAliases）＝ふだんは globe.js が
 // 起動時に自分の入口 worker.js を口に渡す。equal の頁は globe.js を読まない＝部品を自前で起こす時（geopbf:true）だけ、同じ worker.js を口に渡す
 // （globe・japan の上に重ねる時は geopbf:false＝globe が渡した口のまま）。
 import { setWorkerFactory } from "geopbf";
