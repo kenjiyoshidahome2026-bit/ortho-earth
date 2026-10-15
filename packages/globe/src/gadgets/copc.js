@@ -3,7 +3,7 @@
 //   選び＝節の点の間隔を今の距離で画面の px に直し、density（既定 2px・LOW_MEM 3px）より粗ければ子へ降りる。COPC の節は足し算（ADD）＝親も子も描く。
 //   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。
 //   描き＝copc-gl.js（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
-//   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に worker 数×2（最低 4・LOW_MEM は 1 本で 2）。
+//   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に 4 つまで（LOW_MEM 2）。
 //   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる。
 import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import copcGlUrl from "./copc-gl.js?url";
@@ -21,17 +21,11 @@ function planesOf(m) {
 const keyStr = k => k.join("-");
 
 export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell, earthM }) {
-	// 読み手＝worker を NW 本（点群計画 段 2-2・2026-10-15）。節の解読（LAZ・1 節 30 ms 前後）は worker の中で直列＝本数で並べる。
-	//   各 worker が同じ点群を開く（ヘッダの取得は並べて走る＝待ちは 1 本と同じ）・階層の頁は 0 番だけ・節は手の空いている worker へ。LOW_MEM は 1 本
-	const NW = lowMem ? 1 : Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1));
-	const workers = Array.from({ length: NW }, () => {
-		const wk = { w: new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "copc" }), pending: new Map(), busy: 0 };
-		wk.w.onmessage = e => { const d = e.data || {}, key = d.rid ?? `o${d.id}`, p = wk.pending.get(key); if (!p) return; wk.pending.delete(key); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
-		return wk;
-	});
-	let rid = 0;
-	const rpc = (wk, msg, key, transfer = []) => new Promise((res, rej) => { wk.pending.set(key, { res, rej }); wk.w.postMessage({ ...msg, ell }, transfer); });
-	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 2 : Math.max(4, NW * 2);   // 1 本に 2 つ＝取得と解読が重なる
+	const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "copc" });
+	const pending = new Map(); let rid = 0;
+	w.onmessage = e => { const d = e.data || {}; const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
+	const rpc = (msg, key, transfer = []) => new Promise((res, rej) => { pending.set(key, { res, rej }); w.postMessage({ ...msg, ell }, transfer); });
+	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 2 : 4;
 	const sets = new Map();
 	let seq = 0, inflight = 0, loadedPts = 0, raf = 0, frameNo = 0;
 	const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); };
@@ -44,10 +38,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		sets.set(id, set);
 		let url = src, headers;
 		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }   // transformRequest＝鍵・独自スキームは未対応（Range を読むため）
-		const opens = workers.map(wk => rpc(wk, { type: "open", id, src: url, headers }, `o${id}`));
-		set.wks = [workers[0]];   // この点群を開けた worker（0 番は必ず・他は開け次第＝待たない）
-		opens.slice(1).forEach((p, i) => p.then(() => set.wks.push(workers[i + 1]), err => console.warn(`[copc] ${id}: worker ${i + 1}`, err)));
-		const opened = await opens[0];
+		const opened = await rpc({ type: "open", id, src: url, headers }, `o${id}`);
 		if (!sets.has(id)) throw new Error("removed while opening");
 		set.info = opened.info;
 		if (set.info.vertical === "ellipsoidal") await loadGeoid().catch(() => {});
@@ -70,7 +61,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 
 	function loadPage(set, p) {
 		p.state = "loading"; set.stats.requests++; set.stats.bytes += p.byteSize;
-		rpc(workers[0], { type: "page", id: set.id, rid: ++rid, page: { offset: p.offset, byteSize: p.byteSize } }, rid).then(r => {
+		rpc({ type: "page", id: set.id, rid: ++rid, page: { offset: p.offset, byteSize: p.byteSize } }, rid).then(r => {
 			p.state = "ready"; for (const n of r.nodes) addNode(set, n); for (const q of r.pages) if (!set.pages.has(keyStr(q.key))) set.pages.set(keyStr(q.key), { ...q, state: "none" });
 			schedule();
 		}).catch(err => { p.state = "failed"; console.warn(`[copc] ${set.id}: hierarchy page`, err); });
@@ -78,17 +69,16 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 	function loadNode(set, n) {
 		n.state = "loading"; inflight++; set.stats.requests++; set.stats.bytes += n.byteSize;
 		const N = set.info.vertical === "ellipsoidal" ? geoidHeight(n.ll[0], n.ll[1]) || 0 : 0;
-		const q = ++rid, wk = set.wks.reduce((a, b) => b.busy < a.busy ? b : a);
-		wk.busy++;
-		rpc(wk, { type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, heightOffset: set.opts.heightOffset || 0 }, q).then(r => {
-			inflight--; wk.busy--;
+		const q = ++rid;
+		rpc({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, heightOffset: set.opts.heightOffset || 0 }, q).then(r => {
+			inflight--;
 			if (!sets.has(set.id) || set.nodes.get(keyStr(n.key)) !== n) return;
 			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
 			const st = set.stats; if (r.affine) st.affine++; if (r.ms) for (const k in st.ms) st.ms[k] += r.ms[k] || 0; if (!st.firstAt) st.firstAt = performance.now() - st.t0;
 			set.ov.post({ type: "layer", q: n.q, n: r.n, pos: r.pos, origin: r.origin, rgb: r.rgb, intensity: r.intensity, cls: r.cls, elev: r.elev, spacing: n.spacingM / earthM }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 			n.on = true;
 			schedule();
-		}).catch(err => { inflight--; wk.busy--; n.state = "failed"; set.stats.failed++; console.warn(`[copc] ${set.id}: node ${keyStr(n.key)}`, err); schedule(); });
+		}).catch(err => { inflight--; n.state = "failed"; set.stats.failed++; console.warn(`[copc] ${set.id}: node ${keyStr(n.key)}`, err); schedule(); });
 	}
 	function unload(set, n) { if (n.state !== "ready") return; set.ov.post({ type: "remove", q: n.q }); loadedPts -= n.points; set.stats.nodes--; set.stats.points -= n.points; n.state = "none"; n.on = false; }
 	function setOn(set, n, on) { if (n.on === on) return; n.on = on; set.ov.post({ type: "vis", q: n.q, on }); }
@@ -138,7 +128,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 	function handle(set) {
 		return {
 			id: set.id, info: set.info,
-			get stats() { return { ...set.stats, ms: { ...set.stats.ms }, inflight, budget: BUDGET, workers: set.wks?.length ?? 0 }; },
+			get stats() { return { ...set.stats, ms: { ...set.stats.ms }, inflight, budget: BUDGET }; },
 			get bbox() { return set.info.bbox; },
 			setOptions(o = {}) { Object.assign(set.opts, o); applyStyle(set); if (o.density != null) schedule(); return this; },
 			setVisible(v) { set.hidden = !v; if (!v) for (const n of set.nodes.values()) if (n.state === "ready") setOn(set, n, false); schedule(); return this; },   // 出す時は次の選びが節を戻す
@@ -150,12 +140,12 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		sets.delete(id);
 		for (const n of set.nodes.values()) if (n.state === "ready") loadedPts -= n.points;
 		set.ov?.remove();
-		for (const wk of workers) wk.w.postMessage({ type: "close", id });
+		w.postMessage({ type: "close", id });
 		return true;
 	}
 	const onMove = () => schedule();
 	map.on("move", onMove); map.on("settle", onMove);
-	const destroy = () => { for (const id of [...sets.keys()]) remove(id); for (const wk of workers) wk.w.terminate(); map.off?.("move", onMove); map.off?.("settle", onMove); cancelAnimationFrame(raf); };
+	const destroy = () => { for (const id of [...sets.keys()]) remove(id); w.terminate(); map.off?.("move", onMove); map.off?.("settle", onMove); cancelAnimationFrame(raf); };
 	signal?.addEventListener("abort", destroy, { once: true });
 	return { add, remove, list: () => [...sets.values()].map(handle), destroy };
 }
