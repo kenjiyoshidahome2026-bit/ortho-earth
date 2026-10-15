@@ -26,6 +26,8 @@ function ownerOf(file) {
 	const nm = file.lastIndexOf("node_modules/");
 	if (nm >= 0) { const p = file.slice(nm + 13).split("/"); return "npm:" + (p[0].startsWith("@") ? p[0] + "/" + p[1] : p[0]); }
 	let d = path.dirname(file);
+	const r = rel(file).split("/");
+	if (r[0] === "apps" && r.length > 2) d = path.join(ROOT, "apps", r[1]);   // アプリの中の物（apps/himekuri/lib の npm himekuri など）はそのアプリの持ち物＝地図ではアプリに数える
 	while (d.startsWith(ROOT) && d !== ROOT) {
 		if (owners.has(d)) return owners.get(d);
 		const pj = path.join(d, "package.json");
@@ -143,7 +145,7 @@ function htmlRoots(html, appDir) {
 
 const ENTRY = {
 	"/": "apps/www/index.html", "/quiz/": "apps/world-quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
-	"/himekuri/": "apps/himekuri-demo/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
+	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
 	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html",
 };
 const entryOf = href => {
