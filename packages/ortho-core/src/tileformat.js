@@ -3,8 +3,8 @@
 //   decode(bytes: Uint8Array, need?: Set<string>) → { [source-layer 名]: { extent, features: [{ type, props, geom: { coords: Int32Array, ends }, id }] } }
 // 下流（build／labels／buildings／merge／描画）は形式を知らない。MVT は decode.js が自分をここへ登録する（既定・同梱）。
 // MLT は別パッケージ @ortho-earth/tile-formats（@maplibre/mlt への依存はそこだけ）＝アプリの vite alias が "#tile-formats"
-// （package.json の imports・既定＝tileformats-none.js＝何も足さない）を @ortho-earth/tile-formats/register へ向けると登録される。
-// この登録簿は import を持たない（葉）＝decode.js → #tile-formats → register → ここ、の順で循環しない。
+// （package.json の imports・既定＝tileformats-none.js＝何も足さない）を @ortho-earth/core/tileformats-mlt（MLT_FORMAT は @ortho-earth/tile-formats）へ向けると登録される。
+// この登録簿は import を持たない（葉）＝decode.js → #tile-formats → tileformats-mlt → ここ、の順で循環しない。
 //
 // 遅延読み込み：registerTileFormat({ name, pmtilesType, load }) の load は () => Promise<decode 関数>。解読器の本体（MLT なら
 // 数百 KB）を最初の MLT タイルまで読まない＝MVT だけのアプリ・起動の束には 1 バイトも入らない。非同期の呼び手（fetchMVT・
@@ -37,7 +37,7 @@ export const tileFormatReady = name => !!formats.get(name)?.decode;
 const warnOnce = name => {
 	if (warned.has(name)) return;
 	warned.add(name);
-	console.warn(`[tiles] tile format "${name}" is not registered — tiles in this encoding are drawn empty (registered: ${tileFormatNames().join(", ") || "none"}). MLT: alias "#tile-formats" to "@ortho-earth/tile-formats/register"`);
+	console.warn(`[tiles] tile format "${name}" is not registered — tiles in this encoding are drawn empty (registered: ${tileFormatNames().join(", ") || "none"}). MLT: install @ortho-earth/tile-formats and alias "#tile-formats" to "@ortho-earth/core/tileformats-mlt"`);
 };
 
 // 遅延読み込みを済ませて登録簿の項を返す。未登録＝null（一度だけ警告）。読み込み失敗＝投げる（項は残す＝次の呼び出しで再試行）

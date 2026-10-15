@@ -38,7 +38,7 @@ await t("未登録の形式＝空（層なし）＋警告は一度だけ", async
 	assert.deepEqual(decodeTile(mvt, null, "nope"), {});
 	assert.equal(await loadTileFormat("nope"), null);
 	assert.equal(warns.filter(w => w.includes('"nope"')).length, 1);
-	assert.match(warns[0], /not registered/); assert.match(warns[0], /tile-formats\/register/);
+	assert.match(warns[0], /not registered/); assert.match(warns[0], /core\/tileformats-mlt/);
 });
 await t("遅延読み込み（load）＝await してから同期に解ける・読み込み前の同期は投げる", async () => {
 	let loads = 0;
