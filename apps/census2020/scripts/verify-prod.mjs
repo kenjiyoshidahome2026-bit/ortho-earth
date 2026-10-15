@@ -72,12 +72,11 @@ const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/census-vpr
 process.on("exit", () => { server.close(); chrome.kill(); });
 const need = [
 	["/japan/census2020/assets/index-", "census入口チャンク"],
-	[`/globe/engine/${VERSION}/globe.js`, "共有エンジンの入口"],
 	[`/globe/engine/${VERSION}/assets/renderworker-`, "render worker（共有エンジン）"],
 	[`/globe/engine/${VERSION}/jp/app.js`, "orthoJapan（共有エンジンの入口 jp/app.js）"],
 	[`/globe/engine/${VERSION}/assets/airports.json`, "jp の台帳（共有エンジンの assets/）"],   // 証拠＝起動時に必ず読む台帳（旧＝/japan/airports.json＝japan の棚・2026-10-14 まで）
 ];
-// 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
+// 必須5点が台帳に揃うまで（globe.js は要らない＝census は jp/app.js から入り、globe は共有チャンクで届く・2026-10-15）毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
 const errs = [];   // 自オリジンの console.error / 例外（受動）
 (async () => {
 	try {
@@ -105,7 +104,7 @@ server.close();
 if (errs.length) { errs.slice(0, 5).forEach(e => console.error("      " + e)); fail(`実走: 起動後にエラー ${errs.length} 件（例: ${errs[0].slice(0, 80)}）`); }
 console.log(`  取得台帳 ${requests.length}件・${((Date.now() - t0) / 1000) | 0}s（先頭）: ${requests.slice(0, 6).join(" | ") || "（空＝ブラウザが来ていない）"}`);
 if (missing.length) { console.error("  台帳全行:\n  " + requests.join("\n  ")); fail(`実走: ${missing.map(([f, l]) => `${l}（${f}…）`).join("・")}が取得されていない`); }
-const notFound = requests.filter(r => r.startsWith("404 "));
+const notFound = requests.filter(r => r.startsWith("404 ") && r !== "404 /favicon.svg");   // /favicon.svg＝サイトの根（www が配る）＝census の dist には無くて正しい
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
 console.log(`ok:boot（要求${requests.length}件＝共有エンジン入口→worker→共有棚の取得を実観測・404ゼロ）`);
 console.log("✓ census2020 本番組立の検定PASS");

@@ -21,7 +21,7 @@ export const ENTRIES = [
 	["@ortho-earth/nl", "nl/index", P("packages/nl/src/region.js")],
 ];
 // 入口の隣に複写する実行時データ（orthoJapan の assetBase の既定＝<版>/assets/）。
-// koppen-clim.png＝assetBase を指した頁は気候場もそこから読む（globe.js の CLIM_URL）＝jp の頁が読む 1 枚（読まない頁は従来のハッシュ名の同梱を読む＝どちらか 1 枚だけ）
-export const DATA = [["packages/jp/assets", "assets"], ["packages/globe/src/assets/koppen-clim.png", "assets/koppen-clim.png"]].map(([from, to]) => [P(from), to]);
+// koppen-clim.png（packages/jp/assets の symlink＝dev でも同じ置き場から引ける・2026-10-15）＝assetBase を指した頁は気候場もそこから読む（globe.js の CLIM_URL）＝jp の頁が読む 1 枚（読まない頁は従来のハッシュ名の同梱を読む＝どちらか 1 枚だけ）
+export const DATA = [["packages/jp/assets", "assets"]].map(([from, to]) => [P(from), to]);
 export const libEntry = () => Object.fromEntries(ENTRIES.map(([, name, src]) => [name, src]));
 export const importsMap = () => Object.fromEntries(ENTRIES.map(([spec, name]) => [spec, `${name}.js`]));
