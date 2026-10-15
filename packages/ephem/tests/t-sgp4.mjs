@@ -4,7 +4,7 @@
 // 近地球（ISS・Starlink）＋深宇宙の三つの枝（共鳴なし・一日共鳴＝静止・半日共鳴＝モルニア/長楕円）＋低傾斜（Lyddane）を網羅。
 // 許容 1 m（実測は全 active 16,583 機×±1 週間で最大 1.7 cm＝2026-09-19。式を一つ取り違えると km 単位で外れる＝zmol の轍）。
 import fs from "node:fs";
-import { parseOMM, parseTLE, sgp4init, sgp4, propagate, gmst, temeToGeodetic, jdOf } from "../src/sgp4.js";
+import { parseOMM, parseTLE, sgp4init, sgp4, propagate, gmst, temeToGeodetic, jdOf } from "../src/sgp4.ts";
 
 const fix = JSON.parse(fs.readFileSync(new URL("./sgp4-fixture.json", import.meta.url), "utf8"));
 let fail = 0;

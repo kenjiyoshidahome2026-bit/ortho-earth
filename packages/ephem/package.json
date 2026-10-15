@@ -20,20 +20,24 @@
 		"directory": "packages/ephem"
 	},
 	"homepage": "https://www.ortho-earth.com/solar/",
-	"main": "src/index.js",
+	"main": "src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./sgp4": "./src/sgp4.js",
-		"./clock": "./src/clock.js",
-		"./sun": "./src/sun.js"
+		".": "./src/index.ts",
+		"./sgp4": "./src/sgp4.ts",
+		"./clock": "./src/clock.ts",
+		"./sun": "./src/sun.ts"
 	},
 	"files": [
 		"src",
+		"dist",
 		"README.md",
 		"LICENSE"
 	],
 	"sideEffects": false,
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/t-ephem.mjs && node tests/t-sgp4.mjs && node tests/t-clock.mjs && node tests/t-sun.mjs"
 	}
 }

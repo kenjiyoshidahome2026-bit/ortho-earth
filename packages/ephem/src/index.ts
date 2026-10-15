@@ -8,8 +8,35 @@ export const AU_KM = 149597870.7;
 export const LIGHT_MIN_PER_AU = 8.3167;     // 1AU の光行時間（分）
 const E_RADII_AU = 6378.14 / AU_KM;         // Schlyter 月理論の距離単位（地球赤道半径）→AU
 
+export type Vec3 = [number, number, number];
+/** 3×3 行列（行優先 [r][c]） */
+export type Mat3 = [Vec3, Vec3, Vec3];
+/** IAU 自転モデル：極（α,δ 赤道 J2000・世紀あたり raT/decT）と本初子午線 W = W0 + Wd·d */
+export interface IauRotation { ra: number; dec: number; raT?: number; decT?: number; W0: number; Wd: number }
+/** IAU 表を持たない衛星＝同期自転（向きは軌道から組む・Wd の符号＝順行/逆行） */
+export interface SyncRotation { Wd: number }
+export interface Ring { tex: string; inner: number; outer: number }
+export interface Body {
+	id: string; name: string; note?: string; tex: string; clouds?: string; night?: string;
+	radiusKm: number; color: Vec3; emissive?: boolean; rot: IauRotation; ring?: Ring;
+	radiusAU: number; periodDays: number; rotHours: number;
+}
+type BodySpec = Omit<Body, "radiusAU" | "periodDays" | "rotHours">;
+export interface Satellite {
+	id: string; name: string; parent: string; radiusKm: number; aKm: number; lambda0: number; n: number; color: Vec3;
+	e?: number; peri?: [number, number]; inc?: number; node?: [number, number]; lap?: [number, number]; quad?: number;
+	/** 秤動 [振幅, 位相, 角速度]＝A·sin(ν·d + φ) */
+	lib?: [number, number, number];
+	rot: IauRotation | SyncRotation;
+	/** Laplace 面の座標系（x＝昇交点・z＝極）→ 黄道 J2000 */
+	F: Mat3;
+	radiusAU: number; periodDays: number; rotHours: number;
+}
+type SatelliteSpec = Omit<Satellite, "rot" | "F" | "radiusAU" | "periodDays" | "rotHours"> & { rot?: IauRotation };
+interface Elements { a: number; e: number; I: number; L: number; w1: number; Om: number }
+
 // [a(au), e, I(deg), L(deg), ϖ(deg), Ω(deg)] と 1ユリウス世紀あたりの変化率（同順）＝JPL 1800–2050AD 表
-const EL = {
+const EL: Record<string, [number[], number[]]> = {
 	mercury: [[0.38709927, 0.20563593, 7.00497902, 252.25032350, 77.45779628, 48.33076593],
 		[0.00000037, 0.00001906, -0.00594749, 149472.67411175, 0.16047689, -0.12534081]],
 	venus: [[0.72333566, 0.00677672, 3.39467605, 181.97909950, 131.60246718, 76.67984255],
@@ -33,7 +60,7 @@ const EL = {
 // 天体カタログ（描画順もこの順）。rot＝IAU 自転モデル：極(α,δ 赤道J2000, 世紀あたり raT/decT)と
 // 本初子午線 W = W0 + Wd·d（deg, d=J2000からの日数）。負の Wd＝逆行自転（金星・天王星）。
 // 微小振動項（海王星の sinN 等）は省略＝可視化には効かない。color＝軌道線・極小表示時の点の色。
-export const BODIES = [
+const BODY_SPECS: BodySpec[] = [
 	{ id: "sun", name: "Sun", tex: "2k_sun.jpg", radiusKm: 695700, color: [1.0, 0.83, 0.55], emissive: true,
 		rot: { ra: 286.13, dec: 63.87, W0: 84.176, Wd: 14.1844 } },
 	{ id: "mercury", name: "Mercury", tex: "2k_mercury.jpg", radiusKm: 2439.7, color: [0.72, 0.68, 0.63],
@@ -64,30 +91,31 @@ export const BODIES = [
 	{ id: "pluto", name: "Pluto", note: "Dwarf planet", tex: "2k_pluto.jpg", radiusKm: 1188.3, color: [0.78, 0.65, 0.53],
 		rot: { ra: 132.993, dec: -6.163, W0: 302.695, Wd: 56.3625225 } },
 ];
-export const byId = Object.fromEntries(BODIES.map(b => [b.id, b]));
-for (const b of BODIES) {
-	b.radiusAU = b.radiusKm / AU_KM;
-	// 公転周期（日）：惑星＝ケプラー第三法則、月＝恒星月。自転周期（時間）＝360/|Wd|·24
-	b.periodDays = EL[b.id] ? 365.256898 * Math.pow(EL[b.id][0][0], 1.5) : (b.id === "moon" ? 27.321661 : 0);
-	b.rotHours = b.rot ? Math.abs(360 / b.rot.Wd) * 24 : 0;
-}
+// 公転周期（日）：惑星＝ケプラー第三法則、月＝恒星月。自転周期（時間）＝360/|Wd|·24
+export const BODIES: Body[] = BODY_SPECS.map(b => ({
+	...b,
+	radiusAU: b.radiusKm / AU_KM,
+	periodDays: EL[b.id] ? 365.256898 * Math.pow(EL[b.id][0][0], 1.5) : (b.id === "moon" ? 27.321661 : 0),
+	rotHours: b.rot ? Math.abs(360 / b.rot.Wd) * 24 : 0,
+}));
+export const byId: Record<string, Body> = Object.fromEntries(BODIES.map(b => [b.id, b]));
 
 // ---- 時刻変換 ----
-export const jd = date => date.getTime() / 864e5 + 2440587.5;
-export const jcT = date => (jd(date) - 2451545.0) / 36525;   // J2000からのユリウス世紀
+export const jd = (date: Date): number => date.getTime() / 864e5 + 2440587.5;
+export const jcT = (date: Date): number => (jd(date) - 2451545.0) / 36525;   // J2000からのユリウス世紀
 
 // ---- ケプラー機械（planets.js と同式） ----
-function elements(id, T) {
+function elements(id: string, T: number): Elements {
 	const [e0, dr] = EL[id];
 	return { a: e0[0] + dr[0] * T, e: e0[1] + dr[1] * T, I: (e0[2] + dr[2] * T) * D2R,
 		L: e0[3] + dr[3] * T, w1: e0[4] + dr[4] * T, Om: (e0[5] + dr[5] * T) * D2R };
 }
-function solveE(M, e) {   // ケプラー方程式（ニュートン反復）。M=rad
+function solveE(M: number, e: number): number {   // ケプラー方程式（ニュートン反復）。M=rad
 	let E = M + e * Math.sin(M);
 	for (let i = 0; i < 8; i++) { const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E)); E -= dE; if (Math.abs(dE) < 1e-9) break; }
 	return E;
 }
-function fromE(el, E) {   // 離心近点角→日心黄道XYZ（軌道面→3回転）
+function fromE(el: Elements, E: number): Vec3 {   // 離心近点角→日心黄道XYZ（軌道面→3回転）
 	const { a, e, I, w1, Om } = el;
 	const xp = a * (Math.cos(E) - e), yp = a * Math.sqrt(1 - e * e) * Math.sin(E);
 	const w = w1 * D2R - Om;
@@ -98,7 +126,7 @@ function fromE(el, E) {   // 離心近点角→日心黄道XYZ（軌道面→3�
 		(sw * sI) * xp + (cw * sI) * yp,
 	];
 }
-function helio(id, T) {
+function helio(id: string, T: number): Vec3 {
 	const el = elements(id, T);
 	const M = (((el.L - el.w1) % 360 + 540) % 360 - 180) * D2R;
 	return fromE(el, solveE(M, el.e));
@@ -106,9 +134,9 @@ function helio(id, T) {
 
 // 月の地心黄道XYZ（AU）：Schlyter 低精度月理論（主要摂動12+5項・誤差<0.3°＝月の視直径以下）。
 // planets.js の moonPosition と同じ級数＝RA/Dec化の手前で止めて XYZ を返す。黄経は末尾で J2000 黄道へ戻す（歳差 1.397°/世紀）。
-export function moonGeo(date) {
+export function moonGeo(date: Date): Vec3 {
 	const d = jd(date) - 2451543.5;   // Schlyter epoch (2000-01-00.0 TDT)
-	const rev = x => ((x % 360) + 360) % 360;
+	const rev = (x: number) => ((x % 360) + 360) % 360;
 	const N = rev(125.1228 - 0.0529538083 * d), inc = 5.1454 * D2R;
 	const w = rev(318.0634 + 0.1643573223 * d);
 	const a = 60.2666, e = 0.054900;   // 地球赤道半径単位
@@ -124,7 +152,7 @@ export function moonGeo(date) {
 	let lon = Math.atan2(yh, xh) * R2D, lat = Math.asin(zh / r0) * R2D, r = r0;
 	const ws = rev(282.9404 + 4.70935e-5 * d), Ms = rev(356.0470 + 0.9856002585 * d);
 	const Ls = rev(Ms + ws), Lm = rev(N + w + M), D = rev(Lm - Ls), F = rev(Lm - N);
-	const S = x => Math.sin(x * D2R), C = x => Math.cos(x * D2R);
+	const S = (x: number) => Math.sin(x * D2R), C = (x: number) => Math.cos(x * D2R);
 	lon += -1.274 * S(M - 2 * D) + 0.658 * S(2 * D) - 0.186 * S(Ms) - 0.059 * S(2 * M - 2 * D)
 		- 0.057 * S(M - 2 * D + Ms) + 0.053 * S(M + 2 * D) + 0.046 * S(2 * D - Ms) + 0.041 * S(M - Ms)
 		- 0.035 * S(D) - 0.031 * S(M + Ms) - 0.015 * S(2 * F - 2 * D) + 0.011 * S(M - 4 * D);
@@ -140,7 +168,7 @@ export function moonGeo(date) {
 }
 
 // 天体の日心黄道位置（AU）。太陽＝原点、月＝地球+地心月
-export function bodyPos(id, date) {
+export function bodyPos(id: string, date: Date): Vec3 {
 	if (id === "sun") return [0, 0, 0];
 	if (id === "moon") {
 		const e = helio("earth", jcT(date)), m = moonGeo(date);
@@ -151,7 +179,7 @@ export function bodyPos(id, date) {
 
 // 軌道線の頂点列：離心近点角を一周サンプル（純楕円＝要素は epoch T で凍結）。Float32Array(n*3)
 // phase＝標本の起点（rad）。既定0＝近日点起点。
-export function orbitPoints(id, T, n = 512, phase = 0) {
+export function orbitPoints(id: string, T: number, n = 512, phase = 0): Float32Array {
 	const el = elements(id, T), out = new Float32Array(n * 3);
 	for (let i = 0; i < n; i++) {
 		const p = fromE(el, phase + i / n * 2 * Math.PI);
@@ -162,7 +190,7 @@ export function orbitPoints(id, T, n = 512, phase = 0) {
 // 「天体がいま居る点」を頂点に含む軌道線：現在の離心近点角を起点に一周サンプル。
 // 折れ線の弦は真の楕円より内側を通る（192点で最大~3地球半径）＝カメラが軌道上の天体の傍に居ると
 // 「自分が自分の軌道から浮いて見える」。起点を天体自身に切れば、天体は常に折れ線の頂点＝ズレゼロ。
-export function orbitPointsThrough(id, date, n = 512) {
+export function orbitPointsThrough(id: string, date: Date, n = 512): Float32Array {
 	const T = jcT(date), el = elements(id, T);
 	const M = (((el.L - el.w1) % 360 + 540) % 360 - 180) * D2R;
 	return orbitPoints(id, T, n, solveE(M, el.e));
@@ -171,7 +199,7 @@ export function orbitPointsThrough(id, date, n = 512) {
 // 刻み ~600km、しかも等間隔 512 点の弦は楕円から最大 ~11 万 km 内側を通る＝寄ると線が天体から外れて見える（実測 2026-09-19）。
 // ここでは離心近点角のずれを dE = π·s·|s|（s∈[-1,1)）で配る＝天体の傍は刻みが二次で細かい（弦の誤差は数 km）・裏側は等間隔の 2 倍。
 // 頂点 n/2 が天体そのもの（原点）。使う側は「カメラ − 天体」を f64 で引いてシェーダへ渡す（RTE）
-export function orbitPointsRel(id, date, n = 512) {
+export function orbitPointsRel(id: string, date: Date, n = 512): Float32Array {
 	const el = elements(id, jcT(date)), out = new Float32Array(n * 3);
 	const M = (((el.L - el.w1) % 360 + 540) % 360 - 180) * D2R, E0 = solveE(M, el.e), p0 = fromE(el, E0);
 	for (let i = 0; i < n; i++) {
@@ -184,16 +212,16 @@ export function orbitPointsRel(id, date, n = 512) {
 // 摂動（出没差＝引数が朔望月周期）で1恒星月後は同点に戻らない＝この曲線は本当は閉じない。
 // 継ぎ目のカクつきを月の真横に置かないため「今を中心に±半月」でサンプル＝継ぎ目は月の対極（遠側）、
 // 閉じ誤差（半径の数%）は末尾15%の弧へ線形に配って馴染ませる＝月の居る側の弧は生の摂動軌道のまま。
-export function moonOrbitPoints(date, n = 128) {
+export function moonOrbitPoints(date: Date, n = 128): Float32Array {
 	const e = helio("earth", jcT(date)), out = new Float32Array(n * 3);
 	const t0 = date.getTime(), P = 27.321661 * 864e5;
-	const raw = [];
+	const raw: Vec3[] = [];
 	for (let i = 0; i < n; i++) {
 		const m = moonGeo(new Date(t0 - P / 2 + i / n * P));
 		raw.push([e[0] + m[0], e[1] + m[1], e[2] + m[2]]);
 	}
 	const B = Math.max(2, Math.round(n * 0.15));
-	const gap = [raw[0][0] - raw[n - 1][0], raw[0][1] - raw[n - 1][1], raw[0][2] - raw[n - 1][2]];
+	const gap: Vec3 = [raw[0][0] - raw[n - 1][0], raw[0][1] - raw[n - 1][1], raw[0][2] - raw[n - 1][2]];
 	for (let k = 1; k <= B; k++) {
 		const i = n - 1 - B + k, w = k / B;
 		raw[i][0] += gap[0] * w; raw[i][1] += gap[1] * w; raw[i][2] += gap[2] * w;   // 末尾＝先頭と同点→LOOPの閉じ辺は零長
@@ -203,13 +231,13 @@ export function moonOrbitPoints(date, n = 128) {
 }
 
 // ---- 3×3 の道具（衛星と自転で共用） ----
-const mul3 = (A, B) => {   // 3×3 行列積（行優先 [r][c]）
-	const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+const mul3 = (A: Mat3, B: Mat3): Mat3 => {   // 3×3 行列積（行優先 [r][c]）
+	const C: Mat3 = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
 	for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
 	return C;
 };
-const Rx = t => { const c = Math.cos(t), s = Math.sin(t); return [[1, 0, 0], [0, c, -s], [0, s, c]]; };
-const Rz = t => { const c = Math.cos(t), s = Math.sin(t); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; };
+const Rx = (t: number): Mat3 => { const c = Math.cos(t), s = Math.sin(t); return [[1, 0, 0], [0, c, -s], [0, s, c]]; };
+const Rz = (t: number): Mat3 => { const c = Math.cos(t), s = Math.sin(t); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; };
 
 // ---- 衛星：BODIES とは別の棚＝japan の太陽系圏（BODIES を総なめする）を 1 行も変えない ----
 // 模型は一本：親の「Laplace 面」（極 lap＝赤道 J2000 の RA/Dec・既定は親の IAU 自転極＝親の赤道面）に対し、
@@ -226,7 +254,7 @@ const Rz = t => { const c = Math.cos(t), s = Math.sin(t); return [[c, -s, 0], [s
 // rot＝IAU WGCCRE（ガリレオ衛星のみ）。rot の無い衛星＝同期自転を軌道から直に組む（面が常に親を向く・orientation）。
 // 顔ぶれ＝各惑星の半径 ~200km 以上の主要衛星＋火星の二つ（小さいが「火星の月」として外せない）。
 // 海王星のトリトンだけ逆行（親の自転と逆向きに公転）＝lap は海王星の極の対蹠に取り、inc 23° の順行として表す。
-export const SATELLITES = [
+const SAT_SPECS: SatelliteSpec[] = [
 	{ id: "io", name: "Io", parent: "jupiter", radiusKm: 1821.6, aKm: 421745, lambda0: 19.9484, n: 203.4889578, color: [0.93, 0.85, 0.45],
 		rot: { ra: 268.05, dec: 64.50, W0: 200.39, Wd: 203.4889538 } },
 	{ id: "europa", name: "Europa", parent: "jupiter", radiusKm: 1560.8, aKm: 670965, lambda0: 214.5108, n: 101.3747263, color: [0.86, 0.80, 0.70],
@@ -268,14 +296,13 @@ export const SATELLITES = [
 	{ id: "charon", name: "Charon", parent: "pluto", radiusKm: 606, color: [0.61, 0.58, 0.56],
 		aKm: 19596, lambda0: 304.1219, n: 56.3625303, e: 0.000161, peri: [155.33, 0], inc: 0.083, node: [9.02, 0], lap: [132.993, -6.163] },
 ];
-export const satById = Object.fromEntries(SATELLITES.map(b => [b.id, b]));
 // Laplace 面の座標系（x＝昇交点・z＝極）→ 黄道 J2000
-function lapFrame(b) {
+function lapFrame(b: { lap?: [number, number]; parent: string }): Mat3 {
 	const [ra, dec] = b.lap || [byId[b.parent].rot.ra, byId[b.parent].rot.dec];
 	return mul3(Rx(-EPS), mul3(Rz(ra * D2R + Math.PI / 2), Rx(Math.PI / 2 - dec * D2R)));
 }
 // d（J2000 からの日数）での角度（rad）：平均黄経・近点黄経・昇交点
-function satAngles(b, d) {
+function satAngles(b: Satellite, d: number): [number, number, number] {
 	let lam = b.lambda0 + b.n * d;
 	if (b.quad) lam += b.quad * d * d;
 	if (b.lib) lam += b.lib[0] * Math.sin((b.lib[2] * d + b.lib[1]) * D2R);
@@ -283,7 +310,7 @@ function satAngles(b, d) {
 	return [lam * D2R, peri * D2R, node * D2R];
 }
 // 楕円上の点（AU・黄道 J2000）。lam＝平均黄経（軌道線は ϖ・Ω を止めて lam だけ一周回す）
-function satLocal(b, lam, varpi, Om) {
+function satLocal(b: Satellite, lam: number, varpi: number, Om: number): Vec3 {
 	const e = b.e || 0, a = b.aKm / AU_KM, inc = (b.inc || 0) * D2R, F = b.F;
 	const E = solveE(lam - varpi, e);
 	const xp = a * (Math.cos(E) - e), yp = a * Math.sqrt(1 - e * e) * Math.sin(E);
@@ -292,53 +319,54 @@ function satLocal(b, lam, varpi, Om) {
 	const v = [X * cO - Y * sO * ci, X * sO + Y * cO * ci, Y * si];
 	return [F[0][0] * v[0] + F[0][1] * v[1] + F[0][2] * v[2], F[1][0] * v[0] + F[1][1] * v[1] + F[1][2] * v[2], F[2][0] * v[0] + F[2][1] * v[1] + F[2][2] * v[2]];
 }
-const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const parentPole = b => eqToEcl(byId[b.parent].rot.ra, byId[b.parent].rot.dec);
+const dot3 = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const parentPole = (b: Satellite): Vec3 => eqToEcl(byId[b.parent].rot.ra, byId[b.parent].rot.dec);
 // 軌道面の極（公転の角運動量の向き・黄道 J2000 単位ベクトル）
-function satPole(b, Om) {
+function satPole(b: Satellite, Om: number): Vec3 {
 	const inc = (b.inc || 0) * D2R, F = b.F, v = [Math.sin(Om) * Math.sin(inc), -Math.cos(Om) * Math.sin(inc), Math.cos(inc)];
 	return [F[0][0] * v[0] + F[0][1] * v[1] + F[0][2] * v[2], F[1][0] * v[0] + F[1][1] * v[1] + F[1][2] * v[2], F[2][0] * v[0] + F[2][1] * v[1] + F[2][2] * v[2]];
 }
-for (const b of SATELLITES) {
-	b.F = lapFrame(b);
-	b.radiusAU = b.radiusKm / AU_KM; b.periodDays = 360 / b.n;
+export const SATELLITES: Satellite[] = SAT_SPECS.map(spec => {
+	const b: Satellite = { ...spec, F: lapFrame(spec), rot: spec.rot ?? { Wd: 0 }, radiusAU: spec.radiusKm / AU_KM, periodDays: 360 / spec.n, rotHours: 0 };
 	// 同期自転の衛星＝自転周期＝公転周期。向き（順行/逆行）＝公転の極が親の IAU 極と同じ側か＝親と同じ約束で読む
 	// （惑星は「北極＝黄道の北側」・冥王星は右手系＝天王星の衛星は天王星と同じく逆行・トリトンは逆行・カロンは冥王星と同じ）
-	if (!b.rot) b.rot = { Wd: dot3(satPole(b, satAngles(b, 0)[2]), parentPole(b)) < 0 ? -b.n : b.n };
+	if (!spec.rot) b.rot = { Wd: dot3(satPole(b, satAngles(b, 0)[2]), parentPole(b)) < 0 ? -b.n : b.n };
 	b.rotHours = Math.abs(360 / b.rot.Wd) * 24;
-}
+	return b;
+});
+export const satById: Record<string, Satellite> = Object.fromEntries(SATELLITES.map(b => [b.id, b]));
 // 衛星の親心位置（AU・黄道 J2000）と日心位置
-export function satRel(id, date) {
+export function satRel(id: string, date: Date): Vec3 {
 	const b = satById[id];
 	return satLocal(b, ...satAngles(b, jd(date) - 2451545.0));
 }
-export function satPos(id, date) {
+export function satPos(id: string, date: Date): Vec3 {
 	const p = bodyPos(satById[id].parent, date), r = satRel(id, date);
 	return [p[0] + r[0], p[1] + r[1], p[2] + r[2]];
 }
 // 衛星の軌道線（その時刻の楕円）＝中心は渡された時刻の親。起点＝衛星の今の位置＝衛星は常に折れ線の頂点（orbitPointsThrough と同じ理屈）。
 // relative＝親心のまま返す（描画用）。日心で f32 に詰めると冥王星（35AU）では刻みが ~600km＝カロン軌道（半径 2 万 km）がギザギザになる
-export function satOrbitPoints(id, date, n = 192, relative = false) {
-	const b = satById[id], c = relative ? [0, 0, 0] : bodyPos(b.parent, date), out = new Float32Array(n * 3);
+export function satOrbitPoints(id: string, date: Date, n = 192, relative = false): Float32Array {
+	const b = satById[id], c: Vec3 = relative ? [0, 0, 0] : bodyPos(b.parent, date), out = new Float32Array(n * 3);
 	const [lam0, varpi, Om] = satAngles(b, jd(date) - 2451545.0);
 	for (let i = 0; i < n; i++) { const p = satLocal(b, lam0 + i / n * 2 * Math.PI, varpi, Om); out[i * 3] = c[0] + p[0]; out[i * 3 + 1] = c[1] + p[1]; out[i * 3 + 2] = c[2] + p[2]; }
 	return out;
 }
 // 同期自転の向き：z＝公転の極（Wd が負なら反対側＝親と同じ約束の「北」）、x＝親の方向（本初子午線が親を向く＝IAU の同期衛星と同じ約束）
-function syncOrientation(b, date) {
+function syncOrientation(b: Satellite, date: Date): Mat3 {
 	const d = jd(date) - 2451545.0, ang = satAngles(b, d), r = satLocal(b, ...ang);
-	let z = satPole(b, ang[2]); if (b.rot.Wd < 0) z = z.map(v => -v);
-	const rl = Math.hypot(...r), x0 = r.map(v => -v / rl), k = x0[0] * z[0] + x0[1] * z[1] + x0[2] * z[2];
-	let x = x0.map((v, i) => v - k * z[i]); const xl = Math.hypot(...x); x = x.map(v => v / xl);
-	const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+	let z = satPole(b, ang[2]); if (b.rot.Wd < 0) z = [-z[0], -z[1], -z[2]];
+	const rl = Math.hypot(...r), x0: Vec3 = [-r[0] / rl, -r[1] / rl, -r[2] / rl], k = x0[0] * z[0] + x0[1] * z[1] + x0[2] * z[2];
+	let x: Vec3 = [x0[0] - k * z[0], x0[1] - k * z[1], x0[2] - k * z[2]]; const xl = Math.hypot(...x); x = [x[0] / xl, x[1] / xl, x[2] / xl];
+	const y: Vec3 = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
 	return [[x[0], y[0], z[0]], [x[1], y[1], z[1]], [x[2], y[2], z[2]]];
 }
 
 // ---- IAU 自転：体固定→世界（黄道J2000）の 3×3 回転 ----
 // v_eq = Rz(90°+α)·Rx(90°−δ)·Rz(W)·v_body（WGCCRE 標準）→ 黄道へ Rx(−ε)。体座標系＝z:北極, +x:本初子午線
-export function orientation(id, date) {
+export function orientation(id: string, date: Date): Mat3 {
 	const { rot } = byId[id] ?? satById[id];
-	if (rot.ra === undefined) return syncOrientation(satById[id], date);   // IAU 表を持たない衛星＝同期自転を軌道から
+	if (!("ra" in rot)) return syncOrientation(satById[id], date);   // IAU 表を持たない衛星＝同期自転を軌道から
 	const T = jcT(date), d = jd(date) - 2451545.0;
 	const ra = (rot.ra + (rot.raT || 0) * T) * D2R, dec = (rot.dec + (rot.decT || 0) * T) * D2R;
 	const W = (rot.W0 + rot.Wd * d) * D2R;
@@ -346,7 +374,7 @@ export function orientation(id, date) {
 }
 
 // 赤道J2000 RA/Dec（deg）→黄道J2000 単位ベクトル（恒星の焼き込み用）
-export function eqToEcl(raDeg, decDeg) {
+export function eqToEcl(raDeg: number, decDeg: number): Vec3 {
 	const ra = raDeg * D2R, dec = decDeg * D2R, cd = Math.cos(dec);
 	const x = cd * Math.cos(ra), yq = cd * Math.sin(ra), zq = Math.sin(dec);
 	return [x, yq * Math.cos(EPS) + zq * Math.sin(EPS), -yq * Math.sin(EPS) + zq * Math.cos(EPS)];
