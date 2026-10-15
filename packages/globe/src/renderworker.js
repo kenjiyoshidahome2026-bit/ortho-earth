@@ -247,7 +247,7 @@ const makeTerrain = (m, dem) => createTerrain({
 	exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
 	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
-	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
+	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.ts から渡す（接地リフトと失効判定の根拠）
 	onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 });
 // バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。

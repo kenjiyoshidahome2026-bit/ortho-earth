@@ -5,12 +5,14 @@
 // 地域の選び方（URL：/nl/・?nl=1・既定は日本）はここだけが知る。ホスト（@ortho-earth/globe の createGlobe）は opts.region しか見ない＝地域名を知らない。
 // SDK の公開面はこのファイル＝default orthoJapan・createGlobe・geopbf・Marker・Popup・addProtocol・removeProtocol（型は packages/globe/globe.d.ts＋SDK の入口＝scripts/build-dts.mjs）。
 import { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol } from "@ortho-earth/globe";   // 地球儀のホスト（packages/globe・S4 2026-09-23）
+import type { OrthoJapanOptions, OrthoJapanMap } from "@ortho-earth/globe";
 import { JP_REGION } from "@ortho-earth/jp/region";   // 日本の地域パック＝その国の知識の正本。入口（index）でなく region 直＝POI・N02 の実装を起動のバンドルに載せない
-import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 日本の実行時アセットの既定の置き場＝jp が知る（packages/jp/src/assets.js）
+import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 日本の実行時アセットの既定の置き場＝jp が知る（packages/jp/src/assets.ts）
 import { NL_REGION, NL_TERRAIN, nlEntry, nlStyle } from "@ortho-earth/nl";   // オランダの地域宣言（packages/nl）
 export { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol };
-export default function orthoJapan(opts = {}) {
-	// 実行時アセット（plateau-sets.json・airports.json 等）の既定＝JP_ASSETS（packages/jp/src/assets.js）。
+export type { OrthoJapanOptions, OrthoJapanMap };
+export default function orthoJapan(opts: OrthoJapanOptions = {}): Promise<OrthoJapanMap> {
+	// 実行時アセット（plateau-sets.json・airports.json 等）の既定＝JP_ASSETS（packages/jp/src/assets.ts）。
 	// SDK（apps/ortho-japan/app.js）は従来どおり自分の BASE_URL を渡す。
 	opts = { ...opts, assetBase: opts.assetBase ?? JP_ASSETS };
 	if (opts.region !== undefined) return createGlobe(opts);   // 申告を持参＝そのまま

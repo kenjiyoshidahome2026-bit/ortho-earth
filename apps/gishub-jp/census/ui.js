@@ -14,7 +14,7 @@ import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 // 政令市・振興局・郡などの行政コード知識は jp/codes.js が正本（1か所管理）
 import { DESIGNATED_CITIES, wardParent as _wardParent,
          SHICHO as CENSUS_SHICHO, GUN as CENSUS_GUN } from '@ortho-earth/jp/codes';
-import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from '@ortho-earth/jp/census/charts.mjs';
+import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from '@ortho-earth/jp/census/charts';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
 import { prefetchZip, fillZips } from '../zipcode/lookup.js';   // 上位で小地域↔郵便番号を突合

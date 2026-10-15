@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"outDir": "dist",
+		"resolveJsonModule": true
+	},
+	"include": ["src", "shared-data", "census"],
+	"exclude": ["src/estat-worker.ts"]
+}

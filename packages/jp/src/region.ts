@@ -2,7 +2,7 @@
 //
 // 地域宣言は「データの記述子」であってクラスではない。エンジンも altpbf も地域を知らず、
 // アプリが起動時にこの宣言を渡す（標高＝2026-09-17・建物＝同日）。
-//   dtm       … 裸地標高の申告（packages/jp/src/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
+//   dtm       … 裸地標高の申告（packages/jp/src/dtm.ts が正本）。null＝焼き直した裸地が無い＝接地リフトしない
 //   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・bakeBase は R2 焼き（PLQ）の置き場（無宣言＝焼き無し＝生経路のみ）・
 //               icon は建物データ管理ボタンの顔・group(set) はデータ管理モーダルの並び/見出し。
 //               sets を持つ地域はカタログを取らず、その場の配列を台帳へ足す（オランダ側を見よ）
@@ -10,27 +10,77 @@
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
 //   view      … その地域を裸で開いた時の初期視点（null＝アプリ既定＝日本）
 //   home      … 「その地域の全体へ戻る」{ view:[lon,lat,zoom], label(t() の鍵), icon(SVG), id(ボタンの DOM id) }（null＝戻りボタンを出さない）
-//   search    … 地名検索の供給元（packages/jp/src/search-gsi.js の形・null＝検索窓を出さない）
+//   search    … 地名検索の供給元（packages/jp/src/search-gsi.ts の形・null＝検索窓を出さない）
 //   poi       … 施設の点の台帳の在り処 { base, overrides, api }（null＝台帳を読まない）
-//   rail      … 路線オーバーレイの生成関数 createXxx(env)（packages/jp/src/n02.js の形・null＝作らない）
+//   rail      … 路線オーバーレイの生成関数 createXxx(env)（packages/jp/src/n02.ts の形・null＝作らない）
 // 後ろ 4 つは 2026-09-22 に app.js の直書きから宣言へ移した（宣言しない地域では生成もしない）。
-import { JP_DTM } from "./dtm.js";
-import { gsiSearch, PREF } from "./search-gsi.js";
+import { JP_DTM } from "./dtm.ts";
+import type { DtmDecl } from "./dtm.ts";
+import { gsiSearch, PREF } from "./search-gsi.ts";
+import type { SearchProvider } from "./search-gsi.ts";
+import type { RailEnv, RailOverlay } from "./n02.ts";
+import type { PoiDecl } from "./poi.ts";
 // 路線オーバーレイ（N02）は初めて load() された時に読む（鉄道チップ ON まで起動のバンドルに載せない・2026-09-22）。
 // 形は createN02Overlay(env) と同じ＝{ load(), loaded }（テーマ切替が loaded=false に戻して load() し直す）。
-const lazyRail = env => {
-	let real = null, wake = null;
+const lazyRail = (env: RailEnv): RailOverlay => {
+	let real: RailOverlay | null = null, wake: Promise<RailOverlay> | null = null;
 	return {
-		load() { (wake ??= import("./n02.js").then(m => real = m.createN02Overlay(env))).then(r => r.load()); },
+		load() { (wake ??= import("./n02.ts").then(m => real = m.createN02Overlay(env))).then(r => r.load()); },
 		get loaded() { return real?.loaded ?? false; },
-		set loaded(v) { if (real) real.loaded = v; },
+		set loaded(v: boolean) { if (real) real.loaded = v; },
 	};
 };
 
 export { JP_DTM };
 
-import { installJapan } from "./install.js";
-export const JP_REGION = {
+import { installJapan } from "./install.ts";
+
+/** 建物台帳の在り処（地域宣言 buildings） */
+export interface RegionBuildings {
+	catalog: string;
+	labels: { manage: string; aria: string; manager: string; city: string };
+	bakeBase: string;
+	exclude: string;
+	landmarks: string;
+	group(set: { base: string }): { order: number; key: number; label: string };
+	icon: string;
+}
+/** ベクタ基図のソース記述子（地域宣言 basemap） */
+export interface RegionBasemap {
+	kind: string;
+	tileUrl(z: number, x: number, y: number): string;
+	coverage: [number, number, number, number];
+	tileMinZoom: number | null;
+	lodFloor: { minViewZoom: number; z: number };
+	minZ: number | undefined;
+	printAttribution: string;
+}
+/** 画像タイルのカタログの 1 枚（地域宣言 rasters の要素） */
+export interface RegionRaster {
+	id: string; key: string; url: string; minZoom: number; maxZoom: number; bbox: [number, number, number, number];
+	order: "under" | "over"; opacity?: number; attribution: { href: string; key: string };
+}
+/** 出典（表示義務）＝行ごとの [{href,key|text}] ＋ 末尾の加工注記 */
+export interface RegionAttribution { lines: { href: string; key?: string; text?: string }[][]; note: string }
+/** 「その地域の全体へ戻る」ボタン */
+export interface RegionHome { view: [number, number, number]; label: string; id: string; span: [number, number]; icon: string }
+/** 日本の地域宣言の形（データの記述子） */
+export interface JpRegion {
+	code: string;
+	dtm: DtmDecl;
+	buildings: RegionBuildings;
+	basemap: RegionBasemap;
+	rasters: RegionRaster[];
+	attribution: RegionAttribution;
+	view: null;
+	home: RegionHome;
+	airports: string;
+	install: typeof installJapan;
+	search: SearchProvider;
+	poi: PoiDecl;
+	rail: (env: RailEnv) => RailOverlay;
+}
+export const JP_REGION: JpRegion = {
 	code: "jp",
 	dtm: JP_DTM,
 	buildings: {
@@ -120,7 +170,7 @@ export const JP_REGION = {
 		base: "https://api.ortho-earth.com/bucket/GIS/pbf/",      // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
 		overrides: "poi/overrides.json",                          // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
 		// 実装の持参＝ホストは @ortho-earth/jp/poi を知らない（LAYERS.md 段階 2 S3d）。要った時（施設層 ON×z14+）に初めて読む＝起動のバンドルに載せない
-		create(env) { return import("./poi.js").then(m => m.createPoiLedger(JP_REGION.poi, env)); },
+		create(env) { return import("./poi.ts").then(m => m.createPoiLedger(JP_REGION.poi, env)); },
 	},
 	rail: lazyRail,
 };
