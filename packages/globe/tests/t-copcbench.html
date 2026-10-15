@@ -49,7 +49,7 @@ try {
 	off();
 	out.spin = { frames: gaps.length, p50: r1(pct(gaps, 0.5)), p95: r1(pct(gaps, 0.95)), max: r1(Math.max(...gaps)) };
 	const s = h.stats;
-	out.worker = { read: Math.round(s.ms.read), decode: Math.round(s.ms.decode), proj: Math.round(s.ms.proj), perNode: s.nodes ? { decode: r1(s.ms.decode / s.nodes), proj: r1(s.ms.proj / s.nodes) } : null, nodes: s.nodes, affine: s.affine, points: s.points, failed: s.failed };
+	out.worker = { read: Math.round(s.ms.read), decode: Math.round(s.ms.decode), proj: Math.round(s.ms.proj), perNode: s.nodes ? { decode: r1(s.ms.decode / s.nodes), proj: r1(s.ms.proj / s.nodes) } : null, nodes: s.nodes, affine: s.affine, workers: s.workers, points: s.points, failed: s.failed };
 	out.mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
 	document.title = `${s.failed ? "FAIL" : "PASS"} [bench] ${JSON.stringify(out)}`;
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
