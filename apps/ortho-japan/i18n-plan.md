@@ -83,7 +83,7 @@
 ### Phase 3 — 地図の中身（別戦線・かなピボット）
 - UI 言語とラベル言語を分ける：`?labels=<lang>`（#11 の骨子）。既定＝UI 言語に追従。
 - 日本の地名＝かなピボット（読みテーブル 1 本＋字訳規則＋外名表＋種別語表）。差し替え点は `style-mono.js` の `text-field` 一枚。
-- 星座名・メシエ名は済（2026-09-19）＝bucket GIS/space/i18n（正本 packages/space・Wikidata の見出し＋手当て・26 言語・solar と同じ JSON）。`planets.js` の惑星名は未。
+- 星座名・メシエ名は済（2026-09-19）＝bucket GIS/space/i18n（正本 packages/world/sky・Wikidata の見出し＋手当て・26 言語・solar と同じ JSON）。`planets.js` の惑星名は未。
 - 国名・他国の地名は world の名前テーブル（既に 26 言語）を使う＝japan で新しく焼かない。
 - ここは #11 本体に残る。japan では枠（`?labels=`・切替点）だけ先に用意する。
 

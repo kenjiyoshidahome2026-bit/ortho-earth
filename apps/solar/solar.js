@@ -572,7 +572,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 
 	// ---- 星座：globe の星空と同じ sky/constellation_lines（d3-celestial・RA/Dec の折れ線）＋ messier。初めて点けた時に一度だけ読む ----
 	// 線＝薄い青（japan の太陽系圏と同じ）・星座名とメシエ天体＝2D の重ね絵（#sky2d）に同じ天球の向きを投影（japan の labels2d と同じ色と記号）。
-	// 名前＝sky/names/<lang>.json（正本は packages/space・packages/world の npm run sky が焼く）を fetch＝コードでなくデータで繋ぐ（globe も同じ JSON を読む）。
+	// 名前＝sky/names/<lang>.json（正本は packages/world/sky・packages/world の npm run sky が焼く）を fetch＝コードでなくデータで繋ぐ（globe も同じ JSON を読む）。
 	// 状態は URL の c=1（writeHash）・ボタンと c キーで切替
 	let constOn = false, constVao = null, constN = 0, constLoad = null, skyLab = null;
 	// その言語の 1 本＋英語（欠けは英語で補う＝星座は IAU 名・メシエは英語の通称。英語も取れなければ略号/番号のまま＝壊れない）。
@@ -623,7 +623,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 星座名とメシエ天体の 2D 注記：天球の向き v（黄道 J2000 単位ベクトル）を回転だけで投影（平行移動なし＝無限遠）。
 	// 毎描画で消して描き直す（消灯時も消すだけ走る）＝88 文字列＋110 記号・1ms 未満
 	const sky2d = $("sky2d"), sctx = sky2d.getContext("2d");
-	// ---- 月の地名：sky/moon_nomenclature.geopbf（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/space/moon.json）＋
+	// ---- 月の地名：sky/moon_nomenclature.geopbf（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/world/sky/moon.json）＋
 	// 多言語 sky/moon_nomenclature.i18n/<lang>.json（{ GPN id: 名前 }・欠けは英語＝IAU 名）。月が画面で大きくなった時に初めて読む（さりげなく読む）。
 	// 座標は月面の経緯度（IAU・東経正）＝体固定の単位ベクトル（x＝本初子午線・z＝北極＝球メッシュと同じ約束）→ orientation("moon") で世界へ
 	let moonNames = null, moonNamesLoad = null;
