@@ -34,7 +34,7 @@ const APPS = [
 	["uploader", "uploader", "build", "apps/uploader/dist"],
 ];
 // www は build:all で他アプリの dist を複写して抱える＝単体ビルドの www だけを計る（複写分は各アプリで数える）
-const PACKAGES = ["altpbf", "columnar", "common", "ephem", "geoedit", "geopbf", "sdk/glbconv", "globe", "himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];   // 道は packages/ から（sdk/ の物は "sdk/<名>"）
+const PACKAGES = ["altpbf", "common", "ephem", "geoedit", "geopbf", "sdk/glbconv", "globe", "himekuri", "native-bucket", "ortho-core", "quiet-mono", "tile-formats"];   // 道は packages/ から（sdk/ の物は "sdk/<名>"）
 
 const COMPRESSIBLE = /\.(m?js|css|json|html|wasm|svg|txt|csv|geojson|webmanifest|xml)$/i;
 const kindOf = f => /\.m?js$/.test(f) ? "js" : f.endsWith(".css") ? "css" : f.endsWith(".wasm") ? "wasm" : /\.(json|geojson)$/.test(f) ? "json" : f.endsWith(".html") ? "html" : /\.(png|jpe?g|webp|avif|gif|svg|ico)$/i.test(f) ? "img" : "data";

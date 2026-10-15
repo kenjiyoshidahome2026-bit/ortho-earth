@@ -18,7 +18,8 @@
 		"./*": "./src/*"
 	},
 	"imports": {
-		"#pointcloud-formats": "./src/pointcloud-formats-none.js"
+		"#pointcloud-formats": "./src/pointcloud-formats-none.js",
+		"#columnar-sources": "./src/columnar/sources/builtin.js"
 	},
 	"dependencies": {
 		"@loaders.gl/3d-tiles": "^4.3.0",
@@ -26,7 +27,6 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@loaders.gl/i3s": "^4.4.3",
-		"@ortho-earth/columnar": "^0.1.0",
 		"@ortho-earth/core": "^1.15.0",
 		"@ortho-earth/ephem": "^1.2.0",
 		"@ortho-earth/h3": "^0.1.0",
@@ -48,7 +48,7 @@
 	"scripts": {
 		"build:css": "node scripts/build-css.mjs",
 		"prepack": "node scripts/build-css.mjs",
-		"test": "node tests/zoomscale.mjs && node tests/transition.mjs && node tests/light.mjs && node tests/sky-spec.mjs && node tests/mlsmall.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/hillshade.mjs && node tests/mlshim.mjs && node tests/czml-time.mjs && node tests/copc-noplugin.mjs && node tests/wiki.mjs && node tests/pick.mjs && node tests/arcs.mjs && node tests/cells.mjs && node tests/contour.mjs && node tests/trips.mjs && node tests/plugin.mjs && node tests/weather.mjs && node tests/postchain.mjs && node tests/gltf-meta.mjs && node tests/gltf-anim.mjs && node tests/clouds.mjs && node tests/mesh-features.mjs && node tests/splat.mjs && node tests/mlshim-dts.mjs",
+		"test": "node tests/zoomscale.mjs && node tests/t-columnar.mjs && node tests/transition.mjs && node tests/light.mjs && node tests/sky-spec.mjs && node tests/mlsmall.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/hillshade.mjs && node tests/mlshim.mjs && node tests/czml-time.mjs && node tests/copc-noplugin.mjs && node tests/wiki.mjs && node tests/pick.mjs && node tests/arcs.mjs && node tests/cells.mjs && node tests/contour.mjs && node tests/trips.mjs && node tests/plugin.mjs && node tests/weather.mjs && node tests/postchain.mjs && node tests/gltf-meta.mjs && node tests/gltf-anim.mjs && node tests/clouds.mjs && node tests/mesh-features.mjs && node tests/splat.mjs && node tests/mlshim-dts.mjs",
 		"verify": "node scripts/build-css.mjs --check && npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"chrome:install": "node scripts/lib/chrome.mjs --install",
 		"verify:ui": "node scripts/verify-ui.mjs",
@@ -106,6 +106,8 @@
 		"./src/copc-worker.js",
 		"./src/model-worker.js",
 		"./src/vtextrude-worker.js",
-		"./src/vtdraw-worker.js"
+		"./src/vtdraw-worker.js",
+		"./src/columnar/worker.js",
+		"./src/columnar/sources/builtin.js"
 	]
 }

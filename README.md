@@ -64,7 +64,6 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`@ortho-earth/globe`](packages/globe) | 1.16.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
-| [`@ortho-earth/columnar`](packages/columnar) | 0.1.1 | GPL-3.0-or-later | Column-chunk layer: GeoPBF / GeoParquet without the topology pass |
 | [`@ortho-earth/h3`](packages/h3) | 0.1.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.1.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
 | [`@ortho-earth/ephem`](packages/ephem) | 1.2.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
@@ -140,7 +139,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/react`, `@ortho-earth/columnar`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
+- Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/react`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data packages (`world-data`, `space-data`): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
