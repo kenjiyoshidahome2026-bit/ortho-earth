@@ -24,7 +24,7 @@ const CS_ORIGINS = {
 	17:[26,131],     18:[20,136],      19:[26,154],
 };
 
-// 都道府県→代表系番号（任意座標系の XML のフォールバック）。正本は apps/gishub-jp/jp/codes.js の PREF_SYS（国土地理院の系一覧と照合済み）＝
+// 都道府県→代表系番号（任意座標系の XML のフォールバック）。正本は packages/jp/src/codes.js の PREF_SYS（国土地理院の系一覧と照合済み）＝
 // ここはその写し（worker は app を import しない）。旧表は 8 県（群馬・和歌山・鳥取・岡山・広島・山口・高知・佐賀）が誤り＝codes.js の修正
 // （2026-07-16）が届いていなかった＝2026-10-03 に揃えた。tests/t-moj.mjs が正本との一致を見張る。
 export const PREF_SYS = {

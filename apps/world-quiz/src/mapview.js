@@ -3,7 +3,7 @@
 //   国の形＝エンジンが持つ Natural Earth admin_0 を ISO2 で引く（spotlight("JP")）。ISO の無い主体（B コード）は World の ne-cultural（worldlayers）の形で。
 //   押した所の国＝worldlayers.query（ne-cultural base＝初回 16.5MB・以降 IDB）＝Lv.3 の地図モードを始めた時だけ読む。マウスの下の国は黄色の線で囲む（名前は出さない）。
 // エンジンは一度だけ起動して使い回す。起動できない環境（WebGL 無し等）は null を返し、呼び手は地図なしで続ける。
-import { countryLayers } from "../../world/src/worldlayers.js";
+import { countryLayers } from "world-data/src/worldlayers.js";
 import { reachOf } from "./quiz.js";
 const ZMAX = 7;
 const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("@ortho-earth/globe");

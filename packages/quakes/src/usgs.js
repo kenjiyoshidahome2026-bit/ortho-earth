@@ -1,5 +1,6 @@
 // USGS ANSS ComCat（FDSN Event API）の CSV → GeoPBF。Node のビルドスクリプト（scripts/usgs-quakes-build.mjs）と
 // cron Worker（apps/quakes-mirror/worker.js）の共有部＝通信の作法・CSV 解析・GeoPBF の組み立て。Web 標準 API だけで書く。
+// 置き場＝packages/quakes（2026-10-14・旧 apps/quakes-mirror/usgs.js＝ortho-globe の quakes-worker も読む＝アプリはアプリを読まない）。
 import { GeoPBF } from "geopbf/pbf-base";
 
 export const API = "https://earthquake.usgs.gov/fdsnws/event/1";
