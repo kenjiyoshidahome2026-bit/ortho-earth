@@ -1430,6 +1430,7 @@ export interface COPCOptions {
 	/** 段彩の範囲（m・既定＝ファイルの z の範囲）・強度の範囲（既定 0〜65535） */ elevationRange?: [number, number]; intensityRange?: [number, number];
 	opacity?: number;
 	/** 読んだら範囲へ寄る（既定 true） */ fit?: boolean;
+	/** 出典（HTML・消毒して地図の出典の欄に出す）。省略＝他所の URL ならホスト名 */ attribution?: string;
 	/** 水平の座標系（"EPSG:6676" か WKT）＝ファイルの WKT・GeoTIFF キーより先。座標系の書かれていないファイルに要る */ crs?: string;
 	/** 鉛直（ファイルに書かれていない時だけ効く）＝"orthometric"（標高）か "ellipsoidal"（楕円体高）。既定＝投影座標系なら標高 */ vertical?: "orthometric" | "ellipsoidal";
 }

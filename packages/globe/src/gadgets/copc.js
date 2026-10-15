@@ -21,7 +21,7 @@ function planesOf(m) {
 }
 const keyStr = k => k.join("-");
 
-export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell, earthM }) {
+export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell, earthM, setAttr = () => {} }) {
 	const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "copc" });
 	const pending = new Map(); let rid = 0;
 	w.onmessage = e => { const d = e.data || {}; const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
@@ -46,6 +46,8 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		if (set.info.vertical === "ellipsoidal") await loadGeoid().catch(() => {});
 		for (const n of opened.root.nodes) addNode(set, n);
 		for (const p of opened.root.pages) set.pages.set(keyStr(p.key), { ...p, state: "none" });
+		const host = typeof src === "string" ? (() => { try { return new URL(src, location.href).host; } catch { return null; } })() : null;
+		setAttr(id, set.opts.attribution || (host && host !== location.host ? host : null));   // 出典＝opts.attribution・無ければ他所の URL のホスト名（手元のファイル・同じオリジンは出さない）
 		set.ov = map.overlay(copcGlUrl, { name: `copc:${id}`, opts: { depth: set.opts.depth !== false } });
 		applyStyle(set);
 		if (set.opts.fit !== false) map.fitBounds(set.info.bbox, { padding: 40, maxZoom: 18 });
@@ -140,6 +142,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 	function remove(id) {
 		const set = sets.get(id); if (!set) return false;
 		sets.delete(id);
+		setAttr(id, null);
 		for (const n of set.nodes.values()) if (n.state === "ready") loadedPts -= n.points;
 		set.ov?.remove();
 		w.postMessage({ type: "close", id });
