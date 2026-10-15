@@ -5,7 +5,7 @@
 //   npm run build:engine -w ortho-globe
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,7 +15,13 @@ execSync("npx vite build -c vite.engine.config.js --logLevel warn", { cwd: APP, 
 execSync("npx vite build -c vite.engine-ml.config.js --logLevel warn", { cwd: APP, stdio: "inherit" });   // maplibre.js＝互換の口だけ（本体は ./globe.js を実行時に読む＝本体の束を変えない）
 
 import { DATA, ENTRIES, importsMap } from "../engine/entries.mjs";
-for (const [from, to] of DATA) cpSync(from, path.join(TMP, to), { recursive: true, dereference: true });   // 実行時データ（jp の台帳等）＝版の中身に入る（変われば版も変わる）
+// 実行時データ（jp の台帳等）＝版の中身に入る（変われば版も変わる）。symlink は実体で写す（cpSync の dereference は
+// 入れ子の symlink を辿らず絶対パスの link のまま写す＝本番に出すと切れる・2026-10-15 packages/jp/assets/koppen-clim.png で踏んだ）
+const copyReal = (from, to) => {
+	if (statSync(from).isDirectory()) { mkdirSync(to, { recursive: true }); for (const f of readdirSync(from)) copyReal(path.join(from, f), path.join(to, f)); }
+	else copyFileSync(from, to);   // copyFileSync は symlink の先の中身を写す
+};
+for (const [from, to] of DATA) copyReal(from, path.join(TMP, to));
 
 const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 const files = walk(TMP).filter(f => !f.endsWith(".map")).map(f => path.relative(TMP, f)).sort();
