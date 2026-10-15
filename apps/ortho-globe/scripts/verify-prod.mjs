@@ -3,9 +3,9 @@
 //   dist/site を素の静的サーバで配る（本番の deploy-worker と同じ COOP/COEP・/globe/quakes → quakes.html）＝出荷物そのものを食う。
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
-//   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない
+//   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
 //   ② 実走: 9 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs）＝地球儀が立ち、地震・衛星・雲・地形・人口はデータが載る
-//   ③ 住所: 実行中の要求が /japan/ に一度も行かない（worker の要求も含む＝このサーバの受付簿で見る）
+//   ③ 住所: 実行中の要求が /japan/ に一度も行かない・共有エンジンから読んだファイルに地域の物が無い（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -27,10 +27,15 @@ let chrome = null, server = null;
 const bye = code => { try { chrome && process.kill(-chrome.pid); } catch { chrome?.kill(); } server?.close(); process.exit(code); };
 
 // ① 静的
+const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl"];
+const regionIn = file => { const s = fs.readFileSync(file, "utf8"); return REGION.find(pat => s.includes(pat)); };
+const ENGINE_DIR = path.join(SITE, "globe/engine");
 if (!fs.existsSync(path.join(SITE, "globe/index.html"))) fail("dist/site/globe が無い（先に npm run build）");
 {
 	const bad = [];
-	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(js|html)$/.test(e.name)) { const s = fs.readFileSync(p, "utf8"); for (const pat of ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl"]) if (s.includes(pat)) bad.push(`${path.relative(SITE, p)}: ${pat}`); } } };
+	// globe/engine/ は外す＝共有エンジンは jp・nl の入口も配る（2026-10-14〜・全アプリの共有物）＝地域の物が居て正しい。
+	// globe の頁がそれを読まないことは ③ で見る（実際に取りに行ったエンジンのファイルに地域の物が居ないか）
+	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (p !== ENGINE_DIR) walk(p); } else if (/\.(js|html)$/.test(e.name)) { const hit = regionIn(p); if (hit) bad.push(`${path.relative(SITE, p)}: ${hit}`); } } };
 	walk(path.join(SITE, "globe"));
 	if (bad.length) fail(`static: 地域／japan の物が束に混ざっている\n  ${bad.join("\n  ")}`);
 	console.log("ok:static（japan の SDK・地域の申告なし）");
@@ -124,6 +129,10 @@ for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.O
 // ③ 住所
 const japan = [...new Set(seen.filter(p => p.startsWith("/japan")))];
 if (japan.length) fail(`address: /japan/ への要求がある\n  ${japan.slice(0, 8).join("\n  ")}`);
-console.log(`ok:address（/japan/ への要求ゼロ・受付 ${seen.length} 件）`);
+// 共有エンジンから実際に読んだファイル＝地域の物（jp・nl の入口とその塊）が居ない＝globe の頁は地域を読まない（① で外した globe/engine/ の分）
+const engineRegion = [...new Set(seen.filter(p => p.startsWith("/globe/engine/")))].map(p => [p, path.join(SITE, p)])
+	.filter(([, f]) => /\.(js|html)$/.test(f) && fs.existsSync(f)).map(([p, f]) => [p, regionIn(f)]).filter(([, hit]) => hit);
+if (engineRegion.length) fail(`address: 共有エンジンの地域の物を読んでいる\n  ${engineRegion.slice(0, 8).map(([p, hit]) => `${p}: ${hit}`).join("\n  ")}`);
+console.log(`ok:address（/japan/ への要求ゼロ・共有エンジンの地域の物も読まない・受付 ${seen.length} 件）`);
 console.log("✓ ortho-globe 本番出荷物の検定 PASS");
 bye(0);
