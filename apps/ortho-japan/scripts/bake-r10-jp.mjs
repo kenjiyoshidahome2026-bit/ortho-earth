@@ -9,9 +9,9 @@
 // 使い方:
 //   node scripts/bake-r10-jp.mjs                 # 日本bboxに掛かる全 R10 セルを焼く（R01 が1枚も無いセルはskip）
 //   node scripts/bake-r10-jp.mjs --cells E130N30 # 指定セルのみ（検証用）
-//   node scripts/bake-r10-jp.mjs --upload        # out の *.gz を bucket GIS/alt へ（要 ORTHO_API_KEY / uploader/.env.local）
 //   node scripts/bake-r10-jp.mjs --verify        # 焼いた E130N30 の琵琶湖域を再サンプル（偽山消滅の確認）
-// 出力: apps/ortho-japan/r10-out/（R01 のダウンロードキャッシュは r10-src/）
+// 出力: repo 直下の bake-out/alt/（gitignore 済み・R01 の bake-dem10b.mjs と同じ置き場。R01 のダウンロードキャッシュは apps/ortho-japan/r10-src/）
+// 上げ方＝uploader の画面の「標高タイル（bake-out/alt）→ GIS/alt」ボタン（R2 へ出す物は uploader のボタンから＝本人 2026-09-30・スクリプトは鍵を読まない 2026-10-15）
 //
 // ※動機 2: 東北 140°E の縦の継ぎ目（2026-10-02 本人発見）＝GEBCO 由来の R10 は 10° タイルの境で段差を持つ（境界の段差 55.9m / 内部 34.8m・DEM10B の真値は 48.7/42.6）
 //   ＝DEM10B の転写で境界が真値どおりに繋がる。
@@ -26,10 +26,12 @@ import path from 'node:path';
 import { JP_BOX } from "@ortho-earth/jp/dtm";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.join(DIR, '..', 'r10-out');
+const OUT = path.join(DIR, '../../..', 'bake-out/alt');
 const SRC = path.join(DIR, '..', 'r10-src');   // R01/R10 ダウンロードキャッシュ（再実行を安く）
 mkdirSync(OUT, { recursive: true });
 mkdirSync(SRC, { recursive: true });
+// 置き場の目録＝uploader の「標高タイル（bake-out/alt）→ GIS/alt」ボタンが読む（dev の /@fs ではフォルダを列挙できない）
+const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(readdirSync(OUT).filter(f => f.endsWith('.gz')).sort()) + '\n');
 
 const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
 const R10W = 2400, R01W = 3600, SUB = 240, BLK = 15;               // 240=2400/10（1°分）・15=3600/240
@@ -158,30 +160,6 @@ function verify() {
 	console.log(`[verify] source=${src} 琵琶湖域 ${total}点中 114m超え=${over}点 最大=${max}m（焼き前: 87点/最大1007m）`);
 }
 
-// ── アップロード（bake-dem10b.mjs と同一流儀）──
-async function upload() {
-	let key = process.env.ORTHO_API_KEY;
-	if (!key) {
-		const envPath = path.join(DIR, '../../uploader/.env.local');
-		if (existsSync(envPath)) {
-			const txt = readFileSync(envPath, 'utf8');
-			key = txt.match(/^VITE_API_KEY=(.+)$/m)?.[1]?.trim() ?? (/^\S+$/.test(txt.trim()) ? txt.trim() : null);
-		}
-	}
-	if (!key) { console.error('APIキー未設定：ORTHO_API_KEY env か apps/uploader/.env.local の VITE_API_KEY'); process.exit(1); }
-	const files = readdirSync(OUT).filter(f => f.endsWith('.gz'));
-	for (const f of files) {
-		const name = f.replace(/\.gz$/, '');
-		const body = readFileSync(path.join(OUT, f));
-		const res = await fetch(`https://api.ortho-earth.com/bucket/GIS/alt/${name}`, {
-			method: 'POST', body,
-			headers: { 'X-Action': 'put', 'X-API-Key': key, 'X-Metadata-Type': 'application/octet-stream', 'X-Content-Encoding': 'gzip' },
-		});
-		console.log(res.ok ? `↑ ${name} (${(body.length / 1e6).toFixed(1)}MB)` : `✗ ${name} HTTP ${res.status}`);
-		if (!res.ok) process.exit(1);
-	}
-}
-
 // ── main ──
 const args = process.argv.slice(2);
 const arg = k => { const i = args.indexOf(k); return i >= 0 ? (args[i + 1] ?? true) : null; };
@@ -191,7 +169,7 @@ if (arg('--cells')) for (const s of String(arg('--cells')).split(',')) {
 	if (!m) { console.error('セル名不正:', s); process.exit(1); }
 	const a = { [m[1].toUpperCase()]: +m[2], [m[3].toUpperCase()]: +m[4] };
 	targets.push([(a.E ?? -a.W), (a.N ?? -a.S)]);
-} else if (!args.includes('--upload') && !args.includes('--verify')) {
+} else if (!args.includes('--verify')) {
 	// 日本bboxに掛かる全 R10 セル（10° 刻み）
 	for (let lat = Math.floor(JP.latMin / 10) * 10; lat < JP.latMax; lat += 10)
 		for (let lng = Math.floor(JP.lngMin / 10) * 10; lng < JP.lngMax; lng += 10) targets.push([lng, lat]);
@@ -204,4 +182,5 @@ if (targets.length) {
 	}
 }
 if (args.includes('--verify')) verify();
-if (args.includes('--upload')) await upload();
+writeIndex();
+if (args.includes('--upload')) console.log('--upload は無くなった＝上げるのは uploader の画面の「標高タイル（bake-out/alt）→ GIS/alt」ボタン');

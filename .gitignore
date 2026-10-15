@@ -11,6 +11,9 @@ build/
 # 国別DB v2 の組み立て（Node CLI と uploader で共用）＝ソースなので追跡
 !packages/world/build/
 stats.html
+# 焼きスクリプトの出力（uploader のボタンが dev の /@fs で読んで R2 へ上げる＝bake-out/alt・bake-out/catalog・2026-10-15）
+/bake-out/
+apps/ortho-japan/r10-src/
 # 環境変数
 .env
 .env.local
