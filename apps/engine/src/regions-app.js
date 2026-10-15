@@ -1,4 +1,4 @@
-// 共有エンジンの入口 regions/app.js（/globe/engine/<版>/regions/app.js・2026-10-14）＝orthoJapan（packages/regions/src/app.js）。
+// 共有エンジンの入口 regions/app.js（/globe/engine/<版>/regions/app.js・2026-10-14）＝orthoJapan（packages/regions/src/app.ts）。
 // 2 つ以上のアプリ（japan・census2020・choju・ortho-nl・gishub-jp）が使う物は各アプリに焼かず、ここを共に読む（本人 2026-10-14）。
 // CSS＝globe.js の入口と同じ手（1 つ上の階の globe.css を 1 回だけ貼る）。./globe.js を import しない＝それを共有チャンクへ追い出すと、
 // あちらの new URL(css, import.meta.url) が assets/ を指してしまう。エンジン本体のモジュールは同じ build なので実体は 1 つ。
