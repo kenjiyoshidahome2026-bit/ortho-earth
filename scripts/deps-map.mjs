@@ -34,7 +34,7 @@ function ownerOf(file) {
 	return null;
 }
 const dirs = {};
-for (const top of ["apps", "packages"]) for (const n of fs.readdirSync(path.join(ROOT, top))) {
+for (const top of ["apps", "packages", "sdk"]) for (const n of fs.readdirSync(path.join(ROOT, top))) {
 	const pj = path.join(ROOT, top, n, "package.json");
 	if (fs.existsSync(pj)) dirs[JSON.parse(fs.readFileSync(pj, "utf8")).name] = `${top}/${n}`;
 }
@@ -181,6 +181,14 @@ for (const [n, dir] of Object.entries(dirs)) {
 		const pj = JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8"));
 		for (const dep of Object.keys({ ...pj.dependencies, ...pj.peerDependencies })) if (dirs[dep]?.startsWith("packages/")) edges[n].add(dep);
 	}
+}
+// sdk/*＝外へ配る SDK と単体の道具（2026-10-15）。デモの頁からは辿らない＝src の import と peerDependencies に出る内製パッケージを辺にする（unused には数えない）
+const importsIn = d => { const out = new Set(); const walk = p => { for (const e of fs.readdirSync(p, { withFileTypes: true })) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else if (/\.m?js$/.test(e.name)) for (const m of fs.readFileSync(q, "utf8").matchAll(/(?:from\s*|import\s*\(\s*)["']([^"'./][^"']*)["']/g)) out.add(m[1]); } }; if (fs.existsSync(d)) walk(d); return out; };
+for (const [n, dir] of Object.entries(dirs)) {
+	if (!dir.startsWith("sdk/")) continue;
+	edges[n] ??= new Set();
+	const pj = JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8"));
+	for (const spec of [...importsIn(path.join(ROOT, dir, "src")), ...Object.keys(pj.peerDependencies || {})]) { const dep = Object.keys(dirs).find(k => spec === k || spec.startsWith(k + "/")); if (dep && dep !== n) edges[n].add(dep); }
 }
 // エンジンの中身（全入口の和）＝束に入るファイルのうち、これと重なる物が二重焼き
 const engineAll = new Set();
