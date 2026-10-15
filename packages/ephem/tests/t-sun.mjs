@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 太陽直下点と恒星時（sun.js・#42）の常設ハーネス。期待値＝天文年鑑の値（赤緯）と均時差（経度）。
-import { sunSubpoint, gmstAt, moonSubpoint, sunAltAz, moonAltAz } from "../src/sun.js";
+import { sunSubpoint, gmstAt, moonSubpoint, sunAltAz, moonAltAz } from "../src/sun.ts";
 const R = 180 / Math.PI;
 let fails = 0;
 const near = (a, b, tol, label) => { if (Math.abs(a - b) <= tol) return; fails++; console.error(`  ✗ ${label}: ${a.toFixed(3)} vs ${b}`); };

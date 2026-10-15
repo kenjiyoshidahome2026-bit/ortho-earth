@@ -12,15 +12,62 @@ const MU = 398600.8, RE = 6378.135;                 // WGS-72
 const XKE = 60 / Math.sqrt(RE * RE * RE / MU);
 const J2 = 0.001082616, J3 = -0.00000253881, J4 = -0.00000165597, J3OJ2 = J3 / J2;
 const VKMPERSEC = RE * XKE / 60;
-const mod2pi = x => x % TWOPI;   // C の fmod と同じ（符号は被除数に従う）＝参照実装に合わせる
+const mod2pi = (x: number) => x % TWOPI;   // C の fmod と同じ（符号は被除数に従う）＝参照実装に合わせる
 
 export const EARTH_RADIUS_KM = RE;
 
+export type Vec3 = [number, number, number];
+/** CelesTrak の OMM(JSON) 一件（使う欄だけ） */
+export interface OMM {
+	OBJECT_NAME: string; OBJECT_ID: string; NORAD_CAT_ID: number; EPOCH: string;
+	MEAN_MOTION: number; ECCENTRICITY: number | string; INCLINATION: number; RA_OF_ASC_NODE: number;
+	ARG_OF_PERICENTER: number; MEAN_ANOMALY: number; BSTAR: number | string;
+}
+/** 要素（角度は rad・平均運動は rad/分） */
+export interface SatElements {
+	name: string; id: string; norad: number; jdEpoch: number;
+	no: number; ecco: number; inclo: number; nodeo: number; argpo: number; mo: number; bstar: number;
+}
+/** 衛星（sgp4init の返り値＝propagate に渡す不透明な塊）。error＝最後の伝播の理由番号（0＝正常） */
+export interface Satrec extends SatElements {
+	error: number; method: "n" | "d"; isimp: number;
+	peo: number; pinco: number; plo: number; pgho: number; pho: number;
+	con41: number; gsto: number; eccsq: number; eta: number; cc1: number; x1mth2: number; cc4: number; cc5: number;
+	mdot: number; argpdot: number; nodedot: number; xpidot: number; omgcof: number; xmcof: number; nodecf: number;
+	t2cof: number; xlcof: number; aycof: number; delmo: number; sinmao: number; x7thm1: number;
+	d2: number; d3: number; d4: number; t3cof: number; t4cof: number; t5cof: number;
+	// 深宇宙（dscom の係数）
+	e3: number; ee2: number; se2: number; se3: number; sgh2: number; sgh3: number; sgh4: number; sh2: number; sh3: number;
+	si2: number; si3: number; sl2: number; sl3: number; sl4: number; xgh2: number; xgh3: number; xgh4: number; xh2: number; xh3: number;
+	xi2: number; xi3: number; xl2: number; xl3: number; xl4: number; zmol: number; zmos: number;
+	// 深宇宙（dsinit の永年率と共鳴項）
+	irez: number; dedt: number; didt: number; dmdt: number; domdt: number; dnodt: number;
+	d2201: number; d2211: number; d3210: number; d3222: number; d4410: number; d4422: number; d5220: number; d5232: number; d5421: number; d5433: number;
+	xlamo: number; xfact: number; del1: number; del2: number; del3: number; xli: number; xni: number; atime: number;
+}
+/** TEME の位置 [km] と速度 [km/s] */
+export interface StateVector { r: Vec3; v: Vec3 }
+/** 測地経緯度（度）と楕円体高（km） */
+export interface Geodetic { lon: number; lat: number; h: number }
+interface Perturbed { ep: number; inclp: number; nodep: number; argpp: number; mp: number }
+interface MeanElements { argpm: number; mm: number; nodem: number; em: number; inclm: number; nm: number }
+const ZERO: Record<Exclude<keyof Satrec, keyof SatElements | "method">, 0> = {
+	error: 0, isimp: 0, peo: 0, pinco: 0, plo: 0, pgho: 0, pho: 0,
+	con41: 0, gsto: 0, eccsq: 0, eta: 0, cc1: 0, x1mth2: 0, cc4: 0, cc5: 0, mdot: 0, argpdot: 0, nodedot: 0, xpidot: 0, omgcof: 0, xmcof: 0, nodecf: 0,
+	t2cof: 0, xlcof: 0, aycof: 0, delmo: 0, sinmao: 0, x7thm1: 0, d2: 0, d3: 0, d4: 0, t3cof: 0, t4cof: 0, t5cof: 0,
+	e3: 0, ee2: 0, se2: 0, se3: 0, sgh2: 0, sgh3: 0, sgh4: 0, sh2: 0, sh3: 0, si2: 0, si3: 0, sl2: 0, sl3: 0, sl4: 0, xgh2: 0, xgh3: 0, xgh4: 0, xh2: 0, xh3: 0,
+	xi2: 0, xi3: 0, xl2: 0, xl3: 0, xl4: 0, zmol: 0, zmos: 0,
+	irez: 0, dedt: 0, didt: 0, dmdt: 0, domdt: 0, dnodt: 0, d2201: 0, d2211: 0, d3210: 0, d3222: 0, d4410: 0, d4422: 0, d5220: 0, d5232: 0, d5421: 0, d5433: 0,
+	xlamo: 0, xfact: 0, del1: 0, del2: 0, del3: 0, xli: 0, xni: 0, atime: 0,
+};
+const DS_KEYS = ["e3", "ee2", "se2", "se3", "sgh2", "sgh3", "sgh4", "sh2", "sh3", "si2", "si3", "sl2", "sl3", "sl4",
+	"xgh2", "xgh3", "xgh4", "xh2", "xh3", "xi2", "xi3", "xl2", "xl3", "xl4", "zmol", "zmos"] as const;
+
 // ユリウス日 ⇔ Date
-export const jdOf = date => (date instanceof Date ? date.getTime() : date) / 86400000 + 2440587.5;
+export const jdOf = (date: Date | number): number => (date instanceof Date ? date.getTime() : date) / 86400000 + 2440587.5;
 
 // グリニッジ平均恒星時（rad）。IAU-82。参照実装 gstime と同式。
-export function gmst(jdut1) {
+export function gmst(jdut1: number): number {
 	const t = (jdut1 - 2451545.0) / 36525;
 	let g = -6.2e-6 * t * t * t + 0.093104 * t * t + (876600.0 * 3600 + 8640184.812866) * t + 67310.54841;   // 秒
 	g = (g * D2R / 240) % TWOPI;
@@ -29,14 +76,14 @@ export function gmst(jdut1) {
 
 // "2026-09-18T15:48:46.939968"（CelesTrak の EPOCH＝UTC・Z なし・マイクロ秒）→ ユリウス日。
 // Date.parse に渡すと Z 無しは「地方時」と解釈される＝日本時間だと 9 時間ずれる。自前で割る。
-function jdOfIso(s) {
+function jdOfIso(s: string): number {
 	const m = /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d(?:\.\d+)?)/.exec(s);
 	if (!m) throw new Error(`sgp4: bad EPOCH "${s}"`);
-	return Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) / 86400000 + 2440587.5 + (+m[6]) / 86400;
+	return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 86400000 + 2440587.5 + (+m[6]) / 86400;
 }
 
 // CelesTrak の OMM(JSON) 一件 → 要素（角度は rad・平均運動は rad/分）
-export function parseOMM(o) {
+export function parseOMM(o: OMM): SatElements {
 	return {
 		name: o.OBJECT_NAME, id: o.OBJECT_ID, norad: o.NORAD_CAT_ID,
 		jdEpoch: jdOfIso(o.EPOCH),
@@ -47,9 +94,9 @@ export function parseOMM(o) {
 }
 
 // TLE 2 行 → 要素（名前行は呼び手が持つ）
-export function parseTLE(l1, l2, name = "") {
-	const f = (s, a, b) => s.slice(a, b).trim();
-	const expo = s => { s = s.trim(); const m = /^([+-]?)(\d+)([+-]\d)$/.exec(s); return m ? +(`${m[1]}0.${m[2]}e${m[3]}`) : 0; };   // " 12345-4" ＝ 0.12345e-4
+export function parseTLE(l1: string, l2: string, name = ""): SatElements {
+	const f = (s: string, a: number, b: number) => s.slice(a, b).trim();
+	const expo = (s: string) => { s = s.trim(); const m = /^([+-]?)(\d+)([+-]\d)$/.exec(s); return m ? +(`${m[1]}0.${m[2]}e${m[3]}`) : 0; };   // " 12345-4" ＝ 0.12345e-4
 	const yy = +f(l1, 18, 20), doy = +f(l1, 20, 32), year = yy < 57 ? 2000 + yy : 1900 + yy;
 	return {
 		name, id: f(l1, 9, 17), norad: +f(l1, 2, 7),
@@ -63,7 +110,7 @@ export function parseTLE(l1, l2, name = "") {
 // ---- 深宇宙の下請け（参照実装 dpper / dscom / dsinit / dspace） ----
 
 // 日月の長周期周期項。init=true は元期の値を覚えるだけ（参照実装も適用しない）。
-function dpper(s, t, init, ep, inclp, nodep, argpp, mp) {
+function dpper(s: Satrec, t: number, init: boolean, ep: number, inclp: number, nodep: number, argpp: number, mp: number): Perturbed {
 	const ZNS = 1.19459e-5, ZES = 0.01675, ZNL = 1.5835218e-4, ZEL = 0.05490;
 	let zm = init ? s.zmos : s.zmos + ZNS * t;
 	let zf = zm + 2 * ZES * Math.sin(zm), sinzf = Math.sin(zf);
@@ -103,7 +150,7 @@ function dpper(s, t, init, ep, inclp, nodep, argpp, mp) {
 }
 
 // 日月摂動の係数（元期で一度）
-function dscom(epoch, ep, argpp, tc, inclp, nodep, np) {
+function dscom(epoch: number, ep: number, argpp: number, tc: number, inclp: number, nodep: number, np: number): Record<string, number> {
 	const ZES = 0.01675, ZEL = 0.05490, C1SS = 2.9864797e-6, C1L = 4.7968065e-7;
 	const ZSINIS = 0.39785416, ZCOSIS = 0.91744867, ZCOSGS = 0.1945905, ZSINGS = -0.98088458;
 	const nm = np, em = ep;
@@ -122,7 +169,7 @@ function dscom(epoch, ep, argpp, tc, inclp, nodep, np) {
 	const zcosgl = Math.cos(zx), zsingl = Math.sin(zx);
 	let zcosg = ZCOSGS, zsing = ZSINGS, zcosi = ZCOSIS, zsini = ZSINIS, zcosh = cnodm, zsinh = snodm, cc = C1SS;
 	const xnoi = 1 / nm;
-	const out = { snodm, cnodm, sinim, cosim, sinomm, cosomm, day, em, emsq, gam, rtemsq, nm };
+	const out: Record<string, number> = { snodm, cnodm, sinim, cosim, sinomm, cosomm, day, em, emsq, gam, rtemsq, nm };
 	for (let lsflg = 1; lsflg <= 2; lsflg++) {   // 1＝太陽・2＝月
 		const a1 = zcosg * zcosh + zsing * zcosi * zsinh, a3 = -zsing * zcosh + zcosg * zcosi * zsinh;
 		const a7 = -zcosg * zsinh + zsing * zcosi * zcosh, a8 = zsing * zsini;
@@ -145,7 +192,7 @@ function dscom(epoch, ep, argpp, tc, inclp, nodep, np) {
 		z1 = z1 + z1 + betasq * z31; z2 = z2 + z2 + betasq * z32; z3 = z3 + z3 + betasq * z33;
 		const s3 = cc * xnoi, s2 = -0.5 * s3 / rtemsq, s4 = s3 * rtemsq, s1 = -15 * em * s4;
 		const s5 = x1 * x3 + x2 * x4, s6 = x2 * x3 + x1 * x4, s7 = x2 * x4 - x1 * x3;
-		const v = { s1, s2, s3, s4, s5, s6, s7, z1, z2, z3, z11, z12, z13, z21, z22, z23, z31, z32, z33 };
+		const v: Record<string, number> = { s1, s2, s3, s4, s5, s6, s7, z1, z2, z3, z11, z12, z13, z21, z22, z23, z31, z32, z33 };
 		if (lsflg === 1) {
 			for (const k in v) out["s" + k] = v[k];   // 太陽側は ss1.. / sz1.. の名で控える（参照実装の命名）
 			zcosg = zcosgl; zsing = zsingl; zcosi = zcosil; zsini = zsinil;
@@ -173,7 +220,7 @@ function dscom(epoch, ep, argpp, tc, inclp, nodep, np) {
 }
 
 // 深宇宙の永年率と共鳴項の係数（元期で一度）。s に書き込む。
-function dsinit(s, d, t, tc) {
+function dsinit(s: Satrec, d: Record<string, number>, t: number, tc: number): void {
 	const Q22 = 1.7891679e-6, Q31 = 2.1460748e-6, Q33 = 2.2123015e-7;
 	const ROOT22 = 1.7891679e-6, ROOT44 = 7.3636953e-9, ROOT54 = 2.1765803e-9, ROOT32 = 3.7393792e-7, ROOT52 = 1.1428639e-7;
 	const RPTIM = 4.37526908801129966e-3, ZNL = 1.5835218e-4, ZNS = 1.19459e-5;
@@ -211,7 +258,7 @@ function dsinit(s, d, t, tc) {
 			em = s.ecco; emsq = s.eccsq;
 			const eoc = em * emsq;
 			const g201 = -0.306 - (em - 0.64) * 0.440;
-			let g211, g310, g322, g410, g422, g520, g521, g532, g533;
+			let g211: number, g310: number, g322: number, g410: number, g422: number, g520: number, g521: number, g532: number, g533: number;
 			if (em <= 0.65) {
 				g211 = 3.616 - 13.2470 * em + 16.2900 * emsq;
 				g310 = -19.302 + 117.3900 * em - 228.4190 * emsq + 156.5910 * eoc;
@@ -278,7 +325,7 @@ function dsinit(s, d, t, tc) {
 }
 
 // 深宇宙の永年・共鳴項の時間発展。共鳴は 720 分刻みの数値積分（atime/xli/xni は衛星に持ち越し＝連続呼びは差分だけ進む）。
-function dspace(s, t, el) {
+function dspace(s: Satrec, t: number, el: MeanElements): void {
 	const FASX2 = 0.13130908, FASX4 = 2.8843198, FASX6 = 0.37448087;
 	const G22 = 5.7686396, G32 = 0.95240898, G44 = 1.8014998, G52 = 1.0508330, G54 = 4.4108898;
 	const RPTIM = 4.37526908801129966e-3, STEPP = 720, STEPN = -720, STEP2 = 259200;
@@ -319,8 +366,9 @@ function dspace(s, t, el) {
 }
 
 // 要素 → 衛星（伝播に要る係数を一度だけ作る）。返り値は propagate に渡す不透明な塊。
-export function sgp4init(e) {
-	const s = { ...e, error: 0, method: "n", isimp: 0, peo: 0, pinco: 0, plo: 0, pgho: 0, pho: 0 };
+export function sgp4init(e: SatElements): Satrec {
+	// 係数の棚は 0 で起こす（旧＝未定義のまま・読む側は isimp／method で守られている＝値は変わらない）
+	const s: Satrec = { ...ZERO, ...e, error: 0, method: "n", isimp: 0, peo: 0, pinco: 0, plo: 0, pgho: 0, pho: 0 };
 	const epoch = e.jdEpoch - 2433281.5;   // 1950 年 1 月 0 日起算の日数（参照実装の単位）
 	const { ecco, inclo, bstar, argpo, mo } = s;
 	const no_kozai = s.no;
@@ -384,8 +432,7 @@ export function sgp4init(e) {
 	if (TWOPI / s.no >= 225) {   // 深宇宙（周期 225 分以上）
 		s.method = "d"; s.isimp = 1;
 		const d = dscom(epoch, ecco, argpo, 0, inclo, s.nodeo, s.no);
-		for (const k of ["e3", "ee2", "se2", "se3", "sgh2", "sgh3", "sgh4", "sh2", "sh3", "si2", "si3", "sl2", "sl3", "sl4",
-			"xgh2", "xgh3", "xgh4", "xh2", "xh3", "xi2", "xi3", "xl2", "xl3", "xl4", "zmol", "zmos"]) s[k] = d[k];
+		for (const k of DS_KEYS) s[k] = d[k];
 		dsinit(s, d, 0, 0);
 	}
 	if (s.isimp !== 1) {
@@ -403,11 +450,11 @@ export function sgp4init(e) {
 }
 
 // 元期からの経過（分）→ { r:[km], v:[km/s] }（TEME）。落ちた/発散した衛星は null（s.error に理由番号）。
-export function sgp4(s, t) {
+export function sgp4(s: Satrec, t: number): StateVector | null {
 	s.error = 0;
 	const xmdf = s.mo + s.mdot * t, argpdf = s.argpo + s.argpdot * t, nodedf = s.nodeo + s.nodedot * t;
 	const t2 = t * t;
-	const el = { argpm: argpdf, mm: xmdf, nodem: nodedf + s.nodecf * t2, em: s.ecco, inclm: s.inclo, nm: s.no };
+	const el: MeanElements = { argpm: argpdf, mm: xmdf, nodem: nodedf + s.nodecf * t2, em: s.ecco, inclm: s.inclo, nm: s.no };
 	let tempa = 1 - s.cc1 * t, tempe = s.bstar * s.cc4 * t, templ = s.t2cof * t2;
 	if (s.isimp !== 1) {
 		const delomg = s.omgcof * t;
@@ -493,13 +540,13 @@ export function sgp4(s, t) {
 }
 
 // 衛星と日時（Date かユリウス日）→ TEME の { r, v } または null
-export function propagate(s, when) {
+export function propagate(s: Satrec, when: Date | number): StateVector | null {
 	const jd = typeof when === "number" ? when : jdOf(when);
 	return sgp4(s, (jd - s.jdEpoch) * 1440);
 }
 
 // TEME 位置[km] と GMST → 測地経緯度（度）と楕円体高（km）。WGS-84 楕円体・反復 Bowring 風（3 回で mm 級）。
-export function temeToGeodetic(r, g) {
+export function temeToGeodetic(r: Vec3 | ArrayLike<number>, g: number): Geodetic {
 	const A = 6378.137, F = 1 / 298.257223563, E2 = F * (2 - F);
 	const c = Math.cos(g), s = Math.sin(g);
 	const x = r[0] * c + r[1] * s, y = -r[0] * s + r[1] * c, z = r[2];   // TEME → 地球固定（極運動は無視＝~10 m 級）
