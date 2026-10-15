@@ -83,7 +83,7 @@ await t("登録簿経由：#tile-formats の差し替え先（core の tileforma
 	sameLayers(decodeTile(mlt, null, "mlt"), decodeMVT(vtTiles[1].mvt), { where: "registry" });
 	sameLayers(await fetchMVT("x", null, new Set(["building"]), null, mlt.buffer.slice(mlt.byteOffset, mlt.byteOffset + mlt.byteLength), "mlt"), decodeMVT(vtTiles[1].mvt, new Set(["building"])), { where: "fetchMVT" });
 	// PMTiles（tileType 6）＝ヘッダの申告で mlt として解ける（pmtiles-src の tileTypeName＝登録簿の pmtilesType）
-	const { pmtilesInfo, fetchPMTiles } = await import("../../ortho-core/src/pmtiles-src.js");   // 公開面に無い（index は GL まで抱える）＝相対で（同じ実体＝登録簿は 1 つ）
+	const { pmtilesInfo, fetchPMTiles } = await import("@ortho-earth/core/internal/pmtiles-src.js");   // 公開面に無い（index は GL まで抱える）＝internal の口で（同じ実体＝登録簿は 1 つ）
 	const pm = await writePMTiles(null, vtTiles.map(({ k, mvt }) => { const [z, x, y] = k.split("/").map(Number); return { z, x, y, buf: mvtToMLT(mvt) }; }), { tileType: 6, metadata: { name: "t" } });
 	globalThis.fetch = async (u, init) => {   // Range 対応の鯖の振り（pmtiles.js は Content-Length を見る）
 		const range = init?.headers instanceof Headers ? init.headers.get("range") : (init?.headers?.Range ?? init?.headers?.range ?? "");

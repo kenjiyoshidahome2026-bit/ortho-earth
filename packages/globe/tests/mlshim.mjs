@@ -7,7 +7,7 @@ import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientatio
 import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.js";
 import { mercatorDz } from "../src/zoomscale.js";
 import { unsupported } from "../src/maplibre/report.js";
-import { parseViewHash } from "../../ortho-core/src/viewurl.js";
+import { parseViewHash } from "@ortho-earth/core/viewurl";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let fail = 0;

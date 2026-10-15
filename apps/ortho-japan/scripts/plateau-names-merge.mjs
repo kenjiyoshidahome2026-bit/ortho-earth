@@ -16,7 +16,7 @@
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { decodeMVT } from "../../../packages/ortho-core/src/decode.js";
+import { decodeMVT } from "@ortho-earth/core/decode";
 
 const OUTDIR = fileURLToPath(new URL("../plateau-names-out/", import.meta.url));
 const MERGEDIR = path.join(OUTDIR, "merged");

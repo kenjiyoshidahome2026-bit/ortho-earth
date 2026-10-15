@@ -22,11 +22,11 @@ const pack = (lon, lat, terminal, weight = 0) => {
 const e7 = d => Math.round(d * 1e7) >>> 0;
 
 try {
-	const { s } = await import("../../../packages/ortho-core/src/gl/gint/state.js");
-	const { createGintPrograms } = await import("../../../packages/ortho-core/src/gl/gint/programs.js");
-	const { uploadGintTextures } = await import("../../../packages/ortho-core/src/gl/gint/textures.js");
-	const { renderCleanScene } = await import("../../../packages/ortho-core/src/gl/gint/passes.js");
-	const { computeDrawData } = await import("../../../packages/ortho-core/src/gint/drawdata.js");
+	const { s } = await import("@ortho-earth/core/internal/gl/gint/state.js");
+	const { createGintPrograms } = await import("@ortho-earth/core/internal/gl/gint/programs.js");
+	const { uploadGintTextures } = await import("@ortho-earth/core/internal/gl/gint/textures.js");
+	const { renderCleanScene } = await import("@ortho-earth/core/internal/gl/gint/passes.js");
+	const { computeDrawData } = await import("@ortho-earth/core/internal/gint/drawdata.js");
 
 	const gl = document.getElementById("g").getContext("webgl2", { antialias: false, stencil: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
 	if (!gl) throw new Error("WebGL2なし");

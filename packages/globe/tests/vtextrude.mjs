@@ -2,7 +2,7 @@
 // 実描画は t-mlcompat.html?g=vector。使い方：node packages/globe/tests/vtextrude.mjs
 import { classifyRings, clipRing, ringArea2, tessellatePolygon, buildMesh, verticalShade, retainTiles, paintZoomKey, filterZoom, tileToLonLat, roundRing } from "../src/vtmesh.js";
 import { extrudeMesh } from "../src/extrude.js";
-import { evalExpr } from "../../ortho-core/src/expr.js";
+import { evalExpr } from "@ortho-earth/core/expr";
 
 let bad = 0, n = 0;
 const ok = (name, cond, note = "") => { n++; if (!cond) { bad++; console.log(`✗ ${name}${note ? ` (${note})` : ""}`); } };
