@@ -13,7 +13,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 // 中身を初めて使う時に import する供給元（窓の搭載は同期のまま）
 const lazy = (load, histKey) => { let p = null; return { histKey, query: (q, s) => (p ||= load().catch(e => { p = null; throw e; })).then(x => x.query(q, s)) }; };
-export function searchProviders(opts = {}) {
+function searchProviders(opts = {}) {
 	const list = [].concat(opts.provider || []).filter(Boolean);
 	if (opts.world) { const o = opts.world === true ? {} : opts.world; list.push(typeof o.query === "function" ? o : lazy(() => import("../worldsearch.js").then(m => m.createWorldSearch(o)), "ortho.searches")); }
 	const g = { limit: opts.limit, language: opts.language, countries: opts.countries, bbox: opts.bbox, types: opts.types, proximity: opts.proximity, minLength: opts.minLength, zoom: opts.zoom === undefined || Array.isArray(opts.zoom) ? undefined : opts.zoom, filter: opts.filter };   // zoom＝公式の点の着地（数）・配列はガジェットの表示宣言（ズーム域）

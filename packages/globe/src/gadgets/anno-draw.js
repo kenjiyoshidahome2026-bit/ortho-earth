@@ -6,7 +6,7 @@
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 //   api.project(lon,lat)→[x,y,f]（CSS px・地形リフト込み・f<0=裏側）／api.projectH(lon,lat,hM)＝h メートル上（3D ピン）／api.W,H,dpr
 //   host.requestDraw()＝@icon 画像の到着で次フレーム／host.post({ type:"hits" })＝シンボルの画面矩形（main の hover/click 用）
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, buildLinePath } from "geopbf/edit/draw";   // 正典（geoedit と同じ一本）
+import { SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, buildLinePath } from "geopbf/edit/draw";   // 正典（geoedit と同じ一本）
 
 // ---- worker 側の描画状態（オーバーレイ 1 枚ぶん）----
 const FONT_FAMILY = '"Noto Sans JP","Hiragino Sans",sans-serif';

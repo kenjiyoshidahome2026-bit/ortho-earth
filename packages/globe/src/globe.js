@@ -10,7 +10,6 @@ import { curveZoomKey } from "./extrude-ml.js";
 import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
-import { normPost } from "@ortho-earth/core/postfx";
 import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 import { installOverlays } from "./api/overlays.js";

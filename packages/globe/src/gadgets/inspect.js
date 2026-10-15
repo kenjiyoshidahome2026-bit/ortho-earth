@@ -55,7 +55,7 @@ export function brightColor(layerId, alpha) {
 const val = v => v instanceof Date ? v.toLocaleString() : v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
 const div = (cls, text) => { const d = document.createElement("div"); d.className = cls; if (text != null) d.textContent = text; return d; };
 const prop = (k, v) => { const d = div("maplibregl-inspect_property"); d.append(div("maplibregl-inspect_property-name", k), div("maplibregl-inspect_property-value", val(v))); return d; };
-export function renderPopup(features) {
+function renderPopup(features) {
 	const root = div("maplibregl-inspect_popup");
 	for (const f of features) {
 		const fe = div("maplibregl-inspect_feature");
