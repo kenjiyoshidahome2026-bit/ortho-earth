@@ -7,8 +7,8 @@
 //      区間の和が [0,1] を過不足なく覆う・区間数 ≤ N・近傍窓内の区間は 1 セル以下（上限未達なら）・
 //      N を倍にしても既存の区間境界は残る（入れ子＝カメラが動いても頂点が滑らない）
 // 使い方: node packages/ortho-core/tests/gint-drape.mjs
-import { buildEdgeMeta, buildBoundaryEdgeMeta, SUB_S0, SUB_NB, SUB_DUP } from '../src/gl/gint/utility.js';
-import { drapeSubs, subPlan, SUB_MAX, SUB_BUDGET } from '../src/gl/gint/drawdata.js';
+import { buildEdgeMeta, buildBoundaryEdgeMeta, SUB_S0, SUB_NB, SUB_DUP } from '../src/gint/utility.js';
+import { drapeSubs, subPlan, SUB_MAX, SUB_BUDGET } from '../src/gint/drawdata.js';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) return; fails++; console.error(`  ✗ ${label}`); };

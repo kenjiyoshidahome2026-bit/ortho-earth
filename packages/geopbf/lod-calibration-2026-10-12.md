@@ -4,7 +4,7 @@
 組む前に**どれだけ揃うか・何が要るか**を実データで測った。物差しは `scripts/lod-calibration-report.mjs`（常設検定 `tests/t-lod-calibration.mjs`）。
 
 ## 今の仕組み
-- 描画（ortho-core `gl/gint/drawdata.js:66-89`）: 1px が覆う地表面積から VW rank の閾値を出し（固定則 `rank ≥ 63 − 3z` と同系）、VS の `lodSnap` が閾値未満の頂点を捨てる。閾値は**層で 1 つ**（uniform `u_lod_rank`／`F.lodRank`）。
+- 描画（ortho-core `gint/drawdata.js:66-89`）: 1px が覆う地表面積から VW rank の閾値を出し（固定則 `rank ≥ 63 − 3z` と同系）、VS の `lodSnap` が閾値未満の頂点を捨てる。閾値は**層で 1 つ**（uniform `u_lod_rank`／`F.lodRank`）。
 - tiler（`convert/calibrate.js`）: arc ごとに Douglas–Peucker の予算（tippecanoe `-S`＝弦から 1 タイル単位）を数え、「残る数が DP に最も近い」rank 閾値 `t(arc, z)` を表にする（`Uint8Array(zoomCount × arcCount)`）。頂点の選び方は VW のまま＝共有境界は両側で同じ。
 
 描画をこの表に揃えるには、VS が **頂点 → arc** を引く表（arc 数 < 65,536 なら u16・それ以上は u32 ＝ arcTex 8 bytes/頂点に対し +25〜50%）と、層ごとの `t` 表（arc 数 × ズーム数 bytes）と、2 バックエンド（GLSL／WGSL）× 線・pick・stencil・ID 塗りの各パスの `lodSnap` の変更が要る。
