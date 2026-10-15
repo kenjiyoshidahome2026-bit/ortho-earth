@@ -69,7 +69,6 @@ export const WORLD_STYLE_THEMES = {
 	},
 };
 
-export const WORLD_THEME_NAMES = Object.keys(WORLD_STYLE_THEMES);
 // japan と同じ綴りを正とし、口語の別名だけ受ける（?c=night → dark）。未知の名前は null（呼び手が既定へ）。
 // gsi＝旧名（2026-09-24 改名前に配った共有 URL・名刺 QR・台本の c=gsi を殺さない＝別名は永久に残す）
 const ALIAS = { night: "dark", light: "mono", blank: "mono", white: "mono", default: "mono", gsi: "topo" };

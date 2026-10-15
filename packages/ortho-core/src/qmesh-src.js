@@ -11,7 +11,7 @@ const ACCEPT = "application/vnd.quantized-mesh,application/octet-stream;q=0.9,*/
 const MAX_TILES = 400;          // 1 セルで取るタイルの上限（dem-src と同じ）
 const CACHE_BYTES = 96 << 20;   // 解いたタイルの在庫（バイトで区切る＝1 枚が数 MB になる配信がある）
 
-export function normalizeQmeshSpec(s) {
+function normalizeQmeshSpec(s) {
 	if (!s?.url && !s?.ion?.assetId) throw new Error("quantized-mesh: spec needs url (layer.json) or ion { assetId, accessToken }");
 	return { type: "quantized-mesh", url: s.url || null, ion: s.ion ? { assetId: s.ion.assetId, accessToken: s.ion.accessToken || "" } : null,
 		heights: s.heights === "orthometric" ? "orthometric" : "ellipsoidal", heightOffset: +s.heightOffset || 0, cellZoom: s.cellZoom ?? null, maxzoom: s.maxzoom ?? null,

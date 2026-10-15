@@ -988,7 +988,7 @@ const gDerive = (src, pairs, label) => pairs.reduce((s, [a, b, all]) => {
 }, src);
 const GF_RSV = "\tgfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない\n";
 const GF_CLIP = [GF_RSV, GINT_CLIP_FIELDS];   // 予約欄（12×vec4＝48 float）を同じ大きさの断面の欄へ差し替える＝後ろの遠方の要（float 128〜）の位置は動かない
-export function gintClipWGSL(src, kind) {
+function gintClipWGSL(src, kind) {
 	if (kind === "line") return gDerive(src, [GF_CLIP,
 		["\t@location(8) @interpolate(flat) eb: vec2f,\n};", "\t@location(8) @interpolate(flat) eb: vec2f,\n\t@location(9) cdA: vec4f,\n\t@location(10) cdB: vec2f,\n};"],
 		["\tvar pa3: Proj; var pb3: Proj;\n", "\tvar pa3: Proj; var pb3: Proj;\n\tvar cwA = vec3f(0.0); var cwB = vec3f(0.0);   // 端点のドレープ後の位置（面の距離）\n"],

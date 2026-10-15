@@ -13,7 +13,7 @@ const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VGN_PORT || 5247;
 
 // t-nocoi＝COI非成立と SAB 不在を自分で検定する的（ここが緑でないと以下は無意味）。以降は SAB 経路に触る層。
-const ALL_PAGES = ["t-nocoi?nocoi=1", "t-gintembed", "t-gintlod", "t-gintswap", "t-gintdepth"];
+const ALL_PAGES = ["t-nocoi?nocoi=1", "t-gintembed", "t-gintswap", "t-gintdepth"];
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGN_PORT", readyUrl: `http://localhost:${PORT}/tests/`, env: { NOCOI: "1" } });

@@ -15,6 +15,5 @@ export const rescaleZoomNum: (x: number | null | undefined, fromDz: number, toDz
 export function mlUnknownOps(L: MLLayer): Set<string>;
 export function splitMapLibreStyle(style: Record<string, unknown>, opts?: { zoomOffset?: number }): Record<string, unknown>;
 export function loadMapLibreStyle(src: string | Record<string, unknown>, opts?: { fetchFn?: typeof fetch }): Promise<Record<string, unknown>>;
-export function vectorLayersOf(tj: Record<string, unknown>): string[];
 export function resolveVectorSource(sp: Record<string, unknown>, baseUrl: string, opts?: { fetchFn?: typeof fetch }): Promise<Record<string, unknown>>;
 export function tileUrlOf(src: Record<string, unknown>): ((z: number, x: number, y: number) => string) | string | null;

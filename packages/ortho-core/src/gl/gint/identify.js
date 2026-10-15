@@ -1,4 +1,4 @@
-// GPU picking バッファを読み、activeId を更新して drawOverlay。
+// GPU picking バッファを読み、activeId を更新して地図ごと描き直させる（requestDraw＝ハイライトは毎フレームの gint パスが inline で描く）。
 // ポリゴンは GPU hit が無い時 JS fallback（findPolygon）で包含判定。
 // v1(ortho-map) の gintIdentify を移植。【site 4】JS レイキャストの逆写像を d3 lastProj.invert →
 // japan の unproject(cam) へ建て替え。他（readPixels・findPolygon・throttle）は node-free。
@@ -7,7 +7,6 @@
 import { MOVE_THROTTLE_MS } from './state.js';
 import { findPolygon } from 'geopbf/identify';
 import { fidVisible } from './utility.js';
-import { drawOverlay } from './passes.js';
 import { unproject } from '../../camera.js';
 
 export function doIdentify(s, data) {
@@ -18,22 +17,17 @@ export function doIdentify(s, data) {
 
 	const pickX = Math.max(0, Math.min(s.width  - 1, Math.round(data.x * s.dpr)));
 	const pickY = Math.max(0, Math.min(s.height - 1, Math.round(s.height - data.y * s.dpr)));
-	// embedded＝render worker 同居：同期 readPixels は GPU パイプラインを止め、hover のたびに地図フレームを
+	// render worker 同居：同期 readPixels は GPU パイプラインを止め、hover のたびに地図フレームを
 	// 塞ぐ（旧・別worker時代は並列で無害だった＝統合で生まれた唯一の新規ストール）。PBO+fence で非同期化
-	//（識別は 1-2 フレーム遅れるが hover tip には無関係の遅さ）。worker モードは従来の同期読みのまま。
-	if (s.embedded) { readPickAsync(s, pickX, pickY, data); return; }
-	const px = new Uint8Array(4);
-	s.gl.bindFramebuffer(s.gl.READ_FRAMEBUFFER, s.pickFBO);
-	s.gl.readPixels(pickX, pickY, 1, 1, s.gl.RGBA, s.gl.UNSIGNED_BYTE, px);
-	s.gl.bindFramebuffer(s.gl.READ_FRAMEBUFFER, null);
-	finishIdentify(s, px, data);
+	//（識別は 1-2 フレーム遅れるが hover tip には無関係の遅さ）。
+	readPickAsync(s, pickX, pickY, data);
 }
 
-// 非同期 pick 読み（embedded 専用）：readPixels を PIXEL_PACK_BUFFER へ発行 → fence を置き、
+// 非同期 pick 読み：readPixels を PIXEL_PACK_BUFFER へ発行 → fence を置き、
 // clientWaitSync(0) のポーリングで GPU 完了後にだけ getBufferSubData（＝ブロックしない）。
 // 進行中に新しい move が来たら座標だけ差し替え（発行は1本＝解決後に最新座標で読み直す）。
 let _pr = null;   // { fence, data } 進行中の読み
-export function readPickAsync(s, pickX, pickY, data) {
+function readPickAsync(s, pickX, pickY, data) {
 	const gl = s.gl;
 	if (_pr) { _pr.next = { pickX, pickY, data }; return; }   // 解決後に最新で再発行
 	if (!s._pickPBO) s._pickPBO = gl.createBuffer();
@@ -86,9 +80,7 @@ function finishIdentify(s, px, data) {
 	if (newId === s.activeId) return;
 	s.activeId = newId;
 	postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y, layer: s.layerId ?? null });
-	// embedded＝ハイライトは毎フレームの gint パスが inline で描く＝地図ごと1枚描き直させる。
-	if (s.embedded) s.requestDraw?.();
-	else drawOverlay(s);
+	s.requestDraw?.();   // ハイライトは毎フレームの gint パスが inline で描く＝地図ごと1枚描き直させる
 }
 
 export function handleMove(s, data) {
@@ -113,12 +105,5 @@ export function handleLeave(s) {
 	if (s.activeId === -1) return;
 	s.activeId = -1;
 	postMessage({ action: "identify", featureId: null, layer: s.layerId ?? null });
-	if (s.embedded) { s.requestDraw?.(); return; }   // embedded＝blit で消さず地図ごと描き直し
-	if (s.baseFBO && s.lastDrawData) {
-		const w = s.width, h = s.height;   // v2：device px
-		s.gl.bindFramebuffer(s.gl.READ_FRAMEBUFFER, s.baseFBO);
-		s.gl.bindFramebuffer(s.gl.DRAW_FRAMEBUFFER, null);
-		s.gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, s.gl.COLOR_BUFFER_BIT, s.gl.NEAREST);
-		s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
-	}
+	s.requestDraw?.();   // 地図ごと描き直し（ハイライトが消える）
 }

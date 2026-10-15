@@ -2,7 +2,7 @@
 // 別 canvas + 従属駆動（gintSyncChan）で生じていた「地図に対し1フレーム級遅れて泳ぐ」を、
 // 地図フレームの末尾（夜面の後＝最前面）で同一 cam から描く1パスに置き換えて根治する。
 //
-// worker モードとの差分（s.embedded=true が各臓器で分岐）：
+// 旧・独立 worker モード（gl/gint/worker.js・2.0 で廃止）との差分：
 //  - renderCleanScene は色を clear せず現フレームの地図の上へ blend（stencil だけ消す）
 //  - baseFBO/blit のハイライト復元機構は廃止＝activeId があれば毎フレーム drawHighlight を inline 描画
 //  - 識別の画面反映は requestDraw()（render worker の dirty）＝地図ごと1枚描き直し
@@ -25,7 +25,6 @@ import { unproject } from '../../camera.js';
 import { gintDataOf } from '../../gint/bake.js';
 
 export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
-	s.embedded = true;
 	s.requestDraw = requestDraw ?? null;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; s.requestDraw?.(); };

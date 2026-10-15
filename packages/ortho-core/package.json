@@ -125,10 +125,6 @@
 			"types": "./types/workers/gintbake.d.ts",
 			"default": "./src/gint/bakeworker.js"
 		},
-		"./workers/gint": {
-			"types": "./types/workers/gint.d.ts",
-			"default": "./src/gl/gint/worker.js"
-		},
 		"./worldstyle": {
 			"types": "./types/worldstyle.d.ts",
 			"default": "./src/worldstyle.js"
@@ -194,7 +190,6 @@
 		"./src/workers/tileworker.js",
 		"./src/workers/sceneworker.js",
 		"./src/gint/bakeworker.js",
-		"./src/gl/gint/worker.js",
 		"./src/elevation/worker.js",
 		"./src/tileformats-mlt.js"
 	]

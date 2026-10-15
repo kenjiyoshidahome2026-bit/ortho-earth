@@ -4,9 +4,6 @@ export interface FlightTarget { lon: number; lat: number; zoom: number; pitch: n
 export interface FlightPlan { dur: number; land: number; at(tMs: number): FlightTarget; knots?: number[] }
 export interface FlightEnv { viewW: number; maxPitch: number; minZoom: number }
 export const shortBearingOf: (b: number) => number;
-export function flyPlan(cam0: FlightTarget, env: FlightEnv, lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): FlightPlan;
-export function glidePlan(cam0: FlightTarget, env: FlightEnv, lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): FlightPlan;
-export function glidePathPlan(cam0: FlightTarget, env: FlightEnv, pts: Partial<FlightTarget>[]): FlightPlan;
 export function easePlan(cam0: FlightTarget, env: FlightEnv, target?: Partial<FlightTarget>, duration?: number): FlightPlan;
 export interface FlightController {
 	flyTo(...args: unknown[]): Promise<void>;

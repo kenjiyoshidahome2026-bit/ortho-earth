@@ -2,7 +2,7 @@
 // MapLibre の util/script_detection（charHasUprightVerticalOrientation）と util/verticalize_punctuation の写し（要点）：
 //   upright＝縦書きで正立のまま並ぶ字（漢字・かな・ハングル・全角・CJK の記号）。それ以外（ラテン・数字・空白）は 90° 回して並ぶ。
 //   縦書きにできる文字列＝正立の字を 1 つでも含む（allowsVerticalWritingMode）。
-export function charUpright(cp) {
+function charUpright(cp) {
 	if (cp < 0x1100) return false;
 	return (cp >= 0x1100 && cp <= 0x11FF)     // ハングル字母
 		|| (cp >= 0x2E80 && cp <= 0x2FDF)     // CJK 部首・康熙部首

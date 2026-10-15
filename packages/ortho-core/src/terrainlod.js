@@ -6,7 +6,7 @@
 // チャンクの全標本点の front がその閾値を下回れば描いても全画素が捨てられる＝刈って厳密に同じ絵。
 import { lonlatTo3D, projectClip } from "./camera.js";
 
-export const TERR_CH = 16;   // 一辺のチャンク数（16×16＝256・G=1536 で 96 quad/辺）
+const TERR_CH = 16;   // 一辺のチャンク数（16×16＝256・G=1536 で 96 quad/辺）
 export const TERR_HMAX_M = 9000;   // 視錐台判定に使う標高の上限（m・全球＝エベレスト級）。保守的なほど刈りが甘いだけ＝絵は変わらない
 
 // G×G 頂点（uv = i/(G−1)）の index をチャンク主導で。chunks[k]＝{ first, count, u0, u1, v0, v1 }（index の位置と数・uv の箱）
