@@ -3,9 +3,9 @@
 // ＝bucket GIS/pbf・GIS/space に焼いていた。読む側は 2026-10-13 に GitHub Pages へ移った＝bucket の物は誰も読まない）。
 // 置くのは npm run publish:pages -w world-data -- --only=sky --write（git push だけ・鍵が要らない）。読む側＝packages/globe/src/sky/data.js・apps/solar。
 //   stars.6・messier.geopbf          d3-celestial（ofrohn）の JSON を引いて焼く（.cache/sky に控える）
-//   constellation_lines.geopbf      space-data/constellation-lines.json（d3-celestial 由来の 89 星座の線）
-//   moon_nomenclature.geopbf        space-data/moon.json（IAU 採択の主な地名 2,023・英語）
-//   names/<lang>.json               { updated, c: 星座, m: メシエ通称, b: 天体 }＝space-data/names.json を言語ごとに（欠けは読む側が英語で補う）
+//   constellation_lines.geopbf      sky/constellation-lines.json（d3-celestial 由来の 89 星座の線）
+//   moon_nomenclature.geopbf        sky/moon.json（IAU 採択の主な地名 2,023・英語）
+//   names/<lang>.json               { updated, c: 星座, m: メシエ通称, b: 天体 }＝sky/names.json を言語ごとに（欠けは読む側が英語で補う）
 //   moon_nomenclature.i18n/<lang>.json  { updated, names: { <GPN id>: 名前 } }（en は持たない＝GeoPBF の name が英語）
 //   使い方: node scripts/sky.mjs [--out DIR]（既定 out/sky）
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -14,10 +14,10 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GeoPBF } from "geopbf/pbf-base";
-import { packs, moonPacks, moonGeoJSON, MOON_GEOPBF } from "space-data";
-import names from "space-data/names.json" with { type: "json" };
-import moon from "space-data/moon.json" with { type: "json" };
-import lines from "space-data/constellation-lines.json" with { type: "json" };
+import { packs, moonPacks, moonGeoJSON, MOON_GEOPBF } from "../sky/packs.js";
+import names from "../sky/names.json" with { type: "json" };
+import moon from "../sky/moon.json" with { type: "json" };
+import lines from "../sky/constellation-lines.json" with { type: "json" };
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const i = process.argv.indexOf("--out"), OUT = path.resolve(ROOT, i > 0 ? process.argv[i + 1] : "out/sky");

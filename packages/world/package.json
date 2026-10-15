@@ -5,6 +5,7 @@
 	"description": "国別データベース（seed＝正本・build＝Wikidata/統計 API からの組み立て・データは CC BY-SA 4.0）",
 	"type": "module",
 	"scripts": {
+		"test": "node sky/tests/t-names.mjs && node sky/tests/t-moon.mjs",
 		"build": "node build/cli.js",
 		"build:fresh": "node build/cli.js --fresh",
 		"ne:cultural": "node scripts/ne-cultural.mjs",
@@ -21,7 +22,6 @@
 	},
 	"devDependencies": {
 		"geopbf": "*",
-		"polygon-clipping": "^0.15.7",
-		"space-data": "*"
+		"polygon-clipping": "^0.15.7"
 	}
 }
