@@ -4,7 +4,7 @@
 // 中身の置き場と配り方は offline-pack.js の頭書き。ホストが注入する物＝sources（地域の申告を読んだ結果＝この gadget は地域を知らない）。
 //   sources.basemap＝{ tileUrl(z,x,y), coverage, minZ }・sources.dem＝{ byName(name) → Promise }｜null・
 //   sources.rasters＝{ list() → [{ id, url, minZoom, maxZoom }]（表示中） }・sources.mesh＝{ sets() → [{ name, bbox }], prefetch(names, onProg) → Promise }｜null
-// 台帳＝IDB GIS/pack（native-bucket の Cache）。SW（japan の sw.js）が PACK_CACHE の URL を cache-first で返す＝機内モードで同じ範囲が開く。
+// 台帳＝IDB GIS/pack（native-bucket の Cache）。SW（packages/globe/scripts/lib/sw.js＝各アプリ共通）が PACK_CACHE の URL を cache-first で返す＝機内モードで同じ範囲が開く。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
 import { Cache } from "native-bucket";
