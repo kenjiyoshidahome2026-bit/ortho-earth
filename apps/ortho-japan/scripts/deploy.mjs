@@ -36,22 +36,26 @@ const full = changed === null || changed.length > 0 || dirty.length > 0;
 const QUICK = ["t-import"];
 const QUICK_GLOBE = ["t-backfill", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3"];
 console.log(`… 関門を並行で（verify:editor${full ? "（全部＝エディタ/gint に変更あり" + (changed === null ? "・tag なし" : `・${changed.length + dirty.length} ファイル`) + "）" : "（速い版＝エディタ/gint に変更なし）"} ‖ globe の門 ‖ verify:prod）`);
-const globeLines = [];
+const globeLines = [], editorLines = [];
 let [ed, gl, pr] = await Promise.all([
-	full ? run("npm", ["run", "-s", "verify:editor"], "editor") : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor"),
+	full ? run("npm", ["run", "-s", "verify:editor"], "editor", { lines: editorLines }) : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor", { lines: editorLines }),
 	full ? run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu"], "globe", { lines: globeLines }) : run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...QUICK_GLOBE], "globe", { lines: globeLines }),
 	run("npm", ["run", "-s", "verify:prod"], "prod"),
 ]);
-// globe の門だけ落ちた＝落ちた頁だけを単独（editor・prod は終わっている・VG_JOBS=1）で 1 回だけ回し直す。頁の名前が拾えない落ち方（Chrome が立たない等）は回し直さない。
-// editor か prod も落ちていれば、どのみち deploy しないので回し直さない（時間の無駄）。
-if (gl !== 0 && ed === 0 && pr === 0) {
-	const pages = failedPages(globeLines);
-	if (pages.length === 0 || pages.length > 8) console.error(`… globe の門の落ちた頁が拾えない／多すぎる（${pages.length} 頁）＝回し直さない`);
-	else {
-		console.log(`… globe の門で落ちた ${pages.length} 頁を単独で回し直す（並行負荷の揺れか本物の退行かを分ける）: ${pages.join(" ")}`);
-		gl = await run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...pages], "globe2", { env: { VG_JOBS: "1" } });
-		console.log(gl === 0 ? `… 単独では PASS＝並行負荷の揺れ（頁の写しの待ちを見直す余地あり） ${el()}` : `✗ 単独でも FAIL＝本物の退行 ${el()}`);
-	}
+// globe・editor の門の落ちた頁だけを単独（他の関門は終わっている・globe は VG_JOBS=1）で 1 回だけ回し直す。頁の名前が拾えない落ち方（Chrome が立たない等）は回し直さない。
+// prod が落ちていれば、どのみち deploy しないので回し直さない（時間の無駄）。editor も 2026-10-15 から同じ扱い
+//（t-editor の吸着の頁が並行の負荷でだけ落ち、単独では本人の Mac で 2 回とも PASS）。
+const rerun = async (name, lines, cmd, args, opts = {}) => {
+	const pages = failedPages(lines);
+	if (pages.length === 0 || pages.length > 8) { console.error(`… ${name} の門の落ちた頁が拾えない／多すぎる（${pages.length} 頁）＝回し直さない`); return 1; }
+	console.log(`… ${name} の門で落ちた ${pages.length} 頁を単独で回し直す（並行負荷の揺れか本物の退行かを分ける）: ${pages.join(" ")}`);
+	const code = await run(cmd, [...args, ...pages], `${name}2`, opts);
+	console.log(code === 0 ? `… 単独では PASS＝並行負荷の揺れ（頁の待ちを見直す余地あり） ${el()}` : `✗ 単独でも FAIL＝本物の退行 ${el()}`);
+	return code;
+};
+if (pr === 0 && (gl !== 0 || ed !== 0)) {
+	if (gl !== 0) gl = await rerun("globe", globeLines, "npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--"], { env: { VG_JOBS: "1" } });
+	if (ed !== 0 && gl === 0) ed = await rerun("editor", editorLines, "node", ["scripts/verify-editor.mjs"]);
 }
 if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} globe=${gl} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
 console.log(`✓ 関門 PASS ${el()}`);
