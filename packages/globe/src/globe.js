@@ -2910,16 +2910,24 @@ async function iiifOpen(src, attribution) {
 	if (u) { const off = map.onFrame(() => { off(); map.raster.add("iiif", { iiif: u.href }, { order: "over", opacity: 1, hideFills: false }).then(info => { const b = info?.bbox || map.raster.info("iiif")?.bbox; if (b && !themeBootV) map.fitBounds(b, { padding: 40 }); }).catch(err => console.warn("[iiif] ?iiif=", u.href, err)); }); }
 }
 // ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
-// map.addPointCloud(url | File, opts)（＝addCOPC）→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>（門は ?g= と共用）・.las／.laz のドロップ
+// map.addPointCloud(url | File, opts)（＝addCOPC）→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>[&copcattr=<出典>]（門は ?g= と共用）・.las／.laz のドロップ
 let copcCtl = null;
-const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.js")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M });
+const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.js")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
+	setAttr: (id, html) => {   // 出典の欄（#attr）＝opts.attribution・無ければ URL のホスト名（無出典で他人のデータを出さない＝サービスと同じ方針）。鍵は "pc:<id>"＝"src:" でない（様式の組み直しで source に無い "src:" は消される）
+		const k = "pc:" + id, v = html ? sanitizeHTML(String(html)) : null;
+		if ((vtxAttrs.get(k) ?? null) === v) return;
+		if (v) vtxAttrs.set(k, v); else vtxAttrs.delete(k);
+		attrZone = null; requestDraw();
+	} });
 map.addPointCloud = async (src, opts) => (await copcGet()).add(src, opts);   // COPC は節だけ範囲読み・普通の LAS/LAZ は丸ごと読み（点群計画 段 3-3・2,000 万点まで）
 map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(h => h.remove()) : copcCtl.remove(id)) : false;
 map.addCOPC = map.addPointCloud; map.removeCOPC = map.removePointCloud;   // 旧名（1.14.0〜）
 {
 	const cSpec = new URLSearchParams(location.search).get("copc");
 	const u = cSpec ? remoteUrl(cSpec, "copc") : null;
-	if (u) { const off = map.onFrame(() => { off(); map.addCOPC(u.href, { fit: !themeBootV }).catch(err => console.warn("[copc] ?copc=", u.href, err)); }); }
+	const esc = v => v.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+	const aSpec = new URLSearchParams(location.search).get("copcattr");   // ?copcattr=<出典の文字>（HTML にしない）＝カードから開く見本（段 4-2）の出典
+	if (u) { const off = map.onFrame(() => { off(); map.addPointCloud(u.href, { fit: !themeBootV, ...(aSpec ? { attribution: esc(aSpec.slice(0, 200)) } : {}) }).catch(err => console.warn("[copc] ?copc=", u.href, err)); }); }
 }
 // ?cog=<URL>＝COG の URL ロード（門は ?g=/?scene= と共用＝https 限定・gh: 短縮形）。Range 直読み＝全量 fetch はしない
 {
