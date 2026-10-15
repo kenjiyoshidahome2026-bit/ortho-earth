@@ -1,12 +1,23 @@
 // N02（国土数値情報 鉄道）＝新幹線の路線と駅を常駐オーバーレイに（鉄道チップ ON で表示・初回だけ fetch）。ミニ新幹線（秋田・山形）は
 // 在来線区間の緯度帯クリップで仲間に入れる。日本の知識＝地域パック @ortho-earth/jp の中（本人裁定 2026-09-17・パック化 2026-09-22）。app.js の一塊（旧 1392〜1471 行）を
-// **動作を変えずに**ここへ移した（2026-09-17）。地域宣言（packages/jp/src/region.js の rail）から注入＝/nl/ では作らない（2026-09-22）。
+// **動作を変えずに**ここへ移した（2026-09-17）。地域宣言（packages/jp/src/region.ts の rail）から注入＝/nl/ では作らない（2026-09-22）。
 // env … renderer, requestDraw／land（紙色＝テーマで差し替わる getter）／BASEMAP_MINZOOM（路線を描く下限＝基図と同じ門）
 // 戻り値 … load()／loaded（読込済フラグ＝テーマ切替が false に戻して引き直す）
 import { buildGeoJSONOverlay } from "@ortho-earth/core";
+import type { Renderer } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
+import type { Feature } from "geopbf";
 
-export function createN02Overlay(env) {
+/** ホストの拡張面のうち路線オーバーレイが使う物 */
+export interface RailEnv { renderer: Renderer; requestDraw(): void; readonly land: number[]; BASEMAP_MINZOOM: number }
+/** 路線オーバーレイ＝{ load(), loaded }（テーマ切替が loaded=false に戻して load() し直す） */
+export interface RailOverlay { load(): Promise<void> | void; loaded: boolean }
+/** 描く地物＝GeoPBF の Feature か、緯度帯で切り出した線だけの物 */
+type RailFeature = Feature | { geometry: { type: "MultiLineString"; coordinates: number[][][] } };
+/** buildGeoJSONOverlay の返り（core の型は unknown）のうち触る物 */
+interface OverlayScene { minZoom?: number }
+
+export function createN02Overlay(env: RailEnv): RailOverlay {
 const { renderer, requestDraw } = env;
 
 // N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
@@ -17,7 +28,7 @@ const { renderer, requestDraw } = env;
 const N02_ZIP = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
 const N02_ORIGIN = [138, 37];   // 全国オーバーレイの原点（delta符号化用・度スケール＝精度問題なし）
 let n02Loaded = false;
-async function loadN02() {
+async function loadN02(): Promise<void> {
 	if (n02Loaded) return;
 	n02Loaded = true;
 	console.log("[N02] loading rail geojson (extracting shinkansen)…");
@@ -31,13 +42,13 @@ async function loadN02() {
 	if (!feats?.length) { console.warn("[N02] rail load failed", rail && Object.keys(rail)); n02Loaded = false; return; }
 	// フル新幹線＝N02_002(事業者種別)=1。ミニ新幹線（秋田・山形）は法規上在来線＝N02には田沢湖線・奥羽線として
 	// 収録されているので、該当区間を緯度帯クリップで切り出して仲間に入れる（奥羽線は福島→青森へ緯度ほぼ単調）。
-	const sn = feats.filter(f => { const p = f.properties || {}; return p.N02_002 == 1 || /新幹線/.test(String(p.N02_003)); });
-	const latClip = (f, lo, hi) => {   // 緯度帯 [lo,hi] に入る線分だけ残す（区間抽出）
+	const sn: RailFeature[] = feats.filter(f => { const p = f.properties || {}; return p.N02_002 == 1 || /新幹線/.test(String(p.N02_003)); });
+	const latClip = (f: Feature, lo: number, hi: number): RailFeature | null => {   // 緯度帯 [lo,hi] に入る線分だけ残す（区間抽出）
 		const g = f.geometry; if (!g) return null;
-		const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
-		const out = [];
+		const lines: number[][][] = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
+		const out: number[][][] = [];
 		for (const line of lines) {
-			let cur = [];
+			let cur: number[][] = [];
 			for (const pt of line) {
 				if (pt[1] >= lo && pt[1] <= hi) cur.push(pt);
 				else { if (cur.length > 1) out.push(cur); cur = []; }
@@ -56,10 +67,10 @@ async function loadN02() {
 			if (ak) { sn.push(ak); miniN++; }
 		}
 	}
-	console.log("[N02] rail", feats.length, "-> shinkansen", sn.length, `(mini ${miniN})`, "| lines:", [...new Set(sn.map(f => f.properties?.N02_003 || "(mini section)"))].join("、"));
+	console.log("[N02] rail", feats.length, "-> shinkansen", sn.length, `(mini ${miniN})`, "| lines:", [...new Set(sn.map(f => ("properties" in f && f.properties?.N02_003) || "(mini section)"))].join("、"));
 	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
 	const SN_GREEN = [0.04, 0.42, 0.25, 0.95];
-	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 })] : [];
+	const scenes: OverlayScene[] = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 }) as OverlayScene] : [];
 	// 路線ラインも基図と同じ z≥BASEMAP_MINZOOM でだけ描く：全球(z<4)は基図オフの「地球ぐるぐる」＝
 	// 路線だけが宙に浮くバグになる（minZoom 未設定だと renderer の s.minZoom||0=0 で全ズーム描画）。
 	if (scenes.length) scenes[0].minZoom = env.BASEMAP_MINZOOM;
@@ -79,14 +90,14 @@ async function loadN02() {
 	const snStnSet = new Set(stSn);
 	const stReg = stFeats.filter(f => !snStnSet.has(f));
 	if (stReg.length) {
-		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 });      // 玉＝鉄道点火#4b9e6a
-		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [env.land[0], env.land[1], env.land[2], 1], lineWidth: 0.9 });      // 芯（紙色＝style由来＝夜も自動追従）
+		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 }) as OverlayScene;      // 玉＝鉄道点火#4b9e6a
+		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [env.land[0], env.land[1], env.land[2], 1], lineWidth: 0.9 }) as OverlayScene;      // 芯（紙色＝style由来＝夜も自動追従）
 		rOuter.minZoom = rCore.minZoom = 11.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
 		scenes.push(rOuter, rCore);
 	}
 	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
-		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
-		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [env.land[0], env.land[1], env.land[2], 1], lineWidth: 1.2 });       // 芯（紙色＝style由来）＝○に見える
+		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 }) as OverlayScene;                      // 玉（外径）
+		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [env.land[0], env.land[1], env.land[2], 1], lineWidth: 1.2 }) as OverlayScene;       // 芯（紙色＝style由来）＝○に見える
 		sOuter.minZoom = sCore.minZoom = 7.5;   // 全国ビュー(z〜6)ではビーズ不要＝広域(z7.5+)から。路線の線は z≥5（基図と同ゲート）
 		scenes.push(sOuter, sCore);
 	}
@@ -95,5 +106,5 @@ async function loadN02() {
 	console.log("[N02] shinkansen drawn");
 }
 
-return { load: loadN02, get loaded() { return n02Loaded; }, set loaded(v) { n02Loaded = v; } };
+return { load: loadN02, get loaded() { return n02Loaded; }, set loaded(v: boolean) { n02Loaded = v; } };
 }

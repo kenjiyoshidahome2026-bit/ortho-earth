@@ -11,14 +11,51 @@
 //   const off = await view.showRasterMeshes(meshes, { id, name, attribution, opacity });   // L03-b_r 型（経緯度矩形の画像群）
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const wrapLon = l => ((l + 540) % 360 + 360) % 360 - 180;
+const wrapLon = (l: number): number => ((l + 540) % 360 + 360) % 360 - 180;
+const RAW = Symbol.for("ortho-earth.map.raw");   // 旗つきの地図から素の map へ戻る鍵（globe の RAW と同値）
+
+// ---- ここで使うエンジンの口（素の map）＝型の正本はエンジン側に無い（内部の面）ので、使う分だけここに書く ----
+/** gint 層の当たり（hover／click） */
+export interface GintHit { fid: number | null | undefined; properties: Record<string, unknown>; lngLat: [number, number] }
+export interface GintLayer {
+	on(type: "hover", f: (f: GintHit | null) => void): unknown;
+	on(type: "click", f: (e: GintHit) => void): unknown;
+	readonly ready: Promise<unknown>;
+	remove(): void;
+}
+/** 見せる GeoPBF（geopbf の GeoPBF のうち使う口） */
+export interface GintPbf {
+	readonly length: number;
+	unPackGint?: unknown;
+	gint?: () => Promise<unknown>;
+	name?: () => string;
+	readonly bbox?: number[];
+	forEach(func: (index: number) => void): unknown;
+	getBbox(index: number): number[] | null | undefined;
+}
+/** カーソル追従の tip の setter（null＝消す） */
+export type TipSetter = (html: string | null) => void;
+/** 地点に錨を打つ吹き出しの setter */
+export interface PopSetter { (html: string, pos: { x: number; y: number; lng: number; lat: number }): void; clear(force?: boolean): void }
+export interface GintMap {
+	cam: { center: [number, number] };
+	requestDraw(): void;
+	gadget: { tip(): TipSetter; pop(): PopSetter };
+	addGint(pbf: GintPbf, opts: Record<string, unknown>): GintLayer;
+	projectLL(lng: number, lat: number): [number, number];
+	fitZoomForBbox(bbox: number[]): number;
+	flyTo(lon: number, lat: number, zoom: number, pitch: number, bearing: number): Promise<unknown>;
+	raster: { add(id: string, src: Record<string, unknown>, opts: Record<string, unknown>): Promise<unknown>; remove(id: string): void };
+	[raw: symbol]: unknown;
+}
+const rawMap = (map: GintMap): GintMap => (map?.[RAW] as GintMap | undefined) ?? map;   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
 
 // 待ち受けの自転（旧 v1 の autoRotate）。公開のカメラ setter は flyTo（アニメ）だけ＝map.cam を直に回して requestDraw
 // （render が毎フレーム cam を読む）。戻り値＝spin(on)。www トップの背景も使う
-export function createSpin(map, degPerSec = 4) {
-	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
+export function createSpin(map: GintMap, degPerSec = 4): (on: boolean) => void {
+	map = rawMap(map);   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
 	let raf = 0, t0 = 0;
-	const step = t => {
+	const step = (t: number): void => {
 		const dt = Math.min(0.1, (t - t0) / 1000); t0 = t;
 		const c = map.cam.center;
 		map.cam.center = [wrapLon(c[0] + degPerSec * dt), c[1]];
@@ -33,14 +70,27 @@ export function createSpin(map, degPerSec = 4) {
 	};
 }
 
-export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPerSec = 4 } = {}) {
-	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
+export interface GintViewOpts { overviewZoom?: number; minZoom?: number; spinDegPerSec?: number }
+export type HtmlFn = (fid: number | null | undefined, props: Record<string, unknown>) => string | null | undefined;
+export interface GintShowOpts { tipHtml?: HtmlFn | null; popHtml?: HtmlFn | null; fit?: boolean; fill?: boolean }
+export interface GintView {
+	show(pbf: GintPbf | null | undefined, opts?: GintShowOpts): Promise<GintLayer | null>;
+	clear(): void;
+	fitTo(pbf: GintPbf): Promise<unknown> | undefined;
+	spin(on: boolean): void;
+	home(lat?: number): Promise<void>;
+	readonly layer: GintLayer | null;
+	tip: TipSetter;
+	pop: PopSetter;
+}
+export function createGintView(map: GintMap, { overviewZoom = 1.5, minZoom = 2, spinDegPerSec = 4 }: GintViewOpts = {}): GintView {
+	map = rawMap(map);   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
 	const tip = map.gadget.tip();   // カーソル追従（エンジンが起動時に搭載済み＝同じ setter が返る）
 	const pop = map.gadget.pop();   // 地点に錨を打つ吹き出し
-	let layer = null, token = 0;
+	let layer: GintLayer | null = null, token = 0;
 
 	// ---- 1枚見せる ----
-	async function show(pbf, { tipHtml = null, popHtml = null, fit = true, fill = true } = {}) {   // fill:false＝面を塗らず輪郭だけ
+	async function show(pbf: GintPbf | null | undefined, { tipHtml = null, popHtml = null, fit = true, fill = true }: GintShowOpts = {}): Promise<GintLayer | null> {   // fill:false＝面を塗らず輪郭だけ
 		clear();
 		const my = ++token;
 		if (!pbf?.length) return null;
@@ -65,13 +115,13 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 	}
 
 	// ---- データへ寄る（旧 zoomToFeature の置き換え）----
-	function fitTo(pbf) {
+	function fitTo(pbf: GintPbf): Promise<unknown> | undefined {
 		const [w, s, e, n] = pbf.bbox ?? [];
 		if (![w, s, e, n].every(Number.isFinite)) return;
-		let lon, lat, zoom;
+		let lon: number, lat: number, zoom: number;
 		if (e - w > 300) {
 			// bbox がほぼ全球（±180 付近）→ bbox 中心は 0° 付近になる誤り。feature bbox 中心の 3D 平均で真の重心を出す
-			let sx = 0, sy = 0, sz = 0; const pts = [];
+			let sx = 0, sy = 0, sz = 0; const pts: [number, number][] = [];
 			pbf.forEach(i => {
 				const b = pbf.getBbox(i);
 				if (!b || !isFinite(b[0])) return;
@@ -96,7 +146,7 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 		return map.flyTo(lon, lat, zoom, 0, 0);
 	}
 
-	function clear() {
+	function clear(): void {
 		token++;
 		tip(null); pop.clear(true);
 		if (layer) { layer.remove(); layer = null; }
@@ -105,9 +155,9 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 
 	// ---- 待ち受けの自転（旧 autoRotate）----
 	const spinner = createSpin(map, spinDegPerSec);
-	const spin = on => spinner(on);
+	const spin = (on: boolean): void => spinner(on);
 	// 待ち受けへ戻る（真俯瞰・概観ズームへ飛んでから自転）。飛行中に次の show が来たら自転しない
-	async function home(lat = 0) {
+	async function home(lat = 0): Promise<void> {
 		const my = ++token;
 		await map.flyTo(map.cam.center[0], lat, overviewZoom, 0, 0);
 		if (my === token) spin(true);
@@ -129,24 +179,32 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 //   { bbox, classes, width, height } … 分類コード（画素値 0..255）を deflate-raw した物＝真実源。palette で塗る（推奨）
 //   { bbox, webpData|bytes, mime }   … 画像。palette があれば最寄りの色へ吸着（非可逆画像では分類が崩れ得る＝近似）
 // palette＝分類の色表 [{ code(画素値), rgb:[r,g,b], label }]。戻り値の .query(lon, lat) はその地点の分類（palette の要素）。
-export async function showRasterMeshes(map, meshes, { id = "meshes", name = null, attribution = null, opacity = 0.85, maxZoom = 15, palette = null } = {}) {
-	const list = [...meshes].map(([key, m]) => ({ key, bbox: m.bbox, bytes: m.webpData ?? m.bytes, mime: m.mime || "image/webp",
+export interface RasterMesh { bbox: number[]; classes?: Uint8Array<ArrayBuffer> | null; width?: number; height?: number; webpData?: BufferSource; bytes?: BufferSource; mime?: string }
+export interface PaletteEntry { code: number; rgb: [number, number, number]; label?: string }
+export interface RasterMeshesOpts { id?: string; name?: string | null; attribution?: string | null; opacity?: number; maxZoom?: number; palette?: PaletteEntry[] | null }
+/** 戻り＝外す関数。query(lon, lat)＝その地点の分類（palette の要素・palette 無し／外＝null） */
+export interface RasterMeshesHandle { (): void; query?: (lon: number, lat: number) => Promise<PaletteEntry | null> }
+interface MeshItem { key: string; bbox: number[]; bytes: BufferSource | undefined; mime: string; classes: Uint8Array<ArrayBuffer> | null; cw: number | undefined; ch: number | undefined }
+interface Pixels { W: number; H: number; px: Uint32Array }
+interface Mosaic extends Pixels { bbox: number[] }
+export async function showRasterMeshes(map: GintMap, meshes: Iterable<[string, RasterMesh]>, { id = "meshes", name = null, attribution = null, opacity = 0.85, maxZoom = 15, palette = null }: RasterMeshesOpts = {}): Promise<RasterMeshesHandle> {
+	const list: MeshItem[] = [...meshes].map(([key, m]) => ({ key, bbox: m.bbox, bytes: m.webpData ?? m.bytes, mime: m.mime || "image/webp",
 		classes: m.classes?.byteLength ? m.classes : null, cw: m.width, ch: m.height }))
 		.filter(m => Array.isArray(m.bbox) && m.bbox.length === 4 && m.bbox.every(Number.isFinite) && m.bbox[2] > m.bbox[0] && m.bbox[3] > m.bbox[1]
-			&& ((m.classes && m.cw > 0 && m.ch > 0) || m.bytes?.byteLength));
+			&& ((m.classes && m.cw! > 0 && m.ch! > 0) || m.bytes?.byteLength));
 	if (!list.length) return () => {};
 	const bb = list.reduce((a, m) => [Math.min(a[0], m.bbox[0]), Math.min(a[1], m.bbox[1]), Math.max(a[2], m.bbox[2]), Math.max(a[3], m.bbox[3])], [180, 90, -180, -90]);
 
 	// 分類色への吸着（色→吸着後の色を覚える＝圧縮のゆらぎは数百色程度なので実質タダ）
 	const pal = palette?.length ? palette.map(p => ({ ...p, u32: (255 << 24 | p.rgb[2] << 16 | p.rgb[1] << 8 | p.rgb[0]) >>> 0 })) : null;
-	const snapMemo = new Map();
-	const nearest = v => {
+	const snapMemo = new Map<number, number>();
+	const nearest = (v: number): number => {
 		const r = v & 255, g = v >>> 8 & 255, b = v >>> 16 & 255;
 		let best = 0, bd = Infinity;
-		for (let k = 0; k < pal.length; k++) { const q = pal[k].rgb, d = (r - q[0]) ** 2 + (g - q[1]) ** 2 + (b - q[2]) ** 2; if (d < bd) { bd = d; best = k; } }
+		for (let k = 0; k < pal!.length; k++) { const q = pal![k].rgb, d = (r - q[0]) ** 2 + (g - q[1]) ** 2 + (b - q[2]) ** 2; if (d < bd) { bd = d; best = k; } }
 		return best;
 	};
-	const snap = px => {
+	const snap = (px: Uint32Array): Uint32Array => {
 		if (!pal) return px;
 		for (let i = 0; i < px.length; i++) {
 			const v = px[i];
@@ -161,11 +219,11 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 	// 分類コード→色（palette の code が画素値。表に無い値＝透明）
 	const lut = new Uint32Array(256);
 	if (pal) for (const p of pal) if (p.code >= 0 && p.code < 256) lut[p.code] = p.u32;
-	const inflate = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+	const inflate = async (bytes: BufferSource): Promise<Uint8Array> => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
 	// 入力→画素（RGBA を Uint32 で。scale<1＝縮めて持つ＝最近傍で間引き）
-	const pixelsOf = async (m, scale = 1) => {
+	const pixelsOf = async (m: MeshItem, scale = 1): Promise<Pixels> => {
 		if (m.classes && pal) {
-			const idx = await inflate(m.classes), W0 = m.cw, H0 = m.ch;
+			const idx = await inflate(m.classes), W0 = m.cw!, H0 = m.ch!;
 			const W = Math.max(1, Math.round(W0 * scale)), H = Math.max(1, Math.round(H0 * scale)), px = new Uint32Array(W * H);
 			const sxs = new Int32Array(W);
 			for (let x = 0; x < W; x++) sxs[x] = Math.min(W0 - 1, ((x + 0.5) / W * W0) | 0);
@@ -175,18 +233,18 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 			}
 			return { W, H, px };
 		}
-		const b = await createImageBitmap(new Blob([m.bytes], { type: m.mime }));
+		const b = await createImageBitmap(new Blob([m.bytes!], { type: m.mime }));
 		const W = Math.max(1, Math.round(b.width * scale)), H = Math.max(1, Math.round(b.height * scale));
-		const cv = new OffscreenCanvas(W, H), cx = cv.getContext("2d", { willReadFrequently: true });
+		const cv = new OffscreenCanvas(W, H), cx = cv.getContext("2d", { willReadFrequently: true })!;
 		cx.imageSmoothingEnabled = false;
 		cx.drawImage(b, 0, 0, W, H);
 		b.close();
 		return { W, H, px: snap(new Uint32Array(cx.getImageData(0, 0, W, H).data.buffer)) };
 	};
 	// メッシュ画素の LRU（段ごとに別鍵）。バイト数で上限＝原寸なら約 32 枚
-	const LRU_BYTES = 96 << 20, lru = new Map();
+	const LRU_BYTES = 96 << 20, lru = new Map<string, { p: Promise<Pixels | null>; bytes: number }>();
 	let lruBytes = 0;
-	const meshPixels = (m, scale) => {
+	const meshPixels = (m: MeshItem, scale: number): Promise<Pixels | null> => {
 		const k = m.key + "@" + scale;
 		let e = lru.get(k);
 		if (e) { lru.delete(k); lru.set(k, e); return e.p; }
@@ -195,13 +253,13 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 		lru.set(k, e);
 		return e.p;
 	};
-	const trim = () => {
+	const trim = (): void => {
 		for (const [k, e] of lru) { if (lruBytes <= LRU_BYTES || lru.size <= 4) break; lru.delete(k); lruBytes -= e.bytes; }
 	};
 	// 低ズーム用の縮約モザイク（0.02°/px ≒ 2km）＝一度だけ作る。メッシュは1枚ずつ解いて描いて閉じる
 	const MOSAIC_DEG = 0.02;
-	let mosaicP = null;
-	const mosaic = () => mosaicP ??= (async () => {
+	let mosaicP: Promise<Mosaic> | null = null;
+	const mosaic = (): Promise<Mosaic> => mosaicP ??= (async () => {
 		const W = Math.ceil((bb[2] - bb[0]) / MOSAIC_DEG), H = Math.ceil((bb[3] - bb[1]) / MOSAIC_DEG), px = new Uint32Array(W * H);
 		for (const m of list) {   // 1枚ずつ縮めて拾って捨てる（全部を同時に持たない）
 			const [w, s, e, n] = m.bbox;
@@ -209,7 +267,7 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 			const x0 = Math.round((w - bb[0]) / MOSAIC_DEG), x1 = Math.round((e - bb[0]) / MOSAIC_DEG);
 			const y0 = Math.round((bb[3] - n) / MOSAIC_DEG), y1 = Math.round((bb[3] - s) / MOSAIC_DEG);
 			const rw = Math.max(1, x1 - x0), rh = Math.max(1, y1 - y0);
-			const src = await pixelsOf(m, rw / (m.classes ? m.cw : (m.cw || 800))).catch(() => null);
+			const src = await pixelsOf(m, rw / (m.classes ? m.cw! : (m.cw || 800))).catch(() => null);
 			if (!src) continue;
 			for (let y = 0; y < rh; y++) {
 				const ty = y0 + y; if (ty < 0 || ty >= H) continue;
@@ -225,10 +283,10 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 	})();
 
 	const TS = 256;
-	const mercLat = t => Math.atan(Math.sinh(Math.PI * (1 - 2 * t))) * R2D;   // t＝タイル座標/2^z（0=北端）
-	const overlaps = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+	const mercLat = (t: number): number => Math.atan(Math.sinh(Math.PI * (1 - 2 * t))) * R2D;   // t＝タイル座標/2^z（0=北端）
+	const overlaps = (a: number[], b: number[]): boolean => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 	// 1枚の等緯度経度画像から、タイルの画素へ最近傍で拾う（透明画素は下を残す＝重なりは後勝ち）
-	function sample(out, src, [w, s, e, n], lons, lats) {
+	function sample(out: Uint32Array, src: Pixels, [w, s, e, n]: number[], lons: Float64Array, lats: Float64Array): void {
 		const { W, H, px } = src;
 		const cols = new Int32Array(TS);
 		let any = false;
@@ -250,7 +308,7 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 			}
 		}
 	}
-	async function renderTile(z, x, y) {
+	async function renderTile(z: number, x: number, y: number): Promise<ImageBitmap | null> {
 		const n2 = 1 << z, lon0 = x / n2 * 360 - 180, lon1 = (x + 1) / n2 * 360 - 180;
 		const tb = [lon0, mercLat((y + 1) / n2), lon1, mercLat(y / n2)];
 		if (!overlaps(tb, bb)) return null;
@@ -271,25 +329,25 @@ export async function showRasterMeshes(map, meshes, { id = "meshes", name = null
 	}
 
 	const ch = new MessageChannel(), port = ch.port1;
-	port.onmessage = async ev => {
-		const { id: rid, z, x, y, abort } = ev.data || {};
+	port.onmessage = async (ev: MessageEvent<{ id?: number; z: number; x: number; y: number; abort?: boolean } | null | undefined>) => {
+		const { id: rid, z, x, y, abort } = ev.data || {} as Partial<NonNullable<typeof ev.data>>;
 		if (abort) return;   // 描きかけは捨てるだけ（相手は既に reject 済み＝遅着は向こうが閉じる）
-		try { const bitmap = await renderTile(z, x, y); port.postMessage({ id: rid, bitmap }, bitmap ? [bitmap] : []); }
-		catch (e) { port.postMessage({ id: rid, error: String(e?.message || e) }); }
+		try { const bitmap = await renderTile(z!, x!, y!); port.postMessage({ id: rid, bitmap }, bitmap ? [bitmap] : []); }
+		catch (e) { port.postMessage({ id: rid, error: String((e as Error)?.message || e) }); }
 	};
 	port.postMessage({ type: "info", info: { tileSize: TS, minZoom: 0, maxZoom, bbox: bb, name, attribution } });
 	await map.raster.add(id, { port: ch.port2, name, attribution }, { order: "over", opacity, hideFills: false });
 	map.requestDraw();
-	const remove = () => {
+	const remove: RasterMeshesHandle = () => {
 		map.raster.remove(id);
 		port.onmessage = null; port.close();
 		lru.clear(); lruBytes = 0;
 		mosaicP = null;
 	};
 	// 地点の分類（原寸の画素から。重なりは後勝ち＝描画と同じ）
-	remove.query = async (lon, lat) => {
+	remove.query = async (lon: number, lat: number): Promise<PaletteEntry | null> => {
 		if (!pal) return null;
-		let hit = null;
+		let hit: PaletteEntry | null = null;
 		for (const m of list) {
 			const [w, s, e, n] = m.bbox;
 			if (!(lon >= w && lon < e && lat >= s && lat < n)) continue;

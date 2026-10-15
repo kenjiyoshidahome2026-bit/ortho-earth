@@ -4,14 +4,16 @@
 // 中身が変わればキーが変わる＝バケツの GET が immutable で返せる（workers/bucket.js）。更新の手順＝scripts/shared-data.mjs で manifest → uploader の「共有データ」ボタンで R2 へ。
 import MANIFEST from "./manifest.json" with { type: "json" };
 
-export const sharedDataUrl = (name, apiBase) => {
-	const key = MANIFEST[name];
+export const sharedDataUrl = (name: string, apiBase: string): string => {
+	const key = (MANIFEST as Record<string, string>)[name];
 	if (!key) throw new Error(`shared-data: manifest に無い名前 ${name}`);
 	return `${apiBase}/bucket/${key}`;
 };
 
 // バケツは put の時に gzip して Content-Encoding を刻む。経路によっては gzip のまま届く（nlftp の読み手と同じ構え）＝頭の 2 バイトで見て解く
-export async function fetchSharedData(name, apiBase, as = "text") {
+export async function fetchSharedData(name: string, apiBase: string, as?: "text"): Promise<string>;
+export async function fetchSharedData(name: string, apiBase: string, as: "json"): Promise<unknown>;
+export async function fetchSharedData(name: string, apiBase: string, as: "text" | "json" = "text"): Promise<unknown> {
 	const res = await fetch(sharedDataUrl(name, apiBase));
 	if (!res.ok) throw new Error(`shared-data: HTTP ${res.status} ${name}`);
 	let buf = await res.arrayBuffer();
