@@ -83,6 +83,30 @@ export function readRecords(rec, n, hdr) {
 }
 
 /**
+ * 解いた点の記録 → 列（位置は記録のままの整数＝scale・offset を掛ける前）。丸ごと読み（段 3-3）で全点を持つ時に Float64 の 1/2 で済ませる用。
+ *   rgb は 8bit（shift＝右へずらす数・16bit の作法なら 8）
+ * @returns {{ X: Int32Array, Y, Z, intensity: Uint16Array, classification: Uint8Array, rgb: Uint8Array | null }}
+ */
+export function readRecordsRaw(rec, n, hdr, { shift = 8 } = {}) {
+	const dv = new DataView(rec.buffer, rec.byteOffset, rec.byteLength), L = hdr.recordLength;
+	const X = new Int32Array(n), Y = new Int32Array(n), Z = new Int32Array(n), intensity = new Uint16Array(n), classification = new Uint8Array(n);
+	const ro = RGB_AT[hdr.format], rgb = ro !== undefined ? new Uint8Array(n * 3) : null, legacy = hdr.format < 6;
+	for (let i = 0, o = 0; i < n; i++, o += L) {
+		X[i] = dv.getInt32(o, true); Y[i] = dv.getInt32(o + 4, true); Z[i] = dv.getInt32(o + 8, true);
+		intensity[i] = dv.getUint16(o + 12, true); classification[i] = legacy ? dv.getUint8(o + 15) & 31 : dv.getUint8(o + 16);
+		if (rgb) { rgb[i * 3] = dv.getUint16(o + ro, true) >> shift; rgb[i * 3 + 1] = dv.getUint16(o + ro + 2, true) >> shift; rgb[i * 3 + 2] = dv.getUint16(o + ro + 4, true) >> shift; }
+	}
+	return { X, Y, Z, intensity, classification, rgb };
+}
+/** 記録の RGB の最大（8bit で入れる書き手を見分ける＝最大が 255 以下なら shift 0） */
+export function rgbMax(rec, n, hdr) {
+	const ro = RGB_AT[hdr.format]; if (ro === undefined) return 0;
+	const dv = new DataView(rec.buffer, rec.byteOffset, rec.byteLength), L = hdr.recordLength; let mx = 0;
+	for (let i = 0, o = ro; i < n; i++, o += L) for (let k = 0; k < 6; k += 2) { const v = dv.getUint16(o + k, true); if (v > mx) mx = v; }
+	return mx;
+}
+
+/**
  * GeoTIFF キーの表（VLR "LASF_Projection" 34735・u16 の並び）→ { horizontal, vertical }（EPSG 番号・無ければ null）。
  *   ProjectedCSTypeGeoKey 3072 → 無ければ GeographicTypeGeoKey 2048・VerticalCSTypeGeoKey 4096。値 0（未定義）・32767（独自）は null
  */

@@ -1,5 +1,6 @@
-// ガジェット：COPC（Cloud Optimized Point Cloud・.copc.laz）を範囲読みで直に流す（#178・maplibre-gl-lidar 相当・変換無し・サーバー無し）。
-//   map.addCOPC(url | File, opts) / ?copc=<URL> / .copc.laz のドロップ。
+// ガジェット：点群（COPC＝Cloud Optimized Point Cloud・.copc.laz）を範囲読みで直に流す（#178・maplibre-gl-lidar 相当・変換無し・サーバー無し）。
+//   map.addPointCloud(url | File, opts)（＝addCOPC）/ ?copc=<URL> / .las・.laz のドロップ。
+//   普通の LAS/LAZ（COPC でない・点群計画 段 3-3）は worker が丸ごと読んでその場で八分木を作る＝ここから見ると節の並びは COPC と同じ（info.inMemory）。
 //   選び＝節の点の間隔を今の距離で画面の px に直し、density（既定 2px・LOW_MEM 3px）より粗ければ子へ降りる。COPC の節は足し算（ADD）＝親も子も描く。
 //   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。
 //   描き＝copc-gl.js（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
@@ -41,6 +42,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		const opened = await rpc({ type: "open", id, src: url, headers, crs: set.opts.crs, vertical: set.opts.vertical }, `o${id}`);
 		if (!sets.has(id)) throw new Error("removed while opening");
 		set.info = opened.info;
+		if (set.info.inMemory) { set.stats.requests = 1; set.stats.bytes = set.info.size; }   // 丸ごと読み（段 3-3）＝取ったのは open の 1 回だけ・節は手元から
 		if (set.info.vertical === "ellipsoidal") await loadGeoid().catch(() => {});
 		for (const n of opened.root.nodes) addNode(set, n);
 		for (const p of opened.root.pages) set.pages.set(keyStr(p.key), { ...p, state: "none" });
@@ -67,7 +69,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		}).catch(err => { p.state = "failed"; console.warn(`[copc] ${set.id}: hierarchy page`, err); });
 	}
 	function loadNode(set, n) {
-		n.state = "loading"; inflight++; set.stats.requests++; set.stats.bytes += n.byteSize;
+		n.state = "loading"; inflight++; if (!set.info.inMemory) { set.stats.requests++; set.stats.bytes += n.byteSize; }
 		const N = set.info.vertical === "ellipsoidal" ? geoidHeight(n.ll[0], n.ll[1]) || 0 : 0;
 		const q = ++rid;
 		rpc({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, heightOffset: set.opts.heightOffset || 0 }, q).then(r => {

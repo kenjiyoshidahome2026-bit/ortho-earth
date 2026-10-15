@@ -4,7 +4,8 @@
              色の切り替え（rgb → 分類）で絵が変わる・点の大きさの切り替え・消すと画素が消える
      ?v=depth＝奥行き：点群の上に建物（押し出しの箱・高さ 400m）を置いて真上から見る＝箱の下の点は隠れる（depth 既定）・depth:false なら透ける
              （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
-     ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）・COPC でない .laz は「まだ読めない」と断る
+     ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）・普通の LAZ（COPC の印を消した同じ点）と LAS 1.2・形式 3（合成・東京駅のあたり）は丸ごと読んで八分木（点群計画 段 3-3）：
+             座標系の無い LAS は断る・{ crs: "EPSG:6677" } で読める・GeoTIFF キーがあれば .las のドロップで読める
      画素＝オーバーレイの canvas（dbgHost.__ovPixels("copc:<id>")・透明の上に描く＝アルファで見る） -->
 <html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-copc</title></head>
 <body><div id="map"></div>
@@ -17,6 +18,21 @@ addEventListener("error", e => errs.push(String(e.message || e)));
 addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
 const until = async (fn, ms = 20000, step = 200) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
 const FX = new URL("./fixtures/copc/ellipsoid.copc.laz", location.href).href;
+// LAS 1.2・形式 3（34B）を作る＝東京駅のあたり（平面直角 IX 系・EPSG:6677）の 200 m 四方・高さ 3〜40 m・RGB 16bit。epsg＝GeoTIFF キーの VLR を付ける
+function makeLas12(n, epsg) {
+	const keys = epsg ? new Uint16Array([1, 1, 0, 2, 1024, 0, 1, 1, 3072, 0, 1, epsg]) : null, vlr = keys ? 54 + keys.byteLength : 0, L = 34, off = 227 + vlr;
+	const u8 = new Uint8Array(off + n * L), dv = new DataView(u8.buffer), sc = 0.001, ox = -6000, oy = -35000;
+	u8.set(new TextEncoder().encode("LASF")); u8[24] = 1; u8[25] = 2;
+	dv.setUint16(94, 227, true); dv.setUint32(96, off, true); dv.setUint32(100, keys ? 1 : 0, true); u8[104] = 3; dv.setUint16(105, L, true); dv.setUint32(107, n, true);
+	for (const [k, v] of [[131, sc], [139, sc], [147, sc], [155, ox], [163, oy], [171, 0], [179, ox + 200], [187, ox], [195, oy + 200], [203, oy], [211, 40], [219, 3]]) dv.setFloat64(k, v, true);
+	if (keys) { u8.set(new TextEncoder().encode("LASF_Projection"), 227 + 2); dv.setUint16(227 + 18, 34735, true); dv.setUint16(227 + 20, keys.byteLength, true); u8.set(new Uint8Array(keys.buffer), 227 + 54); }
+	for (let i = 0, o = off; i < n; i++, o += L) {
+		const x = (i * 0.618034 % 1) * 200, y = i / n * 200, z = 3 + 37 * (0.5 + 0.5 * Math.sin(x / 30) * Math.cos(y / 25));
+		dv.setInt32(o, Math.round(x / sc), true); dv.setInt32(o + 4, Math.round(y / sc), true); dv.setInt32(o + 8, Math.round(z / sc), true);
+		dv.setUint16(o + 12, 1000, true); u8[o + 15] = 2; dv.setUint16(o + 28, 40000, true); dv.setUint16(o + 30, 50000, true); dv.setUint16(o + 32, 20000, true);
+	}
+	return u8;
+}
 const grab = async name => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels(name); if (p && !p.error) return p; await sleep(250); } return null; };
 // 描かれた画素（アルファ > 0）の数と、色の和（色の切り替えの見分け）
 const count = p => { let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < p.data.length; i += 4) if (p.data[i + 3] > 20) { n++; r += p.data[i]; g += p.data[i + 1]; b += p.data[i + 2]; } return { n, rgb: n ? [r / n, g / n, b / n].map(Math.round) : null }; };
@@ -97,9 +113,28 @@ try {
 		await landed(map);
 		const p = await until(async () => { const c = count(await grab("copc:drop")); return c.n > 500 ? c : null; }, 30000, 500);
 		ok("drop", r?.length === 100000 && !!p, `r=${JSON.stringify(r)} px=${p?.n}`);
-		// COPC でない .las/.laz（点群計画 段 1-2）＝本道（GeoPBF）へ回さず、はっきり断る
-		const plain = await window.__loadUserFile(new File([blob], "plain.laz")).then(() => "resolved", e => String(e?.message || e));
-		ok("plain-laz", /not a COPC/.test(plain), plain);
+		map.removePointCloud("drop");
+		// 普通の LAZ（点群計画 段 3-3）＝COPC の印（VLR の userId）を書き換えた同じ点＝丸ごと読んで八分木を作る
+		const u8 = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(u8.buffer);
+		let o = dv.getUint16(94, true);
+		for (let i = 0; i < dv.getUint32(100, true); i++) { if (new TextDecoder().decode(u8.subarray(o + 2, o + 6)) === "copc") u8.set([120], o + 5); o += 54 + dv.getUint16(o + 20, true); }   // "copc" → "copx"
+		const hp = await map.addPointCloud(new File([u8], "plain.laz"), { id: "plain" });
+		const sp = await settled(hp), pp = await until(async () => { const c = count(await grab("copc:plain")); return c.n > 500 ? c : null; }, 30000, 500);
+		ok("plain-laz", !hp.info.copc && hp.info.inMemory && hp.info.count === 100000 && hp.info.crs === "EPSG:3857" && sp?.failed === 0 && !!pp,
+			JSON.stringify({ copc: hp.info.copc, mem: hp.info.inMemory, n: hp.info.count, nodes: hp.info.nodeCount, load: hp.info.load, crs: hp.info.crs, s: sp && { nodes: sp.nodes, points: sp.points, req: sp.requests }, px: pp?.n }));
+		hp.remove();
+		// LAS 1.2・形式 3（日本の配布物の形）＝座標系の書かれていない物は断る・crs で指定・GeoTIFF キー（VLR 34735）なら .las のドロップで読める
+		const bare = new File([makeLas12(40000, null)], "bare.las");
+		const noCrs = await map.addPointCloud(bare, { id: "bare", fit: false }).then(() => "resolved", e => String(e?.message || e));
+		ok("las12-nocrs", /no coordinate system/.test(noCrs), noCrs.slice(0, 120));
+		const hb = await map.addPointCloud(bare, { id: "bare", crs: "EPSG:6677" });
+		const sb = await settled(hb), pb = await until(async () => { const c = count(await grab("copc:bare")); return c.n > 300 ? c : null; }, 30000, 500);
+		ok("las12-crs", hb.info.version === "1.2" && hb.info.count === 40000 && hb.info.crsFrom === "opts" && Math.abs(hb.info.center[0] - 139.767) < 0.02 && Math.abs(hb.info.center[1] - 35.685) < 0.02 && /orthometric/.test(hb.info.vertical) && sb?.failed === 0 && !!pb,
+			JSON.stringify({ v: hb.info.version, n: hb.info.count, c: hb.info.center, from: hb.info.crsFrom, vert: hb.info.vertical, s: sb && sb.points, px: pb?.n }));
+		hb.remove();
+		const rk = await window.__loadUserFile(new File([makeLas12(40000, 6677)], "keys.las"), { fit: true });
+		const pk = await until(async () => { const c = count(await grab("copc:drop")); return c.n > 300 ? c : null; }, 30000, 500);
+		ok("las12-geokeys", rk?.length === 40000 && !!pk, `r=${JSON.stringify(rk)} px=${pk?.n}`);
 		map.destroy();
 	}
 	await sleep(300);

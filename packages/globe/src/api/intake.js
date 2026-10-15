@@ -122,14 +122,9 @@ export function installIntake(map, live, {
 			convert: file => parquetToGeopbf(file),
 		},
 		{
-			name: "copc",   // COPC の点群（#178）＝ファイルのまま Range 相当（Blob.slice）で節だけ読む。.copc.laz 以外の LAS/LAZ は扱わない（流せない）
-			test: f => /\.copc\.laz$/i.test(f.name),
-			draw: async (file, ctx) => { live.annoCtl?.clear(); gint.clearUserGint(); const h = await map.addCOPC(file, { id: "drop", fit: ctx?.fit !== false }); return { length: h.info.count }; },
-		},
-		{
-			name: "las",   // COPC でない LAS/LAZ（点群計画 段 1-2・2026-10-15）＝まだ読めない＝本道（GeoPBF）へ回すと分かりにくい失敗になるので、ここで言う。丸ごと読み（段 3）ができたら差し替える
+			name: "copc",   // 点群（#178）＝COPC はファイルのまま Range 相当（Blob.slice）で節だけ読む・普通の LAS/LAZ は丸ごと読んで八分木を作る（点群計画 段 3-3・2,000 万点まで）
 			test: f => /\.(las|laz)$/i.test(f.name),
-			draw: async () => { throw new Error(tr()("This point cloud is not a COPC (.copc.laz). Plain LAS/LAZ files cannot be read yet.")); },
+			draw: async (file, ctx) => { live.annoCtl?.clear(); gint.clearUserGint(); const h = await map.addPointCloud(file, { id: "drop", fit: ctx?.fit !== false }); return { length: h.info.count }; },
 		},
 		{
 			name: "georef",   // 基準点の注記（Georeference Annotation・Allmaps の JSON・#177）＝IIIF の古地図を地面に貼る。注記でない .json は本道（従来どおり）へ

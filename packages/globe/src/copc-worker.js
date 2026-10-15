@@ -1,4 +1,5 @@
-// COPC（Cloud Optimized Point Cloud）の読み手 worker（#178）。main（gadgets/copc.js）が選んだ節だけを Range で取って LAZ を解き、原点相対の点にして返す。
+// 点群（COPC・普通の LAS/LAZ）の読み手 worker（#178）。main（gadgets/copc.js）が選んだ節だけを Range で取って LAZ を解き、原点相対の点にして返す。
+//   普通の LAS/LAZ（COPC info が無い物・点群計画 段 3-3）は open で丸ごと読み、その場で八分木を作る（pointcloud-octree.js）＝以降の節は手元から集めるだけ。
 //   開く  { type:"open", id, src: URL | Blob, headers?, crs?, vertical?, ell } → { type:"opened", id, info, root: { nodes, pages } }
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
 //   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), ms: { read, decode, proj } }
@@ -12,7 +13,8 @@ import { openSource } from "geopbf/cog/source";
 import { resolveCrs } from "./pointcloud-crs.js";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
 import { placeNode } from "./copc-place.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
+import { wholeFileLimit, createStore, appendRaw, buildOctree, gatherNode } from "./pointcloud-octree.js";
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 
 let LAZ = null;
 const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and alias "#pointcloud-formats" to "@ortho-earth/tile-formats/pointcloud" in your bundler';
@@ -30,18 +32,51 @@ function withSpheres(set, page) {
 	return page;
 }
 
+// 普通の LAS/LAZ（COPC でない・点群計画 段 3-3）＝丸ごと読んで全点を持ち、その場で八分木を作る（pointcloud-octree.js）。節は COPC と同じ形で返す（offset＝idx の始まり・byteSize 0）
+async function readWhole(src, hdr, vlrs, local) {
+	const over = wholeFileLimit({ count: hdr.pointCount, size: src.size, local });
+	if (over) throw new Error(over);
+	const lazed = hdr.compressed || vlrs.some(v => v.userId === "laszip encoded");
+	if (lazed && !POINTCLOUD_FORMATS.lazFile) throw new Error(NO_LAZ);
+	const t0 = performance.now(), L = hdr.recordLength;
+	let store = null, shift = 8, tRead = 0;
+	const take = (rec, k) => {
+		if (!store) { shift = rgbMax(rec, k, hdr) > 255 ? 8 : 0; store = createStore(hdr.pointCount, { rgb: hasRgb(hdr.format), scale: hdr.scale, offset: hdr.offset }); }   // LAS の RGB は 16bit が作法だが 8bit のまま入れる書き手もいる＝最初の束の最大で見分ける
+		appendRaw(store, readRecordsRaw(rec, k, hdr, { shift }), k);
+	};
+	if (lazed) {
+		const [bytes, decode] = await Promise.all([src.read(0, src.size), POINTCLOUD_FORMATS.lazFile()]);
+		tRead = performance.now() - t0;
+		const r = await decode(bytes, take);
+		if (r.recordLength !== L) throw new Error(`pointcloud: LAZ record length ${r.recordLength} does not match the header (${L})`);
+	} else {
+		const B = 1 << 18;
+		for (let i = 0; i < hdr.pointCount; i += B) {
+			const k = Math.min(B, hdr.pointCount - i), t = performance.now();
+			const buf = new Uint8Array(await src.read(hdr.pointOffset + i * L, k * L));
+			tRead += performance.now() - t;
+			take(buf, Math.min(k, Math.floor(buf.byteLength / L)));
+		}
+	}
+	if (!store || !store.at) throw new Error("pointcloud: the file has no points");
+	const t1 = performance.now(), tree = buildOctree(store), t2 = performance.now();
+	return { store, tree, ms: { read: Math.round(tRead), decode: Math.round(t1 - t0 - tRead), build: Math.round(t2 - t1) } };
+}
+
 async function open(m) {
-	if (!POINTCLOUD_FORMATS.laz) throw new Error(NO_LAZ);   // 取りに行く前に
+	const name = typeof m.src === "string" ? new URL(m.src, self.location.href).pathname : m.src?.name || "";
+	if (!POINTCLOUD_FORMATS.laz && /\.laz$/i.test(name)) throw new Error(NO_LAZ);   // 取りに行く前に（.las は解読器なしで読める＝ヘッダを見るまで分からない物だけ取る）
 	const fetchFn = m.headers ? (u, init = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...m.headers } }) : undefined;
 	const src = await openSource(m.src, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) });
 	let head = new Uint8Array(src.head);
 	const hdr = parseHeader(head);
-	if (hdr.version[1] < 4 || (!hdr.compressed && hdr.format < 6)) throw new Error(`copc: not a LAZ 1.4 point cloud (LAS ${hdr.version.join(".")}, format ${hdr.format})`);
 	if (hdr.pointOffset > head.byteLength) head = new Uint8Array(await src.read(0, hdr.pointOffset));
 	const vlrs = listVlrs(head, hdr.headerSize, hdr.vlrCount);
 	const ci = vlrs.find(v => v.userId === "copc" && v.recordId === 1);
-	if (!ci) throw new Error("copc: no COPC info VLR (not a Cloud Optimized Point Cloud — plain LAS/LAZ is not streamed)");
-	const info = parseCopcInfo(head, ci.offset);
+	if (ci) {
+		if (!POINTCLOUD_FORMATS.laz) throw new Error(NO_LAZ);   // 節を取りに行く前に
+		if (hdr.version[1] < 4 || (!hdr.compressed && hdr.format < 6)) throw new Error(`copc: not a LAZ 1.4 point cloud (LAS ${hdr.version.join(".")}, format ${hdr.format})`);
+	}
 	let wktV = vlrs.find(v => v.userId === "LASF_Projection" && v.recordId === 2112);
 	let wkt = wktV ? new TextDecoder().decode(head.subarray(wktV.offset, wktV.offset + wktV.length)).replace(/\0[\s\S]*$/, "") : null;
 	if (!wkt && hdr.evlrCount) {   // WKT が EVLR にある物
@@ -50,18 +85,23 @@ async function open(m) {
 		if (ev) wkt = new TextDecoder().decode(tail.subarray(ev.offset, ev.offset + ev.length)).replace(/\0[\s\S]*$/, "");
 	}
 	const gk = vlrs.find(v => v.userId === "LASF_Projection" && v.recordId === 34735);
-	const r = resolveCrs({ wkt, geoKeys: gk ? geoKeysEpsg(head, gk.offset, gk.length) : null, crs: m.crs, vertical: m.vertical });   // 水平・鉛直の決め方＝pointcloud-crs.js
-	const { crs, ll } = r, vert = { unit: r.vUnit };
-	const set = { src, hdr, info, crs, ll, vUnit: r.vUnit, orthometric: r.orthometric, lonlat: r.lonlat };
+	const r = resolveCrs({ wkt, geoKeys: gk ? geoKeysEpsg(head, gk.offset, gk.length) : null, crs: m.crs, vertical: m.vertical });   // 水平・鉛直の決め方＝pointcloud-crs.js（点を読む前に＝座標系が無ければ早く断る）
+	const { crs, ll } = r;
+	const whole = ci ? null : await readWhole(src, hdr, vlrs, typeof m.src !== "string");
+	const info = ci ? parseCopcInfo(head, ci.offset) : whole.tree.info;
+	const set = { src: whole ? null : src, hdr, info, crs, ll, vUnit: r.vUnit, orthometric: r.orthometric, lonlat: r.lonlat, mem: whole && { store: whole.store, idx: whole.tree.idx } };
 	sets.set(m.id, set);
-	const corners = [[hdr.min[0], hdr.min[1]], [hdr.max[0], hdr.min[1]], [hdr.max[0], hdr.max[1]], [hdr.min[0], hdr.max[1]]].map(ll);
+	const lo = whole ? whole.store.min : hdr.min, hi = whole ? whole.store.max : hdr.max;
+	const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(ll);
 	const bbox = [Math.min(...corners.map(c => c[0])), Math.min(...corners.map(c => c[1])), Math.max(...corners.map(c => c[0])), Math.max(...corners.map(c => c[1]))];
-	const rootBuf = new Uint8Array(await src.read(info.rootHierOffset, info.rootHierSize));
+	const root = whole ? { nodes: whole.tree.nodes.map(nd => ({ key: nd.key, offset: nd.start, byteSize: 0, pointCount: nd.count })), pages: [] }
+		: parseHierarchyPage(new Uint8Array(await src.read(info.rootHierOffset, info.rootHierSize)));
 	return {
-		info: { count: hdr.pointCount, format: hdr.format, hasRgb: hasRgb(hdr.format), bbox, center: ll([info.center[0], info.center[1]]),
-			zRange: [hdr.min[2] * vert.unit, hdr.max[2] * vert.unit], cube: { center: info.center, halfsize: info.halfsize }, spacing: info.spacing, unit: vert.unit,
-			crs: r.label, crsFrom: r.from, vertical: r.verticalName, size: src.size },
-		root: withSpheres(set, parseHierarchyPage(rootBuf)),
+		info: { count: whole ? whole.store.at : hdr.pointCount, format: hdr.format, hasRgb: hasRgb(hdr.format), bbox, center: ll([info.center[0], info.center[1]]),
+			zRange: [lo[2] * r.vUnit, hi[2] * r.vUnit], cube: { center: info.center, halfsize: info.halfsize }, spacing: info.spacing, unit: r.vUnit,
+			crs: r.label, crsFrom: r.from, vertical: r.verticalName, size: src.size, version: hdr.version.join("."),
+			copc: !!ci, inMemory: !!whole, ...(whole ? { nodeCount: whole.tree.nodes.length, load: whole.ms } : {}) },
+		root: withSpheres(set, root),
 	};
 }
 
@@ -69,15 +109,20 @@ async function node(m) {
 	const set = sets.get(m.id); if (!set) throw new Error("copc: not open");
 	const { hdr, ll } = set, n = m.node.pointCount;
 	const t0 = performance.now();
-	const [buf, decode] = await Promise.all([set.src.read(m.node.offset, m.node.byteSize), laz()]);
-	const t1 = performance.now();
-	const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
-	const r = readRecords(rec, n, hdr);
+	let r, t1 = t0;
+	if (set.mem) r = gatherNode(set.mem.store, set.mem.idx, m.node.offset, n);   // 丸ごと読み＝手元の点を集めるだけ（rgb は 8bit 済み）
+	else {
+		const [buf, decode] = await Promise.all([set.src.read(m.node.offset, m.node.byteSize), laz()]);
+		t1 = performance.now();
+		const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
+		r = readRecords(rec, n, hdr);
+	}
 	const t2 = performance.now();
 	const dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0);
-	const { pos, origin, elev, affine } = placeNode(r, n, { ll, vUnit: set.vUnit, dz, EW: earthW(), bounds: nodeBounds(set.info, m.node.key) });   // 節ごとの一次式（ずれ 1 cm 超は 1 点ずつ）＝copc-place.js
+	const { pos, origin, elev, affine } = placeNode(r, n, { ll, vUnit: set.vUnit, dz, EW: earthW(), bounds: nodeBounds(set.info, m.node.key) });   // 節ごとの二次式（ずれ 1 cm 超は 1 点ずつ）＝copc-place.js
 	let rgb = null;
-	if (r.rgb) {   // LAS の RGB は 16bit が作法だが 8bit のまま入れる書き手もいる＝最大値で見分ける
+	if (r.rgb && set.mem) rgb = r.rgb;
+	else if (r.rgb) {   // LAS の RGB は 16bit が作法だが 8bit のまま入れる書き手もいる＝最大値で見分ける
 		let mx = 0; for (let i = 0; i < r.rgb.length; i++) if (r.rgb[i] > mx) mx = r.rgb[i];
 		const sh = mx > 255 ? 8 : 0; rgb = new Uint8Array(n * 3); for (let i = 0; i < rgb.length; i++) rgb[i] = r.rgb[i] >> sh;
 	}
