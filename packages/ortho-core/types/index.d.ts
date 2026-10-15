@@ -9,6 +9,7 @@ export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES,
 export type { HandlerName, InertiaOptions } from "./input.js";
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
 export type { Expression, ExprContext, FormatSection } from "./expr.js";
+import type { ExprContext } from "./expr.js";
 export { parseRGBA, isColor } from "./color.js";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
@@ -54,6 +55,15 @@ export const ML_FOV_DEG: number;
 export function mlCalculateTileZoom(centerZ: number, dist2D: number, distZ: number, dist3DCenter: number, fovDeg: number, maxLevels?: number, maxMinRatio?: number): number;
 export function mlTileZoomOf(cam: import("./camera.js").CameraPose, Hcss: number, cover: unknown, opts?: { tileSize?: number; round?: boolean }): number;
 
+// ── 式の地理（["within"]・["distance"] の中身・C2）
+export interface GeoJSONGeometry { type: string; coordinates: unknown }
+/** ctx（geojson か feat＋tile）→ 地物の形（経緯度）。無ければ null。 */
+export function featureGeomLL(ctx: ExprContext): GeoJSONGeometry | null;
+/** 地物が輪の列（面）の中か（MapLibre の within の約束＝境界の上は偽・面と Multi* は偽）。 */
+export function withinGeom(g: GeoJSONGeometry | null | undefined, rings: number[][][]): boolean;
+/** 地物と入力の GeoJSON の最短距離［m］。形が無ければ null。 */
+export function distanceGeom(g: GeoJSONGeometry | null | undefined, target: unknown): number | null;
+
 // ── 書体（text-font → CSS）
 export interface FontStack { fa: string; w: number; st: string }
 export function parseFontStack(names: string[] | string | null | undefined): FontStack;
@@ -69,8 +79,11 @@ export function mergeTiles(order: unknown[], geomOf: (id: unknown) => unknown, o
 // ── 工場（render worker・main の配管。戻りの形は各モジュールの注記が正典）
 export function createTileManager(opts: Record<string, unknown>): { [k: string]: unknown };
 export function createPipeline(opts: Record<string, unknown>): { [k: string]: unknown };
-/** worker の入口を差し替える（役割 "ortho:scene" / "ortho:tile"）。 */
-export function setWorkerFactory(fn: ((role: string, fallback: () => Worker) => Worker) | null): void;
+export type WorkerRole = "ortho:scene" | "ortho:tile" | "ortho:height";
+/** ホストの worker 工場。役割名だけを受け取る（fn(role)）。null／undefined を返せば組み込みの worker。 */
+export type WorkerFactory = (role: WorkerRole) => Worker | null | undefined;
+/** worker の入口を差し替える（役割 "ortho:scene" / "ortho:tile" / "ortho:height"）。null＝既定へ戻す。 */
+export function setWorkerFactory(fn: WorkerFactory | null): void;
 
 // ── PMTiles
 export const isPMTiles: (url: string) => boolean;
