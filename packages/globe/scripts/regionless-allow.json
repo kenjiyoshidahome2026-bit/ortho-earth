@@ -10,7 +10,7 @@
 		"packages/globe/src/columnar/view.js": {
 			"cos35°": {
 				"n": 1,
-				"why": "負債（地域）：視野 bbox の m/px を東京の緯度 cos35° で固定（globe.js の approxViewBbox と同式・2026-10-15 に旧 @ortho-earth/columnar から移って数に入った）。cos(lat) にする"
+				"why": "較正（地域の語ではない）：globe.js の approxViewBbox と同式（z は正射スケール＝m/px は緯度に依らない・0.819 は全球に同じく掛かる係数）。2026-10-15 に旧 @ortho-earth/columnar から移って数に入った"
 			}
 		},
 		"packages/globe/src/extrude-keys.js": {
@@ -88,7 +88,7 @@
 			},
 			"cos35°": {
 				"n": 1,
-				"why": "負債（地域）：metersPerPx を東京の緯度 cos35° で固定（正射スケール化の名残）。cos(lat) にする"
+				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない（camera.js の radPerDevPx）。0.819 は区選抜のゲートを東京で合わせた係数で、全国・全球に同じく掛かる。cos(lat) にすると札幌のチルトで奥の区が bbox 外に戻る（approxViewBbox のコメント）＝変えない"
 			},
 			"seirei": {
 				"n": 2,
@@ -264,7 +264,7 @@
 		"packages/ortho-core/src/gl/renderer.js": {
 			"cos35°": {
 				"n": 1,
-				"why": "負債（地域）：LOD 打ち切りの m/px を東京の緯度 cos35° で固定。cos(lat) にする"
+				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
 			}
 		},
 		"packages/ortho-core/src/gpu/gintwgsl.js": {
@@ -276,7 +276,7 @@
 		"packages/ortho-core/src/gpu/renderer.js": {
 			"cos35°": {
 				"n": 1,
-				"why": "負債（地域）：LOD 打ち切りの m/px を東京の緯度 cos35° で固定。cos(lat) にする"
+				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
 			},
 			"和文": {
 				"n": 2,

@@ -18,9 +18,10 @@ const ENTRY = [
 	[/^\/japan\/census2020\//, "census2020/index.html"],
 	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
-	[/^\/globe\/(physical|quakes|sats|clouds|parks|clock|hex)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
+	[/^\/globe\/quakes\//, "quakes/index.html"],
+	[/^\/globe\/(physical|sats|clouds|parks|clock|hex)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
 	[/^\/globe\//, "ortho-globe/index.html"],
-	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri-demo/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
+	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
 	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
 ];
 export const entryOf = href => { for (const [re, to] of ENTRY) { const m = href.match(re); if (m) return typeof to === "function" ? to(m) : to; } return null; };
@@ -31,6 +32,7 @@ const IMG = [
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/og\/(.+)$/, m => `ortho-japan/public/og/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/(ogp\.jpg)$/, m => `ortho-japan/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/globe\/og\/(.+)$/, m => `ortho-globe/public/og/${m[1]}`],
+	[/^https:\/\/www\.ortho-earth\.com\/globe\/quakes\/(og\.jpg)$/, m => `quakes/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/solar\/(ogp\.jpg)$/, m => `solar/public/${m[1]}`],
 ];
 const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (m) return to(m); } return null; };

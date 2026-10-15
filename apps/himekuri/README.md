@@ -1,6 +1,6 @@
-# 日めくり（himekuri-demo）
+# 日めくり（apps/himekuri）
 
-[himekuri](../../packages/himekuri)（旧暦・六曜・二十四節気・七十二候・暦注・祝日の SVG 日めくり）を真ん中に、**今いる場所の太陽と月**（日の出・南中・日の入り・薄明・月の出入り・月齢・次の朔望）を外に添えた頁。日めくりの下に**今日の言葉**（366 句・出典つき・著作権切れの言葉）。
+[himekuri](lib)（旧暦・六曜・二十四節気・七十二候・暦注・祝日の SVG 日めくり）を真ん中に、**今いる場所の太陽と月**（日の出・南中・日の入り・薄明・月の出入り・月齢・次の朔望）を外に添えた頁。日めくりの下に**今日の言葉**（366 句・出典つき・著作権切れの言葉）。
 `www.ortho-earth.com/himekuri/`（www のデモ一覧「Japan's open data」に載る）。
 
 | | |
@@ -17,10 +17,10 @@
 ## 開発
 
 ```
-npm run dev -w himekuri-demo          # http://localhost:5197/
-npm test -w himekuri-demo             # 太陽・月（NAOJ の値と ±1 分）・標高（モック fetch）・iCal・週の束ね・i18n 門
-npm run i18n:build -w himekuri-demo   # i18n/pages/himekuri.json を直したら焼く（i18n/lang/himekuri/<code>.json）
-npm run build -w himekuri-demo        # dist/site/himekuri/（wrangler.toml の assets・route /himekuri*）
+npm run dev -w ortho-himekuri          # http://localhost:5197/
+npm test -w ortho-himekuri             # 太陽・月（NAOJ の値と ±1 分）・標高（モック fetch）・iCal・週の束ね・i18n 門
+npm run i18n:build -w ortho-himekuri   # i18n/pages/himekuri.json を直したら焼く（i18n/lang/himekuri/<code>.json）
+npm run build -w ortho-himekuri        # dist/site/himekuri/（wrangler.toml の assets・route /himekuri*）
 ```
 
 検定（`tests/`）は Node だけで走る＝外部網は使わない（標高はモック・iCal は文字列）。ブラウザでの目視は手元で。

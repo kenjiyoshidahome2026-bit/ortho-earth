@@ -50,6 +50,7 @@
    2 つ以上で使う物は `packages/*` に置き、実行時は各アプリに焼かず `/globe/engine/<版>/` の入口として共に読む（「各アプリに焼くのは問題」本人同日）。
    例外は **www だけ**（他のアプリの dist と docs を束ねて載せる集約役・本人同日「やっていいのは、www だけ」）。
    外の利用者へ配る SDK と単体の道具は `sdk/*` に分ける（本人 2026-10-15）＝google-tiles・ktx2・plugin-scene・plugin-splat・react・japan（npm `@ortho-earth/japan`＝日本のサイト apps/ortho-japan から分けた）・glbconv。
+   1 つのアプリだけが読む物はそのアプリが持つ＝quakes（usgs.js は apps/quakes）・himekuri（npm `himekuri` は apps/himekuri/lib＝npm と単独リポジトリへは出すが SDK ではない・本人 2026-10-15）。
    `packages/*` はエンジンとアプリの部品（h3 のように地球儀本体が読む物はこちら）。
    **機械の門**：root の `npm run verify:app-imports`（`scripts/check-app-imports.mjs`）＝apps/A から apps/B への参照（相対の道・アプリの workspace 名の import・
    publicDir・package.json の scripts）を A→B ごとに数える爪車。許可表 `scripts/app-imports-allow.json` は 2026-10-14 の凍結＝全部が負債（移し先つき）。
@@ -138,7 +139,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   - 楕円体（`?ell=1`）＝ノブは core の `camera.js`（setEllipsoid）・**決めるのは globe.js の 1 行（URL だけ・opts には無い）**・各 worker へは globe が init で運ぶ。既定は全端末で球（2026-08-19 裁定）。
   - UI の訳の道具（走査器・頁の辞書・表の焼き＝`i18n-scan`／`i18n-pages`／`i18n-tables`）＝globe の `scripts/lib`（本体の訳の持ち主）。japan と ortho-globe が共有する。地域パックの文字列の在り処（japan なら `packages/jp/src`）は殻が `i18n/pages.json` の `literalRoots` で申告する。
 - **globe の家（2026-09-24・本人裁定「B」「/globe/」）**：地域の申告を持たない頁は `apps/ortho-globe`（`www.ortho-earth.com/globe/`・自前の Worker）に住む＝
-  `/globe/`（Globe ⇄ Equal Earth の往復）・`/globe/quakes`（世界の地震）・`/globe/sats`（人工衛星）。各頁は `@ortho-earth/globe` を自分の束に焼く（japan の SDK も app.js も読まない）。
+  `/globe/`（Globe ⇄ Equal Earth の往復）・`/globe/sats`（人工衛星）。世界の地震 `/globe/quakes/` は 2026-10-15 に独立のアプリ `apps/quakes`（Worker ortho-quakes）へ。各頁は `@ortho-earth/globe` を自分の束に焼く（japan の SDK も app.js も読まない）。
   旧 `/japan/earth`・`/japan/quakes`・`/japan/sats` は japan の Worker が 301 で送る（query は運ぶ）。頁の辞書（quakes／sats）と OG 画像も一緒に移した。
   この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
 - **残る結び目**：

@@ -1,12 +1,10 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-import { rmSync } from "node:fs";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
 import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-globe＝地球儀（@ortho-earth/globe）の家＝地域の申告を持たない頁だけを置く（LAYERS.md「globe の家」2026-09-24）。
 //   /globe/        … Globe ⇄ Equal Earth の往復（index.html）
-//   /globe/quakes  … 世界の地震（データ＝apps/quakes-mirror の /quakes/*）
 //   /globe/sats    … 人工衛星（データ＝apps/sats-mirror の /sats/active.csv）
 //   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
 //   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は GitHub Pages の ortho-data/globe/）
@@ -19,9 +17,7 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData } f
 // COOP/COEP（credentialless）＝gint の SharedArrayBuffer（ゼロコピー）の点火条件＝crossOriginIsolation()（vite-app.mjs・japan と同じ標準解）。本番は deploy-worker.js が同じ 2 ヘッダを刻む。
 const ROOT = resolve(import.meta.dirname, "../..");
 
-// dev の地震データ（public/quakes/*.geopbf・gitignore・24MB）は出荷しない＝本番は /quakes/（quakes-mirror）から読む。置いたままだと dist に
-// quakes/ ができ、頁 /globe/quakes と同名のフォルダが並ぶ（検札の配り方が 404 にしていた・本番へ 24MB が上がる・2026-10-01）
-const dropDevData = { name: "drop-dev-data", apply: "build", closeBundle() { rmSync(resolve(import.meta.dirname, "dist/site/globe/quakes"), { recursive: true, force: true }); } };
+// 世界の地震（/globe/quakes/）は 2026-10-15 に独立のアプリ apps/quakes（Worker ortho-quakes・route がより specific）へ移った
 
 export default defineConfig(({ command }) => ({
 	base: "/globe/",
@@ -31,11 +27,11 @@ export default defineConfig(({ command }) => ({
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), clock: resolve(import.meta.dirname, "clock.html"), hex: resolve(import.meta.dirname, "hex.html"), arcs: resolve(import.meta.dirname, "arcs.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), clock: resolve(import.meta.dirname, "clock.html"), hex: resolve(import.meta.dirname, "hex.html"), arcs: resolve(import.meta.dirname, "arcs.html") },
 		...noChunkOptimization,   // rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker にも同じ物
 	} },
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), dropDevData],
+	plugins: [crossOriginIsolation(), sharedEngine()],
 }));
