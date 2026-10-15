@@ -8,7 +8,16 @@ import { engineVersion } from "./lib/shared-engine.mjs";
 
 const ORIGIN = process.env.ENGINE_ORIGIN || "https://www.ortho-earth.com";
 const v = engineVersion(), url = `${ORIGIN}/globe/engine/${v}/globe.js`;
-const res = await fetch(url, { method: "HEAD", redirect: "manual", cache: "no-store" }).catch(e => ({ status: 0, err: e }));
+// 待つ訳＝deploy:engine はエンジンの wrangler deploy の直後にここへ来る。新しい版の assets が各地の edge に届くまで数十秒は旧版のまま
+// （302）＝すぐ 1 回だけ見ると、出したばかりのエンジンを「無い」と誤って止める（2026-10-15 ortho-globe の deploy:built で踏んだ）。
+// 302 の間だけ 10 秒おきに 90 秒まで見直す（届かない＝0 は待たない）。
+const head = () => fetch(url, { method: "HEAD", redirect: "manual", cache: "no-store" }).catch(e => ({ status: 0, err: e }));
+let res = await head();
+for (let i = 0; i < 9 && res.status === 302; i++) {
+	console.log(`… engine ${v} はまだ本番の全域に届いていない（302）＝10 秒待って見直す（${i + 1}/9）`);
+	await new Promise(r => setTimeout(r, 10000));
+	res = await head();
+}
 if (res.status === 200) { console.log(`ok:engine ${v} は本番に在る`); process.exit(0); }
 console.error(res.status === 0
 	? `✗ 本番のエンジンを確かめられない（${url}: ${res.err?.message || res.err}）＝deploy しない`
