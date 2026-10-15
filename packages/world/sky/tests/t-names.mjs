@@ -10,7 +10,7 @@ check("88 constellations keyed by IAU abbreviation", IAU.every(a => names.conste
 check("every constellation has en (IAU name) + ja", IAU.every(a => names.constellations[a].en && names.constellations[a].ja));
 check("every Messier entry has en + ja + zh", Object.values(names.messier).every(v => v.en && v.ja && v.zh));
 check("Messier keys look like M1..M110", Object.keys(names.messier).every(k => /^M([1-9]\d?|10\d|110)$/.test(k)));
-const langs = JSON.parse(fs.readFileSync(new URL("../../world/i18n/langs.json", import.meta.url), "utf8")).map(l => l.code);
+const langs = JSON.parse(fs.readFileSync(new URL("../../i18n/langs.json", import.meta.url), "utf8")).map(l => l.code);
 check("covers the 26 UI languages (packages/world/i18n/langs.json)", langs.every(l => LANGS.includes(l)) && LANGS.length === langs.length, langs.filter(l => !LANGS.includes(l)).join());
 check("no stray language codes in names.json", Object.values(names.constellations).concat(Object.values(names.messier)).every(v => Object.keys(v).every(l => LANGS.includes(l))));
 for (const l of LANGS) {   // 同じ言語の中で二つの星座が同じ名前＝取り違えの疑い
