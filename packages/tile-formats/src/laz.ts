@@ -1,7 +1,16 @@
 // LAZ（LASzip で縮めた LAS の点の記録）の 1 チャンクを解く（#178・COPC の節＝1 チャンク）。laz-perf の実体は呼び手が渡す（web／node で起こし方が違う）。
 //   decodeLazChunk(lp, bytes, { format, recordLength, count }) → Uint8Array（recordLength × count の平たい点の記録＝LAS の形式 6/7/8 のまま）
 //   decodeLazFile(lp, bytes, onBatch)＝ファイル丸ごと（普通の LAZ）
-export function decodeLazChunk(lp, bytes, { format, recordLength: L, count: n }) {
+import type { LazPerf } from "laz-perf";
+export type { LazPerf };
+
+/** 1 チャンクの形（COPC の節＝ヘッダの形式・記録長と節の点の数） */
+export interface LazChunkSpec { format: number; recordLength: number; count: number }
+/** 丸ごと解いた時の要約 */
+export interface LazFileInfo { count: number; recordLength: number; format: number }
+export type LazBatchFn = (rec: Uint8Array, count: number) => void;
+
+export function decodeLazChunk(lp: LazPerf, bytes: Uint8Array | ArrayBuffer, { format, recordLength: L, count: n }: LazChunkSpec): Uint8Array {
 	const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 	const cp = lp._malloc(src.byteLength), pp = lp._malloc(L), rec = new Uint8Array(n * L);
 	try {
@@ -17,7 +26,7 @@ export function decodeLazChunk(lp, bytes, { format, recordLength: L, count: n })
  * LAZ のファイルを丸ごと解く（点群計画 段 3-3・普通の LAZ＝COPC でない物）。laz-perf の LASZip（ファイル全体を WASM の heap に置く）。
  *   onBatch(rec, count)＝recordLength × count の平たい点の記録を batch 点ずつ渡す（全点の記録を一度に持たない）。返り＝{ count, recordLength, format }
  */
-export function decodeLazFile(lp, bytes, onBatch, { batch = 1 << 18 } = {}) {
+export function decodeLazFile(lp: LazPerf, bytes: Uint8Array | ArrayBuffer, onBatch: LazBatchFn, { batch = 1 << 18 }: { batch?: number } = {}): LazFileInfo {
 	const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 	const fp = lp._malloc(src.byteLength);
 	if (!fp) throw new Error("laz: out of memory for the whole file");
