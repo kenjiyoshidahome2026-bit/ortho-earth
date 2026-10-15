@@ -44,7 +44,7 @@ For Japan, [`@ortho-earth/japan`](sdk/japan) is a self-contained bundle of the s
 
 ## Repository layout
 
-The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom ([`LAYERS.md`](LAYERS.md)):
+The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom, with the SDKs beside them in `sdk/` ([`LAYERS.md`](LAYERS.md)):
 
 | Layer | Where | What |
 |---|---|---|
@@ -63,21 +63,33 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`@ortho-earth/core`](packages/ortho-core) | 1.15.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
 | [`@ortho-earth/globe`](packages/globe) | 1.16.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 | GPL-3.0-or-later | Japan region pack |
-| [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/h3`](packages/h3) | 0.1.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.1.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
 | [`@ortho-earth/ephem`](packages/ephem) | 1.2.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
 | [`geopbf`](packages/geopbf) | 1.19.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
-| [`geoedit`](packages/geoedit) | 0.3.2 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
-| [`altpbf`](packages/altpbf) | 1.1.1 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
-| [`glbconv`](sdk/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
-| [`native-bucket`](packages/native-bucket) | 1.0.1 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
-| [`himekuri`](packages/himekuri) | 1.0.0 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
+| [`geoedit`](packages/geoedit) | 0.3.3 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
+| [`altpbf`](packages/altpbf) | 1.1.2 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
+| [`native-bucket`](packages/native-bucket) | 1.0.2 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
+| [`himekuri`](packages/himekuri) | 1.0.1 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 | [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
-| [`quiet-mono`](packages/quiet-mono) | 1.0.0 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
+| [`quiet-mono`](packages/quiet-mono) | 1.0.1 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
 | [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages; sky names (constellations, Messier objects, Solar-System bodies, 2,023 lunar place names) in `sky/` |
 
 `geopbf` and `altpbf` are also published to standalone repositories as read-only mirrors on each release.
+
+### SDKs and tools
+
+Published for outside users from [`sdk/*`](sdk).
+
+| Package | Version | License | What it is |
+|---|---|---|---|
+| [`@ortho-earth/japan`](sdk/japan) | 1.14.0 | GPL-3.0-or-later | Self-contained Japan globe for any web page: the engine plus the Japan region pack, no API keys or servers |
+| [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
+| [`@ortho-earth/google-tiles`](sdk/google-tiles) | 0.1.0 | GPL-3.0-or-later | Google Photorealistic 3D Tiles: API key and session handling plus attribution |
+| [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
+| [`@ortho-earth/plugin-scene`](sdk/plugin-scene) | 0.1.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
+| [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.1.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz`) as a `map.addData` kind |
+| [`glbconv`](sdk/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps
 
@@ -138,7 +150,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/react`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
+- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
