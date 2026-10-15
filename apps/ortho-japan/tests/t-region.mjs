@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { JP_REGION } from "@ortho-earth/jp";
-import { NL_REGION, NL_PLACES, NL_TERRAIN } from "../nl/region.js";
+import { NL_REGION, NL_PLACES, NL_TERRAIN } from "@ortho-earth/nl";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 let ok = 0, ng = 0;

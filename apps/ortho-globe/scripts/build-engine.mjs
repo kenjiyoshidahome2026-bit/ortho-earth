@@ -5,7 +5,7 @@
 //   npm run build:engine -w ortho-globe
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,9 @@ const APP = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(APP, "dist/engine"), TMP = path.join(OUT, "_build");
 execSync("npx vite build -c vite.engine.config.js --logLevel warn", { cwd: APP, stdio: "inherit" });
 execSync("npx vite build -c vite.engine-ml.config.js --logLevel warn", { cwd: APP, stdio: "inherit" });   // maplibre.js＝互換の口だけ（本体は ./globe.js を実行時に読む＝本体の束を変えない）
+
+import { DATA, ENTRIES, importsMap } from "../engine/entries.mjs";
+for (const [from, to] of DATA) cpSync(from, path.join(TMP, to), { recursive: true, dereference: true });   // 実行時データ（jp の台帳等）＝版の中身に入る（変われば版も変わる）
 
 const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 const files = walk(TMP).filter(f => !f.endsWith(".map")).map(f => path.relative(TMP, f)).sort();
@@ -22,5 +25,5 @@ const version = h.digest("hex").slice(0, 10);
 
 for (const d of readdirSync(OUT)) if (d !== "_build" && d !== "current.json") rmSync(path.join(OUT, d), { recursive: true, force: true });   // 手元は今の版だけ（旧版は本番が持つ）
 renameSync(TMP, path.join(OUT, version));
-writeFileSync(path.join(OUT, "current.json"), JSON.stringify({ version, entries: ["globe", "maplibre", "i18n", "core", "geopbf", "h3"], files }, null, "\t") + "\n");
+writeFileSync(path.join(OUT, "current.json"), JSON.stringify({ version, entries: ["globe", "maplibre", ...ENTRIES.slice(1).map(e => e[1])], imports: importsMap(), files }, null, "\t") + "\n");
 console.log(`engine ${version}（${files.length} files）→ dist/engine/${version}/`);
