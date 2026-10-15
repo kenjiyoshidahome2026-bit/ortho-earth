@@ -1,6 +1,6 @@
 // node の検定：@ortho-earth/plugin-scene の純関数（形・glb・束・焼き・色・錨・向きの基底・plugin の形）。描画は packages/globe の頁 t-pscene。
-import { box, cylinder, cone, sphere, parseGlb, packAtlas, normMesh, bakeInstances, parseColor, anchorOf, items, scenePlugin } from "../src/index.js";
-import { basisOf } from "../src/scene-gl.js";
+import { box, cylinder, cone, sphere, parseGlb, packAtlas, normMesh, bakeInstances, parseColor, anchorOf, items, scenePlugin } from "../src/index.ts";
+import { basisOf } from "../src/scene-gl.ts";
 let fail = 0;
 const ok = (name, cond, note = "") => { console.log(`${cond ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!cond) fail++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;

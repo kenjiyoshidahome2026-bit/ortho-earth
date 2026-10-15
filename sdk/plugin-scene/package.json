@@ -4,20 +4,37 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "Instanced meshes, billboards and 3D text for @ortho-earth/globe: three map.addData kinds on the dataKinds extension point, drawn as same-frame overlays with scene depth and unified picking.",
-	"main": "src/index.js",
-	"types": "plugin-scene.d.ts",
+	"main": "src/index.ts",
 	"exports": {
-		".": { "types": "./plugin-scene.d.ts", "default": "./src/index.js" }
+		".": "./src/index.ts"
 	},
 	"sideEffects": false,
 	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post",
 		"test": "node tests/t-plugin-scene.mjs"
 	},
 	"peerDependencies": {
 		"@ortho-earth/globe": "^1.14.0"
 	},
-	"keywords": ["instancing", "billboard", "3d-text", "globe", "ortho-earth"],
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-scene" },
+	"keywords": [
+		"instancing",
+		"billboard",
+		"3d-text",
+		"globe",
+		"ortho-earth"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "sdk/plugin-scene"
+	},
 	"homepage": "https://www.ortho-earth.com/",
-	"files": ["src", "plugin-scene.d.ts", "LICENSE", "README.md"]
+	"files": [
+		"src",
+		"dist",
+		"LICENSE",
+		"README.md"
+	]
 }
