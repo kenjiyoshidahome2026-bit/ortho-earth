@@ -14,7 +14,7 @@
 //     README.md / LICENSE
 //
 //   同梱しないもの（混入したら fail）：
-//     sw.js       … SDK がホストのオリジンへ Service Worker を持ち込む口になる（vite.lib.config.js の掟）
+//     sw.js       … SDK がホストのオリジンへ Service Worker を持ち込む口になる（vite.config.js の掟）
 //     moj-local/  … 開発専用（123MB）
 //     plateau-names.json … 台帳＝plateau-landmarks.json を焼く原料であり実行時には読まれない（2.8MB）
 //     ogp.jpg / favicon / apple-touch-icon … サイトの顔＝SDK の顔ではない
