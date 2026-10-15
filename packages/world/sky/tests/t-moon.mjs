@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 月の地名の常設検定：正本（moon.json）の形・範囲・取り違えの疑い・パックと GeoJSON の形
 import fs from "node:fs";
-import { LANGS, moonGeoJSON, moonPacks } from "../packs.js";
+import { LANGS, moonGeoJSON, moonPacks } from "../packs.ts";
 let fail = 0;
 const check = (name, ok, info = "") => { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${info ? "  " + info : ""}`); };
 const { features: F } = JSON.parse(fs.readFileSync(new URL("../moon.json", import.meta.url), "utf8"));

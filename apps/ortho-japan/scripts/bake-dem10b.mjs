@@ -2,7 +2,7 @@
 // 日本域の標高 R01 タイル（1°×1°・3600×3600・Int16）を DSM(ALOS AW3D30) から DTM(地理院 DEM10B) へ焼き直す。
 // 出典＝地理院標高タイル dem_png（DEM10B・z12）。水面(内水面)は DEM10B が欠測＝最寄り有効値で埋める
 //（湖面は岸の高さ＝水面平坦化）。海（縁に接する欠測域で岸の中央値≤10m）は 0。
-// 出力は packages/altpbf/src/altpbf.js encode() と同一フォーマット（pbf + deflateRaw）＋ gzip で bucket 形式。
+// 出力は packages/altpbf/src/format.ts encode() と同一フォーマット（pbf + deflateRaw）＋ gzip で bucket 形式。
 //
 // 使い方:
 //   node scripts/bake-dem10b.mjs --cells E138N035,E135N035     # 指定セルのみ（検証用）

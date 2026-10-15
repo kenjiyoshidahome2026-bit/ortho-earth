@@ -6,9 +6,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createLazPerf } from "laz-perf";
-import { decodeLazChunk, decodeLazFile } from "../src/laz.js";
-import { POINTCLOUD_FORMATS, POINTCLOUD_NAMES } from "../src/pointcloud.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, geoKeysEpsg, hasRgb } from "../src/las.js";   // LAS/COPC の形を読む純関数
+import { decodeLazChunk, decodeLazFile } from "../src/laz.ts";
+import { POINTCLOUD_FORMATS, POINTCLOUD_NAMES } from "../src/pointcloud.ts";
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, geoKeysEpsg, hasRgb } from "../src/las.ts";   // LAS/COPC の形を読む純関数
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };

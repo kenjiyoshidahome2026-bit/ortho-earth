@@ -1,7 +1,7 @@
 // altpbf の往復の検定（src/format.js）。node packages/altpbf/tests/roundtrip.mjs
 // 守るもの：①encode→decode で寸法・原点・標高が元に戻る ②差分が Int16 の幅を越えても値が戻る ③書いた分だけを圧縮する（末尾のゼロを持たない）
 import assert from "node:assert/strict";
-import { encode, decode } from "../src/format.js";
+import { encode, decode } from "../src/format.ts";
 import { inflateRaw } from "geopbf/gzip";
 const W = 64, H = 48, data = new Int16Array(W * H);
 for (let i = 0; i < data.length; i++) data[i] = Math.round(3000 * Math.sin(i / 7) + (i % 13) * 11);
