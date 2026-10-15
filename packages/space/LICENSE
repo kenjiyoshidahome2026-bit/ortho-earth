@@ -1,6 +1,6 @@
 宇宙の名前データ（ortho-earth space）のライセンス / Licensing
 
-■ データ（names.json、build の出力＝bucket GIS/space/i18n/<lang>.json）
+■ データ（names.json、build の出力＝GitHub Pages ortho-data の globe/sky/names/<lang>.json 等）
   Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
   https://creativecommons.org/licenses/by-sa/4.0/
   © 2010–2026 Kenji Yoshida and contributors.

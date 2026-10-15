@@ -97,5 +97,8 @@
 		"geopbf": "*",
 		"glbconv": "*",
 		"@ortho-earth/equal": "*"
+	},
+	"dependencies": {
+		"@ortho-earth/regions": "*"
 	}
 }

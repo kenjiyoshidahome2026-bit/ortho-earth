@@ -1,7 +1,6 @@
 // uploader＝データを焼いて bucket（api.ortho-earth.com）へ置く作業台。
 // このファイルは「接続」と「メニュー表」だけ。焼きの中身は分野ごとのモジュールへ：
 //   globe.js       全球の基図（背景画像・Natural Earth）
-//   space/         星座線・メシエ・天体名・月の地名
 //   terrain/       標高（GEBCO 由来の海面下の陸・全球アトラス）
 //   japan.js       国土数値情報・環境省
 //   poi/           POI 台帳（schema.js は ortho-japan の検定と共用＝動かさない）
@@ -19,7 +18,6 @@ import { createGeopbf } from "geopbf";
 import { GEBCO } from "./terrain/gebco.js";   // GEBCO の GeoTIFF → 標高タイル（焼きの道具＝uploader 専用・2026-09-25 に altpbf から移設）
 
 import * as globe from "./globe.js";
-import * as space from "./space/index.js";
 import * as japan from "./japan.js";
 import { poi } from "./poi/bake.js";
 import { belowSeaLand } from "./terrain/belowsea.js";
@@ -47,16 +45,10 @@ const q = new screenLogger(LOG);
 const MENU = [
 	["全球の基図", [
 		["base ER pictures", globe.baseImages],
-		["borders and stars", globe.borders],
+		["borders", globe.borders],
 		["admin0 countries (50m+10m)", globe.admin0],
 		["NE lakes (50m+10m)", globe.lakes],
 		["NE rivers + airports + maritime (10m)", globe.riversAirports],
-	]],
-	["宇宙", [
-		["constellation lines", space.constellations],
-		["messier", space.messier],
-		["space names", space.spaceNames],
-		["moon names", space.moonNames],
 	]],
 	["標高", [
 		["create GEBCO(R90/R10)", q => GEBCO({ year: 2026, log: q })],

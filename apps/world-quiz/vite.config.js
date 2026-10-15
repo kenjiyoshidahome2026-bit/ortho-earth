@@ -19,7 +19,6 @@ export default defineConfig(({ command }) => ({
 	resolve: {
 		alias: {
 			'common': path.resolve(__dirname, '../../packages/common/src'),
-			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
 		}
 	},
 	optimizeDeps: { exclude: ['common', 'geopbf', 'native-bucket'] },

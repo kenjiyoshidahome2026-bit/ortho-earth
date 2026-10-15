@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { checkDoubled } from "./engine-modules.mjs";
 
 // エンジンは独立のデプロイ単位 apps/engine（2026-10-15〜・旧＝ortho-globe に同乗）。出力は本番の形のまま dist/site/globe/engine/<版>/。
 // ENGINE_DIR＝/globe/engine/ に当たる手元の置き場＝各アプリの verify-prod が静的サーバにマウントする（アプリが別のアプリを読まない＝ここを通す）。
@@ -35,5 +36,10 @@ export function sharedEngine() {
 		enforce: "pre",
 		buildStart() { buildEngine(); base = engineBase(); imports = engineImports(); },
 		resolveId(id) { return Object.hasOwn(imports, id) ? { id: `${base}${imports[id]}`, external: true } : null; },
+		// 二重焼きの門番（engine-modules.mjs）＝エンジンに入っているソースを自分の束にも入れたら止める
+		generateBundle(_, bundle) {
+			const hit = checkDoubled(bundle);
+			if (hit.length) this.error(`エンジンと同じソースを束に焼いている（${hit.length} 本）＝その import をエンジンの入口から読む（apps/engine/src/entries.mjs）:\n  ${hit.join("\n  ")}`);
+		},
 	};
 }

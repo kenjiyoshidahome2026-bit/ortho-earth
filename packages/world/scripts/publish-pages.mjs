@@ -7,7 +7,7 @@
 //     形状台帳      ne-physical.geopbf・plates.geopbf・ne-physical-lines.geopbf・climate-koppen.geopbf（地形の頁）
 //     検索の索引    search/base.json・search/<lang>.json（scripts/search-index.mjs）
 //     資産          ne-cities/<lang>.json・flags/<key>.svg・geoms/<key>.png・sfx.zip（uploader が作る物＝手元に在れば）
-//     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/space）
+//     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/space・焼く＝npm run sky）
 //     人口（H3）    h3/kontur-<版>/＝/globe/hex が読む Kontur Population（焼く＝apps/ortho-globe/scripts/kontur-h3.mjs）
 //   目録            manifest.json＝{ updated, files: { 相対パス: 中身の sha1 の頭 12 桁 } }＝置くたびに globe/ 全体から作り直す。
 //                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（packages/world/src/data.js）
@@ -18,7 +18,7 @@
 //           --allow-older … 手元の JSON の updated が Pages より古くても置く（既定は止める＝古い版で上書きしない）
 //           --scope=us | japan … globe/ 以外の範囲（DATA.md「フォルダはデータの範囲で分ける」）＝置く元はリポの根の ortho-data/<範囲>/
 //                                （git で追う正本＝機械ごとに違わない）・その中の全ファイルを置く・目録は <範囲>/manifest.json
-//   先に作る物: npm run build（DB と名前）→ plates → ne:physical → koppen → node scripts/search-index.mjs
+//   先に作る物: npm run build（DB と名前）→ plates → ne:physical → koppen → node scripts/search-index.mjs・宇宙は npm run sky
 // bucket GIS/world/ には形状（ne-cultural-base／detail・rivers.json）だけが残る＝全アプリが初回に読む 16MB は Pages の帯域（月 100GB の目安）に載せない。
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { execFileSync } from "node:child_process"; import { createHash } from "node:crypto"; import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
