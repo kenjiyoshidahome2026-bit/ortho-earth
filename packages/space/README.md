@@ -1,26 +1,27 @@
 # space — 宇宙（天球）の名前データ
 
 星座 88・メシエ天体の通称・太陽系の天体（太陽・惑星・月・冥王星・衛星 20）の名前を 26 言語で持つ、データだけのパッケージ（コードを配らない）。
-読む側（ortho-solar・将来 ortho-japan）は **bucket の JSON を読むだけ**＝このパッケージの import で繋がない
+読む側（globe の星空・ortho-solar）は **GitHub Pages の JSON・GeoPBF を読むだけ**＝このパッケージの import で繋がない
 （2026-09-19 本人裁定「japan がデータを読む形に」＝コード依存でなくデータ共有）。
 
 ## 置き場所
 
 | もの | 場所 |
 |---|---|
-| 正本 | `names.json`＝`{ constellations: { <IAU 略号>: { <lang>: 名前 } }, messier: { "M42": { <lang>: 通称 } }, bodies: { <ephem の id>: { <lang>: 名前 } } }` |
-| 配信 | bucket `GIS/space/i18n/<lang>.json`＝`{ updated, c: { <IAU 略号>: 名前 }, m: { "M42": 通称 }, b: { <天体 id>: 名前 } }`（その言語に在るものだけ・1 本 ~3KB） |
-| 焼く | uploader の「space names」ボタン（`packs.js` で 26 本に割って put）＝書き込みキーは uploader の `.env.local` |
+| 正本 | `names.json`＝`{ constellations: { <IAU 略号>: { <lang>: 名前 } }, messier: { "M42": { <lang>: 通称 } }, bodies: { <ephem の id>: { <lang>: 名前 } } }`・`moon.json`（月の地名）・`constellation-lines.json`（星座線・d3-celestial 由来） |
+| 配信 | GitHub Pages `ortho-data/globe/sky/`＝`names/<lang>.json`（`{ updated, c: 星座, m: メシエ通称, b: 天体 }`・その言語に在るものだけ・1 本 ~3KB）・`moon_nomenclature.i18n/<lang>.json`・`constellation_lines`／`messier`／`stars.6`／`moon_nomenclature`（.geopbf） |
+| 焼く | `npm run sky -w world-data`（`packages/world/scripts/sky.mjs`＝`packs.js` で言語ごとに割り、GeoPBF を焼いて `packages/world/out/sky/` へ） |
+| 置く | `npm run publish:pages -w world-data -- --only=sky --write`（git push だけ・鍵が要らない） |
 
-URL＝`https://api.ortho-earth.com/bucket/GIS/space/i18n/<lang>.json`（言語は `packages/world/i18n/langs.json` の 26）。
-**gzip のまま置かれる**（native-bucket の put は .json を圧縮し、Content-Type は application/gzip）＝読む側は `nativeBucket(api).Bucket("GIS/space", { lazy: true }).get("i18n/ja.json", "json")`（展開込み）で読む。素の `fetch().json()` では読めない。
+URL＝`https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/names/<lang>.json`（言語は `packages/world/i18n/langs.json` の 26）。素の JSON＝`fetch().json()` で読める。
+2026-10-15 まで＝bucket `GIS/space`・`GIS/pbf` に uploader のボタンで焼いていた（読む側は 2026-10-13 に Pages へ移った＝ボタンは外した）。
 
 ## 読む側の約束
 
 - その言語の 1 本と `en.json` を取り、**欠けは英語で補う**（星座＝IAU 名・メシエ＝英語の通称）。UI 文言の既定と同じ。
-- 星座のキーは IAU 略号（bucket の `constellation_lines` の `properties.name` と同じ）。ラテン名で引きたい時は `en` の値（IAU 名）から逆引きする。
+- 星座のキーは IAU 略号（`constellation_lines` の `properties.name` と同じ）。ラテン名で引きたい時は `en` の値（IAU 名）から逆引きする。
 - メシエは通称のある 27 天体だけ（オリオン大星雲・アンドロメダ銀河など）。通称の無いものは番号だけ（"M13" など）で出す。
-- メシエの種別（bucket `messier` の `properties.type`）は d3-celestial の記号で、銀河は `s`/`e`/`i`（渦巻・楕円・不規則）。
+- メシエの種別（`messier` の `properties.type`）は d3-celestial の記号で、銀河は `s`/`e`/`i`（渦巻・楕円・不規則）。
 
 ## 出典と手当て
 

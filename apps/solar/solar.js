@@ -8,7 +8,7 @@
 //  - RTE＝絶対座標を f32 に通さない：CPU(f64)でカメラ相対化してから GPU へ（globe-local-mesh-RTE と同族）
 //  - 実スケール・誇張なし：軌道も半径も本物。ただし見えなくなる惑星は「最小ピクセル径クランプ」で
 //    点として残す（far-DB のランドマークと同じ思想＝誇張でなく可視性の下駄）
-//  - 依存ゼロ WebGL2 直書き・恒星は bucket の stars.6（ortho-japan と同じ星表）
+//  - 依存ゼロ WebGL2 直書き・恒星は Pages の sky/stars.6（ortho-japan と同じ星表）
 //  - 対数深度バッファ：惑星表面(1e-7AU)〜海王星軌道(60AU)を1パスで
 // 部品の掟：DOM は受け取った div の中だけ（CSS も .ortho-solar の中に閉じる・幅の裁きはコンテナクエリ）・大域のイベントは
 // AbortController で一括して外す・描画ループ/監視/タイマー/GL は destroy で必ず止める。同じ頁に同時に置くのは 1 つを目安
@@ -542,7 +542,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	}
 	const blackTex = makeTex([0, 0, 0]);   // ユニット1（街明かり）・ユニット2（環の影）の既定＝持たない天体でも未バインドを踏まない
 
-	// ---- 恒星：bucket の stars.6（RA/Dec・等級・B-V）→黄道系単位ベクトル＋色＋点径（ortho-japan と同式） ----
+	// ---- 恒星：sky/stars.6（RA/Dec・等級・B-V）→黄道系単位ベクトル＋色＋点径（ortho-japan と同式） ----
 	let starVao = null, starN = 0;
 	const bvColor = v => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v < 0.3 ? [0.97, 0.98, 1] : v < 0.6 ? [1, 0.97, 0.94] :
 		v < 0.8 ? [1, 0.95, 0.78] : v < 1.1 ? [1, 0.88, 0.71] : v < 1.4 ? [1, 0.80, 0.60] : [1, 0.67, 0.57];
@@ -570,9 +570,9 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		} catch (e) { console.warn("[stars] load failed (sky stays dark):", e); }
 	})();
 
-	// ---- 星座：japan と同じ bucket の constellation_lines（d3-celestial・RA/Dec の折れ線）＋ messier。初めて点けた時に一度だけ読む ----
+	// ---- 星座：globe の星空と同じ sky/constellation_lines（d3-celestial・RA/Dec の折れ線）＋ messier。初めて点けた時に一度だけ読む ----
 	// 線＝薄い青（japan の太陽系圏と同じ）・星座名とメシエ天体＝2D の重ね絵（#sky2d）に同じ天球の向きを投影（japan の labels2d と同じ色と記号）。
-	// 名前＝bucket GIS/space/i18n/<lang>.json（正本は packages/space・uploader が焼く）を fetch＝コードでなくデータで繋ぐ（japan も同じ JSON を読める）。
+	// 名前＝sky/names/<lang>.json（正本は packages/space・packages/world の npm run sky が焼く）を fetch＝コードでなくデータで繋ぐ（globe も同じ JSON を読む）。
 	// 状態は URL の c=1（writeHash）・ボタンと c キーで切替
 	let constOn = false, constVao = null, constN = 0, constLoad = null, skyLab = null;
 	// その言語の 1 本＋英語（欠けは英語で補う＝星座は IAU 名・メシエは英語の通称。英語も取れなければ略号/番号のまま＝壊れない）。
@@ -623,8 +623,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 星座名とメシエ天体の 2D 注記：天球の向き v（黄道 J2000 単位ベクトル）を回転だけで投影（平行移動なし＝無限遠）。
 	// 毎描画で消して描き直す（消灯時も消すだけ走る）＝88 文字列＋110 記号・1ms 未満
 	const sky2d = $("sky2d"), sctx = sky2d.getContext("2d");
-	// ---- 月の地名：bucket の geopbf "moon_nomenclature"（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/space/moon.json）＋
-	// 多言語 bucket GIS/space/i18n/moon/<lang>.json（{ GPN id: 名前 }・欠けは英語＝IAU 名）。月が画面で大きくなった時に初めて読む（さりげなく読む）。
+	// ---- 月の地名：sky/moon_nomenclature.geopbf（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/space/moon.json）＋
+	// 多言語 sky/moon_nomenclature.i18n/<lang>.json（{ GPN id: 名前 }・欠けは英語＝IAU 名）。月が画面で大きくなった時に初めて読む（さりげなく読む）。
 	// 座標は月面の経緯度（IAU・東経正）＝体固定の単位ベクトル（x＝本初子午線・z＝北極＝球メッシュと同じ約束）→ orientation("moon") で世界へ
 	let moonNames = null, moonNamesLoad = null;
 	const MOON_SEAS = new Set(["ME", "OC", "LC", "SI", "PA"]);   // 海・大洋・湖・入江・沼＝月見の地図の主役（常に優先）

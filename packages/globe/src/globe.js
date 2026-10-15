@@ -56,7 +56,7 @@ import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
-// planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
+// planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, sourceFeatures, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
