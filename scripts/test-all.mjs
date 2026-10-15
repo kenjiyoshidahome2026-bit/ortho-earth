@@ -24,7 +24,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const GATES = {
 	test: [
 		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/h3", "test"], ["@ortho-earth/react", "test"], ["@ortho-earth/ktx2", "test"], ["@ortho-earth/google-tiles", "test"], ["@ortho-earth/plugin-scene", "test"], ["@ortho-earth/plugin-splat", "test"], ["geopbf", "test"], ["altpbf", "test"],
-		["@ortho-earth/ephem", "test"], ["world-data", "test"], ["glbconv", "test"], ["ortho-japan", "test"], ["ortho-equal", "test"], ["solar", "test"], ["himekuri-demo", "test"], ["world-quiz", "test"],
+		["@ortho-earth/ephem", "test"], ["world-data", "test"], ["glbconv", "test"], ["ortho-japan", "test"], ["choju", "test"], ["ortho-equal", "test"], ["solar", "test"], ["himekuri-demo", "test"], ["world-quiz", "test"],
 		["account", "test"], ["www", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"],
 		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], ["ortho-globe", "test"], ["ortho-engine", "test"], [".", "verify:app-imports"], [".", "test:mirrors"],
 	],
