@@ -2,7 +2,7 @@
 // dispatch は maxComputeWorkgroupsPerDimension（既定 65535）× WG を超えたら base をずらして分割する。
 // dispatch ごとの uniform は submit 直後に destroy（投入済みコマンドが済むまで GPU 側が保持＝安全）。旧＝未解放で dispatch 数だけ漏れた。
 import { createContext } from "./gpu.js";
-import { mercTable, YT_LEN } from "./merc.js";
+import { mercTable } from "./merc.js";
 import { PROJECT_WGSL, LOD_WGSL, WKB_WGSL, BBOX_WGSL, WG, lodUniform, packArcThresholds, projectCPU, lodCPU, wkbCPU, bboxCPU } from "./kernels.js";
 
 export function createEngine(device) {

@@ -42,7 +42,7 @@ export function lzwDecode(src, sizeHint = 4096) {
 }
 
 // ---- predictor=2（水平差分の累積・バンド数 stride・8/16bit）---------------------------------
-export function undoPredictor2(data, w, h, samples, bytesPer) {
+function undoPredictor2(data, w, h, samples, bytesPer) {
 	if (bytesPer === 1) {
 		for (let r = 0; r < h; r++) {
 			const row = r * w * samples;
@@ -59,7 +59,7 @@ export function undoPredictor2(data, w, h, samples, bytesPer) {
 
 // ---- バイト列 → 型付き配列（ファイル byte order → プラットフォーム）---------------------------
 const PLATFORM_LE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
-export function typedOf(u8, ifd, le) {
+function typedOf(u8, ifd, le) {
 	const { bits, sampleFormat } = ifd;
 	const b = bits[0];
 	if (b === 8) return sampleFormat === 2 ? new Int8Array(u8.buffer, u8.byteOffset, u8.byteLength) : u8;

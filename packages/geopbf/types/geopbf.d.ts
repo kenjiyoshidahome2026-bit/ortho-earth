@@ -18,8 +18,8 @@ export type Properties = { [key: string]: any } | null;
 export interface Feature<G extends Geometry | null = Geometry | null, P = Properties> { type: "Feature"; geometry: G; properties: P; id?: string | number; bbox?: BBox }
 export interface FeatureCollection<G extends Geometry | null = Geometry | null, P = Properties> { type: "FeatureCollection"; features: Feature<G, P>[]; bbox?: BBox }
 
-/** 符号化の検証層（§1 `options.validate`・1.20〜） */
-export type ValidateMode = "lenient" | "strict" | "legacy";
+/** 符号化の検証層（§1 `options.validate`・1.20〜。"legacy" は 2.0 で撤去） */
+export type ValidateMode = "lenient" | "strict";
 export type IssueKind = "nullGeometry" | "emptyCoords" | "badCoordinate" | "latitude" | "degenerateRing" | "badNumber" | "multiDegraded";
 export interface ValidateIssue { kind: IssueKind; /** setFeature が見た地物の通し番号 */ index: number; detail?: string }
 
@@ -34,8 +34,6 @@ export interface GeoPBFOptions extends HeaderMeta {
 	noprop?: boolean;
 	/** false＝符号化時の antimeridian 切断を掛けない（既定 true・切った数は pbf.cutCount） */
 	cut?: boolean;
-	/** FUNC 型の属性を new Function で復元しない（既定 true・1.19〜）。false＝旧挙動（関数へ復元） */
-	noeval?: boolean;
 	/** false＝このインスタンスの set(ArrayBuffer)／setGintBUF を呼んだスレッドで解く（createGeopbf が worker を配線していても） */
 	worker?: boolean;
 	/** 符号化の検証層（既定 "lenient"） */
@@ -104,7 +102,7 @@ declare class GeoPBFBase {
 	static readonly geometryMap: Readonly<Record<GeometryType, number>>;
 
 	// ── §1 の options の写し
-	readonly noprop: boolean; readonly noeval: boolean; readonly validate: ValidateMode;
+	readonly noprop: boolean; readonly validate: ValidateMode;
 	/** 符号化の検証層が見つけた問題（先頭 100 件） */
 	readonly issues: ValidateIssue[];
 	/** 種類ごとの件数 */
@@ -199,7 +197,6 @@ export class GeoPBF extends GeoPBFBase {
 	// ── §5 操作
 	dissolve(property?: string | true): Promise<GeoPBF>;
 	map(map: (properties: Properties, index: number) => Properties): Promise<GeoPBF>;
-	closeFilter(filter: (properties: Properties, index: number) => boolean): Promise<GeoPBF>;
 	cloneMap(options?: { map?: (properties: Properties, index: number) => Properties; filter?: (properties: Properties, index: number) => boolean }): Promise<GeoPBF>;
 	classify(keyOrFunc: string | ((properties: Properties, index: number) => string | number)): Promise<Record<string, GeoPBF>>;
 	/** 丸ごとの写し（arrayBuffer を読み直す＝非同期） */

@@ -3,7 +3,7 @@ import { decodeZIP } from "../modules/decodeZIP.js";
 import { fromFileGDB, gdbSourceFromFiles } from "../convert/filegdb.js";
 
 onmessage = async (e) => {
-	const { file, name, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd } = e.data;
+	const { file, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd } = e.data;
 	try {
 		const entries = await decodeZIP(file);
 		if (!entries) throw new Error("cannot open zip");

@@ -4,8 +4,6 @@ import { worldToLonLat } from "../modules/mercator.js";
 // タイル跨ぎの 4 近傍は都度タイルを引く（Map 参照＝安価）。fragment シェーダから三角関数を
 // 追放する代わりにここで払う（256² で ~1ms 級・pool worker 上）。範囲外/欠タイル/nodata は透明。
 
-const D2R = Math.PI / 180, R2D = 180 / Math.PI, RM = 6378137;
-
 // 源 CRS ピクセル系（overview 段に合わせて縮尺補正した geo・フルアフィン）。逆変換係数も前計算して持つ。
 export function geoAtLevel(geo, full, lv) {
 	const kx = full.width / lv.width, ky = full.height / lv.height;
@@ -79,6 +77,3 @@ export function warpRGBA({ lv, geoL, getTileRGBA, forward }, tgt, { nearest = fa
 	}
 	return out;
 }
-
-// 3857 の forward（xyzTarget の逆算に使う場面向け・proj.js と同式の複製を避けるための再輸出はしない）
-export const mercForward = ([lon, lat]) => [lon * D2R * RM, Math.log(Math.tan(Math.PI / 4 + lat * D2R / 2)) * RM];

@@ -21,7 +21,7 @@ GeoPBF.setGetter("bboxes", function () { return bboxes(this); });
 GeoPBF.setPrototype("clone", function () { return clone(this); });
 GeoPBF.setPrototype("cloneHead", function () { return cloneHead(this); });
 GeoPBF.setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
-GeoPBF.setPrototype("closeFilter", function(filter) { return cloneMap(this, { filter }); });
+// 旧 closeFilter(filter)（＝cloneMap({ filter })）は 2.0 で撤去（使い手なし）。絞り込みは cloneMap({ filter })
 GeoPBF.setPrototype("map", function(map) { return cloneMap(this, { map }); });
 GeoPBF.setPrototype("classify", function(k) { return classify(this, k); });
 GeoPBF.setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
@@ -69,12 +69,11 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	} else {
 		payload = this._gintBuffer = buf;
 	}
-	if (canUseWorker(this, GeoPBF._gintWorkerFactory, GeoPBF._gintWorkerUrl)) {
+	if (canUseWorker(this, GeoPBF._gintWorkerFactory)) {
 		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）。
 		// postMessage は AB の場合 structured clone（unpack は内部でコピーする設計＝どちらでも正しい）。
 		// Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝受け側で attachLazyStreams を掛け直す
-		const factory = GeoPBF._gintWorkerFactory || (() => new Worker(GeoPBF._gintWorkerUrl, { type: "module" }));
-		this.unPackGint = attachLazyStreams(await runInWorker("decoder:gint", factory, { sab: payload }));
+		this.unPackGint = attachLazyStreams(await runInWorker("decoder:gint", GeoPBF._gintWorkerFactory, { sab: payload }));
 	} else {
 		this.unPackGint = unPackGintBuffer(payload);
 	}

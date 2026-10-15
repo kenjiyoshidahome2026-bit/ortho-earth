@@ -18,14 +18,10 @@ import { gint } from "../extension/gint.js";
 const sidOf = s => (s < 0 ? ~s : s);
 const SCALE = 1e7;   // gint.SCALE_E（PRECISION=7 固定＝gint座標系の正本）
 
-// model.js の listsOf と同じ（model.js は anno.js を連れてくるため、Node試験可を保って局所実装）
-export function listsOf(f) {
-	if (f.type === "LineString") return [{ path: [], list: f.arcs, ring: false }];
-	if (f.type === "MultiLineString") return f.arcs.map((l, i) => ({ path: [i], list: l, ring: false }));
-	if (f.type === "Polygon") return f.arcs.map((r, i) => ({ path: [i], list: r, ring: true }));
-	if (f.type === "MultiPolygon") return f.arcs.flatMap((p, i) => p.map((r, j) => ({ path: [i, j], list: r, ring: true })));
-	return [];
-}
+// listsOf は model.js の物をそのまま使う（旧＝「model.js は anno.js を連れてくる」として局所に写していたが、model.js の import は
+// geom／topo-extract／sphere／snap／spline だけ＝Node でも読める。geoedit は model も large-model も読む＝閉包は増えない）
+import { listsOf } from "./model.js";
+export { listsOf };
 
 export function createLargeModel(pbf) {
 	const n = pbf.length;

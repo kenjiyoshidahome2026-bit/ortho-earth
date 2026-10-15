@@ -27,39 +27,4 @@ export const thenMap = async(a, func) => { const n = a.length, result = [];
 	return result;
 };
 export const sum = a => (a || []).reduce((acc, cur) => acc + cur, 0);
-
-export const download = (blob, name) => {
-	name = name || blob.name || "download";
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url; a.download = name; a.click();
-	setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-};
-export const openDirectory = async() => {
-	try { saveDire = saveDire || await window.showDirectoryPicker({ mode: 'readwrite' });
-		const status = await saveDire.queryPermission({ mode: 'readwrite' });
-		if (status === 'granted') return saveDire;
-		if (status === 'prompt') {
-			const newStatus = await saveDire.requestPermission({ mode: 'readwrite' });
-			if (newStatus === 'granted') return saveDire;
-			saveDire = null; throw new Error('Permission to access the directory was denied.');
-		}
-	} catch (err) { console.error("Failed to open directory:", err); return null;}
-};
-export const saveTo = async(blob, name) => {
-	try {
-		if (!await openDirectory()) return false;
-		const fileName = name || blob.name || "download";
-		const fileHandle = await saveDire.getFileHandle(fileName, { create: true });
-		const writable = await fileHandle.createWritable();
-		await writable.write(blob);
-		await writable.close();
-		console.info(`Saved: ${fileName}`);
-		return true;
-	} catch (err) {
-		if (err.name === 'AbortError') return false;
-		saveDire = null;
-		console.error("Save failed:", err);
-		throw err;
-	}
-};
+// 旧 download／openDirectory／saveTo（File System Access API の保存）は 2.0 で撤去＝使い手なし・saveDire の宣言を欠いたまま写されていた

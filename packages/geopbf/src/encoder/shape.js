@@ -160,7 +160,6 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	const badname = {};
 	props.forEach(rec => { DBF.writeUint8(0x20);
 		fields.forEach(({name, type, length, precision}) =>{
-			const fill = (s,length) => { while(s.length < length) s += " "; return s; };
 			let value = rec[name];
 			// 値なし（undefined/null・日付として無効）は空白で埋める＝DBF の空欄（旧＝undefined は 0x00 のまま、null は toFixed/getMonth で落ちた・B8）
 			if (value == null || (type === 'D' && !(value instanceof Date && !isNaN(value))) || (type === 'N' && !Number.isFinite(+value))) return DBF.writeBuffer(encoder(" ".repeat(length)), length);

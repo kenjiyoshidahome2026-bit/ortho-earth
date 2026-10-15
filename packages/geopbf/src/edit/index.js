@@ -9,7 +9,7 @@
 // 個別 import は geopbf/edit/<name>（model / large-model / topo-extract / snap / history / spline）。
 export { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
 export { createModel, rebuildModel, adoptRebuilt, retopoTopo, topoToTransfer, topoFromTransfer, stitchGeometry, listsOf } from "./model.js";
-export { createLargeModel } from "./large-model.js";   // listsOf は model 側を正とする（同実装の私有ヘルパ）
+export { createLargeModel } from "./large-model.js";   // listsOf は model 側の物（large-model も同じ関数を再輸出）
 export { createSnapIndex, buildBase, normLon } from "./snap.js";
 export { createHistory } from "./history.js";
 export { smoothRing, smoothGeom } from "./spline.js";
