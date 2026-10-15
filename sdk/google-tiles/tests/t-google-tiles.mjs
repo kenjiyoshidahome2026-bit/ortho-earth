@@ -1,5 +1,5 @@
 // @ortho-earth/google-tiles（W8）＝key の付与・session の引き回し・よその host は触らない・出典・add3DTiles への受け渡し・plugin の形（DOM 無し）
-import { googleRequestTransform, googleAttribution, addGoogle3DTiles, googleTilesPlugin, GOOGLE_3D_TILES_ROOT } from "../src/index.js";
+import { googleRequestTransform, googleAttribution, addGoogle3DTiles, googleTilesPlugin, GOOGLE_3D_TILES_ROOT } from "../src/index.ts";
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const throws = f => { try { f(); return false; } catch { return true; } };
 const K = "TEST_KEY";
