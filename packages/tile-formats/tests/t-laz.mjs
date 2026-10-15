@@ -6,8 +6,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createLazPerf } from "laz-perf";
 import { decodeLazChunk } from "../src/laz.js";
-import { POINTCLOUD_FORMATS } from "../src/pointcloud.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords } from "../../globe/src/copc-format.js";   // COPC の形を読む（globe の純関数）
+import { POINTCLOUD_FORMATS, POINTCLOUD_NAMES } from "../src/pointcloud.js";
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords } from "../src/las.js";   // LAS/COPC の形を読む純関数
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
@@ -44,6 +44,7 @@ await t("COPC の節を全部解く（点の数・範囲・RGB）", () => {
 await t("差し込み口の形＝{ laz: () => Promise<decode> }", () => {
 	assert.deepEqual(Object.keys(POINTCLOUD_FORMATS), ["laz"]);
 	assert.equal(typeof POINTCLOUD_FORMATS.laz, "function");
+	assert.deepEqual(POINTCLOUD_NAMES, Object.keys(POINTCLOUD_FORMATS));   // globe 本体は名前だけ読む（capabilities）＝表とずれない
 });
 
 console.log(`\n全 ${n} 件通過`);

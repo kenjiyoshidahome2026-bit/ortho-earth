@@ -4,7 +4,7 @@
              色の切り替え（rgb → 分類）で絵が変わる・点の大きさの切り替え・消すと画素が消える
      ?v=depth＝奥行き：点群の上に建物（押し出しの箱・高さ 400m）を置いて真上から見る＝箱の下の点は隠れる（depth 既定）・depth:false なら透ける
              （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
-     ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）
+     ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）・COPC でない .laz は「まだ読めない」と断る
      画素＝オーバーレイの canvas（dbgHost.__ovPixels("copc:<id>")・透明の上に描く＝アルファで見る） -->
 <html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-copc</title></head>
 <body><div id="map"></div>
@@ -97,6 +97,9 @@ try {
 		await landed(map);
 		const p = await until(async () => { const c = count(await grab("copc:drop")); return c.n > 500 ? c : null; }, 30000, 500);
 		ok("drop", r?.length === 100000 && !!p, `r=${JSON.stringify(r)} px=${p?.n}`);
+		// COPC でない .las/.laz（点群計画 段 1-2）＝本道（GeoPBF）へ回さず、はっきり断る
+		const plain = await window.__loadUserFile(new File([blob], "plain.laz")).then(() => "resolved", e => String(e?.message || e));
+		ok("plain-laz", /not a COPC/.test(plain), plain);
 		map.destroy();
 	}
 	await sleep(300);

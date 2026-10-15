@@ -11,7 +11,7 @@ import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
 import { crsFromWKT, parseWKTTree } from "geopbf/proj";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
-import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds } from "./copc-format.js";
+import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 
 let LAZ = null;
 const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and alias "#pointcloud-formats" to "@ortho-earth/tile-formats/pointcloud" in your bundler';
