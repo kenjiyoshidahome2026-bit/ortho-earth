@@ -30,7 +30,7 @@ export default defineConfig({
 		emptyOutDir: true,
 		sourcemap: true,
 		lib: {
-			entry: resolve(import.meta.dirname, "src/index.js"),
+			entry: resolve(import.meta.dirname, "src/index.ts"),
 			name: "orthoJapan",
 			formats: ["es"],            // UMD は不可＝worker/動的 import を含む以上 ESM 一択
 			fileName: () => "ortho-japan.js",
