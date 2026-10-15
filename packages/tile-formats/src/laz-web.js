@@ -2,7 +2,8 @@
 //   .wasm は ?url でファイルのまま出す（バンドラが base64 に埋めない）
 import { createLazPerf } from "laz-perf";
 import lazWasmUrl from "laz-perf/lib/web/laz-perf.wasm?url";
-import { decodeLazChunk } from "./laz.js";
+import { decodeLazChunk, decodeLazFile } from "./laz.js";
 let LP = null;
 const lazPerf = () => LP ??= createLazPerf({ locateFile: () => new URL(lazWasmUrl, self.location.href).href });
 export async function decodeLaz(bytes, opts) { return decodeLazChunk(await lazPerf(), bytes, opts); }
+export async function decodeLazWhole(bytes, onBatch) { return decodeLazFile(await lazPerf(), bytes, onBatch); }

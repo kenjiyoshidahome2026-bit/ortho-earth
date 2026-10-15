@@ -2910,11 +2910,12 @@ async function iiifOpen(src, attribution) {
 	if (u) { const off = map.onFrame(() => { off(); map.raster.add("iiif", { iiif: u.href }, { order: "over", opacity: 1, hideFills: false }).then(info => { const b = info?.bbox || map.raster.info("iiif")?.bbox; if (b && !themeBootV) map.fitBounds(b, { padding: 40 }); }).catch(err => console.warn("[iiif] ?iiif=", u.href, err)); }); }
 }
 // ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
-// map.addCOPC(url | File, opts) → 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>（門は ?g= と共用）・.copc.laz のドロップ
+// map.addPointCloud(url | File, opts)（＝addCOPC）→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>（門は ?g= と共用）・.las／.laz のドロップ
 let copcCtl = null;
 const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.js")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M });
-map.addCOPC = async (src, opts) => (await copcGet()).add(src, opts);
-map.removeCOPC = async id => copcCtl ? (id == null ? copcCtl.list().every(h => h.remove()) : copcCtl.remove(id)) : false;
+map.addPointCloud = async (src, opts) => (await copcGet()).add(src, opts);   // COPC は節だけ範囲読み・普通の LAS/LAZ は丸ごと読み（点群計画 段 3-3・2,000 万点まで）
+map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(h => h.remove()) : copcCtl.remove(id)) : false;
+map.addCOPC = map.addPointCloud; map.removeCOPC = map.removePointCloud;   // 旧名（1.14.0〜）
 {
 	const cSpec = new URLSearchParams(location.search).get("copc");
 	const u = cSpec ? remoteUrl(cSpec, "copc") : null;
