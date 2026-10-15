@@ -10,7 +10,7 @@ import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const SRC   = join(__dir, 'admin-boundary.csv');
-const OUT   = join(__dir, '../census/kana.json');
+const OUT   = join(__dir, '../../../packages/jp/census/kana.json');
 
 const lines = readFileSync(SRC, 'utf8').split(/\r?\n/).filter(Boolean);
 const hdr   = lines[0].split(',');

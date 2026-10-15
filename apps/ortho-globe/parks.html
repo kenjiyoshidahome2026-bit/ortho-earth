@@ -46,7 +46,7 @@
 			const [{ createGlobe, geopbf }, { mountParks }] = await Promise.all([import("@ortho-earth/globe"), import("./parks.js")]);
 			// 初期視点＝北米を少し傾けて眺める（アラスカからフロリダまで・共有 URL の hash があればそちら）。建物 3D は出さない（公園に街は要らない・起動も軽い）
 			const map = await createGlobe({ target: "#map", view: location.hash || "#2.3/44/-112/20t", chips: false,
-				worldContent: true, mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });
+				worldContent: true, mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });
 			dismissBoot();
 			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
 			const D = __DATA_US__;

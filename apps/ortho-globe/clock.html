@@ -48,7 +48,7 @@
 			// 初期視点＝見ている人の経度を正面に（UTC との差 1 時間＝15°）。共有 URL の hash があればそちら
 			const lon = Math.max(-180, Math.min(180, Math.round(-new Date().getTimezoneOffset() / 4)));
 			const map = await createGlobe({ target: "#map", view: location.hash || `#2.4/20/${lon}`, chips: false, zoomMax: 8,   // 世界のアプリ＝地球儀（地域の申告なし）
-				mesh: false, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });   // countryTip:false＝国名は時計の tip が出す（Shift の国の一覧と重ねない）
+				mesh: false, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });   // countryTip:false＝国名は時計の tip が出す（Shift の国の一覧と重ねない）
 			dismissBoot();
 			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock(); map.gadget.lang();   // clock＝共通の時計（#42）＝時刻を動かすと夏時間の切り替わりと夜の側が一緒に動く
 			const tzSrc = new URLSearchParams(location.search).get("tz") || undefined;

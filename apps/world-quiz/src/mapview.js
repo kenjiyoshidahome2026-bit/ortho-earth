@@ -17,7 +17,6 @@ async function build(host, lang) {
 	const map = await engine.createGlobe({
 		target: host, lang, view: "#1.6/20/0", zoomMax: ZMAX, mesh: false, chips: false, instruments: ["attr"], countryTip: false, persistView: false,
 		keyboard: false,   // 矢印キーは答えの選択に使う
-		assetBase: __GLOBE_ASSETS__,
 	});
 	map.gadget.zoom(); map.gadget.compass();
 	let inside = null, spot = null, token = 0, onTap = null, hovKey = null, hovAt = 0;
