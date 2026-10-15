@@ -104,7 +104,7 @@ export const FRAME_KEY = "ortho:frame";
 
 // position / positions の値 → { pts: [[lon,lat,h]…], times: [iso…]|null, meta: 標本以外の指定 }。読めなければ null。
 //   tagged＝position（単数）＝配列長が 1 標本分を超えれば時刻付き（[t, x, y, z, …]）。positions（複数）は常に点の並び。
-export function readPosition(v, tagged) {
+function readPosition(v, tagged) {
 	if (v == null) return null;
 	if (Array.isArray(v)) {   // 区間の並び＝標本を順に繋ぐ・meta は先頭から
 		const parts = v.map(u => readPosition(u, tagged)).filter(Boolean);

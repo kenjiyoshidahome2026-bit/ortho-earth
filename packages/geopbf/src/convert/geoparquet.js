@@ -16,7 +16,6 @@ import { parseWkb } from "./wkb.js";
 
 import { now } from "../modules/now.js";
 const { TAGS } = GeoPBF;
-const WKB = { Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 };
 const GTYPES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 
 // GeoPBF の幾何をワイヤ整数のまま読む → { type, lens, xy: number[]（デルタ復号済み・閉じ点なし）}

@@ -4,7 +4,6 @@ export async function encodeZIP(files, name = null) {
 	});
 	// CRC は「走り値（未確定）」で継ぎ、最後に一度だけ確定させる。チャンク毎に ^-1 すると 64KB を超えるファイルで壊れる（2026-09-21）
 	const crcRun = (bin, c) => { for (const b of bin) c = (c >>> 8) ^ tbl[(c ^ b) & 255]; return c; };
-	const crc32 = (bin, c = -1) => crcRun(bin, c) ^ -1;
 	let off = 0, cd = [], parts = [];
 	for (let f of files) {
 		const d = f.lastModified ? new Date(f.lastModified) : new Date();

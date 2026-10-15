@@ -1,6 +1,6 @@
-// t-validate: 符号化の検証層（改良点 ⑧'・options.validate＝"lenient"（既定）／"strict"／"legacy"）＝黙った欠損を無くす。
+// t-validate: 符号化の検証層（改良点 ⑧'・options.validate＝"lenient"（既定）／"strict"）＝黙った欠損を無くす。
 // 幾何なし・空の座標・壊れた座標（NaN）・緯度の範囲外・退化した環・NaN／Infinity の属性・単要素の Multi・GeometryCollection の空要素を、
-// lenient＝直すか落として（緯度の範囲外は数えるだけ）pbf.issues／issueCount に残す、strict＝最初の問題で throw、legacy＝1.19 までの挙動（Null Island・NaN→0）
+// lenient＝直すか落として（緯度の範囲外は数えるだけ）pbf.issues／issueCount に残す、strict＝最初の問題で throw。"legacy"（1.19 までの挙動）は 2.0 で撤去＝lenient に落ちる
 globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../src/pbf-base.js";
 let fails = 0;
@@ -53,19 +53,10 @@ const features = [
 	const okp = await enc([features[0], features[9]].map(f => structuredClone(f)), { validate: "strict" });
 	ok(okp.length === 2 && okp.issueCount.multiDegraded === 1, "strict: 単要素の Multi は問題ではない（数えるだけ）");
 }
-// ── legacy ──
+// ── "legacy" は撤去（2.0）＝未知の値は lenient に落ちる ──
 {
-	warns.length = 0;
-	let err = null, p = null; try { p = await enc(features.filter((_, i) => i !== 8).map(f => structuredClone(f)), { validate: "legacy" }); } catch (e) { err = e; }
-	ok(!err && p && p.length === 11, `legacy: 幾何なし 2 件だけ落ちる（${p?.length}）`);
-	ok(p.issues.length === 0 && Object.keys(p.issueCount).length === 0, "legacy: issues は積まない");
-	ok(p.geojson.features[1].geometry.coordinates[0] === 0 && p.geojson.features[1].geometry.coordinates[1] === 0, "legacy: Point の [] は (0,0)");
-	ok(p.geojson.features[3].geometry.coordinates[1] === 95, "legacy: 緯度は不変");
-	const q = await enc([F("Point", [139, 35], { v: NaN })], { validate: "legacy" });
-	ok(q.geojson.features[0].properties.v === 0, "legacy: NaN → 0");
-	let e3 = null; try { await enc([F("Point", [139, 35], { v: Infinity })], { validate: "legacy" }); } catch (e) { e3 = e; }
-	ok(!!e3, "legacy: Infinity は例外");
-	ok(warns.length === 1 && /without geometry/.test(warns[0]), `legacy: warn は従来の 1 行（${warns.length}）`);
+	const p = await enc([features[2], features[0]].map(f => structuredClone(f)), { validate: "legacy" });
+	ok(p.validate === "lenient" && p.length === 1 && p.issueCount.emptyCoords === 1, `validate:"legacy" は lenient として動く（Point の [] は落ちて数える・${p.validate}）`);
 }
 // ── issues の上限 100 ──
 {
