@@ -22,6 +22,7 @@ declare module "geopbf/filegdb";
 declare module "geopbf/featureservice";
 declare module "geopbf/georef";
 declare module "geopbf/proj";
+declare module "geopbf/epsg";
 declare module "geopbf/datum";
 declare module "geopbf/table";
 declare module "geopbf/convert/node-gint";
