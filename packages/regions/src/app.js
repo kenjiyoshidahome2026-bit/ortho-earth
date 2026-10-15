@@ -1,17 +1,16 @@
 // orthoJapan＝「globe（地球儀のホスト）＋日本の申告」の薄い包み（LAYERS.md 段階 2・2026-09-23）。
-// 置き場＝packages/jp（2026-10-14・旧 apps/ortho-japan/app.js＝census2020・choju・ortho-nl・gishub-jp が japan アプリの中を読んでいた）。
-// 本番は共有エンジンの入口（/globe/engine/<版>/jp/app.js）＝5 アプリが同じ 1 つを読む（各アプリに焼かない・本人 2026-10-14）。
+// 置き場＝packages/regions（2026-10-15・旧 packages/jp/src/app.js＝jp が nl を読む形になっていた・その前は apps/ortho-japan/app.js）。
+// 地域パック（jp・nl）は互いを知らない兄弟＝両方を知るのはこの切り替え口だけ。
+// 本番は共有エンジンの入口（/globe/engine/<版>/regions/app.js）＝5 アプリが同じ 1 つを読む（各アプリに焼かない・本人 2026-10-14）。
 // 地域の選び方（URL：/nl/・?nl=1・既定は日本）はここだけが知る。ホスト（@ortho-earth/globe の createGlobe）は opts.region しか見ない＝地域名を知らない。
 // SDK の公開面はこのファイル＝default orthoJapan・createGlobe・geopbf・Marker・Popup・addProtocol・removeProtocol（型は packages/globe/globe.d.ts＋SDK の入口＝scripts/build-dts.mjs）。
 import { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol } from "@ortho-earth/globe";   // 地球儀のホスト（packages/globe・S4 2026-09-23）
 import { JP_REGION } from "@ortho-earth/jp/region";   // 日本の地域パック＝その国の知識の正本。入口（index）でなく region 直＝POI・N02 の実装を起動のバンドルに載せない
+import { JP_ASSETS } from "@ortho-earth/jp/assets";   // 日本の実行時アセットの既定の置き場＝jp が知る（packages/jp/src/assets.js）
 import { NL_REGION, NL_TERRAIN, nlEntry, nlStyle } from "@ortho-earth/nl";   // オランダの地域宣言（packages/nl）
 export { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol };
-const ASSETS_DIR = "../assets/";   // 変数で渡す＝vite の new URL(リテラル) 解析（実体を探して束に入れる）を通さない
-const JP_ASSETS = new URL(ASSETS_DIR, import.meta.url).href;
 export default function orthoJapan(opts = {}) {
-	// 実行時アセット（plateau-sets.json・airports.json 等＝packages/jp/assets）の既定＝この包みの隣の assets/（2026-10-14・旧＝束ねたアプリの BASE_URL）。
-	// 共有エンジンでは jp/app.js（か共有チャンク assets/*.js）の 1 つ上の assets/＝/globe/engine/<版>/assets/（エンジンの build が複写）・dev は packages/jp/assets/。
+	// 実行時アセット（plateau-sets.json・airports.json 等）の既定＝JP_ASSETS（packages/jp/src/assets.js）。
 	// SDK（apps/ortho-japan/app.js）は従来どおり自分の BASE_URL を渡す。
 	opts = { ...opts, assetBase: opts.assetBase ?? JP_ASSETS };
 	if (opts.region !== undefined) return createGlobe(opts);   // 申告を持参＝そのまま

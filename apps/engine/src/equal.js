@@ -1,7 +1,7 @@
 // 共有エンジンの入口 equal.js（/globe/engine/<版>/equal.js・2026-10-15）＝Equal Earth の部品 createEqual（packages/equal）。
 // 2 つ以上のアプリ（ortho-globe・ortho-japan の div 重ね・equal の頁）が使う物は各アプリに焼かず、ここを共に読む（本人 2026-10-14）。
-// CSS＝jp-app.js と同じ手（1 つ上の階の globe.css を 1 回だけ貼る・equal の .eq 規則もそこに入る）。気候場の既定は globe と同じ同梱の 1 枚。
-const css = "./globe.css";   // この入口は <版>/ 直下（jp/app.js は 1 階下なので ../）
+// CSS＝regions-app.js と同じ手（1 つ上の階の globe.css を 1 回だけ貼る・equal の .eq 規則もそこに入る）。気候場の既定は globe と同じ同梱の 1 枚。
+const css = "./globe.css";   // この入口は <版>/ 直下（regions/app.js は 1 階下なので ../）
 if (!document.querySelector("link[data-ortho-engine]")) {
 	const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: new URL(css, import.meta.url).href });
 	link.setAttribute("data-ortho-engine", "");

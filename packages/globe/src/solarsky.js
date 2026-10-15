@@ -183,7 +183,7 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 			for (let g = 0; g < 8 && placed.some(p => Math.abs(p.x - x) < 70 * dpr && Math.abs(p.y - y) < 13 * dpr); g++) y += 13 * dpr;
 			placed.push({ x, y });
 			ctx.fillStyle = `rgba(205,214,230,${0.85 * fade * L.a})`;
-			ctx.fillText(names?.body(L.b.id) || NAMES_JA[L.b.id], x, y);   // 名前は UI の言語（sky/names.js＝bucket GIS/space）・無ければ従来の和名
+			ctx.fillText(names?.body(L.b.id) || NAMES_JA[L.b.id], x, y);   // 名前は UI の言語（sky/names.js＝Pages の sky/names）・無ければ従来の和名
 		}
 	}
 	return { frame };

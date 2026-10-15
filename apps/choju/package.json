@@ -16,6 +16,7 @@
 		"@loaders.gl/3d-tiles": "^4.3.0",
 		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
-		"@ortho-earth/jp": "*"
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/regions": "*"
 	}
 }

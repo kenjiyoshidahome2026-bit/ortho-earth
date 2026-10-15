@@ -14,7 +14,7 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
 //   出すたびに全消費者が同時に変わり、9/20 の map.overlay 上書きで本番の census2020 が 3 日間起動不能だった。
 //   代償＝エンジン分（gzip 300KB 台）の重複＝japan とのブラウザキャッシュ共有は無くなる。実行時アセット（airports.json 等）は
 //   引き続き /japan/ の共有棚（データであってコードではない）。
-const engineP = import("@ortho-earth/jp/app");   // orthoJapan＝本番は共有エンジンの入口 /globe/engine/<版>/jp/app.js（2026-10-14・旧 ../ortho-japan/app.js を束に焼いていた）
+const engineP = import("@ortho-earth/regions/app");   // orthoJapan＝本番は共有エンジンの入口 /globe/engine/<版>/regions/app.js（2026-10-14・旧 ../ortho-japan/app.js を束に焼いていた）
 import { setup } from "./ui/ctx.js";
 import { renderCensusSmall2020, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";

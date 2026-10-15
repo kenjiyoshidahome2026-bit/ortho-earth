@@ -4,7 +4,7 @@
 //   形の約束（GeoPBF の焼き方・archive.json の end）は packages/quakes/src/usgs.js が配る側（apps/quakes-mirror）と共通に持つ
 //  （2026-10-15・旧＝apps/quakes-mirror/tests/t-quakes.mjs が globe の worker を直に読んでいた＝アプリはアプリを読まない）。
 //   node apps/ortho-globe/tests/t-quakes-reader.mjs
-import { buildGeoPBF, parseCsvTexts } from "../../../packages/quakes/src/usgs.js";
+import { buildGeoPBF, parseCsvTexts } from "@ortho-earth/quakes/usgs";
 
 const HEAD = "time,latitude,longitude,depth,mag,magType,nst,gap,dmin,rms,net,id,updated,place,type";
 // 偽 USGS：1 日 3 件（0・8・16 時）

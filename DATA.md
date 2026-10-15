@@ -108,7 +108,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
    `showcase/` は japan の `public/` に残す（本人裁定 10/13＝www のデモの `?g=showcase/…` は公開済みの URL・移すと切れる）。
 6. **地震の archive**：移すなら 1 ファイル置いて読み先 1 行。ただし初回 1 人 23MB＝月 4,300 人ほどで帯域の目安。
    Claude の見立ては「R2 に残す」（wrangler で置ける＝鍵は元々不要）。本人の判断待ち。
-7. **uploader → ortho-data の道**：国旗・国の形・音・ne-cities・宇宙の名前（正本 `packages/space`）を作り直した時に置く手順。
+7. **uploader → ortho-data の道**：国旗・国の形・音・ne-cities を作り直した時に置く手順。宇宙（星表・星座線・メシエ・月の地名・名前）は済（2026-10-15）＝`npm run sky -w world-data` → `publish:pages -- --only=sky --write`＝uploader の宇宙のボタンは外した。
 8. **bucket の掃除**（3 が済んでから）：読み手なしの `ne-cultural.geopbf`（19MB）・`国旗.zip`・`国名一覧.json`・`range.json`、
    旧い DB・`i18n/`・`flags/`・`geoms/`・`音源.zip`・`GIS/space/`・`GIS/pbf` の星 4 本。**消す前に本人に確かめる**。
 9. **npm publish**：geopbf（wasm の直し）と `@ortho-earth/globe`（`cacheKey`・`WORLD_DATA`）。

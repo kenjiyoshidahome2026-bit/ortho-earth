@@ -4,7 +4,7 @@
 //   読み手（globe の quakes-worker.js）の検定は apps/ortho-globe/tests/t-quakes-reader.mjs（形の約束＝packages/quakes/src/usgs.js・2026-10-15 に分けた＝アプリはアプリを読まない）
 //   node apps/quakes-mirror/tests/t-quakes.mjs
 import { serve } from "../worker.js";
-import { buildGeoPBF, parseCsvTexts } from "../../../packages/quakes/src/usgs.js";
+import { buildGeoPBF, parseCsvTexts } from "@ortho-earth/quakes/usgs";
 
 // ── 偽 R2（get/put/delete と onlyIf の If-None-Match だけ）───────────────────
 const store = new Map();

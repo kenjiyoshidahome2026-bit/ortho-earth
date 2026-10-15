@@ -7,7 +7,7 @@
 //（旧＝bucket の一覧を 3〜4 本）。名前は DB の隣・画面の文言（ui）はプログラム（packages/world/i18n/ui.json）＝ここで重ねて旧来の i18n の形にして渡す。
 import { Cache, decodeZIP } from "native-bucket";
 import { WORLD_DATA } from "@ortho-earth/core/worldcontent";
-import { uiTable } from "../i18n/ui-table.js";
+import { uiTable } from "world-data/i18n/ui-table.js";   // 名前で読む＝共有エンジンを読む頁ではエンジンの入口（束に二重に焼かない・2026-10-15）
 
 const DATA = (import.meta.env.VITE_WORLD_DATA || WORLD_DATA).replace(/\/*$/, "/");   // 検証用に別の置き場へ向けられる（URL）: VITE_WORLD_DATA=http://localhost:8791/globe/
 export const ASSET_BASE = DATA;   // 旗/地図PNGは個別ファイル（flags/<key>.svg・geoms/<key>.png）＝見えた分だけ <img loading=lazy>

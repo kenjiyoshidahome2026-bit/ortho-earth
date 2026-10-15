@@ -27,7 +27,7 @@ const celVec = (raDeg, decDeg) => {
 };
 // 星空モジュール（planets＋星座/メシエ名＝z<4専用）は初期バンドルに載せず、初めて星空パスに入る時に一度だけ動的読込。
 // 読込後に下の holder へ注入＝以降の updatePlanets/toggleConstellations は従来どおり同期的に使える（memo化＝多重読込なし）。
-// 星座名・メシエ名・惑星名＝sky/names.js（bucket GIS/space の表・UI の言語・欠けは英語）。
+// 星座名・メシエ名・惑星名＝sky/names.js（Pages の sky/names/<lang>.json・UI の言語・欠けは英語）。
 let planetPositions, moonPosition, sunPosition, skyNames;
 let _skyLoad = null;
 const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), loadSkyNames()]).then(([p, s]) => {
@@ -168,7 +168,7 @@ async function toggleConstellations() {
 		for (const line of lines) for (let i = 0; i < line.length - 1; i++)
 			seg.push(...celVec(line[i][0], line[i][1]), ...celVec(line[i + 1][0], line[i + 1][1]));
 		// 星座名の置き場＝全頂点の天球ベクトル平均を正規化（v1のra/dec単純平均はRA 0/360跨ぎの星座で狂う。ベクトル平均は跨ぎ無縁）
-		// 名前は UI の言語で（bucket GIS/space の表＝IAU略号/ラテン名の両対応・欠けは英語）
+		// 名前は UI の言語で（sky/names の表＝IAU略号/ラテン名の両対応・欠けは英語）
 		const name = skyNames.constellation(f.properties?.name ?? f.properties?.id ?? f.id);
 		if (name) {
 			let vx = 0, vy = 0, vz = 0;

@@ -16,7 +16,7 @@ import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i1
 import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
-import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
+import { categories as CATEGORY_NAMES } from "world-data/i18n/ui-table.js";   // 分類名（Wikidata のクラスのラベル・26 言語）
 const t = tr();
 
 // ── 系統（凡例と表示の切り替えの単位）──────────────────────────────────────────
