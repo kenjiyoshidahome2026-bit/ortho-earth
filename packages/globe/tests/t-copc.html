@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- COPC の点群を範囲読みで直に流す（#178）。試料＝fixtures/copc/ellipsoid.copc.laz（copc.js の試験データ・MIT・合成の楕円体 10 万点・RGB つき・EPSG:3857＝ニューヨーク湾の上・節 5 つ）。
-     ?v=load＝map.addCOPC(URL)：情報（点の数・RGB・範囲・座標系・楕円体高）・寄ると根の節が描かれる・さらに寄ると子の節も読む（ADD）・Range で節だけ（全体を落とさない）・
+     ?v=load＝map.addCOPC(URL)：出典（opts.attribution＝出典の欄・消すと消える）・情報（点の数・RGB・範囲・座標系・楕円体高）・寄ると根の節が描かれる・さらに寄ると子の節も読む（ADD）・Range で節だけ（全体を落とさない）・
              色の切り替え（rgb → 分類）で絵が変わる・点の大きさの切り替え・消すと画素が消える
      ?v=depth＝奥行き：点群の上に建物（押し出しの箱・高さ 400m）を置いて真上から見る＝箱の下の点は隠れる（depth 既定）・depth:false なら透ける
              （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
@@ -45,9 +45,11 @@ try {
 	if (V === "load") {
 		const map = await createGlobe({ target: "#map", view: "#3/40.7/-74", chips: false, debugGlobals: true });
 		await map.once("load");
-		const h = await map.addCOPC(FX, { id: "e" });
+		const h = await map.addCOPC(FX, { id: "e", attribution: "Fixture cloud <b>CC</b><img src=x onerror=alert(1)>" });
 		const i = h.info;
 		ok("info", i.count === 100000 && i.hasRgb && i.format === 7 && /3857/.test(i.crs) && i.vertical === "ellipsoidal" && Math.abs(i.center[0] + 74.0445) < 0.001 && Math.abs(i.center[1] - 40.6892) < 0.001 && i.bbox[2] - i.bbox[0] < 0.01, JSON.stringify({ c: i.center, b: i.bbox, crs: i.crs, v: i.vertical }));
+		const at = () => map.mapEl.querySelector("#attr");
+		ok("attribution", !!(await until(() => /Fixture cloud CC/.test(at()?.textContent || "") ? true : null, 8000)) && !at().querySelector("[onerror]"), (at()?.innerHTML || "").slice(-200));   // 出典の欄（消毒＝イベント属性は落ちる）
 		await landed(map);
 		const s1 = await settled(h);
 		ok("root", s1 && s1.nodes >= 1 && s1.shownPoints >= 66272, JSON.stringify(s1));
@@ -76,6 +78,7 @@ try {
 		ok("hide", d.n === 0, `n=${d.n}`);
 		h.remove();
 		ok("removed", !(await window.__ovPixels("copc:e")) || true);
+		ok("attribution-off", !!(await until(() => /Fixture cloud/.test(at()?.textContent || "") ? null : true, 4000)), at()?.textContent?.slice(0, 160));
 		map.destroy();
 	} else if (V === "depth") {
 		const map = await createGlobe({ target: "#map", view: "#16.5/40.6892/-74.0445", chips: false, debugGlobals: true });
