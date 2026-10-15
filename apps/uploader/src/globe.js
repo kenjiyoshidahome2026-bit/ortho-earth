@@ -61,14 +61,13 @@ export async function baseImages(q, { Bucket, Cache, Fetch }) {
 	}
 }
 
-// 陸・経緯線・国境線・星（旧来の小さな基図一式）。NE は GitHub の geojson、星は d3-celestial
+// 陸・経緯線・国境線（旧来の小さな基図一式）。NE は GitHub の geojson
+// 星（stars.6）は 2026-10-15 に外した＝星空のデータは GitHub Pages の sky/（packages/world の npm run sky が焼く）
 export function borders(q) {
 	const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
-	const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
-	return bakeEach(q, "borders and stars", [
+	return bakeEach(q, "borders", [
 		...["ne_110m_land", "ne_110m_graticules_10", "ne_50m_admin_0_boundary_lines_land",
 			"ne_50m_admin_0_boundary_lines_maritime_indicator", "ne_50m_geographic_lines"].map(name => ({ name, url: nvkelso(name) })),
-		...["stars.6"].map(name => ({ name, url: ofrohn(name) })),
 	]);
 }
 

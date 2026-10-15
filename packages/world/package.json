@@ -13,12 +13,15 @@
 		"plates": "node scripts/plates.mjs",
 		"koppen": "node scripts/koppen.mjs",
 		"publish:pages": "node scripts/publish-pages.mjs",
-		"i18n:classes": "node scripts/i18n-classes.mjs"
+		"i18n:classes": "node scripts/i18n-classes.mjs",
+		"sky": "node scripts/sky.mjs"
 	},
 	"engines": {
 		"node": ">=22"
 	},
 	"devDependencies": {
-		"polygon-clipping": "^0.15.7"
+		"geopbf": "*",
+		"polygon-clipping": "^0.15.7",
+		"space-data": "*"
 	}
 }
