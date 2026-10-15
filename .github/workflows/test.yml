@@ -1,0 +1,24 @@
+# PR と main への push ごとに root の npm test（206 本・node だけ・ブラウザ不要）を走らせる。
+# 2026-10-15：#385 で main の npm test が赤くなったのにマージまで誰も気づけなかった＝それまで CI が無かった
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
