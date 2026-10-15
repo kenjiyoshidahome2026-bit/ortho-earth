@@ -36,7 +36,7 @@ struct GF {
 	atlas: vec4f,      // 地面アトラスへの焼き込み（窓座標モード）：xy＝原点−窓南西隅(deg)・zw＝1/窓幅（gl/gint u_atlas と対・packGF 72-75）
 	atlasQ: vec4f,     // x＝窓座標モード(1)。塗り扇だけ＝球面投影・地平クランプ・ドレープ無し（地形には FS の標本化で乗る・packGF 76-79）
 	gfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない
-	farA: vec4f,       // 遠方の要（塗り扇の画面カリング・gl/gint/utility.js farPivotParams）：NDC の東(xy)・北(zw)（packGF 128-131）
+	farA: vec4f,       // 遠方の要（塗り扇の画面カリング・gint/utility.js farPivotParams）：NDC の東(xy)・北(zw)（packGF 128-131）
 	farQ: vec4f,       // (経度差の重み, 緯度差の重み, 有効(1), 距離 K)＝z=0 は無効＝従来の bbox 中心・z=2＝単一要を farA.xy（NDC）へ（packGF 132-135）
 	farBig: vec4u,     // xy＝要を遠方へ置く feature の幅/高さ下限（e7）（packGF 136-139）
 };

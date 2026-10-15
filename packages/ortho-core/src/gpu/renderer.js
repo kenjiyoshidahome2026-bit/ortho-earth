@@ -34,7 +34,7 @@ import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラ�
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";
 import { createPostGPU } from "./postfx.js";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
-import { FAR_PIVOT } from "../gl/gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
+import { FAR_PIVOT } from "../gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一

@@ -3,8 +3,8 @@
 // 単位は device px 一本（s.width/height は device px、線幅は ×s.dpr 済みで返す）。
 // 脱シングルトン（§10.1）：状態は第一引数 s で受ける＝GL2 側は state.js の singleton を渡し（挙動不変）、
 // WebGPU 側はエンジンのビュー状態 V（computeDrawData）/ 層状態 L（zoomInRange）を渡す。
-import { cameraState, unproject, lonlatTo3D } from '../../camera.js';
-import * as mat from '../../mat.js';
+import { cameraState, unproject, lonlatTo3D } from '../camera.js';
+import * as mat from '../mat.js';
 import { SUB_S0, SUB_NB } from './utility.js';
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
