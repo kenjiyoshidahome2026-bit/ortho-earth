@@ -1,7 +1,7 @@
 // COPC（Cloud Optimized Point Cloud）の読み手 worker（#178）。main（gadgets/copc.js）が選んだ節だけを Range で取って LAZ を解き、原点相対の点にして返す。
 //   開く  { type:"open", id, src: URL | Blob, headers?, ell } → { type:"opened", id, info, root: { nodes, pages } }
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
-//   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m) }
+//   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), ms: { read, decode, proj } }
 // 解読＝"#pointcloud-formats" の laz（プラグイン @ortho-earth/tile-formats/pointcloud＝laz-perf 0.0.7 の ChunkDecoder・WASM・Apache-2.0）。
 //   globe 自身は laz-perf に依存しない（本人裁定＝プラグインの形）・差し込まれていなければ open で何を足すかを返す。最初の節で一度だけ起こす（起動の重さは 0）。
 // 座標＝WKT（LASF_Projection 2112）→ geopbf/proj の crsFromWKT（TM・メルカトル・LCC・Albers・経緯度）→ 経緯度。高さ＝z（鉛直の単位）
@@ -80,9 +80,12 @@ async function open(m) {
 async function node(m) {
 	const set = sets.get(m.id); if (!set) throw new Error("copc: not open");
 	const { hdr, ll } = set, n = m.node.pointCount;
+	const t0 = performance.now();
 	const [buf, decode] = await Promise.all([set.src.read(m.node.offset, m.node.byteSize), laz()]);
+	const t1 = performance.now();
 	const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
 	const r = readRecords(rec, n, hdr);
+	const t2 = performance.now();
 	const EW = earthW(), dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0), vu = set.vUnit;
 	const pos = new Float32Array(n * 3), elev = new Float32Array(n), w = [0, 0, 0];
 	let origin = null;
@@ -98,7 +101,7 @@ async function node(m) {
 		let mx = 0; for (let i = 0; i < r.rgb.length; i++) if (r.rgb[i] > mx) mx = r.rgb[i];
 		const sh = mx > 255 ? 8 : 0; rgb = new Uint8Array(n * 3); for (let i = 0; i < rgb.length; i++) rgb[i] = r.rgb[i] >> sh;
 	}
-	return { n, pos, origin: origin || [0, 0, 0], rgb, intensity: r.intensity, cls: r.classification, elev };
+	return { n, pos, origin: origin || [0, 0, 0], rgb, intensity: r.intensity, cls: r.classification, elev, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
 }
 
 self.onmessage = async e => {

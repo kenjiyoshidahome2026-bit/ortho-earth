@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- COPC の計測（点群計画 段 0・2026-10-15）。検定ではない＝verify:ui には入れない。走らせ方＝scripts/copc-bench.mjs（GPU の要る数字は Kenji の Mac で）。
+     ?src=<COPC の URL>（既定＝fixtures の合成 10 万点）・?color=rgb|classification|elevation|intensity
+     段取り＝開く → 全体（fit）で落ち着く → 中心へ寄る（z+2・斜め 60°）で落ち着く → さらに寄る（z+4）で落ち着く → その場で 1 周回す（6 秒）
+     数字（表題の JSON）＝open（addCOPC が返るまで ms）・first（最初の節が出るまで ms）・各段の settle（落ち着くまで ms）・requests・bytes・points・
+       worker の時間の合計（read・decode・proj ms）と 1 節あたり・回している間のフレーム間隔（p50・p95・最大 ms） -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:1280px;height:800px}</style><title>t-copcbench</title></head>
+<body><div id="map"></div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const SRC = q.get("src") || new URL("./fixtures/copc/ellipsoid.copc.laz", location.href).href;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (fn, ms = 120000, step = 100) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+const pct = (a, p) => a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))] : null;
+const r1 = v => Math.round(v * 10) / 10;
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const map = await createGlobe({ target: "#map", view: "#3/36/138", chips: false, debugGlobals: true });
+	await map.once("load");
+	const out = { src: SRC.split("/").pop() };
+	const t0 = performance.now();
+	const h = await map.addCOPC(SRC, { id: "b", color: q.get("color") || "auto" });
+	out.open = Math.round(performance.now() - t0);
+	out.count = h.info.count; out.size = h.info.size; out.crs = h.info.crs;
+	// 落ち着く＝動いていない・読みが飛んでいない・選びが要る節を全部読み終えた（stats が 2 回続けて同じ）
+	const settle = async name => {
+		const s0 = performance.now(); let prev = "";
+		await until(async () => {
+			if (map.isMoving()) return false;
+			const s = h.stats, k = `${s.inflight}/${s.nodes}/${s.requests}`;
+			const ok = s.inflight === 0 && s.shown > 0 && k === prev; prev = k; return ok;
+		}, 180000, 400);
+		const s = h.stats;
+		out[name] = { settle: Math.round(performance.now() - s0), requests: s.requests, bytes: s.bytes, nodes: s.nodes, points: s.points, shown: s.shownPoints };
+	};
+	await until(() => !map.isMoving(), 30000, 200);
+	await settle("fit");
+	out.first = Math.round(h.stats.firstAt);
+	const [lon, lat] = h.info.center, z = map.getZoom();
+	map.jumpTo({ center: [lon, lat], zoom: z + 2, pitch: 60, bearing: 20 });
+	await settle("near");
+	map.jumpTo({ center: [lon, lat], zoom: z + 4, pitch: 60, bearing: 20 });
+	await settle("close");
+	// 回す＝フレーム間隔
+	const gaps = []; let last = 0;
+	const off = map.onFrame(() => { const t = performance.now(); if (last) gaps.push(t - last); last = t; });
+	await map.easeTo({ bearing: 380, duration: 6000 });
+	await until(() => !map.isMoving(), 20000, 100);
+	off();
+	out.spin = { frames: gaps.length, p50: r1(pct(gaps, 0.5)), p95: r1(pct(gaps, 0.95)), max: r1(Math.max(...gaps)) };
+	const s = h.stats;
+	out.worker = { read: Math.round(s.ms.read), decode: Math.round(s.ms.decode), proj: Math.round(s.ms.proj), perNode: s.nodes ? { decode: r1(s.ms.decode / s.nodes), proj: r1(s.ms.proj / s.nodes) } : null, nodes: s.nodes, points: s.points, failed: s.failed };
+	out.mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+	document.title = `${s.failed ? "FAIL" : "PASS"} [bench] ${JSON.stringify(out)}`;
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

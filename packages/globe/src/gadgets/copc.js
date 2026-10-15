@@ -34,7 +34,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		const id = opts.id || `copc${++seq}`;
 		if (sets.has(id)) remove(id);
 		const set = { id, opts: { density: lowMem ? 3 : 2, heightOffset: 0, color: "auto", pointSize: 2, attenuation: true, depth: true, fit: true, ...opts }, nodes: new Map(), pages: new Map(), ov: null, info: null, hidden: false,
-			stats: { nodes: 0, shown: 0, points: 0, shownPoints: 0, failed: 0, requests: 0 } };
+			stats: { nodes: 0, shown: 0, points: 0, shownPoints: 0, failed: 0, requests: 0, bytes: 0, ms: { read: 0, decode: 0, proj: 0 }, firstAt: 0, t0: performance.now() } };   // bytes・ms・firstAt＝計測（点群計画 段 0）：読んだ量・worker の時間の合計・最初の節が出るまで
 		sets.set(id, set);
 		let url = src, headers;
 		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }   // transformRequest＝鍵・独自スキームは未対応（Range を読むため）
@@ -60,20 +60,21 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 	const childrenOf = ([d, x, y, z]) => { const out = []; for (let i = 0; i < 8; i++) out.push([d + 1, 2 * x + (i & 1), 2 * y + ((i >> 1) & 1), 2 * z + ((i >> 2) & 1)]); return out; };
 
 	function loadPage(set, p) {
-		p.state = "loading"; set.stats.requests++;
+		p.state = "loading"; set.stats.requests++; set.stats.bytes += p.byteSize;
 		rpc({ type: "page", id: set.id, rid: ++rid, page: { offset: p.offset, byteSize: p.byteSize } }, rid).then(r => {
 			p.state = "ready"; for (const n of r.nodes) addNode(set, n); for (const q of r.pages) if (!set.pages.has(keyStr(q.key))) set.pages.set(keyStr(q.key), { ...q, state: "none" });
 			schedule();
 		}).catch(err => { p.state = "failed"; console.warn(`[copc] ${set.id}: hierarchy page`, err); });
 	}
 	function loadNode(set, n) {
-		n.state = "loading"; inflight++; set.stats.requests++;
+		n.state = "loading"; inflight++; set.stats.requests++; set.stats.bytes += n.byteSize;
 		const N = set.info.vertical === "ellipsoidal" ? geoidHeight(n.ll[0], n.ll[1]) || 0 : 0;
 		const q = ++rid;
 		rpc({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, heightOffset: set.opts.heightOffset || 0 }, q).then(r => {
 			inflight--;
 			if (!sets.has(set.id) || set.nodes.get(keyStr(n.key)) !== n) return;
 			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
+			const st = set.stats; if (r.ms) for (const k in st.ms) st.ms[k] += r.ms[k] || 0; if (!st.firstAt) st.firstAt = performance.now() - st.t0;
 			set.ov.post({ type: "layer", q: n.q, n: r.n, pos: r.pos, origin: r.origin, rgb: r.rgb, intensity: r.intensity, cls: r.cls, elev: r.elev, spacing: n.spacingM / earthM }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 			n.on = true;
 			schedule();
@@ -127,7 +128,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 	function handle(set) {
 		return {
 			id: set.id, info: set.info,
-			get stats() { return { ...set.stats, inflight, budget: BUDGET }; },
+			get stats() { return { ...set.stats, ms: { ...set.stats.ms }, inflight, budget: BUDGET }; },
 			get bbox() { return set.info.bbox; },
 			setOptions(o = {}) { Object.assign(set.opts, o); applyStyle(set); if (o.density != null) schedule(); return this; },
 			setVisible(v) { set.hidden = !v; if (!v) for (const n of set.nodes.values()) if (n.state === "ready") setOn(set, n, false); schedule(); return this; },   // 出す時は次の選びが節を戻す
