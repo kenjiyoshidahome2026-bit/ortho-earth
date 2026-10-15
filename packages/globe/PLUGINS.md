@@ -106,7 +106,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 ## instanced・billboard・3D 文字（@ortho-earth/plugin-scene）
 
-`map.use(scenePlugin())` で `addData` の kind が 3 つ増える（第 3 波 W9）。`dataKinds` と同一フレームのオーバーレイだけで作った見本でもある（`sdk/plugin-scene/src/index.js`＝main で焼く、`scene-gl.js`＝worker で描く・深度・当たり）。手綱がいくつあっても一つの map に一つのオーバーレイ（`above` の物は別にもう一つ）で描き、手綱の id を `addLayerId` で名乗る。
+`map.use(scenePlugin())` で `addData` の kind が 3 つ増える（第 3 波 W9）。`dataKinds` と同一フレームのオーバーレイだけで作った見本でもある（`sdk/plugin-scene/src/index.ts`＝main で焼く、`scene-gl.ts`＝worker で描く・深度・当たり）。手綱がいくつあっても一つの map に一つのオーバーレイ（`above` の物は別にもう一つ）で描き、手綱の id を `addLayerId` で名乗る。
 
 ```js
 import { scenePlugin } from "@ortho-earth/plugin-scene";
@@ -120,7 +120,7 @@ map.addData(peaks, { kind: "labels3d", id: "peaks", getText: d => d.name, getSiz
 
 ## Gaussian splat（@ortho-earth/plugin-splat）
 
-`map.use(splatPlugin())` で予約された kind "splat" に中身が入る（第 3 波 W10）。読み手（.ply／.splat／.spz）は main の素の JS、描き手（`splat-gl.js`）は worker で視線順に並べ替えて楕円を描く。plugin-scene と同じく一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
+`map.use(splatPlugin())` で予約された kind "splat" に中身が入る（第 3 波 W10）。読み手（.ply／.splat／.spz）は main の素の JS、描き手（`splat-gl.ts`）は worker で視線順に並べ替えて楕円を描く。plugin-scene と同じく一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
 
 ```js
 import { splatPlugin } from "@ortho-earth/plugin-splat";

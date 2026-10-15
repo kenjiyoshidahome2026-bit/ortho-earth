@@ -2,7 +2,7 @@
 // glbconv の常設検定。Draco の要らない合成 GLB を組んで、全形式を一周する。
 // 中身の検め方＝①書いた物を自分で読み直して頂点数・三角形数が合う（glb/gltf）②他形式はヘッダと件数を数える
 // ③zip は unzip -t（CRC）が通る ④CESIUM_RTC が glb/gltf/3dtiles で保たれる。
-import { convert, convertToFile, glbToScene, parseGlb, buildGlb, sceneStats, FORMATS } from "../src/index.js";
+import { convert, convertToFile, glbToScene, parseGlb, buildGlb, sceneStats, FORMATS } from "../src/index.ts";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
