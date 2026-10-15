@@ -35,8 +35,8 @@ const mkLayer = (c, d, fid) => {
 };
 
 try {
-	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
-	const { bakeBase, bakeTier, tierPlan } = await import("../../../packages/ortho-core/src/gint/bake.js");
+	const { cameraState, project } = await import("@ortho-earth/core/camera");
+	const { bakeBase, bakeTier, tierPlan } = await import("@ortho-earth/core/internal/gint/bake.js");
 	const worker = new Worker(new URL("@ortho-earth/globe/renderworker.js", import.meta.url), { type: "module" });
 	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
 	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);

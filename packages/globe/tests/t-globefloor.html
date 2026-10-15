@@ -18,7 +18,7 @@ try {
 	if (!GL2 && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
 	const canvas = document.getElementById("g"), N = 256;
-	const r = GL2 ? (await import("../../../packages/ortho-core/src/gl/renderer.js")).createRenderer(canvas) : await (await import("../../../packages/ortho-core/src/gpu/backend.js")).createRendererGPU(canvas);
+	const r = GL2 ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
 	const LON = 139.7, LAT = 35.7, D = 0.002;
 	// 市松（128×128・4 px の升）＝RGBA
 	const W = 128, rgba = new Uint8Array(W * W * 4);

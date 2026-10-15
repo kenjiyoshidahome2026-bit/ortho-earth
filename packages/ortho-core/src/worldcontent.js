@@ -10,7 +10,7 @@
 // 配色は worldstyle.js（同じ正本の作法）。
 import { gunzip, isGzip } from "geopbf/gzip";
 
-export const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";                           // 形状（ne-cultural）
+const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";                           // 形状（ne-cultural）
 export const WORLD_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/";           // 台帳・名前・検索の索引（全ファイルに access-control-allow-origin: *）
 /** ne-cultural の配信物（group＝"base" | "detail"）の URL と、geopbf のキャッシュ名（IDB の鍵＝全アプリで同じ綴り） */
 export const culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`;
@@ -55,7 +55,7 @@ export async function loadNations() {
 	return { items, byKey: new Map(items.map((n, i) => [n.key, i])), ja: ja?.nations || {}, updated: db.updated };
 }
 /** DB の隣の名前表（<DB>.i18n/<lang>.json＝{ updated, lang, <節>: { ID: { name, wiki… } } }）を重ねて 1 つに＝{ nations, cities, … }（dbs の分だけ） */
-export const loadNames = async (lang, dbs) => Object.assign({}, ...await Promise.all(dbs.map(db => fetchJsonMaybeGz(`${WORLD_DATA}${db}.i18n/${lang}.json`))));
+const loadNames = async (lang, dbs) => Object.assign({}, ...await Promise.all(dbs.map(db => fetchJsonMaybeGz(`${WORLD_DATA}${db}.i18n/${lang}.json`))));
 /** 言語別の名前表＝{ nations[key].name, cities[qid].name }（国と台帳の都市）。英語は不要＝null。画面の文言（ui）は入らない＝packages/world/i18n/ui.json から */
 export const loadI18n = lang => lang === "en" ? Promise.resolve(null) : loadNames(lang, ["NationDB", "CityDB"]);
 // NE 由来の都市名（言語別・約 6,600 の小さな都市）。en＝基軸・ja＝NAME_JA が配信 geopbf に同梱済み・th＝NE に列が無い＝取りに行かない。

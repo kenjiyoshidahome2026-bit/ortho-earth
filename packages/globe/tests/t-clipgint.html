@@ -23,8 +23,8 @@ const e7 = d => Math.round(d * 1e7) >>> 0;
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
-	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const { createRendererGPU, createGintLayerGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project } = await import("@ortho-earth/core/camera");
 	const canvas = document.getElementById("g"), N = 256;
 	const r = await createRendererGPU(canvas);
 	const noSB = /[?&]gintsb=0/.test(location.search);

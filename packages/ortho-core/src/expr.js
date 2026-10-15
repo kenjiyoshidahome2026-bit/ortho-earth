@@ -28,8 +28,8 @@ function labToRgb(L) {
 }
 const lerpNum = (a, b, t) => a + t * (b - a);
 const lerpHue = (a, b, t) => { const d = b - a; return a + t * (d > 180 || d < -180 ? d - 360 * Math.round(d / 360) : d); };   // 色相は近い方へ回る（MapLibre の interpolateHue）
-export function lerpColorLab(a, b, t) { const p = rgbToLab(parseRGBA(a)), q = rgbToLab(parseRGBA(b)); return labToRgb({ l: lerpNum(p.l, q.l, t), a: lerpNum(p.a, q.a, t), b: lerpNum(p.b, q.b, t), alpha: lerpNum(p.alpha, q.alpha, t) }); }
-export function lerpColorHcl(a, b, t) {
+function lerpColorLab(a, b, t) { const p = rgbToLab(parseRGBA(a)), q = rgbToLab(parseRGBA(b)); return labToRgb({ l: lerpNum(p.l, q.l, t), a: lerpNum(p.a, q.a, t), b: lerpNum(p.b, q.b, t), alpha: lerpNum(p.alpha, q.alpha, t) }); }
+function lerpColorHcl(a, b, t) {
 	const toHcl = c => { const L = rgbToLab(c), h = Math.atan2(L.b, L.a) * 180 / Math.PI; return { h: h < 0 ? h + 360 : h, c: Math.sqrt(L.a * L.a + L.b * L.b), l: L.l, alpha: L.alpha }; };
 	const p = toHcl(parseRGBA(a)), q = toHcl(parseRGBA(b));
 	const h = isNaN(p.h) ? q.h : isNaN(q.h) ? p.h : lerpHue(p.h, q.h, t), c = lerpNum(p.c, q.c, t), rad = h * Math.PI / 180;   // 彩度 0（灰）の色相は相手の色相
@@ -80,7 +80,7 @@ const ML_ERR = { mlEvalError: true };   // ML の評価エラー（評価の外�
 const mlFail = () => { throw ML_ERR; };
 const bool = v => typeof v === "boolean" ? v : mlFail();   // ML：条件（! all any case）は真偽だけ
 const ord = (x, y) => { if (!((typeof x === "number" && typeof y === "number") || (typeof x === "string" && typeof y === "string"))) mlFail(); };   // ML：大小比較は数どうし・文字列どうしだけ
-export const originOfCtx = ctx => ctx?.origin === "ml" ? "ml" : "native";
+const originOfCtx = ctx => ctx?.origin === "ml" ? "ml" : "native";
 // 層の出自の印（平の性質＝postMessage で worker へ渡っても残る）。normalizeMLLayer が付ける。評価する所は ctx.origin = originOfLayer(L)
 export const ORIGIN_KEY = "ortho:origin";
 export const originOfLayer = L => L?.metadata?.[ORIGIN_KEY] === "ml" ? "ml" : undefined;

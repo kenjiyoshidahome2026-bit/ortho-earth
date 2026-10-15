@@ -23,7 +23,6 @@ export const s = {
 	tiersDone: false,              // tier梯子の遅延構築が完了したか（未完の間だけ pickLineTier が「最細の既存tier」で代用描画）
 
 	// FBOs
-	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,
 	pickFBO: null, pickColorTex: null, pickDepthStencilRBO: null,
 	lastDrawData: null,
 
@@ -34,11 +33,6 @@ export const s = {
 	// Zoom range
 	minZoom: null, maxZoom: null,
 
-	// Embedded モード（1canvas統合＝renderworker の GL コンテキストに同居）。
-	// embedded=true の間は「自分のcanvasを clear して描く」worker 前提を全て外す：
-	// renderCleanScene は色を消さず現フレームの地図の上に blend、識別のハイライト反映は
-	// drawOverlay(blit) でなく requestDraw()（＝render worker の dirty）で全再描画に委ねる。
-	embedded: false,
 	requestDraw: null,
 
 	// Identify / hover

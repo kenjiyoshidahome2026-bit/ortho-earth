@@ -18,8 +18,8 @@ const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
-	const { cameraState, project, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
 	const canvas = document.getElementById("g");
 	const r = await createRendererGPU(canvas);
 	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);

@@ -1,5 +1,6 @@
 // @ortho-earth/core/worldcontent — 世界の内容（Natural Earth の国・都市・空港・多言語名）。
-export const WORLD_GIS: string;
+/** 台帳・名前・検索の索引（ortho-data の GitHub Pages）。 */
+export const WORLD_DATA: string;
 export const culturalUrl: (g: string) => string;
 export const culturalName: (g: string) => string;
 export const WORLD_Z: Record<string, number>;

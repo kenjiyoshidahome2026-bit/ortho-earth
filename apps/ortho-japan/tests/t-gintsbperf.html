@@ -18,7 +18,7 @@ const pack = (lon, lat, terminal, weight = 0) => {
 const e7 = d => Math.round(d * 1e7) >>> 0;
 try {
 	if (!navigator.gpu) { document.title = "DONE webgpu-unavailable"; throw new Error("no webgpu"); }
-	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { createRendererGPU, createGintLayerGPU } = await import("@ortho-earth/core/gpu");
 	const canvas = document.getElementById("g");
 	const quad4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の A/B（bench-gintsb の quad6 列）
 	const r = await createRendererGPU(canvas, { quad4 });

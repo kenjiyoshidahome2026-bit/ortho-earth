@@ -29,7 +29,7 @@ highp float sceneOcclusion(highp vec2 uv, highp float w) {
 }
 `;
 // 既定の許し（深度の単位）＝24bit の約 34 目盛。近景（far≈30km）で数 cm・全球で数百 m＝屋上や地表に置いた物が自分で欠けない幅
-export const DEPTH_EPS = 2e-6;
+const DEPTH_EPS = 2e-6;
 
 // render worker 側：1 フレーム分の深度（{ pixels | bitmap, w, h, logCoef }）を、オーバーレイの gl へテクスチャとして上げる口を作る。
 // 同じフレームで同じ gl が二度呼んでも上げ直さない（gl ごとに WeakMap）。上げる時は gl の束縛と unpack の状態を戻す。

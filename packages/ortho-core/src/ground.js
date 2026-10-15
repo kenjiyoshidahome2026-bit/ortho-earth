@@ -6,7 +6,7 @@
 // 原点は半幅の 1/4 刻みにスナップ＝カメラが窓幅の 1/8 動いた時だけ再合成（標本化は正確な窓座標で行う＝絵は飛ばない）。
 import { cameraState, unproject, lonlatTo3D } from "./camera.js";
 
-export const GND_SCALES = [1, 6, 36];
+const GND_SCALES = [1, 6, 36];
 const snapWin = (cx, cy, hw, hh) => {
 	const step = hw / 4, sx = Math.round(cx / step) * step, sy = Math.round(cy / step) * step;
 	return [sx - hw, Math.max(-85, sy - hh), sx + hw, Math.min(85, sy + hh)];

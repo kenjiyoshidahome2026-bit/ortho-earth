@@ -1,4 +1,3 @@
-// baseFBO: clean-scene キャッシュ（hover 時に blit で overlay を消す）
 // pickFBO: GPU picking の ID バッファ
 // v1(ortho-map) の gintFBO を移植。node-free。唯一の適応＝v2 は width/height を device px で持つ（*dpr 不要）。
 
@@ -29,13 +28,7 @@ export function createFBOs() {
 
 	deleteFBOs();
 
-	// embedded＝baseFBO（clean-scene キャッシュ→blit 復元）は使わない：ハイライトは毎フレームの
-	// gint パスが inline で描き直す＝pick FBO だけあればよい（フルスクリーン RGBA8 1枚を節約）。
-	if (!s.embedded) {
-		const base = makeFBO(gl, w, h);
-		s.baseFBO = base.fbo; s.baseColorTex = base.colorTex; s.baseDepthStencilRBO = base.dsRBO;
-	}
-
+	// pick FBO だけ（ハイライトは毎フレームの gint パスが inline で描き直す＝clean-scene の控えは要らない）
 	const pick = makeFBO(gl, w, h);
 	s.pickFBO = pick.fbo; s.pickColorTex = pick.colorTex; s.pickDepthStencilRBO = pick.dsRBO;
 
@@ -46,13 +39,9 @@ export function createFBOs() {
 export function deleteFBOs() {
 	const { gl } = s;
 	if (!gl) return;
-	if (s.baseFBO)             gl.deleteFramebuffer(s.baseFBO);
-	if (s.baseColorTex)        gl.deleteTexture(s.baseColorTex);
-	if (s.baseDepthStencilRBO) gl.deleteRenderbuffer(s.baseDepthStencilRBO);
 	if (s.pickFBO)             gl.deleteFramebuffer(s.pickFBO);
 	if (s.pickColorTex)        gl.deleteTexture(s.pickColorTex);
 	if (s.pickDepthStencilRBO) gl.deleteRenderbuffer(s.pickDepthStencilRBO);
 	if (s._pickPBO)            { gl.deleteBuffer(s._pickPBO); s._pickPBO = null; }   // 非同期識別の PBO（embedded）
-	s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 	s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 }

@@ -21,12 +21,14 @@ npm i @ortho-earth/core
 | `./terrain` · `./raster` · `./raster-src` | elevation atlases, XYZ/WMS/WMTS/PMTiles raster layers |
 | `./decode` · `./tileformat` · `./geodesic` · `./geojson` | MVT decode and the tile-format registry (MLT via [`@ortho-earth/tile-formats`](../tile-formats)), Vincenty distance/area, GeoJSON → overlay |
 | `./worldstyle` · `./worldpal` | the map-face palettes (`mono` / `dark` / `topo` / `sepia`) |
-| `./workers/*` | worker entries (tile, scene, gint, gint bake) |
+| `./workers/*` | worker entries (tile, scene, gint bake, elevation) |
+| `./internal/*` | the source tree itself (`./internal/gl/gint/state.js` → `src/gl/gint/state.js`), for tests and tooling that need a module without a public entry; no types, no stability promise |
 
 Types ship with the package (`types/*.d.ts`, hand-written, 1.15.0 →): the entries a host calls — camera, flight, input,
 expressions, geodesy, colour, the view hash, tile formats, the MapLibre style rewrite — are typed precisely; the factories
 that live inside the render worker (renderer, pipeline, terrain, raster) are typed by shape. `node tests/types.mjs` compiles
-a TypeScript fixture against them and is part of `npm test`.
+a TypeScript fixture against them and checks, for every entry in `exports` that has a `types` file, that the names the
+`.d.ts` declares are exactly the names the runtime module exports; it is part of `npm test`.
 
 The core **knows no region**. Country-specific knowledge (basemaps, elevation, buildings, search) is a
 declaration passed in from outside — see `@ortho-earth/globe` and its region packs.
