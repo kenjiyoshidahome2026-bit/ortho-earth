@@ -3,13 +3,26 @@
 // 使うのはホストの公開面だけ：map.applyGintData（単一スロットのユーザー層）・host.dbg（手の宿主）・host.assetBase（実行時アセットの置き場）。
 // moj-local/ は手元専用（apps/ortho-japan/public/moj-local・deploy では除外）。
 import { geopbf } from "geopbf";
+import type { GeoPBF, GeopbfInput } from "geopbf";
 
-const KEYS = ["__moj", "__mojFile", "__sapporo", "__arakawaFit"];
+const KEYS = ["__moj", "__mojFile", "__sapporo", "__arakawaFit"] as const;
 
-export function installMojDebug(map, host) {
+/** ここが生やす手（host.dbg の上） */
+export interface MojDbg {
+	__moj?: (code?: string) => Promise<void>;
+	__mojFile?: (fileOrUrl: GeopbfInput, name?: string) => Promise<unknown>;
+	__sapporo?: () => Promise<unknown>;
+	__arakawaFit?: () => Promise<unknown>;
+	[k: string]: unknown;
+}
+/** ホストの公開面のうち使う物 */
+export interface MojDbgHost { dbg: MojDbg; assetBase: string; onDestroy(fn: () => void): void }
+export interface MojDbgMap { applyGintData(pbf: GeoPBF | null, name: string, replace: boolean, opts: { drape?: boolean }): unknown }
+
+export function installMojDebug(map: MojDbgMap, host: MojDbgHost): void {
 	const dbg = host.dbg;
 	// bucket/moj/{code}.pbf は geopbf の名の慣習（bucket/GIS/pbf/…）でない別棚＝URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）
-	dbg.__moj = async (code = "13118") => {
+	dbg.__moj = async (code = "13118"): Promise<void> => {
 		const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
 		const res = await fetch(url);
 		if (!res.ok) { console.error("[moj14] fetch failed %s -> HTTP %s", url, res.status); return; }
@@ -20,13 +33,13 @@ export function installMojDebug(map, host) {
 		map.applyGintData(pbf, code, true, { drape: true });   // 14 条地図の筆＝地形沿いの境界線を自動で立てる
 	};
 	// 任意の File/URL（例：aigid など第三者が公共座標系→WGS84 まで変換済みの GeoJSON）を直接デコードして球へ（bucket の変換を経ずに確かめる時）
-	dbg.__mojFile = async (fileOrUrl, name = "moj/local") => {
+	dbg.__mojFile = async (fileOrUrl: GeopbfInput, name = "moj/local"): Promise<unknown> => {
 		const pbf = await geopbf(fileOrUrl, { gint: true, name });
 		return map.applyGintData(pbf, name, true, { drape: true });
 	};
-	const local = async (path, fileName, name) => {
+	const local = async (path: string, fileName: string, name: string): Promise<unknown> => {
 		const res = await fetch(host.assetBase + "moj-local/" + path);
-		return dbg.__mojFile(new File([await res.blob()], fileName), name);
+		return dbg.__mojFile!(new File([await res.blob()], fileName), name);
 	};
 	dbg.__sapporo = () => local("01101-aigid.geojson", "01101_aigid.geojson", "moj/01101_aigid");   // aigid 変換済み（札幌市中央区）
 	// 荒川区（任意座標系のみ）を、大字/丁目名で e-Stat 小地域に位置合わせしたラバーシート結果で。回転はせず地名の対応だけで平行移動＋等方スケール（表示用の近似）

@@ -1,4 +1,4 @@
-// 日本の裸地標高（DTM）の申告＝**この知識の正本はここ 1 か所**（複製禁止・jp/codes.js と同じ掟）。
+// 日本の裸地標高（DTM）の申告＝**この知識の正本はここ 1 か所**（複製禁止・jp/codes.ts と同じ掟）。
 //
 // 何を言っているか：「この経緯度域の R01（1°刻みの最精細段）は、裸地標高に焼き直して bucket に置いてある」。
 // 焼くのは scripts/bake-dem10b.mjs（地理院 DEM10B → altpbf）。焼いたタイルは source が brand で始まる。
@@ -12,11 +12,20 @@
 //
 // bbox は焼き対象と同一＝本土＋離島（南鳥島 154E / 沖ノ鳥島 20.4N / 与那国 123E / 宗谷 45.5N）を余裕で内包。
 // 域内でも bucket 未収録の外国陸地（韓国・台湾等）はある＝そこは JAXA が正（load 側の noBake の印で扱う）。
-export const JP_DTM = {
+/** 裸地標高の申告（地域宣言 dtm の形） */
+export interface DtmDecl {
+	/** [西, 南, 東, 北] */
+	bbox: [number, number, number, number];
+	/** 焼いてある段（R01＝1） */
+	range: number;
+	/** 焼き直し済みタイルの source 接頭辞 */
+	brand: string;
+}
+export const JP_DTM: DtmDecl = {
 	bbox: [122, 20, 154, 46],   // [西, 南, 東, 北]
 	range: 1,                   // 焼いてある段（R01）
 	brand: "GSI",               // 焼き直し済みタイルの source 接頭辞（"GSI DEM10B"）
 };
 
 // 焼き script（bake-dem10b / bake-r10-jp）が使う形。bbox と同じ数字を二度書かないための派生。
-export const JP_BOX = { lngMin: JP_DTM.bbox[0], latMin: JP_DTM.bbox[1], lngMax: JP_DTM.bbox[2], latMax: JP_DTM.bbox[3] };
+export const JP_BOX: { lngMin: number; latMin: number; lngMax: number; latMax: number } = { lngMin: JP_DTM.bbox[0], latMin: JP_DTM.bbox[1], lngMax: JP_DTM.bbox[2], latMax: JP_DTM.bbox[3] };

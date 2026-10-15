@@ -22,7 +22,7 @@ mkdirSync(OUT, { recursive: true });
 // 置き場の目録＝uploader の「標高タイル（bake-out/alt）→ GIS/alt」ボタンが読む（dev の /@fs ではフォルダを列挙できない）
 const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(readdirSync(OUT).filter(f => f.endsWith('.gz')).sort()) + '\n');
 const W = 3600, Z = 12, TZ = 256;            // 出力格子 1秒 / 地理院 dem_png z12（1.24秒/px＝格子と同オーダー）
-const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
+const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.ts が正本（複製禁止・実行時の申告と同じ数字）
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;   // JAXA index / encodeName の緯度先行表記
 
