@@ -29,16 +29,17 @@ export function raster({ raster, catalog = [], signal } = {}) {
 	gadgetStack(mapEl).append(box);   // 置き場所はスタック（搭載順＝縦の並び）。パネルはボタンの右へ開く（#search と同じ流儀）
 
 	const unders = catalog.filter(c => (c.order || "under") !== "over"), overs = catalog.filter(c => c.order === "over");
-	const label = c => c.key ? t(c.key) : (c.name || c.id);
+	const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);   // 目録の id・名前は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL・2026-10-15）
+	const label = c => esc(c.key ? t(c.key) : (c.name || c.id));
 	function render() {
 		const sel = raster.selected();
 		const li = (c, kind) => {
 			const on = kind === "radio" ? (c ? sel.base === c.id : !sel.base) : sel.overs.includes(c.id);
-			return `<label class="raster-item${on ? " on" : ""}"><input type="${kind}" name="${kind === "radio" ? "raster-base" : "raster-over-" + c.id}" value="${c ? c.id : ""}"${on ? " checked" : ""}> <span>${c ? label(c) : t("Vector map")}</span></label>`;
+			return `<label class="raster-item${on ? " on" : ""}"><input type="${kind}" name="${kind === "radio" ? "raster-base" : "raster-over-" + esc(c.id)}" value="${c ? esc(c.id) : ""}"${on ? " checked" : ""}> <span>${c ? label(c) : esc(t("Vector map"))}</span></label>`;
 		};
 		panel.innerHTML =
-			`<div class="raster-sec">${t("Base map")}</div>` + li(null, "radio") + unders.map(c => li(c, "radio")).join("") +
-			(overs.length ? `<div class="raster-sec">${t("Overlays")}</div>` + overs.map(c => li(c, "checkbox")).join("") : "");
+			`<div class="raster-sec">${esc(t("Base map"))}</div>` + li(null, "radio") + unders.map(c => li(c, "radio")).join("") +
+			(overs.length ? `<div class="raster-sec">${esc(t("Overlays"))}</div>` + overs.map(c => li(c, "checkbox")).join("") : "");
 	}
 	panel.addEventListener("change", e => {
 		const inp = e.target; if (!(inp instanceof HTMLInputElement)) return;

@@ -19,7 +19,6 @@
 		"native-bucket": "*",
 		"quiet-mono": "*",
 		"@ortho-earth/globe": "*",
-		"@ortho-earth/japan": "*",
 		"@ortho-earth/jp": "*"
 	}
 }

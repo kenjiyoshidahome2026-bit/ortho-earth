@@ -6,8 +6,9 @@
 //   版が同じ（本当に通信が切れた・オフライン）なら読み直さない＝失敗はそのままアプリへ返る（元の振る舞い）。
 // R2 にも手作業にも触れない（本人方針 2026-09-30）。worker の中（document が無い）では何もしない。
 const WRAP = /\bimport\((["`])(\.\.?\/[^"`$]+)\1\)/g;
-// 入口ごとに置く（??= ＝最初に評価された入口の 1 本だけが効く）。import.meta.url＝/globe/engine/<版>/<入口>.js
-const HELPER = `globalThis.__oeR??=()=>{if(typeof document>"u"||globalThis.__oeR.on)return;globalThis.__oeR.on=1;fetch(new URL("../current.json",import.meta.url),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{const v=j&&j.version,k="oe-engine-reload";if(!v||import.meta.url.includes("/"+v+"/")||sessionStorage.getItem(k)===v)return;sessionStorage.setItem(k,v);location.reload()}).catch(()=>{})};\n`;
+// 入口ごとに置く（??= ＝最初に評価された入口の 1 本だけが効く）。import.meta.url＝/globe/engine/<版>/<入口>.js か /globe/engine/<版>/jp/app.js 等（入口が下の階にもある・2026-10-14）
+// ＝current.json は「<版>/ から後ろ」を取り替えて引く（旧＝../current.json＝下の階の入口では <版>/current.json を指してしまう）
+const HELPER = `globalThis.__oeR??=()=>{if(typeof document>"u"||globalThis.__oeR.on)return;globalThis.__oeR.on=1;fetch(import.meta.url.replace(/\\/[0-9a-f]{10}\\/[^?#]*$/,"/current.json"),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{const v=j&&j.version,k="oe-engine-reload";if(!v||import.meta.url.includes("/"+v+"/")||sessionStorage.getItem(k)===v)return;sessionStorage.setItem(k,v);location.reload()}).catch(()=>{})};\n`;
 
 export const wrapDynamicImports = code => code.replace(WRAP, (s) => `${s}.catch(e=>{throw globalThis.__oeR?.(),e})`);
 

@@ -250,7 +250,7 @@ undergroundEl.id = "underground";
 // import.meta.env.BASE_URL は「相手のベース」に置換される＝これらのファイルは相手のサイトに存在しない。
 // opts.assetBase で指し直せる口を開けておく（相対でも絶対URLでもよい・末尾スラッシュは自動で整える）。
 // 例: orthoJapan({ assetBase: "https://cdn.example.com/ortho-japan/" })
-const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\/*$/, "/");
+const ASSET_BASE = (b => { let i = b.length; while (i && b[i - 1] === "/") i--; return b.slice(0, i) + "/"; })(String(opts.assetBase ?? import.meta.env.BASE_URL));   // 末尾の / を 1 つに（正規表現 /\/*$/ は / の連なりで遅くなる＝CodeQL・2026-10-15）
 // デバッグ手（__cam / __coast / __mesh …）の宿主。自前ページのコンソールから叩く道具を窓に生やすが、
 // SDK として第三者ページへ埋め込まれた時にホストの window を汚すのは筋が悪い（2026-08-19）。
 // 既定＝容れ物を預かっていない時（target 未指定＝自前ページ）だけ本物の window、埋め込み時は使い捨ての器。

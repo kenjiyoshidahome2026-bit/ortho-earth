@@ -7,7 +7,7 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v6";      // v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
+const CACHE = "oj-assets-v7";      // v7＝2026-10-14 エンジンの入口に jp/*・nl/* が入った（入口の判定を assets/ の外に一般化）・v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
 const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
 // パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget が作る/消すたびに postMessage で取り直す
 let packOn = null;
@@ -23,7 +23,7 @@ self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn =
 const ASSETS = ["/japan/assets/", "/japan/lib/assets/", "/globe/engine/"];
 // 共有エンジンの入口＝network-first（HTTP キャッシュも再検証）。cache-first だと版が退役した後も旧版の入口で動き続け、
 // まだ掴んでいない遅延チャンクを消えた旧版の住所へ取りに行って 404 になる（2026-10-14・tellus の cog-*.js）。今の版なら 304 で済む
-const ENGINE_ENTRY = /^\/globe\/engine\/[0-9a-f]{10}\/((globe|maplibre|i18n|core|geopbf|h3)\.js|globe\.css)$/;
+const ENGINE_ENTRY = /^\/globe\/engine\/[0-9a-f]{10}\/(?!assets\/)[\w/-]+\.(js|css)$/;   // 入口＝assets/ の外（jp/app.js 等も・2026-10-14）
 // lib の入口2枚（ortho-japan.js / .css）はハッシュ無し＝不変と扱えない。navigate と同じ
 // network-first＋キャッシュ退避＝新デプロイを常に拾いつつオフライン起動も守る。
 const LIB_ENTRY = ["/japan/lib/ortho-japan.js", "/japan/lib/ortho-japan.css"];
