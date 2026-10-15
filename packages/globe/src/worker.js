@@ -9,7 +9,7 @@
 // URL に ?query を足す方式は vite の静的検出（new Worker(new URL('…', import.meta.url), {静的 options})）を壊すので使わない。
 // 各 worker 脚本（renderworker.js …）は従来どおり「自分で self.onmessage を張る」まま無改修。ここは指名された脚本を読み込み、
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
-// 地域の役は置かない＝地域パックの worker は自前の入口（e-Stat＝@ortho-earth/jp の estat-worker.js・2026-09-30）。
+// 地域の役は置かない＝地域パックの worker は自前の入口（e-Stat＝@ortho-earth/jp の estat-worker.ts・2026-09-30）。
 // 共有エンジンに焼かれた入口が地域を知らないまま、japan 系のアプリも同じ入口を使える（LAYERS.md 掟 3）。
 const ROLES = {
 	render:         () => import("./renderworker.js"),

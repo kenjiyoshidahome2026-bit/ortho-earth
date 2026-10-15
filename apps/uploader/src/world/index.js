@@ -6,7 +6,7 @@
 //   形状台帳 drop: packages/world/out/ の ne-physical.geopbf・ne-physical-lines.geopbf・plates.geopbf・climate-koppen.geopbf・ne-physical.json・TerrainDB.json（Node の scripts が生成）＝素通しで置く
 //   NE Cultural: Natural Earth 10m から key ごとに切った台帳（ne-cultural.geopbf）を生成して保存＝apps/equal が国・道路・鉄道・市街地に読む（2026-09-18）
 import * as d3 from 'd3';
-import "common/d3/fileio.js";   // dropFiles 拡張
+import "common/d3/fileio";   // dropFiles 拡張
 import { download } from "common";
 import { decodeZIP, Cache, gzip } from "native-bucket";
 import { DIRE, DBS, FLAG, SOUND, GEOMS, CULTURAL, makeDB, RIVERS, RANGES } from "./db.js";

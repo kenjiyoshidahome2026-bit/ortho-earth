@@ -14,7 +14,7 @@
 |---|---|
 | 作成ツール UI（ボタン・ドロップ投入） | `apps/uploader/src/world/index.js`（DB Updater の「国別DB (world)」節） |
 | 置き場・共有ロジック（renames / wiki 連携 / Conflicts） | `apps/uploader/src/world/db.js` |
-| wiki API（旧 d3.wiki） | `packages/common/src/wiki.js`（移植済み・export 済み） |
+| wiki API（旧 d3.wiki） | `packages/common/src/wiki.ts`（移植済み・export 済み） |
 | データの置き場 | bucket `GIS/world/`（NationDB.json / 国旗.zip / …） |
 
 ## 旧 API → 新 API 対応
@@ -27,7 +27,7 @@
 | `bucket.blob2csv` | `d3.csvParseRows`（配列行）/ `d3.csvParse`(ヘッダ行) — 旧挙動の検証待ち |
 | `bucket.readZIP` | `decodeZIP`（native-bucket 再輸出） |
 | `bucket.download` | `download`（common） |
-| `d3.wiki.*` | `wiki.*`（common/wiki.js） |
+| `d3.wiki.*` | `wiki.*`（common/wiki.ts） |
 | `d3.thenEach / thenMap` | `thenEach / thenMap`（common） |
 
 ## 旧システムから取り出すもの（Kenji の作業）
@@ -36,7 +36,7 @@
 
 | #inline ID | 内容 | 状態 |
 |---|---|---|
-| `UEVbTZC1` | wiki API（d3.wiki） | ✅ 済み＝common/wiki.js |
+| `UEVbTZC1` | wiki API（d3.wiki） | ✅ 済み＝common/wiki.ts |
 | `qjpQx44Y` | createNationDB | ✅ 済み＝uploader/src/world/createNationDB.js（原典 legacy/createNationalDB.js） |
 | `RVkHIUhP` | createCityDB | ✅ 済み＝uploader/src/world/createCityDB.js |
 | `r14WZUyG` | createLanguageDB / createCurrencyDB | ✅ 済み＝uploader/src/world/createLanguageDB.js |

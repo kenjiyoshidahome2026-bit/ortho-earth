@@ -1,24 +1,31 @@
 /**
- * census-charts.mjs
+ * census/charts.ts（旧 census-charts.mjs）
  * 国勢調査統計データ → SVG チャート生成
  * Node.js・ブラウザ共用（DOM 不要、純粋文字列）
  */
 
 // ── SVG ビルダー ─────────────────────────────────────────────────────────────
-function esc(s) {
+function esc(s: unknown): string {
     return String(s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** 属性バッグ（null/undefined の値は書かない） */
+type Attrs = Record<string, string | number | null | undefined>;
+
 class Elem {
-    constructor(tag, a = {}, text = null) {
+    tag: string;
+    a: Attrs;
+    _text: unknown;
+    children: Elem[];
+    constructor(tag: string, a: Attrs = {}, text: unknown = null) {
         this.tag = tag; this.a = a; this._text = text; this.children = [];
     }
-    elem(tag, a = {}, text = null) {
+    elem(tag: string, a: Attrs = {}, text: unknown = null): Elem {
         const c = new Elem(tag, a, text); this.children.push(c); return c;
     }
-    get outerHTML() {
+    get outerHTML(): string {
         const as = Object.entries(this.a)
             .filter(([, v]) => v != null)
             .map(([k, v]) => `${k}="${esc(String(v))}"`)
@@ -30,10 +37,10 @@ class Elem {
 }
 
 const d3 = {
-    sum:   a => a.reduce((s, v) => s + (v || 0), 0),
-    max:   a => Math.max(0, ...a.map(v => v || 0)),
-    comma: n => Number(n).toLocaleString(),
-    SVG([x, y, w, h], extra = {}) {
+    sum:   (a: number[]): number => a.reduce((s, v) => s + (v || 0), 0),
+    max:   (a: number[]): number => Math.max(0, ...a.map(v => v || 0)),
+    comma: (n: unknown): string => Number(n).toLocaleString(),
+    SVG([x, y, w, h]: [number, number, number, number], extra: Attrs = {}): Elem {
         return new Elem('svg', { viewBox: `${x} ${y} ${w} ${h}`, xmlns: 'http://www.w3.org/2000/svg', ...extra });
     },
 };
@@ -43,12 +50,19 @@ const BG = '#111';
 const FG = '#ccc';
 const W  = 250;
 
-function pct(n)   { return (n * 100).toFixed(1) + '%'; }
-function ratio(a) { const s = d3.sum(a); return s ? a.map(t => t / s) : a.map(() => 0); }
-function accum(a) { let n = 0; return a.map(t => { n += t || 0; return n; }); }
+function pct(n: number): string   { return (n * 100).toFixed(1) + '%'; }
+function ratio(a: number[]): number[] { const s = d3.sum(a); return s ? a.map(t => t / s) : a.map(() => 0); }
+function accum(a: number[]): number[] { let n = 0; return a.map(t => { n += t || 0; return n; }); }
+
+/** 凡例・ドーナツの 1 項目＝[値, 色, 名] */
+type LegendItem = [number, string, string];
+/** 水平バーの 1 区分＝[値, 色] */
+type Segment = [number, string];
+/** 水平バーのラベル＝[x, 名, 値] */
+type BarLabel = [number, string, number];
 
 // ── 凡例（2列） ───────────────────────────────────────────────────────────────
-function appendLegend(parent, items, x0, y0) {
+function appendLegend(parent: Elem, items: LegendItem[], x0: number, y0: number): void {
     const visible = items.filter(([v]) => v > 0);
     const half    = Math.ceil(visible.length / 2);
     const g       = parent.elem('g', { 'font-size': 5, 'font-family': 'Verdana', fill: FG });
@@ -63,7 +77,7 @@ function appendLegend(parent, items, x0, y0) {
 }
 
 // ── ドーナツ円グラフ ──────────────────────────────────────────────────────────
-function appendDonut(parent, cx, cy, items, label, total, unit = '人') {
+function appendDonut(parent: Elem, cx: number, cy: number, items: LegendItem[], label: string, total: number, unit = '人'): void {
     const R    = 32;
     const PERI = R * 2 * Math.PI;
     const a    = [...items].sort((a, b) => b[0] - a[0]);
@@ -94,7 +108,7 @@ function appendDonut(parent, cx, cy, items, label, total, unit = '人') {
 }
 
 // ── 水平バー ─────────────────────────────────────────────────────────────────
-function appendHBar(parent, x, y, segments, total, labels, bw = 110) {
+function appendHBar(parent: Elem, x: number, y: number, segments: Segment[], total: number, labels: BarLabel[], bw = 110): void {
     const g = parent.elem('g', { transform: `translate(${x},${y})` });
     g.elem('rect', { x: 0, y: 0, width: bw, height: 14, fill: '#888' });
     let acc = 0;
@@ -115,7 +129,7 @@ function appendHBar(parent, x, y, segments, total, labels, bw = 110) {
 }
 
 // ── 産業分類 ─────────────────────────────────────────────────────────────────
-const IND_DEF = [
+const IND_DEF: [string, string][] = [
     ['農業',    '#0c0'], ['林業',    '#080'], ['漁業',    '#008'], ['鉱業',    '#444'],
     ['建設',    '#088'], ['製造',    '#0f8'], ['インフラ', '#c00'], ['情通',    '#0ff'],
     ['運輸',    '#880'], ['卸小売',  '#f80'], ['金融',    '#fc0'], ['不動産',  '#00c'],
@@ -124,10 +138,10 @@ const IND_DEF = [
     ['その他',  '#888'],
 ];
 
-function appendIndustry(parent, x0, y0, v) {
+function appendIndustry(parent: Elem, x0: number, y0: number, v: number[] | null | undefined): number {
     if (!v || !d3.sum(v.slice(1, 22))) return 0;
     const vals  = [v[2], v[1] - v[2], ...v.slice(3, 22)];
-    const items = vals.map((val, i) => [val, IND_DEF[i][1], IND_DEF[i][0]]);
+    const items: LegendItem[] = vals.map((val, i) => [val, IND_DEF[i][1], IND_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '産業別就業者');
     appendDonut(parent, x0 + 40, y0 + 45, items, '就業者', v[0]);
     appendLegend(parent, items, x0 + 100, y0 + 2);
@@ -135,15 +149,15 @@ function appendIndustry(parent, x0, y0, v) {
 }
 
 // ── 職業分類 ─────────────────────────────────────────────────────────────────
-const OCC_DEF = [
+const OCC_DEF: [string, string][] = [
     ['管理職',   '#c00'], ['専門技術', '#f80'], ['事務',    '#c0c'], ['販売',    '#808'],
     ['サービス', '#880'], ['保安',    '#8ff'], ['農林漁業', '#088'], ['生産',    '#0ff'],
     ['輸送',    '#0f8'], ['建設',    '#08f'], ['運搬',    '#cc0'], ['その他',  '#888'],
 ];
 
-function appendOccupation(parent, x0, y0, v) {
+function appendOccupation(parent: Elem, x0: number, y0: number, v: number[] | null | undefined): number {
     if (!v || !d3.sum(v.slice(1, 13))) return 0;
-    const items = v.slice(1, 13).map((val, i) => [val, OCC_DEF[i][1], OCC_DEF[i][0]]);
+    const items: LegendItem[] = v.slice(1, 13).map((val, i) => [val, OCC_DEF[i][1], OCC_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '職業別就業者');
     appendDonut(parent, x0 + 40, y0 + 45, items, '就業者', v[0]);
     appendLegend(parent, items, x0 + 100, y0 + 2);
@@ -151,42 +165,42 @@ function appendOccupation(parent, x0, y0, v) {
 }
 
 // ── 就業地位 ─────────────────────────────────────────────────────────────────
-function appendStatus(parent, x0, y0, v, year, bw = 110) {
+function appendStatus(parent: Elem, x0: number, y0: number, v: number[] | null | undefined, year: string, bw = 110): number {
     if (!v || !v[0]) return 0;
     // 2015: ind[22]=雇用者, [23]=自営業主, [24]=家族従業者
     // 2020: ind[23]=雇用者, [24]=自営業主, [25]=家族従業者
     const ei = year === '2015' ? 22 : 23;
     const si = year === '2015' ? 23 : 24;
     const fi = year === '2015' ? 24 : 25;
-    const segs = [
+    const segs: Segment[] = [
         [v[si], '#800'], [v[ei], '#008'], [v[fi], '#0f8'],
         [Math.max(0, v[0] - v[ei] - v[si] - v[fi]), '#888'],
     ];
-    const labels = [[12, '自営業主', v[si]], [50, '雇用者', v[ei]], [87, '家族従業', v[fi]]];
+    const labels: BarLabel[] = [[12, '自営業主', v[si]], [50, '雇用者', v[ei]], [87, '家族従業', v[fi]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '就業地位');
     appendHBar(parent, x0, y0 + 5, segs, v[0], labels, bw);
     return 40;
 }
 
 // ── 世帯経済構成 ─────────────────────────────────────────────────────────────
-function appendHousehold(parent, x0, y0, v, bw = 110) {
+function appendHousehold(parent: Elem, x0: number, y0: number, v: number[] | null | undefined, bw = 110): number {
     if (!v || !v[0]) return 0;
-    const segs = [
+    const segs: Segment[] = [
         [v[1], '#800'], [v[2], '#080'], [v[3], '#008'], [v[4], '#808'],
         [Math.max(0, v[0] - v[1] - v[2] - v[3] - v[4]), '#888'],
     ];
-    const labels = [[12, '農林漁業', v[1]], [37, '混合', v[2]], [62, '非農林漁', v[3]], [87, '非就業', v[4]]];
+    const labels: BarLabel[] = [[12, '農林漁業', v[1]], [37, '混合', v[2]], [62, '非農林漁', v[3]], [87, '非就業', v[4]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯経済構成');
     appendHBar(parent, x0, y0 + 5, segs, v[0], labels, bw);
     return 40;
 }
 
 // ── 世帯の家族類型（T001084: [総数,親族のみ,核家族,夫婦のみ,夫婦と子,核家族以外,...]） ──
-const FAM_DEF = [
+const FAM_DEF: [string, string][] = [
     ['単独',       '#c0c'], ['夫婦のみ',   '#08f'], ['夫婦と子',   '#0c8'],
     ['ひとり親等', '#fa0'], ['その他親族', '#888'],
 ];
-function appendFamilyType(parent, x0, y0, v) {
+function appendFamilyType(parent: Elem, x0: number, y0: number, v: number[] | null | undefined): number {
     if (!v || !v[0]) return 0;
     const vals = [
         Math.max(0, v[0] - v[1]),         // 単独＋非親族 ≈ 一般世帯総数 − 親族のみ世帯
@@ -195,7 +209,7 @@ function appendFamilyType(parent, x0, y0, v) {
         Math.max(0, v[2] - v[3] - v[4]),  // ひとり親等（核家族 − 夫婦のみ − 夫婦と子）
         v[5],                             // 核家族以外（その他親族）
     ];
-    const items = vals.map((val, i) => [val, FAM_DEF[i][1], FAM_DEF[i][0]]);
+    const items: LegendItem[] = vals.map((val, i) => [val, FAM_DEF[i][1], FAM_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯の家族類型');
     appendDonut(parent, x0 + 40, y0 + 45, items, '世帯', v[0], '世帯');
     appendLegend(parent, items, x0 + 100, y0 + 2);
@@ -203,23 +217,23 @@ function appendFamilyType(parent, x0, y0, v) {
 }
 
 // ── 住宅の建て方(T001086) ＋ 所有(T001085) ──
-function appendHousing(parent, x0, y0, dwell, own, bw = 110) {
+function appendHousing(parent: Elem, x0: number, y0: number, dwell: number[] | null | undefined, own: number[] | null | undefined, bw = 110): number {
     if (!dwell || !dwell[0]) return 0;
-    const segs = [
+    const segs: Segment[] = [
         [dwell[1], '#0a6'],  // 一戸建
         [dwell[2], '#8c0'],  // 長屋建
         [dwell[3], '#08c'],  // 共同住宅
         [Math.max(0, dwell[0] - dwell[1] - dwell[2] - dwell[3]), '#888'],
     ];
-    const labels = [[12, '一戸建', dwell[1]], [42, '長屋', dwell[2]], [72, '共同住宅', dwell[3]]];
+    const labels: BarLabel[] = [[12, '一戸建', dwell[1]], [42, '長屋', dwell[2]], [72, '共同住宅', dwell[3]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の建て方');
     appendHBar(parent, x0, y0 + 5, segs, dwell[0], labels, bw);
     let h = 48;   // バー(14)+ラベル2行(21,28)＋次見出しのクリアランス
     if (own && own[0]) {
         const oy   = y0 + h;
         const rent = own[2] || 0;
-        const oseg = [[own[1], '#c60'], [rent, '#68c'], [Math.max(0, own[0] - own[1] - rent), '#888']];
-        const olab = [[12, '持ち家', own[1]], [60, '民営借家', rent]];
+        const oseg: Segment[] = [[own[1], '#c60'], [rent, '#68c'], [Math.max(0, own[0] - own[1] - rent), '#888']];
+        const olab: BarLabel[] = [[12, '持ち家', own[1]], [60, '民営借家', rent]];
         parent.elem('text', { x: x0, y: oy - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の所有');
         appendHBar(parent, x0, oy + 5, oseg, own[0], olab, bw);
         h += 40;
@@ -235,7 +249,7 @@ function appendHousing(parent, x0, y0, dwell, own, bw = 110) {
 //   ＝ 老年=紫/赤紫, 生産=淡青/桃, 年少=緑/橙
 const AGE_CL = ['#80f', '#804', '#88f', '#fcc', '#8f0', '#f80'];
 
-function appendAgePyramid(parent, x0, y0, ages, refAges) {
+function appendAgePyramid(parent: Elem, x0: number, y0: number, ages: number[], refAges: number[] | null): number {
     const mAges = ages.slice(0, 16);
     const fAges = ages.slice(16);
     const mSum  = d3.sum(mAges);
@@ -247,7 +261,7 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
     const os = 10;      // center gap half-width
     const cx = x0 + 125; // pyramid center x in parent coords
 
-    const pAll = v => total ? v * 100 / total : 0;
+    const pAll = (v: number): number => total ? v * 100 / total : 0;
 
     // bars drawn reversed (75+ at top row i=0, 0-4 at bottom row i=15)
     const d0 = [...mAges].reverse().map((v, i) =>
@@ -307,7 +321,7 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
         const rf   = refAges.slice(16);
         const rTot = d3.sum(rm) + d3.sum(rf);
         if (rTot) {
-            const pR = v => v * 100 / rTot;
+            const pR = (v: number): number => v * 100 / rTot;
             const t0 = [...rm].reverse().map((v, i) =>
                 (i ? 'L' : 'M') + `${-(pR(v) * 5 + os).toFixed(2)},${(i + 1) * 10}`);
             const t1 = [...rf].reverse().map((v, i) =>
@@ -330,16 +344,19 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
 //   後方互換: 旧 {year,male,female} は生産バンドのみの単色バーに正規化
 // 人口構成（ピラミッド）のバーと同一色: 年少=緑/橙, 生産=淡青/桃, 老年=紫/赤紫
 // m/f=[年少,生産,老年] → 男[AGE_CL4,2,0], 女[AGE_CL5,3,1]
+/** 人口推移の 1 時点（新形 m/f＝年齢3区分・旧形 male/female＝合計のみ） */
+export interface TrendPoint { year: string | number; m?: number[]; f?: number[]; male?: number; female?: number }
+interface TrendPointMF { year: string | number; m: number[]; f: number[] }
 const TREND_MC = [AGE_CL[4], AGE_CL[2], AGE_CL[0]];
 const TREND_FC = [AGE_CL[5], AGE_CL[3], AGE_CL[1]];
-function appendPopTrend(parent, x0, y0, points) {
+function appendPopTrend(parent: Elem, x0: number, y0: number, points: TrendPoint[] | null | undefined): number {
     if (!points || !points.length) return 0;
-    points = points.map(p => p.m ? p : { year: p.year, m: [0, p.male, 0], f: [0, p.female, 0] });
+    const pts: TrendPointMF[] = points.map(p => p.m ? p as TrendPointMF : { year: p.year, m: [0, p.male as number, 0], f: [0, p.female as number, 0] });
 
-    const mt = p => p.m[0] + p.m[1] + p.m[2];
-    const ft = p => p.f[0] + p.f[1] + p.f[2];
-    const n    = points.length;
-    const maxP = Math.max(...points.map(p => Math.max(mt(p), ft(p))));
+    const mt = (p: TrendPointMF): number => p.m[0] + p.m[1] + p.m[2];
+    const ft = (p: TrendPointMF): number => p.f[0] + p.f[1] + p.f[2];
+    const n    = pts.length;
+    const maxP = Math.max(...pts.map(p => Math.max(mt(p), ft(p))));
     if (!maxP) return 0;
 
     const TW  = W - x0 - 8;
@@ -354,8 +371,8 @@ function appendPopTrend(parent, x0, y0, points) {
     const ln = Math.log10(maxP * 1.1);
     let grid = Math.pow(10, Math.floor(ln));
     if ((maxP * 1.1) / grid < 2) grid /= 2;
-    const ylabel = v => v >= 1e4 ? `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}万` : d3.comma(v);
-    const grs = [];
+    const ylabel = (v: number): string => v >= 1e4 ? `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}万` : d3.comma(v);
+    const grs: string[] = [];
     for (let gr = grid; gr < maxP * 1.1; gr += grid) {
         const gy = (BH - gr * H).toFixed(1);
         grs.push(`M0,${gy}h${TW}`);
@@ -364,7 +381,7 @@ function appendPopTrend(parent, x0, y0, points) {
     if (grs.length) g.elem('path', { d: grs.join(''), stroke: FG, 'stroke-width': 0.4 });
 
     // 積み上げバー（男=中心左, 女=中心右。年少を下に→老年を上に積む）
-    points.forEach((p, i) => {
+    pts.forEach((p, i) => {
         const cx = i * bsp + bsp / 2;
         let by = BH;
         p.m.forEach((v, b) => { const h = v * H; if (h > 0) g.elem('rect', { x: (cx - bw).toFixed(1), y: (by - h).toFixed(1), width: (bw - 0.3).toFixed(1), height: h.toFixed(1), fill: TREND_MC[b] }); by -= h; });
@@ -376,7 +393,7 @@ function appendPopTrend(parent, x0, y0, points) {
 
     // 年ラベル（縦回転で省スペース）
     const gt = g.elem('g', { 'font-size': 5, 'font-family': 'Verdana', fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle' });
-    points.forEach((p, i) => {
+    pts.forEach((p, i) => {
         const cx = i * bsp + bsp / 2;
         gt.elem('text', { x: cx, y: BH + 3, transform: `rotate(-90 ${cx} ${BH + 3})` }, String(p.year));
     });
@@ -386,8 +403,8 @@ function appendPopTrend(parent, x0, y0, points) {
 }
 
 // 人口推移の凡例HTML（年齢別人口構成の凡例と同一定義: 男(左)/女(右)の2色×3区分）
-export function popTrendLegendHtml() {
-    const sw = c => `<span class="cs-pl-sw" style="background:${c}"></span>`;
+export function popTrendLegendHtml(): string {
+    const sw = (c: string): string => `<span class="cs-pl-sw" style="background:${c}"></span>`;
     return `<div class="cs-pyramid-legend cs-trend-legend">
         <span class="cs-pl-item">${sw(AGE_CL[4])}${sw(AGE_CL[5])}年少 0-14</span>
         <span class="cs-pl-item">${sw(AGE_CL[2])}${sw(AGE_CL[3])}生産 15-64</span>
@@ -397,7 +414,7 @@ export function popTrendLegendHtml() {
 }
 
 // 人口推移SVG単体（ドリルダウン各レベルで pop-history から非同期描画）
-export function buildPopTrendSVG(points) {
+export function buildPopTrendSVG(points: TrendPoint[] | null | undefined): string | null {
     return makeSvg((s, x0, y) => appendPopTrend(s, x0 + 16, y, points));
 }
 
@@ -406,7 +423,8 @@ export function buildPopTrendSVG(points) {
 // opts.refAges  : national reference (same format)
 // opts.popTrend : [{ year, male, female }, ...] for population trend bars
 // ── 個別SVG ──────────────────────────────────────────────────────────────────
-function makeSvg(drawFn) {
+type DrawFn = (svg: Elem, x0: number, y: number) => number;
+function makeSvg(drawFn: DrawFn): string | null {
     const svg = d3.SVG([0, 0, W, 10]);
     const x0 = 8;
     let y = 16;  // title text at y0-2=14 → ascent to y≈7, clear of viewBox top
@@ -417,11 +435,16 @@ function makeSvg(drawFn) {
     return svg.outerHTML;
 }
 
+/** 統計オブジェクト（census/{年}-stats.json・-household.json の 1 市区町村分） */
+export interface CensusStat { ind?: number[] | null; occ?: number[] | null; eco?: number[] | null; fam?: number[] | null; dwell?: number[] | null; own?: number[] | null }
+export interface CensusChartOpts { ages?: number[] | null; refAges?: number[] | null; popTrend?: TrendPoint[] | null }
+export interface CensusChartSection { id: string; svg: string }
+
 // ── セクション配列で返す（タイトルはHTML側で付ける） ─────────────────────────
 // returns [{ id, svg }, ...]
-export function buildCensusChartSections(stat, year = '2020', opts = {}) {
+export function buildCensusChartSections(stat: CensusStat | null | undefined, year = '2020', opts: CensusChartOpts = {}): CensusChartSection[] {
     const { ages, refAges, popTrend } = opts;
-    const out = [];
+    const out: CensusChartSection[] = [];
 
     if (ages && ages.length === 32) {
         const svg = makeSvg((s, x0, y) => appendAgePyramid(s, x0, y, ages, refAges || null));
@@ -440,7 +463,7 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
             const X0 = 38, BAR_W = W - 2 * 38;
             const PAD = 12;
             let cur = y, used = 0;
-            const run = fn => {
+            const run = (fn: DrawFn): void => {
                 const h = fn(s, x0, cur);
                 if (h) { cur += h + PAD; used += h + PAD; }
             };
@@ -458,7 +481,7 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
             const X0 = 38, BAR_W = W - 2 * 38;
             const PAD = 12;
             let cur = y, used = 0;
-            const run = fn => { const h = fn(s, x0, cur); if (h) { cur += h + PAD; used += h + PAD; } };
+            const run = (fn: DrawFn): void => { const h = fn(s, x0, cur); if (h) { cur += h + PAD; used += h + PAD; } };
             if (stat.fam)   run((s,x,y) => appendFamilyType(s, X0, y, stat.fam));
             if (stat.dwell) run((s,x,y) => appendHousing(s, X0, y, stat.dwell, stat.own, BAR_W));
             return used ? cur - y : 0;

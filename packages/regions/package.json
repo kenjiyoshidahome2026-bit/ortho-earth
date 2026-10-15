@@ -5,9 +5,12 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./app": "./src/app.js"
+		"./app": "./src/app.ts"
 	},
 	"description": "地域の切り替え口（orthoJapan＝globe＋URL で選ぶ地域：日本・オランダ）＝地域パック jp と nl は互いを知らない兄弟",
+	"scripts": {
+		"build": "tsc -p ."
+	},
 	"dependencies": {
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/jp": "*",
