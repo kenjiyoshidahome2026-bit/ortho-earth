@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 宇宙の名前データの常設検定：正本（names.json）の網羅と取り違えの疑い・パックの形
 import fs from "node:fs";
-import { packs, LANGS } from "../packs.js";
+import { packs, LANGS } from "../packs.ts";
 let fail = 0;
 const check = (name, ok, info = "") => { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${info ? "  " + info : ""}`); };
 const names = JSON.parse(fs.readFileSync(new URL("../names.json", import.meta.url), "utf8"));

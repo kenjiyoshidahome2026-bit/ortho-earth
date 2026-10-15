@@ -14,7 +14,7 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GeoPBF } from "geopbf/pbf-base";
-import { packs, moonPacks, moonGeoJSON, MOON_GEOPBF } from "../sky/packs.js";
+import { packs, moonPacks, moonGeoJSON, MOON_GEOPBF } from "../sky/packs.ts";
 import names from "../sky/names.json" with { type: "json" };
 import moon from "../sky/moon.json" with { type: "json" };
 import lines from "../sky/constellation-lines.json" with { type: "json" };

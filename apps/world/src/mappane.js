@@ -7,7 +7,7 @@
 // @ortho-earth/globe ごと束なる（地図ボタンを押した時だけ読む遅延チャンク）。旧＝本番だけ /japan/lib/ の SDK を実行時に食い、
 // japan を出さないと進めず・出すと全消費者が同時に変わった。japan の殻（app.js）は通らない＝日本／NL の申告を束に入れない
 // （LAYERS.md 掟 5・2026-09-24）。window.__orthoEngine＝検定の注入口（偽エンジン）。
-import { countryLayers } from "world-data/src/worldlayers.js";
+import { countryLayers } from "world-data/worldlayers";
 const ZMAX = 8;   // この地図のズーム上限＝世界データ（NE 10m・ハイプソ）が持つ所まで（本人裁定 2026-09-23）
 const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("@ortho-earth/globe");
 
