@@ -4,8 +4,10 @@
 //   ・types/*.d.ts の相対 import 先が全部ある（.js で書いた参照 → .d.ts）
 //   ・sideEffects＝トップレベルで onmessage を張る worker 本体・prototype を足す pbf.js／pbf-base.js・wasm glue を全部覆う（tree-shake で消されると黙って死ぬ族）
 //   ・geopbf/core（軽い入口）＝wasm glue・identify・dissolve・pbf-io・worker の入口を静的 import 閉包に含まない・export の名簿が固定
-//   ・typescript が解決できれば tests/fixtures/dts/consumer.ts を strict で型検査する（@ts-expect-error 4 行＝型が効いている証）。
-//     無ければその段だけ「skip」と明示する（手元で `npx tsc -p tests/fixtures/dts` で同じ検査）
+//   ・型ありの subpath ごとに、実行時の export（Object.keys(import(...))）と .d.ts の値の export（class・function・const）が 1:1（TS化 段 2・2026-10-15）
+//     ＝.d.ts にだけある値（実行時に無い）も、実行時にだけある export（型が無い）も落とす。型だけの名前（interface・type・export type）は照合の外
+//   ・tests/fixtures/dts/consumer.ts を strict で型検査する（@ts-expect-error の行＝型が効いている証）
+//   typescript は root の devDependency＝解決できなければ落とす（旧＝「skip」で黙って通していた）
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -68,7 +70,7 @@ const uncovered = effectful.filter(f => !covered(f));
 ok(Array.isArray(pkg.sideEffects) && effectful.length >= 30 && uncovered.length === 0, `sideEffects が副作用のある ${effectful.length} 本（worker 本体・pbf.js／pbf-base.js・index.js・wasm glue）を全部覆う${uncovered.length ? "\n   漏れ: " + uncovered.join(", ") : ""}`);
 ok(!covered("src/core.js") && !covered("src/modules/geojson-load.js") && !covered("src/extension/identify.js"), "副作用の無いモジュール（core／loader／identify）は sideEffects に入っていない＝tree-shake できる");
 
-// 4) geopbf/core の閉包と名簿
+// 4) geopbf/core の閉包と名簿（5 の前に回す＝full の入口（src/index.js）を import すると同じ class に拡張メソッドが乗る）
 const closure = entry => { const seen = new Map(); const st = [path.resolve(PKG, entry)];
 	while (st.length) { const f = st.pop(); if (seen.has(f)) continue; let s; try { s = readFileSync(f, "utf8"); } catch { continue; } seen.set(f, s.length);
 		for (const m of s.matchAll(/^\s*(?:import|export)[^;]*?from\s*["']([^"']+)["']/gm)) if (m[1].startsWith(".")) st.push(path.resolve(path.dirname(f), m[1])); }
@@ -85,17 +87,45 @@ ok(corePbf.length === 1 && corePbf.getProperties(0).a === 1 && typeof corePbf.ce
 const { geojson, meta } = await coreMod.decodeToGeojson(corePbf.arrayBuffer);
 ok(geojson.features.length === 1 && geojson.features[0].properties.a === 1 && typeof meta.name === "string", "core の decodeToGeojson が ArrayBuffer → FeatureCollection＋meta");
 
-// 5) tsc（解決できれば）。typescript の package → bin/tsc、無ければ PATH の tsc
-let run = null;
-try { const req = createRequire(import.meta.url); const bin = path.join(path.dirname(req.resolve("typescript/package.json")), "bin/tsc"); run = args => execFileSync(process.execPath, [bin, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); } catch {}
-if (!run) { try { execFileSync("tsc", ["-v"], { stdio: "ignore" }); run = args => execFileSync("tsc", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); } catch {} }
-if (run) {
+// 5) typescript（root の devDependency）＝無ければここから先の検定ができない＝落とす（旧＝skip と出して通していた）
+const req = createRequire(import.meta.url);
+let ts = null, tsBin = null;
+try { tsBin = path.join(path.dirname(req.resolve("typescript/package.json")), "bin/tsc"); ts = req("typescript"); } catch {}
+ok(!!ts, `typescript が解決できる（root の devDependency・${ts ? "v" + ts.version : "無い＝npm ci を回す"}）`);
+
+if (ts) {
+	// 6) 型ありの subpath ごとに、実行時の export と .d.ts の値の export を照合（型だけの名前は外す）
+	const typedSubpaths = Object.entries(pkg.exports).filter(([, v]) => typeof v === "object" && v.types);
+	const prog = ts.createProgram(typedSubpaths.map(([, v]) => path.join(PKG, v.types)), {
+		noEmit: true, strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, types: [],
+		lib: ["lib.es2022.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
+	});
+	const checker = prog.getTypeChecker();
+	const dtsValues = file => {
+		const sf = prog.getSourceFile(file), sym = sf && checker.getSymbolAtLocation(sf);
+		if (!sym) return [];
+		return checker.getExportsOfModule(sym)
+			.filter(e => !checker.getTypeOnlyAliasDeclaration(e))   // export type { X }
+			.filter(e => ((e.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(e) : e).flags & ts.SymbolFlags.Value)   // class・function・const（interface・type は外）
+			.map(e => e.name).sort();
+	};
+	for (const [key, v] of typedSubpaths) {
+		const spec = "geopbf" + key.slice(1);
+		const declared = dtsValues(path.join(PKG, v.types));
+		let runtime;
+		if (key === "./worker") runtime = /^\s*export\b/m.test(readFileSync(path.join(PKG, v.default), "utf8")) ? ["(export 文あり)"] : [];   // worker 本体は Node の main で import できない（self が無い）＝export 文が無いことを静的に見る
+		else runtime = Object.keys(await import(path.join(PKG, v.default))).sort();
+		const onlyDts = declared.filter(n => !runtime.includes(n)), onlyRt = runtime.filter(n => !declared.includes(n));
+		ok(!onlyDts.length && !onlyRt.length, `${spec}: 実行時の export ${runtime.length} 本＝${rel(path.join(PKG, v.types))} の値の export${onlyDts.length ? "\n   .d.ts にだけある（実行時に無い）: " + onlyDts.join(", ") : ""}${onlyRt.length ? "\n   実行時にだけある（型が無い）: " + onlyRt.join(", ") : ""}`);
+	}
+
+	// 7) tsc strict で消費者（tests/fixtures/dts/consumer.ts）を型検査
 	const proj = path.join(PKG, "tests/fixtures/dts");
+	const expectErrors = (readFileSync(path.join(proj, "consumer.ts"), "utf8").match(/@ts-expect-error/g) || []).length;
 	let out = "", code = 0;
-	try { out = run(["-p", proj, "--pretty", "false"]); } catch (e) { code = e.status ?? 1; out = String(e.stdout || "") + String(e.stderr || ""); }
-	ok(code === 0, `tsc strict で tests/fixtures/dts/consumer.ts が通る（@ts-expect-error 4 行込み）${code ? "\n" + out.trim().split("\n").slice(0, 20).map(l => "   " + l).join("\n") : ""}`);
-} else {
-	console.log("· tsc が見つからないので型検査は skip（手元: npx tsc -p tests/fixtures/dts）");
+	try { out = execFileSync(process.execPath, [tsBin, "-p", proj, "--pretty", "false"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+	catch (e) { code = e.status ?? 1; out = String(e.stdout || "") + String(e.stderr || ""); }
+	ok(code === 0, `tsc strict で tests/fixtures/dts/consumer.ts が通る（@ts-expect-error ${expectErrors} 行込み）${code ? "\n" + out.trim().split("\n").slice(0, 20).map(l => "   " + l).join("\n") : ""}`);
 }
 
 if (fails) { console.error(`t-dts: ${fails} 件失敗`); process.exit(1); }
