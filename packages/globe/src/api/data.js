@@ -69,7 +69,7 @@ export function installData(map, live, {
 	const SECRET_Q = /[?&](token|key|apikey|api_key|access_token|accesstoken|sig|signature|auth)=/i;
 	const directOK = url => SECRET_Q.test(url);
 	// サービスの形（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）＝件数が WHOLE_MAX 以下なら丸ごと・超えたら視野追従（gint へ・本人裁定）
-	const fsMod = () => import("./featureservice.js");
+	const fsMod = () => import("../featureservice.js");
 	const SERVICE_HINT = /\/(?:FeatureServer|MapServer)\/\d+|\/collections\/[^/?#]+/i;   // 形のあたり（確定は geopbf の parseServiceUrl）＝当たらない URL は読み口の chunk を読まない
 	const svcOpen = new Map();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
 	// 控えの掃除（本人 2026-09-30「掃除する機能は絶対に必要」）＝鍵の接頭辞 FS1:: だけ（他の控えには触らない）。頁で最初にサービスを開く時に一度：
@@ -230,7 +230,7 @@ export function installData(map, live, {
 	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
 	const columnarView = async (src, name, o = {}) => {
 		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
-		const m = await import("./columnar/index.js");
+		const m = await import("../columnar/index.js");
 		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!opts.perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
 		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
@@ -244,7 +244,7 @@ export function installData(map, live, {
 	};
 	// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 	map.addColumnar = async (src, o = {}) => {
-		const m = await import("./columnar/index.js");
+		const m = await import("../columnar/index.js");
 		return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 	};
 	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
@@ -290,7 +290,7 @@ export function installData(map, live, {
 		}
 		const name = id ?? `data${++dataSeq}`;
 		let props = acc, cur = data, removed = false;
-		const modP = import("./adddata.js");
+		const modP = import("../adddata.js");
 		const h = { id: name, kind };
 		if (kind === "points" || kind === "arcs" || kind === "trips") {
 			const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
@@ -365,7 +365,7 @@ export function installData(map, live, {
 	//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
 	//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
 	//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
-	const cellsMod = () => import("./cells/layer.js");
+	const cellsMod = () => import("../cells/layer.js");
 	map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
 	map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
 	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });
