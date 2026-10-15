@@ -12,7 +12,7 @@
 import * as d3 from 'd3';
 import "./main.scss";
 import { screenLogger } from "common/screenLogger";
-import "common/d3/selection.js";
+import "common/d3/selection";
 import { nativeBucket } from "native-bucket";
 import { createGeopbf } from "geopbf";
 import { GEBCO } from "./terrain/gebco.js";   // GEBCO の GeoTIFF → 標高タイル（焼きの道具＝uploader 専用・2026-09-25 に altpbf から移設）

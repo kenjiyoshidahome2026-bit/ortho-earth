@@ -3,13 +3,29 @@
 	"version": "1.0.0",
 	"license": "MIT",
 	"type": "module",
-	"main": "src/index.js",
+	"main": "src/index.ts",
 	"exports": {
-		".": "./src/index.js",
-		"./dom": "./src/dom/index.js",
-		"./screenLogger": "./src/screenLogger.js",
-		"./geoExec": "./src/geoExec.js",
-		"./*": "./src/*"
+		".": "./src/index.ts",
+		"./dom": "./src/dom/index.ts",
+		"./dom/tip": "./src/dom/tip.ts",
+		"./dom/highlight": "./src/dom/highlight.ts",
+		"./d3/selection": "./src/d3/selection.ts",
+		"./d3/fileio": "./src/d3/fileio.ts",
+		"./d3/highlight": "./src/d3/highlight.ts",
+		"./screenLogger": "./src/screenLogger.ts",
+		"./geoExec": "./src/geoExec.ts",
+		"./gintView": "./src/gintView.ts",
+		"./wiki": "./src/wiki.ts"
+	},
+	"files": [
+		"src",
+		"dist",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "tsc -p .",
+		"prepack": "node ../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../scripts/pack-ts.mjs post"
 	},
 	"dependencies": {
 		"d3": "^7.9.0",

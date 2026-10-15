@@ -11,8 +11,8 @@
 // データ=bucket GIS/world（uploader「国別DB (world)」節の成果物）。地図は後日＝geoPNG はサムネイル表示のみ（配線なし）
 import "./draw.scss";                    // 先にリセット（.ortho-world 配下）
 import { sel } from "common/dom";        // 後から部品の意匠＝同詳細度なら部品が勝つ
-import { setTipRoot } from "common/dom/tip.js";
-import "common/dom/highlight.js";
+import { setTipRoot } from "common/dom/tip";
+import "common/dom/highlight";
 import { escape, download } from "common";
 import { createWikiFrame } from "@ortho-earth/globe/wiki.js";   // Wikipedia の枠＝アプリ横断の共通の芯（2026-10-03）
 import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "world-data/data";
