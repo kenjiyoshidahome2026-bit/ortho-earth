@@ -14,8 +14,8 @@ export const ENTRIES = [
 	["@ortho-earth/core", "core", P("packages/ortho-core/src/index.js")],
 	["geopbf", "geopbf", P("packages/geopbf/src/index.js")],
 	["@ortho-earth/h3/core", "h3", P("packages/h3/src/core.js")],
-	// 日本の地域パック（packages/jp）＝japan・census2020・choju・ortho-nl・gishub-jp が共に読む（2026-10-14）
-	["@ortho-earth/jp/app", "jp/app", resolve(import.meta.dirname, "jp-app.js")],
+	// 地域の切り替え口（packages/regions＝orthoJapan・2026-10-15 に jp から出した）と地域パック（jp・nl）＝japan・census2020・choju・ortho-nl・gishub-jp が共に読む（2026-10-14）
+	["@ortho-earth/regions/app", "regions/app", resolve(import.meta.dirname, "regions-app.js")],
 	["@ortho-earth/jp", "jp/index", P("packages/jp/src/index.js")],
 	["@ortho-earth/jp/region", "jp/region", P("packages/jp/src/region.js")],
 	["@ortho-earth/jp/codes", "jp/codes", P("packages/jp/src/codes.js")],

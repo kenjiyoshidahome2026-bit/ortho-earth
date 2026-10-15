@@ -1,0 +1,16 @@
+{
+	"name": "@ortho-earth/regions",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./app": "./src/app.js"
+	},
+	"description": "地域の切り替え口（orthoJapan＝globe＋URL で選ぶ地域：日本・オランダ）＝地域パック jp と nl は互いを知らない兄弟",
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/nl": "*"
+	}
+}

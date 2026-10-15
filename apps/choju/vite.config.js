@@ -4,7 +4,7 @@ import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs
 import { crossOriginIsolation, noChunkOptimization, asyncMainCss, orthoData } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // choju＝鳥獣の捕獲記録の独立した入口（/choju/）。www のデモ一覧には載せない単独の頁（本人裁定 2026-10-14）。
-// 中身は ortho-japan と同じエンジン（@ortho-earth/jp/app＝本番は共有エンジンの入口 jp/app.js）＝ortho-nl と同型。違うのは base・既定の視点・案内板（choju.js）だけ。
+// 中身は ortho-japan と同じエンジン（@ortho-earth/regions/app＝本番は共有エンジンの入口 regions/app.js）＝ortho-nl と同型。違うのは base・既定の視点・案内板（choju.js）だけ。
 // public＝choju 自前の棚（favicon だけ・2026-10-15〜。旧＝japan の public を丸写し）。jp の台帳は共有エンジンの assets/（dev は packages/jp/assets を直）。
 // データ＝GitHub Pages の ortho-data/japan/choju/（captures.csv・munis.csv）。dev は手元の正本 ortho-data/japan/choju/（vite-app.mjs の orthoData・DATA.md）。
 const ROOT = resolve(import.meta.dirname, "../..");

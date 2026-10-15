@@ -46,7 +46,7 @@ if (entrySrc.includes("/japan/lib/ortho-japan.js")) fail(`入口チャンク ${e
 const entryKB = statSync(entryPath).size / 1024;
 if (entryKB > 100) fail(`入口チャンクが ${entryKB.toFixed(0)}KB＝エンジンが再バンドルされている疑い（共有エンジンの外出し失敗）`);
 const siteJs = readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsWith(".js"));
-if (!siteJs.some(f => { const src = readFileSync(path.join(SITE, "japan/assets", f), "utf8"); return src.includes(`/globe/engine/${VERSION}/globe.js`) || src.includes(`/globe/engine/${VERSION}/jp/app.js`); })) fail(`どのサイトチャンクも /globe/engine/${VERSION}/（globe.js か jp/app.js＝orthoJapan の入口・2026-10-14）を指していない`);
+if (!siteJs.some(f => { const src = readFileSync(path.join(SITE, "japan/assets", f), "utf8"); return src.includes(`/globe/engine/${VERSION}/globe.js`) || src.includes(`/globe/engine/${VERSION}/regions/app.js`); })) fail(`どのサイトチャンクも /globe/engine/${VERSION}/（globe.js か regions/app.js＝orthoJapan の入口・2026-10-14）を指していない`);
 console.log(`ok:entry（${entry} ${entryKB.toFixed(1)}KB・共有エンジン /globe/engine/${VERSION}/ を指す）`);
 // 全サイトチャンク＝エンジン指紋なし（scene.html含むどのページもエンジンをソース直で再バンドルしていない証明。
 // 指紋＝エンジンの console 文字列＝minifyでも生き残り、訳の表には載らない（console は英語＝i18n 対象外）。

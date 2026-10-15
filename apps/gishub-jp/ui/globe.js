@@ -3,7 +3,7 @@
 // 地図の口は common/gintView（map.addGint の薄い1枚）に封じる＝このファイルの外はエンジンを知らない。
 import { createGintView, showRasterMeshes } from 'common/gintView';
 
-const engineP = import('@ortho-earth/jp/app');   // orthoJapan＝本番は共有エンジンの入口（jp/app.js・2026-10-14）
+const engineP = import('@ortho-earth/regions/app');   // orthoJapan＝本番は共有エンジンの入口（regions/app.js・2026-10-14）
 
 // 地球の半径＝画面短辺の 1/4（旧 v1 と同じ構図）。待ち受けは日本の上空で自転
 const _overviewZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);

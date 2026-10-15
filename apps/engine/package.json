@@ -19,6 +19,7 @@
 		"@ortho-earth/h3": "*",
 		"@ortho-earth/jp": "*",
 		"@ortho-earth/nl": "*",
+		"@ortho-earth/regions": "*",
 		"@ortho-earth/tile-formats": "*",
 		"geopbf": "*"
 	}

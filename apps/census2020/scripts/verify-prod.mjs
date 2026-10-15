@@ -34,9 +34,9 @@ for (const f of chunks) {
 	const src = readFileSync(path.join(assetsDir, f), "utf8");
 	if (src.includes("/japan/lib/ortho-japan.js")) fail(`${f} が /japan/lib/ortho-japan.js を import している（実行時 SDK への逆戻り＝japan を出さないと動かない形）`);
 	if (src.includes("互換描画(WebGL2)")) fail(`${f} にエンジンが焼かれている（共有エンジンの外出しが効いていない）`);
-	if (src.includes(`/globe/engine/${VERSION}/globe.js`) || src.includes(`/globe/engine/${VERSION}/jp/app.js`)) pointsAtEngine = true;   // jp/app.js＝orthoJapan の入口（その先で globe.js を読む・2026-10-14）
+	if (src.includes(`/globe/engine/${VERSION}/globe.js`) || src.includes(`/globe/engine/${VERSION}/regions/app.js`)) pointsAtEngine = true;   // regions/app.js＝orthoJapan の入口（その先で globe.js を読む・2026-10-14）
 }
-if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/（globe.js か jp/app.js）を指していない`);
+if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/（globe.js か regions/app.js）を指していない`);
 console.log(`ok:entry（${chunks.length}チャンク・エンジン非同梱・/globe/engine/${VERSION}/ を指す・lib参照なし）`);
 
 // ② 実走：census dist ＋ /globe/engine/（apps/engine の dist）を一つの静的サーバで（2026-10-14〜 jp の台帳もエンジンの assets/ から・/japan/ の棚は読まない）
@@ -73,10 +73,10 @@ process.on("exit", () => { server.close(); chrome.kill(); });
 const need = [
 	["/japan/census2020/assets/index-", "census入口チャンク"],
 	[`/globe/engine/${VERSION}/assets/renderworker-`, "render worker（共有エンジン）"],
-	[`/globe/engine/${VERSION}/jp/app.js`, "orthoJapan（共有エンジンの入口 jp/app.js）"],
+	[`/globe/engine/${VERSION}/regions/app.js`, "orthoJapan（共有エンジンの入口 regions/app.js）"],
 	[`/globe/engine/${VERSION}/assets/airports.json`, "jp の台帳（共有エンジンの assets/）"],   // 証拠＝起動時に必ず読む台帳（旧＝/japan/airports.json＝japan の棚・2026-10-14 まで）
 ];
-// 必須5点が台帳に揃うまで（globe.js は要らない＝census は jp/app.js から入り、globe は共有チャンクで届く・2026-10-15）毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
+// 必須5点が台帳に揃うまで（globe.js は要らない＝census は regions/app.js から入り、globe は共有チャンクで届く・2026-10-15）毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
 const errs = [];   // 自オリジンの console.error / 例外（受動）
 (async () => {
 	try {
