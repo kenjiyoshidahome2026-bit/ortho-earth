@@ -1,5 +1,5 @@
 {
-	"_": "日めくり（himekuri-demo）の頁の辞書＝英語キー → 25 言語。暦の中身（六曜・旧暦・節気…）は himekuri の日本語＝訳さない。焼き先 i18n/lang/himekuri/<code>.json（npm run i18n:build）",
+	"_": "日めくり（apps/himekuri）の頁の辞書＝英語キー → 25 言語。暦の中身（六曜・旧暦・節気…）は himekuri の日本語＝訳さない。焼き先 i18n/lang/himekuri/<code>.json（npm run i18n:build）",
 	"ui": {
 		"Daily calendar — himekuri": {
 			"ja": "日めくりカレンダー — himekuri",

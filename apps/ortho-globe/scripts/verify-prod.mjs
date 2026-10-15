@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // ortho-globe 本番出荷物の検定＝deploy の必須ゲート（world・japan の verify-prod と同型）。
-//   dist/site を素の静的サーバで配る（本番の deploy-worker と同じ COOP/COEP・/globe/quakes → quakes.html）＝出荷物そのものを食う。
+//   dist/site を素の静的サーバで配る（本番の deploy-worker と同じ COOP/COEP・/globe/sats → sats.html）＝出荷物そのものを食う。
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
-//   ② 実走: 9 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs）＝地球儀が立ち、地震・衛星・雲・地形・人口はデータが載る
+//   ② 実走: 8 頁が起動する（/globe/・/globe/?start=equal・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs）＝地球儀が立ち、衛星・雲・地形・人口はデータが載る（世界の地震は 2026-10-15 に apps/quakes へ独立＝そちらの verify-prod）
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない・共有エンジンから読んだファイルに地域の物が無い（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -52,8 +52,7 @@ server = createServer(async (req, res) => {
 		if (p.startsWith("/globe/")) {
 			let f = p.startsWith("/globe/engine/") ? engineFile(p) : path.join(SITE, p);
 			if (p.endsWith("/")) f = path.join(f, "index.html");
-			// 拡張子なし＝<名前>.html（本番の Workers assets と同じ）。同名のフォルダがあっても .html が勝つ＝dev の地震データ public/quakes/（gitignore）が
-			// ある機械では dist に quakes/ ができ、旧＝「在るがファイルでない」で 404＝quakes だけ「起動しない」で落ちていた（2026-10-01）
+			// 拡張子なし＝<名前>.html（本番の Workers assets と同じ）。同名のフォルダがあっても .html が勝つ
 			else if ((!fs.existsSync(f) || fs.statSync(f).isDirectory()) && fs.existsSync(f + ".html")) f += ".html";
 			if (!(f.startsWith(SITE) || f.startsWith(ENGINE_DIR)) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404, COI); return res.end(); }
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
@@ -102,7 +101,6 @@ const PAGES = [
 	{ name: "globe", url: "/globe/", ready: BOOTED, ms: 45000 },
 	// Equal Earth は同じ頁の div（#equal-frame）に組む（PR #218・2026-10-04）＝重なり切る（opacity 1＝最初の 1 枚が描けた）まで待つ。load が無い頁は旧来の iframe
 	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && (() => { const f = document.querySelector('#equal-frame'); return !!f && (f.tagName === 'IFRAME' ? f.src.includes('/equal/') : !!f.querySelector('canvas') && f.style.opacity === '1'); })()`, ms: 60000 },
-	{ name: "quakes", url: "/globe/quakes", ready: `${BOOTED} && window.__quakes && window.__quakes.count > 1000`, ms: 120000 },
 	{ name: "sats", url: "/globe/sats", ready: `${BOOTED} && window.__sats && window.__sats.count > 1000`, ms: 60000 },
 	{ name: "arcs", url: "/globe/arcs", ready: `${BOOTED} && window.__arcs && window.__arcs.capitals.length > 150 && window.__arcs.count > 150`, ms: 60000 },   // 弧＝首都（world の台帳）へ弧が伸びた
 	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 240000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える。GIBS の応答が夜に 9 秒級まで揺れる（2026-10-12 に 120s で 2 回落ち・3 回目 54s）＝上限 240s
@@ -116,9 +114,9 @@ const PAGES = [
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {
 	const p = await open(ORIGIN + pg.url), t0 = Date.now();
 	const ok = await p.until(pg.ready, pg.ms);
-	const n = await p.ev(`window.__quakes?.count ?? window.__sats?.count ?? null`);
+	const n = await p.ev(`window.__sats?.count ?? null`);
 	if (!ok) {
-		const st = await p.ev(`JSON.stringify({ canvas: !!document.querySelector("#map canvas"), boot: document.querySelector("#boot")?.className ?? "removed", iframes: [...document.querySelectorAll("iframe")].map(f => f.getAttribute("src") || f.src || "(no src)"), data: window.__quakes?.count ?? window.__sats?.count ?? null })`);
+		const st = await p.ev(`JSON.stringify({ canvas: !!document.querySelector("#map canvas"), boot: document.querySelector("#boot")?.className ?? "removed", iframes: [...document.querySelectorAll("iframe")].map(f => f.getAttribute("src") || f.src || "(no src)"), data: window.__sats?.count ?? null })`);
 		console.error(`  state: ${st}\n  errors: ${p.errs.slice(0, 5).join(" | ") || "none"}`); fail(`run: ${pg.name} が起動しない（${pg.ms / 1000}s）`);
 	}
 	await sleep(1500);   // 起動直後の遅れた error も拾う

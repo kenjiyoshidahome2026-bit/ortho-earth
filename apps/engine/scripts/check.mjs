@@ -2,7 +2,7 @@
 // エンジンの出荷物の門（wrangler deploy の直前・2026-10-15）：手元の dist/site/globe/engine/ が本番に出してよい形か。
 //   ① current.json の版の置き場がある ② 入口（imports の全部＋maplibre.js・globe.css）がある ③ files の全部があり、symlink が無い
 //   （symlink は wrangler が実体で上げない＝本番で切れる・2026-10-15 koppen-clim.png の轍）。
-// 頁が実際に動くかは、ortho-globe の verify-prod（このエンジンで 9 頁を起こす）が repo 直下の npm run deploy:engine の先頭で見る。
+// 頁が実際に動くかは、ortho-globe の verify-prod（このエンジンで 8 頁を起こす）が repo 直下の npm run deploy:engine の先頭で見る。
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { ENGINE_DIR } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";

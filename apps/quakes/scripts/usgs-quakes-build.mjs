@@ -6,19 +6,19 @@
 //   月ごとに取り、20,000 件の上限に達した月は期間を二分して取り直す。429 は Retry-After／指数バックオフで待つ。月単位の CSV を --cache に保存するので
 //   中断しても再実行で続きから（月末から 30 日たつ前に取った月は次回取り直す＝未完・速報値を残さない）。
 // 使い方:
-//   node scripts/usgs-quakes-build.mjs                                  # 1967-01-01〜今日・M2+ → usgs-quakes-m2.geopbf（gzip）
-//   node scripts/usgs-quakes-build.mjs --out apps/world/public/quakes.geopbf --start 2000-01-01 --minmag 4.5
-//   node scripts/usgs-quakes-build.mjs --offline                        # 通信せずキャッシュだけで組む
+//   node apps/quakes/scripts/usgs-quakes-build.mjs                                  # 1967-01-01〜今日・M2+ → usgs-quakes-m2.geopbf（gzip）
+//   node apps/quakes/scripts/usgs-quakes-build.mjs --out apps/world/public/quakes.geopbf --start 2000-01-01 --minmag 4.5
+//   node apps/quakes/scripts/usgs-quakes-build.mjs --offline                        # 通信せずキャッシュだけで組む
 //   オプション: --start --end --minmag --out --cache --precision(既定4≈11m) --concurrency(既定2) --interval(既定1000ms)
 //             --props --no-gzip --offline --allow-missing（取得失敗の月があっても書き出す）
 //             --refresh（全月を取り直す）/ --refresh-since 2024-01-01（その日以降を含む月だけ取り直す）
 //             --manifest（<out>.json に { start, end(排他), minmag, n, builtAt } を書く＝quakes-mirror の archive 用）
-// 解析と組み立ては packages/quakes/src/usgs.js と共有（ビューアの worker が直近分を USGS 直取りで同じ形に焼く）。
+// 解析と組み立ては apps/quakes/usgs.js と共有（ビューアの worker が直近分を USGS 直取りで同じ形に焼く）。
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
-import { API as USGS_API, DAY, iso, fetchRange, csvText, months, parseCsvTexts, buildGeoPBF } from "@ortho-earth/quakes/usgs";
+import { API as USGS_API, DAY, iso, fetchRange, csvText, months, parseCsvTexts, buildGeoPBF } from "../usgs.js";
 
 // ── 引数 ─────────────────────────────────────────────────────────────────────
 const VALUED = ["start", "end", "minmag", "out", "cache", "precision", "concurrency", "props", "interval", "refresh-since"];

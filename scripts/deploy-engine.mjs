@@ -2,7 +2,7 @@
 // 共有エンジンを上げた時の一括デプロイ（エンジン配布の恒久対策 B・2026-10-14／エンジンの独立デプロイ 2026-10-15）。repo 直下で `npm run deploy:engine`。
 // 旧＝ortho-globe を配ったあと、エンジンを使う各アプリを手で 1 つずつ配り直す＝忘れたアプリが古い版を指したまま残った
 // （tellus・census2020・nl・quiz・2026-10-14）。ここは正しい順で全部を配る：
-//   ① 検定：ortho-globe を build（頭でエンジンを焼く）して verify-prod＝このエンジンで 9 頁が起きる（エンジンを出す前の門。
+//   ① 検定：ortho-globe を build（頭でエンジンを焼く）して verify-prod＝このエンジンで 8 頁が起きる（エンジンを出す前の門。
 //      エンジンの Worker は旧版の入口を今の版へ 302 する＝出した瞬間に全アプリが新しいエンジンで走る＝出す前に確かめる）
 //   ② エンジン（apps/engine・Worker ortho-engine・route /globe/engine/*）＝出荷物の門 check.mjs → wrangler deploy
 //   ③ ortho-globe（① で組んで確かめた dist をそのまま出す＝deploy:built）→ ④ エンジンを使う各アプリ（各 deploy の門 check-engine-live が ② の済みを確かめる）
@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan", "solar", "himekuri-demo"];   // solar・himekuri-demo＝2026-10-15 に共有エンジンへ   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan", "solar", "ortho-himekuri"];   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const args = process.argv.slice(2), engineOnly = args.includes("--engine-only");
 const pick = args.filter(a => !a.startsWith("--"));
 const bad = pick.filter(a => !APPS.includes(a));
@@ -23,7 +23,7 @@ const apps = engineOnly ? [] : pick.length ? APPS.filter(a => pick.includes(a)) 
 // [名前, 場所, npm の引数, 配り終えた印]
 const steps = [
 	["検定：ortho-globe の build（頭でエンジンを焼く）", "ortho-globe", ["run", "build"]],
-	["検定：ortho-globe の verify-prod（このエンジンで 9 頁）", "ortho-globe", ["run", "verify:prod"]],
+	["検定：ortho-globe の verify-prod（このエンジンで 8 頁）", "ortho-globe", ["run", "verify:prod"]],
 	["engine", "engine", ["run", "deploy:built"], true],   // 出荷物の門 check.mjs → wrangler deploy
 	...apps.map(a => [a, a, ["run", a === "ortho-globe" ? "deploy:built" : "deploy"], true]),
 ];

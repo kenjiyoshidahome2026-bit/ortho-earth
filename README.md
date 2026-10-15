@@ -70,7 +70,6 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`geoedit`](packages/geoedit) | 0.3.3 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
 | [`altpbf`](packages/altpbf) | 1.1.2 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
 | [`native-bucket`](packages/native-bucket) | 1.0.2 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
-| [`himekuri`](packages/himekuri) | 1.0.1 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
 | [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
 | [`quiet-mono`](packages/quiet-mono) | 1.0.1 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
 | [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages; sky names (constellations, Messier objects, Solar-System bodies, 2,023 lunar place names) in `sky/` |
@@ -98,13 +97,14 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 | URL | App | What it shows |
 |---|---|---|
 | [/japan/](https://www.ortho-earth.com/japan/) | `apps/ortho-japan` | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
-| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/quakes`, `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
+| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
 | [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` | The shared engine: one versioned build of `@ortho-earth/globe` and the modules two or more apps use, loaded by URL |
+| [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` | World earthquakes since 1967 at their true hypocenter depth (data: `apps/quakes-mirror` + USGS, fetched by the browser) |
 | [/world/](https://www.ortho-earth.com/world/) | `apps/world` | Nations of the world as cards |
 | [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
 | [/solar/](https://www.ortho-earth.com/solar/) | `apps/solar` | The planets and their moons, now and replayed over time |
-| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri-demo` | Daily calendar with sunrise, sunset, twilight and the Moon |
+| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri` | Daily calendar with sunrise, sunset, twilight and the Moon. Owns the npm package [`himekuri`](apps/himekuri/lib) (1.0.1, MIT, tear-off calendar and world-clock SVG widgets) |
 | [/nl/](https://www.ortho-earth.com/nl/) | `apps/ortho-nl` | The Netherlands from 3DBAG |
 | [/geopbf/](https://www.ortho-earth.com/geopbf/) | `apps/geopbf-demo` | Drop a GIS file, check it on the globe, write it in another format |
 | [/gishub-jp/](https://www.ortho-earth.com/gishub-jp/) | `apps/gishub-jp` | Japan's open GIS data: view and convert |

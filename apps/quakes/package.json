@@ -1,0 +1,23 @@
+{
+	"name": "ortho-quakes",
+	"version": "0.0.1",
+	"private": true,
+	"description": "World earthquakes: the USGS catalogue (1967–, M2+) in 3D on the globe by hypocenter depth and energy. Served at www.ortho-earth.com/globe/quakes/.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"preview": "vite preview",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "npm run build && npm run verify:prod && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"test": "node tests/t-quakes-reader.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/globe": "*",
+		"geopbf": "*"
+	}
+}

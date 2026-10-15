@@ -4,6 +4,7 @@
 //   node scripts/deps-map.mjs > deps.json
 // 共有エンジンを読むアプリ（vite.config.js に sharedEngine()）は apps/engine/src/entries.mjs の入口を外に出して束を辿り、
 // 外に出た入口は入口のソースから辿り直して「エンジン経由」とする。new URL("…", import.meta.url) の worker も入口として足す。
+// scss は @use／@import／@forward を辿り、build:css の生成物（GENERATED）はその正本の scss を辿る（2026-10-15・quiet-mono の線が出るように）。
 // 限り：import.meta.glob（i18n の言語表など）は辿らない。大きさは出さない（全言語の遅延 chunk を足してしまう）。
 import * as esbuild from "esbuild";
 import fs from "node:fs";
@@ -25,6 +26,8 @@ function ownerOf(file) {
 	const nm = file.lastIndexOf("node_modules/");
 	if (nm >= 0) { const p = file.slice(nm + 13).split("/"); return "npm:" + (p[0].startsWith("@") ? p[0] + "/" + p[1] : p[0]); }
 	let d = path.dirname(file);
+	const r = rel(file).split("/");
+	if (r[0] === "apps" && r.length > 2) d = path.join(ROOT, "apps", r[1]);   // アプリの中の物（apps/himekuri/lib の npm himekuri など）はそのアプリの持ち物＝地図ではアプリに数える
 	while (d.startsWith(ROOT) && d !== ROOT) {
 		if (owners.has(d)) return owners.get(d);
 		const pj = path.join(d, "package.json");
@@ -44,6 +47,22 @@ for (const dir of Object.values(dirs)) { const pj = JSON.parse(fs.readFileSync(p
 const npmFamily = n => n.replace(/^npm:@loaders\.gl\/.*/, "npm:loaders.gl");
 const shown = n => !n.startsWith("npm:") || n === "npm:loaders.gl" || npmDirect.has(n.slice(4));
 
+// ---- scss と build:css ----
+// build:css の生成物 → 正本（packages/globe/scripts/build-css.mjs・packages/geoedit/scripts/css-build.mjs と同じ並び）。生成物は素の CSS／文字列＝そのままでは正本が見えない
+const GENERATED = {
+	"packages/globe/src/globe.css": ["quiet-mono/tokens.scss", "quiet-mono/components.scss", "./style.scss"],
+	"packages/geoedit/src/editor.css.js": ["./editor.scss"],
+};
+for (const f of Object.keys(GENERATED)) if (!fs.existsSync(path.join(ROOT, f))) process.stderr.write(`  GENERATED に無いファイル: ${f}（build:css の出力が変わったら直す）\n`);
+// sass の道の解き方（相対＝partial の _ と拡張子と index を試す・裸の名＝esbuild の解決＝package.json の exports）
+const sassRel = (dir, spec) => {
+	const p = path.resolve(dir, spec), d = path.dirname(p), b = path.basename(p);
+	return [p, p + ".scss", p + ".sass", path.join(d, "_" + b), path.join(d, "_" + b + ".scss"), path.join(p, "index.scss"), path.join(p, "_index.scss")].find(c => fs.existsSync(c) && fs.statSync(c).isFile());
+};
+const scssDeps = file => [...fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").matchAll(/@(?:use|import|forward)\s+["']([^"']+)["']/g)].map(m => m[1]).filter(x => !/^(sass:|https?:|url\()/.test(x));
+// 辿り先を JS の import に書き直す（sass と同じく、まず自分の dir から解く・無ければ裸の名＝esbuild に解かせる）
+const asImports = (file, specs) => specs.map(spec => sassRel(path.dirname(file), spec) || (spec.startsWith(".") ? null : spec)).filter(Boolean).map(x => `import ${JSON.stringify(x)};`).join("\n");
+
 // ---- 1 つの入口から辿る ----
 const ASSET = Object.fromEntries(["css", "scss", "sass", "png", "jpg", "jpeg", "webp", "svg", "gif", "glb", "wasm", "bin", "ttf", "woff", "woff2", "mp3", "wav", "ktx2", "txt", "html", "geopbf", "pbf", "zip", "gz"].map(e => ["." + e, "empty"]));
 async function trace(entry, { engine, stdin, inEngine }) {
@@ -58,7 +77,13 @@ async function trace(entry, { engine, stdin, inEngine }) {
 				if (/worker/.test(q) && r.path) workers.add(r.path);
 				return { path: r.path, namespace: /raw|url|worker/.test(q) ? "asset" : "file", external: false };
 			});
-			b.onLoad({ filter: /.*/, namespace: "asset" }, () => ({ contents: "", loader: "empty" }));
+			b.onLoad({ filter: /.*/, namespace: "asset" }, a => /\.s[ac]ss$/.test(a.path) ? { contents: asImports(a.path, scssDeps(a.path)), loader: "js", resolveDir: path.dirname(a.path) } : { contents: "", loader: "empty" });
+			b.onLoad({ filter: /\.s[ac]ss$/ }, a => ({ contents: asImports(a.path, scssDeps(a.path)), loader: "js", resolveDir: path.dirname(a.path) }));
+			b.onLoad({ filter: /\.css(\.js)?$/ }, a => {
+				const g = GENERATED[rel(a.path)]; if (!g) return null;
+				const own = a.path.endsWith(".js") ? fs.readFileSync(a.path, "utf8") + "\n" : "";
+				return { contents: own + asImports(a.path, g), loader: "js", resolveDir: path.dirname(a.path) };
+			});
 			if (engine) {
 				if (!inEngine) b.onResolve({ filter: /.*/ }, a => SPEC.has(a.path) ? (hits.add(a.path), { path: a.path, external: true }) : null);
 				b.onResolve({ filter: /builtinWorkers\.js$/ }, () => ({ path: NONE }));   // engineAliases と同じ＝エンジンは builtin worker を焼かない
@@ -120,8 +145,8 @@ function htmlRoots(html, appDir) {
 
 const ENTRY = {
 	"/": "apps/www/index.html", "/quiz/": "apps/world-quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
-	"/himekuri/": "apps/himekuri-demo/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
-	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html",
+	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
+	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html",
 };
 const entryOf = href => {
 	const p = href.replace(/[?#].*$/, "");

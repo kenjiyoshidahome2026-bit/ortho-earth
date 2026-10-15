@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // 地震ビューアの読み手（quakes-worker.js）の検定＝偽の配信（archive.geopbf・archive.json）＋偽 USGS（合成 CSV）。外へは一度も触れない。
 //   archive（GeoPBF）＋{ usgs: archive.json }（USGS 直取り）を渡し、月ごとに届いて件数が合うこと・USGS 落ちは archive だけで出す。
-//   形の約束（GeoPBF の焼き方・archive.json の end）は packages/quakes/src/usgs.js が配る側（apps/quakes-mirror）と共通に持つ
+//   形の約束（GeoPBF の焼き方・archive.json の end）は apps/quakes/usgs.js（焼く scripts/usgs-quakes-build.mjs と読む quakes-worker.js が共有）
 //  （2026-10-15・旧＝apps/quakes-mirror/tests/t-quakes.mjs が globe の worker を直に読んでいた＝アプリはアプリを読まない）。
-//   node apps/ortho-globe/tests/t-quakes-reader.mjs
-import { buildGeoPBF, parseCsvTexts } from "@ortho-earth/quakes/usgs";
+//   node apps/quakes/tests/t-quakes-reader.mjs
+import { buildGeoPBF, parseCsvTexts } from "../usgs.js";
 
 const HEAD = "time,latitude,longitude,depth,mag,magType,nst,gap,dmin,rms,net,id,updated,place,type";
 // 偽 USGS：1 日 3 件（0・8・16 時）

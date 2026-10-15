@@ -1,4 +1,4 @@
-// 世界の地震ビューア（quakes.html）の読み込み worker。
+// 世界の地震ビューア（index.html）の読み込み worker。
 // GeoPBF（gzip 可）→ GPU に渡す列（Float32Array）へ展開して main へ transfer する。main をブロックしない。
 //   pos   : 震源の 3D 座標（単位球ワールド＝ortho-core の lonlatTo3D と同式・深さぶん内側へ）
 //   attr  : [mag, depth(km), 年（小数）] ×N
@@ -12,7 +12,7 @@
 //   { type:"part", q, n, pos, attr, lon, lat, time, meta } … 層 q の中身（同じ q は置き換え）
 //   { type:"done", n, skipped } / { type:"error", message }
 import { GeoPBF } from "geopbf/pbf-base";
-import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "@ortho-earth/quakes/usgs";   // ビルドスクリプトと同じ規則で焼く
+import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "./usgs.js";   // ビルドスクリプトと同じ規則で焼く
 
 // 文言＝英語キー（i18n/ui.json）。worker は訳さない＝{ key, args } を main へ渡すだけ（args に入れ子可・数値は main が桁区切り）
 const t = (key, ...args) => ({ key, args });
