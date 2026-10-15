@@ -112,7 +112,7 @@ export class screenLogger {
 		const { name, event, error } = e.detail;
 		if (type === "start") { if (this.mess[name]) return;
 			let count = 0;
-			const bar = this.empty().classed("event", true).html(`🔄 ${name}: ${event} <span id="spinner"/>`);
+			const bar = this.empty().classed("event", true).html(`🔄 ${escHtml(name)}: ${escHtml(event)} <span id="spinner"/>`);
 			const spinner = bar.select("#spinner");
 			const updateSpinner = (): unknown => spinner.text(this.dots[~~(count++) % this.dots.length]);
 			const timer = setInterval(updateSpinner, 250);
@@ -127,7 +127,7 @@ export class screenLogger {
 	}
 	warn(s: unknown): void { this.empty().classed("warn", true).text(`⚠️ [WARNING] ${s}`); }
 	error(s: unknown): void { this.empty().classed("error", true).text(`❌ [ERROR] ${s}`); }
-	title(s: unknown, sub: unknown = ""): P { const p = this.empty().classed("title", true).html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`);
+	title(s: unknown, sub: unknown = ""): P { const p = this.empty().classed("title", true).html(`<span class="title">✨ ${escHtml(s)} ✨</span><span class="subtitle">${escHtml(sub)}</span>`);
 		this.time = performance.now();
 		return p;
 	}

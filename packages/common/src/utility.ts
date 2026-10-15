@@ -22,7 +22,7 @@ export const isBbox = (_: unknown): _ is Bbox => { const a = _ as number[] | nul
 		&& (-180 <= a[0] && a[0] <= a[2] && a[2] <= 180) && (-90 <= a[1] && a[1] <= a[3] && a[3] <= 90);
 };
 export const toArray = <T>(_: T | T[] | null | undefined): T[] => (_ != null ? isArray(_) ? _ : [_ as T] : []);
-export const trim = (_: unknown): string => ("" + (_ as string)).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
+export const trim = (_: unknown): string => ("" + (_ as string)).replace(/\s+/g, " ").trim();   // 旧 /(^\s+|\s+$)/g（多項式の後戻り・CodeQL）と同値
 export const strfix = (_: unknown): string => trim(_).normalize('NFKC');
 export const tostr = async (_: unknown): Promise<unknown> => _ ? isDOM(_) ? _.outerHTML : isFunction(_) ? isAsync(_)? await _(): _() :
 	isArray(_) ? _.map(trim).filter(t => t).join("<br/>") : String(_) : "";
