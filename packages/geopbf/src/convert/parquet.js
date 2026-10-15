@@ -10,7 +10,7 @@ import { writeUvarint, zigzagEncode } from "../modules/varint.js";
 
 // ── Thrift compact protocol ──
 const CT = { BOOL_TRUE: 1, BOOL_FALSE: 2, BYTE: 3, I16: 4, I32: 5, I64: 6, DOUBLE: 7, BINARY: 8, LIST: 9, SET: 10, MAP: 11, STRUCT: 12 };
-export class TWriter {
+class TWriter {
 	constructor(cap = 4096) { this.buf = new Uint8Array(cap); this.pos = 0; this.last = 0; this.stack = []; }
 	need(n) { if (this.pos + n > this.buf.length) { const b = new Uint8Array(Math.max(this.buf.length * 2, this.pos + n)); b.set(this.buf); this.buf = b; } }
 	byte(v) { this.need(1); this.buf[this.pos++] = v & 255; }

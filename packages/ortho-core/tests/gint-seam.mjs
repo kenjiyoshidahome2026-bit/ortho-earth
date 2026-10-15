@@ -5,9 +5,9 @@
 //   ③ -180 に沿う正規の辺（-180〜-170 の矩形＝対にならない縫い目辺）＝無傷（落とさない）
 // 使い方: node packages/ortho-core/tests/gint-seam.mjs（geopbf の wasm pkg が要る＝t-anchors と同じ）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../../geopbf/src/pbf-base.js";
-import { topology, unPackGintBuffer } from "../../geopbf/src/extension/topology.js";
-import { gint } from "../../geopbf/src/extension/gint.js";
+import { GeoPBF } from "geopbf/pbf-base";
+import { topology, unPackGintBuffer } from "geopbf/topology";
+import { gint } from "geopbf/gint";
 import { bakeBase } from "../src/gint/bake.js";
 import { hasSeamArc } from "../src/gint/utility.js";
 import { readFileSync } from "node:fs";

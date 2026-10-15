@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // t-safety: 外から来るファイルを開く経路の安全既定（2026-10-11・geopbf 俯瞰 §2-A の 1・2）。
-//   ・FUNC 型（型 7）は既定で関数に復元しない（noeval 既定 true）。{ noeval: false } の明示で旧挙動
+//   ・FUNC 型（型 7）は関数に復元しない（常にソース文字列。1.19 の noeval 既定＝2.0 で唯一の挙動・{ noeval: false } は撤去）
 //   ・SQLite リーダ: 循環する子ポインタ・自己参照ページ・ページ外のセルポインタで無限ループ／範囲外読みにならず例外で止まる
 //   ・snappy: 宣言サイズの上限・リテラル／複写の境界検査
 //   ・decodeZIP: 宣言サイズを越える伸長（zip 爆弾）・中央ディレクトリの範囲外を例外で止める（decodeZIP は null を返す）
@@ -23,12 +23,11 @@ const throws = (fn, re, msg) => { try { fn(); ok(false, msg + "（例外が出�
 	const bytes = enc.arrayBuffer;
 	const dflt = await new GeoPBF().set(bytes.slice(0));
 	const p = dflt.getProperties(0);
-	ok(typeof p.f === "string" && p.f.includes("a + 1"), "既定（noeval:true）: FUNC は関数ソース文字列のまま");
-	ok(p.n === 1, "既定: 他の属性は従来どおり");
+	ok(typeof p.f === "string" && p.f.includes("a + 1"), "FUNC は関数ソース文字列のまま");
+	ok(p.n === 1, "他の属性は従来どおり");
 	const optin = await new GeoPBF({ noeval: false }).set(bytes.slice(0));
 	const q = optin.getProperties(0);
-	ok(typeof q.f === "function" && q.f()(1) === 2, "{ noeval:false } の明示で関数へ復元（旧挙動＝new Function(`return ${src}`) の包み）");
-	ok(new GeoPBF({ noeval: true }).noeval === true && new GeoPBF({}).noeval === true && new GeoPBF({ noeval: false }).noeval === false, "noeval の三態");
+	ok(typeof q.f === "string" && q.f.includes("a + 1") && !("noeval" in optin), "{ noeval:false } を渡しても関数へ復元しない（2.0 で撤去＝new Function の経路が無い）");
 }
 
 // ── SQLite ───────────────────────────────────────────────────────────────────

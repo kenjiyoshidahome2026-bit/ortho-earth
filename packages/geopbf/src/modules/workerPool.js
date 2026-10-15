@@ -99,12 +99,3 @@ export function prewarmWorkers(kinds) {
 		if (!lane.w) { spawn(pool, lane); schedIdle(pool, lane); }
 	}
 }
-
-// 明示的な後始末（テスト・ページ退場）。進行中の仕事は失われる＝呼ぶ側が静かな時に。
-export function shutdownWorkers() {
-	for (const pool of pools.values()) for (const lane of pool.lanes) {
-		clearTimeout(lane.idleT);
-		if (lane.w) { try { lane.w.terminate(); } catch { /* 既に死んでいる */ } lane.w = null; }
-	}
-	pools.clear();
-}

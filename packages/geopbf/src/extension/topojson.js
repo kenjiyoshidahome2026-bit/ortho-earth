@@ -1,5 +1,4 @@
 import { gint } from "./gint.js";
-import { topology, unPackGintBuffer } from "./topology.js";
 
 const types = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 export function topojson(self) {
