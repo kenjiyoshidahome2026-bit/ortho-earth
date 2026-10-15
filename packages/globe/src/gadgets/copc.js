@@ -34,7 +34,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 		const id = opts.id || `copc${++seq}`;
 		if (sets.has(id)) remove(id);
 		const set = { id, opts: { density: lowMem ? 3 : 2, heightOffset: 0, color: "auto", pointSize: 2, attenuation: true, depth: true, fit: true, ...opts }, nodes: new Map(), pages: new Map(), ov: null, info: null, hidden: false,
-			stats: { nodes: 0, shown: 0, points: 0, shownPoints: 0, failed: 0, requests: 0, bytes: 0, ms: { read: 0, decode: 0, proj: 0 }, firstAt: 0, t0: performance.now() } };   // bytes・ms・firstAt＝計測（点群計画 段 0）：読んだ量・worker の時間の合計・最初の節が出るまで
+			stats: { nodes: 0, shown: 0, points: 0, shownPoints: 0, failed: 0, requests: 0, affine: 0, bytes: 0, ms: { read: 0, decode: 0, proj: 0 }, firstAt: 0, t0: performance.now() } };   // bytes・ms・firstAt＝計測（点群計画 段 0）：読んだ量・worker の時間の合計・最初の節が出るまで
 		sets.set(id, set);
 		let url = src, headers;
 		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }   // transformRequest＝鍵・独自スキームは未対応（Range を読むため）
@@ -74,7 +74,7 @@ export function createCOPC(map, { cam, size, dpr, lowMem, signal, requester, ell
 			inflight--;
 			if (!sets.has(set.id) || set.nodes.get(keyStr(n.key)) !== n) return;
 			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
-			const st = set.stats; if (r.ms) for (const k in st.ms) st.ms[k] += r.ms[k] || 0; if (!st.firstAt) st.firstAt = performance.now() - st.t0;
+			const st = set.stats; if (r.affine) st.affine++; if (r.ms) for (const k in st.ms) st.ms[k] += r.ms[k] || 0; if (!st.firstAt) st.firstAt = performance.now() - st.t0;
 			set.ov.post({ type: "layer", q: n.q, n: r.n, pos: r.pos, origin: r.origin, rgb: r.rgb, intensity: r.intensity, cls: r.cls, elev: r.elev, spacing: n.spacingM / earthM }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 			n.on = true;
 			schedule();
