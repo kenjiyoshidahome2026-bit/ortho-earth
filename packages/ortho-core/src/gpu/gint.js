@@ -19,10 +19,10 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
-import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gl/gint/state.js";
-import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
-import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gl/gint/utility.js";
-import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gl/gint/bake.js";
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.js";
+import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.js";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gint/utility.js";
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
 import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
@@ -480,7 +480,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	}
 
 	// ── 層状態（§10.1 第1ブロック＝層ごとに割る）とスロット束 ────────────────
-	// SLOT_FIELDS／emptySlot＝スロット束が退避/復元する層のデータ・スタイル面（gl/gint/state.js・GL と共通＝ベイク済み GPU/台帳資産のキャッシュ）
+	// SLOT_FIELDS／emptySlot＝スロット束が退避/復元する層のデータ・スタイル面（gint/state.js・GL と共通＝ベイク済み GPU/台帳資産のキャッシュ）
 	const layers = [];       // 描画順（後の層が上）
 	let act = null;          // カーソルを持つ層（§4.1 常に1層。既定＝最後に addLayer した層）
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;

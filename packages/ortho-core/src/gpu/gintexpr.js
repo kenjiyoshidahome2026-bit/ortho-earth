@@ -1,5 +1,5 @@
-// gint の paint/filter 式 → WGSL compute（geopbf 改良点 ⑦・2026-10-12）── fid 表（gl/gint/style.js buildFidStyle）を GPU で組む。
-// 入力＝属性列（gl/gint/attrcols.js：鍵ごとの vec2u 列・辞書・geometry-type 列）、出力＝fid ごとの vec4u レコード（R fill RGBA8・G line RGBA8・
+// gint の paint/filter 式 → WGSL compute（geopbf 改良点 ⑦・2026-10-12）── fid 表（gint/style.js buildFidStyle）を GPU で組む。
+// 入力＝属性列（gint/attrcols.js：鍵ごとの vec2u 列・辞書・geometry-type 列）、出力＝fid ごとの vec4u レコード（R fill RGBA8・G line RGBA8・
 // B width<<24|radius<<8|flags・A 0）＝buildFidStyle と同じ並び。意味論はネイティブ出自（expr.js の寛容な JS 流儀）を写す：
 //   値 V{t,p}: t 0 undefined・1 number（p＝f32 ビット）・2 string（p＝辞書 id）・3 boolean・4 null・5 NaN（number だが NaN）・6 補間で出来た色文字列（p＝slot）・7 NaN の色文字列
 //   数への強制（単項 +／比較／算術）＝JS の ToNumber：undefined→NaN・null→0・bool→0/1・string→Number(s)（辞書ごとに CPU で引いた表 dnum）
@@ -7,8 +7,8 @@
 // 載せない物（compile が { error } を返す＝呼び手は CPU の buildFidStyle へ）: MapLibre 出自（origin "ml"）、文字列どうしの大小比較、文字列を足す "+"、
 // 配列・オブジェクトの値、get/has の 2 引数形、let/var 以外の動的な鍵、f32 で表せない整数リテラル（|x| > 2^24）、未対応の演算子。
 // 数は f32（JS は f64）＝.5 の丸めの境で ±1/255 の差が出うる（検定は ±1 の許容）。
-import { paintKeys } from "../gl/gint/attrcols.js";
-export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gl/gint/attrcols.js";   // 呼び手（globe の層）が列を組む道具も同じ入口から
+import { paintKeys } from "../gint/attrcols.js";
+export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.js";   // 呼び手（globe の層）が列を組む道具も同じ入口から
 import { parseRGBA } from "../color.js";
 
 const T_NAN = 5, T_LERP = 6;

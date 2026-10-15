@@ -14,7 +14,7 @@
 //   3. 4096 walk cap: 長大 arc での破綻検出（capped>0 なら gap が実在）＝tier 梯子が必要な根拠
 //   4. 実測: zoom→rank→tier 選定で VS起動数 / texelFetch数 / 最大walk を旧経路(基準メタ直)と比較
 
-import { buildEdgeMeta, buildWeightHist } from '../src/gl/gint/utility.js';
+import { buildEdgeMeta, buildWeightHist } from '../src/gint/utility.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

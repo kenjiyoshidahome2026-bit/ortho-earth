@@ -13,10 +13,10 @@ import { uploadGintTextures, deleteTextures } from './textures.js';
 import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawOverlay, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
-import { computeDrawData, zoomInRange } from './drawdata.js';
+import { computeDrawData, zoomInRange } from '../../gint/drawdata.js';
 import { uploadFidStyle, clearFidStyle, restoreFidStyle, idFillContextLost, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
-import { gintDataOf } from './bake.js';
+import { gintDataOf } from '../../gint/bake.js';
 
 const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, paint, snapshot, bench };
 

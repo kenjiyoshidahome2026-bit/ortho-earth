@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- gint の fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）＝gpu/gintexpr.js（式→WGSL compute）＋ gpu/gintexprgpu.js（走者）の実機検定。
-     CPU の正本（gl/gint/style.js buildFidStyle）と同じ paint/filter・同じ地物で GPU の表を読み戻し、fid ごとのレコードを突き合わせる：
+     CPU の正本（gint/style.js buildFidStyle）と同じ paint/filter・同じ地物で GPU の表を読み戻し、fid ごとのレコードを突き合わせる：
      色は各チャネル ±1（f32 と f64 の丸めの境）、width/radius は ±1、visible ビットは一致。
      ① 契約の式（tests/gint-expr.mjs と同じ顔ぶれ＝get/has/feature-state/geometry-type/zoom/match/case/step/coalesce/interpolate（linear・exponential・色・入れ子の色）/
         比較/all/any/!/in/let/算術/min/max/to-number/to-boolean/abs…）を混ぜた 40 組 × 型の混ざった地物 300
@@ -16,10 +16,10 @@ const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const A = await import("../../../packages/ortho-core/src/gl/gint/attrcols.js");
+	const A = await import("../../../packages/ortho-core/src/gint/attrcols.js");
 	const { compileFidStyleWGSL, dictTables } = await import("../../../packages/ortho-core/src/gpu/gintexpr.js");
 	const { createFidExprRunner } = await import("../../../packages/ortho-core/src/gpu/gintexprgpu.js");
-	const { buildFidStyle } = await import("../../../packages/ortho-core/src/gl/gint/style.js");
+	const { buildFidStyle } = await import("../../../packages/ortho-core/src/gint/style.js");
 	const adapter = await navigator.gpu.requestAdapter();
 	const device = await adapter.requestDevice();
 	const errs = [];
