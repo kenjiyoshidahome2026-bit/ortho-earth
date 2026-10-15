@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
-import { API as USGS_API, DAY, iso, fetchRange, csvText, months, parseCsvTexts, buildGeoPBF } from "../packages/quakes/src/usgs.js";
+import { API as USGS_API, DAY, iso, fetchRange, csvText, months, parseCsvTexts, buildGeoPBF } from "@ortho-earth/quakes/usgs";
 
 // ── 引数 ─────────────────────────────────────────────────────────────────────
 const VALUED = ["start", "end", "minmag", "out", "cache", "precision", "concurrency", "props", "interval", "refresh-since"];

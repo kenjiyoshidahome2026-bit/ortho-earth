@@ -1,0 +1,15 @@
+{
+	"name": "@ortho-earth/quakes",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"description": "USGS earthquake catalogue: CSV fetch/parse and the GeoPBF/archive.json shape shared by the globe's quakes worker and apps/quakes-mirror.",
+	"exports": {
+		"./usgs": "./src/usgs.js"
+	},
+	"sideEffects": false,
+	"dependencies": {
+		"geopbf": "*"
+	}
+}

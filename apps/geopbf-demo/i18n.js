@@ -2,7 +2,7 @@
 //   t("Read") / t("$1 features", n)（$1 書式）/ t("Open ##verb")（" ##" は文脈＝表示では捨てる）
 // 辞書＝i18n/lang/<code>.json（正本 i18n/ui.json から scripts/i18n-build.mjs が焼く）。言語ごとに 1 本だけ遅延 import。
 // 対象＝パネルの UI だけ。ログ（screenLogger・geoExec の進捗行）と地図の中身（カタログのデータ名・属性）は英語のまま＝console/HUD の掟。
-import LANGS from "../../packages/world/i18n/langs.json";   // 言語一覧の正本＝world
+import LANGS from "world-data/i18n/langs.json";   // 言語一覧の正本＝world
 import { createI18n } from "@ortho-earth/globe/i18n/core.js";
 
 const PACKS = import.meta.glob("./i18n/lang/*.json");
