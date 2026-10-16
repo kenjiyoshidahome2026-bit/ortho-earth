@@ -4,11 +4,18 @@
 //   ・オプションは同じ名前のままガジェットへ渡す（ガジェット側のボタンは出さない＝showInspectButton:false）
 //   ・通訳の地図（new Map）でもエンジンの地図（createGlobe）でも載る。準備前の addControl はエンジンを待って載せる
 import { whenEngine } from "./map.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { InspectHandle, InspectOptions } from "../../globe.d.ts";
 
 export class MaplibreInspect {
-	constructor(options = {}) { this.options = { showInspectButton: true, ...options }; this._ctl = null; this._map = null; }
-	getDefaultPosition() { return "top-right"; }
-	onAdd(map) {
+	declare options: InspectOptions;
+	declare _ctl: InspectHandle | null;
+	declare _map: object | null;
+	declare _container?: HTMLElement;
+	declare _btn?: HTMLButtonElement;
+	constructor(options: InspectOptions = {}) { this.options = { showInspectButton: true, ...options }; this._ctl = null; this._map = null; }
+	getDefaultPosition(): string { return "top-right"; }
+	onAdd(map: object): HTMLElement {
 		this._map = map;
 		const c = this._container = document.createElement("div");
 		c.className = "maplibregl-ctrl maplibregl-ctrl-group";
@@ -19,17 +26,17 @@ export class MaplibreInspect {
 			c.appendChild(b);
 		} else c.style.display = "none";
 		const own = this._map;
-		(typeof map.gadget === "function" ? Promise.resolve(map) : whenEngine(map)).then(eng => {
+		(typeof (map as { gadget?: unknown }).gadget === "function" ? Promise.resolve(map as GlobeMap) : whenEngine(map)).then(eng => {
 			if (!eng || this._map !== own) return;
 			const cb = this.options.toggleCallback;
-			this._ctl = eng.gadget.inspect({ ...this.options, showInspectButton: false, toggleCallback: on => {
+			this._ctl = eng.gadget.inspect({ ...this.options, showInspectButton: false, toggleCallback: (on: boolean) => {
 				if (this._btn) this._btn.className = `maplibregl-ctrl-icon ${on ? "maplibregl-ctrl-map" : "maplibregl-ctrl-inspect"}`;   // 公式の setMapIcon／setInspectIcon
 				cb?.(on);
 			} });
 		});
 		return c;
 	}
-	onRemove() { this._ctl?.destroy(); this._ctl = null; this._container?.remove(); this._map = null; }
+	onRemove(): void { this._ctl?.destroy(); this._ctl = null; this._container?.remove(); this._map = null; }
 	toggleInspector() { return this._ctl?.toggle(); }
 	render() { return this._ctl?.render(); }   // 公式の render＝検査の層を作り直す（source を足した後など）
 }
