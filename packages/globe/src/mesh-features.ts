@@ -43,7 +43,19 @@ function batchCtorOf(name: string | undefined): TypedCtor | null {   // b3dm の
 		case "INT": return Int32Array; case "UNSIGNED_INT": return Uint32Array; case "FLOAT": return Float32Array; case "DOUBLE": return Float64Array; default: return null;
 	}
 }
-const NCOMP: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+// 型 → 成分の数。型の名前はタイルのデータ＝表の鍵引き（旧 NCOMP[type]）は "constructor"・"__proto__" 等で Object.prototype の物を返した＝switch で own の名前だけ（知らない名前＝undefined）
+export function ncompOf(type: unknown): number | undefined {
+	switch (type) {
+		case "SCALAR": return 1;
+		case "VEC2": return 2;
+		case "VEC3": return 3;
+		case "VEC4": return 4;
+		case "MAT2": return 4;
+		case "MAT3": return 9;
+		case "MAT4": return 16;
+		default: return undefined;
+	}
+}
 const NORM_MAX: Record<string, number> = { INT8: 127, UINT8: 255, INT16: 32767, UINT16: 65535, INT32: 2147483647, UINT32: 4294967295 };
 
 // プリミティブの feature ID の組 set（既定 0）→ { attribute, implicit, texture, featureCount, nullFeatureId, propertyTable, label } | null
@@ -104,7 +116,7 @@ export function decodePropertyTables(meta: StructuralMetadata | null | undefined
 	});
 }
 function decodeColumn(cp: ClassProperty, p: TableProperty, count: number, bytesOf: (view: number) => Uint8Array, enums: EnumDefs): unknown[] {
-	const type = cp.type, nc = NCOMP[type!];
+	const type = cp.type, nc = ncompOf(type);
 	const offsets = (view: number, ot: string | undefined, n: number) => { const T = ctorOf(ot || "UINT32"); if (!T) throw new Error(`offset type ${ot}`); return Array.from(typed(bytesOf(view), T, n + 1), Number); };
 	const nd = (v: unknown) => (cp.noData !== undefined && JSON.stringify(v) === JSON.stringify(cp.noData)) ? (cp.default ?? null) : v;
 	if (type === "STRING") {
@@ -129,7 +141,7 @@ function decodeColumn(cp: ClassProperty, p: TableProperty, count: number, bytesO
 	if (type === "ENUM") { const e = enums[cp.enumType!]; if (!e) throw new Error(`enum ${cp.enumType}`); ctName = e.valueType || "UINT16"; names = new Map((e.values || []).map(v => [v.value, v.name])); }
 	else if (!nc) throw new Error(`type ${type}`);
 	const T = ctorOf(ctName); if (!T) throw new Error(`componentType ${ctName}`);
-	const per = type === "ENUM" ? 1 : nc, u8 = bytesOf(p.values);
+	const per = type === "ENUM" ? 1 : nc!, u8 = bytesOf(p.values);
 	const isNo = (vals: AnyTyped, k0: number) => cp.noData !== undefined && (per === 1 ? num(vals[k0]) === cp.noData : Array.isArray(cp.noData) && cp.noData.every((v, i) => num(vals[k0 + i]) === v));   // noData＝生の値で比べる（offset/scale の前）
 	const one = (vals: AnyTyped, k0: number) => {   // 1 要素（成分 per 個）
 		if (names) return names.get(Number(vals[k0])) ?? Number(vals[k0]);
@@ -154,7 +166,7 @@ export function batchTableOf(json: Record<string, unknown> | null | undefined, b
 		if (Array.isArray(v)) { columns[k] = v.slice(0, count); continue; }
 		if (v && typeof v === "object" && (v as { byteOffset?: number }).byteOffset != null && bin) {
 			const T = batchCtorOf((v as { componentType?: string }).componentType);
-			const nc = NCOMP[(v as { type: string }).type] || 1; if (!T) continue;
+			const nc = ncompOf((v as { type: string }).type) || 1; if (!T) continue;
 			try { const a = typed(bin.subarray((v as { byteOffset: number }).byteOffset), T, count * nc); columns[k] = Array.from({ length: count }, (_, r) => nc === 1 ? a[r] : Array.from(a.subarray(r * nc, r * nc + nc) as ArrayLike<number | bigint>)); } catch { /* 短い＝落とす */ }
 		}
 	}
