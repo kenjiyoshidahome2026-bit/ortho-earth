@@ -22,7 +22,7 @@ npm i @ortho-earth/core
 | `./decode` · `./tileformat` · `./geodesic` · `./geojson` | MVT decode and the tile-format registry (MLT via [`@ortho-earth/tile-formats`](../tile-formats)), Vincenty distance/area, GeoJSON → overlay |
 | `./worldstyle` · `./worldpal` | the map-face palettes (`mono` / `dark` / `topo` / `sepia`) |
 | `./workers/*` | worker entries (tile, scene, gint bake, elevation) |
-| `./internal/*` | the source tree itself (`./internal/gl/gint/state.js` → `src/gl/gint/state.js`), for tests and tooling that need a module without a public entry; no types, no stability promise |
+| `./worker-msg` | types only: the messages between the workers and their host (`ScenePortMessage`, `GintBakeResponse`, `MergedScene` …); empty at run time |
 
 Types ship with the package (`types/*.d.ts`, hand-written, 1.15.0 →): the entries a host calls — camera, flight, input,
 expressions, geodesy, colour, the view hash, tile formats, the MapLibre style rewrite — are typed precisely; the factories

@@ -13,7 +13,7 @@ const PORT = +process.env.VWG_PORT || 5238;
 
 const ALL_PAGES = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-drape?gl2=1&bottom=drape", "t-extrude-drape?gl2=1&v=%2310/36.3/137.6",
 	"t-aatrans", "t-gintlayers", "t-gintlayers?gl2=1", "t-zoomfill", "t-gndfaces",
-	"t-meshfs", "t-baselane", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster",
+	"t-baselane", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster",
 	"t-terrcull?hud=0", "t-terrcull?hud=0&gl2=1",
 	"t-aatime?hud=1"];   // 時計で動く間（影の時刻の送り・オーバーレイへの毎フレームの状態）は 1x・止まれば 4x（#125）   // hud=0＝mem テレメトリ（terr の数）を main へ   // 地形チャンク刈り（perf plan P4 step B）＝刈りあり/全量の絵が同一（両バックエンド）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
@@ -24,7 +24,7 @@ const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
 	flags: REALGPU, drag: true, profilePrefix: "oj-webgpu", cdpBase: +process.env.VWG_CDP || 9535, pad: 18,
-	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-meshfs"]),   // noBoot＝地球儀を起こさない（OPFS の頁）
+	base: "lang=ja", expectBackend: "webgpu",   // t-meshfs（OPFS の頁）は packages/globe/scripts/verify-webgpu.mjs へ移した（段 5-7・2026-10-16）
 	urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}`,
 });
 stop();
