@@ -2830,7 +2830,7 @@ registerGadget("globe", (m, o) => {   // ミニ地球儀（右下・視野の枠
 // CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の meshSet スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
 let modelCtl = null;
 const modelCtlGet = async () => {
-	const m = await import("./gadgets/model.js");
+	const m = await import("./gadgets/model.ts");
 	if (modelCtl) return modelCtl;
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); requestDraw(); },   // バッチの剛体変換（glTF の rigid アニメ・W4）＝Float32Array(12)｜null

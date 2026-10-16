@@ -1,6 +1,6 @@
 // 点の集約（クラスタ）とヒートマップの計算部分（DOM・オーバーレイ無し＝Node の検定からも読める）。描画側は gadgets/aggregate.js。
 import { evalExpr, originOfLayer } from "@ortho-earth/core";
-import { evalColor } from "./model.js";
+import { evalColor } from "./model.ts";
 
 export const D2R = Math.PI / 180;
 const mercY = lat => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
