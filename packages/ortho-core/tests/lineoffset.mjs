@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { buildTileDrawList, miterSlides } from "../src/build.ts";
 import { mergeTiles } from "../src/scene.ts";
 import { convertLayer } from "../src/mlstyle.ts";
-import { LINE_VS, LINE_MD_VS } from "../src/gl/glsl.js";
+import { LINE_VS, LINE_MD_VS } from "../src/gl/glsl.ts";
 import { LINE_WGSL, LINE_SH_WGSL } from "../src/gpu/wgsl.js";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };

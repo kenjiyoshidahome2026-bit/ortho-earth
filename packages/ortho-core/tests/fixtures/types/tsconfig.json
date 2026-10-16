@@ -6,7 +6,7 @@
 		"module": "esnext",
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
-		"lib": ["es2022", "dom"],
+		"lib": ["es2022", "dom", "esnext.disposable"],   // 根の口が gl/gint（TS）経由で geopbf/identify の型を辿る＝wasm の .d.ts が Symbol.dispose を使う
 		"skipLibCheck": false,
 		"types": []
 	},
