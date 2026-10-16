@@ -391,7 +391,7 @@ export interface CogHandle {
 	readonly width: number | null; readonly height: number | null;
 }
 /** demo ガジェットの opts（台本の形＝demo/scene-format.md） */
-export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean }
+export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean; /** 台本（と設定）を返す関数＝▶だけ先に出し、本体と台本は押した時に読む */ lazy?: () => Promise<DemoOptions> }
 export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
 /** equal／equalHere／equalStart の opts。url＝Equal Earth の置き場・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe） */
 export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown }

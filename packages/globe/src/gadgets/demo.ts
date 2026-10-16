@@ -45,12 +45,33 @@ import { tr, getLang } from "../i18n.js";
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
-import { ICON } from "./demo-icon.js";
+import { ICON } from "./demo-icon.ts";
+import type { DemoHandle, DemoOptions } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+/** 台本の 1 行（下の opts.scenes の説明の形）。ほかに言語コードのフィールド（ja:/en:…＝題名の訳）を持てる */
+export interface DemoScene {
+	title?: string; jp?: string; view?: string; glide?: string; fade?: string; pre?: string; jump?: boolean; via?: unknown; travel?: number;
+	path?: Array<{ view: string; travel?: number }>; slide?: string; caption?: string; hold?: number; slideHold?: number; mobile?: number;
+}
+/** 地図の内側から受け取る物（api/tools.ts が注入）＝飛び方・着地待ち・書き終わり・静穏窓・先読み・終演 */
+export interface DemoInner {
+	flyView?: (hash: string, opts?: { glide?: boolean; jump?: boolean }) => unknown; fadeView?: (hash: string, secs?: number) => unknown;
+	glidePath?: (entries: Array<{ view: string; travel?: number }>) => unknown; flightActive?: () => boolean; loadingActive?: () => string;
+	onQuiet?: (views: string[]) => unknown; prefetchViews?: (views: string[], names?: string[]) => unknown; finale?: (() => void) | null;
+	signal?: AbortSignal; zoomMin?: number;
+}
+/** 本体のオプション＝公式の DemoOptions（scenes は台本の行）＋注入 */
+export type DemoBodyOpts = Omit<DemoOptions, "scenes"> & DemoInner & { scenes?: DemoScene[] | null };
+/** start の 3 つ目＝再生の設定（▶＝組み込み・ドロップ＝落とした台本・bare＝素モード） */
+interface DemoStartOpts {
+	scenes?: DemoScene[]; bare?: boolean; finale?: (() => void) | null; lang?: string; mobile?: number; hold?: number; slideHold?: number; preload?: string[];
+	onScene?: (i: number, scene: DemoScene) => void; onEnd?: (reason: "finished" | "stopped") => void;
+}
 
 // 台本由来の文字列を innerHTML に入れる前の消毒（?scene= は任意オリジンの JSON＝title/en/視点文字列は敵入力になり得る）
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 // slide の中身が画像か生テキストか：画像拡張子・data:/blob:/http(s): だけを画像と見る（それ以外は全部テキスト＝安全側）
-const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data:|blob:|https?:)/.test(s);
+const isImg = (s: string) => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data:|blob:|https?:)/.test(s);
 // 配色テーマ（c=）の幕替わりは flyView 側の「生き替え」（reload無し）で反映＝ここでのトークン判定/進行預け(RESUME_KEY)は不要になった。
 
 // opts.scenes＝台本 [{title, view?, glide?, via?, travel?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
@@ -76,7 +97,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（ホストが地域の home＝全体の画角を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
-export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, btn: opts_btn = null, player: playerOnly = false } = {}) {
+export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, btn: opts_btn = null, player: playerOnly = false }: DemoBodyOpts = {}): DemoHandle | undefined {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
@@ -86,7 +107,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		scenes = [];   // player:true＝空台本マウント（エディタ等）：▶無しで器だけ組む＝台本は start({scenes}) が持ち込む
 	}
 	if (mapEl.querySelector("#demo-bar")) return;   // 二重搭載は無害（バーは常設＝player搭載でも在る確実な印）
-	let btn = null;
+	let btn: HTMLElement | null = null;
 	if (hasBuiltin && opts_btn) btn = opts_btn;   // 玄関スタブが先に出したボタン（位置と顔はそのまま）を引き継ぐ
 	else if (hasBuiltin) {   // ▶＝組み込み台本の入り口（player 搭載では出さない＝押しても流す物が無い）
 		btn = document.createElement("button");
@@ -117,30 +138,30 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	const cap = document.createElement("div");
 	cap.id = "demo-caption";
 	mapEl.append(slide, bar, cap);
-	const img = slide.querySelector("img"), textEl = slide.querySelector(".ds-text"),
-		titleEl = bar.querySelector("#demo-title"), stepEl = bar.querySelector("#demo-step"),
-		playBtn = bar.querySelector("#demo-play");
+	const img = slide.querySelector("img")!, textEl = slide.querySelector<HTMLElement>(".ds-text")!,
+		titleEl = bar.querySelector<HTMLElement>("#demo-title")!, stepEl = bar.querySelector<HTMLElement>("#demo-step")!,
+		playBtn = bar.querySelector<HTMLButtonElement>("#demo-play")!;
 	// シーン一覧（目次）：タイトル/歩数のクリックでバーの真上にポップ＝クリックでそのシーンへジャンプ。
 	// c= 付きシーンへのジャンプも show()→flyView 経由＝生き替え（reload無し）がそのまま効く。
 	const list = document.createElement("div");
 	list.id = "demo-list";
 	// 言語解決：scene[lang]（ja:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
 	// ja は旧綴り jp: も読む（B12・2026-09-25：台本は jp: なのに ?lang=ja で引いていた＝日本語の題名が一度も出ていなかった）
-	const T = s => s?.[lang || getLang()] ?? ((lang || getLang()) === "ja" ? s?.jp : undefined) ?? s?.title ?? "";
-	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("(slide)") : (s.view ?? s.glide ?? s.fade ?? t("(untitled)")));
+	const T = (s: DemoScene | undefined): string => (s as Record<string, unknown> | undefined)?.[lang || getLang()] as string | undefined ?? ((lang || getLang()) === "ja" ? s?.jp : undefined) ?? s?.title ?? "";
+	const sceneLabel = (s: DemoScene) => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("(slide)") : (s.view ?? s.glide ?? s.fade ?? t("(untitled)")));
 	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 	bar.append(list);
 	titleEl.title = t("Scene list"); titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
 	const listOpen = () => list.classList.contains("open");
 	const syncList = () => {
-		list.querySelectorAll("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i === idx)));
+		list.querySelectorAll<HTMLButtonElement>("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i! === idx)));
 		// 一覧は約10行でスクロール＝現在シーンが圏外なら見える所へ（開いた時・開いたままの送りの両方）
 		if (listOpen()) list.querySelector('button[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
 	};
 
 	// mobile:Δz＝縦長画面ではシーンの z（ハッシュ先頭の数値）にだけ差分を足す。判定は show() の度＝回転にも追随。
 	// 差分＝シーン毎 mobile が台本既定 opts.mobile に勝つ（mobile: 0＝そのシーンだけ明示無効）。t 指定＝pre 等の別ハッシュにも同じ補正
-	const mobView = (s, t = s.view ?? s.glide ?? s.fade) => {
+	const mobView = (s: DemoScene, t = s.view ?? s.glide ?? s.fade) => {
 		const d = s.mobile ?? mobile;
 		if (!t || !d || mapEl.clientWidth >= mapEl.clientHeight) return t;
 		// シフト後はアプリのズーム床(2)でクランプ：低z台本（例 地球と天体 z2）にΔを足すと床下(z0.8)になり、
@@ -155,18 +176,18 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	const dflt = { lang, mobile, hold, slideHold };   // マウント時の既定＝台本載せ替え時のリセット先（前の台本の設定を持ち越さない）
 	const builtin = hasBuiltin ? { scenes, finale, preload } : null;   // 組み込み(▶)の再生設定＝マウント時に保持（lang等は dflt が復元する）
 	let activeFinale = finale;   // 「今の再生」の終演フック（start で差し替え・ドロップ=null＝末尾に何も足さない）
-	let activeOnScene = null, activeOnEnd = null;   // 観測面（scene-player API）：行の上映開始／終演（理由つき）＝台本スコープ（載せ替えでリセット）
+	let activeOnScene: DemoStartOpts["onScene"] | null = null, activeOnEnd: DemoStartOpts["onEnd"] | null = null;   // 観測面（scene-player API）：行の上映開始／終演（理由つき）＝台本スコープ（載せ替えでリセット）
 	let bareLive = false;        // ドロップ再生中＝素モード（バー無し・上映中ノーアクション）＝操作ハンドラを不活性化する鍵
 	const on = () => bar.classList.contains("on");
-	const caption = show => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
-		const text = show ? (scenes[idx]?.caption ?? T(scenes[idx])) : "";
+	const caption = (show: boolean) => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
+		const text = show ? (scenes![idx]?.caption ?? T(scenes![idx])) : "";
 		if (text) cap.textContent = text;
 		cap.classList.toggle("show", !!text);
 	};
 	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す
 		clearTimeout(timer);
 		if (!playing) return;
-		const s = scenes[idx], h = (s?.hold ?? hold) * 1000;   // 台本は秒＝ms 化はここ（内側）だけ
+		const s = scenes![idx], h = (s?.hold ?? hold) * 1000;   // 台本は秒＝ms 化はここ（内側）だけ
 		// 拍ごとの滞在：幕＝slideHold（読む時間）／幕前の地図＝最大2秒（着いた画をひと目・語りは幕で）／
 		// 幕後の三拍目＝最大1.5秒（既に見た画は「間」だけ）／素の地図シーン＝hold
 		const ms = slide.classList.contains("open") ? (s?.slideHold ?? slideHold) * 1000
@@ -184,7 +205,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		const t0 = performance.now();
 		let loadSig = "", loadT = t0;
 		const arm = () => {
-			if (flightActive?.()) { caption(scenes[idx]?.path ? !slide.classList.contains("open") : false); timer = setTimeout(arm, 200); return; }   // path（連続ドリー）は移動中も字幕を出す＝川を遡る間ずっと見出しが乗る
+			if (flightActive?.()) { caption(scenes![idx]?.path ? !slide.classList.contains("open") : false); timer = setTimeout(arm, 200); return; }   // path（連続ドリー）は移動中も字幕を出す＝川を遡る間ずっと見出しが乗る
 			const busy = loadingActive?.() || "";
 			if (busy && performance.now() - t0 < 6000) {
 				if (busy !== loadSig) { loadSig = busy; loadT = performance.now(); }
@@ -194,50 +215,50 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			// 残りの台本の視点列を渡し、app 側が「もう出ない」重い物の大掃除等を行う（掃除の失敗は演出を壊さない）。
 			if (onQuiet && quietIdx !== idx) {
 				quietIdx = idx;
-				try { onQuiet(scenes.slice(idx + 1).flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean)); } catch { /* 掃除は上演の従＝黙って続行 */ }
+				try { onQuiet(scenes!.slice(idx + 1).flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean) as string[]); } catch { /* 掃除は上演の従＝黙って続行 */ }
 			}
 			caption(!slide.classList.contains("open"));
 			timer = setTimeout(() => { if (on()) next(); }, ms);
 		};
 		arm();
 	};
-	const curtain = open => {   // 幕の上げ下げの唯一の出入口
+	const curtain = (open: boolean) => {   // 幕の上げ下げの唯一の出入口
 		slide.classList.toggle("open", open);
 		if (open) slideShown = true;
 	};
-	const hasSlide = s => !!(s && s.slide && slideOn);
-	function show(i, fly = true) {   // fly=false＝飛ばずに即表示（もうその視点に居る等・現状は常に fly=true）
+	const hasSlide = (s: DemoScene | undefined) => !!(s && s.slide && slideOn);
+	function show(i: number, fly = true): void {   // fly=false＝飛ばずに即表示（もうその視点に居る等・現状は常に fly=true）
 		idx = i;
 		clearTimeout(preTimer);   // 前シーンの pre→view 予約は持ち越さない
-		const s = scenes[i];
+		const s = scenes![i];
 		// 配色の幕替わり：シーンの c=（配色テーマ）は flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
 		// タイルは新styleで再ビルド（IDB温間で速い）・建物/大気は uniform 差替＝飛行の継ぎ目でテーマが溶け替わる。ここは素の送りに徹する。
 		const tgt = mobView(s);   // mobile:Δz を効かせたシーンURL（c= 込み＝この後 flyView に渡り switchTheme が効く）
 		titleEl.textContent = T(s);
 		titleEl.classList.remove("in"); void titleEl.offsetWidth; titleEl.classList.add("in");   // タイトルは毎シーン淡入（reflowでアニメ再点火）
-		stepEl.textContent = `${i + 1}/${scenes.length}`;
+		stepEl.textContent = `${i + 1}/${scenes!.length}`;
 		syncList();   // 一覧の現在シーン印を追随（開いたままの送りにも効く）
-		bar.querySelector("#demo-prev").disabled = i === 0;
+		bar.querySelector<HTMLButtonElement>("#demo-prev")!.disabled = i === 0;
 		activeOnScene?.(i, s);   // 観測面：この行の上映開始（フライト開始前＝エディタの行ハイライト用）
 		slideShown = false;
 		if (hasSlide(s)) {
-			const image = isImg(s.slide);
+			const image = isImg(s.slide!);
 			slide.classList.toggle("text", !image);   // CSS が img / .ds-text を排他表示
-			if (image) img.src = s.slide; else { img.removeAttribute("src"); textEl.textContent = s.slide; }   // 生テキスト＝紙のカード（改行は \n）
+			if (image) img.src = s.slide!; else { img.removeAttribute("src"); textEl.textContent = s.slide!; }   // 生テキスト＝紙のカード（改行は \n）
 			curtain(!s.view);   // slideだけのシーン＝入場で幕（紙芝居の停留所）。view併記＝まず地図（幕は›の第二拍）
 		}
 		else { curtain(false); img.removeAttribute("src"); }
 		if (fly && s.jump && tgt) {
 			flyView?.(tgt, { jump: true });   // 先頭シーン等＝遷移なしで即その視点（遠景の弧を作らない＝「定義したそのまま」で開始）
 		} else if (fly && s.path && glidePath) {
-			glidePath(s.path.map(p => ({ view: mobView(s, p.view), travel: p.travel })));   // ★ via 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）。travel＝各点への区間尺[秒]
+			glidePath(s.path.map(p => ({ view: mobView(s, p.view)!, travel: p.travel })));   // ★ via 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）。travel＝各点への区間尺[秒]
 		} else if (fly && s.fade && fadeView) {
-			fadeView(tgt, s.travel);   // フェード遷移＝黒への溶暗→切替→溶明（尺=travel・既定1.2秒）。道中の絵を見せないカット
+			fadeView(tgt!, s.travel);   // フェード遷移＝黒への溶暗→切替→溶明（尺=travel・既定1.2秒）。道中の絵を見せないカット
 		} else if (fly && tgt) {
 			// pre＝入場の見せ玉：まず pre の画へ飛び、着地から1秒だけ見せて view を遷移なし（jump）で重ねる。
 			// pre と view は同座標が前提＝実際に動くのは l= だけ（素の地図が着いた後、レイヤが「点く」演出）
 			if (s.pre) {
-				flyView?.(mobView(s, s.pre), s.view ? undefined : { glide: true });
+				flyView?.(mobView(s, s.pre)!, s.view ? undefined : { glide: true });
 				const arm = () => { preTimer = flightActive?.() ? setTimeout(arm, 100) : setTimeout(() => flyView?.(tgt, { jump: true }), 1000); };
 				arm();
 			}
@@ -253,7 +274,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// start＝再生の共通ルーチンの入り口。opts で「どの台本(scenes)／終演(finale)／言語(lang)／Δz(mobile)／素モード(bare)」を渡す。
 	// ▶（デモの入り口）は組み込み設定を、ドロップ（別の入り口）は落とした台本を渡すだけ＝ルーチンは共通・入り口だけ別。
 	// bare＝素モード：バーも操作も出さない（上映中ノーアクション）・自動再生。落としたら始まり、最後まで流れて終わり。
-	const start = (i = 0, fly = true, opts = {}) => {
+	const start = (i = 0, fly = true, opts: DemoStartOpts = {}) => {
 		quietIdx = -1;   // 静穏窓の行印は開演で巻き戻す（再演でも各行1回）
 		if ("finale" in opts) activeFinale = opts.finale;   // 終演フックの差し替え（ドロップ=null）
 		if (Array.isArray(opts.scenes) && opts.scenes.length) {   // 別台本を渡された＝載せ替え＋目次再構築（▶=組み込み／ドロップ=落とした台本）
@@ -265,18 +286,18 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			// 先読みの撃ち直しは「台本が実際に入れ替わった時だけ」。▶は毎回 builtin を渡す（ドロップ台本から組み込みへ戻す口）ので、
 			// 無条件に prefetched=false にすると ▶ を押すたび先読みが再発火する＝「▶の瞬間に1回だけ」の掟が壊れ、
 			// 同じ区の二重読み（iPhone のクラッシュ圧の正体だった型）が戻ってくる。同一台本の再生は撃ち直さない。
-			if (next.length !== scenes.length || next.some((s, k) => s !== scenes[k])) prefetched = false;
+			if (next.length !== scenes!.length || next.some((s, k) => s !== scenes![k])) prefetched = false;
 			scenes = next;
 			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 		} else {   // 台本なしの再開（テスト・プログラム駆動）＝今の台本のまま個別上書きだけ
 			if (opts.lang !== undefined) lang = opts.lang;
 			if (opts.mobile !== undefined) mobile = opts.mobile;
 		}
-		if (!scenes.length) { console.warn("[demo] no script; start aborted (player mounts must pass opts.scenes)"); return; }   // 空のまま start＝無害に断る
+		if (!scenes!.length) { console.warn("[demo] no script; start aborted (player mounts must pass opts.scenes)"); return; }   // 空のまま start＝無害に断る
 		bareLive = !!opts.bare;
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		if (!bareLive && btn) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }   // 素モードは▶を触らない（バー/ボタンを出さない）
-		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean), preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
+		if (!prefetched) { prefetched = true; prefetchViews?.(scenes!.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean) as string[], preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
 		if (bareLive || narrow()) play();   // 素モード＝自動再生（映画）／狭画面も自動（play は再入無害）
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
@@ -292,7 +313,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		if (btn) { btn.dataset.tip = t("Stop playback"); btn.setAttribute("aria-label", t("Stop playback")); }
 		schedule();
 	};
-	const exit = (reason = "stopped") => {   // reason："finished"=走破（next が渡す）／"stopped"=Esc・▶・exit() 直叩き（API/テスト）
+	const exit = (reason: "finished" | "stopped" = "stopped") => {   // reason："finished"=走破（next が渡す）／"stopped"=Esc・▶・exit() 直叩き（API/テスト）
 		const wasOn = on();   // 実際に上映が立っていた時だけ終演イベント＝多重 exit は無音
 		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
@@ -303,15 +324,15 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// ›＝view+slide 併記シーンでは三拍子：(地図)→(幕)→(地図)→次シーン。幕の無いシーンは素直に次へ。
 	// 手で幕を上げ下げした分（▤/Space/クリック）は拍を消化した扱い＝shown&閉なら次で進む。
 	const next = () => {
-		const s = scenes[idx];
+		const s = scenes![idx];
 		if (hasSlide(s) && s.view) {
 			if (slide.classList.contains("open")) { curtain(false); schedule(); return; }   // 第三拍＝幕を下ろしてもう一度地図
 			if (!slideShown) { curtain(true); schedule(); return; }                          // 第二拍＝幕
 		}
-		if (idx + 1 < scenes.length) show(idx + 1); else { exit("finished"); activeFinale?.(); }   // 最終シーンの先＝終演("finished")＋「今の再生」の終演フックへ（▶=japan-fit／シーン再生=終幕括弧）。Esc等の途中終了は現在地に留まる
+		if (idx + 1 < scenes!.length) show(idx + 1); else { exit("finished"); activeFinale?.(); }   // 最終シーンの先＝終演("finished")＋「今の再生」の終演フックへ（▶=japan-fit／シーン再生=終幕括弧）。Esc等の途中終了は現在地に留まる
 	};
 	const prev = () => {   // ‹＝同じ拍を逆順に：幕中→地図(未見に戻す)、見終わり→幕へ、地図(未見)→前シーンへ
-		const s = scenes[idx];
+		const s = scenes![idx];
 		if (hasSlide(s) && s.view) {
 			if (slide.classList.contains("open")) { curtain(false); slideShown = false; schedule(); return; }
 			if (slideShown) { curtain(true); schedule(); return; }
@@ -320,9 +341,9 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	};
 	// ▶＝開始／自動上映中＝停止（バー復帰）／手動中の再押下＝終了。
 	// 狭画面はバーが無い（映画館モード）＝pause で手動へ落とすと操縦不能＝▶は常に「終了」。
-	btn?.addEventListener("click", () => { if (bareLive) return; on() ? ((playing && !narrow()) ? pause() : exit()) : start(0, true, builtin); });   // ▶＝デモの入り口＝常に組み込み設定を渡して再生（別台本が流れても▶は組み込みへ）。素モード中は不活性（上映中ノーアクション）。player搭載＝▶なし
-	bar.querySelector("#demo-next").addEventListener("click", next);
-	bar.querySelector("#demo-prev").addEventListener("click", prev);
+	btn?.addEventListener("click", () => { if (bareLive) return; on() ? ((playing && !narrow()) ? pause() : exit()) : start(0, true, builtin!); });   // ▶＝デモの入り口＝常に組み込み設定を渡して再生（別台本が流れても▶は組み込みへ）。素モード中は不活性（上映中ノーアクション）。player搭載＝▶なし
+	bar.querySelector("#demo-next")!.addEventListener("click", next);
+	bar.querySelector("#demo-prev")!.addEventListener("click", prev);
 	playBtn.addEventListener("click", () => playing ? pause() : play());
 	const peelNext = () => {   // 幕を下ろすワンタップ送り：手動＝0.8秒の間で次のシーンへ／自動上演＝三拍目の「間」へ
 		if (bareLive) return;   // 素モード＝上映中ノーアクション（幕クリック/Spaceも効かせない）
@@ -336,13 +357,13 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	titleEl.addEventListener("click", toggleList);
 	stepEl.addEventListener("click", toggleList);   // 無題シーン（タイトル空）でも歩数から開ける
 	list.addEventListener("click", e => {
-		const b = e.target.closest("button[data-i]");
-		if (b) { list.classList.remove("open"); show(+b.dataset.i); }   // ジャンプ＝一覧は閉じて向かう（c=シーンは flyView が生き替え）
+		const b = (e.target as Element).closest<HTMLButtonElement>("button[data-i]");
+		if (b) { list.classList.remove("open"); show(+b.dataset.i!); }   // ジャンプ＝一覧は閉じて向かう（c=シーンは flyView が生き替え）
 	});
 	// 枠外クリック（地図を掴む・他ガジェット等）＝一覧だけ閉じる。pointerdown＝地図ドラッグ開始（clickにならない）でも閉じる。
 	// 一覧自身と開閉トグル（タイトル/歩数）は除外＝トグルの click と二重処理で「閉じて即開く」を防ぐ。
 	window.addEventListener("pointerdown", e => {
-		if (listOpen() && !e.target.closest("#demo-list, #demo-title, #demo-step")) list.classList.remove("open");
+		if (listOpen() && !(e.target as Element).closest("#demo-list, #demo-title, #demo-step")) list.classList.remove("open");
 	}, { signal });
 	window.addEventListener("keydown", e => {
 		if (bareLive || !on() || isTypingTarget()) return;   // 素モード(ドロップ再生)は上映中ノーアクション／検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）

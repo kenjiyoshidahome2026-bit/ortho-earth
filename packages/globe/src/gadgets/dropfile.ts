@@ -11,19 +11,31 @@
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
 import { tr } from "../i18n.js";
+import type { GeoPBF, LonLat } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { IntakeResult } from "../types/install.ts";
 const t = tr();
+/** 共有シーン台本（type:"scenes"・demo/scene-format.md）。中身はプレーヤーが読む */
+export interface SceneDoc { type: "scenes"; title?: string; [k: string]: unknown }
+/** yieldTo＝編集がドロップを持つ間は譲る・loadFile＝取り込みの一本道（ctx＝{ at }）・clearGint＝全部消す・playScene＝台本の上映・busy＝上映中・unprojectAt＝落とした地点 */
+export interface DropFileOpts {
+	yieldTo?: () => unknown; loadFile: (file: File, ctx?: object) => Promise<IntakeResult | GeoPBF | undefined>; clearGint?: () => void; playScene?: (scene: SceneDoc) => unknown; busy?: () => boolean;
+	signal?: AbortSignal; onLoad?: (pbf: GeoPBF, file: File) => unknown; unprojectAt?: ((clientX: number, clientY: number) => LonLat | null) | null;
+}
+/** 取り込みの手綱（say＝トースト・clear＝図形を消す・destroy＝DOM を外す） */
+export interface DropFileHandle { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void }
 
 // 落としたファイルが共有シーン台本(type:"scenes")か嗅ぎ分ける（demo/scene-format.md §0）。
 //   .scenes / .scenes.gz（正典・単一サフィックス＋gzip）は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
 //   権威は中身の type:"scenes"（geopbf の掟＝IF は type で見分ける に揃える。geojson=FeatureCollection）。
 //   gzip は拡張子でなく中身の印（1f 8b）で判定＝.scenes のまま gzip でも通る（解凍はブラウザ標準 DecompressionStream・依存ゼロ）。
-export const gunzipText = async bytes => await new Response(new Response(bytes).body.pipeThrough(new DecompressionStream("gzip"))).text();
-export async function sniffScene(file) {
+export const gunzipText = async (bytes: BodyInit): Promise<string> => await new Response(new Response(bytes).body!.pipeThrough(new DecompressionStream("gzip"))).text();
+export async function sniffScene(file: File): Promise<SceneDoc | null> {
 	const name = (file.name || "").toLowerCase();
 	const isSceneExt = name.endsWith(".scenes") || name.endsWith(".scenes.gz");
 	if (!isSceneExt && !/\.(json|geojson)$/.test(name)) return null;
 	try {
-		let text;
+		let text: string;
 		if (isSceneExt) {
 			const buf = new Uint8Array(await file.arrayBuffer());
 			text = (buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf);
@@ -39,7 +51,7 @@ export async function sniffScene(file) {
 
 // busy＝上映中判定（app が注入・任意）：デモ/シーン再生の上映中はドロップを無視する（上映と積み込み・flyTo が喧嘩しない）。
 // opts.onLoad(pbf, file)＝読込成功の通知（埋め込みアプリが結果を受け取る口・1.0.5〜。旧＝loadFile を差し替えて横取りするしかなかった）
-export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal, onLoad, unprojectAt } = {}) {
+export function dropFile(this: GlobeMap, { yieldTo, loadFile, clearGint, playScene, busy, signal, onLoad, unprojectAt }: DropFileOpts = {} as DropFileOpts): DropFileHandle | (() => void) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -74,7 +86,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 	});
 	mapEl.append(toast);
 	let toastT = 0;
-	const say = (t, sticky) => {
+	const say = (t: string, sticky?: boolean) => {
 		toast.textContent = t; toast.style.display = t ? "block" : "none";
 		clearTimeout(toastT);
 		if (t && !sticky) toastT = setTimeout(() => { toast.style.display = "none"; }, 3500);
@@ -91,47 +103,47 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		font: "600 12px/1 system-ui, sans-serif", boxShadow: "0 1px 4px rgba(0,0,0,.25)",
 	});
 	mapEl.append(clearBtn);
-	const showClear = on => { clearBtn.style.display = on ? "block" : "none"; };
+	const showClear = (on: boolean) => { clearBtn.style.display = on ? "block" : "none"; };
 	clearBtn.addEventListener("click", () => { clearGint?.(); showClear(false); say(t("Shapes cleared")); }, { signal });
 
 	// Files を含むドラッグだけ受ける（テキスト等の巻き込みを弾く）。
-	const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes("Files");
+	const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes("Files");
 	// 子要素の出入りで dragenter/leave が乱発する＝深さカウンタでゾーンのちらつきを消す。
 	let depth = 0;
-	const arm = on => { zone.style.display = on ? "flex" : "none"; };
+	const arm = (on: boolean) => { zone.style.display = on ? "flex" : "none"; };
 
 	mapEl.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); if (++depth === 1) arm(true); }, { signal });
-	mapEl.addEventListener("dragover", e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }, { signal });
+	mapEl.addEventListener("dragover", e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer!.dropEffect = "copy"; }, { signal });
 	mapEl.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; arm(false); } }, { signal });
 	mapEl.addEventListener("drop", async e => {
 		if (!hasFiles(e)) return;
 		e.preventDefault(); depth = 0; arm(false);
-		const files = Array.from(e.dataTransfer.files || []);
+		const files = Array.from(e.dataTransfer!.files || []);
 		if (!files.length) return;
 		if (yieldTo?.()) return;   // 編集ガジェットが載っている＝ドロップはエディタの取込へ（ビューアは黙って譲る）
 		if (busy?.()) { say(t("🎬 Drop disabled during playback")); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
 		const at = unprojectAt ? unprojectAt(e.clientX, e.clientY) : null;   // 落とした地点（球外＝null＝形式側が画面中心で補う）。3D 模型の置き場所
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
 			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scenes / type:"scenes")＝プレーヤーへ回す（geopbf に渡さない）
-			if (scene) { say(t("🎬 Playing scene: $1", scene.title || file.name)); playScene(scene); continue; }
+			if (scene) { say(t("🎬 Playing scene: $1", scene.title || file.name)); playScene!(scene); continue; }
 			say(t("Loading: $1 …", file.name), true);
 			try {
 				const pbf = await loadFile(file, { at });
 				if (!pbf) { say(t("Failed to load: $1", file.name)); continue; }
 				showClear(true);   // 図形が載った＝消去ボタンを出す（新しいドロップは前図形を置き換え＝ボタンは出たまま）
-				try { onLoad?.(pbf, file); } catch (e) { console.error("[dropFile] onLoad", e); }
-				say(t("Showing: $1 ($2 features) — hover/click to identify", file.name, pbf.length ?? "?"));
+				try { onLoad?.(pbf as GeoPBF, file); } catch (e) { console.error("[dropFile] onLoad", e); }
+				say(t("Showing: $1 ($2 features) — hover/click to identify", file.name, (pbf as { length?: number | string }).length ?? "?"));
 			} catch (err) {
 				console.error("[dropFile]", file.name, err);
-				say(t("Error: $1\n$2", file.name, err?.message || err));
+				say(t("Error: $1\n$2", file.name, (err as Error)?.message || err as string));
 			}
 		}
 	}, { signal });
 
 	// 変換進捗（大きな Shapefile 等で効く）。バイト比＝loaded/total。
 	window.addEventListener("ConvertProgress", e => {
-		const d = e.detail || {};
-		if (d.total) say(t("Converting $1%…", Math.round((d.loaded / d.total) * 100)), true);
+		const d: { loaded?: number; total?: number } = (e as CustomEvent).detail || {};
+		if (d.total) say(t("Converting $1%…", Math.round((d.loaded! / d.total) * 100)), true);
 	}, { signal });
 
 	return { say, clear: () => { clearGint?.(); showClear(false); }, destroy: () => { zone.remove(); toast.remove(); clearBtn.remove(); } };
