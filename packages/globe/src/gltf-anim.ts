@@ -6,15 +6,36 @@
 //   変換へ写す（A_w = F·G·(W·W0⁻¹)·G⁻¹·F⁻¹）。skin（頂点の重み）と morph（頂点の差分）は頂点を焼き直す別の段＝capabilities は spec のまま。
 //   DOM 無し＝tests/gltf-anim.mjs。
 
+/** 静止のノード（parent＝親の番号・−1＝根・t/r/s＝TRS・matrix＝glTF の matrix（あれば TRS より優先）） */
+export interface RigNode { parent: number; t: number[]; r: number[]; s: number[]; matrix: Float64Array | null }
+/** アニメの channel（times・values は sampler の数列・stride＝成分の数（rotation 4・他 3）） */
+export interface RigChannel { node: number; path: "translation" | "rotation" | "scale"; interpolation: string; times: Float32Array; values: Float32Array; stride: number }
+export interface RigAnimation { name: string; duration: number; channels: RigChannel[] }
+/** rig（worker の rigFromGltf）＝ノードの親子・静止の TRS・アニメの channel の数列・animated＝動くノード（と子孫）の番号 */
+export interface GltfRig { nodes: RigNode[]; animations: RigAnimation[]; animated?: number[] }
+/** place＝glTF のローカル → ECEF（G）と、ECEF → 世界座標の局所線形化（F） */
+export interface GltfPlace { G: { A: ArrayLike<number>; T: ArrayLike<number> }; F: { L: ArrayLike<number>; t: ArrayLike<number> } }
+/** 全ノードの world 行列（アニメ後 W と静止 W0） */
+export interface GltfPose { W: Float64Array[]; W0: Float64Array[] }
+/** 世界座標の affine（L＝3x3 列優先・t＝平行移動） */
+export interface WorldXf { L: Float64Array; t: number[] }
+/** rigFromGltf が読む glTF（postProcessGLTF の後）＝nodes の children は実体（番号の物も）・animations は生・accessors の value は型付き配列 */
+export interface AnimGltf {
+	nodes?: Array<{ children?: unknown[]; translation?: ArrayLike<number> & Iterable<number>; rotation?: ArrayLike<number> & Iterable<number>; scale?: ArrayLike<number> & Iterable<number>; matrix?: ArrayLike<number> }>;
+	animations?: Array<{ name?: unknown; channels?: Array<{ sampler: number; target?: { node?: number; path?: string } }>; samplers?: Array<{ input: number; output: number; interpolation?: string }> }>;
+	accessors?: Array<{ value?: ArrayLike<number> | null } | null>;
+}
+type M4 = ArrayLike<number>;
+
 // ── 4x4（列優先・glTF の並び）───────────────────────────────────────────────
 export const I4 = Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-export const m4mul = (a, b) => {
+export const m4mul = (a: M4, b: M4): Float64Array => {
 	const o = new Float64Array(16);
 	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
 	return o;
 };
-export const m4trs = (t = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1]) => {
-	const [x, y, z, w] = q, xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
+export const m4trs = (t: ArrayLike<number> = [0, 0, 0], q: ArrayLike<number> = [0, 0, 0, 1], s: ArrayLike<number> = [1, 1, 1]): Float64Array => {
+	const [x, y, z, w] = q as [number, number, number, number], xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
 	return Float64Array.of(
 		(1 - 2*(yy+zz)) * s[0], 2*(xy+wz) * s[0], 2*(xz-wy) * s[0], 0,
 		2*(xy-wz) * s[1], (1 - 2*(xx+zz)) * s[1], 2*(yz+wx) * s[1], 0,
@@ -22,7 +43,7 @@ export const m4trs = (t = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1]) => {
 		t[0], t[1], t[2], 1);
 };
 // affine（4x4 の下の行が 0 0 0 1）の逆＝線形部の逆と平行移動
-export function m4affineInv(m) {
+export function m4affineInv(m: M4): Float64Array | null {
 	const a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], i = m[10];
 	const A = e*i - f*h, B = -(d*i - f*g), C = d*h - e*g, det = a*A + b*B + c*C;
 	if (!(Math.abs(det) > 1e-300)) return null;
@@ -32,31 +53,31 @@ export function m4affineInv(m) {
 	return Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0,
 		-(L[0]*tx + L[3]*ty + L[6]*tz), -(L[1]*tx + L[4]*ty + L[7]*tz), -(L[2]*tx + L[5]*ty + L[8]*tz), 1);
 }
-const m4fromLT = (L, t) => Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0, t[0], t[1], t[2], 1);   // 3x3（列優先）＋平行移動 → 4x4
+const m4fromLT = (L: ArrayLike<number>, t: ArrayLike<number>) => Float64Array.of(L[0], L[1], L[2], 0, L[3], L[4], L[5], 0, L[6], L[7], L[8], 0, t[0], t[1], t[2], 1);   // 3x3（列優先）＋平行移動 → 4x4
 
 // ── rig の抽出（worker・postProcessGLTF の後の gltf）─────────────────────────
 // loaders.gl の postProcessGLTF は nodes（children・mesh を実体へ）と accessors（value＝型付き配列）を解決するが animations は生のまま＝sampler の
 // input/output は accessor の番号で引く。戻り＝{ nodes: [{ parent, t, r, s, matrix }], animations: [{ name, duration, channels: [{ node, path, interpolation, times, values, stride }] }] }
 // animated＝アニメの channel が掛かるノードと、その子孫（親が動けば子も動く）の番号の集合。アニメが無ければ null。
-export function rigFromGltf(gltf) {
+export function rigFromGltf(gltf: AnimGltf | null | undefined): GltfRig | null {
 	const nodes = gltf?.nodes || [], anims = gltf?.animations || [];
 	if (!anims.length || !nodes.length) return null;
-	const idx = new Map(nodes.map((n, i) => [n, i]));
+	const idx = new Map<unknown, number>(nodes.map((n, i) => [n, i]));
 	const parent = new Int32Array(nodes.length).fill(-1);
 	nodes.forEach((n, i) => { for (const c of n.children || []) { const k = typeof c === "number" ? c : idx.get(c); if (k != null && k !== i) parent[k] = i; } });
 	const rigNodes = nodes.map((n, i) => ({ parent: parent[i], t: n.translation ? [...n.translation] : [0, 0, 0], r: n.rotation ? [...n.rotation] : [0, 0, 0, 1], s: n.scale ? [...n.scale] : [1, 1, 1], matrix: n.matrix ? Float64Array.from(n.matrix) : null }));
-	const acc = i => gltf.accessors?.[i]?.value || null;
-	const animated = new Set();
+	const acc = (i: number) => gltf!.accessors?.[i]?.value || null;
+	const animated = new Set<number>();
 	const animations = anims.map((a, index) => {
-		let duration = 0; const channels = [];
+		let duration = 0; const channels: RigChannel[] = [];
 		for (const ch of a.channels || []) {
 			const sm = a.samplers?.[ch.sampler]; const node = ch.target?.node, path = ch.target?.path;
-			if (!sm || typeof node !== "number" || !["translation", "rotation", "scale"].includes(path)) continue;   // weights（morph）はこの段では読まない
+			if (!sm || typeof node !== "number" || !["translation", "rotation", "scale"].includes(path!)) continue;   // weights（morph）はこの段では読まない
 			const times = acc(sm.input), values = acc(sm.output); if (!times || !values || !times.length) continue;
 			const interpolation = sm.interpolation || "LINEAR", stride = path === "rotation" ? 4 : 3;
 			const per = interpolation === "CUBICSPLINE" ? stride * 3 : stride;
 			if (values.length < times.length * per) continue;
-			channels.push({ node, path, interpolation, times: Float32Array.from(times), values: Float32Array.from(values), stride });
+			channels.push({ node, path: path as RigChannel["path"], interpolation, times: Float32Array.from(times), values: Float32Array.from(values), stride });
 			if (times[times.length - 1] > duration) duration = times[times.length - 1];
 			animated.add(node);
 		}
@@ -69,7 +90,7 @@ export function rigFromGltf(gltf) {
 }
 
 // ── 補間 ──────────────────────────────────────────────────────────────
-const slerp = (a, b, t, o) => {   // 四元数（a・b は長さ 1 とみなす）
+const slerp = (a: ArrayLike<number>, b: ArrayLike<number>, t: number, o: number[]) => {   // 四元数（a・b は長さ 1 とみなす）
 	let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3], s = 1;
 	if (d < 0) { d = -d; s = -1; }
 	let wa, wb;
@@ -79,10 +100,10 @@ const slerp = (a, b, t, o) => {   // 四元数（a・b は長さ 1 とみなす�
 	const l = Math.hypot(o[0], o[1], o[2], o[3]) || 1; for (let i = 0; i < 4; i++) o[i] /= l;
 	return o;
 };
-export function sampleChannel(ch, time) {   // → 配列（stride）。時刻は端で留める（巻き戻しは samplePose が loop で畳む）
-	const { times, values, stride, interpolation } = ch, n = times.length, out = new Array(stride);
+export function sampleChannel(ch: RigChannel, time: number): number[] {   // → 配列（stride）。時刻は端で留める（巻き戻しは samplePose が loop で畳む）
+	const { times, values, stride, interpolation } = ch, n = times.length, out: number[] = new Array(stride);
 	const cub = interpolation === "CUBICSPLINE", per = cub ? stride * 3 : stride;
-	const pick = (k, o) => { for (let i = 0; i < stride; i++) out[i] = values[k * per + (cub ? stride : 0) + i]; return o ?? out; };
+	const pick = (k: number, o?: number[]) => { for (let i = 0; i < stride; i++) out[i] = values[k * per + (cub ? stride : 0) + i]; return o ?? out; };
 	if (n === 1 || time <= times[0]) return pick(0);
 	if (time >= times[n - 1]) return pick(n - 1);
 	let lo = 0, hi = n - 1;
@@ -103,19 +124,19 @@ export function sampleChannel(ch, time) {   // → 配列（stride）。時刻�
 	return out;
 }
 // 再生の時刻 → アニメの時刻（loop＝duration で畳む・それ以外は端で留める）
-export const wrapTime = (time, duration, loop) => !(duration > 0) ? 0 : loop ? ((time % duration) + duration) % duration : Math.min(Math.max(time, 0), duration);
+export const wrapTime = (time: number, duration: number, loop: boolean): number => !(duration > 0) ? 0 : loop ? ((time % duration) + duration) % duration : Math.min(Math.max(time, 0), duration);
 
 // pose＝全ノードの world 行列（アニメ後 W と静止 W0）。animIndex のアニメを時刻 time（秒・既に畳んだ値）で標本化
-export function samplePose(rig, animIndex, time) {
+export function samplePose(rig: GltfRig, animIndex: number, time: number): GltfPose | null {
 	const anim = rig.animations[animIndex]; if (!anim) return null;
-	const n = rig.nodes.length, local = new Array(n), over = new Map();
+	const n = rig.nodes.length, local: Float64Array[] = new Array(n), over = new Map<number, Partial<Record<RigChannel["path"], number[]>>>();
 	for (const ch of anim.channels) { let o = over.get(ch.node); if (!o) over.set(ch.node, o = {}); o[ch.path] = sampleChannel(ch, time); }
 	for (let i = 0; i < n; i++) {
 		const nd = rig.nodes[i], o = over.get(i);
 		local[i] = o ? m4trs(o.translation || (nd.matrix ? [nd.matrix[12], nd.matrix[13], nd.matrix[14]] : nd.t), o.rotation || nd.r, o.scale || nd.s) : (nd.matrix || m4trs(nd.t, nd.r, nd.s));
 	}
-	const W = new Array(n), W0 = new Array(n);
-	const world = (i, arr, loc) => { if (arr[i]) return arr[i]; const p = rig.nodes[i].parent; return arr[i] = p >= 0 && p !== i ? m4mul(world(p, arr, loc), loc(i)) : loc(i); };
+	const W: Float64Array[] = new Array(n), W0: Float64Array[] = new Array(n);
+	const world = (i: number, arr: Float64Array[], loc: (k: number) => Float64Array): Float64Array => { if (arr[i]) return arr[i]; const p = rig.nodes[i].parent; return arr[i] = p >= 0 && p !== i ? m4mul(world(p, arr, loc), loc(i)) : loc(i); };
 	for (let i = 0; i < n; i++) { world(i, W, k => local[k]); world(i, W0, k => rig.nodes[k].matrix || m4trs(rig.nodes[k].t, rig.nodes[k].r, rig.nodes[k].s)); }
 	return { W, W0 };
 }
@@ -123,7 +144,7 @@ export function samplePose(rig, animIndex, time) {
 // ── バッチの変換 ───────────────────────────────────────────────────────────
 // place＝{ G: { A: 3x3 列優先, T: [x,y,z] }（glTF のローカル → ECEF）, F: { L: 3x3 列優先, t: [x,y,z] }（ECEF → 世界座標の局所線形化） }
 // 戻り＝{ L: Float64Array(9), t: [x,y,z] }（世界座標の affine）。ノードが動いていなければ null
-export function worldXf(pose, node, place) {
+export function worldXf(pose: GltfPose, node: number, place: GltfPlace): WorldXf | null {
 	const W = pose.W[node], W0 = pose.W0[node]; if (!W || !W0) return null;
 	const inv0 = m4affineInv(W0); if (!inv0) return null;
 	const Al = m4mul(W, inv0);   // ローカル空間の剛体変換
@@ -135,7 +156,7 @@ export function worldXf(pose, node, place) {
 	return { L: Float64Array.of(M[0], M[1], M[2], M[4], M[5], M[6], M[8], M[9], M[10]), t: [M[12], M[13], M[14]] };
 }
 // renderer に渡す 12 個＝L（9・列優先）と xt（バッチ原点 O 相対の平行移動＝L·O + t − O）。頂点 v = O + a_pos → v' = L·v + t = O + (L·a_pos + xt)
-export function batchXf(xf, origin) {
+export function batchXf(xf: WorldXf | null, origin: ArrayLike<number> | null | undefined): Float32Array | null {
 	if (!xf) return null;
 	const { L, t } = xf, O = origin || [0, 0, 0], out = new Float32Array(12);
 	for (let i = 0; i < 9; i++) out[i] = L[i];

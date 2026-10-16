@@ -7,45 +7,120 @@
 // loaders.gl（core＋3d-tiles＋gltf＋draco ≈ 220 KB）は最初のタイルを解く時に読む（処方②・ortho-earth#12・2026-09-14）。
 // 静的 import だと meshworker / meshdecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
-let _loaders = null;
+let _loaders: Promise<typeof import("./mesh-loaders.js")> | null = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 import { rigFromGltf } from "./gltf-anim.ts";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
 import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, NO_FEATURE } from "./mesh-features.ts";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
+import type { GltfPlace, GltfRig } from "./gltf-anim.ts";
+import type { GltfMeta, RawGltf } from "./gltf-meta.ts";   // GltfMeta＝globe.d.ts の写し（worker から読まれる頁は globe.d.ts を引けない）
+import type { FeaturePrimitive, MeshFeatures, PropertyTable, StructuralMetadata } from "./mesh-features.ts";
+
+// ── 型（loaders.gl の postProcessGLTF 後の glTF・Tiles3DLoader のタイル＝読む欄だけ）──
+/** 頂点属性・index の数列 */
+export type NumArr = Float32Array | Float64Array | Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array;
+/** accessor（value＝型付き配列） */
+export interface GltfAccessor { value?: NumArr | null; normalized?: boolean }
+/** texture の画像（ImageBitmap か素の { data, width, height }） */
+export interface GltfImage { data?: unknown; width: number; height: number }
+export interface GltfTexture { source?: { image?: GltfImage | null } | null }
+/** KHR_texture_transform */
+export interface TexTransform { texCoord?: number; rotation?: number; scale?: number[]; offset?: number[] }
+/** material の texture 参照（postProcess が texture を解決・拡張側は index のまま） */
+export interface GltfTexRef { texture?: GltfTexture | null; index?: number; texCoord?: number; scale?: number; strength?: number; extensions?: { KHR_texture_transform?: TexTransform } | null }
+export interface GltfMaterial {
+	pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: GltfTexRef; metallicRoughnessTexture?: GltfTexRef; metallicFactor?: number; roughnessFactor?: number } | null;
+	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null } | null;
+	normalTexture?: GltfTexRef; occlusionTexture?: GltfTexRef; emissiveTexture?: GltfTexRef; emissiveFactor?: number[];
+	alphaMode?: string; alphaCutoff?: number;
+}
+export interface GltfPrimitive extends FeaturePrimitive { attributes?: Record<string, GltfAccessor | undefined> | null; indices?: GltfAccessor | null; mode?: number; material?: GltfMaterial | null }
+export interface GltfMesh { primitives?: GltfPrimitive[] }
+export interface GltfNode { mesh?: GltfMesh | null; matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; children?: GltfNode[] }
+export interface GltfBufferView { buffer?: { arrayBuffer?: ArrayBuffer; byteOffset?: number } | null; byteOffset?: number; byteLength: number; data?: Uint8Array }
+/** postProcessGLTF 後の glTF（json＝生の json） */
+export interface GltfDoc {
+	nodes?: GltfNode[]; meshes?: GltfMesh[]; scene?: { nodes?: GltfNode[] } | null; scenes?: Array<{ nodes?: GltfNode[] }>;
+	extensions?: { CESIUM_RTC?: { center?: number[] }; EXT_structural_metadata?: StructuralMetadata } | null;
+	json?: RawGltf | null; bufferViews?: Array<GltfBufferView | undefined>; textures?: Array<GltfTexture | undefined>;
+	accessors?: GltfAccessor[]; animations?: Array<{ name?: unknown; channels?: Array<{ sampler: number; target?: { node?: number; path?: string } }>; samplers?: Array<{ input: number; output: number; interpolation?: string }> }>;
+}
+/** Tiles3DLoader のタイル（b3dm）＝読む欄だけ */
+export interface Tile3DContent { rtcCenter?: number[] | null; gltf?: GltfDoc | null; batchTableJson?: { gml_id?: string[] } | null }
+/** 葉タイル（collectLeafTiles の 1 件）＝center は [lon, lat]（度）| null */
+export interface LeafTile { uri: string; center: number[] | null }
+/** tileset.json の境界体積 */
+interface BoundingVolume { region?: number[]; box?: number[]; sphere?: number[] }
+/** tileset.json のタイル（読む欄だけ） */
+interface TilesetTile { boundingVolume?: BoundingVolume; children?: TilesetTile[]; content?: { uri?: string } | null }
+/** 後段（finishMesh）の出力＝GPU に上げるメッシュ（uv・col は模型・押し出し・colSrgb は押し出しが足す） */
+export interface MeshOut {
+	pos: Float32Array; nrm: Int8Array; idx: Uint32Array; uv?: Float32Array; col?: Uint8Array;
+	origin: number[]; bbox: number[]; lodH: number[]; lodCounts: number[]; twoSided: number; maskCells: Uint32Array | null; colSrgb?: boolean;
+}
+/** テクスチャ（ImageBitmap か素の RGBA） */
+export interface TexOut { bitmap?: ImageBitmap; rgba?: Uint8Array; w?: number; h?: number }
+/** 模型の束（decodeModel の batches の 1 件） */
+export interface ModelBatchOut {
+	mesh: MeshOut; tex: TexOut | null; texMR: TexOut | null; texN: TexOut | null; texOcc: TexOut | null; texEm: TexOut | null;
+	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[] };
+	alphaMode: string; alphaCutoff: number; node: number; features: (MeshFeatures & { table: number | null; tblV: Int16Array | null }) | null;
+}
+/** 模型の点（経緯度 rad と RGBA） */
+export interface ModelPoints { geo: number[]; rgba: number[] }
+/** decodeModel の stats */
+export interface ModelStats {
+	vertices: number; triangles: number; instances: number; mode: string; points?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;
+	ktx2?: { textures: number; transcoded: number; failed: number }; features?: { primitives: number; texture: number; tables: number };
+}
+/** decodeModel の戻り */
+export interface ModelOut {
+	batches: ModelBatchOut[]; rig?: GltfRig | null; place?: GltfPlace | null; features?: { tables: PropertyTable[]; primitives: number; texture: number; warnings: string[] } | null;
+	mask: { bbox: number[]; n: number } | null; points: ModelPoints | null; stats: ModelStats;
+}
+/** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable */
+export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
+/** decodeModel の opts */
+export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number }
+/** 模型の束の断片（プリミティブ 1 つ分） */
+interface ModelSeg { geo: Float64Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; fid: Uint32Array | null; tbl: number | null }
+/** 変換器の module（registry.textureTranscoders の url を import() した物） */
+interface TranscoderModule { transcode(bytes: Uint8Array, info: { mimeType: string }): TranscodeResult | null | Promise<TranscodeResult | null> }
+interface TranscodeResult { width: number; height: number; rgba: unknown }
 // テクスチャの変換器（第 3 波 W5・2026-10-12）＝main の registry.textureTranscoders の写し [{ name, url }]。worker はこの url を import() し、
 // KHR_texture_basisu（KTX2/Basis）の画像を transcode(bytes, { mimeType }) → { width, height, rgba } で素の RGBA にして、普通の画像と同じ道（textureOf）へ流す。
 // loaders.gl の KHR_texture_basisu（CDN の WASM を勝手に取りに行き、圧縮のままの形で返す）は使わない＝excludeExtensions で外す。変換器が無ければ fallback の画像（texture.source）のまま
-let transcoders = [];
-const transcoderMods = new Map();   // url → Promise<module>（失敗したら外す＝次の読みで再挑戦）
-export function setTextureTranscoders(list) { transcoders = Array.isArray(list) ? list.filter(t => t && typeof t.name === "string" && typeof t.url === "string") : []; }
-const transcoderFor = name => {
+let transcoders: Array<{ name: string; url: string }> = [];
+const transcoderMods = new Map<string, Promise<TranscoderModule>>();   // url → Promise<module>（失敗したら外す＝次の読みで再挑戦）
+export function setTextureTranscoders(list: unknown): void { transcoders = Array.isArray(list) ? list.filter((t): t is { name: string; url: string } => t && typeof t.name === "string" && typeof t.url === "string") : []; }
+const transcoderFor = (name: string) => {
 	const t = transcoders.find(x => x.name === name); if (!t) return null;
 	let p = transcoderMods.get(t.url);
-	if (!p) transcoderMods.set(t.url, p = import(/* @vite-ignore */ t.url).then(m => { if (typeof m?.transcode !== "function") throw new Error(`texture transcoder "${name}": module has no transcode()`); return m; }).catch(e => { transcoderMods.delete(t.url); throw e; }));
+	if (!p) transcoderMods.set(t.url, p = import(/* @vite-ignore */ t.url).then((m: Partial<TranscoderModule> | null) => { if (typeof m?.transcode !== "function") throw new Error(`texture transcoder "${name}": module has no transcode()`); return m as TranscoderModule; }).catch(e => { transcoderMods.delete(t.url); throw e; }));
 	return p;
 };
 // KHR_texture_basisu の texture を変換器で素の RGBA に。raw＝生の json（loaders.gl が拡張を外す前）・gltf＝postProcess 後。戻り＝{ textures, transcoded, failed }
-async function transcodeBasisu(gltf, raw, baseUri) {
-	const out = { textures: 0, transcoded: 0, failed: 0 }, todo = [];
-	(raw?.textures || []).forEach((t, i) => { const src = t?.extensions?.KHR_texture_basisu?.source; if (Number.isInteger(src)) { out.textures++; todo.push([i, src]); } });
+async function transcodeBasisu(gltf: GltfDoc, raw: RawGltf | null, baseUri: string | null) {
+	const out = { textures: 0, transcoded: 0, failed: 0 }, todo: Array<[number, number]> = [];
+	(raw?.textures || []).forEach((t, i) => { const src = t?.extensions?.KHR_texture_basisu?.source; if (Number.isInteger(src)) { out.textures++; todo.push([i, src!]); } });
 	if (!todo.length) return out;
-	const mod = await (transcoderFor("ktx2") ?? Promise.resolve(null)).catch(e => { console.warn("[model] ktx2 transcoder unavailable:", e?.message); return null; });
+	const mod = await (transcoderFor("ktx2") ?? Promise.resolve(null)).catch(e => { console.warn("[model] ktx2 transcoder unavailable:", (e as Error | null)?.message); return null; });
 	if (!mod) { out.failed = out.textures; return out; }
-	const bytesOf = async img => {
-		if (Number.isInteger(img.bufferView)) { const bv = gltf.bufferViews?.[img.bufferView], b = bv?.buffer; return b?.arrayBuffer ? new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv.byteOffset || 0), bv.byteLength) : null; }
+	const bytesOf = async (img: NonNullable<RawGltf["images"]>[number]) => {
+		if (Number.isInteger(img.bufferView)) { const bv = gltf.bufferViews?.[img.bufferView!], b = bv?.buffer; return b?.arrayBuffer ? new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv!.byteOffset || 0), bv!.byteLength) : null; }
 		if (typeof img.uri === "string") { const u = new URL(img.uri, baseUri || self.location?.href), r = await fetch(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); }
 		return null;
 	};
-	const imgs = new Map();   // image 番号 → Promise<{ data, width, height } | null>（同じ画像は 1 回）
+	const imgs = new Map<number, Promise<GltfImage | null>>();   // image 番号 → Promise<{ data, width, height } | null>（同じ画像は 1 回）
 	for (const [ti, si] of todo) {
 		let p = imgs.get(si);
 		if (!p) imgs.set(si, p = (async () => {
-			const img = raw.images?.[si], bytes = img ? await bytesOf(img) : null; if (!bytes) return null;
-			const r = await mod.transcode(bytes, { mimeType: img.mimeType || "image/ktx2" }), n = (r?.width | 0) * (r?.height | 0) * 4;
+			const img = raw!.images?.[si], bytes = img ? await bytesOf(img) : null; if (!bytes) return null;
+			const r = await mod.transcode(bytes, { mimeType: img!.mimeType || "image/ktx2" }), n = ((r?.width as number) | 0) * ((r?.height as number) | 0) * 4;
 			if (!r || !(r.width > 0) || !(r.height > 0) || !(r.rgba instanceof Uint8Array || r.rgba instanceof Uint8ClampedArray) || r.rgba.length < n) throw new Error("transcode() must return { width, height, rgba: Uint8Array(width*height*4) }");
 			return { data: r.rgba.length === n ? r.rgba : r.rgba.subarray(0, n), width: r.width, height: r.height };
-		})().catch(e => { console.warn("[model] ktx2 transcode failed:", e?.message); return null; }));
+		})().catch(e => { console.warn("[model] ktx2 transcode failed:", (e as Error | null)?.message); return null; }));
 		const im = await p, tex = gltf.textures?.[ti];
 		if (im && tex) { tex.source = { image: im }; out.transcoded++; } else out.failed++;
 	}
@@ -61,8 +136,8 @@ const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer �
 let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
 let ELL = false, EARTH_W = 6371000;   // 楕円体モード（?ell=1）＝β単位球×a（meshworker と同じ分解）。既定は球
 const ELL_RAX = 1 - 1 / 298.257223563;   // b/a
-let EXCLUDE = null;   // base URL → Set(gml_id)＝捨てる地物（public/plateau-exclude.json・焼きと生経路で共用）
-export function setDecodeEnv({ ell, tileConcurrency, exclude } = {}) {
+let EXCLUDE: Map<string, Set<string>> | null = null;   // base URL → Set(gml_id)＝捨てる地物（public/plateau-exclude.json・焼きと生経路で共用）
+export function setDecodeEnv({ ell, tileConcurrency, exclude }: { ell?: boolean; tileConcurrency?: number; exclude?: Record<string, string[]> | null } = {}): void {
 	if (ell !== undefined) { ELL = !!ell; EARTH_W = ELL ? 6378137 : 6371000; }
 	if (tileConcurrency) TILE_CONCURRENCY = tileConcurrency;
 	if (exclude !== undefined) { EXCLUDE = exclude ? new Map(Object.entries(exclude).filter(([k]) => !k.startsWith("_")).map(([k, v]) => [k, new Set(v)])) : null; }
@@ -73,7 +148,7 @@ export function setDecodeEnv({ ell, tileConcurrency, exclude } = {}) {
 // （実測で本来位置より南へ約20km）ため不採用＝地表座標そのものは楕円体で正確に解かないといけない。
 // 反復はNewton法。地表近傍(h<数km)では2回で高さ誤差0.2mm未満に収束する（1回だと0.1m級誤差が残りdedupの
 // 丸め精度(0.1m)と衝突しうるため2回が下限）。
-export function ecef2geo(x, y, z) {
+export function ecef2geo(x: number, y: number, z: number): [number, number, number] {
 	const a = 6378137, e2 = 0.00669437999014;
 	const p = Math.hypot(x, y), lon = Math.atan2(y, x);
 	let lat = Math.atan2(z, p * (1 - e2)), h = 0;
@@ -84,7 +159,7 @@ export function ecef2geo(x, y, z) {
 // タイムアウト付き fetch（PLATEAU API はハング接続が起きる＝タイムアウト無しだと worker 枠が数分死ぬ。
 // 実測 2026-08-02：API不調時に区の並行8本が全部無応答＝70秒で0タイル「極端に遅い」の実体）。
 // abort は body 読み（json/arrayBuffer）まで効かせる＝ヘッダ後の本文ストール（stalled mid-stream）も切る。
-async function fetchBody(url, read, ms = 20000, retries = 1) {
+async function fetchBody<T>(url: string, read: (r: Response) => Promise<T>, ms = 20000, retries = 1): Promise<T> {
 	for (let a = 0; ; a++) {
 		const ac = new AbortController();
 		const tm = setTimeout(() => ac.abort(), ms);
@@ -93,17 +168,17 @@ async function fetchBody(url, read, ms = 20000, retries = 1) {
 		finally { clearTimeout(tm); }
 	}
 }
-export const fetchJSON = (url) => fetchBody(url, r => r.json(), 15000);
-export const fetchAB = (url) => fetchBody(url, r => r.arrayBuffer(), 25000);
+export const fetchJSON = (url: string): Promise<unknown> => fetchBody(url, r => r.json() as Promise<unknown>, 15000);
+export const fetchAB = (url: string): Promise<ArrayBuffer> => fetchBody(url, r => r.arrayBuffer(), 25000);
 
 // ── 葉タイル走査（2026-09-07 に meshworker.js から移設＝scripts/bake-plateau.mjs と共有）──
 const SCAN_CONCURRENCY = 8;   // ネストtileset走査の並行fetch数（fetchJSONの15sタイムアウトが順番待ちで誤発火しない程度に絞る）
 // content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
-export const resolveUrl = (base, uri) => /^https?:\/\//.test(uri) ? uri : base + uri;
+export const resolveUrl = (base: string, uri: string): string => /^https?:\/\//.test(uri) ? uri : base + uri;
 // boundingVolume → [west,south,east,north]（rad）。3D Tiles の3形式に対応。取れなければ null。
 // PLATEAU は region（経緯度そのもの）だけだが、3DBAG（オランダ）は box（ECEF中心＋3半軸）＝
 // 8隅を測地変換して外接矩形にする。日付変更線跨ぎは考慮しない（日本・欧州とも無縁）。
-function volRect(bv) {
+function volRect(bv: BoundingVolume | undefined): number[] | null {
 	if (!bv) return null;
 	if (bv.region) return [bv.region[0], bv.region[1], bv.region[2], bv.region[3]];
 	if (bv.box) {
@@ -133,14 +208,14 @@ function volRect(bv) {
 // clip（[w,s,e,n]度・任意）＝この矩形と交わらない枝は丸ごと降りない。PLATEAU は区ごとに tileset が分かれて
 // いるので不要（既定 null＝従来どおり全走査）だが、3DBAG は国土まるごと1枚＝外部tileset 474本を全部開くと
 // 走査だけで数分かかる。街の矩形を渡せば数本で済む＝「区」相当の粒度に切って使える。
-export async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null, clip = null) {
+export async function collectLeafTiles(tilesetUrl: string, depth = 0, onScan: (() => void) | null = null, stop: (() => boolean) | null = null, clip: ArrayLike<number> | null = null): Promise<LeafTile[]> {
 	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
 	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
-	const ts = await fetchJSON(tilesetUrl);
+	const ts = await fetchJSON(tilesetUrl) as { root?: TilesetTile };
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
 	const clipR = clip && [clip[0] / R2D, clip[1] / R2D, clip[2] / R2D, clip[3] / R2D];
-	const out = [], nested = [];
-	function walk(t) {
+	const out: LeafTile[] = [], nested: string[] = [];
+	function walk(t: TilesetTile | undefined) {
 		if (!t) return;
 		const rect = volRect(t.boundingVolume);
 		if (clipR && rect && (rect[2] < clipR[0] || rect[0] > clipR[2] || rect[3] < clipR[1] || rect[1] > clipR[3])) return;   // 枝ごと落とす
@@ -157,7 +232,7 @@ export async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, sto
 	// カタログ＝3DBAG級では走査だけで数分の実体）。葉の並びは後段のカメラ近傍ソートが決める＝順序不問。
 	// 1枚でも失敗したら従来どおり全体を投げる＝部分カタログを「完全」として下流（焼き・差分再開）に流さない。
 	if (nested.length) {
-		const subs = new Array(nested.length);
+		const subs: LeafTile[][] = new Array(nested.length);
 		let ni = 0;
 		await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, nested.length) }, async () => {
 			while (ni < nested.length) { const i = ni++; subs[i] = await collectLeafTiles(nested[i], depth + 1, onScan, stop, clip); }
@@ -173,14 +248,14 @@ export async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, sto
 // 展開するので平気だが、loaders.gl は fallback バッファの実体へ byteOffset で書き戻すため、後から展開された
 // 頂点データがインデックス領域を上書きする＝頂点は正しいのにインデックスだけ壊れる（実測：最大index 42.9億／
 // 頂点10.9万＝画面いっぱいの破片）。fallback バッファ内で積み上げオフセットを振り直せば衝突しない。
-function fixMeshoptGlb(ab) {
+function fixMeshoptGlb(ab: ArrayBuffer): ArrayBuffer {
 	const dv = new DataView(ab);
 	if (ab.byteLength < 20 || dv.getUint32(0, true) !== 0x46546C67) return ab;   // "glTF" でなければ b3dm 等＝触らない
 	const jsonLen = dv.getUint32(12, true);
-	let json;
+	let json: { extensionsUsed?: string[]; bufferViews?: Array<{ buffer: number; byteOffset?: number; byteLength: number; extensions?: { EXT_meshopt_compression?: unknown } }> };
 	try { json = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 20, jsonLen))); } catch { return ab; }
 	if (!(json.extensionsUsed || []).includes("EXT_meshopt_compression")) return ab;
-	const next = new Map();
+	const next = new Map<number, number>();
 	let patched = 0;
 	for (const bv of json.bufferViews || []) {
 		if (!bv.extensions?.EXT_meshopt_compression) continue;
@@ -204,13 +279,13 @@ function fixMeshoptGlb(ab) {
 
 // 三角形の頂点3つ組キー：文字列連結+配列sort+joinは1.5M三角形規模だとGC負荷が支配的になるため、
 // 丸めた座標をBigIntへビット結合（各成分32bit範囲に収まる＝衝突なし）。巻き順に依存しないよう3値を数値比較でソート。
-function vkeyBig(geo, i) {
+function vkeyBig(geo: Float64Array, i: number): bigint {
 	const rx = BigInt(Math.round(geo[i*3] * 1e8) >>> 0);
 	const ry = BigInt(Math.round(geo[i*3+1] * 1e8) >>> 0);
 	const rz = BigInt(Math.round(geo[i*3+2] * 10) >>> 0);
 	return (rx << 64n) | (ry << 32n) | rz;
 }
-function triKey(k0, k1, k2) {
+function triKey(k0: bigint, k1: bigint, k2: bigint): bigint {
 	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
 	if (k1 > k2) { const t = k1; k1 = k2; k2 = t; }
 	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
@@ -224,15 +299,15 @@ function triKey(k0, k1, k2) {
 // （成分接地だと吊橋の桁が自分の最低点で接地＝水面すれすれに落ちる。バッチ最低点＝橋脚基部≈ジオイド分を
 //   一括で差し引くので、部材同士の相対高さが保たれる）②twoSided=1 を焼き込み＝FS が裏面 discard をやめる
 // （ケーブル・柵など厚みゼロの開いた面は表裏2枚組で来る→dedup が1枚に潰す→片側から見えなくなるため）。
-export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid = false, stop = null, laneOf = null) {
+export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Uint8Array | null, wardBbox: ArrayLike<number> | null, onTile: (() => void) | null = null, brid = false, stop: (() => boolean) | null = null, laneOf: (() => string) | null = null): Promise<MeshOut | null> {
 	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
 	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
-	const segs = [];   // { geo:Float64Array, nrm:Int8Array(xyz+pad 4B), idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
+	const segs: Array<{ geo: Float64Array; nrm: Int8Array; idx: Uint32Array }> = [];   // { geo:Float64Array, nrm:Int8Array(xyz+pad 4B), idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
 	let totalV = 0, totalI = 0, minH = Infinity;
 	const exSet = EXCLUDE?.get(base) || null;   // この base で捨てる gml_id（無ければ従来どおり）
 	let excludedTris = 0;
-	function mergeTile(tile) {
+	function mergeTile(tile: Tile3DContent) {
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
 		const gmlIds = exSet ? tile.batchTableJson?.gml_id : null;   // b3dm の batch table（loaders.gl が JSON で持つ）
 		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
@@ -241,7 +316,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 		// 行列は平行移動だけ拾うのでなく丸ごと使う：3DBAG（オランダ）は node.matrix に「量子化された[-1,1]立方体
 		// →タイルbbox」の非等方スケール（実測 497×324×3267m）が入っており、平行移動だけだと66kmの塊になる。
 		// PLATEAU は線形部が単位行列＝同じ道を通って従来と1ビットも変わらない。mesh(オブジェクト参照)→変換のマップ。
-		const xfByMesh = new Map();
+		const xfByMesh = new Map<GltfMesh, { m: number[] | null; t: number[] }>();
 		for (const nd of (tile.gltf?.nodes || [])) {
 			if (!nd.mesh) continue;
 			const M = nd.matrix;
@@ -254,8 +329,8 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 			//   CESIUM_RTC（b3dm の RTC_CENTER）＝既に ECEF ＝ 軸入替の「後」に足す
 			//   node の matrix/translation ＝頂点と同じ Y-up ローカル系 ＝ 軸入替の「前」に掛けて足す
 			const xf = xfByMesh.get(m) || { m: null, t: [0, 0, 0] };
-			const lin = tileRtc ? null : xf.m, tr = tileRtc ? [0, 0, 0] : xf.t;
-			const rtcE = tileRtc || [0, 0, 0];
+			const lin = tileRtc ? null : xf.m, tr: number[] = tileRtc ? [0, 0, 0] : xf.t;
+			const rtcE: number[] = tileRtc || [0, 0, 0];
 			// 保険：実効原点が地表から明らかに外れていたら(=CESIUM_RTCもnodeの変換も見つからなかった/壊れていた)
 			// そのmeshは丸ごと捨てる。ローカル座標をECEF原点近くに置いたまま混ぜるとbbox・接地・マスクまで壊すため。
 			const rtcR = Math.hypot(tr[0] + rtcE[0], -tr[2] + rtcE[1], tr[1] + rtcE[2]);
@@ -284,7 +359,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 				const ox = tr[0] + rtcE[0], oy = -tr[2] + rtcE[1], oz = tr[1] + rtcE[2];
 				for (let i = 0; i < n; i++) {
 					// local(Y-up)→ECEF：量子化解除 → 変換行列（線形部＋平行移動）→ Yup→Zup(x,-z,y) → geodetic(lon,lat,h)
-					let ex, ey, ez;
+					let ex: number, ey: number, ez: number;
 					if (simple) { ex = P[i*3] + ox; ey = -P[i*3+2] + oy; ez = P[i*3+1] + oz; }
 					else {
 						const px = q === 1 ? P[i*3] : Math.max(P[i*3] * q, qLo);
@@ -313,12 +388,12 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 				if (I) for (let k = 0; k < I.length; k++) idxSeg[k] = I[k] + totalV;
 				else for (let k = 0; k < n; k++) idxSeg[k] = totalV + k;
 				// 除外地物（plateau-exclude.json）：頂点の batch id（Draco は CUSTOM_ATTRIBUTE_3・素の glTF は _BATCHID）→ gml_id で三角形ごと捨てる
-				const BID = exSet && gmlIds ? (pr.attributes.CUSTOM_ATTRIBUTE_3?.value || pr.attributes._BATCHID?.value) : null;
+				const BID = exSet && gmlIds ? (pr.attributes!.CUSTOM_ATTRIBUTE_3?.value || pr.attributes!._BATCHID?.value) : null;
 				if (BID) {
 					const keep = new Uint32Array(idxSeg.length); let ki = 0;
 					for (let k = 0; k + 2 < idxSeg.length; k += 3) {
 						const v = idxSeg[k] - totalV;   // このプリミティブ内の頂点番号
-						if (exSet.has(gmlIds[Math.round(BID[v])])) { excludedTris++; continue; }
+						if (exSet!.has(gmlIds![Math.round(BID[v])])) { excludedTris++; continue; }
 						keep[ki++] = idxSeg[k]; keep[ki++] = idxSeg[k + 1]; keep[ki++] = idxSeg[k + 2];
 					}
 					idxSeg = keep.subarray(0, ki);
@@ -330,7 +405,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 	}
 	// タイル取得+デコードを並行プールで回す。mergeTile は同期＝JSシングルスレッドなので並行fetch中でも競合しない。
 	let ti = 0;
-	async function tileWorker(wi) {
+	async function tileWorker(wi: number) {
 		while (ti < leaves.length) {
 			if (stop?.()) return;   // 協調キャンセル：離脱区の残りタイルは fetch しない（帯域を現役区へ返す）
 			if (laneOf?.() === "slow") {
@@ -350,8 +425,8 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
 				const { loadParse, Tiles3DLoader } = await loaders();
 				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
-				mergeTile(tile);
-			} catch (e) { console.warn("[mesh] tile failed", t.uri, e.message); }
+				mergeTile(tile as Tile3DContent);
+			} catch (e) { console.warn("[mesh] tile failed", t.uri, (e as Error).message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
 		}
 	}
@@ -375,19 +450,19 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 // 高台の建物が浮かない。PLATEAU LOD3 を切り出した名所模型はこちら・2026-09-21 大阪城/岐阜城/松江城が浮いた）
 // 経緯度（rad）＋相対高さ hr（m/世界単位）→ 世界座標（finishMesh の頂点と同じ式・#43）。点群（tiles3d-decode の pointsOut）が使う。
 //   球＝単位球×(1+hr)／楕円体＝β単位球の面点 u(β) ＋ 測地法線の β空間像に沿うリフト（S は renderer の mvp が畳む）。
-export const earthW = () => EARTH_W;
-export function geoWorld(lon, lat, hr, out) {
+export const earthW = (): number => EARTH_W;
+export function geoWorld<O extends { [i: number]: number }>(lon: number, lat: number, hr: number, out: O): O {
 	const cb = Math.cos(lat), sp = Math.sin(lat);
 	if (!ELL) { const r = 1 + hr; out[0] = cb*Math.cos(lon)*r; out[1] = sp*r; out[2] = cb*Math.sin(lon)*r; return out; }
 	const w = Math.hypot(cb, ELL_RAX * sp), horiz = cb / w + hr * cb;
 	out[0] = horiz * Math.cos(lon); out[1] = ELL_RAX * sp / w + hr * sp / ELL_RAX; out[2] = horiz * Math.sin(lon);
 	return out;
 }
-export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null, groundBatch = brid) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
+export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32Array, minH: number, wardMask: Uint8Array | null, wardBbox: ArrayLike<number> | null, brid: boolean, extra: { uv: Float32Array; col: Uint8Array } | null = null, groundBatch = brid): MeshOut {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
 	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
-	const seen = new Set(), dedup = new Uint32Array(totalI);
+	const seen = new Set<bigint>(), dedup = new Uint32Array(totalI);
 	let di = 0;
 	for (let k = 0; k < rawIdx.length; k += 3) {
 		const a = rawIdx[k], b = rawIdx[k+1], c = rawIdx[k+2];
@@ -412,10 +487,10 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 	// 厳密一致するため。vkeyBig の丸め＝dedup と同じ 6cm/0.1m）。
 	const parent = new Int32Array(M);
 	for (let i = 0; i < M; i++) parent[i] = i;
-	const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-	const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+	const find = (i: number) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+	const union = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
 	{
-		const firstByKey = new Map();   // 丸め座標 → 最初に現れた頂点番号（同座標の頂点を同一視）
+		const firstByKey = new Map<bigint, number>();   // 丸め座標 → 最初に現れた頂点番号（同座標の頂点を同一視）
 		for (let i = 0; i < M; i++) {
 			const k = vkeyBig(geo, i);
 			const f = firstByKey.get(k);
@@ -435,7 +510,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 	//     頂部だけが地面に落ちる。対策＝成分中心を2D bboxに含む「8m以上低い成分」の基部を借りて接地（剛体のまま実高度へ）。
 	//     閾値8m＝斜面の隣家bbox借用（数mの浮き）を防ぎつつ、冠・塔屋（基部が塔の基部から数十m上）は確実に拾う。
 	{
-		const roots = [], rBox = new Map();   // 成分代表 → 2D bbox [minLon,minLat,maxLon,maxLat]（rad）
+		const roots: number[] = [], rBox = new Map<number, number[]>();   // 成分代表 → 2D bbox [minLon,minLat,maxLon,maxLat]（rad）
 		for (let i = 0; i < M; i++) {
 			const r = find(i);
 			let b = rBox.get(r);
@@ -446,13 +521,13 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 		}
 		// バッチbbox上のセルグリッド（座標は上のbbox計算と同じrad）：中心セル＝地面推定の票、bbox掛かり＝重なり候補。
 		const G = 64, sLo = (maxLon - minLon) || 1e-12, sLa = (maxLat - minLat) || 1e-12;
-		const cellX = v => Math.max(0, Math.min(G - 1, (v - minLon) / sLo * G | 0));
-		const cellY = v => Math.max(0, Math.min(G - 1, (v - minLat) / sLa * G | 0));
-		const grid = new Map();     // セル番号 → bboxが掛かる成分代表（(b)の重なり候補）
-		const baseVotes = new Map();   // セル番号 → 中心がそのセルに落ちる成分の基部標高（(a)の地面票）
-		const center = new Map();   // 成分代表 → [cx, cy, 中心セル番号]
+		const cellX = (v: number) => Math.max(0, Math.min(G - 1, (v - minLon) / sLo * G | 0));
+		const cellY = (v: number) => Math.max(0, Math.min(G - 1, (v - minLat) / sLa * G | 0));
+		const grid = new Map<number, number[]>();     // セル番号 → bboxが掛かる成分代表（(b)の重なり候補）
+		const baseVotes = new Map<number, number[]>();   // セル番号 → 中心がそのセルに落ちる成分の基部標高（(a)の地面票）
+		const center = new Map<number, [number, number, number]>();   // 成分代表 → [cx, cy, 中心セル番号]
 		for (const r of roots) {
-			const b = rBox.get(r), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, ck = cellY(cy) * G + cellX(cx);
+			const b = rBox.get(r)!, cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, ck = cellY(cy) * G + cellX(cx);
 			center.set(r, [cx, cy, ck]);
 			let v = baseVotes.get(ck); if (!v) baseVotes.set(ck, v = []);
 			v.push(minAlt[r]);
@@ -462,19 +537,19 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 				a.push(r);
 			}
 		}
-		const cellGround = new Map();   // 占有セル → 地面推定（そのセルに立つ成分基部の中央値）
+		const cellGround = new Map<number, number>();   // 占有セル → 地面推定（そのセルに立つ成分基部の中央値）
 		for (const [k, v] of baseVotes) { v.sort((a, b) => a - b); cellGround.set(k, v[v.length >> 1]); }
 		// (a) 完全地下の判定＝二重条件（両方成立で「地中」確定・候補ゼロの孤立成分は触らない）：
 		//   ①頂部 < 近傍（半径3セル）の占有セル地面の「中央値」−1 …大きな函体は自分の基部票で自セル地面を汚染する
 		//     （公園の地下駐車場＝自セル−25mが唯一の票）ため、min では永遠に地中にならない。中央値は周囲の街の基部が制す。
 		//   ②頂部 < 「自分のbbox外」のセル地面の最小値 −1 …崖下・谷底の実在建物は、自分達の基部が作る低いセル地面が
 		//     ①の中央値を守れない事がある（急斜面）。最も低い他人の地面よりさらに低い時だけ地中と認める＝安全側の錠。
-		const dead = new Set();
+		const dead = new Set<number>();
 		for (const r of roots) {
-			const [, , ck] = center.get(r), cx0 = ck % G, cy0 = (ck / G) | 0;
-			const b = rBox.get(r);
+			const [, , ck] = center.get(r)!, cx0 = ck % G, cy0 = (ck / G) | 0;
+			const b = rBox.get(r)!;
 			const bx0 = cellX(b[0]), bx1 = cellX(b[2]), by0 = cellY(b[1]), by1 = cellY(b[3]);   // 自分の足元セル範囲
-			const gs = []; let minOut = Infinity;
+			const gs: number[] = []; let minOut = Infinity;
 			for (let y = Math.max(0, cy0 - 3); y <= Math.min(G - 1, cy0 + 3); y++)
 				for (let x = Math.max(0, cx0 - 3); x <= Math.min(G - 1, cx0 + 3); x++) {
 					const cg = cellGround.get(y * G + x);
@@ -489,14 +564,14 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 		}
 		for (const r of dead) minAlt[r] = maxAlt[r] + 0.5;   // 沈める＝頂部が-0.5m（平らな都市地面の下＝不可視）
 		// (b) 借り接地：借用は全成分の判定後に一括適用＝元のminAltだけを読む（連鎖の順序依存を断つ）。地下成分は貸借対象外。
-		const borrowed = new Map();
+		const borrowed = new Map<number, number>();
 		for (const r of roots) {
 			if (dead.has(r)) continue;
-			const [cx, cy, ck] = center.get(r);
+			const [cx, cy, ck] = center.get(r)!;
 			let g = minAlt[r];
 			for (const o of grid.get(ck) || []) {
 				if (dead.has(o) || minAlt[o] >= g) continue;
-				const ob = rBox.get(o);
+				const ob = rBox.get(o)!;
 				if (cx >= ob[0] && cx <= ob[2] && cy >= ob[1] && cy <= ob[3]) g = minAlt[o];
 			}
 			if (minAlt[r] - g > 8) borrowed.set(r, g);
@@ -521,7 +596,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 		sortedIdx[t*3] = outIdx[src]; sortedIdx[t*3+1] = outIdx[src+1]; sortedIdx[t*3+2] = outIdx[src+2];
 	}
 	outIdx.set(sortedIdx);
-	const lodCounts = Array(LOD_H.length).fill(outIdx.length);   // 既定＝全描画（その高さ未満の建物が無いバッチ）
+	const lodCounts: number[] = Array(LOD_H.length).fill(outIdx.length);   // 既定＝全描画（その高さ未満の建物が無いバッチ）
 	for (let t = 0, li = LOD_H.length - 1; t < nTri && li > 0; t++) {
 		const h = (65535 - Math.floor(lodKeys[t] / 4294967296)) / 16;
 		while (li > 0 && h < LOD_H[li]) lodCounts[li--] = t * 3;
@@ -532,7 +607,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 	for (let i = 0; i < M; i++) {
 		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat), sp = Math.sin(lat);
 		const hr = (geo[i*3+2] - (groundBatch ? minH : minAlt[find(i)])) / EARTH_W;   // 基部からの相対高さ＝剛体接地（橋梁/単体模型はバッチ最低点＝部材の相対高さ保存）
-		let x, y, z;
+		let x: number, y: number, z: number;
 		if (!ELL) { const r = 1 + hr; x = cb*Math.cos(lon)*r; y = sp*r; z = cb*Math.sin(lon)*r; }
 		else {   // β単位球の面点 u(β) ＋ 測地法線の β空間像 m=(cbcosλ, sinφ/r, cbsinλ) に沿うリフト（S は renderer の mvp が畳む）
 			const w = Math.hypot(cb, ELL_RAX * sp), horiz = cb / w + hr * cb;
@@ -549,7 +624,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 	// 旧・区単位のwardMask累積は継続する（IDB meta 互換・ロールバック安全）が、描画へはもう送らない＝
 	// renderer は届いたバッチの断片だけをOR合成する（マスクがメッシュに先行して「基図は伏せたのに
 	// PLATEAUが無い」矩形の隙間を作る非対称の根治。demote/cancel/復元中断で顕在化していた）。
-	let maskCells = null;
+	let maskCells: Uint32Array | null = null;
 	if (wardBbox) {   // wardMask=null（デコーダプール経路）でも断片は導出＝累積ORは発注元が maskCells で行う
 		const wLo = wardBbox[0] / R2D, wLa = wardBbox[1] / R2D;   // マスク座標系は rad で統一（geo が rad のため）
 		const spanLo = (wardBbox[2] - wardBbox[0]) / R2D || 1e-12, spanLa = (wardBbox[3] - wardBbox[1]) / R2D || 1e-12;
@@ -562,7 +637,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N-1) cx1 = MASK_N-1; if (cy1 > MASK_N-1) cy1 = MASK_N-1;
 			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) { if (wardMask) wardMask[row+x] = 255; bm[row+x] = 1; } }
 		}
-		const cells = [];
+		const cells: number[] = [];
 		for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
 		maskCells = Uint32Array.from(cells);   // バッチは空間的に密＝典型数十〜数百セル（数百B）。永続化にも同乗する
 	}
@@ -586,25 +661,25 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 // 面法線を頂点へ積む（PLATEAU 経路の「上向き固定」は模型には粗い）。テクスチャ/マテリアルは読まない（色は建物色＝u_bldColor）。
 const D2R = Math.PI / 180;
 const I4 = Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-const m4mul = (a, b) => {   // 列優先 4x4（glTF の並び）＝ a·b
+const m4mul = (a: ArrayLike<number>, b: ArrayLike<number>) => {   // 列優先 4x4（glTF の並び）＝ a·b
 	const o = new Float64Array(16);
 	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
 	return o;
 };
-const m4trs = (t = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1]) => {   // T·R·S（glTF node の既定の合成順）
-	const [x, y, z, w] = q, xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
+const m4trs = (t: ArrayLike<number> = [0, 0, 0], q: ArrayLike<number> = [0, 0, 0, 1], s: ArrayLike<number> = [1, 1, 1]) => {   // T·R·S（glTF node の既定の合成順）
+	const [x, y, z, w] = q as [number, number, number, number], xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
 	return Float64Array.of(
 		(1 - 2*(yy+zz)) * s[0], 2*(xy+wz) * s[0], 2*(xz-wy) * s[0], 0,
 		2*(xy-wz) * s[1], (1 - 2*(xx+zz)) * s[1], 2*(yz+wx) * s[1], 0,
 		2*(xz+wy) * s[2], 2*(yz-wx) * s[2], (1 - 2*(xx+yy)) * s[2], 0,
 		t[0], t[1], t[2], 1);
 };
-const m3mul = (a, b) => {   // 列優先 3x3＝ a·b
+const m3mul = (a: ArrayLike<number>, b: ArrayLike<number>) => {   // 列優先 3x3＝ a·b
 	const o = new Float64Array(9);
 	for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2];
 	return o;
 };
-const m3v = (m, v) => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
+const m3v = (m: ArrayLike<number>, v: ArrayLike<number>): number[] => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
 const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
 // ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
 // baseColor（factor＋texture＋COLOR_0）に加え、#46 段 2（2026-09-26）から PBR の材質も読む：metallicRoughness（factor＋texture＝G=粗さ・B=金属）・
@@ -612,8 +687,8 @@ const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z
 // KHR_materials_pbrSpecularGlossiness は diffuse* を baseColor として読む（鏡面側は読まない＝粗さ 1・金属 0）。KHR_texture_transform は uv に畳む（baseColor の物を全テクスチャに使う＝
 // 別 TEXCOORD／別 transform の材質は baseColor の uv で読む＝ずれ得る・既知の限界）。alphaMode は MASK（alphaCutoff で抜く）と BLEND（半透明＝renderer が奥から手前に合成）をそのまま渡す。
 // doubleSided は読まない＝模型は従来どおり両面（巻き順の怪しい模型に穴を開けない側）。
-const texRef = (ti, gltf) => ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
-const baseColorOf = (mat, gltf) => {
+const texRef = (ti: GltfTexRef | null | undefined, gltf: GltfDoc): GltfTexture | null | undefined => ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
+const baseColorOf = (mat: GltfMaterial | null, gltf: GltfDoc) => {
 	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
 	const factor = mr?.baseColorFactor || sg?.diffuseFactor || [1, 1, 1, 1];
 	const ti = mr?.baseColorTexture || sg?.diffuseTexture || null;
@@ -623,7 +698,7 @@ const baseColorOf = (mat, gltf) => {
 	const alt = [mr?.metallicRoughnessTexture, mat?.normalTexture, mat?.occlusionTexture, mat?.emissiveTexture].find(Boolean);
 	return { factor, texture, texCoord: (tt?.texCoord ?? ti?.texCoord ?? alt?.texCoord) || 0, transform: tt };
 };
-const pbrOf = (mat, gltf) => {   // 材質の数値と 4 枚のテクスチャ参照（無ければ null＝renderer が 1×1 の既定で埋める）
+const pbrOf = (mat: GltfMaterial | null, gltf: GltfDoc) => {   // 材質の数値と 4 枚のテクスチャ参照（無ければ null＝renderer が 1×1 の既定で埋める）
 	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
 	const es = mat?.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1, ef = mat?.emissiveFactor || [0, 0, 0];
 	return {
@@ -634,11 +709,11 @@ const pbrOf = (mat, gltf) => {   // 材質の数値と 4 枚のテクスチャ�
 	};
 };
 const TEX_MAX = 2048;   // これより大きい画像は縮める（GPU 常駐と転送の上限＝模型 1 体に 4k を何枚も要らない）
-async function textureOf(texture, cache) {   // 解決済み texture → {bitmap} | {rgba,w,h} | null。同じ画像を複数マテリアルが使う時は 2 回目以降を複製
+async function textureOf(texture: GltfTexture | null | undefined, cache: Map<GltfImage, TexOut | null>): Promise<TexOut | null> {   // 解決済み texture → {bitmap} | {rgba,w,h} | null。同じ画像を複数マテリアルが使う時は 2 回目以降を複製
 	// （ImageBitmap は transfer で切り離される＝バッチごとに別の実体が要る。デコード/縮小は 1 回）
 	const img = texture?.source?.image; if (!img) return null;
-	if (cache.has(img)) { const c = cache.get(img); if (!c) return null; return c.bitmap ? { bitmap: await createImageBitmap(c.bitmap) } : { rgba: c.rgba.slice(), w: c.w, h: c.h }; }
-	let out = null;
+	if (cache.has(img)) { const c = cache.get(img); if (!c) return null; return c.bitmap ? { bitmap: await createImageBitmap(c.bitmap) } : { rgba: c.rgba!.slice(), w: c.w, h: c.h }; }
+	let out: TexOut | null = null;
 	try {
 		if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) {
 			const s = Math.min(1, TEX_MAX / Math.max(img.width, img.height));
@@ -647,36 +722,36 @@ async function textureOf(texture, cache) {   // 解決済み texture → {bitmap
 			const rgba = img.data instanceof Uint8Array || img.data instanceof Uint8ClampedArray ? new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) : null;
 			if (rgba && rgba.length === img.width * img.height * 4) out = { rgba: rgba.slice(), w: img.width, h: img.height };
 		}
-	} catch (e) { console.warn("[model] texture skipped", e?.message); }
+	} catch (e) { console.warn("[model] texture skipped", (e as Error | null)?.message); }
 	cache.set(img, out);
 	return out;
 }
-const dequant = A => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array ? 1 / 255 : A instanceof Int16Array ? 1 / 32767 : A instanceof Uint16Array ? 1 / 65535 : 1;   // 正規化整数属性の係数（float は 1）
+const dequant = (A: NumArr) => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array ? 1 / 255 : A instanceof Int16Array ? 1 / 32767 : A instanceof Uint16Array ? 1 / 65535 : 1;   // 正規化整数属性の係数（float は 1）
 // ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
 // mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
 // 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
 // tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
 //   頂点 ECEF = L·(rtc + Y2Z·W·p) + t（仕様どおり glTF の Y-up→Z-up はノード変換の後・RTC とタイル変換の前）。
 //   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
-export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0 } = {}) {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
+export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
-	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）
+	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）
 	const raw = rawGltfJson(ab);   // 生の json（見出し＝F4・KHR_texture_basisu の texture→image＝W5）
-	let gltf;
-	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))); }
+	let gltf: GltfDoc;
+	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))) as GltfDoc; }
 	catch (e) {   // 画像のデコードで倒れた（壊れた画像・worker で解けない形式）＝画像なしで読み直す（形は出す）
 		if (!textures) throw e;
-		console.warn("[model] parse with images failed = retry without textures:", e?.message);
-		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false)));
+		console.warn("[model] parse with images failed = retry without textures:", (e as Error | null)?.message);
+		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false))) as GltfDoc;
 	}
 	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
 	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
 	const nodes = gltf.nodes || [];
 	let roots = gltf.scene?.nodes || gltf.scenes?.[0]?.nodes;
-	if (!roots) { const kids = new Set(); for (const n of nodes) for (const c of n.children || []) kids.add(c); roots = nodes.filter(n => !kids.has(n)); }
-	const inst = [];
+	if (!roots) { const kids = new Set<GltfNode>(); for (const n of nodes) for (const c of n.children || []) kids.add(c); roots = nodes.filter(n => !kids.has(n)); }
+	const inst: Array<{ mesh: GltfMesh; W: Float64Array; node: number }> = [];
 	const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
-	const visit = (nd, P, depth) => {
+	const visit = (nd: GltfNode | undefined, P: ArrayLike<number>, depth: number) => {
 		if (!nd || depth > 64) return;   // 循環/異常な深さの保険
 		const W = m4mul(P, nd.matrix ? Float64Array.from(nd.matrix) : m4trs(nd.translation, nd.rotation, nd.scale));
 		if (nd.mesh) inst.push({ mesh: nd.mesh, W, node: nodeIdx.get(nd) ?? -1 });
@@ -685,7 +760,7 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	for (const r of roots) visit(r, I4, 0);
 	// 置き方＝A（3x3・ローカル Y-up → ECEF の線形部）と T（ECEF の平行移動）。頂点は ECEF = A·(Wlin·p + Wt) + T
 	const rtc = gltf.extensions?.CESIUM_RTC?.center || gltf.json?.extensions?.CESIUM_RTC?.center || null;
-	let A, T, mode, places = null;
+	let A: Float64Array, T: number[], mode: string, places: Array<{ A: Float64Array; T: number[] }> | null = null;
 	if (tile) {   // 3D Tiles：置き方は呼び手のタイル変換（インスタンスごと）。glTF 内の CESIUM_RTC も b3dm の RTC_CENTER と同じ扱い
 		const r0 = tile.rtc || rtc || [0, 0, 0];
 		places = tile.places.map(({ L, t }) => { const o = m3v(L, r0); return { A: m3mul(L, SWAP), T: [o[0] + t[0], o[1] + t[1], o[2] + t[2]] }; });
@@ -710,10 +785,10 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	const rig = tile ? null : rigFromGltf(gltf);
 	const animated = new Set(rig?.animated || []);
 	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
-	const groups = new Map();   // material|node → { segs, totalV, totalI, mat, node }
-	const matNo = new Map(); const gkOf = (prefix, mat) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
+	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number }>();   // material|node → { segs, totalV, totalI, mat, node }
+	const matNo = new Map<GltfMaterial | null, number>(); const gkOf = (prefix: string, mat: GltfMaterial | null) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
-	const pts = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
+	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
@@ -726,8 +801,8 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			const mode4 = pr.mode ?? 4;
 			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
-				const q = pr.attributes.POSITION.normalized ? dequant(P) : 1, n = P.length / 3;
-				const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes.COLOR_0.normalized ? dequant(C0) : 1) : 1, f = baseColorOf(pr.material || null, gltf).factor;
+				const q = pr.attributes!.POSITION!.normalized ? dequant(P) : 1, n = P.length / 3;
+				const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1, f = baseColorOf(pr.material || null, gltf).factor;
 				for (let i = 0; i < n; i++) {
 					const px = P[i*3] * q, py = P[i*3+1] * q, pz = P[i*3+2] * q;
 					const g = ecef2geo(lin[0] * px + lin[3] * py + lin[6] * pz + ox, lin[1] * px + lin[4] * py + lin[7] * pz + oy, lin[2] * px + lin[5] * py + lin[8] * pz + oz);
@@ -757,7 +832,7 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			// index（strip/fan は三角形列へ展開）。番号はこのマテリアル束の通し番号
 			const I = pr.indices?.value;
 			const src = I || null, m = I ? I.length : n;
-			let idxSeg;
+			let idxSeg: Uint32Array;
 			if (mode4 === 4) { idxSeg = new Uint32Array(m); for (let k = 0; k < m; k++) idxSeg[k] = (src ? src[k] : k) + base; }
 			else {
 				idxSeg = new Uint32Array(Math.max(0, m - 2) * 3);
@@ -791,7 +866,7 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			const UV = bc.texture ? pr.attributes?.["TEXCOORD_" + bc.texCoord]?.value : null;
 			const uvSeg = new Float32Array(n * 2);
 			if (UV && UV.length >= n * 2) {
-				const qu = pr.attributes["TEXCOORD_" + bc.texCoord].normalized ? dequant(UV) : 1, tt = bc.transform;
+				const qu = pr.attributes!["TEXCOORD_" + bc.texCoord]!.normalized ? dequant(UV) : 1, tt = bc.transform;
 				const ro = tt?.rotation || 0, cs = Math.cos(ro), sn = Math.sin(ro), sx = tt?.scale?.[0] ?? 1, sy = tt?.scale?.[1] ?? 1, tx = tt?.offset?.[0] ?? 0, ty = tt?.offset?.[1] ?? 0;
 				for (let i = 0; i < n; i++) {
 					const u = UV[i*2] * qu, v = UV[i*2+1] * qu;
@@ -800,7 +875,7 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 				}
 			}
 			const colSeg = new Uint8Array(n * 4);
-			const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes.COLOR_0.normalized ? dequant(C0) : 1) : 1;
+			const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1;
 			const opaque = !mat || (mat.alphaMode || "OPAQUE") === "OPAQUE";
 			const f = bc.factor;
 			for (let i = 0; i < n; i++) {
@@ -820,11 +895,11 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
 	if (!nTri) return pts?.geo.length ? { batches: [], mask: null, points: pts, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts.geo.length / 3 } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
-	const imgCache = new Map();
-	const batches = [];
+	const imgCache = new Map<GltfImage, TexOut | null>();
+	const batches: ModelBatchOut[] = [];
 	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
 	// 被覆マスクの座標系＝模型全体の経緯度 bbox（度）。束（マテリアル）が違っても同じ枠＝renderer が断片を OR 合成できる
-	let maskBbox = null;
+	let maskBbox: number[] | null = null;
 	if (mask) {
 		let lo0 = Infinity, la0 = Infinity, lo1 = -Infinity, la1 = -Infinity;
 		for (const g of groups.values()) for (const s of g.segs) for (let i = 0; i < s.geo.length; i += 3) {
@@ -839,7 +914,7 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		let vtx = 0, io = 0;
 		const withF = g.segs.filter(s => s.fid), tbls = [...new Set(withF.map(s => s.tbl))];
 		const fids = withF.length ? new Uint32Array(g.totalV).fill(NO_FEATURE) : null, tblV = tbls.length > 1 ? new Int16Array(g.totalV).fill(-1) : null;   // 表が混ざる束だけ頂点ごとの表番号
-		for (const s of g.segs) { const nv = s.geo.length / 3; geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); if (s.fid) { fids.set(s.fid, vtx); if (tblV) tblV.fill(s.tbl ?? -1, vtx, vtx + nv); } vtx += nv; io += s.idx.length; }
+		for (const s of g.segs) { const nv = s.geo.length / 3; geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); if (s.fid) { fids!.set(s.fid, vtx); if (tblV) tblV.fill(s.tbl ?? -1, vtx, vtx + nv); } vtx += nv; io += s.idx.length; }
 		g.segs.length = 0;
 		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, { uv, col }, ground !== "each");   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
@@ -851,14 +926,14 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
 	// property table（W7）＝EXT_structural_metadata（無ければ b3dm の batch table）を素の列へ
-	const fWarn = [], meta = gltf.extensions?.EXT_structural_metadata || raw?.extensions?.EXT_structural_metadata || null;
-	const bytesOf = i => { const bv = gltf.bufferViews?.[i]; if (!bv) throw new Error(`bufferView ${i}`); if (bv.data instanceof Uint8Array) return bv.data; const b = bv.buffer; return new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv.byteOffset || 0), bv.byteLength); };
-	const tables = nFid ? (meta ? decodePropertyTables(meta, bytesOf, fWarn) : tile?.batchTable ? [batchTableOf(tile.batchTable.json, tile.batchTable.bin, tile.batchTable.count)].filter(Boolean) : []) : [];
+	const fWarn: string[] = [], meta = gltf.extensions?.EXT_structural_metadata || raw?.extensions?.EXT_structural_metadata || null;
+	const bytesOf = (i: number) => { const bv = gltf.bufferViews?.[i]; if (!bv) throw new Error(`bufferView ${i}`); if (bv.data instanceof Uint8Array) return bv.data; const b = bv.buffer!; return new Uint8Array(b.arrayBuffer!, (b.byteOffset || 0) + (bv.byteOffset || 0), bv.byteLength); };
+	const tables = nFid ? (meta ? decodePropertyTables(meta, bytesOf, fWarn) : tile?.batchTable ? [batchTableOf(tile.batchTable.json, tile.batchTable.bin, tile.batchTable.count)].filter(Boolean) as PropertyTable[] : []) : [];
 	if (fWarn.length) console.warn("[model] property tables:", fWarn.join("; "));
 	for (const b of batches) if (b.features) b.features.tables = tables;   // 束ごとに表の参照（cmpt で結果が混ざっても番号が迷わない・postMessage は同じ参照を 1 回だけ写す）
 	// place（W4）＝G：glTF のローカル → ECEF（A・T）、F：ECEF → 単位球の世界座標の局所線形化（模型の錨 T の周りで 1 m の差分＝接地の minH 込み・ecef2geo＋geoWorld と同じ道）
 	const place = rig && !places ? (() => {
-		const w = e => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
+		const w = (e: ArrayLike<number>) => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
 		const c = inst.length ? (() => { const o = m3v(A, [inst[0].W[12], inst[0].W[13], inst[0].W[14]]); return [o[0] + T[0], o[1] + T[1], o[2] + T[2]]; })() : T;
 		const w0 = w(c), L = new Float64Array(9);
 		for (let k = 0; k < 3; k++) { const e = [...c]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
