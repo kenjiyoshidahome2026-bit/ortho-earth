@@ -29,7 +29,7 @@
 				"why": "負債（地域）：自動押し出しの高さ・階数の列名候補に PLATEAU/日本の属性名（建物高さ・計測高さ・階数）。地域の申告（region.extrudeKeys）へ移す"
 			}
 		},
-		"packages/globe/src/gadgets/anno-draw.js": {
+		"packages/globe/src/gadgets/anno-draw.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
@@ -53,7 +53,7 @@
 				"why": "凍結：IndexedDB の名 ortho-japan-edit（利用者の端末に残る編集の下書き）"
 			}
 		},
-		"packages/globe/src/gadgets/mesh.js": {
+		"packages/globe/src/gadgets/mesh.ts": {
 			"plateau": {
 				"n": 2,
 				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"
@@ -71,13 +71,13 @@
 				"why": "試料：QR 符号器の自己検定に使う URL 文字列"
 			}
 		},
-		"packages/globe/src/gadgets/stac.js": {
+		"packages/globe/src/gadgets/stac.ts": {
 			"tellus": {
 				"n": 4,
 				"why": "負債（地域）：STAC 読み口に Tellus（日本の衛星データ基盤）の分岐。地域の申告の provider へ移す"
 			}
 		},
-		"packages/globe/src/gadgets/tellus-api.js": {
+		"packages/globe/src/gadgets/tellus-api.ts": {
 			"tellus": {
 				"n": 9,
 				"why": "負債（地域）：Tellus の API 読み口そのもの（/japan/tellus 専用）。地域パックへ移す"

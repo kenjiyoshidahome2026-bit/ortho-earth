@@ -8,13 +8,13 @@
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { keyBusy } from "./keys.ts";
-import { composeLayersToCanvas } from "./compose.js";
+import { composeLayersToCanvas } from "./compose.ts";
 import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 import type { LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
-import type { Snapshot } from "./compose.js";
+import type { ComposeSnapshot as Snapshot } from "./compose.ts";
 const t = tr();
 /** 矩形（mm か px） */
 interface Rect { x: number; y: number; w: number; h: number }

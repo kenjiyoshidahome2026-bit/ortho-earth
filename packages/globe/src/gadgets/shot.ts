@@ -8,10 +8,10 @@
 // requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）
+import { composeLayersToCanvas } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.js";
 import type { GlobeMap } from "../types/map.ts";
-import type { Snapshot } from "./compose.js";
+import type { ComposeSnapshot as Snapshot } from "./compose.ts";
 const t = tr();
 /** requestSnapshot＝今の画面の写し（必須・api/shadows.ts が注入）・attribution＝#attr の無い画面で焼く出典 */
 interface ShotOpts { requestSnapshot: () => Promise<unknown>; signal?: AbortSignal; btn?: HTMLButtonElement; attribution?: (() => string[]) | null }

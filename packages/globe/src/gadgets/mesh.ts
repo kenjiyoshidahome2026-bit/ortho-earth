@@ -6,10 +6,14 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** mesh の opts（onOpen＝データ管理モーダルを開く・icon＝地域の顔（SVG の文字列）・labels＝地域の文言の鍵（manage／aria）） */
+export interface MeshOpts { onOpen?: () => unknown; signal?: AbortSignal; icon?: string | null; labels?: Record<string, string>; [k: string]: unknown }
 // 汎用の建物の形（地域がアイコンを宣言しない時）＝34px 規格・単色（夜テーマは quiet-mono が fill を差し替える）
 const GENERIC_ICON = `<svg viewBox="0 0 20 24" width="15" height="18" fill="#463C64" aria-hidden="true"><path d="M1 23V9l7-3v17H1Zm8 0V2l10 4v17H9Zm2-15v2h2V8h-2Zm4 1v2h2V9h-2Zm-4 4v2h2v-2h-2Zm4 1v2h2v-2h-2ZM3 12v2h3v-2H3Zm0 5v2h3v-2H3Z"/></svg>`;
-export function mesh({ onOpen, signal, icon = null, labels = {} } = {}) {   // labels＝地域の申告（出所の名を出す文言の i18n キー）
+export function mesh(this: GlobeMap, { onOpen, signal, icon = null, labels = {} }: MeshOpts = {}): HTMLButtonElement | undefined {   // labels＝地域の申告（出所の名を出す文言の i18n キー）
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#plateau-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");

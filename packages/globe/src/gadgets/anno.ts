@@ -18,24 +18,38 @@ export { sanitizeHTML };   // @tip/@pop の HTML 消毒（正典は geopbf/sanit
 import { smoothRing, smoothGeom, wrapLon } from "geopbf/edit/spline";
 export { smoothRing, smoothGeom, wrapLon };
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, dLon, buildLinePath } from "geopbf/edit/draw";   // 正典は geopbf（geoedit と同じ一本・2026-09-20 分離）
+import type { AnnoHandle, GeoPBF } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { AnnoHit, AnnoItem, AnnoStyle } from "./anno-draw.ts";
+
+/** createAnno が使う map の口（mapEl・overlay・unprojectXY・getZoom・gadget の tip／pop） */
+export type AnnoMap = Pick<GlobeMap, "mapEl" | "overlay" | "unprojectXY" | "getZoom" | "gadget">;
+/** pop の錨とふるまい（lng/lat＝錨・x/y＝クリックの画面の点） */
+export interface PopOptions { lng?: number; lat?: number; x: number; y: number; hideOffscreen?: boolean; onClose?: () => void }
+/** pop ガジェットの関数（HTML を錨に出す・戻り＝箱の要素） */
+export type PopFn = (html: string, opts?: PopOptions) => (HTMLElement & { _remove?: () => void }) | null | undefined;
+/** tip ガジェットの setter（HTML の文字列・null で消す）＝実体（gadgets/tip）は文字列も受ける（Gadgets["tip"] の型は行の配列だけ） */
+type TipSet = (html: string | null) => void;
+/** worker（anno-draw）からの知らせ */
+type OvMsg = { type?: string; hits?: AnnoHit[]; id?: number };
 
 // ---- ビューア再生本体（createAnno）：map の公開口だけで完結（overlay/tip/pop/unproject/getZoom）----
-export function createAnno(map, { signal } = {}) {
+export function createAnno(map: AnnoMap, { signal }: { signal?: AbortSignal } = {}): AnnoHandle {
 	const mapEl = map.mapEl;
 	const ov = map.overlay({ builtin: "anno" }, { name: "anno" });   // render worker のバンドル内モジュール（gadgets/anno-draw.js）
 	ov.el.classList.add("anno-overlay");
 
-	let pbf = null, items = [];   // items[fid]＝前処理済み（@spline は set 時に一度だけ細分）＝worker へ写しを送り、main は識別と pop の錨に使う
-	let tipSet = null, popFn = null, symHits = [];   // symHits＝worker が描いたシンボルの画面矩形（毎フレーム届く）
-	let tipRaw = null, tipClean = null;   // 消毒キャッシュ（毎 move の DOMParser を避ける）
-	const openedPops = new Map();   // fid → pop div
-	const probes = new Map(); let probeSeq = 0;   // pixels()（検定用）の待ち行列
-	ov.onmessage = d => {
-		if (d.type === "hits") symHits = d.hits;
-		else if (d.type === "pixels") { const r = probes.get(d.id); if (r) { probes.delete(d.id); r(d); } }
+	let pbf: GeoPBF | null = null, items: Array<AnnoItem | null> = [];   // items[fid]＝前処理済み（@spline は set 時に一度だけ細分）＝worker へ写しを送り、main は識別と pop の錨に使う
+	let tipSet: TipSet | null = null, popFn: PopFn | null = null, symHits: AnnoHit[] = [];   // symHits＝worker が描いたシンボルの画面矩形（毎フレーム届く）
+	let tipRaw: string | null = null, tipClean: string | null = null;   // 消毒キャッシュ（毎 move の DOMParser を避ける）
+	const openedPops = new Map<number, HTMLElement & { _remove?: () => void }>();   // fid → pop div
+	const probes = new Map<number, (d: unknown) => void>(); let probeSeq = 0;   // pixels()（検定用）の待ち行列
+	ov.onmessage = d => {   // d＝worker の知らせ（hits＝シンボルの画面矩形・pixels＝検定の実画素）
+		if ((d as OvMsg).type === "hits") symHits = (d as OvMsg).hits!;
+		else if ((d as OvMsg).type === "pixels") { const r = probes.get((d as OvMsg).id!); if (r) { probes.delete((d as OvMsg).id!); r(d); } }
 	};
 
-	function set(newPbf) {   // 積み込み＝@spline の細分はここで一度だけ（毎フレやらない）
+	function set(newPbf: GeoPBF | null) {   // 積み込み＝@spline の細分はここで一度だけ（毎フレやらない）
 		pbf = newPbf;
 		clearPops(); tipSet?.(null);
 		items = [];
@@ -43,14 +57,14 @@ export function createAnno(map, { signal } = {}) {
 		for (let i = 0; i < feats.length; i++) {
 			const f = feats[i], g = f?.geometry;
 			if (!g) { items.push(null); continue; }
-			const p = f.properties || {};
-			const it = { p };
-			if (g.type === "Point") it.pts = [g.coordinates];
-			else if (g.type === "MultiPoint") it.pts = g.coordinates;
-			else if (g.type === "LineString") it.lines = [g.coordinates];
-			else if (g.type === "MultiLineString") it.lines = g.coordinates;
-			else if (g.type === "Polygon") it.rings = g.coordinates;
-			else if (g.type === "MultiPolygon") it.rings = g.coordinates.flat();
+			const p: AnnoStyle = f.properties || {};
+			const it: AnnoItem = { p };
+			if (g.type === "Point") it.pts = [g.coordinates as number[]];
+			else if (g.type === "MultiPoint") it.pts = g.coordinates as number[][];
+			else if (g.type === "LineString") it.lines = [g.coordinates as number[][]];
+			else if (g.type === "MultiLineString") it.lines = g.coordinates as number[][][];
+			else if (g.type === "Polygon") it.rings = g.coordinates as number[][][];
+			else if (g.type === "MultiPolygon") it.rings = (g.coordinates as number[][][][]).flat();
 			else { items.push(null); continue; }
 			if (p["@spline"]) {
 				if (it.lines) it.lines = it.lines.map(l => smoothRing(l, false));
@@ -63,27 +77,27 @@ export function createAnno(map, { signal } = {}) {
 	function clear() { pbf = null; items = []; symHits = []; clearPops(); tipSet?.(null); ov.post({ type: "clear" }); }
 	function clearPops() { for (const [, div] of openedPops) div._remove?.(); openedPops.clear(); }
 	// 検定用：worker の実画素（transfer 後の canvas は main から読めない）
-	const pixels = () => new Promise(res => { const id = ++probeSeq; probes.set(id, res); ov.post({ type: "probe", id }); });
+	const pixels = () => new Promise<unknown>(res => { const id = ++probeSeq; probes.set(id, res); ov.post({ type: "probe", id }); });
 
 	// ---- 識別（tip/pop）＝pbf.identifyAt（JS幾何）＋シンボルの画面矩形。geoedit と同じ許容量（画面px基準）----
-	const identify = (lng, lat) => {
+	const identify = (lng: number, lat: number) => {
 		const zoom = map.getZoom();
 		const mpp = 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, zoom));
 		const fid = pbf?.identifyAt?.(lng, lat, { point: Math.max(50, 12 * mpp), polyline: Math.max(30, 8 * mpp) });
 		return fid == null || fid < 0 ? null : fid;
 	};
-	const symbolAt = (x, y) => {
+	const symbolAt = (x: number, y: number) => {
 		for (let i = symHits.length - 1; i >= 0; i--) {
 			const r = symHits[i];
 			if (x >= r.x0 - 4 && x <= r.x1 + 4 && y >= r.y0 - 4 && y <= r.y1 + 4) return r.fid;
 		}
 		return null;
 	};
-	const localXY = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	const localXY = (e: MouseEvent) => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 	// nearestOnLine（pop の錨＝クリック点に最寄りの線分上・経度は cos 補正）
-	const nearestOnLine = (lines, ll) => {
+	const nearestOnLine = (lines: number[][][], ll: number[]) => {
 		const k = Math.cos(ll[1] * Math.PI / 180) || 1;
-		let best = null, bd = Infinity;
+		let best: number[] | null = null, bd = Infinity;
 		for (const cs of lines) for (let i = 0; i + 1 < cs.length; i++) {
 			const ax = cs[i][0] * k, ay = cs[i][1], bx = cs[i + 1][0] * k, by = cs[i + 1][1];
 			const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
@@ -105,13 +119,13 @@ export function createAnno(map, { signal } = {}) {
 		const raw = tip != null && tip !== "" ? String(tip) : null;
 		if (raw === tipRaw) return;   // 自分の tip が変わらない間は共有の tip 箱に触らない（毎 move の null 上書きが、器の頁の tip＝world の州名/国名を消していた・2026-09-23）
 		tipRaw = raw; tipClean = raw == null ? null : sanitizeHTML(raw);   // 内容変化時だけ消毒
-		tipSet ??= map.gadget.tip();
+		tipSet ??= map.gadget.tip() as unknown as TipSet;
 		tipSet(tipClean);
 	}, { signal, passive: true });
-	let downXY = null;
+	let downXY: number[] | null = null;
 	mapEl.addEventListener("pointerdown", e => { downXY = localXY(e); }, { signal, passive: true });
 	mapEl.addEventListener("click", e => {   // @pop＝クリックで開く（ビューアは通常クリック＝本人裁定）。×は閉じるだけ
-		if (!items.length || e.target.tagName !== "CANVAS") return;   // pop箱やUI上のクリックは素通し
+		if (!items.length || (e.target as Element).tagName !== "CANVAS") return;   // pop箱やUI上のクリックは素通し
 		const [x, y] = localXY(e);
 		if (downXY && Math.hypot(x - downXY[0], y - downXY[1]) >= 4) return;   // ドラッグ＝パン
 		const ll = map.unprojectXY(x, y);
@@ -119,12 +133,12 @@ export function createAnno(map, { signal } = {}) {
 		const fid = symbolAt(x, y) ?? identify(ll[0], ll[1]);
 		const it = fid != null ? items[fid] : null;
 		const pop = it?.p["@pop"];
-		if (pop == null || pop === "" || openedPops.has(fid)) return;
+		if (pop == null || pop === "" || openedPops.has(fid!)) return;
 		// 参照点＝点:座標・線:クリック点に最寄りの線分上・面:クリック点そのもの（geoedit と同じ規約）
-		const a = it.pts ? it.pts[0] : it.lines ? (nearestOnLine(it.lines, ll) || ll) : ll;
-		popFn ??= map.gadget.pop();
-		const div = popFn(sanitizeHTML(pop), { lng: a[0], lat: a[1], x, y, hideOffscreen: true, onClose: () => { openedPops.delete(fid); div._remove?.(); } });
-		if (div) openedPops.set(fid, div);
+		const a = it!.pts ? it!.pts[0] : it!.lines ? (nearestOnLine(it!.lines, ll) || ll) : ll;
+		popFn ??= map.gadget.pop() as PopFn;
+		const div = popFn(sanitizeHTML(pop), { lng: a[0], lat: a[1], x, y, hideOffscreen: true, onClose: () => { openedPops.delete(fid!); div!._remove?.(); } });
+		if (div) openedPops.set(fid!, div);
 	}, { signal });
 
 	signal?.addEventListener("abort", () => { clearPops(); ov.remove(); });

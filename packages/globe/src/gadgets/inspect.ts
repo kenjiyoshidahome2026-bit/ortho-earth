@@ -6,7 +6,7 @@
 // 公式との違い＝公式は検査用の style を丸ごと作って差し替える。こちらは地図の内側（globe.js の inspectView）が基図・利用者の層・世界の帯を伏せ、
 // 検査の層を利用者の層として足す（vector＝vtdraw・geojson＝gint）＝戻すと焼き直しなしで元の絵。問い合わせは非同期（queryRenderedFeatures）。
 // 地図の内側から受け取る物（抽象アクセス）：listSources()＝層の台帳・view.set(on, { background })＝下地・canvas／evXY＝ポインタの座標。
-import { Popup } from "./marker.js";
+import { Popup } from "./marker.ts";
 import { INSPECT_ICON } from "./inspect-stub.ts";
 import { tr } from "../i18n.js";
 import type { InspectHandle, InspectOptions, InspectSource, MapLibreLayer, QueryOptions, RenderedFeature } from "../../globe.d.ts";

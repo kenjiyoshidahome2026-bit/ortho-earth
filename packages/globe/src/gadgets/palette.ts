@@ -8,15 +8,28 @@
 // 兼 requestSnapshot 非注入時のフォールバック。
 // テーマの語彙（並び・短名・見本色）はここが持つ（chips.js が主題の語彙を持つのと同じ流儀）。★テーマ追加時はここにも1行。
 import { gadgetStack } from "./stack.ts";
-import { composeLayersToCanvas } from "./compose.js";
+import { composeLayersToCanvas } from "./compose.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** テーマ台帳の 1 行（k＝c= の名・name＝表示名の訳の鍵・残り＝見本色） */
+type Theme = { k: string; name: string; paper: string; ink: string; water: string; water2: string; bldg: string; roads: string[]; contour: string; admin: string };
+/** requestSnapshot の答え（生スナップ {W,H,render}） */
+type Snapshot = Awaited<ReturnType<GlobeMap["requestSnapshot"]>>;
+/** palette の opts（current＝今のテーマ・onPick＝切替・requestSnapshot＝見本の実写・btn＝stub が作ったボタン） */
+export interface PaletteOpts {
+	current?: string; onPick?: (name: string) => unknown; requestSnapshot?: () => Promise<unknown>; getZoom?: () => number; getCurrent?: () => string;
+	signal?: AbortSignal; btn?: HTMLButtonElement; [k: string]: unknown;
+}
+/** 本体の手綱（open＝見本を撮り直して開く・close） */
+export interface PaletteBody { open(): void; close(): void }
 
 // 見本色＝palettes.js / style-*.js の実色（paper=紙・ink=注記・water=海(WA一律)・water2=水系点火(WA面/河川)・
 // bldg=建物・roads=[幹線1, 幹線2, 一般]・contour=等高線・admin=界線）。地図に見える最小構成の色だけ持つ。
 // ★実色写像（remapTheme）の分類語彙も兼ねる＝代表値でなく style-*.js の実色そのままにする事
 // （水色をずらすと海が「幹線2の淡青」に最近傍で吸われ、地理院見本の海がオレンジ #e69212 になる実害があった）。
-const THEMES = [
+const THEMES: Theme[] = [
 	{ k: "mono", name: "Blank map", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
 	{ k: "dark", name: "Dark", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
 	{ k: "topo", name: "Topographic", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
@@ -31,7 +44,7 @@ const THEMES = [
 const LIVE_MIN_Z = 9;
 
 // 簡易マップの見本（120×84）：紙→水→等高線→建物→道路→界線 の順に、その気配だけを描く。色は t で差し替わる。
-const sampleSVG = t => `<svg viewBox="0 0 120 84" preserveAspectRatio="none" aria-hidden="true">
+const sampleSVG = (t: Theme) => `<svg viewBox="0 0 120 84" preserveAspectRatio="none" aria-hidden="true">
 	<rect width="120" height="84" fill="${t.paper}"/>
 	<path d="M0,84 L0,50 C16,55 29,66 33,84 Z" fill="${t.water}"/>
 	<path d="M33,84 C40,63 60,57 67,40 C71,29 85,24 97,13" fill="none" stroke="${t.water}" stroke-width="3" stroke-linecap="round" opacity=".9"/>
@@ -51,10 +64,10 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 	<circle cx="12" cy="9" r="5"/><circle cx="9" cy="15" r="5"/><circle cx="15" cy="15" r="5"/></svg>`;
 
 // --- 見本の実写化：現在視点のスナップショットを、テーマ台帳の代表色で別テーマの色へ写像する ---
-const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const hex2rgb = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 // テーマの色クラス（分類の語彙）＝見本色そのもの＋宇宙(黒)。宇宙は全テーマ共通＝写像しても黒のまま
 // （dark の紙は黒に近い＝この行が無いと低ズームの宇宙が「紙」に分類され、明テーマの見本で白い宇宙になる）。
-const classesOf = t => [t.paper, t.ink, t.water, t.water2, t.bldg, ...t.roads, t.contour, t.admin].map(hex2rgb).concat([[0, 0, 0]]);
+const classesOf = (t: Theme) => [t.paper, t.ink, t.water, t.water2, t.bldg, ...t.roads, t.contour, t.admin].map(hex2rgb).concat([[0, 0, 0]]);
 // 色域写像：各画素を from の最近傍クラスに分類→ to の対応色へ「比率転写」out = to × (px / from)。
 // 比率＝陰影(hillshade・建物の面)は乗算的な暗まりなので、暗い紙のテーマへも陰影の向きが正しく移る（差分転写だと夜で破綻）。
 // 距離には彩度差の罰則を足す＝無彩色（陰影・昼夜のグラデ）が有彩色クラス（等高線茶など）へ落ちない
@@ -63,7 +76,7 @@ const classesOf = t => [t.paper, t.ink, t.water, t.water2, t.bldg, ...t.roads, t
 // ★写像は「原寸」で呼ぶ事（縮小は写像の後）：縮小平均で生まれる中間色（道路網×紙のモアレ灰）は
 //   どのクラスでもない混色＝先に縮めると誤分類が面で増幅される（東京の街区が地理院見本で一面オレンジになった）。
 // 原寸のコストは 15bit 量子化LUTで吸収（地図の色数は少ない＝初出だけ分類し、以後は表引き。誤差は縮小で消える粒度）。
-function remapTheme(img, from, to) {
+function remapTheme(img: ImageData, from: Theme, to: Theme) {
 	const A = classesOf(from), B = classesOf(to), n = img.data.length, s = img.data;
 	const satA = A.map(c => Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]));
 	const out = new ImageData(img.width, img.height), d = out.data;
@@ -81,7 +94,7 @@ function remapTheme(img, from, to) {
 					dd = dr * dr + dg * dg + db * db + 2 * ds * ds;
 				if (dd < bd) { bd = dd; bi = k; }
 			}
-			let or, og, ob;
+			let or: number, og: number, ob: number;
 			if (bd > TH) { or = r; og = g; ob = b; }
 			else {
 				const a = A[bi], t = B[bi];
@@ -105,7 +118,7 @@ function remapTheme(img, from, to) {
 // クラスからも遠く原色素通し＝旧テーマの絵のまま）。デモの幕替わり・ハッシュ手編集の外部切替も同根。
 // 判定＝画素を等間引きで~4千点採取し、各テーマの色クラス集合への最近傍距離（未知色は TH でクリップ＝大気リム等が
 // 全テーマへ等しく乗り順位を狂わせない）の合計が最小のテーマ＝画面に実際に写っているテーマ。
-function detectTheme(img) {
+function detectTheme(img: ImageData) {
 	const s = img.data, n = s.length;
 	const step = Math.max(1, Math.floor(n / 4 / 4096)) * 4;   // ~4096画素の等間引き（byte stride＝4の倍数）
 	let best = THEMES[0], bd = Infinity;
@@ -128,7 +141,7 @@ function detectTheme(img) {
 
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が生き替え＝reload無し）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
-export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent, signal, btn } = {}) {
+export function palette(this: GlobeMap, { current, onPick, requestSnapshot, getZoom, getCurrent, signal, btn }: PaletteOpts = {}): PaletteBody | undefined {
 	const mapEl = this.mapEl;
 	if (!btn) {   // 直搭載（palette-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
@@ -141,8 +154,8 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	const picker = document.createElement("div");
 	picker.id = "theme-picker";
 	let curr = current;   // 現在テーマ＝生き替え(reload無し)で変わる＝pick後に更新＝見本の「自分以外」を追従させる
-	const cardHTML = th => `<button class="tp-card" data-theme="${th.k}" aria-label="${t("Switch to $1", t(th.name))}">${sampleSVG(th)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t(th.name)}</span></button>`;
-	const buildCards = () => { picker.querySelector(".tp-grid").innerHTML = THEMES.filter(t => t.k !== curr).map(cardHTML).join(""); };   // curr以外を3枚（生き替え後は reload しないので手で組み直す）
+	const cardHTML = (th: Theme) => `<button class="tp-card" data-theme="${th.k}" aria-label="${t("Switch to $1", t(th.name))}">${sampleSVG(th)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t(th.name)}</span></button>`;
+	const buildCards = () => { picker.querySelector(".tp-grid")!.innerHTML = THEMES.filter(t => t.k !== curr).map(cardHTML).join(""); };   // curr以外を3枚（生き替え後は reload しないので手で組み直す）
 	picker.innerHTML = `<div class="tp-grid"></div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
 	buildCards();
@@ -158,24 +171,24 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 		if (!canLive()) { picker.querySelectorAll(".tp-card.live").forEach(c => c.classList.remove("live")); return; }
 		shooting = true;
 		try {
-			const snap = await requestSnapshot();
+			const snap = await requestSnapshot() as Snapshot;
 			// 基図+知性のみ。注記(labels)は縮小で読めずノイズ粒になるだけ＝混ぜない（色で選ぶ見本は色だけが綺麗）。計測の線も同様。
 			const full = composeLayersToCanvas({ ...snap, render: snap.render && { ...snap.render, labels: null } });
 			// 見本＝今の視点そのまま＝画面全体を使い、カードの縦横比も画面に追従させる（--tp-ar）。
 			// 旧・横長10:7の中央切り出しは縦画面で「中央の薄い帯」だけになり実際の眺めと別物だった＝全画面を見本に。
 			const sw = snap.W, sh = snap.H, ar = sw / sh;
 			picker.style.setProperty("--tp-ar", String(ar));   // canvas も SVG もこの比で（CSS aspect-ratio）
-			const src = full.getContext("2d").getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
+			const src = full.getContext("2d")!.getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
 			const from = detectTheme(src);   // 写像元＝画面の実テーマ（curr でなく画素から推定＝切替直後の再ビルド窓でも化けない）
 			const cw = ar >= 1 ? CAP : Math.max(1, Math.round(CAP * ar));   // 長辺CAP・短辺は画面比（縦画面＝縦長カード）
 			const ch = ar >= 1 ? Math.max(1, Math.round(CAP / ar)) : CAP;
-			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d");
-			for (const card of picker.querySelectorAll(".tp-card")) {   // 現在のカード群（curr追従＝生き替えで中身が入れ替わる）
+			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d")!;
+			for (const card of picker.querySelectorAll<HTMLElement>(".tp-card")) {   // 現在のカード群（curr追従＝生き替えで中身が入れ替わる）
 				const t = THEMES.find(x => x.k === card.dataset.theme); if (!t) continue;
-				const cv = card.querySelector("canvas");
+				const cv = card.querySelector("canvas")!;
 				tctx.putImageData(remapTheme(src, from, t), 0, 0);
 				cv.width = cw; cv.height = ch;
-				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, cw, ch);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
+				cv.getContext("2d")!.drawImage(tmp, 0, 0, sw, sh, 0, 0, cw, ch);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
 				card.classList.add("live");   // 以降この開閉では実写見本（次の refresh で上書き）
 			}
 		} catch (e) { console.warn("[palette] live sample remap failed, keeping SVG sample", e); }
@@ -192,8 +205,8 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	const openSync = () => { const c = getCurrent?.(); if (c && c !== curr) { curr = c; buildCards(); } };
 	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { openSync(); syncAspect(); refresh(); } });
 	picker.addEventListener("click", e => {
-		const card = e.target.closest(".tp-card");
-		if (card) { const k = card.dataset.theme; onPick?.(k); curr = k; buildCards(); close(); }   // 生き替え＝地図を切替→現在テーマ更新→見本カード作り直し→閉じる（reloadしないので手で）
+		const card = (e.target as Element).closest<HTMLElement>(".tp-card");
+		if (card) { const k = card.dataset.theme!; onPick?.(k); curr = k; buildCards(); close(); }   // 生き替え＝地図を切替→現在テーマ更新→見本カード作り直し→閉じる（reloadしないので手で）
 		else close();                             // カード外（背景）＝取消
 	});
 	window.addEventListener("keydown", e => {   // ESC＝取消（開いている時だけ・他の Esc 消費と競合しない）

@@ -12,9 +12,9 @@ import type { DtmDecl, createGetHeight } from "@ortho-earth/core/elevation";
 import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF, Geometry } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.ts";
-import type { Aggregate } from "../gadgets/aggregate.d.ts";
-import type { GJLabels } from "../gadgets/gjlabels.d.ts";
-import type { Symbols } from "../gadgets/symbols.d.ts";
+import type { Aggregate } from "../gadgets/aggregate.ts";
+import type { GJLabels } from "../gadgets/gjlabels.ts";
+import type { Symbols } from "../gadgets/symbols.ts";
 import type { Corners } from "geopbf/edit/imagequad";
 import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, QueryReturn, RasterReturn, ShadowsReturn, StyleReturn, ToolsReturn } from "./install.ts";
 import type { GlobeInternals, GlobeMap, RegisterGadget } from "./map.ts";
@@ -232,7 +232,7 @@ export interface MeshMgr {
 	/** データ管理のモーダルを開く（建物 3D の gadget のボタン） */
 	openDb(): Promise<unknown>;
 	readonly sets: Array<{ base: string; bbox: number[]; [k: string]: unknown }>;
-	prefetch(views: unknown[], names?: string[], onProg?: (p: unknown) => void): Promise<unknown>;
+	prefetch(views: unknown[], names?: string[], onProg?: (done: number, total: number, name: string | null) => void): Promise<unknown>;   // onProg＝mesh/manager.js の runPrefetch（焼けた区の数・総数・区の名）
 	/** 区ごとの読み込みの進捗 */
 	readonly progress: Map<string, { done?: number; scan?: number }>;
 	/** これから見える区で読み込み中の物 */
@@ -242,8 +242,8 @@ export interface MeshMgr {
 }
 /** 地名検索の供給元（地域の申告の search・search.js の createSearch が引く） */
 export interface SearchProvider { query(q: string, signal?: AbortSignal): Promise<unknown>; histKey?: string; [k: string]: unknown }
-/** 計測・断面図の本体の手綱（gadgets/measure.js・profile.js）＝_update を描画ごとに呼ぶ */
-export interface ToolBody { _update?(): void; [k: string]: unknown }
+/** 計測・断面図の本体の手綱（gadgets/measure.ts・profile.ts）＝_update を描画ごとに呼ぶ */
+export interface ToolBody { _update?(): void; stop?(): void }   // stop＝道具の排他（globe.js の toolClose）
 /** POI 台帳（地域の申告の poi・起こすまでの代理） */
 export interface PoiProxy { ready(): Promise<unknown> }
 /** POI 台帳の本物（poiedit が読む分） */
