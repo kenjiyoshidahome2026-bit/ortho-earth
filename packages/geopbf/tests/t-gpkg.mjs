@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { openSqlite, parseCreate, varint } from "../src/convert/sqlite.ts";
 import { fromGeoPackage, readGeoPackage, classifyCrs, openGpkgTiles, mimeOf } from "../src/convert/gpkg.ts";
 import { existsSync } from "node:fs";

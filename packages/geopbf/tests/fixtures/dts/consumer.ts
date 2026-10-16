@@ -1,6 +1,6 @@
 // t-dts の消費者（TypeScript）＝公開面を strict で型検査する。@ts-expect-error の行は「型が効いている」ことの証（消すと tsc が落ちる）
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune, setWorkerFactory, GeoPBF } from "geopbf";
-import type { GeopbfOptions, ValidateIssue, FeatureCollection, UnPackGint, GeoPBFBase, BucketProvider, Properties } from "geopbf";
+import type { GeopbfOptions, GeopbfInput, ValidateIssue, FeatureCollection, UnPackGint, GeoPBFBase, BucketProvider, Properties, LngLat } from "geopbf";
 import { GeoPBF as CoreGeoPBF, loadGeopbf, decodeToGeojson, gunzip } from "geopbf/core";
 import { GeoPBF as BaseGeoPBF, makeKeys } from "geopbf/pbf-base";
 import Pbf from "geopbf/pbf";
@@ -47,7 +47,7 @@ async function main() {
 	const fc2: FeatureCollection = pbf.geojson;
 	const d: GeoPBF = await pbf.dissolve("name");
 	const m: GeoPBF = await pbf.map(p => ({ ...p, z: 1 }));
-	const cls: Record<string, GeoPBF> = await pbf.classify("name");
+	const cls: GeoPBF[] = await pbf.classify("name");   // 実装どおり配列（段 4・旧 .d.ts の Record は誤り）
 	const f: File | Blob | null = await pbf.shapeFile({ gz: true });
 	const cached: GeoPBF | null = await geopbfCached("k", { maxAge: 1000 });
 	const pruned = await geopbfCachePrune({ prefix: "k", maxEntries: 10 });
@@ -100,7 +100,7 @@ async function main() {
 		hitGridMode.on = false;
 		const back: ArrayBuffer = repackGintBuffer(pbf.unPackGint);
 		const again = unPackGintBuffer(back);
-		void [grid.G, owner, again?.polygonCount];
+		void [grid?.G, owner, again?.polygonCount];   // 空の stream は null（実装どおり）
 	}
 	// ── .ts の subpath（型は実装そのもの）
 	const zipped: Blob = await gzip(new Blob([bytes]));
@@ -134,3 +134,28 @@ import { GeoPBFBase as RuntimeBase } from "geopbf"; void RuntimeBase;
 // @ts-expect-error gcDistanceDeg の引数は経緯度の配列（.ts の型がそのまま効く）
 gcDistanceDeg("0,0", "1,1");
 void [p, q];
+
+// ── 器（GeoPBFBase＝"geopbf/core"・"geopbf/pbf-base" の GeoPBF）と GeoPBF（"geopbf"）は別の class（段 4・2026-10-16）
+// @ts-expect-error 器は gint() を持たない（入口の 14 個は GeoPBF だけ）
+new BaseGeoPBF().gint();
+// @ts-expect-error 器は identifyAt を持たない（拡張メソッドは GeoPBF だけ）
+new BaseGeoPBF().identifyAt(0, 0);
+// @ts-expect-error 器は classify を持たない
+new CoreGeoPBF().classify("name");
+// @ts-expect-error 器は geojsonFile を持たない
+new CoreGeoPBF().geojsonFile();
+// GeoPBF は器の上に全部を持つ（実体のメンバー）
+const full = new GeoPBF();
+const baked: Promise<GeoPBF> = full.gint();
+const hit: number | null = full.identifyAt(0, 0);
+const cen: LngLat = full.centroid(0);
+const out: Promise<File | Blob | null> = full.geojsonFile();
+const asBase2: GeoPBFBase = full;   // GeoPBF は器の部分型
+const base2: GeoPBFBase = new BaseGeoPBF();
+// @ts-expect-error 器は GeoPBF ではない（拡張メソッドが無い）
+const notFull: GeoPBF = base2;
+// 入口の入力は判別共用体（null は空の GeoPBF・Feature[]・器も受ける）
+const inputs: GeopbfInput[] = [null, undefined, "https://h/a.geopbf", "/data/a.gpx", "https://h/a.zip#x.shp", new Blob([]), fc.features, fc, base2];
+// @ts-expect-error 数は入力にならない
+const badInput: GeopbfInput = 1;
+void [baked, hit, cen, out, asBase2, notFull, inputs, badInput];

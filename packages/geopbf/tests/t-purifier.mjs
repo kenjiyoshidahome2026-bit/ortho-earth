@@ -3,9 +3,9 @@
 // A-B-A スパイクを落とす。JS 版 purifier（2026-09-16 撤去）を Rust へ移植した際に旧 JS 経路と 9 ケース byte-exact を確認済み。
 // ここでは挙動（頂点の挿入・共有・非接触は無変化）を数字で見る。
 globalThis.ImageData ??= class ImageData { };   // Node に無い（pbf-base の makeKeys が参照）＝他の検定と同じスタブ
-import { GeoPBF } from "../src/pbf.js";
-import { gint } from "../src/extension/gint.js";
-import { topology, unPackGintBuffer } from "../src/extension/topology.js";
+import { GeoPBF } from "../src/pbf.ts";
+import { gint } from "../src/extension/gint.ts";
+import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {

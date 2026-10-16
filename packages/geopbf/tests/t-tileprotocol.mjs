@@ -7,7 +7,7 @@
 // node:http でフィクスチャをメモリ配信（t-maplibre と同じ手）。CPU 経路・決定的。
 globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { bakeGint, initGintWasm } from "../src/convert/node-gint.ts";
 import { toPMTiles } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";

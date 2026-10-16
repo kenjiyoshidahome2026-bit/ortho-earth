@@ -1,7 +1,7 @@
 // t-dissolve: 同じ属性の地物の併合（extension/dissolve.js）が、型の違う値を同じ属性とみなさないこと（B7・2026-09-25）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
-import { dissolve } from "../src/extension/dissolve.js";
+import { GeoPBF } from "../src/pbf-base.ts";
+import { dissolve } from "../src/extension/dissolve.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const P = (props, c) => ({ type: "Feature", properties: props, geometry: { type: "Point", coordinates: c } });

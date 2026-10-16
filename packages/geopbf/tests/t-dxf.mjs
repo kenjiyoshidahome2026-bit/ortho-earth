@@ -4,7 +4,7 @@
 globalThis.ImageData ??= class ImageData { };
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { fromDxf, readDxf } from "../src/convert/dxf.ts";
 import { epsgToWKT } from "../src/convert/epsg.ts";
 let fails = 0;

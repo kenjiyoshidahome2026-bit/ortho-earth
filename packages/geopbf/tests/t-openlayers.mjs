@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import VectorSource from "ol/source/Vector.js";
 import GeoJSON from "ol/format/GeoJSON.js";
 import { get as getProjection } from "ol/proj.js";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { makeGeopbfLoader } from "../src/openlayers.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ

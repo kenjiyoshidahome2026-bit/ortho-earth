@@ -3,7 +3,7 @@ import { quadMapping, cornersOf, quadPolygon, placeCorners, isImageFeature, appl
 import { buildTopology } from "../../src/edit/topo-extract.ts";
 import { createModel } from "../../src/edit/model.ts";
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../../src/pbf.js";
+import { GeoPBF } from "../../src/pbf.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
