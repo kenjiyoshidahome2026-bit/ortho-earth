@@ -73,8 +73,8 @@ import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, 
 import { mountGadgets } from "./gadgets/mount.js";
 import { attributionHTML } from "./gadgets/instruments.js";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
-import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
-import { raster as rasterGadget } from "./gadgets/raster.js";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
+import { stac as stacGadget } from "./gadgets/stac-stub.ts";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
+import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
 import { globe as globeGadget } from "./gadgets/globe.js";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
@@ -2740,7 +2740,7 @@ const { scenes, readGeoData, remoteUrl, setSrcAttr, columnarOn, columnarView, co
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
 registerGadget("anno", async (_map, pbf) => {
-	const m = await import("./gadgets/anno.js");
+	const m = await import("./gadgets/anno.ts");
 	annoCtl ??= m.createAnno(map, { signal: ac.signal });
 	annoCtl.set(pbf);
 	return annoCtl;
@@ -2749,7 +2749,7 @@ registerGadget("anno", async (_map, pbf) => {
 // setCogTex は wPost 直（transfer 付き＝2048²RGBA 16MB の structured clone コピーを回避）
 let cogCtl = null;
 registerGadget("cog", async (_map, src, opts) => {
-	const m = await import("./gadgets/cog.js");
+	const m = await import("./gadgets/cog.ts");
 	cogCtl ??= m.createCog(map, {
 		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, d?.rgba?.buffer ? [d.rgba.buffer] : []),
 		fit: bb => {   // loadUserFile の fit と同じ視野幅逆解き（30%余白・真俯瞰・北向き）
