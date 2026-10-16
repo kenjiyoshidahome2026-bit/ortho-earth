@@ -1,5 +1,5 @@
 // 後処理の鎖（src/postchain.js・F3 2026-10-12）＝旧形の写し・既定・順番・enabled・知らない type・plugin の type・renderer へ渡す形
-import { normPass, normPostChain, POST_TYPES } from "../src/postchain.js";
+import { normPass, normPostChain, POST_TYPES } from "../src/postchain.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = v => JSON.stringify(v);
 ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr");

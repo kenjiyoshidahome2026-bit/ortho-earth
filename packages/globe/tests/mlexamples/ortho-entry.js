@@ -3,9 +3,9 @@
 //   ・作った地図と事象（load/style.load/idle/error）を window.__mlx に積む（本物の包み REF_WRAPPER と同じ形＝走らせ台は両側を同じ手で読む）
 //   ・時計を止める（夜面は切ってあるが、太陽の向きで変わる物を残さない）・動的解像度を止める（負荷で絵が縮まない）
 //   ・エンジンの地図（標本の projectLL・問い合わせ）を __mlx.engines に（製品の口からは出さない engineOf で）
-export * from "../../src/maplibre/index.js";
-import * as shim from "../../src/maplibre/index.js";
-import { engineOf, whenEngine } from "../../src/maplibre/map.js";
+export * from "../../src/maplibre/index.ts";
+import * as shim from "../../src/maplibre/index.ts";
+import { engineOf, whenEngine } from "../../src/maplibre/map.ts";
 
 const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [], added: [] });
 const FIXED_TIME = "2026-03-20T12:00:00Z";

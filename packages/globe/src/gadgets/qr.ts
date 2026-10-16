@@ -5,7 +5,7 @@
 // カードは常に白地＝スキャンの掟（白背景+黒モジュール+四周のクワイエットゾーン）。テーマ（夜等）に依らず白。
 import { gadgetStack } from "./stack.ts";
 import { qrEncode } from "./qrcode.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 /** 共有 QR の手綱 */

@@ -8,26 +8,28 @@
 	"exports": {
 		".": {
 			"types": "./globe.d.ts",
-			"default": "./src/globe.js"
+			"default": "./src/globe.ts"
 		},
 		"./maplibre": {
 			"types": "./maplibre.d.ts",
-			"default": "./src/maplibre/index.js"
+			"default": "./src/maplibre/index.ts"
 		},
-		"./page.js": "./src/page.js",
-		"./wiki.js": "./src/wiki.js",
-		"./i18n.js": "./src/i18n.js",
+		"./page.js": "./src/page.ts",
+		"./wiki.js": "./src/wiki.ts",
+		"./i18n.js": "./src/i18n.ts",
+		"./i18n/core.js": "./src/i18n/core.ts",
+		"./i18n/langs.js": "./src/i18n/langs.ts",
 		"./i18n/*": "./src/i18n/*",
-		"./themes.js": "./src/themes.js",
-		"./style-*.js": "./src/style-*.js",
-		"./boot/tier.js": "./src/boot/tier.js",
-		"./demo/scene-adapter.js": "./src/demo/scene-adapter.js",
-		"./worker.js": "./src/worker.js",
-		"./renderworker.js": "./src/renderworker.js",
+		"./themes.js": "./src/themes.ts",
+		"./style-*.js": "./src/style-*.ts",
+		"./boot/tier.js": "./src/boot/tier.ts",
+		"./demo/scene-adapter.js": "./src/demo/scene-adapter.ts",
+		"./worker.js": "./src/worker.ts",
+		"./renderworker.js": "./src/renderworker.ts",
 		"./mesh-loaders.js": "./src/mesh-loaders.js",
-		"./meshdecode.js": "./src/meshdecode.js",
-		"./meshq.js": "./src/meshq.js",
-		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.js",
+		"./meshdecode.js": "./src/meshdecode.ts",
+		"./meshq.js": "./src/meshq.ts",
+		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.ts",
 		"./gadgets/anno.js": "./src/gadgets/anno.ts",
 		"./gadgets/anno-draw.js": "./src/gadgets/anno-draw.ts",
 		"./gadgets/cloud.js": "./src/gadgets/cloud.ts",
@@ -40,8 +42,8 @@
 		"./scripts/*": "./scripts/*"
 	},
 	"imports": {
-		"#pointcloud-formats": "./src/pointcloud-formats-none.js",
-		"#columnar-sources": "./src/columnar/sources/builtin.js"
+		"#pointcloud-formats": "./src/pointcloud-formats-none.ts",
+		"#columnar-sources": "./src/columnar/sources/builtin.ts"
 	},
 	"dependencies": {
 		"@loaders.gl/3d-tiles": "^4.3.0",
@@ -117,19 +119,19 @@
 	"sideEffects": [
 		"*.css",
 		"*.scss",
-		"./src/worker.js",
-		"./src/renderworker.js",
-		"./src/meshworker.js",
-		"./src/meshdecoder.js",
-		"./src/gintbakeworker.js",
-		"./src/rastertiles-worker.js",
-		"./src/imagequad-worker.js",
-		"./src/iiif-worker.js",
-		"./src/copc-worker.js",
-		"./src/model-worker.js",
-		"./src/vtextrude-worker.js",
-		"./src/vtdraw-worker.js",
-		"./src/columnar/worker.js",
-		"./src/columnar/sources/builtin.js"
+		"./src/worker.ts",
+		"./src/renderworker.ts",
+		"./src/meshworker.ts",
+		"./src/meshdecoder.ts",
+		"./src/gintbakeworker.ts",
+		"./src/rastertiles-worker.ts",
+		"./src/imagequad-worker.ts",
+		"./src/iiif-worker.ts",
+		"./src/copc-worker.ts",
+		"./src/model-worker.ts",
+		"./src/vtextrude-worker.ts",
+		"./src/vtdraw-worker.ts",
+		"./src/columnar/worker.ts",
+		"./src/columnar/sources/builtin.ts"
 	]
 }

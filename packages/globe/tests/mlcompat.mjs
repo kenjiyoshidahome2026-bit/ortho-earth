@@ -10,7 +10,7 @@ import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "@ortho-earth/cor
 import { decodeDEM } from "@ortho-earth/core/internal/dem-src.ts";
 import { expandTemplate } from "@ortho-earth/core/raster-src";
 import { symbolItems, poleOf } from "../src/gadgets/symbols-core.ts";
-import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.js";
+import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.ts";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const KNOWN = JSON.parse(fs.readFileSync(path.join(DIR, "mlcompat-known.json"), "utf8")).node;
@@ -182,22 +182,22 @@ const SCENES = {
 		return [r.geojson.some(L => L.id === "cr") && !r.skipped.length, `geojson=${r.geojson.map(L => L.id)} skipped=${JSON.stringify(r.skipped)}`];
 	},
 	"color-relief-ramp-interpolate": async () => {   // 段の間は事前乗算の線形：青（不透明）と半透明の赤の中間＝(0.25, 0, 0.5, 0.75)
-		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.ts");
 		const R = reliefRamp(["interpolate", ["linear"], ["elevation"], 0, "#0000ff", 1000, "rgba(255,0,0,0.5)"]), c = reliefAt(R, 500);
 		return [deq(c.map(v => +v.toFixed(3)), [0.25, 0, 0.5, 0.75]), `500m → ${c.map(v => v.toFixed(3))}`];
 	},
 	"color-relief-ramp-clamp": async () => {   // 範囲の外は端の色
-		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.ts");
 		const R = reliefRamp(["interpolate", ["linear"], ["elevation"], 100, "#0000ff", 1000, "#ff0000"]), lo = reliefAt(R, -50), hi = reliefAt(R, 9000);
 		return [deq(lo, [0, 0, 1, 1]) && deq(hi, [1, 0, 0, 1]), `−50m → ${lo} 9000m → ${hi}`];
 	},
 	"color-relief-ramp-curve-is-linear": async () => {   // exponential でも段の間は線形（色は段の標高でだけ引く＝6.11.2）
-		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.ts");
 		const R = reliefRamp(["interpolate", ["exponential", 4], ["elevation"], 0, "#000000", 1000, "#ffffff"]), c = reliefAt(R, 500);
 		return [Math.abs(c[0] - 0.5) < 0.01 && c[3] === 1, `500m → ${c.map(v => v.toFixed(3))}`];
 	},
 	"color-relief-step-transparent": async () => {   // step・定数色は段の表が空＝透明（6.11.2）
-		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.ts");
 		const a = reliefAt(reliefRamp(["step", ["elevation"], "#0000ff", 1000, "#ff0000"]), 1500), b = reliefAt(reliefRamp("#ff0000"), 1500);
 		return [a[3] === 0 && b[3] === 0, `step → ${a} constant → ${b}`];
 	},

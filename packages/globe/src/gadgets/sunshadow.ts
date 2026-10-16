@@ -6,7 +6,7 @@
 // 計算は model 役の worker（sunshadow.js）＝画面に見えている範囲（一辺 3km まで）の建物を 1 棟ずつ接地して読み、影を升目へ数える。
 // 結果は四隅の画像として地面に貼る（map.raster の image＝ドレープ）。API＝map.sunShadow(opts)（UI なしでも使える）。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 

@@ -9,7 +9,7 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { ComposeSnapshot as Snapshot } from "./compose.ts";
 const t = tr();

@@ -3,7 +3,7 @@
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { evalExpr, normalizeMLLayer, rescaleZoomNum } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
-import { hasHeightKey } from "../extrude-keys.js";
+import { hasHeightKey } from "../extrude-keys.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Feature, GeoPBF } from "geopbf";

@@ -3,7 +3,7 @@
 //  ② 足し算の形＝親の無い節が無い・根の点は全体に散る（粗い見本）
 //  ③ 重なった点（全部同じ所）も止まる・上限の判定
 import assert from "node:assert/strict";
-import { createStore, appendRaw, buildOctree, gatherNode, wholeFileLimit, G, MIN_SPLIT, LIMIT_POINTS } from "../src/pointcloud-octree.js";
+import { createStore, appendRaw, buildOctree, gatherNode, wholeFileLimit, G, MIN_SPLIT, LIMIT_POINTS } from "../src/pointcloud-octree.ts";
 import { nodeBounds } from "@ortho-earth/tile-formats/las";
 
 let tn = 0;

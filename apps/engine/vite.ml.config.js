@@ -8,7 +8,7 @@ import { engineStale } from "../../packages/globe/scripts/lib/engine-stale.mjs";
 // ＝本体の束は一切変えず、互換の口だけを焼いて、エンジン本体は隣の ./globe.js（既存の入口＝CSS も貼る）を実行時に読む。
 // 互換の口は ../globe.js（公開の顔）しか import しない（mlshim の掟）＝そこを外部 ./globe.js に差し替えるだけで済む。
 const ROOT = resolve(import.meta.dirname, "../..");
-const FACE = resolve(ROOT, "packages/globe/src/globe.js");
+const FACE = resolve(ROOT, "packages/globe/src/globe.ts");
 const toEngineEntry = {
 	name: "engine-entry-external",
 	enforce: "pre",

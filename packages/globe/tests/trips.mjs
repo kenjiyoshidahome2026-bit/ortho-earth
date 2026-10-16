@@ -4,7 +4,7 @@
 //   ・rasterMask＝多角形を bbox の R8 画像に（中は 255・外は 0・穴・MultiPolygon・GeoJSON Feature）
 //   ・getFilterValue＝点・弧の f
 // GPU の経路は tests/t-trips.html（verify:ui）。使い方：node packages/globe/tests/trips.mjs
-import { bakeTrips, rasterMask, bakePoints, bakeArcs } from "../src/adddata.js";
+import { bakeTrips, rasterMask, bakePoints, bakeArcs } from "../src/adddata.ts";
 import { lonlatTo3D } from "@ortho-earth/core/camera";
 
 let fails = 0;

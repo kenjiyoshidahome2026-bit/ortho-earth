@@ -2,7 +2,7 @@
 // map.gadget.explain() で搭載する（v1 ortho-map の gadget 作法＝this が map）。戻り値＝内容の setter。
 // 主題の解説・お知らせなど、地図の上辺に静かに出す読み物の枠。set(html) で表示／set(null) で消す。
 // opts.permanent＝×ボタンを出さない（消せない常設）。opts.width＝最大幅(px)。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 /** 内容：HTML の文字列・null（消す）・関数（器の要素を受け取って DOM を組む） */

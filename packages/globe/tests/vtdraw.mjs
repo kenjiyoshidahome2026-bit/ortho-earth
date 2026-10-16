@@ -3,8 +3,8 @@
 // 実描画は t-mlcompat.html?g=vector。使い方：node packages/globe/tests/vtdraw.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, labelPointsOf, poleOf, liOf, USER_LI0, unitsPerPx, quantZoom, styleZoomProps } from "../src/vtops.js";
-import { classifyRings, ringArea2 } from "../src/vtmesh.js";
+import { substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, labelPointsOf, poleOf, liOf, USER_LI0, unitsPerPx, quantZoom, styleZoomProps } from "../src/vtops.ts";
+import { classifyRings, ringArea2 } from "../src/vtmesh.ts";
 import { seaFbReal } from "@ortho-earth/core/internal/scene.ts";
 import { buildTileDrawList } from "@ortho-earth/core/build";
 import { normalizeMLLayer } from "@ortho-earth/core/internal/mlstyle.ts";
@@ -87,7 +87,7 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 {
 	const replies = [];
 	globalThis.self = { postMessage: m => replies.push(m) };
-	await import("../src/vtdraw-worker.js");
+	await import("../src/vtdraw-worker.ts");
 	const buf = readFileSync(fileURLToPath(new URL("./fixtures/mlcompat/vt/13/7281/3379.pbf", import.meta.url)));
 	const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 	self.onmessage({ data: { kind: "put", id: 1, sid: "s", key: "13/7281/3379", ab } });

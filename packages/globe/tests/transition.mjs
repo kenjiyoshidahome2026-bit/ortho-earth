@@ -1,5 +1,5 @@
 // paint の transition の走者（src/transition.js・B1 2026-10-12）＝途中値・中断・連続 set・delay・色・補間しない組・優先順位
-import { createTransitions, transitionOf, interpolable, mix, EASE, PAINT_DEFAULTS } from "../src/transition.js";
+import { createTransitions, transitionOf, interpolable, mix, EASE, PAINT_DEFAULTS } from "../src/transition.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 

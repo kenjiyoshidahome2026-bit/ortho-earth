@@ -4,8 +4,8 @@
 //  ③ 速さ＝近似は 1 点ずつより速い（数字は出すだけ）
 import assert from "node:assert/strict";
 import { crsFromWKT } from "geopbf/proj";
-import { placeNode } from "../src/copc-place.js";
-import { geoWorld, earthW } from "../src/meshdecode.js";
+import { placeNode } from "../src/copc-place.ts";
+import { geoWorld, earthW } from "../src/meshdecode.ts";
 
 const VIII = `PROJCS["JGD2011 / Japan Plane Rectangular CS VIII",GEOGCS["JGD2011",DATUM["Japanese_Geodetic_Datum_2011",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",36],PARAMETER["central_meridian",138.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1]]`;
 const crs = crsFromWKT(VIII), ll = crs.toLonLat, EW = earthW(), D2R = Math.PI / 180;

@@ -4,5 +4,18 @@
 		"rootDir": "src",
 		"outDir": "dist"
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/gintbakeworker.ts",
+		"src/meshworker.ts",
+		"src/meshdecoder.ts",
+		"src/model-worker.ts",
+		"src/copc-worker.ts",
+		"src/vtextrude-worker.ts",
+		"src/worker.ts",
+		"src/renderworker.ts",
+		"src/vtdraw-worker.ts",
+		"src/rastertiles-worker.ts",
+		"src/imagequad-worker.ts",
+		"src/iiif-worker.ts",
+		"src/columnar/worker.ts"]
 }

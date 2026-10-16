@@ -8,7 +8,7 @@
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
 import type { GlobeInternals, GlobeMap, RegisterGadget, StyleApi } from "./map.ts";
-import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, ModelCtl, UserLayerRec, UserSource, WPost } from "./scope.ts";
+import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, InlineSourceLayer, ModelCtl, UserLayerRec, UserSource, WPost } from "./scope.ts";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer, queryTiles } from "@ortho-earth/core";
 import type { CameraState } from "@ortho-earth/core/camera";
@@ -16,8 +16,8 @@ import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.ts";
 import type { GJLabels } from "../gadgets/gjlabels.ts";
 import type { Symbols } from "../gadgets/symbols.ts";
 import type { FeatureCollection, GeoPBF } from "geopbf";
-import type { ScenePlayer } from "../scenes/player.d.ts";
-import type { ViewFollow } from "../featureservice.d.ts";
+import type { ScenePlayer } from "../scenes/player.ts";
+import type { ViewFollow } from "../featureservice.ts";
 import type { ColumnarLayerHandle, ColumnarLayerOptions, LonLat, OverlayHandle, OverlayPick, RasterInfo } from "../../globe.d.ts";
 
 /** readonly を外す（installer は自分の口を map に書く） */
@@ -201,7 +201,7 @@ export interface StyleReturn {
 	/** addSource の中身（dz＝この source の層のズームの目盛り・内部は 0 を明示）。spec＝addSource の spec か style.json の source */
 	addSourceAt(id: string, spec: UserSource, dz: number): GlobeMap;
 	/** addLayer の中身（dz を明示）。層＝addLayer の層か style.json の層（source に object も＝その id で source を足す） */
-	addLayerAt(layer: MLLayer, beforeId: string | null | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
+	addLayerAt(layer: MLLayer | InlineSourceLayer, beforeId: string | null | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
 }
 export type QueryLive = LiveOf<never, "MAP_GS" | "aggCtl" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
 export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "TERR_EXAG" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"

@@ -1,5 +1,5 @@
 // glTF の見出し（src/gltf-meta.js・F4 2026-10-12）＝アニメの長さ・名前の既定・テクスチャ形式・feature ID・再生 spec の正規化
-import { gltfMeta, normAnimation, rawGltfJson } from "../src/gltf-meta.js";
+import { gltfMeta, normAnimation, rawGltfJson } from "../src/gltf-meta.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = v => JSON.stringify(v);
 const json = {
