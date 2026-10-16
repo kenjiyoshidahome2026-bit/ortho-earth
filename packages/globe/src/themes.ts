@@ -6,7 +6,7 @@ import type { MLLayer } from "@ortho-earth/core";
 /** 主題チップの状態（opts.layers／URL l= の公開語彙） */
 export interface LayerState { place: boolean; terrain: boolean; rail: boolean; road: boolean; facility: boolean; [k: string]: boolean }
 /** 注記 1 件（code＝分類コード・text＝文字） */
-export interface ThemeLabel { code: number; text: string; [k: string]: unknown }
+export interface ThemeLabel { code: number; text: string }
 /** createThemes の戻り＝点火層の隠す添字・注記の allowlist */
 export interface Themes {
 	hiddenLi(layerState: LayerState, zoom: number): Set<number>;

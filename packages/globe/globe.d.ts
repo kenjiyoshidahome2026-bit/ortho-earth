@@ -1142,6 +1142,9 @@ export interface GeoPBF {
 	readonly geojson: { type: "FeatureCollection"; features: GeoPBFFeature[]; bbox?: number[] };
 	/** フィーチャ数 */
 	readonly length: number;
+	/** feature i（fid）の地物／属性（addGint の層はこれで当たりの properties を引く） */
+	getFeature(i: number): GeoPBFFeature;
+	getProperties(i: number): Record<string, any> | null;
 	/** feature i のジオメトリ型（"Point"…"MultiPolygon"）。引数なし＝全件の配列 */
 	getType(i: number): string;
 	getType(): string[];

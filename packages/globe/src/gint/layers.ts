@@ -23,7 +23,7 @@ import type { WorldStyleTheme } from "@ortho-earth/core/worldstyle";
 import type { GintBakeResponse } from "@ortho-earth/core/internal/worker-msg.ts";
 import type { GlobeInternals } from "../types/map.ts";
 import type { DebugHost } from "../types/scope.ts";
-import type { GintDrawStyle } from "../../globe.d.ts";
+import type { GintDrawStyle, GintPaint } from "../../globe.d.ts";
 
 /** gint の積荷（unPackGint 一式・admin0 は fillOff 強制の写し＝欄の一部だけ） */
 type GintPayload = Partial<UnPackGint>;
@@ -44,12 +44,19 @@ type FidRow = { properties: Record<string, unknown>; geometry: { type: string } 
 /** fid 表（u32 × 4 / fid）と、診断の印 */
 interface GintPaintMsg { table: Uint32Array; count: number; overlap?: boolean }
 /** text-field（式・文字列・関数） */
-type GintTextField = unknown[] | string | ((props: Record<string, unknown>) => unknown);
+type GintTextField = unknown[] | string | number | boolean | ((props: Record<string, unknown>) => unknown);
 /** ラベル（text-field 相当）の指定 */
 interface GintLabelOpt { field?: GintTextField; size?: number; color?: string; halo?: string; haloW?: number; sort?: number; minZoom?: number | null; maxZoom?: number | null; [k: string]: unknown }
 /** 層の出来事（hover／mouseenter＝{fid, properties}・mouseleave＝{fid}・click＝lngLat つき・hover の外れ＝null） */
-type GintLayerEvent = { fid: number; properties?: Record<string, unknown> | null; lngLat?: [number, number] } | null;
-type GintLayerCb = (e: GintLayerEvent) => void;
+interface GintLayerEvents {
+	hover: { fid: number; properties: Record<string, unknown> | null } | null;
+	mouseenter: { fid: number; properties: Record<string, unknown> | null };
+	mouseleave: { fid: number };
+	click: { fid: number; properties: Record<string, unknown> | null; lngLat: [number, number] };
+}
+type GintLayerHandlers = { [K in keyof GintLayerEvents]: Array<(e: GintLayerEvents[K]) => void> };
+/** 単一スロットのクリックの受け口（map.onGintClick）＝外れ（featureId＝null）でも呼ぶ・properties は当たりの時だけ */
+type GintClickFn = (fid: number | null, properties: Record<string, unknown> | null | undefined, lngLat: [number, number]) => void;
 /** render worker の ack（gint 多層の 1 通） */
 interface GintAck { cmd?: string; seq?: number; error?: string; minZoom?: number | null; maxZoom?: number | null; table?: Uint32Array }
 /** addGint の opts（公開の GintLayerOptions ＋ 中の口） */
@@ -78,7 +85,7 @@ export interface GintLayerH {
 	_hover(d: { featureId?: number | null }): void;
 	_zoomReeval(z: number): void;
 	_click(d: { featureId: number; lng: number; lat: number }): void;
-	on(ev: string, cb: GintLayerCb): GintLayerH;
+	on<K extends keyof GintLayerEvents>(ev: K, cb: (e: GintLayerEvents[K]) => void): GintLayerH;
 	query(ll: readonly number[]): { fid: number; properties: Record<string, unknown> | null } | null;
 	setPaint(paint: Record<string, unknown> | null, ...rest: unknown[]): Promise<void>;
 	setFeatureState(fid: number, st: Record<string, unknown> | null | undefined): void;
@@ -150,9 +157,9 @@ let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip: ((rows: string[] | null) => void) | null = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
-let lastHoverXY: unknown = null;    // 直近ホバー座標（estat が町丁目ミス＝市区町村外の時に gint ホバーへフォールバックする用）
+let lastHoverXY: [number, number] | null = null;    // 直近ホバー座標（estat が町丁目ミス＝市区町村外の時に gint ホバーへフォールバックする用）
 let extTipOwn = false;   // 町丁目tip表示中＝gint識別ackにtipを触らせない（gintLeaveのnull-ackで消える/古いmove-ackで上書きされるレース封じ）。census経路のみ立つ＝デモ不変
-let gintClickHandler: unknown = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
+let gintClickHandler: GintClickFn | null = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
 canvas.addEventListener("pointerleave", () => {
 	wPost({ type: "gintLeave" });
 	// smallAreaHover（census2020限定）＝町丁目ホバーの太線/名前tipも掃除（ポインタが地図外へ出た時の残留防止）。
@@ -378,11 +385,11 @@ dbgHost.__budget = (n: number | null | undefined) => {
 	sendGintStyle(); requestDraw();
 	console.log("[budget] moveBudget=%s", n ?? "default(250k)");
 };
-async function paintGint(paint: Record<string, unknown> | null | undefined, filter: unknown = null) {
+async function paintGint(paint: GintPaint | Record<string, unknown> | null | undefined, filter: unknown = null) {
 	if (!paint) { sendGintPaint(null); requestDraw(); return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
 	if (!feats) { console.warn("[paint] user gint layer not loaded (drop a file or map.applyGintData first)"); return; }
-	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
+	const { u32, count } = buildFidStyle(paint as Record<string, unknown>, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });
 	requestDraw();
 	console.log(`[paint] applied to ${count} features`);
@@ -412,7 +419,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 	const ackQ: ((ok: boolean) => void)[] = [];
 	const nextAck = () => new Promise<boolean>(res => ackQ.push(res));
 	const ready = nextAck();
-	const handlers: Record<string, GintLayerCb[]> = { hover: [], click: [], mouseenter: [], mouseleave: [] };   // mouseenter/leave＝MapLibre 同名の糖衣（hover の縁で発火）
+	const handlers: GintLayerHandlers = { hover: [], click: [], mouseenter: [], mouseleave: [] };   // mouseenter/leave＝MapLibre 同名の糖衣（hover の縁で発火）
 	let lastHovFid: number | null = null;
 	let lastPaint: Record<string, unknown> | null = null, lastFilter: unknown = null, zoomDriven = false, lastEvalZoom: number | null = null, lastZoomKey: unknown = null;
 	// opts.buildTable＝表の組み立ての差し替え（MapLibre の層＝mltables の buildMLTable・台帳 R5）。paint/filter の代わりにこれで表を作る
@@ -484,7 +491,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 			const nf = f?.fid ?? null;   // mouseenter/leave＝当たりの縁だけ発火（MapLibre 移住者の耳に馴染む形）
 			if (nf !== lastHovFid) {
 				if (lastHovFid != null) for (const cb of handlers.mouseleave) cb({ fid: lastHovFid });
-				if (nf != null) for (const cb of handlers.mouseenter) cb(f);
+				if (nf != null) for (const cb of handlers.mouseenter) cb(f!);
 				lastHovFid = nf;
 			}
 			if (tipFmt && gintHoverTip && !extTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
@@ -952,10 +959,10 @@ return {
 	get visible() { return gintVisible; }, set visible(v: boolean) { gintVisible = v; },
 	get drapedOn() { return drapedOn; },
 	get hoverTip() { return gintHoverTip; }, set hoverTip(fn: ((rows: string[] | null) => void) | null) { gintHoverTip = fn; },
-	get lastHoverXY() { return lastHoverXY; }, set lastHoverXY(v: unknown) { lastHoverXY = v; },
+	get lastHoverXY() { return lastHoverXY; }, set lastHoverXY(v: [number, number] | null) { lastHoverXY = v; },
 	get extTipOwn() { return extTipOwn; }, set extTipOwn(v: boolean) { extTipOwn = v; },
 	repaintWorldLines,   // テーマ切替（globe.js switchTheme）＝世界線の色を正本の新テーマで引き直す
-	get clickHandler() { return gintClickHandler; }, set clickHandler(fn: unknown) { gintClickHandler = fn; },
+	get clickHandler() { return gintClickHandler; }, set clickHandler(fn: GintClickFn | null) { gintClickHandler = fn; },
 	get worldTipOn() { return worldTipOn; }, set worldTipOn(v: boolean) { worldTipOn = v; },
 	get suppressAdmin0() { return suppressAdmin0; }, set suppressAdmin0(v: boolean) { suppressAdmin0 = v; },
 	// 地球儀の内部層をまとめて伏せる／戻す（検査表示 #174）。国名 tip も伏せている間は出さない（呼び手の門が internalHidden を読む）

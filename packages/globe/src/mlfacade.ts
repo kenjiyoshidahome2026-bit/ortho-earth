@@ -6,6 +6,7 @@
 // 内部（ガジェット・地域パック・worldcontent）は素の map を握ったまま＝エンジンの z（ガジェットは func.apply(素の map)）。
 // 換算の表＝zoomscale.js（ここはその表の「in/out/io/event」を実装する）。shiftZoomExpr は core の物を呼び手（globe.js）が渡す＝このファイルは import が zoomscale.js だけ＝node で検定できる。
 import { RAW, zIn, zOut, GADGET_MEMBERS } from "./zoomscale.ts";
+import type { GadgetZoomClass } from "./zoomscale.ts";
 
 // 顔は素の map のメンバーを名前で呼ぶだけ（引数は利用者の物をそのまま流す）＝ここでの map は「名前 → 関数」の緩い形で読む
 type Call = { call(...args: unknown[]): unknown }["call"];   // 引数は双変（名前で引いた口に利用者の引数を流す）
@@ -102,7 +103,7 @@ export function createFacade(raw: RawMap, dz: number, { shiftZoomExpr }: FacadeO
 	const itemsIn = (items: unknown): unknown => typeof items === "function" ? (c: object) => itemsIn((items as Call)({ ...c, map: facade }))
 		: Array.isArray(items) ? items.map(it => it && typeof it.onClick === "function" ? { ...it, onClick: (c: object) => it.onClick({ ...c, map: facade }) } : it) : items;
 	function gadgetArgsIn(name: string, args: unknown[]) {
-		const spec = GADGET_MEMBERS[name], a = [...args] as Array<Record<string, unknown> | null | undefined>;
+		const spec = GADGET_MEMBERS[name] as GadgetZoomClass & { opts?: string[]; arg?: number }, a = [...args] as Array<Record<string, unknown> | null | undefined>;   // 文字列の分類（"none"）の .opts／.arg は undefined
 		if (spec !== "layer" && spec !== "engine") {
 			const o0 = a[0];
 			if (o0 && typeof o0 === "object" && Array.isArray(o0.zoom)) a[0] = { ...o0, zoom: o0.zoom.map(zi) };   // 表示帯 zoom:[zmin, zmax)（全ガジェット共通の宣言）

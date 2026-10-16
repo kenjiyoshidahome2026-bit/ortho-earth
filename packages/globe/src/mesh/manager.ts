@@ -37,6 +37,8 @@ import type { MeshDbCached, MeshDbOpts } from "../meshdb.ts";
 export interface MeshSet { name: string; base: string; bbox: number[]; noMask?: boolean; clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; [k: string]: unknown }
 /** 読込進捗の 1 区（scan＝カタログ走査中の枚数・done/total＝タイル・stall＝見張りの理由） */
 export interface MeshProgEntry { name: string; scan?: number; done?: number; total?: number; stall?: string }
+/** 読込進捗の中継口（setProgressTap・シーン再生の待ちパネル・null＝外す） */
+export type MeshProgressTap = (() => void) | null;
 /** 区 worker のロードの ack（"cancelled"＝視野離脱の協調キャンセル・"demoted"＝slow のまま完走） */
 type WorkerAck = boolean | "cancelled" | "demoted";
 /** 先読みの進捗（done／total 区・name＝焼けた区の名・最初の 1 回は null） */
@@ -72,7 +74,7 @@ export interface MeshManager {
 	trimForScript(views: unknown[]): void;
 	firstRevealSets(views: Array<string | ParsedView> | null | undefined): MeshSet[];
 	setExcludeMap(map: Record<string, string[]> | null): void;
-	setProgressTap(fn: (() => void) | null): void;
+	setProgressTap(fn: MeshProgressTap): void;
 	terminate(): void;
 	readonly sets: MeshSet[];
 	readonly progress: Map<string, MeshProgEntry>;
@@ -341,7 +343,7 @@ const meshEl = document.createElement("div");
 meshEl.id = "plateau-toast";   // スタイルは quiet-mono。左下ドック＝elev-toast の上へ積まれる
 dockStack(mapEl).append(meshEl);
 const meshProg = new Map<string, MeshProgEntry>();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
-let sceneProgTap: (() => void) | null = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderMeshProg より先＝初期化中の worker 便で TDZ を踏まない）
+let sceneProgTap: MeshProgressTap = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderMeshProg より先＝初期化中の worker 便で TDZ を踏まない）
 // 市区町村ごとに 1 行＝名前・プログレスバー・枚数（本人指定 9/8）。待ち行列の区は「待機」行（バー空）。
 const escHtml = (s: unknown) => String(s).replace(/[&<>"]/g, c => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" } as Record<string, string>)[c]));
 function renderMeshProg() {

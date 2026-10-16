@@ -658,7 +658,7 @@ for (const h of HANDLERS) Object.defineProperty(Map.prototype, h, { get() { retu
 // Marker／Popup＝エンジンの部品に、通訳の地図と LngLat の受け渡しだけを足す（準備前の addTo は準備を待って載せる）
 export class Marker extends OrthoMarker {
 	constructor(options?: MarkerOptions | HTMLElement, legacy?: MarkerOptions) { super(typeof HTMLElement !== "undefined" && options instanceof HTMLElement ? { ...legacy, element: options } : options); }
-	addTo(map: Map | GlobeMap): this {
+	addTo(map: Map | Parameters<OrthoMarker["addTo"]>[0]): this {
 		const st = S.get(map);
 		if (!st) return super.addTo(map as GlobeMap);
 		if (!st.inert) onEngine(st, eng => super.addTo(eng));
@@ -668,7 +668,7 @@ export class Marker extends OrthoMarker {
 	getLngLat(): LngLat | null { const v = super.getLngLat(); return v ? LngLat.convert(v) : v; }
 }
 export class Popup extends OrthoPopup {
-	addTo(map: Map | GlobeMap): this {
+	addTo(map: Map | Parameters<OrthoPopup["addTo"]>[0]): this {
 		const st = S.get(map);
 		if (!st) return super.addTo(map as GlobeMap);
 		if (!st.inert) onEngine(st, eng => super.addTo(eng));

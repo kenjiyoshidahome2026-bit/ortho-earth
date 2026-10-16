@@ -12,7 +12,7 @@ import type { BaseMapStyle } from "./style-mono.ts";
 
 type RGB = [number, number, number];
 /** アーカイブの宣言（PMTiles の metadata の層名と持っているズーム） */
-export interface PmInfo { layers?: string[] | null; maxZoom?: number | null; [k: string]: unknown }
+export interface PmInfo { layers?: string[] | null; maxZoom?: number | null }
 
 const hex2rgb = (h: string | null | undefined): RGB | null => {
 	const s = String(h || "").replace("#", "");
