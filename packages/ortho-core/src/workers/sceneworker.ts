@@ -274,7 +274,7 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（evict同期後は出ないはず）。
 			// md モードでは常駐後に CPU 側を解放している＝「geom または res に居る」が正常。
 			const missing = m.order.filter(o => !geom.has(o.key) && !(md && md.res.has(o.key)));
-			if (missing.length) console.warn(`[scene] merge ${m.slot}: geometry missing ${missing.length}/${m.order.length} e.g.:`, missing.slice(0, 6).map(o => o.key).join(" "), `(held ${geom.size})`);
+			if (missing.length) console.warn("[scene] merge", `${m.slot}: geometry missing ${missing.length}/${m.order.length} e.g.:`, missing.slice(0, 6).map(o => o.key).join(" "), `(held ${geom.size})`);
 			if (md) {
 				// multi_draw：draw list を組むだけ（新規タイルのみ up が先行）。up/dl は同一ポートの FIFO＝追い越しなし。
 				// ack はここで返さない：dl はアップロード渋滞の数フレーム後に適用され得るので、「ackされた＝画面に
@@ -297,7 +297,7 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 				self.postMessage({ type: "merged", slot: m.slot, sig: m.sig } satisfies SceneResponse);   // ack＝main が sig を確定（fallback＝適用は次フレーム）
 			}
 		} catch (err) {
-			console.error(`[scene] merge ${m.slot} failed (no ack -> main will re-request):`, err && ((err as Error).message || err));
+			console.error("[scene] merge", `${m.slot} failed (no ack -> main will re-request):`, err && ((err as Error).message || err));
 		}
 	}
 };
