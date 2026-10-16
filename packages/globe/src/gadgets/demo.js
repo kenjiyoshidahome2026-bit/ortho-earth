@@ -38,8 +38,8 @@
 // タイトル/歩数のクリック＝シーン一覧（目次）がバーの真上にポップ→クリックでジャンプ（Esc/枠外クリック=一覧だけ閉じる）。
 // デモ中も地図は生きたまま（掴めば飛行は中断＝主導権は常に人・›でいつでも台本に復帰）＝ビデオでない証明が最大の演出。
 // キーボードの地図操作（矢印パン等）はデモ中だけ止める＝keys.js の MODAL_SELECTORS に #demo-bar.on を登録済み。
-import { gadgetStack } from "./stack.js";
-import { isTypingTarget } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { isTypingTarget } from "./keys.ts";
 import { compileVias } from "../demo/scene-adapter.js";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
 import { tr, getLang } from "../i18n.js";
 const t = tr();

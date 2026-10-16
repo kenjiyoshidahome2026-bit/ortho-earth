@@ -7,7 +7,7 @@
 // ※ 契約：本体到着後はファサードのメソッドを本体への「同期」直接委譲へ差し替える＝マウントを待って
 //   （ready/一拍後に）呼ぶ現実の使い方では元の同期契約そのまま（h.next() が即座に効く）。到着前の呼び出し
 //   だけ Promise で待ち合わせる保険。本番はバーのボタン駆動＝本体を直に叩くので、この差し替えは主にAPI利用者向け。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { ICON } from "./demo-icon.js";
 import { tr } from "../i18n.js";
 const t = tr();

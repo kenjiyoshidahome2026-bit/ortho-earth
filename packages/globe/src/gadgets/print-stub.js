@@ -2,8 +2,8 @@
 // 本体（組版・経緯線・PDFライタ・モーダル＝print.js）は初回起動時に import()＝初期バンドルから隔離。
 // 印刷は「使う人が使う時に一度だけ」の機能＝起動の一瞬に載せない。搭載APIは従来どおり map.gadget.print()。
 // 本体が搭載されると同じボタンへ自前のリスナーを付け直し、スタブ側は abort で退場（二重発火なし）。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

@@ -7,7 +7,7 @@
 // 幾何：頂点は経緯度で持ち線は大圏弧で球に追従（measure と同流儀）。距離は WGS84（geodesicDistance）＝数字だけ楕円体。
 // グラフ：縦軸基準（最低標高/0m）切替・縦横比（縦誇張）表示・ホバーで地図上に対応点マーカー・PNG/GeoJSON保存。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal・cut／canCut（3D で切る＝#111・WebGPU の時だけ）。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { geodesicDistance } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();

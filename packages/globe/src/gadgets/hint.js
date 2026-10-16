@@ -1,7 +1,7 @@
 // ガジェット：操作方法カード＋「?」ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.hint() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOMと挙動をここで完結。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 export function hint({ signal, onOpen } = {}) {   // onOpen＝カードを開いた瞬間の合図（globe の「道具の排他」＝計測・日影などを閉じる）

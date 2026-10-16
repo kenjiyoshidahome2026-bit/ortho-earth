@@ -7,7 +7,7 @@
 // 陰影・アンチエイリアスを保ったまま色だけ着せ替え）して3枚に増やす。SVG簡易マップは撮影が来るまでの即時プレースホルダ
 // 兼 requestSnapshot 非注入時のフォールバック。
 // テーマの語彙（並び・短名・見本色）はここが持つ（chips.js が主題の語彙を持つのと同じ流儀）。★テーマ追加時はここにも1行。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { composeLayersToCanvas } from "./compose.js";
 import { tr } from "../i18n.js";
 const t = tr();

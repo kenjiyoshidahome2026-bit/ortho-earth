@@ -7,7 +7,7 @@
 //   内容は画面と同じ点火状態（地名〜施設のチップ定義どおり）＝撮影は本体注入の capture がライブパイプラインを
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
-import { keyBusy } from "./keys.js";
+import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.js";
 import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
 import { tr } from "../i18n.js";

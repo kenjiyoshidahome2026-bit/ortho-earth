@@ -7,8 +7,8 @@
 // 世界と外の geocoder の中身は初めて問い合わせた時に import()＝搭載だけなら初期バンドルも索引も読まない。
 // ヒット→ opts.onResult(hit)・onGo(lon, lat, zoom, tilt)（既定＝球面フライト）。範囲（bbox）の候補は地図の cameraForBounds で倍率を出す。
 import { createSearch } from "../search.js";
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 // 中身を初めて使う時に import する供給元（窓の搭載は同期のまま）

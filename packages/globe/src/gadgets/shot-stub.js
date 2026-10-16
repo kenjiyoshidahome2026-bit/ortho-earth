@@ -2,8 +2,8 @@
 //   ボタンも作らず本体も import しない＝本体(shot.js＝層合成/webp化/出典焼込・5.7KB)がモバイルの死荷重にならない。
 // デスクトップはボタンと ⌘/Ctrl+S だけ常駐、本体は初回クリック/⌘Sで一度だけ import()＝初期バンドルから隔離（print と同型）。
 // 本体到着後は同じボタンへ本体のリスナーが付き、スタブは abort で退場（二重発火なし）。搭載APIは従来どおり map.gadget.shot()。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

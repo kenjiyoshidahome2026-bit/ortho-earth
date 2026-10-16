@@ -3,7 +3,7 @@
 //   PLATEAU の名シーンや任意座標系の14条筆など、URLに載る状態は全部そのまま渡る（[[url-display-state-consolidation]] の map.view/hash が土台）。
 // QR は自作エンコーダ（qrcode.js・依存ゼロ・byteモード・EC L/M/Q/H 自動・v1〜6）。URLが短いほど強い訂正を自動採用＝中央の印を大きく置ける。
 // カードは常に白地＝スキャンの掟（白背景+黒モジュール+四周のクワイエットゾーン）。テーマ（夜等）に依らず白。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { qrEncode } from "./qrcode.js";
 import { tr } from "../i18n.js";
 const t = tr();

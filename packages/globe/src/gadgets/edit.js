@@ -3,7 +3,7 @@
 // 終わり＝エディタのツールバー右端の「×」かこのボタンをもう一度＝結果（editor.result()）を持ち主へ返してから destroy
 //（チルト上限・ズーム下限・右クリック項目・ドロップの所有を搭載前へ戻す）。持ち主は結果で自分の図形を置き換える（onResult）。
 // 出現域（z>2.5）は搭載側の zoom 宣言＝レジストリの門（他ガジェットと同じ流儀）。編集中はエディタがズーム下限 2.5 を敷く＝門の下へは落ちない。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

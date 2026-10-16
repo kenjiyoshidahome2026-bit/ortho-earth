@@ -2,7 +2,7 @@
 // 初回クリックで一度だけ import()＝初期バンドルから隔離。QRは「使う人が使う時に一度だけ」＝起動の一瞬に載せない。
 // 搭載APIは従来どおり map.gadget.qr()。本体到着後は同じボタンへ自前リスナーを付け直し、スタブは abort で退場（二重発火なし）。
 // ★ガジェット規約：独立モジュール＋（重ければ）小さな常駐スタブ＋本体は import()＝print/demo/ai と同じ型。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

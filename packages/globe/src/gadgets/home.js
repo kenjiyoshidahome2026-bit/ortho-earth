@@ -2,8 +2,8 @@
 // 押すと地域宣言 home の視点へ球面フライト＝真俯瞰(tilt=0)・北向き（flyTo が出発時に姿勢を倒す）。
 // 顔（icon＝SVG 文字列）・札（label＝t() の鍵）・DOM id は地域宣言が持つ（日本＝列島のブロック図・"Show all of Japan"・#japan-btn＝利用者 CSS の公開面）。
 // 宣言が無い項目は汎用（家の形・"Home"・#home-btn）。ショートカット＝J（球体まで回した所からワンキーで戻す狙い）。signal＝destroy時の解除。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 const HOME_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" aria-hidden="true"><path d="M12 3 2.5 11.2h2.6V21h5.6v-6h2.6v6h5.6v-9.8h2.6Z"/></svg>`;

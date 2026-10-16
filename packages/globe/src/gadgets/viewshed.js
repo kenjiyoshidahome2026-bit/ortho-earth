@@ -4,7 +4,7 @@
 //   目の高さ・半径（可視域のみ）
 // 地表＝地形（外来 DEM を足していればそれ）＋建物（地域の建物台帳＝日本は PLATEAU）。地球の丸みと大気の屈折（k＝0.13）込み。
 // 計算は日影と同じ model 役の worker。API＝map.viewshed / map.lineOfSight（UI なしでも使える）。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

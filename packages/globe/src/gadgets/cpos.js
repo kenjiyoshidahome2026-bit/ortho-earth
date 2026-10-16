@@ -3,8 +3,8 @@
 // 押すと geolocation で現在地を得て球面フライトで寄り、点滅マーカーを置く。もう一度押すと消す。
 // マーカーの画面追随は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで毎フレ呼ぶ。
 // projectLL＝経緯度→画面CSS座標（world→screen。実装は engine の project／注入は登録側）。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 export function cpos({ projectLL, signal } = {}) {

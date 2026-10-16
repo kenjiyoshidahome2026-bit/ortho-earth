@@ -3,7 +3,7 @@
 // 起動時から検査表示（showInspectMap）・通常表示のホバー札（showMapPopup）を頼まれた時はすぐ本体を載せる。
 // showInspectButton:false＝ボタンを出さない（互換の MaplibreInspect は MapLibre の四隅に自前のボタンを持つ）。
 // 戻り値＝制御ハンドル（open/close/toggle は本体の到着を待って Promise で返す・isOpen は同期）。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 
