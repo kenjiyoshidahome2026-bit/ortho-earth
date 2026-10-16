@@ -11,7 +11,7 @@
 
 import { tokyoToJGD, jgd2000To2011 } from "./datum.ts";
 import type { Datum } from "./datum.ts";
-import { mercYToLat, latToMercY } from "../modules/mercator.js";
+import { mercYToLat, latToMercY } from "../modules/mercator.ts";
 import type { LonLat, XF, CrsInfo } from "./types.ts";
 export type { CrsInfo, CrsKind, XF, LonLat } from "./types.ts";
 

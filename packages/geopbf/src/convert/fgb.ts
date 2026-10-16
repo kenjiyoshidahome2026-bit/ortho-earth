@@ -11,7 +11,7 @@
 // Long/ULong は安全整数を超えたら文字列（精度を黙って落とさない＝gpkg と同じ）。Json は解釈できれば値に・DateTime は文字列のまま。Binary 列は読まない。
 //
 //   const { pbf, stats } = await fromFlatGeobuf(u8, { name, precision, ignoreCrs, tky2jgd, patchjgd });
-import { mercToLonLat } from "../modules/mercator.js";
+import { mercToLonLat } from "../modules/mercator.ts";
 import { GeoPBF } from "../pbf-base.js";
 import { classifyCrs } from "./gpkg.ts";
 import type { SkippedColumn } from "./gpkg.ts";
@@ -20,7 +20,7 @@ import { resolveDatum, datumStats } from "./datum.ts";
 import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
 import type { Geometry, Position, CrsInfo, XF, MetaOptions, AttrOptions } from "./types.ts";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 const GTYPES = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
 const CTYPES = ["Byte", "UByte", "Bool", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Float", "Double", "String", "Json", "DateTime", "Binary"];
 const NODE_ITEM_BYTE_LEN = 40;   // packed Hilbert R-tree の 1 節＝bbox 4×f64 ＋ offset u64

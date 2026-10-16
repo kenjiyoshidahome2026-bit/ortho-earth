@@ -44,7 +44,7 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 }
 // ── decodeZIP: エントリ名の文字コード（UTF-8 フラグ > encoding 引数 > shift-jis） ────────
 {
-	const { decodeZIP } = await import("../src/modules/decodeZIP.ts");
+	const { decodeZIP } = await import("geopbf/internal/modules/decodeZIP");
 	const crcT = [...Array(256)].map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
 	const crc32 = (u8) => { let c = ~0; for (const b of u8) c = crcT[(c ^ b) & 255] ^ (c >>> 8); return (~c) >>> 0; };
 	const storedZip = (nameBytes, flags, data = new Uint8Array([0x78])) => {   // 1 エントリ・無圧縮

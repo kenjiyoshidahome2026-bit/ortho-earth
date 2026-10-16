@@ -11,7 +11,7 @@
 //      それ以外は ignoreCrs が無い限り投げる（GeoPBF は経緯度のみ＝再投影は GDAL 等で先に）。
 // 属性: SQLite の型そのまま（INTEGER/REAL/TEXT）。宣言型 BOOLEAN → bool、DATE/DATETIME/TIMESTAMP → Date、BLOB 列は読まない（stats.skipped）。
 //       安全整数を超える INTEGER は文字列にする（精度を黙って落とさない）。rowid 別名（fid）は属性として残す。
-import { mercToLonLat } from "../modules/mercator.js";
+import { mercToLonLat } from "../modules/mercator.ts";
 import { GeoPBF } from "../pbf-base.js";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue, SqlRow } from "./sqlite.ts";
@@ -22,7 +22,7 @@ import { resolveDatum, datumStats } from "./datum.ts";
 import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
 import type { Geometry, GeomCtx, CrsInfo, XF, MetaOptions, AttrOptions, MsStats } from "./types.ts";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 
 /** 空間参照系（gpkg_spatial_ref_sys / spatial_ref_sys の 1 行・fgb の CRS もこの形に揃える） */
 export interface Srs { id?: SqlValue; name?: SqlValue; org: SqlValue; code: SqlValue; definition: SqlValue }

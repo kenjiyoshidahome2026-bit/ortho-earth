@@ -6,7 +6,7 @@
 // 対応する列型: BOOLEAN / INT64 / DOUBLE / BYTE_ARRAY（UTF8・JSON・生バイト）。
 // スキーマは depth-first の SchemaElement 列で受ける（GeoParquet の bbox = optional group { required double ×4 }）。
 import { gzip, zstd } from "./gzip.ts";
-import { writeUvarint, zigzagEncode } from "../modules/varint.js";
+import { writeUvarint, zigzagEncode } from "../modules/varint.ts";
 
 // ── Thrift compact protocol ──
 const CT = { BOOL_TRUE: 1, BOOL_FALSE: 2, BYTE: 3, I16: 4, I32: 5, I64: 6, DOUBLE: 7, BINARY: 8, LIST: 9, SET: 10, MAP: 11, STRUCT: 12 };

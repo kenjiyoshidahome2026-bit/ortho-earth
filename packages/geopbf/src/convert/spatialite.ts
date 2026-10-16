@@ -10,14 +10,14 @@ import { GeoPBF } from "../pbf-base.js";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue } from "./sqlite.ts";
 import { attrFilter } from "./attrs.ts";
-import { mercToLonLat } from "../modules/mercator.js";
+import { mercToLonLat } from "../modules/mercator.ts";
 import { classifyCrs, valueConverter } from "./gpkg.ts";
 import type { Srs, ColumnInfo, SkippedColumn } from "./gpkg.ts";
 import { resolveDatum, datumStats } from "./datum.ts";
 import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
 import type { Geometry, Position, GeomCtx, CrsInfo, XF, MetaOptions, AttrOptions, MsStats } from "./types.ts";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 const TYPES: Record<number, Geometry["type"]> = { 1: "Point", 2: "LineString", 3: "Polygon", 4: "MultiPoint", 5: "MultiLineString", 6: "MultiPolygon", 7: "GeometryCollection" };
 
 export interface SpatiaLiteLayer {
