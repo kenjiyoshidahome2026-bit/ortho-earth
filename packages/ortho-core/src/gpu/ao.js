@@ -14,7 +14,7 @@
 //   ・対数深度の逆は exp2(x)−1 でなく expm1＝1 の近くの引き算は w を 1.2e-7（≈0.76m）刻みに量子化する＝地面の段々・まだら
 //   ・球の床は −b−√h（打ち消し）でなく c/(−b＋√h)・c＝|eye|²−1 は CPU（f64）＝床が 0.4m 級に波打たない
 
-import { viewRays as aoRays } from "../camera.js";   // 視線の基底（f64）＝camera.js が正本（#65 と共有）
+import { viewRays as aoRays } from "../camera.ts";   // 視線の基底（f64）＝camera.js が正本（#65 と共有）
 // 深度を GB の 16bit に詰める／戻す（ぼかしと合成の深度重み用・AO 面に同梱＝ぼかしは深度テクスチャを読まない）
 const ENC_W = "fn encW(w: f32) -> vec2f { let g = clamp(log2(1.0 + w * 1.0e5) / 25.0, 0.0, 1.0); let hi = floor(g * 255.0); return vec2f(hi, floor((g * 255.0 - hi) * 255.0)) / 255.0; }";
 const DEC_W = "fn decW(gb: vec2f) -> f32 { let g = (gb.x * 255.0 + gb.y) / 255.0; return (exp2(g * 25.0) - 1.0) * 1.0e-5; }";

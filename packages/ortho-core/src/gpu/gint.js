@@ -19,13 +19,13 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
-import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.js";
-import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.js";
-import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gint/utility.js";
-import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.js";
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
+import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gint/utility.ts";
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.ts";
 import { findPolygon } from "geopbf/identify";
-import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
-import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
+import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
+import { clipDistanceM } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
 import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
 	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.js";
 import { createFidExprRunner } from "./gintexprgpu.js";   // fid 表を GPU で組む（geopbf 改良点 ⑦）

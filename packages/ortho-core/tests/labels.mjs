@@ -1,6 +1,6 @@
 // buildLabels（labels.js）の記号（段 3・2026-09-28）：icon-image だけの層もラベルになる（text ""）・icon の性質が焼かれる・文字も記号も無い層／名前が空の記号は出ない・同じ点の文字と記号は別のラベル
 import assert from "node:assert/strict";
-import { buildLabels } from "../src/labels.js";
+import { buildLabels } from "../src/labels.ts";
 
 const src = { extent: 4096, features: [{ type: "Point", props: { name: "Cafe", ic: "cafe" }, geom: { coords: [100, 200] } }] };
 const style = { layers: [

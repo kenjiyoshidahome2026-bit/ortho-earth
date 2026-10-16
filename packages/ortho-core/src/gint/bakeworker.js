@@ -11,7 +11,7 @@
 // 正規化（リング向き）は clone されたこちらの polyStream に施される＝render worker には正規化済みが届き、
 // main の原本（unPackGint）は素のまま残る（冪等なので万一の同期経路フォールバックでも正しい）。
 
-import { bakeBase, bakeTier, tierPlan, gintDataOf } from './bake.js';
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from './bake.ts';
 
 onmessage = e => {
 	const { id, data } = e.data;

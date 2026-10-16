@@ -1,5 +1,5 @@
 // 手触りの純関数（A2・2026-10-12）：慣性（MapLibre の handler_inertia の式そのまま）・cubic-bezier・zoomSnap・handler 名。
-import { INERTIA, INERTIA_WINDOW_MS, bezierEase, inertiaOf, inertiaOf2, snapZoom, HANDLER_NAMES } from "../src/input.js";
+import { INERTIA, INERTIA_WINDOW_MS, bezierEase, inertiaOf, inertiaOf2, snapZoom, HANDLER_NAMES } from "../src/input.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };

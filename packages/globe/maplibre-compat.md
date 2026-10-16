@@ -14,12 +14,12 @@
 
 ## 2. 旗の規則（表の正典＝`src/zoomscale.js`）
 
-- エンジンの z は 256px 世界（`ortho-core/src/camera.js` の `WORLD_PX`）＝**MapLibre の z＋1**（`ML_DZ = 1`）。
+- エンジンの z は 256px 世界（`ortho-core/src/camera.ts` の `WORLD_PX`）＝**MapLibre の z＋1**（`ML_DZ = 1`）。
 - 旗を立てたら、公開面の**「数」の zoom は全部 MapLibre の z**（入力 +1・出力 −1）。**「文字列」（URL hash・`view` 文字列）はエンジン z**。
   - ML 名の口だけを換算しない理由：`flyTo(lon, lat, map.getZoom())` のような混用（apps/ortho-globe/sats.js に実例）が旗の下で 1 段ずつずれる。
 - 換算しない（明記する例外）：source の tile z（raster/vector/raster-dem の minzoom・maxzoom・`map.raster.add` の spec）＝元々 MapLibre と同義／`map.cam`（内部の生の状態）／worker の overlay 契約の cam／台本の族（.scenes・playScenes・sceneTimeline・demo ガジェット）。
 - 約束：null・undefined は素通し（`null+1` 事故を封じる）／ML の maxzoom は排他・gint・labels2d・raster showMax は包含＝境の変換はアダプタで 1 回。
-- 換算の関数は 2 枚だけ：数と表＝`src/zoomscale.js`（globe）・式と層＝`ortho-core/src/mlstyle.js` の `shiftZoomExpr`・`shiftLayerZoom`・`normalizeMLLayer`・`rescaleZoomExpr`・`rescaleZoomNum`（core）。
+- 換算の関数は 2 枚だけ：数と表＝`src/zoomscale.js`（globe）・式と層＝`ortho-core/src/mlstyle.ts` の `shiftZoomExpr`・`shiftLayerZoom`・`normalizeMLLayer`・`rescaleZoomExpr`・`rescaleZoomNum`（core）。
 - 層の目盛りは `metadata["ortho:dz"]` で申告できる（getStyle が付けて返す）。source の目盛りは getStyle の root の `metadata["ortho:sourceDz"]`。
 - 換算する所は次の 3 か所だけ：起動オプション（`bootOptsIn`＝createGlobe の最初）・外側の顔（`src/mlfacade.js`＝最後の `return map` だけを包む Proxy・map／map.gadget／map.raster だけを代理）・ML 形の層と source の `dz`（`PUBLIC_DZ`）。**内部は常に素の map**（ガジェットは `func.apply(map)`＝素・地域パックの install も素）。
 - **実装済み（段 2）**：旗なしは素の map をそのまま返す（Proxy も無い）。旗つきの顔は、連鎖の戻り値・Promise の解決値・層イベントの `target`・contextmenu の `c.map`・利用者ガジェットの `this` を顔に差し替え、`once` は顔の on/off の上で組む（handler は (ev, 層キー) ごとの WeakMap）。gint の手綱は包まず、addGint に `_dz` を渡して手綱の中で換算（公開の setPaint と中の paintNow を分けた＝二度換算しない）。素の map は `map[RAW]`（`Symbol.for("ortho-earth.map.raw")`）。Marker の登録簿・geoedit・common/gintView は入口で素へ戻る。
@@ -412,7 +412,7 @@
   - 結果（o20s・低い 28 例）：hit 771→**927**・rich-text 39→57・言語切替 37→49・cog 51→64・jump 20→31・fallback 31→45・locate 45→56。下がった段なし。
   - 近似（記録）：layout の式はタイルの z で評価（worker は地図の z を持たない）＝demotiles の text-transform stops [0 uppercase・2 none] が z2 の絵で uppercase になる（タイルが z1 の時）。`format` は文字を連結するだけ（区間ごとの font-scale／色は段 2 の書体と一緒に）。geojson の symbol（symbols-2d）は別経路のまま（同じ意味論・統合は残件）。
   - **結果（o21・全 139）**：hit **1765→2045／2418（73→85%）**・インク 1996/2175・0.6 未満 **14→10**・同じ絵 63（下がった例なし）。残りの低い例＝global-state（演算子）・stretchable image・geojson-line／buildings-in-3d（基図のアイコン＋POI＝段 3）・game-like-controls・nominatim。update-geojson-polygons の 5→0 は setData で動く例＝撮る時刻の差（文字が "5.0"→"Zoom: 5" に変わる）＝物差しの外。
-- **段 2（2026-09-28・claude/text-stage-2）＝書体**：`text-font`（フォントスタック名の列）を **CSS の family／weight／style へ写す**（`ortho-core/src/fontstack.js`＝末尾の語 Bold/Semibold/Light/Italic… を weight/style に・残りを family に・複数の名前は family の列・Condensed 等の幅の語は捨てる）。基図/vector（labels.js→labels2d）と geojson（symbols-core→symbols-2d）の両経路で据える。無い書体はブラウザが落とす＝末尾にエンジンの既定の束（Noto Sans JP…＝CJK の質）。ネイティブ層は従来の束のまま。
+- **段 2（2026-09-28・claude/text-stage-2）＝書体**：`text-font`（フォントスタック名の列）を **CSS の family／weight／style へ写す**（`ortho-core/src/fontstack.ts`＝末尾の語 Bold/Semibold/Light/Italic… を weight/style に・残りを family に・複数の名前は family の列・Condensed 等の幅の語は捨てる）。基図/vector（labels.js→labels2d）と geojson（symbols-core→symbols-2d）の両経路で据える。無い書体はブラウザが落とす＝末尾にエンジンの既定の束（Noto Sans JP…＝CJK の質）。ネイティブ層は従来の束のまま。
   - **Web フォントを差す口**＝`map.addFontFace(family, source, descriptors)`（globe 1.6.0〜）＝main（DOM）と render worker（注記・記号・集約の canvas＝`self.fonts`）の両方に同じ FontFace を載せる。URL は先に取れるか確かめて HTTP の理由で reject。`style.glyphs`（glyph PBF）は読まない（裁定 (b)）。
   - 検定：`fontstack.mjs`（node）・t-mlcompat g=vector `symbol-text-font`（700／italic／family の順・太字は広い）・`add-font-face-api`。`__placed` は据えた font を返す。
   - 見送り（記録）：`format` の区間ごとの text-font／font-scale（連結のまま）・text-font の名前の重複解決（"Noto Sans Regular" と "Noto Sans Bold" を同じ family の別 weight として同時に読む＝descriptors で載せれば効く）。

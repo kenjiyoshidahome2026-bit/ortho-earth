@@ -1,7 +1,7 @@
 // 失効判定（createGetHeight.js staleDSM）の門：申告域（dtm）の中で、R01 は brand 銘で始まる物だけ・R10 は brand 銘を含む物だけ信用する（2026-10-02）。
 // 動機＝GEBCO だけの R10 は 10° タイルの境（東北 140°E）に段差＝DEM10B を転写した焼き直し（"GEBCO 2026 + GSI DEM10B(JP)"）へ IDB を自己修復させる。
 // node tests/elevation-stale.mjs
-import { staleDSM } from "../src/elevation/createGetHeight.js";
+import { staleDSM } from "../src/elevation/createGetHeight.ts";
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log(`${c ? "✓" : "✗"} ${msg}`); };
 const dtm = { bbox: [122, 20, 154, 46], range: 1, brand: "GSI" };

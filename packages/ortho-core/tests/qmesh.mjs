@@ -7,8 +7,8 @@
 //   4. 1 点の標本・空のタイル（高さ 0..0）の判定・gzip のまま来る .terrain・layer.json（相対の型紙・鍵の引き継ぎ・在庫）
 // 使い方: node packages/ortho-core/tests/qmesh.mjs
 import zlib from "node:zlib";
-import { loadGeoid, geoidHeight } from "../src/geoid.js";
-import { qmTileSpan, qmTileBounds, qmTileAt, parseLayerJson, qmAvailable, decodeQuantizedMesh, qmGunzip, qmBake, qmSample, encodeQuantizedMesh } from "../src/qmesh.js";
+import { loadGeoid, geoidHeight } from "../src/geoid.ts";
+import { qmTileSpan, qmTileBounds, qmTileAt, parseLayerJson, qmAvailable, decodeQuantizedMesh, qmGunzip, qmBake, qmSample, encodeQuantizedMesh } from "../src/qmesh.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };

@@ -2,8 +2,8 @@
 // 守るもの：①内蔵 style の [5,4]（px）は従来どおりの刻み ②外来 MapLibre style の式（literal/step/旧式関数）でも線が消えない
 // ③外来は線幅の倍数 ④読めない値は実線に倒す
 import assert from "node:assert/strict";
-import { buildTileDrawList, dashPattern } from "../src/build.js";
-import { convertLayer } from "../src/mlstyle.js";
+import { buildTileDrawList, dashPattern } from "../src/build.ts";
+import { convertLayer } from "../src/mlstyle.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 
