@@ -66,7 +66,7 @@ import { createWorldContent } from "./gint/worldcontent.js";
 import { createHillshadeProvider } from "./hillshade.js";
 import { createColorReliefProvider } from "./colorrelief.js";
 import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
-import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createCustomGL } from "./gadgets/customgl.ts";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
