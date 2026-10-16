@@ -2,15 +2,15 @@
 // t-encode-edge: 符号化の境界値（改良点 17・2026-10-12）。pbf-base の set() → arrayBuffer → set(ArrayBuffer) の往復で、
 //   精度 1〜9・値の全型（STRING/FLOAT/INTEGER/BOOL/JSON/DATE/COLOR/BBOX/FUNC/BLOB/IMAGE/NULL）の端・noprop・updateHeader・
 //   鍵の多さと文字・幾何の端（穴・GeometryCollection・幾何なし）を数字で固定する。外部データ不要・決定的。
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const fc = (features) => ({ type: "FeatureCollection", features });
 const pt = (props, xy = [139.767125, 35.681236]) => ({ type: "Feature", properties: props, geometry: { type: "Point", coordinates: xy } });
 const roundtrip = async (gj, opts = {}, readOpts = opts) => {
-	const w = await new GeoPBF({ name: "edge", ...opts }).set(gj);
-	const r = await new GeoPBF(readOpts).set(w.arrayBuffer.slice(0));
+	const w = await new GeoPBFBase({ name: "edge", ...opts }).set(gj);
+	const r = await new GeoPBFBase(readOpts).set(w.arrayBuffer.slice(0));
 	return { w, r, gj: r.geojson, p: (i) => r.geojson.features[i].properties };
 };
 
@@ -85,14 +85,14 @@ for (const prec of [1, 3, 6, 7, 9]) {
 }
 // ---- updateHeader -----------------------------------------------------------------------------------
 {
-	const w = await new GeoPBF({ name: "n" }).set(fc([pt({ a: 1 }), pt({ a: 2 }, [1, 2])]));
+	const w = await new GeoPBFBase({ name: "n" }).set(fc([pt({ a: 1 }), pt({ a: 2 }, [1, 2])]));
 	const before = w.arrayBuffer.byteLength;
 	w.name("renamed").description("D".repeat(10000)).license("CC BY 4.0").attribution("© test").minZoom(3).maxZoom(12);
-	const r = await new GeoPBF().set(w.arrayBuffer.slice(0));
+	const r = await new GeoPBFBase().set(w.arrayBuffer.slice(0));
 	ok(r.name() === "renamed" && r.description().length === 10000 && r.license() === "CC BY 4.0" && r.attribution() === "© test" && r.minZoom() === 3 && r.maxZoom() === 12, "updateHeader: 6 項目が書き換わる（10,000 字の description も）");
 	ok(r.length === 2 && r.geojson.features[1].geometry.coordinates.join() === "1,2" && r.getProperties(1).a === 2 && r.arrayBuffer.byteLength > before + 10000, "updateHeader: 本体は無傷・大きさが増える");
 	w.description("");
-	const r2 = await new GeoPBF().set(w.arrayBuffer.slice(0));
+	const r2 = await new GeoPBFBase().set(w.arrayBuffer.slice(0));
 	ok(!r2.description() && r2.name() === "renamed" && r2.length === 2, "updateHeader: 空に戻すと縮む・他は保つ");
 }
 // ---- 鍵の多さと文字・型の混在 -----------------------------------------------------------------------------

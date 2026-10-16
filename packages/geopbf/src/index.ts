@@ -16,7 +16,7 @@ import type { Topology } from "./modules/topo2geo.ts";
 export { GeoPBF };   // 拡張メソッド付きの GeoPBF（1.20〜・改良点 10）。旧＝どの subpath からも拡張付きの class が取れなかった（pbf-base は器だけ・geopbf/pbf は protobuf の wire 読み書き）
 export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
 export type * from "../types/geopbf.js";   // 値の型（Feature・GeoPBFOptions・UnPackGint …）
-export type { GeoPBFBase, FMapEntry } from "./pbf-base.ts";   // 器の class（"geopbf" では型だけの名前＝値は "geopbf/core"・"geopbf/pbf-base" の GeoPBF）
+export type { GeoPBFBase, FMapEntry } from "./pbf-base.ts";   // 器の class（"geopbf" では型だけの名前＝値は "geopbf/core"・"geopbf/pbf-base" の GeoPBFBase）
 export type { FeatureCallback, CloneMapOptions } from "./pbf.ts";
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
@@ -201,7 +201,7 @@ export function createGeopbf(apiBase?: string, options: CreateGeopbfOptions = {}
         if (isString(data) && /^\.{0,2}\//.test(data) && typeof location !== "undefined") data = new URL(data, location.href).href;
         const dt = performance.now();
         const isInZip = (_: unknown): boolean => (isString(_) && /.\.zip#./i.test(_));   // 前後に 1 字ずつ＝旧 /.+\.zip#.+/ と同じ集合・線形時間（CodeQL js/polynomial-redos）
-        // 器（"geopbf/core"・"geopbf/pbf-base" の GeoPBF）も受ける＝旧は後付けで同じ class だった＝GeoPBF の prototype へ付け替えて同じ物を返す（gint() を焼ける）
+        // 器（"geopbf/core"・"geopbf/pbf-base" の GeoPBFBase）も受ける＝旧は後付けで同じ class だった＝GeoPBF の prototype へ付け替えて同じ物を返す（gint() を焼ける）
         const isPBF = (_: unknown): _ is GeoPBFBase => (_ instanceof GeoPBFBase);
         const asFull = (q: GeoPBFBase): GeoPBF => q instanceof GeoPBF ? q : Object.setPrototypeOf(q, GeoPBF.prototype) as GeoPBF;
         let eventTarget: EventTarget | null = opts.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));

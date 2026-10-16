@@ -5,7 +5,7 @@
 //   ③ -180 に沿う正規の辺（-180〜-170 の矩形＝対にならない縫い目辺）＝無傷（落とさない）
 // 使い方: node packages/ortho-core/tests/gint-seam.mjs（geopbf の wasm pkg が要る＝t-anchors と同じ）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint } from "geopbf/gint";
 import { bakeBase } from "../src/gint/bake.ts";
@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });
-const bake = async features => { const p = await new GeoPBF({ name: "t-seam" }).set({ type: "FeatureCollection", features }); return { pbf: p, d: unPackGintBuffer(topology(p)) }; };
+const bake = async features => { const p = await new GeoPBFBase({ name: "t-seam" }).set({ type: "FeatureCollection", features }); return { pbf: p, d: unPackGintBuffer(topology(p)) }; };
 const IXMAX = 3600000000, onSeam = ix => ix <= 2 || ix >= IXMAX - 2;
 const edgesOf = d => {   // bakeBase → 基準メタの辺 [{a,b,ixa,ixb}]（arcBuffer は先頭 arc 基準の局所添字＝bake と同じ規約）
 	const base = bakeBase(d).base, out = [];

@@ -16,7 +16,7 @@ import orthoJapan from "../app.js";
 import { initEditor, setLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示（この頁は日本語の UI 文字列で判定する）
 await setLang("ja");
 import { idbClear } from "geoedit";
-import { GeoPBF, makeKeys } from "geopbf/pbf-base";
+import { GeoPBFBase, makeKeys } from "geopbf/pbf-base";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
@@ -68,7 +68,7 @@ try {
 			{ type: "Feature", properties: { n: "pt" }, geometry: { type: "Point", coordinates: [139.77, 35.70] } },
 		];
 		const [keys, bufs] = await makeKeys(feats.map(f => f.properties));
-		const pbf = new GeoPBF({ name: "broken", precision: 6 });
+		const pbf = new GeoPBFBase({ name: "broken", precision: 6 });
 		pbf.setHead(keys, bufs).setBody(() => { for (const f of feats) pbf.setFeature(f); }).close();
 		await pbf.getPosition();
 		await editor.loadBuffer(pbf.arrayBuffer.slice(0), { fly: false });

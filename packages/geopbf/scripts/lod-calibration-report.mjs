@@ -7,7 +7,7 @@
 //   使い方: node scripts/lod-calibration-report.mjs <file.geopbf|.fgb|.geojson> [minZoom=0] [maxZoom=14]
 //   結果の台帳: lod-calibration-2026-10-12.md（pop-density-2020・countries・topp_states）
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { fromFlatGeobuf } from "../src/convert/fgb.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { prepareTiling } from "../src/convert/tiler.ts";
@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 
 export async function lodCalibrationReport(file, { minZoom = 0, maxZoom = 14, extentShift = 12 } = {}) {
 let pbf;
-if (file.endsWith(".fgb")) { const { pbf: p0 } = await fromFlatGeobuf(new Uint8Array(readFileSync(file)), { ignoreCrs: true }); pbf = await new GeoPBF().set(p0.arrayBuffer); }
-else if (file.endsWith(".geojson")) pbf = await new GeoPBF({ precision: 7 }).set(JSON.parse(readFileSync(file, "utf8")));
-else pbf = await new GeoPBF().set(readFileSync(file).buffer);
+if (file.endsWith(".fgb")) { const { pbf: p0 } = await fromFlatGeobuf(new Uint8Array(readFileSync(file)), { ignoreCrs: true }); pbf = await new GeoPBFBase().set(p0.arrayBuffer); }
+else if (file.endsWith(".geojson")) pbf = await new GeoPBFBase({ precision: 7 }).set(JSON.parse(readFileSync(file, "utf8")));
+else pbf = await new GeoPBFBase().set(readFileSync(file).buffer);
 const gint = await bakeGint(pbf);
 const P = await prepareTiling(pbf, { gint, gpu: false, workers: 0, minZoom, maxZoom });
 const { A, arcs, params, d, proj } = P; const K = params.zoomCount, T = params.arcThresholds, fixed = params.thresholds;

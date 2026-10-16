@@ -12,7 +12,7 @@
 // 属性: SQLite の型そのまま（INTEGER/REAL/TEXT）。宣言型 BOOLEAN → bool、DATE/DATETIME/TIMESTAMP → Date、BLOB 列は読まない（stats.skipped）。
 //       安全整数を超える INTEGER は文字列にする（精度を黙って落とさない）。rowid 別名（fid）は属性として残す。
 import { mercToLonLat } from "../modules/mercator.ts";
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue, SqlRow } from "./sqlite.ts";
 import { parseWkb } from "./wkb.ts";
@@ -66,7 +66,7 @@ export interface GpkgStats {
 	reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; precision: number; droppedGeometries: number; emptyGeometries: number; extendedGeometries: number; bigints: number;
 	z: boolean; m: boolean; encoding: string; warnings: string[]; ms: MsStats;
 }
-export interface FromGpkgResult { pbf: GeoPBF; stats: GpkgStats }
+export interface FromGpkgResult { pbf: GeoPBFBase; stats: GpkgStats }
 
 /** GeoPackage を開いて層の一覧を返す（変換はしない）。 */
 export function readGeoPackage(u8: Uint8Array | ArrayBuffer | ArrayBufferView, opts: ReadGpkgOptions = {}): GeoPackageInfo {
@@ -115,7 +115,7 @@ export async function fromGeoPackage(u8: Uint8Array | ArrayBuffer | ArrayBufferV
 	const ctx: GpkgCtx = { vertices: 0, empty: 0, extended: 0, bigint: 0, nulls: 0 };
 	// 逐次エンコード：行 → setFeature を直接（旧＝全行を GeoJSON 配列に積んでから set()）。keys はスキーマの属性列（全行 null の列も KEYS に載る）
 	const keys = props.map(c => c.name).sort();
-	const pbf = new GeoPBF({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution });
+	const pbf = new GeoPBFBase({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution });
 	pbf.setHead(keys, []);
 	let count = 0;
 	pbf.setBody(() => {

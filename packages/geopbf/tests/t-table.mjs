@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { fromTable, parseCSV, parseWKT, decodeText, readXLSX } from "../src/convert/table.ts";
 import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 import { openMBTiles } from "../src/convert/mbtiles.ts";
@@ -112,11 +112,11 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	const out = join(dir, "a.geopbf");
 	const log = run("csv2pbf", csvPath, out);
 	ok(/features 1/.test(log) && /dropped 1 without coordinates/.test(log), "CLI csv2pbf: ログ");
-	const pbf = await new GeoPBF().set(new Uint8Array(gunzipSync(readFileSync(out))));
+	const pbf = await new GeoPBFBase().set(new Uint8Array(gunzipSync(readFileSync(out))));
 	ok(pbf.geojson.features.length === 1 && pbf.geojson.features[0].properties.name === "A", "CLI csv2pbf: 出力を読み戻す");
 	const xo = join(dir, "x.geopbf");
 	const xlog = run("csv2pbf", new URL("./fixtures/table/book.xlsx", import.meta.url).pathname, xo, "--sheet", "Lines", "--no-gzip");
-	ok(/features 1/.test(xlog) && /sheet Lines/.test(xlog) && (await new GeoPBF().set(new Uint8Array(readFileSync(xo)))).geojson.features[0].geometry.type === "LineString", "CLI csv2pbf: xlsx と --sheet");
+	ok(/features 1/.test(xlog) && /sheet Lines/.test(xlog) && (await new GeoPBFBase().set(new Uint8Array(readFileSync(xo)))).geojson.features[0].geometry.type === "LineString", "CLI csv2pbf: xlsx と --sheet");
 }
 
 console.log(fails ? `\n✗ ${fails} 件失敗` : "\n全件通過");

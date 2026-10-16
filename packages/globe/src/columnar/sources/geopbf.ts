@@ -3,7 +3,7 @@
 // 一度だけ走査（ワイヤ整数のまま・kernels.js ④ と同じ読み方）→ 空間順（geopbf/spatial-order・既定 str）に並べ替え → 一定の feature 数か
 // 頂点数ごとに切ってチャンクにする。幾何はチャンクを作る時にもう一度だけ復号する（走査で全頂点を持たない＝100MB 級でもメモリが膨れない）。
 // 属性は KEYS と VALUE から paint が参照する列だけ（getProperties の行配列＝keys に揃った配列）。gint は通らない。
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import Pbf from "geopbf/pbf";
 import { spatialOrder } from "geopbf/spatial-order";
 import { flatBuilder, K } from "../flat.ts";
@@ -14,7 +14,7 @@ import type { ColumnarColumns, ColumnarInput, ColumnarMeta, ColumnarReader, Colu
 
 type PbfReader = InstanceType<typeof Pbf>;
 
-const { TAGS } = GeoPBF;
+const { TAGS } = GeoPBFBase;
 const isGzip = (u8: Uint8Array) => u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b;
 async function gunzip(u8: Uint8Array): Promise<Uint8Array> {
 	const ds = new DecompressionStream("gzip");
@@ -47,7 +47,7 @@ function walkGeom(P: PbfReader, pos: number, type: number, onPart: (kind: number
 		}
 	}, {});
 }
-function walkFeature(pbf: GeoPBF, i: number, onPart: (kind: number) => void, onXY: (x: number, y: number) => void, onEnd: (kind: number) => void): void {
+function walkFeature(pbf: GeoPBFBase, i: number, onPart: (kind: number) => void, onXY: (x: number, y: number) => void, onEnd: (kind: number) => void): void {
 	const m = pbf.fmap[i];
 	if (m[2] === undefined) return;
 	const P = pbf.pbf;
@@ -63,7 +63,7 @@ export const GEOPBF_SOURCE: ColumnarSourceDef = {
 	async open(src, { name = "", chunkFeatures = CHUNK_FEATURES, chunkVertices = CHUNK_VERTICES, order = "str" } = {}) {
 		let u8 = await toU8(src);
 		if (isGzip(u8)) u8 = await gunzip(u8);
-		const pbf = new GeoPBF();
+		const pbf = new GeoPBFBase();
 		pbf.pbf = new Pbf(u8);
 		await pbf.getPosition({ skipProps: true });
 		const n = pbf.length, D = Math.pow(10, pbf.precision()), keys = pbf.keys;

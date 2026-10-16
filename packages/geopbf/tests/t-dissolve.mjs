@@ -1,6 +1,6 @@
 // t-dissolve: 同じ属性の地物の併合（extension/dissolve.js）が、型の違う値を同じ属性とみなさないこと（B7・2026-09-25）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { dissolve } from "../src/extension/dissolve.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
@@ -11,12 +11,12 @@ for (const [tag, feats, want] of [
 	['{a:"a|",b:"b"} と {a:"a",b:"|b"} は別の地物', [P({ a: "a|", b: "b" }, [0, 0]), P({ a: "a", b: "|b" }, [1, 1])], 2],
 	["同じ属性はまとまる（従来どおり）", [P({ k: 1 }, [0, 0]), P({ k: 1 }, [1, 1])], 1],
 ]) {
-	const p = await new GeoPBF().set({ type: "FeatureCollection", features: feats });
+	const p = await new GeoPBFBase().set({ type: "FeatureCollection", features: feats });
 	await dissolve(p);
 	ok(p.length === want, `${tag}（${p.length} 件）`);
 }
 {   // worker 復号＝props は遅延（未復号の欄は undefined）でも読める（propsRow）
-	const p = await new GeoPBF().set({ type: "FeatureCollection", features: [P({ k: 1 }, [0, 0]), P({ k: 1 }, [1, 1]), P({ k: 2 }, [2, 2])] });
+	const p = await new GeoPBFBase().set({ type: "FeatureCollection", features: [P({ k: 1 }, [0, 0]), P({ k: 1 }, [1, 1]), P({ k: 2 }, [2, 2])] });
 	p.props = new Array(p.length);
 	let err = null; try { await dissolve(p); } catch (e) { err = e; }
 	ok(!err && p.length === 2, `遅延 props でも併合できる（${err ? err.message : p.length + " 件"}）`);

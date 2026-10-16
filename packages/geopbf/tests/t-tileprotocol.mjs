@@ -7,7 +7,7 @@
 // node:http でフィクスチャをメモリ配信（t-maplibre と同じ手）。CPU 経路・決定的。
 globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { bakeGint, initGintWasm } from "../src/convert/node-gint.ts";
 import { toPMTiles } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";
@@ -33,7 +33,7 @@ const fc = { type: "FeatureCollection", features: [
 	{ type: "Feature", properties: { n: "MPt" }, geometry: { type: "MultiPoint", coordinates: [[1, 1], [2, 2]] } },
 	{ type: "Feature", properties: { n: "Dust" }, geometry: { type: "MultiPolygon", coordinates: Array.from({ length: 100 }, (_, i) => [sq(35 + (i % 10) * 0.1, 35 + Math.floor(i / 10) * 0.1, 35.05 + (i % 10) * 0.1, 35.05 + Math.floor(i / 10) * 0.1)]) } },
 ] };
-const pbf = await new GeoPBF({ name: "fix", precision: 6, attribution: "t-tile" }).set(structuredClone(fc));
+const pbf = await new GeoPBFBase({ name: "fix", precision: 6, attribution: "t-tile" }).set(structuredClone(fc));
 const gint = await bakeGint(pbf);
 const OPTS = { gint, gpu: false, minZoom: 0, maxZoom: 7, dropRate: 1, tinyPolygon: 0 };
 

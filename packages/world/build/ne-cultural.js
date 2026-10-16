@@ -9,7 +9,7 @@
 // 1 地物（MultiLineString / MultiPolygon）に束ねる。海上の断片（フェリー丸ごと＋領域の外を通る区間・1km 未満の外れは繋ぐ）は
 // 国のデータに入れず routes として別に持つ＝航路。点は内外判定（沿岸で外れた点は最寄りの領域へ）。admin1 は属性で束ねる。
 import polygonClipping from "polygon-clipping";
-import { GeoPBF } from "../../geopbf/src/pbf-base.ts";
+import { GeoPBFBase } from "../../geopbf/src/pbf-base.ts";
 
 export const NE_TAG = "v5.1.2";
 export const NE_LAYERS = ["railroads", "roads", "urban_areas", "lakes", "populated_places", "airports", "admin_1", "admin_0"];   // airports＝2026-09-23（本人「空港は国に入れる」）
@@ -402,6 +402,6 @@ export async function buildNeCultural(seed, env, opts = {}) {
 	for (const key of [...out.keys()].sort()) for (const [layer, features] of Object.entries(out.get(key))) for (const f of features) all.push({ type: "Feature", properties: { key, layer, ...f.properties }, geometry: f.geometry });
 	for (const [layer, features] of Object.entries(routes)) for (const f of features) all.push({ type: "Feature", properties: { layer: "routes", source: layer, ...f.properties }, geometry: f.geometry });
 
-	const encode = async (name, features, description) => (await new GeoPBF({ name, precision: PRECISION, attribution: ATTR, description }).set({ type: "FeatureCollection", name, features })).arrayBuffer;
+	const encode = async (name, features, description) => (await new GeoPBFBase({ name, precision: PRECISION, attribution: ATTR, description }).set({ type: "FeatureCollection", name, features })).arrayBuffer;
 	return { all, out, routes, index, encode, countVerts };
 }
