@@ -13,6 +13,9 @@ import { tokyoToJGD, jgd2000To2011 } from "./datum.ts";
 import type { Datum } from "./datum.ts";
 import { mercYToLat, latToMercY } from "../modules/mercator.js";
 import type { LonLat, XF, CrsInfo } from "./types.ts";
+
+// 末尾の "_" を落とす（WKT の方法名の正規化）。旧 /_+$/ は "_" が多い入力で二乗の後戻り（CodeQL）＝添字で削る
+const trimUnderscores = (s: string): string => { let e = s.length; while (e > 0 && s[e - 1] === "_") e--; return e === s.length ? s : s.slice(0, e); };
 export type { CrsInfo, CrsKind, XF, LonLat } from "./types.ts";
 
 const D = 180 / Math.PI, R = 6378137;
@@ -115,7 +118,7 @@ export function crsFromWKT(wkt: unknown, opts: CrsOptions = {}): CrsInfo {
 	}
 	// メルカトル（2026-09-25・B9c）：球（Web メルカトル＝EPSG:3857・Esri 102100）と楕円体（Mercator 1SP/2SP＝EPSG:3395 等）を分ける。
 	// 旧＝楕円体のメルカトルも球の式で逆変換（緯度 35° で約 −20 km）し、中央子午線 0 以外・縮尺係数・原点移動を扱わなかった
-	const m = method.replace(/[\s()]+/g, "_").replace(/_+$/, "");
+	const m = trimUnderscores(method.replace(/[\s()]+/g, "_"));
 	// GDAL の WKT1 は EPSG:3857 を PROJECTION["Mercator_1SP"]＋WGS84 楕円体で書く（球であることは名前・AUTHORITY・PROJ4 の拡張にしか出ない）＝
 	// 方法の名前だけで見ると楕円体の逆変換になり緯度 40° で約 0.19° ずれる（2026-09-30・#178 の COPC の試料で発見）
 	const ext = child(root, "EXTENSION"), proj4 = ext && typeof ext.args[1] === "string" ? ext.args[1] : "";
