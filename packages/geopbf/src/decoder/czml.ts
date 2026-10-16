@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { czmlToFeatures } from "../modules/czml.ts";
 import type { FeatureCollection } from "../../types/geopbf.js";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
@@ -13,7 +13,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 		if (!Array.isArray(packets)) throw new Error("CZML must be a JSON array of packets");
 		const { features, document, dropped } = czmlToFeatures(packets);
 		if (dropped) console.warn(`[czml] ${dropped} packet(s) without geometry dropped`);
-		const pbf = new GeoPBF({ name: ((document && document.name) || file.name.replace(/\.[^\.]+$/, "")) as string, precision: precision || 6 });
+		const pbf = new GeoPBFBase({ name: ((document && document.name) || file.name.replace(/\.[^\.]+$/, "")) as string, precision: precision || 6 });
 		if (document && document.description) pbf.description(String(document.description));
 		await pbf.set({ type: "FeatureCollection", features } as unknown as FeatureCollection);
 		const res = pbf.arrayBuffer;

@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { czmlToFeatures } from "geopbf/czml";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.ts";
 globalThis.ImageData ??= class ImageData {};
 
@@ -17,7 +17,7 @@ const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/cz
 const REF = JSON.parse(fs.readFileSync(path.join(DIR, "ref.json"), "utf8"));
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };
-const enc = async fs_ => (await new GeoPBF({ name: "t" }).set({ type: "FeatureCollection", features: fs_ })).features;
+const enc = async fs_ => (await new GeoPBFBase({ name: "t" }).set({ type: "FeatureCollection", features: fs_ })).features;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 async function compare(file, tolOf, only = null) {

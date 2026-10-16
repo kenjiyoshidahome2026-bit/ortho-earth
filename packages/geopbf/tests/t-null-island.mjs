@@ -3,7 +3,7 @@
 // に巻き込まれて黙って消えていた（JS read() と Rust read_line の両経路・8/26 発見→9/12 根治＝1点目は必ず採用）。
 // JS 経路（wasm 未初期化）→ wasm 全量経路（本番）の順に同じ検定を回す。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
 import { gint } from "../src/extension/gint.ts";
 import { readFileSync } from "node:fs";
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });
-const bake = async features => { const p = await new GeoPBF({ name: "t-null-island", precision: 6 }).set({ type: "FeatureCollection", features }); return unPackGintBuffer(topology(p)); };
+const bake = async features => { const p = await new GeoPBFBase({ name: "t-null-island", precision: 6 }).set({ type: "FeatureCollection", features }); return unPackGintBuffer(topology(p)); };
 const deg = ([x, y]) => [+(x / gint.SCALE_E - 180).toFixed(6), +(y / gint.SCALE_E - 90).toFixed(6)];
 // arc 番号（符号付き）→ 頂点列（度）。逆向き参照は反転
 const arcPts = (d, s) => {

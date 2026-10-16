@@ -6,7 +6,7 @@
 // 閉じた折線・CIRCLE・全周 ELLIPSE は既定で Polygon（opts.closedAsPolygon=false で LineString）。円弧は 5° 刻み（最少 4 分割）で折線化。
 // 属性: layer / type（DXF 名）/ color（ACI・256=BYLAYER はレイヤ表の色）/ linetype / handle / text / height / rotation / block（INSERT 由来）。
 // 単位: $INSUNITS（1 inch 2 feet 4 mm 5 cm 6 m …）を投影座標（メートル）へ自動換算（opts.unitScale で上書き）。文字コードは UTF-8 → 読めなければ Shift_JIS（opts.encoding で指定可）。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { crsFromWKT } from "./proj.ts";
 import { epsgToWKT } from "./epsg.ts";
 import { decodeText } from "./table.ts";
@@ -49,7 +49,7 @@ export interface DxfStats {
 	features: number; vertices: number; entities: number; inserts: number; skipped: Record<string, number>; counts: Record<string, number>; layers: (string | undefined)[]; crs: string; assumedLonLat: boolean;
 	reprojected: boolean; unitScale: number; insunits: number | null; acadver: string | null; datumApprox: boolean; datum: DatumStats | null; precision: number; ms: MsStats;
 }
-export interface FromDxfResult { pbf: GeoPBF; stats: DxfStats }
+export interface FromDxfResult { pbf: GeoPBFBase; stats: DxfStats }
 interface DxfCtx { vertices: number; skipped: Record<string, number>; skip(t: string): void }
 type Nested = number[] | Nested[];
 
@@ -292,7 +292,7 @@ export async function fromDxf(src: string | Uint8Array | ArrayBuffer | ArrayBuff
 
 	const ctx: DxfCtx = { vertices: 0, skipped: {}, skip(t) { this.skipped[t] = (this.skipped[t] ?? 0) + 1; } };
 	const keys = ["block", "color", "handle", "height", "layer", "linetype", "rotation", "text", "type"];
-	const pbf = new GeoPBF({ name: opts.name ?? "dxf", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
+	const pbf = new GeoPBFBase({ name: opts.name ?? "dxf", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
 	pbf.setHead(keys, []);
 	let count = 0, inserts = 0;
 	const emit = (e: DxfEntity, xf: ((p: number[]) => number[]) | null, blockName: string | null | undefined, insertLayer: string | null | undefined): void => {

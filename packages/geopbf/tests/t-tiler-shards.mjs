@@ -3,7 +3,7 @@
 //   ・極小面の積算（tinyPolygon の代わりの正方形）が列の分担（shard）をまたいでも同じ＝workers 0 と 4 で PMTiles が byte 同一
 //     （旧＝積算が job（1 ズーム×列範囲）ごとだったので、小島の群れが shard 境界をまたぐと正方形の数と置き場が worker 数で変わった）
 //   ・MultiPoint の低ズーム間引き（dropRate）が点単位（tippecanoe の -r と同じ）＝1 feature の点が全部一蓮托生にならない・残る点はズームで入れ子
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { toPMTiles } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";
@@ -18,7 +18,7 @@ for (let f = 0; f < 3; f++) features.push({ type: "Feature", properties: { id: "
 features.push({ type: "Feature", properties: { id: "big" }, geometry: { type: "Polygon", coordinates: sq(-30, -20, 50) } });
 features.push({ type: "Feature", properties: { id: "mp" }, geometry: { type: "MultiPoint", coordinates: Array.from({ length: 400 }, (_, i) => [-175 + (i * 0.877) % 350, -60 + (i * 0.613) % 120]) } });
 for (let i = 0; i < 50; i++) features.push({ type: "Feature", properties: { id: "pt" + i }, geometry: { type: "Point", coordinates: [-160 + i * 6.3, 10 + (i * 1.7) % 50] } });
-const pbf = await new GeoPBF({ precision: 7 }).set({ type: "FeatureCollection", features });
+const pbf = await new GeoPBFBase({ precision: 7 }).set({ type: "FeatureCollection", features });
 const gint = await bakeGint(pbf);
 const mpFid = features.findIndex(f => f.properties.id === "mp");
 const base = { gint, gpu: false, minZoom: 0, maxZoom: 4, dropRate: 2.5, tileCompression: "none" };

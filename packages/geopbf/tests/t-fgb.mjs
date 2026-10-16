@@ -6,14 +6,14 @@
 //   ・CRS：無し／EPSG:4326 はそのまま・経緯度でない投影系は投げる（ignoreCrs で素通し）・v2 は明示エラー・幾何なしは落として数える
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { fromFlatGeobuf, readFlatGeobufHeader, calcTreeSize } from "../src/convert/fgb.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
 const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/fgb/${n}`, import.meta.url)));
-const load = async (n, opts) => { const { pbf, stats } = await fromFlatGeobuf(fx(n), opts); return { q: await new GeoPBF().set(pbf.arrayBuffer), stats }; };
+const load = async (n, opts) => { const { pbf, stats } = await fromFlatGeobuf(fx(n), opts); return { q: await new GeoPBFBase().set(pbf.arrayBuffer), stats }; };
 
 // ── ヘッダ ───────────────────────────────────────────────────────────────────
 {

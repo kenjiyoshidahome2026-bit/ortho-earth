@@ -9,7 +9,7 @@
 // 列の見つけ方（opts で名指しが最優先）: 経度＝lon/lng/long/longitude/経度/x/X座標/東経、緯度＝lat/latitude/緯度/y/Y座標/北緯、
 // WKT＝wkt/geometry/geom/the_geom/shape/図形（先頭行の値が WKT で始まる列も候補）。大文字小文字・前後空白・BOM は無視。
 // 値の型: 数字らしい文字列だけ数値へ（"01" のような先頭ゼロは文字列のまま＝JP コードを壊さない）、true/false は論理値、空は無し。日付は推測しない。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { attrFilter } from "./attrs.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Geometry, Position, MetaOptions, AttrOptions, MsStats } from "./types.ts";
@@ -42,7 +42,7 @@ export interface TableStats {
 	geometry: { wkt: string } | { lon: string; lat: string };
 	sheet: string | null; sheets: string[] | null; encoding: string | null; delimiter: string | null; precision: number; ms: MsStats;
 }
-export interface FromTableResult { pbf: GeoPBF; stats: TableStats }
+export interface FromTableResult { pbf: GeoPBFBase; stats: TableStats }
 export type { Feature };
 
 /** 表を GeoPBF に。src は Uint8Array（CSV/TSV/XLSX のバイト列）か文字列（CSV テキスト）。 */
@@ -78,7 +78,7 @@ export async function fromTable(src: string | Uint8Array | ArrayBuffer | ArrayBu
 		features.push({ type: "Feature", properties: q, geometry });
 	}
 	const t1 = now();
-	const pbf = await new GeoPBF({ name: opts.name ?? table.sheet ?? "table", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
+	const pbf = await new GeoPBFBase({ name: opts.name ?? table.sheet ?? "table", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
 	return { pbf, stats: { kind, rows: rows.length, features: features.length, droppedGeometries: dropped, vertices, columns: props.map(c => c.name),
 		geometry: iw >= 0 ? { wkt: header[iw] } : { lon: header[ilon], lat: header[ilat] }, sheet: table.sheet ?? null, sheets: table.sheets ?? null, encoding: table.encoding ?? opts.encoding ?? null, delimiter: table.delimiter ?? null,
 		precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };

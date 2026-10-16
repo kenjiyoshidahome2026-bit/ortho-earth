@@ -40,11 +40,13 @@ try {
 		map.setShadows(false);
 		// ④ オーバーレイへ毎フレームの状態（地震の再生の型）
 		// 点のオーバーレイ（points-gl＝frame は false を返す＝自前の続きは無い＝main が毎フレーム流す型）。probe-depth-overlay は frame が true を返し続ける（自前の続き＝衛星の型）＝止まらない
-		const ov = map.overlay(new URL("../../../packages/globe/src/gadgets/points-gl.js", import.meta.url).href, { name: "aatime" });
+		// 公開の口 map.addData（kind "points"＝points-gl の overlay）で開き、setData で毎フレーム layer を流す（段 5：旧＝globe の src を相対 URL で map.overlay に渡していた）
+		const pt = () => [{ p: [SITE[0], SITE[1] + 0.00001 * Math.sin((performance.now() % 1000) / 1000 * 2 * Math.PI)] }];
+		const ov = map.addData(pt(), { kind: "points", id: "aatime", getPosition: d => d.p });
+		await ov.ready;
 		await sleep(1500);
 		let run2 = true;
-		const pos1 = () => { const a = (performance.now() % 1000) / 1000 * 2 * Math.PI, R = 6371000; return new Float32Array([Math.cos(SITE[1] * Math.PI / 180) * Math.cos(SITE[0] * Math.PI / 180) * (1 + 50 / R), Math.sin(SITE[1] * Math.PI / 180) * (1 + 50 / R + 0.00001 * Math.sin(a)), Math.cos(SITE[1] * Math.PI / 180) * Math.sin(SITE[0] * Math.PI / 180) * (1 + 50 / R)]); };
-		const tick2 = () => { if (!run2) return; const pos = pos1(); ov.post({ type: "layer", q: 0, n: 1, pos }, [pos.buffer]); requestAnimationFrame(tick2); };
+		const tick2 = () => { if (!run2) return; ov.setData(pt()); requestAnimationFrame(tick2); };
 		requestAnimationFrame(tick2);
 		await sleep(1500);
 		const during2 = await collect(2500);

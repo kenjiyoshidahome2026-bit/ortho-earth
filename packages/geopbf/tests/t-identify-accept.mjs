@@ -2,7 +2,7 @@
 // 使い手＝Gint の照会とホバー（描画側の filter で隠した地物を識別から外す＝gint draw spec §4.5）。
 // 同じ一点に 点・線・小さい面・大きい面を重ね、外すたびに次の候補（点→線→小→大→null）が出ることを検める。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
 import { gint } from "../src/extension/gint.ts";
 import { identifyAt, findPolygon } from "../src/extension/identify.ts";
@@ -27,7 +27,7 @@ const features = [
 	F("Point", [139.1, 35.1]),                         // fid 2＝点
 	F("LineString", [[139.095, 35.1], [139.105, 35.1]]),   // fid 3＝線（点を通る）
 ];
-const p = await new GeoPBF({ name: "t-identify-accept" }).set({ type: "FeatureCollection", features });
+const p = await new GeoPBFBase({ name: "t-identify-accept" }).set({ type: "FeatureCollection", features });
 const self = { unPackGint: unPackGintBuffer(topology(p)) };
 const at = accept => identifyAt(self, 139.1, 35.1, accept ? { accept } : {});
 const not = (...fids) => fid => !fids.includes(fid);

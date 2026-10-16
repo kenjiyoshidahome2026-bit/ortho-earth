@@ -1,9 +1,9 @@
 import Pbf from "../modules/pbf.ts";
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { PbfDecodeRequest, PbfDecodeResponse } from "../worker-msg.ts";
 
 onmessage = async ({ data: { buf } }: MessageEvent<PbfDecodeRequest>) => {
-	const g = new GeoPBF();
+	const g = new GeoPBFBase();
 	g.pbf = new Pbf(buf);
 	await g.getPosition({ skipProps: true });   // props は送らない（main が遅延復号）＝ここで復号もしない
 	// props are not sent — structured clone of large property arrays would freeze the main thread.

@@ -6,7 +6,7 @@
 //   mode "retopo": { payload }＝topoToTransfer(model,{snap:false}) の送り便。縫合→再抽出→eids 並行配列を返す
 //   mode "fc"    : { fc }＝GeoJSON FC（後方互換＝小規模・試験・loadFC API）
 // 返り便は常に topoToTransfer 形（snap基底込み）＋ retopo は eids。
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { buildTopology, createExtractor } from "geopbf/edit/topo-extract";
 import type { Topology, GeometryLike } from "geopbf/edit/topo-extract";
 import { topoToTransfer, topoFromTransfer, stitchGeometry } from "geopbf/edit/model";
@@ -33,7 +33,7 @@ self.onmessage = async (e: MessageEvent<ModelRequestMsg>) => {
 	try {
 		let topo: Topology, eids: number[] | null = null;
 		if (mode === "pbf") {
-			const pbf = await new GeoPBF({}).set(buffer!) as PbfCore;   // 地物の数は length（器の公開の口）
+			const pbf = await new GeoPBFBase({}).set(buffer!) as PbfCore;   // 地物の数は length（器の公開の口）
 			const ex = createExtractor(gridExp);
 			const n = pbf.length;
 			let verts = 0;
