@@ -2,10 +2,10 @@
 // 守るもの：①sticky＝前回の結果の祖先集合で解き直しても結果は同じ（memo の前提）②同じ入力の update は memo でも毎回解いた時と同じ枠
 // ③カメラ・画面・zOf が変われば解き直す ④key の無い zOf は memo しない ⑤mlTileZoomOf の key は同じ入力で同じ・違う入力で違う
 import assert from "node:assert/strict";
-import { selectLOD } from "../src/tilecover.js";
-import { createTileManager } from "../src/tilemanager.js";
-import { mlTileZoomOf } from "../src/mlcover.js";
-import { tileId } from "../src/tile.js";
+import { selectLOD } from "../src/tilecover.ts";
+import { createTileManager } from "../src/tilemanager.ts";
+import { mlTileZoomOf } from "../src/mlcover.ts";
+import { tileId } from "../src/tile.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;

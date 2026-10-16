@@ -44,4 +44,4 @@ export const s = {
 	_isDrawing: false, _moveTimer: null, _pendingMove: null,
 	_inRange: false,   // 現ズームが [minZoom,maxZoom] 内で実描画されているか＝identify(tip) の可否。描画されない地物にホバー tip を出さない。
 };
-export * from '../../gint/state.js';   // 共通の部分（DEF_*・SLOT_FIELDS・emptySlot）
+export * from '../../gint/state.ts';   // 共通の部分（DEF_*・SLOT_FIELDS・emptySlot）

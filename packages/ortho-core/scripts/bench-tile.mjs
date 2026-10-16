@@ -5,9 +5,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeMVT, neededSourceLayers } from "../src/decode.js";
-import { buildTilePayload } from "../src/tilepayload.js";
-import { mergeTiles } from "../src/scene.js";
+import { decodeMVT, neededSourceLayers } from "../src/decode.ts";
+import { buildTilePayload } from "../src/tilepayload.ts";
+import { mergeTiles } from "../src/scene.ts";
 import gsi from "@ortho-earth/globe/style-gsi.js";
 import mono from "@ortho-earth/globe/style-mono.js";
 import { pmLayers } from "@ortho-earth/globe/style-pm.js";

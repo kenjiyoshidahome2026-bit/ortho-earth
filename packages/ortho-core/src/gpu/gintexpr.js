@@ -7,9 +7,9 @@
 // 載せない物（compile が { error } を返す＝呼び手は CPU の buildFidStyle へ）: MapLibre 出自（origin "ml"）、文字列どうしの大小比較、文字列を足す "+"、
 // 配列・オブジェクトの値、get/has の 2 引数形、let/var 以外の動的な鍵、f32 で表せない整数リテラル（|x| > 2^24）、未対応の演算子。
 // 数は f32（JS は f64）＝.5 の丸めの境で ±1/255 の差が出うる（検定は ±1 の許容）。
-import { paintKeys } from "../gint/attrcols.js";
-export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.js";   // 呼び手（globe の層）が列を組む道具も同じ入口から
-import { parseRGBA } from "../color.js";
+import { paintKeys } from "../gint/attrcols.ts";
+export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.ts";   // 呼び手（globe の層）が列を組む道具も同じ入口から
+import { parseRGBA } from "../color.ts";
 
 const T_NAN = 5, T_LERP = 6;
 class Unsupported extends Error {}

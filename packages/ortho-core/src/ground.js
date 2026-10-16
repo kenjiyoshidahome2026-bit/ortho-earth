@@ -4,7 +4,7 @@
 //   前景＝画面下 3/4 の地点を中心に、中心とのカメラ距離比 r（≥1.3 の時だけ）で縮尺を上げた窓＝チルトの手前が近窓の解像度で
 //   甘くなる件の根治（本人指摘 9/21）。r は 1/4 段で量子化＝チルト中に毎フレーム作り直さない。
 // 原点は半幅の 1/4 刻みにスナップ＝カメラが窓幅の 1/8 動いた時だけ再合成（標本化は正確な窓座標で行う＝絵は飛ばない）。
-import { cameraState, unproject, lonlatTo3D } from "./camera.js";
+import { cameraState, unproject, lonlatTo3D } from "./camera.ts";
 
 const GND_SCALES = [1, 6, 36];
 const snapWin = (cx, cy, hw, hh) => {

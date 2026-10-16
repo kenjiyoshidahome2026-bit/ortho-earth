@@ -58,7 +58,7 @@ test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", ()
 });
 test("恒星：sky/theater は GitHub Pages の sky/stars.6.geopbf を読む＝先読みも同じ URL（HTTP キャッシュを温める）", () => {
 	assert.match(src("packages/globe/src/sky/theater.js"), /skyPbf\(geopbf, "stars\.6"\)/);
-	const data = src("packages/globe/src/sky/data.js"), core = src("packages/ortho-core/src/worldcontent.js");
+	const data = src("packages/globe/src/sky/data.js"), core = src("packages/ortho-core/src/worldcontent.ts");
 	assert.match(data, /SKY_DATA = WORLD_DATA \+ "sky\/"/); assert.match(data, /`\$\{SKY_DATA\}\$\{name\}\.geopbf`/);
 	const base = /WORLD_DATA = "([^"]+)"/.exec(core)[1];
 	const job = planPrefetch({ low: false }).tier1.find(j => j.id === "stars");
@@ -80,7 +80,7 @@ test("ne-cultural：equal・world・globe が同じ URL・同じ name で読む�
 	const base = tier1.find(j => j.id === "cultural-base"), detail = tier2.find(j => j.id === "cultural-detail");
 	assert.equal(base.key, "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-base.geopbf");
 	assert.equal(detail.opts.name, "ne-cultural-detail.geopbf");
-	const core = src("packages/ortho-core/src/worldcontent.js");   // URL と名前の正本＝先読みの鍵と同じ綴り
+	const core = src("packages/ortho-core/src/worldcontent.ts");   // URL と名前の正本＝先読みの鍵と同じ綴り
 	assert.ok(core.includes('WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/"'));
 	assert.ok(core.includes("culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`"));
 	assert.ok(core.includes("culturalName = g => `ne-cultural-${g}.geopbf`"));

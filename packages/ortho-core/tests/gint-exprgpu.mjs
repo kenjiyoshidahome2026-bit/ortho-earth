@@ -2,7 +2,7 @@
 // GPU は無い＝①属性列の符号化（attrcols）②辞書の表（dictTables）③式→WGSL の形（主な演算子が文に落ちる・列の添字・状態の鍵）
 // ④載せない式を断る（CPU へ落ちる口）⑤paintKeys（鍵の収集）。値の一致（GPU 対 buildFidStyle）は globe/tests/t-gintexpr.html（verify:webgpu・器でも回る）が見る
 import assert from "node:assert/strict";
-import { Dict, encodeValue, newKinds, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow, T_UNDEF, T_NUM, T_STR, T_BOOL, T_NULL } from "../src/gint/attrcols.js";
+import { Dict, encodeValue, newKinds, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow, T_UNDEF, T_NUM, T_STR, T_BOOL, T_NULL } from "../src/gint/attrcols.ts";
 import { compileFidStyleWGSL, dictTables } from "../src/gpu/gintexpr.js";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };

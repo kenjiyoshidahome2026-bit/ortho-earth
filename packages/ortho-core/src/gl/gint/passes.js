@@ -5,9 +5,9 @@
 
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms, bindPivot, bindDepthUniforms, farPivotGlobal, layerBboxOf } from './utility.js';
-import { drapeSubs, subPlan } from '../../gint/drawdata.js';
+import { drapeSubs, subPlan } from '../../gint/drawdata.ts';
 import { SUB_NB } from './utility.js';
-import { betaOf, ellipsoidOn } from '../../camera.js';
+import { betaOf, ellipsoidOn } from '../../camera.ts';
 import { canUseIdFill, renderIdFill } from './idfill.js';
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。

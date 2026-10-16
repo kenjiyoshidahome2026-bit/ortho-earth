@@ -5,7 +5,7 @@
 // どちらも s への台帳反映とテクスチャ搭載はここで一元化（applyArtifacts）。
 
 import { uploadTex2D } from './utility.js';
-import { bakeBase, bakeTier, tierPlan } from '../../gint/bake.js';
+import { bakeBase, bakeTier, tierPlan } from '../../gint/bake.ts';
 
 // RGBA32UI メタ（基準/境界/tier 共通）を TEX_META_W 幅にパディングして搭載。
 function uploadMetaTex(s, gl, metaU32, edgeCount) {
