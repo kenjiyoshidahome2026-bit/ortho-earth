@@ -5,7 +5,7 @@
 // 層（addLayer…・ML 形 gadget・問い合わせの filter）は globe の中の PUBLIC_DZ が換算する＝ここでは触らない（二重に換算しない）。
 // 内部（ガジェット・地域パック・worldcontent）は素の map を握ったまま＝エンジンの z（ガジェットは func.apply(素の map)）。
 // 換算の表＝zoomscale.js（ここはその表の「in/out/io/event」を実装する）。shiftZoomExpr は core の物を呼び手（globe.js）が渡す＝このファイルは import が zoomscale.js だけ＝node で検定できる。
-import { RAW, zIn, zOut, GADGET_MEMBERS } from "./zoomscale.js";
+import { RAW, zIn, zOut, GADGET_MEMBERS } from "./zoomscale.ts";
 
 // ここで換算する公開メンバー（tests/mlfacade.mjs が zoomscale.js の表の in/out/io/event と突き合わせる）。view は getter で別扱い
 export const FACADE_CONV = ["flyTo", "jumpTo", "easeTo", "setZoom", "getZoom", "fitBounds", "fitScreenCoordinates", "lookAt", "follow", "setCamera", "cameraForBounds", "fitZoomForBbox",

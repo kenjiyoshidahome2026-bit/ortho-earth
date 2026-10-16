@@ -10,7 +10,7 @@ import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import copcGlUrl from "./copc-gl.js?url";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { COPCHandle, COPCOptions, OverlayHandle } from "../../globe.d.ts";
-import type { Requester } from "../request.d.ts";
+import type { Requester } from "../request.ts";
 import type { GlobeMap } from "../types/map.ts";
 
 /** worker（copc 役）の open が返す見出し＝公開の COPCHandle.info */

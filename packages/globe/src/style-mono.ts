@@ -1,0 +1,231 @@
+// 自作スタイル「Quiet Mono」── 地理院MVT(optimal_bvmap)を、紙地図の踏襲をやめた
+// 静かなモノクロームのデータ土台に再解釈する。主題オーバーレイが主役として映えるよう基図は控えめに引く。
+// std.json と同じ式言語/vt_code フィルタを使うので ortho-japan の評価器でそのまま描ける。
+import type { MLLayer } from "@ortho-earth/core";
+
+/** 基図の style（この地図の式言語＝MapLibre の形）＝テーマ台帳（palettes.ts）の style・色対応表の写し（style-dark／sepia／gsi）の形 */
+export interface BaseMapStyle {
+	version?: number; name?: string; sources?: Record<string, unknown>;
+	/** ソースの語彙の申告（建物・注記の分類・合成水域の属性） */
+	schema?: { buildings?: { layer: string; levelKey?: string; codeKey: string; heightByCode?: Record<string, number>; defaultHeight?: number } | null; labelCode?: string | null; seaProps?: Record<string, unknown> | null } | null;
+	layers: MLLayer[];
+	[k: string]: unknown;
+}
+
+export default {
+	version: 8,
+	name: "Quiet Mono",
+	sources: { v: { type: "vector" } },
+	// ソースの語彙＝この style が書かれている相手（地理院 optimal_bvmap）の名乗り方をエンジンへ申告する。
+	// エンジンは層名も属性名も知らない＝申告の無いソース（?pm= の任意アーカイブ）では建物が立たず、
+	// 注記の分類も付かない（絞り込みと路線記号が効かないだけで地図は出る）。2026-09-17 にエンジンから移設。
+	//   buildings … 建物をどの層から、どの属性の種別で、どの高さに立てるか（3101 普通/3102 堅ろう/3103 高層/3111 無壁舎 等）
+	//   labelCode … 注記の分類コードの属性名（themes.js の主題チップ絞り込み・shields.js の路線記号がこれを見る）
+	//   seaProps  … 図郭外に敷く合成水域が名乗る属性（色式が属性を見る style でも水色に転ぶための保険）
+	schema: {
+		buildings: {
+			layer: "BldA", levelKey: "vt_lvorder", codeKey: "vt_code",
+			heightByCode: { 3101: 9, 3102: 16, 3103: 34, 3104: 22, 3111: 5, 3112: 5 }, defaultHeight: 10,
+		},
+		labelCode: "vt_code",
+		seaProps: { vt_code: 5101 },
+	},
+	layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#f6f6f4" } },
+
+		// 水域：全タイルで作る（minzoom無し・均一色）。描く/描かないは renderer が cam.zoom で"ビュー一律"に決める
+		// （set("sea",{li,minzoom:9})）＝タイル毎の presence まだらが構造的に消える。z<9=紙の海／z9+=一律の青。
+		{ id: "water", type: "fill", "source-layer": "WA", paint: { "fill-color": "#e2e6ea" } },
+
+		// 水系 点火（面）：WA を水色に染める。水系ONで川面・湖・海が河川中心線（river）と地続きの色になる
+		// （面なしだと線だけ浮いて分断された感じになる）。海の z8 ビュー一律ゲート（sea機構 li2）にも相乗り。
+		{ id: "water-hi", type: "fill", "source-layer": "WA", paint: { "fill-color": "#aecbe6" } },
+
+		// 海岸線（水涯線 WL）は撤去：水域は sea 塗り(z8+)のコントラスト（淡グレー水／白い陸）で境が見える／
+		// z<8 は gint 世界海岸線が担当。WL の線は冗長で「水域の暗いボーダー」になるだけ＝描かない。
+		// 復活するなら： { id:"coast", type:"line", "source-layer":"WL", paint:{ "line-color":"#6e747b", "line-width":0.8 } }
+
+		// 水系 点火：河川中心線（RvrCL）。WA面は太い川だけ＝細流・上流はこれで初めて地図に現れる。
+		// 水系チップでON/OFF（themes.js が hiddenLi で制御）。道路・鉄道より下＝橋の下を流れる。
+		{
+			id: "river", type: "line", "source-layer": "RvrCL",
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#aecbe6", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },   // 色は water-hi と統一
+		},
+
+		// 建築物：ほぼ気配だけ
+		{ id: "building", type: "fill", "source-layer": "BldA", paint: { "fill-color": "#ececea" } },
+
+		// 道路 面（z16タイルのみ）：中心線の代わりに紙色の帯を敷き、道路縁(RdEdg)がそれを縁取る＝道路が「白い面」になる。
+		// 水面より上に描く＝橋・埋立の道路が水を白く抜く（地形図の作法）。幅は実幅 vt_width(cm)→px（z16≈1.94m/px）、無い道は格で近似。
+		// 実幅は 2^(z-16) でスケール＝z17+でも実寸を保つ（固定pxだと寄るほど道の中央に細い帯＝「背骨」が浮く）。
+		{
+			id: "road-face", type: "line", "source-layer": "RdCL", minzoom: 16,
+			filter: ["!=", ["get", "vt_code"], 2704],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": "#f6f6f4",
+				"line-width": ["*",
+					["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
+						["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, "国道", 7, "都道府県道", 5, 3]],
+					["^", 2, ["-", ["zoom"], 16]]],
+			},
+		},
+
+		// 鉄道：細い中間グレー。トンネル・地下（vt_railstate）は地形図の作法どおり破線＝別レイヤ。
+		{
+			id: "rail", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], false, true],
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.7, 14, 1.6, 16, 3.2] },   // 土台は控えめ＝都道府県道並（点火時は rail-hi が国道並で覆う）
+		},
+		{
+			id: "rail-tn", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
+			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.7, 14, 1.6, 16, 3.2], "line-dasharray": [5, 4] },
+		},
+
+		// 道路：階層的なグレー。太さ・濃さで格を出すが全体は淡く。casing なし＝静か。トンネル(vt_code 2704)は破線＝別レイヤ。
+		// maxzoom 16＝z16タイルでは中心線を作らない：道路縁(RdEdg)が面として道路を描くので、中心線は重ねない方が綺麗。
+		// （トンネル破線 road-tn と点火 road-hi は情報なので z16 でも残す）
+		{
+			id: "road", type: "line", "source-layer": "RdCL", maxzoom: 16,
+			filter: ["!=", ["get", "vt_code"], 2704],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"],
+					"高速自動車国道等", "#bdbdba", "国道", "#c6c6c3", "都道府県道", "#d2d2cf", "市区町村道等", "#e0e0dd", "#dcdcda"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.4, "国道", 1.1, "都道府県道", 0.7, 0.35],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 3.4, "国道", 2.6, "都道府県道", 1.6, 0.9],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 7, "国道", 5.5, "都道府県道", 3.2, 1.6]],
+			},
+		},
+		{
+			id: "road-tn", type: "line", "source-layer": "RdCL",
+			filter: ["==", ["get", "vt_code"], 2704],
+			layout: { "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"],
+					"高速自動車国道等", "#bdbdba", "国道", "#c6c6c3", "都道府県道", "#d2d2cf", "市区町村道等", "#e0e0dd", "#dcdcda"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.4, "国道", 1.1, "都道府県道", 0.7, 0.35],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 3.4, "国道", 2.6, "都道府県道", 1.6, 0.9],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 7, "国道", 5.5, "都道府県道", 3.2, 1.6]],
+				"line-dasharray": [5, 4],
+			},
+		},
+		// 道路縁（RdEdg・z16タイルのみに存在）：高ズームで道路が線から「面」になる＝街の見栄え。常時表示。
+		{ id: "rdedg", type: "line", "source-layer": "RdEdg", paint: { "line-color": "#c6c6c3", "line-width": 0.7 } },
+
+		// 行政界：淡いグレーの細線（破線は capsule 未対応のため実線）
+		{ id: "admin", type: "line", "source-layer": "AdmBdry", paint: { "line-color": "#cececb", "line-width": 0.8, "line-opacity": 0.9 } },
+
+		// --- "点火"レイヤー群 ---
+		// 土台は常に白黒で全部見えている。各テーマは同じ形状に色を重ねるだけ＝普段は非表示、
+		// チップONで buildScene に含める。再取得・再デコード不要で一瞬。色は後から自由に差し替え可。
+
+		// 鉄道 点火：JR＝静かな緑／JR以外（私鉄・地下鉄・三セク等）＝黄緑で描き分け（vt_rtcode）。
+		// トンネル・地下は破線＝別レイヤ（同色）。
+		{
+			id: "rail-hi", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], false, true],
+			layout: { "line-cap": "round" },
+			paint: {
+				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.3, 14, 3.0, 16, 6.0],   // 土台（国道並）を覆う分だけ太く
+			},
+		},
+		{
+			id: "rail-hi-tn", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
+			paint: {
+				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.3, 14, 3.0, 16, 6.0],
+				"line-dasharray": [5, 4],
+			},
+		},
+		// 駅の軌道（RailTrCL＝構内・側線含む全線路。z16タイルのみに存在）。鉄道ON＋寄った時に緑で。
+		// 駅構内の扇形が浮かぶ。z16固定データなので幅はしっかりめに。
+		{
+			id: "railtr-hi", type: "line", "source-layer": "RailTrCL",
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 16, 1.5, 19, 3.0] },
+		},
+		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）。トンネルは破線＝別レイヤ。
+		// maxzoom 16＝z16+ では中心線をやめ、道路面そのもの（road-hi-face＝road-face と同じ実幅）に色を移す：
+		// 白い面の上に色の中心線が重なるのは冗長（高倍率では中心線いらない）。地理院地図Vector と同じ「色の帯」になる。
+		{
+			id: "road-hi", type: "line", "source-layer": "RdCL", maxzoom: 16,
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["!=", ["get", "vt_code"], 2704]],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+			},
+		},
+		{
+			id: "road-hi-face", type: "line", "source-layer": "RdCL", minzoom: 16,
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["!=", ["get", "vt_code"], 2704]],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
+				"line-width": ["*",   // road-face と同じ実幅×2^(z-16)＝面がそのまま色になる（固定pxだと背骨化）
+					["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
+						["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, 7]],
+					["^", 2, ["-", ["zoom"], 16]]],
+			},
+		},
+		{
+			id: "road-hi-tn", type: "line", "source-layer": "RdCL",
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["==", ["get", "vt_code"], 2704]],
+			layout: { "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+				"line-dasharray": [5, 4],
+			},
+		},
+		// 航路 点火：海の淡青（フェリー等の航路＝WRltLine vt_code 5902。z13以下のタイルにのみ存在＝俯瞰で見える線）。
+		// themes.js が道路チップに相乗りさせる（hiddenLi）＝道路ONで一緒に点く。破線は capsule 未対応のため実線・細め。
+		{
+			id: "kouro", type: "line", "source-layer": "WRltLine",
+			filter: ["==", ["get", "vt_code"], 5902],
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#7aa8cf", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.8, 13, 1.6], "line-opacity": 0.85 },
+		},
+		// 行政界 点火：くすんだ深紅の細線（地名チップに相乗り＝既定ON。主張しない境界線）。
+		// 薄さは opacity でなく実色で作る（#660000 を紙色へ50%寄せ＝#aa7878）＝線分の重なりで濃さがムラにならない。
+		{
+			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
+			paint: { "line-color": "#aa7878", "line-width": 0.8, "line-opacity": 1 },
+		},
+
+		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
+		{
+			id: "label", type: "symbol", "source-layer": "Anno",
+			// 抽出は広めに（表示ON/OFFは main.js の allowlist が制御）。測量系の数値だけ抽出時に除外。
+			filter: ["has", "vt_text"],   // 【切り分け中：崩れ容疑】測量数値も抽出（元は 7101等を除外してた）
+			layout: {
+				"symbol-placement": "point",
+				"text-field": ["get", "vt_text"],
+				// カテゴリで大小：主要都市>市>駅・施設>丁目・路線
+				// 800＝住居表示の町丁名＝210 と同じ「丁目」の格（main の mergeChome が（N）表記へ統一する）。
+				// ここで揃えるのはタイル生成時に size/sort が焼かれるため＝main 側の書き換えでは間に合わない。
+				"text-size": ["interpolate", ["linear"], ["zoom"],
+					10, ["match", ["get", "vt_code"], [1301, 1302, 1303, 1401], 13, 110, 12, 11],
+					16, ["match", ["get", "vt_code"], [1301, 1302, 1303, 1401], 16, 110, 14.5, [210, 800, 411, 421], 12, 13.5]],
+				// 衝突優先度（小さいほど優先）：主要都市→市→駅→施設→丁目・路線
+				"symbol-sort-key": ["match", ["get", "vt_code"],
+					[1301, 1302, 1303, 1401], 0, 110, 1, 422, 2, [621, 631, 632, 673, 531, 532], 3, [210, 800, 411, 421], 5, 4],
+			},
+			paint: { "text-color": "#86867f", "text-halo-color": "#f6f6f4", "text-halo-width": 1.1 },
+		},
+	],
+} satisfies BaseMapStyle;

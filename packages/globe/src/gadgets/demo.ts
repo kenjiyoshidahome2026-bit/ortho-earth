@@ -40,8 +40,8 @@
 // キーボードの地図操作（矢印パン等）はデモ中だけ止める＝keys.js の MODAL_SELECTORS に #demo-bar.on を登録済み。
 import { gadgetStack } from "./stack.ts";
 import { isTypingTarget } from "./keys.ts";
-import { compileVias } from "../demo/scene-adapter.js";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
-import { tr, getLang } from "../i18n.js";
+import { compileVias } from "../demo/scene-adapter.ts";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
+import { tr, getLang } from "../i18n.ts";
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。

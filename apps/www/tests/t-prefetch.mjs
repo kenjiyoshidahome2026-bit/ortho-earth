@@ -57,8 +57,8 @@ test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", ()
 	assert.match(src("packages/equal/src/layers.ts"), /"ne_10m_lakes"/);
 });
 test("恒星：sky/theater は GitHub Pages の sky/stars.6.geopbf を読む＝先読みも同じ URL（HTTP キャッシュを温める）", () => {
-	assert.match(src("packages/globe/src/sky/theater.js"), /skyPbf\(geopbf, "stars\.6"\)/);
-	const data = src("packages/globe/src/sky/data.js"), core = src("packages/ortho-core/src/worldcontent.ts");
+	assert.match(src("packages/globe/src/sky/theater.ts"), /skyPbf\(geopbf, "stars\.6"\)/);
+	const data = src("packages/globe/src/sky/data.ts"), core = src("packages/ortho-core/src/worldcontent.ts");
 	assert.match(data, /SKY_DATA = WORLD_DATA \+ "sky\/"/); assert.match(data, /`\$\{SKY_DATA\}\$\{name\}\.geopbf`/);
 	const base = /WORLD_DATA = "([^"]+)"/.exec(core)[1];
 	const job = planPrefetch({ low: false }).tier1.find(j => j.id === "stars");

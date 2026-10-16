@@ -28,7 +28,7 @@
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.ts";
 import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeInternals } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 import type { MeshDbCached, MeshDbOpts } from "../meshdb.ts";

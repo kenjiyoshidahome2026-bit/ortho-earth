@@ -2,7 +2,7 @@
 // プレロード（事前ダウンロード）と地区単位の削除を行う。回線の細い環境（タブレット・外出先）へ出る前に
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
 // （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderMeshProg から onProg で中継される。
-import { tr } from "./i18n.js";
+import { tr } from "./i18n.ts";
 
 const t = tr();
 const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);   // 題（地域の申告の i18n キー＝訳が無ければキーそのまま）は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL）
