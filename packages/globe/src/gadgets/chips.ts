@@ -1,16 +1,15 @@
 // ガジェット：表示パネル（旧・テーマチップ帯のパネル化＝2026-09-02 本人裁定「右上の地名〜施設とテーマ等を
 // 一つのパネルにまとめて、一つのアイコンで開閉。sky も入れる。右上スッキリ＝拡張もしやすく」）。
 // DOMのみ＝点火の配線は main.js（.chip[data-k]＝レイヤ・#chip-sky＝星座・#theme-row＝main が充填）。
-// keys＝orthoJapan({chips}) の起動パラメータ：true=全部（既定）／配列=選択的（並びは定義順で固定・非推奨）。
+// keys＝orthoJapan({chips}) の起動パラメータ：true=全部（既定）／false=出さない（1.x の配列形＝選択的とローマ字キーは 2.0 で外した＝固定は opts.layers）。
 // fixed＝opts.layers で true/false 固定されたキー集合＝ボタンを出さない（状態は焼き付け済み＝客に触らせない）。
 // 空になったらパネルごと出さない（点火状態 layerState 自体は生きる＝UIが無いだけ）。
 // 置き場＝左上 #gadgets スタックの最上段（検索と同じ「押すと右へ開く」Netflix式＝右上は完全に空ける）。
 import { tr } from "../i18n.ts";
 import { gadgetStack } from "./stack.ts";
 const t = tr();
-/** true＝全部（既定）／配列＝選択的（並びは定義順で固定・非推奨）／false＝出さない */
-export type ChipsSpec = boolean | string[];
-const LEGACY: Record<string, string> = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   // 旧romajiキーの読み替え（後方互換）
+/** true＝全部（既定）／false＝出さない */
+export type ChipsSpec = boolean;
 const CHIPS: Array<{ k: string; label: string; title: string; on?: boolean }> = [
 	{ k: "place", label: "Places", title: "Place names and administrative boundaries", on: true },
 	{ k: "terrain", label: "Terrain", title: "Terrain names, contours (top-down view) and water systems" },
@@ -19,14 +18,8 @@ const CHIPS: Array<{ k: string; label: string; title: string; on?: boolean }> = 
 	{ k: "facility", label: "Facilities", title: "Facility and landmark names" },
 ];
 export function mountChips(mapEl: HTMLElement, keys: ChipsSpec = true, fixed: Record<string, unknown> = {}, signal?: AbortSignal): void {
-	let sel: ChipsSpec = keys;
-	if (Array.isArray(keys)) {   // typo は黙って0個になる＝開発時の迷子防止に一声
-		sel = keys.map(k => LEGACY[k] || k);
-		const known = new Set(CHIPS.map(c => c.k));
-		for (const k of sel) if (!known.has(k)) console.warn(`[chips] unknown key "${k}" (valid: ${[...known].join(", ")})`);
-	}
-	const list = CHIPS.filter(c => !(c.k in fixed))   // 固定キーはボタン自体を出さない
-		.filter(c => sel === true || (Array.isArray(sel) && sel.includes(c.k)));
+	if (typeof keys !== "boolean") console.warn("[chips] the array form was removed in 2.0 = pass chips: true | false (fix layers with opts.layers)");   // JS の呼び手の迷子防止に一声（全部を出す）
+	const list = CHIPS.filter(c => !(c.k in fixed));   // 固定キーはボタン自体を出さない
 	if (!list.length) return;
 	const chips = document.createElement("div");
 	chips.id = "chips";

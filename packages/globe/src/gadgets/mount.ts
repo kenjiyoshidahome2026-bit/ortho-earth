@@ -4,7 +4,7 @@
 // map.gadget.search() / map.gadget.hint() / map.gadget.compass()（v1 ortho-map の gadget 作法）。
 // オプトイン勢の置き場所は左上の #gadgets スタック（stack.js）＝搭載順に縦積み・非表示は上詰め。
 // 標準装備も起動パラメータで表示/非表示を選べる（既定＝全部表示）：
-//   chips＝テーマ・チップ帯（true=搭載[既定]／false=出さない。旧配列形式=選択的は後方互換・非推奨）
+//   chips＝テーマ・チップ帯（true=搭載[既定]／false=出さない。1.x の配列形式＝選択的は 2.0 で外した）
 //   fixedLayers＝opts.layers で固定されたキー（true/false とも）＝該当ボタンを出さない
 //   instruments＝下部の計器盤（true=全部／配列=選択的（例: ["scale","attr"]）／false=出さない）
 import { mountChips } from "./chips.ts";

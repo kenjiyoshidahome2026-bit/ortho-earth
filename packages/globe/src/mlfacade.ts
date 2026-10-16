@@ -1,19 +1,20 @@
 // 外側の顔（facade・2026-09-26・MapLibre 互換の台帳 maplibre-compat.md の約束 1〜3）。
 // createGlobe({ zoomScale: "maplibre" }) の地図だけ、最後に返す map をこの Proxy で包む（旗なしは素の map をそのまま返す）。
 // 公開面の「数」の zoom を MapLibre の z で受け渡す（入力 +dz・出力 −dz・null は素通し）。文字列（view.hash）と台本の族はエンジン z のまま。
-// 代理するのは map・map.gadget（関数）・map.raster の 3 つだけ。gint の手綱は包まない（hits[i].layer === h の同一性）＝addGint に _dz を渡して中で換算。
+// 代理するのは map・map.gadget（名前ごとの口の表）・map.raster の 3 つだけ。gint の手綱は包まない（hits[i].layer === h の同一性）＝addGint に _dz を渡して中で換算。
 // 層（addLayer…・ML 形 gadget・問い合わせの filter）は globe の中の PUBLIC_DZ が換算する＝ここでは触らない（二重に換算しない）。
-// 内部（ガジェット・地域パック・worldcontent）は素の map を握ったまま＝エンジンの z（ガジェットは func.apply(素の map)）。
+// 内部（ガジェット・地域パック・worldcontent）は素の map を握ったまま＝エンジンの z（gadget の本体は第 1 引数に素の map）。
+// gadget の登録（map.registry.gadgets.add）は plugin と同じ素の registry へ素通し＝本体が受ける map も素の map（1.x の map.gadget(name, func)＝this が顔の登録は 2.0 で外した）。
 // 換算の表＝zoomscale.js（ここはその表の「in/out/io/event」を実装する）。shiftZoomExpr は core の物を呼び手（globe.js）が渡す＝このファイルは import が zoomscale.js だけ＝node で検定できる。
 import { RAW, zIn, zOut, GADGET_MEMBERS } from "./zoomscale.ts";
 import type { GadgetZoomClass } from "./zoomscale.ts";
 
 // 顔は素の map のメンバーを名前で呼ぶだけ（引数は利用者の物をそのまま流す）＝ここでの map は「名前 → 関数」の緩い形で読む
 type Call = { call(...args: unknown[]): unknown }["call"];   // 引数は双変（名前で引いた口に利用者の引数を流す）
-/** 顔が読む素の map（gadget＝関数に性質が生えた物・raster＝口の束） */
+/** 顔が読む素の map（gadget＝名前ごとの口の表・raster＝口の束） */
 interface RawMap {
 	[k: string | symbol]: unknown;
-	gadget: Call & Record<string | symbol, unknown>;
+	gadget: Record<string | symbol, unknown>;
 	raster?: Record<string, unknown> & { add: Call; set: Call; list(): unknown[] };
 	view?: unknown;
 	on: Call; off: Call;
@@ -99,7 +100,7 @@ export function createFacade(raw: RawMap, dz: number, { shiftZoomExpr }: FacadeO
 		on, off, once,
 	};
 
-	// ── map.gadget（関数に性質が生えた物）──
+	// ── map.gadget（名前ごとの口の表）──
 	const itemsIn = (items: unknown): unknown => typeof items === "function" ? (c: object) => itemsIn((items as Call)({ ...c, map: facade }))
 		: Array.isArray(items) ? items.map(it => it && typeof it.onClick === "function" ? { ...it, onClick: (c: object) => it.onClick({ ...c, map: facade }) } : it) : items;
 	function gadgetArgsIn(name: string, args: unknown[]) {
@@ -130,11 +131,6 @@ export function createFacade(raw: RawMap, dz: number, { shiftZoomExpr }: FacadeO
 	};
 	const gadgetCache = new Map<string, Call>();
 	const gadgetProxy = new Proxy(raw.gadget, {
-		apply(t, thisArg, args: unknown[]) {   // 利用者のガジェット登録＝this を顔に（旗つきの頁で this.getZoom() が MapLibre の z）
-			let [name, fn] = args as [string | Call, Call];
-			if (typeof name === "function") { fn = name; name = fn.name; }
-			return raw.gadget(name, function (...a: unknown[]) { return fn.apply(facade, a); });
-		},
 		get(t, k) {
 			const g = raw.gadget[k];
 			if (typeof k !== "string" || typeof g !== "function") return g;

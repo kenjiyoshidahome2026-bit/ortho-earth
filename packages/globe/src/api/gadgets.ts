@@ -29,14 +29,9 @@ import type { GadgetsDeps, GadgetsLive, GadgetsReturn, Installing } from "../typ
 interface GadgetGateRec { el: HTMLElement; min: number; max: number; hideNarrow: boolean; on: boolean | null }
 /** 登録の本体（型は名前ごとに RegisterGadget が検査済み＝ここでは引数を素通しするだけ） */
 type AnyFactory = (map: GlobeMap, ...args: unknown[]) => unknown;
-/** 旧来の登録の本体（this＝map） */
-type LegacyFunc = (this: GlobeMap, ...args: unknown[]) => unknown;
-/** 実行時の map.gadget＝旧来の登録口（map.gadget(name, func)・this が map）を兼ねる関数＋名前ごとの呼ぶ口。
- *  2.0 の公開の型（GadgetCallers）には関数の面を出さない（判断 2）が、実行時は残す＝mlfacade の顔（Proxy の apply）と既存の利用者の互換 */
-interface LegacyGadget {
-	(name: string | LegacyFunc, func?: LegacyFunc): void;
-	[name: string]: (this: unknown, opts?: GadgetGate) => unknown;
-}
+/** 実行時の map.gadget＝名前ごとの呼ぶ口の表（素の object）。登録は registerGadget（plugin は map.registry.gadgets.add）だけ＝
+ *  旧来の関数の面（map.gadget(name, func)・this が map）は 2.0 で外した（stage 5-5） */
+type GadgetTable = Record<string, (this: unknown, opts?: GadgetGate) => unknown>;
 
 export function installGadgets(map: Installing<GadgetsApi>, live: GadgetsLive, {
 	REGION_BLD_ICON, REGION_BLD_LABELS, REGION_SEARCH, ZOOM_MAX, ac, cam, demFirst, flightCtl, frameHooks, getHeightP, makeProjector, meshMgr, meshOn,
@@ -71,12 +66,7 @@ export function installGadgets(map: Installing<GadgetsApi>, live: GadgetsLive, {
 			return ret;
 		};
 	};
-	// 旧来の登録（map.gadget(name, func)・func は this＝map で呼ばれる）＝互換に残す（公開の型には無い）
-	const gadget = function (name: string | LegacyFunc, func?: LegacyFunc) {
-		typeof name == "function" && name.name && (func = name, name = func.name);
-		const f = func as LegacyFunc;
-		(registerGadget as (name: string, factory: AnyFactory) => void)(name as string, (m, ...args) => f.apply(m, args));
-	} as LegacyGadget;
+	const gadget: GadgetTable = {};
 	map.gadget = gadget as unknown as GadgetCallers;   // 名前ごとの口は登録で生える（下の組み込み・後の installer・globe.js・plugin）
 	registerGadget("search", (m, opts) => {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
 		return searchGadget.call(m, { provider: REGION_SEARCH, signal: ac.signal, ...opts });
