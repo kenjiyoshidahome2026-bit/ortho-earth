@@ -7,3 +7,5 @@ export type Translate = (key: string, ...args: Array<string | number>) => string
 export function tr(): Translate;
 /** 今の UI 言語（"ja"・"en" …） */
 export function getLang(): string;
+/** 言語の一覧（packages/world/i18n/langs.json の写し・26 言語） */
+export const LANGUAGES: ReadonlyArray<{ code: string; name: string; rtl: boolean }>;

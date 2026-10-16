@@ -13,8 +13,8 @@
 //   ①チルト/回転≠0 なら 0 へ（着地待ち）②透明で置く ③equal が最初の 1 枚（japan と同じ球のフレーム）を描いたら 0.3s で重ね
 //   （球の上に球＝位置は 0 px 一致）④重なり切ったら「開け」の合図＝変形の 1 秒強の裏で地図の本体が読まれる。
 //   戻り＝equal が球へ畳み終えて視点を返す → location.hash に書く（hashchange＝japan は即時ジャンプ）→ 0.3s で消す。
-import { gadgetStack } from "./stack.js";
-import { registerKeyOwner, claimKeys } from "./keys.js";   // 重ねている間はキー（矢印・Esc・ショートカット）を equal が握る＝下の地図へ漏らさない（#173 段 3 の持ち主）
+import { gadgetStack } from "./stack.ts";
+import { registerKeyOwner, claimKeys } from "./keys.ts";   // 重ねている間はキー（矢印・Esc・ショートカット）を equal が握る＝下の地図へ漏らさない（#173 段 3 の持ち主）
 import { tr, getLang } from "../i18n.js";
 const t = tr();
 const destOf = url => url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5198/" : "/equal/");

@@ -68,7 +68,7 @@ export const MAP_MEMBERS = {
 	addFontFace: "none",   // Web フォントを差す（段 2）
 	setGlobalStateProperty: "none", getGlobalState: "none",   // global-state（記号の残件③）
 	setTerrain: "none", getTerrain: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
-	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none", clearFeatureServiceCache: "none", addCOPC: "none", removeCOPC: "none", addPointCloud: "none", removePointCloud: "none",   // clearFeatureServiceCache＝フィーチャーサービスの控えの掃除（#176）
+	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none", clearFeatureServiceCache: "none", addPointCloud: "none", removePointCloud: "none",   // clearFeatureServiceCache＝フィーチャーサービスの控えの掃除（#176）
 	Marker: "none", Popup: "none",
 	// gint（ネイティブ）
 	addGint: "in", applyGintData: "in", paint: "in", paintTable: "none", queryAll: "none", clearUserGint: "none",
@@ -104,12 +104,12 @@ export const MAP_MEMBERS = {
 // { opts: [zoom を運ぶ opts のキー], arg?: その opts が第何引数か（既定 0）}。"view[2]"＝配列 view の 3 番目（[lon, lat, z]）。
 export const GADGET_MEMBERS = {
 	heatmap: "layer", cluster: "layer", symbols: "layer", extrude: "layer",
-	zoom: { opts: ["zoomMin", "zoomMax"] }, home: { opts: ["view[2]"] }, japan: { opts: ["view[2]"] },
+	zoom: { opts: ["zoomMin", "zoomMax"] }, home: { opts: ["view[2]"] },
 	spotlight: { opts: ["maxZoom"], arg: 1 }, globe: { opts: ["maxZoom"] }, viewshed: { opts: ["minZoom"] }, sunshadow: { opts: ["minZoom"] },
 	demo: "engine",   // 台本の族（zoomMin は hash の z と比べる）
 	offline: "none",  // zmaxDefault はタイルの z
 	search: "none", compass: "none", full: "none", shot: "none", measure: "none", profile: "none", contextmenu: "none",
-	legend: "none", palette: "none", hint: "none", qr: "none", print: "none", cpos: "none", mesh: "none", plateau: "none",
+	legend: "none", palette: "none", hint: "none", qr: "none", print: "none", cpos: "none", mesh: "none",
 	dropFile: "none", model: "none", tip: "none", pop: "none", clock: "none", tiles3d: "none", inspect: "none",   // inspect＝検査表示（#174）
 	lang: "none",   // UI 言語の切替（オプトイン・#219 デモ品質の段）＝zoom を運ばない
 	// 2.0.0 で d.ts（Gadgets）にも宣言したガジェット（それまでは実行時にだけ在った＝TS 化 段 2・2026-10-15）。中でエンジン z を使う物（equal・anno・cog・stac・geoedit）は

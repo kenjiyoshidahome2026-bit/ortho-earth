@@ -1,0 +1,131 @@
+// COG 表示ガジェット: geopbf/cog リーダ → 等経緯度 RGBA アトラス → renderer cogTex スロット
+// （GLOBE_FS/TERRAIN_FS が lon/lat→uv 線形1本でドレープ＝CRS はシェーダに入れない）。
+// 四戒: 独立（エンジンへは注入 setCogTex/fit のみ）／遅延（app.js が dynamic import）／抽象アクセス／UI 無し。
+// 窓モデル v1: まず全域アトラス（粗 overview＝1 range で即表示）→ カメラ静定（≈0.5s 不動）でビュー窓へ
+// 絞って精細化・引いたら全域へ戻す。飛行中は発火しない（静定検出が兼ねる＝トランジション通過点で重い層を
+// 発火させない一般則）。lowMem はアトラス半辺（2048→1024）＝メモリと帯域の両方が半分以下。
+import { openCog } from "geopbf/cog";
+import type { BrowserCog, BrowserCogOptions, RenderOut } from "geopbf/cog";
+import type { CogHandle, CogOptions } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+
+/** 窓のアトラス（等経緯度 RGBA・bboxLL＝覆う範囲 [w,s,e,n]）＝renderer の cogTex スロットへ */
+export interface CogTex { rgba: NonNullable<RenderOut>; w: number; h: number; bboxLL: number[] }
+/** createCog に globe が注入する物（setCogTex＝cogTex スロットへ（null＝外す）・fit＝範囲へ寄る・lowMem＝アトラスを半分に） */
+export interface CogDeps { setCogTex: (d: CogTex | null) => void; fit?: (bboxLL: number[]) => void; lowMem?: boolean; signal?: AbortSignal }
+
+// 生タイル（圧縮バイト）の共有メモリキャッシュ＝シーンを載せ替えても同じ Range を撃ち直さない（Tellus の ◀▶ 往復・偽色⇄グレー切替が無通信に）。
+// 鍵は core が cacheKey（呼び出し側が渡すシーン id）か ETag で刻む＝どちらも無い読み口は core 側で素通し（衝突しない）。
+// set は複製して持つ（core が渡す buf は coalesce 塊の subarray＝そのまま持つと親 4MB が居座る）。予算超過は古い順に落とす。
+function rawCache(budget: number) {
+	const m = new Map<string, Uint8Array>(); let bytes = 0;
+	return {
+		async get(k: string) { const v = m.get(k); if (v) { m.delete(k); m.set(k, v); } return v || null; },   // 触った鍵を末尾へ＝LRU
+		async set(k: string, buf: Uint8Array) { if (m.has(k)) return; const c = buf.slice(); m.set(k, c); bytes += c.byteLength; while (bytes > budget && m.size) { const [k0, v0] = m.entries().next().value!; m.delete(k0); bytes -= v0.byteLength; } },
+		get bytes() { return bytes; },
+	};
+}
+
+export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: CogDeps = {} as CogDeps): CogHandle {
+	const ATLAS_W = lowMem ? 1024 : 2048;
+	const cache = rawCache(lowMem ? 24 << 20 : 96 << 20);
+	let cog: BrowserCog | null = null, timer: ReturnType<typeof setInterval> | null = null, busy = false, cur: number[] | null = null;   // cur＝現アトラスが覆う bbox
+	let last: string | null = null, still = 0, rc: AbortController | null = null;                    // rc＝進行中レンダの AbortController
+
+	const renderWindow = async (bb: number[]) => {
+		if (!cog || busy) return;
+		busy = true;
+		rc = new AbortController();
+		const onOuter = () => rc!.abort();
+		signal?.addEventListener("abort", onOuter, { once: true });
+		try {
+			const [w, s, e, n] = bb;
+			const H = Math.max(64, Math.min(ATLAS_W, Math.round(ATLAS_W * (n - s) / Math.max(e - w, 1e-9))));
+			const rgba = await cog.renderTo({ bbox: bb as BrowserCog["bboxLL"], w: ATLAS_W, h: H }, { signal: rc.signal });
+			if (!rgba || !cog) return;   // 圏外 or 途中で clear/中断
+			cur = bb;
+			setCogTex({ rgba, w: ATLAS_W, h: H, bboxLL: bb });
+			map.requestDraw?.();
+		} catch (e) { if ((e as Error)?.name !== "AbortError") console.warn("[cog] render", (e as Error).message); }
+		finally { busy = false; rc = null; signal?.removeEventListener("abort", onOuter); }
+	};
+
+	// ビュー窓＝画面四隅+中心の unproject ∩ COG bbox（20% 余白）∩ ズーム由来の視野幅キャップ。
+	// 隅が球外（unproject=null）＝視野が球の縁を越えている＝COG 全域より広い ⇒ 全域を返す（ズームアウト追従の要）
+	// ⚠チルト時は上端が地平線近くまで届き素の bbox が膨張＝アトラス 2048px が広域に薄く伸びて精細化が甘くなる
+	//（stac の「この範囲」ズレと同根・9/6）。視野幅 deg＝360×W/(256×2^z) で中心の周りにキャップ＝手前の見えている
+	// 範囲へ解像度を集中（遠景は霞の中＝粗くて良い）。真俯瞰はキャップ≒素の bbox＝挙動不変。
+	const viewWindow = () => {
+		if (!cog) return null;
+		const el = map.mapEl, W = el.clientWidth, H = el.clientHeight;
+		const pts = [[W / 2, H / 2], [0, 0], [W, 0], [0, H], [W, H]].map(p => map.unprojectXY(p[0], p[1]));
+		if (pts.some(p => !p)) return cog.bboxLL.slice();
+		const c = pts[0]!;
+		const capW = 360 * W / (256 * Math.pow(2, map.getZoom())) * 0.9;   // 中心±＝計1.8画面ぶん（精細化は少し広めに持つ）
+		const capH = capW * H / W;
+		let w = 1e9, s = 1e9, e = -1e9, n = -1e9;
+		for (const [lo, la] of pts as number[][]) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
+		const mx = (e - w) * 0.2, my = (n - s) * 0.2;
+		w = Math.max(w - mx, c[0] - capW); e = Math.min(e + mx, c[0] + capW);
+		s = Math.max(s - my, c[1] - capH); n = Math.min(n + my, c[1] + capH);
+		const [cw, cs, ce, cn] = cog.bboxLL;
+		const bb = [Math.max(w, cw), Math.max(s, cs), Math.min(e, ce), Math.min(n, cn)];
+		return (bb[2] > bb[0] && bb[3] > bb[1]) ? bb : null;
+	};
+
+	// 望ましい窓と現アトラスの差分判定（null＝現状維持）
+	const wantWindow = () => {
+		const bb = viewWindow();
+		if (!bb) return null;
+		const curSpan = cur ? cur[2] - cur[0] : 1e9, newSpan = bb[2] - bb[0];
+		const full = cog!.bboxLL;
+		if (newSpan < curSpan * 0.6) return bb;                // 寄った＝窓を絞って精細化
+		if (cur && (newSpan > curSpan * 2.5 || bb[0] < cur[0] || bb[1] < cur[1] || bb[2] > cur[2] || bb[3] > cur[3]))
+			return newSpan > (full[2] - full[0]) * 0.7 ? full.slice() : bb;   // 出た/引いた＝広い窓 or 全域へ
+		return null;
+	};
+
+	// ⚠静定検出は壁時計タイマー（200ms 刻み）で行う＝map.onFrame（描画フレーム）で数えない。
+	// このエンジンは静止すると描画を止める＝カメラ停止後に描かれるフレーム数は AA/動的解像度の
+	// 都合次第（バックエンド依存）で、フレーム数勘定だと「発火したりしなかったり」の不追従になる
+	//（WebGPU=zoomout・GL2=zoomin で方向違いに出た実測 2026-09-06）。
+	const tick = () => {
+		if (!cog) return;
+		const el = map.mapEl;
+		const c = map.unprojectXY(el.clientWidth / 2, el.clientHeight / 2);
+		const key = c ? `${map.getZoom().toFixed(2)}/${c[0].toFixed(4)}/${c[1].toFixed(4)}` : `out/${map.getZoom().toFixed(2)}`;
+		if (key !== last) {   // 動いている＝発火しない（飛行中抑制）。ただし窓が明後日になった読み込みは今すぐ中断
+			last = key; still = 0;
+			if (busy && rc && wantWindow()) rc.abort();   // 古い窓のタイル取得を捨てる＝引き/寄り直し即応（回線が細いほど効く）
+			return;
+		}
+		if (++still < 2) return;     // 静定 ≈0.4s（200ms×2）から
+		if (busy) return;            // 前のレンダ中＝次タイマーで再試行（⚠一発発火にしない: busy に飲まれると引き戻しが永久に来ない）
+		const bb = wantWindow();
+		if (bb) renderWindow(bb);    // 実行後は cur が変わり wantWindow()=null＝静かになる
+	};
+
+	return {
+		// fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）。
+		// fetch＝読み口の差し替え（stac の Tellus 経路＝署名 URL が 1 時間で失効するので 403 で再発行して読み直す包み）。
+		// 残り（stretch/composite/colormap/cacheKey）は geopbf/cog の openCog へそのまま＝見せ方はデータ側（tellus-api の cogOpts）が決める。
+		async load(src, { fit: doFit = true, fetch: f = null, ...cogOpts }: CogOptions = {}) {
+			this.clear();
+			cog = await openCog(src, { signal, cache, ...cogOpts as BrowserCogOptions, ...(f ? { fetch: f } : {}) });
+			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
+			if (doFit) fit?.(cog.bboxLL);
+			timer = setInterval(tick, 200);
+			console.info("[cog] loaded", cog.width + "x" + cog.height, "EPSG:" + cog.epsg, cog.metrics());
+			return cog;
+		},
+		clear() {
+			if (timer) { clearInterval(timer); timer = null; }
+			cog?.close(); cog = null; cur = null; last = null; still = 0;
+			setCogTex(null); map.requestDraw?.();
+		},
+		metrics: () => cog ? { ...cog.metrics(), rawCacheBytes: cache.bytes } : null,
+		// 読めた COG の全解像度の寸法（px）＝ドロップのトースト「W×Hpx」が読む。読む前・clear の後は null
+		get width() { return cog ? cog.width : null; },
+		get height() { return cog ? cog.height : null; },
+	};
+}

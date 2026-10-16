@@ -2,7 +2,7 @@
 <!-- COPC の計測（点群計画 段 0・2026-10-15）。検定ではない＝verify:ui には入れない。走らせ方＝scripts/copc-bench.mjs（GPU の要る数字は Kenji の Mac で）。
      ?src=<COPC の URL>（既定＝fixtures の合成 10 万点）・?color=rgb|classification|elevation|intensity
      段取り＝開く → 全体（fit）で落ち着く → 中心へ寄る（z+2・斜め 60°）で落ち着く → さらに寄る（z+4）で落ち着く → その場で 1 周回す（6 秒）
-     数字（表題の JSON）＝open（addCOPC が返るまで ms）・first（最初の節が出るまで ms）・各段の settle（落ち着くまで ms）・requests・bytes・points・
+     数字（表題の JSON）＝open（addPointCloud が返るまで ms）・first（最初の節が出るまで ms）・各段の settle（落ち着くまで ms）・requests・bytes・points・
        worker の時間の合計（read・decode・proj ms）と 1 節あたり・回している間のフレーム間隔（p50・p95・最大 ms） -->
 <html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:1280px;height:800px}</style><title>t-copcbench</title></head>
 <body><div id="map"></div>
@@ -19,7 +19,7 @@ try {
 	await map.once("load");
 	const out = { src: SRC.split("/").pop() };
 	const t0 = performance.now();
-	const h = await map.addCOPC(SRC, { id: "b", color: q.get("color") || "auto" });
+	const h = await map.addPointCloud(SRC, { id: "b", color: q.get("color") || "auto" });
 	out.open = Math.round(performance.now() - t0);
 	out.count = h.info.count; out.size = h.info.size; out.crs = h.info.crs;
 	// 落ち着く＝動いていない・読みが飛んでいない・選びが要る節を全部読み終えた（stats が 2 回続けて同じ）
