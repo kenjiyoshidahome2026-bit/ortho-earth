@@ -8,7 +8,7 @@
 	"exports": {
 		".": {
 			"types": "./globe.d.ts",
-			"default": "./src/globe.js"
+			"default": "./src/globe.ts"
 		},
 		"./maplibre": {
 			"types": "./maplibre.d.ts",

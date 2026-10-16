@@ -83,7 +83,7 @@
 				"why": "負債（地域）：Tellus の API 読み口そのもの（/japan/tellus 専用）。地域パックへ移す"
 			}
 		},
-		"packages/globe/src/globe.js": {
+		"packages/globe/src/globe.ts": {
 			"plateau": {
 				"n": 8,
 				"why": "互換：opts.plateau・on(\"plateau\")（公開面の旧名）＋負債：計器とログの表示名（mesh へ）"
@@ -229,6 +229,12 @@
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
+			}
+		},
+		"packages/globe/src/themes.d.ts": {
+			"chome": {
+				"n": 2,
+				"why": "負債（地域）：themes.js の型（TS 化 段 4・batch 3）＝CHOME_MINZOOM・CHOME800_MINZOOM の宣言。themes.js と同じ移設で消える"
 			}
 		},
 		"packages/globe/src/themes.js": {
