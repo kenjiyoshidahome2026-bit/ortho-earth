@@ -1,20 +1,124 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, MESH_VS, MESH_FS, MESH_TEX_VS, MESH_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.js";
-import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ）
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, MESH_VS, MESH_FS, MESH_TEX_VS, MESH_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.ts";
+import { groundWindows, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
-import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.js";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
+import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
 import { seaFbReal } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
-import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
+import { createDepthOutGL } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
-import { FAR_PIVOT } from "./gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
+import { FAR_PIVOT } from "./gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
+import type { Renderer } from "../../types/gpu.js";
+import type { CameraPose, CameraState, SphereRayUniforms } from "../camera.ts";
+import type { BuildingsGeom, MergedScene } from "../scene.ts";
+import type { RasterDraw, RasterDrawLayer, RasterDraws, TileMesh } from "../raster.ts";
+import type { CellPayload } from "../terrain.ts";
+import type { ElevGrid, ElevTileGrid } from "../elevation.ts";
+import type { DrawRun, TerrainChunk } from "../terrainlod.ts";
+import type { OverlayRange } from "../geojson.ts";
+import type { WorldPal } from "../worldpal.ts";
+import type { PostProcessNormalized } from "../postfx.ts";
+import type { ClockAnchor } from "@ortho-earth/ephem/clock";
+import type { DepthOutGL } from "./depthout.ts";
+import type { GintDepthCtx } from "./gint/state.ts";
+import type { GintAtlasTarget } from "./gint/embed.ts";
+
+export type { Renderer };
+/** createRenderer の rOpts（renderworker が渡す） */
+export interface GLRendererOptions { msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean }
+/** draw(cam, opts) の opts */
+export interface GLDrawOptions { skipMain?: boolean; skipBase?: boolean; noTerrain?: boolean; noBld?: boolean }
+type Vec3T = [number, number, number];
+type Vec4T = [number, number, number, number];
+/** 1 フレームのカメラ＝cameraState＋f32 の mvp・霧の基準距離 */
+type GLCamState = CameraState & { mvp32: Float32Array; fogDist?: number };
+/** 静的な見た目（set("view")・浅マージ） */
+interface GLView {
+	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
+	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
+	worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
+	clock?: ClockAnchor | null; showConst?: boolean; skySolar?: boolean; showRail?: boolean; showContour?: boolean; graticule?: boolean; night?: boolean;
+	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
+	gintFarPivot?: boolean; gintSub?: boolean;
+}
+/** style の sky（B4） */
+interface GLSky { sky: number[]; horizon: number[]; fog: number[]; groundBlend: number; horizonFogBlend: number; skyHorizonBlend: number; atmosphereBlend: number }
+/** style の light（B3） */
+interface GLLight { dir: number[]; color?: number[] | null; intensity?: number }
+/** 局所の光源（W2・light.js localLightsPayload） */
+interface GLLocalLights { n: number; data: Float32Array }
+interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
+interface FarState { bounds: number[]; has: number; edgeFade: number }
+/** 標高アトラスの記述（terrain.js の set("elevAtlas"…)） */
+interface ElevAtlasDesc { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number }
+interface ElevCellProp { cx: number; cy: number; cellRes: number }
+/** 生タイルの記述子（CellPayload の Float32Array 以外）＝tile/atlas はどちらか */
+type CellSrc = Exclude<CellPayload, Float32Array> & { tile?: ElevTileGrid; atlas?: ElevGrid };
+interface RawTexEntry { tex: WebGLTexture; bytes: number; kind: number; fresh: number }
+interface ResampleRes { fbo: WebGLFramebuffer; progs: WebGLProgram[]; vao: WebGLVertexArrayObject }
+interface TerrainMesh { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; ibo: WebGLBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[] }
+interface CogInput { rgba: Uint8Array; w: number; h: number; bboxLL: number[] }
+type GLRasterTex = { kind: "tex"; tex: WebGLTexture; bytes: number; w: number; h: number; nearest: boolean };
+type GLRasterMesh = { kind: "mesh"; vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number; bytes: number };
+type GLRasterDraw = Omit<RasterDraw, "tex" | "mesh"> & { tex: GLRasterTex; mesh: GLRasterMesh };
+type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLayer, "draws"> & { draws: GLRasterDraw[] })[] };
+/** 地面アトラスの 1 窓 */
+interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
+interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[] }
+interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
+type GLDraw = GLFillDraw | GLLineDraw;
+interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
+/** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
+interface MDLayer { kind: "fill" | "line"; li: number; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
+interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
+interface MDPool { buf: WebGLBuffer | null; bytes: number }
+interface MDState {
+	ext: WEBGL_multi_draw; fillProg: WebGLProgram; lineProg: WebGLProgram; bldProg: WebGLProgram;
+	fillV: MDPool; fillI: MDPool; bldV: MDPool; lineTex: WebGLTexture | null; lineTexH: number;
+	fillVAO: WebGLVertexArrayObject | null; bldVAO: WebGLVertexArrayObject | null; atlasFillProg?: WebGLProgram;
+}
+interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
+interface MDSceneMsg { slot: string; origin: ArrayLike<number>; layers: MDLayer[]; bld: MDBldRun[] | null }
+interface MDGrowMsg { pool: string; units: number }
+interface GintBldIn { lines?: BuildingsGeom | null; points?: BuildingsGeom | null; color?: number[] | null }
+interface GintBldData extends GintBldIn { origin: ArrayLike<number>; batches?: GintBldIn[] | null }
+interface GintBldBatch { lineVAO: WebGLVertexArrayObject | null; lineCount: number; pointVAO: WebGLVertexArrayObject | null; pointCount: number; bufs: WebGLBuffer[]; color: number[] | null }
+interface StarBuf { vao: WebGLVertexArrayObject; buf: WebGLBuffer; count: number }
+type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w: number; h: number };
+/** set("meshSet", data, key) の data（建物メッシュ・模型） */
+interface MeshIn {
+	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
+	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string;
+	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean;
+	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
+}
+interface MeshBatch {
+	vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; tex: WebGLTexture | null; textured: boolean; blend: boolean; cut: number; count: number;
+	origin: ArrayLike<number>; bbox: number[]; ward: string; lodH: ArrayLike<number> | null; lodCounts: ArrayLike<number> | null;
+	two: number; noLift: boolean; drape: boolean; keep2d: boolean; xf?: Float32Array | null;
+}
+interface MeshMask { tex: WebGLTexture; bbox: number[]; n: number; bytes: Uint8Array }
+/** overlay 系の入力（buildGeoJSONOverlay のシーン） */
+interface OverlaySceneIn { fanPos: Float32Array; P1: Float32Array; P2: Float32Array; lineCol: Float32Array | Uint8Array; lineHalf?: Float32Array | null; origin: ArrayLike<number>; minZoom?: number; feats?: OverlayRange[] | null }
+interface OverlaySlot {
+	fanVao: WebGLVertexArrayObject; fanCount: number; lineVao: WebGLVertexArrayObject | null; lineCount: number; origin: ArrayLike<number>;
+	fillColor: ArrayLike<number>; bufs: WebGLBuffer[]; minZoom: number; feats: OverlayRange[] | null; mask?: boolean;
+}
+/** overlayHi の prop＝配列は面塗り／{mask,color} は周辺マスク */
+type HiFill = number[] | { mask?: boolean; color?: number[] | null };
+interface DbgCounters { baseFill: number; baseLine: number; mainFill: number; mainLine: number; skipMain: boolean; skipBase: boolean; zoom: number; terrainDepth: boolean }
+interface UserAnchorPlan { host: string | null; anchors: number[]; anchorOf: (li: number) => number }
+type LiPick = ((x: { li: number }) => boolean) | null;
+/** ?perf=1 の計器（worker の大域） */
+type PerfGlobal = { __perfElev?: unknown; __perfElevLast?: unknown; __perfElevT?: number };
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一（gpu/renderer.js と対）
@@ -22,10 +126,10 @@ const LINE_IDX = new Uint8Array([0, 1, 2, 2, 1, 3]);
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
 // 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。u_logCoef・gintCtx・深度の書き出し（#47）が同じ値を使う
-const logCoefOf = st => { const limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); return 2.0 / Math.log2(limb * 1.15 + st.camDist + 1.0); };
-export function createRenderer(canvas, rOpts = {}) {
+const logCoefOf = (st: CameraState): number => { const limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); return 2.0 / Math.log2(limb * 1.15 + st.camDist + 1.0); };
+export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpts: GLRendererOptions = {}): Renderer {
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
-	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true });
+	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true }) as WebGL2RenderingContext;   // "webgl2" の口＝WebGL2。null は直下で投げる（宣言関数の中へは絞り込みが届かない＝型は非 null）
 	if (!gl) throw new Error("WebGL2 unavailable");
 
 	const fillProg = program(gl, FILL_VS, FILL_FS);
@@ -44,11 +148,11 @@ export function createRenderer(canvas, rOpts = {}) {
 	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを地面アトラスへ合成（RTT ドレープ）
 	// ベクタ塗りを地面アトラスへ焼く（3D 限定）。属性位置は塗り本体の VAO（fillProg／md.fillProg で束ねた）と一致させる＝リンク前に bindAttribLocation
 	const atlasFillProg = programBound(gl, ATLAS_FILL_VS, ATLAS_FILL_FS, { a_delta: gl.getAttribLocation(fillProg, "a_delta"), a_color: gl.getAttribLocation(fillProg, "a_color") });
-	const whiteTex = gl.createTexture();   // テクスチャ無しの模型バッチ用（頂点色×1）
+	const whiteTex = gl.createTexture()!;   // テクスチャ無しの模型バッチ用（頂点色×1）
 	gl.bindTexture(gl.TEXTURE_2D, whiteTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); gl.bindTexture(gl.TEXTURE_2D, null);
-	function meshTexture(t) {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
+	function meshTexture(t: MeshTexIn | null | undefined): WebGLTexture {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
 		if (!t) return whiteTex;
-		const tex = gl.createTexture();
+		const tex = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 		if (t.bitmap) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, t.bitmap);
@@ -69,25 +173,25 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 線の角＝index の 4 頂点（perf plan P3・既定）／旧 6 頂点（?quad4=0）。線分 1 本の VS 起動 6→4。element buffer は各 line VAO に bind（ELEMENT bind は VAO 状態）
 	const QUAD4 = rOpts.quad4 !== false;
 	const cornerBuf = buffer(gl, QUAD4 ? CORNERS4 : CORNERS);
-	let lineIdxBuf = null;
+	let lineIdxBuf: WebGLBuffer | null = null;
 	if (QUAD4) { lineIdxBuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, LINE_IDX, gl.STATIC_DRAW); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null); }
-	const drawLineInst = n => { if (QUAD4) gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_BYTE, 0, n); else gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
+	const drawLineInst = (n: number): void => { if (QUAD4) gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_BYTE, 0, n); else gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
 	const emptyVAO = gl.createVertexArray();
 	// 標高アトラスは R16F（half-float）。R32F は線形補間に OES_texture_float_linear が必須で、非対応GPU
 	// （古い4GB機など）では NEAREST に落ちて地形が市松模様になる（R01 の高密度で顕著）。R16F は WebGL2 の
 	// コアで線形フィルタ可（拡張不要）＝全デバイスで滑らか。おまけにアトラスの GPU メモリが半分（4B→2B/texel）
 	// ＝jetsam にも効く。標高はメートル値を half-float で格納＝精度は十分（~4km で ±2m・低地は ±0.25m 級）。
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
-	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
+	let elevTex: WebGLTexture | null = null, elev: ElevState = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain: TerrainMesh | null = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=メッシュマスク・6=md線・7=gint elev と不干渉）
-	let farTex = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	let farTex: WebGLTexture | null = null, far: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 	// 気候場テクスチャ（全球ハイプソの cross-blend 用・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（u_hasClim=0）＝1-2フレームの色ズレのみ。
-	let climTex = null, climLoading = false;
-	function ensureClimTex(url) {
+	let climTex: WebGLTexture | null = null, climLoading = false;
+	function ensureClimTex(url: string | null | undefined): void {
 		if (climTex || climLoading || !url) return;
 		climLoading = true;
-		fetch(url).then(r => r.blob()).then(b => createImageBitmap(b, { premultiplyAlpha: "none" })).then(bm => {
+		fetch(url!).then(r => r.blob()).then(b => createImageBitmap(b, { premultiplyAlpha: "none" })).then(bm => {
 			climTex = gl.createTexture();
 			gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, climTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bm);
@@ -101,8 +205,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// ユーザ COG アトラス（gadgets/cog.js が geopbf/cog の renderTo で等経緯度 RGBA に warp 済みを渡す）。
 	// unit9＝空き（1=elev・2-5=メッシュマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
-	let cogTex = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
-	function setCogTex(data) {
+	let cogTex: WebGLTexture | null = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
+	function setCogTex(data: CogInput | null | undefined): void {
 		if (!data) {   // 解放
 			if (cogTex) gl.deleteTexture(cogTex);
 			cogTex = null; cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
@@ -120,19 +224,19 @@ export function createRenderer(canvas, rOpts = {}) {
 		cogSt = { bbox: [bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1]], has: 1, bytes: w * h * 4 };
 	}
 	// ⚠サンプラは has=0 でも毎フレーム unit9 へ向ける（未設定＝unit0 整数テクスチャの轍＝elev/clim と同族）
-	function bindCog(prog) {
+	function bindCog(prog: WebGLProgram): void {
 		gl.uniform1i(loc(gl, prog, "u_cogTex"), 9);
 		gl.uniform1f(loc(gl, prog, "u_hasCog"), cogSt.has);
 		gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, cogSt.has ? cogTex : null); gl.activeTexture(gl.TEXTURE0);
 	}
 	// fill 系: COG uv＝off+dLL×inv の係数を JS の f64 で前計算（シーン原点ごと）＝f32 絶対経緯度のジッタ根治
-	function setCogScene(prog, origin) {
+	function setCogScene(prog: WebGLProgram, origin: ArrayLike<number> | null | undefined): void {
 		if (!cogSt.has) return;
 		const [W, S, sLon, sLat] = cogSt.bbox, o = origin || [0, 0];
 		gl.uniform4f(loc(gl, prog, "u_cogOffInv"), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat);
 	}
 	// terrain: メッシュ窓（u_mesh と同値）→COG uv の変換係数（f64 前計算）
-	function setCogMesh(mh) {
+	function setCogMesh(mh: ArrayLike<number>): void {
 		if (!cogSt.has) return;
 		const [W, S, sLon, sLat] = cogSt.bbox;
 		gl.uniform4f(loc(gl, terrainProg, "u_cogMesh"), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat);
@@ -141,10 +245,10 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 地形・球・塗りの FS が gndMix で画素標本化する（COG と同じ配線＝地形面そのものに写る）。合成は「窓（量子化）・ラスタの rev・
 	// シーンの rev・ゲート」の鍵が変わった時だけ＝静止中はゼロコスト。unit10＝合成時のタイル・unit13/14/15＝窓 0/1/2。
 	// raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）。
-	let rasterDraws = null, memRaster = 0, dbgC = null, sceneRev = 0;
-	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
-	function rasterTex(bitmap) {
-		const tex = gl.createTexture();
+	let rasterDraws: GLRasterDraws | null = null, memRaster = 0, dbgC: DbgCounters | null = null, sceneRev = 0;
+	const gnd = { w: [null, null, null, null] as (GndWin | null)[], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	function rasterTex(bitmap: ImageBitmap): GLRasterTex {
+		const tex = gl.createTexture()!;
 		gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);   // 画像の行0＝北＝メッシュ v=0（反転しない）・α は合成 FS が掛ける
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
@@ -156,38 +260,38 @@ export function createRenderer(canvas, rOpts = {}) {
 		memRaster += bytes;
 		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height, nearest: false };
 	}
-	function rasterMesh({ pos, uv, idx }) {
-		const vao = gl.createVertexArray();
+	function rasterMesh({ pos, uv, idx }: TileMesh): GLRasterMesh {
+		const vao = gl.createVertexArray()!;
 		const bPos = buffer(gl, pos), bUv = buffer(gl, uv);
 		gl.bindVertexArray(vao);
 		attrib(gl, rasAtlasProg, "a_delta", bPos, 2);
 		attrib(gl, rasAtlasProg, "a_uv", bUv, 2);
-		const ibo = gl.createBuffer();
+		const ibo = gl.createBuffer()!;
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		const bytes = pos.byteLength + uv.byteLength + idx.byteLength;
 		memRaster += bytes;
 		return { kind: "mesh", vao, bufs: [bPos, bUv, ibo], count: idx.length, bytes };
 	}
-	function rasterFree(h) {
+	function rasterFree(h: GLRasterTex | GLRasterMesh | null | undefined): void {
 		if (!h) return;
 		if (h.kind === "tex") { gl.deleteTexture(h.tex); }
 		else { for (const b of h.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(h.vao); }
 		memRaster -= h.bytes || 0;
 	}
-	function setRasterDraws(rd) { rasterDraws = rd; }
-	function gndAlloc(size) {
-		const tex = gl.createTexture();
+	function setRasterDraws(rd: RasterDraws | null): void { rasterDraws = rd as GLRasterDraws | null; }
+	function gndAlloc(size: number): GndWin {
+		const tex = gl.createTexture()!;
 		gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		const aniso = gl.getExtension("EXT_texture_filter_anisotropic"); if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));
 		gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
-		const fbo = gl.createFramebuffer();
+		const fbo = gl.createFramebuffer()!;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-		const rb = gl.createRenderbuffer();   // stencil＝gint 面の巻き数塗り（stencil-then-cover）を窓へ焼くため（STENCIL_INDEX8＝1B/px）
+		const rb = gl.createRenderbuffer()!;   // stencil＝gint 面の巻き数塗り（stencil-then-cover）を窓へ焼くため（STENCIL_INDEX8＝1B/px）
 		gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.STENCIL_INDEX8, size, size);
 		gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.STENCIL_ATTACHMENT, gl.RENDERBUFFER, rb);
 		gl.bindRenderbuffer(gl.RENDERBUFFER, null);
@@ -196,16 +300,16 @@ export function createRenderer(canvas, rOpts = {}) {
 		gnd.bytes += bytes;
 		return { tex, fbo, rb, size, win: [0, 0, 1, 1], bytes };
 	}
-	function gndFree1(a) { if (!a) return; gl.deleteFramebuffer(a.fbo); gl.deleteTexture(a.tex); if (a.rb) gl.deleteRenderbuffer(a.rb); gnd.bytes -= a.bytes; }
-	let groundHook = null, groundSig = null;   // gint の面を窓へ焼くフック（renderworker が bakeFaces/bakeSig を結線）：fn(cam, { fbo, win, size })・sig()＝合成鍵
-	function setGroundHook(fn, sig) { groundHook = fn || null; groundSig = sig || null; }
+	function gndFree1(a: GndWin | null | undefined): void { if (!a) return; gl.deleteFramebuffer(a.fbo); gl.deleteTexture(a.tex); if (a.rb) gl.deleteRenderbuffer(a.rb); gnd.bytes -= a.bytes; }
+	let groundHook: ((cam: CameraPose, target: GintAtlasTarget) => number) | null = null, groundSig: (() => string) | null = null;   // gint の面を窓へ焼くフック（renderworker が bakeFaces/bakeSig を結線）：fn(cam, { fbo, win, size })・sig()＝合成鍵
+	function setGroundHook(fn?: ((cam: CameraPose, target: GintAtlasTarget) => number) | null, sig?: (() => string) | null): void { groundHook = fn || null; groundSig = sig || null; }
 	// ラスタタイルを窓へ（order＝"under"|"over"）
-	function drawRasterInto(a, bb, order) {
+	function drawRasterInto(a: GndWin, bb: number[], order: string): void {
 		gl.useProgram(rasAtlasProg);
 		gl.uniform2f(loc(gl, rasAtlasProg, "u_winInv"), 1 / a.win[2], 1 / a.win[3]);
 		gl.uniform1i(loc(gl, rasAtlasProg, "u_tex"), 10);
 		gl.activeTexture(gl.TEXTURE10);
-		for (const L of rasterDraws.layers) {
+		for (const L of rasterDraws!.layers) {
 			if (L.order !== order) continue;
 			const nearest = L.resampling === "nearest";   // raster-resampling（C4）＝層の設定をテクスチャに掛ける（1 枚のテクスチャは 1 層のもの＝毎回掛け直して安い）
 			for (const d of L.draws) {
@@ -229,8 +333,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// ベクタ塗り（merge 済みシーン＝3D の直描きと同じバッファ）を窓へ。ゲートは直描きと同じ（海の点火・図郭外水域・3D の足元塗り）
 	// lo／hi／pick＝li の範囲・利用者の群（#123＝基図の枠を差し込みの境で分けて、間に利用者の塗りを焼く）
-	function drawFillsInto(a, st, land, slots, seaOff, baseA, lo = -Infinity, hi = Infinity, pick = null) {
-		const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
+	function drawFillsInto(a: GndWin, st: GLCamState, land: ArrayLike<number>, slots: string[], seaOff: boolean, baseA: number, lo = -Infinity, hi = Infinity, pick: LiPick = null): void {
+		const inRange = (x: { li: number }): boolean => pick ? pick(x) : x.li >= lo && x.li < hi;
 		// ⚠標高サンプラ（水域ゲート）は unit1/8 を引く＝直前の gint パスが整数テクスチャを残していると型不一致でドロー全体が無効＝
 		// 塗りが空のアトラスになる（実際に踏んだ 2026-09-21）。draw() 本体と同じく明示的に張り直す（無ければ null＝incomplete＝黒で無害）
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
@@ -239,13 +343,13 @@ export function createRenderer(canvas, rOpts = {}) {
 		for (const slot of slots) {
 			const scene = scenes[slot];
 			if (scene.md) {
-				if (!md.atlasFillProg) md.atlasFillProg = programBound(gl, ATLAS_FILL_MD_VS, ATLAS_FILL_FS, { a_delta: gl.getAttribLocation(md.fillProg, "a_delta"), a_color: gl.getAttribLocation(md.fillProg, "a_color") });
-				const prog = md.atlasFillProg;
+				if (!md!.atlasFillProg) md!.atlasFillProg = programBound(gl, ATLAS_FILL_MD_VS, ATLAS_FILL_FS, { a_delta: gl.getAttribLocation(md!.fillProg, "a_delta"), a_color: gl.getAttribLocation(md!.fillProg, "a_color") });
+				const prog = md!.atlasFillProg;
 				setCommonUniforms(prog, st, scene.origin, land);   // u_origin（elev ゲートの絶対 ll）＋標高テクスチャ一式
 				gl.uniform2f(loc(gl, prog, "u_atlOff"), scene.origin[0] - a.win[0], scene.origin[1] - a.win[1]);
 				gl.uniform2f(loc(gl, prog, "u_atlInv"), 1 / a.win[2], 1 / a.win[3]);
 				gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
-				gl.bindVertexArray(md.fillVAO);
+				gl.bindVertexArray(md!.fillVAO);
 				for (const e of scene.md.layers) {
 					if (e.kind !== "fill" || !inRange(e)) continue;
 					const seaFBM = seaFbReal(e.li) != null, waterM = e.li === sea.li || e.li === sea.li2;
@@ -253,7 +357,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (bldFill.li >= 0 && e.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる（押し出しに委ねる）
 					gl.uniform1f(loc(gl, prog, "u_seaGate"), seaFBM ? 1 : 0);
 					gl.uniform2fv(loc(gl, prog, "u_tileOff"), e.origins);
-					md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
+					md!.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 				}
 				gl.bindVertexArray(null);
 				continue;
@@ -278,23 +382,23 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 	}
 	// 合成の入口（draw の冒頭・鍵が変わった時だけ）。fillsIn＝3D（地形あり）＝塗りはアトラス側へ（直描きは伏せる）
-	function composeGround(cam, st, land, fillsIn, slots) {
+	function composeGround(cam: CameraPose, st: GLCamState, land: ArrayLike<number>, fillsIn: boolean, slots: string[]): void {
 		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
-		const wantFills = fillsIn && !(rasterOn && rasterDraws.hideFills);
+		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
 		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
 		const wins = groundWindows(cam, canvas.width, canvas.height);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
 		for (let i = 0; i < wins.length; i++) {
 			const bb = wins[i], size = sizes[i];
-			if (!gnd.w[i] || gnd.w[i].size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); }
-			const a = gnd.w[i]; a.win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
+			if (!gnd.w[i] || gnd.w[i]!.size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); }
+			const a = gnd.w[i]!; a.win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
 			gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
 			gl.viewport(0, 0, size, size);
 			gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST); gl.disable(gl.CULL_FACE); gl.depthMask(true); gl.colorMask(true, true, true, true);
@@ -311,7 +415,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			}
 			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
 			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
-				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", e?.message); }
+				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
 				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
 				gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
 				gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
@@ -325,51 +429,51 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// ⚠サンプラは n=0 でも毎フレーム unit13/14/15/11 へ向ける（未設定＝unit0 整数テクスチャの轍＝cog/elev と同族）
 	const GND_UNITS = [13, 14, 15, 11];
-	function bindGnd(prog) {
+	function bindGnd(prog: WebGLProgram): void {
 		for (let i = 0; i < 4; i++) gl.uniform1i(loc(gl, prog, "u_gnd" + i), GND_UNITS[i]);
 		gl.uniform1f(loc(gl, prog, "u_gndN"), gnd.n);
-		for (let i = 0; i < 4; i++) { gl.activeTexture(gl.TEXTURE0 + GND_UNITS[i]); gl.bindTexture(gl.TEXTURE_2D, i < gnd.n && gnd.w[i] ? gnd.w[i].tex : null); }
+		for (let i = 0; i < 4; i++) { gl.activeTexture(gl.TEXTURE0 + GND_UNITS[i]); gl.bindTexture(gl.TEXTURE_2D, i < gnd.n && gnd.w[i] ? gnd.w[i]!.tex : null); }
 		gl.activeTexture(gl.TEXTURE0);
 	}
 	// fill 系：uv＝off+dLL×inv（シーン原点ごと f64 前計算＝cog の u_cogOffInv と同じ）
-	function setGndScene(prog, origin) {
+	function setGndScene(prog: WebGLProgram, origin: ArrayLike<number> | null | undefined): void {
 		if (!gnd.n) return;
 		const o = origin || [0, 0];
-		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, prog, "u_gndOffInv" + i), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat); }
+		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i]!.win; gl.uniform4f(loc(gl, prog, "u_gndOffInv" + i), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat); }
 	}
 	// terrain：メッシュ窓（u_mesh）→アトラス uv（cog の u_cogMesh と同じ）
-	function setGndMesh(mh) {
+	function setGndMesh(mh: ArrayLike<number>): void {
 		if (!gnd.n) return;
-		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, terrainProg, "u_gndMesh" + i), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat); }
+		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i]!.win; gl.uniform4f(loc(gl, terrainProg, "u_gndMesh" + i), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat); }
 	}
-	function setGndGlobe(prog) {   // 球の床の uv 係数＝原点相対（#65・anchorUV の f64 前計算）
-		for (let i = 0; i < 4; i++) setUV4(prog, "u_gndOff" + i, i < gnd.n ? gnd.w[i].win : null);
+	function setGndGlobe(prog: WebGLProgram): void {   // 球の床の uv 係数＝原点相対（#65・anchorUV の f64 前計算）
+		for (let i = 0; i < 4; i++) setUV4(prog, "u_gndOff" + i, i < gnd.n ? gnd.w[i]!.win : null);
 	}
 	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
 	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
-	function bindClim(prog) {
+	function bindClim(prog: WebGLProgram): void {
 		gl.uniform1i(loc(gl, prog, "u_climTex"), 12);
 		gl.uniform1f(loc(gl, prog, "u_hasClim"), climTex ? 1 : 0);
 		gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, climTex); gl.activeTexture(gl.TEXTURE0);
 	}
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
 	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
-	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null, wpalA = 1, wpalLand = null;
-	const worldPal = () => {
+	let wpal = resolveWorldPal(null), wpalSrc: GLView["worldHypso"] = null, seaSrc: number[] | null = null, wpalA = 1, wpalLand: number[] | null = null;
+	const worldPal = (): WorldPal => {
 		const a = view.worldHypsoOpacity ?? 1;
 		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc || a !== wpalA || view.land !== wpalLand) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpalA = a; wpalLand = view.land; wpal = fadeWorldPal(resolveWorldPal(wpalSrc), a, view.land || [0.96, 0.96, 0.95]); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
 		return wpal;
 	};
-	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
+	function bindWorldPal(prog: WebGLProgram): void {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
 		const p = worldPal();
-		gl.uniform3f(loc(gl, prog, "u_whLowH"), ...p.lowHumid);
-		gl.uniform3f(loc(gl, prog, "u_whLowA"), ...p.lowArid);
-		gl.uniform3f(loc(gl, prog, "u_whMidH"), ...p.midHumid);
-		gl.uniform3f(loc(gl, prog, "u_whMidA"), ...p.midArid);
-		gl.uniform3f(loc(gl, prog, "u_whR1"), ...p.ramp1);
-		gl.uniform3f(loc(gl, prog, "u_whR2"), ...p.ramp2);
-		gl.uniform3f(loc(gl, prog, "u_whPeak"), ...p.peak);
-		gl.uniform3f(loc(gl, prog, "u_whSnow"), ...p.snow);
+		gl.uniform3f(loc(gl, prog, "u_whLowH"), ...(p.lowHumid as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whLowA"), ...(p.lowArid as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whMidH"), ...(p.midHumid as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whMidA"), ...(p.midArid as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whR1"), ...(p.ramp1 as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whR2"), ...(p.ramp2 as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whPeak"), ...(p.peak as Vec3T));
+		gl.uniform3f(loc(gl, prog, "u_whSnow"), ...(p.snow as Vec3T));
 	}
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ。
 	// canvas antialias:true の MSAA はブラウザ暗黙確保＝ここでは数えない（HUD 側注記）。
@@ -377,63 +481,63 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 建物メッシュ（LOD2 等）：バッチキー "区名#i" →{ vao, bufs, count, origin, bbox }（頂点は重心相対 delta）。
 	// worker が区をバッチ分割して逐次送ってくる＝完成した近傍から順に立つ。bbox は draw 時のフラスタムカリングに使う。
 	// 基図建物を伏せる被覆マスクは区単位で別管理（meshMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
-	const meshes = new Map();
+	const meshes = new Map<string, MeshBatch>();
 	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
-	const meshMasks = new Map();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
-	const meshHidden = new Set();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は meshVis 切替のみで再アップロード不要）
+	const meshMasks = new Map<string, MeshMask>();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
+	const meshHidden = new Set<string>();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は meshVis 切替のみで再アップロード不要）
 	const MAX_MESH_MASKS = 4;
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
-	let view = { clear: null, land: null, atmo: null, bldColor: null };
+	let view: GLView = { clear: null, land: null, atmo: null, bldColor: null };
 	// style の sky（B4）＝{ sky, horizon, fog:[r,g,b], groundBlend, horizonFogBlend, skyHorizonBlend, atmosphereBlend }｜null（従来＝宇宙へ抜けるリム光・霧は land 色）
 	// 霧：sky の fog-color が霧の色（基図・建物・地形の遠山ブルーも）。fog-ground-blend＝濃さ（0＝霧なし・0.5＝従来の距離・1＝半分の距離から）＝view.fog:false より優先
-	let sky = null;
+	let sky: GLSky | null = null;
 	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
-	const fogColorOf = c => (sky ? sky.fog : c);
-	function setView(v) { view = { ...view, ...v }; }
-	let lights = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
-	let light = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
+	const fogColorOf = (c: ArrayLike<number>): ArrayLike<number> => (sky ? sky.fog : c);
+	function setView(v: Partial<GLView>): void { view = { ...view, ...v }; }
+	let lights: GLLocalLights | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
+	let light: GLLight | null = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
-	let sea = { li: -1, minzoom: Infinity };
+	let sea: { li: number; minzoom: number; li2?: number } = { li: -1, minzoom: Infinity };
 	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
-	let userAnchor = { ranges: [], rev: 0 };
+	let userAnchor: { ranges: number[][]; rev: number } = { ranges: [], rev: 0 };
 	// 描画ごとの差し込みの計画：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順・重なりなし）・anchorOf(user の li)＝境か Infinity
-	const userAnchorPlan = host => {
+	const userAnchorPlan = (host: string | null | undefined): UserAnchorPlan => {
 		const R = userAnchor.ranges;
-		const anchorOf = li => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
+		const anchorOf = (li: number): number => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
 		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
 		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
 	};
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
-	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
+	let gintBld: { origin: ArrayLike<number>; batches: GintBldBatch[] } | null = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
 	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
 	// 表示のON/OFFは view.showConst（星座線のみトグル・星と惑星は常設）。
-	let stars = null, constel = null, planets = null, ecliptic = null, celeq = null;
-	function setStarBuf(cur, data, stride, setup) {
+	let stars: StarBuf | null = null, constel: StarBuf | null = null, planets: StarBuf | null = null, ecliptic: StarBuf | null = null, celeq: StarBuf | null = null;
+	function setStarBuf(cur: StarBuf | null, data: Float32Array | null | undefined, stride: number, setup: () => void): StarBuf | null {
 		if (cur) { gl.deleteBuffer(cur.buf); gl.deleteVertexArray(cur.vao); }
 		if (!data || !data.length) return null;
-		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+		const vao = gl.createVertexArray()!; gl.bindVertexArray(vao);
 		const buf = buffer(gl, data);
 		setup();
 		gl.bindVertexArray(null);
 		return { vao, buf, count: data.length / stride };
 	}
-	function setStars(data) {
+	function setStars(data: Float32Array | null | undefined): void {
 		stars = setStarBuf(stars, data, 8, () => {
 			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
 			gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 12);
 			gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 32, 28);
 		});
 	}
-	function setConstellations(data) {
+	function setConstellations(data: Float32Array | null | undefined): void {
 		constel = setStarBuf(constel, data, 3, () => {
 			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
 		});
 	}
-	function setPlanets(data) {
+	function setPlanets(data: Float32Array | null | undefined): void {
 		planets = setStarBuf(planets, data, 8, () => {
 			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
 			gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 12);
@@ -441,14 +545,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		});
 	}
 	const lineSetup = () => { gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0); };
-	function setEcliptic(data) { ecliptic = setStarBuf(ecliptic, data, 3, lineSetup); }
-	function setCelEquator(data) { celeq = setStarBuf(celeq, data, 3, lineSetup); }
+	function setEcliptic(data: Float32Array | null | undefined): void { ecliptic = setStarBuf(ecliptic, data, 3, lineSetup); }
+	function setCelEquator(data: Float32Array | null | undefined): void { celeq = setStarBuf(celeq, data, 3, lineSetup); }
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
-	let gintCtx = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
+	let gintCtx: GintDepthCtx | null = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	// md（multi_draw モード）のシーンは draws でなく md={layers,bld}＝常駐プールへの参照リストだけを持つ。
-	const scenes = {
+	const scenes: Record<string, GLScene> = {
 		base: { origin: [0, 0], draws: [], bld: null, md: null },
 		main: { origin: [0, 0], draws: [], bld: null, md: null },
 		overlay: { origin: [0, 0], draws: [], bld: null, md: null },
@@ -462,7 +566,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// mdScene（draw list 差し替え）を言われた通り実行するだけ。
 	const MD_TEXW = 2048;   // 線分テクスチャの幅（texel）。2texel/線分＝1024線分/行
 	const mdExt = rOpts.noMD ? null : gl.getExtension("WEBGL_multi_draw");
-	const md = mdExt ? {
+	const md: MDState | null = mdExt ? {
 		ext: mdExt,
 		fillProg: program(gl, FILL_MD_VS, FILL_FS),
 		lineProg: program(gl, LINE_MD_VS, LINE_FS),
@@ -473,26 +577,26 @@ export function createRenderer(canvas, rOpts = {}) {
 		lineTex: null, lineTexH: 0,       // RGBA32UI・2texel/線分
 		fillVAO: null, bldVAO: null,
 	} : null;
-	function mdRebuildFillVAO() {
-		if (md.fillVAO) gl.deleteVertexArray(md.fillVAO);
-		md.fillVAO = gl.createVertexArray(); gl.bindVertexArray(md.fillVAO);
-		gl.bindBuffer(gl.ARRAY_BUFFER, md.fillV.buf);
-		let l = gl.getAttribLocation(md.fillProg, "a_delta");
+	function mdRebuildFillVAO(): void {
+		if (md!.fillVAO) gl.deleteVertexArray(md!.fillVAO);
+		md!.fillVAO = gl.createVertexArray(); gl.bindVertexArray(md!.fillVAO);
+		gl.bindBuffer(gl.ARRAY_BUFFER, md!.fillV.buf);
+		let l = gl.getAttribLocation(md!.fillProg, "a_delta");
 		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 12, 0);
-		l = gl.getAttribLocation(md.fillProg, "a_color");
+		l = gl.getAttribLocation(md!.fillProg, "a_color");
 		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 4, gl.UNSIGNED_BYTE, true, 12, 8);
-		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md.fillI.buf);   // ELEMENT_ARRAY は VAO 状態
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md!.fillI.buf);   // ELEMENT_ARRAY は VAO 状態
 		gl.bindVertexArray(null);
 	}
-	function mdRebuildBldVAO() {
-		if (md.bldVAO) gl.deleteVertexArray(md.bldVAO);
-		md.bldVAO = gl.createVertexArray(); gl.bindVertexArray(md.bldVAO);
-		gl.bindBuffer(gl.ARRAY_BUFFER, md.bldV.buf);
-		let l = gl.getAttribLocation(md.bldProg, "a_pos");
+	function mdRebuildBldVAO(): void {
+		if (md!.bldVAO) gl.deleteVertexArray(md!.bldVAO);
+		md!.bldVAO = gl.createVertexArray(); gl.bindVertexArray(md!.bldVAO);
+		gl.bindBuffer(gl.ARRAY_BUFFER, md!.bldV.buf);
+		let l = gl.getAttribLocation(md!.bldProg, "a_pos");
 		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 3, gl.FLOAT, false, 24, 0);
-		l = gl.getAttribLocation(md.bldProg, "a_shade");
+		l = gl.getAttribLocation(md!.bldProg, "a_shade");
 		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.FLOAT, false, 24, 12);
-		l = gl.getAttribLocation(md.bldProg, "a_anchor");
+		l = gl.getAttribLocation(md!.bldProg, "a_anchor");
 		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 24, 16);
 		gl.bindVertexArray(null);
 	}
@@ -501,11 +605,11 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 固定され、以後 ELEMENT_ARRAY_BUFFER に bind できない＝multiDrawElements が黙って空振り）。
 	// index プールは elem=true：生成・確保を ELEMENT_ARRAY_BUFFER で行い element 型に確定させる
 	// （ELEMENT bind は VAO 状態なので default VAO(null) に退避してから）。型確定後の COPY_READ/COPY_WRITE は合法。
-	function mdGrowBuf(pool, bytes, elem) {
+	function mdGrowBuf(pool: MDPool, bytes: number, elem?: boolean): void {
 		if (bytes <= pool.bytes) return;
 		const target = elem ? gl.ELEMENT_ARRAY_BUFFER : gl.COPY_WRITE_BUFFER;
 		if (elem) gl.bindVertexArray(null);
-		const nb = gl.createBuffer();
+		const nb = gl.createBuffer()!;
 		gl.bindBuffer(target, nb);
 		gl.bufferData(target, bytes, gl.DYNAMIC_DRAW);
 		if (pool.buf) {
@@ -516,50 +620,50 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindBuffer(target, null);
 		pool.buf = nb; pool.bytes = bytes;
 	}
-	function mdGrow(pool, units) {
-		if (pool === "fillV") { mdGrowBuf(md.fillV, units * 12); mdRebuildFillVAO(); }
-		else if (pool === "fillI") { mdGrowBuf(md.fillI, units * 4, true); mdRebuildFillVAO(); }
-		else if (pool === "bldV") { mdGrowBuf(md.bldV, units * 24); mdRebuildBldVAO(); }
+	function mdGrow(pool: string, units: number): void {
+		if (pool === "fillV") { mdGrowBuf(md!.fillV, units * 12); mdRebuildFillVAO(); }
+		else if (pool === "fillI") { mdGrowBuf(md!.fillI, units * 4, true); mdRebuildFillVAO(); }
+		else if (pool === "bldV") { mdGrowBuf(md!.bldV, units * 24); mdRebuildBldVAO(); }
 		else if (pool === "line") {   // 線分テクスチャ：高さを伸ばして旧内容を FBO 経由で GPU 内コピー
 			const H = Math.ceil(units * 2 / MD_TEXW);
-			if (H <= md.lineTexH) return;
-			const nt = gl.createTexture();
+			if (H <= md!.lineTexH) return;
+			const nt = gl.createTexture()!;
 			gl.bindTexture(gl.TEXTURE_2D, nt);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, MD_TEXW, H, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-			if (md.lineTex) {
+			if (md!.lineTex) {
 				const fbo = gl.createFramebuffer();
 				gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
-				gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, md.lineTex, 0);
-				gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, MD_TEXW, md.lineTexH);   // RGBA32UI→RGBA32UI＝成分型一致でコピー可
+				gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, md!.lineTex, 0);
+				gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, MD_TEXW, md!.lineTexH);   // RGBA32UI→RGBA32UI＝成分型一致でコピー可
 				gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
 				gl.deleteFramebuffer(fbo);
-				gl.deleteTexture(md.lineTex);
+				gl.deleteTexture(md!.lineTex);
 			}
-			md.lineTex = nt; md.lineTexH = H;
+			md!.lineTex = nt; md!.lineTexH = H;
 		}
 	}
 	// タイル1枚分のブロック転送。頂点系は COPY_WRITE 経由（VAO 状態を汚さない）。
 	// index プールは element 型ロック済み＝ELEMENT_ARRAY_BUFFER で書く（default VAO(null) に退避してから）。
-	function mdUpload(p) {
-		if (p.fill) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md.fillV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.fill.base * 12, new Uint8Array(p.fill.buf)); }
-		if (p.bld) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md.bldV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.bld.base * 24, p.bld.arr); }
+	function mdUpload(p: MDUpload): void {
+		if (p.fill) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md!.fillV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.fill.base * 12, new Uint8Array(p.fill.buf)); }
+		if (p.bld) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md!.bldV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.bld.base * 24, p.bld.arr); }
 		gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
 		if (p.idx) {
 			gl.bindVertexArray(null);
-			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md.fillI.buf);
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md!.fillI.buf);
 			gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, p.idx.base * 4, p.idx.arr);
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 		}
 		if (p.line) {   // 線分ブロックはテクスチャ内で行を跨ぎ得る＝先頭の欠け行・中間の全行・末尾の欠け行の最大3回に分けて書く
-			gl.bindTexture(gl.TEXTURE_2D, md.lineTex);
+			gl.bindTexture(gl.TEXTURE_2D, md!.lineTex);
 			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
 			let t = p.line.base * 2, arr = p.line.arr, off = 0;   // t=先頭texel、off=arr内の消化texel数
 			let left = arr.length / 4;
-			const put = (x, y, w, rows) => {
+			const put = (x: number, y: number, w: number, rows: number): void => {
 				gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, arr.subarray(off * 4, (off + w * rows) * 4));
 				off += w * rows; t += w * rows; left -= w * rows;
 			};
@@ -571,23 +675,23 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 	}
 	// draw list 差し替え：GPU 転送ゼロ（参照リストの入れ替えだけ）。layers は li 昇順＝painter順。
-	function mdScene(m) {
+	function mdScene(m: MDSceneMsg): void {
 		sceneRev++;   // 地面アトラス（3D の塗り）の再合成の鍵
 		disposeSlot(m.slot);
 		scenes[m.slot] = { origin: m.origin, draws: [], bld: null, md: { layers: m.layers, bld: m.bld } };
 	}
-	const sceneHasDraws = s => s.draws.length > 0 || !!(s.md && s.md.layers.length);
+	const sceneHasDraws = (s: GLScene): boolean => s.draws.length > 0 || !!(s.md && s.md.layers.length);
 
 	// s: { origin:[lon,lat], layers:[{kind:'fill'|'line', ...typed arrays}] }（style層順）。slot: 'base'|'main'
-	function setScene(s, slot = "main") {
+	function setScene(s: MergedScene, slot = "main"): void {
 		sceneRev++;   // 地面アトラス（3D の塗り）の再合成の鍵
 		disposeSlot(slot);
-		const draws = [];
+		const draws: GLDraw[] = [];
 		for (const L of s.layers) {
 			if (!L) continue;
 			if (L.kind === "fill") {
 				if (!L.pos.length) continue;
-				const vao = gl.createVertexArray();
+				const vao = gl.createVertexArray()!;
 				const bPos = buffer(gl, L.pos), bCol = buffer(gl, L.col);
 				gl.bindVertexArray(vao);
 				attrib(gl, fillProg, "a_delta", bPos, 2);
@@ -595,7 +699,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				const bufs = [bPos, bCol];
 				let idxN = 0, idxT = 0;
 				if (L.idx && L.idx.length) {   // タイル由来＝index描画（ELEMENT_ARRAY_BUFFER は VAO 状態）。geojson由来＝三角形スープのまま
-					const ibo = gl.createBuffer();
+					const ibo = gl.createBuffer()!;
 					gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 					gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, L.idx, gl.STATIC_DRAW);
 					bufs.push(ibo); idxN = L.idx.length;
@@ -605,7 +709,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs });
 			} else {
 				if (!L.half.length) continue;
-				const vao = gl.createVertexArray();
+				const vao = gl.createVertexArray()!;
 				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half), bOff = L.off ? buffer(gl, L.off) : null;
 				gl.bindVertexArray(vao);
 				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0); if (lineIdxBuf) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf);   // P3：4 隅＋6 index（VAO 状態）
@@ -618,9 +722,9 @@ export function createRenderer(canvas, rOpts = {}) {
 				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
-		let bld = null;
+		let bld: GLBld | null = null;
 		if (s.buildings && s.buildings.pos.length) {
-			const vao = gl.createVertexArray();
+			const vao = gl.createVertexArray()!;
 			const bPos = buffer(gl, s.buildings.pos), bSh = buffer(gl, s.buildings.shade), bAnc = buffer(gl, s.buildings.anchor);
 			gl.bindVertexArray(vao);
 			attrib(gl, bldProg, "a_pos", bPos, 3);
@@ -635,19 +739,19 @@ export function createRenderer(canvas, rOpts = {}) {
 	// gint ユーザー層の地形沿いジオメトリを差し替え。data＝{origin, batches:[{lines,points,color}...]}（色別バッチ＝
 	// 田/畑等の fid 色をドレープへ運ぶ）または旧形 { origin, lines:{pos,shade,anchor}?, points:{…}?, color? }。
 	// 全て BUILDING_VS の 24B レイアウト（a_pos xyz / a_shade / a_anchor）＝bldProg で line=GL_LINES / point=GL_POINTS 描画。null=解放。
-	function setGintBld(data) {
+	function setGintBld(data: GintBldData | null | undefined): void {
 		if (gintBld) { for (const bt of gintBld.batches) { for (const b of bt.bufs) gl.deleteBuffer(b); if (bt.lineVAO) gl.deleteVertexArray(bt.lineVAO); if (bt.pointVAO) gl.deleteVertexArray(bt.pointVAO); } gintBld = null; }
 		if (!data) return;
-		const mk = g => {
+		const mk = (g: BuildingsGeom | null | undefined): GLBld | null => {
 			if (!g || !g.pos.length) return null;
-			const vao = gl.createVertexArray();
+			const vao = gl.createVertexArray()!;
 			const bP = buffer(gl, g.pos), bS = buffer(gl, g.shade), bA = buffer(gl, g.anchor);
 			gl.bindVertexArray(vao);
 			attrib(gl, bldProg, "a_pos", bP, 3); attrib(gl, bldProg, "a_shade", bS, 1); attrib(gl, bldProg, "a_anchor", bA, 2);
 			gl.bindVertexArray(null);
 			return { vao, count: g.pos.length / 3, bufs: [bP, bS, bA] };
 		};
-		const batches = (data.batches || [data]).map(b => {
+		const batches = ((data.batches || [data]) as GintBldIn[]).map(b => {
 			const L = mk(b.lines), P = mk(b.points);
 			if (!L && !P) return null;
 			return {
@@ -655,7 +759,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				pointVAO: P?.vao || null, pointCount: P?.count || 0,
 				bufs: [...(L?.bufs || []), ...(P?.bufs || [])], color: b.color || null,
 			};
-		}).filter(Boolean);
+		}).filter(Boolean) as GintBldBatch[];
 		if (!batches.length) return;
 		gintBld = { origin: data.origin, batches };
 	}
@@ -664,8 +768,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	// cellSpan=1セルの度数（R90=90/R10=10/R01=1）。
 	// R16F アトラスを確保して 0(海)で初期化。全面ぶんの Float32Array（4096²＝67MB）を毎回作らず、
 	// 4MB 級の使い回しストリップを縦に流す＝窓替えのたびの巨大な一時確保を無くす（GC 圧・footprint 対策）。
-	let zeroStrip = null;
-	function allocZeroR16F(W, H) {
+	let zeroStrip: Float32Array | null = null;
+	function allocZeroR16F(W: number, H: number): void {
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, W, H, 0, gl.RED, gl.FLOAT, null);
 		const rows = Math.max(1, Math.min(H, (1 << 20) / W | 0));
 		if (!zeroStrip || zeroStrip.length < W * rows) zeroStrip = new Float32Array(W * rows);
@@ -674,7 +778,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, W, h, gl.RED, gl.FLOAT, zeroStrip.subarray(0, W * h));
 		}
 	}
-	function setElevationAtlas(a, scale) {
+	function setElevationAtlas(a: ElevAtlasDesc, scale: number): void {
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
 		memAtlas = W * H * 2;   // R16F=2B/texel
 		if (!elevTex) elevTex = gl.createTexture();
@@ -690,33 +794,33 @@ export function createRenderer(canvas, rOpts = {}) {
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
 	// セル(cx,cy)の N×N Float32(南上げ)をアトラスへ。
-	function writeCell(tex, cx, cy, data, cellRes) {
+	function writeCell(tex: WebGLTexture, cx: number, cy: number, data: Float32Array, cellRes: number): void {
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texSubImage2D(gl.TEXTURE_2D, 0, cx * cellRes, cy * cellRes, cellRes, cellRes, gl.RED, gl.FLOAT, data);
 	}
-	function setElevationCell(cx, cy, data, cellRes) { if (elevTex) putCellAny(elevTex, cx, cy, data, cellRes); }
+	function setElevationCell(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (elevTex) putCellAny(elevTex, cx, cy, data, cellRes); }
 	// ── 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27・gpu/renderer.js と同式）──
 	// 生タイルをテクスチャ（R16I＝Int16／R32F＝Float32・LRU）へ 1 回上げ、R16F アトラスを FBO の的にしてセル矩形へ 3 頂点 1 発＝JS の N² ループが消える。
 	// R16F を描き込むには EXT_color_buffer_float が要る＝無い環境と ?cpuelev=1 は従来（terrain.js が Float32 を作る／記述子は CPU で焼く）。門＝t-elevcell?gl2=1。
 	const cbFloat = !!gl.getExtension("EXT_color_buffer_float");
 	const gpuResample = cbFloat && !rOpts.cpuElev;
-	let rs = null;   // { fbo, prog:[int, float], u:[…] }
-	const rawLRU = new Map();   // tile(object) → { tex, bytes, kind }
+	let rs: ResampleRes | null = null;   // { fbo, prog:[int, float], u:[…] }
+	const rawLRU = new Map<ElevGrid, RawTexEntry>();   // tile(object) → { tex, bytes, kind }
 	let rawBytes = 0;
 	const RAW_BUDGET = (rOpts.lowMem ? 16 : 64) << 20;
-	function rsInit() {
+	function rsInit(): ResampleRes {
 		if (rs) return rs;
 		const progs = [program(gl, ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS(0)), program(gl, ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS(1))];
-		rs = { fbo: gl.createFramebuffer(), progs, vao: gl.createVertexArray() };
+		rs = { fbo: gl.createFramebuffer()!, progs, vao: gl.createVertexArray()! };
 		return rs;
 	}
-	function rawTex(tile) {
+	function rawTex(tile: ElevGrid): RawTexEntry | null {
 		const hit = rawLRU.get(tile);
 		if (hit) { rawLRU.delete(tile); rawLRU.set(tile, hit); hit.fresh = 0; return hit; }
-		const d = tile.data, kind = d instanceof Int16Array ? 0 : d instanceof Float32Array ? 1 : -1;
+		const d = tile.data as Int16Array | Float32Array, kind = d instanceof Int16Array ? 0 : d instanceof Float32Array ? 1 : -1;
 		if (kind < 0 || tile.width > gl.getParameter(gl.MAX_TEXTURE_SIZE) || tile.height > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return null;
-		const tex = gl.createTexture();
+		const tex = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		if (kind === 0) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16I, tile.width, tile.height, 0, gl.RED_INTEGER, gl.SHORT, d);
@@ -729,9 +833,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		return e;
 	}
 	const U4 = new Uint32Array(28), F4 = new Float32Array(U4.buffer);   // gpu/renderer.js の RP と同じ詰め（dim 0-3・a 4-7・lo 8-11・o 12-15・box 16-19・ix 20-23・iy 24-27）
-	function resampleCell(tex, cx, cy, N, src) {
+	function resampleCell(tex: WebGLTexture, cx: number, cy: number, N: number, src: CellSrc): boolean {
 		if (!gpuResample) return false;
-		const tile = src.tile || src.atlas, w = tile.width, h = tile.height;
+		const tile = (src.tile || src.atlas) as ElevTileGrid, w = tile.width, h = tile.height;
 		if (!(w >= 2 && h >= 2)) return false;
 		const u = U4, f = F4;
 		u.fill(0);
@@ -769,16 +873,16 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!wasScissor) gl.disable(gl.SCISSOR_TEST);
 		if (wasBlend) gl.enable(gl.BLEND); if (wasDepth) gl.enable(gl.DEPTH_TEST); if (wasStencil) gl.enable(gl.STENCIL_TEST); if (wasCull) gl.enable(gl.CULL_FACE);
 		gl.bindTexture(gl.TEXTURE_2D, null);
-		if (self.__perfElev) self.__perfElevLast = { f16: 0, write: 0, gpu: 1, raw: e.fresh };
+		if ((self as unknown as PerfGlobal).__perfElev) (self as unknown as PerfGlobal).__perfElevLast = { f16: 0, write: 0, gpu: 1, raw: e.fresh };
 		return true;
 	}
-	const cpuCell = (src, N) => src.mode === "down" ? downsampleFlipped(src.tile, N, src.edge ?? 2) : src.mode === "crop" ? cropResample(src.tile, src.lng0, src.lat0, src.span, N) : worldAtlasCell(src.atlas, src.cx, src.cy, N);
-	function putCellAny(tex, cx, cy, data, N) {   // data＝Float32Array（従来）か生タイルの記述子（mode あり）
-		if (data && data.mode) { if (!resampleCell(tex, cx, cy, N, data)) writeCell(tex, cx, cy, cpuCell(data, N), N); }
-		else writeCell(tex, cx, cy, data, N);
+	const cpuCell = (src: CellSrc, N: number): Float32Array => src.mode === "down" ? downsampleFlipped(src.tile, N, src.edge ?? 2) : src.mode === "crop" ? cropResample(src.tile, src.lng0, src.lat0, src.span, N) : worldAtlasCell(src.atlas, src.cx, src.cy, N);
+	function putCellAny(tex: WebGLTexture, cx: number, cy: number, data: CellPayload, N: number): void {   // data＝Float32Array（従来）か生タイルの記述子（mode あり）
+		if (data && (data as CellSrc).mode) { if (!resampleCell(tex, cx, cy, N, data as CellSrc)) writeCell(tex, cx, cy, cpuCell(data as CellSrc, N), N); }
+		else writeCell(tex, cx, cy, data as Float32Array, N);
 	}
 	// 検定用（t-elevcell?gl2=1）：アトラスのセルを Float32（南上げ）で読み戻す（R16F の FBO を RGBA/FLOAT で readPixels＝EXT_color_buffer_float）
-	async function readElevCell(which, cx, cy, N) {
+	async function readElevCell(which: string, cx: number, cy: number, N: number): Promise<Float32Array | null> {
 		const tex = which === "far" ? farTex : which === "stage" ? (elevStage && elevStage.tex) : elevTex;
 		if (!tex || !cbFloat) return null;
 		const r = rsInit();
@@ -794,12 +898,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// 標高アトラスのダブルバッファ：2枚目以降の再構築は舞台裏（stage）で行い、セルが揃ったら一括スワップ。
 	// 直接 elevAtlas を張り替えるとゼロ初期化の瞬間に山影が全画面でパッと消える（ズーム静止のたびに発症）。
-	let elevStage = null;   // { tex, a, scale }
-	function setElevationAtlasStage(a, scale) {
+	let elevStage: { tex: WebGLTexture; a: ElevAtlasDesc; scale: number } | null = null;   // { tex, a, scale }
+	function setElevationAtlasStage(a: ElevAtlasDesc, scale: number): void {
 		if (elevStage) gl.deleteTexture(elevStage.tex);
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes;
 		memStage = W * H * 2;
-		const tex = gl.createTexture();
+		const tex = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		allocZeroR16F(W, H);
@@ -809,8 +913,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		elevStage = { tex, a, scale };
 	}
-	function setElevationCellStage(cx, cy, data, cellRes) { if (elevStage) putCellAny(elevStage.tex, cx, cy, data, cellRes); }
-	function commitElevationStage() {
+	function setElevationCellStage(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (elevStage) putCellAny(elevStage.tex, cx, cy, data, cellRes); }
+	function commitElevationStage(): void {
 		if (!elevStage) return;
 		if (elevTex) gl.deleteTexture(elevTex);
 		elevTex = elevStage.tex;
@@ -823,7 +927,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// ── 遠景層（far）アトラス ──：ダブルバッファ無し（R10 は LRU ヒットが常＝ゼロ初期化→同フレーム書込で
 	// 埋まる。terrain.js 側コメント参照）。メッシュは近窓と同じ単位格子を u_mesh で遠窓へ伸ばす＝専用メッシュ不要。
-	function setElevationAtlasFar(a) {
+	function setElevationAtlasFar(a: ElevAtlasDesc): void {
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
 		memFar = W * H * 2;
 		if (!farTex) farTex = gl.createTexture();
@@ -836,8 +940,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		far = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 1, edgeFade: a.edgeFade || 0 };
 	}
-	function setElevationCellFar(cx, cy, data, cellRes) { if (farTex) putCellAny(farTex, cx, cy, data, cellRes); }
-	function clearElevationFar() {   // 深ズーム離脱＝GPU メモリを返す（10-16MB）
+	function setElevationCellFar(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (farTex) putCellAny(farTex, cx, cy, data, cellRes); }
+	function clearElevationFar(): void {   // 深ズーム離脱＝GPU メモリを返す（10-16MB）
 		if (farTex) gl.deleteTexture(farTex);
 		farTex = null; far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
 	}
@@ -847,13 +951,13 @@ export function createRenderer(canvas, rOpts = {}) {
 	// パンで「1窓替えごとに 75MB の GPU バッファ再確保＋CPU 一時配列」＝GPUプロセスが単調に膨れる
 	// 主因だった（実測: 陸上パン34ホップで累計 GL alloc 1.2GB・GPUプロセス 1.45→1.95GB）。
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。
-	function buildTerrainMesh(oLng, oLat, spanLng, spanLat, G) {
+	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number): void {
 		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
 		const uv = new Float32Array(G * G * 2);
 		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / (G - 1); uv[k + 1] = j / (G - 1); }
 		const { idx, chunks } = buildChunkIndex(G);   // チャンク主導の index（P4 step B）＝三角形の分割・巻きは従来と同一・並びだけチャンク毎に連続
 		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
-		const vao = gl.createVertexArray(), vbo = buffer(gl, uv), ibo = gl.createBuffer();
+		const vao = gl.createVertexArray()!, vbo = buffer(gl, uv), ibo = gl.createBuffer()!;
 		gl.bindVertexArray(vao);
 		attrib(gl, terrainProg, "a_uv", vbo, 2);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
@@ -865,15 +969,15 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 地形チャンクのカリング（perf plan P4 step B・gpu/renderer.js と同じ純関数）：可視チャンクの区間だけ drawElements。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
 	const terrStat = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 } };
-	const terrRuns = (mesh, st, which) => TERR_LOD ? visibleChunkRuns(terrain.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain.chunks.length, [[0, terrain.count]]);
+	const terrRuns = (mesh: ArrayLike<number>, st: GLCamState, which: "near" | "far"): DrawRun[] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
 
 	// 建物メッシュ（LOD2 等）を受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
 	// data={ pos:Float32Array(xyz…), idx:Uint32Array, ward, mask, maskN, maskBbox }（頂点は ortho 単位球座標へ変換済み）。
-	function setMeshSet(key, data) {
+	function setMeshSet(key: string, data: MeshIn | null | undefined): void {
 		if (!data) {   // key=区名：その区の全バッチとマスクを解放
 			for (const k of [...meshes.keys()]) {
 				if (k !== key && !k.startsWith(key + "#")) continue;
-				const p = meshes.get(k);
+				const p = meshes.get(k)!;
 				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); if (p.tex && p.tex !== whiteTex) gl.deleteTexture(p.tex);
 				meshes.delete(k);
 			}
@@ -886,7 +990,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); meshes.delete(key); }
 		if (!data.pos?.length || !data.idx?.length) return;
 		const textured = !!(data.uv && data.col), prog = textured ? meshTexProg : meshProg;   // 模型（glb 直読み）＝uv＋頂点色＋テクスチャ
-		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
+		const vao = gl.createVertexArray()!, vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer()!;
 		gl.bindVertexArray(vao);
 		attrib(gl, prog, "a_pos", vbo, 3);
 		if (data.nrm instanceof Int8Array) {   // v4: int8量子化法線（xyz+pad 4B/頂点）。FS が normalize するので精度 1/127 で十分
@@ -895,9 +999,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.enableVertexAttribArray(l);
 			gl.vertexAttribPointer(l, 3, gl.BYTE, true, 4, 0);
 		} else attrib(gl, prog, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
-		let tex = null; const bufs = [vbo, nbo, ibo];
+		let tex: WebGLTexture | null = null; const bufs = [vbo, nbo, ibo];
 		if (textured) {
-			const uvbo = buffer(gl, data.uv), cbo = buffer(gl, data.col); bufs.push(uvbo, cbo);
+			const uvbo = buffer(gl, data.uv!), cbo = buffer(gl, data.col!); bufs.push(uvbo, cbo);
 			attrib(gl, prog, "a_uv", uvbo, 2); attrib(gl, prog, "a_col", cbo, 4, null, true);
 			tex = meshTexture(data.tex);
 		}
@@ -911,17 +1015,17 @@ export function createRenderer(canvas, rOpts = {}) {
 		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d });   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
-		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
-			const N = data.maskN | 0;
+		if (data.ward && (data.maskCells || data.mask) && (data.maskN! | 0) > 0 && data.maskBbox) {
+			const N = data.maskN! | 0;
 			let m = meshMasks.get(data.ward);
 			if (!m || m.n !== N) {
 				if (m) gl.deleteTexture(m.tex);
-				m = { tex: gl.createTexture(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
+				m = { tex: gl.createTexture()!, bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
 				meshMasks.set(data.ward, m);
 			}
 			m.bbox = data.maskBbox;
 			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
-			else for (let i = 0; i < data.mask.length && i < m.bytes.length; i++) if (data.mask[i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
+			else for (let i = 0; i < data.mask!.length && i < m.bytes.length; i++) if (data.mask![i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
 			gl.bindTexture(gl.TEXTURE_2D, m.tex);
 			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, m.bytes);
@@ -934,13 +1038,13 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	// メッシュの区単位の表示切替（GPU常駐のまま）。off＝draw skip＋被覆マスクのスロット除外（基図建物が復活する）。
 	// バッファ削除ではないので on へ戻すのは無料＝視野外れの「解放」をこれに置き換えると再訪の再アップロードが消える。
-	function setMeshVis(ward, on) {
+	function setMeshVis(ward: string, on: unknown): void {
 		if (on) meshHidden.delete(ward); else meshHidden.add(ward);
 	}
 
 	// バッチ bbox（経緯度deg）の可視判定：4隅+中心を投影し、拡張スクリーン矩形と交差するか。
 	// pad は高層ビルの頭が地表bbox角の投影から食み出す分の余白（半画面）。カメラがbbox内に居れば無条件で可視。
-	function meshBboxVisible(st, bbox, center, pad) {
+	function meshBboxVisible(st: GLCamState, bbox: number[], center: ArrayLike<number>, pad: number): boolean {
 		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
 		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
 		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
@@ -956,15 +1060,15 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
-	let overlay = null, overlayHi = null, overlayHover = null, rail = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。rail＝交通の常駐オーバーレイ群（地域が申告する路線）
-	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く専用スロット。whK フェードに連動
-	let lakes = null;   // 湖（NE lakes・?world=1）＝wdepr の直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
-	function buildOverlaySlot(s, fillColor) {
+	let overlay: OverlaySlot | null = null, overlayHi: OverlaySlot | null = null, overlayHover: OverlaySlot | null = null, rail: (OverlaySlot | null)[] = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。rail＝交通の常駐オーバーレイ群（地域が申告する路線）
+	let wdepr: OverlaySlot | null = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く専用スロット。whK フェードに連動
+	let lakes: OverlaySlot | null = null;   // 湖（NE lakes・?world=1）＝wdepr の直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
+	function buildOverlaySlot(s: OverlaySceneIn | null | undefined, fillColor: ArrayLike<number>): OverlaySlot | null {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;   // 面も線も無い時だけ捨てる（純線＝N02新幹線は面ゼロで通す）
-		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
+		const fanVao = gl.createVertexArray()!, bFan = buffer(gl, s.fanPos);
 		gl.bindVertexArray(fanVao); attrib(gl, stencilProg, "a_delta", bFan, 2); gl.bindVertexArray(null);
 		const bufs = [bFan];
-		let lineVao = null, lineCount = 0;
+		let lineVao: WebGLVertexArrayObject | null = null, lineCount = 0;
 		if (s.lineHalf && s.lineHalf.length) {
 			lineVao = gl.createVertexArray();
 			const bP1 = buffer(gl, s.P1), bP2 = buffer(gl, s.P2), bCol = buffer(gl, s.lineCol), bHalf = buffer(gl, s.lineHalf);
@@ -979,19 +1083,19 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs, minZoom: s.minZoom || 0, feats: s.feats || null };   // minZoom＝シーン単位のズームゲート。feats＝feature毎レンジ+外接円（wdepr の球体カリング用）
 	}
-	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
-	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
+	function disposeOverlay(o: OverlaySlot | null | undefined): void { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
+	function setOverlay(s: OverlaySceneIn | null | undefined, fillColor?: number[] | null): void { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
 	// N02 交通の常駐オーバーレイ群を丸ごと差し替え。各要素は buildGeoJSONOverlay のシーン（線色は焼込済）。
-	function setRail(scenes) { for (const o of rail) disposeOverlay(o); rail = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
-	function setOverlayHi(s, fillColor) {   // fillColor=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
+	function setRail(scenes: OverlaySceneIn[] | null | undefined): void { for (const o of rail) disposeOverlay(o); rail = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	function setOverlayHi(s: OverlaySceneIn | null | undefined, fillColor?: HiFill | null): void {   // fillColor=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
 		disposeOverlay(overlayHi);
 		if (!s) { overlayHi = null; return; }
 		const isMask = fillColor && !Array.isArray(fillColor);
-		overlayHi = buildOverlaySlot(s, isMask ? (fillColor.color || [0, 0, 0, 0.15]) : (fillColor || [0.95, 0.55, 0.15, 0.6]));
+		overlayHi = buildOverlaySlot(s, isMask ? (fillColor.color || [0, 0, 0, 0.15]) : ((fillColor as number[] | null | undefined) || [0.95, 0.55, 0.15, 0.6]));
 		if (overlayHi) overlayHi.mask = !!(isMask && fillColor.mask);
 	}
-	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーンの lineWidth）
-	function drawOne(o, st, dpr, land) {
+	function setOverlayHover(s: OverlaySceneIn | null | undefined): void { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーンの lineWidth）
+	function drawOne(o: OverlaySlot | null, st: GLCamState, dpr: number, land: ArrayLike<number>): void {
 		if (!o) return;
 		if (o.fanCount) {   // 面がある時だけ stencil 塗り（純線オーバーレイ＝N02 は面ゼロでも線を描く）
 			// 地球規模の地物（国＝スポットライト）は wdepr/lakes と同じ球体カリングへ回す＝裏半球の地物が
@@ -1033,13 +1137,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.bindVertexArray(o.lineVao); drawLineInst(o.lineCount);
 		}
 	}
-	function drawOverlay(st, dpr, land, zoom) {
-		if (view.showRail !== false) for (const o of rail) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
+	function drawOverlay(st: GLCamState, dpr: number, land: ArrayLike<number>, zoom: number): void {
+		if (view.showRail !== false) for (const o of rail) { if (zoom >= o!.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
 		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); drawOne(overlayHover, st, dpr, land);   // ホバー境界は最前面
 	}
 	// 全球面ポリゴンの stencil 段（wdepr/lakes 共用）：fan を巻き数へ・球体カリング二段構え。
 	// cover（塗り方）は呼び出し側の領分＝wdepr はハイプソ本体（WDEPR_FS）・lakes は worldPal.sea の平色。
-	function stencilWorldFan(o, st, land) {
+	function stencilWorldFan(o: OverlaySlot, st: GLCamState, land: ArrayLike<number>): void {
 		gl.enable(gl.STENCIL_TEST);
 		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
 		gl.colorMask(false, false, false, false);
@@ -1072,7 +1176,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 海面下の陸地（wdepr）＝stencil は drawOne と同一・cover だけ WDEPR_FS（landK=1 強制のハイプソ本体）。
 	// フラット色でなく画素単位で標高ランプ×気候×hillshade を計算＝ポリゴンは「ここは海でなく陸」の粗い印
 	// （海→海面下→湖→陸の描画順・2026-09-01 本人設計）。呼び出しは draw() の globe/terrain 後・lakes 前。
-	function drawWdepr(st, land, whK) {
+	function drawWdepr(st: GLCamState, land: ArrayLike<number>, whK: number): void {
 		const o = wdepr;
 		if (!o || !o.fanCount) return;
 		stencilWorldFan(o, st, land);
@@ -1093,7 +1197,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, wdCoverProg, "u_globeAlpha"), view.globeAlpha ?? 1);
 		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
 		bindWorldPal(wdCoverProg);   // globe と同一フレーム・同一パレット＝縫い目の色 bit 一致
-		gl.uniform3f(loc(gl, wdCoverProg, "u_whDeep"), ...worldPal().belowSea);
+		gl.uniform3f(loc(gl, wdCoverProg, "u_whDeep"), ...(worldPal().belowSea as Vec3T));
 		// 球体カリングは VS の地平円クランプ（u_sphereClip）が担う＝裏側ポリゴンは円周に縮退（巻き数0）・
 		// 地平線跨ぎは可視部だけを囲む。旧・ref=±1 方式は「跨ぎポリゴンの投影折返し」が円盤内に作る
 		// ±1 斑を殺しきれなかった（GL/WebGPU で符号逆＝GL だけ幻影が残った実測 2026-09-02）。
@@ -1106,7 +1210,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// （globe の u_seaC と単一の出所＝湖と海が同じ顔・テーマの worldHypso.sea が両方へ届く）。
 	// 旧 world-water タイル層（Protomaps/OSM）の置き換え（2026-09-03 本人裁定「湖はNE経由＝B案」）＝
 	// α=whK＝全球ハイプソと同時に現れ同時に消える（z≥6.5 は自動不可視・日本の湖は GSI 基図の領分）。
-	function drawLakes(st, land, whK) {
+	function drawLakes(st: GLCamState, land: ArrayLike<number>, whK: number): void {
 		const o = lakes;
 		if (!o || !o.fanCount) return;
 		stencilWorldFan(o, st, land);
@@ -1121,8 +1225,8 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	// 全画面レイキャスト（球の床・海面下・経緯線・等高線・夜面）の視線一式（#65）：camera.js sphereRayUniforms＝f64 で作って渡す（glsl.js の RAY 節と対）
 	// 錨＝シーン原点（交点は原点相対 δ で持ち、uv は anchorUV の f64 係数＝絶対経緯度を経ない）
-	function setRayUniforms(prog, st) {
-		const u = sphereRayUniforms(st, scenes.main.origin || [0, 0]);
+	function setRayUniforms(prog: WebGLProgram, st: GLCamState): void {
+		const u = sphereRayUniforms(st, scenes.main.origin || [0, 0]) as Required<SphereRayUniforms>;
 		gl.uniform3f(loc(gl, prog, "u_rayF"), u.F[0], u.F[1], u.F[2]);
 		gl.uniform3f(loc(gl, prog, "u_rayX"), u.X[0], u.X[1], u.X[2]);
 		gl.uniform3f(loc(gl, prog, "u_rayY"), u.Y[0], u.Y[1], u.Y[2]);
@@ -1132,8 +1236,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform3f(loc(gl, prog, "u_rayEO"), u.EO[0], u.EO[1], u.EO[2]);
 		gl.uniform4f(loc(gl, prog, "u_rayLL"), u.ll[0], u.ll[1], u.beta0, u.rho);
 	}
-	const setUV4 = (prog, name, win) => { const a = anchorUV(scenes.main.origin || [0, 0], win); gl.uniform4f(loc(gl, prog, name), a[0], a[1], a[2], a[3]); };
-	function setCommonUniforms(prog, st, origin, fog) {
+	const setUV4 = (prog: WebGLProgram, name: string, win: ArrayLike<number> | null | undefined): void => { const a = anchorUV(scenes.main.origin || [0, 0], win); gl.uniform4f(loc(gl, prog, name), a[0], a[1], a[2], a[3]); };
+	function setCommonUniforms(prog: WebGLProgram, st: GLCamState, origin: ArrayLike<number>, fog: ArrayLike<number>): void {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 		gl.uniform3f(loc(gl, prog, "u_eye"), st.eye[0], st.eye[1], st.eye[2]);
@@ -1148,7 +1252,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform4f(loc(gl, prog, "u_originTrig"), Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
 		// 楕円体 dβ 錨（原点の測地緯度の 2φ/4φ 三角・CPU double）＋変位方向ゲート。球＝全0＝シェーダ補正が厳密0
 		const _ell = ellipsoidOn(), _pr = origin[1] * Math.PI / 180;
-		gl.uniform4f(loc(gl, prog, "u_ellTrig"), ...(_ell ? [Math.cos(2 * _pr), Math.sin(2 * _pr), Math.cos(4 * _pr), Math.sin(4 * _pr)] : [0, 0, 0, 0]));
+		gl.uniform4f(loc(gl, prog, "u_ellTrig"), ...((_ell ? [Math.cos(2 * _pr), Math.sin(2 * _pr), Math.cos(4 * _pr), Math.sin(4 * _pr)] : [0, 0, 0, 0]) as Vec4T));
 		gl.uniform1f(loc(gl, prog, "u_ell"), _ell ? 1 : 0);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
@@ -1168,10 +1272,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, prog, "u_farEdgeFade"), far.edgeFade || 0);
 	}
 
-	function draw(cam, opts) {
+	function draw(cam: CameraPose, opts?: GLDrawOptions | null): boolean {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
-		const st = cameraState(cam, canvas.width, canvas.height);
+		const st = cameraState(cam, canvas.width, canvas.height) as GLCamState;
 		st.mvp32 = Float32Array.from(st.mvp);
 		lastLogCoef = logCoefOf(st);   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
@@ -1233,7 +1337,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			// z≪1 は z1 相当へ漸近凍結（無限遠の星空はズームアウトで縮まない・負zの係数反転も防ぐ＝旧仕様を保存）。
 			const zx = cam.zoom - 1, zs = 1 + (zx > 0 ? zx + 0.25 * Math.log(1 + Math.exp(-zx / 0.25)) : 0.25 * Math.log(1 + Math.exp(zx / 0.25)));   // 数値安定形 softplus（幅0.25z）
 			const skyK = (0.4 + 0.3 * zs) / 1.6;
-			const starUniforms = prog => {
+			const starUniforms = (prog: WebGLProgram): void => {
 				gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 				gl.uniform2f(loc(gl, prog, "u_gmst"), cg, sg);
 				gl.uniform1f(loc(gl, prog, "u_fade"), starFade);
@@ -1251,7 +1355,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				// view.skySolar（太陽系圏 z<1・l=sky 点灯時）：黄道/天の赤道は消灯（「地球から見た空」の注記＝
 				// 実位置3Dの太陽系と矛盾）・星座線は減光（本人裁定 2026-09-02「少し薄くした方が見栄えがいい」）
 				const dimC = view.skySolar ? 0.55 : 1;
-				const lines = [   // [バッファ, 色（定数attrib＝VAO外の文脈状態）]
+				const lines: [StarBuf | null, number[]][] = [   // [バッファ, 色（定数attrib＝VAO外の文脈状態）]
 					[constel, [0.47, 0.63, 1.0, 0.4 * dimC]],   // 星座線＝v1と同じ青（rgba(120,160,255)）
 					[view.skySolar ? null : ecliptic, [1.0, 0.8, 0.45, 0.35]],   // 黄道＝淡い黄（太陽・月・惑星の通り道）
 					[view.skySolar ? null : celeq, [1.0, 0.55, 0.5, 0.32]],      // 天の赤道＝淡い紅（地球の赤道の空への投影）
@@ -1304,7 +1408,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 				gl.uniform3f(loc(gl, globeProg, "u_seaC"), sc[0], sc[1], sc[2]);
 				bindWorldPal(globeProg);
-				ensureClimTex(view.worldHypso.clim);   // 気候場（cross-blend）＝初回だけ取得。未着は緯度近似
+				ensureClimTex(view.worldHypso!.clim);   // 気候場（cross-blend）＝初回だけ取得。未着は緯度近似
 				bindClim(globeProg);
 			}
 			bindCog(globeProg);   // ユーザ COG（has=0 でもサンプラは unit9 へ＝轍対策）
@@ -1350,8 +1454,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 真俯瞰(2D)では従来どおり描く＝平面地図の建物表現はフットプリントが本体。閾値は show3d と同じ。
 		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		// 標高パイプライン計器（?perf=1 時・2秒毎）：「高度が消える」系の切り分け用＝どの因子が0かを1行で。
-		if (self.__perfElev && performance.now() - (self.__perfElevT || 0) > 2000) {
-			self.__perfElevT = performance.now();
+		if ((self as unknown as PerfGlobal).__perfElev && performance.now() - ((self as unknown as PerfGlobal).__perfElevT || 0) > 2000) {
+			(self as unknown as PerfGlobal).__perfElevT = performance.now();
 			console.log('[elev] z=%s pitch=%s scale=%s pf=%s eff=%s has=%s mesh=%s active=%s depth=%s bounds=%s far=%s farBounds=%s',
 				cam.zoom.toFixed(2), ((cam.pitch || 0) * 180 / Math.PI).toFixed(0),
 				elev.scale?.toExponential?.(2), pf.toFixed(2), elevScaleEff?.toExponential?.(2),
@@ -1381,16 +1485,16 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
 			gl.uniform1f(loc(gl, terrainProg, "u_globeAlpha"), globeA);
-			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
+			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso!.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			bindCog(terrainProg);   // ユーザ COG（陰影の上・フォグの下＝TERRAIN_FS 側で合成）
 			bindGnd(terrainProg);   // 地面アトラス（同）
-			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
+			const mh = terrain!.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
 			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
 			setCogMesh(mh); setGndMesh(mh);
-			gl.bindVertexArray(terrain.vao);
-			for (const [f0, n] of terrRuns(terrain.mesh, st, "near")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);   // 可視チャンクの区間だけ（P4 step B）
+			gl.bindVertexArray(terrain!.vao);
+			for (const [f0, n] of terrRuns(terrain!.mesh, st, "near")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);   // 可視チャンクの区間だけ（P4 step B）
 			if (far.has && farTex) {
 				// 遠景メッシュ＝同じ単位格子を遠窓へ2度目のドロー（FS が近窓の内側を discard＝二重描画なし）。
 				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
@@ -1443,10 +1547,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 地形なし（真俯瞰等）は G=0＝素の elev() へ（量子化する面が存在しない）。
 		const mq = (terrainActive && terrain) ? terrain.mesh : null;
 		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の α に一括
-		const setMeshQ = (prog) => {
+		const setMeshQ = (prog: WebGLProgram): void => {
 			gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 			gl.uniform4f(loc(gl, prog, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1);
-			gl.uniform1f(loc(gl, prog, "u_meshG"), mq ? terrain.G : 0);
+			gl.uniform1f(loc(gl, prog, "u_meshG"), mq ? terrain!.G : 0);
 		};
 		setMeshQ(lineProg);   // lineProg は直前で useProgram 済み
 		if (md && md.lineProg) { gl.useProgram(md.lineProg); setMeshQ(md.lineProg); }
@@ -1480,7 +1584,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				logCoef: lastLogCoef,
 				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
 				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
-				meshQ: mq, meshG: mq ? terrain.G : 0,   // 案A: gint も描画メッシュ面へ量子化
+				meshQ: mq, meshG: mq ? terrain!.G : 0,   // 案A: gint も描画メッシュ面へ量子化
 				noSub: view.gintSub === false,          // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 				facesInAtlas: gnd.fillsIn };            // gint の面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		} else gintCtx = null;
@@ -1489,20 +1593,20 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
 		const mainLinesOn = slots.indexOf("main") >= 0 && sceneHasDraws(scenes.main);
 		// 1 つの枠を描く（li が [lo, hi) の項だけ・pick があればそれで選ぶ）。#123＝基図の枠を差し込みの境で分け、間に利用者の群を描く＝呼ぶたびに枠の uniform を整え直す
-		const drawSlot = (slot, lo = -Infinity, hi = Infinity, pick = null) => {
+		const drawSlot = (slot: string, lo = -Infinity, hi = Infinity, pick: LiPick = null): void => {
 			const scene = scenes[slot];
-			const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
+			const inRange = (x: { li: number }): boolean => pick ? pick(x) : x.li >= lo && x.li < hi;
 			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
-				setCommonUniforms(md.fillProg, st, scene.origin, land);
-				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin); setGndScene(md.fillProg, scene.origin);
-				setCommonUniforms(md.lineProg, st, scene.origin, land);
-				gl.useProgram(md.fillProg); gl.uniform1f(loc(gl, md.fillProg, "u_fogFar"), fogFarCap);
-				gl.useProgram(md.lineProg); gl.uniform1f(loc(gl, md.lineProg, "u_fogFar"), fogFarCap);
-				gl.uniform1f(loc(gl, md.lineProg, "u_lift"), cityLift);
-				gl.uniform1f(loc(gl, md.lineProg, "u_dpr"), cam.dpr || 1);
-				gl.uniform1i(loc(gl, md.lineProg, "u_segTex"), 6);
-				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
-				let curProgM = null;
+				setCommonUniforms(md!.fillProg, st, scene.origin, land);
+				gl.useProgram(md!.fillProg); setCogScene(md!.fillProg, scene.origin); setGndScene(md!.fillProg, scene.origin);
+				setCommonUniforms(md!.lineProg, st, scene.origin, land);
+				gl.useProgram(md!.fillProg); gl.uniform1f(loc(gl, md!.fillProg, "u_fogFar"), fogFarCap);
+				gl.useProgram(md!.lineProg); gl.uniform1f(loc(gl, md!.lineProg, "u_fogFar"), fogFarCap);
+				gl.uniform1f(loc(gl, md!.lineProg, "u_lift"), cityLift);
+				gl.uniform1f(loc(gl, md!.lineProg, "u_dpr"), cam.dpr || 1);
+				gl.uniform1i(loc(gl, md!.lineProg, "u_segTex"), 6);
+				if (md!.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md!.lineTex); gl.activeTexture(gl.TEXTURE0); }
+				let curProgM: WebGLProgram | null = null;
 				for (const e of scene.md.layers) {
 					if (!inRange(e)) continue;
 					if (e.kind === "fill") {
@@ -1513,17 +1617,17 @@ export function createRenderer(canvas, rOpts = {}) {
 						// 水面：全帯で深度テスト維持＝尾根遮蔽（深度免除は「尾根の向こうの湖が山腹に透ける」＝
 						// 山中湖バグの復活＝富士 z13 で実測・撤回済み）。DSM帯(z<13)=+30m（ノイズ瘤・偽島対策）、
 						// 都市帯(z≥13)=+10m（DTM の河道彫り込み・中州へ疎頂点の水ポリが潜る豊平川対策。5m では不足）。
-						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
-						gl.uniform1f(loc(gl, md.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
-						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
-						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
-						if (slot === "base") dbgC.baseFill += e.counts.length; else dbgC.mainFill += e.counts.length;
+						if (curProgM !== md!.fillProg) { gl.useProgram(md!.fillProg); gl.bindVertexArray(md!.fillVAO); curProgM = md!.fillProg; }
+						gl.uniform1f(loc(gl, md!.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
+						gl.uniform2fv(loc(gl, md!.fillProg, "u_tileOff"), e.origins);
+						md!.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
+						if (slot === "base") dbgC!.baseFill += e.counts.length; else dbgC!.mainFill += e.counts.length;
 					} else {
 						if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
-						if (curProgM !== md.lineProg) { gl.useProgram(md.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md.lineProg; }
-						gl.uniform2fv(loc(gl, md.lineProg, "u_tileOff"), e.origins);
-						md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
-						if (slot === "base") dbgC.baseLine += e.counts.length; else dbgC.mainLine += e.counts.length;
+						if (curProgM !== md!.lineProg) { gl.useProgram(md!.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md!.lineProg; }
+						gl.uniform2fv(loc(gl, md!.lineProg, "u_tileOff"), e.origins);
+						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
+						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 					}
 				}
 				gl.bindVertexArray(null);
@@ -1539,7 +1643,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
 			if (userSlot) gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), 1);
 			lineOffZero();
-			let curProg = null;
+			let curProg: WebGLProgram | null = null;
 			for (const d of scene.draws) {
 				if (!inRange(d)) continue;
 				if (d.kind === "fill") {
@@ -1556,13 +1660,13 @@ export function createRenderer(canvas, rOpts = {}) {
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
-					if (slot === "base") dbgC.baseFill++; else dbgC.mainFill++;
+					if (slot === "base") dbgC!.baseFill++; else dbgC!.mainFill++;
 				} else {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
-					if (slot === "base") dbgC.baseLine++; else dbgC.mainLine++;
+					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;
 				}
 			}
 			if (userSlot) { gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA); gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA); }   // 利用者の層で 1 にした基図の濃さを戻す（後の基図の枠・後のパスが同じプログラムを使う・#123）
@@ -1588,7 +1692,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				setRayUniforms(gratProg, st);   // #65：視線の基底（f64）＋目＋c
 				gl.uniform1f(loc(gl, gratProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 				gl.uniform1f(loc(gl, gratProg, "u_alpha"), gratA);
-				gl.uniform4f(loc(gl, gratProg, "u_gratC"), ...worldPal().grat);   // テーマのレチクル色（既定=白）
+				gl.uniform4f(loc(gl, gratProg, "u_gratC"), ...(worldPal().grat as Vec4T));   // テーマのレチクル色（既定=白）
 				gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
 			}
 		}
@@ -1605,7 +1709,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.stencilMask(0x80);
 		gl.clearStencil(0);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
-		const bldStencil = on => {   // on＝建物ドロー中だけ REPLACE で bit7 を刻む（gintBld の線/点は対象外）
+		const bldStencil = (on: boolean): void => {   // on＝建物ドロー中だけ REPLACE で bit7 を刻む（gintBld の線/点は対象外）
 			if (on) { gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.ALWAYS, 0x80, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE); gl.stencilMask(0x80); }
 			else { gl.disable(gl.STENCIL_TEST); gl.stencilMask(0xFF); }
 		};
@@ -1613,7 +1717,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? (scenes.main.bld || mdBld) : null;   // 建物はmainシーンの一部＝一緒に退場。noBld=?nobld=1診断ノブ（二重壁の切り分け）
 		if (bld) {
 			bldStencil(true);
-			const prog = scenes.main.bld ? bldProg : md.bldProg;
+			const prog = scenes.main.bld ? bldProg : md!.bldProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(prog, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, prog, "u_bldColor"), c[0], c[1], c[2]);
@@ -1623,7 +1727,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			// 下部だけ・本人実機で特定）。カメラ→区bbox距離の昇順＝画面の区が必ず枠を取る（内包=距離0・
 			// 同率はsort安定性でMap挿入順のまま＝フレーム間で選抜が揺れない）。
 			const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
-			const mdist = m => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
+			const mdist = (m: MeshMask): number => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
 			const active = [...meshMasks.entries()].filter(([w]) => !meshHidden.has(w)).map(([, m]) => m)
 				.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_MESH_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
 			gl.uniform1i(loc(gl, prog, "u_meshCount"), active.length);
@@ -1640,13 +1744,13 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform1i(loc(gl, prog, `u_meshMask${i}`), 2 + i);
 			}
 			if (scenes.main.bld) {
-				gl.bindVertexArray(bld.vao);
-				gl.drawArrays(gl.TRIANGLES, 0, bld.count);
+				gl.bindVertexArray((bld as GLBld).vao);
+				gl.drawArrays(gl.TRIANGLES, 0, (bld as GLBld).count);
 			} else {
-				gl.bindVertexArray(md.bldVAO);
-				for (const e of mdBld) {
+				gl.bindVertexArray(md!.bldVAO);
+				for (const e of mdBld!) {
 					gl.uniform2fv(loc(gl, prog, "u_tileOff"), e.origins);
-					md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
+					md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 				}
 			}
 			bldStencil(false);   // gintBld（筆ドレープ線/点）は建物でない＝bit7 を刻まない
@@ -1685,7 +1789,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
-			const vis = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
+			const vis: { p: MeshBatch; count: number }[] = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
@@ -1698,14 +1802,14 @@ export function createRenderer(canvas, rOpts = {}) {
 					const minH = mppx * (1 + dm / 4000);
 					let li = 0;
 					for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
-					count = p.lodCounts[li];
+					count = p.lodCounts![li];
 					if (!count) continue;
 				}
 				vis.push({ p, count });
 			}
 			// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
 			// 前乗算 α（既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）。バッチ内の三角形順は並べ替えない（自己重なりの前後は割り切り）
-			const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
+			const ex = st.eye, d2 = (p: MeshBatch): number => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
 			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !v.p.blend), ...vis.filter(v => v.p.blend).sort((x, y) => d2(y.p) - d2(x.p))];
 			let zOff = false;
 			const common = new Set();   // 共通 uniform（カメラ・霧・標高窓・建物色）を入れ終えたプログラム＝バッチ毎でなくプログラム毎に 1 回（GL の uniform はプログラムに残る）
@@ -1756,56 +1860,56 @@ export function createRenderer(canvas, rOpts = {}) {
 		return fogAnimating;   // true＝フォグ距離が収束中（呼び出し側は次フレームも描く）
 	}
 
-	function disposeSlot(slot) {
+	function disposeSlot(slot: string): void {
 		for (const d of scenes[slot].draws) { for (const b of d.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(d.vao); }
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
+	function dispose(): void { for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
 		for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeSlot("user"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
-	function set(cmd, data, prop) {
+	function set(cmd: string, data?: unknown, prop?: unknown): void {
 		switch (cmd) {
-			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
-			case "light":     light = data && Array.isArray(data.dir) ? data : null; break;      // style の light（B3・MapLibre の setLight）
-			case "lights":    lights = data && data.n > 0 && data.data ? data : null; break;      // 局所の光源（W2・light.js localLightsPayload）
-			case "sky":       sky = data && Array.isArray(data.sky) ? data : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
-			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
-			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
-			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
-			case "gintBld":   setGintBld(data); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
-			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
-			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）
-			case "mdUp":      mdUpload(data); break;                                           // multi_draw: タイルブロック転送
-			case "mdScene":   mdScene(data); break;                                            // multi_draw: draw list 差し替え（転送ゼロ）
-			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
-			case "overlayHi": setOverlayHi(data, prop); break;
-			case "overlayHover": setOverlayHover(data); break;
-			case "rail":      setRail(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
-			case "wdepr":     disposeOverlay(wdepr); wdepr = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は drawWdepr の cover が画素単位で計算＝fill 不使用）
-			case "lakes":     disposeOverlay(lakes); lakes = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
-			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
-			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
-			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;                   // 舞台裏アトラス（ダブルバッファ）
-			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
+			case "view":      setView(data as Partial<GLView>); break;                                            // data={clear,land,atmo,bldColor}
+			case "light":     light = data && Array.isArray((data as GLLight).dir) ? data as GLLight : null; break;      // style の light（B3・MapLibre の setLight）
+			case "lights":    lights = data && (data as GLLocalLights).n > 0 && (data as GLLocalLights).data ? data as GLLocalLights : null; break;      // 局所の光源（W2・light.js localLightsPayload）
+			case "sky":       sky = data && Array.isArray((data as GLSky).sky) ? data as GLSky : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
+			case "sea":       sea = { ...sea, ...(data as Partial<typeof sea>) }; break;                                  // data={li, minzoom} 海の点火ゲート
+			case "bldFill":   bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
+			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: unknown } | null | undefined)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
+			case "gintBld":   setGintBld(data as GintBldData | null); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
+			case "scene":     setScene(data as MergedScene, prop as string | undefined); break;                                      // prop=slot("base"|"main")
+			case "mdGrow":    mdGrow((data as MDGrowMsg).pool, (data as MDGrowMsg).units); break;                            // multi_draw: プール成長（GPU内コピー）
+			case "mdUp":      mdUpload(data as MDUpload); break;                                           // multi_draw: タイルブロック転送
+			case "mdScene":   mdScene(data as MDSceneMsg); break;                                            // multi_draw: draw list 差し替え（転送ゼロ）
+			case "overlay":   setOverlay(data as OverlaySceneIn | null, prop as number[] | null | undefined); break;                                    // prop=fillColor(任意)
+			case "overlayHi": setOverlayHi(data as OverlaySceneIn | null, prop as HiFill | null | undefined); break;
+			case "overlayHover": setOverlayHover(data as OverlaySceneIn | null); break;
+			case "rail":      setRail(data as OverlaySceneIn[] | null); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "wdepr":     disposeOverlay(wdepr); wdepr = data ? buildOverlaySlot(data as OverlaySceneIn, [0, 0, 0, 0]) : null; break;   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は drawWdepr の cover が画素単位で計算＝fill 不使用）
+			case "lakes":     disposeOverlay(lakes); lakes = data ? buildOverlaySlot(data as OverlaySceneIn, [0, 0, 0, 0]) : null; break;   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
+			case "elevAtlas": setElevationAtlas(data as ElevAtlasDesc, prop as number); break;                             // prop=scale
+			case "elevCell":  setElevationCell((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;    // data=セルFloat32
+			case "elevAtlasStage": setElevationAtlasStage(data as ElevAtlasDesc, prop as number); break;                   // 舞台裏アトラス（ダブルバッファ）
+			case "elevCellStage": setElevationCellStage((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
-			case "elevAtlasFar": setElevationAtlasFar(data); break;                             // 遠景層（R10 第2アトラス）
-			case "elevCellFar": setElevationCellFar(prop.cx, prop.cy, data, prop.cellRes); break;
+			case "elevAtlasFar": setElevationAtlasFar(data as ElevAtlasDesc); break;                             // 遠景層（R10 第2アトラス）
+			case "elevCellFar": setElevationCellFar((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
-			case "meshSet": setMeshSet(prop, data); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
-			case "meshXf": { const p = meshes.get(prop); if (p) p.xf = data && data.length >= 12 ? data : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
-			case "meshCol": { const p = meshes.get(prop); if (p?.textured && data?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
-			case "meshVis":  setMeshVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
-			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
-			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
-			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
-			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
-			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
-			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
-			case "post":   post = data || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
+			case "meshSet": setMeshSet(prop as string, data as MeshIn | null); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
+			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
+			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
+			case "meshVis":  setMeshVis(prop as string, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
+			case "stars":     setStars(data as Float32Array | null); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
+			case "constellations": setConstellations(data as Float32Array | null); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
+			case "planets":   setPlanets(data as Float32Array | null); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
+			case "ecliptic":  setEcliptic(data as Float32Array | null); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
+			case "celequator": setCelEquator(data as Float32Array | null); break;                                     // data=同上（天の赤道の大円）
+			case "cogTex":    setCogTex(data as CogInput | null); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
+			case "post":   post = (data as PostProcessNormalized | null) || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
 			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
@@ -1817,12 +1921,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
 	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
-	let dOut = null, lastLogCoef = 0, post = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
-	function depthOut(on) {
+	let dOut: DepthOutGL | null = null, lastLogCoef = 0, post: PostProcessNormalized | null = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
+	function depthOut(on: boolean) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
 		if (!dOut) { dOut = createDepthOutGL(gl, canvas, () => rOpts.requestDraw?.()); dOut.setPost(post); }
 		const d = dOut;
-		return { begin: d.begin, abort: d.abort, end: o => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
+		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
 	}
 	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
@@ -1832,8 +1936,8 @@ export function createRenderer(canvas, rOpts = {}) {
 
 // --- GL ヘルパ ---
 // リンク前に属性位置を固定して作る（他プログラムで束ねた VAO を共用する時＝地面アトラスの塗り焼き）
-function programBound(gl, vsSrc, fsSrc, locs) {
-	const p = gl.createProgram();
+function programBound(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: string, locs: Record<string, number>): WebGLProgram {
+	const p = gl.createProgram()!;
 	gl.attachShader(p, shader(gl, gl.VERTEX_SHADER, vsSrc));
 	gl.attachShader(p, shader(gl, gl.FRAGMENT_SHADER, fsSrc));
 	for (const [name, l] of Object.entries(locs)) if (l >= 0) gl.bindAttribLocation(p, l, name);
@@ -1841,34 +1945,34 @@ function programBound(gl, vsSrc, fsSrc, locs) {
 	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("link: " + gl.getProgramInfoLog(p));
 	return p;
 }
-function program(gl, vsSrc, fsSrc) {
-	const p = gl.createProgram();
+function program(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: string): WebGLProgram {
+	const p = gl.createProgram()!;
 	gl.attachShader(p, shader(gl, gl.VERTEX_SHADER, vsSrc));
 	gl.attachShader(p, shader(gl, gl.FRAGMENT_SHADER, fsSrc));
 	gl.linkProgram(p);
 	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("link: " + gl.getProgramInfoLog(p));
 	return p;
 }
-function shader(gl, type, src) {
-	const s = gl.createShader(type);
+function shader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
+	const s = gl.createShader(type)!;
 	gl.shaderSource(s, src); gl.compileShader(s);
 	if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error("compile: " + gl.getShaderInfoLog(s) + "\n" + src);
 	return s;
 }
-function buffer(gl, data) {
-	const b = gl.createBuffer();
+function buffer(gl: WebGL2RenderingContext, data: AllowSharedBufferSource): WebGLBuffer {
+	const b = gl.createBuffer()!;
 	gl.bindBuffer(gl.ARRAY_BUFFER, b);
 	gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
 	return b;
 }
-const _locCache = new WeakMap();
-function loc(gl, prog, name) {
+const _locCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
+function loc(gl: WebGL2RenderingContext, prog: WebGLProgram, name: string): WebGLUniformLocation | null {
 	let m = _locCache.get(prog); if (!m) _locCache.set(prog, m = new Map());
 	if (!m.has(name)) m.set(name, gl.getUniformLocation(prog, name));
-	return m.get(name);
+	return m.get(name) as WebGLUniformLocation | null;
 }
 // u8=true で UNSIGNED_BYTE 正規化（頂点色は Uint8×4＝float32×4 の1/4。シェーダは同じ 0..1 を受ける）
-function attrib(gl, prog, name, buf, size, divisor, u8) {
+function attrib(gl: WebGL2RenderingContext, prog: WebGLProgram, name: string, buf: WebGLBuffer, size: number, divisor?: number | null, u8?: boolean): void {
 	const l = gl.getAttribLocation(prog, name);
 	if (l < 0) return;
 	gl.bindBuffer(gl.ARRAY_BUFFER, buf);

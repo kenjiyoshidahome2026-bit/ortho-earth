@@ -16,9 +16,10 @@
 //   - 向き未正規化データ（外環 CW）は合計が負になる＝解決パスの abs() で拾う（feature 内の向き一貫が前提）。
 //   - 塗りのみ per-fid。線/点の per-fid スタイルは次段（fid 表自体は line 色/width も既に持つ）。
 
-import { s as gS } from './state.js';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
-import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.js';
-import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
+import { s as gS } from './state.ts';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
+import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.ts';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.ts';
+import type { GintGLState, GintLive, GLDrawData, IdCaps, IdPrograms } from './state.ts';
 
 // VS_STENCIL と同一の fan 幾何＋fid を flat varying で FS へ（facing は rasterizer が判定）。
 const VS_ID = `${GLSL_VS_HEADER}
@@ -113,11 +114,11 @@ void main() {
 }`;
 
 // ── 能力検出（コンテキストごとに一度）──
-function idCaps(gl) {
+function idCaps(gl: WebGL2RenderingContext): IdCaps | null {
 	if (gS._idCaps !== undefined) return gS._idCaps;
 	const cbf = gl.getExtension('EXT_color_buffer_float');
 	const fb  = gl.getExtension('EXT_float_blend');
-	let caps = null;
+	let caps: IdCaps | null = null;
 	// RGBA＝α に「前向き扇の最大 fid+1」（MAX blend）を持つ（重複画素の後勝ち・2026-09-15）
 	if (cbf && fb)  caps = { internal: gl.RGBA32F, fmt: gl.RGBA, type: gl.FLOAT,      maxFid: 1 << 24, name: 'RGBA32F' };
 	else if (cbf)   caps = { internal: gl.RGBA16F, fmt: gl.RGBA, type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RGBA16F' };
@@ -131,7 +132,7 @@ function idCaps(gl) {
 // ── fid スタイル表（RGBA32UI・1 texel/fid）── style.js の buildFidStyle 出力を受ける。
 // 同寸なら texSubImage2D（restyle の契約＝テクスチャ更新1回のみ・§7.1）。CPU 側データは
 // context restore 用に保持（s._fidStyleData）。
-export function uploadFidStyle(s, table, count) {
+export function uploadFidStyle(s: GintGLState, table: Uint32Array | ArrayLike<number>, count: number): void {
 	const gl = s.gl;
 	const u32 = table instanceof Uint32Array ? table : new Uint32Array(table);
 	if (!gl || !count || u32.length < count * 4) { clearFidStyle(s); return; }
@@ -158,14 +159,14 @@ export function uploadFidStyle(s, table, count) {
 	s.fidStyleCount = count;
 }
 
-export function clearFidStyle(s) {
+export function clearFidStyle(s: GintGLState): void {
 	if (s.fidStyleTex && s.gl) s.gl.deleteTexture(s.fidStyleTex);
 	s.fidStyleTex = null; s.fidStyleW = 0; s._fidStyleH = 0; s.fidStyleCount = 0;
 	s._fidStyleData = null;
 }
 
 // context restore 時の再構築（worker.js / embed.js の restore ハンドラから呼ぶ）。
-export function restoreFidStyle(s) {
+export function restoreFidStyle(s: GintGLState): void {
 	const d = s._fidStyleData;
 	s.fidStyleTex = null; s.fidStyleW = 0; s._fidStyleH = 0;   // 旧テクスチャはコンテキストごと消滅済み
 	if (d) uploadFidStyle(s, d.u32, d.count);
@@ -173,14 +174,14 @@ export function restoreFidStyle(s) {
 
 // ID 塗りが使えるか（passes.js の分岐条件）。paint 明示＝全ズーム尊重（低ズーム既定塗りと独立）。
 // fillOff（巨大ポリゴン）は stencil と同じ理由（fan 全密度が毎フレーム）で尊重する。
-export function canUseIdFill(s) {
+export function canUseIdFill(s: GintGLState): boolean {
 	const gl = s.gl;
 	if (!gl || !s.fidStyleTex || s.polyEdges <= 0 || s.fillOff) return false;
 	const caps = idCaps(gl);
 	return !!caps && s.fidStyleCount <= caps.maxFid;
 }
 
-function ensurePrograms(gl) {
+function ensurePrograms(gl: WebGL2RenderingContext): IdPrograms {
 	if (gS._idPrograms) return gS._idPrograms;
 	const idProgram      = linkProgram(gl, VS_ID,   FS_ID);
 	const resolveProgram = linkProgram(gl, VS_FILL, FS_RESOLVE);
@@ -196,9 +197,9 @@ function ensurePrograms(gl) {
 
 // ID バッファ FBO（canvas と同寸）。embedded の動的解像度ではフレーム毎に寸法が変わり得る＝
 // 不一致時のみ作り直し（解像度段の変化は稀＝churn は実用上無視できる）。
-function ensureIdFBO(gl, caps, w = gS.width, h = gS.height) {   // w/h＝窓座標モードは窓の寸法（画面⇄窓の切替時だけ作り直し）
+function ensureIdFBO(gl: WebGL2RenderingContext, caps: IdCaps, w = gS.width, h = gS.height): boolean {   // w/h＝窓座標モードは窓の寸法（画面⇄窓の切替時だけ作り直し）
 	if (gS._idFBO && gS._idW === w && gS._idH === h) return true;
-	if (gS._idFBO) { gl.deleteFramebuffer(gS._idFBO); gl.deleteTexture(gS._idTex); }
+	if (gS._idFBO) { gl.deleteFramebuffer(gS._idFBO); gl.deleteTexture(gS._idTex!); }
 	const tex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, tex);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -222,7 +223,7 @@ function ensureIdFBO(gl, caps, w = gS.width, h = gS.height) {   // w/h＝窓座�
 // ── 本体：ID 蓄積パス → 解決パス（renderCleanScene の stencil+fill 位置から呼ばれる）──
 // 呼び出し時の前提：emptyVAO bind 済み・viewport=canvas 寸・blend 有効（straight alpha）。
 // 終了時：targetFBO を bind し blend を straight alpha に復元して返す。
-export function renderIdFill(s, data, targetFBO) {
+export function renderIdFill(s: GintLive, data: GLDrawData, targetFBO: WebGLFramebuffer | null): boolean {
 	const gl = s.gl;
 	const caps = idCaps(gl);
 	const width = data.atlas ? data.atlas.size : s.width, height = data.atlas ? data.atlas.size : s.height;   // 窓座標モード＝窓の寸法
@@ -230,12 +231,12 @@ export function renderIdFill(s, data, targetFBO) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO ?? null);   // 失敗時も呼び出し元のターゲットへ戻す（stencil 分岐が続行できる状態）
 		return false;
 	}
-	const { idProgram, resolveProgram, uId, uResolve } = gS._idPrograms;
+	const { idProgram, resolveProgram, uId, uResolve } = gS._idPrograms!;
 	const { arcTex, metaTex, TEX_ARC_W, TEX_META_W } = s;
 
 	// ① winding 和の蓄積（自前 FBO へ加算）。stencil と同じく全密度（u_lod_rank=0）＝
 	//    LOD 簡略化の自己交差で winding が壊れる斑点を出さない（stencil 塗りと同じ設計判断）。
-	gl.bindFramebuffer(gl.FRAMEBUFFER, gS._idFBO);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, gS._idFBO!);
 	gl.disable(gl.STENCIL_TEST);
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT);
@@ -268,7 +269,7 @@ export function renderIdFill(s, data, targetFBO) {
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 	}
 	gl.useProgram(resolveProgram);
-	gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, gS._idTex);
+	gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, gS._idTex!);
 	gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.uniform1i(uResolve.u_id_tex,    3);
@@ -282,12 +283,12 @@ export function renderIdFill(s, data, targetFBO) {
 }
 
 // context lost（テクスチャ/FBO はコンテキストごと消滅＝参照だけ捨てる。CPU 側 _fidStyleData は保持）。
-export function idFillContextLost(s) {
+export function idFillContextLost(s: GintGLState): void {
 	s.fidStyleTex = null; gS._idFBO = null; gS._idTex = null; gS._idW = gS._idH = 0;
 	gS._idPrograms = null; gS._idCaps = undefined;
 }
 
-export function disposeIdFill(s) {
+export function disposeIdFill(s: GintGLState): void {
 	const gl = s.gl;
 	if (gl) {
 		if (gS._idFBO) gl.deleteFramebuffer(gS._idFBO);

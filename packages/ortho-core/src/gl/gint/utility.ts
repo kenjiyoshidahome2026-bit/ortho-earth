@@ -1,13 +1,15 @@
 // gint の GL2 の部品：cam 由来の uniform・遠方の要・標高の uniform を詰める・テクスチャを上げる。共通の部品（辺の表・遠方の要の計算…）は ../../gint/utility.js（2026-10-15 に分けた）。
 import { betaOf, ellipsoidOn } from '../../camera.ts';
 import { farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, FAR_BIG, FAR_PIVOT } from '../../gint/utility.ts';
+import type { Uniforms } from './programs.ts';
+import type { GintGLState, GLDrawData } from './state.ts';
 export * from '../../gint/utility.ts';   // gl の中の読み手（embed・passes・idfill・identify…）は今のまま ./utility.js から読む
 
 
 // ── site 2：cam 由来の mvp/eye/origin を uniform へ（v1 の rotate/scale/rsincos/jac を建て替え）──
 // mvp/eye/origin は worker が cam から一度だけ生成し data に載せる（site 3）。ここは受けて set するだけ。
 // width/height は CSS px（fetchProject/toNDC が同単位で round-trip、dpr は線幅側で別処理）。
-export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, width, height) {
+export function bindSharedUniforms(gl: WebGL2RenderingContext, u: Uniforms, data: GLDrawData, arcTex: WebGLTexture | null, metaTex: WebGLTexture | null, arcW: number, metaW: number, width: number, height: number): void {
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, arcTex);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, metaTex);
 	gl.uniform1i(u.u_arc_tex,  0);
@@ -27,7 +29,7 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	const lr = lon * Math.PI / 180, br = betaOf(data.origin[1]) * Math.PI / 180;
 	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
 	const ell = ellipsoidOn(), pr = data.origin[1] * Math.PI / 180;
-	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(ell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]));
+	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(ell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]) as [number, number, number, number]);
 	if (u.u_ell) gl.uniform1f(u.u_ell, ell ? 1 : 0);
 	// MVP相殺回避の錨（worker が float64 で算出）。欠落時は 0 でなく等価挙動へ退避不能なので必ず渡す。
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
@@ -35,14 +37,14 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	gl.uniform1f(u.u_lod_rank, data.lodRank ?? 0.0);   // GPU Dynamic LOD 閾値（未設定=0=全描画）
 	// 窓座標モード（地面アトラスへの焼き込み）：data.atlas={ off:[dlon,dlat], inv:[1/sLon,1/sLat] }。無ければ 0＝従来
 	if (u.u_atlasOn) gl.uniform1f(u.u_atlasOn, data.atlas ? 1 : 0);
-	if (u.u_atlas) gl.uniform4f(u.u_atlas, data.atlas ? data.atlas.off[0] : 0, data.atlas ? data.atlas.off[1] : 0, data.atlas ? data.atlas.inv[0] : 1, data.atlas ? data.atlas.inv[1] : 1);
+	if (u.u_atlas) gl.uniform4f(u.u_atlas, data.atlas ? data.atlas.off![0] : 0, data.atlas ? data.atlas.off![1] : 0, data.atlas ? data.atlas.inv[0] : 1, data.atlas ? data.atlas.inv[1] : 1);
 }
 
 // feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
 // 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
 // （passes.js から移設＝idfill.js の ID 塗りパスと共用）
 // data（任意）＝塗り扇の遠方の要（画面カリング・farPivotParams）の向き。無し・線パス＝無効（従来の bbox 中心）
-export function bindPivot(s, gl, u, data = null) {
+export function bindPivot(s: GintGLState, gl: WebGL2RenderingContext, u: Uniforms, data: GLDrawData | null = null): void {
 	gl.uniform1i(u.u_pivot_tex, 2);
 	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
 	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
@@ -65,7 +67,7 @@ export function bindPivot(s, gl, u, data = null) {
 // を program へ。無ければ全0＝従来動作（worker モード含む）。u_elevTex の unit 割当(7)だけは常に行う
 //（sampler2D の既定 unit0 は u_arc_tex(usampler2D) と同 unit になり draw が INVALID_OPERATION になるため）。
 //（passes.js から移設 2026-08-14＝面ドレープ化で uStencil/uId とも共用）
-export function bindDepthUniforms(gl, u, data) {
+export function bindDepthUniforms(gl: WebGL2RenderingContext, u: Uniforms, data: GLDrawData) {
 	const dep = data.depth;
 	gl.uniform1i(u.u_elevTex, 7);
 	gl.uniform1f(u.u_logCoef, dep?.logCoef ?? 0);
@@ -90,7 +92,7 @@ export function bindDepthUniforms(gl, u, data) {
 
 // ── 以下 node-independent（投影に触れない純データ構造）＝v1 から逐語で携行 ──
 
-export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
+export function uploadTex2D(gl: WebGL2RenderingContext, u32: Uint32Array, w: number, h: number, internalFmt: number, fmt: number): WebGLTexture {
 	const tex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, tex);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);

@@ -14,9 +14,9 @@ export type { QueryFeature, QueryOptions, SourceFeaturesOptions } from "./query.
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.ts";
 export type { TileXYZ } from "./tile.ts";
 export { buildTileDrawList } from "./build.ts";
-export { createRenderer } from "./gl/renderer.js";
-export type { Renderer } from "./gl/renderer.js";
-export { createGintLayer } from "./gl/gint/embed.js";
+export { createRenderer } from "./gl/renderer.ts";
+export type { Renderer } from "./gl/renderer.ts";
+export { createGintLayer } from "./gl/gint/embed.ts";
 export { buildFidStyle } from "./gint/style.ts";
 export { buildLabels } from "./labels.ts";
 export { parseFontStack, fontCss } from "./fontstack.ts";   // text-font → CSS の書体（段 2）
