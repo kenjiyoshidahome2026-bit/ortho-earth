@@ -54,7 +54,7 @@ function withSpheres(set: PcSet, page: { nodes: SphNode[]; pages: CopcPage[] }) 
 
 // 普通の LAS/LAZ（COPC でない・点群計画 段 3-3）＝丸ごと読んで全点を持ち、その場で八分木を作る（pointcloud-octree.js）。節は COPC と同じ形で返す（offset＝idx の始まり・byteSize 0）
 async function readWhole(src: Source, hdr: LasHeader, vlrs: LasVlr[], local: boolean) {
-	const over = wholeFileLimit({ count: hdr.pointCount, size: src.size!, local });
+	const over = wholeFileLimit({ count: hdr.pointCount, size: src.size, local, minBytes: hdr.pointOffset + hdr.pointCount * hdr.recordLength });   // 総長が分からない URL＝ヘッダの読む量で量る
 	if (over) throw new Error(over);
 	const lazed = hdr.compressed || vlrs.some(v => v.userId === "laszip encoded");
 	if (lazed && !POINTCLOUD_FORMATS.lazFile) throw new Error(NO_LAZ);

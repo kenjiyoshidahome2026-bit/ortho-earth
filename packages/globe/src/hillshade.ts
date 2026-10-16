@@ -134,7 +134,10 @@ export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) =
 	dem: DemSpecInput | null | undefined; paint?: Record<string, unknown>; fetchFn?: DemFetch; name?: string; attribution?: string | null; warn?: ((msg: string) => void) | null; tiles?: DemTiles | null;
 }): { port: MessagePort; stats: HillshadeStats; setPaint(pt: Record<string, unknown>): void; close(): void } {
 	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
+	// 知らない hillshade-method は standard で描く（hillshadeParams）＝黙って替えずに知らせる（旧 warn の意図・5 つ全部を描くようになって呼び口だけ残っていた）
+	const checkMethod = (pt: Record<string, unknown>) => { const m = pt?.["hillshade-method"]; if (m != null && !METHODS.includes(m as string)) warn?.(`hillshade-method ${JSON.stringify(m)} is not supported; drawn as "standard"`); };
 	let p = hillshadeParams(paint);
+	checkMethod(paint);
 	const ch = new MessageChannel(), port = ch.port1;
 	const stats: HillshadeStats = { req: 0, ok: 0, empty: 0, err: 0, last: null };   // 切り分けの窓（dbgHost.__hillshade）
 	const acs = new Map<number, boolean>();
@@ -155,5 +158,5 @@ export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) =
 		} catch (err) { stats.err++; stats.lastErr = String((err as Error)?.message || err); port.postMessage({ id, bitmap: null, error: String((err as Error)?.message || err) }); }
 		finally { acs.delete(id); }
 	};
-	return { port: ch.port2, stats, setPaint(pt) { p = hillshadeParams(pt); }, close() { port.close(); ch.port2.close(); } };
+	return { port: ch.port2, stats, setPaint(pt) { p = hillshadeParams(pt); checkMethod(pt); }, close() { port.close(); ch.port2.close(); } };
 }

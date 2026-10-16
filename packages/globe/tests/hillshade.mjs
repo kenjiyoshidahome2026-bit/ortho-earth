@@ -1,6 +1,6 @@
 // hillshade.js の shadeTile＝MapLibre 6.11.2 の hillshade_prepare＋hillshade fragment を画素で写した物の検定（node・網なし）。
 // 2026-09-30：傾き atan(0.625·|d|)・勾配×DEM の実寸・頭打ち ±4・向き atan(d.y,−d.x)・method 5 つ（公式例の門で斜面が暗すぎた）。
-import { shadeTile, hillshadeParams } from "../src/hillshade.ts";
+import { shadeTile, hillshadeParams, createHillshadeProvider } from "../src/hillshade.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -59,6 +59,22 @@ const run = (h, n, paint, z = 12) => shadeTile({ h, n, z, lat0: 0.01, lat1: -0.0
 	const n = 16, h = plane(n, 20, 0);
 	for (const m of ["basic", "combined", "igor"]) { const c = px(run(h, n, { "hillshade-method": m, "hillshade-illumination-direction": 270 }), n, 8, 8); ok(`method ${m}`, c[3] > 0, c.join(",")); }
 	ok("未知の method＝standard", hillshadeParams({ "hillshade-method": "nope" }).method === "standard");
+}
+
+// warn：知らない hillshade-method（standard で描く）は知らせる・知っている 5 つと未指定は黙る
+{
+	const store = { spec: { tileSize: 256, minzoom: 0, maxzoom: 14, bounds: null }, tile: async () => null };
+	const msgs = [], mk = paint => { const hs = createHillshadeProvider({ dem: null, paint, tiles: store, warn: m => msgs.push(m) }); return hs; };
+	for (const m of [undefined, "standard", "basic", "combined", "igor", "multidirectional"]) mk(m ? { "hillshade-method": m } : {}).close();
+	ok("既知の method と未指定は警告なし", msgs.length === 0, msgs.join(" | "));
+	const hs = mk({ "hillshade-method": "bogus" });
+	ok("知らない method は警告 1 回", msgs.length === 1 && /bogus/.test(msgs[0]) && /standard/.test(msgs[0]), msgs.join(" | "));
+	ok("描く形は standard のまま", hillshadeParams({ "hillshade-method": "bogus" }).method === "standard");
+	hs.setPaint({ "hillshade-method": "nope" }); hs.setPaint({ "hillshade-method": "igor" });
+	ok("setPaint も同じ", msgs.length === 2 && /nope/.test(msgs[1]), msgs.join(" | "));
+	hs.close();
+	let threw = false; try { createHillshadeProvider({ dem: null, paint: { "hillshade-method": "bogus" }, tiles: store }).close(); } catch { threw = true; }
+	ok("warn 無しでも動く", !threw);
 }
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ hillshade 全 PASS");

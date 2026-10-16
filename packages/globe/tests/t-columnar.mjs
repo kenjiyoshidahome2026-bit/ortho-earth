@@ -20,6 +20,7 @@ import { GEOPARQUET_SOURCE } from "../src/columnar/sources/geoparquet.ts";
 import { registerColumnarSource, findColumnarSource } from "../src/columnar/sources/registry.ts";
 import { FGB_SOURCE } from "../src/columnar/sources/fgb.ts";
 import { shareStats, gintPreferred } from "../src/columnar/share.ts";
+import { handlerListOf } from "../src/columnar/view.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { buildFidStyle } from "@ortho-earth/core/fidstyle";
@@ -285,5 +286,10 @@ await t("cache: the record survives the transfer to main (was DataCloneError); k
 	assert.notEqual(kS, cacheKey(base, 3, buildTag({ rAx: 1, lods: [12, 9] })));
 	assert.notEqual(kS, cacheKey(base, 3, buildTag({ rAx: 1, lods: LOD_ZOOMS, chunkFeatures: 16 })));
 	assert.equal(cacheKey(null, 3, buildTag({})), null);
+});
+await t("on(ev) は 4 つの名前だけ（Object.prototype の名前で投げない）", () => {
+	const H = { hover: [], click: [], mouseenter: [], mouseleave: [] };
+	for (const ev of ["hover", "click", "mouseenter", "mouseleave"]) { assert.equal(handlerListOf(H, ev), H[ev]); handlerListOf(H, ev).push(() => {}); assert.equal(H[ev].length, 1); }
+	for (const ev of ["constructor", "__proto__", "toString", "hasOwnProperty", "Hover", "", "mousemove", undefined]) assert.equal(handlerListOf(H, ev), null);
 });
 console.log(`columnar: ${n} passed`);
