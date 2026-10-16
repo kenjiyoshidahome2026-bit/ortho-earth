@@ -10,8 +10,7 @@
 // 深度の前置き：全画面 1 三角形・colorMask off・depthFunc ALWAYS で、シーンの深度（log の 24bit・DEPTH_GLSL の depthOfW の逆）を層と同じ透視行列の NDC z に戻して gl_FragDepth へ。
 //   クリア値（1＝何も無い）はそのまま 1。深度の無いフレーム（申し出前・LOW_MEM）は前置きを飛ばす＝隠れない（従来の挙動）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(d) / frame(cam, s, size, api) / destroy()。opts＝{ module, params, renderingMode, depth, projection }
-import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.ts";
-import { worldRadiusM } from "@ortho-earth/core/camera";
+// ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く（arcs-gl.js 等と同じ）。args（customgl-args.ts の makeCustomArgs）は host.customArgs、深度の GLSL は host.depthGLSL（render worker が渡す）。
 
 let gl = null, host = null, opts = null, layer = null, ready = false, failed = null, canvasRef = null, lastCam = null, lastSize = null;
 let dprog = null, duni = null, dvao = null;   // 深度の前置きパス
@@ -66,6 +65,7 @@ export function init(canvas, o, h) {
 		try { ({ p: dprog, u: duni } = compile(VS_FULL, FS_DEPTH(host.depthGLSL))); dvao = gl.createVertexArray(); }
 		catch (e) { dprog = null; console.warn("[customgl] depth prepass unavailable", e?.message); }
 	}
+	if (typeof host?.customArgs !== "function") { failed = "custom layer: the render worker does not provide host.customArgs"; console.error("[customgl]", failed); host?.post?.({ type: "error", error: failed }); return; }
 	if (!opts.module) { failed = "custom layer: url of the layer module is required"; console.error("[customgl]", failed); host?.post?.({ type: "error", error: failed }); return; }
 	(async () => {
 		try {
@@ -106,7 +106,7 @@ export function frame(cam, s, size, api) {
 	gl.disable(gl.SCISSOR_TEST); gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clearColor(0, 0, 0, 0); gl.clearDepth(1); gl.clearStencil(0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 	if (ready) {
-		const args = makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && opts.projection === "globe" });
+		const args = host.customArgs(cam, w, h, opts.projection);   // makeCustomArgs（earthM＝worldRadiusM・globe＝z<GLOBE_MAX_Z かつ投影が globe）
 		const three = layer.renderingMode === "3d";
 		depthUsed = false;
 		if (three && dprog && api?.depth) { try { depthPrepass(args._st.projection, w, h, api.depth); depthUsed = true; } catch (e) { console.warn("[customgl] depth prepass", e?.message); } }

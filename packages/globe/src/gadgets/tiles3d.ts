@@ -66,10 +66,10 @@ interface T3dNode {
 }
 /** add／addI3S の opts（既定を補った物） */
 type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string };
-/** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。states・asset 等は 3D Tiles だけ */
+/** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number };
-	states?: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean;
+	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null;
 	root: T3dNode; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
@@ -222,7 +222,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
 				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: null, maskN: 0 });   // pbr＋材質 4 枚＝#46 段 2
 			});
-			if (set.states!.size) paintNode(n);   // TODO(ts): I3S の set は states を持たない＝ここで投げてタイルが failed になる（挙動は据え置き・報告済み）   // feature state の色は後から読んだタイルにも
+			if (set.states.size) paintNode(n);   // feature state の色は後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
 			if (r.points.length) {
@@ -238,7 +238,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// feature state の色（W7）＝タイルの束ごとに元の頂点色から差し替えた列を renderer の "meshCol" へ
 	const paintNode = (n: T3dNode) => {
 		if (!setMeshCol || !n.ward || !n.pick) return;
-		const set = n.set, colorOf = (id: number) => { const c = set.states!.get(id)?.color; const v = c ? cssRGB(String(c)) : null; return v; };
+		const set = n.set, colorOf = (id: number) => { const c = set.states.get(id)?.color; const v = c ? cssRGB(String(c)) : null; return v; };
 		for (const p of n.pick) if (p.col0 && p.features) setMeshCol(`${n.ward}#${p.k}`, tintColors(p.col0, p.features.ids, colorOf));
 	};
 	// 画面の点（CSS px）→ 一番手前のタイルの三角形と地物 { featureId, properties, table, tile, distance, lngLat } | null
@@ -249,7 +249,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const h = pickMeshes(items, env.view, x, y); if (!h) return null;
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
 		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
-			tile: n.id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states!.get(h.featureId) || {}) } : {} };
+			tile: n.id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states.get(h.featureId) || {}) } : {} };
 	};
 	// 出典（W8）＝表示しているタイルの glTF asset.copyright を「;」で割って数え、多い順（Google Map Tiles の表示の決まり）。
 	//   opts.attribution＝文字列（そのまま）か関数（copyrights の列 → 文字列）。無ければ出典の欄に何も足さない（従来どおり）
@@ -388,9 +388,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				pick: (x, y) => pickSet(set, x, y),
 				/** 表示しているタイルの出典（glTF asset.copyright・多い順・W8） */
 				get copyrights() { return [...(set.copyrights || [])]; },
-				setFeatureState(fid, state) { if (fid == null) return this; const nx = state == null ? {} : { ...(set.states!.get(+fid) || {}), ...state }; if (Object.keys(nx).length) set.states!.set(+fid, nx); else set.states!.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; },
-				getFeatureState: fid => ({ ...(set.states!.get(+fid) || {}) }),
-				removeFeatureState(fid) { if (fid == null) set.states!.clear(); else set.states!.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; } } satisfies T3dHandle;
+				setFeatureState(fid, state) { if (fid == null) return this; const nx = state == null ? {} : { ...(set.states.get(+fid) || {}), ...state }; if (Object.keys(nx).length) set.states.set(+fid, nx); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; },
+				getFeatureState: fid => ({ ...(set.states.get(+fid) || {}) }),
+				removeFeatureState(fid) { if (fid == null) set.states.clear(); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; } } satisfies T3dHandle;
 		},
 		// I3S（#48）：url＝…/SceneServer（layers/0 を補う）か …/SceneServer/layers/N。opts＝add と同じ＋lodScale（>1 で粗く・<1 で細かく）・token
 		async addI3S(url: string, opts: I3SOptions = {}): Promise<I3SHandle> {
@@ -399,7 +399,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const info = await rpc<I3SInfo>({ kind: "i3sOpen", url: abs, token: opts.token });
 			const id = opts.id ?? `i${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0 }, query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
+			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0 }, states: new Map(), query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
 			set.root = i3sNode(info.root, set, null);
 			const all = function* (n: T3dNode | null | undefined): Generator<T3dNode> { if (!n) return; yield n; for (const k of n.children || []) yield* all(k); };
 			set.loaded = () => [...all(set.root)].filter(n => n.state === "ready" && n.ward);

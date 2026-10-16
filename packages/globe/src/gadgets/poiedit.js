@@ -11,6 +11,7 @@
 // デスクトップ専用（shot と同じ掟）＝モバイルは入口で return。
 import { nativeBucket } from "native-bucket";
 import { modalOpen } from "./keys.ts";
+import { escHtml } from "../html-safe.ts";   // POI の名前・台帳のレコード（サーバーの overrides.json）は外から来る＝innerHTML へ入れる前に逃がす（2026-10-16）
 
 // 手で足す種別の小さな棚（値はタイルschema §11.4 の t バイト＝interface値・rankは RANK_BASE と同値の既定）。
 // KSJ系統（学校・郵便局・役場）は焼きが正＝手addの棚には載せない（直すなら rename/move/del で）。
@@ -141,8 +142,8 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 			}
 		} else if (!st.sel) F.innerHTML = `<span>${OPS[st.mode]}する点を地図でクリック</span>`;
 		else if (st.mode === "rename") {
-			F.innerHTML = `<div>対象「${st.sel.n}」(r${st.sel.r})</div>
-				<input data-f="to" value="${st.sel.n.replace(/"/g, "&quot;")}" style="${S_INPUT}">
+			F.innerHTML = `<div>対象「${escHtml(st.sel.n)}」(r${escHtml(st.sel.r)})</div>
+				<input data-f="to" value="${escHtml(st.sel.n)}" style="${S_INPUT}">
 				<button data-f="go" style="${S_BTN}">改名を保存</button>`;
 			F.querySelector('[data-f="go"]').onclick = () => {
 				const to = F.querySelector('[data-f="to"]').value.trim();
@@ -152,12 +153,12 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 			F.querySelector('[data-f="to"]').focus();
 		} else if (st.mode === "move") {
 			F.innerHTML = st.to
-				? `<div>対象「${st.sel.n}」→ ${Math.round(distM(st.sel.anchor, st.to))}m 先へ</div><button data-f="go" style="${S_BTN}">移動を保存</button>`
-				: `<div>対象「${st.sel.n}」</div><span>新しい位置を地図でクリック</span>`;
+				? `<div>対象「${escHtml(st.sel.n)}」→ ${Math.round(distM(st.sel.anchor, st.to))}m 先へ</div><button data-f="go" style="${S_BTN}">移動を保存</button>`
+				: `<div>対象「${escHtml(st.sel.n)}」</div><span>新しい位置を地図でクリック</span>`;
 			const go = F.querySelector('[data-f="go"]');
 			if (go) go.onclick = () => save({ op: "move", n: st.sel.n, ll: st.sel.anchor, to: st.to });
 		} else if (st.mode === "del") {
-			F.innerHTML = `<div>対象「${st.sel.n}」(r${st.sel.r}) ${fmt(st.sel.anchor)}</div>
+			F.innerHTML = `<div>対象「${escHtml(st.sel.n)}」(r${escHtml(st.sel.r)}) ${fmt(st.sel.anchor)}</div>
 				<button data-f="go" style="${S_BTN};color:#b3261e">削除を保存</button>`;
 			F.querySelector('[data-f="go"]').onclick = () => save({ op: "del", n: st.sel.n, ll: st.sel.anchor });
 		}
@@ -166,7 +167,7 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 	function renderList() {
 		const recs = getOvr()?.recs || [];
 		el("recs").innerHTML = (recs.length ? recs.slice(-5).reverse().map(r =>
-			`<div>#${r.id} ${OPS[r.op] || r.op}「${r.n}」${r.op === "rename" ? "→" + r.to : ""} <small>${r.d || ""}</small></div>`).join("") :
+			`<div>#${escHtml(r.id)} ${escHtml(OPS[r.op] || r.op)}「${escHtml(r.n)}」${r.op === "rename" ? "→" + escHtml(r.to) : ""} <small>${escHtml(r.d || "")}</small></div>`).join("") :
 			`<div style="color:#888">手差分なし</div>`) +
 			(recs.length ? `<button data-act="undo" style="margin-top:2px">直近を取消</button>` : "");
 		const u = el("recs").querySelector('[data-act="undo"]');
