@@ -70,12 +70,12 @@ import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
-import { mountGadgets } from "./gadgets/mount.js";
-import { attributionHTML } from "./gadgets/instruments.js";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
+import { mountGadgets } from "./gadgets/mount.ts";
+import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { raster as rasterGadget } from "./gadgets/raster.js";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
-import { globe as globeGadget } from "./gadgets/globe.js";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
+import { globe as globeGadget } from "./gadgets/globe.ts";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
 
@@ -2230,7 +2230,7 @@ function hudSnapshot() {
 	};
 }
 // 本体は遅延 import＝.then は同期init完走後（registerGadget 定義済み）に走る。hud= 指定時だけ計測器ボタンを載せる（open=1/畳=0 は hudOpenInit）。
-if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
+if (hudOn) import("./gadgets/hud.ts").then(({ hud }) => {
 	registerGadget("hud", (m, opts) => { return hud.call(m, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
 	map.gadget.hud();
 }).catch(e => console.error("[hud] failed to load module", e));
