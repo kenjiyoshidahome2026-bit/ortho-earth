@@ -28,7 +28,7 @@ export type AnnoMap = Pick<GlobeMap, "mapEl" | "overlay" | "unprojectXY" | "getZ
 export interface PopOptions { lng?: number; lat?: number; x: number; y: number; hideOffscreen?: boolean; onClose?: () => void }
 /** pop ガジェットの関数（HTML を錨に出す・戻り＝箱の要素） */
 export type PopFn = (html: string, opts?: PopOptions) => (HTMLElement & { _remove?: () => void }) | null | undefined;
-/** tip ガジェットの setter（HTML の文字列・null で消す）＝実体（gadgets/tip）は文字列も受ける（Gadgets["tip"] の型は行の配列だけ） */
+/** tip ガジェットの setter（HTML の文字列・null で消す）＝Gadgets["tip"] の setter（行の配列・文字列・null）のうち anno が使う分 */
 type TipSet = (html: string | null) => void;
 /** worker（anno-draw）からの知らせ */
 type OvMsg = { type?: string; hits?: AnnoHit[]; id?: number };
@@ -119,7 +119,7 @@ export function createAnno(map: AnnoMap, { signal }: { signal?: AbortSignal } = 
 		const raw = tip != null && tip !== "" ? String(tip) : null;
 		if (raw === tipRaw) return;   // 自分の tip が変わらない間は共有の tip 箱に触らない（毎 move の null 上書きが、器の頁の tip＝world の州名/国名を消していた・2026-09-23）
 		tipRaw = raw; tipClean = raw == null ? null : sanitizeHTML(raw);   // 内容変化時だけ消毒
-		tipSet ??= map.gadget.tip() as unknown as TipSet;
+		tipSet ??= map.gadget.tip();
 		tipSet(tipClean);
 	}, { signal, passive: true });
 	let downXY: number[] | null = null;

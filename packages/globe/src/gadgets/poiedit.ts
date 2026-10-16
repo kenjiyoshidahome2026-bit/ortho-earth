@@ -10,25 +10,42 @@
 //   apiBase/name＝bucket API 基底と器の名（書込プロトコルは native-bucket Bucket.put が正本＝ここで再実装しない）
 // デスクトップ専用（shot と同じ掟）＝モバイルは入口で return。
 import { nativeBucket } from "native-bucket";
+import type { NativeBucket } from "native-bucket";
 import { modalOpen } from "./keys.ts";
+import type { LonLat } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { PoiOverrides, PoiOvrRec, PoiPoint } from "../types/scope.ts";
 import { escHtml } from "../html-safe.ts";   // POI の名前・台帳のレコード（サーバーの overrides.json）は外から来る＝innerHTML へ入れる前に逃がす（2026-10-16）
 
 // 手で足す種別の小さな棚（値はタイルschema §11.4 の t バイト＝interface値・rankは RANK_BASE と同値の既定）。
 // KSJ系統（学校・郵便局・役場）は焼きが正＝手addの棚には載せない（直すなら rename/move/del で）。
-const TYPES = [
+const TYPES: Array<[label: string, code: number, rank: number]> = [
 	["観光資源", 0x46, 120], ["寺院", 0x71, 90], ["神社", 0x72, 90], ["教会", 0x73, 70],
 	["博物館/美術館", 0x41, 140], ["図書館", 0x42, 110], ["ホール", 0x43, 110], ["体育/競技", 0x44, 100],
 	["公園", 0x45, 90], ["百貨店/モール", 0x51, 180], ["市場", 0x54, 90], ["飲食", 0x57, 30],
 	["宿泊", 0x58, 80], ["道の駅", 0x64, 120], ["バスターミナル", 0x65, 110],
 	["塔/高構造物", 0x0E, 150], ["その他", 0x0F, 60],
 ];
-const OPS = { add: "追加", rename: "改名", move: "移動", del: "削除" };
+const OPS: Record<string, string> = { add: "追加", rename: "改名", move: "移動", del: "削除" };
 const PICK_PX = 20;   // クリック→対象選択の画面距離（CSS px）＝ラベル文字の当たり判定より少し緩め
 // パネル部品の様式（inline＝?poiedit=1でしか出ない作者道具＝style.scssを太らせない）。微差はテンプレートで足す。
 const S_INPUT = "width:100%;box-sizing:border-box;margin:2px 0;padding:3px 6px;border:1px solid #c9c2b4;border-radius:4px";
 const S_BTN = "width:100%;margin-top:2px";
 
-export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makeProjector, distM, apiBase, name, signal } = {}) {
+/** 搭載の opts（台帳フィードと手差分の読み書き・クリック横取り・座標ブリッジ・bucket の基底と器の名＝登録側が注入） */
+export interface PoiEditOptions {
+	getPOI: () => PoiPoint[] | null | undefined; getOvr: () => PoiOverrides | null | undefined; setOvr: (ovr: PoiOverrides) => void;
+	setClick: (fn: ((x: number, y: number) => void) | null) => void;
+	unprojectXY: (x: number, y: number) => LonLat | null; makeProjector: () => (lon: number, lat: number) => [number, number, number];
+	distM: (a: LonLat, b: LonLat) => number; apiBase: string; name: string; signal?: AbortSignal; [k: string]: unknown;
+}
+/** 手差分 1 件の中身（id・d は save が足す） */
+type PoiEditRec = Omit<PoiOvrRec, "id" | "d">;
+/** armed 中の操作 */
+type PoiEditMode = "add" | "rename" | "move" | "del";
+
+/** POI 台帳の手差分編集（?poiedit=1・作者用）。デスクトップのみ・二重搭載は undefined */
+export function poiedit(this: GlobeMap, { getPOI, getOvr, setOvr, setClick, unprojectXY, makeProjector, distM, apiBase, name, signal }: PoiEditOptions = {} as PoiEditOptions): { close(): void } | undefined {
 	const mapEl = this.mapEl;
 	if (window.matchMedia("(pointer: coarse)").matches) { console.warn("[poiedit] desktop only (§12.2)"); return; }
 	if (mapEl.querySelector("#poiedit-panel")) return;   // 二重搭載は無害
@@ -49,49 +66,49 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 		<div data-el="status" style="color:#6a3d9a;margin-top:4px"></div>
 		<div data-el="recs" style="margin-top:6px;border-top:1px dashed #c9c2b4;padding-top:4px;max-height:9em;overflow-y:auto"></div>`;
 	mapEl.append(panel);   // 末尾append＝DOM順で最上面
-	const el = k => panel.querySelector(`[data-el="${k}"]`);
-	const keyEl = el("key");
+	const el = (k: string) => panel.querySelector<HTMLElement>(`[data-el="${k}"]`)!;
+	const keyEl = el("key") as HTMLInputElement;
 	keyEl.value = localStorage.getItem("poiEditKey") || "";
 	keyEl.addEventListener("change", () => localStorage.setItem("poiEditKey", keyEl.value.trim()), { signal });
 
 	// ── 状態機械：mode（armed中の操作）＋pending（選択済み対象/位置）──
-	const st = { mode: null, sel: null, to: null, addLL: null };
+	const st: { mode: PoiEditMode | null; sel: PoiPoint | null; to: LonLat | null; addLL: LonLat | null } = { mode: null, sel: null, to: null, addLL: null };
 	const reset = (keepMode = true) => { st.sel = st.to = st.addLL = null; if (!keepMode) st.mode = null; render(); };
 	const today = () => new Date().toISOString().slice(0, 10);
-	const fmt = ll => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+	const fmt = (ll: LonLat) => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
 
 	// ── サーバーへ保存（§12.3 保存成功→setOvr＝地図即反映）。gzip/ヘッダ/エラー整形は Bucket.put の持ち物 ──
-	let bktKey = "", bktReq = null;   // キー毎に一度だけ接続検分（Bucket() は list で疎通確認する）
-	const bucketOf = key => (key === bktKey && bktReq) ? bktReq : (bktKey = key, bktReq = nativeBucket(apiBase, { apiKey: key }).Bucket("GIS/pbf"));
-	async function put(ovr) {
+	let bktKey = "", bktReq: ReturnType<NativeBucket["Bucket"]> | null = null;   // キー毎に一度だけ接続検分（Bucket() は list で疎通確認する）
+	const bucketOf = (key: string) => (key === bktKey && bktReq) ? bktReq : (bktKey = key, bktReq = nativeBucket(apiBase, { apiKey: key }).Bucket("GIS/pbf"));
+	async function put(ovr: PoiOverrides): Promise<void> {
 		const key = keyEl.value.trim();
 		if (!key) throw new Error("APIキー未入力（uploader の .env.local と同じ値）");
 		const bkt = await bucketOf(key);
 		if (!bkt) { bktReq = null; throw new Error("bucket に接続できない（ネットワーク？）"); }
 		await bkt.put(new File([JSON.stringify(ovr)], name, { type: "application/json" }));   // 403等は put failed で throw
 	}
-	async function save(rec) {
+	async function save(rec: PoiEditRec): Promise<void> {
 		const cur = getOvr() || { v: 0, seq: 1, recs: [] };
-		const next = { v: Date.now(), seq: cur.seq + 1, recs: [...cur.recs, { id: cur.seq, ...rec, d: today() }] };
+		const next: PoiOverrides = { v: Date.now(), seq: cur.seq! + 1, recs: [...cur.recs, { id: cur.seq!, ...rec, d: today() }] };
 		status("保存中…");
 		try { await put(next); setOvr(next); status(`#${cur.seq} ${OPS[rec.op]}「${rec.n}」を保存＝地図へ反映`); reset(); }
-		catch (e) { status("⚠ " + e.message); }
+		catch (e) { status("⚠ " + (e as Error).message); }
 	}
-	async function undoLast() {
+	async function undoLast(): Promise<void> {
 		const cur = getOvr();
 		if (!cur?.recs?.length) { status("取り消すレコードが無い"); return; }
 		const last = cur.recs[cur.recs.length - 1];
-		const next = { ...cur, v: Date.now(), recs: cur.recs.slice(0, -1) };   // seq は戻さない＝idは使い捨て
+		const next: PoiOverrides = { ...cur, v: Date.now(), recs: cur.recs.slice(0, -1) };   // seq は戻さない＝idは使い捨て
 		status("取消中…");
 		try { await put(next); setOvr(next); status(`#${last.id} ${OPS[last.op]}「${last.n}」を取消`); render(); }
-		catch (e) { status("⚠ " + e.message); }
+		catch (e) { status("⚠ " + (e as Error).message); }
 	}
-	const status = t => { el("status").textContent = t; };
+	const status = (t: string) => { el("status").textContent = t; };
 
 	// ── クリック（armed中だけ setClick で横取り・x/y＝canvas CSS px）──
-	function pickAt(x, y) {   // 表示と同じパッチ済みフィードから画面px最近傍（投影状態は1回だけ束ねる）
+	function pickAt(x: number, y: number): PoiPoint | null {   // 表示と同じパッチ済みフィードから画面px最近傍（投影状態は1回だけ束ねる）
 		const proj = makeProjector();
-		let best = null, bd = PICK_PX;
+		let best: PoiPoint | null = null, bd = PICK_PX;
 		for (const p of getPOI() || []) {
 			const [sx, sy, front] = proj(p.anchor[0], p.anchor[1]);
 			if (front < 0) continue;   // 裏半球
@@ -100,7 +117,7 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 		}
 		return best;
 	}
-	function onMapClick(x, y) {
+	function onMapClick(x: number, y: number): void {
 		const ll = unprojectXY(x, y);
 		if (!ll) return;   // 球外
 		if (st.mode === "add") { st.addLL = [ll[0], ll[1]]; render(); return; }
@@ -111,14 +128,14 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 	}
 
 	// ── 描画（モード行・フォーム・履歴）。クリック横取りとカーソルもここで同期（armed⇄解除の一点）──
-	function render() {
+	function render(): void {
 		setClick(st.mode ? onMapClick : null);
 		mapEl.style.cursor = st.mode ? "crosshair" : "";
 		el("modes").innerHTML = Object.entries(OPS).map(([m, label]) =>
 			`<button data-mode="${m}" style="flex:1;padding:3px 0;border:1px solid #c9c2b4;border-radius:4px;cursor:pointer;` +
 			`background:${st.mode === m ? "#6a3d9a" : "#f4f0e6"};color:${st.mode === m ? "#fff" : "#333"}">${label}</button>`).join("");
 		for (const b of el("modes").querySelectorAll("button"))
-			b.onclick = () => { st.mode = st.mode === b.dataset.mode ? null : b.dataset.mode; reset(); };
+			b.onclick = () => { st.mode = st.mode === b.dataset.mode ? null : b.dataset.mode as PoiEditMode; reset(); };
 		const F = el("form");
 		if (!st.mode) F.innerHTML = `<span style="color:#888">操作を選び、地図上の点をクリック。<br>Esc＝選択解除／解除</span>`;
 		else if (st.mode === "add") {
@@ -131,50 +148,50 @@ export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makePro
 						<input data-f="r" type="number" min="1" max="255" value="${TYPES[0][2]}" title="rank（大＝早く出る）" style="width:52px">
 					</div>
 					<button data-f="go" style="${S_BTN}">追加を保存</button>`;
-				const sel = F.querySelector('[data-f="t"]');
-				sel.onchange = () => { F.querySelector('[data-f="r"]').value = sel.selectedOptions[0].dataset.rank; };
-				F.querySelector('[data-f="go"]').onclick = () => {
-					const n = F.querySelector('[data-f="n"]').value.trim();
+				const sel = F.querySelector<HTMLSelectElement>('[data-f="t"]')!;
+				sel.onchange = () => { F.querySelector<HTMLInputElement>('[data-f="r"]')!.value = sel.selectedOptions[0].dataset.rank!; };
+				F.querySelector<HTMLElement>('[data-f="go"]')!.onclick = () => {
+					const n = F.querySelector<HTMLInputElement>('[data-f="n"]')!.value.trim();
 					if (!n) { status("名前が空"); return; }
-					save({ op: "add", n, ll: st.addLL, t: +sel.value, r: +F.querySelector('[data-f="r"]').value || 120 });
+					save({ op: "add", n, ll: st.addLL!, t: +sel.value, r: +F.querySelector<HTMLInputElement>('[data-f="r"]')!.value || 120 });
 				};
-				F.querySelector('[data-f="n"]').focus();
+				F.querySelector<HTMLInputElement>('[data-f="n"]')!.focus();
 			}
 		} else if (!st.sel) F.innerHTML = `<span>${OPS[st.mode]}する点を地図でクリック</span>`;
 		else if (st.mode === "rename") {
 			F.innerHTML = `<div>対象「${escHtml(st.sel.n)}」(r${escHtml(st.sel.r)})</div>
 				<input data-f="to" value="${escHtml(st.sel.n)}" style="${S_INPUT}">
 				<button data-f="go" style="${S_BTN}">改名を保存</button>`;
-			F.querySelector('[data-f="go"]').onclick = () => {
-				const to = F.querySelector('[data-f="to"]').value.trim();
-				if (!to || to === st.sel.n) { status("名前が同じ/空"); return; }
-				save({ op: "rename", n: st.sel.n, ll: st.sel.anchor, to });
+			F.querySelector<HTMLElement>('[data-f="go"]')!.onclick = () => {
+				const to = F.querySelector<HTMLInputElement>('[data-f="to"]')!.value.trim();
+				if (!to || to === st.sel!.n) { status("名前が同じ/空"); return; }
+				save({ op: "rename", n: st.sel!.n, ll: st.sel!.anchor, to });
 			};
-			F.querySelector('[data-f="to"]').focus();
+			F.querySelector<HTMLInputElement>('[data-f="to"]')!.focus();
 		} else if (st.mode === "move") {
 			F.innerHTML = st.to
 				? `<div>対象「${escHtml(st.sel.n)}」→ ${Math.round(distM(st.sel.anchor, st.to))}m 先へ</div><button data-f="go" style="${S_BTN}">移動を保存</button>`
 				: `<div>対象「${escHtml(st.sel.n)}」</div><span>新しい位置を地図でクリック</span>`;
-			const go = F.querySelector('[data-f="go"]');
-			if (go) go.onclick = () => save({ op: "move", n: st.sel.n, ll: st.sel.anchor, to: st.to });
+			const go = F.querySelector<HTMLElement>('[data-f="go"]');
+			if (go) go.onclick = () => save({ op: "move", n: st.sel!.n, ll: st.sel!.anchor, to: st.to! });
 		} else if (st.mode === "del") {
 			F.innerHTML = `<div>対象「${escHtml(st.sel.n)}」(r${escHtml(st.sel.r)}) ${fmt(st.sel.anchor)}</div>
 				<button data-f="go" style="${S_BTN};color:#b3261e">削除を保存</button>`;
-			F.querySelector('[data-f="go"]').onclick = () => save({ op: "del", n: st.sel.n, ll: st.sel.anchor });
+			F.querySelector<HTMLElement>('[data-f="go"]')!.onclick = () => save({ op: "del", n: st.sel!.n, ll: st.sel!.anchor });
 		}
 		renderList();
 	}
-	function renderList() {
+	function renderList(): void {
 		const recs = getOvr()?.recs || [];
 		el("recs").innerHTML = (recs.length ? recs.slice(-5).reverse().map(r =>
 			`<div>#${escHtml(r.id)} ${escHtml(OPS[r.op] || r.op)}「${escHtml(r.n)}」${r.op === "rename" ? "→" + escHtml(r.to) : ""} <small>${escHtml(r.d || "")}</small></div>`).join("") :
 			`<div style="color:#888">手差分なし</div>`) +
 			(recs.length ? `<button data-act="undo" style="margin-top:2px">直近を取消</button>` : "");
-		const u = el("recs").querySelector('[data-act="undo"]');
+		const u = el("recs").querySelector<HTMLElement>('[data-act="undo"]');
 		if (u) u.onclick = undoLast;
 	}
 	panel.addEventListener("pointerenter", renderList, { signal });   // 開いた後に届いた手差分もここで拾う（初回fetchは非同期）
-	panel.querySelector('[data-act="hide"]').onclick = () => { const on = panel.dataset.min === "1";
+	panel.querySelector<HTMLElement>('[data-act="hide"]')!.onclick = () => { const on = panel.dataset.min === "1";
 		panel.dataset.min = on ? "" : "1"; for (const k of ["key", "modes", "form", "status", "recs"]) el(k).style.display = on ? "" : "none"; };
 	window.addEventListener("keydown", e => {
 		if (e.key !== "Escape" || modalOpen(mapEl)) return;   // 共有ガード＝印刷/PLATEAU等のモーダル中は譲る（keys.js の掟）

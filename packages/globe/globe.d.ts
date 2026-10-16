@@ -457,7 +457,6 @@ export interface Gadgets {
 	spotlight(src: string | { iso2?: string; iso3?: string; key?: string; qid?: string; ioc?: string; name?: string } | GeoJSONFeatureCollection | GeoJSONFeature | { type: string; coordinates: unknown } | null,
 		opts?: { opacity?: number; fit?: boolean; color?: [number, number, number, number]; pad?: number; maxZoom?: number }):
 		Promise<{ bbox: [number, number, number, number] | null; clear(): void } | null>;   // 形が引けなければ null（旧記述の name/iso2 は返っていなかった）
-	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
 	/** ヒートマップ（MapLibre の heatmap 層相当・同一フレームのオーバーレイ＝WebGL2）。src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと（source つき）。
 	 *  paint の意味と既定値は MapLibre どおり（radius 30・weight 1・intensity 1・opacity 1・color は ["heatmap-density"] 0..1 の既定の青→赤）。null で外す */
 	heatmap(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | HeatmapLayer | null, layer?: Omit<HeatmapLayer, "type" | "source">): Promise<{ points: number } | null>;
@@ -478,7 +477,8 @@ export interface Gadgets {
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
 	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key・symbol-z-order・icon-halo-*・format の image/vertical-align・symbol-height-offset/-anchor）。null＋{id} で外す */
 	symbols(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | ({ type: "symbol" } & Omit<MapLibreLayer, "type">) | null, layer?: Partial<MapLibreLayer>): Promise<{ features: number } | null>;
-	tip(opts?: object): (rows: string[] | null) => void;
+	/** ホバー tip 箱。戻り値＝setter（rows＝行の配列・改行つきの文字列・HTML の文字列（setSafeHTML で入れる）・null／undefined で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
+	tip(opts?: object): (rows: string | string[] | null | undefined) => void;
 	pop(opts?: object): unknown;
 	/** 検査表示（MapLibre の maplibre-gl-inspect 相当・1.12.0〜・#174）。ボタン 1 つで、読み込んでいるベクタタイルの全 source-layer を層ごとの色で描き
 	 *  （面＝薄い塗り＋縁・線・点）、ホバー／クリックでカーソルの下の地物の層名と属性（$id・$type・properties）を札に出す。もう一度押すと元の地図（焼き直さない）。
