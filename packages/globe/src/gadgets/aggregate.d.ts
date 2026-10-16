@@ -7,6 +7,8 @@ export interface AggFeature {
 	type: "Feature"; id?: number; properties: Record<string, unknown>; geometry: { type: "Point"; coordinates: [number, number] };
 	layer: { id: string; type: "circle" }; source?: string; expansionZoom?: number;
 }
+/** 当たり（clusterAt）の地物＝source（"cluster" か addLayer の層 id）を必ず持つ（sourceFeatures の地物は持たない） */
+export type AggHit = AggFeature & { source: string };
 /** cluster の指定（層は正規化済み＝エンジンの目盛り） */
 export interface ClusterOpts extends Partial<MLLayer> {
 	clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, unknown>; unclustered?: Partial<MLLayer>;
@@ -18,7 +20,7 @@ export interface Aggregate {
 	/** vector source の heatmap（vtdraw-worker が集めた点＝ll は経緯度の列・w は重み） */
 	heatmapPoints(ll: ArrayLike<number>, w: Float32Array, layer?: Partial<MLLayer>, slot?: string): { points: number };
 	cluster(src: unknown, opts?: ClusterOpts, slot?: string): { points: number; clusters: number[] };
-	clusterAt(x: number, y: number): AggFeature | null;
+	clusterAt(x: number, y: number): AggHit | null;
 	sourceFeatures(slot: string, W: number, H: number): AggFeature[];
 	expansionZoom(slot: string, cid: number): number | undefined;
 	clear(which?: "heatmap" | "cluster" | null, slot?: string | null): void;

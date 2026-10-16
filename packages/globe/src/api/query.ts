@@ -215,7 +215,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		}
 		// 上から：集約の丸 → 画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
 		if (geometry && typeof geometry[0] === "number" && live.symCtl) for (const h of live.symCtl.symbolsAt(geometry[0], geometry[1])) if (take(h.layer.id)) out.push(h as HitFeature);
-		if (geometry && typeof geometry[0] === "number" && live.aggCtl) { const h = live.aggCtl.clusterAt(geometry[0], geometry[1]); if (h && take(h.layer.id)) out.push(h as HitFeature); }
+		if (geometry && typeof geometry[0] === "number" && live.aggCtl) { const h = live.aggCtl.clusterAt(geometry[0], geometry[1]); if (h && take(h.layer.id)) out.push(h); }
 		for (const q of [...live.imageQuads].reverse()) {
 			if (!take(q.id)) continue;
 			const g: QueryGeometry = { type: "Polygon", coordinates: [[...q.corners!, q.corners![0]]] };
