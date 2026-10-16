@@ -12,18 +12,18 @@ import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
 import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
-import { installOverlays } from "./api/overlays.js";
-import { installQuery } from "./api/query.js";
-import { installTerrain } from "./api/terrain.js";
-import { installData } from "./api/data.js";
-import { installIntake } from "./api/intake.js";
-import { installImages } from "./api/images.js";
-import { installShadows } from "./api/shadows.js";
+import { installOverlays } from "./api/overlays.ts";
+import { installQuery } from "./api/query.ts";
+import { installTerrain } from "./api/terrain.ts";
+import { installData } from "./api/data.ts";
+import { installIntake } from "./api/intake.ts";
+import { installImages } from "./api/images.ts";
+import { installShadows } from "./api/shadows.ts";
 import { installGadgets } from "./api/gadgets.js";
-import { installRaster } from "./api/raster.js";
-import { installCamera } from "./api/camera.js";
-import { installTools } from "./api/tools.js";
-import { installStyle } from "./api/style.js";
+import { installRaster } from "./api/raster.ts";
+import { installCamera } from "./api/camera.ts";
+import { installTools } from "./api/tools.ts";
+import { installStyle } from "./api/style.ts";
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
 import { POINTCLOUD_NAMES } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は []）＝名前だけ読む（表を読むと解読器のチャンクが本体側にもできる）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
@@ -2352,7 +2352,7 @@ const eyePose = () => {
 		altM: (len - 1) * EARTH_M, distM: st.camDist * EARTH_M,   // altM=海抜[m]（sea-level球）・distM=注視点までの実距離[m]
 		fovy: cam.fovy || 50 * D2R };   // 垂直視野角[rad]（エンジン既定50°・水平は aspect 依存＝表示側で 2·atan(tan(fovy/2)·W/H)）
 };
-const map = { cam, flyTo, renderer, mapEl, destroy, clock,
+const map = { cam, renderer, mapEl, destroy, clock,   // flyTo は installCamera が付ける（公開の flyTo＝持ち主は api/camera.ts・内部の位置引数の flyTo は deps で渡す）
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。
@@ -2523,7 +2523,7 @@ map.capabilities = () => pluginHost.capabilities();
 ownDestroy.push(() => pluginHost.destroy());
 let camPadding = { top: 0, right: 0, bottom: 0, left: 0 };
 let followSt = null;
-// カメラ・光・空・太陽・雲の口＝src/api/camera.js（live＝createGlobe の変数を読み書きする口）
+// カメラ・光・空・太陽・雲の口＝src/api/camera.ts（live＝createGlobe の変数を読み書きする口）
 const { clampCamLimits, tickFollow } = installCamera(map, {
 	get maxPitchCur() { return maxPitchCur; }, set maxPitchCur(v) { maxPitchCur = v; },
 	get zoomMinCur() { return zoomMinCur; }, set zoomMinCur(v) { zoomMinCur = v; },
@@ -2662,7 +2662,7 @@ map.getBounds = () => {
 };
 map.userPbf = () => gint.userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
-const { overlays, isOv, pickWait, orderSnapOverlays, overlayFeature } = installOverlays(map, { mapEl, labelCanvas, size, wPost });   // 同一フレームのオーバーレイの口＝src/api/overlays.js
+const { overlays, isOv, pickWait, orderSnapOverlays, overlayFeature } = installOverlays(map, { mapEl, labelCanvas, size, wPost });   // 同一フレームのオーバーレイの口＝src/api/overlays.ts
 // ★互換：map.overlay は 9/20（c246591a）まで「estat 小地域・geopbf オーバーレイ・選択マスク・identify の手綱」（上の overlay）だった。
 // 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
@@ -2671,7 +2671,7 @@ Object.assign(map.overlay, overlay);   // globe の器（setSelectionMask/setHov
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 // 外来の標高タイル（#36）の DEM（demMain）と 1 点の標高（heightAt）は elevOf の所＝DOM オーバーレイの持ち上げと同じ出どころ
-// 地形と標高の口・一人称歩行＝src/api/terrain.js（live＝createGlobe の変数を読み書きする口）
+// 地形と標高の口・一人称歩行＝src/api/terrain.ts（live＝createGlobe の変数を読み書きする口）
 installTerrain(map, {
 	get mlSources() { return mlSources; },
 	get EXT() { return EXT; },
@@ -2687,7 +2687,7 @@ installTerrain(map, {
 	get modelCtl() { return modelCtl; },
 }, { EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
 let videoCtl = null;
-// 画像タイル層（map.raster）＝src/api/raster.js（live＝createGlobe の変数を読み書きする口）
+// 画像タイル層（map.raster）＝src/api/raster.ts（live＝createGlobe の変数を読み書きする口）
 const { onRasterInfo, onRasterError, rasterStatWait, rasterAttrHTML, imageAttrs, rasterChanged, protocolBitmap } = installRaster(map, {
 	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
 	get videoCtl() { return videoCtl; }, set videoCtl(v) { videoCtl = v; },
@@ -2706,7 +2706,7 @@ installGadgets(map, {
 	get renderBackend() { return renderBackend; },
 }, { REGION_BLD_ICON, REGION_BLD_LABELS, REGION_SEARCH, ZOOM_MAX, ac, cam, demFirst, flightCtl, frameHooks, getHeightP, makeProjector, meshMgr, meshOn, narrowMq, onMove, projectLL, requestDraw, requestSnapshot, saveView, size, switchTheme, themeFixed, toolClose, toolOpen, unprojectAt, unprojectXY });
 let clipSpec = null, clipMain = null, clipByT = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
-// 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.js（live＝createGlobe の変数を読み書きする口）
+// 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.ts（live＝createGlobe の変数を読み書きする口）
 const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
 	get clipByT() { return clipByT; }, set clipByT(v) { clipByT = v; },
 	get renderBackend() { return renderBackend; },
@@ -2722,7 +2722,7 @@ const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
 }, { BASE_SOURCE, D2R, LOW_MEM, REGION_DTM, REGION_HOME, REGION_PRINT_ATTR, TILE_MINZOOM, ac, approxViewBbox, attrTextNow, cam, dbgHost, makeProjector, mapOn, meshMgr, meshOn, onMove, ownDestroy, poi, printCapture, renderer, requestDraw, requestSnapshot, setLayer, t, toolClose, toolOpen, unprojectXY, viewHash, wPost, wakeMesh });
 let gFollow = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
 let columnarCtl = null;
-// データを載せる口（シーン台本・フィーチャーサービス・addColumnar・addThree・addData・addCells 等）＝src/api/data.js（live＝createGlobe の変数を読み書きする口）
+// データを載せる口（シーン台本・フィーチャーサービス・addColumnar・addThree・addData・addCells 等）＝src/api/data.ts（live＝createGlobe の変数を読み書きする口）
 const { scenes, readGeoData, remoteUrl, setSrcAttr, columnarOn, columnarView, columnarProbe, sourceData, dropFollow, fsFollow } = installData(map, {
 	get mapEl() { return mapEl; },
 	get themeName() { return themeName; },
@@ -2973,7 +2973,7 @@ map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
 map.addI3S = async (url, opts) => (await t3dGet()).addI3S(url, opts);
 let czmlCtl = null, czmlUrlClock = !!(bootView && (bootView.time || bootView.speed != null));
 let editDocHook = null;
-// 取得の手入れ・Marker／Popup・取り込みの表とファイル取り込み（loadUserFile）＝src/api/intake.js（live＝createGlobe の変数を読み書きする口）
+// 取得の手入れ・Marker／Popup・取り込みの表とファイル取り込み（loadUserFile）＝src/api/intake.ts（live＝createGlobe の変数を読み書きする口）
 const { loadUserFile, IMAGE_KEY } = installIntake(map, {
 	get czmlCtl() { return czmlCtl; }, set czmlCtl(v) { czmlCtl = v; },
 	get czmlUrlClock() { return czmlUrlClock; }, set czmlUrlClock(v) { czmlUrlClock = v; },
@@ -2989,7 +2989,7 @@ let imageIds = [], imageQuads = [];   // imageQuads＝[{ id, corners, properties
 let aggCtl = null;
 let symCtl = null;
 let gjCtl = null;
-// 画像・集約とヒートマップ・記号帳と記号の層＝src/api/images.js（live＝createGlobe の変数を読み書きする口）
+// 画像・集約とヒートマップ・記号帳と記号の層＝src/api/images.ts（live＝createGlobe の変数を読み書きする口）
 const { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints, clusterNative, aggGet, pendingImages, heatmapNative, gjIsLine, gjGet, symbolsNative } = installImages(map, {
 	get imageIds() { return imageIds; }, set imageIds(v) { imageIds = v; },
 	get imageQuads() { return imageQuads; }, set imageQuads(v) { imageQuads = v; },
@@ -3510,7 +3510,7 @@ function sendUserAnchors() {
 	const sig = JSON.stringify(ranges); if (sig === userAnchorSig) return;
 	userAnchorSig = sig; renderer.set("userAnchor", { ranges }); requestDraw();
 }
-// style・source・layer の口＝src/api/style.js（live＝createGlobe の変数を読み書きする口）
+// style・source・layer の口＝src/api/style.ts（live＝createGlobe の変数を読み書きする口）
 const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrder } = installStyle(map, {
 	get customHost() { return customHost; }, set customHost(v) { customHost = v; },
 	get customCtl() { return customCtl; },
@@ -3538,7 +3538,7 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
 	get dpr() { return dpr; },
 }, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, rebuildCluster, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
-// 描画結果への問い合わせと層ごとのイベント＝src/api/query.js（live＝後から差し替わる変数の口）
+// 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get MAP_GS() { return MAP_GS; },
 	get aggCtl() { return aggCtl; },
@@ -3555,7 +3555,7 @@ const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get vtdCtl() { return vtdCtl; },
 	get vtxCtl() { return vtxCtl; },
 }, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, TERR_EXAG, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
-// 検査表示・ファイルの取り込み・編集・デモの gadget＝src/api/tools.js（live＝createGlobe の変数を読み書きする口）
+// 検査表示・ファイルの取り込み・編集・デモの gadget＝src/api/tools.ts（live＝createGlobe の変数を読み書きする口）
 const { rasterDropFile } = installTools(map, {
 	get lastTileOrder() { return lastTileOrder; },
 	get vtdCtl() { return vtdCtl; },
