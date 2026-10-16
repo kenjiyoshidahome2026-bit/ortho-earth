@@ -24,7 +24,7 @@ export function cesiumToSpec(s: CesiumStyle): StyleSpec {
 	const varOf = (name: string): Ex => {   // defines は使う時に訳す（defines から defines を引いてよい・循環は例外）
 		if (!Object.prototype.hasOwnProperty.call(defSrc, name)) return ["get", name];
 		if (defs.has(name)) return defs.get(name);
-		if (busy.has(name)) throw new Error(`defines: ${name} が循環`);
+		if (busy.has(name)) throw new Error(`defines: cycle at ${name}`);
 		busy.add(name); const e = parseExpr(String(defSrc[name]), varOf); busy.delete(name); defs.set(name, e); return e;
 	};
 	const one = (v: unknown, what: string): Ex => {
@@ -33,13 +33,13 @@ export function cesiumToSpec(s: CesiumStyle): StyleSpec {
 		if (v && typeof v === "object" && Array.isArray((v as { conditions?: unknown }).conditions)) {
 			const out: Ex[] = ["case"];
 			for (const c of (v as { conditions: unknown[] }).conditions) {
-				if (!Array.isArray(c) || c.length !== 2) throw new Error(`${what}.conditions の形`);
+				if (!Array.isArray(c) || c.length !== 2) throw new Error(`${what}.conditions: bad shape`);
 				out.push(parseExpr(String(c[0]), varOf), parseExpr(String(c[1]), varOf));
 			}
 			out.push(null);   // どれにも当たらない＝元のまま（Cesium は既定の色・見せる）
 			return out;
 		}
-		throw new Error(`${what} の形`);
+		throw new Error(`${what}: bad shape`);
 	};
 	const spec: StyleSpec = { origin: "native" };
 	if (s.color != null) spec.color = one(s.color, "color");
@@ -57,7 +57,7 @@ function lex(src: string): Tok[] {
 		const c = src[i];
 		if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
 		if (c === "$" && src[i + 1] === "{") {   // ${名}・${feature.名}・${feature['名']}
-			const e = src.indexOf("}", i + 2); if (e < 0) throw new Error("式：${ が閉じていない");
+			const e = src.indexOf("}", i + 2); if (e < 0) throw new Error("expr: unclosed ${");
 			let name = src.slice(i + 2, e).trim();
 			const m = /^feature(?:\.(.+)|\[\s*(['"])(.*)\2\s*\])$/.exec(name); if (m) name = m[1] ?? m[3];
 			out.push({ t: "var", v: name }); i = e + 1; continue;
@@ -65,7 +65,7 @@ function lex(src: string): Tok[] {
 		if (c === "'" || c === '"') {
 			let j = i + 1, s = "";
 			while (j < src.length && src[j] !== c) { if (src[j] === "\\" && j + 1 < src.length) { s += src[j + 1]; j += 2; } else s += src[j++]; }
-			if (j >= src.length) throw new Error("式：文字列が閉じていない");
+			if (j >= src.length) throw new Error("expr: unclosed string");
 			out.push({ t: "str", v: s }); i = j + 1; continue;
 		}
 		if ((c >= "0" && c <= "9") || (c === "." && src[i + 1] >= "0" && src[i + 1] <= "9")) {
@@ -74,7 +74,7 @@ function lex(src: string): Tok[] {
 		}
 		if (/[A-Za-z_]/.test(c)) { let j = i + 1; while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++; out.push({ t: "id", v: src.slice(i, j) }); i = j; continue; }
 		const op = OPS.find(o => src.startsWith(o, i));
-		if (!op) throw new Error(`式：読めない文字 ${c}`);
+		if (!op) throw new Error(`expr: unexpected character ${c}`);
 		out.push({ t: "op", v: op }); i += op.length;
 	}
 	return out;
@@ -87,7 +87,7 @@ export function parseExpr(src: string, varOf: (name: string) => Ex = n => ["get"
 	const toks = lex(src);
 	let p = 0;
 	const peek = () => toks[p], isOp = (v: string) => toks[p]?.t === "op" && toks[p].v === v;
-	const expect = (v: string) => { if (!isOp(v)) throw new Error(`式：${v} が要る（${src}）`); p++; };
+	const expect = (v: string) => { if (!isOp(v)) throw new Error(`expr: expected ${v} (${src})`); p++; };
 	const ternary = (): Ex => {
 		const c = binary(0);
 		if (!isOp("?")) return c;
@@ -112,7 +112,7 @@ export function parseExpr(src: string, varOf: (name: string) => Ex = n => ["get"
 	const args = (): Ex[] => { expect("("); const a: Ex[] = []; if (!isOp(")")) { a.push(ternary()); while (isOp(",")) { p++; a.push(ternary()); } } expect(")"); return a; };
 	const primary = (): Ex => {
 		const t = toks[p++];
-		if (!t) throw new Error(`式：途中で終わっている（${src}）`);
+		if (!t) throw new Error(`expr: unexpected end (${src})`);
 		if (t.t === "num" || t.t === "str") return t.v;
 		if (t.t === "var") return varOf(t.v);
 		if (t.t === "op" && t.v === "(") { const e = ternary(); expect(")"); return e; }
@@ -120,19 +120,19 @@ export function parseExpr(src: string, varOf: (name: string) => Ex = n => ["get"
 			switch (t.v) {
 				case "true": return true; case "false": return false; case "null": case "undefined": return null;
 				case "NaN": return NaN; case "Infinity": return Infinity;
-				case "Math": { expect("."); const k = toks[p++]; if (k?.t !== "id") throw new Error("式：Math."); return call(k.v, isOp("(") ? args() : null); }
+				case "Math": { expect("."); const k = toks[p++]; if (k?.t !== "id") throw new Error("expr: Math."); return call(k.v, isOp("(") ? args() : null); }
 			}
 			if (isOp("(")) return call(t.v, args());
 		}
-		throw new Error(`式：${t.t === "op" ? t.v : t.v} は使えない（${src}）`);
+		throw new Error(`expr: unsupported ${t.v} (${src})`);
 	};
 	const e = ternary();
-	if (p < toks.length) throw new Error(`式：余計な続き（${src}）`);
+	if (p < toks.length) throw new Error(`expr: trailing input (${src})`);
 	return e;
 }
 // 関数・定数 → MapLibre の式
 function call(name: string, a: Ex[] | null): Ex {
-	const n = (k: number) => { if (!a || a.length < k) throw new Error(`式：${name} の引数`); return a; };
+	const n = (k: number) => { if (!a || a.length < k) throw new Error(`expr: arguments of ${name}`); return a; };
 	switch (name) {
 		case "PI": return ["pi"]; case "E": return ["e"];
 		case "color": {   // color()＝白・color(名か #hex[, α])
@@ -170,5 +170,5 @@ function call(name: string, a: Ex[] | null): Ex {
 		case "isNaN": { n(1); return ["let", "v", ["to-number", a![0]], ["!=", ["var", "v"], ["var", "v"]]]; }
 		case "isFinite": { n(1); return ["let", "v", ["to-number", a![0]], ["all", ["==", ["var", "v"], ["var", "v"]], ["<", ["abs", ["var", "v"]], Infinity]]]; }
 	}
-	throw new Error(`式：関数 ${name} は使えない`);
+	throw new Error(`expr: unsupported function ${name}`);
 }

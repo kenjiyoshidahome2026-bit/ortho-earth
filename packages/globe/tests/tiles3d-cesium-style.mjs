@@ -23,7 +23,7 @@ ok("clamp・mix・sign・fract", ev("clamp(${a}, 0, 10)", { a: 15 }) === 10 && e
 ok("radians・degrees・atan2・Math.PI", Math.abs(ev("degrees(radians(90))") - 90) < 1e-9 && Math.abs(ev("atan2(1, -1)") - Math.atan2(1, -1)) < 1e-12 && Math.abs(ev("atan2(-1, 0)") + Math.PI / 2) < 1e-12 && Math.abs(ev("Math.PI") - Math.PI) < 1e-12);
 ok("Boolean・Number・String・isNaN・isFinite", ev("Boolean(0)") === false && ev("Number('3') + 1") === 4 && ev("String(3) + 'a'") === "3a" && ev("isNaN(${a})", { a: "x" }) === true && ev("isFinite(1 / 0)") === false && ev("isFinite(2)") === true);
 ok("null・undefined・true／false", ev("${a} === null", { a: null }) === true && ev("undefined") === null && ev("true && false") === false);
-ok("訳せない物＝例外", throws(() => parseExpr("regExp('a').test(${x})"), /regExp/) && throws(() => parseExpr("${a} +"), /途中/) && throws(() => parseExpr("vec3(1)"), /vec3/) && throws(() => parseExpr("1 2"), /余計/) && throws(() => parseExpr("'abc"), /閉じて/));
+ok("訳せない物＝例外", throws(() => parseExpr("regExp('a').test(${x})"), /regExp/) && throws(() => parseExpr("${a} +"), /unexpected end/) && throws(() => parseExpr("vec3(1)"), /vec3/) && throws(() => parseExpr("1 2"), /trailing/) && throws(() => parseExpr("'abc"), /unclosed/));
 // 色
 ok("color(名)", JSON.stringify(col({ color: "color('red')" })) === "[255,0,0,255]" && JSON.stringify(col({ color: "color()" })) === "[255,255,255,255]");
 ok("color(名, α)", JSON.stringify(col({ color: "color('#0000ff', 0.5)" })) === "[0,0,255,128]");
@@ -36,7 +36,7 @@ ok("conditions", JSON.stringify(col(cond, { height: 120 })) === "[128,0,128,255]
 ok("conditions＝どれにも当たらない＝元のまま", col({ color: { conditions: [["${h} > 1", "color('red')"]] } }, { h: 0 }) === null);
 const def = { defines: { tall: "${height} * 2", veryTall: "${tall} > 100" }, color: "${veryTall} ? color('red') : color('blue')", show: "${tall} > 10" };
 ok("defines（defines から defines）", JSON.stringify(col(def, { height: 60 })) === "[255,0,0,255]" && JSON.stringify(col(def, { height: 30 })) === "[0,0,255,255]" && show(def, { height: 2 }) === false && show(def, { height: 6 }) === true);
-ok("defines の循環＝例外", throws(() => cesiumToSpec({ defines: { a: "${b}", b: "${a}" }, show: "${a}" }), /循環/));
+ok("defines の循環＝例外", throws(() => cesiumToSpec({ defines: { a: "${b}", b: "${a}" }, show: "${a}" }), /cycle/));
 ok("show＝真偽そのまま", cesiumToSpec({ show: false }).show === false && show({ show: "${kind} !== 'tree'" }, { kind: "tree" }) === false);
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-cesium-style 全 PASS");
