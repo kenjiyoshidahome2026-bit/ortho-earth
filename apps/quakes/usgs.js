@@ -2,7 +2,7 @@
 // cron Worker（apps/quakes-mirror/worker.js）の共有部＝通信の作法・CSV 解析・GeoPBF の組み立て。Web 標準 API だけで書く。
 // 置き場＝apps/quakes（2026-10-15・旧 packages/quakes＝読むのはこのアプリの quakes-worker.js と scripts/usgs-quakes-build.mjs だけ。
 // 配る側 apps/quakes-mirror は焼いた bytes を R2 から返すだけ＝この形を知らない）。
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 
 export const API = "https://earthquake.usgs.gov/fdsnws/event/1";
 export const LIMIT = 20000;   // FDSN Event API の 1 リクエスト上限
@@ -87,7 +87,7 @@ export function parseCsvTexts(texts, extra = []) {
 // 列 → GeoPBF（生のバイト列）。start/end は description 用の日付文字列（YYYY-MM-DD・end は含む）
 export async function buildGeoPBF({ N, order, T, LON, LAT, DEP, MAG, X, extra }, { minmag, start, end, precision = 4, name }) {
 	const keys = ["date", "depth", "mag", ...extra].sort();
-	const pbf = new GeoPBF({
+	const pbf = new GeoPBFBase({
 		name: name ?? `usgs_earthquakes_m${minmag}`,
 		precision,
 		description: `USGS ANSS ComCat earthquakes, M${minmag}+, ${start} to ${end}, worldwide. Point = epicenter [lon, lat]; date = origin time (UTC, second); depth = hypocenter depth (km); mag = magnitude.`,
