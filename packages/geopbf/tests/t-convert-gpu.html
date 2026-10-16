@@ -5,9 +5,9 @@
 <html><head><meta charset="utf-8"><title>t-convert-gpu</title></head>
 <body><pre id="out">running…</pre>
 <script type="module">
-	import { getDevice } from "../src/convert/gpu.js";
-	import { createEngine, cpuEngine } from "../src/convert/engine.js";
-	import { LON_FULL, LAT_FULL } from "../src/convert/merc.js";
+	import { getDevice } from "../src/convert/gpu.ts";
+	import { createEngine, cpuEngine } from "../src/convert/engine.ts";
+	import { LON_FULL, LAT_FULL } from "../src/convert/merc.ts";
 
 	const out = [], ok = (c, m) => out.push((c ? "✓ " : "✗ ") + m);
 	const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };

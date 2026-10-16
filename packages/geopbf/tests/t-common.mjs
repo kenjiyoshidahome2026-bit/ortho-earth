@@ -4,8 +4,8 @@
 import { readUvarint, readSvarint, writeUvarint, writeSvarint, zigzagEncode, zigzagDecode } from "../src/modules/varint.js";
 import { mercToLonLat, lonLatToMerc, worldToLonLat, lonLatToWorld, worldYToLat, latToWorldY, mercYToLat, R_MERC } from "../src/modules/mercator.js";
 import { now } from "../src/modules/now.js";
-import { crsFromWKT, tmForward, tmInverse } from "../src/convert/proj.js";
-import { epsgToWKT } from "../src/convert/epsg.js";
+import { crsFromWKT, tmForward, tmInverse } from "../src/convert/proj.ts";
+import { epsgToWKT } from "../src/convert/epsg.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

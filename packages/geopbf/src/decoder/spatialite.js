@@ -1,5 +1,5 @@
 // decoder/spatialite.js ── ブラウザ用 worker：.sqlite / .spatialite（SpatiaLite）→ GeoPBF バイト列。実体は convert/spatialite.js
-import { fromSpatiaLite } from "../convert/spatialite.js";
+import { fromSpatiaLite } from "../convert/spatialite.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd, include, exclude, excludeAll } = e.data;

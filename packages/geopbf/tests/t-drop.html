@@ -11,7 +11,7 @@
 <script type="module">
 	import { createGeopbf } from "../src/index.js";
 	import { GeoPBF } from "../src/pbf-base.js";
-	import { toGeoParquet } from "../src/convert/geoparquet.js";
+	import { toGeoParquet } from "../src/convert/geoparquet.ts";
 	import { encodeXLSX } from "../src/modules/encodeXLSX.js";
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);

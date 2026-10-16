@@ -35,7 +35,8 @@ for (const [key, val] of Object.entries(pkg.exports)) {
 	} else {
 		const target = typeof val === "object" ? val.default : val;
 		if (!existsSync(path.join(PKG, target.includes("*") ? target.split("*")[0] : target))) missing.push(`${key} → ${target} が無い`);   // ワイルドカードは手前のディレクトリの有無
-		if (!shorthand.has(spec)) missing.push(`${key} は型も省略宣言も無い（TS 利用者に TS7016 が出る）`);
+		if (target.endsWith(".ts")) { typed++; if (shorthand.has(spec)) missing.push(`${key} は .ts（型あり）なのに subpaths.d.ts にも省略宣言がある（二重）`); }   // TS 化した subpath＝ソースから型が付く（.d.ts も省略宣言も要らない）
+		else if (!shorthand.has(spec)) missing.push(`${key} は型も省略宣言も無い（TS 利用者に TS7016 が出る）`);
 	}
 }
 ok(missing.length === 0, `exports ${Object.keys(pkg.exports).length} 本＝型あり ${typed}・省略宣言 ${Object.keys(pkg.exports).length - typed}（漏れ無し）${missing.length ? "\n   " + missing.join("\n   ") : ""}`);
@@ -58,7 +59,7 @@ ok(dts.length >= 12 && broken.length === 0, `types/*.d.ts ${dts.length} 枚の�
 const globRe = g => new RegExp("^" + g.replace(/^\.\//, "").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\0").replace(/\*/g, "[^/]*").replace(/\0/g, ".*") + "$");
 const seRes = (pkg.sideEffects || []).map(globRe);
 const covered = f => seRes.some(re => re.test(f));
-const walk = (dir, out = []) => { for (const e of readdirSync(dir)) { const p = path.join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (e.endsWith(".js")) out.push(p); } return out; };
+const walk = (dir, out = []) => { for (const e of readdirSync(dir)) { const p = path.join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (e.endsWith(".js") || (e.endsWith(".ts") && !e.endsWith(".d.ts"))) out.push(p); } return out; };
 const effectful = [];
 for (const f of walk(path.join(PKG, "src"))) {
 	const src = readFileSync(f, "utf8");
@@ -76,7 +77,7 @@ const closure = entry => { const seen = new Map(); const st = [path.resolve(PKG,
 		for (const m of s.matchAll(/^\s*(?:import|export)[^;]*?from\s*["']([^"']+)["']/gm)) if (m[1].startsWith(".")) st.push(path.resolve(path.dirname(f), m[1])); }
 	return { files: [...seen.keys()].map(rel), bytes: [...seen.values()].reduce((a, b) => a + b, 0) }; };
 const core = closure("src/core.js"), full = closure("src/index.js");
-const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|topology)|pbf-io|builtinWorkers|worker\.js|convert\//.test(f));
+const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|topology)|pbf-io|builtinWorkers|worker\.[jt]s|convert\//.test(f));
 ok(heavy.length === 0 && core.files.length * 2 <= full.files.length && core.bytes * 2 <= full.bytes,
 	`geopbf/core の静的 import 閉包＝${core.files.length} ファイル／${(core.bytes / 1024).toFixed(0)} KB（full＝${full.files.length}／${(full.bytes / 1024).toFixed(0)} KB）に wasm・identify・dissolve・pbf-io・worker が無い${heavy.length ? "\n   混入: " + heavy.join(", ") : ""}`);
 const coreMod = await import(path.join(PKG, "src/core.js"));
