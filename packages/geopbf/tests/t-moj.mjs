@@ -5,7 +5,7 @@
 //   ・引数の旧実装（pako 同期）が手元にあれば同じ入力で出力バイト列が一致（scripts 用: MOJ_OLD=path）
 globalThis.ImageData ??= class ImageData { };
 import { deflateRawSync, crc32 } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

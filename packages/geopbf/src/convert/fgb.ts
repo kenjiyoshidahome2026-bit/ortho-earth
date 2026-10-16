@@ -12,7 +12,7 @@
 //
 //   const { pbf, stats } = await fromFlatGeobuf(u8, { name, precision, ignoreCrs, tky2jgd, patchjgd });
 import { mercToLonLat } from "../modules/mercator.ts";
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { classifyCrs } from "./gpkg.ts";
 import type { SkippedColumn } from "./gpkg.ts";
 import { epsgToWKT } from "./epsg.ts";

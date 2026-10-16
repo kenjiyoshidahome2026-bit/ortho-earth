@@ -3,7 +3,7 @@
 globalThis.ImageData ??= class { constructor(d, w, h) { this.data = d; this.width = w; this.height = h; } };
 import fs from "node:fs";
 import Pbf from "../src/modules/pbf.ts";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const buf = fs.readFileSync(new URL("./fixtures/amedas.geopbf", import.meta.url));

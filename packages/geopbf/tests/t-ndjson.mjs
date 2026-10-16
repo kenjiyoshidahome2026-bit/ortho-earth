@@ -2,7 +2,7 @@
 // t-ndjson: NDJSON / GeoJSON Text Sequence（RS 区切り）→ GeoPBF。Feature 行・FeatureCollection 行（展開）・素の Geometry 行（包む）・
 // 空行・CRLF・壊れた行（数えて飛ばす）。1 パス（set）と 2 パス（setBodyAsync 逐次）と Blob stream で同じバイト列になること。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { fromNdjson, linesOf } from "../src/convert/ndjson.ts";
 import { createHash } from "node:crypto";
 let fails = 0;

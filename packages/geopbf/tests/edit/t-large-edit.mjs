@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 {
 	const req = createRequire(import.meta.url);
-	const wasmJs = req.resolve("geopbf/pbf-base").replace(/src\/pbf-base\.js$/, "wasm/pkg/gint_wasm.js");
+	const wasmJs = req.resolve("geopbf/pbf-base").replace(/src\/pbf-base\.ts$/, "wasm/pkg/gint_wasm.js");
 	const mod = await import(wasmJs);
 	await mod.default({ module_or_path: readFileSync(wasmJs.replace(/\.js$/, "_bg.wasm")) });
 	await _g.initialize();

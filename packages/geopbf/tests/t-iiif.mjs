@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// t-iiif: src/georef/iiif.js（IIIF Image API v2/v3 の info.json → 段・タイル URL）の検定（改良点 17・2026-10-12）。外部通信なし。
-import { iiifImage, infoUrl } from "../src/georef/iiif.js";
+// t-iiif: src/georef/iiif.ts（IIIF Image API v2/v3 の info.json → 段・タイル URL）の検定（改良点 17・2026-10-12）。外部通信なし。
+import { iiifImage, infoUrl } from "../src/georef/iiif.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

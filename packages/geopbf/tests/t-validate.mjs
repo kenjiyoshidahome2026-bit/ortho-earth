@@ -2,7 +2,7 @@
 // 幾何なし・空の座標・壊れた座標（NaN）・緯度の範囲外・退化した環・NaN／Infinity の属性・単要素の Multi・GeometryCollection の空要素を、
 // lenient＝直すか落として（緯度の範囲外は数えるだけ）pbf.issues／issueCount に残す、strict＝最初の問題で throw。"legacy"（1.19 までの挙動）は 2.0 で撤去＝lenient に落ちる
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: coordinates === null ? null : { type, coordinates } });

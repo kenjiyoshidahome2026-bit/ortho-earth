@@ -1,7 +1,7 @@
 // geopbf → GeoJSON の共通ローダ（maplibre / leaflet 統合の共用部）。
 // fetch → 全体gzip透過 → noeval デコード → properties サニタイズ → FeatureCollection + ヘッダメタ。
 // 公開面の型は types/load.d.ts（"geopbf/load" の types 条件）＝ここと 1:1 に保つ
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import type { FeatureCollection, HeaderMeta, Properties } from "../../types/geopbf.js";
 import { isGzip, gunzip } from "./gzip.ts";
 

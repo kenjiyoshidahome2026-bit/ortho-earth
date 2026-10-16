@@ -1,9 +1,16 @@
 import { isObject } from "../modules/utility.ts";
 import { geoOrthographic, geoMercator, geoEquirectangular } from "../modules/projections.ts";
+import type { Pt } from "../modules/projections.ts";
+import type { GeoPBF } from "../pbf.ts";
 
-export function preview(self, canvas, props = {}) {
+/** 描き方（encoder/preview・pbf.preview の props） */
+interface PreviewProps { dpr?: number; size?: number; projection?: string; bbox?: number[]; radius?: number; scale?: number; background?: string; lineWidth?: number; fill?: string; stroke?: string; minDist?: number; [key: string]: unknown }
+
+/** canvas へ描く（戻り＝canvas が無ければ ImageBitmap・地物が無ければ null・それ以外は描いた先） */
+export function preview(self: GeoPBF, canvasArg?: OffscreenCanvas | Record<string, unknown> | null, propsArg: Record<string, unknown> = {}): ImageBitmap | OffscreenCanvas | null {
+	let canvas = canvasArg as OffscreenCanvas | null | undefined, props = propsArg as PreviewProps;
 	if (!self.length) return null;
-	if (isObject(canvas)) { props = canvas; canvas = null; }
+	if (isObject(canvasArg)) { props = canvasArg as PreviewProps; canvas = null; }
 	const dpr = props.dpr || 1;
 	const ownCanvas = !canvas;
 	const size = props.size || 512;
@@ -63,8 +70,8 @@ export function preview(self, canvas, props = {}) {
 	proj.rotate([-cx, -cy, 0]).scale(scale).translate([width / 2, height / 2]);
 	if (props.scale) proj.scale(props.scale);
 
-	const offcanvas = ownCanvas ? new OffscreenCanvas(width * dpr, height * dpr) : canvas;
-	const ctx = offcanvas.getContext("2d");
+	const offcanvas = ownCanvas ? new OffscreenCanvas(width * dpr, height * dpr) : canvas!;
+	const ctx = offcanvas.getContext("2d")!;
 	if (dpr !== 1) ctx.scale(dpr, dpr);
 
 	if (props.background) { ctx.fillStyle = props.background; ctx.fillRect(0, 0, width, height); }
@@ -72,7 +79,7 @@ export function preview(self, canvas, props = {}) {
 	ctx.fillStyle = props.fill || "#ccc";
 	ctx.strokeStyle = props.stroke || "#000";
 
-	const out = b => (bbox[0] > b[2] || bbox[1] > b[3] || bbox[2] < b[0] || bbox[3] < b[1]);
+	const out = (b: number[]): boolean => (bbox[0] > b[2] || bbox[1] > b[3] || bbox[2] < b[0] || bbox[3] < b[1]);
 	const minDist = props.minDist || 1;
 	const minDist2 = minDist * minDist;
 
@@ -80,16 +87,16 @@ export function preview(self, canvas, props = {}) {
 		if (out(self.getBbox(n))) return;
 		ctx.beginPath();
 
-		const drawCoords = (pos, type) => {
+		const drawCoords = (pos: number, type: number): void => {
 			pbf.pos = pos;
-			let lens = [];
+			let lens: number[] = [];
 
 			pbf.readMessage(tag => {
 				if (tag === 9) pbf.readPackedVarint(lens);
 				else if (tag === 10) {
 					const end = pbf.readVarint() + pbf.pos;
 					let p = [0, 0];
-					const readNext = () => {
+					const readNext = (): Pt | null => {
 						p[0] += pbf.readSVarint();
 						p[1] += pbf.readSVarint();
 						return proj([p[0] / e, p[1] / e]);
@@ -122,8 +129,8 @@ export function preview(self, canvas, props = {}) {
 						}
 					} else {
 						let pos = 0;
-						const drawRing = (n) => {
-							let pRing = [0, 0], lx, ly, i = 0;
+						const drawRing = (n: number): void => {
+							let pRing = [0, 0], lx!: number, ly!: number, i = 0;
 							while (n-- > 0) {
 								pRing[0] += pbf.readSVarint();
 								pRing[1] += pbf.readSVarint();
@@ -148,12 +155,12 @@ export function preview(self, canvas, props = {}) {
 			});
 		};
 
-		if (map[2] === 6) map[3].forEach((t, i) => drawCoords(t, map[4][i]));
+		if (map[2] === 6) map[3]!.forEach((t, i) => drawCoords(t, map[4]![i]));
 		else drawCoords(map[1], map[2]);
 
 		if (map[2] < 2 || map[2] > 3) ctx.fill();
 		ctx.stroke();
 	});
 
-	return ownCanvas ? offcanvas.transferToImageBitmap() : canvas;
+	return ownCanvas ? offcanvas.transferToImageBitmap() : canvas!;
 }

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { czmlToFeatures } from "../modules/czml.ts";
 import type { FeatureCollection } from "../../types/geopbf.js";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";

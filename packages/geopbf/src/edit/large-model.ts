@@ -12,8 +12,8 @@
 // 端点は端点索引（同座標の全arc端）で溶接＝ノードと同じ意味論。arc数を変える操作（挿入/削除/追加/削除）は
 // Phase2 対象外（controller が入口で弾く）。書き出しは変更fidだけ GintBUF から再エンコード・他はバイト複写。
 // 依存は geopbf のみ（model.ts を経由しない）＝Node試験可。
-import { GeoPBF, makeKeys } from "../pbf-base.js";
-import { gint } from "../extension/gint.js";
+import { GeoPBF, makeKeys } from "../pbf-base.ts";
+import { gint } from "../extension/gint.ts";
 import type { Geometry, UnPackGint } from "../../types/geopbf.js";
 import type { ArcTree, XY } from "./topo-extract.ts";
 

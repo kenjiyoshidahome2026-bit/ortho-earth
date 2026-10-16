@@ -3,7 +3,7 @@
 //   ・台帳 wasm/pkg.sha256（build.sh が書く）と今の .rs／Cargo／pkg の sha256 が一致＝「.rs を変えたのに焼き直していない」「pkg を手で触った」を弾く
 //   ・wasm の producers（rustc・wasm-bindgen の版）が rust-toolchain.toml と Cargo.lock の版と一致・台帳の wasm-opt（binaryen）の版が build.sh の固定値と一致＝別の toolchain で焼いた物を弾く
 //   ・glue（pkg/gint_wasm.js）の export と .rs の #[wasm_bindgen] の名簿が一致＝.rs と pkg の同期（俯瞰 14「死蔵 Rust」の再発も止める：JS が import しない export は無い）
-//   ・src/extension/gint.js と convert/node-gint.js が使う名前が全部 glue にある
+//   ・src/extension/gint.ts と convert/node-gint.js が使う名前が全部 glue にある
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +40,7 @@ ok(onlyGlue.length === 0 && onlyRs.length === 0, `glue の export ${exported.siz
 
 // 4) JS が使う名前が全部ある・glue の export は全部 JS が使う（死蔵の再発止め）
 const used = new Set();
-for (const f of ["src/extension/gint.js", "src/convert/node-gint.ts"]) {
+for (const f of ["src/extension/gint.ts", "src/convert/node-gint.ts"]) {
 	const src = readFileSync(path.join(PKG, f), "utf8");
 	const m = /import\s+(?:init\s*,\s*)?\{([^}]*)\}\s*from\s*"[^"]*wasm\/pkg\/gint_wasm\.js"/.exec(src);
 	if (m) for (const n of m[1].split(",").map(s => s.trim()).filter(Boolean)) used.add(n);

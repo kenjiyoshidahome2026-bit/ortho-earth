@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // t-dts: 型定義・sideEffects・入口分割（geopbf 改良点 10・2026-10-12・俯瞰 §2-B 6）の常設検定。
-//   ・package.json の types／exports の "types" が指す .d.ts が全部ある・exports の全 subpath は「型あり」か「省略宣言（types/subpaths.d.ts）」のどちらかで漏れ無し
-//   ・types/*.d.ts の相対 import 先が全部ある（.js で書いた参照 → .d.ts）
-//   ・sideEffects＝トップレベルで onmessage を張る worker 本体・prototype を足す pbf.js／pbf-base.js・wasm glue を全部覆う（tree-shake で消されると黙って死ぬ族）
+//   ・package.json の main（.ts）／exports の "types" が指す .d.ts が全部ある・exports の全 subpath は「型あり」か「省略宣言（types/subpaths.d.ts）」のどちらかで漏れ無し
+//   ・types/*.d.ts の相対 import 先が全部ある（.js で書いた参照 → .d.ts・../src/*.ts は実装の class＝段 4）
+//   ・sideEffects＝トップレベルで onmessage を張る worker 本体・class へ配線する index.ts（wireEntry）／静的な名簿を載せる pbf-base.ts・wasm glue を全部覆う（tree-shake で消されると黙って死ぬ族）
 //   ・geopbf/core（軽い入口）＝wasm glue・identify・dissolve・pbf-io・worker の入口を静的 import 閉包に含まない・export の名簿が固定
 //   ・型ありの subpath ごとに、実行時の export（Object.keys(import(...))）と .d.ts の値の export（class・function・const）が 1:1（TS化 段 2・2026-10-15）
 //   ・.ts を指す subpath（TS化 段 3・2026-10-16）は実装がそのまま型＝.d.ts も省略宣言も要らず、同じ .ts の値の export と Node で import した実行時の export を照合
@@ -21,8 +21,8 @@ let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const pkg = JSON.parse(readFileSync(path.join(PKG, "package.json"), "utf8"));
 
-// 1) types と exports の "types"
-ok(pkg.types && existsSync(path.join(PKG, pkg.types)), `package.json types → ${pkg.types} がある`);
+// 1) main と exports の "types"（段 4・2026-10-16＝"." も .ts を直に指す＝root の types は無い・型は実装そのもの）
+ok(!pkg.types && /\.ts$/.test(pkg.main) && existsSync(path.join(PKG, pkg.main)), `package.json main → ${pkg.main}（.ts＝実装が型・root の types は無い）がある`);
 ok(Array.isArray(pkg.files) && pkg.files.includes("types"), `files に types が入っている（npm pack に載る）`);
 const shorthand = new Set([...readFileSync(path.join(PKG, "types/subpaths.d.ts"), "utf8").matchAll(/declare module "([^"]+)";/g)].map(m => m[1]));
 // .ts を指す subpath は実装がそのまま型（TS 化 段 3・2026-10-16）＝.d.ts も省略宣言も要らない（省略宣言があれば二重）
@@ -55,12 +55,12 @@ const dts = readdirSync(path.join(PKG, "types")).filter(f => f.endsWith(".d.ts")
 let broken = [];
 for (const f of dts) {
 	const src = readFileSync(path.join(PKG, "types", f), "utf8");
-	for (const m of src.matchAll(/from "(\.\/[^"]+)"|reference path="(\.\/[^"]+)"/g)) {
-		const r = (m[1] || m[2]).replace(/\.js$/, ".d.ts");
+	for (const m of src.matchAll(/from "(\.\.?\/[^"]+)"|reference path="(\.\/[^"]+)"/g)) {
+		const r = (m[1] || m[2]).replace(/\.js$/, ".d.ts");   // ../src/*.ts（実装の class）はそのまま
 		if (!existsSync(path.join(PKG, "types", r))) broken.push(`${f}: ${m[1] || m[2]}`);
 	}
 }
-ok(dts.length >= 12 && broken.length === 0, `types/*.d.ts ${dts.length} 枚の相対参照が全部ある${broken.length ? "\n   " + broken.join("\n   ") : ""}`);
+ok(dts.length >= 7 && broken.length === 0, `types/*.d.ts ${dts.length} 枚の相対参照が全部ある${broken.length ? "\n   " + broken.join("\n   ") : ""}`);
 
 // 3) sideEffects が worker 本体・prototype 拡張・wasm glue を覆う
 const globRe = g => new RegExp("^" + g.replace(/^\.\//, "").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\0").replace(/\*/g, "[^/]*").replace(/\0/g, ".*") + "$");
@@ -71,23 +71,23 @@ const effectful = [];
 for (const f of walk(path.join(PKG, "src"))) {
 	const src = readFileSync(f, "utf8");
 	const top = src.split("\n").some(l => /^(self\.)?onmessage\s*=|^self\.addEventListener\(\s*["']message/.test(l) || /^\tself\.onmessage\s*=/.test(l) && /worker_threads|isMainThread/.test(src));
-	if (top || /^GeoPBF\.set(Prototype|Property|Getter)\(/m.test(src) || /^\s*Object\.defineProperty\(GeoPBF\.prototype/m.test(src)) effectful.push(rel(f));
+	if (top || /^(wireEntry|useEntryClass)\(/m.test(src) || /Object\.defineProperty\(GeoPBF(Base)?[,.]/.test(src)) effectful.push(rel(f));   // 入口の配線（index.ts）・静的な名簿（pbf-base.ts）
 }
 for (const f of readdirSync(path.join(PKG, "wasm/pkg")).filter(f => f.endsWith(".js"))) effectful.push("wasm/pkg/" + f);
 const uncovered = effectful.filter(f => !covered(f));
-ok(Array.isArray(pkg.sideEffects) && effectful.length >= 30 && uncovered.length === 0, `sideEffects が副作用のある ${effectful.length} 本（worker 本体・pbf.js／pbf-base.js・index.js・wasm glue）を全部覆う${uncovered.length ? "\n   漏れ: " + uncovered.join(", ") : ""}`);
-ok(!covered("src/core.js") && !covered("src/modules/geojson-load.ts") && !covered("src/extension/identify.js"), "副作用の無いモジュール（core／loader／identify）は sideEffects に入っていない＝tree-shake できる");
+ok(Array.isArray(pkg.sideEffects) && effectful.length >= 30 && uncovered.length === 0, `sideEffects が副作用のある ${effectful.length} 本（worker 本体・pbf-base.ts・index.ts・wasm glue）を全部覆う${uncovered.length ? "\n   漏れ: " + uncovered.join(", ") : ""}`);
+ok(!covered("src/core.ts") && !covered("src/modules/geojson-load.ts") && !covered("src/extension/identify.ts") && !covered("src/pbf.ts"), "副作用の無いモジュール（core／loader／identify／pbf.ts の class）は sideEffects に入っていない＝tree-shake できる");
 
-// 4) geopbf/core の閉包と名簿（5 の前に回す＝full の入口（src/index.js）を import すると同じ class に拡張メソッドが乗る）
+// 4) geopbf/core の閉包と名簿（段 4＝器（GeoPBFBase）と GeoPBF は別の class＝full の入口を import しても core の GeoPBF に拡張メソッドは乗らない）
 const closure = entry => { const seen = new Map(); const st = [path.resolve(PKG, entry)];
 	while (st.length) { const f = st.pop(); if (seen.has(f)) continue; let s; try { s = readFileSync(f, "utf8"); } catch { continue; } seen.set(f, s.length);
-		for (const m of s.matchAll(/^\s*(?:import|export)[^;]*?from\s*["']([^"']+)["']/gm)) if (m[1].startsWith(".")) st.push(path.resolve(path.dirname(f), m[1])); }
+		for (const m of s.matchAll(/^\s*(?:import|export)(?!\s+type\b)[^;]*?from\s*["']([^"']+)["']/gm)) if (m[1].startsWith(".")) st.push(path.resolve(path.dirname(f), m[1])); }   // import type／export type は消える＝閉包の外
 	return { files: [...seen.keys()].map(rel), bytes: [...seen.values()].reduce((a, b) => a + b, 0) }; };
-const core = closure("src/core.js"), full = closure("src/index.js");
+const core = closure("src/core.ts"), full = closure("src/index.ts");
 const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|topology)|pbf-io|builtinWorkers|worker\.(js|ts)|convert\//.test(f));
 ok(heavy.length === 0 && core.files.length * 2 <= full.files.length && core.bytes * 2 <= full.bytes,
 	`geopbf/core の静的 import 閉包＝${core.files.length} ファイル／${(core.bytes / 1024).toFixed(0)} KB（full＝${full.files.length}／${(full.bytes / 1024).toFixed(0)} KB）に wasm・identify・dissolve・pbf-io・worker が無い${heavy.length ? "\n   混入: " + heavy.join(", ") : ""}`);
-const coreMod = await import(path.join(PKG, "src/core.js"));
+const coreMod = await import(path.join(PKG, "src/core.ts"));
 const want = ["GeoPBF", "makeKeys", "propsKeyOf", "loadGeopbf", "decodeToGeojson", "fetchAndDecode", "sanitizeProperties", "resolveInnerUrl", "gzip", "gunzip", "isGzip"];
 ok(want.every(k => k in coreMod) && Object.keys(coreMod).length === want.length, `geopbf/core の export＝${want.join(", ")}`);
 const corePbf = await new coreMod.GeoPBF({ precision: 7 }).set({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [1, 2] }, properties: { a: 1 } }] });

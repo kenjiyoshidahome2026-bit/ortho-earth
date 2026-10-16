@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { unescXML } from "../modules/xml.ts";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
 

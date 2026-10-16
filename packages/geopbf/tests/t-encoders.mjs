@@ -6,9 +6,9 @@
 //   されなかった。ここでは全 encoder を同じ harness で回し、File が返ること（または明示の null）を保証する。
 //   worker 脚本は「グローバルの onmessage を張り、postMessage で返す」契約＝t-moj.mjs と同じ流儀で Node から呼ぶ。
 globalThis.ImageData ??= class ImageData { };   // Node に無い（pbf-base のエンコード経路が参照）＝他の検定と同じスタブ
-import { GeoPBF } from "../src/pbf.js";
-import { gint } from "../src/extension/gint.js";
-import { topology } from "../src/extension/topology.js";
+import { GeoPBF } from "../src/pbf.ts";
+import { gint } from "../src/extension/gint.ts";
+import { topology } from "../src/extension/topology.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {   // Node で WASM を読む（fetch(file:) は未実装）＝t-anchors と同じ手

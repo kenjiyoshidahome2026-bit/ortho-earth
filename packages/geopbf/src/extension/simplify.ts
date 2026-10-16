@@ -1,18 +1,20 @@
-import { gint } from "./gint.js";
+import { gint } from "./gint.ts";
+import type { GeoPBFBase } from "../pbf-base.ts";
+import type { Feature, FeatureCollection, Position } from "../../types/geopbf.js";
 
 // GintBUF の VW ランク（GPU LOD が使うのと同じ重み）でデータそのものを間引いた
 // FeatureCollection を返す。描画用ではなく「答えるための専用データ」（identify・突合・
 // 座標→市区町村の逆引き等）を焼く用途＝ minRank を上げるほど粗く・小さくなる。
 // 接合点・arc端点（L1=TERMINAL_BIT）は常に保持されるため隣接位相は壊れない。
 // 目安: minRank ≈ 1.5×log2(許容面積) + 61.5 → 21≈z14(誤差~10m) / 24≈z13(~20m) / 27≈z12(~40m)
-export function simplified(self, minRank = 0) {
+export function simplified(self: GeoPBFBase, minRank = 0): FeatureCollection | null {
 	const d = self.unPackGint;
 	if (!d?.arcBuffer || !d.arcMeta) return null;
 	const { arcBuffer, arcMeta, polyStream, lineStream } = d;
 	const INV = gint.INV_SCALE_E;
-	const r7 = v => Math.round(v * 1e7) / 1e7;
-	const cache = new Map(), cacheFull = new Map();
-	const arcPts = (aid, rank, tub) => {
+	const r7 = (v: number): number => Math.round(v * 1e7) / 1e7;
+	const cache = new Map<number, Position[]>(), cacheFull = new Map<number, Position[]>();
+	const arcPts = (aid: number, rank: number, tub: Map<number, Position[]>): Position[] => {
 		let pts = tub.get(aid);
 		if (pts) return pts;
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
@@ -30,27 +32,27 @@ export function simplified(self, minRank = 0) {
 		return pts;
 	};
 	// arc を 1 本つなぐ（負の添字＝逆向き）。連結点の重複を除く。旧＝slice().reverse() の写し＋push(...seg)＝点数の多い arc（~10 万点超）でスタックが溢れた
-	const append = (out, ai, rank, tub) => {
+	const append = (out: Position[], ai: number, rank: number, tub: Map<number, Position[]>): void => {
 		const seg = arcPts(ai < 0 ? ~ai : ai, rank, tub);
 		if (out.length) out.pop();
 		if (ai < 0) for (let i = seg.length - 1; i >= 0; i--) out.push(seg[i]);
 		else for (let i = 0; i < seg.length; i++) out.push(seg[i]);
 	};
-	const chain = (arcIdxs, rank, tub) => {
-		const out = [];
+	const chain = (arcIdxs: number[], rank: number, tub: Map<number, Position[]>): Position[] => {
+		const out: Position[] = [];
 		for (const ai of arcIdxs) append(out, ai, rank, tub);
 		if (out.length && (out[0][0] !== out[out.length - 1][0] || out[0][1] !== out[out.length - 1][1]))
 			out.push(out[0]);
 		return out;
 	};
-	const features = [];
+	const features: Feature[] = [];
 	if (polyStream?.length) {
-		const byFid = new Map();
+		const byFid = new Map<number, Position[][][]>();
 		let p = 0;
 		while (p < polyStream.length) {
-			const fid = polyStream[p++], nr = polyStream[p++], comp = [];
+			const fid = polyStream[p++], nr = polyStream[p++], comp: Position[][] = [];
 			for (let r = 0; r < nr; r++) {
-				const na = polyStream[p++], arcs = [];
+				const na = polyStream[p++], arcs: number[] = [];
 				for (let a = 0; a < na; a++) arcs.push(polyStream[p++]);
 				let ring = chain(arcs, minRank, cache);
 				// 間引きすぎて退化したリングは全点で再構成（小島の市区町村が消えるのを防ぐ）
@@ -73,13 +75,13 @@ export function simplified(self, minRank = 0) {
 	}
 	if (lineStream?.length) {
 		let p = 0;
-		const byFid = new Map();
+		const byFid = new Map<number, Position[][]>();
 		while (p < lineStream.length) {
-			const fid = lineStream[p++], ns = lineStream[p++], sets = [];
+			const fid = lineStream[p++], ns = lineStream[p++], sets: Position[][] = [];
 			for (let s = 0; s < ns; s++) {
-				const na = lineStream[p++], arcs = [];
+				const na = lineStream[p++], arcs: number[] = [];
 				for (let a = 0; a < na; a++) arcs.push(lineStream[p++]);
-				const line = [];
+				const line: Position[] = [];
 				for (const ai of arcs) append(line, ai, minRank, cache);
 				if (line.length >= 2) sets.push(line);
 			}

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { encodeZIP } from "../modules/encodeZIP.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 

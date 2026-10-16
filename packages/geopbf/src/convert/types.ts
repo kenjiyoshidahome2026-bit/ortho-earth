@@ -1,5 +1,5 @@
 // convert/* が共有する型（TS化 段 3）。入口（gpkg / fgb / filegdb / dxf / table / parquet …）の options と CRS 判定の形をここに一本化する。
-import type { Geometry, Position } from "../pbf-base.js";
+import type { Geometry, Position } from "../pbf-base.ts";
 export type { Geometry, Position };
 
 /** [lon, lat]（度） */

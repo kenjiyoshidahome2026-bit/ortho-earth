@@ -6,7 +6,7 @@
 // 閉じた折線・CIRCLE・全周 ELLIPSE は既定で Polygon（opts.closedAsPolygon=false で LineString）。円弧は 5° 刻み（最少 4 分割）で折線化。
 // 属性: layer / type（DXF 名）/ color（ACI・256=BYLAYER はレイヤ表の色）/ linetype / handle / text / height / rotation / block（INSERT 由来）。
 // 単位: $INSUNITS（1 inch 2 feet 4 mm 5 cm 6 m …）を投影座標（メートル）へ自動換算（opts.unitScale で上書き）。文字コードは UTF-8 → 読めなければ Shift_JIS（opts.encoding で指定可）。
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { crsFromWKT } from "./proj.ts";
 import { epsgToWKT } from "./epsg.ts";
 import { decodeText } from "./table.ts";

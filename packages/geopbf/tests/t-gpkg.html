@@ -11,7 +11,7 @@
 	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
 </script>
 <script type="module">
-	import { createGeopbf } from "../src/index.js";
+	import { createGeopbf } from "../src/index.ts";
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
 	try {

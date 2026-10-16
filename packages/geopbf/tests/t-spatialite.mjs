@@ -4,7 +4,7 @@
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { readSpatiaLite, fromSpatiaLite, parseSpatiaLiteBlob } from "../src/convert/spatialite.ts";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

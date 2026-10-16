@@ -3,10 +3,10 @@
 // 面だけ／線だけ／面と線の混在のどれでも null にならない・pbf.cleanTopology() が描画用の GintBUF も作り直す・
 // 触らないデータでは rebuildStreams が wasm の stream を一字一句再現する（隣接の規則が同じ）。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf.js";
-import { topology, unPackGintBuffer, rebuildStreams } from "../src/extension/topology.js";
-import { cleanGintBuffer } from "../src/extension/clean.js";
-import { gint } from "../src/extension/gint.js";
+import { GeoPBF } from "../src/pbf.ts";
+import { topology, unPackGintBuffer, rebuildStreams } from "../src/extension/topology.ts";
+import { cleanGintBuffer } from "../src/extension/clean.ts";
+import { gint } from "../src/extension/gint.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {

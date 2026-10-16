@@ -1,7 +1,7 @@
 // t-roundtrip: gml / kml / fgb の書き出し→読み戻しで、形（Multi 系・GeometryCollection）と属性（日本語のキー・入れ子・日付）が残ること（B9・2026-09-25）。
 // encoder/decoder の worker を Node で直に回す（onmessage/postMessage を差し替える）。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { fileURLToPath } from "node:url";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
