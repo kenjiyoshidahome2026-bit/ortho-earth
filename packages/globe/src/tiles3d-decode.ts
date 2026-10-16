@@ -105,7 +105,7 @@ const enuAt = (e: ArrayLike<number>) => {
 };
 
 // インスタンス（i3dm）＝glTF をインスタンスの数だけ置く（置き方の列を decodeModel へ）
-async function decodeI3dm(ab: ArrayBuffer, M: Xf3, opts: { baseUri?: string; textures?: boolean; baseH?: number; gOpt?: { ground?: string } }, maxInstances: number): Promise<ModelOut | null> {
+async function decodeI3dm(ab: ArrayBuffer, M: Xf3, opts: { baseUri?: string; textures?: boolean; baseH?: number | null; gOpt?: { ground?: string } }, maxInstances: number): Promise<ModelOut | null> {
 	const dv = new DataView(ab), ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true), btJ = dv.getUint32(20, true), btB = dv.getUint32(24, true), fmt = dv.getUint32(28, true);
 	const J = jsonAt(ab, 32, ftJ), bin = new Uint8Array(ab, 32 + ftJ, ftB);
 	const n = Math.min(J.INSTANCES_LENGTH! | 0, maxInstances);
@@ -156,7 +156,7 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 			const nB = J.BATCH_LENGTH! | 0, BT = nB && btJ ? jsonAt(buf, 28 + ftJ + ftB, btJ) : null;   // batch table（W7）＝_BATCHID の地物の属性（JSON の配列＋binary 参照）
 			const batchTable = BT ? { json: BT, bin: btB ? new Uint8Array(buf, 28 + ftJ + ftB + btJ, btB) : null, count: nB } : null;
 			merge(await decodeModel(glb, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true, batchTable } }));
-		} else if (magic === "i3dm") merge(await decodeI3dm(buf, M, { baseUri, textures, baseH }, maxInstances));
+		} else if (magic === "i3dm") merge(await decodeI3dm(buf, M, { baseUri, textures, baseH: bH, gOpt }, maxInstances));   // ground も b3dm と同じく（旧＝渡さず terrain でも絶対高さ＝地形の上に浮いた）
 		else if (magic === "pnts") merge(decodePnts(buf, M, baseH));
 		else if (magic === "cmpt") {
 			const dv = new DataView(buf), nT = dv.getUint32(12, true);

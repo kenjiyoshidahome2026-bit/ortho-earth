@@ -1,5 +1,5 @@
 // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm の batch table・画面の当たり・feature state の色（DOM 無し）
-import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE } from "../src/mesh-features.ts";
+import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE, ncompOf } from "../src/mesh-features.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../src/meshpick.ts";
 import { decodeModel } from "../src/meshdecode.ts";
 globalThis.self ??= globalThis;
@@ -109,5 +109,12 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	const plain = glbOf({ ...json, accessors: json.accessors.slice(0, 2), meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }], extensions: undefined, extensionsUsed: [] }, [B(Float32Array.of(0, 0, 0, 10, 0, 0, 10, 0, 10, 0, 0, 10)), B(Uint16Array.of(0, 2, 1, 0, 3, 2))]);
 	const r2 = await decodeModel(plain, { at: [139.7671, 35.6812] });
 	ok("decode.none", r2.batches[0].features === null && r2.features === null && !r2.stats.features);
+}
+// 型 → 成分の数（own の名前だけ＝旧 NCOMP[type] は "constructor" 等で Object.prototype の物を返した）
+{
+	const want = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+	ok("ncomp.valid", Object.entries(want).every(([k, v]) => ncompOf(k) === v));
+	ok("ncomp.unknown", [undefined, null, "", "STRING", "BOOLEAN", "ENUM", "scalar", "VEC5", 1].every(t => ncompOf(t) === undefined));
+	ok("ncomp.proto", ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"].every(t => ncompOf(t) === undefined));
 }
 if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS mesh-features");
