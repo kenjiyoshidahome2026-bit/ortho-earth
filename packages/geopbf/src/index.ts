@@ -32,7 +32,7 @@ import { gint } from "./extension/gint.ts";
 import { topo2geo } from "./modules/topo2geo.ts";
 import { gunzip, isGzip } from "./modules/gzip.ts";
 import { decodeZIP } from "./modules/decodeZIP.ts";
-import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.ts"
+import { isString, isURL, isFile, isBlob, isObject, isBuffer } from "./modules/utility.ts"
 import { prewarmWorkers } from "./modules/workerPool.ts";
 
 // ── 入口の入力（geopbf(input, options)）。各行の番号は下の _geopbf の枝
@@ -322,7 +322,13 @@ export function createGeopbf(apiBase?: string, options: CreateGeopbfOptions = {}
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
                 throw new Error(`geopbf: unsupported file "${name}" (supported: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .czml .gml .xml .gz)`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
-            // TODO(ts): fixed in the follow-up entry-fix PR — Feature[] never gets here (isObject excludes arrays) and a Blob without a name is read as a GeoJSON object: both resolve to an empty GeoPBF
+            // 名前の無い Blob＝GeoPBF のバイト列として読む（ArrayBuffer と同じ）。旧＝isFile は name を要る＝下の isObject に落ちて空の GeoPBF（段 4 の入口修正）
+            if (isBlob(q)) return _geopbf(await q.arrayBuffer());
+            // Feature の配列＝FeatureCollection に包む（Feature 以外の要素は落とす）。旧＝isObject は配列を外す＝どこにも当たらず空の GeoPBF（段 4 の入口修正）
+            if (Array.isArray(q)) {
+                const fc = toFeatureCollection(q);
+                return fc.features.length > 0 ? await new GeoPBF(opts).set(fc) : null;
+            }
             if (isObject(q)) {
                 const fc = toFeatureCollection(q);
                 return (fc && fc.features.length > 0) ? await new GeoPBF(opts).set(fc) : null;
