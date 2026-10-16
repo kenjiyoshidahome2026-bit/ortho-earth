@@ -12,19 +12,40 @@
 // 参照の符号化：arc頂点=(a=arcId≥0, b=idx)／ポイント=(a=-1-eid, b=ptIdx)。
 // セルコード＝floor(coord×e) を +2^31 して 32bit×2＝(hi=y, lo=x)。±180は正規化＋周回。
 
-export const normLon = x => ((x + 180) % 360 + 360) % 360 - 180;
+/** 索引の 1 参照＝[a, b, x, y]（a≥0＝arcId・a<0＝-1-eid、b＝頂点番号、x/y＝構築時の座標） */
+export type SnapRef = [number, number, number, number];
+/** ソート済みの基底（Worker 構築可・transfer 可） */
+export interface SnapBase { hi: Uint32Array; lo: Uint32Array; refA: Int32Array; refB: Int32Array }
+/** nearest の戻り（x,y＝deref 済みの現在値） */
+export type SnapEntry = { arcId: number; idx: number; x: number; y: number } | { eid: number; ptIdx: number; x: number; y: number };
+/** deref(a, b) → [x, y]（モデルの現在値）。無効なら null */
+export type Deref = (a: number, b: number) => ArrayLike<number> | null | undefined;
+
+export interface SnapIndex {
+	readonly gridExp: number;
+	setRefSource(fn: () => Iterable<SnapRef>): void;
+	setBase(b: SnapBase): void;
+	rebuild(): void;
+	addRef(a: number, b: number, x: number, y: number): void;
+	/** 最近傍1点（tol=1セル寸）。skip(entry)=true は除外（ドラッグ中の自分自身など） */
+	nearest(x: number, y: number, skip?: ((en: SnapEntry) => boolean) | null): SnapEntry | null;
+	setGrid(gridExp2: number): void;
+	stats(): { base: number; journal: number };
+}
+
+export const normLon = (x: number): number => ((x + 180) % 360 + 360) % 360 - 180;
 
 // セルコード＝(hi=qy+2^31, lo=qx+2^31) の Uint32 対（辞書順）。旧＝64bit Morton を BigInt でボックス保持＋BigInt 比較ソート＝1M 頂点で数百MBの
 // 一時確保と数秒（効率レビュー M-3）。3×3 近傍はセル個別ルックアップなので Morton 局所性は不要＝行優先の (hi,lo) で十分。
 // 1e-7 格子の全球セル数は 2^63 級＝Number 1 個には収まらない（2^53）ため 2 語で持つ。
 const SHIFT = 2147483648;
-const cellHi = qy => (qy + SHIFT) >>> 0, cellLo = qx => (qx + SHIFT) >>> 0;
-const jkey = (hi, lo) => hi * 4294967296 + lo;   // ジャーナル鍵＝Map の数値鍵（2^64 級＝厳密ではないが、同一セルは同一値・衝突は近傍セル同士で deref の距離判定が落とす）
+const cellHi = (qy: number): number => (qy + SHIFT) >>> 0, cellLo = (qx: number): number => (qx + SHIFT) >>> 0;
+const jkey = (hi: number, lo: number): number => hi * 4294967296 + lo;   // ジャーナル鍵＝Map の数値鍵（2^64 級＝厳密ではないが、同一セルは同一値・衝突は近傍セル同士で deref の距離判定が落とす）
 
 // 基底の構築（Worker/ローカル共用）：iter は [a, b, x, y] を吐く。(hi,lo) 辞書順にソート済みの typed 4 本を返す。
-export function buildBase(iter, gridExp) {
+export function buildBase(iter: Iterable<SnapRef>, gridExp: number): SnapBase {
 	const e = Math.pow(10, gridExp);
-	const hiA = [], loA = [], refA = [], refB = [];
+	const hiA: number[] = [], loA: number[] = [], refA: number[] = [], refB: number[] = [];
 	for (const [a, b, x, y] of iter) {
 		hiA.push(cellHi(Math.floor(y * e))); loA.push(cellLo(Math.floor(normLon(x) * e)));
 		refA.push(a); refB.push(b);
@@ -40,22 +61,22 @@ export function buildBase(iter, gridExp) {
 
 const COMPACT_AT = 65536;   // ジャーナルがこの件数を超えたら基底へ焼き直す（編集セッションでまず届かない）
 
-export function createSnapIndex(gridExp, deref) {   // deref(a,b) → [x,y] | null（モデルの現在値）
+export function createSnapIndex(gridExp: number, deref: Deref): SnapIndex {   // deref(a,b) → [x,y] | null（モデルの現在値）
 	let e = Math.pow(10, gridExp);
-	let base = null;              // {hi, lo, refA, refB}
-	let journal = new Map();      // jkey(hi,lo) → number[]（a,b の平坦列）
+	let base: SnapBase | null = null;              // {hi, lo, refA, refB}
+	let journal = new Map<number, number[]>();      // jkey(hi,lo) → number[]（a,b の平坦列）
 	let journalN = 0, compactQueued = false;
-	let refSource = null;         // compact/setGrid 用＝モデルの全参照イテレータ工場
+	let refSource: (() => Iterable<SnapRef>) | null = null;         // compact/setGrid 用＝モデルの全参照イテレータ工場
 
-	const lower = (h, l) => {   // (hi,lo) の先頭位置（無ければ挿入位置）＝辞書順の二分探索
-		const H = base.hi, L = base.lo;
+	const lower = (h: number, l: number): number => {   // (hi,lo) の先頭位置（無ければ挿入位置）＝辞書順の二分探索
+		const H = base!.hi, L = base!.lo;
 		let a = 0, b = H.length;
 		while (a < b) { const mid = (a + b) >>> 1; if (H[mid] < h || (H[mid] === h && L[mid] < l)) a = mid + 1; else b = mid; }
 		return a;
 	};
-	const materialize = (a, b, p) => a >= 0 ? { arcId: a, idx: b, x: p[0], y: p[1] } : { eid: -1 - a, ptIdx: b, x: p[0], y: p[1] };   // x,y＝deref済み現在値（吸着先座標として呼び出し側が使う）
+	const materialize = (a: number, b: number, p: ArrayLike<number>): SnapEntry => a >= 0 ? { arcId: a, idx: b, x: p[0], y: p[1] } : { eid: -1 - a, ptIdx: b, x: p[0], y: p[1] };   // x,y＝deref済み現在値（吸着先座標として呼び出し側が使う）
 
-	const api = {
+	const api: SnapIndex = {
 		get gridExp() { return Math.log10(e); },
 		setRefSource(fn) { refSource = fn; },
 		setBase(b) { base = b; journal = new Map(); journalN = 0; },
@@ -74,11 +95,11 @@ export function createSnapIndex(gridExp, deref) {   // deref(a,b) → [x,y] | nu
 			const tol = 1 / e, tolSq = tol * tol;
 			const qx = Math.floor(normLon(x) * e), qy = Math.floor(y * e);
 			const qn = Math.round(360 * e);
-			let best = null, bd = tolSq;
-			const consider = (a, b) => {
+			let best: SnapEntry | null = null, bd = tolSq;
+			const consider = (a: number, b: number): void => {
 				const p = deref(a, b);
 				if (!p) return;
-				let dx = normLon(p[0] - x);
+				const dx = normLon(p[0] - x);
 				const d = dx * dx + (p[1] - y) * (p[1] - y);
 				if (d >= bd) return;
 				const en = materialize(a, b, p);
