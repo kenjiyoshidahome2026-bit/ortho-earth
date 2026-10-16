@@ -14,7 +14,7 @@ try {
 	else {
 	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
 	const { cameraState, project } = await import("@ortho-earth/core/camera");
-	const { sunSubpoint } = await import("../../../packages/ephem/src/sun.js");
+	const { sunSubpoint } = await import("../../../packages/ephem/src/sun.ts");
 	// 太陽が東経 100°（±0.5°）・赤緯 ≈0 の時刻＝2026-03-20（春分）を 2 分刻みで探す。視点（経度 0）では太陽は地平線の 10° 下（薄明）＝
 	// 東の空（経度 +12°〜+30° の殻＝太陽高度 2〜20°）は夜明けで光り、西の空（−12°〜−30°）は夜。旧・東経 60° は視点で高度 30° の朝＝西の空も昼で明るい（2026-09-26 実機）
 	let T = Date.UTC(2026, 2, 20), best = 1e9;

@@ -10,7 +10,7 @@
 //   apiBase/name＝bucket API 基底と器の名（書込プロトコルは native-bucket Bucket.put が正本＝ここで再実装しない）
 // デスクトップ専用（shot と同じ掟）＝モバイルは入口で return。
 import { nativeBucket } from "native-bucket";
-import { modalOpen } from "./keys.js";
+import { modalOpen } from "./keys.ts";
 
 // 手で足す種別の小さな棚（値はタイルschema §11.4 の t バイト＝interface値・rankは RANK_BASE と同値の既定）。
 // KSJ系統（学校・郵便局・役場）は焼きが正＝手addの棚には載せない（直すなら rename/move/del で）。

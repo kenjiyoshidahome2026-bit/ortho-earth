@@ -64,7 +64,7 @@ export interface ModelHandle {
 	clear(): void; destroy(): void;
 }
 /** 模型・3D Tiles の当たり（W7）。table＝property table の番号・名前・class（無ければ null）・distance＝奥行き（clip の w・小さいほど手前）・state＝feature state の写し */
-export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: string }
+export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: number }
 /** registry.textureTranscoders の契約（F4・W5 で結線）：url＝worker が import() する module（export transcode(bytes: Uint8Array, info: { mimeType: string }) → { width, height, rgba: Uint8Array } か その Promise）。
  *  模型・3D Tiles の glb の KHR_texture_basisu の画像がこれで素の RGBA になる。@ortho-earth/ktx2 の ktx2Plugin() が実装を持つ */
 export interface TextureTranscoderImpl { url: string; formats?: string[] }
@@ -373,19 +373,30 @@ export interface ContextMenuItem {
 	icon?: string;
 	onClick(c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }): void;
 }
+/** 右クリックメニューの項目の並び：配列か、指した地点ごとに組む関数（(地点, 既定の項目) → 配列）。null＝既定の項目へ戻す（setter に渡す時） */
+export type ContextMenuItems = ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }, dflt: ContextMenuItem[]) => ContextMenuItem[]) | null;
 
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
+/** 計測・断面図の入口の手綱（本体は初回に読む）＝no-op の関数＋open（本体を読んで開始・本体の手綱で解ける・読めなければ undefined）／close（本体が在れば畳む・無ければ null）。
+ *  二重搭載は素の no-op（open／close 無し） */
+export interface PathGadgetStub { (): void; open?(): Promise<PathGadget | undefined>; close?(): Promise<unknown> | null }
 /** anno ガジェットの手綱（gadgets/anno.js の createAnno の戻り） */
 export interface AnnoHandle { set(pbf: GeoPBF | null): void; clear(): void; /** 描いた画素の検査窓（worker に問う） */ pixels(): Promise<unknown>; readonly pbf: GeoPBF | null; readonly count: number; readonly hits: unknown[] }
 /** cog ガジェットの load のオプション＝fit／fetch 以外は geopbf/cog の openCog へそのまま（stretch・composite・colormap・cacheKey…＝見せ方はデータ側が決める） */
 export interface CogOptions { fit?: boolean; fetch?: typeof fetch | null; [k: string]: unknown }
-export interface CogHandle { load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null }
+export interface CogHandle {
+	load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null;
+	/** 読めた COG の全解像度の寸法（px）。読む前・clear の後は null */
+	readonly width: number | null; readonly height: number | null;
+}
 /** demo ガジェットの opts（台本の形＝demo/scene-format.md） */
-export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean }
+export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean; /** 台本（と設定）を返す関数＝▶だけ先に出し、本体と台本は押した時に読む */ lazy?: () => Promise<DemoOptions> }
 export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
 /** equal／equalHere／equalStart の opts。url＝Equal Earth の置き場・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe） */
 export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown }
+/** map.gadget.<名前> の名前 → 呼び方（引数と戻り）。登録は registerGadget(name, (map, ...args) => handle)（map は第 1 引数・this は使わない）。
+ *  plugin が足す gadget はこの interface を拡張して型を付ける（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
 export interface Gadgets {
 	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
 	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
@@ -395,25 +406,27 @@ export interface Gadgets {
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
 	/** 画面保存（webp・出典焼き込み）。open()＝即保存、composite()＝Blob を返す（引数省略＝今の画面）。
 	 *  戻り値は最初の呼び出しで受け取って保持する（二重搭載・モバイル(coarse pointer)では undefined） */
-	shot(): { open(): void; composite(snap?: unknown): Promise<Blob> } | undefined;
-	measure(): PathGadget;
-	profile(): PathGadget;        // 断面図（経路指定→標高プロファイルのグラフ。stats()={points,total,sampled,min,max}）
+	shot(): { open(): Promise<unknown>; composite(snap?: unknown): Promise<Blob | undefined>; close(): void } | undefined;   // composite の undefined＝本体を読めなかった
+	/** 距離・面積の計測。入口だけが常駐し本体は初回に読む＝戻りは入口の手綱（open() が本体の手綱 PathGadget で解ける） */
+	measure(): PathGadgetStub;
+	/** 断面図（経路指定→標高プロファイルのグラフ。本体の stats()={points,total,sampled,min,max}）。戻りは measure と同じ入口の手綱 */
+	profile(): PathGadgetStub;
 	/** 右クリックメニュー。既定で「この地点へ寄る／座標をコピー」の 2 項目を持ち、items は**置換**（関数形＝クリック位置ごとに組める）。戻り値＝項目差し替え関数（再搭載時は {setItems}） */
-	contextmenu(opts?: { items?: ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }) => ContextMenuItem[]) }): ((items: ContextMenuItem[]) => void) | { setItems(items: ContextMenuItem[]): void };
-	legend(): unknown;
-	palette(): { open(): void; close(): void };
+	contextmenu(opts?: { items?: ContextMenuItems }): ((items: ContextMenuItems) => void) | { setItems(items: ContextMenuItems): void };
+	/** 左下の凡例パネル（permanent＝×を出さない常設・width＝最大幅 px）。戻り値＝内容の setter（explain と同じ形）。二重搭載は何もしない setter */
+	legend(opts?: { permanent?: boolean; width?: number }): (html: string | null | ((body: HTMLElement) => unknown)) => unknown;
+	/** 配色テーマの入口（本体はアイドルに先読み）。open()＝本体を読んで開く・close()＝本体が在れば畳む（無ければ null）。opts.theme で焼き付けた地図・二重搭載は undefined */
+	palette(): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined;
 	hint(): unknown;
 	/** 地域の全体へ戻るボタン（1.2.0〜・着地点/顔/札は地域宣言 home・宣言が無い地域＝載らない）。J キー */
 	home(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
-	/** @deprecated 1.2.0〜 home() を使う（同じもの）。次の大版で撤去 */
-	japan(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
-	qr(): { open(): void; close(): void };
-	print(): { open(): void; close(): void };
+	/** 共有 QR（今の視点の URL）。二重搭載は undefined */
+	qr(): { open(): unknown; close(): unknown } | undefined;
+	/** 印刷（平面図・本体は初回に読む）。モバイル・二重搭載は undefined */
+	print(): { open(): unknown; close(): unknown } | undefined;
 	cpos(): unknown;
 	/** 建物3D データ管理（先読み/削除）。mesh:false では載らない（1.2.0〜・アイコンは地域の宣言＝日本は PLATEAU 公式ロゴ） */
 	mesh(): unknown;
-	/** @deprecated 1.2.0〜 mesh() を使う（同じもの）。次の大版で撤去 */
-	plateau(): unknown;
 	/**
 	 * GIS ファイルのドラッグ&ドロップ受け口（geopbf() が読める全形式）。受け口は mapEl のみ（ページ他所は自前）。既定＝geopbf(file)→applyGintData
 	 * （単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。onLoad(pbf,file)＝読込成功の通知（1.0.5〜）。loadFile を渡すと既定ローダを置換
@@ -452,12 +465,12 @@ export interface Gadgets {
 	 *  集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。queryRenderedFeatures の点の問い合わせに "clusters"/"unclustered-point" で出る */
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m／リアルタイムの影＝時刻スライダー・WebGPU のみ）＝map.sunShadow・map.setShadows の UI */
-	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): (() => void) & { open?(): HTMLElement; close?(): void };
 	/** オフラインパック（1.2.0〜・#40）：今の画面の範囲とズーム上限を決めて、基図タイル（Cache Storage "oj-pack"）・地形（IDB）・任意で建物と画像タイルを先に取る。
 	 *  配るのは殻の Service Worker（japan の public/sw.js が "oj-pack" の URL を cache-first）＝SW の無い埋め込み先では先読みだけ（HTTP キャッシュ）。
-	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) } */
-	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> };
-	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) }。載せない時（二重搭載・XYZ の基図が無い）は素の no-op の関数 */
+	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> } | (() => void);
+	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): (() => void) & { open?(): HTMLElement; close?(): void };
 	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く。
 	 *  時計に範囲がある時（map.clock.setRange・CZML／GPX を読んだ時など）は下の段に区間の時間バー（開始・つまみ・終了）を出す＝つまみで区間の中を行き来・日時の入力も区間に限る（1.8.0〜・#124） */
 	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
@@ -510,15 +523,13 @@ export interface Gadgets {
 	/** 輪郭＝「この形の線だけ」（ホバーの合図）。src は spotlight と同じ（GeoJSON か ISO 3166-1 の 2／3 字）・null で消す。マスク（spotlight）とは別スロット＝両立する。color＝[r,g,b,a]（0..1）・width＝px。形が引けなければ null */
 	outline(src: string | GeoJSONFeatureCollection | GeoJSONFeature | { type: string; coordinates: unknown } | null, opts?: { color?: [number, number, number, number] | null; width?: number }): Promise<{ clear(): void } | null>;
 	/** POI 台帳の手差分編集（作者用・§12）。URL の ?poiedit=1 の時だけ本体を読んで登録し自動で搭載する（一般のビルドには載らない）＝それ以外の地図では undefined。戻り値＝{ close } */
-	poiedit?(opts?: Record<string, unknown>): { close(): void };
+	poiedit?(opts?: Record<string, unknown>): { close(): void } | undefined;
 	/** 画像タイル（ラスタ）の切替パネル＝地域パックのカタログ（基図 1 枚＋重ね n 枚）と map.raster（select／toggle）。表示域は zoom で。二重搭載は undefined */
 	raster(opts?: { zoom?: [number, number]; narrow?: boolean }): unknown;
 	/** 太陽系（ortho-solar）への口＝34px 規格のアイコン。url＝行き先（既定 /solar/・dev は :5199）・共通の時計が実時間でなければその時刻を hash に添える。二重搭載は undefined */
 	solar(opts?: { url?: string; zoom?: [number, number]; narrow?: boolean }): unknown;
 	/** 衛星シーン検索（STAC＝Earth Search／Tellus→選んだシーンの COG を球へ＝cog ガジェット）。ボタンだけ常駐・本体は初回クリックで遅延 chunk。戻り値＝no-op */
 	stac(opts?: { zoom?: [number, number]; narrow?: boolean }): () => void;
-	/** 自作ガジェットの登録（this===map で呼ばれる） */
-	(name: string, fn: (this: OrthoJapanMap, ...args: never[]) => unknown): void;
 }
 
 /** paint() の式（リテラルか Mapbox 風の配列式） */
@@ -898,8 +909,9 @@ export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: 
 export interface MapRegistry {
 	/** map.addData の kind（結線済み） */
 	readonly dataKinds: PluginRegistry<DataKindImpl>;
-	/** map.gadget と同じ（add＝map.gadget(name, fn)・結線済み・builtin の名は実行時の map.gadget の鍵） */
-	readonly gadgets: PluginRegistry<(this: OrthoJapanMap, ...args: any[]) => unknown>;
+	/** gadget（add(name, (map, ...args) => handle)＝registerGadget と同じ登録口・map は第 1 引数（this は使わない）・結線済み・builtin の名は実行時の map.gadget の鍵）。
+	 *  plugin の gadget の型は Gadgets を拡張して足す（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
+	readonly gadgets: PluginRegistry<(map: OrthoJapanMap, ...args: any[]) => unknown>;
 	/** core の registerTileFormat（結線済み） */
 	readonly tileFormats: PluginRegistry<TileFormatImpl>;
 	/** 光源の type（F1 で結線）＝builtin は directional/point/spot/ambient/hemisphere/ibl。plugin の type は { apply(map, lights) } */
@@ -1035,7 +1047,7 @@ export interface SearchOptions {
 	/** 範囲 → 着地（既定＝map.cameraForBounds） */ fit?: (bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null;
 	narrow?: boolean;
 }
-/** COPC の点群のオプション（map.addCOPC） */
+/** COPC の点群のオプション（map.addPointCloud） */
 export interface COPCOptions {
 	/** 手綱の id（既定＝自動） */ id?: string;
 	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation";
@@ -1116,10 +1128,17 @@ export interface GeopbfOptions {
 	precision?: number;
 	[k: string]: unknown;
 }
-/** GeoPBF＝geopbf() が返す。主要面のみ型付け（全面は https://www.npmjs.com/package/geopbf） */
+/** GeoPBF の地物（geopbf の Feature の写し・実体どおり＝properties は null あり・GeometryCollection は coordinates の代わりに geometries） */
+export interface GeoPBFFeature {
+	type: "Feature"; id?: string | number; properties: Record<string, any> | null;
+	geometry: { type: string; coordinates?: unknown; geometries?: Array<{ type: string; coordinates?: unknown }> } | null; bbox?: number[];
+}
+/** GeoPBF＝geopbf() が返す。主要面のみ型付け（全面は https://www.npmjs.com/package/geopbf）。geopbf の GeoPBF の宣言の写し＝geopbf の GeoPBF はそのままこの型に入る
+ *  （TS 化 段 4・batch 2：bbox は geopbf の BBox＝4 数の組か数の配列・書き出しは File か Blob か null・地物の properties は null あり。
+ *  ここに無いメンバーは geopbf の型で＝import type { GeoPBF } from "geopbf"） */
 export interface GeoPBF {
-	readonly features: GeoJSONFeature[];
-	readonly geojson: GeoJSONFeatureCollection;
+	readonly features: GeoPBFFeature[];
+	readonly geojson: { type: "FeatureCollection"; features: GeoPBFFeature[]; bbox?: number[] };
 	/** フィーチャ数 */
 	readonly length: number;
 	/** feature i のジオメトリ型（"Point"…"MultiPolygon"）。引数なし＝全件の配列 */
@@ -1134,25 +1153,24 @@ export interface GeoPBF {
 	/** 点を含む面の fid（smallest-wins）。該当なし＝null */
 	contain(lnglat: LonLat): number | null;
 	/** 全体 bbox [w,s,e,n] */
-	readonly bbox: Bbox;
+	readonly bbox: Bbox | number[];
 	/** フィーチャ別 bbox の配列 */
-	readonly bboxes: Bbox[];
+	readonly bboxes: Array<Bbox | number[]>;
 	/** getBbox(i)＝feature i の bbox。引数なし＝全フィーチャの bbox 配列（全体は .bbox） */
-	getBbox(i: number): Bbox;
-	getBbox(): Bbox[];
+	getBbox(i: number): Bbox | number[];
+	getBbox(): Array<Bbox | number[]>;
 	/** 書き出し（File 名＝opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る）。忠実度：geopbf/geojson＝完全、
 	 *  kmz＝件数維持・属性は全て文字列化、gpx＝点と線のみ（面は落ちる）・属性は name/desc/type と各点の ele/time 配列、
 	 *  czml＝静的パケットは等価（幾何にした部分以外は czml 属性に温存）・時刻付きの線は sampled position */
-	geopbfFile(opts?: object): Promise<File>;
-	geojsonFile(opts?: object): Promise<File>;
-	topojsonFile(opts?: object): Promise<File>;
-	fgbFile(opts?: object): Promise<File>;
-	shapeFile(opts?: object): Promise<File>;
-	kmzFile(opts?: object): Promise<File>;
-	gmlFile(opts?: object): Promise<File>;
-	gpxFile(opts?: object): Promise<File>;
-	czmlFile(opts?: object): Promise<File>;
-	[k: string]: unknown;
+	geopbfFile(opts?: object): Promise<File | Blob | null>;
+	geojsonFile(opts?: object): Promise<File | Blob | null>;
+	topojsonFile(opts?: object): Promise<File | Blob | null>;
+	fgbFile(opts?: object): Promise<File | Blob | null>;
+	shapeFile(opts?: object): Promise<File | Blob | null>;
+	kmzFile(opts?: object): Promise<File | Blob | null>;
+	gmlFile(opts?: object): Promise<File | Blob | null>;
+	gpxFile(opts?: object): Promise<File | Blob | null>;
+	czmlFile(opts?: object): Promise<File | Blob | null>;
 }
 /**
  * SDK 同梱・初期化済みの geopbf ローダー。GeoJSON オブジェクト / File / URL / ArrayBuffer（geopbf/geojson/topojson/fgb/

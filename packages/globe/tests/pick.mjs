@@ -5,7 +5,7 @@
 // GPU の経路（FBO に描いて読む）は tests/t-pick.html（verify:ui）。
 // 使い方：node packages/globe/tests/pick.mjs
 import { decodeId, nearestId } from "../src/gadgets/points-gl.js";
-import { nearestMark } from "../src/gadgets/czml-draw.js";
+import { nearestMark } from "../src/gadgets/czml-draw.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };
