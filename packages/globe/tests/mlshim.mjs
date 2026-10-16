@@ -88,7 +88,7 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 
 // ── 通訳の境界：呼ぶのは ../globe.js の公開面だけ（RAW・core・内部の部品を import しない）──
 //   例外＝../zoomscale.js（zoom の目盛りの正典・依存ゼロの純関数）：mercatorDz はここから読む（2.0.0 まで globe.js がそのためだけに root から再 export していた＝TS 化 段 2 で止めた）
-const SHIM_IMPORTS = new Set(["../globe.ts", "../zoomscale.js"]);
+const SHIM_IMPORTS = new Set(["../globe.ts", "../zoomscale.ts"]);
 {
 	const dir = path.join(HERE, "../src/maplibre"), bad = [];
 	for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".ts"))) {
