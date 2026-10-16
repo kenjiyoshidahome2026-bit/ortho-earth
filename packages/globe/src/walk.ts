@@ -6,35 +6,49 @@
 //   歩行中は地図の keyboard・dragPan・dragRotate・scrollZoom・doubleClickZoom を止め、止めたら元へ。
 //   手綱（builtin の追加）＝step(forwardM, strafeM)・turn(deg)・look(deg)・position() → { lng, lat, ground, eyeHeight, bearing, lookDown }（検定・台本から動かす口）。
 import { isTypingTarget } from "@ortho-earth/core";
+import type { HandlerName, WalkOptions } from "../globe.d.ts";
+import type { GlobeMap } from "./types/map.ts";
+
+/** builtin の歩行の中身（map.walk の手綱が包む） */
+export interface WalkInner {
+	start(): void; stop(): void; readonly active: boolean;
+	step(forwardM: number, strafeM?: number): number; turn(deg: number): void; look(deg: number): void;
+	position(): { lng: number; lat: number; ground: number; eyeHeight: number; bearing: number; lookDown: number };
+	/** 検定・外の標高で足元を置き直す */
+	setGround(hM: unknown): void;
+}
+/** 足元・壁の出どころ（描いている地形・基図の建物） */
+export interface WalkDeps { heightAt(lng: number, lat: number): Promise<number> | number; wallHeightAt?(lng: number, lat: number): number; radiusM?: number }
+type WalkKey = "forward" | "back" | "left" | "right" | "turnL" | "turnR" | "lookUp" | "lookDown";
 const D2R = Math.PI / 180;
-const KEYS = { forward: ["w", "W", "ArrowUp"], back: ["s", "S", "ArrowDown"], left: ["a", "A"], right: ["d", "D"], turnL: ["ArrowLeft", "q", "Q"], turnR: ["ArrowRight", "e", "E"], lookUp: ["r", "R"], lookDown: ["f", "F"] };
+const KEYS: Record<WalkKey, string[]> = { forward: ["w", "W", "ArrowUp"], back: ["s", "S", "ArrowDown"], left: ["a", "A"], right: ["d", "D"], turnL: ["ArrowLeft", "q", "Q"], turnR: ["ArrowRight", "e", "E"], lookUp: ["r", "R"], lookDown: ["f", "F"] };
 const KEY_ALL = new Set(Object.values(KEYS).flat());
 const WALK_DEFAULTS = Object.freeze({ speed: 1.4, eyeHeight: 1.7, collide: true, keys: true, lookDown: 5, turnSpeed: 90, lookSpeed: 45, lookDistance: 30, mouse: true, run: 3 });
 const KNEE_M = 0.5;
-export function createWalk(map, opts, deps) {
+export function createWalk(map: GlobeMap, opts: WalkOptions, deps: WalkDeps): WalkInner {
 	const o = { ...WALK_DEFAULTS, ...opts };
 	const R = deps.radiusM || 6371000, mDeg = R * D2R;   // 1° の m（緯線は cos で割る）
 	const cam0 = map.getCamera();
 	const st = { lng: cam0.lng, lat: cam0.lat, bearing: cam0.heading || 0, lookDown: o.lookDown, ground: cam0.height || 0, eyeHeight: o.eyeHeight };
-	let active = false, raf = 0, lastT = 0, prevMax = null, prevH = null, groundReq = 0, groundAt = null, ac = null, drag = null;
-	const held = new Set(); let shift = false;
-	const offset = (lng, lat, dE, dN) => [lng + dE / (mDeg * Math.max(1e-6, Math.cos(lat * D2R))), lat + dN / mDeg];
-	const askGround = (lng, lat, force = false) => {
+	let active = false, raf = 0, lastT = 0, prevMax: number | null = null, prevH: Record<string, boolean> | null = null, groundReq = 0, groundAt: number[] | null = null, ac: AbortController | null = null, drag: { x: number; y: number } | null = null;
+	const held = new Set<string>(); let shift = false;
+	const offset = (lng: number, lat: number, dE: number, dN: number): number[] => [lng + dE / (mDeg * Math.max(1e-6, Math.cos(lat * D2R))), lat + dN / mDeg];
+	const askGround = (lng: number, lat: number, force = false): void => {
 		const now = performance.now();
 		if (!force && (now - groundReq < 100 || (groundAt && Math.hypot((lng - groundAt[0]) * mDeg * Math.cos(lat * D2R), (lat - groundAt[1]) * mDeg) < 1))) return;
 		groundReq = now; groundAt = [lng, lat];
 		Promise.resolve(deps.heightAt(lng, lat)).then(h => { if (Number.isFinite(h) && groundAt && groundAt[0] === lng && groundAt[1] === lat) st.ground = Math.max(0, h); }, () => {});
 	};
-	const wallAt = (lng, lat) => { try { return o.collide && deps.wallHeightAt ? +deps.wallHeightAt(lng, lat) || 0 : 0; } catch { return 0; } };
-	function place() {
+	const wallAt = (lng: number, lat: number): number => { try { return o.collide && deps.wallHeightAt ? +deps.wallHeightAt(lng, lat) || 0 : 0; } catch { return 0; } };
+	function place(): void {
 		const ld = Math.max(-60, Math.min(80, st.lookDown)) * D2R, D = o.lookDistance, eye = st.ground + st.eyeHeight;
 		const b = st.bearing * D2R, [tl, tt] = offset(st.lng, st.lat, Math.sin(b) * D, Math.cos(b) * D);
 		map.setCamera({ lng: tl, lat: tt, height: eye - D * Math.tan(ld), distance: D / Math.cos(ld), heading: st.bearing, pitch: 90 - st.lookDown });
 	}
 	// 前・横（m）に歩く。壁があれば止まる（戻り＝動いた距離 m）
-	function step(fwd, side) {
+	function step(fwd: number, side?: number): number {
 		if (!fwd && !side) return 0;
-		const b = st.bearing * D2R, dE = Math.sin(b) * fwd + Math.cos(b) * side, dN = Math.cos(b) * fwd - Math.sin(b) * side;
+		const b = st.bearing * D2R, dE = Math.sin(b) * fwd + Math.cos(b) * side!, dN = Math.cos(b) * fwd - Math.sin(b) * side!;
 		const len = Math.hypot(dE, dN), n = Math.max(1, Math.ceil(len / 0.5));   // 0.5 m 刻みで壁を見る（一跨ぎで抜けない）
 		let moved = 0;
 		for (let i = 0; i < n; i++) {
@@ -45,12 +59,12 @@ export function createWalk(map, opts, deps) {
 		if (moved > 0) { askGround(st.lng, st.lat); if (active) place(); }
 		return moved;
 	}
-	const turn = deg => { st.bearing = ((st.bearing + deg) % 360 + 360) % 360; if (active) place(); };
-	const look = deg => { st.lookDown = Math.max(-60, Math.min(80, st.lookDown + deg)); if (active) place(); };
-	function frame(t) {
+	const turn = (deg: number): void => { st.bearing = ((st.bearing + deg) % 360 + 360) % 360; if (active) place(); };
+	const look = (deg: number): void => { st.lookDown = Math.max(-60, Math.min(80, st.lookDown + deg)); if (active) place(); };
+	function frame(t: number): void {
 		if (!active) return;
 		const dt = Math.min(0.1, lastT ? (t - lastT) / 1000 : 0); lastT = t;
-		const has = k => KEYS[k].some(x => held.has(x));
+		const has = (k: WalkKey): boolean => KEYS[k].some(x => held.has(x));
 		const v = o.speed * (shift ? o.run : 1) * dt;
 		const fwd = (has("forward") ? 1 : 0) - (has("back") ? 1 : 0), side = (has("right") ? 1 : 0) - (has("left") ? 1 : 0);
 		const tr = (has("turnR") ? 1 : 0) - (has("turnL") ? 1 : 0), lk = (has("lookDown") ? 1 : 0) - (has("lookUp") ? 1 : 0);
@@ -60,8 +74,8 @@ export function createWalk(map, opts, deps) {
 		if (!held.size) { raf = 0; return; }   // 鍵を離したら rAF を止める（地形の到着は次の鍵か ground の更新で乗る）
 		raf = requestAnimationFrame(frame);
 	}
-	const arm = () => { if (!raf && active) { lastT = 0; raf = requestAnimationFrame(frame); } };
-	function onKey(e, down) {
+	const arm = (): void => { if (!raf && active) { lastT = 0; raf = requestAnimationFrame(frame); } };
+	function onKey(e: KeyboardEvent, down: boolean): void {
 		if (!active || isTypingTarget()) return;
 		shift = e.shiftKey;
 		if (down && e.key === "Escape") { h.stop(); return; }
@@ -70,15 +84,15 @@ export function createWalk(map, opts, deps) {
 		e.preventDefault(); e.stopImmediatePropagation();
 		if (down) arm();
 	}
-	const el = () => map.mapEl || map.getCanvas?.()?.parentElement;
-	function onPointer(e, kind) {
+	const el = (): HTMLElement | null | undefined => map.mapEl || (map as GlobeMap & { getCanvas?(): HTMLCanvasElement }).getCanvas?.()?.parentElement;
+	function onPointer(e: PointerEvent, kind: "down" | "move" | "up"): void {
 		if (!active || !o.mouse) return;
-		if (kind === "down") { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); }
+		if (kind === "down") { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY }; (e.currentTarget as Element).setPointerCapture?.(e.pointerId); }
 		else if (kind === "move") { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY }; st.bearing = ((st.bearing + dx * 0.3) % 360 + 360) % 360; st.lookDown = Math.max(-60, Math.min(80, st.lookDown - dy * 0.2)); place(); }
 		else drag = null;
 	}
-	const HANDLERS = ["keyboard", "dragPan", "dragRotate", "scrollZoom", "doubleClickZoom"];
-	const h = {
+	const HANDLERS: HandlerName[] = ["keyboard", "dragPan", "dragRotate", "scrollZoom", "doubleClickZoom"];
+	const h: WalkInner = {
 		get active() { return active; },
 		start() {
 			if (active) return;
@@ -102,15 +116,15 @@ export function createWalk(map, opts, deps) {
 		},
 		step, turn, look,
 		position: () => ({ lng: st.lng, lat: st.lat, ground: st.ground, eyeHeight: st.eyeHeight, bearing: st.bearing, lookDown: st.lookDown }),
-		setGround: hM => { if (Number.isFinite(+hM)) { st.ground = Math.max(0, +hM); if (active) place(); } },   // 検定・外の標高で足元を置き直す
+		setGround: (hM: unknown) => { if (Number.isFinite(+(hM as number))) { st.ground = Math.max(0, +(hM as number)); if (active) place(); } },   // 検定・外の標高で足元を置き直す
 	};
 	return h;
 }
 // 点が多角形（GeoJSON の Polygon／MultiPolygon・[lng, lat]）の中か（偶奇・穴も見る）
-export function pointInPolygon(lng, lat, geom) {
+export function pointInPolygon(lng: number, lat: number, geom: { type: string; coordinates?: unknown } | null | undefined): boolean {
 	if (!geom) return false;
-	const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
-	const inRing = ring => { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi || 1e-18) + xi) c = !c; } return c; };
+	const polys = (geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : []) as number[][][][];
+	const inRing = (ring: number[][]): boolean => { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi || 1e-18) + xi) c = !c; } return c; };
 	for (const p of polys) { if (!p.length || !inRing(p[0])) continue; if (p.slice(1).some(inRing)) continue; return true; }
 	return false;
 }
