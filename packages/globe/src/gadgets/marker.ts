@@ -5,7 +5,20 @@
 // 位置は描くたび（map.onFrame）に投影し直す＝地形の高さに乗る（altitude＝地表からの高さ m）・球の裏へ回ったら隠す。
 // 引出線つきの吹き出し（pop ガジェット）とは別物＝こちらは錨の真上に留まる箱。
 import { RAW } from "../zoomscale.js";
-const rawOf = map => map?.[RAW] ?? map;   // 旗つきの地図（外側の顔）でも素の map で登録・投影する（登録簿を顔と素で二重にしない・台帳 R2/R18）
+import type { LonLat, MarkerOptions, PopupOptions } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+
+/** 部品が使う map の口（mapEl・投影・描画のフック・move・逆投影）。旗つきの顔は [RAW] に素の map を持つ */
+type MarkerMap = Pick<GlobeMap, "mapEl" | "makeProjectorH" | "onFrame" | "on" | "unprojectXY" | "unproject"> & { [RAW]?: MarkerMap };
+/** 地形込みの投影（lon, lat, 高さ m → [x, y, front]） */
+type Proj = ReturnType<GlobeMap["makeProjectorH"]>;
+/** 経緯度の受け口（[lon, lat] か { lng|lon, lat }） */
+type LngLatLike = LonLat | number[] | { lng?: number; lon?: number; lat: number };
+/** 登録簿（地図ごと）＝描くたびに items を置き直す */
+interface Reg { items: Set<{ _place(proj: Proj): void }>; off: (() => void) | null; place?: () => void }
+/** 知らせの受け手（e＝{ type, target＝発した Marker／Popup, …添え物 }） */
+type Listener<T> = (e: { type: string; target: T; [k: string]: unknown }) => void;
+const rawOf = (map: MarkerMap) => map?.[RAW] ?? map;   // 旗つきの地図（外側の顔）でも素の map で登録・投影する（登録簿を顔と素で二重にしない・台帳 R2/R18）
 const CSS = `
 .oe-marker{position:absolute;left:0;top:0;will-change:transform;cursor:pointer;z-index:3}
 .oe-marker.oe-drag{cursor:grab;touch-action:none}
@@ -22,14 +35,14 @@ const CSS = `
 .oe-popup[data-anchor=right] .oe-popup-tip{border-left-color:var(--qm-surface,#fff);border-right:0;order:2}`;
 let cssOn = false;
 const ensureCss = () => { if (cssOn) return; cssOn = true; const s = document.createElement("style"); s.textContent = CSS; document.head.append(s); };
-const lngLatOf = c => Array.isArray(c) ? [+c[0], +c[1]] : [+(c.lng ?? c.lon), +c.lat];
-const pinSvg = (color, scale) => `<svg width="${27 * scale}" height="${41 * scale}" viewBox="0 0 27 41" aria-hidden="true"><path d="M13.5 0C6 0 0 6 0 13.4 0 23.5 13.5 41 13.5 41S27 23.5 27 13.4C27 6 21 0 13.5 0z" fill="${color}"/><circle cx="13.5" cy="13.5" r="5" fill="#fff"/></svg>`;
+const lngLatOf = (c: LngLatLike) => Array.isArray(c) ? [+c[0], +c[1]] : [+(c.lng ?? c.lon)!, +c.lat];
+const pinSvg = (color: string, scale: number) => `<svg width="${27 * scale}" height="${41 * scale}" viewBox="0 0 27 41" aria-hidden="true"><path d="M13.5 0C6 0 0 6 0 13.4 0 23.5 13.5 41 13.5 41S27 23.5 27 13.4C27 6 21 0 13.5 0z" fill="${color}"/><circle cx="13.5" cy="13.5" r="5" fill="#fff"/></svg>`;
 // 錨の位置に対する要素の置き方（translate の割合）
-const ANCHOR = { center: [-0.5, -0.5], top: [-0.5, 0], bottom: [-0.5, -1], left: [0, -0.5], right: [-1, -0.5], "top-left": [0, 0], "top-right": [-1, 0], "bottom-left": [0, -1], "bottom-right": [-1, -1] };
+const ANCHOR: Record<string, number[]> = { center: [-0.5, -0.5], top: [-0.5, 0], bottom: [-0.5, -1], left: [0, -0.5], right: [-1, -0.5], "top-left": [0, 0], "top-right": [-1, 0], "bottom-left": [0, -1], "bottom-right": [-1, -1] };
 
 // 地図ごとの登録簿＝描くたびに全部を 1 本の投影で置き直す
-const registry = new WeakMap();
-function reg(map) {
+const registry = new WeakMap<MarkerMap, Reg>();
+function reg(map: MarkerMap): Reg {
 	let r = registry.get(map);
 	if (r) return r;
 	r = { items: new Set(), off: null };
@@ -45,15 +58,19 @@ function reg(map) {
 	return r;
 }
 class Evented {
+	declare _ev: Map<string, Set<Listener<this>>>;
 	constructor() { this._ev = new Map(); }
-	on(t, f) { (this._ev.get(t) ?? this._ev.set(t, new Set()).get(t)).add(f); return this; }
-	off(t, f) { this._ev.get(t)?.delete(f); return this; }
-	once(t, f) { const g = e => { this.off(t, g); f(e); }; return this.on(t, g); }
-	fire(t, e = {}) { for (const f of this._ev.get(t) || []) try { f({ type: t, target: this, ...e }); } catch (err) { console.error("[marker]", err); } return this; }
+	on(t: string, f: Listener<this>) { (this._ev.get(t) ?? this._ev.set(t, new Set()).get(t)!).add(f); return this; }
+	off(t: string, f: Listener<this>) { this._ev.get(t)?.delete(f); return this; }
+	once(t: string, f: Listener<this>) { const g: Listener<this> = e => { this.off(t, g); f(e); }; return this.on(t, g); }
+	fire(t: string, e: Record<string, unknown> = {}) { for (const f of this._ev.get(t) || []) try { f({ type: t, target: this, ...e }); } catch (err) { console.error("[marker]", err); } return this; }
 }
 
 export class Marker extends Evented {
-	constructor(opts = {}) {
+	declare _opts: MarkerOptions & { anchor: NonNullable<MarkerOptions["anchor"]>; offset: [number, number]; altitude: number };
+	declare _el: HTMLElement; declare _ll: number[] | null; declare _map: MarkerMap | null; declare _popup: Popup | null;
+	declare _dragged?: boolean; declare _dragBound?: boolean;
+	constructor(opts: MarkerOptions | HTMLElement = {}) {
 		super();
 		ensureCss();
 		if (opts instanceof HTMLElement) opts = { element: opts };
@@ -64,18 +81,18 @@ export class Marker extends Evented {
 		el.addEventListener("click", e => { if (this._dragged) { this._dragged = false; return; } if (this._popup) { e.stopPropagation(); this.togglePopup(); } });
 		if (this._opts.draggable) this._bindDrag();
 	}
-	setLngLat(ll) { this._ll = lngLatOf(ll); this._popup?.setLngLat(this._ll); this._map && reg(this._map).place(); return this; }
+	setLngLat(ll: LngLatLike) { this._ll = lngLatOf(ll); this._popup?.setLngLat(this._ll); this._map && reg(this._map).place!(); return this; }
 	getLngLat() { return this._ll ? { lng: this._ll[0], lat: this._ll[1] } : null; }
 	getElement() { return this._el; }
-	setOffset(o) { this._opts.offset = o; return this; }
-	setDraggable(on) { this._opts.draggable = !!on; if (on) this._bindDrag(); this._el.classList.toggle("oe-drag", !!on); return this; }
+	setOffset(o: [number, number]) { this._opts.offset = o; return this; }
+	setDraggable(on: boolean) { this._opts.draggable = !!on; if (on) this._bindDrag(); this._el.classList.toggle("oe-drag", !!on); return this; }
 	isDraggable() { return !!this._opts.draggable; }
-	setAltitude(m) { this._opts.altitude = +m || 0; return this; }
-	addTo(map) {
+	setAltitude(m: number | string) { this._opts.altitude = +m || 0; return this; }
+	addTo(map: MarkerMap) {
 		this.remove();
 		this._map = map = rawOf(map);
 		map.mapEl.append(this._el);
-		reg(map).items.add(this); reg(map).place();
+		reg(map).items.add(this); reg(map).place!();
 		return this;
 	}
 	remove() {
@@ -83,10 +100,10 @@ export class Marker extends Evented {
 		this._el.remove(); this._map = null;
 		return this;
 	}
-	setPopup(p) { this._popup = p || null; if (p && this._ll) p.setLngLat(this._ll); if (p) p._marker = this; return this; }
+	setPopup(p: Popup | null) { this._popup = p || null; if (p && this._ll) p.setLngLat(this._ll); if (p) p._marker = this; return this; }
 	getPopup() { return this._popup; }
-	togglePopup() { const p = this._popup; if (!p || !this._map) return this; if (p.isOpen()) p.remove(); else p.setLngLat(this._ll).addTo(this._map); return this; }
-	_place(proj) {
+	togglePopup() { const p = this._popup; if (!p || !this._map) return this; if (p.isOpen()) p.remove(); else p.setLngLat(this._ll!).addTo(this._map); return this; }
+	_place(proj: Proj) {
 		if (!this._ll) { this._el.style.display = "none"; return; }
 		const [x, y, f] = proj(this._ll[0], this._ll[1], this._opts.altitude);
 		if (f < 0) { this._el.style.display = "none"; return; }
@@ -101,7 +118,7 @@ export class Marker extends Evented {
 			if (!this._opts.draggable || !this._map) return;
 			e.stopPropagation(); e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch { /* 合成イベント等＝捕捉なしで続ける */ }
 			const r = this._map.mapEl.getBoundingClientRect(); let moved = false;
-			const mv = ev => { const ll = this._map.unprojectXY(ev.clientX - r.left, ev.clientY - r.top); if (!ll) return; if (!moved) { moved = true; this.fire("dragstart"); } this.setLngLat(ll); this.fire("drag"); };
+			const mv = (ev: PointerEvent) => { const ll = this._map!.unprojectXY(ev.clientX - r.left, ev.clientY - r.top); if (!ll) return; if (!moved) { moved = true; this.fire("dragstart"); } this.setLngLat(ll); this.fire("drag"); };
 			const up = () => { el.removeEventListener("pointermove", mv); el.removeEventListener("pointerup", up); if (moved) { this._dragged = true; this.fire("dragend"); } };
 			el.addEventListener("pointermove", mv); el.addEventListener("pointerup", up);
 		});
@@ -109,7 +126,10 @@ export class Marker extends Evented {
 }
 
 export class Popup extends Evented {
-	constructor(opts = {}) {
+	declare _opts: PopupOptions & { closeButton: boolean; closeOnClick: boolean; anchor: NonNullable<PopupOptions["anchor"]>; offset: number | [number, number]; maxWidth: string };
+	declare _el: HTMLDivElement; declare _body: HTMLDivElement; declare _content: HTMLDivElement; declare _ll: number[] | null; declare _map: MarkerMap | null;
+	declare _marker?: Marker; declare _onMapClick: (e: MouseEvent) => void; declare _track: boolean; declare _onTrack: (e: PointerEvent) => void;
+	constructor(opts: PopupOptions = {}) {
 		super();
 		ensureCss();
 		this._opts = { closeButton: true, closeOnClick: true, anchor: "bottom", offset: 0, maxWidth: "240px", ...opts };
@@ -122,25 +142,25 @@ export class Popup extends Evented {
 		this._el.dataset.anchor = this._opts.anchor;
 		this.setMaxWidth(this._opts.maxWidth);
 		this._ll = null; this._map = null;
-		this._onMapClick = e => { if (!this._el.contains(e.target) && !this._marker?.getElement().contains(e.target)) this.remove(); };
+		this._onMapClick = e => { if (!this._el.contains(e.target as Node) && !this._marker?.getElement().contains(e.target as Node)) this.remove(); };
 		// trackPointer（MapLibre 同名・C8）＝カーソルに付いて回る吹き出し。pointer-events を切り、mapEl の pointermove で lngLat を置き直す（球の外＝隠す）
 		this._track = false;
 		this._onTrack = e => { const m = this._map; if (!m) return; const r = m.mapEl.getBoundingClientRect(), ll = m.unproject([e.clientX - r.left, e.clientY - r.top]); if (ll) this.setLngLat([ll.lng, ll.lat]); else { this._ll = null; this._el.style.display = "none"; } };
 	}
 	trackPointer() { this._track = true; this._el.classList.add("oe-popup-track"); this._map?.mapEl.addEventListener("pointermove", this._onTrack); return this; }
-	setLngLat(ll) { this._ll = lngLatOf(ll); this._map && reg(this._map).place(); return this; }
+	setLngLat(ll: LngLatLike) { this._ll = lngLatOf(ll); this._map && reg(this._map).place!(); return this; }
 	getLngLat() { return this._ll ? { lng: this._ll[0], lat: this._ll[1] } : null; }
-	setHTML(html) { this._content.innerHTML = html; return this; }   // ⚠呼び手の HTML をそのまま入れる（MapLibre と同じ）＝外来の文字列は setText で
-	setText(s) { this._content.textContent = s; return this; }
-	setDOMContent(node) { this._content.replaceChildren(node); return this; }
-	setMaxWidth(w) { this._el.style.setProperty("--oe-pop-max", w); return this; }
+	setHTML(html: string) { this._content.innerHTML = html; return this; }   // ⚠呼び手の HTML をそのまま入れる（MapLibre と同じ）＝外来の文字列は setText で
+	setText(s: string) { this._content.textContent = s; return this; }
+	setDOMContent(node: Node) { this._content.replaceChildren(node); return this; }
+	setMaxWidth(w: string) { this._el.style.setProperty("--oe-pop-max", w); return this; }
 	getElement() { return this._el; }
 	isOpen() { return !!this._map; }
-	addTo(map) {
+	addTo(map: MarkerMap) {
 		if (this._map) this.remove();
 		this._map = map = rawOf(map);
 		map.mapEl.append(this._el);
-		reg(map).items.add(this); reg(map).place();
+		reg(map).items.add(this); reg(map).place!();
 		if (this._opts.closeOnClick) setTimeout(() => this._map && map.mapEl.addEventListener("click", this._onMapClick), 0);   // 開けたクリック自身で閉じない
 		if (this._track) map.mapEl.addEventListener("pointermove", this._onTrack);
 		this.fire("open");
@@ -155,7 +175,7 @@ export class Popup extends Evented {
 		this.fire("close");
 		return this;
 	}
-	_place(proj) {
+	_place(proj: Proj) {
 		if (!this._ll) { this._el.style.display = "none"; return; }
 		const alt = this._marker?._opts.altitude ?? 0;
 		const [x, y, f] = proj(this._ll[0], this._ll[1], alt);

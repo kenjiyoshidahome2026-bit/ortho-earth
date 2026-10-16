@@ -7,22 +7,31 @@
 // 結果は四隅の画像として地面に貼る（map.raster の image＝ドレープ）。API＝map.sunShadow(opts)（UI なしでも使える）。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** sunShadow の opts（run＝map.sunShadow・clear＝貼った画像を外す・live＝map.setShadows（canLive＝WebGPU の時だけ）・onOpen＝道具の排他） */
+export interface SunShadowOpts {
+	run?: (o: Parameters<GlobeMap["sunShadow"]>[0]) => ReturnType<GlobeMap["sunShadow"]>; clear?: () => unknown;
+	live?: ((o: Parameters<GlobeMap["setShadows"]>[0]) => unknown) | null; canLive?: () => boolean; onOpen?: () => void; minZoom?: number; signal?: AbortSignal; [k: string]: unknown;
+}
+/** 戻り値＝開く関数（open＝パネルを開く・close）。二重搭載は素の no-op */
+export type SunShadowHandle = (() => void) & { open?(): HTMLElement; close?(): void };
 
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
 	<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>`;
 const LEGEND = [["1", "#78b4ff"], ["2", "#508cf0"], ["3", "#3c5adc"], ["4", "#783cc8"], ["5", "#c82878"]];
 
 // run＝(opts) => Promise<{ triangles, maxHours, …, probes }>＝map.sunShadow の戻り（stats を平たく展開した形）
-export function sunShadow({ run, clear, live, canLive = () => true, onOpen, minZoom = 15, signal } = {}) {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」＝他の道具を閉じる）
+export function sunShadow(this: GlobeMap, { run, clear, live, canLive = () => true, onOpen, minZoom = 15, signal }: SunShadowOpts = {}): SunShadowHandle {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」＝他の道具を閉じる）
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#sunshadow-btn")) return () => {};
 	const btn = document.createElement("button");
 	btn.id = "sunshadow-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Sun & shadow"); btn.setAttribute("aria-label", t("Sun & shadow"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
-	let panel = null, busy = false;
-	const now = new Date(), pad = n => String(n).padStart(2, "0");
+	let panel: HTMLDivElement | null = null, busy = false;
+	const now = new Date(), pad = (n: number) => String(n).padStart(2, "0");
 	const build = () => {
 		if (live && !canLive()) live = null;   // GL2（フォールバック）＝影をかけない仕様＝このモードを出さない
 		panel = document.createElement("div");
@@ -40,7 +49,7 @@ export function sunShadow({ run, clear, live, canLive = () => true, onOpen, minZ
 			<div class="ss-msg" style="margin-top:6px;opacity:.8"></div>
 			<div class="ss-legend" style="display:none;margin-top:4px">${LEGEND.map(([h, c]) => `<span style="display:inline-flex;align-items:center;gap:3px;margin-inline-end:6px"><i style="width:10px;height:10px;background:${c};display:inline-block;border-radius:2px"></i>${t("$1 h+", h)}</span>`).join("")}</div>`;
 		mapEl.append(panel);
-		const $ = s => panel.querySelector(s), msg = s => { $(".ss-msg").textContent = s || ""; };
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!, msg = (s?: string) => { $(".ss-msg").textContent = s || ""; };
 		// リアルタイムの影：日付・時刻（と時刻のスライダー）が変わるたびに map.setShadows へ。別のモード・消す・パネルを閉じるで消灯
 		const liveOn = () => $("input[name=ssmode]:checked").value === "live";
 		const liveApply = () => { if (live && liveOn()) live({ on: true, time: new Date(`${$(".ss-date").value}T${$(".ss-time").value}`) }); };
@@ -50,38 +59,38 @@ export function sunShadow({ run, clear, live, canLive = () => true, onOpen, minZ
 			$(".ss-when").style.display = m === "duration" ? "none" : "";
 			$(".ss-slide").style.display = m === "live" ? "" : "none";
 			$(".ss-plane").style.display = $(".ss-run").style.display = m === "live" ? "none" : "";
-			if (m === "live") { clear(); $(".ss-legend").style.display = "none"; msg(map.getZoom() < 13 ? t("Zoom in closer (z14+)") : ""); liveApply(); } else liveOff();
+			if (m === "live") { clear!(); $(".ss-legend").style.display = "none"; msg(map.getZoom() < 13 ? t("Zoom in closer (z14+)") : ""); liveApply(); } else liveOff();
 		}));
 		$(".ss-slide").addEventListener("input", () => { const v = +$(".ss-slide").value; $(".ss-time").value = `${pad(Math.floor(v / 60))}:${pad(v % 60)}`; liveApply(); });
-		$(".ss-time").addEventListener("input", () => { const [h, m] = $(".ss-time").value.split(":").map(Number); if (Number.isFinite(h)) $(".ss-slide").value = h * 60 + (m || 0); liveApply(); });
+		$(".ss-time").addEventListener("input", () => { const [h, m] = $(".ss-time").value.split(":").map(Number); if (Number.isFinite(h)) ($(".ss-slide") as unknown as { value: number }).value = h * 60 + (m || 0); liveApply(); });
 		$(".ss-date").addEventListener("input", liveApply);
-		$(".ss-clear").addEventListener("click", () => { clear(); liveOff(); msg(""); $(".ss-legend").style.display = "none"; });
+		$(".ss-clear").addEventListener("click", () => { clear!(); liveOff(); msg(""); $(".ss-legend").style.display = "none"; });
 		$(".ss-run").addEventListener("click", async () => {
 			if (busy) return;
 			if (map.getZoom() < minZoom) { msg(t("Zoom in closer (z15+) to compute shadows")); return; }
-			const mode = $("input[name=ssmode]:checked").value;
+			const mode = $("input[name=ssmode]:checked").value as "duration" | "instant";
 			const date = mode === "instant" ? new Date(`${$(".ss-date").value}T${$(".ss-time").value}`) : undefined;
 			busy = true; msg(t("Computing…"));
 			try {
-				const r = await run({ mode, date, planeH: +$(".ss-h").value });
+				const r = await run!({ mode, date, planeH: +$(".ss-h").value });
 				if (!r.triangles) { msg(t("No buildings here")); return; }
 				msg(mode === "duration" ? t("Max $1 h · winter solstice 8–16 (solar time)", r.maxHours) : "");
 				$(".ss-legend").style.display = mode === "duration" ? "" : "none";
-			} catch (err) { console.error("[sunshadow]", err); msg(String(err?.message || err)); }
+			} catch (err) { console.error("[sunshadow]", err); msg(String((err as Error)?.message || err)); }
 			finally { busy = false; }
 		});
 	};
-	const liveMode = () => live && panel?.querySelector("input[name=ssmode]:checked")?.value === "live";
+	const liveMode = () => live && panel?.querySelector<HTMLInputElement>("input[name=ssmode]:checked")?.value === "live";
 	const open = () => {
 		if (!panel) build(); else panel.hidden = false;
 		btn.classList.add("on"); onOpen?.();
-		if (liveMode()) panel.querySelector(".ss-slide").dispatchEvent(new Event("input"));   // 開き直したらリアルタイムの影も戻す
-		return panel;
+		if (liveMode()) panel!.querySelector(".ss-slide")!.dispatchEvent(new Event("input"));   // 開き直したらリアルタイムの影も戻す
+		return panel!;
 	};
 	const close = () => {   // 閉じる＝パネルを畳みリアルタイムの影も消す（貼った日影図の画像は「消す」まで残す）
 		if (!panel || panel.hidden) return;
 		panel.hidden = true; btn.classList.remove("on");
-		if (liveMode()) live({ on: false });
+		if (liveMode()) live!({ on: false });
 	};
 	btn.addEventListener("click", () => (panel && !panel.hidden ? close() : open()));
 	signal?.addEventListener("abort", () => { panel?.remove(); btn.remove(); }, { once: true });

@@ -31,7 +31,7 @@
 		"./gadgets/anno.js": "./src/gadgets/anno.ts",
 		"./gadgets/anno-draw.js": "./src/gadgets/anno-draw.ts",
 		"./gadgets/cloud.js": "./src/gadgets/cloud.js",
-		"./gadgets/compose.js": "./src/gadgets/compose.js",
+		"./gadgets/compose.js": "./src/gadgets/compose.ts",
 		"./gadgets/dropfile.js": "./src/gadgets/dropfile.js",
 		"./gadgets/footprint.js": "./src/gadgets/footprint.ts",
 		"./gadgets/searchbox.js": "./src/gadgets/searchbox.js",

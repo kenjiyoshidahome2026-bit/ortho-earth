@@ -4,7 +4,14 @@
 // ★frame hook（毎フレ再投影で球に追従）は core 側の frameHooks に触れる＝抽象アクセス opts.onBody(本体) 経由で本体到着後に配線。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { PathGadget, PathGadgetStub } from "../../globe.d.ts";
+import type { ToolBody } from "../types/scope.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { ProfileBody, ProfileOpts } from "./profile.ts";
 const t = tr();
+
+/** 断面図の入口の opts＝本体の opts（btn はスタブが作って渡す）＋onBody（本体の到着＝frame hook の配線を登録側へ） */
+export type ProfileStubOpts = ProfileOpts & { onBody?: (body: ToolBody) => void };
 
 // 軸＋山なみグリフ（本体 profile.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `
@@ -12,7 +19,7 @@ const ICON = `
 		<path d="M3.5 4v16h17"/>
 		<path d="M5 17.5l4-8 3 3.5 4-6.5 3.5 11" stroke-width="1.6"/></svg>`;
 
-export function profile(opts = {}) {
+export function profile(this: GlobeMap, opts: ProfileStubOpts = {}): PathGadgetStub {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#profile-btn")) return () => {};   // 二重搭載は無害（作法の対称＝no-op を返す）
 	const btn = document.createElement("button");
@@ -20,15 +27,15 @@ export function profile(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<ProfileBody | void> | null = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./profile.js")
+	const boot = () => real ||= import("./profile.ts")
 		.then(m => { const g = m.profile.call(map, { ...opts, btn }); stub.abort(); opts.onBody?.(g); return g; })   // 本体は持参 btn を再利用／onBody＝frame hook 配線を core へ委ねる
 		.catch(e => { real = null; console.error("[profile] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体トグルが受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open?.(); }); };   // open＝経路指定モードON（start）
 	btn.addEventListener("click", activate, { signal: stub.signal });
 	// 戻り値＝no-op（作法の対称）＋制御ハンドル。open()＝本体到着→経路指定開始（本体handleを解決＝テスト/アプリが stats() を読める）。
-	return Object.assign(() => {}, { open: () => boot().then(g => { g && g.open?.(); return g; }), close: () => real && real.then(g => g && g.close?.()) });
+	return Object.assign(() => {}, { open: () => boot().then(g => { g && g.open?.(); return g as PathGadget | undefined; }), close: () => real && real.then(g => g && g.close?.()) });
 }

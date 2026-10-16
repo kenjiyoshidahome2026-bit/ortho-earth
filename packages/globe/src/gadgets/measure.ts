@@ -12,12 +12,24 @@ import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { geodesicDistance, geodesicArea } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
+import type { LonLat, PathGadget } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** 投影（lon, lat → [x, y, front]＝CSS px・front<0＝裏側） */
+export type Projector = (lon: number, lat: number) => number[];
+/** measure の opts（登録側が注入する手綱・btn＝stub が作ったボタン） */
+export interface MeasureOpts {
+	makeProjector?: () => Projector; unprojectXY?: (x: number, y: number) => LonLat | null; signal?: AbortSignal;
+	setClick?: (fn: ((x: number, y: number) => unknown) | null) => void; requestDraw?: () => void; btn?: HTMLButtonElement; [k: string]: unknown;
+}
+/** 本体の手綱＝no-op の関数＋start/stop/open/close/stats・_update（毎フレの再投影）。二重搭載は素の no-op */
+export type MeasureBody = (() => void) & Partial<PathGadget> & { _update?(): void };
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
 
-export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal, btn } = {}) {
+export function measure(this: GlobeMap, { makeProjector, unprojectXY, setClick, requestDraw, signal, btn }: MeasureOpts = {}): MeasureBody {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
@@ -35,11 +47,11 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 
 	const canvas = document.createElement("canvas");
 	canvas.id = "measure-lines"; mapEl.append(canvas);   // #map 直下の後置（DOM順で上・pointerは素通し）
-	const ctx = canvas.getContext("2d");
+	const ctx = canvas.getContext("2d")!;
 	const out = document.createElement("div");
 	out.id = "measure-readout"; out.style.display = "none"; mapEl.append(out);
 
-	let active = false, finished = false, verts = [], cursorLL = null, cw = 0, ch = 0;
+	let active = false, finished = false, verts: number[][] = [], cursorLL: number[] | null = null, cw = 0, ch = 0;
 	let lastTotal = 0, lastArea = 0;   // 直近の計測値（アプリ/テストが読む＝stats()）
 
 	btn.addEventListener("click", () => (active ? stop() : start()));
@@ -52,16 +64,16 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	}, { signal });
 	function start() {
 		active = true; finished = false; verts = []; cursorLL = null;
-		btn.classList.add("on"); mapEl.classList.add("measuring");
-		setClick(addVertex); draw();
+		btn!.classList.add("on"); mapEl.classList.add("measuring");
+		setClick!(addVertex); draw();
 	}
 	function stop() {
 		active = false; verts = []; cursorLL = null; finished = false;
-		btn.classList.remove("on"); mapEl.classList.remove("measuring");
-		setClick(null); draw();
+		btn!.classList.remove("on"); mapEl.classList.remove("measuring");
+		setClick!(null); draw();
 	}
-	function addVertex(x, y) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
-		const ll = unprojectXY(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
+	function addVertex(x: number, y: number) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
+		const ll = unprojectXY!(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
 		if (finished) { verts = []; finished = false; }   // 確定後の最初のクリック＝新規計測
 		verts.push(ll); draw();
 	}
@@ -70,7 +82,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	mapEl.addEventListener("pointermove", e => {
 		if (!active || finished) return;
 		const r = mapEl.getBoundingClientRect();
-		cursorLL = unprojectXY(e.clientX - r.left, e.clientY - r.top); draw();
+		cursorLL = unprojectXY!(e.clientX - r.left, e.clientY - r.top); draw();
 	}, { signal, passive: true });
 	mapEl.addEventListener("dblclick", e => { if (active && !finished) { e.preventDefault(); finish(); } }, { signal });
 	window.addEventListener("keydown", e => {
@@ -90,23 +102,23 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	// 距離・面積は WGS84（geodesic.js）。旧・球（R=6371008.8）の haversine/球面過剰は 2026-08-11 に交代＝
 	// 東西/南北で最大0.5%あった系統誤差を解消（値だけの交代＝描画の弧は下の to3/gcPoints＝表示球のまま）。
 	// ※この区画は return 文の後ろ＝関数宣言（巻き上げ）でないと draw() から見えない（const は TDZ で死ぬ）。
-	function dist(a, b) { return geodesicDistance(a, b); }
-	function areaOf(v) { return geodesicArea(v); }
-	function to3(lon, lat) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
-	function toLL(v) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
-	function gcPoints(a, b) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）
+	function dist(a: number[], b: number[]) { return geodesicDistance(a, b); }
+	function areaOf(v: number[][]) { return geodesicArea(v); }
+	function to3(lon: number, lat: number) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
+	function toLL(v: number[]) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
+	function gcPoints(a: number[], b: number[]) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）
 		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
 		let dot = A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; dot = Math.max(-1, Math.min(1, dot));
 		const om = Math.acos(dot), n = Math.max(1, Math.min(128, Math.round(om * R2D / 0.5)));
 		if (om < 1e-6 || n <= 1) return [a, b];
-		const so = Math.sin(om), pts = [];
+		const so = Math.sin(om), pts: number[][] = [];
 		for (let i = 0; i <= n; i++) {
 			const t = i / n, s0 = Math.sin((1 - t) * om) / so, s1 = Math.sin(t * om) / so;
 			pts.push(toLL([A[0] * s0 + B[0] * s1, A[1] * s0 + B[1] * s1, A[2] * s0 + B[2] * s1]));
 		}
 		return pts;
 	}
-	function midGc(a, b) {   // 大圏の中点＝2点の3D中点を正規化（短い辺で終点に化けない＝辺の真ん中に置く）
+	function midGc(a: number[], b: number[]) {   // 大圏の中点＝2点の3D中点を正規化（短い辺で終点に化けない＝辺の真ん中に置く）
 		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
 		let m = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2];
 		const len = Math.hypot(m[0], m[1], m[2]) || 1;
@@ -118,7 +130,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		const w = mapEl.clientWidth, h = mapEl.clientHeight;
 		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
 	}
-	function strokeArc(pr, a, b) {   // 大圏弧を投影して描く（裏半球へ回る点で線を切る）
+	function strokeArc(pr: Projector, a: number[], b: number[]) {   // 大圏弧を投影して描く（裏半球へ回る点で線を切る）
 		const pts = gcPoints(a, b);
 		ctx.beginPath(); let pen = false;
 		for (const p of pts) {
@@ -128,12 +140,12 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		}
 		ctx.stroke();
 	}
-	function dot(pr, ll, r) {
+	function dot(pr: Projector, ll: number[], r: number) {
 		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
 		ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
 		ctx.fillStyle = DOT; ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.stroke();
 	}
-	function textAt(pr, ll, text, dy) {   // 白文字＋黒影（ortho-map と同じ体裁）
+	function textAt(pr: Projector, ll: number[], text: string, dy: number) {   // 白文字＋黒影（ortho-map と同じ体裁）
 		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
 		ctx.fillText(text, x, y + dy);
 	}
@@ -143,7 +155,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
 		if (!active) { lastTotal = lastArea = 0; return readout(""); }
 		if (!verts.length) { lastTotal = lastArea = 0; return readout(hint()); }
-		const pr = makeProjector();
+		const pr = makeProjector!();
 
 		// 表示点列 pp を組む：確定前はカーソルを仮頂点に。閉じる（塗り/面積/閉じ辺）のは
 		// 確定後の3頂点以上、または描画中にカーソルがあり合計3点以上（＝「ここで閉じたら」のプレビュー）＝ortho-map と同じ。
@@ -157,7 +169,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		// 見えない点（地平線の向こう）は projector が地平円へクランプした位置を返す＝捨てずに結ぶ（可視部＋地平線沿いの一本の閉路）。
 		// 切ると環が subpath に割れて塗りが相殺/欠ける（geoedit overlay と同じ根治・9/15）。全点不可視なら塗らない
 		if (closed) {
-			const pts = [];
+			const pts: number[][] = [];
 			for (let i = 0; i + 1 < pp.length; i++) {
 				const arc = gcPoints(pp[i], pp[i + 1]);
 				for (let k = i === 0 ? 0 : 1; k < arc.length; k++) pts.push(pr(arc[k][0], arc[k][1]));   // 2辺目以降は先頭（前辺の終点）を飛ばす
@@ -198,7 +210,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	}
 	// 重心＝頂点の単位ベクトル平均を正規化して経緯度へ戻す。経緯度の単純平均は極付近（経度が意味を失う）や
 	// 子午線跨ぎ（経度平均が破綻）でラベルが飛ぶ＝北極跨ぎで実測。3Dなら極も子午線も透過。
-	function centroid(ring) {
+	function centroid(ring: number[][]) {
 		let x = 0, y = 0, z = 0;
 		for (const p of ring) { const v = to3(p[0], p[1]); x += v[0]; y += v[1]; z += v[2]; }
 		const len = Math.hypot(x, y, z);
@@ -208,16 +220,16 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		if (!verts.length) return `<span class="mr-hint">${t("Click to start measuring")}</span>`;
 		return finished ? `<span class="mr-hint">${t("Esc to clear, button to exit")}</span>` : `<span class="mr-hint">${t("Click to add a vertex, double-click to finish")}</span>`;
 	}
-	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
+	function readout(html: string) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
 }
 
 // ---- 表示整形（ortho-map の FIX/FIXA に合わせる）----
-function comma(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-function fmtDist(m) {   // m入力：<100m=小数1m ／ <1km=整数m ／ <10km=小数2km ／ <100km=小数1km ／ 以上=整数km
-	const km = m / 1000, c = (v, n) => comma(v.toFixed(n));
+function comma(n: string) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function fmtDist(m: number) {   // m入力：<100m=小数1m ／ <1km=整数m ／ <10km=小数2km ／ <100km=小数1km ／ 以上=整数km
+	const km = m / 1000, c = (v: number, n: number) => comma(v.toFixed(n));
 	return km < 0.1 ? c(m, 1) + " m" : km < 1 ? c(Math.round(m), 0) + " m" : km < 10 ? c(km, 2) + " km" : km < 100 ? c(km, 1) + " km" : c(km, 0) + " km";
 }
-function fmtArea(m2) {   // <1e6=整数m² ／ <1e9=小数3km² ／ 以上=整数km²
-	const c = (v, n) => comma((+v).toFixed(n));
+function fmtArea(m2: number) {   // <1e6=整数m² ／ <1e9=小数3km² ／ 以上=整数km²
+	const c = (v: number, n: number) => comma((+v).toFixed(n));
 	return m2 < 1e6 ? c(Math.round(m2), 0) + " m²" : m2 < 1e9 ? c(m2 / 1e6, 3) + " km²" : c(m2 / 1e6, 0) + " km²";
 }
