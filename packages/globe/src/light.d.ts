@@ -9,3 +9,5 @@ export function normLight(l: LightSpecification | LightSpec | null | undefined):
 export function normLights(list: LightSpec[] | LightSpec | null | undefined, known?: (type: string) => boolean): LightSpec[];
 /** 局所の光源（point/spot/ambient/hemisphere）→ renderer の "lights" の中身 */
 export function localLightsPayload(lights: LightSpec[], radiusM?: number): unknown;
+/** renderer の "light" の中身（{ dir:[e,n,u], color:[r,g,b], intensity }・bearingDeg＝今の方位） */
+export function lightPayload(light: LightSpecification, bearingDeg?: number): { dir: number[]; color: number[]; intensity: number };
