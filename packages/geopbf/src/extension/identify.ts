@@ -153,8 +153,17 @@ function segDistSq(px: number, py: number, ax: number, ay: number, bx: number, b
 	const t = c1 / c2, dx = wx - t * vx, dy = wy - t * vy;
 	return dx * dx + dy * dy;
 }
+// gint u64 の頂点 i → XY＝[ix, iy]（gint.unpackToInt と同じ値）。BigUint64Array を Uint32 で見て 32bit の整数演算だけで解く
+// （旧＝頂点ごとに BigInt の演算と配列＝hover で多角形を舐めると支配的）。L1＝bit63 を落とす・L2＝下位 6bit（weight）を落とす
+const XY: [number, number] = [0, 0];
+const u32Of = (b: BigUint64Array): Uint32Array => new Uint32Array(b.buffer, b.byteOffset, b.length * 2);
+function unpackAt(u: Uint32Array, i: number): void {
+	const lo = u[i * 2], hi = u[i * 2 + 1], loC = (hi & 0x80000000) !== 0 ? lo : (lo & 0xFFFFFFC0) >>> 0, hiC = hi & 0x7FFFFFFF;
+	XY[0] = ((gint._compact16(hiC) << 16) | gint._compact16(loC)) >>> 0;
+	XY[1] = ((gint._compact16(hiC >>> 1) << 16) | gint._compact16(loC >>> 1)) >>> 0;
+}
 function findMortonNear(buffer: BigUint64Array, meta: Uint32Array, lineStream: Int32Array, mix: number, miy: number, error: number, accept: Accept = null): number | null {
-	const errSq = error * error;
+	const errSq = error * error, u = u32Of(buffer);
 	// 1 地物（流れの位置 p0 から）の線分距離の照合
 	const hit = (fid: number, p0: number): boolean => {
 		let p = p0;
@@ -169,7 +178,7 @@ function findMortonNear(buffer: BigUint64Array, meta: Uint32Array, lineStream: I
 					const off = meta[aid * 8], len = meta[aid * 8 + 1];
 					let px = 0, py = 0;
 					for (let i = 0; i < len; i++) {
-						const [ix, iy] = gint.unpackToInt(buffer[off + i]);
+						unpackAt(u, off + i); const ix = XY[0], iy = XY[1];
 						if (i && segDistSq(mix, miy, px, py, ix, iy) <= errSq) return true;
 						px = ix; py = iy;
 					}
@@ -200,7 +209,7 @@ function findMortonNear(buffer: BigUint64Array, meta: Uint32Array, lineStream: I
 // accept＝fid → 真偽（偽＝無いものとして飛ばす＝隠した小さい面の下の、見えている面が返る・2026-09-26）
 /** 点（gint 格子単位）を含む最小のポリゴンの fid。viewBbox＝視野の bbox（null＝無視）・accept＝候補の絞り */
 export function findPolygon(buffer: BigUint64Array, meta: Uint32Array, polyStream: Int32Array, mix: number, miy: number, polyBboxByFid?: Map<number, number[]> | null, viewBbox?: ArrayLike<number> | null, accept: Accept = null): number | null {
-	const vb = viewBbox ?? null;
+	const vb = viewBbox ?? null, u = u32Of(buffer);
 	const P = 3600000000;
 	// 1 地物（流れの位置 p0 から＝多角形の塊が連続する）の内包判定（偶奇）
 	const inside = (fid: number, p0: number): boolean => {
@@ -216,9 +225,9 @@ export function findPolygon(buffer: BigUint64Array, meta: Uint32Array, polyStrea
 					const mIdx = aid * 8;
 					if (mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
 					const off = meta[mIdx], len = meta[mIdx + 1];
-					let [ix1, iy1] = gint.unpackToInt(buffer[off]);   // 各頂点の unpack（BigInt）は 1 回だけ（旧＝辺ごとに両端＝2 回）
+					unpackAt(u, off); let ix1 = XY[0], iy1 = XY[1];   // 各頂点の unpack は 1 回だけ（旧＝辺ごとに両端＝2 回）
 					for (let k = 1; k < len; k++) {
-						const [ix2, iy2] = gint.unpackToInt(buffer[off + k]);
+						unpackAt(u, off + k); const ix2 = XY[0], iy2 = XY[1];
 						if (((iy1 > miy) !== (iy2 > miy)) &&
 							(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) ins = !ins;
 						ix1 = ix2; iy1 = iy2;

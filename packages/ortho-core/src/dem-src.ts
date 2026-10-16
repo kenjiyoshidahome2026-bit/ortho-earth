@@ -29,14 +29,17 @@ const lat2y = (lat: number, z: number): number => { const s = Math.sin(lat * Mat
 
 // custom（MapLibre の raster-dem）＝h＝(R×redFactor＋G×greenFactor＋B×blueFactor)＋baseShift（f＝{ redFactor, greenFactor, blueFactor, baseShift }・2026-09-26）
 export function decodeDEM(rgba: Uint8ClampedArray | Uint8Array, encoding: string = "terrarium", f: DemFactors | null = null): Float32Array {
+	// encoding の振り分けは画素の外で 1 回（旧＝画素ごとに文字列の比較を 3 回）。式と丸めは旧と同じ＝ビット同値
 	const n = rgba.length >> 2, out = new Float32Array(n);
-	for (let i = 0; i < n; i++) {
-		const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2], a = rgba[i * 4 + 3];
-		if (a === 0) { out[i] = NaN; continue; }
-		if (encoding === "mapbox") out[i] = -10000 + (r * 65536 + g * 256 + b) * 0.1;
-		else if (encoding === "custom") out[i] = r * (f?.redFactor ?? 0) + g * (f?.greenFactor ?? 0) + b * (f?.blueFactor ?? 0) + (f?.baseShift ?? 0);
-		else if (encoding === "gsi") { const x = r * 65536 + g * 256 + b; out[i] = x === 8388608 ? NaN : (x < 8388608 ? x : x - 16777216) * 0.01; }
-		else out[i] = r * 256 + g + b / 256 - 32768;
+	if (encoding === "mapbox") {
+		for (let i = 0; i < n; i++) { const j = i * 4; out[i] = rgba[j + 3] === 0 ? NaN : -10000 + (rgba[j] * 65536 + rgba[j + 1] * 256 + rgba[j + 2]) * 0.1; }
+	} else if (encoding === "custom") {
+		const rf = f?.redFactor ?? 0, gf = f?.greenFactor ?? 0, bf = f?.blueFactor ?? 0, bs = f?.baseShift ?? 0;
+		for (let i = 0; i < n; i++) { const j = i * 4; out[i] = rgba[j + 3] === 0 ? NaN : rgba[j] * rf + rgba[j + 1] * gf + rgba[j + 2] * bf + bs; }
+	} else if (encoding === "gsi") {
+		for (let i = 0; i < n; i++) { const j = i * 4; if (rgba[j + 3] === 0) { out[i] = NaN; continue; } const x = rgba[j] * 65536 + rgba[j + 1] * 256 + rgba[j + 2]; out[i] = x === 8388608 ? NaN : (x < 8388608 ? x : x - 16777216) * 0.01; }
+	} else {
+		for (let i = 0; i < n; i++) { const j = i * 4; out[i] = rgba[j + 3] === 0 ? NaN : rgba[j] * 256 + rgba[j + 1] + rgba[j + 2] / 256 - 32768; }
 	}
 	return out;
 }
@@ -108,10 +111,11 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput): DemSource
 			const x0 = Math.floor(lon2x(w, z)), x1 = Math.floor(lon2x(e - 1e-9, z)), y0 = Math.floor(lat2y(no, z)), y1 = Math.floor(lat2y(so + 1e-9, z));
 			const need: [number, number][] = []; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) need.push([x, y]);
 			if (need.length > 400) return null;   // 取りすぎ（cellZoom が細かすぎる・範囲が広すぎる）＝既定の標高へ
-			const got = new Map<string, DemTile | null>();
-			let i = 0; await Promise.all(Array.from({ length: 8 }, async () => { while (i < need.length) { const [x, y] = need[i++]; got.set(x + "," + y, await tile(z, x, y)); } }));
-			const get = (x: number, y: number): DemTile | null | undefined => got.get(x + "," + y);
-			if (![...got.values()].some(Boolean)) return null;
+			// 取ったタイルは矩形 [x0,x1]×[y0,y1] の添字で引く（旧＝標本ごとに "x,y" の文字列の鍵で Map＝1025² 標本で時間の半分）。範囲の外は undefined＝旧と同じ
+			const W = x1 - x0 + 1, got: (DemTile | null | undefined)[] = new Array(need.length);
+			let i = 0; await Promise.all(Array.from({ length: 8 }, async () => { while (i < need.length) { const k = i++, [x, y] = need[k]; got[k] = await tile(z, x, y); } }));
+			const get = (x: number, y: number): DemTile | null | undefined => x >= x0 && x <= x1 && y >= y0 && y <= y1 ? got[(y - y0) * W + (x - x0)] : undefined;
+			if (!got.some(Boolean)) return null;
 			const data = new Float32Array(N * N);
 			let valid = 0;
 			for (let r = 0; r < N; r++) {
