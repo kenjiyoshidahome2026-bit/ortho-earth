@@ -3,24 +3,24 @@
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { betaToLonLat, cameraState } from "@ortho-earth/core";
 import { clipDistanceM, clipPlanes } from "@ortho-earth/core/clip";
-import { compass as compassGadget } from "../gadgets/compass.js";
+import { compass as compassGadget } from "../gadgets/compass.ts";
 import { contextmenu as contextmenuGadget } from "../gadgets/contextmenu.js";
-import { cpos as cposGadget } from "../gadgets/cpos.js";
+import { cpos as cposGadget } from "../gadgets/cpos.ts";
 import { equal as equalGadget, equalHereItem, goEqual } from "../gadgets/equal.js";
-import { explain as explainGadget } from "../gadgets/explain.js";
-import { full as fullGadget } from "../gadgets/full.js";
-import { hint as hintGadget } from "../gadgets/hint.js";
-import { lang as langGadget } from "../gadgets/lang.js";
-import { legend as legendGadget } from "../gadgets/legend.js";
+import { explain as explainGadget } from "../gadgets/explain.ts";
+import { full as fullGadget } from "../gadgets/full.ts";
+import { hint as hintGadget } from "../gadgets/hint.ts";
+import { lang as langGadget } from "../gadgets/lang.ts";
+import { legend as legendGadget } from "../gadgets/legend.ts";
 import { measure as measureGadget } from "../gadgets/measure-stub.js";
 import { mesh as meshGadget } from "../gadgets/mesh.js";
 import { palette as paletteGadget } from "../gadgets/palette-stub.js";
 import { pop as popGadget } from "../gadgets/pop.js";
 import { profile as profileGadget } from "../gadgets/profile-stub.js";
-import { search as searchGadget } from "../gadgets/searchbox.js";
-import { solar as solarGadget } from "../gadgets/solar.js";
+import { search as searchGadget } from "../gadgets/searchbox.ts";
+import { solar as solarGadget } from "../gadgets/solar.ts";
 import { tip as tipGadget } from "../gadgets/tip.js";
-import { zoom as zoomGadget } from "../gadgets/zoom.js";
+import { zoom as zoomGadget } from "../gadgets/zoom.ts";
 
 import type { GlobeMap, GadgetCallers, GadgetGate, GadgetsApi, RegisterGadget } from "../types/map.ts";
 import type { GadgetsDeps, GadgetsLive, GadgetsReturn, Installing } from "../types/install.ts";

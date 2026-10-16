@@ -35,19 +35,19 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/globe/src/gadgets/cloud.js": {
+		"packages/globe/src/gadgets/cloud.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/globe/src/gadgets/demo.js": {
+		"packages/globe/src/gadgets/demo.ts": {
 			"jp": {
 				"n": 1,
 				"why": "互換：旧い台本の言語の鍵 jp:（ja の旧綴り）を ja の別名として読む＝利用者の .scenes に残り得る（B12・2026-09-25）"
 			}
 		},
-		"packages/globe/src/gadgets/editdoc.js": {
+		"packages/globe/src/gadgets/editdoc.ts": {
 			"japan": {
 				"n": 1,
 				"why": "凍結：IndexedDB の名 ortho-japan-edit（利用者の端末に残る編集の下書き）"
@@ -65,7 +65,7 @@
 				"why": "負債（地域）：POI 編集の分類名（観光資源・寺院・神社…＝optbv の注記分類）。日本の地域パックへ移す"
 			}
 		},
-		"packages/globe/src/gadgets/qrcode.js": {
+		"packages/globe/src/gadgets/qrcode.ts": {
 			"japan": {
 				"n": 4,
 				"why": "試料：QR 符号器の自己検定に使う URL 文字列"

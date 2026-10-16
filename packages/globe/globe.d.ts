@@ -391,7 +391,7 @@ export interface CogHandle {
 	readonly width: number | null; readonly height: number | null;
 }
 /** demo ガジェットの opts（台本の形＝demo/scene-format.md） */
-export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean }
+export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean; /** 台本（と設定）を返す関数＝▶だけ先に出し、本体と台本は押した時に読む */ lazy?: () => Promise<DemoOptions> }
 export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
 /** equal／equalHere／equalStart の opts。url＝Equal Earth の置き場・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe） */
 export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown }
@@ -413,7 +413,8 @@ export interface Gadgets {
 	profile(): PathGadgetStub;
 	/** 右クリックメニュー。既定で「この地点へ寄る／座標をコピー」の 2 項目を持ち、items は**置換**（関数形＝クリック位置ごとに組める）。戻り値＝項目差し替え関数（再搭載時は {setItems}） */
 	contextmenu(opts?: { items?: ContextMenuItems }): ((items: ContextMenuItems) => void) | { setItems(items: ContextMenuItems): void };
-	legend(): unknown;
+	/** 左下の凡例パネル（permanent＝×を出さない常設・width＝最大幅 px）。戻り値＝内容の setter（explain と同じ形）。二重搭載は何もしない setter */
+	legend(opts?: { permanent?: boolean; width?: number }): (html: string | null | ((body: HTMLElement) => unknown)) => unknown;
 	/** 配色テーマの入口（本体はアイドルに先読み）。open()＝本体を読んで開く・close()＝本体が在れば畳む（無ければ null）。opts.theme で焼き付けた地図・二重搭載は undefined */
 	palette(): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined;
 	hint(): unknown;
