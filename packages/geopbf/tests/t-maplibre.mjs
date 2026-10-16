@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { isDeepStrictEqual } from "node:util";
 import { GeoPBFBase } from "../src/pbf-base.ts";
-import { geopbfProtocol, makeGeopbfProtocol, loadGeopbf, sanitizeProperties } from "../src/maplibre.js";
+import { geopbfProtocol, makeGeopbfProtocol, loadGeopbf, sanitizeProperties } from "../src/maplibre.ts";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ。IMAGE 型の写像検証も兼ねる。
 globalThis.ImageData ??= class ImageData {

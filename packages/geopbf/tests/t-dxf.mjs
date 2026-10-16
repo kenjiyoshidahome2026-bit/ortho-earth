@@ -122,10 +122,10 @@ const byType = (f, t) => f.filter(x => x.properties.type === t);
 	ok(r && r !== "TIMEOUT" && r.type === "dxfdec" && r.data instanceof ArrayBuffer && /assumed lon\/lat/.test(r.warning) && /HATCH×1/.test(r.warning), `decoder worker: ${r?.warning}`);
 	if (r?.data) { const p = await new GeoPBF().set(r.data); ok(p.length === 1, "worker 経由 1 地物"); }
 	const tmp = new URL("./fixtures/_t.dxf", import.meta.url).pathname; writeFileSync(tmp, src);
-	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	const out = execFileSync("node", [new URL("../src/cli/geopbf.ts", import.meta.url).pathname, "dxf2pbf", tmp], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	ok(/entities 2/.test(out) && /LINE×1/.test(out), "CLI dxf2pbf の一覧");
 	const outPbf = tmp.replace(/\.dxf$/, ".geopbf");
-	const out2 = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp, outPbf, "--crs", "4326"], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	const out2 = execFileSync("node", [new URL("../src/cli/geopbf.ts", import.meta.url).pathname, "dxf2pbf", tmp, outPbf, "--crs", "4326"], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	ok(/features 1/.test(out2) && /EPSG:4326/.test(out2), "CLI dxf2pbf --crs 4326 で変換");
 	const { unlinkSync } = await import("node:fs"); unlinkSync(tmp); unlinkSync(outPbf);
 }

@@ -9,6 +9,7 @@
 // ヘッダメタ（name/description/license/attribution/minZoom/maxZoom）は返り値の `geopbfMeta` に添付する。
 // worker: false＝メインスレッド解決（GeoPBF のデコードは軽く、worker バンドル配布を持たないため）。
 import { decodeToGeojson, loadGeopbf, sanitizeProperties } from "./modules/geojson-load.ts";
+import type { FeatureCollection, HeaderMeta } from "../types/geopbf.js";
 
 export { loadGeopbf, sanitizeProperties };
 
@@ -27,9 +28,9 @@ export const GeoPBFLoader = {
 	binary: true,
 	category: "geometry",
 	options: { geopbf: { sanitize: true } },
-	parse: async (arrayBuffer, options) => {
+	parse: async (arrayBuffer: ArrayBuffer, options?: { geopbf?: { sanitize?: boolean } }): Promise<FeatureCollection & { geopbfMeta: HeaderMeta }> => {
 		const { geojson, meta } = await decodeToGeojson(arrayBuffer, { sanitize: options?.geopbf?.sanitize !== false });
-		geojson.geopbfMeta = meta;
-		return geojson;
+		(geojson as FeatureCollection & { geopbfMeta: HeaderMeta }).geopbfMeta = meta;
+		return geojson as FeatureCollection & { geopbfMeta: HeaderMeta };
 	},
 };

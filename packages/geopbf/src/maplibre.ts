@@ -16,12 +16,14 @@
 // fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.ts（leaflet 統合と共用）。
 import { resolveInnerUrl, fetchAndDecode, sanitizeProperties, loadGeopbf } from "./modules/geojson-load.ts";
 import { fetchGeopbfTiles } from "./modules/tile-load.ts";
-import { createTileSource } from "./convert/tilesource.ts";
+import { createTileSource, type TileSource, type TileSourceOptions } from "./convert/tilesource.ts";
+import type { GeoPBFBase } from "./pbf-base.ts";
+import type { HeaderMeta } from "../types/geopbf.js";
 
 export { sanitizeProperties, loadGeopbf, createTileSource };
 
 // "geopbf://https://host/a.geopbf/3/7/3" → { inner: "https://host/a.geopbf", z, x, y }。タイル形でなければ null
-export function parseTileUrl(url) {
+export function parseTileUrl(url: string): { inner: string; z: number; x: number; y: number } | null {
 	const m = /^(.*?)\/(\d{1,2})\/(\d{1,10})\/(\d{1,10})(?:\.(?:pbf|mvt))?(?:\?.*)?$/.exec(url);
 	return m ? { inner: m[1], z: +m[2], x: +m[3], y: +m[4] } : null;
 }
@@ -29,9 +31,26 @@ export function parseTileUrl(url) {
 // options: { fetch(url,{signal})→Response, tiler（createTileSource の options・既定 {}）, tilerOf(innerUrl)→options（URL ごと）,
 //            bake(pbf)→Promise（Gint を焼く手・既定 pbf.gint()）, onSource(innerUrl, src) }
 // 1 内側 URL に 1 つの tile source（最初の要求で取得・焼き・準備、以後はキャッシュ）。sources.delete(innerUrl) / dispose(innerUrl) で手放す
-export function makeGeopbfTileProtocol(options = {}) {
-	const sources = new Map();   // innerUrl → Promise<tileSource>
-	const sourceOf = (inner, signal) => {
+/** MapLibre の addProtocol が渡す要求（maplibre-gl は import しない＝型も自前の最小形） */
+export interface ProtocolRequest { url: string; type?: string; [key: string]: unknown }
+export interface ProtocolResponse { data: unknown; cacheControl?: string; expires?: string }
+export type ProtocolHandler = (params: ProtocolRequest, abortController?: AbortController) => Promise<ProtocolResponse>;
+export interface TileProtocolOptions {
+	fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+	/** createTileSource の options（既定 {}） */
+	tiler?: TileSourceOptions;
+	/** 内側 URL ごとの options */
+	tilerOf?: (innerUrl: string) => TileSourceOptions | null | undefined;
+	/** Gint を焼く手（既定 pbf.gint()） */
+	bake?: (pbf: GeoPBFBase) => Promise<unknown>;
+	onSource?: (innerUrl: string, source: TileSource) => void;
+}
+export interface TileProtocolHandler extends ProtocolHandler { sources: Map<string, Promise<TileSource>>; dispose(innerUrl: string): Promise<void> }
+export interface GeopbfProtocolOptions extends TileProtocolOptions { sanitize?: boolean; onMeta?: (innerUrl: string, meta: HeaderMeta) => void }
+export interface GeopbfProtocolHandler extends ProtocolHandler { tiles: TileProtocolHandler }
+export function makeGeopbfTileProtocol(options: TileProtocolOptions = {}): TileProtocolHandler {
+	const sources = new Map<string, Promise<TileSource>>();   // innerUrl → Promise<tileSource>
+	const sourceOf = (inner: string, signal?: AbortSignal) => {
 		let p = sources.get(inner);
 		if (!p) {
 			p = fetchGeopbfTiles(inner, { signal, fetch: options.fetch, bake: options.bake }).then(async pbf => {
@@ -44,25 +63,25 @@ export function makeGeopbfTileProtocol(options = {}) {
 		}
 		return p;
 	};
-	const handler = async (params, abortController) => {
+	const handler = (async (params: ProtocolRequest, abortController?: AbortController) => {
 		const t = parseTileUrl(params.url);
 		if (!t) throw new Error(`geopbf tile protocol: URL must end with /{z}/{x}/{y}: ${params.url}`);
 		const inner = resolveInnerUrl(t.inner);
 		const src = await sourceOf(inner, abortController?.signal);
 		const bytes = await src.tile(t.z, t.x, t.y);
 		return { data: bytes ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : new ArrayBuffer(0) };   // 空＝feature 無しのタイル（MapLibre は空の MVT として扱う）
-	};
+	}) as TileProtocolHandler;
 	handler.sources = sources;
-	handler.dispose = async (inner) => { const p = sources.get(inner); sources.delete(inner); if (p) (await p.catch(() => null))?.destroy(); };
+	handler.dispose = async (inner: string) => { const p = sources.get(inner); sources.delete(inner); if (p) (await p.catch(() => null))?.destroy(); };
 	return handler;
 }
 export const geopbfTileProtocol = makeGeopbfTileProtocol();
 
 // options: { fetch(url,{signal})→Response, sanitize=true, onMeta(innerUrl, meta) }
 // addProtocol はソースの attribution / レイヤーの minzoom を設定できないので、必要なら onMeta か loadGeopbf を使う。
-export function makeGeopbfProtocol(options = {}) {
+export function makeGeopbfProtocol(options: GeopbfProtocolOptions = {}): GeopbfProtocolHandler {
 	const tiles = makeGeopbfTileProtocol(options);
-	const handler = async (params, abortController) => {
+	const handler = (async (params: ProtocolRequest, abortController?: AbortController) => {
 		// タイルの要求（末尾 /z/x/y・MapLibre は vector ソースで type:"arrayBuffer" を付ける）はタイル経路へ。type の無い呼び手は URL の形だけで決める
 		if ((params.type === "arrayBuffer" || params.type == null) && parseTileUrl(params.url)) return tiles(params, abortController);
 		const innerUrl = resolveInnerUrl(params.url);
@@ -71,7 +90,7 @@ export function makeGeopbfProtocol(options = {}) {
 		});
 		options.onMeta?.(innerUrl, meta);
 		return { data: geojson };
-	};
+	}) as GeopbfProtocolHandler;
 	handler.tiles = tiles;   // タイル側の sources / dispose
 	return handler;
 }
