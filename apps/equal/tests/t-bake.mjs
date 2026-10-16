@@ -1,7 +1,7 @@
 // GintBUF → 描画用配列の焼きの検定（LOD 段・縫い目の除外・向きの正規化・隣接・輪郭の分類）
 // GintBUF は geopbf の gint.pack と同じ Morton 詰めで手組み（ここに複製＝geopbf の wasm/worker を Node で起こさない）
 import assert from "node:assert/strict";
-import { bakeLayer, bakeGraticule } from "../../../packages/equal/src/bake.js";
+import { bakeLayer, bakeGraticule } from "../../../packages/equal/src/bake.ts";
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
 const spread16 = x => { x &= 0xFFFF; x = (x | (x << 8)) & 0x00FF00FF; x = (x | (x << 4)) & 0x0F0F0F0F; x = (x | (x << 2)) & 0x33333333; x = (x | (x << 1)) & 0x55555555; return x >>> 0; };
