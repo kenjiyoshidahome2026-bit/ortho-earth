@@ -20,7 +20,7 @@ ok(JSON.stringify(a.getGeometry(5)) === JSON.stringify(b.getGeometry(5)), "geome
 // B4（2026-09-25）：skipProps の pbf（＝ブラウザの worker 経由の読み）を GeoParquet に書いても属性列が全部残る。
 // 1 行だけ getProperties で触った状態（旧は触った行だけ書かれた）も同じ
 {
-	const { toGeoParquet, fromGeoParquet } = await import("../src/convert/geoparquet.js");
+	const { toGeoParquet, fromGeoParquet } = await import("../src/convert/geoparquet.ts");
 	const fresh = async touch => { const p = new GeoPBF(); p.pbf = new Pbf(ab.slice(0)); await p.getPosition({ skipProps: true }); touch?.(p); return p; };
 	const want = JSON.stringify(a.getProperties(3)), wantLast = JSON.stringify(a.getProperties(a.fmap.length - 1));
 	for (const [tag, touch] of [["未復号", null], ["1 行だけ復号済み", p => p.getProperties(1)]]) {

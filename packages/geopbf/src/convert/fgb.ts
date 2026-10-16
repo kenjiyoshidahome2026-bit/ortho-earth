@@ -13,9 +13,12 @@
 //   const { pbf, stats } = await fromFlatGeobuf(u8, { name, precision, ignoreCrs, tky2jgd, patchjgd });
 import { mercToLonLat } from "../modules/mercator.js";
 import { GeoPBF } from "../pbf-base.js";
-import { classifyCrs } from "./gpkg.js";
-import { epsgToWKT } from "./epsg.js";
-import { resolveDatum, datumStats } from "./datum.js";
+import { classifyCrs } from "./gpkg.ts";
+import type { SkippedColumn } from "./gpkg.ts";
+import { epsgToWKT } from "./epsg.ts";
+import { resolveDatum, datumStats } from "./datum.ts";
+import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
+import type { Geometry, Position, CrsInfo, XF, MetaOptions, AttrOptions } from "./types.ts";
 
 import { now } from "../modules/now.js";
 const GTYPES = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
@@ -23,8 +26,30 @@ const CTYPES = ["Byte", "UByte", "Bool", "Short", "UShort", "Int", "UInt", "Long
 const NODE_ITEM_BYTE_LEN = 40;   // packed Hilbert R-tree の 1 節＝bbox 4×f64 ＋ offset u64
 const TD = new TextDecoder();
 
+export interface FgbColumn { name: string; type: number }
+export interface FgbCrs { org: string | null; code: number; name: string | null; wkt: string | null; codeString: string | null }
+export interface FgbHeader {
+	reader: Reader;
+	name: string | null; title: string | null; description: string | null;
+	envelope: number[] | null;
+	geometryType: number;
+	hasZ: boolean; hasM: boolean; hasT: boolean; hasTM: boolean;
+	columns: FgbColumn[];
+	featuresCount: number;
+	indexNodeSize: number;
+	crs: FgbCrs | null;
+	featuresOffset: number;
+}
+export interface FromFgbOptions extends MetaOptions, AttrOptions, DatumOptions { ignoreCrs?: boolean }
+export interface FgbStats {
+	features: number; rows: number; droppedGeometries: number; bigints: number; columns: string[]; skipped: SkippedColumn[];
+	crs: string; reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; z: boolean; m: boolean; geometryType: string; types: Record<string, number>; ms: number;
+}
+export interface FromFgbResult { pbf: GeoPBF; stats: FgbStats }
+type Single = Exclude<Geometry, { type: "GeometryCollection" }>;
+
 // 索引の大きさ（公式 packedrtree の calcTreeSize と同じ）
-export function calcTreeSize(numItems, nodeSize) {
+export function calcTreeSize(numItems: number, nodeSize: number): number {
 	nodeSize = Math.min(Math.max(nodeSize, 2), 65535);
 	let n = numItems, numNodes = n;
 	do { n = Math.ceil(n / nodeSize); numNodes += n; } while (n !== 1);
@@ -33,34 +58,37 @@ export function calcTreeSize(numItems, nodeSize) {
 
 // FlatBuffers の最小リーダ（位置は全部 u8 の絶対位置・整列に依存しない DataView 読み）
 class Reader {
-	constructor(u8) { this.u8 = u8; this.view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
-	indirect(pos) { return pos + this.view.getUint32(pos, true); }
-	field(table, idx) {   // 欄 idx の中身の位置（無ければ 0）
+	u8: Uint8Array;
+	view: DataView;
+	constructor(u8: Uint8Array) { this.u8 = u8; this.view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
+	indirect(pos: number): number { return pos + this.view.getUint32(pos, true); }
+	field(table: number, idx: number): number {   // 欄 idx の中身の位置（無ければ 0）
 		const vt = table - this.view.getInt32(table, true), vtSize = this.view.getUint16(vt, true), vo = 4 + idx * 2;
 		if (vo >= vtSize) return 0;
 		const off = this.view.getUint16(vt + vo, true);
 		return off ? table + off : 0;
 	}
-	u8At(table, idx, def = 0) { const p = this.field(table, idx); return p ? this.view.getUint8(p) : def; }
-	u16At(table, idx, def = 0) { const p = this.field(table, idx); return p ? this.view.getUint16(p, true) : def; }
-	i32At(table, idx, def = 0) { const p = this.field(table, idx); return p ? this.view.getInt32(p, true) : def; }
-	u64At(table, idx, def = 0) { const p = this.field(table, idx); return p ? this.view.getUint32(p, true) + this.view.getUint32(p + 4, true) * 0x100000000 : def; }
-	str(table, idx) { const p = this.field(table, idx); if (!p) return null; const s = this.indirect(p), n = this.view.getUint32(s, true); return TD.decode(this.u8.subarray(s + 4, s + 4 + n)); }
-	vec(table, idx) { const p = this.field(table, idx); if (!p) return null; const s = this.indirect(p); return { pos: s + 4, len: this.view.getUint32(s, true) }; }
-	tables(table, idx) { const v = this.vec(table, idx); if (!v) return []; const out = new Array(v.len); for (let i = 0; i < v.len; i++) out[i] = this.indirect(v.pos + i * 4); return out; }
+	u8At(table: number, idx: number, def = 0): number { const p = this.field(table, idx); return p ? this.view.getUint8(p) : def; }
+	u16At(table: number, idx: number, def = 0): number { const p = this.field(table, idx); return p ? this.view.getUint16(p, true) : def; }
+	i32At(table: number, idx: number, def = 0): number { const p = this.field(table, idx); return p ? this.view.getInt32(p, true) : def; }
+	u64At(table: number, idx: number, def = 0): number { const p = this.field(table, idx); return p ? this.view.getUint32(p, true) + this.view.getUint32(p + 4, true) * 0x100000000 : def; }
+	str(table: number, idx: number): string | null { const p = this.field(table, idx); if (!p) return null; const s = this.indirect(p), n = this.view.getUint32(s, true); return TD.decode(this.u8.subarray(s + 4, s + 4 + n)); }
+	vec(table: number, idx: number): { pos: number; len: number } | null { const p = this.field(table, idx); if (!p) return null; const s = this.indirect(p); return { pos: s + 4, len: this.view.getUint32(s, true) }; }
+	tables(table: number, idx: number): number[] { const v = this.vec(table, idx); if (!v) return []; const out: number[] = new Array(v.len); for (let i = 0; i < v.len; i++) out[i] = this.indirect(v.pos + i * 4); return out; }
 }
+export type { Reader as FgbReader };
 
-const readColumns = (r, tables) => tables.map(t => ({ name: r.str(t, 0) ?? "", type: r.u8At(t, 1, 0) }));
+const readColumns = (r: Reader, tables: number[]): FgbColumn[] => tables.map(t => ({ name: r.str(t, 0) ?? "", type: r.u8At(t, 1, 0) }));
 
 /** ヘッダだけ読む（変換はしない）。 */
-export function readFlatGeobufHeader(u8) {
+export function readFlatGeobufHeader(u8: Uint8Array): FgbHeader {
 	if (!(u8[0] === 0x66 && u8[1] === 0x67 && u8[2] === 0x62)) throw new Error("fgb: not a FlatGeobuf file (magic 'fgb' missing)");
 	if (u8[3] !== 3) throw new Error(`fgb: unsupported FlatGeobuf major version ${u8[3]} (only v3)`);
 	const r = new Reader(u8);
 	const headerSize = r.view.getUint32(8, true);
 	const h = r.indirect(12);
 	const crsT = r.field(h, 10) ? r.indirect(r.field(h, 10)) : 0;
-	const crs = crsT ? { org: r.str(crsT, 0), code: r.i32At(crsT, 1, 0), name: r.str(crsT, 2), wkt: r.str(crsT, 4), codeString: r.str(crsT, 5) } : null;
+	const crs: FgbCrs | null = crsT ? { org: r.str(crsT, 0), code: r.i32At(crsT, 1, 0), name: r.str(crsT, 2), wkt: r.str(crsT, 4), codeString: r.str(crsT, 5) } : null;
 	const env = r.vec(h, 1);
 	return {
 		reader: r,
@@ -77,7 +105,7 @@ export function readFlatGeobufHeader(u8) {
 }
 
 // CRS → 経緯度への変換（null＝そのまま）。kind: lonlat / mercator / projected / datum / other
-function crsTransform(crs, datum) {
+function crsTransform(crs: FgbCrs | null, datum: Datum | null): CrsInfo & { xf: XF | null } {
 	if (!crs) return { kind: "lonlat", label: "none (assumed lon/lat)", xf: null };
 	const org = (crs.org || "EPSG").toUpperCase(), code = crs.code;
 	if (!code && !crs.wkt && /^CRS84$/i.test(crs.codeString ?? "")) return { kind: "lonlat", label: "OGC:CRS84", xf: null };
@@ -87,13 +115,13 @@ function crsTransform(crs, datum) {
 }
 
 // 属性（③）：列定義 cols に従って 2 進を読む
-function readProps(r, pos, end, cols, stats) {
-	const v = r.view, props = {};
+function readProps(r: Reader, pos: number, end: number, cols: FgbColumn[], stats: { bigints: number }): Record<string, unknown> {
+	const v = r.view, props: Record<string, unknown> = {};
 	while (pos + 2 <= end) {
 		const col = cols[v.getUint16(pos, true)]; pos += 2;
 		if (!col) break;   // 壊れた列番号＝この地物の残りは読めない
 		const t = col.type;
-		let val, n = 0;
+		let val: unknown, n = 0;
 		switch (t) {
 			case 0: val = v.getInt8(pos); n = 1; break;
 			case 1: val = v.getUint8(pos); n = 1; break;
@@ -123,24 +151,25 @@ function readProps(r, pos, end, cols, stats) {
 }
 
 // 幾何（①）：Geometry 表 → GeoJSON geometry（xf＝経緯度へ）。曲線系・空は null
-function readGeometry(r, g, type, xf, part = false) {
+function readGeometry(r: Reader, g: number, type: number, xf: XF | null, part = false): Geometry | null {
+	void part;
 	const own = r.u8At(g, 6, 0);
 	const t = own || type;
 	if (t === 6 || t === 7) {   // MultiPolygon / GeometryCollection＝parts
-		const parts = r.tables(g, 7).map(p => readGeometry(r, p, t === 6 ? 3 : 0, xf, true)).filter(Boolean);
+		const parts = r.tables(g, 7).map(p => readGeometry(r, p, t === 6 ? 3 : 0, xf, true)).filter((p): p is Geometry => !!p);
 		if (!parts.length) return null;
-		return t === 6 ? { type: "MultiPolygon", coordinates: parts.map(p => p.coordinates) } : { type: "GeometryCollection", geometries: parts };
+		return t === 6 ? { type: "MultiPolygon", coordinates: parts.map(p => (p as Single).coordinates as Position[][]) } : { type: "GeometryCollection", geometries: parts };
 	}
 	if (!(t >= 1 && t <= 5)) return null;   // Unknown のまま／曲線系（8〜17）
 	const xyV = r.vec(g, 1);
 	if (!xyV || xyV.len < 2) return null;
 	const v = r.view, np = xyV.len >> 1;
-	const pt = i => { const c = [v.getFloat64(xyV.pos + i * 16, true), v.getFloat64(xyV.pos + i * 16 + 8, true)]; return xf ? xf(c) : c; };
-	const run = (a, b) => { const out = new Array(b - a); for (let i = a; i < b; i++) out[i - a] = pt(i); return out; };
+	const pt = (i: number): Position => { const c = [v.getFloat64(xyV.pos + i * 16, true), v.getFloat64(xyV.pos + i * 16 + 8, true)]; return xf ? xf(c) : c; };
+	const run = (a: number, b: number): Position[] => { const out: Position[] = new Array(b - a); for (let i = a; i < b; i++) out[i - a] = pt(i); return out; };
 	const endsV = r.vec(g, 0);
-	const groups = () => {
+	const groups = (): Position[][] => {
 		if (!endsV || !endsV.len) return [run(0, np)];
-		const out = []; let s = 0;
+		const out: Position[][] = []; let s = 0;
 		for (let k = 0; k < endsV.len; k++) { const e = v.getUint32(endsV.pos + k * 4, true); out.push(run(s, e)); s = e; }
 		return out;
 	};
@@ -155,9 +184,9 @@ function readGeometry(r, g, type, xf, part = false) {
 }
 
 /** FlatGeobuf → GeoPBF。戻り: { pbf, stats: { features, rows, droppedGeometries, columns, skipped, crs, reprojected, z, m, geometryType, bigints, ms } } */
-export async function fromFlatGeobuf(u8, opts = {}) {
+export async function fromFlatGeobuf(input: Uint8Array | ArrayBuffer | ArrayBufferView, opts: FromFgbOptions = {}): Promise<FromFgbResult> {
 	const t0 = now();
-	if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
+	const u8: Uint8Array = input instanceof Uint8Array ? input : new Uint8Array(input as ArrayBuffer);
 	const h = readFlatGeobufHeader(u8), r = h.reader;
 	const datum = await resolveDatum(opts);
 	const crs = crsTransform(h.crs, datum);
@@ -165,11 +194,11 @@ export async function fromFlatGeobuf(u8, opts = {}) {
 	const xf = opts.ignoreCrs && crs.kind === "other" ? null : crs.xf;
 	let pos = h.featuresOffset;
 	if (h.indexNodeSize > 0 && h.featuresCount > 0) pos += calcTreeSize(h.featuresCount, h.indexNodeSize);
-	const stats = { features: 0, rows: 0, droppedGeometries: 0, bigints: 0, columns: h.columns.map(c => c.name), skipped: h.columns.filter(c => c.type === 14).map(c => ({ name: c.name, reason: "Binary" })),
+	const stats: FgbStats = { features: 0, rows: 0, droppedGeometries: 0, bigints: 0, columns: h.columns.map(c => c.name), skipped: h.columns.filter(c => c.type === 14).map(c => ({ name: c.name, reason: "Binary" })),
 		crs: crs.label, reprojected: !!xf, datumApprox: !!crs.approx, datum: datumStats(datum), z: h.hasZ, m: h.hasM, geometryType: GTYPES[h.geometryType] ?? `type ${h.geometryType}`, types: {}, ms: 0 };
 
 	// 列：ヘッダの列＋地物ごとの列（出現順に足す）＝setHead は全部の名前を先に要る＝1 周目で列名を集め、2 周目で書く
-	const feats = [];
+	const feats: { f: number; cols: FgbColumn[] }[] = [];
 	const names = new Set(h.columns.filter(c => c.type !== 14).map(c => c.name));
 	for (let p = pos; p + 4 <= u8.length;) {
 		const size = r.view.getUint32(p, true);

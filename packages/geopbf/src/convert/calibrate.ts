@@ -11,18 +11,18 @@
 // 出力は Uint8Array(zoomCount × arcCount)（k 優先・slot = k·arcCount + a）＝LOD カーネルが arc 毎に引く。
 
 // 折れ線の DP 重要度：eps[i] = その頂点が残るための許容差の上限（端点は Infinity・親より大きくならない）。座標は倍精度
-function dpImportance(xy, off, n, eps) {
+function dpImportance(xy: ArrayLike<number>, off: number, n: number, eps: Float64Array): void {
 	eps[0] = Infinity; eps[n - 1] = Infinity;
 	if (n <= 2) return;
-	const stack = [0, n - 1, Infinity];
+	const stack: number[] = [0, n - 1, Infinity];
 	while (stack.length) {
-		const pe = stack.pop(), j = stack.pop(), i = stack.pop();
+		const pe = stack.pop() as number, j = stack.pop() as number, i = stack.pop() as number;
 		if (j - i < 2) continue;
 		const ax = xy[(off + i) * 2], ay = xy[(off + i) * 2 + 1], dx = xy[(off + j) * 2] - ax, dy = xy[(off + j) * 2 + 1] - ay, l2 = dx * dx + dy * dy;
 		let best = -1, bd = -1;
 		for (let k = i + 1; k < j; k++) {
 			const px = xy[(off + k) * 2] - ax, py = xy[(off + k) * 2 + 1] - ay;
-			let d;
+			let d: number;
 			if (l2 === 0) d = px * px + py * py;
 			else { let u = (px * dx + py * dy) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u; const ex = px - u * dx, ey = py - u * dy; d = ex * ex + ey * ey; }
 			if (d > bd) { bd = d; best = k; }
@@ -33,9 +33,29 @@ function dpImportance(xy, off, n, eps) {
 	}
 }
 
+export interface CalibrateOptions {
+	/** 頂点の固定小数点座標（X32/Y32・2n） */
+	xy: ArrayLike<number>;
+	/** 頂点のランク（n） */
+	rk: ArrayLike<number>;
+	/** arc の (offset, len) 列（2 × totalArcs） */
+	arcs: ArrayLike<number>;
+	/** 点を含まない arc 数 */
+	arcCount: number;
+	/** 点込みの表の幅（既定＝arcCount） */
+	totalArcs?: number;
+	extentShift: number;
+	minZoom: number;
+	maxZoom: number;
+	tolerance?: number;
+	lodBias?: number;
+}
+export interface CalibrateStats { vertices: number; dpKept: number[]; vwKept: number[] }
+export interface CalibrateResult { arcThresholds: Uint8Array; stats: CalibrateStats }
+
 // 戻り: { arcThresholds: Uint8Array(zoomCount·arcCount), stats: { vertices, dpKept: number[], vwKept: number[] } }
 // arcCount は点を含まない arc 数（点は表では 0＝常に残す）。totalArcs は点込みの表の幅。
-export function calibrateArcThresholds({ xy, rk, arcs, arcCount, totalArcs = arcCount, extentShift, minZoom, maxZoom, tolerance = 1, lodBias = 0 }) {
+export function calibrateArcThresholds({ xy, rk, arcs, arcCount, totalArcs = arcCount, extentShift, minZoom, maxZoom, tolerance = 1, lodBias = 0 }: CalibrateOptions): CalibrateResult {
 	const zoomCount = maxZoom - minZoom + 1;
 	const table = new Uint8Array(zoomCount * totalArcs);
 	const tol = new Float64Array(zoomCount);

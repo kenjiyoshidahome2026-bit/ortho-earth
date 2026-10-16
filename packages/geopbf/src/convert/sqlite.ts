@@ -19,23 +19,50 @@
 const MAGIC = "SQLite format 3\0";
 const SAFE = 2n ** 53n;
 
-export function openSqlite(u8, opts = {}) {
-	if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
+/** record の値（NULL / 整数 / 安全整数を超える整数＝BigInt / 実数 / TEXT / BLOB） */
+export type SqlValue = null | number | bigint | string | Uint8Array;
+export type SqlRow = Record<string, SqlValue>;
+export interface SqlColumn { name: string; type: string; pk: boolean }
+export interface CreateInfo { columns: SqlColumn[]; rowidAlias: number; withoutRowid: boolean }
+export interface SqlTable extends CreateInfo { name: string; rootpage: number; sql: string | null }
+export interface SqlView { name: string; sql: string | null }
+/** rowsProjected の 1 行 */
+export interface ProjectedRow { rowid: number; values: SqlValue[] }
+/** varint の戻り（v＝安全整数なら Number・超えれば BigInt、p＝次の位置） */
+export interface VarintOut { v: number | bigint; p: number }
+export type SqliteEncoding = "utf-8" | "utf-16le" | "utf-16be";
+export type SqliteDb = Db;
+
+export function openSqlite(input: Uint8Array | ArrayBuffer | ArrayBufferView, opts: Record<string, unknown> = {}): Db {
+	const u8: Uint8Array = input instanceof Uint8Array ? input : new Uint8Array(input as ArrayBuffer);
 	for (let i = 0; i < 16; i++) if (u8[i] !== MAGIC.charCodeAt(i)) throw new Error("sqlite: not an SQLite3 file (bad 16-byte header magic)");
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	let pageSize = dv.getUint16(16); if (pageSize === 1) pageSize = 65536;
 	const reserved = u8[20];
 	const usable = pageSize - reserved;
 	const enc = dv.getUint32(56);
-	const encoding = enc === 2 ? "utf-16le" : enc === 3 ? "utf-16be" : "utf-8";
-	const warnings = [];
+	const encoding: SqliteEncoding = enc === 2 ? "utf-16le" : enc === 3 ? "utf-16be" : "utf-8";
+	const warnings: string[] = [];
 	if (u8[18] === 2 || u8[19] === 2) warnings.push("WAL-mode file: updates not yet checkpointed (in the -wal file) are not read");
 	if (u8.length < pageSize * 2 && dv.getUint32(28) > 1) warnings.push("file is shorter than its page count (truncated)");
 	return new Db(u8, dv, { pageSize, usable, encoding, warnings }, opts);
 }
 
+interface DbHeader { pageSize: number; usable: number; encoding: SqliteEncoding; warnings: string[] }
+interface PageInfo { type: number; cells: number }
+
 class Db {
-	constructor(u8, dv, h, opts) {
+	u8: Uint8Array;
+	dv: DataView;
+	pageSize: number;
+	usable: number;
+	encoding: SqliteEncoding;
+	warnings: string[];
+	decoder: TextDecoder;
+	tables: Map<string, SqlTable>;
+	views: Map<string, SqlView>;
+	constructor(u8: Uint8Array, dv: DataView, h: DbHeader, opts: Record<string, unknown>) {
+		void opts;
 		this.u8 = u8; this.dv = dv; this.pageSize = h.pageSize; this.usable = h.usable; this.encoding = h.encoding; this.warnings = h.warnings;
 		this.decoder = new TextDecoder(h.encoding);
 		this.tables = new Map();
@@ -43,11 +70,11 @@ class Db {
 		// sqlite_master（root=1・列は固定: type name tbl_name rootpage sql）
 		for (const r of this._rows(1, null)) {
 			const [type, name, , rootpage, sql] = r.values;
-			if (type === "table") this.tables.set(name, { name, rootpage, sql, ...parseCreate(sql) });
-			else if (type === "view") this.views.set(name, { name, sql });
+			if (type === "table") this.tables.set(name as string, { name: name as string, rootpage: rootpage as number, sql: sql as string | null, ...parseCreate(sql as string | null) });
+			else if (type === "view") this.views.set(name as string, { name: name as string, sql: sql as string | null });
 		}
 	}
-	table(name) {
+	table(name: string): SqlTable {
 		const t = this.tables.get(name);
 		if (!t) throw new Error(`sqlite: table "${name}" not found (tables: ${[...this.tables.keys()].join(", ")})`);
 		if (t.withoutRowid) throw new Error(`sqlite: table "${name}" is WITHOUT ROWID; not supported`);
@@ -55,11 +82,11 @@ class Db {
 		return t;
 	}
 	/** 行を { 列名: 値 } で順に返す（rowid 順）。 */
-	*rows(name) {
+	*rows(name: string): Generator<SqlRow, void, undefined> {
 		const t = this.table(name);
 		const cols = t.columns, n = cols.length, alias = t.rowidAlias;
 		for (const r of this._rows(t.rootpage, t)) {
-			const o = {}, v = r.values;
+			const o: SqlRow = {}, v = r.values;
 			for (let i = 0; i < n; i++) o[cols[i].name] = i < v.length ? v[i] : null;   // ALTER TABLE ADD COLUMN 後の短い record は末尾 null
 			if (alias >= 0) o[cols[alias].name] = r.rowid;
 			yield o;
@@ -67,15 +94,15 @@ class Db {
 	}
 	/** 一部の列だけ復号した { rowid, values } を順に返す（タイル表の索引作り＝BLOB 列を触らない）。
 	 *  want＝数値なら先頭 want 列で打ち切り、配列なら列番号の集合（他の列は null・バイトは読み飛ばす）。 */
-	*rowsProjected(name, want) {
+	*rowsProjected(name: string, want: number | number[]): Generator<ProjectedRow, void, undefined> {
 		const t = this.table(name);
 		yield* this._rows(t.rootpage, t, Array.isArray(want) ? new Set(want) : want);
 	}
 	/** rowid 直引き（表 B-tree を鍵で降りる）。無ければ null。 */
-	get(name, rowid) {
-		const t = this.table(name), { u8, dv } = this, vi = { v: 0, p: 0 };
+	get(name: string, rowid: number): SqlRow | null {
+		const t = this.table(name), { u8, dv } = this, vi: VarintOut = { v: 0, p: 0 };
 		let page = t.rootpage;
-		const seen = new Set();
+		const seen = new Set<number>();
 		for (;;) {
 			const base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
 			this._visit(seen, page);
@@ -83,17 +110,17 @@ class Db {
 			if (type === 0x05) {
 				let next = dv.getUint32(hdr + 8);   // 右端の子（全鍵より大きい時）
 				let lo = 0, hi = cells;             // 内部セルは鍵昇順＝二分探索で「key >= rowid」の最初のセル
-				while (lo < hi) { const mid = (lo + hi) >> 1, c = this._cell(base, hdr, mid, hdr + 12); varint(u8, c + 4, vi); if (vi.v < rowid) lo = mid + 1; else hi = mid; }
+				while (lo < hi) { const mid = (lo + hi) >> 1, c = this._cell(base, hdr, mid, hdr + 12); varint(u8, c + 4, vi); if ((vi.v as number) < rowid) lo = mid + 1; else hi = mid; }
 				if (lo < cells) next = dv.getUint32(this._cell(base, hdr, lo, hdr + 12));
 				page = next; continue;
 			}
 			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
 				let p = this._cell(base, hdr, i, hdr + 8);
-				varint(u8, p, vi); const P = vi.v; p = vi.p;
-				varint(u8, p, vi); const id = vi.v; p = vi.p;
+				varint(u8, p, vi); const P = vi.v as number; p = vi.p;
+				varint(u8, p, vi); const id = vi.v as number; p = vi.p;
 				if (id === rowid) {
-					const o = {}, v = this._record(this._payload(p, P)), cols = t.columns;
+					const o: SqlRow = {}, v = this._record(this._payload(p, P)), cols = t.columns;
 					for (let k = 0; k < cols.length; k++) o[cols[k].name] = k < v.length ? v[k] : null;
 					if (t.rowidAlias >= 0) o[cols[t.rowidAlias].name] = rowid;
 					return o;
@@ -104,34 +131,34 @@ class Db {
 		}
 	}
 	/** 行数＝葉のセル数の合計（record は読まない）。 */
-	count(name) {
+	count(name: string): number {
 		const t = this.table(name);
 		let n = 0;
 		for (const { type, cells } of this._pages(t.rootpage)) if (type === 0x0d) n += cells;
 		return n;
 	}
 	// ── 内部 ─────────────────────────────────────────────────────────────
-	_off(page) {
+	_off(page: number): number {
 		const o = (page - 1) * this.pageSize;
 		if (!(page >= 1) || o + this.pageSize > this.u8.length) throw new Error(`sqlite: page ${page} is outside the file (corrupt or truncated)`);
 		return o;
 	}
 	// 細工されたファイルへの備え（2026-10-11・安全既定）: B-tree を歩く 3 経路（_pages/_rows/get）は「同じページを二度踏まない」
 	// （自己参照・循環する子ポインタで無限ループしない）、「セルポインタはそのページの中」（外のバイトを record と読まない）。
-	_visit(seen, page) {
+	_visit(seen: Set<number>, page: number): void {
 		if (seen.has(page)) throw new Error(`sqlite: page ${page} is referenced twice in a B-tree (cycle; corrupt file)`);
 		seen.add(page);
 	}
-	_cell(base, hdr, i, ptrs) {
+	_cell(base: number, hdr: number, i: number, ptrs: number): number {
 		const p = base + this.dv.getUint16(ptrs + i * 2);
 		if (p < hdr || p >= base + this.pageSize) throw new Error(`sqlite: cell pointer ${i} points outside its page (corrupt file)`);
 		return p;
 	}
 	/** 表 B-tree を rowid 順に歩き、ページ種別とセル数を返す（count 用・葉は復号しない）。 */
-	*_pages(root) {
-		const stack = [root], seen = new Set();
+	*_pages(root: number): Generator<PageInfo, void, undefined> {
+		const stack = [root], seen = new Set<number>();
 		while (stack.length) {
-			const page = stack.pop(), base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
+			const page = stack.pop() as number, base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
 			this._visit(seen, page);
 			const type = this.u8[hdr], cells = this.dv.getUint16(hdr + 3);
 			yield { type, cells };
@@ -142,11 +169,12 @@ class Db {
 		}
 	}
 	/** 葉セルを { rowid, values[] } で順に返す（limit＝先頭何列まで復号するか・省略で全列）。 */
-	*_rows(root, t, limit) {
-		const { u8, dv } = this, vi = { v: 0, p: 0 };
-		const stack = [root], seen = new Set();
+	*_rows(root: number, t: SqlTable | null, limit?: number | Set<number>): Generator<ProjectedRow, void, undefined> {
+		void t;
+		const { u8, dv } = this, vi: VarintOut = { v: 0, p: 0 };
+		const stack = [root], seen = new Set<number>();
 		while (stack.length) {
-			const page = stack.pop(), base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
+			const page = stack.pop() as number, base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
 			this._visit(seen, page);
 			const type = u8[hdr], cells = dv.getUint16(hdr + 3);
 			if (type === 0x05) {
@@ -157,14 +185,14 @@ class Db {
 			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
 				let p = this._cell(base, hdr, i, hdr + 8);
-				varint(u8, p, vi); const P = vi.v; p = vi.p;
-				varint(u8, p, vi); const rowid = vi.v; p = vi.p;
+				varint(u8, p, vi); const P = vi.v as number; p = vi.p;
+				varint(u8, p, vi); const rowid = vi.v as number; p = vi.p;
 				yield { rowid, values: this._record(this._payload(p, P), limit) };
 			}
 		}
 	}
 	/** payload を（overflow を継いで）一続きの Uint8Array にする。ローカルに収まれば subarray（コピー無し）。 */
-	_payload(p, P) {
+	_payload(p: number, P: number): Uint8Array {
 		const U = this.usable, X = U - 35;
 		if (P <= X) return this.u8.subarray(p, p + P);
 		const M = (((U - 12) * 32 / 255) | 0) - 23, K = M + ((P - M) % (U - 4));
@@ -172,7 +200,7 @@ class Db {
 		const out = new Uint8Array(P);
 		out.set(this.u8.subarray(p, p + local), 0);
 		let done = local, next = this.dv.getUint32(p + local);
-		const seen = new Set();
+		const seen = new Set<number>();
 		while (done < P) {
 			if (!next) throw new Error("sqlite: overflow chain is broken");
 			if (seen.has(next)) throw new Error("sqlite: overflow chain loops (corrupt file)");
@@ -185,13 +213,13 @@ class Db {
 		return out;
 	}
 	/** record → 値の配列（want＝先頭何列で打ち切るか・または復号する列番号の Set＝他は null で読み飛ばす）。 */
-	_record(b, want = Infinity) {
-		const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), vi = { v: 0, p: 0 };
-		varint(b, 0, vi); const hend = vi.v; let hp = vi.p, p = hend;
-		const out = [];
-		const pick = want instanceof Set ? want : null, limit = pick ? Math.max(...pick) + 1 : want;
+	_record(b: Uint8Array, want: number | Set<number> = Infinity): SqlValue[] {
+		const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), vi: VarintOut = { v: 0, p: 0 };
+		varint(b, 0, vi); const hend = vi.v as number; let hp = vi.p, p = hend;
+		const out: SqlValue[] = [];
+		const pick = want instanceof Set ? want : null, limit = pick ? Math.max(...pick) + 1 : (want as number);
 		while (hp < hend && out.length < limit) {
-			varint(b, hp, vi); const s = vi.v; hp = vi.p;
+			varint(b, hp, vi); const s = vi.v as number; hp = vi.p;
 			if (pick && !pick.has(out.length)) { out.push(null); p += s === 0 || s === 8 || s === 9 ? 0 : s <= 4 ? s : s === 5 ? 6 : s <= 7 ? 8 : (s - 12) >> 1; continue; }
 			switch (s) {
 				case 0: out.push(null); break;
@@ -218,7 +246,7 @@ class Db {
 }
 
 /** SQLite の varint（最大 9 バイト・big-endian 7 bit・9 バイト目は 8 bit 全部）。out.v は安全整数なら Number、超えれば BigInt。 */
-export function varint(u8, p, out) {
+export function varint(u8: Uint8Array, p: number, out: VarintOut): void {
 	let b = u8[p++];
 	if (!(b & 0x80)) { out.v = b; out.p = p; return; }
 	let v = b & 0x7f;
@@ -237,8 +265,8 @@ export function varint(u8, p, out) {
 // ── CREATE TABLE の最小解釈（列名・型・rowid 別名だけ。制約や式は読まない） ─────────────
 const CONSTRAINT_HEAD = /^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i;
 const COL_CONSTRAINT = /^(CONSTRAINT|PRIMARY|NOT|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b/i;
-export function parseCreate(sql) {
-	const columns = [];
+export function parseCreate(sql: string | null | undefined): CreateInfo {
+	const columns: SqlColumn[] = [];
 	if (!sql) return { columns, rowidAlias: -1, withoutRowid: false };
 	const open = sql.indexOf("("), close = sql.lastIndexOf(")");
 	if (open < 0 || close < open) return { columns, rowidAlias: -1, withoutRowid: false };   // CREATE TABLE x AS SELECT … は列を持てない
@@ -260,8 +288,8 @@ export function parseCreate(sql) {
 	}
 	return { columns, rowidAlias, withoutRowid };
 }
-function splitTop(s) {
-	const out = []; let depth = 0, q = null, start = 0;
+function splitTop(s: string): string[] {
+	const out: string[] = []; let depth = 0, q: string | null = null, start = 0;
 	for (let i = 0; i < s.length; i++) {
 		const c = s[i];
 		if (q) { if (c === q) { if (s[i + 1] === q) i++; else q = null; } continue; }
@@ -274,13 +302,13 @@ function splitTop(s) {
 	out.push(s.slice(start));
 	return out;
 }
-function ident(d) {
+function ident(d: string): { name: string; rest: string } {
 	const c = d[0];
 	if (c === '"' || c === "`" || c === "'" || c === "[") {
 		const close = c === "[" ? "]" : c; let i = 1, name = "";
 		for (; i < d.length; i++) { if (d[i] === close) { if (d[i + 1] === close && close !== "]") { name += close; i++; } else break; } else name += d[i]; }
 		return { name, rest: d.slice(i + 1) };
 	}
-	const m = d.match(/^[^\s(,]+/);
+	const m = d.match(/^[^\s(,]+/) as RegExpMatchArray;
 	return { name: m[0], rest: d.slice(m[0].length) };
 }

@@ -5,30 +5,43 @@
 // を経由しないので GeoParquet の座標は GeoPBF の値そのもの。bbox は kernels.js ④（feature 毎の整数 min/max）。
 // 属性は GeoPBF の型付き値から列型を推定（BOOLEAN / INT64 / DOUBLE / TIMESTAMP / UTF8・入れ子は "a.b" に平坦化）。
 import { GeoPBF } from "../pbf-base.js";
-import { getDevice } from "./gpu.js";
-import { createEngine, cpuEngine } from "./engine.js";
-import { writeParquet, PT, REP } from "./parquet.js";
-import { spatialOrder } from "./spatial-order.js";
-import { attrFilter } from "./attrs.js";
-import { hasZstd } from "./gzip.js";
-import { openParquet } from "./parquet-read.js";
-import { parseWkb } from "./wkb.js";
+import type { Geometry } from "../pbf-base.js";
+import { getDevice } from "./gpu.ts";
+import type { GPUInfo } from "./gpu.ts";
+import { createEngine, cpuEngine } from "./engine.ts";
+import { writeParquet, PT, REP } from "./parquet.ts";
+import type { CodecName, ParquetColumn, ParquetValue, SchemaElement, LogicalName, WriteParquetOptions } from "./parquet.ts";
+import { spatialOrder } from "./spatial-order.ts";
+import type { SpatialOrderKind } from "./spatial-order.ts";
+import { attrFilter } from "./attrs.ts";
+import type { AttrOptions, KeepFn, GeomCtx } from "./types.ts";
+import { hasZstd } from "./gzip.ts";
+import { openParquet } from "./parquet-read.ts";
+import type { GeoMeta, GeoColumnMeta, ParquetColumnInfo, ParquetInput } from "./parquet-read.ts";
+import { parseWkb } from "./wkb.ts";
 
 import { now } from "../modules/now.js";
 const { TAGS } = GeoPBF;
 const GTYPES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 
+/** ワイヤ整数のまま読んだ幾何（デルタ復号済み・閉じ点なし） */
+export interface GeomInt { type: number; lens: number[]; xy: number[] }
+/** WKB 組立の 1 要素（xy は大域 Int32Array へ写した後 null） */
+export interface PlanItem { type: number; lens: number[]; n: number; off: number; xy: number[] | null }
+/** 1 feature の WKB 組立の計画 */
+export interface FeaturePlan { start: number; count: number; gc: boolean; items: PlanItem[] }
+
 // GeoPBF の幾何をワイヤ整数のまま読む → { type, lens, xy: number[]（デルタ復号済み・閉じ点なし）}
-function readGeomInt(pbf, pos, type) {
+function readGeomInt(pbf: GeoPBF, pos: number, type: number): GeomInt {
 	const P = pbf.pbf;
 	P.pos = pos;
-	const lens = [], xy = [];
+	const lens: number[] = [], xy: number[] = [];
 	let end = 0;
-	P.readMessage((tag) => {
+	P.readMessage((tag: number) => {
 		if (tag === TAGS.LENGTH) P.readPackedVarint(lens);
 		else if (tag === TAGS.COORDS) {
 			end = P.readVarint() + P.pos;
-			const run = (n) => { let x = 0, y = 0; for (let i = 0; i < n; i++) { x += P.readSVarint(); y += P.readSVarint(); xy.push(x, y); } };
+			const run = (n: number): void => { let x = 0, y = 0; for (let i = 0; i < n; i++) { x += P.readSVarint(); y += P.readSVarint(); xy.push(x, y); } };
 			if (type === 0) run(1);
 			else if (type === 1 || type === 2) { let x = 0, y = 0; while (P.pos < end) { x += P.readSVarint(); y += P.readSVarint(); xy.push(x, y); } }
 			else if (type === 3 || type === 4) for (const n of lens) run(n);
@@ -39,11 +52,13 @@ function readGeomInt(pbf, pos, type) {
 }
 
 // 1 feature の幾何（GeometryCollection は要素配列）→ WKB 組立の計画。頂点は後でまとめて大域 Int32Array へ写す
-function planFeature(pbf, i, vpos) {
+function planFeature(pbf: GeoPBF, i: number, vpos: { v: number }): FeaturePlan {
 	const map = pbf.fmap[i];
 	if (map[2] === undefined) return { start: vpos.v, count: 0, gc: false, items: [] };   // 幾何なし
-	const geoms = map[2] === 6 ? map[3].map((p, j) => readGeomInt(pbf, p, map[4][j])) : [readGeomInt(pbf, map[1], map[2])];
-	const plan = { start: vpos.v, gc: map[2] === 6, items: [] };
+	const geoms = map[2] === 6
+		? (map[3] as unknown as number[]).map((p, j) => readGeomInt(pbf, p, (map[4] as unknown as number[])[j]))   // GC＝[3]・[4] は配列（fmap の行は number[] で宣言）
+		: [readGeomInt(pbf, map[1], map[2])];
+	const plan: FeaturePlan = { start: vpos.v, count: 0, gc: map[2] === 6, items: [] };
 	for (const g of geoms) {
 		const n = g.xy.length >> 1;
 		plan.items.push({ type: g.type, lens: g.lens, n, off: vpos.v, xy: g.xy });
@@ -54,7 +69,7 @@ function planFeature(pbf, i, vpos) {
 }
 
 // WKB バイト数
-function wkbSize(item) {
+function wkbSize(item: PlanItem): number {
 	const { type, lens, n } = item;
 	switch (type) {
 		case 0: return n ? 21 : 0;
@@ -67,13 +82,13 @@ function wkbSize(item) {
 	return 0;
 }
 // dbl: Uint8Array（頂点 v の座標 double が [v*16, v*16+16)）。out へ WKB を書き、次位置を返す
-function writeWkb(out, dv, p, item, dbl) {
+function writeWkb(out: Uint8Array, dv: DataView, p: number, item: PlanItem, dbl: Uint8Array): number {
 	const { type, lens } = item;
 	let v = item.off;
-	const hdr = (t) => { out[p] = 1; dv.setUint32(p + 1, t, true); p += 5; };
-	const cnt = (c) => { dv.setUint32(p, c, true); p += 4; };
-	const pts = (n) => { out.set(dbl.subarray(v * 16, (v + n) * 16), p); p += n * 16; v += n; };
-	const ring = (n) => { cnt(n + 1); const s = v; pts(n); out.set(dbl.subarray(s * 16, s * 16 + 16), p); p += 16; };
+	const hdr = (t: number): void => { out[p] = 1; dv.setUint32(p + 1, t, true); p += 5; };
+	const cnt = (c: number): void => { dv.setUint32(p, c, true); p += 4; };
+	const pts = (n: number): void => { out.set(dbl.subarray(v * 16, (v + n) * 16), p); p += n * 16; v += n; };
+	const ring = (n: number): void => { cnt(n + 1); const s = v; pts(n); out.set(dbl.subarray(s * 16, s * 16 + 16), p); p += 16; };
 	switch (type) {
 		case 0: hdr(1); pts(1); break;
 		case 1: hdr(4); cnt(item.n); for (let i = 0; i < item.n; i++) { hdr(1); pts(1); } break;
@@ -95,12 +110,17 @@ const CRS84 = { "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
 	coordinate_system: { subtype: "ellipsoidal", axis: [{ name: "Geodetic longitude", abbreviation: "Lon", direction: "east", unit: "degree" }, { name: "Geodetic latitude", abbreviation: "Lat", direction: "north", unit: "degree" }] },
 	scope: "Not known.", area: "World.", bbox: { south_latitude: -90, west_longitude: -180, north_latitude: 90, east_longitude: 180 }, id: { authority: "OGC", code: "CRS84" } };
 
+/** 推定した属性列（val(row) は Parquet の値か null） */
+export interface PropColumn { name: string; type: number; logical: LogicalName | null; ki: number; val: (row: unknown[] | undefined) => ParquetValue }
+
+const isBlobLike = (v: unknown): boolean => (typeof Blob !== "undefined" && v instanceof Blob) || (typeof ImageData !== "undefined" && v instanceof ImageData);
+
 // 属性列の推定: GeoPBF の keys（"a.b" 平坦化済み）× 全行の値の型
-function inferColumns(pbf, keep = null) {
+function inferColumns(pbf: GeoPBF, keep: KeepFn | null = null): PropColumn[] {
 	// propertiesTable＝未復号の行を埋めてから返す。pbf.props は遅延の器（worker 経由の読み＝skipProps は全部 undefined）＝
 	// 旧 `pbf.props ?? …` は空の器を掴んで属性列が空・一部だけ触った行しか書かれなかった（B4・2026-09-25）
-	const rows = pbf.propertiesTable.slice(1), keys = pbf.keys;
-	const cols = [];
+	const rows = pbf.propertiesTable.slice(1) as (unknown[] | undefined)[], keys = pbf.keys;
+	const cols: PropColumn[] = [];
 	keys.forEach((key, ki) => {
 		if (keep && !keep(key)) return;
 		let kinds = 0, any = false;   // 1 bool / 2 int / 4 float / 8 string / 16 date / 32 other(json) / 64 skip(blob 等)
@@ -111,42 +131,68 @@ function inferColumns(pbf, keep = null) {
 			const t = typeof v;
 			if (t === "boolean") kinds |= 1; else if (t === "number") kinds |= Number.isInteger(v) ? 2 : 4; else if (t === "string") kinds |= 8;
 			else if (v instanceof Date) kinds |= 16; else if (t === "function") kinds |= 64;
-			else if (typeof Blob !== "undefined" && v instanceof Blob) kinds |= 64; else if (typeof ImageData !== "undefined" && v instanceof ImageData) kinds |= 64;
+			else if (isBlobLike(v)) kinds |= 64;
 			else kinds |= 32;
 		}
 		if (!any || kinds === 64) return;
-		let type, logical = null, conv;
-		if (kinds === 1) { type = PT.BOOLEAN; conv = v => v; }
-		else if (kinds === 2) { type = PT.INT64; conv = v => v; }
-		else if ((kinds & ~6) === 0) { type = PT.DOUBLE; conv = v => v; }
-		else if (kinds === 16) { type = PT.INT64; logical = "TIMESTAMP_MILLIS"; conv = v => +v; }
-		else { type = PT.BYTE_ARRAY; logical = (kinds & ~32) === 0 ? "JSON" : "UTF8"; conv = v => typeof v === "string" ? v : v instanceof Date ? v.toISOString() : (typeof v === "object" && !(ArrayBuffer.isView(v))) ? JSON.stringify(v) : ArrayBuffer.isView(v) ? JSON.stringify(Array.from(v)) : String(v); }
-		const skip = (v) => v === null || v === undefined || typeof v === "function" || (typeof Blob !== "undefined" && v instanceof Blob) || (typeof ImageData !== "undefined" && v instanceof ImageData) || (typeof v === "number" && !Number.isFinite(v));
+		let type: number, logical: LogicalName | null = null, conv: (v: unknown) => ParquetValue;
+		if (kinds === 1) { type = PT.BOOLEAN; conv = v => v as boolean; }
+		else if (kinds === 2) { type = PT.INT64; conv = v => v as number; }
+		else if ((kinds & ~6) === 0) { type = PT.DOUBLE; conv = v => v as number; }
+		else if (kinds === 16) { type = PT.INT64; logical = "TIMESTAMP_MILLIS"; conv = v => +(v as Date); }
+		else { type = PT.BYTE_ARRAY; logical = (kinds & ~32) === 0 ? "JSON" : "UTF8"; conv = v => typeof v === "string" ? v : v instanceof Date ? v.toISOString() : (typeof v === "object" && !(ArrayBuffer.isView(v))) ? JSON.stringify(v) : ArrayBuffer.isView(v) ? JSON.stringify(Array.from(v as unknown as ArrayLike<number>)) : String(v); }
+		const skip = (v: unknown): boolean => v === null || v === undefined || typeof v === "function" || isBlobLike(v) || (typeof v === "number" && !Number.isFinite(v));
 		cols.push({ name: key, type, logical, ki, val: (row) => { const v = row?.[ki]; return skip(v) ? null : conv(v); } });
 	});
 	return cols;
 }
 
-export { spatialOrder } from "./spatial-order.js";   // 行の空間整列（str/hilbert/morton/none）＝列チャンク（@ortho-earth/globe の src/columnar）と共有＝別ファイル（#90）
+export { spatialOrder } from "./spatial-order.ts";   // 行の空間整列（str/hilbert/morton/none）＝列チャンク（@ortho-earth/globe の src/columnar）と共有＝別ファイル（#90）
+
+export interface ToGeoParquetOptions extends AttrOptions {
+	/** false＝CPU 固定。GPU オブジェクトを渡すとそれを使う */
+	gpu?: GPU | false | null;
+	/** 既定＝Node は zstd・ブラウザは gzip */
+	codec?: CodecName;
+	level?: number;
+	pageSize?: number;
+	rowGroupSize?: number;
+	compress?: WriteParquetOptions["compress"];
+	geometryName?: string;
+	bboxColumn?: boolean | "auto";
+	order?: SpatialOrderKind;
+}
+export interface ToGeoParquetStats {
+	engine: "gpu" | "cpu";
+	gpu?: GPUInfo;
+	features: number;
+	vertices: number;
+	order?: string;
+	codec?: CodecName;
+	bytes?: number;
+	ms: { decode?: number; kernels?: number; wkb?: number; transpose?: number; parquet?: number; total?: number };
+}
+export interface GeoParquetGeo { version: string; primary_column: string; columns: Record<string, GeoColumnMeta> }
+export interface ToGeoParquetResult { buffer: Uint8Array; stats: ToGeoParquetStats; geo: GeoParquetGeo }
 
 // opts: { gpu, codec: "zstd"|"gzip"|"none"（既定＝Node は zstd・ブラウザは gzip）, level（zstd・既定 9）, pageSize, rowGroupSize, compress,
 //         geometryName="geometry", bboxColumn=true|"auto"|false, order="str"|"hilbert"|"morton"|"none", include/exclude/excludeAll }
-export async function toGeoParquet(pbf, opts = {}) {
+export async function toGeoParquet(pbf: GeoPBF, opts: ToGeoParquetOptions = {}): Promise<ToGeoParquetResult> {
 	const t0 = now();
-	const stats = { engine: "cpu", features: pbf.length, vertices: 0, ms: {} };
+	const stats: ToGeoParquetStats = { engine: "cpu", features: pbf.length, vertices: 0, ms: {} };
 	const D = Math.pow(10, pbf.precision());
 	// ── 幾何の計画（デルタ復号＝直列・CPU）
-	const vpos = { v: 0 }, plans = new Array(pbf.length);
+	const vpos = { v: 0 }, plans: FeaturePlan[] = new Array(pbf.length);
 	for (let i = 0; i < pbf.length; i++) plans[i] = planFeature(pbf, i, vpos);
 	const ivA = new Int32Array(vpos.v * 2);
-	for (const pl of plans) for (const it of pl.items) { ivA.set(it.xy, it.off * 2); it.xy = null; }
+	for (const pl of plans) for (const it of pl.items) { ivA.set(it.xy as number[], it.off * 2); it.xy = null; }
 	stats.vertices = vpos.v;
 	const parts = new Uint32Array(pbf.length * 2);
 	for (let i = 0; i < pbf.length; i++) { parts[i * 2] = plans[i].start; parts[i * 2 + 1] = plans[i].count; }
 	stats.ms.decode = now() - t0;
 	// ── GPU/CPU: 整数 → double bit ・ feature bbox
 	let device = null;
-	if (opts.gpu !== false) device = await getDevice(typeof opts.gpu === "object" ? { gpu: opts.gpu } : {});
+	if (opts.gpu !== false) device = await getDevice(typeof opts.gpu === "object" && opts.gpu ? { gpu: opts.gpu } : {});
 	const eng = device ? createEngine(device) : cpuEngine();
 	stats.engine = eng.kind; stats.gpu = eng.info;
 	const t1 = now();
@@ -157,7 +203,7 @@ export async function toGeoParquet(pbf, opts = {}) {
 	const dbl = new Uint8Array(dblU32.buffer, dblU32.byteOffset, dblU32.byteLength);
 	// ── WKB 組立
 	const t2 = now();
-	const wkb = new Array(pbf.length), types = new Set();
+	const wkb: (Uint8Array | null)[] = new Array(pbf.length), types = new Set<string>();
 	let gminx = Infinity, gminy = Infinity, gmaxx = -Infinity, gmaxy = -Infinity;
 	const bbox = new Float64Array(pbf.length * 4);
 	for (let i = 0; i < pbf.length; i++) {
@@ -181,15 +227,16 @@ export async function toGeoParquet(pbf, opts = {}) {
 	const gname = opts.geometryName ?? "geometry";
 	const withBbox = opts.bboxColumn === "auto" ? !(types.size && [...types].every(t => t === "Point" || t === "MultiPoint")) : opts.bboxColumn === undefined ? true : !!opts.bboxColumn;
 	// ── 行の空間整列
-	const order = opts.order ?? "str";
+	const order: string = opts.order ?? "str";
 	if (!["str", "hilbert", "morton", "none"].includes(order)) throw new Error(`order must be str|hilbert|morton|none (got ${order})`);
 	const rowGroupSize = opts.rowGroupSize ?? 65536;
 	const perm = spatialOrder(order, bb, (i) => !!wkb[i], pbf.length, rowGroupSize);
 	const props = inferColumns(pbf, attrFilter(opts));
 	// ── 列を並べ替え順に転置して連続配列へ（行→列の 1 回の走査。ライタが行毎に perm を引いて行配列を辿る間接参照を消す）
 	const tt = now();
-	const N = pbf.length, rows = pbf.propertiesTable.slice(1);   // 上の inferColumns と同じ（遅延の器を直に読まない）
-	const colVals = props.map(() => new Array(N)), wkbS = new Array(N), bboxS = withBbox ? [new Array(N), new Array(N), new Array(N), new Array(N)] : null;
+	const N = pbf.length, rows = pbf.propertiesTable.slice(1) as (unknown[] | undefined)[];   // 上の inferColumns と同じ（遅延の器を直に読まない）
+	const colVals: ParquetValue[][] = props.map(() => new Array<ParquetValue>(N)), wkbS: (Uint8Array | null)[] = new Array(N);
+	const bboxS: (number | null)[][] | null = withBbox ? [new Array(N), new Array(N), new Array(N), new Array(N)] : null;
 	for (let i = 0; i < N; i++) {
 		const j = perm ? perm[i] : i, row = rows[j], g = wkb[j];
 		for (let c = 0; c < props.length; c++) colVals[c][i] = props[c].val(row);
@@ -197,26 +244,26 @@ export async function toGeoParquet(pbf, opts = {}) {
 		if (bboxS) for (let k = 0; k < 4; k++) bboxS[k][i] = g ? bbox[j * 4 + k] : null;
 	}
 	stats.ms.transpose = now() - tt;
-	const schema = [{ name: "schema", numChildren: props.length + 1 + (withBbox ? 1 : 0) }];
-	const columns = [];
+	const schema: SchemaElement[] = [{ name: "schema", numChildren: props.length + 1 + (withBbox ? 1 : 0) }];
+	const columns: ParquetColumn[] = [];
 	props.forEach((c, ci) => { schema.push({ name: c.name, type: c.type, repetition: REP.OPTIONAL, logical: c.logical }); columns.push({ path: [c.name], type: c.type, values: colVals[ci] }); });
 	schema.push({ name: gname, type: PT.BYTE_ARRAY, repetition: REP.OPTIONAL });
 	columns.push({ path: [gname], type: PT.BYTE_ARRAY, values: wkbS, stats: false, dict: false });
-	if (withBbox) {
+	if (withBbox && bboxS) {
 		schema.push({ name: "bbox", repetition: REP.OPTIONAL, numChildren: 4 });
 		["xmin", "ymin", "xmax", "ymax"].forEach((n, k) => { schema.push({ name: n, type: PT.DOUBLE, repetition: REP.REQUIRED }); columns.push({ path: ["bbox", n], type: PT.DOUBLE, values: bboxS[k], dict: false }); });
 	}
-	const geo = { version: "1.1.0", primary_column: gname, columns: { [gname]: {
+	const geo: GeoParquetGeo = { version: "1.1.0", primary_column: gname, columns: { [gname]: {
 		encoding: "WKB", geometry_types: [...types].sort(), crs: CRS84,
 		...(wkb.some(Boolean) ? { bbox: [gminx, gminy, gmaxx, gmaxy] } : {}),
 		...(withBbox ? { covering: { bbox: { xmin: ["bbox", "xmin"], ymin: ["bbox", "ymin"], xmax: ["bbox", "xmax"], ymax: ["bbox", "ymax"] } } } : {}),
 	} } };
-	const keyValue = { geo: JSON.stringify(geo), "geopbf:order": order, "geopbf:precision": String(pbf.precision()) };
-	const meta = { name: pbf.name?.(), description: pbf.description?.(), license: pbf.license?.(), attribution: pbf.attribution?.() };
-	for (const k in meta) if (meta[k]) keyValue["geopbf:" + k] = meta[k];
+	const keyValue: Record<string, string> = { geo: JSON.stringify(geo), "geopbf:order": order, "geopbf:precision": String(pbf.precision()) };
+	const meta: Record<string, string | undefined> = { name: pbf.name?.(), description: pbf.description?.(), license: pbf.license?.(), attribution: pbf.attribution?.() };
+	for (const k in meta) { const v = meta[k]; if (v) keyValue["geopbf:" + k] = v; }
 	const t3 = now();
 	// コーデック既定: Node（zstd あり）は zstd＝WKB の double 列で gzip の半分以下・同じ時間。ブラウザは gzip
-	const codec = opts.codec ?? (await hasZstd() ? "zstd" : "gzip");
+	const codec: CodecName = opts.codec ?? (await hasZstd() ? "zstd" : "gzip");
 	const buffer = await writeParquet({ schema, columns, numRows: pbf.length }, { rowGroupSize, codec, level: opts.level, pageSize: opts.pageSize, keyValue, createdBy: "geopbf", compress: opts.compress });
 	stats.order = order; stats.codec = codec;
 	stats.ms.parquet = now() - t3; stats.ms.total = now() - t0; stats.bytes = buffer.length;
@@ -230,31 +277,43 @@ export async function toGeoParquet(pbf, opts = {}) {
 // geopandas / DuckDB / pyarrow の出力（snappy・辞書・DataPage v1/v2）も同じ経路。
 // opts: { precision, name, geometryColumn, ignoreCrs（CRS が経緯度でなくても続行）, include/exclude/excludeAll }
 // 戻り: { pbf: GeoPBF, stats: { features（載せた数）, rows（行数）, droppedGeometries（幾何なしで落とした行）, vertices, columns: string[], skipped: [{name, reason}], crs, ms } }
-export async function fromGeoParquet(u8, opts = {}) {
+export interface FromGeoParquetOptions extends AttrOptions { precision?: number; name?: string; geometryColumn?: string; ignoreCrs?: boolean }
+export interface SkippedColumn { name: string; reason: string | null }
+export interface FromGeoParquetStats {
+	features: number; rows: number; rowGroups: number; droppedGeometries: number; vertices: number;
+	columns: string[]; skipped: SkippedColumn[]; crs: string; precision: number; created: string;
+	ms: { read: number; encode: number; total: number };
+}
+export interface FromGeoParquetResult { pbf: GeoPBF; stats: FromGeoParquetStats }
+
+interface CrsLike { id?: { authority?: string; code?: string | number }; name?: string }
+
+export async function fromGeoParquet(u8: ParquetInput, opts: FromGeoParquetOptions = {}): Promise<FromGeoParquetResult> {
 	const t0 = now();
 	const pq = await openParquet(u8);   // 値は row group 単位で読む（全列を一度に持たない）
-	let geo = null; try { geo = pq.keyValue.geo ? JSON.parse(pq.keyValue.geo) : null; } catch {}
+	let geo: GeoMeta | null = null; try { geo = pq.keyValue.geo ? JSON.parse(pq.keyValue.geo) as GeoMeta : null; } catch {}
 	const gname = opts.geometryColumn ?? geo?.primary_column ?? "geometry";
 	const gcol = pq.columns.find(c => c.name === gname);
 	if (!gcol) throw new Error(`fromGeoParquet: geometry column "${gname}" not found (columns: ${pq.columns.map(c => c.name).join(", ")})`);
 	if (gcol.unsupported) throw new Error(`fromGeoParquet: cannot read the geometry column (${gcol.unsupported})`);
 	const gmeta = geo?.columns?.[gname];
 	if (gmeta && gmeta.encoding && gmeta.encoding !== "WKB") throw new Error(`fromGeoParquet: geometry encoding ${gmeta.encoding} not supported (WKB only)`);
-	const crs = gmeta?.crs === undefined ? "CRS84(default)" : gmeta.crs === null ? "CRS84" : (gmeta.crs.id ? `${gmeta.crs.id.authority}:${gmeta.crs.id.code}` : gmeta.crs.name || JSON.stringify(gmeta.crs).slice(0, 60));
+	const gcrs = gmeta?.crs as CrsLike | null | undefined;
+	const crs = gmeta?.crs === undefined ? "CRS84(default)" : gcrs === null ? "CRS84" : (gcrs?.id ? `${gcrs.id.authority}:${gcrs.id.code}` : gcrs?.name || JSON.stringify(gcrs).slice(0, 60));
 	const lonlat = /CRS84|4326/.test(crs);
 	if (!lonlat && !opts.ignoreCrs) throw new Error(`fromGeoParquet: CRS is not lon/lat (${crs}); GeoPBF is lon/lat only, reproject first or pass ignoreCrs`);
-	const precision = opts.precision ?? (pq.keyValue["geopbf:precision"] ? +pq.keyValue["geopbf:precision"] : 6);
+	const precision = opts.precision ?? (pq.keyValue["geopbf:precision"] ? +(pq.keyValue["geopbf:precision"] as string) : 6);
 	const keep = attrFilter(opts);
 	// 属性列：入れ子の group の葉は "a.b" の平坦キー（GeoPBF の流儀）。bbox 覆域列は幾何から再生できるので黙って省く。list/map は読めない
 	const covering = new Set(Object.values(gmeta?.covering?.bbox ?? {}).map(p => p.join(".")));
-	const props = pq.columns.filter(c => c !== gcol && !c.unsupported && !covering.has(c.name) && !(geo?.columns?.[c.name]) && (!keep || keep(c.name)));
-	const skipped = pq.columns.filter(c => c.unsupported && !covering.has(c.name)).map(c => ({ name: c.name, reason: c.unsupported }));
-	const ctx = { vertices: 0 };
+	const props: ParquetColumnInfo[] = pq.columns.filter(c => c !== gcol && !c.unsupported && !covering.has(c.name) && !(geo?.columns?.[c.name]) && (!keep || keep(c.name)));
+	const skipped: SkippedColumn[] = pq.columns.filter(c => c.unsupported && !covering.has(c.name)).map(c => ({ name: c.name, reason: c.unsupported }));
+	const ctx: GeomCtx = { vertices: 0 };
 	// 逐次エンコード：row group ごとに列配列を復号 → 行を setFeature（旧＝全 row group を復号し全行を GeoJSON 配列に積んでから set()）。
 	// keys はスキーマの属性列（旧の makeKeys＝「値のあった列」と違い、全行 null の列も KEYS に載る＝properties には現れない）
 	const keys = props.map(c => c.name).sort();
 	const kv = pq.keyValue;
-	const pbf = new GeoPBF({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"], license: kv["geopbf:license"], attribution: kv["geopbf:attribution"] });
+	const pbf = new GeoPBF({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"] ?? undefined, license: kv["geopbf:license"] ?? undefined, attribution: kv["geopbf:attribution"] ?? undefined });
 	pbf.setHead(keys, []);
 	let count = 0, dropped = 0;
 	await pbf.setBodyAsync(async () => {
@@ -262,12 +321,12 @@ export async function fromGeoParquet(u8, opts = {}) {
 			const m = await pq.readRowGroup(g), rows = pq.rowGroups[g].numRows;
 			const gv = m.get(gcol.name);
 			if (gcol.unsupported) throw new Error(`fromGeoParquet: cannot read the geometry column (${gcol.unsupported})`);
-			const cols = props.map(c => [c.name, m.get(c.name)]).filter(([, v]) => v);   // 読めなかった列（unsupported）はこの row group から省く
+			const cols = props.map(c => [c.name, m.get(c.name)] as const).filter((e): e is readonly [string, unknown[]] => !!e[1]);   // 読めなかった列（unsupported）はこの row group から省く
 			for (let i = 0; i < rows; i++) {
-				const w = gv ? gv[i] : null;
-				const geometry = w ? parseWkb(w, ctx) : null;
+				const w = gv ? gv[i] as Uint8Array | null : null;
+				const geometry: Geometry | null = w ? parseWkb(w, ctx) : null;
 				if (!geometry) { dropped++; continue; }   // 幾何なしの行は GeoPBF に載せられない＝落として数える（gpkg / fgb / kmz と同じ）
-				const q = {};
+				const q: Record<string, unknown> = {};
 				for (const [name, v] of cols) { const x = v[i]; if (x !== null && x !== undefined) q[name] = x; }
 				pbf.setFeature({ type: "Feature", properties: q, geometry }); count++;
 			}
@@ -276,6 +335,6 @@ export async function fromGeoParquet(u8, opts = {}) {
 	const t1 = now();
 	pbf.close();
 	await pbf.getPosition();
-	const skippedLate = pq.columns.filter(c => c.unsupported && !covering.has(c.name) && props.includes(c)).map(c => ({ name: c.name, reason: c.unsupported }));   // 復号中に読めなくなった列
+	const skippedLate: SkippedColumn[] = pq.columns.filter(c => c.unsupported && !covering.has(c.name) && props.includes(c)).map(c => ({ name: c.name, reason: c.unsupported }));   // 復号中に読めなくなった列
 	return { pbf, stats: { features: count, rows: pq.numRows, rowGroups: pq.rowGroups.length, droppedGeometries: dropped, vertices: ctx.vertices, columns: props.map(c => c.name), skipped: skipped.concat(skippedLate), crs, precision, created: pq.created, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
 }

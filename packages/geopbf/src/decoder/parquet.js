@@ -1,5 +1,5 @@
 // decoder/parquet.js ── ブラウザ用 worker：.parquet / .geoparquet（GeoParquet・WKB・経緯度）→ GeoPBF バイト列。実体は convert/geoparquet.js の fromGeoParquet。
-import { fromGeoParquet } from "../convert/geoparquet.js";
+import { fromGeoParquet } from "../convert/geoparquet.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution, geometryColumn, ignoreCrs } = e.data;

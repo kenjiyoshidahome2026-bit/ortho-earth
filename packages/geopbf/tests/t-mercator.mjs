@@ -1,6 +1,6 @@
 // t-mercator: 楕円体メルカトル（EPSG:3395 等）の逆変換（convert/proj.js・B9c・2026-09-25）。
 // 旧＝球の式で逆変換（緯度 35° で約 −20 km）・縮尺係数と原点移動を無視。順変換は EPSG Guidance Note 7-2 の式で独立に計算して突き合わせる。
-import { crsFromWKT, mercInverse } from "../src/convert/proj.js";
+import { crsFromWKT, mercInverse } from "../src/convert/proj.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const D = 180 / Math.PI, a = 6378137, f = 1 / 298.257223563, e = Math.sqrt(2 * f - f * f);

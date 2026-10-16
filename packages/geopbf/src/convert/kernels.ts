@@ -9,7 +9,8 @@
 //  ③ wkb     : GeoPBF 整数座標（10^p 単位）→ IEEE754 double の bit（lo,hi）。長除算で仮数を立て最近偶数丸め＝
 //              JS の `i / 10^p`（正しく丸めた除算）と bit 一致。WGSL に f64 は無いが、整数で作れば「正確な double」は作れる。
 //  ④ bbox    : パート（環/線/点列）毎の整数 min/max。
-import { MERC_WGSL, lonToX32, latToY32, mercTable, decodeGint } from "./merc.js";
+import { MERC_WGSL, lonToX32, latToY32, mercTable, decodeGint } from "./merc.ts";
+import type { GintXYR } from "./merc.ts";
 
 export const WG = 64;
 
@@ -37,8 +38,9 @@ ${MERC_WGSL}
 }`;
 
 // arcU32: gint u64 を (lo,hi) で見た Uint32Array(2n)。→ { xy: Uint32Array(2n), rk: Uint32Array(n) }
-export function projectCPU(arcU32) {
-	const n = arcU32.length >>> 1, xy = new Uint32Array(n * 2), rk = new Uint32Array(n), t = mercTable(), v = [0, 0, 0];
+export interface ProjectResult { xy: Uint32Array; rk: Uint32Array }
+export function projectCPU(arcU32: Uint32Array): ProjectResult {
+	const n = arcU32.length >>> 1, xy = new Uint32Array(n * 2), rk = new Uint32Array(n), t = mercTable(), v: GintXYR = [0, 0, 0];
 	for (let i = 0; i < n; i++) {
 		decodeGint(arcU32[i * 2], arcU32[i * 2 + 1], v);
 		xy[i * 2] = lonToX32(v[0]); xy[i * 2 + 1] = latToY32(v[1], t); rk[i] = v[2];
@@ -88,14 +90,26 @@ struct ParamsQ { arcCount: u32, base: u32, zoomCount: u32, minZoom: u32, extentS
 	}
 }`;
 
-export function lodUniform({ arcCount, base = 0, zoomCount, minZoom, extentShift, mode, thresholds, arcThresholds }) {
+/** lod カーネルの (arc, zoom) パラメタ（GPU/CPU 共通） */
+export interface LodParams {
+	arcCount: number;
+	zoomCount: number;
+	minZoom: number;
+	extentShift: number;
+	/** ズーム毎のランク閾値（zoomCount） */
+	thresholds: ArrayLike<number>;
+	/** (arc, zoom) 毎の閾値表（k 優先・calibrate.js）。無ければ thresholds */
+	arcThresholds?: Uint8Array | null;
+}
+export interface LodUniformParams extends LodParams { base?: number; mode: number }
+export function lodUniform({ arcCount, base = 0, zoomCount, minZoom, extentShift, mode, thresholds, arcThresholds }: LodUniformParams): Uint32Array {
 	const u = new Uint32Array(8 + 32);
 	u[0] = arcCount; u[1] = base; u[2] = zoomCount; u[3] = minZoom; u[4] = extentShift; u[5] = mode; u[6] = arcThresholds ? 1 : 0;
 	for (let k = 0; k < zoomCount; k++) u[8 + k] = thresholds[k];
 	return u;
 }
 // (arc, zoom) 閾値表（Uint8Array・k 優先）→ GPU 用の u32 詰め（4 バイト境界に揃えた複製）
-export function packArcThresholds(arcTh) {
+export function packArcThresholds(arcTh: Uint8Array | null | undefined): Uint32Array {
 	if (!arcTh) return new Uint32Array(1);
 	const u = new Uint32Array((arcTh.length + 3) >> 2);
 	new Uint8Array(u.buffer).set(arcTh);
@@ -103,24 +117,34 @@ export function packArcThresholds(arcTh) {
 }
 
 // CPU 参照。mode 0: counts/bbox を埋める。mode 1: offsets に従い out へ書く（out は呼び出し側が確保）。
-export function lodCPU({ xy, rk, arcs, arcCount, zoomCount, minZoom, extentShift, thresholds, arcThresholds, mode, offsets, counts, bbox, out }) {
+export interface LodCPUParams extends LodParams {
+	xy: ArrayLike<number>;
+	rk: ArrayLike<number>;
+	arcs: ArrayLike<number>;
+	mode: number;
+	offsets?: ArrayLike<number>;
+	counts?: Uint32Array;
+	bbox?: Uint32Array;
+	out?: Uint32Array;
+}
+export function lodCPU({ xy, rk, arcs, arcCount, zoomCount, minZoom, extentShift, thresholds, arcThresholds, mode, offsets, counts, bbox, out }: LodCPUParams): void {
 	for (let k = 0; k < zoomCount; k++) {
 		const z = minZoom + k, sh = 32 - z - extentShift, thz = thresholds[k];
-		const shift = (v) => sh >= 32 ? 0 : (v >>> sh);
+		const shift = (v: number): number => sh >= 32 ? 0 : (v >>> sh);
 		for (let a = 0; a < arcCount; a++) {
 			const off = arcs[a * 2], len = arcs[a * 2 + 1], slot = k * arcCount + a, th = arcThresholds ? arcThresholds[slot] : thz;
 			let n = 0, px = 0, py = 0, minx = 0xFFFFFFFF, miny = 0xFFFFFFFF, maxx = 0, maxy = 0;
-			const base = mode === 1 ? offsets[slot] : 0;
+			const base = mode === 1 ? offsets![slot] : 0;   // mode 1＝offsets・out、mode 0＝counts・bbox が必須（呼び手＝engine.ts が渡す）
 			for (let i = 0; i < len; i++) {
 				const v = off + i;
 				if (rk[v] < th) continue;
 				const x = shift(xy[v * 2]), y = shift(xy[v * 2 + 1]);
 				if (n > 0 && x === px && y === py) continue;
-				if (mode === 1) { out[(base + n) * 2] = x; out[(base + n) * 2 + 1] = y; }
+				if (mode === 1) { out![(base + n) * 2] = x; out![(base + n) * 2 + 1] = y; }
 				n++; px = x; py = y;
 				if (x < minx) minx = x; if (y < miny) miny = y; if (x > maxx) maxx = x; if (y > maxy) maxy = y;
 			}
-			if (mode === 0) { counts[slot] = n; bbox[slot * 4] = minx; bbox[slot * 4 + 1] = miny; bbox[slot * 4 + 2] = maxx; bbox[slot * 4 + 3] = maxy; }
+			if (mode === 0) { counts![slot] = n; bbox![slot * 4] = minx; bbox![slot * 4 + 1] = miny; bbox![slot * 4 + 2] = maxx; bbox![slot * 4 + 3] = maxy; }
 		}
 	}
 }
@@ -184,7 +208,7 @@ fn toDouble(v: i32, d: u32) -> vec2<u32> {
 }`;
 
 // CPU 参照：JS の除算（IEEE 正しい丸め）の bit をそのまま
-export function wkbCPU(iv, d) {
+export function wkbCPU(iv: ArrayLike<number>, d: number): Uint32Array {
 	const n = iv.length, out = new Uint32Array(n * 2), f = new Float64Array(1), u = new Uint32Array(f.buffer);
 	for (let i = 0; i < n; i++) { f[0] = iv[i] / d; out[i * 2] = u[0]; out[i * 2 + 1] = u[1]; }
 	return out;
@@ -209,7 +233,7 @@ struct ParamsB { n: u32, base: u32, pad0: u32, pad1: u32 };
 	outv[p * 4u] = minx; outv[p * 4u + 1u] = miny; outv[p * 4u + 2u] = maxx; outv[p * 4u + 3u] = maxy;
 }`;
 
-export function bboxCPU(iv, parts) {
+export function bboxCPU(iv: ArrayLike<number>, parts: ArrayLike<number>): Int32Array {
 	const n = parts.length >>> 1, out = new Int32Array(n * 4);
 	for (let p = 0; p < n; p++) {
 		const off = parts[p * 2], len = parts[p * 2 + 1];

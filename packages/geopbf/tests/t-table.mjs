@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
-import { fromTable, parseCSV, parseWKT, decodeText, readXLSX } from "../src/convert/table.js";
+import { fromTable, parseCSV, parseWKT, decodeText, readXLSX } from "../src/convert/table.ts";
 import { encodeXLSX } from "../src/modules/encodeXLSX.js";
-import { openMBTiles } from "../src/convert/mbtiles.js";
+import { openMBTiles } from "../src/convert/mbtiles.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

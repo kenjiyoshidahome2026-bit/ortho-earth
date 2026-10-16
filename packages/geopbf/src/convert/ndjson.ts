@@ -4,13 +4,20 @@
 // 入力: Blob/File（stream で逐次・全文を 1 本の文字列に持たない）・Uint8Array/ArrayBuffer・string。
 // 大きい入力（既定 500 MB 以上）は 2 パス＝keys を先に拾い、2 回目は行→setFeature を逐次（pbf-base setBodyAsync）＝全地物を同時に持たない。
 import { GeoPBF } from "../pbf-base.js";
+import type { Feature, FeatureCollection, Geometry } from "../pbf-base.js";
+import type { MetaOptions } from "./types.ts";
 import { now } from "../modules/now.js";
 const GEOM = new Set(["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
-const clean = s => s.replace(/[\u001e\r]/g, "").trim();   // RS（Text Sequence の区切り）と CR は落とす
-function* splitLines(text) { for (const p of text.split("\n")) { const t = clean(p); if (t) yield t; } }
+const clean = (s: string): string => s.replace(/[\u001e\r]/g, "").trim();   // RS（Text Sequence の区切り）と CR は落とす
+function* splitLines(text: string): Generator<string, void, undefined> { for (const p of text.split("\n")) { const t = clean(p); if (t) yield t; } }
+
+export type NdjsonInput = string | ArrayBuffer | ArrayBufferView | Blob;
+export interface NdjsonOptions extends MetaOptions { twoPassBytes?: number }
+export interface NdjsonStats { lines: number; badLines: number; features: number; droppedGeometries: number; passes: number; ms?: { total: number } }
+export interface FromNdjsonResult { pbf: GeoPBF; stats: NdjsonStats }
 
 /** 行を逐次に返す（空行と RS・CR は落とす） */
-export async function* linesOf(src) {
+export async function* linesOf(src: NdjsonInput): AsyncGenerator<string, void, undefined> {
 	if (typeof src === "string") { yield* splitLines(src); return; }
 	if (src instanceof ArrayBuffer || ArrayBuffer.isView(src)) { yield* splitLines(new TextDecoder().decode(src)); return; }
 	const reader = src.stream().getReader(), dec = new TextDecoder();
@@ -19,41 +26,42 @@ export async function* linesOf(src) {
 		const { value, done } = await reader.read();
 		const text = carry + (value ? dec.decode(value, { stream: true }) : dec.decode());
 		const parts = text.split("\n");
-		carry = done ? "" : parts.pop();
+		carry = done ? "" : (parts.pop() as string);
 		for (const p of parts) { const t = clean(p); if (t) yield t; }
 		if (done) break;
 	}
 }
 
 /** 1 行 → Feature の配列（壊れた行は stats.badLines++ で空） */
-export function featuresOf(line, stats) {
-	let o; try { o = JSON.parse(line); } catch { stats.badLines++; return []; }
+export function featuresOf(line: string, stats: { badLines: number }): Feature[] {
+	let o: unknown; try { o = JSON.parse(line); } catch { stats.badLines++; return []; }
 	if (!o || typeof o !== "object") { stats.badLines++; return []; }
-	if (o.type === "Feature") return [o];
-	if (o.type === "FeatureCollection") return Array.isArray(o.features) ? o.features : [];
-	if (GEOM.has(o.type)) return [{ type: "Feature", properties: {}, geometry: o }];
+	const t = (o as { type?: unknown }).type;
+	if (t === "Feature") return [o as Feature];
+	if (t === "FeatureCollection") { const fc = o as FeatureCollection; return Array.isArray(fc.features) ? fc.features : []; }
+	if (typeof t === "string" && GEOM.has(t)) return [{ type: "Feature", properties: {}, geometry: o as Geometry }];
 	stats.badLines++; return [];
 }
 
-const collectKeys = (f, keySet) => {   // json デコーダの 2 パス経路と同じ（入れ子 1 段は "a.b"）
+const collectKeys = (f: Feature, keySet: Set<string>): void => {   // json デコーダの 2 パス経路と同じ（入れ子 1 段は "a.b"）
 	const p = f?.properties; if (!p || typeof p !== "object") return;
 	for (const k in p) { keySet.add(k); const v = p[k]; if (v && typeof v === "object" && !Array.isArray(v)) for (const sk in v) keySet.add(`${k}.${sk}`); }
 };
 
 /** NDJSON / GeoJSON Text Sequence → { pbf, stats }。opts: { name, precision, description, license, attribution, twoPassBytes } */
-export async function fromNdjson(src, opts = {}) {
+export async function fromNdjson(src: NdjsonInput, opts: NdjsonOptions = {}): Promise<FromNdjsonResult> {
 	const t0 = now();
-	const stats = { lines: 0, badLines: 0, features: 0, droppedGeometries: 0, passes: 1 };
-	const size = src?.size ?? src?.byteLength ?? src?.length ?? 0;
+	const stats: NdjsonStats = { lines: 0, badLines: 0, features: 0, droppedGeometries: 0, passes: 1 };
+	const size = typeof src === "string" ? src.length : src instanceof Blob ? src.size : src.byteLength;
 	const meta = { name: opts.name ?? "layer", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution };
-	let pbf;
+	let pbf: GeoPBF;
 	if (size < (opts.twoPassBytes ?? 500 * 1024 * 1024)) {
-		const features = [];
+		const features: Feature[] = [];
 		for await (const line of linesOf(src)) { stats.lines++; for (const f of featuresOf(line, stats)) features.push(f); }
 		pbf = await new GeoPBF(meta).set({ type: "FeatureCollection", features });
 	} else {
 		stats.passes = 2;
-		const keySet = new Set(), scratch = { badLines: 0 };
+		const keySet = new Set<string>(), scratch = { badLines: 0 };
 		for await (const line of linesOf(src)) for (const f of featuresOf(line, scratch)) collectKeys(f, keySet);
 		pbf = new GeoPBF(meta);
 		pbf.setHead([...keySet].sort(), []);

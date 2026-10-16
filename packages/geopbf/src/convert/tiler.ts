@@ -10,43 +10,138 @@
 // ズームを束ねて読み戻し）→ ズーム×タイル列範囲の job を worker プールへ（環/線の組立・二分クリップ・MVT・gzip・
 // 内容キー）→ main で内容を寄せて PMTiles。gzip は Node=zlib / ブラウザ=CompressionStream（pako 不使用）。
 import { unPackGintBuffer } from "../extension/topology.js";
-import { getDevice } from "./gpu.js";
-import { createEngine, cpuEngine } from "./engine.js";
-import { assembleZoom } from "./assemble.js";
-import { createPool, defaultWorkers } from "./pool.js";
-import { gzipMany } from "./gzip.js";
-import { assemblePMTiles, sameBytes } from "./pmtiles.js";
-import { attrFilter } from "./attrs.js";
-import { buildTagTable } from "./tagtable.js";
-import { calibrateArcThresholds } from "./calibrate.js";
+import type { UnPackGint } from "../pbf-base.js";
+import { getDevice } from "./gpu.ts";
+import type { ConvertDevice, GPUInfo } from "./gpu.ts";
+import { createEngine, cpuEngine } from "./engine.ts";
+import type { Engine, Projected } from "./engine.ts";
+import type { LodParams, ProjectResult } from "./kernels.ts";
+import { assembleZoom } from "./assemble.ts";
+import type { AssembleStatic, AssembleJob, AssembleResult } from "./assemble.ts";
+import { createPool, defaultWorkers } from "./pool.ts";
+import type { TilePool } from "./pool.ts";
+import type { TileWorkerJob } from "./tile-worker-types.ts";
+import { gzipMany } from "./gzip.ts";
+import { assemblePMTiles, sameBytes } from "./pmtiles.ts";
+import type { TileItem, PMTilesMetadata, Compression } from "./pmtiles.ts";
+import { attrFilter } from "./attrs.ts";
+import { buildTagTable } from "./tagtable.ts";
+import type { TagSource, FieldMap, FieldType } from "./tagtable.ts";
+import { calibrateArcThresholds } from "./calibrate.ts";
+import type { CalibrateStats } from "./calibrate.ts";
 import { now } from "../modules/now.js";
+import type { AttrOptions } from "./types.ts";
 export { attrFilter };
 
+/** 入力（GeoPBF か同形）：属性表の元 ＋ ヘッダのメタ ＋ pbf.gint() 後の GintBUF */
+export interface TilerSource extends TagSource {
+	_gintBuffer?: ArrayBuffer | SharedArrayBuffer | null;
+	name?: () => string | null | undefined;
+	description?: () => string | null | undefined;
+	attribution?: () => string | null | undefined;
+	license?: () => string | null | undefined;
+}
+export interface TilingOptions extends AttrOptions {
+	/** GintBUF（無ければ pbf._gintBuffer） */
+	gint?: ArrayBuffer | SharedArrayBuffer | null;
+	extent?: number;
+	minZoom?: number;
+	maxZoom?: number;
+	buffer?: number;
+	lodBias?: number;
+	tinyPolygon?: number;
+	tinyLine?: number;
+	layer?: string;
+	/** false＝CPU・GPU オブジェクトで明示注入 */
+	gpu?: GPU | false | null;
+	/** DP 許容差（タイル単位）。false で固定則のみ */
+	simplification?: number | false;
+	dropRate?: number;
+	metadata?: Record<string, unknown>;
+}
+export interface ToPMTilesOptions extends TilingOptions {
+	workers?: number;
+	tileCompression?: Compression;
+	batchVertices?: number;
+	center?: readonly number[];
+	onWarn?: (e: unknown) => void;
+	onProgress?: (p: { zoom: number; tiles: number }) => void;
+}
+export interface TilingStats {
+	engine: string;
+	gpu?: GPUInfo;
+	vertices: number;
+	arcs: number;
+	kept: number;
+	tiles: number;
+	bytes: number;
+	workers: number;
+	contents?: number;
+	calibration?: CalibrateStats;
+	ms: Record<string, number>;
+}
+export interface ZoomOut { out: Uint32Array; zo: Uint32Array; sum: number }
+/** prepareTiling の戻り（toPMTiles と tilesource.js が共有） */
+export interface Prepared {
+	d: UnPackGint;
+	A: number;
+	nPts: number;
+	arcs: Uint32Array;
+	eng: Engine;
+	proj: Projected;
+	params: LodParams;
+	counts: Uint32Array;
+	bbox: Uint32Array;
+	offsets: Uint32Array;
+	total: number;
+	zoomTotal(k: number): number;
+	zoomOut(k: number): Promise<ZoomOut>;
+	S: AssembleStatic;
+	fields: FieldMap;
+	stats: TilingStats;
+	metadata: PMTilesMetadata;
+	extent: number;
+	buffer: number;
+	minZoom: number;
+	maxZoom: number;
+	zoomCount: number;
+	layerName: string;
+	bounds: number[];
+	t0: number;
+	destroy(): void;
+	/** tinyDecisions のズーム別キャッシュ */
+	_tiny?: Map<number, Uint8Array>;
+}
+export interface ColumnJobInput { z: number; out: Uint32Array; zo: Uint32Array; zc: Uint32Array; zb: Uint32Array; txFrom: number; txTo: number }
+export interface ToPMTilesResult { buffer: Uint8Array; stats: TilingStats; metadata: PMTilesMetadata }
+/** propsToTags の 1 行 */
+export type PropTag = [string, string | number | boolean];
+
 // lodBias: 正で閾値を上げる＝残る頂点が減る（3 で VW 面積 4 倍＝線形で 2 倍粗い相当）。負で細かく。
-export function lodThreshold(z, extent, lodBias = 0) {
+export function lodThreshold(z: number, extent: number, lodBias = 0): number {
 	const v = Math.round(63 - 3 * (z + Math.log2(extent / 256)) + lodBias);
 	return Math.max(0, Math.min(63, v));
 }
 
 // 属性 → MVT tags（GeoPBF の値型を MVT の値型へ。入れ子は "a.b" に平坦化・Blob/ImageData/関数は落とす）。keep: attrFilter の戻り
-export function propsToTags(props, fields, keep = null) {
-	const tags = [];
-	const put = (k, v) => {
+export function propsToTags(props: Record<string, unknown> | null | undefined, fields: FieldMap | null, keep: ((key: string) => boolean) | null = null): PropTag[] {
+	const tags: PropTag[] = [];
+	const put = (k: string, v: unknown): void => {
 		if (v === null || v === undefined || (keep && !keep(k))) return;
-		let t;
+		let t: string | number | boolean;
 		if (typeof v === "string") t = v;
 		else if (typeof v === "number") { if (!Number.isFinite(v)) return; t = v; }
 		else if (typeof v === "boolean") t = v;
 		else if (v instanceof Date) t = v.toISOString();
-		else if (ArrayBuffer.isView(v)) t = JSON.stringify(Array.from(v));
+		else if (ArrayBuffer.isView(v)) t = JSON.stringify(Array.from(v as unknown as ArrayLike<unknown>));
 		else if (typeof v === "object") { if (typeof Blob !== "undefined" && v instanceof Blob) return; if (typeof ImageData !== "undefined" && v instanceof ImageData) return; t = JSON.stringify(v); }
 		else return;
 		tags.push([k, t]);
-		if (fields) { const ty = typeof t === "number" ? "Number" : typeof t === "boolean" ? "Boolean" : "String"; const cur = fields.get(k); if (!cur) fields.set(k, ty); else if (cur !== ty) fields.set(k, "String"); }
+		if (fields) { const ty: FieldType = typeof t === "number" ? "Number" : typeof t === "boolean" ? "Boolean" : "String"; const cur = fields.get(k); if (!cur) fields.set(k, ty); else if (cur !== ty) fields.set(k, "String"); }
 	};
 	for (const k in props) {
-		const v = props[k];
-		if (v && typeof v === "object" && !(v instanceof Date) && !ArrayBuffer.isView(v) && Object.getPrototypeOf(v) === Object.prototype) for (const kk in v) put(k + "." + kk, v[kk]);
+		const v = (props as Record<string, unknown>)[k];
+		if (v && typeof v === "object" && !(v instanceof Date) && !ArrayBuffer.isView(v) && Object.getPrototypeOf(v) === Object.prototype) for (const kk in v) put(k + "." + kk, (v as Record<string, unknown>)[kk]);
 		else put(k, v);
 	}
 	return tags;
@@ -55,7 +150,7 @@ export function propsToTags(props, fields, keep = null) {
 // 面成分（polyStream の成分順）の外環の元解像度の面積 ×2（世界座標 2^32 尺・成分の先頭頂点を原点に取って f64 で組む＝
 // 2^64 級の積の丸めを避ける）。極小判定は tippecanoe と同じく「簡略化前の面積」で行う＝低ズームで LOD が環を潰しても、
 // その成分の面積は積算されて代わりの正方形になる（小島の群れ・区画の塊が「何も無い」にならない）。
-export function componentAreas(ps, arcMeta, xy) {
+export function componentAreas(ps: Int32Array, arcMeta: Uint32Array, xy: ArrayLike<number>): Float64Array {
 	let nc = 0;
 	for (let p = 0; p < ps.length;) { p += 2; nc++; const nr = ps[p - 1]; for (let r = 0; r < nr; r++) p += ps[p] + 1; }
 	const area = new Float64Array(nc);
@@ -91,7 +186,7 @@ export function componentAreas(ps, arcMeta, xy) {
 //
 // 2026-10-12（改良点 ⑥）: 準備（unpack→project→較正→lodCount→属性表）と「1 ズーム×列範囲の job 作り」を prepareTiling／columnJob に
 // 切り出し、toPMTiles（全タイル一括）と tilesource.js（MapLibre の geopbf:// protocol＝要求されたタイルだけ）が同じ本体を使う。
-export async function prepareTiling(pbf, opts = {}) {
+export async function prepareTiling(pbf: TilerSource, opts: TilingOptions = {}): Promise<Prepared> {
 	const t0 = now();
 	const gintBuf = opts.gint ?? pbf._gintBuffer;
 	if (!gintBuf) throw new Error("toPMTiles: GintBUF missing (await pbf.gint() or pass opts.gint)");
@@ -105,7 +200,7 @@ export async function prepareTiling(pbf, opts = {}) {
 	const tinyPolygon = opts.tinyPolygon ?? 2, tinyLine = opts.tinyLine ?? 0;
 	if (!(tinyPolygon >= 0) || !(tinyLine >= 0)) throw new Error("tinyPolygon / tinyLine must be >= 0");
 	const layerName = opts.layer ?? pbf.name?.() ?? "layer";
-	const stats = { engine: "cpu", vertices: 0, arcs: 0, kept: 0, tiles: 0, bytes: 0, workers: 0, ms: {} };
+	const stats: TilingStats = { engine: "cpu", vertices: 0, arcs: 0, kept: 0, tiles: 0, bytes: 0, workers: 0, ms: {} };
 
 	// ── 頂点台帳: arc 群 ＋ 点（点は長さ 1 の arc として同じ経路を通す）
 	const arcU32 = d.arcBuffer ? new Uint32Array(d.arcBuffer.buffer, d.arcBuffer.byteOffset, d.arcBuffer.length * 2) : new Uint32Array(0);
@@ -113,12 +208,13 @@ export async function prepareTiling(pbf, opts = {}) {
 	const arcLen = arcU32.length >>> 1, nPts = ptU32.length >>> 1, A = d.arcCount + nPts;
 	const verts = new Uint32Array((arcLen + nPts) * 2); verts.set(arcU32, 0); verts.set(ptU32, arcLen * 2);
 	const arcs = new Uint32Array(A * 2);
-	for (let a = 0; a < d.arcCount; a++) { arcs[a * 2] = d.arcMeta[a * 8]; arcs[a * 2 + 1] = d.arcMeta[a * 8 + 1]; }
+	const arcMeta = d.arcMeta as Uint32Array;
+	for (let a = 0; a < d.arcCount; a++) { arcs[a * 2] = arcMeta[a * 8]; arcs[a * 2 + 1] = arcMeta[a * 8 + 1]; }
 	for (let p = 0; p < nPts; p++) { arcs[(d.arcCount + p) * 2] = arcLen + p; arcs[(d.arcCount + p) * 2 + 1] = 1; }
 	stats.vertices = arcLen + nPts; stats.arcs = d.arcCount;
 
 	// ── エンジン（GPU/CPU）
-	let device = null;
+	let device: ConvertDevice | null = null;
 	if (opts.gpu !== false) device = await getDevice(typeof opts.gpu === "object" ? { gpu: opts.gpu } : {});
 	const eng = device ? createEngine(device) : cpuEngine();
 	stats.engine = eng.kind; stats.gpu = eng.info;
@@ -127,36 +223,36 @@ export async function prepareTiling(pbf, opts = {}) {
 	const zoomCount = maxZoom - minZoom + 1;
 	const thresholds = Array.from({ length: zoomCount }, (_, k) => lodThreshold(minZoom + k, extent, lodBias));
 	const simplification = opts.simplification ?? 1;
-	let projCPU = null;   // 較正と面積計算で使う投影結果（GPU なら 1 回だけ読み戻す）
-	const readProj = async () => projCPU ??= (proj.xy instanceof Uint32Array ? { xy: proj.xy, rk: proj.rk } : await proj.read());
-	let arcThresholds;
+	let projCPU: ProjectResult | null = null;   // 較正と面積計算で使う投影結果（GPU なら 1 回だけ読み戻す）
+	const readProj = async (): Promise<ProjectResult> => projCPU ??= (proj.xy instanceof Uint32Array ? { xy: proj.xy, rk: proj.rk as Uint32Array } : await proj.read());
+	let arcThresholds: Uint8Array | undefined;
 	if (simplification !== false && d.arcCount) {
 		if (!(simplification > 0)) throw new Error("simplification must be a positive number or false");
 		const tc = now(), { xy, rk } = await readProj();
 		const cal = calibrateArcThresholds({ xy, rk, arcs, arcCount: d.arcCount, totalArcs: A, extentShift, minZoom, maxZoom, tolerance: simplification, lodBias });
 		arcThresholds = cal.arcThresholds; stats.calibration = cal.stats; stats.ms.calibrate = now() - tc;
 	}
-	const params = { arcCount: A, zoomCount, minZoom, extentShift, thresholds, arcThresholds };
+	const params: LodParams = { arcCount: A, zoomCount, minZoom, extentShift, thresholds, arcThresholds };
 	const { counts, bbox } = await eng.lodCount(proj, arcs, params);
 	stats.ms.project_lod = now() - t1;
 	const offsets = new Uint32Array(counts.length);
 	let total = 0; for (let i = 0; i < counts.length; i++) { offsets[i] = total; total += counts[i]; }
 	stats.kept = total;
-	const zoomTotal = (k) => (k + 1 < zoomCount ? offsets[(k + 1) * A] : total) - offsets[k * A];
+	const zoomTotal = (k: number): number => (k + 1 < zoomCount ? offsets[(k + 1) * A] : total) - offsets[k * A];
 	// 面成分の元解像度の面積（極小判定用・tinyPolygon 0 なら不要）。GPU なら投影結果を読み戻す
-	let compArea = null;
-	if (tinyPolygon > 0 && d.polyStream?.length) { const ta = now(); const { xy } = await readProj(); compArea = componentAreas(d.polyStream, d.arcMeta, xy); stats.ms.area = now() - ta; }
+	let compArea: Float64Array | null = null;
+	if (tinyPolygon > 0 && d.polyStream?.length) { const ta = now(); const { xy } = await readProj(); compArea = componentAreas(d.polyStream, arcMeta, xy); stats.ms.area = now() - ta; }
 
 	// ── 属性 → typed array 表（キー辞書・UTF-8 文字列辞書・feature 別エントリ）＝worker へは memcpy で渡る
 	//（fid 毎の [[k,v],…] 配列の構造化クローンは 100 万件で worker あたり 4 秒＝直列で 16 秒掛かっていた）
 	const tt = now();
-	const fields = new Map(), keep = attrFilter(opts);
+	const fields: FieldMap = new Map(), keep = attrFilter(opts);
 	const tagTable = buildTagTable(pbf, keep, fields);
 	stats.ms.tags = now() - tt;
 	const dropRate = opts.dropRate ?? 2.5;
 	if (!(dropRate >= 1)) throw new Error("dropRate must be >= 1 (1 = keep every point)");
-	const S = { arcCount: d.arcCount, nPts, point: d.point ? d.point.slice() : null, polyStream: d.polyStream ? d.polyStream.slice() : null, lineStream: d.lineStream ? d.lineStream.slice() : null, extent, buffer, layerName, tagTable, featureCount: pbf.length, maxZoom, dropRate, tinyPolygon, tinyLine, compArea, extentShift };
-	const metadata = {
+	const S: AssembleStatic = { arcCount: d.arcCount, nPts, point: d.point ? d.point.slice() : null, polyStream: d.polyStream ? d.polyStream.slice() : null, lineStream: d.lineStream ? d.lineStream.slice() : null, extent, buffer, layerName, tagTable, featureCount: pbf.length, maxZoom, dropRate, tinyPolygon, tinyLine, compArea, extentShift };
+	const metadata: PMTilesMetadata = {
 		name: layerName, format: "pbf", type: "overlay", version: "1",
 		description: pbf.description?.() || undefined, attribution: pbf.attribution?.() || undefined, license: pbf.license?.() || undefined,
 		minzoom: String(minZoom), maxzoom: String(maxZoom), bounds: d.bbox.join(","),
@@ -166,7 +262,7 @@ export async function prepareTiling(pbf, opts = {}) {
 	};
 	for (const k of Object.keys(metadata)) if (metadata[k] === undefined) delete metadata[k];
 	// 1 ズーム（k＝minZoom からの番号）の圧縮座標を読み戻す。sub＝このズームの arc 別オフセット（out 内・相対）
-	const zoomOut = async (k) => {
+	const zoomOut = async (k: number): Promise<ZoomOut> => {
 		const sum = zoomTotal(k), base0 = offsets[k * A], zo = offsets.slice(k * A, (k + 1) * A);
 		for (let i = 0; i < zo.length; i++) zo[i] -= base0;
 		const out = sum ? await eng.lodWrite(proj, arcs, params, zo, sum, k, k + 1) : new Uint32Array(0);
@@ -180,15 +276,15 @@ export async function prepareTiling(pbf, opts = {}) {
 //（改良点 13・2026-10-12）。旧＝積算が assembleZoom（1 ズーム×列範囲の job）ごとだったので、小島の群れが shard 境界をまたぐと
 // 正方形の数と置き場が worker 数で変わり「worker 数に依らず byte 同一」（README §5.1）が破れていた。積算の式は assembleZoom の
 // tinySquare と同じ（簡略化前の面積 compArea × このズームの尺・fid ごとに積み、閾値面積に達するたびに正方形 1 つ）。ズームごとに 1 回だけ組んで控える
-export function tinyDecisions(P, z) {
+export function tinyDecisions(P: Prepared, z: number): Uint8Array | null {
 	const { S } = P;
-	if (!(S.tinyPolygon > 0) || !S.compArea || !S.polyStream) return null;
+	if (!((S.tinyPolygon as number) > 0) || !S.compArea || !S.polyStream) return null;
 	const cache = P._tiny ??= new Map();
 	let dec = cache.get(z);
 	if (dec) return dec;
-	const ps = S.polyStream, compArea = S.compArea, tinyA2 = 2 * S.tinyPolygon, areaScale = Math.pow(4, z + (S.extentShift ?? 12) - 32);
+	const ps = S.polyStream, compArea = S.compArea, tinyA2 = 2 * (S.tinyPolygon as number), areaScale = Math.pow(4, z + (S.extentShift ?? 12) - 32);
 	dec = new Uint8Array(compArea.length);
-	const acc = new Map();
+	const acc = new Map<number, number>();
 	let c = 0;
 	for (let p = 0; p < ps.length; c++) {
 		const fid = ps[p], nr = ps[p + 1]; p += 2;
@@ -206,11 +302,11 @@ export function tinyDecisions(P, z) {
 // shard の列範囲に掛かる feature の arc だけを詰め直す（旧＝shard ごとに このズームの全頂点を slice＝shards 倍のコピー・俯瞰レビュー 2026-09-15）。
 // 判定は assembleZoom の外環先読みと同じ式（bbox は extent 単位・buffer 込み）。面は外環の bbox で決め、通れば全環の arc を含める（クリップは環全体が要る）。
 // 線は set ごと。外れた arc は counts=0＝assemble が素通し
-export function columnJob(P, { z, out, zo, zc, zb, txFrom, txTo }) {
+export function columnJob(P: Prepared, { z, out, zo, zc, zb, txFrom, txTo }: ColumnJobInput): AssembleJob {
 	const { A, nPts, S, extent, buffer } = P;
 	const need = new Uint8Array(A);
-	const hitX = (x0, x1) => !(x1 < 0 || (x1 + buffer) / extent < txFrom || (x0 - buffer) / extent >= txTo + 1);
-	const markStream = (st, poly) => {
+	const hitX = (x0: number, x1: number): boolean => !(x1 < 0 || (x1 + buffer) / extent < txFrom || (x0 - buffer) / extent >= txTo + 1);
+	const markStream = (st: Int32Array | null, poly: boolean): void => {
 		if (!st) return;
 		for (let p = 0; p < st.length;) {
 			const nr = st[p + 1]; p += 2;
@@ -241,13 +337,13 @@ export function columnJob(P, { z, out, zo, zc, zb, txFrom, txTo }) {
 	return { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o, tiny: tinyDecisions(P, z) };   // tiny＝極小面の決定表（shard に依らない・null＝無効）
 }
 
-export async function toPMTiles(pbf, opts = {}) {
+export async function toPMTiles(pbf: TilerSource, opts: ToPMTilesOptions = {}): Promise<ToPMTilesResult> {
 	const P = await prepareTiling(pbf, opts);
 	const { A, eng, proj, arcs, params, counts, bbox, offsets, zoomTotal, S, stats, minZoom, maxZoom, zoomCount, t0 } = P;
 	const tileGzip = (opts.tileCompression ?? "gzip") === "gzip";
 
 	// ── worker プール（失敗したらインライン）
-	let pool = null;
+	let pool: TilePool | null = null;
 	const NW = opts.workers ?? await defaultWorkers();
 	const ti = now();
 	if (NW > 0) { try { pool = await createPool(NW); await pool.init(S); } catch (e) { pool = null; opts.onWarn?.(e); } }
@@ -255,10 +351,10 @@ export async function toPMTiles(pbf, opts = {}) {
 	stats.ms.pool_init = now() - ti;
 
 	// ── 結果の寄せ集め（内容キーで重複統合・同キー異内容は枝番）
-	const items = [], contents = new Map();
+	const items: TileItem[] = [], contents = new Map<string, Uint8Array>();
 	let tileCount = 0;
-	const merge = (r) => {
-		const remap = new Map();
+	const merge = (r: AssembleResult): void => {
+		const remap = new Map<string, string>();
 		for (const [key0, bytes] of r.contents) {
 			let key = key0, n = 0, cur = contents.get(key);
 			while (cur && !sameBytes(cur, bytes)) { key = key0 + "~" + (++n); cur = contents.get(key); }
@@ -272,7 +368,7 @@ export async function toPMTiles(pbf, opts = {}) {
 	// ── ズーム毎の job（GPU 読み戻しはズームを束ねて・組立は列範囲で分担）
 	const batchVerts = opts.batchVertices ?? (32 << 20);
 	let tAsm = 0, tLod2 = 0;
-	const pending = [];
+	const pending: Promise<void>[] = [];
 	for (let k0 = 0; k0 < zoomCount;) {
 		let k1 = k0 + 1, sum = zoomTotal(k0);
 		while (k1 < zoomCount && sum + zoomTotal(k1) <= batchVerts) sum += zoomTotal(k1++);
@@ -289,15 +385,15 @@ export async function toPMTiles(pbf, opts = {}) {
 			const shards = Math.max(1, Math.min(ntx, pool ? pool.size * 3 : 1));
 			for (let s = 0; s < shards; s++) {
 				const txFrom = Math.floor(ntx * s / shards), txTo = Math.floor(ntx * (s + 1) / shards) - 1;
-				const makeJob = () => {   // worker が空いた時に複製を作る＝同時に NW 個まで
+				const makeJob = (): { msg: TileWorkerJob; transfers: ArrayBuffer[] } => {   // worker が空いた時に複製を作る＝同時に NW 個まで
 					const J = columnJob(P, { z, out, zo, zc, zb, txFrom, txTo });
-					return { msg: { type: "job", J, gzip: tileGzip }, transfers: [J.counts.buffer, J.bbox.buffer, J.offs.buffer, J.out.buffer] };
+					return { msg: { type: "job", J, gzip: tileGzip }, transfers: [J.counts.buffer as ArrayBuffer, J.bbox.buffer as ArrayBuffer, J.offs.buffer as ArrayBuffer, J.out.buffer as ArrayBuffer] };
 				};
 				if (pool) pending.push(pool.run(makeJob).then(r => { merge(r); opts.onProgress?.({ zoom: z, tiles: tileCount }); }));
 				else {
 					const J = makeJob().msg.J, r = assembleZoom(S, J);
 					const bytes = tileGzip ? await gzipMany(r.contents.map(c => c[1])) : r.contents.map(c => c[1]);
-					merge({ tiles: r.tiles, contents: r.contents.map((c, i) => [c[0], bytes[i]]) });
+					merge({ tiles: r.tiles, contents: r.contents.map((c, i): [string, Uint8Array] => [c[0], bytes[i]]) });
 					opts.onProgress?.({ zoom: z, tiles: tileCount });
 				}
 			}
@@ -317,4 +413,3 @@ export async function toPMTiles(pbf, opts = {}) {
 	stats.tiles = tileCount; stats.bytes = buf.length; stats.contents = contents.size; stats.ms.total = now() - t0;
 	return { buffer: buf, stats, metadata };
 }
-

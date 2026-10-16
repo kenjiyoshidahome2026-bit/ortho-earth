@@ -9,46 +9,61 @@
 //                                           include, exclude, excludeAll, gpu, zoomCache = 4, columnCache = 256 });
 // src.tile(z, x, y) → Promise<Uint8Array | null>（null＝そのタイルに feature が無い／範囲外）
 // src.metadata（toPMTiles と同じ・vector_layers.fields 入り）・src.minZoom/maxZoom/bounds/layerName・src.stats・src.destroy()
-import { prepareTiling, columnJob } from "./tiler.js";
-import { assembleZoom } from "./assemble.js";
-import { zxyToTileId } from "./pmtiles.js";
+import { prepareTiling, columnJob } from "./tiler.ts";
+import type { TilerSource, TilingOptions, TilingStats, ZoomOut } from "./tiler.ts";
+import { assembleZoom } from "./assemble.ts";
+import { zxyToTileId } from "./pmtiles.ts";
+import type { PMTilesMetadata } from "./pmtiles.ts";
 
-export async function createTileSource(pbf, opts = {}) {
+export interface TileSourceOptions extends TilingOptions { zoomCache?: number; columnCache?: number }
+export interface TileSource {
+	readonly metadata: PMTilesMetadata;
+	readonly stats: TilingStats;
+	minZoom: number;
+	maxZoom: number;
+	bounds: number[];
+	layerName: string;
+	extent: number;
+	tile(z: number, x: number, y: number): Promise<Uint8Array | null>;
+	destroy(): void;
+}
+
+export async function createTileSource(pbf: TilerSource, opts: TileSourceOptions = {}): Promise<TileSource> {
 	const P = await prepareTiling(pbf, opts);
 	const { A, counts, bbox, S, minZoom, maxZoom, stats } = P;
 	const zoomMax = Math.max(1, opts.zoomCache ?? 4), colMax = Math.max(1, opts.columnCache ?? 256);
-	const zooms = new Map();   // k → Promise<{ out, zo, sum }>（LRU・Map の挿入順＝古い順）
-	const cols = new Map();    // "z/x" → Promise<Map<ty, Uint8Array>>
-	const touch = (m, key, v) => { m.delete(key); m.set(key, v); return v; };
-	const zoomOf = (k) => {
+	const zooms = new Map<number, Promise<ZoomOut>>();   // k → Promise<{ out, zo, sum }>（LRU・Map の挿入順＝古い順）
+	const cols = new Map<string, Promise<Map<number, Uint8Array>>>();    // "z/x" → Promise<Map<ty, Uint8Array>>
+	const touch = <K, V>(m: Map<K, V>, key: K, v: V): V => { m.delete(key); m.set(key, v); return v; };
+	const zoomOf = (k: number): Promise<ZoomOut> => {
 		const hit = zooms.get(k);
 		if (hit) return touch(zooms, k, hit);
 		const p = P.zoomOut(k);
 		touch(zooms, k, p);
-		if (zooms.size > zoomMax) zooms.delete(zooms.keys().next().value);
+		if (zooms.size > zoomMax) zooms.delete(zooms.keys().next().value as number);
 		return p;
 	};
-	const columnOf = (z, x) => {
+	const columnOf = (z: number, x: number): Promise<Map<number, Uint8Array>> => {
 		const key = z + "/" + x, hit = cols.get(key);
 		if (hit) return touch(cols, key, hit);
 		const k = z - minZoom;
 		const p = zoomOf(k).then(({ out, zo }) => {
 			const zc = counts.subarray(k * A, (k + 1) * A), zb = bbox.subarray(k * A * 4, (k + 1) * A * 4);
 			const J = columnJob(P, { z, out, zo, zc, zb, txFrom: x, txTo: x });
-			const r = assembleZoom(S, J), byKey = new Map(r.contents), m = new Map();
-			for (const t of r.tiles) m.set(t.id, byKey.get(t.key));
+			const r = assembleZoom(S, J), byKey = new Map(r.contents), m = new Map<number, Uint8Array>();
+			for (const t of r.tiles) m.set(t.id, byKey.get(t.key) as Uint8Array);
 			stats.tiles += r.tiles.length;
 			return m;
 		});
 		touch(cols, key, p);
-		if (cols.size > colMax) cols.delete(cols.keys().next().value);
+		if (cols.size > colMax) cols.delete(cols.keys().next().value as string);
 		return p;
 	};
 	let alive = true;
 	return {
 		get metadata() { return P.metadata; }, get stats() { return stats; },
 		minZoom, maxZoom, bounds: P.bounds, layerName: P.layerName, extent: P.extent,
-		async tile(z, x, y) {
+		async tile(z: number, x: number, y: number): Promise<Uint8Array | null> {
 			if (!alive) throw new Error("tile source destroyed");
 			if (!(Number.isInteger(z) && Number.isInteger(x) && Number.isInteger(y)) || z < minZoom || z > maxZoom) return null;
 			const n = 2 ** z;
