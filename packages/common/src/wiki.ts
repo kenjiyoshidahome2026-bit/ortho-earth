@@ -14,7 +14,23 @@ const fetchJSON = (url: string): Promise<WikiResponse> => fetch(url).then(r => r
 const fetchHTML = (url: string): Promise<Document> => fetch(url).then(r => r.text()).then(t => parser.parseFromString(t, "text/html"));
 const tohtml = (str: string): Document => new DOMParser().parseFromString(str, 'text/html');
 const logo = 'https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg';
-const clean = (str: string): string => str.replace(/（[^）]*）/g, "").replace(/\s?\([^\)]*\)\s?/g, "").replace(/\[[^\]]*\]/g, "").replace(/\&nbsp\;/g, " ");
+const WS = /\s/;
+// 括弧で囲んだ所を落とす（旧 /O[^C]*C/g と同じ削り方）。開きの次の最初の閉じまで＝中に開きがあっても良い・閉じの無い開き以降はそのまま。ws＝前後の空白 1 字も落とす（旧 /\s?\(…\)\s?/g）
+function stripBracketed(s: string, open: string, close: string, ws = false): string {
+	let out = "", i = 0;
+	for (;;) {
+		let j = i; while (j < s.length && !open.includes(s[j])) j++;
+		if (j >= s.length) return out + s.slice(i);
+		let k = j + 1; while (k < s.length && !close.includes(s[k])) k++;
+		if (k >= s.length) return out + s.slice(i);
+		let a = j, b = k + 1;
+		if (ws && a > i && WS.test(s[a - 1])) a--;
+		if (ws && b < s.length && WS.test(s[b])) b++;
+		out += s.slice(i, a); i = b;
+	}
+}
+// 旧＝.replace(/（[^）]*）/g,"").replace(/\s?\([^\)]*\)\s?/g,"").replace(/\[[^\]]*\]/g,"")。閉じの無い開きが続くと二乗の後戻り（CodeQL）＝添字で同じ削り方
+const clean = (str: string): string => stripBracketed(stripBracketed(stripBracketed(str, "（", "）"), "(", ")", true), "[", "]").replace(/\&nbsp\;/g, " ");
 export const wiki = { title2id, id2title, id2langlink, langLinksById, langLinksByTitle, getContent, id2qid, title2qid, title2coords, openWikipediaByQID, qid2titles, id2coords, extract, logo, clean };
 async function title2id(title: string | string[], lang = "ja"): Promise<(number | void)[] | number> {
 	return isArray(title) ?

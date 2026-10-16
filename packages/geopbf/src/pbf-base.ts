@@ -629,7 +629,7 @@ function readGeometry(self: GeoPBFBase, n: number, m?: number): Geometry | null 
 			if (tag === TAGS.LENGTH) pbf.readPackedVarint(lens);
 			else if (tag === TAGS.COORDS) {
 				// 読み手の無い型（壊れたファイル）＝はっきりした Error（旧＝TypeError: funcs is not a function・CodeQL）。投げる時機は旧と同じ（COORDS を読む時）
-				if (!funcs) throw new Error(`geopbf: unknown geometry type ${type}`);
+				if (typeof funcs !== "function") throw new Error(`geopbf: unknown geometry type ${type}`);
 				end = pbf.readVarint() + pbf.pos; q.coordinates = funcs();
 			}
 		}, q) as Geometry;

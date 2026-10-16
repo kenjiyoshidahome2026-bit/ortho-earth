@@ -25,12 +25,14 @@ export interface IiifImage {
 	tilesIn(L: IiifLevel, box: readonly number[]): [number, number][];
 }
 
+// 末尾の "/" を落とす（旧 .replace(/\/+$/, "")）。正規表現は "/" が多い入力で二乗の後戻り（CodeQL）＝添字で同じ削り方をする
+const trimSlashes = (s: string): string => { let e = s.length; while (e > 0 && s[e - 1] === "/") e--; return s.slice(0, e); };
 const ver = (info: IiifInfo): 2 | 3 => /image\/3|ImageService3/.test(JSON.stringify(info["@context"] || "") + (info.type || "")) ? 3 : 2;
 /** info.json → 読み口（段の一覧・タイルの URL） */
 export function iiifImage(info: IiifInfo, { base }: { base?: string } = {}): IiifImage {   // base＝info.json の URL（相対の id を解く＝静的に置いた level0 の写しを置き場所に依らず読む）
 	let rid = String(info.id || info["@id"] || "");
 	if (base && rid && !/^[a-z][\w+.-]*:/i.test(rid)) rid = new URL(rid, base).href;
-	const id = rid.replace(/\/+$/, ""), v = ver(info);
+	const id = trimSlashes(rid), v = ver(info);
 	const W = +(info.width ?? NaN), H = +(info.height ?? NaN);
 	if (!id || !(W > 0) || !(H > 0)) throw new Error("iiif: info.json lacks id/width/height");
 	const prof: IiifProfile[] = Array.isArray(info.profile) ? info.profile : [info.profile ?? null];
@@ -76,4 +78,4 @@ export function iiifImage(info: IiifInfo, { base }: { base?: string } = {}): Iii
 	};
 }
 /** 画像サービスの id（…/info.json でも可）→ info.json の URL */
-export const infoUrl = (id: unknown): string => String(id).replace(/\/info\.json$/i, "").replace(/\/+$/, "") + "/info.json";
+export const infoUrl = (id: unknown): string => trimSlashes(String(id).replace(/\/info\.json$/i, "")) + "/info.json";
