@@ -8,7 +8,7 @@ import { sanitizeHTML } from "geopbf/sanitize";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Feature, GeoPBF } from "geopbf";
 import type { Gadgets, OverlayHandle } from "../../globe.d.ts";
-import type { ClusterOpts } from "../gadgets/aggregate.d.ts";
+import type { ClusterOpts } from "../gadgets/aggregate.ts";
 import type { ImagesDeps, ImagesLive, ImagesReturn, Installing } from "../types/install.ts";
 import type { GadgetFactory, GlobeMap, ImagesApi } from "../types/map.ts";
 
@@ -67,7 +67,7 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 	//   heatmap(src, { paint:{ "heatmap-*": 式 }, minzoom, maxzoom }) または層を丸ごと（{ type:"heatmap", source:{ type:"geojson", data }, paint }）
 	//   cluster(src, { clusterRadius, clusterMaxZoom, paint, unclustered:{ paint }, text }) または MapLibre の source（{ type:"geojson", data, cluster:true, … }）
 	//   null＝外す。ズームは ortho の z（MapLibre の z＋1 と同じ見た目の縮尺）。
-	const aggGet = async () => { const m = await import("../gadgets/aggregate.js"); return live.aggCtl ??= m.createAggregate(map, { signal: ac.signal }); };
+	const aggGet = async () => { const m = await import("../gadgets/aggregate.ts"); return live.aggCtl ??= m.createAggregate(map, { signal: ac.signal }); };
 	const readPoints = async (src: unknown) => (typeof src === "string" || src instanceof Blob) ? await readGeoData(src) : (!(src as PointsIn)?.type && !Array.isArray(src) && (src as PointsIn)?.geojson) ? (src as PointsIn)!.geojson : src;
 	// 中身（native）＝層は正規化済み（エンジンの目盛り）で受ける。内部（addLayer の描き出し）はこちらを直に呼ぶ＝公開の入口を二度くぐらない（台帳 R4）
 	const heatmapNative = async (src: unknown, layer: Partial<MLLayer>, slot: string) => (await aggGet()).heatmap(await readPoints(src), layer, slot);
@@ -88,7 +88,7 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 	}) as GadgetFactory<Gadgets["cluster"]>);
 	// ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 	// 線に沿う geojson の注記（C9・gadgets/gjlabels.js）＝symbol-placement line/line-center の geojson の symbol 層。vector の注記と同じ口（sendLabels "vt:"）へ
-	const gjGet = async () => { const m = await import("../gadgets/gjlabels.js"); if (live.gjCtl) return live.gjCtl; ownDestroy.push(() => live.gjCtl?.destroy()); return live.gjCtl = m.createGJLabels(map, { cam, size: () => size, dpr: live.dpr, sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); requestDraw(); } }); };
+	const gjGet = async () => { const m = await import("../gadgets/gjlabels.ts"); if (live.gjCtl) return live.gjCtl; ownDestroy.push(() => live.gjCtl?.destroy()); return live.gjCtl = m.createGJLabels(map, { cam, size: () => size, dpr: live.dpr, sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); requestDraw(); } }); };
 	const gjIsLine = (layer: Partial<MLLayer>) => { const p = layer.layout?.["symbol-placement"]; if (p == null) return false; const v = typeof p === "string" ? p : evalExpr(p, { zoom: cam.zoom, props: {}, geom: "LineString", vars: {}, gs: live.MAP_GS, origin: "ml" }); return v === "line" || v === "line-center"; };
 	const missingImgs = new Set<string>();   // styleimagemissing を鳴らした名前（名前ごとに 1 回＝MapLibre と同じ）
 	function imageMissing(name: string) {
@@ -97,7 +97,7 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 		for (const cb of [...mapOn.styleimagemissing]) { try { cb({ id: name }); } catch (e) { console.error("[map.on styleimagemissing]", e); } }
 	}
 	// 記号帳の写しは render worker の注記層（labels2d）にも届ける＝基図と vector source の symbol 層の icon-image（段 3）。ImageBitmap は写して転送（main の記号帳はそのまま）
-	const symGet = async () => { const m = await import("../gadgets/symbols.js"); return live.symCtl ??= m.createSymbols(map, { signal: ac.signal,
+	const symGet = async () => { const m = await import("../gadgets/symbols.ts"); return live.symCtl ??= m.createSymbols(map, { signal: ac.signal,
 		onImage: (name, e) => createImageBitmap(e.bitmap).then(bm => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null } }, [bm]); requestDraw(); }).catch(err => console.warn("[symbols] image to labels", name, err)),
 		onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); requestDraw(); }, onMissing: imageMissing }); };
 	// 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。

@@ -6,34 +6,61 @@
 import { selectLOD } from "@ortho-earth/core";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { clipLineGeom, substituteZoom, quantZoom } from "../vtops.js";
+import type { MLLayer, TileXYZ } from "@ortho-earth/core";
+import type { GlobeMap } from "../types/map.ts";
+import type { DrawSize, GlobeCam } from "../types/scope.ts";
+
+/** 線に沿う geojson の注記（symbol-placement line/line-center の geojson の symbol 層） */
+export interface GJLabels {
+	/** 層を足す／置き換える（layer＝正規化済み・src＝GeoJSON・key＝重ね順） */
+	set(id: string, layer: MLLayer, src: unknown, key?: number): { features: number };
+	remove(id: string): void;
+	setOrder(id: string, n: number): void;
+	has(id: string): boolean;
+	readonly layerIds: string[];
+	destroy(): void;
+}
+/** core の buildLabels の入力（解読済みのタイル）と 1 件の注記 */
+type LabelsTile = Parameters<typeof buildLabels>[0];
+type Label = ReturnType<typeof buildLabels>["labels"][number];
+/** 線の地物（parts＝世界メルカトル [0,1] の平らな列・bbox＝同じ単位） */
+interface LineFeat { id: unknown; props: Record<string, unknown>; parts: Float64Array[]; bbox: number[] }
+/** 層の 1 枚（sig＝最後に焼いたタイルの集合と ["zoom"] の値・rev＝set の回数） */
+interface GJLayer { layer: MLLayer; feats: LineFeat[]; key: number; sig: string | null; rev: number }
+/** gjLineFeatures が読む地物 */
+interface GJFeature { id?: unknown; properties?: Record<string, unknown> | null; geometry?: { type: string; coordinates: unknown } | null }
+type GJSrc = { type?: unknown; coordinates?: unknown; features?: Array<GJFeature | null | undefined> } | null | undefined;
 
 const E = 4096, D2R = Math.PI / 180, R2D = 180 / Math.PI, MAX_TILES = 48, TILE_PX = 512 * Math.SQRT2;
-const merc = (lon, lat) => { const s = Math.sin(Math.max(-85.05, Math.min(85.05, lat)) * D2R); return [lon / 360 + 0.5, 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)]; };
-const tileBbox = (z, x, y) => { const n = 2 ** z, lat = v => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
+const merc = (lon: number, lat: number) => { const s = Math.sin(Math.max(-85.05, Math.min(85.05, lat)) * D2R); return [lon / 360 + 0.5, 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)]; };
+const tileBbox = (z: number, x: number, y: number) => { const n = 2 ** z, lat = (v: number) => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 
 // GeoJSON → 線の地物（LineString／MultiLineString だけ・点と面は捨てる＝MapLibre の line 配置と同じ）。parts＝世界メルカトル [0,1] の平らな列・bbox＝同じ単位
-function gjLineFeatures(src) {
-	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.type && src?.coordinates ? [{ type: "Feature", properties: {}, geometry: src }] : src?.features || [];
-	const out = [];
+function gjLineFeatures(src: unknown): LineFeat[] {
+	const feats = (Array.isArray(src) ? src : (src as GJSrc)?.type === "FeatureCollection" ? (src as GJSrc)!.features : (src as GJSrc)?.type === "Feature" ? [src] : (src as GJSrc)?.type && (src as GJSrc)?.coordinates ? [{ type: "Feature", properties: {}, geometry: src }] : (src as GJSrc)?.features || []) as Array<GJFeature | null | undefined>;
+	const out: LineFeat[] = [];
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
-		const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : null;
+		const lines = (g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : null) as unknown[] | null;
 		if (!lines) continue;
-		const parts = [], bbox = [Infinity, Infinity, -Infinity, -Infinity];
+		const parts: Float64Array[] = [], bbox = [Infinity, Infinity, -Infinity, -Infinity];
 		for (const l of lines) {
 			if (!Array.isArray(l) || l.length < 2) continue;
 			const p = new Float64Array(l.length * 2);
-			for (let i = 0; i < l.length; i++) { const [mx, my] = merc(+l[i][0], +l[i][1]); p[i * 2] = mx; p[i * 2 + 1] = my; if (mx < bbox[0]) bbox[0] = mx; if (my < bbox[1]) bbox[1] = my; if (mx > bbox[2]) bbox[2] = mx; if (my > bbox[3]) bbox[3] = my; }
+			for (let i = 0; i < l.length; i++) { const [mx, my] = merc(+(l[i] as number[])[0], +(l[i] as number[])[1]); p[i * 2] = mx; p[i * 2 + 1] = my; if (mx < bbox[0]) bbox[0] = mx; if (my < bbox[1]) bbox[1] = my; if (mx > bbox[2]) bbox[2] = mx; if (my > bbox[3]) bbox[3] = my; }
 			parts.push(p);
 		}
-		if (parts.length) out.push({ id: f.id, props: f.properties || {}, parts, bbox });
+		if (parts.length) out.push({ id: f!.id, props: f!.properties || {}, parts, bbox });
 	}
 	return out;
 }
 
 // 呼び手の口：cam・size()＝{ w, h }（device px）・dpr・sendLabels(id, list|null, meta)（globe の vtdraw と同じ）
-export function createGJLabels(map, { cam, size, dpr = 1, sendLabels }) {
-	const layers = new Map();   // id → { layer, feats, key, sig }
+export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }: {
+	cam: GlobeCam; size: () => DrawSize; dpr?: number;
+	sendLabels(id: string, list: unknown[] | null, meta: { minZoom?: number | null; maxZoom?: number | null }): void;
+}): GJLabels {
+	const layers = new Map<string, GJLayer>();   // id → { layer, feats, key, sig }
 	const tilesNow = () => {
 		const { w, h } = size();
 		let ts = selectLOD(cam, w, h, { minZ: 0, maxZ: 22, tilePx: TILE_PX * dpr });
@@ -41,24 +68,24 @@ export function createGJLabels(map, { cam, size, dpr = 1, sendLabels }) {
 		const fine = Math.max(...ts.map(t => t.z));
 		ts = ts.filter(t => t.z >= fine - 2);   // 急な傾きの遠くの粗い段は捨てる（vtdraw と同じ）
 		const [cx, cy] = cam.center, cw = Math.cos(cy * D2R);
-		const d2 = t => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
+		const d2 = (t: TileXYZ) => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
 		return ts.sort((a, b) => d2(a) - d2(b)).slice(0, MAX_TILES);
 	};
-	const build = (s, ts, pz) => {
+	const build = (s: GJLayer, ts: TileXYZ[], pz: number) => {
 		const L0 = s.layer, L = { ...L0, "source-layer": "g", minzoom: undefined, maxzoom: undefined, paint: substituteZoom(L0.paint || {}, pz), layout: { ...substituteZoom(L0.layout || {}, pz), visibility: "visible" } };   // ["zoom"]＝表示の z（worker と同じ近似）
-		const out = [];
+		const out: Label[] = [];
 		for (const t of ts) {
-			const n = 2 ** t.z, x0 = t.x / n, y0 = t.y / n, x1 = (t.x + 1) / n, y1 = (t.y + 1) / n, feats = [];
+			const n = 2 ** t.z, x0 = t.x / n, y0 = t.y / n, x1 = (t.x + 1) / n, y1 = (t.y + 1) / n, feats: Array<{ type: "LineString"; id: unknown; props: Record<string, unknown>; geom: { coords: Float64Array; ends: number[] } }> = [];
 			for (const f of s.feats) {
 				if (f.bbox[2] < x0 || f.bbox[0] > x1 || f.bbox[3] < y0 || f.bbox[1] > y1) continue;
-				const coords = [], ends = [];
+				const coords: number[] = [], ends: number[] = [];
 				for (const p of f.parts) { for (let i = 0; i < p.length; i += 2) coords.push((p[i] * n - t.x) * E, (p[i + 1] * n - t.y) * E); ends.push(coords.length); }
 				const g = clipLineGeom({ coords, ends }, E);
 				if (g) feats.push({ type: "LineString", id: f.id, props: f.props, geom: g });
 			}
 			if (!feats.length) continue;
-			const { labels } = buildLabels({ layers: { g: { extent: E, features: feats } }, z: t.z, x: t.x, y: t.y }, { layers: [L] });
-			for (const lb of labels) { lb.sort = -1e6 - s.key * 1e3 + (lb.sort || 0); delete lb.li; out.push(lb); }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（vtdraw-worker と同じ）
+			const { labels } = buildLabels({ layers: { g: { extent: E, features: feats } }, z: t.z, x: t.x, y: t.y } as unknown as LabelsTile, { layers: [L] });   // 線はタイル単位の小数のまま（core は座標を ArrayLike で読む）
+			for (const lb of labels) { lb.sort = -1e6 - s.key * 1e3 + (lb.sort || 0); delete (lb as { li?: number }).li; out.push(lb); }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（vtdraw-worker と同じ）
 		}
 		return out;
 	};
@@ -76,17 +103,17 @@ export function createGJLabels(map, { cam, size, dpr = 1, sendLabels }) {
 	const onSettle = () => refresh();
 	map.on("settle", onSettle);
 	let rev = 0;
-	const ctl = {
+	const ctl: GJLabels = {
 		// 層を足す／置き換える（layer＝正規化済み＝エンジンの目盛り・src＝GeoJSON・key＝重ね順）
 		set(id, layer, src, key = 0) {
 			const old = layers.get(id);
 			layers.set(id, { layer, feats: gjLineFeatures(src), key: old?.key ?? key, sig: null, rev: ++rev });
 			refresh();
-			return { features: layers.get(id).feats.length };
+			return { features: layers.get(id)!.feats.length };
 		},
 		remove(id) { if (layers.delete(id)) sendLabels(id, null, {}); },
 		setOrder(id, n) { const s = layers.get(id); if (s && s.key !== n) { s.key = n; refresh(); } },
-		has: id => layers.has(id),
+		has: (id: string) => layers.has(id),
 		get layerIds() { return [...layers.keys()]; },
 		destroy() { for (const id of [...layers.keys()]) ctl.remove(id); map.off("settle", onSettle); },
 	};

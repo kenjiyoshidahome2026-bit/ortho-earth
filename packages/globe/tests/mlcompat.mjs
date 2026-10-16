@@ -9,7 +9,7 @@ import * as mlstyle from "@ortho-earth/core/internal/mlstyle.ts";
 import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "@ortho-earth/core/expr";
 import { decodeDEM } from "@ortho-earth/core/internal/dem-src.ts";
 import { expandTemplate } from "@ortho-earth/core/raster-src";
-import { symbolItems, poleOf } from "../src/gadgets/symbols-core.js";
+import { symbolItems, poleOf } from "../src/gadgets/symbols-core.ts";
 import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.js";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));

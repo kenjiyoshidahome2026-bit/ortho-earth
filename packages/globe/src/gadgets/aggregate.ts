@@ -11,24 +11,59 @@ import { evalExpr, originOfLayer, lonlatTo3D } from "@ortho-earth/core";
 import heatUrl from "../heatmap-gl.js?url";
 import clusterUrl from "../cluster-2d.js?url";
 
-import { ctxOf, abbr, pointsOf, heatStyle, buildClusters, clusterDraw } from "./aggregate-core.js";   // 計算部分（検定 t-aggregate が直接読む）
+import { ctxOf, abbr, pointsOf, heatStyle, buildClusters, clusterDraw } from "./aggregate-core.ts";   // 計算部分（検定 t-aggregate が直接読む）
+import type { MLLayer } from "@ortho-earth/core";
+import type { OverlayHandle } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { AggPoint, ClusterDot, Clusters } from "./aggregate-core.ts";
 
-export function createAggregate(map, { signal } = {}) {
+/** 集約の丸・単点（MapLibre の集約地物の形・properties に cluster／point_count） */
+export interface AggFeature {
+	type: "Feature"; id?: number; properties: Record<string, unknown>; geometry: { type: "Point"; coordinates: [number, number] };
+	layer: { id: string; type: "circle" }; source?: string; expansionZoom?: number;
+}
+/** 当たり（clusterAt）の地物＝source（"cluster" か addLayer の層 id）を必ず持つ（sourceFeatures の地物は持たない） */
+export type AggHit = AggFeature & { source: string };
+/** cluster の指定（層は正規化済み＝エンジンの目盛り） */
+export interface ClusterOpts extends Partial<MLLayer> {
+	clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, unknown>; unclustered?: Partial<MLLayer>;
+	layerIds?: { clusters?: string; unclustered?: string; text?: string | null }; ranges?: { clusters?: [number, number]; unclustered?: [number, number] };
+}
+/** 点の集約とヒートマップ（slot＝addLayer の層 id・既定 "default"） */
+export interface Aggregate {
+	heatmap(src: unknown, layer?: Partial<MLLayer>, slot?: string): { points: number };
+	/** vector source の heatmap（vtdraw-worker が集めた点＝ll は経緯度の列・w は重み） */
+	heatmapPoints(ll: ArrayLike<number>, w: Float32Array<ArrayBuffer>, layer?: Partial<MLLayer>, slot?: string): { points: number };
+	cluster(src: unknown, opts?: ClusterOpts, slot?: string): { points: number; clusters: number[] };
+	clusterAt(x: number, y: number): AggHit | null;
+	sourceFeatures(slot: string, W: number, H: number): AggFeature[];
+	expansionZoom(slot: string, cid: number): number | undefined;
+	clear(which?: "heatmap" | "cluster" | null, slot?: string | null): void;
+	readonly active: { heatmap: boolean; cluster: boolean };
+	readonly slots: { heatmap: string[]; cluster: string[] };
+}
+/** 集約の 1 枠（slot）＝オーバーレイと、描いた段・点・層 id・出しズーム・cluster_id → ばらける段 */
+interface ClusterSlot {
+	ov: OverlayHandle; draw: ClusterDot[][]; pts: AggPoint[]; cl: Clusters;
+	ids: { clusters: string; unclustered: string }; rg: { clusters: [number, number]; unclustered: [number, number] }; byCid: Map<number, number>;
+}
+
+export function createAggregate(map: GlobeMap, { signal }: { signal?: AbortSignal } = {}): Aggregate {
 	// slot（層の名前）ごとに 1 枚のオーバーレイ（#34・2026-09-23）＝map.addLayer の heatmap／集約は層 id（集約は source id）ごと・並べられる。
 	// ガジェット直呼び（map.gadget.heatmap/cluster）は slot "default"＝従来どおり置き換え。オーバーレイ 1 枚＝WebGL2/2D のコンテキスト 1 つ（数十枚は避ける）
-	const heats = new Map();   // slot → overlay handle
-	const cluss = new Map();   // slot → { ov, draw, pts, cl }
-	const ovName = (kind, slot) => slot === "default" ? kind : `${kind}:${slot}`;
-	const ensureHeat = slot => { let h = heats.get(slot); if (!h) heats.set(slot, h = map.overlay(heatUrl, { name: ovName("heatmap", slot) })); return h; };
+	const heats = new Map<string, OverlayHandle>();   // slot → overlay handle
+	const cluss = new Map<string, ClusterSlot>();   // slot → { ov, draw, pts, cl }
+	const ovName = (kind: string, slot: string) => slot === "default" ? kind : `${kind}:${slot}`;
+	const ensureHeat = (slot: string) => { let h = heats.get(slot); if (!h) heats.set(slot, h = map.overlay(heatUrl, { name: ovName("heatmap", slot) })); return h; };
 	// クリック＝集約へ寄る（丸の中をクリック）
-	const onClick = e => {
+	const onClick = (e: MouseEvent) => {
 		if (!cluss.size) return;
 		const r = map.mapEl.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
 		const hit = ctl.clusterAt(x, y);
-		if (hit && hit.properties.cluster) { const z = Math.max(hit.expansionZoom, map.getZoom() + 1); map.flyTo(hit.geometry.coordinates[0], hit.geometry.coordinates[1], Math.min(20, z), (map.view.pitch || 0) * 180 / Math.PI, (map.view.bearing || 0) * 180 / Math.PI); }
+		if (hit && hit.properties.cluster) { const z = Math.max(hit.expansionZoom!, map.getZoom() + 1); map.flyTo(hit.geometry.coordinates[0], hit.geometry.coordinates[1], Math.min(20, z), (map.view.pitch || 0) * 180 / Math.PI, (map.view.bearing || 0) * 180 / Math.PI); }
 	};
 	map.mapEl.addEventListener("click", onClick, { signal });
-	const ctl = {
+	const ctl: Aggregate & { _cl?: Clusters } = {
 		heatmap(src, layer = {}, slot = "default") {
 			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom(), origin = originOfLayer(layer), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
 			const pos = new Float32Array(pts.length * 3), w = new Float32Array(pts.length);
@@ -36,7 +71,7 @@ export function createAggregate(map, { signal } = {}) {
 				const u = lonlatTo3D(p.lon, p.lat);   // β 単位球（楕円体の世界＝#43・球ではビット同値）。旧＝測地緯度をそのまま単位球へ＝楕円体で約 10km 北
 				pos[i * 3] = u[0]; pos[i * 3 + 1] = u[1]; pos[i * 3 + 2] = u[2];
 				const wv = evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props, origin, gs));
-				w[i] = Math.max(0, +(wv === undefined && origin ? 1 : wv) || 0);   // ML の評価エラー＝既定 1・ネイティブは従来どおり
+				w[i] = Math.max(0, +((wv === undefined && origin ? 1 : wv) as number) || 0);   // ML の評価エラー＝既定 1・ネイティブは従来どおり
 			});
 			const h = ensureHeat(slot), st = heatStyle(paint, z, origin, gs);
 			h.post({ type: "style", ...st, minzoom: layer.minzoom ?? -99, maxzoom: layer.maxzoom ?? 99 }, [st.ramp.buffer]);
@@ -56,11 +91,11 @@ export function createAggregate(map, { signal } = {}) {
 			const pts = pointsOf(src), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
 			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties, gs });
 			const draw = clusterDraw(pts, cl, { ...opts, gs });
-			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) });
+			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) } as ClusterSlot);
 			// 層 id と層ごとの出しズーム（MapLibre の集約の層＝丸と単点で別の層・maxzoom 排他）。無指定＝従来の名前・全ズーム
 			const ids = { clusters: opts.layerIds?.clusters ?? "clusters", unclustered: opts.layerIds?.unclustered ?? "unclustered-point" };
-			const rg = { clusters: opts.ranges?.clusters ?? [-Infinity, Infinity], unclustered: opts.ranges?.unclustered ?? [-Infinity, Infinity] };
-			const byCid = new Map(); for (const L of cl.levels) for (const it of L || []) if (it.cid != null) byCid.set(it.cid, it.ez);   // cluster_id → ばらける段（getClusterExpansionZoom）
+			const rg: ClusterSlot["rg"] = { clusters: opts.ranges?.clusters ?? [-Infinity, Infinity], unclustered: opts.ranges?.unclustered ?? [-Infinity, Infinity] };
+			const byCid = new Map<number, number>(); for (const L of cl.levels) for (const it of L || []) if (it.cid != null) byCid.set(it.cid, it.ez);   // cluster_id → ばらける段（getClusterExpansionZoom）
 			Object.assign(c, { draw, pts, cl, ids, rg, byCid });
 			c.ov.post({ type: "range", clusters: rg.clusters, unclustered: rg.unclustered });
 			if (slot === "default") ctl._cl = cl;   // 検定窓（従来の 1 枠）
@@ -72,8 +107,8 @@ export function createAggregate(map, { signal } = {}) {
 			const z = map.getZoom();
 			for (const [slot, c] of [...cluss].reverse()) {
 				const L = c.draw[Math.max(0, Math.min(c.draw.length - 1, Math.floor(z) - c.cl.minLevel))] || [];
-				let best = null, bd = Infinity;
-				const inR = r => z >= r[0] && z < r[1];
+				let best: ClusterDot | null = null, bd = Infinity;
+				const inR = (r: [number, number]) => z >= r[0] && z < r[1];
 				for (const d of L) { if (!inR(d.i >= 0 ? c.rg.unclustered : c.rg.clusters)) continue; const p = map.projectLL(d.lon, d.lat); if (p[2] < 0) continue; const dd = Math.hypot(p[0] - x, p[1] - y); if (dd <= d.r + 2 && dd < bd) { bd = dd; best = d; } }
 				if (!best) continue;
 				const props = best.i >= 0 ? c.pts[best.i].props : { cluster: true, cluster_id: best.cid, point_count: best.n, point_count_abbreviated: abbr(best.n), ...(best.agg || {}) };
@@ -84,7 +119,7 @@ export function createAggregate(map, { signal } = {}) {
 		// 今の段の丸と単点で画面の内側（余白 W/4）に居る物＝MapLibre の querySourceFeatures（集約の source）の答え。W/H＝容れ物の CSS px
 		sourceFeatures(slot, W, H) {
 			const c = cluss.get(slot); if (!c) return [];
-			const z = map.getZoom(), L = c.draw[Math.max(0, Math.min(c.draw.length - 1, Math.floor(z) - c.cl.minLevel))] || [], mx = W / 4, my = H / 4, out = [];
+			const z = map.getZoom(), L = c.draw[Math.max(0, Math.min(c.draw.length - 1, Math.floor(z) - c.cl.minLevel))] || [], mx = W / 4, my = H / 4, out: AggFeature[] = [];
 			for (const d of L) {
 				const p = map.projectLL(d.lon, d.lat); if (p[2] < 0 || p[0] < -mx || p[1] < -my || p[0] > W + mx || p[1] > H + my) continue;
 				const props = d.i >= 0 ? c.pts[d.i].props : { cluster: true, cluster_id: d.cid, point_count: d.n, point_count_abbreviated: abbr(d.n), ...(d.agg || {}) };
