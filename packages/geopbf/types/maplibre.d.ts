@@ -1,5 +1,5 @@
 // "geopbf/maplibre"（§8）＝addProtocol へ渡すハンドラ。maplibre-gl は import しない（型も自前の最小形）
-import type { GeoPBF } from "./geopbf.js";
+import type { GeoPBF } from "geopbf";   // class の型は実装（段 4）＝パッケージ名で自分を引く（リポジトリでは src、npm では dist の .d.ts）
 import type { LoadOptions } from "./load.js";
 export { sanitizeProperties, loadGeopbf } from "./load.js";
 export interface ProtocolRequest { url: string; type?: "string" | "json" | "arrayBuffer" | string; [key: string]: any }
