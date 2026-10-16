@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/h3",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "H3 cells for @ortho-earth/globe: cell ids → GeoJSON polygons, point binning into H3 cells (count/sum/mean/min/max with MapLibre expressions), zoom → resolution, and map.addH3() which draws the cells as a fill or fill-extrusion layer.",
@@ -20,7 +20,7 @@
 		"h3-js": "^4.5.0"
 	},
 	"peerDependencies": {
-		"@ortho-earth/core": "^1.4.0"
+		"@ortho-earth/core": "^2.0.0"
 	},
 	"devDependencies": {
 		"@ortho-earth/core": "*"

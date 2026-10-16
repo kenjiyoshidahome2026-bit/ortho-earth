@@ -5,6 +5,9 @@ node_modules/
 npm-debug.log*
 
 # ビルド出力
+# verify:npm が package の dir に残す npm pack の tarball（段 5-9）
+packages/*/*.tgz
+sdk/*/*.tgz
 dist/
 dist-tsc/
 build/
