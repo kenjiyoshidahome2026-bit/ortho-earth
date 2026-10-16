@@ -666,7 +666,8 @@ pbf.<span class="fn">identifyAt</span>(lng, lat, opts)   <span class="cm">// poi
 pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span class="fn">description</span>(<span class="st">'...'</span>); pbf.<span class="fn">license</span>(<span class="st">'MIT'</span>);   <span class="cm">// or pbf.updateHeader({ … })</span>
 
 <span class="cm">// ── Lower-level entry points (package subpaths) ────────</span>
-<span class="cm">// geopbf/pbf        GeoPBF class (new GeoPBF(opts).set(…))      geopbf/gint · /topology · /identify   Gint baking, GintBUF, hit tests</span>
+<span class="cm">// geopbf             GeoPBF class (new GeoPBF(opts).set(…))      geopbf/core · /pbf-base   GeoPBFBase, the container without extension methods</span>
+<span class="cm">// geopbf/pbf         protobuf wire read/write                    geopbf/gint · /topology · /identify   Gint baking, GintBUF, hit tests</span>
 <span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       writers and readers (§13)</span>
 <span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   format readers, usable without the auto-detecting entry</span>
 <span class="cm">// geopbf/proj · /datum       EPSG projections, TKY2JGD / PatchJGD datum shifts        geopbf/convert/node-gint   Gint from Node</span>
@@ -675,14 +676,27 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 <span class="cm">// geopbf/edit · /edit/*      the editing model (DOM-free)         geopbf/worker · /no-builtin-workers   the worker entry and its opt-out</span>
 <span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   utilities</span></code></pre>
 
+<div class="callout callout-note">
+	<div class="callout-head">Changes in 2.0</div>
+	<p>
+		2.0 removes what 1.x kept for compatibility: the <code>noeval</code> option (FUNC values always stay source strings),
+		<code>validate: "legacy"</code> (falls back to <code>"lenient"</code>), <code>closeFilter(f)</code> (use <code>cloneMap({ filter: f })</code>),
+		the static <code>GeoPBF.concatinate</code> (use <code>pbf.concat(...others)</code>), and the name <code>GeoPBF</code> for the container in
+		<code>geopbf/core</code> and <code>geopbf/pbf-base</code> (it is <code>GeoPBFBase</code> there; <code>GeoPBF</code> from <code>geopbf</code> is the full class).
+		Internal fields such as <code>fmap</code> and <code>_name</code> are no longer in the published types: use <code>pbf.length</code>,
+		<code>each</code> / <code>forEach</code> and <code>pbf.name()</code>. Every change, old → new:
+		<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a> (in Japanese).
+	</p>
+</div>
+
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="integrations">10. Map Library Integrations (v1.1)</h2>
 
 <p>
 Since v1.1.0 the npm package ships ready-made adapters for the major web map libraries.
 None of them import the host library — each is a <strong>zero-dependency subpath export</strong>
-built on one shared loader: whole-file gzip is detected by magic bytes, decoding avoids
-<code>new Function</code> (CSP-safe <code>noeval</code> mode), and properties are mapped to be
+built on one shared loader: whole-file gzip is detected by magic bytes, decoding never runs
+<code>new Function</code> (FUNC values stay source strings, so it is CSP-safe; the only mode since 2.0), and properties are mapped to be
 JSON-safe (<code>Date</code> → ISO string, bbox → plain array, binary values dropped) so they
 survive each library's worker handoff.
 </p>
@@ -884,7 +898,7 @@ pretend otherwise.
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.19.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v2.0.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>
