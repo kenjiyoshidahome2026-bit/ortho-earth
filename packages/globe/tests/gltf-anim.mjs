@@ -1,5 +1,5 @@
 // glTF の rigid アニメ（W4）＝補間・階層・世界座標への写しの検定（DOM 無し）
-import { rigFromGltf, sampleChannel, samplePose, worldXf, batchXf, wrapTime, m4affineInv, m4trs, m4mul } from "../src/gltf-anim.js";
+import { rigFromGltf, sampleChannel, samplePose, worldXf, batchXf, wrapTime, m4affineInv, m4trs, m4mul } from "../src/gltf-anim.ts";
 let fails = 0; const ok = (name, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
 const I3 = { A: [1, 0, 0, 0, 1, 0, 0, 0, 1], T: [0, 0, 0] }, IF = { L: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };

@@ -2,7 +2,7 @@
 // 中身は切り出す前と同じ。createGlobe の他の所が使う物（押し出し・模型・3D Tiles の当たりの環境・vector source の問い合わせの控え）は戻り値で返す。
 //   live＝createGlobe が後から差し替える変数（let）を読む口（getter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { WORLD_PX, cameraState, ellNormal3D, evalExpr, lonlatTo3D, normalizeMLLayer, queryTiles, truthy, unproject } from "@ortho-earth/core";
-import { hitExtrusion } from "../extrude-ml.js";
+import { hitExtrusion } from "../extrude-ml.ts";
 import type { MLLayer } from "@ortho-earth/core";
 import type { LayerMouseEvent, LayerPressEvent, LonLat, QueryOptions, RenderedFeature, StyleExpression } from "../../globe.d.ts";
 import type { ExtEnv, ExtViewNow, Installing, MeshPickEnv, QueryDeps, QueryLive, QueryReturn } from "../types/install.ts";

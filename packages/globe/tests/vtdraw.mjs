@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, labelPointsOf, poleOf, liOf, USER_LI0, unitsPerPx, quantZoom, styleZoomProps } from "../src/vtops.js";
-import { classifyRings, ringArea2 } from "../src/vtmesh.js";
+import { classifyRings, ringArea2 } from "../src/vtmesh.ts";
 import { seaFbReal } from "@ortho-earth/core/internal/scene.ts";
 import { buildTileDrawList } from "@ortho-earth/core/build";
 import { normalizeMLLayer } from "@ortho-earth/core/internal/mlstyle.ts";

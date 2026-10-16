@@ -4,7 +4,7 @@ const out = [];
 let fetched = 0;
 globalThis.fetch = async () => { fetched++; throw new Error("must not fetch"); };
 globalThis.self = { postMessage: m => out.push(m), location: { href: "file:///" } };
-await import("../src/copc-worker.js");
+await import("../src/copc-worker.ts");
 await self.onmessage({ data: { type: "open", id: "x", src: "https://example.invalid/a.copc.laz" } });
 assert.equal(out.length, 1);
 assert.equal(out[0].type, "error");

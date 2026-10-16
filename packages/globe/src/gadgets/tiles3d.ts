@@ -10,15 +10,15 @@
 // 未対応：implicit tiling（3D Tiles 1.1 の subtree）・tileset／content のメタデータとスタイル（地物の番号と property table・batch table は W7 で pick に出る）。
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
-import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.js";   // 当たりと feature state の色（W7）
-import { featureProperties } from "../mesh-features.js";
+import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
+import { featureProperties } from "../mesh-features.ts";
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
-import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
+import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform } from "../../globe.d.ts";
-import type { MeshFeatures } from "../mesh-features.d.ts";
-import type { PickItem } from "../meshpick.d.ts";
+import type { MeshFeatures } from "../mesh-features.ts";
+import type { PickItem } from "../meshpick.ts";
 import type { Requester, ResolvedRequest } from "../request.d.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";

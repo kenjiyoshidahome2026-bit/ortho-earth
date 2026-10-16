@@ -25,8 +25,8 @@
 		"./worker.js": "./src/worker.js",
 		"./renderworker.js": "./src/renderworker.js",
 		"./mesh-loaders.js": "./src/mesh-loaders.js",
-		"./meshdecode.js": "./src/meshdecode.js",
-		"./meshq.js": "./src/meshq.js",
+		"./meshdecode.js": "./src/meshdecode.ts",
+		"./meshq.js": "./src/meshq.ts",
 		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.js",
 		"./gadgets/anno.js": "./src/gadgets/anno.ts",
 		"./gadgets/anno-draw.js": "./src/gadgets/anno-draw.ts",
@@ -40,7 +40,7 @@
 		"./scripts/*": "./scripts/*"
 	},
 	"imports": {
-		"#pointcloud-formats": "./src/pointcloud-formats-none.js",
+		"#pointcloud-formats": "./src/pointcloud-formats-none.ts",
 		"#columnar-sources": "./src/columnar/sources/builtin.js"
 	},
 	"dependencies": {
@@ -119,15 +119,15 @@
 		"*.scss",
 		"./src/worker.js",
 		"./src/renderworker.js",
-		"./src/meshworker.js",
-		"./src/meshdecoder.js",
+		"./src/meshworker.ts",
+		"./src/meshdecoder.ts",
 		"./src/gintbakeworker.ts",
 		"./src/rastertiles-worker.js",
 		"./src/imagequad-worker.js",
 		"./src/iiif-worker.js",
-		"./src/copc-worker.js",
-		"./src/model-worker.js",
-		"./src/vtextrude-worker.js",
+		"./src/copc-worker.ts",
+		"./src/model-worker.ts",
+		"./src/vtextrude-worker.ts",
 		"./src/vtdraw-worker.js",
 		"./src/columnar/worker.js",
 		"./src/columnar/sources/builtin.js"
