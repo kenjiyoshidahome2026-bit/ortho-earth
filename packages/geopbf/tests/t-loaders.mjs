@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { parse, load } from "@loaders.gl/core";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { GeoPBFLoader } from "../src/loaders.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ

@@ -1,7 +1,7 @@
 // t-dbf: Shapefile の DBF の空欄と日付（B8・2026-09-25）。decoder/shape.ts・encoder/shape.ts の worker を Node で直に回す。
 // 守るもの：空白の N 欄・D 欄と "00000000" は null（0 や 1970-01-01 にしない）／書き出しの月がずれない／null の値で書き出しが落ちない
 globalThis.ImageData ??= class ImageData {};
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { encodeZIP } from "../src/modules/encodeZIP.ts";
 import { fileURLToPath } from "node:url";
 let fails = 0;

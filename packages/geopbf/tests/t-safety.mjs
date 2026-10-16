@@ -6,7 +6,7 @@
 //   ・decodeZIP: 宣言サイズを越える伸長（zip 爆弾）・中央ディレクトリの範囲外を例外で止める（decodeZIP は null を返す）
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { openSqlite } from "../src/convert/sqlite.ts";
 import { snappy, MAX_PAGE } from "../src/convert/parquet-read.ts";
 import { encodeZIP } from "../src/modules/encodeZIP.ts";

@@ -2,7 +2,7 @@
 // t-encode-edge: 符号化の境界値（改良点 17・2026-10-12）。pbf-base の set() → arrayBuffer → set(ArrayBuffer) の往復で、
 //   精度 1〜9・値の全型（STRING/FLOAT/INTEGER/BOOL/JSON/DATE/COLOR/BBOX/FUNC/BLOB/IMAGE/NULL）の端・noprop・updateHeader・
 //   鍵の多さと文字・幾何の端（穴・GeometryCollection・幾何なし）を数字で固定する。外部データ不要・決定的。
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

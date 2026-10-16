@@ -3,7 +3,7 @@
 		"target": "es2022", "module": "esnext", "moduleResolution": "bundler",
 		"lib": ["es2022", "dom", "dom.iterable"], "strict": true, "noEmit": true, "skipLibCheck": false, "types": ["node"],
 		"allowImportingTsExtensions": true,
-		"paths": { "geopbf": ["../../../types/index.d.ts"], "geopbf/edit": ["../../../src/edit/index.ts"], "geopbf/edit/*": ["../../../src/edit/*.ts"],
+		"paths": { "geopbf": ["../../../src/index.ts"], "geopbf/identify": ["../../../src/extension/identify.ts"], "geopbf/topology": ["../../../src/extension/topology.ts"], "geopbf/edit": ["../../../src/edit/index.ts"], "geopbf/edit/*": ["../../../src/edit/*.ts"],
 			"geopbf/*": ["../../../types/*.d.ts", "../../../src/modules/*.ts", "../../../src/*.ts"] }
 	},
 	"files": ["consumer.ts"]
