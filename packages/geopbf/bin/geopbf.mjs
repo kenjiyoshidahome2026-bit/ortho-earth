@@ -7,7 +7,7 @@
 // 入ったファイルを読み戻す時（readValue の image()）の器だけ。
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
-import { GeoPBFBase } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "geopbf/pbf-base";   // 自分の名前で引く＝リポジトリでは src、npm では dist（段 5-9）
 import { t, usageFor } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
 import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.mjs";   // 引数の表と読み手（未知の --flag は拒む）
 
@@ -123,7 +123,7 @@ async function info(argv) {
 // 隙間を作らない保証まで見たい場合はブラウザ側の位相経路を通すこと。
 
 async function lod(argv) {
-	const { gint } = await import("../src/extension/gint.ts");   // wasm 無しでも純JS経路で動く
+	const { gint } = await import("geopbf/gint");   // wasm 無しでも純JS経路で動く
 	const { pos: [inPath] } = parseArgs("lod", argv);
 
 	const gj = (await openPbf(inPath)).geojson;
