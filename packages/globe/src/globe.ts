@@ -60,6 +60,7 @@ import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
 import { createFacade } from "./mlfacade.ts";
 export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
 import { pmLayers, pmRoles } from "./style-pm.ts";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
+import { escHtml, propLines } from "./html-safe.ts";   // ホバー tip の既定整形（属性のキー・値を逃がす・2026-10-16）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.ts";
 import { createWorldContent } from "./gint/worldcontent.ts";
@@ -857,7 +858,7 @@ renderWorker.onmessage = e => {
 		if (gint.extTipOwn) return;   // 町丁目tipが所有中＝gint側のackでtipを消したり上書きしない（正着は毎moveのhovertipが再設定）
 		const p = (d.featureId != null && gint.userGint?.pbf) ? gint.userGint.pbf.getFeature(d.featureId)?.properties : null;
 		// 層持参の tip 整形（applyGintData opts.tip・census2020 筆層のみ＝フラグゲート）。無指定＝従来の全属性そのまま（融通なし）
-		const lines = p ? (gint.userGint?.tip ? gint.userGint.tip(p) : Object.entries(p).map(([k, v]) => `${k}: ${v}`)) : null;
+		const lines = p ? (gint.userGint?.tip ? gint.userGint.tip(p) : propLines(p)) : null;   // propLines＝キーも値も escHtml（属性は外から来る＝tip は HTML で入る）
 		gint.hoverTip(lines?.length ? lines : null);   // null/空＝tip を消す
 		return;
 	}
@@ -1723,7 +1724,7 @@ function countryTipAt(x: number, y: number, cutH = false, fudeOwn = false) {
 		let name = null;
 		// 国名＝表示言語の列（NE の NAME_JA/NAME_FR/NAME_AR…＝25 言語・th は無し）→ 英語 → NAME。地図の中身だが「国名 tip が日本語のまま」（本人 2026-09-19）＝UI 側の穴
 		if (fid != null) { try { const p = gint.admin0Pbf.getProperties(fid) || {}; name = p["NAME_" + getLang().toUpperCase()] || p.NAME_EN || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
-		gint.hoverTip(name ? [name] : null);
+		gint.hoverTip(name ? [escHtml(name)] : null);   // 国名はデータ（NE の列）＝tip は HTML で入る＝逃がす
 		gint.worldTipOn = !!name;
 	}
 }

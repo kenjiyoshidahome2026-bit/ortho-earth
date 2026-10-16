@@ -6,12 +6,15 @@
 // スタイル＝paint/filter（gint と同じ語彙）。評価は worker（列のまま）→ 表だけ差し替え＝色分けで幾何は作り直さない。
 // 識別＝worker（チャンク bbox で絞って点＝距離／線＝距離／面＝内外）。当たった行の属性はその時だけ読む。
 // 予算と常駐＝常駐は budgetBytes（チャンクの圧縮／ワイヤのバイト数で数える）。視野から外れたチャンクは外す。「ズームインで残り N」を状況表示に出す。
+import { escHtml } from "../html-safe.ts";
 import type { GeoPBF } from "geopbf";
 import type { ColumnarLayerHandle, ColumnarLayerOptions, GeoPBF as PublicGeoPBF, LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { ChunkLevel, ColumnarChunk } from "./chunk.ts";
 import type { ColumnarMeta } from "./sources/registry.ts";
 
+/** 既定の tip の行（属性 30 個まで・null は飛ばす・Date は ISO・物は JSON）。キーも値も escHtml＝tip は HTML で入る（属性は外から来る・2026-10-16） */
+export const tipLinesFor = (p: Record<string, unknown>, t: Translate): string[] => { const out: string[] = []; for (const k of Object.keys(p)) { const v = p[k]; if (v === null || v === undefined) continue; out.push(`${escHtml(k)}: ${escHtml(v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : v)}`); if (out.length >= 30) break; } return out.length ? out : [t("(no attributes)")]; };
 /** createColumnarView の src */
 export type ColumnarSrc = string | File | Blob | ArrayBuffer | Uint8Array | GeoPBF | PublicGeoPBF;
 type Translate = (key: string, ...args: Array<string | number>) => string;
@@ -216,7 +219,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 		if (r.hit === null || r.g === undefined) return null;
 		return { g: r.g, f: r.f, row: r.row, fid: r.row, properties: await propsOf(r.g, r.row) };
 	};
-	const linesFor = (p: Record<string, unknown>) => { const out: string[] = []; for (const k of Object.keys(p)) { const v = p[k]; if (v === null || v === undefined) continue; out.push(`${k}: ${v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : v}`); if (out.length >= 30) break; } return out.length ? out : [t("(no attributes)")]; };
+	const linesFor = (p: Record<string, unknown>) => tipLinesFor(p, t);
 	let hoverKey: string | null = null, hoverT = 0, hoverBusy = false, downXY: number[] | null = null;
 	const localXY = (e: MouseEvent) => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 	const showHit = async (h: Hit | null, isClick: boolean, ll: LonLat | null) => {
