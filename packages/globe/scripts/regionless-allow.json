@@ -59,7 +59,7 @@
 				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"
 			}
 		},
-		"packages/globe/src/gadgets/poiedit.js": {
+		"packages/globe/src/gadgets/poiedit.ts": {
 			"和文": {
 				"n": 51,
 				"why": "負債（地域）：POI 編集の分類名（観光資源・寺院・神社…＝optbv の注記分類）。日本の地域パックへ移す"

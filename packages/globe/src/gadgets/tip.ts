@@ -5,15 +5,25 @@
 // 内容は HTML（<b>・<br>・class・style を呼び手が組む）＝setSafeHTML で入れる（script・on*・javascript: は抜く・2026-10-16）。
 // データの値（地物の属性）を埋める呼び手は escHtml で逃がしてから渡すこと（html-safe.ts）。
 import { setSafeHTML } from "../html-safe.ts";
-export function tip({ signal } = {}) {
+import type { GlobeMap } from "../types/map.ts";
+
+/** tip の内容：行の配列・改行つきの文字列・HTML（falsy＝消す） */
+export type TipContent = string | string[] | null | undefined;
+/** 内容の setter（呼び出し側の手綱） */
+export type TipSetter = (content: TipContent) => void;
+/** #tip の箱（二重搭載で同じ setter を返すため _setTip を持つ） */
+type TipEl = HTMLDivElement & { _setTip?: TipSetter };
+
+/** カーソル追従の吹き出し。戻り値＝内容の setter（二重搭載は同じ setter） */
+export function tip(this: GlobeMap, { signal }: { signal?: AbortSignal; [k: string]: unknown } = {}): TipSetter {
 	const mapEl = this.mapEl;
-	const had = mapEl.querySelector("#tip"); if (had) return had._setTip || (() => {});   // 二重搭載＝既存の working setter を返す（冪等）。app が起動時に搭載済み(gintHoverTip)でも、後から map.gadget.tip() で同じ手綱を得られる
-	const div = document.createElement("div");
+	const had = mapEl.querySelector<TipEl>("#tip"); if (had) return had._setTip || (() => {});   // 二重搭載＝既存の working setter を返す（冪等）。app が起動時に搭載済み(gintHoverTip)でも、後から map.gadget.tip() で同じ手綱を得られる
+	const div: TipEl = document.createElement("div");
 	div.id = "tip"; div.style.display = "none";
 	mapEl.append(div);   // #map 直下の後置（DOM順で上・pointer-events は CSS で none）
 	const coarse = window.matchMedia("(pointer: coarse)").matches;
-	let size = { w: 0, h: 0 }, last = null;   // last＝最後のカーソル位置（内容更新時に即座にそこへ出す）
-	const toHTML = s => Array.isArray(s) ? s.map(t => `<div>${t}</div>`).join("")
+	let size = { w: 0, h: 0 }, last: { x: number; y: number } | null = null;   // last＝最後のカーソル位置（内容更新時に即座にそこへ出す）
+	const toHTML = (s: string | string[]): string => Array.isArray(s) ? s.map(t => `<div>${t}</div>`).join("")
 		: (typeof s === "string" && s.includes("\n")) ? toHTML(s.split(/\n/)) : s;
 	const hide = () => { div.style.display = "none"; };
 	mapEl.addEventListener("pointermove", e => {
@@ -21,7 +31,7 @@ export function tip({ signal } = {}) {
 		last = { x: e.clientX - r.left, y: e.clientY - r.top }; move();
 	}, { signal, passive: true });
 	mapEl.addEventListener("pointerleave", () => { last = null; hide(); }, { signal });
-	function move() {
+	function move(): void {
 		if (!last || !size.w) return hide();
 		const W = mapEl.clientWidth, H = mapEl.clientHeight, { x, y } = last, { w, h } = size;
 		const osx = coarse ? 40 : 15, osy = coarse ? -(h + 30) : -h / 2;   // タッチは指の上に出す
@@ -29,7 +39,7 @@ export function tip({ signal } = {}) {
 		let top = y + osy; if (top < 0) top = 0; else if (top + h > H) top = H - h;
 		div.style.left = left + "px"; div.style.top = top + "px"; div.style.display = "block";
 	}
-	const setTip = content => {   // 内容の setter（呼び出し側の手綱）
+	const setTip: TipSetter = content => {   // 内容の setter（呼び出し側の手綱）
 		if (!content) { div.innerHTML = ""; size = { w: 0, h: 0 }; return hide(); }
 		setSafeHTML(div, toHTML(content));
 		div.style.display = "block"; div.style.visibility = "hidden";   // 実寸を測ってからカーソル脇へ
