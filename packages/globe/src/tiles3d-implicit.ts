@@ -20,11 +20,17 @@ export interface SubtreeJson {
 	buffers?: Array<{ uri?: string; byteLength: number }>; bufferViews?: Array<{ buffer: number; byteOffset?: number; byteLength: number }>;
 	tileAvailability?: AvailabilityJson; contentAvailability?: AvailabilityJson[] | AvailabilityJson; childSubtreeAvailability?: AvailabilityJson;
 	propertyTables?: unknown[]; tileMetadata?: number; contentMetadata?: number[]; subtreeMetadata?: Record<string, unknown>;
+	extensions?: { "3DTILES_multiple_contents"?: { contentAvailability?: AvailabilityJson[] } } & Record<string, unknown>;
 }
 /** 解いた subtree。bytesOf＝bufferView の中身（metadata の property table を解く時に） */
 export interface Subtree { tile: Availability; content: Availability[]; child: Availability; json: SubtreeJson; bytesOf(view: number): Uint8Array }
 
-const EXT = "3DTILES_implicit_tiling";
+const EXT = "3DTILES_implicit_tiling", MULTI = "3DTILES_multiple_contents";
+/** タイルの content の列＝1.1 の contents・1.0 の 3DTILES_multiple_contents 拡張・content 1 個（無ければ空） */
+export function contentsOf<C>(tile: { content?: C; contents?: C[]; extensions?: Record<string, unknown> } | null | undefined): C[] {
+	const ext = tile?.extensions?.[MULTI] as { content?: C[] } | undefined;
+	return tile?.contents ?? ext?.content ?? (tile?.content ? [tile.content] : []);
+}
 /** タイルの JSON → implicit tiling（無ければ null・形が崩れていれば例外） */
 export function implicitOf(tile: { implicitTiling?: ImplicitTilingJson; extensions?: Record<string, unknown> } | null | undefined): ImplicitTiling | null {
 	const ext = tile?.extensions?.[EXT] as ImplicitTilingJson | undefined, j = tile?.implicitTiling ?? ext;
@@ -144,7 +150,7 @@ export async function parseSubtree(src: ArrayBuffer | SubtreeJson, tiling: Impli
 		throw new Error(`subtree: ${what} has neither bitstream nor constant`);
 	};
 	const nTiles = tilesIn(tiling.n, tiling.subtreeLevels), nKids = tiling.n ** tiling.subtreeLevels;
-	const ca = json.contentAvailability, cas = ca == null ? [] : Array.isArray(ca) ? ca : [ca];
+	const ca = json.extensions?.[MULTI]?.contentAvailability ?? json.contentAvailability, cas = ca == null ? [] : Array.isArray(ca) ? ca : [ca];   // 1.0 の複数 content＝拡張の列
 	return {
 		tile: avail(json.tileAvailability, nTiles, "tileAvailability"),
 		content: cas.map((a, i) => avail(a, nTiles, `contentAvailability ${i}`)),

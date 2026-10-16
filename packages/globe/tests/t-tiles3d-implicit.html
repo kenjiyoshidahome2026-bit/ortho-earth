@@ -55,7 +55,7 @@ run(); async function run() { try {
 		ok("style.color", c.magenta > 200 && c.cyan > 500 && c.yellow < 50 && h.style?.color != null, JSON.stringify(c));
 		h.setStyle({ color: ["case", ["==", ["get", "colorName"], "yellow"], "#ff00ff", "#00ffff"], show: ["!=", ["get", "colorName"], "yellow"] });
 		await until(() => h.stats.shown === 10, 20000);
-		c = await shoot(c => c.magenta < 50 && c.cyan > 500);
+		c = await shoot(c => c.magenta < 50 && c.cyan > 500 && c.yellow < 50);
 		ok("style.show", c.magenta < 50 && c.cyan > 500 && c.yellow < 50, JSON.stringify(c));
 		h.setStyle({ color: { conditions: [["${colorName} === 'yellow'", "color('#ff00ff')"], ["true", "color('cyan')"]] } });   // Cesium の式（conditions）＝MapLibre の式に訳す
 		c = await shoot(c => c.magenta > 200 && c.cyan > 500);
