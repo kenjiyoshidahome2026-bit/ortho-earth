@@ -2352,7 +2352,7 @@ const eyePose = () => {
 		altM: (len - 1) * EARTH_M, distM: st.camDist * EARTH_M,   // altM=海抜[m]（sea-level球）・distM=注視点までの実距離[m]
 		fovy: cam.fovy || 50 * D2R };   // 垂直視野角[rad]（エンジン既定50°・水平は aspect 依存＝表示側で 2·atan(tan(fovy/2)·W/H)）
 };
-const map = { cam, flyTo, renderer, mapEl, destroy, clock,
+const map = { cam, renderer, mapEl, destroy, clock,   // flyTo は installCamera が付ける（公開の flyTo＝持ち主は api/camera.ts・内部の位置引数の flyTo は deps で渡す）
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。

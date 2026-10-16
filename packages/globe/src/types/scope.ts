@@ -9,8 +9,8 @@ import type { CameraPose } from "@ortho-earth/core/camera";
 import type { Clock } from "@ortho-earth/ephem/clock";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { DtmDecl } from "@ortho-earth/core/elevation";
-import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
-import type { GeoPBF } from "geopbf";
+import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
+import type { GeoPBF, Geometry } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.d.ts";
 import type { Aggregate } from "../gadgets/aggregate.d.ts";
 import type { GJLabels } from "../gadgets/gjlabels.d.ts";
@@ -92,7 +92,7 @@ export interface VtxCtl {
 	setVisible(layerId: string, on: boolean): void;
 	touchFS(sid: string, sourceLayer: string | null, id: unknown): void;
 	/** 立体の当たり（押し出しの d＝奥行き） */
-	query(geometry: [number, number] | [[number, number], [number, number]], take: (layerId: string) => boolean): Promise<Array<{ d: number; f: Record<string, unknown> }>>;
+	query(geometry: [number, number] | [[number, number], [number, number]], take: (layerId: string) => boolean): Promise<Array<{ d: number; f: RenderedFeature }>>;
 }
 /** vector source の生のタイルの写し（vtraw.js の createRawStore の戻り）＝installer が読む分 */
 export interface RawTileStore {
@@ -130,8 +130,8 @@ export interface PatItem {
 	fill: boolean; sid: string;
 	feats: Array<{ f: { geometry: QueryGeometry; properties?: Record<string, unknown> | null }; width: number; offset: number; lines: number[][][] }>;
 }
-/** 当たりで読む GeoJSON の形（座標は入れ子の数の配列） */
-export interface QueryGeometry { type: string; coordinates?: unknown; geometries?: QueryGeometry[] }
+/** 当たりで読む GeoJSON の形 */
+export type QueryGeometry = Geometry;
 /** 模型・3D Tiles の当たり（model.js の pick・tiles3d.js の pickAll の 1 件） */
 export interface MeshHit {
 	distance: number; featureId?: number | string | null; properties?: Record<string, unknown> | null; lngLat: LonLat;
