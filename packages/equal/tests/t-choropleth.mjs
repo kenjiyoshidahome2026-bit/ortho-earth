@@ -1,6 +1,6 @@
 // 分類と塗り表の検定
 import assert from "node:assert/strict";
-import { buildChoropleth, RAMPS, POLITICAL } from "../../../packages/equal/src/choropleth.ts";
+import { buildChoropleth, RAMPS, POLITICAL } from "../src/choropleth.ts";
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
 const items = Array.from({ length: 50 }, (_, i) => ({ v: i + 1 }));
