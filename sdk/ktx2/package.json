@@ -17,7 +17,7 @@
 		"test": "node tests/t-ktx2.mjs"
 	},
 	"peerDependencies": {
-		"@ortho-earth/globe": "^1.14.0"
+		"@ortho-earth/globe": "^2.0.0"
 	},
 	"keywords": [
 		"ktx2",

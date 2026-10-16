@@ -119,7 +119,7 @@ try {
 // 3) Chrome で開いて、ページの申告を待つ
 async function runPage(url, readResult) {
 	const prof = path.join(os.tmpdir(), `globe-npm-chrome-${process.pid}-${Date.now()}`);
-	const c = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, `--user-data-dir=${prof}`, "--no-first-run", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--window-size=1024,768", url], { stdio: "ignore" });
+	const c = spawn(CHROME, ["--headless=new", "--no-sandbox", `--remote-debugging-port=${CDP}`, `--user-data-dir=${prof}`, "--no-first-run", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--window-size=1024,768", url], { stdio: "ignore" });
 	kids.push(c);
 	const t0 = Date.now();
 	let r = null;

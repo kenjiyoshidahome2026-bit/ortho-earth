@@ -16,8 +16,9 @@
 		"test": "node tests/t-react.mjs"
 	},
 	"peerDependencies": {
-		"@ortho-earth/globe": "^1.14.0",
-		"react": ">=18"
+		"@ortho-earth/globe": "^2.0.0",
+		"react": ">=18",
+		"react-dom": ">=18"
 	},
 	"devDependencies": {
 		"@ortho-earth/globe": "*",
