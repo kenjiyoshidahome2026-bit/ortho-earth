@@ -13,7 +13,7 @@ import { toPMTiles } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";
 import { decodeTile } from "../src/convert/mvt-decode.ts";
 import { createTileSource } from "../src/convert/tilesource.ts";
-import { makeGeopbfProtocol, geopbfTileProtocol, parseTileUrl } from "../src/maplibre.js";
+import { makeGeopbfProtocol, geopbfTileProtocol, parseTileUrl } from "../src/maplibre.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

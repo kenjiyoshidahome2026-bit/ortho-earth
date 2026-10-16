@@ -1,9 +1,9 @@
-// bin/messages.mjs ── CLI の表示文（英語が基軸・日本語は切替）。ライブラリ本体（src/）は英語固定でここは通さない。
+// src/cli/messages.ts ── CLI の表示文（英語が基軸・日本語は切替）。ライブラリ本体（src/）は英語固定でここは通さない。
 //
 // 言語の決め方: GEOPBF_LANG > LC_ALL > LC_MESSAGES > LANG の順に見て、先頭が "ja" なら日本語、それ以外は英語。
 // 文中の {name} は t("key", { name }) で差し替える。文を増やすときは en/ja の両方に同じキーを足す（片方に無ければ en に落ちる）。
 
-const pick = () => {
+const pick = (): "ja" | "en" => {
 	for (const k of ["GEOPBF_LANG", "LC_ALL", "LC_MESSAGES", "LANG"]) {
 		const v = process.env[k];
 		if (v) return /^ja/i.test(v) ? "ja" : "en";
@@ -149,7 +149,7 @@ const USAGE_JA = `geopbf <command>
   表示は英語が既定。GEOPBF_LANG=ja（か日本語の LANG）で日本語になる。
 `;
 
-const MSG = {
+const MSG: Record<"en" | "ja", Record<string, string>> = {
 	en: {
 		usage: USAGE_EN,
 		unknownCommand: `geopbf: unknown command "{cmd}"\n`,
@@ -299,12 +299,12 @@ const MSG = {
 };
 
 /** t("key", { name: value }) → 選んだ言語の文。{name} を差し替える（未定義の名前はそのまま残す＝書き損じが見える）。 */
-export const t = (key, vars = {}) => (MSG[LANG][key] ?? MSG.en[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => k in vars ? String(vars[k]) : m);
+export const t = (key: string, vars: Record<string, unknown> = {}): string => (MSG[LANG][key] ?? MSG.en[key] ?? key).replace(/\{(\w+)\}/g, (m: string, k: string) => k in vars ? String(vars[k]) : m);
 
 // <cmd> --help: usage からそのコマンドの段（"  cmd " で始まる行から次のコマンドの行の手前まで）を抜く。無ければ全文
-export function usageFor(cmd) {
+export function usageFor(cmd: string): string {
 	const lines = t("usage").split("\n");
-	const isCmd = (l) => /^  [a-z0-9]+ /.test(l);
+	const isCmd = (l: string) => /^  [a-z0-9]+ /.test(l);
 	const start = lines.findIndex(l => l.startsWith(`  ${cmd} `));
 	if (start < 0) return t("usage");
 	let end = start + 1; while (end < lines.length && lines[end].trim() !== "" && (!isCmd(lines[end]) || lines[end].startsWith(`  ${cmd} `))) end++;   // "cog info" と "cog png" のように段が 2 つある命令も全部

@@ -91,7 +91,7 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 }
 // ── CLI ───────────────────────────────────────────────────────────────────────
 {
-	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
+	const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-gdb-"));
 	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const list = run("gdb2pbf", zipPath.pathname);

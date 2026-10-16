@@ -1,10 +1,11 @@
-import { proxy, originAllowed } from './proxy.js';
-import { bucket } from './bucket.js';
-import { tellus } from './tellus.js';
+import { proxy, originAllowed } from './proxy.ts';
+import { bucket } from './bucket.ts';
+import { tellus } from './tellus.ts';
+import type { Env, ExecutionContext } from './types.ts';
 
-function getCorsHeaders(req, env) {
+function getCorsHeaders(req: Request, env: Env) {
 	const method = req.method;
-	const headers = { // 許可するメソッドとヘッダーの定義
+	const headers: Record<string, string> = { // 許可するメソッドとヘッダーの定義
 		"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
 		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-Action, X-Metadata-Type, X-Upload-ID, X-Part-Number, X-API-Key",
 		"Access-Control-Max-Age": "86400",
@@ -13,7 +14,7 @@ function getCorsHeaders(req, env) {
 	if (method === "GET" || isGetOptions) {
 		headers["Access-Control-Allow-Origin"] = "*";
 	} else if (originAllowed(req, env)) {   // ホストの一致で見る（旧 origin.includes は "www.ortho-earth.com.evil.com" や空の項目で全許可になった・2026-09-25）
-		headers["Access-Control-Allow-Origin"] = req.headers.get("Origin");
+		headers["Access-Control-Allow-Origin"] = req.headers.get("Origin")!;
 		headers["Vary"] = "Origin"; // 送信元によって内容が変わることをブラウザに通知
 	}
 	return headers;
@@ -25,12 +26,12 @@ function getCorsHeaders(req, env) {
 const DATA_HEADERS = { "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" };
 const DROP_HEADERS = ["set-cookie", "set-cookie2"];
 export default {
-	async fetch(req, env, ctx) {
+	async fetch(req: Request, env: Env, ctx: ExecutionContext) {
 		const corsHeaders = getCorsHeaders(req, env);
 		if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 		try {
 			const { pathname } = new URL(req.url);
-			let res;
+			let res: Response;
 			if (pathname.startsWith('/bucket')) res = await bucket(req, env.MY_BUCKET, ctx, env); else
 			if (pathname.startsWith('/proxy')) res = await proxy(req, env); else
 			if (pathname.startsWith('/tellus')) res = await tellus(req, env); else
@@ -40,7 +41,7 @@ export default {
 			Object.entries({ ...DATA_HEADERS, ...corsHeaders }).forEach(([k, v]) => finalHeaders.set(k, v));
 			return new Response(res.body, { status: res.status, statusText: res.statusText, headers: finalHeaders });
 		} catch (e) {
-			return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...DATA_HEADERS, ...corsHeaders } });
+			return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500, headers: { ...DATA_HEADERS, ...corsHeaders } });
 		}
 	}
 };

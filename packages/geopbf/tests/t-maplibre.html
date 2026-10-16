@@ -19,7 +19,7 @@
 <script type="module">
 	import maplibregl from "maplibre-gl";
 	import "maplibre-gl/dist/maplibre-gl.css";
-	import { geopbfProtocol, loadGeopbf } from "../src/maplibre.js";
+	import { geopbfProtocol, loadGeopbf } from "../src/maplibre.ts";
 
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);

@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は arcs-gl.ts）。手で編集しない。
 // 弧のオーバーレイ（同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam に描く）。deck.gl の ArcLayer／GreatCircleLayer の相当（差分 PR-4・2026-10-12）。
 // 始点と終点を単位球の上で slerp（大円）し、弦長比の高さの放物線で持ち上げる。頂点はシェーダで補間（CPU は始点・終点・開き角だけ持つ＝弧 1 本＝インスタンス 1 つ）。幅は px。
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
@@ -145,7 +146,7 @@ export function init(canvas, _opts, h) {
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (arcs overlay)");
 	({ p: prog, u: uni } = compile(VS, FS));
-	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[arcs] pick pass unavailable", e?.message); }
+	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[arcs] pick pass unavailable", (e)?.message); }
 	geometry(style.segments);
 }
 const drop = L => { if (!L) return; for (const b of L.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(L.vao); };
@@ -186,7 +187,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 export function frame(cam, s, size, api) {
 	if (!gl) return false;

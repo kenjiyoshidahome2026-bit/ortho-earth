@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は trips-gl.ts）。手で編集しない。
 // 軌跡のオーバーレイ（deck.gl の TripsLayer 相当・差分 PR-6・2026-10-12）＝同一フレームのオーバーレイ（render worker・WebGL2・地球と同じ rAF・同じ cam）。
 // 時刻付きの折れ線を currentTime までの trailLength ぶんだけ描く（頭から尾へ薄く＝fadeTrail）。頂点は main（src/adddata.js bakeTrips）が線分ごとに 4 つ焼く＝GPU は時刻を varying で運び画素ごとに切る（頭の位置が線分の途中でも正確）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
@@ -78,7 +79,7 @@ export function init(canvas, _opts, h) {
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (trips overlay)");
 	({ p: prog, u: uni } = compile(VS, FS));
-	try { ({ p: pickProg, u: pickUni } = compile(VS, FS_PICK)); } catch (e) { pickProg = null; console.warn("[trips] pick pass unavailable", e?.message); }
+	try { ({ p: pickProg, u: pickUni } = compile(VS, FS_PICK)); } catch (e) { pickProg = null; console.warn("[trips] pick pass unavailable", (e)?.message); }
 }
 const drop = L => { if (!L) return; for (const b of L.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(L.vao); };
 export function message(d) {
@@ -112,7 +113,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, time, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 export function frame(cam, s, size, api) {
 	if (!gl) return false;

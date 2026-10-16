@@ -46,13 +46,12 @@
 	"license": "MIT",
 	"type": "module",
 	"files": [
-		"bin",
 		"src",
 		"wasm/pkg",
 		"types"
 	],
 	"bin": {
-		"geopbf": "bin/geopbf.mjs"
+		"geopbf": "src/cli/geopbf.ts"
 	},
 	"main": "src/index.ts",
 	"sideEffects": [
@@ -106,19 +105,19 @@
 		"./edit/*": "./src/edit/*.ts",
 		"./maplibre": {
 			"types": "./types/maplibre.d.ts",
-			"default": "./src/maplibre.js"
+			"default": "./src/maplibre.ts"
 		},
 		"./leaflet": {
 			"types": "./types/leaflet.d.ts",
-			"default": "./src/leaflet.js"
+			"default": "./src/leaflet.ts"
 		},
 		"./openlayers": {
 			"types": "./types/openlayers.d.ts",
-			"default": "./src/openlayers.js"
+			"default": "./src/openlayers.ts"
 		},
 		"./loaders": {
 			"types": "./types/loaders.d.ts",
-			"default": "./src/loaders.js"
+			"default": "./src/loaders.ts"
 		},
 		"./load": {
 			"types": "./types/load.d.ts",

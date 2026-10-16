@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は pattern-2d.ts）。手で編集しない。
 // 塗り/線の模様（MapLibre の fill-pattern／line-pattern 相当・2026-09-21）＝canvas2D のオーバーレイ。
 // 線の飾り（line-gradient／line-offset・#49・2026-09-25）も同じ口で描く＝gint の線は色が地物ごと一色・ずらしを持たない。
 // ⚠設計原則「紙の遺物を捨てる」（破線・ハッチ＝紙の産物）の側の機能＝既定では何も描かない。MapLibre の層を受けるための互換の口だけ。
@@ -16,21 +17,21 @@ export function init(canvas, _opts, h) { ctx = canvas.getContext("2d"); host = h
 export function message(d) {
 	if (d.type === "probe") {   // 検定用＝今の画素を main へ（dbgHost.__ovPixels・t-linedeco）
 		try { const im = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
-		catch (e) { host?.post({ type: "pixels", id: d.id, error: String(e?.message || e) }); }
+		catch (e) { host?.post({ type: "pixels", id: d.id, error: String((e)?.message || e) }); }
 		return;
 	}
 	if (d.type === "image") { images.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1 }); pats.delete(d.name); }
 	else if (d.type === "layer") layers.set(d.id, d);
 	else if (d.type === "removeLayer") layers.delete(d.id);
 }
-const patOf = name => { let p = pats.get(name); if (!p) { const im = images.get(name); if (!im || !ctx) return null; p = { p: ctx.createPattern(im.bm, "repeat"), pr: im.pr }; pats.set(name, p); } return p; };
+const patOf = (name) => { let p = pats.get(name); if (!p) { const im = images.get(name); if (!im || !ctx) return null; p = { p: ctx.createPattern(im.bm, "repeat"), pr: im.pr }; pats.set(name, p); } return p; };
 
 // 画面の折れ線（[x0,y0,x1,y1…]）を進行方向の右へ off px 平行にずらす（MapLibre の line-offset と同じ向き＝画面は y 下向き）。
 // 角はマイター（二等分線の方向へ off/cos(θ/2)）。鋭角でマイターが伸びすぎる所（2×|off| 超）は二等分線の長さで打ち切る。
 export function offsetPolyline(p, off) {
 	const n = p.length >> 1, out = new Float64Array(p.length);
 	if (n < 2 || !off) { out.set(p); return out; }
-	const nrm = i => {   // 線分 i→i+1 の右の単位法線
+	const nrm = (i) => {   // 線分 i→i+1 の右の単位法線
 		const dx = p[i * 2 + 2] - p[i * 2], dy = p[i * 2 + 3] - p[i * 2 + 1], l = Math.hypot(dx, dy) || 1;
 		return [-dy / l, dx / l];
 	};
@@ -47,7 +48,7 @@ export function offsetPolyline(p, off) {
 }
 // 見本（lut＝進み 0..1 の等分）から [t0,t1] の区間の色の止め（線分の中の 0..1）を作る
 export function gradStops(lut, t0, t1) {
-	const m = lut.length - 1, at = t => lut[Math.max(0, Math.min(m, Math.round(t * m)))];
+	const m = lut.length - 1, at = (t) => lut[Math.max(0, Math.min(m, Math.round(t * m)))];
 	const stops = [[0, at(t0)]];
 	if (t1 > t0) for (let j = Math.ceil(t0 * m + 1e-9); j < t1 * m; j++) stops.push([(j / m - t0) / (t1 - t0), lut[j]]);
 	stops.push([1, at(t1)]);

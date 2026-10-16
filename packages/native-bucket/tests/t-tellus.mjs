@@ -1,7 +1,7 @@
 // /tellus 代理口の検証（デプロイ不要・グローバル fetch を差し替えて tellus() を直に叩く）。
 //   node packages/native-bucket/tests/t-tellus.mjs
-// 仕様は workers/tellus.js の冒頭コメントが正本。ここは「門・白リスト・Bearer 付与・webcog 合成」を数える。
-import { tellus } from "../workers/tellus.js";
+// 仕様は workers/tellus.ts の冒頭コメントが正本。ここは「門・白リスト・Bearer 付与・webcog 合成」を数える。
+import { tellus } from "../workers/tellus.ts";
 
 const ENV = { ALLOWED_DOMAINS: "www.ortho-earth.com,localhost:5173", API_KEY: "secret-key", TELLUS_TOKEN: "tok-123" };
 const ORIGIN = "https://api.ortho-earth.com";

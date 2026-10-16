@@ -1,28 +1,29 @@
-import { keyMatches } from './proxy.js';
+import { keyMatches } from './proxy.ts';
+import type { CfCacheStorage, Env, ExecutionContext, R2Bucket, R2Object, R2ObjectBody, R2UploadedPart } from './types.ts';
 
 // 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・uploader の「共有データ」ボタンが上げる）は
 // 中身が変わればキーが変わる＝ブラウザに 1 年持たせてよい（2026-09-30・縮小計画 項目6b。他のキーは従来どおり max-age=60）
 const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
 
-export async function bucket(request, bucket, ctx, env = {}) {
+export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionContext, env: Partial<Env> = {}) {
 	const url = new URL(request.url);
-	const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
-	const cache = caches.default;
+	const path = decodeURIComponent(url.pathname.split('/bucket/').pop()!);
+	const cache = (caches as CfCacheStorage).default;
 	// 書いた・消した後はこの道の GET キャッシュを捨てる（B18・旧＝s-maxage=3600 の間、古い本体を返し続けた）。
 	// ⚠ 本番の実測（2026-09-25・SJC）＝同じ拠点でも効かない回がある（3 回中 1 回だけ効いた・delete は "deleted" を返しても次の GET が HIT）＝best effort。
 	//   確実にするには s-maxage を縮めるか、GET で R2 の ETag を照合する（未決）。結果は tail で見える（[bucket] purge …）
 	// ⚠ Cache API はデータセンター単位＝消えるのは書き込みを受けた拠点の分だけ。他拠点は s-maxage（1 時間）で自然に切れる
 	//   （全拠点を即時に消すにはゾーンの purge API＝API トークンが要る）。?v= 等の query 付きの版も別の鍵＝消えない
 	const purge = () => ctx?.waitUntil?.(cache.delete(new Request(url.origin + url.pathname, { method: "GET" }))
-		.then(ok => console.log(`[bucket] purge ${url.pathname} ${ok ? "deleted" : "not-cached"}`), e => console.warn(`[bucket] purge ${url.pathname} failed`, e?.message)));
+		.then(ok => console.log(`[bucket] purge ${url.pathname} ${ok ? "deleted" : "not-cached"}`), (e?: Error) => console.warn(`[bucket] purge ${url.pathname} failed`, e?.message)));
 	if (request.method === "GET") {
 		const res = await cache.match(request); if (res) return res;
 	} 
 	try {
 		if (request.method === "GET") {
 			 if (path.endsWith('/') || path === "") {
-				let allObjects = [];
-				let cursor = undefined;
+				let allObjects: R2Object[] = [];
+				let cursor: string | undefined = undefined;
 				let truncated = true;
 				while (truncated) {
 					const list = await bucket.list({ prefix: path || undefined, cursor: cursor, delimiter: '/' });
@@ -53,11 +54,11 @@ export async function bucket(request, bucket, ctx, env = {}) {
 				};
 				return new Response(JSON.stringify({ data: meta }), { headers: { "Content-Type": "application/json" } });
 			}
-			const response = new Response(obj.body, {
+			const response = new Response((obj as R2ObjectBody).body, {
 				headers: {
 					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
 					"Content-Encoding": obj.httpMetadata?.contentEncoding || "",
-					"Content-Length": obj.size, "ETag": obj.httpEtag,
+					"Content-Length": obj.size as unknown as string, "ETag": obj.httpEtag,
 					"Cache-Control": IMMUTABLE.test(path) ? "public, max-age=31536000, immutable" : "public, s-maxage=3600, max-age=60"
 				}
 			});
@@ -86,14 +87,14 @@ export async function bucket(request, bucket, ctx, env = {}) {
 			}
 			if (action === "mp-upload") { // マルチパートアップロード: パーツ送信
 				const uploadId = request.headers.get("X-Upload-ID");
-				const partNumber = parseInt(request.headers.get("X-Part-Number"));
+				const partNumber = parseInt(request.headers.get("X-Part-Number")!);
 				if (!uploadId || isNaN(partNumber)) return new Response(JSON.stringify({ error: "Missing X-Upload-ID or X-Part-Number" }), { status: 400, headers: { "Content-Type": "application/json" } });
 				const upload = bucket.resumeMultipartUpload(path, uploadId);
 				const part = await upload.uploadPart(partNumber, request.body);
 				return new Response(JSON.stringify({ etag: part.etag }));
 			}
 			if (action === "mp-complete") { // マルチパートアップロード: 完了
-				const { uploadId, parts } = await request.json();
+				const { uploadId, parts } = await request.json() as { uploadId: string; parts: R2UploadedPart[] };
 				const upload = bucket.resumeMultipartUpload(path, uploadId);
 				await upload.complete(parts.sort((a, b) => a.partNumber - b.partNumber));
 				purge();
@@ -106,7 +107,7 @@ export async function bucket(request, bucket, ctx, env = {}) {
 			}
 		}
 	} catch (e) {
-		return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+		return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500, headers: { "Content-Type": "application/json" } });
 	}
 	return new Response("Method Not Allowed", { status: 405 });
 }

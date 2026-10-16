@@ -10,7 +10,7 @@ import { DIR, CACHE, readManual } from "./lib.mjs";
 const PUB = path.join(DIR, "../../../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 const db = JSON.parse(fs.readFileSync(path.join(PUB, "terrain.json"), "utf8")), manual = readManual();
 const byJa = new Map(db.items.map(it => [it.name.ja, it])), byQ = new Map(db.items.map(it => [it.qid, it]));
-const GEOPBF = path.join(DIR, "../../../../packages/geopbf/bin/geopbf.mjs"), OUT = path.join(PUB, "terrain.geopbf");
+const GEOPBF = path.join(DIR, "../../../../packages/geopbf/src/cli/geopbf.ts"), OUT = path.join(PUB, "terrain.geopbf");
 // 湖の切り出し（.cache/shapes-lakes.json）が手元に無い機械（W09 を取っていない）＝今の形状台帳の湖をそのまま引き継ぐ
 const lakesOf = () => {
 	const f = path.join(CACHE, "shapes-lakes.json"); if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, "utf8"));
