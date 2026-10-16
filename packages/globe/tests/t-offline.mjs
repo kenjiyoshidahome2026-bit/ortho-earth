@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // オフラインパック（#40）の純関数の常設検定：①タイル列挙（bbox×z・被覆で切る）②枚数＝列の長さ ③標高のセル名（altpbf の綴り）
 // ④見積り ⑤実行器（並列・飛ばし・失敗・中断）
-import { tilesFor, tileCount, demCells, demNames, estimateBytes, runFetches, bboxIntersects, fmtMB, splitBbox, tplOf } from "@ortho-earth/globe/internal/offline-pack.ts";
+import { tilesFor, tileCount, demCells, demNames, estimateBytes, runFetches, bboxIntersects, fmtMB, splitBbox, tplOf } from "../src/offline-pack.ts";
 import { encodeName } from "altpbf";
 
 let ok = 0, ng = 0;

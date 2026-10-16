@@ -7,6 +7,7 @@ import type { TilePayload } from "./tilepayload.ts";
 import type { BuildingsGeom, DrawOp, MergedScene } from "./scene.ts";
 import type { ElevTile } from "./elevation/worldatlas.ts";
 import type { BakeBaseResult, BakedTier, GintData, GintPayload } from "./gint/bake.ts";
+export type { MergedScene };   // scene の便り（ScenePortMessage の "scene"）の中身＝受け手（globe の renderworker）がこの口だけで読めるように
 
 // ── ortho:tile（workers/tileworker.ts）＝fetch→decode→tessellation
 /** main → tile worker：起動（style・配信圏・楕円体・形式） */

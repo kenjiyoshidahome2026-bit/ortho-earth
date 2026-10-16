@@ -14,7 +14,7 @@ try {
 	if (!navigator.gpu && !/[?&]gl2=1/.test(location.search)) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
 	const cpu = /[?&]cpuelev=1/.test(location.search), gl2 = /[?&]gl2=1/.test(location.search);
-	const { downsampleFlipped, cropResample } = await import("@ortho-earth/core/internal/elevation.ts");
+	const { downsampleFlipped, cropResample } = await import("@ortho-earth/core/src/elevation.ts");
 	const { worldAtlasCell } = await import("@ortho-earth/core/elevation");
 	const { f32ToF16, f16ToF32 } = await import("@ortho-earth/core/f16");
 	// gl2=1＝WebGL2 レンダラ（R16F の描き込み＝EXT_color_buffer_float・無い環境は CPU 退避＝厳密一致で通る）
