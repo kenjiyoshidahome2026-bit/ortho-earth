@@ -1,24 +1,43 @@
 import { worldToLonLat } from "../modules/mercator.js";
+import type { Geo, GeoLevel, Target, BBox } from "./types.ts";
 // 再標本化＝「デコード直後に worker 内で1回だけ」の CPU warp（本計画 §4）。
 // 目標グリッドの各ピクセルを 目標座標 → 経緯度 → 源 CRS → 源ピクセル と逆引きし bilinear。
 // タイル跨ぎの 4 近傍は都度タイルを引く（Map 参照＝安価）。fragment シェーダから三角関数を
 // 追放する代わりにここで払う（256² で ~1ms 級・pool worker 上）。範囲外/欠タイル/nodata は透明。
 
-// 源 CRS ピクセル系（overview 段に合わせて縮尺補正した geo・フルアフィン）。逆変換係数も前計算して持つ。
-export function geoAtLevel(geo, full, lv) {
-	const kx = full.width / lv.width, ky = full.height / lv.height;
-	const g = { ox: geo.ox, oy: geo.oy, ax: geo.ax * kx, ay: geo.ay * ky, bx: geo.bx * kx, by: geo.by * ky };
-	const det = g.ax * g.by - g.ay * g.bx;
-	g.ix = g.by / det; g.iy = -g.ay / det; g.jx = -g.bx / det; g.jy = g.ax / det;   // CRS→px: px=ix·dX+iy·dY / py=jx·dX+jy·dY
-	return g;
+/** warp に要る段の寸法（Ifd の部分集合） */
+export interface LevelDims {
+	width: number; height: number;
+	tileW: number; tileH: number;
+	tilesX: number; tilesY: number;
 }
-export const geoPx = (g, X, Y) => {   // CRS → 源ピクセル（逆アフィン）
+/** warpRGBA の入力 */
+export interface WarpSource {
+	lv: LevelDims;
+	geoL: GeoLevel;
+	/** 同期＝呼び出し側がデコード済みを Map で持つ。欠タイルは null */
+	getTileRGBA(tx: number, ty: number): Uint8ClampedArray | null;
+	/** [lon,lat] → [X,Y]（proj.js projFor(epsg).forward） */
+	forward(p: readonly number[]): [number, number];
+}
+export interface WarpOptions { nearest?: boolean }
+type RGBA4 = [number, number, number, number];
+
+// 源 CRS ピクセル系（overview 段に合わせて縮尺補正した geo・フルアフィン）。逆変換係数も前計算して持つ。
+export function geoAtLevel(geo: Geo, full: { width: number; height: number }, lv: { width: number; height: number }): GeoLevel {
+	const kx = full.width / lv.width, ky = full.height / lv.height;
+	const ax = geo.ax * kx, ay = geo.ay * ky, bx = geo.bx * kx, by = geo.by * ky;
+	const det = ax * by - ay * bx;
+	// CRS→px: px=ix·dX+iy·dY / py=jx·dX+jy·dY
+	return { ox: geo.ox, oy: geo.oy, ax, ay, bx, by, ix: by / det, iy: -ay / det, jx: -bx / det, jy: ax / det };
+}
+export const geoPx = (g: GeoLevel, X: number, Y: number): [number, number] => {   // CRS → 源ピクセル（逆アフィン）
 	const dX = X - g.ox, dY = Y - g.oy;
 	return [g.ix * dX + g.iy * dY, g.jx * dX + g.jy * dY];
 };
 
 // 目標: XYZ(3857) タイル。mapPx(i,j) → [lon,lat]
-export function xyzTarget(z, x, y, size = 256) {
+export function xyzTarget(z: number, x: number, y: number, size = 256): Target {
 	const n = 1 << z;
 	return {
 		w: size, h: size,
@@ -30,7 +49,7 @@ export function xyzTarget(z, x, y, size = 256) {
 }
 
 // 目標: 経緯度等間隔グリッド（エンジンの等経緯度アトラスセル用）。bboxLL=[w,s,e,n]
-export function lonlatTarget(bboxLL, w, h) {
+export function lonlatTarget(bboxLL: BBox, w: number, h: number): Target {
 	const [W, S, E, N] = bboxLL;
 	return {
 		w, h,
@@ -41,11 +60,11 @@ export function lonlatTarget(bboxLL, w, h) {
 // 本体。lv={width,height,tileW,tileH,tilesX,tilesY}・geoL=geoAtLevel 済・
 // getTileRGBA(tx,ty)→Uint8ClampedArray(tileW*tileH*4)|null（同期＝呼び出し側がデコード済みを Map で持つ）・
 // forward=[lon,lat]→[X,Y]（proj.js projFor(epsg).forward）
-export function warpRGBA({ lv, geoL, getTileRGBA, forward }, tgt, { nearest = false } = {}) {
+export function warpRGBA({ lv, geoL, getTileRGBA, forward }: WarpSource, tgt: Target, { nearest = false }: WarpOptions = {}): Uint8ClampedArray {
 	const { w, h, mapLL } = tgt;
 	const out = new Uint8ClampedArray(w * h * 4);
 	const { tileW, tileH, tilesX, tilesY } = lv;
-	const px4 = (px, py) => {   // 源ピクセル（整数）→ RGBA 4値（欠タイル/範囲外は null）
+	const px4 = (px: number, py: number): RGBA4 | null => {   // 源ピクセル（整数）→ RGBA 4値（欠タイル/範囲外は null）
 		if (px < 0 || py < 0 || px >= lv.width || py >= lv.height) return null;
 		const tx = (px / tileW) | 0, ty = (py / tileH) | 0;
 		if (tx >= tilesX || ty >= tilesY) return null;
@@ -69,7 +88,7 @@ export function warpRGBA({ lv, geoL, getTileRGBA, forward }, tgt, { nearest = fa
 		const p00 = px4(x0, y0), p10 = px4(x0 + 1, y0), p01 = px4(x0, y0 + 1), p11 = px4(x0 + 1, y0 + 1);
 		if (!p00 && !p10 && !p01 && !p11) continue;
 		// 欠けは最近傍で補う（境界1pxの品質より穴なしを優先）
-		const q = p00 || p10 || p01 || p11;
+		const q = (p00 || p10 || p01 || p11) as RGBA4;   // 上の判定で少なくとも 1 つは非 null
 		const a = p00 || q, b = p10 || q, c = p01 || q, d = p11 || q;
 		for (let k = 0; k < 4; k++) {
 			out[o + k] = (a[k] * (1 - ax) + b[k] * ax) * (1 - ay) + (c[k] * (1 - ax) + d[k] * ax) * ay;

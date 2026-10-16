@@ -4,44 +4,60 @@
 // と書く。変数に貯めると本番ビルドで data:URL にインライン化され worker 内の相対 import が silent 死。
 import { spawnWorker } from "../modules/workerFactory.js";
 import { builtinWorker } from "../modules/builtinWorkers.js";
+import type { CogWorkerRequest, CogWorkerResult, CogWorkerResponse } from "./worker-types.ts";
 const REQ_TIMEOUT = 45000;
 
-export function makePool(opts = {}) {
+export interface PoolOptions { workers?: number }
+export interface CogPool {
+	/** msg.id を採番して lane へ。戻りは worker の成功応答 */
+	submit(msg: CogWorkerRequest, transfers?: Transferable[]): Promise<CogWorkerResult>;
+	destroy(): void;
+}
+interface Job {
+	id: number;
+	msg: CogWorkerRequest;
+	transfers: Transferable[];
+	resolve: (r: CogWorkerResult) => void;
+	reject: (e: Error) => void;
+}
+interface Lane { w: Worker | null; queue: Job[]; busy: boolean }
+
+export function makePool(opts: PoolOptions = {}): CogPool {
 	const NW = opts.workers ?? Math.min(3, Math.max(1, (globalThis.navigator?.hardwareConcurrency || 4) - 2));
-	const mk = () => spawnWorker("geopbf:cog", () => builtinWorker("geopbf:cog"));   // ホストの入口が勝つ（setWorkerFactory）・既定＝geopbf の入口 src/worker.js の "geopbf:cog"
-	const lanes = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
+	const mk = (): Worker => spawnWorker("geopbf:cog", () => builtinWorker("geopbf:cog"));   // ホストの入口が勝つ（setWorkerFactory）・既定＝geopbf の入口 src/worker.js の "geopbf:cog"
+	const lanes: Lane[] = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
 	let seq = 0, rr = 0;
 
-	const pump = (lane) => {
+	const pump = (lane: Lane): void => {
 		if (lane.busy || !lane.queue.length) return;
 		lane.busy = true;
-		const job = lane.queue.shift();
-		lane.w ??= mk();
+		const job = lane.queue.shift() as Job;
+		const w = lane.w ??= mk();
 		const timer = setTimeout(() => {   // ハング＝worker 作り直して lane 解放
-			try { lane.w.terminate(); } catch {}
+			try { w.terminate(); } catch {}
 			lane.w = null; lane.busy = false;
 			job.reject(new Error("cog: worker timeout"));
 			pump(lane);
 		}, REQ_TIMEOUT);
-		lane.w.onmessage = ({ data }) => {
+		w.onmessage = ({ data }: MessageEvent<CogWorkerResponse>) => {
 			if (data.id !== job.id) return;
 			clearTimeout(timer); lane.busy = false;
-			data.error ? job.reject(new Error(data.error)) : job.resolve(data);
+			data.error ? job.reject(new Error(data.error)) : job.resolve(data as CogWorkerResult);
 			pump(lane);
 		};
-		lane.w.onerror = (e) => {
+		w.onerror = (e: ErrorEvent) => {
 			clearTimeout(timer);
-			try { lane.w.terminate(); } catch {}
+			try { w.terminate(); } catch {}
 			lane.w = null; lane.busy = false;
 			job.reject(new Error(`cog: worker error ${e.message || ""}`));
 			pump(lane);
 		};
-		lane.w.postMessage(job.msg, job.transfers);
+		w.postMessage(job.msg, job.transfers);
 	};
 
 	return {
 		submit(msg, transfers = []) {
-			return new Promise((resolve, reject) => {
+			return new Promise<CogWorkerResult>((resolve, reject) => {
 				const lane = lanes[rr++ % NW];
 				lane.queue.push({ id: msg.id = ++seq, msg, transfers, resolve, reject });
 				pump(lane);
