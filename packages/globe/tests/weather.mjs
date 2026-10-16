@@ -1,5 +1,5 @@
 // 太陽・雲の口の spec（src/weather.js・F2 2026-10-12）＝既定・固定／追従・高度→色と強さ・setLight の形・雲の既定
-import { normSun, sunToLight, sunLightColor, sunLightIntensity, normClouds } from "../src/weather.js";
+import { normSun, sunToLight, sunLightColor, sunLightIntensity, normClouds } from "../src/weather.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 ok("sun.default", JSON.stringify(normSun(true)) === JSON.stringify({ follow: "clock", minAltitude: 2 }) && normSun({}).follow === "clock");
 ok("sun.fixed", JSON.stringify(normSun({ azimuth: -90, altitude: 120 })) === JSON.stringify({ follow: null, azimuth: 270, altitude: 90, minAltitude: 2 }));

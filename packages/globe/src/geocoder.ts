@@ -4,7 +4,7 @@
 //   geocoderApi.getSuggestions(config) → Promise<{ suggestions: [{ text, placeId }] }> ＋ searchByPlaceId(config) → Promise<{ place: CarmenFeature }>（forwardGeocode が無い時）
 //   localGeocoder(query) → CarmenFeature[]（同期でも Promise でもよい）＝手元の地物を先に出す
 // Carmen GeoJSON（text・place_name・center・bbox・place_type・id）→ 検索窓の候補（search.js の hit）へ詰め替えるだけ＝窓・履歴・着地は共通。
-import { getLang } from "./i18n.js";
+import { getLang } from "./i18n.ts";
 
 /** Carmen GeoJSON の地物 → 検索窓の候補。pointZoom＝範囲の無い点の着地（公式 options.zoom・既定 16） */
 export function carmenToHit(f, pointZoom = 16) {

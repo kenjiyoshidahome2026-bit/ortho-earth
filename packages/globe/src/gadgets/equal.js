@@ -15,7 +15,7 @@
 //   戻り＝equal が球へ畳み終えて視点を返す → location.hash に書く（hashchange＝japan は即時ジャンプ）→ 0.3s で消す。
 import { gadgetStack } from "./stack.ts";
 import { registerKeyOwner, claimKeys } from "./keys.ts";   // 重ねている間はキー（矢印・Esc・ショートカット）を equal が握る＝下の地図へ漏らさない（#173 段 3 の持ち主）
-import { tr, getLang } from "../i18n.js";
+import { tr, getLang } from "../i18n.ts";
 const t = tr();
 const destOf = url => url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5198/" : "/equal/");
 const LOADERS = new WeakMap();   // map → load（equal() で渡された部品の読み込み口＝equalHere／equalStart も同じ口を使う）

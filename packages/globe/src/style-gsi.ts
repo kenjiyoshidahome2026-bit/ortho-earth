@@ -9,11 +9,12 @@
 //   road チップOFF＝灰の土台(casing)だけ＝静かな灰道路／ON＝色帯(fill)が乗る＝地理院フル配色。
 //
 // 色は推測せず一次資料：地理院地図Vector 公式 data/std.json（gsi-cyberjapan/gsimaps-vector-experiment）の実色。
-import mono from "./style-mono.js";
+import mono from "./style-mono.ts";
+import type { MLLayer } from "@ortho-earth/core";
 
 // --- 1) 非道路の色対応表（mono の実色 → 地理院の実色）。道路の格色(下段)は差し替え後は未使用だが、
 //        swap の番犬（対応表に無い色を warn）を黙らせるため mono の全色を網羅しておく。
-const MAP = {
+const MAP: Record<string, string> = {
 	"#f6f6f4": "#fefeff",   // 紙（bg・注記ハロー）→ 地理院の陸（ほぼ白 rgb254,254,255）
 	"#e2e6ea": "#bed2ff",   // 海（z8+ 一律水色）→ 地理院 水域 rgb(190,210,255)
 	"#aecbe6": "#00b0ec",   // 水系点火（WA面・河川中心線）→ 地理院 河川/水涯線のシアン rgb(0,176,236)
@@ -35,14 +36,14 @@ const MAP = {
 };
 
 // 再帰置換：式言語（match/interpolate…の配列）の中の hex 文字列だけ差し替える（style-dark と同じ swap）。
-function swap(v) {
+function swap<T>(v: T): T {
 	if (typeof v === "string") {
-		if (MAP[v]) return MAP[v];
+		if (MAP[v]) return MAP[v] as T;
 		if (/^#[0-9a-f]{3,8}$/i.test(v)) console.warn(`[style-gsi] color not in mapping table ${v} = kept as mono`);
 		return v;
 	}
-	if (Array.isArray(v)) return v.map(swap);
-	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)]));
+	if (Array.isArray(v)) return v.map(swap) as T;
+	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) as T;
 	return v;
 }
 
@@ -50,19 +51,19 @@ function swap(v) {
 // ROAD＝道路の格(vt_rdctg)→ [塗り fill, 縁/OFF時の灰 casing, 太さ係数 mult]。★ここが唯一の拡張点：
 // 格の追加・色替えは1行。塗りは地理院 std.json の実色（高速=緑・国道=橙・都道府県道=黄・市区町村道=白）。
 // casing は地理院と同じ灰（road チップOFF時はこの灰だけが見える＝静かな灰道路＝mono/dark と同じ既定の作法）。
-const ROAD = {
+const ROAD: Record<string, [fill: string, casing: string, mult: number]> = {
 	//   格                     塗り fill    縁/灰 casing   太さ係数 mult
 	"高速自動車国道等": ["#3d9738", "#9a9a9a", 1.00],   // 緑 rgb(61,151,56)
 	"国道": ["#e69212", "#a6a6a6", 0.82],   // 橙 rgb(230,146,18)
 	"都道府県道": ["#ffe200", "#b4b4b4", 0.60],   // 黄（地理院 rgb255,255,0＝白地で沈むので気持ち濃く／casingで縁取る）
 	"市区町村道等": ["#ffffff", "#c4c4c4", 0.36],   // 白＋灰縁＝地理院の一般道
 };
-const ROAD_ETC = ["#f4f4f4", "#cccccc", 0.30];   // その他（既定）
+const ROAD_ETC: [fill: string, casing: string, mult: number] = ["#f4f4f4", "#cccccc", 0.30];   // その他（既定）
 
 const CLASSES = Object.keys(ROAD);
 // 格→値の match 式を生む（col: 0=塗り 1=縁 2=太さ係数）。
-const roadMatch = col => {
-	const a = ["match", ["get", "vt_rdctg"]];
+const roadMatch = (col: 0 | 1 | 2): unknown[] => {
+	const a: unknown[] = ["match", ["get", "vt_rdctg"]];
 	for (const c of CLASSES) a.push(c, ROAD[c][col]);
 	a.push(ROAD_ETC[col]);
 	return a;
@@ -76,7 +77,7 @@ const T = ["==", ["get", "vt_code"], 2704];    // トンネル（破線）
 
 // 縁(casing)＝常時ON＝road OFF時の静かな灰道路。塗り(fill)＝点火＝road ONで乗る（road-hi* の id を保つ）。
 // 塗りは縁の後に描く＝色帯が灰縁の内側に乗る。z<16/z16+ は road-hi / road-hi-face に分けて両 id を実働させる。
-const roadLayers = () => [
+const roadLayers = (): MLLayer[] => [
 	{
 		id: "road", type: "line", "source-layer": "RdCL", filter: NT,
 		layout: { "line-cap": "round", "line-join": "round", "line-sort-key": SORT },
@@ -107,7 +108,7 @@ const roadLayers = () => [
 // mono の道路レイヤ群を撤去し、道路サブシステムを同じ位置（building の直後）へ差し込む。
 const ROAD_IDS = new Set(["road-face", "road", "road-tn", "rdedg", "road-hi", "road-hi-face", "road-hi-tn"]);
 const swapped = swap(mono);
-const layers = [];
+const layers: MLLayer[] = [];
 let inserted = false;
 for (const L of swapped.layers) {
 	if (ROAD_IDS.has(L.id)) { if (!inserted) { layers.push(...roadLayers()); inserted = true; } continue; }

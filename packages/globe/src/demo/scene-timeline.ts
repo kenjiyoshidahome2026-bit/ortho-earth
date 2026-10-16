@@ -8,7 +8,7 @@
 //   portrait＝mobile:Δz の判定（プレーヤーの mobView と同じ＝縦長画面だけ z に差分・zoomMin 床）。
 // 返り値＝{dur(総尺・秒), rows:[{i,t0,tArrive,t1,knots[],hash}], at(秒)→{lon,lat,zoom,pitch,bearing(ラジアン),cover(0..1),i,hash}}。
 //   時間は外側は全部「秒」（台本の掟）＝ms はプランの内側だけ。knots＝◇通過点の実到達時刻（末尾=着点自身）。
-import { parseScenes, compileVias } from "./scene-adapter.js";
+import { parseScenes, compileVias } from "./scene-adapter.ts";
 const R2D = 180 / Math.PI;
 
 export function buildSceneTimeline(doc, { plan, parseView, portrait = false, zoomMin = 1 } = {}) {

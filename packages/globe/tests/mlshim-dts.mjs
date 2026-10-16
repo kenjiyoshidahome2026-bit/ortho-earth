@@ -1,11 +1,11 @@
 // MapLibre の口（@ortho-earth/globe/maplibre）の型の検定（F10・2026-10-12）
-//  ① src/maplibre/index.js の実行時の export 名が全部 maplibre.d.ts にある（型が実装に遅れない）
+//  ① src/maplibre/index.ts の実行時の export 名が全部 maplibre.d.ts にある（型が実装に遅れない）
 //  ② tests/fixtures/dts/shim-usage.ts（MapLibre の書き方そのまま）が package.json の exports "./maplibre".types 経由で tsc を通る（moduleResolution bundler・strict）
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url"; import { execFileSync } from "node:child_process";
 const HERE = path.dirname(fileURLToPath(import.meta.url)), GLOBE = path.resolve(HERE, ".."), ROOT = path.resolve(GLOBE, "../..");
 let fail = 0; const ok = (k, c, extra = "") => { console.log((c ? "ok  " : "FAIL ") + k + (extra ? " " + extra : "")); if (!c) fail++; };
 // ① export 名
-const idx = fs.readFileSync(path.join(GLOBE, "src/maplibre/index.js"), "utf8");
+const idx = fs.readFileSync(path.join(GLOBE, "src/maplibre/index.ts"), "utf8");
 const runtime = new Set();
 for (const m of idx.matchAll(/^export\s+\{([^}]+)\}\s+from/gm)) for (const n of m[1].split(",")) runtime.add(n.trim().split(/\s+as\s+/).pop());
 for (const m of idx.matchAll(/^export\s+(?:const|function|class)\s+([A-Za-z_$][\w$]*)/gm)) runtime.add(m[1]);

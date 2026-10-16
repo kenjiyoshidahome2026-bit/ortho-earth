@@ -3,7 +3,7 @@
 // ★起動後アイドルに本体を先読み（requestIdleCallback）＝初期表示は軽いまま・押した時にはもう載っている、の両取り。
 // アイドル前に押されても boot は冪等（real ||=）＝そのクリックが本体を呼び、開く。搭載APIは従来どおり map.gadget.palette()。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { PaletteBody, PaletteOpts } from "./palette.ts";
 const t = tr();

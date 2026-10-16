@@ -16,9 +16,10 @@
 // 共有エンジン（2026-09-30）で i18n.js は既に 7 アプリが同じ URL で読む物になっていた）。各アプリに残るのは辞書と読み方だけ。
 //
 // 語順の掟：文単位でキー化する（単語を連結しない）。"Source: " + name のような足し算は言語によって語順が壊れる。
-import LANGS from "./i18n/langs.js";
+import LANGS from "./i18n/langs.ts";
 import LOADERS from "./i18n/lang-loaders.js";
-import { createI18n } from "./i18n/core.js";
+import { createI18n } from "./i18n/core.ts";
+export type { Translate, I18n, I18nLang, I18nTable } from "./i18n/core.ts";
 
 // 表の読み口＝字面の import の表（i18n/lang-loaders.js＝i18n:build が焼く）。表が無い言語は {}
 const i18n = createI18n({ langs: LANGS, load: async c => { const load = LOADERS[c]; return load ? (await load()).default : {}; } });

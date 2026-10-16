@@ -5,7 +5,7 @@
 // 地表＝地形（外来 DEM を足していればそれ）＋建物（地域の建物台帳＝日本は PLATEAU）。地球の丸みと大気の屈折（k＝0.13）込み。
 // 計算は日影と同じ model 役の worker。API＝map.viewshed / map.lineOfSight（UI なしでも使える）。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

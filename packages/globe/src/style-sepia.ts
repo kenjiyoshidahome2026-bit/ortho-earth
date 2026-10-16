@@ -7,10 +7,10 @@
 //  - 全体を茶インクの階調でまとめ、水だけを唯一の「冷たい一音」に残す＝暖色の海に沈まず水と読める。
 //  - 点火色（鉄道=緑/道路=青/境界=赤）は色相を保ったまま彩度を落とし紙へ馴染ませる＝チップの意味（色＝地図の色）を保つ。
 //  - 地形（等高線・遠山の霞・標高ティント）は暖色で立てる＝古地図の主役は地形、という気分（ノブは palettes.js）。
-import mono from "./style-mono.js";
+import mono from "./style-mono.ts";
 
 const PAPER = "#f0e6d3";   // 暖かいクリームの紙（古地図の生成り。quiet-mono の寒色 tint を暖色へ振った同族）
-const MAP = {
+const MAP: Record<string, string> = {
 	"#f6f6f4": PAPER,       // 紙（bg・road-face の白帯・注記ハロー）
 	"#e2e6ea": "#d6ddd7",   // 海（z8+ 一律水色）→ くすんだ青緑＝暖色の陸に対する唯一の冷たい一音
 	"#aecbe6": "#b9c8c1",   // 水系点火（WA面・河川中心線）→ 一段深い muted teal＝川・湖が水と分かる濃さ
@@ -32,14 +32,14 @@ const MAP = {
 };
 
 // 再帰置換：式言語（match/interpolate…の配列）の中の hex 文字列だけ差し替える（style-dark と同じ swap）。
-function swap(v) {
+function swap<T>(v: T): T {
 	if (typeof v === "string") {
-		if (MAP[v]) return MAP[v];
+		if (MAP[v]) return MAP[v] as T;
 		if (/^#[0-9a-f]{3,8}$/i.test(v)) console.warn(`[style-sepia] color not in mapping table ${v} = kept as mono`);
 		return v;
 	}
-	if (Array.isArray(v)) return v.map(swap);
-	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)]));
+	if (Array.isArray(v)) return v.map(swap) as T;
+	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) as T;
 	return v;
 }
 

@@ -6,13 +6,13 @@
 //   → opts.localGeocoder → opts.geocoderApi（maplibre-gl-geocoder と同じ形＝利用者が自分の geocoder を差す）
 // 世界と外の geocoder の中身は初めて問い合わせた時に import()＝搭載だけなら初期バンドルも索引も読まない。
 // ヒット→ opts.onResult(hit)・onGo(lon, lat, zoom, tilt)（既定＝球面フライト）。範囲（bbox）の候補は地図の cameraForBounds で倍率を出す。
-import { createSearch } from "../search.js";
+import { createSearch } from "../search.ts";
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { LonLat, SearchOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
-import type { SearchSource } from "../search.js";
+import type { SearchSource } from "../search.ts";
 const t = tr();
 /** 世界の既定の設定（true の代わりに渡す）＝索引の置き場・名前の言語・候補の数 */
 type WorldOpts = { url?: string; lang?: string; limit?: number };
@@ -22,10 +22,10 @@ export type SearchboxOpts = Omit<SearchOptions, "provider" | "world"> & { provid
 const lazy = (load: () => Promise<SearchSource>, histKey?: string): SearchSource => { let p: Promise<SearchSource> | null = null; return { histKey, query: (q: string, s?: AbortSignal) => (p ||= load().catch(e => { p = null; throw e; })).then(x => x.query(q, s)) }; };
 function searchProviders(opts: SearchboxOpts = {}): SearchSource[] {
 	const list = ([] as SearchSource[]).concat(opts.provider || []).filter(Boolean);
-	if (opts.world) { const o = opts.world === true ? {} : opts.world; list.push(typeof (o as SearchSource).query === "function" ? o as SearchSource : lazy(() => import("../worldsearch.js").then(m => m.createWorldSearch(o as WorldOpts)), "ortho.searches")); }
+	if (opts.world) { const o = opts.world === true ? {} : opts.world; list.push(typeof (o as SearchSource).query === "function" ? o as SearchSource : lazy(() => import("../worldsearch.ts").then(m => m.createWorldSearch(o as WorldOpts)), "ortho.searches")); }
 	const g = { limit: opts.limit, language: opts.language, countries: opts.countries, bbox: opts.bbox, types: opts.types, proximity: opts.proximity, minLength: opts.minLength, zoom: opts.zoom === undefined || Array.isArray(opts.zoom) ? undefined : opts.zoom, filter: opts.filter };   // zoom＝公式の点の着地（数）・配列はガジェットの表示宣言（ズーム域）
-	if (opts.localGeocoder) list.push(lazy(() => import("../geocoder.js").then(m => m.localGeocoderProvider(opts.localGeocoder!, g))));
-	if (opts.geocoderApi && !opts.localGeocoderOnly) list.push(lazy(() => import("../geocoder.js").then(m => m.geocoderProvider(opts.geocoderApi!, g))));
+	if (opts.localGeocoder) list.push(lazy(() => import("../geocoder.ts").then(m => m.localGeocoderProvider(opts.localGeocoder!, g))));
+	if (opts.geocoderApi && !opts.localGeocoderOnly) list.push(lazy(() => import("../geocoder.ts").then(m => m.geocoderProvider(opts.geocoderApi!, g))));
 	return list;
 }
 /** 地名・住所の検索の窓。問い合わせ先が無い・二重搭載は undefined */

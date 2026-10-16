@@ -17,23 +17,29 @@
 //   "gadget" / "raster" 下の表で個別に分類
 //   "engine" zoom の数を運ぶがエンジン z のまま（文書に明記する例外）
 
-export const ML_DZ = 1;   // エンジン z − MapLibre z
+export const ML_DZ: number = 1;   // エンジン z − MapLibre z
 // "mercator"（公式例の門 §8・2026-09-27）＝MapLibre のメルカトルの縮尺に合わせる目盛り＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。
 // この地図は「同じ z＝同じ倍率（256px 世界）」、MapLibre は同じ z でも緯度で縮尺が変わる（sec φ）＝ワシントン 38.9° で 0.36 段・北緯 47° で 0.55 段。
 // 数の zoom は全部この dz で往復＝style の式（線幅・出しズーム）は MapLibre の z のまま評価され、カメラだけ緯度の分だけ寄る＝「同じ MapLibre のコードで同じ絵」。
 // 端＝φ0 で固定＝そこから南北に離れるほど MapLibre との差が戻る（MapLibre は中心の移動に連れて縮尺が変わる＝こちらは変えない）。source の tile z は換算しない
-export const ZOOM_SCALES = ["ortho", "maplibre", "mercator"];
-export const mercatorDz = lat => ML_DZ + Math.log2(1 / Math.max(0.05, Math.cos((lat || 0) * Math.PI / 180)));
+/** 目盛りの名前（createGlobe の zoomScale） */
+export type ZoomScale = "ortho" | "maplibre" | "mercator";
+export const ZOOM_SCALES: string[] = ["ortho", "maplibre", "mercator"];
+export const mercatorDz = (lat: number | null | undefined): number => ML_DZ + Math.log2(1 / Math.max(0.05, Math.cos((lat || 0) * Math.PI / 180)));
 // 旗つきの地図（外側の顔）から素の map へ戻る鍵。部品（geoedit・common/gintView・Marker の登録簿）は入口で `map[RAW] ?? map`＝エンジンの z で読む。
 // Symbol.for＝別の包み（npm の geoedit 等）からも import なしで同じ鍵が引ける
 export const RAW = Symbol.for("ortho-earth.map.raw");
 // 数の換算（null・undefined は素通し＝「無指定」の意味を保つ）。dz＝公開の口の目盛り（旗なし 0・maplibre 1）
-export const zIn = (z, dz) => z == null || !dz ? z : z + dz;    // 公開の口 → エンジン
-export const zOut = (z, dz) => z == null || !dz ? z : z - dz;   // エンジン → 公開の口
+export const zIn = <Z extends number | null | undefined>(z: Z, dz?: number | null): Z => z == null || !dz ? z : (z + dz) as Z;    // 公開の口 → エンジン
+export const zOut = <Z extends number | null | undefined>(z: Z, dz?: number | null): Z => z == null || !dz ? z : (z - dz) as Z;   // エンジン → 公開の口
 
 // 地図（createGlobe が返す物）の公開メンバー。実行時の Object.getOwnPropertyNames(map) と globe.d.ts の OrthoJapanMap の両方が
 // ここに載っていること（t-mlcompat と tests/zoomscale.mjs が検札する）。
-export const MAP_MEMBERS = {
+/** 公開メンバーの分類（上の表の説明） */
+export type ZoomClass = "none" | "in" | "out" | "io" | "layer" | "event" | "gadget" | "raster" | "engine";
+/** ガジェットの分類＝"none"｜"layer"｜"engine"｜{ opts: zoom を運ぶ opts のキー, arg?: 第何引数か } */
+export type GadgetZoomClass = "none" | "layer" | "engine" | { opts: string[]; arg?: number };
+export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	// カメラ
 	flyTo: "in", jumpTo: "in", easeTo: "in", setZoom: "in", getZoom: "out",
 	fitBounds: "in", cameraForBounds: "io", fitZoomForBbox: "out",
@@ -102,7 +108,7 @@ export const MAP_MEMBERS = {
 // map.gadget の各ガジェット。全ガジェット共通の表示帯 opts.zoom:[a,b] は旗なら両端 +dz（外側の顔の gadget 代理が一括で）。
 // ここは「それ以外に zoom を運ぶか」＝"none"｜"layer"（MapLibre 形の層 object＝中で PUBLIC_DZ が換算）｜
 // { opts: [zoom を運ぶ opts のキー], arg?: その opts が第何引数か（既定 0）}。"view[2]"＝配列 view の 3 番目（[lon, lat, z]）。
-export const GADGET_MEMBERS = {
+export const GADGET_MEMBERS: Record<string, GadgetZoomClass> = {
 	heatmap: "layer", cluster: "layer", symbols: "layer", extrude: "layer",
 	zoom: { opts: ["zoomMin", "zoomMax"] }, home: { opts: ["view[2]"] },
 	spotlight: { opts: ["maxZoom"], arg: 1 }, globe: { opts: ["maxZoom"] }, viewshed: { opts: ["minZoom"] }, sunshadow: { opts: ["minZoom"] },
@@ -119,27 +125,27 @@ export const GADGET_MEMBERS = {
 };
 
 // map.raster（spec の minZoom/maxZoom は source の tile z＝換算しない・opts の minZoom/maxZoom は表示窓＝換算する）
-export const RASTER_MEMBERS = {
+export const RASTER_MEMBERS: Record<string, ZoomClass> = {
 	add: "in", set: "in", list: "out", info: "none", remove: "none", onChange: "none", select: "none", toggle: "none",
 	catalog: "none", stats: "none", selected: "none",   // 地域パックのカタログ（minZoom/maxZoom は tile z）・統計・選択中
 };
 
 // addGint の手綱（手綱は包まない＝作る時に dz を受け取り中で換算する）。先頭が "_" のキーは内部＝検札の対象外。
-export const HANDLE_MEMBERS = {
+export const HANDLE_MEMBERS: Record<string, ZoomClass> = {
 	id: "none", ready: "none", order: "none", on: "none", query: "none",
 	setPaint: "in", setFilter: "in", setData: "in", setLabel: "in", style: "in",
 	setFeatureState: "none", removeFeatureState: "none", setOrder: "none", setVisible: "none", activate: "none", remove: "none",
 };
 
 // 起動オプションの換算（createGlobe の最初に 1 回＝以後 opts を読む所・地域パックへ渡る hostEnv.opts は全部エンジンの z）。view は文字列＝換算しない
-export function bootOptsIn(opts, dz) {
+export function bootOptsIn<O extends { zoomMax?: number | null } | null | undefined>(opts: O, dz?: number | null): O {
 	if (!dz || opts?.zoomMax == null) return opts;
-	return { ...opts, zoomMax: zIn(opts.zoomMax, dz) };
+	return { ...opts, zoomMax: zIn(opts.zoomMax, dz) } as O;
 }
 
 // 旗を読む（未知の値は投げる＝打ち間違いを黙って既定へ落とさない）
-export function zoomScaleOf(opts) {
+export function zoomScaleOf(opts: { zoomScale?: string | null } | null | undefined): ZoomScale {
 	const s = opts?.zoomScale ?? "ortho";
 	if (!ZOOM_SCALES.includes(s)) throw new Error(`zoomScale: "${s}" is not one of ${ZOOM_SCALES.join(" | ")}`);
-	return s;
+	return s as ZoomScale;
 }

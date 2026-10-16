@@ -1,7 +1,7 @@
 // Wikipedia の共通の芯（src/wiki.js）の単体＝URL・言語の順・冒頭（REST summary）・候補（opensearch）。網は使わない（fetch を差し込む）。
 // 枠（createWikiFrame）は DOM が要る＝tests/t-wiki.html（verify:ui）で見る。
 import assert from "node:assert/strict";
-import { wikiUrl, wikiTitle, toMobile, toDesktop, parseWikiUrl, langChain, pickTitle, summary, summaryIn, search, SUMMARY_URL, CAN_FRAME } from "../src/wiki.js";
+import { wikiUrl, wikiTitle, toMobile, toDesktop, parseWikiUrl, langChain, pickTitle, summary, summaryIn, search, SUMMARY_URL, CAN_FRAME } from "../src/wiki.ts";
 
 // URL
 assert.equal(wikiTitle(" Mount Fuji "), "Mount_Fuji");

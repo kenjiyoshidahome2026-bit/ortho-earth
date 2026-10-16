@@ -11,7 +11,7 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { geodesicDistance, geodesicArea } from "@ortho-earth/core";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { LonLat, PathGadget } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

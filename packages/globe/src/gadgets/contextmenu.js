@@ -5,7 +5,7 @@
 // 未設定なら既定メニュー（この地点へ寄る／座標をコピー）＝搭載しただけで使える。
 // ctx＝{ lng, lat, x, y, map }。lng/lat は指した画面座標の逆投影（screen→world。裏半球や宇宙なら undefined）。
 // unprojectAt＝画面座標→経緯度（実装は engine の unproject／注入は登録側）。signal＝destroy 時のリスナー解除。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 const t = tr();
 export function contextmenu({ unprojectAt, signal, items } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;

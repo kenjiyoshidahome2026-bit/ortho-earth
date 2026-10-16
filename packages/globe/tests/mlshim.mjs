@@ -3,10 +3,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "../src/maplibre/geo.js";
-import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.js";
-import { mercatorDz } from "../src/zoomscale.js";
-import { unsupported } from "../src/maplibre/report.js";
+import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "../src/maplibre/geo.ts";
+import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.ts";
+import { mercatorDz } from "../src/zoomscale.ts";
+import { unsupported } from "../src/maplibre/report.ts";
 import { parseViewHash } from "@ortho-earth/core/viewurl";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -88,12 +88,12 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 
 // ── 通訳の境界：呼ぶのは ../globe.js の公開面だけ（RAW・core・内部の部品を import しない）──
 //   例外＝../zoomscale.js（zoom の目盛りの正典・依存ゼロの純関数）：mercatorDz はここから読む（2.0.0 まで globe.js がそのためだけに root から再 export していた＝TS 化 段 2 で止めた）
-const SHIM_IMPORTS = new Set(["../globe.js", "../zoomscale.js"]);
+const SHIM_IMPORTS = new Set(["../globe.js", "../globe.ts", "../zoomscale.ts"]);
 {
 	const dir = path.join(HERE, "../src/maplibre"), bad = [];
-	for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".js"))) {
-		const src = fs.readFileSync(path.join(dir, f), "utf8").replace(/\/\/.*$/gm, "");
-		for (const m of src.matchAll(/\bfrom\s+["']([^"']+)["']/g)) if (!/^\.\/[\w-]+\.js$/.test(m[1]) && !SHIM_IMPORTS.has(m[1])) bad.push(`${f}: ${m[1]}`);
+	for (const f of fs.readdirSync(dir).filter(f => f.endsWith(".ts"))) {
+		const src = fs.readFileSync(path.join(dir, f), "utf8").replace(/\/\/.*$/gm, "").replace(/^import type .*$/gm, "");   // 型だけの import（TS 化 段 4）は実行時の結び付きではない＝数えない
+		for (const m of src.matchAll(/\bfrom\s+["']([^"']+)["']/g)) if (!/^\.\/[\w-]+\.ts$/.test(m[1]) && !SHIM_IMPORTS.has(m[1])) bad.push(`${f}: ${m[1]}`);
 		if (/\bRAW\b|Symbol\.for\(["']ortho-earth\.map\.raw/.test(src)) bad.push(`${f}: RAW`);
 	}
 	ok("通訳の import は ../globe.js と同じ家の部品だけ・RAW 無し", !bad.length, bad.join(" "));
@@ -102,7 +102,7 @@ const SHIM_IMPORTS = new Set(["../globe.js", "../zoomscale.js"]);
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 // ── createTileMesh／細分の粒度（MapLibre 同名・custom 層のタイル格子）──
 {
-	const { createTileMesh, SubdivisionGranularityExpression, GRANULARITY_GLOBE, NORTH_POLE_Y, SOUTH_POLE_Y, EXTENT } = await import("../src/maplibre/tilemesh.js");
+	const { createTileMesh, SubdivisionGranularityExpression, GRANULARITY_GLOBE, NORTH_POLE_Y, SOUTH_POLE_Y, EXTENT } = await import("../src/maplibre/tilemesh.ts");
 	const m1 = createTileMesh({ granularity: 1 }, "16bit"), v1 = new Int16Array(m1.vertices), i1 = new Uint16Array(m1.indices);
 	ok("createTileMesh 粒度 1＝4 頂点・6 索引", v1.length === 8 && i1.length === 6 && !m1.uses32bitIndices, `${v1.length} ${i1.length}`);
 	ok("createTileMesh 0..EXTENT", Math.min(...v1) === 0 && Math.max(...v1) === EXTENT);
@@ -119,7 +119,7 @@ console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 }
 // ── stub の一覧（B6・2026-10-12）＝ML_METHODS にあって class Map に無い口は Proxy が unsupported を記録して何もしない。残る stub はここに列挙＝増えたら気づく（計画の付録 B の照合）
 {
-	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.js"), "utf8");
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.ts"), "utf8");
 	const ml = JSON.parse(src.match(/const ML_METHODS = new Set\((\[.*?\])\);/s)[1]);
 	const cls = src.slice(src.indexOf("export class Map"), src.indexOf("\n}\n", src.indexOf("export class Map")));
 	const defined = new Set([...cls.matchAll(/^\t(?:get |set |async )?([A-Za-z_]\w*)\s*\(/gm)].map(m => m[1]));

@@ -41,7 +41,7 @@ export function i18nTables(APP) {
 	const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
 	const outDir = path.join(HOST, "i18n/lang"), pagesDir = path.join(APP, "i18n/lang");
 	const files = new Map(), rows = [], pageRows = [];
-	files.set(path.join(HOST, "i18n/langs.js"), "// 生成物＝npm run i18n:build（正本は packages/world/i18n/langs.json）。手で編集しない。\nexport default " + JSON.stringify(langs) + ";\n");
+	files.set(path.join(HOST, "i18n/langs.ts"), "// 生成物＝npm run i18n:build（正本は packages/world/i18n/langs.json）。手で編集しない。\nexport default " + JSON.stringify(langs) + ";\n");
 	for (const { code } of langs) {
 		if (code === "en") continue;                                   // 英語＝キーそのもの＝表は要らない
 		const table = {};

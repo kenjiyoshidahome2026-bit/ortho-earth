@@ -7,25 +7,31 @@
 // 色は固定値を持たず「紙（背景）からインクへ寄せた階調」で作る＝mono/dark が自ら宣言している作法
 // （「薄さは opacity でなく実色で作る＝紙へ寄せる」）にそのまま乗る。紙が暗いテーマではインク側が
 // 明るい色に反転する＝dark/sepia でも色対応表を足さずに追随する。
+import type { MLLayer } from "@ortho-earth/core";
+import type { BaseMapStyle } from "./style-mono.ts";
 
-const hex2rgb = h => {
+type RGB = [number, number, number];
+/** アーカイブの宣言（PMTiles の metadata の層名と持っているズーム） */
+export interface PmInfo { layers?: string[] | null; maxZoom?: number | null; [k: string]: unknown }
+
+const hex2rgb = (h: string | null | undefined): RGB | null => {
 	const s = String(h || "").replace("#", "");
 	const n = s.length === 3 ? s.split("").map(c => c + c).join("") : s.slice(0, 6);
 	const v = parseInt(n, 16);
 	return Number.isFinite(v) && n.length === 6 ? [(v >> 16) & 255, (v >> 8) & 255, v & 255] : null;
 };
-const rgb2hex = c => "#" + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
-const lum = c => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+const rgb2hex = (c: number[]): string => "#" + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+const lum = (c: number[]): number => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
 
 // style の層から色を拾う（テーマは mono の構造を色対応表で機械変換＝層 id は全テーマ共通）。
-const pick = (style, id, prop) => {
+const pick = (style: { layers?: MLLayer[] } | null | undefined, id: string, prop: string): string | null => {
 	const v = style?.layers?.find(L => L.id === id)?.paint?.[prop];
 	return typeof v === "string" ? v : null;   // 式（match/interpolate）で塗る層はここでは使わない
 };
 
 // 層名 → 役割。Protomaps basemaps v4 / OpenMapTiles / Shortbread / tippecanoe 出力の語彙を素直に拾う。
 // 判定は部分一致の小文字＝"transportation" も "roads" も "road_major" も道路になる。
-const ROLES = [
+const ROLES: Array<[role: string, re: RegExp]> = [
 	["ground", /^(earth|land|landmass|background)$|^land_/],   // 地面＝描かない（下の GROUND 参照）
 	["label", /place|poi|label|name|annotation/],              // 注記＝描かない（点は線規則で空振りするだけ・decode も省ける）
 	["water", /water|ocean|sea|lake|reservoir/],
@@ -36,7 +42,7 @@ const ROLES = [
 	["boundary", /boundar|admin|border|division/],
 	["landuse", /landuse|landcover|park|forest|green|wood|farm|glacier|sand|beach/],
 ];
-const roleOf = id => (ROLES.find(([, re]) => re.test(String(id).toLowerCase()))?.[0]) || "other";
+const roleOf = (id: unknown): string => (ROLES.find(([, re]) => re.test(String(id).toLowerCase()))?.[0]) || "other";
 
 // 描かない役割：
 //  ground＝球のハイプソ（GEBCO×気候）が主役＝塗ると潰れる（style-world.js の裁定を踏襲）。
@@ -47,15 +53,15 @@ const SKIP = new Set(["ground", "label"]);
 // 描画順（配列の後ろほど上）。mono の並び（水→建物→道路→鉄道）に倣い、境界を最上へ。
 const ORDER = ["landuse", "water", "waterway", "other", "building", "road", "rail", "boundary"];
 
-const W = (...pairs) => ["interpolate", ["linear"], ["zoom"], ...pairs];   // ズーム対応の線幅
+const W = (...pairs: number[]): unknown[] => ["interpolate", ["linear"], ["zoom"], ...pairs];   // ズーム対応の線幅
 
-export function pmLayers(info, theme) {
+export function pmLayers(info: PmInfo, theme?: { style?: BaseMapStyle | { layers?: MLLayer[] } | null } | null): MLLayer[] {
 	const style = theme?.style;
 	const paper = pick(style, "bg", "background-color") || "#f6f6f4";
-	const pRGB = hex2rgb(paper) || [246, 246, 244];
+	const pRGB: RGB = hex2rgb(paper) || [246, 246, 244];
 	// インク＝紙の反対側。紙が暗ければ明るいインクへ反転（dark テーマが色表を足さずに追随する）。
 	const ink = lum(pRGB) < 0.5 ? [232, 236, 242] : [43, 49, 56];
-	const tone = t => rgb2hex(pRGB.map((v, i) => v + (ink[i] - v) * t));   // 紙→インクの階調
+	const tone = (t: number): string => rgb2hex(pRGB.map((v, i) => v + (ink[i] - v) * t));   // 紙→インクの階調
 
 	// 水だけはテーマの実色を使う＝利用者が「水色」として認識している唯一の色（無ければ階調で代用）
 	const waterC = pick(style, "water", "fill-color") || tone(0.10);
@@ -70,17 +76,17 @@ export function pmLayers(info, theme) {
 	// （maxZoom 3 のアーカイブでは永久に発火しない）＝アーカイブの持ち分そのもので判定する。
 	const coarse = (info.maxZoom ?? 14) <= 5;
 
-	const byRole = new Map();
+	const byRole = new Map<string, string[]>();
 	for (const id of info.layers || []) {
 		const r = roleOf(id);
 		if (SKIP.has(r)) continue;
 		if (!byRole.has(r)) byRole.set(r, []);
-		byRole.get(r).push(id);
+		byRole.get(r)!.push(id);
 	}
 
-	const out = [];
-	const fill = (id, color) => ({ id: `pm-${id}-fill`, type: "fill", "source-layer": id, filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": color } });
-	const line = (id, color, width) => ({ id: `pm-${id}-line`, type: "line", "source-layer": id, filter: ["!=", ["geometry-type"], "Polygon"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": color, "line-width": width } });
+	const out: MLLayer[] = [];
+	const fill = (id: string, color: string): MLLayer => ({ id: `pm-${id}-fill`, type: "fill", "source-layer": id, filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": color } });
+	const line = (id: string, color: string, width: unknown): MLLayer => ({ id: `pm-${id}-line`, type: "line", "source-layer": id, filter: ["!=", ["geometry-type"], "Polygon"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": color, "line-width": width } });
 
 	for (const role of ORDER) {
 		for (const id of byRole.get(role) || []) {
@@ -113,4 +119,4 @@ export function pmLayers(info, theme) {
 }
 
 // 検証・説明用：どの層をどの役割に振ったか（?pm= の [pm] ログが使う）。
-export const pmRoles = info => (info.layers || []).map(id => `${id}:${roleOf(id)}`);
+export const pmRoles = (info: PmInfo): string[] => (info.layers || []).map(id => `${id}:${roleOf(id)}`);

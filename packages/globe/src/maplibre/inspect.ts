@@ -3,7 +3,7 @@
 //   ・ボタン＝MapLibre の四隅の IControl（公式と同じ class＝maplibregl-ctrl-icon maplibregl-ctrl-inspect／検査中は maplibregl-ctrl-map）。見た目は頁の maplibre-gl-inspect.css
 //   ・オプションは同じ名前のままガジェットへ渡す（ガジェット側のボタンは出さない＝showInspectButton:false）
 //   ・通訳の地図（new Map）でもエンジンの地図（createGlobe）でも載る。準備前の addControl はエンジンを待って載せる
-import { whenEngine } from "./map.js";
+import { whenEngine } from "./map.ts";
 
 export class MaplibreInspect {
 	constructor(options = {}) { this.options = { showInspectButton: true, ...options }; this._ctl = null; this._map = null; }

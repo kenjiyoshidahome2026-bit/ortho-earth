@@ -5,7 +5,7 @@
 // 英語名と今の言語の名前・別名（ISO コード・略称・現地名・読み）を同時に引く＝「Paris」「パリ」「巴黎」が同じ所へ飛ぶ（巴黎は zh の窓で）。
 // 返りは検索窓の供給元の形（search.js）＝{ title, note, lon, lat, bbox?, zoom?, tilt?, kind, id }。国と州は bbox＝範囲に寄る。
 import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
-import { getLang } from "./i18n.js";
+import { getLang } from "./i18n.ts";
 
 const WORLD_SEARCH_URL = WORLD_DATA + "search/";
 const FORMAT = 1;   // 索引の形の版（build/search.js の SEARCH_VERSION と対）

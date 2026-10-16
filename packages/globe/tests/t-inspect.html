@@ -164,7 +164,7 @@ try {
 		map.destroy();
 	} else if (V === "ml") {
 		const ml = await import("@ortho-earth/globe/maplibre");
-		const { engineOf } = await import("../src/maplibre/map.js");
+		const { engineOf } = await import("../src/maplibre/map.ts");
 		const m = new ml.Map({ container: "map", style, center: VIEW, zoom: 15.5 });
 		await Promise.race([new Promise(r => m.once("load", r)), sleep(30000)]);
 		const eng = engineOf(m);

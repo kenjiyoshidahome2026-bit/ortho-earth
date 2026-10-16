@@ -6,10 +6,10 @@
 //  - 薄さは opacity でなく実色で作る（重なりムラ防止）＝「紙へ寄せる」のブレンド先が暗い紙に変わるので全色再計算。
 //  - 白地図の「濃い＝主役」は夜地図では「明るい＝主役」に反転：道路の格は明度の階段を逆向きに登る。
 //  - 点火色（緑/青/深紅）は同じ色相のまま明度を一段持ち上げる＝チップの意味（色＝地図上の色）を保つ。
-import mono from "./style-mono.js";
+import mono from "./style-mono.ts";
 
 const PAPER = "#191d24";   // 夜の紙（寒色の暗灰＝quiet-mono の寒色tintと同族。宇宙 #080a12 より一段明るい＝球の輪郭が残る）
-const MAP = {
+const MAP: Record<string, string> = {
 	"#f6f6f4": PAPER,       // 紙（bg・road-face の白帯・注記ハロー）
 	"#e2e6ea": "#090c12",   // 海（z8+ の一律水色）：紙より明確に深い夜の海＝海岸線が塗りの明暗差で立つ（宇宙#080a12とほぼ同深度）
 	"#aecbe6": "#2b6d80",   // 水系点火（WA面・河川中心線）：青緑(シアン寄り)＝道路の青と色相を分ける（夜は水と道路が被る指摘＝家族より）
@@ -31,14 +31,14 @@ const MAP = {
 };
 
 // 再帰置換：式言語（match/interpolate…の配列）の中の hex 文字列だけ差し替える。
-function swap(v) {
+function swap<T>(v: T): T {
 	if (typeof v === "string") {
-		if (MAP[v]) return MAP[v];
+		if (MAP[v]) return MAP[v] as T;
 		if (/^#[0-9a-f]{3,8}$/i.test(v)) console.warn(`[style-dark] color not in mapping table ${v} = kept as mono`);
 		return v;
 	}
-	if (Array.isArray(v)) return v.map(swap);
-	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)]));
+	if (Array.isArray(v)) return v.map(swap) as T;
+	if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) as T;
 	return v;
 }
 

@@ -1,6 +1,17 @@
 // 自作スタイル「Quiet Mono」── 地理院MVT(optimal_bvmap)を、紙地図の踏襲をやめた
 // 静かなモノクロームのデータ土台に再解釈する。主題オーバーレイが主役として映えるよう基図は控えめに引く。
 // std.json と同じ式言語/vt_code フィルタを使うので ortho-japan の評価器でそのまま描ける。
+import type { MLLayer } from "@ortho-earth/core";
+
+/** 基図の style（この地図の式言語＝MapLibre の形）＝テーマ台帳（palettes.ts）の style・色対応表の写し（style-dark／sepia／gsi）の形 */
+export interface BaseMapStyle {
+	version?: number; name?: string; sources?: Record<string, unknown>;
+	/** ソースの語彙の申告（建物・注記の分類・合成水域の属性） */
+	schema?: { buildings?: { layer: string; levelKey?: string; codeKey: string; heightByCode?: Record<string, number>; defaultHeight?: number } | null; labelCode?: string | null; seaProps?: Record<string, unknown> | null } | null;
+	layers: MLLayer[];
+	[k: string]: unknown;
+}
+
 export default {
 	version: 8,
 	name: "Quiet Mono",
@@ -217,4 +228,4 @@ export default {
 			paint: { "text-color": "#86867f", "text-halo-color": "#f6f6f4", "text-halo-width": 1.1 },
 		},
 	],
-};
+} satisfies BaseMapStyle;

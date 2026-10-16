@@ -2,7 +2,7 @@
 // 見た目は MapLibre の CSS（maplibre-gl.css）の class 名に乗る＝頁が MapLibre の CSS を読んでいればそのままの姿になる。
 // 中で呼ぶのは地図の公開の口（zoomIn/resetNorth/flyTo/setTerrain…）だけ＝エンジンに機能を足さない。
 // 出典はエンジンの計器（instruments "attr"）が持つ＝AttributionControl は受け取るだけ。GlobeControl（投影の切り替え）はこの地図が常に球＝押しても何もしない。
-import { unsupported } from "./report.js";
+import { unsupported } from "./report.ts";
 
 const el = (tag, cls, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (parent) parent.appendChild(e); return e; };
 const button = (parent, cls, title, onClick) => {

@@ -19,9 +19,9 @@ import type { Corners } from "geopbf/edit/imagequad";
 import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, QueryReturn, RasterReturn, ShadowsReturn, StyleReturn, ToolsReturn } from "./install.ts";
 import type { GlobeInternals, GlobeMap, RegisterGadget } from "./map.ts";
 import type { VideoQuads } from "../gadgets/videoquad.ts";
-import type { Requester } from "../request.d.ts";
-import type { ScenePlayer } from "../scenes/player.d.ts";
-import type { SpriteEntry } from "../mlsmall.d.ts";
+import type { Requester } from "../request.ts";
+import type { ScenePlayer } from "../scenes/player.ts";
+import type { SpriteEntry } from "../mlsmall.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // globe.js の中の共有の部品（いくつもの installer が受ける物）

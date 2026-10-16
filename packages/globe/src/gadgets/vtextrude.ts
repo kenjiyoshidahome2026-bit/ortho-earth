@@ -14,7 +14,7 @@ import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtme
 import { hitExtrusion } from "../extrude-ml.js";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
 import type { MLLayer } from "@ortho-earth/core";
 import type { RenderedFeature } from "../../globe.d.ts";
-import type { Requester, ResolvedRequest } from "../request.d.ts";
+import type { Requester, ResolvedRequest } from "../request.ts";
 import type { ExtEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam, VtxDesc } from "../types/scope.ts";

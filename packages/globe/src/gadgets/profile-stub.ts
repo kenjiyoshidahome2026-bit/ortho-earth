@@ -3,7 +3,7 @@
 // 搭載APIは map.gadget.profile()。本体が付いたら同じボタンへ本体のトグル(start/stop)が付き、スタブは abort で退場。
 // ★frame hook（毎フレ再投影で球に追従）は core 側の frameHooks に触れる＝抽象アクセス opts.onBody(本体) 経由で本体到着後に配線。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { PathGadget, PathGadgetStub } from "../../globe.d.ts";
 import type { ToolBody } from "../types/scope.ts";
 import type { GlobeMap } from "../types/map.ts";

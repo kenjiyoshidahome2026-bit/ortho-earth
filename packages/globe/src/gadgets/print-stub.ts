@@ -4,7 +4,7 @@
 // 本体が搭載されると同じボタンへ自前のリスナーを付け直し、スタブ側は abort で退場（二重発火なし）。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { PrintHandle, PrintOpts } from "./print.ts";
 const t = tr();

@@ -14,7 +14,7 @@ import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, ge
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
 import type { MLLayer } from "@ortho-earth/core";
-import type { Requester, ResolvedRequest } from "../request.d.ts";
+import type { Requester, ResolvedRequest } from "../request.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 import type { TileXYZ } from "../vtmesh.d.ts";
