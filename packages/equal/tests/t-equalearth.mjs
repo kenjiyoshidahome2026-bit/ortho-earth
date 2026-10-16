@@ -1,6 +1,6 @@
 // 投影とカメラの検定（純関数＝Node）。落ちたら地図の「余白なし」「錨」「往復」が壊れている
 import assert from "node:assert/strict";
-import { yOfLat, latOfY, kOfLat, Y_MAX, X_MAX, halfWidthAtY, pxPerUnit, unproject, anchorView, clampView, minZoomFor, fullZoomFor, wrapLon } from "../../../packages/equal/src/equalearth.ts";
+import { yOfLat, latOfY, kOfLat, Y_MAX, X_MAX, halfWidthAtY, pxPerUnit, unproject, anchorView, clampView, minZoomFor, fullZoomFor, wrapLon } from "../src/equalearth.ts";
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const near = (a, b, eps, m) => ok(Math.abs(a - b) <= eps, `${m}: ${a} vs ${b}`);
