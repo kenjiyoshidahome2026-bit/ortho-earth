@@ -11,18 +11,42 @@
 import { css, hex } from "@ortho-earth/core/worldstyle";
 import { WORLD_Z, WORLD_LABEL, labelSize, culturalUrl, culturalName, loadNations, loadI18n, loadNeCities, countryName, cityName, shortEnNames, countryLabelRule, cityLabelRule, airportLabelRule, PLANE_PATH } from "@ortho-earth/core/worldcontent";
 
+import type { GeoPBF } from "geopbf";
+import type { ThemeColor, WorldStyleTheme } from "@ortho-earth/core/worldstyle";
+
+/** addGint の手綱（ここが使う分） */
+interface WorldGintHandle {
+	setVisible(v: boolean): void; readonly ready: Promise<unknown>;
+	setPaint(paint: Record<string, unknown>, filter?: unknown): Promise<unknown>;
+	style?(s: WorldGintStyle): void;
+}
+/** 層の描画スタイル（styleOf の戻り） */
+interface WorldGintStyle { styleTable: Float32Array; lineWidth: number; moveBudget: number; outlineZoom: number; fillColor: number[] }
+type FeatureCollectionLike = { type: "FeatureCollection"; features: object[] };
+/** createWorldContent の材料（globe.js が渡す） */
+export interface WorldContentDeps {
+	addGint(pbf: GeoPBF, opts: Record<string, unknown>): WorldGintHandle | null | undefined;
+	geopbf(name: string, opts?: { name?: string }): Promise<GeoPBF | null | undefined>;
+	symbols(data: FeatureCollectionLike, layer: Record<string, unknown>): Promise<unknown>;
+	addImage(id: string, image: ImageBitmap, opts?: { pixelRatio?: number }): unknown;
+	getZoom(): number; lang?: string; worldStyle(): WorldStyleTheme; bandZ: number; lowMem?: boolean; requestDraw?: () => void; groups?: string[] | null;
+}
+/** createWorldContent の戻り */
+export interface WorldContent { update(): void; repaint(): Promise<void>; state(): Record<string, number | boolean> }
+type NamesBundle = { world: Awaited<ReturnType<typeof loadNations>>; i18n: Awaited<ReturnType<typeof loadI18n>> | null; ne: Awaited<ReturnType<typeof loadNeCities>> };
+
 const LABEL_ID = "world-content-labels", AIR_ID = "world-content-airports";
 
-export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {}, groups = null }) {
-	const want = g => !groups || groups.includes(g);   // groups＝読む群の限定（計測の切り分け・既定＝全部）
-	const H = {};            // group → addGint の手綱（base / detail / lakes）
-	const held = {};         // group → GeoPBF（注記の材料）
-	const state = {};        // group → 0 未 / 1 読込中 / 2 済 / 3 失敗
-	let names = null, labelsOn = false, imagesAdded = false;
+export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {}, groups = null }: WorldContentDeps): WorldContent {
+	const want = (g: string) => !groups || groups.includes(g);   // groups＝読む群の限定（計測の切り分け・既定＝全部）
+	const H: Record<string, WorldGintHandle> = {};            // group → addGint の手綱（base / detail / lakes）
+	const held: Record<string, GeoPBF> = {};         // group → GeoPBF（注記の材料）
+	const state: Record<string, number> = {};        // group → 0 未 / 1 読込中 / 2 済 / 3 失敗
+	let names: Promise<NamesBundle | null> | null = null, labelsOn = false, imagesAdded = false;
 	const T = () => worldStyle();
 
 	// 線と面の色・出し分け（式）。色は正本 worldstyle から毎回引く＝テーマ切替は repaint() が setPaint し直す
-	const PAINT = {
+	const PAINT: Record<string, (t: WorldStyleTheme) => Record<string, unknown>> = {
 		base: t => ({
 			"line-color": ["case", ["==", ["get", "layer"], "admin_0"], css(t.disputedLine), css(t.admin1)],
 			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.8, 0.5],
@@ -35,7 +59,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		}),
 		lakes: t => ({ "line-color": css(t.lakeShore), "line-width": 0.6 }),
 	};
-	const FILTER = {
+	const FILTER: Record<string, unknown[]> = {
 		// 州境＝z≥4（海岸線・国境は admin0 層が上から描く＝同じ NE 10m の線が重なる）・係争主体の線＝常時。都市の点（populated_places）は描かない＝注記の領分
 		base: ["any", ["==", ["get", "layer"], "admin_0"], ["all", ["==", ["get", "layer"], "admin_1"], [">=", ["zoom"], WORLD_Z.admin1]]],
 		// 市街地＝z≥4・道路/鉄道＝z≥5。detail に同居する湖（lakes スロットと重複）・航路・空港の点は描かない
@@ -47,8 +71,8 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 	// 層の描画スタイル。styleTable＝地物ごとの表が効かない時（動かしている間の簡略表示＝外周の線だけ）の色：
 	// style0＝面の辺・style1＝折れ線。既定のまま（#FF6B35）だと簡略表示で市街地の外周がオレンジに出た（本人指摘 2026-09-24）＝
 	// detail は透明（簡略中は描かない）・州境の群は海岸線の色（簡略中に残るのは外周＝海岸線）・湖は岸線の色
-	const rgba = v => Array.isArray(v) ? hex(v[0], v[1]) : hex(v);
-	const styleOf = (g, t) => {
+	const rgba = (v: ThemeColor) => Array.isArray(v) ? hex(v[0], v[1]) : hex(v);
+	const styleOf = (g: string, t: WorldStyleTheme): WorldGintStyle => {
 		const tb = new Float32Array(256 * 4);
 		const c = g === "base" ? rgba(t.coast) : g === "lakes" ? rgba(t.lakeShore) : [0, 0, 0, 0];
 		tb.set(c, 0); tb.set(c, 4);
@@ -57,14 +81,14 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		return { styleTable: tb, lineWidth: 0.75, moveBudget: g === "lakes" ? Infinity : 40_000, outlineZoom: 0, fillColor: [0, 0, 0, 0] };
 	};
 	// 層の順＝admin0（海岸線・国境 -10）の下に州境、その下に市街地/道路（塗りと線の上下は gint の中で面→線）
-	const ORDER = { base: -11, detail: -12, lakes: -9 };
-	const SRC = {
+	const ORDER: Record<string, number> = { base: -11, detail: -12, lakes: -9 };
+	const SRC: Record<string, () => Promise<GeoPBF | null | undefined>> = {
 		base: () => geopbf(culturalUrl("base"), { name: culturalName("base") }),
 		detail: () => geopbf(culturalUrl("detail"), { name: culturalName("detail") }),
 		lakes: () => geopbf("ne_10m_lakes"),   // renderer の lakes スロットと同じ名前＝同じ実体（塗りはスロット・岸線はここ）
 	};
 
-	async function load(g) {
+	async function load(g: string) {
 		if (state[g]) return;
 		state[g] = 1;
 		try {
@@ -89,13 +113,13 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			if (g === "detail") await airports();
 			requestDraw();
 			update();   // 読み終えた時点のズームで次の群を判定し直す（起動直後の判定が早すぎて detail を取り逃がさない）
-		} catch (e) { state[g] = 3; console.warn(`[world-content] ${g}`, e?.message ?? e); }
+		} catch (e) { state[g] = 3; console.warn(`[world-content] ${g}`, (e as Error)?.message ?? e); }
 	}
 
 	// ── 注記：国名（NationDB の代表点・面積の段）＋首都/都市（NE populated_places）＝1 つの記号の層＝衝突判定を共有 ──
-	const dot = (color, r = 5) => { const s = 16, cv = new OffscreenCanvas(s, s), cx = cv.getContext("2d");
+	const dot = (color: string, r = 5) => { const s = 16, cv = new OffscreenCanvas(s, s), cx = cv.getContext("2d")!;
 		cx.beginPath(); cx.arc(s / 2, s / 2, r, 0, Math.PI * 2); cx.fillStyle = color; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = T().labelColor.halo; cx.stroke(); return cv.transferToImageBitmap(); };
-	const plane = () => { const s = 40, cv = new OffscreenCanvas(s, s), cx = cv.getContext("2d");
+	const plane = () => { const s = 40, cv = new OffscreenCanvas(s, s), cx = cv.getContext("2d")!;
 		cx.translate(4, 4); cx.scale(32 / 24, 32 / 24); const p = new Path2D(PLANE_PATH); cx.lineWidth = 3; cx.strokeStyle = T().labelColor.halo; cx.lineJoin = "round"; cx.stroke(p); cx.fillStyle = css(T().airport); cx.fill(p); return cv.transferToImageBitmap(); };
 	async function images() {   // 記号帳（テーマの色で作る＝テーマ切替で作り直す）
 		await addImage("wc-dot", dot(T().labelColor.city), { pixelRatio: 2 });
@@ -110,7 +134,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		const pbf = held.base; if (!pbf) return;
 		const nm = await namesP(); if (!nm) return;
 		if (!imagesAdded) await images();
-		const n = pbf.fmap?.length ?? 0, feats = [];
+		const n = pbf.fmap?.length ?? 0, feats: object[] = [];
 		const shortEn = shortEnNames(n, i => pbf.getProperties(i));
 		for (const nation of nm.world.items) {
 			const r = countryLabelRule(nation); if (!r) continue;
@@ -158,7 +182,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 	async function airports() {
 		const pbf = held.detail; if (!pbf) return;
 		if (!imagesAdded) await images();
-		const n = pbf.fmap?.length ?? 0, feats = [];
+		const n = pbf.fmap?.length ?? 0, feats: object[] = [];
 		for (let i = 0; i < n; i++) {
 			const p = pbf.getProperties(i);
 			if (p?.layer !== "airports") continue;

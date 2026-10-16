@@ -11,7 +11,7 @@ export interface LineGeom { coords: ArrayLike<number>; ends: number[] }
 /** 枠で切った後の幾何 */
 export interface ClippedGeom { coords: Float64Array; ends: number[] }
 /** 地物（core の解読の形＝type と geom） */
-export interface TileFeature { type?: string; geom: TileGeom; [k: string]: unknown }
+export interface TileFeature { type?: string; geom: TileGeom }
 
 // li の帯：基図の層の添字（数百まで）・図郭外の水域の擬似帯（−1000 付近）と重ならない＝renderer の門（海・建物の塗り）に掛からない。
 // key＝層の順の鍵（小数可＝間に差し込んでも他の層の鍵は動かない＝他の source を組み直さない）。副番号（0＝本体・1＝下敷き（円の縁・輪郭）・2＝上（円の塗り））は 1e-7 刻み
