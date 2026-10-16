@@ -9,8 +9,8 @@
 	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
 </script>
 <script type="module">
-	import { createGeopbf } from "../src/index.js";
-	import { GeoPBF } from "../src/pbf-base.js";
+	import { createGeopbf } from "../src/index.ts";
+	import { GeoPBF } from "../src/pbf-base.ts";
 	import { toGeoParquet } from "../src/convert/geoparquet.ts";
 	import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 	const done = s => document.title = s;

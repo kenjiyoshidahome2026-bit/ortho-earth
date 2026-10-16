@@ -7,7 +7,7 @@
 //   使い方: node scripts/lod-calibration-report.mjs <file.geopbf|.fgb|.geojson> [minZoom=0] [maxZoom=14]
 //   結果の台帳: lod-calibration-2026-10-12.md（pop-density-2020・countries・topp_states）
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { fromFlatGeobuf } from "../src/convert/fgb.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { prepareTiling } from "../src/convert/tiler.ts";

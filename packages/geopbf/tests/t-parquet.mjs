@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
 
 let fails = 0;

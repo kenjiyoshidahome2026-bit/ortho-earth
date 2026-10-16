@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// t-cog-adapters: src/maplibre-cog.js（addProtocol の手）と src/leaflet-cog.js（L.GridLayer）の配線の検定（改良点 17・2026-10-12）。
+// t-cog-adapters: src/maplibre-cog.ts（addProtocol の手）と src/leaflet-cog.ts（L.GridLayer）の配線の検定（改良点 17・2026-10-12）。
 //   合成 COG（tests/cog/build-cog.mjs・EPSG:4326）を Range 対応のインメモリ HTTP から配り、Node に無い OffscreenCanvas / ImageData /
 //   createImageBitmap / document / L は最小のスタブで置く＝「URL の解釈・openCog の memoize・圏外の透明 PNG・bounds・done の呼び方」を見る。
 //   画素の正しさは t-cog（core）が見る。
 import { createServer } from "node:http";
 import { buildCog } from "./cog/build-cog.mjs";
-import { makeCogProtocol, cogProtocol } from "../src/maplibre-cog.js";
-import { cogGridLayer } from "../src/leaflet-cog.js";
+import { makeCogProtocol, cogProtocol } from "../src/maplibre-cog.ts";
+import { cogGridLayer } from "../src/leaflet-cog.ts";
 import { lonLatToWorld } from "../src/modules/mercator.ts";
 
 let fails = 0;

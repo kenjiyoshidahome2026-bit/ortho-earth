@@ -2,12 +2,12 @@
 // geopbf CLI ── ブラウザを開かずに GeoJSON ⇄ GeoPBF を往復し、gint の効き目を数字で見るための入口。
 //
 // 依存はこのパッケージ自身と Node 組み込みのみ（pbf は geopbf の既存依存・圧縮は node:zlib）。
-// Worker と DOM を使う src/index.js は通さず、Node でそのまま動く pbf-base / extension/gint を直に叩く。
+// Worker と DOM を使う src/index.ts は通さず、Node でそのまま動く pbf-base / extension/gint を直に叩く。
 // ImageData は Node に無い。エンコード側は pbf-base が存在を見てから使う（1.19〜）ので、ここで補うのは IMAGE 型（型 11）の値が
 // 入ったファイルを読み戻す時（readValue の image()）の器だけ。
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { t, usageFor } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
 import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.mjs";   // 引数の表と読み手（未知の --flag は拒む）
 
@@ -123,7 +123,7 @@ async function info(argv) {
 // 隙間を作らない保証まで見たい場合はブラウザ側の位相経路を通すこと。
 
 async function lod(argv) {
-	const { gint } = await import("../src/extension/gint.js");   // wasm 無しでも純JS経路で動く
+	const { gint } = await import("../src/extension/gint.ts");   // wasm 無しでも純JS経路で動く
 	const { pos: [inPath] } = parseArgs("lod", argv);
 
 	const gj = (await openPbf(inPath)).geojson;

@@ -6,7 +6,7 @@
 //   Z も float 差分・M は double のまま）。Multi*/Collection の各要素は 0x69（ENTITY 印）＋ class u32 で始まる。
 //   TinyPoint（SpatiaLite 5）: 0x00 | 0x81(LE)/0x80(BE) | SRID | kind(1 XY 2 XYZ 3 XYM 4 XYZM) | doubles | 0xFE。
 // CRS は spatial_ref_sys（auth_name/auth_srid/srtext）→ gpkg.js の classifyCrs（4326 素通し・3857 逆変換・投影 WKT は proj.js）。
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue } from "./sqlite.ts";
 import { attrFilter } from "./attrs.ts";

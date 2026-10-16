@@ -1,5 +1,5 @@
-import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと getBbox 不在で TypeError→永久 hang・2026-09-14 根治）
-import { getBbox } from "../extension/spatial.js";
+import { GeoPBF } from "../pbf.ts";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと getBbox 不在で TypeError→永久 hang・2026-09-14 根治）
+import { getBbox } from "../extension/spatial.ts";
 import type { Feature, Geometry } from "../../types/geopbf.js";
 import type { EncodeRequest } from "../worker-msg.ts";
 

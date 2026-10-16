@@ -13,24 +13,25 @@
 // 依存ゼロ・トップレベルに DOM なし（worker から import 可）＝DOM 使用は呼び出し時のみ。
 const DROP_TAGS = new Set(["script", "style", "iframe", "object", "embed", "template", "noscript", "svg", "math", "form", "link", "meta", "base", "title", "head"]);   // 中身ごと捨てる（殻剥ぎだと script 本文がテキストとして漏れる）
 const OK_TAGS = new Set(["a", "abbr", "b", "blockquote", "br", "caption", "code", "dd", "del", "div", "dl", "dt", "em", "figcaption", "figure", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li", "mark", "ol", "p", "pre", "q", "rp", "rt", "ruby", "s", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul", "wbr"]);
-const OK_ATTRS = { "*": ["title", "alt"], a: ["href"], img: ["src", "width", "height"], td: ["colspan", "rowspan"], th: ["colspan", "rowspan"] };
-const okURL = (v, isImg) => /^(?:https?:|mailto:)/i.test(v = v.trim()) || (isImg && /^data:image\//i.test(v));   // 画像だけ data:image/ も可（img src の SVG は script 不実行）
-export function sanitizeHTML(html) {
+const OK_ATTRS: Record<string, string[]> = { "*": ["title", "alt"], a: ["href"], img: ["src", "width", "height"], td: ["colspan", "rowspan"], th: ["colspan", "rowspan"] };
+const okURL = (v: string, isImg: boolean): boolean => /^(?:https?:|mailto:)/i.test(v = v.trim()) || (isImg && /^data:image\//i.test(v));   // 画像だけ data:image/ も可（img src の SVG は script 不実行）
+export function sanitizeHTML(html: unknown): string {
 	const doc = new DOMParser().parseFromString(String(html ?? ""), "text/html");   // 不活性文書＝script は走らず画像も取得されない
 	const out = document.createElement("div");
-	(function walk(src, dst) {
+	(function walk(src: Node, dst: HTMLElement): void {
 		for (const n of src.childNodes) {
-			if (n.nodeType === 3) { dst.append(n.textContent); continue; }   // テキストはそのまま（コメント等は捨てる）
-			if (n.nodeType !== 1 || DROP_TAGS.has(n.localName)) continue;
-			if (!OK_TAGS.has(n.localName)) { walk(n, dst); continue; }       // 不許可タグ＝殻だけ剥いで中身を辿る
-			const el = document.createElement(n.localName);
-			for (const { name, value } of n.attributes) {
-				if (!(OK_ATTRS["*"].includes(name) || OK_ATTRS[n.localName]?.includes(name))) continue;
-				if ((name === "href" || name === "src") && !okURL(value, n.localName === "img")) continue;
+			if (n.nodeType === 3) { dst.append(n.textContent!); continue; }   // テキストはそのまま（コメント等は捨てる）
+			if (n.nodeType !== 1 || DROP_TAGS.has((n as Element).localName)) continue;
+			const e = n as Element;
+			if (!OK_TAGS.has(e.localName)) { walk(e, dst); continue; }       // 不許可タグ＝殻だけ剥いで中身を辿る
+			const el = document.createElement(e.localName);
+			for (const { name, value } of e.attributes) {
+				if (!(OK_ATTRS["*"].includes(name) || OK_ATTRS[e.localName]?.includes(name))) continue;
+				if ((name === "href" || name === "src") && !okURL(value, e.localName === "img")) continue;
 				el.setAttribute(name, value);
 			}
-			if (n.localName === "a" && el.hasAttribute("href")) { el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener noreferrer"); }   // 別タブ＋オープナー遮断
-			walk(n, el); dst.append(el);
+			if (e.localName === "a" && el.hasAttribute("href")) { el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener noreferrer"); }   // 別タブ＋オープナー遮断
+			walk(e, el); dst.append(el);
 		}
 	})(doc.body, out);
 	return out.innerHTML;

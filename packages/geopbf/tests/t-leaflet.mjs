@@ -3,7 +3,7 @@
 // 最小フェイク L でプラグインの配線（登録・load/error イベント・attribution 自動配線・メタ）を検定する。
 // 実 Leaflet との結合は tests/t-leaflet.html（自己判定式）が関門。
 import { createServer } from "node:http";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { extendLeaflet, loadGeopbf } from "../src/leaflet.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ

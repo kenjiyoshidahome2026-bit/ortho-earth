@@ -1,5 +1,5 @@
 // 読める形式・書ける形式の一覧＝このデモの正本（図・ファイル選択の accept・書き出しボタンは全部ここから作る）。
-// 並びと中身は geopbf の入口（packages/geopbf/src/index.js の拡張子振り分け）と書き出し（encoder/*・convert/*）に合わせる。
+// 並びと中身は geopbf の入口（packages/geopbf/src/index.ts の拡張子振り分け）と書き出し（encoder/*・convert/*）に合わせる。
 // 形式名は固有名詞＝訳さない。
 
 // 読む（落とす・選ぶ・URL）。ext＝file picker の accept。zip は中身で振り分け（Shapefile / FileGDB / 法務省 地図XML）

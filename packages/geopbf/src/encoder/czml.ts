@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { featureToPackets, documentPacket } from "../modules/czml.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 const enc = new TextEncoder();
