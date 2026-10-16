@@ -9,9 +9,9 @@
 <body><pre id="out">running…</pre>
 <script type="module">
 	import { GeoPBF } from "../src/pbf-base.js";
-	import { toPMTiles } from "../src/convert/tiler.js";
-	import { toGeoParquet } from "../src/convert/geoparquet.js";
-	import { getDevice } from "../src/convert/gpu.js";
+	import { toPMTiles } from "../src/convert/tiler.ts";
+	import { toGeoParquet } from "../src/convert/geoparquet.ts";
+	import { getDevice } from "../src/convert/gpu.ts";
 	const q = new URLSearchParams(location.search), name = q.get("data") || "ne10m_countries", maxZoom = +(q.get("maxzoom") || 8);
 	const tileCompression = q.get("nogzip") ? "none" : "gzip", workers = q.get("workers") !== null ? +q.get("workers") : undefined;
 	const lines = [], log = (s) => { lines.push(s); console.log("[bench] " + s); document.getElementById("out").textContent = lines.join("\n"); };

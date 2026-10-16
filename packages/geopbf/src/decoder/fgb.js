@@ -1,5 +1,5 @@
 // decoder/fgb.js ── ブラウザ用 worker：.fgb（FlatGeobuf v3）→ GeoPBF バイト列。実体は convert/fgb.js（仕様どおりの読み・依存ゼロ）。
-import { fromFlatGeobuf } from "../convert/fgb.js";
+import { fromFlatGeobuf } from "../convert/fgb.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution, ignoreCrs, tky2jgd, patchjgd } = e.data;

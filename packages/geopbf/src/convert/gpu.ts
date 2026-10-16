@@ -12,18 +12,24 @@
 
 const STORAGE = 0x80, COPY_SRC = 0x04, COPY_DST = 0x08, UNIFORM = 0x40, MAP_READ = 0x01;   // GPUBufferUsage の定数（Node で未定義でも動く）
 
-let _gpu = null;
-export function setGPU(gpu) { _gpu = gpu; }
+/** アダプタの素性（getDevice が device.__info に付ける） */
+export interface GPUInfo { vendor?: string; architecture?: string; description?: string }
+/** __info を付けた GPUDevice */
+export type ConvertDevice = GPUDevice & { __info?: GPUInfo };
+export interface GPUOptions { gpu?: GPU | null }
+
+let _gpu: GPU | null = null;
+export function setGPU(gpu: GPU | null): void { _gpu = gpu; }
 
 // ブラウザ/Deno: navigator.gpu。Node: setGPU() で注入された Dawn（無ければ null＝CPU 経路）。
-export async function findGPU(opts = {}) {
+export async function findGPU(opts: GPUOptions = {}): Promise<GPU | null> {
 	if (opts.gpu) return opts.gpu;
 	if (_gpu) return _gpu;
 	if (globalThis.navigator?.gpu) return globalThis.navigator.gpu;
 	return null;   // Node の Dawn（任意依存 `webgpu`）は CLI が読んで setGPU() で注入する（下の注記）
 }
 
-export async function getDevice(opts = {}) {
+export async function getDevice(opts: GPUOptions = {}): Promise<ConvertDevice | null> {
 	const gpu = await findGPU(opts);
 	if (!gpu) return null;
 	// 通常の adapter が無ければ fallback（SwiftShader などのソフトウェア実装）も試す＝CI の headless Chromium はこちら。出力は同じバイト列
@@ -31,21 +37,35 @@ export async function getDevice(opts = {}) {
 		?? await gpu.requestAdapter({ forceFallbackAdapter: true }).catch(() => null);
 	if (!adapter) return null;
 	// 大きなストレージバッファ（数千万頂点＝数百 MB）を1本で束ねたい＝アダプタ上限まで要求。断られたら既定で。
-	const requiredLimits = {};
+	const requiredLimits: Record<string, number> = {};
+	const limits = adapter.limits as unknown as Record<string, number | undefined> | undefined;
 	for (const k of ["maxStorageBufferBindingSize", "maxBufferSize", "maxComputeWorkgroupsPerDimension"])
-		if (adapter.limits?.[k] !== undefined) requiredLimits[k] = adapter.limits[k];
-	const device = await adapter.requestDevice({ requiredLimits }).catch(() => adapter.requestDevice().catch(() => null));
+		if (limits?.[k] !== undefined) requiredLimits[k] = limits[k] as number;
+	const device: ConvertDevice | null = await adapter.requestDevice({ requiredLimits }).catch(() => adapter.requestDevice().catch(() => null));
 	if (!device) return null;
 	device.__info = adapter.info ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture, description: adapter.info.description } : {};
 	return device;
 }
 
-const align = (n, a = 4) => Math.ceil(n / a) * a;
+const align = (n: number, a = 4): number => Math.ceil(n / a) * a;
+
+/** 計算コンテキスト */
+export interface ComputeContext {
+	device: GPUDevice;
+	pipeline(code: string, entry?: string): GPUComputePipeline;
+	upload(ta: ArrayBufferView | ArrayBuffer, usage?: number): GPUBuffer;
+	uniform(u32: Uint32Array): GPUBuffer;
+	alloc(byteLength: number): GPUBuffer;
+	run(pipe: GPUComputePipeline, bindings: GPUBuffer[], dispatch: [number, number?, number?]): void;
+	readback(buf: GPUBuffer, byteLength: number, offset?: number): Promise<ArrayBuffer>;
+	maxWG: number;
+	destroy(): void;
+}
 
 // 計算コンテキスト＝パイプラインのキャッシュ・upload/alloc/dispatch/readback。
-export function createContext(device) {
-	const pipes = new Map();
-	const pipeline = (code, entry = "main") => {
+export function createContext(device: GPUDevice): ComputeContext {
+	const pipes = new Map<string, GPUComputePipeline>();
+	const pipeline = (code: string, entry = "main"): GPUComputePipeline => {
 		const key = entry + "\n" + code;
 		let p = pipes.get(key);
 		if (!p) {
@@ -57,7 +77,7 @@ export function createContext(device) {
 		}
 		return p;
 	};
-	const upload = (ta, usage = STORAGE | COPY_DST | COPY_SRC) => {
+	const upload = (ta: ArrayBufferView | ArrayBuffer, usage: number = STORAGE | COPY_DST | COPY_SRC): GPUBuffer => {
 		const bytes = ta instanceof ArrayBuffer ? new Uint8Array(ta) : new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength);
 		const size = Math.max(4, align(bytes.byteLength));
 		const buf = device.createBuffer({ size, usage, mappedAtCreation: true });
@@ -65,17 +85,17 @@ export function createContext(device) {
 		buf.unmap();
 		return buf;
 	};
-	const uniform = (u32) => upload(u32, UNIFORM | COPY_DST);
-	const alloc = (byteLength) => device.createBuffer({ size: Math.max(4, align(byteLength)), usage: STORAGE | COPY_DST | COPY_SRC });
+	const uniform = (u32: Uint32Array): GPUBuffer => upload(u32, UNIFORM | COPY_DST);
+	const alloc = (byteLength: number): GPUBuffer => device.createBuffer({ size: Math.max(4, align(byteLength)), usage: STORAGE | COPY_DST | COPY_SRC });
 	// bindings: GPUBuffer の配列（binding 番号＝添字）。dispatch: [x, y, z] workgroups。
-	const run = (pipe, bindings, [x, y = 1, z = 1]) => {
+	const run = (pipe: GPUComputePipeline, bindings: GPUBuffer[], [x, y = 1, z = 1]: [number, number?, number?]): void => {
 		const bg = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: bindings.map((buffer, binding) => ({ binding, resource: { buffer } })) });
 		const enc = device.createCommandEncoder();
 		const pass = enc.beginComputePass();
 		pass.setPipeline(pipe); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x, y, z); pass.end();
 		device.queue.submit([enc.finish()]);
 	};
-	const readback = async (buf, byteLength, offset = 0) => {
+	const readback = async (buf: GPUBuffer, byteLength: number, offset = 0): Promise<ArrayBuffer> => {
 		const size = align(byteLength);
 		const st = device.createBuffer({ size, usage: MAP_READ | COPY_DST });
 		const enc = device.createCommandEncoder();

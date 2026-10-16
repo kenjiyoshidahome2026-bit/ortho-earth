@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
-import { openSqlite, parseCreate, varint } from "../src/convert/sqlite.js";
-import { fromGeoPackage, readGeoPackage, classifyCrs, openGpkgTiles, mimeOf } from "../src/convert/gpkg.js";
+import { openSqlite, parseCreate, varint } from "../src/convert/sqlite.ts";
+import { fromGeoPackage, readGeoPackage, classifyCrs, openGpkgTiles, mimeOf } from "../src/convert/gpkg.ts";
 import { existsSync } from "node:fs";
 
 let fails = 0;

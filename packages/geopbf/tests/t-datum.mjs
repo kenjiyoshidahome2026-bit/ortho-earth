@@ -6,9 +6,9 @@
 // 固定資料は tests/fixtures/datum/*.par（国土地理院の .par から数メッシュを抜粋したもの・fixtures/datum/NOTICE.md）。
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "../src/convert/proj.js";
-import { bakeMeshGrid, parseMeshGrid, loadMeshGrid, resolveDatum, datumStats, tokyoToJGD, jgd2000To2011, tokyoHelmert } from "../src/convert/datum.js";
-import { classifyCrs } from "../src/convert/gpkg.js";
+import { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "../src/convert/proj.ts";
+import { bakeMeshGrid, parseMeshGrid, loadMeshGrid, resolveDatum, datumStats, tokyoToJGD, jgd2000To2011, tokyoHelmert } from "../src/convert/datum.ts";
+import { classifyCrs } from "../src/convert/gpkg.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

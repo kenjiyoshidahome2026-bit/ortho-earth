@@ -8,11 +8,11 @@
 globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
 import { GeoPBF } from "../src/pbf-base.js";
-import { bakeGint, initGintWasm } from "../src/convert/node-gint.js";
-import { toPMTiles } from "../src/convert/tiler.js";
-import { readPMTiles } from "../src/convert/pmtiles.js";
-import { decodeTile } from "../src/convert/mvt-decode.js";
-import { createTileSource } from "../src/convert/tilesource.js";
+import { bakeGint, initGintWasm } from "../src/convert/node-gint.ts";
+import { toPMTiles } from "../src/convert/tiler.ts";
+import { readPMTiles } from "../src/convert/pmtiles.ts";
+import { decodeTile } from "../src/convert/mvt-decode.ts";
+import { createTileSource } from "../src/convert/tilesource.ts";
 import { makeGeopbfProtocol, geopbfTileProtocol, parseTileUrl } from "../src/maplibre.js";
 
 let fails = 0;

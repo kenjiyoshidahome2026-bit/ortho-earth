@@ -7,7 +7,18 @@
 // 共有境界がタイル縁で 1 単位ずれて隙間になることがない（gint の「共有 arc は 1 本」をタイル縁まで貫く）。
 // 形式: 環/線 = number[]（x0,y0,x1,y1,…・環は閉じ点なし）。ポリゴン = 環の配列（[0] が外環）。点列 = number[]。
 
-const ix = (ax, ay, bx, by, axis, val) => {   // 線分 a-b と axis=val の交点（辞書順に正規化）
+/** 座標列（x0,y0,x1,y1,…）＝number[] か Float64Array */
+export type Coords = ArrayLike<number>;
+/** 切り出しの対象: kind 0 点列 / 1 線の配列 / 2 環の配列（ポリゴン） */
+export type ClipParts = Coords | Coords[];
+export type ClipKind = 0 | 1 | 2;
+export type Axis = 0 | 1;
+/** [minx, miny, maxx, maxy] */
+export type Box = [number, number, number, number] | number[];
+export type Sink = (tx: number, ty: number, parts: ClipParts) => void;
+export type SinkRange = (tx0: number, tx1: number, ty0: number, ty1: number) => void;
+
+const ix = (ax: number, ay: number, bx: number, by: number, axis: Axis, val: number): [number, number] => {   // 線分 a-b と axis=val の交点（辞書順に正規化）
 	if (ax > bx || (ax === bx && ay > by)) { [ax, ay, bx, by] = [bx, by, ax, ay]; }
 	const t = axis === 0 ? (val - ax) / (bx - ax) : (val - ay) / (by - ay);
 	return axis === 0 ? [val, ay + t * (by - ay)] : [ax + t * (bx - ax), val];
@@ -17,13 +28,13 @@ const ix = (ax, ay, bx, by, axis, val) => {   // 線分 a-b と axis=val の交�
 // 切断線上に連続する 3 点は中央を落とす：SH は環が線を出入りするたびに線上へ 2 点置くので、外側で往復する環は線上に
 // 「行って戻る」幅ゼロの棘や重なり辺を残す。線上の 3 点は共線＝中央を抜いても面は不変で、棘だけが消える
 //（バッファ縁の全面塗り判定が 4 頂点で決まり、タイルの無駄な頂点も減る）。
-export function clipRingHalf(ring, axis, val, less) {
+export function clipRingHalf(ring: Coords, axis: Axis, val: number, less: boolean): Float64Array | null {
 	const n = ring.length >> 1;
 	if (n < 3) return null;
 	const out = new Float64Array((n + 1) * 4);
 	let m = 0;
-	const on = (i) => out[i + axis] === val;   // 出力 i 番目（要素添字）の点が切断線上か
-	const emit = (x, y) => {
+	const on = (i: number): boolean => out[i + axis] === val;   // 出力 i 番目（要素添字）の点が切断線上か
+	const emit = (x: number, y: number): void => {
 		if (m >= 4 && (axis === 0 ? x : y) === val && on(m - 2) && on(m - 4)) m -= 2;
 		out[m++] = x; out[m++] = y;
 	};
@@ -48,18 +59,18 @@ export function clipRingHalf(ring, axis, val, less) {
 }
 
 // 線を半平面で切る → 線の配列（出入りで分割）
-export function clipLineHalf(line, axis, val, less) {
-	const n = line.length >> 1, res = [];
-	let cur = null;
-	const inside = (x, y) => less ? (axis === 0 ? x : y) <= val : (axis === 0 ? x : y) >= val;
+export function clipLineHalf(line: Coords, axis: Axis, val: number, less: boolean): number[][] {
+	const n = line.length >> 1, res: number[][] = [];
+	let cur: number[] | null = null;
+	const inside = (x: number, y: number): boolean => less ? (axis === 0 ? x : y) <= val : (axis === 0 ? x : y) >= val;
 	let px = line[0], py = line[1], pin = inside(px, py);
 	if (pin) cur = [px, py];
 	for (let i = 1; i < n; i++) {
 		const x = line[i * 2], y = line[i * 2 + 1], cin = inside(x, y);
 		if (cin) {
 			if (!pin) { const p = ix(px, py, x, y, axis, val); cur = [p[0], p[1]]; }
-			cur.push(x, y);
-		} else if (pin) { const p = ix(px, py, x, y, axis, val); cur.push(p[0], p[1]); res.push(cur); cur = null; }
+			(cur as number[]).push(x, y);   // cin かつ pin なら cur は前の点から続いている
+		} else if (pin) { const p = ix(px, py, x, y, axis, val); (cur as number[]).push(p[0], p[1]); res.push(cur as number[]); cur = null; }
 		px = x; py = y; pin = cin;
 	}
 	if (cur && cur.length >= 4) res.push(cur);
@@ -67,36 +78,36 @@ export function clipLineHalf(line, axis, val, less) {
 }
 
 // kind: 0 点列 / 1 線の配列 / 2 環の配列（ポリゴン）。半平面で切った結果（空なら null）
-function clipHalf(parts, kind, axis, val, less) {
+function clipHalf(parts: ClipParts, kind: ClipKind, axis: Axis, val: number, less: boolean): ClipParts | null {
 	if (kind === 0) {
-		const out = [];
-		for (let i = 0; i < parts.length; i += 2) { const v = axis === 0 ? parts[i] : parts[i + 1]; if (less ? v <= val : v >= val) out.push(parts[i], parts[i + 1]); }
+		const pts = parts as Coords, out: number[] = [];
+		for (let i = 0; i < pts.length; i += 2) { const v = axis === 0 ? pts[i] : pts[i + 1]; if (less ? v <= val : v >= val) out.push(pts[i], pts[i + 1]); }
 		return out.length ? out : null;
 	}
 	if (kind === 1) {
-		const out = [];
-		for (const l of parts) for (const s of clipLineHalf(l, axis, val, less)) out.push(s);
+		const out: Coords[] = [];
+		for (const l of parts as Coords[]) for (const s of clipLineHalf(l, axis, val, less)) out.push(s);
 		return out.length ? out : null;
 	}
-	const out = [];
-	for (let r = 0; r < parts.length; r++) {
-		const c = clipRingHalf(parts[r], axis, val, less);
+	const rings = parts as Coords[], out: Coords[] = [];
+	for (let r = 0; r < rings.length; r++) {
+		const c = clipRingHalf(rings[r], axis, val, less);
 		if (r === 0 && !c) return null;   // 外環が消えたらポリゴンごと消える
 		if (c) out.push(c);
 	}
 	return out;
 }
 
-function bboxOf(parts, kind) {
+function bboxOf(parts: ClipParts, kind: ClipKind): Box {
 	let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-	const scan = (a) => { for (let i = 0; i < a.length; i += 2) { const x = a[i], y = a[i + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; } };
-	if (kind === 0) scan(parts); else for (const p of parts) scan(p);
+	const scan = (a: Coords): void => { for (let i = 0; i < a.length; i += 2) { const x = a[i], y = a[i + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; } };
+	if (kind === 0) scan(parts as Coords); else for (const p of parts as Coords[]) scan(p);
 	return [minx, miny, maxx, maxy];
 }
 
 // 環が矩形 [x0,x1]×[y0,y1] を丸ごと覆う（全頂点が矩形の縁上・面積が矩形と一致）か。SH の切片は縁上に余分な頂点を持ち得る
 // ので「4 頂点」ではなくこの条件で見る。
-function coversRect(ring, x0, y0, x1, y1) {
+function coversRect(ring: Coords, x0: number, y0: number, x1: number, y1: number): boolean {
 	const n = ring.length >> 1;
 	if (n < 4) return false;
 	for (let i = 0; i < n; i++) { const x = ring[i * 2], y = ring[i * 2 + 1]; if (!((x === x0 || x === x1) && y >= y0 && y <= y1) && !((y === y0 || y === y1) && x >= x0 && x <= x1)) return false; }
@@ -109,22 +120,22 @@ function coversRect(ring, x0, y0, x1, y1) {
 // bbox は parts の外接（既知なら渡す）。z はタイル数の上限（2^z）に使う。txRange=[from,to] で列範囲を絞る（worker 分担）。
 // sinkRange(tx0, tx1, ty0, ty1) を渡すと、ポリゴン（穴なし）の切片が範囲矩形（バッファ込み）を丸ごと覆う時点で
 // 「この範囲の全タイルは全面塗り」として葉まで降りずに 1 回で通知する（内陸のタイル群＝面被覆データの大半）。
-export function splitToTiles(parts, kind, bbox, z, extent, buffer, sink, txRange = null, sinkRange = null) {
+export function splitToTiles(parts: ClipParts, kind: ClipKind, bbox: Box, z: number, extent: number, buffer: number, sink: Sink, txRange: readonly [number, number] | null = null, sinkRange: SinkRange | null = null): void {
 	const nmax = 2 ** z - 1, txLo = txRange ? txRange[0] : 0, txHi = txRange ? txRange[1] : nmax;
-	const clampi = (v) => v < 0 ? 0 : v > nmax ? nmax : v;
+	const clampi = (v: number): number => v < 0 ? 0 : v > nmax ? nmax : v;
 	// ⚠ 列範囲は「二分の木を枝刈りする」だけで、範囲の計算や分割点は変えない＝分担の有無で葉の結果が bit 同一
 	//（範囲を先に絞ると分割点がずれ、同じタイルの切片が変わって分担境界で別物になる）
-	const range = (bb) => [clampi(Math.ceil((bb[0] - buffer) / extent) - 1), clampi(Math.floor((bb[2] + buffer) / extent)),
+	const range = (bb: Box): [number, number, number, number] => [clampi(Math.ceil((bb[0] - buffer) / extent) - 1), clampi(Math.floor((bb[2] + buffer) / extent)),
 		clampi(Math.ceil((bb[1] - buffer) / extent) - 1), clampi(Math.floor((bb[3] + buffer) / extent))];
-	const rec = (pts, bb, tx0, tx1, ty0, ty1) => {
+	const rec = (pts: ClipParts, bb: Box, tx0: number, tx1: number, ty0: number, ty1: number): void => {
 		if (tx0 > tx1 || ty0 > ty1 || tx1 < txLo || tx0 > txHi) return;
-		if (sinkRange && kind === 2 && pts.length === 1 && coversRect(pts[0], tx0 * extent - buffer, ty0 * extent - buffer, (tx1 + 1) * extent + buffer, (ty1 + 1) * extent + buffer)) {
+		if (sinkRange && kind === 2 && (pts as Coords[]).length === 1 && coversRect((pts as Coords[])[0], tx0 * extent - buffer, ty0 * extent - buffer, (tx1 + 1) * extent + buffer, (ty1 + 1) * extent + buffer)) {
 			sinkRange(Math.max(tx0, txLo), Math.min(tx1, txHi), ty0, ty1);
 			return;
 		}
 		if (tx0 === tx1 && ty0 === ty1) {
 			const x0 = tx0 * extent - buffer, x1 = (tx0 + 1) * extent + buffer, y0 = ty0 * extent - buffer, y1 = (ty0 + 1) * extent + buffer;
-			let c = pts;
+			let c: ClipParts | null = pts;
 			if (bb[0] < x0) c = c && clipHalf(c, kind, 0, x0, false);
 			if (bb[2] > x1) c = c && clipHalf(c, kind, 0, x1, true);
 			if (bb[1] < y0) c = c && clipHalf(c, kind, 1, y0, false);
@@ -132,7 +143,7 @@ export function splitToTiles(parts, kind, bbox, z, extent, buffer, sink, txRange
 			if (c) sink(tx0, ty0, c);
 			return;
 		}
-		const ax = (tx1 - tx0) >= (ty1 - ty0) ? 0 : 1;
+		const ax: Axis = (tx1 - tx0) >= (ty1 - ty0) ? 0 : 1;
 		const lo = ax === 0 ? tx0 : ty0, hi = ax === 0 ? tx1 : ty1, m = (lo + hi) >> 1, edge = (m + 1) * extent;
 		const bmax = ax === 0 ? bb[2] : bb[3], bmin = ax === 0 ? bb[0] : bb[1];
 		// 左（下）半分が列範囲の外なら切片も作らない（枝刈り＝分割点は不変）

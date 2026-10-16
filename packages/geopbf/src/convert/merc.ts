@@ -18,9 +18,9 @@ export const YT_LEN = (LAT_HALF >>> YT_SHIFT) + 2;   // 109,864 entries（最終
 const MAX_LAT = 85.05112877980659;
 const IY_MAX = Math.round(MAX_LAT * 1e7);   // 北限（0° 起点の e-7 単位）
 
-let _table = null;
+let _table: Uint32Array | null = null;
 // Uint32Array(2·YT_LEN): [0,YT_LEN)=値 t[i]（緯度 i·2^13 e-7 度）、[YT_LEN,2·YT_LEN)=区間傾き dy[i]（2^13 e-7 度あたり）
-export function mercTable() {
+export function mercTable(): Uint32Array {
 	if (_table) return _table;
 	const T = new Uint32Array(YT_LEN * 2);
 	for (let i = 0; i < YT_LEN; i++) {
@@ -39,7 +39,7 @@ export function mercTable() {
 }
 
 // floor(ix · 2^32 / 360e7)。ix ∈ [0, 360e7]。ix=360e7（東経180°）は 2^32 に溢れるので 2^32-1 へ寄せる。
-export function lonToX32(ix) {
+export function lonToX32(ix: number): number {
 	if (ix >= LON_FULL) return 4294967295;
 	const D = 7031250;                                   // 360e7 = 2^9 · D  →  ix·2^32/360e7 = ix·2^23/D
 	let q = Math.floor(ix * 8388608 / D);                // 近似（ix·2^23 が 2^53 を超え得る＝±1 ずれ得る）
@@ -52,7 +52,7 @@ export function lonToX32(ix) {
 	return q;
 }
 
-export function latToY32(iy, T = mercTable()) {
+export function latToY32(iy: number, T: Uint32Array = mercTable()): number {
 	const south = iy < LAT_HALF;
 	let v = south ? LAT_HALF - iy : iy - LAT_HALF;   // 赤道からの距離（e-7 度）
 	if (v > LAT_HALF) v = LAT_HALF;
@@ -96,7 +96,7 @@ fn compact16(m0: u32) -> u32 {
 `;
 
 // JS 側の Morton 展開（ortho-core normalizeRingOrientation と同式）
-function compact16(m) {
+function compact16(m: number): number {
 	m &= 0x55555555;
 	m = (m | (m >>> 1)) & 0x33333333;
 	m = (m | (m >>> 2)) & 0x0F0F0F0F;
@@ -104,8 +104,10 @@ function compact16(m) {
 	m = (m | (m >>> 8)) & 0x0000FFFF;
 	return m;
 }
+/** decodeGint の出力の器 [ix, iy, rank] */
+export type GintXYR = [number, number, number];
 // gint u64（lo,hi）→ [ix, iy, rank]。L2 は下位 6bit が rank＝座標側ではマスク。
-export function decodeGint(lo, hi, out) {
+export function decodeGint(lo: number, hi: number, out: GintXYR): GintXYR {
 	const l1 = (hi & 0x80000000) !== 0;
 	const loC = l1 ? lo : (lo & 0xFFFFFFC0), hiC = hi & 0x7FFFFFFF;
 	out[0] = ((compact16(hiC) << 16) | compact16(loC)) >>> 0;

@@ -5,6 +5,6 @@
 //   const m = await pq.readRowGroup(g, { columns: ["geometry"] }); // その row group の必要な列チャンクだけ Range で取る → Map(列名 → 値[])
 // 書く側（GeoPBF → GeoParquet）と全量変換（GeoParquet → GeoPBF）は geopbf/geoparquet（toGeoParquet / fromGeoParquet）。
 // 前提：Range（206）を返す配信元で効く（返さなければ全量モードへ自動で落ちる＝COG と同じ梯子）。zstd はブラウザでは読めない。
-export { openParquet, readParquet } from "./convert/parquet-read.js";
-export { parseWkb } from "./convert/wkb.js";
+export { openParquet, readParquet } from "./convert/parquet-read.ts";
+export { parseWkb } from "./convert/wkb.ts";
 export { setZstdDecoder } from "./modules/inflate.js";   // ブラウザで zstd の列を読む＝解凍器を渡す（例：import { decompress } from "fzstd"; setZstdDecoder(decompress)）
