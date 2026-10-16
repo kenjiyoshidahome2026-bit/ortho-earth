@@ -61,7 +61,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	map.addSource = (id, spec) => addSourceAt(id, spec as UserSource, PUBLIC_DZ);
 	map.getSource = id => {
 		const sp = mlSources.get(id);
-		if (!sp) return baseSrcSpec(id) ? { type: "vector", ...(live.EXT?.ms.sources[id] || {}) } as SourceFace : undefined;   // 基図の source（段 8①）＝読むだけ
+		if (!sp) return baseSrcSpec(id) ? { type: "vector", ...(live.EXT?.ms.sources![id] || {}) } as SourceFace : undefined;   // 基図の source（段 8①）＝読むだけ
 		if (sp.type === "video" || sp.type === "canvas") {   // MapLibre の VideoSource／CanvasSource の顔（#49・C3）＝この source を使う最初の層の動画／canvas
 			const v = [...mlLayers.values()].find(x => srcId(x.layer) === id && x.kind === "raster"), h = v ? live.videoCtl?.get(v.layer.id) as MediaHandle | undefined : null;
 			const face: MediaFace = { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
@@ -148,17 +148,17 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	// beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
 	const addLayerAt: StyleReturn["addLayerAt"] = async (layer, beforeId, dz) => {
 		// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
-		if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
+		if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer as MLLayer, dz)); layer = { ...layer, source: layer.id }; }
 		if (layer?.type === "background") {   // background 層（B5）＝球の床の色・不透明度（基図の層として持つ＝get/setPaintProperty・removeLayer・getStyle は基図の層の道）
-			assertMLLayer(layer, "addLayer");
+			assertMLLayer(layer as MLLayer, "addLayer");
 			const i = userBg.findIndex(L => L.id === layer.id); if (i >= 0) userBg.splice(i, 1);
-			userBg.push({ ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }); baseOverrides.delete(layer.id); baseVis.delete(layer.id);
+			userBg.push({ ...layer as MLLayer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }); baseOverrides.delete(layer.id); baseVis.delete(layer.id);
 			restyleBase(); return null;
 		}
 		const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
 		if (layer?.type === "custom" && typeof layer.render !== "function" && typeof layer.url !== "string") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method (or url of a layer module for the worker route)`);
-		assertMLLayer(layer, "addLayer");
-		const v: UserLayerRec = { layer: layer?.type === "custom" ? layer : { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
+		assertMLLayer(layer as MLLayer, "addLayer");
+		const v: UserLayerRec = { layer: layer?.type === "custom" ? layer as MLLayer : { ...layer as MLLayer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer as MLLayer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
 		v.kind = kindOf(drawLayerOf(v), sp);
 		if (mlLayers.has(layer.id)) { const old = mlLayers.get(layer.id)!; mlLayers.delete(layer.id); await unmountLayer(old); }
 		if (beforeId != null && mlLayers.has(beforeId)) {
@@ -376,7 +376,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	// getStyle＝MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"＝読むだけ）の上に利用者の層（登録順）
 	map.getStyle = () => {
 		const baseSid = live.EXT?.split.vectorSource ?? "basemap";
-		const baseSrc = live.EXT ? live.EXT.ms.sources[baseSid] : { type: "vector" };
+		const baseSrc = live.EXT ? live.EXT.ms.sources![baseSid] : { type: "vector" };
 		// 目盛りの申告（setStyle(getStyle()) で二重にずれない）：基図の層＝エンジンの目盛りに直した物（metadata["ortho:dz"]:0）・利用者の層＝echoLayer・
 		// その他の層（描かない層・画像の raster）＝style.json の目盛りのまま（dz 1）・source の目盛り＝root の metadata["ortho:sourceDz"]（source には metadata の欄が無い＝MapLibre の検査を汚さない）
 		const baseL = (L: MLLayer) => L.metadata?.[DZ_KEY] != null ? L : { ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0 } };
@@ -413,9 +413,9 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			//（例：陰影図を土地被覆の下に敷く）は描かない＝上に載せると塗りを白く洗ってしまう。数えて知らせる
 			if (baseIdx >= 0 && ms.layers.findIndex(x => x.id === L.id) < baseIdx) { console.info(`[style] raster layer "${L.id}" sits under the vector fills — not drawn (imagery can only go above the basemap fills)`); continue; }
 			try {
-				const sp = await resolveVectorSource(ms.sources[L.source!], ext.baseUrl, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch });   // TileJSON の解決は raster も同じ
+				const sp = await resolveVectorSource(ms.sources![L.source!], ext.baseUrl, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch });   // TileJSON の解決は raster も同じ
 				const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +(evalExpr<number>(op, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: live.MAP_GS, origin: "ml" }) ?? 1);   // style.json の層＝MapLibre の意味
-				await map.raster.add(L.id, { url: sp.tiles![0], tileSize: ms.sources[L.source!].tileSize ?? sp.tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds as Bbox | null | undefined, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), ...rasterPaintOpts(L.paint), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
+				await map.raster.add(L.id, { url: sp.tiles![0], tileSize: ms.sources![L.source!].tileSize ?? sp.tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds as Bbox | null | undefined, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), ...rasterPaintOpts(L.paint), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
 				if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 				extExtras.raster.push(L.id);
 			} catch (err) { console.warn("[style] raster layer", L.id, err); }
@@ -437,7 +437,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		for (const L of ms.layers.filter(L => vtRouted(L, ms, ext.split.vectorSource))) {   // ＋2 本目以降の vector source の描く層・基図の source の circle（段 8⑤）
 			try {
 				if (L.source !== ext.split.vectorSource && !mlSources.has(L.source!)) {
-					const sp = { ...ms.sources[L.source!] };
+					const sp = { ...ms.sources![L.source!] };
 					if (sp.url && !/^[a-z][\w+.-]*:\/\//i.test(sp.url.replace(/^pmtiles:\/\//, ""))) sp.url = /^pmtiles:\/\//.test(sp.url) ? "pmtiles://" + new URL(sp.url.slice(10), ext.baseUrl).href : new URL(sp.url, ext.baseUrl).href;
 					if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
 					addSourceAt(L.source!, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source!] ?? STYLE_DZ); extExtras.sources.push(L.source!);

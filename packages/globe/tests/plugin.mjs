@@ -1,6 +1,6 @@
 // plugin 契約・registry・capabilities の単体検定（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js）。偽の map を相手に DOM 無しで。
 // 使い方：node packages/globe/tests/plugin.mjs
-import { definePlugin, createPluginHost, STATIC_CAPABILITIES } from "../src/plugin.js";
+import { definePlugin, createPluginHost, STATIC_CAPABILITIES } from "../src/plugin.ts";
 
 let bad = 0, n = 0;
 const ok = (name, cond, note = "") => { n++; if (!cond) { bad++; console.log(`✗ ${name}${note ? ` (${note})` : ""}`); } };

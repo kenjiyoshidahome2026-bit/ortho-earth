@@ -8,6 +8,7 @@ import { extrudeMesh } from "./extrude.ts";
 import { decodeTile3D } from "./tiles3d-decode.ts";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
 import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.ts";
 import { computeSunShadow, computeViewshed } from "./sunshadow.ts";   // 日影・可視域・見通し線（#44）＝kind:"sunshadow"/"viewshed"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
+import type { SunShadowOptions, ViewshedOptions } from "./sunshadow.ts";
 
 import type { ExtrudeInPoly } from "./extrude.ts";
 import type { MeshOut, TexOut } from "./meshdecode.ts";
@@ -64,8 +65,8 @@ async function work(e: MessageEvent<ModelJob>) {
 			self.postMessage({ id, batches, mask: r.mask, stats: r.stats }, transferOf(batches));
 			return;
 		}
-		if (kind === "viewshed") { const r = await computeViewshed(e.data.opts!); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
-		if (kind === "sunshadow") { const r = await computeSunShadow(e.data.opts!); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
+		if (kind === "viewshed") { const r = await computeViewshed(e.data.opts as unknown as ViewshedOptions); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
+		if (kind === "sunshadow") { const r = await computeSunShadow(e.data.opts as unknown as SunShadowOptions); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
 		if (kind === "i3sOpen") { self.postMessage({ id, ...(await i3sOpen(e.data.url!, e.data.token)) }); return; }
 		if (kind === "i3sNodes") { self.postMessage({ id, nodes: await i3sNodes(e.data.url!, e.data.ids!, e.data.token) }); return; }
 		if (kind === "i3sContent") {

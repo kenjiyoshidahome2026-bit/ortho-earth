@@ -10,8 +10,8 @@ import { curveZoomKey } from "./extrude-ml.ts";
 import { createRawStore } from "./vtraw.ts";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
-import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
-import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
+import { normPostChain, POST_TYPES } from "./postchain.ts";   // 後処理の鎖（F3）
+import { createPluginHost } from "./plugin.ts";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 import { installOverlays } from "./api/overlays.ts";
 import { installQuery } from "./api/query.ts";
 import { installTerrain } from "./api/terrain.ts";
@@ -24,7 +24,7 @@ import { installRaster } from "./api/raster.ts";
 import { installCamera } from "./api/camera.ts";
 import { installTools } from "./api/tools.ts";
 import { installStyle } from "./api/style.ts";
-export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
+export { definePlugin, STATIC_CAPABILITIES } from "./plugin.ts";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
 import { POINTCLOUD_NAMES } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は []）＝名前だけ読む（表を読むと解読器のチャンクが本体側にもできる）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import { nativeBucket } from "native-bucket";
@@ -37,7 +37,7 @@ import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-fact
 const hostWorker = role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
 setCoreWorkerFactory(hostWorker);   // core の worker（標高 ortho:height・タイル・シーン）も入口 1 本で
 setGeoeditWorkerFactory(hostWorker);
-createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket as BucketProvider, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は globe.d.ts。
@@ -46,18 +46,18 @@ import { Marker, Popup } from "./gadgets/marker.ts";   // DOM の Marker / Popup
 export { Marker, Popup };
 import { createRequester, addProtocol, removeProtocol } from "./request.ts";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };
-export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
+export { Compare } from "./compare.ts";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
 import { MAP_THEMES } from "./palettes.ts";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.ts";
-import { createOverlay } from "./overlay.js";
+import { createOverlay } from "./overlay.ts";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
-import { createFacade } from "./mlfacade.js";
+import { createFacade } from "./mlfacade.ts";
 export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
 import { pmLayers, pmRoles } from "./style-pm.ts";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
@@ -69,7 +69,7 @@ import { createDemTiles } from "./demtiles.ts";   // raster-dem のタイルの�
 import { createCustomGL } from "./gadgets/customgl.ts";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
-import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
+import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.ts";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
 import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
@@ -78,9 +78,32 @@ import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイ�
 import { globe as globeGadget } from "./gadgets/globe.ts";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.ts";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
+// 型（TS 化 段 4・batch 3）＝createGlobe の口と内側の部品の形
+import type { Bbox, Gadgets, GintLayerHandle, GintLayerOptions, GlobeOptions, LonLat, OverlayHandle, QuantizedMeshSource, RasterDemSource, RasterOptions, Tiles3DOptions } from "../globe.d.ts";
+import type { GlobeInternals, GlobeMap } from "./types/map.ts";
+import type { GlobeMapBuilding } from "./types/install.ts";
+import type { ExtStyleDoc, GlobeLive, GlobeScope, MlPass, ModelCtl, ParsedView, PatItem, QueryGeometry, T3dCtl, UserLayerRec, UserSource, VtxDesc } from "./types/scope.ts";
+import type { MLLayer, Pipeline } from "@ortho-earth/core";
+import type { CameraPose } from "@ortho-earth/core/camera";
+import type { BucketProvider, GeoPBF, GeopbfInput } from "geopbf";
+import type { PluginHostOptions } from "./plugin.ts";
+import type { ClusterOpts } from "./gadgets/aggregate.ts";
+import type { createCOPC } from "./gadgets/copc.ts";
+import type { CustomLayer } from "./gadgets/customgl.ts";
+import type { HudSnapshot } from "./gadgets/hud.ts";
+import type { AttributionDecl } from "./gadgets/instruments.ts";
+import type { ExtrudeSrc, ModelExtrudeOptions, ModelGadget } from "./gadgets/model.ts";
+import type { TileTex, createTiles3D } from "./gadgets/tiles3d.ts";
+import type { createVTDraw } from "./gadgets/vtdraw.ts";
+import type { createVTExtrude } from "./gadgets/vtextrude.ts";
+import type { DemTiles } from "./demtiles.ts";
+import type { ExtGintEntry } from "./gint/layers.ts";
+import type { WorldContent } from "./gint/worldcontent.ts";
+import type { MeshManager, MeshProgressTap } from "./mesh/manager.ts";
+import type { MapTheme } from "./palettes.ts";
 
 // app.js 持参のUI辞書（ja文字列がキー・未訳はjaのまま出る）。ガジェット各自の辞書は各ファイル冒頭に。
-const t = tr();
+const t: GlobeScope["t"] = tr();
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -109,58 +132,167 @@ const t = tr();
 //   出典・戻り先・検索・POI・鉄道が来ない＝世界データだけの地球儀（apps/world の国の地図パネル）。
 //   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 // 同じ頁の地図が決めた世界の形（#43）＝core の setEllipsoid はモジュール状態＝頁に 1 つ。2 枚目以降は最初の決定に従う（違えば警告）
-let ELL_PAGE = null;
+let ELL_PAGE: ReturnType<typeof ellipsoidMode> | null = null;
 // 地図が載っている容れ物（頁に 1 つの台帳・#173 段 2）＝target 無しの既定（頁の #map）を 2 枚目が掴まない・同じ容れ物への二重起動を止める
-const LIVE_CONTAINERS = new Set();
+const LIVE_CONTAINERS = new Set<HTMLElement>();
 // URL の持ち主（#173 段 3・2026-09-30）＝頁の URL（hash の視点・?r=）と前回ビュー（localStorage）を読み書きする地図は頁に 1 枚。
 // 起動順で最初の地図（opts.urlHash:false は辞退）。持ち主でない地図は hash を読まず・hashchange に応じず・書かない・前回ビューも使わない。
 // 1 枚の頁は従来と同じ。持ち主が畳まれても、生きている他の地図が持ち主を継ぐことはない（起動の時に決まる）
-let URL_OWNER = null;
-export async function createGlobe(opts = {}) {
+let URL_OWNER: object | null = null;
+/** createGlobe の opts＝公開の OrthoJapanOptions＋MapLibre の口（src/maplibre/map.js）が渡す内部の物 */
+interface HostOptions extends GlobeOptions {
+	/** 注視点の高さ（"ground"＝地形の上の中心点・数＝固定［m］・A3） */
+	centerElevation?: "ground" | number;
+	/** 内製の大気を点ける（MapLibre の目盛りの既定は透明の縁） */
+	atmosphere?: boolean;
+	/** false＝霧を焚かない（MapLibre の口の既定） */
+	fog?: boolean;
+}
+/** 建物の台帳の 1 区（地域宣言の buildings.sets／catalog の JSON の要素） */
+/** 注記の 1 件＝基図のタイル注記（core の Label）か、ホストが足す名札（空港マーク・ランドマーク・POI＝書体・層の添字・ズーム域は持たない）。labelSender で worker へ */
+interface HostLabel extends Omit<CoreLabel, "font" | "li" | "minZ" | "maxZ" | "color" | "halo">, Partial<Pick<CoreLabel, "font" | "li" | "minZ" | "maxZ">> {
+	color: readonly number[]; halo: readonly number[];
+	/** 測量点＝真俯瞰の作法（傾けたら消す） */
+	flat?: boolean;
+	/** 記号だけ（空港マーク） */
+	markOnly?: boolean;
+}
+/** POI 台帳の本物（地域宣言 poi.create の戻り）＝globe が読む分 */
+interface PoiLedgerHost extends NonNullable<GlobeLive["poiReal"]> {
+	load(cam: GlobeScope["cam"]): void;
+	injectLabels(labels: HostLabel[], o: { zoom: number; ink: unknown; landmarkCode: number }): unknown;
+	readonly ver: number;
+}
+/** POI 台帳の代理の窓口（起こすまで）＝scope の PoiProxy に globe が読む分を足した物 */
+interface PoiProxyHost extends NonNullable<GlobeScope["poi"]> {
+	load(cam: GlobeScope["cam"]): void;
+	injectLabels(...a: Parameters<PoiLedgerHost["injectLabels"]>): unknown;
+	readonly ver: number;
+}
+/** buildGeoJSONOverlay の地物の列 */
+type OvFeatures = Parameters<typeof buildGeoJSONOverlay>[0];
+/** 基図のタイル注記（core の Label） */
+type CoreLabel = ReturnType<Pipeline["tiles"]["labels"]>[number];
+/** 基図のタイルの並び（tiles.update の order） */
+type TileOrder = Parameters<Pipeline["tiles"]["labels"]>[0];
+/** navigator の標準外（Chromium の connection・deviceMemory・userAgentData） */
+type NavigatorPlus = Navigator & { connection?: { effectiveType?: string; downlink?: number }; deviceMemory?: number; userAgentData?: { platform?: string } };
+/** shot の生スナップ（map.requestSnapshot の答え） */
+type Snapshot = Awaited<ReturnType<GlobeMap["requestSnapshot"]>>;
+/** render worker の labelsPlaced の答え（検定窓 __placed／__placedDebug） */
+interface PlacedMsgLabel { set?: string | null; li?: number | null; text?: string; icon?: string | null; ibox?: unknown; line?: unknown; lon?: number; lat?: number; x?: number; y?: number; w?: number; h?: number; font?: string | null }
+interface PlacedMsg { labels?: PlacedMsgLabel[]; symbols?: Array<PlacedMsgLabel & { layer?: string }>; debug?: Record<string, unknown> | null }
+/** spotlight／outline の形（GeoJSON の Feature・FeatureCollection・Geometry か ISO 3166-1 の 2／3 字） */
+interface SpotGeom { type: string; coordinates?: unknown }
+interface SpotFeature { type?: string; properties?: Record<string, unknown> | null; geometry?: SpotGeom | null }
+interface SpotShape extends SpotFeature { features?: Array<SpotFeature | null> | null; coordinates?: unknown }
+/** GeoJSON の座標の入れ子（葉は [lon, lat]） */
+interface NestedCoords extends Array<number & NestedCoords> {}
+/** 押し出しの模型（gadgets/model.js の createModel の戻り）＝installer の ModelCtl を兼ねる */
+type ModelLive = ModelGadget & ModelCtl;
+/** 任意の 3D Tiles（gadgets/tiles3d.js の createTiles3D の戻り）＝installer の T3dCtl を兼ねる */
+type T3dLive = ReturnType<typeof createTiles3D> & T3dCtl;
+/** extrude の入口（GeoJSON・File・URL・{ geojson }・MapLibre の fill-extrusion の層を丸ごと） */
+type ExtrudeIn = Parameters<Gadgets["extrude"]>[0] | undefined;
+/** extrude の opts（ネイティブの opts か MapLibre の fill-extrusion の層） */
+type ExtrudeOptsIn = ModelExtrudeOptions & { id?: string; source?: unknown };
+/** 形を見て分ける GeoJSON らしき物（Feature・FeatureCollection・Geometry・{ geojson }） */
+interface GjLike { type?: string; features?: GjLike[]; coordinates?: unknown; geometry?: unknown; id?: unknown; properties?: Record<string, unknown> | null; geojson?: unknown }
+/** IIIF の言語つきの文字（none／en／@value／value・配列） */
+type IiifVal = string | number | boolean | null | undefined | IiifVal[] | { [k: string]: IiifVal };
+/** core の MapLibre の pass（packMLLayers の 1 件） */
+type MLPass = ReturnType<typeof packMLLayers>[number];
+type MLTableStates = NonNullable<Parameters<typeof buildMLTable>[2]>["states"];
+/** pass の表の持ち手（buildTable が読む・drawn＝層 id → 地物ごとの描いている） */
+interface MlHolder { pass: MLPassML; zs: ReturnType<typeof zoomSensitivity>; drawn: Record<string, Uint8Array> | null }
+/** mlGintData の値（source の焼き） */
+interface MlGintEntry { data: unknown; pbf: GeoPBF; idToFid: Map<unknown, number>; fidToId: Array<number | string | undefined> }
+/** mlPasses の値（MlPass＋手綱の全部） */
+interface MlPassFull extends Omit<MlPass, "h" | "holder"> { h: GintLayerHandle & MlPass["h"]; holder: MlHolder }
+/** 模様・線の飾り（addPattern）の地物と出す物 */
+interface PatFeature { type?: string; properties?: Record<string, unknown> | null; geometry?: QueryGeometry | null }
+interface PatFeatOut { f: PatFeature | null; width: number; offset: number; lines: number[][][] }
+interface PatIt { pattern: unknown; opacity: number; width: number; color?: string; offset?: number; dash?: unknown[]; grad?: { lut: string[] } }
+interface PatOut extends Omit<PatIt, "grad"> { rings: Float64Array[]; grad?: { lut: string[]; prog?: Float32Array[] } }
+/** core の式の評価の文脈 */
+type ExprCtx = NonNullable<Parameters<typeof evalExpr>[1]>;
+/** image／video／canvas の source の四隅（左上・右上・右下・左下） */
+type Corners4 = [LonLat, LonLat, LonLat, LonLat];
+/** MapLibre の custom 層の器の map（setCustomLayerHost が渡す物・投影の名前だけ読む） */
+interface CustomHostLike { getProjection?(): { type?: string } | null }
+/** pass（packMLLayers の 1 件）＝層は drawLayerOf の MLLayer そのもの */
+type MLPassML = MLPass & { layers: MLLayer[] };
+type TerrainOpt = Exclude<HostOptions["terrain"], false | undefined>;
+interface MeshSetDecl { base: string; bbox: number[]; bakeBase?: string; [k: string]: unknown }
+/** 地域宣言（opts.region の 1 件＝packages/jp の JP_REGION の形）のうち globe が読む分。globe は地域名を知らない＝中身は宣言のまま */
+interface RegionDecl {
+	code?: string;
+	dtm?: GlobeScope["REGION_DTM"];
+	buildings?: {
+		sets?: MeshSetDecl[]; catalog?: string; bakeBase?: string; exclude?: string; landmarks?: string;
+		labels?: GlobeScope["REGION_BLD_LABELS"]; icon?: string;
+		group?(set: { base: string }): { order: number; key: number; label: string };
+	} | null;
+	basemap?: {
+		kind: string; tileUrl(z: number, x: number, y: number): string | null | undefined; coverage: number[] | null;
+		tileMinZoom: number | null; lodFloor: { minViewZoom: number; z: number } | null; minZ: number | undefined; printAttribution?: string;
+	} | null;
+	attribution?: AttributionDecl | null;
+	view?: string | null;
+	home?: GlobeScope["REGION_HOME"];
+	search?: GlobeScope["REGION_SEARCH"];
+	poi?: { create(env: { viewBbox: GlobeScope["approxViewBbox"]; requestDraw(): void }): PoiLedgerHost | Promise<PoiLedgerHost> } | null;
+	rail?: ((env: { renderer: GlobeScope["renderer"]; readonly land: number[]; BASEMAP_MINZOOM: number; requestDraw(): void }) => { load(): unknown; loaded: boolean }) | null;
+	rasters?: GlobeScope["REGION_RASTERS"];
+	airports?: string;
+	/** 起動の後に地域が足す物（e-Stat 小地域など）＝拡張面（hostEnv）だけを受ける */
+	install?(map: GlobeMap, host: object): unknown;
+}
+export async function createGlobe(opts: HostOptions = {}): Promise<GlobeMap> {
 const urlToken = {};   // この地図の URL の持ち主の札
-const URL_OWN = opts.urlHash !== false && !URL_OWNER;
+const URL_OWN: GlobeScope["URL_OWN"] = opts.urlHash !== false && !URL_OWNER;
 if (URL_OWN) URL_OWNER = urlToken;
 const releaseUrl = () => { if (URL_OWNER === urlToken) URL_OWNER = null; };
-const pageHash = URL_OWN ? location.hash : "";   // 持ち主でない地図は頁の hash を視点に使わない
+const pageHash: GlobeScope["pageHash"] = URL_OWN ? location.hash : "";   // 持ち主でない地図は頁の hash を視点に使わない
 // 式の global-state（MapLibre の setGlobalStateProperty・外来 style の state）＝地図ごと（#173 段 3b）。
 // 正本はこの MAP_GS：worker（基図の tile worker・vtdraw）へ送る値と、main の評価の ctx.gs はここから。
 // core のスレッドの状態（setGlobalState）にも写す＝ctx.gs を渡し損ねた評価は今までどおり（1 枚の頁は不変）
-let MAP_GS = Object.create(null);
-const setMapGS = obj => { MAP_GS = Object.assign(Object.create(null), obj || {}); setGlobalState(MAP_GS); };
+let MAP_GS: GlobeLive["MAP_GS"] = Object.create(null);
+const setMapGS: GlobeScope["setMapGS"] = obj => { MAP_GS = Object.assign(Object.create(null), obj || {}); setGlobalState(MAP_GS); };
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
 // "mercator"＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の緯度・zoomscale.js の mercatorDz）＝MapLibre のメルカトルの縮尺に合わせる。外来 style の目盛り STYLE_DZ も同じ（style.json は MapLibre の z）
 const ZOOM_SCALE = zoomScaleOf(opts);
-const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || pageHash)?.lat ?? 0) : 0;
-const STYLE_DZ = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
+const PUBLIC_DZ: GlobeScope["PUBLIC_DZ"] = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || pageHash)?.lat ?? 0) : 0;
+const STYLE_DZ: GlobeScope["STYLE_DZ"] = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
 // タイルの z は MapLibre と同じに（mercator）：カメラが緯度の分だけ寄っても、選ぶタイルの z は MapLibre の z のまま（MapLibre は floor(zoom) のタイルを引き伸ばす）＝
 // 分割の閾（画面 px）を 2^(dz−1) 倍する。基図（tiles.update）と vector source（vtextrude/vtdraw）の選びに掛ける。⚠これが無いと一段細かいタイルを選び、問い合わせの答え（地物の集合）が MapLibre と違う（o8 で 43→30）
-const TILE_BIAS = ZOOM_SCALE === "mercator" ? 2 ** (PUBLIC_DZ - ML_DZ) : 1;
+const TILE_BIAS: GlobeScope["TILE_BIAS"] = ZOOM_SCALE === "mercator" ? 2 ** (PUBLIC_DZ - ML_DZ) : 1;
 // 目盛りが MapLibre（mercator／maplibre）の時は、タイルの z を MapLibre の coveringTiles と同じ規則で選ぶ（core mlcover.js）＝傾き 60° 以下・地形なしなら floor(MapLibre の z)、それ以外は距離の式。
 // TILE_BIAS（画面 px の閾）だけでは z の小数部が 0.13 を超えると一段細かく、静止時の手前詳細化（IDLE_TILE_PX）でさらに一段細かくなっていた（o44＝z11.15 で z12 を選び、問い合わせの答えが揃わない）。
 // 内製（ortho）は従来の閾（null）。terrain＝MapLibre の地形が出ている（setTerrain）＝距離の式へ
-const ML_COVER = ZOOM_SCALE === "ortho" ? null : { dz: PUBLIC_DZ };
+const ML_COVER: { dz: number; maxLevels?: number; maxMinRatio?: number } | null = ZOOM_SCALE === "ortho" ? null : { dz: PUBLIC_DZ };
 opts = bootOptsIn(opts, PUBLIC_DZ);
-const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
+const requester: GlobeScope["requester"] = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
 requester.setTransform(opts.transformRequest);
-const REGIONS = [].concat(opts.region || []).filter(Boolean);
+const REGIONS = ([] as RegionDecl[]).concat((opts.region || []) as RegionDecl | RegionDecl[]).filter(Boolean);
 const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
-const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
-const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
+const hostHooks: { hover: Array<(x: number, y: number) => boolean> } = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
+const hostDestroy: Array<() => void> = [];            // 地域パックの片付け（map.destroy が呼ぶ）
 // 本体の遅く生まれる持ち物（日影・gint の焼き・ラスタの提供側・列チャンク層・標高の問い合わせの worker）の片付け（2026-09-25）。
 // destroy() より後ろで宣言される let/const を destroy から直に触ると、起動途中の destroy で TDZ に落ちる＝生まれた所で登録する
-const ownDestroy = [];
-const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
+const ownDestroy: GlobeScope["ownDestroy"] = [];
+const REGION_DTM: GlobeScope["REGION_DTM"] = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 // 建物の申告＝「台帳の在り処」と「焼きの置き場」の対。どちらも地域が持ち、ホストは中身を知らない。
-const stampBake = (sets, b) => b.bakeBase ? sets.map(s => s.bakeBase ? s : { ...s, bakeBase: b.bakeBase }) : sets;   // 台帳の各 set へ焼きの置き場を刻む（区ごとの別置き場も許す）。無宣言＝焼き無し＝生経路のみ
+const stampBake = (sets: MeshSetDecl[], b: { bakeBase?: string }) => b.bakeBase ? sets.map(s => s.bakeBase ? s : { ...s, bakeBase: b.bakeBase }) : sets;   // 台帳の各 set へ焼きの置き場を刻む（区ごとの別置き場も許す）。無宣言＝焼き無し＝生経路のみ
 const REGION_SETS = REGIONS.flatMap(r => r.buildings ? stampBake(r.buildings.sets ?? [], r.buildings) : []);   // その場で配る建物台帳（オランダ 3 件）
-const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog);   // 取得する台帳の申告（日本の 336 件）＝{ catalog, bakeBase? }
-const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
-const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
-const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
-const REGION_PRINT_ATTR = REGIONS.map(r => r.basemap?.printAttribution).filter(Boolean);   // 印刷の出典（i18n の英語キー）＝基図の申告。無ければ今の圏の出典
-const REGION_HOME = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し。{ view:[lon,lat,zoom], span?:[経度幅,緯度幅]（デモの終演で画面に収める全体）, label, id, icon }
-const REGION_SEARCH = REGIONS.map(r => r.search).find(Boolean) ?? null;   // 地名検索の供給元（日本＝地理院 AddressSearch）・null＝検索窓無し
+const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog) as Array<NonNullable<RegionDecl["buildings"]> & { catalog: string }>;   // 取得する台帳の申告（日本の 336 件）＝{ catalog, bakeBase? }
+const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean) as string[];   // 除外タイル表
+const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean) as string[];   // ランドマークの名札
+const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean) as AttributionDecl[];   // 出典（表示義務）＝入口ごとに差し替わる
+const REGION_PRINT_ATTR: GlobeScope["REGION_PRINT_ATTR"] = REGIONS.map(r => r.basemap?.printAttribution).filter(Boolean) as string[];   // 印刷の出典（i18n の英語キー）＝基図の申告。無ければ今の圏の出典
+const REGION_HOME: GlobeScope["REGION_HOME"] = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し。{ view:[lon,lat,zoom], span?:[経度幅,緯度幅]（デモの終演で画面に収める全体）, label, id, icon }
+const REGION_SEARCH: GlobeScope["REGION_SEARCH"] = REGIONS.map(r => r.search).find(Boolean) ?? null;   // 地名検索の供給元（日本＝地理院 AddressSearch）・null＝検索窓無し
 const REGION_POI = REGIONS.map(r => r.poi).find(Boolean) ?? null;      // 施設の点の台帳（日本＝POI 台帳 z14）・null＝読まない
 const REGION_RAIL = REGIONS.map(r => r.rail).find(Boolean) ?? null;    // 路線オーバーレイ（日本＝N02 新幹線）・null＝作らない
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
@@ -170,10 +302,10 @@ await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即�
 // 容れ物の id は付け替えない（旧＝map へ改名＝2 枚目で id が重なる）。意匠（quiet-mono）は :is(.qm, #map) で当たり、
 // .qm はエンジンが付ける印＝利用者はクラスを書かない。中の家具は固定 id（#c・#pos…）のまま＝探す時は必ず mapEl から
 // （document.getElementById は頁で最初の物＝1 枚目の家具を掴む）。
-const targetEl = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
+const targetEl = typeof opts.target === "string" ? document.querySelector<HTMLElement>(opts.target) : opts.target;
 if (targetEl && LIVE_CONTAINERS.has(targetEl)) { releaseUrl(); throw new Error("createGlobe: the target already holds a live map — destroy() it first"); }
 const pageMapEl = document.getElementById("map");
-let mapEl = targetEl || (pageMapEl && !LIVE_CONTAINERS.has(pageMapEl) ? pageMapEl : null);
+let mapEl: GlobeLive["mapEl"] = (targetEl || (pageMapEl && !LIVE_CONTAINERS.has(pageMapEl) ? pageMapEl : null)) as GlobeLive["mapEl"];   // null＝下で自作（ownMapEl）
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
 // 容れ物を自作した＝このページを預かった＝ビューポート全面を取りに行く。寸法は html/body へ
 // **inline で**入れる（スタイルシートからは一切書かない＝埋め込み時は発火しようがない・destroy で元に戻す）。
@@ -182,7 +314,7 @@ const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消
 // ★mapEl 自身を position:fixed で浮かせる手もあるが不可：流れから外れると画面分割（親を flex 化して
 //   mapEl.flex を効かせる型・旧 AI ガジェットで踏んだ轍）が死ぬ。容れ物は流れの中に置く。
 // 預かった div（target 指定）とホストの html/body には指一本触れない＝寸法はホストの領分。
-const pageStyle = { html: null, body: null };
+const pageStyle: { html: string | null; body: string | null } = { html: null, body: null };
 if (ownMapEl) {
 	mapEl = document.body.appendChild(document.createElement("div"));
 	if (!pageMapEl) mapEl.id = "map";   // 頁に #map が無い時の自作＝#map（1 枚の頁の既定の名前・利用者の CSS/JS が当てられる）
@@ -219,14 +351,14 @@ const ASSET_BASE = (b => { let i = b.length; while (i && b[i - 1] === "/") i--; 
 // 器に変えても内部の読み書き（__backend の frame1 判定・__drawSendN の起動HUD）はそのまま通る＝挙動は不変。
 // opts.debugGlobals で明示上書き可（埋め込みでも道具が欲しい時は true）。テスト（t-opts/t-webgpu 等）は
 // target を渡さない起動なので従来どおり窓に生える。
-const DEBUG_GLOBALS = opts.debugGlobals ?? !opts.target;
-const dbgHost = DEBUG_GLOBALS ? window : {};
+const DEBUG_GLOBALS: GlobeScope["DEBUG_GLOBALS"] = opts.debugGlobals ?? !opts.target;
+const dbgHost: GlobeScope["dbgHost"] = DEBUG_GLOBALS ? window as unknown as GlobeScope["dbgHost"] : {};
 // 全球ビュー（既定＝2026-09-01 本人裁定「world=1をデフォルトに」・?world=0 が逃げ道）：
 // z<BASEMAP_MINZOOM(6.5) はタイルなし＝全球ハイプソ（GEBCO×気候・シェーダ計算）＋NE admin0 の gint 線＋
 // NE lakes のエンジン湖スロット（下記 loadLakes）。旧・Protomaps PMTiles（OSM/ODbL・world-water 湖のみ消費）は
 // 2026-09-03 本人裁定「湖はNE経由＝B案」で撤去＝出典から © OpenStreetMap が消えた（pmtiles 配管と
 // public/world-z3.pmtiles は 2026-09-14 に撤去済）。タイルは全z で optbv（日本域）のみ。
-const WORLD_VT = !/[&?]world=0/.test(location.search);
+const WORLD_VT: GlobeScope["WORLD_VT"] = !/[&?]world=0/.test(location.search);
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
 const CLIM_URL = opts.assetBase != null ? new URL("koppen-clim.png", new URL(ASSET_BASE, location.href)).href   // assetBase を指した時は従来どおりそこ（japan の SDK 等）
@@ -257,36 +389,36 @@ const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と�
 // style.json の vector source の層のうち、利用者の層の口で描く物（段 8①・8⑤）：押し出し（どの vector source でも）・2 本目以降の vector source の fill／line／circle／symbol・
 // 基図の source の circle（基図は円を描かない）。基図の source の fill／line／点ラベルは基図が描く（今まで通り）
 const VT_DRAW = new Set(["fill", "line", "circle", "symbol", "heatmap"]);   // heatmap＝C1（2026-10-12）：worker は点集め・描くのは heatmap-gl（画面単位の密度）
-const vtRouted = (L, ms, baseSid) => ms.sources?.[L.source]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle" || L.type === "heatmap")));   // 基図の配管が描けない型（circle・heatmap）は基図の source でも vtdraw へ
-const loadExtStyle = async (spec, transformStyle = null) => {
-	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
+const vtRouted: GlobeScope["vtRouted"] = (L, ms, baseSid) => ms.sources?.[L.source!]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle" || L.type === "heatmap")));   // 基図の配管が描けない型（circle・heatmap）は基図の source でも vtdraw へ
+const loadExtStyle: GlobeScope["loadExtStyle"] = async (spec, transformStyle = null) => {
+	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: ((u: string, init?: RequestInit) => requester.fetch(u, "Style", init)) as typeof fetch }) as { style: ExtStyleDoc; baseUrl: string | undefined };
 	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
-	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) ?? ms;
+	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) as ExtStyleDoc | undefined ?? ms;
 	// style の root の state（MapLibre v5：{ 鍵: { default } }）＝global-state の既定値。新しい style は状態を入れ替える（MapLibre の setStyle と同じ）
 	if (ms.state && typeof ms.state === "object") setMapGS(Object.fromEntries(Object.entries(ms.state).map(([k, d]) => [k, d && typeof d === "object" && "default" in d ? d.default : null])));
 	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
-	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
-	const isVtx = k => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
+	const src = split.vectorSource ? await resolveVectorSource(ms.sources![split.vectorSource], baseUrl, { fetchFn: ((u: string, init?: RequestInit) => requester.fetch(u, "Source", init)) as typeof fetch }) : null;
+	const isVtx = (k: { id: string }) => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
 	const skipped = split.skipped.filter(k => !isVtx(k));
 	if (skipped.length) console.info(`[style] ${ms.name || spec}: ${skipped.length} layers not drawn —`, [...new Set(skipped.map(k => `${k.type} (${k.why})`))].join(", "));
 	return { ms, split, src, baseUrl, url: typeof spec === "string" ? baseUrl : null };
 };
 // 外来の標高タイル（raster-dem・#36）：opts.terrain＝{ source: raster-dem の spec, exaggeration } ／ ?dem=<XYZ の型紙>&demenc=terrarium|mapbox|gsi&demmax=<z>&demdtm=1
 // quantized-mesh（#110）＝{ type:"quantized-mesh", url:"…/layer.json" | ion:{ assetId, accessToken }, heights, heightOffset, … }＝相対の url は頁基準で絶対に
-const qmSpecOf = sp => ({ ...sp, ...(sp.url ? { url: new URL(sp.url, location.href).href } : {}) });
+const qmSpecOf: GlobeScope["qmSpecOf"] = sp => ({ ...sp, ...(sp.url ? { url: new URL(sp.url, location.href).href } : {}) });
 const DEM0 = (() => {
-	const absT = sp => ({ ...sp, tiles: (sp.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) });   // 相対の型紙は頁基準（render worker で解決させない）
-	if (opts.terrain?.source && typeof opts.terrain.source === "object") return opts.terrain.source.type === "quantized-mesh" ? qmSpecOf(opts.terrain.source) : absT(opts.terrain.source);
+	const absT = (sp: RasterDemSource) => ({ ...sp, tiles: (sp.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) });   // 相対の型紙は頁基準（render worker で解決させない）
+	if ((opts.terrain as TerrainOpt | undefined)?.source && typeof (opts.terrain as TerrainOpt).source === "object") return ((opts.terrain as TerrainOpt).source as { type?: string }).type === "quantized-mesh" ? qmSpecOf((opts.terrain as TerrainOpt).source as QuantizedMeshSource) : absT((opts.terrain as TerrainOpt).source as RasterDemSource);
 	const q = new URLSearchParams(location.search), u = q.get("dem");
 	if (!u) return null;
 	try { const x = new URL(u, location.href); if (x.protocol !== "https:" && !(x.protocol === "http:" && (x.hostname === "localhost" || x.origin === location.origin))) throw 0; if (q.get("demenc") === "quantized-mesh" || /\/layer\.json$/.test(x.pathname)) return { type: "quantized-mesh", url: x.href, heights: q.get("demheights") === "orthometric" ? "orthometric" : "ellipsoidal", dtm: q.get("demdtm") === "1" };   // ?dem=<layer.json>＝quantized-mesh（#110）・demheights=orthometric＝標高で配る物（swisstopo）
-	return { tiles: [x.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")], encoding: q.get("demenc") || "terrarium", maxzoom: +q.get("demmax") || 14, dtm: q.get("demdtm") === "1" }; }
+	return { tiles: [x.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")], encoding: q.get("demenc") || "terrarium", maxzoom: +q.get("demmax")! || 14, dtm: q.get("demdtm") === "1" }; }
 	catch { console.warn("[dem] ?dem= must be an https URL template", u); return null; }
 })();
-let EXT = null;
+let EXT: GlobeLive["EXT"] = null;
 if (STYLE_SPEC) { try { EXT = await loadExtStyle(STYLE_SPEC); } catch (err) { console.error("[style] cannot load the style — falling back to the default basemap", err); } }
-const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true, globalState: { ...MAP_GS } });   // globalState＝tile worker の式の状態（setGlobalStateProperty で restyleBase が載せ直す）
-const extSourceFields = ext => {   // BASE_SOURCE の中身（setStyle でも同じ形で差し替える）
+const extBaseStyle: GlobeScope["extBaseStyle"] = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true, globalState: { ...MAP_GS } });   // globalState＝tile worker の式の状態（setGlobalStateProperty で restyleBase が載せ直す）
+const extSourceFields: GlobeScope["extSourceFields"] = ext => {   // BASE_SOURCE の中身（setStyle でも同じ形で差し替える）
 	const s = ext.src;
 	return { kind: s?.pmtiles ? "pmtiles" : "style", url: s?.pmtiles || s?.tiles?.[0] || ext.url || null, tileUrl: s ? tileUrlOf(s) : () => null,
 		encoding: s?.encoding || "mvt",   // タイルの形式（style の vector source の "encoding"＝mvt｜mlt・#88）。PMTiles はアーカイブのヘッダが決める
@@ -310,8 +442,8 @@ const extSourceFields = ext => {   // BASE_SOURCE の中身（setStyle でも同
 // ③宣言が basemap を持たない地域（オランダ）＝タイルを一枚も要求しない空ソース＝図郭外と同じ扱い
 // （＝標高ゲート付き全面水域。日本の配信圏の外なので移設前の見え方と同じ・2026-09-17）。
 const REGION_BASEMAP = REGIONS.map(r => r.basemap).find(Boolean) ?? null;
-const REGION_RASTERS = REGIONS.flatMap(r => r.rasters || []);   // 画像タイル（XYZ ラスタ）のカタログ＝地域パックが宣言（エンジンは知らない・?r= と切替ガジェットの鍵）
-const BASE_SOURCE = EXT ? extSourceFields(EXT) : PM_URL ? {
+const REGION_RASTERS: GlobeScope["REGION_RASTERS"] = REGIONS.flatMap(r => r.rasters || []);   // 画像タイル（XYZ ラスタ）のカタログ＝地域パックが宣言（エンジンは知らない・?r= と切替ガジェットの鍵）
+const BASE_SOURCE: GlobeScope["BASE_SOURCE"] = EXT ? extSourceFields(EXT) : PM_URL ? {
 	kind: "pmtiles", url: PM_URL, tileUrl: () => PM_URL,
 	coverage: null, tileMinZoom: 0, lodFloor: null, minZ: 0, info: null, attrHTML: null,
 } : REGION_BASEMAP ? {
@@ -324,13 +456,13 @@ const BASE_SOURCE = EXT ? extSourceFields(EXT) : PM_URL ? {
 	coverage: [0, 0, 0, 0],   // どのタイルとも重ならない＝fetch せず空タイル扱い
 	tileMinZoom: null, lodFloor: null, minZ: undefined, info: null, attrHTML: null,
 };
-const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const TILE = 512, D2R: GlobeScope["D2R"] = Math.PI / 180, R2D: GlobeScope["R2D"] = 180 / Math.PI;
 
 // 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
 // 旧romajiキー（chimei/chikei/shisetsu）は公開済み共有URL・埋め込みの互換のため読みだけ受ける。
-const LEGACY_LAYER_KEYS = { chimei: "place", chikei: "terrain", shisetsu: "facility" };
-const normLayerKey = k => LEGACY_LAYER_KEYS[k] || k;
-const fixedLayers = {};
+const LEGACY_LAYER_KEYS: Record<string, string> = { chimei: "place", chikei: "terrain", shisetsu: "facility" };
+const normLayerKey = (k: string) => LEGACY_LAYER_KEYS[k] || k;
+const fixedLayers: Record<string, boolean> = {};
 if (opts.layers) for (const [k0, v] of Object.entries(opts.layers)) {
 	const k = normLayerKey(k0);
 	if (!(k in defaultLayerState)) { console.warn(`[layers] unknown key "${k0}" (valid: ${Object.keys(defaultLayerState).join(", ")})`); continue; }
@@ -342,21 +474,21 @@ const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedL
 const SKY_LAYER = "sky";
 // 配色テーマ（palettes.js の台帳）：共有URLの c=<name>（sky/l= と同じ後置トークン＝夜のまま人に渡る）。
 // style は起動時に pipeline/worker へ焼き付くため一度だけ選ぶ：ハッシュ手編集での切替は hashchange が reload で応える。
-const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書かず、ハッシュでも破れない
-const themeBootV = parseViewHash(opts.view || pageHash);
-let themeName = typeof opts.theme === "string" ? opts.theme
+const themeFixed: GlobeScope["themeFixed"] = !!opts.theme;   // 埋め込みの焼き付け＝URLに書かず、ハッシュでも破れない
+const themeBootV: GlobeScope["themeBootV"] = parseViewHash(opts.view || pageHash);
+let themeName: GlobeLive["themeName"] = typeof opts.theme === "string" ? opts.theme
 	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
-if (typeof opts.theme !== "object" && themeName && !MAP_THEMES[themeName] && normWorldTheme(themeName)) themeName = normWorldTheme(themeName);   // 旧名を正名へ（c=gsi → topo・c=night → dark）＝別名の台帳は ortho-core worldstyle 一本
+if (typeof opts.theme !== "object" && themeName && !MAP_THEMES[themeName] && normWorldTheme(themeName)) themeName = normWorldTheme(themeName)!;   // 旧名を正名へ（c=gsi → topo・c=night → dark）＝別名の台帳は ortho-core worldstyle 一本
 if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] unknown theme "${themeName}" = starting as mono (valid: ${Object.keys(MAP_THEMES).join(", ")})`);
-let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
+let theme: MapTheme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
 // 基図の層への実行時の上書き（MapLibre 互換の段 7）＝id → { paint, layout, filter, minzoom, maxzoom, removed }。有効な基図 style＝元の style＋上書き。
 // 出し入れ（visibility）は別の台帳 baseVis＝結合の時に層の添字で外す安い経路（組み直さない）。テーマを切り替えても上書きは残し、setStyle では捨てる（MapLibre と同じ）
-const baseOverrides = new Map(), baseVis = new Map();
+const baseOverrides: GlobeScope["baseOverrides"] = new Map(), baseVis: GlobeScope["baseVis"] = new Map();
 // 検査表示（#174）の間＝基図の全層を結合から外す（baseHiddenIdx・焼き直さない・注記も出さない）。利用者の基図の出し入れ（baseVis）はそのまま＝戻すと元の絵
-let inspectHide = false;
-let inspectReapply = () => {};   // テーマ・基図の style を替えた後に検査表示の下地（陸の色・世界の帯）を掛け直す（inspectView が差す）
-const withBaseOverrides = st => {
+let inspectHide: GlobeLive["inspectHide"] = false;
+let inspectReapply: GlobeLive["inspectReapply"] = () => {};   // テーマ・基図の style を替えた後に検査表示の下地（陸の色・世界の帯）を掛け直す（inspectView が差す）
+const withBaseOverrides: GlobeScope["withBaseOverrides"] = st => {
 	if (!baseOverrides.size) return st;
 	const layers = [];
 	for (const L of st.layers) {
@@ -364,34 +496,34 @@ const withBaseOverrides = st => {
 		if (!o) { layers.push(L); continue; }
 		if (o.removed) continue;
 		const L2 = { ...L };
-		for (const k of ["paint", "layout"]) if (o[k]) { L2[k] = { ...(L[k] || {}), ...o[k] }; for (const [p, v] of Object.entries(o[k])) if (v === undefined) delete L2[k][p]; }   // undefined＝その性質の既定へ（MapLibre）
-		for (const k of ["filter", "minzoom", "maxzoom"]) if (k in o) { if (o[k] == null) delete L2[k]; else L2[k] = o[k]; }
+		for (const k of ["paint", "layout"] as const) if (o[k]) { L2[k] = { ...(L[k] || {}), ...o[k] }; for (const [p, v] of Object.entries(o[k])) if (v === undefined) delete L2[k]![p]; }   // undefined＝その性質の既定へ（MapLibre）
+		for (const k of ["filter", "minzoom", "maxzoom"] as const) if (k in o) { if (o[k] == null) delete L2[k]; else (L2 as Record<string, unknown>)[k] = o[k]; }
 		layers.push(L2);
 	}
 	return { ...st, layers };
 };
 // addLayer({type:"background"})（B5）＝実行時に足した background 層。基図の層の先頭に置く（beforeId は見ない）。setStyle で捨てる（MapLibre と同じ）
-const userBg = [];
-const withUserBg = st => (userBg.length ? { ...st, layers: [...userBg.map(L => ({ ...L })), ...st.layers] } : st);
-let style = withBaseOverrides(withUserBg(EXT ? extBaseStyle(EXT) : theme.style));   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
+const userBg: GlobeScope["userBg"] = [];
+const withUserBg: GlobeScope["withUserBg"] = st => (userBg.length ? { ...st, layers: [...userBg.map(L => ({ ...L })), ...st.layers] } : st);
+let style: GlobeLive["style"] = withBaseOverrides(withUserBg(EXT ? extBaseStyle(EXT) : theme.style));   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
 // window/document 級のリスナーは全てこの signal で登録＝destroy() の abort 一発で束ごと外れる（外し漏れゼロ）。
 // 家具（チップの Esc）とキーの持ち主も使う＝家具を生やす前に作る（#173 段 3）
-const ac = new AbortController();
+const ac: GlobeScope["ac"] = new AbortController();
 registerKeyOwner(mapEl, ac.signal);   // 頁に地図が複数ある時のキーの持ち主（最後に触った地図・gadgets/keys.js）
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR, signal: ac.signal });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
-const orDetached = el => el || document.createElement("div");
-const canvas = mapEl.querySelector("#c");
-const labelCanvas = mapEl.querySelector("#labels");
-const logEl = orDetached(mapEl.querySelector("#log"));
+const orDetached = (el: HTMLElement | null) => el || document.createElement("div");
+const canvas: GlobeScope["canvas"] = mapEl.querySelector<HTMLCanvasElement>("#c")!;
+const labelCanvas: GlobeScope["labelCanvas"] = mapEl.querySelector<HTMLCanvasElement>("#labels")!;
+const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
-const LOW_MEM = lowMem(navigator);
+const LOW_MEM: GlobeScope["LOW_MEM"] = lowMem(navigator);
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める（boot/tier.js fatalOverlay / deadMap）---
-const fatalOverlay = (title, detail, reload) => showFatal(mapEl, title, detail, reload ? t("Reload") : null);   // reload=true で「再読み込み」ボタン付き
+const fatalOverlay = (title: string, detail: string, reload?: boolean) => showFatal(mapEl, title, detail, reload ? t("Reload") : null);   // reload=true で「再読み込み」ボタン付き
 // 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
 // 「非対応」の確実な判別器は transferControlToOffscreen の欠落だけ（これを持つ世代のブラウザは全て WebGL2 対応）。
 // webgl2=null 単独は非対応と断定できない：GPUプロセスのクラッシュ直後（OOM→contextlost の自動リロード直後）は
@@ -404,7 +536,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		fatalOverlay(t("This map cannot be displayed in your browser"),
 			t("This 3D globe is drawn with WebGL2 and OffscreenCanvas. Please try the latest Chrome / Edge / Firefox, or Safari 17 or later."));
 		console.warn("[boot] unsupported: offscreencanvas = quiet exit (guidance overlay shown)");
-		LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap();   // 起動しなかった＝容れ物は空き（同じ容れ物で起動し直せる）
+		LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap() as GlobeMap;   // 起動しなかった＝容れ物は空き（同じ容れ物で起動し直せる）
 	}
 	if (!probeGL()) {
 		const waiting = fatalOverlay(t("Waiting for the GPU to respond…"),
@@ -416,7 +548,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 			fatalOverlay(t("Cannot start 3D rendering"),
 				t("Your browser is supported, but the GPU (WebGL2) is not responding. Quit the browser completely and reopen it, or check that hardware acceleration is enabled in the settings."), true);
 			console.warn("[boot] webgl2 unavailable after 10s retry (hardware acceleration off?) = quiet exit (guidance overlay shown)");
-			LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap();   // 起動しなかった＝容れ物は空き
+			LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap() as GlobeMap;   // 起動しなかった＝容れ物は空き
 		}
 	}
 }
@@ -450,10 +582,10 @@ if (HI_TIER) console.log(`[boot] hi-tier device = PLATEAU wide lanes (cores=${na
 const ellDec = ellipsoidMode({ opt: opts.ellipsoid ?? "auto", search: location.search, LOW_MEM, MID_TIER });
 if (ELL_PAGE && ELL_PAGE.ell !== ellDec.ell) console.warn(`[geo] this page already renders the ${ELL_PAGE.ell ? "ellipsoid" : "sphere"} (${ELL_PAGE.why}); this map follows it instead of ${ellDec.why}`);
 ELL_PAGE ??= ellDec;
-const ELL_ON = ELL_PAGE.ell;
+const ELL_ON: GlobeScope["ELL_ON"] = ELL_PAGE.ell;
 console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "sphere 6371km"} (${ELL_PAGE.why}; ?ell=1 / ?ell=0 to override; measurement always WGS84)`);   // 実機切り分けの計器（スクショのコンソールで世界が判る・走らせ台 ui-runner が読む）
 setEllipsoid(ELL_ON);
-const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
+const EARTH_M: GlobeScope["EARTH_M"] = worldRadiusM(), TERR_EXAG: GlobeScope["TERR_EXAG"] = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
@@ -467,7 +599,7 @@ rotEl.textContent = t("Please rotate your device to portrait (tap to dismiss)");
 rotEl.onclick = () => { rotEl.style.display = "none"; };
 mapEl.appendChild(rotEl);
 let tileFails = 0;
-const onTile = ok => {
+const onTile = (ok: boolean) => {
 	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
 	else if (++tileFails >= 3) netEl.style.display = "block";   // 3連続失敗＝ネット全滅の疑い（単発404では出さない）
 };
@@ -475,34 +607,34 @@ window.addEventListener("offline", () => { netEl.style.display = "block"; }, { s
 window.addEventListener("online", () => { netEl.style.display = "none"; requestDraw(); }, { signal: ac.signal });
 
 // 効いている background 層＝一番上（後ろ）の、見えている物（MapLibre は後の層が上に塗る）。baseVis の none（setLayoutProperty）も見る
-const bgOf = st => { let b = null; for (const L of st.layers) if (L.type === "background" && L.layout?.visibility !== "none" && baseVis.get(L.id) !== "none") b = L; return b; };
-let bg = bgOf(style);
+const bgOf: GlobeScope["bgOf"] = st => { let b = null; for (const L of st.layers) if (L.type === "background" && L.layout?.visibility !== "none" && baseVis.get(L.id) !== "none") b = L; return b; };
+let bg: GlobeLive["bg"] = bgOf(style);
 // MapLibre の目盛りの地図で style に background 層が無い＝MapLibre の canvas は透明（頁の白が見える）＝球の地（陸も海も）を白で（2026-09-30・公式例 20 本の地の色）。内製の既定は従来の紙色と海の色
-const NO_BG_WHITE = !!ML_COVER;
-const landDefault = () => (NO_BG_WHITE ? [1, 1, 1, 0] : [0.96, 0.96, 0.95, 1]);   // MapLibre の口＝透明（本人裁定 2026-10-12・B5。WebGPU は白に畳む）
-const seaOf = bg => (NO_BG_WHITE && !bg ? [1, 1, 1] : null);
+const NO_BG_WHITE: GlobeScope["NO_BG_WHITE"] = !!ML_COVER;
+const landDefault: GlobeScope["landDefault"] = () => (NO_BG_WHITE ? [1, 1, 1, 0] : [0.96, 0.96, 0.95, 1]);   // MapLibre の口＝透明（本人裁定 2026-10-12・B5。WebGPU は白に畳む）
+const seaOf: GlobeScope["seaOf"] = bg => (NO_BG_WHITE && !bg ? [1, 1, 1] : null);
 // background 層 → 球の床の色（rgb）と不透明度（a＝background-opacity）。MapLibre の口で層が無い＝a 0（透明・頁の色）。式は z10 で評価（従来どおり）
-const landOf = (bg, dflt) => {
+const landOf: GlobeScope["landOf"] = (bg, dflt) => {
 	if (!bg) return dflt;
-	const ev = (v, d) => evalExpr(v ?? d, { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? d;
+	const ev = (v: unknown, d: string | number) => evalExpr<string | number>(v ?? d, { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? d;
 	const c = parseRGBA(ev(bg.paint?.["background-color"], "#fff")), op = +ev(bg.paint?.["background-opacity"], 1);
 	return [c[0], c[1], c[2], c[3] * (Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1)];
 };
-let land = landOf(bg, landDefault());
+let land: GlobeLive["land"] = landOf(bg, landDefault());
 // 白抜き家具（本人裁定 2026-08-05「紙の世界を司る神」）：計器・アイコン・出典を地図の明暗に依らず常に黒硝子＋白線へ（quiet-mono #map.ui-dark）。
 // 旧＝land輝度<0.45（暗い紙）の時だけ夜家具。今は常時ON＝昼夜で意匠がブレず、白線 on 黒硝子で輪郭が締まる（状態HUDと同族）。戻すなら下の add を輝度条件へ。
 mapEl.classList.add("ui-dark");
 // 宇宙（球の外側）。MapLibre の口＝透明（MapLibre の canvas は描かない所が透明＝頁の色が見える・地平線の上も同じ・本人裁定 2026-10-12・B5）。opts.clearColor（色か "transparent"）で変えられる
-const clearOf = c => (c === "transparent" ? [0, 0, 0, 0] : typeof c === "string" && isColor(c) ? parseRGBA(c) : Array.isArray(c) && c.length === 4 ? c : null);
+const clearOf = (c: unknown): readonly number[] | null => (c === "transparent" ? [0, 0, 0, 0] : typeof c === "string" && isColor(c) ? parseRGBA(c) : Array.isArray(c) && c.length === 4 ? c : null);
 let clear = clearOf(opts.clearColor) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]);
 
-let dpr = Math.min(2, window.devicePixelRatio || 1);
+let dpr: GlobeLive["dpr"] = Math.min(2, window.devicePixelRatio || 1);
 
 // --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
 // transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
 // 下限 1px（2026-09-29）：容れ物の高さ 0 で起動すると縦横比が無限大＝投影行列の逆が作れず（unproject が null を読んで例外）・WebGPU は大きさ 0 のテクスチャで落ちた。
 // 1px で描いておき、大きさが付けば ResizeObserver の resize が追う（MapLibre も大きさ 0 の容れ物で壊れない）
-const size = { w: Math.max(1, Math.round(mapEl.clientWidth * dpr)), h: Math.max(1, Math.round(mapEl.clientHeight * dpr)) };
+const size: GlobeScope["size"] = { w: Math.max(1, Math.round(mapEl.clientWidth * dpr)), h: Math.max(1, Math.round(mapEl.clientHeight * dpr)) };
 canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
@@ -513,7 +645,7 @@ const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。
 // 狙いは②GPU常駐（表示区数）と④タイル予算だけを動かすこと＝①過渡デコードメモリ（jetsamの主犯）には触れない
 // ＝bldCap・BATCH_TILES・TILE_CONCURRENCY は据置。基準機は 4GB 実機（タブ予算は 8GB 機の~1.4GBより小さい）。
-const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1] : def; };
+const qNum = (re: RegExp, def: number) => { const m = location.search.match(re); return m ? +m[1] : def; };
 // ?nomd=1 ＝multi_draw（タイルGPU常駐）を切って従来の CPU merge へ強制フォールバック。同一ビルドで A/B 比較する検証ノブ。
 // 低メモリ端末は既定OFF：iOSではWebGLバッファがWebContentプロセス＝タブ予算(~1.4GB)に直接乗り、常駐プールは
 // 伸びる一方＝鉄道地図(z14.5都心)級の密度でjetsam（iPhone 16 Pro実機の?nomd=1 A/Bでデモ完走＝犯人確定）。
@@ -541,14 +673,14 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
-let memTerrain = 0, memHeap = 0, memGpu = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
-let memFps = 0, memFrameMs = 0, memRes = 1, memBackend = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
-let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch = null, memTerr = null, memGpuShadow = 0, memShadow = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
+let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
+let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
+let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
 dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
-const noMixedR01 = /[?&]nor01=1/.test(location.search);
+const noMixedR01: GlobeScope["noMixedR01"] = /[?&]nor01=1/.test(location.search);
 // ?gpu=1 ＝WebGPU バックエンド（実験・Phase 1: globe+基図 fill/line）。非対応/失敗は worker 内で WebGL2 へ
 // 自動フォールバック＝既定挙動と同一。既定経路には dynamic import すら発生しない（バンドル・実行とも無負担）。
 // ?gpu=1＝WebGPU 実験フラグ。oj.nogpu＝この環境で「初期化は成功するのに絵が出ない」を検出済み（下の present 検証）
@@ -571,7 +703,7 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // iOS は非対称のまま WebGPU 既定（実機検証済み＋メモリ優位実測済み）。将来 Dawn が枯れたら ?gpu=1 で再評価
 //（?gpu=1 はこのゲートも突破する＝再評価の入口を残す）。⚠デスクトップモード偽装 UA は Android を名乗らない＝
 // 素通りするが、稀ケースかつ落ち網3枚の内側なので許容。
-const IS_ANDROID = /Android/.test(navigator.userAgent) || navigator.userAgentData?.platform === "Android";
+const IS_ANDROID = /Android/.test(navigator.userAgent) || (navigator as NavigatorPlus).userAgentData?.platform === "Android";
 const forceGl2 = /[?&]gl2=1/.test(location.search);
 // 【WebKit × WebGPU × 重ねた WebGL2 は描かれない・2026-09-21 本人 iPad 実機】同一フレームのオーバーレイ（#13）は
 // 自前の OffscreenCanvas に WebGL2 で描く。本体が WebGPU の時、WebKit（iPadOS/Safari）ではこの 2 枚目だけが
@@ -589,8 +721,8 @@ const sealGpuForOverlay = !!opts.glOverlay && IS_WEBKIT;
 const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
 const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
-const markNoGpu = why => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
-const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sealGpuForOverlay && !nogpuMark && nogpuN < 2));
+const markNoGpu = (why: string) => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
+const gpuBackend: GlobeScope["gpuBackend"] = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sealGpuForOverlay && !nogpuMark && nogpuN < 2));
 // 描画の質（#46）：大気散乱・PBR と環境光・AO の旗＝ell と同じ作法で **既定は全端末で 0**・URL の ?atmosphere=1／?pbr=1／?ao=1 で点ける（本人裁定 2026-09-26）。
 // opts.render.<name>:true は組み込みの口。WebGPU だけが読む（GL2 は実装を持たない）。boot/tier.js renderFx＝純関数。
 const RENDER_FX = renderFx({ render: opts.render, search: location.search });
@@ -607,8 +739,8 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	addEventListener("DOMContentLoaded", () => document.body.appendChild(d));
 	if (document.body) document.body.appendChild(d);
 	const t0 = performance.now();
-	const lines = new Map();
-	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
+	const lines = new Map<string, string>();
+	const put = (k: string, v: string) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
 	put("build", "v-fade1");
 	put("elapsed", "0s"); setInterval(() => put("elapsed", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main tx", `draw x${dbgHost.__drawSendN || 0}${dbgHost.__drawSendErr ? " send error:" + dbgHost.__drawSendErr : ""}`), 1000);
@@ -620,12 +752,12 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 // opts.terrain＝false：MapLibre と同じ「setTerrain まで平ら」（公式例の門 段 2・2026-09-27）＝既定の標高を取らない・描かない。
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
-const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
-let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+const terrLazy: GlobeScope["terrLazy"] = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
+let noTerr: GlobeLive["noTerr"] = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
 // 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
-let centerElevMode = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
-let centerElevFixed = Number.isFinite(centerElevMode) ? centerElevMode : null;
+let centerElevMode: GlobeLive["centerElevMode"] = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
+let centerElevFixed: GlobeLive["centerElevFixed"] = Number.isFinite(centerElevMode) ? centerElevMode as number : null;
 function syncCenterAlt() {
 	if (centerElevMode === undefined && centerElevFixed == null) return;
 	if (centerElevMode === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
@@ -646,8 +778,8 @@ const noFarTerr = /[?&]farterr=0/.test(location.search);
 const ctrlChan = new MessageChannel();
 // iOS（iPadOS の Mac 偽装込み）＝WebGPU worker への直接配達が死ぬ環境：生きている scene worker 経由のリレーへ。
 const IOS_RELAY = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) || /[?&]relay=1/.test(location.search);   // relay=1＝他環境でのリレー経路検証用
-let relayCtl = null; const relayPending = [];   // pipeline 生成前の制御は待機列（生成直後に順序どおり流す）
-const wPost = (msg, transfer) => {
+let relayCtl: GlobeScope["wPost"] | null = null; const relayPending: Array<[Parameters<GlobeScope["wPost"]>[0], Transferable[] | undefined]> = [];   // pipeline 生成前の制御は待機列（生成直後に順序どおり流す）
+const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 	if (IOS_RELAY && gpuBackend) {   // リレーが要るのは WebGPU 構成の時だけ（WebGL2 は直結が健在）
 		if (relayCtl) relayCtl(msg, transfer); else relayPending.push([msg, transfer]);
 		return;
@@ -660,15 +792,15 @@ renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, c
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
-const renderer = {
+const renderer: GlobeScope["renderer"] = {
 	set: (cmd, data, prop, layer) => wPost({ type: "set", cmd, data, prop, ...(layer != null ? { layer } : {}) }),   // layer＝gint 多層（spec §4）の層指名。無指定＝既定層（従来と同形）
 	draw: (cam, opts) => {
-		try { wPost({ type: "draw", cam, opts }); dbgHost.__drawSendN = (dbgHost.__drawSendN || 0) + 1; }
-		catch (e) { dbgHost.__drawSendErr = String(e && e.message); console.error("[boot] draw send failed:", e); }
+		try { wPost({ type: "draw", cam, opts }); dbgHost.__drawSendN = ((dbgHost.__drawSendN as number) || 0) + 1; }
+		catch (e) { dbgHost.__drawSendErr = String(e && (e as Error).message); console.error("[boot] draw send failed:", e); }
 	},
 };
-let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
-let elevN = 0;          // 読込中の枚数＝デモ行送りゲートの進捗指紋（枚数が動いている間は「進んでいる」）
+let elevBusy: GlobeLive["elevBusy"] = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
+let elevN: GlobeLive["elevN"] = 0;          // 読込中の枚数＝デモ行送りゲートの進捗指紋（枚数が動いている間は「進んでいる」）
 const elevEl = document.createElement("div");
 elevEl.id = "elev-toast";   // スタイルは quiet-mono。左下ドック＝#pos の上へ積まれる（bottom手打ち廃止 2026-09-03）
 dockStack(mapEl).append(elevEl);
@@ -677,17 +809,17 @@ dockStack(mapEl).append(elevEl);
 logEl.style.display = "none";
 // 毎フレームの診断行：文面が変わった時だけ DOM に書く（同じ文字列の textContent 代入も文字ノードを作り直す）
 let logText = "";
-const setLog = t => { if (t !== logText) { logText = t; logEl.textContent = t; } };
+const setLog = (t: string) => { if (t !== logText) { logText = t; logEl.textContent = t; } };
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
 // glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
-let bootT = setTimeout(() => {
+let bootT: number | null = setTimeout(() => {
 	fatalOverlay(t("Startup is taking longer than usual"), t("On a slow connection the first load can take a while (loading is still in progress). Please wait a moment. If it does not improve, reload the page — and if that fails, check that hardware acceleration is enabled in your browser settings."), true);
 }, 10000);
 // gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
 // ★destroy() で必ず clearTimeout（旧＝生成後 20 秒以内に destroy すると __backend が消えた後に番犬が起き、**ホストページごと reload**＝
 //   SDK ドッグフード 2026-09-10 で発覚。埋め込み先の SPA がタブ切替で destroy する典型で踏む）
-let gpuWatchT = null;
+let gpuWatchT: ReturnType<typeof setTimeout> | null = null;
 if (gpuBackend) gpuWatchT = setTimeout(() => {
 	gpuWatchT = null;
 	if (!dbgHost.__backend && !/[?&]stay=1/.test(location.search)) {
@@ -702,13 +834,13 @@ if (gpuBackend) gpuWatchT = setTimeout(() => {
 let printHold = false;
 // gint 多層（map.addGint）の台帳＝onmessage ルーティングより先に宣言（boot 中の遅着メッセージ TDZ 回避）
 let gintLayerSeq = 0;
-const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
-let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const extGint = new Map<number, ExtGintEntry>();   // layer id → handle（identify/click/ack ルーティング先）
+let extActive: number | null = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
+const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
-let mapLoaded = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
+const emitMesh = (e: unknown) => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
+let mapLoaded: GlobeLive["mapLoaded"] = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
@@ -737,7 +869,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
 	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
-	if (d.type === "overlayStage") { (dbgHost.__overlay ??= {})[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
+	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
@@ -761,7 +893,7 @@ renderWorker.onmessage = e => {
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
 		if (dbgHost.__backend === "webgpu") setTimeout(() => {
 			const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
-			const bail = why => {
+			const bail = (why: string) => {
 				if (stay) { console.error(`[boot] WebGPU present verification failed (${why}). stay=1 = fallback suppressed; inspect the diag lines`); diagHud && diagHud("present", `failed ✗ (${why})`); return; }
 				console.error(`[boot] WebGPU present verification failed (${why}) -> restarting as WebGL2 in 3s (waiting for GPU diagnostics)`);
 				markNoGpu("present:" + why);
@@ -769,13 +901,13 @@ renderWorker.onmessage = e => {
 			};
 			try {
 				const t = document.createElement("canvas"); t.width = 16; t.height = 16;
-				const g = t.getContext("2d", { willReadFrequently: true });
+				const g = t.getContext("2d", { willReadFrequently: true })!;
 				g.drawImage(canvas, 0, 0, 16, 16);
 				const px = g.getImageData(0, 0, 16, 16).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("no pixels reached the canvas");
 				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/256)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
-			} catch (e) { bail("exception during verification: " + (e && e.message)); }
+			} catch (e) { bail("exception during verification: " + (e && (e as Error).message)); }
 		}, 1500);
 		return;
 	}
@@ -788,7 +920,7 @@ renderWorker.onmessage = e => {
 		diagHud && diagHud("frame loop", `${d.n}x (pump ${d.pump})`);
 		diagHud && diagHud("gate", `draw recv ${d.drawMsgN}x cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1 sent=${d.sentFrame1 ? "✓" : "✗"}`);
 		diagHud && diagHud("delivery", `pong direct ${d.pongD} port ${d.pongC} BC ${d.pongB} self ${d.loopN}`);
-		diagHud && diagHud("route", `scenePort recv ${d.sceneMsgN} relay final ${d.relayRecvN} hop1 recv ${globalThis.__relayCtlN || 0}`);
+		diagHud && diagHud("route", `scenePort recv ${d.sceneMsgN} relay final ${d.relayRecvN} hop1 recv ${(globalThis as { __relayCtlN?: number }).__relayCtlN || 0}`);
 		diagHud && diagHud("boot", `${d.bootStage} queued=${d.iqLen}`);
 		return;
 	}
@@ -839,15 +971,15 @@ renderWorker.onmessage = e => {
 	else elevEl.style.display = "none";
 };
 
-let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
-const requestDraw = () => { needsDraw = true; };   // 次のフレームで描き直す（needsDraw を立てる口はこれ 1 本＝切り出したファイルにも渡せる）
+let needsDraw = true, readySig: GlobeLive["readySig"] = "", lastLabels: HostLabel[] = [], sceneOrigin: [number, number] | null = null;
+const requestDraw: GlobeScope["requestDraw"] = () => { needsDraw = true; };   // 次のフレームで描き直す（needsDraw を立てる口はこれ 1 本＝切り出したファイルにも渡せる）
 let coverOk = true;   // 最後の render で「基図が視野を隙間なく覆い、その枠がそのまま載っている」（idle の材料・公式例の門 段 2）
-const rasterPend = new Map(); let rasterPendTotal = 0, rasterFading = false;   // rasterFading＝到着フェード（raster-fade-duration・C4）の最中＝idle はこれも待つ（MapLibre の hasTransition）   // 画像タイル層（raster/hillshade/image/video）の未着＝raster.js の rasterPending（開く途中・見えている選抜の queued/loading）。idle は合計 0 を待ち、isSourceLoaded は source を使う層の分を見る（2026-09-28・門では hillshade の例が 10 秒の timeout で撮られていた）
-let renderBackend = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
+const rasterPend: GlobeScope["rasterPend"] = new Map(); let rasterPendTotal = 0, rasterFading = false;   // rasterFading＝到着フェード（raster-fade-duration・C4）の最中＝idle はこれも待つ（MapLibre の hasTransition）   // 画像タイル層（raster/hillshade/image/video）の未着＝raster.js の rasterPending（開く途中・見えている選抜の queued/loading）。idle は合計 0 を待ち、isSourceLoaded は source を使う層の分を見る（2026-09-28・門では hillshade の例が 10 秒の timeout で撮られていた）
+let renderBackend: GlobeLive["renderBackend"] = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
-let mainDesired = "";
-let readyKeys = null, readyTail = "";   // readySig 確定時に一度だけ作る Set＋署名末尾（styleSig/鉄道帯）＝render の下地退場判定（毎フレーム文字列を作らない）
+let mainDesired: GlobeLive["mainDesired"] = "";
+let readyKeys: Set<string> | null = null, readyTail = "";   // readySig 確定時に一度だけ作る Set＋署名末尾（styleSig/鉄道帯）＝render の下地退場判定（毎フレーム文字列を作らない）
 // ズームアウト時は「古い詳細シーンを縮めて見せ続ける」をしない＝写真タイルなら拡縮で誤魔化せるが、
 // ベクタはズーム専用の線幅・密度を焼いているので縮めると質感が浮く。下地(base)に揃えて退場させる。
 // keepFine＝ズームアウトで常駐子孫を親に差し替えない深さ（tilemanager の子孫代打・0=従来）。細かい絵のまま
@@ -868,14 +1000,14 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let lastSkipBase = false;   // render() が最後に決めた skipBase（onMove の draw が同じ値を送る・#58）
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
-let gSrcText = null;   // ?g= の出所の行（文字・#attr を圏で書き直しても残す＝attrHTMLOf が末尾に足す・#176 で出典の組み立てへ移した）
-const setGSrc = txt => { if (txt === gSrcText) return; gSrcText = txt; attrZone = null; requestDraw(); };
-let attrZone = null, attrRegionHTML = null;   // 出典（#attr）の圏＝"region"（地域の基図圏）|"world"|"sky"（render() が z 跨ぎで一枚を差し替え＝各ズーム統合 2026-09-03）
+let gSrcText: string | null = null;   // ?g= の出所の行（文字・#attr を圏で書き直しても残す＝attrHTMLOf が末尾に足す・#176 で出典の組み立てへ移した）
+const setGSrc: GlobeScope["setGSrc"] = txt => { if (txt === gSrcText) return; gSrcText = txt; attrZone = null; requestDraw(); };
+let attrZone: GlobeLive["attrZone"] = null, attrRegionHTML: string | null = null;   // 出典（#attr）の圏＝"region"（地域の基図圏）|"world"|"sky"（render() が z 跨ぎで一枚を差し替え＝各ズーム統合 2026-09-03）
 // 出典の圏（z で決まる）と、その圏の出典の HTML＝#attr の中身と、#attr の無い画面（instruments に "attr" を出さない構成）で
 // shot／print が焼く出典の共通の源。地域の文面は宣言（REGION_ATTR）から＝globe は地域の出典を持たない（2026-09-24・旧＝shot に日本の出典を直書き）
 const attrZoneNow = () => cam.zoom < STARSKY_Z ? "sky" : (WORLD_VT && cam.zoom < BASEMAP_MINZOOM) ? "world" : "region";
-function attrHTMLOf(zone) {
-	const A = (url, label) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+function attrHTMLOf(zone: string | null) {
+	const A = (url: string, label: string) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
 	// 世界の出典束：world=NE(国界・湖)+GEBCO+気候Beck／?world=0=NE海岸線+GEBCO（気候場なし）
 	const worldSrc = A("https://www.naturalearthdata.com/", "Natural Earth") + "・" + A("https://www.gebco.net/", "GEBCO")
 		+ (WORLD_VT ? "・" + A("https://www.gloh2o.org/koppen/", "Beck et al. (CC BY)") : "");
@@ -893,9 +1025,9 @@ function attrHTMLOf(zone) {
 	const body = zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : (attrRegionHTML ?? attributionHTML(REGION_ATTR)) + rasTail))
 		: zone === "world" ? t("Source: $1", head + worldSrc) + rasTail + tail
 		: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + rasTail + tail;   // sky＝星図が先頭（星空劇場の主役）
-	return body + (gSrcText ? `<div class="g-src">${String(gSrcText).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])}</div>` : "");   // ?g= の出所（#176・圏の書き直しでも残す）
+	return body + (gSrcText ? `<div class="g-src">${String(gSrcText).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c])}</div>` : "");   // ?g= の出所（#176・圏の書き直しでも残す）
 }
-const attrTextNow = () => { const d = document.createElement("div"); d.innerHTML = attrHTMLOf(attrZoneNow()).replace(/<br\s*\/?>/gi, "\n"); return d.textContent.split("\n").map(x => x.trim()).filter(Boolean); };
+const attrTextNow: GlobeScope["attrTextNow"] = () => { const d = document.createElement("div"); d.innerHTML = attrHTMLOf(attrZoneNow()).replace(/<br\s*\/?>/gi, "\n"); return d.textContent.split("\n").map(x => x.trim()).filter(Boolean); };
 // 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
 // （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。標高はz5.5からR10（terrain.js・
 // 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
@@ -903,15 +1035,15 @@ const attrTextNow = () => { const d = document.createElement("div"); d.innerHTML
 // ズームの上限＝器ごとの頭打ち（opts.zoomMax・1.2.0〜 2026-09-23）＝データが在る所までしか寄らせない
 // （apps/world の国の地図＝世界データだけ＝z8）。入力・飛行・共有hash・fit の全経路がこの値に従う。
 // 既定 20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す。
-const ZOOM_MAX = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
-let zoomMaxCur = ZOOM_MAX, camBounds = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
+const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
+let zoomMaxCur: GlobeLive["zoomMaxCur"] = ZOOM_MAX, camBounds: GlobeLive["camBounds"] = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
-const BASEMAP_MINZOOM = EXT ? 0 : REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;   // 外来 style＝全ズームがその基図（世界のハイプソは出さない＝MapLibre と同じ見え方）
+const BASEMAP_MINZOOM: GlobeScope["BASEMAP_MINZOOM"] = EXT ? 0 : REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;   // 外来 style＝全ズームがその基図（世界のハイプソは出さない＝MapLibre と同じ見え方）
 // タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
 // 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
 // （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
-const TILE_MINZOOM = BASE_SOURCE.tileMinZoom ?? BASEMAP_MINZOOM;
+const TILE_MINZOOM: GlobeScope["TILE_MINZOOM"] = BASE_SOURCE.tileMinZoom ?? BASEMAP_MINZOOM;
 const STARSKY_Z = 5;                       // 星空劇場（星・星座クリック・惑星）の圏＝renderer の worldFade(z<5) と同期
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
@@ -923,8 +1055,8 @@ let gpuFast = false;        // renderworker からの格付け通知（gpuTier�
 // idleCalm＝settle(150ms)からさらに待った「本当の静止」でだけ手前詳細化を許す。ホイールのノッチ刻み
 //（間隔150〜500ms）が「詳細化merge→次ノッチで破棄→通常merge」のチャーンを毎ノッチ起こすのを防ぐ
 //（fast格付け機でズームがかえってモサつく実害＝ノッチの隙間は静止ではない）。
-let idleCalm = false, calmT = null;
-let moving = false, settleT = null;
+let idleCalm = false, calmT: number | null = null;
+let moving = false, settleT: number | null = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
@@ -935,9 +1067,9 @@ if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opt
 // 建物メッシュが常駐メモリの最大の持ち主（GPU 固定常駐行＝数百 MB）＝2 枚ぶん持つと jetsam の危険。opts.mesh:true で入れられる
 const SECOND_LOWMEM = LOW_MEM && LIVE_CONTAINERS.size > 1;
 const MESH_ASKED = opts.mesh ?? opts.plateau;   // 明示の指定（旧名を含む）＝無ければ undefined
-const meshOn = (MESH_ASKED ?? !SECOND_LOWMEM) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
-const REGION_BLD_LABELS = REGIONS.map(r => r.buildings?.labels).find(Boolean) ?? {};   // 建物 UI の文言（i18n キー）＝出所の名を出す地域の申告（日本＝PLATEAU）・無ければ汎用
-const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
+const meshOn: GlobeScope["meshOn"] = (MESH_ASKED ?? !SECOND_LOWMEM) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+const REGION_BLD_LABELS: GlobeScope["REGION_BLD_LABELS"] = REGIONS.map(r => r.buildings?.labels).find(Boolean) ?? {};   // 建物 UI の文言（i18n キー）＝出所の名を出す地域の申告（日本＝PLATEAU）・無ければ汎用
+const REGION_BLD_ICON: GlobeScope["REGION_BLD_ICON"] = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
 const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager を起こす時だけ（wakeMesh）
 	Promise.all(REGION_CATALOG.map(b => fetch(ASSET_BASE + b.catalog).then(r => r.json()).then(list => stampBake(list, b)))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
@@ -949,9 +1081,9 @@ const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager �
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
 const AIRPORT_MARK_MAXZ = 13;              // これ未満のズームで静的マークを注入
-let airportMarks = [];
+let airportMarks: HostLabel[] = [];
 const REGION_AIRPORTS = REGIONS.map(r => r.airports).find(Boolean) ?? null;   // 低ズームの空港マーク台帳（地域の申告・日本＝airports.json）
-if (REGION_AIRPORTS) fetch(ASSET_BASE + REGION_AIRPORTS).then(r => r.json()).then(list => {
+if (REGION_AIRPORTS) fetch(ASSET_BASE + REGION_AIRPORTS).then(r => r.json()).then((list: Array<{ name: string; lon: number; lat: number }>) => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
@@ -964,13 +1096,13 @@ if (REGION_AIRPORTS) fetch(ASSET_BASE + REGION_AIRPORTS).then(r => r.json()).the
 // PLATEAUメッシュのロードとは無関係＝遠景（z11〜）から超高層の名前だけが静かに立つ。
 const LANDMARK_CODE = 9101;                                   // 合成コード（optbv の実コードは 8105 まで＝9xxx帯は空き）。isFacility が真＝施設チップの傘下に入り、色も施設の紫になる
 const LANDMARK_LADDER = [[11, 150], [12.5, 100], [14, 60]];   // [このズーム以上, 出す高さの下限m]＝寄るほど低い建物まで降りてくる
-const landmarkMinH = z => { let h = Infinity; for (const [lz, lh] of LANDMARK_LADDER) if (z >= lz) h = Math.min(h, lh); return h; };
-let landmarks = null, landmarkReq = null;
+const landmarkMinH = (z: number) => { let h = Infinity; for (const [lz, lh] of LANDMARK_LADDER) if (z >= lz) h = Math.min(h, lh); return h; };
+let landmarks: Array<{ text: string; anchor: [number, number]; h: number; pair: unknown }> | null = null, landmarkReq: Promise<void> | null = null;
 function loadLandmarks() {
 	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
 	if (!REGION_LANDMARK.length) return landmarkReq = Promise.resolve();   // 名札を宣言しない地域（オランダ）＝取りに行かない
-	return landmarkReq = fetch(ASSET_BASE + REGION_LANDMARK[0]).then(r => r.json()).then(j => {
-		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
+	return landmarkReq = fetch(ASSET_BASE + REGION_LANDMARK[0]).then(r => r.json()).then((j: { f: Array<[string, number, number, number, unknown]>; h: number }) => {
+		landmarks = j.f.map(([text, lon, lat, h, pair]: [string, number, number, number, unknown]) => ({ text, anchor: [lon, lat], h, pair }));
 		console.log(`[landmark] ledger loaded -> ${landmarks.length} buildings (h>=${j.h}m)`);
 		readySig = ""; mergeReq.main.sig = ""; requestDraw();   // 到着＝ラベル再結合（空港台帳と同じ作法）
 	}).catch(e => console.warn("[landmark] ledger fetch failed", e));
@@ -978,7 +1110,7 @@ function loadLandmarks() {
 // --- 建物3D（PLATEAU）の管理＝mesh/manager.js（表示判定・ロード順・常駐予算・遠景・先読み・読込トースト・データ管理モーダル）。
 // ここは配線だけ＝装置の旗・描画側の口・app の状態の覗き窓（getter）・生成後に定義される関数のラップ（一本道の下流＝呼ぶ時に解決）。
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
-function approxViewBbox(cam) {
+function approxViewBbox(cam: GlobeScope["cam"]): Bbox {
 	// z＝正射スケール（緯度フリー）に伴い cos(lat) を撤去。係数は従来の東京相当(cos35°≈0.819)を固定＝
 	// PLATEAU区選抜のゲート挙動を全国で従来の東京と同じに（緩めのbboxで拾い、最終判定は点距離が裁く）。
 	// 156543=256px世界の赤道m/px。旧512世界のzで割っていた頃は実質2倍の余裕マージンがあり、それがチルトの
@@ -992,19 +1124,19 @@ function approxViewBbox(cam) {
 }
 // --- POI台帳（施設の点・z14+）＝地域宣言 poi が実装を持参する（日本＝packages/jp/src/poi.ts：在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
 // 実装は poi.create(env)（動的 import を宣言側が握る＝ホストは地域のパッケージを知らない）＝施設層 ON×z14+ で初めて要った時に読む＝代理の窓口（読み取りは空・ver=0）。台帳を宣言しない地域＝null。
-let poiReal = null, poiWake = null;
-const poiReady = () => poiWake ??= Promise.resolve(REGION_POI.create({ viewBbox: approxViewBbox, requestDraw: requestDraw })).then(led => {
+let poiReal: PoiLedgerHost | null = null, poiWake: Promise<PoiLedgerHost | null> | null = null;
+const poiReady = () => poiWake ??= Promise.resolve(REGION_POI!.create({ viewBbox: approxViewBbox, requestDraw: requestDraw })).then(led => {
 	poiReal = led;
 	requestDraw();
 	return poiReal;
 });
-const poi = !REGION_POI ? null : {
-	load(c) { if (poiReal) poiReal.load(c); else poiReady(); },
-	injectLabels: (...a) => poiReal?.injectLabels(...a),
+const poi: PoiProxyHost | null = !REGION_POI ? null : {
+	load(c: GlobeScope["cam"]) { if (poiReal) poiReal.load(c); else poiReady(); },
+	injectLabels: (...a: Parameters<PoiLedgerHost["injectLabels"]>) => poiReal?.injectLabels(...a),
 	get ver() { return poiReal?.ver ?? 0; },
 	ready: poiReady,
 };
-let flying = false;                        // フライト中フラグ＝meshMgr.update のゲート（flyTo が立て、着地/中断で下ろす）
+let flying: GlobeLive["flying"] = false;                        // フライト中フラグ＝meshMgr.update のゲート（flyTo が立て、着地/中断で下ろす）
 // 建物メッシュの管理（mesh/manager.js＋データ管理画面）は寄った時（z≥MESH_WAKE_Z）か明示の呼び出し（台本の先読み・区の立ち上げ・
 // データ管理ボタン）で初めて読む＝起動の JS と登録簿（plateau-sets.json）を列島ビューの起動から外す（2026-09-22・約 22KB gz）。
 // 表向きの形（meshMgr.*）は従来と同じ代理の窓口：本物が来るまでの読み取りは空（登録簿 []・進捗は空 Map・HUD は 0）、
@@ -1012,17 +1144,17 @@ let flying = false;                        // フライト中フラグ＝meshMgr
 const MESH_WAKE_Z = 12;
 const meshEnv = {
 	meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON, RENDER_FX },
-	renderer, attachMeshPort: port => wPost({ type: "meshPort", port }, [port]), mapEl, dbgHost, emit: emitMesh,
+	renderer, attachMeshPort: (port: MessagePort) => wPost({ type: "meshPort", port }, [port]), mapEl, dbgHost, emit: emitMesh,
 	requestDraw: requestDraw,
 	get cam() { return cam; }, get moving() { return moving; }, get flying() { return flying; }, get printHold() { return printHold; }, get elevBusy() { return elevBusy; },
 	// 足元＝チルト時（pitch>20°）は画面下端中央の接地点（球外なら null）。真俯瞰では下端＝単に南＝優先の意味が無いので使わない
 	footPoint: () => cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null,
-	viewBbox: approxViewBbox, playingNow: () => scenes.playingNow(), flyTo: (...args) => flyTo(...args),
+	viewBbox: approxViewBbox, playingNow: () => scenes.playingNow(), flyTo: (...args: Parameters<GlobeScope["flyTo"]>) => flyTo(...args),
 	groupOf: REGIONS.map(r => r.buildings?.group).find(Boolean) ?? null,   // データ管理モーダルの見出し・並び（日本＝都道府県）＝地域の申告
 	bldLabels: REGION_BLD_LABELS,   // データ管理モーダルの題（地域の申告・無ければ汎用）
 };
-let meshReal = null, meshWake = null, meshGone = false, meshTap = null;
-const MESH_NO_PROGRESS = new Map();
+let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null;
+const MESH_NO_PROGRESS: MeshManager["progress"] = new Map();
 const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
 	const catalog = loadMeshCatalog();
@@ -1034,21 +1166,21 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 	requestDraw();
 	return meshReal;
 }).catch(e => { console.error("[mesh] manager load failed", e); return null; });
-const meshMgr = {
+const meshMgr: Omit<MeshManager, "setExcludeMap"> & { ready: typeof wakeMesh } = {
 	// settled（カメラ静止＝onMove の 150ms 無音）は本物へ必ず渡す＝新しい区のロードは settled の時だけ始まる。
 	// ⚠落とすと、止まっても何も読まない（2026-09-22〜24：デモの全幕で PLATEAU が出ず、手動でも「他の区の読み込み完了」等の一突き次第＝再現性のない不表示）
-	update(settled) { if (meshReal) meshReal.update(settled); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },   // 起こした時は登録簿の到着で autoMesh(true) が一度走る（manager 側）
-	standUp: async (...a) => (await wakeMesh())?.standUp(...a),
-	prefetch: async (...a) => (await wakeMesh())?.prefetch(...a) ?? [],
+	update(settled?: boolean) { if (meshReal) meshReal.update(settled); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },   // 起こした時は登録簿の到着で autoMesh(true) が一度走る（manager 側）
+	standUp: async (...a: Parameters<MeshManager["standUp"]>) => (await wakeMesh())?.standUp(...a),
+	prefetch: async (...a: Parameters<MeshManager["prefetch"]>) => (await wakeMesh())?.prefetch(...a) ?? [],
 	openDb: async () => (await wakeMesh())?.openDb(),
-	firstRevealSets: views => meshReal?.firstRevealSets(views) ?? [],
-	trimForScript: views => meshReal?.trimForScript(views),
-	setProgressTap: fn => { meshTap = fn; meshReal?.setProgressTap(fn); },
+	firstRevealSets: (views: unknown[]) => meshReal?.firstRevealSets(views) ?? [],
+	trimForScript: (views: string[]) => meshReal?.trimForScript(views),
+	setProgressTap: (fn: MeshProgressTap) => { meshTap = fn; meshReal?.setProgressTap(fn); },
 	terminate: () => { meshGone = true; meshReal?.terminate(); },
 	get sets() { return meshReal?.sets ?? []; },
 	get progress() { return meshReal?.progress ?? MESH_NO_PROGRESS; },
-	isActive: name => meshReal?.isActive(name) ?? false,
-	isDead: name => meshReal?.isDead(name) ?? false,
+	isActive: (name: string) => meshReal?.isActive(name) ?? false,
+	isDead: (name: string) => meshReal?.isDead(name) ?? false,
 	visibleLoading: () => meshReal?.visibleLoading() ?? [],
 	memStats: () => meshReal?.memStats() ?? { bytes: 0, regions: 0, transient: { cache: 0, live: 0, bytes: 0 }, tier: null },
 	ready: wakeMesh,
@@ -1077,7 +1209,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	if (!getHeight || ugBusy || (!force && performance.now() - ugT < 60)) return;
 	ugT = performance.now(); ugBusy = true;
 	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
-	const done = (t, d) => { ugBusy = false; ugLastD = d; undergroundEl.style.opacity = moving ? t : (d < 0 ? 1 : 0); };
+	const done = (t: number, d: number) => { ugBusy = false; ugLastD = d; (undergroundEl.style as { opacity: string | number }).opacity = moving ? t : (d < 0 ? 1 : 0); };
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	if (noTerr) return done(0, Infinity);   // 地形を描かない地図（terrain:false・MapLibre の口の既定）＝地面は海抜 0 の平面＝潜らない。旧＝描いていない自前の標高で判定し、z18・傾き 60° の公式例（add-a-3d-model-using-threejs）が全面灰色（2026-09-29）
 	const st = cameraState(cam, size.w, size.h);
@@ -1088,8 +1220,8 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	Promise.race([Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })), new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
 			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
-			if (clipFor("terrain") && clipDistanceM(clipFor("terrain"), lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が地形の面で切られた側（周りに地面が無い）＝地中でない
-			const d = eyeAltM - (+h || 0);   // 直下地表からの余裕[m]（d<0=地中）
+			if (clipFor("terrain") && clipDistanceM(clipFor("terrain")!, lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が地形の面で切られた側（周りに地面が無い）＝地中でない
+			const d = eyeAltM - (+(h as number) || 0);   // 直下地表からの余裕[m]（d<0=地中）
 			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
 			done(x * x * (3 - 2 * x), d);   // smoothstep
 		})
@@ -1099,7 +1231,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 // ＝地中(d<0)なら中途半端なグレーを残さず全黒（opacity=1）、地上なら解除（0）。Kenji「止まった時はヒステリシスが
 // あっても真っ黒に」。直近サンプル ugLastD を同期で使う（新規fetchの競合なし。静止時は eye≈最終onMove位置＝十分新鮮）。
 function commitUnderground() {
-	undergroundEl.style.opacity = ((cam.pitch || 0) >= 0.06 && ugLastD < 0) ? 1 : 0;
+	(undergroundEl.style as { opacity: string | number }).opacity = ((cam.pitch || 0) >= 0.06 && ugLastD < 0) ? 1 : 0;
 }
 
 // --- 選抜リフト球（タイル被覆の地形補正・2026-08-03）: 中心の地面標高 → tiles.update の groundR ---
@@ -1108,7 +1240,7 @@ function commitUnderground() {
 //（実測: 草津1200m・z15.8・チルト52°で画面左下1/3が空白。Node被覆シミュで海面欠け0/リフト欠け48%）。
 // 表示中の地形変位と同式（renderer elevScaleEff と同じ pitch フェード）で半径を作る＝真俯瞰は1（従来通り）。
 // 標高は getHeight の非同期サンプル＝到着まで0（海面挙動）、到着時 needsDraw で選抜し直し＝自己回復。
-let groundElevM = 0, geBusy = false, geKey = "", geGen = 0;
+let groundElevM = 0, geBusy: GlobeLive["geBusy"] = false, geKey: GlobeLive["geKey"] = "", geGen: GlobeLive["geGen"] = 0;
 function sampleGroundElev() {
 	if ((!getHeight && !demMain) || geBusy) return;
 	const k = Math.round(cam.center[0] * 1000) + "," + Math.round(cam.center[1] * 1000);   // ~100m格子＝微パンで照会を積まない
@@ -1117,7 +1249,7 @@ function sampleGroundElev() {
 	// 世代＝DEM の差し替え（setDem）で古い照会の答えを捨てる・3 秒で答えが無ければ手を放す（答えの来ない照会で geBusy が立ちっぱなし＝以後一度も引き直さない事故の柵・2026-09-30）
 	const gen = ++geGen, timer = setTimeout(() => { if (gen === geGen) geBusy = false; }, 3000);
 	// 外来の DEM（setTerrain・style の terrain）がある地図は描いている地形と同じ出どころ（heightAt＝外来が先・無い所は既定）。旧＝既定の DTM だけ＝mapterhorn の山で 0m（注視点の高さが効かない・2026-09-30）
-	Promise.resolve(demMain ? heightAt(cam.center[0], cam.center[1]) : getHeight(cam.center[0], cam.center[1], cam.zoom))
+	Promise.resolve(demMain ? heightAt(cam.center[0], cam.center[1]) : getHeight!(cam.center[0], cam.center[1], cam.zoom))
 		.then(h => { clearTimeout(timer); if (gen !== geGen) return; geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; requestDraw(); } })
 		.catch(() => { clearTimeout(timer); if (gen === geGen) geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
 }
@@ -1169,7 +1301,7 @@ function onMove() {
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 let vtdAnchorsOn = false;   // #123：vtdraw が作られてから差し込む位置を配る（それまで＝起動の途中のテーマ・生成層の再ビルドから呼ばれても何もしない＝後で宣言する束縛に触れない）
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y), requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
+	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y) as string, requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
@@ -1186,13 +1318,13 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
 	memBudgetMB: qNum(/[?&]tbudget=(\d+)/, LOW_MEM ? 24 : 0) || undefined,   // ?tbudget=48 でタイル予算を戻すA/B（未指定=LOW_MEM 24 / 非LOW_MEM auto、?tbudget=0 で強制auto）
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
-	onMerged: (slot, sig) => onSceneApplied(slot, sig),
+	onMerged: (slot, sig) => onSceneApplied(slot as string, sig as string),
 });
-const setPipelineStyle = st => { setPipelineStyle0(st); sendUserAnchors(); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
+const setPipelineStyle: GlobeScope["setPipelineStyle"] = st => { setPipelineStyle0(st); sendUserAnchors(); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
 if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOS relay path active (page -> scene worker -> render worker); flushed", pend.length, "queued messages"); }
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
-function onSceneApplied(slot, sig) {
+function onSceneApplied(slot: string, sig: string) {
 	// 基図の門(z<BASEMAP_MINZOOM)より下へ移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
 	// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
 	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝復帰時に再結合させる）。
@@ -1217,16 +1349,16 @@ dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故�
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
 // ?pm= のアーカイブ自己申告を読む → 層名を役割へ振って描画規則を組み → style へ前置 → 再ビルド。
 // 規則の中身は style-pm.js（役割表・紙→インクの階調・描かないものの裁定）。ここは配線だけ。
-const withPM = s => EXT ? extBaseStyle(EXT) : BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
+const withPM: GlobeScope["withPM"] = s => EXT ? extBaseStyle(EXT) : BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
 // 画像タイル層の起動待ち行列：map.raster（下方で定義）と初フレームが揃ってから実行＝アーカイブのヘッダが先に届いても TDZ/未初期化を踏まない
-const rasterBootQ = [];
-let rasterBoot = fn => rasterBootQ.push(fn);
-if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
+const rasterBootQ: GlobeScope["rasterBootQ"] = [];
+let rasterBoot: GlobeLive["rasterBoot"] = fn => rasterBootQ.push(fn);
+if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url!).then(info => {
 	BASE_SOURCE.info = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
 	// ラスタのアーカイブ（tileType＝png/jpeg/webp/avif）＝ベクタ配管はエンジンの門が空タイルで返す＝画像タイル層（基図・塗りは伏せる）へ回す。
 	// データが自分の種別を申告する＝同じ ?pm= で済む（初めにデータありき）。出典もアーカイブの自己申告（rasterInfo で消毒）
 	if (isRasterTileType(info.tileType)) {
-		rasterBoot(() => map.raster.add("pm", { pmtiles: BASE_SOURCE.url }, { order: "under", hideFills: true }).catch(err => console.warn("[pm] raster archive failed", err)));
+		rasterBoot(() => map.raster.add("pm", { pmtiles: BASE_SOURCE.url! }, { order: "under", hideFills: true }).catch(err => console.warn("[pm] raster archive failed", err)));
 		console.info(`[pm] ${info.name || PM_SPEC}  raster ${info.tileType}  z${info.minZoom}-${info.maxZoom}  -> imagery layer (fills hidden)`);
 		return;
 	}
@@ -1243,51 +1375,51 @@ if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
 dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
-const MAXPITCH = 75 * D2R;
+const MAXPITCH: GlobeScope["MAXPITCH"] = 75 * D2R;
 // チルト上限の単位（1.3.0〜・台帳 R15）：MapLibre と同じ度で受ける。1.6 を超える値＝度・それ以下は従来のラジアン
 // （ラジアンの上限は 1.6 未満＝区別がつく・度で 1.6 以下は 0 以外に意味が無い・内製の呼び手は全部 0）。ラジアンは警告を 1 回
 let pitchWarned = false;
-const pitchIn = v => { if (v == null) return v; if (v > 1.6) return v * D2R; if (v > 0 && !pitchWarned) { pitchWarned = true; console.warn(`[globe] maxPitch ${v} read as radians (deprecated) — pass degrees like MapLibre (e.g. 60)`); } return v; };
-let maxPitchCur = pitchIn(opts.maxPitch) ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
+const pitchIn: GlobeScope["pitchIn"] = v => { if (v == null) return v; if (v > 1.6) return v * D2R; if (v > 0 && !pitchWarned) { pitchWarned = true; console.warn(`[globe] maxPitch ${v} read as radians (deprecated) — pass degrees like MapLibre (e.g. 60)`); } return v; };
+let maxPitchCur: GlobeLive["maxPitchCur"] = pitchIn(opts.maxPitch) ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 // ZOOM_MAX は上方（基図の門より前）で決めている＝BASEMAP_MINZOOM が参照する（使う所より前で決める・TDZ の轍）
-const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
+const ZOOM_MIN: GlobeScope["ZOOM_MIN"] = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 // 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
 // 飛行系（デモ・scene・flyTo）も CAM_ZOOM_MIN 床＝台本から太陽系へ飛べる（2026-08-21・LT台本の z=-17 行が動機。
 // 旧・飛行系だけ床1の保守的縫い目は撤去＝呼び出し側は皆 z≥3 か Math.max 済みで、床1に頼る呼び出しは無いのを検分済み）。
 // ?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）＝その時は飛行床も従来の1へ戻る。
 const SOLAR_ZOOM_MIN = -17;
 const solarOff = new URLSearchParams(location.search).has("nosolar") || opts.sky === false;   // opts.sky＝false（MapLibre の口）＝太陽系圏も持たない
-const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
-let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
-let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
+const CAM_ZOOM_MIN: GlobeScope["CAM_ZOOM_MIN"] = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
+let zoomMinCur: GlobeLive["zoomMinCur"] = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
+let editDropOwner: GlobeLive["editDropOwner"] = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
 // 大気の霞（球の地を大気色へ寄せる・縁のリム光）＝MapLibre は sky／fog を書かない限り持たない＝MapLibre の目盛りでは強さ 0（options.ortho.atmosphere:true で戻す・2026-09-30）
-const atmoOf = a => (ML_COVER && opts.atmosphere !== true && Array.isArray(a) ? [a[0], a[1], a[2], 0] : a);
+const atmoOf = (a: number[] | undefined) => (ML_COVER && opts.atmosphere !== true && Array.isArray(a) ? [a[0], a[1], a[2], 0] : a);
 let atmo = atmoOf(theme.atmo);      // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 // style の light（B3・2026-10-12・MapLibre の light/setLight/getLight）：起動の style と setStyle の根の light を読む。null＝従来の固定光（renderer の既定・ビット同一）。
 // viewport の錨は画面の上＝bearing で回る＝onMove で bearing が変わった時だけ送り直す（軽い message）
-let mlLight = null, lightBearingSent = null;
-let mlSky = null, skyZoomSent = null;
+let mlLight: GlobeLive["mlLight"] = null, lightBearingSent: number | null = null;
+let mlSky: GlobeLive["mlSky"] = null, skyZoomSent: number | null = null;
 // MapLibre の小口（B6）の状態：glyphs（記録だけ＝文字は Canvas2D）・sprite の一覧（id → url・読んだ記号の名前）・font-faces の記録・最小チルト・カメラの後処理・連続描画・debug の表示
-let mlGlyphs = EXT?.ms.glyphs ?? null, spriteList = normSprite(EXT?.ms.sprite), fontFacesList = [];
-const spriteNames = new Map();   // sprite の id → その sprite から読んだ記号の名前（removeSprite で消す）
-let minPitchCur = 0, camUpdateFn = null, repaintAlways = false, lastCoverOrder = null;
+let mlGlyphs: GlobeLive["mlGlyphs"] = EXT?.ms.glyphs ?? null, spriteList: GlobeLive["spriteList"] = normSprite(EXT?.ms.sprite), fontFacesList: Array<Record<string, unknown>> = [];
+const spriteNames: GlobeScope["spriteNames"] = new Map();   // sprite の id → その sprite から読んだ記号の名前（removeSprite で消す）
+let minPitchCur: GlobeLive["minPitchCur"] = 0, camUpdateFn: GlobeLive["camUpdateFn"] = null, repaintAlways = false, lastCoverOrder: TileOrder | null = null;
 const dbgState = { tileBoundaries: false, padding: false };   // style の sky（B4）＝normSky 済み｜null（従来＝宇宙へ抜けるリム光）
-const sendSky = () => { skyZoomSent = cam.zoom; renderer.set("sky", mlSky ? skyPayload(mlSky, cam.zoom) : null); };
-const sendLight = () => { lightBearingSent = cam.bearing; renderer.set("light", mlLight ? lightPayload(mlLight, cam.bearing * R2D) : null); };
-const HOME_VIEW = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
-const cam = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, roll: 0, dpr };   // roll＝視線まわりの回転（MapLibre の roll・2026-10-12 A1）。fovy は無指定＝エンジン既定 50°（setVerticalFieldOfView で書く）   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
+const sendSky: GlobeScope["sendSky"] = () => { skyZoomSent = cam.zoom; renderer.set("sky", mlSky ? skyPayload(mlSky, cam.zoom) : null); };
+const sendLight: GlobeScope["sendLight"] = () => { lightBearingSent = cam.bearing; renderer.set("light", mlLight ? lightPayload(mlLight, cam.bearing * R2D) : null); };
+const HOME_VIEW: GlobeScope["HOME_VIEW"] = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
+const cam: GlobeScope["cam"] = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, roll: 0, dpr };   // roll＝視線まわりの回転（MapLibre の roll・2026-10-12 A1）。fovy は無指定＝エンジン既定 50°（setVerticalFieldOfView で書く）   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
-function applyCamView(v) {
+function applyCamView(v: { lon: number; lat: number; zoom: number; pitch?: number; bearing?: number; roll?: number }) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
 	cam.zoom = Math.max(zoomMinCur, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける（編集中は z2.5 床）
 	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
-	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
-	cam.roll = Number.isFinite(v.roll) ? v.roll : 0;
+	cam.bearing = Number.isFinite(v.bearing) ? v.bearing as number : 0;
+	cam.roll = Number.isFinite(v.roll) ? v.roll as number : 0;
 }
 const bootView = parseViewHash(opts.view || pageHash || REGIONS.map(r => r.view).filter(Boolean).pop() || "");   // 裸で開いた時の視点は地域宣言が持つ（/nl/ ＝デルフト上空・日本は既定のまま）
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
@@ -1302,8 +1434,8 @@ else if (PERSIST) try {   // 前回ビューは URL／opts.view が無い時だ�
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 // ── 共通の時計（#42・2026-09-23）＝ephem/clock（solar と同じ部品）。既定＝実時間（Date.now に張り付く）。
 // 起動の優先度＝URL の t=/s=（共有リンク）> opts.time（Date｜ISO 文字列｜ms）> 実時間。状態が変わった時だけ worker へ基準を送る（下の sky の後で結線）
-const clock = createClock();
-const clockParamsOf = v => { const p = new URLSearchParams(); if (v.time) p.set("t", v.time); if (v.speed != null) p.set("s", String(v.speed)); return p; };
+const clock: GlobeScope["clock"] = createClock();
+const clockParamsOf = (v: { time?: string | null; speed?: number | null }) => { const p = new URLSearchParams(); if (v.time) p.set("t", v.time); if (v.speed != null) p.set("s", String(v.speed)); return p; };
 if (opts.time != null) clock.setTime(opts.time instanceof Date ? opts.time.getTime() : typeof opts.time === "string" ? Date.parse(opts.time) : +opts.time);
 // ⚠ここに前回ビューの else を繋がない（2026-09-23 #42 で時計の if に繋がり、t= の無い共有 URL が前回ビューに上書きされていた＝9/24 根治）
 if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(clockParamsOf(bootView));
@@ -1312,7 +1444,7 @@ if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(cloc
 const saveCam = () => { if (!PERSIST) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
-const viewHash = () => {
+const viewHash: GlobeScope["viewHash"] = () => {
 	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
 	if (sky.constelVisible) on.push(SKY_LAYER);   // 星座ON＝l= に sky を追加（既定OFF＝差分ありで l= を必ず書き出す）
 	const changed = sky.constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
@@ -1324,14 +1456,14 @@ const viewHash = () => {
 	if (clock.step !== 1) extras.push("s=" + clock.step);
 	return buildViewHash(cam, extras);
 };
-const saveView = () => { saveCam(); if (URL_OWN && (ownMapEl || opts.urlHash)) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
+const saveView: GlobeScope["saveView"] = () => { saveCam(); if (URL_OWN && (ownMapEl || opts.urlHash)) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
 // 配色テーマの生き替え（reload無し restyle）：基図タイルを新styleで組み直し、静的色・夜家具(ui-dark)・海岸線色・
 // N02芯色を差し替える。★URLは書かない＝呼び出し側が「全状態が揃った後」に1回だけ書く（applyView 末尾の saveView／
 // palette は switchTheme 後に saveView）＝URL⇄状態の一元化・順序取りこぼしの防止。色は dl.ops に焼き込まれるため基図は
 // 再ビルド必須（setPipelineStyle が evict→新styleビルド＝GPU入れ替え＝ピーク約1倍）。一瞬の貼り直しは許容（fade不要）。
-function switchTheme(name) {
+function switchTheme(name: string) {
 	if (name === themeName || !MAP_THEMES[name]) return;
-	queueMicrotask(() => mapEl.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
+	queueMicrotask(() => mapEl.querySelectorAll<HTMLElement>("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
 	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withUserBg(withPM(theme.style)));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = bgOf(style);
 	land = landOf(bg, [0.96, 0.96, 0.95, 1]);
@@ -1376,18 +1508,18 @@ renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(
 if (EXT?.ms.light) { mlLight = normLight(EXT.ms.light); sendLight(); }   // 起動の style の根の light（B3）
 if (EXT?.ms.sky) { mlSky = normSky(EXT.ms.sky); sendSky(); }   // 起動の style の根の sky（B4）
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
-const seaLi = (st, id) => st.ext ? -1 : st.layers.findIndex(L => L.id === id);   // 外来 style＝地理院の「海は z9 から」「建物の塗りはチルトで伏せる」の門を当てない（層 id が偶然同じでも）
+const seaLi: GlobeScope["seaLi"] = (st, id) => st.ext ? -1 : st.layers.findIndex(L => L.id === id);   // 外来 style＝地理院の「海は z9 から」「建物の塗りはチルトで伏せる」の門を当てない（層 id が偶然同じでも）
 // 地域の基図の自動の建物（style.schema.buildings の押し出し＝推定の高さ）＝層 "building-extrusion"（段 8① の続き・2026-09-27）。
 // MapLibre の style の層と同じ口で出し入れだけできる（setLayoutProperty の visibility・removeLayer）＝vector の押し出し（OSM など）へ差し替える時に伏せる。
 // 色・filter・出しズームは変えられない（投げる）。描き方は render worker の noBld（?nobld=1 の診断ノブを実行時に）。伏せている間は足元の塗り（building）を
 // チルトでも出す（bldFill の門を外す＝押し出しと二重にならない）。テーマを切り替えても残る（render worker の旗と下の bldFillLi）
-const AUTO_BLD = "building-extrusion";
-let autoBldHidden = false, autoBldRemoved = false;   // ?nobld=1（診断ノブ）とは切り離す＝ノブの見え方（足元の塗りの門）は今のまま
-const bldFillLi = st => autoBldHidden ? -1 : seaLi(st, "building");
-const autoBldOn = () => !autoBldRemoved && !mlLayers.has(AUTO_BLD) && !!style?.schema?.buildings;   // 利用者の層に同じ id があればそちらが勝つ
-const autoBldLayer = () => autoBldOn() ? { id: AUTO_BLD, type: "fill-extrusion", source: baseSidNow(), "source-layer": style.schema.buildings.layer, ...(autoBldHidden ? { layout: { visibility: "none" } } : {}), metadata: { "ortho:auto": true, [DZ_KEY]: 0 } } : null;
-const setAutoBld = hidden => { if (autoBldHidden === hidden) return; autoBldHidden = hidden; wPost({ type: "set", cmd: "noBld", data: hidden }); renderer.set("bldFill", { li: bldFillLi(style) }); requestDraw(); };
-const autoBldReadOnly = what => { throw new Error(`${what}: layer "${AUTO_BLD}" is the basemap's automatic 3D buildings — only visibility can be changed (removeLayer hides it)`); };
+const AUTO_BLD: GlobeScope["AUTO_BLD"] = "building-extrusion";
+let autoBldHidden: GlobeLive["autoBldHidden"] = false, autoBldRemoved: GlobeLive["autoBldRemoved"] = false;   // ?nobld=1（診断ノブ）とは切り離す＝ノブの見え方（足元の塗りの門）は今のまま
+const bldFillLi: GlobeScope["bldFillLi"] = st => autoBldHidden ? -1 : seaLi(st, "building");
+const autoBldOn: GlobeScope["autoBldOn"] = () => !autoBldRemoved && !mlLayers.has(AUTO_BLD) && !!style?.schema?.buildings;   // 利用者の層に同じ id があればそちらが勝つ
+const autoBldLayer: GlobeScope["autoBldLayer"] = () => autoBldOn() ? { id: AUTO_BLD, type: "fill-extrusion", source: baseSidNow(), "source-layer": style.schema!.buildings!.layer, ...(autoBldHidden ? { layout: { visibility: "none" } } : {}), metadata: { "ortho:auto": true, [DZ_KEY]: 0 } } : null;
+const setAutoBld: GlobeScope["setAutoBld"] = hidden => { if (autoBldHidden === hidden) return; autoBldHidden = hidden; wPost({ type: "set", cmd: "noBld", data: hidden }); renderer.set("bldFill", { li: bldFillLi(style) }); requestDraw(); };
+const autoBldReadOnly: GlobeScope["autoBldReadOnly"] = what => { throw new Error(`${what}: layer "${AUTO_BLD}" is the basemap's automatic 3D buildings — only visibility can be changed (removeLayer hides it)`); };
 renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
 renderer.set("bldFill", { li: bldFillLi(style) });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
 
@@ -1395,7 +1527,7 @@ renderer.set("bldFill", { li: bldFillLi(style) });   // 建物フットプリン
 // ここは配線だけ：定数と道具を渡し、テーマは getter、多層の台帳（extGint / extActive / gintLayerSeq）は onmessage より先に宣言した
 // 上のものを束ねて渡す。生成後に定義される関数（flyTo / loadBelowSea / loadLakes）はラップ＝呼ぶ時に解決。外が読み書きしていた
 // 状態（hoverTip / extTipOwn / suppressAdmin0 …）は gint.* のアクセサで同名の意味のまま。
-let worldContentH = null;   // opts.worldContent の手綱（テーマ切替で塗り直す・下の install が入れる）
+let worldContentH: WorldContent | null = null;   // opts.worldContent の手綱（テーマ切替で塗り直す・下の install が入れる）
 const gint = createGintLayers({
 	gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）
 	gpuExpr: !!opts.gpuExpr || /[?&]gintexpr=1/.test(location.search),   // fid 表を GPU で組む（geopbf 改良点 ⑦・opt-in＝WebGPU の層だけ・GL2 や載らない式は CPU の表へ自動で落ちる）
@@ -1408,7 +1540,7 @@ const gint = createGintLayers({
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
 	layers: { map: extGint, get active() { return extActive; }, set active(v) { extActive = v; }, nextId: () => ++gintLayerSeq },
 	smallAreaHover: !!opts.smallAreaHover,
-	requestDraw: requestDraw, onMove: () => onMove(), flyTo: (...args) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
+	requestDraw: requestDraw, onMove: () => onMove(), flyTo: (...args: Parameters<GlobeScope["flyTo"]>) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
 	get flying() { return flying; },   // 国境の細密版（10m）も飛行の通過点では読まない
 });
 ownDestroy.push(() => gint.destroy());   // gint の bake worker
@@ -1432,8 +1564,8 @@ async function loadBelowSea() {
 }
 // デバッグ手：任意 FC を wdepr へ直載せ（焼き差し替え前の見た目確認。null で解除）
 dbgHost.__terr = () => wPost({ type: "terrStats" });   // 標高アトラスの内部状態を worker から吸い出してコンソールへ（dev診断）
-dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false, ranges: true }) : null); requestDraw(); };
-dbgHost.__rset = (cmd, data, prop) => { renderer.set(cmd, data, prop); requestDraw(); };   // 検定手：renderer.set を直接（例 "terrLod"＝地形チャンク刈りの A/B・t-terrcull）
+dbgHost.__wdepr = (fc: { features?: OvFeatures } | OvFeatures | null) => { renderer.set("wdepr", fc ? buildGeoJSONOverlay((fc as { features?: OvFeatures }).features || fc as OvFeatures, [0, 0], { lines: false, ranges: true }) : null); requestDraw(); };
+dbgHost.__rset = (cmd: string, data?: unknown, prop?: unknown) => { renderer.set(cmd, data, prop); requestDraw(); };   // 検定手：renderer.set を直接（例 "terrLod"＝地形チャンク刈りの A/B・t-terrcull）
 
 // --- 湖（?world=1・Natural Earth lakes）-----------------------------------------------------
 // 旧・Protomaps 世界タイルの world-water 層（OSM/ODbL・湖だけ消費）の置き換え（2026-09-03 本人裁定「B案」）：
@@ -1473,13 +1605,13 @@ if (!clock.isLive()) sendClock();   // 起動時に過去/未来の t= か opts.
 // --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.ts の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
 const railOverlay = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: requestDraw });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
-dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
+dbgHost.__cam = (lon: number, lat: number, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
 	onMove();
 };
 
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
-dbgHost.__mesh = async (nameOrBase, tiles) => {
+dbgHost.__mesh = async (nameOrBase?: string, tiles?: unknown) => {
 	if (!meshOn) { console.warn(SECOND_LOWMEM && MESH_ASKED == null ? "[mesh] second map on a low-memory device = 3D buildings off by default (opts.mesh:true to enable)" : "[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
 	await meshMgr.ready();   // manager と登録簿が揃うまで待つ（寄る前に呼ばれた時）
 	const sets = meshMgr.sets;
@@ -1512,28 +1644,28 @@ resize();
 // --- 入力（パン/チルト/ホイール/アンカー）：実装は engine（input.js＝grab+レート併走・縁縮退対策の結晶）。
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
-let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
-let profileClick = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
-let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上
+let measureClick: GlobeLive["measureClick"] = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
+let profileClick: GlobeLive["profileClick"] = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
+let poiClick: GlobeLive["poiClick"] = null;       // POI台帳編集のarmed中だけ非null＝同上
 // 道具の排他（後から開いた方が勝つ）：計測・断面図・日影・可視域・操作方法カードは同時に一つだけ
 // ＝クリックの行き先が常に一意・左下のパネルが重ならない（計測⇄断面図 本人裁定2026-08-27 → 2026-09-24 に仲間を拡張）。
 // 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：開いた瞬間に toolOpen(名) → 他の全員の close を呼ぶ。
 // close は「開いていなければ何もしない」こと・toolOpen を呼び返さないこと（再入しない）。新しい道具は toolClose へ登録し onOpen を渡す。
 // 計測/断面図の本体ハンドルは onBody で到着（スタブ経由の遅延 import 後）＝未ロードの相方は必然的にOFF＝何もしなくてよい。
-let measureBody = null, profileBody = null;
-const toolClose = new Map();   // 名 → close()
-const toolOpen = name => { for (const [k, f] of toolClose) if (k !== name) { try { f(); } catch (e) { console.warn("[tool] close", k, e); } } };
+let measureBody: GlobeLive["measureBody"] = null, profileBody: GlobeLive["profileBody"] = null;
+const toolClose: GlobeScope["toolClose"] = new Map();   // 名 → close()
+const toolOpen: GlobeScope["toolOpen"] = name => { for (const [k, f] of toolClose) if (k !== name) { try { f(); } catch (e) { console.warn("[tool] close", k, e); } } };
 toolClose.set("measure", () => measureBody?.stop?.());
 toolClose.set("profile", () => profileBody?.stop?.());
-let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
+let editClick: ((x: number, y: number) => unknown) | null = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
-const input = createInput({
+const input: GlobeScope["input"] = createInput({
 	wheelZoom: ML_COVER ? "maplibre" : "linear",   // MapLibre の目盛り＝ホイールの 1 目盛りも MapLibre と同じ量（並べて触った時に同じ所へ寄る）
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	// 手触りの旗（A2・2026-10-12・MapLibre 同名）：opts.handlers={scrollZoom:false,…}・opts.interactive:false＝全部 off・opts.cooperativeGestures・opts.zoomSnap。実行時は map.setHandler
 	handlers: opts.handlers || {}, interactive: opts.interactive, cooperativeGestures: opts.cooperativeGestures, zoomSnap: opts.zoomSnap,
 	onBoxZoom: (phase, d) => {
-		if (phase === "end") { for (const cb of mapOn.boxzoomend) { try { cb({ bbox: d.bbox, x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }); } catch (e) { console.error("[map.on boxzoomend]", e); } } map.fitBounds(d.bbox, { linear: true, duration: 500 }); }   // MapLibre の BoxZoomHandler＝fitScreenCoordinates(linear)
+		if (phase === "end") { for (const cb of mapOn.boxzoomend) { try { cb({ bbox: d.bbox, x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }); } catch (e) { console.error("[map.on boxzoomend]", e); } } map.fitBounds(d.bbox!, { linear: true, duration: 500 }); }   // MapLibre の BoxZoomHandler＝fitScreenCoordinates(linear)
 		else for (const cb of mapOn[phase === "start" ? "boxzoomstart" : "boxzoomcancel"]) { try { cb({}); } catch (e) { console.error("[map.on boxzoom]", e); } }
 	},
 	onBlocked: kind => { for (const cb of mapOn.cooperativegestureprevented) { try { cb({ kind }); } catch (e) { console.error("[map.on cooperativegestureprevented]", e); } } },
@@ -1541,7 +1673,7 @@ const input = createInput({
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
 	blocked: () => modalOpen(mapEl) || !isKeyOwner(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),   // !isKeyOwner＝頁の別の地図がキーの持ち主（#173 段 3）
 	onGesture: () => { flightCtl.cancel(); if (followSt?.stopOnGesture) followSt = null; },
-	onClick: dbgHost.__mapClickAt = (x, y) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
+	onClick: dbgHost.__mapClickAt = (x: number, y: number) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
@@ -1575,7 +1707,7 @@ const input = createInput({
 // 世界ビューの国名 tip（opts.countryTip）。"shift"＝Shift を押している間だけ（地物の tip を持つ頁が国名を出し分ける・/globe/physical・2026-10-01）
 let shiftHeld = false;
 const countryTipMode = () => opts.countryTip === "shift" ? shiftHeld : opts.countryTip !== false;
-function countryTipAt(x, y, cutH = false, fudeOwn = false) {
+function countryTipAt(x: number, y: number, cutH = false, fudeOwn = false) {
 	const a0TipOn = countryTipMode()  && gint.admin0Layer && gint.admin0Vis && !gint.internalHidden && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
 	if (a0TipOn && gint.admin0Pbf && gint.hoverTip && !fudeOwn) {
 		// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
@@ -1590,7 +1722,7 @@ function countryTipAt(x, y, cutH = false, fudeOwn = false) {
 	}
 }
 if (opts.countryTip === "shift") {
-	const setShift = on => {
+	const setShift = (on: boolean) => {
 		if (on === shiftHeld) return; shiftHeld = on;
 		if (!on) { if (gint.worldTipOn) { gint.hoverTip?.(null); gint.worldTipOn = false; } return; }
 		const xy = gint.lastHoverXY; if (xy) countryTipAt(xy[0], xy[1], clipCutXY(xy[0], xy[1]));   // 止まったまま Shift を押しても出る
@@ -1607,7 +1739,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) {
 	let idleT = 0;
 	const overUI = () => { const h = mapEl.querySelector(":hover"); return !!(h && (h.closest("#gadgets") || h.closest("#chips"))); };
 	const searchOpen = () => !!mapEl.querySelector("#search.open");
-	const panelOpen = () => { const p = mapEl.querySelector("#layers-panel"); return !!(p && !p.hidden); };   // 表示パネル展開中＝選んでいる最中に足元が消えない
+	const panelOpen = () => { const p = mapEl.querySelector<HTMLElement>("#layers-panel"); return !!(p && !p.hidden); };   // 表示パネル展開中＝選んでいる最中に足元が消えない
 	const hideUI = () => { if (overUI() || searchOpen() || panelOpen()) { idleT = setTimeout(hideUI, IDLE_MS); return; } mapEl.classList.add("ui-idle"); };   // 操作中は消さず再武装
 	const wakeUI = () => { mapEl.classList.remove("ui-idle"); clearTimeout(idleT); idleT = setTimeout(hideUI, IDLE_MS); };
 	mapEl.addEventListener("mousemove", wakeUI, { signal: ac.signal, passive: true });
@@ -1616,7 +1748,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) {
 	window.addEventListener("keydown", wakeUI, { signal: ac.signal });
 	idleT = setTimeout(hideUI, IDLE_MS);   // 起動後に無操作なら退場（動かせば戻る）
 }
-const evXY = input.evXY;   // 座標読み取り（計器）も同じローカル変換を使う
+const evXY: GlobeScope["evXY"] = input.evXY;   // 座標読み取り（計器）も同じローカル変換を使う
 
 // --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
 // zoom はここ（z値列）が持つ＝スケールバーは距離のみ。表示更新は rAF に畳む＝hot path を汚さない。
@@ -1626,13 +1758,13 @@ const evXY = input.evXY;   // 座標読み取り（計器）も同じローカ�
 const posEl = orDetached(mapEl.querySelector("#pos"));
 const hasPos = posEl.isConnected;   // 座標表示なし（instrumentsで"pos"非搭載）＝標高照会も止める（見えない計器のためのfetchをしない）
 // 狭画面＝座標テーブルなし（境界はCSSの掟と同値）。回転や窓リサイズで跨ぐため毎回評価＝posOn が表示と標高fetchの両方を裁く。
-const narrowMq = window.matchMedia("(max-width: 480px)");
+const narrowMq: GlobeScope["narrowMq"] = window.matchMedia("(max-width: 480px)");
 const posOn = () => hasPos && !narrowMq.matches;
 posEl.innerHTML = `<table><thead><tr><th>${t("Lon")}</th><th>${t("Lat")}</th><th>${t("Elev")}</th><th>${t("z")}</th><th>${t("Rot")}</th><th>${t("Tilt")}</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>`;
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
-let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
+let posMouse: { x: number; y: number } | null = null, posElev: number | null = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight: Awaited<GlobeScope["getHeightP"]> | null = null;
 setAltApiUrl("https://api.ortho-earth.com");
-const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
+const getHeightP: GlobeScope["getHeightP"] = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
 getHeightP.then(f => { getHeight = f; updateUnderground(true); });
 ownDestroy.push(() => getHeightP.then(f => f.terminate?.()));   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
@@ -1641,7 +1773,7 @@ ownDestroy.push(() => getHeightP.then(f => f.terminate?.()));   // ローダ準�
 // 緯度依存に（2026-08-11・段階A）：旧・固定 6372000 は N(35°)=6385.2km 比 -0.2%、高緯度ほどずれた。
 // 南北は M(φ)＝N と最大0.5%違うが、バー1本に2値は出せない＝横置きの素直（正確な計測は M ガジェットの Vincenty）。
 const scaleEl = orDetached(mapEl.querySelector("#scale")), scaleTxt = orDetached(mapEl.querySelector("#scale-txt")), scaleBar = orDetached(mapEl.querySelector("#scale-bar"));
-const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const comma = (s: string | number) => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 function updateScale() {
 	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
 	const d256m = 2 * primeVerticalRadius(cam.center[1]) * Math.PI / Math.pow(2, cam.zoom);
@@ -1686,29 +1818,29 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoMesh のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
 // 時計の口（C10・2026-10-12）＝map.setNow(ms) が動きの時計（飛行・paint の transition・共通の時計の刻み）を止める／進める＝決定論の撮影（同じ setNow の列は同じ絵）。restoreNow で実時間へ
-let nowPin = null; const animNow = () => nowPin ?? performance.now();
+let nowPin: number | null = null; const animNow: GlobeScope["animNow"] = () => nowPin ?? performance.now();
 // 動きを減らす（C10・MapLibre の prefers-reduced-motion と同じ意味）＝easeTo／flyTo／fitBounds は essential:true でなければ jumpTo。opts.reduceMotion（true／false・無指定＝OS の設定を追う）
 const reduceMq = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
 let reduceMotionOpt = typeof opts.reduceMotion === "boolean" ? opts.reduceMotion : null;
-const reduceMotionOn = () => reduceMotionOpt ?? !!reduceMq?.matches;
-const flightCtl = createFlight({ now: animNow, stepMax: () => nowPin != null ? Infinity : 35, cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
+const reduceMotionOn: GlobeScope["reduceMotionOn"] = () => reduceMotionOpt ?? !!reduceMq?.matches;
+const flightCtl: GlobeScope["flightCtl"] = createFlight({ now: animNow, stepMax: () => nowPin != null ? Infinity : 35, cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (f) input.stop();   // 飛行が始まったら慣性・ズームの滑りは止める（A2）
 	if (!f && gint.suppressAdmin0) { gint.suppressAdmin0 = false; gint.updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
 // flyTo をラップ：両端が z≥ADMIN0_Z（coast 表示条件外）なら飛行中の海岸線を抑制＝弧の中間の低ズームで
 // loadAdmin0 を誘発しない（描画も出さない）。片方でも coast 条件内なら従来どおり（端の海岸線をポップさせない）。
-const flyTo = (lon, lat, zoom, tiltDeg, bearingDeg) => {
-	if (reduceMotionOn()) { map.jumpTo({ center: [lon, lat], zoom, pitch: tiltDeg, bearing: bearingDeg }); return Promise.resolve(); }   // 動きを減らす（C10）＝即座に
+const flyTo: GlobeScope["flyTo"] = (lon, lat, zoom, tiltDeg, bearingDeg) => {
+	if (reduceMotionOn()) { map.jumpTo({ center: [lon, lat], zoom, pitch: tiltDeg as number | undefined, bearing: bearingDeg as number | undefined }); return Promise.resolve(); }   // 動きを減らす（C10）＝即座に
 	gint.suppressAdmin0 = cam.zoom >= gint.ADMIN0_Z && zoom >= gint.ADMIN0_Z;
 	if (gint.suppressAdmin0) gint.updateGintSlot();   // 既に coast がスロットに載っていれば離陸前に降ろす
 	return flightCtl.flyTo(lon, lat, zoom, tiltDeg, bearingDeg);
 };
 // 同一フレームのオーバーレイの実画素（検定用・t-linedeco）＝{ type:"probe" } に { type:"pixels", w, h, data } で答えるモジュール（pattern-2d・imagequad-draw・anno-draw）
-dbgHost.__ovPixels = name => new Promise(res => {
+dbgHost.__ovPixels = (name: string) => new Promise(res => {
 	const h = overlays.get(name); if (!h) return res(null);
 	const id = "px" + Math.random(), prev = h.onmessage, tm = setTimeout(() => { h.onmessage = prev; res(null); }, 5000);
-	h.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); h.onmessage = prev; res(d); } else prev?.(d); };
+	h.onmessage = d => { if ((d as { type?: string } | null)?.type === "pixels" && (d as { id?: string }).id === id) { clearTimeout(tm); h.onmessage = prev; res(d); } else prev?.(d); };
 	h.post({ type: "probe", id });
 });
 dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
@@ -1717,28 +1849,28 @@ dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
 //   place/terrain … 文字（注記カテゴリ）の表示ON/OFF
 //   rail/road … 色の点火ON/OFF（OFFでも土台グレーは出ている）
-const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
+const layerState: Record<string, boolean> = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
 // 共有URLのレイヤ集合は「客が触れるキー」だけ上書き（旧romajiトークンは normLayerKey で読み替え）。
 if (bootView?.layers) { const urlSet = new Set(bootView.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
 if (bootView?.layers?.includes(SKY_LAYER)) sky.applyConstellations(true);   // l=sky＝星座線ONで起動（z<4で実描画）
 if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
-let lastTileOrder = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
+let lastTileOrder: GlobeLive["lastTileOrder"] = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
 // 結合で外す層の添字＝テーマの点火ゲート（チップ）∪ 基図の層の出し入れ（段 7・baseVis）
-const baseHiddenIdx = () => { const h = new Set(); if (inspectHide) style.layers.forEach((L, i) => h.add(i)); else if (baseVis.size) style.layers.forEach((L, i) => { if (baseVis.get(L.id) === "none") h.add(i); }); return h; };
-const hiddenAll = () => { const h = themes.hiddenLi(layerState, cam.zoom); for (const i of baseHiddenIdx()) h.add(i); return h; };
-const mkThemes = st => { const th = createThemes(st, { suppressAdmin: !!opts.hideAdminBoundary }); if (st.ext) { th.hiddenLi = () => new Set(); th.filterLabels = all => all; } return th; };   // 外来 style＝チップの点火ゲートと注記の分類（地理院の層 id・注記コード）を当てない＝style が描くと言った物を全部
-let themes = mkThemes(style);   // 分類（allowlist）は themes.js の純関数。
+const baseHiddenIdx = () => { const h = new Set<number>(); if (inspectHide) style.layers.forEach((L, i) => h.add(i)); else if (baseVis.size) style.layers.forEach((L, i) => { if (baseVis.get(L.id) === "none") h.add(i); }); return h; };
+const hiddenAll: GlobeScope["hiddenAll"] = () => { const h = themes.hiddenLi(layerState, cam.zoom); for (const i of baseHiddenIdx()) h.add(i); return h; };
+const mkThemes: GlobeScope["mkThemes"] = st => { const th = createThemes(st, { suppressAdmin: !!opts.hideAdminBoundary }); if (st.ext) { th.hiddenLi = () => new Set(); th.filterLabels = all => all; } return th; };   // 外来 style＝チップの点火ゲートと注記の分類（地理院の層 id・注記コード）を当てない＝style が描くと言った物を全部
+let themes: GlobeLive["themes"] = mkThemes(style);   // 分類（allowlist）は themes.js の純関数。
 dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点火ゲートの検定窓（t-palette-live＝添字ズレの回帰封じ）hideAdminBoundary＝基図の行政界(赤線)を常に隠す（派生アプリが自前境界を描く時）。⚠層添字（LI_*）は style 依存＝テーマ生き替え(switchTheme)で必ず作り直す（旧添字の hidden が「土台を隠し点火層を出す」実バグ 2026-09-09）
 
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
 // readySig/baseSig は merge の ack（onMerged）で確定。要求中の sig は mergeReq が持ち、
 // MERGE_ACK_MS 以内は同一要求を重ねない。ack が来なければ出し直す＝merge の一過性失敗が自己修復する。
 const MERGE_ACK_MS = 1500;
-const mergeLog = []; dbgHost.__mergeLog = mergeLog;   // main merge の要求→着地の時刻（切り分け・直近 64 件）
-const mergeReq = { main: { sig: "", at: 0 }, base: { sig: "", at: 0 } };
-function requestWithAck(slot, sig, doRequest) {
+const mergeLog: Array<{ sig: string; n: number; reqAt: number; ackAt: number }> = []; dbgHost.__mergeLog = mergeLog;   // main merge の要求→着地の時刻（切り分け・直近 64 件）
+const mergeReq: GlobeScope["mergeReq"] = { main: { sig: "", at: 0 }, base: { sig: "", at: 0 } };
+function requestWithAck(slot: "main" | "base", sig: string, doRequest: () => void) {
 	const rq = mergeReq[slot];
 	if (sig === rq.sig && performance.now() - rq.at < MERGE_ACK_MS) return false;   // 同一要求の ack 待ち
 	doRequest();
@@ -1772,8 +1904,8 @@ const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= 
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
-const slog = (...a) => swapLog && console.log(`[swap ${(performance.now() / 1000).toFixed(2)}s z${cam.zoom.toFixed(2)}]`, ...a);
-function swapScene(order) {
+const slog = (...a: unknown[]) => swapLog && console.log(`[swap ${(performance.now() / 1000).toFixed(2)}s z${cam.zoom.toFixed(2)}]`, ...a);
+function swapScene(order: TileOrder) {
 	lastCoverOrder = order;   // debug の表示（showTileBoundaries・B6）が読む今の基図のタイル集合
 	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);
 	mainDesired = sig;
@@ -1794,7 +1926,7 @@ function swapScene(order) {
 		if (swapLog) {   // 集合の増減＝この merge が「何を書き直すか」。zの分布も出す（keepFine深さ切れの検出）
 			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
 			const cur = new Set(order.map(o => o.key));
-			const zHist = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
+			const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
 			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
 		}
 		requestMerge("main", order, sceneOrigin, hiddenAll(), sig);
@@ -1809,26 +1941,27 @@ function swapScene(order) {
 // 実測（z16・市中心5km四方）：重複除去が効くのは東京(566中274=48%)・高知(205中157=77%)で、
 // 札幌(1330中37)・京都(2081中4)は 210 側がほぼ空＝800 が本体なので減らない。密度は丁目の低い
 // symbol-sort-key と labels2d の衝突間引きに任せ、足りなければ CHOME800_MINZOOM を上げる。
-const chomeCanon = t => t.replace(/[（(]([一二三四五六七八九十百]+)[)）]$/, "$1丁目");   // 突合キー＝正式表記へ寄せる
-const chomeShort = t => t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）");        // 表示＝（N）へ（丁目の無い町名はそのまま）
-const nearAnchor = (list, a, m) => {   // list（経緯度の列）に a から m メートル以内の点があるか
+const chomeCanon = (t: string) => t.replace(/[（(]([一二三四五六七八九十百]+)[)）]$/, "$1丁目");   // 突合キー＝正式表記へ寄せる
+// 表示＝（N）へ（丁目の無い町名はそのまま）。旧＝t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）")＝漢数字の長い並びで多項式（CodeQL）＝末尾から数えるのと同じ
+const chomeShort = (t: string) => { if (!t.endsWith("丁目")) return t; const e = t.length - 2; let i = e; while (i > 0 && "一二三四五六七八九十百".includes(t[i - 1])) i--; return i < e ? t.slice(0, i) + "（" + t.slice(i, e) + "）" : t; };
+const nearAnchor = (list: number[][] | undefined, a: readonly number[], m: number) => {   // list（経緯度の列）に a から m メートル以内の点があるか
 	if (!list) return false;
 	const cos = Math.cos(a[1] * Math.PI / 180);
 	return list.some(p => Math.hypot((p[0] - a[0]) * 111320 * cos, (p[1] - a[1]) * 111320) < m);
 };
-const chomeCopies = new WeakMap();   // 800 の元 → （N）表記の写し（文字が変わる＝鍵も付け直す）
-const chomeCopy = L => { let c = chomeCopies.get(L); if (!c) { c = { ...L, text: chomeShort(L.text), code: 210 }; c.key = labelKey({ ...c, key: undefined }); chomeCopies.set(L, c); } return c; };
-function mergeChome(all, zoom) {
+const chomeCopies = new WeakMap<HostLabel, HostLabel>();   // 800 の元 → （N）表記の写し（文字が変わる＝鍵も付け直す）
+const chomeCopy = (L: HostLabel) => { let c = chomeCopies.get(L); if (!c) { c = { ...L, text: chomeShort(L.text), code: 210 }; c.key = labelKey({ ...c, key: undefined }); chomeCopies.set(L, c); } return c; };
+function mergeChome(all: HostLabel[], zoom: number) {
 	if (!all.some(L => L.code === 800)) return all;   // 800 が来ないズーム/地域＝素通り（配列コピーもしない）
 	if (zoom < CHOME800_MINZOOM) return all.filter(L => L.code !== 800);
-	const by = new Map();   // 210 の正規化名 → アンカー列（同名の町丁が全国に居るので位置でも裁く）
+	const by = new Map<string, number[][]>();   // 210 の正規化名 → アンカー列（同名の町丁が全国に居るので位置でも裁く）
 	for (const L of all) if (L.code === 210) {
 		const k = chomeCanon(L.text);
 		let a = by.get(k); if (!a) by.set(k, a = []);
 		a.push(L.anchor);
 	}
-	const seen = new Map();   // 出した町丁名 → アンカー列（同じ注記が隣タイルにも入っている分の重複よけ）
-	const out = [];
+	const seen = new Map<string, number[][]>();   // 出した町丁名 → アンカー列（同じ注記が隣タイルにも入っている分の重複よけ）
+	const out: HostLabel[] = [];
 	for (const L of all) {
 		if (L.code !== 800 && L.code !== 210) { out.push(L); continue; }
 		const k = chomeCanon(L.text);
@@ -1846,11 +1979,11 @@ function mergeChome(all, zoom) {
 	return out;
 }
 // 作り直すたびに同じ中身の物を新しく作らない＝worker へ送るのは初めての物だけ（labelsync）。インクが変わった（テーマ）時だけ作り直す
-const landmarkLabels = new WeakMap();
-const landmarkLabel = (m, color, halo, haloW) => { let e = landmarkLabels.get(m); if (!e || e.color !== color || e.halo !== halo || e.haloW !== haloW) landmarkLabels.set(m, e = { color, halo, haloW, L: { text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW } }); return e.L; };   // size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
-let facInkMemo = null;
-const restyled = new WeakMap();   // 元の注記 → { gen, out }＝再スタイルの写し（入力が同じなら同じ物）
-function restyle(L, kuVisible) {
+const landmarkLabels = new WeakMap<object, { color: readonly number[]; halo: readonly number[]; haloW: number; L: HostLabel }>();
+const landmarkLabel = (m: { text: string; anchor: [number, number] }, color: readonly number[], halo: readonly number[], haloW: number) => { let e = landmarkLabels.get(m); if (!e || e.color !== color || e.halo !== halo || e.haloW !== haloW) landmarkLabels.set(m, e = { color, halo, haloW, L: { text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW } }); return e.L; };   // size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
+let facInkMemo: { lp: object; ink: { color: readonly number[]; halo: readonly number[]; haloW: number } } | null = null;
+const restyled = new WeakMap<HostLabel, { gen: string; out: HostLabel }>();   // 元の注記 → { gen, out }＝再スタイルの写し（入力が同じなら同じ物）
+function restyle(L: HostLabel, kuVisible: boolean): HostLabel {
 	// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 	if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 	// 郡名は同サイズのままやや薄く＝行政の骨格であって主役ではない。
@@ -1868,11 +2001,11 @@ function restyle(L, kuVisible) {
 	if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [...theme.terrainRGB, L.color[3]] };
 	return L;
 	}
-const labelSender = createLabelSender();
-function rebuildLabels(order) {
+const labelSender = createLabelSender<HostLabel>();
+function rebuildLabels(order: TileOrder) {
 	lastLabelGate = labelGate();
 	slog("labels rebuilt (no merge)");
-	const allLabels = tiles.labels(order);
+	const allLabels: HostLabel[] = tiles.labels(order);
 	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）。下限＝基図の門（world帯(z<6.5)に日本固有の✈を漏らさない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
@@ -1906,7 +2039,7 @@ function rebuildLabels(order) {
 	const merged = inspectHide ? [] : mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ（検査表示の間は基図の注記を出さない＝層の添字を持たない台帳の注記も）
 	// 層の出しズームの外の注記は送らない（labels.js が焼いた minZ/maxZ＝エンジンの z）＝この整数 z の間（labelGate の "Z"）に出る可能性のある物だけ。
 	// 旧＝全部送って描く側が zoom 域で捨てていた＝OpenFreeMap の poi_r20（minzoom 18）が z15 で 15753 個＝送るのも 150ms ごとの衝突判定の走査も重かった（2026-09-28）
-	const zf = Math.floor(cam.zoom), inZ = L => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
+	const zf = Math.floor(cam.zoom), inZ = (L: HostLabel) => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
 	const filtered = themes.filterLabels(merged.filter(inZ), layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	// 再スタイルの写しは元の注記ごとに覚える＝入力（区名の有無・チップ・テーマ）が同じなら同じ物＝labelsync が worker へ送り直さない
@@ -1922,11 +2055,11 @@ function rebuildLabels(order) {
 }
 
 // 粗い下地（base スロット）：移動中も常に敷き直して先端の空白・ちらつきを消す。低zで少数＝安く広い。
-let baseSig = "";
+let baseSig: GlobeLive["baseSig"] = "";
 // 線レイヤは merge には含める（間引かない）。main と重なって出る時だけ renderer が draw 時に伏せる
 //（「LODの荒い線」対策は描画側の判断へ移設）＝ズームアウトで下地が主役の間は線も描く。低ズームの
 // 地図は線（行政界・道路）が絵の本体＋海は紙の海＝塗り だけだと真っ白になるため。
-function swapBase(coarseOrder) {
+function swapBase(coarseOrder: TileOrder) {
 	const sig = coarseOrder.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === baseSig || !coarseOrder.length) return;
 	requestWithAck("base", sig, () =>
@@ -1943,13 +2076,13 @@ function applyTerrain() {
 	requestDraw();
 }
 // チップの見た目同期：点火クラスと aria-pressed（支援技術向けのトグル状態）を常に一緒に更新する。
-const syncChip = b => { const on = !!layerState[b.dataset.k]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); };
+const syncChip = (b: HTMLElement) => { const on = !!layerState[b.dataset.k as string]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); };
 // レイヤ点火/消灯の正規経路（チップclickの本体を関数化）：状態＋見た目＋styleSig再結合＋per-key副作用＋URL書き戻し
 // を一手に。チップ以外の搭載者（poiedit の施設自動点灯など）もここを呼ぶ＝DOMをAPIにしない・チップ不在でも動く。
-function setLayer(k, on) {
+function setLayer(k: string, on: boolean) {
 	if (!!layerState[k] === !!on) return;   // 既にその状態＝no-op（副作用も焚かない）
 	layerState[k] = !!on;
-	const b = mapEl.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
+	const b = mapEl.querySelector<HTMLElement>(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; requestDraw();
 	if (k === "rail") { renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
@@ -1957,14 +2090,14 @@ function setLayer(k, on) {
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
-mapEl.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+mapEl.querySelectorAll<HTMLElement>(".chip").forEach(b => b.addEventListener("click", () => {
 	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
 	setLayer(k, !layerState[k]);
 }));
 // 星空チップ（表示パネル内）＝旧・全球ビューの画面クリックから移設。見た目同期は constelApply 側（点火の一本道）
 mapEl.querySelector("#chip-sky")?.addEventListener("click", () => sky.toggleConstellations().then(saveView));
 // 基図の濃さスライダー（表示パネル）＝fill/line の α を両バックエンド一括で（COG/オーバーレイを主役にする時に引く）
-mapEl.querySelector("#base-alpha")?.addEventListener("input", e => { const a = (+e.target.value) / 100; renderer.set("view", { baseAlpha: a, globeAlpha: a }); requestDraw(); });   // 2026-09-13 本人裁定＝球体（globe/terrain）まで一緒に引く（地中の震源等を透かす）
+mapEl.querySelector("#base-alpha")?.addEventListener("input", e => { const a = (+(e.target as HTMLInputElement).value) / 100; renderer.set("view", { baseAlpha: a, globeAlpha: a }); requestDraw(); });   // 2026-09-13 本人裁定＝球体（globe/terrain）まで一緒に引く（地中の震源等を透かす）
 // テーマ列（表示パネル内）＝palette ガジェットの即決版（ライブ見本はガジェットの領分・こちらは名前+紙色スウォッチ）。
 // themeFixed（opts.theme 焼き付け）は列ごと出さない。現在テーマの点火同期は switchTheme 側。
 {
@@ -1984,7 +2117,7 @@ mapEl.querySelector("#base-alpha")?.addEventListener("input", e => { const a = (
 	}
 }
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
-mapEl.querySelectorAll(".chip[data-k]").forEach(syncChip);
+mapEl.querySelectorAll<HTMLElement>(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showRail: true }); railOverlay?.load(); }
 if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
@@ -2002,12 +2135,12 @@ if (URL_OWN) window.addEventListener("hashchange", () => {   // URL の持ち主
 }, { signal: ac.signal });
 // 共有URLの l=/c(等高線) をチップ・描画へ反映（hashchange とデモ台本 flyView の共通部）。
 // 固定キー(opts.layers)はどの経路でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
-function applyViewLayers(v) {
+function applyViewLayers(v: ParsedView) {
 	if (!v.layers && !v.contour) return;
 	if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
 	if (v.layers) sky.applyConstellations(v.layers.includes(SKY_LAYER));   // 星座ON/OFFも反映
 	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
-	mapEl.querySelectorAll(".chip[data-k]").forEach(syncChip);
+	mapEl.querySelectorAll<HTMLElement>(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
 	renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load();
 	if (layerState.facility) loadLandmarks();
@@ -2026,7 +2159,7 @@ function applyViewLayers(v) {
 // フライトは離陸視点＋新テーマ/チップを書き、着地(settle)で dest cam に更新＝l=/coast の順序取りこぼしが構造的に起きない（URL⇄状態の一元化）。
 // mode: {fly}=球面フライト / {fly,glide}=滑走 / {jump}=即時カメラ直書き(pre→view) / 無し=即時(hashchange貼付け)。
 // テーマ方針の違い（貼付け=c=無しはmonoへ／デモ=無指定は現状維持）は入口側で v.theme を前処理して吸収＝ここは一様。
-function applyView(v, { fly = false, glide = false, jump = false } = {}) {
+function applyView(v: ParsedView | null, { fly = false, glide = false, jump = false } = {}) {
 	if (!v) return false;
 	applyViewLayers(v);                                                        // 1) l=（チップ）＝先に反映
 	if (v.time || v.speed != null) clock.fromParams(clockParamsOf(v));   // 時計（t=/s=・#42）＝貼り替え・台本のビューが時刻を持つ時だけ（無ければ今の時計のまま）
@@ -2037,19 +2170,19 @@ function applyView(v, { fly = false, glide = false, jump = false } = {}) {
 	return true;
 }
 // デモ台本／内部から共有ビューへ「飛ぶ」薄いラッパ（applyView に委譲＝順序と URL 書込を一本化）。glide=滑走・jump=即時。
-function flyView(hash, opts = {}) {
+function flyView(hash: string | ParsedView, opts: { glide?: boolean; jump?: boolean } = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 	if (!v) { console.warn(`[flyView] unparsable view "${hash}"`); return false; }
 	return applyView(v, { fly: true, glide: opts.glide, jump: opts.jump });
 }
 // シーン台本の連続ドリー（glidePath）＝{view,travel} の列を parseViewHash → flightCtl.glidePath へ（via 連続を1本の centripetal Catmull-Rom で貫く＝隅田川ドリー）。
 // travel＝その点に到達するまでの区間尺[秒]（エンジン側キーは secs）。カメラのみ＝l=/c= は道中で触らない（直前シーンが設定済み）。pitch/bearing はラジアンのまま cam へ。
-function glidePathView(entries) {
+function glidePathView(entries: Parameters<GlobeScope["glidePathView"]>[0]) {
 	const pts = (entries || []).map(h => {
 		const e = typeof h === "string" ? { view: h } : h;
 		const v = typeof e.view === "string" ? parseViewHash(e.view) : e.view;
 		return v ? { lon: wrapLon(v.lon), lat: v.lat, zoom: v.zoom, pitch: v.pitch || 0, bearing: v.bearing || 0, secs: e.travel } : null;
-	}).filter(Boolean);
+	}).filter(Boolean) as Parameters<typeof flightCtl.glidePath>[0];
 	if (pts.length) flightCtl.glidePath(pts);
 	return true;
 }
@@ -2058,7 +2191,7 @@ function glidePathView(entries) {
 // 針の毎フレーム追従は render が呼ぶフック＝搭載時に差し替わる（未搭載なら no-op）。
 // render のフレームフック：搭載したガジェットが毎描画で姿勢/位置を追随させる置き場（コンパスの針・現在地マーカー等）。
 // onMove→needsDraw→render のたびに全員呼ぶ＝静止中は呼ばれない（動いた時だけ追随＝タダに近い）。
-const frameHooks = new Set();
+const frameHooks: GlobeScope["frameHooks"] = new Set();
 const runFrameHooks = () => frameHooks.forEach(fn => fn());
 const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）＝計器盤の回転列と共用
 
@@ -2091,14 +2224,14 @@ function render() {
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
 	syncCenterAlt();   // 注視点の高さ（MapLibre の目盛り＝地形の上の中心点）を cam へ＝この下の描画・選抜・投影が同じカメラを見る
 	const basemap = cam.zoom >= TILE_MINZOOM;
-	let tu = null, skipBase = false;
+	let tu: ReturnType<typeof tiles.update> | null = null, skipBase = false;
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
-		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
+		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys!.has(t.key));
 		skipBase = tu.covered && merged;
 		lastSkipBase = skipBase; coverOk = skipBase;   // onMove（入力直結の draw）が同じ値を送る＝worker へ届く opts がフレームごとに交互にならない（#58）
 		dbgHost.__cover = { covered: tu.covered, merged, ready: o.length, sel: tu.sel, moving };   // 検証/切り分け用：なぜ base が落ちた/落ちないか
@@ -2147,7 +2280,7 @@ function render() {
 	// 旧・世界帯の選抜cap（maxZ=世界タイルz3・keepFine切り）は世界タイル撤去（2026-09-03）で不要＝
 	// ここへ来るのは z≥TILE_MINZOOM だけ（門の下は上の早期returnでタイルなし）。?pm= は maxZ を
 	// アーカイブの maxZoom で掛けている（tiles.update）＝旧・世界帯の cap と同じ役割を汎用化したもの。
-	const { order, coarseOrder, total } = tu;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
+	const { order, coarseOrder, total } = tu!;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
 	if (poi && layerState.facility && cam.zoom >= 14) poi.load(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
@@ -2164,7 +2297,7 @@ function render() {
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
 const overlay = createOverlay({ renderer, cam, size, dpr, mapEl, requestDraw: requestDraw });
 // 拡張が tip を握る合図（e-Stat のホバー結果）：ヒット＝名前を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
-const ownTip = name => {
+const ownTip = (name: string | null) => {
 	if (name) {
 		gint.extTipOwn = true;
 		gint.hoverTip?.([name]);
@@ -2181,8 +2314,8 @@ dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等�
 // 読み方：「背景が黒」の瞬間に **塗り(main/base)が 0 枚**なら CPU/状態側（シーンが空・退場フラグ）、
 // **枚数が出ているのに黒**なら GPU 側（描いたのに画素にならない）。赤字＝塗り0＝異常の目印。
 // hoisted 関数＝renderWorker.onmessage（上方）から呼ばれる。
-let drawHudEl = null;
-function showDrawHud(msg) {
+let drawHudEl: HTMLDivElement | null = null;
+function showDrawHud(msg: { backend?: string; d?: { zoom?: number; baseFill?: number; mainFill?: number; baseLine?: number; mainLine?: number; skipMain?: boolean; skipBase?: boolean; fadeK?: number; pl?: number; terrainDepth?: boolean; aa?: number } | null }) {
 	dbgHost.__drawHud = msg;   // 検証用の生値（t-aatrans＝遷移時AAの回帰が d.aa を読む）
 	if (!drawHud) return;
 	if (!drawHudEl) {
@@ -2211,14 +2344,14 @@ function hudSnapshot() {
 	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋画像タイル層のテクスチャ
 	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
 	if (total > hudPeak) hudPeak = total;
-	const nc = navigator.connection || {};
+	const nc = (navigator as NavigatorPlus).connection || {};
 	return {
-		backend: dbgHost.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
+		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
-			ram: navigator.deviceMemory || null, cores: navigator.hardwareConcurrency || null,
+			ram: (navigator as NavigatorPlus).deviceMemory || null, cores: navigator.hardwareConcurrency || null,
 			dpr: window.devicePixelRatio || 1, vw: window.innerWidth, vh: window.innerHeight,
 			net: nc.effectiveType || null, down: nc.downlink || null, ua: navigator.userAgent,
 		},
@@ -2231,8 +2364,8 @@ function hudSnapshot() {
 }
 // 本体は遅延 import＝.then は同期init完走後（registerGadget 定義済み）に走る。hud= 指定時だけ計測器ボタンを載せる（open=1/畳=0 は hudOpenInit）。
 if (hudOn) import("./gadgets/hud.ts").then(({ hud }) => {
-	registerGadget("hud", (m, opts) => { return hud.call(m, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
-	map.gadget.hud();
+	registerGadget("hud", (m, opts) => { return hud.call(m, { snapshot: hudSnapshot as () => HudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
+	map.gadget.hud!();
 }).catch(e => console.error("[hud] failed to load module", e));
 // 初期 overlay なし（全球 land は検証用。__loadOverlay(name) で任意に。__tokyo() は日本の install が生やす）
 
@@ -2262,11 +2395,11 @@ const noVecBase = () => !!EXT && !EXT.split.vectorSource;   // 外来 style に 
 let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
 // 診断の窓（debugGlobals）＝置いたラベル（基図・vector・gint＝labels2d の当選集合）と記号（symbols overlay）を層 id 付きで返す＝公式例の門 段 0（文字を測る）。
 // 基図のラベルは li（style の層の添字）→ id・vector の描く層は "vt:<id>"・gint は層 id。x,y＝CSS px（中心）・w,h＝箱
-const placedWait = new Map(); let placedSeq = 0;
+const placedWait = new Map<number, (d: PlacedMsg | null | undefined) => void>(); let placedSeq = 0;
 dbgHost.__placed = () => new Promise(res => {
 	const sid = ++placedSeq;
 	placedWait.set(sid, d => {
-		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
+		const layerOf = (L: PlacedMsgLabel) => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
 		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: L.icon ?? null, ibox: L.ibox ?? null, line: !!L.line, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),   // icon/ibox＝置いた記号（段 3）
 			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, ibox: S.ibox ?? null, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
 	});
@@ -2275,15 +2408,15 @@ dbgHost.__placed = () => new Promise(res => {
 });
 dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
 	const sid = ++placedSeq;
-	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; const nm = k => /^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k, pt = {}, lineBy = {}; for (const [k, v] of Object.entries(g.pt || {})) pt[nm(k)] = v; for (const [k, v] of Object.entries(g.lineBy || {})) lineBy[nm(k)] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, lineBy, pt, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk: Record<string, unknown> = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; const nm = (k: string) => /^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k, pt: Record<string, unknown> = {}, lineBy: Record<string, unknown> = {}; for (const [k, v] of Object.entries(g.pt || {})) pt[nm(k)] = v; for (const [k, v] of Object.entries(g.lineBy || {})) lineBy[nm(k)] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, lineBy, pt, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
 });
-dbgHost.__labelsMain = () => { const by = {}; for (const L of lastLabels) { const k = L.li != null ? (style.layers[L.li]?.id ?? "li" + L.li) : "?"; by[k] = (by[k] || 0) + 1; } return { n: lastLabels.length, by, styleSymbols: style.layers.filter(L => L.type === "symbol").map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null]) }; };   // 診断（debugGlobals）＝main が worker へ送った基図ラベルの数（層 id ごと）と style の symbol 層の zoom 域
+dbgHost.__labelsMain = () => { const by: Record<string, number> = {}; for (const L of lastLabels) { const k = L.li != null ? (style.layers[L.li]?.id ?? "li" + L.li) : "?"; by[k] = (by[k] || 0) + 1; } return { n: lastLabels.length, by, styleSymbols: style.layers.filter(L => L.type === "symbol").map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null]) }; };   // 診断（debugGlobals）＝main が worker へ送った基図ラベルの数（層 id ごと）と style の symbol 層の zoom 域
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
 dbgHost.__idleWhy = () => ({ rasterFading, mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
-function checkIdle(now) {
+function checkIdle(now: number) {
 	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
@@ -2356,14 +2489,14 @@ const map = { cam, renderer, mapEl, destroy, clock,   // flyTo は installCamera
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。
-	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0, fovy: cam.fovy || 50 * D2R, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(sky.constelVisible ? [SKY_LAYER] : []), sky: sky.constelVisible, hash: viewHash(), eye: eyePose() }; },
+	get view() { return { center: [...cam.center] as LonLat, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0, fovy: cam.fovy || 50 * D2R, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(sky.constelVisible ? [SKY_LAYER] : []), sky: sky.constelVisible, hash: viewHash(), eye: eyePose() }; },
 	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
 	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
 	playScenes: (obj, opts) => scenes.playScenes(obj, opts), stopScenes: () => scenes.stopScenes(),
 	//   sceneTimeline(obj)＝タイムライン（時刻評価・スクラブ）→ {dur, rows, at, seek, end}（再生せず任意秒の絵＝エディタ用）
 	sceneTimeline: obj => scenes.sceneTimeline(obj),
 	// 録画用（scene エディタ）：動的解像度を固定（映像に縮み絵を混ぜない）。on=true で即 res=1・降段停止／false で通常運転へ
-	pinRes: on => renderWorker.postMessage({ type: "pinRes", on: !!on }) };
+	pinRes: on => renderWorker.postMessage({ type: "pinRes", on: !!on }) } satisfies Partial<GlobeMapBuilding> as Partial<GlobeMapBuilding> as GlobeMapBuilding;   // 残りの口は下の installer と map.X＝が付ける（組み上がった map が GlobeMap）
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
 // DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
@@ -2371,18 +2504,18 @@ const map = { cam, renderer, mapEl, destroy, clock,   // flyTo は installCamera
 // 表示中の地形変位と同式（TERR_EXAG/EARTH_M × pitchフェード＝renderer elevScaleEff と同形・cityFlatは撤去済み）。
 // 標高は heightAt を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
 // 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
-let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
-const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();   // z の当たり＝今の視点の MapLibre の z（512px のタイル）＝maxzoom 22 の source でも見えている段から引く（無ければ親へ）
+let demMain: GlobeLive["demMain"] = DEM0 ? createDemSource(DEM0 as Parameters<typeof createDemSource>[0]) : null, demSpec: GlobeLive["demSpec"] = DEM0;
+const demFirst: GlobeScope["demFirst"] = (lon, lat, fallback) => demMain ? demMain.height(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();   // z の当たり＝今の視点の MapLibre の z（512px のタイル）＝maxzoom 22 の source でも見えている段から引く（無ければ親へ）
 // 1 点の標高＝描いている地形と同じ出どころ（外来の DEM が先・無い所は既定の DTM をタイル着荷まで待つ）。map.getHeight と DOM オーバーレイの持ち上げ（elevOf）が共用
 //（旧・elevOf は既定の DTM だけを待たずに引いていた＝setTerrain の DEM ではマーカー/pop/計測/足跡がチルトで描いた地形とずれ、別タイルの読込中に引いた点は 0m のままメモに残った・2026-09-27）
-const heightAt = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
-const elevMemo = new Map();
+const heightAt: GlobeScope["heightAt"] = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
+const elevMemo: GlobeScope["elevMemo"] = new Map();
 // ★有界化（2026-09-13）：makeProjectorH を大量点（地震 overlay 2300点×3/フレーム）で呼ぶと、未メモの点ごとに getHeight が一斉発射され
 //   renderer が SIGTRAP で落ちた（実測・エラーコード5）。同時在庫を ELEV_INFLIGHT_MAX に絞り、溢れた点は「今回は 0m」（メモに残さない＝次回また試す）。
 //   マーカー/pop の数点なら従来どおり即照会。needsDraw も 1 回に束ねる。
 // elevGen＝DEM の世代（setTerrain でメモを捨てて進める＝差し替え前に出た照会の答えは新しいメモに書かない）
-const ELEV_INFLIGHT_MAX = 64; let elevInflight = 0, elevDrawPending = false, elevGen = 0;
-const elevOf = (lon, lat) => {
+const ELEV_INFLIGHT_MAX = 64; let elevInflight = 0, elevDrawPending = false, elevGen: GlobeLive["elevGen"] = 0;
+const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
 	const hit = elevMemo.get(k);
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
@@ -2394,30 +2527,30 @@ const elevOf = (lon, lat) => {
 	return 0;
 };
 // 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
-const dispRadius = (lon, lat) => {
+const dispRadius = (lon: number, lat: number) => {
 	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt);   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
 	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
 };
-const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
-const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
+const projectLL: GlobeScope["projectLL"] = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
+const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
-const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
+const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
-const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
-const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
+const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => { const [sx, sy, f] = project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
+const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
 // 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。
-const snapPending = new Map();
-function snapPart(id, key, data) {
+const snapPending = new Map<number, { need: Set<string>; parts: Record<string, unknown>; resolve(v: Snapshot): void }>();
+function snapPart(id: number, key: string, data: unknown) {
 	const rec = snapPending.get(id); if (!rec) return;
 	rec.parts[key] = data; rec.need.delete(key);
-	if (!rec.need.size) { snapPending.delete(id); rec.resolve(rec.parts); }
+	if (!rec.need.size) { snapPending.delete(id); rec.resolve(rec.parts as Snapshot); }
 }
 let snapSeq = 0;
-const requestSnapshot = () => new Promise(resolve => {
+const requestSnapshot = (): Promise<Snapshot> => new Promise(resolve => {
 	const id = ++snapSeq;
 	snapPending.set(id, { need: new Set(["render"]), parts: { W: size.w, H: size.h }, resolve });
 	wPost({ type: "snapshot", id });
@@ -2427,7 +2560,7 @@ dbgHost.__map = map;   // デバッグ手（__cam 等と同族）＝コンソー
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
 // 元のカメラへ戻す。printHold が autoMesh と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
-const printSettled = timeout => new Promise(res => {
+const printSettled = (timeout: number) => new Promise(res => {
 	const t0 = performance.now();
 	const tick = () => {
 		const idle = !moving && (cam.zoom < BASEMAP_MINZOOM || (readySig && readySig === mergeReq.main.sig));
@@ -2436,9 +2569,9 @@ const printSettled = timeout => new Promise(res => {
 	};
 	setTimeout(tick, 400);
 });
-async function printCapture({ zoom, cropCss }) {
+async function printCapture({ zoom, cropCss }: { zoom: number; cropCss: { w: number; h: number } }) {
 	flightCtl.cancel();
-	const saved = { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing };
+	const saved = { center: [...cam.center] as LonLat, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing };
 	printHold = true;
 	try {
 		cam.pitch = 0; cam.bearing = 0; cam.zoom = zoom; onMove();
@@ -2459,13 +2592,13 @@ async function printCapture({ zoom, cropCss }) {
 }
 // ★派生アプリ公式口（census2020 等）＝ window.__* デバッグ手の正式化。additive・ortho-japan 単体の挙動は不変。
 // gint系＝ユーザー知性層（単一スロット）の正規口／overlay＝estat小地域・geopbfオーバーレイの手綱。
-map.overlay = overlay;
+map.overlay = overlay as unknown as GlobeMapBuilding["overlay"];   // 呼べる形（map.overlay(src)）は installOverlays が被せる
 map.applyGintData = gint.applyGintData;
 map.clearUserGint = gint.clearUserGint;    // 単一スロットのユーザー層を丸ごと撤去（gint.applyGintData の対＝派生アプリのスロット調停用）
 map.addGint = gint.addGint;              // gint 多層（v2 spec §4 の顔・両バックエンド）＝追加であって置換ではない
 map.queryAll = gint.queryAllGint;        // 層をまたぐ照会＝{layer, fid} の対（手前の層から・§10.2）
-map.on = (ev, cb) => { if (ev === "load" && mapLoaded) queueMicrotask(() => cb({})); mapOn[ev]?.push(cb); return map; };
-map.off = (ev, cb) => { const a = mapOn[ev]; if (a) { const i = a.indexOf(cb); if (i >= 0) a.splice(i, 1); } return map; };   // 購読解除（2026-09-11）   // §4: 'click'（hits=queryAll 同型）/'move'/'load'
+map.on = (ev, cb) => { if (ev === "load" && mapLoaded) queueMicrotask(() => (cb as (e: object) => void)({})); mapOn[ev]?.push(cb as (e: unknown) => void); return map; };
+map.off = (ev, cb) => { const a = mapOn[ev]; if (a) { const i = a.indexOf(cb as (e: unknown) => void); if (i >= 0) a.splice(i, 1); } return map; };   // 購読解除（2026-09-11）   // §4: 'click'（hits=queryAll 同型）/'move'/'load'
 map.standupGint = gint.standupGint;         // liftM=null で解除
 map.gintFeatures = gint.gintFidFeatures;    // fid 整列 properties（式評価・表直書きの入力）
 map.paint = gint.paintGint;                 // Mapbox式 → buildFidStyle
@@ -2475,7 +2608,7 @@ map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]
 map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
 // MapLibre と同じ形の座標変換（2026-09-25・AI エージェントの試走で「無い」と言われた口）。座標系は projectLL / unprojectXY と同じ＝地図の容れ物の左上原点の CSS px。
 // project は見えない所（球の裏・地平線の外）でも地平線へ寄せた位置を返す＝見えるかは projectLL の front（第 3 要素）で。unproject は球の外なら null
-const toLonLat = ll => Array.isArray(ll) ? ll : [ll.lng ?? ll.lon, ll.lat];
+const toLonLat = (ll: LonLat | { lng?: number; lon?: number; lat: number }): LonLat => Array.isArray(ll) ? ll : [ll.lng ?? ll.lon, ll.lat] as LonLat;
 map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
 map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
@@ -2487,31 +2620,31 @@ Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true }); 
 map.requestDraw = requestDraw;  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 // 後処理（deck.gl の PostProcessEffect 相当・差分 PR-8・2026-10-12）：map.setPostProcess({ bloom: { threshold, strength, radius }, vignette: { strength, radius, softness } } | null)
 //   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
-let postCur = null, postChain = [];
+let postCur: ReturnType<typeof normPostChain>["post"] = null, postChain: ReturnType<typeof normPostChain>["passes"] = [];
 // 後処理の鎖（第 2 波 F3・2026-10-12・src/postchain.js）：map.setPostChain([{ type:"bloom"|"vignette"|"fxaa"|"smaa"|"tonemap"|"lut"|"dof"|"ssr"|<plugin>, ... }])／getPostChain()。
 //   描くのは bloom・vignette（従来の "post"）と fxaa・tonemap・lut（第 3 波 W1・2026-10-12・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は受けて保つだけ（capabilities "spec"）。plugin の type は registry.postEffects の { apply(map, passes) } が setPostChain のたびに呼ばれる。
 //   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette に写る（getPostProcess の形は不変・fxaa/tonemap/lut の鍵は on の時だけ生える）
-const applyPostChain = chain => {
+const applyPostChain = (chain: unknown) => {
 	const reg = pluginHost.registry.postEffects;
 	const r = normPostChain(chain, t => reg.has(t) && !POST_TYPES.includes(t));
 	postChain = r.passes; postCur = r.post; renderer.set("post", postCur);
-	for (const t of reg.names()) if (!POST_TYPES.includes(t)) { try { reg.get(t).apply(map, postChain.filter(x => x.type === t)); } catch (e) { console.warn(`[post] ${t}: apply failed`, e); } }
+	for (const t of reg.names()) if (!POST_TYPES.includes(t)) { try { reg.get(t)!.apply(map, postChain.filter(x => x.type === t)); } catch (e) { console.warn(`[post] ${t}: apply failed`, e); } }
 	requestDraw(); return map;
 };
 map.setPostChain = chain => applyPostChain(chain);
 map.getPostChain = () => postChain.map(x => ({ ...x }));
 map.setPostProcess = p => (Array.isArray(p) ? applyPostChain(p) : applyPostChain(p == null ? null : { bloom: p.bloom, vignette: p.vignette, fxaa: p.fxaa, tonemap: p.tonemap, lut: p.lut }));
-map.getPostProcess = () => postCur;
+map.getPostProcess = () => postCur as ReturnType<GlobeMap["getPostProcess"]>;
 if (opts.postProcess) map.setPostProcess(opts.postProcess);
 // ── plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 compat §9「拡張点の台帳」）──
 //   map.use(definePlugin({ name, install(map, opts), uninstall? }), opts)／unuse(name)／plugins()。install は同期・返した関数は撤去時に呼ぶ。地域パックと同じく素の map を受ける
 //   map.registry.dataKinds（addData の kind＝{ create(map, data, opts) → 手綱 }）・gadgets（map.gadget と同じ）・tileFormats（core の registerTileFormat）は効く。lights/postEffects/textureTranscoders は F1/F3/F4 で結線
 //   map.supports(key)＝builtin か plugin の時だけ true・map.capabilities()＝鍵ごとの正直な答え（"never"＝Mercator）。opts.plugins＝起動時に use する並び（[p] か [[p, opts]]）
-const BUILTIN_DATA_KINDS = ["points", "arcs", "trips", "polygons", "paths", "columns"];
+const BUILTIN_DATA_KINDS: GlobeScope["BUILTIN_DATA_KINDS"] = ["points", "arcs", "trips", "polygons", "paths", "columns"];
 const pluginHost = createPluginHost(map, {
-	getBackend: () => dbgHost.__backend || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
-	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => registerGadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
-	tileFormats: { register: registerTileFormat, has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
+	getBackend: () => (dbgHost.__backend as string | undefined) || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
+	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => (registerGadget as NonNullable<PluginHostOptions["defineGadget"]>)(name, fn), removeGadget: name => { delete (map.gadget as Record<string, unknown>)[name]; },
+	tileFormats: { register: registerTileFormat as NonNullable<PluginHostOptions["tileFormats"]>["register"], has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
 	pointcloud: Object.fromEntries(POINTCLOUD_NAMES.map(n => [n, true])), builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: POST_TYPES, builtinLights: LIGHT_TYPES,
 });
 map.use = (p, o) => pluginHost.use(p, o);
@@ -2521,8 +2654,8 @@ map.registry = pluginHost.registry;
 map.supports = key => pluginHost.supports(key);
 map.capabilities = () => pluginHost.capabilities();
 ownDestroy.push(() => pluginHost.destroy());
-let camPadding = { top: 0, right: 0, bottom: 0, left: 0 };
-let followSt = null;
+let camPadding: GlobeLive["camPadding"] = { top: 0, right: 0, bottom: 0, left: 0 };
+let followSt: GlobeLive["followSt"] = null;
 // カメラ・光・空・太陽・雲の口＝src/api/camera.ts（live＝createGlobe の変数を読み書きする口）
 const { clampCamLimits, tickFollow } = installCamera(map, {
 	get maxPitchCur() { return maxPitchCur; }, set maxPitchCur(v) { maxPitchCur = v; },
@@ -2544,18 +2677,18 @@ const { clampCamLimits, tickFollow } = installCamera(map, {
 // 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
 // ── MapLibre の小口（B6・2026-10-12） ──
 // sprite：読んだ記号の名前を sprite の id ごとに覚える（removeSprite／setStyle で消すため）。default 以外は "id:名前"
-const spriteLoad = async (id, url) => {
+const spriteLoad: GlobeScope["spriteLoad"] = async (id, url) => {
 	const c = await symGet(), before = new Set(c.listImages());
 	await c.loadSprite(url, spritePrefix(id));
 	spriteNames.set(id, c.listImages().filter(n => !before.has(n)));
 };
-const spriteDrop = id => { for (const n of spriteNames.get(id) || []) symCtl?.removeImage(n); spriteNames.delete(id); };
+const spriteDrop: GlobeScope["spriteDrop"] = id => { for (const n of spriteNames.get(id) || []) symCtl?.removeImage(n); spriteNames.delete(id); };
 map.getSprite = () => spriteList.map(e => ({ id: e.id, url: e.url }));
 map.addSprite = (id, url) => { id = String(id ?? "default"); spriteDrop(id); spriteList = [...spriteList.filter(e => e.id !== id), { id, url: String(url) }]; spriteLoad(id, new URL(url, location.href).href).catch(err => console.warn("[addSprite]", id, err)); return map; };
 map.removeSprite = id => { id = String(id ?? "default"); spriteDrop(id); spriteList = spriteList.filter(e => e.id !== id); return map; };
 map.setSprite = url => { for (const id of [...new Set([...spriteList.map(e => e.id), ...spriteNames.keys()])]) spriteDrop(id); spriteList = []; if (url) return map.addSprite("default", url); return map; };   // 全部入れ替え（MapLibre の setSprite）。null＝全部外す
 map.getImage = name => { const e = symCtl?.getImage(name); if (!e?.bitmap) return undefined; const { bitmap: bm, pixelRatio = 1, sdf = false } = e;   // MapLibre の StyleImage の形（data＝RGBA の生画素）
-	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d"); g.drawImage(bm, 0, 0); const d = g.getImageData(0, 0, bm.width, bm.height);
+	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d")!; g.drawImage(bm, 0, 0); const d = g.getImageData(0, 0, bm.width, bm.height);
 	return { data: { width: d.width, height: d.height, data: d.data }, pixelRatio, sdf, version: 1, ...(e.stretchX ? { stretchX: e.stretchX } : {}), ...(e.stretchY ? { stretchY: e.stretchY } : {}), ...(e.content ? { content: e.content } : {}) }; };
 map.getGlyphs = () => mlGlyphs ?? undefined;   // 文字は Canvas2D＝記録だけ（getStyle に echo）
 map.setGlyphs = url => { mlGlyphs = url == null ? null : String(url); return map; };
@@ -2563,7 +2696,7 @@ map.getStyleUrl = () => EXT?.url ?? undefined;   // URL で起動した style �
 map.getFontFaces = () => fontFacesList.map(f => ({ ...f }));
 map.setFontFaces = async list => {   // [{ "font-family"|family, src, font-weight?, font-style?, unicode-range? }] → addFontFace（段 2 の口）。記録は getFontFaces に
 	fontFacesList = Array.isArray(list) ? list.filter(f => f && typeof f === "object").map(f => ({ ...f })) : [];
-	await Promise.all(fontFacesList.map(fontFaceArgs).filter(Boolean).map(a => map.addFontFace(a.family, a.src, a.descriptors).catch(err => console.warn("[setFontFaces]", a.family, err))));
+	await Promise.all((fontFacesList.map(fontFaceArgs).filter(Boolean) as NonNullable<ReturnType<typeof fontFaceArgs>>[]).map(a => map.addFontFace(a.family, a.src, a.descriptors).catch(err => console.warn("[setFontFaces]", a.family, err))));
 	return map;
 };
 // タイルの取り直し（MapLibre の refreshTiles）：基図の source＝新 style で組み直す（生バイトは温間キャッシュ命中なら速い＝サーバまでは行かない）・利用者の source＝その source の層を外して載せ直す（geojson の URL は取り直す）
@@ -2578,11 +2711,11 @@ map.refreshTiles = async sid => {
 map.coveringTiles = (o = {}) => {
 	const tileSize = o.tileSize || 512, W = size.w / dpr, H = size.h / dpr, pts = [];
 	const zf = mlZoomOf(tileSize, !!o.roundZoom);
-	const zAt = (lon, lat) => { if (!zf) return Math.floor(cam.zoom + Math.log2(512 / tileSize)); if (zf.key?.startsWith("c")) return zf(); const z0 = Math.max(0, Math.floor(cam.zoom - (ML_COVER?.dz || 0) + Math.log2(512 / tileSize))); const [x, y] = tileOfLL(lon, lat, z0); return zf(z0, x, y); };
-	for (let j = 0; j <= 20; j++) for (let i = 0; i <= 32; i++) { const ll = unprojectXY(W * i / 32, H * j / 20); pts.push(ll ? [ll.lng ?? ll[0], ll.lat ?? ll[1]] : null); }
+	const zAt = (lon: number, lat: number) => { if (!zf) return Math.floor(cam.zoom + Math.log2(512 / tileSize)); if (zf.key?.startsWith("c")) return (zf as unknown as () => number)(); const z0 = Math.max(0, Math.floor(cam.zoom - (ML_COVER?.dz || 0) + Math.log2(512 / tileSize))); const [x, y] = tileOfLL(lon, lat, z0); return zf(z0, x, y); };
+	for (let j = 0; j <= 20; j++) for (let i = 0; i <= 32; i++) { const ll = unprojectXY(W * i / 32, H * j / 20); pts.push(ll ? [(ll as LonLat & { lng?: number }).lng ?? ll[0], (ll as LonLat & { lat?: number }).lat ?? ll[1]] : null); }
 	return tilesFromPoints(pts, zAt, { minzoom: o.minzoom ?? 0, maxzoom: o.maxzoom ?? 25 });
 };
-const tileOfLL = (lon, lat, z) => { const n = 2 ** z, la = Math.max(-85.05, Math.min(85.05, lat)) * D2R; return [Math.floor(((lon + 180) / 360 % 1 + 1) % 1 * n), Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)]; };
+const tileOfLL = (lon: number, lat: number, z: number) => { const n = 2 ** z, la = Math.max(-85.05, Math.min(85.05, lat)) * D2R; return [Math.floor(((lon + 180) / 360 % 1 + 1) % 1 * n), Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)]; };
 map.setSourceTileLodParams = (maxZoomLevelsOnScreen, tileCountMaxMinimum) => {   // MapLibre 同名＝タイルの z の規則の 2 定数（mlcover.js の maxLevels・maxMinRatio）。内製の目盛り（ML_COVER 無し）では効かない
 	if (ML_COVER) { if (Number.isFinite(+maxZoomLevelsOnScreen)) ML_COVER.maxLevels = +maxZoomLevelsOnScreen; if (Number.isFinite(+tileCountMaxMinimum)) ML_COVER.maxMinRatio = +tileCountMaxMinimum; requestDraw(); onMove(); }
 	return map;
@@ -2595,15 +2728,15 @@ map.getPixelRatio = () => dpr;
 map.setRepaint = on => { repaintAlways = !!on; if (on) requestDraw(); return map; };   // 連続描画（計測用）
 map.getRepaint = () => repaintAlways;
 // debug の表示（MapLibre の showTileBoundaries・showPadding）＝main の canvas2D 1 枚（#labels の上・操作は通す）
-let dbgCanvas = null;
-const dbgCtx = () => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); labelCanvas.insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d"); };
+let dbgCanvas: HTMLCanvasElement | null = null;
+const dbgCtx = (): CanvasRenderingContext2D => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); labelCanvas.insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d")!; };
 function drawDebug() {
 	const g = dbgCtx(); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, size.w, size.h);
 	if (dbgState.tileBoundaries) {
 		const P = makeProjector(); g.lineWidth = 1; g.strokeStyle = "rgba(255,0,0,.8)"; g.fillStyle = "rgba(255,0,0,.9)"; g.font = "11px system-ui, sans-serif";
 		for (const o of (lastCoverOrder && lastCoverOrder.length ? lastCoverOrder : map.coveringTiles())) {   // 基図が無い（空の style）時は coveringTiles の近似で引く
 			const m = /^(\d+)\/(\d+)\/(\d+)$/.exec(o.key); if (!m) continue;
-			const z = +m[1], x = +m[2], y = +m[3], n = 2 ** z, lonOf = i => x / n * 360 - 180 + i * 360 / n, latOf = j => Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + j) / n))) * R2D;
+			const z = +m[1], x = +m[2], y = +m[3], n = 2 ** z, lonOf = (i: number) => x / n * 360 - 180 + i * 360 / n, latOf = (j: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + j) / n))) * R2D;
 			const ring = []; for (let k = 0; k <= 8; k++) ring.push([lonOf(k / 8), latOf(0)]); for (let k = 1; k <= 8; k++) ring.push([lonOf(1), latOf(k / 8)]); for (let k = 7; k >= 0; k--) ring.push([lonOf(k / 8), latOf(1)]); for (let k = 7; k >= 1; k--) ring.push([lonOf(0), latOf(k / 8)]);
 			const pts = ring.map(([lo, la]) => P(lo, la)); if (pts.some(p => !(p[2] > 0) || !Number.isFinite(p[0]))) continue;
 			g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath(); g.stroke();
@@ -2612,12 +2745,12 @@ function drawDebug() {
 	}
 	if (dbgState.padding) { const p = camPadding, W = size.w / dpr, H = size.h / dpr; g.fillStyle = "rgba(0,120,255,.18)"; g.fillRect(0, 0, W, p.top); g.fillRect(0, H - p.bottom, W, p.bottom); g.fillRect(0, p.top, p.left, H - p.top - p.bottom); g.fillRect(W - p.right, p.top, p.right, H - p.top - p.bottom); g.strokeStyle = "rgba(0,120,255,.9)"; g.lineWidth = 1; g.strokeRect(p.left + .5, p.top + .5, W - p.left - p.right - 1, H - p.top - p.bottom - 1); }
 }
-map.setDebug = (o = {}) => { for (const k of ["tileBoundaries", "padding"]) if (k in o) dbgState[k] = !!o[k]; if (!dbgState.tileBoundaries && !dbgState.padding) { if (dbgCanvas) dbgCtx().clearRect(0, 0, size.w, size.h); } else requestDraw(); return map; };
+map.setDebug = (o = {}) => { for (const k of ["tileBoundaries", "padding"] as const) if (k in o) dbgState[k] = !!o[k]; if (!dbgState.tileBoundaries && !dbgState.padding) { if (dbgCanvas) dbgCtx().clearRect(0, 0, size.w, size.h); } else requestDraw(); return map; };
 map.getDebug = () => ({ ...dbgState });
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
-	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
+	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
 	onMove(); return map;
 };
 map.getMaxBounds = () => camBounds ? [...camBounds] : null;
@@ -2668,7 +2801,7 @@ const { overlays, isOv, pickWait, orderSnapOverlays, overlayFeature } = installO
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
 // map.overlay(url)（quakes/anno）と map.overlay.loadEstat(...)（census2020）の両方が無傷。正式な別名は裁定待ち。
 Object.assign(map.overlay, overlay);   // globe の器（setSelectionMask/setHoverOutline/loadOverlay/clearOverlay）。e-Stat の口は日本の install が map.estat と同名に足す
-map.onGintClick = fn => { gint.clickHandler = fn; };
+map.onGintClick = fn => { gint.clickHandler = fn as typeof gint.clickHandler; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 // 外来の標高タイル（#36）の DEM（demMain）と 1 点の標高（heightAt）は elevOf の所＝DOM オーバーレイの持ち上げと同じ出どころ
 // 地形と標高の口・一人称歩行＝src/api/terrain.ts（live＝createGlobe の変数を読み書きする口）
@@ -2686,7 +2819,7 @@ installTerrain(map, {
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
 }, { EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
-let videoCtl = null;
+let videoCtl: GlobeLive["videoCtl"] = null;
 // 画像タイル層（map.raster）＝src/api/raster.ts（live＝createGlobe の変数を読み書きする口）
 const { onRasterInfo, onRasterError, rasterStatWait, rasterAttrHTML, imageAttrs, rasterChanged, protocolBitmap } = installRaster(map, {
 	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
@@ -2705,7 +2838,7 @@ const { registerGadget } = installGadgets(map, {
 	get profileBody() { return profileBody; }, set profileBody(v) { profileBody = v; },
 	get renderBackend() { return renderBackend; },
 }, { REGION_BLD_ICON, REGION_BLD_LABELS, REGION_SEARCH, ZOOM_MAX, ac, cam, demFirst, flightCtl, frameHooks, getHeightP, makeProjector, meshMgr, meshOn, narrowMq, onMove, projectLL, requestDraw, requestSnapshot, saveView, size, switchTheme, themeFixed, toolClose, toolOpen, unprojectAt, unprojectXY });
-let clipSpec = null, clipMain = null, clipByT = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
+let clipSpec: GlobeLive["clipSpec"] = null, clipMain: GlobeLive["clipMain"] = null, clipByT: GlobeLive["clipByT"] = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
 // 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.ts（live＝createGlobe の変数を読み書きする口）
 const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
 	get clipByT() { return clipByT; }, set clipByT(v) { clipByT = v; },
@@ -2720,8 +2853,8 @@ const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
 	get poiReal() { return poiReal; },
 	get poiClick() { return poiClick; }, set poiClick(v) { poiClick = v; },
 }, { BASE_SOURCE, D2R, LOW_MEM, REGION_DTM, REGION_HOME, REGION_PRINT_ATTR, TILE_MINZOOM, ac, approxViewBbox, attrTextNow, cam, dbgHost, makeProjector, mapOn, meshMgr, meshOn, onMove, ownDestroy, registerGadget, poi, printCapture, renderer, requestDraw, requestSnapshot, setLayer, t, toolClose, toolOpen, unprojectXY, viewHash, wPost, wakeMesh });
-let gFollow = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
-let columnarCtl = null;
+let gFollow: GlobeLive["gFollow"] = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
+let columnarCtl: GlobeLive["columnarCtl"] = null;
 // データを載せる口（シーン台本・フィーチャーサービス・addColumnar・addThree・addData・addCells 等）＝src/api/data.ts（live＝createGlobe の変数を読み書きする口）
 const { scenes, readGeoData, remoteUrl, setSrcAttr, columnarOn, columnarView, columnarProbe, sourceData, dropFollow, fsFollow } = installData(map, {
 	get mapEl() { return mapEl; },
@@ -2738,7 +2871,7 @@ const { scenes, readGeoData, remoteUrl, setSrcAttr, columnarOn, columnarView, co
 	get columnarCtl() { return columnarCtl; }, set columnarCtl(v) { columnarCtl = v; },
 }, { BUILTIN_DATA_KINDS, CAM_ZOOM_MIN, ELL_ON, LOW_MEM, REGION_BLD_LABELS, ac, applyCamView, applyViewLayers, cam, canvas, dbgHost, flightCtl, flyView, gint, gpuBackend, hostWorker, meshMgr, meshOn, onMove, opts, overlays, ownDestroy, pluginHost, requestDraw, requester, saveView, setGSrc, switchTheme, themeBootV, themeFixed, viewHash });
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
-let annoCtl = null;
+let annoCtl: GlobeLive["annoCtl"] = null;
 registerGadget("anno", async (_map, pbf) => {
 	const m = await import("./gadgets/anno.ts");
 	annoCtl ??= m.createAnno(map, { signal: ac.signal });
@@ -2747,11 +2880,11 @@ registerGadget("anno", async (_map, pbf) => {
 });
 // COG（Cloud Optimized GeoTIFF）＝geopbf/cog リーダ→cogTex スロット（GLOBE/TERRAIN FS がドレープ）。本体は遅延chunk。
 // setCogTex は wPost 直（transfer 付き＝2048²RGBA 16MB の structured clone コピーを回避）
-let cogCtl = null;
+let cogCtl: GlobeLive["cogCtl"] = null;
 registerGadget("cog", async (_map, src, opts) => {
 	const m = await import("./gadgets/cog.ts");
 	cogCtl ??= m.createCog(map, {
-		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, d?.rgba?.buffer ? [d.rgba.buffer] : []),
+		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, (d as { rgba?: { buffer?: ArrayBuffer } } | null)?.rgba?.buffer ? [(d!.rgba as Uint8Array).buffer] : []),
 		fit: bb => {   // loadUserFile の fit と同じ視野幅逆解き（30%余白・真俯瞰・北向き）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
@@ -2777,32 +2910,32 @@ registerGadget("raster", (m, o) => {   // 画像タイル（ラスタ）の切�
 // 形は**呼び手が持ってくる**（world は自分の DB＝ne-cultural を key で引いて渡す）＝エンジンは国の身分を知らない。
 // 文字列（ISO 3166-1 の 2/3 字）も受けるが、これは世界の行政界（Natural Earth）を持っているエンジンの厚意であって、
 // 名前や別名での当て推量はしない（当てられなければ null）。
-const spotFeature = async src => {
+const spotFeature = async (src: SpotShape | null | undefined): Promise<SpotFeature | null> => {
 	if (!src) return null;
 	if (src.type === "FeatureCollection") {   // 複数の面＝1 枚の MultiPolygon に束ねる（マスクの扇は巻き数＝接する県境は相殺されない）
-		const polys = [];
-		for (const f of src.features || []) { const g = f?.geometry; if (g?.type === "Polygon") polys.push(g.coordinates); else if (g?.type === "MultiPolygon") polys.push(...g.coordinates); }
+		const polys: unknown[] = [];
+		for (const f of src.features || []) { const g = f?.geometry; if (g?.type === "Polygon") polys.push(g.coordinates); else if (g?.type === "MultiPolygon") polys.push(...(g.coordinates as unknown[])); }
 		return polys.length ? { type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: polys } } : null;
 	}
 	if (src.type === "Feature") return src;
-	if (src.type && src.coordinates) return { type: "Feature", properties: {}, geometry: src };
+	if (src.type && src.coordinates) return { type: "Feature", properties: {}, geometry: src as SpotGeom };
 	const up = String(src).trim().toUpperCase();
 	if (!up) return null;
 	const pbf = await gint.ensureAdmin0().catch(e => { console.warn("[spotlight] admin0", e); return null; });
 	const feats = pbf?.features || pbf?.geojson?.features || [];
 	return feats.find(f => { const p = f?.properties || {}; return [p.ISO_A2, p.ISO_A3, p.ISO_A2_EH, p.ISO_A3_EH].some(v => v && String(v).toUpperCase() === up); }) || null;
 };
-const spotBbox = geom => {   // 渡された形の外接矩形（経度は跨ぎを解く＝日付変更線でも幅が正しい）
-	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, lon = null;
-	const walk = c => { if (Array.isArray(c[0])) { c.forEach(walk); return; } lon = lon == null ? c[0] : c[0] + 360 * Math.round((lon - c[0]) / 360); if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; };
-	geom?.coordinates && walk(geom.coordinates);
+const spotBbox = (geom: { coordinates?: unknown } | null | undefined): Bbox | null => {   // 渡された形の外接矩形（経度は跨ぎを解く＝日付変更線でも幅が正しい）
+	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, lon: number | null = null;
+	const walk = (c: NestedCoords): void => { if (Array.isArray(c[0])) { c.forEach(walk); return; } lon = lon == null ? c[0] : c[0] + 360 * Math.round((lon - c[0]) / 360); if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; };
+	geom?.coordinates && walk(geom.coordinates as NestedCoords);
 	return x0 <= x1 ? [x0, y0, x1, y1] : null;
 };
 // src＝GeoJSON（Feature/FeatureCollection/Geometry）か ISO コード。null で解除。
 // 戻り＝{ bbox, clear() }。fit＝外接矩形へ寄る（既定 true・寄り先を自分で決める呼び手は false）／pad＝余白／maxZoom＝寄りの上限。
 registerGadget("spotlight", async (m, src, { opacity = 0.55, fit: doFit = true, color = null, pad = 1.25, maxZoom = null } = {}) => {
 	if (src == null) { overlay.setSelectionMask(null); return null; }   // null＝解除
-	const f = await spotFeature(src);
+	const f = await spotFeature(src as SpotShape);
 	if (!f?.geometry) { console.warn("[spotlight] no shape", src); return null; }
 	overlay.setSelectionMask(f.geometry, { color: color || [0, 0, 0, opacity] });
 	const bbox = spotBbox(f.geometry);
@@ -2816,7 +2949,7 @@ registerGadget("spotlight", async (m, src, { opacity = 0.55, fit: doFit = true, 
 // マスク（overlayHi）とは別スロット＝スポットライトと両立する。色は [r,g,b,a]（0..1）・width は px。
 registerGadget("outline", async (m, src, { color = null, width = 1.6 } = {}) => {
 	if (src == null) { overlay.setHoverOutline(null); return null; }
-	const f = await spotFeature(src);
+	const f = await spotFeature(src as SpotShape);
 	if (!f?.geometry) return null;
 	overlay.setHoverOutline(f.geometry, { color: color || undefined, width });
 	return { clear: () => overlay.setHoverOutline(null) };
@@ -2828,15 +2961,15 @@ registerGadget("globe", (m, o) => {   // ミニ地球儀（右下・視野の枠
 });
 // glTF/GLB（3D 模型）＝PLATEAU と同じ建物メッシュとして立てる（gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（無ければ画面中心）の ENU に置く／
 // CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の meshSet スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
-let modelCtl = null;
-const modelCtlGet = async () => {
+let modelCtl: ModelLive | null = null;
+const modelCtlGet = async (): Promise<ModelLive> => {
 	const m = await import("./gadgets/model.ts");
 	if (modelCtl) return modelCtl;
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); requestDraw(); },   // バッチの剛体変換（glTF の rigid アニメ・W4）＝Float32Array(12)｜null
 		setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）＝頂点色の列（RGBA8）
 		pickEnv: meshPickEnv,   // 当たり（W7）＝画面の点 → 三角形と地物の番号
-		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); requestDraw(); },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
+		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); requestDraw(); },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 2.5), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 2.5);
@@ -2844,7 +2977,7 @@ const modelCtlGet = async () => {
 			flyTo(cx, cy, Math.max(3, Math.min(18, z)), 55);
 		},
 		center: () => [cam.center[0], cam.center[1]], ell: ELL_ON, signal: ac.signal,
-	});
+	}) as ModelLive;
 	return modelCtl;
 };
 registerGadget("model", async (_map, src, opts) => {
@@ -2856,21 +2989,21 @@ registerGadget("model", async (_map, src, opts) => {
 //          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 "auto"＝建物らしい大きさの時だけ）, fit（寄る・既定 true・傾きは今のまま） }。
 //   MapLibre の書き方もそのまま：opts に { type:"fill-extrusion", paint:{ "fill-extrusion-height"/"-base"/"-color"/"-opacity": 式 }, filter: 式 }、
 //   または src に層を丸ごと（source:{ type:"geojson", data }）。式は基図と同じ評価器・色の interpolate も可・既定値は MapLibre の仕様どおり。null を渡すと外す。戻り値＝stats か null（立つ面なし）
-registerGadget("extrude", async (m, src, opts = {}) => {
+registerGadget("extrude", async (m, src: ExtrudeIn, opts: ExtrudeOptsIn = {}) => {
 	if (src == null) { (await modelCtlGet()).clearExtrude(opts.slot ?? "default"); return null; }   // slot＝addLayer の層 id（#34・既定 "default"＝ガジェット直呼びの 1 枠）
 	// MapLibre の層を丸ごと（{ type:"fill-extrusion", source:{ type:"geojson", data }, paint, filter }）＝source.data を読み、層は opts へ
-	if (src && src.type === "fill-extrusion" && !opts.paint) { const layer = src; src = layer.source?.data ?? layer.source; opts = { ...layer, ...opts }; delete opts.source; delete opts.id; }
-	if (opts.type === "fill-extrusion" || opts.paint || opts.filter != null) { assertMLLayer(opts, "extrude"); opts = normalizeMLLayer(opts, PUBLIC_DZ); }   // MapLibre 形＝入口 1 本（ネイティブの opts＝height/color の関数などは素通し）
+	if (src && (src as ExtrudeOptsIn).type === "fill-extrusion" && !opts.paint) { const layer = src as ExtrudeOptsIn; src = (layer.source as { data?: ExtrudeIn } | undefined)?.data ?? layer.source as ExtrudeIn; opts = { ...layer, ...opts }; delete opts.source; delete opts.id; }
+	if (opts.type === "fill-extrusion" || opts.paint || opts.filter != null) { assertMLLayer(opts as Partial<MLLayer>, "extrude"); opts = normalizeMLLayer(opts as MLLayer, PUBLIC_DZ) as ExtrudeOptsIn; }   // MapLibre 形＝入口 1 本（ネイティブの opts＝height/color の関数などは素通し）
 	return extrudeNative(src, opts);
 });
 // 中身（native）＝MapLibre 形の層は正規化済みで受ける。addLayer の描き出しはこちらを直に呼ぶ
-async function extrudeNative(src, opts = {}) {
+async function extrudeNative(src: ExtrudeIn, opts: ExtrudeOptsIn = {}) {
 	const c = await modelCtlGet();
-	let gj = src;
+	let gj: unknown = src;
 	if (typeof src === "string" || src instanceof Blob) gj = await readGeoData(src);   // URL＝requester で直に（proxy を通らない・#176）
-	else if (!src.type && !Array.isArray(src) && src.geojson) gj = src.geojson;
+	else if (!(src as GjLike).type && !Array.isArray(src) && (src as GjLike).geojson) gj = (src as GjLike).geojson;
 	const { fit: doFit = true, ...rest } = opts;
-	const st = await c.extrude(gj, { zoom: cam.zoom, ...rest, fit: false });   // zoom＝式の ["zoom"]（評価は呼んだ時に一度＝ズーム追随は呼び直し。gint の paintTable と同じ約束）
+	const st = await c.extrude(gj as ExtrudeSrc, { zoom: cam.zoom, ...rest, fit: false } as ModelExtrudeOptions);   // zoom＝式の ["zoom"]（評価は呼んだ時に一度＝ズーム追随は呼び直し。gint の paintTable と同じ約束）
 	if (doFit && st?.bbox) {   // 寄る＝今の傾きのまま（押し出しでも傾けない＝本人裁定 9/21）
 		const bb = st.bbox, cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2, wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 1.3);
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
@@ -2886,20 +3019,20 @@ registerGadget("stac", (m, opts) => {
 // 注記（URL か object・1 枚でもページでも）→ geopbf/georef で解く（変換＝多項式・TPS・射影・Helmert＝自前）→ iiif-worker が IIIF の段とタイルを選んで焼く。
 // 地面に貼るだけ（画像タイル層・本人裁定）。出典＝spec.attribution → manifest の requiredStatement／attribution → info.json の attribution。
 // 取得は requester（transformRequest）＝新しい口（従来の道は無い）。IIIF のタイルは worker が直に（公開の画像サーバー）
-const iiifText = v => v == null ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(iiifText).filter(Boolean).join(" ") : typeof v === "object" ? iiifText(v.none ?? v.en ?? v["@value"] ?? v.value ?? Object.values(v)[0]) : String(v);
-async function iiifOpen(src, attribution) {
+const iiifText = (v: IiifVal): string => v == null ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(iiifText).filter(Boolean).join(" ") : typeof v === "object" ? iiifText(v.none ?? v.en ?? v["@value"] ?? v.value ?? Object.values(v)[0]) : String(v);
+async function iiifOpen(src: string | object, attribution: string | null | undefined) {
 	const G = await import("geopbf/georef");
 	let ann = src, base = location.href;
 	if (typeof src === "string") { base = new URL(src, location.href).href; const r = await requester.fetch(base, "Source"); if (!r.ok) throw new Error(`iiif: HTTP ${r.status} ${src}`); ann = await r.json(); }
 	const maps = G.parseGeoreference(ann);
-	for (const m of maps) { m.image.id = new URL(m.image.id, base).href; if (m.image.manifest) m.image.manifest = new URL(m.image.manifest, base).href; }   // 相対の id＝注記の置き場所から（worker は自分の URL を基準にしてしまう）
+	for (const m of maps) { m.image.id = new URL(m.image.id!, base).href; if (m.image.manifest) m.image.manifest = new URL(m.image.manifest, base).href; }   // 相対の id＝注記の置き場所から（worker は自分の URL を基準にしてしまう）
 	if (!maps.length) throw new Error("iiif: no georeferenced image in the annotation (motivation \"georeferencing\" with resourceCoords)");
 	if (attribution == null) {   // manifest の表示義務（requiredStatement／v2 attribution）＝取れなければ info.json の attribution（worker）
-		const ids = [...new Set(maps.map(m => m.image.manifest).filter(Boolean))];
+		const ids = [...new Set(maps.map(m => m.image.manifest).filter(Boolean) as string[])];
 		const parts = await Promise.all(ids.map(async u => { try { const m = await (await requester.fetch(u, "Source")).json(); return iiifText(m.requiredStatement?.value ?? m.attribution) || null; } catch { return null; } }));
 		attribution = parts.filter(Boolean).join(" · ") || null;
 	}
-	const fallback = [...new Set(maps.map(m => { try { return new URL(m.image.id).host; } catch { return null; } }).filter(Boolean))].join(" · ") || null;   // 宣言がどこにも無い＝画像サーバーのホスト名（無出典で他人の画像を出さない）
+	const fallback = [...new Set(maps.map(m => { try { return new URL(m.image.id!).host; } catch { return null; } }).filter(Boolean))].join(" · ") || null;   // 宣言がどこにも無い＝画像サーバーのホスト名（無出典で他人の画像を出さない）
 	return { maps, attribution, fallback };
 }
 // ?iiif=<注記の URL>（Allmaps の注記 URL も・門は ?g= と共用＝https 限定）＝重ねの画像タイル層・範囲へ寄る（URL に視点があればそれが勝つ）
@@ -2910,7 +3043,7 @@ async function iiifOpen(src, attribution) {
 }
 // ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
 // map.addPointCloud(url | File, opts)→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>[&copcattr=<出典>]（門は ?g= と共用）・.las／.laz のドロップ
-let copcCtl = null;
+let copcCtl: ReturnType<typeof createCOPC> | null = null;
 const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
 	setAttr: (id, html) => {   // 出典の欄（#attr）＝opts.attribution・無ければ URL のホスト名（無出典で他人のデータを出さない＝サービスと同じ方針）。鍵は "pc:<id>"＝"src:" でない（様式の組み直しで source に無い "src:" は消される）
 		const k = "pc:" + id, v = html ? sanitizeHTML(String(html)) : null;
@@ -2923,7 +3056,7 @@ map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(
 {
 	const cSpec = new URLSearchParams(location.search).get("copc");
 	const u = cSpec ? remoteUrl(cSpec, "copc") : null;
-	const esc = v => v.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+	const esc = (v: string) => v.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 	const aSpec = new URLSearchParams(location.search).get("copcattr");   // ?copcattr=<出典の文字>（HTML にしない）＝カードから開く見本（段 4-2）の出典
 	if (u) { const off = map.onFrame(() => { off(); map.addPointCloud(u.href, { fit: !themeBootV, ...(aSpec ? { attribution: esc(aSpec.slice(0, 200)) } : {}) }).catch(err => console.warn("[copc] ?copc=", u.href, err)); }); }
 }
@@ -2941,7 +3074,7 @@ map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(
 	const xyzSpec = q.get("xyz"), rSpec = q.get("r");
 	if (xyzSpec) {
 		const u = remoteUrl(xyzSpec, "xyz");
-		if (u) { const tpl = u.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"); const off = map.onFrame(() => { off(); map.raster.add("xyz", { url: tpl, name: u.host, minZoom: +q.get("xyzmin") || 0, maxZoom: +q.get("xyzmax") || 18 }, { order: "under", hideFills: true }).catch(err => console.warn("[xyz] failed", tpl, err)); }); }
+		if (u) { const tpl = u.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"); const off = map.onFrame(() => { off(); map.raster.add("xyz", { url: tpl, name: u.host, minZoom: +q.get("xyzmin")! || 0, maxZoom: +q.get("xyzmax")! || 18 }, { order: "under", hideFills: true }).catch(err => console.warn("[xyz] failed", tpl, err)); }); }
 	}
 	if (rSpec) {
 		const ids = rSpec.split(",").map(x => x.trim()).filter(Boolean);
@@ -2953,25 +3086,25 @@ map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(
 }
 // ── 任意の 3D Tiles（#41・2026-09-23）＝gadgets/tiles3d.js（画面上の誤差で流す・中身は model 役の worker が解く）──
 // map.gadget.tiles3d(url, opts) / map.add3DTiles(url, opts)＝戻り値の手綱（remove / setVisible / setOptions / stats）。?tiles3d=<URL>（門は ?g= と共用）・&t3dh=<m>＝高さのずらし
-let t3dCtl = null;
+let t3dCtl: T3dLive | null = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); return t3dCtl ??= m.createTiles3D(map, {
 	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
-	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); requestDraw(); },
+	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); requestDraw(); },
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); requestDraw(); },
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）
 	pickEnv: meshPickEnv,   // 当たり（W7）
 	setAttribution: (id, text) => setSrcAttr("t3d:" + id, text ? sanitizeHTML(String(text)) : null),   // tileset の出典（W8・opts.attribution）＝出典の欄（#attr）へ
-}); };
+}) as T3dLive; };
 registerGadget("tiles3d", async (m, url, opts = {}) => {
 	const c = await t3dGet();
 	if (url == null) { if (opts.id) c.remove(opts.id); else for (const id of c.ids) c.remove(id); return null; }
 	return c.add(url, opts);
 });
-map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
+map.add3DTiles = ((url: string | null, opts?: Tiles3DOptions) => map.gadget.tiles3d(url, opts)) as GlobeMap["add3DTiles"];
 // I3S（ArcGIS の Indexed 3D Scene Layer・#48）＝同じ選び・同じ GPU 経路（gadgets/tiles3d.js の addI3S）。url＝…/SceneServer か …/SceneServer/layers/N
 map.addI3S = async (url, opts) => (await t3dGet()).addI3S(url, opts);
-let czmlCtl = null, czmlUrlClock = !!(bootView && (bootView.time || bootView.speed != null));
-let editDocHook = null;
+let czmlCtl: GlobeLive["czmlCtl"] = null, czmlUrlClock: GlobeLive["czmlUrlClock"] = !!(bootView && (bootView.time || bootView.speed != null));
+let editDocHook: GlobeLive["editDocHook"] = null;
 // 取得の手入れ・Marker／Popup・取り込みの表とファイル取り込み（loadUserFile）＝src/api/intake.ts（live＝createGlobe の変数を読み書きする口）
 const { loadUserFile, IMAGE_KEY } = installIntake(map, {
 	get czmlCtl() { return czmlCtl; }, set czmlCtl(v) { czmlCtl = v; },
@@ -2984,10 +3117,10 @@ const { loadUserFile, IMAGE_KEY } = installIntake(map, {
 	get clearImages() { return clearImages; },
 	get autoExtrude() { return autoExtrude; },
 }, { D2R, cam, columnarOn, columnarProbe, columnarView, dbgHost, flyTo, gint, pageHash, remoteUrl, requester, size });
-let imageIds = [], imageQuads = [];   // imageQuads＝[{ id, corners, properties }]（map.queryRenderedFeatures の画像層）
-let aggCtl = null;
-let symCtl = null;
-let gjCtl = null;
+let imageIds: GlobeLive["imageIds"] = [], imageQuads: GlobeLive["imageQuads"] = [];   // imageQuads＝[{ id, corners, properties }]（map.queryRenderedFeatures の画像層）
+let aggCtl: GlobeLive["aggCtl"] = null;
+let symCtl: GlobeLive["symCtl"] = null;
+let gjCtl: GlobeLive["gjCtl"] = null;
 // 画像・集約とヒートマップ・記号帳と記号の層＝src/api/images.ts（live＝createGlobe の変数を読み書きする口）
 const { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints, clusterNative, aggGet, pendingImages, heatmapNative, gjIsLine, gjGet, symbolsNative } = installImages(map, {
 	get imageIds() { return imageIds; }, set imageIds(v) { imageIds = v; },
@@ -3009,56 +3142,56 @@ const { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints,
 // 重ね順（moveLayer）は「同じ描き方の中」で効く（gint 同士・記号同士・模様同士）。描き方の違う層どうしの上下は描画の段で決まる
 //（下から 基図 → 画像 → gint → 押し出し/建物 → ヒートマップ → 集約 → 記号 → 模様）。
 // 層の操作は MapLibre と同名：setPaintProperty / setLayoutProperty（visibility）/ setFilter / moveLayer / getStyle / setFeatureState。
-const mlSources = new Map(), mlLayers = new Map();   // mlLayers の挿入順＝重ね順（下から）
+const mlSources: GlobeScope["mlSources"] = new Map(), mlLayers: GlobeScope["mlLayers"] = new Map();   // mlLayers の挿入順＝重ね順（下から）
 // 目盛り（互換の台帳 maplibre-compat.md・約束 1/5）：層と source は「渡されたまま」＋dz（その数が書かれた目盛り−エンジンの目盛り）を持つ。
 // 描き出す時は drawLayerOf（＝normalizeMLLayer：旧書式の読み替え＋dz の換算）を 1 回だけ通す。style.json 由来は dz 1（MapLibre の z）・
 // 公開の口は PUBLIC_DZ（createGlobe の最初で旗から決まる＝旗なし 0・maplibre 1）。層の metadata["ortho:dz"] の申告があればそれが勝つ。
 // ⚠層の口（addLayer…）は素の map でも公開の目盛り＝内部の呼び手は addLayerAt/addSourceAt に dz を明示する（台帳 R8 の門）
-const mlSourceDz = new Map();   // source id → dz（clusterMaxZoom は source に住む）
-const drawLayerOf = v => normalizeMLLayer(v.layer, v.dz);
+const mlSourceDz: GlobeScope["mlSourceDz"] = new Map();   // source id → dz（clusterMaxZoom は source に住む）
+const drawLayerOf: GlobeScope["drawLayerOf"] = v => normalizeMLLayer(v.layer, v.dz);
 // 層の出しズーム（正規化済み＝エンジンの z・MapLibre の minzoom 包含・maxzoom 排他）と「作り直すべきか」の鍵（段 5・台帳 R17）。
 // 押し出し・模様（canvas2D）は一度きりの評価＝止まるたびに鍵を見て、変わったら描き直す（範囲の外は外す・["zoom"] の式は 0.25 刻み）。
 // 押し出し（curves）は曲線を見る（台帳 R22・extrude-ml.js）＝一番外の interpolate/step の止まりの外は値が一定＝鍵も一定（全体を上げ直さない）
-const inZoomML = (L, z) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
-const evalZoomIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
-const zoomKeyOf = (L, z, curves = false) => !inZoomML(L, z) ? "out"
-	: curves ? "in" + ((k => k ? "@" + k : "")(curveZoomKey(L, z, evalZoomIn)))
+const inZoomML: GlobeScope["inZoomML"] = (L, z) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
+const evalZoomIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
+const zoomKeyOf = (L: MLLayer, z: number, curves = false) => !inZoomML(L, z) ? "out"
+	: curves ? "in" + ((k => k ? "@" + k : "")(curveZoomKey(L, z, evalZoomIn as (e: unknown) => unknown)))
 	: "in" + (JSON.stringify([L.filter ?? null, L.paint ?? null, L.layout ?? null]).includes('["zoom"') ? "@" + Math.round(z * 4) / 4 : "");
-const mlZoomKeys = new Map();   // 層 id → 最後に描いた時の鍵
+const mlZoomKeys = new Map<string, string>();   // 層 id → 最後に描いた時の鍵
 // 式の検査（段 5）＝知らない演算子があれば MapLibre と同じく投げて層を足さない（名前を挙げる）。within/distance など未対応の演算子も同じ扱い
-const assertMLLayer = (L, where) => { const bad = mlUnknownOps(L); if (bad.length) throw new Error(`${where}: layer "${L.id ?? "?"}" uses unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}`); };
-const srcDzOf = L => typeof L.source === "string" ? (mlSourceDz.get(L.source) ?? 0) : layerDzOf(L, 0);
-const srcOf = L => typeof L.source === "string" ? mlSources.get(L.source) ?? baseSrcSpec(L.source) : L.source;   // 基図の source 名＝vector（段 8①・fill-extrusion だけが読める）
-const srcId = L => typeof L.source === "string" ? L.source : L.id;
+const assertMLLayer: GlobeScope["assertMLLayer"] = (L, where) => { const bad = mlUnknownOps(L as MLLayer); if (bad.length) throw new Error(`${where}: layer "${L.id ?? "?"}" uses unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}`); };
+const srcDzOf = (L: MLLayer) => typeof L.source === "string" ? (mlSourceDz.get(L.source) ?? 0) : layerDzOf(L, 0);
+const srcOf: GlobeScope["srcOf"] = L => typeof L.source === "string" ? mlSources.get(L.source) ?? baseSrcSpec(L.source) : L.source;   // 基図の source 名＝vector（段 8①・fill-extrusion だけが読める）
+const srcId: GlobeScope["srcId"] = L => typeof L.source === "string" ? L.source : L.id;
 // MapLibre の geojson source の data の文字列＝URL（相対は頁から解決・段 6）。geopbf は ^https? だけを URL と見て、それ以外はバケツ名として引く
-const dataOf = sp => { const d = sp?.data ?? null; return typeof d === "string" && !/^[a-z][\w+.-]*:/i.test(d) ? new URL(d, location.href).href : d; };
-const hasPointCount = f => JSON.stringify(f ?? null).includes("point_count");
-const mlGen = new Map();   // "cluster:<sid>" / "gint:<sid>" → 世代（組み直しは非同期＝外した後に古い組み直しが着地して復活するのを捨てる）
-const bumpGen = k => { const g = (mlGen.get(k) || 0) + 1; mlGen.set(k, g); return g; };
-const mlVisible = v => v.layer.layout?.visibility !== "none";
-const mlOrderOf = id => [...mlLayers.keys()].indexOf(id);
-const kindOf = (layer, sp) => {
+const dataOf = (sp: UserSource | undefined) => { const d = sp?.data ?? null; return typeof d === "string" && !/^[a-z][\w+.-]*:/i.test(d) ? new URL(d, location.href).href : d; };
+const hasPointCount = (f: unknown) => JSON.stringify(f ?? null).includes("point_count");
+const mlGen = new Map<string, number>();   // "cluster:<sid>" / "gint:<sid>" → 世代（組み直しは非同期＝外した後に古い組み直しが着地して復活するのを捨てる）
+const bumpGen = (k: string) => { const g = (mlGen.get(k) || 0) + 1; mlGen.set(k, g); return g; };
+const mlVisible: GlobeScope["mlVisible"] = v => v.layer.layout?.visibility !== "none";
+const mlOrderOf = (id: string) => [...mlLayers.keys()].indexOf(id);
+const kindOf: GlobeScope["kindOf"] = (layer, sp) => {
 	if (layer.type === "raster") return "raster";
 	if (layer.type === "custom") return "custom";   // source を持たない（CustomLayerInterface）
-	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
-	if (layer.type === "color-relief") { if (sp.type !== "raster-dem") throw new Error(`addLayer: color-relief layer "${layer.id}" needs a raster-dem source`); return "colorrelief"; }   // 標高の段彩（colorrelief.js・#114）
-	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
-	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported — vector sources feed fill / line / circle / symbol / heatmap / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
+	if (layer.type === "hillshade") { if (sp!.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
+	if (layer.type === "color-relief") { if (sp!.type !== "raster-dem") throw new Error(`addLayer: color-relief layer "${layer.id}" needs a raster-dem source`); return "colorrelief"; }   // 標高の段彩（colorrelief.js・#114）
+	if (layer.type === "fill-extrusion") return sp!.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
+	if (sp!.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported — vector sources feed fill / line / circle / symbol / heatmap / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
-	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) return "cluster";
+	if (sp!.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) return "cluster";
 	if (layer.type === "symbol") return "symbol";
 	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) return "pattern";
 	if (layer.type === "line" && (layer.paint?.["line-gradient"] != null || (layer.paint?.["line-offset"] ?? 0) !== 0)) return "pattern";   // 線の飾り（#49）＝同じ canvas2D の口（数の 0 は gint のまま）
 	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") return "gint";
 	throw new Error(`addLayer: type "${layer.type}" is not supported`);
 };
-const rebuildCluster = async sid => {   // 同じ source の集約の層を一つの集約へ畳む（見えている層だけ）
+const rebuildCluster: GlobeScope["rebuildCluster"] = async sid => {   // 同じ source の集約の層を一つの集約へ畳む（見えている層だけ）
 	const gen = bumpGen("cluster:" + sid);
-	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
+	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src!;
 	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "cluster" && mlVisible(v)), ls = vs.map(drawLayerOf);
 	if (!ls.length) { aggCtl?.clear("cluster", sid); return null; }
-	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: rescaleZoomNum(sp.clusterMaxZoom ?? 14, srcDzOf(vs[0].layer), 0), clusterProperties: sp.clusterProperties, slot: sid, layerIds: {}, ranges: {} };   // clusterMaxZoom＝source の目盛りからエンジンの z へ
-	const zr = L => [L.minzoom ?? -Infinity, L.maxzoom ?? Infinity];   // 層の出しズーム（正規化済み＝エンジンの z・maxzoom 排他）
+	const opts: ClusterOpts & Required<Pick<ClusterOpts, "layerIds" | "ranges">> = { clusterRadius: sp.clusterRadius as number ?? 50, clusterMaxZoom: rescaleZoomNum((sp.clusterMaxZoom ?? 14) as number, srcDzOf(vs[0].layer), 0) as number | undefined, clusterProperties: sp.clusterProperties as Record<string, unknown> | undefined, slot: sid, layerIds: {}, ranges: {} };   // clusterMaxZoom＝source の目盛りからエンジンの z へ
+	const zr = (L: MLLayer): [number, number] => [L.minzoom ?? -Infinity, L.maxzoom ?? Infinity];   // 層の出しズーム（正規化済み＝エンジンの z・maxzoom 排他）
 	for (const L of ls) {
 		if (L.type === "circle" && (L.filter == null || hasPointCount(L.filter) && !/"!"/.test(JSON.stringify(L.filter)))) { opts.paint = L.paint; opts.layerIds.clusters = L.id; opts.ranges.clusters = zr(L); }
 		else if (L.type === "circle") { opts.unclustered = { paint: L.paint }; opts.layerIds.unclustered = L.id; opts.ranges.unclustered = zr(L); }
@@ -3076,29 +3209,29 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 // ML の層の gint 層は interactive:false（カーソルを奪わない＝MapLibre に自動のホバーは無い・層イベントは queryRenderedFeatures が引く）。
 // 同じ source の pass はジオメトリを別々に焼いて上げる（共有なし＝台帳 R10）＝同じ型が重なった時だけ pass が増える。
 const ML_ORDER_BASE = 1000;
-const mlGintData = new Map();      // sid → { data, pbf }
-const mlPasses = new Map();        // 署名（sid|層 id…|出しズーム）→ { sid, h, holder: { pass, zs, drawn }, order, pbf }
-const mlFeatureState = new Map();  // sid → Map<fid, state>（source に住む＝pass を作り直しても残す）
+const mlGintData = new Map<string, MlGintEntry>();      // sid → { data, pbf }
+const mlPasses = new Map<string, MlPassFull>();        // 署名（sid|層 id…|出しズーム）→ { sid, h, holder: { pass, zs, drawn }, order, pbf }
+const mlFeatureState: GlobeScope["mlFeatureState"] = new Map();  // sid → Map<fid, state>（source に住む＝pass を作り直しても残す）
 // geojson source の焼きの控え（2026-10-13・地形の頁＝25 万頂点の焼き 10 秒を毎回払っていた）＝source の cacheKey で GeoPBF＋GintBUF を IDB へ（geopbf の鍵つきの控え #176）。
 // 掃除＝鍵の接頭辞 ML1:: だけ・頁で最初に使う時に一度：置いてから 30 日を超えた物・200 件／256MB を超えた分（最後に使ったのが古い順）
 const ML_CACHE_PREFIX = "ML1::", ML_CACHE_PRUNE = { maxAge: 30 * 864e5, maxEntries: 200, maxBytes: 256 * 2 ** 20 };
 let mlCachePruned = null;
 const pruneMlCache = () => mlCachePruned ??= geopbfCachePrune({ prefix: ML_CACHE_PREFIX, ...ML_CACHE_PRUNE }).catch(err => { console.warn("[addSource] cache prune", err); return null; });
 const planGint = () => {   // 全体の詰め方＝gint の層だけを登録順に見て、同じ source が続く所を 1 本にし、その中を packMLLayers
-	const runs = []; let run = null;
+	const runs: Array<{ sid: string; ls: MLLayer[] }> = []; let run: { sid: string; ls: MLLayer[] } | null = null;
 	for (const v of mlLayers.values()) {
 		if (v.kind !== "gint") continue;   // 隠した層も詰め方に残す（表が効かせない＝出し入れで pass が変わらない＝焼き直さない）
 		const sid = srcId(v.layer);
 		if (!run || run.sid !== sid) runs.push(run = { sid, ls: [] });
 		run.ls.push(drawLayerOf(v));
 	}
-	return runs.flatMap(r => packMLLayers(r.ls).map(pass => ({ sid: r.sid, pass })));
+	return runs.flatMap(r => (packMLLayers(r.ls) as MLPassML[]).map(pass => ({ sid: r.sid, pass })));
 };
-const gintDataOf = async (sid, force, gen) => {
+const gintDataOf = async (sid: string, force: boolean, gen: number) => {
 	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
 	let cur = mlGintData.get(sid);
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
-	let d = dataOf(sp); const raw = d;
+	let d: unknown = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
 	else { dropFollow(sid); setSrcAttr(sid, null); }
 	// 焼いた結果の控え（source の cacheKey・data が object の時だけ）＝鍵が同じなら IDB の GeoPBF＋GintBUF を戻して焼かない。
@@ -3107,32 +3240,32 @@ const gintDataOf = async (sid, force, gen) => {
 	const ck = typeof raw !== "string" && typeof sp?.cacheKey === "string" && sp.cacheKey ? ML_CACHE_PREFIX + sp.cacheKey : null;
 	if (ck) pruneMlCache();
 	const pbf = (ck && await geopbfCached(ck, { gint: true, name: `ml/${sid}` }).catch(() => null))
-		|| await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}`, ...(ck ? { cacheKey: ck } : {}) });
+		|| await geopbf(withMlIds(d as GjLike, sp) as GeopbfInput, { gint: true, name: `ml/${sid}`, ...(ck ? { cacheKey: ck } : {}) });
 	if (mlGen.get("gint") !== gen) return null;
-	const idToFid = new Map(), fidToId = [];
-	for (let i = 0; i < (pbf?.length ?? 0); i++) { const id = pbf.getFeature?.(i)?.properties?.[ML_ID_KEY]; fidToId[i] = id; if (id != null && !idToFid.has(id)) idToFid.set(id, i); }
+	const idToFid = new Map<unknown, number>(), fidToId: Array<number | string | undefined> = [];
+	for (let i = 0; i < (pbf?.length ?? 0); i++) { const id = pbf!.getFeature?.(i)?.properties?.[ML_ID_KEY] as number | string | undefined; fidToId[i] = id; if (id != null && !idToFid.has(id)) idToFid.set(id, i); }
 	cur = { data: raw, pbf, idToFid, fidToId }; mlGintData.set(sid, cur);
 	return { cur, changed: true };
 };
 // MapLibre の feature の id（段 6）＝Feature.id → promoteId の属性 → 並び順（generateId と同じ・MapLibre では id が無いと feature-state が効かない＝その上位）。
 // 焼く前に隠しの属性で地物へ写す（geopbf は Feature.id を持たない・同じ属性の地物を 1 つの fid に束ねる＝並びの属性で束ねさせない）
-const withMlIds = (d, sp) => {
-	const feats = d?.type === "FeatureCollection" ? d.features : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : Array.isArray(d) ? d : [];
+const withMlIds = (d: GjLike, sp: UserSource | undefined) => {
+	const feats: GjLike[] = d?.type === "FeatureCollection" ? d.features! : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : Array.isArray(d) ? d : [];
 	const pid = typeof sp?.promoteId === "string" ? sp.promoteId : null;
 	return { type: "FeatureCollection", features: feats.map((f, i) => { const p = f?.properties || {}, id = pid != null && p[pid] != null ? p[pid] : f?.id != null ? f.id : i; return { ...f, properties: { ...p, [ML_IX_KEY]: i, [ML_ID_KEY]: id } }; }) };
 };
-const stripMl = p => { if (!p || !(ML_ID_KEY in p)) return p || {}; const { [ML_ID_KEY]: _a, [ML_IX_KEY]: _b, ...rest } = p; return rest; };
-const mlIdOf = (sid, fid) => mlGintData.get(sid)?.fidToId?.[fid];
-const zoomActiveKey = (pass, z) => pass.layers.filter(L => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom) && L.layout?.visibility !== "none").map(L => L.id).join(",");
+const stripMl: GlobeScope["stripMl"] = p => { if (!p || !(ML_ID_KEY in p)) return p || {}; const { [ML_ID_KEY]: _a, [ML_IX_KEY]: _b, ...rest } = p; return rest; };
+const mlIdOf: GlobeScope["mlIdOf"] = (sid, fid) => mlGintData.get(sid)?.fidToId?.[fid];
+const zoomActiveKey = (pass: MLPassML, z: number) => pass.layers.filter(L => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom) && L.layout?.visibility !== "none").map(L => L.id).join(",");
 // 組み直し（層の足し引き・重ね順・性質・出し入れ・データ差し替え＝どれも全体の詰め方から）。同じ署名の pass は手綱を使い回して表だけ作り直す
 // 立て続けの呼び出し＝新しい方が勝つ。追い越された呼び出しは新しい方の完了を待って解決する（addLayer が描き終わる前に解決しない）
-let mlGintRun = null;
-const rebuildGint = (sidChanged = null, opts = {}) => (mlGintRun = rebuildGintNow(sidChanged, opts));
-const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) => {
+let mlGintRun: Promise<unknown> | null = null;
+const rebuildGint: GlobeScope["rebuildGint"] = (sidChanged = null, opts = {}) => (mlGintRun = rebuildGintNow(sidChanged, opts));
+const rebuildGintNow = async (sidChanged: string | null = null, { dataChanged = false }: { dataChanged?: boolean } = {}) => {
 	const gen = bumpGen("gint");
 	const superseded = () => mlGintRun;   // 世代が進んでいたら新しい方の Promise を返す
-	const plan0 = planGint(), data = new Map();
-	let failOwn = null;   // 読めない source は、その source の pass だけ飛ばす（他の source を巻き添えにしない）。呼び出した source 自身なら最後に投げる
+	const plan0 = planGint(), data = new Map<string, NonNullable<Awaited<ReturnType<typeof gintDataOf>>>>();
+	let failOwn: unknown = null;   // 読めない source は、その source の pass だけ飛ばす（他の source を巻き添えにしない）。呼び出した source 自身なら最後に投げる
 	for (const sid of new Set(plan0.map(p => p.sid))) {
 		let r;
 		try { r = await gintDataOf(sid, dataChanged && sid === sidChanged, gen); }
@@ -3142,23 +3275,23 @@ const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) =
 	}
 	const plan = plan0.filter(p => data.has(p.sid)), sids = [...data.keys()];
 	if (mlGen.get("gint") !== gen) return superseded();
-	const keep = new Set();
+	const keep = new Set<string>();
 	for (let i = 0; i < plan.length; i++) {
-		const { sid, pass } = plan[i], order = ML_ORDER_BASE + i, { cur, changed } = data.get(sid);
+		const { sid, pass } = plan[i], order = ML_ORDER_BASE + i, { cur, changed } = data.get(sid)!;
 		// 出しズーム＝MapLibre の既定（minzoom 無し＝z0 から・maxzoom 無し＝上限なし）・pass の層の和。境の内側の出し入れは表（層の zoom 域）が決める
-		const minZ = Math.min(...pass.layers.map(L => Number.isFinite(L.minzoom) ? L.minzoom : 0)), maxs = pass.layers.map(L => L.maxzoom), maxZ = maxs.every(Number.isFinite) ? Math.max(...maxs) : null;
+		const minZ = Math.min(...pass.layers.map(L => Number.isFinite(L.minzoom) ? L.minzoom! : 0)), maxs = pass.layers.map(L => L.maxzoom), maxZ = maxs.every(Number.isFinite) ? Math.max(...maxs as number[]) : null;
 		const sig = `${sid}|${pass.layers.map(L => L.id).join(",")}|${minZ}|${maxZ}`;
 		keep.add(sig);
 		let e = mlPasses.get(sig);
 		if (!e) {
-			const holder = { pass, zs: zoomSensitivity(pass), drawn: null };
+			const holder: MlHolder = { pass, zs: zoomSensitivity(pass), drawn: null };
 			// style＝移動中も地物ごとの表で描く（admin0 と同じ moveBudget=Infinity＋outlineZoom=0）＝MapLibre の層は動かしている間も同じ見た目。
 			// 既定のままだと 25 万辺を超える source は移動中に層の単色（既定の #FF6B35／#00B4D8）へ落ち、面がオレンジに塗られた
 			//（/globe/physical の形状台帳 39 万頂点・本人指摘 2026-10-01）。単色の色も透明に＝それでも落ちる経路で色を出さない
-			const h = map.addGint(cur.pbf, { order, minZoom: minZ, maxZoom: maxZ, origin: "ml", interactive: false, ...(pass.fill ? {} : { fillMaxEdges: 0 }),   // 塗りの層が無い＝縮退 stencil が表を見ずに塗る穴を塞ぐ（U13・R16）
+			const h = map.addGint(cur.pbf, { order, minZoom: minZ, maxZoom: maxZ as number | undefined, origin: "ml", interactive: false, ...(pass.fill ? {} : { fillMaxEdges: 0 }),   // 塗りの層が無い＝縮退 stencil が表を見ずに塗る穴を塞ぐ（U13・R16）
 				style: { fillColor: [0, 0, 0, 0], styleTable: new Float32Array(256 * 4), moveBudget: Infinity, outlineZoom: 0 },
-				buildTable: ({ feats, zoom, states }) => { const t = buildMLTable(holder.pass, feats, { zoom, states }); holder.drawn = t.drawn; return t; },
-				zoomKey: z => zoomActiveKey(holder.pass, z) + (holder.zs.expr ? "@" + Math.round(z * 4) / 4 : "") });
+				buildTable: ({ feats, zoom, states }: { feats: Parameters<typeof buildMLTable>[1]; zoom: number; states: MLTableStates }) => { const t = buildMLTable(holder.pass, feats, { zoom, states }); holder.drawn = t.drawn; return t; },
+				zoomKey: (z: number) => zoomActiveKey(holder.pass, z) + (holder.zs.expr ? "@" + Math.round(z * 4) / 4 : "") } as GintLayerOptions);
 			if (!h) continue;
 			e = { sid, h, holder, order, pbf: cur.pbf }; mlPasses.set(sig, e);
 			await h.ready;
@@ -3185,43 +3318,43 @@ const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) =
 // 塗り/線の模様（MapLibre の fill-pattern／line-pattern）＝記号帳の画像を敷き詰める canvas2D のオーバーレイ（pattern-2d.js）。
 // 線の飾り（line-gradient／line-offset・#49）も同じ口＝gint の線は地物ごと一色・ずらしなし。
 // ⚠設計原則「紙の遺物を捨てる」の側＝既定では何も描かない。MapLibre の層を受ける互換の口だけ（本人 9/21「残りをお願いします」）
-let patOv = null, patOrder = 0;
-const patItems = new Map();   // 層 id → { fill, sid, feats: [{ f, width, offset, lines }] }＝queryRenderedFeatures が当てる（段 5・台帳 R17）
-const patSent = new Set();
+let patOv: OverlayHandle | null = null, patOrder = 0;
+const patItems: GlobeScope["patItems"] = new Map();   // 層 id → { fill, sid, feats: [{ f, width, offset, lines }] }＝queryRenderedFeatures が当てる（段 5・台帳 R17）
+const patSent = new Set<string>();
 const GRAD_N = 64;   // line-gradient の見本の数（進み 0..1 を等分）
-const cssRGBA = v => { const [r, g, b, a] = parseRGBA(v); return `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`; };
+const cssRGBA = (v: unknown) => { const [r, g, b, a] = parseRGBA(v); return `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`; };
 // line-progress（MapLibre の lineMetrics）＝線の頭からの長さの割合。長さはメルカトルの平面で測る（MapLibre のタイル座標と同じ尺）
-const lineProgress = r => {
-	const n = r.length >> 1, pr = new Float32Array(n), my = lat => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360)) * 180 / Math.PI;
+const lineProgress = (r: Float64Array) => {
+	const n = r.length >> 1, pr = new Float32Array(n), my = (lat: number) => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360)) * 180 / Math.PI;
 	let acc = 0;
 	for (let i = 1; i < n; i++) { acc += Math.hypot(r[i * 2] - r[i * 2 - 2], my(r[i * 2 + 1]) - my(r[i * 2 - 1])); pr[i] = acc; }
 	if (acc > 0) for (let i = 1; i < n; i++) pr[i] /= acc;
 	return pr;
 };
-const addPattern = async (layer, data, order) => {
-	const pf = [];   // 問い合わせ用の地物（画面の px で当てる）
+const addPattern = async (layer: MLLayer, data: unknown, order?: number) => {
+	const pf: PatFeatOut[] = [];   // 問い合わせ用の地物（画面の px で当てる）
 	const P0 = layer.paint || {}, needSym = P0["fill-pattern"] != null || P0["line-pattern"] != null;
 	const c = needSym ? await symGet() : null; patOv ??= map.overlay(patUrl, { name: "pattern" });
-	let d = data; if (typeof d === "string" || d instanceof Blob) d = await readGeoData(d);
-	const feats = d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
+	let d = data as GjLike | string | Blob | undefined; if (typeof d === "string" || d instanceof Blob) d = await readGeoData(d) as GjLike | undefined;
+	const feats = (d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : [])) as Array<PatFeature | null>, P = layer.paint || {}, fill = layer.type === "fill", items: PatOut[] = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
-		const ctx = { zoom: cam.zoom, props: f.properties || {}, geom: g.type.replace("Multi", ""), vars: {}, gs: MAP_GS, origin: originOfLayer(layer), geojson: g, pitch: cam.pitch * R2D };   // geojson/pitch＝within・distance・["pitch"]（C2）
-		const evd = (e, d) => { const v = evalExpr(e ?? d, ctx); return v === undefined && ctx.origin ? d : v; };   // ML の評価エラー＝性質の既定値
+		const ctx = { zoom: cam.zoom, props: f.properties || {}, geom: g.type.replace("Multi", ""), vars: {}, gs: MAP_GS, origin: originOfLayer(layer), geojson: g as ExprCtx["geojson"], pitch: cam.pitch * R2D };   // geojson/pitch＝within・distance・["pitch"]（C2）
+		const evd = (e: unknown, d: unknown) => { const v = evalExpr(e ?? d, ctx); return v === undefined && ctx.origin ? d : v; };   // ML の評価エラー＝性質の既定値
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
 		const patProp = P[fill ? "fill-pattern" : "line-pattern"];
 		const pattern = patProp != null ? evalExpr(patProp, ctx) : null;
-		if (patProp != null && (!pattern || !c.getImage(pattern))) continue;
-		const parts = fill ? (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) : (g.type === "LineString" ? [[g.coordinates]] : g.type === "MultiLineString" ? g.coordinates.map(l => [l]) : []);
-		const it0 = { pattern, opacity: +evd(P[fill ? "fill-opacity" : "line-opacity"], 1), width: fill ? 0 : +evd(P["line-width"], 1) };
+		if (patProp != null && (!pattern || !c!.getImage(pattern as string))) continue;
+		const parts: number[][][][] = fill ? (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) : (g.type === "LineString" ? [[g.coordinates]] : g.type === "MultiLineString" ? g.coordinates.map(l => [l]) : []);
+		const it0: PatIt = { pattern, opacity: +(evd(P[fill ? "fill-opacity" : "line-opacity"], 1) as number), width: fill ? 0 : +(evd(P["line-width"], 1) as number) };
 		if (!fill) {
 			if (!pattern) it0.color = cssRGBA(evd(P["line-color"], "#000"));
-			const off = P["line-offset"] != null ? +evalExpr(P["line-offset"], ctx) : 0;
+			const off = P["line-offset"] != null ? +(evalExpr(P["line-offset"], ctx) as number) : 0;
 			if (off && isFinite(off)) it0.offset = off;
 			const dash = P["line-dasharray"] != null ? evalExpr(P["line-dasharray"], ctx) : null;
 			if (Array.isArray(dash) && dash.length && dash.every(v => typeof v === "number" && v >= 0) && dash.some(v => v > 0)) it0.dash = dash;
 			if (P["line-gradient"] != null && !pattern) {   // 見本＝進みを等分して式を評価（["line-progress"] は ctx.vars から引かれる）
-				const lut = [];
+				const lut: string[] = [];
 				for (let j = 0; j <= GRAD_N; j++) { ctx.vars = { "line-progress": j / GRAD_N }; lut.push(cssRGBA(evalExpr(P["line-gradient"], ctx))); }
 				ctx.vars = {};
 				it0.grad = { lut };
@@ -3233,32 +3366,32 @@ const addPattern = async (layer, data, order) => {
 			items.push(it0.grad ? { ...it0, rings: rr, grad: { lut: it0.grad.lut, prog: rr.map(lineProgress) } } : { ...it0, rings: rr });
 		}
 	}
-	for (const name of new Set(items.map(i => i.pattern).filter(Boolean))) if (!patSent.has(name)) { const im = c.getImage(name); const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
-	patItems.set(layer.id, { fill, sid: srcId(layer), feats: pf });
+	for (const name of new Set(items.map(i => i.pattern).filter(Boolean) as string[])) if (!patSent.has(name)) { const im = c!.getImage(name)!; const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
+	patItems.set(layer.id, { fill, sid: srcId(layer), feats: pf as PatItem["feats"] });
 	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
 	return { features: items.length };
 };
 // ラスタの色調整（MapLibre の raster-* paint・#39）＝今のズームで数へ（式も可）。何も無ければ null
-const rasterAdjust = P => {
+const rasterAdjust: GlobeScope["rasterAdjust"] = P => {
 	if (!P) return null;
-	const n = (k, d) => { if (P[k] == null) return d; const v = evalExpr(P[k], { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }); return v === undefined ? d : +v; };   // MapLibre の raster 層だけが呼ぶ
+	const n = (k: string, d: number) => { if (P[k] == null) return d; const v = evalExpr(P[k], { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }); return v === undefined ? d : +v!; };   // MapLibre の raster 層だけが呼ぶ
 	const a = { hueRotate: n("raster-hue-rotate", 0), saturation: n("raster-saturation", 0), contrast: n("raster-contrast", 0), brightnessMin: n("raster-brightness-min", 0), brightnessMax: n("raster-brightness-max", 1) };
 	return a.hueRotate || a.saturation || a.contrast || a.brightnessMin || a.brightnessMax !== 1 ? a : null;
 };
 // ── vector source の fill-extrusion（MVT の 3D 建物・段 8①・2026-09-26）＝gadgets/vtextrude.js（遅延 chunk・この層が来た時だけ読む＝他の地図は何も変わらない）──
 // 基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）も source として受ける（BASE_SRC の印）。描き方はメッシュ経路（setMesh / meshVis）の使う側を一つ足すだけ
-const BASE_SRC = Symbol("basemap-source");
-const baseSidNow = () => EXT?.split.vectorSource ?? "basemap";
-const baseSrcSpec = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
+const BASE_SRC: GlobeScope["BASE_SRC"] = Symbol("basemap-source");
+const baseSidNow: GlobeScope["baseSidNow"] = () => EXT?.split.vectorSource ?? "basemap";
+const baseSrcSpec: GlobeScope["baseSrcSpec"] = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
 // 当たりの地面＝描いている地面＝dispRadius（負の標高を 0 に切る＝renderer と同じ・2026-09-27 に projectLL と一本化）
 // ?noterr=1（地形を描かない）は dispRadius 側で持ち上げ 0＝projectLL も当たりも描く側と同じ（#77 の意図を一本化の後へ写した・2026-09-27）
-const vtxGround = dispRadius;
+const vtxGround: GlobeScope["vtxGround"] = dispRadius;
 // feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
-const vtxFS = new Map();
-const vtxFSKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;
-const vtxStateOf = (sid, sl, id) => ({ ...(id == null || sl == null ? null : vtxFS.get(sid)?.get(vtxFSKey(sl, id))?.state) });   // 問い合わせの地物の state（MapLibre と同じく無ければ {}・#109 段 3）
-const isVecSrc = sid => mlSources.get(sid)?.type === "vector" || !!baseSrcSpec(sid);
-let vtxCtl = null;
+const vtxFS: GlobeScope["vtxFS"] = new Map();
+const vtxFSKey = (sl: string | undefined, id: unknown) => `${sl}\u0000${typeof id}:${id}`;
+const vtxStateOf: GlobeScope["vtxStateOf"] = (sid, sl, id) => ({ ...(id == null || sl == null ? null : vtxFS.get(sid)?.get(vtxFSKey(sl, id))?.state) });   // 問い合わせの地物の state（MapLibre と同じく無ければ {}・#109 段 3）
+const isVecSrc: GlobeScope["isVecSrc"] = sid => mlSources.get(sid)?.type === "vector" || !!baseSrcSpec(sid);
+let vtxCtl: ReturnType<typeof createVTExtrude> | null = null;
 const vtxGet = async () => {
 	const m = await import("./gadgets/vtextrude.ts");
 	if (vtxCtl) return vtxCtl;
@@ -3270,27 +3403,27 @@ const vtxGet = async () => {
 		gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）   // __vtx＝検証窓（debugGlobals の時だけ）
 		meshPort: ch.port1, requestDraw: requestDraw,
 		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey, tileBias: TILE_BIAS, zoomOf: mlZoomOf,
-		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean))] : []); requestDraw(); },
+		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean) as Transferable[])] : []); requestDraw(); },
 		meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); requestDraw(); },
 		hitEnv: () => extView().envOf(vtxGround),   // 当たり＝geojson の押し出しと同じ口（屋根と壁・奥行き＝clip の w・台帳 R23）
 		unprojectAt: (x, y, hM) => { const st = cameraState(cam, size.w, size.h); return unproject(st, x * dpr, y * dpr, vtxGround(cam.center[0], cam.center[1]) + (hM || 0) / EARTH_M); },
 	});
 };
 // source の記述子（vtextrude.js の desc）。基図＝外来 style の解決済みの source か地域の基図の記述子・利用者の vector source＝TileJSON/PMTiles を解いて覚える
-const vtxDescs = new Map();   // sid → Promise<desc>（利用者の source・removeSource で忘れる）
-const vtxAttrs = new Map();   // sid → 出典（消毒済み HTML・宣言が無ければホスト名＝無出典で他人のデータを出さない）＝押し出しの層がその source を使っている間だけ
-const vtxAttrTail = (skip = null) => { const a = [...new Set(vtxAttrs.values())].filter(x => x && x !== skip); return a.length ? `<br>${t("Source: $1", a.join("・"))}` : ""; };   // skip＝基図の出典と同じ文は重ねない
-const vtxAttrOf = desc => { if (desc.attribution && String(desc.attribution).trim()) return sanitizeHTML(String(desc.attribution)); const u = desc.pmtiles ? desc.pmtiles.replace(/^pmtiles:\/\//, "") : desc.tileUrl?.(0, 0, 0); try { return u ? new URL(u, location.href).host : null; } catch { return null; } };   // 空白だけの宣言（demotiles の " "）＝宣言なしと同じ＝ホスト名
-const vtxDescOf = async (sid, sp) => {
+const vtxDescs: GlobeScope["vtxDescs"] = new Map();   // sid → Promise<desc>（利用者の source・removeSource で忘れる）
+const vtxAttrs: GlobeLive["vtxAttrs"] = new Map();   // sid → 出典（消毒済み HTML・宣言が無ければホスト名＝無出典で他人のデータを出さない）＝押し出しの層がその source を使っている間だけ
+const vtxAttrTail = (skip: string | null = null) => { const a = [...new Set(vtxAttrs.values())].filter(x => x && x !== skip); return a.length ? `<br>${t("Source: $1", a.join("・"))}` : ""; };   // skip＝基図の出典と同じ文は重ねない
+const vtxAttrOf = (desc: VtxDesc & { attribution?: unknown }) => { if (desc.attribution && String(desc.attribution).trim()) return sanitizeHTML(String(desc.attribution)); const u = desc.pmtiles ? desc.pmtiles.replace(/^pmtiles:\/\//, "") : desc.tileUrl?.(0, 0, 0); try { return u ? new URL(u, location.href).host : null; } catch { return null; } };   // 空白だけの宣言（demotiles の " "）＝宣言なしと同じ＝ホスト名
+const vtxDescOf: GlobeScope["vtxDescOf"] = async (sid, sp) => {
 	if (sp?.[BASE_SRC]) {
-		if (EXT) { const s = EXT.src, ms = EXT.ms.sources[sid] || {}; return s ? { tileUrl: s.pmtiles ? null : tileUrlOf(s), pmtiles: s.pmtiles || null, minzoom: s.minzoom, maxzoom: s.maxzoom, bounds: s.bounds ?? null, promoteId: ms.promoteId ?? null, encoding: s.encoding || "mvt", tag: JSON.stringify(s.pmtiles || s.tiles) + "|" + (s.encoding || "mvt") } : null; }
+		if (EXT) { const s = EXT.src, ms = EXT.ms.sources![sid] || {}; return s ? { tileUrl: s.pmtiles ? null : tileUrlOf(s), pmtiles: s.pmtiles || null, minzoom: s.minzoom, maxzoom: s.maxzoom, bounds: s.bounds ?? null, promoteId: ms.promoteId as VtxDesc["promoteId"] ?? null, encoding: s.encoding || "mvt", tag: JSON.stringify(s.pmtiles || s.tiles) + "|" + (s.encoding || "mvt") } : null; }
 		if (BASE_SOURCE.kind === "none") return null;
 		return { tileUrl: BASE_SOURCE.kind === "pmtiles" ? null : BASE_SOURCE.tileUrl, pmtiles: BASE_SOURCE.kind === "pmtiles" ? BASE_SOURCE.url : null, minzoom: BASE_SOURCE.minZ ?? 4, maxzoom: BASE_SOURCE.info?.maxZoom ?? 16, coverage: BASE_SOURCE.coverage, promoteId: null, encoding: BASE_SOURCE.encoding || "mvt", tag: "basemap:" + BASE_SOURCE.kind + ":" + (BASE_SOURCE.url || "") };
 	}
 	let p = vtxDescs.get(sid);
 	if (!p) {
-		p = resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }).then(r => ({
-			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, encoding: r.encoding || "mvt", tag: JSON.stringify(r.pmtiles || r.tiles) + "|" + (r.encoding || "mvt"), attribution: sp.attribution ?? r.attribution ?? null,   // encoding＝タイルの形式（mvt｜mlt・#88）
+		p = resolveVectorSource(sp!, location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }).then(r => ({
+			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp!.minzoom ?? r.minzoom, maxzoom: sp!.maxzoom ?? r.maxzoom, bounds: sp!.bounds ?? r.bounds ?? null, promoteId: sp!.promoteId ?? null, encoding: r.encoding || "mvt", tag: JSON.stringify(r.pmtiles || r.tiles) + "|" + (r.encoding || "mvt"), attribution: sp!.attribution ?? r.attribution ?? null,   // encoding＝タイルの形式（mvt｜mlt・#88）
 			vectorLayers: r.vectorLayers ?? null,   // TileJSON の層の一覧（検査表示 #174 の台帳）
 		}));
 		vtxDescs.set(sid, p);
@@ -3300,8 +3433,8 @@ const vtxDescOf = async (sid, sp) => {
 };
 const vtRaw = createRawStore();   // vector source の生のタイルの写し（main・C7）＝querySourceFeatures が同期で解く。vtdraw／vtextrude の両方が入れ、両方が捨てたら消える
 dbgHost.__vtraw = vtRaw;
-const vtxWarned = new Set();
-const vtxMount = async (v, layer) => {
+const vtxWarned = new Set<string>();
+const vtxMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer), desc = await vtxDescOf(sid, v.src);
 	if (mlLayers.get(layer.id) !== v) return null;   // 待っている間に外された・置き換えられた
 	if (!desc) { console.warn(`[layers] "${layer.id}": source "${sid}" has no vector tiles here — nothing to extrude`); return null; }
@@ -3313,10 +3446,10 @@ const vtxMount = async (v, layer) => {
 };
 // ── vector source の fill／line／circle／symbol（段 8⑤・2026-09-27）＝gadgets/vtdraw.js（遅延 chunk・この層が来た時だけ読む＝他の地図は何も変わらない）──
 // 本人の裁定「別の流れ・基図の上」：基図の配管は触らない。結合した scene は render worker の "user" の枠へ（基図の塗りと線の上）・注記は vtLabels（基図と同じ衝突）
-let vtdCtl = null;
-const vtdDesc = new Map();       // sid → 解いた記述子（問い合わせがタイルを取り直す）
-const vtdMounting = new Map();   // sid → 記述子を待っている層の数（isSourceLoaded＝まだ）
-const vtdOrder = () => [...mlLayers.values()].filter(v => v.kind === "vtdraw" && vtdCtl?.has(v.layer.id)).map(v => v.layer.id);   // MapLibre の順（下から）
+let vtdCtl: ReturnType<typeof createVTDraw> | null = null;
+const vtdDesc: GlobeScope["vtdDesc"] = new Map();       // sid → 解いた記述子（問い合わせがタイルを取り直す）
+const vtdMounting: GlobeScope["vtdMounting"] = new Map();   // sid → 記述子を待っている層の数（isSourceLoaded＝まだ）
+const vtdOrder: GlobeScope["vtdOrder"] = () => [...mlLayers.values()].filter(v => v.kind === "vtdraw" && vtdCtl?.has(v.layer.id)).map(v => v.layer.id);   // MapLibre の順（下から）
 const vtdGet = async () => {
 	const m = await import("./gadgets/vtdraw.ts");
 	if (vtdCtl) return vtdCtl;
@@ -3331,15 +3464,15 @@ const vtdGet = async () => {
 			const v = mlLayers.get(id);
 			if (!v || ll == null) { aggCtl?.clear("heatmap", id); return; }
 			const agg = await aggGet(); if (mlLayers.get(id) !== v) { agg.clear("heatmap", id); return; }
-			agg.heatmapPoints(ll, w, drawLayerOf(v), id); requestDraw();
+			agg.heatmapPoints(ll, w as Float32Array<ArrayBuffer>, drawLayerOf(v), id); requestDraw();
 		},
 	});
 	vtdAnchorsOn = true;   // 基図の層の間への差し込み（#123）を配り始める
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
-const vtdMount = async (v, layer) => {
+const VTD_UNSUPPORTED: Record<string, string[]> = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
+const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
 	let desc;
@@ -3357,20 +3490,20 @@ const vtdMount = async (v, layer) => {
 	if (!v.src?.[BASE_SRC] && !vtxAttrs.has(sid)) { vtxAttrs.set(sid, vtxAttrOf(desc)); attrZone = null; requestDraw(); }   // 基図の source の出典は基図の欄が持つ
 	return null;
 };
-const vecAttrDrop = (v, sid) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; requestDraw(); } };   // その source を使う層が無くなった＝出典を下げる
+const vecAttrDrop = (v: UserLayerRec, sid: string) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; requestDraw(); } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 // source の中身が載った合図（C8・MapLibre の sourcedata）＝setData／層が載った後に { sourceId }。通訳は data（isSourceLoaded:true）にも写す（例 display-html-clusters-with-custom-properties）
-const emitSourceData = sourceId => { for (const cb of [...mapOn.sourcedata]) { try { cb({ sourceId }); } catch (e) { console.error("[map.on sourcedata]", e); } } };
+const emitSourceData: GlobeScope["emitSourceData"] = sourceId => { for (const cb of [...mapOn.sourcedata]) { try { cb({ sourceId }); } catch (e) { console.error("[map.on sourcedata]", e); } } };
 // setData の畳み（C8）＝同じ source に連打された setData は走っている載せ直しの後に 1 回だけ（例 update-a-feature-in-realtime＝10ms ごと）。返す約束は最新の中身が載った時に解ける
-const setDataQ = new Map();
-const setDataLive = id => {
-	let q = setDataQ.get(id); if (q) { q.again = true; return q.p; }
+const setDataQ = new Map<string, { again: boolean; p: Promise<void> | null }>();
+const setDataLive: GlobeScope["setDataLive"] = id => {
+	let q = setDataQ.get(id); if (q) { q.again = true; return q.p!; }
 	q = { again: false, p: null }; setDataQ.set(id, q);
-	q.p = (async () => { try { do { q.again = false; await remountSource(id); } while (q.again); } finally { setDataQ.delete(id); } })();
-	return q.p;
+	q.p = (async () => { try { do { q!.again = false; await remountSource(id); } while (q!.again); } finally { setDataQ.delete(id); } })();
+	return q.p!;
 };
-const mountLayer = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
-const mountLayerRaw = async v => {
+const mountLayer: GlobeScope["mountLayer"] = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
+const mountLayerRaw = async (v: UserLayerRec) => {
 	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "vtextrude") return vtxMount(v, layer);
@@ -3381,34 +3514,34 @@ const mountLayerRaw = async v => {
 	}
 	if (kind === "raster") {
 		// 層の出しズーム＝表示窓（MapLibre の maxzoom は排他・表示窓の上端は包含＝ほんの少し手前）。source の minzoom/maxzoom は tile の z（spec）
-		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
-		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
-		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
+		const ro: RasterOptions = { order: "over", opacity: layer.paint?.["raster-opacity"] as number ?? 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
+		if (sp.type === "image") { const b = await (await fetch(sp.url!, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates as Corners4, name: layer.id }, ro); }
+		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls as string[], corners: sp.coordinates as Corners4 }, ro);   // #49
 		if (sp.type === "canvas") {   // MapLibre の canvas source（C3）＝canvas は id の文字列か要素・animate（既定 true）
 			const el = typeof sp.canvas === "string" ? document.getElementById(sp.canvas) : sp.canvas;
 			if (!el) throw new Error(`addLayer: canvas source "${srcId(layer)}": canvas "${sp.canvas}" not found`);
-			return map.raster.add(layer.id, { canvas: el, corners: sp.coordinates, animate: sp.animate !== false }, ro);
+			return map.raster.add(layer.id, { canvas: el as HTMLCanvasElement, corners: sp.coordinates as Corners4, animate: sp.animate !== false }, ro);
 		}
 		// url＝TileJSON（MapLibre）＝取りに行って tiles を得る（段 6・旧＝url を型紙として使っていた）。既定値は MapLibre の raster source（tileSize 512・maxzoom 22）
 		let rs = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
-		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
-		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
+		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles![0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
+		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds as Bbox | undefined, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
 	if (kind === "custom") {
 		// url＝層のモジュール（worker 経路・gadgets/customgl-draw.js・PR-7）＝render worker の同一フレームで描き、renderingMode "3d" は本体の深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる
 		if (typeof v.layer.url === "string") {
 			v.ov?.remove();
-			const abs = u => new URL(u, location.href).href;
-			v.ov = map.overlay(customglUrl, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: customHost?.getProjection?.()?.type ?? "mercator" } });
+			const abs = (u: string) => new URL(u, location.href).href;
+			v.ov = map.overlay(customglUrl, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: (customHost as CustomHostLike | null)?.getProjection?.()?.type ?? "mercator" } });
 			return null;
 		}
-		customGet().add(v.layer, order); return null;
+		customGet().add(v.layer as unknown as CustomLayer, order); return null;
 	}   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
-		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
+		const ro: RasterOptions = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize も TileJSON から（setTerrain と同じ）
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize も TileJSON から（setTerrain と同じ）
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
 		if (kind === "colorrelief") {
 			v.cr?.close();
@@ -3416,14 +3549,14 @@ const mountLayerRaw = async v => {
 			dbgHost.__colorRelief = v.cr;   // 切り分けの窓（debugGlobals）
 			return map.raster.add(layer.id, { port: v.cr.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 		}
-		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
+		const num = (x: unknown) => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
 		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && KNOWN_OPS.has(x[0]) ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）。頭が演算子の時だけ＝multidirectional の色の配列 ["#f40","#ff0",…] を式と取り違えない（2026-09-30）
 		v.hs?.close();
 		v.hs = createHillshadeProvider({ dem: ds, paint, name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`), tiles: demTilesFor(srcId(layer), ds, layer.id) });
 		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
 		return map.raster.add(layer.id, { port: v.hs.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 	}
-	if (kind === "extrude") return extrudeNative(await readPoints(data), { ...layer, fit: false, slot: layer.id });
+	if (kind === "extrude") return extrudeNative(await readPoints(data) as ExtrudeIn, { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
 	if (kind === "cluster") return rebuildCluster(sid);
 	if (kind === "symbol") {
@@ -3436,29 +3569,29 @@ const mountLayerRaw = async v => {
 };
 // raster-dem のタイルの在庫＝source ごとに 1 つ（同じ source の hillshade と color-relief が共有＝同じタイルを 2 度取らない）。使う層が居なくなったら捨てる。
 // 鍵＝型紙と符号（setStyle 等で同じ id の source の中身が変われば作り直す）
-const demStores = new Map();   // source id → { key, tiles, users:Set<layer id> }
+const demStores = new Map<string, { key: string; tiles: DemTiles; users: Set<string> }>();   // source id → { key, tiles, users:Set<layer id> }
 // raster-dem のタイルの取得：独自の読み口は MapLibre と同じく type:"image" で頼み、返りを ImageBitmap で渡す（旧＝"arrayBuffer" で頼み ImageBitmap が JSON の "{}" に化けた＝quantized-mesh の陰影が空・2026-09-30）
-const demFetch = async (u, init = {}) => {
+const demFetch = async (u: string, init: RequestInit = {}) => {
 	const rq = requester.resolve(u, "Tile");
 	if (!rq.load) return requester.fetch(u, "Tile", init);
 	const bm = await protocolBitmap(await rq.load("image"));
 	return bm ? { ok: true, status: 200, bitmap: async () => bm } : { ok: false, status: 404 };
 };
-function demTilesFor(sid, ds, lid) {
+function demTilesFor(sid: string, ds: UserSource, lid: string) {
 	const key = JSON.stringify([ds.tiles, ds.encoding, ds.tileSize, ds.redFactor, ds.greenFactor, ds.blueFactor, ds.baseShift]);
 	let e = demStores.get(sid);
 	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: demFetch }), users: new Set() }; demStores.set(sid, e); }
 	e.users.add(lid);
 	return e.tiles;
 }
-const demTilesDrop = lid => { for (const [sid, e] of demStores) if (e.users.delete(lid) && !e.users.size) demStores.delete(sid); };
+const demTilesDrop = (lid: string) => { for (const [sid, e] of demStores) if (e.users.delete(lid) && !e.users.size) demStores.delete(sid); };
 // color-relief-opacity（既定 1・["zoom"] の式も）＝今のズームで評価。止まるたびに見直す（下の settle）
 // raster-resampling／resampling（raster・hillshade・color-relief）と raster-fade-duration（C4）＝paint から層の opts へ。zoom の式は今の zoom で評価（data-constant）
-const rasterSampling = P => { const x = P?.["raster-resampling"] ?? P?.["resampling"]; if (x == null) return undefined; const v = Array.isArray(x) ? evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) : x; return v === "nearest" ? "nearest" : "linear"; };
-const rasterFade = P => { const x = P?.["raster-fade-duration"]; if (x == null) return undefined; const n = Array.isArray(x) ? +evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) : +x; return Number.isFinite(n) ? Math.max(0, n) : undefined; };
-const rasterPaintOpts = P => { const o = {}, r = rasterSampling(P), f = rasterFade(P); if (r !== undefined) o.resampling = r; if (f !== undefined) o.fadeDuration = f; return o; };
-const reliefOpacity = L => { const x = L.paint?.["color-relief-opacity"]; if (x == null) return 1; const n = +evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
-const unmountLayer = v => {
+const rasterSampling: GlobeScope["rasterSampling"] = P => { const x = P?.["raster-resampling"] ?? P?.["resampling"]; if (x == null) return undefined; const v = Array.isArray(x) ? evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) : x; return v === "nearest" ? "nearest" : "linear"; };
+const rasterFade: GlobeScope["rasterFade"] = P => { const x = P?.["raster-fade-duration"]; if (x == null) return undefined; const n = Array.isArray(x) ? +(evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) as number) : +x; return Number.isFinite(n) ? Math.max(0, n) : undefined; };
+const rasterPaintOpts: GlobeScope["rasterPaintOpts"] = P => { const o: ReturnType<GlobeScope["rasterPaintOpts"]> = {}, r = rasterSampling(P), f = rasterFade(P); if (r !== undefined) o.resampling = r; if (f !== undefined) o.fadeDuration = f; return o; };
+const reliefOpacity: GlobeScope["reliefOpacity"] = L => { const x = L.paint?.["color-relief-opacity"]; if (x == null) return 1; const n = +(evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) as number); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
+const unmountLayer: GlobeScope["unmountLayer"] = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
 	else if (kind === "custom") { if (v.ov) { v.ov.remove(); v.ov = null; } else customCtl?.remove(id); }
@@ -3477,7 +3610,7 @@ map.on("settle", () => {   // 押し出し・模様は一度きりの評価＝�
 	for (const v of mlLayers.values()) if (v.kind === "colorrelief" && mlVisible(v) && Array.isArray(v.layer.paint?.["color-relief-opacity"])) map.raster.set(v.layer.id, { opacity: reliefOpacity(v.layer) });
 	for (const v of mlLayers.values()) if ((v.kind === "extrude" || v.kind === "pattern") && mlVisible(v)) { const L = drawLayerOf(v); if (mlZoomKeys.get(L.id) !== zoomKeyOf(L, cam.zoom, v.kind === "extrude")) mountLayer(v); }
 });
-const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
+const reorderLayers: GlobeScope["reorderLayers"] = () => {   // 登録順を各描き方の重ね順へ
 	if ([...mlLayers.values()].some(v => v.kind === "gint")) rebuildGint();   // gint の pass は詰め方ごと組み直す（連続の切れ目が変わる）
 	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) { symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id)); gjCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id)); }
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
@@ -3486,10 +3619,10 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 	for (const v of mlLayers.values()) if (v.kind === "custom") customCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 };
 // MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
-let customCtl = null, customHost = null;
+let customCtl: ReturnType<typeof createCustomGL> | null = null, customHost: GlobeLive["customHost"] = null;
 // worker が描いた絵ごとの hook（frame 事象）＝custom 層の canvas を地図と同じ cam・同じ時刻で描く。誰かが要る間だけ worker に頼む
-const workerFrameFns = new Set();
-const onWorkerFrame = fn => { workerFrameFns.add(fn); if (workerFrameFns.size === 1) wPost({ type: "set", cmd: "frameEvents", data: true }); return () => { workerFrameFns.delete(fn); if (!workerFrameFns.size) wPost({ type: "set", cmd: "frameEvents", data: false }); }; };
+const workerFrameFns = new Set<(cam: CameraPose, t: number) => void>();
+const onWorkerFrame = (fn: (cam: CameraPose, t: number) => void) => { workerFrameFns.add(fn); if (workerFrameFns.size === 1) wPost({ type: "set", cmd: "frameEvents", data: true }); return () => { workerFrameFns.delete(fn); if (!workerFrameFns.size) wPost({ type: "set", cmd: "frameEvents", data: false }); }; };
 dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam と worker が描いた cam の差（遅れ）を測る
 const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: requestDraw, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 // #123：vector の描く層（vtdraw）の差し込み＝各層の「直後の基図の層」の li（style.layers の添字＝基図のタイルの op の li）を描画器へ（userAnchor）。
@@ -3585,14 +3718,14 @@ gint.hoverTip = map.gadget.tip();
 if (opts.worldContent && WORLD_VT) {
 	worldContentH = createWorldContent({ addGint: gint.addGint, geopbf, symbols: symbolsNative, addImage: map.addImage,
 		getZoom: () => cam.zoom, lang: getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
-		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: requestDraw, groups: opts.worldContent?.groups ?? null });
-	map.on("settle", () => { if (!flying) worldContentH.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
-	map.on("load", () => worldContentH.update());                          // 初回の描画（起動時の視点が確定した後）でも判定＝動かさなくても detail が来る
+		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: requestDraw, groups: (opts.worldContent as unknown as { groups?: string[] | null } | undefined)?.groups ?? null });
+	map.on("settle", () => { if (!flying) worldContentH!.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
+	map.on("load", () => worldContentH!.update());                          // 初回の描画（起動時の視点が確定した後）でも判定＝動かさなくても detail が来る
 	worldContentH.update();
-	dbgHost.__worldContent = () => worldContentH.state();   // 検定窓（t-worldcontent）
+	dbgHost.__worldContent = () => worldContentH!.state();   // 検定窓（t-worldcontent）
 }
 // 地域パックが起動後に足す物（e-Stat 小地域＝map.estat 等・LAYERS.md 段階 2 S3）。ホストの内部でなく拡張面（hostEnv）だけを渡す
-const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: requestDraw, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, assetBase: ASSET_BASE, onDestroy: f => hostDestroy.push(f) };
+const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: requestDraw, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, assetBase: ASSET_BASE, onDestroy: (f: () => void) => hostDestroy.push(f) };
 for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);
 for (const p of opts.plugins ?? []) Array.isArray(p) ? map.use(p[0], p[1]) : map.use(p);   // 起動時の plugin（PR-F0）＝地域パックの後・顔を被せる前（素の map を受ける）
 

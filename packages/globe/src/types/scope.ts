@@ -22,6 +22,8 @@ import type { VideoQuads } from "../gadgets/videoquad.ts";
 import type { Requester } from "../request.ts";
 import type { ScenePlayer } from "../scenes/player.ts";
 import type { SpriteEntry } from "../mlsmall.ts";
+import type { HillshadeProvider } from "../hillshade.ts";
+import type { ColorReliefProvider } from "../colorrelief.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // globe.js の中の共有の部品（いくつもの installer が受ける物）
@@ -50,6 +52,8 @@ export interface UserSource extends MLSourceSpec {
 }
 /** 利用者の層（addLayer の層＝MapLibre の形・custom 層は object そのまま） */
 export type UserLayer = MLLayer;
+/** source に object を書いた層（addLayer の層・style.json の層）＝MapLibre はその層の id で source を足す。core の MLLayer の source は名前（string）だけ */
+export type InlineSourceLayer = { [K in keyof MLLayer as K extends "source" ? never : K]: MLLayer[K] } & { source?: string | UserSource };
 /** 利用者の層の台帳の 1 件（globe.js の mlLayers の値）＝installer が読む分 */
 export interface UserLayerRec {
 	layer: UserLayer; src: UserSource; dz: number;
@@ -63,11 +67,13 @@ export interface UserLayerRec {
 	mounting?: boolean;
 	/** paint の transition の走っている目標値（getPaintProperty が返す） */
 	trans?: Record<string, unknown>;
+	/** hillshade／color-relief の画像タイルの提供口（raster-dem から焼く） */
+	hs?: HillshadeProvider | null; cr?: ColorReliefProvider | null;
 }
 /** vector source の読み口（vtxDescOf の戻り＝TileJSON／PMTiles を解いた物） */
 export interface VtxDesc {
 	tileUrl: ((z: number, x: number, y: number) => string | null | undefined) | null; pmtiles: string | null;
-	minzoom?: number; maxzoom?: number; bounds?: number[] | null; promoteId?: string | Record<string, string> | null; encoding?: string; coverage?: unknown;
+	minzoom?: number; maxzoom?: number; bounds?: number[] | null; promoteId?: string | Record<string, string> | null; encoding?: string; coverage?: number[] | null;
 	vectorLayers?: Array<{ id: string; fields?: Record<string, string>; minzoom?: number; maxzoom?: number }> | null;
 }
 /** vector source の fill／line／circle／symbol（gadgets/vtdraw.js の戻り）＝installer が読む分 */
@@ -82,6 +88,8 @@ export interface VtdCtl {
 	touchFS(sid: string, sourceLayer: string | null, id: unknown): void;
 	/** 層の順の鍵を振り直す（moved＝動いた層） */
 	setOrder(order: string[], moved?: string): void;
+	/** 計器（?hud=1）：直近の組み立て・結合・状態の反映の時間（ms）と出しているタイル */
+	timing?(): { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
 }
 /** vector source の fill-extrusion（gadgets/vtextrude.js の戻り）＝installer が読む分 */
 export interface VtxCtl {
@@ -102,8 +110,13 @@ export interface RawTileStore {
 }
 /** custom 層の canvas（custom-gl.js の createCustomGL の戻り）＝installer が読む分 */
 export interface CustomCtl { readonly canvas: HTMLCanvasElement | null }
-/** テーマの判定（themes.js の createThemes の戻り）＝installer は作って置くだけ */
-export type Themes = object;
+/** テーマの判定（themes.js の createThemes の戻り）＝installer は作って置くだけ・globe.ts が読む */
+export interface Themes {
+	/** 伏せる基図の層の添字（チップの状態と zoom で） */
+	hiddenLi(layerState: Record<string, boolean>, zoom: number): Set<number>;
+	/** 注記の分類で通す物（チップの状態と zoom で・showNumbers＝測量点の標高数値も） */
+	filterLabels<T extends { code: number }>(all: T[], layerState: Record<string, boolean>, zoom: number, showNumbers?: boolean): T[];
+}
 /** 基図の層の実行時の上書き（setPaintProperty 等・removeLayer＝removed） */
 export interface BaseOverride {
 	removed?: boolean; paint?: Record<string, unknown>; layout?: Record<string, unknown>; filter?: unknown;
@@ -145,7 +158,7 @@ export type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
 export type MLStyleSpec = Parameters<typeof splitMapLibreStyle>[0];
 /** 外来 style の文書（loadMapLibreStyle が layers を確かめた物）＝installer が読む根の欄 */
 export interface ExtStyleDoc extends MLStyleSpec {
-	layers: MLLayer[]; sources: Record<string, MLSourceSpec>;
+	layers: MLLayer[]; sources?: Record<string, MLSourceSpec>;
 	name?: string; sprite?: string | Array<{ id?: string; url?: string }>; glyphs?: string;
 	light?: LightSpecification; sky?: SkySpecification;
 	terrain?: { source?: string; exaggeration?: number };
@@ -155,7 +168,7 @@ export interface ExtStyleDoc extends MLStyleSpec {
 /** 外来 style を読んだ物（globe.js の loadExtStyle の戻り＝EXT） */
 export interface ExtStyle {
 	ms: ExtStyleDoc; split: ReturnType<typeof splitMapLibreStyle>; src: Awaited<ReturnType<typeof resolveVectorSource>> | null;
-	baseUrl: string | undefined; url: string | null;
+	baseUrl: string | undefined; url: string | null | undefined;
 }
 /** 地形の DEM の spec（setTerrain・style の terrain・?dem=）＝raster-dem か quantized-mesh。中身は core の createDemSource が整える */
 export type TerrainSpec = TerrainSourceSpec;
@@ -221,9 +234,13 @@ export interface BaseSource {
 	kind: string; url: string | null;
 	/** XYZ の型紙（PMTiles は URL を返すだけ・基図なしは null） */
 	tileUrl: (z: number, x: number, y: number) => string | null | undefined;
-	coverage: unknown;
-	info: unknown; attrHTML: string | null;
+	/** 配信圏 bbox（外は取らない）・null＝外から与えない */
+	coverage: number[] | null;
+	/** 出どころ自身の申告（PMTiles のヘッダ／TileJSON の zoom 域・非同期に届く） */
+	info: { maxZoom: number; minZoom: number; layers?: string[]; attribution?: string | null } | null; attrHTML: string | null;
 	encoding?: string;
+	/** タイルを出す下限（null＝BASEMAP_MINZOOM）・LOD の床・タイル z の床（地域の基図の申告） */
+	tileMinZoom?: number | null; lodFloor?: { minViewZoom: number; z: number } | null; minZ?: number;
 }
 /** 地域の「全体へ戻る」の着地点（地域の申告の home） */
 export interface RegionHome { view: number[]; span?: number[]; icon?: string; label?: string; id?: string }
@@ -445,7 +462,7 @@ export interface GlobeScope {
 	/** 外来 style の基図の style */
 	extBaseStyle(ext: ExtStyle): BaseStyle;
 	/** BASE_SOURCE の中身（setStyle でも同じ形で差し替える） */
-	extSourceFields(ext: ExtStyle): Partial<BaseSource>;
+	extSourceFields(ext: ExtStyle): BaseSource;
 	/** vector source（基図の source 名も）か */
 	isVecSrc(sid: string): boolean;
 	/** 描き方（gint／vtdraw／raster／custom …） */
@@ -497,8 +514,8 @@ export interface GlobeScope {
 	spriteNames: Map<string, string[]>;
 	/** 層の source id（object の source は層 id） */
 	srcId(L: { id: string; source?: unknown }): string;
-	srcOf(L: MLLayer): UserSource | undefined;
-	unmountLayer(v: UserLayerRec): Promise<void> | void;
+	srcOf(L: MLLayer | InlineSourceLayer): UserSource | undefined;
+	unmountLayer(v: UserLayerRec): Promise<unknown> | void;
 	/** 実行時に足した background 層（B5） */
 	userBg: MLLayer[];
 	vtRaw: RawTileStore;
@@ -622,7 +639,7 @@ export interface GlobeLive {
 	mapEl: HTMLElement;
 	themeName: string;
 	/** 出典の欄の source ごとの行（消毒済み HTML） */
-	vtxAttrs: Map<string, string>;
+	vtxAttrs: Map<string, string | null>;
 	remountSource: StyleReturn["remountSource"];
 	/** custom 層の onAdd/render に渡す map（null＝この map） */
 	customHost: object | null;
@@ -632,7 +649,7 @@ export interface GlobeLive {
 	/** 床の色の background 層 */
 	bg: MLLayer | null;
 	/** setSprite 等の後の sprite の一覧・glyphs */
-	spriteList: SpriteEntry[] | null; mlGlyphs: string | null;
+	spriteList: SpriteEntry[]; mlGlyphs: string | null;
 	themes: Themes;
 	/** 基図の結合の署名 */
 	baseSig: string;
