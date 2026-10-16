@@ -5,22 +5,26 @@
 //   甘くなる件の根治（本人指摘 9/21）。r は 1/4 段で量子化＝チルト中に毎フレーム作り直さない。
 // 原点は半幅の 1/4 刻みにスナップ＝カメラが窓幅の 1/8 動いた時だけ再合成（標本化は正確な窓座標で行う＝絵は飛ばない）。
 import { cameraState, unproject, lonlatTo3D } from "./camera.ts";
+import type { CameraPose, LonLat } from "./camera.ts";
+
+/** 地面アトラスの窓＝[西, 南, 東, 北]（度） */
+export type GroundWindow = [number, number, number, number];
 
 const GND_SCALES = [1, 6, 36];
-const snapWin = (cx, cy, hw, hh) => {
+const snapWin = (cx: number, cy: number, hw: number, hh: number): GroundWindow => {
 	const step = hw / 4, sx = Math.round(cx / step) * step, sy = Math.round(cy / step) * step;
 	return [sx - hw, Math.max(-85, sy - hh), sx + hw, Math.min(85, sy + hh)];
 };
-export function groundWindows(cam, W, H) {
+export function groundWindows(cam: CameraPose, W: number, H: number): GroundWindow[] {
 	const dpr = cam.dpr || 1, zq = Math.floor(cam.zoom * 4) / 4;
 	const capW = 360 * (W / dpr) / (256 * Math.pow(2, zq)), capH = capW * H / W;
-	const out = [];
+	const out: GroundWindow[] = [];
 	// 前景：画面中心と画面下 90% の地点のカメラ距離比。両方が球上（チルトで下端が空＝null なら無し）
 	if ((cam.pitch || 0) > 0.06) {
 		const st = cameraState(cam, W, H);
 		const pc = unproject(st, W / 2, H / 2), pb = unproject(st, W / 2, H * 0.9), pf = unproject(st, W / 2, H * 0.75);
 		if (pc && pb && pf) {
-			const d = p => { const q = lonlatTo3D(p[0], p[1]); return Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]); };
+			const d = (p: LonLat): number => { const q = lonlatTo3D(p[0], p[1]); return Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]); };
 			const r = Math.pow(2, Math.floor(Math.log2(Math.max(1, d(pc) / d(pb))) * 4) / 4);   // 1/4 段で量子化
 			if (r >= 1.3) out.push(snapWin(pf[0], pf[1], capW / r * 1.1, capH / r * 1.1));
 		}
@@ -28,4 +32,4 @@ export function groundWindows(cam, W, H) {
 	for (const k of GND_SCALES) out.push(snapWin(cam.center[0], cam.center[1], capW * k, capH * k));
 	return out;
 }
-export const windowsKey = wins => wins.map(w => w.map(v => v.toFixed(6)).join(",")).join("|");
+export const windowsKey = (wins: readonly (readonly number[])[]): string => wins.map(w => w.map(v => v.toFixed(6)).join(",")).join("|");
