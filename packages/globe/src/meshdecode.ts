@@ -8,11 +8,11 @@
 // 静的 import だと meshworker / meshdecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
 let _loaders = null;
-const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
-import { weldMesh } from "./meshq.js";
-import { gltfMeta, rawGltfJson } from "./gltf-meta.js";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
-import { rigFromGltf } from "./gltf-anim.js";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
-import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, NO_FEATURE } from "./mesh-features.js";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
+const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
+import { weldMesh } from "./meshq.ts";
+import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
+import { rigFromGltf } from "./gltf-anim.ts";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
+import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, NO_FEATURE } from "./mesh-features.ts";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
 // テクスチャの変換器（第 3 波 W5・2026-10-12）＝main の registry.textureTranscoders の写し [{ name, url }]。worker はこの url を import() し、
 // KHR_texture_basisu（KTX2/Basis）の画像を transcode(bytes, { mimeType }) → { width, height, rgba } で素の RGBA にして、普通の画像と同じ道（textureOf）へ流す。
 // loaders.gl の KHR_texture_basisu（CDN の WASM を勝手に取りに行き、圧縮のままの形で返す）は使わない＝excludeExtensions で外す。変換器が無ければ fallback の画像（texture.source）のまま

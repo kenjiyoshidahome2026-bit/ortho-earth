@@ -6,7 +6,7 @@ import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { normLight, lightPayload, LIGHT_TYPES } from "./light.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
-import { curveZoomKey } from "./extrude-ml.js";
+import { curveZoomKey } from "./extrude-ml.ts";
 import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
@@ -1023,7 +1023,7 @@ const meshEnv = {
 };
 let meshReal = null, meshWake = null, meshGone = false, meshTap = null;
 const MESH_NO_PROGRESS = new Map();
-const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.js").then(async ({ createMeshManager }) => {
+const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
 	const catalog = loadMeshCatalog();
 	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）

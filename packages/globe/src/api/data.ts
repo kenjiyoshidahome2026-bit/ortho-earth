@@ -7,7 +7,7 @@ import { createScenePlayer } from "../scenes/player.js";
 import { evalExpr } from "@ortho-earth/core";
 import { geopbf, geopbfCachePrune, geopbfCached } from "geopbf";
 import { gunzipText } from "../gadgets/dropfile.ts";
-import { normSplat } from "../splat.js";
+import { normSplat } from "../splat.ts";
 import pointsUrl from "../gadgets/points-gl.js?url";
 import { sanitizeHTML } from "geopbf/sanitize";
 import screengridUrl from "../gadgets/screengrid-draw.js?url";

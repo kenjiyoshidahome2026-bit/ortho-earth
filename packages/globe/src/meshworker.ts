@@ -3,10 +3,10 @@
 // 重複面dedup→RTE delta を行い、完成したバッチから順に render worker へ直結ポートで transfer 送信＝逐次表示。
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
-import { decodeBatch, setDecodeEnv, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.js";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
-import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.js";
+import { decodeBatch, setDecodeEnv, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.ts";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
+import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.ts";
 import { Cache } from "native-bucket";
-import { opfsStore } from "./meshfs.js";
+import { opfsStore } from "./meshfs.ts";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
 // ── 楕円体（?ell=1・段階B 2026-08-11）：init(ell) で設定。世界＝β（更成緯度）単位球×S（camera.js の分解）＝

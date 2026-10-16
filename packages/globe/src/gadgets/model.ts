@@ -9,18 +9,18 @@
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
-import { normAnimation } from "../gltf-meta.js";   // アニメの spec（F4）
-import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.js";
-import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.js";   // 当たりと feature state の色（W7）
-import { featureProperties } from "../mesh-features.js";
-import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
+import { normAnimation } from "../gltf-meta.ts";   // アニメの spec（F4）
+import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.ts";
+import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
+import { featureProperties } from "../mesh-features.ts";
+import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.js";
-import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
+import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.ts";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
 import type { ExprContext } from "@ortho-earth/core";
 import type { AnimationState, Bbox, LonLat, ModelHandle } from "../../globe.d.ts";
-import type { GltfPlace, GltfRig } from "../gltf-anim.d.ts";
-import type { MeshFeatures } from "../mesh-features.d.ts";
+import type { GltfPlace, GltfRig } from "../gltf-anim.ts";
+import type { MeshFeatures } from "../mesh-features.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { MeshSetData, TileBatch } from "./tiles3d.ts";

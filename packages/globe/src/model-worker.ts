@@ -3,10 +3,10 @@
 // PLATEAU の worker/デコーダプールとは独立＝建物 3D が停止（opts.mesh=false）でも模型は立つ。
 // 返すのはマテリアルごとのバッチ列（uv・頂点色・テクスチャ画像つき）＝ImageBitmap も transfer で渡す（コピーしない）。
 // kind:"extrude"＝任意ポリゴンの押し出し（extrude.js・2026-09-21）。返す形は模型と同じ（バッチ 1 本・テクスチャ無し）。
-import { decodeModel, setDecodeEnv, setTextureTranscoders } from "./meshdecode.js";
-import { extrudeMesh } from "./extrude.js";
-import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
-import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.js";
+import { decodeModel, setDecodeEnv, setTextureTranscoders } from "./meshdecode.ts";
+import { extrudeMesh } from "./extrude.ts";
+import { decodeTile3D } from "./tiles3d-decode.ts";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
+import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.ts";
 import { computeSunShadow, computeViewshed } from "./sunshadow.js";   // 日影・可視域・見通し線（#44）＝kind:"sunshadow"/"viewshed"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
 
 const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"];   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象

@@ -11,7 +11,7 @@
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, geoKeysEpsg } from "@ortho-earth/tile-formats/las";
-import { resolveCrs } from "../src/pointcloud-crs.js";
+import { resolveCrs } from "../src/pointcloud-crs.ts";
 const q = new URLSearchParams(location.search);
 const SRC = q.get("src") || "https://kenjiyoshidahome2026-bit.github.io/ortho-data/japan/pointcloud/atami-08NF2392.copc.laz";
 const DEPTH = +(q.get("depth") || 3), CELL = +(q.get("cell") || 30), MIN = +(q.get("min") || 8);

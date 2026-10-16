@@ -7,7 +7,7 @@
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
-import { classifyRings, tessellatePolygon, buildMesh, tileToLonLat } from "./vtmesh.js";
+import { classifyRings, tessellatePolygon, buildMesh, tileToLonLat } from "./vtmesh.ts";
 
 const raw = new Map();       // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
 const decoded = new Map();   // "sid|z/x/y|source-layer" → 解読済みの層（小さな LRU＝同じタイルを複数の層が使う時だけ効く）

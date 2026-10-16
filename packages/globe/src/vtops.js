@@ -1,7 +1,7 @@
 // vector source の描く層（fill／line／circle／symbol・MapLibre 互換 段 8⑤・2026-09-27）の純関数＝node で検定（tests/vtdraw.mjs）。
 // 組み立ての本体は core の buildTileDrawList（fill／line）と buildLabels（点の注記）＝基図と同じ部品。ここはその前処理：
 //   ズームの置き換え・タイルの枠で切る（バッファの二重を作らない）・circle を長さ 0 の線（カプセルの丸点）へ・面の注記点（極）・li の帯。
-import { classifyRings, clipRing, ringArea2 } from "./vtmesh.js";
+import { classifyRings, clipRing, ringArea2 } from "./vtmesh.ts";
 
 // li の帯：基図の層の添字（数百まで）・図郭外の水域の擬似帯（−1000 付近）と重ならない＝renderer の門（海・建物の塗り）に掛からない。
 // key＝層の順の鍵（小数可＝間に差し込んでも他の層の鍵は動かない＝他の source を組み直さない）。副番号（0＝本体・1＝下敷き（円の縁・輪郭）・2＝上（円の塗り））は 1e-7 刻み

@@ -10,7 +10,7 @@ import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "@ortho-earth/cor
 import { decodeDEM } from "@ortho-earth/core/internal/dem-src.ts";
 import { expandTemplate } from "@ortho-earth/core/raster-src";
 import { symbolItems, poleOf } from "../src/gadgets/symbols-core.ts";
-import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.js";
+import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.ts";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const KNOWN = JSON.parse(fs.readFileSync(path.join(DIR, "mlcompat-known.json"), "utf8")).node;

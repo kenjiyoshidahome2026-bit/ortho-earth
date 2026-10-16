@@ -2,7 +2,7 @@
 //   renderer と同じ式で頂点を画面へ写す（RTE の原点＋原点相対の頂点・束の剛体変換 xf（W4）・地形への持ち上げは束の中心で 1 回）＝描いた所に当たる。
 //   GPU の番号焼きは使わない（メッシュは core の renderer が描く＝オーバーレイの当たりの道に乗らない）。三角形の数に比例＝クリックの瞬間だけ走らせる。
 //   feature state の色（tintColors）＝頂点色を地物ごとに差し替えた列（renderer の "meshCol" で色の頂点バッファだけ書き換える）。
-import { NO_FEATURE } from "./mesh-features.js";
+import { NO_FEATURE } from "./mesh-features.ts";
 import { betaToLonLat } from "@ortho-earth/core";
 // 束の局所の箱（原点相対）＝画面で外れる束を素早く捨てる
 function aabbOf(item) {
