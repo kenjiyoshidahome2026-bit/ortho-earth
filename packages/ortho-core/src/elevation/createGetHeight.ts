@@ -1,7 +1,20 @@
-import { spawnWorker } from "../workerFactory.js";
+import { spawnWorker } from "../workerFactory.ts";
 import { builtinWorker } from "../builtinWorkers.js";
-import { index_alos, encodeName, decodeName, inBbox, setApiUrl, load } from "./loader.js";   // load＝worker が立たない時のその場読み（静的に＝動的 import は入口の top-level await と待ち合う・2026-09-25）
+import { index_alos, encodeName, decodeName, inBbox, setApiUrl, load } from "./loader.ts";   // load＝worker が立たない時のその場読み（静的に＝動的 import は入口の top-level await と待ち合う・2026-09-25）
 import { Cache } from "native-bucket";
+import type { CacheFn } from "native-bucket";
+import type { ElevGrid } from "../elevation.ts";
+import type { ElevTile } from "./worldatlas.ts";
+
+/** 地域の申告＝どの域のどの段を裸地（DTM）へ焼き直したか */
+export interface DtmDecl { bbox: number[]; range: number; brand: string }
+export interface TileLoaderOptions { dtm?: DtmDecl | null; apiUrl?: string }
+/** (lng0, lat0, range) → タイル｜null。byName＝名前直指定（WORLD_ATLAS 等） */
+export type TileLoader = ((lng0: number, lat0: number, range: number) => Promise<ElevTile | null>) & { byName: (name: string) => Promise<ElevTile | null> };
+export interface GetHeightOptions { dtm?: DtmDecl | null; apiUrl?: string; level1?: number; level2?: number; onstart?: (name: string) => void; onend?: (name: string) => void }
+export type GetHeight = ((lng: number, lat: number, zoom?: number, o?: { wait?: boolean }) => Promise<number>) & { terminate: () => void };
+type Res = (obj: ElevTile | null) => void;
+interface Lane { w: Worker | null; queue: { name: string; res: Res }[]; busy: boolean; abort?: (() => void) | null }
 
 // 焼き直し前の古い表層(DSM)キャッシュを失効させる判定。**どの域のどの段を裸地(DTM)へ焼き直したかは
 // 呼び出し側の申告（opts.dtm）**＝このパッケージは地域を知らない（2026-09-17 に日本の bbox を撤去）。
@@ -13,7 +26,7 @@ import { Cache } from "native-bucket";
 //   描く側（elevation.js downsampleFlipped・renderer の resampleCell＝gx = u·w − ½）と同じ規約で一次補間する。
 //   旧＝画素の角に値があるとして読んでいた（行 = h − ⌊y·h⌋・y||1）＝半画素ずれ（R01 で東へ・南へ 0.5 秒＝熱海で東西 13 m・南北 15 m の所の値）。
 //   点群の地面と地理院 DEM5A で確かめた（点群計画 段 4・2026-10-15）。データが無い時は 0（呼び手が粗い段へ落とす）
-export function sampleCell(v, x, y) {
+export function sampleCell(v: ElevGrid | null | undefined, x: number, y: number): number {
 	if (!v || !v.data) return 0;
 	const a = v.data, w = v.width, h = v.height;
 	const X = Math.min(Math.max(x * w - 0.5, 0), w - 1), Y = Math.min(Math.max((1 - y) * h - 0.5, 0), h - 1);   // Y＝北から
@@ -22,7 +35,7 @@ export function sampleCell(v, x, y) {
 	return top + (bot - top) * fy;
 }
 
-export const staleDSM = (name, obj, dtm) => {
+export const staleDSM = (name: string, obj: { source?: unknown } | null | undefined, dtm: DtmDecl | null | undefined): boolean => {
 	if (!obj || !dtm) return false;
 	if (String(obj.source || "").startsWith(dtm.brand)) return false;   // 焼き直し済み＝信用
 	const [lng, lat, range] = decodeName(name);
@@ -41,15 +54,15 @@ export const staleDSM = (name, obj, dtm) => {
 //（日本域は bucket の DEM10B、海外は R90/R10 のまま・R01 だけ一覧到着まで無し）し、裏で指数バックオフ再取得＝届いたら差し替え。
 // IDB には成功した一覧だけ保存。旧＝一覧の 503 が createTileLoader/createGetHeight ごと reject＝terrain は 8 回再試行の末に打ち切り、
 // profile 等は未捕捉例外＝JAXA 停止中（2026-09-16 実測 503）は日本の山まで平らになっていた。
-async function loadAlosIndex(cache, onUpdate) {
-	const cached = cache ? await Promise.resolve(cache("index_alos")).catch(() => null) : null;
+async function loadAlosIndex(cache: CacheFn | null, onUpdate: (idx: Record<string, string>) => void): Promise<Record<string, string>> {
+	const cached = cache ? await Promise.resolve(cache("index_alos")).catch(() => null) as Record<string, string> | null : null;
 	if (cached) return cached;
-	const fetchAndStore = async () => { const idx = await index_alos(); if (cache) Promise.resolve(cache("index_alos", idx)).catch(() => {}); return idx; };
+	const fetchAndStore = async (): Promise<Record<string, string>> => { const idx = await index_alos(); if (cache) Promise.resolve(cache("index_alos", idx)).catch(() => {}); return idx; };
 	try { return await fetchAndStore(); }
 	catch (e) {
-		console.warn(`[altpbf] AW3D30 index unavailable (${e?.message ?? e}) = continuing without index, refetching in background`);
+		console.warn(`[altpbf] AW3D30 index unavailable (${(e as Error)?.message ?? e}) = continuing without index, refetching in background`);
 		let wait = 30000, tries = 0;
-		const again = () => setTimeout(async () => {
+		const again = (): ReturnType<typeof setTimeout> => setTimeout(async () => {
 			try { onUpdate(await fetchAndStore()); }
 			catch { if (++tries < 8) { wait = Math.min(wait * 2, 600000); again(); } }
 		}, wait);
@@ -60,15 +73,15 @@ async function loadAlosIndex(cache, onUpdate) {
 
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
-export async function createTileLoader(opts = {}) {
+export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<TileLoader> {
 	const dtm = opts.dtm || null;   // 地域の申告（packages/jp/src/dtm.js 等）。未指定＝失効判定なし
 	if (opts.apiUrl) setApiUrl(opts.apiUrl);   // メイン側の bucket/JAXA fetch（index_alos 等）に必要
 	// IDB 不可（プライベートブラウズ/破損）は「キャッシュ無しで続行」へ縮退＝標高システムを一発死させない
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
 	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
-	const cache = await Cache("GIS/alt").catch(e => { console.warn("[tileLoader] IDB disabled (continuing without cache)", e?.message ?? e); return null; });
+	const cache = await Cache("GIS/alt").catch((e: unknown) => { console.warn("[tileLoader] IDB disabled (continuing without cache)", (e as Error)?.message ?? e); return null; });
 	let index = await loadAlosIndex(cache, i => { index = i; });
-	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
+	const existAlos = (lng: number, lat: number): string | undefined => index[encodeName(lng, lat)];
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
@@ -80,21 +93,21 @@ export async function createTileLoader(opts = {}) {
 	// 一度でも動いた worker の後の死は従来どおり「作り直し」（実環境の一過性の死と区別する）。
 	let inline = typeof Worker === "undefined";   // worker 内に Worker コンストラクタが無い環境（古い Safari）
 	let everOk = false;                            // どれかの worker が一度でも返事をした
-	const inlineLoad = async name => {
+	const inlineLoad = async (name: string): Promise<ElevTile | null> => {
 		try { return await load(name); } catch { return null; }   // worker.js と同じ＝失敗は null
 	};
-	const goInline = why => {
+	const goInline = (why: string): void => {
 		if (inline) return;
 		inline = true;
 		console.info(`[tileLoader] workers unavailable in this context (${why}) -> decoding in-thread`);
 		for (const s of pool) { try { s.w?.terminate(); } catch { /* 立っていない */ } s.w = null; }
 		for (const s of pool) s.abort?.();   // 止めた worker に預けていた要求＝その場実行でやり直す（terminate は error を出さない）
 	};
-	const mkWorker = () => {
+	const mkWorker = (): Worker | null => {
 		if (inline) return null;
-		let w;
+		let w: Worker | null;
 		try { w = spawnWorker("ortho:height", () => builtinWorker("ortho:height")); if (!w) throw new Error("no worker"); }
-		catch (e) { goInline(String(e?.message || e)); return null; }
+		catch (e) { goInline(String((e as Error)?.message || e)); return null; }
 		// 起動の失敗は要求より先に起きる（要求ごとの error 受け口が間に合わない＝45 秒のタイムアウト待ちになる）＝ここで即座に退避へ
 		w.onerror = e => {
 			if (!everOk) return goInline("nested worker failed to start");
@@ -102,25 +115,25 @@ export async function createTileLoader(opts = {}) {
 		};
 		return w;
 	};
-	const pool = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
+	const pool: Lane[] = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
 	for (const s of pool) s.w = mkWorker();
-	const inflight = new Map();
+	const inflight = new Map<string, Promise<ElevTile | null>>();
 	// 応答の看視：worker.js は失敗でも必ず null を返す作りだが、worker「自体」が死ぬと（devサーバ断・
 	// モジュール取得404・GPU/メモリ起因のkill等）message も error も返らず、レーンが busy のまま永久に詰まる
 	// ＝呼び出し側の pending カウンタが固着（実測:「地形読込中×1」が消えない）。要求ごとにタイムアウトを張り、
 	// 発火時は worker を作り直して null で返す＝詰まりを残さない（R01初回=JAXAで数秒かかるため余裕を持つ）。
 	const REQ_TIMEOUT = 45000;
-	function pump(s) {
+	function pump(s: Lane): void {
 		if (s.busy || !s.queue.length) return;
 		s.busy = true;
-		const { name, res } = s.queue.shift();
-		const settle = obj => { if (obj && cache) cache(name, obj).catch(() => {}); s.busy = false; res(obj); pump(s); };   // 書き込みの失敗（容量超過等）は握る＝描画は続ける
+		const { name, res } = s.queue.shift()!;
+		const settle = (obj: ElevTile | null): void => { if (obj && cache) cache(name, obj).catch(() => {}); s.busy = false; res(obj); pump(s); };   // 書き込みの失敗（容量超過等）は握る＝描画は続ける
 		if (inline || !s.w) { inlineLoad(name).then(settle); return; }
 		const w = s.w;
-		let done = false, tm = 0;
-		const detach = () => { clearTimeout(tm); w.removeEventListener("message", onmsg); w.removeEventListener("error", onerr); if (s.abort === onerr) s.abort = null; };
-		const onmsg = e => { if (done) return; done = true; everOk = true; detach(); settle(e.data); };
-		const onerr = () => {
+		let done = false, tm: ReturnType<typeof setTimeout> | 0 = 0;
+		const detach = (): void => { clearTimeout(tm); w.removeEventListener("message", onmsg); w.removeEventListener("error", onerr); if (s.abort === onerr) s.abort = null; };
+		const onmsg = (e: MessageEvent): void => { if (done) return; done = true; everOk = true; detach(); settle(e.data as ElevTile | null); };
+		const onerr = (): void => {
 			if (done) return; done = true; detach();
 			if (!everOk) { goInline("nested worker failed to start"); inlineLoad(name).then(settle); return; }   // 環境として立たない＝この要求からその場実行
 			// worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
@@ -136,72 +149,72 @@ export async function createTileLoader(opts = {}) {
 		w.postMessage({ name, apiUrl: opts.apiUrl });
 	}
 	let rr = 0;
-	const loadName = name => {   // 同名の並行要求は 1 本に併合（loadTile / byName 共通）
-		if (inflight.has(name)) return inflight.get(name);
-		const p = new Promise(res => { const s = pool[rr++ % NW]; s.queue.push({ name, res }); pump(s); }).then(t => { inflight.delete(name); return t; });
+	const loadName = (name: string): Promise<ElevTile | null> => {   // 同名の並行要求は 1 本に併合（loadTile / byName 共通）
+		if (inflight.has(name)) return inflight.get(name)!;
+		const p = new Promise<ElevTile | null>(res => { const s = pool[rr++ % NW]; s.queue.push({ name, res }); pump(s); }).then(t => { inflight.delete(name); return t; });
 		inflight.set(name, p); return p;
 	};
 	// (lng0, lat0, range) 原点は range 刻み。tile obj | null（R01 は ALOS 無い海等で null）。
-	const loadTile = async (lng0, lat0, range) => {
+	const loadTile = async (lng0: number, lat0: number, range: number): Promise<ElevTile | null> => {
 		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
 		const name = encodeName(lng0, lat0, range);
 		// 形の検札（2026-08-04夜）：同じIDBキーに worker側=圧縮Blob（load_gepco）と外側=デコード済みobj（下のonmsg）の
 		// 二者が非awaitで書く＝別コネクションでコミット順不定＝Blobが最後に勝ったセルが生まれ得る。それを素通しすると
 		// downsampleFlipped が blob.data=undefined を踏み描画ループごと毎フレーム例外（Mac実機実測・マシン/セル依存の地雷）。
 		// data/width を持つ「デコード済みタイル」だけ信用＝Blob なら worker 経路へ（worker はキャッシュBlobをデコードして返す＝自己修復）。
-		const cached = cache ? await cache(name) : null; if (cached && cached.data && cached.width && !staleDSM(name, cached, dtm)) return cached;
+		const cached = cache ? await cache(name) as ElevTile | null : null; if (cached && cached.data && cached.width && !staleDSM(name, cached, dtm)) return cached;
 		return loadName(name);
 	};
 	// 名前直指定（WORLD_ATLAS 等＝段の規約外のオブジェクト）：同じ worker プール・IDB・inflight 併合。失効判定（staleDSM）は掛けない。
-	loadTile.byName = async name => {
-		const cached = cache ? await cache(name) : null; if (cached && cached.data && cached.width) return cached;
+	loadTile.byName = async (name: string): Promise<ElevTile | null> => {
+		const cached = cache ? await cache(name) as ElevTile | null : null; if (cached && cached.data && cached.width) return cached;
 		return loadName(name);
 	};
 	return loadTile;
 }
 
-export async function createGetHeight(opts = {}) {
+export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetHeight> {
 	const dire = `GIS/alt`;
 	const dtm = opts.dtm || null;   // 地域の申告（createTileLoader と同じ物を渡すこと）
 	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
 	const cache = await Cache(dire).catch(() => null);
 	let index = await loadAlosIndex(cache, i => { index = i; });
-	const exist = (lng,lat) => index[encodeName(lng, lat)];
-	let isLoading = null;
-	let inflight = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
+	const exist = (lng: number, lat: number): string | undefined => index[encodeName(lng, lat)];
+	let isLoading: number | null = null;
+	let inflight: Promise<ElevTile | null> | null = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
-	let cname = null, current = null;
-	const worker = spawnWorker("ortho:height", () => builtinWorker("ortho:height"));
+	let cname: string | null = null, current: ElevTile | null = null;
+	const worker = spawnWorker("ortho:height", () => builtinWorker("ortho:height"))!;
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	// o.wait=true＝他のタイル読込中でも（描画側の「到着まで 0」縮退でなく）順番を待って値を返す＝公開 API map.getHeight 用（2026-09-10）
-	const getHeight = (lng, lat, zoom = Infinity, o = {}) => {
+	const getHeight = (lng: number, lat: number, zoom = Infinity, o: { wait?: boolean } = {}): Promise<number> => {
 		const n = (zoom < level1)? 0: (zoom < level2)? 1: 2;
 		lng += lng < -180? 360: lng > 180? -360: 0;
 		lat = max(min(lat, 89.999),-89.999);
 		return [hgt90, hgt10, hgt01][n](lng,lat, !!o.wait);
 	};
 	// map.destroy の後片付け（2026-09-25・従来は終わらせる口が無く worker がページに残った）
-	getHeight.terminate = () => { try { worker?.terminate(); } catch { /* 止まっている */ } };
+	getHeight.terminate = (): void => { try { worker?.terminate(); } catch { /* 止まっている */ } };
 	return getHeight;
 ////---------------------------------------------------------------------------------------
-	async function load(lng, lat, range, wait = false) {
+	async function load(lng: number, lat: number, range: number, wait = false): Promise<ElevTile | null> {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
 		// IDB が開けない環境は cache=null（上の縮退）・読み書きの失敗も握る＝標高取得ごと死なない（2026-09-25）
-		const obj = cache ? await cache(name).catch(() => null) : null; if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
+		const obj = cache ? await cache(name).catch(() => null) as ElevTile | null : null; if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
 		if (isLoading) return wait && inflight ? inflight.then(() => load(lng, lat, range, wait)) : null;   // 描画側＝落とす（到着まで0）／wait＝待って再試行
-		return inflight = new Promise(res=>{
+		return inflight = new Promise<ElevTile | null>(res=>{
 			isLoading = performance.now();
 			opts.onstart && opts.onstart(name);
 			worker.postMessage({ name, apiUrl: opts.apiUrl });
-			worker.onmessage = async e => { const obj = e.data;
+			worker.onmessage = async e => { const obj = e.data as ElevTile | null;
 				if (obj) {
 					// 書き込みの失敗（容量超過等）で onmessage を抜けると isLoading が立ったまま＝以後の描画側は永久に null・
 					// wait 呼び（map.getHeight）は永久に待つ（2026-09-25）＝失敗は握って先へ進む
 					if (cache) await cache(name, obj).catch(err => console.warn(`[altpbf] cache write failed: ${name}`, err));
-					console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading).toFixed(2) } msec`);
+					console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading!).toFixed(2) } msec`);
 					cname = name; current = obj;
 				}
 				opts.onend && opts.onend(name);
@@ -215,18 +228,18 @@ export async function createGetHeight(opts = {}) {
 			}
 		});
 	}
-	function calcHeight(x, y, v) { return sampleCell(v, x, y); }   // 宣言（巻き上げ）＝return より後ろに置いても hgt01 などから呼べる（const だと TDZ で getHeight が全部 0 になった）
-	async function hgt90(lng,lat,wait)  { const range = 90;
+	function calcHeight(x: number, y: number, v: ElevTile | null): number { return sampleCell(v, x, y); }   // 宣言（巻き上げ）＝return より後ろに置いても hgt01 などから呼べる（const だと TDZ で getHeight が全部 0 になった）
+	async function hgt90(lng: number,lat: number,wait: boolean): Promise<number>  { const range = 90;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
 		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v);
 	}
-	async function hgt10(lng,lat,wait)  { const range = 10;
+	async function hgt10(lng: number,lat: number,wait: boolean): Promise<number>  { const range = 10;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
 		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v)||hgt90(lng,lat,wait);
 	}
-	async function hgt01(lng,lat,wait)  { const range = 1;
+	async function hgt01(lng: number,lat: number,wait: boolean): Promise<number>  { const range = 1;
 		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng0,lat0)) return hgt10(lng,lat,wait);   // 索引の名は整数の南西隅（N035E139）＝小数で引くと常に外れて R10 に落ちていた（2026-09-25）
 		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0), (lat-lat0), v)||hgt10(lng,lat,wait);

@@ -1,9 +1,14 @@
 // 標高タイル（altpbf 復号済み {data,width,height,...}）の再標本化。取得・復号は altpbf 側。
 
+/** 画素の格子（altpbf 復号済みのタイル・data＝row0 が北） */
+export interface ElevGrid { data: ArrayLike<number>; width: number; height: number }
+/** 格子＋南西隅と幅（cropResample の入力＝altpbf の R10 タイル） */
+export interface ElevTileGrid extends ElevGrid { lng: number; lat: number; range: number }
+
 // タイルを N×N の Float32 にダウンサンプル。行は南→北（row0=南）で格納＝アトラス配置用。海は0クランプ。
 // M＝読まない最外周の画素数（既定 2＝ALOS の縁の fill 対策）。fill を持たないタイル（GEBCO の R10/R90・DEM10B 焼きの R01）は 0 を渡す＝
 // 2026-10-02：一律 M=2 だと 10° の境で両側 2 画素（R10 で約 1km）がクランプされ、継ぎ目の帯になっていた（東北 140°E・本人発見）。呼び手（terrain.js edgeOf）が決める
-export function downsampleFlipped(tile, N, M = 2) {
+export function downsampleFlipped(tile: ElevGrid, N: number, M = 2): Float32Array {
 	const { data, width: w, height: h } = tile;
 	const out = new Float32Array(N * N);
 	// y: 0=南 の地理座標 → データ行(北上げ)へ。異常値(int16巨大値/-9999)は0に（旧 H() 閉包＝下の内側ループへ展開済み）。
@@ -42,7 +47,7 @@ export function downsampleFlipped(tile, N, M = 2) {
 // R10 親タイルから 1°セル（lng0,lat0・幅 span deg）を切り出して N² に再標本化（downsampleFlipped と同じ南上げ・texel 中心 (i+0.5)/N 規約）。
 // 混成アトラスの遠方セル用＝R01 の大量フェッチ（1 セル数秒×数十）を避けつつ遠景の起伏を出す。tile＝{data,width,height,lng,lat,range}（altpbf 復号済み）。
 // 2026-09-27 に terrain.js から移設（純関数＝門 tests/elevation-resample.mjs で規約の写しと bit 一致を見る）。速さの手は downsampleFlipped と同じ＝列の x0/fx を先に・内側は配列の直読み。
-export function cropResample(tile, lng0, lat0, span, N) {
+export function cropResample(tile: ElevTileGrid, lng0: number, lat0: number, span: number, N: number): Float32Array {
 	const { data, width: w, height: h, lng: lo, lat: la, range: r } = tile;
 	const out = new Float32Array(N * N);
 	const x0s = new Int32Array(N), fxs = new Float64Array(N);

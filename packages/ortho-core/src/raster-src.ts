@@ -23,11 +23,31 @@
 // worker でも main でも動く（DOM 不使用・fetch/createImageBitmap のみ）。
 // pmtiles-src は PMTiles の源が来た時だけ読む（動的 import＝XYZ だけの起動で render worker に乗せない・2026-09-22）
 
+/** WMS の記述子 */
+export interface WmsSpec { url: string; layers: string; styles?: string; format?: string; transparent?: boolean; version?: string; params?: Record<string, string> }
+/** WMTS の記述子（capabilities を読むか・KVP を手で） */
+export interface WmtsSpec { url?: string; capabilities?: string; layer?: string; style?: string; tileMatrixSet?: string; format?: string; matrixIds?: string[] }
+/** 色調整（MapLibre の raster-* paint） */
+export interface RasterAdjust { hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number }
+/** 外から与える記述子 */
+export interface RasterSpec {
+	url?: string; pmtiles?: string; port?: MessagePort; wms?: WmsSpec; wmts?: WmtsSpec; subdomains?: string | string[]; tms?: boolean;
+	tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: number[] | null; attribution?: string | null; name?: string | null;
+	headers?: Record<string, string> | null; credentials?: RequestCredentials; matrixIds?: string[] | null; adjust?: RasterAdjust | null; [k: string]: unknown;
+}
+export type NormalizedSpec =
+	| { kind: "port"; port: MessagePort; name: string | null; attribution: string | null }
+	| { kind: "pmtiles"; url: string; name: string | null; attribution: string | null }
+	| { kind: "xyz"; url: string; subdomains: string[] | null; tms: boolean; tileSize: number; minZoom: number; maxZoom: number; bbox: number[] | null; attribution: string | null; name: string | null; headers: Record<string, string> | null; credentials: RequestCredentials; matrixIds: string[] | null };
+/** プロバイダ契約（z/x/y → ImageBitmap｜null） */
+export interface RasterSource { kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: number[] | null; attribution: string | null; name: string | null; tileType?: string; get(z: number, x: number, y: number, signal?: AbortSignal | null): Promise<ImageBitmap | null>; close(): void }
+interface PortInfo { tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: number[] | null; attribution?: string | null; name?: string | null }
+
 // URL テンプレの展開。{z}/{x}/{y}・{-y}（TMS＝下から数える）・{s}（サブドメイン＝x+y で巡回）・{q}（quadkey）。
 // ＋OGC（#45・2026-09-23）：{bbox-epsg-3857}（MapLibre と同じ＝WMS の GetMap の BBOX＝タイルの外接をメートルで）・
 //   {TileMatrix}/{TileRow}/{TileCol}（WMTS の REST/KVP の型紙・matrixIds があれば z → その id）・{width}/{height}（＝tileSize）
 const MERC_R = 6378137 * Math.PI;   // 球メルカトルの半幅[m]
-export function expandTemplate(tpl, z, x, y, subdomains = null, tms = false, matrixIds = null, tileSize = 256) {
+export function expandTemplate(tpl: string, z: number, x: number, y: number, subdomains: readonly string[] | null = null, tms = false, matrixIds: readonly string[] | null = null, tileSize = 256): string {
 	const n = 1 << z;
 	const yy = tms ? n - 1 - y : y;
 	let s = tpl;
@@ -41,7 +61,7 @@ export function expandTemplate(tpl, z, x, y, subdomains = null, tms = false, mat
 }
 
 // spec の種別判定と既定値（純関数＝Node で検定）。url が .pmtiles で終わる／pmtiles:// なら pmtiles 扱い。
-export function normalizeSpec(spec) {
+export function normalizeSpec(spec: RasterSpec): NormalizedSpec {
 	if (!spec || typeof spec !== "object") throw new Error("raster: spec must be an object");
 	if (spec.port) return { kind: "port", port: spec.port, name: spec.name || null, attribution: spec.attribution || null };
 	let pm = spec.pmtiles || null;
@@ -64,26 +84,26 @@ export function normalizeSpec(spec) {
 
 // WMS（GetMap を画面のタイルに割る）＝{ url（サービスの入口）, layers, styles?, format?:"image/png", transparent?:true, version?:"1.3.0", params?:{…} }
 // 1.3.0 は CRS・1.1.1 は SRS（どちらも EPSG:3857・軸順はメートルの x,y のまま）
-export function wmsTemplate(w) {
+export function wmsTemplate(w: WmsSpec): string {
 	const u = new URL(w.url);
 	const v = w.version || "1.3.0";
-	const q = { SERVICE: "WMS", REQUEST: "GetMap", VERSION: v, LAYERS: w.layers, STYLES: w.styles ?? "", FORMAT: w.format || "image/png", TRANSPARENT: String(w.transparent ?? true).toUpperCase(), [v >= "1.3" ? "CRS" : "SRS"]: "EPSG:3857", WIDTH: "{width}", HEIGHT: "{height}", BBOX: "{bbox-epsg-3857}", ...(w.params || {}) };
+	const q: Record<string, string> = { SERVICE: "WMS", REQUEST: "GetMap", VERSION: v, LAYERS: w.layers, STYLES: w.styles ?? "", FORMAT: w.format || "image/png", TRANSPARENT: String(w.transparent ?? true).toUpperCase(), [v >= "1.3" ? "CRS" : "SRS"]: "EPSG:3857", WIDTH: "{width}", HEIGHT: "{height}", BBOX: "{bbox-epsg-3857}", ...(w.params || {}) };
 	for (const [k, val] of Object.entries(q)) u.searchParams.set(k, val);
 	return decodeURI(u.href).replace(/%7B/gi, "{").replace(/%7D/gi, "}").replace(/%2C/gi, ",");
 }
 // WMTS（KVP）＝{ url, layer, style?:"default", tileMatrixSet, format?:"image/png", matrixIds? } → 型紙。REST の型紙は url に {TileMatrix} を書いて直に渡せばよい
-export function wmtsTemplate(w) {
-	if (/\{TileMatrix\}/.test(w.url)) return w.url;
-	const u = new URL(w.url);
-	const q = { SERVICE: "WMTS", REQUEST: "GetTile", VERSION: "1.0.0", LAYER: w.layer, STYLE: w.style || "default", TILEMATRIXSET: w.tileMatrixSet, FORMAT: w.format || "image/png", TILEMATRIX: "{TileMatrix}", TILEROW: "{TileRow}", TILECOL: "{TileCol}" };
+export function wmtsTemplate(w: WmtsSpec): string {
+	if (/\{TileMatrix\}/.test(w.url!)) return w.url!;
+	const u = new URL(w.url!);
+	const q: Record<string, string> = { SERVICE: "WMTS", REQUEST: "GetTile", VERSION: "1.0.0", LAYER: w.layer!, STYLE: w.style || "default", TILEMATRIXSET: w.tileMatrixSet!, FORMAT: w.format || "image/png", TILEMATRIX: "{TileMatrix}", TILEROW: "{TileRow}", TILECOL: "{TileCol}" };
 	for (const [k, val] of Object.entries(q)) u.searchParams.set(k, val);
 	return decodeURI(u.href).replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 }
 // WMTS の GetCapabilities を読んで spec を作る（DOMParser 不要の最小の読み：Layer・TileMatrixSet・ResourceURL）。
 // 描けるのはウェブメルカトル（EPSG:3857 / 900913・GoogleMapsCompatible 相当）の行列だけ＝行列の id を z 順に並べて matrixIds へ
-export function wmtsFromCapabilities(xml, { layer, style, format, capabilitiesUrl } = {}) {
-	const tag = (s, t) => [...s.matchAll(new RegExp(`<(?:[\\w-]+:)?${t}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${t}>`, "g"))].map(m => m[1]);
-	const text = (s, t) => (tag(s, t)[0] ?? "").replace(/<[^>]+>/g, "").trim();
+export function wmtsFromCapabilities(xml: string, { layer, style, format, capabilitiesUrl }: { layer?: string; style?: string; format?: string; capabilitiesUrl?: string } = {}): { url: string; matrixIds: string[]; minZoom: number; maxZoom: number; name: string } {
+	const tag = (s: string, t: string): string[] => [...s.matchAll(new RegExp(`<(?:[\\w-]+:)?${t}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${t}>`, "g"))].map(m => m[1]);
+	const text = (s: string, t: string): string => (tag(s, t)[0] ?? "").replace(/<[^>]+>/g, "").trim();
 	const layers = tag(xml, "Layer");
 	const L = layers.find(l => !layer || text(l, "Identifier") === layer) || layers[0];
 	if (!L) throw new Error("wmts: no layer");
@@ -94,32 +114,32 @@ export function wmtsFromCapabilities(xml, { layer, style, format, capabilitiesUr
 	if (!merc) throw new Error("wmts: no web-mercator TileMatrixSet for this layer");
 	const ids = tag(merc, "TileMatrix").map(m => ({ id: text(m, "Identifier"), s: +text(m, "ScaleDenominator") })).sort((a, b) => b.s - a.s).map(m => m.id);
 	const z0 = Math.round(Math.log2(559082264.0287178 / (tag(merc, "TileMatrix").map(m => +text(m, "ScaleDenominator")).sort((a, b) => b - a)[0] || 559082264.0287178)));   // 最初の行列の z（z0 の縮尺分母＝559082264）
-	const matrixIds = []; ids.forEach((id, i) => { matrixIds[z0 + i] = id; });
+	const matrixIds: string[] = []; ids.forEach((id, i) => { matrixIds[z0 + i] = id; });
 	const fmt = format || text(L, "Format") || "image/png";
-	const attr = (a, k) => new RegExp(`${k}=["']([^"']+)["']`).exec(a)?.[1];   // 属性は '…' も "…" もある（GIBS は一重）
+	const attr = (a: string, k: string): string | undefined => new RegExp(`${k}=["']([^"']+)["']`).exec(a)?.[1];   // 属性は '…' も "…" もある（GIBS は一重）
 	const rests = [...L.matchAll(/<(?:[\w-]+:)?ResourceURL\b([^>]*)\/?>/g)].map(m => m[1]).filter(a => attr(a, "resourceType") === "tile" && (!format || attr(a, "format") === format));
-	const tmpl0 = rests.map(a => attr(a, "template")).sort((a, b) => (a.match(/\{/g) || []).length - (b.match(/\{/g) || []).length)[0];   // 差し込みの少ない型紙（{Time} 無し）を優先
+	const tmpl0 = rests.map(a => attr(a, "template")!).sort((a, b) => (a.match(/\{/g) || []).length - (b.match(/\{/g) || []).length)[0];   // 差し込みの少ない型紙（{Time} 無し）を優先
 	const sty = style || text(tag(L, "Style")[0] || "", "Identifier") || "default";
 	// 次元（{Time} 等）＝Dimension の Default で埋める
-	const dims = Object.fromEntries(tag(L, "Dimension").map(d => [text(d, "Identifier"), text(d, "Default")]));
-	const fill = u => u.replace(/&amp;/g, "&").replace("{Style}", sty).replace("{TileMatrixSet}", text(merc, "Identifier")).replace(/\{(\w+)\}/g, (m, k) => dims[k] ?? m);
+	const dims: Record<string, string> = Object.fromEntries(tag(L, "Dimension").map(d => [text(d, "Identifier"), text(d, "Default")]));
+	const fill = (u: string): string => u.replace(/&amp;/g, "&").replace("{Style}", sty).replace("{TileMatrixSet}", text(merc, "Identifier")).replace(/\{(\w+)\}/g, (m, k: string) => dims[k] ?? m);
 	const kvp = (/<(?:[\w-]+:)?Operation\s+name=["']GetTile["'][\s\S]*?<\/(?:[\w-]+:)?Operation>/.exec(xml)?.[0] || "").match(/href=["']([^"']+)["']/g)?.map(h => h.slice(6, -1)).find(h => /\?/.test(h) || /cgi|wmts/i.test(h));
 	const url = tmpl0 ? fill(tmpl0)
-		: wmtsTemplate({ url: (kvp || capabilitiesUrl).replace(/&amp;/g, "&").replace(/\?.*$/, ""), layer: lid, style: sty, tileMatrixSet: text(merc, "Identifier"), format: fmt });
+		: wmtsTemplate({ url: (kvp || capabilitiesUrl)!.replace(/&amp;/g, "&").replace(/\?.*$/, ""), layer: lid, style: sty, tileMatrixSet: text(merc, "Identifier"), format: fmt });
 	return { url, matrixIds, minZoom: z0, maxZoom: z0 + ids.length - 1, name: text(L, "Title") || lid };
 }
 
 // AVIF など「ブラウザが復号できるか」は環境依存＝失敗した時に理由が分かる文面へ包む（黙って穴を空けない）
-async function decode(blobOrBytes, mime) {
-	const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes], mime ? { type: mime } : {});
+async function decode(blobOrBytes: Blob | Uint8Array, mime?: string): Promise<ImageBitmap> {
+	const blob = blobOrBytes instanceof Blob ? blobOrBytes : new Blob([blobOrBytes as BlobPart], mime ? { type: mime } : {});
 	try { return await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }); }
-	catch (e) { throw new Error(`raster: image decode failed (${mime || blob.type || "unknown type"}): ${e && e.message || e}`); }
+	catch (e) { throw new Error(`raster: image decode failed (${mime || blob.type || "unknown type"}): ${e && (e as Error).message || e}`); }
 }
 
 // ラスタの色調整（MapLibre の raster-hue-rotate / raster-saturation / raster-contrast / raster-brightness-min・max・#39）。
 // 順番も MapLibre と同じ＝色相 → 彩度 → コントラスト → 明るさの幅。復号した画像に画素でかける（シェーダは触らない＝両バックエンド同じ）。
 // adj＝{ hueRotate:度, saturation:-1..1, contrast:-1..1, brightnessMin:0..1, brightnessMax:0..1 }（既定＝何もしない）
-export function adjustRGBA(px, adj) {
+export function adjustRGBA<T extends Uint8ClampedArray | Uint8Array>(px: T, adj: RasterAdjust): T {
 	const hr = (adj.hueRotate || 0) * Math.PI / 180, cs = Math.cos(hr), sn = Math.sin(hr);
 	// 色相の回転（CSS の hue-rotate と同じ行列）
 	const M = [0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928,
@@ -138,9 +158,9 @@ export function adjustRGBA(px, adj) {
 	}
 	return px;
 }
-const needsAdjust = a => a && (a.hueRotate || a.saturation || a.contrast || (a.brightnessMin ?? 0) !== 0 || (a.brightnessMax ?? 1) !== 1);
-async function adjustBitmap(bm, adj) {
-	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true });
+const needsAdjust = (a: RasterAdjust | null | undefined): boolean => !!a && !!(a.hueRotate || a.saturation || a.contrast || (a.brightnessMin ?? 0) !== 0 || (a.brightnessMax ?? 1) !== 1);
+async function adjustBitmap(bm: ImageBitmap, adj: RasterAdjust): Promise<ImageBitmap> {
+	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true })!;
 	g.drawImage(bm, 0, 0); bm.close?.();
 	const im = g.getImageData(0, 0, cv.width, cv.height);
 	adjustRGBA(im.data, adj);
@@ -148,14 +168,14 @@ async function adjustBitmap(bm, adj) {
 	return createImageBitmap(cv, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 }
 
-export async function createRasterSource(spec) {
+export async function createRasterSource(spec: RasterSpec): Promise<RasterSource> {
 	const src = await createRasterSource0(spec);
 	if (!needsAdjust(spec?.adjust)) return src;
 	const get = src.get.bind(src);
-	src.get = async (z, x, y, signal) => { const bm = await get(z, x, y, signal); return bm ? adjustBitmap(bm, spec.adjust) : bm; };   // 色調整（#39）は復号の直後に
+	src.get = async (z, x, y, signal) => { const bm = await get(z, x, y, signal); return bm ? adjustBitmap(bm, spec.adjust!) : bm; };   // 色調整（#39）は復号の直後に
 	return src;
 }
-async function createRasterSource0(spec) {
+async function createRasterSource0(spec: RasterSpec): Promise<RasterSource> {
 	if (spec?.wmts?.capabilities) {   // WMTS の GetCapabilities を読んで型紙・行列 id・ズーム域・名前を作る（#45）
 		const cu = spec.wmts.capabilities, r = await fetch(cu, { credentials: spec.credentials || "omit" });
 		if (!r.ok) throw new Error(`raster: WMTS capabilities HTTP ${r.status}`);
@@ -180,7 +200,7 @@ async function createRasterSource0(spec) {
 		};
 	}
 	if (n.kind === "pmtiles") {
-		const { pmtilesInfo, fetchPMTilesRaw, isRasterTileType, RASTER_MIME } = await import("./pmtiles-src.js");
+		const { pmtilesInfo, fetchPMTilesRaw, isRasterTileType, RASTER_MIME } = await import("./pmtiles-src.ts");
 		const info = await pmtilesInfo(n.url);
 		if (!isRasterTileType(info.tileType)) throw new Error(`raster: PMTiles tileType is "${info.tileType}" (not a raster archive)`);
 		const mime = RASTER_MIME[info.tileType];
@@ -196,15 +216,15 @@ async function createRasterSource0(spec) {
 	}
 	// port＝外部プロバイダ。info を 1 通待ってから契約を返す（タイムアウト＝相手が黙っていれば失敗を言う）
 	const port = n.port;
-	const pending = new Map();
+	const pending = new Map<number, { resolve: (bm: ImageBitmap | null) => void; reject: (e: Error) => void }>();
 	let seq = 0;
-	const info = await new Promise((resolve, reject) => {
+	const info = await new Promise<PortInfo>((resolve, reject) => {
 		const to = setTimeout(() => reject(new Error("raster: provider port sent no info within 20s")), 20000);
 		port.onmessage = ev => {
-			const m = ev.data || {};
+			const m = (ev.data || {}) as { type?: string; info?: PortInfo; id?: number; bitmap?: ImageBitmap | null; error?: string };
 			if (m.type === "info") { clearTimeout(to); resolve(m.info || {}); return; }
-			const p = pending.get(m.id); if (!p) { if (m.bitmap && m.bitmap.close) m.bitmap.close(); return; }   // 中断済みの遅着＝閉じて捨てる
-			pending.delete(m.id);
+			const p = pending.get(m.id!); if (!p) { if (m.bitmap && m.bitmap.close) m.bitmap.close(); return; }   // 中断済みの遅着＝閉じて捨てる
+			pending.delete(m.id!);
 			if (m.error) p.reject(new Error(m.error)); else p.resolve(m.bitmap || null);
 		};
 		port.start?.();
@@ -214,7 +234,7 @@ async function createRasterSource0(spec) {
 		attribution: n.attribution || info.attribution || null, name: n.name || info.name || null,
 		get(z, x, y, signal) {
 			const id = ++seq;
-			return new Promise((resolve, reject) => {
+			return new Promise<ImageBitmap | null>((resolve, reject) => {
 				pending.set(id, { resolve, reject });
 				port.postMessage({ id, z, x, y });
 				signal?.addEventListener("abort", () => { if (pending.delete(id)) { port.postMessage({ id, abort: true }); reject(new Error("aborted")); } }, { once: true });

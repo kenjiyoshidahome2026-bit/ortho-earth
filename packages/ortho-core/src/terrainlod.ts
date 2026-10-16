@@ -4,14 +4,21 @@
 // 三角形の分割（a-c-b / b-c-d）と巻きは従来と同一＝絵は不変（描かないのは「全画素が discard される／画面外」のチャンクだけ）。
 // 地平線の判定＝TERRAIN FS の `front < -0.0015 → discard`（front = dot(dir, eye) − 1・dir は半径 1 の球点＝標高に依らない）を頂点側で先取り：
 // チャンクの全標本点の front がその閾値を下回れば描いても全画素が捨てられる＝刈って厳密に同じ絵。
-import { lonlatTo3D, projectClip } from "./camera.js";
+import { lonlatTo3D, projectClip, type CameraState } from "./camera.ts";
 
 const TERR_CH = 16;   // 一辺のチャンク数（16×16＝256・G=1536 で 96 quad/辺）
-export const TERR_HMAX_M = 9000;   // 視錐台判定に使う標高の上限（m・全球＝エベレスト級）。保守的なほど刈りが甘いだけ＝絵は変わらない
+export const TERR_HMAX_M = 9000;   // 視錐台判定に使う標高の上限（m・全球＝エベレスト級）。保守的なほど刈りが甘いだけ＝絵は変わない
+
+/** チャンク＝index の位置と数・uv の箱 */
+export interface TerrainChunk { first: number; count: number; u0: number; u1: number; v0: number; v1: number }
+/** 描画区間 [first, count] */
+export type DrawRun = [number, number];
+/** 刈りの物差し（?perf=1／HUD） */
+export interface ChunkStats { drawn?: number; of?: number }
 
 // G×G 頂点（uv = i/(G−1)）の index をチャンク主導で。chunks[k]＝{ first, count, u0, u1, v0, v1 }（index の位置と数・uv の箱）
-export function buildChunkIndex(G, CH = TERR_CH) {
-	const Q = G - 1, idx = new Uint32Array(Q * Q * 6), chunks = [];
+export function buildChunkIndex(G: number, CH = TERR_CH): { idx: Uint32Array; chunks: TerrainChunk[] } {
+	const Q = G - 1, idx = new Uint32Array(Q * Q * 6), chunks: TerrainChunk[] = [];
 	let p = 0;
 	for (let cy = 0; cy < CH; cy++) for (let cx = 0; cx < CH; cx++) {
 		const i0 = Math.floor(cx * Q / CH), i1 = Math.floor((cx + 1) * Q / CH), j0 = Math.floor(cy * Q / CH), j1 = Math.floor((cy + 1) * Q / CH);
@@ -25,12 +32,12 @@ export function buildChunkIndex(G, CH = TERR_CH) {
 	return { idx, chunks };
 }
 
-const wrapNear = (lon, ref) => lon + 360 * Math.round((ref - lon) / 360);
+const wrapNear = (lon: number, ref: number): number => lon + 360 * Math.round((ref - lon) / 360);
 
 // 1 チャンクの可視判定。箱＝経緯度 [l0,l1]×[b0,b1]・半径 [1, rMax]。標本点＝4 隅＋辺の中点＋中心（球面の膨らみ）＋カメラ直下点を箱へ clamp した点（front 最大の候補）。
 // 1) 全標本点が地平線の閾値以下（箱の大きさぶんの余裕込み）＝不可視。2) 全標本点がカメラ背後（w≤0）＝不可視。3) 標本点（海面と rMax）が全て同じ視錐台面の外＝不可視。
 // 背後と前方が混在する箱は判定しない（描く）＝保守側。eps＝面をわずかに外へ（標本の間の膨らみ・f32 の丸め）。
-export function chunkVisible(l0, l1, b0, b1, st, rMax, sub) {
+export function chunkVisible(l0: number, l1: number, b0: number, b1: number, st: CameraState, rMax: number, sub: ArrayLike<number>): boolean {
 	const E = st.eye;
 	const lm = (l0 + l1) / 2, bm = (b0 + b1) / 2;
 	const cl = Math.min(l1, Math.max(l0, wrapNear(sub[0], lm))), cb = Math.min(b1, Math.max(b0, sub[1]));
@@ -56,12 +63,12 @@ export function chunkVisible(l0, l1, b0, b1, st, rMax, sub) {
 // 可視チャンクの描画区間 [[first, count], …]（連続する可視チャンクは 1 本に併合＝draw 数を減らす）。
 // mesh＝[oLng, oLat, spanLng, spanLat]（Frame.mesh／u_mesh と同じ窓）・st＝cameraState・elevScale＝m→世界単位（elev.scale）。
 // stats（任意）＝{ drawn, of } を埋める（?perf=1／HUD の物差し）
-export function visibleChunkRuns(chunks, mesh, st, elevScale, stats = null) {
-	const [oLng, oLat, sLng, sLat] = mesh;
+export function visibleChunkRuns(chunks: TerrainChunk[], mesh: ArrayLike<number>, st: CameraState, elevScale: number | null | undefined, stats: ChunkStats | null = null): DrawRun[] {
+	const oLng = mesh[0], oLat = mesh[1], sLng = mesh[2], sLat = mesh[3];
 	const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]);
 	const sub = [Math.atan2(E[2], E[0]) * 180 / Math.PI, Math.asin(Math.max(-1, Math.min(1, E[1] / eLen))) * 180 / Math.PI, eLen];   // カメラ直下点（β空間の近似で十分＝clamp の基準）
 	const rMax = 1 + TERR_HMAX_M * (elevScale || 0);
-	const runs = []; let cur = null, drawn = 0;
+	const runs: DrawRun[] = []; let cur: DrawRun | null = null, drawn = 0;
 	for (const c of chunks) {
 		if (!chunkVisible(oLng + sLng * c.u0, oLng + sLng * c.u1, oLat + sLat * c.v0, oLat + sLat * c.v1, st, rMax, sub)) continue;
 		drawn++;
@@ -74,9 +81,9 @@ export function visibleChunkRuns(chunks, mesh, st, elevScale, stats = null) {
 // 影の深度パス（#112 段 2）で地形のチャンクを刈る＝影の窓（太陽の正射影 mvp・列優先 f64・shadow.js shadowWindow）の [−1,1]² に
 // 投げた足が掛かるチャンクだけ。正射影の影では、窓の中の地面を暗くできるのは太陽方向に投げて窓に入る物だけ＝刈っても影の形は厳密に同じ。
 // 標本点＝4 隅＋辺の中点＋中心 × 半径 [1, rMax]（chunkVisible と同じ）。全点が同じ外側（x<−m・x>m・y<−m・y>m）なら刈る。m＝1.05（標本の間の膨らみ）
-export function shadowChunkRuns(chunks, mesh, mvp, rMax, stats = null) {
-	const [oLng, oLat, sLng, sLat] = mesh, m = mvp, M = 1.05;
-	const runs = []; let cur = null, drawn = 0;
+export function shadowChunkRuns(chunks: TerrainChunk[], mesh: ArrayLike<number>, mvp: ArrayLike<number>, rMax: number, stats: ChunkStats | null = null): DrawRun[] {
+	const oLng = mesh[0], oLat = mesh[1], sLng = mesh[2], sLat = mesh[3], m = mvp, M = 1.05;
+	const runs: DrawRun[] = []; let cur: DrawRun | null = null, drawn = 0;
 	for (const c of chunks) {
 		const l0 = oLng + sLng * c.u0, l1 = oLng + sLng * c.u1, b0 = oLat + sLat * c.v0, b1 = oLat + sLat * c.v1, lm = (l0 + l1) / 2, bm = (b0 + b1) / 2;
 		let outL = true, outR = true, outB = true, outT = true;

@@ -5,45 +5,55 @@
 // 高さの基準：仕様は楕円体高（Cesium World Terrain・PDOK）。swisstopo は標高（ジオイド）で配っている＝ソースの heights で申告（geoid.js）。
 // worker でも main でも node でも動く（DataView・DecompressionStream のみ）。
 
+/** 解読した quantized-mesh（u/v＝0..1・h＝m・tri＝頂点添字） */
+export interface QMesh { minH: number; maxH: number; n: number; u: Float64Array; v: Float64Array; h: Float32Array; tri: Uint32Array; empty: boolean }
+/** layer.json の読み（絶対 URL の型紙・在庫） */
+export interface QMAvailableRect { startX: number; endX: number; startY: number; endY: number }
+export interface QMLayer { tiles: string[]; version: string; minzoom: number; maxzoom: number; bounds: number[] | null; available: QMAvailableRect[][] | null; extensions: string[]; metadataAvailability: number | null; attribution: string }
+/** 生の layer.json */
+export interface QMLayerJson { format?: string; projection?: string; scheme?: string; schema?: string; tiles?: string[]; version?: string; minzoom?: number; maxzoom?: number; bounds?: number[]; available?: QMAvailableRect[][]; extensions?: string[]; metadataAvailability?: number; attribution?: string }
+/** 焼く先の格子（row0＝北・格子点・lon＝lng＋c/(N−1)·range） */
+export interface QMGrid { data: Float32Array; N: number; lng: number; lat: number; range: number }
+
 // ── タイルの数え方（EPSG:4326・TMS）──
-export const qmTileSpan = z => 180 / 2 ** z;   // 1 枚の幅（度）＝縦も横も同じ（ルート 2×1）
-export function qmTileBounds(z, x, y) { const d = qmTileSpan(z); return [-180 + x * d, -90 + y * d, -180 + (x + 1) * d, -90 + (y + 1) * d]; }   // [w,s,e,n]
-export function qmTileAt(z, lon, lat) {
+export const qmTileSpan = (z: number): number => 180 / 2 ** z;   // 1 枚の幅（度）＝縦も横も同じ（ルート 2×1）
+export function qmTileBounds(z: number, x: number, y: number): number[] { const d = qmTileSpan(z); return [-180 + x * d, -90 + y * d, -180 + (x + 1) * d, -90 + (y + 1) * d]; }   // [w,s,e,n]
+export function qmTileAt(z: number, lon: number, lat: number): [number, number] {
 	const d = qmTileSpan(z), nx = 2 ** (z + 1), ny = 2 ** z;
 	return [Math.min(nx - 1, Math.max(0, Math.floor((lon + 180) / d))), Math.min(ny - 1, Math.max(0, Math.floor((lat + 90) / d)))];
 }
 
 // ── layer.json ──
 // base＝layer.json の URL（相対の型紙の起点・問い合わせ＝鍵は引き継ぐ）。戻り＝{ tiles:[絶対 URL の型紙], version, minzoom, maxzoom, bounds, available, extensions, metadataAvailability, attribution }
-export function parseLayerJson(j, base) {
+export function parseLayerJson(j: QMLayerJson | null | undefined, base: string): QMLayer {
 	if (!j || (j.format && !/^quantized-mesh/.test(j.format))) throw new Error("quantized-mesh: layer.json format is not quantized-mesh");
 	if (j.projection && j.projection !== "EPSG:4326") throw new Error("quantized-mesh: only EPSG:4326 is supported (got " + j.projection + ")");
 	if ((j.scheme || j.schema || "tms") !== "tms") throw new Error("quantized-mesh: only the tms scheme is supported");
 	const b = new URL(base), q = b.search;
-	const abs = t => { const u = new URL(t.replace(/\{(z|x|y|version)\}/g, "__$1__"), b); if (q) for (const [k, v] of b.searchParams) if (!u.searchParams.has(k)) u.searchParams.set(k, v); return u.toString().replace(/__(z|x|y|version)__/g, "{$1}"); };
+	const abs = (t: string): string => { const u = new URL(t.replace(/\{(z|x|y|version)\}/g, "__$1__"), b); if (q) for (const [k, v] of b.searchParams) if (!u.searchParams.has(k)) u.searchParams.set(k, v); return u.toString().replace(/__(z|x|y|version)__/g, "{$1}"); };
 	const bounds = Array.isArray(j.bounds) && j.bounds.length === 4 ? j.bounds.slice() : null;
 	return { tiles: (j.tiles || ["{z}/{x}/{y}.terrain?v={version}"]).map(abs), version: j.version || "1.0.0", minzoom: j.minzoom ?? 0,
 		maxzoom: j.maxzoom ?? (Array.isArray(j.available) && j.available.length ? j.available.length - 1 : 20), bounds: bounds && !(bounds[0] <= -180 && bounds[2] >= 180) ? bounds : null,
 		available: Array.isArray(j.available) ? j.available : null, extensions: j.extensions || [], metadataAvailability: j.metadataAvailability ?? null, attribution: j.attribution || "" };
 }
 // 在庫：layer.json の available（段ごとの矩形の列）＝無ければ「分からない」（true＝取りに行く・無ければ 404/403）
-export function qmAvailable(layer, z, x, y) {
+export function qmAvailable(layer: { available?: QMAvailableRect[][] | null }, z: number, x: number, y: number): boolean {
 	const a = layer.available; if (!a) return true;
 	const lv = a[z]; if (!lv) return false;
 	return lv.some(r => x >= r.startX && x <= r.endX && y >= r.startY && y <= r.endY);
 }
 
 // ── 解読 ──
-const zz = v => (v >> 1) ^ -(v & 1);
+const zz = (v: number): number => (v >> 1) ^ -(v & 1);
 // 戻り＝{ minH, maxH, n, u:Float64Array(0..1), v:Float64Array(0..1), h:Float32Array(m), tri:Uint32Array, empty }。empty＝中身のない置き物（高さの範囲が 0..0 ちょうど＝PDOK の粗い段）
-export function decodeQuantizedMesh(buf) {
+export function decodeQuantizedMesh(buf: ArrayBuffer | ArrayBufferView): QMesh {
 	const ab = buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 	const dv = new DataView(ab);
 	if (ab.byteLength < 92) throw new Error("quantized-mesh: too short");
 	const minH = dv.getFloat32(24, true), maxH = dv.getFloat32(28, true);
 	let p = 88;
 	const n = dv.getUint32(p, true); p += 4;
-	const rd = () => { const out = new Int32Array(n); let v = 0; for (let i = 0; i < n; i++) { v += zz(dv.getUint16(p, true)); p += 2; out[i] = v; } return out; };
+	const rd = (): Int32Array => { const out = new Int32Array(n); let v = 0; for (let i = 0; i < n; i++) { v += zz(dv.getUint16(p, true)); p += 2; out[i] = v; } return out; };
 	const U = rd(), V = rd(), Hq = rd();
 	const u = new Float64Array(n), v = new Float64Array(n), h = new Float32Array(n), dh = (maxH - minH) / 32767;
 	for (let i = 0; i < n; i++) { u[i] = U[i] / 32767; v[i] = V[i] / 32767; h[i] = minH + Hq[i] * dh; }
@@ -58,19 +68,19 @@ export function decodeQuantizedMesh(buf) {
 	return { minH, maxH, n, u, v, h, tri, empty: minH === 0 && maxH === 0 };
 }
 // gzip のまま来る配信（Content-Encoding なしで .terrain を gzip で置く）＝先頭 1f 8b なら解く
-export async function qmGunzip(ab) {
+export async function qmGunzip(ab: ArrayBuffer): Promise<ArrayBuffer> {
 	const b = new Uint8Array(ab);
 	if (b[0] !== 0x1f || b[1] !== 0x8b) return ab;
-	const s = new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"));
+	const s = new Blob([b as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
 	return await new Response(s).arrayBuffer();
 }
 
 // ── 格子へ焼く ──
 // mesh（decodeQuantizedMesh）＋タイルの範囲 tb＝[w,s,e,n] を格子 grid へ書く：grid＝{ data:Float32Array, N, lng, lat, range }（row0＝北・格子点・lon＝lng＋c/(N−1)·range）。
 // 三角形の外接矩形の格子点だけを重心座標で内挿（辺の上は両側で同じ値＝タイルの継ぎ目に穴を空けない・許し 1e-9）。書いた点の数を返す
-export function qmBake(mesh, tb, grid) {
+export function qmBake(mesh: QMesh, tb: ArrayLike<number>, grid: QMGrid): number {
 	const { data, N, lng, lat, range } = grid, st = range / (N - 1);
-	const [w, s, e, n] = tb, dx = e - w, dy = n - s;
+	const w = tb[0], s = tb[1], e = tb[2], n = tb[3], dx = e - w, dy = n - s;
 	const X = new Float64Array(mesh.n), Y = new Float64Array(mesh.n);
 	for (let i = 0; i < mesh.n; i++) { X[i] = w + mesh.u[i] * dx; Y[i] = s + mesh.v[i] * dy; }
 	const top = lat + range;
@@ -96,8 +106,8 @@ export function qmBake(mesh, tb, grid) {
 	return cnt;
 }
 // 1 点の標本（そのタイルの三角形を線形に）＝当たる三角形が無ければ NaN
-export function qmSample(mesh, tb, lon, lat) {
-	const [w, s, e, n] = tb, dx = e - w, dy = n - s, px = (lon - w) / dx, py = (lat - s) / dy;
+export function qmSample(mesh: QMesh, tb: ArrayLike<number>, lon: number, lat: number): number {
+	const w = tb[0], s = tb[1], e = tb[2], n = tb[3], dx = e - w, dy = n - s, px = (lon - w) / dx, py = (lat - s) / dy;
 	for (let t = 0; t < mesh.tri.length; t += 3) {
 		const a = mesh.tri[t], b = mesh.tri[t + 1], c = mesh.tri[t + 2];
 		const ax = mesh.u[a], ay = mesh.v[a], bx = mesh.u[b], by = mesh.v[b], cx = mesh.u[c], cy = mesh.v[c];
@@ -111,9 +121,11 @@ export function qmSample(mesh, tb, lon, lat) {
 	return NaN;
 }
 
+/** encodeQuantizedMesh の入力 */
+export interface QMEncodeSpec { verts: number[][]; tris: number[][]; minH: number; maxH: number; west?: number[]; south?: number[]; east?: number[]; north?: number[]; wrap?: boolean }
 // ── 書き手（試料・検定用）＝仕様どおりの .terrain を作る（extensions なし）。verts＝[[u,v,h]…]（u/v は 0..32767 の整数）・tris＝[[a,b,c]…] ──
 // wrap＝索引が高水位の順でなくてもよい（差を幅で折り返して書く＝PDOK の書き手の形の試料）
-export function encodeQuantizedMesh({ verts, tris, minH, maxH, west = [], south = [], east = [], north = [], wrap = false }) {
+export function encodeQuantizedMesh({ verts, tris, minH, maxH, west = [], south = [], east = [], north = [], wrap = false }: QMEncodeSpec): ArrayBuffer {
 	const n = verts.length, wide = n > 65536, W = wide ? 4 : 2;
 	let size = 88 + 4 + n * 6;
 	if (size % W) size += W - (size % W);
@@ -121,7 +133,7 @@ export function encodeQuantizedMesh({ verts, tris, minH, maxH, west = [], south 
 	const ab = new ArrayBuffer(size), dv = new DataView(ab);
 	dv.setFloat32(24, minH, true); dv.setFloat32(28, maxH, true);
 	let p = 88; dv.setUint32(p, n, true); p += 4;
-	const enc = v => (v << 1) ^ (v >> 31);
+	const enc = (v: number): number => (v << 1) ^ (v >> 31);
 	for (let k = 0; k < 3; k++) { let prev = 0; for (const vt of verts) { const q = k === 2 ? Math.round((vt[2] - minH) / ((maxH - minH) || 1) * 32767) : vt[k]; dv.setUint16(p, enc(q - prev) & 0xffff, true); prev = q; p += 2; } }
 	if (p % W) p += W - (p % W);
 	dv.setUint32(p, tris.length, true); p += 4;

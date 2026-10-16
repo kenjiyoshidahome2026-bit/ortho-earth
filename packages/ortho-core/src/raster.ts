@@ -18,17 +18,54 @@
 //   フェード中は直下の祖先を先に描く＝親→子のクロスフェード。フェードの進行は rev を進めて合成し直す＝止まれば静止コスト 0 に戻る）
 //   窓（近/中/遠）は renderer が持つ（ベクタ塗りと同じ「地面アトラス」＝2026-09-21 RTT ドレープ統合）。renderer は rev か窓か塗りが
 //   変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
-import { selectLOD } from "./tilecover.js";
-import { tileBounds, tileLocalToLonLat, tileOutsideCoverage, tileId } from "./tile.js";
-import { createRasterSource } from "./raster-src.js";
+import { selectLOD } from "./tilecover.ts";
+import { tileBounds, tileLocalToLonLat, tileOutsideCoverage, tileId } from "./tile.ts";
+import { createRasterSource } from "./raster-src.ts";
+import type { CameraPose } from "./camera.ts";
+import type { TileXYZ } from "./tile.ts";
+import type { RasterSpec, RasterSource } from "./raster-src.ts";
 
-const keyOf = (z, x, y) => `${z}/${x}/${y}`;
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+/** タイル 1 枚の格子メッシュ（buildTileMesh の戻り） */
+export interface TileMesh { pos: Float32Array; uv: Float32Array; idx: Uint16Array; n: number }
+/** renderer が返す GPU 資産の把手（bytes＝常駐量・id＝署名用の通し番号） */
+export interface RasterHandle { kind?: string; bytes?: number; id?: number; [k: string]: unknown }
+/** 描画 1 枚 */
+export interface RasterDraw { mesh: RasterHandle; tex: RasterHandle; nw: number[]; bounds: number[]; uvT: number[]; z: number; a: number; at?: number; until?: number }
+export type RasterOrder = "under" | "over";
+export type RasterResampling = "linear" | "nearest";
+export interface RasterDrawLayer { order: RasterOrder; opacity: number; resampling: RasterResampling; draws: RasterDraw[] }
+export interface RasterDraws { rev: number; hideFills: boolean; layers: RasterDrawLayer[] }
+/** renderer 契約（gl/renderer.js・gpu/renderer.js が実装） */
+export interface RasterRenderer { rasterTex(bitmap: ImageBitmap): RasterHandle; rasterMesh(m: TileMesh): RasterHandle; rasterFree(h: RasterHandle): void; setRasterDraws(rd: RasterDraws | null): void }
+export interface RasterLayerOptions { order?: string; opacity?: number; visible?: boolean; hideFills?: boolean; tileBias?: number; resampling?: string; fadeDuration?: number; minZoom?: number; maxZoom?: number }
+export interface RasterLayerSet { opacity?: number | null; visible?: boolean | null; order?: string; hideFills?: boolean | null; minZoom?: number | null; maxZoom?: number | null; resampling?: string; fadeDuration?: number | null }
+export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: number[] | null; attribution: string | null; name: string | null; tileType: string | null; order: RasterOrder; opacity: number; hideFills: boolean; resampling: RasterResampling; fadeDuration: number }
+export interface RasterPending { total: number; layers: Record<string, number>; fading: boolean }
+export interface RasterLayerStats { id: string; kind: string | null; ready: number; loading: number; empty: number; error: number; selected: number; draws: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; resampling: RasterResampling; fadeDuration: number; fading: boolean }
+export interface RasterStats { layers: RasterLayerStats[]; texBytes: number; meshBytes: number; draws: number; meshes: number; inflight: number; budget: number; fading: boolean }
+export interface RasterUpdateOptions { moving?: boolean; groundR?: number }
+export interface RasterOptions { renderer: RasterRenderer; requestDraw?: (() => void) | null; lowMem?: boolean; post?: ((m: unknown) => void) | null; maxTiles?: number; budgetMB?: number | null }
+export interface Raster {
+	add(id: string, spec: RasterSpec, opts?: RasterLayerOptions): Promise<RasterInfo>; remove(id: string): boolean; set(id: string, o?: RasterLayerSet): boolean;
+	update(cam: CameraPose, W: number, H: number, opts?: RasterUpdateOptions | null): boolean | undefined; stats(): RasterStats; pending(): RasterPending; destroy(): void;
+	bytes(): number; has(id: string): boolean; list(): string[];
+}
+type EntryStatus = "queued" | "loading" | "ready" | "empty" | "error" | "retry";
+interface Entry { status: EntryStatus; z: number; x: number; y: number; tex: RasterHandle | null; bytes: number; seen: number; tries: number; ac?: AbortController | null; at?: number | null; err?: string }
+interface QueueItem { key: string; z: number; x: number; y: number; dist: number }
+interface Layer {
+	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number;
+	resampling: RasterResampling; fadeDur: number; showMin: number; showMax: number; cache: Map<string, Entry>; queue: QueueItem[]; sticky: Set<number> | null; draws: RasterDraw[];
+	dirty: boolean; camKey: string; selN: number; warned: boolean; fresh: boolean; inView: boolean; info?: RasterInfo;
+}
+
+const keyOf = (z: number, x: number, y: number): string => `${z}/${x}/${y}`;
+const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const MAX_UP = 5;   // 祖先フォールバックの段数（v1＝3段＋高緯度補正。5 段＝1/32 の部分 uv までは絵として成立）
 
 // タイル 1 枚の格子メッシュ（純関数＝Node で検定）。頂点＝タイル北西隅からの (dlon, dlat) 度・uv＝(i/n, j/n)。
 // 同じ z・同じ行 y なら x に依らず同一（経度は線形・緯度は行で決まる）＝メッシュは (z, y, n) でキャッシュできる。
-export function buildTileMesh(z, y, n) {
+export function buildTileMesh(z: number, y: number, n: number): TileMesh {
 	const [w, , , north] = tileBounds(0, y, z);
 	const V = (n + 1) * (n + 1);
 	const pos = new Float32Array(V * 2), uv = new Float32Array(V * 2);
@@ -50,17 +87,17 @@ export function buildTileMesh(z, y, n) {
 	return { pos, uv, idx, n };
 }
 // 細分数＝メルカトル→経緯度 warp の精度（アトラスは経緯度整列・タイルはメルカトル）。低 z ほど非線形＝細かく。z≥6 は 8 で十分
-export const subdivOf = z => z < 3 ? 32 : z < 6 ? 16 : 8;
+export const subdivOf = (z: number): number => z < 3 ? 32 : z < 6 ? 16 : 8;
 
 // 祖先の部分 uv：タイル (z,x,y) を祖先 (z−d) のテクスチャで描く時の [u0, v0, su, sv]（メルカトルは段を跨いでも線形＝厳密）
-export function ancestorUV(x, y, d) {
+export function ancestorUV(x: number, y: number, d: number): number[] {
 	const m = 1 << d, inv = 1 / m;
 	return [(x & (m - 1)) * inv, (y & (m - 1)) * inv, inv, inv];
 }
 
-export function createRaster({ renderer, requestDraw, lowMem = false, post = null, maxTiles = lowMem ? 160 : 400, budgetMB = null } = {}) {
-	const layers = new Map();          // id → L
-	const meshes = new Map();          // "z/y/n" → { h, seen }（層をまたいで共有）
+export function createRaster({ renderer, requestDraw, lowMem = false, post = null, maxTiles = lowMem ? 160 : 400, budgetMB = null }: RasterOptions): Raster {
+	const layers = new Map<string, Layer>();          // id → L
+	const meshes = new Map<string, { h: RasterHandle; seen: number }>();          // "z/y/n" → { h, seen }（層をまたいで共有）
 	const MESH_CAP = 256;
 	const BUDGET = budgetMB ? Math.round(budgetMB * 1048576) : (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側。budgetMB＝検定用の明示
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
@@ -70,23 +107,23 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	let lastPendSig = "";   // rasterPending の前回の申告（変わった時だけ main へ）
 	// 未着の申告（idle / isSourceLoaded の材料・2026-09-28）＝層ごとに「開いている途中＝1」「開いた直後で一度も選抜していない＝1」「見えている選抜の未着（queued/loading/retry）の枚数」。
 	// 見えていない層（visible:false・表示域の外）は 0。合計が変わった時だけ post（main の checkIdle と isSourceLoaded が読む）
-	function pendingOf(L) {
+	function pendingOf(L: Layer): number {
 		if (!L.source || L.fresh) return 1;
 		if (!L.inView) return 0;
 		let n = 0;
 		for (const e of L.cache.values()) if (e.status === "queued" || e.status === "loading" || e.status === "retry") n++;
 		return n;
 	}
-	function pending() { const layers_ = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_, fading }; }
-	function reportPending() {
+	function pending(): RasterPending { const layers_: Record<string, number> = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_, fading }; }
+	function reportPending(): void {
 		const p = pending(), sig = Object.entries(p.layers).map(([k, n]) => k + ":" + n).join(",") + (p.fading ? "~" : "");
 		if (sig === lastPendSig) return;
 		lastPendSig = sig;
 		say({ type: "rasterPending", total: p.total, layers: p.layers, fading: p.fading });   // fading＝到着フェードの最中（idle はこれも待つ＝MapLibre の hasTransition と同じ）
 	}
-	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
+	const say = (m: unknown): void => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
-	function meshFor(z, y) {
+	function meshFor(z: number, y: number): RasterHandle {
 		const n = subdivOf(z), k = `${z}/${y}/${n}`;
 		let m = meshes.get(k);
 		if (!m) {
@@ -94,62 +131,63 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			meshBytes += h.bytes || 0;
 			m = { h, seen: 0 }; meshes.set(k, m);
 			if (meshes.size > MESH_CAP) {   // 最も古いものを落とす（LRU）
-				let oldK = null, old = Infinity;
+				let oldK: string | null = null, old = Infinity;
 				for (const [kk, mm] of meshes) if (mm.seen < old && kk !== k) { old = mm.seen; oldK = kk; }
-				if (oldK) { const mm = meshes.get(oldK); meshBytes -= mm.h.bytes || 0; renderer.rasterFree(mm.h); meshes.delete(oldK); }
+				if (oldK) { const mm = meshes.get(oldK)!; meshBytes -= mm.h.bytes || 0; renderer.rasterFree(mm.h); meshes.delete(oldK); }
 			}
 		}
 		m.seen = clock;
 		return m.h;
 	}
 
-	function freeEntry(e) {
+	function freeEntry(e: Entry): void {
 		if (e.ac) { e.ac.abort(); e.ac = null; }
 		if (e.tex) { texBytes -= e.bytes || 0; renderer.rasterFree(e.tex); e.tex = null; e.bytes = 0; }
 	}
 
 	// 取得（並列上限つき・距離順）。ready で層を dirty＝次フレームで描画リストが更新される
-	function pump() {
+	function pump(): void {
 		while (inflight < (moving ? CONC_MOVING : CONC)) {
-			let best = null, bestL = null;
+			let best: QueueItem | null = null, bestL: Layer | null = null;
 			for (const L of layers.values()) {
 				if (!L.source || !L.queue.length) continue;
 				const q = L.queue[0];
 				if (!best || q.dist < best.dist) { best = q; bestL = L; }
 			}
 			if (!best) return;
-			bestL.queue.shift();
-			const L = bestL, e = L.cache.get(best.key);
+			bestL!.queue.shift();
+			const L = bestL!, e = L.cache.get(best.key), q = best;
 			if (!e || e.status !== "queued") continue;
 			e.status = "loading"; e.ac = new AbortController(); inflight++;
-			const myGen = L.gen, src = L.source;
-			src.get(best.z, best.x, best.y, e.ac.signal).then(bitmap => {
+			const myGen = L.gen, src = L.source!;
+			src.get(q.z, q.x, q.y, e.ac.signal).then(bitmap => {
 				inflight--; e.ac = null;
 				if (L.gen !== myGen || !layers.has(L.id)) { bitmap?.close?.(); return; }   // 世代替わり（remove/再 add）の遅着＝捨てる
 				if (!bitmap) { e.status = "empty"; }
 				else {
 					try { e.tex = renderer.rasterTex(bitmap); e.tex.id = ++texSeq; e.bytes = e.tex.bytes || 0; texBytes += e.bytes; e.status = "ready"; e.at = now(); }
-					catch (err) { e.status = "error"; e.tries = (e.tries || 0) + 1; console.warn("[raster] texture upload failed", err?.message); }
+					catch (err) { e.status = "error"; e.tries = (e.tries || 0) + 1; console.warn("[raster] texture upload failed", (err as Error)?.message); }
 					bitmap.close?.();
 				}
 				L.dirty = true; requestDraw && requestDraw(); pump();
-			}, err => {
+			}, (err: unknown) => {
 				inflight--; e.ac = null;
-				if (String(err && err.message) === "aborted" || err?.name === "AbortError") { L.cache.delete(best.key); pump(); return; }   // 視野外中断＝再訪で再取得
-				e.status = "error"; e.tries = (e.tries || 0) + 1; e.err = String(err && err.message || err);
-				if (e.tries <= 3) setTimeout(() => { if (layers.has(L.id) && L.cache.get(best.key) === e && e.status === "error") { e.status = "retry"; L.dirty = true; requestDraw && requestDraw(); } }, 400 * e.tries);
+				const er = err as { message?: string; name?: string } | null;
+				if (String(er && er.message) === "aborted" || er?.name === "AbortError") { L.cache.delete(q.key); pump(); return; }   // 視野外中断＝再訪で再取得
+				e.status = "error"; e.tries = (e.tries || 0) + 1; e.err = String(er && er.message || err);
+				if (e.tries <= 3) setTimeout(() => { if (layers.has(L.id) && L.cache.get(q.key) === e && e.status === "error") { e.status = "retry"; L.dirty = true; requestDraw && requestDraw(); } }, 400 * e.tries);
 				else if (!L.warned) { L.warned = true; console.warn(`[raster] ${L.id}: tile fetch keeps failing (${e.err})`); say({ type: "rasterError", id: L.id, error: e.err }); }
 				pump();
 			});
 		}
 	}
 
-	function selectFor(L, cam, W, H, opts) {
-		const src = L.source;
+	function selectFor(L: Layer, cam: CameraPose, W: number, H: number, opts: RasterUpdateOptions | null | undefined): TileXYZ[] {
+		const src = L.source!;
 		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
-		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel = null;   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
+		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1 });
 			if (sel.length * perTile <= share) break;
@@ -159,7 +197,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (sel.length > maxTiles) {
 			const c = cam.center;
 			for (const t of sel) { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); t._d = Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); }
-			sel.sort((a, b) => a._d - b._d); sel.length = maxTiles;
+			sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles;
 		}
 		L.sticky = new Set();
 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵
@@ -167,13 +205,13 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	}
 
 	// 選抜タイルを在庫へ（未着は取得列へ）・視野外の取得は中断・予算超過は LRU 退避・描画リストを組む
-	function updateLayer(L, cam, W, H, opts) {
+	function updateLayer(L: Layer, cam: CameraPose, W: number, H: number, opts: RasterUpdateOptions | null | undefined): void {
 		L.fresh = false;
-		const src = L.source, sel = selectFor(L, cam, W, H, opts);
-		const keep = new Set(), pushed = new Set();   // pushed＝この巡で要求列に入れた鍵（祖先の連鎖と retry の拾い直しで二重に入れない）
+		const src = L.source!, sel = selectFor(L, cam, W, H, opts);
+		const keep = new Set<string>(), pushed = new Set<string>();   // pushed＝この巡で要求列に入れた鍵（祖先の連鎖と retry の拾い直しで二重に入れない）
 		const c = cam.center;
 		L.queue.length = 0;
-		const enqueue = (k, z, x, y, dist) => { if (pushed.has(k)) return; pushed.add(k); L.queue.push({ key: k, z, x, y, dist }); };
+		const enqueue = (k: string, z: number, x: number, y: number, dist: number): void => { if (pushed.has(k)) return; pushed.add(k); L.queue.push({ key: k, z, x, y, dist }); };
 		for (const t of sel) {
 			const k = keyOf(t.z, t.x, t.y);
 			keep.add(k);
@@ -193,7 +231,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 					z--; x >>= 1; y >>= 1;
 					const ak = keyOf(z, x, y), ae = L.cache.get(ak);
 					if (!ae) {
-						const aq = { status: "queued", z, x, y, tex: null, bytes: 0, seen: clock, tries: 0 };
+						const aq: Entry = { status: "queued", z, x, y, tex: null, bytes: 0, seen: clock, tries: 0 };
 						if (tileOutsideCoverage(x, y, z, src.bbox)) aq.status = "empty";
 						L.cache.set(ak, aq); keep.add(ak);
 						if (aq.status === "queued") enqueue(ak, z, x, y, dist + d);   // 同距離なら子を先に
@@ -217,7 +255,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// 描画リスト：自身が ready ならそのまま・未着/無しなら ready な祖先の部分 uv（v1 の親フォールバック）・祖先も無ければ描かない（球の下地が透ける）
 		// 到着フェード（raster-fade-duration・C4）：着いたばかりのタイル（at から fadeDur 未満）は a を 0→1 で描き、その間だけ直下の ready な祖先を先に描く
 		// （until＝祖先を外す時刻）＝MapLibre の親→子クロスフェード。a と until の進行は update が毎フレーム見る（選抜は走らせない）
-		const draws = [], t0 = now();
+		const draws: RasterDraw[] = [], t0 = now();
 		for (const t of sel) {
 			let z = t.z, x = t.x, y = t.y, e = L.cache.get(keyOf(z, x, y));
 			let d = 0;
@@ -226,31 +264,31 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			const b = tileBounds(t.x, t.y, t.z), mesh = meshFor(t.z, t.y), nw = [b[0], b[3]];
 			const fade = L.fadeDur > 0 && e.at != null && t0 - e.at < L.fadeDur;
 			if (fade) {
-				let az = z, ax = x, ay = y, ae = null, ad = d;
+				let az = z, ax = x, ay = y, ae: Entry | null | undefined = null, ad = d;
 				while (ad < MAX_UP && az > 0) { az--; ax >>= 1; ay >>= 1; ad++; ae = L.cache.get(keyOf(az, ax, ay)); if (ae && ae.status === "ready") break; ae = null; }
-				if (ae) draws.push({ mesh, tex: ae.tex, nw, bounds: b, uvT: ancestorUV(t.x, t.y, ad), z: t.z, a: 1, until: e.at + L.fadeDur });
+				if (ae) draws.push({ mesh, tex: ae.tex!, nw, bounds: b, uvT: ancestorUV(t.x, t.y, ad), z: t.z, a: 1, until: e.at! + L.fadeDur });
 			}
-			draws.push({ mesh, tex: e.tex, nw, bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z, a: fade ? 0 : 1, at: fade ? e.at : 0 });
+			draws.push({ mesh, tex: e.tex!, nw, bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z, a: fade ? 0 : 1, at: fade ? e.at! : 0 });
 		}
 		L.draws = draws;
 		L.selN = sel.length;
 	}
 
-	function evict() {
+	function evict(): void {
 		if (texBytes <= BUDGET) return;
 		// ⚠描画リストが参照中のテクスチャは絶対に退避しない：WebGPU は「破棄済みテクスチャを submit で使用」＝検証エラーで
 		// フレームが丸ごと落ちる（＝黒画面。iPhone 実機で 2026-09-21 に被弾：静止中は seen が進まないのに時計だけ進み、
 		// 予算超過の瞬間に可視タイルまで destroy していた）。可視集合が予算を超える分は selectFor の粗化が受け持つ。
-		const inUse = new Set();
+		const inUse = new Set<RasterHandle>();
 		for (const L of layers.values()) for (const d of L.draws) inUse.add(d.tex);
-		const cands = [];
+		const cands: [Layer, string, Entry][] = [];
 		for (const L of layers.values()) for (const [k, e] of L.cache) if (e.status === "ready" && e.tex && !inUse.has(e.tex)) cands.push([L, k, e]);
 		cands.sort((a, b) => a[2].seen - b[2].seen);
 		for (const [L, k, e] of cands) { if (texBytes <= BUDGET) break; freeEntry(e); L.cache.delete(k); }
 	}
 
 	// 毎フレーム（render worker の frame から。カメラ不変・在庫不変なら選抜は走らない）
-	function update(cam, W, H, opts) {
+	function update(cam: CameraPose, W: number, H: number, opts?: RasterUpdateOptions | null): boolean | undefined {
 		if (!layers.size) { reportPending(); return; }
 		clock++;
 		const wasMoving = moving; moving = !!opts?.moving;
@@ -258,7 +296,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
 		let changed = false, anyFade = false;
 		const tNow = now();
-		const rd = { rev: 0, hideFills: false, layers: [] };
+		const rd: RasterDraws = { rev: 0, hideFills: false, layers: [] };
 		for (const L of layers.values()) {
 			if (!L.source || !L.visible) { L.inView = false; L.fresh = false; if (L.draws.length) { L.draws = []; changed = true; } continue; }   // fresh を落とす＝伏せた層は未着に数えない
 			const inRange = cam.zoom >= L.showMin && cam.zoom <= L.showMax;
@@ -305,17 +343,17 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		return changed;
 	}
 
-	async function add(id, spec, opts = {}) {
+	async function add(id: string, spec: RasterSpec, opts: RasterLayerOptions = {}): Promise<RasterInfo> {
 		if (layers.has(id)) remove(id);
-		const L = {
+		const L: Layer = {
 			id, spec, source: null, error: null, gen: ++gen,
 			order: opts.order === "over" ? "over" : "under",
-			opacity: Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity)) : 1,
+			opacity: Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity!)) : 1,
 			visible: opts.visible !== false,
 			hideFills: opts.hideFills !== undefined ? !!opts.hideFills : opts.order !== "over",   // 基図（under）は塗りを伏せる（裁定：線と注記は残す）
-			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias > 0 ? opts.tileBias : 1,
+			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias! > 0 ? opts.tileBias! : 1,
 			resampling: opts.resampling === "nearest" ? "nearest" : "linear",   // MapLibre の raster-resampling（C4）＝層ごとの標本化
-			fadeDur: Number.isFinite(opts.fadeDuration) ? Math.max(0, opts.fadeDuration) : 300,   // MapLibre の raster-fade-duration（ms・既定 300）＝到着フェード   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
+			fadeDur: Number.isFinite(opts.fadeDuration) ? Math.max(0, opts.fadeDuration!) : 300,   // MapLibre の raster-fade-duration（ms・既定 300）＝到着フェード   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
 			showMin: -Infinity, showMax: Infinity, cache: new Map(), queue: [], sticky: null, draws: [], dirty: true, camKey: "", selN: 0, warned: false,
 			fresh: false, inView: false,   // fresh＝開いた直後（最初の選抜まで未着 1 と数える）・inView＝直近の update で見えていた（pendingOf）
 		};
@@ -325,23 +363,23 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			const src = await createRasterSource(spec);
 			if (!layers.has(id) || layers.get(id) !== L) { src.close(); throw new Error("removed while opening"); }
 			L.source = src;
-			L.showMin = Number.isFinite(opts.minZoom) ? opts.minZoom : src.minZoom - 1.5;   // 表示域＝配信下限の 1.5 段下から（v1 minZoom 門）。下は選抜爆発を避ける
-			L.showMax = Number.isFinite(opts.maxZoom) ? opts.maxZoom : Infinity;
-			const info = { id, kind: src.kind, tileSize: src.tileSize, minZoom: src.minZoom, maxZoom: src.maxZoom, bbox: src.bbox, attribution: src.attribution, name: src.name, tileType: src.tileType || null, order: L.order, opacity: L.opacity, hideFills: L.hideFills, resampling: L.resampling, fadeDuration: L.fadeDur };
+			L.showMin = Number.isFinite(opts.minZoom) ? opts.minZoom! : src.minZoom - 1.5;   // 表示域＝配信下限の 1.5 段下から（v1 minZoom 門）。下は選抜爆発を避ける
+			L.showMax = Number.isFinite(opts.maxZoom) ? opts.maxZoom! : Infinity;
+			const info: RasterInfo = { id, kind: src.kind, tileSize: src.tileSize, minZoom: src.minZoom, maxZoom: src.maxZoom, bbox: src.bbox, attribution: src.attribution, name: src.name, tileType: src.tileType || null, order: L.order, opacity: L.opacity, hideFills: L.hideFills, resampling: L.resampling, fadeDuration: L.fadeDur };
 			L.info = info;
 			L.fresh = true; L.dirty = true; requestDraw && requestDraw();
 			reportPending();   // rasterInfo より先に届く＝main は「開けた」を知る時すでに未着を知っている
 			say({ type: "rasterInfo", id, info });
 			return info;
 		} catch (err) {
-			L.error = String(err && err.message || err);
+			L.error = String(err && (err as Error).message || err);
 			if (layers.get(id) === L) layers.delete(id);
 			reportPending();
 			say({ type: "rasterError", id, error: L.error });
 			throw err;
 		}
 	}
-	function remove(id) {
+	function remove(id: string): boolean {
 		const L = layers.get(id); if (!L) return false;
 		L.gen = ++gen;
 		for (const e of L.cache.values()) freeEntry(e);
@@ -353,7 +391,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		requestDraw && requestDraw();
 		return true;
 	}
-	function set(id, o = {}) {
+	function set(id: string, o: RasterLayerSet = {}): boolean {
 		const L = layers.get(id); if (!L) return false;
 		if (o.opacity != null && Number.isFinite(o.opacity)) L.opacity = Math.max(0, Math.min(1, o.opacity));
 		if (o.visible != null) L.visible = !!o.visible;
@@ -366,8 +404,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		L.dirty = true; sigDirty = true; requestDraw && requestDraw();
 		return true;
 	}
-	function stats() {
-		const out = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: BUDGET, fading };
+	function stats(): RasterStats {
+		const out: RasterStats = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: BUDGET, fading };
 		for (const L of layers.values()) {
 			let ready = 0, loading = 0, empty = 0, error = 0;
 			for (const e of L.cache.values()) { if (e.status === "ready") ready++; else if (e.status === "loading" || e.status === "queued") loading++; else if (e.status === "empty") empty++; else error++; }
@@ -375,7 +413,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		}
 		return out;
 	}
-	function destroy() {
+	function destroy(): void {
 		for (const id of [...layers.keys()]) remove(id);
 		for (const m of meshes.values()) renderer.rasterFree(m.h);
 		meshes.clear(); meshBytes = 0;
