@@ -7,12 +7,12 @@ import type { TopoFeature, TopoArc } from "geopbf/edit/topo-extract";
 import type { History } from "geopbf/edit/history";
 import type { SnapEntry } from "geopbf/edit/snap";
 import type { Vec3, Quat, LonLat } from "geopbf/edit/sphere";
-import type { GeoPBF as GeoPBFPublic } from "geopbf";
+import type { GeoPBF } from "geopbf";
 
 import type { PbfCore } from "./worker-msg.ts";
 export type { PbfCore };
-/** 編集器が扱う GeoPBF＝器（PbfCore）に "geopbf" の拡張（gint・identifyAt・*File）が載った物。実体は同じインスタンス＝型だけ合わせる */
-export type Pbf = GeoPBFPublic & PbfCore;
+/** 編集器が扱う GeoPBF＝"geopbf" の GeoPBF（器 PbfCore を extends し、gint・identifyAt・*File を実体のメンバーとして持つ・geopbf 段 4） */
+export type Pbf = GeoPBF;
 
 /** 小規模モデル＝EditModel（large 欄を持たない＝判別用に undefined を明示） */
 export type SmallModel = EditModel & { readonly large?: undefined };

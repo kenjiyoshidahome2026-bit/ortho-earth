@@ -54,12 +54,10 @@
 	"bin": {
 		"geopbf": "bin/geopbf.mjs"
 	},
-	"main": "src/index.js",
-	"types": "./types/index.d.ts",
+	"main": "src/index.ts",
 	"sideEffects": [
-		"./src/index.js",
-		"./src/pbf.js",
-		"./src/pbf-base.js",
+		"./src/index.ts",
+		"./src/pbf-base.ts",
 		"./src/worker.ts",
 		"./src/decoder/*.ts",
 		"./src/encoder/*.ts",
@@ -68,29 +66,14 @@
 		"./wasm/pkg/*.js"
 	],
 	"exports": {
-		".": {
-			"types": "./types/index.d.ts",
-			"default": "./src/index.js"
-		},
-		"./core": {
-			"types": "./types/core.d.ts",
-			"default": "./src/core.js"
-		},
+		".": "./src/index.ts",
+		"./core": "./src/core.ts",
 		"./worker": "./src/worker.ts",
 		"./no-builtin-workers": "./src/modules/builtinWorkers.none.ts",
-		"./identify": {
-			"types": "./types/identify.d.ts",
-			"default": "./src/extension/identify.js"
-		},
-		"./gint": "./src/extension/gint.js",
-		"./topology": {
-			"types": "./types/topology.d.ts",
-			"default": "./src/extension/topology.js"
-		},
-		"./pbf-base": {
-			"types": "./types/pbf-base.d.ts",
-			"default": "./src/pbf-base.js"
-		},
+		"./identify": "./src/extension/identify.ts",
+		"./gint": "./src/extension/gint.ts",
+		"./topology": "./src/extension/topology.ts",
+		"./pbf-base": "./src/pbf-base.ts",
 		"./pbf": "./src/modules/pbf.ts",
 		"./czml": "./src/modules/czml.ts",
 		"./cog": "./src/cog/index.ts",
@@ -101,7 +84,7 @@
 		"./tilesource": "./src/convert/tilesource.ts",
 		"./geoparquet": "./src/convert/geoparquet.ts",
 		"./spatial-order": "./src/convert/spatial-order.ts",
-		"./parquet": "./src/parquet.js",
+		"./parquet": "./src/parquet.ts",
 		"./gpkg": "./src/convert/gpkg.ts",
 		"./fgb": "./src/convert/fgb.ts",
 		"./sqlite": "./src/convert/sqlite.ts",
@@ -109,16 +92,16 @@
 		"./dxf": "./src/convert/dxf.ts",
 		"./mbtiles": "./src/convert/mbtiles.ts",
 		"./filegdb": "./src/convert/filegdb.ts",
-		"./featureservice": "./src/service/featureservice.js",
-		"./georef": "./src/georef/index.js",
+		"./featureservice": "./src/service/featureservice.ts",
+		"./georef": "./src/georef/index.ts",
 		"./proj": "./src/convert/proj.ts",
 		"./epsg": "./src/convert/epsg.ts",
 		"./datum": "./src/convert/datum.ts",
 		"./table": "./src/convert/table.ts",
 		"./convert/node-gint": "./src/convert/node-gint.ts",
-		"./maplibre-cog": "./src/maplibre-cog.js",
-		"./leaflet-cog": "./src/leaflet-cog.js",
-		"./sanitize": "./src/sanitize.js",
+		"./maplibre-cog": "./src/maplibre-cog.ts",
+		"./leaflet-cog": "./src/leaflet-cog.ts",
+		"./sanitize": "./src/sanitize.ts",
 		"./edit": "./src/edit/index.ts",
 		"./edit/*": "./src/edit/*.ts",
 		"./maplibre": {

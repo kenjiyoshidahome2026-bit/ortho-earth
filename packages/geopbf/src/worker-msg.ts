@@ -2,7 +2,7 @@
 // 呼び手（pbf-base.js／pbf.js／pbf-io.js＝まだ JS）と受け手（decoder/*.ts・encoder/*.ts）が同じ名前で読む。
 // 形式ごとに使う鍵が違う＝使わない鍵は無視される（json デコーダは e.data を丸ごと GeoPBF の options に渡す）。
 import type { CleanTopologyOptions, UnPackGint } from "../types/geopbf.js";
-import type { FMapEntry } from "./pbf-base.js";
+import type { FMapEntry } from "./pbf-base.ts";
 import type { GridSource } from "./convert/datum.ts";   // JGD 変換のパラメータ（convert/datum＝文字列・バイト列・焼いた格子）
 
 /** ヘッダのメタ（全デコーダ共通） */

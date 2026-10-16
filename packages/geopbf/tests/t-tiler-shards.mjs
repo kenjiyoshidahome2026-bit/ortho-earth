@@ -3,7 +3,7 @@
 //   ・極小面の積算（tinyPolygon の代わりの正方形）が列の分担（shard）をまたいでも同じ＝workers 0 と 4 で PMTiles が byte 同一
 //     （旧＝積算が job（1 ズーム×列範囲）ごとだったので、小島の群れが shard 境界をまたぐと正方形の数と置き場が worker 数で変わった）
 //   ・MultiPoint の低ズーム間引き（dropRate）が点単位（tippecanoe の -r と同じ）＝1 feature の点が全部一蓮托生にならない・残る点はズームで入れ子
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { toPMTiles } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";

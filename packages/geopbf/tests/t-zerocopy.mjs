@@ -4,9 +4,9 @@
 //   ・bbox 台帳（polyBboxByFid / lineBboxByFid / polyCompBbox）は遅延＝非列挙で、読めば従来と同じ中身
 //   ・topology(pbf, { shared:true }) は SharedArrayBuffer に直に組む、setGintBUF は SAB をそのまま掴む・AB を写さない
 //   ・identify / contain / topojson / cleanTopology / repack が view 経路でも同じ答え
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 import { initGintWasm } from "../src/convert/node-gint.ts";
-import { topology, unPackGintBuffer, repackGintBuffer, isSharedView } from "../src/extension/topology.js";
+import { topology, unPackGintBuffer, repackGintBuffer, isSharedView } from "../src/extension/topology.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

@@ -1,9 +1,15 @@
-import { propsKeyOf } from "../pbf-base.js";
+import { propsKeyOf } from "../pbf-base.ts";
+import type { GeoPBFBase } from "../pbf-base.ts";
 import init, { L1toL2_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
+import type { InitOutput } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
-let wasmMemoryBuffer = null;
+let wasmMemoryBuffer: WebAssembly.Memory | null = null;
 let sharedWasmPtr = 0;
 let sharedWasmSize = 0;
+
+/** arc の集合（insertDegreeAnchors／unionArcBbox が読む・in place で更新） */
+export interface ArcSet { count: number; buffer: BigUint64Array; meta: Uint32Array; mlen: number }
+
 export class gint {
 	static TERMINAL_BIT = 1n << 63n;
 	static WEIGHT_MASK = 0x3Fn;
@@ -12,8 +18,9 @@ export class gint {
 	static INV_SCALE_E = 1/this.SCALE_E;
 	static RAD = Math.PI / 180;
 
-	static async initialize() { if (wasmReady) return;
-		const exports = await init();
+	/** wasm を読む（1 回だけ・何度 await してもよい） */
+	static async initialize(): Promise<void> { if (wasmReady) return;
+		const exports: InitOutput = await init();
 		if (typeof init_panic_hook === 'function') {
 			init_panic_hook();
 			wasmReady = true;
@@ -25,28 +32,30 @@ export class gint {
 
 	// keepBytes＞0＝成長時に旧領域の先頭 keepBytes を新領域へ写す（XY2L1 の push 途中の成長用）。旧＝free→alloc で旧内容を写さず、
 	// 推定点数を超えて成長すると既存頂点が消えていた（2026-09-15 効率レビューで発見）。順序＝新規確保→複写→旧解放
-	static _ensureBufferSize(requiredBytes, keepBytes = 0) { if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
+	static _ensureBufferSize(requiredBytes: number, keepBytes = 0): number { if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
 		const oldPtr = sharedWasmPtr, oldSize = sharedWasmSize;
 		sharedWasmSize = Math.pow(2, Math.ceil(Math.log2(requiredBytes)));
 		sharedWasmPtr = alloc_wasm_memory(sharedWasmSize);
-		if (keepBytes > 0 && oldPtr !== 0) new Uint8Array(wasmMemoryBuffer.buffer).copyWithin(sharedWasmPtr, oldPtr, oldPtr + Math.min(keepBytes, oldSize));   // alloc で memory が伸びた後のビューで写す
+		if (keepBytes > 0 && oldPtr !== 0) new Uint8Array(wasmMemoryBuffer!.buffer).copyWithin(sharedWasmPtr, oldPtr, oldPtr + Math.min(keepBytes, oldSize));   // alloc で memory が伸びた後のビューで写す
 		if (typeof free_wasm_memory === 'function' && oldPtr !== 0) free_wasm_memory(oldPtr, oldSize);
 		return sharedWasmPtr;
 	}
 	
-	static pack([lng, lat]) {
+	static pack([lng, lat]: number[]): bigint {
 		const ix = Math.round((lng + 180) * this.SCALE_E);
 		const iy = Math.round((lat + 90) * this.SCALE_E);
 		return this._pureMortonFromInt(ix, iy) | this.TERMINAL_BIT;
 	}
 
-	static packFromInt(ix, iy) {
+	/** 整数格子 (ix, iy) → L1（終端 bit 付き） */
+	static packFromInt(ix: number, iy: number): bigint {
 		const xl = this._spread16(ix & 0xFFFF), xh = this._spread16((ix >>> 16) & 0xFFFF);
 		const yl = this._spread16(iy & 0xFFFF), yh = this._spread16((iy >>> 16) & 0xFFFF);
 		return ((BigInt((xh | (yh << 1)) >>> 0) << 32n) | BigInt((xl | (yl << 1)) >>> 0)) | this.TERMINAL_BIT;
 	}
 
-	static unpackToInt(m) {
+	/** L1／L2 → [ix, iy] */
+	static unpackToInt(m: bigint): [number, number] {
 		const isL1 = (m & this.TERMINAL_BIT) !== 0n;
 		const morton = isL1 ? (m & ~this.TERMINAL_BIT) : (m & ~this.WEIGHT_MASK);
 		const low32 = Number(morton & 0xFFFFFFFFn) >>> 0;
@@ -56,32 +65,33 @@ export class gint {
 		return [ix, iy];
 	}
 
-	static intToVal([ix, iy]) {
+	static intToVal([ix, iy]: number[]): number[] {
 		return [(ix * this.INV_SCALE_E) - 180, (iy * this.INV_SCALE_E) - 90].map(t => Number(t.toFixed(this.PRECISION)));
 	}
 
-	static unpack(m) {
+	static unpack(m: bigint): number[] {
 		return this.intToVal(this.unpackToInt(m));
 	}
 
-	static toL2(L1, weight) {
+	/** L1 → L2（8 単位丸め＋weight 6bit） */
+	static toL2(L1: bigint, weight: number): bigint {
 		const [ix, iy] = this.unpackToInt(L1);
 		const rx = Math.round(ix / 8) * 8;
 		const ry = Math.round(iy / 8) * 8;
 		return (this._pureMortonFromInt(rx, ry) & ~this.WEIGHT_MASK) | BigInt(weight & 0x3F);
 	}
 
-	static getWeight(m) {
+	static getWeight(m: bigint): number {
 		return (m & this.TERMINAL_BIT) !== 0n ? 63 : Number(m & this.WEIGHT_MASK);
 	}
 
-	static _pureMortonFromInt(ix, iy) {
+	static _pureMortonFromInt(ix: number, iy: number): bigint {
 		const xl = this._spread16(ix & 0xFFFF), xh = this._spread16((ix >>> 16) & 0xFFFF);
 		const yl = this._spread16(iy & 0xFFFF), yh = this._spread16((iy >>> 16) & 0xFFFF);
 		return (BigInt((xh | (yh << 1)) >>> 0) << 32n) | BigInt((xl | (yl << 1)) >>> 0);
 	}
 
-	static _spread16(x) {
+	static _spread16(x: number): number {
 		x = (x | (x << 8)) & 0x00FF00FF;
 		x = (x | (x << 4)) & 0x0F0F0F0F;
 		x = (x | (x << 2)) & 0x33333333;
@@ -89,7 +99,7 @@ export class gint {
 		return x >>> 0;
 	}
 
-	static _compact16(m) {
+	static _compact16(m: number): number {
 		m &= 0x55555555;
 		m = (m | (m >>> 1)) & 0x33333333;
 		m = (m | (m >>> 2)) & 0x0F0F0F0F;
@@ -98,16 +108,17 @@ export class gint {
 		return m & 0xFFFF;
 	}
 
-	static L1toL2(L1arc) { // VisvalingamWhyatt
+	/** arc の内部頂点を VW weight 付きの L2 に（in place） */
+	static L1toL2(L1arc: BigUint64Array): void { // VisvalingamWhyatt
 		const n = L1arc.length; if (n < 3) return;
 		if (wasmReady && typeof L1toL2_wasm === 'function' && typeof alloc_wasm_memory === 'function' && sharedWasmPtr !== 0) {
 			const byteLength = n * 8;
 			const ptr = this._ensureBufferSize(byteLength);
-			let wasmU8Memory = new Uint8Array(wasmMemoryBuffer.buffer);
+			let wasmU8Memory = new Uint8Array(wasmMemoryBuffer!.buffer);
 			const inputU8 = new Uint8Array(L1arc.buffer, L1arc.byteOffset, byteLength);
 			wasmU8Memory.set(inputU8, ptr);
 			L1toL2_wasm(ptr, n);
-			wasmU8Memory = new Uint8Array(wasmMemoryBuffer.buffer);
+			wasmU8Memory = new Uint8Array(wasmMemoryBuffer!.buffer);
 			const resultU8 = wasmU8Memory.subarray(ptr, ptr + byteLength);
 			inputU8.set(resultU8);
 			return;
@@ -120,13 +131,13 @@ export class gint {
 			if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
 		}
 		const cosLat = Math.cos(((minLat + maxLat) / 2) * this.RAD);
-		const getArea = (i) => {
+		const getArea = (i: number): number => {
 			const p = prev[i], nx = next[i]; if (p < 0 || nx >= n) return Infinity;
 			return Math.abs((xs[i] - xs[p]) * cosLat * (ys[nx] - ys[p]) - (xs[nx] - xs[p]) * cosLat * (ys[i] - ys[p])) * 0.5;
 		};
-		const swap = (a, b) => { [heap[a], heap[b]] = [heap[b], heap[a]]; pos[heap[a]] = a; pos[heap[b]] = b; };
-		const up = (i) => { for (; i > 0 && areas[heap[i]] < areas[heap[(i - 1) >>> 1]]; i = (i - 1) >>> 1) swap(i, (i - 1) >>> 1); };
-		const down = (i) => {
+		const swap = (a: number, b: number): void => { [heap[a], heap[b]] = [heap[b], heap[a]]; pos[heap[a]] = a; pos[heap[b]] = b; };
+		const up = (i: number): void => { for (; i > 0 && areas[heap[i]] < areas[heap[(i - 1) >>> 1]]; i = (i - 1) >>> 1) swap(i, (i - 1) >>> 1); };
+		const down = (i: number): void => {
 			while (true) {
 				let l = (i << 1) + 1, r = l + 1, d = l; if (l >= heapSize) break;
 				if (r < heapSize && areas[heap[r]] < areas[heap[l]]) d = r;
@@ -140,7 +151,7 @@ export class gint {
 			const p = prev[curr], nx = next[curr]; if (p >= 0) next[p] = nx; if (nx < n) prev[nx] = p;
 			[p, nx].forEach(idx => { if (idx > 0 && idx < n - 1 && pos[idx] !== -1) { areas[idx] = Math.max(getArea(idx), maxA); up(pos[idx]); down(pos[idx]); } });
 		}
-		const getPhysRank = (area) => {
+		const getPhysRank = (area: number): number => {
 			if (area <= 0) return 0;
 			/* ------------------------------------------------
 			* Derivation (area in square-degree units):
@@ -166,19 +177,19 @@ export class gint {
 	// 長辺（経緯度スパン d>1°）の大円内挿：始点→終点の大円（最短側）上に、中心角 ≤1° かつ隣接スパン ≤1° を満たす等分点を打つ。
 	// 入力/出力は gint 整数格子（e-7・オフセット済）。返すのは内挿点だけ（端点は含まない）。
 	// 完全球体＝頂点は大円で結ぶ（本人裁定 2026-09-14）。エンコーダの antimeridian 切断（球面交点）とも同じ大円に乗る＝縫い目で折れない。
-	static gcAnchors(x0, y0, x1, y1, d) {
+	static gcAnchors(x0: number, y0: number, x1: number, y1: number, d: number): number[][] {
 		const S = this.SCALE_E, LIMIT = 10000000, PERIOD = 3600000000, HALF = 1800000000, D2R = Math.PI / 180;
-		const vec = (x, y) => { const lon = (x / S - 180) * D2R, lat = (y / S - 90) * D2R, c = Math.cos(lat); return [c * Math.cos(lon), c * Math.sin(lon), Math.sin(lat)]; };
+		const vec = (x: number, y: number): number[] => { const lon = (x / S - 180) * D2R, lat = (y / S - 90) * D2R, c = Math.cos(lat); return [c * Math.cos(lon), c * Math.sin(lon), Math.sin(lat)]; };
 		const a = vec(x0, y0), b = vec(x1, y1);
 		const cx = a[1] * b[2] - a[2] * b[1], cy = a[2] * b[0] - a[0] * b[2], cz = a[0] * b[1] - a[1] * b[0];
 		const w = Math.atan2(Math.hypot(cx, cy, cz), a[0] * b[0] + a[1] * b[1] + a[2] * b[2]), sw = Math.sin(w);
 		if (w < 1e-9) return [];   // 球面上で同一点（極の柱 (180,90)→(-180,90) 等）＝弦長ゼロ＝内挿不要
 		const PN = Math.round(179.99 * S), PS = Math.round(0.01 * S);   // 極から 0.01° 以内＝経度の特異点＝経緯度スパンの検査を免除（極を越える大円は経度が 180° 跳ぶ）
-		const nearPole = (py, qy) => py >= PN || qy >= PN || py <= PS || qy <= PS;
-		const span = (px, py, qx, qy) => { let dx = qx - px; if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD; return Math.max(Math.abs(dx), Math.abs(qy - py)); };
+		const nearPole = (py: number, qy: number): boolean => py >= PN || qy >= PN || py <= PS || qy <= PS;
+		const span = (px: number, py: number, qx: number, qy: number): number => { let dx = qx - px; if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD; return Math.max(Math.abs(dx), Math.abs(qy - py)); };
 		let n = Math.max(Math.ceil(d / LIMIT), Math.ceil(w / D2R), 2);
 		for (let iter = 0; ; iter++) {
-			const pts = []; let px = x0, py = y0, good = true;
+			const pts: number[][] = []; let px = x0, py = y0, good = true;
 			for (let s = 1; s < n; s++) {
 				const t = s / n, ka = Math.sin((1 - t) * w) / sw, kb = Math.sin(t * w) / sw;
 				const vx = a[0] * ka + b[0] * kb, vy = a[1] * ka + b[1] * kb, vz = a[2] * ka + b[2] * kb;
@@ -198,7 +209,7 @@ export class gint {
 		}
 	}
 	// arcSet の各 arc bbox（meta[4..7]）を bbox[x0,y0,x1,y1]（整数格子）へ合流（度アンカーの膨らみを全体 bbox に反映）
-	static unionArcBbox(arcSet, bbox) {
+	static unionArcBbox(arcSet: ArcSet, bbox: number[]): number[] {
 		const { count, meta, mlen } = arcSet;
 		for (let a = 0; a < count; a++) {
 			const row = a * mlen;
@@ -208,14 +219,14 @@ export class gint {
 		}
 		return bbox;
 	}
-	static insertDegreeAnchors(arcSet) {
+	static insertDegreeAnchors(arcSet: ArcSet): ArcSet {
 		const LIMIT = 10000000;   // 1°（e-7 単位）
 		const PERIOD = 3600000000, HALF = 1800000000;   // 経度周期＝360e7（2^32 ではない）
 		const { count, meta, mlen } = arcSet;
 		if (!count) return arcSet;
 		let buffer = arcSet.buffer;
 		const base = meta[0];   // meta offset はグローバル・buffer 添字はローカル（先頭 arc が基準）
-		const jobs = new Map();   // arcIdx → 差し替え頂点列（挿入を含む arc のみ）
+		const jobs = new Map<number, BigUint64Array>();   // arcIdx → 差し替え頂点列（挿入を含む arc のみ）
 		let extra = 0;
 		for (let a = 0; a < count; a++) {
 			const row = a * mlen, o = meta[row] - base, len = meta[row + 1];
@@ -223,7 +234,7 @@ export class gint {
 			if (meta[row + 6] - meta[row + 4] <= LIMIT && meta[row + 7] - meta[row + 5] <= LIMIT) continue;   // 1°箱＝跨ぎ得ない
 			const xs = new Float64Array(len), ys = new Float64Array(len);
 			for (let i = 0; i < len; i++) { const [x, y] = this.unpackToInt(buffer[o + i]); xs[i] = x; ys[i] = y; }
-			const promo = [], ins = [];   // ins: [エッジ添字, 分割数]
+			const promo: number[] = [], ins: (number | number[][])[] = [];   // ins: [エッジ添字, 分割数]
 			let acc = 0, add = 0;
 			for (let i = 0; i < len - 1; i++) {
 				if (i > 0 && (buffer[o + i] & this.TERMINAL_BIT)) acc = 0;   // 既存アンカー＝窓を閉じる
@@ -250,7 +261,7 @@ export class gint {
 			for (let i = 0; i < len; i++) {
 				out[w++] = isPromo.has(i) ? this.packFromInt(xs[i], ys[i]) : buffer[o + i];
 				if (ip < ins.length && ins[ip] === i) {
-					const pts = ins[ip + 1]; ip += 2;
+					const pts = ins[ip + 1] as number[][]; ip += 2;
 					for (const [x, y] of pts) {
 						out[w++] = this.packFromInt(x, y);
 						if (x < meta[row + 4]) meta[row + 4] = x; if (x > meta[row + 6]) meta[row + 6] = x;   // 大円の膨らみ＝arc bbox を広げる（極側へ弧が張り出す）
@@ -275,14 +286,14 @@ export class gint {
 		return arcSet;
 	}
 
-	static detectIntersections(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
+	static detectIntersections(arcBuffer: BigUint64Array | null, arcMeta: Uint32Array | null, arcCount: number, snapDistSq: number, gridUnit: number): Map<string, bigint[]> | null {
 		if (!wasmReady || !arcBuffer || !arcMeta || arcCount === 0) return null;
 		const arcBufBytes  = arcBuffer.byteLength;
 		const arcMetaBytes = arcMeta.byteLength;
 		const outMaxRec    = Math.max(arcCount * 8, 256);
 		const totalBytes   = arcBufBytes + arcMetaBytes + outMaxRec * 16;
 		const ptr = this._ensureBufferSize(totalBytes);
-		const u8  = new Uint8Array(wasmMemoryBuffer.buffer);
+		const u8  = new Uint8Array(wasmMemoryBuffer!.buffer);
 		u8.set(new Uint8Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBufBytes), ptr);
 		u8.set(new Uint8Array(arcMeta.buffer,   arcMeta.byteOffset,   arcMetaBytes), ptr + arcBufBytes);
 		const outPtr = ptr + arcBufBytes + arcMetaBytes;
@@ -292,15 +303,15 @@ export class gint {
 			snapDistSq, gridUnit,
 			outPtr, outMaxRec
 		);
-		const map = new Map();
+		const map = new Map<string, bigint[]>();
 		if (count > 0) {
-			const u8after = new Uint8Array(wasmMemoryBuffer.buffer);
+			const u8after = new Uint8Array(wasmMemoryBuffer!.buffer);
 			const r = new Uint32Array(u8after.buffer, outPtr, count * 4).slice();
 			for (let i = 0; i < count; i++) {
 				const packed = (BigInt(r[i*4+3]) << 32n) | BigInt(r[i*4+2]);
 				const key = `${r[i*4]}-${r[i*4+1]}`;
 				if (!map.has(key)) map.set(key, []);
-				map.get(key).push(packed);
+				map.get(key)!.push(packed);
 			}
 		}
 		return map;
@@ -309,23 +320,23 @@ export class gint {
 	// topology() の全量 wasm 版：feature 台帳（[fid,type,geomPos]×n）と PBF 生バイトを1回渡し、
 	// GintBUF 完成品を1回で受け取る。デルタ復号→fit→densify→位相→レイアウト組立まで全部 Rust＝
 	// JS に残るのは props 由来の fid 台帳組立だけ。wasm 不在なら null（従来経路へ）。
-	static topologyFullWasm(self, formatVersion, shared = false) {
+	static topologyFullWasm(self: GeoPBFBase, formatVersion: number, shared = false): ArrayBuffer | SharedArrayBuffer | null {
 		if (!wasmReady || typeof topology_full_wasm !== 'function') return null;
-		const dir = [];
-		let tub = new Map();
+		const dir: number[] = [];
+		let tub: Map<string, number> | null = new Map();
 		// 同じ属性の地物は同じ fid（propsKeyOf＝型ごとの鍵）。旧 props[i].join("|")＝worker 復号の遅延 props（未復号＝undefined）で投げ、["a|","b"] と ["a","|b"] も同じ地物にした
 		self.forEach((i, map) => { const key = propsKeyOf(self.propsRow(i));
-			if (!tub.has(key)) tub.set(key, i);
-			const id = tub.get(key);
-			(map[2] === 6) ? map[3].forEach((p, j) => dir.push(id, map[4][j], p)) : dir.push(id, map[2], map[1]);
+			if (!tub!.has(key)) tub!.set(key, i);
+			const id = tub!.get(key)!;
+			(map[2] === 6) ? map[3]!.forEach((p, j) => dir.push(id, map[4]![j], p)) : dir.push(id, map[2], map[1]);
 		});
 		tub = null;
 		const res = topology_full_wasm(self.pbf.buf, new Uint32Array(dir), self.e, formatVersion);
 		const len = res.len();
 		// wasm メモリからの写し 1 回は必須（wasm の線形メモリは外へ出せない）。shared＝写す先を SharedArrayBuffer にする＝
 		// main の setGintBUF がもう一度 SAB へ写す分（旧＝GintBUF 1 本ぶんの main スレッド同期コピー）が消える
-		const out = new Uint8Array(shared && typeof SharedArrayBuffer !== "undefined" ? new SharedArrayBuffer(len) : len);
-		out.set(new Uint8Array(wasmMemoryBuffer.buffer, res.ptr(), len));
+		const out = shared && typeof SharedArrayBuffer !== "undefined" ? new Uint8Array(new SharedArrayBuffer(len)) : new Uint8Array(len);
+		out.set(new Uint8Array(wasmMemoryBuffer!.buffer, res.ptr(), len));
 		res.free();
 		return out.buffer;
 	}

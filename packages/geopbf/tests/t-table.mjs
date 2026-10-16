@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { fromTable, parseCSV, parseWKT, decodeText, readXLSX } from "../src/convert/table.ts";
 import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 import { openMBTiles } from "../src/convert/mbtiles.ts";

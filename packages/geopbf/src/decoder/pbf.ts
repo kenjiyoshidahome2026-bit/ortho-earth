@@ -1,5 +1,5 @@
 import Pbf from "../modules/pbf.ts";
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import type { PbfDecodeRequest, PbfDecodeResponse } from "../worker-msg.ts";
 
 onmessage = async ({ data: { buf } }: MessageEvent<PbfDecodeRequest>) => {

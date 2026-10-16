@@ -2,10 +2,10 @@
 // 使い手＝Gint の照会とホバー（描画側の filter で隠した地物を識別から外す＝gint draw spec §4.5）。
 // 同じ一点に 点・線・小さい面・大きい面を重ね、外すたびに次の候補（点→線→小→大→null）が出ることを検める。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
-import { topology, unPackGintBuffer } from "../src/extension/topology.js";
-import { gint } from "../src/extension/gint.js";
-import { identifyAt, findPolygon } from "../src/extension/identify.js";
+import { GeoPBF } from "../src/pbf-base.ts";
+import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
+import { gint } from "../src/extension/gint.ts";
+import { identifyAt, findPolygon } from "../src/extension/identify.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {

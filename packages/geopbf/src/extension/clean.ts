@@ -1,7 +1,16 @@
-import { gint } from "./gint.js";
-import { rebuildStreams, unPackGintBuffer, repackGintBuffer } from "./topology.js";
+import { gint } from "./gint.ts";
+import { rebuildStreams, unPackGintBuffer, repackGintBuffer } from "./topology.ts";
+import type { CleanTopologyOptions, UnPackGint } from "../../types/geopbf.js";
 
-export function cleanTopology(gintData, options = {}) {
+/** 交点（"弧-線分" → 交点の Morton の列） */
+type Intersections = Map<string, bigint[]>;
+/** polygon＝[fid, [環[弧…]…]…][]・polyline＝[fid, [弧…]…][] */
+type PolygonArcs = [number, number[][][]][];
+type PolylineArcs = [number, number[][]][];
+/** polygon／polyline は公開型では readonly＝ここ（交差修復）だけが差し替える */
+type WritableGint = { -readonly [K in keyof UnPackGint]: UnPackGint[K] };
+
+export function cleanTopology(gintData: UnPackGint | null | undefined, options: CleanTopologyOptions | true = {}): void {
 	if (!gintData || !gintData.arcBuffer) return;
 	if (options === true) options = {};
 	const snapDistSq = options.snapDistSq || 125;
@@ -17,7 +26,7 @@ export function cleanTopology(gintData, options = {}) {
 
 		if (!intersections || intersections.size === 0) break;
 		// 面だけ・線だけのデータは片方が null（旧＝null.map で落ち、worker が null を返して clean が黙って抜けた・2026-09-25）
-		_apply(gintData, arcBuffer, arcMeta, polygon ?? [], polyline ?? [], intersections, gridUnit);
+		_apply(gintData, arcBuffer!, arcMeta!, polygon ?? [], polyline ?? [], intersections, gridUnit);
 		changed = true;
 	}
 	// 弧を切り直したら stream・隣接・bbox 台帳も新しい弧番号で組み直す（repack と描画・識別が読むのはこちら）
@@ -25,33 +34,34 @@ export function cleanTopology(gintData, options = {}) {
 }
 
 // GintBUF → clean → GintBUF（encoder/gint Worker と、Worker 不成立時の gint() の予備経路が使う）
-export function cleanGintBuffer(buf, options = {}) {
+/** GintBUF → clean → GintBUF（読めなければそのまま返す） */
+export function cleanGintBuffer(buf: ArrayBuffer | SharedArrayBuffer, options: CleanTopologyOptions | boolean = {}): ArrayBuffer | SharedArrayBuffer {
 	const d = unPackGintBuffer(buf);
 	if (!d) return buf;
-	cleanTopology(d, options);
+	cleanTopology(d, options as CleanTopologyOptions | true);
 	return repackGintBuffer(d);
 }
 
 // JS fallback (used when WASM is not yet initialized).
-function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
+function _detectJS(arcBuffer: BigUint64Array | null, arcMeta: Uint32Array | null, arcCount: number, snapDistSq: number, gridUnit: number): Intersections {
 	const SNAP_DIST_SQ = BigInt(snapDistSq);
 	const GRID_UNIT    = BigInt(gridUnit);
 	const mlen = 8;
 
-	const segments = [];
+	const segments: { arcId: number; segIdx: number; x1: bigint; y1: bigint; x2: bigint; y2: bigint; bx1: number; bx2: number; by1: number; by2: number; p1Raw: bigint; p2Raw: bigint }[] = [];
 	for (let i = 0; i < arcCount; i++) {
-		const mIdx = i * mlen, offset = arcMeta[mIdx], len = arcMeta[mIdx + 1];
-		let p2 = gint.unpackToInt(arcBuffer[offset]);
+		const mIdx = i * mlen, offset = arcMeta![mIdx], len = arcMeta![mIdx + 1];
+		let p2 = gint.unpackToInt(arcBuffer![offset]);
 		for (let j = 0; j < len - 1; j++) {
 			const p1 = p2;
-			p2 = gint.unpackToInt(arcBuffer[offset + j + 1]);
+			p2 = gint.unpackToInt(arcBuffer![offset + j + 1]);
 			segments.push({
 				arcId: i, segIdx: j,
 				x1: BigInt(p1[0]), y1: BigInt(p1[1]),
 				x2: BigInt(p2[0]), y2: BigInt(p2[1]),
 				bx1: Math.min(p1[0], p2[0]), bx2: Math.max(p1[0], p2[0]),
 				by1: Math.min(p1[1], p2[1]), by2: Math.max(p1[1], p2[1]),
-				p1Raw: arcBuffer[offset + j], p2Raw: arcBuffer[offset + j + 1]
+				p1Raw: arcBuffer![offset + j], p2Raw: arcBuffer![offset + j + 1]
 			});
 		}
 	}
@@ -65,8 +75,8 @@ function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 	const cellW  = Math.max(1, (gBx2 - gBx1) / nCells);
 	const cellH  = Math.max(1, (gBy2 - gBy1) / nCells);
 	const GY_MAX = nCells + 2;
-	const grid   = new Map();
-	const cellKey = (gx, gy) => gx * GY_MAX + gy;
+	const grid   = new Map<number, number[]>();
+	const cellKey = (gx: number, gy: number): number => gx * GY_MAX + gy;
 	for (let i = 0; i < segments.length; i++) {
 		const { bx1, bx2, by1, by2 } = segments[i];
 		const x1g = Math.floor((bx1 - gBx1) / cellW), x2g = Math.floor((bx2 - gBx1) / cellW);
@@ -75,16 +85,16 @@ function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 			for (let gy = y1g; gy <= y2g; gy++) {
 				const k = cellKey(gx, gy);
 				if (!grid.has(k)) grid.set(k, []);
-				grid.get(k).push(i);
+				grid.get(k)!.push(i);
 			}
 	}
 
-	const intersections = new Map();
+	const intersections: Intersections = new Map();
 	for (let i = 0; i < segments.length; i++) {
 		const s1 = segments[i];
 		const x1g = Math.floor((s1.bx1 - gBx1) / cellW), x2g = Math.floor((s1.bx2 - gBx1) / cellW);
 		const y1g = Math.floor((s1.by1 - gBy1) / cellH), y2g = Math.floor((s1.by2 - gBy1) / cellH);
-		const candidates = new Set();
+		const candidates = new Set<number>();
 		for (let gx = x1g; gx <= x2g; gx++)
 			for (let gy = y1g; gy <= y2g; gy++) {
 				const cell = grid.get(cellKey(gx, gy));
@@ -100,14 +110,14 @@ function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 			if (det === 0n) continue;
 			const nt = (s2.x1 - s1.x1) * dy2 - (s2.y1 - s1.y1) * dx2;
 			const nu = (s2.x1 - s1.x1) * dy1 - (s2.y1 - s1.y1) * dx1;
-			const isIn = (n, d) => d > 0n ? (n >= 0n && n <= d) : (n <= 0n && n >= d);
+			const isIn = (n: bigint, d: bigint): boolean => d > 0n ? (n >= 0n && n <= d) : (n <= 0n && n >= d);
 			if (!isIn(nt, det) || !isIn(nu, det)) continue;
 			const ix = s1.x1 + (nt * dx1) / det, iy = s1.y1 + (nt * dy1) / det;
 			const eps = [
 				{ x: s1.x1, y: s1.y1, p: s1.p1Raw }, { x: s1.x2, y: s1.y2, p: s1.p2Raw },
 				{ x: s2.x1, y: s2.y1, p: s2.p1Raw }, { x: s2.x2, y: s2.y2, p: s2.p2Raw },
 			];
-			let pt = null;
+			let pt: { p: bigint } | null = null;
 			for (const ep of eps) {
 				const ddx = ix - ep.x, ddy = iy - ep.y;
 				if (ddx * ddx + ddy * ddy <= SNAP_DIST_SQ) { pt = ep; break; }
@@ -121,29 +131,29 @@ function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 			const k2 = `${s2.arcId}-${s2.segIdx}`;
 			if (!intersections.has(k1)) intersections.set(k1, []);
 			if (!intersections.has(k2)) intersections.set(k2, []);
-			intersections.get(k1).push(pt.p);
-			intersections.get(k2).push(pt.p);
+			intersections.get(k1)!.push(pt.p);
+			intersections.get(k2)!.push(pt.p);
 		}
 	}
 	return intersections;
 }
 
 // Arc split and reconstruction.
-function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, gridUnit) {
+function _apply(gintData: WritableGint, arcBuffer: BigUint64Array, arcMeta: Uint32Array, polygon: PolygonArcs, polyline: PolylineArcs, intersections: Intersections, gridUnit: number): void {
 	const mlen = 8;
-	const nextMeta = [], nextBuffer = [];
+	const nextMeta: number[] = [], nextBuffer: bigint[] = [];
 	let currentOffset = 0;
-	const arcRemap = new Map();
+	const arcRemap = new Map<number, number[]>();
 
 	for (let i = 0; i < gintData.arcCount; i++) {
 		const mIdx = i * mlen, offset = arcMeta[mIdx], len = arcMeta[mIdx + 1];
 		const weight = arcMeta[mIdx + 2];
 		let currentArcPoints = [arcBuffer[offset]];
-		const splittedArcs = [];
+		const splittedArcs: bigint[][] = [];
 		for (let j = 0; j < len - 1; j++) {
 			const key = `${i}-${j}`;
 			if (intersections.has(key)) {
-				const pts = intersections.get(key);
+				const pts = intersections.get(key)!;
 				// Sort by t-value along the segment direction (guarantees order for multiple intersections).
 				const [ax, ay] = gint.unpackToInt(arcBuffer[offset + j]);
 				const [bx, by] = gint.unpackToInt(arcBuffer[offset + j + 1]);
@@ -157,7 +167,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 					})
 					.sort((a, b) => a.t - b.t);
 				// Deduplicate (same BigUint64 recorded more than once).
-				const seenPts = new Set();
+				const seenPts = new Set<bigint>();
 				for (const { p: crossPt } of sorted) {
 					if (seenPts.has(crossPt)) continue;
 					seenPts.add(crossPt);
@@ -178,7 +188,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 		}
 		if (currentArcPoints.length >= 2) splittedArcs.push(currentArcPoints);
 
-		const mappedIds = [];
+		const mappedIds: number[] = [];
 		splittedArcs
 			.filter(arc => {
 				if (arc.length < 3 && arc[0] === arc[arc.length - 1]) return false;
@@ -201,7 +211,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 		arcRemap.set(i, mappedIds);
 	}
 
-	const remap = arcIdx => {
+	const remap = (arcIdx: number): number[] => {
 		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 		const mapped = arcRemap.get(aid) || [];
 		return arcIdx < 0 ? [...mapped].reverse().map(t => ~t) : mapped;
@@ -209,7 +219,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 	// polygon: [id, [geoms]]  geom=[rings]  ring=[arcIdx,...]  (3 levels)
 	// polyline:[id, [lines]]  line=[arcIdx,...]                (2 levels)
 	gintData.polygon = polygon
-		.map(([id, geoms]) => [
+		.map(([id, geoms]): [number, number[][][]] => [
 			id,
 			geoms.map(rings =>
 				rings.map(ringArcs => ringArcs.flatMap(remap)).filter(r => r.length > 0)
@@ -218,7 +228,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 		.filter(([, geoms]) => geoms.length > 0);
 
 	gintData.polyline = polyline
-		.map(([id, lines]) => [
+		.map(([id, lines]): [number, number[][]] => [
 			id,
 			lines.map(lineArcs => lineArcs.flatMap(remap)).filter(l => l.length > 0)
 		])

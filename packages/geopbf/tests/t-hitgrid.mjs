@@ -2,10 +2,10 @@
 // ①面 6,000 枚（大きさ 3 段・入れ子・多角形の塊・縫い目跨ぎの大物 1）× 乱数の点 3,000＝smallest-wins・accept・viewBbox が一致
 // ②線 3,000 本 × 乱数の点（許容半径つき）＝一致 ③索引の形（cell の CSR・big・fidOff）④速さ（格子 ≥ 全走査、目安で表示）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
-import { topology, unPackGintBuffer } from "../src/extension/topology.js";
-import { gint } from "../src/extension/gint.js";
-import { identifyAt, findPolygon, hitGridMode, hitGridOf, buildHitGrid } from "../src/extension/identify.js";
+import { GeoPBF } from "../src/pbf-base.ts";
+import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
+import { gint } from "../src/extension/gint.ts";
+import { identifyAt, findPolygon, hitGridMode, hitGridOf, buildHitGrid } from "../src/extension/identify.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {
