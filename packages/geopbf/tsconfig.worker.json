@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"lib": ["es2022", "webworker"],
+		"types": []
+	},
+	"include": ["src/worker.ts", "src/decoder/*.ts", "src/encoder/*.ts"],
+	"exclude": []
+}
