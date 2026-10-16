@@ -7,7 +7,7 @@
 // 入ったファイルを読み戻す時（readValue の image()）の器だけ。
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { t, usageFor } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
 import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.mjs";   // 引数の表と読み手（未知の --flag は拒む）
 
@@ -24,7 +24,7 @@ const readMaybeGzip = async (path) => {
 	return new Uint8Array(buf[0] === 0x1f && buf[1] === 0x8b ? gunzipSync(buf) : buf);
 };
 
-const openPbf = async (path) => await new GeoPBF().set(await readMaybeGzip(path));
+const openPbf = async (path) => await new GeoPBFBase().set(await readMaybeGzip(path));
 
 // 幾何を種別によらず「リング／ライン／点」の座標列に均す（頂点勘定と gint 化の共通入口）
 const eachRing = (geom, fn) => {
@@ -72,7 +72,7 @@ async function enc(argv) {
 		if (r.stats.badLines) console.log(t("ndjsonBadLines", { n: num(r.stats.badLines) }));
 	} else {
 		const gj = JSON.parse(Buffer.from(src).toString("utf8"));
-		pbf = await new GeoPBF({ name: gj.name || "layer", precision }).set(gj);
+		pbf = await new GeoPBFBase({ name: gj.name || "layer", precision }).set(gj);
 	}
 	const gzip = !opts["no-gzip"];   // GDAL ドライバの COMPRESS=GZIP 既定・配布形に合わせる
 	let out = Buffer.from(pbf.arrayBuffer);

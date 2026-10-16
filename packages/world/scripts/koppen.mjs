@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { parseTiff } from "geopbf/internal/cog/tiff";
 import { decodeTile } from "geopbf/internal/cog/decode";
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
@@ -121,7 +121,7 @@ for (let c = 1; c <= 30; c++) {
 	features.push({ type: "Feature", properties: { id: c, code: lg.code, group: lg.code[0], name: lg.name, wikidataid: kl.qid, name_en: kl.en, ...names, color: lg.color, period: PERIOD.replace("_", "–"), cells: hist[c] }, geometry: { type: "MultiPolygon", coordinates: polys } });
 	log(`${lg.code.padEnd(4)} ${lg.name.padEnd(38)} cells ${String(hist[c]).padStart(7)} polygons ${polys.length}`);
 }
-const pbf = await new GeoPBF({ name: "climate-koppen", precision: 4, attribution: "Köppen–Geiger climate classification: Beck, H. E. et al. (2023) High-resolution (1 km) Köppen–Geiger maps for 1901–2099 based on constrained CMIP6 projections, Scientific Data 10, 724 (CC BY 4.0)", description: `Köppen–Geiger ${PERIOD.replace("_", "–")} at ${RES.replace("p", ".")}°: one MultiPolygon per class (id/code/group/name/color)` }).set({ type: "FeatureCollection", name: "climate-koppen", features });
+const pbf = await new GeoPBFBase({ name: "climate-koppen", precision: 4, attribution: "Köppen–Geiger climate classification: Beck, H. E. et al. (2023) High-resolution (1 km) Köppen–Geiger maps for 1901–2099 based on constrained CMIP6 projections, Scientific Data 10, 724 (CC BY 4.0)", description: `Köppen–Geiger ${PERIOD.replace("_", "–")} at ${RES.replace("p", ".")}°: one MultiPolygon per class (id/code/group/name/color)` }).set({ type: "FeatureCollection", name: "climate-koppen", features });
 const out = gzipSync(Buffer.from(pbf.arrayBuffer), { level: 9 });
 await mkdir(path.dirname(OUT), { recursive: true }); await writeFile(OUT + ".geopbf", out);
 if (opt("geojson", false)) await writeFile(OUT + ".geojson", JSON.stringify({ type: "FeatureCollection", features }));

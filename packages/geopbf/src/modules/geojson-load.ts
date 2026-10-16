@@ -1,7 +1,7 @@
 // geopbf → GeoJSON の共通ローダ（maplibre / leaflet 統合の共用部）。
 // fetch → 全体gzip透過 → noeval デコード → properties サニタイズ → FeatureCollection + ヘッダメタ。
 // 公開面の型は types/load.d.ts（"geopbf/load" の types 条件）＝ここと 1:1 に保つ
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { FeatureCollection, HeaderMeta, Properties } from "../../types/geopbf.js";
 import { isGzip, gunzip } from "./gzip.ts";
 
@@ -56,7 +56,7 @@ export function sanitizeProperties(properties: Properties): Record<string, unkno
 export async function decodeToGeojson(data: Blob | ArrayBuffer | ArrayBufferView, { sanitize = true }: { sanitize?: boolean } = {}): Promise<{ geojson: FeatureCollection; meta: HeaderMeta }> {
 	let blob = data instanceof Blob ? data : new Blob([data as BlobPart]);
 	if (await isGzip(blob)) blob = await gunzip(blob);                               // ファイル全体gzipの透過（マジック1f 8b判定）
-	const pbf = await new GeoPBF().set(await blob.arrayBuffer());   // FUNC は常にソース文字列（旧 { noeval: true } は 2.0 で唯一の挙動）
+	const pbf = await new GeoPBFBase().set(await blob.arrayBuffer());   // FUNC は常にソース文字列（旧 { noeval: true } は 2.0 で唯一の挙動）
 	const geojson = pbf.geojson;
 	if (sanitize) geojson.features.forEach(f => f.properties = sanitizeProperties(f.properties));
 	const meta: HeaderMeta = {

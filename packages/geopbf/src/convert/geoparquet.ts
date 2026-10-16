@@ -4,7 +4,7 @@
 // （kernels.js ③＝長除算で仮数を立てて最近偶数丸め＝JS の `i / 10^p` と bit 一致）。gint（1e-7・L2 は 8 単位丸め）
 // を経由しないので GeoParquet の座標は GeoPBF の値そのもの。bbox は kernels.js ④（feature 毎の整数 min/max）。
 // 属性は GeoPBF の型付き値から列型を推定（BOOLEAN / INT64 / DOUBLE / TIMESTAMP / UTF8・入れ子は "a.b" に平坦化）。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { Geometry } from "../pbf-base.ts";
 import { getDevice } from "./gpu.ts";
 import type { GPUInfo } from "./gpu.ts";
@@ -21,7 +21,7 @@ import type { GeoMeta, GeoColumnMeta, ParquetColumnInfo, ParquetInput } from "./
 import { parseWkb } from "./wkb.ts";
 
 import { now } from "../modules/now.ts";
-const { TAGS } = GeoPBF;
+const { TAGS } = GeoPBFBase;
 const GTYPES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 
 /** ワイヤ整数のまま読んだ幾何（デルタ復号済み・閉じ点なし） */
@@ -32,7 +32,7 @@ export interface PlanItem { type: number; lens: number[]; n: number; off: number
 export interface FeaturePlan { start: number; count: number; gc: boolean; items: PlanItem[] }
 
 // GeoPBF の幾何をワイヤ整数のまま読む → { type, lens, xy: number[]（デルタ復号済み・閉じ点なし）}
-function readGeomInt(pbf: GeoPBF, pos: number, type: number): GeomInt {
+function readGeomInt(pbf: GeoPBFBase, pos: number, type: number): GeomInt {
 	const P = pbf.pbf;
 	P.pos = pos;
 	const lens: number[] = [], xy: number[] = [];
@@ -52,7 +52,7 @@ function readGeomInt(pbf: GeoPBF, pos: number, type: number): GeomInt {
 }
 
 // 1 feature の幾何（GeometryCollection は要素配列）→ WKB 組立の計画。頂点は後でまとめて大域 Int32Array へ写す
-function planFeature(pbf: GeoPBF, i: number, vpos: { v: number }): FeaturePlan {
+function planFeature(pbf: GeoPBFBase, i: number, vpos: { v: number }): FeaturePlan {
 	const map = pbf.fmap[i];
 	if (map[2] === undefined) return { start: vpos.v, count: 0, gc: false, items: [] };   // 幾何なし
 	const geoms = map[2] === 6
@@ -116,7 +116,7 @@ export interface PropColumn { name: string; type: number; logical: LogicalName |
 const isBlobLike = (v: unknown): boolean => (typeof Blob !== "undefined" && v instanceof Blob) || (typeof ImageData !== "undefined" && v instanceof ImageData);
 
 // 属性列の推定: GeoPBF の keys（"a.b" 平坦化済み）× 全行の値の型
-function inferColumns(pbf: GeoPBF, keep: KeepFn | null = null): PropColumn[] {
+function inferColumns(pbf: GeoPBFBase, keep: KeepFn | null = null): PropColumn[] {
 	// propertiesTable＝未復号の行を埋めてから返す。pbf.props は遅延の器（worker 経由の読み＝skipProps は全部 undefined）＝
 	// 旧 `pbf.props ?? …` は空の器を掴んで属性列が空・一部だけ触った行しか書かれなかった（B4・2026-09-25）
 	const rows = pbf.propertiesTable.slice(1) as (unknown[] | undefined)[], keys = pbf.keys;
@@ -177,7 +177,7 @@ export interface ToGeoParquetResult { buffer: Uint8Array; stats: ToGeoParquetSta
 
 // opts: { gpu, codec: "zstd"|"gzip"|"none"（既定＝Node は zstd・ブラウザは gzip）, level（zstd・既定 9）, pageSize, rowGroupSize, compress,
 //         geometryName="geometry", bboxColumn=true|"auto"|false, order="str"|"hilbert"|"morton"|"none", include/exclude/excludeAll }
-export async function toGeoParquet(pbf: GeoPBF, opts: ToGeoParquetOptions = {}): Promise<ToGeoParquetResult> {
+export async function toGeoParquet(pbf: GeoPBFBase, opts: ToGeoParquetOptions = {}): Promise<ToGeoParquetResult> {
 	const t0 = now();
 	const stats: ToGeoParquetStats = { engine: "cpu", features: pbf.length, vertices: 0, ms: {} };
 	const D = Math.pow(10, pbf.precision());
@@ -284,7 +284,7 @@ export interface FromGeoParquetStats {
 	columns: string[]; skipped: SkippedColumn[]; crs: string; precision: number; created: string;
 	ms: { read: number; encode: number; total: number };
 }
-export interface FromGeoParquetResult { pbf: GeoPBF; stats: FromGeoParquetStats }
+export interface FromGeoParquetResult { pbf: GeoPBFBase; stats: FromGeoParquetStats }
 
 interface CrsLike { id?: { authority?: string; code?: string | number }; name?: string }
 
@@ -313,7 +313,7 @@ export async function fromGeoParquet(u8: ParquetInput, opts: FromGeoParquetOptio
 	// keys はスキーマの属性列（旧の makeKeys＝「値のあった列」と違い、全行 null の列も KEYS に載る＝properties には現れない）
 	const keys = props.map(c => c.name).sort();
 	const kv = pq.keyValue;
-	const pbf = new GeoPBF({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"] ?? undefined, license: kv["geopbf:license"] ?? undefined, attribution: kv["geopbf:attribution"] ?? undefined });
+	const pbf = new GeoPBFBase({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"] ?? undefined, license: kv["geopbf:license"] ?? undefined, attribution: kv["geopbf:attribution"] ?? undefined });
 	pbf.setHead(keys, []);
 	let count = 0, dropped = 0;
 	await pbf.setBodyAsync(async () => {

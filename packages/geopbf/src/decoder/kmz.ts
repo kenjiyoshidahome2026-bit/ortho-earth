@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Feature, Geometry } from "../../types/geopbf.js";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
@@ -78,8 +78,8 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 		const text = await entry.text();
 		allFeatures.push(...kmlToFeatures(text, nameToRes));
 	}
-	const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
-	const pbf = new GeoPBF({ name: name || file.name.replace(/\.km[lz]$/i, ""), precision });
+	const [keys, bufs] = await GeoPBFBase.makeKeys(allFeatures.map(f => f.properties));
+	const pbf = new GeoPBFBase({ name: name || file.name.replace(/\.km[lz]$/i, ""), precision });
 	pbf.setHead(keys, bufs);
 	pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
 	pbf.close();

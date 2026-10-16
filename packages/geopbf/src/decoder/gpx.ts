@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { unescXML } from "../modules/xml.ts";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
 
@@ -49,7 +49,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 	const { file, precision } = e.data;
 	try {
 		const text = await file.text();
-		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
+		const pbf = new GeoPBFBase({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
 
 		const keys = ["name", "desc", "ele", "time", "type", "route"].sort();
 		pbf.setHead(keys);

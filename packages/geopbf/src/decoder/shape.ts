@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { dissolve } from "../extension/dissolve.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 
@@ -229,7 +229,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 			}
 			return [new SHP(shpBuf, transform), dbf];
 		}));
-		const pbf = new GeoPBF({ name, precision });
+		const pbf = new GeoPBFBase({ name, precision });
 		pbf.setHead(Array.from(keySet).sort());
 		pbf.setBody(() => {
 			dbs.filter((t): t is [SHP, DBF] => !!t).forEach(([shp, dbf]) => {

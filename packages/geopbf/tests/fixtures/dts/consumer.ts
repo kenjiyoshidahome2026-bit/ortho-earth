@@ -1,9 +1,13 @@
 // t-dts の消費者（TypeScript）＝公開面を strict で型検査する。@ts-expect-error の行は「型が効いている」ことの証（消すと tsc が落ちる）
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune, setWorkerFactory, GeoPBF } from "geopbf";
 import type { GeopbfOptions, GeopbfInput, ValidateIssue, FeatureCollection, UnPackGint, GeoPBFBase, BucketProvider, Properties, LngLat } from "geopbf";
-import { GeoPBF as CoreGeoPBF, loadGeopbf, decodeToGeojson, gunzip } from "geopbf/core";
-import { GeoPBF as BaseGeoPBF, makeKeys } from "geopbf/pbf-base";
+import { GeoPBFBase as CoreGeoPBF, loadGeopbf, decodeToGeojson, gunzip } from "geopbf/core";
+import { GeoPBFBase as BaseGeoPBF, makeKeys } from "geopbf/pbf-base";
 import Pbf from "geopbf/pbf";
+// @ts-expect-error 器の旧名 GeoPBF は 2.0 で外した（段 5・Q2）＝"geopbf/pbf-base"・"geopbf/core" は GeoPBFBase だけ
+import { GeoPBF as OldBaseName } from "geopbf/pbf-base";
+// @ts-expect-error 同上（"geopbf/core"）
+import { GeoPBF as OldCoreName } from "geopbf/core";
 import { geopbfProtocol, makeGeopbfProtocol, parseTileUrl } from "geopbf/maplibre";
 import { extendLeaflet } from "geopbf/leaflet";
 import { makeGeopbfLoader } from "geopbf/openlayers";
@@ -135,7 +139,7 @@ import { GeoPBFBase as RuntimeBase } from "geopbf"; void RuntimeBase;
 gcDistanceDeg("0,0", "1,1");
 void [p, q];
 
-// ── 器（GeoPBFBase＝"geopbf/core"・"geopbf/pbf-base" の GeoPBF）と GeoPBF（"geopbf"）は別の class（段 4・2026-10-16）
+// ── 器（GeoPBFBase＝"geopbf/core"・"geopbf/pbf-base"）と GeoPBF（"geopbf"）は別の class（段 4・2026-10-16）
 // @ts-expect-error 器は gint() を持たない（入口の 14 個は GeoPBF だけ）
 new BaseGeoPBF().gint();
 // @ts-expect-error 器は identifyAt を持たない（拡張メソッドは GeoPBF だけ）

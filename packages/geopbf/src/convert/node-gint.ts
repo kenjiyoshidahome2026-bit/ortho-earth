@@ -1,7 +1,7 @@
 // convert/node-gint.js ── Node で GintBUF を焼く（CLI 用）。wasm を fetch でなくバイト列で初期化する（tests/edit/t-large.mjs と同じ手）。
 // JS 位相フォールバックは共有点を落とす既知バグがある（8/26 実測）ので、wasm が読めなければ明示エラー。
 import { readFile } from "node:fs/promises";
-import type { GeoPBF } from "../pbf-base.ts";
+import type { GeoPBFBase } from "../pbf-base.ts";
 
 let ready: Promise<boolean> | null = null;
 export async function initGintWasm(): Promise<boolean> {
@@ -15,7 +15,7 @@ export async function initGintWasm(): Promise<boolean> {
 	})();
 }
 
-export async function bakeGint(pbf: GeoPBF): Promise<ArrayBuffer | SharedArrayBuffer> {
+export async function bakeGint(pbf: GeoPBFBase): Promise<ArrayBuffer | SharedArrayBuffer> {
 	await initGintWasm();
 	const { topology } = await import("../extension/topology.ts");
 	return topology(pbf);

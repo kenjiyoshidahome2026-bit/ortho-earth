@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { decodeZIP } from "../src/modules/decodeZIP.ts";
 import { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseTablx } from "../src/convert/filegdb.ts";
 import { bakeMeshGrid } from "../src/convert/datum.ts";
@@ -99,13 +99,13 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 	const out = join(dir, "mp.geopbf");
 	const log = run("gdb2pbf", zipPath.pathname, out, "--layer", "multipolygon");
 	ok(/features 5/.test(log) && /CRS GCS_WGS_1984/.test(log), "CLI gdb2pbf zip → GeoPBF");
-	ok((await new GeoPBF().set(new Uint8Array(gunzipSync(readFileSync(out))))).geojson.features[0].geometry.type === "MultiPolygon", "CLI 出力を読み戻す");
+	ok((await new GeoPBFBase().set(new Uint8Array(gunzipSync(readFileSync(out))))).geojson.features[0].geometry.type === "MultiPolygon", "CLI 出力を読み戻す");
 	// ディレクトリ形（zip を展開して .gdb ディレクトリに）
 	const gdbDir = join(dir, "x.gdb"); mkdirSync(gdbDir);
 	for (const e of entries) writeFileSync(join(gdbDir, e.name.split("/").pop()), Buffer.from(await e.arrayBuffer()));
 	const binPath = join(dir, "tky.bin"); writeFileSync(binPath, bakeMeshGrid(readFileSync(new URL("./fixtures/datum/tky2jgd-tokyo.par", import.meta.url), "utf8")).bytes);
 	const log2 = run("gdb2pbf", gdbDir, join(dir, "pt.geopbf"), "--layer", "point", "--no-gzip", "--tky2jgd", binPath);
-	ok(/features 5/.test(log2) && (await new GeoPBF().set(new Uint8Array(readFileSync(join(dir, "pt.geopbf"))))).geojson.features.length === 5, "CLI gdb2pbf .gdb ディレクトリ（range 読み）");
+	ok(/features 5/.test(log2) && (await new GeoPBFBase().set(new Uint8Array(readFileSync(join(dir, "pt.geopbf"))))).geojson.features.length === 5, "CLI gdb2pbf .gdb ディレクトリ（range 読み）");
 }
 
 console.log(fails ? `\n✗ ${fails} 件失敗` : "\n全件通過");

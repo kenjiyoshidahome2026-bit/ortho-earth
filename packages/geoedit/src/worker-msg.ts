@@ -4,7 +4,7 @@ import type { TopoPayload } from "geopbf/edit/model";
 import type { FeatureCollectionLike } from "geopbf/edit/topo-extract";
 import type { LargeModel } from "geopbf/edit/large-model";
 
-/** 器の GeoPBF（geopbf/pbf-base の実体＝length・getPosition と gint? を持つ）＝large-model が受ける型をそのまま借りる（worker でも読む＝DOM 型に触れないここに置く） */
+/** 器の GeoPBFBase（geopbf/pbf-base の実体＝length・getPosition と gint? を持つ）＝large-model が受ける型をそのまま借りる（worker でも読む＝DOM 型に触れないここに置く） */
 export type PbfCore = LargeModel["pbf"];
 
 /** main → worker。mode ごとに使う鍵が違う（pbf＝buffer・retopo＝payload・fc＝fc） */
