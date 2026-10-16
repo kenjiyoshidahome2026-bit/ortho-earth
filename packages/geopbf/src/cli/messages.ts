@@ -201,6 +201,7 @@ const MSG: Record<"en" | "ja", Record<string, string>> = {
 		others: " (others: {list})",
 		toLonLat: " → lon/lat",
 		gpkgDropped: "  dropped {n} features without geometry (NULL/empty {plain}, extended types {extended}){zm}{bigints}",
+		spatialiteDropped: "  dropped {n} features without geometry (NULL {nul}, empty {empty}, unreadable {bad}){zm}{bigints}",
 		zmDropped: "  Z/M dropped",
 		bigintToString: "  bigint→string {n}",
 		// csv2pbf
@@ -273,6 +274,7 @@ const MSG: Record<"en" | "ja", Record<string, string>> = {
 		others: "（他 {list}）",
 		toLonLat: "→経緯度",
 		gpkgDropped: "  幾何なしで落とした地物 {n}（NULL/空 {plain}・拡張型 {extended}）{zm}{bigints}",
+		spatialiteDropped: "  幾何なしで落とした地物 {n}（NULL {nul}・空 {empty}・読めない {bad}）{zm}{bigints}",
 		zmDropped: "・Z/M は落とした",
 		bigintToString: "・巨大整数→文字列 {n}",
 		wktColumn: "WKT 列 {col}",

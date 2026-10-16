@@ -2,7 +2,9 @@
 // t-spatialite: SpatiaLite（自前 SQLite リーダ＋幾何 BLOB 復号）→ GeoPBF。固定資料は tests/fixtures/spatialite/make.py（mod_spatialite）。
 // 古典 BLOB・圧縮（XYZ/XYZM・float 差分）・TinyPoint・Multi/Collection（ENTITY 印）・NULL・3857/平面直角の逆変換・型付き属性・BLOB 列の除外・層一覧・エラー文言。
 globalThis.ImageData ??= class ImageData { };
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { GeoPBF } from "../src/pbf.ts";
 import { readSpatiaLite, fromSpatiaLite, parseSpatiaLiteBlob } from "../src/convert/spatialite.ts";
@@ -97,6 +99,10 @@ ok(L("places").columns.map(c => c.name).join() === "id,name,pop,ratio,flag,d,dt,
 {
 	const out = execFileSync("node", [new URL("../src/cli/geopbf.ts", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	ok(/feature layers 8/.test(out) && /places/.test(out) && /jpr/.test(out), "CLI spatialite2pbf の一覧");
+	// 落とした地物の内訳（旧＝gpkg の行を流用して「NULL/empty NaN, extended types undefined」と出ていた）
+	const tmp = join(mkdtempSync(join(tmpdir(), "geopbf-spl-")), "multi.geopbf");
+	const out2 = execFileSync("node", [new URL("../src/cli/geopbf.ts", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname, tmp, "--layer", "multi"], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	ok(/dropped 1 features without geometry \(NULL 1, empty 0, unreadable 0\)/.test(out2) && !/NaN|undefined/.test(out2), "CLI spatialite2pbf の落とした内訳");
 }
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

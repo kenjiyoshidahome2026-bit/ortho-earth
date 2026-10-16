@@ -15,7 +15,6 @@ import type { Feature, Geometry, Position } from "geopbf/pbf-base";
 import type { CodecName } from "../convert/parquet.ts";
 import type { SpatialOrderKind } from "geopbf/spatial-order";
 import type { GPUInfo } from "geopbf/convert/gpu";
-import type { SpatiaLiteLayer } from "geopbf/spatialite";   // 引数の表と読み手（未知の --flag は拒む）
 
 globalThis.ImageData ??= class ImageData {
 	declare data: Uint8ClampedArray; declare width: number; declare height: number;
@@ -345,7 +344,7 @@ async function spatialite2pbf(argv: string[]) {
 	if (!outPath) {
 		const g = readSpatiaLite(u8);
 		console.log(t("gpkgList", { in: inPath, encoding: g.encoding, page: g.pageSize, n: g.layers.length }));
-		for (const l of g.layers as (SpatiaLiteLayer & { identifier?: string })[]) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
+		for (const l of g.layers) console.log(`  ${l.table}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
 		for (const m of g.missing) console.log(t("missingTable", { table: m }));
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
@@ -355,10 +354,10 @@ async function spatialite2pbf(argv: string[]) {
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
-	const s = r.stats as typeof r.stats & { extendedGeometries: number };   // SpatiaLite の stats は extendedGeometries を持たない（gpkg と同じ行を流用）
+	const s = r.stats;
 	console.log(t("layerLine", { in: inPath, layer: s.layer, others: othersNote(s), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
 	if (s.skipped.length) console.log(t("skippedColumns", { list: skippedList(s.skipped) }));
-	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(t("gpkgDropped", { n: s.droppedGeometries, plain: s.droppedGeometries - s.extendedGeometries, extended: s.extendedGeometries, zm: s.z || s.m ? t("zmDropped") : "", bigints: s.bigints ? t("bigintToString", { n: s.bigints }) : "" }));
+	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(t("spatialiteDropped", { n: s.droppedGeometries, nul: s.droppedGeometries - s.emptyGeometries - s.badGeometries, empty: s.emptyGeometries, bad: s.badGeometries, zm: s.z || s.m ? t("zmDropped") : "", bigints: s.bigints ? t("bigintToString", { n: s.bigints }) : "" }));
 	for (const w of s.warnings) console.log(`  ⚠ ${w}`);
 	console.log(pbfOut(outPath, out, gzip, s));
 }
