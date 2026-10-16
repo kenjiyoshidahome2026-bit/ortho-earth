@@ -6,17 +6,20 @@
 // minZoom は NE の属性（min_zoom / scalerank）を地物ごとに使う＝ズームで道路・鉄道が段階的に現れる。
 // z の定義は ortho と同一（正射スケール）＝NE の min_zoom（Web 地図の z）をそのまま使える。
 import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 出しズームの正本（globe の世界帯と同じ値）
-const rgb = (hex, a = 1) => [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255, a];
-const str = v => String(v ?? "").replace(/\0/g, "").trim();   // shp の DBF はナル詰め文字列がある
-const num = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
-// 属性名は大小無視（bucket 版と shp 版で揺れる）
-const f = (p, k) => { if (k in p) return p[k]; const lo = k.toLowerCase(); for (const q in p) if (q.toLowerCase() === lo) return p[q]; };
+import type { BakeSpec } from "./bake.ts";
+import type { Color, LineStyle, PointStyle, Props } from "./types.ts";
 
-// 地図面の色＝配色テーマ（themes.js）が起動時と切替時に**この配列の中身を書き換える**（配列の identity は変えない）。
+const rgb = (hex: string, a = 1): Color => [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255, a];
+const str = (v: unknown): string => String(v ?? "").replace(/\0/g, "").trim();   // shp の DBF はナル詰め文字列がある
+const num = (v: unknown, d: number): number => { const n = parseFloat(v as string); return Number.isFinite(n) ? n : d; };
+// 属性名は大小無視（bucket 版と shp 版で揺れる）
+const f = (p: Props, k: string): unknown => { if (k in p) return p[k]; const lo = k.toLowerCase(); for (const q in p) if (q.toLowerCase() === lo) return p[q]; };
+
+// 地図面の色＝配色テーマ（themes.ts）が起動時と切替時に**この配列の中身を書き換える**（配列の identity は変えない）。
 // 層の定義（下の LAYERS）と GRATICULE はここの配列を参照で掴んでいて、描画は毎フレームその中身を読む＝
-// テーマ切替で焼き直し（bake）も層の作り直しも要らない。既定値は mono（白地図）＝themes.js の mono と同値。
+// テーマ切替で焼き直し（bake）も層の作り直しも要らない。既定値は mono（白地図）＝themes.ts の mono と同値。
 // 【掟】地図面に出る色はリテラルで層へ書かない＝必ずここへキーを作る。書くとそのテーマだけ色が変わらない層になる。
-export const PALETTE = {
+export const PALETTE: Record<string, Color> = {
 	sea: rgb("#c1d8e3"),
 	land: rgb("#f6f6f4"),
 	urban: rgb("#9a5a52", 0.5),   // くすんだ赤（ハイプソの緑〜砂色と被らない・本人 2026-09-18）・半透明＝コロプレスを殺さない
@@ -38,9 +41,41 @@ export const PALETTE = {
 	grat10: rgb("#ffffff", 0.25),
 };
 
-const NE = (group, name) => ({ bucket: name, zip: `https://naturalearth.s3.amazonaws.com/10m_${group}/${name}.zip` });
+const NE = (group: string, name: string): { bucket: string; zip: string } => ({ bucket: name, zip: `https://naturalearth.s3.amazonaws.com/10m_${group}/${name}.zip` });
 
-export const LAYERS = [
+/** 層の定義。GRATICULE（生成・常に ready）は kind/loadZoom を持たない */
+export interface LayerDef {
+	id: string;
+	label: string;
+	/** 常に on（チップを出さない） */
+	fixed?: boolean;
+	on?: boolean;
+	/** この層の面から国 ID バッファを作る（renderer.drawIds） */
+	ids?: boolean;
+	/** 川・湖＝ハイプソと同時に濃淡が動く */
+	water?: boolean;
+	/** チップの色の鍵（data-k） */
+	accent?: string;
+	/** "world"＝packages/world の ne-cultural（group base／detail） */
+	source?: string;
+	group?: string;
+	bucket?: string;
+	zip?: string;
+	kind?: BakeSpec["kind"];
+	loadZoom?: number;
+	spec?: Omit<BakeSpec, "kind">;
+	fillColor?: Color;
+	lineStyles?: LineStyle[];
+	pointStyles?: PointStyle[];
+	order?: { fill?: number; lines?: number; points?: number };
+	/** 記号ラベル（"plane"＝空港の✈）＝ラベル層が描く（GL の点は描かない） */
+	mark?: string;
+	markMinZoom?: number;
+	/** 同じ配信物に同居する層から自分の分だけ（world detail の airports） */
+	markLayer?: string;
+}
+
+export const LAYERS: LayerDef[] = [
 	{
 		// 国＝world の定義そのもの：packages/world の ne-cultural（NE admin_1 を world key で束ね済み・layer="admin_1"・属性 key）。
 		// unit（ID 塗りの番号＝NationDB の並び）と輪郭の分類は main.js が World DB を読んでから差し込む
@@ -129,7 +164,7 @@ export const LAYERS = [
 	},
 ];
 
-export const GRATICULE = {
+export const GRATICULE: LayerDef = {
 	id: "graticule", label: "Graticule", on: true,
 	lineStyles: [{ color: PALETTE.grat, width: 0.8 }, { color: PALETTE.grat10, width: 0.6 }],
 	order: { lines: 70 },

@@ -1,24 +1,26 @@
 // Equal Earth（Šavrič, Patterson, Jenny 2018）＝正積の擬円筒図法。単位＝半径1の球（ラジアン長）。
 // 中央経線は常に「画面中心の経度」＝経度は dλ（中心からの差）でしか投影に入らない。
-// シェーダ（renderer.js の EE_GLSL）と同じ式＝CPU はカメラ（中心・錨・縮小の下限）だけに使う。
+// シェーダ（renderer.ts の EE_GLSL）と同じ式＝CPU はカメラ（中心・錨・縮小の下限）だけに使う。
+import type { View } from "./types.ts";
+
 export const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796, M = Math.sqrt(3) / 2;
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // 緯度(度) → パラメトリック緯度 l
-const paramLat = lat => Math.asin(M * Math.sin(lat * D2R));
+const paramLat = (lat: number): number => Math.asin(M * Math.sin(lat * D2R));
 
 // y(φ)：経度に依存しない＝緯線は水平な直線
-export function yOfLat(lat) {
+export function yOfLat(lat: number): number {
 	const l = paramLat(lat), l2 = l * l, l6 = l2 * l2 * l2;
 	return l * (A1 + A2 * l2 + l6 * (A3 + A4 * l2));
 }
 // x = dλ(rad) · k(φ)：経線方向の横倍率（極でも 0 にならない＝平極）
-export function kOfLat(lat) {
+export function kOfLat(lat: number): number {
 	const l = paramLat(lat), l2 = l * l, l6 = l2 * l2 * l2;
 	return Math.cos(l) / (M * (A1 + 3 * A2 * l2 + l6 * (7 * A3 + 9 * A4 * l2)));
 }
 // y → φ(度)（Newton・d3-geo-projection と同じ反復）
-export function latOfY(y) {
+export function latOfY(y: number): number {
 	let l = y, l2 = l * l, l6 = l2 * l2 * l2;
 	for (let i = 0; i < 12; i++) {
 		const fy = l * (A1 + A2 * l2 + l6 * (A3 + A4 * l2)) - y;
@@ -32,17 +34,17 @@ export function latOfY(y) {
 export const Y_MAX = yOfLat(90);                       // ≈1.3174
 export const X_MAX = Math.PI * kOfLat(0);              // ≈2.7066（赤道の半幅）
 // 外形の半幅（高さ y の位置で経線 ±180° が来る x）。|y| に対して単調減少＝外形は凸
-export const halfWidthAtY = y => Math.PI * kOfLat(latOfY(Math.max(-Y_MAX, Math.min(Y_MAX, y))));
+export const halfWidthAtY = (y: number): number => Math.PI * kOfLat(latOfY(Math.max(-Y_MAX, Math.min(Y_MAX, y))));
 
-export const wrapLon = lon => ((lon + 180) % 360 + 360) % 360 - 180;
+export const wrapLon = (lon: number): number => ((lon + 180) % 360 + 360) % 360 - 180;
 
 // ── カメラ：{ lon=中央経線=画面中心の経度, lat=画面中心の緯度, zoom } ──
 // 倍率は ortho と同一定義（z＝正射スケール・WORLD_PX=256）：1 単位（=球面1ラジアン）= 256·2^z/(2π) CSS px。
 // 正積なので局所面積倍率は全域で 1＝同じ z なら ortho の中心と同じ縮尺で、LOD の閾値も全域一定。
-export const pxPerUnit = zoom => 256 * Math.pow(2, zoom) / (2 * Math.PI);
+export const pxPerUnit = (zoom: number): number => 256 * Math.pow(2, zoom) / (2 * Math.PI);
 
 // 画面 CSS px（中心原点・y 下向き）→ 経緯度。外形の外なら null
-export function unproject(view, sx, sy) {
+export function unproject(view: View, sx: number, sy: number): [number, number] | null {
 	const s = pxPerUnit(view.zoom);
 	const y = yOfLat(view.lat) - sy / s;
 	if (Math.abs(y) > Y_MAX) return null;
@@ -54,14 +56,14 @@ export function unproject(view, sx, sy) {
 
 // 縮小下限＝赤道の幅がちょうど画面の横幅になる z（本人 2026-09-18「横方向が画面いっぱいとなるところまで」）。
 // これより下では外形の外（極の上下・四隅）が画面に出る＝レンダラが外形で切り抜く
-export function minZoomFor(W) {
+export function minZoomFor(W: number): number {
 	return Math.log2(W * 2 * Math.PI / (256 * 2 * X_MAX));
 }
 
 // 「余白を出さない」ズーム：画面矩形（中心 x=0）が外形の内側に収まる最小 z。
 // 条件 h/2 ≤ Y_MAX かつ w/2 ≤ halfWidthAtY(h/2)（外形は凸・中心 yc=0 が最も余裕がある）＝z について単調＝二分法
-export function fullZoomFor(W, H) {
-	const fits = z => { const s = pxPerUnit(z), hu = H / (2 * s), wu = W / (2 * s); return hu <= Y_MAX && wu <= halfWidthAtY(hu); };
+export function fullZoomFor(W: number, H: number): number {
+	const fits = (z: number): boolean => { const s = pxPerUnit(z), hu = H / (2 * s), wu = W / (2 * s); return hu <= Y_MAX && wu <= halfWidthAtY(hu); };
 	let lo = -4, hi = 12;
 	for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
 	return hi;
@@ -70,7 +72,7 @@ export function fullZoomFor(W, H) {
 // 中心緯度の可動域：
 //   z ≥ 余白なしズーム … |yc| + h/2 ≤ yLim（yLim＝外形の半幅が w/2 になる高さ）＝画面に外形の外を出さない
 //   それ未満 … 極線が画面の上下端に来るまで（|yc| ≤ Y_MAX − h/2）を、余白なしズームで 0 から連続に開く（境目で中心が跳ねない）
-function clampCenterY(yc, W, H, zoom) {
+function clampCenterY(yc: number, W: number, H: number, zoom: number): number {
 	const s = pxPerUnit(zoom), hu = H / (2 * s), wu = W / (2 * s);
 	const zFull = fullZoomFor(W, H);
 	if (zoom < zFull) {
@@ -85,7 +87,7 @@ function clampCenterY(yc, W, H, zoom) {
 	return Math.max(-lim, Math.min(lim, yc));
 }
 
-export function clampView(view, W, H, maxZoom) {
+export function clampView(view: View, W: number, H: number, maxZoom: number): View {
 	const zoom = Math.max(minZoomFor(W), Math.min(maxZoom, view.zoom));
 	const yc = clampCenterY(yOfLat(Math.max(-90, Math.min(90, view.lat))), W, H, zoom);
 	return { lon: wrapLon(view.lon), lat: latOfY(yc), zoom };
@@ -93,7 +95,7 @@ export function clampView(view, W, H, maxZoom) {
 
 // 錨つき再配置：経緯度 (lon,lat) が画面 (sx,sy) に来るカメラ。中央経線＝中心経度なので
 // y は φ だけ、x は dλ·k(φ) だけで決まる＝解析的に厳密に解ける（ズーム・ドラッグ・ピンチ共通）
-export function anchorView(lon, lat, sx, sy, zoom) {
+export function anchorView(lon: number, lat: number, sx: number, sy: number, zoom: number): View {
 	const s = pxPerUnit(zoom);
 	const yc = yOfLat(lat) + sy / s;
 	const dlon = Math.max(-180, Math.min(180, sx / (s * kOfLat(lat)) * R2D));

@@ -6,8 +6,11 @@
 	"type": "module",
 	"description": "Equal Earth の全球図の部品（createEqual）＝equal・ortho-globe・ortho-japan が共に使う。本番は共有エンジンの入口 /globe/engine/<版>/equal.js（2026-10-15）",
 	"exports": {
-		".": "./src/equal.js",
-		"./*": "./src/*"
+		".": "./src/equal.ts",
+		"./i18n": "./src/i18n.ts"
+	},
+	"scripts": {
+		"build": "tsc -p ."
 	},
 	"dependencies": {
 		"altpbf": "*",
@@ -15,6 +18,7 @@
 		"native-bucket": "*",
 		"@ortho-earth/core": "*",
 		"quiet-mono": "*",
-		"@ortho-earth/globe": "*"
+		"@ortho-earth/globe": "*",
+		"world-data": "*"
 	}
 }
