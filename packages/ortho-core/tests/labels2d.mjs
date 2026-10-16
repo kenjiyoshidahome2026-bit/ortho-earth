@@ -2,7 +2,7 @@
 // フェードアウト中のラベルが最後の箱の位置に留まる・MapLibre の別の層の同じ点・同じ文字を 1 つに畳まない・
 // 記号の差し替えで SDF の写しを焼き直す・標識が触った書体の覚えを捨てる・書体が載ったら字送りの覚えも捨てる
 import assert from "node:assert/strict";
-import { createLabelLayer, boxGrid } from "../src/labels2d.js";
+import { createLabelLayer, boxGrid } from "../src/labels2d.ts";
 
 // ── 1. boxGrid＝線形の当て方と同じ（無作為の箱・画面の外・大きな箱・NaN を混ぜる）
 {

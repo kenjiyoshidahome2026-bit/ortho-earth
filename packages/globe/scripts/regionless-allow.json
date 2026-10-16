@@ -289,13 +289,13 @@
 				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
 			}
 		},
-		"packages/ortho-core/src/gpu/gintwgsl.js": {
+		"packages/ortho-core/src/gpu/gintwgsl.ts": {
 			"和文": {
 				"n": 1,
 				"why": "言語（地域ではない）：開発者向けのエラー文（toStorageWGSL の変換漏れ）"
 			}
 		},
-		"packages/ortho-core/src/gpu/renderer.js": {
+		"packages/ortho-core/src/gpu/renderer.ts": {
 			"cos35°": {
 				"n": 1,
 				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
@@ -311,7 +311,7 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/ortho-core/src/labels2d.js": {
+		"packages/ortho-core/src/labels2d.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"

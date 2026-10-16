@@ -5,7 +5,7 @@
 //   3. 対数深度の逆：expm1 の級数は exp2(x)−1（f32）より桁が残る＝近景の w が 0.76m 刻みにならない
 // 使い方: node packages/ortho-core/tests/ao-rays.mjs
 import { cameraState, lonlatTo3D, setEllipsoid } from '../src/camera.ts';
-import { aoRays } from '../src/gpu/ao.js';
+import { aoRays } from '../src/gpu/ao.ts';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };

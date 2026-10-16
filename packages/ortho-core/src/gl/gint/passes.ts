@@ -9,7 +9,6 @@ import { drapeSubs, subPlan } from '../../gint/drawdata.ts';
 import { SUB_NB } from './utility.ts';
 import { betaOf, ellipsoidOn } from '../../camera.ts';
 import { canUseIdFill, renderIdFill } from './idfill.ts';
-import type { SubDep } from '../../gint/drawdata.ts';
 import type { EdgeChunk } from '../../gint/utility.ts';
 import type { GintPrograms, Uniforms } from './programs.ts';
 import type { GintGLState, GintLive, GLDrawData } from './state.ts';
@@ -292,7 +291,7 @@ export function renderCleanScene(s: GintLive, data: GLDrawData, targetFBO: WebGL
 		// 2D/地形なし＝plan は N 全1・skip 0＝従来の drawArrays だけ。
 		const runsL = lnSel.runs ?? [[0, lnSel.count]];
 		const subRuns = lnSel.runs ? lnSel.runs.sub : lnSel.sub;
-		const plan = subPlan(dep as unknown as SubDep | null | undefined, subRuns as number[][][] | null | undefined, !!s._isDrawing);   // TODO(ts): SubDep.hasElev は boolean だが GL は elev.has（0/1）を渡す・subRuns は null のバケットを含む（共通の型を広げる）   // 移動中は細分を半分（静止で全密度）
+		const plan = subPlan(dep, subRuns, !!s._isDrawing);   // 移動中は細分を半分（静止で全密度）
 		const drawRuns = () => {
 			gl.uniform1i(uRender.u_sub, 1);
 			gl.uniform1ui(uRender.u_subSkipE7, plan.skipE7);
@@ -374,7 +373,7 @@ export function drawHighlight(s: GintLive, data: GLDrawData): void {
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	const depH = bindDepthUniforms(gl, uRender, data);
-	const nH = drapeSubs(depH as unknown as SubDep | null | undefined, [[0, hasRange ? eCount! : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // TODO(ts): SubDep.hasElev（上と同じ）   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
+	const nH = drapeSubs(depH, [[0, hasRange ? eCount! : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
 	gl.uniform1i(uRender.u_sub, nH);
 	gl.uniform1ui(uRender.u_subSkipE7, 0);
 	const drawH = (est: number, cnt: number): void => drawQ(gl, programs, uRender, est, cnt, nH);
