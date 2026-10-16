@@ -10,7 +10,7 @@
 // 深度の前置き：全画面 1 三角形・colorMask off・depthFunc ALWAYS で、シーンの深度（log の 24bit・DEPTH_GLSL の depthOfW の逆）を層と同じ透視行列の NDC z に戻して gl_FragDepth へ。
 //   クリア値（1＝何も無い）はそのまま 1。深度の無いフレーム（申し出前・LOW_MEM）は前置きを飛ばす＝隠れない（従来の挙動）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(d) / frame(cam, s, size, api) / destroy()。opts＝{ module, params, renderingMode, depth, projection }
-import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.js";
+import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.ts";
 import { worldRadiusM } from "@ortho-earth/core/camera";
 
 let gl = null, host = null, opts = null, layer = null, ready = false, failed = null, canvasRef = null, lastCam = null, lastSize = null;

@@ -8,13 +8,42 @@
 // 深度を共有したい層（renderingMode "3d"）は worker 経路（customgl-draw.js・addLayer の url＝モジュールの URL・PR-7）へ。こちらは互換用（層の object を main で呼ぶ）
 // 契約（MapLibre の CustomLayerInterface）：onAdd(map, gl)・prerender?(gl, args)・render(gl, args)・onRemove?(map, gl)・renderingMode "2d"|"3d"。
 // map.triggerRepaint()（＝requestDraw）で次のフレームにまた render が呼ばれる（動く層）。
-import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.js";
+import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.ts";
+import type { CameraPose } from "@ortho-earth/core/camera";
+
+/** render(gl, args) の args（customgl-args.ts の makeCustomArgs の戻り） */
+export type CustomArgs = ReturnType<typeof makeCustomArgs>;
+/** MapLibre の CustomLayerInterface（main の canvas で呼ぶ層の object・this＝層） */
+export interface CustomLayer {
+	id: string;
+	renderingMode?: "2d" | "3d";
+	onAdd?(map: unknown, gl: WebGL2RenderingContext): void;
+	prerender?(gl: WebGL2RenderingContext, args: CustomArgs): void;
+	render(gl: WebGL2RenderingContext, args: CustomArgs): void;
+	onRemove?(map: unknown, gl: WebGL2RenderingContext): void;
+}
+/** createCustomGL の env */
+export interface CustomGLEnv {
+	mapEl: HTMLElement;
+	/** この canvas をこの要素の前に差す（注記の下） */
+	before?: Element | null;
+	/** 描画面（device px） */
+	size(): { w: number; h: number };
+	cam: CameraPose;
+	earthM: number;
+	requestDraw(): void;
+	onFrame(fn: () => void): () => void;
+	/** worker が描いた絵の cam で呼ばれる（あれば同期＝こちらを使う） */
+	onWorkerFrame?: (fn: (cam: CameraPose) => void) => () => void;
+	/** onAdd/render に渡す map（getProjection の type "globe"＝球の variant） */
+	readonly hostMap?: { getProjection?(): { type?: string } | null | undefined } | null;
+}
 
 // env＝{ mapEl, before（この canvas をこの要素の前に差す＝注記の下）, size()→{w,h}（device px）, dpr, cam, earthM, requestDraw, onFrame(fn)→off, hostMap（onAdd/render に渡す map） }
-export function createCustomGL(env) {
+export function createCustomGL(env: CustomGLEnv) {
 	const { mapEl, before, size, cam, earthM, requestDraw, onFrame, onWorkerFrame } = env;   // onWorkerFrame＝worker が描いた絵の cam で呼ばれる（あれば同期＝こちらを使う）
-	const layers = [];   // { layer, order }
-	let cv = null, gl = null, off = null, lost = false;
+	const layers: Array<{ layer: CustomLayer; order: number }> = [];   // { layer, order }
+	let cv: HTMLCanvasElement | null = null, gl: WebGL2RenderingContext | null = null, off: (() => void) | null = null, lost = false;
 	function ensure() {
 		if (gl) return gl;
 		cv = document.createElement("canvas");
@@ -24,7 +53,7 @@ export function createCustomGL(env) {
 		gl = cv.getContext("webgl2", { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false, depth: true, stencil: true });
 		if (!gl) { cv.remove(); cv = null; throw new Error("custom layer: WebGL2 is not available for the overlay canvas"); }
 		cv.addEventListener("webglcontextlost", e => { e.preventDefault(); lost = true; });
-		cv.addEventListener("webglcontextrestored", () => { lost = false; for (const L of layers) { try { L.layer.onAdd?.(env.hostMap ?? null, gl); } catch (err) { console.error("[custom layer] onAdd after context restore", err); } } requestDraw(); });
+		cv.addEventListener("webglcontextrestored", () => { lost = false; for (const L of layers) { try { L.layer.onAdd?.(env.hostMap ?? null, gl!); } catch (err) { console.error("[custom layer] onAdd after context restore", err); } } requestDraw(); });
 		off = onWorkerFrame ? onWorkerFrame(camW => frame(camW)) : onFrame(() => frame());   // 地図と同じ cam・同じ時刻で描く（main の rAF で描くと地図より先行して見える）
 		return gl;
 	}
@@ -33,10 +62,10 @@ export function createCustomGL(env) {
 		const s = size();
 		return makeCustomArgs(camUse, s.w, s.h, { earthM, globe: camUse.zoom < GLOBE_MAX_Z && env.hostMap?.getProjection?.()?.type === "globe" });
 	}
-	function frame(camW = null) {
+	function frame(camW: CameraPose | null = null) {
 		if (!gl || lost || !layers.length) return;
 		const s = size();
-		if (cv.width !== s.w || cv.height !== s.h) { cv.width = s.w; cv.height = s.h; }
+		if (cv!.width !== s.w || cv!.height !== s.h) { cv!.width = s.w; cv!.height = s.h; }
 		gl.viewport(0, 0, s.w, s.h);
 		gl.disable(gl.SCISSOR_TEST); gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clearColor(0, 0, 0, 0); gl.clearDepth(1); gl.clearStencil(0);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
@@ -51,23 +80,23 @@ export function createCustomGL(env) {
 	}
 	return {
 		get canvas() { return cv; },
-		has: id => layers.some(L => L.layer.id === id),
-		add(layer, order = layers.length) {
+		has: (id: string) => layers.some(L => L.layer.id === id),
+		add(layer: CustomLayer, order = layers.length) {
 			const g = ensure();
 			this.remove(layer.id);
 			layers.push({ layer, order }); layers.sort((p, q) => p.order - q.order);
 			try { layer.onAdd?.(env.hostMap ?? null, g); } catch (err) { console.error(`[custom layer] ${layer.id} onAdd`, err); }
 			requestDraw();
 		},
-		remove(id) {
+		remove(id: string) {
 			const i = layers.findIndex(L => L.layer.id === id); if (i < 0) return false;
 			const [L] = layers.splice(i, 1);
-			try { L.layer.onRemove?.(env.hostMap ?? null, gl); } catch (err) { console.error(`[custom layer] ${id} onRemove`, err); }
+			try { L.layer.onRemove?.(env.hostMap ?? null, gl!); } catch (err) { console.error(`[custom layer] ${id} onRemove`, err); }
 			if (!layers.length && gl) { gl.clear(gl.COLOR_BUFFER_BIT); }
 			requestDraw();
 			return true;
 		},
-		setOrder(id, order) { const L = layers.find(x => x.layer.id === id); if (L) { L.order = order; layers.sort((p, q) => p.order - q.order); requestDraw(); } },
+		setOrder(id: string, order: number) { const L = layers.find(x => x.layer.id === id); if (L) { L.order = order; layers.sort((p, q) => p.order - q.order); requestDraw(); } },
 		destroy() { off?.(); layers.length = 0; cv?.remove(); cv = null; gl = null; },
 	};
 }

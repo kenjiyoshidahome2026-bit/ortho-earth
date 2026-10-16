@@ -1,12 +1,13 @@
 // MapLibre の custom 層に渡す args（CustomLayerInterface の render(gl, args)）を cam から組む純関数＝main の customgl.js と render worker の customgl-draw.js が同じ物を使う（deck.gl 差分 PR-7・2026-10-12）。
 // 行列＝mvp · [メルカトル → 単位球]（視点の中心で局所線形化）・prelude（mercator／globe の variant）・getProjectionData（タイル単位）。中身は customgl.js から切り出し（挙動は同じ）。
 import { cameraState, lonlatTo3D, ellipsoidOn } from "@ortho-earth/core";
+import type { CameraPose } from "@ortho-earth/core/camera";
 
 const PI = Math.PI, D2R = PI / 180, EARTH_R_ML = 6371008.8;   // MapLibre の地球の半径（MercatorCoordinate と同じ）
-const mercX = lng => (180 + lng) / 360;
-const mercY = lat => (180 - (180 / PI) * Math.log(Math.tan(PI / 4 + lat * PI / 360))) / 360;
+const mercX = (lng: number) => (180 + lng) / 360;
+const mercY = (lat: number) => (180 - (180 / PI) * Math.log(Math.tan(PI / 4 + lat * PI / 360))) / 360;
 // 4×4（列優先・gl-matrix の並び）の積 a·b
-const mul = (a, b) => { const o = new Float64Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; };
+const mul = (a: ArrayLike<number>, b: ArrayLike<number>): Float64Array => { const o = new Float64Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; };
 // メルカトルの vertex の下ごしらえ（MapLibre の shaders/_prelude_projection.vertex.glsl の mercator 版と同じ名前・同じ働き）
 const PRELUDE = `uniform mat4 u_projection_matrix;
 uniform vec4 u_projection_tile_mercator_coords;
@@ -74,9 +75,12 @@ vec4 projectTileFor3D(vec2 posInTile, float elevation) { return interpolateProje
 `;
 export const GLOBE_MAX_Z = 13;   // これより寄ったら mercator の variant（局所線形化）＝f32 の単位球座標では震える（MapLibre も z12 前後で球→メルカトルへ移る）
 
-
+/** makeCustomArgs の opts＝earthM（m→世界単位の換算半径）・globe（球の variant） */
+export interface CustomArgsOptions { earthM: number; globe?: boolean }
+/** args.getProjectionData の tileID（{z,x,y}｜{canonical,wrap}） */
+export interface CustomTileID { z?: number; x?: number; y?: number; wrap?: number; canonical?: { z: number; x: number; y: number } }
 // args を組む。camUse＝描く絵の cam、w, h＝描画面（device px）、earthM＝m→世界単位の換算半径、globe＝球の variant（寄っていない間だけ・呼ぶ側が z<GLOBE_MAX_Z と投影を見る）
-export function makeCustomArgs(camUse, w, h, { earthM, globe = false } = {}) {
+export function makeCustomArgs(camUse: CameraPose, w: number, h: number, { earthM, globe = false }: CustomArgsOptions = {} as CustomArgsOptions) {
 	const st = cameraState(camUse, w, h);
 	const [lon, lat] = camUse.center, a = lon * D2R, b = lat * D2R;
 	const T = lonlatTo3D(lon, lat);                                                        // 中心（単位球・楕円体なら β 単位球）
@@ -96,7 +100,7 @@ export function makeCustomArgs(camUse, w, h, { earthM, globe = false } = {}) {
 	// 球の variant（寄っていない間）：u_projection_matrix＝この地図の mvp（β 単位球→クリップ）・裏側の面＝(E·s, −s)（E＝目の位置・s＝2/(|E|−1)＝地平線で 1・真下で −1・裏で 1 超＝描かない）
 	const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[0] * sC, eyeP[1] * sC, eyeP[2] * sC, -sC];
 	const mvp = Float64Array.from(st.mvp);
-	const dataOf = (mMerc, tmc) => globe
+	const dataOf = (mMerc: Float64Array, tmc: number[]) => globe
 		? { mainMatrix: mvp, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: clip, projectionTransition: 1 }
 		: { mainMatrix: mMerc, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: [0, 0, 0, 0], projectionTransition: 0 };
 	return {
@@ -105,7 +109,7 @@ export function makeCustomArgs(camUse, w, h, { earthM, globe = false } = {}) {
 		defaultProjectionData: dataOf(main, [0, 0, 1, 1]),
 		shaderData: globe ? { variantName: "globe", vertexShaderPrelude: PRELUDE_GLOBE, define: "#define GLOBE" } : { variantName: "mercator", vertexShaderPrelude: PRELUDE, define: "" },
 		// タイル単位の投影（MapLibre の args.getProjectionData({ tileID:{z,x,y}|{canonical,wrap} })）＝タイルの中の座標 0..EXTENT（8192）→ メルカトル → クリップ。wrap＝世界の写し
-		getProjectionData({ tileID } = {}) {
+		getProjectionData({ tileID }: { tileID?: CustomTileID } = {}) {
 			const z = tileID?.z ?? tileID?.canonical?.z ?? 0, x = tileID?.x ?? tileID?.canonical?.x ?? 0, y = tileID?.y ?? tileID?.canonical?.y ?? 0, wrap = tileID?.wrap ?? 0, n = 2 ** z, EXT = 8192;
 			const T = new Float64Array(16); T[0] = 1 / (n * EXT); T[5] = 1 / (n * EXT); T[10] = 1; T[15] = 1; T[12] = x / n + wrap; T[13] = y / n;
 			return dataOf(mul(main, T), [x / n + wrap, y / n, 1 / (n * EXT), 1 / (n * EXT)]);
