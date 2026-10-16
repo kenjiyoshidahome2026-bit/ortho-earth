@@ -292,7 +292,7 @@ fn elevQ(ll: vec2f) -> f32 {
 // 変換漏れ（原本の書式が変わった）は例外で知らせる＝黙って新順序のまま走らない
 const GND_FAST_HEAD = "\tif (GD0.p.x < 0.5) { return col; }   // 地面アトラス無し＝標本化しない（perf plan P6・2026-09-27）。GD0 は var<uniform>＝一様な分岐＝以後の textureSample は合法。GL の gndMix と同順（旧＝4 本標本化してから捨てていた）\n";
 const GND_SAMPLE_TAIL = "\tlet c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));\n";
-export function gndMixSlow(code) {
+export function gndMixSlow(code: string): string {
 	if (!code.includes("fn gndMix0(")) return code;   // FRAME を含まないモジュール（AO・深度の書き出し等）はそのまま
 	if (!code.includes(GND_FAST_HEAD) || !code.includes(GND_SAMPLE_TAIL)) throw new Error("gndMixSlow: rewrite markers missing = the gndMix0 source format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
 	return code.replace(GND_FAST_HEAD, "").replace(GND_SAMPLE_TAIL, GND_SAMPLE_TAIL + "\tif (GD0.p.x < 0.5) { return col; }\n");
@@ -1170,7 +1170,9 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 
 // テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝MESH_WGSL からの文字列派生（本体は不変・gl/glsl.js MESH_TEX_* と同じ考え）。
 // 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0＝glTF の規約どおりリニア)、group(3)＝サンプラ＋テクスチャ（rgba8unorm-srgb ビュー＝標本はリニア・出口で srgbEncode・#46 段 0）。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
-const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
+/** 置き換えの対：[錨（ちょうど 1 度だけ出る）, 置換]。 */
+type WgslPair = readonly [string, string];
+const deriveWgsl = (src: string, pairs: readonly WgslPair[], label: string): string => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
@@ -1237,7 +1239,7 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 // SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
 // 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
 // SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 縁のフェードが始まる半径（窓の半幅に対する比）)。
-const SHADOW_WGSL = (g, b0 = 0) => /* wgsl */`
+const SHADOW_WGSL = (g: number, b0 = 0): string => /* wgsl */`
 struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
 @group(${g}) @binding(${b0}) var<uniform> SH: ShadowP;
 @group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d;
@@ -1333,7 +1335,7 @@ export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 // 両端が箱の外にある大きな三角形は中身ごと消える＝基図の屋根 2 枚で踏んだ）。使わない面は 1e30。discard は FS の微分より後（一様制御フロー）。
 // 段 2：CL に蓋と縁の帯（capT＝地形の蓋の色・capB＝建物の疑似の蓋の色（w＝点ける）・edgeC＝帯の色・p.y＝帯の幅 CSS px）。
 // 置き場は「空いている group の binding b0 から」＝影と重ねる時は影の束縛の後ろ（b0＝3・模型は 4）。
-const CLIP_WGSL = (g, b0 = 0) => /* wgsl */`
+const CLIP_WGSL = (g: number, b0 = 0): string => /* wgsl */`
 struct ClipP { pl: array<vec4f, 6>, p: vec4f, capT: vec4f, capB: vec4f, edgeC: vec4f };   // p.x＝面の枚数（clip.js CLIP_MAX と対）・p.y＝縁の帯の幅（CSS px・0＝無し）
 @group(${g}) @binding(${b0}) var<uniform> CL: ClipP;
 fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床・蓋）＝全部の面の最小
@@ -1351,24 +1353,27 @@ fn clipOut(a: vec4f, b: vec2f) -> bool { return clipMin(a, b) < 0.0; }
 // 切る派生を本体から作る（影の派生 *_SH_WGSL からも同じ差分で作れる＝影と重ねる版）。kind ごとの差分の表：
 // ・struct には cdA/cdB を足す（場所は影の sc と重ならない番号）・VS で面ごとの距離・FS の頭で discard（＋縁の帯・建物の疑似の蓋）
 // 同じ段で錨が 2 通りある所（建物メッシュの VS＝本体と影の派生で書き方が違う）は、先に見つかった方を使う
-const deriveAlt = (src, steps, label) => steps.reduce((s, alts) => {
+/** 段ごとの錨の候補（先に見つかった方を使う）。 */
+type WgslAlts = readonly WgslPair[];
+const deriveAlt = (src: string, steps: readonly WgslAlts[], label: string): string => steps.reduce((s, alts) => {
 	for (const [a, b] of alts) { const k = s.split(a).length; if (k === 2) return s.replace(a, b); if (k > 2) throw new Error(`wgsl derive(${label}): anchor ambiguous: ${a.slice(0, 50)}`); }
 	throw new Error(`wgsl derive(${label}): anchor missing: ${alts[0][0].slice(0, 50)}`);
 }, src);
-const CD = (at, loc) => [[at, `${at}\t@location(${loc}) cdA: vec4f,\n\t@location(${loc + 1}) cdB: vec2f,\n`]];
-const CD_SET = rel => `o.cdA = clipA(${rel}); o.cdB = clipB(${rel});`;
+const CD = (at: string, loc: number): WgslAlts => [[at, `${at}\t@location(${loc}) cdA: vec4f,\n\t@location(${loc + 1}) cdB: vec2f,\n`]];
+const CD_SET = (rel: string): string => `o.cdA = clipA(${rel}); o.cdB = clipB(${rel});`;
 // 縁の帯（地形・建物・模型）＝画素で最小の距離がその画面微分の p.y 倍（CSS px×dpr）より小さい所を帯の色に。微分は discard より前
 const EDGE_HEAD = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tif (CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw) { return vec4f(CL.edgeC.rgb, 1.0); }\n";
 const EDGE_FLAG = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tlet edgeOn = CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw;\n";   // 帯を最後に塗る版（地形）
 const DISCARD = "\tif (clipOut(in.cdA, in.cdB)) { discard; }\n";
-const MESH_VS = [
+const MESH_VS: WgslAlts = [
 	["\tvar p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", `\tlet lp = ap + h * liftDir(vec2f(lon, lat), dir);\n\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],
 	["\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n", `\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],   // 影の派生（lp は既にある）
 ];
-const PB_CLIPO = [["sh: array<vec4f, 9>, pad: vec4f,", "sh: array<vec4f, 9>, clipO: vec4f,"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）
+const PB_CLIPO: WgslAlts = [["sh: array<vec4f, 9>, pad: vec4f,", "sh: array<vec4f, 9>, clipO: vec4f,"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）
 // 建物の疑似の蓋（閉じた建物＝裏面を捨てる物だけ）：切っている間は裏面を蓋の色で塗る＝切り口から中を覗くと断面に見える（両面のデータ＝上屋・橋は今のまま）
-const MESH_CAP = [["\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }\n", "\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { if (CL.capB.w > 0.5) { return vec4f(CL.capB.rgb, 1.0); } discard; }\n"]];
-const CLIP_STEPS = {
+const MESH_CAP: WgslAlts = [["\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }\n", "\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { if (CL.capB.w > 0.5) { return vec4f(CL.capB.rgb, 1.0); } discard; }\n"]];
+type ClipKind = "terr" | "mesh" | "meshTex" | "fill" | "line" | "bld" | "globe" | "terrCast" | "meshCast" | "meshTexCast" | "bldCast";
+const CLIP_STEPS: Record<ClipKind, readonly WgslAlts[]> = {
 	terr: [CD("\t@location(8) guv3: vec2f,\n", 10),
 		[["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
 		[["\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n", "\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n" + EDGE_FLAG]],
@@ -1398,7 +1403,7 @@ const CLIP_STEPS = {
 		[["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
 		[["@fragment fn fs(in: BldOut) {", "@fragment fn fs(in: BldOut) {\n" + DISCARD]]],
 };
-const clipDerive = (src, kind, label, g, b0 = 0, tail = "") => deriveAlt(src, CLIP_STEPS[kind], label) + CLIP_WGSL(g, b0) + tail;
+const clipDerive = (src: string, kind: ClipKind, label: string, g: number, b0 = 0, tail = ""): string => deriveAlt(src, CLIP_STEPS[kind], label) + CLIP_WGSL(g, b0) + tail;
 // 切るだけ（段 0〜1）
 export const TERRAIN_CLIP_WGSL = clipDerive(TERRAIN_WGSL, "terr", "TERRAIN_CLIP_WGSL", 3);
 export const MESH_CLIP_WGSL = clipDerive(MESH_WGSL, "mesh", "MESH_CLIP_WGSL", 3);
@@ -1604,7 +1609,7 @@ fn rd(idx: u32) -> f32 {
 // 他パス（頂点補間のまま）との釣り合いが崩れ、手前に別の帯が出た（実験 2026-09-29）。影を落とす側（CAST＝正射影・頂点だけ）は対象外。
 // 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
 // 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
-export function fragDepthWgsl(src, label = "") {
+export function fragDepthWgsl(src: string, label = ""): string {
 	const m = /@fragment fn fs\(in: (\w+)\) -> @location\(0\) vec4f \{/.exec(src);
 	if (!m) throw new Error(`fragDepth(${label}): fs not found`);
 	const out = m[1], st = src.indexOf(`struct ${out} {`);
