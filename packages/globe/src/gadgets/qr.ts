@@ -4,9 +4,12 @@
 // QR は自作エンコーダ（qrcode.js・依存ゼロ・byteモード・EC L/M/Q/H 自動・v1〜6）。URLが短いほど強い訂正を自動採用＝中央の印を大きく置ける。
 // カードは常に白地＝スキャンの掟（白背景+黒モジュール+四周のクワイエットゾーン）。テーマ（夜等）に依らず白。
 import { gadgetStack } from "./stack.ts";
-import { qrEncode } from "./qrcode.js";
+import { qrEncode } from "./qrcode.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+/** 共有 QR の手綱 */
+export interface QrHandle { open(): void; close(): void }
 
 // QRらしいグリフ（3隅ファインダ＋数個のモジュール）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同流儀）。
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" aria-hidden="true">
@@ -22,7 +25,7 @@ const MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="10
 const MARK_URL = "data:image/svg+xml," + encodeURIComponent(MARK_SVG);
 
 // opts.getUrl＝現在の共有URL文字列を返す（app が注入＝location.origin+pathname+viewHash()＝常に「今の視点」）。無ければ location.href。
-export function qr({ getUrl, signal, btn } = {}) {
+export function qr(this: GlobeMap, { getUrl, signal, btn }: { getUrl?: () => string; signal?: AbortSignal; btn?: HTMLButtonElement } = {}): QrHandle | undefined {
 	const mapEl = this.mapEl;
 	if (!btn) {   // 直搭載（qr-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
@@ -36,7 +39,7 @@ export function qr({ getUrl, signal, btn } = {}) {
 	panel.id = "qr-panel";
 	panel.innerHTML = `<div class="qr-card"><div class="qr-wrap"><canvas aria-label="${t("QR code of the share URL")}"></canvas><img class="qr-mark" alt="" aria-hidden="true"></div><div class="qr-cap">${t("Scan to open this view")}</div><div class="qr-url"></div></div>`;
 	mapEl.append(panel);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
-	const canvas = panel.querySelector("canvas"), urlEl = panel.querySelector(".qr-url"), markEl = panel.querySelector(".qr-mark");
+	const canvas = panel.querySelector("canvas")!, urlEl = panel.querySelector<HTMLElement>(".qr-url")!, markEl = panel.querySelector<HTMLImageElement>(".qr-mark")!;
 	markEl.src = MARK_URL;   // ベクトルの印（静的＝視点で変わらない）。寸法は render が白ヌキに合わせて設定
 
 	const render = () => {
@@ -45,7 +48,7 @@ export function qr({ getUrl, signal, btn } = {}) {
 			const { matrix: m, ec } = qrEncode(url);   // 収まる中で最強の EC を自動採用＝中央ロゴの被覆余白を最大化
 			const N = m.length, px = 8, quiet = 4, dim = (N + quiet * 2) * px;   // クワイエットゾーン4モジュール＝スキャンの掟
 			canvas.width = dim; canvas.height = dim;
-			const ctx = canvas.getContext("2d");
+			const ctx = canvas.getContext("2d")!;
 			ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, dim, dim);
 			ctx.fillStyle = "#000";
 			for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (m[r][c]) ctx.fillRect((c + quiet) * px, (r + quiet) * px, px, px);
@@ -61,8 +64,8 @@ export function qr({ getUrl, signal, btn } = {}) {
 		} catch (e) { markEl.style.width = "0"; urlEl.textContent = t("QR encoding failed (URL too long?)"); console.warn("[qr]", e); }
 	};
 	const close = () => panel.classList.remove("open");
-	btn.addEventListener("click", () => { if (panel.classList.toggle("open")) render(); });   // 開く度に「今の視点」で作り直す
-	panel.addEventListener("click", e => { if (!e.target.closest(".qr-card")) close(); });   // カード外（背景）＝閉じる
+	btn!.addEventListener("click", () => { if (panel.classList.toggle("open")) render(); });   // 上で必ず持つ   // 開く度に「今の視点」で作り直す
+	panel.addEventListener("click", e => { if (!(e.target as Element).closest(".qr-card")) close(); });   // カード外（背景）＝閉じる
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && panel.classList.contains("open")) { e.preventDefault(); close(); } }, { signal });
 	return { open: () => { panel.classList.add("open"); render(); }, close };   // プログラム駆動用
 }

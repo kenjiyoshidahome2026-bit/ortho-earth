@@ -10,16 +10,22 @@ import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { Snapshot } from "./compose.js";
 const t = tr();
+/** requestSnapshot＝今の画面の写し（必須・api/shadows.ts が注入）・attribution＝#attr の無い画面で焼く出典 */
+interface ShotOpts { requestSnapshot: () => Promise<unknown>; signal?: AbortSignal; btn?: HTMLButtonElement; attribution?: (() => string[]) | null }
+/** 画面保存の手綱（composite＝合成器・open＝撮影） */
+export interface ShotHandle { composite(snap?: Snapshot | null): Promise<Blob>; open(): Promise<void> }
 
 // 出典の文面（#attr があればその文面／無ければホストが渡す今の圏の出典＝地域の申告から組んだ物）。globe は地域の出典を持たない
-export function attrLines(mapEl, fallback = null) {
-	const el = mapEl.querySelector("#attr");
+export function attrLines(mapEl: HTMLElement, fallback: (() => string[]) | null = null): string[] {
+	const el = mapEl.querySelector<HTMLElement>("#attr");
 	if (el && el.innerText.trim()) return el.innerText.split(/\n/).map(s => s.trim()).filter(Boolean);
 	return fallback ? fallback() : [];
 }
 
-export function shot({ requestSnapshot, signal, btn, attribution = null } = {}) {
+export function shot(this: GlobeMap, { requestSnapshot, signal, btn, attribution = null }: ShotOpts = {} as ShotOpts): ShotHandle | undefined {
 	const mapEl = this.mapEl;
 	// モバイル（タッチ端末）はボタンごと出さない＝端末標準のスクリーンショットに委ねる（家具を増やさない）。
 	if (window.matchMedia("(pointer: coarse)").matches) return;
@@ -45,23 +51,23 @@ export function shot({ requestSnapshot, signal, btn, attribution = null } = {}) 
 	}, { signal });
 	return { composite, open: capture };   // composite＝合成器（テスト/プログラムから合成だけ叩ける）／open=capture＝遅延スタブ(shot-stub)の共通IF＝クリックで撮影を起動
 
-	async function capture() {
-		if (btn.disabled) return;
-		btn.disabled = true; btn.classList.add("busy");
-		try { save(await composite(await requestSnapshot())); }
+	async function capture(): Promise<void> {
+		if (btn!.disabled) return;   // btn は上で必ず持つ
+		btn!.disabled = true; btn!.classList.add("busy");
+		try { save(await composite(await requestSnapshot() as Snapshot)); }
 		catch (e) { console.error("[shot] failed to save", e); }
-		finally { btn.disabled = false; btn.classList.remove("busy"); }
+		finally { btn!.disabled = false; btn!.classList.remove("busy"); }
 	}
 
 	// 各層を1枚へ合成→webp Blob。層重ね（基図→知性→ラベル→計測）は composeLayersToCanvas（printと共用）。
-	async function composite(snap = null) {
-		snap ??= await requestSnapshot();   // 引数省略＝今の画面を撮って合成（プログラム駆動用。旧＝undefined で例外）
-		const out = composeLayersToCanvas(snap, mapEl.querySelector("#measure-lines"));
-		drawAttr(out.getContext("2d"), snap.W, snap.H);
+	async function composite(snap: Snapshot | null = null): Promise<Blob> {
+		snap ??= await requestSnapshot() as Snapshot;   // 引数省略＝今の画面を撮って合成（プログラム駆動用。旧＝undefined で例外）
+		const out = composeLayersToCanvas(snap, mapEl.querySelector<HTMLCanvasElement>("#measure-lines"));
+		drawAttr(out.getContext("2d")!, snap.W, snap.H);
 		return out.convertToBlob({ type: "image/webp", quality: 0.92 });
 	}
 
-	function drawAttr(ctx, W, H) {   // 右下に出典を焼き込む（文面は attrLines＝printの下帯と共用）。白文字＋暗い帯で可読性を担保
+	function drawAttr(ctx: OffscreenCanvasRenderingContext2D, W: number, H: number): void {   // 右下に出典を焼き込む（文面は attrLines＝printの下帯と共用）。白文字＋暗い帯で可読性を担保
 		const lines = attrLines(mapEl, attribution);
 		const dpr = W / mapEl.clientWidth || 1;   // canvas は device px＝表示px比で文字を拡大
 		const fs = Math.round(11 * dpr), pad = Math.round(6 * dpr), lh = Math.round(fs * 1.4), gap = Math.round(8 * dpr);
@@ -74,7 +80,7 @@ export function shot({ requestSnapshot, signal, btn, attribution = null } = {}) 
 		lines.forEach((t, i) => ctx.fillText(t, W - gap - pad, H - gap - pad / 2 - (lines.length - 1 - i) * lh));
 	}
 
-	function save(blob) {   // デスクトップ専用（モバイルは非搭載）＝<a download> でそのまま保存
+	function save(blob: Blob): void {   // デスクトップ専用（モバイルは非搭載）＝<a download> でそのまま保存
 		const url = URL.createObjectURL(blob);
 		const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
 		const a = document.createElement("a"); a.href = url; a.download = `ortho-earth-${stamp}.webp`;   // 地域でなくサイトの名（どの家の地図でも同じ）

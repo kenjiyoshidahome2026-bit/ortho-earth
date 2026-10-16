@@ -5,7 +5,12 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { Gadgets } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { ShotHandle } from "./shot.ts";
 const t = tr();
+/** requestSnapshot＝今の画面の写し（必須・api/shadows.ts が注入）・attribution＝#attr の無い画面で焼く出典 */
+interface ShotStubOpts { requestSnapshot: () => Promise<unknown>; attribution?: (() => string[]) | null; signal?: AbortSignal }
 
 // カメラ（レンズ+本体）グリフ（本体 shot.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `
@@ -13,7 +18,8 @@ const ICON = `
 		<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
 		<circle cx="12" cy="13" r="3.4"/></svg>`;
 
-export function shot(opts = {}) {
+/** 画面保存の入口（本体 shot.ts は初回に読む）。モバイル・二重搭載は undefined */
+export function shot(this: GlobeMap, opts: ShotStubOpts = {} as ShotStubOpts): ReturnType<Gadgets["shot"]> {
 	const map = this, mapEl = this.mapEl;
 	if (window.matchMedia("(pointer: coarse)").matches) return;   // モバイル非搭載＝本体も fetch しない（端末標準スクショに委ねる）
 	if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
@@ -23,12 +29,12 @@ export function shot(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<ShotHandle | undefined> | null = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./shot.js")
+	const boot = () => real ||= import("./shot.ts")
 		.then(m => { const g = m.shot.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
-		.catch(e => { real = null; console.error("[shot] failed to load module", e); });
+		.catch((e): undefined => { real = null; console.error("[shot] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open?.(); }); };   // open＝capture（撮影）
 	btn.addEventListener("click", activate, { signal: stub.signal });
@@ -41,7 +47,7 @@ export function shot(opts = {}) {
 	// 戻り＝open()=撮影／composite=合成器（テスト/プログラムが直接叩く＝初回は本体をロードして委譲＝撮影は起こさない）。
 	return {
 		open: () => boot().then(g => { g && g.open?.(); return g; }),
-		composite: async (...a) => { const g = await boot(); return g && g.composite(...a); },
+		composite: async (...a: Parameters<ShotHandle["composite"]>) => { const g = await boot(); return g && g.composite(...a); },
 		close: () => {},
 	};
 }

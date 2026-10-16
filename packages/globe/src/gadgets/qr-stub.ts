@@ -4,6 +4,8 @@
 // ★ガジェット規約：独立モジュール＋（重ければ）小さな常駐スタブ＋本体は import()＝print/demo/ai と同じ型。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { QrHandle } from "./qr.ts";
 const t = tr();
 
 // QRらしいグリフ（本体 qr.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
@@ -11,7 +13,8 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" ari
 	<path d="M3 3h7v7H3V3zm2 2v3h3V5H5z"/><path d="M14 3h7v7h-7V3zm2 2v3h3V5h-3z"/><path d="M3 14h7v7H3v-7zm2 2v3h3v-3H5z"/>
 	<rect x="14" y="14" width="2" height="2"/><rect x="19" y="14" width="2" height="2"/><rect x="17" y="17" width="2" height="2"/><rect x="14" y="19" width="2" height="2"/><rect x="19" y="19" width="2" height="2"/></svg>`;
 
-export function qr(opts = {}) {
+/** 共有 QR の入口（本体 qr.ts は初回クリックで読む）。二重搭載は undefined */
+export function qr(this: GlobeMap, opts: { getUrl?: () => string; signal?: AbortSignal } = {}): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -19,12 +22,12 @@ export function qr(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<{open,close}>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<QrHandle | undefined> | null = null;   // Promise<{open,close}>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./qr.js")
+	const boot = () => real ||= import("./qr.ts")
 		.then(m => { const g = m.qr.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
-		.catch(e => { real = null; console.error("[qr] failed to load module", e); });
+		.catch((e): undefined => { real = null; console.error("[qr] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open(); }); };
 	btn.addEventListener("click", activate, { signal: stub.signal });

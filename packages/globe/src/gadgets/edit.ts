@@ -5,24 +5,30 @@
 // 出現域（z>2.5）は搭載側の zoom 宣言＝レジストリの門（他ガジェットと同じ流儀）。編集中はエディタがズーム下限 2.5 を敷く＝門の下へは落ちない。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { Gadgets } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+/** 部品として開いたエディタ（geoedit の initEditor の戻り）のうち、ここで使う分 */
+interface EmbeddedEditor { result?(): Promise<ArrayBuffer | null | undefined> | ArrayBuffer | null | undefined; destroy(): void }
+/** mount＝({ onClose }) => Promise<editor>（app が map.gadget.geoedit を注入）・onResult＝(buf|null) => 持ち主の図形を置き換える */
+interface EditOpts { mount: (o: { onClose: () => unknown }) => Promise<unknown>; onResult?: (buf: ArrayBuffer | null) => unknown; signal?: AbortSignal }
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 	<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M13 6.5l4.5 4.5"/></svg>`;
 
-export function edit({ mount, onResult, signal } = {}) {   // mount＝({ onClose }) => Promise<editor>（app が map.gadget.geoedit を注入）・onResult＝(buf|null) => 持ち主の図形を置き換える
+export function edit(this: GlobeMap, { mount, onResult, signal }: EditOpts = {} as EditOpts): ReturnType<Gadgets["edit"]> {   // mount＝({ onClose }) => Promise<editor>（app が map.gadget.geoedit を注入）・onResult＝(buf|null) => 持ち主の図形を置き換える
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#edit-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
 	btn.id = "edit-btn"; btn.innerHTML = ICON;
 	btn.dataset.tip = t("Edit GeoPBF (topological editing of points, lines, polygons)"); btn.setAttribute("aria-label", t("Edit")); btn.setAttribute("aria-pressed", "false");
-	let editor = null, busy = false;
+	let editor: EmbeddedEditor | null = null, busy = false;
 	const sync = () => { btn.classList.toggle("on", !!editor); btn.setAttribute("aria-pressed", String(!!editor)); btn.dataset.tip = editor ? t("Finish editing") : t("Edit GeoPBF (topological editing of points, lines, polygons)"); };
 	// 終える＝結果を受け取ってから外す（外してから置き換える＝エディタの層と持ち主の層が二重に出ない）
 	const finish = async () => {
 		if (busy || !editor) return;
 		busy = true; btn.classList.add("busy");
 		const ed = editor;
-		let buf = null;
+		let buf: ArrayBuffer | null = null;
 		try { buf = await ed.result?.() ?? null; } catch (e) { console.error("[edit] result failed", e); }
 		ed.destroy(); editor = null;
 		try { await onResult?.(buf); } catch (e) { console.error("[edit] apply result failed", e); }
@@ -32,7 +38,7 @@ export function edit({ mount, onResult, signal } = {}) {   // mount＝({ onClose
 		if (busy) return editor;
 		if (editor) { await finish(); return null; }
 		busy = true; btn.classList.add("busy");
-		try { editor = await mount({ onClose: finish }); } catch (e) { console.error("[edit] editor mount failed", e); }
+		try { editor = await mount({ onClose: finish }) as EmbeddedEditor | null; } catch (e) { console.error("[edit] editor mount failed", e); }
 		finally { busy = false; btn.classList.remove("busy"); sync(); }
 		return editor;
 	};

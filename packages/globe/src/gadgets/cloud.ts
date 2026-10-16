@@ -13,14 +13,29 @@
 // }
 import { tr } from "../i18n.js";
 import { composeLayersToCanvas } from "./compose.js";   // 層合成の核（shot/print と同じ）＝公開サムネ
+import type { Snapshot } from "./compose.js";
 const t = tr();
+/** 器に渡す中身（上の hooks の説明の型）＝geoedit の CloudSpec・scenes エディタの spec がこの形 */
+export interface CloudPanelHooks {
+	getFile(): Promise<File | Blob | null | undefined>; open(buf: ArrayBuffer, name: string): Promise<boolean> | boolean;
+	accept?(name: string): boolean; defaultName?(): string; ext?: string; contentType?: string; className?: string;
+	/** 公開台帳の節を出すか・サムネの材料（map＝requestSnapshot を持つ地図・overlayEl＝重ねる canvas）・共有 URL の入口 */
+	works?: boolean; map?: unknown; overlayEl?(): Element | null | undefined; shareBase?: string;
+}
+/** サムネを撮る地図（requestSnapshot の無い旧 lib は撮らない） */
+type SnapMap = { requestSnapshot?(): Promise<unknown> } | null | undefined;
+/** /me の答え（workers の形が正本） */
+interface Me { user: { name?: string }; usage: { files: number; bytes: number; maxBytes: number } }
+/** /me/files の 1 行・/me/works の 1 行 */
+interface CloudFile { name: string; size: number; updated_at: number }
+interface Work { id: string; title: string; url: string; view?: string }
 
-const fmtSize = n =>
+const fmtSize = (n: number) =>
 	n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" :
 	n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" :
 	n >= 1e3 ? (n / 1e3).toFixed(1) + " KB" : n + " B";
-const fmtDate = s => new Date(s * 1000).toLocaleDateString();
-const ERRMSG = () => ({   // サーバーの error コード → 人向けの言葉（形は workers/files.js が正本）
+const fmtDate = (s: number) => new Date(s * 1000).toLocaleDateString();
+const ERRMSG = (): Record<string, string> => ({   // サーバーの error コード → 人向けの言葉（形は workers/files.js が正本）
 	file_too_large: t("Each file is limited to 200MB"),
 	quota_exceeded: t("The 1GB total limit has been reached (delete files you no longer need)"),
 	too_many_files: t("Up to 100 files"),
@@ -52,40 +67,41 @@ const ensureCss = () => { if (!document.getElementById("oj-cloud-css")) { const 
 
 // 公開サムネ＝現在の画面（エンジン生スナップ＋任意のオーバレイ canvas）を 480×300 cover へ縮めて webp。
 // 撮れない環境（旧lib・スナップ非対応）は null＝サムネ無しのまま公開は通す（best-effort・公開を人質にしない）。
-async function makeThumb(map, overlayEl) {
+async function makeThumb(map: SnapMap, overlayEl: HTMLCanvasElement | null | undefined): Promise<Blob | null> {
 	try {
 		if (!map?.requestSnapshot) return null;
-		const full = composeLayersToCanvas(await map.requestSnapshot(), null);
-		if (overlayEl?.width) full.getContext("2d").drawImage(overlayEl, 0, 0, full.width, full.height);
-		const W = 480, H = 300, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d");
+		const full = composeLayersToCanvas(await map.requestSnapshot() as Snapshot, null);
+		if (overlayEl?.width) full.getContext("2d")!.drawImage(overlayEl, 0, 0, full.width, full.height);
+		const W = 480, H = 300, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d")!;
 		const s = Math.max(W / full.width, H / full.height);
 		ctx.drawImage(full, (W - full.width * s) / 2, (H - full.height * s) / 2, full.width * s, full.height * s);
 		return await out.convertToBlob({ type: "image/webp", quality: 0.8 });
 	} catch (e) { console.warn("[cloud] thumb capture failed", e); return null; }
 }
 
-export function cloudPanel(container, hooks, toast) {
+/** クラウド保存パネルを container に開く（開き直し＝前の器を外す）。toast＝人向けの知らせ */
+export function cloudPanel(container: HTMLElement, hooks: CloudPanelHooks, toast: (msg: string) => unknown): HTMLDivElement {
 	ensureCss();
 	const { accept = () => true, ext = "", contentType = "application/octet-stream", works = false } = hooks;
 	container.querySelector(".oj-cloud")?.remove();   // 二重開き防止＝開き直し
 	const panel = document.createElement("div");
 	panel.className = `oj-cloud ${hooks.className || ""}`.trim();
 	container.append(panel);
-	const el = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
-	const fail = async res => toast(ERRMSG()[(await res.json().catch(() => ({}))).error] || t("Failed (HTTP $1)", res.status));
+	const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string | null, cls?: string) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
+	const fail = async (res: Response) => toast(ERRMSG()[(await res.json().catch(() => ({}))).error] || t("Failed (HTTP $1)", res.status));
 
-	async function render() {
+	async function render(): Promise<void> {
 		panel.innerHTML = ""; panel.append(el("h3", t("Cloud save")), el("p", t("Connecting…")));
-		let meRes;
+		let meRes: Response;
 		try { meRes = await fetch("/me", { credentials: "same-origin" }); }
-		catch { panel.querySelector("p").textContent = t("Cannot reach the server"); addClose(); return; }
+		catch { panel.querySelector("p")!.textContent = t("Cannot reach the server"); addClose(); return; }
 		if (meRes.status === 401) return renderLogin();
 		if (!meRes.ok || !(meRes.headers.get("Content-Type") || "").includes("json"))
-			{ panel.querySelector("p").textContent = t("Cloud save is not available yet"); addClose(); return; }   // Worker 未デプロイ＝assets の404等
+			{ panel.querySelector("p")!.textContent = t("Cloud save is not available yet"); addClose(); return; }   // Worker 未デプロイ＝assets の404等
 		renderFiles(await meRes.json());
 	}
 
-	function renderLogin() {
+	function renderLogin(): void {
 		panel.innerHTML = ""; panel.append(el("h3", t("Cloud save")), el("p", t("Log in to save your work on the server.")));
 		const ret = encodeURIComponent(location.pathname + location.search);
 		// X は2026年2月のAPI従量課金化（クレカ登録必須・ログイン毎に課金）で保留＝Worker側の対応は温存。
@@ -98,7 +114,7 @@ export function cloudPanel(container, hooks, toast) {
 		addClose();
 	}
 
-	async function renderFiles(me) {
+	async function renderFiles(me: Me): Promise<unknown> {
 		panel.innerHTML = "";
 		const head = el("div", null, "head");
 		head.append(el("h3", me.user.name || t("Logged in")));
@@ -121,7 +137,7 @@ export function cloudPanel(container, hooks, toast) {
 		// 一覧（この器で開ける名前だけ＝置き場は1つ・種類はエディタ毎）
 		const listRes = await fetch("/me/files", { credentials: "same-origin" });
 		if (!listRes.ok) return fail(listRes);
-		const files = ((await listRes.json()).files || []).filter(f => accept(f.name));
+		const files: CloudFile[] = ((await listRes.json()).files || []).filter((f: CloudFile) => accept(f.name));
 		if (!files.length) panel.append(el("p", t("No saved files yet")));
 		for (const f of files) {
 			const r = el("div", null, "row");
@@ -147,7 +163,7 @@ export function cloudPanel(container, hooks, toast) {
 
 	// ---- 公開台帳（地図作品用） ---- データ本体は預からない＝GitHub 等の公開 URL を登録して台帳に載せる（workers/works.js が正本）。
 	// 台帳の行＝共有 URL（/japan/?g=…）そのもの。題名クリック＝共有 URL をコピー＝名刺・SNS へそのまま。
-	async function renderWorks() {
+	async function renderWorks(): Promise<void> {
 		panel.append(el("hr"), el("h3", t("Public catalog")));
 		const urlRow = el("div", null, "row");
 		const urlIn = el("input");
@@ -167,7 +183,7 @@ export function cloudPanel(container, hooks, toast) {
 				const res = await fetch("/me/works", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, url }) });
 				if (!res.ok) return fail(res);
 				const { id, updated } = await res.json();
-				const blob = await makeThumb(hooks.map, hooks.overlayEl?.());   // 今見えている画面がサムネ＝再公開のたびに撮り直し
+				const blob = await makeThumb(hooks.map as SnapMap, hooks.overlayEl?.() as HTMLCanvasElement | null | undefined);   // 今見えている画面がサムネ＝再公開のたびに撮り直し
 				if (blob) await fetch(`/me/works/${id}/thumb`, { method: "PUT", credentials: "same-origin", body: blob, headers: { "Content-Type": "image/webp" } }).catch(() => {});
 				toast(updated ? t("Catalog entry updated") : t("Published to the catalog"));
 				render();
@@ -177,9 +193,9 @@ export function cloudPanel(container, hooks, toast) {
 		panel.append(urlRow, tiRow);
 		// 共有 URL＝今の頁の置き場（ディレクトリ）の入口＝その家の地図（/japan/geoedit → /japan/・/globe/sats → /globe/）。地域の URL は書かない。hooks.shareBase で上書き可
 		const shareBase = hooks.shareBase ?? new URL("./", location.href).pathname;
-		const shareUrl = w => `${location.origin}${shareBase}?g=${encodeURIComponent(w.url)}${w.view || ""}`;
+		const shareUrl = (w: Work) => `${location.origin}${shareBase}?g=${encodeURIComponent(w.url)}${w.view || ""}`;
 		const wRes = await fetch("/me/works", { credentials: "same-origin" });
-		if (wRes.ok) for (const w of (await wRes.json()).works) {
+		if (wRes.ok) for (const w of (await wRes.json()).works as Work[]) {
 			const r = el("div", null, "row");
 			const copyB = el("button", w.title, "name");
 			copyB.title = t("Copy share URL");
@@ -196,7 +212,7 @@ export function cloudPanel(container, hooks, toast) {
 		}
 	}
 
-	async function save(name, btn) {
+	async function save(name: string, btn: HTMLButtonElement): Promise<unknown> {
 		name = (name || "").trim();
 		if (!name) return toast(t("Enter a file name"));
 		if (/[/\\]/.test(name) || name.length > 100) return toast(t("File names cannot contain / (max 100 chars)"));
@@ -213,7 +229,7 @@ export function cloudPanel(container, hooks, toast) {
 		finally { btn.disabled = false; }
 	}
 
-	async function open(name) {
+	async function open(name: string): Promise<unknown> {
 		try {
 			toast(t("Loading… $1", name));
 			const res = await fetch(`/me/files/${encodeURIComponent(name)}`, { credentials: "same-origin" });
@@ -224,7 +240,7 @@ export function cloudPanel(container, hooks, toast) {
 		} catch (e) { console.error("[cloud] open failed", e); toast(t("Failed to load")); }
 	}
 
-	function addClose() {
+	function addClose(): void {
 		const close = el("button", t("Close"));
 		close.onclick = () => panel.remove();
 		panel.append(el("hr"), close);
