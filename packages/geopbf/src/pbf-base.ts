@@ -614,16 +614,24 @@ function writeGeometry<T extends GeoPBFBase>(self: T, q: Geometry): T {
 	});
 }
 
+/** fmap に積んだ幾何の型の番号（geometryTypes の添字＝0 Point … 5 MultiPolygon・6 GeometryCollection） */
+type GeometryTypeIndex = number;
+
 function readGeometry(self: GeoPBFBase, n: number, m?: number): Geometry | null {
 	const { pbf, fmap, e } = self, map = fmap[n];
 	return (map[2] < 6) ? read(map[1], map[2]) : m !== undefined ? read(map[3]![m], map[4]![m]) : { type: geometryTypes[6], geometries: map[3]!.map((t, i) => read(t, map[4]![i])) } as Geometry;
-	function read(pos: number, type: number): Geometry {
+	/** type＝geometryTypes の添字（ファイルのバイト由来＝壊れたファイルでは 0–5 の外もありうる） */
+	function read(pos: number, type: GeometryTypeIndex): Geometry {
 		pbf.pos = pos;
 		var q: { type: GeometryType; coordinates?: unknown } = { type: geometryTypes[type] }, isPoly = type > 3, lens: number[] = [], end: number;
-		const funcs = [read0, read1, read1, read2, read2, read3][type];
+		const funcs: (() => unknown) | undefined = [read0, read1, read1, read2, read2, read3][type];
 		return pbf.readMessage((tag, q) => {
 			if (tag === TAGS.LENGTH) pbf.readPackedVarint(lens);
-			else if (tag === TAGS.COORDS) { end = pbf.readVarint() + pbf.pos; q.coordinates = funcs(); }
+			else if (tag === TAGS.COORDS) {
+				// 読み手の無い型（壊れたファイル）＝はっきりした Error（旧＝TypeError: funcs is not a function・CodeQL）。投げる時機は旧と同じ（COORDS を読む時）
+				if (!funcs) throw new Error(`geopbf: unknown geometry type ${type}`);
+				end = pbf.readVarint() + pbf.pos; q.coordinates = funcs();
+			}
 		}, q) as Geometry;
 		function readCoords(p?: number[]): number[] { p = p || [0, 0]; p[0] += pbf.readSVarint(); p[1] += pbf.readSVarint(); return p; }
 		function magCoords(p: number[]): number[] { return [p[0] / e, p[1] / e]; }
