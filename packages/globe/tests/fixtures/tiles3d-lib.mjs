@@ -1,4 +1,4 @@
-// 3D Tiles の試料づくりの共通部品（tiles3d/make.mjs・tiles3d-implicit/make.mjs）＝東京駅の ENU・glTF の箱・b3dm 等の包み・詰め
+// 3D Tiles の試料づくりの共通部品（tiles3d／tiles3d-implicit／tiles3d-multi の make.mjs）＝東京駅の ENU・glTF の箱・b3dm 等の包み・subtree・詰め
 const lon = 139.7671 * Math.PI / 180, lat = 35.6812 * Math.PI / 180, h0 = 40;
 const a = 6378137, e2 = 0.00669437999014, N = a / Math.sqrt(1 - e2 * Math.sin(lat) ** 2);
 const O = [(N + h0) * Math.cos(lat) * Math.cos(lon), (N + h0) * Math.cos(lat) * Math.sin(lon), (N * (1 - e2) + h0) * Math.sin(lat)];
@@ -38,4 +38,10 @@ export function wrap(magic, ftJson, ftBin, glbOrBody, extraHeader = null, btJson
 	head.writeUInt32LE(fj.length, 12); head.writeUInt32LE(fb.length, 16); head.writeUInt32LE(bj.length, 20); head.writeUInt32LE(0, 24);
 	if (extraHeader) head.writeUInt32LE(extraHeader, 28);
 	return Buffer.concat([head, fj, fb, bj, glbOrBody]);
+}
+// subtree のバイナリ（"subt"・version 1・JSON と本体の長さ uint64）
+export function subt(json, bin = null) {
+	const J = pad8(Buffer.from(JSON.stringify(json))), B = bin ? pad8(bin, 0) : Buffer.alloc(0), h = Buffer.alloc(24);
+	h.write("subt", 0); h.writeUInt32LE(1, 4); h.writeBigUInt64LE(BigInt(J.length), 8); h.writeBigUInt64LE(BigInt(B.length), 16);
+	return Buffer.concat([h, J, B]);
 }
