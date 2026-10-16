@@ -8,20 +8,23 @@
 // 配列・オブジェクトの値、get/has の 2 引数形、let/var 以外の動的な鍵、f32 で表せない整数リテラル（|x| > 2^24）、未対応の演算子。
 // 数は f32（JS は f64）＝.5 の丸めの境で ±1/255 の差が出うる（検定は ±1 の許容）。
 import { paintKeys } from "../gint/attrcols.ts";
+import type { Dict, Kinds } from "../gint/attrcols.ts";
 export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.ts";   // 呼び手（globe の層）が列を組む道具も同じ入口から
 import { parseRGBA } from "../color.ts";
 
 const T_NAN = 5, T_LERP = 6;
 class Unsupported extends Error {}
-const no = m => { throw new Unsupported(m); };
-const f32bits = (() => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); return v => { f[0] = v; return u[0]; }; })();
-const isOp = e => Array.isArray(e) && typeof e[0] === "string";
+const no: (m: string) => never = m => { throw new Unsupported(m); };
+const f32bits = (() => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); return (v: number): number => { f[0] = v; return u[0]; }; })();
+/** 式の演算子の形 [op, ...引数]。 */
+type OpExpr = [string, ...unknown[]];
+const isOp = (e: unknown): e is OpExpr => Array.isArray(e) && typeof e[0] === "string";
 const ALL = new Set(["num", "str", "bool", "null", "undef"]);
-const hexU = u => "0x" + (u >>> 0).toString(16) + "u";
-const fstr = x => { const s = String(x); return /[.e]/i.test(s) || /inf|nan/i.test(s) ? s : s + ".0"; };   // WGSL の f32 リテラル
+const hexU = (u: number): string => "0x" + (u >>> 0).toString(16) + "u";
+const fstr = (x: number): string => { const s = String(x); return /[.e]/i.test(s) || /inf|nan/i.test(s) ? s : s + ".0"; };   // WGSL の f32 リテラル
 
 // 辞書の表（gpu/gint.js が上げる）: dnum＝Number(s) の f32 ビットと NaN 旗、dcol＝parseRGBA(s)
-export function dictTables(dict) {
+export function dictTables(dict: Dict): { dnum: Uint32Array; dcol: Float32Array } {
 	const n = dict.size, dnum = new Uint32Array(n * 2), dcol = new Float32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		const s = dict.list[i], x = Number(s);
@@ -121,25 +124,30 @@ fn lerpV(a: V, b: V, t: f32, tnan: bool, slot: u32) -> V {
 
 // paint/filter → WGSL。opts: { propKeys, stateKeys, kinds（Map 鍵→attrcols の統計）, dict, origin }
 // 戻り値 { wgsl, slots, propKeys, stateKeys, usesZoom, usesState, filterUsesState, filterUsesZoom, usesGeom } か { error }
-export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
+/** compileFidStyleWGSL の戻り（載せられた時）。 */
+export interface FidStyleWGSL { wgsl: string; slots: number; propKeys: string[]; stateKeys: string[]; usesZoom: boolean; usesState: boolean; filterUsesState: boolean; filterUsesZoom: boolean; usesGeom: boolean }
+export interface FidStyleWGSLOptions { propKeys?: string[]; stateKeys?: string[]; kinds?: Map<string, Kinds>; dict?: Dict; origin?: "ml" | "native" }
+/** let の束縛（名前 → { v＝WGSL の変数名, ty＝静的な型集合 }）。ty だけの段（型を引く時）は v を持たない。 */
+type Env = Map<unknown, { v?: string; ty: Set<string> }>;
+export function compileFidStyleWGSL(paint: Record<string, unknown> = {}, filter: unknown = null, opts: FidStyleWGSLOptions = {}): FidStyleWGSL | { error: string } {
 	try {
 		if (opts.origin === "ml") no("origin ml");
-		const dict = opts.dict, kinds = opts.kinds ?? new Map();
+		const dict = opts.dict!, kinds = opts.kinds ?? new Map<string, Kinds>();
 		const keys = paintKeys(paint, filter);
 		if (keys.dyn) no("dynamic key");
 		const propKeys = opts.propKeys ?? [...keys.props], stateKeys = opts.stateKeys ?? [...keys.states];
 		for (const k of keys.props) if (!propKeys.includes(k)) no("missing column " + k);
 		for (const k of keys.states) if (!stateKeys.includes(k)) no("missing state column " + k);
 		for (const k of propKeys) { const K = kinds.get(k); if (K?.other) no("non-scalar column " + k); }
-		const st = [];                       // 文の列
+		const st: string[] = [];                       // 文の列
 		let nv = 0, slots = 0, usesZoom = false, usesState = false, usesGeom = false, filterUsesState = false, filterUsesZoom = false, inFilter = false;
 		const fresh = () => "v" + (nv++);
-		const emit = s => st.push("\t" + s);
+		const emit = (s: string) => st.push("\t" + s);
 		// 静的な型集合（文字列どうしの比較・文字列の足し算を断る為）
-		const tyLit = v => v === undefined ? "undef" : v === null ? "null" : typeof v === "number" ? "num" : typeof v === "boolean" ? "bool" : typeof v === "string" ? "str" : no("literal " + typeof v);
-		const tyCol = k => { const K = kinds.get(k); const s = new Set(); if (!K) return new Set(ALL); if (K.num) s.add("num"); if (K.str) s.add("str"); if (K.bool) s.add("bool"); if (K.nul) s.add("null"); if (K.undef) s.add("undef"); return s; };
-		const union = (...xs) => { const s = new Set(); for (const x of xs) for (const t of x) s.add(t); return s; };
-		const ty = (e, env) => {
+		const tyLit = (v: unknown): string => v === undefined ? "undef" : v === null ? "null" : typeof v === "number" ? "num" : typeof v === "boolean" ? "bool" : typeof v === "string" ? "str" : no("literal " + typeof v);
+		const tyCol = (k: unknown): Set<string> => { const K = kinds.get(k as string); const s = new Set<string>(); if (!K) return new Set(ALL); if (K.num) s.add("num"); if (K.str) s.add("str"); if (K.bool) s.add("bool"); if (K.nul) s.add("null"); if (K.undef) s.add("undef"); return s; };
+		const union = (...xs: Set<string>[]): Set<string> => { const s = new Set<string>(); for (const x of xs) for (const t of x) s.add(t); return s; };
+		const ty = (e: unknown, env: Env): Set<string> => {
 			if (!isOp(e)) return new Set([tyLit(e)]);
 			switch (e[0]) {
 				case "literal": return new Set([tyLit(e[1])]);
@@ -152,15 +160,15 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 				case "has": case "!": case "all": case "any": case "==": case "!=": case ">": case ">=": case "<": case "<=": case "in": case "to-boolean": return new Set(["bool"]);
 				case "geometry-type": return new Set(["str"]);
 				case "coalesce": return union(...e.slice(1).map(x => ty(x, env)), new Set(["null"]));
-				case "match": { const o = []; for (let i = 3; i < e.length - 1; i += 2) o.push(ty(e[i], env)); o.push(ty(e[e.length - 1], env)); return union(...o); }
-				case "case": { const o = []; for (let i = 2; i < e.length - 1; i += 2) o.push(ty(e[i], env)); o.push(ty(e[e.length - 1], env)); return union(...o); }
+				case "match": { const o: Set<string>[] = []; for (let i = 3; i < e.length - 1; i += 2) o.push(ty(e[i], env)); o.push(ty(e[e.length - 1], env)); return union(...o); }
+				case "case": { const o: Set<string>[] = []; for (let i = 2; i < e.length - 1; i += 2) o.push(ty(e[i], env)); o.push(ty(e[e.length - 1], env)); return union(...o); }
 				case "step": { const o = [ty(e[2], env)]; for (let i = 4; i < e.length; i += 2) o.push(ty(e[i], env)); return union(...o); }
-				case "interpolate": { const o = []; for (let i = 4; i < e.length; i += 2) o.push(ty(e[i], env)); return union(...o); }
+				case "interpolate": { const o: Set<string>[] = []; for (let i = 4; i < e.length; i += 2) o.push(ty(e[i], env)); return union(...o); }
 				case "let": { const env2 = new Map(env); for (let i = 1; i < e.length - 1; i += 2) env2.set(e[i], { ty: ty(e[i + 1], env2) }); return ty(e[e.length - 1], env2); }
 				default: no("op " + e[0]);
 			}
 		};
-		const litV = v => {
+		const litV = (v: unknown): string => {
 			if (v === undefined) return "V(0u, 0u)";
 			if (v === null) return "V(4u, 0u)";
 			if (typeof v === "boolean") return `V(3u, ${v ? 1 : 0}u)`;
@@ -168,12 +176,12 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 			if (typeof v === "string") return `V(2u, ${dict.intern(v)}u)`;
 			return no("literal " + typeof v);
 		};
-		const numLit = v => typeof v === "number" && Number.isFinite(v) ? v : no("stop must be a number");
+		const numLit = (v: unknown): number => typeof v === "number" && Number.isFinite(v) ? v : no("stop must be a number");
 		// 式 → V の変数名（文を積む）。env＝let の束縛（名前 → { v, ty }）
-		const gen = (e, env) => {
+		const gen = (e: unknown, env: Env): string => {
 			if (!isOp(e)) { const v = fresh(); emit(`let ${v} = ${litV(e)};`); return v; }
 			const op = e[0], v = fresh();
-			const sub = x => gen(x, env), nm = x => { const a = sub(x); return `vnum(${a})`; };
+			const sub = (x: unknown) => gen(x, env), nm = (x: unknown) => { const a = sub(x); return `vnum(${a})`; };
 			switch (op) {
 				case "literal": emit(`let ${v} = ${litV(e[1])};`); return v;
 				case "get": { if (e.length !== 2 || typeof e[1] !== "string") no("get form"); emit(`let ${v} = P(${propKeys.indexOf(e[1])}u, fid);`); return v; }
@@ -207,7 +215,7 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 					return v;
 				}
 				case "case": {
-					const conds = [], vals = [];
+					const conds: string[] = [], vals: string[] = [];
 					for (let i = 1; i < e.length - 1; i += 2) { conds.push(sub(e[i])); vals.push(sub(e[i + 1])); }
 					const def = sub(e[e.length - 1]);
 					emit(`var ${v} = ${def};`);
@@ -215,19 +223,19 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 					return v;
 				}
 				case "match": {
-					const x = sub(e[1]), labs = [], outs = [];
+					const x = sub(e[1]), labs: unknown[] = [], outs: string[] = [];
 					for (let i = 2; i < e.length - 1; i += 2) { labs.push(e[i]); outs.push(sub(e[i + 1])); }
 					const def = sub(e[e.length - 1]);
 					emit(`var ${v} = ${def};`);
 					for (let i = labs.length - 1; i >= 0; i--) {
-						const L = Array.isArray(labs[i]) ? labs[i] : [labs[i]];
+						const L = Array.isArray(labs[i]) ? labs[i] as unknown[] : [labs[i]];
 						for (const l of L) if (typeof l !== "number" && typeof l !== "string" && typeof l !== "boolean") no("match label");
 						emit(`if (${L.length ? L.map(l => `veq(${x}, ${litV(l)})`).join(" || ") : "false"}) { ${v} = ${outs[i]}; }`);
 					}
 					return v;
 				}
 				case "step": {
-					const x = nm(e[1]), outs = [sub(e[2])], ths = [];
+					const x = nm(e[1]), outs = [sub(e[2])], ths: number[] = [];
 					for (let i = 3; i < e.length; i += 2) { ths.push(numLit(e[i])); outs.push(sub(e[i + 1])); }
 					const n = fresh(); emit(`let ${n} = ${x};`);
 					emit(`var ${v} = ${outs[0]};`);
@@ -237,7 +245,7 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 				case "interpolate": {
 					const type = e[1]; if (!Array.isArray(type) || !(type[0] === "linear" || type[0] === "exponential")) no("interpolate type");
 					const base = type[0] === "exponential" ? numLit(type[1]) : 1;
-					const x = nm(e[2]), sk = [], sv = [];
+					const x = nm(e[2]), sk: number[] = [], sv: string[] = [];
 					for (let i = 3; i < e.length; i += 2) { sk.push(numLit(e[i])); sv.push(sub(e[i + 1])); }
 					const n = sk.length; if (!n) no("interpolate stops");
 					const slot = slots++;
@@ -271,12 +279,12 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 			}
 		};
 		// 色の評価（style.js evalColor）：根が interpolate なら色の lerp（丸め無し）、それ以外は V → 色
-		const genColor = (e, env) => {
+		const genColor = (e: unknown, env: Env): string => {
 			const c = fresh();
 			if (isOp(e) && e[0] === "interpolate") {
 				const type = e[1]; if (!Array.isArray(type) || !(type[0] === "linear" || type[0] === "exponential")) no("interpolate type");
 				const base = type[0] === "exponential" ? numLit(type[1]) : 1;
-				const x = `vnum(${gen(e[2], env)})`, sk = [], sv = [];
+				const x = `vnum(${gen(e[2], env)})`, sk: number[] = [], sv: string[] = [];
 				for (let i = 3; i < e.length; i += 2) { sk.push(numLit(e[i])); sv.push(genColor(e[i + 1], env)); }
 				const n = sk.length; if (!n) no("interpolate stops");
 				const nn = fresh(); emit(`let ${nn} = ${x};`);
@@ -290,14 +298,14 @@ export function compileFidStyleWGSL(paint = {}, filter = null, opts = {}) {
 			emit(`let ${c} = vcol(${gen(e, env)});`);
 			return c;
 		};
-		const genNum = (e, dflt, env) => { const n = fresh(); emit(`let ${n} = vnum(${gen(e, env)});`); return `select(${fstr(dflt)}, ${n}.x, finite(${n}))`; };
-		const env0 = new Map();
+		const genNum = (e: unknown, dflt: number, env: Env) => { const n = fresh(); emit(`let ${n} = vnum(${gen(e, env)});`); return `select(${fstr(dflt)}, ${n}.x, finite(${n}))`; };
+		const env0: Env = new Map();
 		if (filter != null) { inFilter = true; const f = gen(filter, env0); inFilter = false; emit(`if (!vtruthy(${f})) { flags = 0u; }`); }
 		const pFillC = paint["fill-color"], pFillO = paint["fill-opacity"], pLineC = paint["line-color"], pCircC = paint["circle-color"], pLineO = paint["line-opacity"], pWidth = paint["line-width"], pRadius = paint["circle-radius"];
 		if (pFillC != null) { const c = genColor(pFillC, env0); const o = pFillO != null ? genNum(pFillO, 1, env0) : "1.0"; emit(`if (${c}.ok) { fill = packColor(${c}, ${o}); }`); }
 		if (pLineC != null || pCircC != null) {
 			const o = pLineO != null ? genNum(pLineO, 1, env0) : "1.0";
-			const paintG = (e, cond) => { const c = genColor(e, env0); emit(`if (${cond} && ${c}.ok) { line = packColor(${c}, ${o}); }`); };
+			const paintG = (e: unknown, cond: string) => { const c = genColor(e, env0); emit(`if (${cond} && ${c}.ok) { line = packColor(${c}, ${o}); }`); };
 			if (pLineC != null && pCircC != null) {
 				usesGeom = true;
 				emit(`let isPt = geom[fid] == ${dict.intern("Point")}u || geom[fid] == ${dict.intern("MultiPoint")}u;`);
