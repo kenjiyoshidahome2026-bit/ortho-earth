@@ -6,7 +6,7 @@
 //   ・decodeZIP: 宣言サイズを越える伸長（zip 爆弾）・中央ディレクトリの範囲外を例外で止める（decodeZIP は null を返す）
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { openSqlite } from "../src/convert/sqlite.ts";
 import { snappy, MAX_PAGE } from "../src/convert/parquet-read.ts";
 import { encodeZIP } from "../src/modules/encodeZIP.ts";
@@ -19,13 +19,13 @@ const throws = (fn, re, msg) => { try { fn(); ok(false, msg + "（例外が出�
 // ── FUNC ─────────────────────────────────────────────────────────────────────
 {
 	const fc = { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [1, 2] }, properties: { f: function hello(a) { return a + 1; }, n: 1 } }] };
-	const enc = await new GeoPBF().set(fc);
+	const enc = await new GeoPBFBase().set(fc);
 	const bytes = enc.arrayBuffer;
-	const dflt = await new GeoPBF().set(bytes.slice(0));
+	const dflt = await new GeoPBFBase().set(bytes.slice(0));
 	const p = dflt.getProperties(0);
 	ok(typeof p.f === "string" && p.f.includes("a + 1"), "FUNC は関数ソース文字列のまま");
 	ok(p.n === 1, "他の属性は従来どおり");
-	const optin = await new GeoPBF({ noeval: false }).set(bytes.slice(0));
+	const optin = await new GeoPBFBase({ noeval: false }).set(bytes.slice(0));
 	const q = optin.getProperties(0);
 	ok(typeof q.f === "string" && q.f.includes("a + 1") && !("noeval" in optin), "{ noeval:false } を渡しても関数へ復元しない（2.0 で撤去＝new Function の経路が無い）");
 }

@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { openSqlite, parseCreate, varint } from "../src/convert/sqlite.ts";
 import { fromGeoPackage, readGeoPackage, classifyCrs, openGpkgTiles, mimeOf } from "../src/convert/gpkg.ts";
 import { existsSync } from "node:fs";
@@ -113,7 +113,7 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 	let threw = ""; try { await fromGeoPackage(mixed, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/layer "nope" not found \(layers: places, shapes, merc\)/.test(threw), "無い層は候補付きで拒否");
 	threw = ""; try { await fromGeoPackage(new Uint8Array(4096)); } catch (e) { threw = e.message; } ok(/not an SQLite3 file/.test(threw), "GeoPackage でないものは拒否");
 	// 往復: GeoPBF のバイト列を読み直しても同じ
-	const back = await new GeoPBF().set(places.pbf.arrayBuffer);
+	const back = await new GeoPBFBase().set(places.pbf.arrayBuffer);
 	ok(back.geojson.features.length === 1200 && back.geojson.features[0].properties.name === "東京駅", "GeoPBF バイト列の読み直し");
 }
 
@@ -167,7 +167,7 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 	const log = run("gpkg2pbf", src, out, "--layer", "shapes");
 	ok(/features 8/.test(log) && /dropped 2 features/.test(log), "CLI gpkg2pbf 変換のログ");
 	const raw = readFileSync(out);
-	const pbf = await new GeoPBF().set(new Uint8Array(gunzipSync(raw)));
+	const pbf = await new GeoPBFBase().set(new Uint8Array(gunzipSync(raw)));
 	ok(raw[0] === 0x1f && pbf.geojson.features.length === 8 && pbf.name() === "shapes", "CLI 出力＝gzip GeoPBF・8 件・name=表名");
 	const info = run("info", out);
 	ok(/features\s+8/.test(info), "CLI info が読める");

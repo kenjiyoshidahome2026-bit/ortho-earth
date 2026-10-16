@@ -12,7 +12,7 @@
 //
 //   const { pbf, stats } = await fromFlatGeobuf(u8, { name, precision, ignoreCrs, tky2jgd, patchjgd });
 import { mercToLonLat } from "../modules/mercator.ts";
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { classifyCrs } from "./gpkg.ts";
 import type { SkippedColumn } from "./gpkg.ts";
 import { epsgToWKT } from "./epsg.ts";
@@ -45,7 +45,7 @@ export interface FgbStats {
 	features: number; rows: number; droppedGeometries: number; bigints: number; columns: string[]; skipped: SkippedColumn[];
 	crs: string; reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; z: boolean; m: boolean; geometryType: string; types: Record<string, number>; ms: number;
 }
-export interface FromFgbResult { pbf: GeoPBF; stats: FgbStats }
+export interface FromFgbResult { pbf: GeoPBFBase; stats: FgbStats }
 type Single = Exclude<Geometry, { type: "GeometryCollection" }>;
 
 // 索引の大きさ（公式 packedrtree の calcTreeSize と同じ）
@@ -211,7 +211,7 @@ export async function fromFlatGeobuf(input: Uint8Array | ArrayBuffer | ArrayBuff
 		p += 4 + size;
 	}
 	stats.rows = feats.length;
-	const pbf = new GeoPBF({ name: opts.name || h.name || "flatgeobuf", precision: opts.precision ?? 6, description: opts.description ?? h.description ?? h.title ?? "", license: opts.license, attribution: opts.attribution });
+	const pbf = new GeoPBFBase({ name: opts.name || h.name || "flatgeobuf", precision: opts.precision ?? 6, description: opts.description ?? h.description ?? h.title ?? "", license: opts.license, attribution: opts.attribution });
 	pbf.setHead([...names].sort());
 	pbf.setBody(() => {
 		for (const { f, cols } of feats) {

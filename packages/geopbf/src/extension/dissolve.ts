@@ -1,8 +1,7 @@
-import { GeoPBF, propsKeyOf } from "../pbf-base.ts";
-import type { GeoPBFBase } from "../pbf-base.ts";
+import { GeoPBFBase, propsKeyOf } from "../pbf-base.ts";
 import type { Feature, Geometry, GeometryCollection, Position, Properties } from "../../types/geopbf.js";
 
-const { geometryTypes, geometryMap } = GeoPBF;
+const { geometryTypes, geometryMap } = GeoPBFBase;
 
 /** 同じ属性（key＝その鍵だけ・true＝全部同じ・false＝全属性）の地物を併合して同じインスタンスを返す */
 export async function dissolve<T extends GeoPBFBase>(pbfInstance: T, key: string | boolean | number = false): Promise<T> {

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Geometry } from "../../types/geopbf.js";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
@@ -161,7 +161,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 		}
 	}
 
-	const pbf = new GeoPBF({
+	const pbf = new GeoPBFBase({
 		name: file.name.replace(/\.[^\.]+$/, ""),
 		precision: precision || 7
 	});

@@ -686,5 +686,5 @@ function _setViaWorker<T extends GeoPBFBase>(self: T, buf: ArrayBuffer): Promise
 const valKey = (v: unknown): string => v === null || v === undefined ? "n" : v instanceof Date ? "d" + v.getTime() : typeof v === "object" ? "o" + JSON.stringify(v) : (typeof v)[0] + String(v);
 export const propsKeyOf = (row: unknown[]): string => JSON.stringify(row.map(valKey));
 // makeKeys＝ストリームエンコード（set() を自前でなぞる呼び出し側＝geoedit）用に公開 2026-08-20。
-// GeoPBF＝器の旧名（"geopbf/pbf-base"・"geopbf/core" の GeoPBF は器だけ＝拡張メソッドは "geopbf" の GeoPBF）
-export { GeoPBFBase as GeoPBF, makeKeys };
+// 器の旧名 GeoPBF（GeoPBFBase の別名）は 2.0 で外した（段 5・Q2）＝"geopbf/pbf-base"・"geopbf/core" の class は GeoPBFBase だけ。拡張メソッドつきは "geopbf" の GeoPBF
+export { makeKeys };

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { encodeZIP } from "../modules/encodeZIP.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 
@@ -11,7 +11,7 @@ type XY = number[];
 onmessage = async (e: MessageEvent<EncodeRequest>) => {
 	const { buf, name, opts } = e.data, gz = opts && opts.gz;
 	try {
-		const pbf = await new GeoPBF().name(name).set(buf);
+		const pbf = await new GeoPBFBase().name(name).set(buf);
 		const pos = (c: XY): string => `${c[1]} ${c[0]}`;
 		const posList = (r: XY[]): string => r.map(pos).join(" ");
 		// 幾何（2026-09-25・B9）：Multi 系と GeometryCollection も GML 3.2 の標準形で書く（旧＝Point/LineString/Polygon 以外は幾何なしの地物になった）

@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { PLATE_NAMES, STEP_CLASSES, plates, steps, boundaryLines } from "./lib/pb2002.mjs";
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,7 +20,7 @@ const P = plates(await src("PB2002_plates.dig.txt")), S = steps(await src("PB200
 const features = [];
 for (const l of L) { const [left, right] = l.boundary.split("-"); features.push({ type: "Feature", properties: { kind: "boundary", boundary: l.boundary, left, right, class: l.cls, className: STEP_CLASSES[l.cls] || l.cls }, geometry: { type: "LineString", coordinates: l.coords } }); }
 for (const [code, ring] of Object.entries(P)) features.push({ type: "Feature", properties: { kind: "plate", code, name: PLATE_NAMES[code] || code }, geometry: { type: "Polygon", coordinates: [ring] } });
-const pbf = await new GeoPBF({ name: "plates", precision: 4, attribution: "PB2002 (Bird, P., 2003, An updated digital model of plate boundaries, Geochem. Geophys. Geosyst. 4(3), 1027)", description: "tectonic plate boundaries (kind=boundary: class OSR/OTF/OCB/CRB/CTF/CCB/SUB) and plate polygons (kind=plate: code/name)" }).set({ type: "FeatureCollection", name: "plates", features });
+const pbf = await new GeoPBFBase({ name: "plates", precision: 4, attribution: "PB2002 (Bird, P., 2003, An updated digital model of plate boundaries, Geochem. Geophys. Geosyst. 4(3), 1027)", description: "tectonic plate boundaries (kind=boundary: class OSR/OTF/OCB/CRB/CTF/CCB/SUB) and plate polygons (kind=plate: code/name)" }).set({ type: "FeatureCollection", name: "plates", features });
 const buf = gzipSync(Buffer.from(pbf.arrayBuffer), { level: 9 });
 await mkdir(path.dirname(OUT), { recursive: true }); await writeFile(OUT + ".geopbf", buf);
 if (opt("geojson", false)) await writeFile(OUT + ".geojson", JSON.stringify({ type: "FeatureCollection", features }));

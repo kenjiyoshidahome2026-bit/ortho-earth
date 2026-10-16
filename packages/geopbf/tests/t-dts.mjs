@@ -88,10 +88,12 @@ const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|
 ok(heavy.length === 0 && core.files.length * 2 <= full.files.length && core.bytes * 2 <= full.bytes,
 	`geopbf/core の静的 import 閉包＝${core.files.length} ファイル／${(core.bytes / 1024).toFixed(0)} KB（full＝${full.files.length}／${(full.bytes / 1024).toFixed(0)} KB）に wasm・identify・dissolve・pbf-io・worker が無い${heavy.length ? "\n   混入: " + heavy.join(", ") : ""}`);
 const coreMod = await import(path.join(PKG, "src/core.ts"));
-const want = ["GeoPBF", "makeKeys", "propsKeyOf", "loadGeopbf", "decodeToGeojson", "fetchAndDecode", "sanitizeProperties", "resolveInnerUrl", "gzip", "gunzip", "isGzip"];
+const want = ["GeoPBFBase", "makeKeys", "propsKeyOf", "loadGeopbf", "decodeToGeojson", "fetchAndDecode", "sanitizeProperties", "resolveInnerUrl", "gzip", "gunzip", "isGzip"];
 ok(want.every(k => k in coreMod) && Object.keys(coreMod).length === want.length, `geopbf/core の export＝${want.join(", ")}`);
-const corePbf = await new coreMod.GeoPBF({ precision: 7 }).set({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [1, 2] }, properties: { a: 1 } }] });
-ok(corePbf.length === 1 && corePbf.getProperties(0).a === 1 && typeof corePbf.centroid !== "function", "core の GeoPBF は set/get が通り、拡張メソッド（centroid）は持たない");
+const corePbf = await new coreMod.GeoPBFBase({ precision: 7 }).set({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [1, 2] }, properties: { a: 1 } }] });
+ok(corePbf.length === 1 && corePbf.getProperties(0).a === 1 && typeof corePbf.centroid !== "function", "core の GeoPBFBase は set/get が通り、拡張メソッド（centroid）は持たない");
+const baseMod = await import(path.join(PKG, "src/pbf-base.ts"));
+ok(!("GeoPBF" in coreMod) && !("GeoPBF" in baseMod) && baseMod.GeoPBFBase === coreMod.GeoPBFBase, "器の旧名 GeoPBF は geopbf/core・geopbf/pbf-base から外した（2.0・段 5 Q2）＝GeoPBFBase だけ・同じ class");
 const { geojson, meta } = await coreMod.decodeToGeojson(corePbf.arrayBuffer);
 ok(geojson.features.length === 1 && geojson.features[0].properties.a === 1 && typeof meta.name === "string", "core の decodeToGeojson が ArrayBuffer → FeatureCollection＋meta");
 

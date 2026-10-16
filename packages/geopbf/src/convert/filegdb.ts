@@ -11,7 +11,7 @@
 // 幾何: point / multipoint / polyline / polygon（Z・M は落とす・曲線は頂点を直線で結ぶ＝stats.curves）。多パッチと空は落として数える。
 // 多面の環は Esri 流（外環=時計回り・穴=反時計回りが平坦に並ぶ）→ 面積符号で外環/穴を分け、穴は最初の頂点を含む外環へ入れて Multi/Polygon に組む。
 // CRS: フィールド定義の WKT を convert/proj.js で判定（経緯度はそのまま・平面直角座標系/UTM/Web メルカトルは逆変換・日本測地系や JGD2000 は convert/datum.js で測地系変換・他は ignoreCrs 無しで拒否）。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { attrFilter } from "./attrs.ts";
 import { crsFromWKT } from "./proj.ts";
 import { resolveDatum, datumStats } from "./datum.ts";
@@ -57,7 +57,7 @@ export interface GdbStats {
 	layer: string; layers: string[]; tables: string[]; features: number; rows: number | undefined; vertices: number; droppedGeometries: number; emptyGeometries: number; multipatch: number; curves: number;
 	columns: string[]; skipped: { name: string; reason: string }[]; crs: string; crsUnknown: boolean; reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; geometryType: string | null | undefined; z: boolean | undefined; m: boolean | undefined; precision: number; ms: MsStats;
 }
-export interface FromGdbResult { pbf: GeoPBF; stats: GdbStats }
+export interface FromGdbResult { pbf: GeoPBFBase; stats: GdbStats }
 interface Cursor { p: number }
 
 /** File/Blob の配列（zip の entries）→ source。名前はパスの末尾だけ見る（x.gdb/a00000001.gdbtable → a00000001.gdbtable）。 */
@@ -300,7 +300,7 @@ export async function fromFileGDB(source: GdbSource, opts: FromGdbOptions = {}):
 	// 逐次エンコード：行 → setFeature を直接（旧＝全行を GeoJSON 配列に積んでから set()＝頂点あたり数十バイトの JS オブジェクトが支配項）。
 	// keys はスキーマの属性列（旧の makeKeys＝「値のあった列」と違い、全行 null の列も KEYS に載る＝properties には現れない）
 	const keys = props.map(({ f }) => f.name).sort();
-	const pbf = new GeoPBF({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
+	const pbf = new GeoPBFBase({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
 	pbf.setHead(keys, []);
 	let count = 0;
 	await pbf.setBodyAsync(async () => {

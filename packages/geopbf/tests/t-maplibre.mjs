@@ -4,7 +4,7 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { isDeepStrictEqual } from "node:util";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { geopbfProtocol, makeGeopbfProtocol, loadGeopbf, sanitizeProperties } from "../src/maplibre.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ。IMAGE 型の写像検証も兼ねる。
@@ -40,7 +40,7 @@ const synthGeojson = {
 		},
 	}],
 };
-const synthPbf = await new GeoPBF({
+const synthPbf = await new GeoPBFBase({
 	name: "synth", description: "synthetic test", license: "CC0",
 	attribution: "test-attribution", minZoom: 5, maxZoom: 12,
 }).set(synthGeojson);
