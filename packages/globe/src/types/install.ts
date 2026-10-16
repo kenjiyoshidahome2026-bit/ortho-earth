@@ -7,9 +7,14 @@
 //   その時には全部の installer が済んでいる＝他の installer の口（map.raster・map.on…）を読めてよい。公開の型に出さない内部のメンバー（GlobeInternals）を
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
-import type { GlobeInternals, GlobeMap } from "./map.ts";
-import type { DrawSize, GlobeLive, GlobeScope, WPost } from "./scope.ts";
-import type { GeoPBF } from "geopbf";
+import type { GlobeInternals, GlobeMap, StyleApi } from "./map.ts";
+import type { DrawSize, GlobeLive, GlobeScope, ModelCtl, WPost } from "./scope.ts";
+import type { ClipPlane } from "@ortho-earth/core/clip";
+import type { MLLayer } from "@ortho-earth/core";
+import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.d.ts";
+import type { GJLabels } from "../gadgets/gjlabels.d.ts";
+import type { Symbols } from "../gadgets/symbols.d.ts";
+import type { FeatureCollection, GeoPBF } from "geopbf";
 import type { ColumnarLayerHandle, ColumnarLayerOptions, LonLat, OverlayHandle, OverlayPick, RasterInfo } from "../../globe.d.ts";
 
 /** readonly を外す（installer は自分の口を map に書く） */
@@ -95,17 +100,65 @@ export interface DataReturn {
 	remoteUrl(spec: string, tag: string): URL | null;
 	/** 大きさ（バイト）が列チャンク層の門を越えるか（?columnar=1|0 が勝つ） */
 	columnarOn(bytes: number): boolean;
+	/** 点・面の読み口（URL＝サービスなら丸ごと・文字列／Blob＝geopbf で読む・他はそのまま） */
+	readGeoData<T>(d: string | Blob | T): Promise<FeatureCollection | T | undefined>;
 	/** 列チャンク層の振り分け（opts.columnarRule・既定＝弧の共有が多い塗り分けは gint） */
 	columnarProbe(bytes: number): (meta: ColumnarLayerHandle["meta"]) => boolean;
 	/** 列チャンク層で見せる（probe が断れば null＝呼び手が gint の道へ） */
 	columnarView(src: string | File | Blob | ArrayBuffer | GeoPBF, name: string, o?: ColumnarLayerOptions): Promise<{ length: number; columnar: ColumnarLayerHandle } | null>;
 }
+export type ImagesLive = LiveOf<"imageIds" | "imageQuads" | "aggCtl" | "gjCtl" | "symCtl", "modelCtl" | "assertMLLayer" | "dpr" | "MAP_GS">;
+export type ImagesDeps = Pick<GlobeScope, "IMAGE_KEY" | "LOW_MEM" | "PUBLIC_DZ" | "ac" | "cam" | "imageAttrs" | "mapOn" | "modelCtlGet" | "ownDestroy" | "rasterChanged" | "readGeoData" | "requestDraw" | "size" | "wPost">;
 export interface ImagesReturn {
 	/** 四隅で貼った画像（@image つき 4 頂点の面）を画像の覆いへ・残りの図形を返す（無ければ null） */
 	placeImages(pbf: GeoPBF, name: string): Promise<GeoPBF | null>;
 	clearImages(): void;
 	/** 高さの列を持つ面＝自動で 3D 押し出し（前の押し出しは外す） */
-	autoExtrude(pbf: GeoPBF): Promise<unknown>;
+	autoExtrude(pbf: GeoPBF): ReturnType<ModelCtl["extrude"]> | Promise<null>;
+	/** styleimagemissing を鳴らす（名前ごとに 1 回） */
+	imageMissing(name: string): void;
+	symGet(): Promise<Symbols>;
+	/** 点の読み口（GeoJSON/GeoPBF/File/URL） */
+	readPoints(src: unknown): Promise<unknown>;
+	/** 中身（native）＝層は正規化済み（エンジンの目盛り） */
+	clusterNative(src: unknown, opts: ClusterOpts, slot: string): Promise<{ points: number; clusters: number[] }>;
+	aggGet(): Promise<Aggregate>;
+	/** 足している途中の画像（層を載せる前に待つ） */
+	pendingImages: Set<Promise<unknown>>;
+	heatmapNative(src: unknown, layer: Partial<MLLayer>, slot: string): Promise<{ points: number }>;
+	/** symbol-placement が line／line-center の層か */
+	gjIsLine(layer: Partial<MLLayer>): boolean;
+	gjGet(): Promise<GJLabels>;
+	symbolsNative(src: unknown, layer?: Partial<MLLayer>): Promise<{ features: number } | null>;
+}
+export type ShadowsLive = LiveOf<"clipByT" | "clipSpec" | "clipMain" | "poiClick", "renderBackend" | "mapLoaded" | "addSourceAt" | "addLayerAt" | "noTerr" | "EXT" | "poiReal">;
+export type ShadowsDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "LOW_MEM" | "REGION_DTM" | "REGION_HOME" | "REGION_PRINT_ATTR" | "TILE_MINZOOM" | "ac" | "approxViewBbox" | "attrTextNow" | "cam"
+	| "dbgHost" | "makeProjector" | "mapOn" | "meshMgr" | "meshOn" | "onMove" | "ownDestroy" | "poi" | "printCapture" | "renderer" | "requestDraw" | "requestSnapshot" | "setLayer" | "t"
+	| "toolClose" | "toolOpen" | "unprojectXY" | "viewHash" | "wPost" | "wakeMesh">;
+export interface ShadowsReturn {
+	/** 地形の升目の照会（elevGrid）の待ち＝render worker の答えで解く */
+	elevGridWait: Map<number, (grid: unknown) => void>;
+	/** 対象ごとの切断の面（無ければ null） */
+	clipFor(t: string): ClipPlane[] | null;
+	/** 画素 (x, y)（CSS px）の地面が切られた側か */
+	clipCutXY(x: number, y: number): boolean;
+	/** 地物の形が全部切られた側か */
+	clipAllCut(g: { type: string; coordinates?: unknown; geometries?: Array<{ coordinates?: unknown }> } | null | undefined, hM?: number, pl?: ClipPlane[] | null): boolean;
+}
+
+export type ToolsLive = LiveOf<"inspectHide" | "inspectReapply" | "gFollow" | "columnarCtl" | "editDocHook" | "editDropOwner",
+	"lastTileOrder" | "vtdCtl" | "EXT" | "autoBldHidden" | "land" | "annoCtl" | "cogCtl" | "czmlCtl" | "modelCtl" | "readySig" | "mainDesired" | "elevBusy" | "elevN">;
+export type ToolsDeps = Pick<GlobeScope, "BASEMAP_MINZOOM" | "BASE_SOURCE" | "CAM_ZOOM_MIN" | "HOME_VIEW" | "REGION_HOME" | "WORLD_VT" | "ZOOM_MIN" | "ac" | "baseSidNow" | "baseSrcSpec" | "cam"
+	| "canvas" | "clearImages" | "evXY" | "flightCtl" | "flyTo" | "flyView" | "gint" | "glidePathView" | "loadUserFile" | "meshMgr" | "mlLayers" | "mlSources" | "mlVisible" | "opts"
+	| "remergeBase" | "renderer" | "requestDraw" | "requester" | "scenes" | "setAutoBld" | "size" | "t" | "unprojectAt" | "vtxDescOf">;
+
+export interface StyleReturn {
+	/** 基図を結合し直す（利用者の層の出し入れ・検査表示） */
+	remergeBase(): void;
+	/** addSource の中身（dz＝この source の層のズームの目盛り・内部は 0 を明示） */
+	addSourceAt(id: string, spec: Parameters<StyleApi["addSource"]>[1], dz: number): GlobeMap;
+	/** addLayer の中身（dz を明示） */
+	addLayerAt(layer: Parameters<StyleApi["addLayer"]>[0], beforeId: string | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
 }
 export interface ToolsReturn {
 	/** ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層（fallback＝タイル表が無ければ false） */

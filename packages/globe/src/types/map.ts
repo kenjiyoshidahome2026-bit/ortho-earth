@@ -462,14 +462,14 @@ export interface IntakeApi {
 /** installImages (api/images.ts:9), called at globe.js:2993.
  *  Registers gadgets: heatmap@59 cluster@65 symbols@109 */
 export interface ImagesApi {
-	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;   // api/images.ts:90
+	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | ImageData | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;   // api/images.ts:90
 	removeImage(name: string): void;   // api/images.ts:95
 	/** 画素だけ差し替える（MapLibre 同名・1.7.0〜）＝層を評価し直さない（動く記号を毎フレーム差し替える口）。無い名前は addImage と同じ */
 	updateImage(name: string, image: ImageBitmap | HTMLImageElement | HTMLCanvasElement | ImageData | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }): Promise<unknown>;   // api/images.ts:96
 	hasImage(name: string): boolean;   // api/images.ts:100
 	listImages(): string[];   // api/images.ts:101
 	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
-	loadSprite(base: string): Promise<number>;   // api/images.ts:102
+	loadSprite(base: string, prefix?: string): Promise<number>;   // api/images.ts:102
 }
 
 /** installStyle (api/style.ts:12), called at globe.js:3514. */
