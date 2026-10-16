@@ -84,13 +84,37 @@ export async function decode(v: AltpbfSource): Promise<AltpbfDecoded> {
 		else if (tag === TAGS.DATA) {
 			const end = pbf.readPackedEnd();
 			const known = (obj.width! | 0) * (obj.height! | 0);   // 未知（undefined）は | 0 で 0＝旧来どおり上界で確保
-			const out = new Int16Array(known || (end - pbf.pos));
-			let sum = 0, i = 0;
-			while (pbf.pos < end) { sum += pbf.readSVarint(); out[i++] = sum; }
+			const out = new Int16Array(known || (end - pbf.pos)), start = pbf.pos;
+			let i = svarintRun(pbf.buf, start, end, out);
+			if (i < 0) {   // 32 bit を超える varint（encode() は書かない＝別実装の産物）か切れた入力＝初めから Pbf で読み直す
+				let sum = 0; i = 0; pbf.pos = start;
+				while (pbf.pos < end) { sum += pbf.readSVarint(); out[i++] = sum; }
+			} else pbf.pos = runPos;
 			obj.data = (known || i === out.length) ? out : out.slice(0, i);
 		}
 	});
 	return obj as AltpbfDecoded;   // 形式の規約＝encode() が全フィールドを書く（欠けた入力は旧来どおり undefined のまま返す）
+}
+
+// packed SVarint の差分 → 累積を Int16Array へ。Pbf.readSVarint を値ごとに呼ぶより 2〜3 倍速い（R10 2400² で 56 → 19ms・急な地形で 94 → 41ms・scripts/bench-decode.mjs）。
+// 32 bit に収まる varint だけを 32bit 整数で解く（zigzag＝(v>>>1)^-(v&1)・累積は |0 で折り返す＝Int16 への格納は 2^16 を法に同じ値）。
+// 戻り＝値の数（終わりの位置は runPos）。32 bit を超える varint・バッファの外へ読む切れた入力は −1（Pbf の読みに任せる＝同じ値・同じ例外）。
+let runPos = 0;
+function svarintRun(buf: Uint8Array, pos: number, end: number, out: Int16Array): number {
+	if (end > buf.length) return -1;
+	let sum = 0, i = 0;
+	while (pos < end) {
+		let b = buf[pos++], v = b & 0x7f;
+		if (b & 0x80) { b = buf[pos++]; v |= (b & 0x7f) << 7;
+			if (b & 0x80) { b = buf[pos++]; v |= (b & 0x7f) << 14;
+				if (b & 0x80) { b = buf[pos++]; v |= (b & 0x7f) << 21;
+					if (b & 0x80) { b = buf[pos++]; v |= (b & 0x0f) << 28; if (b & 0xf0) return -1; } } } }
+		sum = (sum + ((v >>> 1) ^ -(v & 1))) | 0;
+		out[i++] = sum;
+	}
+	if (pos > buf.length) return -1;
+	runPos = pos;
+	return i;
 }
 
 export function encodeName(lng: number, lat: number, range?: number): string {
