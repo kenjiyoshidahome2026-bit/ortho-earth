@@ -36,7 +36,9 @@ const CSS = `
 let cssOn = false;
 const ensureCss = () => { if (cssOn) return; cssOn = true; const s = document.createElement("style"); s.textContent = CSS; document.head.append(s); };
 const lngLatOf = (c: LngLatLike) => Array.isArray(c) ? [+c[0], +c[1]] : [+(c.lng ?? c.lon)!, +c.lat];
-const pinSvg = (color: string, scale: number) => `<svg width="${27 * scale}" height="${41 * scale}" viewBox="0 0 27 41" aria-hidden="true"><path d="M13.5 0C6 0 0 6 0 13.4 0 23.5 13.5 41 13.5 41S27 23.5 27 13.4C27 6 21 0 13.5 0z" fill="${color}"/><circle cx="13.5" cy="13.5" r="5" fill="#fff"/></svg>`;
+// color は呼び手の入力＝属性へ入れる前に逃がす（CodeQL・2026-10-16）。CSS の色（#hex・rgb()・名前）は & < > " を含まない＝出力は前と同じ
+const escAttr = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+const pinSvg = (color: string, scale: number) => `<svg width="${27 * scale}" height="${41 * scale}" viewBox="0 0 27 41" aria-hidden="true"><path d="M13.5 0C6 0 0 6 0 13.4 0 23.5 13.5 41 13.5 41S27 23.5 27 13.4C27 6 21 0 13.5 0z" fill="${escAttr(color)}"/><circle cx="13.5" cy="13.5" r="5" fill="#fff"/></svg>`;
 // 錨の位置に対する要素の置き方（translate の割合）
 const ANCHOR: Record<string, number[]> = { center: [-0.5, -0.5], top: [-0.5, 0], bottom: [-0.5, -1], left: [0, -0.5], right: [-1, -0.5], "top-left": [0, 0], "top-right": [-1, 0], "bottom-left": [0, -1], "bottom-right": [-1, -1] };
 
