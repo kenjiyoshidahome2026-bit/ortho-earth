@@ -5,9 +5,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as mlstyle from "@ortho-earth/core/internal/mlstyle.ts";
+import * as mlstyle from "@ortho-earth/core";   // 外来 style の換算（splitMapLibreStyle・convertValue…）＝core の公開の口
 import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "@ortho-earth/core/expr";
-import { decodeDEM } from "@ortho-earth/core/internal/dem-src.ts";
+import { decodeDEM } from "@ortho-earth/core";
 import { expandTemplate } from "@ortho-earth/core/raster-src";
 import { symbolItems, poleOf } from "../src/gadgets/symbols-core.ts";
 import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.ts";

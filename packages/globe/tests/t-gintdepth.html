@@ -22,11 +22,11 @@ const pack = (lon, lat, terminal, weight = 0) => {
 const e7 = d => Math.round(d * 1e7) >>> 0;
 
 try {
-	const { s } = await import("@ortho-earth/core/internal/gl/gint/state.ts");
-	const { createGintPrograms } = await import("@ortho-earth/core/internal/gl/gint/programs.ts");
-	const { uploadGintTextures } = await import("@ortho-earth/core/internal/gl/gint/textures.ts");
-	const { renderCleanScene } = await import("@ortho-earth/core/internal/gl/gint/passes.ts");
-	const { computeDrawData } = await import("@ortho-earth/core/internal/gint/drawdata.ts");
+	const { s } = await import("@ortho-earth/core/src/gl/gint/state.ts");
+	const { createGintPrograms } = await import("@ortho-earth/core/src/gl/gint/programs.ts");
+	const { uploadGintTextures } = await import("@ortho-earth/core/src/gl/gint/textures.ts");
+	const { renderCleanScene } = await import("@ortho-earth/core/src/gl/gint/passes.ts");
+	const { computeDrawData } = await import("@ortho-earth/core/src/gint/drawdata.ts");
 
 	const gl = document.getElementById("g").getContext("webgl2", { antialias: false, stencil: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
 	if (!gl) throw new Error("WebGL2なし");

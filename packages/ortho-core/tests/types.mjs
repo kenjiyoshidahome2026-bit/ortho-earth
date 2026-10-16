@@ -40,7 +40,7 @@ globalThis.self ??= globalThis; globalThis.onmessage ??= null; globalThis.postMe
 const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8"));
 let bad = 0, n = 0;
 for (const [sub, spec] of Object.entries(pkg.exports)) {
-	// 口が .ts そのもの（TS 化済み）＝型の源は実行時のファイル。types を持つ口（JS のまま）＝手書きの .d.ts。それ以外（"./internal/*" 等）は見ない
+	// 口が .ts そのもの（TS 化済み）＝型の源は実行時のファイル。types を持つ口（JS のまま）＝手書きの .d.ts。それ以外は見ない
 	const [typesFile, runtimeFile] = typeof spec === "string" ? (spec.endsWith(".ts") ? [spec, spec] : [null, null]) : [spec.types ?? null, spec.default];
 	if (!typesFile) continue;
 	const declared = declaredNames(path.join(pkgDir, typesFile));

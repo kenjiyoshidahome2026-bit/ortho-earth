@@ -27,8 +27,7 @@ import type { ClockAnchor } from "@ortho-earth/ephem/clock";
 import type { Label2D, LabelImageInput, LabelLayer, SkyLabels, SkyMoon, UserLabel } from "@ortho-earth/core/labels";
 import type { Terrain, TerrainOptions, TerrainRenderer } from "@ortho-earth/core/terrain";
 import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
-import type { ScenePortMessage } from "@ortho-earth/core/internal/worker-msg.ts";
-import type { MergedScene } from "@ortho-earth/core/internal/scene.ts";
+import type { ScenePortMessage, MergedScene } from "@ortho-earth/core/worker-msg";
 
 /** 標高（sampleElev の 3 つ目の cam は読まれない＝従来の呼び方のまま通す） */
 type RwTerrain = Omit<Terrain, "sampleElev"> & { sampleElev(lon: number, lat: number, cam?: CameraPose): number };

@@ -18,7 +18,7 @@ try {
 	else {
 	const A = await import("@ortho-earth/core/fidexpr");
 	const { compileFidStyleWGSL, dictTables } = await import("@ortho-earth/core/fidexpr");
-	const { createFidExprRunner } = await import("@ortho-earth/core/internal/gpu/gintexprgpu.ts");
+	const { createFidExprRunner } = await import("@ortho-earth/core/src/gpu/gintexprgpu.ts");
 	const { buildFidStyle } = await import("@ortho-earth/core/fidstyle");
 	const adapter = await navigator.gpu.requestAdapter();
 	const device = await adapter.requestDevice();
