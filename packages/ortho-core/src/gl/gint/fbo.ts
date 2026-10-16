@@ -2,8 +2,9 @@
 // v1(ortho-map) の gintFBO を移植。node-free。唯一の適応＝v2 は width/height を device px で持つ（*dpr 不要）。
 
 import { s } from './state.ts';
+import type { GintLive } from './state.ts';
 
-function makeFBO(gl, w, h) {
+function makeFBO(gl: WebGL2RenderingContext, w: number, h: number): { fbo: WebGLFramebuffer; colorTex: WebGLTexture; dsRBO: WebGLRenderbuffer } {
 	const colorTex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, colorTex);
 	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -22,8 +23,8 @@ function makeFBO(gl, w, h) {
 	return { fbo, colorTex, dsRBO };
 }
 
-export function createFBOs() {
-	const { gl } = s;
+export function createFBOs(): void {
+	const { gl } = s as GintLive;
 	const w = s.width, h = s.height;   // v2：既に device px
 
 	deleteFBOs();
@@ -36,7 +37,7 @@ export function createFBOs() {
 	s.lastDrawData = null;
 }
 
-export function deleteFBOs() {
+export function deleteFBOs(): void {
 	const { gl } = s;
 	if (!gl) return;
 	if (s.pickFBO)             gl.deleteFramebuffer(s.pickFBO);

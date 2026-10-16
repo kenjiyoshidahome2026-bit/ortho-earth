@@ -8,8 +8,9 @@ import { MOVE_THROTTLE_MS } from './state.ts';
 import { findPolygon } from 'geopbf/identify';
 import { fidVisible } from './utility.ts';
 import { unproject } from '../../camera.ts';
+import type { GintGLState, GintLive, PointerData } from './state.ts';
 
-export function doIdentify(s, data) {
+export function doIdentify(s: GintGLState, data: PointerData): void {
 	if (data.x === s.lastMX && data.y === s.lastMY) return;
 	s.lastMX = data.x; s.lastMY = data.y;
 	s.hitMX = data.x; s.hitMY = data.y;   // click 用の座標。lastMX/MY は draw ごとの dedupe リセットで NaN に戻る（hover→再描画→click で lnglat=null になった根因・2026-09-10）
@@ -20,14 +21,15 @@ export function doIdentify(s, data) {
 	// render worker 同居：同期 readPixels は GPU パイプラインを止め、hover のたびに地図フレームを
 	// 塞ぐ（旧・別worker時代は並列で無害だった＝統合で生まれた唯一の新規ストール）。PBO+fence で非同期化
 	//（識別は 1-2 フレーム遅れるが hover tip には無関係の遅さ）。
-	readPickAsync(s, pickX, pickY, data);
+	readPickAsync(s as GintLive, pickX, pickY, data);
 }
 
 // 非同期 pick 読み：readPixels を PIXEL_PACK_BUFFER へ発行 → fence を置き、
 // clientWaitSync(0) のポーリングで GPU 完了後にだけ getBufferSubData（＝ブロックしない）。
 // 進行中に新しい move が来たら座標だけ差し替え（発行は1本＝解決後に最新座標で読み直す）。
-let _pr = null;   // { fence, data } 進行中の読み
-function readPickAsync(s, pickX, pickY, data) {
+interface PickRead { fence: WebGLSync; data: PointerData; s: GintGLState; next?: { pickX: number; pickY: number; data: PointerData } }
+let _pr: PickRead | null = null;   // { fence, data } 進行中の読み
+function readPickAsync(s: GintLive, pickX: number, pickY: number, data: PointerData): void {
 	const gl = s.gl;
 	if (_pr) { _pr.next = { pickX, pickY, data }; return; }   // 解決後に最新で再発行
 	if (!s._pickPBO) s._pickPBO = gl.createBuffer();
@@ -37,18 +39,18 @@ function readPickAsync(s, pickX, pickY, data) {
 	gl.readPixels(pickX, pickY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, 0);
 	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);   // 束縛を残すと以後の readPixels（snapshot等）が PBO に化ける
 	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-	const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+	const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
 	gl.flush();   // fence をドライバへ押し出す（これが無いと idle 中に永久 TIMEOUT）
 	_pr = { fence, data, s };
 	pollPick(s);
 }
-function pollPick(s) {
+function pollPick(s: GintGLState): void {
 	const gl = s.gl, pr = _pr;
 	if (!pr || !gl) return;
 	if (gl.clientWaitSync(pr.fence, 0, 0) === gl.TIMEOUT_EXPIRED) { setTimeout(() => pollPick(s), 16); return; }
 	gl.deleteSync(pr.fence);
 	const px = new Uint8Array(4);
-	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, s._pickPBO);
+	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, s._pickPBO!);
 	gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
 	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 	const next = pr.next;
@@ -57,7 +59,7 @@ function pollPick(s) {
 	if (next) { s.lastMX = NaN; doIdentify(s, next.data); }   // 進行中に届いた最新座標で読み直し（dedupe/クランプは doIdentify が再適用）
 }
 
-function finishIdentify(s, px, data) {
+function finishIdentify(s: GintGLState, px: Uint8Array, data: PointerData): void {
 	const fid1 = px[0] | (px[1] << 8) | (px[2] << 16);
 	let featureId = fid1 === 0 ? null : fid1 - 1;
 
@@ -68,7 +70,7 @@ function finishIdentify(s, px, data) {
 		if (geo) {
 			const SE = 1e7;
 			featureId = findPolygon(
-				s.gintData.arcBuffer, s.gintData.arcMeta, s.gintData.polyStream,
+				s.gintData.arcBuffer as BigUint64Array, s.gintData.arcMeta!, s.gintData.polyStream,
 				Math.round((geo[0] + 180) * SE),
 				Math.round((geo[1] +  90) * SE),
 				s.polyBboxByFid, s.lastViewBbox, fidVisible(s)
@@ -83,7 +85,7 @@ function finishIdentify(s, px, data) {
 	s.requestDraw?.();   // ハイライトは毎フレームの gint パスが inline で描く＝地図ごと1枚描き直させる
 }
 
-export function handleMove(s, data) {
+export function handleMove(s: GintGLState, data: PointerData): void {
 	// ズーム範囲外＝地物が描画されていない → 識別しない（見えない地物に tip を出さない）。
 	// 直前まで in-range で activeId が残っていれば handleLeave が tip を消す。
 	if (!s._inRange) { handleLeave(s); return; }
@@ -99,8 +101,8 @@ export function handleMove(s, data) {
 	}, MOVE_THROTTLE_MS);
 }
 
-export function handleLeave(s) {
-	clearTimeout(s._moveTimer); s._moveTimer = null;
+export function handleLeave(s: GintGLState): void {
+	clearTimeout(s._moveTimer!); s._moveTimer = null;
 	s._pendingMove = null;
 	if (s.activeId === -1) return;
 	s.activeId = -1;

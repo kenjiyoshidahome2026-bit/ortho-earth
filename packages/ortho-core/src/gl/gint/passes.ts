@@ -9,6 +9,17 @@ import { drapeSubs, subPlan } from '../../gint/drawdata.ts';
 import { SUB_NB } from './utility.ts';
 import { betaOf, ellipsoidOn } from '../../camera.ts';
 import { canUseIdFill, renderIdFill } from './idfill.ts';
+import type { SubDep } from '../../gint/drawdata.ts';
+import type { EdgeChunk } from '../../gint/utility.ts';
+import type { GintPrograms, Uniforms } from './programs.ts';
+import type { GintGLState, GintLive, GLDrawData } from './state.ts';
+
+/** 複製行区間（バケット b ごとの [start, count] の列・無いバケットは null） */
+type SubRuns = ([number, number][] | null)[];
+/** 可視チャンク run＝[startEdge, edgeCount, spanX, spanY] の列（sub＝複製行区間） */
+type Runs = number[][] & { sub?: SubRuns | null };
+/** 線パスが描くメタの選択 */
+interface LineSel { tex: WebGLTexture | null; count: number; runs: Runs | null; minW: number; sub?: SubRuns | null }
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
 const OUTLINE_ZOOM = 13;   // 既定の切替z（256px世界。deriveOutlineZoom targetPx=8 と同じ「旧v2視覚と同点」の調律）
@@ -22,13 +33,13 @@ const OUTLINE_ZOOM = 13;   // 既定の切替z（256px世界。deriveOutlineZoom
 //   地図フレームを塞ぎ GPU 数百ms/フレーム＝実機で激重＋GPUプロセス膨張を起こした）。
 // 対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、overlay は
 // polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。runs＝可視チャンクだけを描く。
-function pickLineTier(s, rank, baseTex, baseCount) {
+function pickLineTier(s: GintGLState, rank: number, baseTex: WebGLTexture | null, baseCount: number): LineSel & { runs: Runs } {
 	let nominal = null, finest = null;
 	for (const t of s.lodTiers ?? []) {
 		if (t.minW <= rank && (!nominal || t.edgeCount < nominal.edgeCount)) nominal = t;
 		if (!finest || t.minW < finest.minW) finest = t;
 	}
-	const sel = nominal
+	const sel: LineSel & { runs: Runs } = nominal
 		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(s, nominal.edgeCount, nominal.chunks), minW: nominal.minW }
 		: { tex: baseTex, count: baseCount, runs: visibleRuns(s, baseCount, s.metaChunks, s.span), minW: 0 };
 	s._pfRuns = sel.runs.length; s._pfChunks = (nominal ? nominal.chunks : s.metaChunks)?.length ?? 0;   // perf 計測用
@@ -63,15 +74,15 @@ function pickLineTier(s, rank, baseTex, baseCount) {
 // spanX/Y＝run 内の最長辺の経緯度スパン（e7・bake の chunk.sx/sy の最大。未知の chunk を含めば -1）＝
 // 地形適応細分（drapeSubs）が 1辺あたりのサブ区間数を決める物差し。全量1本は層全体の span（第4引数）。
 // runs.sub[b]＝可視チャンクの複製行区間（長辺の細分用・bucket-major/chunk-minor 配置＝連続チャンクは 1 区間に併合）。
-function visibleRuns(s, totalCount, chunks, span = null) {
+function visibleRuns(s: GintGLState, totalCount: number, chunks: EdgeChunk[] | null | undefined, span: readonly number[] | null | undefined = null): Runs {
 	const vb = s.lastViewBbox;
-	if (!chunks?.length) { const r = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
+	if (!chunks?.length) { const r: Runs = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
 	const mg = 10000;
 	const vx0 = vb ? vb[0] - mg : 0, vy0 = vb ? vb[1] - mg : 0, vx1 = vb ? vb[2] + mg : 0, vy1 = vb ? vb[3] + mg : 0;
-	const runs = [], sub = new Array(SUB_NB).fill(null);
+	const runs: Runs = [], sub: SubRuns = new Array(SUB_NB).fill(null);
 	let curStart = -1, curEnd = 0, sx = -1, sy = -1;
-	const mergeSpan = c => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
-	const addSub = c => { const a = c.sub; if (!a) return;
+	const mergeSpan = (c: EdgeChunk): void => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
+	const addSub = (c: EdgeChunk): void => { const a = c.sub; if (!a) return;
 		for (let i = 0; i < a.length; i += 3) { const b = a[i], st = a[i + 1], n = a[i + 2]; const L = (sub[b] ??= []); const last = L[L.length - 1];
 			if (last && last[0] + last[1] === st) last[1] += n; else L.push([st, n]); } };
 	for (const c of chunks) {
@@ -85,9 +96,9 @@ function visibleRuns(s, totalCount, chunks, span = null) {
 	return runs;
 }
 // 台帳無しメタ（境界メタ）の複製行区間 [b,start,count,…] → runs.sub 形式
-function subListRuns(list) {
+function subListRuns(list: readonly number[] | null | undefined): SubRuns | null {
 	if (!list) return null;
-	const sub = new Array(SUB_NB).fill(null);
+	const sub: SubRuns = new Array(SUB_NB).fill(null);
 	for (let i = 0; i < list.length; i += 3) (sub[list[i]] ??= []).push([list[i + 1], list[i + 2]]);
 	return sub;
 }
@@ -100,7 +111,7 @@ function subListRuns(list) {
 // 同様に fid bbox カリングは視界外 fid 帰属の arc を落とし、視界内ループを破る＝両方無効化が正解。
 // v1 は常に単一要・カリング無し＝この流儀そのもの。境界メタは辺数が桁減済みなので TBDR も安全。
 // 塗り（s・data を渡す）は層が視野よりずっと大きい時だけ単一要を遠方の 1 点へ（farPivotGlobal＝環は閉じている＝巻き数不変・画面外の辺の三角形は画面外）
-function bindPivotBoundary(gl, u, s = null, data = null) {
+function bindPivotBoundary(gl: WebGL2RenderingContext, u: Uniforms, s: GintGLState | null = null, data: GLDrawData | null = null): void {
 	gl.uniform1i(u.u_has_pivot, 0);   // pivotClip → クリップ原点 vec4(0,0,0,1)（遠方の要があればその点）
 	gl.uniform1i(u.u_use_vbb, 0);     // bboxVisible → 常に true
 	if (!u.u_far_q) return;
@@ -111,7 +122,7 @@ function bindPivotBoundary(gl, u, s = null, data = null) {
 
 // per-fid スタイル表（paint 時のみ・unit5）：visibility（filter）/line色/width を VS が引く。
 // u_width_add＝パス都合の幅増分（clean=0 / highlight=+2。表はスタイル正味のみ＝spec §7.1）。
-function bindFidStyle(s, gl, u, widthAdd = 0) {
+function bindFidStyle(s: GintGLState, gl: WebGL2RenderingContext, u: Uniforms, widthAdd = 0): void {
 	gl.uniform1i(u.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
 	if (u.u_width_add) gl.uniform1f(u.u_width_add, widthAdd);
 	if (u.u_fid_wscale) gl.uniform1f(u.u_fid_wscale, s.dpr ?? 1);   // 表の line-width は CSS px（circle-radius・style.lineWidth と同じ）
@@ -122,7 +133,7 @@ function bindFidStyle(s, gl, u, widthAdd = 0) {
 }
 
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
-function bindPointUniforms(s, u, data) {
+function bindPointUniforms(s: GintLive, u: Uniforms, data: GLDrawData): void {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ptMetaTex);
@@ -143,14 +154,14 @@ function bindPointUniforms(s, u, data) {
 	const lr = lon * Math.PI / 180, br = betaOf(data.origin[1]) * Math.PI / 180;
 	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
 	const pr = data.origin[1] * Math.PI / 180, pell = ellipsoidOn();
-	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(pell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]));
+	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(pell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]) as [number, number, number, number]);
 	if (u.u_ell) gl.uniform1f(u.u_ell, pell ? 1 : 0);
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 	bindDepthUniforms(gl, u, data);   // 点も地形の高さへ（線・塗りと同じドレープ）。u_elevTex の unit7 割当もここ（sampler 型の衝突回避）
 }
 
-export function renderCleanScene(s, data, targetFBO = null) {
+export function renderCleanScene(s: GintLive, data: GLDrawData, targetFBO: WebGLFramebuffer | null = null): void {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W } = s;
 	const width = data.atlas ? data.atlas.size : s.width, height = data.atlas ? data.atlas.size : s.height;   // 窓座標モード＝窓の寸法
@@ -281,7 +292,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		// 2D/地形なし＝plan は N 全1・skip 0＝従来の drawArrays だけ。
 		const runsL = lnSel.runs ?? [[0, lnSel.count]];
 		const subRuns = lnSel.runs ? lnSel.runs.sub : lnSel.sub;
-		const plan = subPlan(dep, subRuns, !!s._isDrawing);   // 移動中は細分を半分（静止で全密度）
+		const plan = subPlan(dep as unknown as SubDep | null | undefined, subRuns as number[][][] | null | undefined, !!s._isDrawing);   // TODO(ts): SubDep.hasElev は boolean だが GL は elev.has（0/1）を渡す・subRuns は null のバケットを含む（共通の型を広げる）   // 移動中は細分を半分（静止で全密度）
 		const drawRuns = () => {
 			gl.uniform1i(uRender.u_sub, 1);
 			gl.uniform1ui(uRender.u_subSkipE7, plan.skipE7);
@@ -330,7 +341,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 
 // 線・点の draw（perf plan P3・2026-09-27）：quad4＝index の 4 頂点＝drawElements（WebGL に baseVertex が無い＝run の先頭辺は u_vbase で渡す・QK 超は割る）／
 // 旧（?quad4=0）＝drawArrays の 6 頂点。inst＝地形適応細分の N（u_sub）。呼び手は quadVAO（属性なし・ELEMENT にパターン）か emptyVAO を bind 済み
-function drawQ(gl, programs, u, first, count, inst = 1) {
+function drawQ(gl: WebGL2RenderingContext, programs: GintPrograms, u: Uniforms, first: number, count: number, inst = 1): void {
 	if (!programs.quad4) { if (inst > 1) gl.drawArraysInstanced(gl.TRIANGLES, first * 6, count * 6, inst); else gl.drawArrays(gl.TRIANGLES, first * 6, count * 6); return; }
 	const K = programs.QK;
 	for (let e = 0; e < count; e += K) {
@@ -342,7 +353,7 @@ function drawQ(gl, programs, u, first, count, inst = 1) {
 
 // アクティブ地物のハイライト（太線＋黄・点拡大・外側マスク）。blit を含まない純描画＝
 // 毎フレームの gint パス末尾（embed.js）から呼ぶ。
-export function drawHighlight(s, data) {
+export function drawHighlight(s: GintLive, data: GLDrawData): void {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height,
 			activeId, polyEdgeByFid } = s;
@@ -356,17 +367,17 @@ export function drawHighlight(s, data) {
 	const range    = polyEdgeByFid?.get(activeId);
 	const eStart   = range?.[0] ?? null;
 	const eCount   = range?.[1] ?? null;
-	const hasRange = eStart != null && eCount > 0;
+	const hasRange = eStart != null && eCount! > 0;
 
 	// Edge highlight：太く＋黄。深度統合時もハイライトは深度免除＝選択地物は尾根の向こうでも実線で示す
 	//（識別の主目的は「どれが当たっているか」＝隠さない）。ドレープだけ掛けて基図と同じ高さに乗せる。
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	const depH = bindDepthUniforms(gl, uRender, data);
-	const nH = drapeSubs(depH, [[0, hasRange ? eCount : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
+	const nH = drapeSubs(depH as unknown as SubDep | null | undefined, [[0, hasRange ? eCount! : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // TODO(ts): SubDep.hasElev（上と同じ）   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
 	gl.uniform1i(uRender.u_sub, nH);
 	gl.uniform1ui(uRender.u_subSkipE7, 0);
-	const drawH = (est, cnt) => drawQ(gl, programs, uRender, est, cnt, nH);
+	const drawH = (est: number, cnt: number): void => drawQ(gl, programs, uRender, est, cnt, nH);
 	bindFidStyle(s, gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
@@ -377,7 +388,7 @@ export function drawHighlight(s, data) {
 	if (uRender.u_hilite_width) gl.uniform1f(uRender.u_hilite_width, data.hiliteWidth ?? 0.0);   // ホバー全幅(device px・0=未指定＝u_line_width)
 	gl.uniform1i(uRender.u_pass, 1);
 	if (hasRange) {
-		drawH(eStart, eCount);
+		drawH(eStart, eCount!);
 	} else if (totalEdges > 0) {
 		drawH(0, totalEdges);
 	}
@@ -404,7 +415,7 @@ export function drawHighlight(s, data) {
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 		bindPivot(s, gl, uStencil, data);
-		gl.drawArrays(gl.TRIANGLES, eStart * 3, eCount * 3);
+		gl.drawArrays(gl.TRIANGLES, eStart! * 3, eCount! * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
 		gl.stencilFunc(gl.EQUAL, 0, 0x7F);
@@ -416,7 +427,7 @@ export function drawHighlight(s, data) {
 	}
 }
 
-export function renderPickingBuffer(s, data) {
+export function renderPickingBuffer(s: GintLive, data: GLDrawData): void {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height, pickFBO } = s;
 	if (!pickFBO) return;
