@@ -7,6 +7,16 @@
 				"why": "互換：gadget(\"japan\")＝home の旧名（globe.js から切り出した・分割 ⑧）"
 			}
 		},
+		"packages/globe/src/types/map.ts": {
+			"japan": {
+				"n": 1,
+				"why": "互換：型の名 OrthoJapanMap（SDK 以来の公開の型名＝GlobeMap の別名・2.0 まで）"
+			},
+			"plateau": {
+				"n": 1,
+				"why": "互換：map.on(\"plateau\")＝\"mesh\" の旧名の重ね書き（公開面の旧名・@deprecated）"
+			}
+		},
 		"packages/globe/src/api/gadgets.js": {
 			"plateau": {
 				"n": 1,

@@ -102,6 +102,26 @@ export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-c
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
 export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
+/** エンジンの生の視点（map.cam・書き換え可能＝公開の写しは map.view）。@ortho-earth/core の CameraPose と同じ形（globe.d.ts は自己完結＝core の .ts を読ませない・TS 化 段 4）。
+ *  角は rad・zoom はエンジンの z（256px 世界） */
+export interface CameraPose {
+	center: LonLat;
+	/** エンジンの z（256px 世界）。 */
+	zoom: number;
+	/** チルト［rad］。0＝真上。 */
+	pitch?: number;
+	/** 方位［rad］。0＝北が上。 */
+	bearing?: number;
+	/** 視線まわりの回転［rad］（MapLibre の roll・正＝絵が時計回り・無指定＝0）。 */
+	roll?: number;
+	/** 縦の視野角［rad］。既定 50°。 */
+	fovy?: number;
+	dpr?: number;
+	/** 注視点の高さ［m］（MapLibre の centerClampedToGround 相当・無指定＝0）。 */
+	centerAlt?: number;
+	/** 注視点を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の centerOffset（padding の中身の中心）。消失点も動く。無指定＝[0,0]。 */
+	offset?: [number, number];
+}
 export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; /** 視線まわりの回転（度・MapLibre の roll・1.16.0〜）。正＝絵が時計回り */ roll?: number; padding?: Partial<PaddingOptions> | number }
 /** 注視の的（A4・1.16.0〜）：[lon, lat, h?]・{lng|lon, lat, alt|height?}・関数（時計の ms → 点）・文字列＝読み込み中の CZML/GPX の軌跡の id か name（時計の時刻の位置） */
 export type CameraTarget = LonLat | [lon: number, lat: number, heightM: number] | { lng?: number; lon?: number; lat: number; alt?: number; height?: number; elevation?: number } | string | ((timeMs: number) => CameraTarget | null | undefined);
