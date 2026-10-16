@@ -10,14 +10,8 @@ export default defineConfig({
 	// 共有データの正本（packages/jp/shared-data）の絶対パス＝src/shared-data.js が dev の /@fs で読む
 	// 焼きスクリプトの出力（repo 直下の bake-out/）＝src/bake-out.js が dev の /@fs で読む
 	define: { __SHARED_DATA_DIR__: JSON.stringify(path.resolve(__dirname, '../../packages/jp/shared-data')), __BAKE_OUT_DIR__: JSON.stringify(path.resolve(__dirname, '../../bake-out')) },
-	resolve: {
-		// 旧パスエイリアス（src直指し）。geopbf だけは撤去（2026-08-21）＝exports のサブパス
-		// （geopbf/encodeZIP 等）を迂回して解決不能になるため、workspace 解決に委ねる。
-		alias: {
-			'common': path.resolve(__dirname, '../../packages/common/src'),
-			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
-		}
-	},
+	// 旧パスエイリアス（common・native-bucket・geopbf を packages/*/src へ直指し）は撤去済み
+	// （geopbf は 2026-08-21、common・native-bucket は段 5-2）＝各 package の exports を通る workspace 解決に委ねる。
 	optimizeDeps: {
 		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket']
 	},

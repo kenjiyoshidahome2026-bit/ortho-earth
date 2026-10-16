@@ -106,7 +106,7 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
     logEl.hide();
     actionEl.hide();
     tablesEl.show().html(
-        `<div class="exec-prop-header"><h2>${esc(pbf._name || '')}<span>${esc(pbf._description || '')}</span></h2><div class="exec-prop-btns"></div></div>` +
+        `<div class="exec-prop-header"><h2>${esc(pbf.name() || '')}<span>${esc(pbf.description() || '')}</span></h2><div class="exec-prop-btns"></div></div>` +
         `<div class="exec-prop-table"><table><thead><tr>${headers.map(h => `<th>${esc(String(h))}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`
     );
     const tbody  = tablesEl.select('tbody');
@@ -126,13 +126,13 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
     }
     const saveProp = async s => { if (!s) return; await saveTo(s); };
     btnRow.append('button').text('📥 CSV').on('click', () =>
-        saveProp(new File(['\ufeff' + pbf.getCSV()], (pbf._name || 'data') + '.csv', { type: 'text/csv' })));   // BOM＝Excel で開いても日本語が化けない
+        saveProp(new File(['\ufeff' + pbf.getCSV()], (pbf.name() || 'data') + '.csv', { type: 'text/csv' })));   // BOM＝Excel で開いても日本語が化けない
     btnRow.append('button').text('📥 Excel').on('click', async () => {
         // 依存ゼロの遅延チャンク（旧: xlsx@0.18.5＝225KB gz の読み書き一式・修正版が npm に無いCVE 2件を出荷。
         // ここは CSV→xlsx の一方向変換だけなので、encodeZIP と同じ CompressionStream 流儀で自前書き出し）
         try {
             const { encodeXLSX } = await import('geopbf/encodeXLSX');
-            const nm = pbf._name || 'data';
+            const nm = pbf.name() || 'data';
             saveProp(await encodeXLSX(pbf.getCSV(), nm + '.xlsx', { sheetName: nm }));
         } catch (e) { console.error('[excel]', e); showToast('Excel 変換に失敗しました'); }
     });
