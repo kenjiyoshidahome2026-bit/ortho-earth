@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf.js";
+import { GeoPBF } from "../pbf.ts";
 import { comma } from "../modules/utility.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 

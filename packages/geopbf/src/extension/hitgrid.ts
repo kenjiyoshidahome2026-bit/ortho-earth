@@ -4,13 +4,24 @@
 // 格子: 層の bbox を G×G（G＝clamp(ceil(sqrt(地物数)), 1, 1024)）に割る。bbox が多くの cell に掛かる大物（> BIG_CELLS）は「常に見る」側（big）に入れて
 // cell の表を膨らませない。縫い目跨ぎ（bbox の x > 360e7＝ortho-core bake の周期対応）の地物も big へ。
 // 面の smallest-wins（流れは weight 降順＝後ろほど小さい）は候補のうち流れの位置が最大の物を返す＝全走査と同じ答え。
-const CACHE = new WeakMap();   // stream → grid
+/** 線・面の当たり判定の格子索引（stream ごとに 1 つ・WeakMap で控える） */
+export interface HitGrid {
+	G: number; x0: number; y0: number; cw: number; ch: number;
+	cellOff: Int32Array; cellFid: Int32Array; big: Int32Array;
+	/** fid → 流れの最初の位置（無い fid は -1）・fid → bbox（4 個ずつ） */
+	off: Int32Array; bb: Float64Array;
+	n: number; cells: number;
+	offOf(fid: number): number;
+	/** 読むだけの窓（新しい配列を作らない） */
+	bboxOf(fid: number): Float64Array | null;
+}
+const CACHE = new WeakMap<Int32Array, HitGrid | null>();   // stream → grid
 const BIG_CELLS = 256;
 const P360 = 3600000000;
 
 // stream＝polyStream（fid, nRings, [arcCount, arcs…]…）または lineStream（fid, nSets, [arcCount, arcs…]…）＝同じ形。
 // 戻り値 { G, x0, y0, cw, ch, cellOff(Int32Array G*G+1), cellFid(Int32Array), big(Int32Array), fidOff(Map fid→流れの最初の位置), fidBbox(Map), n }
-export function buildHitGrid(stream, arcMeta) {
+export function buildHitGrid(stream: Int32Array | null, arcMeta: Uint32Array | null): HitGrid | null {
 	if (!stream || !arcMeta || !stream.length) return null;
 	// 1) 地物ごとの bbox と流れの最初の位置（fid で引く typed array＝Map より軽い。fid は 0 始まりの添字＝maxFid+1 本）
 	let p = 0, maxFid = -1;
@@ -35,9 +46,9 @@ export function buildHitGrid(stream, arcMeta) {
 	if (X0 > X1) { X0 = 0; X1 = P360; Y0 = 0; Y1 = 1800000000; }
 	const G = Math.max(1, Math.min(1024, Math.ceil(Math.sqrt(n))));
 	const cw = Math.max(1, (X1 - X0 + 1) / G), ch = Math.max(1, (Y1 - Y0 + 1) / G);
-	const cx = x => Math.max(0, Math.min(G - 1, Math.floor((x - X0) / cw))), cy = y => Math.max(0, Math.min(G - 1, Math.floor((y - Y0) / ch)));
+	const cx = (x: number): number => Math.max(0, Math.min(G - 1, Math.floor((x - X0) / cw))), cy = (y: number): number => Math.max(0, Math.min(G - 1, Math.floor((y - Y0) / ch)));
 	// 2) cell ごとの地物（CSR）＝数えて→詰める。大物（多くの cell に掛かる・縫い目跨ぎ）は big
-	const counts = new Int32Array(G * G + 1), big = [], span = new Int32Array(NF * 4).fill(-1);
+	const counts = new Int32Array(G * G + 1), big: number[] = [], span = new Int32Array(NF * 4).fill(-1);
 	for (let f = 0; f < NF; f++) {
 		if (off[f] < 0) continue;
 		const b = f * 4;
@@ -54,18 +65,18 @@ export function buildHitGrid(stream, arcMeta) {
 		for (let j = span[b + 2]; j <= span[b + 3]; j++) for (let i = span[b]; i <= span[b + 1]; i++) cellFid[fill[j * G + i]++] = f;
 	}
 	return { G, x0: X0, y0: Y0, cw, ch, cellOff, cellFid, big: Int32Array.from(big), off, bb, n, cells: cellFid.length,
-		offOf: fid => off[fid] ?? -1, bboxOf: fid => off[fid] >= 0 ? bb.subarray(fid * 4, fid * 4 + 4) : null };   // bboxOf＝読むだけの窓（新しい配列を作らない）
+		offOf: (fid: number) => off[fid] ?? -1, bboxOf: (fid: number) => off[fid] >= 0 ? bb.subarray(fid * 4, fid * 4 + 4) : null };   // bboxOf＝読むだけの窓（新しい配列を作らない）
 }
-export function hitGridOf(stream, arcMeta) {
+export function hitGridOf(stream: Int32Array | null, arcMeta: Uint32Array | null): HitGrid | null {
 	if (!stream || !stream.length) return null;
 	let g = CACHE.get(stream);
 	if (g === undefined) { g = buildHitGrid(stream, arcMeta); CACHE.set(stream, g); }
 	return g;
 }
 // 点 (mix, miy)（許容 error＝線は半径・面は 0）に bbox が掛かる候補 fid を列挙（big を含む）。visit(fid, streamOffset)＝真を返したら打ち切り
-export function hitCandidates(grid, mix, miy, error, visit) {
+export function hitCandidates(grid: HitGrid, mix: number, miy: number, error: number, visit: (fid: number, streamOffset: number) => boolean): boolean {
 	const { G, x0, y0, cw, ch, cellOff, cellFid, big, off, bb } = grid;
-	const test = fid => {
+	const test = (fid: number): boolean => {
 		const b = fid * 4, wrap = bb[b + 2] > P360;
 		const inX = wrap ? (mix <= bb[b + 2] - P360 + error || mix >= bb[b] - error) : (mix >= bb[b] - error && mix <= bb[b + 2] + error);
 		return inX && miy >= bb[b + 1] - error && miy <= bb[b + 3] + error && visit(fid, off[fid]);

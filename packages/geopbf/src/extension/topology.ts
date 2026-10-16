@@ -1,4 +1,12 @@
-import { gint } from "./gint.js";
+import { gint } from "./gint.ts";
+import type { GeoPBFBase } from "../pbf-base.ts";
+import type { UnPackGint } from "../../types/geopbf.js";
+
+/** GintBUF を解いた生の欄（ネスト配列・bbox 台帳は attachLazyStreams が遅延で足す） */
+type GintViews = Pick<UnPackGint, "polygonCount" | "polylineCount" | "pointCount" | "nodeCount" | "arcCount" | "bbox" | "arcBuffer" | "arcMeta" | "polyStream" | "lineStream" | "neighborStream" | "pointBuffer" | "point">;
+/** polygon＝[fid, [環[弧…]…]…][]・polyline＝[fid, [弧…]…][] */
+type PolygonArcs = [number, number[][][]][];
+type PolylineArcs = [number, number[][]][];
 
 // GintBUF のフォーマット版。レイアウトを変えたら必ず上げる：unPackGintBuffer が版不一致を拒否し、
 // pbf-io.load が「キャッシュのPBFから再焼き」で自己修復する（版なし時代、polyStream/lineStream 導入(v2レイアウト)を
@@ -7,7 +15,7 @@ topology.FORMAT_VERSION = 5;   // v5: 度アンカーを大円補間に（完全
 
 // shared:true＝GintBUF を SharedArrayBuffer に直に組む（encoder/gint Worker → main の setGintBUF がコピーせずそのまま掴む・2026-10-11 ゼロコピー）。
 // 度アンカー・clean を掛けた時は repack の ArrayBuffer（setGintBUF が SAB へ写す＝従来どおり 1 回）
-export function topology(self, { shared = false } = {}) {
+export function topology(self: GeoPBFBase, { shared = false }: { shared?: boolean } = {}): ArrayBuffer | SharedArrayBuffer {
 	const full = gint.topologyFullWasm(self, topology.FORMAT_VERSION, shared);
 	// JS 位相経路（parse→cutPolygon/cutPolyline→meta→buildArcs→stream 組立・部分 wasm 版込み）は 2026-09-16 に撤去。
 	// 全呼び手（index.js gint()・encoder/gint Worker・convert/node-gint）は先に gint.initialize() を await している＝ここへ来るのは
@@ -19,7 +27,7 @@ export function topology(self, { shared = false } = {}) {
 // 全wasm直行便（topologyFullWasm）の GintBUF へ度アンカーを掛ける後処理。
 // プリスキャン＝arcMeta の bbox だけを生バッファのビューで見る（コピーゼロ）＝1°箱超の arc が無ければ無傷で返す
 // （筆/census級の密データは常にこちら）。必要時のみ unpack→insertDegreeAnchors→repack。
-function anchorFullGintBuf(full) {
+function anchorFullGintBuf(full: ArrayBuffer | SharedArrayBuffer): ArrayBuffer | SharedArrayBuffer {
 	const header = new Uint32Array(full, 0, 16);
 	const arcLength = header[6], arcCount = header[7], pointCount = header[4], mlen = 8, LIMIT = 10000000;
 	if (!arcCount) return full;
@@ -33,7 +41,7 @@ function anchorFullGintBuf(full) {
 	}
 	if (!hit) return full;
 	const d = unpackRawViews(full);   // 旧＝unPackGintBuffer＝GintBUF を丸ごと slice し、捨てるネスト配列と bbox 台帳まで構築していた
-	const set = { count: d.arcCount, buffer: d.arcBuffer, meta: d.arcMeta, mlen };
+	const set = { count: d.arcCount, buffer: d.arcBuffer!, meta: d.arcMeta!, mlen };
 	gint.insertDegreeAnchors(set);
 	d.arcBuffer = set.buffer;
 	{   // 大円アンカーの膨らみ（極側）を全体 bbox（度）にも合流
@@ -41,39 +49,41 @@ function anchorFullGintBuf(full) {
 		gint.unionArcBbox(set, bb);
 		if (bb[0] !== Infinity) d.bbox = [Math.min(d.bbox[0], bb[0] / S - 180), Math.min(d.bbox[1], bb[1] / S - 90), Math.max(d.bbox[2], bb[2] / S - 180), Math.max(d.bbox[3], bb[3] / S - 90)];
 	}
-	return repackGintBuffer(d);
+	return repackGintBuffer(d as UnPackGint);
 }
 
 // polygon/polyline/neighbors（ネスト配列）は遅延生成＝読まれた時に stream から組む（非列挙の accessor＝structured clone に乗らない・
 // Worker 越しは受け側で attachLazyStreams を掛け直す）。消費者は topojson/clean/large-model だけで、描画側（ortho-core）は stream しか読まない
 // ＝旧は毎 unpack で全 feature ぶんのネスト配列を組み、gint Worker からの返り便で structured clone までしていた（俯瞰レビュー 2026-09-15）。
 // setter は clean.js の再代入（gintData.polygon = …）用
-export function attachLazyStreams(d) {
-	if (!d) return d;
-	const lazy = (name, stream, build) => {
-		let v, done = false;
+export function attachLazyStreams<T extends object | null>(d: T): T & UnPackGint {
+	if (!d) return d as T & UnPackGint;
+	const r = d as Record<string, unknown>;
+	const lazy = (name: string, stream: string, build: (s: Int32Array | null) => unknown): void => {
+		let v: unknown, done = false;
 		Object.defineProperty(d, name, { configurable: true, enumerable: false,
-			get() { if (!done) { v = build(d[stream]); done = true; } return v; },
-			set(x) { v = x; done = true; } });
+			get() { if (!done) { v = build(r[stream] as Int32Array | null); done = true; } return v; },
+			set(x: unknown) { v = x; done = true; } });
 	};
 	if (!Object.getOwnPropertyDescriptor(d, "polygon")?.get) lazy("polygon", "polyStream", streamToPolygon);
 	if (!Object.getOwnPropertyDescriptor(d, "polyline")?.get) lazy("polyline", "lineStream", streamToPolyline);
 	if (!Object.getOwnPropertyDescriptor(d, "neighbors")?.get) lazy("neighbors", "neighborStream", streamToNeighbors);
 	// bbox 台帳も遅延（値が own property として来ていれば＝rebuildStreams の代入・旧 clone＝そのまま尊重）
-	const lazy2 = (name, build) => {
+	const lazy2 = (name: string, build: () => unknown): void => {
 		if (Object.getOwnPropertyDescriptor(d, name)?.get || Object.prototype.hasOwnProperty.call(d, name)) return;
-		let v, done = false;
+		let v: unknown, done = false;
 		Object.defineProperty(d, name, { configurable: true, enumerable: false,
 			get() { if (!done) { v = build(); done = true; } return v; },
-			set(x) { v = x; done = true; } });
+			set(x: unknown) { v = x; done = true; } });
 	};
-	lazy2("polyBboxByFid", () => buildFeatureBboxes(d.polyStream, d.arcMeta));
-	lazy2("lineBboxByFid", () => buildFeatureBboxes(d.lineStream, d.arcMeta));
-	lazy2("polyCompBbox",  () => buildCompBboxes(d.polyStream, d.arcMeta));
-	return d;
+	const g = d as unknown as GintViews;
+	lazy2("polyBboxByFid", () => buildFeatureBboxes(g.polyStream, g.arcMeta));
+	lazy2("lineBboxByFid", () => buildFeatureBboxes(g.lineStream, g.arcMeta));
+	lazy2("polyCompBbox",  () => buildCompBboxes(g.polyStream, g.arcMeta));
+	return d as T & UnPackGint;
 }
 // GintBUF の生ビュー（コピーなし・ネスト配列も bbox 台帳も作らない）＝anchorFullGintBuf 用。repackGintBuffer が読む項目だけを返す
-function unpackRawViews(full) {
+function unpackRawViews(full: ArrayBuffer | SharedArrayBuffer): GintViews {
 	let ptr = 0;
 	const header = new Uint32Array(full, 0, 16), mlen = 8, SCALE = gint.SCALE_E; ptr += 64;
 	const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
@@ -96,7 +106,7 @@ function unpackRawViews(full) {
 // リング向き正規化）は自分の写しに書く約束（bake.js bakeBase は共有バッファなら polyStream を写してから書く）。
 // bbox 台帳（polyBboxByFid/lineBboxByFid/polyCompBbox）は遅延＝初めて読まれた時に組む（非列挙 accessor＝structured clone に
 // 乗らない＝受け側で attachLazyStreams を掛け直す）。旧＝毎 unpack で Map 2 つと配列 1 つを同期で組み、Worker 越しは Map の clone まで払っていた
-export function unPackGintBuffer(GintBUF) {
+export function unPackGintBuffer(GintBUF: ArrayBuffer | SharedArrayBuffer | ArrayBufferView): UnPackGint | null {
 	try { let ptr = 0;
 		const buf = ArrayBuffer.isView(GintBUF) ? GintBUF.buffer : GintBUF, mlen = 8, SCALE = gint.SCALE_E;
 		ptr = ArrayBuffer.isView(GintBUF) ? GintBUF.byteOffset : 0;
@@ -124,9 +134,9 @@ export function unPackGintBuffer(GintBUF) {
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
 // 共有バッファ（SharedArrayBuffer）に載っている view か＝書き換える前に写す判断・transfer リストから外す判断に使う
-export const isSharedView = v => typeof SharedArrayBuffer !== "undefined" && !!v && (v instanceof SharedArrayBuffer || (ArrayBuffer.isView(v) && v.buffer instanceof SharedArrayBuffer));
+export const isSharedView = (v: unknown): boolean => typeof SharedArrayBuffer !== "undefined" && !!v && (v instanceof SharedArrayBuffer || (ArrayBuffer.isView(v) && v.buffer instanceof SharedArrayBuffer));
 
-export function repackGintBuffer(d) {
+export function repackGintBuffer(d: UnPackGint): ArrayBuffer {
 	const mlen = 8, SCALE = gint.SCALE_E;
 	const arcLength  = d.arcBuffer ? d.arcBuffer.length : 0;
 	const arcCount   = d.arcCount, pointCount = d.pointCount;
@@ -149,7 +159,7 @@ export function repackGintBuffer(d) {
 	const buf = new ArrayBuffer(totalLength);
 	const u8  = new Uint8Array(buf);
 	let ptr = 0;
-	const write = ta => { u8.set(new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength), ptr); ptr += ta.byteLength; };
+	const write = (ta: ArrayBufferView): void => { u8.set(new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength), ptr); ptr += ta.byteLength; };
 	write(header);
 	d.arcBuffer   && write(d.arcBuffer);
 	d.pointBuffer && write(d.pointBuffer);
@@ -163,9 +173,9 @@ export function repackGintBuffer(d) {
 
 // Build Stream → Map<fid, [xMin,yMin,xMax,yMax]> for per-feature early rejection in the JS identify fallback.
 // Both polygon stream and polyline stream share the same 3-level structure [fid][numGroups][arcCount][arcIdx...].
-function buildFeatureBboxes(stream, arcMeta) {
+function buildFeatureBboxes(stream: Int32Array | null, arcMeta: Uint32Array | null): Map<number, number[]> | null {
 	if (!stream || !arcMeta || !stream.length) return null;
-	const byFid = new Map();
+	const byFid = new Map<number, number[]>();
 	let p = 0;
 	while (p < stream.length) {
 		const fid = stream[p++], numGroups = stream[p++];
@@ -184,9 +194,9 @@ function buildFeatureBboxes(stream, arcMeta) {
 }
 
 // Per-component (one island of a MultiPolygon) bbox, 1:1 with polygon_stream entries; passed to WASM identify_polygon.
-function buildCompBboxes(polyStream, arcMeta) {
+function buildCompBboxes(polyStream: Int32Array | null, arcMeta: Uint32Array | null): Uint32Array | null {
 	if (!polyStream || !arcMeta || !polyStream.length) return null;
-	const out = [];
+	const out: number[] = [];
 	let p = 0;
 	while (p < polyStream.length) {
 		p++; // fid
@@ -208,14 +218,14 @@ function buildCompBboxes(polyStream, arcMeta) {
 // 入れ子配列（polygon/polyline）→ stream・隣接・bbox 台帳を組み直す＝clean.js が弧を切り直した後に呼ぶ（2026-09-25）。
 // 旧＝clean は入れ子配列と arcBuffer/arcMeta だけ書き換え、描画・識別・repack が読む stream は古い弧番号のまま＝面が壊れた GintBUF になった。
 // 隣接は wasm topology.rs「7. neighbor stream」と同じ規則（面の弧共有・fid は弧番号順の初出順・隣接リストは昇順）。
-export function rebuildStreams(d) {
-	const polygon = d.polygon ?? [], polyline = d.polyline ?? [];
-	const ps = [], ls = [];
+export function rebuildStreams(d: { -readonly [K in keyof UnPackGint]: UnPackGint[K] }): UnPackGint {
+	const polygon: PolygonArcs = d.polygon ?? [], polyline: PolylineArcs = d.polyline ?? [];
+	const ps: number[] = [], ls: number[] = [];
 	for (const [fid, comps] of polygon) for (const rings of comps) { ps.push(fid, rings.length); for (const r of rings) { ps.push(r.length); for (const a of r) ps.push(a); } }
 	for (const [fid, sets] of polyline) { ls.push(fid, sets.length); for (const set of sets) { ls.push(set.length); for (const a of set) ls.push(a); } }
-	const owners = Array.from({ length: d.arcCount }, () => []);
+	const owners: number[][] = Array.from({ length: d.arcCount }, () => []);
 	for (const [fid, comps] of polygon) for (const rings of comps) for (const r of rings) for (const a of r) owners[a < 0 ? ~a : a].push(fid);
-	const order = [], nbMap = new Map();
+	const order: number[] = [], nbMap = new Map<number, Set<number>>();
 	for (const ids of owners) {
 		if (ids.length < 2) continue;
 		for (const id of ids) {
@@ -223,8 +233,8 @@ export function rebuildStreams(d) {
 			for (const t of ids) if (t !== id) nb.add(t);
 		}
 	}
-	const ns = [], neighbors = [];
-	for (const fid of order) { const nb = [...nbMap.get(fid)].sort((a, b) => a - b); ns.push(fid, nb.length, ...nb); neighbors[fid] = nb; }
+	const ns: number[] = [], neighbors: number[][] = [];
+	for (const fid of order) { const nb = [...nbMap.get(fid)!].sort((a, b) => a - b); ns.push(fid, nb.length, ...nb); neighbors[fid] = nb; }
 	d.polyStream = ps.length ? new Int32Array(ps) : null;
 	d.lineStream = ls.length ? new Int32Array(ls) : null;
 	d.neighborStream = ns.length ? new Int32Array(ns) : null;
@@ -236,28 +246,28 @@ export function rebuildStreams(d) {
 }
 
 // ── Stream ↔ JS array conversion (backward compatibility for topojson.js / clean.js) ──────────────────
-function streamToPolygon(polyStream) {
+function streamToPolygon(polyStream: Int32Array | null): PolygonArcs | null {
 	if (!polyStream || !polyStream.length) return null;
-	const byFid = new Map(); let p = 0;
+	const byFid = new Map<number, number[][][]>(); let p = 0;
 	while (p < polyStream.length) {
-		const fid = polyStream[p++], numRings = polyStream[p++], rings = [];
+		const fid = polyStream[p++], numRings = polyStream[p++], rings: number[][] = [];
 		for (let r = 0; r < numRings; r++) {
-			const arcCount = polyStream[p++], ring = [];
+			const arcCount = polyStream[p++], ring: number[] = [];
 			for (let a = 0; a < arcCount; a++) ring.push(polyStream[p++]);
 			rings.push(ring);
 		}
 		let comps = byFid.get(fid); if (!comps) { comps = []; byFid.set(fid, comps); }
 		comps.push(rings);
 	}
-	return byFid.size ? [...byFid.entries()].map(([fid, comps]) => [fid, comps]) : null;
+	return byFid.size ? [...byFid.entries()].map(([fid, comps]): [number, number[][][]] => [fid, comps]) : null;
 }
-function streamToPolyline(lineStream) {
+function streamToPolyline(lineStream: Int32Array | null): PolylineArcs | null {
 	if (!lineStream || !lineStream.length) return null;
-	const out = []; let p = 0;
+	const out: PolylineArcs = []; let p = 0;
 	while (p < lineStream.length) {
-		const fid = lineStream[p++], numSets = lineStream[p++], sets = [];
+		const fid = lineStream[p++], numSets = lineStream[p++], sets: number[][] = [];
 		for (let s = 0; s < numSets; s++) {
-			const arcCount = lineStream[p++], arcs = [];
+			const arcCount = lineStream[p++], arcs: number[] = [];
 			for (let a = 0; a < arcCount; a++) arcs.push(lineStream[p++]);
 			sets.push(arcs);
 		}
@@ -265,11 +275,11 @@ function streamToPolyline(lineStream) {
 	}
 	return out.length ? out : null;
 }
-function streamToNeighbors(neighborStream) {
+function streamToNeighbors(neighborStream: Int32Array | null): number[][] | null {
 	if (!neighborStream || !neighborStream.length) return null;
-	const out = []; let p = 0, hasAny = false;
+	const out: number[][] = []; let p = 0, hasAny = false;
 	while (p < neighborStream.length) {
-		const fid = neighborStream[p++], count = neighborStream[p++], nb = [];
+		const fid = neighborStream[p++], count = neighborStream[p++], nb: number[] = [];
 		for (let i = 0; i < count; i++) nb.push(neighborStream[p++]);
 		out[fid] = nb; hasAny = true;
 	}

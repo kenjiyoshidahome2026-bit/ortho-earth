@@ -54,12 +54,10 @@
 	"bin": {
 		"geopbf": "bin/geopbf.mjs"
 	},
-	"main": "src/index.js",
-	"types": "./types/index.d.ts",
+	"main": "src/index.ts",
 	"sideEffects": [
-		"./src/index.js",
-		"./src/pbf.js",
-		"./src/pbf-base.js",
+		"./src/index.ts",
+		"./src/pbf-base.ts",
 		"./src/worker.ts",
 		"./src/decoder/*.ts",
 		"./src/encoder/*.ts",
@@ -68,29 +66,14 @@
 		"./wasm/pkg/*.js"
 	],
 	"exports": {
-		".": {
-			"types": "./types/index.d.ts",
-			"default": "./src/index.js"
-		},
-		"./core": {
-			"types": "./types/core.d.ts",
-			"default": "./src/core.js"
-		},
+		".": "./src/index.ts",
+		"./core": "./src/core.ts",
 		"./worker": "./src/worker.ts",
 		"./no-builtin-workers": "./src/modules/builtinWorkers.none.ts",
-		"./identify": {
-			"types": "./types/identify.d.ts",
-			"default": "./src/extension/identify.js"
-		},
-		"./gint": "./src/extension/gint.js",
-		"./topology": {
-			"types": "./types/topology.d.ts",
-			"default": "./src/extension/topology.js"
-		},
-		"./pbf-base": {
-			"types": "./types/pbf-base.d.ts",
-			"default": "./src/pbf-base.js"
-		},
+		"./identify": "./src/extension/identify.ts",
+		"./gint": "./src/extension/gint.ts",
+		"./topology": "./src/extension/topology.ts",
+		"./pbf-base": "./src/pbf-base.ts",
 		"./pbf": "./src/modules/pbf.ts",
 		"./czml": "./src/modules/czml.ts",
 		"./cog": "./src/cog/index.ts",

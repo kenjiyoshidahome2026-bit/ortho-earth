@@ -1,6 +1,5 @@
 // 型を書き切っていない subpath の省略宣言（import は any で通る・TS7016 を出さない）。型を書いたら該当行を消して package.json の exports に "types" を足す。
 // 正典（散文）は reference.md「Module map」。2026-10-12（改良点 10）
-declare module "geopbf/gint";
 declare module "geopbf/parquet";
 declare module "geopbf/featureservice";
 declare module "geopbf/georef";

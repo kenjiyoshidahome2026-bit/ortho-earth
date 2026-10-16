@@ -1,34 +1,43 @@
-import { GeoPBF } from "./pbf-base.js";
+import { GeoPBF } from "./pbf.ts";   // gint()／setGintBUF を持つ "geopbf" の GeoPBF（旧＝pbf-base の GeoPBF＝後付けで同じ class だった・TS 化 段 4）
 import { gunzip } from "./modules/gzip.ts";
 import { decodeZIP } from "./modules/decodeZIP.ts";
 import { fname2mime } from "./modules/fname2mime.ts";
+import type { BucketCache, BucketProvider, BucketStore, CreateGeopbfOptions } from "../types/geopbf.js";
+
+/** bucket provider が返す 3 つ（Bucket・Cache・Fetch） */
+type Provided = ReturnType<BucketProvider>;
+/** IDB の控えの 1 件（PBF・GINT・版） */
+interface CacheVal { PBF?: ArrayBuffer; GINT?: ArrayBuffer | SharedArrayBuffer | null; ETag?: string | null; etag?: string; meta?: Record<string, unknown> }
 
 // bucket provider が注入されない時の素の代役（npm 単体利用の既定）：
 //  - Fetch＝直 fetch（proxy 無し）。zip#target は同梱 decodeZIP で展開＝URL/File/GeoJSON 変換と gint は全部動く
 //  - Cache＝無効（毎回変換＝動くが再訪は速くならない）・Bucket 名前引き＝不可（明確なエラーで案内）
 // フル機能（IDBキャッシュ・proxy fetch・バケツ名前引き）は createGeopbf(apiBase, { bucket: nativeBucket }) で注入する。
-const plainProvider = () => ({
+const plainProvider = (): Provided => ({
 	Bucket: async () => ({ url: null, list: async () => [],
 		put: () => { throw new Error("geopbf: bucket provider not injected — pass { bucket } to createGeopbf()"); },
 		del: () => { throw new Error("geopbf: bucket provider not injected — pass { bucket } to createGeopbf()"); },
 		etag: async () => null }),
 	Cache: async () => (async () => null),   // 呼び出し3形（list/get/set）全てを null/no-op で受ける
 	Fetch: async (url, { target, encoding } = {}) => {
-		if (target) return decodeZIP(url, { target, encoding });
+		if (target) return decodeZIP(url, { target, encoding }) as Promise<File>;
 		const res = await fetch(url);
 		if (!res.ok) throw new Error(`fetch failed: ${url} (HTTP ${res.status})`);
 		const blob = await res.blob();
-		const name = decodeURIComponent(url.split("/").pop().split("?")[0] || "download");
+		const name = decodeURIComponent(url.split("/").pop()!.split("?")[0] || "download");
 		return new File([blob], name, { type: fname2mime(name) });
 	},
 });
 
 // ETag の表記ゆれ吸収：レスポンスヘッダ＝W/"16進"・?meta=1 の JSON＝素の16進。比較は正規形で
-const normETag = s => String(s || "").replace(/^W\//, "").replace(/"/g, "");
+const normETag = (s: unknown): string => String(s || "").replace(/^W\//, "").replace(/"/g, "");
 
+/** bucket の棚 1 つ（入口 index.ts の getServer が返す） */
 class PBFIO {
-    constructor(nb, dire) { this.nb = nb; this.dire = dire || "GIS"; }
-    async open() {
+    nb: Provided; dire: string;
+    declare bucket: BucketStore; declare cache: BucketCache;
+    constructor(nb: Provided, dire?: string) { this.nb = nb; this.dire = dire || "GIS"; }
+    async open(): Promise<this> {
         const { Bucket, Cache } = this.nb;
         // lazy＝到達確認の list() を省く。GIS/pbf は 1893 件・257KB の一覧で Worker 側 4 秒強（2026-09-18 実測）＝
         // 全消費者（equal/japan/gishub…）が最初の名前引きの前にこれを毎ページ待っていた（IDB 命中でも国が出るまで 4〜9 秒の正体）。
@@ -37,14 +46,14 @@ class PBFIO {
         this.cache = await Cache(`${this.dire}/pbf`);
         return this;
     }
-    async fetch(name) {
+    async fetch(name: string): Promise<File | Blob> {
         const { Fetch } = this.nb;
         const [url, target] = name.split(/\#/);
         return target ? await Fetch(url, { target }) : await Fetch(url);
     }
-    async files() { return await this.bucket.list(); }
-    async sync() {
-        const localKeys = (await this.cache()) || []; if (localKeys.length === 0) return;
+    async files(): Promise<unknown[]> { return await this.bucket.list(); }
+    async sync(): Promise<void> {
+        const localKeys: string[] = (await this.cache()) || []; if (localKeys.length === 0) return;
         await Promise.all(localKeys.map(async (name) => {
             try {
                 const val = await this.cache(name); if (!val.etag) return;
@@ -59,17 +68,17 @@ class PBFIO {
         }));
         console.log(" ✅ Sync complete.");
     }
-    async load(name, opts = {}) {
+    async load(name: string, opts: { gint?: boolean } = {}): Promise<GeoPBF | null | undefined> {
         if (!this.bucket?.url) {   // plain provider＝バケツ名前引きは対象外（URL/File/GeoJSON 変換は index.js 側の経路で全て動く）
             console.error(`[geopbf] ${name}: bucket provider not injected — named bucket loads need createGeopbf(apiBase, { bucket })`);
             return null;
         }
-        const val = await this.cache(name).catch(console.error);
+        const val: CacheVal | void = await this.cache(name).catch(console.error);
         // キャッシュの GINT（派生物）は ETag 一致でも信用しきらない：GintBUF のフォーマットが変わると
         // ETag（ソース PBF の版）は同じまま unpack が失敗する。失敗したら下の「取得→再焼き→put」へ
         // フォールスルー＝次回からは新フォーマットのキャッシュ（自己修復。旧版キャッシュで海岸線が全端末で消えた教訓）。
-        const fromCache = async v => {
-            const pbf = await (await new GeoPBF().set(v.PBF)).setGintBUF(v.GINT).catch(() => null);
+        const fromCache = async (v: CacheVal): Promise<GeoPBF | null> => {
+            const pbf = await (await new GeoPBF().set(v.PBF!)).setGintBUF(v.GINT!).catch(() => null);
             return pbf && pbf.unPackGint ? pbf : null;
         };
         // IDB ファースト：GintBUF まで揃っていれば即返す＝表示をネットワーク往復で待たせない
@@ -92,14 +101,14 @@ class PBFIO {
             // meta 不達は素の GET（縮退＝従来挙動・オフライン等）。revalidate と同じ理屈（CDN s-maxage=1h/ブラウザ max-age=4h 対策）。
             const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
             const cur = normETag(meta?.data?.ETag);
-            let ab, etag;
+            let ab: ArrayBuffer, etag: string | null | undefined;
             // ⚠ 上の fromCache が走っていたら val.PBF は set() が worker へ transfer 済み＝detached（byteLength 0）。
             // そのまま postMessage すると DataCloneError で落ち、旧版 GINT の自己修復が永久に失敗する
             //（版検札で弾く→再焼きへ落ちる→ここで detach 死、の無限ループ・2026-09-17 実測 gint v5 昇格時）。
             // detach していたら IDB から読み直す＝クローンが起き直る。通るのは稀（版上げ直後）だけなので copy は安い。
-            const cachedPBF = val?.PBF?.byteLength === 0 ? (await this.cache(name).catch(() => null))?.PBF : val?.PBF;
-            if (cachedPBF?.byteLength && cur && cur === normETag(val.ETag)) {   // 版一致＝本体は IDB の PBF を使い、GINT（派生物）だけ焼き直す（旧＝一致でも全量 fetch）
-                ab = cachedPBF; etag = val.ETag;
+            const cachedPBF: ArrayBuffer | undefined = val?.PBF?.byteLength === 0 ? (await this.cache(name).catch(() => null))?.PBF : val?.PBF;
+            if (cachedPBF?.byteLength && cur && cur === normETag(val!.ETag)) {   // 版一致＝本体は IDB の PBF を使い、GINT（派生物）だけ焼き直す（旧＝一致でも全量 fetch）
+                ab = cachedPBF; etag = val!.ETag;
             } else {
                 const res = await fetch(`${this.bucket.url}${name}${cur ? `?v=${encodeURIComponent(cur)}` : ""}`, { cache: 'default' });
                 if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
@@ -119,7 +128,7 @@ class PBFIO {
     // 焼き直し後もここが「新版なし」に見えて永遠に更新されない（below_sea_land 再焼きが何度リロードしても
     // 届かない実測 2026-09-01）。版の照会は ?meta=1 をクエリでキャッシュバスト（応答は百数十B）し、
     // 版が違う時だけ本体を ?v=<ETag>（内容アドレス＝どの層にキャッシュされても常に正しい）で取得する。
-    async revalidate(name, oldETag, opts = {}) {
+    async revalidate(name: string, oldETag: string | null | undefined, opts: { gint?: boolean } = {}): Promise<void> {
         if (!this.bucket?.url) return;
         const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
         const cur = meta?.data?.ETag;
@@ -134,7 +143,7 @@ class PBFIO {
         await this.put(pbf);
         console.log(`[geopbf] ${name}: new version detected -> updating IDB (takes effect from next launch)`);
     }
-    async save(pbf) {
+    async save(pbf: GeoPBF): Promise<string | null> {
         const name = pbf.name(); if (!name) return null;
         const file = new File([pbf.arrayBuffer], pbf._name, { type: "application/x-geopbf" });
         await this.bucket.put(file);
@@ -142,26 +151,26 @@ class PBFIO {
         await this.put(pbf);
         return name;
     }
-    async put(pbf) {
+    async put(pbf: GeoPBF): Promise<string | null> {
         const name = pbf.name(); if (!name) return null;
-        const val = { PBF: pbf.arrayBuffer };
+        const val: CacheVal = { PBF: pbf.arrayBuffer };
         pbf._etag && (val.ETag = pbf._etag);
         pbf._gintBuffer && (val.GINT = new Uint8Array(pbf._gintBuffer).slice().buffer);
         await this.cache(name, val);
         return name;
     }
-    async delete(name) {
+    async delete(name: string): Promise<string> {
         await this.bucket.del(name);
         await this.cache(name, null);
         return name;
     }
-    async clean(name) {
+    async clean(name: string): Promise<string> {
         await this.cache(name, null);
         return name;
     }
 }
 
-export function createPbfio(apiBase, options = {}) {
+export function createPbfio(apiBase: string | undefined, options: CreateGeopbfOptions = {}): (dire?: string) => Promise<PBFIO> {
     // options.bucket＝bucket provider ファクトリの注入口（例: native-bucket の nativeBucket）。
     // 形＝(apiBase, options) → { Bucket, Cache, Fetch }。未注入＝plainProvider（上記の素の縮退）。
     // これにより geopbf(npm/MIT) は私有インフラ（native-bucket）への依存ゼロで自己完結する（依存の向き反転 2026-08-21）。
@@ -169,3 +178,4 @@ export function createPbfio(apiBase, options = {}) {
     const nb = provider(apiBase, options);
     return (dire) => new PBFIO(nb, dire).open();
 }
+export type { PBFIO };

@@ -9,8 +9,8 @@
 // 流れ: unpack → ①project（GPU/CPU）→ ②lodCount（全ズーム 1 dispatch）→ prefix sum → ②lodWrite（出力量で
 // ズームを束ねて読み戻し）→ ズーム×タイル列範囲の job を worker プールへ（環/線の組立・二分クリップ・MVT・gzip・
 // 内容キー）→ main で内容を寄せて PMTiles。gzip は Node=zlib / ブラウザ=CompressionStream（pako 不使用）。
-import { unPackGintBuffer } from "../extension/topology.js";
-import type { UnPackGint } from "../pbf-base.js";
+import { unPackGintBuffer } from "../extension/topology.ts";
+import type { UnPackGint } from "../pbf-base.ts";
 import { getDevice } from "./gpu.ts";
 import type { ConvertDevice, GPUInfo } from "./gpu.ts";
 import { createEngine, cpuEngine } from "./engine.ts";

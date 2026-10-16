@@ -1,5 +1,5 @@
-import { GeoPBF } from "../pbf-base.js";
-import { dissolve } from "../extension/dissolve.js";
+import { GeoPBF } from "../pbf-base.ts";
+import { dissolve } from "../extension/dissolve.ts";
 import { geojson } from "../modules/geojson.ts";
 import { isObject } from "../modules/utility.ts";
 import { isCzml, czmlToFeatures } from "../modules/czml.ts";

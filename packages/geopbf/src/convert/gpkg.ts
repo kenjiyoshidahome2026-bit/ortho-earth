@@ -12,7 +12,7 @@
 // 属性: SQLite の型そのまま（INTEGER/REAL/TEXT）。宣言型 BOOLEAN → bool、DATE/DATETIME/TIMESTAMP → Date、BLOB 列は読まない（stats.skipped）。
 //       安全整数を超える INTEGER は文字列にする（精度を黙って落とさない）。rowid 別名（fid）は属性として残す。
 import { mercToLonLat } from "../modules/mercator.ts";
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue, SqlRow } from "./sqlite.ts";
 import { parseWkb } from "./wkb.ts";

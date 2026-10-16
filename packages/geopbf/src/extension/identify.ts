@@ -1,7 +1,12 @@
-import { gint } from "./gint.js";
-import { hitGridOf, hitCandidates } from "./hitgrid.js";   // 格子索引（改良点 ⑧）＝候補だけ照合
-export { hitGridOf, buildHitGrid } from "./hitgrid.js";
-export const hitGridMode = { on: true };   // 検定用＝false で旧の全走査（tests/t-hitgrid.mjs が答えの一致と速さを突き合わせる）
+import { gint } from "./gint.ts";
+import { hitGridOf, hitCandidates } from "./hitgrid.ts";   // 格子索引（改良点 ⑧）＝候補だけ照合
+import type { GeoPBFBase } from "../pbf-base.ts";
+import type { IdentifyAtOptions, IdentifyOptions, Projection } from "../../types/geopbf.js";
+export { hitGridOf, buildHitGrid } from "./hitgrid.ts";
+export type { HitGrid } from "./hitgrid.ts";
+/** 候補の絞り（偽の fid は無い物として次の候補へ） */
+type Accept = ((fid: number) => boolean) | null;
+export const hitGridMode: { on: boolean } = { on: true };   // 検定用＝false で旧の全走査（tests/t-hitgrid.mjs が答えの一致と速さを突き合わせる）
 
 // 全て純JS実装。wasm側 GintConverter(identify.rs) との連携コード（buildConverter等）は
 // 呼び出し元ゼロのまま識別経路が findPolygon(JS) に一本化されたため 2026-07-17 に撤去した。
@@ -16,12 +21,12 @@ export const hitGridMode = { on: true };   // 検定用＝false で旧の全走�
 // 描画レス識別の本命: proj 不要・経緯度と許容半径[m]で問い合わせる（点→線→面の順に照合）。
 // 許容半径は等方近似（1度≒111.32km）で gint 格子単位へ変換する。面は許容半径不要（内包判定）。
 // options.accept＝fid → 真偽（偽の地物は無いものとして次の候補を探す＝描画側の filter で隠した地物を識別から外す口・2026-09-26）
-export function identifyAt(self, lng, lat, options = {}) {
+export function identifyAt(self: GeoPBFBase, lng: number, lat: number, options: IdentifyAtOptions = {}): number | null {
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
 	const mix = Math.round((lng + 180) * gint.SCALE_E);
 	const miy = Math.round((lat + 90) * gint.SCALE_E);
-	const toUnits = m => (m / 111320) * gint.SCALE_E;
+	const toUnits = (m: number): number => (m / 111320) * gint.SCALE_E;
 	const pointError = toUnits(options.point ?? 50);        // 既定: 点は半径50m
 	const polylineError = toUnits(options.polyline ?? 30);  // 既定: 線は半径30m
 	const accept = typeof options.accept === "function" ? options.accept : null;
@@ -41,7 +46,7 @@ export function identifyAt(self, lng, lat, options = {}) {
 	return null;
 }
 
-export function contain(self, lng, lat) {
+export function contain(self: GeoPBFBase, lng: number, lat: number): number | null {
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polyStream, polyBboxByFid } = self.unPackGint;
 	if (!arcBuffer || !arcMeta || !polyStream) return null;
@@ -50,7 +55,7 @@ export function contain(self, lng, lat) {
 	return findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid);
 }
 
-export function identify(self, mx, my, proj, options = {}) {
+export function identify(self: GeoPBFBase, mx: number, my: number, proj: Projection, options: IdentifyOptions = {}): number | null {
 	const geo = proj.invert([mx, my]);
 	if (!geo) return null;
 
@@ -78,14 +83,14 @@ export function identify(self, mx, my, proj, options = {}) {
 
 // ── JS implementations ────────────────────────────────────────────────────────
 
-function findPoint(buffer, pointMeta, mix, miy, error, accept = null) {
+function findPoint(buffer: BigUint64Array, pointMeta: Uint32Array, mix: number, miy: number, error: number, accept: Accept = null): number | null {
 	const errSq = error * error;
 	const xMin = Math.max(0, mix - error), xMax = mix + error;
 	const yMin = Math.max(0, miy - error), yMax = miy + error;
 
 	// 最上位ビット跨ぎの分割判定：座標は最大3.6e9＝32bit幅で、JSビット演算は int32 に潰れる。
 	// XORパターンは >>>0 で読み、マスクは 2^b の算術で計算（旧 (1<<31) 直書きは経度34.748°E跨ぎの窓で壊れていた）
-	const split = (min, max) => {
+	const split = (min: number, max: number): number | null => {
 		const xor = (min ^ max) >>> 0;
 		if (xor < 2 ** 31) return null;   // 最上位ビットが同じ＝分割不要（発火条件は旧実装と同一）
 		return Math.floor(max / 2 ** 31) * 2 ** 31;
@@ -139,7 +144,7 @@ function findPoint(buffer, pointMeta, mix, miy, error, accept = null) {
 // ＝呼び出し元ゼロのまま一度も機能していなかった（geoedit の線選択で発覚）。
 // 距離は 1e-7 整数単位の平面近似（identifyAt が許容半径をこの単位へ換算して渡す）。遠い線分は
 // 座標差が 2^53 を超えて精度が落ちるが、判定は errSq との比較＝近傍でのみ効く値なので実害はない。
-function segDistSq(px, py, ax, ay, bx, by) {
+function segDistSq(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
 	const vx = bx - ax, vy = by - ay, wx = px - ax, wy = py - ay;
 	const c1 = vx * wx + vy * wy;
 	if (c1 <= 0) return wx * wx + wy * wy;
@@ -148,10 +153,10 @@ function segDistSq(px, py, ax, ay, bx, by) {
 	const t = c1 / c2, dx = wx - t * vx, dy = wy - t * vy;
 	return dx * dx + dy * dy;
 }
-function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null) {
+function findMortonNear(buffer: BigUint64Array, meta: Uint32Array, lineStream: Int32Array, mix: number, miy: number, error: number, accept: Accept = null): number | null {
 	const errSq = error * error;
 	// 1 地物（流れの位置 p0 から）の線分距離の照合
-	const hit = (fid, p0) => {
+	const hit = (fid: number, p0: number): boolean => {
 		let p = p0;
 		while (p < lineStream.length && lineStream[p] === fid) {
 			p++; const numSets = lineStream[p++];
@@ -175,7 +180,7 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null
 	};
 	const grid = hitGridMode.on ? hitGridOf(lineStream, meta) : null;   // 格子索引（改良点 ⑧）＝bbox が掛かる候補だけ（旧＝全地物の走査）
 	if (grid) {
-		let found = null, at = Infinity;   // 旧＝流れの順で最初に当たった線＝候補のうち流れの位置が最小の物（big を先に見ても答えは同じ）
+		let found: number | null = null, at = Infinity;   // 旧＝流れの順で最初に当たった線＝候補のうち流れの位置が最小の物（big を先に見ても答えは同じ）
 		hitCandidates(grid, mix, miy, error, (fid, p0) => { if (p0 < at && (!accept || accept(fid)) && hit(fid, p0)) { found = fid; at = p0; } return false; });
 		return found;
 	}
@@ -193,11 +198,12 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null
 // 地物weight降順（大→小）で書き出すため、全走査して最後にヒットした fid ＝最小地物。
 // 旧・先勝ちは常に外側の大物を返し、入れ子の内側（地種区分の内側ゾーン等）が選べなかった。
 // accept＝fid → 真偽（偽＝無いものとして飛ばす＝隠した小さい面の下の、見えている面が返る・2026-09-26）
-export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox, accept = null) {
+/** 点（gint 格子単位）を含む最小のポリゴンの fid。viewBbox＝視野の bbox（null＝無視）・accept＝候補の絞り */
+export function findPolygon(buffer: BigUint64Array, meta: Uint32Array, polyStream: Int32Array, mix: number, miy: number, polyBboxByFid?: Map<number, number[]> | null, viewBbox?: ArrayLike<number> | null, accept: Accept = null): number | null {
 	const vb = viewBbox ?? null;
 	const P = 3600000000;
 	// 1 地物（流れの位置 p0 から＝多角形の塊が連続する）の内包判定（偶奇）
-	const inside = (fid, p0) => {
+	const inside = (fid: number, p0: number): boolean => {
 		let p = p0, ins = false;
 		while (p < polyStream.length && polyStream[p] === fid) {
 			p++; // fid
@@ -223,10 +229,10 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 		return ins;
 	};
 	// 視野 bbox（描画側の hover が渡す）の外の地物は見ない＝旧実装と同じ門。bbox は縫い目跨ぎだと x が 360e7 を超える（東片 [0, bb2−360e7] と西片 [bb0, 360e7]）
-	const inView = bb => { if (!vb || !bb) return true; const wrap = bb[2] > P; const vbX = wrap ? (vb[0] <= bb[2] - P || vb[2] >= bb[0]) : !(bb[2] < vb[0] || bb[0] > vb[2]); return vbX && !(bb[3] < vb[1] || bb[1] > vb[3]); };
+	const inView = (bb: ArrayLike<number> | null | undefined): boolean => { if (!vb || !bb) return true; const wrap = bb[2] > P; const vbX = wrap ? (vb[0] <= bb[2] - P || vb[2] >= bb[0]) : !(bb[2] < vb[0] || bb[0] > vb[2]); return vbX && !(bb[3] < vb[1] || bb[1] > vb[3]); };
 	const grid = hitGridMode.on ? hitGridOf(polyStream, meta) : null;   // 格子索引（改良点 ⑧）＝bbox が掛かる候補だけ。smallest-wins＝候補のうち流れの位置が最大の物（流れは weight 降順）
 	if (grid) {
-		let best = null, bestAt = -1;
+		let best: number | null = null, bestAt = -1;
 		hitCandidates(grid, mix, miy, 0, (fid, p0) => {
 			if (p0 <= bestAt || (accept && !accept(fid)) || !inView(grid.bboxOf(fid))) return false;
 			if (inside(fid, p0)) { best = fid; bestAt = p0; }
@@ -234,7 +240,7 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 		});
 		return best;
 	}
-	let best = null;
+	let best: number | null = null;
 	let p = 0;
 	while (p < polyStream.length) {
 		const fid = polyStream[p], at = p;
