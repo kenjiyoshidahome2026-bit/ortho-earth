@@ -34,7 +34,7 @@ import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-fact
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
 // 役割名は部品が付ける（"decoder:fgb" "ortho:tile" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）。
 // ⚠部品の組み込み worker はビルドの alias で「作らない版」に差し替え済み（vite.config.js）＝この口が必ず Worker を返すこと
-const hostWorker = role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+const hostWorker = role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
 setCoreWorkerFactory(hostWorker);   // core の worker（標高 ortho:height・タイル・シーン）も入口 1 本で
 setGeoeditWorkerFactory(hostWorker);
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
@@ -507,7 +507,7 @@ canvas.width = size.w; canvas.height = size.h;             // transfer 前に初
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
-const renderWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
+const renderWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。

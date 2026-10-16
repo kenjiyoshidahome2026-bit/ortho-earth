@@ -106,7 +106,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const sendVis = (ward: string, on: boolean) => { if (!meshPort) { meshVis(ward, on); return; } meshPort.postMessage({ vis: !!on, name: ward }); requestDraw(); };
 
 	// ── worker 2 本（タイルの鍵で振る＝同じタイルの層は同じ worker＝解読と幾何を共有）──
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtextrude" }), { size: 2, tag: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "vtextrude" }), { size: 2, tag: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
 	const workerOf = pool.pick, rpc = pool.rpc;
 
 	const schedule = () => { if (!rafU) rafU = requestAnimationFrame(() => { rafU = 0; update(); }); };

@@ -1,18 +1,19 @@
 // identify.js ── 列チャンクの識別（worker 側・#90）。フラットな幾何（経緯度）と feature bbox で当てる。
 // 優先＝gint と同じ：tolPt 以内の点（最寄り）→ tolLine 以内の線（最寄り）→ 含む面のうち最小（面積）。
 // 経度は ±180° 跨ぎの連続化（chunk.js）に合わせ、lon と lon+360 の両方で当てる。
-import { K } from "./flat.js";
+import { K } from "./flat.ts";
+import type { Flat } from "./flat.ts";
 
 const D2R = Math.PI / 180;
 // 点と線分の距離²（経度は cos(lat) で縮める＝度の等方化）
-function segDist2(px, py, ax, ay, bx, by, kx) {
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number, kx: number) {
 	const dx = (bx - ax) * kx, dy = by - ay, l2 = dx * dx + dy * dy;
 	let t = l2 > 0 ? (((px - ax) * kx) * dx + (py - ay) * dy) / l2 : 0;
 	t = t < 0 ? 0 : t > 1 ? 1 : t;
 	const ex = (px - ax) * kx - dx * t, ey = (py - ay) - dy * t;
 	return ex * ex + ey * ey;
 }
-function inRing(xy, s, e, px, py) {
+function inRing(xy: Float64Array, s: number, e: number, px: number, py: number) {
 	let inside = false;
 	for (let i = s, j = e - 1; i < e; j = i++) {
 		const xi = xy[i * 2], yi = xy[i * 2 + 1], xj = xy[j * 2], yj = xy[j * 2 + 1];
@@ -20,10 +21,10 @@ function inRing(xy, s, e, px, py) {
 	}
 	return inside;
 }
-function ringArea(xy, s, e) { let a = 0; for (let i = s, j = e - 1; i < e; j = i++) a += xy[j * 2] * xy[i * 2 + 1] - xy[i * 2] * xy[j * 2 + 1]; return Math.abs(a) / 2; }
+function ringArea(xy: Float64Array, s: number, e: number) { let a = 0; for (let i = s, j = e - 1; i < e; j = i++) a += xy[j * 2] * xy[i * 2 + 1] - xy[i * 2] * xy[j * 2 + 1]; return Math.abs(a) / 2; }
 
 // flat＝読み手のフラットな幾何・fbbox＝buildChunk の feature bbox。tolM＝{ point, line }（m）。戻り＝チャンク内 feature 番号 | -1
-export function identifyIn(flat, fbbox, lon, lat, { tolPointM = 50, tolLineM = 30 } = {}) {
+export function identifyIn(flat: Flat, fbbox: ArrayLike<number>, lon: number, lat: number, { tolPointM = 50, tolLineM = 30 }: { tolPointM?: number; tolLineM?: number } = {}): number {
 	const { xy, featPart, partKind, partStart } = flat;
 	const kx = Math.max(0.05, Math.cos(lat * D2R)), mDeg = 1 / 111320;
 	const tp = tolPointM * mDeg, tl = tolLineM * mDeg, tp2 = tp * tp, tl2 = tl * tl;

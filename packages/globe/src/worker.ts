@@ -11,19 +11,19 @@
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
 // 地域の役は置かない＝地域パックの worker は自前の入口（e-Stat＝@ortho-earth/jp の estat-worker.ts・2026-09-30）。
 // 共有エンジンに焼かれた入口が地域を知らないまま、japan 系のアプリも同じ入口を使える（LAYERS.md 掟 3）。
-const ROLES = {
-	render:         () => import("./renderworker.js"),
+const ROLES: Record<string, () => Promise<unknown>> = {
+	render:         () => import("./renderworker.ts"),
 	mesh:           () => import("./meshworker.js"),
 	meshdecoder: () => import("./meshdecoder.js"),
 	gintbake:       () => import("./gintbakeworker.ts"),
-	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
-	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
-	iiif:           () => import("./iiif-worker.js"),          // 基準点で歪みを直した IIIF の地図画像をタイルに焼いて配る（同じ "port" 契約・#177）
+	rastertiles:    () => import("./rastertiles-worker.ts"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
+	imagequad:      () => import("./imagequad-worker.ts"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
+	iiif:           () => import("./iiif-worker.ts"),          // 基準点で歪みを直した IIIF の地図画像をタイルに焼いて配る（同じ "port" 契約・#177）
 	copc:           () => import("./copc-worker.js"),          // COPC の点群＝節だけ Range で取って LAZ を laz-perf で解く（#178・解読器は "#pointcloud-formats" のプラグイン）
 	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・meshdecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
-	columnar:       () => import("./columnar/worker.js"),  // 列チャンク層の読み手（GeoParquet の Range 読み・GeoPBF の切り分け・三角形分割・#90）＝旧 parquet 役の後継
+	columnar:       () => import("./columnar/worker.ts"),  // 列チャンク層の読み手（GeoParquet の Range 読み・GeoPBF の切り分け・三角形分割・#90）＝旧 parquet 役の後継
 	vtextrude:      () => import("./vtextrude-worker.js"),         // ベクタタイルの押し出し（MapLibre の fill-extrusion を vector source で・段 8①・2026-09-26）
-	vtdraw:         () => import("./vtdraw-worker.js"),            // ベクタタイルの描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27）
+	vtdraw:         () => import("./vtdraw-worker.ts"),            // ベクタタイルの描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27）
 	// 部品の worker（2026-09-22・標準の作法＝各部品の setWorkerFactory / 役割名 → この入口）。geopbf の役割（decoder:/encoder:/geopbf:）は下の正規表現
 	"ortho:tile":    () => import("@ortho-earth/core/workers/tile"),      // タイルの取得・解読・三角形化（createPipeline の workerFactory）
 	"ortho:scene":   () => import("@ortho-earth/core/workers/scene"),     // シーンの結合
@@ -31,8 +31,8 @@ const ROLES = {
 	"geoedit:model": () => import("geoedit/model-worker"),         // geoedit の編集モデル
 };
 
-const pending = [];
-const enqueue = e => pending.push(e);
+const pending: MessageEvent[] = [];
+const enqueue = (e: MessageEvent) => pending.push(e);
 self.onmessage = enqueue;
 
 (async () => {
@@ -48,5 +48,5 @@ self.onmessage = enqueue;
 		throw err;                                      // uncaught にして main の worker.onerror を鳴らす
 	}
 	const handler = self.onmessage;
-	for (const e of pending.splice(0)) handler.call(self, e);
+	for (const e of pending.splice(0)) handler!.call(self as DedicatedWorkerGlobalScope, e);
 })();

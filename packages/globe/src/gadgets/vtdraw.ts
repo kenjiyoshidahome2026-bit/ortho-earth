@@ -83,7 +83,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const warnOnce = (k: string, msg: string) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
 
 	// ── 組み役 worker（タイルの鍵で振る＝lowMem は 1 本）──
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
 	const workerOf = pool.pick, rpc = pool.rpc;
 
 	// ── 結合役＝core の scene worker（md:false＝CPU 結合）。render worker への口の代わりに main が端を持つ ──
@@ -91,7 +91,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const mg = { seq: 0, inflight: false, want: false, sig: null as string | null, planSig: null as string | null, lastAt: 0, t0: 0, timer: 0, sent: 0, recv: 0 };   // planSig＝直近に見た計画の署名（計器の fsDone）・t0＝結合を出した時刻
 	const mergerW = () => {
 		if (merger) return merger;
-		const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "ortho:scene" });
+		const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "ortho:scene" });
 		const ch = new MessageChannel();
 		w.postMessage({ type: "connect", port: ch.port1 }, [ch.port1]);
 		ch.port2.postMessage({ type: "mode", md: false });   // CPU 結合（mergeTiles）＝render worker の常駐プールには触らない

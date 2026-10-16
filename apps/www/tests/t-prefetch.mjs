@@ -45,7 +45,7 @@ test("全球アトラスの鍵＝altpbf の WORLD_ATLAS", () => {
 	assert.equal(planPrefetch().tier1.find(j => j.id === "world-atlas").key, WORLD_ATLAS);
 });
 test("国境：globe は起動 50m・寄って 10m を読む（世界帯の中身＝worldContent は z4＝州境の帯から 10m・LOW_MEM は 50m のまま）", () => {
-	const s = src("packages/globe/src/gint/layers.js");
+	const s = src("packages/globe/src/gint/layers.ts");
 	assert.match(s, /ne_\$\{res\}_admin_0_countries/);
 	assert.match(s, /loadAdmin0\("50m"\)/); assert.match(s, /loadAdmin0\("10m"\)/);
 	assert.match(s, /WORLD_CONTENT \? WORLD_Z\.admin1 : ADMIN0_FINE_Z/);
@@ -69,7 +69,7 @@ test("ミニ地球儀：gadgets/globe.js は ne_110m_land を gint:false", () =>
 	assert.ok(ids(planPrefetch({ low: true }).tier1).includes("minimap-land"));
 });
 test("河川・海洋境界：globe（gint あり・LOW_MEM は読まない）と equal", () => {
-	const s = src("packages/globe/src/gint/layers.js");
+	const s = src("packages/globe/src/gint/layers.ts");
 	for (const n of ["ne_10m_rivers_lake_centerlines", "ne_10m_admin_0_boundary_lines_maritime_indicator"]) {
 		assert.ok(s.includes(`"${n}"`), n); assert.ok(src("packages/equal/src/layers.ts").includes(`"${n}"`), n);
 	}
@@ -84,7 +84,7 @@ test("ne-cultural：equal・world・globe が同じ URL・同じ name で読む�
 	assert.ok(core.includes('WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/"'));
 	assert.match(core, /culturalUrl = \(g: string\): string => `\$\{WORLD_GIS\}ne-cultural-\$\{g\}\.geopbf`/);   // 2.0：worldcontent.ts＝引数と返りに型が付く
 	assert.match(core, /culturalName = \(g: string\): string => `ne-cultural-\$\{g\}\.geopbf`/);
-	for (const f of ["packages/equal/src/equal.ts", "packages/world/src/worldlayers.ts", "packages/globe/src/gint/worldcontent.js"]) {   // 三者とも正本の口で読む（写しを持たない）
+	for (const f of ["packages/equal/src/equal.ts", "packages/world/src/worldlayers.ts", "packages/globe/src/gint/worldcontent.ts"]) {   // 三者とも正本の口で読む（写しを持たない）
 		assert.match(src(f), /culturalUrl\(g\), \{ name: culturalName\(g\) \}|culturalUrl\("base"\), \{ name: culturalName\("base"\) \}/, f);
 		assert.ok(!src(f).includes("bucket/GIS/world/ne-cultural-"), f + "：URL の写しを持たない");
 	}

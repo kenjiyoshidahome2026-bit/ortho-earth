@@ -11,6 +11,7 @@
 		"src/rastertiles-worker.ts",
 		"src/imagequad-worker.ts",
 		"src/iiif-worker.ts",
-		"src/columnar/worker.ts"],
+		"src/columnar/worker.ts",
+		"types/worker-env.d.ts"],
 	"exclude": []
 }

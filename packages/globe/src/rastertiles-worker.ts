@@ -8,17 +8,19 @@
 //
 // 読み口＝geopbf（自前 SQLite リーダ・依存ゼロ）：openGpkgTiles（gpkg_tile_matrix が Web Mercator XYZ 同型の表だけ）／openMBTiles（TMS 反転済）。
 // ベクタ（MVT）のタイルは対象外＝理由を言って断る（黙って空にしない）。
-let src = null;
+/** 開いた容器（MBTiles か GeoPackage の画像タイル） */
+type TileSrc = ReturnType<typeof import("geopbf/mbtiles").openMBTiles> | ReturnType<typeof import("geopbf/gpkg").openGpkgTiles>;
+let src: TileSrc | null = null;
 
-function isImage(mime) { return mime === "image/png" || mime === "image/jpeg" || mime === "image/webp" || mime === "image/avif" || mime === "image/gif"; }
+function isImage(mime: string | null | undefined) { return mime === "image/png" || mime === "image/jpeg" || mime === "image/webp" || mime === "image/avif" || mime === "image/gif"; }
 
-self.onmessage = async e => {
-	const m = e.data || {};
+self.onmessage = async (e: MessageEvent) => {
+	const m = (e.data || {}) as { type?: string; file: File; table?: string; port: MessagePort };
 	if (m.type !== "open") return;
 	try {
 		const u8 = new Uint8Array(await m.file.arrayBuffer());
 		const name = String(m.file.name || "");
-		let t, info;
+		let t, info: Record<string, unknown>;
 		if (/\.mbtiles$/i.test(name)) {
 			const { openMBTiles } = await import("geopbf/mbtiles");
 			t = openMBTiles(u8);
@@ -45,19 +47,19 @@ self.onmessage = async e => {
 		}
 		src = t;
 		const port = m.port;
-		port.onmessage = async ev => {
-			const q = ev.data || {};
+		port.onmessage = async (ev: MessageEvent) => {
+			const q = (ev.data || {}) as { id?: number; z: number; x: number; y: number; abort?: boolean };
 			if (q.abort || q.id == null) return;
 			try {
-				const bytes = src.get(q.z, q.x, q.y);
+				const bytes = src!.get(q.z, q.x, q.y);
 				if (!bytes || !bytes.length) { port.postMessage({ id: q.id, bitmap: null }); return; }
-				const bm = await createImageBitmap(new Blob([bytes], { type: src.mimeOf(bytes) || "image/png" }), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+				const bm = await createImageBitmap(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: src!.mimeOf(bytes) || "image/png" }), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 				port.postMessage({ id: q.id, bitmap: bm }, [bm]);
-			} catch (err) { port.postMessage({ id: q.id, error: String(err && err.message || err) }); }
+			} catch (err) { port.postMessage({ id: q.id, error: String(err && (err as Error).message || err) }); }
 		};
 		port.postMessage({ type: "info", info });
 		self.postMessage({ type: "opened", info });
 	} catch (err) {
-		self.postMessage({ type: "error", error: String(err && err.message || err) });
+		self.postMessage({ type: "error", error: String(err && (err as Error).message || err) });
 	}
 };

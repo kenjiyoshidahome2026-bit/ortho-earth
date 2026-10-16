@@ -4,10 +4,14 @@
 // フラットな幾何の先頭（最大 maxVertices 頂点）を標本に：
 //   ratio        … 別の feature に既に現れた頂点（同じ座標）の割合（0..1）。行政界は ≈ 0.4〜0.5・筆も高い・線や点は 0 付近
 //   meanVertices … 1 feature あたりの頂点数（線・面の頂点だけ）＝弧の長さの目安。行政界は数百〜数千・筆は 10 前後
-import { K } from "./flat.js";
+import { K } from "./flat.ts";
+import type { Flat } from "./flat.ts";
 
-export function shareStats(flat, { maxVertices = 200_000 } = {}) {
-	const { xy, featPart, partKind, partStart } = flat, seen = new Map();
+/** shareStats の戻り */
+export interface ShareStats { ratio: number; meanVertices: number; features: number; vertices: number }
+
+export function shareStats(flat: Flat, { maxVertices = 200_000 }: { maxVertices?: number } = {}): ShareStats {
+	const { xy, featPart, partKind, partStart } = flat, seen = new Map<string, number>();
 	let shared = 0, total = 0, feats = 0;
 	for (let f = 0; f < flat.n && total < maxVertices; f++) {
 		let any = false;
@@ -25,6 +29,6 @@ export function shareStats(flat, { maxVertices = 200_000 } = {}) {
 	return { ratio: total ? shared / total : 0, meanVertices: feats ? total / feats : 0, features: feats, vertices: total };
 }
 // 既定の規則＝gint 向き（true）か。bytes＝源の大きさ（gint は全量を符号化するので上限を置く）
-export function gintPreferred(share, bytes = 0, { minRatio = 0.3, minMeanVertices = 40, maxBytes = 64e6 } = {}) {
+export function gintPreferred(share: ShareStats | null | undefined, bytes = 0, { minRatio = 0.3, minMeanVertices = 40, maxBytes = 64e6 }: { minRatio?: number; minMeanVertices?: number; maxBytes?: number } = {}): boolean {
 	return !!share && share.ratio >= minRatio && share.meanVertices >= minMeanVertices && bytes <= maxBytes;
 }

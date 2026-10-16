@@ -161,7 +161,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const sets = new Map<string, T3dSet>();   // id → tileset
 	let seq = 0, tileSeq = 0;
 	// worker（model 役）を 2 本＝取りに行く・解くを並列に（順繰り）。1 本あたり同時 3 件まで
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { size: 2, tag: "tiles3d" });
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { size: 2, tag: "tiles3d" });
 	const rpc = pool.rpc;
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, MAX_INFLIGHT = lowMem ? 3 : 6;
 	let inflight = 0, gpuBytes = 0, rafPending = 0;
