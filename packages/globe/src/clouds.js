@@ -7,7 +7,7 @@
 //   α＝画像に α があればそれ（色は画像×color）、無ければ輝度（色は color）＝alphaFrom "auto"|"alpha"|"luminance"。opacity を掛ける。
 //   coverage／density／thickness（手続きの雲）・体積雲・降水は spec のまま（capabilities "clouds.procedural"／"precipitation"）。
 import { lonlatTo3D } from "@ortho-earth/core";
-import { batchXf } from "./gltf-anim.js";
+import { batchXf } from "./gltf-anim.ts";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 export const STEP_DEG = 0.5;
 const MAX_IMG = 4096, LAT_DRIFT_MAX = 10;   // 殻の格子＝0.5°（弦の垂れ＝R(1−cos 0.25°) ≈ 61 m＝高度 3000 m の殻でも地面に潜らない）

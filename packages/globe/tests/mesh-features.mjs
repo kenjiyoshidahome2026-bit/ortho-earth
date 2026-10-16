@@ -1,7 +1,7 @@
 // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm の batch table・画面の当たり・feature state の色（DOM 無し）
-import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE } from "../src/mesh-features.js";
-import { pickMeshes, tintColors, lngLatOfWorld } from "../src/meshpick.js";
-import { decodeModel } from "../src/meshdecode.js";
+import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE } from "../src/mesh-features.ts";
+import { pickMeshes, tintColors, lngLatOfWorld } from "../src/meshpick.ts";
+import { decodeModel } from "../src/meshdecode.ts";
 globalThis.self ??= globalThis;
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const J = v => JSON.stringify(v);

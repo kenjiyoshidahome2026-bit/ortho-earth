@@ -5,5 +5,10 @@
 		"outDir": "dist"
 	},
 	"include": ["src/**/*.ts"],
-	"exclude": ["src/gintbakeworker.ts"]
+	"exclude": ["src/gintbakeworker.ts",
+		"src/meshworker.ts",
+		"src/meshdecoder.ts",
+		"src/model-worker.ts",
+		"src/copc-worker.ts",
+		"src/vtextrude-worker.ts"]
 }

@@ -11,13 +11,13 @@
 //         paint に ["feature-state"] がある層だけが読む（filter は読まない＝MapLibre と同じ）。タイルごとに「含む地物の id」（ids）を worker から受け取って持つ。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
-import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
+import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Requester, ResolvedRequest } from "../request.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
-import type { TileXYZ } from "../vtmesh.d.ts";
+import type { TileXYZ } from "../vtmesh.ts";
 import type { FStateStore, RawTiles, SrcTile, VTExtrudeEnv, VtDesc } from "./vtextrude.ts";
 
 /** worker が組んだ op（core の scene.ts の FillOp／LineOp と同じ形・配列は transfer できる ArrayBuffer の上） */

@@ -23,7 +23,7 @@
 				"why": "較正（地域の語ではない）：globe.js の approxViewBbox と同式（z は正射スケール＝m/px は緯度に依らない・0.819 は全球に同じく掛かる係数）。2026-10-15 に旧 @ortho-earth/columnar から移って数に入った"
 			}
 		},
-		"packages/globe/src/extrude-keys.js": {
+		"packages/globe/src/extrude-keys.ts": {
 			"和文": {
 				"n": 5,
 				"why": "負債（地域）：自動押し出しの高さ・階数の列名候補に PLATEAU/日本の属性名（建物高さ・計測高さ・階数）。地域の申告（region.extrudeKeys）へ移す"
@@ -125,25 +125,25 @@
 				"why": "言語（地域ではない）：言語の自称（日本語・中文）＝言語切替の表示名"
 			}
 		},
-		"packages/globe/src/mesh/manager.js": {
+		"packages/globe/src/mesh/manager.ts": {
 			"plateau": {
 				"n": 3,
 				"why": "凍結：DOM id plateau-toast（利用者 CSS）＋負債：ログの文言"
 			}
 		},
-		"packages/globe/src/meshdecode.js": {
+		"packages/globe/src/meshdecode.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "負債：ログの文言（除外表のファイル名 plateau-exclude.json）"
 			}
 		},
-		"packages/globe/src/meshfs.js": {
+		"packages/globe/src/meshfs.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "凍結：OPFS の置き場 plateau（利用者の端末の焼き）"
 			}
 		},
-		"packages/globe/src/meshworker.js": {
+		"packages/globe/src/meshworker.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "凍結：IndexedDB GIS/plateau（利用者の端末の焼き）"
