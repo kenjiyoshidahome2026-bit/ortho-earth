@@ -784,7 +784,7 @@ async function loadAdmin0Now(res = "50m") {
 }
 dbgHost.__admin0 = res => loadAdmin0(res);   // 手動リロード用
 // ── 世界の線＝河川・海洋境界線（NE 10m）＝世界帯（z<WORLD_BAND_Z）の独立層（本人 2026-09-23「河川・湖・海洋境界線はエンジンの世界層側で持つ」・湖は既に renderer の lakes スロット）──
-// 出し方は equal（packages/equal/src/layers.js の rivers/maritime）と同じ物差し：出すズーム＝NE の min_zoom（止まるたびに評価し直す）・
+// 出し方は equal（packages/equal/src/layers.ts の rivers/maritime）と同じ物差し：出すズーム＝NE の min_zoom（止まるたびに評価し直す）・
 // 河川の太さ＝scalerank の 3 段・湖の中の中心線は描かない。bucket に無ければ NE S3 の生 zip（geopbf が shp を焼く＝初回だけ重い・IDB に残る）。
 // LOW_MEM（モバイル）は読まない＝「動く・落ちない」が大前提の器に線を足さない。
 let worldLinesState = 0;   // 0=未 1=読込中 2=搭載 3=見送り
