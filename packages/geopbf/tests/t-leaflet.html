@@ -17,7 +17,7 @@
 <script type="module">
 	import L from "leaflet";
 	import "leaflet/dist/leaflet.css";
-	import { extendLeaflet } from "../src/leaflet.js";
+	import { extendLeaflet } from "../src/leaflet.ts";
 
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);

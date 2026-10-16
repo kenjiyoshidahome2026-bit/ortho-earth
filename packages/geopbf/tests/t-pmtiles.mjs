@@ -163,7 +163,7 @@ ok(pm2.header.tc === 1 && pm2.header.minZoom === 2 && decodeTile(await pm2.getTi
 }
 
 // ---- CLI ---------------------------------------------------------------------------------
-const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname, dir = mkdtempSync(join(tmpdir(), "geopbf-pmt-"));
+const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname, dir = mkdtempSync(join(tmpdir(), "geopbf-pmt-"));
 const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 const inPath = join(dir, "fix.geopbf"); writeFileSync(inPath, gzipSync(Buffer.from(pbf.arrayBuffer)));
 const out = run("pmtiles", inPath, join(dir, "fix.pmtiles"), "--maxzoom", "5", "--no-gpu", "--drop-rate", "1");

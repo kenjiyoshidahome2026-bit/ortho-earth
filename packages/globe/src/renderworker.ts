@@ -28,6 +28,7 @@ import type { Label2D, LabelImageInput, LabelLayer, SkyLabels, SkyMoon, UserLabe
 import type { Terrain, TerrainOptions, TerrainRenderer } from "@ortho-earth/core/terrain";
 import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
 import type { ScenePortMessage, MergedScene } from "@ortho-earth/core/worker-msg";
+import type { OverlayHost, OverlayApi, LastOverlayFrame, OverlayModule } from "./types/overlay.ts";   // 同一フレームのオーバーレイの契約
 
 /** 標高（sampleElev の 3 つ目の cam は読まれない＝従来の呼び方のまま通す） */
 type RwTerrain = Omit<Terrain, "sampleElev"> & { sampleElev(lon: number, lat: number, cam?: CameraPose): number };
@@ -73,27 +74,6 @@ interface GintEngine extends GintLayerOps {
 	addLayer?(o: { id: string; order: number | null }): GintLayerEngine;
 	drawn(): void; move(m: unknown): void; leave(): void; click(): void; dispose(): void;
 	bakeFaces?(cam: CameraPose, t: unknown): number; bakeSig?(): string;
-}
-/** オーバーレイの host（init の 3 つ目） */
-/** customArgs＝MapLibre の custom 層の args（customgl-args.ts の makeCustomArgs・この worker の楕円体の設定で）＝?url のモジュールは import を持てない（vite がそのまま置く）ので host から渡す（customgl-draw.js） */
-interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs> }
-/** オーバーレイの frame の api（main の makeProjector と同じ規約） */
-interface OverlayApi {
-	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];
-	dpr: number; W: number; H: number; time: number; clock: ClockAnchor | null; depth: DepthApi | null;
-	elevM(lon: number, lat: number): number; liftScale: number; terrainOn: boolean; rAx: number;
-	clip: { planes: ClipPlane[]; distM(lon: number, lat: number, hM?: number): number; pack(origin: ArrayLike<number>): Float32Array } | null;
-}
-/** 最後に描いたフレーム（統一 picking が同じ cam で当てる） */
-interface LastOverlayFrame { cam: CameraPose; s: CameraState; size: { w: number; h: number }; api: OverlayApi }
-/** 同一フレームのオーバーレイのモジュールの契約 */
-interface OverlayModule {
-	init(canvas: OffscreenCanvas, opts: object, host: OverlayHost): unknown;
-	message(data: unknown): void;
-	frame(cam: CameraPose, s: CameraState, size: { w: number; h: number }, api: OverlayApi): unknown;
-	destroy(): void;
-	pick?(x: number, y: number, r: number, ctx: LastOverlayFrame): unknown;
-	placed?(): unknown[];
 }
 /** 1 枚のオーバーレイ（kind／ctx＝モジュールが取った文脈） */
 interface OverlayRec { canvas: OffscreenCanvas; mod: OverlayModule | null; queue: unknown[]; depth: boolean; kind?: string; ctx?: OffscreenRenderingContext }

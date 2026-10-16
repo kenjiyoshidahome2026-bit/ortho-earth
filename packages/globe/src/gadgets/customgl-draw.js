@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は customgl-draw.ts）。手で編集しない。
 // MapLibre の custom 層（CustomLayerInterface）を render worker の中で描く同一フレームのオーバーレイ（deck.gl 差分 PR-7・計画 段 C3・2026-10-12）。
 // 既存の customgl.js（main の別 canvas）は地図と深度を共有せず常に手前。こちらは OffscreenCanvas の WebGL2 に層の render(gl, args) を呼び、
 // 本体の深度（#47・api.depth）を**深度バッファに前置きで書き込む**＝renderingMode "3d" の層は shader を直さずに地形・建物に隠れる（深度テストがそのまま効く）。
@@ -18,7 +19,7 @@ const probes = [];
 
 const VS_FULL = `#version 300 es
 void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
-const FS_DEPTH = depthGLSL => `#version 300 es
+const FS_DEPTH = (depthGLSL) => `#version 300 es
 precision highp float;
 ${depthGLSL}
 uniform vec2 u_size;
@@ -63,7 +64,7 @@ export function init(canvas, o, h) {
 	const wantDepth = opts.depth !== false && (opts.renderingMode ?? "3d") === "3d";
 	if (wantDepth && host?.depthGLSL) {
 		try { ({ p: dprog, u: duni } = compile(VS_FULL, FS_DEPTH(host.depthGLSL))); dvao = gl.createVertexArray(); }
-		catch (e) { dprog = null; console.warn("[customgl] depth prepass unavailable", e?.message); }
+		catch (e) { dprog = null; console.warn("[customgl] depth prepass unavailable", (e)?.message); }
 	}
 	if (typeof host?.customArgs !== "function") { failed = "custom layer: the render worker does not provide host.customArgs"; console.error("[customgl]", failed); host?.post?.({ type: "error", error: failed }); return; }
 	if (!opts.module) { failed = "custom layer: url of the layer module is required"; console.error("[customgl]", failed); host?.post?.({ type: "error", error: failed }); return; }
@@ -77,14 +78,14 @@ export function init(canvas, o, h) {
 			ready = true;
 			host?.post?.({ type: "ready", id: layer.id ?? null, renderingMode: layer.renderingMode ?? "2d", depth: !!dprog });
 			host?.requestDraw?.();
-		} catch (e) { failed = String(e?.message || e); console.error("[customgl] module failed", opts.module, e); host?.post?.({ type: "error", error: failed }); }
+		} catch (e) { failed = String((e)?.message || e); console.error("[customgl] module failed", opts.module, e); host?.post?.({ type: "error", error: failed }); }
 	})();
 	return wantDepth ? { depth: true } : undefined;
 }
 export function message(d) {
 	if (d?.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 	if (!ready) return;
-	try { layer.onMessage?.(d, proxyMap); } catch (e) { console.error("[customgl] onMessage", e?.message); }
+	try { layer.onMessage?.(d, proxyMap); } catch (e) { console.error("[customgl] onMessage", (e)?.message); }
 	host?.requestDraw?.();
 }
 function depthPrepass(P, w, h, depth) {
@@ -109,12 +110,12 @@ export function frame(cam, s, size, api) {
 		const args = host.customArgs(cam, w, h, opts.projection);   // makeCustomArgs（earthM＝worldRadiusM・globe＝z<GLOBE_MAX_Z かつ投影が globe）
 		const three = layer.renderingMode === "3d";
 		depthUsed = false;
-		if (three && dprog && api?.depth) { try { depthPrepass(args._st.projection, w, h, api.depth); depthUsed = true; } catch (e) { console.warn("[customgl] depth prepass", e?.message); } }
+		if (three && dprog && api?.depth) { try { depthPrepass(args._st.projection, w, h, api.depth); depthUsed = true; } catch (e) { console.warn("[customgl] depth prepass", (e)?.message); } }
 		// MapLibre が層の前に整える状態（深度は 3d の層だけ・ブレンドは事前乗算の合成）
 		gl.disable(gl.STENCIL_TEST); gl.disable(gl.CULL_FACE);
 		if (three) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(true); } else { gl.disable(gl.DEPTH_TEST); gl.depthMask(false); }
 		gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		try { layer.prerender?.(gl, args); layer.render(gl, args); } catch (e) { console.error(`[customgl] ${layer.id ?? ""} render`, e?.message); }
+		try { layer.prerender?.(gl, args); layer.render(gl, args); } catch (e) { console.error(`[customgl] ${layer.id ?? ""} render`, (e)?.message); }
 	}
 	answerProbes(w, h);
 	return false;
@@ -123,7 +124,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, depthUsed, ready, failed, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 export function destroy() {
 	try { if (ready) layer.onRemove?.(proxyMap, gl); } catch { /* 片付けの失敗は無害 */ }

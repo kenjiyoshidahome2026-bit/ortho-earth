@@ -3,7 +3,7 @@
 //   ・arcs-gl の補間 arcPoint＝slerp の中間点が大円の上（単位長・両端から等角）、原点相対の式（シェーダ arcRel）が絶対の式と一致、高さは動径の向きに 4h·弦·t(1−t)
 //   ・adddata の焼き（bakePoints／bakeArcs／toGeoJSON）＝accessor（関数・定数）、GeoJSON の位置の既定、原点＝重心、theta は倍精度、無い物は null
 // GPU の経路（描く・当てる）は tests/t-adddata.html（verify:ui）。使い方：node packages/globe/tests/arcs.mjs
-import { arcPoint, arcTheta } from "../src/gadgets/arcs-gl.js";
+import { arcPoint, arcTheta } from "../src/gadgets/arcs-gl.ts";
 import { bakePoints, bakeArcs, toGeoJSON, columnRing, originOf } from "../src/adddata.ts";
 import { lonlatTo3D } from "@ortho-earth/core/camera";
 

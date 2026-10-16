@@ -28,12 +28,12 @@ Experience the zero-latency data flow and surgical ZIP extraction in action.
 
 ### 1. Configuration (`wrangler.toml`)
 
-(Sign-up and) deploy the backend to handle R2 operations and Proxy requests. The `index.js` automatically manages CORS for you.
+(Sign-up and) deploy the backend to handle R2 operations and Proxy requests. The `workers/index.ts` automatically manages CORS for you.
 Please edit the file: "wrangler.toml" under "worker" directory.
 
 ```toml
 name = "native-bucket-api"
-main = "index.js"
+main = "workers/index.ts"
 compatibility_date = "2026-04-01"
 
 [[r2_buckets]]

@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は cluster-2d.ts）。手で編集しない。
 // 点の集約（クラスタ）＝canvas2D のオーバーレイ（レンダーワーカー内で地球と同じフレーム・同じカメラ・MapLibre の cluster 相当・2026-09-21）。
 // main（gadgets/aggregate.js）がズームの段ごとに集約済みの丸（経緯度・半径・色・件数の文字）を渡す。ここは今のズームの段を選んで描くだけ。
 // 段の選び方＝MapLibre と同じ floor(zoom)（maxLevel より上は最後の段＝ばらした点）。地球の裏側（投影の front<0）は描かない。
@@ -23,7 +24,7 @@ export function frame(cam, s, { w, h }, api) {
 	const W = w / dpr, H = h / dpr;
 	ctx.textAlign = "center"; ctx.textBaseline = "middle";
 	const placedNow = [];
-	const z = cam.zoom || 0, inR = r => z >= r[0] && z < r[1], showC = inR(range.clusters), showU = inR(range.unclustered);
+	const z = cam.zoom || 0, inR = (r) => z >= r[0] && z < r[1], showC = inR(range.clusters), showU = inR(range.unclustered);
 	for (const c of L) {
 		if (!(c.u ? showU : showC)) continue;
 		const [x, y, f] = api.project(c.lon, c.lat);

@@ -1,8 +1,8 @@
 // /proxy の門番の検証（デプロイ不要・グローバル fetch を差し替えて proxy() を直に叩く）。
 //   node packages/native-bucket/tests/t-proxy.mjs
-// 門の仕様は workers/proxy.js の冒頭コメントが正本。ここは「そのとおりに閉まっているか」を数える。
-import { proxy } from "../workers/proxy.js";
-import worker from "../workers/index.js";
+// 門の仕様は workers/proxy.ts の冒頭コメントが正本。ここは「そのとおりに閉まっているか」を数える。
+import { proxy } from "../workers/proxy.ts";
+import worker from "../workers/index.ts";
 
 const ENV = {
 	ALLOWED_DOMAINS: "www.ortho-earth.com,ortho-earth.com,localhost:5173",
@@ -170,7 +170,7 @@ await t("limiter が無い・壊れている時は素通し（取れなくする
 	eq((await callIP("https://example.com/x", { origin: "https://www.ortho-earth.com", env: { ...ENV, PROXY_RL: broken } })).status, 200, "故障");
 });
 
-console.log("── 入口（workers/index.js）の CORS と応答ヘッダ");
+console.log("── 入口（workers/index.ts）の CORS と応答ヘッダ");
 const W_ENV = { ...ENV, ALLOWED_DOMAINS: "www.ortho-earth.com,ortho-earth.com,localhost:5173," };   // 末尾カンマ＝空の項目も混ぜる
 const preflight = (origin, reqMethod = "POST") => worker.fetch(new Request(`${PROXY_ORIGIN}/bucket/x`, {
 	method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": reqMethod } }), W_ENV, {});

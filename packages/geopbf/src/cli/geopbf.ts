@@ -8,59 +8,66 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
 import { GeoPBFBase } from "geopbf/pbf-base";   // 自分の名前で引く＝リポジトリでは src、npm では dist（段 5-9）
-import { t, usageFor } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
-import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.mjs";   // 引数の表と読み手（未知の --flag は拒む）
+import { t, usageFor } from "./messages.ts";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
+import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.ts";
+import type { Opts } from "./args.ts";
+import type { Feature, Geometry, Position } from "geopbf/pbf-base";
+import type { CodecName } from "../convert/parquet.ts";
+import type { SpatialOrderKind } from "geopbf/spatial-order";
+import type { GPUInfo } from "geopbf/convert/gpu";
+import type { SpatiaLiteLayer } from "geopbf/spatialite";   // 引数の表と読み手（未知の --flag は拒む）
 
 globalThis.ImageData ??= class ImageData {
-	constructor(data, width, height) { this.data = data; this.width = width; this.height = height; }
-};
+	declare data: Uint8ClampedArray; declare width: number; declare height: number;
+	constructor(data: Uint8ClampedArray, width: number, height: number) { this.data = data; this.width = width; this.height = height; }
+} as unknown as typeof globalThis.ImageData;
 
 // ── 共通ヘルパ ────────────────────────────────────────────────────────────────
 
-const tkyArg = async (v) => !v ? undefined : /^https?:\/\//.test(v) ? v : new Uint8Array(await readFile(v));
+const tkyArg = async (v: string | undefined) => !v ? undefined : /^https?:\/\//.test(v) ? v : new Uint8Array(await readFile(v));
 
-const readMaybeGzip = async (path) => {
+const readMaybeGzip = async (path: string) => {
 	const buf = await readFile(path);
 	return new Uint8Array(buf[0] === 0x1f && buf[1] === 0x8b ? gunzipSync(buf) : buf);
 };
 
-const openPbf = async (path) => await new GeoPBFBase().set(await readMaybeGzip(path));
+const openPbf = async (path: string) => await new GeoPBFBase().set(await readMaybeGzip(path));
 
 // 幾何を種別によらず「リング／ライン／点」の座標列に均す（頂点勘定と gint 化の共通入口）
-const eachRing = (geom, fn) => {
+const eachRing = (geom: Geometry | null | undefined, fn: (ring: Position[]) => void): void => {
 	if (!geom) return;
-	const c = geom.coordinates;
+	const c = (geom as { coordinates?: unknown }).coordinates;
 	switch (geom.type) {
-		case "Point":            fn([c]); break;
+		case "Point":            fn([c as Position]); break;
 		case "MultiPoint":
-		case "LineString":       fn(c); break;
+		case "LineString":       fn(c as Position[]); break;
 		case "MultiLineString":
-		case "Polygon":          c.forEach(fn); break;
-		case "MultiPolygon":     c.forEach(p => p.forEach(fn)); break;
+		case "Polygon":          (c as Position[][]).forEach(fn); break;
+		case "MultiPolygon":     (c as Position[][][]).forEach(p => p.forEach(fn)); break;
 		case "GeometryCollection": geom.geometries.forEach(g => eachRing(g, fn)); break;
 	}
 };
 
-const countVertices = (features) => {
+const countVertices = (features: Feature[]) => {
 	let n = 0;
 	for (const f of features) eachRing(f.geometry, r => { n += r.length; });
 	return n;
 };
 
-const mb = (n) => `${(n / 1e6).toFixed(1)} MB`;
-const num = (n) => n.toLocaleString("en-US");
+const mb = (n: number) => `${(n / 1e6).toFixed(1)} MB`;
+const num = (n: number) => n.toLocaleString("en-US");
 // 変換系コマンドの共通行（書き出し報告・読まなかった列・他の層）
-const pbfOut = (outPath, out, gzip, s) => t("pbfOut", { out: outPath, size: mb(out.length), gzip: gzip ? " (gzip)" : "", precision: s.precision, read: s.ms.read.toFixed(0), encode: s.ms.encode.toFixed(0) });
-const skippedList = (skipped) => skipped.map(k => `${k.name}(${k.reason})`).join(" ");
-const othersNote = (s) => s.layers.length > 1 ? t("others", { list: s.layers.filter(l => l !== s.layer).join(", ") }) : "";
+const pbfOut = (outPath: string, out: Uint8Array, gzip: boolean, s: { precision: number; ms: Record<string, number> }) => t("pbfOut", { out: outPath, size: mb(out.length), gzip: gzip ? " (gzip)" : "", precision: s.precision, read: s.ms.read.toFixed(0), encode: s.ms.encode.toFixed(0) });
+const skippedList = (skipped: { name: string; reason: string | null }[]) => skipped.map(k => `${k.name}(${k.reason})`).join(" ");
+const othersNote = (s: { layers: string[]; layer: string }) => s.layers.length > 1 ? t("others", { list: s.layers.filter(l => l !== s.layer).join(", ") }) : "";
 
 
 // ── enc ───────────────────────────────────────────────────────────────────────
 
-async function enc(argv) {
+async function enc(argv: string[]) {
 	const { pos: [inPath, outPath], opts } = parseArgs("enc", argv);
 
-	const precision = precisionOpt(opts);   // 1〜9 の整数（args.mjs に一元化）
+	const precision = precisionOpt(opts);   // 1〜9 の整数（args.ts に一元化）
 
 	const src = await readMaybeGzip(inPath);
 	const t0 = Date.now();
@@ -85,7 +92,7 @@ async function enc(argv) {
 
 // ── dec ───────────────────────────────────────────────────────────────────────
 
-async function dec(argv) {
+async function dec(argv: string[]) {
 	const { pos: [inPath, outPath] } = parseArgs("dec", argv);
 	const gj = (await openPbf(inPath)).geojson;
 	await writeFile(outPath, JSON.stringify(gj));
@@ -94,7 +101,7 @@ async function dec(argv) {
 
 // ── info ──────────────────────────────────────────────────────────────────────
 
-async function info(argv) {
+async function info(argv: string[]) {
 	const { pos: [inPath] } = parseArgs("info", argv);
 	const raw = await readFile(inPath);
 	const gzipped = raw[0] === 0x1f && raw[1] === 0x8b;
@@ -111,7 +118,7 @@ async function info(argv) {
 	console.log(t("infoPrecision", { p: pbf.precision(), m: (1 / Math.pow(10, pbf.precision()) * 111320).toFixed(2) }));
 	for (const [label, v] of [["name", pbf.name()], ["description", pbf.description()],
 		["license", pbf.license()], ["attribution", pbf.attribution()],
-		["minZoom", pbf.minZoom()], ["maxZoom", pbf.maxZoom()]])
+		["minZoom", pbf.minZoom()], ["maxZoom", pbf.maxZoom()]] as const)
 		if (v !== undefined && v !== null && v !== "") console.log(`${label.padEnd(11)} ${v}`);
 }
 
@@ -122,7 +129,7 @@ async function info(argv) {
 // リングの端点だけ。隣り合う面が共有する境界の頂点は L1 に立たないので、実際の描画で
 // 隙間を作らない保証まで見たい場合はブラウザ側の位相経路を通すこと。
 
-async function lod(argv) {
+async function lod(argv: string[]) {
 	const { gint } = await import("geopbf/gint");   // wasm 無しでも純JS経路で動く
 	const { pos: [inPath] } = parseArgs("lod", argv);
 
@@ -159,7 +166,7 @@ async function lod(argv) {
 // dynamic import で呼ぶ＝他コマンドはコストを払わない。JPEG/WebP タイルは Node にデコーダが
 // 無いため明示エラー（ブラウザゲート tests/t-cog.html で見る）。
 
-async function cog(argv) {
+async function cog(argv: string[]) {
 	const { openCog, lonlatTarget } = await import("geopbf/cog/core");
 	const { pos: [sub, inPath, outPath], opts } = parseArgs("cog", argv);
 	const src = /^https?:\/\//.test(inPath) ? inPath : new Blob([await readFile(inPath)]);
@@ -202,10 +209,10 @@ async function cog(argv) {
 }
 
 // 最小 PNG エンコーダ（8bit RGBA・filter 0・node:zlib）＝依存ゼロ維持
-function encodePNG(rgba, w, h) {
+function encodePNG(rgba: Uint8Array | Uint8ClampedArray, w: number, h: number) {
 	const crcT = [...Array(256)].map((_, nn) => { let c = nn; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
-	const crc = (u8) => { let c = ~0; for (const b of u8) c = crcT[(c ^ b) & 255] ^ (c >>> 8); return (~c) >>> 0; };
-	const chunk = (type, data) => {
+	const crc = (u8: Uint8Array) => { let c = ~0; for (const b of u8) c = crcT[(c ^ b) & 255] ^ (c >>> 8); return (~c) >>> 0; };
+	const chunk = (type: string, data: Uint8Array) => {
 		const out = new Uint8Array(12 + data.length);
 		const v = new DataView(out.buffer);
 		v.setUint32(0, data.length);
@@ -230,32 +237,32 @@ function encodePNG(rgba, w, h) {
 // src/convert/*（DOM 非依存）を dynamic import。GPU は navigator.gpu（ブラウザ/Deno）か npm の webgpu（Dawn）＝
 // Node 単体では CPU 経路（同じ契約・同じ出力）で動く。どちらで走ったかは必ず数字と一緒に出す。
 
-const gpuOpt = (opts) => opts["no-gpu"] ? false : opts.gpu ? true : undefined;
+const gpuOpt = (opts: Opts) => opts["no-gpu"] ? false : opts.gpu ? true : undefined;
 // Node で Dawn（任意依存の `webgpu` パッケージ）が入っていれば読んで setGPU() で注入する。
 // ここに置く理由: CLI は Node 専用で exports にも載らない＝消費者のバンドラが辿らない唯一の場所。
 // ライブラリ側（src/convert/gpu.js）に裸の `import("webgpu")` を置くと vite/rolldown が静的解決を試みて
 // 消費者の dev が 500 で割れる（1.5.0 の轍・"web"+"gpu" の細工も vite 8 の定数畳み込みで戻される＝1.5.1 の轍）。
 const injectDawn = async () => {
 	try {
-		const m = await import("webgpu");
+		const m = await import("webgpu");   // 型は webgpu.d.ts（任意依存＝未導入でも型検査が通る最小限）
 		if (!m?.create) return false;
-		if (m.globals) for (const k of Object.keys(m.globals)) globalThis[k] ??= m.globals[k];
+		if (m.globals) for (const k of Object.keys(m.globals)) (globalThis as Record<string, unknown>)[k] ??= m.globals[k];
 		const { setGPU } = await import("geopbf/convert/gpu");
 		setGPU(m.create([]));
 		return true;
 	} catch { return false; }   // 未導入＝CPU 経路（失敗ではなく通常の分岐）
 };
-const attrOpts = (opts) => ({ include: opts.include ? opts.include.split(",") : undefined, exclude: opts.exclude ? opts.exclude.split(",") : undefined, excludeAll: !!opts["exclude-all"] });
-const engineNote = (st) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?.architecture].filter(Boolean).join(" ") || "webgpu"}` : "CPU";
+const attrOpts = (opts: Opts) => ({ include: opts.include ? opts.include.split(",") : undefined, exclude: opts.exclude ? opts.exclude.split(",") : undefined, excludeAll: !!opts["exclude-all"] });
+const engineNote = (st: { engine: string; gpu?: GPUInfo }) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?.architecture].filter(Boolean).join(" ") || "webgpu"}` : "CPU";
 
-async function pmtiles(argv) {
+async function pmtiles(argv: string[]) {
 	const { toPMTiles } = await import("geopbf/pmtiles");
 	const { pos: [inPath, outPath], opts } = parseArgs("pmtiles", argv);
-	const tileOpts = {   // 数値は読み込みの前に検査（NaN が黙って通らない・args.mjs の numOpt）
+	const tileOpts = {   // 数値は読み込みの前に検査（NaN が黙って通らない・args.ts の numOpt）
 		minZoom: numOpt(opts, "minzoom", { int: true, min: 0, max: 30 }) ?? 0, maxZoom: numOpt(opts, "maxzoom", { int: true, min: 0, max: 30 }) ?? 14,
 		extent: numOpt(opts, "extent", { int: true, min: 256, max: 65536 }), buffer: numOpt(opts, "buffer", { int: true, min: 0, max: 65536 }),
 		layer: opts.layer, lodBias: numOpt(opts, "lod-bias", { min: -64, max: 64 }), workers: numOpt(opts, "workers", { int: true, min: 0, max: 1024 }), dropRate: numOpt(opts, "drop-rate", { min: 1 }),
-		simplification: opts.simplification === undefined ? undefined : opts.simplification === "off" ? false : numOpt(opts, "simplification", { min: 0 }),
+		simplification: opts.simplification === undefined ? undefined : opts.simplification === "off" ? false as const : numOpt(opts, "simplification", { min: 0 }),
 		tinyPolygon: numOpt(opts, "tiny-polygon", { min: 0 }), tinyLine: numOpt(opts, "tiny-line", { min: 0 }), ...attrOpts(opts) };
 	if (tileOpts.minZoom > tileOpts.maxZoom) throw new UsageError(t("numberOption", { opt: "--minzoom", kind: t("integer"), range: ` 0..${tileOpts.maxZoom} (--maxzoom)`, got: String(tileOpts.minZoom) }));
 	const t0 = Date.now();
@@ -266,15 +273,15 @@ async function pmtiles(argv) {
 	const t1 = Date.now();
 	const wantGpu = gpuOpt(opts);
 	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
-	const r = await toPMTiles(pbf, { gint, gpu: wantGpu, ...tileOpts });
+	const r = await toPMTiles(pbf, { gint, gpu: wantGpu as false | undefined, ...tileOpts });   // true＝「探す」は tiler では undefined と同じ（false 以外は探す）
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
 	console.log(t("pmIn", { in: inPath, features: num(pbf.length), how: t(opts.gint ? "gintLoaded" : "gintBaked"), ms: t1 - t0, arcs: num(s.arcs), vertices: num(s.vertices) }));
-	console.log(t("pmOut", { out: outPath, size: mb(s.bytes), tiles: num(s.tiles), contents: num(s.contents), min: r.metadata.minzoom, max: r.metadata.maxzoom, engine: engineNote(s), workers: s.workers }));
+	console.log(t("pmOut", { out: outPath, size: mb(s.bytes), tiles: num(s.tiles), contents: num(s.contents!), min: r.metadata.minzoom, max: r.metadata.maxzoom, engine: engineNote(s), workers: s.workers }));
 	console.log(t("pmTimes", { project: s.ms.project_lod.toFixed(0), calibrate: (s.ms.calibrate ?? 0).toFixed(0), write: s.ms.lod_write.toFixed(0), assemble: s.ms.assemble.toFixed(0), pmtiles: s.ms.pmtiles.toFixed(0), total: s.ms.total.toFixed(0), kept: num(s.kept) }));
 }
 
-async function parquet(argv) {
+async function parquet(argv: string[]) {
 	const { toGeoParquet } = await import("geopbf/geoparquet");
 	const { pos: [inPath, outPath], opts } = parseArgs("parquet", argv);
 	const rowGroupSize = numOpt(opts, "row-group", { int: true, min: 1 });
@@ -283,15 +290,15 @@ async function parquet(argv) {
 	const pbf = await openPbf(inPath);
 	const wantGpu = gpuOpt(opts);
 	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
-	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
+	const r = await toGeoParquet(pbf, { gpu: wantGpu as false | undefined, codec: (opts.compression || undefined) as CodecName | undefined, rowGroupSize, order: opts.order as SpatialOrderKind | undefined, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
 	console.log(t("pqIn", { in: inPath, features: num(s.features), vertices: num(s.vertices) }));
-	console.log(`${outPath}  ${mb(s.bytes)}  ${r.geo.columns.geometry.geometry_types.join("/")}  order ${s.order}  ${s.codec}  ${engineNote(s)}`);
-	console.log(t("pqTimes", { decode: s.ms.decode.toFixed(0), kernels: s.ms.kernels.toFixed(0), wkb: s.ms.wkb.toFixed(0), parquet: s.ms.parquet.toFixed(0), total: s.ms.total.toFixed(0) }));
+	console.log(`${outPath}  ${mb(s.bytes!)}  ${r.geo.columns.geometry.geometry_types!.join("/")}  order ${s.order}  ${s.codec}  ${engineNote(s)}`);
+	console.log(t("pqTimes", { decode: s.ms.decode!.toFixed(0), kernels: s.ms.kernels!.toFixed(0), wkb: s.ms.wkb!.toFixed(0), parquet: s.ms.parquet!.toFixed(0), total: s.ms.total!.toFixed(0) }));
 }
 
-async function parquet2pbf(argv) {
+async function parquet2pbf(argv: string[]) {
 	const { fromGeoParquet } = await import("geopbf/geoparquet");
 	const { pos: [inPath, outPath], opts } = parseArgs("parquet2pbf", argv);
 	const r = await fromGeoParquet(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name, geometryColumn: opts.geometry, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
@@ -305,7 +312,7 @@ async function parquet2pbf(argv) {
 	console.log(pbfOut(outPath, out, gzip, s));
 }
 
-async function gpkg2pbf(argv) {
+async function gpkg2pbf(argv: string[]) {
 	const { fromGeoPackage, readGeoPackage } = await import("geopbf/gpkg");
 	const { pos: [inPath, outPath], opts } = parseArgs("gpkg2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
@@ -331,14 +338,14 @@ async function gpkg2pbf(argv) {
 	console.log(pbfOut(outPath, out, gzip, s));
 }
 
-async function spatialite2pbf(argv) {
+async function spatialite2pbf(argv: string[]) {
 	const { fromSpatiaLite, readSpatiaLite } = await import("geopbf/spatialite");
 	const { pos: [inPath, outPath], opts } = parseArgs("spatialite2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const g = readSpatiaLite(u8);
 		console.log(t("gpkgList", { in: inPath, encoding: g.encoding, page: g.pageSize, n: g.layers.length }));
-		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
+		for (const l of g.layers as (SpatiaLiteLayer & { identifier?: string })[]) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
 		for (const m of g.missing) console.log(t("missingTable", { table: m }));
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
@@ -348,7 +355,7 @@ async function spatialite2pbf(argv) {
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
-	const s = r.stats;
+	const s = r.stats as typeof r.stats & { extendedGeometries: number };   // SpatiaLite の stats は extendedGeometries を持たない（gpkg と同じ行を流用）
 	console.log(t("layerLine", { in: inPath, layer: s.layer, others: othersNote(s), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
 	if (s.skipped.length) console.log(t("skippedColumns", { list: skippedList(s.skipped) }));
 	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(t("gpkgDropped", { n: s.droppedGeometries, plain: s.droppedGeometries - s.extendedGeometries, extended: s.extendedGeometries, zm: s.z || s.m ? t("zmDropped") : "", bigints: s.bigints ? t("bigintToString", { n: s.bigints }) : "" }));
@@ -356,13 +363,13 @@ async function spatialite2pbf(argv) {
 	console.log(pbfOut(outPath, out, gzip, s));
 }
 
-async function dxf2pbf(argv) {
+async function dxf2pbf(argv: string[]) {
 	const { fromDxf, readDxf } = await import("geopbf/dxf");
 	const { pos: [inPath, outPath], opts } = parseArgs("dxf2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const d = readDxf(u8, { encoding: opts.encoding });
-		console.log(t("dxfList", { in: inPath, ver: d.header.acadver ?? "?", units: d.header.insunits ?? "?", range: d.header.extmin ? `${d.header.extmin.join(",")} – ${d.header.extmax.join(",")}` : "?", entities: num(d.entities), blocks: d.blocks.length }));
+		console.log(t("dxfList", { in: inPath, ver: d.header.acadver ?? "?", units: d.header.insunits ?? "?", range: d.header.extmin ? `${d.header.extmin.join(",")} – ${d.header.extmax!.join(",")}` : "?", entities: num(d.entities), blocks: d.blocks.length }));
 		console.log(t("dxfKinds", { list: Object.entries(d.counts).map(([k, v]) => `${k}×${v}`).join(" ") }));
 		console.log(t("dxfLayers", { list: d.layers.map(l => l.name).join(", ") || t("dxfNoLayerTable") }));
 		return;
@@ -380,7 +387,8 @@ async function dxf2pbf(argv) {
 	console.log(pbfOut(outPath, out, gzip, s));
 }
 
-async function csv2pbf(argv) {
+type GeomCols = { wkt?: string; lon?: string; lat?: string };   // fromTable の stats.geometry（wkt 列か経緯度の 2 列）
+async function csv2pbf(argv: string[]) {
 	const { fromTable } = await import("geopbf/table");
 	const { pos: [inPath, outPath], opts } = parseArgs("csv2pbf", argv);
 	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, fallbackEncoding: opts["fallback-encoding"], delimiter: opts.delimiter, ...attrOpts(opts) });
@@ -389,12 +397,12 @@ async function csv2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	const geom = s.geometry.wkt ? t("wktColumn", { col: s.geometry.wkt }) : t("lonLatColumns", { lon: s.geometry.lon, lat: s.geometry.lat });
-	console.log(t("csvIn", { in: inPath, kind: s.kind, sheet: s.sheet ? t("sheet", { name: s.sheet, others: s.sheets?.length > 1 ? t("others", { list: s.sheets.filter(x => x !== s.sheet).join(", ") }) : "" }) : "", rows: num(s.rows), features: num(s.features), dropped: s.droppedGeometries ? t("droppedNoCoords", { n: num(s.droppedGeometries) }) : "", vertices: num(s.vertices), geom, columns: s.columns.length }));
+	const geom = (s.geometry as GeomCols).wkt ? t("wktColumn", { col: (s.geometry as GeomCols).wkt }) : t("lonLatColumns", { lon: (s.geometry as GeomCols).lon, lat: (s.geometry as GeomCols).lat });
+	console.log(t("csvIn", { in: inPath, kind: s.kind, sheet: s.sheet ? t("sheet", { name: s.sheet, others: s.sheets?.length! > 1 ? t("others", { list: s.sheets!.filter(x => x !== s.sheet).join(", ") }) : "" }) : "", rows: num(s.rows), features: num(s.features), dropped: s.droppedGeometries ? t("droppedNoCoords", { n: num(s.droppedGeometries) }) : "", vertices: num(s.vertices), geom, columns: s.columns.length }));
 	console.log(pbfOut(outPath, out, gzip, s));
 }
 
-async function gdb2pbf(argv) {
+async function gdb2pbf(argv: string[]) {
 	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("geopbf/filegdb");
 	const { pos: [inPath, outPath], opts } = parseArgs("gdb2pbf", argv);
 	const { statSync, readdirSync, openSync, readSync, closeSync } = await import("node:fs");
@@ -402,7 +410,7 @@ async function gdb2pbf(argv) {
 	let source;
 	if (statSync(inPath).isDirectory()) {
 		const names = readdirSync(inPath);
-		source = { names, read: async (name, offset = 0, length) => { const p = join(inPath, names.find(n => n.toLowerCase() === name.toLowerCase()) ?? name); const size = statSync(p).size; const n = length === undefined ? size - offset : Math.min(length, size - offset); const buf = Buffer.alloc(Math.max(0, n)); const fd = openSync(p, "r"); try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); } return new Uint8Array(buf.buffer, buf.byteOffset, buf.length); } };
+		source = { names, read: async (name: string, offset = 0, length?: number) => { const p = join(inPath, names.find(n => n.toLowerCase() === name.toLowerCase()) ?? name); const size = statSync(p).size; const n = length === undefined ? size - offset : Math.min(length, size - offset); const buf = Buffer.alloc(Math.max(0, n)); const fd = openSync(p, "r"); try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); } return new Uint8Array(buf.buffer, buf.byteOffset, buf.length); } };
 	} else {
 		const { decodeZIP } = await import("geopbf/decodeZIP");
 		const entries = await decodeZIP(new Blob([await readFile(inPath)]));
@@ -412,7 +420,7 @@ async function gdb2pbf(argv) {
 	if (!outPath) {
 		const g = await openFileGDB(source);
 		console.log(t("gdbList", { in: inPath, classes: g.layers.length, tables: g.tables.length - g.layers.length }));
-		for (const x of g.tables) console.log(`  ${x.name}  ${x.error ? `⚠ ${x.error}` : x.geometryType ? `${x.geometryType}${x.hasZ ? "Z" : ""}${x.hasM ? "M" : ""}  ${x.crs.label}${x.crs.kind === "other" ? t("cannotToLonLat") : ""}` : "(table)"}  ${t("rows", { n: num(x.rows) })}  ${t("columns", { list: x.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",") })}`);
+		for (const x of g.tables) console.log(`  ${x.name}  ${x.error ? `⚠ ${x.error}` : x.geometryType ? `${x.geometryType}${x.hasZ ? "Z" : ""}${x.hasM ? "M" : ""}  ${x.crs!.label}${x.crs!.kind === "other" ? t("cannotToLonLat") : ""}` : "(table)"}  ${t("rows", { n: num(x.rows!) })}  ${t("columns", { list: x.fields!.filter(f => f.type !== "geometry").map(f => f.name).join(",") })}`);
 		return;
 	}
 	const r = await fromFileGDB(source, { layer: opts.layer, precision: precisionOpt(opts), name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
@@ -421,7 +429,7 @@ async function gdb2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(t("gdbLayerLine", { in: inPath, layer: s.layer, others: othersNote(s), type: s.geometryType, rows: num(s.rows), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
+	console.log(t("gdbLayerLine", { in: inPath, layer: s.layer, others: othersNote(s), type: s.geometryType, rows: num(s.rows!), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
 	if (s.datumApprox) console.log(t("datumApprox"));
 	if (s.datum?.tky2jgd) console.log(t("tky2jgd", { grid: num(s.datum.tky2jgd.grid), helmert: num(s.datum.tky2jgd.helmert) }));
 	if (s.datum?.patchjgd) console.log(t("patchjgd", { grid: num(s.datum.patchjgd.grid), outside: num(s.datum.patchjgd.outside) }));
@@ -432,14 +440,14 @@ async function gdb2pbf(argv) {
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, dxf2pbf, csv2pbf, gdb2pbf };
+const commands: Record<string, (argv: string[]) => Promise<void>> = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, dxf2pbf, csv2pbf, gdb2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(t("usage")); process.exit(0); }
 if (!commands[cmd]) { console.error(t("unknownCommand", { cmd })); console.error(t("usage")); process.exit(2); }
 if (argv.includes("--help") || argv.includes("-h")) { console.log(usageFor(cmd)); process.exit(0); }   // <cmd> --help＝そのコマンドの段だけ
 try {
 	await commands[cmd](argv);
 } catch (e) {
-	console.error(`geopbf ${cmd}: ${e.message}`);
+	console.error(`geopbf ${cmd}: ${(e as Error).message}`);
 	if (e instanceof UsageError) console.error(t("seeHelp", { cmd }));
 	process.exit(e instanceof UsageError ? 2 : 1);   // 使い方の誤り＝2・実行時の失敗＝1
 }

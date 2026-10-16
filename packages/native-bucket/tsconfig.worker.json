@@ -1,0 +1,11 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"lib": ["es2022", "webworker"],
+		"types": [],
+		"rootDir": ".",
+		"noEmit": true
+	},
+	"include": ["workers/*.ts"],
+	"exclude": []
+}

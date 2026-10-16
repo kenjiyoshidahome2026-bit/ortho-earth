@@ -105,7 +105,7 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 }
 // ── CLI ───────────────────────────────────────────────────────────────────────
 {
-	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
+	const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-table-"));
 	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const csvPath = join(dir, "a.csv"); writeFileSync(csvPath, "name,lon,lat\nA,139.7,35.6\nB,,\n");

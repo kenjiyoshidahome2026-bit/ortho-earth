@@ -1,4 +1,4 @@
-// t-cog-cli: bin/geopbf.mjs の cog サブコマンド検定（サブプロセス起動＝t-cli.mjs と同じ経路）。
+// t-cog-cli: src/cli/geopbf.ts の cog サブコマンド検定（サブプロセス起動＝t-cli.mjs と同じ経路）。
 // 合成 COG を一時ファイルに書き、info の各欄・--bench・png 出力（マジック/IHDR 寸法）を見る。
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -9,7 +9,7 @@ import { buildCog } from "./cog/build-cog.mjs";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
-const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
+const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname;
 const dir = mkdtempSync(join(tmpdir(), "geopbf-cog-"));
 const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 

@@ -2,7 +2,7 @@
 //   node packages/native-bucket/tests/t-bucket.mjs
 // 守るもの：GET はエッジキャッシュに載る／put・mp-complete・del の後はその道のキャッシュを捨てる（B18・2026-09-25）
 //          ＝書いた直後の GET が古い本体を返さない（同じ拠点の中で）／鍵が無ければ書けない
-import { bucket } from "../workers/bucket.js";
+import { bucket } from "../workers/bucket.ts";
 
 const ENV = { API_KEY: "secret-key" };
 const BASE = "https://api.ortho-earth.com/bucket/";

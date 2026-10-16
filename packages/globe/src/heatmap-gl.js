@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は heatmap-gl.ts）。手で編集しない。
 // ヒートマップ＝GPU 描画（レンダーワーカー内で地球・注記と同じフレームに描くオーバーレイ・MapLibre の heatmap 層相当・2026-09-21）。
 // main（gadgets/aggregate.js）が点の列（単位球ワールド xyz・重み）と、ズームごとの半径/強さの表・色表（heatmap-density 0..1 → RGBA）を渡す。
 // 描き方は MapLibre と同じ二段：①密度＝各点のガウス核（weight×intensity×GAUSS_COEF×exp(−½·3²·d²)）を浮動小数の窓へ加算
@@ -98,7 +99,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 export function frame(cam, s, size) {
 	const r = draw(cam, s, size);

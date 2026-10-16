@@ -13,18 +13,20 @@
 // リダイレクトは自前で追う（redirect:"manual"）。allowlist のホストが 302 で任意の先へ飛ばせると
 // ①の門が素通りになるため、ホップごとに同じ門で検問する。
 
+import type { Env, RateLimiter } from './types.ts';
+
 const MAX_HOPS = 5;
 const SAFE_HEADERS = ['accept', 'accept-encoding', 'accept-language', 'content-type',
 	'range', 'cache-control', 'if-modified-since', 'if-none-match'];
 
 // ドット境界のサフィックス一致（"gsi.go.jp" は "maps.gsi.go.jp" に当たり "evilgsi.go.jp" には当たらない）
-const hostMatches = (host, list) => list.some(d => {
+const hostMatches = (host: string, list: string[]) => list.some(d => {
 	d = d.trim().toLowerCase().replace(/^\./, "");
 	return d && (host === d || host.endsWith("." + d));
 });
 
 // 内側へ向かう転送の拒否（SSRF・クラウドのメタデータ・自分自身への再帰＝増幅ループ）
-const isInternalHost = host =>
+const isInternalHost = (host: string) =>
 	host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") ||
 	host === "[::1]" || host === "::1" ||
 	/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) ||
@@ -32,7 +34,7 @@ const isInternalHost = host =>
 	/^0\./.test(host) || host === "metadata.google.internal";
 
 // X-Proxy-Deny＝この Worker 自身の検問で止めた印。上流由来の 403 と区別する（check モードが見る）。
-const deny = (msg, status = 403) =>
+const deny = (msg: string, status = 403) =>
 	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json", "X-Proxy-Deny": "1" } });
 
 // Origin が ALLOWED_DOMAINS に載るか。URL として解いてから突き合わせる（生文字列の includes だと
@@ -40,8 +42,8 @@ const deny = (msg, status = 403) =>
 // ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が混ざるため、host（ポート込み）と
 // hostname（ポート無し）の両方で見る＝どちらの書き方も効く。空の項目（末尾カンマ等）は hostMatches が捨てる。
 // ⚠ Origin はブラウザには偽れないが curl 等は自由に付けられる＝「ブラウザから来た」の目印でしかなく認証ではない。
-// CORS の許可（index.js）と下の isTrusted が共用。
-export const originAllowed = (req, env = {}) => {
+// CORS の許可（index.ts）と下の isTrusted が共用。
+export const originAllowed = (req: Request, env: Partial<Env> = {}) => {
 	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",");
 	const origin = req.headers.get("Origin") || "";
 	try {
@@ -52,7 +54,7 @@ export const originAllowed = (req, env = {}) => {
 };
 
 // X-API-Key が env.API_KEY と一致するか（定数時間で比べる）。書き込み・非 GET の中継はこれだけが鍵（2026-09-25）。
-export const keyMatches = (req, env = {}) => {
+export const keyMatches = (req: Request, env: Partial<Env> = {}) => {
 	const want = env.API_KEY || "", got = req.headers.get("X-API-Key") || "";
 	if (!want || got.length !== want.length) return false;
 	let d = 0;
@@ -63,7 +65,7 @@ export const keyMatches = (req, env = {}) => {
 // 回数上限（案 1・2026-09-25）＝Origin だけを根拠に通す分（/proxy の許可表外ホスト・/tellus）を IP ごとに数える。
 // Origin は偽れる＝ここが実質の歯止め。鍵持ちと許可表のホストは数えない。limiter（Workers Rate Limiting の binding）が
 // 無い環境（wrangler dev・ミラーの自前 deploy）と limiter の故障時は素通し＝回数上限のせいで取れなくなる事故を作らない。
-export const overLimit = async (limiter, req) => {
+export const overLimit = async (limiter: RateLimiter | undefined, req: Request) => {
 	if (!limiter?.limit) return false;
 	try { return !(await limiter.limit({ key: req.headers.get("CF-Connecting-IP") || "unknown" })).success; }
 	catch { return false; }
@@ -72,10 +74,12 @@ export const tooMany = () => new Response(JSON.stringify({ error: "rate limited�
 	{ status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60", "X-Proxy-Deny": "1" } });
 
 // 信頼された呼び出し元＝Origin 一致（ブラウザの頁）または API キー一致（Node バッチ）。
-// /proxy の門②（GET/HEAD）と /tellus（tellus.js）が共用。非 GET の中継は keyMatches だけで判定する（proxy() 内）。
-export const isTrusted = (req, env = {}) => originAllowed(req, env) || keyMatches(req, env);
+// /proxy の門②（GET/HEAD）と /tellus（tellus.ts）が共用。非 GET の中継は keyMatches だけで判定する（proxy() 内）。
+export const isTrusted = (req: Request, env: Partial<Env> = {}) => originAllowed(req, env) || keyMatches(req, env);
 
-export async function proxy(req, env = {}) {
+type Gate = { ok: true; url: URL } | { ok: false; why: string };
+
+export async function proxy(req: Request, env: Partial<Env> = {}) {
 	const url = new URL(req.url);
 	const target = url.searchParams.get('url');
 	const mode = url.searchParams.get('mode');
@@ -86,8 +90,8 @@ export async function proxy(req, env = {}) {
 	const trusted = isTrusted(req, env);
 
 	// 転送先の検問（リダイレクト先にも同じものを掛ける）
-	const gate = (raw) => {
-		let t;
+	const gate = (raw: string): Gate => {
+		let t: URL;
 		try { t = new URL(raw); } catch { return { ok: false, why: "invalid url" }; }
 		if (t.protocol !== "https:" && t.protocol !== "http:") return { ok: false, why: `scheme not allowed: ${t.protocol}` };
 		const host = t.hostname.toLowerCase();
@@ -108,7 +112,7 @@ export async function proxy(req, env = {}) {
 	if (!keyMatches(req, env) && !hostMatches(first.url.hostname.toLowerCase(), allowedHosts) && await overLimit(env.PROXY_RL, req)) return tooMany();
 
 	// リダイレクトを1ホップずつ検問しながら追う
-	const followed = async (startUrl, init) => {
+	const followed = async (startUrl: string, init: RequestInit) => {
 		let cur = startUrl;
 		for (let hop = 0; hop <= MAX_HOPS; hop++) {
 			const res = await fetch(cur, { ...init, redirect: "manual" });
@@ -156,5 +160,5 @@ export async function proxy(req, env = {}) {
 		for (const [k, v] of req.headers) SAFE_HEADERS.includes(k.toLowerCase()) && headers.set(k, v);
 		headers.set('User-Agent', 'nativeBucket-Proxy/1.2');
 		return await followed(first.url.toString(), { method, headers, body });
-	} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 });}
+	} catch (e) { return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500 });}
 }

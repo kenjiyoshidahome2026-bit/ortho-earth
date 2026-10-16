@@ -1,7 +1,7 @@
 // convert/gpu.js ── WebGPU の「計算だけ」の薄い器。描画は一切持たない（ortho-core gpu/gint.js の compute 版の最小形）。
 //
 // 供給源の優先順: opts.gpu（明示注入） > setGPU() で登録した GPU > globalThis.navigator.gpu（ブラウザ・Deno）。
-// Node 22 には navigator.gpu が無い＝Dawn（任意依存の `webgpu` パッケージ）は **bin/geopbf.mjs が読んで setGPU() で
+// Node 22 には navigator.gpu が無い＝Dawn（任意依存の `webgpu` パッケージ）は **src/cli/geopbf.ts が読んで setGPU() で
 // 注入する**。ここに `import("webgpu")` を置くと、ブラウザ向けバンドラ（vite/rollup/rolldown）が裸の指定子を
 // 静的に解決しようとして消費者の dev が 500 で割れる＝1.5.0 の轍。指定子を "web"+"gpu" と割っても vite 8 の
 // 事前バンドルが定数畳み込みで元に戻すため小技では塞げない（1.5.1 の轍）＝供給源は外から入れるのが唯一の正解。
