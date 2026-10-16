@@ -14,7 +14,7 @@ const P = p => resolve(ROOT, p);
 export const ENTRIES = [
 	["@ortho-earth/globe", "globe", resolve(import.meta.dirname, "globe.js")],
 	["@ortho-earth/globe/i18n.js", "i18n", P("packages/globe/src/i18n.js")],
-	["@ortho-earth/core", "core", P("packages/ortho-core/src/index.js")],
+	["@ortho-earth/core", "core", P("packages/ortho-core/src/index.ts")],
 	["geopbf", "geopbf", P("packages/geopbf/src/index.js")],
 	["@ortho-earth/h3/core", "h3", P("packages/h3/src/core.ts")],
 	// 地域の切り替え口（packages/regions＝orthoJapan・2026-10-15 に jp から出した）と地域パック（jp・nl）＝japan・census2020・choju・ortho-nl・gishub-jp が共に読む（2026-10-14）

@@ -1,6 +1,6 @@
 // デコード済みタイル 1 枚 → 描画の荷（描画 op 列・図郭外の水域・ラベル・建物）。tile worker と main の既定経路（tilemanager）の共通の組み立て。
 // 旧＝同じ手順（境界→drawlist→emptySea→labels→buildings→実バイト）が tileworker.js と tilemanager.js に 2 通り書かれていた。
-// worker からも読む＝index.js（pipeline＝worker 生成を含む）を引かない（tileworker のコメント参照）
+// worker からも読む＝index.ts（pipeline＝worker 生成を含む）を引かない（tileworker のコメント参照）
 import { buildTileDrawList, buildEmptySeaOps } from "./build.ts";
 import { buildLabels } from "./labels.ts";
 import { buildBuildings } from "./buildings.ts";
