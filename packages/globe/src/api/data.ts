@@ -13,12 +13,24 @@ import { sanitizeHTML } from "geopbf/sanitize";
 import screengridUrl from "../gadgets/screengrid-draw.js?url";
 import { tr } from "../i18n.js";
 import tripsUrl from "../gadgets/trips-gl.js?url";
+import type { Feature, FeatureCollection } from "geopbf";
+import type { FeatureService } from "geopbf/featureservice";
+import type { CellCache } from "../featureservice.d.ts";
+import type { Bbox, CellsLayerHandle, DataLayerHandle, MapLibreLayer, OverlayHandle } from "../../globe.d.ts";
+import type { DataDeps, DataLive, DataReturn, FsFollowEntry, Installing, IntakeCtx } from "../types/install.ts";
+import type { DataApi } from "../types/map.ts";
+import type { UserSource } from "../types/scope.ts";
 
-export function installData(map, live, {
+/** dev の検証窓のオーバーレイの段（dbgHost.__overlay） */
+type OverlayStages = Record<string, { stage?: string; error?: string }>;
+/** three のオーバーレイの知らせ（失敗＝{ type:"error", error }） */
+type OverlayMsg = { type?: string; error?: string } | null | undefined;
+
+export function installData(map: Installing<DataApi>, live: DataLive, {
 	BUILTIN_DATA_KINDS, CAM_ZOOM_MIN, ELL_ON, LOW_MEM, REGION_BLD_LABELS, ac, applyCamView, applyViewLayers, cam, canvas, dbgHost, flightCtl, flyView,
 	gint, gpuBackend, hostWorker, meshMgr, meshOn, onMove, opts, overlays, ownDestroy, pluginHost, requestDraw, requester, saveView, setGSrc, switchTheme,
 	themeBootV, themeFixed, viewHash
-}) {
+}: DataDeps): DataReturn {
 	// ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 	// demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 	// --- シーン再生＝scenes/player.js（上映・停止・タイムライン・黒幕・フェード・待ちパネル）。ここは配線だけ＝app の状態は getter、関数はラップ。
@@ -30,7 +42,7 @@ export function installData(map, live, {
 	// demo ガジェットは index.html が少し遅れて搭載する＝居るまで小さく待つ（最大10秒・居なければ諦めて警告）。
 	// 外部 URL の門（?g= / ?scene= 共用）：gh:user/repo[@ref]/path 短縮形→GitHub raw・https 限定（開発時のみ localhost の http 可）・
 	// ".." で別リポジトリへ滑るのを封じる。相対 URL は同一オリジン（同梱サンプル等）。通らなければ null（console.warn 済み）。
-	const remoteUrl = (spec, tag) => {
+	const remoteUrl = (spec: string, tag: string) => {
 		const gh = /^gh:([\w.-]+)\/([\w.-]+)(?:@([\w.-]+))?\/(.+)$/.exec(spec);   // ref に / は不可（path との曖昧を避ける）
 		if (gh && [gh[1], gh[2], gh[3] || "", ...gh[4].split("/")].some(x => x === "." || x === "..")) { console.warn(`[${tag}] bad gh: path`, spec); return null; }
 		let u;
@@ -50,12 +62,12 @@ export function installData(map, live, {
 			return JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf));
 		}).then(obj => {
 			if (obj?.type !== "scenes") { console.warn(`[scene] type is not "scenes" = not playing`, sceneUrl); return; }
-			const arm = tries => scenes.demoHandle ? scenes.playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo never mounted = gave up on ?scene="));
+			const arm = (tries: number): unknown => scenes.demoHandle ? scenes.playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo never mounted = gave up on ?scene="));
 			arm(0);
 		}).catch(err => console.warn("[scene] failed to fetch ?scene=", sceneUrl, err));
 	}
 	// ?at=lon,lat[,heading[,scale]]＝?g= の glb/gltf をどこに置くか（3D 模型は地理座標を持たない。省略＝画面中心）。他形式は読まない
-	const modelAt = () => { const v = (new URLSearchParams(location.search).get("at") || "").split(",").map(Number); return Number.isFinite(v[0]) && Number.isFinite(v[1]) ? { at: [v[0], v[1]], heading: v[2] || 0, scale: v[3] || 1 } : {}; };
+	const modelAt = (): IntakeCtx => { const v = (new URLSearchParams(location.search).get("at") || "").split(",").map(Number); return Number.isFinite(v[0]) && Number.isFinite(v[1]) ? { at: [v[0], v[1]], heading: v[2] || 0, scale: v[3] || 1 } : {}; };
 	// ?g=<URL>＝GeoPBF の URL ロード（ドロップと同じ一本道＝取得→loadUserFile）。gh:user/repo[@ref]/path 短縮形は
 	// GitHub raw へ展開（ref 省略=HEAD・コミットSHA固定も可）。https 限定（開発時のみ localhost の http 可）・
 	// credentials 無し＝他人の置き場を読むだけの姿勢。読めたら出所（ホスト名）を出典 #attr へ常時表示＝
@@ -67,40 +79,40 @@ export function installData(map, live, {
 	//   （proxy 確認・URL の IDB 控えもそのまま）。bucket の名前（http でない文字列）も従来どおり。
 	//   フィーチャーサービスの URL は従来「未対応の形式」で落ちていた＝足し算（読めるようにするだけ）。
 	const SECRET_Q = /[?&](token|key|apikey|api_key|access_token|accesstoken|sig|signature|auth)=/i;
-	const directOK = url => SECRET_Q.test(url);
+	const directOK = (url: string) => SECRET_Q.test(url);
 	// サービスの形（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）＝件数が WHOLE_MAX 以下なら丸ごと・超えたら視野追従（gint へ・本人裁定）
 	const fsMod = () => import("../featureservice.js");
 	const SERVICE_HINT = /\/(?:FeatureServer|MapServer)\/\d+|\/collections\/[^/?#]+/i;   // 形のあたり（確定は geopbf の parseServiceUrl）＝当たらない URL は読み口の chunk を読まない
-	const svcOpen = new Map();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
+	const svcOpen = new Map<string, Promise<FeatureService | null>>();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
 	// 控えの掃除（本人 2026-09-30「掃除する機能は絶対に必要」）＝鍵の接頭辞 FS1:: だけ（他の控えには触らない）。頁で最初にサービスを開く時に一度：
 	// 置いてから 30 日を超えた物・2,000 件／256MB を超えた分（最後に使ったのが古い順）を消す。map.clearFeatureServiceCache()＝全部
 	const FS_PREFIX = "FS1::", FS_PRUNE = { maxAge: 30 * 864e5, maxEntries: 2000, maxBytes: 256 * 2 ** 20 };
-	let fsPruned = null;
+	let fsPruned: Promise<unknown> | null = null;
 	const pruneFsCache = () => fsPruned ??= geopbfCachePrune({ prefix: FS_PREFIX, ...FS_PRUNE }).then(r => { if (r?.removed) console.info(`[featureservice] cache: removed ${r.removed}, kept ${r.kept} (${(r.bytes / 2 ** 20).toFixed(1)} MB)`); return r; }).catch(err => { console.warn("[featureservice] cache prune", err); return null; });
-	const openSvc = url => {
+	const openSvc = (url: string): Promise<FeatureService | null> => {
 		if (!/^https?:\/\//i.test(url) || !SERVICE_HINT.test(url)) return Promise.resolve(null);
 		pruneFsCache();
 		if (!svcOpen.has(url)) {
-			const p = fsMod().then(m => m.parseServiceUrl(url) ? m.openService(url, { fetch: (u, init) => requester.fetch(u, "Source", init) }) : null);
+			const p = fsMod().then(m => m.parseServiceUrl(url) ? m.openService(url, { fetch: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }) : null);
 			p.catch(() => svcOpen.delete(url)); svcOpen.set(url, p);
 		}
-		return svcOpen.get(url);
+		return svcOpen.get(url)!;
 	};
 	// 控え（本人 2026-09-30「一度読んだ Feature は IDB で GeoPBF/GintBUF として使い回す」）＝鍵はサービス・版・部分（"all" か枡）＝geopbf の IDB（同じ棚）。
 	// 版の無いサービス（OGC・MapServer）は 1 日で読み直す・版のあるもの（ArcGIS の lastEditDate）は 30 日（版が替われば鍵が替わる）。
 	// GeoPBF は Feature.id を持たない＝置く時に属性へ写し、引く時に戻す（視野追従の重複落とし・MapLibre の feature-state が id で当てる）
 	const FS_ID = "ortho:fsid";   // ortho:mlid と同じ名前空間
-	const fsAge = svc => svc.version != null ? 30 * 864e5 : 864e5;
-	const stampIds = fs => fs.map(f => f.id == null ? f : { ...f, properties: { ...(f.properties || {}), [FS_ID]: f.id } });
-	const unstampIds = fs => fs.map(f => { const p = f.properties; if (!p || p[FS_ID] == null) return f; const { [FS_ID]: id, ...rest } = p; return { ...f, id, properties: rest }; });
-	const fsCacheGet = async (svc, part, gint = false) => geopbfCached(svc.cacheKey(part), { gint, maxAge: fsAge(svc), name: `fs/${svc.name || "layer"}` }).catch(() => null);
-	const fsCachePut = (svc, part, features, gint = false) => features.length ? geopbf({ type: "FeatureCollection", features: stampIds(features) }, { gint, name: `fs/${svc.name || "layer"}`, cacheKey: svc.cacheKey(part) }) : Promise.resolve(null);
-	const fsCellCache = svc => ({   // 視野追従の枡
+	const fsAge = (svc: FeatureService) => svc.version != null ? 30 * 864e5 : 864e5;
+	const stampIds = (fs: Feature[]) => fs.map(f => f.id == null ? f : { ...f, properties: { ...(f.properties || {}), [FS_ID]: f.id } });
+	const unstampIds = (fs: Feature[]) => fs.map(f => { const p = f.properties; if (!p || p[FS_ID] == null) return f; const { [FS_ID]: id, ...rest } = p; return { ...f, id: id as Feature["id"], properties: rest }; });
+	const fsCacheGet = async (svc: FeatureService, part: string, gint = false) => geopbfCached(svc.cacheKey(part), { gint, maxAge: fsAge(svc), name: `fs/${svc.name || "layer"}` }).catch(() => null);
+	const fsCachePut = (svc: FeatureService, part: string, features: Feature[], gint = false) => features.length ? geopbf({ type: "FeatureCollection", features: stampIds(features) }, { gint, name: `fs/${svc.name || "layer"}`, cacheKey: svc.cacheKey(part) }) : Promise.resolve(null);
+	const fsCellCache = (svc: FeatureService): CellCache => ({   // 視野追従の枡
 		get: async key => { const pbf = await fsCacheGet(svc, key); return pbf ? unstampIds(pbf.geojson?.features || []) : null; },
 		put: (key, fc) => fsCachePut(svc, key, fc.features),
 	});
 	// 丸ごと＝控えがあれば網に出ない。gint＝GintBUF も欲しい（?g= の利用者の枠＝焼き直さず GPU へ）
-	const svcWhole = async (svc, gint = false) => {
+	const svcWhole = async (svc: FeatureService, gint = false) => {
 		const hit = await fsCacheGet(svc, "all", gint);
 		if (hit) return { features: unstampIds(hit.geojson?.features || []), pbf: hit, cached: true };
 		const { WHOLE_MAX } = await fsMod(), fc = await svc.readAll({ max: WHOLE_MAX });
@@ -109,14 +121,14 @@ export function installData(map, live, {
 			: await fsCachePut(svc, "all", fc.features, gint).catch(err => { console.warn("[featureservice] cache", err); return null; });
 		return { features: fc.features, pbf, cached: false };
 	};
-	const svcAttrHTML = svc => svc?.attribution ? sanitizeHTML(svc.attribution) : (() => { try { return new URL(svc.url).host; } catch { return null; } })();   // 宣言が無ければホスト名＝無出典で他人のデータを出さない
-	const urlFileName = async (u, blob) => {   // 拡張子の無い URL（…/data・…?f=geojson）＝中身の頭で JSON か GeoPBF かを決める
+	const svcAttrHTML = (svc: FeatureService | null | undefined) => svc?.attribution ? sanitizeHTML(svc.attribution) : (() => { try { return new URL(svc!.url).host; } catch { return null; } })();   // 宣言が無ければホスト名＝無出典で他人のデータを出さない
+	const urlFileName = async (u: string, blob: Blob) => {   // 拡張子の無い URL（…/data・…?f=geojson）＝中身の頭で JSON か GeoPBF かを決める
 		let n = "data"; try { n = decodeURIComponent(new URL(u).pathname.split("/").pop() || "data"); } catch { /* 相対は上で解いてある */ }
 		if (/\.[a-z0-9]{2,8}$/i.test(n)) return n;
 		const head = (await blob.slice(0, 64).text()).trimStart();
 		return n + (head[0] === "{" || head[0] === "[" ? ".geojson" : ".geopbf");
 	};
-	const readGeoData = async d => {
+	const readGeoData: DataReturn["readGeoData"] = async d => {
 		if (typeof d === "string" && /^https?:\/\//i.test(d)) {
 			const svc = await openSvc(d);
 			if (svc) return { type: "FeatureCollection", features: (await svcWhole(svc)).features };   // サービス＝丸ごと（上限 WHOLE_MAX・控えがあれば網に出ない＝押し出し・集約・模様・熱の層はこの道。視野追従は fill/line/circle の層だけ＝sourceData）
@@ -130,16 +142,16 @@ export function installData(map, live, {
 		return d;
 	};
 	// 出典の欄（vtxAttrs の "src:<sid>"）＝geojson source の attribution（MapLibre の宣言）かサービスの出典（copyrightText・OGC の license）
-	const setSrcAttr = (sid, html) => { const k = "src:" + sid, cur = live.vtxAttrs.get(k) ?? null; if ((html ?? null) === cur) return; if (html) live.vtxAttrs.set(k, html); else live.vtxAttrs.delete(k); live.attrZone = null; requestDraw(); };
-	const fsFollow = new Map();   // sid → { url, fc, follow }（視野追従の source）
-	const dropFollow = sid => { const e = fsFollow.get(sid); if (e) { e.follow?.destroy(); fsFollow.delete(sid); } };
+	const setSrcAttr = (sid: string, html: string | null | undefined) => { const k = "src:" + sid, cur = live.vtxAttrs.get(k) ?? null; if ((html ?? null) === cur) return; if (html) live.vtxAttrs.set(k, html); else live.vtxAttrs.delete(k); live.attrZone = null; requestDraw(); };
+	const fsFollow: DataReturn["fsFollow"] = new Map();   // sid → { url, fc, follow }（視野追従の source）
+	const dropFollow = (sid: string) => { const e = fsFollow.get(sid); if (e) { e.follow?.destroy(); fsFollow.delete(sid); } };
 	// fill/line/circle の層の data（gintDataOf）：サービスで件数が多い＝視野追従（動いて止まったら足りない枡を読み、source を組み直す）
-	const sourceData = async (sid, d, sp) => {
+	const sourceData = async (sid: string, d: unknown, sp?: UserSource) => {
 		const svc = typeof d === "string" ? await openSvc(d) : null;
 		if (!svc) { dropFollow(sid); setSrcAttr(sid, null); return readGeoData(d); }   // サービスでない＝従来どおり（出典の欄も触らない）
-		let e = fsFollow.get(sid);
+		let e: FsFollowEntry | null | undefined = fsFollow.get(sid);
 		if (e && e.url !== d) { dropFollow(sid); e = null; }
-		if (!e) { e = { url: d, fc: null, follow: null }; fsFollow.set(sid, e); }
+		if (!e) { e = { url: d as string, fc: null, follow: null }; fsFollow.set(sid, e); }
 		setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : svcAttrHTML(svc));
 		const m = await fsMod();
 		if (svc.count != null && svc.count <= m.WHOLE_MAX) return e.fc ??= { type: "FeatureCollection", features: (await svcWhole(svc)).features };
@@ -150,7 +162,7 @@ export function installData(map, live, {
 	dbgHost.__fsFollow = () => [...fsFollow].map(([sid, e]) => ({ sid, url: e.url, n: e.fc?.features?.length ?? 0, stats: e.follow?.stats() ?? null }));   // 検定の窓
 	// ?g= がフィーチャーサービス（#176）＝件数が WHOLE_MAX 以下は丸ごと（ドロップと同じ本道）・超えたら視野追従（利用者の gint 枠を読むたびに差し替え＝識別が効く）。
 	// 取得は requester（transformRequest＝鍵）。出典の行＝サービスの宣言（copyrightText・OGC の license）かホスト名。引きすぎの間は「寄れば読む」を添える
-	async function loadServiceG(svc, u) {
+	async function loadServiceG(svc: FeatureService, u: URL) {
 		const m = await fsMod(), name = svc.name || u.host, t = tr();
 		const credit = t("Map data: $1", svc.attribution || u.host);   // 文字として入れる（HTML にしない）
 		setGSrc(credit);
@@ -161,11 +173,11 @@ export function installData(map, live, {
 			gint.applyGintData(pbf, name, false, { drape: true });
 			live.editDocHook?.(pbf, name);
 			const bb = pbf.unPackGint.bbox;
-			if (!themeBootV && bb?.length === 4) map.fitBounds(bb, { padding: 40, maxZoom: 16 });
+			if (!themeBootV && bb?.length === 4) map.fitBounds(bb as Bbox, { padding: 40, maxZoom: 16 });
 			console.info("[g] feature service", svc.url, `${pbf.length} features (whole${w.cached ? ", from the local cache" : ""})`);
 			return pbf;
 		}
-		if (!themeBootV && svc.bbox) map.fitBounds(svc.bbox, { padding: 40, maxZoom: 14 });   // まず全体へ（引きすぎなら「寄れば読む」の札・寄れば読む）
+		if (!themeBootV && svc.bbox) map.fitBounds(svc.bbox as Bbox, { padding: 40, maxZoom: 14 });   // まず全体へ（引きすぎなら「寄れば読む」の札・寄れば読む）
 		const follow = live.gFollow = m.followView(svc, {
 			map, cache: fsCellCache(svc),
 			onData: async fc => {
@@ -179,6 +191,36 @@ export function installData(map, live, {
 		console.info("[g] feature service", svc.url, `${svc.count ?? "?"} features (following the view)`);
 		return follow.ready;
 	}
+	// 列チャンク層（src/columnar・#90・2026-10-15 に旧 @ortho-earth/columnar を吸収）＝GeoPBF と GeoParquet を gint を通さず描く（読み→詰め替え→GPU 直行・最初の 1 枚が速い）。
+	// GeoParquet は大きさに依らず常にこちら（旧 8MB の分かれ道は無し）。GeoPBF は大きさで自動＝COLUMNAR_BYTES を超えたら列チャンク層・以下は gint
+	//（位相・識別の精度・ドレープ・編集はそのまま）。?columnar=1|0 で強制／opts.columnarBytes で閾値。編集ボタンは編集の時だけ gint（geoedit）へ載せ替える。
+	// 本体（worker の読み手・オーバーレイ）は動的 import＝GeoParquet や大きな GeoPBF を受けた時だけ降りてくる（起動の束には 0 バイト）。
+	// 段 0 の物差し（scripts/perf-columnar.mjs・headless SwiftShader・2026-09-27＝相対比較用）：最初の 1 枚まで gint→列チャンク
+	//   20k 筆 1.5MB：457→75ms・60k 筆 4.4MB：1174→70ms・150k 筆 11MB：1257→98ms・100 万点 32MB：1307→255ms＝列チャンクは大きさに依らず 0.1 秒級。
+	//   境目は 1.5MB より下。4MB は「gint の位相・ドレープ・精密な識別・編集を小さなファイルには残す」側の落とし所（本人裁定で動かす口＝opts.columnarBytes）
+	const COLUMNAR_BYTES = opts.columnarBytes ?? 4e6;
+	const columnarQ = () => new URLSearchParams(location.search).get("columnar");   // ?columnar=1＝常に列チャンク層／0＝常に gint
+	const columnarOn = (bytes: number) => { const q = columnarQ(); return q === "1" ? true : q === "0" ? false : bytes > COLUMNAR_BYTES; };
+	// 大きさの門を越えても「弧の共有が多い塗り分けデータ（admin1・行政地図）は gint」（本人 2026-09-27）＝読み手の走査が返す share（先頭チャンクの標本：
+	// 別の feature に既に出た頂点の割合・1 feature あたりの頂点数）で決める。既定＝share.ratio ≥ 0.3 かつ 頂点数 ≥ 40（長い共有弧）かつ 64MB 以下なら gint。
+	// opts.columnarRule(meta, bytes) → true＝列チャンク層 で差し替え可（meta.share が物差し）
+	const columnarProbe: DataReturn["columnarProbe"] = bytes => meta => columnarQ() === "1" ? true : opts.columnarRule ? !!opts.columnarRule(meta, bytes) : !(meta.share && meta.share.ratio >= 0.3 && meta.share.meanVertices >= 40 && bytes <= 64e6);
+	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
+	const columnarView: DataReturn["columnarView"] = async (src, name, o = {}) => {
+		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
+		const m = await import("../columnar/index.js");
+		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
+		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!(opts as { perf?: unknown }).perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
+		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
+			console.error("[columnar] view failed", name, err);
+			if (/zstd/i.test((err as Error | null)?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
+			throw err;
+		}
+		if (!live.columnarCtl) return null;   // probe（振り分けの規則）が断った＝呼び手が gint の道へ
+		dbgHost.__columnar = dbgHost.__parquet = live.columnarCtl;   // dev の検証窓（loaded/deferred/stats・旧名 __parquet も残す）
+		return { length: live.columnarCtl.rows, columnar: live.columnarCtl };   // dropFile のトースト用（地物数の代わりに行数）
+	};
+	// ?g= の読み込み（説明は loadServiceG の上）＝列チャンク層の口（columnarOn・columnarView・columnarProbe）の宣言の後で走らせる（TS 化 段 4：宣言の前の使用を避けた・走る順の違いは外から見えない）
 	{
 		const gSpec = new URLSearchParams(location.search).get("g");
 		const u = gSpec ? remoteUrl(gSpec, "g") : null;   // 門は ?scene= と共用（remoteUrl）
@@ -192,7 +234,7 @@ export function installData(map, live, {
 					pbf = await columnarView(u.href, name, { fit: !themeBootV, probe: columnarProbe(0) });
 					if (!pbf) {   // 規則が gint と言った（塗り分け）＝全量を取って従来の道（64MB まで）
 						const r = await fetch(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
-						if (+r.headers.get("content-length") > 64e6) throw new Error("too large for gint");
+						if (+r.headers.get("content-length")! > 64e6) throw new Error("too large for gint");
 						pbf = await live.loadUserFile(new File([await r.blob()], name), { fit: !themeBootV, gint: true });
 					}
 				} else {
@@ -213,35 +255,6 @@ export function installData(map, live, {
 			} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
 		})();
 	}
-	// 列チャンク層（src/columnar・#90・2026-10-15 に旧 @ortho-earth/columnar を吸収）＝GeoPBF と GeoParquet を gint を通さず描く（読み→詰め替え→GPU 直行・最初の 1 枚が速い）。
-	// GeoParquet は大きさに依らず常にこちら（旧 8MB の分かれ道は無し）。GeoPBF は大きさで自動＝COLUMNAR_BYTES を超えたら列チャンク層・以下は gint
-	//（位相・識別の精度・ドレープ・編集はそのまま）。?columnar=1|0 で強制／opts.columnarBytes で閾値。編集ボタンは編集の時だけ gint（geoedit）へ載せ替える。
-	// 本体（worker の読み手・オーバーレイ）は動的 import＝GeoParquet や大きな GeoPBF を受けた時だけ降りてくる（起動の束には 0 バイト）。
-	// 段 0 の物差し（scripts/perf-columnar.mjs・headless SwiftShader・2026-09-27＝相対比較用）：最初の 1 枚まで gint→列チャンク
-	//   20k 筆 1.5MB：457→75ms・60k 筆 4.4MB：1174→70ms・150k 筆 11MB：1257→98ms・100 万点 32MB：1307→255ms＝列チャンクは大きさに依らず 0.1 秒級。
-	//   境目は 1.5MB より下。4MB は「gint の位相・ドレープ・精密な識別・編集を小さなファイルには残す」側の落とし所（本人裁定で動かす口＝opts.columnarBytes）
-	const COLUMNAR_BYTES = opts.columnarBytes ?? 4e6;
-	const columnarQ = () => new URLSearchParams(location.search).get("columnar");   // ?columnar=1＝常に列チャンク層／0＝常に gint
-	const columnarOn = bytes => { const q = columnarQ(); return q === "1" ? true : q === "0" ? false : bytes > COLUMNAR_BYTES; };
-	// 大きさの門を越えても「弧の共有が多い塗り分けデータ（admin1・行政地図）は gint」（本人 2026-09-27）＝読み手の走査が返す share（先頭チャンクの標本：
-	// 別の feature に既に出た頂点の割合・1 feature あたりの頂点数）で決める。既定＝share.ratio ≥ 0.3 かつ 頂点数 ≥ 40（長い共有弧）かつ 64MB 以下なら gint。
-	// opts.columnarRule(meta, bytes) → true＝列チャンク層 で差し替え可（meta.share が物差し）
-	const columnarProbe = bytes => meta => columnarQ() === "1" ? true : opts.columnarRule ? !!opts.columnarRule(meta, bytes) : !(meta.share && meta.share.ratio >= 0.3 && meta.share.meanVertices >= 40 && bytes <= 64e6);
-	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
-	const columnarView = async (src, name, o = {}) => {
-		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
-		const m = await import("../columnar/index.js");
-		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
-		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!opts.perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
-		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
-			console.error("[columnar] view failed", name, err);
-			if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
-			throw err;
-		}
-		if (!live.columnarCtl) return null;   // probe（振り分けの規則）が断った＝呼び手が gint の道へ
-		dbgHost.__columnar = dbgHost.__parquet = live.columnarCtl;   // dev の検証窓（loaded/deferred/stats・旧名 __parquet も残す）
-		return { length: live.columnarCtl.rows, columnar: live.columnarCtl };   // dropFile のトースト用（地物数の代わりに行数）
-	};
 	// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 	map.addColumnar = async (src, o = {}) => {
 		const m = await import("../columnar/index.js");
@@ -251,14 +264,14 @@ export function installData(map, live, {
 	//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない）, module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)）,
 	//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる）, params, name, above })
 	//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
-	map.addThree = ({ three, module, origin, depth = true, params, name = "three", above = false } = {}) => {
+	map.addThree = ({ three, module, origin, depth = true, params, name = "three", above = false } = {} as Parameters<DataApi["addThree"]>[0]) => {
 		if (!three) throw new Error("addThree: three (URL of three.module.js) is required");
-		const abs = u => u == null ? u : new URL(u, location.href).href;
-		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } });
+		const abs = (u: string | undefined) => u == null ? u : new URL(u, location.href).href;
+		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } }) as OverlayHandle & { ready: Promise<OverlayHandle> };
 		h.ready = new Promise((res, rej) => {
 			const prev = h.onmessage;
-			h.onmessage = d => { if (d?.type === "error") { h.onmessage = prev; rej(new Error(d.error)); } else prev?.(d); };
-			const poll = () => { const st = dbgHost.__overlay?.[name]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (!overlays.has(name)) { rej(new Error("removed")); return; } if (st?.stage === "ready") res(h); else setTimeout(poll, 100); };
+			h.onmessage = d => { if ((d as OverlayMsg)?.type === "error") { h.onmessage = prev; rej(new Error((d as OverlayMsg)!.error)); } else prev?.(d); };
+			const poll = () => { const st = (dbgHost.__overlay as OverlayStages | undefined)?.[name]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (!overlays.has(name)) { rej(new Error("removed")); return; } if (st?.stage === "ready") res(h); else setTimeout(poll, 100); };
 			poll();
 		});
 		return h;
@@ -267,7 +280,8 @@ export function installData(map, live, {
 	// セル id → 面・点 → セルへの集約（count/sum/mean/min/max）を GeoJSON にして addSource/addLayer（fill か fill-extrusion）へ＝描画・当たりは既存の層経路。本体（h3-js）は遅延 import
 	map.addH3 = async (src, o = {}) => {
 		const m = await import("@ortho-earth/h3");
-		return m.createH3Layer(map, src, { evalExpr, ...o });
+		// TODO(ts): @ortho-earth/h3 の型（H3Map の addLayer の層＝Record・H3Layer の geojson は null あり・evalExpr の形）が公開の型（MapLibreLayer・CellsLayerHandle）と食い違う＝h3 の型を揃える
+		return m.createH3Layer(map as unknown as Parameters<typeof m.createH3Layer>[0], src as Parameters<typeof m.createH3Layer>[1], { evalExpr, ...o } as Parameters<typeof m.createH3Layer>[2]) as Promise<unknown> as Promise<CellsLayerHandle>;
 	};
 	// deck.gl の Layer（配列＋accessor）の相当（差分 PR-4・2026-10-12・src/adddata.js）：map.addData(data, { kind, …accessors, id, before, above, paint })
 	//   kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）→ points-gl、"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth px／getHeight 弦長比）→ arcs-gl
@@ -286,20 +300,20 @@ export function installData(map, live, {
 				if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "splat" is a reserved contract (capabilities()["data.splat"] is "spec"); install a plugin that registers map.registry.dataKinds "splat" (see PLUGINS.md)`);
 			}
 			if (!ext || typeof ext.create !== "function") throw new Error(`addData: unknown kind "${kind}" (builtin: ${BUILTIN_DATA_KINDS.join("/")}; plugins register via map.registry.dataKinds)`);
-			return ext.create(map, data, { ...o, id: id ?? `data${++dataSeq}` });
+			return ext.create(map, data, { ...o, id: id ?? `data${++dataSeq}` } as Parameters<typeof ext.create>[2]) as DataLayerHandle;   // plugin の手綱（PLUGINS.md の契約＝addData の手綱の形）
 		}
 		const name = id ?? `data${++dataSeq}`;
 		let props = acc, cur = data, removed = false;
 		const modP = import("../adddata.js");
-		const h = { id: name, kind };
+		const h = { id: name, kind } as DataLayerHandle;
 		if (kind === "points" || kind === "arcs" || kind === "trips") {
 			const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
-			const style = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
+			const style: Record<string, unknown> = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
 			if (acc.trailLength != null) style.trail = acc.trailLength; if (acc.fadeTrail != null) style.fade = acc.fadeTrail;
-			if (acc.color) style.color = [acc.color[0] / 255, acc.color[1] / 255, acc.color[2] / 255, (acc.color[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
+			if (acc.color) style.color = [(acc.color as number[])[0] / 255, (acc.color as number[])[1] / 255, (acc.color as number[])[2] / 255, ((acc.color as number[])[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
 			if (Object.keys(style).length) ov.post({ type: "style", ...style });
 			if (kind === "trips") { if (acc.currentTime != null) ov.post({ type: "time", t: acc.currentTime }); if (acc.clock) ov.post({ type: "clock", on: true }); }
-			const transOf = () => props.transition ? (typeof props.transition === "object" ? props.transition : { duration: +props.transition }) : null;
+			const transOf = () => props.transition ? (typeof props.transition === "object" ? props.transition : { duration: +(props.transition as number) }) : null;
 			const bake = async () => {
 				const m = await modP; if (removed) return;
 				if (kind === "points") { const b = m.bakePoints(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, pos: b.pos, rgba: b.rgba, size: b.size, f: b.f, origin: b.origin, transition: transOf() }, [b.pos.buffer]); }
@@ -314,17 +328,17 @@ export function installData(map, live, {
 			// GPU の範囲フィルタ・ブラシ・マスク（deck.gl の DataFilter／Brushing／Mask の各 Extension 相当・PR-6）
 			h.setFilter = range => { ov.post({ type: "filter", q: "d", range: range || null }); return h; };
 			h.setBrush = (x, y, r) => { ov.post(x == null ? { type: "brush" } : { type: "brush", x, y, r: r ?? acc.brushRadius ?? 60 }); return h; };
-			let brushOff = null;
+			let brushOff: (() => void) | null = null;
 			h.brush = (on = true, r) => {   // ポインタに追従するブラシ（CSS px）。off でポインタを離れた時は消す
 				brushOff?.(); brushOff = null;
-				if (!on) { h.setBrush(null); return h; }
-				const mv = e => { const rc = canvas.getBoundingClientRect(); h.setBrush(e.clientX - rc.left, e.clientY - rc.top, r ?? acc.brushRadius ?? 60); }, lv = () => h.setBrush(null);
+				if (!on) { h.setBrush!(null); return h; }
+				const mv = (e: PointerEvent) => { const rc = canvas.getBoundingClientRect(); h.setBrush!(e.clientX - rc.left, e.clientY - rc.top, (r ?? acc.brushRadius ?? 60) as number); }, lv = () => h.setBrush!(null);
 				live.mapEl.addEventListener("pointermove", mv, { passive: true }); live.mapEl.addEventListener("pointerleave", lv, { passive: true });
 				brushOff = () => { live.mapEl.removeEventListener("pointermove", mv); live.mapEl.removeEventListener("pointerleave", lv); };
 				return h;
 			};
 			h.setMask = async (polygon, o2 = {}) => { const m = await modP; const mk = polygon ? m.rasterMask(polygon, o2) : null; ov.post(mk ? { type: "mask", ...mk } : { type: "mask" }, mk ? [mk.data.buffer] : []); return h; };
-			if (acc.filterRange) h.setFilter(acc.filterRange); if (acc.mask) h.setMask(acc.mask); if (acc.brush) h.brush(true, acc.brushRadius);
+			if (acc.filterRange) h.setFilter(acc.filterRange as [number, number]); if (acc.mask) h.setMask(acc.mask); if (acc.brush) h.brush(true, acc.brushRadius as number | undefined);
 			if (kind === "trips") {   // 時刻（deck.gl の currentTime / trailLength）
 				h.setCurrentTime = t => { ov.post({ type: "time", t }); return h; };
 				h.setTrail = (len, fade) => { ov.post({ type: "style", trail: len, ...(fade != null ? { fade } : {}) }); return h; };
@@ -338,11 +352,11 @@ export function installData(map, live, {
 		const ids = [name, name + "-line"];
 		const specs = () => {
 			const ext = kind === "columns" || props.getElevation !== undefined, gf = props.getFillColor !== undefined, gl = props.getLineColor !== undefined, gw = props.getLineWidth !== undefined;
-			const out = [];
+			const out: MapLibreLayer[] = [];
 			if (kind !== "paths") out.push(ext
-				? { id: name, type: "fill-extrusion", source: name, paint: { "fill-extrusion-color": gf ? ["get", "_fill"] : "#3182bd", "fill-extrusion-opacity": 0.85, "fill-extrusion-height": props.getElevation !== undefined ? ["get", "_h"] : (props.elevation ?? 100), "fill-extrusion-base": 0, ...(paint || {}) } }
+				? { id: name, type: "fill-extrusion", source: name, paint: { "fill-extrusion-color": gf ? ["get", "_fill"] : "#3182bd", "fill-extrusion-opacity": 0.85, "fill-extrusion-height": props.getElevation !== undefined ? ["get", "_h"] : (props.elevation ?? 100) as number, "fill-extrusion-base": 0, ...(paint || {}) } }
 				: { id: name, type: "fill", source: name, paint: { "fill-color": gf ? ["get", "_fill"] : "rgba(49,130,189,0.6)", ...(paint || {}) } });
-			if (kind === "paths" || (gl && !ext)) out.push({ id: kind === "paths" ? name : name + "-line", type: "line", source: name, paint: { "line-color": gl ? ["get", "_line"] : "#1f3b73", "line-width": gw ? ["get", "_lw"] : (props.lineWidth ?? 1.5), ...(kind === "paths" ? (paint || {}) : {}) } });
+			if (kind === "paths" || (gl && !ext)) out.push({ id: kind === "paths" ? name : name + "-line", type: "line", source: name, paint: { "line-color": gl ? ["get", "_line"] : "#1f3b73", "line-width": gw ? ["get", "_lw"] : (props.lineWidth ?? 1.5) as number, ...(kind === "paths" ? (paint || {}) : {}) } });
 			return out;
 		};
 		let mounted = false;
