@@ -18,11 +18,13 @@ export interface RawRecords { X: Int32Array; Y: Int32Array; Z: Int32Array; inten
 /** 八分木の節（key＝[d, x, y, z]・start／count＝idx の範囲） */
 export interface OctNode { key: number[]; start: number; count: number }
 
-/** 丸ごと読みの上限を超えたら理由（英語・利用者に見える）・超えなければ null */
-export function wholeFileLimit({ count, size, local }: { count: number; size: number; local: boolean }): string | null {
+/** 丸ごと読みの上限を超えたら理由（英語・利用者に見える）・超えなければ null。
+ * size＝ファイルの総長（URL で総長が分からない＝null）。minBytes＝ヘッダから分かる読む量（点の始まり＋点数×記録長）＝総長が分からない時はこれで量る（旧＝null が 500 MB の門を素通り） */
+export function wholeFileLimit({ count, size, local, minBytes }: { count: number; size: number | null | undefined; local: boolean; minBytes?: number }): string | null {
 	const fmt = (v: number) => Math.round(v).toLocaleString("en-US");
 	if (count > LIMIT_POINTS) return `pointcloud: ${fmt(count)} points is over the ${fmt(LIMIT_POINTS)} limit for a plain LAS/LAZ file — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
-	if (!local && size > LIMIT_URL_BYTES) return `pointcloud: ${fmt(size / 1048576)} MB is over the ${fmt(LIMIT_URL_BYTES / 1048576)} MB limit for a plain LAS/LAZ URL — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
+	if (!local && size != null && size > LIMIT_URL_BYTES) return `pointcloud: ${fmt(size / 1048576)} MB is over the ${fmt(LIMIT_URL_BYTES / 1048576)} MB limit for a plain LAS/LAZ URL — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
+	if (!local && size == null && minBytes != null && minBytes > LIMIT_URL_BYTES) return `pointcloud: about ${fmt(minBytes / 1048576)} MB of points (the server did not report the file size) is over the ${fmt(LIMIT_URL_BYTES / 1048576)} MB limit for a plain LAS/LAZ URL — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
 	return null;
 }
 
