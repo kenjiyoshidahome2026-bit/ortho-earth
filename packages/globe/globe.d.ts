@@ -64,7 +64,11 @@ export interface ModelHandle {
 	clear(): void; destroy(): void;
 }
 /** 模型・3D Tiles の当たり（W7）。table＝property table の番号・名前・class（無ければ null）・distance＝奥行き（clip の w・小さいほど手前）・state＝feature state の写し */
-export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: number }
+export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: number;
+	/** 3D Tiles 1.1 の metadata（3D Tiles の pick だけ）：当たったタイル・その content・content の group（schema で読んだ値・無ければ null） */
+	tileMetadata?: Tiles3DMetadataEntity | null; contentMetadata?: Tiles3DMetadataEntity | null; groupMetadata?: Tiles3DMetadataEntity | null }
+/** 3D Tiles 1.1 の metadata の実体＝class と値（class の default を補い・normalized・offset／scale を当てた物） */
+export interface Tiles3DMetadataEntity { class: string | null; properties: Record<string, any> }
 /** registry.textureTranscoders の契約（F4・W5 で結線）：url＝worker が import() する module（export transcode(bytes: Uint8Array, info: { mimeType: string }) → { width, height, rgba: Uint8Array } か その Promise）。
  *  模型・3D Tiles の glb の KHR_texture_basisu の画像がこれで素の RGBA になる。@ortho-earth/ktx2 の ktx2Plugin() が実装を持つ */
 export interface TextureTranscoderImpl { url: string; formats?: string[] }
@@ -838,11 +842,19 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
-	attribution?: string | ((copyrights: string[]) => string | null) }
+	attribution?: string | ((copyrights: string[]) => string | null);
+	/** スタイル（3D Tiles 1.1・地物ごとの color と show）。setStyle と同じ */
+	style?: Tiles3DStyle | null }
+/** 3D Tiles のスタイル。color・show＝MapLibre の式（["get", 名] は 地物の属性 ＞ content ＞ tile ＞ group ＞ tileset の metadata の順に引く・["id"]＝地物の番号・["feature-state", 名]）。
+ *  color の結果＝CSS 色か [r,g,b,a]（0..1）・show の結果＝真偽（false で抜く）。feature state の color はスタイルの色より勝つ。点群（pnts）には効かない。
+ *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
+export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
+	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
+	readonly schema: Record<string, unknown> | null; readonly tilesetMetadata: Tiles3DMetadataEntity | null; readonly groups: Array<Tiles3DMetadataEntity | null>;
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
 	/** 画面の点（CSS px）の当たり（W7）＝ModelHandle.pick と同じ形（tile＝当たったタイルの id）。queryRenderedFeatures の層＝この tileset の id（type "3d-tiles"） */
 	pick(x: number, y: number): MeshPick | null;
@@ -852,6 +864,9 @@ export interface Tiles3DHandle {
 	setFeatureState(featureId: number, state: Record<string, unknown> | null): Tiles3DHandle;
 	getFeatureState(featureId: number): Record<string, unknown>;
 	removeFeatureState(featureId?: number): Tiles3DHandle;
+	/** スタイル（Tiles3DStyle）を差し替える。null で外す（元の色・全部見せる） */
+	setStyle(style: Tiles3DStyle | null): Tiles3DHandle;
+	readonly style: Tiles3DStyle | null;
 }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: GlobeMap }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
