@@ -5,9 +5,10 @@
 // 置き場所は右上（チップ列のさらに上ではなく #map 直下の後置＝スタック不参加。×は家具でなく「額縁の金具」）。
 import { modalOpen, isTypingTarget, isKeyOwner } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 
-export function close({ signal } = {}) {
+export function close(this: GlobeMap, { signal }: { signal?: AbortSignal } = {}): HTMLButtonElement | undefined {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#close-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");

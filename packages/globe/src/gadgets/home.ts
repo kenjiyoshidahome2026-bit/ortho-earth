@@ -5,9 +5,12 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+interface HomeOpts { view: number[]; icon?: string; label?: string; id?: string; signal?: AbortSignal }
 const HOME_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" aria-hidden="true"><path d="M12 3 2.5 11.2h2.6V21h5.6v-6h2.6v6h5.6v-9.8h2.6Z"/></svg>`;
-export function home({ view, icon, label, id, signal } = {}) {
+/** view＝着地点 [lon, lat, zoom]（地域の宣言 home.view）・icon＝顔（SVG の文字列）・label＝札（t() の鍵）・id＝ボタンの id。二重搭載は undefined */
+export function home(this: GlobeMap, { view, icon, label, id, signal }: HomeOpts = {} as HomeOpts): HTMLButtonElement | undefined {
 	const mapEl = this.mapEl, flyTo = this.flyTo;
 	const btnId = id || "home-btn";
 	if (mapEl.querySelector("#" + btnId)) return;   // 二重搭載は無害（搭載済みのまま）

@@ -7,8 +7,9 @@
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
 import { gadgetStack } from "./stack.ts";
 import { tr, getLang } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function solar({ url } = {}) {
+export function solar(this: GlobeMap, { url }: { url?: string } = {}): HTMLButtonElement | undefined {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#solar")) return;   // 二重搭載は無害（搭載済みのまま）
 	// 行き先：本番＝同一オリジンの /solar/。開発＝solar の vite（別ポート）。opts.url で差し替え可

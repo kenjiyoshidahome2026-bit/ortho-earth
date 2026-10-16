@@ -6,11 +6,17 @@
 // 四戒：独立（エンジンへは this.unprojectXY / this.flyTo / this.cam のみ）／遅延（陸データは初回に取得）／抽象アクセス／表示は自前の display 裁き。
 import { geopbf } from "geopbf";
 import { tr } from "../i18n.js";
+import type { Gadgets } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { GlobeCam } from "../types/scope.ts";
 const t = tr();
 const D2R = Math.PI / 180;
+/** 輪（[lon, lat] の並び） */
+type Ring = number[][];
 
-export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea = "rgb(200,240,255)", line = "rgb(150,0,0)", signal } = {}) {
-	const map = this, mapEl = this.mapEl, cam = this.cam;
+/** ミニ地球儀。戻り値＝描画ごとの update（el＝canvas）・二重搭載は undefined */
+export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea = "rgb(200,240,255)", line = "rgb(150,0,0)", signal }: NonNullable<Parameters<Gadgets["globe"]>[0]> & { signal?: AbortSignal } = {}): ((() => void) & { el: HTMLCanvasElement }) | undefined {
+	const map = this, mapEl = this.mapEl, cam = this.cam as GlobeCam;   // cam の公開の型は CameraPose＝実体は globe の cam
 	if (mapEl.querySelector("#globe-mini")) return;   // 二重搭載は無害
 	const cv = document.createElement("canvas");
 	cv.id = "globe-mini"; cv.setAttribute("role", "img"); cv.setAttribute("aria-label", t("Globe minimap: current view"));
@@ -18,17 +24,18 @@ export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea 
 	const dpr = Math.min(2, window.devicePixelRatio || 1);
 	cv.width = size * dpr; cv.height = size * dpr; cv.style.width = size + "px"; cv.style.height = size + "px";
 	mapEl.append(cv);
-	const ctx = cv.getContext("2d");
-	let landPolys = null;   // [[ [lon,lat]… ]…]（外環＋穴も同じ扱い＝小さな地球儀では穴は見えない）
+	const ctx = cv.getContext("2d")!;
+	let landPolys: Ring[] | null = null;   // [[ [lon,lat]… ]…]（外環＋穴も同じ扱い＝小さな地球儀では穴は見えない）
+	let last = "";   // 描いた視点の鍵（陸が着いたら空にして描き直す＝下の非同期は await の後で触る）
 	// 陸＝Natural Earth 110m land（bucket の GeoPBF。無ければ NE の zip へフォールバック＝geopbf が shp を食い IDB キャッシュ）
 	(async () => {
 		let pbf = await geopbf("ne_110m_land", { gint: false }).catch(() => null);
 		if (!pbf?.length) pbf = await geopbf("https://naturalearth.s3.amazonaws.com/110m_physical/ne_110m_land.zip", { name: "ne_110m_land", gint: false }).catch(() => null);
 		const feats = pbf?.geojson?.features || [];
-		const polys = [];
+		const polys: Ring[] = [];
 		for (const f of feats) {
 			const g = f.geometry; if (!g) continue;
-			const cs = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+			const cs: Ring[][] = g.type === "Polygon" ? [g.coordinates as Ring[]] : g.type === "MultiPolygon" ? g.coordinates as Ring[][] : [];
 			for (const poly of cs) for (const ring of poly) polys.push(ring);
 		}
 		landPolys = polys; last = ""; update();
@@ -37,7 +44,7 @@ export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea 
 	// 正射投影（北上・回転＝視野中心）。戻り＝[x, y, visible]（visible=false は裏側＝縁へ張り付ける）
 	const R = size / 2 - 1.5;
 	let cosP0 = 1, sinP0 = 0, lon0 = 0;
-	const proj = (lon, lat) => {
+	const proj = (lon: number, lat: number): [number, number, boolean] => {
 		const l = (lon - lon0) * D2R, p = lat * D2R, cp = Math.cos(p), sp = Math.sin(p);
 		const x = cp * Math.sin(l), y = cosP0 * sp - sinP0 * cp * Math.cos(l);
 		const cosc = sinP0 * sp + cosP0 * cp * Math.cos(l);
@@ -45,7 +52,7 @@ export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea 
 		const n = Math.hypot(x, y) || 1;   // 裏側＝縁（limb）へ投影＝塗り面が破綻しない（d3 の clipAngle 90 の簡易版）
 		return [size / 2 + x / n * R, size / 2 - y / n * R, false];
 	};
-	const pathRing = ring => {
+	const pathRing = (ring: Ring) => {
 		let first = true;
 		for (const [lon, lat] of ring) { const [x, y] = proj(lon, lat); if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y); }
 		ctx.closePath();
@@ -59,15 +66,15 @@ export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea 
 		if (landPolys) { ctx.beginPath(); for (const ring of landPolys) pathRing(ring); ctx.fillStyle = land; ctx.fill("nonzero"); }
 		// 経緯線 10°（v1 graticule）＝表側だけ線を引く（裏側は pen up）
 		ctx.beginPath(); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 0.6;
-		const seg = (pts) => { let up = true; for (const [lon, lat] of pts) { const [x, y, v] = proj(lon, lat); if (!v) { up = true; continue; } if (up) { ctx.moveTo(x, y); up = false; } else ctx.lineTo(x, y); } };
-		for (let lon = -180; lon < 180; lon += 10) { const pts = []; for (let lat = -80; lat <= 80; lat += 5) pts.push([lon, lat]); seg(pts); }
-		for (let lat = -80; lat <= 80; lat += 10) { const pts = []; for (let lon = -180; lon <= 180; lon += 5) pts.push([lon, lat]); seg(pts); }
+		const seg = (pts: Ring) => { let up = true; for (const [lon, lat] of pts) { const [x, y, v] = proj(lon, lat); if (!v) { up = true; continue; } if (up) { ctx.moveTo(x, y); up = false; } else ctx.lineTo(x, y); } };
+		for (let lon = -180; lon < 180; lon += 10) { const pts: Ring = []; for (let lat = -80; lat <= 80; lat += 5) pts.push([lon, lat]); seg(pts); }
+		for (let lat = -80; lat <= 80; lat += 10) { const pts: Ring = []; for (let lon = -180; lon <= 180; lon += 5) pts.push([lon, lat]); seg(pts); }
 		ctx.stroke();
 		ctx.restore();
 		ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1.5; ctx.stroke();
 		// 視野の枠＝画面四辺を各 30 点逆投影（球外＝null＝pen up）→ ミニ地球儀へ再投影
 		const W = mapEl.clientWidth, H = mapEl.clientHeight, N = 30;
-		const edge = (x0, y0, x1, y1) => { const out = []; for (let i = 0; i < N; i++) { const s = i / N; out.push(map.unprojectXY(x0 + (x1 - x0) * s, y0 + (y1 - y0) * s)); } return out; };
+		const edge = (x0: number, y0: number, x1: number, y1: number) => { const out: Array<[number, number] | null> = []; for (let i = 0; i < N; i++) { const s = i / N; out.push(map.unprojectXY(x0 + (x1 - x0) * s, y0 + (y1 - y0) * s)); } return out; };
 		const pts = [...edge(0, 0, W, 0), ...edge(W, 0, W, H), ...edge(W, H, 0, H), ...edge(0, H, 0, 0)];
 		if (pts.some(p => p)) {
 			ctx.beginPath(); let up = true;
@@ -88,7 +95,6 @@ export function globe({ size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea 
 	}, { signal });
 	signal?.addEventListener("abort", () => cv.remove(), { once: true });
 
-	let last = "";
 	function update() {   // 本体 render のフック＝視点が変わった時だけ描く。z>maxZoom・狭画面は隠す
 		const narrow = mapEl.clientWidth < 480;
 		const show = cam.zoom <= maxZoom && !narrow;

@@ -6,27 +6,29 @@
 // 時計が実時間でない（過去・未来・止めた・早送り）時は、開いていなくてもバーを出す（起動時・後から今を離れた時）＝共有リンクで開いた人に「今ではない」を見せる。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
 	<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`;
 // 速さの表示＝ephem/clock の CLOCK_SPEEDS の英語の鍵を訳す。鍵をここに字で並べる＝i18n の走査（t("…") の字面）に見せる
-const speedLabel = k => ({ "Paused": t("Paused"), "Real time": t("Real time"), "1 sec/s": t("1 sec/s"), "1 min/s": t("1 min/s"), "1 hour/s": t("1 hour/s"),
-	"6 hours/s": t("6 hours/s"), "1 day/s": t("1 day/s"), "10 days/s": t("10 days/s"), "1 month/s": t("1 month/s"), "1 year/s": t("1 year/s") })[k] ?? t(k);
-const pad = n => String(n).padStart(2, "0");
-const fmtLocal = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const speedLabel = (k: string): string => (({ "Paused": t("Paused"), "Real time": t("Real time"), "1 sec/s": t("1 sec/s"), "1 min/s": t("1 min/s"), "1 hour/s": t("1 hour/s"),
+	"6 hours/s": t("6 hours/s"), "1 day/s": t("1 day/s"), "10 days/s": t("10 days/s"), "1 month/s": t("1 month/s"), "1 year/s": t("1 year/s") }) as Record<string, string>)[k] ?? t(k);
+const pad = (n: number) => String(n).padStart(2, "0");
+const fmtLocal = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 // 区間の端の表示＝区間が 2 日より短ければ「月-日 時:分」・長ければ「年-月-日」（手元の時刻）
-const fmtEnd = (ms, span) => { const s = fmtLocal(ms); return span < 2 * 864e5 ? s.slice(5).replace("T", " ") : s.slice(0, 10); };
+const fmtEnd = (ms: number, span: number) => { const s = fmtLocal(ms); return span < 2 * 864e5 ? s.slice(5).replace("T", " ") : s.slice(0, 10); };
 const RANGE_STEPS = 1000;   // つまみの刻み
 
-export function clockGadget({ signal } = {}) {
+/** 時計の操作盤。戻り値＝no-op の関数＋open（バーを出す）・時計が無い／二重搭載は素の no-op */
+export function clockGadget(this: GlobeMap, { signal }: { signal?: AbortSignal } = {}): (() => void) & { open?: () => HTMLDivElement } {
 	const map = this, mapEl = this.mapEl, clock = map.clock;
 	if (!clock || mapEl.querySelector("#clock-btn")) return () => {};
 	const btn = document.createElement("button");
 	btn.id = "clock-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Time"); btn.setAttribute("aria-label", t("Time"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
-	let bar = null, editing = false, shown = "", uiAt = 0, wantOpen = false, dragging = false, rangeKey = "";
+	let bar: HTMLDivElement | null = null, editing = false, shown = "", uiAt = 0, wantOpen = false, dragging = false, rangeKey = "";
 	const build = () => {
 		bar = document.createElement("div");
 		bar.className = "qm-panel clock-bar";
@@ -44,7 +46,7 @@ export function clockGadget({ signal } = {}) {
 				<input class="ck-range" type="range" min="0" max="${RANGE_STEPS}" step="1" title="${t("Move through the data's time range")}" aria-label="${t("Move through the data's time range")}" style="flex:1;min-width:120px">
 				<span class="ck-r1" style="opacity:.8;white-space:nowrap"></span></span>`;
 		mapEl.append(bar);
-		const $ = s => bar.querySelector(s), dt = $(".ck-dt");
+		const $ = <E extends HTMLElement = HTMLButtonElement>(s: string) => bar!.querySelector<E>(s)!, dt = $<HTMLInputElement>(".ck-dt");
 		$(".ck-slower").onclick = () => clock.slower();
 		$(".ck-faster").onclick = () => clock.faster();
 		$(".ck-play").onclick = () => clock.toggle();
@@ -52,7 +54,7 @@ export function clockGadget({ signal } = {}) {
 		dt.addEventListener("focus", () => editing = true);
 		dt.addEventListener("blur", () => editing = false);
 		dt.addEventListener("change", () => { const v = new Date(dt.value).getTime(); if (Number.isFinite(v)) clock.setTime(v); });
-		const rg = $(".ck-range");   // 区間のつまみ＝動かした所の時刻へ（掴んでいる間は時計に追わせない）
+		const rg = $<HTMLInputElement>(".ck-range");   // 区間のつまみ＝動かした所の時刻へ（掴んでいる間は時計に追わせない）
 		rg.addEventListener("pointerdown", () => dragging = true);
 		rg.addEventListener("pointerup", () => dragging = false);
 		rg.addEventListener("input", () => { const [r0, r1] = clock.range; clock.setTime(r0 + (r1 - r0) * (+rg.value / RANGE_STEPS)); });
@@ -60,32 +62,32 @@ export function clockGadget({ signal } = {}) {
 		sync(true);
 	};
 	// 表示を時計に追わせる（段・日時）。再生中は最大 4 回/秒
-	function sync(force) {
+	function sync(force: boolean): void {
 		if (!bar) return;
 		const now = performance.now(); if (!force && now - uiAt < 250) return; uiAt = now;
-		bar.querySelector(".ck-speed").textContent = clock.label(speedLabel);
-		bar.querySelector(".ck-play").textContent = clock.playing ? "❚❚" : "▶";
-		const v = fmtLocal(clock.time), dt = bar.querySelector(".ck-dt");
+		bar.querySelector(".ck-speed")!.textContent = clock.label(speedLabel);
+		bar.querySelector(".ck-play")!.textContent = clock.playing ? "❚❚" : "▶";
+		const v = fmtLocal(clock.time), dt = bar.querySelector<HTMLInputElement>(".ck-dt")!;
 		// 区間（範囲がある時だけ）＝端の表示・日時の入力の最小／最大・つまみの位置
-		const row = bar.querySelector(".ck-range-row"), has = clock.rangeMode != null, [r0, r1] = clock.range, key = has ? `${r0}/${r1}` : "";
+		const row = bar.querySelector<HTMLElement>(".ck-range-row")!, has = clock.rangeMode != null, [r0, r1] = clock.range, key = has ? `${r0}/${r1}` : "";
 		if (key !== rangeKey) {
 			rangeKey = key; row.style.display = has ? "flex" : "none";
-			if (has) { bar.querySelector(".ck-r0").textContent = fmtEnd(r0, r1 - r0); bar.querySelector(".ck-r1").textContent = fmtEnd(r1, r1 - r0); }
+			if (has) { bar.querySelector(".ck-r0")!.textContent = fmtEnd(r0, r1 - r0); bar.querySelector(".ck-r1")!.textContent = fmtEnd(r1, r1 - r0); }
 			dt.min = has ? fmtLocal(r0) : "1800-01-01T00:00"; dt.max = has ? fmtLocal(r1) : "2049-12-31T23:59";
 		}
-		if (has && !dragging) bar.querySelector(".ck-range").value = String(Math.round(Math.min(1, Math.max(0, (clock.time - r0) / (r1 - r0))) * RANGE_STEPS));
+		if (has && !dragging) bar.querySelector<HTMLInputElement>(".ck-range")!.value = String(Math.round(Math.min(1, Math.max(0, (clock.time - r0) / (r1 - r0))) * RANGE_STEPS));
 		if (!editing && v !== shown) dt.value = shown = v;
 		btn.classList.toggle("off-now", !clock.isLive());   // 「今ではない」の印（ボタン）
 	}
 	// 時計が「今」を離れた（共有リンクの t=・API・台本）＝バーを出す。利用者が自分で閉じた後は出しゃばらない
 	let userClosed = false;
-	const onTime = e => { if (!e.ticking && !e.live && !wantOpen && !userClosed) open(); sync(!e.ticking); };
+	const onTime = (e: { time: number; step: number; live: boolean; ticking: boolean }) => { if (!e.ticking && !e.live && !wantOpen && !userClosed) open(); sync(!e.ticking); };
 	map.on("time", onTime);
 	// 表示域（opts.zoom）でボタンが畳まれたらバーも一緒に退く（開いた状態は覚えておく）
 	const follow = () => { if (!bar) return; const vis = btn.offsetParent !== null; bar.style.display = vis && wantOpen ? "flex" : "none"; };
 	map.on("move", follow);
 	const liveTimer = setInterval(() => { if (wantOpen && clock.isLive()) sync(false); }, 1000);   // 実時間の間も分が進む
-	const open = () => { if (!bar) build(); wantOpen = true; btn.classList.add("on"); sync(true); follow(); return bar; };   // 見せる/隠すは display 一本（style の display:flex が hidden 属性に勝つ）
+	const open = (): HTMLDivElement => { if (!bar) build(); wantOpen = true; btn.classList.add("on"); sync(true); follow(); return bar!; };   // 見せる/隠すは display 一本（style の display:flex が hidden 属性に勝つ）
 	btn.addEventListener("click", () => { if (!wantOpen) open(); else { wantOpen = false; userClosed = true; btn.classList.remove("on"); follow(); } });
 	if (!clock.isLive()) open();
 	signal?.addEventListener("abort", () => { clearInterval(liveTimer); map.off("time", onTime); map.off("move", follow); bar?.remove(); btn.remove(); }, { once: true });

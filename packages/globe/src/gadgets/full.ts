@@ -5,13 +5,17 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+/** 接頭辞つきの全画面 API（古い Safari） */
+type WebkitFsEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+type WebkitFsDoc = Document & { webkitExitFullscreen?: () => Promise<void>; webkitFullscreenElement?: Element | null };
 const EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
 const COMPRESS = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>`;
-export function full({ signal } = {}) {
-	const mapEl = this.mapEl;
+export function full(this: GlobeMap, { signal }: { signal?: AbortSignal } = {}): HTMLButtonElement | undefined {
+	const mapEl: WebkitFsEl = this.mapEl;
 	const enter = mapEl.requestFullscreen || mapEl.webkitRequestFullscreen;
-	const exit = document.exitFullscreen || document.webkitExitFullscreen;
+	const exit = document.exitFullscreen || (document as WebkitFsDoc).webkitExitFullscreen;
 	if (!enter) return;   // 非対応はボタンごと出さない
 	if (mapEl.querySelector("#full")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
@@ -19,7 +23,7 @@ export function full({ signal } = {}) {
 	btn.innerHTML = EXPAND;
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(btn);
-	const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+	const fsEl = () => document.fullscreenElement || (document as WebkitFsDoc).webkitFullscreenElement;
 	const toggle = () => {
 		if (fsEl()) exit?.call(document);
 		else enter.call(mapEl).catch(() => {});   // ユーザー拒否等は黙って無視（ボタンは元のまま）

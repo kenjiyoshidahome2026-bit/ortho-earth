@@ -6,18 +6,22 @@
 import { tr } from "../i18n.js";
 import { dockStack } from "./stack.ts";
 const t = tr();
+/** true＝全部（既定）／配列＝選択的（"pos","scale","attr","log"）／false＝出さない */
+export type InstrumentsSpec = boolean | string[];
+/** 地域宣言の出典（行ごとの { href, key（i18n の英語キー）| text } ＋ 末尾の加工注記の鍵） */
+export interface AttributionDecl { lines: { href?: string; key?: string; text?: string }[][]; note: string }
 const KEYS = ["log", "pos", "scale", "attr"];
 // 出典の組み立て＝地域宣言の attribution（{ lines:[[{href,key|text}…]…], note } の列）→ HTML。#attr の中身と、#attr の無い画面での
 // shot の焼き込み（globe が圏ごとに組む）の共通の源。末尾は加工注記＋© を必ず付ける（地域に依らない）
-const A = (href, label) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
-const renderAttribution = at => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
+const A = (href: string | undefined, label: string | undefined) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
+const renderAttribution = (at: AttributionDecl) => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
 	+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
-export const attributionHTML = (attribution = []) => attribution.map(renderAttribution).join("<br>");
-export function mountInstruments(mapEl, keys = true, attribution = []) {
+export const attributionHTML = (attribution: AttributionDecl[] = []): string => attribution.map(renderAttribution).join("<br>");
+export function mountInstruments(mapEl: HTMLElement, keys: InstrumentsSpec = true, attribution: AttributionDecl[] = []): void {
 	if (Array.isArray(keys))   // typo は黙って0個になる＝開発時の迷子防止に一声
 		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
-	const want = k => keys === true || (Array.isArray(keys) && keys.includes(k));
-	const els = [];
+	const want = (k: string) => keys === true || (Array.isArray(keys) && keys.includes(k));
+	const els: HTMLElement[] = [];
 	// 左下の読み物（log・pos）は #dock へ＝下から積む（重なりの構造的排除）。scale/attr は従来どおり #map 直下（下辺中央/右）。
 	if (want("log")) {   // デバッグログ（常時非表示＝devtoolsで#logを出す人向け。表示時＝ドックの縁）
 		const log = document.createElement("div");
@@ -39,7 +43,7 @@ export function mountInstruments(mapEl, keys = true, attribution = []) {
 		//（初回ペイントでLCP確定＝従来はここでの生成~2.0sが律速）。あれば実体を引き取り #map 配下へ移す。
 		// data-boot を剥がすと boot 用インラインCSSが外れ quiet-mono の #attr 意匠へ自然に切り替わる。
 		// 埋め込みページ（静的版なし）は従来どおり新規生成。
-		const boot = document.querySelector("#attr[data-boot]");
+		const boot = document.querySelector<HTMLElement>("#attr[data-boot]");
 		const attr = boot || document.createElement("div");
 		if (boot) boot.removeAttribute("data-boot"); else attr.id = "attr";
 		// 中身は**地域宣言が持つ**（packages/jp/src/region.ts・nl/region.js の attribution）＝この gadget は組み立てるだけ。

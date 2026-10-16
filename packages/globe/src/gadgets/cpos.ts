@@ -6,9 +6,14 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { GlobeCam } from "../types/scope.ts";
 const t = tr();
-export function cpos({ projectLL, signal } = {}) {
-	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
+/** projectLL＝経緯度 → 容れ物の CSS px [x, y, 表か（負＝裏半球）]（必須・api/gadgets.ts が注入） */
+interface CposOpts { projectLL: (lon: number, lat: number) => [number, number, number]; signal?: AbortSignal }
+/** 現在地（GPS）。戻り値＝印を追わせる update（描画ごと）・二重搭載は undefined */
+export function cpos(this: GlobeMap, { projectLL, signal }: CposOpts = {} as CposOpts): (() => void) | undefined {
+	const mapEl = this.mapEl, cam = this.cam as GlobeCam, flyTo = this.flyTo;   // cam の公開の型は CameraPose＝実体は globe の cam
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
 	btn.id = "cpos-btn"; btn.dataset.tip = t("Go to current location (GPS) (@)"); btn.setAttribute("aria-label", t("Go to current location (GPS)"));
@@ -30,7 +35,7 @@ export function cpos({ projectLL, signal } = {}) {
 			<circle cx="25" cy="25" r="8" fill="#fff" stroke="#c00" stroke-width="2"/>
 			<circle cx="25" cy="25" r="4" fill="#c00"/></svg>`;
 	mapEl.append(mark);
-	let on = false, pos = null;
+	let on = false, pos: [number, number] | null = null;
 	const off = () => { on = false; pos = null; btn.classList.remove("on"); mark.style.display = "none"; };
 	const toggle = async () => {
 		if (on) return off();
@@ -54,7 +59,7 @@ export function cpos({ projectLL, signal } = {}) {
 		if (front < 0) return void (mark.style.display = "none");
 		mark.style.display = ""; mark.style.left = x + "px"; mark.style.top = y + "px";
 	};
-	function getPosition() {
+	function getPosition(): Promise<[number, number] | null> {
 		return new Promise(resolve => {
 			if (!navigator.geolocation) return resolve(null);
 			navigator.geolocation.getCurrentPosition(
