@@ -135,6 +135,15 @@ interface ExprCols { pbf: GintSource; key: string; count: number; propKeys: stri
 interface ExprActive { prog: FidStyleProg; stateKeys: string[]; dict: Dict; dictN: number; pbf: GintSource; count: number; paint: Record<string, unknown>; filter: unknown; zoom: number }
 
 const D2R = Math.PI / 180;
+// text-field の値（GintExpr＝文字列・数・真偽・式の配列／関数）→ ラベルの文字（null・"" は置かない）。数・真偽は文字列と同じく定数（旧＝null＝黙って出なかった）
+export function gintLabelText(fld: GintTextField | undefined, pr: Record<string, unknown>, evalArr: (e: unknown[]) => unknown): unknown {
+	return typeof fld === "function" ? fld(pr)
+		: Array.isArray(fld) ? evalArr(fld)
+		: typeof fld === "string" ? fld
+		: typeof fld === "number" || typeof fld === "boolean" ? String(fld) : null;
+}
+// ラベルの指定があるか（旧 `!field` は 0・false も「無し」に数えた）。無し＝null/undefined/""
+export const hasLabelField = (f: unknown): boolean => f != null && f !== "";
 
 export function createGintLayers(env: GintLayersEnv) {
 const { canvas, mapEl, renderer, wPost, dbgHost, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam, layers, smallAreaHover, requestDraw } = env;
@@ -446,9 +455,8 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 	// filter（fid 表の visible ビット）の述語＝照会が隠した地物を飛ばす。表が無い（paint 未設定）＝null＝全部通す・表の外の fid も通す
 	const accept = () => { const t = lastTable; if (!t) return null; return (fid: number) => { const j = fid * 4 + 2; return j >= t.length || (t[j] & 1) !== 0; }; };
 	// text-field＝§6 の式全域（evalExpr）＋文字列リテラル＋関数(props→string)。式は get/match/case/concat/to-string…
-	const evalText = (fld: GintTextField | undefined, pr: Record<string, unknown>, evalExpr: EvalExprFn, fid: number) => typeof fld === "function" ? fld(pr)
-		: Array.isArray(fld) ? evalExpr(fld, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, gs: env.gs?.(), state: fstates.get(fid) })   // gs＝地図の global-state（#173 段 3b）
-		: typeof fld === "string" ? fld : null;
+	const evalText = (fld: GintTextField | undefined, pr: Record<string, unknown>, evalExpr: EvalExprFn, fid: number) =>
+		gintLabelText(fld, pr, e => evalExpr(e, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, gs: env.gs?.(), state: fstates.get(fid) }));   // gs＝地図の global-state（#173 段 3b）
 	const anchorOf = (fid: number): number[] | null => {   // ラベル錨＝面/線は bbox 中心（gint整数→経緯度）・点は geometry 直参照
 		const bb = g.polyBboxByFid?.get(fid) ?? g.lineBboxByFid?.get(fid);
 		if (bb) return [(bb[0] + bb[2]) / 2e7 - 180, (bb[1] + bb[3]) / 2e7 - 90];
@@ -456,7 +464,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 		return null;
 	};
 	const refreshLabels = async () => {
-		if (!labelOpt?.field) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
+		if (!labelOpt || !hasLabelField(labelOpt.field)) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
 		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list: Record<string, unknown>[] = [];
 		// 色は [r,g,b,a]（0〜1）で渡す＝描く側（labels2d）の約束。公開面は CSS の色（文字列）＝ここで一度だけ読む
 		//（旧＝文字列のまま渡していた＝labels2d の css() が配列前提＝色が効かず、覚え（WeakMap）を入れてからは毎フレーム例外で描画を落としていた・2026-10-13）
@@ -552,7 +560,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
 			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
 			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom; lastZoomKey = opts.zoomKey?.(cam.zoom) ?? null;
-			if (!paint) { lastTable = null; exprActive = null; pendingStates.clear(); renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
+			if (!paint) { lastTable = null; exprActive = null; pendingStates.clear(); renderer.set("gintPaint", null, undefined, id); if (hasLabelField(labelOpt?.field)) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
 			let done = false;
@@ -567,7 +575,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 				lastTable = u32;
 				renderer.set("gintPaint", { table: u32, count }, undefined, id);
 			}
-			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
+			if (hasLabelField(labelOpt?.field)) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
 			requestDraw();
 	}
 	// GPU で fid 表を組む（⑦）。戻り値 "ok"＝表は GPU に載った（lastTable は ack の読み戻し）・"cpu"＝この式は載らない（CPU へ）・"off"＝この層の描き手に走者が無い
@@ -619,7 +627,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 	// 既定色の輪郭だけになる（census の洪水浸水・2026-10-14）。setData と同じく、焼き上がったら直近の paint を送り直す
 	ready.then(ok => { if (ok && lastPaint) paintNow(lastPaint, lastFilter); });
 	if (opts.style) h.style(opts.style);
-	if (labelOpt?.field) refreshLabels();   // ② ラベル（text-field）＝基図注記と同じ衝突/フェード/標高投影
+	if (hasLabelField(labelOpt?.field)) refreshLabels();   // ② ラベル（text-field）＝基図注記と同じ衝突/フェード/標高投影
 	layers.active = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
 	// interactive:false＝カーソルを取らない＝足す前の持ち主へ戻す（旧＝既定層へ返した＝アクティブだった層のホバーが外れた・
 	// 世界帯の内部層の遅延追加でも起きた＝U2・2026-09-26）。持ち主が無ければ既定層（GL も engine.activate で既定層へ）
