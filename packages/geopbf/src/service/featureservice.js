@@ -6,7 +6,7 @@
 // 取得は呼び手の fetch を使う（既定＝globalThis.fetch）＝鍵（ArcGIS の token 等）は呼び手が付ける（MapLibre の transformRequest と同じ考え）。
 // どこかの proxy を経由しない。URL に付いていた問い合わせ（?token=…）は全ての要求へ引き継ぐ。依存なし（Esri の環だけ convert/esri-rings）。
 import { assemblePolygons } from "../convert/esri-rings.js";
-import { mercToLonLat } from "../modules/mercator.js";
+import { mercToLonLat } from "../modules/mercator.ts";
 
 const ARCGIS = /^(.*\/(?:FeatureServer|MapServer)\/\d+)(?:\/query)?\/?$/i;
 const OGC = /^(.*\/collections\/[^/]+)(?:\/items)?\/?$/;

@@ -1,2 +1,3 @@
-// modules/now.js ── 経過時間の時計（ms）。performance.now があれば単調時計、無ければ Date.now（旧＝約 10 ファイルに同じ 1 行の写し・改良点 15）。
-export const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+// 橋渡し（TS 化 段 3・batch E・2026-10-16）＝本体は ./now.ts。src/cog／src/convert／bin/geopbf.mjs（batch F）がまだ "../modules/now.js" で import するので、
+// Node（.js → .ts を引かない）でも動くように同名の .js を残す。cog／convert／bin の指定子が .ts になったらこのファイルを消す（整合役）
+export * from "./now.ts";

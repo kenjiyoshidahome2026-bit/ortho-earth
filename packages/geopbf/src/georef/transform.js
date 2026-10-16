@@ -89,4 +89,4 @@ export function fitTransform(src, dst, t = {}) {
 export const residuals = (fn, src, dst) => src.map((p, i) => { const q = fn(p); return Math.hypot(q[0] - dst[i][0], q[1] - dst[i][1]); });
 
 // 経緯度 ⇄ メルカトルの世界座標（0..1・y 下向き＝画像タイルの z/x/y と同じ）
-export { lonLatToWorld, worldToLonLat } from "../modules/mercator.js";   // 2026-10-12 共通化
+export { lonLatToWorld, worldToLonLat } from "../modules/mercator.ts";   // 2026-10-12 共通化

@@ -13,19 +13,24 @@
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_ROWS = 1048576, MAX_COLS = 16384;   // Excel の実装上限
 
+/** セルの値（CSV 由来は string か number・配列入力は何でも） */
+export type Cell = unknown;
+export type Row = Cell[];
+export interface EncodeXLSXOptions { sheetName?: string }
+
 /* ---------- CSV (RFC4180) → 2次元配列 ---------- */
 // 引用されていない数値だけを number 化する。整数は往復一致を要求＝長い ID コードや
 // 先頭ゼロを数値に潰さない。小数はそのまま数値（合計が効くように）。
 const NUM = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
-const cast = s => {
+const cast = (s: string): string | number => {
 	if (!NUM.test(s)) return s;
 	const n = Number(s);
 	if (!Number.isFinite(n)) return s;
 	if (/[.eE]/.test(s)) return n;
 	return String(n) === s ? n : s;
 };
-export function csvToRows(csv) {
-	const rows = []; let row = [], f = '', q = false, quoted = false;
+export function csvToRows(csv: string): (string | number)[][] {
+	const rows: (string | number)[][] = []; let row: (string | number)[] = [], f = '', q = false, quoted = false;
 	const endF = () => { row.push(quoted ? f : cast(f)); f = ''; quoted = false; };
 	const endR = () => { endF(); rows.push(row); row = []; };
 	for (let i = 0; i < csv.length; i++) {
@@ -48,15 +53,15 @@ export function csvToRows(csv) {
 
 /* ---------- XML ---------- */
 // XML 1.0 が受け付けない制御文字は落とす（getCSV は任意文字列を吐きうる）
-const esc = s => String(s)
+const esc = (s: unknown): string => String(s)
 	.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
 	.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const colName = n => { let s = ''; for (n++; n > 0;) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; };
+const colName = (n: number): string => { let s = ''; for (n++; n > 0;) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; };
 const XD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
 const NS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const NS_OD  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-function sheetXML(rows, nCols) {
+function sheetXML(rows: Row[], nCols: number): string {
 	const out = [XD,
 		'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
 		`<dimension ref="A1:${colName(Math.max(0, nCols - 1))}${Math.max(1, rows.length)}"/>`,
@@ -80,19 +85,21 @@ function sheetXML(rows, nCols) {
 const CRC_TBL = new Uint32Array(256).map((_, i) => {
 	let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c;
 });
-const crc32 = bin => { let c = -1; for (const b of bin) c = (c >>> 8) ^ CRC_TBL[(c ^ b) & 255]; return (c ^ -1) >>> 0; };
+const crc32 = (bin: Uint8Array): number => { let c = -1; for (const b of bin) c = (c >>> 8) ^ CRC_TBL[(c ^ b) & 255]; return (c ^ -1) >>> 0; };
 
-async function deflateRaw(bytes) {
+async function deflateRaw(bytes: Uint8Array): Promise<Uint8Array | null> {
 	if (typeof CompressionStream === 'undefined') return null;   // 無ければ無圧縮で格納
 	try {
 		const cs = new CompressionStream('deflate-raw');
-		const buf = await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer();
+		const buf = await new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(cs)).arrayBuffer();
 		return new Uint8Array(buf);
 	} catch { return null; }
 }
 
-async function zip(entries, name) {
-	const enc = new TextEncoder(), parts = [], cd = [];
+interface CDEntry { fn: Uint8Array; crc: number; cSiz: number; uSiz: number; off: number; method: number }
+
+async function zip(entries: [string, string][], name: string | null): Promise<File | Blob> {
+	const enc = new TextEncoder(), parts: Uint8Array[] = [], cd: CDEntry[] = [];
 	const d = new Date();
 	const ts = (d.getHours() << 11 | d.getMinutes() << 5 | d.getSeconds() >> 1);
 	const ds = (Math.max(0, d.getFullYear() - 1980) << 9 | (d.getMonth() + 1) << 5 | d.getDate());
@@ -130,12 +137,14 @@ async function zip(entries, name) {
 	ev.setUint16(8, cd.length, true); ev.setUint16(10, cd.length, true);
 	ev.setUint32(12, off - cdStart, true); ev.setUint32(16, cdStart, true);
 	parts.push(eocd);
-	return name ? new File(parts, name, { type: XLSX_MIME }) : new Blob(parts, { type: XLSX_MIME });
+	return name ? new File(parts as BlobPart[], name, { type: XLSX_MIME }) : new Blob(parts as BlobPart[], { type: XLSX_MIME });
 }
 
 /* ---------- 本体 ---------- */
-export async function encodeXLSX(src, name = null, { sheetName = 'Sheet1' } = {}) {
-	let rows = typeof src === 'string' ? csvToRows(src) : (src || []);
+export async function encodeXLSX(src: string | Row[] | null | undefined, name: string, options?: EncodeXLSXOptions): Promise<File>;
+export async function encodeXLSX(src: string | Row[] | null | undefined, name?: null, options?: EncodeXLSXOptions): Promise<Blob>;
+export async function encodeXLSX(src: string | Row[] | null | undefined, name: string | null = null, { sheetName = 'Sheet1' }: EncodeXLSXOptions = {}): Promise<File | Blob> {
+	let rows: Row[] = typeof src === 'string' ? csvToRows(src) : (src || []);
 	if (rows.length > MAX_ROWS) { console.warn(`[encodeXLSX] ${rows.length} rows -> truncated at Excel limit of ${MAX_ROWS} rows`); rows = rows.slice(0, MAX_ROWS); }
 	let nCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
 	if (nCols > MAX_COLS) { console.warn(`[encodeXLSX] ${nCols} columns -> truncated at Excel limit of ${MAX_COLS} columns`); rows = rows.map(r => r.slice(0, MAX_COLS)); nCols = MAX_COLS; }

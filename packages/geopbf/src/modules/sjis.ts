@@ -8,10 +8,10 @@
 //  ・JIS 系／MS 系で字が割れる 8 組（〜／～、−／－、¢／￠ など）はどちらも同じ符号（build() 末尾）
 // 表に無い字（絵文字・簡体字など）は "?"（0x3F）。TextDecoder("shift_jis") で読み戻すと上の置き換え以外は元に戻る。
 // 表は実行環境の TextDecoder から作る＝ブラウザ（WHATWG）と Node（ICU）で同じ結果になることを t-sjis が突き合わせる。
-let table = null;
+let table: Map<number, number> | null = null;
 
-const build = () => {
-	const dec = new TextDecoder("shift_jis"), m = new Map(), b = new Uint8Array(2);
+const build = (): Map<number, number> => {
+	const dec = new TextDecoder("shift_jis"), m = new Map<number, number>(), b = new Uint8Array(2);
 	for (let lead = 0x81; lead <= 0xFC; lead++) {
 		if ((lead >= 0xA0 && lead <= 0xDF) || lead === 0xED || lead === 0xEE || (lead >= 0xF0 && lead <= 0xF9)) continue;
 		for (let trail = 0x40; trail <= 0xFC; trail++) {
@@ -27,18 +27,18 @@ const build = () => {
 	// 読み手ごとに片方しか出さない（ブラウザ＝WHATWG は 0x8191 を ￠、Node＝ICU は ¢ と読む）ので、表の出自に依らず揃える。
 	for (const [a, b] of [[0xA2, 0xFFE0], [0xA3, 0xFFE1], [0xAC, 0xFFE2], [0xA6, 0xFFE4],
 		[0x2016, 0x2225], [0x2014, 0x2015], [0x301C, 0xFF5E], [0x2212, 0xFF0D]]) {
-		if (m.has(a) && !m.has(b)) m.set(b, m.get(a));
-		else if (m.has(b) && !m.has(a)) m.set(a, m.get(b));
+		if (m.has(a) && !m.has(b)) m.set(b, m.get(a)!);
+		else if (m.has(b) && !m.has(a)) m.set(a, m.get(b)!);
 	}
 	return m;
 };
 
-export function encodeSJIS(str) {
+export function encodeSJIS(str: string): Uint8Array {
 	table ??= build();
 	const out = new Uint8Array(str.length * 2);
 	let n = 0;
 	for (const ch of str) {
-		let c = ch.codePointAt(0);
+		let c = ch.codePointAt(0)!;
 		if (c <= 0x80) { out[n++] = c; continue; }
 		if (c === 0xA5) { out[n++] = 0x5C; continue; }
 		if (c === 0x203E) { out[n++] = 0x7E; continue; }

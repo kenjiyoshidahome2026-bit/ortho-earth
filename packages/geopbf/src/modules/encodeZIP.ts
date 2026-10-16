@@ -1,10 +1,16 @@
-export async function encodeZIP(files, name = null) {
+// "geopbf/encodeZIP"＝File の列 → zip（deflate-raw・data descriptor 付き）。name を渡せば File、無ければ Blob（type＝application/zip）
+/** 中央ディレクトリの 1 行 */
+interface CDEntry { fn: Uint8Array; crc: number; cSiz: number; uSiz: number; off: number; ds: number; ts: number; fm: number }
+
+export async function encodeZIP(files: Iterable<File>, name: string): Promise<File>;
+export async function encodeZIP(files: Iterable<File>, name?: null): Promise<Blob>;
+export async function encodeZIP(files: Iterable<File>, name: string | null = null): Promise<File | Blob> {
 	const enc = new TextEncoder(), tbl = new Uint32Array(256).map((_, i) => {
 		let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c;
 	});
 	// CRC は「走り値（未確定）」で継ぎ、最後に一度だけ確定させる。チャンク毎に ^-1 すると 64KB を超えるファイルで壊れる（2026-09-21）
-	const crcRun = (bin, c) => { for (const b of bin) c = (c >>> 8) ^ tbl[(c ^ b) & 255]; return c; };
-	let off = 0, cd = [], parts = [];
+	const crcRun = (bin: Uint8Array, c: number): number => { for (const b of bin) c = (c >>> 8) ^ tbl[(c ^ b) & 255]; return c; };
+	let off = 0, cd: CDEntry[] = [], parts: Uint8Array[] = [];
 	for (let f of files) {
 		const d = f.lastModified ? new Date(f.lastModified) : new Date();
 		const ts = (d.getHours() << 11 | d.getMinutes() << 5 | d.getSeconds() >> 1);
@@ -53,5 +59,5 @@ export async function encodeZIP(files, name = null) {
 	ev.setUint32(12, off - cdStart, true); ev.setUint32(16, cdStart, true);
 	parts.push(eocd);
 	const type = 'application/zip';
-	return name? new File(parts, name, { type }): new Blob(parts, { type });
+	return name? new File(parts as BlobPart[], name, { type }): new Blob(parts as BlobPart[], { type });
 }

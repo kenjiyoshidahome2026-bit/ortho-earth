@@ -1,5 +1,5 @@
-import { isObject } from "../modules/utility.js";
-import { geoOrthographic, geoMercator, geoEquirectangular } from "../modules/projections.js";
+import { isObject } from "../modules/utility.ts";
+import { geoOrthographic, geoMercator, geoEquirectangular } from "../modules/projections.ts";
 
 export function preview(self, canvas, props = {}) {
 	if (!self.length) return null;

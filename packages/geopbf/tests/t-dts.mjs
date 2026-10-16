@@ -5,6 +5,7 @@
 //   ・sideEffects＝トップレベルで onmessage を張る worker 本体・prototype を足す pbf.js／pbf-base.js・wasm glue を全部覆う（tree-shake で消されると黙って死ぬ族）
 //   ・geopbf/core（軽い入口）＝wasm glue・identify・dissolve・pbf-io・worker の入口を静的 import 閉包に含まない・export の名簿が固定
 //   ・型ありの subpath ごとに、実行時の export（Object.keys(import(...))）と .d.ts の値の export（class・function・const）が 1:1（TS化 段 2・2026-10-15）
+//   ・.ts を指す subpath（TS化 段 3・2026-10-16）は実装がそのまま型＝.d.ts も省略宣言も要らず、同じ .ts の値の export と Node で import した実行時の export を照合
 //     ＝.d.ts にだけある値（実行時に無い）も、実行時にだけある export（型が無い）も落とす。型だけの名前（interface・type・export type）は照合の外
 //   ・tests/fixtures/dts/consumer.ts を strict で型検査する（@ts-expect-error の行＝型が効いている証）
 //   typescript は root の devDependency＝解決できなければ落とす（旧＝「skip」で黙って通していた）
@@ -24,21 +25,28 @@ const pkg = JSON.parse(readFileSync(path.join(PKG, "package.json"), "utf8"));
 ok(pkg.types && existsSync(path.join(PKG, pkg.types)), `package.json types → ${pkg.types} がある`);
 ok(Array.isArray(pkg.files) && pkg.files.includes("types"), `files に types が入っている（npm pack に載る）`);
 const shorthand = new Set([...readFileSync(path.join(PKG, "types/subpaths.d.ts"), "utf8").matchAll(/declare module "([^"]+)";/g)].map(m => m[1]));
-let typed = 0, missing = [];
+// .ts を指す subpath は実装がそのまま型（TS 化 段 3・2026-10-16）＝.d.ts も省略宣言も要らない（省略宣言があれば二重）
+const isTs = target => typeof target === "string" && /\.ts$/.test(target) && !/\.d\.ts$/.test(target);
+const exists = target => existsSync(path.join(PKG, target.includes("*") ? target.split("*")[0] : target));   // ワイルドカードは手前のディレクトリの有無
+let typed = 0, tsTyped = 0, missing = [];
 for (const [key, val] of Object.entries(pkg.exports)) {
 	const spec = "geopbf" + key.slice(1);
+	const target = typeof val === "object" ? val.default : val;
 	if (typeof val === "object" && val.types) {
 		typed++;
 		if (!existsSync(path.join(PKG, val.types))) missing.push(`${key} → ${val.types} が無い`);
-		if (!existsSync(path.join(PKG, val.default))) missing.push(`${key} → ${val.default} が無い`);
+		if (!exists(target)) missing.push(`${key} → ${target} が無い`);
 		if (shorthand.has(spec)) missing.push(`${key} は型ありなのに subpaths.d.ts にも省略宣言がある（二重）`);
+	} else if (isTs(target)) {
+		tsTyped++;
+		if (!exists(target)) missing.push(`${key} → ${target} が無い`);
+		if (shorthand.has(spec)) missing.push(`${key} は .ts（実装が型）なのに subpaths.d.ts にも省略宣言がある（二重）`);
 	} else {
-		const target = typeof val === "object" ? val.default : val;
-		if (!existsSync(path.join(PKG, target.includes("*") ? target.split("*")[0] : target))) missing.push(`${key} → ${target} が無い`);   // ワイルドカードは手前のディレクトリの有無
+		if (!exists(target)) missing.push(`${key} → ${target} が無い`);
 		if (!shorthand.has(spec)) missing.push(`${key} は型も省略宣言も無い（TS 利用者に TS7016 が出る）`);
 	}
 }
-ok(missing.length === 0, `exports ${Object.keys(pkg.exports).length} 本＝型あり ${typed}・省略宣言 ${Object.keys(pkg.exports).length - typed}（漏れ無し）${missing.length ? "\n   " + missing.join("\n   ") : ""}`);
+ok(missing.length === 0, `exports ${Object.keys(pkg.exports).length} 本＝.d.ts あり ${typed}・.ts（実装が型）${tsTyped}・省略宣言 ${Object.keys(pkg.exports).length - typed - tsTyped}（漏れ無し）${missing.length ? "\n   " + missing.join("\n   ") : ""}`);
 const stale = [...shorthand].filter(s => !Object.keys(pkg.exports).some(k => "geopbf" + k.slice(1) === s));
 ok(stale.length === 0, `subpaths.d.ts の省略宣言は全部 exports にある subpath${stale.length ? "（余り: " + stale.join(", ") + "）" : ""}`);
 
@@ -58,7 +66,7 @@ ok(dts.length >= 12 && broken.length === 0, `types/*.d.ts ${dts.length} 枚の�
 const globRe = g => new RegExp("^" + g.replace(/^\.\//, "").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\0").replace(/\*/g, "[^/]*").replace(/\0/g, ".*") + "$");
 const seRes = (pkg.sideEffects || []).map(globRe);
 const covered = f => seRes.some(re => re.test(f));
-const walk = (dir, out = []) => { for (const e of readdirSync(dir)) { const p = path.join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (e.endsWith(".js")) out.push(p); } return out; };
+const walk = (dir, out = []) => { for (const e of readdirSync(dir)) { const p = path.join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (e.endsWith(".js") || e.endsWith(".ts") && !e.endsWith(".d.ts")) out.push(p); } return out; };   // .ts も見る（.d.ts は型だけ）
 const effectful = [];
 for (const f of walk(path.join(PKG, "src"))) {
 	const src = readFileSync(f, "utf8");
@@ -68,7 +76,7 @@ for (const f of walk(path.join(PKG, "src"))) {
 for (const f of readdirSync(path.join(PKG, "wasm/pkg")).filter(f => f.endsWith(".js"))) effectful.push("wasm/pkg/" + f);
 const uncovered = effectful.filter(f => !covered(f));
 ok(Array.isArray(pkg.sideEffects) && effectful.length >= 30 && uncovered.length === 0, `sideEffects が副作用のある ${effectful.length} 本（worker 本体・pbf.js／pbf-base.js・index.js・wasm glue）を全部覆う${uncovered.length ? "\n   漏れ: " + uncovered.join(", ") : ""}`);
-ok(!covered("src/core.js") && !covered("src/modules/geojson-load.js") && !covered("src/extension/identify.js"), "副作用の無いモジュール（core／loader／identify）は sideEffects に入っていない＝tree-shake できる");
+ok(!covered("src/core.js") && !covered("src/modules/geojson-load.ts") && !covered("src/extension/identify.js"), "副作用の無いモジュール（core／loader／identify）は sideEffects に入っていない＝tree-shake できる");
 
 // 4) geopbf/core の閉包と名簿（5 の前に回す＝full の入口（src/index.js）を import すると同じ class に拡張メソッドが乗る）
 const closure = entry => { const seen = new Map(); const st = [path.resolve(PKG, entry)];
@@ -76,7 +84,7 @@ const closure = entry => { const seen = new Map(); const st = [path.resolve(PKG,
 		for (const m of s.matchAll(/^\s*(?:import|export)[^;]*?from\s*["']([^"']+)["']/gm)) if (m[1].startsWith(".")) st.push(path.resolve(path.dirname(f), m[1])); }
 	return { files: [...seen.keys()].map(rel), bytes: [...seen.values()].reduce((a, b) => a + b, 0) }; };
 const core = closure("src/core.js"), full = closure("src/index.js");
-const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|topology)|pbf-io|builtinWorkers|worker\.js|convert\//.test(f));
+const heavy = core.files.filter(f => /wasm\/|extension\/(identify|dissolve|gint|topology)|pbf-io|builtinWorkers|worker\.(js|ts)|convert\//.test(f));
 ok(heavy.length === 0 && core.files.length * 2 <= full.files.length && core.bytes * 2 <= full.bytes,
 	`geopbf/core の静的 import 閉包＝${core.files.length} ファイル／${(core.bytes / 1024).toFixed(0)} KB（full＝${full.files.length}／${(full.bytes / 1024).toFixed(0)} KB）に wasm・identify・dissolve・pbf-io・worker が無い${heavy.length ? "\n   混入: " + heavy.join(", ") : ""}`);
 const coreMod = await import(path.join(PKG, "src/core.js"));
@@ -95,9 +103,13 @@ ok(!!ts, `typescript が解決できる（root の devDependency・${ts ? "v" + 
 
 if (ts) {
 	// 6) 型ありの subpath ごとに、実行時の export と .d.ts の値の export を照合（型だけの名前は外す）
-	const typedSubpaths = Object.entries(pkg.exports).filter(([, v]) => typeof v === "object" && v.types);
+	//    .ts を指す subpath（types 無し）は「型＝実装そのもの」＝同じ .ts の値の export と Node（type stripping）で import した実行時の export を照合
+	//    （export type／interface が値に混ざっていない・Node でそのまま読めることの検定。ワイルドカード（./edit/*）は個別の subpath ではないので外す）
+	const typedSubpaths = Object.entries(pkg.exports).filter(([, v]) => typeof v === "object" && v.types)
+		.concat(Object.entries(pkg.exports).filter(([k, v]) => isTs(v) && !k.includes("*")).map(([k, v]) => [k, { types: v, default: v }]));
 	const prog = ts.createProgram(typedSubpaths.map(([, v]) => path.join(PKG, v.types)), {
 		noEmit: true, strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, types: [],
+		allowImportingTsExtensions: true,   // .ts 同士の相対 import（"./x.ts"）
 		lib: ["lib.es2022.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
 	});
 	const checker = prog.getTypeChecker();
@@ -116,7 +128,7 @@ if (ts) {
 		if (key === "./worker") runtime = /^\s*export\b/m.test(readFileSync(path.join(PKG, v.default), "utf8")) ? ["(export 文あり)"] : [];   // worker 本体は Node の main で import できない（self が無い）＝export 文が無いことを静的に見る
 		else runtime = Object.keys(await import(path.join(PKG, v.default))).sort();
 		const onlyDts = declared.filter(n => !runtime.includes(n)), onlyRt = runtime.filter(n => !declared.includes(n));
-		ok(!onlyDts.length && !onlyRt.length, `${spec}: 実行時の export ${runtime.length} 本＝${rel(path.join(PKG, v.types))} の値の export${onlyDts.length ? "\n   .d.ts にだけある（実行時に無い）: " + onlyDts.join(", ") : ""}${onlyRt.length ? "\n   実行時にだけある（型が無い）: " + onlyRt.join(", ") : ""}`);
+		ok(!onlyDts.length && !onlyRt.length, `${spec}: 実行時の export ${runtime.length} 本＝${rel(path.join(PKG, v.types))} の値の export${onlyDts.length ? "\n   型にだけある（実行時に無い）: " + onlyDts.join(", ") : ""}${onlyRt.length ? "\n   実行時にだけある（型が無い）: " + onlyRt.join(", ") : ""}`);
 	}
 
 	// 7) tsc strict で消費者（tests/fixtures/dts/consumer.ts）を型検査

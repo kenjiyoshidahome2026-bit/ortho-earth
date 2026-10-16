@@ -2,10 +2,12 @@
 // fetch → 全体 gzip 透過 → noeval デコード → Gint を焼く（既定 pbf.gint()＝createGeopbf の Worker があればそこで、無ければ main の wasm）。
 // 属性は MVT の tags になる（tiler.js propsToTags が JSON-safe に写す）ので GeoJSON 経路のサニタイズは要らない。
 import { GeoPBF } from "../pbf-base.js";
-import { isGzip, gunzip } from "./gzip.js";
+import { isGzip, gunzip } from "./gzip.ts";
 
-export async function fetchGeopbfTiles(innerUrl, { signal, fetch: fetchImpl, bake } = {}) {
-	const doFetch = fetchImpl || ((u, init) => fetch(u, { cache: "default", ...init }));
+export interface FetchTilesOptions { signal?: AbortSignal; fetch?: (url: string, init?: RequestInit) => Promise<Response>; /** Gint を自前で焼く（既定＝pbf.gint() か main の wasm） */ bake?: (pbf: GeoPBF) => Promise<unknown> | unknown }
+
+export async function fetchGeopbfTiles(innerUrl: string, { signal, fetch: fetchImpl, bake }: FetchTilesOptions = {}): Promise<GeoPBF> {
+	const doFetch = fetchImpl || ((u: string, init?: RequestInit) => fetch(u, { cache: "default", ...init }));
 	const res = await doFetch(innerUrl, { signal });
 	if (!res.ok) throw new Error(`geopbf protocol: fetch failed (${res.status}) ${innerUrl}`);
 	let blob = await res.blob();

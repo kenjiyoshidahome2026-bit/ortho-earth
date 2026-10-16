@@ -8,7 +8,7 @@
 // parse は GeoJSON FeatureCollection を返す（gzip 透過・noeval・サニタイズは maplibre/leaflet と共用）。
 // ヘッダメタ（name/description/license/attribution/minZoom/maxZoom）は返り値の `geopbfMeta` に添付する。
 // worker: false＝メインスレッド解決（GeoPBF のデコードは軽く、worker バンドル配布を持たないため）。
-import { decodeToGeojson, loadGeopbf, sanitizeProperties } from "./modules/geojson-load.js";
+import { decodeToGeojson, loadGeopbf, sanitizeProperties } from "./modules/geojson-load.ts";
 
 export { loadGeopbf, sanitizeProperties };
 

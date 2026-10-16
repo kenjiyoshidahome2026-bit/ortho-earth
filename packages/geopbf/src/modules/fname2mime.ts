@@ -1,5 +1,6 @@
-export function fname2mime(name) {
-	const MIME_MAP = {
+// "geopbf/fname2mime"＝ファイル名の拡張子 → MIME（不明＝application/octet-stream）
+export function fname2mime(name: string): string {
+	const MIME_MAP: Record<string, string> = {
 		"3gp":"video/3gp", "7z":"application/x-7z-compressed", "asp":"application/x-aspx",
 		"aspx":"application/x-aspx", "bmp":"image/bmp", "bson":"application/bson",
 		"bz":"application/x-bzip2", "bz2":"application/x-bzip2", "c":"text/x-c",

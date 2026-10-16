@@ -21,7 +21,7 @@ const ENTRIES = fs.existsSync(path.join(ROOT, "apps/engine/src/entries.mjs")) ? 
 	: [["@ortho-earth/globe", "globe", "apps/ortho-globe/engine/globe.js"], ["@ortho-earth/globe/i18n.js", "i18n", "packages/globe/src/i18n.js"], ["@ortho-earth/core", "core", "packages/ortho-core/src/index.js"], ["geopbf", "geopbf", "packages/geopbf/src/index.js"], ["@ortho-earth/h3/core", "h3", "packages/h3/src/core.js"]].map(([a, b, c]) => [a, b, path.join(ROOT, c)]);
 const rel = p => path.relative(ROOT, p);
 const SPEC = new Map(ENTRIES.map(([spec, , src]) => [spec, src]));
-const NONE = path.join(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.js");
+const NONE = path.join(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.ts");
 const usesEngine = dir => fs.existsSync(path.join(ROOT, dir, "vite.config.js")) && /sharedEngine\(\)/.test(fs.readFileSync(path.join(ROOT, dir, "vite.config.js"), "utf8").replace(/\/\/.*$/gm, ""));
 
 // ---- 置き場（ファイル → パッケージ名） ----
@@ -92,7 +92,7 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			});
 			if (engine) {
 				if (!inEngine) b.onResolve({ filter: /.*/ }, a => SPEC.has(a.path) ? (hits.add(a.path), { path: a.path, external: true }) : null);
-				b.onResolve({ filter: /builtinWorkers\.js$/ }, () => ({ path: NONE }));   // engineAliases と同じ＝エンジンは builtin worker を焼かない
+				b.onResolve({ filter: /builtinWorkers\.(js|ts)$/ }, () => ({ path: NONE }));   // engineAliases と同じ＝エンジンは builtin worker を焼かない
 			}
 			b.onResolve({ filter: /^(common|native-bucket)\// }, a => { if (a.pluginData === "alias") return null; const [pk, ...rest] = a.path.split("/"); return b.resolve("./" + rest.join("/"), { kind: a.kind, resolveDir: path.join(ROOT, "packages", pk, "src"), pluginData: "alias" }); });
 			b.onResolve({ filter: /^#tile-formats$/ }, () => ({ path: path.join(ROOT, "packages/ortho-core/src/tileformats-mlt.js") }));

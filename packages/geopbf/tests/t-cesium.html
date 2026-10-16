@@ -19,7 +19,7 @@
 	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
 </script>
 <script type="module">
-	import { loadGeopbf } from "../src/modules/geojson-load.js";
+	import { loadGeopbf } from "../src/modules/geojson-load.ts";
 
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 45s"), 45000);
