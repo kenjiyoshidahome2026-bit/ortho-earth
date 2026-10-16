@@ -83,7 +83,7 @@ export class GeoPBFBase {
 	declare keys: string[];
 	/** @internal */
 	declare bufs: ArrayBuffer[];
-	/** @internal */
+	/** @internal 地物の位置の表（復号・符号化・編集の内部だけが読む）。外の使い手は地物の数を length で、行を each／forEach で読む＝npm の .d.ts には載らない（stripInternal） */
 	declare fmap: FMapEntry[];
 	/** @internal 属性の Blob／ImageData の控え（同じ値は同じ物） */
 	declare bin: Record<string, Blob | ImageData>;

@@ -37,7 +37,7 @@ const buildArcs = arcs => {
 	});
 	return { arcBuffer, arcMeta };
 };
-const duckPbf = (gint, n) => ({ unPackGint: { ...gint, precision: 6 }, fmap: { length: n }, getProperties: i => ({ fid: i }), getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [138.73, 35.36] } }) });
+const duckPbf = (gint, n) => ({ unPackGint: { ...gint, precision: 6 }, length: n, getProperties: i => ({ fid: i }), getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [138.73, 35.36] } }) });
 let mapRef = null;
 const dh = () => { mapRef?.requestDraw(); return window.__drawHud?.d || null; };
 const keepTilt = /keeptilt=1/.test(location.search);
