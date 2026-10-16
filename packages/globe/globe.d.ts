@@ -64,7 +64,11 @@ export interface ModelHandle {
 	clear(): void; destroy(): void;
 }
 /** 模型・3D Tiles の当たり（W7）。table＝property table の番号・名前・class（無ければ null）・distance＝奥行き（clip の w・小さいほど手前）・state＝feature state の写し */
-export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: number }
+export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: number;
+	/** 3D Tiles 1.1 の metadata（3D Tiles の pick だけ）：当たったタイル・その content・content の group（schema で読んだ値・無ければ null） */
+	tileMetadata?: Tiles3DMetadataEntity | null; contentMetadata?: Tiles3DMetadataEntity | null; groupMetadata?: Tiles3DMetadataEntity | null }
+/** 3D Tiles 1.1 の metadata の実体＝class と値（class の default を補い・normalized・offset／scale を当てた物） */
+export interface Tiles3DMetadataEntity { class: string | null; properties: Record<string, any> }
 /** registry.textureTranscoders の契約（F4・W5 で結線）：url＝worker が import() する module（export transcode(bytes: Uint8Array, info: { mimeType: string }) → { width, height, rgba: Uint8Array } か その Promise）。
  *  模型・3D Tiles の glb の KHR_texture_basisu の画像がこれで素の RGBA になる。@ortho-earth/ktx2 の ktx2Plugin() が実装を持つ */
 export interface TextureTranscoderImpl { url: string; formats?: string[] }
@@ -843,6 +847,8 @@ export interface Tiles3DHandle {
 	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
+	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
+	readonly schema: Record<string, unknown> | null; readonly tilesetMetadata: Tiles3DMetadataEntity | null; readonly groups: Array<Tiles3DMetadataEntity | null>;
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
 	/** 画面の点（CSS px）の当たり（W7）＝ModelHandle.pick と同じ形（tile＝当たったタイルの id）。queryRenderedFeatures の層＝この tileset の id（type "3d-tiles"） */
 	pick(x: number, y: number): MeshPick | null;

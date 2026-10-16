@@ -1,0 +1,56 @@
+{
+ "id": "implicitFixture",
+ "classes": {
+  "tileset": {
+   "properties": {
+    "name": {
+     "type": "STRING"
+    },
+    "scaled": {
+     "type": "SCALAR",
+     "componentType": "FLOAT32",
+     "scale": 2,
+     "offset": 10
+    },
+    "missing": {
+     "type": "STRING",
+     "default": "dflt"
+    }
+   }
+  },
+  "layer": {
+   "properties": {
+    "name": {
+     "type": "STRING"
+    },
+    "priority": {
+     "type": "SCALAR",
+     "componentType": "UINT8"
+    }
+   }
+  },
+  "tile": {
+   "properties": {
+    "label": {
+     "type": "STRING"
+    },
+    "ge": {
+     "type": "SCALAR",
+     "componentType": "FLOAT64",
+     "semantic": "TILE_GEOMETRIC_ERROR"
+    }
+   }
+  },
+  "content": {
+   "properties": {
+    "triangles": {
+     "type": "SCALAR",
+     "componentType": "UINT16"
+    },
+    "colorName": {
+     "type": "STRING"
+    }
+   }
+  }
+ }
+}
