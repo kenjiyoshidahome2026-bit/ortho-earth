@@ -6,9 +6,14 @@ import { shortBearingOf } from "@ortho-earth/core";
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { GlobeCam } from "../types/scope.ts";
 const t = tr();
-export function compass({ cancelFlight, onMove, signal } = {}) {
-	const mapEl = this.mapEl, cam = this.cam;
+/** onMove＝カメラを動かした後の合図（必須・api/gadgets.ts が注入）・cancelFlight＝飛行を止める */
+interface CompassOpts { cancelFlight?: () => void; onMove: () => void; signal?: AbortSignal }
+/** 3D の時だけ出る・押すと水平・北向きへ。戻り値＝針を追わせる update（描画ごと）・二重搭載は undefined */
+export function compass(this: GlobeMap, { cancelFlight, onMove, signal }: CompassOpts = {} as CompassOpts): (() => void) | undefined {
+	const mapEl = this.mapEl, cam = this.cam as GlobeCam;   // 公開の型は CameraPose（pitch／bearing は省略可）＝実体は globe の cam（常に持つ）
 	if (mapEl.querySelector("#reset")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
 	btn.id = "reset"; btn.dataset.tip = t("Reset to north, level view (N)"); btn.setAttribute("aria-label", t("Reset to north, level view"));
@@ -19,7 +24,7 @@ export function compass({ cancelFlight, onMove, signal } = {}) {
 		</svg>`;
 	// 置き場所はスタック（搭載順＝縦の並び）。2Dで display:none の間は流れから抜け、下のガジェットが上へ詰まる。
 	gadgetStack(mapEl).append(btn);
-	const svg = btn.querySelector("svg");
+	const svg = btn.querySelector("svg")!;
 	const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）
 	const reset = () => {
 		cancelFlight?.();   // リセットアニメと喧嘩しない

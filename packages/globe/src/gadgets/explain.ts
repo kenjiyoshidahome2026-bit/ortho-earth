@@ -3,8 +3,11 @@
 // 主題の解説・お知らせなど、地図の上辺に静かに出す読み物の枠。set(html) で表示／set(null) で消す。
 // opts.permanent＝×ボタンを出さない（消せない常設）。opts.width＝最大幅(px)。
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function explain({ permanent, width } = {}) {
+/** 内容：HTML の文字列・null（消す）・関数（器の要素を受け取って DOM を組む） */
+export type PanelContent = string | null | undefined | ((body: HTMLElement) => unknown);
+export function explain(this: GlobeMap, { permanent, width }: { permanent?: boolean; width?: number } = {}): (html: PanelContent) => unknown {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#explain")) return () => {};   // 二重搭載は無害
 	const div = document.createElement("div");
@@ -21,7 +24,7 @@ export function explain({ permanent, width } = {}) {
 	// 内容の上でのドラッグは地図パンに奪わせない（読み物として選択・スクロールできる）
 	div.addEventListener("pointerdown", e => e.stopPropagation());
 	mapEl.append(div);   // #map 直下の後置（DOM順で上）
-	function set(html) {
+	function set(html: PanelContent): unknown {
 		if (typeof html === "function") return html(body);   // DOMを組みたい呼び出し向け
 		if (!html) { body.innerHTML = ""; div.style.display = "none"; return; }
 		body.innerHTML = html; div.style.display = "block";

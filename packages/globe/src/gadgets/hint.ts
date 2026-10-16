@@ -3,8 +3,9 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function hint({ signal, onOpen } = {}) {   // onOpen＝カードを開いた瞬間の合図（globe の「道具の排他」＝計測・日影などを閉じる）
+export function hint(this: GlobeMap, { signal, onOpen }: { signal?: AbortSignal; onOpen?: () => void } = {}): { open(): void; close(remember?: boolean): void } | undefined {   // onOpen＝カードを開いた瞬間の合図（globe の「道具の排他」＝計測・日影などを閉じる）
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#hint")) return;   // 二重搭載は無害（搭載済みのまま）
 	const card = document.createElement("div");
@@ -14,10 +15,10 @@ export function hint({ signal, onOpen } = {}) {   // onOpen＝カードを開い
 	// マウス絵柄（左ボタン／右ボタン／ホイール）：width/height 直書き＝CSS到着前でも巨大化しない（FOUC防波堤）
 	const BODY = '<rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/>';
 	const CROSS = '<line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/>';
-	const mi = (inner, cls = "") => `<svg class="mi${cls}" width="17" height="22" viewBox="0 0 24 32">${BODY}${inner}</svg>`;
+	const mi = (inner: string, cls = "") => `<svg class="mi${cls}" width="17" height="22" viewBox="0 0 24 32">${BODY}${inner}</svg>`;
 	const MI_L = mi(`<path d="M12 2 a10 10 0 0 0 -10 10 v2 h10 Z" fill="#2b3b57"/>${CROSS}`);   // 左ボタン
 	const MI_R = mi(`<path d="M12 2 a10 10 0 0 1 10 10 v2 h-10 Z" fill="#2b3b57"/>${CROSS}`);   // 右ボタン
-	const MI_W = cls => mi(`<line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/>`, cls);   // ホイール
+	const MI_W = (cls: string) => mi(`<line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/>`, cls);   // ホイール
 	card.innerHTML = coarse ? `
 		<button id="hint-close" title="${t("Close")}" aria-label="${t("Close")}">×</button>
 		<div class="hint-title">${t("Controls")}</div>
@@ -40,13 +41,13 @@ export function hint({ signal, onOpen } = {}) {   // onOpen＝カードを開い
 
 	// 挙動：初見には最初から開いておく＝操作方法は第一印象の一部（出し惜しみしない）。
 	// ×で畳んだ選択は記憶＝二度目からは「?」だけの静かな起動。旧・6秒自動表示は廃止（新しい概念に入る時、古いものは捨てる）。
-	function setHint(open, remember = true) {
+	function setHint(open: boolean, remember = true): void {
 		if (open && card.style.display === "none") onOpen?.();
 		card.style.display = open ? "" : "none";
 		btn.style.display = open ? "none" : "flex";
 		if (remember) try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
 	}
-	card.querySelector("#hint-close").addEventListener("click", () => setHint(false));
+	card.querySelector("#hint-close")!.addEventListener("click", () => setHint(false));
 	btn.addEventListener("click", () => setHint(true));
 	let closedOnce = false;
 	try { closedOnce = localStorage.getItem("oj.hint") === "closed"; } catch { /* private mode 等 */ }

@@ -7,9 +7,13 @@
 //   chips＝テーマ・チップ帯（true=搭載[既定]／false=出さない。旧配列形式=選択的は後方互換・非推奨）
 //   fixedLayers＝opts.layers で固定されたキー（true/false とも）＝該当ボタンを出さない
 //   instruments＝下部の計器盤（true=全部／配列=選択的（例: ["scale","attr"]）／false=出さない）
-import { mountChips } from "./chips.js";
-import { mountInstruments } from "./instruments.js";
-export function mountGadgets(mapEl, { chips = true, instruments = true, fixedLayers = {}, attribution = [], signal } = {}) {
+import { mountChips } from "./chips.ts";
+import { mountInstruments } from "./instruments.ts";
+import type { ChipsSpec } from "./chips.ts";
+import type { AttributionDecl, InstrumentsSpec } from "./instruments.ts";
+export function mountGadgets(mapEl: HTMLElement, { chips = true, instruments = true, fixedLayers = {}, attribution = [], signal }: {
+	chips?: ChipsSpec; instruments?: InstrumentsSpec; fixedLayers?: Record<string, unknown>; attribution?: AttributionDecl[]; signal?: AbortSignal;
+} = {}): void {
 	if (chips) mountChips(mapEl, chips, fixedLayers, signal);   // signal＝destroy で外す document のリスナー（Esc）
 	if (instruments) mountInstruments(mapEl, instruments, attribution);   // attribution＝地域宣言が持つ出典（入口ごとに差し替わる）
 }

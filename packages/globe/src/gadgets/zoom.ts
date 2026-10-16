@@ -5,8 +5,12 @@
 // 縦2連の一体ボタン（＋上・−下）＝チップと同じ隣接ボーダー共有の意匠。置き場所はスタック。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal } = {}) {
+/** onMove＝カメラを動かした後の合図（必須）・zoomMin は関数も（実行時の床）・cancelFlight＝飛行を止める */
+interface ZoomOpts { cancelFlight?: () => void; onMove: () => void; zoomMin?: number | (() => number); zoomMax?: number; signal?: AbortSignal }
+/** ズーム＋/−（整数段へ寄せる）。二重搭載は undefined */
+export function zoom(this: GlobeMap, { cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal }: ZoomOpts = {} as ZoomOpts): HTMLDivElement | undefined {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#zoom")) return;   // 二重搭載は無害（搭載済みのまま）
 	const box = document.createElement("div");
@@ -17,7 +21,7 @@ export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal }
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(box);
 	let raf = 0;
-	const glide = delta => {
+	const glide = (delta: number) => {
 		cancelFlight?.();   // フライトと喧嘩しない
 		if (raf) cancelAnimationFrame(raf);   // 連打は今の到達点から次段へ（アニメを積まない）
 		const z0 = cam.zoom;
@@ -33,8 +37,8 @@ export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal }
 		};
 		raf = requestAnimationFrame(step);
 	};
-	box.querySelector("#zoom-in").addEventListener("click", () => glide(+1));
-	box.querySelector("#zoom-out").addEventListener("click", () => glide(-1));
+	box.querySelector("#zoom-in")!.addEventListener("click", () => glide(+1));
+	box.querySelector("#zoom-out")!.addEventListener("click", () => glide(-1));
 	// キーボードのズームは createInput（⇧+↑↓＝連続ズーム）が担う＝ここはボタンの段送りだけ。
 	// （旧・矢印単独ズームは廃止。矢印単独はパンへ／signal は将来のリスナー用に受けたまま）
 	return box;

@@ -413,7 +413,8 @@ export interface Gadgets {
 	profile(): PathGadgetStub;
 	/** 右クリックメニュー。既定で「この地点へ寄る／座標をコピー」の 2 項目を持ち、items は**置換**（関数形＝クリック位置ごとに組める）。戻り値＝項目差し替え関数（再搭載時は {setItems}） */
 	contextmenu(opts?: { items?: ContextMenuItems }): ((items: ContextMenuItems) => void) | { setItems(items: ContextMenuItems): void };
-	legend(): unknown;
+	/** 左下の凡例パネル（permanent＝×を出さない常設・width＝最大幅 px）。戻り値＝内容の setter（explain と同じ形）。二重搭載は何もしない setter */
+	legend(opts?: { permanent?: boolean; width?: number }): (html: string | null | ((body: HTMLElement) => unknown)) => unknown;
 	/** 配色テーマの入口（本体はアイドルに先読み）。open()＝本体を読んで開く・close()＝本体が在れば畳む（無ければ null）。opts.theme で焼き付けた地図・二重搭載は undefined */
 	palette(): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined;
 	hint(): unknown;

@@ -8,16 +8,18 @@
 import { tr } from "../i18n.js";
 import { gadgetStack } from "./stack.ts";
 const t = tr();
-const LEGACY = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   // 旧romajiキーの読み替え（後方互換）
-const CHIPS = [
+/** true＝全部（既定）／配列＝選択的（並びは定義順で固定・非推奨）／false＝出さない */
+export type ChipsSpec = boolean | string[];
+const LEGACY: Record<string, string> = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   // 旧romajiキーの読み替え（後方互換）
+const CHIPS: Array<{ k: string; label: string; title: string; on?: boolean }> = [
 	{ k: "place", label: "Places", title: "Place names and administrative boundaries", on: true },
 	{ k: "terrain", label: "Terrain", title: "Terrain names, contours (top-down view) and water systems" },
 	{ k: "rail", label: "Rail", title: "Rail lines, stations / port and airport names" },
 	{ k: "road", label: "Roads", title: "Roads, IC/JCT, route and expressway numbers, ferry routes" },
 	{ k: "facility", label: "Facilities", title: "Facility and landmark names" },
 ];
-export function mountChips(mapEl, keys = true, fixed = {}, signal) {
-	let sel = keys;
+export function mountChips(mapEl: HTMLElement, keys: ChipsSpec = true, fixed: Record<string, unknown> = {}, signal?: AbortSignal): void {
+	let sel: ChipsSpec = keys;
 	if (Array.isArray(keys)) {   // typo は黙って0個になる＝開発時の迷子防止に一声
 		sel = keys.map(k => LEGACY[k] || k);
 		const known = new Set(CHIPS.map(c => c.k));
@@ -49,16 +51,16 @@ export function mountChips(mapEl, keys = true, fixed = {}, signal) {
 	</div>`;
 	gadgetStack(mapEl).prepend(chips);   // 左上スタックの最上段へ（2026-09-02 本人裁定「右上は開ける＝アイコンは左・パネルは右へ開く」）
 	// 開閉はここで自給（DOMだけの所作）。中身の点火配線は従来どおり main.js（独立の掟＝相互を知らない）
-	const btn = chips.querySelector("#layers-btn"), panel = chips.querySelector("#layers-panel");
-	const setOpen = open => {
+	const btn = chips.querySelector<HTMLButtonElement>("#layers-btn")!, panel = chips.querySelector<HTMLElement>("#layers-panel")!;
+	const setOpen = (open: boolean) => {
 		panel.hidden = !open; btn.setAttribute("aria-expanded", String(open)); btn.classList.toggle("on", open);
 		// 検索とは排他（本人裁定 2026-09-02）：どちらも「右へ開く」同士＝重なる。畳むのは相手自身の所作
 		//（#search-btn click＝searchのトグル）＝内部状態を直接触らない（ガジェット独立の掟の範囲内＝家具契約のidのみ）
-		if (open) mapEl.querySelector("#search.open #search-btn")?.click();
+		if (open) mapEl.querySelector<HTMLElement>("#search.open #search-btn")?.click();
 	};
-	btn.addEventListener("click", () => setOpen(panel.hidden));
+	btn.addEventListener("click", () => setOpen(panel.hidden as boolean));   // hidden は "until-found" も取り得る型＝ここでは真偽だけを書く
 	mapEl.addEventListener("click", e => {   // 逆方向＝検索を押したらパネルを閉じる（capture＝検索側の処理順に依存しない）
-		if (!panel.hidden && e.target.closest?.("#search-btn")) setOpen(false);
+		if (!panel.hidden && (e.target as Element).closest?.("#search-btn")) setOpen(false);
 	}, true);
 	document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) setOpen(false); }, { signal });   // signal＝destroy で外す（#173 段 3・旧は取り残し）
 }

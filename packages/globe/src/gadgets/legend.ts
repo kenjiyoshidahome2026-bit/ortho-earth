@@ -5,8 +5,10 @@
 // opts.permanent＝×ボタンを出さない（畳めない常設）。opts.width＝最大幅(px)。
 import { gadgetStack, dockStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { PanelContent } from "./explain.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function legend({ permanent, width } = {}) {
+export function legend(this: GlobeMap, { permanent, width }: { permanent?: boolean; width?: number } = {}): (html: PanelContent) => unknown {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#legend")) return () => {};   // 二重搭載は無害
 	const div = document.createElement("div");
@@ -16,7 +18,7 @@ export function legend({ permanent, width } = {}) {
 	div.append(body);
 	div.addEventListener("pointerdown", e => e.stopPropagation());
 	dockStack(mapEl).append(div);   // 左下ドック＝座標計器(#pos)やトーストの上へ積まれる（旧・絶対配置は #pos と真被りだった）
-	let reopen = null, hasContent = false;
+	let reopen: HTMLButtonElement | null = null, hasContent = false;
 	if (!permanent) {
 		const close = document.createElement("button");
 		close.className = "panel-close"; close.textContent = "×"; close.title = t("Close"); close.setAttribute("aria-label", t("Close legend"));
@@ -31,7 +33,7 @@ export function legend({ permanent, width } = {}) {
 	}
 	const expand = () => { if (hasContent) { div.style.display = "block"; reopen && (reopen.style.display = "none"); } };
 	const collapse = () => { div.style.display = "none"; reopen && hasContent && (reopen.style.display = "flex"); };
-	function set(html) {
+	function set(html: PanelContent): unknown {
 		if (typeof html === "function") { hasContent = true; return html(body); }
 		if (!html) { hasContent = false; body.innerHTML = ""; div.style.display = "none"; reopen && (reopen.style.display = "none"); return; }
 		hasContent = true; body.innerHTML = html; div.style.display = "block"; reopen && (reopen.style.display = "none");
