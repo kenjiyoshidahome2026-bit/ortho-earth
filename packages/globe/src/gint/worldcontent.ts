@@ -21,7 +21,7 @@ interface WorldGintHandle {
 	style?(s: WorldGintStyle): void;
 }
 /** 層の描画スタイル（styleOf の戻り） */
-interface WorldGintStyle { styleTable: Float32Array; lineWidth: number; moveBudget: number; outlineZoom: number; fillColor: number[] }
+type WorldGintStyle = { styleTable: Float32Array; lineWidth: number; moveBudget: number; outlineZoom: number; fillColor: [number, number, number, number] };
 type FeatureCollectionLike = { type: "FeatureCollection"; features: object[] };
 /** createWorldContent の材料（globe.js が渡す） */
 export interface WorldContentDeps {

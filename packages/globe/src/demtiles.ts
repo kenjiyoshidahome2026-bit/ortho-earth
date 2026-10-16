@@ -5,8 +5,8 @@ import type { DemSpec, DemSpecInput } from "@ortho-earth/core";
 
 /** DEM の 1 タイル（標高 m・行は北から・n×n） */
 export interface DemTile { h: Float32Array; n: number }
-/** 取得の答え（fetch の Response か、独自の読み口が画像で返した物＝bitmap()） */
-export type DemResponse = Pick<Response, "ok"> & { bitmap?: () => Promise<ImageBitmap>; blob(): Promise<Blob> };
+/** 取得の答え（fetch の Response か、独自の読み口が画像で返した物＝bitmap()・ok でない答えは中身を持たなくてよい）。blob は ok で bitmap の無い時だけ読む */
+export type DemResponse = Pick<Response, "ok"> & { bitmap?: () => Promise<ImageBitmap>; blob?(): Promise<Blob> };
 export type DemFetch = (url: string, init: RequestInit) => Promise<DemResponse>;
 /** DEM の在庫（createDemTiles の戻り） */
 export interface DemTiles { spec: DemSpec; tile(z: number, x: number, y: number): Promise<DemTile | null>; size(): number }
@@ -25,7 +25,7 @@ export function createDemTiles(dem: DemSpecInput | null | undefined, { fetchFn =
 		const pr = (async () => {
 			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
 			if (!r.ok) return null;
-			const bmp = r.bitmap ? await r.bitmap() : await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });   // bitmap＝独自の読み口が画像で返した物（globe の demFetch）
+			const bmp = r.bitmap ? await r.bitmap() : await createImageBitmap(await r.blob!(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });   // bitmap＝独自の読み口が画像で返した物（globe の demFetch）
 			const n = bmp.width;
 			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true })!;
 			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }

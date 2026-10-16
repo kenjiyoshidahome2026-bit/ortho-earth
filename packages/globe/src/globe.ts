@@ -34,7 +34,7 @@ import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-fact
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
 // 役割名は部品が付ける（"decoder:fgb" "ortho:tile" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）。
 // ⚠部品の組み込み worker はビルドの alias で「作らない版」に差し替え済み（vite.config.js）＝この口が必ず Worker を返すこと
-const hostWorker = role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+const hostWorker = (role: string) => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
 setCoreWorkerFactory(hostWorker);   // core の worker（標高 ortho:height・タイル・シーン）も入口 1 本で
 setGeoeditWorkerFactory(hostWorker);
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket as BucketProvider, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
@@ -97,10 +97,11 @@ import type { TileTex, createTiles3D } from "./gadgets/tiles3d.ts";
 import type { createVTDraw } from "./gadgets/vtdraw.ts";
 import type { createVTExtrude } from "./gadgets/vtextrude.ts";
 import type { DemTiles } from "./demtiles.ts";
-import type { ExtGintEntry } from "./gint/layers.ts";
+import type { GintLayerH } from "./gint/layers.ts";
 import type { WorldContent } from "./gint/worldcontent.ts";
 import type { MeshManager, MeshProgressTap } from "./mesh/manager.ts";
 import type { MapTheme } from "./palettes.ts";
+import type { LayerState } from "./themes.ts";
 
 // app.js 持参のUI辞書（ja文字列がキー・未訳はjaのまま出る）。ガジェット各自の辞書は各ファイル冒頭に。
 const t: GlobeScope["t"] = tr();
@@ -834,8 +835,8 @@ if (gpuBackend) gpuWatchT = setTimeout(() => {
 let printHold = false;
 // gint 多層（map.addGint）の台帳＝onmessage ルーティングより先に宣言（boot 中の遅着メッセージ TDZ 回避）
 let gintLayerSeq = 0;
-const extGint = new Map<number, ExtGintEntry>();   // layer id → handle（identify/click/ack ルーティング先）
-let extActive: number | null = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
+const extGint = new Map<string, GintLayerH>();   // layer id → handle（identify/click/ack ルーティング先）
+let extActive: string | null = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
 const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
@@ -1166,14 +1167,19 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 	requestDraw();
 	return meshReal;
 }).catch(e => { console.error("[mesh] manager load failed", e); return null; });
-const meshMgr: Omit<MeshManager, "setExcludeMap"> & { ready: typeof wakeMesh } = {
+// 代理の窓口の型＝本物（MeshManager）と同じ口。違いは standUp／openDb が本物を起こしてから呼ぶ（非同期・起こせなければ undefined）・
+// firstRevealSets は台本の視点（検めていない列）をそのまま受けて本物へ渡す・ready が増える
+const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets"> & {
+	standUp(...a: Parameters<MeshManager["standUp"]>): Promise<boolean | undefined>; openDb(): Promise<void>;
+	firstRevealSets(views: unknown[]): ReturnType<MeshManager["firstRevealSets"]>; ready: typeof wakeMesh;
+} = {
 	// settled（カメラ静止＝onMove の 150ms 無音）は本物へ必ず渡す＝新しい区のロードは settled の時だけ始まる。
 	// ⚠落とすと、止まっても何も読まない（2026-09-22〜24：デモの全幕で PLATEAU が出ず、手動でも「他の区の読み込み完了」等の一突き次第＝再現性のない不表示）
 	update(settled?: boolean) { if (meshReal) meshReal.update(settled); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },   // 起こした時は登録簿の到着で autoMesh(true) が一度走る（manager 側）
 	standUp: async (...a: Parameters<MeshManager["standUp"]>) => (await wakeMesh())?.standUp(...a),
 	prefetch: async (...a: Parameters<MeshManager["prefetch"]>) => (await wakeMesh())?.prefetch(...a) ?? [],
 	openDb: async () => (await wakeMesh())?.openDb(),
-	firstRevealSets: (views: unknown[]) => meshReal?.firstRevealSets(views) ?? [],
+	firstRevealSets: (views: unknown[]) => meshReal?.firstRevealSets(views as Parameters<MeshManager["firstRevealSets"]>[0]) ?? [],
 	trimForScript: (views: string[]) => meshReal?.trimForScript(views),
 	setProgressTap: (fn: MeshProgressTap) => { meshTap = fn; meshReal?.setProgressTap(fn); },
 	terminate: () => { meshGone = true; meshReal?.terminate(); },
@@ -1611,7 +1617,7 @@ dbgHost.__cam = (lon: number, lat: number, zoom = cam.zoom, pitchDeg = cam.pitch
 };
 
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
-dbgHost.__mesh = async (nameOrBase?: string, tiles?: unknown) => {
+dbgHost.__mesh = async (nameOrBase?: string, tiles?: string[]) => {
 	if (!meshOn) { console.warn(SECOND_LOWMEM && MESH_ASKED == null ? "[mesh] second map on a low-memory device = 3D buildings off by default (opts.mesh:true to enable)" : "[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
 	await meshMgr.ready();   // manager と登録簿が揃うまで待つ（寄る前に呼ばれた時）
 	const sets = meshMgr.sets;
@@ -1849,7 +1855,7 @@ dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
 //   place/terrain … 文字（注記カテゴリ）の表示ON/OFF
 //   rail/road … 色の点火ON/OFF（OFFでも土台グレーは出ている）
-const layerState: Record<string, boolean> = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
+const layerState: LayerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
 // 共有URLのレイヤ集合は「客が触れるキー」だけ上書き（旧romajiトークンは normLayerKey で読み替え）。
 if (bootView?.layers) { const urlSet = new Set(bootView.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
 if (bootView?.layers?.includes(SKY_LAYER)) sky.applyConstellations(true);   // l=sky＝星座線ONで起動（z<4で実描画）
@@ -2696,7 +2702,7 @@ map.getStyleUrl = () => EXT?.url ?? undefined;   // URL で起動した style �
 map.getFontFaces = () => fontFacesList.map(f => ({ ...f }));
 map.setFontFaces = async list => {   // [{ "font-family"|family, src, font-weight?, font-style?, unicode-range? }] → addFontFace（段 2 の口）。記録は getFontFaces に
 	fontFacesList = Array.isArray(list) ? list.filter(f => f && typeof f === "object").map(f => ({ ...f })) : [];
-	await Promise.all((fontFacesList.map(fontFaceArgs).filter(Boolean) as NonNullable<ReturnType<typeof fontFaceArgs>>[]).map(a => map.addFontFace(a.family, a.src, a.descriptors).catch(err => console.warn("[setFontFaces]", a.family, err))));
+	await Promise.all((fontFacesList.map(fontFaceArgs).filter(Boolean) as NonNullable<ReturnType<typeof fontFaceArgs>>[]).map(a => map.addFontFace(a.family, a.src as string | ArrayBuffer, a.descriptors).catch(err => console.warn("[setFontFaces]", a.family, err))));
 	return map;
 };
 // タイルの取り直し（MapLibre の refreshTiles）：基図の source＝新 style で組み直す（生バイトは温間キャッシュ命中なら速い＝サーバまでは行かない）・利用者の source＝その source の層を外して載せ直す（geojson の URL は取り直す）

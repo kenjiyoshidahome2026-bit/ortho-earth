@@ -22,8 +22,10 @@ import type { VideoQuads } from "../gadgets/videoquad.ts";
 import type { Requester } from "../request.ts";
 import type { ScenePlayer } from "../scenes/player.ts";
 import type { SpriteEntry } from "../mlsmall.ts";
-import type { HillshadeProvider } from "../hillshade.ts";
-import type { ColorReliefProvider } from "../colorrelief.ts";
+import type { createHillshadeProvider } from "../hillshade.ts";
+import type { createColorReliefProvider } from "../colorrelief.ts";
+import type { Themes } from "../themes.ts";
+import type { UserGint } from "../gint/layers.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // globe.js の中の共有の部品（いくつもの installer が受ける物）
@@ -68,7 +70,7 @@ export interface UserLayerRec {
 	/** paint の transition の走っている目標値（getPaintProperty が返す） */
 	trans?: Record<string, unknown>;
 	/** hillshade／color-relief の画像タイルの提供口（raster-dem から焼く） */
-	hs?: HillshadeProvider | null; cr?: ColorReliefProvider | null;
+	hs?: ReturnType<typeof createHillshadeProvider> | null; cr?: ReturnType<typeof createColorReliefProvider> | null;
 }
 /** vector source の読み口（vtxDescOf の戻り＝TileJSON／PMTiles を解いた物） */
 export interface VtxDesc {
@@ -110,13 +112,8 @@ export interface RawTileStore {
 }
 /** custom 層の canvas（custom-gl.js の createCustomGL の戻り）＝installer が読む分 */
 export interface CustomCtl { readonly canvas: HTMLCanvasElement | null }
-/** テーマの判定（themes.js の createThemes の戻り）＝installer は作って置くだけ・globe.ts が読む */
-export interface Themes {
-	/** 伏せる基図の層の添字（チップの状態と zoom で） */
-	hiddenLi(layerState: Record<string, boolean>, zoom: number): Set<number>;
-	/** 注記の分類で通す物（チップの状態と zoom で・showNumbers＝測量点の標高数値も） */
-	filterLabels<T extends { code: number }>(all: T[], layerState: Record<string, boolean>, zoom: number, showNumbers?: boolean): T[];
-}
+/** テーマの判定（themes.ts の createThemes の戻り）＝installer は作って置くだけ・globe.ts が読む。型の正本は themes.ts */
+export type { Themes };
 /** 基図の層の実行時の上書き（setPaintProperty 等・removeLayer＝removed） */
 export interface BaseOverride {
 	removed?: boolean; paint?: Record<string, unknown>; layout?: Record<string, unknown>; filter?: unknown;
@@ -215,7 +212,7 @@ export interface GintLayers {
 	worldTipOn: boolean;
 	/** 地球儀の内部層をまとめて伏せる／戻す（検査表示） */
 	setInternalHidden(v: boolean): void;
-	readonly userGint: { pbf: GeoPBF; label: string; [k: string]: unknown } | null;
+	readonly userGint: UserGint | null;
 }
 /** ?g= のフィーチャーサービスの視野追従（geopbf/featureservice の followView の戻り） */
 export interface GFollow { destroy(): void }

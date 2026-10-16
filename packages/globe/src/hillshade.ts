@@ -131,7 +131,7 @@ const tileLat = (y: number, z: number) => { const t = PI - 2 * PI * y / (1 << z)
 
 // port プロバイダ。dem＝raster-dem の spec（tiles 済み）・paint＝評価済み・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, setPaint, close }
 export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null, tiles = null }: {
-	dem: DemSpecInput | null | undefined; paint?: Record<string, unknown>; fetchFn?: DemFetch; name?: string; attribution?: string | null; warn?: unknown; tiles?: DemTiles | null;
+	dem: DemSpecInput | null | undefined; paint?: Record<string, unknown>; fetchFn?: DemFetch; name?: string; attribution?: string | null; warn?: ((msg: string) => void) | null; tiles?: DemTiles | null;
 }): { port: MessagePort; stats: HillshadeStats; setPaint(pt: Record<string, unknown>): void; close(): void } {
 	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
 	let p = hillshadeParams(paint);
