@@ -2,6 +2,9 @@
 // map.gadget.tip() で搭載する（v1 ortho-map の gadget 作法＝this が map）。戻り値＝内容の setter。
 // 呼び出し側が set(内容) でカーソル脇に出す／set(null) で消す（例：ホバー識別の即時表示）。
 // ボタンの説明（data-tip）とは別物＝あちらは静的ラベル、こちらは動的な指先の注記。signal＝destroy時の解除。
+// 内容は HTML（<b>・<br>・class・style を呼び手が組む）＝setSafeHTML で入れる（script・on*・javascript: は抜く・2026-10-16）。
+// データの値（地物の属性）を埋める呼び手は escHtml で逃がしてから渡すこと（html-safe.ts）。
+import { setSafeHTML } from "../html-safe.ts";
 export function tip({ signal } = {}) {
 	const mapEl = this.mapEl;
 	const had = mapEl.querySelector("#tip"); if (had) return had._setTip || (() => {});   // 二重搭載＝既存の working setter を返す（冪等）。app が起動時に搭載済み(gintHoverTip)でも、後から map.gadget.tip() で同じ手綱を得られる
@@ -28,7 +31,7 @@ export function tip({ signal } = {}) {
 	}
 	const setTip = content => {   // 内容の setter（呼び出し側の手綱）
 		if (!content) { div.innerHTML = ""; size = { w: 0, h: 0 }; return hide(); }
-		div.innerHTML = toHTML(content);
+		setSafeHTML(div, toHTML(content));
 		div.style.display = "block"; div.style.visibility = "hidden";   // 実寸を測ってからカーソル脇へ
 		const r = div.getBoundingClientRect(); size = { w: r.width, h: r.height };
 		div.style.visibility = ""; last ? move() : hide();
