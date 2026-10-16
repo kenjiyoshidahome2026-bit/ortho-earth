@@ -71,9 +71,10 @@ try {
 	const ePub = map.raster.list().find(e => e.id === "rw"), eRaw = raw.raster.list().find(e => e.id === "rw");
 	ok("rasterWindow", ePub?.opts?.minZoom === 11 && near(eRaw?.opts?.minZoom, 11 + D, 1e-6) && eRaw?.spec?.minZoom === 10, `${ePub?.opts?.minZoom}/${eRaw?.opts?.minZoom}`);
 	map.raster.remove("rw");
-	// 利用者のガジェットの this は顔
-	map.gadget("probe", function () { return this; });
-	ok("userGadgetThis", map.gadget.probe() === map);
+	// 利用者のガジェット（registry.gadgets.add＝plugin と同じ素の registry）の本体が受けるのは素の map（エンジンの z）。顔の呼び口の戻りは顔へ
+	let probeMap = null;
+	map.registry.gadgets.add("probe", m => (probeMap = m));
+	ok("userGadgetMap", map.gadget.probe() === map && probeMap === raw && map.registry === raw.registry);
 	// Marker（顔にも素にも同じ登録簿）
 	const mk = new map.Marker().setLngLat([137.2, 35.5]).addTo(map);
 	await sleep(500);

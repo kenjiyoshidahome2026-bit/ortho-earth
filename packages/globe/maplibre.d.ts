@@ -2,7 +2,7 @@
 // `import * as maplibregl from "@ortho-earth/globe/maplibre"` の差し替えで MapLibre のコードがこの地図で動く（src/maplibre/index.js）。
 // 無い口は実行時に投げず `[mlshim] unsupported: …` を 1 回記録する＝型は MapLibre の形を保つ（呼べる・返りは undefined か this）。
 // 検定＝tests/mlshim-dts.mjs（index.js の export が全部ここにある・tests/fixtures/dts/shim-usage.ts が tsc を通る）。
-import type { OrthoJapanMap, OrthoJapanOptions, MapLibreSource, MapLibreLayer, StyleExpression, LonLat, LightSpecification, SkySpecification, RasterDemSource, QuantizedMeshSource, PaddingOptions, Marker as OrthoMarker, Popup as OrthoPopup, MarkerOptions, PopupOptions, GeoJSONFeature } from "@ortho-earth/globe";
+import type { GlobeMap, OrthoJapanOptions, MapLibreSource, MapLibreLayer, StyleExpression, LonLat, LightSpecification, SkySpecification, RasterDemSource, QuantizedMeshSource, PaddingOptions, Marker as OrthoMarker, Popup as OrthoPopup, MarkerOptions, PopupOptions, GeoJSONFeature } from "@ortho-earth/globe";
 export { addProtocol, removeProtocol, Compare } from "@ortho-earth/globe";
 
 export interface TerrainSpecification { source: string | RasterDemSource | QuantizedMeshSource; exaggeration?: number }
@@ -158,11 +158,11 @@ export class Map {
 // ---- Marker / Popup（この地図の DOM の物に MapLibre の LngLat の形を足す） ----
 export class Marker extends OrthoMarker {
 	constructor(options?: MarkerOptions | HTMLElement, legacyOptions?: MarkerOptions);
-	addTo(map: Map | OrthoJapanMap): this; setLngLat(ll: LngLatLike): this; getLngLat(): LngLat | null;
+	addTo(map: Map | GlobeMap): this; setLngLat(ll: LngLatLike): this; getLngLat(): LngLat | null;
 }
 export class Popup extends OrthoPopup {
 	constructor(options?: PopupOptions);
-	addTo(map: Map | OrthoJapanMap): this; setLngLat(ll: LngLatLike): this; getLngLat(): LngLat | null;
+	addTo(map: Map | GlobeMap): this; setLngLat(ll: LngLatLike): this; getLngLat(): LngLat | null;
 }
 
 // ---- 操作部品（IControl） ----

@@ -78,7 +78,7 @@ export interface SunSpec { follow?: "clock" | null; azimuth?: number; altitude?:
  *  coverage＝空を覆う割合 0〜1・altitude＝雲底 m・thickness＝厚み m・density＝濃さ 0〜1・wind＝[東 m/s, 北 m/s]・precipitation＝{ type: "rain"|"snow", intensity 0〜1 } */
 export interface CloudsSpec { type?: "image" | null; url?: string | null; opacity?: number; alphaFrom?: "auto" | "alpha" | "luminance"; coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
 /** registry.handlers の契約（F6）：create(map, opts) が { start, stop, active } を返す。"walk" は map.walk(opts) の中身 */
-export interface HandlerImpl { create(map: OrthoJapanMap, opts: Record<string, unknown>): { start?(): void; stop?(): void; readonly active?: boolean } }
+export interface HandlerImpl { create(map: GlobeMap, opts: Record<string, unknown>): { start?(): void; stop?(): void; readonly active?: boolean } }
 /** map.walk の引数（F6 の口・W3 で中身）。speed＝m/s（既定 1.4）・eyeHeight＝目の高さ m（既定 1.7）・collide＝基図の建物・押し出しに当たる（既定 true）・keys＝W/↑ 前・S/↓ 後・A/D 横・←/→ か Q/E 回る・R/F 見上げ/見下ろし・Shift で run 倍・Esc で止める（既定 true）・
  *  mouse＝ドラッグで見回す（既定 true）・lookDown＝見下ろし角°（既定 5）・turnSpeed °/s（既定 90）・lookSpeed °/s（既定 45）・lookDistance＝注視点までの水平 m（既定 30）・run＝Shift の倍率（既定 3） */
 export interface WalkOptions { speed?: number; eyeHeight?: number; collide?: boolean; keys?: boolean; mouse?: boolean; lookDown?: number; turnSpeed?: number; lookSpeed?: number; lookDistance?: number; run?: number; [k: string]: unknown }
@@ -95,9 +95,9 @@ export interface WalkHandle {
 	/** 足元と向き（builtin・plugin の中身が返さなければ null） */
 	position(): { lng: number; lat: number; ground: number; eyeHeight: number; bearing: number; lookDown: number } | null;
 }
-export interface CloudsImpl { apply(map: OrthoJapanMap, clouds: Required<CloudsSpec> | null): void }
+export interface CloudsImpl { apply(map: GlobeMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
-export interface LightTypeImpl { apply(map: OrthoJapanMap, lights: LightSpec[]): void }
+export interface LightTypeImpl { apply(map: GlobeMap, lights: LightSpec[]): void }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
@@ -212,11 +212,9 @@ export interface OrthoJapanOptions {
 	/** 建物3D（建物メッシュ・日本では PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true・1.2.0〜）。
 	 *  省メモリ端末で頁にもう 1 枚の地図が生きている時は既定 false（#173・2 枚目の常駐メモリを抑える）＝true で入れられる */
 	mesh?: boolean;
-	/** @deprecated 1.2.0〜 mesh を使う（同じ意味・両方あれば mesh が優先）。次の大版で撤去 */
-	plateau?: boolean;
 	/** UI言語（地図中の地名は対象外）。live 切替 API は無い＝変えるなら view: map.view.hash を持って destroy()→再生成 */
 	lang?: OrthoJapanLang;
-	/** チルト上限（1.3.0〜 **度**＝MapLibre と同じ。1.6 以下の値は従来のラジアンとして読む＝非推奨・console に 1 回警告）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
+	/** チルト上限（**度**＝MapLibre と同じ。2.0 で 1.6 以下の値をラジアンと読む 1.x の読み替えを外した）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
 	maxPitch?: number;
 	/** ズームの目盛り（1.3.0〜・MapLibre 互換）。既定 "ortho"＝この地図の z（256px 世界＝MapLibre の z＋1 が同じ縮尺）。
 	 *  "maplibre"＝公開面の「数」の zoom を MapLibre の z で受け渡す（入力 +1・出力 −1・null はそのまま）：
@@ -359,22 +357,20 @@ export interface ColumnarLayerHandle {
 	remove(): void;
 }
 
-/** map.on("mesh")（1.2.0〜・旧名 "plateau"）の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
+/** map.on("mesh")（1.2.0〜）の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
 export type MeshEvent =
 	| { phase: "catalog"; count: number }
 	| { phase: "start" | "done" | "cancelled" | "failed"; name: string; base: string };
-/** @deprecated 1.2.0〜 MeshEvent を使う（同じ型）。次の大版で撤去 */
-export type PlateauEvent = MeshEvent;
 
 /** 右クリックメニュー項目（map.gadget.contextmenu({items})） */
 export interface ContextMenuItem {
 	name: string;
 	/** 任意の HTML（アイコン） */
 	icon?: string;
-	onClick(c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }): void;
+	onClick(c: { lng?: number; lat?: number; x: number; y: number; map: GlobeMap }): void;
 }
 /** 右クリックメニューの項目の並び：配列か、指した地点ごとに組む関数（(地点, 既定の項目) → 配列）。null＝既定の項目へ戻す（setter に渡す時） */
-export type ContextMenuItems = ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }, dflt: ContextMenuItem[]) => ContextMenuItem[]) | null;
+export type ContextMenuItems = ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: GlobeMap }, dflt: ContextMenuItem[]) => ContextMenuItem[]) | null;
 
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
@@ -857,7 +853,7 @@ export interface Tiles3DHandle {
 	getFeatureState(featureId: number): Record<string, unknown>;
 	removeFeatureState(featureId?: number): Tiles3DHandle;
 }
-export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
+export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: GlobeMap }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
 export interface LayerPressEvent extends LayerMouseEvent { defaultPrevented: boolean; preventDefault(): void; points?: Array<{ x: number; y: number }>; lngLats?: Array<{ lng: number; lat: number } | null> }
 /** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
@@ -872,8 +868,8 @@ export interface OrthoPlugin<O = Record<string, unknown>> {
 	version?: string | null;
 	/** 担う能力の鍵（capabilities の鍵・申告だけ） */
 	provides?: string[];
-	install(map: OrthoJapanMap, opts: O): void | (() => void);
-	uninstall?(map: OrthoJapanMap): void;
+	install(map: GlobeMap, opts: O): void | (() => void);
+	uninstall?(map: GlobeMap): void;
 }
 export function definePlugin<O = Record<string, unknown>>(spec: OrthoPlugin<O>): Readonly<OrthoPlugin<O>>;
 /** 名前→実装の表。builtin（この版が持つ物）は上書き・撤去できない。wired=false の表は登録を受けて保つだけ＝絵はまだ変わらない（pending の PR で結線） */
@@ -904,7 +900,7 @@ export interface SplatData {
 	crs?: "lnglat" | "ecef";
 }
 /** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat" は契約が予約済み＝data は検めた SplatData か URL） */
-export interface DataKindImpl { create(map: OrthoJapanMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }
+export interface DataKindImpl { create(map: GlobeMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }
 /** タイル形式（core の registerTileFormat と同じ形・process-wide＝撤去できない） */
 export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: Uint8Array, need: unknown) => unknown; load?: () => Promise<(bytes: Uint8Array, need: unknown) => unknown> }
 export interface MapRegistry {
@@ -912,7 +908,7 @@ export interface MapRegistry {
 	readonly dataKinds: PluginRegistry<DataKindImpl>;
 	/** gadget（add(name, (map, ...args) => handle)＝registerGadget と同じ登録口・map は第 1 引数（this は使わない）・結線済み・builtin の名は実行時の map.gadget の鍵）。
 	 *  plugin の gadget の型は Gadgets を拡張して足す（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
-	readonly gadgets: PluginRegistry<(map: OrthoJapanMap, ...args: any[]) => unknown>;
+	readonly gadgets: PluginRegistry<(map: GlobeMap, ...args: any[]) => unknown>;
 	/** core の registerTileFormat（結線済み） */
 	readonly tileFormats: PluginRegistry<TileFormatImpl>;
 	/** 光源の type（F1 で結線）＝builtin は directional/point/spot/ambient/hemisphere/ibl。plugin の type は { apply(map, lights) } */
@@ -949,7 +945,7 @@ export type PostPass =
 	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number }
 	| { id?: string; type: string; enabled?: boolean; [k: string]: unknown };
 /** registry.postEffects に足す pass の type＝setPostChain のたびに、その type の pass の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／CSS filter で描く約束） */
-export interface PostEffectImpl { apply(map: OrthoJapanMap, passes: PostPass[]): void }
+export interface PostEffectImpl { apply(map: GlobeMap, passes: PostPass[]): void }
 /** map.setPostProcess の引数。true＝既定値。bloom: threshold＝滲む輝度の下限（0〜1・既定 0.75）・strength＝足す量（既定 0.5）・radius＝ぼかし半径の倍率（既定 1）。vignette: strength＝四隅の暗さ（既定 0.5）・radius＝暗くなり始める距離（中心 0〜角 1・既定 0.8）・softness＝移り変わりの幅（既定 0.5）。 */
 export interface PostProcessOptions {
 	bloom?: true | { threshold?: number; strength?: number; radius?: number };
@@ -962,7 +958,7 @@ export interface PostProcessOptions {
 
 // 公開の map の型（OrthoJapanMap／GlobeMap）は installer ごとの型の合成＝正本は src/types/map.ts（TS 化 段 4・batch 1・2026-10-16）。
 // ここは名前を通すだけ（OrthoJapanMap は 2.0 まで GlobeMap の別名）。各 *Api は installer（src/api/*.ts）が付ける口の束
-import type { OrthoJapanMap } from "./src/types/map.ts";
+import type { GlobeMap } from "./src/types/map.ts";
 export type {
 	GlobeMap, OrthoJapanMap, GlobeCoreApi, CameraApi, OverlaysApi, TerrainApi, RasterApi, GadgetsApi, ShadowsApi,
 	DataApi, IntakeApi, ImagesApi, StyleApi, QueryApi, ToolsApi,
@@ -970,7 +966,7 @@ export type {
 
 /** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。await 必須。
  *  SDK の orthoJapan は「globe＋日本の申告」の薄い包み（LAYERS.md・2026-09-23） */
-export function createGlobe(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+export function createGlobe(opts?: OrthoJapanOptions): Promise<GlobeMap>;
 /** 旗 zoomScale:"maplibre" の地図（外側の顔）から素の map（エンジンの z）へ戻る鍵（1.3.0〜）。値は Symbol.for("ortho-earth.map.raw")＝import しなくても同じ鍵。
  *  旗なしの地図では未定義＝部品は `map[RAW] ?? map` で読む */
 export const RAW: unique symbol;
@@ -983,7 +979,7 @@ export interface MarkerOptions { element?: HTMLElement; color?: string; scale?: 
 export class Marker {
 	constructor(opts?: MarkerOptions | HTMLElement);
 	setLngLat(ll: LonLat | { lng: number; lat: number }): this; getLngLat(): { lng: number; lat: number } | null;
-	addTo(map: OrthoJapanMap): this; remove(): this; getElement(): HTMLElement;
+	addTo(map: GlobeMap): this; remove(): this; getElement(): HTMLElement;
 	setOffset(o: [number, number]): this; setAltitude(m: number): this; setDraggable(on: boolean): this; isDraggable(): boolean;
 	setPopup(p: Popup | null): this; getPopup(): Popup | null; togglePopup(): this;
 	on(type: "dragstart" | "drag" | "dragend", cb: (e: { type: string; target: Marker }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
@@ -994,7 +990,7 @@ export class Popup {
 	constructor(opts?: PopupOptions);
 	setLngLat(ll: LonLat | { lng: number; lat: number }): this; getLngLat(): { lng: number; lat: number } | null;
 	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
-	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
+	addTo(map: GlobeMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
 	/** カーソルに付いて回る（MapLibre 同名・C8）＝pointer-events none・mapEl の pointermove で lngLat を置き直す（球の外＝隠す） */
 	trackPointer(): this;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
@@ -1106,7 +1102,7 @@ export interface InspectHandle {
  *  2 枚の容れ物は同じ場所に重ねて置く（利用者の CSS）。カメラは連動する（どちらを動かしても追う）。container＝つまみを置く要素（セレクタ可）。
  *  1 頁に生きている地図は 2 枚まで。createGlobe の地図でも MapLibre 互換の Map（@ortho-earth/globe/maplibre）でもよい */
 export class Compare {
-	constructor(before: OrthoJapanMap | { getContainer(): HTMLElement }, after: OrthoJapanMap | { getContainer(): HTMLElement }, container: string | HTMLElement, options?: { orientation?: "vertical" | "horizontal"; mousemove?: boolean });
+	constructor(before: GlobeMap | { getContainer(): HTMLElement }, after: GlobeMap | { getContainer(): HTMLElement }, container: string | HTMLElement, options?: { orientation?: "vertical" | "horizontal"; mousemove?: boolean });
 	/** つまみの位置（容れ物の左端／上端から px） */
 	readonly currentPosition: number;
 	setSlider(x: number): void;

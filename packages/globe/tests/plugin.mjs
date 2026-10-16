@@ -13,15 +13,16 @@ ok("define.needsInstall", throws(() => definePlugin({ name: "a" })));
 ok("define.frozen", Object.isFrozen(definePlugin({ name: "a.b-c_1", install() {} })));
 
 // 偽の map と host
-const gadgets = {}; const map = { gadget: Object.assign((name, fn) => { gadgets[name] = fn; map.gadget[name] = fn; }, gadgets) };
+const map = { gadget: {} };   // map.gadget＝名前ごとの口の表（2.0）。登録は globe.ts と同じ形＝本体の第 1 引数が map
+const defineGadget = (name, fn) => { map.gadget[name] = (...a) => fn(map, ...a); };
 const coreFormats = new Map([["mvt", 1], ["geopbf", 1]]);
 const host = createPluginHost(map, {
-	getBackend: () => "webgl2", gadgetNames: () => Object.keys(map.gadget), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
+	getBackend: () => "webgl2", gadgetNames: () => Object.keys(map.gadget), defineGadget, removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: sp => { if (coreFormats.has(sp.name)) throw new Error("dup"); coreFormats.set(sp.name, sp); }, has: k => coreFormats.has(k), names: () => [...coreFormats.keys()] },
 	builtinTileFormats: [...coreFormats.keys()], pointcloud: {}, builtinDataKinds: ["points", "arcs", "trips", "polygons", "paths", "columns"], builtinPostEffects: ["bloom", "vignette", "fxaa", "smaa", "tonemap", "lut", "dof", "ssr"], builtinLights: ["directional", "point", "spot", "ambient", "hemisphere", "ibl"],
 });
 Object.assign(map, { use: host.use, unuse: host.unuse, plugins: host.plugins, registry: host.registry, supports: host.supports, capabilities: host.capabilities });
-map.gadget("compass", () => "c");
+defineGadget("compass", () => "c");
 
 // 静的な表の形
 for (const [k, v] of Object.entries(STATIC_CAPABILITIES)) ok(`static.${k}`, ["builtin", "plugin", "spec", "no", "never"].includes(v.status) && typeof v.note === "string");
@@ -45,7 +46,7 @@ const P = definePlugin({
 		installed++;
 		ok("install.rawMap", m === map && o.size === 3);
 		m.registry.dataKinds.add("squares", { create: (mm, data, opts) => ({ id: opts.id, kind: opts.kind, n: data.length }) });
-		m.registry.gadgets.add("hello", function () { return "hi"; });
+		m.registry.gadgets.add("hello", mm => mm === map ? "hi" : "wrong map");
 		m.registry.tileFormats.add("fakefmt", { decode: () => ({}) });
 		m.registry.postEffects.add("crt", { apply() {} });
 		ok("reg.postNeedsApply", throws(() => m.registry.postEffects.add("crt2", { pass: true })) && throws(() => m.registry.postEffects.add("fxaa", { apply() {} })));
