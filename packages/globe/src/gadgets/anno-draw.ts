@@ -1,7 +1,7 @@
 // 注釈レイヤの描画本体＝レンダーワーカー内のオーバーレイ（map.overlay・#13）。地球・注記と同じフレーム・同じ cam で canvas2D に描く。
 // main（gadgets/anno.js）は geopbf の読み込み・識別（tip/pop）・DOM を持ち、ここへは前処理済みの items（@spline は細分済み）を渡す。
 // 図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/makeTracer/buildLinePath）の正本は geopbf/edit/draw＝geoedit も同じ一本を使う。
-// このモジュールは render worker の**組み込み**（renderworker.js の BUILTIN_OVERLAYS＝import("../gadgets/anno-draw.js")）＝バンドルされるので import を持てる
+// このモジュールは render worker の**組み込み**（renderworker.js の BUILTIN_OVERLAYS＝import("../gadgets/anno-draw.ts")）＝バンドルされるので import を持てる
 // （旧＝?url のそのまま置き＝依存ゼロが掟で球面ヘルパの写しを抱えていた。正典を geopbf/edit/draw に一本化するために組み込みへ・2026-09-20）。
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 //   api.project(lon,lat)→[x,y,f]（CSS px・地形リフト込み・f<0=裏側）／api.projectH(lon,lat,hM)＝h メートル上（3D ピン）／api.W,H,dpr

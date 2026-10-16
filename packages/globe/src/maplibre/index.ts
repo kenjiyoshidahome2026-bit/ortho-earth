@@ -1,11 +1,11 @@
 // MapLibre の口（公式例の門 §8・本人裁定 1「製品の口」）＝`import * as maplibregl from ...` の差し替えだけで MapLibre GL JS のコードがこの地図で動く通訳。
 // 中身は通訳だけ（map.js の約束）。無い口は投げずに `[mlshim] unsupported: …` を 1 回記録する＝公式例の門の順位表の材料。
 export { Map, Marker, Popup } from "./map.ts";
-export { Compare } from "../globe.js";   // maplibre-gl-compare と同じ形（#173）・通訳は ../globe.js の部品だけ（mlshim の掟）
+export { Compare } from "../globe.ts";   // maplibre-gl-compare と同じ形（#173）・通訳は ../globe.js の部品だけ（mlshim の掟）
 export { MaplibreInspect } from "./inspect.ts";   // maplibre-gl-inspect と同じ形（#174）＝map.addControl(new MaplibreInspect({...}))・中身はガジェット map.gadget.inspect への通訳
 export { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions } from "./geo.ts";
 export { NavigationControl, FullscreenControl, GeolocateControl, ScaleControl, AttributionControl, LogoControl, GlobeControl, TerrainControl } from "./controls.ts";
-export { addProtocol, removeProtocol } from "../globe.js";
+export { addProtocol, removeProtocol } from "../globe.ts";
 export { createTileMesh, SubdivisionGranularityExpression, SubdivisionGranularitySetting } from "./tilemesh.ts";   // custom 層のタイル格子（MapLibre 同名・2026-09-30）
 
 // 名前空間の付き物（MapLibre と同名）。worker・RTL の差し込み・先読みはこの地図が自分で持つ＝受け取るだけ

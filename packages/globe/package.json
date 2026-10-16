@@ -8,13 +8,13 @@
 	"exports": {
 		".": {
 			"types": "./globe.d.ts",
-			"default": "./src/globe.js"
+			"default": "./src/globe.ts"
 		},
 		"./maplibre": {
 			"types": "./maplibre.d.ts",
 			"default": "./src/maplibre/index.ts"
 		},
-		"./page.js": "./src/page.js",
+		"./page.js": "./src/page.ts",
 		"./wiki.js": "./src/wiki.ts",
 		"./i18n.js": "./src/i18n.ts",
 		"./i18n/core.js": "./src/i18n/core.ts",
@@ -22,7 +22,7 @@
 		"./i18n/*": "./src/i18n/*",
 		"./themes.js": "./src/themes.ts",
 		"./style-*.js": "./src/style-*.ts",
-		"./boot/tier.js": "./src/boot/tier.js",
+		"./boot/tier.js": "./src/boot/tier.ts",
 		"./demo/scene-adapter.js": "./src/demo/scene-adapter.ts",
 		"./worker.js": "./src/worker.ts",
 		"./renderworker.js": "./src/renderworker.ts",

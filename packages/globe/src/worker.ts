@@ -5,7 +5,7 @@
 // glsl.js が worker の数だけ複製された（dist/lib の計量）。入口をこの 1 本にし、役割を動的 import にすると worker ビルドは
 // 1 つ＝共有物はその中の共有チャンク 1 つになる。geopbf/src/worker.js と同じ流儀。
 //
-// 役割の指名は Worker の name：`new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "render" })`。
+// 役割の指名は Worker の name：`new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" })`。
 // URL に ?query を足す方式は vite の静的検出（new Worker(new URL('…', import.meta.url), {静的 options})）を壊すので使わない。
 // 各 worker 脚本（renderworker.js …）は従来どおり「自分で self.onmessage を張る」まま無改修。ここは指名された脚本を読み込み、
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
