@@ -1,6 +1,6 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
 import { evalExpr, truthy, originOfLayer, parseFontStack, fontCss } from "@ortho-earth/core";
-import { evalColor } from "./model.js";
+import { evalColor } from "./model.ts";
 
 const css = q => q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${q[3] ?? 1})` : null;
 // "{name}" の差し込み（MapLibre の旧来の文字列トークン）＋式＋ format（文字の部分だけ繋ぐ）
