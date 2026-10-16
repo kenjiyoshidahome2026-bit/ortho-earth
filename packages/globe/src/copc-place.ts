@@ -8,6 +8,10 @@ import { geoWorld } from "./meshdecode.ts";
 
 const D2R = Math.PI / 180;
 export const TOL_M = 0.01;
+/** placeNode の opts */
+export interface PlaceOpts { ll: (p: number[]) => ArrayLike<number>; vUnit: number; dz: number; EW: number; bounds: ArrayLike<number>; tolM?: number }
+/** placeNode の戻り */
+export interface PlacedNode { pos: Float32Array; origin: number[]; elev: Float32Array; affine: boolean; errM: number }
 
 /**
  * @param {{ x: Float64Array, y: Float64Array, z: Float64Array }} r  原座標（scale・offset を掛けた値）
@@ -16,14 +20,14 @@ export const TOL_M = 0.01;
  *   ll＝原座標 → 経緯度（度）・vUnit＝鉛直の単位（m）・dz＝高さに足す m（−N＋heightOffset）・EW＝世界 1 単位の m・bounds＝節の範囲（原座標）
  * @returns {{ pos: Float32Array, origin: number[], elev: Float32Array, affine: boolean, errM: number }}
  */
-export function placeNode(r, n, { ll, vUnit, dz, EW, bounds: b, tolM = TOL_M }) {
+export function placeNode(r: { x: ArrayLike<number>; y: ArrayLike<number>; z: ArrayLike<number> }, n: number, { ll, vUnit, dz, EW, bounds: b, tolM = TOL_M }: PlaceOpts): PlacedNode {
 	const pos = new Float32Array(n * 3), elev = new Float32Array(n), w = [0, 0, 0];
-	const F = (x, y, z, out) => { const [lon, lat] = ll([x, y]); return geoWorld(lon * D2R, lat * D2R, (z * vUnit + dz) / EW, out); };
+	const F = (x: number, y: number, z: number, out: number[]) => { const [lon, lat] = ll([x, y]) as [number, number]; return geoWorld(lon * D2R, lat * D2R, (z * vUnit + dz) / EW, out); };
 	const c = [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2], h = [(b[3] - b[0]) / 2, (b[4] - b[1]) / 2, (b[5] - b[2]) / 2];
 	const origin = F(c[0], c[1], c[2], [0, 0, 0]);
 	for (let i = 0; i < n; i++) elev[i] = r.z[i] * vUnit + dz;
 	// 二次式＝F(c+d) ≈ F0 + J·d + ½ dᵀ·H·d（成分ごと）。J・H は中心差分（幅 h/2）。曲率（地球の丸み・投影の歪み）は二次の項が持つ
-	const e = h.map(v => v / 2 || 1), Fp = [], Fm = [], a = [0, 0, 0];
+	const e = h.map(v => v / 2 || 1), Fp: number[][] = [], Fm: number[][] = [], a = [0, 0, 0];
 	for (let k = 0; k < 3; k++) { const p = c.slice(), m = c.slice(); p[k] += e[k]; m[k] -= e[k]; Fp.push(F(p[0], p[1], p[2], [0, 0, 0])); Fm.push(F(m[0], m[1], m[2], [0, 0, 0])); }
 	const J = new Float64Array(9), H = new Float64Array(18);   // J[j*3+k]・H[j*6+(xx,yy,zz,xy,xz,yz)]（½ を含む係数）
 	for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) {
@@ -31,15 +35,15 @@ export function placeNode(r, n, { ll, vUnit, dz, EW, bounds: b, tolM = TOL_M }) 
 		H[j * 6 + k] = (Fp[k][j] - 2 * origin[j] + Fm[k][j]) / (2 * e[k] * e[k]);
 	}
 	for (const [slot, k, l] of [[3, 0, 1], [4, 0, 2], [5, 1, 2]]) {
-		const at = (sk, sl) => { const p = c.slice(); p[k] += sk * e[k]; p[l] += sl * e[l]; return F(p[0], p[1], p[2], [0, 0, 0]); };
+		const at = (sk: number, sl: number) => { const p = c.slice(); p[k] += sk * e[k]; p[l] += sl * e[l]; return F(p[0], p[1], p[2], [0, 0, 0]); };
 		const pp = at(1, 1), pm = at(1, -1), mp = at(-1, 1), mm = at(-1, -1);
 		for (let j = 0; j < 3; j++) H[j * 6 + slot] = (pp[j] - pm[j] - mp[j] + mm[j]) / (4 * e[k] * e[l]);
 	}
-	const model = (dx, dy, dz3, j) => { const q = j * 6;
+	const model = (dx: number, dy: number, dz3: number, j: number) => { const q = j * 6;
 		return J[j * 3] * dx + J[j * 3 + 1] * dy + J[j * 3 + 2] * dz3 + H[q] * dx * dx + H[q + 1] * dy * dy + H[q + 2] * dz3 * dz3 + H[q + 3] * dx * dy + H[q + 4] * dx * dz3 + H[q + 5] * dy * dz3; };
 	// ずれの検査＝8 隅＋面の中心 6 点（差分に使っていない所）
 	let err = 0;
-	const probe = (sx, sy, sz) => {
+	const probe = (sx: number, sy: number, sz: number) => {
 		const dx = sx * h[0], dy = sy * h[1], dz3 = sz * h[2];
 		F(c[0] + dx, c[1] + dy, c[2] + dz3, a);
 		for (let j = 0; j < 3; j++) err = Math.max(err, Math.abs(origin[j] + model(dx, dy, dz3, j) - a[j]));

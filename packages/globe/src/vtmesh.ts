@@ -6,26 +6,38 @@
 // 出力の形は finishMesh と同じ契約（pos＝原点相対 Float32・nrm＝Int8×4（ortho 軸＝ECEF の x,z,y）・idx＝Uint32・uv＝0・col＝RGBA8・origin・bbox 度）
 // ＝メッシュ経路（setMesh）へそのまま渡る。uv は 0 でも要る（頂点色は「uv と col がある」メッシュだけが使う）。
 import earcut from "earcut";
-import { hasZoom, exprZoomKey } from "./extrude-ml.ts";   // ズームの鍵は geojson の押し出しと共用（純関数）
+import { hasZoom, exprZoomKey } from "./extrude-ml.ts";
+import type { EvalIn } from "./extrude-ml.ts";   // ズームの鍵は geojson の押し出しと共用（純関数）
+
+/** タイルの番地 */
+export interface TileXYZ { z: number; x: number; y: number }
+/** 平坦な輪（[x0,y0,x1,y1,…]・開いた列） */
+export type FlatRing = Int32Array | Float32Array | Float64Array;
+/** 1 つの面の三角形分割済みの幾何（tessellatePolygon の戻り） */
+export interface PolyGeom { xy: Float64Array; starts: number[]; sgn: number[]; tris: Uint32Array; wall: Uint8Array }
+/** 面ごとの高さと色（buildMesh の styleOf の戻り）＝rgba は 0-255・grad＝壁の縦の陰影 */
+export interface PolyStyle { h: number; base: number; rgba: ArrayLike<number>; grad?: boolean }
+/** buildMesh の出力のメッシュ（finishMesh と同じ契約） */
+export interface VtMesh { pos: Float32Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; origin: number[]; bbox: number[]; twoSided: number; colSrgb: boolean }
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const MAX_RINGS = 500;              // MapLibre と同じ（穴の多すぎる面は小さい穴から捨てる）
 const ELL_RAX = 1 - 1 / 298.257223563;   // b/a（?ell=1 の β 単位球＝meshdecode と同じ分解）
 
 // 符号付き面積（×2・タイル座標＝x 右・y 下のまま）。輪は開いた平坦列 [x0,y0,x1,y1,…]
-export function ringArea2(r) {
+export function ringArea2(r: ArrayLike<number>): number {
 	let s = 0;
 	for (let i = 0, n = r.length; i < n; i += 2) { const j = i + 2 < n ? i + 2 : 0; s += r[i] * r[j + 1] - r[j] * r[i + 1]; }
 	return s;
 }
 // 閉じ点（先頭の複製）を落とした開いた輪
-const openRing = r => r.length >= 4 && r[0] === r[r.length - 2] && r[1] === r[r.length - 1] ? r.subarray(0, r.length - 2) : r;
+const openRing = (r: FlatRing): FlatRing => r.length >= 4 && r[0] === r[r.length - 2] && r[1] === r[r.length - 1] ? r.subarray(0, r.length - 2) : r;
 
 // MVT の面の幾何（decodeMVT の { coords, ends }）→ 面の列 [[外周, 穴, …], …]。MapLibre の classifyRings と同じ：
 // 最初の（面積 0 でない）輪の向きが「外周」の向き・同じ向きの輪が新しい面を始め・逆向きは直前の面の穴・面積 0 は捨てる
-export function classifyRings(geom) {
-	const { coords, ends } = geom, polys = [];
-	let cur = null, outerNeg = null, s = 0;
+export function classifyRings(geom: { coords: FlatRing; ends: Iterable<number> }): FlatRing[][] {
+	const { coords, ends } = geom, polys: FlatRing[][] = [];
+	let cur: FlatRing[] | null = null, outerNeg: boolean | null = null, s = 0;
 	for (const e of ends) {
 		const r = openRing(coords.subarray(s, e)); s = e;
 		const a = ringArea2(r);
@@ -43,14 +55,14 @@ export function classifyRings(geom) {
 
 // 輪をタイルの枠 [0, E]² で切る（Sutherland–Hodgman）。戻り＝開いた Float64Array か null（3 点未満・面積ほぼ 0）。
 // 交点の座標は枠の値ちょうど（0 か E）＝「枠の上の辺」の判定が厳密に効く。全部内側なら切らずに写すだけ
-export function clipRing(r, E) {
+export function clipRing(r: ArrayLike<number>, E: number): Float64Array | null {
 	let inside = true;
 	for (let i = 0; i < r.length; i += 2) if (r[i] < 0 || r[i] > E || r[i + 1] < 0 || r[i + 1] > E) { inside = false; break; }
-	let pts = inside ? Array.from(r) : r;
+	let pts: ArrayLike<number> = inside ? Array.from(r) : r;
 	if (!inside) {
-		const clip = (src, axis, c, keepGE) => {
-			const out = [], n = src.length / 2;
-			const inn = (x, y) => { const v = axis ? y : x; return keepGE ? v >= c : v <= c; };
+		const clip = (src: ArrayLike<number>, axis: number, c: number, keepGE: boolean) => {
+			const out: number[] = [], n = src.length / 2;
+			const inn = (x: number, y: number) => { const v = axis ? y : x; return keepGE ? v >= c : v <= c; };
 			for (let i = 0; i < n; i++) {
 				const ax = src[i * 2], ay = src[i * 2 + 1], j = (i + 1) % n, bx = src[j * 2], by = src[j * 2 + 1];
 				const ai = inn(ax, ay), bi = inn(bx, by);
@@ -65,7 +77,7 @@ export function clipRing(r, E) {
 		pts = clip(pts, 0, 0, true); if (pts.length) pts = clip(pts, 0, E, false);
 		if (pts.length) pts = clip(pts, 1, 0, true); if (pts.length) pts = clip(pts, 1, E, false);
 	}
-	const out = [];   // 続く同じ点を落とす（最後と最初も）
+	const out: number[] = [];   // 続く同じ点を落とす（最後と最初も）
 	for (let i = 0; i < pts.length; i += 2) { const k = out.length; if (k && out[k - 2] === pts[i] && out[k - 1] === pts[i + 1]) continue; out.push(pts[i], pts[i + 1]); }
 	while (out.length >= 4 && out[0] === out[out.length - 2] && out[1] === out[out.length - 1]) out.length -= 2;
 	if (out.length < 6) return null;
@@ -75,11 +87,11 @@ export function clipRing(r, E) {
 // 角の丸め（fill-extrusion-rounded-corner-distance・MapLibre GL JS 6.2・layout・m・C6 2026-10-12）：各頂点を、両隣の辺の上で d（辺の半分まで）だけ手前の 2 点と
 // その間の二次ベジェ（制御点＝元の頂点・22.5° ごとに 1 片＝直角は 4 片）の弧に置き換える。単位は輪と同じ（タイル座標なら m→単位の換算は呼ぶ側）。
 // 開いた平坦列 → 開いた平坦列（d ≤ 0・3 点未満はそのまま・ほぼ直進の頂点はそのまま・重なった点は落とす）。vector（tessellatePolygon）と geojson（extrude.js）の両方がこれを使う
-export function roundRing(r, d) {
+export function roundRing<R extends ArrayLike<number>>(r: R, d: number): R | Float64Array {
 	const n = r.length / 2;
 	if (!(d > 0) || n < 3) return r;
-	const out = [], eps = d * 1e-6;
-	const push = (x, y) => { const k = out.length; if (k && Math.abs(out[k - 2] - x) <= eps && Math.abs(out[k - 1] - y) <= eps) return; out.push(x, y); };
+	const out: number[] = [], eps = d * 1e-6;
+	const push = (x: number, y: number) => { const k = out.length; if (k && Math.abs(out[k - 2] - x) <= eps && Math.abs(out[k - 1] - y) <= eps) return; out.push(x, y); };
 	for (let i = 0; i < n; i++) {
 		const p = (i + n - 1) % n, q = (i + 1) % n, bx = r[i * 2], by = r[i * 2 + 1];
 		const ax = r[p * 2] - bx, ay = r[p * 2 + 1] - by, cx = r[q * 2] - bx, cy = r[q * 2 + 1] - by, la = Math.hypot(ax, ay), lc = Math.hypot(cx, cy);
@@ -94,22 +106,22 @@ export function roundRing(r, d) {
 	return out.length >= 6 ? Float64Array.from(out) : r;
 }
 // 枠の上の辺か（両端が同じ枠の線の上＝タイルの継ぎ目）。MapLibre の isBoundaryEdge と同じ意味（こちらは枠で切ってあるので「上」）
-const onBoundary = (ax, ay, bx, by, E) => (ax === bx && (ax <= 0 || ax >= E)) || (ay === by && (ay <= 0 || ay >= E));
+const onBoundary = (ax: number, ay: number, bx: number, by: number, E: number) => (ax === bx && (ax <= 0 || ax >= E)) || (ay === by && (ay <= 0 || ay >= E));
 
 // 1 つの面（[外周, 穴…]・タイル座標）→ 三角形分割済みの幾何（null＝外周が切れて消えた）。
 // { xy: Float64Array（全輪の頂点を連結）, starts: [輪の先頭の頂点番号…, 総数], sgn: [輪ごとの外向きの符号], tris: Uint32Array, wall: Uint8Array（頂点 i→次の辺に壁を立てるか） }
 // opts.round＝角の丸め（タイル座標の単位・roundRing）＝枠で切る前に丸める（継ぎ目の辺は真っすぐのまま＝両側のタイルで同じ形）
-export function tessellatePolygon(rings, E, { round = 0 } = {}) {
-	const kept = [];
+export function tessellatePolygon(rings: ArrayLike<ArrayLike<number>>, E: number, { round = 0 }: { round?: number } = {}): PolyGeom | null {
+	const kept: Array<{ c: Float64Array; hole: boolean }> = [];
 	for (let k = 0; k < rings.length; k++) {
 		const c = clipRing(round > 0 ? roundRing(rings[k], round) : rings[k], E);
 		if (!c) { if (k === 0) return null; continue; }
 		kept.push({ c, hole: k > 0 });
 	}
-	let n = 0; const starts = [];
+	let n = 0; const starts: number[] = [];
 	for (const r of kept) { starts.push(n); n += r.c.length / 2; }
 	starts.push(n);
-	const xy = new Float64Array(n * 2), holes = [], sgn = [], wall = new Uint8Array(n);
+	const xy = new Float64Array(n * 2), holes: number[] = [], sgn: number[] = [], wall = new Uint8Array(n);
 	kept.forEach((r, k) => {
 		xy.set(r.c, starts[k] * 2);
 		if (k) holes.push(starts[k]);
@@ -127,18 +139,18 @@ export function tessellatePolygon(rings, E, { round = 0 } = {}) {
 }
 
 // タイル座標 → 経緯度（度）
-export function tileToLonLat(z, x, y, E, px, py) {
+export function tileToLonLat(z: number, x: number, y: number, E: number, px: number, py: number): [number, number] {
 	const n = 2 ** z, wx = (x + px / E) / n, wy = (y + py / E) / n;
 	return [wx * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * wy)))];
 }
 
 // MapLibre の壁の縦の陰影（fill-extrusion-vertical-gradient・既定 true・光の強さ 0.5）＝clamp((t + base)·√(h/150), mix(0.7, 0.98, 1 − 0.5), 1)。
 // t＝上の頂点 1・下の頂点 0。高さ 100m 程度までの建物は上下とも 0.84（一律に少し暗い）・高い建物ほど上が明るい
-export const verticalShade = (top, base, h) => Math.min(1, Math.max(0.84, ((top ? 1 : 0) + base) * Math.sqrt(Math.max(0, h) / 150)));
+export const verticalShade = (top: boolean, base: number, h: number): number => Math.min(1, Math.max(0.84, ((top ? 1 : 0) + base) * Math.sqrt(Math.max(0, h) / 150)));
 
 // 幾何の列（tessellatePolygon の出力に { fi } を添えた物）× 面ごとの高さと色 → メッシュ（null＝立つ面なし）。
 // styleOf(fi) → { h, base, rgba: [r,g,b,a 0-255], grad } | null（null＝立てない＝filter と同じ）。tile＝{ z, x, y, extent }。ell＝?ell=1
-export function buildMesh(geos, styleOf, tile, { ell = false } = {}) {
+export function buildMesh(geos: Array<PolyGeom & { fi: number }>, styleOf: (fi: number) => PolyStyle | null, tile: { z: number; x: number; y: number; extent: number }, { ell = false }: { ell?: boolean } = {}): { mesh: VtMesh; stats: { vertices: number; triangles: number; hMax: number } } | null {
 	const { z, x, y, extent: E } = tile, EARTH_W = ell ? 6378137 : 6371000;
 	const st = geos.map(g => { const s = styleOf(g.fi); return s && s.h > s.base ? s : null; });
 	let nV = 0, nI = 0;
@@ -151,7 +163,7 @@ export function buildMesh(geos, styleOf, tile, { ell = false } = {}) {
 	if (!nI) return null;
 	const geo = new Float64Array(nV * 3), nrm = new Int8Array(nV * 4), col = new Uint8Array(nV * 4), idx = new Uint32Array(nI);
 	let v = 0, q = 0, lo0 = Infinity, la0 = Infinity, lo1 = -Infinity, la1 = -Infinity, hMax = 0;
-	const put = (lon, lat, h, nx, ny, nz, c, k) => {   // nx,ny,nz＝ECEF の向き
+	const put = (lon: number, lat: number, h: number, nx: number, ny: number, nz: number, c: ArrayLike<number>, k: number) => {   // nx,ny,nz＝ECEF の向き
 		geo[v * 3] = lon * D2R; geo[v * 3 + 1] = lat * D2R; geo[v * 3 + 2] = h;
 		const l = Math.hypot(nx, ny, nz) || 1, s = 127 / l;
 		nrm[v * 4] = Math.round(nx * s); nrm[v * 4 + 1] = Math.round(nz * s); nrm[v * 4 + 2] = Math.round(ny * s);   // ECEF → ortho (x, z, y)
@@ -162,7 +174,7 @@ export function buildMesh(geos, styleOf, tile, { ell = false } = {}) {
 	geos.forEach((g, i) => {
 		const s = st[i]; if (!s) return;
 		if (s.h > hMax) hMax = s.h;
-		const n = g.xy.length / 2, ll = new Array(n);
+		const n = g.xy.length / 2, ll: Array<[number, number]> = new Array(n);
 		for (let k = 0; k < n; k++) ll[k] = tileToLonLat(z, x, y, E, g.xy[k * 2], g.xy[k * 2 + 1]);
 		const roof = v;
 		for (let k = 0; k < n; k++) { const [lon, lat] = ll[k], lo = lon * D2R, la = lat * D2R, cl = Math.cos(la); put(lon, lat, s.h, cl * Math.cos(lo), cl * Math.sin(lo), Math.sin(la), s.rgba, 1); }
@@ -199,13 +211,13 @@ export function buildMesh(geos, styleOf, tile, { ell = false } = {}) {
 }
 
 // ── 選び（main）の純関数 ──────────────────────────────────────────
-const keyOf = t => `${t.z}/${t.x}/${t.y}`;
-const parentOf = t => t.z > 0 ? { z: t.z - 1, x: t.x >> 1, y: t.y >> 1 } : null;
+const keyOf = (t: TileXYZ) => `${t.z}/${t.x}/${t.y}`;
+const parentOf = (t: TileXYZ): TileXYZ | null => t.z > 0 ? { z: t.z - 1, x: t.x >> 1, y: t.y >> 1 } : null;
 // 置き換え（MapLibre の retain と同じ考え）：wanted の各タイル＝揃っていればそれ・揃っていなければ一番近い揃った祖先（minZ まで）・それも無ければ揃った子孫（2 段まで）。
 // 祖先を出す所はその下の子孫を出さない＝同じ所を二度描かない（穴よりダブりを先に消す＝押し出しは深度で重なりが見える）。
 // ready(key) → bool（空のタイル＝揃った扱い）。戻り＝出すタイルの鍵の Set
-export function retainTiles(wanted, ready, { minZ = 0 } = {}) {
-	const show = new Set();
+export function retainTiles(wanted: Iterable<TileXYZ>, ready: (key: string) => boolean, { minZ = 0 }: { minZ?: number } = {}): Set<string> {
+	const show = new Set<string>();
 	for (const t of wanted) {
 		const k = keyOf(t);
 		if (ready(k)) { show.add(k); continue; }
@@ -229,14 +241,14 @@ export function retainTiles(wanted, ready, { minZ = 0 } = {}) {
 // ズームの鍵＝paint の値が変わり得るかを曲線で見る（geojson の押し出しと同じ規則＝extrude-ml.js の exprZoomKey・台帳 R22）。一番外の interpolate（-hcl/-lab も）/step の入力が
 // ["zoom"] 由来（正規化で ["-",["zoom"],k] もある）なら、止まりの外は "lo"/"hi"（値が一定）・中は interpolate＝0.25 刻み／step＝段の番号。["zoom"] がそれ以外の所にある時は
 // 0.25 刻み。["zoom"] 無し＝""。evalIn(e, z)＝入力式を zoom z で評価する関数（core evalExpr を包んで渡す＝ここは純関数のまま）
-export function paintZoomKey(paint, z, evalIn) {
-	const parts = [];
-	for (const k of Object.keys(paint || {}).sort()) { const s = exprZoomKey(paint[k], z, evalIn); if (s != null) parts.push(k + ":" + s); }
+export function paintZoomKey(paint: Record<string, unknown> | null | undefined, z: number, evalIn: EvalIn): string {
+	const parts: string[] = [];
+	for (const k of Object.keys(paint || {}).sort()) { const s = exprZoomKey(paint![k], z, evalIn); if (s != null) parts.push(k + ":" + s); }
 	return parts.join("|");
 }
 // filter を評価する zoom（エンジンの目盛り）。MapLibre は filter をタイルの z（過拡大なら表示の丸めた z＝vector source の roundZoom）で評価する。
 // 層は正規化でエンジンの目盛り（["zoom"] → ["-",["zoom"],dz]）に直してある＝MapLibre の z＋1 を渡すと式の中で MapLibre の z に戻る
-export function filterZoom(tileZ, maxzoom, camZoom) {
+export function filterZoom(tileZ: number, maxzoom: number, camZoom: number): number {
 	const ml = tileZ < maxzoom ? tileZ : Math.max(tileZ, Math.round(camZoom - 1));
 	return ml + 1;
 }
