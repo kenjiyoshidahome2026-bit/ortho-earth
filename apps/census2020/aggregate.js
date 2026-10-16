@@ -100,7 +100,7 @@ export async function buildLevel(adminPbf, groups, { partitionIslands = false, m
 
 export async function initAggregate(adminPbf) {
 	const codesInfo = [];
-	const n = adminPbf.fmap?.length ?? 0, seen = new Set();
+	const n = adminPbf.length, seen = new Set();
 	for (let i = 0; i < n; i++) {
 		let p; try { p = adminPbf.getProperties(i); } catch { continue; }
 		const code = p?.code, name = p?.name;
