@@ -1,7 +1,7 @@
 // t-spline: @spline（球面 Catmull-Rom 細分＝単位ベクトルで補間し正規化）：antimeridian 跨ぎ＝縫い目を短い方で結び出力経度は
 // [-180,180)・制御点は標本点にそのまま含まれる・球の回転で不変（極/縫い目で形が変わらない）・小さい図形は旧経緯度版に近い。
-import { smoothRing, unwrapLons, wrapLon } from "../../src/edit/spline.js";
-import { quatFromAxisAngle, rotateLL, gcDistanceDeg, smallCircle } from "../../src/edit/sphere.js";
+import { smoothRing, unwrapLons, wrapLon } from "../../src/edit/spline.ts";
+import { quatFromAxisAngle, rotateLL, gcDistanceDeg, smallCircle } from "../../src/edit/sphere.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
