@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"lib": ["es2022", "webworker"],
+		"types": []
+	},
+	"include": ["src/workers/tileworker.ts", "src/workers/sceneworker.ts", "src/elevation/worker.ts", "src/gint/bakeworker.ts", "types/worker-env.d.ts"],
+	"exclude": []
+}
