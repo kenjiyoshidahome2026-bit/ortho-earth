@@ -899,8 +899,8 @@ struct POut {
 // ただし依存フェッチを 32 回へ増やすと差が消える（帯域律速に移りアドレス計算が遅延の陰に隠れる）＝
 // 効くかどうかは実シェーダが ALU 律速か帯域律速か次第。だから**逃げ道付きで両方持つ**（?gintsb=0）。
 // 原本は1つ＝この関数が texture 版から機械変換する（600行の二重管理をしない）。
-export function toStorageWGSL(code) {
-	const R = [
+export function toStorageWGSL(code: string): string {
+	const R: [RegExp, string][] = [
 		// 宣言（line/stencil 用と point 用は同じ group(2) スロットを共有する）
 		[/@group\(2\) @binding\(0\) var arcTex: texture_2d_array<u32>;/,
 		 "@group(2) @binding(0) var<storage, read> arcBuf: array<vec2u>;"],
@@ -929,7 +929,7 @@ export function toStorageWGSL(code) {
 }
 
 // 2D 配列の層の高さを差し替える（検定用＝小さなデータで複数層を踏む・gint.js の layerH と対）。既定 4096 はそのまま
-export function withLayerH(code, h) {
+export function withLayerH(code: string, h?: number | null): string {
 	if (!h || h === 4096) return code;
 	const out = code.replace(/const TEX_LAYER_H: i32 = 4096;/g, `const TEX_LAYER_H: i32 = ${h | 0};`);
 	if (out === code) throw new Error("withLayerH: TEX_LAYER_H not found = the source shader format changed");
@@ -939,8 +939,8 @@ export function withLayerH(code, h) {
 // ── 旧 6 頂点/辺の draw（?quad4=0・perf plan P3 の逃げ道）への書き換え ────────────────────────
 // 原本は index の 4 頂点（vi/4・vi%4・角 4 通り）。旧＝index 無しの 6 頂点（vi/6・vi%6・角 6 通り＝(A−)(A+)(B+)(A−)(B+)(B−)）。
 // 二重管理をしない＝ここで機械変換する（変換漏れは例外＝黙って壊れない）。storage 版は toStorageWGSL の後でも前でもよい（触る行が違う）。
-export function quad6WGSL(code) {
-	const R = [
+export function quad6WGSL(code: string): string {
+	const R: [RegExp, string][] = [
 		[/i32\(vi\) \/ 4;/g, "i32(vi) / 6;"],
 		[/i32\(vi\) % 4;/g, "i32(vi) % 6;"],
 		[/let useA = sub < 2;/g, "let useA = (sub == 0 || sub == 1 || sub == 3);"],
@@ -960,7 +960,7 @@ export function quad6WGSL(code) {
 // 線＝端点ごとにドレープ後の位置（relW）で面ごとの距離を運び画素で最小（renderer と同じ作法）・点＝原点相対の位置・
 // 塗り（扇の cover）と ID 塗りの解決＝画素から全画面レイで海抜 0 の球の交点を作って測る（扇の画素は地表の点でない）。3D の塗りは地面アトラス側＝地形の派生で切れている
 const GINT_CLIP_FIELDS = "\tclipPl: array<vec4f, 6>,   // 面（xyz＝法線・w＝K）＝#111 段 3\n\tclipP: vec4f,              // x＝面の枚数\n\trayF: vec4f, rayX: vec4f, rayY: vec4f, eyeC: vec4f, eyeO: vec4f,   // 全画面レイ（renderer と同じ視線の基底・eyeO＝目−gint 原点）\n";
-const GINT_CLIP_FN = (U) => /* wgsl */`
+const GINT_CLIP_FN = (U: string): string => /* wgsl */`
 fn clipD(rel: vec3f, i: u32) -> f32 { if (i < u32(${U}.clipP.x)) { return dot(${U}.clipPl[i].xyz, rel) + ${U}.clipPl[i].w; } return 1e30; }
 fn clipA(rel: vec3f) -> vec4f { return vec4f(clipD(rel, 0u), clipD(rel, 1u), clipD(rel, 2u), clipD(rel, 3u)); }
 fn clipB(rel: vec3f) -> vec2f { return vec2f(clipD(rel, 4u), clipD(rel, 5u)); }
@@ -981,14 +981,16 @@ fn clipPx(px: vec2f, vp: vec2f) -> bool {   // 画素 px（device）の視線が
 	return false;
 }
 `;
-const gDerive = (src, pairs, label) => pairs.reduce((s, [a, b, all]) => {
+/** 置き換えの対：[錨, 置換, all（錨が何度出てもよい・全部置く）]。 */
+type DerivePair = readonly [string, string, boolean?];
+const gDerive = (src: string, pairs: readonly DerivePair[], label: string): string => pairs.reduce((s, [a, b, all]) => {
 	const k = s.split(a).length - 1;
 	if (all ? k < 1 : k !== 1) throw new Error(`gint clip derive(${label}): anchor ${k ? "ambiguous" : "missing"}: ${a.slice(0, 50)}`);
 	return all ? s.split(a).join(b) : s.replace(a, b);
 }, src);
 const GF_RSV = "\tgfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない\n";
-const GF_CLIP = [GF_RSV, GINT_CLIP_FIELDS];   // 予約欄（12×vec4＝48 float）を同じ大きさの断面の欄へ差し替える＝後ろの遠方の要（float 128〜）の位置は動かない
-function gintClipWGSL(src, kind) {
+const GF_CLIP: DerivePair = [GF_RSV, GINT_CLIP_FIELDS];   // 予約欄（12×vec4＝48 float）を同じ大きさの断面の欄へ差し替える＝後ろの遠方の要（float 128〜）の位置は動かない
+function gintClipWGSL(src: string, kind: "line" | "stencil" | "point" | "resolve"): string {
 	if (kind === "line") return gDerive(src, [GF_CLIP,
 		["\t@location(8) @interpolate(flat) eb: vec2f,\n};", "\t@location(8) @interpolate(flat) eb: vec2f,\n\t@location(9) cdA: vec4f,\n\t@location(10) cdB: vec2f,\n};"],
 		["\tvar pa3: Proj; var pb3: Proj;\n", "\tvar pa3: Proj; var pb3: Proj;\n\tvar cwA = vec3f(0.0); var cwB = vec3f(0.0);   // 端点のドレープ後の位置（面の距離）\n"],

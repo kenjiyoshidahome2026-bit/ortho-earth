@@ -5,8 +5,8 @@
 //   ③ toStorageWGSL：2D 配列の宣言と 4 つのアクセサ本体だけが storage に変わり、textureLoad(arcTex…) が残らない（線・stencil・点＋切る派生）
 //   ④ withLayerH：層の高さの差し替え（検定用 ?gintlh=）は TEX_LAYER_H の定数だけを変える・無い原本には例外
 // 使い方: node packages/ortho-core/tests/gint-texlayers.mjs
-import { texLayerWrites } from "../src/gpu/gint.js";
-import * as G from "../src/gpu/gintwgsl.js";
+import { texLayerWrites } from "../src/gpu/gint.ts";
+import * as G from "../src/gpu/gintwgsl.ts";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
