@@ -1,13 +1,14 @@
 // ツールバー：ツール切替（選択/点/線/面）・undo/redo・スナップ格子（1e-3〜1e-7）・取込/書出。
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
-import { styleForm } from "./styleform.js";
-import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { styleForm } from "./styleform.ts";
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import type { Toolbar } from "./types.ts";
 const t = tr();
 
 // モノクロ線画アイコン（currentColor）＝Kenji旧ツールバーの流儀（8/20 参考画像）。絵文字混在をやめて統一
-const S = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICONS = {
+const S = (d: string): string => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICONS: Record<string, string> = {
 	undo: S('<path d="M5 5v6h6"/><path d="M5 11a8 8 0 1 1 2.3 6.3"/>'),
 	redo: S('<path d="M19 5v6h-6"/><path d="M19 11a8 8 0 1 0-2.3 6.3"/>'),
 	select: S('<path d="M6 3l12 9.5-6.5.8L8 20z"/>'),
@@ -27,28 +28,41 @@ const ICONS = {
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
 };
 
-export function initToolbar(el, api, signal) {
+/** ツールバーが呼ぶ口（controller が渡す） */
+export interface ToolbarApi {
+	setTool(tool: string): void; undo(): void; redo(): void;
+	gridExp(): number; setGrid(exp: number): void;
+	getDefaults(tool: string): Record<string, unknown>;
+	setDefaults(tool: string, partial: Record<string, unknown>): void;
+	importFile(file: File): unknown;
+	exportOpen(): unknown;
+	cloudOpen?: (() => unknown) | null;
+	close?: (() => unknown) | null;
+	clearAll(): unknown;
+}
+
+export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSignal): Toolbar {
 	el.hidden = false;
 	el.innerHTML = "";
 	// 吹き出し説明＝quiet-mono の data-tip 流儀（OS既定の title は廃止＝遅い/意匠が揃わない）。aria-label は読み上げ用に別途
-	const btn = (icon, tip, fn) => {
+	const btn = (icon: string, tip: string, fn: () => unknown): HTMLButtonElement => {
 		const b = document.createElement("button");
 		b.innerHTML = ICONS[icon] ?? icon; b.dataset.tip = tip; b.setAttribute("aria-label", tip);
 		b.addEventListener("click", fn, { signal });
 		el.append(b);
 		return b;
 	};
-	const sep = () => { const s = document.createElement("span"); s.className = "ge-sep"; el.append(s); };
+	const sep = (): void => { const s = document.createElement("span"); s.className = "ge-sep"; el.append(s); };
 
 	// ---- undo/redo（旧ツールバー準拠＝左端）----
 	const undoB = btn("undo", t("Undo (⌘Z)"), () => api.undo());
 	const redoB = btn("redo", t("Redo (⇧⌘Z)"), () => api.redo());
-	const syncHist = (canU, canR) => { undoB.disabled = !canU; redoB.disabled = !canR; };
+	const syncHist = (canU: boolean, canR: boolean): void => { undoB.disabled = !canU; redoB.disabled = !canR; };
 	sep();
 
 	// ---- ツール ----
 	// 並び＝選択・点・文字・線・自由曲線・矩形・円・多角形・くり抜き・移動（本人裁定 9/15）。グループ化/解除はツールバーに置かず右クリックメニュー（複数選択＝⌘/Ctrl+クリック）
-	const tools = {
+	const tools: Record<string, HTMLButtonElement> = {
 		select: btn("select", t("Select / edit vertices (V)"), () => api.setTool("select")),
 		point: btn("point", t("Place a point (icon / shape) (A)"), () => api.setTool("point")),
 		text: btn("text", t("Place text (T)"), () => api.setTool("text")),
@@ -60,7 +74,7 @@ export function initToolbar(el, api, signal) {
 		hole: btn("hole", t("Cut a hole (draw inside a polygon, then Enter) (H)"), () => api.setTool("hole")),
 	};
 	tools.move = btn("move", t("Move a feature (click to select → drag; wheel while holding = rotate about its centroid, ⌥/Alt+wheel = rotate without grabbing, Shift = 15° steps) (M)"), () => api.setTool("move"));
-	const syncTool = t => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
+	const syncTool = (t: string): void => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
 
 	sep();
 	// ---- スナップ格子 ----
@@ -71,7 +85,7 @@ export function initToolbar(el, api, signal) {
 	snap.className = "ge-snap"; snap.setAttribute("aria-label", t("Snap grid (degrees)"));
 	for (const e of [3, 4, 5, 6, 7]) {
 		const o = document.createElement("option");
-		o.value = e; o.textContent = `1e-${e}`;
+		o.value = String(e); o.textContent = `1e-${e}`;
 		snap.append(o);
 	}
 	snap.value = String(api.gridExp());
@@ -84,19 +98,19 @@ export function initToolbar(el, api, signal) {
 	file.type = "file";
 	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.dxf,.gz,.png,.jpg,.jpeg,.webp,.gif,.avif";   // 画像＝四隅で貼る（古地図・写真）
 	file.hidden = true;
-	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
+	file.addEventListener("change", () => { if (file.files![0]) api.importFile(file.files![0]); file.value = ""; }, { signal });
 	el.append(file);
 	btn("exp", t("Export (8 formats)"), () => api.exportOpen());
-	if (api.cloudOpen) btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen());   // ホストがクラウド保存パネルを注入した時だけ
+	if (api.cloudOpen) btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen!());   // ホストがクラウド保存パネルを注入した時だけ
 	btn("trash", t("Clear all (new session)"), () => api.clearAll());
 	// 部品として開かれた時だけ＝右端の「×」＝持ち主（japan）へ戻る（結果で持ち主の図形を置き換える）。単独起動は出さない
-	if (api.close) { const x = btn("close", t("Finish editing"), () => api.close()); x.classList.add("ge-close"); }
+	if (api.close) { const x = btn("close", t("Finish editing"), () => api.close!()); x.classList.add("ge-close"); }
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
-	let panel = null;
-	const GEOM = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", free: "LineString", rect: "Polygon", circle: "Polygon" };
-	const TITLE = { point: t("Point style (next point)"), text: t("Text (next label)"), line: t("Line style (next line)"), polygon: t("Polygon style (next polygon)"), free: t("Line style (freehand)"), rect: t("Polygon style (rectangle)"), circle: t("Polygon style (circle)") };
-	const symPanel = t => {
+	let panel: HTMLDivElement | null = null;
+	const GEOM: Record<string, string> = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", free: "LineString", rect: "Polygon", circle: "Polygon" };
+	const TITLE: Record<string, string> = { point: t("Point style (next point)"), text: t("Text (next label)"), line: t("Line style (next line)"), polygon: t("Polygon style (next polygon)"), free: t("Line style (freehand)"), rect: t("Polygon style (rectangle)"), circle: t("Polygon style (circle)") };
+	const symPanel = (t: string): void => {
 		panel?.remove(); panel = null;
 		if (!GEOM[t]) return;
 		panel = document.createElement("div");
@@ -108,7 +122,7 @@ export function initToolbar(el, api, signal) {
 			get: () => api.getDefaults(t),
 			set: partial => api.setDefaults(t, partial),   // 既定値＝履歴なし（フィーチャを触っていない）
 		}, signal);
-		el.parentElement.append(panel);
+		el.parentElement!.append(panel);
 	};
 
 	syncTool("select");

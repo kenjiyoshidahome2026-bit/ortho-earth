@@ -1,33 +1,41 @@
 // 編集コントローラ＝状態機械と結線の中枢（読込/コミット/再抽出のパイプライン・コマンド適用と履歴・選択/複数選択・ツール・鍵盤）。
-// 入力の各面は独立モジュールへ分割（9/4）＝ drag.js（頂点/フィーチャのドラッグ）・sketch.js（作図）・tip.js（ホバー）・
-// contextmenu.js（右クリック）・worker-rpc.js（Worker 往復）。各モジュールは共有文脈 ed（下の initEditor 冒頭）を受け取り、
+// 入力の各面は独立モジュールへ分割（9/4）＝ drag.ts（頂点/フィーチャのドラッグ）・sketch.ts（作図）・tip.ts（ホバー）・
+// contextmenu.ts（右クリック）・worker-rpc.ts（Worker 往復）。各モジュールは共有文脈 ed（下の initEditor 冒頭）を受け取り、
 // 可変状態は全て st に置く（tool/drag/editGen も）＝モジュール間で閉包変数を共有しない。
 //   idle/selected → dragVertex（capture-phase pointerdown でハンドルを掴む＝エンジンのパンは発火しない）
 //   point/line/polygon → editClick スロット経由の作図（クリックvs.ドラッグ弁別は input.js の4px裁定に任せる）
 // コミット頻度＝頂点数で二段（<10万: drag-end 300ms デバウンス / ≥10万: アイドル2s or 明示操作）。
 // 構造操作（add/del）→ Worker/同期のトポロジ再抽出（デバウンス）＝頂点吸着の共有化・arc分割を回復。
 import { buildTopology } from "geopbf/edit/topo-extract";
+import type { FeatureCollectionLike } from "geopbf/edit/topo-extract";
 import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "geopbf/edit/model";
+import type { EditModel, EditCmd } from "geopbf/edit/model";
 import { createHistory } from "geopbf/edit/history";
-import { createGintLayer } from "./gint-layer.js";
-import { createOverlay } from "./overlay.js";
-import { createPopLayer } from "./pop-layer.js";
-import { initToolbar } from "./toolbar.js";
-import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
-import { cloudPanel } from "./cloud.js";
-import { createPropsPanel, mergeProps } from "./properties.js";
+import { createGintLayer } from "./gint-layer.ts";
+import { createOverlay } from "./overlay.ts";
+import { createPopLayer } from "./pop-layer.ts";
+import { initToolbar } from "./toolbar.ts";
+import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.ts";
+import { cloudPanel } from "./cloud.ts";
+import type { SharedCloudPanel } from "./cloud.ts";
+import { createPropsPanel, mergeProps } from "./properties.ts";
 import { createLargeModel } from "geopbf/edit/large-model";
-import { createWorkerRpc } from "./worker-rpc.js";
-import { createSketch } from "./sketch.js";
-import { installDrag, moveTargets } from "./drag.js";
-import { createTip } from "./tip.js";
-import { installContextMenu } from "./contextmenu.js";
+import { createWorkerRpc } from "./worker-rpc.ts";
+import { createSketch } from "./sketch.ts";
+import { installDrag, moveTargets } from "./drag.ts";
+import { createTip } from "./tip.ts";
+import { installContextMenu } from "./contextmenu.ts";
 import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
+import type { GeoPBF as GeoPBFPublic } from "geopbf";
+import { small, applyCmd, invertCmd } from "./model-util.ts";
+import type { Cmd, DrawDefaults, EditorContext, EditorMap, EditorState, GintLayer, Model, Pbf } from "./types.ts";
+import type { TopoReplyPayload } from "./worker-msg.ts";
+import type { LonLat } from "geopbf/edit/sphere";
 // 左下ドック＝ホストが initEditor({ dock }) で注入（ortho-japan の gadgets/stack.js）。無ければ map.mapEl の #dock を見つけるか作る（同じ約束）
-const defaultDock = mapEl => { let d = mapEl.querySelector("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
+const defaultDock = (mapEl: HTMLElement): HTMLElement => { let d = mapEl.querySelector<HTMLElement>("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
 import css from "./editor.css.js";    // CSS自給（ガジェット三戒）＝scss を焼き込んだ文字列（npm run build:css）＝遅延chunkに同乗・初回搭載で <style> を1枚
-import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { IMAGE_KEY, placeCorners, quadPolygon } from "geopbf/edit/imagequad";   // 四隅で貼る画像（2026-09-21）
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
 const t = tr();
@@ -38,11 +46,40 @@ const SYNC_REBUILD = 200_000; // これ未満＝再抽出は main 同期（Worke
 // 全量位相抽出の JS Map 網は 1.36M頂点で ~550MB（7a8b331 実測）＝これを超える密なファイルはバイト数が小さくても OOM 圏・?tv=n 個）。
 // ②は Worker がデコードついでに数え、超えた時点で打ち切って大規模経路へ回す（main の費用ゼロ）。
 const Q = new URLSearchParams(location.search);
-const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
-const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
+const LARGE_BYTES = (() => { const n = +Q.get("th")!; return Math.round((n > 0 ? n : 64) * 1048576); })();
+const LARGE_VERTS = (() => { const n = +Q.get("tv")!; return n > 0 ? Math.round(n) : 2_000_000; })();
 
-export function initEditor(map, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null } = {}) {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
-	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図（外側の顔）でも素の map＝エンジンの z で計算する（getZoom の 256px 世界の算式・zoomMin/setZoomMin の保存と復帰）
+/** initEditor のオプション（ホスト契約は README） */
+export interface InitEditorOptions {
+	adopt?: boolean;
+	setDropOwner?: ((on: boolean) => void) | null;
+	persist?: boolean;
+	/** 部品として開く時の図形（GeoPBF の ArrayBuffer・空なら null）。undefined＝単独起動 */
+	data?: ArrayBuffer | null;
+	onClose?: (() => unknown) | null;
+	dock?: ((mapEl: HTMLElement) => HTMLElement) | null;
+	cloudPanel?: SharedCloudPanel | null;
+}
+/** initEditor の戻り */
+export interface Editor {
+	result(): Promise<ArrayBuffer | null>;
+	destroy(): void;
+	readonly state: EditorState;
+	readonly model: Model | null;
+	commitNow(): Promise<void>;
+	layer: GintLayer;
+	decode(file: File): Promise<GeoPBFPublic | null>;
+	loadFC(fc: FC, opts?: { fly?: boolean }): Promise<void>;
+	loadBuffer(buffer: ArrayBuffer, opts?: { fly?: boolean; stripEid?: boolean }): Promise<void>;
+	importFile(file: File): Promise<unknown>;
+	toast(msg: string): void;
+}
+/** loadFC が受ける GeoJSON FC（type は見ない） */
+export type FC = FeatureCollectionLike & { type?: string };
+const RAW_MAP = Symbol.for("ortho-earth.map.raw");
+
+export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null }: InitEditorOptions = {}): Editor {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+	map = (map as unknown as Record<symbol, EditorMap | undefined> | null)?.[RAW_MAP] ?? map;   // 旗つきの地図（外側の顔）でも素の map＝エンジンの z で計算する（getZoom の 256px 世界の算式・zoomMin/setZoomMin の保存と復帰）
 	// 部品として開く（2026-09-19 本人裁定）：持ち主（japan の編集ボタン）が data＝編集中の図形（GeoPBF の ArrayBuffer・空なら null）を渡し、
 	// onClose＝ツールバー右端の「×」。× が押されたら持ち主が editor.result() で結果を受け取り、自分の図形を置き換えて destroy する。
 	// persist:false＝単独起動の自動保存（IDB geoedit/session "last"）を読みも書きもしない＝部品の編集が単独の「前回の続き」に混ざらない
@@ -60,41 +97,41 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	toolbarEl.id = "ge-toolbar"; toolbarEl.hidden = true;
 	mapEl.append(toolbarEl);
 	// 可変状態は全部ここ（各入力モジュールと共有）
-	const st = {
+	const st: EditorState = {
 		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, multi: null, focus: null,   // multi＝複数選択（Shift+クリックで累積・selection は最後の1件・2件以上で頂点編集は無し）
 		tool: "select",
-		drag: null,        // ドラッグ中の記述（drag.js）
+		drag: null,        // ドラッグ中の記述（drag.ts）
 		editGen: 0,        // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
 		envGen: 0,         // 環境層世代＝点/blur/帯の**顔ぶれ**が変わった時だけ進む（overlay の描画リスト再構築の鍵。頂点移動では進めない）
 		largeDirty: false, // 大規模モード＝自動保存が無い（Phase4）＝未保存編集の有無を beforeunload の警告に使う
 	};
 	let gridExp = 6;
 	let loadGen = 0;   // 直近の読込時点の editGen＝「読込後に編集があったか」（空コミットで自動保存を消してよいかの判定）
-	const hist = createHistory();
+	const hist = createHistory<Cmd>();
 	const layer = createGintLayer(map);
 	const overlay = createOverlay(map, mapEl, () => st);
 	// @pop の再生＝エンジンの pop ガジェットへ委譲（v2 ビューアと同一実装＝動きが一致）。
 	// 常時表示でなくクリックで開く（編集は選択とかぶるので右クリック「吹き出しを表示」）。× は箱を閉じるだけ。
 	const popLayer = createPopLayer(map, () => st);
 	// 作図ツールの既定スタイル（=「次に描くもの」の@プロパティ。styleform が toolbar 経由で書く）
-	const drawDefaults = { point: {}, text: { "@text": t("Text ##default content") }, line: {}, polygon: {} };
+	const drawDefaults: DrawDefaults = { point: {}, text: { "@text": t("Text ##default content") }, line: {}, polygon: {} };
 
 	// ---- トースト ----
-	let toastEl = null, toastT = 0;
-	const toast = msg => {
+	let toastEl: HTMLDivElement | null = null, toastT: ReturnType<typeof setTimeout> | 0 = 0;
+	const toast = (msg: string): void => {
 		if (!toastEl) { toastEl = document.createElement("div"); toastEl.className = "ge-toast"; mapEl.append(toastEl); }
 		toastEl.textContent = msg;
 		toastEl.classList.remove("gone");
 		clearTimeout(toastT);
-		toastT = setTimeout(() => toastEl.classList.add("gone"), 2600);
+		toastT = setTimeout(() => toastEl!.classList.add("gone"), 2600);
 	};
 
 	// ---- 左下バナー（ドックに積む・行動ボタン付き・自動で消える）：起動時の復元通知など「答えを迫らない」告知用（confirm() 廃止 9/4）----
-	const banner = (text, action, onAction, ttl = 15000) => {
+	const banner = (text: string, action: string | null, onAction: (() => unknown) | null, ttl = 15000): HTMLDivElement => {
 		const el = document.createElement("div");
 		el.className = "ge-banner";
 		el.append(Object.assign(document.createElement("span"), { textContent: text }));
-		if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { el.remove(); onAction(); }; el.append(b); }
+		if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { el.remove(); onAction!(); }; el.append(b); }
 		const x = document.createElement("button"); x.className = "ge-x"; x.textContent = "×"; x.title = t("Close"); x.onclick = () => el.remove(); el.append(x);
 		(dock || defaultDock)(mapEl).append(el);   // display:none は詰むのでドックの掟＝出す/消すは append/remove
 		if (ttl) setTimeout(() => el.remove(), ttl);
@@ -102,21 +139,21 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	};
 
 	// ---- 共有文脈（入力モジュールへ渡す。関数は後で足す＝呼ばれる時点で揃っていればよい）----
-	const localXY = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	const localXY = (e: { clientX: number; clientY: number }): [number, number] => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 	// 地図面への押下か＝mapEl の capture 監視は「ツールバー/パネル/確定バー/エンジン家具」の押下も見えてしまう。
 	// 家具の上で奪うと setPointerCapture で click の宛先が mapEl に化け、ボタンが押せなくなる（free から抜けられない 9/14）。
 	// エンジン自身は canvas に直接 listen＝家具を見ない。ここも同じ土俵に揃える（overlay canvas は pointer-events:none＝地図 canvas が target）
-	const onSurface = e => e.target instanceof HTMLCanvasElement;
+	const onSurface = (e: Event): boolean => e.target instanceof HTMLCanvasElement;
 	// 画面座標→eid：①シンボルの見た目（アイコンは足元アンカー＝絵の位置と実座標がずれるため画面矩形で）②gint識別
 	// wide＝移動ツールの掴み（シンボル±10px・点20px・線14px＝通常の約1.7倍。「掴みにくい」本人指摘 9/14）
 	const PICK_WIDE = { point: 20, polyline: 14 };
-	const pick = (x, y, ll = map.unprojectXY(x, y), wide = false) => ll ? (overlay.symbolAt(x, y, wide ? 10 : 4) ?? layer.identify(ll[0], ll[1], map.getZoom(), wide ? PICK_WIDE : undefined)) : null;
-	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick, onSurface };
+	const pick = (x: number, y: number, ll: LonLat | null | undefined = map.unprojectXY(x, y), wide = false): number | null => ll ? (overlay.symbolAt(x, y, wide ? 10 : 4) ?? layer.identify(ll[0], ll[1], map.getZoom(), wide ? PICK_WIDE : undefined)) : null;
+	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick, onSurface } as EditorContext;   // 残りの口（scheduleCommit/snapLL/doCmd/…）は下で順に足す
 
 	// Shift+クリック＝複数選択（選択に足す/外す・本人裁定 9/15「複数選択は +shift の方がいい」）。エンジンは shift を tilt/回転扱いにして onClick を
 	// 出さない（input.js）ため、editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる。
 	// ⌘/Ctrl+クリックも同じ（editClick に修飾が来ないので pointerdown で控える）。@pop は右クリック「吹き出しを表示」で開く（旧＝shift+クリック）。
-	let shiftDown = null;   // shift 押下の開始点 [x,y]／非shift は null
+	let shiftDown: [number, number] | null = null;   // shift 押下の開始点 [x,y]／非shift は null
 	let modDown = false;    // ⌘/Ctrl 押下でのクリック＝複数選択（別名）
 	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; modDown = !!(e.metaKey || e.ctrlKey); }, { capture: true, signal });
 	mapEl.addEventListener("pointerup", e => {
@@ -133,19 +170,19 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	const rpc = createWorkerRpc();
 
 	// ---- コミット（確定層＋自動保存）----
-	let commitTimer = 0;
-	const scheduleCommit = force => {
+	let commitTimer: ReturnType<typeof setTimeout> | 0 = 0;
+	const scheduleCommit = (force?: boolean): void => {
 		clearTimeout(commitTimer);
 		const big = st.model && st.model.stats().vertices >= BIG;
 		commitTimer = setTimeout(() => { commitTimer = 0; commit(); }, force ? 0 : big ? 2000 : 300);
 	};
 	ed.scheduleCommit = scheduleCommit;
-	const flushCommit = async () => { await flushRebuild(); clearTimeout(commitTimer); commitTimer = 0; return commit(false); };   // 明示フラッシュ（試験・保存前・全消去前）＝保留中の再抽出も先に着地
+	const flushCommit = async (): Promise<void> => { await flushRebuild(); clearTimeout(commitTimer); commitTimer = 0; return commit(false); };   // 明示フラッシュ（試験・保存前・全消去前）＝保留中の再抽出も先に着地
 	// タブを隠した時（モバイルのアプリ切替・タブ切替）＝デバウンス待ちのコミットを即流す（pagehide では bake が間に合わない）
 	document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && commitTimer) { clearTimeout(commitTimer); commitTimer = 0; commit(); } }, { signal });
 	// 閉じる直前＝未着地のコミット or 大規模モードの未保存編集があれば確認（自動保存は着地後にしか書けない）
 	addEventListener("beforeunload", e => { if (commitTimer || (st.model?.large && st.largeDirty)) { e.preventDefault(); e.returnValue = ""; } }, { signal });
-	async function commit(moveCamera = false) {
+	async function commit(moveCamera = false): Promise<void> {
 		if (!st.model) return;
 		if (st.model.large) {   // 大規模モード＝スタイルは restyleProps 直送・自動保存なし（Phase4）。幾何編集だけ g再送（rebake）
 			if (!st.model.geomDirty) return;
@@ -178,21 +215,21 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	// ---- 再抽出（構造操作の後始末＝共有回復）----
 	// デバウンス＝add/del/hole の連打を 1 回に畳む（旧＝多重実行ガードだけで、点を 1 個置くたびに全量再抽出が同期で走っていた＝
 	// 効率レビュー C-3・2026-09-15）。flushCommit（試験・保存・全消去）は先に flushRebuild で着地させる
-	let rebuilding = false, rebuildQueued = false, rebuildTimer = 0;
+	let rebuilding = false, rebuildQueued = false, rebuildTimer: ReturnType<typeof setTimeout> | 0 = 0;
 	const REBUILD_MS = 250;
-	const scheduleRebuild = () => { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(() => { rebuildTimer = 0; rebuild(); }, REBUILD_MS); };
-	const flushRebuild = async () => { if (rebuildTimer) { clearTimeout(rebuildTimer); rebuildTimer = 0; await rebuild(); } while (rebuilding) await new Promise(r => setTimeout(r, 10)); };
-	async function rebuild() {
+	const scheduleRebuild = (): void => { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(() => { rebuildTimer = 0; rebuild(); }, REBUILD_MS); };
+	const flushRebuild = async (): Promise<void> => { if (rebuildTimer) { clearTimeout(rebuildTimer); rebuildTimer = 0; await rebuild(); } while (rebuilding) await new Promise(r => setTimeout(r, 10)); };
+	async function rebuild(): Promise<void> {
 		if (!st.model) return;
 		if (rebuilding) { rebuildQueued = true; return; }
 		rebuilding = true;
 		try {
-			if (st.model.stats().vertices < SYNC_REBUILD) st.model = rebuildModel(st.model);
+			if (st.model.stats().vertices < SYNC_REBUILD) st.model = rebuildModel(small(st.model));
 			else {
 				st.busy = true; toast(t("Rebuilding topology…"));
-				const { payload: out, transfer } = topoToTransfer(st.model, { snap: false });   // 送り便＝基底ソート不要
-				const res = await rpc.call({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer);
-				st.model = adoptRebuilt(topoFromTransfer(res), res.eids, st.model);
+				const { payload: out, transfer } = topoToTransfer(small(st.model), { snap: false });   // 送り便＝基底ソート不要
+				const res = await rpc.call({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer as Transferable[]) as TopoReplyPayload;   // retopo の返り便は常に topo 形（large は pbf 経路だけ）
+				st.model = adoptRebuilt(topoFromTransfer(res), res.eids!, small(st.model));
 				st.busy = false;
 			}
 		} catch (e) { console.error("[geoedit] rebuild failed", e); st.busy = false; }
@@ -202,7 +239,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	}
 
 	// ---- 読み込み（fc → モデル → コミット）----
-	async function finishLoad(model, { fly = true, stripEid = false } = {}) {
+	async function finishLoad(model: EditModel, { fly = true, stripEid = false }: { fly?: boolean; stripEid?: boolean } = {}): Promise<void> {
 		if (stripEid) for (const f of model.feats.values()) if (f.properties && "__eid" in f.properties) { const p2 = { ...f.properties }; delete p2.__eid; f.properties = p2; }   // 復元＝コミット時に注入した__eidを剥がす
 		st.model = model; loadGen = st.editGen; st.envGen++;
 		for (const w of model.warnings) console.warn("[geoedit]", w);
@@ -213,28 +250,28 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		if (stat.features) toast(t("Loaded: $1 features, $2 arcs, $3 vertices", stat.features, stat.arcs, stat.vertices));
 		bar.syncHist(hist.canUndo, hist.canRedo);
 	}
-	async function loadFC(fc, { fly = true } = {}) {   // GeoJSON入口（試験・API互換。大規模の正規経路は loadBuffer）
+	async function loadFC(fc: FC, { fly = true }: { fly?: boolean } = {}): Promise<void> {   // GeoJSON入口（試験・API互換。大規模の正規経路は loadBuffer）
 		try {
 			st.busy = true;
-			const n = fc.features.length;
+			const n = fc.features!.length;
 			if (n) toast(t("Extracting topology… ($1 features)", n));
 			const model = n >= 2000
-				? createModel(topoFromTransfer(await rpc.call({ mode: "fc", fc, gridExp })))
+				? createModel(topoFromTransfer(await rpc.call({ mode: "fc", fc, gridExp }) as TopoReplyPayload))
 				: createModel(buildTopology(fc, gridExp));
 			await finishLoad(model, { fly });
 		} catch (e) { console.error("[geoedit] load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
-	async function loadBuffer(buffer, { fly = true, stripEid = false } = {}) {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
+	async function loadBuffer(buffer: ArrayBuffer, { fly = true, stripEid = false }: { fly?: boolean; stripEid?: boolean } = {}): Promise<void> {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
 		if (buffer.byteLength >= LARGE_BYTES)   // 取込ルーター①バイト数：閾値超え＝位相抽出せず大規模モードへ（解析はdecoder worker＝createGeopbf配線済み）
-			return loadLarge(await new GeoPBF({}).set(buffer), { fly });
+			return loadLarge(await new GeoPBF({}).set(buffer) as Pbf, { fly });
 		try {
 			st.busy = true;
 			toast(t("Extracting topology…"));
 			const res = await rpc.call({ mode: "pbf", buffer, gridExp, maxVerts: LARGE_VERTS }, [buffer]);
 			if (res.large) {   // 取込ルーター②頂点数：Worker が数えて打ち切った＝バッファは返却便で戻る
 				toast(t("More than $1 vertices — opening in large mode", LARGE_VERTS.toLocaleString()));
-				return await loadLarge(await new GeoPBF({}).set(res.buffer), { fly });
+				return await loadLarge(await new GeoPBF({}).set(res.buffer) as Pbf, { fly });
 			}
 			await finishLoad(createModel(topoFromTransfer(res)), { fly, stripEid });
 		} catch (e) { console.error("[geoedit] load failed", e); toast(t("Failed to load")); }
@@ -242,7 +279,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	}
 	// 大規模モード（Phase1＝8/25設計）：gint直表示・identifyAt選択・属性/スタイル/tip/pop編集のみ。
 	// ジオメトリ編集はPhase2（GintBUF部分lift）・書き出しはストリーム置換複写（model.toPbf）・自動保存はPhase4。
-	async function loadLarge(built, { fly = true } = {}) {
+	async function loadLarge(built: Pbf, { fly = true }: { fly?: boolean } = {}): Promise<void> {
 		try {
 			st.busy = true;
 			toast(t("Large mode: baking GPU data… ($1 features)", built.length.toLocaleString()));
@@ -263,7 +300,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	}
 	// 素の画像（PNG/JPEG…）＝画面中心に画面の半分の幅・北向きで「@image つき 4 頂点の面」として置く（2026-09-21・MapLibre の image source 相当）。
 	// 以降は普通の面＝頂点ドラッグで四隅を合わせる・移動ツールで動かす/回す。環の順＝左上→右上→右下→左下（geopbf/edit/imagequad）
-	async function importImage(file) {
+	async function importImage(file: File): Promise<void> {
 		if (st.model?.large) return toast(t("Large mode cannot add/delete vertices (move only)"));
 		const bm = await createImageBitmap(file); const aspect = bm.height / bm.width; bm.close?.();
 		const c = map.view?.center || [0, 0], z = map.getZoom();
@@ -271,16 +308,16 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		const widthM = Math.max(5, Math.min(2e6, wDeg * 111320 * Math.cos(c[1] * Math.PI / 180)));
 		const feature = { type: "Feature", properties: { name: file.name.replace(/\.[^.]+$/, ""), [IMAGE_KEY]: file }, geometry: quadPolygon(placeCorners(c, widthM, aspect)) };
 		if (!st.model) await loadFC({ type: "FeatureCollection", features: [feature] }, { fly: false });
-		else { const cmd = { op: "add", feature }; doCmd(cmd); setTool("select"); select(cmd.eid); }
+		else { const cmd: EditCmd = { op: "add", feature }; doCmd(cmd); setTool("select"); select(cmd.eid!); }
 		toast(t("Image placed — drag its corners to fit"));
 	}
-	async function importFile(file) {
+	async function importFile(file: File): Promise<unknown> {
 		if (IMAGE_RE.test(file.name) || /^image\/(png|jpeg|webp|gif|avif)$/.test(file.type)) {
 			try { return await importImage(file); } catch (e) { console.error("[geoedit] image failed", e); return toast(t("Import failed: $1", file.name)); }
 		}
 		try {
 			toast(t("Converting… $1", file.name));
-			const pbf = await geopbf(file, { name: "drop/" + file.name });   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
+			const pbf = await geopbf(file, { name: "drop/" + file.name }) as Pbf | null;   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
 			if (!pbf) return toast(t("Unsupported format"));
 			if (pbf.size >= LARGE_BYTES) return loadLarge(pbf);   // 大規模＝この解析済みインスタンスをそのまま真実源に（arrayBufferコピーもしない）
 			const buffer = pbf.arrayBuffer;
@@ -290,7 +327,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	}
 
 	// ---- スナップ ----
-	const snapLL = (ll, skip) => {
+	const snapLL: EditorContext["snapLL"] = (ll, skip) => {
 		const en = st.model?.snap.nearest(ll[0], ll[1], skip);
 		if (en) { st.snapMark = [en.x, en.y]; return [en.x, en.y]; }
 		st.snapMark = null;
@@ -301,57 +338,58 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
 	const GEOM_ONLY = new Set(["move", "movePt", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
 	const ENV_KEYS = ["@blur", "@poly", "@spline", "@icon", "@shape", "@text", "@size", "@tip", "@pop", "@image"];   // 顔ぶれ/描画リストに効く鍵（色・線幅は表だけ）
-	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
-		const out = new Set();
-		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
-		if (cmd.op === "move" && res?.dirty) for (const aid of res.dirty) arcRefs(aid);
-		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid);
-		else if (cmd.op === "rot") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);   // rot＝移動ツール（回転移動/ホイール回転）の undo/redo でも隣ごと隠す
-		else if (cmd.op === "insert" || cmd.op === "delete") { const r = st.model.resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
+	const affectedEids = (cmd: Cmd, res: unknown): Set<number> => {   // このコマンドで gint 表示が古くなるフィーチャ群
+		const out = new Set<number>();
+		const m = st.model!;
+		const arcRefs = (aid: number): void => { const a = m.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
+		if (cmd.op === "move" && (res as { dirty?: Iterable<number> } | null)?.dirty) for (const aid of (res as { dirty: Iterable<number> }).dirty) arcRefs(aid);
+		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid!);
+		else if (cmd.op === "rot") for (const e of moveTargets(m, cmd.eid)) out.add(e);   // rot＝移動ツール（回転移動/ホイール回転）の undo/redo でも隣ごと隠す
+		else if (cmd.op === "insert" || cmd.op === "delete") { const r = small(m).resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
 		else if (cmd.op === "combine") for (const e of cmd.eids) out.add(e);
 		else if (cmd.op === "uncombine") for (const p of cmd.parts) out.add(p.eid);
 		else if (cmd.op === "split") { out.add(cmd.eid); if (cmd.newEids) for (const e of cmd.newEids) out.add(e); }
 		return out;
 	};
-	const applyR = cmd => {
-		const res = st.model.applyCmd(cmd);
+	const applyR = (cmd: Cmd): unknown => {
+		const res = applyCmd(st.model!, cmd);
 		if (cmd.op === "delete" && !res) return false;   // 消せない頂点（端点/最小構成）＝何も起きていない＝隠しも履歴も付けない
 		st.editGen++;
 		if (!GEOM_ONLY.has(cmd.op)) st.envGen++;
-		if (cmd.op === "props") layer.restyleOne(st.model, cmd.eid);   // スタイルは表の即時再焼き（1 件）＝コミットを待たない
+		if (cmd.op === "props") layer.restyleOne(st.model!, cmd.eid);   // スタイルは表の即時再焼き（1 件）＝コミットを待たない
 		else {
 			const aff = affectedEids(cmd, res);
 			if (aff.size) { st.dragEids = new Set([...(st.dragEids || []), ...aff]); st.hidden = st.dragEids; layer.hide(st.dragEids); }
 		}
 		if (cmd.op === "add" || cmd.op === "del" || cmd.op === "hole" || cmd.op === "unhole") { if (st.selection === cmd.eid && cmd.op === "del") { st.selection = null; props.close(); } scheduleRebuild(); }
-		if (st.selection != null && !st.model.feats.has(st.selection)) { st.selection = null; props.close(); }   // 束ね等で消えた選択の後始末
+		if (st.selection != null && !st.model!.feats.has(st.selection)) { st.selection = null; props.close(); }   // 束ね等で消えた選択の後始末
 		if (cmd.op === "props" && props.eid === cmd.eid) props.render(cmd.eid);   // undo/redo でもパネルを追随
 		scheduleCommit();
 		overlay.redraw();
 		popLayer.sync();   // @pop の生成/文言変化/除去・構造操作(add/del)を箱へ即反映
 		return res;
 	};
-	const doCmd = cmd => {
+	const doCmd = (cmd: Cmd): boolean => {
 		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") { toast(t("Large mode allows attributes, style and vertex moves (add/delete not yet)")); return false; }   // 構造操作（arc数が変わる）はPhase3
 		if (applyR(cmd) === false) return false;
-		if (st.model.large) st.largeDirty = true;
+		if (st.model!.large) st.largeDirty = true;
 		hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
 		return true;
 	};
 	ed.doCmd = doCmd;
-	const undo = () => { hist.undo(applyR, c => st.model.invertCmd(c)); bar.syncHist(hist.canUndo, hist.canRedo); };
-	const redo = () => { hist.redo(applyR); bar.syncHist(hist.canUndo, hist.canRedo); };
+	const undo = (): void => { hist.undo(applyR, c => invertCmd(st.model!, c)); bar.syncHist(hist.canUndo, hist.canRedo); };
+	const redo = (): void => { hist.redo(applyR); bar.syncHist(hist.canUndo, hist.canRedo); };
 
 	// ---- 選択パネル（styleform＝日本語UI・生の属性は「属性を表示」でだけ）----
 	const props = createPropsPanel(mapEl, {
 		getFeature: eid => st.model?.feats.get(eid),
 		applyProps: (eid, next, { history = true, from = null } = {}) => {
-			if (history) doCmd({ op: "props", eid, from: from ?? st.model.feats.get(eid).properties, to: next });
+			if (history) doCmd({ op: "props", eid, from: from ?? st.model!.feats.get(eid)!.properties, to: next });
 			else {   // input中の即プレビュー（表は 1 件差し替え＋@pop箱の追随）。顔ぶれ（点/blur/帯の集合）に効く鍵が変わった時だけ envGen を進める（全件走査を 60Hz で起こさない）
-				const f = st.model.feats.get(eid), prev = f.properties || {};
+				const f = st.model!.feats.get(eid)!, prev = f.properties || {};
 				f.properties = next; st.editGen++;
 				if (ENV_KEYS.some(k => (prev[k] ?? "") !== (next[k] ?? ""))) st.envGen++;
-				layer.restyleOne(st.model, eid); scheduleCommit(); overlay.redraw(); popLayer.sync();
+				layer.restyleOne(st.model!, eid); scheduleCommit(); overlay.redraw(); popLayer.sync();
 			}
 		},
 		onDelete: eid => { if (eid != null) doCmd({ op: "del", eid }); },   // パネルの🗑
@@ -360,17 +398,18 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	ed.props = props;
 
 	// ---- 点の配置（クリック・右クリックメニュー共通）----
-	const placePointAt = (ll, defs) => {
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...defs }, geometry: { type: "Point", coordinates: snapLL(ll) } } };
+	const placePointAt = (ll: LonLat, defs: Record<string, unknown>): void => {
+		const feature = { type: "Feature", properties: { ...defs }, geometry: { type: "Point", coordinates: snapLL(ll) } };
+		const cmd: EditCmd = { op: "add", feature };
 		doCmd(cmd);
-		select(cmd.eid);
+		select(cmd.eid!);
 	};
 	ed.placePointAt = placePointAt;
 
 	// ---- 選択 ----
 	// 大規模モードの編集近傍＝選択＋arc共有する隣接（暴走ガード64件）。gintを消灯しオーバレイが正確に描く＝
 	// LODキャップ（ZCTA=minWeight27焼き付け）や間引きの簡略線が編集ズームで「余計な線」に見える問題の根治（本人特定 8/26）。
-	const focusHood = eid => {
+	const focusHood = (eid: number | null): Set<number> | null => {
 		if (eid == null || !st.model?.large) return null;
 		const f = st.model.feats.get(eid);
 		if (!f || f.coords) return new Set([eid]);
@@ -379,7 +418,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 			for (const nb of (st.model.arcs.get(sref < 0 ? ~sref : sref)?.refs ?? [])) { hood.add(nb); if (hood.size > 64) return new Set([eid]); }
 		return hood;
 	};
-	const select = (eid, { keepMulti = false } = {}) => {
+	const select = (eid: number | null, { keepMulti = false }: { keepMulti?: boolean } = {}): void => {
 		ed.flushRot?.();   // 選択替え＝進行中のホイール回転（Alt+ホイール）を先に1手へ確定
 		st.selection = eid; st.sketch = null;
 		if (!keepMulti) st.multi = null;
@@ -391,28 +430,28 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 
 	// ---- 複数選択とグループ化（本人裁定 9/15＝ツールバーから外し右クリックへ）：Shift（⌘/Ctrl も可）+クリックで選択に足す/外す（selection＝最後の1件・
 	//      multi＝全員）。右クリック「グループ化（n件）」＝同族（面同士/線同士）の multi 化。グループ（Multi*）を指して「グループ化解除」。----
-	const toggleMulti = eid => {
+	const toggleMulti = (eid: number | null | undefined): void => {
 		if (eid == null) return;
 		if (!st.multi) st.multi = new Set(st.selection != null ? [st.selection] : []);
-		if (st.multi.has(eid) && st.multi.size > 1) { st.multi.delete(eid); if (st.selection === eid) st.selection = [...st.multi].pop(); }
+		if (st.multi.has(eid) && st.multi.size > 1) { st.multi.delete(eid); if (st.selection === eid) st.selection = [...st.multi].pop()!; }
 		else st.multi.add(eid), st.selection = eid;
 		if (st.model?.large) { st.focus = focusHood(st.selection); layer.focus(st.focus); }
-		st.multi.size > 1 ? props.close() : props.render(st.selection);   // 2件以上＝パネルは閉じる（どの1件の属性か曖昧）
+		st.multi.size > 1 ? props.close() : props.render(st.selection!);   // 2件以上＝パネルは閉じる（どの1件の属性か曖昧）
 		overlay.redraw();
 		if (st.multi.size > 1) toast(t("Selected: $1 (Shift+click to add, right-click to group)", st.multi.size));
 	};
-	const groupMulti = () => {
+	const groupMulti = (): void => {
 		const eids = st.multi ? [...st.multi] : [];
 		if (eids.length < 2) return toast(t("Select two or more"));
-		const fams = eids.map(e => st.model.familyOf(st.model.feats.get(e)?.type || ""));
+		const fams = eids.map(e => st.model!.familyOf(st.model!.feats.get(e)?.type || ""));
 		if (fams.includes("point")) return toast(t("Points cannot be grouped (polygons/lines only)"));
 		if (new Set(fams).size > 1) return toast(t("Only the same kind can be grouped (polygons with polygons, lines with lines)"));
 		doCmd({ op: "combine", eids });   // 代表=先頭。プロパティは代表を継承
 		select(eids[0]);
 		toast(t("Grouped ($1)", eids.length));
 	};
-	const isMulti = eid => { const f = eid != null ? st.model?.feats.get(eid) : null; return !!f && (f.type === "MultiPolygon" || f.type === "MultiLineString"); };
-	const explodeEid = eid => {   // グループ化解除：指定 multi を単体へ分解（先頭は同eidを再利用）
+	const isMulti = (eid: number | null | undefined): boolean => { const f = eid != null ? st.model?.feats.get(eid) : null; return !!f && (f.type === "MultiPolygon" || f.type === "MultiLineString"); };
+	const explodeEid = (eid: number): void => {   // グループ化解除：指定 multi を単体へ分解（先頭は同eidを再利用）
 		if (!isMulti(eid)) return toast(t("This is not a multi"));
 		doCmd({ op: "split", eid });
 		select(eid);
@@ -432,8 +471,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
 		const tool = st.tool;
-		if (tool === "free") return;   // フリーハンド＝ドラッグ作図（sketch.js が pointer 直取り）。クリックでは何も置かない
-		if (tool === "select" || tool === "move") { const e = pick(x, y, ll); return modDown ? toggleMulti(e) : select(e); }   // ⌘/Ctrl+クリック＝複数選択。移動ツール＝クリックで対象選択（ドラッグは drag.js）
+		if (tool === "free") return;   // フリーハンド＝ドラッグ作図（sketch.ts が pointer 直取り）。クリックでは何も置かない
+		if (tool === "select" || tool === "move") { const e = pick(x, y, ll); return modDown ? toggleMulti(e) : select(e); }   // ⌘/Ctrl+クリック＝複数選択。移動ツール＝クリックで対象選択（ドラッグは drag.ts）
 		if (tool === "point" || tool === "text") {
 			if (tool === "text" && !drawDefaults.text["@text"]) return toast(t("Enter the text in the panel first"));
 			return placePointAt(ll, drawDefaults[tool]);
@@ -442,8 +481,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	});
 
 	// ---- キーボード ----
-	const typing = () => { const t = document.activeElement?.tagName; return t === "INPUT" || t === "TEXTAREA" || document.activeElement?.isContentEditable; };
-	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", f: "free", r: "rect", c: "circle", h: "hole", m: "move" };
+	const typing = (): boolean | undefined => { const t = document.activeElement?.tagName; return t === "INPUT" || t === "TEXTAREA" || (document.activeElement as HTMLElement | null)?.isContentEditable; };
+	const KEY_TOOL: Record<string, string> = { v: "select", a: "point", t: "text", l: "line", p: "polygon", f: "free", r: "rect", c: "circle", h: "hole", m: "move" };
 	addEventListener("keydown", e => {
 		if (typing() || st.busy) return;
 		const mod = e.metaKey || e.ctrlKey;
@@ -469,7 +508,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	}, { signal });
 
 	// ---- ツールバー結線 ----
-	const setTool = next => {
+	const setTool = (next: string): void => {
 		if (st.model?.large && next !== "select") { toast(t("Large mode: selection and attribute/style editing only (no drawing or vertex editing)")); next = "select"; }
 		ed.flushRot?.();   // ツール替え＝進行中のホイール回転を先に確定
 		st.tool = next;
@@ -483,7 +522,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	// 幾何は球面（大円・回転・小円）＝楕円体表示では告知だけ。楕円体はデスクトップの既定（#43・2026-09-28）＝開くたびに出さず、このブラウザで 1 回だけ
 	//（localStorage が使えない環境＝毎回出る＝従来と同じ）
 	if (map.ellipsoidOn?.()) { let seen = false; try { seen = localStorage.getItem("geoedit.sphereNote") === "1"; localStorage.setItem("geoedit.sphereNote", "1"); } catch { /* 使えない＝毎回 */ } if (!seen) toast(t("Editing uses a perfect sphere, so shapes can differ very slightly from the ellipsoid view")); }
-	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
+	const getPbf = (): Promise<Pbf> | null => st.model && (st.model.large ? st.model.toPbf() as Promise<Pbf> : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo,
 		gridExp: () => gridExp,
@@ -526,7 +565,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 	okB.addEventListener("click", () => { if (st.sketch) sketch.finish(); }, { signal });
 	ngB.addEventListener("click", () => { if (st.sketch) sketch.cancel(); }, { signal });
 	let confirmSig = "";
-	const syncConfirm = () => {
+	const syncConfirm = (): void => {
 		let sig = "";
 		if (st.sketch && st.sketch.coords.length && st.sketch.kind !== "free") sig = st.sketch.kind === "rect" || st.sketch.kind === "circle" ? "two" : `draw:${st.sketch.coords.length}`;   // free＝pointerup が確定＝バー不要
 		if (sig === confirmSig) return;
@@ -541,7 +580,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 
 	// ---- セッション復元 or 空モデルで開始 ----
 	// 前回分があれば黙って復元し、左下バナーで告知＋「新規で始める」を添える（起動のたびに confirm() で答えを迫らない＝本人裁定 9/4）。
-	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("Drop a GIS file, or start drawing with the tools")); };
+	const startEmpty = async (): Promise<void> => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("Drop a GIS file, or start drawing with the tools")); };
 	(async () => {
 		if (data !== undefined) {   // 部品＝持ち主が渡した図形で始める（ビューアの取り込み・前回分の復元はしない）
 			if (data?.byteLength) await loadBuffer(data.slice(0), { stripEid: true }); else startEmpty();

@@ -6,10 +6,11 @@
 // 参照点（引出線の錨）は open した瞬間のクリック基準で確定＝点:座標／線:クリック点に最寄りの線分上／面:クリック点そのもの。
 // 以後は固定（重心/中央頂点には戻さない）。× は箱を閉じるだけ（@pop データは消さない）。
 import { listsOf } from "geopbf/edit/model";
-import { sanitizeHTML } from "./overlay.js";
+import { sanitizeHTML } from "./overlay.ts";
+import type { EditorMap, EditorState, Feature, Model, PopBox, PopFn, PopLayer } from "./types.ts";
 
 // 線分 a-b への点 p の最近点（経度は cos(lat) 補正で画面的な近さに合わせる）。返すのは経緯度。
-function projectOnSeg(p, a, b, k) {
+function projectOnSeg(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<number>, k: number): number[] {
 	const ax = a[0] * k, ay = a[1], bx = b[0] * k, by = b[1], px = p[0] * k, py = p[1];
 	const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
 	let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
@@ -17,9 +18,9 @@ function projectOnSeg(p, a, b, k) {
 	return [(ax + t * dx) / k, ay + t * dy];
 }
 // ライン（多部分可）でクリック点 ll に最も近い線分上の点。
-function nearestOnLine(model, f, ll) {
+function nearestOnLine(model: Model, f: Feature, ll: ArrayLike<number>): number[] | null {
 	const k = Math.cos(ll[1] * Math.PI / 180) || 1;
-	let best = null, bd = Infinity;
+	let best: number[] | null = null, bd = Infinity;
 	for (const { list } of listsOf(f)) {
 		const cs = model.stitch(list);
 		for (let i = 0; i + 1 < cs.length; i++) {
@@ -32,7 +33,7 @@ function nearestOnLine(model, f, ll) {
 }
 
 // クリック非依存のフォールバック錨：点=座標・線=中央頂点・面=外環の重心（ll が無い時用）。
-export function popAnchorLL(model, f) {
+export function popAnchorLL(model: Model, f: Feature): number[] | null {
 	if (f.coords) return f.coords[0];
 	const first = listsOf(f)[0];
 	if (!first) return null;
@@ -46,7 +47,7 @@ export function popAnchorLL(model, f) {
 }
 
 // open 時の参照点：面=クリック点そのもの・線=クリック点に最寄りの線分上・点=座標。ll 無しは上のフォールバックへ。
-function popAnchorAt(model, f, ll) {
+function popAnchorAt(model: Model, f: Feature, ll: ArrayLike<number> | null | undefined): number[] | null {
 	if (f.coords) return f.coords[0];
 	if (!ll) return popAnchorLL(model, f);
 	const lists = listsOf(f);
@@ -54,29 +55,29 @@ function popAnchorAt(model, f, ll) {
 	return nearestOnLine(model, f, ll) || popAnchorLL(model, f);   // 線＝クリック点に最寄りの線分上
 }
 
-export function createPopLayer(map, getState) {
-	let popFn = null;                 // map.gadget.pop() は初回に遅延搭載（_update は frameHooks へ自動配線）
-	const boxes = new Map();          // eid → { div, text }（今 DOM に出ている箱）
-	const opened = new Map();         // 明示的に開いた eid → { pos:[x,y]|null, anchor:[lng,lat] }
+export function createPopLayer(map: EditorMap, getState: () => EditorState): PopLayer {
+	let popFn: PopFn | null = null;                 // map.gadget.pop() は初回に遅延搭載（_update は frameHooks へ自動配線）
+	const boxes = new Map<number, { div: PopBox; text: string }>();          // eid → { div, text }（今 DOM に出ている箱）
+	const opened = new Map<number, { pos: number[] | null; anchor: number[] }>();         // 明示的に開いた eid → { pos:[x,y]|null, anchor:[lng,lat] }
 
-	const dropBox = eid => { const b = boxes.get(eid); if (b) { b.div._remove?.(); boxes.delete(eid); } };
-	const close = eid => { dropBox(eid); opened.delete(eid); };
-	const clear = () => { for (const eid of [...opened.keys()]) close(eid); };
+	const dropBox = (eid: number): void => { const b = boxes.get(eid); if (b) { b.div._remove?.(); boxes.delete(eid); } };
+	const close = (eid: number): void => { dropBox(eid); opened.delete(eid); };
+	const clear = (): void => { for (const eid of [...opened.keys()]) close(eid); };
 
 	// 明示的に開く。@pop が空なら何も出さない。at={x,y,ll}＝クリック点（初期位置＝x,y／参照点＝ll 基準）。
-	function open(eid, at) {
+	function open(eid: number, at?: { x: number; y: number; ll?: ArrayLike<number> | undefined } | null): void {
 		const st = getState();
 		const f = st.model?.feats.get(eid);
 		const raw = f?.properties?.["@pop"];
 		if (raw == null || raw === "") return;
-		const anchor = popAnchorAt(st.model, f, at?.ll);
+		const anchor = popAnchorAt(st.model!, f!, at?.ll);
 		if (!anchor) return;
 		opened.set(eid, { pos: at ? [at.x, at.y] : null, anchor });
 		sync();
 	}
 
 	// 開いている箱だけを現在のモデルへ追随（生成/文言/退避/除去）。参照点は open 時に確定した固定値。
-	function sync() {
+	function sync(): void {
 		const st = getState();
 		if (!st.model) return clear();
 		const hidden = st.hidden;
@@ -85,8 +86,8 @@ export function createPopLayer(map, getState) {
 			const raw = f?.properties?.["@pop"];
 			if (!f || raw == null || raw === "") { close(eid); continue; }   // 削除・@pop除去＝開き自体も畳む
 			if (hidden && hidden.has(eid)) { close(eid); continue; }         // 移動/編集が始まった要素＝pop は消す（本人裁定：着地で復活させない）
-			const ent = opened.get(eid), a = ent.anchor;
-			popFn ??= map.gadget.pop();
+			const ent = opened.get(eid)!, a = ent.anchor;
+			popFn ??= map.gadget.pop() as PopFn;
 			const text = sanitizeHTML(raw);   // 開いたファイルは他人作かもしれない＝ビューア再生と同じ消毒（WYSIWYG）
 			const cur = boxes.get(eid);
 			if (!cur) {

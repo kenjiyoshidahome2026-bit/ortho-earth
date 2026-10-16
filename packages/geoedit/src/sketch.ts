@@ -1,5 +1,8 @@
-import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { gcDistanceDeg, smallCircle, gcRect } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）・矩形は対角線から球面上で 4 角（9/15）
+import type { LonLat } from "geopbf/edit/sphere";
+import type { EditCmd } from "geopbf/edit/model";
+import type { EditorContext, SketchApi } from "./types.ts";
 const t = tr();
 // 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック、
 // フリーハンド（free）＝pointerdown で掴んで軌跡を積み pointerup で確定（クリックでなくドラッグ＝editClick を通らない）。
@@ -9,7 +12,7 @@ const t = tr();
 // 矩形/円のリング生成。円＝球面上の小円（中心 a から中心角 r の 36 角形）＝極付近でも縫い目跨ぎでも真円。
 // 矩形＝対角線 a→b の大円中点 M の接平面（心射図法）で a・b と点対称な 4 角（gcRect）＝経緯度の角だと「メルカトルの
 // 矩形を球に貼った姿」になる（本人指摘 9/15）。辺は大円で結ばれる。出力経度は [-180,180)（toLL が畳む）＝モデルの正規化表現。
-export const twoPointRing = (kind, a, b) => {
+export const twoPointRing = (kind: string, a: ArrayLike<number>, b: ArrayLike<number>): LonLat[] | null => {
 	if (kind === "rect") return gcRect(a, b);
 	const r = gcDistanceDeg(a, b);
 	if (r <= 0) return null;
@@ -17,15 +20,15 @@ export const twoPointRing = (kind, a, b) => {
 	ring.push([ring[0][0], ring[0][1]]);
 	return ring;
 };
-const isTwoPoint = kind => kind === "rect" || kind === "circle";
+const isTwoPoint = (kind: string): boolean => kind === "rect" || kind === "circle";
 
 // フリーハンドの間引き＝Douglas-Peucker（画面px）。保持する添字のマスクを返す（coords と xy は同添字）
-const rdpKeep = (xy, eps) => {
+const rdpKeep = (xy: number[][], eps: number): Uint8Array => {
 	const keep = new Uint8Array(xy.length);
 	keep[0] = keep[xy.length - 1] = 1;
-	const stack = [[0, xy.length - 1]];
+	const stack: [number, number][] = [[0, xy.length - 1]];
 	while (stack.length) {
-		const [a, b] = stack.pop();
+		const [a, b] = stack.pop()!;
 		if (b - a < 2) continue;
 		const [ax, ay] = xy[a], [bx, by] = xy[b];
 		const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
@@ -42,11 +45,11 @@ const FREE_SAMPLE_PX = 2;    // ストローク採取の最小移動
 const FREE_SIMPLIFY_PX = 1.2; // 間引き許容（画面px）
 const FREE_CLOSE_PX = 16;     // 始点にこれ以内で離すと面
 
-export function createSketch(ed) {
+export function createSketch(ed: EditorContext): SketchApi {
 	const { st, map, mapEl, signal, overlay, layer, toast, drawDefaults } = ed;
 
-	const start = (kind, ll) => { st.sketch = { kind, coords: ll ? [ed.snapLL(ll)] : [], cursor: null }; overlay.redraw(); };   // 右クリック「ここから〜」＝1点目込みで開始
-	const click = (kind, ll) => {   // editClick からの1打
+	const start = (kind: string, ll?: LonLat | null): void => { st.sketch = { kind, coords: ll ? [ed.snapLL(ll)] : [], cursor: null }; overlay.redraw(); };   // 右クリック「ここから〜」＝1点目込みで開始
+	const click = (kind: string, ll: LonLat): void => {   // editClick からの1打
 		if (isTwoPoint(kind)) {   // 2点作図：1打目=基点、2打目=確定
 			if (!st.sketch) return start(kind, ll);
 			return finishTwoPoint(st.sketch.coords[0], ed.snapLL(ll));
@@ -55,28 +58,29 @@ export function createSketch(ed) {
 		st.sketch.coords.push(ed.snapLL(ll));
 		overlay.redraw();
 	};
-	const cancel = () => { if (st.sketch) { st.sketch = null; st.snapMark = null; overlay.redraw(); } };
+	const cancel = (): void => { if (st.sketch) { st.sketch = null; st.snapMark = null; overlay.redraw(); } };
 
-	function finishTwoPoint(a, b) {
-		const kind = st.sketch.kind, ring = twoPointRing(kind, a, b);
+	function finishTwoPoint(a: number[], b: number[]): void {
+		const kind = st.sketch!.kind, ring = twoPointRing(kind, a, b);
 		st.sketch = null; st.snapMark = null;
 		const degenerate = !ring;   // 縮退（矩形＝幅/高さゼロ・対角線≥180°／円＝半径ゼロ）＝生成側が null
 		if (degenerate) { overlay.redraw(); return toast(t("No size")); }
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
+		const feature = { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } };
+		const cmd: EditCmd = { op: "add", feature };
 		ed.doCmd(cmd);
 		ed.setTool("select");
-		ed.select(cmd.eid);
+		ed.select(cmd.eid!);
 	}
-	function finish() {
+	function finish(): void {
 		const sk = st.sketch;
 		if (!sk) return;
 		st.sketch = null; st.snapMark = null;
 		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast(t("Not enough vertices")); }
 		if (sk.kind === "hole") {   // 穴＝描いたリングを「その1点目を含むポリゴン」の内環として追加（gint識別で対象決定）
 			const eid = layer.identify(sk.coords[0][0], sk.coords[0][1], map.getZoom());
-			const f = eid != null ? st.model.feats.get(eid) : null;
+			const f = eid != null ? st.model!.feats.get(eid) : null;
 			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast(t("Draw the hole inside a polygon")); }
-			ed.doCmd({ op: "hole", eid, ring: sk.coords });
+			ed.doCmd({ op: "hole", eid: eid!, ring: sk.coords });
 			ed.setTool("select");
 			ed.select(eid);
 			return;
@@ -84,34 +88,37 @@ export function createSketch(ed) {
 		const geometry = sk.kind === "line"
 			? { type: "LineString", coordinates: sk.coords }
 			: { type: "Polygon", coordinates: [[...sk.coords, sk.coords[0]]] };
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults[sk.kind] }, geometry } };
+		const feature = { type: "Feature", properties: { ...drawDefaults[sk.kind] }, geometry };
+		const cmd: EditCmd = { op: "add", feature };
 		ed.doCmd(cmd);
 		ed.setTool("select");   // 描いたら即整える＝選択ツールへ自動復帰（点ツールは連続配置のため残す）
-		ed.select(cmd.eid);     // setTool の後＝選択パネルが開く
+		ed.select(cmd.eid!);     // setTool の後＝選択パネルが開く
 	}
 
 	// フリーハンドの確定：間引き→始点回帰なら面/それ以外は線。ツールは free のまま＝連続ストローク（点ツールと同じ流儀）
-	function finishFree() {
+	function finishFree(): void {
 		const sk = st.sketch;
 		st.sketch = null;
-		if (!sk || sk.xy.length < 2) return overlay.redraw();   // クリックだけ＝何も描かない
-		const keep = rdpKeep(sk.xy, FREE_SIMPLIFY_PX);
+		if (!sk || sk.xy!.length < 2) return overlay.redraw();   // クリックだけ＝何も描かない
+		const xy = sk.xy!;
+		const keep = rdpKeep(xy, FREE_SIMPLIFY_PX);
 		const coords = sk.coords.filter((_, i) => keep[i]);
-		const [ax, ay] = sk.xy[0], [bx, by] = sk.xy[sk.xy.length - 1];
+		const [ax, ay] = xy[0], [bx, by] = xy[xy.length - 1];
 		const closed = coords.length >= 3 && Math.hypot(bx - ax, by - ay) < FREE_CLOSE_PX;
 		const geometry = closed
 			? { type: "Polygon", coordinates: [[...coords, coords[0]]] }
 			: { type: "LineString", coordinates: coords };
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults[closed ? "polygon" : "line"] }, geometry } };
+		const feature = { type: "Feature", properties: { ...drawDefaults[closed ? "polygon" : "line"] }, geometry };
+		const cmd: EditCmd = { op: "add", feature };
 		ed.doCmd(cmd);
-		ed.select(cmd.eid);
+		ed.select(cmd.eid!);
 	}
-	// フリーハンドの掴み始め＝capture-phase でエンジンから奪う（drag.js と同じ流儀＝パンは発火しない）。
+	// フリーハンドの掴み始め＝capture-phase でエンジンから奪う（drag.ts と同じ流儀＝パンは発火しない）。
 	// 選択中フィーチャのハンドル命中は譲る（「作図ツールのまま頂点が動かせない」罠の根治 8/20 を free でも守る）。
 	mapEl.addEventListener("pointerdown", e => {
 		if (st.tool !== "free" || st.busy || !st.model || st.drag || st.sketch || e.shiftKey || e.button !== 0 || !ed.onSurface(e)) return;   // 家具（ツールバー等）の押下は奪わない
 		const [x, y] = ed.localXY(e);
-		if (st.selection != null && overlay.handleAt(x, y, e.pointerType === "touch")) return;   // ハンドルは drag.js へ
+		if (st.selection != null && overlay.handleAt(x, y, e.pointerType === "touch")) return;   // ハンドルは drag.ts へ
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
 		e.stopPropagation(); e.preventDefault();
@@ -135,9 +142,10 @@ export function createSketch(ed) {
 		if (st.sketch.kind === "free") {   // ストローク中＝一定以上動いた点だけ積む（間引きの前段）
 			if (e.pointerId !== st.sketch.pointerId) return;
 			e.stopPropagation();
-			const last = st.sketch.xy[st.sketch.xy.length - 1];
+			const xy = st.sketch.xy!;
+			const last = xy[xy.length - 1];
 			if (Math.hypot(x - last[0], y - last[1]) < FREE_SAMPLE_PX) return;
-			st.sketch.xy.push([x, y]);
+			xy.push([x, y]);
 			st.sketch.coords.push(ll);
 			overlay.redraw();
 			return;
