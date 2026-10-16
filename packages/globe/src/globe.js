@@ -19,7 +19,7 @@ import { installData } from "./api/data.ts";
 import { installIntake } from "./api/intake.ts";
 import { installImages } from "./api/images.ts";
 import { installShadows } from "./api/shadows.ts";
-import { installGadgets } from "./api/gadgets.js";
+import { installGadgets } from "./api/gadgets.ts";
 import { installRaster } from "./api/raster.ts";
 import { installCamera } from "./api/camera.ts";
 import { installTools } from "./api/tools.ts";

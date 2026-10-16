@@ -17,7 +17,7 @@
 				"why": "互換：map.on(\"plateau\")＝\"mesh\" の旧名の重ね書き（公開面の旧名・@deprecated）"
 			}
 		},
-		"packages/globe/src/api/gadgets.js": {
+		"packages/globe/src/api/gadgets.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "互換：gadget(\"plateau\")＝mesh の旧名（公開面の旧名・globe.js から切り出した・分割 ⑨）"
