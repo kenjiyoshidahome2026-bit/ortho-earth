@@ -8,22 +8,37 @@ import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/d
 import { evalExpr, truthy } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { classifyRings, tessellatePolygon, buildMesh, tileToLonLat } from "./vtmesh.ts";
+import type { DecodedFeature, DecodedLayer } from "@ortho-earth/core/decode";
+import type { ExprContext } from "@ortho-earth/core/expr";
+import type { PolyGeom, PolyStyle } from "./vtmesh.ts";
 
-const raw = new Map();       // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
-const decoded = new Map();   // "sid|z/x/y|source-layer" → 解読済みの層（小さな LRU＝同じタイルを複数の層が使う時だけ効く）
+type FeatId = string | number | null | undefined;
+/** 層×タイルの幾何の覚え（fkey＝filter・promoteId・角の丸めの鍵／styles＝地物の番号 → 高さと色） */
+interface GeoEntry { fkey: string; sl: string; geos: Array<PolyGeom & { fi: number }>; feats: Array<{ id: FeatId; props: Record<string, unknown> }>; E: number; styles: Map<number, PolyStyle & { grad: boolean; rgba: number[] }> }
+/** 層の spec（正規化済み＝エンジンの目盛り）＝読む欄だけ */
+interface ExtLayer { "source-layer": string; filter?: unknown; paint?: Record<string, unknown>; layout?: Record<string, unknown> }
+/** main からの便（kind ごとに使う欄が違う） */
+interface VtxMsg {
+	kind: string; id: number; sid: string; key: string; enc?: string; ab?: ArrayBuffer; lid: string;
+	z: number; x: number; y: number; layer: ExtLayer; fzoom: number; zoom: number; promoteId?: string | Record<string, string> | null; ell?: boolean;
+	fstate?: Array<[FeatId, Record<string, unknown>]> | null; wantIds?: boolean; keys: string[]; bbox: number[];
+}
+
+const raw = new Map<string, { buf: Uint8Array; enc: string }>();       // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
+const decoded = new Map<string, DecodedLayer | null>();   // "sid|z/x/y|source-layer" → 解読済みの層（小さな LRU＝同じタイルを複数の層が使う時だけ効く）
 const DECODED_MAX = 8;
-const geoCache = new Map();  // "lid|z/x/y" → { fkey, geos: [{ fi, xy, starts, sgn, tris, wall }], feats: [{ id, props }], styles: Map<fi, {h, base}> }
+const geoCache = new Map<string, GeoEntry>();  // "lid|z/x/y" → { fkey, geos: [{ fi, xy, starts, sgn, tris, wall }], feats: [{ id, props }], styles: Map<fi, {h, base}> }
 
 const ML = "ml";
-const ctxOf = (zoom, f, id, state) => ({ zoom, props: f.props, geom: "Polygon", vars: {}, origin: ML, id, state });   // state＝feature-state（paint だけ・filter には渡さない＝MapLibre と同じ）
-const num = (e, ctx, dflt) => { if (e == null) return dflt; const v = evalExpr(e, ctx); return typeof v === "number" && Number.isFinite(v) ? v : dflt; };   // ML の評価エラー＝既定値
-const color = (e, ctx) => { const v = e == null ? "#000000" : evalExpr(e, ctx); return isColor(v) ? parseRGBA(v) : [0, 0, 0, 1]; };
-const idOf = (f, promoteId, sourceLayer) => {
+const ctxOf = (zoom: number, f: { props: Record<string, unknown> }, id: FeatId, state?: Record<string, unknown>): ExprContext => ({ zoom, props: f.props, geom: "Polygon", vars: {}, origin: ML, id, state });   // state＝feature-state（paint だけ・filter には渡さない＝MapLibre と同じ）
+const num = (e: unknown, ctx: ExprContext, dflt: number) => { if (e == null) return dflt; const v = evalExpr(e, ctx); return typeof v === "number" && Number.isFinite(v) ? v : dflt; };   // ML の評価エラー＝既定値
+const color = (e: unknown, ctx: ExprContext) => { const v = e == null ? "#000000" : evalExpr(e, ctx); return isColor(v) ? parseRGBA(v) : [0, 0, 0, 1]; };
+const idOf = (f: DecodedFeature, promoteId: VtxMsg["promoteId"], sourceLayer: string): FeatId => {
 	const k = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sourceLayer];
-	return k != null ? f.props[k] : f.id;
+	return k != null ? f.props[k] as FeatId : f.id;
 };
 
-function layerOf(sid, key, sourceLayer) {
+function layerOf(sid: string, key: string, sourceLayer: string) {
 	const dk = `${sid}|${key}|${sourceLayer}`;
 	let L = decoded.get(dk);
 	if (L) { decoded.delete(dk); decoded.set(dk, L); return L; }
@@ -31,18 +46,18 @@ function layerOf(sid, key, sourceLayer) {
 	if (!R) return undefined;
 	L = R.buf.byteLength ? (decodeTile(R.buf, new Set([sourceLayer]), R.enc)[sourceLayer] ?? null) : null;
 	decoded.set(dk, L);
-	while (decoded.size > DECODED_MAX) decoded.delete(decoded.keys().next().value);
+	while (decoded.size > DECODED_MAX) decoded.delete(decoded.keys().next().value!);
 	return L;
 }
 
-self.onmessage = e => {
+self.onmessage = (e: MessageEvent<VtxMsg>) => {
 	const m = e.data;
 	try {
 		if (m.kind === "put") {
 			const enc = m.enc || "mvt", buf = m.ab ? new Uint8Array(m.ab) : new Uint8Array(0);
 			if (tileFormatReady(enc)) { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); return; }   // 手元にある形式（mvt・読み込み済みの mlt）＝同期
 			loadTileFormat(enc).then(() => { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); },   // 最初の 1 枚だけ解読器を待つ
-				err => self.postMessage({ id: m.id, error: err?.message || String(err) }));
+				(err: Error | null) => self.postMessage({ id: m.id, error: err?.message || String(err) }));
 			return;
 		}
 		if (m.kind === "drop") {   // 生バイトを捨てる（main の LRU）
@@ -55,11 +70,11 @@ self.onmessage = e => {
 		if (m.kind === "build") { build(m); return; }
 		if (m.kind === "query") { self.postMessage({ id: m.id, hits: query(m) }); return; }
 		self.postMessage({ id: m.id, error: `unknown kind ${m.kind}` });
-	} catch (err) { self.postMessage({ id: m.id, error: err?.message || String(err) }); }
+	} catch (err) { self.postMessage({ id: m.id, error: (err as Error)?.message || String(err) }); }
 };
 
 // { lid, sid, key, z, x, y, layer（正規化済み＝エンジンの目盛り）, fzoom（filter の zoom）, zoom（paint の zoom）, promoteId, ell }
-function build(m) {
+function build(m: VtxMsg) {
 	const { lid, sid, key, z, x, y, layer } = m, sl = layer["source-layer"];
 	const L = layerOf(sid, key, sl);
 	if (L === undefined) { self.postMessage({ id: m.id, miss: true }); return; }
@@ -71,7 +86,7 @@ function build(m) {
 	const fkey = JSON.stringify(layer.filter ?? null) + "@" + m.fzoom + "|" + JSON.stringify(m.promoteId ?? null) + "|r" + round.toFixed(3);
 	let G = geoCache.get(`${lid}|${key}`);
 	if (!G || G.fkey !== fkey || G.sl !== sl) {
-		const geos = [], feats = [];
+		const geos: GeoEntry["geos"] = [], feats: GeoEntry["feats"] = [];
 		for (let i = 0; i < L.features.length; i++) {
 			const f = L.features[i];
 			if (f.type !== "Polygon" || !f.geom) continue;
@@ -87,7 +102,7 @@ function build(m) {
 	const P = layer.paint || {};
 	const op = Math.max(0, Math.min(1, num(P["fill-extrusion-opacity"], { zoom: m.zoom, props: {}, geom: null, vars: {}, origin: ML }, 1)));   // 層単位（データ駆動しない＝MapLibre と同じ）
 	const grad = P["fill-extrusion-vertical-gradient"] !== false;
-	const styles = new Map(), fs = m.fstate ? new Map(m.fstate) : null;
+	const styles: GeoEntry["styles"] = new Map(), fs = m.fstate ? new Map(m.fstate) : null;
 	for (let fi = 0; fi < G.feats.length; fi++) {
 		const f = G.feats[fi], ctx = ctxOf(m.zoom, f, f.id, fs?.get(f.id));
 		const h = num(P["fill-extrusion-height"], ctx, 0), base = Math.max(0, num(P["fill-extrusion-base"], ctx, 0));
@@ -104,21 +119,21 @@ function build(m) {
 }
 
 // 当たりの候補＝足元の外接矩形が bbox（経緯度）に掛かる「描いた地物」。{ lid, keys: [z/x/y…], bbox: [w,s,e,n] } → [{ key, id, props, rings（経緯度の輪の列）, h, base }]
-function query({ lid, keys, bbox }) {
-	const out = [];
+function query({ lid, keys, bbox }: VtxMsg) {
+	const out: Array<{ key: string; id: FeatId; props: Record<string, unknown>; polys: Array<Array<Array<[number, number]>>>; h: number; base: number }> = [];
 	for (const key of keys) {
 		const G = geoCache.get(`${lid}|${key}`);
 		if (!G) continue;
 		const [z, x, y] = key.split("/").map(Number);
-		const byFi = new Map();
+		const byFi = new Map<number, GeoEntry["geos"]>();
 		for (const g of G.geos) { const s = G.styles.get(g.fi); if (!s) continue; let a = byFi.get(g.fi); if (!a) byFi.set(g.fi, a = []); a.push(g); }
 		for (const [fi, gs] of byFi) {
-			const s = G.styles.get(fi), polys = [];
+			const s = G.styles.get(fi)!, polys: Array<Array<Array<[number, number]>>> = [];
 			let w = Infinity, so = Infinity, ea = -Infinity, no = -Infinity;
 			for (const g of gs) {
-				const rings = [];
+				const rings: Array<Array<[number, number]>> = [];
 				for (let r = 0; r < g.starts.length - 1; r++) {
-					const ring = [];
+					const ring: Array<[number, number]> = [];
 					for (let k = g.starts[r]; k < g.starts[r + 1]; k++) {
 						const p = tileToLonLat(z, x, y, G.E, g.xy[k * 2], g.xy[k * 2 + 1]); ring.push(p);
 						if (p[0] < w) w = p[0]; if (p[0] > ea) ea = p[0]; if (p[1] < so) so = p[1]; if (p[1] > no) no = p[1];
