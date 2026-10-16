@@ -41,10 +41,31 @@ export function rankOf(type: number, { height = 0, demote = 0 }: { height?: numb
 // z14→16 の解禁段（§11.5）。rank255→z14 / 中位→z15 / 下位→z16。表示側と揃える基準式。
 export const zAppearOf = (rank: number): number => 14 + (255 - rank) * 3 / 255;
 
+const WS = /\s/;
+// 括弧で囲んだ所を落とす（旧 /O[^C]*C/g と同じ削り方）。開きの次の最初の閉じまで＝中に開きがあっても良い・閉じの無い開き以降はそのまま。ws＝前後の空白 1 字も落とす（旧 /\s?\(…\)\s?/g）
+function stripBracketed(s: string, open: string, close: string, ws = false): string {
+	let out = "", i = 0;
+	for (;;) {
+		let j = i; while (j < s.length && !open.includes(s[j])) j++;
+		if (j >= s.length) return out + s.slice(i);
+		let k = j + 1; while (k < s.length && !close.includes(s[k])) k++;
+		if (k >= s.length) return out + s.slice(i);
+		let a = j, b = k + 1;
+		if (ws && a > i && WS.test(s[a - 1])) a--;
+		if (ws && b < s.length && WS.test(s[b])) b++;
+		out += s.slice(i, a); i = b;
+	}
+}
+// 旧 s.replace(/(大学|大学院).*(キャンパス|学舎|校地).*$/, "$1")：最初の「大学」の後ろ（改行の無い範囲）にキャンパス等があれば「大学」で切る。$1 は常に「大学」（先の選択肢）
+function cutCampus(s: string): string {
+	const from = s.lastIndexOf("\n") + 1, first = s.indexOf("大学", from);
+	if (first < 0) return s;
+	const kw = Math.max(s.lastIndexOf("キャンパス"), s.lastIndexOf("学舎"), s.lastIndexOf("校地"));
+	return kw >= first + 2 ? s.slice(0, first) + "大学" : s;
+}
 // ── 正規化（§8.2）── 系統別。norm0=merge.mjs 既存、normK=学校の自治体冠も落とす
-export const norm0 = (s: unknown): string => String(s)
-	.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-	.replace(/[（(][^）)]*[）)]/g, "")
+export const norm0 = (s: unknown): string => stripBracketed(String(s)
+	.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)), "（(", "）)")   // 旧 .replace(/[（(][^）)]*[）)]/g, "")（CodeQL の二乗の後戻り＝添字で同じ削り方）
 	.replace(/[\s　]/g, "")
 	.replace(/株式会社|有限会社|一般社団法人|公益財団法人|独立行政法人|社会福祉法人|学校法人|医療法人/g, "")
 	.replace(/^(都立|道立|府立|県立|市立|区立|町立|村立|国立|公立|私立|組合立)/, "")
@@ -53,7 +74,7 @@ export const norm0 = (s: unknown): string => String(s)
 // 学校：KSJ「京都市立紫明小学校」対 注記「市立紫明小学校」＝自治体冠を落とす（10%→59%・実測）
 export const normK = (s: unknown): string => norm0(String(s).replace(/^.{1,10}?[都道府県市区町村]立/, ""));
 // 大学：885注記は「◯◯大学××キャンパス」で入る＝キャンパス接尾を落として比べる
-export const normUniv = (s: unknown): string => norm0(String(s).replace(/(大学|大学院).*(キャンパス|学舎|校地).*$/, "$1"));
+export const normUniv = (s: unknown): string => norm0(cutCampus(String(s)));
 
 const D2R = Math.PI / 180;
 export const distM = (a: number[], b: number[]): number => Math.hypot((a[0] - b[0]) * 111320 * Math.cos(a[1] * D2R), (a[1] - b[1]) * 111320);
