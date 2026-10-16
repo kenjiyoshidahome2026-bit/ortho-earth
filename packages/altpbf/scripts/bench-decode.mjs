@@ -1,7 +1,7 @@
 // altpbf の decode（src/format.ts）の node の計り。伸長（inflateRaw）と標高の varint 読みに分けて出す。
 // 使い方：node packages/altpbf/scripts/bench-decode.mjs [--runs N] [--hash] [--src <format.ts のパス>]
 //   見本＝合成の R10 相当（2400²・なだらかな地形＋細かい起伏）と急な地形（差分の多くが 2 バイトの varint）の 2 通り。
-//   --hash＝標高の FNV 指紋＝最適化の前後でビット同値を確かめる
+//   --hash＝標高の FNV 指紋＝最適化の前後でビット同値を確かめる。--src 無しなら src/svarint.ts の読み（simd・scalar・js）ごとの時間も出す
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateRaw } from "geopbf/gzip";
@@ -10,6 +10,8 @@ const args = process.argv.slice(2);
 const runs = +(args[args.indexOf("--runs") + 1] || 0) || 9, wantHash = args.includes("--hash");
 const src = args.includes("--src") ? path.resolve(args[args.indexOf("--src") + 1]) : path.join(DIR, "../src/format.ts");
 const { encode, decode } = await import(pathToFileURL(src).href);
+const sv = args.includes("--src") ? null : await import(pathToFileURL(path.join(DIR, "../src/svarint.ts")).href);
+const Pbf = (await import("geopbf/pbf")).default;
 
 let seed = 7; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
 const fnv = (h, b) => { const u = new Uint8Array(b.buffer, b.byteOffset, b.byteLength); for (let i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 16777619) >>> 0; } return h; };
@@ -28,5 +30,11 @@ for (const [label, amp, noise] of [["gentle", 700, 6], ["steep", 3000, 300]]) {
 		t0 = performance.now(); await inflateRaw(await blob.arrayBuffer()); tInf.push(performance.now() - t0);
 	}
 	const a = med(tAll), f = med(tInf);
-	console.log(`${label} ${W}×${H}: deflated ${bytes.length} B  decode ${a.toFixed(1)}ms（うち inflate ≈ ${f.toFixed(1)}ms・varint ≈ ${(a - f).toFixed(1)}ms）` + (wantHash ? `  hash ${fnv(2166136261, out.data).toString(16)}` : ""));
+	let kinds = "";
+	if (sv) {   // 読みごとの varint の時間（inflate を除く）
+		const raw = await inflateRaw(await blob.arrayBuffer()), p = new Pbf(raw); let st, en;
+		p.readFields(tag => { if (tag === 10) { en = p.readPackedEnd(); st = p.pos; p.pos = en; } });
+		for (const k of sv.svarintKinds()) { const o = new Int16Array(W * H), ts = []; for (let r = 0; r < runs; r++) { const t0 = performance.now(); sv.svarintRun(raw, st, en, o, k); ts.push(performance.now() - t0); } kinds += `  ${k} ${med(ts).toFixed(1)}ms`; }
+	}
+	console.log(`${label} ${W}×${H}: deflated ${bytes.length} B  decode ${a.toFixed(1)}ms（うち inflate ≈ ${f.toFixed(1)}ms・varint ≈ ${(a - f).toFixed(1)}ms）` + (kinds ? `\n  varint の読み:${kinds}` : "") + (wantHash ? `  hash ${fnv(2166136261, out.data).toString(16)}` : ""));
 }

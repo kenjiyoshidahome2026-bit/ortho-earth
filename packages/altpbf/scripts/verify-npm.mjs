@@ -41,10 +41,14 @@ window.onerror = (m, s, l) => fetch("/__result?t=" + encodeURIComponent("FAIL on
 		const tile = await decode(new Blob([bin]));
 		const same = tile.width === W && tile.height === H && tile.name === "R01N035E139"
 			&& tile.data.length === data.length && tile.data.every((v, i) => v === data[i]);
+		// 大きいグリッド＝本体が 4 KB を越える＝wasm（SIMD／なし）の読みを通る（小さいのは JS の読み）
+		const BW = 512, big = new Int16Array(BW * BW).map((_, i) => Math.round(800 + 600 * Math.sin(i / 3000) + ((i * 13) % 9) - 4 + (i % 997 === 0 ? 900 : 0)));
+		const bigBack = await decode(new Blob([await encode({ name, source: "test", lng: 139, lat: 35, range: 1, width: BW, height: BW, data: big })]));
+		const sameBig = bigBack.data.length === big.length && bigBack.data.every((v, i) => v === big[i]);
 		const [lng2, lat2, r2] = decodeName(name);
 		const png = await altpbf2png(new Blob([bin]), { size: 32 });
-		const ok = same && lng2 === 139 && lat2 === 35 && r2 === 1 && png?.type === "image/png" && png.size > 100;
-		title = ok ? "PASS altpbf-npm" : \`FAIL same=\${same} name=\${name} png=\${png?.size}\`;
+		const ok = same && sameBig && lng2 === 139 && lat2 === 35 && r2 === 1 && png?.type === "image/png" && png.size > 100;
+		title = ok ? "PASS altpbf-npm" : \`FAIL same=\${same} big=\${sameBig} name=\${name} png=\${png?.size}\`;
 	} catch (e) { title = "FAIL " + (e?.message || e); }
 	fetch("/__result?t=" + encodeURIComponent(title)).catch(() => {});
 })();
