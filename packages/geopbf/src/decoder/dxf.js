@@ -1,5 +1,5 @@
 // decoder/dxf.js ── ブラウザ用 worker：.dxf → GeoPBF バイト列。実体は convert/dxf.js（crs は EPSG 番号か WKT・省略時は経緯度の範囲なら経緯度とみなす）
-import { fromDxf } from "../convert/dxf.js";
+import { fromDxf } from "../convert/dxf.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution, crs, ignoreCrs, unitScale, encoding, closedAsPolygon, tky2jgd, patchjgd } = e.data;

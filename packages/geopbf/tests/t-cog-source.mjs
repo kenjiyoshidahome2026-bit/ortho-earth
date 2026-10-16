@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // t-cog-source: src/cog/source.js（range の合体・並行・URL の 206/200/404）の単体検定（改良点 17・2026-10-12）。
 //   t-cog は COG 越しに coalesce を見るが、gapBytes / maxReq / 入力順 / 重なり / 並行数 / fetch 注入の端はここで直接見る。
-import { openSource } from "../src/cog/source.js";
+import { openSource } from "../src/cog/source.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GeoPBF } from "../src/pbf-base.js";
-import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.js";
+import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -193,7 +193,7 @@ print(json.dumps({"rows": t.num_rows, "ok": ok, "enc": enc, "st": st, "rgs": md.
 
 // ---- zstd コーデックとデータページ分割（pyarrow で読み戻し・値が無圧縮版と一致） ----------------------
 {
-	const { hasZstd } = await import("../src/convert/gzip.js");
+	const { hasZstd } = await import("../src/convert/gzip.ts");
 	const rz = await hasZstd() ? await toGeoParquet(pbf, { gpu: false, codec: "zstd", order: "none" }) : null;
 	if (!rz) skip("zstd（この Node に zstdCompressSync が無い）");
 	else { writeFileSync(join(dir, "z.parquet"), rz.buffer); ok(rz.stats.codec === "zstd" && rz.buffer.length < r0.buffer.length, `zstd: ${rz.buffer.length} B < 無圧縮 ${r0.buffer.length} B`); }
@@ -221,7 +221,7 @@ print(json.dumps(out))
 {
 	const norm = (p) => JSON.stringify(p.geojson.features.map(f => [f.geometry, f.properties]));
 	const want = norm(pbf);
-	for (const codec of ["none", "gzip", ...(await (await import("../src/convert/gzip.js")).hasZstd() ? ["zstd"] : [])]) {
+	for (const codec of ["none", "gzip", ...(await (await import("../src/convert/gzip.ts")).hasZstd() ? ["zstd"] : [])]) {
 		const w = await toGeoParquet(pbf, { gpu: false, codec, order: "none" });
 		const r = await fromGeoParquet(w.buffer);
 		ok(norm(r.pbf) === want && r.pbf.precision() === 6 && r.pbf.name() === "fix" && r.pbf.attribution() === "t-parquet", `往復 ${codec}: 幾何（GC・穴・多部）・属性（Date・JSON・入れ子 a.b・真偽・負数）・ヘッダが一致`);

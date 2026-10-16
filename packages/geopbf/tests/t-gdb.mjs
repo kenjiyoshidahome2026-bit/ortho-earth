@@ -8,8 +8,8 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
 import { decodeZIP } from "../src/modules/decodeZIP.js";
-import { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseTablx } from "../src/convert/filegdb.js";
-import { bakeMeshGrid } from "../src/convert/datum.js";
+import { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseTablx } from "../src/convert/filegdb.ts";
+import { bakeMeshGrid } from "../src/convert/datum.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

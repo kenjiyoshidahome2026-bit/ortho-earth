@@ -7,8 +7,8 @@
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
 import { GeoPBF } from "../src/pbf-base.js";
-import { openSqlite } from "../src/convert/sqlite.js";
-import { snappy, MAX_PAGE } from "../src/convert/parquet-read.js";
+import { openSqlite } from "../src/convert/sqlite.ts";
+import { snappy, MAX_PAGE } from "../src/convert/parquet-read.ts";
 import { encodeZIP } from "../src/modules/encodeZIP.js";
 import { decodeZIP } from "../src/modules/decodeZIP.js";
 

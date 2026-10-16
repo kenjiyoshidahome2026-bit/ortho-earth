@@ -8,9 +8,9 @@
 //   結果の台帳: lod-calibration-2026-10-12.md（pop-density-2020・countries・topp_states）
 import { readFileSync } from "node:fs";
 import { GeoPBF } from "../src/pbf-base.js";
-import { fromFlatGeobuf } from "../src/convert/fgb.js";
-import { bakeGint } from "../src/convert/node-gint.js";
-import { prepareTiling } from "../src/convert/tiler.js";
+import { fromFlatGeobuf } from "../src/convert/fgb.ts";
+import { bakeGint } from "../src/convert/node-gint.ts";
+import { prepareTiling } from "../src/convert/tiler.ts";
 import { fileURLToPath } from "node:url";
 
 export async function lodCalibrationReport(file, { minZoom = 0, maxZoom = 14, extentShift = 12 } = {}) {

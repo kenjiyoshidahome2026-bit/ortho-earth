@@ -8,7 +8,7 @@
 if (typeof globalThis.ImageData !== "undefined") { console.error("この検定は ImageData スタブ無しで走らせる"); process.exit(1); }
 import { createGeopbf, geopbf as legacy } from "../src/index.js";
 import { GeoPBF } from "../src/pbf.js";
-import { initGintWasm } from "../src/convert/node-gint.js";
+import { initGintWasm } from "../src/convert/node-gint.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
