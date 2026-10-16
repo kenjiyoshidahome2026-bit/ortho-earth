@@ -4,9 +4,9 @@
 // japan の unproject(cam) へ建て替え。他（readPixels・findPolygon・throttle）は node-free。
 // 単位：mouse は CSS px で受け、GPU/unproject へは ×dpr で device px に。s.width/height は device px。
 
-import { MOVE_THROTTLE_MS } from './state.js';
+import { MOVE_THROTTLE_MS } from './state.ts';
 import { findPolygon } from 'geopbf/identify';
-import { fidVisible } from './utility.js';
+import { fidVisible } from './utility.ts';
 import { unproject } from '../../camera.ts';
 
 export function doIdentify(s, data) {

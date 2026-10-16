@@ -16,9 +16,9 @@
 //   - 向き未正規化データ（外環 CW）は合計が負になる＝解決パスの abs() で拾う（feature 内の向き一貫が前提）。
 //   - 塗りのみ per-fid。線/点の per-fid スタイルは次段（fid 表自体は line 色/width も既に持つ）。
 
-import { s as gS } from './state.js';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
-import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.js';
-import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
+import { s as gS } from './state.ts';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
+import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.ts';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.ts';
 
 // VS_STENCIL と同一の fan 幾何＋fid を flat varying で FS へ（facing は rasterizer が判定）。
 const VS_ID = `${GLSL_VS_HEADER}
