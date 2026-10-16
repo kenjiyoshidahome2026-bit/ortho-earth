@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const files = [];
-const walk = d => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.(js|mjs)$/.test(n)) files.push(p); } };
+const walk = d => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.(js|mjs|ts)$/.test(n) && !n.endsWith(".d.ts")) files.push(p); } };
 walk(SRC);
 const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\bnew URL\(\s*)(["'])(\.{1,2}\/[^"'`]+)\1/g;
 let bad = 0, n = 0;
