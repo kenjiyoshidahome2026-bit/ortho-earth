@@ -2,25 +2,26 @@
 //   GlobeScope＝createGlobe の定数・関数（deps として渡す）・GlobeLive＝createGlobe の let（live の getter／setter で読み書きする）。
 //   どちらも installer が読む分だけを構造で書く（globe.js が持つ他のメンバーは書かない）。installer ごとの deps／live は install.ts が Pick で選ぶ。
 //   batch 3（globe.js → globe.ts）ではここが createGlobe の中の変数の注釈の元になる。
-import type { MLLayer, parseViewHash, resolveVectorSource, splitMapLibreStyle } from "@ortho-earth/core";
+import type { MLLayer, parseViewHash, resolveVectorSource, sourceFeatures, splitMapLibreStyle } from "@ortho-earth/core";
 import type { DemSource } from "@ortho-earth/core";
 import type { FlightController, InputController } from "@ortho-earth/core";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { Clock } from "@ortho-earth/ephem/clock";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { DtmDecl } from "@ortho-earth/core/elevation";
-import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
+import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.d.ts";
 import type { Aggregate } from "../gadgets/aggregate.d.ts";
 import type { GJLabels } from "../gadgets/gjlabels.d.ts";
 import type { Symbols } from "../gadgets/symbols.d.ts";
 import type { Corners } from "geopbf/edit/imagequad";
-import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, RasterReturn, StyleReturn, ToolsReturn } from "./install.ts";
+import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, QueryReturn, RasterReturn, ShadowsReturn, StyleReturn, ToolsReturn } from "./install.ts";
 import type { GlobeInternals, GlobeMap } from "./map.ts";
 import type { VideoQuads } from "../gadgets/videoquad.d.ts";
 import type { Requester } from "../request.d.ts";
 import type { ScenePlayer } from "../scenes/player.d.ts";
+import type { SpriteEntry } from "../mlsmall.d.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // globe.js の中の共有の部品（いくつもの installer が受ける物）
@@ -42,7 +43,11 @@ export type Translate = (key: string, ...args: Array<string | number>) => string
 /** 外来の MapLibre の source（core の MLSource＝addSource が受けた物をそのまま持つ・型は自由） */
 export type MLSourceSpec = Parameters<typeof resolveVectorSource>[0];
 /** 利用者の source（addSource の spec をそのまま持つ）＝installer が読む分 */
-export interface UserSource extends MLSourceSpec { type?: string; data?: unknown; cluster?: boolean; promoteId?: string | Record<string, string> | null }
+export interface UserSource extends MLSourceSpec {
+	type?: string; data?: unknown; cluster?: boolean; promoteId?: string | Record<string, string> | null;
+	/** BASE_SRC（基図の source の印）などの symbol の鍵 */
+	[k: symbol]: unknown;
+}
 /** 利用者の層（addLayer の層＝MapLibre の形・custom 層は object そのまま） */
 export type UserLayer = MLLayer;
 /** 利用者の層の台帳の 1 件（globe.js の mlLayers の値）＝installer が読む分 */
@@ -54,25 +59,102 @@ export interface UserLayerRec {
 	before?: string | null;
 	/** worker 経路の custom 層のオーバーレイ */
 	ov?: OverlayHandle | null;
+	/** 載せる途中（isSourceLoaded の材料） */
+	mounting?: boolean;
+	/** paint の transition の走っている目標値（getPaintProperty が返す） */
+	trans?: Record<string, unknown>;
 }
 /** vector source の読み口（vtxDescOf の戻り＝TileJSON／PMTiles を解いた物） */
 export interface VtxDesc {
 	tileUrl: ((z: number, x: number, y: number) => string | null | undefined) | null; pmtiles: string | null;
-	minzoom?: number; maxzoom?: number; bounds?: number[] | null; promoteId?: unknown; encoding?: string; coverage?: unknown;
+	minzoom?: number; maxzoom?: number; bounds?: number[] | null; promoteId?: string | Record<string, string> | null; encoding?: string; coverage?: unknown;
 	vectorLayers?: Array<{ id: string; fields?: Record<string, string>; minzoom?: number; maxzoom?: number }> | null;
 }
 /** vector source の fill／line／circle／symbol（gadgets/vtdraw.js の戻り）＝installer が読む分 */
 export interface VtdCtl {
 	/** その source の出しているタイル */
-	shownTiles(sid: string): Array<{ key: string }> | null | undefined;
+	shownTiles(sid: string): Array<{ key: string; z: number }>;
+	/** その source（基図の source 名も）の見えているタイルが組み上がって載ったか */
+	loaded(sid: string): boolean;
+	has(layerId: string): boolean;
+	setVisible(layerId: string, on: boolean): void;
+	/** その地物を含むタイルだけ組み直す（id 省略＝その source（sourceLayer）の全部） */
+	touchFS(sid: string, sourceLayer: string | null, id: unknown): void;
+	/** 層の順の鍵を振り直す（moved＝動いた層） */
+	setOrder(order: string[], moved?: string): void;
 }
+/** vector source の fill-extrusion（gadgets/vtextrude.js の戻り）＝installer が読む分 */
+export interface VtxCtl {
+	/** その source の出しているタイルの鍵 */
+	shownTiles(sid: string): string[];
+	loaded(sid: string): boolean;
+	has(layerId: string): boolean;
+	setVisible(layerId: string, on: boolean): void;
+	touchFS(sid: string, sourceLayer: string | null, id: unknown): void;
+	/** 立体の当たり（押し出しの d＝奥行き） */
+	query(geometry: [number, number] | [[number, number], [number, number]], take: (layerId: string) => boolean): Promise<Array<{ d: number; f: Record<string, unknown> }>>;
+}
+/** vector source の生のタイルの写し（vtraw.js の createRawStore の戻り）＝installer が読む分 */
+export interface RawTileStore {
+	keys(sid: string): string[];
+	/** 解読済み（解けない＝{}・無い＝null） */
+	decoded(sid: string, key: string): Parameters<typeof sourceFeatures>[0];
+}
+/** custom 層の canvas（custom-gl.js の createCustomGL の戻り）＝installer が読む分 */
+export interface CustomCtl { readonly canvas: HTMLCanvasElement | null }
+/** テーマの判定（themes.js の createThemes の戻り）＝installer は作って置くだけ */
+export type Themes = object;
+/** 基図の層の実行時の上書き（setPaintProperty 等・removeLayer＝removed） */
+export interface BaseOverride {
+	removed?: boolean; paint?: Record<string, unknown>; layout?: Record<string, unknown>; filter?: unknown;
+	minzoom?: number | null; maxzoom?: number | null;
+}
+/** addLayer の fill/line/circle を詰めた gint の pass（globe.js の mlPasses の値）＝installer が読む分 */
+export interface MlPass {
+	sid: string;
+	/** 描く順（大きいほど上） */
+	order: number;
+	pbf: GeoPBF;
+	h: {
+		setPaint(paint: object, x: null): unknown;
+		setFeatureState(fid: number | null | undefined, state: Record<string, unknown>): unknown;
+		removeFeatureState(fid: number | null | undefined): unknown;
+		_shown?(zoom: number): boolean;
+		_accept?(): ((fid: number) => boolean) | null;
+	};
+	/** drawn＝層 id → fid ごとの「描いている」 */
+	holder: { pass: { layers: MLLayer[] }; drawn: Record<string, ArrayLike<unknown> | undefined> | null };
+}
+/** 模様・線の飾り（canvas2D の口）の 1 層（globe.js の patItems の値） */
+export interface PatItem {
+	fill: boolean; sid: string;
+	feats: Array<{ f: { geometry: QueryGeometry; properties?: Record<string, unknown> | null }; width: number; offset: number; lines: number[][][] }>;
+}
+/** 当たりで読む GeoJSON の形（座標は入れ子の数の配列） */
+export interface QueryGeometry { type: string; coordinates?: unknown; geometries?: QueryGeometry[] }
+/** 模型・3D Tiles の当たり（model.js の pick・tiles3d.js の pickAll の 1 件） */
+export interface MeshHit {
+	distance: number; featureId?: number | string | null; properties?: Record<string, unknown> | null; lngLat: LonLat;
+	state?: Record<string, unknown>; table?: unknown;
+}
+/** 3D Tiles（gadgets/tiles3d.js の戻り）＝installer が読む分 */
+export interface T3dCtl { pickAll(x: number, y: number): Array<MeshHit & { id: string }> }
 /** URL の #hash の視点（core の parseViewHash の戻り） */
 export type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
 /** 外来の MapLibre の style.json（core の MLStyle） */
 export type MLStyleSpec = Parameters<typeof splitMapLibreStyle>[0];
+/** 外来 style の文書（loadMapLibreStyle が layers を確かめた物）＝installer が読む根の欄 */
+export interface ExtStyleDoc extends MLStyleSpec {
+	layers: MLLayer[]; sources: Record<string, MLSourceSpec>;
+	name?: string; sprite?: string | Array<{ id?: string; url?: string }>; glyphs?: string;
+	light?: LightSpecification; sky?: SkySpecification;
+	terrain?: { source?: string; exaggeration?: number };
+	transition?: { duration?: number; delay?: number };
+	metadata?: { "ortho:sourceDz"?: Record<string, number>; [k: string]: unknown };
+}
 /** 外来 style を読んだ物（globe.js の loadExtStyle の戻り＝EXT） */
 export interface ExtStyle {
-	ms: MLStyleSpec; split: ReturnType<typeof splitMapLibreStyle>; src: Awaited<ReturnType<typeof resolveVectorSource>> | null;
+	ms: ExtStyleDoc; split: ReturnType<typeof splitMapLibreStyle>; src: Awaited<ReturnType<typeof resolveVectorSource>> | null;
 	baseUrl: string | undefined; url: string | null;
 }
 /** 地形の DEM の spec（setTerrain・style の terrain・?dem=）＝raster-dem か quantized-mesh。中身は core の createDemSource が整える */
@@ -83,7 +165,7 @@ export interface GlobeCam extends CameraPose { pitch: number; bearing: number; r
 
 /** 基図の style（themes.js の theme.style・外来 style は extBaseStyle）＝installer が読む分 */
 export interface BaseStyle {
-	layers: Array<{ id: string; type: string; [k: string]: unknown }>;
+	layers: MLLayer[];
 	schema?: { buildings?: { layer: string; heightByCode?: Record<string, number>; codeKey: string; defaultHeight?: number } | null } | null;
 	ext?: boolean;
 	globalState?: Record<string, unknown>;
@@ -92,6 +174,12 @@ export interface BaseStyle {
 
 /** 模型の制御（gadgets/model.js の createModels の戻り）＝installer が読む分 */
 export interface ModelCtl {
+	/** 今の模型の名前（無ければ null） */
+	readonly name?: string | null;
+	/** 画面の点（CSS px）に一番手前の三角形 */
+	pick(x: number, y: number): MeshHit | null;
+	/** 押し出しのスロットごと（新しいスロットが後ろ） */
+	readonly extrudeSets?: Array<{ slot: string; used: Array<{ f: { geometry: QueryGeometry; properties?: Record<string, unknown> | null }; h: number; base: number }>; mode: string; lift: number }>;
 	extrudedFeatures?: Array<{ h: number; f?: { geometry?: { type: string; coordinates?: unknown } | null } | null }>;
 	/** 押し出しを外す（slot 省略＝全部） */
 	clearExtrude(slot?: string): void;
@@ -297,7 +385,129 @@ export interface GlobeScope {
 	themeBootV: ParsedView | null;
 	/** 埋め込みの焼き付け（opts.theme） */
 	themeFixed: boolean;
+	/** 地域の基図の自動の 3D 建物の層 id（"building-extrusion"） */
+	AUTO_BLD: string;
+	/** 基図の source の印（baseSrcSpec の戻りに付く） */
+	BASE_SRC: symbol;
+	DEBUG_GLOBALS: boolean;
+	/** MapLibre の口（背景を白に畳まない＝透明） */
+	NO_BG_WHITE: boolean;
+	/** style.json の層と source の目盛り */
+	STYLE_DZ: number;
+	assertMLLayer: GlobeLive["assertMLLayer"];
+	/** 自動の建物の層（getLayer／getStyle の顔・無ければ null） */
+	autoBldLayer(): MLLayer | null;
+	autoBldOn(): boolean;
+	/** 自動の建物は出し入れだけ（投げる） */
+	autoBldReadOnly(what: string): never;
+	/** 基図の層の上書き（id → 上書き）・出し入れ（id → "none"） */
+	baseOverrides: Map<string, BaseOverride>; baseVis: Map<string, string>;
+	/** 床の色を決める background 層（無ければ null） */
+	bgOf(st: BaseStyle): MLLayer | null;
+	/** 建物の塗りの層の添字（伏せている間は -1） */
+	bldFillLi(st: BaseStyle): number;
+	/** 層の描く形（正規化済み＝エンジンの目盛り） */
+	drawLayerOf(v: UserLayerRec): MLLayer;
+	dropFollow: DataReturn["dropFollow"];
+	/** sourcedata を鳴らす */
+	emitSourceData(sid: string): void;
+	/** 外来 style の基図の style */
+	extBaseStyle(ext: ExtStyle): BaseStyle;
+	/** BASE_SOURCE の中身（setStyle でも同じ形で差し替える） */
+	extSourceFields(ext: ExtStyle): Partial<BaseSource>;
+	/** vector source（基図の source 名も）か */
+	isVecSrc(sid: string): boolean;
+	/** 描き方（gint／vtdraw／raster／custom …） */
+	kindOf(layer: MLLayer, sp: UserSource | undefined): string;
+	landDefault(): number[];
+	/** background 層 → 陸の色（RGBA 0..1） */
+	landOf(bg: MLLayer | null, dflt: number[]): number[];
+	/** 外来 style を読む（transformStyle＝MapLibre 同名） */
+	loadExtStyle(spec: string | Record<string, unknown>, transformStyle?: ((previous: Record<string, unknown> | undefined, next: Record<string, unknown>) => Record<string, unknown> | undefined) | null): Promise<ExtStyle>;
+	/** 結合の署名（捨てる＝結合し直す） */
+	mergeReq: { main: { sig: string; at: number }; base: { sig: string; at: number } };
+	mkThemes(st: BaseStyle): Themes;
+	/** source → 地物の id → 状態 */
+	mlFeatureState: Map<string, Map<number | string, Record<string, unknown>>>;
+	/** source → gint の表（id ↔ fid） */
+	mlGintData: Map<string, { idToFid?: Map<unknown, number>; fidToId?: Array<number | string | undefined> }>;
+	/** fid → MapLibre の id */
+	mlIdOf(sid: string, fid: number): number | string | undefined;
+	mlPasses: Map<string, MlPass>;
+	/** source id → dz */
+	mlSourceDz: Map<string, number>;
+	mountLayer(v: UserLayerRec): Promise<unknown>;
+	/** raster-* の paint → 色の調整（無ければ null） */
+	rasterAdjust(P: Record<string, unknown> | undefined): RasterAdjust | null;
+	rasterFade(P: Record<string, unknown> | undefined): number | undefined;
+	rasterPaintOpts(P: Record<string, unknown> | undefined): Pick<RasterOptions, "resampling" | "fadeDuration">;
+	/** 画像タイル層の未着（層 id → 枚数） */
+	rasterPend: Map<string, number>;
+	rasterSampling(P: Record<string, unknown> | undefined): "nearest" | "linear" | undefined;
+	rebuildCluster(sid: string): Promise<unknown>;
+	rebuildGint(sidChanged?: string | null, opts?: { dataChanged?: boolean }): Promise<unknown>;
+	reliefOpacity(L: MLLayer): number;
+	/** 登録順を各描き方の重ね順へ */
+	reorderLayers(): void;
+	/** 基図の層の添字（外来 style は -1） */
+	seaLi(st: BaseStyle, id: string): number;
+	seaOf(bg: MLLayer | null): number[] | null;
+	/** vector の描く層の差し込む位置を配る（#123） */
+	sendUserAnchors(): void;
+	/** setData の載せ直し（連打は畳む） */
+	setDataLive(id: string): Promise<void>;
+	setDataQ: Map<string, unknown>;
+	setMapGS(obj: Record<string, unknown>): void;
+	setPipelineStyle(st: BaseStyle): void;
+	setSrcAttr: DataReturn["setSrcAttr"];
+	spriteDrop(id: string): void;
+	spriteLoad(id: string, url: string): Promise<unknown>;
+	/** sprite の id → その sprite から読んだ記号の名前 */
+	spriteNames: Map<string, string[]>;
+	/** 層の source id（object の source は層 id） */
+	srcId(L: { id: string; source?: unknown }): string;
+	srcOf(L: MLLayer): UserSource | undefined;
+	unmountLayer(v: UserLayerRec): Promise<void> | void;
+	/** 実行時に足した background 層（B5） */
+	userBg: MLLayer[];
+	vtRaw: RawTileStore;
+	/** 利用者の層の口で描く vector の層か（外来 style） */
+	vtRouted(L: MLLayer, ms: ExtStyleDoc, baseSid: string | null): boolean;
+	/** sid → 解いた記述子（vector の描く層） */
+	vtdDesc: Map<string, VtxDesc>;
+	/** sid → 記述子を待っている層の数 */
+	vtdMounting: Map<string, number>;
+	/** vector の描く層の順（下から） */
+	vtdOrder(): string[];
+	vtxDescs: Map<string, Promise<VtxDesc | null>>;
+	/** vector source の feature-state（sid → 鍵 → { id, state }） */
+	vtxFS: Map<string, Map<string, { id: unknown; state: Record<string, unknown> }>>;
+	vtxFSKey(sourceLayer: string, id: unknown): string;
+	/** 問い合わせの地物の state（無ければ {}） */
+	vtxStateOf(sid: string, sourceLayer: string | null | undefined, id: unknown): Record<string, unknown>;
+	withBaseOverrides(st: BaseStyle): BaseStyle;
+	/** PMTiles の基図の層を足す（外来 style＝extBaseStyle） */
+	withPM(st: BaseStyle): BaseStyle;
+	withUserBg(st: BaseStyle): BaseStyle;
+	/** 標高の誇張（実スケール＝1） */
+	TERR_EXAG: number;
+	clipAllCut: ShadowsReturn["clipAllCut"]; clipCutXY: ShadowsReturn["clipCutXY"]; clipFor: ShadowsReturn["clipFor"];
+	/** 今伏せている基図の層の添字 */
+	hiddenAll(): Set<number>;
+	/** 層の出しズームの内か（maxzoom 排他） */
+	inZoomML(L: MLLayer, z: number): boolean;
+	isOv: OverlaysReturn["isOv"]; overlayFeature: OverlaysReturn["overlayFeature"];
+	/** ?nor01=1（混成窓を切る） */
+	noMixedR01: boolean;
+	/** 層 id → 模様・線の飾り */
+	patItems: Map<string, PatItem>;
+	/** gint の内部の鍵を外した properties */
+	stripMl(p: Record<string, unknown> | null | undefined): Record<string, unknown>;
+	/** 地面の半径（単位球＝1・地形の持ち上げ込み） */
+	vtxGround(lon: number, lat: number): number;
 }
+/** map.raster の色の調整（raster-hue-rotate 等） */
+export type RasterAdjust = NonNullable<Extract<RasterSpec, { url: string }>["adjust"]>;
 
 /** createGlobe の let（live） */
 export interface GlobeLive {
@@ -379,4 +589,21 @@ export interface GlobeLive {
 	/** 出典の欄の source ごとの行（消毒済み HTML） */
 	vtxAttrs: Map<string, string>;
 	remountSource: StyleReturn["remountSource"];
+	/** custom 層の onAdd/render に渡す map（null＝この map） */
+	customHost: object | null;
+	customCtl: CustomCtl | null;
+	/** 自動の建物を removeLayer した */
+	autoBldRemoved: boolean;
+	/** 床の色の background 層 */
+	bg: MLLayer | null;
+	/** setSprite 等の後の sprite の一覧・glyphs */
+	spriteList: SpriteEntry[] | null; mlGlyphs: string | null;
+	themes: Themes;
+	/** 基図の結合の署名 */
+	baseSig: string;
+	vtdQueryCache: QueryReturn["vtdQueryCache"];
+	vtxCtl: VtxCtl | null;
+	/** 今のテーマ（style＝地域の基図の style） */
+	theme: { style: BaseStyle };
+	t3dCtl: T3dCtl | null;
 }

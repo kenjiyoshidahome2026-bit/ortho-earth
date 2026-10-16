@@ -8,9 +8,10 @@
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
 import type { GlobeInternals, GlobeMap, StyleApi } from "./map.ts";
-import type { DrawSize, GlobeLive, GlobeScope, ModelCtl, UserSource, WPost } from "./scope.ts";
+import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, ModelCtl, UserLayerRec, UserSource, WPost } from "./scope.ts";
 import type { ClipPlane } from "@ortho-earth/core/clip";
-import type { MLLayer } from "@ortho-earth/core";
+import type { MLLayer, queryTiles } from "@ortho-earth/core";
+import type { CameraState } from "@ortho-earth/core/camera";
 import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.d.ts";
 import type { GJLabels } from "../gadgets/gjlabels.d.ts";
 import type { Symbols } from "../gadgets/symbols.d.ts";
@@ -168,15 +169,60 @@ export type ToolsDeps = Pick<GlobeScope, "BASEMAP_MINZOOM" | "BASE_SOURCE" | "CA
 	| "canvas" | "clearImages" | "evXY" | "flightCtl" | "flyTo" | "flyView" | "gint" | "glidePathView" | "loadUserFile" | "meshMgr" | "mlLayers" | "mlSources" | "mlVisible" | "opts"
 	| "remergeBase" | "renderer" | "requestDraw" | "requester" | "scenes" | "setAutoBld" | "size" | "t" | "unprojectAt" | "vtxDescOf">;
 
+export type StyleLive = LiveOf<"customHost" | "EXT" | "style" | "autoBldRemoved" | "bg" | "land" | "spriteList" | "mlGlyphs" | "mlLight" | "mlSky" | "themes" | "readySig" | "baseSig" | "attrZone",
+	"customCtl" | "videoCtl" | "aggCtl" | "vtdQueryCache" | "MAP_GS" | "vtxCtl" | "vtdCtl" | "autoBldHidden" | "theme" | "inspectReapply" | "dpr">;
+export type StyleDeps = Pick<GlobeScope, "AUTO_BLD" | "BASE_SOURCE" | "BASE_SRC" | "DEBUG_GLOBALS" | "NO_BG_WHITE" | "PUBLIC_DZ" | "R2D" | "STYLE_DZ" | "animNow" | "assertMLLayer" | "autoBldLayer" | "autoBldOn"
+	| "autoBldReadOnly" | "baseOverrides" | "baseSidNow" | "baseSrcSpec" | "baseVis" | "bgOf" | "bldFillLi" | "cam" | "dbgHost" | "drawLayerOf" | "dropFollow" | "emitSourceData" | "extBaseStyle"
+	| "extSourceFields" | "isVecSrc" | "kindOf" | "landDefault" | "landOf" | "loadExtStyle" | "mergeReq" | "mkThemes" | "mlFeatureState" | "mlGintData" | "mlIdOf" | "mlLayers" | "mlPasses"
+	| "mlSourceDz" | "mlSources" | "mlVisible" | "mountLayer" | "onMove" | "rasterAdjust" | "rasterFade" | "rasterPaintOpts" | "rasterPend" | "rasterSampling" | "rebuildCluster"
+	| "rebuildGint" | "reliefOpacity" | "renderer" | "reorderLayers" | "requestDraw" | "requester" | "seaLi" | "seaOf" | "sendLight" | "sendSky" | "sendUserAnchors" | "setAutoBld"
+	| "setDataLive" | "setDataQ" | "setMapGS" | "setPipelineStyle" | "setSrcAttr" | "size" | "spriteDrop" | "spriteLoad" | "spriteNames" | "srcId" | "srcOf" | "unmountLayer" | "userBg" | "vtRaw"
+	| "vtRouted" | "vtdDesc" | "vtdMounting" | "vtdOrder" | "vtxDescs" | "vtxFS" | "vtxFSKey" | "vtxStateOf" | "wPost" | "withBaseOverrides" | "withPM" | "withUserBg">;
+/** 外来 style の基図以外の層の控え（画像層・利用者の層・source・settle の購読の解除・振り分けの途中） */
+export interface ExtExtras { raster: string[]; layers: string[]; sources: string[]; offs: Array<() => void>; mounting: number }
+/** 全部の層の順の 1 件（基図の style の層｜利用者の層｜その他の層｜自動の建物） */
+export interface StyleOrderEntry { id: string; base?: MLLayer; v?: UserLayerRec; other?: MLLayer; auto?: boolean }
 export interface StyleReturn {
+	extExtras: ExtExtras;
+	/** MapLibre の style の順（getStyle と #123 の差し込みが共有） */
+	styleOrder(): StyleOrderEntry[];
 	/** この source を使う層を載せ直す（setData・視野追従の読み足し） */
 	remountSource(id: string, dataChanged?: boolean): Promise<void>;
 	/** 基図を結合し直す（利用者の層の出し入れ・検査表示） */
 	remergeBase(): void;
-	/** addSource の中身（dz＝この source の層のズームの目盛り・内部は 0 を明示） */
-	addSourceAt(id: string, spec: Parameters<StyleApi["addSource"]>[1], dz: number): GlobeMap;
-	/** addLayer の中身（dz を明示） */
-	addLayerAt(layer: Parameters<StyleApi["addLayer"]>[0], beforeId: string | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
+	/** addSource の中身（dz＝この source の層のズームの目盛り・内部は 0 を明示）。spec＝addSource の spec か style.json の source */
+	addSourceAt(id: string, spec: UserSource, dz: number): GlobeMap;
+	/** addLayer の中身（dz を明示）。層＝addLayer の層か style.json の層（source に object も＝その id で source を足す） */
+	addLayerAt(layer: MLLayer, beforeId: string | null | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
+}
+export type QueryLive = LiveOf<never, "MAP_GS" | "aggCtl" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
+export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "TERR_EXAG" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"
+	| "clipCutXY" | "clipFor" | "drawLayerOf" | "evXY" | "gint" | "hiddenAll" | "inZoomML" | "input" | "isOv" | "mlIdOf" | "mlLayers" | "mlPasses" | "mlVisible" | "noMixedR01" | "overlayFeature"
+	| "patItems" | "requester" | "size" | "srcId" | "stripMl" | "unprojectXY" | "vtdDesc" | "vtdOrder" | "vtxGround" | "vtxStateOf">;
+/** 押し出しの当たりの口（extrude-ml.js の env）＝地面 gnd の上の画面の点・屋根の面 */
+export interface ExtEnv {
+	vtx(lon: number, lat: number, hM: number): [number, number, number] | null;
+	roof(x: number, y: number, hM: number, lon0: number, lat0: number): { ll: LonLat; w: number } | null;
+}
+/** 今の視点の当たりの口（extView の戻り） */
+export interface ExtViewNow {
+	st: CameraState; W: number; H: number; k: number; f: number;
+	pos(u: ArrayLike<number>, m: ArrayLike<number> | null, R: number): ArrayLike<number>;
+	clipOf(p: ArrayLike<number>): [number, number, number];
+	envOf(gnd: (lon: number, lat: number) => number): ExtEnv;
+}
+/** 模型・3D Tiles の当たりの環境（meshPickEnv の戻り） */
+export interface MeshPickEnv {
+	view: { mvp: Float64Array; W: number; H: number; eye: ArrayLike<number> };
+	show3d: boolean;
+	/** 束の中心 → 持ち上げ（世界単位） */
+	lift(o: ArrayLike<number>, mode?: string): number;
+}
+export interface QueryReturn {
+	extView(): ExtViewNow;
+	meshPickEnv(): MeshPickEnv;
+	/** "sid|source-layer の組" → "z/x/y" → 解読済みタイル（vector source の描く層） */
+	vtdQueryCache: Map<string, NonNullable<Parameters<typeof queryTiles>[0]["cache"]>>;
 }
 export interface ToolsReturn {
 	/** ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層（fallback＝タイル表が無ければ false） */
