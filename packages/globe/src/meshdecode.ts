@@ -277,19 +277,53 @@ function fixMeshoptGlb(ab: ArrayBuffer): ArrayBuffer {
 	return out;
 }
 
-// 三角形の頂点3つ組キー：文字列連結+配列sort+joinは1.5M三角形規模だとGC負荷が支配的になるため、
-// 丸めた座標をBigIntへビット結合（各成分32bit範囲に収まる＝衝突なし）。巻き順に依存しないよう3値を数値比較でソート。
-function vkeyBig(geo: Float64Array, i: number): bigint {
-	const rx = BigInt(Math.round(geo[i*3] * 1e8) >>> 0);
-	const ry = BigInt(Math.round(geo[i*3+1] * 1e8) >>> 0);
-	const rz = BigInt(Math.round(geo[i*3+2] * 10) >>> 0);
-	return (rx << 64n) | (ry << 32n) | rz;
+// 頂点の同一視（丸めた座標の 3 つ組が同じ頂点＝同じ点）。canon[i]＝同じ丸め座標で最初に現れた頂点の番号。
+// 丸め＝lon/lat（rad）×1e8・高さ×10 を Math.round して >>>0（u32）。旧＝頂点ごとに BigInt を 3 個作り 96bit の鍵で Set/Map
+// （三角形は 288bit）＝30 万頂点・20 万三角形で 480ms の大半が BigInt の確保と比較だった。u32 の 3 つ組を開番地ハッシュで引く＝同じ同一性・同じ順（約 5 倍速い）
+function canonVerts(geo: Float64Array, M: number): Uint32Array {
+	const q = new Uint32Array(M * 3);
+	for (let i = 0; i < M; i++) { q[i*3] = Math.round(geo[i*3] * 1e8) >>> 0; q[i*3+1] = Math.round(geo[i*3+1] * 1e8) >>> 0; q[i*3+2] = Math.round(geo[i*3+2] * 10) >>> 0; }
+	let cap = 16; while (cap < M * 2) cap <<= 1;
+	const tab = new Int32Array(cap).fill(-1), canon = new Uint32Array(M), mask = cap - 1;
+	for (let i = 0; i < M; i++) {
+		const x = q[i*3], y = q[i*3+1], z = q[i*3+2];
+		let h = (Math.imul(x, 0x9E3779B1) ^ Math.imul(y, 0x85EBCA77) ^ Math.imul(z, 0xC2B2AE3D)) >>> 0;
+		h = (h ^ (h >>> 15)) & mask;
+		for (;;) {
+			const j = tab[h];
+			if (j < 0) { tab[h] = i; canon[i] = i; break; }
+			if (q[j*3] === x && q[j*3+1] === y && q[j*3+2] === z) { canon[i] = j; break; }
+			h = (h + 1) & mask;
+		}
+	}
+	return canon;
 }
-function triKey(k0: bigint, k1: bigint, k2: bigint): bigint {
-	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
-	if (k1 > k2) { const t = k1; k1 = k2; k2 = t; }
-	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
-	return (k0 << 192n) | (k1 << 96n) | k2;
+// 重複三角形の除去：頂点の代表番号（canon）の組が同じ三角形＝巻き順・頂点共有に依らず同じ面。最初の 1 枚だけ残す（旧と同じ順）
+function dedupTris(rawIdx: Uint32Array, canon: Uint32Array): Uint32Array {
+	const T = rawIdx.length / 3 | 0, key = new Uint32Array(T * 3), dedup = new Uint32Array(rawIdx.length);
+	let cap = 16; while (cap < T * 2) cap <<= 1;
+	const tab = new Int32Array(cap).fill(-1), mask = cap - 1;
+	let n = 0, di = 0;
+	for (let k = 0; k < rawIdx.length; k += 3) {
+		const a = rawIdx[k], b = rawIdx[k+1], c = rawIdx[k+2];
+		let k0 = canon[a], k1 = canon[b], k2 = canon[c];
+		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
+		if (k1 > k2) { const t = k1; k1 = k2; k2 = t; }
+		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
+		let h = (Math.imul(k0, 0x9E3779B1) ^ Math.imul(k1, 0x85EBCA77) ^ Math.imul(k2, 0xC2B2AE3D)) >>> 0;
+		h = (h ^ (h >>> 15)) & mask;
+		let dup = false;
+		for (;;) {
+			const j = tab[h];
+			if (j < 0) { tab[h] = n; break; }
+			if (key[j*3] === k0 && key[j*3+1] === k1 && key[j*3+2] === k2) { dup = true; break; }
+			h = (h + 1) & mask;
+		}
+		if (dup) continue;
+		key[n*3] = k0; key[n*3+1] = k1; key[n*3+2] = k2; n++;
+		dedup[di++] = a; dedup[di++] = b; dedup[di++] = c;
+	}
+	return dedup.slice(0, di);   // 実サイズへトリム（cacheに満杯バッファを残さない）
 }
 
 // バッチ1個（タイル列の一部）をデコードして単一メッシュへ。旧・全区一括処理と同じパイプラインをバッチ範囲に適用：
@@ -459,21 +493,12 @@ export function geoWorld<O extends { [i: number]: number }>(lon: number, lat: nu
 	return out;
 }
 export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32Array, minH: number, wardMask: Uint8Array | null, wardBbox: ArrayLike<number> | null, brid: boolean, extra: { uv: Float32Array; col: Uint8Array } | null = null, groundBatch = brid): MeshOut {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
-	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
-	const seen = new Set<bigint>(), dedup = new Uint32Array(totalI);
-	let di = 0;
-	for (let k = 0; k < rawIdx.length; k += 3) {
-		const a = rawIdx[k], b = rawIdx[k+1], c = rawIdx[k+2];
-		const key = triKey(vkeyBig(geo, a), vkeyBig(geo, b), vkeyBig(geo, c));
-		if (seen.has(key)) continue;
-		dedup[di++] = a; dedup[di++] = b; dedup[di++] = c;
-		seen.add(key);
-	}
-	const outIdx = dedup.slice(0, di);   // 実サイズへトリム（cacheに満杯バッファを残さない）
-	// bbox(deg)：renderer側フラスタムカリングに使う。geo は rad なので deg へ。
 	const M = geo.length / 3;
+	const canon = canonVerts(geo, M);
+	const outIdx = dedupTris(rawIdx, canon);
+	// bbox(deg)：renderer側フラスタムカリングに使う。geo は rad なので deg へ。
 	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
 	for (let i = 0; i < M; i++) { const lo = geo[i*3], la = geo[i*3+1]; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; }
 	const bbox = [minLon*R2D, minLat*R2D, maxLon*R2D, maxLat*R2D];
@@ -484,19 +509,12 @@ export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32A
 	// 剛体移動なら浮きもセル境界シアーも原理的に無い。斜面の建物は基部最低点で接地＝上り側が僅かに
 	// 沈む方向（浮きより無害。地形は都市帯で深度を書かない背景＝沈み込みは見えない）。
 	// 連結判定＝三角形の頂点共有 ＋ 丸め座標一致の頂点同一視（壁・屋根が別プリミティブでも境界座標は
-	// 厳密一致するため。vkeyBig の丸め＝dedup と同じ 6cm/0.1m）。
+	// 厳密一致するため。canonVerts の丸め＝dedup と同じ 6cm/0.1m）。
 	const parent = new Int32Array(M);
 	for (let i = 0; i < M; i++) parent[i] = i;
 	const find = (i: number) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
 	const union = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
-	{
-		const firstByKey = new Map<bigint, number>();   // 丸め座標 → 最初に現れた頂点番号（同座標の頂点を同一視）
-		for (let i = 0; i < M; i++) {
-			const k = vkeyBig(geo, i);
-			const f = firstByKey.get(k);
-			if (f === undefined) firstByKey.set(k, i); else union(f, i);
-		}
-	}
+	for (let i = 0; i < M; i++) if (canon[i] !== i) union(canon[i], i);   // 丸め座標が同じ頂点を同一視（最初に現れた頂点と・旧の firstByKey と同じ順）
 	for (let k = 0; k < outIdx.length; k += 3) { union(outIdx[k], outIdx[k+1]); union(outIdx[k], outIdx[k+2]); }
 	const minAlt = new Float64Array(M).fill(Infinity);   // 成分代表 → 成分の最低標高（基部）
 	const maxAlt = new Float64Array(M).fill(-Infinity);  // 成分代表 → 最高標高（max-min＝建物の高さ。LOD並べ替えのキー）

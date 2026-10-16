@@ -96,11 +96,28 @@ export function subdivideTris(flat: ArrayLike<number>, tris: ArrayLike<number>, 
 	let np = flat.length; if (SD.pts.length < np) SD.pts = new Float64Array(np * 2); const pts0 = SD.pts; pts0.set(flat);
 	let pts = pts0, pn = np;
 	SD.out.n = 0;
-	const seen = new Map<number, Map<number, number>>();   // x → (y → 添字)＝旧の "x,y" と同じ同一性（格子の角＝縦線の交点と横線の交点が同じ点なら同じ頂点）
+	// 交点の覚え＝(x, y) → 頂点の添字の開番地ハッシュ（表＝頂点の添字・座標は pts を見る）。旧＝x → (y → 添字) の二段の Map＝同じ同一性
+	// （SameValueZero：0 と −0 は同じ・NaN は NaN と同じ）。鍵の比較は same()・ハッシュは −0 を 0 に・NaN を 1 つの値に寄せてから＝同じ点は同じ桶
+	let cap = 256; while (cap < tris.length) cap <<= 1;
+	let tab = new Int32Array(cap).fill(-1), used = 0;
+	const same = (a: number, b: number): boolean => a === b || (a !== a && b !== b);
+	const hashXY = (x: number, y: number): number => {
+		HB[0] = x === 0 ? 0 : x; HB[1] = y === 0 ? 0 : y;   // −0 → 0（NaN は Float64Array に書くと既定の NaN の bit 列になる）
+		if (x !== x) HB[0] = NaN; if (y !== y) HB[1] = NaN;
+		let h = Math.imul(HU[0] ^ Math.imul(HU[1], 0x85EBCA77), 0x9E3779B1) ^ Math.imul(HU[2] ^ Math.imul(HU[3], 0xC2B2AE3D), 0x27D4EB2F);
+		h ^= h >>> 15; return h >>> 0;
+	};
 	const addPt = (x: number, y: number): number => {
-		let m = seen.get(x); if (m === undefined) { m = new Map(); seen.set(x, m); }
-		let r = m.get(y);
-		if (r === undefined) { r = pn >> 1; if (pn + 2 > pts.length) { const b = new Float64Array(pts.length * 2); b.set(pts.subarray(0, pn)); pts = SD.pts = b; } pts[pn++] = x; pts[pn++] = y; m.set(y, r); }
+		let mask = cap - 1, h = hashXY(x, y) & mask;
+		for (;;) { const r = tab[h]; if (r < 0) break; if (same(pts[r * 2], x) && same(pts[r * 2 + 1], y)) return r; h = (h + 1) & mask; }
+		const r = pn >> 1;
+		if (pn + 2 > pts.length) { const b = new Float64Array(pts.length * 2); b.set(pts.subarray(0, pn)); pts = SD.pts = b; }
+		pts[pn++] = x; pts[pn++] = y;
+		tab[h] = r;
+		if (++used * 2 > cap) {   // 半分を超えたら倍に（入れ直し）
+			const old = tab; cap <<= 1; mask = cap - 1; tab = new Int32Array(cap).fill(-1);
+			for (let i = 0; i < old.length; i++) { const v = old[i]; if (v < 0) continue; let k = hashXY(pts[v * 2], pts[v * 2 + 1]) & mask; while (tab[k] >= 0) k = (k + 1) & mask; tab[k] = v; }
+		}
 		return r;
 	};
 	// 辺 (p,q) と格子線 axis=v の交点＝頂点添字の小さい方を始点に計算（向きに依らずビット同値）
@@ -161,6 +178,7 @@ const newBufs = (): Bufs => ({ pos: new Grow(Float32Array), col: new Grow(Uint8A
 let sharedBufs: Bufs | null = null, bufDepth = 0;
 const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
 const SD = { pts: new Float64Array(1 << 12), stk: new Uint32Array(1 << 12), out: new Grow(Uint32Array, 1 << 14) };   // subdivideTris の作業（同期・使い回す）
+const HB = new Float64Array(2), HU = new Uint32Array(HB.buffer);   // subdivideTris の交点の覚えのハッシュ（座標の bit 列）
 
 // line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
 const NO_SLIDES: [ArrayLike<number>, ArrayLike<number>] = [[], []];

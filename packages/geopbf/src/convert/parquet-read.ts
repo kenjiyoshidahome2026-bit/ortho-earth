@@ -162,6 +162,7 @@ export function decodeDeltaBinaryPacked(u8: Uint8Array, pos: number, n: number, 
 	let cur = first, o = 0;
 	if (n) out[o++] = big ? Number(cur) : wrap32(cur);
 	let left = total - 1;   // 残る delta の数（ページの n を越える分も読み飛ばす＝pos を正しく進める）
+	if (!big) return { out, pos: deltaInt32(u8, pos, n, mbs, per, left, wrap32(cur), out as Int32Array) };
 	while (left > 0) {
 		let minD: bigint; [minD, pos] = zigzag64(u8, pos);
 		if (pos + mbs > u8.length) throw new Error("parquet: truncated DELTA_BINARY_PACKED block");
@@ -185,6 +186,45 @@ export function decodeDeltaBinaryPacked(u8: Uint8Array, pos: number, n: number, 
 		}
 	}
 	return { out, pos };
+}
+// DELTA_BINARY_PACKED の INT32 の本体：2^32 で回る和は Number の int32 のまま積んでよい（各項を 2^32 で回してから足しても同じ）＝
+// 旧＝値ごとに BigInt の足し算と BigInt.asIntN。bit 幅 ≤ 32 の値は 32bit の bit 演算で取り出す。
+// 幅 33〜64 は BigInt で取り出して下位 32 bit だけ使う。戻り＝次の位置
+function deltaInt32(u8: Uint8Array, pos: number, n: number, mbs: number, per: number, left: number, cur: number, out: Int32Array): number {
+	let o = n ? 1 : 0;
+	while (left > 0) {
+		let minD: bigint; [minD, pos] = zigzag64(u8, pos);
+		const md = Number(BigInt.asIntN(32, minD));
+		if (pos + mbs > u8.length) throw new Error("parquet: truncated DELTA_BINARY_PACKED block");
+		const widths = u8.subarray(pos, pos + mbs); pos += mbs;
+		for (let m = 0; m < mbs && left > 0; m++) {
+			const w = widths[m];
+			if (w > 64) throw new Error("parquet: DELTA_BINARY_PACKED bit width " + w);
+			const bytes = (per * w) >> 3;
+			if (pos + bytes > u8.length) throw new Error("parquet: truncated DELTA_BINARY_PACKED miniblock");
+			const take = Math.min(per, left);
+			if (w === 0) { for (let i = 0; i < take; i++) { cur = (cur + md) | 0; if (o < n) out[o++] = cur; } }
+			else if (w <= 32) {   // 値 i は bit 位置 i·w から＝その byte から 5 byte を 32bit で読んで寄せる（miniblock の外の byte は & で落ちる・配列の外は undefined＝0）
+				const M = w === 32 ? -1 : (1 << w) - 1;
+				for (let i = 0; i < take; i++) {
+					const b = i * w, k = pos + (b >>> 3), sh = b & 7;
+					let v = (u8[k] | (u8[k + 1] << 8) | (u8[k + 2] << 16) | (u8[k + 3] << 24)) >>> sh;
+					if (sh) v |= u8[k + 4] << (32 - sh);
+					cur = (cur + md + ((v & M) >>> 0)) | 0;
+					if (o < n) out[o++] = cur;
+				}
+			} else {
+				let acc = 0n, nb = 0n, p = pos; const W = BigInt(w), mask = (1n << W) - 1n;
+				for (let i = 0; i < take; i++) {
+					while (nb < W) { acc |= BigInt(u8[p++]) << nb; nb += 8n; }
+					cur = (cur + md + Number(acc & mask & 0xFFFFFFFFn)) | 0; acc >>= W; nb -= W;
+					if (o < n) out[o++] = cur;
+				}
+			}
+			pos += bytes; left -= take;
+		}
+	}
+	return pos;
 }
 // DELTA_LENGTH_BYTE_ARRAY: 長さ列（DELTA_BINARY_PACKED INT32）＋連結したバイト列
 function decodeDeltaLengthByteArray(u8: Uint8Array, pos: number, n: number): DecodedBytes {
