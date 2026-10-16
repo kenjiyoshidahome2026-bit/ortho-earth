@@ -121,7 +121,7 @@
 		"./src/renderworker.js",
 		"./src/meshworker.js",
 		"./src/meshdecoder.js",
-		"./src/gintbakeworker.js",
+		"./src/gintbakeworker.ts",
 		"./src/rastertiles-worker.js",
 		"./src/imagequad-worker.js",
 		"./src/iiif-worker.js",
