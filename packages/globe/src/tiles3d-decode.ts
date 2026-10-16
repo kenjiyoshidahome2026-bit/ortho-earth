@@ -31,13 +31,25 @@ const m3mul = (a: ArrayLike<number>, b: ArrayLike<number>) => { const o = new Fl
 const apply = (M: Xf3, v: ArrayLike<number>) => { const p = mulL(M.L, v); return [p[0] + M.t[0], p[1] + M.t[1], p[2] + M.t[2]]; };
 
 // 特徴表（feature table）の値＝JSON の直値か、バイナリへの { byteOffset }（componentType は仕様の既定）
-// componentType はタイルの JSON の文字列＝Map で引く（素の object だと "constructor" 等の継承キーが Object を返す。CodeQL・2026-10-16）
-const COMPONENT_TYPES = new Map<string, TypedCtor>([["BYTE", Int8Array], ["UNSIGNED_BYTE", Uint8Array], ["SHORT", Int16Array], ["UNSIGNED_SHORT", Uint16Array], ["INT", Int32Array], ["UNSIGNED_INT", Uint32Array], ["FLOAT", Float32Array], ["DOUBLE", Float64Array]]);
+// componentType はタイルの JSON の文字列＝switch で決める（表を引くと "constructor" 等の継承キーが Object を返す。CodeQL・2026-10-16）
+const componentCtor = (ct: string, dflt: TypedCtor): TypedCtor => {
+	switch (ct) {
+		case "BYTE": return Int8Array;
+		case "UNSIGNED_BYTE": return Uint8Array;
+		case "SHORT": return Int16Array;
+		case "UNSIGNED_SHORT": return Uint16Array;
+		case "INT": return Int32Array;
+		case "UNSIGNED_INT": return Uint32Array;
+		case "FLOAT": return Float32Array;
+		case "DOUBLE": return Float64Array;
+		default: return dflt;
+	}
+};
 const ftValue = (ftJ: FeatureTableJson, ftBin: Uint8Array, key: string, n: number, Type: TypedCtor = Float32Array, comps = 3): ArrayLike<number> | null => {
 	const v = ftJ[key] as { componentType?: string; byteOffset?: number } | number[] | null | undefined;
 	if (v == null) return null;
 	if (Array.isArray(v) || typeof v !== "object") return v as ArrayLike<number>;
-	const T = v.componentType ? COMPONENT_TYPES.get(v.componentType) || Type : Type;
+	const T = v.componentType ? componentCtor(v.componentType, Type) : Type;
 	const off = ftBin.byteOffset + (v.byteOffset || 0);
 	if (off % T.BYTES_PER_ELEMENT) return new T(ftBin.buffer.slice(off, off + n * comps * T.BYTES_PER_ELEMENT));   // 整列していない＝写して読む
 	return new T(ftBin.buffer, off, n * comps);
