@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- t-hillshade-gl: 陰影の GPU 版（src/hillshade-gl.ts・高速化 段 2）が CPU 版（src/hillshade.ts の shadeTile＝MapLibre の式の写し）と同じ絵を描く門。
+     合成の DEM（山＋細かい波＋NaN＋隣のタイルあり／なし）を 5 つの method・色の不透明度・z を変えて両方で描き、画素の差を測る。
+     GPU は f32・CPU は f64＝丸めの違いで、中間画像の 1/255 刻み（pack）の境目に当たった画素だけ数階調ずれ得る。
+     許容＝事前乗算の色（見える色）の各成分の差 ≤ 3 の画素が 99.5% 以上・最大の差 ≤ 64（境目で勾配が 1 刻み変わった画素）。
+     事前乗算で比べるのは、ほぼ透明な画素（basic の sh≈0.5 など）で色が 0 か非 0 かが割れても見えないため。WebGL2 が無い環境は「スキップ扱い PASS」。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-hillshade-gl</title></head>
+<body>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	const { shadeTile, hillshadeParams } = await import("../src/hillshade.ts");
+	const { createShadeGL } = await import("../src/hillshade-gl.ts");
+	const G = createShadeGL();
+	if (!G) { ok("webgl2-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+		let seed = 7; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+		const dem = (n, ox, oy, amp) => { const h = new Float32Array(n * n); for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const X = x + ox, Y = y + oy; h[y * n + x] = amp * (Math.sin(X / 23) * Math.cos(Y / 31) + 0.3 * Math.sin((X + Y) / 5)) + 40 * rnd(); } for (let k = 0; k < 20; k++) h[(rnd() * n * n) | 0] = NaN; return h; };
+		const K = [0, 0, 0, 1], W = [1, 1, 1, 1];
+		const cases = [
+			["standard", {}, 12, 256], ["standard", { "hillshade-exaggeration": 0.9 }, 9, 512], ["standard", { "hillshade-exaggeration": 0.2, "hillshade-illumination-direction": 90, "hillshade-shadow-color": "rgba(40,0,80,0.6)", "hillshade-highlight-color": "#ffe0a0", "hillshade-accent-color": "#225" }, 14, 256],
+			["basic", {}, 12, 256], ["basic", { "hillshade-illumination-altitude": 20 }, 5, 256],
+			["combined", {}, 12, 256], ["combined", { "hillshade-exaggeration": 1 }, 3, 256],
+			["igor", {}, 12, 256], ["igor", { "hillshade-illumination-direction": 200 }, 16, 512],
+			["multidirectional", { "hillshade-illumination-direction": [270, 315, 0], "hillshade-illumination-altitude": [30, 45, 60], "hillshade-shadow-color": ["#400", "#040", "#004"], "hillshade-highlight-color": ["#fcc", "#cfc", "#ccf"] }, 12, 256],
+		];
+		for (const [method, extra, z, n] of cases) {
+			const h = dem(n, 0, 0, z < 8 ? 2500 : 600), hE = dem(n, n, 0, z < 8 ? 2500 : 600), hS = rnd() < 2 ? dem(n, 0, n, z < 8 ? 2500 : 600) : null;
+			const p = hillshadeParams({ "hillshade-method": method, "hillshade-shadow-color": K, "hillshade-highlight-color": W, "hillshade-accent-color": K, ...extra });
+			const inp = { h, n, hE, hS, hN: null, hW: null, z, lat0: 35.2, lat1: 35.1, p };
+			const t0 = performance.now(), cpu = shadeTile(inp), t1 = performance.now(), gpu = G.shade(inp), t2 = performance.now();
+			if (!gpu) { ok(`${method} z${z} ${n}²: GPU が null`, false); continue; }
+			let close = 0, maxd = 0;
+			for (let i = 0; i < n * n; i++) { const o = i * 4, ac = cpu[o + 3], ag = gpu[o + 3]; let d = Math.abs(ac - ag); for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(cpu[o + c] * ac - gpu[o + c] * ag) / 255); if (d <= 3) close++; if (d > maxd) maxd = d; }   // 見える差＝事前乗算の色（透明に近い画素の色の差は見えない）
+			const frac = close / (n * n);
+			ok(`${method} z${z} ${n}²: 差≤3 ${(frac * 100).toFixed(2)}%・最大 ${maxd.toFixed(1)}・CPU ${(t1 - t0).toFixed(1)}ms GPU ${(t2 - t1).toFixed(1)}ms`, frac >= 0.995 && maxd <= 64);
+		}
+		// 光が 9 本＝上限超え＝null（呼び手は CPU）
+		const p9 = hillshadeParams({ "hillshade-method": "multidirectional", "hillshade-illumination-direction": [0, 40, 80, 120, 160, 200, 240, 280, 320] });
+		ok("光 9 本＝null（CPU へ）", G.shade({ h: new Float32Array(16), n: 4, z: 10, lat0: 1, lat1: 0, p: p9 }) === null);
+		G.close();
+		fin();
+	}
+} catch (e) { ok("例外 " + (e?.stack || e), false); fin(); }
+</script>
+</body></html>

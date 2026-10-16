@@ -48,11 +48,20 @@ export function reliefAt(R: ReliefRamp, h: number): number[] {
 	return [rgba[a] + (rgba[b] - rgba[a]) * t, rgba[a + 1] + (rgba[b + 1] - rgba[a + 1]) * t, rgba[a + 2] + (rgba[b + 2] - rgba[a + 2]) * t, rgba[a + 3] + (rgba[b + 3] - rgba[a + 3]) * t];
 }
 
-// 1 タイルの色（h＝標高の画素・n×n）→ RGBA（事前乗算を戻した 0〜255＝ImageData）
-function reliefTile(h: Float32Array, n: number, R: ReliefRamp) {
-	const out = new Uint8ClampedArray(n * n * 4);
+// 1 タイルの色（h＝標高の画素・n×n）→ RGBA（事前乗算を戻した 0〜255＝ImageData）。式は reliefAt と同じ（画素ごとに配列を作らない形・ビット同値）
+export function reliefTile(h: Float32Array, n: number, R: ReliefRamp) {
+	const out = new Uint8ClampedArray(n * n * 4), { elev, rgba, n: m } = R, e0 = elev[0], e1 = elev[m - 1];
 	for (let i = 0; i < n * n; i++) {
-		const [r, g, b, a] = reliefAt(R, h[i]);
+		const v = h[i];
+		if (!(v === v)) continue;   // NaN＝透明
+		let r: number, g: number, b: number, a: number;
+		if (v <= e0 || v >= e1) { const k = v <= e0 ? 0 : (m - 1) * 4; r = rgba[k]; g = rgba[k + 1]; b = rgba[k + 2]; a = rgba[k + 3]; }
+		else {
+			let l = 0, rr = m - 1;
+			while (rr - l > 1) { const md = (l + rr) >> 1; if (v < elev[md]) rr = md; else l = md; }
+			const t = (v - elev[l]) / (elev[rr] - elev[l]), p = l * 4, q = rr * 4;
+			r = rgba[p] + (rgba[q] - rgba[p]) * t; g = rgba[p + 1] + (rgba[q + 1] - rgba[p + 1]) * t; b = rgba[p + 2] + (rgba[q + 2] - rgba[p + 2]) * t; a = rgba[p + 3] + (rgba[q + 3] - rgba[p + 3]) * t;
+		}
 		if (a > 1e-6) { const o = i * 4; out[o] = r / a * 255; out[o + 1] = g / a * 255; out[o + 2] = b / a * 255; out[o + 3] = a * 255; }
 	}
 	return out;
