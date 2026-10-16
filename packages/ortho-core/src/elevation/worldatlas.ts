@@ -3,6 +3,12 @@
 // どちらも同じ 4×2@1024 を毎回 8 枚から作っていた（復号 8 回＋再標本化 8 回）。焼き済み 1 本（3.25MB・復号 1 回＝実測 2026-09-18）で置き換える。
 // 焼くのは apps/uploader（bakeWorldAtlas → encode → bucket GIS/alt）。消費は loadTile.byName(WORLD_ATLAS) → worldAtlasCell。
 // 純関数＝Node 検定（tests/t-worldatlas.mjs）。依存なし。
+import type { ElevGrid, ElevTileGrid } from "../elevation.ts";
+
+/** 標高タイル（altpbf の形＝name/source つき） */
+export interface ElevTile extends ElevTileGrid { name?: string; source?: string; data: Int16Array | Float32Array; noBake?: number }
+/** 焼いたアトラス（encode に渡せる 1 枚） */
+export interface WorldAtlas { name: string; source: string; lng: number; lat: number; range: number; width: number; height: number; data: Int16Array }
 
 // bucket/IDB のキー。中身を焼き直したら末尾の版を上げる（派生キャッシュは版を刻む＝IDB の旧版が永久に勝つ事故の予防）。
 export const WORLD_ATLAS = "WORLD1024_1";
@@ -14,9 +20,9 @@ export const WORLD_ATLAS_CELL = 1024;   // 90° セルあたりの texel（4 × 
 // 異常値（<-420 / >9000）は 0＝深海も 0 になる（downsampleFlipped と同じ規約＝海底地形は持たない）。-420..0 の負値（死海・海面下の陸）は
 // 保持し、消費側（worldAtlasCell/sampleWorldAtlas）が 0 へ寄せる＝出力は従来と同一。海底が要る用途は R90 生タイルから別に焼くこと。
 // Int16 格納＝丸めで ±0.5m（R90 の格子 3.7km に対し無視できる）。
-export function resampleTile(tile, N, out, W, ox, oy) {
+export function resampleTile(tile: ElevGrid, N: number, out: { [i: number]: number }, W: number, ox: number, oy: number): void {
 	const { data, width: w, height: h } = tile;
-	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
+	const H = (x: number, y: number): number => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
 	const M = 2;
 	for (let j = 0; j < N; j++) {   // j＝南から
 		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
@@ -31,8 +37,8 @@ export function resampleTile(tile, N, out, W, ox, oy) {
 }
 
 // R90 タイル群（{lng,lat,range:90,width,height,data,source}）→ altpbf の encode に渡せる 1 枚。lng∈{-180,-90,0,90}・lat∈{-90,0} の 8 枚が揃うこと。
-export function bakeWorldAtlas(tiles, N = WORLD_ATLAS_CELL) {
-	const W = 4 * N, H = 2 * N, data = new Int16Array(W * H), seen = new Set();
+export function bakeWorldAtlas(tiles: readonly (ElevTile | null | undefined)[], N = WORLD_ATLAS_CELL): WorldAtlas {
+	const W = 4 * N, H = 2 * N, data = new Int16Array(W * H), seen = new Set<string>();
 	for (const t of tiles) {
 		if (!(t?.data && t.width && t.range === 90)) throw new Error(`bakeWorldAtlas: not an R90 tile: ${t?.name ?? t}`);
 		const cx = (t.lng + 180) / 90, cy = (t.lat + 90) / 90;   // cy: 0=南半球
@@ -41,14 +47,14 @@ export function bakeWorldAtlas(tiles, N = WORLD_ATLAS_CELL) {
 		seen.add(cx + "," + cy);
 	}
 	if (seen.size !== 8) throw new Error(`bakeWorldAtlas: ${seen.size}/8 cells`);
-	const src = [...new Set(tiles.map(t => t.source).filter(Boolean))].join("+");
+	const src = [...new Set(tiles.map(t => t!.source).filter(Boolean))].join("+");
 	return { name: WORLD_ATLAS, source: `WORLD ${N}/90deg from ${src || "R90"}`, lng: -180, lat: -90, range: 360, width: W, height: H, data };
 }
 
 // アトラスから R90 セル (cx 0..3 西から・cy 0..1 南から) を N² の Float32（row0=南・負値は 0）で取り出す＝
 // 従来の downsampleFlipped(tile, N) と同じ物（丸め ±0.5m の差だけ）。N がセル寸法の約数なら k×k の箱平均（texel 中心整合）。
 // out/W/ox/oy を渡せば大きな Float32 アトラスの一部へ直接書く（equal の 4096×2048 用）。
-export function worldAtlasCell(atlas, cx, cy, N, out = new Float32Array(N * N), W = N, ox = 0, oy = 0) {
+export function worldAtlasCell(atlas: ElevGrid, cx: number, cy: number, N: number, out: Float32Array = new Float32Array(N * N), W = N, ox = 0, oy = 0): Float32Array {
 	const C = atlas.width >> 2, AW = atlas.width, d = atlas.data;
 	if (C % N !== 0) throw new Error(`worldAtlasCell: ${N} does not divide cell ${C}`);
 	const k = C / N, inv = 1 / (k * k);
@@ -71,7 +77,7 @@ export function worldAtlasCell(atlas, cx, cy, N, out = new Float32Array(N * N), 
 }
 
 // アトラスを経緯度でバイリニア標本（m・負値は 0）。texel 中心規約＝((i+0.5)/W)·360−180。terrain.js sampleElev の最後の床。
-export function sampleWorldAtlas(atlas, lon, lat) {
+export function sampleWorldAtlas(atlas: ElevGrid, lon: number, lat: number): number {
 	const { width: W, height: H, data: d } = atlas;
 	let gx = ((lon + 180) / 360) * W - 0.5, gy = ((90 - lat) / 180) * H - 0.5;   // gy＝北から
 	gx = Math.min(W - 1, Math.max(0, gx)); gy = Math.min(H - 1, Math.max(0, gy));

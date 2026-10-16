@@ -2,25 +2,32 @@
 // 形式（encode/decode/名前規約/altpbf2png）は altpbf（MIT）。ここはエンジン側の結線＝取得（bucket・JAXA）と IndexedDB の保存。
 // ここは私有インフラ結線＝native-bucket（R2バケツ・IDBキャッシュ・JAXA CORS proxy）。地域の知識は持たない（2026-09-17）。
 // 兄弟モジュール（worker/createGetHeight/gebco）の輸入面を保つため、フォーマット関数はここから再輸出する。
-const L3 = n => String(n).padStart(3, "0");   // 旧 common の L3（桁揃え）＝ここでしか使わない
+const L3 = (n: number): string => String(n).padStart(3, "0");   // 旧 common の L3（桁揃え）＝ここでしか使わない
 import { nativeBucket } from "native-bucket";
 import { encode, decode, encodeName, decodeName } from "altpbf";
-import { WORLD_ATLAS } from "./worldatlas.js";
+import { WORLD_ATLAS } from "./worldatlas.ts";
+import type { NativeBucket, CacheFn, Bucket } from "native-bucket";
+import type { AltpbfSource } from "altpbf";
+import type { ElevTile } from "./worldatlas.ts";
 export { encode, decode, encodeName, decodeName, altpbf2png } from "altpbf";
+export type { ElevTile } from "./worldatlas.ts";
 
-let _nb = null;
-export function setApiUrl(url) { _nb = nativeBucket(url); }
-export const getNB = () => { if (!_nb) throw new Error("altpbf: call setApiUrl(url) before use"); return _nb; };
+/** TIFF の中身（Int16 の格子） */
+export interface TiffRaster { width: number; height: number; data: Int16Array }
+
+let _nb: NativeBucket | null = null;
+export function setApiUrl(url: string): void { _nb = nativeBucket(url); }
+export const getNB = (): NativeBucket => { if (!_nb) throw new Error("altpbf: call setApiUrl(url) before use"); return _nb; };
 
 const dire = `GIS/alt`;
-let _bucket = null;
-const getBucket = async () => _bucket || (_bucket = await getNB().Bucket(dire, { silent: true }));
+let _bucket: Bucket | null = null;
+const getBucket = async (): Promise<Bucket> => _bucket || (_bucket = (await getNB().Bucket(dire, { silent: true }))!);
 
 const baseUrl = "https://www.eorc.jaxa.jp/ALOS";
 
-export async function index_alos() {
-	const tub = {};
-	const txt = (await getNB().Fetch(`${baseUrl}/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`, "text")).split("\n");
+export async function index_alos(): Promise<Record<string, string>> {
+	const tub: Record<string, string> = {};
+	const txt = (await getNB().Fetch(`${baseUrl}/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`, "text") as string).split("\n");
 	txt.forEach(t => {
 		const [fname, ver] = t.split(/\s+/);
 		fname.match(/[NS]\d+[WE]\d+/) && (tub[fname] = ver);
@@ -29,9 +36,9 @@ export async function index_alos() {
 }
 // 地域の申告（どの域のどの段を裸地標高に焼き直したか）は呼び出し側が持つ＝ここには置かない。
 // このパッケージが知っているのは「R01 は bucket を先に見る・無ければ JAXA」という段の規則だけ（2026-09-17）。
-export const inBbox = (bbox, lng, lat) => !!bbox && lng >= bbox[0] && lng < bbox[2] && lat >= bbox[1] && lat < bbox[3];
+export const inBbox = (bbox: readonly number[] | null | undefined, lng: number, lat: number): boolean => !!bbox && lng >= bbox[0] && lng < bbox[2] && lat >= bbox[1] && lat < bbox[3];
 
-export async function load(name) {
+export async function load(name: string): Promise<ElevTile | null> {
 	if (name === WORLD_ATLAS) return load_gepco(name);   // 全球アトラス＝段の規約外（R{段}… でない）・bucket/IDB 直読み
 	const [lng, lat, range] = decodeName(name);
 	if (range !== 1) return load_gepco(name);
@@ -45,22 +52,22 @@ export async function load(name) {
 	return alos;
 }
 
-async function load_alos(lng, lat) {
+async function load_alos(lng: number, lat: number): Promise<ElevTile | null> {
 	const source = "ALOS AW3D30", range = 1;
-	const f3 = n => (n < 0 ? Math.ceil : Math.floor)(Math.abs(n) / 5) * 5 * (n < 0 ? -1 : 1);
-	const LNG = n => (n < 0 ? "W" : "E") + L3(Math.abs(n)), LAT = n => (n < 0 ? "S" : "N") + L3(Math.abs(n));
+	const f3 = (n: number): number => (n < 0 ? Math.ceil : Math.floor)(Math.abs(n) / 5) * 5 * (n < 0 ? -1 : 1);
+	const LNG = (n: number): string => (n < 0 ? "W" : "E") + L3(Math.abs(n)), LAT = (n: number): string => (n < 0 ? "S" : "N") + L3(Math.abs(n));
 	const dname = LAT(f3(lat)) + LNG(f3(lng)) + "_" + LAT(f3(lat + 5)) + LNG(f3(lng + 5));
 	const fname = LAT(Math.floor(lat)) + LNG(Math.floor(lng));   // 5°zip 内の 1°DSMタイル名（例 N035E139）
 	const url = `${baseUrl}/aw3d30/data/release_v2404/${dname}.zip`;
 	const target = `${dname}/ALPSMLC30_${fname}_DSM.tif`;
-	const file = await getNB().Fetch(url, { target, cors: true });
+	const file = await getNB().Fetch(url, { target, cors: true }) as AltpbfSource;
 	const raster = await tiff2data(file); if (!raster) { console.error("geotiff raster error", raster); return null; }
 	const { width, height, data } = raster;
 	return { name: encodeName(lng, lat, range), source, lng, lat, range, width, height, data };
 }
-let _cache = null;
-const getCache = async () => _cache || (_cache = await getNB().Cache(dire));
-async function load_gepco(name) {
+let _cache: CacheFn | null = null;
+const getCache = async (): Promise<CacheFn> => _cache || (_cache = await getNB().Cache(dire));
+async function load_gepco(name: string): Promise<ElevTile | null> {
 	// R90/R10 は IDB へ永続（全球R90=8枚55MBで「地球ぐるぐる」の再訪が通信ゼロに＝IDB直読みの流儀）。
 	// bucket.get は gunzip 済み Blob＝そのまま格納し、命中時は decode だけ。IDB不調でも素通りで従来動作。
 	const cache = await getCache().catch(() => null);
@@ -69,29 +76,29 @@ async function load_gepco(name) {
 	// 「デコード済み obj」を保存する運用があり、それを Blob と誤って decode すると例外＝catch で
 	// 「bucket 未収録」と誤判定 → JAXA(DSM) 再取得＋noBake 毒入り、という事故が起きた（東新橋の
 	// 屋上斜面の第二原因）。壊れ形式は捨てて bucket 本体へ進む＝自己修復。
-	if (hit) { try { return await decode(hit); } catch (e) { /* 旧/別形式＝素通りして bucket へ（await 必須＝decode は async・reject は同期 catch に掛からない） */ } }
+	if (hit) { try { return await decode(hit as AltpbfSource); } catch (e) { /* 旧/別形式＝素通りして bucket へ（await 必須＝decode は async・reject は同期 catch に掛からない） */ } }
 	const blob = await (await getBucket()).get(name);
 	if (!blob) return null;
 	if (cache) cache(name, blob).catch(() => {});
 	return decode(blob);
 }
 
-export async function tiff2data(file) {   // export＝実タイル検定用（tests/t-tiff.mjs・workspace専用モジュールにつき公開面への影響なし）
+export async function tiff2data(file: AltpbfSource): Promise<TiffRaster | null> {   // export＝実タイル検定用（tests/t-tiff.mjs・workspace専用モジュールにつき公開面への影響なし）
 	try {
 		const buffer = await file.arrayBuffer();
 		const view = new DataView(buffer);
 		const isLittle = view.getUint16(0) === 0x4949;
 		let ifdOffset = view.getUint32(4, isLittle);
 		const numEntries = view.getUint16(ifdOffset, isLittle);
-		let width, height, strips = null, counts = null;
+		let width: number | undefined, height: number | undefined, strips: number[] | null = null, counts: number[] | null = null;
 		// タグ値の配列読み：count×サイズが4バイト以内＝値そのものがインライン、超えたら値欄は「配列へのポインタ」。
 		// 旧実装は tag273 を常にインライン単値として読んでいた＝複数ストリップTIFF（米国域ALOSは行毎分割）で
 		// ポインタをデータ先頭と誤読→範囲外 Int16Array で RangeError（12,960,000＝3600×3600 の実障害 8/26）。
-		const readArr = (entryOffset, type, count) => {
+		const readArr = (entryOffset: number, type: number, count: number): number[] => {
 			const size = type === 3 ? 2 : 4;
-			const at = off => (type === 3) ? view.getUint16(off, isLittle) : view.getUint32(off, isLittle);
+			const at = (off: number): number => (type === 3) ? view.getUint16(off, isLittle) : view.getUint32(off, isLittle);
 			const base = (count * size <= 4) ? entryOffset + 8 : view.getUint32(entryOffset + 8, isLittle);
-			const out = new Array(count);
+			const out = new Array<number>(count);
 			for (let k = 0; k < count; k++) out[k] = at(base + k * size);
 			return out;
 		};
