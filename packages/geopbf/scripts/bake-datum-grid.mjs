@@ -5,7 +5,7 @@
 // 出来た .bin.gz を native-bucket 等に置き、その URL を opts.tky2jgd / opts.patchjgd（CLI は --tky2jgd / --patchjgd）へ。
 import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { bakeMeshGrid } from "../src/convert/datum.js";
+import { bakeMeshGrid } from "../src/convert/datum.ts";
 
 const [, , inPath, outPath] = process.argv;
 if (!inPath || !outPath) { console.error("bake-datum-grid <in.par> <out.bin>"); process.exit(1); }

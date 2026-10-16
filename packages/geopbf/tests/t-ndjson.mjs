@@ -3,7 +3,7 @@
 // 空行・CRLF・壊れた行（数えて飛ばす）。1 パス（set）と 2 パス（setBodyAsync 逐次）と Blob stream で同じバイト列になること。
 globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../src/pbf.js";
-import { fromNdjson, linesOf } from "../src/convert/ndjson.js";
+import { fromNdjson, linesOf } from "../src/convert/ndjson.ts";
 import { createHash } from "node:crypto";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

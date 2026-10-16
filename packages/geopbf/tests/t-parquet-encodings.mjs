@@ -7,7 +7,7 @@
 //   ・入れ子の葉 a/b と実在の "a.b" 列が別の列として両方読める（旧＝同名で潰れる）
 //   ・読めない符号化は列の unsupported に名前入りの理由
 import { readFileSync } from "node:fs";
-import { openParquet, readParquet, decodeDeltaBinaryPacked } from "../src/convert/parquet-read.js";
+import { openParquet, readParquet, decodeDeltaBinaryPacked } from "../src/convert/parquet-read.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
