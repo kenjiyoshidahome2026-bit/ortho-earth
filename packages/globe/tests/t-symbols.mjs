@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 記号の層の評価（gadgets/symbols-core.js）の常設検定＝MapLibre の symbol 層の layout/paint → 描く記号の列。
 // 見るもの：icon-image の式と "{name}" トークン・format・filter・symbol-sort-key の順・記号帳に無い名前（文字だけ残る）・既定値・色・ズーム域。
-import { symbolItems, textOf } from "@ortho-earth/globe/internal/gadgets/symbols-core.ts";
+import { symbolItems, textOf } from "../src/gadgets/symbols-core.ts";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
@@ -26,7 +26,7 @@ t("icon も text も無い地物は落ちる", symbolItems(fc, { layout: {} }, 1
 	const v = symbolItems(fc, { layout: { "text-field": "{name}", "text-variable-anchor": ["top", "bottom", "left"], "text-radial-offset": 1, "icon-text-fit": "both", "icon-text-fit-padding": [2, 4, 2, 4] } }, 10);
 	t("text-variable-anchor＝文字列の配列はそのまま（式にしない）", JSON.stringify(v[0].textVariableAnchor) === '["top","bottom","left"]' && v[0].textRadialOffset === 1);
 	t("icon-text-fit と余白", v[0].iconTextFit === "both" && v[0].iconTextFitPadding.join() === "2,4,2,4");
-	const S = await import("@ortho-earth/globe/internal/symbols-2d.js");
+	const S = await import("../src/symbols-2d.js");
 	const drawn = [], ctx = { setTransform() {}, clearRect() {}, measureText: s => ({ width: s.length * 10 }), fillText: (s, x, y) => drawn.push(["t", s, x, y]), strokeText() {}, drawImage: (im, x, y, w, h) => drawn.push(["i", x, y, w, h]), save() {}, restore() {}, translate() {}, rotate() {}, set font(_) {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set lineJoin(_) {}, set textAlign(_) {}, set textBaseline(_) {}, set globalAlpha(_) {} };
 	S.init({ getContext: () => ctx });
 	const api = { dpr: 1, project: (lon, lat) => [100 + (lon - 139.7) * 1e4, 100 - (lat - 35.6) * 1e4, 1] };

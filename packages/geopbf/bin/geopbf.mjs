@@ -66,7 +66,7 @@ async function enc(argv) {
 	const t0 = Date.now();
 	let pbf;
 	if (/\.(ndjson|geojsonl|geojsons|jsonl)(\.gz)?$/i.test(inPath)) {   // 1 行 1 地物 / GeoJSON Text Sequence（convert/ndjson.js）
-		const { fromNdjson } = await import("geopbf/internal/convert/ndjson");
+		const { fromNdjson } = await import("geopbf/ndjson");
 		const r = await fromNdjson(src, { name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+?(\.gz)?$/i, ""), precision });
 		pbf = r.pbf;
 		if (r.stats.badLines) console.log(t("ndjsonBadLines", { n: num(r.stats.badLines) }));
@@ -160,7 +160,7 @@ async function lod(argv) {
 // 無いため明示エラー（ブラウザゲート tests/t-cog.html で見る）。
 
 async function cog(argv) {
-	const { openCog, lonlatTarget } = await import("geopbf/internal/cog/core");
+	const { openCog, lonlatTarget } = await import("geopbf/cog/core");
 	const { pos: [sub, inPath, outPath], opts } = parseArgs("cog", argv);
 	const src = /^https?:\/\//.test(inPath) ? inPath : new Blob([await readFile(inPath)]);
 	const t0 = Date.now();
@@ -240,7 +240,7 @@ const injectDawn = async () => {
 		const m = await import("webgpu");
 		if (!m?.create) return false;
 		if (m.globals) for (const k of Object.keys(m.globals)) globalThis[k] ??= m.globals[k];
-		const { setGPU } = await import("geopbf/internal/convert/gpu");
+		const { setGPU } = await import("geopbf/convert/gpu");
 		setGPU(m.create([]));
 		return true;
 	} catch { return false; }   // 未導入＝CPU 経路（失敗ではなく通常の分岐）
@@ -249,7 +249,7 @@ const attrOpts = (opts) => ({ include: opts.include ? opts.include.split(",") : 
 const engineNote = (st) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?.architecture].filter(Boolean).join(" ") || "webgpu"}` : "CPU";
 
 async function pmtiles(argv) {
-	const { toPMTiles } = await import("geopbf/internal/convert/tiler");
+	const { toPMTiles } = await import("geopbf/pmtiles");
 	const { pos: [inPath, outPath], opts } = parseArgs("pmtiles", argv);
 	const tileOpts = {   // 数値は読み込みの前に検査（NaN が黙って通らない・args.mjs の numOpt）
 		minZoom: numOpt(opts, "minzoom", { int: true, min: 0, max: 30 }) ?? 0, maxZoom: numOpt(opts, "maxzoom", { int: true, min: 0, max: 30 }) ?? 14,
@@ -262,10 +262,10 @@ async function pmtiles(argv) {
 	const pbf = await openPbf(inPath);
 	let gint;
 	if (opts.gint) gint = (await readMaybeGzip(opts.gint)).buffer.slice(0);
-	else { const { bakeGint } = await import("geopbf/internal/convert/node-gint"); gint = await bakeGint(pbf); }
+	else { const { bakeGint } = await import("geopbf/convert/node-gint"); gint = await bakeGint(pbf); }
 	const t1 = Date.now();
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/internal/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
 	const r = await toPMTiles(pbf, { gint, gpu: wantGpu, ...tileOpts });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
@@ -275,14 +275,14 @@ async function pmtiles(argv) {
 }
 
 async function parquet(argv) {
-	const { toGeoParquet } = await import("geopbf/internal/convert/geoparquet");
+	const { toGeoParquet } = await import("geopbf/geoparquet");
 	const { pos: [inPath, outPath], opts } = parseArgs("parquet", argv);
 	const rowGroupSize = numOpt(opts, "row-group", { int: true, min: 1 });
 	if (opts.compression !== undefined && !["zstd", "gzip", "none"].includes(opts.compression)) throw new UsageError(t("numberOption", { opt: "--compression", kind: "zstd|gzip|none", range: "", got: opts.compression }));
 	if (opts.order !== undefined && !["str", "hilbert", "morton", "none"].includes(opts.order)) throw new UsageError(t("numberOption", { opt: "--order", kind: "str|hilbert|morton|none", range: "", got: opts.order }));
 	const pbf = await openPbf(inPath);
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/internal/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("geopbf/convert/gpu"); if (!(await findGPU())) console.error(t("gpuMissing")); }
 	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
@@ -292,7 +292,7 @@ async function parquet(argv) {
 }
 
 async function parquet2pbf(argv) {
-	const { fromGeoParquet } = await import("geopbf/internal/convert/geoparquet");
+	const { fromGeoParquet } = await import("geopbf/geoparquet");
 	const { pos: [inPath, outPath], opts } = parseArgs("parquet2pbf", argv);
 	const r = await fromGeoParquet(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name, geometryColumn: opts.geometry, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
@@ -306,7 +306,7 @@ async function parquet2pbf(argv) {
 }
 
 async function gpkg2pbf(argv) {
-	const { fromGeoPackage, readGeoPackage } = await import("geopbf/internal/convert/gpkg");
+	const { fromGeoPackage, readGeoPackage } = await import("geopbf/gpkg");
 	const { pos: [inPath, outPath], opts } = parseArgs("gpkg2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
@@ -332,7 +332,7 @@ async function gpkg2pbf(argv) {
 }
 
 async function spatialite2pbf(argv) {
-	const { fromSpatiaLite, readSpatiaLite } = await import("geopbf/internal/convert/spatialite");
+	const { fromSpatiaLite, readSpatiaLite } = await import("geopbf/spatialite");
 	const { pos: [inPath, outPath], opts } = parseArgs("spatialite2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
@@ -357,7 +357,7 @@ async function spatialite2pbf(argv) {
 }
 
 async function dxf2pbf(argv) {
-	const { fromDxf, readDxf } = await import("geopbf/internal/convert/dxf");
+	const { fromDxf, readDxf } = await import("geopbf/dxf");
 	const { pos: [inPath, outPath], opts } = parseArgs("dxf2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
@@ -381,7 +381,7 @@ async function dxf2pbf(argv) {
 }
 
 async function csv2pbf(argv) {
-	const { fromTable } = await import("geopbf/internal/convert/table");
+	const { fromTable } = await import("geopbf/table");
 	const { pos: [inPath, outPath], opts } = parseArgs("csv2pbf", argv);
 	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, fallbackEncoding: opts["fallback-encoding"], delimiter: opts.delimiter, ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
@@ -395,7 +395,7 @@ async function csv2pbf(argv) {
 }
 
 async function gdb2pbf(argv) {
-	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("geopbf/internal/convert/filegdb");
+	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("geopbf/filegdb");
 	const { pos: [inPath, outPath], opts } = parseArgs("gdb2pbf", argv);
 	const { statSync, readdirSync, openSync, readSync, closeSync } = await import("node:fs");
 	const { join } = await import("node:path");
@@ -404,7 +404,7 @@ async function gdb2pbf(argv) {
 		const names = readdirSync(inPath);
 		source = { names, read: async (name, offset = 0, length) => { const p = join(inPath, names.find(n => n.toLowerCase() === name.toLowerCase()) ?? name); const size = statSync(p).size; const n = length === undefined ? size - offset : Math.min(length, size - offset); const buf = Buffer.alloc(Math.max(0, n)); const fd = openSync(p, "r"); try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); } return new Uint8Array(buf.buffer, buf.byteOffset, buf.length); } };
 	} else {
-		const { decodeZIP } = await import("geopbf/internal/modules/decodeZIP");
+		const { decodeZIP } = await import("geopbf/decodeZIP");
 		const entries = await decodeZIP(new Blob([await readFile(inPath)]));
 		if (!entries) throw new Error(t("zipOpenFailed"));
 		source = gdbSourceFromFiles(entries);

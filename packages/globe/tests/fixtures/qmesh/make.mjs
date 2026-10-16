@@ -5,8 +5,8 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { encodeQuantizedMesh, qmTileAt, qmTileBounds } from "@ortho-earth/core/internal/qmesh.ts";
-import { loadGeoid, geoidHeight } from "@ortho-earth/core/internal/geoid.ts";
+import { encodeQuantizedMesh, qmTileAt, qmTileBounds } from "../../../../ortho-core/src/qmesh.ts";   // core の中身を白箱で（公開の口に無い・2.0 で internal/* を閉じた＝段 5-7）＝同じ monorepo の src を相対で
+import { loadGeoid, geoidHeight } from "@ortho-earth/core";
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 await loadGeoid();
 const C = [150.5, 30.5], R = 0.3, PEAK = 3000, G = 33;
