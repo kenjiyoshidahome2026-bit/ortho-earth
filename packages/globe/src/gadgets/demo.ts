@@ -50,7 +50,7 @@ import type { DemoHandle, DemoOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 /** 台本の 1 行（下の opts.scenes の説明の形）。ほかに言語コードのフィールド（ja:/en:…＝題名の訳）を持てる */
 export interface DemoScene {
-	title?: string; jp?: string; view?: string; glide?: string; fade?: string; pre?: string; jump?: boolean; via?: unknown; travel?: number;
+	title?: string; view?: string; glide?: string; fade?: string; pre?: string; jump?: boolean; via?: unknown; travel?: number;
 	path?: Array<{ view: string; travel?: number }>; slide?: string; caption?: string; hold?: number; slideHold?: number; mobile?: number;
 }
 /** 地図の内側から受け取る物（api/tools.ts が注入）＝飛び方・着地待ち・書き終わり・静穏窓・先読み・終演 */
@@ -147,7 +147,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	list.id = "demo-list";
 	// 言語解決：scene[lang]（ja:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
 	// ja は旧綴り jp: も読む（B12・2026-09-25：台本は jp: なのに ?lang=ja で引いていた＝日本語の題名が一度も出ていなかった）
-	const T = (s: DemoScene | undefined): string => (s as Record<string, unknown> | undefined)?.[lang || getLang()] as string | undefined ?? ((lang || getLang()) === "ja" ? s?.jp : undefined) ?? s?.title ?? "";
+	const T = (s: DemoScene | undefined): string => (s as Record<string, unknown> | undefined)?.[lang || getLang()] as string | undefined ?? ((lang || getLang()) === "ja" ? (s as Record<string, unknown> | undefined)?.jp as string | undefined : undefined) ?? s?.title ?? "";
 	const sceneLabel = (s: DemoScene) => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("(slide)") : (s.view ?? s.glide ?? s.fade ?? t("(untitled)")));
 	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 	bar.append(list);
