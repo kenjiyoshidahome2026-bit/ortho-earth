@@ -1,5 +1,6 @@
 {
 	"name": "common",
+	"private": true,
 	"version": "1.0.0",
 	"license": "MIT",
 	"type": "module",
@@ -23,9 +24,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc -p .",
-		"prepack": "node ../../scripts/pack-ts.mjs pre",
-		"postpack": "node ../../scripts/pack-ts.mjs post"
+		"build": "tsc -p ."
 	},
 	"dependencies": {
 		"d3": "^7.9.0",

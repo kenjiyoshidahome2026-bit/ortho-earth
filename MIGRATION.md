@@ -17,7 +17,10 @@
 | `@ortho-earth/core` | 1.15.0 | **2.0.0**（§3） |
 | `geopbf` | 1.19.0 | **2.0.0**（§4） |
 | `@ortho-earth/japan` | 1.14.0 | **2.0.0**（§2） |
-| `altpbf`・`@ortho-earth/ephem`・`native-bucket`・`geoedit`・`@ortho-earth/h3`・`@ortho-earth/tile-formats`・`glbconv`・`quiet-mono` | 各 1.x／0.x | minor を上げる（口は同じ。出荷の形が TypeScript から作った JS と `.d.ts` になるだけ） |
+| `altpbf`・`@ortho-earth/ephem`・`native-bucket`・`geoedit`・`@ortho-earth/h3`・`@ortho-earth/tile-formats`・`glbconv` | 1.1.2・1.2.0・1.0.2・0.3.3・0.1.0・0.1.0・0.1.0 | minor を上げる：1.2.0・1.3.0・1.1.0・0.4.0・0.2.0・0.2.0・0.2.0（口は同じ。出荷の形が TypeScript から作った JS と `.d.ts` になるだけ。tile-formats はリポジトリが先に 0.2.0 になっていた） |
+| `quiet-mono` | 1.0.1 | 変更なし（scss だけで、1.0.1 から中身が変わっていない） |
+
+依存の変更：`@ortho-earth/globe` 2.0 は `@ortho-earth/tile-formats`（^0.2.0）に依存します（点群の LAS/COPC の形を読む部分が tile-formats にあるため。LAZ の解読器は今までどおり `#pointcloud-formats` の差し替えで足す物で、既定では束ねられません）。`@ortho-earth/react` は `react-dom`（>=18）を peer に挙げました（`createPortal` を使っているため）。
 | `@ortho-earth/react`・`google-tiles`・`ktx2`・`plugin-scene`・`plugin-splat` | 未公開 | 0.1.0 で初公開 |
 
 ### 1.x を使い続けるには
@@ -41,7 +44,7 @@
 
 | 1.x | 2.0 |
 |---|---|
-| `@ortho-earth/globe/<src の任意のファイル>` | `exports` にある口だけ：`.`・`./maplibre`・`./page.js`・`./wiki.js`・`./i18n.js`・`./i18n/*`・`./themes.js`・`./style-*.js`・`./boot/tier.js`・`./demo/scene-adapter.js`・`./worker.js`・`./renderworker.js`・`./mesh-loaders.js`・`./meshdecode.js`・`./meshq.js`・`./columnar/sources/builtin.js`・`./gadgets/{anno,anno-draw,cloud,compose,dropfile,footprint,searchbox,tellus-api}.js` |
+| `@ortho-earth/globe/<src の任意のファイル>` | `exports` にある口だけ：`.`・`./maplibre`・`./page.js`・`./wiki.js`・`./i18n.js`・`./i18n/*`・`./themes.js`・`./style-*.js`・`./boot/tier.js`・`./demo/scene-adapter.js`・`./worker.js`・`./renderworker.js`・`./mesh-loaders.js`・`./meshdecode.js`・`./meshq.js`・`./columnar/sources/builtin.js`・`./gadgets/{anno,anno-draw,cloud,compose,dropfile,footprint,searchbox,tellus-api}.js`・`./html-safe.js` |
 | `@ortho-earth/globe/internal/*`（リポジトリの中だけ） | 閉じた。上の口を使う |
 | `import { mercatorDz } from "@ortho-earth/globe"` | 根からは出さない（MapLibre の口 `@ortho-earth/globe/maplibre` の中の部品） |
 | `./*` 経由で読めた内部の名前：`page.js` の `preparePage`、`boot/tier.js` の `FX_NAMES`、`meshq.js` の `prismDebug`・`extractPrisms`、`gadgets/searchbox.js` の `searchProviders`、`gadgets/tellus-api.js` の `bboxPoly`・`pointPoly` | 出さない（ファイルの中だけで使う） |
