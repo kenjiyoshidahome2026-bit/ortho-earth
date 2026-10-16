@@ -5,7 +5,7 @@
 //     "labels3d"   text at 3D positions (drawn to an atlas on the main thread with the page's fonts, then the same path as billboards)
 //   Each kind is a same-frame overlay (map.overlay): drawn with the globe's camera, hidden by terrain and buildings (scene depth), picked by the
 //   unified picking (handle.pick, map.on("click", id, …), queryRenderedFeatures({ layers: [id] })).
-import type { OrthoJapanMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
+import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
 import { shapeMesh, parseGlb, packAtlas } from "./shapes.ts";
 import type { Mesh, NormalizedMesh, ShapeName, AtlasRect } from "./shapes.ts";
 import type { MeshLayerBody, QuadLayerBody, AtlasPayload, SceneAltitude } from "./scene-gl.ts";
@@ -48,8 +48,6 @@ export interface InstancedOptions<D = any> extends CommonOptions<D> {
 	kind?: "instanced";
 	/** a built-in shape, a Mesh, a .glb URL or the bytes of an uncompressed .glb (no Draco / meshopt) */
 	shape?: ShapeName | Mesh | string | URL | ArrayBuffer | ArrayBufferView;
-	/** 旧名（shape と同じ） */
-	mesh?: InstancedOptions<D>["shape"];
 	/** meters: one number or [east, north, up] */
 	getScale?: Accessor<number | [number, number, number], D>;
 	/** degrees: heading (clockwise from north), pitch, roll */
@@ -105,9 +103,9 @@ export interface SceneHandle<O = any> {
 	pick(x: number, y: number, r?: number): Promise<SceneHit[]>;
 	remove(): void;
 }
-export interface ScenePlugin extends OrthoPlugin { name: "plugin-scene"; version: string; provides: string[]; install(map: OrthoJapanMap): () => void }
+export interface ScenePlugin extends OrthoPlugin { name: "plugin-scene"; version: string; provides: string[]; install(map: GlobeMap): () => void }
 /** この plugin が使う map の口（@ortho-earth/globe の map） */
-export type SceneMap = Pick<OrthoJapanMap, "overlay" | "pickOverlays">;
+export type SceneMap = Pick<GlobeMap, "overlay" | "pickOverlays">;
 export interface BakedInstances { n: number; ll: Float64Array<ArrayBuffer>; scl: Float32Array<ArrayBuffer>; ori: Float32Array<ArrayBuffer>; rgba: Uint8Array<ArrayBuffer> | null; color: number[]; keep: number[] }
 export interface LabelMetrics { lines: string[]; lh: number; w: number; h: number }
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -256,7 +254,7 @@ async function meshFor(shape: InstancedOptions["shape"], signal?: AbortSignal): 
 export function createInstanced<D = any>(map: SceneMap, data: Data<D>, opts: InstancedOptions<D> = {}): SceneHandle<InstancedOptions<D>> {
 	if (opts.altitude != null) checkEnum(opts.altitude, ["relative", "absolute"], "altitude");
 	return makeHandle<D, InstancedOptions<D>>(map, "instanced", opts.id!, { ...opts, __data: data }, async (d, o) => {   // id は plugin（withId）が必ず付ける
-		const mesh = await meshFor(o.shape ?? o.mesh);
+		const mesh = await meshFor(o.shape);
 		const b = bakeInstances(d, o), arr = items(d);
 		const m = { pos: mesh.pos.slice(), nrm: mesh.nrm.slice(), idx: mesh.idx.slice(), ...(mesh.col ? { col: mesh.col.slice() } : {}) };
 		const msg: MeshLayerBody = { kind: "mesh", mesh: m, n: b.n, ll: b.ll, scl: b.scl, ori: b.ori, rgba: b.rgba, color: b.color, alt: o.altitude || "relative", props: propsOf(arr, b.keep, o.getProperties) };
@@ -356,7 +354,7 @@ export function scenePlugin({ kinds = ["instanced", "billboards", "labels3d"] }:
 		name: "plugin-scene",
 		version: VERSION,
 		provides: kinds.map(k => `data.${k}`),
-		install(map: OrthoJapanMap): () => void {
+		install(map: GlobeMap): () => void {
 			for (const k of kinds) map.registry.dataKinds.add(k, { create: (m, data, o) => make[k](m, data as Data, withId(o, k)) });
 			return () => { for (const k of kinds) { try { map.registry.dataKinds.remove(k); } catch { /* 既に外れた */ } } };
 		},
