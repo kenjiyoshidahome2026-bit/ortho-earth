@@ -3,7 +3,7 @@
 //   Drawn as a same-frame overlay (map.overlay, WebGL2): back-to-front by view depth, each splat an ellipse from its 3D covariance,
 //   hidden by terrain and buildings (scene depth), picked by the unified picking (handle.pick, map.on("click", id, …), queryRenderedFeatures({ layers: [id] })).
 //   Readers run on the main thread in plain JS (.spz is gunzipped with the built-in DecompressionStream); a decoder of your own (e.g. a WASM build) plugs in via splatPlugin({ decoders }).
-import type { OrthoJapanMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
+import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
 import { parsePly, parseSplat, parseSpz, formatOf, toEnu } from "./formats.ts";
 import type { SplatData, SplatFormat, SplatCrs, SplatAxes, Hpr, Origin } from "./formats.ts";
 export { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
@@ -60,9 +60,9 @@ export interface SplatHandle {
 	pick(x: number, y: number, r?: number): Promise<SplatHit[]>;
 	remove(): void;
 }
-export interface SplatPlugin extends OrthoPlugin { name: "plugin-splat"; version: string; provides: string[]; install(map: OrthoJapanMap): () => void }
+export interface SplatPlugin extends OrthoPlugin { name: "plugin-splat"; version: string; provides: string[]; install(map: GlobeMap): () => void }
 /** この plugin が使う map の口（@ortho-earth/globe の map） */
-export type SplatMap = Pick<OrthoJapanMap, "overlay" | "pickOverlays">;
+export type SplatMap = Pick<GlobeMap, "overlay" | "pickOverlays">;
 type Reader = (bytes: Uint8Array) => SplatData | Promise<SplatData>;
 const READERS: Record<SplatFormat, Reader> = { ply: parsePly, splat: parseSplat, spz: parseSpz };
 
@@ -149,7 +149,7 @@ export function splatPlugin({ decoders }: { decoders?: SplatDecoders } = {}): Sp
 		name: "plugin-splat",
 		version: VERSION,
 		provides: ["data.splat"],
-		install(map: OrthoJapanMap): () => void {
+		install(map: GlobeMap): () => void {
 			map.registry.dataKinds.add("splat", { create: (m, data, o) => createSplat(m, data as SplatSource, o as SplatOptions, { decoders }) });
 			return () => { try { map.registry.dataKinds.remove("splat"); } catch { /* 既に外れた */ } };
 		},

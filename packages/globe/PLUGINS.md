@@ -32,7 +32,7 @@ map.supports("data.squares");   // true
 | kind | 契約（add(name, impl) の impl） | 呼ばれ方 | capabilities の鍵 |
 |---|---|---|---|
 | `dataKinds` | `{ create(map, data, opts) → 手綱 }` | `map.addData(data, { kind })` の builtin（points/arcs/trips/polygons/paths/columns）以外 | `data.<kind>` |
-| `gadgets` | `function (opts) { … }`（`map.gadget(name, fn)` と同じ・this＝map） | `map.gadget.<name>(opts)` | `gadget.<name>` |
+| `gadgets` | `(map, opts, …) => 手綱`（組み込みの registerGadget と同じ形・map が第 1 引数。1.x の `map.gadget(name, fn)`＝this が map の登録は 2.0 で外した） | `map.gadget.<name>(opts)` | `gadget.<name>` |
 | `tileFormats` | `{ decode(bytes, need) }` か `{ load() → Promise<decode> }`・`pmtilesType?`（core の registerTileFormat と同じ） | source の encoding がその名の時 | `tiles.<name>` |
 | `lights` | `{ apply(map, lights) }` | `map.setLights([...])` のたびに、その type の光源の配列（無ければ []） | `light.<type>` |
 | `clouds` | `{ apply(map, clouds \| null) }` | `map.setClouds(spec)` のたびに（`type:"image"` は builtin も描く＝W6・plugin は手続きの雲・降水を受け持てる） | `clouds` |

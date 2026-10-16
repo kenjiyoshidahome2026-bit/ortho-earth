@@ -33,7 +33,7 @@ export const RAW = Symbol.for("ortho-earth.map.raw");
 export const zIn = <Z extends number | null | undefined>(z: Z, dz?: number | null): Z => z == null || !dz ? z : (z + dz) as Z;    // 公開の口 → エンジン
 export const zOut = <Z extends number | null | undefined>(z: Z, dz?: number | null): Z => z == null || !dz ? z : (z - dz) as Z;   // エンジン → 公開の口
 
-// 地図（createGlobe が返す物）の公開メンバー。実行時の Object.getOwnPropertyNames(map) と globe.d.ts の OrthoJapanMap の両方が
+// 地図（createGlobe が返す物）の公開メンバー。実行時の Object.getOwnPropertyNames(map) と globe.d.ts の GlobeMap の両方が
 // ここに載っていること（t-mlcompat と tests/zoomscale.mjs が検札する）。
 /** 公開メンバーの分類（上の表の説明） */
 export type ZoomClass = "none" | "in" | "out" | "io" | "layer" | "event" | "gadget" | "raster" | "engine";
