@@ -24,7 +24,17 @@ const css = (q: number[] | null) => q ? `rgba(${Math.round(q[0])},${Math.round(q
 // "{name}" の差し込み（MapLibre の旧来の文字列トークン）＋式＋ format（文字の部分だけ繋ぐ）
 export function textOf(e: unknown, ctx: ExprContext): string {
 	if (e == null) return "";
-	if (typeof e === "string") return e.replace(/\{([^}]+)\}/g, (_, k) => ctx.props![k] as string ?? "");
+	if (typeof e === "string") {   // "{name}"＝{ の後の最初の } までが名前（{} は差し込まない）。旧 /\{([^}]+)\}/g の replace と同じ答えを、後戻りの無い走査で（"{" の連なりで O(n²) だった・CodeQL・2026-10-16）
+		let s = "", i = 0, from = 0;
+		for (;;) {
+			const a = e.indexOf("{", from); if (a < 0) break;
+			const b = e.indexOf("}", a + 1); if (b < 0) break;
+			if (b === a + 1) { from = b; continue; }
+			s += e.slice(i, a) + `${ctx.props![e.slice(a + 1, b)] ?? ""}`;
+			i = from = b + 1;
+		}
+		return s + e.slice(i);
+	}
 	if (Array.isArray(e) && e[0] === "format") { let s = ""; for (let i = 1; i < e.length; i++) if (typeof e[i] !== "object" || Array.isArray(e[i])) s += textOf(e[i], ctx); return s; }
 	const v = evalExpr(e, ctx);
 	return v == null ? "" : String(v);
