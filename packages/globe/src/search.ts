@@ -8,7 +8,7 @@
 //     着地の決め方（先に在る物が勝つ）：hit.zoom ＞ hit.bbox（範囲に寄る＝fit）＞ provider.viewFor(title) ＞ 既定 z12
 //   供給元は配列でもよい＝並べた順に候補を積む（地域 → 世界 → 外の geocoder）。どれかが落ちても他の候補は出す。
 // 履歴（行った場所）は着地を覚える＝{ title, note, lon, lat, zoom?, tilt?, bbox?, kind?, id? }（旧い履歴＝zoom 無しは viewFor で）。
-import { tr } from "./i18n.js";
+import { tr } from "./i18n.ts";
 const t = tr();
 
 const LIMIT = 10, MIN_EACH = 3;   // 候補の総数・後ろの供給元に残す最低の枠（地域が 8 件返しても世界の 3 件は見える）

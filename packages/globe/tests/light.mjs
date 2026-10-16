@@ -1,5 +1,5 @@
 // style の light（src/light.js・B3 2026-10-12）＝既定の補完・方位の意味（0＝北・90＝東・時計回り）・viewport の錨は bearing で回る・色
-import { normLight, lightENU, lightPayload, LIGHT_DEFAULT, normLightSpec, normLights, LIGHT_TYPES, localLightsPayload, LOCAL_LIGHT_MAX } from "../src/light.js";
+import { normLight, lightENU, lightPayload, LIGHT_DEFAULT, normLightSpec, normLights, LIGHT_TYPES, localLightsPayload, LOCAL_LIGHT_MAX } from "../src/light.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e, vnear = (a, b, e = 1e-9) => a.length === b.length && a.every((v, i) => near(v, b[i], e));
 

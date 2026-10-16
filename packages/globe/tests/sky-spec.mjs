@@ -1,5 +1,5 @@
 // style の sky（src/sky-spec.js・B4 2026-10-12）＝既定の補完・不正値・式の評価（zoom）・renderer へ渡す形
-import { normSky, skyHasExpr, skyPayload, SKY_DEFAULT } from "../src/sky-spec.js";
+import { normSky, skyHasExpr, skyPayload, SKY_DEFAULT } from "../src/sky-spec.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e, vnear = (a, b, e = 1e-9) => a.length === b.length && a.every((v, i) => near(v, b[i], e));
 const J = JSON.stringify;

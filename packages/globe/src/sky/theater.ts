@@ -5,9 +5,9 @@
 // 戻り値 … ensureStars（z<STARSKY_Z に初めて出た時に一度だけ読む）／toggleConstellations・applyConstellations（星座の点灯）／
 //          solarFrame(w,h)（render() 毎の太陽系圏の出入り）／terminate()（惑星・日時計のタイマー＝destroy）
 import { geopbf } from "geopbf";
-import { skyNames as loadSkyNames } from "./names.js";   // 天体の名前（ortho-data の sky/names・UI の言語）
-import { skyPbf } from "./data.js";   // 星表・星座線・メシエ＝GitHub Pages の ortho-data/globe/sky/
-import { getLang } from "../i18n.js";
+import { skyNames as loadSkyNames } from "./names.ts";   // 天体の名前（ortho-data の sky/names・UI の言語）
+import { skyPbf } from "./data.ts";   // 星表・星座線・メシエ＝GitHub Pages の ortho-data/globe/sky/
+import { getLang } from "../i18n.ts";
 
 const D2R = Math.PI / 180;
 
@@ -30,7 +30,7 @@ const celVec = (raDeg, decDeg) => {
 // 星座名・メシエ名・惑星名＝sky/names.js（Pages の sky/names/<lang>.json・UI の言語・欠けは英語）。
 let planetPositions, moonPosition, sunPosition, skyNames;
 let _skyLoad = null;
-const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), loadSkyNames()]).then(([p, s]) => {
+const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.ts"), loadSkyNames()]).then(([p, s]) => {
 	({ planetPositions, moonPosition, sunPosition } = p); skyNames = s;
 }));
 let starsArmed = true;
@@ -199,7 +199,7 @@ function applyConstellations(want) { if (!!want !== constelVisible) toggleConste
 // render() が毎フレーム呼ぶ（旧 app.js render() の 8 行をそのまま）。
 function solarFrame(w, h) {
 	const inSolar = !solarOff && cam.zoom < 1;
-	if (inSolar && !solarSkyLoad) solarSkyLoad = Promise.all([import("../solarsky.js"), loadSkyNames()]).then(([m, names]) => { solarSky = m.createSolarSky({ mapEl, names, now: nowMs }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
+	if (inSolar && !solarSkyLoad) solarSkyLoad = Promise.all([import("../solarsky.ts"), loadSkyNames()]).then(([m, names]) => { solarSky = m.createSolarSky({ mapEl, names, now: nowMs }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
 	solarSky?.frame(cam, w, h, inSolar);
 	if (inSolar !== inSolarPrev) {
 		inSolarPrev = inSolar;

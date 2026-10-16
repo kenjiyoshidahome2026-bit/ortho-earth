@@ -3,9 +3,9 @@
 import "./globe.css";
 import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
-import { normLight, lightPayload, LIGHT_TYPES } from "./light.js";
-import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
-import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
+import { normLight, lightPayload, LIGHT_TYPES } from "./light.ts";
+import { normSky, skyHasExpr, skyPayload } from "./sky-spec.ts";
+import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.ts";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey } from "./extrude-ml.js";
 import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
@@ -44,22 +44,22 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 export { geopbf };
 import { Marker, Popup } from "./gadgets/marker.ts";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
 export { Marker, Popup };
-import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
+import { createRequester, addProtocol, removeProtocol } from "./request.ts";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };
 export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
-import { MAP_THEMES } from "./palettes.js";
+import { MAP_THEMES } from "./palettes.ts";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
-import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
+import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.ts";
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf } from "@ortho-earth/core";
-import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
+import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
 import { createFacade } from "./mlfacade.js";
-export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
-import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
+export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
+import { pmLayers, pmRoles } from "./style-pm.ts";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
 import { createWorldContent } from "./gint/worldcontent.js";
@@ -68,7 +68,7 @@ import { createColorReliefProvider } from "./colorrelief.js";
 import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
 import { createCustomGL } from "./gadgets/customgl.ts";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
-import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
+import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
 import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
@@ -77,7 +77,7 @@ import { stac as stacGadget } from "./gadgets/stac-stub.ts";   // 衛星シー�
 import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
 import { globe as globeGadget } from "./gadgets/globe.ts";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
-import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
+import { setLang, getLang, isRTL, tr } from "./i18n.ts";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
 
 // app.js 持参のUI辞書（ja文字列がキー・未訳はjaのまま出る）。ガジェット各自の辞書は各ファイル冒頭に。
 const t = tr();

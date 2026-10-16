@@ -6,7 +6,7 @@
 //   ・over（重ね）＝チェック：陰影起伏・洪水浸水想定…（塗りの後・線の前・半透明）
 // 状態の正本は map.raster（select/toggle/selected/onChange）＝URL ?r= と同期するのは app.js 側。ここは表示と操作だけ。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { RasterAPI, RasterCatalogEntry } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

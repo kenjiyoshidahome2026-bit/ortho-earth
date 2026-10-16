@@ -8,7 +8,7 @@
 // 地図の内側から受け取る物（抽象アクセス）：listSources()＝層の台帳・view.set(on, { background })＝下地・canvas／evXY＝ポインタの座標。
 import { Popup } from "./marker.ts";
 import { INSPECT_ICON } from "./inspect-stub.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { InspectHandle, InspectOptions, InspectSource, MapLibreLayer, QueryOptions, RenderedFeature } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

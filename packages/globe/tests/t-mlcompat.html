@@ -17,7 +17,7 @@
 <body><div id="map"></div>
 <script type="module">
 import { createGlobe, geopbf } from "@ortho-earth/globe";
-import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS } from "../src/zoomscale.js";
+import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS } from "../src/zoomscale.ts";
 const G = new URLSearchParams(location.search).get("g") || "layers";
 const R = {};   // "群:場面" → [ok, note]
 const put = (id, ok, note = "") => { R[`${G}:${id}`] = [!!ok, String(note)]; };

@@ -16,8 +16,8 @@ import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.ts";
 import type { GJLabels } from "../gadgets/gjlabels.ts";
 import type { Symbols } from "../gadgets/symbols.ts";
 import type { FeatureCollection, GeoPBF } from "geopbf";
-import type { ScenePlayer } from "../scenes/player.d.ts";
-import type { ViewFollow } from "../featureservice.d.ts";
+import type { ScenePlayer } from "../scenes/player.ts";
+import type { ViewFollow } from "../featureservice.ts";
 import type { ColumnarLayerHandle, ColumnarLayerOptions, LonLat, OverlayHandle, OverlayPick, RasterInfo } from "../../globe.d.ts";
 
 /** readonly を外す（installer は自分の口を map に書く） */

@@ -4,7 +4,7 @@
 // ×で畳むと小さな「凡例」ボタン（スタック）に化ける＝地図面を広く（hint と同じ所作）。
 // opts.permanent＝×ボタンを出さない（畳めない常設）。opts.width＝最大幅(px)。
 import { gadgetStack, dockStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { PanelContent } from "./explain.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

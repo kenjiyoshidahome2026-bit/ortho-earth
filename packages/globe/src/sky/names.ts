@@ -4,8 +4,8 @@
 // packages/world/sky/names.json の ja 列へ移した。
 // 2026-10-13 まで bucket GIS/space/i18n/（uploader が gzip で置く＝native-bucket の get で読んでいた）。Pages は素の JSON。
 // 1 回だけ取る（memo）＝星空ドーム（sky/theater.js）と太陽系圏（solarsky.js）が同じ約束を共有
-import { skyJson } from "./data.js";
-import { getLang } from "../i18n.js";
+import { skyJson } from "./data.ts";
+import { getLang } from "../i18n.ts";
 
 const fold = s => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 let load = null;

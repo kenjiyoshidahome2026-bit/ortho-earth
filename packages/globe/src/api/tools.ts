@@ -7,7 +7,7 @@ import { dockStack } from "../gadgets/stack.ts";
 import { dropFile as dropFileGadget } from "../gadgets/dropfile.ts";
 import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.ts";
 import { edit as editGadget } from "../gadgets/edit.ts";
-import { getLang } from "../i18n.js";
+import { getLang } from "../i18n.ts";
 import { inspect as inspectGadget } from "../gadgets/inspect-stub.ts";
 import type { Installing, ToolsDeps, ToolsLive, ToolsReturn } from "../types/install.ts";
 import type { ToolsApi } from "../types/map.ts";

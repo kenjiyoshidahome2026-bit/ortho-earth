@@ -4,7 +4,7 @@
 // 本体到着後は同じボタンへ本体のリスナーが付き、スタブは abort で退場（二重発火なし）。搭載APIは従来どおり map.gadget.shot()。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { Gadgets } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { ShotHandle } from "./shot.ts";

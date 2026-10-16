@@ -5,7 +5,7 @@
 // projectLL＝経緯度→画面CSS座標（world→screen。実装は engine の project／注入は登録側）。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 const t = tr();

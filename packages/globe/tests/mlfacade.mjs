@@ -1,7 +1,7 @@
 // 外側の顔（src/mlfacade.js）の単体検定（MapLibre 互換の台帳 R1〜R3・2026-09-26）。偽の素の map を相手に、換算・同一性・イベント・ガジェット・raster を突く。
 // 実描画での一巡は t-mlzoom.html（旗あり/なし）。使い方：node packages/globe/tests/mlfacade.mjs
 import { createFacade, FACADE_CONV } from "../src/mlfacade.js";
-import { RAW, MAP_MEMBERS } from "../src/zoomscale.js";
+import { RAW, MAP_MEMBERS } from "../src/zoomscale.ts";
 import { shiftZoomExpr } from "@ortho-earth/core/internal/mlstyle.ts";
 
 let bad = 0, n = 0;

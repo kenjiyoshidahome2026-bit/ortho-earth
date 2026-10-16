@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { czmlToFeatures } from "geopbf/czml";
 import { GeoPBF } from "geopbf/pbf-base";
-import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.js";
+import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.ts";
 globalThis.ImageData ??= class ImageData {};
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/czml");

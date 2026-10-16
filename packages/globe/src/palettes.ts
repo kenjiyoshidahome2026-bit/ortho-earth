@@ -2,13 +2,25 @@
 // 1テーマ＝style（式言語の色は全部そこ）＋style外の色ノブ（GL uniform・gint・ラベル再着色＝app.js が式言語の外で塗る色）。
 // テーマ追加＝style-<name>.js を1枚書き、ここに1エントリ足すだけ。共有URLは c=<name>（mono は既定＝書かない）。
 // 埋め込みは opts.theme="<name>"（焼き付け）または opts.theme={…}（この台帳と同じ形の部分上書き＝カスタムテーマ）。
-import styleMono from "./style-mono.js";
-import styleDark from "./style-dark.js";
-import styleGsi from "./style-gsi.js";
-import styleSepia from "./style-sepia.js";
+import styleMono from "./style-mono.ts";
+import styleDark from "./style-dark.ts";
+import styleGsi from "./style-gsi.ts";
+import styleSepia from "./style-sepia.ts";
 import { WORLD_PAL_THEMES } from "@ortho-earth/core/worldpal";   // 全球パレットの正本＝apps/equal と同じ値を引く（二度書かない・2026-09-18）
+import type { WorldPal } from "@ortho-earth/core/worldpal";
+import type { BaseMapStyle } from "./style-mono.ts";
 
-export const MAP_THEMES = {
+/** テーマ 1 つ＝style（式言語の色は全部そこ）＋style 外の色ノブ（GL uniform・gint・ラベル再着色）。色は 0..1 の rgb（atmo は＋強さ） */
+export interface MapTheme {
+	style: BaseMapStyle;
+	bldColor: number[]; atmo: number[]; coastLine: number[]; facilityRGB: number[]; terrainRGB: number[];
+	contourColor?: number[]; distColor?: number[];
+	hypso?: { color: number[]; max: number; amount: number };
+	worldHypso?: Partial<WorldPal> | null;
+	[k: string]: unknown;
+}
+
+export const MAP_THEMES: Record<string, MapTheme> = {
 	// mono＝白地図（既定）。contourColor/distColor/hypso 省略＝renderer 既定（セピア・遠山ブルー・単色陰影）。
 	// worldHypso（?world=1 の世界パレット）も省略＝worldpal.js の自然色（NE風）＝従来出力そのまま。
 	// キーは sea/lowHumid/lowArid/midHumid/midArid/ramp1/ramp2/peak/snow/belowSea/grat（各任意＝per-keyマージ）。

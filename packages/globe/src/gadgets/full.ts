@@ -4,7 +4,7 @@
 // 非対応（iOS Safari 等）はボタンごと出さない＝出ない機能のボタンを見せない。signal＝destroy 時のリスナー解除。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 /** 接頭辞つきの全画面 API（古い Safari） */

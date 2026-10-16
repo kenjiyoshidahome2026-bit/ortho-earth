@@ -1,5 +1,5 @@
 // 2D の雲（W6）＝回転の向き・画素の α・板のメッシュ（DOM 無し）
-import { cloudRotation, wrapLon, cloudPixels, parseHex, shellMesh, STEP_DEG } from "../src/clouds.js";
+import { cloudRotation, wrapLon, cloudPixels, parseHex, shellMesh, STEP_DEG } from "../src/clouds.ts";
 import { lonlatTo3D } from "@ortho-earth/core";
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
