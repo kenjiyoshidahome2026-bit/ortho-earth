@@ -27,8 +27,8 @@ import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
 import { clipDistanceM } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
 import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
-	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.js";
-import { createFidExprRunner } from "./gintexprgpu.js";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
+	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.ts";
+import { createFidExprRunner } from "./gintexprgpu.ts";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;

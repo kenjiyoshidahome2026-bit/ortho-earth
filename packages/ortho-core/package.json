@@ -17,7 +17,7 @@
 		"./tileformats-mlt": "./src/tileformats-mlt.ts",
 		"./gpu": {
 			"types": "./types/gpu.d.ts",
-			"default": "./src/gpu/backend.js"
+			"default": "./src/gpu/backend.ts"
 		},
 		"./f16": "./src/gpu/f16.ts",
 		"./gl": {
@@ -26,7 +26,7 @@
 		},
 		"./labels": {
 			"types": "./types/labels.d.ts",
-			"default": "./src/labels2d.js"
+			"default": "./src/labels2d.ts"
 		},
 		"./labelsync": "./src/labelsync.ts",
 		"./terrain": "./src/terrain.ts",
@@ -47,7 +47,7 @@
 		"./fidstyle": "./src/gint/style.ts",
 		"./fidexpr": {
 			"types": "./types/fidexpr.d.ts",
-			"default": "./src/gpu/gintexpr.js"
+			"default": "./src/gpu/gintexpr.ts"
 		},
 		"./color": "./src/color.ts",
 		"./build": "./src/build.ts",
