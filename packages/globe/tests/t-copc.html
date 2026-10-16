@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- COPC の点群を範囲読みで直に流す（#178）。試料＝fixtures/copc/ellipsoid.copc.laz（copc.js の試験データ・MIT・合成の楕円体 10 万点・RGB つき・EPSG:3857＝ニューヨーク湾の上・節 5 つ）。
-     ?v=load＝map.addCOPC(URL)：出典（opts.attribution＝出典の欄・消すと消える）・情報（点の数・RGB・範囲・座標系・楕円体高）・寄ると根の節が描かれる・さらに寄ると子の節も読む（ADD）・Range で節だけ（全体を落とさない）・
+     ?v=load＝map.addPointCloud(URL)：出典（opts.attribution＝出典の欄・消すと消える）・情報（点の数・RGB・範囲・座標系・楕円体高）・寄ると根の節が描かれる・さらに寄ると子の節も読む（ADD）・Range で節だけ（全体を落とさない）・
              色の切り替え（rgb → 分類）で絵が変わる・点の大きさの切り替え・消すと画素が消える
      ?v=depth＝奥行き：点群の上に建物（押し出しの箱・高さ 400m）を置いて真上から見る＝箱の下の点は隠れる（depth 既定）・depth:false なら透ける
              （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
@@ -45,7 +45,7 @@ try {
 	if (V === "load") {
 		const map = await createGlobe({ target: "#map", view: "#3/40.7/-74", chips: false, debugGlobals: true });
 		await map.once("load");
-		const h = await map.addCOPC(FX, { id: "e", attribution: "Fixture cloud <b>CC</b><img src=x onerror=alert(1)>" });
+		const h = await map.addPointCloud(FX, { id: "e", attribution: "Fixture cloud <b>CC</b><img src=x onerror=alert(1)>" });
 		const i = h.info;
 		ok("info", i.count === 100000 && i.hasRgb && i.format === 7 && /3857/.test(i.crs) && i.vertical === "ellipsoidal" && Math.abs(i.center[0] + 74.0445) < 0.001 && Math.abs(i.center[1] - 40.6892) < 0.001 && i.bbox[2] - i.bbox[0] < 0.01, JSON.stringify({ c: i.center, b: i.bbox, crs: i.crs, v: i.vertical }));
 		const at = () => map.mapEl.querySelector("#attr");
@@ -89,11 +89,11 @@ try {
 		await sleep(2000);
 		const [x0, y0] = map.projectLL(C[0] - d * 0.8, C[1] + d * 0.8), [x1, y1] = map.projectLL(C[0] + d * 0.8, C[1] - d * 0.8);
 		const split = p => { const k = p.w / map.mapEl.clientWidth; let inB = 0, out = 0; for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (p.data[((p.h - 1 - y) * p.w + x) * 4 + 3] > 20) { const cx = x / k, cy = y / k; if (cx > x0 && cx < x1 && cy > y0 && cy < y1) inB++; else out++; } return { inB, out }; };
-		const hid = await map.addCOPC(FX, { id: "deep", fit: false });
+		const hid = await map.addPointCloud(FX, { id: "deep", fit: false });
 		await settled(hid); await sleep(1200);
 		const a = split(await grab("copc:deep"));
 		hid.remove();
-		const see = await map.addCOPC(FX, { id: "see", fit: false, depth: false });
+		const see = await map.addPointCloud(FX, { id: "see", fit: false, depth: false });
 		await settled(see); await sleep(1200);
 		const b = split(await grab("copc:see"));
 		ok("depth", a.out > 500 && a.inB === 0 && b.inB > 200, `depth=${JSON.stringify(a)} nodepth=${JSON.stringify(b)}`);
@@ -101,7 +101,7 @@ try {
 	} else if (V === "net") {   // 実物（verify:net だけ）：Autzen（PDAL の見本・オレゴン州 State Plane＝LCC・フィート・分類つき・81MB）＝節だけ読む
 		const map = await createGlobe({ target: "#map", view: "#3/44/-123", chips: false, debugGlobals: true });
 		await map.once("load");
-		const h = await map.addCOPC("https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz", { id: "autzen", color: "classification" });
+		const h = await map.addPointCloud("https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz", { id: "autzen", color: "classification" });
 		const i = h.info;
 		await landed(map);
 		const s = await settled(h);

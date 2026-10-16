@@ -13,7 +13,7 @@ export interface ScenePlayer {
 	/** 上映中か（▶デモのバー点灯もシーン再生も） */
 	playingNow(): boolean;
 	/** 黒を挟む遷移 */
-	fadeViewRun(hash: string, secs: number): Promise<unknown>;
+	fadeViewRun(hash: string, secs?: number): Promise<unknown>;
 	/** demo ガジェットの手綱（搭載時に預ける） */
 	demoHandle: DemoHandle | null;
 	readonly fadeBusy: boolean;

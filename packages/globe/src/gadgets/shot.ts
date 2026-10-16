@@ -1,0 +1,90 @@
+// ガジェット：画面保存（スクリーンショット）。標準装備でなくオプトイン＝orthoJapan() の戻り値から
+// map.gadget.shot() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
+// ★html2canvas は使わない。worker 越しの3層（基図#c・知性#gint・ラベル#labels＝各OffscreenCanvas）は
+//   worker 内 readPixels で生ピクセルにして受け（createImageBitmap/transferToImageBitmap は headless GL で詰まる）、
+//   main の2Dキャンバス層（#measure-lines＝距離/面積が焼いてある）を直接重ね、出典(attr)を焼き込んで1枚に合成→webp保存。
+//   GL の生ピクセルは上下反転で来る＝合成時に flip して戻す。2D（ラベル/計測）はそのまま。
+//   ※pop の引出線は箱(DOM)無しでは意味を成さない＝合成に含めない。DOM家具は html2canvas 無しでは焼けない割り切り。
+// requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
+import { composeLayersToCanvas } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
+import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { ComposeSnapshot as Snapshot } from "./compose.ts";
+const t = tr();
+/** requestSnapshot＝今の画面の写し（必須・api/shadows.ts が注入）・attribution＝#attr の無い画面で焼く出典 */
+interface ShotOpts { requestSnapshot: () => Promise<unknown>; signal?: AbortSignal; btn?: HTMLButtonElement; attribution?: (() => string[]) | null }
+/** 画面保存の手綱（composite＝合成器・open＝撮影） */
+export interface ShotHandle { composite(snap?: Snapshot | null): Promise<Blob>; open(): Promise<void> }
+
+// 出典の文面（#attr があればその文面／無ければホストが渡す今の圏の出典＝地域の申告から組んだ物）。globe は地域の出典を持たない
+export function attrLines(mapEl: HTMLElement, fallback: (() => string[]) | null = null): string[] {
+	const el = mapEl.querySelector<HTMLElement>("#attr");
+	if (el && el.innerText.trim()) return el.innerText.split(/\n/).map(s => s.trim()).filter(Boolean);
+	return fallback ? fallback() : [];
+}
+
+export function shot(this: GlobeMap, { requestSnapshot, signal, btn, attribution = null }: ShotOpts = {} as ShotOpts): ShotHandle | undefined {
+	const mapEl = this.mapEl;
+	// モバイル（タッチ端末）はボタンごと出さない＝端末標準のスクリーンショットに委ねる（家具を増やさない）。
+	if (window.matchMedia("(pointer: coarse)").matches) return;
+	if (!btn) {   // 直搭載（shot-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
+		if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
+		const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
+		const keyLabel = mac ? "⌘S" : "Ctrl+S";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
+		btn = document.createElement("button");
+		btn.id = "shot-btn"; btn.dataset.tip = t("Save view as image ($1)", keyLabel); btn.setAttribute("aria-label", t("Save view as image"));
+		btn.innerHTML = `
+			<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+				<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
+				<circle cx="12" cy="13" r="3.4"/></svg>`;
+		gadgetStack(mapEl).append(btn);
+	}
+	btn.addEventListener("click", capture);
+	// ショートカット＝⌘/Ctrl+S（ブラウザの「ページ保存」を画面保存へ転用）。低解像度でスタックが溢れボタンが隠れても撮れる。
+	// 入力欄（検索等）フォーカス中は無効＝そちらの操作を邪魔しない。
+	window.addEventListener("keydown", e => {
+		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "s" || e.key === "S"))) return;
+		if (keyBusy(mapEl)) return;
+		e.preventDefault(); capture();
+	}, { signal });
+	return { composite, open: capture };   // composite＝合成器（テスト/プログラムから合成だけ叩ける）／open=capture＝遅延スタブ(shot-stub)の共通IF＝クリックで撮影を起動
+
+	async function capture(): Promise<void> {
+		if (btn!.disabled) return;   // btn は上で必ず持つ
+		btn!.disabled = true; btn!.classList.add("busy");
+		try { save(await composite(await requestSnapshot() as Snapshot)); }
+		catch (e) { console.error("[shot] failed to save", e); }
+		finally { btn!.disabled = false; btn!.classList.remove("busy"); }
+	}
+
+	// 各層を1枚へ合成→webp Blob。層重ね（基図→知性→ラベル→計測）は composeLayersToCanvas（printと共用）。
+	async function composite(snap: Snapshot | null = null): Promise<Blob> {
+		snap ??= await requestSnapshot() as Snapshot;   // 引数省略＝今の画面を撮って合成（プログラム駆動用。旧＝undefined で例外）
+		const out = composeLayersToCanvas(snap, mapEl.querySelector<HTMLCanvasElement>("#measure-lines"));
+		drawAttr(out.getContext("2d")!, snap.W, snap.H);
+		return out.convertToBlob({ type: "image/webp", quality: 0.92 });
+	}
+
+	function drawAttr(ctx: OffscreenCanvasRenderingContext2D, W: number, H: number): void {   // 右下に出典を焼き込む（文面は attrLines＝printの下帯と共用）。白文字＋暗い帯で可読性を担保
+		const lines = attrLines(mapEl, attribution);
+		const dpr = W / mapEl.clientWidth || 1;   // canvas は device px＝表示px比で文字を拡大
+		const fs = Math.round(11 * dpr), pad = Math.round(6 * dpr), lh = Math.round(fs * 1.4), gap = Math.round(8 * dpr);
+		ctx.font = `${fs}px system-ui, sans-serif`; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+		const wMax = Math.max(...lines.map(t => ctx.measureText(t).width));
+		const boxH = lh * lines.length + pad, boxW = wMax + pad * 2;
+		ctx.fillStyle = "rgba(10,16,33,.55)";
+		ctx.fillRect(W - boxW - gap, H - boxH - gap, boxW, boxH);
+		ctx.fillStyle = "rgba(255,255,255,.92)";
+		lines.forEach((t, i) => ctx.fillText(t, W - gap - pad, H - gap - pad / 2 - (lines.length - 1 - i) * lh));
+	}
+
+	function save(blob: Blob): void {   // デスクトップ専用（モバイルは非搭載）＝<a download> でそのまま保存
+		const url = URL.createObjectURL(blob);
+		const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+		const a = document.createElement("a"); a.href = url; a.download = `ortho-earth-${stamp}.webp`;   // 地域でなくサイトの名（どの家の地図でも同じ）
+		document.body.appendChild(a); a.click(); a.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 4000);
+	}
+}

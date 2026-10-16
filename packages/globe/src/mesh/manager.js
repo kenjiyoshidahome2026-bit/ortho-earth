@@ -27,7 +27,7 @@
 //   openDb()                  … データ管理モーダル
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.js";
-import { dockStack } from "../gadgets/stack.js";   // 左下ドック（読込トーストの容れ物）
+import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.js";
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）
 const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1] : def; };   // ?paz= 等の調律ノブ（app.js と同形）
@@ -452,7 +452,7 @@ const meshDb = createMeshDb({
 	// 描画＝モーダルを閉じて地区中心へ球面フライト（z15.5=PLATEAU自動ロード圏・チルト45°）→ autoMesh がキャッシュ命中で即表示
 	show: set => { meshDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 15.5, 45); },
 });
-// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("plateau", …) で open を注入。
+// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("mesh", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
 if (meshOn) navigator.storage?.persist?.().then(ok => console.log(`[mesh] storage persist: ${ok ? "granted" : "denied"}`)).catch(() => {});

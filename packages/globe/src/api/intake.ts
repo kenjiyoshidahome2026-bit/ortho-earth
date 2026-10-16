@@ -1,13 +1,12 @@
 // 取得の手入れ（map.setTransformRequest・addProtocol・fetchResource）・Marker／Popup・取り込みの表（ファイルの形式ごとの載せ方）と
 // ファイル取り込みの一本道（loadUserFile＝D&D と ?g= の共用）＝createGlobe から切り出した（globe.js の分割 ⑥・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { Marker, Popup } from "../gadgets/marker.js";
+import { Marker, Popup } from "../gadgets/marker.ts";
 import { WORLD_PX } from "@ortho-earth/core";
 import { addProtocol, removeProtocol } from "../request.js";
 import { geopbf, geopbfCachePrune } from "geopbf";
 import { tr } from "../i18n.js";
 import type { GeoPBF } from "geopbf";
-import type { CogHandle, GeoPBF as PublicGeoPBF } from "../../globe.d.ts";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
 import type { IntakeApi } from "../types/map.ts";
@@ -47,7 +46,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 	// 旧構造は if の連なりで、形式が増えるたびに本道の手前が一段伸びた。表なら「行を1つ足す」で済む。
 	// ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
 	// CZML・GPX の時刻再生（#113 段 4）＝遅延 chunk（gadgets/czml.js）。起動時の URL の t=／s= は最初の 1 回だけ勝つ（本人裁定＝読み込んだ clock より URL）
-	const czmlGet = async () => live.czmlCtl ??= (await import("../gadgets/czml.js")).createCzmlPlayer({ map, keepUrlClock: () => { const k = live.czmlUrlClock; live.czmlUrlClock = false; return k; } });
+	const czmlGet = async () => live.czmlCtl ??= (await import("../gadgets/czml.ts")).createCzmlPlayer({ map, keepUrlClock: () => { const k = live.czmlUrlClock; live.czmlUrlClock = false; return k; } });
 	const INTAKE: IntakeRow[] = [
 		{
 			name: "timed",   // CZML・GPX＝時刻付きの地物は共通の時計で再生（render worker の組み込み czml・#113）・時刻の無い地物は本道（gint）へ。時刻付きが無ければ本道だけ（従来どおり）
@@ -79,8 +78,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 			test: f => /\.tiff?$/i.test(f.name),
 			draw: async (file: File) => {
 				live.annoCtl?.clear(); gint.clearUserGint();
-				// TODO(ts): cog の手綱（gadgets/cog.js）は width／height を持たない＝トーストが "undefined×undefinedpx"（読めた COG の寸法は load の戻り）
-				return map.gadget.cog(file).then(c => ({ length: `${(c as CogHandle & { width?: number }).width}×${(c as CogHandle & { height?: number }).height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
+				return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
 			},
 		},
 		{
@@ -197,7 +195,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 		if (!drawPbf) { gint.clearUserGint(); live.annoCtl?.clear(); }
 		else if (drawPbf.keys?.some((k: string) => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
 			gint.clearUserGint();
-			await map.gadget.anno(drawPbf as unknown as PublicGeoPBF);   // TODO(ts): 公開の GeoPBF（globe.d.ts の主要面の写し）と geopbf の GeoPBF が食い違う（properties の null・bbox の長さ）＝gadget の batch で揃える
+			await map.gadget.anno(drawPbf);
 		} else {
 			live.annoCtl?.clear();
 			gint.applyGintData(drawPbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
