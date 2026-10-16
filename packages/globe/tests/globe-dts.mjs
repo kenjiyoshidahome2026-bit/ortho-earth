@@ -14,11 +14,11 @@ const INTERNAL_MAP = new Set([
 	"cam",        // エンジンの生の視点（書き換え可能）＝公開の写しは map.view。zoomscale.js の表では "engine"
 	"renderer",   // render worker の口（内部）
 	"pinRes",     // 録画用の解像度固定（scene エディタ）＝公開面にしない
-	"__clouds",   // 雲の殻（api/camera.js が setClouds の中で生やす検証窓）
+	"__clouds",   // 雲の殻（api/camera.ts が setClouds の中で生やす検証窓）
 ]);
 
 const read = f => fs.readFileSync(path.join(GLOBE, f), "utf8");
-const apiFiles = fs.readdirSync(path.join(GLOBE, "src/api")).filter(f => f.endsWith(".js")).map(f => "src/api/" + f).sort();
+const apiFiles = fs.readdirSync(path.join(GLOBE, "src/api")).filter(f => /\.(js|ts)$/.test(f) && !f.endsWith(".d.ts")).map(f => "src/api/" + f).sort();
 const sources = ["src/globe.js", ...apiFiles].map(f => [f, read(f)]);
 
 // ── 実装の側 ──
