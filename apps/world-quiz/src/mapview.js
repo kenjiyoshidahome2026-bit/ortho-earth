@@ -85,6 +85,5 @@ async function build(host, lang) {
 			if (lngLat) await line({ type: "Point", coordinates: lngLat }, c);
 		},
 		clear: () => clear(),
-		resize() { map.resize?.(); },
 	};
 }

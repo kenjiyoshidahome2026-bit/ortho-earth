@@ -11,7 +11,7 @@
 //   { type:"progress", q, msg:{ key, args, keep } } … 層ごとの進み具合（文言は英語キー＋引数＝訳すのは main の t()。keep＝読み終わっても残す要約）
 //   { type:"part", q, n, pos, attr, lon, lat, time, meta } … 層 q の中身（同じ q は置き換え）
 //   { type:"done", n, skipped } / { type:"error", message }
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "./usgs.js";   // ビルドスクリプトと同じ規則で焼く
 
 // 文言＝英語キー（i18n/ui.json）。worker は訳さない＝{ key, args } を main へ渡すだけ（args に入れ子可・数値は main が桁区切り）
@@ -69,7 +69,7 @@ async function loadPbf(src, say) {
 		u8 = new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 	}
 	say?.(t("Reading GeoPBF…"));
-	const pbf = await new GeoPBF().set(u8);
+	const pbf = await new GeoPBFBase().set(u8);
 	const c = columns(pbf.length);
 	for (let i = 0; i < pbf.length; i++) {
 		const g = pbf.getGeometry(i);
