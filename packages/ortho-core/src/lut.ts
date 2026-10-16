@@ -3,10 +3,12 @@
 //   ① .cube（Adobe/Resolve の文章）＝"LUT_3D_SIZE n" と n³ 行の "r g b"（0〜1・DOMAIN_MIN/MAX を見る）。並びは R が最速・B が最遅（規格どおり）
 //   ② 画像（png/webp など）＝横に size 枚の板を並べた size²×size の帯。x＝B の板番号×size＋R・y＝G（上の行が G=0）。size は呼ぶ側の指定（既定 32）＝幅が size² でなければ幅から推定（幅＝h²）
 // 戻り＝{ size, data: Uint8Array（RGBA8・幅 size²・高さ size・上の行から） }。シェーダは 2D の帯として読む（R・G は線形補間・B は隣の板との手計算の補間）
-const isCube = (url, text) => /\.cube(\?|#|$)/i.test(url) || /^\s*(TITLE|LUT_3D_SIZE|DOMAIN_MIN)/m.test(text || "");
-function parseCube(text) {
+/** 3D LUT の帯（RGBA8・幅 size²・高さ size） */
+export interface LUTStrip { size: number; data: Uint8Array }
+const isCube = (url: string, text: string): boolean => /\.cube(\?|#|$)/i.test(url) || /^\s*(TITLE|LUT_3D_SIZE|DOMAIN_MIN)/m.test(text || "");
+function parseCube(text: string): LUTStrip {
 	let size = 0, lo = [0, 0, 0], hi = [1, 1, 1];
-	const rows = [];
+	const rows: number[][] = [];
 	for (const raw of text.split(/\r?\n/)) {
 		const s = raw.trim();
 		if (!s || s[0] === "#") continue;
@@ -27,17 +29,17 @@ function parseCube(text) {
 	}
 	return { size, data };
 }
-function imageToStrip(bitmap, sizeHint) {
+function imageToStrip(bitmap: ImageBitmap, sizeHint: number): LUTStrip {
 	const w = bitmap.width, h = bitmap.height;
 	const size = w === h * h ? h : (sizeHint && w === sizeHint * sizeHint && h === sizeHint ? sizeHint : 0);
 	if (!size) throw new Error(`lut: image must be size²×size (got ${w}×${h})`);
-	const cv = new OffscreenCanvas(w, h), cx = cv.getContext("2d", { willReadFrequently: true });
+	const cv = new OffscreenCanvas(w, h), cx = cv.getContext("2d", { willReadFrequently: true })!;
 	cx.drawImage(bitmap, 0, 0);
 	const img = cx.getImageData(0, 0, w, h);
 	return { size, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
 }
 // url → { size, data }。data: URL も可（検定用）。失敗は reject
-export async function loadLUT(url, sizeHint = 32) {
+export async function loadLUT(url: string, sizeHint = 32): Promise<LUTStrip> {
 	const res = await fetch(url);
 	if (!res.ok) throw new Error(`lut: ${res.status} ${url}`);
 	const ct = res.headers.get("content-type") || "";

@@ -5,22 +5,39 @@
 //   塗り（fill）＝点が面の中（偶奇則・穴つき）／線（line）＝線幅/2＋許容 px 以内／注記（symbol）＝点は許容 px＋8 以内・線上注記は線と同じ。
 // 返す形は MapLibre と同じ（Feature＋layer{id,type,"source-layer"}＋sourceLayer＋source）。順は上に描かれた層から。
 // 依存はエンジン内だけ（expr/decode/tile/pmtiles）＝DOM なし。
-import { evalExpr, truthy, originOfLayer } from "./expr.js";
-import { fetchMVT, polygons } from "./decode.js";
-import { tileLocalToLonLat } from "./tile.js";
-import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
+import { evalExpr, truthy, originOfLayer } from "./expr.ts";
+import { fetchMVT, polygons } from "./decode.ts";
+import { tileLocalToLonLat } from "./tile.ts";
+import { isPMTiles, fetchPMTiles } from "./pmtiles-src.ts";
+import type { ExprContext, ExprOrigin } from "./expr.ts";
+import type { GeoJSONGeometry } from "./expr-geo.ts";
+import type { DecodedFeature, DecodedTile, EmptyTile, TileData } from "./tileformat.ts";
+import type { Style } from "./build.ts";
+
+/** 取得の前の手入れ（#37）＝pipeline と同じ口 */
+export interface TileRequest { url: string; headers?: HeadersInit; credentials?: RequestCredentials; load?: () => Promise<ArrayBuffer> }
+export type RequestFn = (url: string, kind: string) => TileRequest | null | undefined;
+/** 問い合わせの地物（MapLibre の Feature＋layer/sourceLayer/source/tile） */
+export interface QueryFeature { type: "Feature"; id: unknown; properties: Record<string, unknown>; geometry: GeoJSONGeometry; layer?: { id: string; type: string; "source-layer": string | undefined }; sourceLayer: string | undefined; source: string; tile: string | undefined }
+export interface QueryOptions {
+	style: Style; hidden?: Set<number> | null; order?: readonly { key: string }[]; tileUrl: (z: number, x: number, y: number) => string | null | undefined; zoom: number;
+	area: { ll?: number[]; bbox?: number[] | null }; tolPx?: number; layers?: readonly string[] | null; filter?: unknown; filterOrigin?: ExprOrigin; signal?: AbortSignal | null;
+	cache?: Map<string, TileData> | null; request?: RequestFn | null; source?: string; promoteId?: string | Record<string, string> | null; encoding?: string; gs?: Record<string, unknown> | null;
+}
+export interface SourceFeaturesOptions { sourceLayer: string; filter?: unknown; zoom?: number; gs?: Record<string, unknown> | null; promoteId?: string | Record<string, string> | null; source?: string; pitch?: number }
+interface TileRef { z: number; x: number; y: number; key?: string }
 
 const D2R = Math.PI / 180;
-const mercY = lat => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+const mercY = (lat: number): number => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
 const WORLD_PX = 256;   // 256px 世界（ortho の z の定義）＝タイル z の 1 枚は画面で 256·2^(zoom−z) px
 
 // area＝{ ll:[lon,lat] } か { bbox:[w,s,e,n] }。order＝描いているタイル [{ key:"z/x/y", z }]。
 // hidden＝隠している style.layers の添字（Set）。tolPx＝許容（既定 3px）。layers＝層 id の絞り込み。filter＝追加の式。
-export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null, encoding = "mvt", gs = undefined }) {   // gs＝地図の global-state（#173・頁に地図が複数）   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）   // encoding＝タイルの形式（mvt｜mlt・PMTiles はヘッダが決める・#88）
+export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null, encoding = "mvt", gs = undefined }: QueryOptions): Promise<QueryFeature[]> {   // gs＝地図の global-state（#173・頁に地図が複数）   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）   // encoding＝タイルの形式（mvt｜mlt・PMTiles はヘッダが決める・#88）
 	const want = layers ? new Set(layers) : null;
-	const [w, s, e, n] = area.bbox || [area.ll[0], area.ll[1], area.ll[0], area.ll[1]];
+	const [w, s, e, n] = area.bbox || [area.ll![0], area.ll![1], area.ll![0], area.ll![1]];
 	// 領域に掛かるタイル（同じ場所は最も細かい z だけ＝下地の粗い段は重ねない）
-	const tiles = [];
+	const tiles: { z: number; x: number; y: number; key: string }[] = [];
 	for (const o of order) {
 		const [z, x, y] = o.key.split("/").map(Number), N = 2 ** z;
 		const tx0 = x / N, tx1 = (x + 1) / N, ty0 = y / N, ty1 = (y + 1) / N;
@@ -29,8 +46,8 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 		tiles.push({ z, x, y, key: o.key });
 	}
 	if (area.ll && tiles.length > 1) { tiles.sort((a, b) => b.z - a.z); tiles.length = 1; }   // 点＝その場所を覆う最細の 1 枚
-	const need = new Set(style.layers.filter(L => L["source-layer"]).map(L => L["source-layer"]));
-	const out = [];
+	const need = new Set(style.layers.filter(L => L["source-layer"]).map(L => L["source-layer"] as string));
+	const out: QueryFeature[] = [];
 	for (const t of tiles) {
 		const url = tileUrl(t.z, t.x, t.y);
 		if (!url) continue;
@@ -42,7 +59,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 				: await fetchMVT(rq?.url ?? url, signal, need, rq ? { headers: rq.headers, credentials: rq.credentials } : null, null, encoding);
 			cache?.set(t.key, data);
 		}
-		if (!data || data.__empty) continue;
+		if (!data || (data as EmptyTile).__empty) continue;
 		const N = 2 ** t.z;
 		for (let li = style.layers.length - 1; li >= 0; li--) {   // 上に描かれた層から（MapLibre と同じ順）
 			const L = style.layers[li];
@@ -50,22 +67,22 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 			if (hidden?.has(li) || L.layout?.visibility === "none") continue;
 			if (want && !want.has(L.id)) continue;
 			if ((L.minzoom != null && zoom < L.minzoom) || (L.maxzoom != null && zoom >= L.maxzoom)) continue;
-			const src = data[L["source-layer"]]; if (!src) continue;
+			const src = (data as DecodedTile)[L["source-layer"]]; if (!src) continue;
 			const ext = src.extent || 4096, pxPerU = WORLD_PX * 2 ** (zoom - t.z) / ext;
-			const toU = (lon, lat) => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
+			const toU = (lon: number, lat: number): [number, number] => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
 			const [ux0, uy1] = toU(w, s), [ux1, uy0] = toU(e, n);
 			for (const f of src.features) {
-				const ctx = { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: originOfLayer(L), gs, feat: f, tile: { z: t.z, x: t.x, y: t.y, E: ext } };   // feat/tile＝within/distance（C2）
+				const ctx: ExprContext = { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: originOfLayer(L), gs, feat: f, tile: { z: t.z, x: t.x, y: t.y, E: ext } };   // feat/tile＝within/distance（C2）
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				if (filter && !truthy(evalExpr(filter, { ...ctx, origin: filterOrigin }))) continue;
 				let tol = tolPx;
 				if (L.type === "line") {   // MapLibre と同じ幅（getLineWidth）：隙間があれば 隙間＋2×幅・幅 0 の線は当たらない（旧＝0 を 1px と見て余計に当たった・2026-09-27）
-					const lw = +evalExpr(L.paint?.["line-width"] ?? 1, ctx) || 0, gw = +evalExpr(L.paint?.["line-gap-width"] ?? 0, ctx) || 0, w = gw > 0 ? gw + 2 * lw : lw;
+					const lw = +(evalExpr(L.paint?.["line-width"] ?? 1, ctx) as number) || 0, gw = +(evalExpr(L.paint?.["line-gap-width"] ?? 0, ctx) as number) || 0, w = gw > 0 ? gw + 2 * lw : lw;
 					if (w <= 0 && tolPx <= 0) continue;
 					tol += Math.max(0, w) / 2;
 				}
 				else if (L.type === "symbol" && f.type === "Point") tol += 8;
-				else if (L.type === "circle") { const r = +evalExpr(L.paint?.["circle-radius"] ?? 5, ctx), sw = +evalExpr(L.paint?.["circle-stroke-width"] ?? 0, ctx); tol += (r > 0 ? r : 0) + (sw > 0 ? sw : 0); }   // 円＝半径＋縁の中
+				else if (L.type === "circle") { const r = +(evalExpr(L.paint?.["circle-radius"] ?? 5, ctx) as number), sw = +(evalExpr(L.paint?.["circle-stroke-width"] ?? 0, ctx) as number); tol += (r > 0 ? r : 0) + (sw > 0 ? sw : 0); }   // 円＝半径＋縁の中
 				if (!hit(f, L.type, ux0, uy0, ux1, uy1, tol / pxPerU, !!area.bbox)) continue;
 				const pk = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[L["source-layer"]];   // promoteId＝MapLibre の vector source の口（文字列か source-layer ごとの object）
 				out.push({ type: "Feature", id: pk != null && f.props?.[pk] !== undefined ? f.props[pk] : f.id, properties: f.props || {}, geometry: toGeoJSON(f, t, ext),
@@ -77,8 +94,8 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 }
 
 // 当たり：box＝外接箱の重なり（MapLibre の box 問い合わせと同じ粗さ）／点＝面は中・線と点は距離
-function hit(f, type, x0, y0, x1, y1, tolU, box) {
-	const { coords: c, ends } = f.geom;
+function hit(f: DecodedFeature, type: string, x0: number, y0: number, x1: number, y1: number, tolU: number, box: boolean): boolean {
+	const { coords: c, ends } = f.geom!;
 	if (box) {
 		let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
 		for (let i = 0; i < c.length; i += 2) { if (c[i] < bx0) bx0 = c[i]; if (c[i] > bx1) bx1 = c[i]; if (c[i + 1] < by0) by0 = c[i + 1]; if (c[i + 1] > by1) by1 = c[i + 1]; }
@@ -107,9 +124,9 @@ function hit(f, type, x0, y0, x1, y1, tolU, box) {
 
 // source の地物（MapLibre の querySourceFeatures・同期・C7 2026-10-12）＝解読済みのタイル 1 枚（decodeTile の出力）の source-layer の地物を全部 GeoJSON（経緯度）で。
 // 当たりは取らない（タイルに入っている物が答え＝MapLibre と同じ・タイルをまたぐ地物は枚数ぶん重複する）。filter＝MapLibre の式（ML の出自）。t＝{ z, x, y, key }
-export function sourceFeatures(data, t, { sourceLayer, filter = null, zoom = 0, gs = undefined, promoteId = null, source = "basemap", pitch = 0 } = {}) {
-	const src = data?.[sourceLayer]; if (!src || data.__empty) return [];
-	const ext = src.extent || 4096, out = [];
+export function sourceFeatures(data: TileData | null | undefined, t: TileRef, { sourceLayer, filter = null, zoom = 0, gs = undefined, promoteId = null, source = "basemap", pitch = 0 }: SourceFeaturesOptions): QueryFeature[] {
+	const src = (data as DecodedTile | null | undefined)?.[sourceLayer]; if (!src || (data as EmptyTile).__empty) return [];
+	const ext = src.extent || 4096, out: QueryFeature[] = [];
 	const pk = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sourceLayer];
 	for (const f of src.features) {
 		if (filter && !truthy(evalExpr(filter, { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: "ml", gs, feat: f, tile: { z: t.z, x: t.x, y: t.y, E: ext }, pitch }))) continue;
@@ -118,16 +135,16 @@ export function sourceFeatures(data, t, { sourceLayer, filter = null, zoom = 0, 
 	return out;
 }
 
-function toGeoJSON(f, t, ext) {
-	const { coords: c, ends } = f.geom;
-	const ll = i => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], ext);
-	const run = (s, e) => { const a = []; for (let i = s; i < e; i += 2) a.push(ll(i)); return a; };
+function toGeoJSON(f: DecodedFeature, t: TileRef, ext: number): GeoJSONGeometry {
+	const { coords: c, ends } = f.geom!;
+	const ll = (i: number): [number, number] => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], ext);
+	const run = (s: number, e: number): [number, number][] => { const a: [number, number][] = []; for (let i = s; i < e; i += 2) a.push(ll(i)); return a; };
 	if (f.type === "Point") { const pts = run(0, c.length); return pts.length === 1 ? { type: "Point", coordinates: pts[0] } : { type: "MultiPoint", coordinates: pts }; }
-	if (f.type === "LineString") { const ls = []; let s = 0; for (const e of ends) { ls.push(run(s, e)); s = e; } return ls.length === 1 ? { type: "LineString", coordinates: ls[0] } : { type: "MultiLineString", coordinates: ls }; }
+	if (f.type === "LineString") { const ls: [number, number][][] = []; let s = 0; for (const e of ends) { ls.push(run(s, e)); s = e; } return ls.length === 1 ? { type: "LineString", coordinates: ls[0] } : { type: "MultiLineString", coordinates: ls }; }
 	// 面＝外周（正の面積）ごとに穴を束ねる（decode.polygons と同じ分け方）
-	const polys = [];
-	let s = 0, cur = null;
-	const outerStarts = new Set(polygons(f.geom).map(([sub]) => sub.byteOffset / c.BYTES_PER_ELEMENT));
+	const polys: [number, number][][][] = [];
+	let s = 0, cur: [number, number][][] | null = null;
+	const outerStarts = new Set(polygons(f.geom!).map(([sub]) => sub.byteOffset / c.BYTES_PER_ELEMENT));
 	for (const e of ends) { const ring = run(s, e); if (outerStarts.has(s) || !cur) { cur = [ring]; polys.push(cur); } else cur.push(ring); s = e; }
 	return polys.length === 1 ? { type: "Polygon", coordinates: polys[0] } : { type: "MultiPolygon", coordinates: polys };
 }

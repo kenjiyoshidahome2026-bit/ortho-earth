@@ -2,9 +2,20 @@
 // geopbf 等の外部ベクタを、タイル非依存で mat4 パイプラインへ流すためのアダプタ。
 // 頂点は origin からの経緯度差分（精度確保）。
 
+/** [lon, lat]（度） */
+type Position = number[];
+/** 読む GeoJSON の形（Polygon・MultiPolygon・LineString・MultiLineString 以外は素通り） */
+export interface OverlayGeometry { type: string; coordinates: unknown }
+export interface OverlayFeature { geometry?: OverlayGeometry | null }
+/** buildGeoJSONOverlay の選択肢 */
+export interface OverlayOptions { lineColor?: number[]; lineWidth?: number; lines?: boolean; ranges?: boolean }
+/** feature 毎の fan 頂点レンジ＋外接円（単位球 3D 中心と角半径の cos/sin） */
+export interface OverlayRange { start: number; count: number; C: number[]; cosR: number; sinR: number }
+export interface GeoJSONOverlay { origin: [number, number]; fanPos: Float32Array; P1: Float32Array; P2: Float32Array; lineCol: Float32Array; lineHalf: Float32Array; feats: OverlayRange[] | null }
+
 // リングの経度を連続化：隣接頂点が±180°以内になるよう±360°足し引き。2D三角形分割がantimeridianを
 // 誤って横断するのを防ぐ。>180/<-180 の値になるが lonlatTo3D は周期的なので3D位置は正しい。
-function unwrapRing(ring) {
+function unwrapRing(ring: Position[]): Position[] {
 	if (!ring.length) return ring;
 	const out = [ring[0]]; let prev = ring[0][0];
 	for (let i = 1; i < ring.length; i++) {
@@ -20,8 +31,8 @@ function unwrapRing(ring) {
 // 長辺（中心角 > GC_STEP）だけ大円上の中間点を挿す＝密な小ポリゴン（census 町丁目等）は素通り（n=1）でゼロ費用。
 // 入力は unwrapRing 済み（lon 連続）。中間点も直前の出力に対して連続化＝縫い目跨ぎでも一本のまま。
 const D2R = Math.PI / 180, R2D = 180 / Math.PI, GC_STEP = 2 * D2R;   // 2°刻み（塗り境界の滑らかさ）
-const toVec = (lon, lat) => { const c = Math.cos(lat * D2R); return [c * Math.cos(lon * D2R), c * Math.sin(lon * D2R), Math.sin(lat * D2R)]; };
-function densifyGC(ring) {
+const toVec = (lon: number, lat: number): number[] => { const c = Math.cos(lat * D2R); return [c * Math.cos(lon * D2R), c * Math.sin(lon * D2R), Math.sin(lat * D2R)]; };
+function densifyGC(ring: Position[]): Position[] {
 	if (ring.length < 2) return ring;
 	const out = [ring[0]]; let prev = ring[0][0];
 	for (let i = 1; i < ring.length; i++) {
@@ -43,19 +54,19 @@ function densifyGC(ring) {
 
 // stencil-then-cover 用：ポリゴンを fan 三角形(anchor, v_i, v_{i+1})に。earcut不要（凹/穴は巻き数が処理）。
 // 塗りの被覆は境界の巻き数で決まるので fan の形は問わない＝球面で扇にならない。境界線も併せて出す。
-export function buildGeoJSONOverlay(features, origin, opts = {}) {
-	const [ox, oy] = origin;
+export function buildGeoJSONOverlay(features: (OverlayFeature | null | undefined)[], origin: ArrayLike<number>, opts: OverlayOptions = {}): GeoJSONOverlay {
+	const ox = origin[0], oy = origin[1];
 	const lc = opts.lineColor || [0.16, 0.40, 0.70, 0.95];
 	const half = opts.lineWidth != null ? opts.lineWidth : 1.2;
-	const fan = [], P1 = [], P2 = [], lcol = [], lhalf = [];
-	const pushRingLines = ring => {
+	const fan: number[] = [], P1: number[] = [], P2: number[] = [], lcol: number[] = [], lhalf: number[] = [];
+	const pushRingLines = (ring: Position[]): void => {
 		if (opts.lines === false) return;   // 塗り専用シーン（海面下の陸地等）＝境界線バッファを作らない（辺数分の無駄なインスタンス描画を出さない）
 		for (let i = 0; i + 1 < ring.length; i++) {
 			P1.push(ring[i][0] - ox, ring[i][1] - oy); P2.push(ring[i + 1][0] - ox, ring[i + 1][1] - oy);
 			lcol.push(lc[0], lc[1], lc[2], lc[3]); lhalf.push(half);
 		}
 	};
-	const fanPolygon = rings => {
+	const fanPolygon = (rings: Position[][]): void => {
 		const uw = rings.map(r => densifyGC(unwrapRing(r)));   // 大円で密化＝塗り扇/境界線が弦にならない
 		const ax = uw[0][0][0] - ox, ay = uw[0][0][1] - oy;   // ポリゴンの anchor（外周先頭）。全リング共通で穴を巻き数減算
 		for (const ring of uw) {
@@ -66,14 +77,14 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 	// opts.ranges＝feature 毎の fan 頂点レンジ＋外接円（単位球3D中心と角半径の cos/sin）を同梱＝
 	// 全球スケールの層（wdepr）の球体カリング用：完全裏側の feature は CPU 側でレンジごと描かない
 	//（対蹠点付近はVSの地平円クランプがリング一周巻きになり全面+1化する＝クランプだけでは守れない）。
-	const feats = opts.ranges ? [] : null;
+	const feats: OverlayRange[] | null = opts.ranges ? [] : null;
 	features.forEach(f => {
 		const g = f && f.geometry; if (!g) return;
 		const vStart = fan.length / 2;
-		if (g.type === "Polygon") fanPolygon(g.coordinates);
-		else if (g.type === "MultiPolygon") g.coordinates.forEach(fanPolygon);
-		else if (g.type === "LineString") pushRingLines(densifyGC(unwrapRing(g.coordinates)));
-		else if (g.type === "MultiLineString") g.coordinates.forEach(r => pushRingLines(densifyGC(unwrapRing(r))));
+		if (g.type === "Polygon") fanPolygon(g.coordinates as Position[][]);
+		else if (g.type === "MultiPolygon") (g.coordinates as Position[][][]).forEach(fanPolygon);
+		else if (g.type === "LineString") pushRingLines(densifyGC(unwrapRing(g.coordinates as Position[])));
+		else if (g.type === "MultiLineString") (g.coordinates as Position[][]).forEach(r => pushRingLines(densifyGC(unwrapRing(r))));
 		if (!feats) return;
 		const count = fan.length / 2 - vStart;
 		if (!count) return;
@@ -90,18 +101,18 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 }
 
 // 点-in-ポリゴン（GeoJSON Polygon/MultiPolygon, 経緯度）。identify の JS 経路。穴も考慮。
-export function pointInFeature(lon, lat, geom) {
+export function pointInFeature(lon: number, lat: number, geom: OverlayGeometry | null | undefined): boolean {
 	if (!geom) return false;
-	if (geom.type === "Polygon") return inRings(lon, lat, geom.coordinates);
-	if (geom.type === "MultiPolygon") return geom.coordinates.some(rings => inRings(lon, lat, rings));
+	if (geom.type === "Polygon") return inRings(lon, lat, geom.coordinates as Position[][]);
+	if (geom.type === "MultiPolygon") return (geom.coordinates as Position[][][]).some(rings => inRings(lon, lat, rings));
 	return false;
 }
-function inRings(lon, lat, rings) {
+function inRings(lon: number, lat: number, rings: Position[][]): boolean {
 	if (!rings.length || !inRing(lon, lat, rings[0])) return false;   // 外周内
 	for (let i = 1; i < rings.length; i++) if (inRing(lon, lat, rings[i])) return false;   // 穴なら除外
 	return true;
 }
-function inRing(lon, lat, ring) {
+function inRing(lon: number, lat: number, ring: Position[]): boolean {
 	let inside = false;
 	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
 		const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];

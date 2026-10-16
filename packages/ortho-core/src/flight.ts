@@ -12,17 +12,25 @@
 //   時計は刻み上限つき仮想時計（run の STEP_MAX_MS）＝非力端末では尺を伸ばして連続に滑る（跳ばない）。
 //   cam0＝出発カメラのスナップショット {lon,lat,zoom,pitch,bearing}（角はラジアン＝cam と同じ）、
 //   env＝{viewW(px・プラン構築時に固定), maxPitch, minZoom}。land＝着地時刻[ms]（onFlying(false)＝③の解禁点）。
-import { WORLD_PX } from "./camera.js";
+import { WORLD_PX, type CameraPose } from "./camera.ts";
 const D2R = Math.PI / 180;
-const ss = k => k * k * (3 - 2 * k);   // smoothstep（各チャンネル単独の動きの緩急）
+const ss = (k: number): number => k * k * (3 - 2 * k);   // smoothstep（各チャンネル単独の動きの緩急）
+
+/** カメラのスナップショット（角はラジアン） */
+export interface FlightTarget { lon: number; lat: number; zoom: number; pitch: number; bearing: number; /** easePlan だけが補間する（fly/glide は今の値のまま） */ roll?: number }
+/** 時刻評価のプラン */
+export interface FlightPlan { dur: number; land: number; at(tMs: number): FlightTarget; knots?: number[] }
+export interface FlightEnv { viewW: number; maxPitch: number; minZoom?: number }
+/** glidePath の通過点 */
+export interface PathPoint { lon: number; lat: number; zoom: number; pitch?: number; bearing?: number; secs?: number }
 
 // 方位角を最短回転(-π..π]へ正規化（コンパスの読みと同じ）
-export const shortBearingOf = b => ((b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+export const shortBearingOf = (b: number): number => ((b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
 // シーンチェンジ＝三段の振り付け（flatten 500ms → van Wijk 巡航 → 起こし 700ms）。
 // bearingDeg＝着地方位（省略=北）。巡航は常に北向き＝③の「起こす」で tilt と同時に回り込む（デモ台本の t/r 着地用）。
 // 着地チルト：指定（自然地名=55°等）＞ z15+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け。
-export function flyPlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
+export function flyPlan(cam0: FlightTarget, env: FlightEnv, lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): FlightPlan {
 	const { viewW, maxPitch, minZoom = 0 } = env;
 	zoom = Math.max(minZoom, zoom);   // 床下の目標でも飛行で潜らない（applyView の床と同じ掟）
 	const p1 = tiltDeg != null ? Math.min(maxPitch, tiltDeg * D2R) : (zoom >= 15 ? 45 * D2R : 0);
@@ -33,10 +41,10 @@ export function flyPlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 	let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
 	const dLat = lat - lat0;
 	const rho = Math.SQRT2, rho2 = 2, rho4 = 4;
-	const wOf = z => 360 * viewW / (WORLD_PX * Math.pow(2, z));       // 視野幅[deg]
-	const zOf = w => Math.log2(360 * viewW / (WORLD_PX * w));
+	const wOf = (z: number): number => 360 * viewW / (WORLD_PX * Math.pow(2, z));       // 視野幅[deg]
+	const zOf = (w: number): number => Math.log2(360 * viewW / (WORLD_PX * w));
 	const w0 = wOf(z0), w1 = wOf(z1), d2 = dLon * dLon + dLat * dLat, d1 = Math.sqrt(d2);
-	let S, frameAt;   // S＝経路長（ρ単位）、frameAt(e)＝[経路割合u(0..1), 視野幅w]
+	let S: number, frameAt: (e: number) => [number, number];   // S＝経路長（ρ単位）、frameAt(e)＝[経路割合u(0..1), 視野幅w]
 	if (d1 < 1e-6 * Math.max(w0, w1)) {   // ほぼ真上＝指数ズームのみ
 		S = Math.abs(Math.log(w1 / w0)) / rho;
 		frameAt = e => [e, w0 * Math.pow(w1 / w0, e)];
@@ -60,7 +68,7 @@ export function flyPlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 	// 出発z≥2の通常飛行では min(2,z0,z1)=min(2,z1)＝従来と同値＝挙動不変。
 	const zFloor = Math.min(2, z0, zoom);
 	const land = flatMs + cruiseMs, dur = land + riseMs;
-	const at = t => {
+	const at = (t: number): FlightTarget => {
 		t = Math.max(0, Math.min(t, dur));
 		if (t < flatMs) {   // ①水平へ（smoothstep）
 			const e = ss(t / 500);
@@ -81,7 +89,7 @@ export function flyPlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 // （引き・回り込み・立ち上がり。チルトが最後＝建物が立ち上がるのがフィナーレ）。
 // 経路は equirect 直線＝球面最適経路ではない：近距離（同じ街・隣街）専用。シーンチェンジは従来どおり fly。
 // 省略チャンネルは現状維持でなく目的値へ（tiltDeg/bearingDeg 未指定＝0＝起こして北へ。共有URLの意味論と同じ）。
-export function glidePlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
+export function glidePlan(cam0: FlightTarget, env: FlightEnv, lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): FlightPlan {
 	const { viewW, maxPitch, minZoom = 0 } = env;
 	zoom = Math.max(minZoom, zoom);   // 同上（glide は cam 直書き＝ここで守らないと床を素通りする）
 	const lon0 = cam0.lon, lat0 = cam0.lat, z0 = cam0.zoom;
@@ -90,14 +98,14 @@ export function glidePlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 	const B0 = shortBearingOf(cam0.bearing), dB = shortBearingOf((bearingDeg || 0) * D2R - B0);
 	const P0 = cam0.pitch, p1 = Math.min(maxPitch, (tiltDeg || 0) * D2R), dP = p1 - P0;
 	const w0 = 360 * viewW / (WORLD_PX * Math.pow(2, Math.max(z0, zoom)));   // 寄った側の視野幅[deg]＝移動の体感尺
-	const phases = [];   // 各チャンネルの尺＝変化量に比例（変化ゼロのチャンネルは飛ばす）
+	const phases: { ms: number; ch: "move" | "bearing" | "pitch" }[] = [];   // 各チャンネルの尺＝変化量に比例（変化ゼロのチャンネルは飛ばす）
 	if (dist > 1e-7 || Math.abs(dZ) > 0.001) phases.push({ ms: Math.max(800, Math.min(4000, dist / w0 * 700 + Math.abs(dZ) * 350)), ch: "move" });
 	if (Math.abs(dB) > 0.01) phases.push({ ms: Math.max(500, Math.min(2600, Math.abs(dB) / D2R * 14)), ch: "bearing" });
 	if (Math.abs(dP) > 0.01) phases.push({ ms: Math.max(500, Math.min(1600, Math.abs(dP) / D2R * 16)), ch: "pitch" });
 	const dur = phases.reduce((a, p) => a + p.ms, 0);
-	const at = t => {
+	const at = (t: number): FlightTarget => {
 		t = Math.max(0, Math.min(t, dur));
-		const c = { lon: lon0, lat: lat0, zoom: z0, pitch: P0, bearing: B0 };
+		const c: FlightTarget = { lon: lon0, lat: lat0, zoom: z0, pitch: P0, bearing: B0 };
 		let t0 = 0;
 		for (const p of phases) {   // 時分割＝手前のチャンネルは完了値・先のチャンネルは初期値のまま
 			const e = ss(Math.max(0, Math.min(1, (t - t0) / p.ms))); t0 += p.ms;
@@ -114,7 +122,7 @@ export function glidePlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 // fly（三段振り付け）/ glide（時分割）と違い「今の姿勢のまま滑る」＝UI 操作の追従・小さな寄せ直し用。
 // target＝{ lon, lat, zoom, pitch, bearing, roll }（角はラジアン＝cam と同じ・省略=現状維持）・duration[ms]（既定 500・0 以下＝即着地）。
 // 経度は最短側（antimeridian 安全）・方位は最短回転。ズームは線形（近距離前提＝van Wijk は fly の役目）。
-export function easePlan(cam0, env, target = {}, duration = 500) {
+export function easePlan(cam0: FlightTarget, env: FlightEnv, target: Partial<FlightTarget> = {}, duration = 500): FlightPlan {
 	const { maxPitch, minZoom = 0 } = env;
 	const lon0 = cam0.lon, lat0 = cam0.lat, z0 = cam0.zoom, P0 = cam0.pitch, B0 = shortBearingOf(cam0.bearing);
 	let dLon = (target.lon ?? lon0) - lon0; dLon -= Math.round(dLon / 360) * 360;
@@ -124,7 +132,7 @@ export function easePlan(cam0, env, target = {}, duration = 500) {
 	const dB = target.bearing == null ? 0 : shortBearingOf(target.bearing - B0);
 	const R0 = cam0.roll || 0, dR = target.roll == null ? 0 : shortBearingOf(target.roll - R0);   // roll（MapLibre 6.x の easeTo の roll・最短回転）
 	const dur = Math.max(0, duration);
-	const at = t => {
+	const at = (t: number): FlightTarget => {
 		const e = dur > 0 ? ss(Math.max(0, Math.min(1, t / dur))) : 1;
 		return { lon: lon0 + dLon * e, lat: lat0 + dLat * e, zoom: z0 + dZ * e, pitch: P0 + dP * e, bearing: B0 + dB * e, roll: R0 + dR * e };
 	};
@@ -137,12 +145,12 @@ export function easePlan(cam0, env, target = {}, duration = 500) {
 // secs＝「その点に到達するまで」の区間尺[秒]（pts[0].secs＝現カメラ→最初の点）。省略区間は経路長比例の自動尺
 // ＝区間ごとに緩急が書ける（ランドマーク前だけゆっくり等・台本キーは travel）。全体に ease in/out。
 // knots＝各点の実到達時刻[ms]（全体 ease の時間歪みを逆算済み＝スクラブUIの目盛り用）。
-export function glidePathPlan(cam0, env, pts) {
+export function glidePathPlan(cam0: FlightTarget, env: FlightEnv, pts: PathPoint[]): FlightPlan | null {
 	if (!Array.isArray(pts) || pts.length < 1) return null;
 	if (pts.length === 1 && !pts[0].secs) return glidePlan(cam0, env, pts[0].lon, pts[0].lat, pts[0].zoom, (pts[0].pitch || 0) / D2R, (pts[0].bearing || 0) / D2R);   // 1点・尺なし＝ただの滑走（時分割）。尺あり＝1区間のスプライン（尺どおり同時補間）
 	const { viewW, maxPitch, minZoom = 0 } = env;
 	// 制御点＝[cam0, ...pts]。経度は前点基準で連続化（antimeridian/360跳び回避）、方位も最短側で連続化。
-	const ctrl = [{ lon: cam0.lon, lat: cam0.lat, zoom: cam0.zoom, pitch: cam0.pitch, bearing: shortBearingOf(cam0.bearing) }];
+	const ctrl: FlightTarget[] = [{ lon: cam0.lon, lat: cam0.lat, zoom: cam0.zoom, pitch: cam0.pitch, bearing: shortBearingOf(cam0.bearing) }];
 	for (const p of pts) {
 		const prev = ctrl[ctrl.length - 1];
 		let lon = p.lon; lon -= Math.round((lon - prev.lon) / 360) * 360;
@@ -150,17 +158,17 @@ export function glidePathPlan(cam0, env, pts) {
 	}
 	const n = ctrl.length;
 	// 端の反射ファントム（端で制御点が重なり centripetal のノット間隔が 0 になる係数破綻を避ける）
-	const gp = j => j < 0 ? { lon: 2 * ctrl[0].lon - ctrl[1].lon, lat: 2 * ctrl[0].lat - ctrl[1].lat }
+	const gp = (j: number): { lon: number; lat: number } => j < 0 ? { lon: 2 * ctrl[0].lon - ctrl[1].lon, lat: 2 * ctrl[0].lat - ctrl[1].lat }
 		: j > n - 1 ? { lon: 2 * ctrl[n - 1].lon - ctrl[n - 2].lon, lat: 2 * ctrl[n - 1].lat - ctrl[n - 2].lat } : ctrl[j];
 	// centripetal Catmull-Rom（Barry–Goldman の再帰形）でスカラ key を param tt（∈[t1,t2]）で評価
-	const cr = (P, t, tt, key) => {
-		const g = (a, b, ta, tb) => ((tb - tt) * P[a][key] + (tt - ta) * P[b][key]) / ((tb - ta) || 1e-9);
+	const cr = (P: { lon: number; lat: number }[], t: number[], tt: number, key: "lon" | "lat"): number => {
+		const g = (a: number, b: number, ta: number, tb: number): number => ((tb - tt) * P[a][key] + (tt - ta) * P[b][key]) / ((tb - ta) || 1e-9);
 		const A1 = g(0, 1, t[0], t[1]), A2 = g(1, 2, t[1], t[2]), A3 = g(2, 3, t[2], t[3]);
 		const B1 = ((t[2] - tt) * A1 + (tt - t[0]) * A2) / ((t[2] - t[0]) || 1e-9);
 		const B2 = ((t[3] - tt) * A2 + (tt - t[1]) * A3) / ((t[3] - t[1]) || 1e-9);
 		return ((t[2] - tt) * B1 + (tt - t[1]) * B2) / ((t[2] - t[1]) || 1e-9);
 	};
-	const posSeg = (i, lt) => {   // 区間 i（ctrl[i]→ctrl[i+1]）の局所位置 lt∈[0,1] を評価
+	const posSeg = (i: number, lt: number): FlightTarget => {   // 区間 i（ctrl[i]→ctrl[i+1]）の局所位置 lt∈[0,1] を評価
 		const P = [gp(i - 1), gp(i), gp(i + 1), gp(i + 2)];
 		const t = [0, 0, 0, 0];
 		for (let k = 1; k < 4; k++) { const d = Math.hypot(P[k].lon - P[k - 1].lon, P[k].lat - P[k - 1].lat); t[k] = t[k - 1] + Math.sqrt(Math.max(d, 1e-9)); }
@@ -174,7 +182,7 @@ export function glidePathPlan(cam0, env, pts) {
 	if (!pts.some(p => p.secs)) { const tot = segMs.reduce((a, b) => a + b, 0), f = Math.max(1500, Math.min(16000, tot)) / tot; segMs = segMs.map(m => m * f); }
 	const T = [0]; for (const m of segMs) T.push(T[T.length - 1] + m);
 	const dur = T[n - 1];
-	const at = t => {
+	const at = (t: number): FlightTarget => {
 		t = Math.max(0, Math.min(t, dur));
 		const e = ss(t / dur), tt = e * dur;   // 全体 ease＝出入りだけ滑らか・道中は書いた区間尺どおり
 		let i = 0; while (i < n - 2 && tt > T[i + 1]) i++;
@@ -182,8 +190,34 @@ export function glidePathPlan(cam0, env, pts) {
 		return { lon: c.lon, lat: c.lat, zoom: Math.max(minZoom, c.zoom), pitch: c.pitch, bearing: c.bearing };
 	};
 	// 実到達時刻＝全体 ease の逆関数（smoothstep は単調＝二分法で十分）：ss(k)=T[j]/dur → k*dur
-	const kInv = y => { let lo = 0, hi = 1; for (let j = 0; j < 24; j++) { const m = (lo + hi) / 2; if (ss(m) < y) lo = m; else hi = m; } return (lo + hi) / 2; };
+	const kInv = (y: number): number => { let lo = 0, hi = 1; for (let j = 0; j < 24; j++) { const m = (lo + hi) / 2; if (ss(m) < y) lo = m; else hi = m; } return (lo + hi) / 2; };
 	return { dur, land: dur, at, knots: pts.map((_, j) => kInv(T[j + 1] / dur) * dur) };   // 走破＝着地扱い（autoMesh 解禁）
+}
+
+/** createFlight の引数 */
+export interface CreateFlightOptions {
+	cam: CameraPose; viewW: () => number; maxPitch: number; minZoom?: number; onMove: () => void; onFlying?: (on: boolean) => void;
+	/** 飛行の時計（C10・map.setNow で止められる＝決定論の撮影） */
+	now?: () => number;
+	/** 1 フレームの刻みの上限（止めた時計では無限＝呼び手が決める） */
+	stepMax?: () => number;
+}
+/** createFlight の戻り */
+export interface FlightController {
+	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void>;
+	glideTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void>;
+	glidePath(pts: PathPoint[]): Promise<void>;
+	easeTo(target?: Partial<FlightTarget>, duration?: number): Promise<void>;
+	cancel(): void;
+	readonly active: boolean;
+	setMaxPitch(v: number): void;
+	setMinZoom(v: number): void;
+	plan: {
+		fly(cam0: FlightTarget | null | undefined, lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): FlightPlan;
+		glide(cam0: FlightTarget | null | undefined, lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): FlightPlan;
+		path(cam0: FlightTarget | null | undefined, pts: PathPoint[]): FlightPlan | null;
+		ease(cam0: FlightTarget | null | undefined, target?: Partial<FlightTarget>, duration?: number): FlightPlan;
+	};
 }
 
 // createFlight({ cam, viewW, maxPitch, minZoom, onMove, onFlying }) →
@@ -191,27 +225,27 @@ export function glidePathPlan(cam0, env, pts) {
 //   cam＝{center,zoom,pitch,bearing} を直接書く（描画は onMove が飛ばす）。viewW()＝視野幅px（van Wijk の尺）。
 //   plan.*＝時刻評価プランを「今の env（視野幅等）」で構築する口（cam0 省略=現カメラ）＝スクラブ（map.sceneTimeline）の材料。
 const STEP_MAX_MS = 35;   // 1 フレームの刻みの上限（ms）＝低 fps では「大股に飛ぶ」でなく「ゆっくり滑る」（createFlight の注を参照）
-export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {}, now = () => performance.now(), stepMax = () => STEP_MAX_MS }) {   // now＝飛行の時計（C10・map.setNow で止められる＝決定論の撮影）・stepMax＝1 フレームの刻みの上限（止めた時計では無限＝呼び手が決める）
-	let flight = null;
-	const snap = () => ({ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 });
+export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {}, now = () => performance.now(), stepMax = () => STEP_MAX_MS }: CreateFlightOptions): FlightController {   // now＝飛行の時計（C10・map.setNow で止められる＝決定論の撮影）・stepMax＝1 フレームの刻みの上限（止めた時計では無限＝呼び手が決める）
+	let flight: { cancel: () => void } | null = null;
+	const snap = (): FlightTarget => ({ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch!, bearing: cam.bearing!, roll: cam.roll || 0 });
 	let maxPitchCur = maxPitch, minZoomCur = minZoom;   // 実行時に変えられる（app の setMaxPitch/setZoomMin＝飛行の着地も上限/床に従う）
-	const env = () => ({ viewW: viewW(), maxPitch: maxPitchCur, minZoom: minZoomCur });
+	const env = (): FlightEnv => ({ viewW: viewW(), maxPitch: maxPitchCur, minZoom: minZoomCur });
 	// プランをなぞる唯一のループ。着地(land)は「その次の onMove から」重い自動ロード解禁＝旧 tween 連鎖と同じ拍。
 	// 時計＝刻み上限つき仮想時計（裁定 2026-08-12「非力端末は連続に滑るを優先」）：1フレームで STEP_MAX_MS までしか
 	// 時を進めない＝低fps（重い都市を描くドリー等）では「大股に飛ぶ」でなく「ゆっくり滑る」（尺は伸びる側に倒す）。
 	// ≈29fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
 	// 35ms＝30Hz外部モニタ（dt≈33ms・tuneRes実測の恒常値）を素通しする下限。50→35（2026-08-12 実機「あまり変わらない」を受け一段強く）
 	// 戻り値＝着地（または cancel）で解決する Promise（2026-09-11・SDK ドッグフード「flyTo の完了を知る方法がない」）。中止も resolve（reject しない）
-	function run(plan) {
+	function run(plan: FlightPlan | null): Promise<void> {
 		if (flight) flight.cancel();
-		let cancelled = false, done = null;
-		const settled = new Promise(res => { done = res; });
+		let cancelled = false, done!: () => void;
+		const settled = new Promise<void>(res => { done = res; });
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; done(); } };
 		onFlying(true);
 		if (!plan || !(plan.dur > 0)) { onFlying(false); flight = null; done(); return settled; }   // 変化なし（glide の全チャンネル一致等）＝即着地扱い
 		let landed = false;
 		let t = 0, last = now();
-		const step = () => {
+		const step = (): void => {
 			if (cancelled) return;
 			const tn = now();
 			t = Math.min(t + Math.min(tn - last, stepMax()), plan.dur); last = tn;
@@ -226,10 +260,10 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 		requestAnimationFrame(step);
 		return settled;
 	}
-	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) { return run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
-	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) { return run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
-	function easeTo(target, duration) { const p = easePlan(snap(), env(), target, duration); if (!(p.dur > 0)) { const c = p.at(0); if (flight) flight.cancel(); cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll; onMove(); return Promise.resolve(); } return run(p); }   // duration 0＝即着地（jumpTo と同じ）
-	function glidePath(pts) { return (Array.isArray(pts) && pts.length >= 1) ? run(glidePathPlan(snap(), env(), pts)) : Promise.resolve(); }
+	function flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void> { return run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
+	function glideTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void> { return run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
+	function easeTo(target?: Partial<FlightTarget>, duration?: number): Promise<void> { const p = easePlan(snap(), env(), target, duration); if (!(p.dur > 0)) { const c = p.at(0); if (flight) flight.cancel(); cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll; onMove(); return Promise.resolve(); } return run(p); }   // duration 0＝即着地（jumpTo と同じ）
+	function glidePath(pts: PathPoint[]): Promise<void> { return (Array.isArray(pts) && pts.length >= 1) ? run(glidePathPlan(snap(), env(), pts)) : Promise.resolve(); }
 	return { flyTo, glideTo, glidePath, easeTo, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; }, setMinZoom: v => { minZoomCur = v; },
 		plan: {
 			fly: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => flyPlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),

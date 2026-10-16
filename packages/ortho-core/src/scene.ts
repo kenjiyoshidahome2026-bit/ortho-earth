@@ -2,19 +2,33 @@
 // order の各タイルの geometry(ops/buildings) を style層(li)ごとに1バッファへ結合し、共通 origin へ再ベース。
 // geomOf(key) → { ops, buildings } | null（geometry の供給元。cache でも worker の Map でも）。
 
+/** 塗りの op（build.ts が作る・タイル単体は idx が Uint16・結合後は Uint32） */
+export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array }
+/** 線の op（off＝line-offset の [off, tS, tE]×線分・持つ層だけ） */
+export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null }
+export type DrawOp = FillOp | LineOp;
+/** 建物の押し出し（buildings.ts）＝xyz（z＝高さ m）・面の陰影・足元の xy */
+export interface BuildingsGeom { pos: Float32Array; shade: Float32Array; anchor: Float32Array }
+/** geomOf(key) が返すタイルの幾何 */
+export interface TileGeom { ops?: DrawOp[] | null; buildings?: BuildingsGeom | null }
+/** order の 1 件＝タイル鍵と、その ops の原点（経緯度） */
+export interface MergeOrderItem { key: string; origin: ArrayLike<number> }
+export interface MergeOptions { origin?: ArrayLike<number> | null; hidden?: Set<number> | null }
+export interface MergedScene { origin: ArrayLike<number>; layers: DrawOp[]; buildings: BuildingsGeom | null }
+
 // 図郭外フォールバック水域（build.js buildEmptySeaOps）の擬似 li 帯：擬似li = SEA_FB_BASE + 実li。
 // 実在の style 層(0..n)と衝突せず、li 昇順ソートで実層より先＝全レイヤの下に敷かれ、かつ帯内では
 // 実li の相対順（water → water-hi）を保つ。renderer はこの帯を見て u_seaGate=1（標高h>0をdiscard）を立てる。
 // merge の hidden（チップ消灯）判定は seaFbReal で実li に還元＝水系チップの点消灯にフォールバックも追随する。
 export const SEA_FB_BASE = -1000;
-export const seaFbReal = li => li < -500 ? li - SEA_FB_BASE : null;   // 擬似→実li（非該当は null）
+export const seaFbReal = (li: number): number | null => li < -500 ? li - SEA_FB_BASE : null;   // 擬似→実li（非該当は null）
 
 // LOD重複の線ゲート：order 内に「自分の子孫タイル」が居るタイル（＝blanket/祖先フォールバックの下敷き）の集合。
 // 塗りは z 昇順の上塗りで隠れるが、線は加算的に二重描きされ「簡略化度の違う同じ高速道路が2本」になる
 // ＝下敷きタイルの線は結合に組み込まない（そのタイルの塗りは残す＝空白は出さない）。
 // 通常の cover（selectLOD）は重なりなし＝ゲートは無発動。発動するのは base の混成（毛布z4+粗z8+fallback）だけ。
-export function coveredTiles(order) {
-	const covered = new Set();
+export function coveredTiles(order: readonly { key: string }[]): Set<string> {
+	const covered = new Set<string>();
 	for (const o of order) {
 		let [z, x, y] = o.key.split("/").map(Number);
 		while (z > 0) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (covered.has(k)) break; covered.add(k); }
@@ -22,13 +36,17 @@ export function coveredTiles(order) {
 	return covered;
 }
 
-export function mergeTiles(order, geomOf, opts = {}) {
+interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean }
+interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; pi: number; ci: number; ii: number }
+interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; pi: number; ci: number; hi: number }
+
+export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: string) => TileGeom | null | undefined, opts: MergeOptions = {}): MergedScene {
 	if (!order.length) return { origin: [0, 0], layers: [], buildings: null };
 	const origin = opts.origin || order[0].origin;
 	const hidden = opts.hidden || EMPTY;
 	const lineOff = coveredTiles(order);   // 子孫に覆われる下敷きタイル＝線を伏せる（上のコメント参照）
-	const tileOps = [];
-	const size = new Map();
+	const tileOps: { ox: number; oy: number; ops: DrawOp[]; noLine: boolean }[] = [];
+	const size = new Map<number, SizeEntry>();
 	for (const { key, origin: to } of order) {
 		const g = geomOf(key); if (!g || !g.ops) continue;
 		tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: g.ops, noLine: lineOff.has(key) });
@@ -39,7 +57,7 @@ export function mergeTiles(order, geomOf, opts = {}) {
 			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; }
 		}
 	}
-	const buf = new Map();
+	const buf = new Map<number, FillAcc | LineAcc>();
 	for (const [li, e] of size) {
 		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
@@ -50,13 +68,14 @@ export function mergeTiles(order, geomOf, opts = {}) {
 		for (const op of ops) {
 			if (hidden.has(seaFbReal(op.li) ?? op.li)) continue;   // サイズ集計と同条件
 			if (op.kind === "line" && noLine) continue;   // 下敷きタイルの線（サイズ集計と同条件）
-			const m = buf.get(op.li);
 			if (op.kind === "fill") {
+				const m = buf.get(op.li) as FillAcc;
 				const base = m.pi >> 1;   // このタイル分の頂点オフセット（index 再ベース用）
 				const p = op.pos; let pi = m.pi; for (let i = 0; i < p.length; i += 2) { m.pos[pi++] = p[i] + ox; m.pos[pi++] = p[i + 1] + oy; } m.pi = pi;
 				m.col.set(op.col, m.ci); m.ci += op.col.length;
 				const ix = op.idx; let ii = m.ii; for (let i = 0; i < ix.length; i++) m.idx[ii++] = ix[i] + base; m.ii = ii;
 			} else {
+				const m = buf.get(op.li) as LineAcc;
 				const P1 = op.P1, P2 = op.P2; let pi = m.pi;
 				for (let i = 0; i < P1.length; i += 2) { m.P1[pi] = P1[i] + ox; m.P1[pi + 1] = P1[i + 1] + oy; m.P2[pi] = P2[i] + ox; m.P2[pi + 1] = P2[i + 1] + oy; pi += 2; } m.pi = pi;
 				m.col.set(op.col, m.ci); m.ci += op.col.length;
@@ -65,14 +84,14 @@ export function mergeTiles(order, geomOf, opts = {}) {
 			}
 		}
 	}
-	const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
+	const layers: DrawOp[] = [...buf.values()].sort((a, b) => a.li - b.li).map((m): DrawOp => m.kind === "fill"
 		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx }
 		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}) });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;
 	for (const { key } of order) { const g = geomOf(key); if (g && g.buildings) bN += g.buildings.pos.length; }
-	let buildings = null;
+	let buildings: BuildingsGeom | null = null;
 	if (bN) {
 		const pos = new Float32Array(bN), shade = new Float32Array(bN / 3), anchor = new Float32Array(bN / 3 * 2);
 		let pi = 0, si = 0, ai = 0;
@@ -87,12 +106,12 @@ export function mergeTiles(order, geomOf, opts = {}) {
 	}
 	return { origin, layers, buildings };
 }
-const EMPTY = new Set();
+const EMPTY = new Set<number>();
 
 // op 列（＋建物）の型付き配列のバッファ＝transfer の対象・実バイトの数え上げ（tile worker・pipeline・tilemanager・scene worker で共用）。
 // op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off? }・シーン（結合後の layers）も同じ形
-export function opBuffers(ops, buildings) {
-	const bufs = [];
+export function opBuffers(ops: readonly DrawOp[], buildings?: BuildingsGeom | null): ArrayBufferLike[] {
+	const bufs: ArrayBufferLike[] = [];
 	for (const op of ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
 		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); }
@@ -100,4 +119,3 @@ export function opBuffers(ops, buildings) {
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;
 }
-

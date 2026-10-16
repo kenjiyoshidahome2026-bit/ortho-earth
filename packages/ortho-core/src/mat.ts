@@ -1,5 +1,10 @@
 // 最小限の mat4（列優先, WebGL規約）。透視カメラ用。
-export function multiply(a, b) {
+/** 3 要素のベクトル（読む側は ArrayLike・作る側は number[]） */
+export type Vec3 = number[];
+/** 列優先の 4×4（f64） */
+export type Mat4 = Float64Array;
+
+export function multiply(a: ArrayLike<number>, b: ArrayLike<number>): Float64Array {
 	const o = new Float64Array(16);
 	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
 		let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
@@ -8,7 +13,7 @@ export function multiply(a, b) {
 	return o;
 }
 
-export function perspective(fovy, aspect, near, far) {
+export function perspective(fovy: number, aspect: number, near: number, far: number): Float64Array {
 	const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
 	const o = new Float64Array(16);
 	o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf; o[11] = -1;
@@ -16,7 +21,7 @@ export function perspective(fovy, aspect, near, far) {
 	return o;
 }
 
-export function lookAt(eye, center, up) {
+export function lookAt(eye: ArrayLike<number>, center: ArrayLike<number>, up: ArrayLike<number>): Float64Array {
 	let z = norm(sub(eye, center));           // 前方(カメラ→対象の逆)
 	let x = norm(cross(up, z));
 	let y = cross(z, x);
@@ -28,7 +33,7 @@ export function lookAt(eye, center, up) {
 	return o;
 }
 
-export function invert(m) {
+export function invert(m: ArrayLike<number>): Float64Array | null {
 	const o = new Float64Array(16), a = m;
 	const b00 = a[0] * a[5] - a[1] * a[4], b01 = a[0] * a[6] - a[2] * a[4], b02 = a[0] * a[7] - a[3] * a[4];
 	const b03 = a[1] * a[6] - a[2] * a[5], b04 = a[1] * a[7] - a[3] * a[5], b05 = a[2] * a[7] - a[3] * a[6];
@@ -56,16 +61,16 @@ export function invert(m) {
 }
 
 // m(列優先) × v(vec4) → vec4
-export function transform(m, v) {
-	const o = new Array(4);
+export function transform(m: ArrayLike<number>, v: ArrayLike<number>): number[] {
+	const o = new Array<number>(4);
 	for (let r = 0; r < 4; r++) o[r] = m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r] * v[3];
 	return o;
 }
 
-export const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-export const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-export const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
-export const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-export const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
-export const toF32 = m => Float32Array.from(m);
+export const sub = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const add = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+export const scale = (a: ArrayLike<number>, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
+export const dot = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+export const cross = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const norm = (a: ArrayLike<number>): Vec3 => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+export const toF32 = (m: ArrayLike<number>): Float32Array => Float32Array.from(m);
