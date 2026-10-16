@@ -8,7 +8,7 @@ globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
 import { GeoPBF } from "../src/pbf-base.ts";
 import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
-import { openParquet, readParquet } from "../src/parquet.js";
+import { openParquet, readParquet } from "../src/parquet.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
