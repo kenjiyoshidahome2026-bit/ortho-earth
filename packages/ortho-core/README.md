@@ -24,14 +24,23 @@ npm i @ortho-earth/core
 | `./workers/*` | worker entries (tile, scene, gint bake, elevation) |
 | `./worker-msg` | types only: the messages between the workers and their host (`ScenePortMessage`, `GintBakeResponse`, `MergedScene` …); empty at run time |
 
-Types ship with the package (`types/*.d.ts`, hand-written, 1.15.0 →): the entries a host calls — camera, flight, input,
-expressions, geodesy, colour, the view hash, tile formats, the MapLibre style rewrite — are typed precisely; the factories
-that live inside the render worker (renderer, pipeline, terrain, raster) are typed by shape. `node tests/types.mjs` compiles
-a TypeScript fixture against them and checks, for every entry in `exports` that has a `types` file, that the names the
-`.d.ts` declares are exactly the names the runtime module exports; it is part of `npm test`.
+Only the entries in `package.json` `exports` are public (the table lists the main ones). There is no `./internal/*` in 2.0
+(the door to the source tree that the monorepo's tests used during the TypeScript port is closed): import from a public entry.
+
+Types: in 2.0 the sources are TypeScript (`strict`), so the entries are typed from their sources (1.15 shipped hand-written
+`types/*.d.ts`). `node tests/types.mjs` compiles a TypeScript fixture against the entries and checks, for every entry in
+`exports`, that the names its types declare are exactly the names the runtime module exports; it is part of `npm test`.
 
 The core **knows no region**. Country-specific knowledge (basemaps, elevation, buildings, search) is a
 declaration passed in from outside — see `@ortho-earth/globe` and its region packs.
+
+## Upgrading from 1.x
+
+2.0 removes the standalone gint worker (`./workers/gint`; gint layers are drawn inside the render worker), root re-exports
+nobody imported (`flyPlan`, `glidePlan`, `glidePathPlan`, `isPMTiles`, `createTileManager`, `mergeTiles`, `decodeQuantizedMesh`, …;
+`ORIGIN_KEY` stays in `./expr`, `wmtsTemplate` in `./raster-src`) and the 1.15 type name `DtmSpec` (now `DtmDecl`). The full
+old → new list is in [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese).
+When 2.0 is published, 1.x is planned to stay installable under the `v1` dist-tag (`npm i @ortho-earth/core@v1`).
 
 ## License
 

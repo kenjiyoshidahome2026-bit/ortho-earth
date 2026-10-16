@@ -43,10 +43,10 @@ AIコーディングエージェント（Claude Code 等）に読ませる1枚�
 | `view` | 前回ビュー | 初期視点 `"#zoom/lat/lon/45t/30r/l=place.rail/c=dark"`（t=チルト°・r=回転°・l=点火レイヤ・c=配色テーマ） |
 | `theme` | `"mono"` | 配色テーマの固定（台帳＝palettes.js）。`"mono"`=白地図（既定）／`"dark"`=黒地図（夜家具付き）／`"gsi"`=地理院地図（標準地図）配色・道路は格ごとの色帯／`"sepia"`=暖色・古地図。焼き付け＝共有URLにも書かれず `c=` でも破れない。台帳と同形のオブジェクト=カスタムテーマ（styleと色ノブの部分上書き）。未記述=共有URLの `c=<name>` で選択 |
 | `layers` | — | 表示項目の固定。キー: `place`(地名) `terrain`(地形) `rail`(鉄道) `road`(道路) `facility`(施設)。`true`=常時表示・`false`=常時非表示（どちらもチップ非搭載＝利用者は触れない）、未記述=既定値から開始しチップで選択。固定キーは共有URL（`l=`）でも上書きされない |
-| `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。旧配列形式=選択的も後方互換で動作（非推奨） |
+| `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。1.x の配列形式（選択的）は 2.0 で外した（渡すと警告して全部を出す＝個々の固定は `layers`） |
 | `instruments` | `true` | 下部の計器盤。`true`=全部／配列=選択的／`false`=出さない。キー: `pos`(座標) `scale`(距離) `attr`(出典) `log`(デバッグ) |
-| `plateau` | `true` | 建物3D（PLATEAU）の**機能スイッチ**。`false`=カタログ取得・worker・z14+の自動ロード・データ管理ガジェットを丸ごと停止（1地区数十〜百MB級の通信が一切発生しない） |
-| `maxPitch` | `75°` | チルト上限（**ラジアン**）。`0`=俯瞰固定（編集系アプリ向け＝geoedit）。共有URLの `t=` もこの上限でクランプ |
+| `mesh` | `true` | 建物3D（PLATEAU）の**機能スイッチ**。`false`=カタログ取得・worker・z14+の自動ロード・データ管理ガジェットを丸ごと停止（1地区数十〜百MB級の通信が一切発生しない） |
+| `maxPitch` | `75°` | チルト上限（**度**＝MapLibre と同じ。1.x の「1.6 以下はラジアン」の読み替えは 2.0 で外した）。`0`=俯瞰固定（編集系アプリ向け＝geoedit）。共有URLの `t=` もこの上限でクランプ |
 | `lang` | 自動 | UIの言語。`"ja"` / `"en"`（歴史的別名 `"jp"` も可）。未指定＝`?lang=` → ブラウザ言語（ja系→日本語・それ以外→英語）。対象はUIの衣（ボタン・トースト・案内）のみ＝**地図の中の地名は対象外**。デモ台本は別系統（.scenes の `jp:`/`en:` フィールド） |
 
 ```js
@@ -55,11 +55,11 @@ const map = await orthoJapan({
   layers: { rail: true, facility: false },   // 鉄道は焼き付け・施設は封印（両方チップ非搭載）
                                              // → 残る地名・地形・道路だけが利用者のトグル
   instruments: ["scale", "attr"],   // 座標表示なし（標高照会も止まる＝通信ゼロ）
-  mesh: false,                      // 建物3Dを機能ごと切る＝軽量埋め込み（旧名 plateau も別名で効く）
+  mesh: false,                      // 建物3Dを機能ごと切る＝軽量埋め込み（1.x の旧名 plateau は 2.0 で外した）
 });
 ```
 
-旧キー（`chimei`/`chikei`/`shisetsu`）と旧共有URLの `l=` トークンは自動で読み替えられます（書き出しは常に新キー）。
+旧共有URLの `l=` に入った旧キー（`chimei`/`chikei`/`shisetsu`）は自動で読み替えられます（書き出しは常に新キー）。`layers` オプションでの旧キーの読み替えは 2.0 で外した（新キー `place`/`terrain`/`facility` を使う）。
 
 戻り値 `map` ＝ `{ cam, flyTo, renderer, mapEl, gadget, destroy }`。
 
@@ -73,7 +73,7 @@ const map = await orthoJapan({ target: "#here" });
 map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起動できる）
 ```
 
-容れ物は id・子要素・SDK が付けた class（ui-dark 等）まで元に戻る。視点を引き継ぐなら `view: map.view.hash` で再生成＝`lang`／`theme` を変える手段もこれ（live 切替 API は無い）。1.0.3 以前は WebGPU 起動後 20 秒以内の destroy で番犬タイマーが残りホストページごと reload した（1.0.4 で修正）。埋め込み（`target` 指定）ではページ URL を書き換えない（`urlHash: true` で本体サイトと同じ挙動）。地形の標高タイルは `plateau: false` でも `api.ortho-earth.com` から必要に応じて取得する（セッションで数十 MB）。
+容れ物は id・子要素・SDK が付けた class（ui-dark 等）まで元に戻る。視点を引き継ぐなら `view: map.view.hash` で再生成＝`lang`／`theme` を変える手段もこれ（live 切替 API は無い）。1.0.3 以前は WebGPU 起動後 20 秒以内の destroy で番犬タイマーが残りホストページごと reload した（1.0.4 で修正）。埋め込み（`target` 指定）ではページ URL を書き換えない（`urlHash: true` で本体サイトと同じ挙動）。地形の標高タイルは `mesh: false` でも `api.ortho-earth.com` から必要に応じて取得する（セッションで数十 MB）。
 
 ## オプトインガジェット（map.gadget.*）
 
@@ -88,7 +88,8 @@ map.gadget.mesh();      // 建物3Dデータ管理（日本は PLATEAU 公式ロ
 map.gadget.palette();   // 配色テーマ切替（中央に他テーマの地図見本＝色で選ぶ）→ { open, close }。未搭載でも c= には従う
 map.gadget.hint();      // 操作説明カード（6秒迷った人にだけ自動表示）→ { open, close }
 map.gadget.inspect();   // ベクタタイルの検査表示（全 source-layer を層ごとの色で・ホバーで属性）→ { open, close, toggle }。オプションは maplibre-gl-inspect と同じ（MapLibre の口では map.addControl(new MaplibreInspect())）
-map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェットの登録も同じ作法
+map.registry.gadgets.add("myGadget", (map, opts) => { /* 作って手綱を返す */ });   // 自作ガジェットの登録＝map は第 1 引数（this は使わない）
+map.gadget.myGadget({ /* opts */ });                                          // 呼び方は組み込みと同じ
 ```
 
 ## 出典表記（重要）
@@ -124,7 +125,7 @@ sdk/japan で `npm run build` が `dist/lib/` に出荷形を吐く（`ortho-jap
 | | |
 |---|---|
 | **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
-| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `koppen-clim.png` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`./`（ページと同じ階層）。`plateau: false` なら PLATEAU 系の取得自体が起きない |
+| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `koppen-clim.png` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`./`（ページと同じ階層）。`mesh: false` なら PLATEAU 系の取得自体が起きない |
 | **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
 | **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
 
@@ -158,6 +159,14 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 
 - サイトの `npm run build:prod` … sdk/japan の `npm run build` → サイト殻の vite build → `sdk/japan/dist/lib` を `dist/site/japan/lib/` へ複写
 - `verify:prod`（サイト）が「入口が /japan/lib/ を読まない」ことと `/japan/lib/` の同梱を見張る
+
+## 1.x からの移行
+
+2.0 では 1.x の別名を外した。`plateau` は `mesh` だけになった（オプション・`map.on("mesh")` の合図・型 `MeshEvent`。`PlateauEvent` は無い）。
+`maxPitch`／`setMaxPitch` は常に度（1.x は 1.6 以下をラジアンと読んでいた）。自作ガジェットは `map.registry.gadgets.add(name, (map, ...args) => 手綱)` で登録する
+（`map.gadget(name, function () { this … })` は外した。`map.gadget` は `map.gadget.<名前>(…)` で呼ぶ表だけ）。`chips` は `true`／`false` だけ（個々の固定は `layers`）。
+全 package の旧 → 新の一覧は [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md)。
+2.0 を公開した後も、1.x は npm の dist-tag `v1` で入れられるようにする予定（`npm i @ortho-earth/japan@v1`）。
 
 ## 制約
 
