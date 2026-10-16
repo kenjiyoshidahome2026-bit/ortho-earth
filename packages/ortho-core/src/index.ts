@@ -1,7 +1,6 @@
 // @ortho-earth/core: 球面ベクタタイル描画エンジン（MVT を正射の球面に直描き・WebGPU/GL2）。地域を知らない硬い層（LAYERS.md）。
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
-// TS 化 段 3（batch G2）：根の口そのもの（旧 types/index.d.ts を畳んだ）。まだ JS の renderer（gl/**）・2D 注記（labels2d.js）は
-// 隣の .d.ts（gl/renderer.d.ts・gl/gint/embed.d.ts・labels2d.d.ts＝手書きの types/gl.d.ts・types/labels.d.ts を指す）で型を持つ。
+// TS 化 段 3（batch G2）：根の口そのもの（旧 types/index.d.ts を畳んだ）。段 4 で renderer（gl/**・gpu/**）と 2D 注記（labels2d）も .ts になった。
 export { evalExpr, truthy, originOfLayer, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.ts";
 export type { Expression, ExprContext, FormatSection } from "./expr.ts";
 export { packMLLayers, buildMLTable, zoomSensitivity, ML_ID_KEY, ML_IX_KEY } from "./mltables.ts";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
@@ -25,8 +24,8 @@ export { buildGeoJSONOverlay, pointInFeature } from "./geojson.ts";
 export { buildBuildings, buildDrapedGeometry } from "./buildings.ts";
 export { downsampleFlipped } from "./elevation.ts";
 export type { ElevGrid, ElevTileGrid } from "./elevation.ts";
-export { createLabelLayer } from "./labels2d.js";
-export type { LabelLayer } from "./labels2d.js";
+export { createLabelLayer } from "./labels2d.ts";
+export type { LabelLayer } from "./labels2d.ts";
 export * from "./camera.ts";   // カメラは全部（@ortho-earth/core/camera と同じ口＝projectClip・viewRays・sphereRayUniforms・anchorUV・ellAxisRatio も根から読める・2.0）
 export { createFlight, shortBearingOf, easePlan } from "./flight.ts";
 export type { FlightController, CreateFlightOptions } from "./flight.ts";

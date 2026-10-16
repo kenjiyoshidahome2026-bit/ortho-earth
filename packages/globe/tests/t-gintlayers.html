@@ -16,8 +16,8 @@ const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t
 try {
 	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { uploadTexArrU32, texLayerWrites } = await import("@ortho-earth/core/internal/gpu/gint.js");
-	const G = await import("@ortho-earth/core/internal/gpu/gintwgsl.js");
+	const { uploadTexArrU32, texLayerWrites } = await import("@ortho-earth/core/internal/gpu/gint.ts");
+	const G = await import("@ortho-earth/core/internal/gpu/gintwgsl.ts");
 	const adapter = await navigator.gpu.requestAdapter();
 	const AL = adapter.limits;
 	// ④ renderer.js createRendererGPU と同じ要求（maxTextureDimension2D／maxStorageBufferBindingSize／maxBufferSize＝アダプタの実力値）
