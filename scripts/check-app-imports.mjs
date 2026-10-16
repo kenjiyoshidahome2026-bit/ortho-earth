@@ -2,7 +2,7 @@
 // 門：アプリが別のアプリを読んでいないかを数える爪車（本人 2026-10-14「アプリがアプリを読んでいるのが基本的な問題。2 つ以上で使うならモジュールにして共に参照」）。
 //   数える物＝apps/<A> のソース（js/mjs/html/css・vite.config・package.json の scripts）から apps/<B>（B≠A）へ届く参照
 //     ・相対パスの文字列（'../ortho-japan/app.js'・new URL("../../census2020/…", import.meta.url)・path.resolve(__dirname, '../ortho-globe/public')）
-//     ・アプリの workspace 名での import（import("ortho-equal/src/equal.js")）
+//     ・アプリの workspace 名での import（import("ortho-equal/src/equal.ts")）
 //     ・package.json の scripts の中の ../<B>/ の道・依存（dependencies 等）に B の workspace 名
 //   例外＝www（他のアプリの dist と docs を束ねて載せる集約役・本人 2026-10-14「やっていいのは、www だけ」）。
 //   許可表＝scripts/app-imports-allow.json（A→B ごとの数と理由）。超えたら・表に無い組が出たら落ちる。減ったら `--ratchet` で枠を下げる（上げない）。

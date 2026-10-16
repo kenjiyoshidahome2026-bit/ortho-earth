@@ -5,7 +5,7 @@
 //   球は japan の今の視点と 0 px で一致（実測）。ページは移らず地図の上に重ねる＝読み込みは変形の裏。
 //   右クリック「この地点を中心に全球図へ」＝equalHereItem：Equal Earth の中心はその地点・球は今の視点（morph=lon,lat）。
 // 重ね方は 2 つ（2026-10-04・本人「iframe でなく div で済むように」）：
-//   div（既定・load を渡した時）＝部品 createEqual（packages/equal/src/equal.js）を同じ頁の div に組む。別文書を起こさない＝
+//   div（既定・load を渡した時）＝部品 createEqual（packages/equal/src/equal.ts）を同じ頁の div に組む。別文書を起こさない＝
 //     エンジン（globe/i18n/core/geopbf）と worker・bucket・IDB を japan と分かち合う（共有エンジン＝状態 1 つ）。
 //     load＝() => import("@ortho-earth/equal")（本番＝共有エンジンの入口 equal.js）（殻が渡す＝globe はアプリ equal に依存しない・依存の向き LAYERS.md）。
 //     合図は postMessage でなく部品の口そのもの（on("frame")・releaseMorph()・on("closed")）。
