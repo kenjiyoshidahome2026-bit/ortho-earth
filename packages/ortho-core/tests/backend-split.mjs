@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SRC = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), "src");
-const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : /\.m?js$/.test(e.name) ? [path.join(d, e.name)] : []);
+const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : /\.(m?js|ts)$/.test(e.name) ? [path.join(d, e.name)] : []);
 const bad = [];
 for (const [side, other] of [["gl", "gpu"], ["gpu", "gl"]]) {
 	const otherDir = path.join(SRC, other) + path.sep;

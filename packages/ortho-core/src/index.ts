@@ -25,8 +25,8 @@ export { buildGeoJSONOverlay, pointInFeature } from "./geojson.ts";
 export { buildBuildings, buildDrapedGeometry } from "./buildings.ts";
 export { downsampleFlipped } from "./elevation.ts";
 export type { ElevGrid, ElevTileGrid } from "./elevation.ts";
-export { createLabelLayer } from "./labels2d.js";
-export type { LabelLayer } from "./labels2d.js";
+export { createLabelLayer } from "./labels2d.ts";
+export type { LabelLayer } from "./labels2d.ts";
 export * from "./camera.ts";   // カメラは全部（@ortho-earth/core/camera と同じ口＝projectClip・viewRays・sphereRayUniforms・anchorUV・ellAxisRatio も根から読める・2.0）
 export { createFlight, shortBearingOf, easePlan } from "./flight.ts";
 export type { FlightController, CreateFlightOptions } from "./flight.ts";
