@@ -1,4 +1,4 @@
-// cog/worker.js と main（cog/pool.js・cog/index.js）の間のメッセージ型（TS化 段 3・型だけ＝両側から import type する）
+// cog/worker.ts と main（cog/pool.ts・cog/index.ts）の間のメッセージ型（TS化 段 3・型だけ＝両側から import type する）
 import type { LeanIfd, GeoLevel, Stretch, Lut, Composite, TargetDesc } from "./types.ts";
 
 /** 生の圧縮バイト 1 タイル（buf===null＝sparse／欠タイル） */

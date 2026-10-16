@@ -17,7 +17,7 @@
 //   | 索引 [u32 key, i32 meanB, i32 meanL] × n | 本体 [i16 dB, i16 dL] × 100 × n
 //   key = floor(latIdx/10)×65536 + floor(lonIdx/10)（latIdx=floor(lat×120)・lonIdx=floor(lon×80)＝2 次メッシュ 1 枚に 3 次メッシュ 10×10）
 //   mean は 1e-5 秒・本体は平均からの差を resScale 秒（データに合わせて 1e-5〜1e-2 から自動で選ぶ）の Int16・欠測は -32768。
-import { inflate } from "../modules/inflate.js";
+import { inflate } from "../modules/inflate.ts";
 import type { LonLat } from "./types.ts";
 
 const MAGIC = "GSIMESH1";

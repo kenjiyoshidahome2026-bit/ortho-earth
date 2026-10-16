@@ -11,7 +11,7 @@
 
 import { tokyoToJGD, jgd2000To2011 } from "./datum.ts";
 import type { Datum } from "./datum.ts";
-import { mercYToLat, latToMercY } from "../modules/mercator.js";
+import { mercYToLat, latToMercY } from "../modules/mercator.ts";
 import type { LonLat, XF, CrsInfo } from "./types.ts";
 
 // 末尾の "_" を落とす（WKT の方法名の正規化）。旧 /_+$/ は "_" が多い入力で二乗の後戻り（CodeQL）＝添字で削る

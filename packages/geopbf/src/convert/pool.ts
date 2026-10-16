@@ -1,8 +1,8 @@
-// convert/pool.js ── tile-worker.js のプール（ブラウザ Worker / Node worker_threads 両対応・FIFO lane）。
+// convert/pool.ts ── tile-worker.ts のプール（ブラウザ Worker / Node worker_threads 両対応・FIFO lane）。
 // ⚠Vite 規律: worker URL は文字どおり new Worker(new URL('./tile-worker.ts', import.meta.url), {type:'module'}) と書く
 //（cog/pool.js と同じ理由＝変数経由は本番ビルドで data:URL にインライン化され相対 import が死ぬ）。
-import { spawnWorker } from "../modules/workerFactory.js";
-import { builtinWorker } from "../modules/builtinWorkers.js";
+import { spawnWorker } from "../modules/workerFactory.ts";
+import { builtinWorker } from "../modules/builtinWorkers.ts";
 import type { AssembleStatic } from "./assemble.ts";
 import type { TileWorkerRequest, TileWorkerResponse, TileWorkerResult } from "./tile-worker-types.ts";
 
@@ -31,7 +31,7 @@ export async function createPool(n: number): Promise<TilePool> {
 	let NodeWorker: (new (url: URL) => NodeWorkerLike) | null = null;
 	if (isNode) ({ Worker: NodeWorker } = await import(/* @vite-ignore */ "node:" + "worker_threads"));   // 組み立て式＋@vite-ignore＝バンドラに node: を解決させない（modules/inflate.js と同じ）
 	const spawn = (): Lane => {
-		const w: AnyWorker = isNode ? new (NodeWorker as new (url: URL) => NodeWorkerLike)(new URL("./tile-worker.ts", import.meta.url)) : spawnWorker("geopbf:tile", () => builtinWorker("geopbf:tile"));   // ブラウザはホストの入口が勝つ・既定＝geopbf の入口 src/worker.js の "geopbf:tile"
+		const w: AnyWorker = isNode ? new (NodeWorker as new (url: URL) => NodeWorkerLike)(new URL("./tile-worker.ts", import.meta.url)) : spawnWorker("geopbf:tile", () => builtinWorker("geopbf:tile"))!;   // ブラウザはホストの入口が勝つ・既定＝geopbf の入口 src/worker.ts の "geopbf:tile"
 		const lane: Lane = { w, busy: false, pending: null };
 		const onMsg = (data: TileWorkerResponse): void => { const p = lane.pending; if (!p) return; lane.pending = null; lane.busy = false; data?.error ? p.reject(new Error(data.error)) : p.resolve(data as TileWorkerResult); pump(); };
 		const onErr = (e: unknown): void => { const p = lane.pending; lane.pending = null; lane.busy = false; p?.reject(new Error("tile worker: " + ((e as { message?: string } | null)?.message || e))); pump(); };

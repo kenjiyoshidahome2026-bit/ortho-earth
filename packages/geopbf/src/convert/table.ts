@@ -11,11 +11,11 @@
 // 値の型: 数字らしい文字列だけ数値へ（"01" のような先頭ゼロは文字列のまま＝JP コードを壊さない）、true/false は論理値、空は無し。日付は推測しない。
 import { GeoPBF } from "../pbf-base.js";
 import { attrFilter } from "./attrs.ts";
-import { decodeZIP } from "../modules/decodeZIP.js";
+import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Geometry, Position, MetaOptions, AttrOptions, MsStats } from "./types.ts";
 import type { Feature } from "../pbf-base.js";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 const norm = (s: unknown): string => String(s ?? "").replace(/^﻿/, "").trim().toLowerCase();
 const LON = ["lon", "lng", "long", "longitude", "経度", "x", "x座標", "東経", "lon_dd", "x_coord"];
 const LAT = ["lat", "latitude", "緯度", "y", "y座標", "北緯", "lat_dd", "y_coord"];

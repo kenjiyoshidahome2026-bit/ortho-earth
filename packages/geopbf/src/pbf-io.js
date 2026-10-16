@@ -1,7 +1,7 @@
 import { GeoPBF } from "./pbf-base.js";
-import { gunzip } from "./modules/gzip.js";
-import { decodeZIP } from "./modules/decodeZIP.js";
-import { fname2mime } from "./modules/fname2mime.js";
+import { gunzip } from "./modules/gzip.ts";
+import { decodeZIP } from "./modules/decodeZIP.ts";
+import { fname2mime } from "./modules/fname2mime.ts";
 
 // bucket provider が注入されない時の素の代役（npm 単体利用の既定）：
 //  - Fetch＝直 fetch（proxy 無し）。zip#target は同梱 decodeZIP で展開＝URL/File/GeoJSON 変換と gint は全部動く

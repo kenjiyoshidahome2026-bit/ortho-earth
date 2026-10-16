@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// t-encoders: encoder worker 脚本（encoder/*.js）を Node で直接叩き、「必ず settle する」ことと往復を検定する。
+// t-encoders: encoder worker 脚本（encoder/*.ts）を Node で直接叩き、「必ず settle する」ことと往復を検定する。
 //   経緯：fgbFile() / shapeFile() が 2 ポリゴンの FC で永久に settle しなかった（2026-09-14）。原因＝両 encoder が
 //   ../pbf-base.js の GeoPBF を使っており bbox / getBbox（pbf.js 側の prototype）が無く TypeError → fgb は書き手の
 //   非同期 IIFE が unhandled rejection のまま Response.blob() が解決せず、shape は onmessage が例外で落ちて postMessage
@@ -39,8 +39,8 @@ async function runWorker(modulePath, data, ms = 8000) {
 	globalThis.onmessage({ data });
 	return Promise.race([got, new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), ms))]);
 }
-const enc = (name, opts = {}) => runWorker(new URL(`../src/encoder/${name}.js`, import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts });
-const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name}.js`, import.meta.url).href, { file, name: "two", precision: 6, encoding: "utf8", ...extra });
+const enc = (name, opts = {}) => runWorker(new URL(`../src/encoder/${name}.ts`, import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts });
+const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name}.ts`, import.meta.url).href, { file, name: "two", precision: 6, encoding: "utf8", ...extra });
 
 // ---- fgb：settle・File・往復 ----
 {
@@ -103,7 +103,7 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	ok(r.geometry.type === "LineString" && r.properties.route === true && JSON.stringify(r.properties.ele) === "[100,101]" && r.properties.time == null, `gpx: rte が route:true の LineString・ele 平配列・time 無しは省く（${JSON.stringify(r.properties)}）`);
 
 	// 書き戻し → 再読み込みで同じになる
-	const f = await runWorker(new URL("../src/encoder/gpx.js", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
+	const f = await runWorker(new URL("../src/encoder/gpx.ts", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
 	ok(f instanceof File && f.size > 0, `gpx encoder: File（${f && f.size} B）`);
 	const xml = await f.text();
 	ok(/<trkpt lat="35.2" lon="139.2"><ele>11<\/ele><time>2026-09-17T02:00:10Z<\/time><\/trkpt>/.test(xml), "gpx encoder: trkpt に ele/time を書く");
@@ -135,7 +135,7 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 
 // ---- czml：referenceFrame INERTIAL＝標本の時刻で地球固定へ（歳差＋恒星時）。旧＝ECEF として読み経度が恒星時の分だけ回っていた（2026-09-23）----
 {
-	const { czmlToFeatures, inertialToFixed, ecefToLLH } = await import("../src/modules/czml.js");
+	const { czmlToFeatures, inertialToFixed, ecefToLLH } = await import("../src/modules/czml.ts");
 	const R = 6778137;
 	const lon0 = ecefToLLH(...inertialToFixed(R, 0, 0, Date.parse("2000-01-01T12:00:00Z")))[0];
 	ok(Math.abs(lon0 - 79.539) < 0.002, `czml: J2000.0 の慣性 x 軸（春分点）＝GMST 280.46° の反対＝79.539°E（${lon0.toFixed(4)}）`);
@@ -151,7 +151,7 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 
 // ---- czml：章動（IAU 1980 の主な 18 項・#113 段 1）＝Meeus 例題 22.a（1987-04-10 0h TD）：Δψ −3.788″・Δε +9.443″・ε 23°26′36.850″ ----
 {
-	const { nutation } = await import("../src/modules/czml.js");
+	const { nutation } = await import("../src/modules/czml.ts");
 	const T = (2446895.5 - 2451545.0) / 36525, n = nutation(T), AS = Math.PI / 648000;
 	const eps = (n.eps0 + n.deps) / AS - (23 * 3600 + 26 * 60);
 	ok(Math.abs(n.dpsi / AS + 3.788) < 0.1 && Math.abs(n.deps / AS - 9.443) < 0.1 && Math.abs(eps - 36.850) < 0.1, `czml: 章動（Δψ ${(n.dpsi / AS).toFixed(3)}″ Δε ${(n.deps / AS).toFixed(3)}″ ε 23°26′${eps.toFixed(3)}″）`);
@@ -164,14 +164,14 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	const back = await dec("czml", new File([JSON.stringify(czml)], "dl.czml", { type: "application/json" }));
 	const pbf = await new GeoPBF().set(back.data), f = pbf.getFeature(0), p = f.properties;
 	ok(f.geometry.type === "MultiLineString" && Array.isArray(p.time[0]) && p.time.map(a => a.length).join() === f.geometry.coordinates.map(l => l.length).join(), `czml: 跨ぐ標本列＝部品ごとの time（${p.time.map(a => a.length)}）`);
-	const { featureToPackets } = await import("../src/modules/czml.js");
+	const { featureToPackets } = await import("../src/modules/czml.ts");
 	const pk = featureToPackets(f, 0)[0], cd = pk.position.cartographicDegrees;
 	const times = cd.filter((_, i) => i % 4 === 0), lons = cd.filter((_, i) => i % 4 === 1);
 	ok(cd.length === 16 && times.join() === "0,600,1200,1800" && lons.map(v => +v.toFixed(6)).join() === "178,179,-179,-178", `czml: 書き戻しは元の 4 標本（縫い目の点は書かない・${times} / ${lons.map(v => +v.toFixed(3))}）`);
 }
 // ---- czml：時刻はミリ秒未満も（isoMs／isoOfMs）・慣性系から直した印は読みで付き書き戻しでは出ない（#113 段 2）----
 {
-	const { isoMs, isoOfMs, czmlToFeatures, featureToPackets, FRAME_KEY } = await import("../src/modules/czml.js");
+	const { isoMs, isoOfMs, czmlToFeatures, featureToPackets, FRAME_KEY } = await import("../src/modules/czml.ts");
 	const s = "2012-03-15T20:29:52.109376Z", ms = isoMs(s);
 	ok(Math.abs(ms - (Date.parse("2012-03-15T20:29:52.109Z") + 0.376)) < 1e-6 && isoOfMs(ms) === s && isoOfMs(Date.parse("2026-01-01T00:00:00Z")) === "2026-01-01T00:00:00.000Z", `czml: 時刻のミリ秒未満（${ms} ⇄ ${isoOfMs(ms)}）`);
 	const R = 6778137, { features } = czmlToFeatures([{ id: "sat", position: { referenceFrame: "INERTIAL", epoch: "2012-03-15T10:00:00Z", interpolationAlgorithm: "LAGRANGE", cartesian: [0, R, 0, 0, 37792.109376, 0, R, 0, 60000, -R, 0, 0] } }]);
@@ -182,7 +182,7 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 }
 // ---- czml：Cesium CZML の往復（静的パケットは等価・sampled position は LineString + time 配列・ECEF は経緯度へ）2026-09-17 ----
 {
-	const { ecefToLLH, featureToPackets } = await import("../src/modules/czml.js");
+	const { ecefToLLH, featureToPackets } = await import("../src/modules/czml.ts");
 	const A = 6378137, E2 = (1 / 298.257223563) * (2 - 1 / 298.257223563), rad = Math.PI / 180;
 	const ecef = (lon, lat, h) => { const s = Math.sin(lat * rad), N = A / Math.sqrt(1 - E2 * s * s); return [(N + h) * Math.cos(lat * rad) * Math.cos(lon * rad), (N + h) * Math.cos(lat * rad) * Math.sin(lon * rad), (N * (1 - E2) + h) * s]; };
 	{
@@ -228,7 +228,7 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	}
 
 	// 書き戻し
-	const f = await runWorker(new URL("../src/encoder/czml.js", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
+	const f = await runWorker(new URL("../src/encoder/czml.ts", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
 	ok(f instanceof File && f.size > 0 && f.name === "trip.czml", `czml encoder: File（${f && f.name} ${f && f.size} B）`);
 	const out = JSON.parse(await f.text());
 	const pk = Object.fromEntries(out.map(q => [q.id, q]));
@@ -260,13 +260,13 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 // ---- 残りの encoder も「必ず settle・File を返す」----
 for (const [name, ext] of [["geojson", "two.geojson"], ["topojson", "two.topojson"], ["gpx", "two.gpx"], ["czml", "two.czml"], ["gml", "two.gml"], ["kmz", "two.kmz"], ["geopbf", "two.geopbf"]]) {
 	const gintbuf = name === "topojson" ? topology(src) : undefined;   // topojson は gint 前提＝WASM で焼いて渡す
-	const f = await runWorker(new URL(`../src/encoder/${name}.js`, import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts: {}, gintbuf });
+	const f = await runWorker(new URL(`../src/encoder/${name}.ts`, import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts: {}, gintbuf });
 	ok(f !== "TIMEOUT" && f instanceof File && f.size > 0 && f.name === ext, `${name} encoder: settle＋File（${f && f.name} ${f && f.size} B）`);
 }
 
 // ---- 失敗経路：壊れた buf でも必ず settle（空データセットの File か、明示の null）----
 for (const name of ["fgb", "shape"]) {
-	const r = await runWorker(new URL(`../src/encoder/${name}.js`, import.meta.url).href, { buf: new Uint8Array([1, 2, 3]).buffer, name: "broken", opts: {} });
+	const r = await runWorker(new URL(`../src/encoder/${name}.ts`, import.meta.url).href, { buf: new Uint8Array([1, 2, 3]).buffer, name: "broken", opts: {} });
 	ok(r !== "TIMEOUT" && (r === null || r instanceof File), `${name} encoder: 壊れた入力でも settle（${r === "TIMEOUT" ? "TIMEOUT" : r === null ? "null" : "File " + r.size + " B"}）`);
 }
 

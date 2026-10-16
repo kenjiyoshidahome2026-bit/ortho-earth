@@ -44,11 +44,11 @@ const chunked = new Blob(Array.from({ length: Math.ceil(bigU8.length / 8192) }, 
 const e = await fromNdjson(chunked, { name: "big" }), e2 = await fromNdjson(bigU8, { name: "big" });
 ok(e.stats.features === 3000 && e.stats.badLines === 0 && H(e.pbf.arrayBuffer) === H(e2.pbf.arrayBuffer), `3000 行を 8 KiB chunk の Blob で読んでも一致（features ${e.stats.features}）`);
 
-// worker 脚本（decoder/ndjson.js）を Node で叩く＝t-encoders と同じ流儀
+// worker 脚本（decoder/ndjson.ts）を Node で叩く＝t-encoders と同じ流儀
 {
 	globalThis.onmessage = null;
 	const got = new Promise(resolve => { globalThis.postMessage = (m) => resolve(m); });
-	await import("../src/decoder/ndjson.js?v=" + Date.now());
+	await import("../src/decoder/ndjson.ts?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([u8], "t.ndjson"), name: "t", precision: 6 } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
 	ok(r && r !== "TIMEOUT" && r.type === "ndjsondec" && r.data instanceof ArrayBuffer && /1 unreadable line/.test(r.warning), `decoder worker: 返る・warning に壊れた行数（${r?.warning}）`);

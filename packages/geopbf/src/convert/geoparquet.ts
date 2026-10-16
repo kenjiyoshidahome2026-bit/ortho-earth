@@ -20,7 +20,7 @@ import { openParquet } from "./parquet-read.ts";
 import type { GeoMeta, GeoColumnMeta, ParquetColumnInfo, ParquetInput } from "./parquet-read.ts";
 import { parseWkb } from "./wkb.ts";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 const { TAGS } = GeoPBF;
 const GTYPES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 

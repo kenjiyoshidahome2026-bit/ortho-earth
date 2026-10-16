@@ -6,7 +6,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import type { Feature, FeatureCollection, Geometry } from "../pbf-base.js";
 import type { MetaOptions } from "./types.ts";
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 const GEOM = new Set(["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
 const clean = (s: string): string => s.replace(/[\u001e\r]/g, "").trim();   // RS（Text Sequence の区切り）と CR は落とす
 function* splitLines(text: string): Generator<string, void, undefined> { for (const p of text.split("\n")) { const t = clean(p); if (t) yield t; } }
