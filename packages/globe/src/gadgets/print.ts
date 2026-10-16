@@ -11,16 +11,32 @@ import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.js";
 import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
+import type { LonLat } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { GlobeCam } from "../types/scope.ts";
+import type { Snapshot } from "./compose.js";
 const t = tr();
+/** 矩形（mm か px） */
+interface Rect { x: number; y: number; w: number; h: number }
+/** 用紙の組み（mm）＝W×H・外罫・内罫（地図）・下帯 */
+export interface PageLayout { W: number; H: number; outer: Rect; inner: Rect; cap: Rect }
+/** 図郭の四隅の経緯度（球の外＝null） */
+export interface PageCorners { nw?: LonLat | null; ne?: LonLat | null; sw?: LonLat | null; se?: LonLat | null }
+/** 撮影（ホストの printCapture）の答え＝写し・device px 比・切り出し（CSS px）・四隅 */
+interface PrintShot { snap: Snapshot; dpr: number; rect: Rect; corners: PageCorners | null }
+/** capture＝印刷カメラで撮る（必須・api/shadows.ts が注入）・attribution＝下帯の出典 */
+export interface PrintOpts { capture: (o: { zoom: number; cropCss?: { w: number; h: number } }) => Promise<unknown>; signal?: AbortSignal; btn: HTMLButtonElement; attribution?: (() => string[]) | null }
+/** 印刷の手綱 */
+export interface PrintHandle { open(): void; close(): void }
 
 // 印刷の出典＝ホストが渡す（地域の基図の申告 basemap.printAttribution・無ければ今の圏の出典）＝globe は地域の出典を持たない
 
-export const PAPERS = { a4: [210, 297], a3: [297, 420] };            // [短辺, 長辺] mm
+export const PAPERS: Record<string, [number, number]> = { a4: [210, 297], a3: [297, 420] };            // [短辺, 長辺] mm
 const SCALES = [2500, 5000, 10000, 25000, 50000, 100000, 250000];    // 1:S
 const DPIS = [150, 240, 300];                                        // 紙面キャンバスの解像度（select）
 
 // 用紙レイアウト(mm)：余白8mm・下帯14mm・二重罫（外0.7/内0.2・間2mm）。地図は内罫の内側いっぱい。
-export function layoutFor(paper = "a4", orient = "landscape") {
+export function layoutFor(paper = "a4", orient = "landscape"): PageLayout {
 	const [s, l] = PAPERS[paper] || PAPERS.a4;
 	const [W, H] = orient === "portrait" ? [s, l] : [l, s];
 	const m = 8, capH = 14;
@@ -33,13 +49,13 @@ export function layoutFor(paper = "a4", orient = "landscape") {
 // 縮尺→カメラz：m/csspx = 2πN(φ)/(2^z·WORLD_PX)（正射z＝dpr非依存・256px世界）を「紙の地図幅(mm)×縮尺S＝
 // 切り出しCSS幅の地表幅」で解く。R は WGS84 の東西曲率半径 N(φ)＝図郭中心の緯度で評価（2026-08-11・段階A）：
 // 旧・固定球 6371008.8 は本州で約0.2%の縮尺誤差（1:25,000 の紙面25cmで約0.5mm）＝地形図を名乗る精度に整えた。
-export function zoomForScale(S, mapWmm, cropCssW, latDeg = 35) {
+export function zoomForScale(S: number, mapWmm: number, cropCssW: number, latDeg = 35): number {
 	const groundW = mapWmm / 1000 * S;   // 地表幅[m]
 	return Math.log2(2 * Math.PI * primeVerticalRadius(latDeg) * cropCssW / (WORLD_PX * groundW));
 }
 
 // 度→度分秒（"北緯35°41′07″" 形式）。秒の繰り上がり処理つき。
-function dms(v, pos, neg) {
+function dms(v: number, pos: string, neg: string): string {
 	const h = v < 0 ? neg : pos; v = Math.abs(v);
 	let d = Math.floor(v), mf = (v - d) * 60, mi = Math.floor(mf), s = Math.round((mf - mi) * 60);
 	if (s === 60) { s = 0; mi++; } if (mi === 60) { mi = 0; d++; }
@@ -47,7 +63,7 @@ function dms(v, pos, neg) {
 }
 // 経緯線ラベル＝辺は「分秒だけ」（度は四隅の表記が持つ＝地形図の作法・枠外余白8mmに収める）。
 // ちょうど度線のときだけ「139°」と度で名乗る。秒は刻みが分未満のときだけ添える。
-function tickLabel(deg, secStep) {
+function tickLabel(deg: number, secStep: number): string {
 	const neg = deg < 0; deg = Math.abs(deg);
 	const tot = Math.round(deg * 3600), d = Math.floor(tot / 3600), mi = Math.floor(tot % 3600 / 60), s = tot % 60;
 	if (mi === 0 && s === 0) return `${neg ? "-" : ""}${d}°`;
@@ -55,14 +71,14 @@ function tickLabel(deg, secStep) {
 }
 // 経緯線の間隔（秒）：紙上でおよそ40〜70mmおきになる「きりのいい」六十進の刻み
 const STEPS = [36000, 18000, 7200, 3600, 1800, 1200, 600, 300, 120, 60, 30, 15, 10, 5, 2, 1];
-function niceStep(spanDeg, mapMm) {
+function niceStep(spanDeg: number, mapMm: number): number {
 	const target = Math.max(1, mapMm / 55);   // 何本ぐらい欲しいか
 	const spanSec = spanDeg * 3600;
 	for (const st of STEPS) if (spanSec / st >= target) return st;
 	return STEPS[STEPS.length - 1];
 }
 // 縮尺バーのきりのいい長さ（紙上60mm以内で最大）
-function niceBar(S, maxMM = 60) {
+function niceBar(S: number, maxMM = 60): number {
 	const cands = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000];
 	let best = cands[0];
 	for (const c of cands) if (c / S * 1000 <= maxMM) best = c;
@@ -70,25 +86,27 @@ function niceBar(S, maxMM = 60) {
 }
 
 // 紙面の組版：白紙→地図→経緯線→二重罫→北マーク→度分ラベル→四隅経緯度→下帯（題・縮尺バー・出典・出力日）。
-export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240, title = t("Plan map (north up)") }) {
-	const MM = dpi / 25.4, mm = v => v * MM;
+export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240, title = t("Plan map (north up)") }: {
+	screen: CanvasImageSource; rectDev: Rect; layout: PageLayout; S: number; corners?: PageCorners | null; font: string; attr?: string[] | null; dpi?: number; title?: string;
+}): OffscreenCanvas {
+	const MM = dpi / 25.4, mm = (v: number) => v * MM;
 	const page = new OffscreenCanvas(Math.round(layout.W * MM), Math.round(layout.H * MM));
-	const ctx = page.getContext("2d");
+	const ctx = page.getContext("2d")!;
 	const O = layout.outer, I = layout.inner, C = layout.cap;
 	ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, page.width, page.height);
 	// 地図（切り出しを内罫の内側へ）
 	ctx.drawImage(screen, rectDev.x, rectDev.y, rectDev.w, rectDev.h, mm(I.x), mm(I.y), mm(I.w), mm(I.h));
 
 	// 経緯線：四隅の経緯度から上下辺(経度)・左右辺(緯度)を線形補間＝子午線の収束もそのまま出る
-	const grat = [];   // [{type:"lon"|"lat", deg, a:[xmm,ymm], b:[xmm,ymm]}]
+	const grat: Array<{ type: "lon" | "lat"; deg: number; step: number; a: [number, number]; b: [number, number] }> = [];   // [{type:"lon"|"lat", deg, a:[xmm,ymm], b:[xmm,ymm]}]
 	if (corners && corners.nw && corners.ne && corners.sw && corners.se) {
 		const { nw, ne, sw, se } = corners;
 		const lonStep = niceStep(Math.abs(ne[0] - nw[0]), I.w), latStep = niceStep(Math.abs(nw[1] - sw[1]), I.h);
-		const xTop = lon => I.x + (lon - nw[0]) / (ne[0] - nw[0]) * I.w;
-		const xBot = lon => I.x + (lon - sw[0]) / (se[0] - sw[0]) * I.w;
-		const yLeft = lat => I.y + (lat - nw[1]) / (sw[1] - nw[1]) * I.h;
-		const yRight = lat => I.y + (lat - ne[1]) / (se[1] - ne[1]) * I.h;
-		const first = (lo, st) => Math.ceil(lo * 3600 / st) * st / 3600;
+		const xTop = (lon: number) => I.x + (lon - nw[0]) / (ne[0] - nw[0]) * I.w;
+		const xBot = (lon: number) => I.x + (lon - sw[0]) / (se[0] - sw[0]) * I.w;
+		const yLeft = (lat: number) => I.y + (lat - nw[1]) / (sw[1] - nw[1]) * I.h;
+		const yRight = (lat: number) => I.y + (lat - ne[1]) / (se[1] - ne[1]) * I.h;
+		const first = (lo: number, st: number) => Math.ceil(lo * 3600 / st) * st / 3600;
 		for (let lon = first(Math.min(nw[0], sw[0]), lonStep); lon <= Math.max(ne[0], se[0]); lon += lonStep / 3600) {
 			const xt = xTop(lon), xb = xBot(lon);
 			if (xt < I.x || xt > I.x + I.w || xb < I.x || xb > I.x + I.w) continue;
@@ -113,8 +131,8 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 	{
 		const cx = I.x + I.w - 6, ty = I.y + 6.2;   // 矢の頂点(mm)
 		// カイト形：頂点(0,0)・右裾(+2.1,+6)・切込(0,+4.6)・左裾(-2.1,+6)（compassの針形を踏襲）
-		const kite = [[0, 0], [2.1, 6], [0, 4.6], [-2.1, 6]];
-		const path = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(mm(cx + x), mm(ty + y)) : ctx.moveTo(mm(cx + x), mm(ty + y))); ctx.closePath(); };
+		const kite: Array<[number, number]> = [[0, 0], [2.1, 6], [0, 4.6], [-2.1, 6]];
+		const path = (pts: Array<[number, number]>) => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(mm(cx + x), mm(ty + y)) : ctx.moveTo(mm(cx + x), mm(ty + y))); ctx.closePath(); };
 		ctx.lineJoin = "round";
 		// ハロー：矢の全形＋Nを白で厚めに
 		ctx.font = `700 ${mm(3.1)}px ${font}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
@@ -146,7 +164,7 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 
 	// 四隅の経緯度（度分秒・枠外）
 	if (corners) {
-		const fmt = c => c ? `${dms(c[1], t("N ##latitude"), t("S ##latitude"))} ${dms(c[0], t("E ##longitude"), t("W ##longitude"))}` : "";
+		const fmt = (c: LonLat | null | undefined) => c ? `${dms(c[1], t("N ##latitude"), t("S ##latitude"))} ${dms(c[0], t("E ##longitude"), t("W ##longitude"))}` : "";
 		ctx.fillStyle = "#222"; ctx.font = `${mm(2.3)}px ${font}`;
 		ctx.textBaseline = "bottom";
 		ctx.textAlign = "left"; corners.nw && ctx.fillText(fmt(corners.nw), mm(O.x), mm(O.y - 0.8));
@@ -186,20 +204,20 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 
 // 紙面canvas→単ページPDF（依存ゼロの自前ライタ）：JPEG を DCTDecode でそのまま埋める最小構造。
 // MediaBox に用紙の実寸(pt=1/72inch)を書く＝「100%（実際のサイズ）で印刷」すれば縮尺が厳密に出る。
-export async function pdfFromCanvas(canvas, Wmm, Hmm) {
+export async function pdfFromCanvas(canvas: OffscreenCanvas, Wmm: number, Hmm: number): Promise<Blob> {
 	const jpg = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.92 })).arrayBuffer());
 	const Wpt = (Wmm * 72 / 25.4).toFixed(2), Hpt = (Hmm * 72 / 25.4).toFixed(2);
 	const enc = new TextEncoder();
 	const content = `q\n${Wpt} 0 0 ${Hpt} 0 0 cm\n/Im1 Do\nQ\n`;
-	const objs = [
+	const objs: Array<string | { dict: string; stream: Uint8Array }> = [
 		`<< /Type /Catalog /Pages 2 0 R >>`,
 		`<< /Type /Pages /Kids [3 0 R] /Count 1 >>`,
 		`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${Wpt} ${Hpt}] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>`,
 		{ dict: `<< /Length ${content.length} >>`, stream: enc.encode(content) },
 		{ dict: `<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>`, stream: jpg },
 	];
-	const chunks = [enc.encode("%PDF-1.4\n")];
-	let off = chunks[0].length; const xref = [];
+	const chunks: Uint8Array[] = [enc.encode("%PDF-1.4\n")];
+	let off = chunks[0].length; const xref: number[] = [];
 	objs.forEach((o, i) => {
 		xref.push(off);
 		const head = enc.encode(`${i + 1} 0 obj\n${typeof o === "string" ? o : o.dict}\n`);
@@ -215,11 +233,11 @@ export async function pdfFromCanvas(canvas, Wmm, Hmm) {
 		xref.map(o => `${String(o).padStart(10, "0")} 00000 n \n`).join("") +
 		`trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
 	chunks.push(enc.encode(xrefStr));
-	return new Blob(chunks, { type: "application/pdf" });
+	return new Blob(chunks as BlobPart[], { type: "application/pdf" });
 }
 
-export function print({ capture, signal, btn, attribution = null } = {}) {
-	const mapEl = this.mapEl, cam = this.cam;   // cam＝縮尺の緯度評価（zoomForScale の N(φ)）に使う
+export function print(this: GlobeMap, { capture, signal, btn, attribution = null }: PrintOpts = {} as PrintOpts): PrintHandle {
+	const mapEl = this.mapEl, cam = this.cam as GlobeCam;   // cam＝縮尺の緯度評価（zoomForScale の N(φ)）に使う
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
 	// モーダル（プレビュー＋設定）。#map 直下の後置＝DOM順で上（z-index不使用の掟）。
@@ -242,15 +260,16 @@ export function print({ capture, signal, btn, attribution = null } = {}) {
 			<div class="print-actions"><button id="print-pdf">${t("Save PDF")}</button><button id="print-go">${t("Print")}</button></div>
 		</div>`;
 	mapEl.append(modal);
-	const $ = s => modal.querySelector(s);
-	const img = $("#print-preview"), noteEl = $("#print-note"), goBtn = $("#print-go"), pdfBtn = $("#print-pdf"), titleIn = $("#print-title");
-	const sels = ["#print-paper", "#print-orient", "#print-scale", "#print-dpi"].map(s => $(s));
-	const note = (t, warn) => { noteEl.textContent = t; noteEl.classList.toggle("warn", !!warn); };
+	const $ = <E extends HTMLElement>(s: string) => modal.querySelector<E>(s)!;
+	const img = $<HTMLImageElement>("#print-preview"), noteEl = $("#print-note"), goBtn = $<HTMLButtonElement>("#print-go"), pdfBtn = $<HTMLButtonElement>("#print-pdf"), titleIn = $<HTMLInputElement>("#print-title");
+	const sels = ["#print-paper", "#print-orient", "#print-scale", "#print-dpi"].map(s => $<HTMLSelectElement>(s));
+	const note = (t: string, warn?: boolean) => { noteEl.textContent = t; noteEl.classList.toggle("warn", !!warn); };
 
-	let busy = false, pending = false, lastPage = null, lastPaperCss = "A4 landscape", lastMeta = null, lastShot = null, prevUrl = null;
-	const setBusy = b => { sels.forEach(s => s.disabled = b); goBtn.disabled = pdfBtn.disabled = b || !lastPage; img.classList.toggle("busy", b); };
+	let busy = false, pending = false, lastPage: OffscreenCanvas | null = null, lastPaperCss = "A4 landscape", lastMeta: { Wmm: number; Hmm: number; S: number; paper: string } | null = null,
+		lastShot: { screen: OffscreenCanvas; rectDev: Rect; layout: PageLayout; S: number; corners: PageCorners | null; dpi: number } | null = null, prevUrl: string | null = null;
+	const setBusy = (b: boolean) => { sels.forEach(s => s.disabled = b); goBtn.disabled = pdfBtn.disabled = b || !lastPage; img.classList.toggle("busy", b); };
 
-	async function regen() {
+	async function regen(): Promise<void> {
 		if (busy) { pending = true; return; }
 		busy = true; setBusy(true);
 		try {
@@ -263,8 +282,8 @@ export function print({ capture, signal, btn, attribution = null } = {}) {
 			const zoom = zoomForScale(S, L.inner.w, cropCss.w, cam.center[1]);
 			const mapDpi = Math.round(cropCss.w * (window.devicePixelRatio || 1) / (L.inner.w / 25.4));
 			note(t("Rendering plan map… (camera z $1, waiting for tiles)", zoom.toFixed(1)));
-			const cap = await capture({ zoom, cropCss });
-			const screen = composeLayersToCanvas(cap.snap, mapEl.querySelector("#measure-lines"));
+			const cap = await capture({ zoom, cropCss }) as PrintShot;
+			const screen = composeLayersToCanvas(cap.snap, mapEl.querySelector<HTMLCanvasElement>("#measure-lines"));
 			const k = cap.dpr;
 			const rectDev = { x: Math.round(cap.rect.x * k), y: Math.round(cap.rect.y * k), w: Math.round(cap.rect.w * k), h: Math.round(cap.rect.h * k) };
 			lastShot = { screen, rectDev, layout: L, S, corners: cap.corners, dpi };   // 題の打ち直しは再撮影なしで組み直す
@@ -289,14 +308,14 @@ export function print({ capture, signal, btn, attribution = null } = {}) {
 		f.srcdoc = `<!doctype html><html><head><style>@page{size:${lastPaperCss};margin:0}html,body{margin:0}img{width:100vw;height:100vh;object-fit:contain}</style></head><body><img src="${prevUrl}"></body></html>`;
 		document.body.appendChild(f);
 		f.onload = () => {
-			const im = f.contentDocument.querySelector("img");
-			const go = () => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
+			const im = f.contentDocument!.querySelector("img")!;
+			const go = () => { f.contentWindow!.focus(); f.contentWindow!.print(); setTimeout(() => f.remove(), 60000); };
 			im.complete ? go() : (im.onload = go);
 		};
 	}
 
 	// 紙面の組み直し（撮影済みの切り出しから）：題の打ち直し・出典はここで反映＝再撮影なしで速い
-	async function recompose() {
+	async function recompose(): Promise<void> {
 		if (!lastShot) return;
 		lastPage = composePage({ ...lastShot, font, attr: attribution ? attribution() : [], title: titleIn.value.trim() });
 		const blob = await lastPage.convertToBlob({ type: "image/png" });
@@ -304,7 +323,7 @@ export function print({ capture, signal, btn, attribution = null } = {}) {
 		prevUrl = URL.createObjectURL(blob); img.src = prevUrl;
 	}
 
-	async function doPdf() {   // MediaBox=用紙実寸のPDF＝「100%で印刷」すれば縮尺が厳密（理想の出力形）
+	async function doPdf(): Promise<void> {   // MediaBox=用紙実寸のPDF＝「100%で印刷」すれば縮尺が厳密（理想の出力形）
 		if (!lastPage || busy || !lastMeta) return;
 		const blob = await pdfFromCanvas(lastPage, lastMeta.Wmm, lastMeta.Hmm);
 		const url = URL.createObjectURL(blob);

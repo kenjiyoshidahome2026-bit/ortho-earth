@@ -5,9 +5,12 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { PrintHandle, PrintOpts } from "./print.ts";
 const t = tr();
 
-export function print(opts = {}) {
+/** 印刷（平面図）の入口（本体 print.ts は初回に読む）。モバイル・二重搭載は undefined */
+export function print(this: GlobeMap, opts: Omit<PrintOpts, "btn"> = {} as PrintOpts): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined {
 	const map = this, mapEl = this.mapEl;
 	if (window.matchMedia("(pointer: coarse)").matches) return;   // モバイル非搭載＝端末の共有/スクショに委ねる（shotと同じ）
 	if (mapEl.querySelector("#print-btn")) return;   // 二重搭載は無害
@@ -21,12 +24,12 @@ export function print(opts = {}) {
 			<rect x="6.5" y="14" width="11" height="6.5"/></svg>`;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<{open,close}>＝一度だけ import して本体を搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<PrintHandle | undefined> | null = null;   // Promise<{open,close}>＝一度だけ import して本体を搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./print.js")
+	const boot = () => real ||= import("./print.ts")
 		.then(m => { const g = m.print.call(map, { ...opts, btn }); stub.abort(); return g; })
-		.catch(e => { real = null; console.error("[print] failed to load module", e); });
+		.catch((e): undefined => { real = null; console.error("[print] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場済み＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open(); }); };
 	btn.addEventListener("click", activate, { signal: stub.signal });
