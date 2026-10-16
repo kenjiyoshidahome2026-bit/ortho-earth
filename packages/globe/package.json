@@ -24,7 +24,7 @@
 		"./demo/scene-adapter.js": "./src/demo/scene-adapter.js",
 		"./worker.js": "./src/worker.js",
 		"./renderworker.js": "./src/renderworker.js",
-		"./mesh-loaders.js": "./src/mesh-loaders.ts",
+		"./mesh-loaders.js": "./src/mesh-loaders.js",
 		"./meshdecode.js": "./src/meshdecode.ts",
 		"./meshq.js": "./src/meshq.ts",
 		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.js",

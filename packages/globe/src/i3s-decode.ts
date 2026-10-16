@@ -7,7 +7,7 @@
 // 対応は nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。点群（PointCloud）と旧形式（nodes/root）は未対応。
 import { finishMesh, ecef2geo } from "./meshdecode.ts";
 let _l = null;
-const L = () => _l ??= import("./i3s-loaders.ts");   // loaders.gl の i3s は最初の I3S を読む時だけ
+const L = () => _l ??= import("./i3s-loaders.js");   // loaders.gl の i3s は最初の I3S を読む時だけ
 
 const I3S_OPTS = { worker: false, i3s: { useDracoGeometry: true, useCompressedTextures: false, decodeTextures: false, coordinateSystem: 0 } };   // coordinateSystem 0＝METER_OFFSETS（頂点が ECEF で来る）
 const sets = new Map();   // layer URL → Promise<tileset>
