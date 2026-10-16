@@ -14,13 +14,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// common / native-bucket は workspace の exports で解く（package の src/ への別名は置かない・段 5-3 2026-10-16＝uploader・geopbf と同じ作法）。
 export default defineConfig({
-	resolve: {
-		alias: {
-			common: path.resolve(__dirname, "../../packages/common/src"),
-			"native-bucket": path.resolve(__dirname, "../../packages/native-bucket/src"),
-		},
-	},
 	build: {
 		outDir: "dist/lib",
 		emptyOutDir: true,
