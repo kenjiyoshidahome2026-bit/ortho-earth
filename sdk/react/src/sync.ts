@@ -1,13 +1,13 @@
 // @ortho-earth/react の純関数（検定は node・tests/t-react.mjs）：props の差分と、差分を map へ写す手順。React に依らない
 import type { ReactNode } from "react";
-import type { OrthoJapanMap, MapLibreLayer, MapLibreSource, StyleExpression } from "@ortho-earth/globe";
+import type { GlobeMap, MapLibreLayer, MapLibreSource, StyleExpression } from "@ortho-earth/globe";
 
 /** <Layer> の props＝MapLibre の層の spec（source は親の <Source> から省ける）＋React だけの props */
 export type LayerProps = Omit<MapLibreLayer, "source"> & { id: string; beforeId?: string; source?: string | MapLibreSource; children?: ReactNode };
 /** <Data> の props＝map.addData の data と opts（kind・id・accessor） */
 export interface DataProps { id?: string; kind?: string; data: unknown; children?: ReactNode; [accessor: string]: unknown }
 /** syncLayer が触る map の口（検定は偽の map で呼ぶ） */
-export type LayerSyncMap = Pick<OrthoJapanMap, "setPaintProperty" | "setLayoutProperty" | "setFilter" | "setLayerZoomRange">;
+export type LayerSyncMap = Pick<GlobeMap, "setPaintProperty" | "setLayoutProperty" | "setFilter" | "setLayerZoomRange">;
 type Rec = Record<string, unknown>;
 
 export const shallowEqual = (a: unknown, b: unknown): boolean => {

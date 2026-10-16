@@ -42,13 +42,16 @@ function fakeRaw() {
 			remove: () => true,
 		},
 	};
-	raw.gadget = function (name, fn) { raw.gadget[name] = function (...a) { calls.push(["gadget." + name, a]); return fn.apply(raw, a); }; };
-	raw.gadget("zoom", function (o) { return o; });
-	raw.gadget("spotlight", function (src, o) { return o; });
-	raw.gadget("home", function (o) { return o; });
-	raw.gadget("heatmap", function (src, layer) { return layer; });
-	raw.gadget("contextmenu", function (o) { const items = o.items; return it2 => it2; });
-	raw.gadget("shot", function () { return { composite() {} }; });
+	// map.gadget＝名前ごとの口の表（2.0）。登録は registerGadget と同じ形＝本体の第 1 引数が map（registry.gadgets.add も同じ口へ）
+	raw.gadget = {};
+	const defineGadget = (name, fn) => { raw.gadget[name] = function (...a) { calls.push(["gadget." + name, a]); return fn(raw, ...a); }; };
+	raw.registry = { dataKinds: { add() {} }, gadgets: { add(name, fn) { defineGadget(name, fn); return raw.registry.gadgets; }, has: name => name in raw.gadget } };
+	defineGadget("zoom", (m, o) => o);
+	defineGadget("spotlight", (m, src, o) => o);
+	defineGadget("home", (m, o) => o);
+	defineGadget("heatmap", (m, src, layer) => layer);
+	defineGadget("contextmenu", (m, o) => it2 => it2);
+	defineGadget("shot", () => ({ composite() {} }));
 	return raw;
 }
 
@@ -107,12 +110,12 @@ ok("gadgetArg1", f.gadget.spotlight("JP", { maxZoom: 7 }).maxZoom === 8);
 ok("gadgetView", deq(f.gadget.home({ view: [135, 35, 5] }).view, [135, 35, 6]));
 ok("gadgetLayerUntouched", f.gadget.heatmap({}, { minzoom: 5 }).minzoom === 5);   // 層の gadget は中の PUBLIC_DZ が換算
 ok("gadgetResultFacade", f.gadget.shot() !== raw);
-f.gadget("mine", function () { return this; });
-ok("userGadgetThis", raw.gadget.mine() === f && f.gadget.mine() === f);
+f.registry.gadgets.add("mine", m => m);   // 利用者の登録（1.x の f.gadget("mine", function () { return this; }) の置き換え）＝plugin と同じ素の registry・本体が受けるのは素の map
+ok("userGadgetMap", f.registry === raw.registry && raw.gadget.mine() === raw && f.gadget.mine() === f);   // 戻りの素の map は顔の呼び口で顔へ（fix）
 let cmMap = null; const setItems = f.gadget.contextmenu({ items: [{ name: "a", onClick: c => { cmMap = c.map; } }] });
 raw.calls.filter(c => c[0] === "gadget.contextmenu").at(-1)[1][0].items[0].onClick({ map: raw, x: 0, y: 0 }); ok("contextmenuMap", cmMap === f);
 const passed = setItems([{ name: "b", onClick: c => { cmMap = c.map; } }]); cmMap = null; passed[0].onClick({ map: raw }); ok("contextmenuSetItems", cmMap === f);
-ok("gadgetFnProps", typeof f.gadget === "function" && f.gadget.length === raw.gadget.length);
+ok("gadgetTable", typeof f.gadget === "object" && Object.keys(f.gadget).join() === Object.keys(raw.gadget).join());   // 関数の面（旧来の登録口）は無い
 // raster（spec＝tile z は換算しない・opts＝表示窓は換算する）
 await f.raster.add("r", { url: "x/{z}/{x}/{y}", minZoom: 3, maxZoom: 16 }, { minZoom: 12, opacity: 1 });
 { const [, spec, o] = raw.calls.at(-1); ok("rasterAdd", spec.minZoom === 3 && spec.maxZoom === 16 && o.minZoom === 13 && o.opacity === 1); }

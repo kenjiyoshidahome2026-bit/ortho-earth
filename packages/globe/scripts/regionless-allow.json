@@ -5,10 +5,6 @@
 			"japan": {
 				"n": 1,
 				"why": "互換：型の名 OrthoJapanMap（SDK 以来の公開の型名＝GlobeMap の別名・2.0 まで）"
-			},
-			"plateau": {
-				"n": 1,
-				"why": "互換：map.on(\"plateau\")＝\"mesh\" の旧名の重ね書き（公開面の旧名・@deprecated）"
 			}
 		},
 		"packages/globe/src/cluster-2d.js": {
@@ -85,8 +81,8 @@
 		},
 		"packages/globe/src/globe.ts": {
 			"plateau": {
-				"n": 8,
-				"why": "互換：opts.plateau・on(\"plateau\")（公開面の旧名）＋負債：計器とログの表示名（mesh へ）"
+				"n": 3,
+				"why": "負債：計器とログの表示名（mesh へ）。互換の opts.plateau・on(\"plateau\") は 2.0 で外した（stage 5-5）"
 			},
 			"japan": {
 				"n": 1,

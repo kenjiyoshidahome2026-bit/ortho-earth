@@ -6,7 +6,6 @@ export type { DtmDecl, TileLoader, TileLoaderOptions, GetHeight, GetHeightOption
 export { setApiUrl, getNB, tiff2data } from "./loader.ts";
 export type { ElevTile, TiffRaster } from "./loader.ts";
 export type { ElevTile as AltTile } from "./worldatlas.ts";
-export type { DtmDecl as DtmSpec } from "./createGetHeight.ts";   // 1.15 の types/elevation.d.ts の名（AltTile／DtmSpec）＝同じ物の別名
 export type { ElevGrid as AltGrid } from "../elevation.ts";
 export { setWorkerFactory } from "../workerFactory.ts";   // core の口（ortho:tile/scene と同じ）＝render worker など core の index を読まないスレッド向けの近道
 export { encode, decode, encodeName, decodeName } from "altpbf";

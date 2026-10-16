@@ -1,6 +1,6 @@
 // 日本の地域パックが起動後の map に足す物（LAYERS.md 段階 2 S3・2026-09-23）。ホストの拡張面（host）だけを使う。
 //   host＝{ opts, renderer, cam, size, dpr, requestDraw, overlay(globe の選択/識別の器), spawnWorker, ownTip, hooks, t, dbg, assetBase, onDestroy, unproject, cameraState }
-// 今は e-Stat 小地域（map.estat）。map.overlay.* への同名は互換（旧 9/20 までの口）。
+// 今は e-Stat 小地域（map.estat）。1.x の map.overlay.* への同名（9/20 までの口）は 2.0 で外した。
 import { createEstat } from "./estat.ts";
 import type { Estat } from "./estat.ts";
 import { installMojDebug } from "./moj-dbg.ts";   // 法務省地図の開発用の手（静的 import＝仮想時間の検定でも解決する）
@@ -38,7 +38,7 @@ export interface EstatFacade {
 	loadEstat: Estat["loadEstat"]; highlightKey: Estat["highlightKey"]; hoverAt: Estat["hoverAt"]; isEstatActive: Estat["isEstatActive"]; setIdentifyHandler: Estat["setIdentifyHandler"];
 	clearOverlay: unknown; setSelectionMask: unknown; loadOverlay: unknown;
 }
-export interface JpMap extends MojDbgMap { estat?: EstatFacade; overlay: Record<string, unknown> }
+export interface JpMap extends MojDbgMap { estat?: EstatFacade }
 
 export function installJapan(map: JpMap, host: JpHost): void {
 	const estat = createEstat({ renderer: host.renderer, cam: host.cam, size: host.size, dpr: host.dpr, requestDraw: host.requestDraw,
@@ -50,7 +50,6 @@ export function installJapan(map: JpMap, host: JpHost): void {
 	const facade: EstatFacade = { loadEstat: estat.loadEstat, highlightKey: estat.highlightKey, hoverAt: estat.hoverAt, isEstatActive: estat.isEstatActive, setIdentifyHandler: estat.setIdentifyHandler,
 		clearOverlay: host.overlay.clearOverlay, setSelectionMask: host.overlay.setSelectionMask, loadOverlay: host.overlay.loadOverlay };
 	map.estat = facade;
-	Object.assign(map.overlay, facade);   // ★互換：map.overlay.loadEstat 等（9/20 までの口）＝次の大版まで
 	host.dbg.__loadEstat = estat.loadEstat;
 	host.dbg.__tokyo = () => estat.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域（コンソールの道具）
 	installMojDebug(map, host);

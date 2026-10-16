@@ -3,7 +3,7 @@
 // 作法＝クラスも継承も作らない。登録簿（catalog）と除外マップはここが持つ。永続化の鍵（DECODE_VER / PLQ_VER / FAR_VER）はここに無い。
 //
 // env（生成時に渡す・3 束）：
-//   meshOn                 … 機能スイッチ（opts.mesh=false［旧 opts.plateau］ / ?nopl=1）
+//   meshOn                 … 機能スイッチ（opts.mesh=false / ?nopl=1）
 //   device                    … 起動時に確定する装置の旗 { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }
 //   catalog                   … 登録簿の Promise<set[]>（null＝機能 OFF）。到着の裁き（合図・自動ロード）はここ
 //   renderer, attachMeshPort  … 描画側：renderer.set(cmd,…)／区 worker→render worker のメッシュ直結ポートを渡す口
@@ -507,7 +507,7 @@ const meshDb = createMeshDb({
 	// 描画＝モーダルを閉じて地区中心へ球面フライト（z15.5=PLATEAU自動ロード圏・チルト45°）→ autoMesh がキャッシュ命中で即表示
 	show: set => { meshDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 15.5, 45); },
 });
-// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("mesh", …) で open を注入。
+// モーダルを開くボタンはオプトインガジェット（gadgets/mesh.ts）＝api/gadgets.ts の registerGadget("mesh", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
 if (meshOn) navigator.storage?.persist?.().then(ok => console.log(`[mesh] storage persist: ${ok ? "granted" : "denied"}`)).catch(() => {});

@@ -217,7 +217,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 			throw err;
 		}
 		if (!live.columnarCtl) return null;   // probe（振り分けの規則）が断った＝呼び手が gint の道へ
-		dbgHost.__columnar = dbgHost.__parquet = live.columnarCtl;   // dev の検証窓（loaded/deferred/stats・旧名 __parquet も残す）
+		dbgHost.__columnar = live.columnarCtl;   // dev の検証窓（loaded/deferred/stats・旧名 __parquet は 2.0 で外した）
 		return { length: live.columnarCtl.rows, columnar: live.columnarCtl };   // dropFile のトースト用（地物数の代わりに行数）
 	};
 	// ?g= の読み込み（説明は loadServiceG の上）＝列チャンク層の口（columnarOn・columnarView・columnarProbe）の宣言の後で走らせる（TS 化 段 4：宣言の前の使用を避けた・走る順の違いは外から見えない）
