@@ -11,11 +11,11 @@ import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GeoPBF } from "../src/pbf-base.js";
-import { bakeGint } from "../src/convert/node-gint.js";
-import { toPMTiles, lodThreshold } from "../src/convert/tiler.js";
-import { readPMTiles } from "../src/convert/pmtiles.js";
-import { signedArea2 } from "../src/convert/mvt.js";
-import { decodeTile } from "../src/convert/mvt-decode.js";
+import { bakeGint } from "../src/convert/node-gint.ts";
+import { toPMTiles, lodThreshold } from "../src/convert/tiler.ts";
+import { readPMTiles } from "../src/convert/pmtiles.ts";
+import { signedArea2 } from "../src/convert/mvt.ts";
+import { decodeTile } from "../src/convert/mvt-decode.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -154,7 +154,7 @@ ok(pm2.header.tc === 1 && pm2.header.minZoom === 2 && decodeTile(await pm2.getTi
 	const pmp = await readPMTiles(rp.buffer);
 	const at = async (z, x, y) => { const t = await pmp.getTile(z, x, y); return t ? decodeTile(t)[0].features : []; };
 	const z0 = await at(0, 0, 0), z6 = [];
-	for (const e of pmp.root) for (let k = 0; k < e.runLength; k++) { const [z, x, y] = (await import("../src/convert/pmtiles.js")).tileIdToZxy(e.tileId + k); if (z === 6) z6.push(...await at(z, x, y)); }
+	for (const e of pmp.root) for (let k = 0; k < e.runLength; k++) { const [z, x, y] = (await import("../src/convert/pmtiles.ts")).tileIdToZxy(e.tileId + k); if (z === 6) z6.push(...await at(z, x, y)); }
 	const ids6 = new Set(z6.map(f => f.id)), ids0 = new Set(z0.map(f => f.id));
 	ok(ids6.size === 2000, `dropRate: maxZoom には全点（${ids6.size}）`);
 	ok(z0.length > 0 && z0.length < 2000 / 50 && [...ids0].every(i => ids6.has(i)), `dropRate 2.5: z0 は 2.5^-6≈0.4% ＝ ${z0.length} 点（入れ子）`);

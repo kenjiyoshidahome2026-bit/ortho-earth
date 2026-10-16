@@ -16,7 +16,7 @@
 // fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.js（leaflet 統合と共用）。
 import { resolveInnerUrl, fetchAndDecode, sanitizeProperties, loadGeopbf } from "./modules/geojson-load.js";
 import { fetchGeopbfTiles } from "./modules/tile-load.js";
-import { createTileSource } from "./convert/tilesource.js";
+import { createTileSource } from "./convert/tilesource.ts";
 
 export { sanitizeProperties, loadGeopbf, createTileSource };
 

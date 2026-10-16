@@ -1,6 +1,6 @@
 // decoder/ndjson.js ── ブラウザ用 worker：.ndjson / .geojsonl / .jsonl / GeoJSON Text Sequence → GeoPBF バイト列。実体は convert/ndjson.js
 import { dissolve } from "../extension/dissolve.js";
-import { fromNdjson } from "../convert/ndjson.js";
+import { fromNdjson } from "../convert/ndjson.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution } = e.data;

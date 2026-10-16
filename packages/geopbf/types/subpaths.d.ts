@@ -3,34 +3,13 @@
 declare module "geopbf/no-builtin-workers";
 declare module "geopbf/gint";
 declare module "geopbf/czml";
-declare module "geopbf/cog";
-declare module "geopbf/cog/core";
-declare module "geopbf/cog/source";
-declare module "geopbf/convert";
-declare module "geopbf/pmtiles";
-declare module "geopbf/tilesource";
-declare module "geopbf/geoparquet";
-declare module "geopbf/spatial-order";
 declare module "geopbf/parquet";
-declare module "geopbf/gpkg";
-declare module "geopbf/fgb";
-declare module "geopbf/sqlite";
-declare module "geopbf/spatialite";
-declare module "geopbf/dxf";
-declare module "geopbf/mbtiles";
-declare module "geopbf/filegdb";
 declare module "geopbf/featureservice";
 declare module "geopbf/georef";
-declare module "geopbf/proj";
-declare module "geopbf/epsg";
-declare module "geopbf/datum";
-declare module "geopbf/table";
-declare module "geopbf/convert/node-gint";
 declare module "geopbf/maplibre-cog";
 declare module "geopbf/leaflet-cog";
 declare module "geopbf/sanitize";
 declare module "geopbf/edit";
 declare module "geopbf/edit/*";
 declare module "geopbf/encodeXLSX";
-// src/* をそのまま指す口（monorepo の検定・焼きスクリプトが src の深い相対 import を書かないため・2026-10-15）。公開 API ではない＝予告なく変わる
-declare module "geopbf/internal/*";
+// geopbf/internal/*（src/*.ts）と cog／convert の subpath は .ts を直に指す＝exports から型が付く（TS化 段 3・2026-10-16）＝省略宣言は要らない

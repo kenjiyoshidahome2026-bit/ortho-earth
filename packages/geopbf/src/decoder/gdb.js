@@ -1,6 +1,6 @@
 // decoder/gdb.js ── ブラウザ用 worker：.gdb を zip に固めたもの（*.gdbtable を含む zip）→ GeoPBF バイト列。実体は convert/filegdb.js。
 import { decodeZIP } from "../modules/decodeZIP.js";
-import { fromFileGDB, gdbSourceFromFiles } from "../convert/filegdb.js";
+import { fromFileGDB, gdbSourceFromFiles } from "../convert/filegdb.ts";
 
 onmessage = async (e) => {
 	const { file, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd } = e.data;

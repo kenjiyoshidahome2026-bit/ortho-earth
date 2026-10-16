@@ -1,0 +1,158 @@
+// convert/spatialite.js ── SpatiaLite（.sqlite / .spatialite）→ GeoPBF。自前 SQLite リーダ（sqlite.js）＋自前の幾何 BLOB 復号＝GDAL 不要・読み専用。
+//   const { layers } = readSpatiaLite(u8);                 // 層（geometry_columns の行）一覧
+//   const { pbf, stats } = await fromSpatiaLite(u8, { layer }); // 1 層 → GeoPBF（layer 省略＝最初の層）
+// 幾何 BLOB（gaiaGeomBlob）: 0x00 | endian(1=LE) | SRID i32 | MBR 4 doubles | 0x7C | class u32 | 本体 | 0xFE。
+//   class = 1..7（XY）・+1000（XYZ）・+2000（XYM）・+3000（XYZM）・+1000000（圧縮＝先頭/末尾は double・中間は直前点からの float 差分。
+//   Z も float 差分・M は double のまま）。Multi*/Collection の各要素は 0x69（ENTITY 印）＋ class u32 で始まる。
+//   TinyPoint（SpatiaLite 5）: 0x00 | 0x81(LE)/0x80(BE) | SRID | kind(1 XY 2 XYZ 3 XYM 4 XYZM) | doubles | 0xFE。
+// CRS は spatial_ref_sys（auth_name/auth_srid/srtext）→ gpkg.js の classifyCrs（4326 素通し・3857 逆変換・投影 WKT は proj.js）。
+import { GeoPBF } from "../pbf-base.js";
+import { openSqlite } from "./sqlite.ts";
+import type { SqliteDb, SqlValue } from "./sqlite.ts";
+import { attrFilter } from "./attrs.ts";
+import { mercToLonLat } from "../modules/mercator.js";
+import { classifyCrs, valueConverter } from "./gpkg.ts";
+import type { Srs, ColumnInfo, SkippedColumn } from "./gpkg.ts";
+import { resolveDatum, datumStats } from "./datum.ts";
+import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
+import type { Geometry, Position, GeomCtx, CrsInfo, XF, MetaOptions, AttrOptions, MsStats } from "./types.ts";
+
+import { now } from "../modules/now.js";
+const TYPES: Record<number, Geometry["type"]> = { 1: "Point", 2: "LineString", 3: "Polygon", 4: "MultiPoint", 5: "MultiLineString", 6: "MultiPolygon", 7: "GeometryCollection" };
+
+export interface SpatiaLiteLayer {
+	table: string; geometryColumn: string; geometryType: string; z: boolean; m: boolean; srid: SqlValue; srs: Srs; crs: CrsInfo;
+	columns: ColumnInfo[]; count: number;
+}
+export interface SpatiaLiteInfo { db: SqliteDb; layers: SpatiaLiteLayer[]; missing: SqlValue[]; encoding: string; pageSize: number; warnings: string[] }
+export interface ReadSpatiaLiteOptions { datum?: Datum | null }
+export interface FromSpatiaLiteOptions extends MetaOptions, AttrOptions, DatumOptions { layer?: string; ignoreCrs?: boolean }
+export interface SpatiaLiteCtx extends GeomCtx { empty: number; bigint: number; nulls: number; bad: number }
+export interface SpatiaLiteStats {
+	layer: string; layers: string[]; features: number; vertices: number; columns: string[]; skipped: SkippedColumn[]; crs: string;
+	reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; precision: number; droppedGeometries: number; emptyGeometries: number; badGeometries: number; bigints: number;
+	z: boolean; m: boolean; encoding: string; warnings: string[]; ms: MsStats;
+}
+export interface FromSpatiaLiteResult { pbf: GeoPBF; stats: SpatiaLiteStats }
+type Single = Exclude<Geometry, { type: "GeometryCollection" }>;
+
+/** 幾何 BLOB → GeoJSON geometry（2D・Z/M は読み飛ばす）。ctx.vertices に頂点数を積む。null（NULL 幾何）はそのまま null */
+export function parseSpatiaLiteBlob(u8: Uint8Array | null | undefined, ctx: GeomCtx): Geometry | null {
+	if (!u8 || u8.length < 8) return null;
+	if (u8[0] !== 0x00) throw new Error("spatialite: geometry BLOB does not start with 0x00");
+	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+	const marker = u8[1];
+	if (marker & 0x80) {   // TinyPoint
+		const le = (marker & 1) === 1;
+		ctx.vertices++;
+		return { type: "Point", coordinates: [dv.getFloat64(7, le), dv.getFloat64(15, le)] };
+	}
+	const le = marker === 1;
+	if (u8[38] !== 0x7c) throw new Error("spatialite: MBR end marker 0x7C missing");
+	let p = 39;
+	const entity = (): Geometry => {
+		let t = dv.getUint32(p, le); p += 4;
+		let compressed = false, hasZ = false, hasM = false;
+		if (t >= 1000000) { compressed = true; t -= 1000000; }
+		if (t >= 3000) { t -= 3000; hasZ = hasM = true; } else if (t >= 2000) { t -= 2000; hasM = true; } else if (t >= 1000) { t -= 1000; hasZ = true; }
+		const type = TYPES[t]; if (!type) throw new Error("spatialite: geometry class " + t);
+		const extra = (hasZ ? 8 : 0) + (hasM ? 8 : 0);
+		const pt = (): Position => { const c = [dv.getFloat64(p, le), dv.getFloat64(p + 8, le)]; p += 16 + extra; ctx.vertices++; return c; };
+		const seq = (): Position[] => {
+			const n = dv.getUint32(p, le); p += 4;
+			const out: Position[] = new Array(n);
+			if (!compressed) { for (let i = 0; i < n; i++) out[i] = pt(); return out; }
+			let x = 0, y = 0;
+			for (let i = 0; i < n; i++) {
+				if (i === 0 || i === n - 1) { x = dv.getFloat64(p, le); y = dv.getFloat64(p + 8, le); p += 16 + extra; }
+				else { x += dv.getFloat32(p, le); y += dv.getFloat32(p + 4, le); p += 8 + (hasZ ? 4 : 0) + (hasM ? 8 : 0); }
+				out[i] = [x, y]; ctx.vertices++;
+			}
+			return out;
+		};
+		if (t === 1) return { type: "Point", coordinates: pt() };   // Point は圧縮でも double
+		if (t === 2) return { type: "LineString", coordinates: seq() };
+		if (t === 3) { const n = dv.getUint32(p, le); p += 4; const rings: Position[][] = new Array(n); for (let i = 0; i < n; i++) rings[i] = seq(); return { type: "Polygon", coordinates: rings }; }
+		const n = dv.getUint32(p, le); p += 4;
+		const parts: Geometry[] = new Array(n);
+		for (let i = 0; i < n; i++) { if (u8[p] !== 0x69) throw new Error("spatialite: ENTITY marker 0x69 missing"); p++; parts[i] = entity(); }
+		if (t === 7) return { type: "GeometryCollection", geometries: parts };
+		return { type, coordinates: parts.map(g => (g as Single).coordinates) } as Geometry;
+	};
+	return entity();
+}
+
+const isEmpty = (g: Geometry | null): boolean => !g ? true : g.type === "Point" ? !Number.isFinite(g.coordinates[0]) : g.type === "GeometryCollection" ? !g.geometries.length : !g.coordinates.length;
+
+/** SpatiaLite を開いて層の一覧を返す（変換はしない）。 */
+export function readSpatiaLite(u8: Uint8Array | ArrayBuffer | ArrayBufferView, opts: ReadSpatiaLiteOptions = {}): SpatiaLiteInfo {
+	const db = openSqlite(u8);
+	if (!db.tables.has("geometry_columns")) throw new Error("spatialite: not a SpatiaLite database (no geometry_columns table; plain SQLite or GeoPackage)");
+	const srsById = new Map<SqlValue, Srs>();
+	if (db.tables.has("spatial_ref_sys")) for (const r of db.rows("spatial_ref_sys")) srsById.set(r.srid, { id: r.srid, name: r.ref_sys_name, org: r.auth_name, code: r.auth_srid, definition: r.srtext && r.srtext !== "Undefined" ? r.srtext : "" });
+	const byLower = new Map([...db.tables.values()].map(t => [t.name.toLowerCase(), t]));
+	const layers: SpatiaLiteLayer[] = [], missing: SqlValue[] = [];
+	for (const g of db.rows("geometry_columns")) {
+		const t = db.tables.get(g.f_table_name as string) ?? byLower.get(String(g.f_table_name).toLowerCase());
+		if (!t) { missing.push(g.f_table_name); continue; }
+		// v4: geometry_type INTEGER（1..7・+1000 Z・+2000 M・+3000 ZM・0＝GEOMETRY）／v2-3: type TEXT（"POINT" 等）＋ coord_dimension "XYZ"
+		const gt = g.geometry_type;
+		const info = typeof gt === "number"
+			? { name: gt === 0 ? "GEOMETRY" : (TYPES[gt % 1000] ?? String(gt)).toUpperCase(), z: (gt >= 1000 && gt < 2000) || gt >= 3000, m: gt >= 2000 }
+			: { name: String(g.type ?? "GEOMETRY").toUpperCase(), z: /Z/i.test(String(g.coord_dimension ?? "")), m: /M/i.test(String(g.coord_dimension ?? "")) };
+		const srs = srsById.get(g.srid) ?? { id: g.srid, org: "?", code: g.srid, definition: "" };
+		const gcol = t.columns.find(k => k.name.toLowerCase() === String(g.f_geometry_column).toLowerCase())?.name ?? g.f_geometry_column as string;
+		layers.push({ table: t.name, geometryColumn: gcol, geometryType: info.name, z: info.z, m: info.m, srid: g.srid, srs, crs: classifyCrs(srs, opts.datum),
+			columns: t.columns.map(k => ({ name: k.name, type: k.type })), count: db.count(t.name) });
+	}
+	return { db, layers, missing, encoding: db.encoding, pageSize: db.pageSize, warnings: db.warnings };
+}
+
+type Nested = number[] | Nested[];
+/** 1 層を GeoPBF へ。opts: { layer, precision(既定 6), name, ignoreCrs, include/exclude/excludeAll, tky2jgd, patchjgd } */
+export async function fromSpatiaLite(u8: Uint8Array | ArrayBuffer | ArrayBufferView, opts: FromSpatiaLiteOptions = {}): Promise<FromSpatiaLiteResult> {
+	const t0 = now();
+	const datum = await resolveDatum(opts);
+	const g = readSpatiaLite(u8, { datum });
+	if (!g.layers.length) throw new Error(`spatialite: no tables with a geometry column (geometry_columns is empty${g.missing.length ? `; tables missing: ${g.missing.join(", ")}` : ""})`);
+	const layer = opts.layer ? g.layers.find(l => l.table === opts.layer || l.table.toLowerCase() === String(opts.layer).toLowerCase()) : g.layers[0];
+	if (!layer) throw new Error(`spatialite: layer "${opts.layer}" not found (layers: ${g.layers.map(l => l.table).join(", ")})`);
+	const kind = layer.crs.kind;
+	if (kind === "other" && !opts.ignoreCrs) throw new Error(`spatialite: CRS of layer "${layer.table}" is not lon/lat (${layer.crs.label}); GeoPBF is lon/lat only, reproject first or pass ignoreCrs`);
+	const xf: XF | null = kind === "mercator" ? mercToLonLat : layer.crs.toLonLat ?? null;
+	const keep = attrFilter(opts);
+	const gcol = layer.geometryColumn;
+	const props = layer.columns.filter(c => c.name !== gcol && !/^BLOB$/i.test(c.type) && (!keep || keep(c.name)));
+	const skipped = layer.columns.filter(c => c.name !== gcol && /^BLOB$/i.test(c.type)).map(c => ({ name: c.name, reason: "BLOB" }));
+	const conv = props.map(c => ({ name: c.name, fn: valueConverter(c.type) }));
+	const ctx: SpatiaLiteCtx = { vertices: 0, empty: 0, bigint: 0, nulls: 0, bad: 0 };
+	const mapDeep = (c: Nested, f: XF): Nested => typeof c[0] === "number" ? f(c as number[]) : (c as Nested[]).map(x => mapDeep(x, f));
+	const project = (geom: Geometry): Geometry => {
+		if (!xf) return geom;
+		if (geom.type === "GeometryCollection") { geom.geometries = geom.geometries.map(project); return geom; }
+		(geom as { coordinates: Nested }).coordinates = mapDeep(geom.coordinates, xf); return geom;
+	};
+	const keys = props.map(c => c.name).sort();   // スキーマの属性列（gpkg/gdb/parquet と同じ規則）
+	const pbf = new GeoPBF({ name: opts.name ?? layer.table, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
+	pbf.setHead(keys, []);
+	let count = 0;
+	pbf.setBody(() => {
+		for (const row of g.db.rows(layer.table)) {
+			const b = row[gcol];
+			let geometry: Geometry | null = null;
+			if (b instanceof Uint8Array) { try { geometry = parseSpatiaLiteBlob(b, ctx); } catch (e) { ctx.bad++; geometry = null; } }
+			if (geometry && isEmpty(geometry)) { ctx.empty++; geometry = null; }
+			if (!geometry) { ctx.nulls++; continue; }   // 幾何なしは落として数える（gpkg と同じ）
+			const q: Record<string, unknown> = {};
+			for (const { name, fn } of conv) { const v = row[name]; if (v !== null && v !== undefined) { const c = fn(v, ctx); if (c !== undefined) q[name] = c; } }
+			pbf.setFeature({ type: "Feature", properties: q, geometry: project(geometry) }); count++;
+		}
+	});
+	const t1 = now();
+	pbf.close();
+	await pbf.getPosition();
+	const stats: SpatiaLiteStats = { layer: layer.table, layers: g.layers.map(l => l.table), features: count, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs: layer.crs.label,
+		reprojected: !!xf, datumApprox: !!layer.crs.approx, datum: datumStats(datum), precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, badGeometries: ctx.bad, bigints: ctx.bigint,
+		z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } };
+	return { pbf, stats };
+}

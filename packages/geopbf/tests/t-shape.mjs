@@ -5,7 +5,7 @@
 globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../src/pbf.js";
 import { encodeZIP } from "../src/modules/encodeZIP.js";
-import { epsgToWKT } from "../src/convert/epsg.js";
+import { epsgToWKT } from "../src/convert/epsg.ts";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 

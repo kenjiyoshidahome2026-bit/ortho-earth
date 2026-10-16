@@ -4,10 +4,10 @@
 //     （旧＝積算が job（1 ズーム×列範囲）ごとだったので、小島の群れが shard 境界をまたぐと正方形の数と置き場が worker 数で変わった）
 //   ・MultiPoint の低ズーム間引き（dropRate）が点単位（tippecanoe の -r と同じ）＝1 feature の点が全部一蓮托生にならない・残る点はズームで入れ子
 import { GeoPBF } from "../src/pbf-base.js";
-import { bakeGint } from "../src/convert/node-gint.js";
-import { toPMTiles } from "../src/convert/tiler.js";
-import { readPMTiles } from "../src/convert/pmtiles.js";
-import { decodeTile } from "../src/convert/mvt-decode.js";
+import { bakeGint } from "../src/convert/node-gint.ts";
+import { toPMTiles } from "../src/convert/tiler.ts";
+import { readPMTiles } from "../src/convert/pmtiles.ts";
+import { decodeTile } from "../src/convert/mvt-decode.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };

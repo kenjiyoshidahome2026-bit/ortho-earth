@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "src",
+		"outDir": "dist",
+		"types": ["node"]
+	},
+	"include": ["src"],
+	"exclude": ["src/cog/worker.ts", "src/convert/tile-worker.ts"]
+}

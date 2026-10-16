@@ -1,5 +1,5 @@
 // 円錐図法（#178・convert/proj.js の LCC・Albers）＝EPSG Guidance Note 7-2 と Snyder の数値例・往復・WKT からの判定。
-import { lccForward, lccInverse, albersForward, albersInverse, crsFromWKT } from "../src/convert/proj.js";
+import { lccForward, lccInverse, albersForward, albersInverse, crsFromWKT } from "../src/convert/proj.ts";
 let fails = 0;
 const ok = (name, cond, note = "") => { if (!cond) fails++; console.log(`${cond ? "ok" : "NG"} ${name}${note ? "  " + note : ""}`); };
 const CLARKE = { a: 6378206.4, f: 1 / 294.9786982 };

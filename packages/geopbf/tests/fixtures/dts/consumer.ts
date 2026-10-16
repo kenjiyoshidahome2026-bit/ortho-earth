@@ -10,7 +10,7 @@ import { makeGeopbfLoader } from "geopbf/openlayers";
 import { GeoPBFLoader } from "geopbf/loaders";
 import { findPolygon, hitGridOf, hitGridMode } from "geopbf/identify";
 import { unPackGintBuffer, repackGintBuffer } from "geopbf/topology";
-import { toPMTiles } from "geopbf/pmtiles";          // 省略宣言（any）の subpath
+import { toPMTiles } from "geopbf/pmtiles";          // .ts を直に指す subpath（exports → src/convert/tiler.ts）＝型はソースから
 import { gzip } from "geopbf/gzip";
 import { sphere } from "geopbf/edit/sphere";          // ワイルドカードの省略宣言
 

@@ -10,7 +10,7 @@
 // URL ごとに openCog を memoize（ヘッダ一発読みは最初の1タイルだけ）。タイルは worker pool で
 // デコード＋3857 warp され PNG bytes で返る。ソースの bounds は onOpen(bboxLL) で貰って
 // map.getSource().bounds に足すと圏外リクエストが消える。
-import { openCog } from "./cog/index.js";
+import { openCog } from "./cog/index.ts";
 
 // options: { fetch, cache, stretch, onOpen(url, cog), ...openCog opts }
 export function makeCogProtocol(options = {}) {
