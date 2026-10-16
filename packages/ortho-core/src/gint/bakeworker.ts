@@ -12,25 +12,27 @@
 // main の原本（unPackGint）は素のまま残る（冪等なので万一の同期経路フォールバックでも正しい）。
 
 import { bakeBase, bakeTier, tierPlan, gintDataOf } from './bake.ts';
+import type { BakedTier } from './bake.ts';
+import type { GintBakeRequest, GintBakeResponse } from '../worker-msg.ts';
 
-onmessage = e => {
+onmessage = (e: MessageEvent<GintBakeRequest>) => {
 	const { id, data } = e.data;
 	try {
 		const gintData = gintDataOf(data);
 		const art = bakeBase(gintData);
 		const plan = tierPlan(gintData, art.base.edgeCount, art.weightHist);
-		const tiers = [];
+		const tiers: BakedTier[] = [];
 		for (const w of [...plan].reverse()) tiers.push(bakeTier(gintData, w, art.polyBboxByFid));   // 粗い側から（台帳は minW ソートなので順序は表示に無関係）
 		const { weightHist, ...artifacts } = art;   // hist は下流不要（tier まで焼き切った）＝落とす
 		// transfer できるのは ArrayBuffer だけ＝SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack）は共有のまま渡す（リストに入れると DataCloneError）
-		const bufs = new Set();
+		const bufs = new Set<ArrayBufferLike>();
 		for (const v of Object.values(gintData)) if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) bufs.add(v.buffer);
 		if (artifacts.base?.metaU32)     bufs.add(artifacts.base.metaU32.buffer);
 		if (artifacts.boundary?.metaU32) bufs.add(artifacts.boundary.metaU32.buffer);
 		if (artifacts.pivot?.px)         bufs.add(artifacts.pivot.px.buffer);
 		for (const t of tiers) if (t.metaU32) bufs.add(t.metaU32.buffer);
-		postMessage({ id, kind: 'done', gint: gintData, artifacts, tiers }, [...bufs]);
+		postMessage({ id, kind: 'done', gint: gintData, artifacts, tiers } satisfies GintBakeResponse, [...bufs] as ArrayBuffer[]);
 	} catch (err) {
-		postMessage({ id, kind: 'error', message: err?.message ?? String(err) });
+		postMessage({ id, kind: 'error', message: (err as Error)?.message ?? String(err) } satisfies GintBakeResponse);
 	}
 };

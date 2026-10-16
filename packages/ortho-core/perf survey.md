@@ -61,13 +61,13 @@ UBO の書き込みは frame 5 slot＋param＋globe＋sky＋plBatch＋overlay＋
 
 ### 3.1 標高セルのループが描画スレッドに居る
 `terrain.js` の `downsampleFlipped(...)`→`renderer.set("elevCell")`→`writeCell` の `f32ToF16` は、どちらもセル 1 枚で百万回級の JS ループを
-**render worker** で回す。標高 worker（`elevation/worker.js`）は Int16 の復号までしか担っていない。
+**render worker** で回す。標高 worker（`elevation/worker.ts`）は Int16 の復号までしか担っていない。
 処方の段：(0) `Float16Array` が使える環境は変換が native＝ループ 1 本消える／再標本化と半精度化を 1 ループに融合。
 (1) 生 Int16 タイルを r16sint で上げ、GPU が atlas のセル矩形へ再標本化（downsampleFlipped と同じ規約：texel 中心・縁 M=2 の除外・異常値 0・負値 0・row0=南）
 ＝CPU ループ自体が無くなる。両バックエンド共通（GL は R16F FBO）。詳細は plan §2。
 
 ### 3.2 classic merge の費用は 3 段
-①scene worker の全タイル再結合（`sceneworker.js` の mergeTiles 分岐）②render worker の `setScene`＝全層 createBuffer＋writeBuffer
+①scene worker の全タイル再結合（`sceneworker.ts` の mergeTiles 分岐）②render worker の `setScene`＝全層 createBuffer＋writeBuffer
 ③その後 `FADE_MS`=180ms のクロスフェード＝塗り・線を旧＋新で二重描き。40 枚中 1 枚変わっても全部やり直す。
 WebGPU に multiDraw は無いが、タイルごとの `drawIndexed` に **firstInstance＝タイル番号**を運び、原点は storage buffer で引き、
 その列を **render bundle** に 1 回記録して毎フレーム `executeBundles`＝CPU 発行ゼロ。scene worker のアロケータ（free-list・pendingFree・

@@ -4,5 +4,6 @@
 		"rootDir": "src",
 		"outDir": "dist"
 	},
-	"include": ["src"]
+	"include": ["src"],
+	"exclude": ["src/workers/tileworker.ts", "src/workers/sceneworker.ts", "src/elevation/worker.ts", "src/gint/bakeworker.ts"]
 }
