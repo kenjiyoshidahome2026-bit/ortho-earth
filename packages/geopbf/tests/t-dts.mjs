@@ -138,6 +138,15 @@ if (ts) {
 	try { out = execFileSync(process.execPath, [tsBin, "-p", proj, "--pretty", "false"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
 	catch (e) { code = e.status ?? 1; out = String(e.stdout || "") + String(e.stderr || ""); }
 	ok(code === 0, `tsc strict で tests/fixtures/dts/consumer.ts が通る（@ts-expect-error ${expectErrors} 行込み）${code ? "\n" + out.trim().split("\n").slice(0, 20).map(l => "   " + l).join("\n") : ""}`);
+
+	// 8) npm に出す .d.ts（prepack＝tsc -p . が tsconfig.json の設定で出す）に @internal の欄が載らない（stripInternal・段 5-4）
+	//    fmap は内部の表＝地物の数は length（公開の口）。ここは pbf-base.ts の宣言だけを書き出さずに組んで中身を見る
+	const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(PKG, "tsconfig.json"), ts.sys.readFile).config, ts.sys, PKG);
+	let baseDts = "";
+	ts.createProgram([path.join(PKG, "src/pbf-base.ts")], { ...cfg.options, noEmit: false, declaration: true, emitDeclarationOnly: true })
+		.emit(undefined, (f, text) => { if (f.endsWith("pbf-base.d.ts")) baseDts = text; }, undefined, true);
+	ok(cfg.options.stripInternal === true && /\bget length\(\): number;/.test(baseDts) && !/^\s+fmap\s*[?:]/m.test(baseDts) && !/^\s+_name\s*[?:]/m.test(baseDts),
+		"公開の .d.ts（pbf-base）は length を持ち、@internal の fmap・_name を載せない（tsconfig.json の stripInternal）");
 }
 
 if (fails) { console.error(`t-dts: ${fails} 件失敗`); process.exit(1); }
