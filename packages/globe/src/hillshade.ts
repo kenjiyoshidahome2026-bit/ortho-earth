@@ -6,6 +6,7 @@
 // method は MapLibre 6.11.2 の 5 つ（standard・basic・combined・igor・multidirectional）を fragment のまま写す（2026-09-30・旧＝standard だけ）。
 // 2026-09-30 本物の式に揃えた 4 点（公式例の門で斜面が 20〜70 階調暗かった）：勾配×DEM の実寸（旧＝512 固定）・頭打ち ±4（中間画像の 0..1＝deriv/8+0.5・旧 ±1）・standard の傾き atan(0.625·|d|)（旧 1.25）・向き atan(d.y, −d.x)（旧は 45° の線で折り返した形＝光が 315° の時だけ一致）。
 import { createDemTiles } from "./demtiles.ts";
+import { createShadeGL } from "./hillshade-gl.ts";   // 同じ式の GPU 版（高速化 段 2）＝作れない環境・光が多い時は shadeTile
 import type { DemSpecInput } from "@ortho-earth/core";
 import type { DemFetch, DemTiles } from "./demtiles.ts";
 
@@ -19,7 +20,7 @@ export interface HillshadeParams {
 /** shadeTile の材料（h＝タイル本体・hN/hS/hE/hW＝隣・無ければ端を伸ばす） */
 export interface ShadeInput { h: ArrayLike<number>; n: number; hN?: ArrayLike<number> | null; hS?: ArrayLike<number> | null; hE?: ArrayLike<number> | null; hW?: ArrayLike<number> | null; z: number; lat0: number; lat1: number; p: Partial<HillshadeParams> & Pick<HillshadeParams, "exaggeration" | "accent"> }
 /** port プロバイダの切り分けの窓 */
-export interface HillshadeStats { req: number; ok: number; empty: number; err: number; last: string | null; zs?: Record<number, number>; lastErr?: string }
+export interface HillshadeStats { req: number; ok: number; empty: number; err: number; last: string | null; zs?: Record<number, number>; lastErr?: string; gpu: number; cpu: number }
 
 const PI = Math.PI;
 let cctx: OffscreenCanvasRenderingContext2D | null = null;
@@ -57,9 +58,9 @@ export function hillshadeParams(paint: Record<string, unknown> = {}, evalNum: (x
 
 // 1 タイルの陰影（MapLibre の hillshade_prepare＋hillshade fragment を画素で）。h＝タイル本体・N/S/E/W＝隣（無ければ端を伸ばす）。
 // n＝タイルの幅（px）・z＝タイルの z・lat0/lat1＝タイルの上端/下端の緯度（度）。戻り＝RGBA（事前乗算なし）
-export function shadeTile({ h, n, hN, hS, hE, hW, z, lat0, lat1, p }: ShadeInput): Uint8ClampedArray<ArrayBuffer> {
-	const out = new Uint8ClampedArray(n * n * 4);
-	const at = (x: number, y: number) => {   // 隣へはみ出す読み（無ければ端の値）。NaN（無効）は 0 と見る
+// 隣へはみ出す読み（無ければ端の値）。NaN（無効）は 0 と見る。shadeTile と GPU 版（hillshade-gl.ts の縁付きの高さ）が同じ読みを使う
+export function heightAt({ h, n, hN, hS, hE, hW }: Pick<ShadeInput, "h" | "n" | "hN" | "hS" | "hE" | "hW">): (x: number, y: number) => number {
+	return (x, y) => {
 		let v;
 		if (y < 0) v = hN ? hN[(n - 1) * n + Math.max(0, Math.min(n - 1, x))] : h[Math.max(0, Math.min(n - 1, x))];
 		else if (y >= n) v = hS ? hS[Math.max(0, Math.min(n - 1, x))] : h[(n - 1) * n + Math.max(0, Math.min(n - 1, x))];
@@ -68,6 +69,11 @@ export function shadeTile({ h, n, hN, hS, hE, hW, z, lat0, lat1, p }: ShadeInput
 		else v = h[y * n + x];
 		return v === v ? v : 0;
 	};
+}
+export function shadeTile(inp: ShadeInput): Uint8ClampedArray<ArrayBuffer> {
+	const { n, z, lat0, lat1, p } = inp;
+	const out = new Uint8ClampedArray(n * n * 4);
+	const at = heightAt(inp);
 	// prepare：deriv＝Sobel×tileSize÷2^(exaggeration＋28.2562−z)（tileSize＝DEM の実寸 n）→ 中間画像（RGBA8）へ deriv/8＋128/255 を 0..1 に詰める＝±4 で頭打ち・1/255 刻み（MapLibre 6.11.2 のまま）
 	const ef = z < 2 ? 0.4 : z < 4.5 ? 0.35 : 0.3, ex = z < 15 ? (z - 15) * ef : 0, k0 = n / Math.pow(2, ex + (28.2562 - z)), mid = 128 / 255;
 	const pack = (d: number) => Math.round(Math.max(0, Math.min(1, d / 8 + mid)) * 255) / 255;   // 中間画像の 8 ビット
@@ -127,11 +133,24 @@ export function shadeTile({ h, n, hN, hS, hE, hW, z, lat0, lat1, p }: ShadeInput
 	return out;
 }
 
+// GPU 版の器は 1 つを全ての陰影の層で使い回す（WebGL2 の文脈は数に限りがある）。作れなかったら以後は CPU
+let shadeGL: ReturnType<typeof createShadeGL> | false | null = null;
+const shadeFast = (inp: ShadeInput, gpu: boolean, stats: HillshadeStats): Uint8ClampedArray<ArrayBuffer> => {
+	if (gpu && shadeGL !== false) {
+		shadeGL ??= createShadeGL() ?? false;
+		const r = shadeGL ? shadeGL.shade(inp) : null;
+		if (r) { stats.gpu++; return r; }
+	}
+	stats.cpu++;
+	return shadeTile(inp);
+};
+
 const tileLat = (y: number, z: number) => { const t = PI - 2 * PI * y / (1 << z); return 180 / PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t))); };
 
 // port プロバイダ。dem＝raster-dem の spec（tiles 済み）・paint＝評価済み・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, setPaint, close }
-export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null, tiles = null }: {
-	dem: DemSpecInput | null | undefined; paint?: Record<string, unknown>; fetchFn?: DemFetch; name?: string; attribution?: string | null; warn?: ((msg: string) => void) | null; tiles?: DemTiles | null;
+// gpu＝false で常に CPU（shadeTile）＝切り分け・検定用（既定 true＝WebGL2 があれば GPU 版・無ければ CPU）
+export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null, tiles = null, gpu = true }: {
+	dem: DemSpecInput | null | undefined; paint?: Record<string, unknown>; fetchFn?: DemFetch; name?: string; attribution?: string | null; warn?: ((msg: string) => void) | null; tiles?: DemTiles | null; gpu?: boolean;
 }): { port: MessagePort; stats: HillshadeStats; setPaint(pt: Record<string, unknown>): void; close(): void } {
 	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
 	// 知らない hillshade-method は standard で描く（hillshadeParams）＝黙って替えずに知らせる（旧 warn の意図・5 つ全部を描くようになって呼び口だけ残っていた）
@@ -139,7 +158,7 @@ export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) =
 	let p = hillshadeParams(paint);
 	checkMethod(paint);
 	const ch = new MessageChannel(), port = ch.port1;
-	const stats: HillshadeStats = { req: 0, ok: 0, empty: 0, err: 0, last: null };   // 切り分けの窓（dbgHost.__hillshade）
+	const stats: HillshadeStats = { req: 0, ok: 0, empty: 0, err: 0, last: null, gpu: 0, cpu: 0 };   // 切り分けの窓（dbgHost.__hillshade）・gpu/cpu＝どちらで描いたかの枚数
 	const acs = new Map<number, boolean>();
 	const tile = store.tile;
 	port.postMessage({ type: "info", info: { tileSize: nDecl, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
@@ -152,7 +171,7 @@ export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) =
 			if (!acs.has(id)) return;   // 中断された
 			if (!t) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
 			const n = t.n, nb = (q: { h: Float32Array; n: number } | null) => (q && q.n === n ? q.h : null);   // 隣は同じ実寸の物だけ（違えば端を伸ばす）
-			const rgba = shadeTile({ h: t.h, n, hN: nb(tN), hS: nb(tS), hE: nb(tE), hW: nb(tW), z, lat0: tileLat(y, z), lat1: tileLat(y + 1, z), p });
+			const rgba = shadeFast({ h: t.h, n, hN: nb(tN), hS: nb(tS), hE: nb(tE), hW: nb(tW), z, lat0: tileLat(y, z), lat1: tileLat(y + 1, z), p }, gpu, stats);
 			const bitmap = await createImageBitmap(new ImageData(rgba, n, n), { premultiplyAlpha: "none" });
 			stats.ok++; port.postMessage({ id, bitmap }, [bitmap]);
 		} catch (err) { stats.err++; stats.lastErr = String((err as Error)?.message || err); port.postMessage({ id, bitmap: null, error: String((err as Error)?.message || err) }); }
