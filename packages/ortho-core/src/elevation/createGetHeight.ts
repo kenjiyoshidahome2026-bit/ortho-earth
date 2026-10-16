@@ -1,10 +1,11 @@
 import { spawnWorker } from "../workerFactory.ts";
-import { builtinWorker } from "../builtinWorkers.js";
+import { builtinWorker } from "../builtinWorkers.ts";
 import { index_alos, encodeName, decodeName, inBbox, setApiUrl, load } from "./loader.ts";   // load＝worker が立たない時のその場読み（静的に＝動的 import は入口の top-level await と待ち合う・2026-09-25）
 import { Cache } from "native-bucket";
 import type { CacheFn } from "native-bucket";
 import type { ElevGrid } from "../elevation.ts";
 import type { ElevTile } from "./worldatlas.ts";
+import type { HeightRequest, HeightResponse } from "../worker-msg.ts";
 
 /** 地域の申告＝どの域のどの段を裸地（DTM）へ焼き直したか */
 export interface DtmDecl { bbox: number[]; range: number; brand: string }
@@ -88,13 +89,13 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 	const NW = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 4) - 2));   // 低コア端末(タブレット)ではプールを絞る＝worker乱立でメインが飢えない
 	// 入れ子 worker が無い環境への退避（2026-09-21）：このローダは ortho-japan では render worker の中で動く＝worker から
 	// worker を立てる。入れ子 worker を持たない実行環境（Claude デスクトップの内蔵ブラウザ＝Electron・iOS Safari 15.5 未満 等）
-	// では 1 本も立たず、毎回 opaque な error を吐いて地形が出なかった。worker.js の中身は load(name) 一発＝同じ load を
+	// では 1 本も立たず、毎回 opaque な error を吐いて地形が出なかった。worker.ts の中身は load(name) 一発＝同じ load を
 	// この場で呼べば結果は同じ。最初の 1 本がメッセージを返す前に落ちたら（＝環境として立たない）その場実行へ切り替える。
 	// 一度でも動いた worker の後の死は従来どおり「作り直し」（実環境の一過性の死と区別する）。
 	let inline = typeof Worker === "undefined";   // worker 内に Worker コンストラクタが無い環境（古い Safari）
 	let everOk = false;                            // どれかの worker が一度でも返事をした
 	const inlineLoad = async (name: string): Promise<ElevTile | null> => {
-		try { return await load(name); } catch { return null; }   // worker.js と同じ＝失敗は null
+		try { return await load(name); } catch { return null; }   // worker.ts と同じ＝失敗は null
 	};
 	const goInline = (why: string): void => {
 		if (inline) return;
@@ -118,7 +119,7 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 	const pool: Lane[] = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
 	for (const s of pool) s.w = mkWorker();
 	const inflight = new Map<string, Promise<ElevTile | null>>();
-	// 応答の看視：worker.js は失敗でも必ず null を返す作りだが、worker「自体」が死ぬと（devサーバ断・
+	// 応答の看視：worker.ts は失敗でも必ず null を返す作りだが、worker「自体」が死ぬと（devサーバ断・
 	// モジュール取得404・GPU/メモリ起因のkill等）message も error も返らず、レーンが busy のまま永久に詰まる
 	// ＝呼び出し側の pending カウンタが固着（実測:「地形読込中×1」が消えない）。要求ごとにタイムアウトを張り、
 	// 発火時は worker を作り直して null で返す＝詰まりを残さない（R01初回=JAXAで数秒かかるため余裕を持つ）。
@@ -132,7 +133,7 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 		const w = s.w;
 		let done = false, tm: ReturnType<typeof setTimeout> | 0 = 0;
 		const detach = (): void => { clearTimeout(tm); w.removeEventListener("message", onmsg); w.removeEventListener("error", onerr); if (s.abort === onerr) s.abort = null; };
-		const onmsg = (e: MessageEvent): void => { if (done) return; done = true; everOk = true; detach(); settle(e.data as ElevTile | null); };
+		const onmsg = (e: MessageEvent<HeightResponse>): void => { if (done) return; done = true; everOk = true; detach(); settle(e.data); };
 		const onerr = (): void => {
 			if (done) return; done = true; detach();
 			if (!everOk) { goInline("nested worker failed to start"); inlineLoad(name).then(settle); return; }   // 環境として立たない＝この要求からその場実行
@@ -146,7 +147,7 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 		s.abort = onerr;   // goInline がこのレーンの預け物を回収する口
 		w.addEventListener("message", onmsg);
 		w.addEventListener("error", onerr);
-		w.postMessage({ name, apiUrl: opts.apiUrl });
+		w.postMessage({ name, apiUrl: opts.apiUrl } satisfies HeightRequest);
 	}
 	let rr = 0;
 	const loadName = (name: string): Promise<ElevTile | null> => {   // 同名の並行要求は 1 本に併合（loadTile / byName 共通）
@@ -208,8 +209,8 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 		return inflight = new Promise<ElevTile | null>(res=>{
 			isLoading = performance.now();
 			opts.onstart && opts.onstart(name);
-			worker.postMessage({ name, apiUrl: opts.apiUrl });
-			worker.onmessage = async e => { const obj = e.data as ElevTile | null;
+			worker.postMessage({ name, apiUrl: opts.apiUrl } satisfies HeightRequest);
+			worker.onmessage = async (e: MessageEvent<HeightResponse>) => { const obj = e.data;
 				if (obj) {
 					// 書き込みの失敗（容量超過等）で onmessage を抜けると isLoading が立ったまま＝以後の描画側は永久に null・
 					// wait 呼び（map.getHeight）は永久に待つ（2026-09-25）＝失敗は握って先へ進む

@@ -1,5 +1,5 @@
 // gint ベイク（純CPU・GL非依存）── GintBUF → テクスチャ搭載直前の派生物一式。
-// uploadGintTextures（render worker 同期経路）と bakeworker.js（別スレッド bake-ahead）の単一真実源。
+// uploadGintTextures（render worker 同期経路）と bakeworker.ts（別スレッド bake-ahead）の単一真実源。
 // ここに GL や s（singleton 状態）を持ち込まない＝Node ハーネス（gint-bake.mjs）でそのまま検証できる。
 //
 // 出力（artifacts）:
