@@ -5,14 +5,15 @@
 // 回線が無い時は古くても HTTP キャッシュの物で出す（force-cache）。ortho-solar は同じ URL を自前の数行で読む（コードを共有しない＝データで繋ぐ）
 import { WORLD_DATA } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
+import type { GeoPBF, GeopbfFn } from "geopbf";
 
-export const SKY_DATA = WORLD_DATA + "sky/";
-const get = url => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
+export const SKY_DATA: string = WORLD_DATA + "sky/";
+const get = (url: string): Promise<Response> => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
 /** sky/<name>.geopbf → GeoPBF（gint なし＝描く側が geojson を引くだけ） */
-export async function skyPbf(geopbf, name) {
+export async function skyPbf(geopbf: GeopbfFn, name: string): Promise<GeoPBF> {
 	const r = await get(`${SKY_DATA}${name}.geopbf`); if (!r.ok) throw new Error(`sky/${name}: HTTP ${r.status}`);
 	const b = await r.blob();
 	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { name, gint: false });
 }
 /** sky/<path>（JSON）。取れなければ null＝呼び手が英語・略号で出す */
-export const skyJson = path => get(SKY_DATA + path).then(r => r.ok ? r.json() : null).catch(() => null);
+export const skyJson = (path: string): Promise<unknown> => get(SKY_DATA + path).then(r => r.ok ? r.json() : null).catch(() => null);
