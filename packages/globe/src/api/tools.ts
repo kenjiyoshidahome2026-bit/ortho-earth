@@ -2,13 +2,13 @@
 // デモ（gadget.demo）＝createGlobe から切り出した（globe.js の分割 ⑪・2026-10-15）。中身は切り出す前と同じ。createGlobe の他の所が使う物は戻り値で返す。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { WORLD_PX, decodeTile, fetchMVT, fetchPMTilesRaw, isRasterTileType, loadTileFormat, lonLatToTile, parseRGBA, pmtilesInfo } from "@ortho-earth/core";
-import { demo as demoGadget } from "../gadgets/demo-stub.js";
+import { demo as demoGadget } from "../gadgets/demo-stub.ts";
 import { dockStack } from "../gadgets/stack.ts";
-import { dropFile as dropFileGadget } from "../gadgets/dropfile.js";
-import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.js";
-import { edit as editGadget } from "../gadgets/edit.js";
+import { dropFile as dropFileGadget } from "../gadgets/dropfile.ts";
+import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.ts";
+import { edit as editGadget } from "../gadgets/edit.ts";
 import { getLang } from "../i18n.js";
-import { inspect as inspectGadget } from "../gadgets/inspect-stub.js";
+import { inspect as inspectGadget } from "../gadgets/inspect-stub.ts";
 import type { Installing, ToolsDeps, ToolsLive, ToolsReturn } from "../types/install.ts";
 import type { ToolsApi } from "../types/map.ts";
 import type { VtxDesc } from "../types/scope.ts";
@@ -127,7 +127,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 	});
 	registerGadget("geoedit", (host, opts) => {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 		// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
-		return Promise.all([import("geoedit"), import("../gadgets/cloud.js")]).then(async ([m, cloud]) => {
+		return Promise.all([import("geoedit"), import("../gadgets/cloud.ts")]).then(async ([m, cloud]) => {
 			await m.setLang(getLang());
 			// 公開の GeoPBF（globe.d.ts）は geopbf の GeoPBF の主要面の写し（SDK の d.ts を自足に保つ）＝userPbf() の戻りだけが EditorMap の求めより狭い。実行時は geopbf の GeoPBF そのもの
 			return m.initEditor(host as typeof host & { userPbf(): GeoPBFFull | null }, { setDropOwner: on => { live.editDropOwner = !!on; }, dock: dockStack, cloudPanel: cloud.cloudPanel, ...opts });
