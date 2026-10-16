@@ -151,7 +151,7 @@ export function initChoropleth(map, { legend } = {}) {
 		pbf = await geopbf("admin_all", { gint: true });   // bucket 名慣習＝IDBファースト（2回目はネットワーク0）
 		if (!pbf?.unPackGint) throw new Error("admin_all の読込に失敗");
 		window.__adminPbf = pbf;   // console 検証用（ortho作法の window デバッグ手すり）
-		const n = pbf.fmap?.length ?? 0;
+		const n = pbf.length;
 		feats = new Array(n);
 		for (let i = 0; i < n; i++) { let p = {}; try { p = pbf.getProperties(i) ?? {}; } catch { /* 壊れ feature＝空 */ } feats[i] = { properties: p }; }
 		// bbox 台帳は geojson 由来（壊れ feature スキップで fid とはズレ得るが、code キー引きなので無害）
