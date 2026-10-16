@@ -10,8 +10,8 @@
 //
 // MapLibre 版（addProtocol）と違い、レイヤーが attribution を持てるので
 // ファイルヘッダの ATTRIBUTION を自動配線する（options.attribution 明示指定が優先）。
-// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.js（maplibre 統合と共用）。
-import { loadGeopbf, sanitizeProperties } from "./modules/geojson-load.js";
+// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.ts（maplibre 統合と共用）。
+import { loadGeopbf, sanitizeProperties } from "./modules/geojson-load.ts";
 
 export { loadGeopbf, sanitizeProperties };
 

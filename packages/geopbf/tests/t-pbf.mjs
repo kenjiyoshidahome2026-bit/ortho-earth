@@ -1,7 +1,7 @@
-// src/modules/pbf.js（自前の protobuf ワイヤ実装）の検定。
+// src/modules/pbf.ts（自前の protobuf ワイヤ実装）の検定。
 // 外部 pbf パッケージを切った代わりに、ここが「バイト列が変わっていない」ことの唯一の砦になる。
 // 期待値は protobuf のワイヤ仕様そのもの（golden バイト列を直書き）＝実装を書き換えても仕様側は動かない。
-import Pbf from "../src/modules/pbf.js";
+import Pbf from "../src/modules/pbf.ts";
 
 let ok = 0, ng = 0;
 const hex = u => Array.from(u).map(b => b.toString(16).padStart(2, "0")).join(" ");

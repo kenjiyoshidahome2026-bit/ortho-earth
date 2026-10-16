@@ -12,7 +12,7 @@
 	import { createGeopbf } from "../src/index.js";
 	import { GeoPBF } from "../src/pbf-base.js";
 	import { toGeoParquet } from "../src/convert/geoparquet.ts";
-	import { encodeXLSX } from "../src/modules/encodeXLSX.js";
+	import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
 	try {

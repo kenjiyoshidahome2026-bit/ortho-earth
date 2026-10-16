@@ -12,8 +12,8 @@
 // loader は VectorSource から this=source で呼ばれる契約（ol 公式）。featureProjection には
 // loader に渡ってくる view の投影を使うので、EPSG:3857 等への変換は ol 側で自動。
 // ファイルヘッダの ATTRIBUTION は source.setAttributions() へ自動配線する（source 側の明示指定が優先）。
-// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.js（maplibre/leaflet 統合と共用）。
-import { loadGeopbf, sanitizeProperties } from "./modules/geojson-load.js";
+// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.ts（maplibre/leaflet 統合と共用）。
+import { loadGeopbf, sanitizeProperties } from "./modules/geojson-load.ts";
 
 export { loadGeopbf, sanitizeProperties };
 

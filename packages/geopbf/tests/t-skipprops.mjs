@@ -2,7 +2,7 @@
 // （2026-09-15 俯瞰レビュー③。`pos += readVarint()` の評価順の罠＝varint 分ずれて "Unimplemented type" で踏んだ）
 globalThis.ImageData ??= class { constructor(d, w, h) { this.data = d; this.width = w; this.height = h; } };
 import fs from "node:fs";
-import Pbf from "../src/modules/pbf.js";
+import Pbf from "../src/modules/pbf.ts";
 import { GeoPBF } from "../src/pbf-base.js";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };

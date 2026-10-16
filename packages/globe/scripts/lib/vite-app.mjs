@@ -75,7 +75,7 @@ export const orthoData = (command, base, root, scope) => JSON.stringify(command 
 // 唯一の直書き）を「作らない版」に差し替える（2026-09-22・標準の作法）。#tile-formats＝MLT（#88）・#pointcloud-formats＝COPC の LAZ（#178）＝
 // どちらも最初のタイル／節で動的 import（起動の束には入らない）。root＝リポジトリの根（packages/ の親・絶対パス）
 export const engineAliases = root => [
-	{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(root, "packages/geopbf/src/modules/builtinWorkers.none.js") },
+	{ find: /^\.\.?\/(modules\/)?builtinWorkers\.(js|ts)$/, replacement: resolve(root, "packages/geopbf/src/modules/builtinWorkers.none.ts") },
 	{ find: "#tile-formats", replacement: resolve(root, "packages/ortho-core/src/tileformats-mlt.js") },
 	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.ts") },
 ];

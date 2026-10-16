@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// t-shape: Shapefile（zip）→ GeoPBF の worker（src/decoder/shape.js）を Node で直に回す。
+// t-shape: Shapefile（zip）→ GeoPBF の worker（src/decoder/shape.ts）を Node で直に回す。
 // 自治体の地番図で踏んだ 4 点の回帰：① M 値付き（PolygonM=25）② 外周が反時計回り（仕様と逆）③ 拡張子が大文字＋平面直角座標系の .prj
 // ④ null shape が混ざっても DBF とずれない。加えて .prj 無し＋opts.crs（EPSG 番号）で経緯度へ戻ること。
 globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../src/pbf.js";
-import { encodeZIP } from "../src/modules/encodeZIP.js";
+import { encodeZIP } from "../src/modules/encodeZIP.ts";
 import { epsgToWKT } from "../src/convert/epsg.ts";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -48,7 +48,7 @@ function dbf(names) {
 let resolveMsg;
 globalThis.postMessage = m => resolveMsg(m);
 globalThis.onmessage = null;   // worker の「onmessage = …」代入先（module は strict＝未宣言の代入は ReferenceError）
-await import("../src/decoder/shape.js");
+await import("../src/decoder/shape.ts");
 const run = data => new Promise(r => { resolveMsg = r; globalThis.onmessage({ data }); });
 const decode = async (files, extra = {}) => {
 	const zip = await encodeZIP(files, "t.zip");

@@ -1,7 +1,7 @@
 // t-imagequad: 四隅で貼る画像（edit/imagequad）＝写像の正しさ・四隅の順が編集モデル/GeoPBF の往復で保たれるか（node tests/edit/t-imagequad.mjs）
-import { quadMapping, cornersOf, quadPolygon, placeCorners, isImageFeature, apply3, IMAGE_KEY } from "../../src/edit/imagequad.js";
-import { buildTopology } from "../../src/edit/topo-extract.js";
-import { createModel } from "../../src/edit/model.js";
+import { quadMapping, cornersOf, quadPolygon, placeCorners, isImageFeature, apply3, IMAGE_KEY } from "../../src/edit/imagequad.ts";
+import { buildTopology } from "../../src/edit/topo-extract.ts";
+import { createModel } from "../../src/edit/model.ts";
 globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../../src/pbf.js";
 

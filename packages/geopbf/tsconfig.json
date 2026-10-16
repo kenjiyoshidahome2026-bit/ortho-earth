@@ -6,5 +6,5 @@
 		"types": ["node"]
 	},
 	"include": ["src"],
-	"exclude": ["src/cog/worker.ts", "src/convert/tile-worker.ts"]
+	"exclude": ["src/worker.ts", "src/decoder", "src/encoder", "src/cog/worker.ts", "src/convert/tile-worker.ts"]
 }

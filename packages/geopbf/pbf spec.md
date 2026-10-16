@@ -128,7 +128,7 @@ Morton order preserves spatial proximity as numerical order, so proximity querie
 ---
 
 *Document version: October 2026 (v1.1). This specification is governed by the implementation in the `geopbf` library
-(`src/pbf-base.js`, `src/modules/bufferTub.js`).
+(`src/pbf-base.js`, `src/modules/bufferTub.ts`).
 Changes in v1.1 (documenting behaviour the writer has always had): per-entry raw-DEFLATE compression of `BUFS`,
 the `VALUE` message layout, the `GARRAY` nesting, the delta chain restarting per ring, the omitted polygon closing
 vertex, the `LENGTH` layout per geometry type, the demotion of single-member `Multi*`, the canonical-form-only

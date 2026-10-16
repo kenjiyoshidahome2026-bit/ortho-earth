@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// t-moj: 登記所備付地図デコーダ（decoder/moj.js）の検定。zip of zips（外側 zip → 市区町村 zip → 地図XML）の合成フィクスチャを
+// t-moj: 登記所備付地図デコーダ（decoder/moj.ts）の検定。zip of zips（外側 zip → 市区町村 zip → 地図XML）の合成フィクスチャを
 // 自前の最小 zip ライタで作り（deflate と stored の両 method）、Worker の入口（onmessage）を Node で直接呼ぶ。
 //   ・feature 数・属性・座標（平面直角→WGS84）が期待どおり
 //   ・引数の旧実装（pako 同期）が手元にあれば同じ入力で出力バイト列が一致（scripts 用: MOJ_OLD=path）
@@ -74,7 +74,7 @@ async function runDecoder(modulePath, zip = outer) {
 	await globalThis.onmessage({ data: { file: new Blob([zip]), name: "09201-0608-2026", precision: 7, description: "d", license: "CC BY 4.0", attribution: "法務省" } });
 	return messages;
 }
-const msgs = await runDecoder(new URL("../src/decoder/moj.js", import.meta.url).href);
+const msgs = await runDecoder(new URL("../src/decoder/moj.ts", import.meta.url).href);
 const progress = msgs.filter(m => m?.type === "progress"), done = msgs.find(m => m?.type === "mojdec");
 ok(progress.length === 2 && progress.at(-1).loaded === 2 && progress.at(-1).total === 2, `progress が entry ごとに届く（${progress.length}）`);
 ok(done && done.data instanceof ArrayBuffer, "mojdec で GeoPBF が返る");
@@ -93,7 +93,7 @@ ok(gj.features[2].properties["大字名"] === "馬場通り" && gj.features[2].g
 // ---- 都道府県→系番号の表＝正本（packages/jp/src/codes.ts）と一致（2026-10-03・旧表は 8 県が誤りだった）----
 {
 	const { PREF_SYS: canon } = await import("../../jp/src/codes.ts");
-	const mod = await import(new URL("../src/decoder/moj.js", import.meta.url).href + "?v=" + (++runSeq));
+	const mod = await import(new URL("../src/decoder/moj.ts", import.meta.url).href + "?v=" + (++runSeq));
 	const diff = Object.keys(canon).filter(k => mod.PREF_SYS[k] !== canon[k]);
 	ok(diff.length === 0 && Object.keys(mod.PREF_SYS).length === Object.keys(canon).length, `PREF_SYS が正本（jp/codes.js）と一致${diff.length ? "（違い: " + diff.join(" ") + "）" : ""}`);
 	// 任意座標系の XML＝ファイル名の都道府県から系を決める。群馬（10）＝9 系（旧表 8 系では約 1° 東へずれた）
@@ -106,7 +106,7 @@ ok(gj.features[2].properties["大字名"] === "馬場通り" && gj.features[2].g
 
 // ---- 旧実装（pako 同期）との出力一致（MOJ_OLD=旧 moj.js のパス を渡した時だけ）----
 if (process.env.MOJ_OLD) {
-	const cur = (await runDecoder(new URL("../src/decoder/moj.js", import.meta.url).href, outerSF)).find(m => m?.type === "mojdec");
+	const cur = (await runDecoder(new URL("../src/decoder/moj.ts", import.meta.url).href, outerSF)).find(m => m?.type === "mojdec");
 	const old = (await runDecoder(new URL(process.env.MOJ_OLD, "file://").href, outerSF)).find(m => m?.type === "mojdec");
 	const a = new Uint8Array(cur.data), b = new Uint8Array(old.data);
 	let same = a.length === b.length; if (same) for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; }

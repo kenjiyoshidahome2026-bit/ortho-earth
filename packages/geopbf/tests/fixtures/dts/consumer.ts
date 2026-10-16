@@ -11,8 +11,10 @@ import { GeoPBFLoader } from "geopbf/loaders";
 import { findPolygon, hitGridOf, hitGridMode } from "geopbf/identify";
 import { unPackGintBuffer, repackGintBuffer } from "geopbf/topology";
 import { toPMTiles } from "geopbf/pmtiles";          // .ts を直に指す subpath（exports → src/convert/tiler.ts）＝型はソースから
-import { gzip } from "geopbf/gzip";
-import { sphere } from "geopbf/edit/sphere";          // ワイルドカードの省略宣言
+import { gzip } from "geopbf/gzip";                   // .ts がそのまま型（TS 化 段 3）
+import { gcDistanceDeg, toVec } from "geopbf/edit/sphere";          // ワイルドカードの subpath も .ts がそのまま型
+import { createHistory } from "geopbf/edit";
+import type { EditCmd } from "geopbf/edit";
 
 const fc: FeatureCollection = { type: "FeatureCollection", features: [
 	{ type: "Feature", geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] }, properties: { name: "a", n: 1 } },
@@ -100,7 +102,13 @@ async function main() {
 		const again = unPackGintBuffer(back);
 		void [grid.G, owner, again?.polygonCount];
 	}
-	void [toPMTiles, gzip, sphere];
+	// ── .ts の subpath（型は実装そのもの）
+	const zipped: Blob = await gzip(new Blob([bytes]));
+	const deg: number = gcDistanceDeg([0, 0], [1, 1]);
+	const v: [number, number, number] = toVec(0, 0);
+	const hist = createHistory<EditCmd>(10);
+	hist.push({ op: "props", eid: 0, from: {}, to: { a: 1 } });
+	void [toPMTiles, zipped, deg, v, hist.canUndo];
 }
 void main;
 
@@ -123,4 +131,6 @@ new GeoPBF().set(fc.features[0]);
 GeoPBF.concatinate([]);
 // @ts-expect-error GeoPBFBase は型だけ（実行時の export ではない＝値として使えない）
 import { GeoPBFBase as RuntimeBase } from "geopbf"; void RuntimeBase;
+// @ts-expect-error gcDistanceDeg の引数は経緯度の配列（.ts の型がそのまま効く）
+gcDistanceDeg("0,0", "1,1");
 void [p, q];
