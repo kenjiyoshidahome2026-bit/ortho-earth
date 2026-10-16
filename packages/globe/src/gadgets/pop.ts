@@ -6,27 +6,46 @@
 // マーカー追随は本体 render のフック＝返す pop 関数の _update を登録側が frameHooks へ入れて毎フレ呼ぶ。
 import { tr } from "../i18n.ts";
 import { setSafeHTML } from "../html-safe.ts";   // 中身は呼び手が組む HTML＝script・on*・javascript: を抜いて入れる（tip と同じ・2026-10-16）
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** 吹き出しの中身：HTML・行の配列・改行つきの文字列（falsy＝何もしない） */
+export type PopContent = string | string[] | null | undefined;
+/** 錨（lng/lat＝世界の地点・x/y＝初めに出す画面の点（クリック点））とふるまい */
+export interface PopAt { lng: number; lat: number; x: number; y: number; hideOffscreen?: boolean; onClose?: () => unknown }
+/** 吹き出しの箱＝プログラム操作の手綱（文言差し替え／アンカー移動／除去）を持つ */
+export type PopBox = HTMLDivElement & { _setContent(c: string | string[]): void; _setAnchor(lng: number, lat: number): void; _remove(): void };
+/** pop 関数（.clear＝固定していない箱を消す（true＝全部）・_update＝描画ごとに線を引き直す） */
+export interface PopFn {
+	(content: PopContent, at: PopAt | null | undefined): PopBox | undefined;
+	clear?(all?: boolean): void;
+	_update?(): void;
+}
+/** 搭載の opts（projectLL＝経緯度→画面 CSS 座標 [x, y, front]・登録側が注入） */
+export interface PopGadgetOptions { projectLL: (lon: number, lat: number) => [number, number, number]; signal?: AbortSignal; [k: string]: unknown }
+/** 箱 1 つの記録（coords＝錨・pos＝箱の中心・half＝箱の半寸・locked＝📌） */
+interface PopRec { div: PopBox; coords: [number, number]; pos: [number, number]; half: [number, number]; locked: boolean; hideOffscreen: boolean }
 // 📌 は絵文字でなく SVG（白抜きを環境非依存に・currentColor で色を CSS へ委譲）。
 // 固定中は「刺さったピンを真上から見た頭」＝○に切替（＝ここに刺さっている、の意）。
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-3 3v2h5.97v7l1 1 1-1v-7H19v-2a3 3 0 0 1-3-3z"/></svg>';
 const PINNED_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/></svg>';
-export function pop({ projectLL, signal } = {}) {
+/** 地点に紐づく吹き出し。戻り値＝pop 関数（二重搭載は no-op） */
+export function pop(this: GlobeMap, { projectLL, signal }: PopGadgetOptions = {} as PopGadgetOptions): PopFn {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#pop-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
 	const canvas = document.createElement("canvas");
 	canvas.id = "pop-lines";   // 引出線の層＝#map 直下（既存canvasより後＝上、pop箱より先＝下）
 	mapEl.append(canvas);
-	const ctx = canvas.getContext("2d");
+	const ctx = canvas.getContext("2d")!;
 	let cw = 0, ch = 0;
-	const toHTML = s => Array.isArray(s) ? s.map(t => `<div>${t}</div>`).join("")
+	const toHTML = (s: string | string[]): string => Array.isArray(s) ? s.map(t => `<div>${t}</div>`).join("")
 		: (typeof s === "string" && s.includes("\n")) ? toHTML(s.split(/\n/)) : s;
-	let pops = [];
+	let pops: PopRec[] = [];
 
-	const pop = (content, at) => {
+	const pop: PopFn = (content, at) => {
 		if (!content || !at) return;
-		const div = document.createElement("div");
+		const div = document.createElement("div") as PopBox;
 		div.className = "pop";
 		const body = document.createElement("div");   // 文言だけの器＝×/📌を消さずに差し替えできる（編集器の @pop 追随用）
 		body.className = "pop-body"; setSafeHTML(body, toHTML(content));
@@ -46,7 +65,7 @@ export function pop({ projectLL, signal } = {}) {
 		});
 		div.append(body, close, pin);
 		mapEl.append(div);
-		const rec = { div, coords: [at.lng, at.lat], pos: [0, 0], half: [0, 0], locked: false, hideOffscreen: !!at.hideOffscreen };
+		const rec: PopRec = { div, coords: [at.lng, at.lat], pos: [0, 0], half: [0, 0], locked: false, hideOffscreen: !!at.hideOffscreen };
 		// 初期位置＝カーソル脇（クリック点 x,y の右）。画面端は内側へ寄せる。
 		const r = div.getBoundingClientRect(), W = mapEl.clientWidth, H = mapEl.clientHeight;
 		const osx = 12, w = r.width, h = r.height;
@@ -56,36 +75,36 @@ export function pop({ projectLL, signal } = {}) {
 		// ドラッグ（箱を画面上で動かす。固定中は不動。地図パンには奪わせない）
 		div.style.cursor = "grab";
 		div.addEventListener("pointerdown", e => {
-			if (rec.locked || close.contains(e.target) || pin.contains(e.target)) return;   // ×/📌（内部SVG含む）上は掴まない＝クリックをドラッグに食わせない
+			if (rec.locked || close.contains(e.target as Node | null) || pin.contains(e.target as Node | null)) return;   // ×/📌（内部SVG含む）上は掴まない＝クリックをドラッグに食わせない
 			e.stopPropagation(); e.preventDefault();
 			const rr = mapEl.getBoundingClientRect(), x0 = e.clientX - rr.left, y0 = e.clientY - rr.top;
 			const l0 = parseFloat(div.style.left), t0 = parseFloat(div.style.top);
 			div.style.cursor = "grabbing"; div.setPointerCapture?.(e.pointerId);
-			const onMove = ev => { const x = ev.clientX - rr.left, y = ev.clientY - rr.top; place(rec, l0 + x - x0, t0 + y - y0); draw(); };
+			const onMove = (ev: PointerEvent) => { const x = ev.clientX - rr.left, y = ev.clientY - rr.top; place(rec, l0 + x - x0, t0 + y - y0); draw(); };
 			const onUp = () => { div.style.cursor = "grab"; div.removeEventListener("pointermove", onMove); div.removeEventListener("pointerup", onUp); };
 			div.addEventListener("pointermove", onMove); div.addEventListener("pointerup", onUp);
 		});
 		// 追随フックとプログラム操作の手綱（既存の imperative 呼び出しには無害・編集器の照合が使う）＝
 		// 文言差し替え／アンカー移動／プログラム除去。これで「作った吹き出しが v2 ビューアでも同じ動きで再生」を同一実装で担保。
-		div._setContent = c => { setSafeHTML(body, toHTML(c)); place(rec, parseFloat(div.style.left) || 0, parseFloat(div.style.top) || 0); draw(); };
-		div._setAnchor = (lng, lat) => { rec.coords = [lng, lat]; draw(); };
+		div._setContent = (c: string | string[]) => { setSafeHTML(body, toHTML(c)); place(rec, parseFloat(div.style.left) || 0, parseFloat(div.style.top) || 0); draw(); };
+		div._setAnchor = (lng: number, lat: number) => { rec.coords = [lng, lat]; draw(); };
 		div._remove = () => { pops = pops.filter(p => p !== rec); div.remove(); draw(); };
 		pops.push(rec); draw();
 		return div;
 	};
-	pop.clear = all => { pops = pops.filter(p => (all !== true && p.locked) ? true : (p.div.remove(), false)); draw(); };
+	pop.clear = (all?: boolean) => { pops = pops.filter(p => (all !== true && p.locked) ? true : (p.div.remove(), false)); draw(); };
 	pop._update = () => {   // 毎フレ：popが1つも無ければ即return＝全画面canvasの消去・合成とレイアウト読みを毎フレ積まない（PLATEAU時のカクツキ対策）
 		if (pops.length) draw();   // 空になった時の消去は close/clear 側の draw() が済ませている
 	};
 	return pop;
 
-	function place(rec, left, top) {
+	function place(rec: PopRec, left: number, top: number): void {
 		rec.div.style.left = left + "px"; rec.div.style.top = top + "px";
 		const r = rec.div.getBoundingClientRect();
 		rec.pos = [left + r.width / 2, top + r.height / 2];
 		rec.half = [r.width / 2, r.height / 2];   // 縁クリップ用の半寸（描画時のレイアウト読みを避ける）
 	}
-	function draw() {
+	function draw(): void {
 		const w = mapEl.clientWidth, h = mapEl.clientHeight;   // 寸法合わせは描く時だけ（_updateから移設）
 		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
