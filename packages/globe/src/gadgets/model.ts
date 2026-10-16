@@ -14,7 +14,7 @@ import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
 import { featureProperties } from "../mesh-features.ts";
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.ts";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
 import type { ExprContext } from "@ortho-earth/core";

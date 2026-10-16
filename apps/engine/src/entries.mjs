@@ -13,7 +13,7 @@ const P = p => resolve(ROOT, p);
 // [import の名前, 入口の名（出力＝<名>.js）, ソース]
 export const ENTRIES = [
 	["@ortho-earth/globe", "globe", resolve(import.meta.dirname, "globe.js")],
-	["@ortho-earth/globe/i18n.js", "i18n", P("packages/globe/src/i18n.js")],
+	["@ortho-earth/globe/i18n.js", "i18n", P("packages/globe/src/i18n.ts")],
 	["@ortho-earth/core", "core", P("packages/ortho-core/src/index.ts")],
 	["geopbf", "geopbf", P("packages/geopbf/src/index.ts")],
 	["@ortho-earth/h3/core", "h3", P("packages/h3/src/core.ts")],

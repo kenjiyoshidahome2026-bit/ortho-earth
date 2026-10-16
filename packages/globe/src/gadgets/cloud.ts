@@ -11,7 +11,7 @@
 //   className?: "oj-cloud"                    器の class（位置決めは呼び手の CSS＝ここは見た目だけ）
 //   works?: bool, map?, overlayEl?            公開台帳の節を出すか（地図作品用）・公開サムネの材料
 // }
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import { composeLayersToCanvas } from "./compose.ts";   // 層合成の核（shot/print と同じ）＝公開サムネ
 import type { ComposeSnapshot as Snapshot } from "./compose.ts";
 const t = tr();

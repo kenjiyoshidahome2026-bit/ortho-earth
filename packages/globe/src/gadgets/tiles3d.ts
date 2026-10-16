@@ -19,7 +19,7 @@ import pointsUrl from "./points-gl.js?url";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform } from "../../globe.d.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
 import type { PickItem } from "../meshpick.ts";
-import type { Requester, ResolvedRequest } from "../request.d.ts";
+import type { Requester, ResolvedRequest } from "../request.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";

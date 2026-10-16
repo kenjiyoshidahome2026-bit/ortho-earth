@@ -40,7 +40,7 @@ const landed = async map => until(() => !map.isMoving(), 20000, 200);
 const settled = async h => until(() => { const s = h.stats; return s.inflight === 0 && s.shown > 0 ? s : null; }, 30000, 300);
 
 try {
-	await (await import("../src/i18n.js")).setLang("en");
+	await (await import("../src/i18n.ts")).setLang("en");
 	const { createGlobe } = await import("@ortho-earth/globe");
 	if (V === "load") {
 		const map = await createGlobe({ target: "#map", view: "#3/40.7/-74", chips: false, debugGlobals: true });

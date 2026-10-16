@@ -38,11 +38,11 @@ async function landed(map, ms = 20000) {
 }
 
 try {
-	await (await import("../src/i18n.js")).setLang("en");   // 窓の文字（案内）を英語で見る＝走らせる端末の言語に依らない
+	await (await import("../src/i18n.ts")).setLang("en");   // 窓の文字（案内）を英語で見る＝走らせる端末の言語に依らない
 	localStorage.removeItem("ortho.searches"); localStorage.removeItem("t-search.region");
 	if (V === "world") {
 		const { createGlobe } = await import("@ortho-earth/globe");
-		const ws = await import("../src/worldsearch.js");
+		const ws = await import("../src/worldsearch.ts");
 		let map = await createGlobe({ target: "#map", view: "#2/20/0", chips: false });
 		await map.once("load");
 		// ① 窓の出し入れ
@@ -143,9 +143,9 @@ try {
 		ok("geo-minlength", !its3 && calls.every(c => c.query.length >= 2), `calls=${calls.map(c => c.query)}`);
 		map.destroy();
 	} else if (V === "merge") {
-		const { mergeHits } = await import("../src/search.js");
-		const { normalizeName } = await import("../src/worldsearch.js");
-		const { carmenToHit } = await import("../src/geocoder.js");
+		const { mergeHits } = await import("../src/search.ts");
+		const { normalizeName } = await import("../src/worldsearch.ts");
+		const { carmenToHit } = await import("../src/geocoder.ts");
 		const A = n => Array.from({ length: n }, (_, i) => ({ title: "a" + i })), B = n => Array.from({ length: n }, (_, i) => ({ title: "b" + i }));
 		const m1 = mergeHits([A(8), B(5)]).map(h => h.title), m2 = mergeHits([A(2), B(12)]).map(h => h.title), m3 = mergeHits([A(8), [], B(1)]).map(h => h.title);
 		ok("merge", m1.length === 10 && m1.filter(x => x[0] === "a").length === 7 && m1[7] === "b0" && m2.length === 10 && m2[0] === "a0" && m2[2] === "b0" && m3.length === 9 && m3[8] === "b0", `${m1} | ${m2} | ${m3}`);

@@ -10,7 +10,7 @@
 import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.ts";
 import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";

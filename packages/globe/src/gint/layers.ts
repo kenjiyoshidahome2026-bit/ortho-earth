@@ -16,7 +16,7 @@ import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr, 
 // 利用者の入口が top-level await の最中に await import(core) すると、束ねた後は入口の chunk の評価待ちで互いに待ち合う（addLayer が永久に返らない）
 import { compileFidStyleWGSL, dictTables, Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "@ortho-earth/core/fidexpr";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import { geopbf } from "geopbf";
-import { zIn } from "../zoomscale.js";
+import { zIn } from "../zoomscale.ts";
 
 import type { GeoPBF, UnPackGint, IdentifyAtOptions } from "geopbf";
 import type { WorldStyleTheme } from "@ortho-earth/core/worldstyle";

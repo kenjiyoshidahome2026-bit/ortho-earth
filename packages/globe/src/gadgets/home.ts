@@ -4,7 +4,7 @@
 // 宣言が無い項目は汎用（家の形・"Home"・#home-btn）。ショートカット＝J（球体まで回した所からワンキーで戻す狙い）。signal＝destroy時の解除。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 interface HomeOpts { view: number[]; icon?: string; label?: string; id?: string; signal?: AbortSignal }

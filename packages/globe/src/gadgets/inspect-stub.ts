@@ -4,7 +4,7 @@
 // showInspectButton:false＝ボタンを出さない（互換の MaplibreInspect は MapLibre の四隅に自前のボタンを持つ）。
 // 戻り値＝制御ハンドル（open/close/toggle は本体の到着を待って Promise で返す・isOpen は同期）。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { InspectHandle, InspectOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { InspectInner } from "./inspect.ts";

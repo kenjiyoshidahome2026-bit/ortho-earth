@@ -3,7 +3,7 @@
 // e-Stat 小地域（日本の地域パック）は 2026-09-23 に packages/jp/src/estat.ts へ移った＝ここは use(ext) の口で識別と clear を委ねるだけ。
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
-import { tr } from "./i18n.js";
+import { tr } from "./i18n.ts";
 
 const t = tr();
 

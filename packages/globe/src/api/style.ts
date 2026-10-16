@@ -3,10 +3,10 @@
 // 内部の入口（addSourceAt／addLayerAt・remountSource・remergeBase）＝createGlobe から切り出した（globe.js の分割 ⑫・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { DZ_KEY, evalExpr, layerDzOf, normalizeMLLayer, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
-import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.js";
-import { normLight } from "../light.js";
-import { normSky } from "../sky-spec.js";
-import { normSprite, spriteEcho } from "../mlsmall.js";
+import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.ts";
+import { normLight } from "../light.ts";
+import { normSky } from "../sky-spec.ts";
+import { normSprite, spriteEcho } from "../mlsmall.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Bbox, LonLat, MapLibreLayer, QuantizedMeshSource, RasterDemSource, RenderedFeature, StyleExpression } from "../../globe.d.ts";

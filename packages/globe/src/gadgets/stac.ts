@@ -8,7 +8,7 @@
 // 現在ビューの中心点（Tellus は Point 不可＝極小四角）＋期間で検索し、行クリックで map.gadget.cog へ＝球にドレープ。
 // シーン切替は fit:false＝カメラ据え置き（同じ場所の別日・別センサを見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import { DATASETS, defaultRange, searchScenes, cogUrl, cogOpts, renewingFetch, orbitLabel, type Dataset } from "./tellus-api.ts";   // Tellus の読み口（tellus.html と共用）
 import { createFootprint } from "./footprint.ts";   // フットプリント描画（tellus.html と共用・辺は大円）
 import type { CogOptions } from "../../globe.d.ts";

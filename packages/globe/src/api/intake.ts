@@ -3,9 +3,9 @@
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { Marker, Popup } from "../gadgets/marker.ts";
 import { WORLD_PX } from "@ortho-earth/core";
-import { addProtocol, removeProtocol } from "../request.js";
+import { addProtocol, removeProtocol } from "../request.ts";
 import { geopbf, geopbfCachePrune } from "geopbf";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GeoPBF } from "geopbf";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
