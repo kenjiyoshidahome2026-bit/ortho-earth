@@ -62,7 +62,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
 	const need = neededSourceLayers(style);
 	async function defaultBuildTile(t: TileXYZ): Promise<TileResult> {
-		// 配信圏外は fetch を省き空タイル(=404と同じ全面水域)扱い＝外洋・国外への無駄な 404 を断つ（worker 経路 tileworker.js と同処置）
+		// 配信圏外は fetch を省き空タイル(=404と同じ全面水域)扱い＝外洋・国外への無駄な 404 を断つ（worker 経路 tileworker.ts と同処置）
 		const url = tileUrl(t.z, t.x, t.y);
 		const layers = isPMTiles(url) ? await fetchPMTiles(url, t.z, t.x, t.y, undefined, need)   // 全球ソース（PMTiles）＝coverage 対象外
 			: tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true as const } : await fetchMVT(url, undefined, need, null, null, (typeof encoding === "function" ? encoding() : encoding) || "mvt");
