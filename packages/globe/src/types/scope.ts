@@ -16,7 +16,7 @@ import type { Aggregate } from "../gadgets/aggregate.d.ts";
 import type { GJLabels } from "../gadgets/gjlabels.d.ts";
 import type { Symbols } from "../gadgets/symbols.d.ts";
 import type { Corners } from "geopbf/edit/imagequad";
-import type { DataReturn, ImagesReturn, IntakeReturn, RasterReturn, StyleReturn, ToolsReturn } from "./install.ts";
+import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, RasterReturn, StyleReturn, ToolsReturn } from "./install.ts";
 import type { GlobeInternals, GlobeMap } from "./map.ts";
 import type { VideoQuads } from "../gadgets/videoquad.d.ts";
 import type { Requester } from "../request.d.ts";
@@ -279,6 +279,24 @@ export interface GlobeScope {
 	/** client 座標 → 経緯度（球外は null） */
 	unprojectAt(clientX: number, clientY: number): LonLat | null;
 	vtxDescOf(sid: string, sp: UserSource | undefined): Promise<VtxDesc | null>;
+	/** addData の組み込みの kind（points／arcs／trips／polygons／paths／columns） */
+	BUILTIN_DATA_KINDS: string[];
+	/** 楕円体の世界（#43）か */
+	ELL_ON: boolean;
+	/** 建物 UI の文言（地域の申告） */
+	REGION_BLD_LABELS: Record<string, string>;
+	gpuBackend: boolean;
+	/** worker を立てる（役割の名前つき） */
+	hostWorker(role: string): Worker;
+	overlays: OverlaysReturn["overlays"];
+	/** 今の視点を控える（URL の #hash も） */
+	saveView(): void;
+	/** ?g= の出所の行（出典の欄） */
+	setGSrc(txt: string): void;
+	/** 起動の視点（opts.view か頁の #hash）＝在れば ?g= で寄せない */
+	themeBootV: ParsedView | null;
+	/** 埋め込みの焼き付け（opts.theme） */
+	themeFixed: boolean;
 }
 
 /** createGlobe の let（live） */
@@ -356,4 +374,9 @@ export interface GlobeLive {
 	readySig: string; mainDesired: string;
 	/** 標高タイルの読込中・枚数 */
 	elevBusy: boolean; elevN: number;
+	mapEl: HTMLElement;
+	themeName: string;
+	/** 出典の欄の source ごとの行（消毒済み HTML） */
+	vtxAttrs: Map<string, string>;
+	remountSource: StyleReturn["remountSource"];
 }

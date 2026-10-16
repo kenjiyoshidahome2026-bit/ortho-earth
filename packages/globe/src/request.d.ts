@@ -2,7 +2,7 @@
 import type { ProtocolLoader, ResourceType, TransformRequestFunction } from "../globe.d.ts";
 
 /** requester.fetch の答え＝fetch の Response か、独自スキームの読み口の Response 風（ok／status／json／text／arrayBuffer／blob） */
-export interface ResponseLike { ok: boolean; status: number; url?: string; json(): Promise<unknown>; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; blob(): Promise<Blob> }
+export interface ResponseLike { ok: boolean; status: number; url?: string; headers?: Headers; json(): Promise<unknown>; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; blob(): Promise<Blob> }
 /** url を手入れした結果（load＝独自スキームの読み口） */
 export interface ResolvedRequest { url: string; headers: Record<string, string> | undefined; credentials: RequestCredentials | undefined; load?(want?: "arrayBuffer" | "json" | "image" | "string", ac?: AbortController): Promise<unknown> }
 export interface Requester {

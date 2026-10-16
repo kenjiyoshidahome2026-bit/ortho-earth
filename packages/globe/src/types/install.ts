@@ -8,13 +8,15 @@
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
 import type { GlobeInternals, GlobeMap, StyleApi } from "./map.ts";
-import type { DrawSize, GlobeLive, GlobeScope, ModelCtl, WPost } from "./scope.ts";
+import type { DrawSize, GlobeLive, GlobeScope, ModelCtl, UserSource, WPost } from "./scope.ts";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.d.ts";
 import type { GJLabels } from "../gadgets/gjlabels.d.ts";
 import type { Symbols } from "../gadgets/symbols.d.ts";
 import type { FeatureCollection, GeoPBF } from "geopbf";
+import type { ScenePlayer } from "../scenes/player.d.ts";
+import type { ViewFollow } from "../featureservice.d.ts";
 import type { ColumnarLayerHandle, ColumnarLayerOptions, LonLat, OverlayHandle, OverlayPick, RasterInfo } from "../../globe.d.ts";
 
 /** readonly を外す（installer は自分の口を map に書く） */
@@ -95,7 +97,21 @@ export interface IntakeReturn {
 	IMAGE_KEY: string;
 }
 
+export type DataLive = LiveOf<"attrZone" | "gFollow" | "columnarCtl", "mapEl" | "themeName" | "elevBusy" | "vtxAttrs" | "remountSource" | "annoCtl" | "czmlCtl" | "editDocHook" | "loadUserFile">;
+export type DataDeps = Pick<GlobeScope, "BUILTIN_DATA_KINDS" | "CAM_ZOOM_MIN" | "ELL_ON" | "LOW_MEM" | "REGION_BLD_LABELS" | "ac" | "applyCamView" | "applyViewLayers" | "cam" | "canvas" | "dbgHost"
+	| "flightCtl" | "flyView" | "gint" | "gpuBackend" | "hostWorker" | "meshMgr" | "meshOn" | "onMove" | "opts" | "overlays" | "ownDestroy" | "pluginHost" | "requestDraw" | "requester" | "saveView"
+	| "setGSrc" | "switchTheme" | "themeBootV" | "themeFixed" | "viewHash">;
+/** 視野追従の source の 1 件 */
+export interface FsFollowEntry { url: string; fc: FeatureCollection | null; follow: ViewFollow | null }
 export interface DataReturn {
+	scenes: ScenePlayer;
+	/** 出典の欄の source の行（null＝外す） */
+	setSrcAttr(sid: string, html: string | null): void;
+	/** fill/line/circle の層の data（サービスで件数が多い＝視野追従） */
+	sourceData(sid: string, d: unknown, sp?: UserSource): Promise<unknown>;
+	dropFollow(sid: string): void;
+	/** 視野追従の source（sid → { url, fc, follow }） */
+	fsFollow: Map<string, FsFollowEntry>;
 	/** 外部 URL の門（?g= / ?scene= 共用）：gh: 短縮形→GitHub raw・https 限定（開発時のみ localhost の http）。通らなければ null */
 	remoteUrl(spec: string, tag: string): URL | null;
 	/** 大きさ（バイト）が列チャンク層の門を越えるか（?columnar=1|0 が勝つ） */
@@ -153,6 +169,8 @@ export type ToolsDeps = Pick<GlobeScope, "BASEMAP_MINZOOM" | "BASE_SOURCE" | "CA
 	| "remergeBase" | "renderer" | "requestDraw" | "requester" | "scenes" | "setAutoBld" | "size" | "t" | "unprojectAt" | "vtxDescOf">;
 
 export interface StyleReturn {
+	/** この source を使う層を載せ直す（setData・視野追従の読み足し） */
+	remountSource(id: string, dataChanged?: boolean): Promise<void>;
 	/** 基図を結合し直す（利用者の層の出し入れ・検査表示） */
 	remergeBase(): void;
 	/** addSource の中身（dz＝この source の層のズームの目盛り・内部は 0 を明示） */
