@@ -14,13 +14,28 @@
 // via の無い台本は同じ配列をそのまま返す（恒等）＝▶再押下の識別比較（先読みは1回だけの掟）を壊さない。
 // trace（任意）＝{ group: 入力行 i → 畳み込み後の index（捨てられた via は -1） }＝エディタの行ハイライト/試写開始行の写像。
 // 規則の正本はここ一箇所（エディタ側で同じ裁きを別に書かない）。
-export function compileVias(rows, issues, trace) {
+/** 台本の 1 行（書式の正典＝demo/scene-format.md・言語兄弟 en:/ja:… など他の列も持つ） */
+export interface SceneRow {
+	view?: string; glide?: string; fade?: string; via?: unknown; slide?: unknown; pre?: string; jump?: boolean;
+	travel?: number; hold?: number; slideHold?: number; mobile?: number;
+	path?: Array<{ view: unknown; travel?: number }>;
+	[k: string]: unknown;
+}
+/** compileVias が読む列だけ（demo の DemoScene もこの形） */
+export interface ViaRow { view?: string; glide?: string; fade?: string; via?: unknown; travel?: number }
+/** 診断（エディタの行内エラー）。code＝"empty-row" | "leading-via" | "orphan-via"・row＝0 起点の行番号 */
+export interface SceneIssue { row: number; code: string; msg: string }
+/** 台本(JSON)の頭（scenes の他は上映の既定） */
+interface SceneDoc { scenes?: unknown; mobile?: number; hold?: number; slideHold?: number; preload?: string[]; waitLoading?: unknown }
+/** parseScenes の戻り＝demo プレーヤーへの受け渡し */
+export interface ParsedScenes { scenes: SceneRow[]; mobile: number | undefined; hold: number | undefined; slideHold: number | undefined; preload: string[] | undefined; waitLoading: boolean }
+export function compileVias<T extends ViaRow>(rows: T[], issues?: SceneIssue[] | null, trace?: { group?: number[] } | null): T[] {
 	if (!Array.isArray(rows)) return rows;
 	if (trace) trace.group = rows.map((_, i) => i);
 	if (!rows.some(r => r?.via != null)) return rows;   // via 無し＝恒等（同じ配列＝▶再押下の識別比較を壊さない）
-	const say = (row, code, msg) => issues ? issues.push({ row, code, msg }) : console.warn(`[scene] ${msg}`);
-	const out = []; let vias = [];
-	const group = trace ? trace.group.fill(-1) : null;
+	const say = (row: number, code: string, msg: string): number | void => issues ? issues.push({ row, code, msg }) : console.warn(`[scene] ${msg}`);
+	const out: T[] = []; let vias: Array<{ r: T; i: number }> = [];
+	const group = trace ? trace.group!.fill(-1) : null;
 	rows.forEach((r, i) => {
 		if (r.via != null && !r.view && !r.glide && !r.fade) { vias.push({ r, i }); return; }
 		const tgt = r.view ?? r.glide ?? r.fade;
@@ -39,9 +54,9 @@ export function compileVias(rows, issues, trace) {
 // waitLoading＝重いデータ（3D都市）が立ち上がるまで開始を待つ／preload＝明示先読みリスト（カタログ名・無指定＝視点から自動導出）。
 //   キーは汎用名＝書式に固有名詞を入れない掟（Plateau 等は説明にだけ現れる）。
 // trace（任意）＝{ rowIdx: 返す scenes[k] → 元の obj.scenes の行番号 }（捨てた行は現れない）＝compileVias の trace と組で元行の写像を作る。
-export function parseScenes(obj, issues, trace) {
-	const say = (row, code, msg) => issues ? issues.push({ row, code, msg }) : console.warn(`[scene] ${msg}`);
-	const all = Array.isArray(obj?.scenes) ? obj.scenes : [];
+export function parseScenes(obj: unknown, issues?: SceneIssue[] | null, trace?: { rowIdx?: number[] } | null): ParsedScenes {
+	const say = (row: number, code: string, msg: string): number | void => issues ? issues.push({ row, code, msg }) : console.warn(`[scene] ${msg}`);
+	const all: SceneRow[] = Array.isArray((obj as SceneDoc | null | undefined)?.scenes) ? (obj as { scenes: SceneRow[] }).scenes : [];
 	let rows = all.filter((r, i) => (r && (r.view || r.glide || r.fade || r.via != null || r.slide)) || (say(i, "empty-row", `row ${i + 1}: no view/glide/fade/via/slide; dropped`), false));
 	const firstView = rows.findIndex(r => r.view || r.glide || r.fade);
 	const leading = rows.slice(0, Math.max(firstView, 0)).find(r => r.via != null);
@@ -52,8 +67,8 @@ export function parseScenes(obj, issues, trace) {
 	if (trace) trace.rowIdx = rows.map(r => all.indexOf(r));   // jump 印を付ける前＝同一参照で引ける
 	if (rows[0] && (rows[0].view || rows[0].glide || rows[0].fade)) rows[0] = { ...rows[0], jump: true };
 	return {
-		scenes: rows, mobile: obj?.mobile,
-		hold: obj?.hold, slideHold: obj?.slideHold, preload: obj?.preload,
-		waitLoading: !!obj?.waitLoading,
+		scenes: rows, mobile: (obj as SceneDoc | null | undefined)?.mobile,
+		hold: (obj as SceneDoc | null | undefined)?.hold, slideHold: (obj as SceneDoc | null | undefined)?.slideHold, preload: (obj as SceneDoc | null | undefined)?.preload,
+		waitLoading: !!(obj as SceneDoc | null | undefined)?.waitLoading,
 	};
 }

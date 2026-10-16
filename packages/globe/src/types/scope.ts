@@ -234,11 +234,18 @@ export interface MeshMgr {
 	readonly sets: Array<{ base: string; bbox: number[]; [k: string]: unknown }>;
 	prefetch(views: unknown[], names?: string[], onProg?: (done: number, total: number, name: string | null) => void): Promise<unknown>;   // onProg＝mesh/manager.js の runPrefetch（焼けた区の数・総数・区の名）
 	/** 区ごとの読み込みの進捗 */
-	readonly progress: Map<string, { done?: number; scan?: number }>;
+	readonly progress: Map<string, { done?: number; scan?: number; total?: number; name?: string }>;
 	/** これから見える区で読み込み中の物 */
 	visibleLoading(): string[];
 	/** 残りの台本に出ない常駐区を降ろす */
 	trimForScript(views: string[]): unknown;
+	/** 上映の読み込み待ちパネルへの進捗の知らせ（null で外す）＝scenes/player.ts */
+	setProgressTap(fn: (() => void) | null): void;
+	/** 最初のリビール視点の区（低級機の立ち上げ） */
+	firstRevealSets(views: unknown[]): Array<{ name: string; [k: string]: unknown }>;
+	/** 区を GPU へ立てる（読み込み済みの区） */
+	standUp(set: { name: string; [k: string]: unknown }): Promise<unknown>;
+	isActive(name: string): boolean; isDead(name: string): boolean;
 }
 /** 地名検索の供給元（地域の申告の search・search.js の createSearch が引く） */
 export interface SearchProvider { query(q: string, signal?: AbortSignal): Promise<unknown>; histKey?: string; [k: string]: unknown }
@@ -361,7 +368,7 @@ export interface GlobeScope {
 	flyView(hash: string | ParsedView, opts?: { glide?: boolean; jump?: boolean }): unknown;
 	/** 台本の連続ドリー（{ view, travel } の列） */
 	glidePathView(entries: Array<string | { view: string | ParsedView; travel?: number }>): unknown;
-	applyCamView(v: ParsedView): unknown; applyViewLayers(v: ParsedView): unknown;
+	applyCamView(v: Pick<ParsedView, "lon" | "lat" | "zoom" | "pitch" | "bearing"> & { roll?: number }): unknown; applyViewLayers(v: ParsedView): unknown;
 	switchTheme(name: string): unknown;
 	loadUserFile: IntakeReturn["loadUserFile"];
 	mlLayers: Map<string, UserLayerRec>; mlSources: Map<string, UserSource>;
