@@ -26,7 +26,7 @@ export const ENTRIES = [
 	["@ortho-earth/nl", "nl/index", P("packages/nl/src/region.ts")],
 	// Equal Earth の部品（packages/equal）＝ortho-globe・ortho-japan（div で重ねる）・equal の頁が共に読む（2026-10-15）。言語の状態は equal 自前（globe の i18n とは別の口）
 	["@ortho-earth/equal", "equal", resolve(import.meta.dirname, "equal.js")],
-	["@ortho-earth/equal/i18n.js", "equal-i18n", P("packages/equal/src/i18n.js")],
+	["@ortho-earth/equal/i18n", "equal-i18n", P("packages/equal/src/i18n.ts")],
 	// 部品の入口（2026-10-15・二重焼きの門番 packages/globe/scripts/lib/engine-modules.mjs が見つけた物）＝アプリがパッケージの
 	// サブパスを直に import していて、そのソースがエンジンにも入っている物。アプリの束に焼くと同じコードを 2 か所で配り、
 	// 状態を持つ部品（globe の i18n 等）は実体が 2 つに割れる。入口の名＝import の名から @ortho-earth/ と拡張子を外した物。

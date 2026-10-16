@@ -1,0 +1,138 @@
+// 選択パネル：スタイル編集（styleform＝日本語UI・型別）を主役に、生の属性テーブルは
+// 「属性を表示」を開いた時だけ出す（GIS素人が最初にkey/value表と対面しない＝本人裁定 8/20）。
+// スタイル変更は input中=即プレビュー（履歴なし）・確定=props コマンド1件（undo可）。
+import { styleForm } from "./styleform.ts";
+import { sanitizeHTML } from "./overlay.ts";
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import type { Feature, PropsPanel } from "./types.ts";
+const t = tr();
+
+export type Props = Record<string, unknown>;
+
+// 部分更新の合成：値 "" / null は「そのキーを消す」（styleform の規約）。controller の既定スタイル更新とも共用
+export const mergeProps = (cur: Props, partial: Props): Props => {
+	const next = { ...cur };
+	for (const [k, v] of Object.entries(partial)) { if (v === "" || v == null) delete next[k]; else next[k] = v; }
+	return next;
+};
+
+/** パネルが呼ぶ口（controller が渡す） */
+export interface PropsApi {
+	getFeature(eid: number): Feature | undefined;
+	applyProps(eid: number, next: Props, opts?: { history?: boolean; from?: Props | null }): void;
+	onDelete?(eid: number | null): void;
+	toast(msg: string): void;
+}
+
+export function createPropsPanel(container: HTMLElement, api: PropsApi, signal: AbortSignal): PropsPanel {   // api={getFeature(eid), applyProps(eid,next,{history,from}), toast}
+	let panel: HTMLDivElement | null = null, curEid: number | null = null, flushPreview: (() => void) | null = null;   // flushPreview＝input中（履歴なし）の値を閉じる時に履歴1件へ確定する
+
+	const close = (): void => {   // 状態を先に畳んでから flush＝applyR の「props.eid === cmd.eid なら再描画」が再入しない
+		const flush = flushPreview, p = panel;
+		flushPreview = null; panel = null; curEid = null;
+		flush?.(); p?.remove();
+	};
+
+	const render = (eid: number): void => {
+		close();
+		const f = api.getFeature(eid);
+		if (!f) return;
+		curEid = eid;
+		panel = document.createElement("div");
+		panel.className = "ge-panel";
+		const kindLabel = f.properties?.["@image"] != null ? t("Image") : f.type.includes("Poly") ? t("Polygon") : f.type.includes("Line") ? t("Line") : t("Point");
+		// タイトル行＝見出し＋削除＋閉じる（本人裁定：閉じる/削除はここに集約）
+		const head = document.createElement("div");
+		head.className = "ge-head";
+		const h3 = document.createElement("h3"); h3.textContent = t("#$1 ($2)", eid, kindLabel);
+		// 削除／閉じるは同じ太さ・サイズの単色ラインアイコンで揃える（絵文字🗑は色付きで浮くため）
+		const svg = (d: string): string => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+		const iconBtn = (d: string, tip: string): HTMLButtonElement => { const b = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg(d) }); b.dataset.tip = tip; b.setAttribute("aria-label", tip); return b; };   // 吹き出し＝data-tip（ツールバーと同じ流儀）
+		const delB = iconBtn('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>', t("Delete this feature (Delete)"));
+		const closeH = iconBtn('<path d="M6 6l12 12M18 6L6 18"/>', t("Close (Esc) ##panel"));
+		delB.onclick = () => { const e = curEid; close(); api.onDelete?.(e); };
+		closeH.onclick = close;
+		head.append(h3, delB, closeH);
+		panel.append(head);
+
+		// input中のプレビューを跨いで undo の戻り先を守る：最初のプレビューで元propsを控える
+		let pendingFrom: Props | null = null;
+		flushPreview = () => {   // change 前に Esc/別選択で閉じた＝プレビュー値が履歴に無いまま残る穴＝ここで1件に確定（undo 可）
+			if (pendingFrom == null) return;
+			const cur = api.getFeature(eid)?.properties, from = pendingFrom;
+			pendingFrom = null;
+			if (cur) api.applyProps(eid, cur, { history: true, from });
+		};
+		styleForm(panel, {
+			geomType: f.type,
+			get: () => api.getFeature(eid)?.properties,
+			set: (partial, final) => {
+				const cur = api.getFeature(eid)?.properties;
+				if (!cur) return;
+				const next = mergeProps(cur, partial);
+				if (!final) { pendingFrom ??= { ...cur }; api.applyProps(eid, next, { history: false }); return; }
+				api.applyProps(eid, next, { history: true, from: pendingFrom ?? { ...cur } });
+				pendingFrom = null;
+			},
+		}, signal);
+
+		// ---- 属性を表示（生の key/value テーブル＝上級者向け・開いた時だけ）----
+		const togBar = document.createElement("div");
+		togBar.className = "ge-attrbar";
+		const tog = Object.assign(document.createElement("button"), { textContent: t("Show attributes ▸") });
+		togBar.append(tog);
+		panel.append(togBar);
+		let attr: HTMLDivElement | null = null;
+		tog.onclick = () => {
+			if (attr) { attr.remove(); attr = null; tog.textContent = t("Show attributes ▸"); return; }
+			tog.textContent = t("Hide attributes ▾");
+			attr = document.createElement("div");
+			const table = document.createElement("table");
+			const rows: [HTMLInputElement, HTMLInputElement, unknown][] = [];
+			const addRow = (k: string, v: string, orig?: unknown): void => {
+				const tr = document.createElement("tr");
+				const tdK = document.createElement("td"), tdV = document.createElement("td");
+				const ik = Object.assign(document.createElement("input"), { value: k, placeholder: t("name") });
+				const iv = Object.assign(document.createElement("input"), { value: v, placeholder: t("value") });
+				if (orig instanceof Blob) { ik.disabled = iv.disabled = true; }   // 画像バイナリ＝表からは触らせない（適用で原本維持）
+				tdK.append(ik); tdV.append(iv);
+				tr.append(tdK, tdV);
+				table.append(tr);
+				rows.push([ik, iv, orig]);
+			};
+			const entries = Object.entries(api.getFeature(eid)?.properties || {});
+			entries.sort(([a], [b]) => (+b.startsWith("@")) - (+a.startsWith("@")) || a.localeCompare(b));
+			for (const [k, v] of entries) addRow(k, v instanceof Blob ? t("(image $1KB)", (v.size / 1024).toFixed(1)) : typeof v === "string" ? v : JSON.stringify(v), v);
+			addRow("", "");
+			attr.append(table);
+			const applyB = Object.assign(document.createElement("button"), { textContent: t("Apply") });
+			applyB.onclick = () => {
+				const next: Props = {};
+				for (const [ik, iv, orig] of rows) {
+					const k = ik.value.trim();
+					if (!k) continue;
+					if (orig instanceof Blob) { next[k] = orig; continue; }   // 画像は原本のまま
+					let v: string | number = iv.value;
+					if (v !== "" && !isNaN(+v) && k !== "@icon") v = +v;
+					if ((k === "@tip" || k === "@pop") && typeof v === "string" && v.includes("<")) v = sanitizeHTML(v);   // 表示用HTMLは生表経由でも消毒
+					next[k] = v;
+				}
+				api.applyProps(eid, next, { history: true });
+				api.toast(t("Attributes applied"));
+				render(eid);   // スタイル節も含めて新しい姿へ
+			};
+			const addB = Object.assign(document.createElement("button"), { textContent: t("+ row") });
+			addB.onclick = () => addRow("", "");
+			// Enter=適用（textarea内の改行は除く）
+			attr.addEventListener("keydown", e => {
+				if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") { e.preventDefault(); e.stopPropagation(); applyB.click(); }
+			});
+			attr.append(applyB, addB);
+			panel!.insertBefore(attr, togBar);
+		};
+
+		container.append(panel);
+	};
+
+	return { render, close, get eid() { return curEid; } };
+}

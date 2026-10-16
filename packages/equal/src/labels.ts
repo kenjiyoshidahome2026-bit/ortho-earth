@@ -1,0 +1,166 @@
+// ラベル層（Canvas2D・GL の上に重ねる最前面）。japan の labels2d と同じ考え方＝当選集合は間引き（衝突判定を
+// 150ms ごと）で安定させ、位置は毎フレーム投影＝文字は地図と一緒に滑らかに動き、明滅しない。
+// 2D 正積図なので投影は x=dλ·k(φ), y=y(φ) の 2 式だけ（球の裏側・地平線の問題がない）。
+import { yOfLat, kOfLat, pxPerUnit } from "./equalearth.ts";
+import { countryLabelRule, cityLabelRule, airportLabelRule, F, stripJaCitySuffix, PLANE_PATH as PLANE_D, WORLD_LABEL, labelSize } from "@ortho-earth/core/worldcontent";   // 注記の規則の正本（globe・world と共有）
+import type { Nation } from "@ortho-earth/core/worldcontent";
+import type { Label, LabelPal, PointFeature, Props, View } from "./types.ts";
+
+const FONT = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif`;
+const D2R = Math.PI / 180;
+
+// 空港の記号＝ortho-japan の shields.js と同じ Material Icons "flight"（viewBox 24・上向き）。
+// 都市の丸と同じ形にしない＝交通の記号は形で区別する（本人 2026-09-18）。色は配色テーマから貰う。
+const PLANE_PATH = typeof Path2D !== "undefined" ? new Path2D(PLANE_D) : null;
+const MARKS: Record<string, { path: () => Path2D | null; box: number }> = { plane: { path: () => PLANE_PATH, box: 24 } };   // box＝パスの viewBox（描画時に size へ縮める）
+
+/** 当選（衝突判定の勝ち）＝項目と上下のずらし */
+interface Winner { L: Label; dy: number }
+/** フェード中の項目（a＝今の濃さ・t＝前回の時刻） */
+interface Fade extends Winner { a: number; t: number }
+export interface LabelsLayer {
+	setLabels(list: Label[]): void;
+	/** 戻り＝まだ動く（フェード中・判定の預かり）＝次のフレームも要る */
+	draw(view: View, W: number, H: number, dpr: number, now?: number): boolean;
+	debug(): { labels: number; winners: string[] };
+}
+
+// label: { text, lon, lat, size(CSS px), minZoom, priority(小さいほど強い), kind:"country"|"capital"|"city", color, halo, dot, dotColor（点だけの色・無ければ color） }
+export function createLabels(canvas: HTMLCanvasElement): LabelsLayer {
+	const ctx = canvas.getContext("2d")!;
+	let labels: Label[] = [], winners = new Map<string, Winner>(), lastCollide = -1e9, lastKey = "";
+	const fades = new Map<string, Fade>(), widthCache = new Map<string, number>();
+	const keyOf = (L: Label): string => L.kind + "|" + L.text + "@" + L.lon.toFixed(3) + "," + L.lat.toFixed(3);
+
+	function setLabels(list: Label[]): void {
+		labels = list.slice().sort((a, b) => a.priority - b.priority || b.size - a.size);
+		lastKey = "";   // 次の draw で必ず衝突判定
+	}
+	const project = (view: View, L: Label, W: number, H: number): [number, number] => {
+		const s = pxPerUnit(view.zoom);
+		let dlon = L.lon - view.lon; dlon = ((dlon + 180) % 360 + 360) % 360 - 180;
+		return [W / 2 + dlon * D2R * kOfLat(L.lat) * s, H / 2 - (yOfLat(L.lat) - yOfLat(view.lat)) * s];
+	};
+	const widthOf = (L: Label): number => {
+		const k = L.size + "|" + L.text;
+		let w = widthCache.get(k);
+		if (w == null) { ctx.font = fontOf(L); w = ctx.measureText(L.text).width; widthCache.set(k, w); }
+		return w;
+	};
+	const fontOf = (L: Label): string => `${L.kind === "country" ? "600" : L.kind === "capital" ? "600" : "400"} ${L.size}px ${FONT}`;
+
+	// 衝突判定：優先順に矩形を置き、重なれば落とす（pad＝文字間の最小余白）
+	function collide(view: View, W: number, H: number, now: number): void {
+		const boxes: number[][] = [], next = new Map<string, Winner>(), pad = WORLD_LABEL.pad;   // 正本の空き（globe の注記と同じ）
+		const hit = (x0: number, y0: number, x1: number, y1: number): boolean => { for (const b of boxes) if (x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1]) return true; return false; };
+		for (const L of labels) {
+			if (view.zoom < L.minZoom || (L.maxZoom != null && view.zoom > L.maxZoom)) continue;
+			const [x, y] = project(view, L, W, H);
+			if (x < -200 || x > W + 200 || y < -50 || y > H + 50) continue;
+			const mark = L.mark && MARKS[L.mark];
+			const w = mark ? L.size : widthOf(L), h = mark ? L.size : L.size * 1.2;
+			const dx = mark ? -w / 2 : L.dot ? L.dot + 3 : -w / 2;
+			// 国名は代表点の真上に置けなければ上下にずらす（首都名と代表点が近い＝パリ/ベルリン/ローマ）
+			const shifts = (L.dot || mark) ? [0] : [0, -h * 1.3, h * 1.3, -h * 2.6, h * 2.6];
+			let placed: number[] | null = null;
+			for (const dy of shifts) { const x0 = x + dx - pad, y0 = y + dy - h / 2 - pad, x1 = x + dx + w + pad, y1 = y + dy + h / 2 + pad; if (!hit(x0, y0, x1, y1)) { placed = [x0, y0, x1, y1, dy]; break; } }
+			if (!placed) continue;
+			boxes.push(placed);
+			next.set(keyOf(L), { L, dy: placed[4] });
+		}
+		winners = next; lastCollide = now;
+	}
+
+	function draw(view: View, W: number, H: number, dpr: number, now = performance.now()): boolean {
+		if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+		const key = `${view.lon.toFixed(4)},${view.lat.toFixed(4)},${view.zoom.toFixed(3)},${W},${H},${labels.length}`;
+		// 間引き中（前の判定から 150ms 以内）に一覧や視点が変わった＝判定を次へ預ける＝必ず次のフレームを要求する（下の return）。
+		// 旧＝預けたまま描画が止まり、国名の直後に都市の一覧が届くと、動かすまで都市名が出なかった（本人指摘 2026-09-24）
+		let pending = false;
+		if (key !== lastKey) { if (now - lastCollide > 150) { collide(view, W, H, now); lastKey = key; } else pending = true; }
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.clearRect(0, 0, W, H);
+		ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+		let animating = false;
+		// フェード：当選＝1 へ・落選＝0 へ（0.25s）
+		for (const [k, w] of winners) { const f = fades.get(k); if (!f) fades.set(k, { L: w.L, dy: w.dy, a: 0, t: now }); else f.dy = w.dy; }
+		for (const [k, f] of fades) {
+			const target = winners.has(k) ? 1 : 0, dt = (now - f.t) / 1000; f.t = now;
+			if (f.a < target) f.a = Math.min(target, f.a + dt * 4); else if (f.a > target) f.a = Math.max(target, f.a - dt * 4);   // 到達後は動かさない（旧＝三項で減少側へ落ち 1→0→1 と振動＝永久再描画）
+			if (f.a !== target) animating = true;
+			if (f.a <= 0 && target === 0) { fades.delete(k); continue; }
+			const L = f.L, [x, y0] = project(view, L, W, H), y = y0 + (f.dy || 0);
+			ctx.globalAlpha = f.a;
+			const mark = L.mark && MARKS[L.mark];
+			if (mark) {   // 記号だけのラベル（空港の✈）＝地色のハローを敷いてから塗る（japan の shields.js と同じ手当て）
+				const path = mark.path(), k = L.size / mark.box;
+				if (path) {
+					ctx.save();
+					ctx.translate(x - L.size / 2, y - L.size / 2); ctx.scale(k, k);
+					ctx.strokeStyle = L.halo; ctx.lineWidth = mark.box * 0.11; ctx.stroke(path);
+					ctx.fillStyle = L.color; ctx.fill(path);
+					ctx.restore();
+				}
+				continue;
+			}
+			ctx.font = fontOf(L);
+			if (L.dot) {   // 都市の点（首都＝二重丸）
+				const dc = L.dotColor || L.color;
+				ctx.beginPath(); ctx.arc(x, y, L.dot, 0, Math.PI * 2); ctx.fillStyle = dc; ctx.fill();
+				ctx.lineWidth = 1; ctx.strokeStyle = L.halo; ctx.stroke();
+				if (L.kind === "capital") { ctx.beginPath(); ctx.arc(x, y, L.dot + 2.5, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = dc; ctx.stroke(); }
+			}
+			const tx = L.dot ? x + L.dot + 3 : x;
+			ctx.textAlign = L.dot ? "left" : "center";
+			if (L.spacing) ctx.letterSpacing = L.spacing; else ctx.letterSpacing = "0px";
+			ctx.lineWidth = HALO_W; ctx.strokeStyle = L.halo; ctx.strokeText(L.text, tx, y);
+			ctx.fillStyle = L.color; ctx.fillText(L.text, tx, y);
+		}
+		ctx.globalAlpha = 1;
+		return animating || pending;
+	}
+	return { setLabels, draw, debug: () => ({ labels: labels.length, winners: [...winners.values()].map(w => w.L.kind + ":" + w.L.text) }) };
+}
+
+// ── ラベルの材料 ──
+// 地図上の文字の大きさ（本人 2026-09-18「少しだけ小さく」）＝一つのノブで国名・首都・都市をまとめて縮める。
+// 0.5px 刻みに丸める＝キャンバスの字形が半端な小数でにじまない。国名 13→12 / 都市 10→9 が現物。
+export const LABEL_SCALE = WORLD_LABEL.scale;   // 正本（ortho-core worldcontent）＝globe の注記と同じ縮尺
+// 文字のハロー（白枠）の太さ。3 だと字画の内側まで太って和文が潰れ気味＝少しだけ細く（本人 2026-09-18）。
+// 記号（✈）のハローも同じ考えで viewBox 比の係数を一段細める。
+export const HALO_W = 2.4;
+const S = labelSize;
+
+// 国名・都市・空港の規則（出すズーム・大きさ・優先・名前の作法）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と共有）。
+// ここは equal の描き方（labels 層の項目の形・倍率 S・配色）へ写すだけ。
+export { F, stripJaCitySuffix };
+export function countryLabels(world: { items: Nation[] }, nameOf: (n: Nation) => string, pal: LabelPal): Label[] {
+	const out: Label[] = [];
+	for (const n of world.items) {
+		const r = countryLabelRule(n); if (!r) continue;
+		out.push({ text: nameOf(n), lon: r.lon, lat: r.lat, size: S(r.size), minZoom: r.minZoom, priority: r.priority, kind: "country", color: pal.country, halo: pal.halo, spacing: "0.08em" });
+	}
+	return out;
+}
+export function cityLabels(features: PointFeature[], nameOf: (p: Props) => string, pal: LabelPal): Label[] {
+	const out: Label[] = [];
+	for (const f of features) {
+		const p = f.properties; if (!f.geometry || f.geometry.type !== "Point") continue;
+		const text = nameOf(p); if (!text) continue;
+		const r = cityLabelRule(p);
+		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(r.size),
+			minZoom: r.minZoom, priority: r.priority, kind: r.cap ? "capital" : "city", color: pal.city, dotColor: r.cap ? (pal.capital || pal.city) : undefined, halo: pal.halo, dot: r.dot });   // 首都の点だけ正本の capital（赤）＝首都名の文字は他の都市と同じ色（本人 2026-09-24「黒に戻して」）
+	}
+	return out;
+}
+// 空港：記号だけ（名前は出さない）。出しズームは呼び出し側（層の markMinZoom）が上書きできる
+export function airportLabels(features: PointFeature[], pal: LabelPal, { minZoom, size = 12 }: { minZoom?: number; size?: number } = {}): Label[] {
+	const out: Label[] = [];
+	for (const f of features) {
+		if (!f.geometry || f.geometry.type !== "Point") continue;
+		const r = airportLabelRule(f.properties);
+		out.push({ text: "", mark: "plane", lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+			size, minZoom: minZoom ?? r.minZoom, priority: r.priority, kind: "airport", color: pal.airport || pal.city, halo: pal.halo });
+	}
+	return out;
+}
