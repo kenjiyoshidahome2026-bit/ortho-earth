@@ -26,8 +26,6 @@ interface SunReply<S> { rgba: Uint8Array<ArrayBuffer>; w: number; h: number; bbo
 type VisReply = SunReply<VisStats> & { los: Omit<Awaited<ReturnType<ShadowsApi["lineOfSight"]>>, "triangles"> };
 type SunWait = { res: (d: unknown) => void; rej: (e: Error) => void };
 type VisOpts = { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number };
-/** gadget の opts（利用者が渡す物＝そのまま注入の後ろに重ねる） */
-type GOpts = Record<string, unknown> | undefined;
 /** 画像タイルの一覧の spec（XYZ の URL の物だけ読む） */
 type RasterRow = { id: string; spec: { url?: string; minZoom?: number; minzoom?: number; maxZoom?: number; maxzoom?: number; subdomains?: string[] | string; tms?: boolean } };
 /** 入れ子の座標（clipAllCut が数える） */
@@ -36,7 +34,7 @@ type Coords = readonly unknown[];
 export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	BASE_SOURCE, D2R, LOW_MEM, REGION_DTM, REGION_HOME, REGION_PRINT_ATTR, TILE_MINZOOM, ac, approxViewBbox, attrTextNow, cam, dbgHost, makeProjector,
 	mapOn, meshMgr, meshOn, onMove, ownDestroy, poi, printCapture, renderer, requestDraw, requestSnapshot, setLayer, t, toolClose, toolOpen, unprojectXY,
-	viewHash, wPost, wakeMesh
+	registerGadget, viewHash, wPost, wakeMesh
 }: ShadowsDeps): ShadowsReturn {
 	// ── 日影（#44・2026-09-23）＝建物の影を地面に描く。map.sunShadow({ mode:"duration"|"instant", date, planeH, hours, step, bbox, tilesets, probe:[[lon,lat]…] })
 	//   建物＝既定は地域の建物台帳（日本＝PLATEAU）・tilesets で任意の 3D Tiles。範囲＝既定は画面に見えている所（中心から一辺 3km まで）。
@@ -138,7 +136,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	// オフラインパック（#40）：地域の申告（基図・標高・建物・ラスタ）を読んだ結果だけを渡す＝gadget は地域を知らない。
 	// 標高は core のローダ（IDB GIS/alt）を要る時に一度だけ作る。建物は meshMgr（起こしてから台帳を読む）
 	let offlineDem: TileLoader | null = null;
-	map.gadget("offline", function (opts: GOpts) {
+	registerGadget("offline", (m, opts) => {
 		const sources: OfflineSources = {
 			// XYZ の基図だけ（PMTiles・基図なしは tileUrl が型紙にならない＝gadget は載らない）
 			basemap: typeof BASE_SOURCE.tileUrl === "function" && /^https?:/.test(String(BASE_SOURCE.tileUrl(1, 0, 0) ?? "")) ? { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) } : null,
@@ -146,47 +144,47 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 			rasters: { list: () => (map.raster.list() as RasterRow[]).filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22, subdomains: r.spec.subdomains || null, tms: !!r.spec.tms })) },
 			mesh: meshOn ? { warm: () => wakeMesh(), sets: () => meshMgr.sets, prefetch: (names, onProg) => meshMgr.prefetch([], names, onProg) } : null,
 		};
-		const h = offlineGadget.call(this, { sources, bounds: () => map.getBounds(), onOpen: () => toolOpen("offline"), signal: ac.signal, ...opts });
+		const h = offlineGadget.call(m, { sources, bounds: () => map.getBounds(), onOpen: () => toolOpen("offline"), signal: ac.signal, ...opts });
 		if (h?.close) toolClose.set("offline", h.close);
 		return h;
 	});
-	map.gadget("sunshadow", function (opts: GOpts) {
-		const h = sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => live.renderBackend === "webgpu", onOpen: () => toolOpen("sunshadow"), signal: ac.signal, ...opts });
+	registerGadget("sunshadow", (m, opts) => {
+		const h = sunShadowGadget.call(m, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => live.renderBackend === "webgpu", onOpen: () => toolOpen("sunshadow"), signal: ac.signal, ...opts });
 		if (h?.close) toolClose.set("sunshadow", h.close);
 		return h;
 	});
 	map.clearViewshed = async () => { map.raster.remove("viewshed"); if (map.getLayer("los")) { map.removeLayer("los"); map.removeSource("los"); } };
-	map.gadget("clock", function (opts: GOpts) { return clockGadget.call(this, { signal: ac.signal, ...opts }); });
-	map.gadget("viewshed", function (opts: GOpts) {
-		const h = viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, onOpen: () => toolOpen("viewshed"), signal: ac.signal, ...opts });
+	registerGadget("clock", (m, opts) => { return clockGadget.call(m, { signal: ac.signal, ...opts }); });
+	registerGadget("viewshed", (m, opts) => {
+		const h = viewshedGadget.call(m, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, onOpen: () => toolOpen("viewshed"), signal: ac.signal, ...opts });
 		if (h?.close) toolClose.set("viewshed", h.close);
 		return h;
 	});
-	map.gadget("shot", function (opts: GOpts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
-		return shotGadget.call(this, { requestSnapshot, attribution: attrTextNow, signal: ac.signal, ...opts });   // attribution＝#attr の無い画面で焼く出典（今の圏）
+	registerGadget("shot", (m, opts) => {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
+		return shotGadget.call(m, { requestSnapshot, attribution: attrTextNow, signal: ac.signal, ...opts });   // attribution＝#attr の無い画面で焼く出典（今の圏）
 	});
-	map.gadget("qr", function (opts: GOpts) {   // 共有QR … 現在の共有URL(origin+path+search+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
+	registerGadget("qr", (m, opts) => {   // 共有QR … 現在の共有URL(origin+path+search+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
 		// location.search を挟む＝アドレスバーの ?hud=1 等のフラグもQRに載る（スキャン先で同じ計器/条件が点く）。順は path→?query→#hash＝URLの正順。
-		return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + location.search + viewHash(), signal: ac.signal, ...opts });
+		return qrGadget.call(m, { getUrl: () => location.origin + location.pathname + location.search + viewHash(), signal: ac.signal, ...opts });
 	});
-	map.gadget("home", function (opts: GOpts) {   // 地域の全体へ戻る（真俯瞰・北向き）… 着地点は地域宣言の home（日本＝列島ビュー）・J キー
+	registerGadget("home", (m, opts) => {   // 地域の全体へ戻る（真俯瞰・北向き）… 着地点は地域宣言の home（日本＝列島ビュー）・J キー
 		if (!REGION_HOME) return null;   // 戻り先を宣言しない地域（/nl/・地球儀）＝ボタンを出さない
-		return homeGadget.call(this, { view: REGION_HOME.view, icon: REGION_HOME.icon, label: REGION_HOME.label, id: REGION_HOME.id, signal: ac.signal, ...opts });
+		return homeGadget.call(m, { view: REGION_HOME.view, icon: REGION_HOME.icon, label: REGION_HOME.label, id: REGION_HOME.id, signal: ac.signal, ...opts });
 	});
-	map.gadget("print", function (opts: GOpts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
-		return printGadget.call(this, { capture: printCapture, attribution: () => REGION_PRINT_ATTR.length ? REGION_PRINT_ATTR.map(k => t(k)) : attrTextNow(), signal: ac.signal, ...opts });
+	registerGadget("print", (m, opts) => {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
+		return printGadget.call(m, { capture: printCapture, attribution: () => REGION_PRINT_ATTR.length ? REGION_PRINT_ATTR.map(k => t(k)) : attrTextNow(), signal: ac.signal, ...opts });
 	});
-	map.gadget("close", function (opts: GOpts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
-		return closeGadget.call(this, { signal: ac.signal, ...opts });
+	registerGadget("close", (m, opts) => {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
+		return closeGadget.call(m, { signal: ac.signal, ...opts });
 	});
 	// POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
 	// 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
 	// 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
 	if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("../gadgets/poiedit.js")).then(({ poiedit }) => {
 		setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
-		map.gadget("poiedit", function (opts: GOpts) {
+		registerGadget("poiedit", (m, opts) => {
 			const L = live.poiReal!;   // ?poiedit=1 は下で poi.ready() を待ってから搭載＝ここでは必ず本物
-			return poiedit.call(this, {
+			return poiedit.call(m, {
 				// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
 				// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
 				setClick: fn => { live.poiClick = fn; }, unprojectXY, makeProjector, distM: L.distM,

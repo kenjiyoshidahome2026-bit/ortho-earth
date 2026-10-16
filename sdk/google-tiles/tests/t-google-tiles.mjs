@@ -35,13 +35,13 @@ ok("attribution", googleAttribution(["Data SIO, NOAA", "Landsat / Copernicus", "
 	ok("add.localRoot", got.opts.id === "g2" && got.opts.requestTransform("http://localhost:9999/fake/a.json")?.url.includes("key=") && got.opts.requestTransform(GOOGLE_3D_TILES_ROOT) === null);
 	ok("add.noMap", throws(() => addGoogle3DTiles({}, { key: K })));
 }
-// plugin の形：registry.gadgets に関数を足す（this＝map）
+// plugin の形：registry.gadgets に関数を足す（本体は map が第 1 引数＝registerGadget の形）
 {
 	const added = new Map(), calls = [];
 	const map = { registry: { gadgets: { add: (n, f) => added.set(n, f) } }, add3DTiles: async (url, opts) => { calls.push({ url, opts }); return {}; } };
 	const p = googleTilesPlugin({ key: K, maxSSE: 12 });
 	p.install(map);
-	await added.get("googleTiles").call(map, { fit: false });
+	await added.get("googleTiles")(map, { fit: false });
 	ok("plugin", p.name === "google-tiles" && added.has("googleTiles") && calls[0].opts.maxSSE === 12 && calls[0].opts.fit === false && calls[0].url === GOOGLE_3D_TILES_ROOT);
 }
 if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS google-tiles");

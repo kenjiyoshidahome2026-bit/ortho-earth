@@ -373,9 +373,14 @@ export interface ContextMenuItem {
 	icon?: string;
 	onClick(c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }): void;
 }
+/** 右クリックメニューの項目の並び：配列か、指した地点ごとに組む関数（(地点, 既定の項目) → 配列）。null＝既定の項目へ戻す（setter に渡す時） */
+export type ContextMenuItems = ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }, dflt: ContextMenuItem[]) => ContextMenuItem[]) | null;
 
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
+/** 計測・断面図の入口の手綱（本体は初回に読む）＝no-op の関数＋open（本体を読んで開始・本体の手綱で解ける・読めなければ undefined）／close（本体が在れば畳む・無ければ null）。
+ *  二重搭載は素の no-op（open／close 無し） */
+export interface PathGadgetStub { (): void; open?(): Promise<PathGadget | undefined>; close?(): Promise<unknown> | null }
 /** anno ガジェットの手綱（gadgets/anno.js の createAnno の戻り） */
 export interface AnnoHandle { set(pbf: GeoPBF | null): void; clear(): void; /** 描いた画素の検査窓（worker に問う） */ pixels(): Promise<unknown>; readonly pbf: GeoPBF | null; readonly count: number; readonly hits: unknown[] }
 /** cog ガジェットの load のオプション＝fit／fetch 以外は geopbf/cog の openCog へそのまま（stretch・composite・colormap・cacheKey…＝見せ方はデータ側が決める） */
@@ -386,6 +391,8 @@ export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number
 export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
 /** equal／equalHere／equalStart の opts。url＝Equal Earth の置き場・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe） */
 export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown }
+/** map.gadget.<名前> の名前 → 呼び方（引数と戻り）。登録は registerGadget(name, (map, ...args) => handle)（map は第 1 引数・this は使わない）。
+ *  plugin が足す gadget はこの interface を拡張して型を付ける（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
 export interface Gadgets {
 	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
 	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
@@ -395,18 +402,23 @@ export interface Gadgets {
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
 	/** 画面保存（webp・出典焼き込み）。open()＝即保存、composite()＝Blob を返す（引数省略＝今の画面）。
 	 *  戻り値は最初の呼び出しで受け取って保持する（二重搭載・モバイル(coarse pointer)では undefined） */
-	shot(): { open(): void; composite(snap?: unknown): Promise<Blob> } | undefined;
-	measure(): PathGadget;
-	profile(): PathGadget;        // 断面図（経路指定→標高プロファイルのグラフ。stats()={points,total,sampled,min,max}）
+	shot(): { open(): Promise<unknown>; composite(snap?: unknown): Promise<Blob | undefined>; close(): void } | undefined;   // composite の undefined＝本体を読めなかった
+	/** 距離・面積の計測。入口だけが常駐し本体は初回に読む＝戻りは入口の手綱（open() が本体の手綱 PathGadget で解ける） */
+	measure(): PathGadgetStub;
+	/** 断面図（経路指定→標高プロファイルのグラフ。本体の stats()={points,total,sampled,min,max}）。戻りは measure と同じ入口の手綱 */
+	profile(): PathGadgetStub;
 	/** 右クリックメニュー。既定で「この地点へ寄る／座標をコピー」の 2 項目を持ち、items は**置換**（関数形＝クリック位置ごとに組める）。戻り値＝項目差し替え関数（再搭載時は {setItems}） */
-	contextmenu(opts?: { items?: ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }) => ContextMenuItem[]) }): ((items: ContextMenuItem[]) => void) | { setItems(items: ContextMenuItem[]): void };
+	contextmenu(opts?: { items?: ContextMenuItems }): ((items: ContextMenuItems) => void) | { setItems(items: ContextMenuItems): void };
 	legend(): unknown;
-	palette(): { open(): void; close(): void };
+	/** 配色テーマの入口（本体はアイドルに先読み）。open()＝本体を読んで開く・close()＝本体が在れば畳む（無ければ null）。opts.theme で焼き付けた地図・二重搭載は undefined */
+	palette(): { open(): Promise<unknown>; close(): Promise<unknown> | null } | undefined;
 	hint(): unknown;
 	/** 地域の全体へ戻るボタン（1.2.0〜・着地点/顔/札は地域宣言 home・宣言が無い地域＝載らない）。J キー */
 	home(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
-	qr(): { open(): void; close(): void };
-	print(): { open(): void; close(): void };
+	/** 共有 QR（今の視点の URL）。二重搭載は undefined */
+	qr(): { open(): unknown; close(): unknown } | undefined;
+	/** 印刷（平面図・本体は初回に読む）。モバイル・二重搭載は undefined */
+	print(): { open(): unknown; close(): unknown } | undefined;
 	cpos(): unknown;
 	/** 建物3D データ管理（先読み/削除）。mesh:false では載らない（1.2.0〜・アイコンは地域の宣言＝日本は PLATEAU 公式ロゴ） */
 	mesh(): unknown;
@@ -506,15 +518,13 @@ export interface Gadgets {
 	/** 輪郭＝「この形の線だけ」（ホバーの合図）。src は spotlight と同じ（GeoJSON か ISO 3166-1 の 2／3 字）・null で消す。マスク（spotlight）とは別スロット＝両立する。color＝[r,g,b,a]（0..1）・width＝px。形が引けなければ null */
 	outline(src: string | GeoJSONFeatureCollection | GeoJSONFeature | { type: string; coordinates: unknown } | null, opts?: { color?: [number, number, number, number] | null; width?: number }): Promise<{ clear(): void } | null>;
 	/** POI 台帳の手差分編集（作者用・§12）。URL の ?poiedit=1 の時だけ本体を読んで登録し自動で搭載する（一般のビルドには載らない）＝それ以外の地図では undefined。戻り値＝{ close } */
-	poiedit?(opts?: Record<string, unknown>): { close(): void };
+	poiedit?(opts?: Record<string, unknown>): { close(): void } | undefined;
 	/** 画像タイル（ラスタ）の切替パネル＝地域パックのカタログ（基図 1 枚＋重ね n 枚）と map.raster（select／toggle）。表示域は zoom で。二重搭載は undefined */
 	raster(opts?: { zoom?: [number, number]; narrow?: boolean }): unknown;
 	/** 太陽系（ortho-solar）への口＝34px 規格のアイコン。url＝行き先（既定 /solar/・dev は :5199）・共通の時計が実時間でなければその時刻を hash に添える。二重搭載は undefined */
 	solar(opts?: { url?: string; zoom?: [number, number]; narrow?: boolean }): unknown;
 	/** 衛星シーン検索（STAC＝Earth Search／Tellus→選んだシーンの COG を球へ＝cog ガジェット）。ボタンだけ常駐・本体は初回クリックで遅延 chunk。戻り値＝no-op */
 	stac(opts?: { zoom?: [number, number]; narrow?: boolean }): () => void;
-	/** 自作ガジェットの登録（this===map で呼ばれる） */
-	(name: string, fn: (this: OrthoJapanMap, ...args: never[]) => unknown): void;
 }
 
 /** paint() の式（リテラルか Mapbox 風の配列式） */
@@ -894,8 +904,9 @@ export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: 
 export interface MapRegistry {
 	/** map.addData の kind（結線済み） */
 	readonly dataKinds: PluginRegistry<DataKindImpl>;
-	/** map.gadget と同じ（add＝map.gadget(name, fn)・結線済み・builtin の名は実行時の map.gadget の鍵） */
-	readonly gadgets: PluginRegistry<(this: OrthoJapanMap, ...args: any[]) => unknown>;
+	/** gadget（add(name, (map, ...args) => handle)＝registerGadget と同じ登録口・map は第 1 引数（this は使わない）・結線済み・builtin の名は実行時の map.gadget の鍵）。
+	 *  plugin の gadget の型は Gadgets を拡張して足す（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
+	readonly gadgets: PluginRegistry<(map: OrthoJapanMap, ...args: any[]) => unknown>;
 	/** core の registerTileFormat（結線済み） */
 	readonly tileFormats: PluginRegistry<TileFormatImpl>;
 	/** 光源の type（F1 で結線）＝builtin は directional/point/spot/ambient/hemisphere/ibl。plugin の type は { apply(map, lights) } */
