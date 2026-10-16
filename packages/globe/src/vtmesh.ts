@@ -6,7 +6,7 @@
 // 出力の形は finishMesh と同じ契約（pos＝原点相対 Float32・nrm＝Int8×4（ortho 軸＝ECEF の x,z,y）・idx＝Uint32・uv＝0・col＝RGBA8・origin・bbox 度）
 // ＝メッシュ経路（setMesh）へそのまま渡る。uv は 0 でも要る（頂点色は「uv と col がある」メッシュだけが使う）。
 import earcut from "earcut";
-import { hasZoom, exprZoomKey } from "./extrude-ml.js";   // ズームの鍵は geojson の押し出しと共用（純関数）
+import { hasZoom, exprZoomKey } from "./extrude-ml.ts";   // ズームの鍵は geojson の押し出しと共用（純関数）
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const MAX_RINGS = 500;              // MapLibre と同じ（穴の多すぎる面は小さい穴から捨てる）

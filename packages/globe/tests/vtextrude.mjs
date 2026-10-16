@@ -1,7 +1,7 @@
 // ベクタタイルの押し出し（段 8①・src/vtmesh.js）の単体検定：輪の分類・枠で切る・縁の壁・屋根の面積・外向きの法線・縦の陰影・置き換え・ズームの鍵・filter の zoom。
 // 実描画は t-mlcompat.html?g=vector。使い方：node packages/globe/tests/vtextrude.mjs
-import { classifyRings, clipRing, ringArea2, tessellatePolygon, buildMesh, verticalShade, retainTiles, paintZoomKey, filterZoom, tileToLonLat, roundRing } from "../src/vtmesh.js";
-import { extrudeMesh } from "../src/extrude.js";
+import { classifyRings, clipRing, ringArea2, tessellatePolygon, buildMesh, verticalShade, retainTiles, paintZoomKey, filterZoom, tileToLonLat, roundRing } from "../src/vtmesh.ts";
+import { extrudeMesh } from "../src/extrude.ts";
 import { evalExpr } from "@ortho-earth/core/expr";
 
 let bad = 0, n = 0;

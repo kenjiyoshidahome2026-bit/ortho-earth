@@ -10,15 +10,15 @@
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
-import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
-import { hitExtrusion } from "../extrude-ml.js";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
+import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
+import { hitExtrusion } from "../extrude-ml.ts";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
 import type { MLLayer } from "@ortho-earth/core";
 import type { RenderedFeature } from "../../globe.d.ts";
 import type { Requester, ResolvedRequest } from "../request.d.ts";
 import type { ExtEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam, VtxDesc } from "../types/scope.ts";
-import type { TileXYZ } from "../vtmesh.d.ts";
+import type { TileXYZ } from "../vtmesh.ts";
 
 /** source の記述子（globe の vtxDescOf）＝coverage＝地域の基図の配信圏 [w,s,e,n]・tag＝同じ source かの印・tileSize＝MapLibre の目盛りの z の尺・attribution＝出典の宣言 */
 export type VtDesc = Omit<VtxDesc, "coverage"> & { coverage?: number[] | null; tag?: string; tileSize?: number; attribution?: string | null };

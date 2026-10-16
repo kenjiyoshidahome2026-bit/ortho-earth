@@ -5,9 +5,9 @@
 // 外部に取りに行かない設定：worker:false（loaders.gl の worker を CDN から起こさない）・useCompressedTextures:false（KTX2/Basis の変換器を CDN から取らない＝jpg/png を選ぶ）・
 // decodeTextures:false（画像は生のバイト列で受けて createImageBitmap で復号）。Draco の復号器は PLATEAU の経路と同じ loaders.gl の既定。
 // 対応は nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。点群（PointCloud）と旧形式（nodes/root）は未対応。
-import { finishMesh, ecef2geo } from "./meshdecode.js";
+import { finishMesh, ecef2geo } from "./meshdecode.ts";
 let _l = null;
-const L = () => _l ??= import("./i3s-loaders.js");   // loaders.gl の i3s は最初の I3S を読む時だけ
+const L = () => _l ??= import("./i3s-loaders.ts");   // loaders.gl の i3s は最初の I3S を読む時だけ
 
 const I3S_OPTS = { worker: false, i3s: { useDracoGeometry: true, useCompressedTextures: false, decodeTextures: false, coordinateSystem: 0 } };   // coordinateSystem 0＝METER_OFFSETS（頂点が ECEF で来る）
 const sets = new Map();   // layer URL → Promise<tileset>

@@ -26,7 +26,7 @@
 //   isActive(name) / isDead(name) / visibleLoading() / memStats() … 上映の待ち判定と HUD の物差し
 //   openDb()                  … データ管理モーダル
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
-import { createMeshDb } from "../meshdb.js";
+import { createMeshDb } from "../meshdb.ts";
 import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.js";
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）

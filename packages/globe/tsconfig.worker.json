@@ -4,6 +4,11 @@
 		"lib": ["es2022", "webworker"],
 		"types": []
 	},
-	"include": ["src/gintbakeworker.ts"],
+	"include": ["src/gintbakeworker.ts",
+		"src/meshworker.ts",
+		"src/meshdecoder.ts",
+		"src/model-worker.ts",
+		"src/copc-worker.ts",
+		"src/vtextrude-worker.ts"],
 	"exclude": []
 }

@@ -10,10 +10,10 @@
 // 世界座標＝meshdecode の geoWorld（建物メッシュ・3D Tiles の点と同じ式・楕円体表示も）。
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
-import { resolveCrs } from "./pointcloud-crs.js";
-import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
-import { placeNode } from "./copc-place.js";
-import { wholeFileLimit, createStore, appendRaw, buildOctree, gatherNode } from "./pointcloud-octree.js";
+import { resolveCrs } from "./pointcloud-crs.ts";
+import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.ts";
+import { placeNode } from "./copc-place.ts";
+import { wholeFileLimit, createStore, appendRaw, buildOctree, gatherNode } from "./pointcloud-octree.ts";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 
 let LAZ = null;

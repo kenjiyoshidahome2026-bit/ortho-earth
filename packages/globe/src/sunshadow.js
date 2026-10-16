@@ -3,8 +3,8 @@
 //   太陽＝真太陽時の式（日影規制と同じ流儀）：赤緯 δ・時角 H＝15°×(t−12) から高度 α と方位 A。
 //   投影＝測定面の高さ h0 より上の頂点を、影の向き（太陽の反対）へ (h−h0)/tan α だけずらす。三角形ごとに升目へ塗り、同じ時刻の重なりは一度だけ数える。
 //   出力＝升目の RGBA（瞬間＝影の範囲／時間＝日影になる時間の段彩＋境目の線）と数値（最大の日影時間など）。
-import { decodeTile3D } from "./tiles3d-decode.js";
-import { collectLeafTiles } from "./meshdecode.js";
+import { decodeTile3D } from "./tiles3d-decode.ts";
+import { collectLeafTiles } from "./meshdecode.ts";
 
 const D2R = Math.PI / 180, R_EARTH = 6371000;
 

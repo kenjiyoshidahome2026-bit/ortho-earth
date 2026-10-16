@@ -6,8 +6,8 @@
 // base>0（min_height）はそのまま宙に浮く（MapLibre の fill-extrusion-base と同じ意味）。
 // 法線は ortho の世界軸（ECEF(x,y,z) → (x, z, y)）で Int8×4。
 import earcut from "earcut";
-import { finishMesh, MASK_N } from "./meshdecode.js";
-import { roundRing, verticalShade } from "./vtmesh.js";   // 角の丸めと壁の縦の陰影（C6）＝vector の押し出しと同じ純関数
+import { finishMesh, MASK_N } from "./meshdecode.ts";
+import { roundRing, verticalShade } from "./vtmesh.ts";   // 角の丸めと壁の縦の陰影（C6）＝vector の押し出しと同じ純関数
 
 const D2R = Math.PI / 180, R = 6371008.8;
 

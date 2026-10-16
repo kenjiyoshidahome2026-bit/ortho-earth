@@ -4,7 +4,7 @@
 //   節の 8 隅＋面の中心 6 点で本物と比べる。ずれの最大が TOL_M（既定 1 cm）を超える節だけ従来の 1 点ずつに戻す（とても広い根の節）。
 //   一次式だけでは熱海の根の節（400 m）で 1.07 cm ずれた（地球の丸み）＝二次の項が要る。
 //   位置は Float32 の原点相対（原点＝節の中心の世界座標）・elev は m（高さは近似でなく素の z×単位＋dz＝段彩・分類の値を変えない）。
-import { geoWorld } from "./meshdecode.js";
+import { geoWorld } from "./meshdecode.ts";
 
 const D2R = Math.PI / 180;
 export const TOL_M = 0.01;

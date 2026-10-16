@@ -3,7 +3,7 @@
 // 置き方は仕様どおり：頂点 ECEF = タイル変換 · (RTC + Y-up→Z-up · glTF のノード変換 · p)。
 // 三角形は meshdecode の decodeModel（PLATEAU・模型と同じ後段＝テクスチャ/マテリアル/両面）へ、点は経緯度に直して
 // 点のオーバーレイ（gadgets/points-gl.js・原点相対）の形で返す。高さは接地しない＝絶対高さ（楕円体高）−baseH をそのまま持つ。
-import { decodeModel, ecef2geo, geoWorld, earthW } from "./meshdecode.js";
+import { decodeModel, ecef2geo, geoWorld, earthW } from "./meshdecode.ts";
 
 const td = new TextDecoder();
 const magicOf = (ab, off = 0) => td.decode(new Uint8Array(ab, off, 4));

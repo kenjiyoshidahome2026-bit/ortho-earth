@@ -4,7 +4,7 @@
 // IDB/OPFS・far-DB・クレジット・レーン）は一切持たない＝返した mesh の扱いは発注元が決める。
 // stopJobs＝協調キャンセル：残りタイルの fetch をタイル境界で打ち切る（完成していても発注元が捨てる掟）。
 // 発注元は busy 管理で1デコーダ1件しか出さない＝ここに並行キューは要らない。
-import { decodeBatch, setDecodeEnv } from "./meshdecode.js";
+import { decodeBatch, setDecodeEnv } from "./meshdecode.ts";
 
 const stopped = new Set();
 let out = self;   // 返信先：main が渡した MessagePort（区 worker 直結）。port 未受領の間は self（互換）
