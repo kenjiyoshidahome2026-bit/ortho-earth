@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 const enc = new TextEncoder();
 import { escXML } from "../modules/xml.ts";   // " も逃がす（旧＝逃がさず属性値の " で壊れた）

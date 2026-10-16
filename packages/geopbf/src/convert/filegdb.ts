@@ -11,7 +11,7 @@
 // 幾何: point / multipoint / polyline / polygon（Z・M は落とす・曲線は頂点を直線で結ぶ＝stats.curves）。多パッチと空は落として数える。
 // 多面の環は Esri 流（外環=時計回り・穴=反時計回りが平坦に並ぶ）→ 面積符号で外環/穴を分け、穴は最初の頂点を含む外環へ入れて Multi/Polygon に組む。
 // CRS: フィールド定義の WKT を convert/proj.js で判定（経緯度はそのまま・平面直角座標系/UTM/Web メルカトルは逆変換・日本測地系や JGD2000 は convert/datum.js で測地系変換・他は ignoreCrs 無しで拒否）。
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { attrFilter } from "./attrs.ts";
 import { crsFromWKT } from "./proj.ts";
 import { resolveDatum, datumStats } from "./datum.ts";

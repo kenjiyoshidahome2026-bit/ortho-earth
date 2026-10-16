@@ -1,15 +1,15 @@
-import type { GeoPBF } from "../pbf-base.js";
-import type { topology } from "../extension/topology.js";
-import type { cleanGintBuffer } from "../extension/clean.js";
-import type { gint } from "../extension/gint.js";
+import type { GeoPBF } from "../pbf-base.ts";
+import type { topology } from "../extension/topology.ts";
+import type { cleanGintBuffer } from "../extension/clean.ts";
+import type { gint } from "../extension/gint.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 
 let _GeoPBF: typeof GeoPBF | undefined, _topology: typeof topology | undefined, _cleanGintBuffer: typeof cleanGintBuffer | undefined, _gint: typeof gint | undefined;
 const _ready = Promise.all([
-	import("../pbf-base.js"),
-	import("../extension/topology.js"),
-	import("../extension/clean.js"),
-	import("../extension/gint.js"),
+	import("../pbf-base.ts"),
+	import("../extension/topology.ts"),
+	import("../extension/clean.ts"),
+	import("../extension/gint.ts"),
 ]).then(([a, b, c, d]) => {
 	_GeoPBF = a.GeoPBF;
 	_topology = b.topology;

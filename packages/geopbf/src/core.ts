@@ -4,7 +4,7 @@
 //   const pbf = await new GeoPBF().set(bytes);            // ファイルを読む／geojson を書く
 //   const { geojson, name } = await loadGeopbf(url);      // fetch → gzip 透過 → noeval 復号 → サニタイズ済み FeatureCollection
 // Gint（identifyAt / contain / topojson / dissolve）や形式変換（Shapefile 等）は従来どおり "geopbf"（full）か各 subpath から。
-// pbf-base の GeoPBF は "geopbf/pbf" の拡張メソッド（centroid・clone・identifyAt …）を持たない＝型（types/core.d.ts）もその分だけ。
-export { GeoPBF, makeKeys, propsKeyOf } from "./pbf-base.js";
+// pbf-base の GeoPBF（＝GeoPBFBase）は拡張メソッド（centroid・clone・identifyAt …）を持たない＝別の class（段 4・2026-10-16）。拡張つきは "geopbf" の GeoPBF（extends GeoPBFBase）。
+export { GeoPBF, makeKeys, propsKeyOf } from "./pbf-base.ts";
 export { loadGeopbf, decodeToGeojson, fetchAndDecode, sanitizeProperties, resolveInnerUrl } from "./modules/geojson-load.ts";
 export { gzip, gunzip, isGzip } from "./modules/gzip.ts";

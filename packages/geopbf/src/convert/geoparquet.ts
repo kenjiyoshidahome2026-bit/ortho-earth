@@ -4,8 +4,8 @@
 // （kernels.js ③＝長除算で仮数を立てて最近偶数丸め＝JS の `i / 10^p` と bit 一致）。gint（1e-7・L2 は 8 単位丸め）
 // を経由しないので GeoParquet の座標は GeoPBF の値そのもの。bbox は kernels.js ④（feature 毎の整数 min/max）。
 // 属性は GeoPBF の型付き値から列型を推定（BOOLEAN / INT64 / DOUBLE / TIMESTAMP / UTF8・入れ子は "a.b" に平坦化）。
-import { GeoPBF } from "../pbf-base.js";
-import type { Geometry } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
+import type { Geometry } from "../pbf-base.ts";
 import { getDevice } from "./gpu.ts";
 import type { GPUInfo } from "./gpu.ts";
 import { createEngine, cpuEngine } from "./engine.ts";

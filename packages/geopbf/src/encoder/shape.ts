@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと shapeFile() が永久 hang・2026-09-14 根治）
+import { GeoPBF } from "../pbf.ts";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと shapeFile() が永久 hang・2026-09-14 根治）
 import { encodeZIP } from "../modules/encodeZIP.ts";
 import { encodeSJIS } from "../modules/sjis.ts";
 import { isImageData } from "../modules/utility.ts";

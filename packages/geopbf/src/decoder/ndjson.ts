@@ -1,5 +1,5 @@
 // decoder/ndjson.ts ── ブラウザ用 worker：.ndjson / .geojsonl / .jsonl / GeoJSON Text Sequence → GeoPBF バイト列。実体は convert/ndjson.js
-import { dissolve } from "../extension/dissolve.js";
+import { dissolve } from "../extension/dissolve.ts";
 import { fromNdjson } from "../convert/ndjson.ts";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
 
