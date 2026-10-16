@@ -842,7 +842,12 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
-	attribution?: string | ((copyrights: string[]) => string | null) }
+	attribution?: string | ((copyrights: string[]) => string | null);
+	/** スタイル（3D Tiles 1.1・地物ごとの color と show）。setStyle と同じ */
+	style?: Tiles3DStyle | null }
+/** 3D Tiles のスタイル。color・show＝MapLibre の式（["get", 名] は 地物の属性 ＞ content ＞ tile ＞ group ＞ tileset の metadata の順に引く・["id"]＝地物の番号・["feature-state", 名]）。
+ *  color の結果＝CSS 色か [r,g,b,a]（0..1）・show の結果＝真偽（false で抜く）。feature state の color はスタイルの色より勝つ。点群（pnts）には効かない */
+export interface Tiles3DStyle { color?: unknown; show?: unknown }
 export interface Tiles3DHandle {
 	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
@@ -858,6 +863,9 @@ export interface Tiles3DHandle {
 	setFeatureState(featureId: number, state: Record<string, unknown> | null): Tiles3DHandle;
 	getFeatureState(featureId: number): Record<string, unknown>;
 	removeFeatureState(featureId?: number): Tiles3DHandle;
+	/** スタイル（Tiles3DStyle）を差し替える。null で外す（元の色・全部見せる） */
+	setStyle(style: Tiles3DStyle | null): Tiles3DHandle;
+	readonly style: Tiles3DStyle | null;
 }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: GlobeMap }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
