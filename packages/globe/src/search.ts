@@ -9,38 +9,59 @@
 //   供給元は配列でもよい＝並べた順に候補を積む（地域 → 世界 → 外の geocoder）。どれかが落ちても他の候補は出す。
 // 履歴（行った場所）は着地を覚える＝{ title, note, lon, lat, zoom?, tilt?, bbox?, kind?, id? }（旧い履歴＝zoom 無しは viewFor で）。
 import { tr } from "./i18n.ts";
+import type { SearchHit } from "../globe.d.ts";
 const t = tr();
+
+/** 問い合わせ先の最小の形（地域の申告・公式の SearchProvider・世界・geocoder のどれも満たす）。query の答え＝候補の配列（null／undefined＝無し） */
+export interface SearchSource {
+	query(q: string, signal?: AbortSignal): Promise<unknown>;
+	histKey?: string;
+	/** 候補に zoom も bbox も無い時の着地（題名から） */
+	viewFor?(title: string): { zoom: number; tilt?: number } | null | undefined;
+}
+/** 窓の中の候補（供給元の hit＋どの供給元か・座標を選んだ時に引く候補は resolve） */
+interface Cand extends SearchHit { src?: SearchSource; resolve?: () => Promise<SearchHit | null>; [k: string]: unknown }
+/** 着地 */
+interface Landing { lon: number; lat: number; zoom: number; tilt?: number }
+/** 検索窓の配線のオプション。provider＝供給元（1 つか配列）・fit(bbox)→着地 */
+export interface CreateSearchOptions {
+	provider: SearchSource | SearchSource[];
+	onGo: (lon: number, lat: number, zoom: number, tilt?: number) => unknown;
+	onResult?: (hit: SearchHit) => void;
+	fit?: ((bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null | undefined) | null;
+	signal?: AbortSignal; root?: ParentNode & Node; histKey?: string;
+}
 
 const LIMIT = 10, MIN_EACH = 3;   // 候補の総数・後ろの供給元に残す最低の枠（地域が 8 件返しても世界の 3 件は見える）
 const DEFAULT_ZOOM = 12;
 // 供給元ごとの候補 → 1 本（前の供給元が先・後ろの供給元にも最低 MIN_EACH 件の席を残す）
-export function mergeHits(lists, limit = LIMIT, minEach = MIN_EACH) {
-	const out = [];
+export function mergeHits<H>(lists: H[][], limit: number = LIMIT, minEach: number = MIN_EACH): H[] {
+	const out: H[] = [];
 	lists.forEach((hits, k) => {
 		const reserve = lists.slice(k + 1).reduce((s, h) => s + Math.min(h.length, minEach), 0);
 		out.push(...hits.slice(0, Math.max(0, limit - out.length - reserve)));
 	});
 	return out;
 }
-const histId = c => c.id || `${c.title}|${(+c.lon).toFixed(3)}|${(+c.lat).toFixed(3)}`;
+const histId = (c: SearchHit): string => c.id || `${c.title}|${(+c.lon).toFixed(3)}|${(+c.lat).toFixed(3)}`;
 
-export function createSearch({ provider, onGo, onResult, fit, signal, root = document, histKey }) {   // provider＝供給元（1 つか配列）・fit(bbox)→{ lon, lat, zoom }（範囲に寄る倍率＝地図の cameraForBounds）・signal＝map.destroy() で document リスナーを束ごと外すため
-	const providers = [].concat(provider || []).filter(Boolean);
+export function createSearch({ provider, onGo, onResult, fit, signal, root = document, histKey }: CreateSearchOptions): void {   // provider＝供給元（1 つか配列）・fit(bbox)→{ lon, lat, zoom }（範囲に寄る倍率＝地図の cameraForBounds）・signal＝map.destroy() で document リスナーを束ごと外すため
+	const providers = ([] as SearchSource[]).concat(provider || []).filter(Boolean);
 	// root＝地図の容れ物（#173）＝頁に地図が複数でも自分の窓を掴む（document.getElementById は頁で最初の物）
-	const box = root.querySelector("#search");
-	const btn = root.querySelector("#search-btn");
-	const input = root.querySelector("#search-in");
-	const list = root.querySelector("#search-list");
-	let items = [], sel = -1, ac = null, timer = null, composing = false;
+	const box = root.querySelector<HTMLElement>("#search")!;
+	const btn = root.querySelector<HTMLElement>("#search-btn")!;
+	const input = root.querySelector<HTMLInputElement>("#search-in")!;
+	const list = root.querySelector<HTMLElement>("#search-list")!;
+	let items: Cand[] = [], sel = -1, ac: AbortController | null = null, timer: ReturnType<typeof setTimeout> | null = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
 	// 検索履歴（オートコンプリート）：飛んだ地点だけを保存＝「検索した」でなく「行った」場所。入力が空の時に出す。
 	// 鍵＝明示 → 最初に鍵を持つ供給元（地域＝利用者の履歴を引き継ぐ）→ 既定
 	const HIST_KEY = histKey || providers.find(p => p.histKey)?.histKey || "ortho.searches", HIST_MAX = 8;
-	const loadHist = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } };
-	const saveHist = (c, v) => {
+	const loadHist = (): Cand[] => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } };
+	const saveHist = (c: Cand, v: Landing): void => {
 		try {
 			const id = histId(c), h = loadHist().filter(x => histId(x) !== id && !(x.title === c.title && !x.id && x.zoom == null));   // 旧い履歴（倍率なし）の同名も入れ替える
-			const e = { title: c.title, note: c.note || "", lon: c.lon, lat: c.lat };
+			const e: Cand = { title: c.title, note: c.note || "", lon: c.lon, lat: c.lat };
 			if (c.bbox) e.bbox = c.bbox; else { e.zoom = v.zoom; if (v.tilt != null) e.tilt = v.tilt; }   // 範囲は次も寄り直す（画面の大きさが変わっても収まる）・点は着いた倍率
 			if (c.kind) e.kind = c.kind;
 			if (c.id) e.id = c.id;
@@ -59,12 +80,12 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 		else { box.classList.add("open"); input.focus(); }
 	});
 
-	async function query(q) {
+	async function query(q: string): Promise<void> {
 		ac?.abort(); ac = new AbortController();
 		const sig = ac.signal;
-		const res = await Promise.allSettled(providers.map(p => Promise.resolve().then(() => p.query(q, sig)).then(hs => (hs || []).map(h => ({ ...h, src: p })))));
+		const res = await Promise.allSettled(providers.map(p => Promise.resolve().then(() => p.query(q, sig)).then(hs => ((hs as SearchHit[] | null | undefined) || []).map((h): Cand => ({ ...h, src: p })))));
 		if (sig.aborted) return;
-		const ok = res.filter(r => r.status === "fulfilled");
+		const ok = res.filter((r): r is PromiseFulfilledResult<Cand[]> => r.status === "fulfilled");
 		for (const r of res) if (r.status === "rejected" && r.reason?.name !== "AbortError") console.warn("[search] provider failed", r.reason);
 		render(ok.length ? mergeHits(ok.map(r => r.value)) : null);   // 全部落ちた＝通信断も言葉で（白画面同様、黙らない）・一部なら出せる物を出す
 	}
@@ -72,14 +93,14 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 	// 候補リストは #map 直下の動的要素（ガジェットスタックの外＝下段のガジェットより上に描く）。
 	// 表示のたびに検索箱へ位置と幅を追随させる（スタック内の段はガジェット構成で動くため座標は毎回読む）。
 	const placeList = () => {
-		const mapEl = root === document ? document.getElementById("map") : root;
+		const mapEl = (root === document ? document.getElementById("map") : root) as HTMLElement;
 		const r = box.getBoundingClientRect(), m = mapEl.getBoundingClientRect();
 		list.style.left = (r.left - m.left) + "px";
 		list.style.top = (r.bottom - m.top + 4) + "px";
 		list.style.width = r.width + "px";
 	};
 
-	function render(hits, isHist = false) {
+	function render(hits: Cand[] | null, isHist = false): void {
 		list.innerHTML = ""; items = hits || []; sel = -1;
 		if (!hits) list.innerHTML = `<div class="search-empty">${t("Search failed (please check your connection)")}</div>`;
 		else if (!hits.length) list.innerHTML = `<div class="search-empty">${t("No results")}</div>`;
@@ -96,7 +117,7 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 		list.style.display = "block";
 	}
 
-	async function go(i) {
+	async function go(i: number): Promise<void> {
 		let c = items[i]; if (!c) return;
 		input.value = "";   // 飛んだら入力欄は空に戻す＝行き先は履歴（最近の検索）に居るので消えても迷子にならない
 		close(); input.blur();
@@ -113,20 +134,20 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 		onGo(v.lon, v.lat, v.zoom, v.tilt);
 	}
 	// 着地：hit.zoom ＞ hit.bbox（fit）＞ 供給元の viewFor(title)（履歴＝どの供給元か分からない→鍵を持つ最初の供給元）＞ 既定
-	function viewOf(c) {
+	function viewOf(c: Cand): Landing {
 		if (c.zoom != null) return { lon: c.lon, lat: c.lat, zoom: c.zoom, tilt: c.tilt };
 		if (c.bbox && fit) { const f = fit(c.bbox); if (f) return { lon: f.lon, lat: f.lat, zoom: f.zoom, tilt: c.tilt }; }
 		const p = c.src || providers.find(x => x.viewFor);
-		const v = p?.viewFor?.(c.title) || { zoom: DEFAULT_ZOOM };
+		const v: { zoom: number; tilt?: number } = p?.viewFor?.(c.title) || { zoom: DEFAULT_ZOOM };
 		return { lon: c.lon, lat: c.lat, zoom: v.zoom, tilt: v.tilt };
 	}
 
-	const highlight = () => [...list.children].forEach((d, i) => { d.classList.toggle("sel", i === sel); if (d.getAttribute("role") === "option") d.setAttribute("aria-selected", String(i === sel)); });
+	const highlight = (): void => [...list.children].forEach((d, i) => { d.classList.toggle("sel", i === sel); if (d.getAttribute("role") === "option") d.setAttribute("aria-selected", String(i === sel)); });
 	// IME変換中は一切動かない：input は確定まで query しない（半端な読みで叩かない）、keydown は変換操作
 	//（確定Enter・候補送りの↑↓）を奪わない。奪うと「確定Enterで go()→input書き換え→その後にIMEの確定
 	// テキストが追記される」という二重入力になる（実害確認済み）。確定は compositionend で一度だけ拾う。
 	const onInput = () => {
-		clearTimeout(timer);
+		clearTimeout(timer!);
 		const q = input.value.trim();
 		if (!q) { showHist(); return; }   // 空に戻した＝履歴を出す
 		timer = setTimeout(() => query(q), 280);   // デバウンス＝タイプ中はAPIを叩かない
@@ -139,7 +160,7 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 		if (e.isComposing || e.keyCode === 229) return;   // IMEの確定Enter/候補送りはIMEの物
 		if (e.key === "Enter") {
 			if (items.length) go(sel < 0 ? 0 : sel);
-			else { clearTimeout(timer); query(input.value.trim()).then(() => { if (items.length) go(0); }); }   // 一発Enter＝先頭ヒットへ飛ぶ
+			else { clearTimeout(timer!); query(input.value.trim()).then(() => { if (items.length) go(0); }); }   // 一発Enter＝先頭ヒットへ飛ぶ
 		} else if (e.key === "ArrowDown" && items.length) { sel = (sel + 1) % items.length; highlight(); e.preventDefault(); }
 		else if (e.key === "ArrowUp" && items.length) { sel = (sel - 1 + items.length) % items.length; highlight(); e.preventDefault(); }
 		else if (e.key === "Escape") { close(); input.blur(); }
@@ -151,7 +172,7 @@ export function createSearch({ provider, onGo, onResult, fit, signal, root = doc
 	// canvas はフォーカス可能要素でないため、地図をクリックしても input の blur は発火しない（＝空のまま
 	// 地図を触っても窓が畳まれないバグの正体）。検索箱の外の pointerdown で明示的に畳む。
 	document.addEventListener("pointerdown", e => {
-		if (box.contains(e.target) || list.contains(e.target) || !box.classList.contains("open")) return;   // リストは箱の外（#map直下）＝外側クリック判定に含める
+		if (box.contains(e.target as Node | null) || list.contains(e.target as Node | null) || !box.classList.contains("open")) return;   // リストは箱の外（#map直下）＝外側クリック判定に含める
 		close();
 		if (!input.value.trim()) box.classList.remove("open");
 		input.blur();

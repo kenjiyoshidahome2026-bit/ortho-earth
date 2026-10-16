@@ -14,59 +14,86 @@
 //   ・summary＝Wikimedia REST page/summary（CORS 開放・資格情報なし）。IDB（native-bucket の Cache）に 30 日・失敗時は期限切れでも出す
 //   ・この file に t("…") を書かない（i18n の走査器は packages/globe/src を本体として読む）＝文言は呼び手が labels で渡す
 import { Cache } from "native-bucket";
+import type { CacheFn } from "native-bucket";
 
-export const LOGO = "https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg";
-export const CAN_FRAME = typeof HTMLIFrameElement !== "undefined" && "credentialless" in HTMLIFrameElement.prototype;
-export const DEFAULT_FALLBACK = ["en", "ja"];   // 自分の言語に記事が無い時の順（parks と同じ：英語 → 日本語）
+/** 記事の冒頭（REST summary を整えた物） */
+export interface WikiSummary { lang: string; title: string; extract: string; extractHtml: string; description: string; thumbnail: string | null; url: string }
+/** 取り方（ttl＝IDB の控えの寿命 ms・fetch＝差し替え） */
+export interface WikiFetchOptions { ttl?: number; signal?: AbortSignal; fetch?: typeof globalThis.fetch }
+/** 検索の候補 */
+export interface WikiSearchHit { title: string; description: string; url: string }
+/** 枠の文言（呼び手の t() で訳して渡す） */
+export interface WikiLabels { newTab?: string; close?: string }
+export interface WikiFrameOptions {
+	host: HTMLElement; className?: string; labels?: WikiLabels | (() => WikiLabels | null | undefined) | null;
+	mobile?: boolean; esc?: boolean; logo?: boolean;
+	onOpen?: (url: string, name: string) => void; onClose?: () => void; stopEvents?: boolean;
+}
+/** 記事の枠（頁の上の iframe） */
+export interface WikiFrame {
+	el: HTMLDivElement;
+	open(url: string | null | undefined, name?: string): boolean;
+	close(): boolean;
+	link(a: HTMLAnchorElement, url: string, name?: string): HTMLAnchorElement;
+	readonly url: string | null;
+	readonly isOpen: boolean;
+	remove(): void;
+}
+
+export const LOGO: string = "https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg";
+export const CAN_FRAME: boolean = typeof HTMLIFrameElement !== "undefined" && "credentialless" in HTMLIFrameElement.prototype;
+export const DEFAULT_FALLBACK: string[] = ["en", "ja"];   // 自分の言語に記事が無い時の順（parks と同じ：英語 → 日本語）
 
 // ── URL ──
-export const wikiTitle = title => String(title ?? "").trim().replace(/ /g, "_");
-export const wikiUrl = (title, lang = "en", { mobile = false } = {}) => `https://${lang}${mobile ? ".m" : ""}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle(title))}`;
-export const toMobile = url => String(url).replace(/^(https?:\/\/[a-z-]+)\.wikipedia\.org\//, "$1.m.wikipedia.org/");
-export const toDesktop = url => String(url).replace(/^(https?:\/\/[a-z-]+)\.m\.wikipedia\.org\//, "$1.wikipedia.org/");
-export const parseWikiUrl = url => {
+export const wikiTitle = (title: unknown): string => String(title ?? "").trim().replace(/ /g, "_");
+export const wikiUrl = (title: unknown, lang: string = "en", { mobile = false }: { mobile?: boolean } = {}): string => `https://${lang}${mobile ? ".m" : ""}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle(title))}`;
+export const toMobile = (url: unknown): string => String(url).replace(/^(https?:\/\/[a-z-]+)\.wikipedia\.org\//, "$1.m.wikipedia.org/");
+export const toDesktop = (url: unknown): string => String(url).replace(/^(https?:\/\/[a-z-]+)\.m\.wikipedia\.org\//, "$1.wikipedia.org/");
+export const parseWikiUrl = (url: unknown): { lang: string; title: string } | null => {
 	const m = String(url ?? "").match(/^https?:\/\/([a-z-]+?)(?:\.m)?\.wikipedia\.org\/wiki\/([^?#]+)/);
 	if (!m) return null;
 	let title = m[2]; try { title = decodeURIComponent(title); } catch { /* 壊れた %＝そのまま */ }
 	return { lang: m[1], title: title.replace(/_/g, " ") };
 };
 // 言語の順（自分の言語 → 控え）。重複と空は落とす
-export const langChain = (lang, fallback = DEFAULT_FALLBACK) => [...new Set([lang, ...fallback].filter(Boolean))];
+export const langChain = (lang: string | null | undefined, fallback: readonly string[] = DEFAULT_FALLBACK): string[] => [...new Set([lang, ...fallback].filter(Boolean))] as string[];
 // { lang: 記事名 } から langs の順で最初の記事（無ければ null）
-export const pickTitle = (titles, langs) => { for (const l of langs || []) { const t = titles?.[l]; if (t) return { lang: l, title: t }; } return null; };
+export const pickTitle = (titles: Record<string, string | null | undefined> | null | undefined, langs: readonly string[] | null | undefined): { lang: string; title: string } | null => { for (const l of langs || []) { const t = titles?.[l]; if (t) return { lang: l, title: t }; } return null; };
 
 // ── 冒頭（REST summary）──
 const TTL = 30 * 24 * 3600 * 1000;
-const mem = new Map();          // 同じ頁の中では 1 回だけ取る
-let _idb = null;                // IDB は遅延で開く（private mode 等で開けなければメモリだけで続ける）
-const idb = () => _idb ||= Cache("wiki/summary").catch(() => null);
-const sumKey = (title, lang) => `${lang}::${wikiTitle(title)}`;
-export const SUMMARY_URL = (title, lang) => `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle(title))}`;
-const shape = (j, title, lang) => ({
+const mem = new Map<string, WikiSummary>();          // 同じ頁の中では 1 回だけ取る
+let _idb: Promise<CacheFn | null> | null = null;                // IDB は遅延で開く（private mode 等で開けなければメモリだけで続ける）
+const idb = (): Promise<CacheFn | null> => _idb ||= Cache("wiki/summary").catch(() => null);
+const sumKey = (title: unknown, lang: string): string => `${lang}::${wikiTitle(title)}`;
+export const SUMMARY_URL = (title: unknown, lang: string): string => `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTitle(title))}`;
+/** REST page/summary の答え（使う分） */
+interface RestSummary { title?: string; extract?: string; extract_html?: string; description?: string; thumbnail?: { source?: string }; content_urls?: { desktop?: { page?: string } } }
+const shape = (j: RestSummary, title: unknown, lang: string): WikiSummary => ({
 	lang, title: j.title || String(title),
 	extract: j.extract || "", extractHtml: j.extract_html || "", description: j.description || "",
 	thumbnail: j.thumbnail?.source || null,
 	url: j.content_urls?.desktop?.page || wikiUrl(title, lang),
 });
 // 記事の冒頭。戻り＝{ lang, title, extract, extractHtml, description, thumbnail, url }／無い・取れない＝null
-export async function summary(title, lang = "en", { ttl = TTL, signal, fetch: f = globalThis.fetch } = {}) {
+export async function summary(title: string | null | undefined, lang: string = "en", { ttl = TTL, signal, fetch: f = globalThis.fetch }: WikiFetchOptions = {}): Promise<WikiSummary | null> {
 	if (!title) return null;
 	const key = sumKey(title, lang);
-	if (mem.has(key)) return mem.get(key);
+	if (mem.has(key)) return mem.get(key)!;
 	const store = await idb();
-	const hit = store ? await store(key).catch(() => null) : null;
+	const hit = (store ? await store(key).catch(() => null) : null) as { t: number; data: WikiSummary } | null;
 	if (hit?.data && Date.now() - hit.t < ttl) { mem.set(key, hit.data); return hit.data; }
-	let data = null;
+	let data: WikiSummary | null = null;
 	try {
 		const r = await f(SUMMARY_URL(title, lang), { credentials: "omit", headers: { Accept: "application/json" }, signal });
 		if (r.ok) data = shape(await r.json(), title, lang);
 		else if (r.status !== 404) data = hit?.data ?? null;   // 失敗時は期限切れでも出す（無いよりまし）。404＝記事なし
-	} catch (e) { if (e?.name === "AbortError") throw e; data = hit?.data ?? null; }
+	} catch (e) { if ((e as Error | null)?.name === "AbortError") throw e; data = hit?.data ?? null; }
 	if (data) { mem.set(key, data); store?.(key, { t: Date.now(), data }).catch(() => {}); }
 	return data;
 }
 // { lang: 記事名 } を langs の順に試し、最初に取れた冒頭（無ければ null）
-export async function summaryIn(titles, langs, opts) {
+export async function summaryIn(titles: Record<string, string | null | undefined> | null | undefined, langs: readonly string[] | null | undefined, opts?: WikiFetchOptions): Promise<WikiSummary | null> {
 	for (const l of langs || []) {
 		const t = titles?.[l]; if (!t) continue;
 		const s = await summary(t, l, opts);
@@ -76,12 +103,12 @@ export async function summaryIn(titles, langs, opts) {
 }
 
 // ── 候補を探す（action=opensearch・CORS は origin=*）。戻り＝[{ title, description, url }] ──
-export async function search(query, lang = "en", { limit = 10, signal, fetch: f = globalThis.fetch } = {}) {
+export async function search(query: unknown, lang: string = "en", { limit = 10, signal, fetch: f = globalThis.fetch }: { limit?: number; signal?: AbortSignal; fetch?: typeof globalThis.fetch } = {}): Promise<WikiSearchHit[]> {
 	const q = String(query ?? "").trim(); if (!q) return [];
 	const u = `https://${lang}.wikipedia.org/w/api.php?action=opensearch&format=json&origin=*&namespace=0&limit=${limit}&search=${encodeURIComponent(q)}`;
 	const r = await f(u, { credentials: "omit", signal });
 	if (!r.ok) return [];
-	const [, titles = [], descs = [], urls = []] = await r.json();
+	const [, titles = [], descs = [], urls = []] = await r.json() as [unknown, string[]?, string[]?, string[]?];
 	return titles.map((title, i) => ({ title, description: descs[i] || "", url: urls[i] || wikiUrl(title, lang) }));
 }
 
@@ -109,23 +136,23 @@ const ensureCss = () => {
 	document.head.prepend(s);   // 先頭＝呼び手の CSS（後で読まれる）が同じ強さで勝つ
 };
 
-export function createWikiFrame({ host, className = "", labels = {}, mobile = true, esc = true, logo = true, onOpen, onClose, stopEvents = true } = {}) {
+export function createWikiFrame({ host, className = "", labels = {}, mobile = true, esc = true, logo = true, onOpen, onClose, stopEvents = true }: WikiFrameOptions = {} as WikiFrameOptions): WikiFrame {
 	if (!host) throw new Error("createWikiFrame: host is required");
 	ensureCss();
-	const L = () => { const l = (typeof labels === "function" ? labels() : labels) || {}; return { newTab: l.newTab || "Open in a new tab", close: l.close || "Close" }; };
+	const L = (): { newTab: string; close: string } => { const l = (typeof labels === "function" ? labels() : labels) || {}; return { newTab: l.newTab || "Open in a new tab", close: l.close || "Close" }; };
 	const el = document.createElement("div");
 	el.className = ("oe-wiki " + className).trim(); el.hidden = true;
 	el.innerHTML = `<div class="oe-wiki-bar">${logo ? `<img class="oe-wiki-logo" alt="Wikipedia" src="${LOGO}">` : ""}<b class="oe-wiki-title"></b>` +
 		`<a class="oe-wiki-newtab" target="_blank" rel="noopener">↗</a><button class="oe-wiki-close" type="button">✕</button></div>` +
 		`<iframe class="oe-wiki-frame" title="Wikipedia" credentialless referrerpolicy="no-referrer"></iframe>`;
-	const $ = c => el.querySelector("." + c);
-	const title = $("oe-wiki-title"), newtab = $("oe-wiki-newtab"), closeBtn = $("oe-wiki-close"), frame = $("oe-wiki-frame");
+	const $ = <E extends Element>(c: string): E => el.querySelector<E>("." + c)!;
+	const title = $<HTMLElement>("oe-wiki-title"), newtab = $<HTMLAnchorElement>("oe-wiki-newtab"), closeBtn = $<HTMLButtonElement>("oe-wiki-close"), frame = $<HTMLIFrameElement>("oe-wiki-frame");
 	const relabel = () => { const l = L(); newtab.title = l.newTab; newtab.setAttribute("aria-label", l.newTab); closeBtn.title = l.close; closeBtn.setAttribute("aria-label", l.close); };
 	relabel();
 	if (stopEvents) for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu", "touchstart"]) el.addEventListener(ev, e => e.stopPropagation());   // 枠の上の操作を地図に渡さない
-	let url = null;
-	const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
-	function open(u, name = "") {
+	let url: string | null = null;
+	const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+	function open(u: string | null | undefined, name = ""): boolean {
 		if (!u) return false;
 		if (!CAN_FRAME) { window.open(u, "_blank", "noopener"); return false; }   // credentialless 非対応＝別タブ
 		url = toDesktop(u);
@@ -137,7 +164,7 @@ export function createWikiFrame({ host, className = "", labels = {}, mobile = tr
 		onOpen?.(url, name);
 		return true;
 	}
-	function close() {
+	function close(): boolean {
 		if (el.hidden) return false;
 		el.hidden = true; url = null;
 		frame.src = "about:blank";   // 読み込み・音を止める（属性を外すだけでは止まらない）
@@ -146,7 +173,7 @@ export function createWikiFrame({ host, className = "", labels = {}, mobile = tr
 		return true;
 	}
 	// <a> を枠のリンクにする：href は通常版（右クリック・修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
-	function link(a, u, name = "") {
+	function link(a: HTMLAnchorElement, u: string, name = ""): HTMLAnchorElement {
 		a.href = u; a.target = "_blank"; a.rel = "noopener";
 		a.addEventListener("click", e => { if (!CAN_FRAME || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return; e.preventDefault(); open(u, name); });
 		return a;
