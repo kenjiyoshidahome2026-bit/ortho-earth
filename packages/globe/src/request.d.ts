@@ -7,7 +7,7 @@ export interface ResponseLike { ok: boolean; status: number; url?: string; heade
 /** url を手入れした結果（load＝独自スキームの読み口） */
 export interface ResolvedRequest { url: string; headers: Record<string, string> | undefined; credentials: RequestCredentials | undefined; load?(want?: "arrayBuffer" | "json" | "image" | "string", ac?: AbortController): Promise<unknown> }
 export interface Requester {
-	setTransform(fn: TransformRequestFunction | null): void;
+	setTransform(fn: TransformRequestFunction | null | undefined): void;
 	readonly transform: TransformRequestFunction | null;
 	resolve(url: string, type?: ResourceType): ResolvedRequest;
 	fetch(url: string, type?: ResourceType, init?: RequestInit): Promise<Response | ResponseLike>;

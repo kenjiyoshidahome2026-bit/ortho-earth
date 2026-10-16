@@ -1,4 +1,4 @@
-// @ortho-earth/globe の型定義（公開面のみ・手書きの正典）。実装＝packages/globe/src/globe.js（createGlobe が返す map）。
+// @ortho-earth/globe の型定義（公開面のみ・手書きの正典）。実装＝packages/globe/src/globe.ts（createGlobe が返す map）。
 // SDK（@ortho-earth/japan）の lib/ortho-japan.d.ts はこのファイル＋ SDK の入口（default orthoJapan）を build 時に継いだ物（sdk/japan/scripts/build-dts.mjs・2026-09-25）。
 // 名前の OrthoJapan* は SDK 以来の型名＝互換のため残す（globe の名前は末尾の GlobeMap / GlobeOptions）。
 // AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
@@ -657,7 +657,7 @@ export type RasterSpec =
 	/** WMTS（#45）＝capabilities（GetCapabilities の URL）を読むか、KVP を手で（url・layer・tileMatrixSet）。ウェブメルカトルの行列だけ描ける。REST の型紙は url に {TileMatrix}/{TileRow}/{TileCol} を書いて XYZ 形で渡してもよい */
 	| { wmts: { capabilities: string; layer?: string; style?: string; format?: string } | { url: string; layer: string; tileMatrixSet: string; style?: string; format?: string; matrixIds?: string[] }; minZoom?: number; maxZoom?: number; attribution?: string; name?: string }
 	| { file: File; table?: string; name?: string; attribution?: string }
-	| { port: MessagePort; name?: string; attribution?: string }
+	| { port: MessagePort; name?: string; attribution?: string | null }
 	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string }
 	/** IIIF の古地図を基準点で歪みを直して地面に貼る（1.14.0〜・#177）。iiif＝Georeference Annotation（Allmaps の形・1 枚でもページでも）の URL か object。
 	 *  変換＝注記の transformation（polynomial 1〜3 次・thinPlateSpline・projective・helmert・無ければ 1 次）。画像は IIIF Image API（v2/v3・level0 の静的タイルも）から要る段とタイルだけ。
