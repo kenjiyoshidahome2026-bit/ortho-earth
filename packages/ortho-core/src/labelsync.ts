@@ -4,14 +4,19 @@
 // 送り手：物 → 番号（WeakMap）。集合 = { ids: Uint32Array（並び）, add: [id, L, id, L, …]（worker がまだ持たない物） }。
 // 受け手：番号 → 物を持ち、並びを復元。並びに無い物は捨てる（送り手の sent と鏡）。
 // 持っていない番号が来たら（worker が作り直された等）null を埋めて missing を数える＝呼び手が送り手に reset を頼んで全部送り直す。
-import { labelKey } from "./labelkey.js";
+import { labelKey } from "./labelkey.ts";
 export { labelKey };
 
-export function createLabelSender() {
-	const ids = new WeakMap();
-	let next = 1, sent = new Set();
-	function encode(list) {
-		const n = list.length, out = new Uint32Array(n), add = [], now = new Set();
+/** 差分の荷＝並び（番号）と、受け手がまだ持たない物（[id, L, id, L, …]） */
+export interface LabelDelta<T> { ids: Uint32Array; add: (number | T)[] }
+export type LabelSender<T extends object> = ((list: readonly T[]) => LabelDelta<T>) & { reset: () => void; size: () => number };
+export type LabelReceiver<T> = ((msg: T[] | { ids: ArrayLike<number>; add: ArrayLike<unknown> }) => { list: T[]; missing: number }) & { reset: () => void };
+
+export function createLabelSender<T extends object>(): LabelSender<T> {
+	const ids = new WeakMap<T, number>();
+	let next = 1, sent = new Set<number>();
+	function encode(list: readonly T[]): LabelDelta<T> {
+		const n = list.length, out = new Uint32Array(n), add: (number | T)[] = [], now = new Set<number>();
 		for (let i = 0; i < n; i++) {
 			const L = list[i];
 			let id = ids.get(L);
@@ -23,18 +28,18 @@ export function createLabelSender() {
 		sent = now;
 		return { ids: out, add };
 	}
-	encode.reset = () => { sent = new Set(); };   // worker が集合を失った（作り直し・同期ずれ）＝次は全部送る
-	encode.size = () => sent.size;
+	encode.reset = (): void => { sent = new Set(); };   // worker が集合を失った（作り直し・同期ずれ）＝次は全部送る
+	encode.size = (): number => sent.size;
 	return encode;
 }
 
-export function createLabelReceiver() {
-	let held = new Map();
-	function decode(msg) {
+export function createLabelReceiver<T>(): LabelReceiver<T> {
+	let held = new Map<number, T>();
+	function decode(msg: T[] | { ids: ArrayLike<number>; add: ArrayLike<unknown> }): { list: T[]; missing: number } {
 		if (Array.isArray(msg)) { held = new Map(); return { list: msg, missing: 0 }; }   // 旧形（配列そのまま）
 		const { ids, add } = msg;
-		for (let i = 0; i < add.length; i += 2) held.set(add[i], add[i + 1]);
-		const n = ids.length, list = [], keep = new Map();
+		for (let i = 0; i < add.length; i += 2) held.set(add[i] as number, add[i + 1] as T);
+		const n = ids.length, list: T[] = [], keep = new Map<number, T>();
 		let missing = 0;
 		for (let i = 0; i < n; i++) {
 			const id = ids[i], L = held.get(id);
@@ -44,6 +49,6 @@ export function createLabelReceiver() {
 		held = keep;
 		return { list, missing };
 	}
-	decode.reset = () => { held = new Map(); };
+	decode.reset = (): void => { held = new Map(); };
 	return decode;
 }

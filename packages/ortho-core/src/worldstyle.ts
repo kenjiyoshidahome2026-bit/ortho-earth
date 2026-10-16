@@ -3,17 +3,33 @@
 // 全球ハイプソの色は worldpal.js（WORLD_PAL_THEMES）＝ここは「それ以外」＝紙・海・外形・境界・水系・市街地・道路・鉄道・点・レチクル・ラベル。
 // 値の形：GL 用は "#rrggbb" か ["#rrggbb", α]（hex() で [r,g,b,a] へ）・labelColor と capital は CSS 色（canvas2D）。テーマ名と c= トークンは japan と同じ綴り。
 // 【掟】地図面に出る色をアプリの層へリテラルで書かない＝ここへキーを作る（equal の掟を全員の掟に）。
-import { WORLD_PAL_THEMES } from "./worldpal.js";
+import { WORLD_PAL_THEMES, type WorldPal } from "./worldpal.ts";
 
-export const hex = (h, a = 1) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, a];
+/** "#rrggbb" か ["#rrggbb", α] */
+export type ThemeColor = string | [string, number];
+/** 世界の地図面のテーマ 1 つ */
+export interface WorldStyleTheme {
+	label: string; swatch: string; dark: boolean; world: Partial<WorldPal> | null;
+	capital: string;
+	sea: string; land: string; bg: string; edge: ThemeColor;
+	coast: string; border: string; admin1: ThemeColor;
+	maritime: ThemeColor;
+	lakeShore: string; river: string; urban: ThemeColor;
+	disputed: ThemeColor; disputedLine: ThemeColor;
+	road: string; rail: string; port: string; airport: string;
+	grat: ThemeColor; grat10: ThemeColor;
+	labelColor: { country: string; city: string; halo: string };
+}
+
+export const hex = (h: string, a = 1): [number, number, number, number] => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, a];
 /** "#rrggbb" / ["#rrggbb", α] → CSS 色文字列（canvas2D・gint の paint 式）。α を渡すと上書き */
-export const css = (v, alpha) => {
+export const css = (v: ThemeColor, alpha?: number): string => {
 	const h = Array.isArray(v) ? v[0] : v, a = alpha ?? (Array.isArray(v) ? v[1] : 1);
 	if (a >= 1) return h;
 	return `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
 };
 
-export const WORLD_STYLE_THEMES = {
+export const WORLD_STYLE_THEMES: Record<string, WorldStyleTheme> = {
 	// mono＝白地図（既定）＝従来の equal の顔そのもの。world 省略＝worldpal の自然色（NE 風）。
 	mono: {
 		label: "Blank map", swatch: "#f7f7f6", dark: false, world: WORLD_PAL_THEMES.mono,
@@ -71,8 +87,8 @@ export const WORLD_STYLE_THEMES = {
 
 // japan と同じ綴りを正とし、口語の別名だけ受ける（?c=night → dark）。未知の名前は null（呼び手が既定へ）。
 // gsi＝旧名（2026-09-24 改名前に配った共有 URL・名刺 QR・台本の c=gsi を殺さない＝別名は永久に残す）
-const ALIAS = { night: "dark", light: "mono", blank: "mono", white: "mono", default: "mono", gsi: "topo" };
-export const normWorldTheme = name => {
+const ALIAS: Record<string, string> = { night: "dark", light: "mono", blank: "mono", white: "mono", default: "mono", gsi: "topo" };
+export const normWorldTheme = (name: unknown): string | null => {
 	const s = String(name || "").trim().toLowerCase();
 	return WORLD_STYLE_THEMES[s] ? s : (WORLD_STYLE_THEMES[ALIAS[s]] ? ALIAS[s] : null);
 };

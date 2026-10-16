@@ -1,5 +1,21 @@
 // gint の共通の部品（GL2 と WebGPU の両方が使う・純データ構造と計算）。GL の uniform を詰める部分は gl/gint/utility.js（2026-10-15 に分けた）。
 
+/** 頂点のバッファ（Morton 符号化・u32 2 本で 1 頂点＝Uint8Array などの view） */
+export type ArcBuffer = ArrayBufferView & { length: number };
+/** 辺メタのチャンク台帳の 1 件（可視カリング単位） */
+export interface EdgeChunk { start: number; end: number; bbox: number[]; sx: number; sy: number; sub?: number[] | null }
+export interface EdgeMetaOptions { orderBbox?: Map<number, number[]> | null; chunkEdges?: number }
+/** buildEdgeMeta の戻り */
+export interface EdgeMeta { metaU32: Uint32Array; edgeCount: number; polyEdgeCount: number; polyEdgeByFid: Map<number, [number, number]>; chunks: EdgeChunk[] | null; seamSkipped?: number; subCount?: number; sub?: number[] | null; spanX?: number; spanY?: number }
+/** buildBoundaryEdgeMeta の戻り */
+export interface BoundaryEdgeMeta { metaU32: Uint32Array; edgeCount: number; polyEdgeCount: number; subCount?: number; sub?: number[] | null; spanX?: number; spanY?: number }
+export interface WeightHist { hist: Float64Array; nUsages: number }
+/** 遠方の要の uniform 一式 */
+export interface FarPivotParams { axes: number[]; q: number[]; big: number[] }
+/** 遠方の要が読む drawData（farAxes／farScale は drawdata.js・atlas は窓座標モード） */
+export interface FarPivotInput { atlas?: { inv: ArrayLike<number> } | null; farAxes?: ArrayLike<number> | null; farScale?: number[] | null }
+interface SpanTracker { sx: number; sy: number; ax: number; ay: number; add(a: number, b: number): number; close(): [number, number] }
+interface SubRows { metaU32: Uint32Array; subCount: number; sub: number[] | null }
 
 // ── 塗り扇の画面カリング＝遠方の要（2026-10-13）──
 // 塗り（stencil／idfill）は feature ごとの要から各辺へ三角形を張り、巻き数で内側を決める。要が bbox 中心だと、視野より
@@ -13,22 +29,22 @@ export const FAR_PIVOT = { on: true };
 export const FAR_K = 64, FAR_BIG = 2;
 // uniform 一式（GL bindPivot・WebGPU packGF 共通・d.farAxes は drawdata.js computeDrawData が作る）。vbb＝視野（窓座標モードは窓）の bbox e7。null＝無効
 // axes＝NDC での東・北の向き（窓座標モードは経緯度そのもの）・q＝(経度差の重み, 緯度差の重み)・big＝要を遠方へ置く feature の幅/高さ下限（e7）
-export function farPivotParams(d, vbb) {
+export function farPivotParams(d: FarPivotInput, vbb: ArrayLike<number> | null | undefined): FarPivotParams | null {
 	if (!FAR_PIVOT.on || !vbb) return null;
-	let axes, q;
+	let axes: number[], q: number[];
 	if (d.atlas) { axes = [1, 0, 0, 1]; q = [d.atlas.inv[0], d.atlas.inv[1]]; }   // 窓座標＝x が経度・y が緯度に線形（重みは窓の縦横比）
-	else if (d.farAxes) { axes = d.farAxes; q = d.farScale; }
+	else if (d.farAxes) { axes = Array.from(d.farAxes); q = d.farScale!; }
 	else return null;   // 画面中心が地球を外れる（空を向く）＝向きが決まらない
 	const big = [Math.min(0xFFFFFFFF, (vbb[2] - vbb[0]) * FAR_BIG), Math.min(0xFFFFFFFF, (vbb[3] - vbb[1]) * FAR_BIG)];
 	return { axes, q, big };
 }
 // 境界メタ（単一要）の遠方の要：境界メタの環は fid を跨いで閉じる＝要は 1 点ならどこでも巻き数は同じ（旧＝画面中心＝全三角形が画面を横切る）。
 // 層全体の bbox が視野の FAR_BIG 倍を超える時だけ、per-fid と同じ「張り出し最小の側の反対」の遠方の 1 点（NDC）を返す。null＝従来の画面中心
-const _layerBbox = new WeakMap();   // polyBboxByFid（Map）→ 層 bbox（e7）。縫い目跨ぎ（x>360e7）を含む層は null
-export function layerBboxOf(polyBboxByFid) {
+const _layerBbox = new WeakMap<Map<number, number[]>, number[] | null>();   // polyBboxByFid（Map）→ 層 bbox（e7）。縫い目跨ぎ（x>360e7）を含む層は null
+export function layerBboxOf(polyBboxByFid: Map<number, number[]> | null | undefined): number[] | null {
 	if (!polyBboxByFid?.size) return null;
-	if (_layerBbox.has(polyBboxByFid)) return _layerBbox.get(polyBboxByFid);
-	let b = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0];
+	if (_layerBbox.has(polyBboxByFid)) return _layerBbox.get(polyBboxByFid)!;
+	let b: number[] | null = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0];
 	for (const bb of polyBboxByFid.values()) {
 		if (bb[2] > 3600000000) { b = null; break; }
 		if (bb[0] < b[0]) b[0] = bb[0]; if (bb[1] < b[1]) b[1] = bb[1]; if (bb[2] > b[2]) b[2] = bb[2]; if (bb[3] > b[3]) b[3] = bb[3];
@@ -36,10 +52,10 @@ export function layerBboxOf(polyBboxByFid) {
 	_layerBbox.set(polyBboxByFid, b);
 	return b;
 }
-export function farPivotGlobal(d, vbb, lb) {
+export function farPivotGlobal(d: FarPivotInput, vbb: ArrayLike<number> | null | undefined, lb: ArrayLike<number> | null | undefined): number[] | null {
 	const fp = lb ? farPivotParams(d, vbb) : null;
-	if (!fp || !(lb[2] - lb[0] > fp.big[0] || lb[3] - lb[1] > fp.big[1])) return null;
-	const oL = (vbb[0] - lb[0]) * fp.q[0], oR = (lb[2] - vbb[2]) * fp.q[0], oB = (vbb[1] - lb[1]) * fp.q[1], oT = (lb[3] - vbb[3]) * fp.q[1];
+	if (!fp || !(lb![2] - lb![0] > fp.big[0] || lb![3] - lb![1] > fp.big[1])) return null;
+	const oL = (vbb![0] - lb![0]) * fp.q[0], oR = (lb![2] - vbb![2]) * fp.q[0], oB = (vbb![1] - lb![1]) * fp.q[1], oT = (lb![3] - vbb![3]) * fp.q[1];
 	let dx = fp.axes[0], dy = fp.axes[1], m = oL;   // pivotClip（GLSL/WGSL）と同じ選び方
 	if (oR < m) { m = oR; dx = -fp.axes[0]; dy = -fp.axes[1]; }
 	if (oB < m) { m = oB; dx = fp.axes[2]; dy = fp.axes[3]; }
@@ -64,17 +80,17 @@ export function farPivotGlobal(d, vbb, lb) {
 export const SUB_S0 = 1000;   // バケット 0 の下限スパン（e7）＝1e-4°
 export const SUB_NB = 16;     // バケット数（2^15·SUB_S0 = 3.3° > 度アンカー上限 1°）
 export const SUB_DUP = 0x80;  // 複製行の印（meta.b の style バイト bit7）。b>>8 = 元の辺 id
-function makeSpanTracker(arcBuffer) {
+function makeSpanTracker(arcBuffer: ArcBuffer | null | undefined): SpanTracker | null {
 	if (!arcBuffer?.length) return null;
 	const u32 = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
 	let lastIdx = -1, lx = 0, ly = 0, px = 0, py = 0;
-	const dec = idx => {   // shader decodeDLL と同一の Morton 展開（L2 は下位6bit=rank をマスク）
+	const dec = (idx: number): void => {   // shader decodeDLL と同一の Morton 展開（L2 は下位6bit=rank をマスク）
 		const lo = u32[idx * 2], hi = u32[idx * 2 + 1];
 		const loC = (hi & 0x80000000) ? lo : (lo & 0xFFFFFFC0), hiC = hi & 0x7FFFFFFF;
 		px = ((_compact16(hiC) << 16) | _compact16(loC)) >>> 0;
 		py = ((_compact16(hiC >>> 1) << 16) | _compact16(loC >>> 1)) >>> 0;
 	};
-	const t = { sx: 0, sy: 0, ax: 0, ay: 0,   // sx/sy＝現チャンクの最大・ax/ay＝全体の最大
+	const t: SpanTracker = { sx: 0, sy: 0, ax: 0, ay: 0,   // sx/sy＝現チャンクの最大・ax/ay＝全体の最大
 		add(a, b) {   // 返り値＝バケット（-1＝短辺）
 			if (a !== lastIdx) { dec(a); lx = px; ly = py; }
 			dec(b);
@@ -87,14 +103,14 @@ function makeSpanTracker(arcBuffer) {
 			const bk = 31 - Math.clz32(Math.floor(sp / SUB_S0));   // floor(log2(sp/S0))
 			return bk >= SUB_NB ? SUB_NB - 1 : bk;
 		},
-		close() { if (t.sx > t.ax) t.ax = t.sx; if (t.sy > t.ay) t.ay = t.sy; const r = [t.sx, t.sy]; t.sx = 0; t.sy = 0; return r; },
+		close() { if (t.sx > t.ax) t.ax = t.sx; if (t.sy > t.ay) t.ay = t.sy; const r: [number, number] = [t.sx, t.sy]; t.sx = 0; t.sy = 0; return r; },
 	};
 	return t;
 }
 // 複製行の組み立て：bucketOf[e]（-1=短辺）と chunk 台帳から、メタ末尾へ bucket-major・chunk-minor で長辺の複製行を並べ、
 // chunk.sub=[b,start,count,…]（start＝メタ行番号・複製区間）を付ける。chunks 無し＝全体を 1 チャンク扱い（result.sub）。
 // 複製行＝[A, B, (style|SUB_DUP)|(元の辺id<<8), fid]。VS は SUB_DUP を見て元の行を引き直す（lodSnap の歩行・破線位相は元の辺）。
-export function appendSubRows(metaU32, edgeCount, bucketOf, chunks) {
+export function appendSubRows(metaU32: Uint32Array, edgeCount: number, bucketOf: Int8Array, chunks: EdgeChunk[] | null | undefined): SubRows {
 	const ranges = chunks?.length ? chunks.map(c => [c.start, c.end]) : [[0, edgeCount]];
 	const nc = ranges.length;
 	const count = new Uint32Array(SUB_NB * nc);
@@ -112,19 +128,19 @@ export function appendSubRows(metaU32, edgeCount, bucketOf, chunks) {
 		out[row] = metaU32[src]; out[row + 1] = metaU32[src + 1];
 		out[row + 2] = ((metaU32[src + 2] & 0xFF) | SUB_DUP | (e << 8)) >>> 0; out[row + 3] = metaU32[src + 3];
 	}
-	const subOf = c => { const arr = []; for (let b = 0; b < SUB_NB; b++) { const n = count[b * nc + c]; if (n) arr.push(b, edgeCount + off[b * nc + c], n); } return arr.length ? arr : null; };
+	const subOf = (c: number): number[] | null => { const arr: number[] = []; for (let b = 0; b < SUB_NB; b++) { const n = count[b * nc + c]; if (n) arr.push(b, edgeCount + off[b * nc + c], n); } return arr.length ? arr : null; };
 	if (chunks?.length) { for (let c = 0; c < nc; c++) chunks[c].sub = subOf(c); return { metaU32: out, subCount: total, sub: null }; }
 	return { metaU32: out, subCount: total, sub: subOf(0) };
 }
 
-export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0, opts = null) {
+export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStream: Int32Array | null | undefined, lineStream: Int32Array | null | undefined, arcBuffer: ArcBuffer | null = null, minWeight = 0, opts: EdgeMetaOptions | null = null): EdgeMeta {
 	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeCount: 0, polyEdgeByFid: new Map(), chunks: null };
 
 	const arcU32 = (arcBuffer?.length && minWeight > 0)
 		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
 		: null;
 	const getW = arcU32
-		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
+		? (idx: number): number => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
 		: null;
 	// ── 縫い目辺（antimeridian 切断の痕）の除去 ──
 	// エンコーダ（antimeridianFeature）が ±180 で切った MultiPolygon は、同一 fid の2片が縫い目上の辺を逆向きに
@@ -139,15 +155,15 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		? (arcU32 ?? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4))
 		: null;
 	const v2 = [0, 0];
-	const decodeXY = idx => {   // shader decode と同一の Morton 展開（ringArea2 の decode と同式）
-		const lo = seamU32[idx * 2], hi = seamU32[idx * 2 + 1];
+	const decodeXY = (idx: number): number[] => {   // shader decode と同一の Morton 展開（ringArea2 の decode と同式）
+		const lo = seamU32![idx * 2], hi = seamU32![idx * 2 + 1];
 		const loC = (hi & 0x80000000) ? lo : (lo & 0xFFFFFFC0), hiC = hi & 0x7FFFFFFF;
 		v2[0] = ((_compact16(hiC) << 16) | _compact16(loC)) >>> 0;
 		v2[1] = ((_compact16(hiC >>> 1) << 16) | _compact16(loC >>> 1)) >>> 0;
 		return v2;
 	};
-	const onSeam = ix => ix <= 2 || ix >= IXMAX - 2;
-	const seamKeyOf = (a, b) => {   // 両端が縫い目上なら (iy小,iy大) のキー・でなければ null
+	const onSeam = (ix: number): boolean => ix <= 2 || ix >= IXMAX - 2;
+	const seamKeyOf = (a: number, b: number): number | null => {   // 両端が縫い目上なら (iy小,iy大) のキー・でなければ null
 		const pa = decodeXY(a); const ixa = pa[0], iya = pa[1];
 		if (!onSeam(ixa)) return null;
 		const pb = decodeXY(b); const ixb = pb[0], iyb = pb[1];
@@ -155,21 +171,22 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		return iya < iyb ? iya * 4294967296 + iyb : iyb * 4294967296 + iya;
 	};
 	// fid グループ（polyStream の [start,end)）の縫い目対＝2回以上現れるキー集合（無ければ null＝通常経路）
-	const seamPairsOf = (start, end) => {
+	const seamPairsOf = (start: number, end: number): Set<number> | null => {
+		const ps = polyStream!;
 		let touch = false;
 		for (let p = start; p < end && !touch;) {
-			p++; const nr = polyStream[p++];
-			for (let r = 0; r < nr && !touch; r++) { const ac = polyStream[p++];
-				for (let a = 0; a < ac; a++) { const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8; if (arcMeta[m + 4] <= 2 || arcMeta[m + 6] >= IXMAX - 2) { touch = true; } }
+			p++; const nr = ps[p++];
+			for (let r = 0; r < nr && !touch; r++) { const ac = ps[p++];
+				for (let a = 0; a < ac; a++) { const ai = ps[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8; if (arcMeta[m + 4] <= 2 || arcMeta[m + 6] >= IXMAX - 2) { touch = true; } }
 			}
 		}
 		if (!touch) return null;
-		const count = new Map();
+		const count = new Map<number, number>();
 		for (let p = start; p < end;) {
-			p++; const nr = polyStream[p++];
-			for (let r = 0; r < nr; r++) { const ac = polyStream[p++];
+			p++; const nr = ps[p++];
+			for (let r = 0; r < nr; r++) { const ac = ps[p++];
 				for (let a = 0; a < ac; a++) {
-					const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+					const ai = ps[p++], aid = ai < 0 ? ~ai : ai, off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
 					let prev = -1;
 					for (let i = 0; i < len; i++) {   // 向きは対称キーなので正方向だけ走査すれば足りる
 						const idx = off + i;
@@ -180,14 +197,14 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 				}
 			}
 		}
-		let pairs = null;
+		let pairs: Set<number> | null = null;
 		for (const [k, n] of count) if (n >= 2) (pairs ??= new Set()).add(k);
 		return pairs;
 	};
-	let seamSkip = null;   // 現在の fid グループの縫い目対（null＝判定コストゼロ）
+	let seamSkip: Set<number> | null = null;   // 現在の fid グループの縫い目対（null＝判定コストゼロ）
 	let skipped = 0;
 
-	const arcEdges = (aid) => {
+	const arcEdges = (aid: number): number => {
 		const len = arcMeta[aid * 8 + 1];
 		if (!getW) return len - 1;
 		const off = arcMeta[aid * 8];
@@ -197,7 +214,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	};
 
 	let total = 0;
-	const scanStream = s => { if (!s) return; let p = 0;
+	const scanStream = (s: Int32Array | null | undefined): void => { if (!s) return; let p = 0;
 		while (p < s.length) { p++; const ng = s[p++];
 			for (let g = 0; g < ng; g++) { const ac = s[p++];
 				for (let a = 0; a < ac; a++) { const ai = s[p++]; total += arcEdges(ai < 0 ? ~ai : ai); }
@@ -211,10 +228,10 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 
 	// チャンク台帳（可視カリング単位）
 	const chunkEdges = opts?.chunkEdges ?? 0;
-	const chunks = chunkEdges ? [] : null;
+	const chunks: EdgeChunk[] | null = chunkEdges ? [] : null;
 	let ckStart = 0;
-	let ckBox = null;
-	const mergeBox = (aid) => { if (!chunks) return;
+	let ckBox: number[] | null = null;
+	const mergeBox = (aid: number): void => { if (!chunks) return;
 		const m = aid * 8;
 		if (!ckBox) ckBox = [arcMeta[m + 4], arcMeta[m + 5], arcMeta[m + 6], arcMeta[m + 7]];
 		else {
@@ -226,7 +243,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	};
 	const span = makeSpanTracker(arcBuffer);   // 辺スパン→細分バケット（複製行）＋チャンク毎の最長辺（arcBuffer 無し＝未知＝-1）
 	const bucketOf = span ? new Int8Array(total).fill(-1) : null;   // 辺 id → バケット（-1＝短辺＝細分不要）
-	const closeChunk = (force = false) => { if (!chunks) return;
+	const closeChunk = (force = false): void => { if (!chunks) return;
 		const end = j >> 2;
 		if (end - ckStart >= chunkEdges || (force && end > ckStart)) {
 			const sp = span ? span.close() : [-1, -1];
@@ -235,7 +252,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 	};
 
-	const addArc = (arcIdx, styleId, featId) => {
+	const addArc = (arcIdx: number, styleId: number, featId: number): void => {
 		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 		mergeBox(aid);
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
@@ -243,7 +260,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			for (let i = 0; i < len - 1; i++) {
 				const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
 				if (seamSkip) { const k = seamKeyOf(a, b); if (k !== null && seamSkip.has(k)) { skipped++; continue; } }
-				if (span) bucketOf[j >> 2] = span.add(a, b);
+				if (span) bucketOf![j >> 2] = span.add(a, b);
 				buf[j++] = a; buf[j++] = b;
 				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 			}
@@ -257,7 +274,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 				if (getW(idx) >= minWeight) {
 					if (prev !== -1) {
 						if (seamSkip) { const k = seamKeyOf(prev, idx); if (k !== null && seamSkip.has(k)) { skipped++; ei++; prev = idx; continue; } }
-						if (span) bucketOf[j >> 2] = span.add(prev, idx);
+						if (span) bucketOf![j >> 2] = span.add(prev, idx);
 						buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid;
 					}
 					prev = idx;
@@ -267,12 +284,12 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	};
 
 	// Morton 順キー（bbox 中心の上位16bit をインターリーブ）
-	const m16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v; };
-	const mkey = bb => ((m16((((bb[0] >>> 1) + (bb[2] >>> 1)) >>> 16)) | (m16((((bb[1] >>> 1) + (bb[3] >>> 1)) >>> 16)) << 1)) >>> 0);
+	const m16 = (v: number): number => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v; };
+	const mkey = (bb: ArrayLike<number>): number => ((m16((((bb[0] >>> 1) + (bb[2] >>> 1)) >>> 16)) | (m16((((bb[1] >>> 1) + (bb[3] >>> 1)) >>> 16)) << 1)) >>> 0);
 
-	const polyEdgeByFid = new Map();
+	const polyEdgeByFid = new Map<number, [number, number]>();
 	if (polyStream) {
-		const groups = [];   // [fid, pStart, pEnd]
+		const groups: [number, number, number][] = [];   // [fid, pStart, pEnd]
 		let p = 0;
 		while (p < polyStream.length) {
 			const fid = polyStream[p], start = p;
@@ -283,7 +300,8 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			groups.push([fid, start, p]);
 		}
 		if (opts?.orderBbox && groups.length > 1) {
-			const keyOf = fid => { const bb = opts.orderBbox.get(fid); return bb ? mkey(bb) : 0; };
+			const ob = opts.orderBbox;
+			const keyOf = (fid: number): number => { const bb = ob.get(fid); return bb ? mkey(bb) : 0; };
 			groups.sort((a, b) => keyOf(a[0]) - keyOf(b[0]));
 		}
 		for (const [fid, start, end] of groups) {
@@ -305,7 +323,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	}
 	const polyEdgeCount = j >> 2;
 	if (lineStream) {
-		const groups = [];
+		const groups: [number, number, number][] = [];
 		let p = 0;
 		while (p < lineStream.length) {
 			const fid = lineStream[p], start = p;
@@ -315,7 +333,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 		if (opts?.orderBbox && groups.length > 1) {
 			// ライングループは先頭 arc の bbox 中心で代用（[fid][ns][ac][arc0…]＝start+3 が先頭 arc）
-			const keyOf = g => { const ai = lineStream[g[1] + 3], aid = ai < 0 ? ~ai : ai, m = aid * 8;
+			const keyOf = (g: [number, number, number]): number => { const ai = lineStream[g[1] + 3], aid = ai < 0 ? ~ai : ai, m = aid * 8;
 				return mkey([arcMeta[m + 4], arcMeta[m + 5], arcMeta[m + 6], arcMeta[m + 7]]); };
 			groups.sort((a, b) => keyOf(a) - keyOf(b));
 		}
@@ -331,7 +349,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	if (span && !chunks) span.close();   // チャンク台帳無し＝全体最大だけ確定
 	const edgeCount = j >> 2;
 	const meta0 = skipped ? buf.subarray(0, j) : buf;
-	const sub = span ? appendSubRows(meta0, edgeCount, bucketOf, chunks) : { metaU32: meta0, subCount: 0, sub: null };
+	const sub: SubRows = span ? appendSubRows(meta0, edgeCount, bucketOf!, chunks) : { metaU32: meta0, subCount: 0, sub: null };
 	return { metaU32: sub.metaU32, edgeCount, polyEdgeCount, polyEdgeByFid, chunks, seamSkipped: skipped,
 		subCount: sub.subCount, sub: sub.sub,   // 複製行（長辺の細分用）の行数と、台帳無し時の [b,start,count,…]（台帳有りは chunk.sub）
 		spanX: span ? span.ax : -1, spanY: span ? span.ay : -1 };   // 最長辺の経緯度スパン（e7・全体）。-1＝未知
@@ -339,7 +357,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 
 // arc bbox が ±180（ix=0 または 360e7）に載る arc が1つでもあるか＝縫い目辺の有無の門（v1 hasAntimeridianSeam の写し）。
 // roads/筆/大陸データは ±180 に頂点を持たず false＝per-vertex decode を一切走らせない。
-export function hasSeamArc(arcMeta) {
+export function hasSeamArc(arcMeta: Uint32Array | null | undefined): boolean {
 	if (!arcMeta) return false;
 	const IXMAX = 3600000000;
 	for (let i = 0, n = (arcMeta.length / 8) | 0; i < n; i++) {
@@ -352,11 +370,11 @@ export function hasSeamArc(arcMeta) {
 // weight レベル別の累積頂点ヒストグラム（静的キャップと段階別メタの minWeight 選定で共用）。
 // hist[w] = weight >= w の頂点総数（arc 使用回数ぶん重複計上）、nUsages = arc 使用回数。
 // totalEdges(w) = hist[w] - nUsages（1使用 = kept-1 辺）。
-export function buildWeightHist(arcMeta, polyStream, lineStream, arcU32) {
-	const getW = (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
+export function buildWeightHist(arcMeta: Uint32Array, polyStream: Int32Array | null | undefined, lineStream: Int32Array | null | undefined, arcU32: Uint32Array): WeightHist {
+	const getW = (idx: number): number => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
 	const hist = new Float64Array(64);
 	let nUsages = 0;
-	const countStream = (str) => {
+	const countStream = (str: Int32Array | null | undefined): void => {
 		if (!str) return; let p = 0;
 		while (p < str.length) { p++; const ng = str[p++];
 			for (let g = 0; g < ng; g++) { const ac = str[p++];
@@ -383,13 +401,13 @@ export function buildWeightHist(arcMeta, polyStream, lineStream, arcU32) {
 // 前提＝リング向きの一貫性（normalizeRingOrientation を先に一度実行）。
 
 // 1 arc 分の辺を書き出す共通実装。返り値=新しい j。
-function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight, span = null, bucketOf = null) {
+function emitArcEdges(buf: Uint32Array, j: number, arcIdx: number, styleId: number, featId: number, arcMeta: Uint32Array, getW: ((idx: number) => number) | null, minWeight: number, span: SpanTracker | null = null, bucketOf: Int8Array | null = null): number {
 	const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 	const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
 	if (!getW) {
 		for (let i = 0; i < len - 1; i++) {
 			const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
-			if (span) bucketOf[j >> 2] = span.add(a, b);
+			if (span) bucketOf![j >> 2] = span.add(a, b);
 			buf[j++] = a; buf[j++] = b;
 			buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 		}
@@ -401,7 +419,7 @@ function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight,
 		for (let i = iStart; i !== iEnd; i += step) {
 			const idx = off + i;
 			if (getW(idx) >= minWeight) {
-				if (prev !== -1) { if (span) bucketOf[j >> 2] = span.add(prev, idx); buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
+				if (prev !== -1) { if (span) bucketOf![j >> 2] = span.add(prev, idx); buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
 				prev = idx;
 			}
 		}
@@ -409,7 +427,7 @@ function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight,
 	return j;
 }
 
-export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0) {
+export function buildBoundaryEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStream: Int32Array | null | undefined, lineStream: Int32Array | null | undefined, arcBuffer: ArcBuffer | null = null, minWeight = 0): BoundaryEdgeMeta {
 	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeCount: 0 };
 	const nArcs = (arcMeta.length / 8) | 0;
 	const net   = new Int32Array(nArcs);
@@ -429,9 +447,9 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
 		: null;
 	const getW = arcU32
-		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
+		? (idx: number): number => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
 		: null;
-	const arcEdges = (aid) => {
+	const arcEdges = (aid: number): number => {
 		const len = arcMeta[aid * 8 + 1];
 		if (!getW) return len - 1;
 		const off = arcMeta[aid * 8];
@@ -470,7 +488,7 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 		}
 	}
 	if (span) span.close();
-	const sub = span ? appendSubRows(buf, total, bucketOf, null) : { metaU32: buf, subCount: 0, sub: null };
+	const sub: SubRows = span ? appendSubRows(buf, total, bucketOf!, null) : { metaU32: buf, subCount: 0, sub: null };
 	return { metaU32: sub.metaU32, edgeCount: total, polyEdgeCount, subCount: sub.subCount, sub: sub.sub, spanX: span ? span.ax : -1, spanY: span ? span.ay : -1 };
 }
 
@@ -480,7 +498,7 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 // winding 0 の穴 / 負の斑点になる。ロード時に一回、符号付き面積で全リングの向きを検査し、
 // polyStream の参照符号を反転して正規化する。基準は外環の多数決。冪等。
 // 副次効果＝ID バッファ塗り（idfill.js）の G 符号も揃う。
-function _compact16(m) {
+function _compact16(m: number): number {
 	m &= 0x55555555;
 	m = (m | (m >>> 1)) & 0x33333333;
 	m = (m | (m >>> 2)) & 0x0F0F0F0F;
@@ -489,12 +507,12 @@ function _compact16(m) {
 	return m;
 }
 
-export function normalizeRingOrientation(arcBuffer, arcMeta, polyStream) {
+export function normalizeRingOrientation(arcBuffer: ArcBuffer | null | undefined, arcMeta: Uint32Array | null | undefined, polyStream: Int32Array | null | undefined): number {
 	if (!arcBuffer?.length || !arcMeta || !polyStream?.length) return 0;
 	const arcU32 = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
 
 	// idx → [ix, iy]（shader decode と同一の Morton 展開。L2 は下位6bit=rank をマスク）
-	const decode = (idx, out) => {
+	const decode = (idx: number, out: number[]): void => {
 		const lo = arcU32[idx * 2], hi = arcU32[idx * 2 + 1];
 		const loC = (hi & 0x80000000) ? lo : (lo & 0xFFFFFFC0);
 		const hiC = hi & 0x7FFFFFFF;
@@ -505,7 +523,7 @@ export function normalizeRingOrientation(arcBuffer, arcMeta, polyStream) {
 	// リングの符号付き面積×2（e7²単位）。座標はリング先頭からの相対（double 53bit に収める）、
 	// 経度差は 360e7 周期でラップ（antimeridian 跨ぎ対策）。
 	const v = [0, 0];
-	const ringArea2 = (refStart, arcCount) => {
+	const ringArea2 = (refStart: number, arcCount: number): number => {
 		let area2 = 0, x0 = 0, y0 = 0, px = 0, py = 0, first = true;
 		for (let a = 0; a < arcCount; a++) {
 			const ai = polyStream[refStart + a], aid = ai < 0 ? ~ai : ai;
@@ -524,7 +542,7 @@ export function normalizeRingOrientation(arcBuffer, arcMeta, polyStream) {
 	};
 
 	// 1st pass: 全リングの面積を収集、外環の多数派符号を採る
-	const starts = [], counts = [], outers = [], areas = [];
+	const starts: number[] = [], counts: number[] = [], outers: boolean[] = [], areas: number[] = [];
 	let p = 0, outerPlus = 0, outerMinus = 0;
 	while (p < polyStream.length) {
 		p++; const nr = polyStream[p++];
@@ -558,9 +576,9 @@ export function normalizeRingOrientation(arcBuffer, arcMeta, polyStream) {
 // bbox 中心から 180° 以上離れていれば片方を +360e7 して合流（x は 360e7 を超え得る＝消費側 pivotClip/capVisible/bboxVisible/
 // findPolygon は周期で読む）。u32 に収まらない（西片が縫い目から 69° 超）時だけ従来の全幅（消費側の全幅フォールバックが効く）。
 const PERIOD_E7 = 3600000000, HALF_E7 = 1800000000, U32_MAX = 0xFFFFFFFF;
-export function buildPolyBboxByFid(polyStream, arcMeta) {
+export function buildPolyBboxByFid(polyStream: Int32Array | null | undefined, arcMeta: Uint32Array | null | undefined): Map<number, number[]> | null {
 	if (!polyStream || !arcMeta || !polyStream.length) return null;
-	const byFid = new Map(); let p = 0;
+	const byFid = new Map<number, number[]>(); let p = 0;
 	while (p < polyStream.length) {
 		const fid = polyStream[p++], numRings = polyStream[p++];
 		let bb = byFid.get(fid); if (!bb) { bb = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0]; byFid.set(fid, bb); }
@@ -587,9 +605,9 @@ export function buildPolyBboxByFid(polyStream, arcMeta) {
 // 移動中の境界メタ→フル表現の引き継ぎ（oz+1.5）が可視辺27万＞移動予算25万の縮尺に落ちて
 // 「ズーム中に描画なし帯」が生まれる＝札幌37万辺で実証。8 で引き継ぎ点の可視辺18万＝予算内＝連続）。
 // bbox は e7 単位（1e-7 度）。中央値＝antimeridian 跨ぎ等の外れ bbox に頑健。ポリゴン無しは null（=既定へ）。
-export function deriveOutlineZoom(polyBboxByFid, targetPx = 8) {
+export function deriveOutlineZoom(polyBboxByFid: Map<number, number[]> | null | undefined, targetPx = 8): number | null {
 	if (!polyBboxByFid?.size) return null;
-	const diags = [];
+	const diags: number[] = [];
 	for (const bb of polyBboxByFid.values()) {
 		const dx = bb[2] - bb[0], dy = bb[3] - bb[1];
 		if (dx > 0 || dy > 0) diags.push(Math.hypot(dx, dy));
@@ -605,14 +623,14 @@ export function deriveOutlineZoom(polyBboxByFid, targetPx = 8) {
 // filter（fid 表の visible ビット）で隠した地物を識別から外す述語＝findPolygon / identifyAt の accept（2026-09-26・gint draw spec §4.5）。
 // 線と点は GPU の pick が既に visible を見ている＝ホバーで効くのは面（JS の findPolygon）。s＝_fidStyleData を持つ層の状態（GL/WebGPU 共通）。
 // 表が無い層（paint 未設定）は null＝全部通す。表の外の fid（setData 直後の旧い表）も通す
-export function fidVisible(s) {
+export function fidVisible(s: { _fidStyleData?: { u32?: Uint32Array | null; count: number } | null } | null | undefined): ((fid: number) => boolean) | null {
 	const d = s?._fidStyleData;
 	if (!d?.u32) return null;
 	const u = d.u32, n = d.count;
 	return fid => fid >= n || (u[fid * 4 + 2] & 1) !== 0;
 }
 
-export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
+export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }: { arcMeta?: Uint32Array | null; minZoom?: number | null; maxZoom?: number | null; precision?: number }): { minZoom: number | null; maxZoom: number } {
 	const precisionMax = Math.floor(0.491 + precision * 3.322);
 	const requestedMax = maxZoom ?? precisionMax;
 	if (requestedMax > precisionMax) {
@@ -620,7 +638,7 @@ export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
 	}
 	const effectiveMax = Math.min(requestedMax, precisionMax);
 
-	let effectiveMin = minZoom ?? null;
+	let effectiveMin: number | null = minZoom ?? null;
 	if (effectiveMin === null && arcMeta?.length) {
 		let bxMin = 0xFFFFFFFF, byMin = 0xFFFFFFFF, bxMax = 0, byMax = 0;
 		for (let i = 0, n = (arcMeta.length / 8) | 0; i < n; i++) {

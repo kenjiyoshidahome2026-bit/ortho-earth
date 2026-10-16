@@ -10,7 +10,16 @@
 // tier は bakeTier() で1段ずつ（遅延構築・progressive 送信の単位に合わせる）。
 
 import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
-         buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.js';
+         buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.ts';
+import type { ArcBuffer, EdgeMeta, BoundaryEdgeMeta, EdgeChunk, WeightHist } from './utility.ts';
+
+/** 受け取った gint ペイロード（unPackGint の形・読む分） */
+export interface GintPayload { arcBuffer?: ArcBuffer | null; arcMeta?: Uint32Array | null; polyStream?: Int32Array | null; lineStream?: Int32Array | null; pointBuffer?: ArrayBufferView | null; point?: unknown; polyCompBbox?: unknown; fillMaxEdges?: number | null; lowFill?: boolean; [k: string]: unknown }
+/** ベイクが読む gintData（_ringsNormalized／_capMinW はベイクが書く印） */
+export interface GintData { arcBuffer: ArcBuffer | null; arcMeta: Uint32Array | null; polyStream: Int32Array | null; lineStream: Int32Array | null; pointBuffer: ArrayBufferView | null; point: unknown; polyCompBbox: unknown; fillMaxEdges: number | null; lowFill: boolean; _ringsNormalized?: boolean; _capMinW?: number }
+export interface GintPivot { px: Uint32Array; w: number; h: number }
+export interface BakeBaseResult { base: EdgeMeta; boundary: BoundaryEdgeMeta | null; polyBboxByFid: Map<number, number[]> | null; outlineZoom: number | null; fillOff: boolean; lowFill: boolean; capMinW: number; weightHist: WeightHist | null; pivot: GintPivot | null }
+export interface BakedTier { minW: number; edgeCount: number; chunks: EdgeChunk[] | null; metaU32: Uint32Array }
 
 // 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先
 //（ortho-map と同判断）。描画コストは段階別tier＋可視チャンクカリングが回収する。
@@ -32,13 +41,13 @@ export const CHUNK_EDGES = 16384;
 
 // 受け取った gint ペイロード（unPackGint の形）→ ベイクが読む gintData。空の流れは null・層別の塗り上限（fillMaxEdges）と低ズーム塗り（lowFill）も運ぶ。
 // 旧＝同じ写しが 5 か所（GL embed の set/addLayer・GL worker・bakeworker・WebGPU の同期経路）にあり、GL embed の set だけ fillMaxEdges/lowFill を落としていた
-export function gintDataOf(data) {
+export function gintDataOf(data: GintPayload): GintData {
 	return {
 		arcBuffer:    data.arcBuffer   ?? null,
 		arcMeta:      data.arcMeta     ?? null,
 		polyStream:   data.polyStream?.length  ? data.polyStream  : null,
 		lineStream:   data.lineStream?.length  ? data.lineStream  : null,
-		pointBuffer:  data.pointBuffer?.length ? data.pointBuffer : null,
+		pointBuffer:  data.pointBuffer?.byteLength ? data.pointBuffer : null,
 		point:        data.point ?? null,
 		polyCompBbox: data.polyCompBbox ?? null,
 		fillMaxEdges: data.fillMaxEdges ?? null,   // 層ごとの塗り上限上書き（コロプレス土台＝全密度塗りを通す）
@@ -48,7 +57,7 @@ export function gintDataOf(data) {
 
 // 基準メタ＋境界メタ＋台帳一式。gintData は {arcBuffer, arcMeta, polyStream, lineStream} を読む
 //（polyStream は正規化で符号がその場で書き換わる＝呼び出し側のバッファがそのまま真実になる）。
-export function bakeBase(gintData) {
+export function bakeBase(gintData: GintData): BakeBaseResult {
 	// 逆巻きリングの参照符号を正規化（境界メタ netting の前提＋IDバッファ塗りの符号一貫）。データごとに一回。
 	if (!gintData._ringsNormalized) {
 		// polyStream が SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack＝main の unPackGint と同じメモリ）なら
@@ -62,11 +71,11 @@ export function bakeBase(gintData) {
 	const polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
 	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
 	let capMinW = 0;
-	let weightHist = null;
+	let weightHist: WeightHist | null = null;
 	let base = buildEdgeMeta(am, ps, ls, ab, 0, metaOpts);   // ab＝縫い目辺（切断の痕）の除去に使う（minWeight=0 なので LOD キャップは掛からない）
 	if (base.edgeCount > MAX_SAFE_EDGES && ab?.length) {
 		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
-		weightHist = buildWeightHist(am, ps, ls, arcU32);
+		weightHist = buildWeightHist(am!, ps, ls, arcU32);
 		const { hist, nUsages } = weightHist;
 		let minW = 63;
 		for (let w = 0; w < 64; w++) {
@@ -87,7 +96,7 @@ export function bakeBase(gintData) {
 	if (fillOff) console.info('[gint] polyEdges=%d > %d = auto solid fill OFF (outline only)', base.polyEdgeCount, fillCap);
 
 	// 境界メタ（正味参照≠0 の arc のみ＋折れ線全量）。ライン専用（polyStream 無し）はスキップ。
-	let boundary = null;
+	let boundary: BoundaryEdgeMeta | null = null;
 	if (base.edgeCount > 0 && ps?.length) {
 		const b = buildBoundaryEdgeMeta(am, ps, ls, ab, capMinW);
 		if (b.edgeCount > 0) boundary = b;
@@ -95,7 +104,7 @@ export function bakeBase(gintData) {
 
 	// fid→bbox テクスチャの中身（①stencil 扇要=bbox中心＝TBDR パラメータバッファ爆発の根治
 	// ②feature 単位 GPU bbox カリング）。異常に疎な fid はテクスチャが無駄に巨大化＝null（従来要へ）。
-	let pivot = null;
+	let pivot: GintPivot | null = null;
 	if (polyBboxByFid?.size) {
 		let maxFid = 0;
 		for (const fid of polyBboxByFid.keys()) if (fid > maxFid) maxFid = fid;
@@ -122,13 +131,13 @@ export function bakeBase(gintData) {
 // have＝既に構築済みの段（スロット swap-in の途中再開で除外）。plan は同一データ・同一コードで決定的＝
 // 再開時も同じ梯子を再計算して差分だけ積む。返り値は昇順、並べ替えは呼び出し側
 //（scheduleTierBuild は関連度優先、bakeworker は粗い側から）。
-export function tierPlan(gintData, totalEdges, weightHist = null, have = null) {
+export function tierPlan(gintData: GintData, totalEdges: number, weightHist: WeightHist | null = null, have: Set<number> | null = null): number[] {
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 	if (!ab?.length || totalEdges <= 200_000) return [];
 	const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
-	const { hist, nUsages } = weightHist ?? buildWeightHist(am, ps, ls, arcU32);
+	const { hist, nUsages } = weightHist ?? buildWeightHist(am!, ps, ls, arcU32);
 	const cap = gintData._capMinW ?? 0;
-	const cnt = w => hist[w] - nUsages;
+	const cnt = (w: number): number => hist[w] - nUsages;
 	const fineCap = Math.min(totalEdges * 0.7, TIER_MAX_EDGES);
 	let wLo = -1;
 	for (let w = cap + 1; w < 63; w++) if (cnt(w) > 0 && cnt(w) <= fineCap) { wLo = w; break; }
@@ -147,7 +156,7 @@ export function tierPlan(gintData, totalEdges, weightHist = null, have = null) {
 }
 
 // tier 1段のベイク（metaU32/chunks 付き）。orderBbox は bakeBase の polyBboxByFid を渡す。
-export function bakeTier(gintData, w, orderBbox) {
+export function bakeTier(gintData: GintData, w: number, orderBbox: Map<number, number[]> | null | undefined): BakedTier {
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 	const r = buildEdgeMeta(am, ps, ls, ab, w, { orderBbox, chunkEdges: CHUNK_EDGES });
 	return { minW: w, edgeCount: r.edgeCount, chunks: r.chunks, metaU32: r.metaU32 };

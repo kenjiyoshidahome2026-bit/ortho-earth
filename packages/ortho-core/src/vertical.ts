@@ -2,7 +2,7 @@
 // MapLibre の util/script_detection（charHasUprightVerticalOrientation）と util/verticalize_punctuation の写し（要点）：
 //   upright＝縦書きで正立のまま並ぶ字（漢字・かな・ハングル・全角・CJK の記号）。それ以外（ラテン・数字・空白）は 90° 回して並ぶ。
 //   縦書きにできる文字列＝正立の字を 1 つでも含む（allowsVerticalWritingMode）。
-function charUpright(cp) {
+function charUpright(cp: number): boolean {
 	if (cp < 0x1100) return false;
 	return (cp >= 0x1100 && cp <= 0x11FF)     // ハングル字母
 		|| (cp >= 0x2E80 && cp <= 0x2FDF)     // CJK 部首・康熙部首
@@ -22,11 +22,11 @@ function charUpright(cp) {
 		|| (cp >= 0xFFE0 && cp <= 0xFFE6)     // 全角の通貨
 		|| (cp >= 0x20000 && cp <= 0x3134F);  // 漢字拡張 B〜G
 }
-export const allowsVertical = text => { for (const ch of String(text)) if (charUpright(ch.codePointAt(0))) return true; return false; };
+export const allowsVertical = (text: unknown): boolean => { for (const ch of String(text)) if (charUpright(ch.codePointAt(0)!)) return true; return false; };
 // 句読点の縦の形（MapLibre の verticalizedCharacterMap）＋長音「ー」→「｜」
-const VMAP = { "!": "︕", "#": "＃", "$": "＄", "%": "％", "&": "＆", "(": "︵", ")": "︶", "*": "＊", "+": "＋", ",": "︐", "-": "︲", ".": "・", "/": "／", ":": "︓", ";": "︔", "<": "︿", "=": "＝", ">": "﹀", "?": "︖", "@": "＠", "[": "﹇", "\\": "＼", "]": "﹈", "^": "＾", "_": "︳", "`": "｀", "{": "︷", "|": "―", "}": "︸", "~": "～",
+const VMAP: Record<string, string> = { "!": "︕", "#": "＃", "$": "＄", "%": "％", "&": "＆", "(": "︵", ")": "︶", "*": "＊", "+": "＋", ",": "︐", "-": "︲", ".": "・", "/": "／", ":": "︓", ";": "︔", "<": "︿", "=": "＝", ">": "﹀", "?": "︖", "@": "＠", "[": "﹇", "\\": "＼", "]": "﹈", "^": "＾", "_": "︳", "`": "｀", "{": "︷", "|": "―", "}": "︸", "~": "～",
 	"¢": "￠", "£": "￡", "¥": "￥", "¦": "￤", "¬": "￢", "¯": "￣", "–": "︲", "—": "︱", "‘": "﹃", "’": "﹄", "“": "﹁", "”": "﹂", "…": "︙", "‧": "・", "₩": "￦", "、": "︑", "。": "︒", "〈": "︿", "〉": "﹀", "《": "︽", "》": "︾", "「": "﹁", "」": "﹂", "『": "﹃", "』": "﹄", "【": "︻", "】": "︼", "〔": "︹", "〕": "︺", "〖": "︗", "〗": "︘",
 	"！": "︕", "（": "︵", "）": "︶", "，": "︐", "－": "︲", "．": "・", "：": "︓", "；": "︔", "＜": "︿", "＞": "﹀", "？": "︖", "［": "﹇", "］": "﹈", "＿": "︳", "｛": "︷", "｜": "―", "｝": "︸", "｟": "︵", "｠": "︶", "｡": "︒", "｢": "﹁", "｣": "﹂", "ー": "｜", "〜": "｜" };
-export const verticalize = ch => VMAP[ch] ?? ch;
+export const verticalize = (ch: string): string => VMAP[ch] ?? ch;
 // 縦書きで字が回るか（正立でない＝90° 回して並ぶ）。縦の形へ写した句読点は正立
-export const charRotated = ch => !charUpright(verticalize(ch).codePointAt(0));
+export const charRotated = (ch: string): boolean => !charUpright(verticalize(ch).codePointAt(0)!);
