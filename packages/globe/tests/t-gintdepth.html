@@ -26,7 +26,7 @@ try {
 	const { createGintPrograms } = await import("@ortho-earth/core/internal/gl/gint/programs.js");
 	const { uploadGintTextures } = await import("@ortho-earth/core/internal/gl/gint/textures.js");
 	const { renderCleanScene } = await import("@ortho-earth/core/internal/gl/gint/passes.js");
-	const { computeDrawData } = await import("@ortho-earth/core/internal/gint/drawdata.js");
+	const { computeDrawData } = await import("@ortho-earth/core/internal/gint/drawdata.ts");
 
 	const gl = document.getElementById("g").getContext("webgl2", { antialias: false, stencil: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
 	if (!gl) throw new Error("WebGL2なし");

@@ -2,7 +2,7 @@
 // 掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette（../postfx.js の頭書き）。LUT は ../lut.js で読み（worker 内の fetch）、着くまでは無しで描く。
 // canvas の今のテクスチャ（COPY_SRC）を控え（scratch）に copyTextureToTexture し、①明部の抜き出し（半解像度）②ぼかし横③ぼかし縦④合成（scratch＋bloom×strength・四隅の減光）を canvas へ描く。
 // 式は GL2（gl/depthout.js の BRIGHT_FS／BLUR_FS／POST_FS）と同じ。設定の形は ../postfx.js normPost。
-import { loadLUT } from "../lut.js";
+import { loadLUT } from "../lut.ts";
 const TM_MODE = { linear: 0, reinhard: 1, aces: 2, agx: 3, filmic: 4 };
 const FULL_VS = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));

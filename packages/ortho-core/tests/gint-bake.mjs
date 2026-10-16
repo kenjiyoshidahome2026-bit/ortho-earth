@@ -7,9 +7,9 @@
 // 実データ（nps/coast）は tests/data/ にあれば追加検証（無ければ合成のみ＝CI向き決定的）。
 // 使い方: node packages/ortho-core/tests/gint-bake.mjs
 
-import { bakeBase, bakeTier, tierPlan, CHUNK_EDGES } from '../src/gint/bake.js';
+import { bakeBase, bakeTier, tierPlan, CHUNK_EDGES } from '../src/gint/bake.ts';
 import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
-         buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from '../src/gint/utility.js';
+         buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from '../src/gint/utility.ts';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

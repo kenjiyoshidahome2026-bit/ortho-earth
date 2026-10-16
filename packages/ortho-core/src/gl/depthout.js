@@ -9,7 +9,7 @@
 // 既定フレームバッファが MSAA の時は blitFramebuffer で書き込めない（描き先が多重サンプル＝INVALID_OPERATION）＝色は全画面の三角形で写す。
 // 詰め方と行の向きは ../depthout.js（24bit・R が上位・下の行から）。
 // 後処理（bloom・vignette・PR-8・2026-10-12、fxaa・tonemap・lut＝第 3 波 W1）も同じ FBO に乗る＝setPost(p) があれば ②の写しが合成パスになる（深度の申し出が無くても renderworker が begin〜end を挟む）。
-import { loadLUT } from "../lut.js";
+import { loadLUT } from "../lut.ts";
 const TM_MODE = { linear: 0, reinhard: 1, aces: 2, agx: 3, filmic: 4 };
 const VS = `#version 300 es
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;

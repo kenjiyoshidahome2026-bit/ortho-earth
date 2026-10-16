@@ -6,7 +6,7 @@
 //   を組むだけ＝CPU memcpy もフルシーンの GPU 再アップロードも無い。プール配置（アロケータ）の権限はここ：
 //   renderer には grow（成長）/ up（タイルブロック転送）/ dl（draw list）を順に流すだけ（FIFO＝dl が up を追い越さない）。
 // - fallback（WEBGL_multi_draw 非対応 or ?nomd=1）：従来どおり mergeTiles で結合した scene を送る。
-import { mergeTiles, coveredTiles, seaFbReal, opBuffers } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
+import { mergeTiles, coveredTiles, seaFbReal, opBuffers } from "../scene.ts";   // index直引きはworker循環になる（tileworker側コメント参照）
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、

@@ -1,7 +1,8 @@
 // 型の門（1.15.0〜）：types/*.d.ts が自分で矛盾せず、公開の口を TypeScript から呼べることを tsc --noEmit で見る。
 // tsc は root の devDependency（typescript）。無ければ落ちる（npm install を促す）。
-// 2.0（TS 化 段 2）：実行時と型の突き合わせ＝package.json の exports で types を持つ口ごとに、実行時のモジュールの輸出名と
-// .d.ts が宣言する値の名（export function|const|let|class・export { … }・export * from）を比べる。型だけにある名も実行時だけにある名も落ちる。
+// 2.0（TS 化 段 2）：実行時と型の突き合わせ＝package.json の exports の口ごとに、実行時のモジュールの輸出名と
+// 型（types を持つ口＝その .d.ts・口そのものが .ts＝その源）が宣言する値の名（export function|const|let|class・export { … }・export * from）を比べる。
+// 型だけにある名も実行時だけにある名も落ちる。.d.ts／.ts の export * from は辿る（.d.ts からは .js→.d.ts・.ts はそのまま）。
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,7 +30,7 @@ function declaredNames(file, out = new Set(), seen = new Set()) {
 		}
 	}
 	for (const m of src.matchAll(/^export\s+\*\s+from\s+["']([^"']+)["']/gm)) {
-		const dts = m[1].replace(/\.js$/, ".d.ts");
+		const dts = m[1].endsWith(".ts") ? m[1] : m[1].replace(/\.js$/, ".d.ts");   // 根の .d.ts は src/*.ts を直に束ねる（2.0）
 		declaredNames(path.resolve(path.dirname(file), dts), out, seen);
 	}
 	return out;
@@ -39,15 +40,17 @@ globalThis.self ??= globalThis; globalThis.onmessage ??= null; globalThis.postMe
 const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8"));
 let bad = 0, n = 0;
 for (const [sub, spec] of Object.entries(pkg.exports)) {
-	if (typeof spec !== "object" || !spec.types) continue;
-	const declared = declaredNames(path.join(pkgDir, spec.types));
+	// 口が .ts そのもの（TS 化済み）＝型の源は実行時のファイル。types を持つ口（JS のまま）＝手書きの .d.ts。それ以外（"./internal/*" 等）は見ない
+	const [typesFile, runtimeFile] = typeof spec === "string" ? (spec.endsWith(".ts") ? [spec, spec] : [null, null]) : [spec.types ?? null, spec.default];
+	if (!typesFile) continue;
+	const declared = declaredNames(path.join(pkgDir, typesFile));
 	let runtime;
-	try { runtime = new Set(Object.keys(await import(pathToFileURL(path.join(pkgDir, spec.default)).href))); }
-	catch (e) { console.error(`types: ${sub}: cannot import ${spec.default}: ${e?.message ?? e}`); bad++; continue; }
+	try { runtime = new Set(Object.keys(await import(pathToFileURL(path.join(pkgDir, runtimeFile)).href))); }
+	catch (e) { console.error(`types: ${sub}: cannot import ${runtimeFile}: ${e?.message ?? e}`); bad++; continue; }
 	const onlyTypes = [...declared].filter(k => !runtime.has(k)).sort(), onlyRuntime = [...runtime].filter(k => !declared.has(k)).sort();
-	if (onlyTypes.length) { console.error(`types: ${sub}: declared in ${spec.types} but missing at runtime: ${onlyTypes.join(", ")}`); bad++; }
-	if (onlyRuntime.length) { console.error(`types: ${sub}: exported by ${spec.default} but missing in ${spec.types}: ${onlyRuntime.join(", ")}`); bad++; }
+	if (onlyTypes.length) { console.error(`types: ${sub}: declared in ${typesFile} but missing at runtime: ${onlyTypes.join(", ")}`); bad++; }
+	if (onlyRuntime.length) { console.error(`types: ${sub}: exported by ${runtimeFile} but missing in ${typesFile}: ${onlyRuntime.join(", ")}`); bad++; }
 	n++;
 }
 if (bad) { console.error("types: FAIL (runtime vs .d.ts)"); process.exit(1); }
-console.log(`types: ok (tsc; ${n} entry points match their .d.ts)`);
+console.log(`types: ok (tsc; ${n} entry points match their types)`);
