@@ -33,7 +33,7 @@ interface GintFeatureLike { properties?: Record<string, unknown> | null; geometr
 /** 層へ渡す元（GeoPBF か、admin0 のダック＝識別面だけ原本を都度引く） */
 export interface GintSource {
 	unPackGint?: GintPayload | null;
-	fmap?: ArrayLike<unknown> | null;
+	length?: number;   // 地物の数（GeoPBF の length）
 	getProperties(i: number): Record<string, unknown> | null;
 	getFeature(i: number): GintFeatureLike | null | undefined;
 	getType?(i: number): string | null | undefined;
@@ -263,7 +263,7 @@ function applyGintData(pbf: GeoPBF, label: string, moveCamera = true, opts: { fi
 // ※ .geojson は壊れ geometry の feature をスキップして配列を「詰める」＝fid とズレる（札幌 aigid で実証）。
 //    式評価に .geojson を使ってはならない。読めない props は {}＝既定値評価（§6-4）。
 const fidFeaturesOf = (pbf: GintSource | null | undefined) => {
-	const n = pbf?.fmap?.length ?? 0;
+	const n = pbf?.length ?? 0;
 	if (!n) return null;
 	const out = new Array<FidRow>(n);
 	for (let i = 0; i < n; i++) {
@@ -370,7 +370,7 @@ dbgHost.__paintOverlap = (on = true) => {
 // fid ズレ診断の決定版：偶数fid=赤／奇数fid=青の市松塗り（場所に依らず全面に出る＝見逃し不能）。
 // どの筆でもクリック → console の [gint] fid=… の偶奇と色が一致するか：赤=偶数/青=奇数なら一致、逆なら±1ズレ。
 dbgHost.__paintParity = () => {
-	const n = userGint?.pbf?.fmap?.length ?? 0;
+	const n = userGint?.pbf?.length ?? 0;
 	if (!n) { console.warn("[paintParity] user gint layer not loaded = load one first (drop a file or map.applyGintData)"); return; }
 	const u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
@@ -465,7 +465,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 	};
 	const refreshLabels = async () => {
 		if (!labelOpt || !hasLabelField(labelOpt.field)) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
-		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list: Record<string, unknown>[] = [];
+		const lb = labelOpt, n = pbf.length ?? 0, list: Record<string, unknown>[] = [];
 		// 色は [r,g,b,a]（0〜1）で渡す＝描く側（labels2d）の約束。公開面は CSS の色（文字列）＝ここで一度だけ読む
 		//（旧＝文字列のまま渡していた＝labels2d の css() が配列前提＝色が効かず、覚え（WeakMap）を入れてからは毎フレーム例外で描画を落としていた・2026-10-13）
 		const color = lb.color ? parseRGBA(lb.color) : null, halo = lb.halo ? parseRGBA(lb.halo) : null;
@@ -641,7 +641,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 // 単一スロットの paint 表（paintTable／paint）の visible ビット＝既定スロットの filter（表の数が地物数と合う時だけ）
 function userAccept(): ((fid: number) => boolean) | null {
 	const t = gintPaintLast?.table, n = gintPaintLast?.count, pbf = userGint?.pbf;
-	if (!t || !pbf || n !== (pbf.fmap?.length ?? -1)) return null;
+	if (!t || !pbf || n !== pbf.length) return null;
 	return (fid: number) => fid >= n! || (t[fid * 4 + 2] & 1) !== 0;
 }
 function queryAllGint(ll: readonly number[]) {
@@ -799,7 +799,7 @@ function admin0DrawStyle() {
 // ＝addGint へはダック（unPackGint=admin0Gint・識別面は原本 admin0Pbf）で渡す。interactive:false＝
 // カーソルは触らない（国名 tip は main 同期 identify のまま）。order:-10＝常に最下（user 層や多層の下）。
 // 層へ渡すダック（unPackGint＝fillOff 強制済みペイロード・識別面は原本 admin0Pbf を都度引く＝解像度の差し替えに追随）
-const admin0Duck = (): GintSource => ({ unPackGint: admin0Gint, fmap: admin0Pbf!.fmap,
+const admin0Duck = (): GintSource => ({ unPackGint: admin0Gint, length: admin0Pbf!.length,
 	getProperties: (i: number) => admin0Pbf!.getProperties(i), getFeature: (f: number) => admin0Pbf!.getFeature(f),
 	identifyAt: (...a: Parameters<GeoPBF["identifyAt"]>) => admin0Pbf!.identifyAt(...a) });
 function ensureAdmin0Layer() {
@@ -941,7 +941,7 @@ async function loadWorldLines() {
 		await h.setPaint(def.paint(env.worldStyle), def.filter);
 		worldLineHandles.push({ h, def });
 		h.setVisible(true);
-		console.log(`[world-lines] ${def.name}: ${pbf.fmap?.length ?? 0} features (z<${WORLD_BAND_Z})`);
+		console.log(`[world-lines] ${def.name}: ${pbf.length} features (z<${WORLD_BAND_Z})`);
 	}
 	worldLinesState = 2;
 }

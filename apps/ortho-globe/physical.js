@@ -194,7 +194,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 
 	// 形状台帳 → GeoJSON（TerrainDB の物理量を属性へ結ぶ＝式で太さ・色を引く）
 	const shapes = [], geomsOf = new Map(), axisOf = new Map();   // axisOf＝山脈の軸線（名前を沿わせる）
-	for (let i = 0, n = pbf.fmap?.length ?? pbf.length ?? 0; i < n; i++) {
+	for (let i = 0, n = pbf.length; i < n; i++) {
 		const f = pbf.getFeature(i); const p = f?.properties || pbf.getProperties(i) || {};
 		if (!f?.geometry || !p.qid) continue;
 		const d = byQ.get(p.qid); if (!d && p.category !== "current") continue;   // 英語記事の無い「絵」（対馬海流）は線だけ描く
@@ -471,7 +471,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			ovLoaded[id] = (async () => {
 				const file = id === "plates" ? "plates.geopbf" : "ne-physical-lines.geopbf";
 				const p = await loadPbf(geopbf, base + file), feats = [];
-				for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
+				for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
 					const pr = f.properties || p.getProperties(i) || {};
 					if (id === "lines" && pr.kind === "dateline") continue;   // 日付変更線は人が決めた線＝地形の地図には入れない（赤道・回帰線・極圏＝自転軸の傾きで決まる線だけ・本人 2026-10-01）
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
@@ -508,7 +508,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		const leg = panel.querySelector(`[data-leg="koppen"]`); if (leg) leg.hidden = !on;
 		koppenP ??= (async () => {
 			const p = await loadPbf(geopbf, base + "climate-koppen.geopbf"), feats = [];
-			for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
+			for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
 				const pr = f.properties || {};
 				const kc = Array.isArray(pr.color) ? `rgb(${pr.color.join(",")})` : "#888";   // Beck et al. の標準配色（区分ごと）
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { koppen: pr.code, group: pr.group, kname: pr["name_" + lang] || pr.name, kc } });

@@ -3,7 +3,10 @@
 	"compilerOptions": {
 		"rootDir": "src",
 		"outDir": "dist",
-		"types": ["node"]
+		"types": ["node"],
+		// npm に出す .d.ts（prepack の tsc -p .）から /** @internal */ の欄を落とす（fmap・_name・pbf ほか＝公開の口は length・name() など）。
+		// リポジトリの中の使い手は src/*.ts を直に読むので型は変わらない（段 5-4・2026-10-16）
+		"stripInternal": true
 	},
 	"include": ["src"],
 	"exclude": ["src/worker.ts", "src/decoder", "src/encoder", "src/cog/worker.ts", "src/convert/tile-worker.ts"]

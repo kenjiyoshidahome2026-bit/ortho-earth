@@ -74,7 +74,7 @@ export async function geopbf() {
 	const feats = list.map(n => { const c = n.coord || [0, 0];   // 形はその国の中心に置く＝寄り先の判定（中心からの距離）が実物と同じ形で通る
 		return { type: "Feature", properties: { key: n.key, layer: "admin_1" },
 			geometry: { type: "Polygon", coordinates: [[[c[0] - 1, c[1] - 1], [c[0] + 1, c[1] - 1], [c[0] + 1, c[1] + 1], [c[0] - 1, c[1] + 1], [c[0] - 1, c[1] - 1]]] } }; });
-	return { fmap: feats, unPackGint: {}, getProperties: i => feats[i].properties, getFeature: i => feats[i] };
+	return { length: feats.length, unPackGint: {}, getProperties: i => feats[i].properties, getFeature: i => feats[i] };
 }`;
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
