@@ -82,8 +82,8 @@ test("ne-cultural：equal・world・globe が同じ URL・同じ name で読む�
 	assert.equal(detail.opts.name, "ne-cultural-detail.geopbf");
 	const core = src("packages/ortho-core/src/worldcontent.ts");   // URL と名前の正本＝先読みの鍵と同じ綴り
 	assert.ok(core.includes('WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/"'));
-	assert.ok(core.includes("culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`"));
-	assert.ok(core.includes("culturalName = g => `ne-cultural-${g}.geopbf`"));
+	assert.match(core, /culturalUrl = \(g: string\): string => `\$\{WORLD_GIS\}ne-cultural-\$\{g\}\.geopbf`/);   // 2.0：worldcontent.ts＝引数と返りに型が付く
+	assert.match(core, /culturalName = \(g: string\): string => `ne-cultural-\$\{g\}\.geopbf`/);
 	for (const f of ["packages/equal/src/equal.js", "packages/world/src/worldlayers.ts", "packages/globe/src/gint/worldcontent.js"]) {   // 三者とも正本の口で読む（写しを持たない）
 		assert.match(src(f), /culturalUrl\(g\), \{ name: culturalName\(g\) \}|culturalUrl\("base"\), \{ name: culturalName\("base"\) \}/, f);
 		assert.ok(!src(f).includes("bucket/GIS/world/ne-cultural-"), f + "：URL の写しを持たない");

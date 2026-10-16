@@ -5,13 +5,13 @@
 /** [lon, lat]（度） */
 type Position = number[];
 /** 読む GeoJSON の形（Polygon・MultiPolygon・LineString・MultiLineString 以外は素通り） */
-export interface OverlayGeometry { type: string; coordinates: unknown }
+export interface OverlayGeometry { type: string; coordinates?: unknown }   // coordinates 無し（GeometryCollection 等）は描かない＝geopbf の Feature をそのまま渡せる
 export interface OverlayFeature { geometry?: OverlayGeometry | null }
 /** buildGeoJSONOverlay の選択肢 */
 export interface OverlayOptions { lineColor?: number[]; lineWidth?: number; lines?: boolean; ranges?: boolean }
 /** feature 毎の fan 頂点レンジ＋外接円（単位球 3D 中心と角半径の cos/sin） */
 export interface OverlayRange { start: number; count: number; C: number[]; cosR: number; sinR: number }
-export interface GeoJSONOverlay { origin: [number, number]; fanPos: Float32Array; P1: Float32Array; P2: Float32Array; lineCol: Float32Array; lineHalf: Float32Array; feats: OverlayRange[] | null }
+export interface GeoJSONOverlay { origin: [number, number]; fanPos: Float32Array<ArrayBuffer>; P1: Float32Array<ArrayBuffer>; P2: Float32Array<ArrayBuffer>; lineCol: Float32Array<ArrayBuffer>; lineHalf: Float32Array<ArrayBuffer>; feats: OverlayRange[] | null }   // <ArrayBuffer>＝worker が .buffer を transfer できる（jp の estat-worker）
 
 // リングの経度を連続化：隣接頂点が±180°以内になるよう±360°足し引き。2D三角形分割がantimeridianを
 // 誤って横断するのを防ぐ。>180/<-180 の値になるが lonlatTo3D は周期的なので3D位置は正しい。
