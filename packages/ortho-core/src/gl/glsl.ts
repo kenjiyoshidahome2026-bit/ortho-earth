@@ -345,7 +345,7 @@ void main() {
 // 頂点に a_uv(f32x2)・a_col(RGBA8 正規化＝baseColorFactor×COLOR_0 を worker が焼き込み)、FS は u_tex（unit 7）をサンプル。
 // 陰影 d・フォグ・裏面判定は本体と同じ＝色だけ「建物色」が「頂点色×テクスチャ」に替わる。α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成）。
 // テクスチャは discard より前に引く（ミップ選択の微分＝uniform control flow）。錨（anchor）が無ければ読み込み時に throw＝門で捕まる。
-const derive = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`glsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
+const derive = (src: string, pairs: readonly (readonly [string, string])[], label: string): string => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`glsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_VS = derive(MESH_VS, [
 	["in vec3 a_normal;   // glTF 実法線を ortho へ変換済\n", "in vec3 a_normal;   // glTF 実法線を ortho へ変換済\nin vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n"],
 	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
@@ -1211,7 +1211,7 @@ ${LINE_MAIN}
 export const MD_MAX_DRAWS = 128;   // 1回の multiDraw に載せる最大タイル数（超過は呼び出し側がチャンク分割）
 
 // 既存シェーダの機械変換（対象文字列が消えたらロード時に即 throw ＝サイレントな取りこぼしを防ぐ）
-function mdize(src, subs) {
+function mdize(src: string, subs: readonly (readonly [string, string])[]): string {
 	let s = src.replace("#version 300 es", "#version 300 es\n#extension GL_ANGLE_multi_draw : require");
 	for (const [from, to] of subs) {
 		if (!s.includes(from)) throw new Error("mdize: 置換対象が見つからない: " + from);
@@ -1367,7 +1367,7 @@ void main() {
 // 標本位置は uint の整数分数（gx = (Ax + Bx·(2i+1)) / Dx）＝JS の f64 と同じ位置。出力＝R16F アトラス（EXT_color_buffer_float）のセル矩形へ 3 頂点 1 発。
 export const ELEV_RESAMPLE_VS = `#version 300 es
 void main() { gl_Position = vec4(float(int(uint(gl_VertexID) & 1u) * 4 - 1), float(int(uint(gl_VertexID) >> 1u) * 4 - 1), 0.0, 1.0); }`;
-export const ELEV_RESAMPLE_FS = kind => `#version 300 es
+export const ELEV_RESAMPLE_FS = (kind: number): string => `#version 300 es
 precision highp float; precision highp int; precision highp isampler2D; precision highp sampler2D;
 uniform ${kind === 0 ? "isampler2D" : "sampler2D"} u_raw;   // 生タイル（row0＝北・texel(x,y)＝data[y*w+x]）
 uniform uvec4 u_dim;   // w, h, kind, mode(0=down 1=box 2=crop 3=float)

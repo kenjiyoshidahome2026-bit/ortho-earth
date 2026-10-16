@@ -33,26 +33,37 @@ const DEPTH_EPS = 2e-6;
 
 // render worker 側：1 フレーム分の深度（{ pixels | bitmap, w, h, logCoef }）を、オーバーレイの gl へテクスチャとして上げる口を作る。
 // 同じフレームで同じ gl が二度呼んでも上げ直さない（gl ごとに WeakMap）。上げる時は gl の束縛と unpack の状態を戻す。
-const texCache = new WeakMap();   // gl → { tex, id, w, h }（フレームを跨いで持つ＝同じテクスチャへ texSubImage2D で上げ直す）
-const locCache = new WeakMap();   // prog → { name: location }
-const UNPACK2 = ["UNPACK_ROW_LENGTH", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_IMAGES"];   // WebGL2 の詰め方（オーバーレイが変えていても素で上げる）
-export function makeDepthApi(f, id) {
-	function texture(gl) {
+/** 1 フレーム分の深度（GL2＝pixels の RGBA8・下の行から／WebGPU＝bitmap）。logCoef＝本体の対数深度の係数 */
+export interface DepthFrame { pixels?: Uint8Array | null; bitmap?: ImageBitmap | null; w: number; h: number; logCoef: number }
+/** オーバーレイへ配る深度の口（render worker の api.depth） */
+export interface DepthApi {
+	w: number; h: number; logCoef: number; backend: "webgpu" | "webgl2"; glsl: string;
+	/** オーバーレイの gl へこのフレームの深度テクスチャを上げて返す（同じフレーム・同じ gl は上げ直さない） */
+	texture(gl: WebGL2RenderingContext): WebGLTexture;
+	/** DEPTH_GLSL の uniform を埋める（prog は useProgram 済み） */
+	bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit?: number, eps?: number): void;
+}
+interface TexEntry { tex: WebGLTexture; id: number; w: number; h: number }
+const texCache = new WeakMap<WebGL2RenderingContext, TexEntry>();   // gl → { tex, id, w, h }（フレームを跨いで持つ＝同じテクスチャへ texSubImage2D で上げ直す）
+const locCache = new WeakMap<WebGLProgram, Record<string, WebGLUniformLocation | null>>();   // prog → { name: location }
+const UNPACK2 = ["UNPACK_ROW_LENGTH", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_IMAGES"] as const;   // WebGL2 の詰め方（オーバーレイが変えていても素で上げる）
+export function makeDepthApi(f: DepthFrame, id: number): DepthApi {
+	function texture(gl: WebGL2RenderingContext): WebGLTexture {
 		let e = texCache.get(gl);
 		if (!e) { e = { tex: gl.createTexture(), id: -1, w: 0, h: 0 }; texCache.set(gl, e); }
 		if (e.id === id) return e.tex;
 		const prev = gl.getParameter(gl.TEXTURE_BINDING_2D);
 		const flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), pma = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
 		const csc = gl.getParameter(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL), align = gl.getParameter(gl.UNPACK_ALIGNMENT);
-		const u2 = UNPACK2.map(n => gl.getParameter(gl[n]));
+		const u2: number[] = UNPACK2.map(n => gl.getParameter(gl[n]));
 		gl.bindTexture(gl.TEXTURE_2D, e.tex);
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
 		for (const n of UNPACK2) gl.pixelStorei(gl[n], 0);
 		const same = e.w === f.w && e.h === f.h;   // 同じ大きさ＝上げ直し（確保し直さない）
 		if (f.bitmap) { if (same) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.bitmap); else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.bitmap); }
-		else if (same) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.w, f.h, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels);
-		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels);
+		else if (same) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.w, f.h, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels!);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels!);
 		if (e.id === -1) {   // 初回だけ＝NEAREST（詰めた 24bit を補間で壊さない）・端は伸ばす
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -65,12 +76,12 @@ export function makeDepthApi(f, id) {
 		return e.tex;
 	}
 	// DEPTH_GLSL の uniform を埋める。prog は useProgram 済みであること。unit＝使ってよいテクスチャユニット番号（そのユニットの束縛は変わる・活性ユニットは戻す）
-	function bind(gl, prog, unit = 7, eps = DEPTH_EPS) {
+	function bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit = 7, eps = DEPTH_EPS): void {
 		const tex = texture(gl);
 		const act = gl.getParameter(gl.ACTIVE_TEXTURE);
 		gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.activeTexture(act);
 		let L = locCache.get(prog); if (!L) { L = {}; locCache.set(prog, L); }
-		const u = n => n in L ? L[n] : (L[n] = gl.getUniformLocation(prog, n));
+		const u = (n: string): WebGLUniformLocation | null => n in L ? L[n] : (L[n] = gl.getUniformLocation(prog, n));
 		gl.uniform1i(u("u_sceneDepth"), unit);
 		gl.uniform1f(u("u_sceneLogCoef"), f.logCoef);
 		gl.uniform1f(u("u_sceneDepthEps"), eps);
