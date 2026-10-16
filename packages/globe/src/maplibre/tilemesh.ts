@@ -4,8 +4,12 @@
 // 極の頂点＝y が NORTH_POLE_Y（-32768）／SOUTH_POLE_Y（32767）＝球の prelude（customgl.js）が rawPos.y で見分けて極へ置く（MapLibre と同じ約束）
 export const EXTENT = 8192, NORTH_POLE_Y = -32768, SOUTH_POLE_Y = 32767;
 const EXTENT_STENCIL_BORDER = EXTENT / 128;
+/** createTileMesh の options（MapLibre と同じ名前） */
+export interface CreateTileMeshOptions { granularity?: number; generateBorders?: boolean; extendToNorthPole?: boolean; extendToSouthPole?: boolean }
+/** タイル 1 枚の格子（vertices＝Int16 の [x, y]…・indices＝Uint16｜Uint32） */
+export interface TileMesh { vertices: ArrayBuffer; indices: ArrayBuffer; uses32bitIndices: boolean }
 
-export function createTileMesh(options = {}, forceIndicesSize) {
+export function createTileMesh(options: CreateTileMeshOptions = {}, forceIndicesSize?: "16bit" | "32bit"): TileMesh {
 	const granularity = options.granularity !== undefined ? Math.max(options.granularity, 1) : 1;
 	const quadsPerAxisX = granularity + (options.generateBorders ? 2 : 0);
 	const quadsPerAxisY = granularity + (options.extendToNorthPole || options.generateBorders ? 1 : 0) + (options.extendToSouthPole || options.generateBorders ? 1 : 0);
@@ -38,14 +42,21 @@ export function createTileMesh(options = {}, forceIndicesSize) {
 }
 
 export class SubdivisionGranularityExpression {
-	constructor(baseZoomGranularity, minGranularity) {
+	declare _baseZoomGranularity: number;
+	declare _minGranularity: number;
+	constructor(baseZoomGranularity: number, minGranularity: number) {
 		if (minGranularity > baseZoomGranularity) throw new Error("Min granularity must not be greater than base granularity.");
 		this._baseZoomGranularity = baseZoomGranularity; this._minGranularity = minGranularity;
 	}
-	getGranularityForZoomLevel(zoomLevel) { return Math.max(Math.floor(this._baseZoomGranularity / (1 << zoomLevel)), this._minGranularity, 1); }
+	getGranularityForZoomLevel(zoomLevel: number): number { return Math.max(Math.floor(this._baseZoomGranularity / (1 << zoomLevel)), this._minGranularity, 1); }
 }
 export class SubdivisionGranularitySetting {
-	constructor({ fill, line, tile, stencil, circle }) { this.fill = fill; this.line = line; this.tile = tile; this.stencil = stencil; this.circle = circle; }
+	declare fill: SubdivisionGranularityExpression;
+	declare line: SubdivisionGranularityExpression;
+	declare tile: SubdivisionGranularityExpression;
+	declare stencil: SubdivisionGranularityExpression;
+	declare circle: number;
+	constructor({ fill, line, tile, stencil, circle }: { fill: SubdivisionGranularityExpression; line: SubdivisionGranularityExpression; tile: SubdivisionGranularityExpression; stencil: SubdivisionGranularityExpression; circle: number }) { this.fill = fill; this.line = line; this.tile = tile; this.stencil = stencil; this.circle = circle; }
 }
 // 球の既定（MapLibre の granularitySettingsGlobe）
 export const GRANULARITY_GLOBE = new SubdivisionGranularitySetting({
