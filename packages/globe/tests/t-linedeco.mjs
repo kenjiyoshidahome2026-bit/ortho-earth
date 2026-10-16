@@ -2,7 +2,7 @@
 // 線の飾り（MapLibre の line-offset／line-gradient・#49）の canvas2D の口（globe/pattern-2d.js）の常設検定。
 // 見るもの：平行ずらしの向き（右が正＝画面 y 下向き）とマイター・鋭角の打ち切り・色の止めの切り出し・
 // 偽の canvas で回して「線分ごとに線形の色」「ずらした座標で描く」「模様の層は従来どおり」。
-import { offsetPolyline, gradStops, init, message, frame } from "@ortho-earth/globe/internal/pattern-2d.js";
+import { offsetPolyline, gradStops, init, message, frame } from "../src/pattern-2d.js";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
