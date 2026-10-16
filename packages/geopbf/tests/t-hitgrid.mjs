@@ -2,7 +2,7 @@
 // ①面 6,000 枚（大きさ 3 段・入れ子・多角形の塊・縫い目跨ぎの大物 1）× 乱数の点 3,000＝smallest-wins・accept・viewBbox が一致
 // ②線 3,000 本 × 乱数の点（許容半径つき）＝一致 ③索引の形（cell の CSR・big・fidOff）④速さ（格子 ≥ 全走査、目安で表示）
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
 import { gint } from "../src/extension/gint.ts";
 import { identifyAt, findPolygon, hitGridMode, hitGridOf, buildHitGrid } from "../src/extension/identify.ts";
@@ -29,7 +29,7 @@ for (let i = 0; i < 6000; i++) {
 	else polys.push(F("Polygon", i % 11 === 0 ? [...sq(x, y, x + s, y + s), ...sq(x + s * 0.3, y + s * 0.3, x + s * 0.6, y + s * 0.6)] : sq(x, y, x + s, y + s)));   // 穴あきも
 }
 polys.push(F("Polygon", sq(130, 30, 145, 45)));   // 全部を覆う大物（big へ）
-const pp = await new GeoPBF({ name: "t-hitgrid-poly" }).set({ type: "FeatureCollection", features: polys });
+const pp = await new GeoPBFBase({ name: "t-hitgrid-poly" }).set({ type: "FeatureCollection", features: polys });
 const d = unPackGintBuffer(topology(pp));
 ok(!!d?.polyStream?.length, `面 ${polys.length} 枚＝polyStream ${d.polyStream.length}`);
 const grid = hitGridOf(d.polyStream, d.arcMeta);
@@ -64,7 +64,7 @@ const run = (mode, extra = []) => { hitGridMode.on = mode; const t0 = performanc
 const lines = [];
 for (let i = 0; i < 3000; i++) { const x = 130 + rnd() * 15, y = 30 + rnd() * 15, s = [0.05, 0.3][i % 2]; lines.push(F("LineString", [[x, y], [x + s, y + s * (rnd() - 0.5)], [x + 2 * s, y]])); }
 lines.push(F("MultiLineString", [[[130, 30], [145, 45]], [[130, 45], [145, 30]]]));   // 長い 2 本（big）
-const lp0 = await new GeoPBF({ name: "t-hitgrid-line" }).set({ type: "FeatureCollection", features: lines });
+const lp0 = await new GeoPBFBase({ name: "t-hitgrid-line" }).set({ type: "FeatureCollection", features: lines });
 const lp = { unPackGint: unPackGintBuffer(topology(lp0)) };
 {
 	const runL = mode => { hitGridMode.on = mode; const t0 = performance.now(); const r = queries.map(([x, y]) => identifyAt(lp, x / SE - 180, y / SE - 90, { point: 0, polyline: 2000 })); return { r, ms: performance.now() - t0 }; };

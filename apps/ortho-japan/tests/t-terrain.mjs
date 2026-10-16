@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
@@ -35,7 +35,7 @@ for (const l of LANGS) { if (l === "ja" || l === "en") continue; const f = path.
 	t(`名前表 ${l}：台帳の qid だけ・[名前, 記事名] の対・${ks.length} 件`, ks.length >= 20 && ks.every(q => byQ.has(q) && Array.isArray(m[q]) && m[q].length === 2)); }
 // 形状台帳
 const raw = fs.readFileSync(path.join(PUB, "terrain.geopbf")), buf = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
-const pbf = new GeoPBF(); await pbf.set(new Uint8Array(buf).buffer); const n = pbf.length;
+const pbf = new GeoPBFBase(); await pbf.set(new Uint8Array(buf).buffer); const n = pbf.length;
 t("形状台帳：300 地物以上", n >= 300, String(n));
 const kinds = {}; let bad = 0, noWidth = 0, byQid = new Map();
 for (let i = 0; i < n; i++) { const p = pbf.getProperties(i) || {}, g = pbf.getFeature(i)?.geometry; if (!byQ.has(p.qid) || !g) { bad++; continue; }

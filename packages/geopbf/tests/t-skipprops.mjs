@@ -3,13 +3,13 @@
 globalThis.ImageData ??= class { constructor(d, w, h) { this.data = d; this.width = w; this.height = h; } };
 import fs from "node:fs";
 import Pbf from "../src/modules/pbf.ts";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const buf = fs.readFileSync(new URL("./fixtures/amedas.geopbf", import.meta.url));
 const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-const a = new GeoPBF(); a.pbf = new Pbf(ab.slice(0)); await a.getPosition();
-const b = new GeoPBF(); b.pbf = new Pbf(ab.slice(0)); await b.getPosition({ skipProps: true });
+const a = new GeoPBFBase(); a.pbf = new Pbf(ab.slice(0)); await a.getPosition();
+const b = new GeoPBFBase(); b.pbf = new Pbf(ab.slice(0)); await b.getPosition({ skipProps: true });
 ok(a.fmap.length === b.fmap.length && a.fmap.length > 1000, `fmap 件数一致（${a.fmap.length}）`);
 ok(JSON.stringify(a.fmap) === JSON.stringify(b.fmap), "fmap（位置/型）が全復号と一致");
 ok(a.end === b.end && a._bodyPos === b._bodyPos && a.keys.join() === b.keys.join(), "end/bodyPos/keys 一致");
@@ -21,7 +21,7 @@ ok(JSON.stringify(a.getGeometry(5)) === JSON.stringify(b.getGeometry(5)), "geome
 // 1 行だけ getProperties で触った状態（旧は触った行だけ書かれた）も同じ
 {
 	const { toGeoParquet, fromGeoParquet } = await import("../src/convert/geoparquet.ts");
-	const fresh = async touch => { const p = new GeoPBF(); p.pbf = new Pbf(ab.slice(0)); await p.getPosition({ skipProps: true }); touch?.(p); return p; };
+	const fresh = async touch => { const p = new GeoPBFBase(); p.pbf = new Pbf(ab.slice(0)); await p.getPosition({ skipProps: true }); touch?.(p); return p; };
 	const want = JSON.stringify(a.getProperties(3)), wantLast = JSON.stringify(a.getProperties(a.fmap.length - 1));
 	for (const [tag, touch] of [["未復号", null], ["1 行だけ復号済み", p => p.getProperties(1)]]) {
 		const p = await fresh(touch);

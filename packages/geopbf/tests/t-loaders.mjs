@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { parse, load } from "@loaders.gl/core";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { GeoPBFLoader } from "../src/loaders.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
@@ -16,7 +16,7 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 
 // ---- 配信データ -------------------------------------------------------------
 const amedas = await readFile(new URL("./fixtures/amedas.geopbf", import.meta.url));
-const synthPbf = await new GeoPBF({ name: "synth", attribution: "test-attribution", minZoom: 5 }).set({
+const synthPbf = await new GeoPBFBase({ name: "synth", attribution: "test-attribution", minZoom: 5 }).set({
 	type: "FeatureCollection",
 	features: [{ type: "Feature", geometry: { type: "Point", coordinates: [139.75, 35.68] },
 		properties: { n: 1, date: new Date(1700000000000) } }],
