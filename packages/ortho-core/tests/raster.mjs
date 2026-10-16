@@ -274,7 +274,7 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 
 // 7. 地面アトラスの窓（ground.js）：真俯瞰＝3 段（近/中/遠）・強いチルト＝前景を足して 4 段（細かい順）・スナップ＝微動で鍵が変わらない
 {
-	const { groundWindows, windowsKey } = await import("../src/ground.js");
+	const { groundWindows, windowsKey } = await import("../src/ground.ts");
 	const cam0 = { center: [139.7, 35.7], zoom: 14.5, pitch: 0, bearing: 0, dpr: 1 };
 	const w0 = groundWindows(cam0, 800, 600);
 	ok(w0.length === 3, `flat: 3 windows (${w0.length})`);
