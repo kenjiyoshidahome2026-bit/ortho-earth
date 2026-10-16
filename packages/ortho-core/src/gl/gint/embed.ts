@@ -23,8 +23,27 @@ import { computeDrawData, zoomInRange } from '../../gint/drawdata.ts';
 import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.ts';
 import { unproject } from '../../camera.ts';
 import { gintDataOf } from '../../gint/bake.ts';
+import type { CameraPose } from '../../camera.ts';
+import type { BakeBaseResult, BakedTier, GintData, GintPayload } from '../../gint/bake.ts';
+import type { GintSlot } from '../../gint/state.ts';
+import type { GintDepthCtx, GintDrawStyle, GintGLState, GintLive, GLDrawData, GLDrawInput, PointerData } from './state.ts';
 
-export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
+/** set() の入力＝gint ペイロード＋描画レンジ */
+export type GintSetData = GintPayload & { minZoom?: number | null; maxZoom?: number | null; precision?: number };
+/** setBaked() の入力＝bake worker の完成品 */
+export interface GintBakedData { gint: GintData; artifacts: BakeBaseResult; tiers?: BakedTier[] | null; minZoom?: number | null; maxZoom?: number | null; precision?: number }
+/** paint() の入力＝fid スタイル表（style.ts の buildFidStyle） */
+export interface GintPaintData { table?: Uint32Array | ArrayLike<number> | null; count: number; overlap?: boolean }
+/** bakeFaces の的（地面アトラスの窓） */
+export interface GintAtlasTarget { fbo: WebGLFramebuffer; win: number[]; size: number }
+/** スロット束＝s と同名フィールドの入れ物 */
+type GLBundle = Partial<Pick<GintGLState, keyof GintSlot>>;
+/** 追加層（addLayer） */
+interface GLLayer { id: string | null; st: GintGLState; order: number; drawStyle: GintDrawStyle | null; visible: boolean }
+/** createGintLayer の戻り */
+export type GintLayerGL = ReturnType<typeof createGintLayer>;
+
+export function createGintLayer(gl: WebGL2RenderingContext, { requestDraw, quad4 = true }: { requestDraw?: (() => void) | null; quad4?: boolean } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
 	s.requestDraw = requestDraw ?? null;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; s.requestDraw?.(); };
@@ -33,7 +52,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	s.TEX_META_W = Math.min(s.TEX_META_W, gl.getParameter(gl.MAX_TEXTURE_SIZE));
 	s.programs   = createGintPrograms(gl, { quad4 });   // 初期化時の blend 設定は renderer が毎フレーム上書きする＝無害
 
-	let drawStyle = null;    // main が set("gintStyle") で預ける描画スタイル（styleTable/lineWidth 等）
+	let drawStyle: GintDrawStyle | null = null;    // main が set("gintStyle") で預ける描画スタイル（styleTable/lineWidth 等）
 	let visible = true;      // main が set("gintVis") で切替（旧 #gint canvas の display:none 相当）
 	let fboW = 0, fboH = 0;  // pick FBO の実寸（canvas と食い違ったら settle で作り直す）
 
@@ -42,8 +61,8 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// 「梯子不在の窓」（nps_all 実測＝基準メタ451万辺/フレーム、定常の42倍）に毎回落ちていた。
 	// 束ごと退避/復帰すれば交替はポインタ差し替え＝再ベイク・再アップロード・梯子喪失すべてゼロ。
 	// passes.js/identify.js は s.* を読むだけ＝無改造で束の中身に従う。
-	const slots = new Map();   // key → bundle（s と同名フィールドの入れ物）
-	let activeKey = null;      // いま s に住んでいる束のキー（null=空スロット表示中）
+	const slots = new Map<string, GLBundle>();   // key → bundle（s と同名フィールドの入れ物）
+	let activeKey: string | null = null;      // いま s に住んでいる束のキー（null=空スロット表示中）
 
 	// ── 多層（addLayer）＝§10.1 の GL 版（2026-09-09・バックエンド間の API 整合）────────────
 	// 層状態＝Object.create(s)：GL 基盤・ビュー・運動（width/gl/programs/_isDrawing…）はプロトタイプで
@@ -51,29 +70,29 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// 状態第一引数化済み＝層状態を渡すだけで per-layer 描画/識別/梯子が成立（tier 構築の closure が
 	// 層状態を捕まえる＝別層の表示中も正しい層へ着地）。既定層＝従来のスロット面（s 直住まい）＝挙動不変。
 	// カーソル（§4.1 常に1層）：act=null は既定層。identify/pick は actSt() の状態で行う。
-	const layers = [];        // 描画順（order 昇順・同値は追加順）。既定層は order=0 相当の位置に固定
+	const layers: GLLayer[] = [];        // 描画順（order 昇順・同値は追加順）。既定層は order=0 相当の位置に固定
 	let orderSeq = 0;
-	let act = null;           // カーソルを持つ追加層（null=既定層）
+	let act: GLLayer | null = null;           // カーソルを持つ追加層（null=既定層）
 	const actSt = () => act ? act.st : s;
-	function addLayer({ id = null, order = null } = {}) {
-		const st = Object.create(s);
+	function addLayer({ id = null, order = null }: { id?: string | null; order?: number | null } = {}) {
+		const st: GintGLState = Object.create(s);
 		Object.assign(st, emptySlot());
 		st.layerId = id;
 		st.activeId = -1; st.lastDrawData = null; st._inRange = false;
 		st._pfLineEdges = 0; st._pfTierW = -1; st._pfRuns = -1; st._pfChunks = -1;
 		st._forceLowMove = false; st._budgetSkipped = false; st._pickPending = false;
 		st._moveTimer = null; st._pendingMove = null; st.tierGen = 0; st.idOverlapMode = false;
-		const L = { id, st, order: order ?? ++orderSeq, drawStyle: null, visible: true };
+		const L: GLLayer = { id, st, order: order ?? ++orderSeq, drawStyle: null, visible: true };
 		const at = layers.findIndex(x => x.order > L.order);
 		layers.splice(at < 0 ? layers.length : at, 0, L);
 		act = L;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
 		bakeRev++;
 		return layerHandle(L);
 	}
-	function layerHandle(L) {
+	function layerHandle(L: GLLayer) {
 		const st = L.st;
 		return {
-			set: (data) => {
+			set: (data: GintSetData | null | undefined): void => {
 				deleteTextures(st); clearFidStyle(st);
 				Object.assign(st, emptySlot());
 				if (data) {
@@ -85,8 +104,8 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 				st.activeId = -1; st.lastDrawData = null;
 				bump();
 			},
-			setSlot: () => {},   // 追加層にスロット舞踏は無い（renderworker の層指名 gintBaked が「点火」に呼ぶ＝可視は既定で真）
-			setBaked: (p) => {
+			setSlot: (): void => {},   // 追加層にスロット舞踏は無い（renderworker の層指名 gintBaked が「点火」に呼ぶ＝可視は既定で真）
+			setBaked: (p: GintBakedData | null | undefined): void => {
 				if (!p) return layerHandle(L).set(null);
 				deleteTextures(st); clearFidStyle(st);
 				Object.assign(st, emptySlot());
@@ -99,16 +118,16 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 				st.activeId = -1; st.lastDrawData = null;
 				bump();
 			},
-			style: d => { L.drawStyle = d ?? null; bump(); },
-			setVisible: v => { L.visible = !!v; bump(); },
-			paint: d => {
+			style: (d: GintDrawStyle | null | undefined): void => { L.drawStyle = d ?? null; bump(); },
+			setVisible: (v: unknown): void => { L.visible = !!v; bump(); },
+			paint: (d: GintPaintData | null | undefined): void => {
 				if (d?.table && d.count > 0) uploadFidStyle(st, d.table, d.count);
 				else clearFidStyle(st);
 				st.idOverlapMode = !!d?.overlap;
 				bump();
 			},
-			activate: () => { if (act !== L) { handleLeave(actSt()); act = L; } },
-			setOrder: n => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
+			activate: (): void => { if (act !== L) { handleLeave(actSt()); act = L; } },
+			setOrder: (n: number): void => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
 				const i = layers.indexOf(L);
 				if (i < 0) return;
 				layers.splice(i, 1);
@@ -117,11 +136,11 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 				layers.splice(at < 0 ? layers.length : at, 0, L);
 				bump();
 			},
-			remove: () => {
+			remove: (): void => {
 				const i = layers.indexOf(L);
 				if (i < 0) return;
 				layers.splice(i, 1);
-				clearTimeout(st._moveTimer);
+				clearTimeout(st._moveTimer!);
 				deleteTextures(st); clearFidStyle(st);
 				if (act === L) { act = layers.length ? layers[layers.length - 1] : null; }
 				bump();
@@ -132,7 +151,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		};
 	}
 	// 追加層1枚の描画（draw() の層別本文＝既定層の予算/範囲判定と同型を層状態で）
-	function drawLayerGL(L, cam, ctx) {
+	function drawLayerGL(L: GLLayer, cam: CameraPose, ctx: GintDepthCtx | null | undefined): void {
 		const st = L.st;
 		if (!L.visible && !st.polyBboxByFid && st.totalPoints === 0) { st._inRange = false; st.lastDrawData = null; return; }
 		const MOVE_EDGE_BUDGET = L.drawStyle?.moveBudget ?? 250_000;
@@ -144,45 +163,45 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			if (!canLines && !canFill) { st.lastDrawData = null; st._budgetSkipped = true; return; }
 			if (!s._isDrawing) s.requestDraw?.();
 		}
-		const data = { cam, ...(L.drawStyle || {}) };
+		const data: GLDrawInput = { cam, ...(L.drawStyle || {}) };
 		if (st._forceLowMove) data._forceLow = true;
 		if (!zoomInRange(st, data)) { st._inRange = false; st.lastDrawData = null; st._pfLineEdges = 0; st._pfTierW = -1; return; }
 		st._inRange = true;
 		if (st.totalEdges === 0 && st.totalPoints === 0) { st.lastDrawData = null; st._pfLineEdges = 0; st._pfTierW = -1; return; }
 		st._budgetSkipped = false;
-		const drawData = computeDrawData(s, data);   // ビュー（cam/lastViewBbox）はシングルトン＝共有
+		const drawData = computeDrawData(s, data) as GLDrawData;   // ビュー（cam/lastViewBbox）はシングルトン＝共有
 		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;
 		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
-		if (L.visible) { renderCleanScene(st, drawData, null); drawHighlight(st, drawData); }
+		if (L.visible) { renderCleanScene(st as GintLive, drawData, null); drawHighlight(st as GintLive, drawData); }
 		st.lastDrawData = drawData;
 	}
 
 	const saveActive = () => {
 		if (activeKey == null) return;
 		const b = slots.get(activeKey) ?? {};
-		for (const f of SLOT_FIELDS) b[f] = s[f];
+		for (const f of SLOT_FIELDS) b[f] = s[f] as never;
 		slots.set(activeKey, b);
 	};
-	const loadBundle = (b) => {
-		for (const f of SLOT_FIELDS) s[f] = b[f];
+	const loadBundle = (b: GLBundle): void => {
+		for (const f of SLOT_FIELDS) s[f] = b[f] as never;
 		s.tierGen = (s.tierGen ?? 0) + 1;             // 旧スロット向けの遅延 tier 構築を確実に止める
 		s.activeId = -1; s.lastDrawData = null;       // ハイライト/描画キャッシュは層に紐付かない＝リセット
 		s._pfLineEdges = 0; s._pfTierW = -1;          // 移動予算の物差しも新スロットで測り直す
 	};
-	const deleteBundleTextures = (b) => {             // 束の GPU 資産だけ解放（s を経由しない）
-		for (const f of ['arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'fidStyleTex'])
-			if (b[f]) { gl.deleteTexture(b[f]); b[f] = null; }
+	const deleteBundleTextures = (b: GLBundle): void => {             // 束の GPU 資産だけ解放（s を経由しない）
+		for (const f of ['arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'fidStyleTex'] as const)
+			if (b[f]) { gl.deleteTexture(b[f]!); b[f] = null; }
 		if (b.lodTiers?.length) b.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 		b.lodTiers = [];
 	};
 
 	// スロット交替（軽量コマンド）：key=null は「何も載せない」（海岸線を降ろす等）。
 	// 束が未ベイク（データ未送信）の key は空扱い＝app 側が set(data, key) を先に送る契約。
-	function setSlot(key) {
+	function setSlot(key: string | null): void {
 		if (key === activeKey) return;
 		saveActive();
-		loadBundle(slots.get(key) ?? emptySlot());
-		activeKey = slots.has(key) ? key : null;
+		loadBundle(slots.get(key!) ?? emptySlot() as GLBundle);
+		activeKey = slots.has(key!) ? key : null;
 		// 交替で眠っていた層の梯子が未完なら途中再開（構築済みの段は plan から除外される）
 		if (activeKey != null && !s.tiersDone && s.totalEdges > 0) scheduleTierBuild(s);
 		bump();
@@ -191,7 +210,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// gint ペイロードの差し替え（null/undefined＝スロット空化）。worker 版 set() と同じ台帳更新。
 	// key 指定時はそのスロット束として保存（既存束は GPU 資産ごと差し替え）。key 省略＝旧挙動（"user" 扱い）。
 	// embedded では canvas の明示クリア不要＝地図の再描画（requestDraw）が残像ごと消す。
-	function set(data, key) {
+	function set(data: GintSetData | null | undefined, key?: string | null): void {
 		key = key ?? 'user';
 		if (data) {
 			// アップロードは常に s 上で行う＝先に現スロットを退避し、対象スロットをアクティブにしてから焼く。
@@ -199,7 +218,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			const old = slots.get(key);
 			if (old && key !== activeKey) deleteBundleTextures(old);   // 同キー差し替え＝旧資産を解放（active は下の deleteTextures が s 経由で解放）
 			if (key === activeKey) deleteTextures(s);                   // s に載っている旧資産（束と同一ハンドル）を解放
-			loadBundle(emptySlot());
+			loadBundle(emptySlot() as GLBundle);
 			activeKey = key;
 			s.gintData = gintDataOf(data);   // 旧＝ここだけ fillMaxEdges/lowFill を落とした（層別の塗り上限・低ズーム塗りが既定スロットで効かない）
 			uploadGintTextures(s);
@@ -212,7 +231,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			slots.set(key, {});   // 実体は saveActive が次の交替時に写す（それまで s が真実源）
 		} else if (key === activeKey) {          // 表示中の層を消す＝s 経由で解放し空スロットへ
 			deleteTextures(s);
-			loadBundle(emptySlot());
+			loadBundle(emptySlot() as GLBundle);
 			slots.delete(key);
 			activeKey = null;
 		} else {                                  // 眠っている束の破棄（GPU 資産ごと）
@@ -227,7 +246,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// 【非活性】表示スロットは変えない＝純粋なキャッシュ搭載（同期ハンドラ内で元の束へ戻す＝
 	// 途中の絵は1フレームも出ない）。表示の切替は app の調停（gintSlot コマンド）が別途行う。
 	// 表示中スロット自身の再ベイク（key===activeKey）はその場で新しい絵に差し替わる。
-	function setBaked(p, key) {
+	function setBaked(p: GintBakedData | null | undefined, key?: string | null): void {
 		key = key ?? 'user';
 		if (!p) return set(null, key);
 		const prevKey = activeKey;
@@ -235,14 +254,14 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		const old = slots.get(key);
 		if (old && key !== activeKey) deleteBundleTextures(old);
 		if (key === activeKey) deleteTextures(s);
-		loadBundle(emptySlot());
+		loadBundle(emptySlot() as GLBundle);
 		activeKey = key;
 		s.gintData = p.gint;                       // bake worker が正規化済み（_ringsNormalized/_capMinW 同梱）
 		uploadBaked(s, p.artifacts);
 		for (const t of p.tiers ?? []) addBakedTier(s, t);
 		finishBakedTiers(s);                        // 梯子完成＝以後の交替で scheduleTierBuild は走らない
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
-			arcMeta:   s.gintData.arcMeta,
+			arcMeta:   s.gintData!.arcMeta,
 			minZoom:   p.minZoom   ?? null,
 			maxZoom:   p.maxZoom   ?? null,
 			precision: p.precision ?? 6,
@@ -253,12 +272,12 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		bump();
 	}
 
-	function style(data)   { drawStyle = data ?? null; bump(); }
-	function setVisible(v) { visible = !!v; bump(); }
+	function style(data: GintDrawStyle | null | undefined): void { drawStyle = data ?? null; bump(); }
+	function setVisible(v: unknown): void { visible = !!v; bump(); }
 
 	// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
 	// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ（restyle 契約）。null=解除（従来塗りへ）。
-	function paint(data) {
+	function paint(data: GintPaintData | null | undefined): void {
 		if (data?.table && data.count > 0) uploadFidStyle(s, data.table, data.count);
 		else clearFidStyle(s);
 		s.idOverlapMode = !!data?.overlap;   // 重複可視化モード（品質監査プローブ。通常 paint では false に戻る）
@@ -269,7 +288,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// ＝幾何・線幅とも地図と厳密同期。旧 onSync の「実移動判定」もここで行う（識別の panning 抑止）。
 	// ctx＝renderer.gintCtx()：山岳ビュー（terrainDepth）の間だけ非null＝線を地形深度に参加させる
 	//（対数深度＋標高ドレープ＋隠線淡破線）。null なら段階A と同じ最前面描画。
-	function draw(cam, ctx) {
+	function draw(cam: CameraPose, ctx?: GintDepthCtx | null): void {
 		if (!s.programs) return;
 		// 非表示でも識別ジオメトリ(polyBbox/点)を持つ層は下へ進み lastDrawData/pick を建てる＝視覚を消しても hover 識別は生かす
 		// （筆界はチルトで視覚を消す設計だが、draped 線を hover して tip を出すために identify は生存させる）。純装飾(線のみ=海岸線)は従来通り bail。
@@ -296,7 +315,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		if (moved) {
 			s._isDrawing = true;
 			const a = actSt();   // カーソル資産（timer/pending/activeId）はアクティブ層の状態に住む（§4.1）
-			clearTimeout(a._moveTimer); a._moveTimer = null; a._pendingMove = null;
+			clearTimeout(a._moveTimer!); a._moveTimer = null; a._pendingMove = null;
 			s._staticN = 0;
 			// カメラ操作（zoom/pan）に入った瞬間に tip とハイライトを即消す（handleLeave と同形の通知）。
 			// activeId ガード＝遷移の1回だけ発火（移動中の毎フレーム postMessage はしない）。
@@ -333,7 +352,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			if (!s._isDrawing) s.requestDraw?.();   // 静止後も自前でフレーム継続＝staticN を進めて正表現へ必ず収束（相乗りしない原則）
 		}
 
-		const data = { cam, ...(drawStyle || {}) };
+		const data: GLDrawInput = { cam, ...(drawStyle || {}) };
 		if (s._forceLowMove) data._forceLow = true;
 		if (!zoomInRange(s, data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; drawExtOnly(); return; }   // 範囲外＝描かない（identify も抑止）
 		s._inRange = true;
@@ -341,7 +360,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 
 		s._budgetSkipped = false;   // ここから先は必ず描く＝スキップ状態を解除（settle 復帰フックは drawn 側）
 
-		const drawData = computeDrawData(s, data);
+		const drawData = computeDrawData(s, data) as GLDrawData;
 		// noDepth（スタイルノブ）＝この層は地形深度に参加しない＝常に最前面。admin0 世界図用（2026-09-01）：
 		// tier 間引き後の国境は長いarc＝端点しか標高を見ず地形に潜り、隠線パスは静止時のみ＝チルト中のドラッグで
 		// 国境だけ消えた（海岸線は海抜0＝terrain が海を discard するため無事）。装飾層は最前面が正しい。
@@ -355,8 +374,8 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		for (const L of layers) if (L.order < 0) drawLayerGL(L, cam, ctx);   // 既定層より下の追加層（admin0 等）
 		if (visible) {   // 実描画は表示中だけ。非表示層（チルトで消した筆界など）はここを飛ばし、下の lastDrawData/pick だけ建てて hover 識別を生かす
-			renderCleanScene(s, drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
-			drawHighlight(s, drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
+			renderCleanScene(s as GintLive, drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
+			drawHighlight(s as GintLive, drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
 		}
 		s.lastDrawData = drawData;
 		for (const L of layers) if (L.order >= 0) drawLayerGL(L, cam, ctx);   // 既定層より上の追加層
@@ -373,7 +392,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 
 	// settle（地図静止）：picking buffer を描いて hover 識別を有効化。
 	// 非interactive（識別ジオメトリ無し＝海岸線 lineStream のみ）は丸ごと省略（worker 版 drawn と同判断）。
-	function drawn() {
+	function drawn(): void {
 		s._isDrawing = false;
 		const st = actSt();   // pick は1枚＝アクティブ層のみ（§4.1）
 		s._pfDrawn = (s._pfDrawn ?? 0) + 1;   // perf 計測用（settle 到達数。?perf=1 の行に出る）
@@ -394,12 +413,12 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			s._pfFbo = (s._pfFbo ?? 0) + 1;   // perf 計測用（pick FBO 再生成数＝解像度フリップ毎に起きていないか）
 		}
 		const t0 = performance.now();
-		renderPickingBuffer(st, st.lastDrawData);
+		renderPickingBuffer(st as GintLive, st.lastDrawData);
 		s._pfPickMs = (s._pfPickMs ?? 0) + (performance.now() - t0);   // perf 計測用（pick 描画の CPU 発行累計）
 		if (st._pendingMove) { const m = st._pendingMove; st._pendingMove = null; doIdentify(st, m); }
 	}
 
-	function move(data) {
+	function move(data: PointerData): void {
 		// 自己修復（gpu/gint.js move と同型）：pick FBO 未構築のまま最初のホバーが来た＝settle(gintDrawn)が
 		// 一度も来ていない（?area=＋hash 復元はカメラ無移動＝settle 不発）。一度だけ構築＝以後は通常経路。
 		// 従来は doIdentify が !s.pickFBO で黙って無反応＝「動かすまで識別が死ぬ」元々のバグの根治。
@@ -407,9 +426,9 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		if (!s.pickFBO && st.lastDrawData && !s._isDrawing) drawn();
 		handleMove(st, data);
 	}
-	function leave()    { handleLeave(actSt()); }
+	function leave(): void { handleLeave(actSt()); }
 
-	function click() {
+	function click(): void {
 		const st = actSt();
 		if (st.activeId === -1) return;
 		const geo = s.cam ? unproject(s.cam, st.hitMX * s.dpr, st.hitMY * s.dpr) : null;   // hitMX＝直近 identify の座標（lastMX は毎 draw の dedupe リセットで NaN）
@@ -418,8 +437,8 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 					  lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
 	}
 
-	function dispose() {
-		for (const L of layers.slice()) { clearTimeout(L.st._moveTimer); deleteTextures(L.st); clearFidStyle(L.st); }
+	function dispose(): void {
+		for (const L of layers.slice()) { clearTimeout(L.st._moveTimer!); deleteTextures(L.st); clearFidStyle(L.st); }
 		layers.length = 0; act = null;
 		saveActive();                                    // s 上の資産も束に写してから全束一括解放（漏れ防止）
 		for (const b of slots.values()) deleteBundleTextures(b);
@@ -445,7 +464,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// 地面アトラスへ面だけ焼く（RTT ドレープ・2026-09-21）：renderer.composeGround のフックから窓ごとに呼ばれる。
 	// target={ fbo, win:[W,S,spanLon,spanLat], size }。各層の面（stencil 単色／idfill）を窓座標モードで描く＝地形には FS の標本化で乗る。
 	// 画面側の draw は ctx.facesInAtlas で面を省く。ハイライト（hover）は従来どおり画面側。
-	function bakeFaces(cam, target) {
+	function bakeFaces(cam: CameraPose, target: GintAtlasTarget): number {
 		if (!s.programs) return 0;
 		s.width = gl.canvas.width; s.height = gl.canvas.height;   // draw() と同じ実寸追随（既定層が空のまま非表示だと draw() は寸法を更新しない）
 		const w = target.win, atlas = { off: null, inv: [1 / w[2], 1 / w[3]], size: target.size };
@@ -453,18 +472,18 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		const seam = w[0] < -180 || w[0] + w[2] > 180;
 		const vbb = seam ? null : [Math.round((w[0] + 180) * 1e7), Math.round((Math.max(-90, w[1]) + 90) * 1e7), Math.round((w[0] + w[2] + 180) * 1e7), Math.round((Math.min(90, w[1] + w[3]) + 90) * 1e7)];
 		let n = 0;
-		const one = (st, style, vis) => {
+		const one = (st: GintGLState, style: GintDrawStyle | null, vis: boolean): void => {
 			if (!vis || !st.polyBboxByFid || (st.polyBboxByFid.size ?? 0) === 0) return;
-			const data = { cam, ...(style || {}) };
+			const data: GLDrawInput = { cam, ...(style || {}) };
 			if (st._forceLowMove) data._forceLow = true;
 			if (!zoomInRange(st, data) || st.totalEdges === 0) return;
-			const dd = computeDrawData(s, data);   // ビュー（cam/lastViewBbox）はシングルトン＝共有（drawLayerGL と同じ）
+			const dd = computeDrawData(s, data) as GLDrawData;   // ビュー（cam/lastViewBbox）はシングルトン＝共有（drawLayerGL と同じ）
 			let off = dd.origin[0] - w[0]; off -= 360 * Math.round((off - w[2] / 2) / 360);   // 原点−窓南西隅（CPU f64・経度は窓中心へ最寄りの周回）
 			dd.atlas = { ...atlas, off: [off, dd.origin[1] - w[1]] };
 			dd.facesOnly = true;
 			const had = Object.prototype.hasOwnProperty.call(st, "lastViewBbox"), saved = st.lastViewBbox;
 			st.lastViewBbox = vbb;   // bindPivot が読む視野 bbox を窓 bbox へ差し替え（描き終えたら戻す）
-			try { renderCleanScene(st, dd, target.fbo); n++; }
+			try { renderCleanScene(st as GintLive, dd, target.fbo); n++; }
 			finally { if (had) st.lastViewBbox = saved; else delete st.lastViewBbox; }
 		};
 		gl.disable(gl.DEPTH_TEST);
@@ -477,9 +496,9 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	}
 	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
 	// 運動ビットは passes.js の moving（_isDrawing || _staticN<4）と同じ 1 ビット（#58・gpu/gint.js と対）
-	const bakeSig = () => `${bakeRev}|${(s._isDrawing || (s._staticN ?? 99) < 4) ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
+	const bakeSig = (): string => `${bakeRev}|${(s._isDrawing || (s._staticN ?? 99) < 4) ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
 	// 既定層へカーソルを返す（renderworker の gintActivate で layer 無し＝WebGPU の L0h.activate と対）。
 	// 旧＝GL に無く no-op＝interactive:false の層を足すとエンジンのカーソルがその層に残った（2026-09-26・U2）
-	const activate = () => { if (act !== null) { handleLeave(actSt()); act = null; } };
+	const activate = (): void => { if (act !== null) { handleLeave(actSt()); act = null; } };
 	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer, bakeFaces, bakeSig, activate };
 }

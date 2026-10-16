@@ -2,7 +2,92 @@
 // v1(ortho-map) の gintState を移植。唯一の差分＝d3 の lastProj を japan の cam(cameraState)へ。
 // cam は identify の unproject（JSレイキャストの逆写像＝site 4）に使う。
 
-export const s = {
+import type { CameraState } from '../../camera.ts';
+import type { GintData } from '../../gint/bake.ts';
+import type { DrawData, DrawInput } from '../../gint/drawdata.ts';
+import type { EdgeChunk } from '../../gint/utility.ts';
+import type { GintPrograms, Uniforms } from './programs.ts';
+
+/** LOD tier 1 段（minW 昇順の台帳）。tex＝RGBA32UI のメタ */
+export interface GLTier { minW: number; edgeCount: number; chunks: EdgeChunk[] | null; tex: WebGLTexture | null }
+/** ID 塗り（idfill）の能力＝浮動小数の色添付の形式 */
+export interface IdCaps { internal: number; fmt: number; type: number; maxFid: number; name: string }
+export interface IdPrograms { idProgram: WebGLProgram; resolveProgram: WebGLProgram; uId: Uniforms; uResolve: Uniforms }
+/** paint（fid スタイル表）の CPU 控え（context restore 用） */
+export interface FidStyleData { u32: Uint32Array; count: number }
+/** 識別のポインタ（CSS px） */
+export interface PointerData { x: number; y: number }
+/** renderer.gintCtx()＝山岳ビュー（terrainDepth）の間だけの frame コンテキスト（gl/renderer.ts が作る） */
+export interface GintDepthCtx {
+	terrainDepth: boolean; logCoef: number; fogFar: number; elevTex: WebGLTexture | null; elevBounds: number[];
+	elevScale: number; hasElev: number; edgeFade: number; meshQ: number[] | null; meshG: number; noSub: boolean; facesInAtlas: boolean;
+}
+/** 窓座標モード（地面アトラスへの焼き込み）＝off：原点−窓南西隅・inv：1/窓幅・size：窓の画素 */
+export interface AtlasWin { off: number[] | null; inv: number[]; size: number }
+/** 描画のスタイル（main が set("gintStyle") で預ける）＋描画の入力 */
+export interface GintDrawStyle {
+	lineWidth?: number | null; fillColor?: Float32List | null; styleTable?: Float32List | null; dashTable?: Float32List | null; maskColor?: Float32List | null;
+	hiliteColor?: Float32List | null; hiliteWidth?: number | null; ptRadius?: number | null; minZoom?: number | null; maxZoom?: number | null; outlineZoom?: number | null;
+	moveBudget?: number | null; noDepth?: boolean;
+}
+export type GLDrawInput = DrawInput & GintDrawStyle & { _forceLow?: boolean };
+/** computeDrawData の戻り＋GL の描画パスが足す鍵 */
+export interface GLDrawData extends DrawData {
+	fillColor: Float32List | null | undefined; styleTable: Float32List | null | undefined; dashTable: Float32List | null | undefined;
+	maskColor: Float32List | null | undefined; hiliteColor: Float32List | null | undefined; _forceLow: boolean | undefined;
+	depth?: GintDepthCtx | null; noFaces?: boolean; facesOnly?: boolean; atlas?: AtlasWin;
+}
+/** 直前に同期したカメラ（実移動の判定） */
+export interface SyncCam { center: [number, number]; zoom: number; pitch: number | undefined; bearing: number | undefined }
+
+/**
+ * gint の GL 状態。シングルトン s（GL 基盤・ビュー・運動）と、追加層の層状態（Object.create(s)＝データ・スタイル・perf ラッチだけを自前に持つ）の両方の形。
+ * gl/programs は createGintLayer が入れるまで null。
+ */
+export interface GintGLState {
+	canvas: OffscreenCanvas | HTMLCanvasElement | null; gl: WebGL2RenderingContext | null; dpr: number; width: number; height: number;
+	programs: GintPrograms | null;
+	TEX_ARC_W: number; TEX_META_W: number;
+	arcTex: WebGLTexture | null; metaTex: WebGLTexture | null; ptTex: WebGLTexture | null; ptMetaTex: WebGLTexture | null;
+	metaTexB: WebGLTexture | null;
+	totalEdgesB: number; polyEdgesB: number;
+	fidStyleTex: WebGLTexture | null; fidStyleW: number; fidStyleCount: number; _fidStyleH?: number; _fidStyleData?: FidStyleData | null;
+	pivotTex: WebGLTexture | null; pivotW: number;
+	lodTiers: GLTier[];
+	metaChunks: EdgeChunk[] | null;
+	totalEdges: number; totalPoints: number;
+	polyEdges: number;
+	fillOff: boolean;
+	lowFill: boolean;
+	tiersDone: boolean;
+	/** 最長辺スパン（e7・地形適応細分の上限。-1＝未知）・境界メタ側・境界メタの複製行区間 [b,start,count,…] */
+	span?: [number, number]; spanB?: [number, number]; subB?: number[] | null;
+	outlineZoom?: number | null;
+	pickFBO: WebGLFramebuffer | null; pickColorTex: WebGLTexture | null; pickDepthStencilRBO: WebGLRenderbuffer | null; _pickPBO?: WebGLBuffer | null;
+	lastDrawData: GLDrawData | null;
+	polyEdgeByFid: Map<number, [number, number]> | null;
+	polyBboxByFid: Map<number, number[]> | null;
+	minZoom: number | null; maxZoom: number | null;
+	requestDraw: (() => void) | null;
+	activeId: number;
+	gintData: GintData | null;
+	lastViewBbox?: number[] | null;
+	cam: CameraState | null; lastMX: number; lastMY: number;
+	hitMX: number; hitMY: number;
+	_isDrawing: boolean; _moveTimer: number | null; _pendingMove: PointerData | null;
+	_inRange: boolean;
+	// 層状態（addLayer）・スロット交替・perf の計器
+	layerId?: string | null; tierGen?: number; idOverlapMode?: boolean;
+	_pfLineEdges?: number; _pfTierW?: number; _pfRuns?: number; _pfChunks?: number; _pfSubs?: number;
+	_forceLowMove?: boolean; _budgetSkipped?: boolean; _pickPending?: boolean; _staticN?: number;
+	_lastSyncCam?: SyncCam; _pfDrawn?: number; _pfFbo?: number; _pfPickMs?: number;
+	// idfill の共有スクラッチ（シングルトン所有＝GL コンテキストの資産）
+	_idCaps?: IdCaps | null; _idPrograms?: IdPrograms | null; _idFBO?: WebGLFramebuffer | null; _idTex?: WebGLTexture | null; _idW?: number; _idH?: number;
+}
+/** 描画の時点（createGintLayer の後）の状態＝gl と programs が在る */
+export type GintLive = GintGLState & { gl: WebGL2RenderingContext; programs: GintPrograms };
+
+export const s: GintGLState = {
 	// GL core
 	canvas: null, gl: null, dpr: 1, width: 0, height: 0,
 	programs: null,

@@ -994,8 +994,8 @@ const PT_UNIFORM_NAMES = [
 
 // ── 旧 6 頂点/辺の drawArrays（?quad4=0・perf plan P3 の逃げ道）への書き換え＝gpu/gintwgsl.js quad6WGSL と対 ──
 // 原本は index の 4 頂点（u_vbase + gl_VertexID/4・%4・角 4 通り）。旧＝index 無しの 6 頂点（gl_VertexID/6・%6・角 6 通り）。二重管理をしない＝機械変換（漏れは例外）
-function quad6GLSL(code) {
-	const R = [
+function quad6GLSL(code: string): string {
+	const R: [RegExp, string][] = [
 		[/u_vbase \+ gl_VertexID \/ 4;/g, "gl_VertexID / 6;"],
 		[/gl_VertexID % 4;/g, "gl_VertexID % 6;"],
 		[/bool  useA = sub < 2;/g, "bool  useA = (sub == 0 || sub == 1 || sub == 3);"],
@@ -1011,8 +1011,13 @@ function quad6GLSL(code) {
 // index の 4 頂点/辺（P3）の固定パターン＝[4k,4k+1,4k+2, 4k,4k+2,4k+3]×QK（u32・ELEMENT_ARRAY）。run は u_vbase＝先頭辺・QK 超は割る（passes.js drawQ）
 const QUAD_K = 1 << 17;
 
-export function createGintPrograms(gl, { quad4 = true } = {}) {
-	const Q = quad4 ? c => c : quad6GLSL;   // ?quad4=0＝旧 6 頂点の VS（線・点・pick）
+/** uniform 名 → location（無い名は null＝no-op） */
+export type Uniforms = Record<string, WebGLUniformLocation | null>;
+/** createGintPrograms の戻り（プログラム・uniform 表・VAO） */
+export type GintPrograms = ReturnType<typeof createGintPrograms>;
+
+export function createGintPrograms(gl: WebGL2RenderingContext, { quad4 = true }: { quad4?: boolean } = {}) {
+	const Q = quad4 ? (c: string): string => c : quad6GLSL;   // ?quad4=0＝旧 6 頂点の VS（線・点・pick）
 	const renderProgram      = linkProgram(gl, Q(VS_RENDER),     FS_RENDER);
 	const stencilProgram     = linkProgram(gl, VS_STENCIL,       FS_STENCIL);
 	const fillProgram        = linkProgram(gl, VS_FILL,          FS_FILL);
@@ -1030,9 +1035,9 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']);
 	const uPickPoint   = getUniforms(gl, pickPointProgram,   PT_UNIFORM_NAMES);
 
-	const emptyVAO = gl.createVertexArray();
+	const emptyVAO = gl.createVertexArray()!;
 	// quadVAO（P3）＝属性なし・ELEMENT_ARRAY に固定パターン。線・点の draw はこれを bind して drawElements（stencil 扇の drawArrays も同居してよい＝index を見ない）
-	let quadVAO = null, quadIdx = null;
+	let quadVAO: WebGLVertexArrayObject | null = null, quadIdx: WebGLBuffer | null = null;
 	if (quad4) {
 		const a = new Uint32Array(QUAD_K * 6);
 		for (let k = 0, o = 0; k < QUAD_K; k++, o += 6) { const b = k * 4; a[o] = b; a[o + 1] = b + 1; a[o + 2] = b + 2; a[o + 3] = b; a[o + 4] = b + 2; a[o + 5] = b + 3; }
@@ -1050,25 +1055,25 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 			 quad4, quadVAO, quadIdx, QK: QUAD_K };
 }
 
-function compileShader(gl, type, src) {
-	const s = gl.createShader(type);
+function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
+	const s = gl.createShader(type)!;
 	gl.shaderSource(s, src);
 	gl.compileShader(s);
-	if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+	if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)!);
 	return s;
 }
 
-function linkProgram(gl, vs, fs) {
+function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
 	const p = gl.createProgram();
 	gl.attachShader(p, compileShader(gl, gl.VERTEX_SHADER, vs));
 	gl.attachShader(p, compileShader(gl, gl.FRAGMENT_SHADER, fs));
 	gl.linkProgram(p);
-	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
 	return p;
 }
 
-function getUniforms(gl, prog, names) {
-	const u = {};
+function getUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram, names: readonly string[]): Uniforms {
+	const u: Uniforms = {};
 	for (const n of names) u[n] = gl.getUniformLocation(prog, n);
 	return u;
 }
@@ -1077,7 +1082,7 @@ function getUniforms(gl, prog, names) {
 export { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, linkProgram, getUniforms };
 
 // createGintPrograms の資源を全部返す（プログラム・emptyVAO・quadVAO／quadIdx）。GL embed と gint worker の dispose で共通。旧＝両方の写しが quadVAO／quadIdx を解放していなかった
-export function deleteGintPrograms(gl, P) {
+export function deleteGintPrograms(gl: WebGL2RenderingContext, P: GintPrograms | null | undefined): void {
 	if (!P) return;
 	if (P.emptyVAO) gl.deleteVertexArray(P.emptyVAO);
 	if (P.quadVAO) gl.deleteVertexArray(P.quadVAO);
