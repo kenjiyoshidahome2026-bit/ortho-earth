@@ -9,6 +9,7 @@
 		"src/meshdecoder.ts",
 		"src/model-worker.ts",
 		"src/copc-worker.ts",
-		"src/vtextrude-worker.ts"],
+		"src/vtextrude-worker.ts",
+		"types/worker-env.d.ts"],
 	"exclude": []
 }
