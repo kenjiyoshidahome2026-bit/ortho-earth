@@ -251,8 +251,8 @@
 		},
 		"packages/ortho-core/src/dem-src.ts": {
 			"gsi": {
-				"n": 1,
-				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）"
+				"n": 2,
+				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）。2 件目＝その型の列挙 DemEncoding（2.0・TS 化）"
 			}
 		},
 		"packages/ortho-core/src/elevation/loader.ts": {
