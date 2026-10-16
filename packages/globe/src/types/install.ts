@@ -12,9 +12,9 @@ import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, ModelCtl, UserLayerRec,
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer, queryTiles } from "@ortho-earth/core";
 import type { CameraState } from "@ortho-earth/core/camera";
-import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.d.ts";
-import type { GJLabels } from "../gadgets/gjlabels.d.ts";
-import type { Symbols } from "../gadgets/symbols.d.ts";
+import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.ts";
+import type { GJLabels } from "../gadgets/gjlabels.ts";
+import type { Symbols } from "../gadgets/symbols.ts";
 import type { FeatureCollection, GeoPBF } from "geopbf";
 import type { ScenePlayer } from "../scenes/player.d.ts";
 import type { ViewFollow } from "../featureservice.d.ts";

@@ -1,7 +1,7 @@
 // 取得の手入れ（map.setTransformRequest・addProtocol・fetchResource）・Marker／Popup・取り込みの表（ファイルの形式ごとの載せ方）と
 // ファイル取り込みの一本道（loadUserFile＝D&D と ?g= の共用）＝createGlobe から切り出した（globe.js の分割 ⑥・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { Marker, Popup } from "../gadgets/marker.js";
+import { Marker, Popup } from "../gadgets/marker.ts";
 import { WORLD_PX } from "@ortho-earth/core";
 import { addProtocol, removeProtocol } from "../request.js";
 import { geopbf, geopbfCachePrune } from "geopbf";

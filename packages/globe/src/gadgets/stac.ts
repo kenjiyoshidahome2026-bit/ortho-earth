@@ -9,14 +9,26 @@
 // シーン切替は fit:false＝カメラ据え置き（同じ場所の別日・別センサを見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
 import { tr } from "../i18n.js";
-import { DATASETS, defaultRange, searchScenes, cogUrl, cogOpts, renewingFetch, orbitLabel } from "./tellus-api.js";   // Tellus の読み口（tellus.html と共用）
-import { createFootprint } from "./footprint.js";   // フットプリント描画（tellus.html と共用・辺は大円）
+import { DATASETS, defaultRange, searchScenes, cogUrl, cogOpts, renewingFetch, orbitLabel, type Dataset } from "./tellus-api.ts";   // Tellus の読み口（tellus.html と共用）
+import { createFootprint } from "./footprint.ts";   // フットプリント描画（tellus.html と共用・辺は大円）
+import type { CogOptions } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { FootprintGeometry } from "./footprint.ts";
 const t = tr();
+
+/** stac ガジェットの opts（btn＝stub が作ったボタン・loadCog/clearCog＝globe が注入する cog の口） */
+export interface StacOpts { btn?: HTMLButtonElement; loadCog?: (src: string, opts: CogOptions) => Promise<unknown>; clearCog?: () => void; signal?: AbortSignal }
+/** ソース台帳の 1 項（ds あり＝Tellus・無し＝Sentinel-2 の直読み） */
+type StacSource = { key: string; label: string; credit: string; cloud: boolean; days?: number; period?: [string, string]; ds?: string; sub?: string; pol?: boolean; cog?: Record<string, unknown> };
+/** 行の正規形（resolve＝COG の URL・renew＝失効したら再発行する fetch を包む） */
+interface StacRow { id: string; date: string; sub: string; cloud: number; geometry: unknown; thumb?: string | null; resolve: () => Promise<string>; renew?: boolean; cog?: Record<string, unknown> }
+/** Earth Search の地物（使う分） */
+interface S2Item { id: string; geometry?: unknown; properties?: Record<string, unknown>; assets?: { visual?: { href?: string }; thumbnail?: { href?: string } } }
 
 const API = "https://earth-search.aws.element84.com/v1/search";   // 公開 STAC API（Sentinel-2 L2A COGs on AWS）
 // ソース台帳＝Sentinel-2（直読み）＋ Tellus の 2 つ（tellus-api.js の DATASETS）。days/period＝ソース別の既定期間
 //（Sentinel-2 の「直近 90 日」のままだと、再訪間隔の長い PALSAR-2 や 2011 年で終わった AVNIR-2 は 0 件になる）。
-const SOURCES = [
+const SOURCES: StacSource[] = [
 	{ key: "s2", label: "Sentinel-2", credit: "Sentinel-2 © Copernicus / Earth Search", cloud: true, days: 90 },
 	...Object.values(DATASETS).map(d => ({ ...d, label: `${d.label} (Tellus)` })),   // PALSAR-2 / PALSAR / AVNIR-2 / GCOM-C SST＝台帳の順
 ];
@@ -42,7 +54,7 @@ const CSS = `
 #stac-foot { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px 8px; color: #9aa2b1; font-size: 10px; }
 #stac-clear { border: 0; background: none; color: #6b7385; cursor: pointer; font: 11px system-ui; text-decoration: underline; }`;
 
-export function stac({ btn, loadCog, clearCog, signal } = {}) {
+export function stac(this: GlobeMap, { btn, loadCog, clearCog, signal }: StacOpts = {}): { toggle(): void; search(): Promise<void> } {
 	const map = this, mapEl = this.mapEl;
 	if (!mapEl.querySelector("#stac-style")) {
 		const st = document.createElement("style"); st.id = "stac-style"; st.textContent = CSS; mapEl.append(st);
@@ -50,7 +62,7 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 	const panel = document.createElement("div");
 	panel.id = "stac-panel";
 	const today = new Date(), from = new Date(today.getTime() - 90 * 864e5);
-	const d = (x) => x.toISOString().slice(0, 10);
+	const d = (x: Date) => x.toISOString().slice(0, 10);
 	panel.innerHTML = `
 		<div id="stac-head">
 			<select id="stac-src" aria-label="${t("Imagery source")}">${SOURCES.map(s => `<option value="${s.key}">${s.label}</option>`).join("")}</select>
@@ -61,15 +73,15 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		<div id="stac-list"></div>
 		<div id="stac-foot"><span id="stac-credit">${SOURCES[0].credit}</span><button id="stac-clear">${t("Remove imagery")}</button></div>`;
 	mapEl.append(panel);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
-	const $ = (id) => panel.querySelector(id);
-	const status = (s) => { $("#stac-status").textContent = s; };
+	const $ = (id: string) => panel.querySelector<HTMLInputElement>(id)!;
+	const status = (s: string) => { $("#stac-status").textContent = s; };
 	const source = () => SOURCES.find(s => s.key === $("#stac-src").value) || SOURCES[0];
-	const applyRange = (src) => { const [a, b] = defaultRange(src); $("#stac-from").value = a; $("#stac-to").value = b; };   // ソースの既定期間を日付欄へ（利用者はそのあと自由に動かせる）
+	const applyRange = (src: StacSource) => { const [a, b] = defaultRange(src); $("#stac-from").value = a; $("#stac-to").value = b; };   // ソースの既定期間を日付欄へ（利用者はそのあと自由に動かせる）
 
 	// シーンの居場所＝フットプリント（gadgets/footprint.js）。行ホバーの間だけ太枠。選択枠は置かない＝載った画像自身が範囲を示す
 	//（枠を残すと僅かなズレだけが目立つ・本人裁定 9/6）。
 	const foot = createFootprint(map, mapEl);
-	const setHover = (g) => foot.set(g);
+	const setHover = (g: number[][] | null) => foot.set(g);
 	const ringOf = foot.ringOf;
 
 	// 現在ビューの bbox（画面四隅+中心の unproject ∩ ズーム由来の視野幅キャップ）。
@@ -85,12 +97,12 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		const capH = capW * H / W;
 		if (pts.some(p => !p)) return [c[0] - capW, Math.max(c[1] - capH, -85), c[0] + capW, Math.min(c[1] + capH, 85)];
 		let w = 1e9, s = 1e9, e = -1e9, n = -1e9;
-		for (const [lo, la] of pts) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
+		for (const [lo, la] of pts as number[][]) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
 		return [Math.max(w, c[0] - capW), Math.max(s, c[1] - capH, -85), Math.min(e, c[0] + capW), Math.min(n, c[1] + capH, 85)];
 	};
 	// ---- ソース別アダプタ：検索 → 行の正規形 {id, date, sub, cloud, geometry, thumb, resolve()→COG の URL, renew?} ----
 	const fromTo = () => [$("#stac-from").value, $("#stac-to").value];
-	const searchS2 = async (c, bbox, sig) => {
+	const searchS2 = async (c: number[] | null, bbox: number[] | null, sig: AbortSignal): Promise<StacRow[]> => {
 		const [from, to] = fromTo();
 		const r = await fetch(API, {
 			method: "POST", headers: { "content-type": "application/json" }, signal: sig, credentials: "omit",
@@ -102,14 +114,14 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 			}),
 		});
 		if (!r.ok) throw new Error(`HTTP ${r.status}`);
-		return ((await r.json()).features || []).filter(it => it.assets?.visual?.href).map(it => ({
-			id: it.id, date: (it.properties?.datetime || "").slice(0, 10),
-			sub: (it.properties?.["grid:code"] || "").replace(/^MGRS-/, ""),
-			cloud: it.properties?.["eo:cloud_cover"] ?? -1, geometry: it.geometry, thumb: it.assets?.thumbnail?.href,
-			resolve: async () => it.assets.visual.href,
+		return ((await r.json()).features || []).filter((it: S2Item) => it.assets?.visual?.href).map((it: S2Item) => ({
+			id: it.id, date: (it.properties?.datetime as string || "").slice(0, 10),
+			sub: (it.properties?.["grid:code"] as string || "").replace(/^MGRS-/, ""),
+			cloud: it.properties?.["eo:cloud_cover"] as number ?? -1, geometry: it.geometry, thumb: it.assets?.thumbnail?.href,
+			resolve: async () => it.assets!.visual!.href!,
 		}));
 	};
-	const searchTellus = async (src, c, bbox, sig) => {
+	const searchTellus = async (src: Dataset, c: number[] | null, bbox: number[] | null, sig: AbortSignal): Promise<StacRow[]> => {
 		const [from, to] = fromTo();
 		return (await searchScenes(src, { c, bbox, from, to, signal: sig })).map(it => ({
 			...it, sub: src.cloud ? it.sub : [it.sub, orbitLabel(it.props, t)].filter(Boolean).join(" "), thumb: null, renew: true,
@@ -117,9 +129,9 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 			cog: { ...cogOpts(src), cacheKey: `${src.key}/${it.id}` },   // 見せ方（PALSAR-2 は偽色・SST はカラーマップ）＋生タイルキャッシュの鍵
 		}));
 	};
-	const renewing = (resolve, first) => renewingFetch(first, resolve);
+	const renewing = (resolve: () => Promise<string>, first: string) => renewingFetch(first, resolve);
 
-	let ac = null, activeHref = null;
+	let ac: AbortController | null = null, activeHref: string | null = null;
 	const search = async () => {
 		// 意味論＝「画面中心の地点が写っているシーン」（STAC intersects に中心点）。bbox 検索だと「かすった」周辺タイルが
 		// 混ざり、雲量ソート×limit で肝心の中心タイルが締め出される（本人指摘 9/6）。点なら範囲外ゼロ・中心は必ず写る。
@@ -131,15 +143,15 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		signal?.addEventListener("abort", () => ac?.abort(), { once: true });
 		status(t("Searching…")); $("#stac-list").replaceChildren(); $("#stac-credit").textContent = src.credit;
 		try {
-			const items = src.ds ? await searchTellus(src, c, bbox, ac.signal) : await searchS2(c, bbox, ac.signal);
+			const items = src.ds ? await searchTellus(src as Dataset, c, bbox, ac.signal) : await searchS2(c, bbox, ac.signal);
 			status(items.length ? "" : t("No scenes found (try a wider area or date range)"));
 			for (const it of items.slice(0, 15)) {
 				const cloud = Math.round(it.cloud);
 				const row = document.createElement("button");
 				row.className = "stac-row"; row.dataset.id = it.id;
 				row.innerHTML = `<img loading="lazy" alt=""><span><span class="d">${it.date}</span> <span class="c">${it.sub}</span><br><span class="c">${src.cloud ? `${t("cloud")} ${cloud >= 0 ? cloud + "%" : "?"}` : src.label}</span></span>`;
-				if (it.thumb) row.querySelector("img").src = it.thumb;
-				const ring = ringOf(it.geometry);
+				if (it.thumb) row.querySelector("img")!.src = it.thumb;
+				const ring = ringOf(it.geometry as FootprintGeometry);
 				row.addEventListener("mouseenter", () => setHover(ring), { signal });
 				row.addEventListener("mouseleave", () => setHover(null), { signal });
 				row.addEventListener("click", async () => {
@@ -148,13 +160,13 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 					setHover(null);   // 枠は消す＝範囲は載った画像自身が示す
 					try {
 						const href = await it.resolve();
-						await loadCog(href, { fit: activeHref === null, ...(it.cog || {}), ...(it.renew ? { fetch: renewing(it.resolve, href) } : {}) });   // 初回だけシーンへ寄る＝以降は据え置きで日付比較
+						await loadCog!(href, { fit: activeHref === null, ...(it.cog || {}), ...(it.renew ? { fetch: renewing(it.resolve, href) } : {}) });   // 初回だけシーンへ寄る＝以降は据え置きで日付比較
 						activeHref = href; status("");
-					} catch (e) { status(t("Search failed") + ": " + e.message); }
+					} catch (e) { status(t("Search failed") + ": " + (e as Error).message); }
 				}, { signal });
 				$("#stac-list").append(row);
 			}
-		} catch (e) { if (e?.name !== "AbortError") { console.warn("[stac]", e); status(t("Search failed")); } }
+		} catch (e) { if ((e as Error)?.name !== "AbortError") { console.warn("[stac]", e); status(t("Search failed")); } }
 	};
 
 	$("#stac-go").addEventListener("click", search, { signal });
@@ -167,6 +179,6 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		else if (!$("#stac-list").children.length) search();
 	};
 	btn?.addEventListener("click", toggle, { signal });   // スタブの初回起動後はこのリスナーがトグルを担う（初回は stub が g.toggle() を呼ぶ）
-	signal?.addEventListener("abort", () => { ac?.abort(); unsub?.(); panel.remove(); cv.remove(); }, { once: true });
+	signal?.addEventListener("abort", () => { ac?.abort(); foot.destroy(); panel.remove(); }, { once: true });   // 枠の canvas と描画の購読は footprint が持つ（旧＝切り出す前の名 unsub／cv が残っていて ReferenceError＝パネルが残った）
 	return { toggle, search };
 }

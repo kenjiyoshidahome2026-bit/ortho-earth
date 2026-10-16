@@ -5,7 +5,14 @@
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
+import type { PathGadget, PathGadgetStub } from "../../globe.d.ts";
+import type { ToolBody } from "../types/scope.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { MeasureBody, MeasureOpts } from "./measure.ts";
 const t = tr();
+
+/** 計測の入口の opts＝本体の opts（btn はスタブが作って渡す）＋onBody（本体の到着＝frame hook の配線を登録側へ） */
+export type MeasureStubOpts = MeasureOpts & { onBody?: (body: ToolBody) => void };
 
 // 巻尺グリフ（本体 measure.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `
@@ -13,7 +20,7 @@ const ICON = `
 		<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
 		<path d="M6.6 8.2l1 2.4M10 6.9l1.4 3.2M13.4 5.6l1 2.4M16.8 4.3l1.4 3.2" stroke-width="1.3"/></svg>`;
 
-export function measure(opts = {}) {
+export function measure(this: GlobeMap, opts: MeasureStubOpts = {}): PathGadgetStub {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-btn")) return () => {};   // 二重搭載は無害（作法の対称＝no-op を返す）
 	const btn = document.createElement("button");
@@ -21,10 +28,10 @@ export function measure(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<MeasureBody | void> | null = null;   // Promise<handle>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./measure.js")
+	const boot = () => real ||= import("./measure.ts")
 		.then(m => { const g = m.measure.call(map, { ...opts, btn }); stub.abort(); opts.onBody?.(g); return g; })   // 本体は持参 btn を再利用／onBody＝frame hook 配線を core へ委ねる
 		.catch(e => { real = null; console.error("[measure] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体トグルが受ける）
@@ -38,5 +45,5 @@ export function measure(opts = {}) {
 		e.preventDefault(); activate();
 	}, { signal: stub.signal });
 	// 戻り値＝no-op（作法の対称）＋制御ハンドル。open()＝本体到着→計測開始（本体handleを解決＝テスト/アプリが stats() を読める）。
-	return Object.assign(() => {}, { open: () => boot().then(g => { g && g.open?.(); return g; }), close: () => real && real.then(g => g && g.close?.()) });
+	return Object.assign(() => {}, { open: () => boot().then(g => { g && g.open?.(); return g as PathGadget | undefined; }), close: () => real && real.then(g => g && g.close?.()) });
 }

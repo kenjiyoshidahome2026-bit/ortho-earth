@@ -10,13 +10,27 @@
 import { gadgetStack } from "./stack.ts";
 import { geodesicDistance } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
+import type { LonLat, PathGadget } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+import type { Projector } from "./measure.ts";
 const t = tr();
+
+/** profile の opts（登録側が注入する手綱・btn＝stub が作ったボタン・cut／canCut＝3D で切る（a＝null は外す）） */
+export interface ProfileOpts {
+	makeProjector?: () => Projector; unprojectXY?: (x: number, y: number) => LonLat | null; signal?: AbortSignal;
+	setClick?: (fn: ((x: number, y: number) => unknown) | null) => void; sampleHeight?: (lon: number, lat: number) => Promise<number>; btn?: HTMLButtonElement;
+	canCut?: () => boolean; cut?: ((a: LonLat | null, b: LonLat, flip?: boolean) => unknown) | null; [k: string]: unknown;   // a＝null は外す（b は見ない）
+}
+/** 本体の手綱＝no-op の関数＋start/stop/open/close/stats・_update（毎フレの再投影）。二重搭載は素の no-op */
+export type ProfileBody = (() => void) & Partial<PathGadget> & { _update?(): void };
+/** 標高の 1 標本（s＝起点からの距離 m・ll＝経緯度・h＝標高 m） */
+interface Sample { s: number; ll: number[]; h: number }
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#c9691e", DOT = "#fff", W = 2, R_VERT = 4;   // 経路＝橙（計測の暗赤と区別・グラフの塗りと同族）
 const FILL_CH = "rgba(235,153,85,.5)", LINE_CH = "#c9691e";   // グラフの塗り/線（地理院の断面図に寄せた橙）
 
-export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, signal, btn, cut = null, canCut = () => false } = {}) {
+export function profile(this: GlobeMap, { makeProjector, unprojectXY, setClick, sampleHeight, signal, btn, cut = null, canCut = () => false }: ProfileOpts = {}): ProfileBody {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#profile-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
@@ -31,7 +45,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 
 	const canvas = document.createElement("canvas");
 	canvas.id = "profile-lines"; mapEl.append(canvas);   // #map 直下の後置（DOM順で上・pointerは素通し）
-	const ctx = canvas.getContext("2d");
+	const ctx = canvas.getContext("2d")!;
 	const out = document.createElement("div");
 	out.id = "profile-readout"; out.style.display = "none"; mapEl.append(out);   // 意匠は #measure-readout と相乗り
 
@@ -54,26 +68,26 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		</div>
 		<canvas class="pf-chart"></canvas>`;
 	mapEl.append(panel);
-	const chart = panel.querySelector(".pf-chart"), cctx = chart.getContext("2d");
-	const statsEl = panel.querySelector(".pf-stats");
+	const chart = panel.querySelector<HTMLCanvasElement>(".pf-chart")!, cctx = chart.getContext("2d")!;
+	const statsEl = panel.querySelector(".pf-stats")!;
 
-	let active = false, finished = false, verts = [], cursorLL = null, cw = 0, ch = 0;
-	let samples = [], sampled = 0, total = 0, runId = 0;   // samples[i]={s,ll,h}（取得済みだけ非null）
+	let active = false, finished = false, verts: number[][] = [], cursorLL: number[] | null = null, cw = 0, ch = 0;
+	let samples: Array<Sample | null> = [], sampled = 0, total = 0, runId = 0;   // samples[i]={s,ll,h}（取得済みだけ非null）
 	let hoverI = -1;   // グラフのホバー位置（サンプル添字）＝地図上マーカーと連動
 
 	btn.addEventListener("click", () => (active ? stop() : start()));
 	// 3D で切る（#111）＝経路の両端を通る鉛直面で地図を切る（既定はカメラの側を外す＝切り口がこちらを向く）。反対側を残す＝向きを返す。WebGPU の時だけ出す
 	let cutOn = false, cutFlip = false;
-	const cutBtn = panel.querySelector(".pf-cut"), flipBtn = panel.querySelector(".pf-flip");
-	const applyCut = () => { if (!cut) return; if (cutOn && verts.length >= 2) cut(verts[0], verts[verts.length - 1], cutFlip); else cut(null); cutBtn.textContent = cutOn ? t("Remove cut") : t("Cut in 3D"); flipBtn.hidden = !cutOn; };
+	const cutBtn = panel.querySelector<HTMLButtonElement>(".pf-cut")!, flipBtn = panel.querySelector<HTMLButtonElement>(".pf-flip")!;
+	const applyCut = () => { if (!cut) return; if (cutOn && verts.length >= 2) cut(verts[0] as LonLat, verts[verts.length - 1] as LonLat, cutFlip); else (cut as (a: null) => unknown)(null); cutBtn.textContent = cutOn ? t("Remove cut") : t("Cut in 3D"); flipBtn.hidden = !cutOn; };
 	cutBtn.addEventListener("click", () => { cutOn = !cutOn; cutFlip = false; applyCut(); });
 	flipBtn.addEventListener("click", () => { cutFlip = !cutFlip; applyCut(); });
 	const showCut = () => { cutBtn.hidden = !(cut && canCut() && finished && verts.length >= 2); if (cutBtn.hidden && cutOn) { cutOn = false; applyCut(); } };
-	panel.querySelector(".panel-close").addEventListener("click", closePanel);
+	panel.querySelector(".panel-close")!.addEventListener("click", closePanel);
 	panel.querySelectorAll(".pf-base input").forEach(r => r.addEventListener("change", renderChart));
-	panel.querySelector(".pf-save").addEventListener("click", () => chart.toBlob(b => b && download(b, "profile.png")));
-	panel.querySelector(".pf-route").addEventListener("click", () => {   // 経路＝標高付き LineString（[lon,lat,標高m]）＝GISへそのまま持ち出せる
-		const coords = samples.filter(Boolean).map(p => [+p.ll[0].toFixed(6), +p.ll[1].toFixed(6), Math.round(p.h * 10) / 10]);
+	panel.querySelector(".pf-save")!.addEventListener("click", () => chart.toBlob(b => b && download(b, "profile.png")));
+	panel.querySelector(".pf-route")!.addEventListener("click", () => {   // 経路＝標高付き LineString（[lon,lat,標高m]）＝GISへそのまま持ち出せる
+		const coords = (samples.filter(Boolean) as Sample[]).map(p => [+p.ll[0].toFixed(6), +p.ll[1].toFixed(6), Math.round(p.h * 10) / 10]);
 		if (coords.length < 2) return;
 		const gj = { type: "Feature", properties: { length_m: Math.round(total) }, geometry: { type: "LineString", coordinates: coords } };
 		download(new Blob([JSON.stringify(gj)], { type: "application/geo+json" }), "profile.geojson");
@@ -89,17 +103,17 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 
 	function start() {
 		active = true; finished = false; verts = []; cursorLL = null;
-		btn.classList.add("on"); mapEl.classList.add("profiling");
-		setClick(addVertex); draw();
+		btn!.classList.add("on"); mapEl.classList.add("profiling");
+		setClick!(addVertex); draw();
 	}
 	function stop() {
 		if (cutOn) { cutOn = false; applyCut(); }   // 道具を閉じたら切り口も消す
 		active = false; verts = []; cursorLL = null; finished = false; runId++;
-		btn.classList.remove("on"); mapEl.classList.remove("profiling");
-		closePanel(); setClick(null); draw();
+		btn!.classList.remove("on"); mapEl.classList.remove("profiling");
+		closePanel(); setClick!(null); draw();
 	}
-	function addVertex(x, y) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
-		const ll = unprojectXY(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
+	function addVertex(x: number, y: number) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
+		const ll = unprojectXY!(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
 		if (finished) { verts = []; finished = false; runId++; closePanel(); showCut(); }   // 確定後の最初のクリック＝新しい経路（前の切り口は消す）
 		verts.push(ll); draw();
 	}
@@ -114,7 +128,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	mapEl.addEventListener("pointermove", e => {
 		if (!active || finished) return;
 		const r = mapEl.getBoundingClientRect();
-		cursorLL = unprojectXY(e.clientX - r.left, e.clientY - r.top); draw();
+		cursorLL = unprojectXY!(e.clientX - r.left, e.clientY - r.top); draw();
 	}, { signal, passive: true });
 	mapEl.addEventListener("dblclick", e => { if (active && !finished) { e.preventDefault(); finish(); } }, { signal });
 	window.addEventListener("keydown", e => {
@@ -129,7 +143,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	return Object.assign(() => {}, {
 		_update, start, stop, open: start, close: stop,
 		stats: () => {
-			const hs = samples.filter(Boolean).map(p => p.h);
+			const hs = (samples.filter(Boolean) as Sample[]).map(p => p.h);
 			return { points: verts.length, total, sampled, samples: samples.length, min: hs.length ? Math.min(...hs) : 0, max: hs.length ? Math.max(...hs) : 0 };
 		},
 	});
@@ -139,7 +153,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	// 素直（経路は空間的に連続＝セル跨ぎでだけ再ロード）。取得しながら 16点毎にグラフを描き足す＝進捗が見える。
 	async function sample() {
 		const run = ++runId, pts = verts.slice();
-		const segs = []; let L = 0;
+		const segs: Array<{ a: number[]; b: number[]; d0: number; d: number }> = []; let L = 0;
 		for (let i = 0; i + 1 < pts.length; i++) { const d = geodesicDistance(pts[i], pts[i + 1]); segs.push({ a: pts[i], b: pts[i + 1], d0: L, d }); L += d; }
 		if (!(L > 0)) return;
 		const n = Math.max(120, Math.min(1000, Math.ceil(L / 10)));
@@ -151,7 +165,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 			for (const g of segs) if (s <= g.d0 + g.d) { seg = g; break; }
 			const ll = slerp(seg.a, seg.b, seg.d ? (s - seg.d0) / seg.d : 0);
 			let h = 0;
-			try { h = +await sampleHeight(ll[0], ll[1]) || 0; } catch { h = 0; }
+			try { h = +await sampleHeight!(ll[0], ll[1]) || 0; } catch { h = 0; }
 			if (run !== runId) return;   // 新しい経路/OFF＝この走者は静かに降りる
 			samples[i] = { s, ll, h }; sampled = i + 1;
 			if ((i & 15) === 15 || i === n) renderChart();
@@ -159,9 +173,9 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	}
 
 	// ---- 幾何（measure と同流儀＝表示球の大圏。数字だけ WGS84）----
-	function to3(lon, lat) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
-	function toLL(v) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
-	function slerp(a, b, f) {   // 大圏に沿った内分点（f=0..1）
+	function to3(lon: number, lat: number) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
+	function toLL(v: number[]) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
+	function slerp(a: number[], b: number[], f: number) {   // 大圏に沿った内分点（f=0..1）
 		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
 		let dot = A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; dot = Math.max(-1, Math.min(1, dot));
 		const om = Math.acos(dot);
@@ -169,12 +183,12 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		const so = Math.sin(om), s0 = Math.sin((1 - f) * om) / so, s1 = Math.sin(f * om) / so;
 		return toLL([A[0] * s0 + B[0] * s1, A[1] * s0 + B[1] * s1, A[2] * s0 + B[2] * s1]);
 	}
-	function gcPoints(a, b) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）
+	function gcPoints(a: number[], b: number[]) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）
 		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
 		let dot = A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; dot = Math.max(-1, Math.min(1, dot));
 		const om = Math.acos(dot), n = Math.max(1, Math.min(128, Math.round(om * R2D / 0.5)));
 		if (om < 1e-6 || n <= 1) return [a, b];
-		const pts = [];
+		const pts: number[][] = [];
 		for (let i = 0; i <= n; i++) pts.push(slerp(a, b, i / n));
 		return pts;
 	}
@@ -184,7 +198,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		const w = mapEl.clientWidth, h = mapEl.clientHeight;
 		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
 	}
-	function strokeArc(pr, a, b) {
+	function strokeArc(pr: Projector, a: number[], b: number[]) {
 		const pts = gcPoints(a, b);
 		ctx.beginPath(); let pen = false;
 		for (const p of pts) {
@@ -194,7 +208,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		}
 		ctx.stroke();
 	}
-	function dotAt(pr, ll, r, fill) {
+	function dotAt(pr: Projector, ll: number[], r: number, fill: string) {
 		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
 		ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
 		ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.stroke();
@@ -204,22 +218,22 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
 		if (!active) return readout("");
 		if (!verts.length) return readout(hint());
-		const pr = makeProjector();
+		const pr = makeProjector!();
 		let pp = verts.slice();
 		if (!finished && cursorLL) pp.push(cursorLL);
 		ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.lineJoin = "round"; ctx.lineCap = "round";
 		for (let i = 0; i + 1 < pp.length; i++) strokeArc(pr, pp[i], pp[i + 1]);
 		for (const v of pp) dotAt(pr, v, R_VERT, DOT);
-		if (hoverI >= 0 && samples[hoverI]) dotAt(pr, samples[hoverI].ll, R_VERT + 2, LINE);   // グラフのホバー位置＝地図に対応点
+		if (hoverI >= 0 && samples[hoverI]) dotAt(pr, samples[hoverI]!.ll, R_VERT + 2, LINE);   // グラフのホバー位置＝地図に対応点
 		readout(hint(pp));
 	}
-	function hint(pp) {
+	function hint(pp?: number[][]) {
 		if (!verts.length) return `<span class="mr-hint">${t("Click to start a route")}</span>`;
 		if (finished) return `<span class="mr-hint">${t("Click for a new route, Esc to close")}</span>`;
 		let L = 0; for (let i = 0; pp && i + 1 < pp.length; i++) L += geodesicDistance(pp[i], pp[i + 1]);
 		return `<b>${fmtDist(L)}</b><span class="mr-sep">･</span><span class="mr-hint">${t("Click to add a vertex, double-click to finish")}</span>`;
 	}
-	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
+	function readout(html: string) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
 
 	// ---- グラフパネル ----
 	function openPanel() { panel.classList.add("open"); }
@@ -235,19 +249,19 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		const faint = (cs.getPropertyValue("--qm-border-soft") || "rgba(0,0,0,.12)").trim() || "rgba(0,0,0,.12)";
 		const bg = (cs.getPropertyValue("--qm-panel-solid") || "#fff").trim() || "#fff";
 		cctx.fillStyle = bg; cctx.fillRect(0, 0, cssW, cssH);   // PNG保存で透過にならないよう地色を敷く
-		const got = samples.filter(Boolean);
+		const got = samples.filter(Boolean) as Sample[];
 		plot.w = cssW - plot.l - plot.r; plot.h = cssH - plot.t - plot.b;
 		if (got.length < 2) { statsEl.textContent = t("Sampling elevation… $1/$2", sampled, samples.length); return; }
 
 		// 縦レンジ：基準＝最低標高（既定）or 0m。高低差10m未満（海上等）は10mに広げる＝平線が枠に貼り付かない
-		const zero = panel.querySelector('.pf-base input[value="zero"]').checked;
+		const zero = panel.querySelector<HTMLInputElement>('.pf-base input[value="zero"]')!.checked;
 		let hs = got.map(p => p.h), minH = Math.min(...hs), maxH = Math.max(...hs);
 		let yLo = zero ? Math.min(0, minH) : minH, yHi = Math.max(maxH, yLo + 10);
 		const ys = niceStep((yHi - yLo) / 5);
 		yLo = Math.floor(yLo / ys) * ys; yHi = Math.ceil(Math.max(yHi, yLo + ys) / ys) * ys;
 		const totKm = total / 1000, xs = niceStep(totKm / 6);
-		const X = s => plot.l + (s / total) * plot.w;
-		const Y = h => plot.t + (1 - (h - yLo) / (yHi - yLo)) * plot.h;
+		const X = (s: number) => plot.l + (s / total) * plot.w;
+		const Y = (h: number) => plot.t + (1 - (h - yLo) / (yHi - yLo)) * plot.h;
 
 		// 目盛（横罫＝標高・縦目盛＝距離km）
 		cctx.font = `11px ${font}`; cctx.fillStyle = ink; cctx.strokeStyle = faint; cctx.lineWidth = 1;
@@ -299,17 +313,17 @@ const ICON = `
 		<path d="M5 17.5l4-8 3 3.5 4-6.5 3.5 11" stroke-width="1.6"/></svg>`;
 
 // ---- 表示整形 ----
-function niceStep(raw) {   // 目盛の刻み＝1-2-5系列へ切り上げ（軸が汚い端数にならない）
+function niceStep(raw: number) {   // 目盛の刻み＝1-2-5系列へ切り上げ（軸が汚い端数にならない）
 	const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9)))), m = raw / p;
 	return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
 }
-function comma(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-function fmtNum(v) { return comma(Math.round(v * 100) / 100); }
-function fmtDist(m) {   // measure と同じ刻み（<100m=小数1m/<1km=整数m/<10km=小数2km/<100km=小数1km/以上=整数km）
-	const km = m / 1000, c = (v, n) => comma(v.toFixed(n));
+function comma(n: string | number) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function fmtNum(v: number) { return comma(Math.round(v * 100) / 100); }
+function fmtDist(m: number) {   // measure と同じ刻み（<100m=小数1m/<1km=整数m/<10km=小数2km/<100km=小数1km/以上=整数km）
+	const km = m / 1000, c = (v: number, n: number) => comma(v.toFixed(n));
 	return km < 0.1 ? c(m, 1) + " m" : km < 1 ? c(Math.round(m), 0) + " m" : km < 10 ? c(km, 2) + " km" : km < 100 ? c(km, 1) + " km" : c(km, 0) + " km";
 }
-function download(blob, name) {
+function download(blob: Blob, name: string) {
 	const a = document.createElement("a");
 	a.href = URL.createObjectURL(blob); a.download = name; a.click();
 	setTimeout(() => URL.revokeObjectURL(a.href), 2000);

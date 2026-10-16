@@ -10,14 +10,36 @@ import { tr } from "../i18n.js";
 import { Cache } from "native-bucket";
 import { expandTemplate } from "@ortho-earth/core/raster-src";   // {z}/{x}/{y}・{s}・{-y}/tms の展開＝エンジンと同じ URL を作る
 import { PACK_CACHE, tilesFor, tileCount, demNames, estimateBytes, bboxIntersects, fmtMB, runFetches, tplOf } from "../offline-pack.js";
+import type { Bbox, Gadgets } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** オフラインパックの読み口（globe が地域の申告から組む＝gadget は地域を知らない） */
+export interface OfflineSources {
+	basemap: { tileUrl: (z: number, x: number, y: number) => string | null | undefined; coverage: unknown; minZ: number } | null;
+	dem: { byName(name: string): Promise<unknown> } | null;
+	rasters: { list(): Array<{ id: string; url: string | undefined; minZoom: number; maxZoom: number; subdomains: string[] | string | null; tms: boolean }> };
+	mesh: { warm(): unknown; sets(): unknown[]; prefetch(names: string[], onProg?: (done: number, total: number) => void): Promise<unknown> } | null;
+}
+/** offline の opts（sources＝読み口・bounds＝今の画面の bbox・onOpen＝道具の排他・zmaxDefault＝ズーム上限の既定） */
+export interface OfflineOpts { sources?: OfflineSources; bounds?: () => Bbox | null; onOpen?: () => void; signal?: AbortSignal; zmaxDefault?: number; [k: string]: unknown }
+/** 手綱（Gadgets["offline"] の戻り＋busy）。載せない時（二重搭載・XYZ の基図が無い）は素の no-op */
+export type OfflineHandle = Exclude<ReturnType<Gadgets["offline"]>, () => void> & { readonly busy: boolean };
+type OfflineNoop = (() => void) & { open?: undefined; close?: undefined };
+/** 画像タイルの 1 枚（表示中のラスタ・台帳に残す形） */
+type PackRaster = ReturnType<OfflineSources["rasters"]["list"]>[number];
+/** 計画（パネルの入力から）＝範囲・ズーム・基図の型紙と被覆・ラスタ・建物の区・標高のセル */
+interface Plan { bbox: Bbox; zmin: number; zmax: number; tpl: string; cov: number[] | null; rasters: PackRaster[]; mesh: string[]; dem: string[] }
+/** 台帳の 1 行（IDB GIS/pack） */
+interface Pack extends Plan { id: string; name: string; ell: boolean; tiles: number; bytes: number; ts: number; done: boolean }
+type SetEntry = { name: string; bbox: number[] };
 
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 	<path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>`;
 const ZMAX = [12, 14, 15, 16];
 const DEM_BYTES = { R10: 6e6, R01: 3e6 };   // 見積り用の 1 セルあたり（日本の焼き＝おおよそ）
 
-export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = {}) {
+export function offline(this: GlobeMap, { sources, bounds, onOpen, signal, zmaxDefault = 15 }: OfflineOpts = {}): OfflineHandle | OfflineNoop {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#offline-btn")) return () => {};
 	if (!sources?.basemap?.tileUrl) return () => {};   // XYZ の基図が無い（PMTiles・基図なし）＝載せない
@@ -26,47 +48,47 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 	// 台帳（IDB GIS/pack）と Cache Storage は開いた時に初めて開く（起動時に GIS の版を上げに行かない）。失敗＝次の機会にもう一度
-	let ledgerH = null, cacheH = null;
+	let ledgerH: Awaited<ReturnType<typeof Cache>> | null = null, cacheH: Awaited<ReturnType<CacheStorage["open"]>> | null = null;
 	const ledger = async () => ledgerH ??= await Cache("GIS/pack").catch(() => null);
 	const store = async () => cacheH ??= typeof caches !== "undefined" ? await caches.open(PACK_CACHE).catch(() => null) : null;
 	const swNotify = () => { try { navigator.serviceWorker?.controller?.postMessage({ type: "oj-pack" }); } catch { /* SW なし */ } };   // SW の「パックがあるか」を取り直させる
-	let panel = null, ac = null, est = null, estSeq = 0;
+	let panel: HTMLDivElement | null = null, ac: AbortController | null = null, est: { plan: Plan; tiles: number; bytes: number; free: number | null } | null = null, estSeq = 0;
 	// 建物（PLATEAU 等）は表示のモード（球／楕円体）ごとに別の鍵で置かれる（meshworker の #ell）＝パックに作った時のモードを記録し、
 	// 今のモードと違えば「作り直しで取り直す」と出す（#43・2026-09-28）。記録の無い古いパック＝球（それまでは全員が球）
 	const ellNow = () => !!map.ellipsoidOn?.();
-	const otherMode = p => !!p.mesh?.length && !!p.ell !== ellNow();
+	const otherMode = (p: Pack) => !!p.mesh?.length && !!p.ell !== ellNow();
 
 	// パックの中身（URL 列）＝台帳の記録から作り直す（型紙と被覆は記録に残す＝後で基図が変わっても同じ URL）
-	const urlsOf = p => {
-		const out = [];
+	const urlsOf = (p: Plan) => {
+		const out: string[] = [];
 		for (const [z, x, y] of tilesFor(p.bbox, p.zmin, p.zmax, p.cov)) out.push(expandTemplate(p.tpl, z, x, y));
-		for (const r of p.rasters || []) for (const [z, x, y] of tilesFor(p.bbox, Math.max(r.minZoom ?? 0, p.zmin), Math.min(r.maxZoom ?? 22, p.zmax))) out.push(expandTemplate(r.url, z, x, y, r.subdomains, r.tms));
+		for (const r of p.rasters || []) for (const [z, x, y] of tilesFor(p.bbox, Math.max(r.minZoom ?? 0, p.zmin), Math.min(r.maxZoom ?? 22, p.zmax))) out.push(expandTemplate(r.url!, z, x, y, r.subdomains as string[] | null, r.tms));
 		return out;
 	};
-	const keyOf = p => JSON.stringify([p.bbox, p.zmin, p.zmax, p.tpl, (p.rasters || []).map(r => r.id)]);   // 同じ計画＝同じパック（もう一度＝続きから）
-	const planOf = () => {   // 今のパネルの入力から計画
-		const $ = s => panel.querySelector(s);
-		const bbox = bounds(); if (!bbox) return null;
-		const zmax = +$(".of-z").value, zmin = Math.max(sources.basemap.minZ ?? 4, 4);
+	const keyOf = (p: Plan) => JSON.stringify([p.bbox, p.zmin, p.zmax, p.tpl, (p.rasters || []).map(r => r.id)]);   // 同じ計画＝同じパック（もう一度＝続きから）
+	const planOf = (): Plan | null => {   // 今のパネルの入力から計画
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!;
+		const bbox = bounds!(); if (!bbox) return null;
+		const zmax = +$(".of-z").value, zmin = Math.max(sources.basemap!.minZ ?? 4, 4);
 		const rasters = $(".of-ras")?.checked ? sources.rasters.list() : [];
-		const meshSets = sources.mesh && $(".of-mesh")?.checked ? sources.mesh.sets().filter(s => bboxIntersects(s.bbox, bbox)).map(s => s.name) : [];
-		return { bbox: bbox.map(v => +v.toFixed(4)), zmin, zmax, tpl: tplOf(sources.basemap.tileUrl), cov: sources.basemap.coverage || null, rasters: rasters.map(r => ({ id: r.id, url: r.url, minZoom: r.minZoom, maxZoom: r.maxZoom, subdomains: r.subdomains || null, tms: !!r.tms })), mesh: meshSets, dem: sources.dem ? demNames(bbox, zmax) : [] };
+		const meshSets = sources.mesh && $(".of-mesh")?.checked ? (sources.mesh.sets() as SetEntry[]).filter(s => bboxIntersects(s.bbox, bbox)).map(s => s.name) : [];
+		return { bbox: bbox.map(v => +v.toFixed(4)) as Bbox, zmin, zmax, tpl: tplOf(sources.basemap!.tileUrl), cov: (sources.basemap!.coverage || null) as number[] | null, rasters: rasters.map(r => ({ id: r.id, url: r.url, minZoom: r.minZoom, maxZoom: r.maxZoom, subdomains: r.subdomains || null, tms: !!r.tms })), mesh: meshSets, dem: sources.dem ? demNames(bbox, zmax) : [] };
 	};
 	// 見積り＝基図は zmax の標本 6 枚を実測して外挿・標高は定数・建物は区の数だけ
 	const estimate = async () => {
-		const $ = s => panel.querySelector(s), seq = ++estSeq, plan = planOf();
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!, seq = ++estSeq, plan = planOf();
 		est = null; $(".of-run").disabled = true;   // 古い見積りで作らない（見積り中・範囲が取れない間は押せない）
 		if (!plan) { $(".of-est").textContent = t("Move the map so the whole view is on the globe"); return; }
-		const tiles = tileCount(plan.bbox, plan.zmin, plan.zmax, sources.basemap.coverage);
+		const tiles = tileCount(plan.bbox, plan.zmin, plan.zmax, sources.basemap!.coverage as number[] | null);
 		let rasTiles = 0; for (const r of plan.rasters) rasTiles += tileCount(plan.bbox, Math.max(r.minZoom ?? 0, plan.zmin), Math.min(r.maxZoom ?? 22, plan.zmax));
 		$(".of-est").textContent = t("Estimating…");
-		const top = tilesFor(plan.bbox, plan.zmax, plan.zmax, sources.basemap.coverage), samples = [];
+		const top = tilesFor(plan.bbox, plan.zmax, plan.zmax, sources.basemap!.coverage as number[] | null), samples: number[] = [];
 		const pick = Array.from({ length: Math.min(6, top.length) }, (_, i) => top[Math.floor(i * top.length / Math.min(6, top.length))]);
-		await Promise.all(pick.map(async ([z, x, y]) => { try { const r = await fetch(sources.basemap.tileUrl(z, x, y)); const b = r.ok ? (await r.arrayBuffer()).byteLength : 0; samples.push(b); } catch { /* 標本なし＝既定 */ } }));
+		await Promise.all(pick.map(async ([z, x, y]) => { try { const r = await fetch(sources.basemap!.tileUrl(z, x, y)!); const b = r.ok ? (await r.arrayBuffer()).byteLength : 0; samples.push(b); } catch { /* 標本なし＝既定 */ } }));
 		if (seq !== estSeq) return;
 		const demB = plan.dem.reduce((a, n) => a + (n.startsWith("R10") ? DEM_BYTES.R10 : DEM_BYTES.R01), 0);
 		const bytes = estimateBytes(tiles, samples) + rasTiles * 30e3 + demB;
-		let free = null; try { const e = await navigator.storage.estimate(); free = (e.quota || 0) - (e.usage || 0); } catch { /* 口が無い */ }
+		let free: number | null = null; try { const e = await navigator.storage.estimate(); free = (e.quota || 0) - (e.usage || 0); } catch { /* 口が無い */ }
 		est = { plan, tiles: tiles + rasTiles, bytes, free };
 		const parts = [t("$1 tiles, about $2", (tiles + rasTiles).toLocaleString(), fmtMB(bytes))];
 		if (plan.mesh.length) parts.push(t("$1 building districts (size not included)", plan.mesh.length));
@@ -76,21 +98,21 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 		$(".of-run").disabled = tooBig || tiles + rasTiles === 0;
 	};
 	const listPacks = async () => {
-		const $ = s => panel.querySelector(s), led = await ledger();
-		const keys = led ? await led() : [], rows = [];
-		for (const k of keys) { const p = await led(k); if (p) rows.push(p); }
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!, led = await ledger();
+		const keys = led ? await led() : [], rows: Pack[] = [];
+		for (const k of keys) { const p = await led!(k) as Pack | undefined; if (p) rows.push(p); }
 		rows.sort((a, b) => b.ts - a.ts);
 		$(".of-list").innerHTML = rows.length ? rows.map(p => `<div class="of-row" data-id="${p.id}" style="display:flex;gap:6px;align-items:center;margin-top:4px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}<br><small style="opacity:.7">z≤${p.zmax} · ${fmtMB(p.bytes)}${p.done ? "" : " · " + t("incomplete")}${p.mesh?.length ? " · " + t("$1 districts", p.mesh.length) : ""}${otherMode(p) ? " · " + t("buildings saved for the other display mode (create again to refetch)") : ""}</small></span><button type="button" class="qm-btn of-go" data-tip="${t("Go there")}">⌖</button><button type="button" class="qm-btn of-del">${t("Delete")}</button></div>`).join("") : `<div style="opacity:.7">${t("No packs yet")}</div>`;
-		$(".of-list").querySelectorAll(".of-del").forEach(b => b.addEventListener("click", () => delPack(b.closest(".of-row").dataset.id)));
-		$(".of-list").querySelectorAll(".of-go").forEach(b => b.addEventListener("click", () => { const p = rows.find(x => x.id === b.closest(".of-row").dataset.id); if (p) map.fitBounds(p.bbox, { animate: true }); }));
+		$(".of-list").querySelectorAll(".of-del").forEach(b => b.addEventListener("click", () => delPack(b.closest<HTMLElement>(".of-row")!.dataset.id!)));
+		$(".of-list").querySelectorAll(".of-go").forEach(b => b.addEventListener("click", () => { const p = rows.find(x => x.id === b.closest<HTMLElement>(".of-row")!.dataset.id); if (p) map.fitBounds(p.bbox, { animate: true }); }));
 	};
-	const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-	const delPack = async id => {
+	const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+	const delPack = async (id: string) => {
 		const led = await ledger(), cache = await store(); if (!led) return;
-		const p = await led(id); if (!p) return;
+		const p = await led(id) as Pack | undefined; if (!p) return;
 		if (cache) {   // 他のパックが使う URL は残す。消すのは Cache に実際にある物だけ・64 件ずつ並列
-			const keep = new Set();
-			for (const k of await led()) if (k !== id) { const q = await led(k); if (q) for (const u of urlsOf(q)) keep.add(u); }
+			const keep = new Set<string>();
+			for (const k of await led()) if (k !== id) { const q = await led(k) as Pack | undefined; if (q) for (const u of urlsOf(q)) keep.add(u); }
 			const have = new Set((await cache.keys()).map(r => r.url));
 			const del = urlsOf(p).filter(u => have.has(u) && !keep.has(u));
 			for (let i = 0; i < del.length; i += 64) await Promise.all(del.slice(i, i + 64).map(u => cache.delete(u)));
@@ -102,17 +124,17 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 	};
 	const run = async () => {
 		if (ac || !est) return;
-		const $ = s => panel.querySelector(s), plan = est.plan, cache = await store(), led = await ledger();
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!, plan = est.plan, cache = await store(), led = await ledger();
 		ac = new AbortController();
 		$(".of-run").style.display = "none"; $(".of-stop").style.display = "";
 		// 同じ計画のパックが台帳にあれば続き（記録を引き継ぎ・容量は足す）。無ければ新規
-		let rec = null;
-		if (led) for (const k of await led()) { const q = await led(k); if (q && keyOf(q) === keyOf(plan)) { rec = q; break; } }
+		let rec: Pack | null = null;
+		if (led) for (const k of await led()) { const q = await led(k) as Pack | undefined; if (q && keyOf(q) === keyOf(plan)) { rec = q; break; } }
 		if (!rec) rec = { id: "p" + Date.now().toString(36), name: $(".of-name").value.trim() || defaultName(plan.bbox), bbox: plan.bbox, zmin: plan.zmin, zmax: plan.zmax, tpl: plan.tpl, cov: plan.cov, rasters: plan.rasters, mesh: plan.mesh, ell: ellNow(), dem: plan.dem, tiles: est.tiles, bytes: 0, ts: Date.now(), done: false };
 		else { rec.mesh = plan.mesh; rec.dem = plan.dem; rec.ell = ellNow(); rec.ts = Date.now(); rec.done = false; }   // 続き＝建物は今のモードで取り直す
 		const id = rec.id;
 		if (led) await led(id, rec);
-		const prog = (label, p) => { $(".of-prog").textContent = `${label} ${p.done}/${p.total}${p.bytes ? " · " + fmtMB(p.bytes) : ""}${p.failed ? " · " + t("$1 failed", p.failed) : ""}`; $(".of-bar").style.width = (p.total ? 100 * p.done / p.total : 0) + "%"; };
+		const prog = (label: string, p: { done: number; total: number; bytes?: number; failed?: number }) => { $(".of-prog").textContent = `${label} ${p.done}/${p.total}${p.bytes ? " · " + fmtMB(p.bytes) : ""}${p.failed ? " · " + t("$1 failed", p.failed) : ""}`; $(".of-bar").style.width = (p.total ? 100 * p.done / p.total : 0) + "%"; };
 		try {
 			// ① 基図とラスタ＝Cache Storage
 			const urls = urlsOf(plan);
@@ -124,20 +146,20 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 			rec.bytes += r1.bytes;
 			// ② 標高＝core のローダ（IDB GIS/alt）
 			if (!r1.aborted && plan.dem.length && sources.dem) {
-				const r2 = await runFetches(plan.dem, { fetchOne: async n => { await sources.dem.byName(n); return 0; }, onProgress: p => prog(t("Terrain"), p), signal: ac.signal, concurrency: 2 });
+				const r2 = await runFetches(plan.dem, { fetchOne: async n => { await sources.dem!.byName(n); return 0; }, onProgress: p => prog(t("Terrain"), p), signal: ac.signal, concurrency: 2 });
 				if (r2.aborted) r1.aborted = true;
 			}
 			// ③ 建物＝既存の先読み（進捗はそちらのトースト）
 			if (!r1.aborted && plan.mesh.length && sources.mesh) { prog(t("Buildings"), { done: 0, total: plan.mesh.length, bytes: 0, failed: 0 }); await sources.mesh.prefetch(plan.mesh, (d, n) => prog(t("Buildings"), { done: d, total: n, bytes: 0, failed: 0 })); }
 			rec.done = !r1.aborted && !r1.failed;
 			$(".of-prog").textContent = r1.aborted ? t("Stopped (run again to resume)") : r1.failed ? t("Done with $1 failed (run again to retry)", r1.failed) : t("Done. This area now opens offline.");
-		} catch (e) { $(".of-prog").textContent = String(e?.message || e); }
+		} catch (e) { $(".of-prog").textContent = String((e as Error)?.message || e); }
 		if (led) await led(id, rec);
 		swNotify();
 		ac = null; $(".of-run").style.display = ""; $(".of-stop").style.display = "none";
 		listPacks();
 	};
-	const defaultName = b => `${new Date().toISOString().slice(0, 10)} ${((b[1] + b[3]) / 2).toFixed(3)}, ${((b[0] + b[2]) / 2).toFixed(3)}`;
+	const defaultName = (b: number[]) => `${new Date().toISOString().slice(0, 10)} ${((b[1] + b[3]) / 2).toFixed(3)}, ${((b[0] + b[2]) / 2).toFixed(3)}`;
 	const build = () => {
 		panel = document.createElement("div");
 		panel.className = "qm-panel offline-panel";
@@ -156,7 +178,7 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 			<div class="of-list"></div>
 			<div style="opacity:.6;margin-top:6px;font-size:11px">${t("Buildings and terrain live in their own stores (with their own limits); deleting a pack removes only its map tiles.")}</div>`;
 		mapEl.append(panel);
-		const $ = s => panel.querySelector(s);
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!;
 		$(".of-z").addEventListener("change", estimate);
 		$(".of-mesh")?.addEventListener("change", estimate);
 		$(".of-ras").addEventListener("change", estimate);
@@ -164,8 +186,8 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 		$(".of-run").addEventListener("click", run);
 		$(".of-stop").addEventListener("click", () => ac?.abort());
 	};
-	const open = async () => { if (!panel) build(); panel.style.display = ""; btn.classList.add("on"); btn.setAttribute("aria-pressed", "true"); onOpen?.(); listPacks(); if (sources.mesh?.warm) await sources.mesh.warm(); estimate(); };
+	const open = async () => { if (!panel) build(); panel!.style.display = ""; btn.classList.add("on"); btn.setAttribute("aria-pressed", "true"); onOpen?.(); listPacks(); if (sources.mesh?.warm) await sources.mesh.warm(); estimate(); };
 	const close = () => { if (panel) panel.style.display = "none"; btn.classList.remove("on"); btn.setAttribute("aria-pressed", "false"); };
 	btn.addEventListener("click", () => panel && panel.style.display !== "none" ? close() : open(), { signal });
-	return { open, close, estimate: async () => { if (!panel) build(); await estimate(); return est; }, run, list: async () => { const led = await ledger(); if (!led) return []; const out = []; for (const k of await led()) { const p = await led(k); if (p) out.push(p); } return out.sort((a, b) => b.ts - a.ts); }, delete: delPack, get busy() { return !!ac; } };
+	return { open, close, estimate: async () => { if (!panel) build(); await estimate(); return est; }, run, list: async () => { const led = await ledger(); if (!led) return []; const out: Pack[] = []; for (const k of await led()) { const p = await led(k) as Pack | undefined; if (p) out.push(p); } return out.sort((a, b) => b.ts - a.ts); }, delete: delPack, get busy() { return !!ac; } };
 }

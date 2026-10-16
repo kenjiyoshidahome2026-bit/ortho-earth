@@ -6,20 +6,30 @@
 // 計算は日影と同じ model 役の worker。API＝map.viewshed / map.lineOfSight（UI なしでも使える）。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { LonLat } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+
+/** viewshed の opts（run＝map.viewshed／lineOfSight／clearViewshed の口・onOpen＝道具の排他・minZoom＝計算できる最小ズーム） */
+export interface ViewshedOpts {
+	run?: { viewshed(o: Parameters<GlobeMap["viewshed"]>[0]): ReturnType<GlobeMap["viewshed"]>; lineOfSight(...a: Parameters<GlobeMap["lineOfSight"]>): ReturnType<GlobeMap["lineOfSight"]>; clear(): unknown };
+	onOpen?: () => void; minZoom?: number; signal?: AbortSignal; [k: string]: unknown;
+}
+/** 戻り値＝開く関数（open＝パネルを開いて地図のクリックを受ける・close）。二重搭載は素の no-op */
+export type ViewshedHandle = (() => void) & { open?(): HTMLElement; close?(): void };
 
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 	<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
 // run＝{ viewshed(o), lineOfSight(a, b, o), clear() }（globe が注入）
-export function viewshed({ run, onOpen, minZoom = 14, signal } = {}) {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」）
+export function viewshed(this: GlobeMap, { run, onOpen, minZoom = 14, signal }: ViewshedOpts = {}): ViewshedHandle {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」）
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#viewshed-btn")) return () => {};
 	const btn = document.createElement("button");
 	btn.id = "viewshed-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Visibility"); btn.setAttribute("aria-label", t("Visibility"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
-	let panel = null, busy = false, first = null;
+	let panel: (HTMLDivElement & { _arm?: () => void }) | null = null, busy = false, first: LonLat | null = null;
 	const release = () => { map.setEditClick(null); mapEl.style.cursor = ""; };
 	const build = () => {
 		panel = document.createElement("div");
@@ -33,12 +43,12 @@ export function viewshed({ run, onOpen, minZoom = 14, signal } = {}) {   // onOp
 			<div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="vs-clear qm-btn">${t("Clear")}</button></div>
 			<div class="vs-msg" style="margin-top:6px;opacity:.8"></div>`;
 		mapEl.append(panel);
-		const $ = s => panel.querySelector(s), msg = s => { $(".vs-msg").textContent = s || ""; };
+		const $ = (s: string) => panel!.querySelector<HTMLInputElement>(s)!, msg = (s?: string) => { $(".vs-msg").textContent = s || ""; };
 		const mode = () => $("input[name=vsmode]:checked").value;
 		const prompt = () => { first = null; msg(t("Click the viewpoint on the map")); $(".vs-r").style.display = mode() === "area" ? "" : "none"; };
 		panel.querySelectorAll("input[name=vsmode]").forEach(r => r.addEventListener("change", prompt));
-		$(".vs-clear").addEventListener("click", () => { run.clear(); prompt(); });
-		const onClick = async (x, y) => {
+		$(".vs-clear").addEventListener("click", () => { run!.clear(); prompt(); });
+		const onClick = async (x: number, y: number) => {
 			if (busy) return true;
 			const p = map.unprojectXY(x, y); if (!p) return true;
 			if (map.getZoom() < minZoom) { msg(t("Zoom in closer (z14+)")); return true; }
@@ -47,21 +57,21 @@ export function viewshed({ run, onOpen, minZoom = 14, signal } = {}) {   // onOp
 			busy = true; msg(t("Computing…"));
 			try {
 				if (mode() === "area") {
-					const r = await run.viewshed({ observer: p, eyeH, radius: +$(".vs-rad").value });
+					const r = await run!.viewshed({ observer: p, eyeH, radius: +$(".vs-rad").value });
 					msg(t("Visible from here: $1%", Math.round(r.visibleRatio * 100)));
 				} else {
-					const a = first; first = null;
-					const r = await run.lineOfSight(a, p, { eyeH, targetH: eyeH });
+					const a = first!; first = null;
+					const r = await run!.lineOfSight(a, p, { eyeH, targetH: eyeH });
 					if (r.visible) msg(t("Target visible · $1 m", Math.round(r.distance)));
-					else { const k = Math.cos(a[1] * Math.PI / 180) * 111320; msg(t("Blocked $1 m from the viewpoint", Math.round(Math.hypot((r.blockAt[0] - a[0]) * k, (r.blockAt[1] - a[1]) * 111320)))); }
+					else { const k = Math.cos(a[1] * Math.PI / 180) * 111320; msg(t("Blocked $1 m from the viewpoint", Math.round(Math.hypot((r.blockAt![0] - a[0]) * k, (r.blockAt![1] - a[1]) * 111320)))); }
 				}
-			} catch (err) { console.error("[viewshed]", err); msg(String(err?.message || err)); }
+			} catch (err) { console.error("[viewshed]", err); msg(String((err as Error)?.message || err)); }
 			finally { busy = false; }
 			return true;
 		};
 		panel._arm = () => { map.setEditClick(onClick); mapEl.style.cursor = "crosshair"; prompt(); };
 	};
-	const open = () => { if (!panel) build(); panel.hidden = false; btn.classList.add("on"); onOpen?.(); panel._arm(); return panel; };
+	const open = () => { if (!panel) build(); panel!.hidden = false; btn.classList.add("on"); onOpen?.(); panel!._arm!(); return panel!; };
 	const close = () => { if (!panel || panel.hidden) return; panel.hidden = true; btn.classList.remove("on"); release(); };   // 結果（地面の画像・線）は「消す」まで残す
 	btn.addEventListener("click", () => (panel && !panel.hidden ? close() : open()));
 	signal?.addEventListener("abort", () => { release(); panel?.remove(); btn.remove(); }, { once: true });

@@ -12,8 +12,8 @@
 //   works?: bool, map?, overlayEl?            公開台帳の節を出すか（地図作品用）・公開サムネの材料
 // }
 import { tr } from "../i18n.js";
-import { composeLayersToCanvas } from "./compose.js";   // 層合成の核（shot/print と同じ）＝公開サムネ
-import type { Snapshot } from "./compose.js";
+import { composeLayersToCanvas } from "./compose.ts";   // 層合成の核（shot/print と同じ）＝公開サムネ
+import type { ComposeSnapshot as Snapshot } from "./compose.ts";
 const t = tr();
 /** 器に渡す中身（上の hooks の説明の型）＝geoedit の CloudSpec・scenes エディタの spec がこの形 */
 export interface CloudPanelHooks {
