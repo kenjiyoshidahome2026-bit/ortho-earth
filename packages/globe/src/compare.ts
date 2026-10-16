@@ -4,7 +4,8 @@
 // before＝つまみの左（上）・after＝右（下）を見せる。2 枚の容れ物は同じ場所に重ねて置く（利用者の CSS・公式と同じ）。
 // 切り抜きは clip-path＝切った側はクリックも下の地図へ抜ける（公式は旧 clip）。カメラは sync.js で連動（mapbox-gl-sync-move と同じ所作）。
 // before/after＝createGlobe の地図（mapEl）か MapLibre 互換の Map（getContainer()）。container＝つまみを置く要素（セレクタ可）。
-import { syncMaps } from "./sync.js";
+import { syncMaps } from "./sync.ts";
+import type { SyncMap } from "./sync.ts";
 
 // 公式と同じクラス名＝公式の maplibre-gl-compare.css を当てている頁でも同じ見た目。値は公式の CSS に揃えた（つまみ 60px の丸・線 2px）
 const CSS = `.maplibregl-compare{background-color:#fff;position:absolute;width:2px;height:100%;z-index:1}
@@ -12,15 +13,31 @@ const CSS = `.maplibregl-compare{background-color:#fff;position:absolute;width:2
 .maplibregl-compare-horizontal{position:relative;width:100%;height:2px}
 .maplibregl-compare .compare-swiper-horizontal{background-color:#3887be;box-shadow:inset 0 0 0 2px #fff;display:inline-block;border-radius:50%;position:absolute;width:60px;height:60px;left:50%;top:-30px;margin:1px -30px 0;color:#fff;cursor:ns-resize;transform:rotate(90deg);background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M 21.72 30.0 l 6 -6 v 12 z M 38.28 30.0 l -6 -6 v 12 z' fill='%23fff'/%3E%3C/svg%3E")}`;
 const ensureCss = () => { if (document.getElementById("oj-compare-css")) return; const s = document.createElement("style"); s.id = "oj-compare-css"; s.textContent = CSS; document.head.append(s); };
-const elOf = m => (typeof m.getContainer === "function" ? m.getContainer() : m.mapEl);
+/** 比べる地図（createGlobe の地図＝mapEl か MapLibre 互換の Map＝getContainer()） */
+export type CompareMap = SyncMap & { getContainer?(): HTMLElement; mapEl?: HTMLElement };
+export interface CompareOptions { orientation?: "vertical" | "horizontal"; mousemove?: boolean }
+const elOf = (m: CompareMap): HTMLElement | undefined => (typeof m.getContainer === "function" ? m.getContainer() : m.mapEl);
 
 export class Compare {
-	constructor(before, after, container, options = {}) {
+	declare options: { mousemove: boolean; orientation: "vertical" | "horizontal" };
+	declare currentPosition: number;
+	declare _horizontal: boolean;
+	declare _before: CompareMap; declare _after: CompareMap;
+	declare _elA: HTMLElement; declare _elB: HTMLElement;
+	declare _container: HTMLElement;
+	declare _handlers: Record<string, Array<(data: { currentPosition: number }) => void>>;
+	declare _ac: AbortController;
+	declare _swiper: HTMLDivElement; declare _controlContainer: HTMLDivElement;
+	declare _clearSync: () => void;
+	declare _bounds: DOMRect;
+	declare _ro: ResizeObserver;
+	declare _span: number;
+	constructor(before: CompareMap, after: CompareMap, container: string | HTMLElement, options: CompareOptions = {}) {
 		this.options = { mousemove: false, orientation: "vertical", ...options };
 		this._horizontal = this.options.orientation === "horizontal";
 		this._before = before; this._after = after;
-		this._elA = elOf(before); this._elB = elOf(after);
-		this._container = typeof container === "string" ? document.querySelector(container) : container;
+		this._elA = elOf(before)!; this._elB = elOf(after)!;
+		this._container = (typeof container === "string" ? document.querySelector(container) : container) as HTMLElement;
 		if (!this._elA || !this._elB || !this._container) throw new Error("Compare: maps and a container element are required");
 		this._handlers = {};
 		this._ac = new AbortController();
@@ -33,12 +50,12 @@ export class Compare {
 		this._container.append(ctl);
 		this._clearSync = syncMaps([before, after]);
 		const signal = this._ac.signal;
-		const pos = e => { const b = this._bounds; return this._horizontal ? e.clientY - b.top : e.clientX - b.left; };
+		const pos = (e: MouseEvent) => { const b = this._bounds; return this._horizontal ? e.clientY - b.top : e.clientX - b.left; };
 		// つまみのドラッグ（pointer＝マウスもタッチも）。離した時に slideend（公式と同じ）
 		swiper.addEventListener("pointerdown", e => {
 			e.preventDefault(); e.stopPropagation();
 			this._bounds = this._elB.getBoundingClientRect();
-			const move = ev => this._setPosition(pos(ev));
+			const move = (ev: PointerEvent) => this._setPosition(pos(ev));
 			const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up); this._fire("slideend", { currentPosition: this.currentPosition }); };
 			addEventListener("pointermove", move, { signal }); addEventListener("pointerup", up, { signal }); addEventListener("pointercancel", up, { signal });
 		}, { signal });
@@ -49,8 +66,8 @@ export class Compare {
 		this._bounds = this._elB.getBoundingClientRect();
 		this._setPosition(this._size() / 2);
 	}
-	_size() { return this._horizontal ? this._bounds.height : this._bounds.width; }
-	_setPosition(x) {
+	_size(): number { return this._horizontal ? this._bounds.height : this._bounds.width; }
+	_setPosition(x: number): void {
 		const w = this._bounds.width, h = this._bounds.height, span = this._size();
 		x = Math.min(Math.max(x, 0), span);
 		this._span = span;
@@ -60,11 +77,11 @@ export class Compare {
 		this._elA.style.clipPath = this._horizontal ? `inset(0 0 ${h - x}px 0)` : `inset(0 ${w - x}px 0 0)`;
 		this._elB.style.clipPath = this._horizontal ? `inset(${x}px 0 0 0)` : `inset(0 0 0 ${x}px)`;
 	}
-	setSlider(x) { this._bounds = this._elB.getBoundingClientRect(); this._setPosition(x); }
-	on(type, fn) { (this._handlers[type] ||= []).push(fn); return this; }
-	off(type, fn) { const a = this._handlers[type]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } return this; }
-	_fire(type, data) { for (const fn of this._handlers[type] || []) { try { fn(data); } catch (e) { console.error(e); } } }
-	remove() {
+	setSlider(x: number): void { this._bounds = this._elB.getBoundingClientRect(); this._setPosition(x); }
+	on(type: string, fn: (data: { currentPosition: number }) => void): this { (this._handlers[type] ||= []).push(fn); return this; }
+	off(type: string, fn: (data: { currentPosition: number }) => void): this { const a = this._handlers[type]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } return this; }
+	_fire(type: string, data: { currentPosition: number }): void { for (const fn of this._handlers[type] || []) { try { fn(data); } catch (e) { console.error(e); } } }
+	remove(): void {
 		this._ac.abort(); this._ro.disconnect(); this._clearSync();
 		this._elA.style.clipPath = ""; this._elB.style.clipPath = "";
 		this._controlContainer.remove();

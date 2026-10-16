@@ -34,7 +34,7 @@ const base = { chips: false, persistView: false };
 try {
 	const { createGlobe } = await import("@ortho-earth/globe");
 	if (V === "sync") {
-		const { syncMaps } = await import("../src/sync.js");
+		const { syncMaps } = await import("../src/sync.ts");
 		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
 		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#5/35/139" }), createGlobe({ ...base, target: "#b", view: "#3/48/2" })]);
 		await Promise.all([loaded(A), loaded(B)]);
