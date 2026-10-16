@@ -4,7 +4,7 @@
 //   ・czml-draw の印の当たり（nearestMark＝中心の距離 − 印の半径 ≤ r・一番近い物）
 // GPU の経路（FBO に描いて読む）は tests/t-pick.html（verify:ui）。
 // 使い方：node packages/globe/tests/pick.mjs
-import { decodeId, nearestId } from "../src/gadgets/points-gl.js";
+import { decodeId, nearestId } from "../src/gadgets/points-gl.ts";
 import { nearestMark } from "../src/gadgets/czml-draw.ts";
 
 let fails = 0;

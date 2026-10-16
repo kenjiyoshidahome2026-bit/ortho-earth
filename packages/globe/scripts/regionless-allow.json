@@ -7,7 +7,7 @@
 				"why": "互換：型の名 OrthoJapanMap（SDK 以来の公開の型名＝GlobeMap の別名・2.0 まで）"
 			}
 		},
-		"packages/globe/src/cluster-2d.js": {
+		"packages/globe/src/cluster-2d.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
@@ -221,7 +221,7 @@
 				"why": "負債（地域）：既定 style が optbv の分類値（国道・都道府県道・鉄道種別…）でフィルタ。地域の申告の style へ移す"
 			}
 		},
-		"packages/globe/src/symbols-2d.js": {
+		"packages/globe/src/symbols-2d.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"

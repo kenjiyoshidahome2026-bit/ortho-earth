@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は symbols-2d.ts）。手で編集しない。
 // 記号（sprite の icon-image）と文字の層＝canvas2D のオーバーレイ（MapLibre の symbol 層相当・2026-09-21）。
 // main（gadgets/symbols.js）が記号帳（名前→ImageBitmap・pixelRatio・sdf）と、評価済みの記号の列を渡す。ここは毎フレーム投影して、
 // 重なり判定（icon/text-allow-overlap＝false が既定＝MapLibre と同じ「先に置いたものが勝つ」・symbol-sort-key 昇順）をして描く。
@@ -20,13 +21,13 @@ export function message(d) {
 function stretchFit(im, size, fit, t, p) {
 	const s = size / im.pr, W = im.bm.width, H = im.bm.height, c = im.ct || [0, 0, W, H];
 	const axis = (zones, len, c0, c1, want) => {
-		const Z = (zones || []).filter(z => Array.isArray(z) && z[1] > z[0]);
+		const Z = (zones || []).filter((z) => Array.isArray(z) && z[1] > z[0]);
 		const Sc = Z.reduce((a, [z0, z1]) => a + Math.max(0, Math.min(z1, c1) - Math.max(z0, c0)), 0), Fc = (c1 - c0) - Sc;
 		const k = want != null && Sc > 0 ? Math.max(0, (want / s - Fc) / Sc) : 1;
 		const cuts = [...new Set([0, len, ...Z.flat()])].filter(v => v >= 0 && v <= len).sort((a, b) => a - b), segs = [];
 		let d = 0;
 		for (let i = 0; i + 1 < cuts.length; i++) { const a = cuts[i], b = cuts[i + 1], st = Z.some(([z0, z1]) => a >= z0 && b <= z1), dw = (b - a) * (st ? k : 1); segs.push([a, b - a, d, dw]); d += dw; }
-		const map = x => { for (const [a, w, dd, dw] of segs) if (x <= a + w) return dd + (x - a) * (w ? dw / w : 0); return d; };
+		const map = (x) => { for (const [a, w, dd, dw] of segs) if (x <= a + w) return dd + (x - a) * (w ? dw / w : 0); return d; };
 		return { segs, total: d, map };
 	};
 	const X = axis(im.sx, W, c[0], c[2], fit === "height" ? null : t[2] - t[0] + p[1] + p[3]);
@@ -36,7 +37,7 @@ function stretchFit(im, size, fit, t, p) {
 	return { box: [x0, y0, x0 + X.total * s, y0 + Y.total * s], X, Y, s };
 }
 function drawStretched(g, src, f, ox = 0, oy = 0) { const x0 = f.box[0] + ox, y0 = f.box[1] + oy; for (const [ax, aw, dx, dw] of f.X.segs) for (const [ay, ah, dy, dh] of f.Y.segs) if (aw > 0 && ah > 0 && dw > 0 && dh > 0) g.drawImage(src, ax, ay, aw, ah, x0 + dx * f.s, y0 + dy * f.s, dw * f.s, dh * f.s); }
-const isStretch = im => !!(im && (im.sx?.length || im.sy?.length || im.ct));
+const isStretch = (im) => !!(im && (im.sx?.length || im.sy?.length || im.ct));
 // 文字の行の束（ortho-core/labels2d の textLayout と同じ考え方＝"\n"・text-max-width（em）で折る・空白で区切れる語は語ごと・CJK は字ごと）。font＋設定＋文字で覚える
 const layouts = new Map();
 function layoutText(it) {
@@ -44,7 +45,7 @@ function layoutText(it) {
 	let tl = layouts.get(key); if (tl) return tl;
 	if (layouts.size > 20000) layouts.clear();
 	ctx.font = font; if ("letterSpacing" in ctx) ctx.letterSpacing = ls ? `${ls * size}px` : "0px";
-	const measure = t => ctx.measureText(t).width, maxPx = mw > 0 ? mw * size : Infinity, lines = [];
+	const measure = (t) => ctx.measureText(t).width, maxPx = mw > 0 ? mw * size : Infinity, lines = [];
 	for (const para of String(it.text).split("\n")) {
 		if (measure(para) <= maxPx || !para) { lines.push(para); continue; }
 		const units = /\s/.test(para) ? para.split(/(\s+)/).filter(Boolean) : [...para];
@@ -78,15 +79,15 @@ function sdfTint(name, im, color) {
 // 書体＝text-font（fnt）があれば fontCss（family/weight/style＋既定の束）・無ければ従来（500・Noto Sans JP）
 const FALLBACK = '"Noto Sans JP",system-ui,sans-serif';
 const fontCss = (f, size, fallback) => `${f?.st && f.st !== "normal" ? f.st + " " : ""}${f?.w && f.w !== 400 ? f.w + " " : ""}${size}px ${f?.fam?.length ? f.fam.map(x => `"${x.replace(/"/g, "")}"`).join(",") + "," : ""}${fallback}`;   // ortho-core/fontstack.js と同式（overlay は依存ゼロ）
-const fontOf = it => it.fnt ? fontCss(it.fnt, it.textSize, FALLBACK) : `${it.textWeight || 500} ${it.textSize}px ${it.textFont || FALLBACK}`;
+const fontOf = (it) => it.fnt ? fontCss(it.fnt, it.textSize, FALLBACK) : `${it.textWeight || 500} ${it.textSize}px ${it.textFont || FALLBACK}`;
 const CELL = 64;
 function makeIndex() {
 	const grid = new Map();
 	const cells = (b, fn) => { const x0 = Math.floor(b[0] / CELL), x1 = Math.floor(b[2] / CELL), y0 = Math.floor(b[1] / CELL), y1 = Math.floor(b[3] / CELL);
 		for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) if (fn(cx * 65536 + cy)) return true; return false; };
 	return {
-		free: b => !cells(b, k => { const L = grid.get(k); return !!L && L.some(p => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]); }),
-		push: b => { cells(b, k => { let L = grid.get(k); if (!L) grid.set(k, L = []); L.push(b); return false; }); },
+		free: (b) => !cells(b, k => { const L = grid.get(k); return !!L && L.some(p => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]); }),
+		push: (b) => { cells(b, k => { let L = grid.get(k); if (!L) grid.set(k, L = []); L.push(b); return false; }); },
 	};
 }
 const pad = (b, p) => p ? [b[0] - p, b[1] - p, b[2] + p, b[3] + p] : b;   // text-padding＝判定だけ広げる（描く位置は変えない）
@@ -116,7 +117,7 @@ export function frame(cam, s, { w, h }, api) {
 			}
 			// 文字の箱（text-variable-anchor＝候補を順に試し、空いている最初の位置・#39）
 			const tl = it.text ? layoutText(it) : null;
-			const textBox = anchor => {
+			const textBox = (anchor) => {
 				const tw = tl.w, th = tl.h, a = ANCH[anchor] || ANCH.center;
 				let ox = it.textOffset[0], oy = it.textOffset[1];
 				if (it.textVariableAnchor) {   // 候補ごとに錨から離す向き＝錨の反対側へ（MapLibre と同じ：radial があればそれ・無ければ text-offset の大きさ）
@@ -127,7 +128,7 @@ export function frame(cam, s, { w, h }, api) {
 				return [tx, ty, tx + tw, ty + th];
 			};
 			let i9 = null;   // 伸びる記号の区間（stretchFit）
-			const iconFor = t => {   // icon-text-fit：文字の箱＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ）・伸びる記号は伸びる区間だけ（stretchFit）
+			const iconFor = (t) => {   // icon-text-fit：文字の箱＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ）・伸びる記号は伸びる区間だけ（stretchFit）
 				if (isStretch(im)) { const f = stretchFit(im, it.size, fit, t, it.iconTextFitPadding || [0, 0, 0, 0]); i9 = f; return f.box; }
 				const [pt, pr, pb, pl] = it.iconTextFitPadding || [0, 0, 0, 0], nw = im.bm.width / im.pr * it.size, nh = im.bm.height / im.pr * it.size;
 				const cx = (t[0] + t[2]) / 2, cy = (t[1] + t[3]) / 2;
@@ -148,7 +149,7 @@ export function frame(cam, s, { w, h }, api) {
 			if (ib && !it.iconOverlap && !free(ib)) continue;
 			if (ib && !it.iconIgnore) idx.push(ib);
 			if (tb && !it.textIgnore) idx.push(pad(tb, it.textPadding));
-			{ const b = tb || ib; placedNow.push({ layer: L.id, text: it.text || null, icon: ib ? it.icon || null : null, ibox: ib ? [(ib[0] + ib[2]) / 2, (ib[1] + ib[3]) / 2, ib[2] - ib[0], ib[3] - ib[1]] : null, lon: it.lon, lat: it.lat, x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1], font: tb ? fontOf(it) : null }); }
+			{ const b = (tb || ib); placedNow.push({ layer: L.id, text: it.text || null, icon: ib ? it.icon || null : null, ibox: ib ? [(ib[0] + ib[2]) / 2, (ib[1] + ib[3]) / 2, ib[2] - ib[0], ib[3] - ib[1]] : null, lon: it.lon, lat: it.lat, x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1], font: tb ? fontOf(it) : null }); }
 			ctx.globalAlpha = it.opacity ?? 1;
 			if (ib) {
 				const src = im.sdf ? sdfTint(it.icon, im, it.color || "#000") : im.bm;
