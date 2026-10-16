@@ -26,8 +26,7 @@ import { installDrag, moveTargets } from "./drag.ts";
 import { createTip } from "./tip.ts";
 import { installContextMenu } from "./contextmenu.ts";
 import { geopbf } from "geopbf";
-import { GeoPBF } from "geopbf/pbf-base";
-import type { GeoPBF as GeoPBFPublic } from "geopbf";
+import { GeoPBF } from "geopbf";
 import { small, applyCmd, invertCmd } from "./model-util.ts";
 import type { Cmd, DrawDefaults, EditorContext, EditorMap, EditorState, GintLayer, Model, Pbf } from "./types.ts";
 import type { TopoReplyPayload } from "./worker-msg.ts";
@@ -68,7 +67,7 @@ export interface Editor {
 	readonly model: Model | null;
 	commitNow(): Promise<void>;
 	layer: GintLayer;
-	decode(file: File): Promise<GeoPBFPublic | null>;
+	decode(file: File): Promise<GeoPBF | null>;
 	loadFC(fc: FC, opts?: { fly?: boolean }): Promise<void>;
 	loadBuffer(buffer: ArrayBuffer, opts?: { fly?: boolean; stripEid?: boolean }): Promise<void>;
 	importFile(file: File): Promise<unknown>;

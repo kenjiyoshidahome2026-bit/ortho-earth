@@ -1,7 +1,7 @@
 // t-color: 色らしい文字列の往復（B6・2026-09-25）。保存→読み戻しで文字列が一字一句変わらないこと。
 // 色（4 バイト）で持つのは正規形 rgb(r,g,b)・rgba(r,g,b,0.xx) だけ＝それ以外は文字列のまま。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const vals = ["#1234", "#12345", "#123", " #123 ", "#abcdef", "#ABCDEF", "rgb(1.5,2,3)", "rgb(1, 2, 3)", "rgb(300,0,0)", "rgb(01,2,3)",

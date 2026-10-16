@@ -1,5 +1,5 @@
-import { GeoPBF } from "../pbf-base.js";
-import { dissolve } from "../extension/dissolve.js";
+import { GeoPBF } from "../pbf-base.ts";
+import { dissolve } from "../extension/dissolve.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 
 import { mercToLonLat as fromMercator } from "../modules/mercator.ts";   // 旧＝atan(sinh(y·π/R)) の自前式（数学的に同値・末位 ulp 差は precision 丸めで消える）

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Feature, Geometry } from "../../types/geopbf.js";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";

@@ -11,10 +11,15 @@
 // デコード＋3857 warp され PNG bytes で返る。ソースの bounds は onOpen(bboxLL) で貰って
 // map.getSource().bounds に足すと圏外リクエストが消える。
 import { openCog } from "./cog/index.ts";
+import type { BrowserCog, BrowserCogOptions } from "./cog/index.ts";
+
+export interface CogProtocolOptions extends BrowserCogOptions { onOpen?: (innerUrl: string, cog: BrowserCog) => void }
+/** MapLibre の AddProtocolAction の形（maplibre-gl は import しない＝最小形） */
+export type CogProtocolHandler = (params: { url: string }, abortController?: AbortController) => Promise<{ data: Uint8Array }>;
 
 // options: { fetch, cache, stretch, onOpen(url, cog), ...openCog opts }
-export function makeCogProtocol(options = {}) {
-	const cogs = new Map();   // innerUrl → Promise<Cog>
+export function makeCogProtocol(options: CogProtocolOptions = {}): CogProtocolHandler {
+	const cogs = new Map<string, Promise<BrowserCog>>();   // innerUrl → Promise<Cog>
 	return async (params, abortController) => {
 		const m = /^cog:\/\/(.+)\/(\d+)\/(\d+)\/(\d+)$/.exec(params.url);
 		if (!m) throw new Error(`cog protocol: bad url ${params.url}`);
@@ -24,11 +29,11 @@ export function makeCogProtocol(options = {}) {
 		const cog = await p;
 		const png = await cog.renderXYZ(+z, +x, +y, { format: "png", signal: abortController?.signal });
 		if (!png) return { data: EMPTY_PNG.slice() };   // 圏外＝透明1px
-		return { data: png };
+		return { data: png as Uint8Array };   // format: "png" の戻り＝PNG の bytes
 	};
 }
 
-export const cogProtocol = makeCogProtocol();
+export const cogProtocol: CogProtocolHandler = makeCogProtocol();
 
 // 透明 1×1 PNG（圏外タイル用・70 bytes）
 const EMPTY_PNG = Uint8Array.from(atob(

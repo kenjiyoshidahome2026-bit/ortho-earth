@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { toPMTiles, lodThreshold } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";

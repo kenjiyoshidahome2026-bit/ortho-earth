@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import Pbf from "../modules/pbf.ts";
 import { inflate } from "../modules/inflate.ts";
 import type { Feature } from "../../types/geopbf.js";

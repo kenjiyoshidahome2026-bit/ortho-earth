@@ -7,7 +7,7 @@ import Encoding from "encoding-japanese";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { encodeSJIS } from "../src/modules/sjis.ts";
-import { GeoPBF } from "../src/pbf.js";
+import { GeoPBF } from "../src/pbf.ts";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 const hex = a => [...a].map(x => x.toString(16).padStart(2, "0")).join(" ");

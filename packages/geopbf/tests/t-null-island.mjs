@@ -3,9 +3,9 @@
 // に巻き込まれて黙って消えていた（JS read() と Rust read_line の両経路・8/26 発見→9/12 根治＝1点目は必ず採用）。
 // JS 経路（wasm 未初期化）→ wasm 全量経路（本番）の順に同じ検定を回す。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
-import { topology, unPackGintBuffer } from "../src/extension/topology.js";
-import { gint } from "../src/extension/gint.js";
+import { GeoPBF } from "../src/pbf-base.ts";
+import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
+import { gint } from "../src/extension/gint.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 

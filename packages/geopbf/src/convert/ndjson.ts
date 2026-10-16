@@ -3,8 +3,8 @@
 //（stats.badLines）。改行を含む pretty-print の GeoJSON は対象外＝json デコーダの仕事。
 // 入力: Blob/File（stream で逐次・全文を 1 本の文字列に持たない）・Uint8Array/ArrayBuffer・string。
 // 大きい入力（既定 500 MB 以上）は 2 パス＝keys を先に拾い、2 回目は行→setFeature を逐次（pbf-base setBodyAsync）＝全地物を同時に持たない。
-import { GeoPBF } from "../pbf-base.js";
-import type { Feature, FeatureCollection, Geometry } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
+import type { Feature, FeatureCollection, Geometry } from "../pbf-base.ts";
 import type { MetaOptions } from "./types.ts";
 import { now } from "../modules/now.ts";
 const GEOM = new Set(["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);

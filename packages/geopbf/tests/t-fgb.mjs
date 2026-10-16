@@ -6,7 +6,7 @@
 //   ・CRS：無し／EPSG:4326 はそのまま・経緯度でない投影系は投げる（ignoreCrs で素通し）・v2 は明示エラー・幾何なしは落として数える
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
-import { GeoPBF } from "../src/pbf-base.js";
+import { GeoPBF } from "../src/pbf-base.ts";
 import { fromFlatGeobuf, readFlatGeobufHeader, calcTreeSize } from "../src/convert/fgb.ts";
 
 let fails = 0;

@@ -9,11 +9,11 @@
 // 列の見つけ方（opts で名指しが最優先）: 経度＝lon/lng/long/longitude/経度/x/X座標/東経、緯度＝lat/latitude/緯度/y/Y座標/北緯、
 // WKT＝wkt/geometry/geom/the_geom/shape/図形（先頭行の値が WKT で始まる列も候補）。大文字小文字・前後空白・BOM は無視。
 // 値の型: 数字らしい文字列だけ数値へ（"01" のような先頭ゼロは文字列のまま＝JP コードを壊さない）、true/false は論理値、空は無し。日付は推測しない。
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import { attrFilter } from "./attrs.ts";
 import { decodeZIP } from "../modules/decodeZIP.ts";
 import type { Geometry, Position, MetaOptions, AttrOptions, MsStats } from "./types.ts";
-import type { Feature } from "../pbf-base.js";
+import type { Feature } from "../pbf-base.ts";
 
 import { now } from "../modules/now.ts";
 const norm = (s: unknown): string => String(s ?? "").replace(/^﻿/, "").trim().toLowerCase();

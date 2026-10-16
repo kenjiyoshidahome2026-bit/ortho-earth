@@ -1,6 +1,6 @@
-import { GeoPBF } from "../pbf.js";
+import { GeoPBF } from "../pbf.ts";
 import { gzip } from "../modules/gzip.ts";
-import { topojson } from "../extension/topojson.js";
+import { topojson } from "../extension/topojson.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 
 onmessage = async (e: MessageEvent<EncodeRequest>) => {

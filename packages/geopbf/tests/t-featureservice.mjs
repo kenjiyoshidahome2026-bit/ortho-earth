@@ -1,6 +1,6 @@
-// フィーチャーサービスの読み口（#176・src/service/featureservice.js）＝模擬の応答で ArcGIS（geojson＋ページング／Esri JSON＋id の束）と OGC API – Features を確かめる。
+// フィーチャーサービスの読み口（#176・src/service/featureservice.ts）＝模擬の応答で ArcGIS（geojson＋ページング／Esri JSON＋id の束）と OGC API – Features を確かめる。
 // 模擬のサーバー＝fetch の差し替え（ネットワークに出ない）。要求の URL を記録して、鍵の引き継ぎ・bbox・ページの大きさも見る。
-import { parseServiceUrl, openFeatureService, esriToGeoJSON, makeFeatureServiceProtocol } from "../src/service/featureservice.js";
+import { parseServiceUrl, openFeatureService, esriToGeoJSON, makeFeatureServiceProtocol } from "../src/service/featureservice.ts";
 
 let fails = 0;
 const ok = (name, cond, note = "") => { if (!cond) fails++; console.log(`${cond ? "ok" : "NG"} ${name}${note ? "  " + note : ""}`); };

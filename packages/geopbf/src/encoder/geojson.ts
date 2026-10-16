@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf-base.ts";
 import type { Feature } from "../../types/geopbf.js";
 import type { EncodeRequest } from "../worker-msg.ts";
 const enc = new TextEncoder();

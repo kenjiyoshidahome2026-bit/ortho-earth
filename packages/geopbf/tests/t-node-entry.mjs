@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// t-node-entry: src/index.js（createGeopbf）が Node でそのまま動く（俯瞰まとめ 2026-10-04 §2-B の 4・5、§2-G 23）。
+// t-node-entry: src/index.ts（createGeopbf）が Node でそのまま動く（俯瞰まとめ 2026-10-04 §2-B の 4・5、§2-G 23）。
 //   ・globalThis.ImageData のスタブ無しで new GeoPBF().set(geojson) が通る（旧＝ImageData is not defined）
 //   ・createGeopbf() を一度呼んだ後でも、Node（Worker 無し）では set(ArrayBuffer)／setGintBUF が main スレッドで解ける（旧＝Worker is not defined）
 //   ・createGeopbf(undefined, { worker:false }) は各インスタンスへ worker:false が渡る（旧＝クラス静的な配線が勝って worker 経路に固定）
 //   ・geopbf(geojson) が gint を main スレッドの topology で焼く（encoder worker が作れない時の予備が Node でも効く）
 //   ・geopbf(ArrayBuffer)・geopbf(GeoPBF)・geopbf(Feature)・geopbf("https://…") の失敗（throw）
 if (typeof globalThis.ImageData !== "undefined") { console.error("この検定は ImageData スタブ無しで走らせる"); process.exit(1); }
-import { createGeopbf, geopbf as legacy } from "../src/index.js";
-import { GeoPBF } from "../src/pbf.js";
+import { createGeopbf, geopbf as legacy } from "../src/index.ts";
+import { GeoPBF } from "../src/pbf.ts";
 import { initGintWasm } from "../src/convert/node-gint.ts";
 
 let fails = 0;

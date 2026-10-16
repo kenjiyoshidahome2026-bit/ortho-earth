@@ -3,10 +3,10 @@
 //   ①長辺（>1°）＝L1点の内挿 ②密な低rank頂点列＝1°窓ごとの既存頂点L1昇格 ③1°箱内のarc＝完全無変換。
 // wasm 全量経路（topologyFullWasm→anchorFullGintBuf）で検定＝本番と同経路。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.js";
-import { topology, unPackGintBuffer } from "../src/extension/topology.js";
-import { gint } from "../src/extension/gint.js";
-import { identifyAt } from "../src/extension/identify.js";
+import { GeoPBF } from "../src/pbf-base.ts";
+import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
+import { gint } from "../src/extension/gint.ts";
+import { identifyAt } from "../src/extension/identify.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {

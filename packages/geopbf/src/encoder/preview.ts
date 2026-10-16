@@ -1,5 +1,5 @@
-import { GeoPBF } from "../pbf.js";
-import { preview } from "../extension/preview.js";
+import { GeoPBF } from "../pbf.ts";
+import { preview } from "../extension/preview.ts";
 import type { PreviewRequest } from "../worker-msg.ts";
 
 onmessage = async ({ data: { buf, canvas, name, props } }: MessageEvent<PreviewRequest>) => {
