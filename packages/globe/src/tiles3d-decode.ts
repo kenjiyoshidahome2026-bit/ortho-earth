@@ -20,7 +20,9 @@ type FeatureTableJson = Record<string, unknown> & { POINTS_LENGTH?: number; INST
 
 const td = new TextDecoder();
 const magicOf = (ab: ArrayBuffer, off = 0) => td.decode(new Uint8Array(ab, off, 4));
-const jsonAt = (ab: ArrayBuffer, off: number, len: number): FeatureTableJson => len ? JSON.parse(td.decode(new Uint8Array(ab, off, len)).replace(/\0+$/, "").trim() || "{}") : {};
+// 末尾の NUL（JSON・URI の 8 バイト詰め）を落とす＝旧 .replace(/\0+$/, "") と同じ結果を添字の走査で（正規表現は NUL が続く入力で二乗＝CodeQL・2026-10-16）
+const stripNul = (s: string): string => { let e = s.length; while (e > 0 && s.charCodeAt(e - 1) === 0) e--; return s.slice(0, e); };
+const jsonAt = (ab: ArrayBuffer, off: number, len: number): FeatureTableJson => len ? JSON.parse(stripNul(td.decode(new Uint8Array(ab, off, len))).trim() || "{}") : {};
 
 // 列優先 4x4（3D Tiles の transform）→ { L:列優先 3x3, t }
 const splitM4 = (m: ArrayLike<number>): Xf3 => ({ L: Float64Array.of(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]), t: [m[12], m[13], m[14]] });
@@ -113,7 +115,7 @@ async function decodeI3dm(ab: ArrayBuffer, M: Xf3, opts: { baseUri?: string; tex
 	}
 	let glb: ArrayBuffer;
 	if (fmt === 1) glb = ab.slice(32 + ftJ + ftB + btJ + btB);
-	else { const uri = td.decode(new Uint8Array(ab, 32 + ftJ + ftB + btJ + btB)).replace(/\0+$/, "").trim(); const r = await fetch(new URL(uri, opts.baseUri).href, { credentials: "omit" }); if (!r.ok) throw new Error(`i3dm glTF HTTP ${r.status}`); glb = await r.arrayBuffer(); }
+	else { const uri = stripNul(td.decode(new Uint8Array(ab, 32 + ftJ + ftB + btJ + btB))).trim(); const r = await fetch(new URL(uri, opts.baseUri).href, { credentials: "omit" }); if (!r.ok) throw new Error(`i3dm glTF HTTP ${r.status}`); glb = await r.arrayBuffer(); }
 	return decodeModel(glb, { baseUri: opts.baseUri, textures: opts.textures, ...opts.gOpt, tile: { places, rtc: [0, 0, 0], baseH: opts.baseH, points: true } });
 }
 
