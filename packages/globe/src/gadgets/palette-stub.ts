@@ -4,15 +4,17 @@
 // アイドル前に押されても boot は冪等（real ||=）＝そのクリックが本体を呼び、開く。搭載APIは従来どおり map.gadget.palette()。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { PaletteBody, PaletteOpts } from "./palette.ts";
 const t = tr();
 
 // パレット（3円の重なり）グリフ（本体 palette.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" aria-hidden="true">
 	<circle cx="12" cy="9" r="5"/><circle cx="9" cy="15" r="5"/><circle cx="15" cy="15" r="5"/></svg>`;
 
-const idle = fn => (window.requestIdleCallback || (cb => setTimeout(() => cb(), 400)))(fn);   // 先読みは「暇な時に」＝初期描画を邪魔しない
+const idle = (fn: () => void) => (window.requestIdleCallback || ((cb: () => void) => setTimeout(() => cb(), 400)))(fn);   // 先読みは「暇な時に」＝初期描画を邪魔しない
 
-export function palette(opts = {}) {
+export function palette(this: GlobeMap, opts: PaletteOpts = {}): { open(): Promise<PaletteBody | void>; close(): Promise<void> | null } | undefined {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -20,10 +22,10 @@ export function palette(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<{open,close}>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
+	let real: Promise<PaletteBody | void> | null = null;   // Promise<{open,close}>＝一度だけ import して本体搭載（失敗時は null に戻して再挑戦可）
 	const stub = new AbortController();   // 本体が付いたらスタブのリスナーを一括退場
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
-	const boot = () => real ||= import("./palette.js")
+	const boot = () => real ||= import("./palette.ts")
 		.then(m => { const g = m.palette.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
 		.catch(e => { real = null; console.error("[palette] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）

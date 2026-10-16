@@ -53,7 +53,7 @@
 				"why": "凍結：IndexedDB の名 ortho-japan-edit（利用者の端末に残る編集の下書き）"
 			}
 		},
-		"packages/globe/src/gadgets/mesh.js": {
+		"packages/globe/src/gadgets/mesh.ts": {
 			"plateau": {
 				"n": 2,
 				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"

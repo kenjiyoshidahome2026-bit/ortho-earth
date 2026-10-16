@@ -42,7 +42,7 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は globe.d.ts。
 export { geopbf };
-import { Marker, Popup } from "./gadgets/marker.js";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
+import { Marker, Popup } from "./gadgets/marker.ts";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
 export { Marker, Popup };
 import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };

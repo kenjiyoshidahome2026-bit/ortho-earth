@@ -464,12 +464,12 @@ export interface Gadgets {
 	 *  集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。queryRenderedFeatures の点の問い合わせに "clusters"/"unclustered-point" で出る */
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m／リアルタイムの影＝時刻スライダー・WebGPU のみ）＝map.sunShadow・map.setShadows の UI */
-	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): (() => void) & { open?(): HTMLElement; close?(): void };
 	/** オフラインパック（1.2.0〜・#40）：今の画面の範囲とズーム上限を決めて、基図タイル（Cache Storage "oj-pack"）・地形（IDB）・任意で建物と画像タイルを先に取る。
 	 *  配るのは殻の Service Worker（japan の public/sw.js が "oj-pack" の URL を cache-first）＝SW の無い埋め込み先では先読みだけ（HTTP キャッシュ）。
-	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) } */
-	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> };
-	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) }。載せない時（二重搭載・XYZ の基図が無い）は素の no-op の関数 */
+	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> } | (() => void);
+	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): (() => void) & { open?(): HTMLElement; close?(): void };
 	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く。
 	 *  時計に範囲がある時（map.clock.setRange・CZML／GPX を読んだ時など）は下の段に区間の時間バー（開始・つまみ・終了）を出す＝つまみで区間の中を行き来・日時の入力も区間に限る（1.8.0〜・#124） */
 	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;

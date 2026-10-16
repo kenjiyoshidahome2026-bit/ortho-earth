@@ -8,7 +8,7 @@
 // requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）
+import { composeLayersToCanvas } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.js";
 const t = tr();
 
