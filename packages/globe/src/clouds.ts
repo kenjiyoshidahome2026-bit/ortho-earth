@@ -8,11 +8,33 @@
 //   coverage／density／thickness（手続きの雲）・体積雲・降水は spec のまま（capabilities "clouds.procedural"／"precipitation"）。
 import { lonlatTo3D } from "@ortho-earth/core";
 import { batchXf } from "./gltf-anim.js";
+import type { CloudsSpec } from "../globe.d.ts";
+import type { GlobeMap } from "./types/map.ts";
+
+/** 全球の殻のメッシュ（shellMesh の戻り） */
+export interface ShellMesh { pos: Float32Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; origin: number[]; bbox: number[] }
+/** 雲の殻のメッシュ（render worker の meshSet の中身） */
+export interface CloudMesh extends ShellMesh { ward: string; twoSided: number; noLift: boolean; keep2d: boolean; castShadow: boolean; tex: { rgba: Uint8Array; w: number; h: number }; alphaMode: string; alphaCutoff: number }
+/** 読めた雲画像（大きさ・α の出どころ） */
+export interface CloudImage { w: number; h: number; alphaFrom: string }
+/** 全球の雲画像を高度の殻として描く（type "image"・W6） */
+export interface CloudShell {
+	/** 読めたら画像の大きさ・α の出どころ（type "image" でない・失敗・追い越された＝null） */
+	set(spec: Required<CloudsSpec> | null | undefined): Promise<CloudImage | null>;
+	clear(): void; tick(): void; destroy(): void;
+	readonly current: { name: string; tris: number; image: CloudImage } | null;
+	angles(): number[];
+}
+/** 殻の配線（render worker への口・時計・通知） */
+export interface CloudShellDeps {
+	setMesh(name: string, data: CloudMesh | null): void; setMeshXf?: ((name: string, data: Float32Array | null) => void) | null; requestDraw?(): void; earthM?: number; now?(): number;
+	emit?(ev: { state: string; [k: string]: unknown }): void;
+}
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 export const STEP_DEG = 0.5;
 const MAX_IMG = 4096, LAT_DRIFT_MAX = 10;   // 殻の格子＝0.5°（弦の垂れ＝R(1−cos 0.25°) ≈ 61 m＝高度 3000 m の殻でも地面に潜らない）
 // 東西 θlon°（経度が増える向き）と南北 θlat°（視点の中心の経度 lonC の子午線上で緯度が増える向き）の回転＝3x3 列優先。L = Rlon · Rlat
-export function cloudRotation(thetaLonDeg, thetaLatDeg, lonCenterDeg) {
+export function cloudRotation(thetaLonDeg: number, thetaLatDeg: number, lonCenterDeg: number): Float64Array {
 	const a = thetaLonDeg * D2R, c = Math.cos(a), s = Math.sin(a);
 	const Rlon = [c, 0, s, 0, 1, 0, -s, 0, c];   // e_x=(1,0,0)（経度 0）→(cos, 0, sin)（経度 θ）
 	const b = thetaLatDeg * D2R, lc = lonCenterDeg * D2R;
@@ -23,9 +45,9 @@ export function cloudRotation(thetaLonDeg, thetaLatDeg, lonCenterDeg) {
 	for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) o[col*3+row] = Rlon[row]*Rlat[col*3] + Rlon[3+row]*Rlat[col*3+1] + Rlon[6+row]*Rlat[col*3+2];
 	return o;
 }
-export const wrapLon = th => ((th + 180) % 360 + 360) % 360 - 180;   // 極軸まわりの回転＝360° で畳む（全球 1 枚の殻＝見た目は同じ）
+export const wrapLon = (th: number): number => ((th + 180) % 360 + 360) % 360 - 180;   // 極軸まわりの回転＝360° で畳む（全球 1 枚の殻＝見た目は同じ）
 // 画像の画素 → 雲の RGBA（α の出どころ・色・opacity）。純関数＝検定できる
-export function cloudPixels(src, w, h, { color = "#ffffff", opacity = 1, alphaFrom = "auto" } = {}) {
+export function cloudPixels(src: ArrayLike<number>, w: number, h: number, { color = "#ffffff", opacity = 1, alphaFrom = "auto" }: { color?: string; opacity?: number; alphaFrom?: string } = {}): { rgba: Uint8Array; mode: string } {
 	const n = w * h, out = new Uint8Array(n * 4), col = parseHex(color);
 	let mode = alphaFrom;
 	if (mode === "auto") { mode = "luminance"; for (let i = 3; i < src.length; i += 4) if (src[i] !== 255) { mode = "alpha"; break; } }
@@ -36,14 +58,14 @@ export function cloudPixels(src, w, h, { color = "#ffffff", opacity = 1, alphaFr
 	}
 	return { rgba: out, mode };
 }
-export function parseHex(c) {
+export function parseHex(c: unknown): number[] {
 	const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(c || "").trim()); if (!m) return [255, 255, 255];
 	let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join("");
 	return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 // 全球の殻＝1 枚のメッシュ { pos, nrm, idx, uv, col, origin, bbox }（経度 step 刻み・緯度 step 刻み・uv＝等経緯度の画像そのまま）。hr＝高さ／R。
 //   原点＝地心（RTE の原点相対＝float32 で ≈ 0.4 m の精度＝雲には十分）。1 バッチ＝renderer の「1 フレーム 1 バッチ」の受け取りでも一度に立つ
-export function shellMesh(hr, step = STEP_DEG) {
+export function shellMesh(hr: number, step = STEP_DEG): ShellMesh {
 	const nx = Math.round(360 / step), ny = Math.round(180 / step), NX = nx + 1, NY = ny + 1, n = NX * NY;
 	const pos = new Float32Array(n * 3), uv = new Float32Array(n * 2), nrm = new Int8Array(n * 4), col = new Uint8Array(n * 4).fill(255), s = 1 + hr;
 	for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
@@ -56,20 +78,20 @@ export function shellMesh(hr, step = STEP_DEG) {
 	for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const a = j * NX + i, b = a + 1, c = a + NX, d = c + 1; idx[w++] = a; idx[w++] = c; idx[w++] = b; idx[w++] = b; idx[w++] = c; idx[w++] = d; }
 	return { pos, nrm, idx, uv, col, origin: [0, 0, 0], bbox: [-180, -90, 180, 90] };
 }
-export function createCloudShell(map, { setMesh, setMeshXf = null, requestDraw = () => {}, earthM = 6371000, now = () => performance.now(), emit = () => {} }) {
-	let cur = null, seq = 0, timer = 0, lastT = null, theta = [0, 0], sent = [NaN, NaN];
+export function createCloudShell(map: GlobeMap, { setMesh, setMeshXf = null, requestDraw = () => {}, earthM = 6371000, now = () => performance.now(), emit = () => {} }: CloudShellDeps): CloudShell {
+	let cur: { spec: Required<CloudsSpec>; name: string; image: CloudImage; tris: number } | null = null, seq = 0, timer: ReturnType<typeof setInterval> | 0 = 0, lastT: number | null = null, theta = [0, 0], sent = [NaN, NaN];
 	const stopWind = () => { if (timer) clearInterval(timer); timer = 0; lastT = null; };
 	const clear = () => { stopWind(); if (cur) { setMesh(cur.name, null); cur = null; } theta = [0, 0]; sent = [NaN, NaN]; };
-	async function loadImage(url) {
+	async function loadImage(url: string): Promise<{ w: number; h: number; data: Uint8ClampedArray }> {
 		const r = await fetch(url, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
 		let bmp = await createImageBitmap(await r.blob());
 		const s = Math.min(1, MAX_IMG / Math.max(bmp.width, bmp.height));
 		const w = Math.max(1, Math.round(bmp.width * s)), h = Math.max(1, Math.round(bmp.height * s));
-		const cv = new OffscreenCanvas(w, h), ctx = cv.getContext("2d", { willReadFrequently: true });
+		const cv = new OffscreenCanvas(w, h), ctx = cv.getContext("2d", { willReadFrequently: true })!;
 		ctx.drawImage(bmp, 0, 0, w, h); bmp.close?.();
 		return { w, h, data: ctx.getImageData(0, 0, w, h).data };
 	}
-	function tick() {
+	function tick(): void {
 		if (!cur) return;
 		const t = now(), dt = lastT == null ? 0 : Math.min(3600, Math.max(0, (t - lastT) / 1000)); lastT = t;   // 1 刻み 1 時間まで（setNow の跳びを追う・裏タブ復帰の暴走は防ぐ）
 		const [we, wn] = cur.spec.wind, latc = map.getCenter?.()?.lat ?? 0, lonc = map.getCenter?.()?.lng ?? 0;
@@ -82,11 +104,11 @@ export function createCloudShell(map, { setMesh, setMeshXf = null, requestDraw =
 		setMeshXf(`${cur.name}#0`, batchXf(xf, [0, 0, 0]));
 		requestDraw();
 	}
-	async function set(spec) {
+	async function set(spec: Required<CloudsSpec> | null | undefined): Promise<CloudImage | null> {
 		const my = ++seq;
 		if (!spec || spec.type !== "image" || !spec.url) { clear(); return null; }
-		let img;
-		try { img = await loadImage(spec.url); } catch (e) { if (my === seq) { clear(); emit({ state: "error", error: e?.message || String(e) }); } return null; }
+		let img: { w: number; h: number; data: Uint8ClampedArray };
+		try { img = await loadImage(spec.url); } catch (e) { if (my === seq) { clear(); emit({ state: "error", error: (e as Error | null)?.message || String(e) }); } return null; }
 		if (my !== seq) return null;
 		clear();
 		const { rgba, mode } = cloudPixels(img.data, img.w, img.h, spec);
