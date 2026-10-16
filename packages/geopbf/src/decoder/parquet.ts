@@ -3,10 +3,10 @@ import { fromGeoParquet } from "../convert/geoparquet.ts";
 import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
 
 onmessage = async (e: MessageEvent<DecodeRequest>) => {
-	const { file, name, precision, description, license, attribution, geometryColumn, ignoreCrs } = e.data;
+	const { file, name, precision, geometryColumn, ignoreCrs } = e.data;   // description／license／attribution は parquet の key-value（geopbf:*）から読む＝fromGeoParquet は受けない
 	try {
 		const u8 = new Uint8Array(await file.arrayBuffer());
-		const { pbf, stats } = await fromGeoParquet(u8, { name, precision, description, license, attribution, geometryColumn, ignoreCrs });
+		const { pbf, stats } = await fromGeoParquet(u8, { name, precision, geometryColumn, ignoreCrs });
 		const res = pbf.arrayBuffer;
 		const msg: DecodeResponse = { type: "parquetdec", data: res };
 		const notes: string[] = [];

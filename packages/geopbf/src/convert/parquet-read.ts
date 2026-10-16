@@ -12,10 +12,10 @@
 // columns[i].unsupported に理由（"unsupported encoding BIT_PACKED" など）。
 // 戻り: { numRows, keyValue, created, columns: [{ path: string[], name, type, logical, values: Array(numRows) | null }] }
 const DEC = new TextDecoder();   // 呼び出しごとの new TextDecoder を撤去（2026-09-15）
-import { inflate } from "../modules/inflate.js";
+import { inflate } from "../modules/inflate.ts";
 import { openSource } from "../cog/source.ts";
 import type { SourceInput, SourceOptions, SourceMetrics, ByteRange } from "../cog/source.ts";
-import { readUvarint, readSvarint } from "../modules/varint.js";   // 部分読み（Range）＝COG と同じソース抽象（url | Blob/File | {read,size}）
+import { readUvarint, readSvarint } from "../modules/varint.ts";   // 部分読み（Range）＝COG と同じソース抽象（url | Blob/File | {read,size}）
 
 /** Thrift の struct（fieldId → 値） */
 export type TStruct = Record<number, unknown>;

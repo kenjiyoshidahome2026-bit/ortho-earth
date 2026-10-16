@@ -2,7 +2,7 @@
 // JPEG/WebP は「ブラウザのネイティブデコーダに渡せる完成バイト列」を返すだけ（createImageBitmap は
 // worker/index 側＝Node では明示スキップ）。deflate は modules/inflate.js＝Node は zlib・ブラウザは
 // DecompressionStream（writer/reader 直叩き）＝pako 不使用。そのため decodeTile は非同期。
-import { inflate } from "../modules/inflate.js";
+import { inflate } from "../modules/inflate.ts";
 import type { LeanIfd, RasterData, DecodedTile, Stretch, StretchRange, Lut, LutSpec, Composite } from "./types.ts";
 
 // ---- TIFF LZW（compression=5・MSB-first・ClearCode=256・early change）約60行 ----------------

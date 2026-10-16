@@ -1,4 +1,4 @@
-import { writeUvarint, zigzagEncode } from "../modules/varint.js";
+import { writeUvarint, zigzagEncode } from "../modules/varint.ts";
 // convert/mvt.js ── Mapbox Vector Tile 2.1 の最小エンコーダ。protobuf ライタも自前（依存ゼロ＝worker がバンドラ無しで
 // 読める）。1 タイル = 1 レイヤ。feature.id = fid。幾何はタイルローカル整数。環の向きは MVT 規則（外環＝測量公式の面積が
 // 正・穴＝負）にここで揃える。復号（検定用）は mvt-decode.js。

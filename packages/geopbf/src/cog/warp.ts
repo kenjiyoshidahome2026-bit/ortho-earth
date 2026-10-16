@@ -1,4 +1,4 @@
-import { worldToLonLat } from "../modules/mercator.js";
+import { worldToLonLat } from "../modules/mercator.ts";
 import type { Geo, GeoLevel, Target, BBox } from "./types.ts";
 // 再標本化＝「デコード直後に worker 内で1回だけ」の CPU warp（本計画 §4）。
 // 目標グリッドの各ピクセルを 目標座標 → 経緯度 → 源 CRS → 源ピクセル と逆引きし bilinear。

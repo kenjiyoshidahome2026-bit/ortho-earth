@@ -1,5 +1,5 @@
 // convert/mvt-decode.js ── 検定用の MVT デコーダ（自前の protobuf リーダ modules/pbf.js を使う＝相対 import のみ）
-import Pbf from "../modules/pbf.js";
+import Pbf from "../modules/pbf.ts";
 
 /** MVT の属性値 */
 export type MvtValue = string | number | boolean;

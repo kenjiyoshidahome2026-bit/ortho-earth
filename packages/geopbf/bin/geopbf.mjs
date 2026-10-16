@@ -404,7 +404,7 @@ async function gdb2pbf(argv) {
 		const names = readdirSync(inPath);
 		source = { names, read: async (name, offset = 0, length) => { const p = join(inPath, names.find(n => n.toLowerCase() === name.toLowerCase()) ?? name); const size = statSync(p).size; const n = length === undefined ? size - offset : Math.min(length, size - offset); const buf = Buffer.alloc(Math.max(0, n)); const fd = openSync(p, "r"); try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); } return new Uint8Array(buf.buffer, buf.byteOffset, buf.length); } };
 	} else {
-		const { decodeZIP } = await import("../src/modules/decodeZIP.js");
+		const { decodeZIP } = await import("geopbf/internal/modules/decodeZIP");
 		const entries = await decodeZIP(new Blob([await readFile(inPath)]));
 		if (!entries) throw new Error(t("zipOpenFailed"));
 		source = gdbSourceFromFiles(entries);

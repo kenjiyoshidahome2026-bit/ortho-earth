@@ -3,6 +3,7 @@
 // 形式ごとに使う鍵が違う＝使わない鍵は無視される（json デコーダは e.data を丸ごと GeoPBF の options に渡す）。
 import type { CleanTopologyOptions, UnPackGint } from "../types/geopbf.js";
 import type { FMapEntry } from "./pbf-base.js";
+import type { GridSource } from "./convert/datum.ts";   // JGD 変換のパラメータ（convert/datum＝文字列・バイト列・焼いた格子）
 
 /** ヘッダのメタ（全デコーダ共通） */
 export interface DecodeMeta { name?: string; precision?: number; description?: string; license?: string; attribution?: string }
@@ -17,11 +18,11 @@ export interface DecodeRequest extends DecodeMeta {
 	/** dxf／shape：CRS（EPSG 番号か WKT）・CRS を無視・単位倍率・閉じた線を面に */
 	crs?: string | number; ignoreCrs?: boolean; unitScale?: number; closedAsPolygon?: boolean;
 	/** JGD の変換（TKY2JGD・PatchJGD のパラメータ） */
-	tky2jgd?: unknown; patchjgd?: unknown;
+	tky2jgd?: GridSource; patchjgd?: GridSource;
 	/** 多層ファイル（gpkg・gdb・spatialite）の層・GeoParquet の幾何列 */
 	layer?: string; geometryColumn?: string;
 	/** spatialite：読む表・読まない表 */
-	include?: unknown; exclude?: unknown; excludeAll?: boolean;
+	include?: readonly string[]; exclude?: readonly string[]; excludeAll?: boolean;
 	/** shape：zip の中の 1 本だけ読む（末尾一致） */
 	shpTarget?: string;
 	[key: string]: unknown;
