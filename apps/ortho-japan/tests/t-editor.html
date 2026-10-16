@@ -14,7 +14,7 @@ import { createGeopbf } from "geopbf";
 import { gcDistanceDeg, gcMidpoint } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { initEditor as initEditor0, setLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示（この頁は日本語の UI 文字列で判定する）
 import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // japan のホスト契約＝クラウド保存パネルを注入（ボタン列の検定は japan に載った形で数える）
 await setLang("ja");
@@ -387,7 +387,7 @@ try {
 		ok("anchorModelRaw", m().toGeoJSON().features[0].geometry.coordinates[0].length === 4);   // モデル＝制御点3+閉じ
 		ok("anchorPbfRaw", editor.layer.pbf.features[0].geometry.coordinates[0].length === 4);    // pbf も制御点のまま（識別/取り込みを汚さない）
 		ok("anchorBaked", editor.layer.pbf.unPackGint.arcBuffer.length > 50);   // GintBUF＝20°/15°級の3辺に度アンカー挿入（gint とオーバレイの折れ線が一致）
-		const saved = (await new GeoPBF({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry.coordinates[0];
+		const saved = (await new GeoPBFBase({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry.coordinates[0];
 		ok("anchorSaveRaw", saved.length === 4);   // 自動保存＝制御点のまま
 	}
 
@@ -426,7 +426,7 @@ try {
 		key("Escape");
 		// 保存＝切断なし（cut:false）・復元（idbLoad→loadBuffer と同経路）で1つの環のまま戻る＝縫い目の縦線/二重ハンドルが出ない
 		await editor.commitNow();
-		const sv = (await new GeoPBF({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry;
+		const sv = (await new GeoPBFBase({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry;
 		ok("amSaveUncut", sv.type === "Polygon" && sv.coordinates.length === 1 && sv.coordinates[0].some(c => c[0] > 179) && sv.coordinates[0].some(c => c[0] < -179));
 		await editor.loadBuffer(editor.layer.saveBuffer.slice(0), { fly: false, stripEid: true });
 		await sleep(200);

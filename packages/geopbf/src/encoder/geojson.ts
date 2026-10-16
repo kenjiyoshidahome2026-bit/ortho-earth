@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { Feature } from "../../types/geopbf.js";
 import type { EncodeRequest } from "../worker-msg.ts";
 const enc = new TextEncoder();
@@ -6,7 +6,7 @@ const enc = new TextEncoder();
 onmessage = async (e: MessageEvent<EncodeRequest>) => {
 	const { buf, name, opts } = e.data, gz = opts && opts.gz;
 	try {
-		const pbf = await new GeoPBF().name(name).set(buf);
+		const pbf = await new GeoPBFBase().name(name).set(buf);
 		const { readable, writable } = new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>();
 		const writer = writable.getWriter();
 		const out = gz ? readable.pipeThrough(new CompressionStream("gzip")) : readable;

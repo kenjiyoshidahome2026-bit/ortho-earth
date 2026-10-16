@@ -2,7 +2,7 @@
 //   ①位相抽出なしで feats（type/properties）が立つ ②遅延lift＝listsOf/stitch が pop 錨計算と互換
 //   ③props コマンドの適用/反転（undo） ④toPbf＝ストリーム置換複写（幾何バイト複写・属性再エンコード・precision継承）
 globalThis.ImageData ??= class ImageData { };   // makeKeys が instanceof で参照（ブラウザ専用API）＝Nodeでは空クラスで足りる
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint as _g } from "geopbf/gint";
 // Node で gint WASM を初期化（web ターゲット init は fetch 前提＝バイト列を直接渡す。init はメモ化済み＝
@@ -48,7 +48,7 @@ const canonRing = ring => {
 };
 const canonLine = cs => { const a = cs.map(p => qDeep(p)); const r = a.slice().reverse(); return JSON.stringify(a) < JSON.stringify(r) ? a : r; };
 
-const src = await new GeoPBF({ name: "t-large", precision: 6 }).set(structuredClone(fc));
+const src = await new GeoPBFBase({ name: "t-large", precision: 6 }).set(structuredClone(fc));
 src.unPackGint = unPackGintBuffer(topology(src));   // Phase2以降＝ジオメトリの真実源はGintBUF（実行時はloadLargeがpbf.gint()を先に焼く）
 const model = createLargeModel(src);
 

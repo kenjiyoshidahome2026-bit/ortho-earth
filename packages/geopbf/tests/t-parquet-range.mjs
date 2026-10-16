@@ -6,7 +6,7 @@
 //   ・空間整列（str）した書き手のファイルでは、遠い視野の row group が 0 になる
 globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
 import { openParquet, readParquet } from "../src/parquet.ts";
 
@@ -20,7 +20,7 @@ for (let i = 0; i < 4000; i++) feats.push({ type: "Feature", properties: { id: i
 for (let i = 0; i < 4000; i++) feats.push({ type: "Feature", properties: { id: 4000 + i, k: "eu", v: rnd() * 100 }, geometry: { type: "Point", coordinates: [5 + rnd() * 10, 45 + rnd() * 8] } });
 const sq = (x0, y0, d) => [[x0, y0], [x0 + d, y0], [x0 + d, y0 + d], [x0, y0 + d], [x0, y0]];
 for (let i = 0; i < 40; i++) feats.push({ type: "Feature", properties: { id: 8000 + i, k: i < 20 ? "jp" : "eu", v: i }, geometry: { type: "Polygon", coordinates: [sq(i < 20 ? 139 + rnd() * 2 : 5 + rnd() * 10, i < 20 ? 35 + rnd() : 45 + rnd() * 8, 0.05)] } });
-const pbf = await new GeoPBF({ name: "fix", precision: 6 }).set({ type: "FeatureCollection", features: feats });
+const pbf = await new GeoPBFBase({ name: "fix", precision: 6 }).set({ type: "FeatureCollection", features: feats });
 const N = pbf.length;
 const { buffer: u8 } = await toGeoParquet(pbf, { gpu: false, order: "str", rowGroupSize: 128, codec: "gzip" });
 ok(u8.length > 200000, `fixture: ${N} features → GeoParquet ${u8.length} B（str 整列・row group 128 行・gzip）`);
