@@ -81,7 +81,7 @@ const splitWords = text => text.split(/[^A-Za-z0-9]+/).flatMap(w => w.split(/(?<
 
 function scan() {
 	const found = {};   // file → word → [line…]
-	const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : /\.m?js$/.test(e.name) ? [path.join(d, e.name)] : []);
+	const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : /\.(m?js|ts)$/.test(e.name) ? [path.join(d, e.name)] : []);
 	for (const root of ROOTS) for (const abs of walk(path.join(REPO, root))) {
 		const rel = path.relative(REPO, abs);
 		for (const seg of segments(fs.readFileSync(abs, "utf8"))) {

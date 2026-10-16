@@ -1,6 +1,6 @@
 // cameraState の cam.centerAlt（注視点の高さ［m］＝MapLibre の transform.elevation・2026-09-30）：
 // 無指定＝従来とビット同値／指定＝注視点を測地法線に沿って持ち上げ、カメラはそこから同じ camDist＝持ち上げた点が画面の中心に写る。
-import { cameraState, project, worldRadiusM } from "../src/camera.js";
+import { cameraState, project, worldRadiusM } from "../src/camera.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };

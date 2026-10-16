@@ -7,7 +7,7 @@
 //   3. deltaLL（δ → 経緯度の差の恒等式・f32）＝真の経緯度差と 1e-8°（1 mm）以内・絶対の経緯度（f32 で 1.4 m 刻み）を経ない
 //   4. sphereRayUniforms の c と、視線 v の長さ（clip w＝1 の向き）＝f64 で自明に正しい
 // 使い方: node packages/ortho-core/tests/globe-rays.mjs
-import { cameraState, lonlatTo3D, betaToLonLat as lonlatOf3D, viewRays, sphereRayUniforms, anchorUV, setEllipsoid } from '../src/camera.js';
+import { cameraState, lonlatTo3D, betaToLonLat as lonlatOf3D, viewRays, sphereRayUniforms, anchorUV, setEllipsoid } from '../src/camera.ts';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };

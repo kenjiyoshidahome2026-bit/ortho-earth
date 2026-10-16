@@ -1,7 +1,7 @@
 // 1 枚のタイルの中の標高（createGetHeight.js sampleCell）の門（点群計画 段 4・2026-10-15）。node tests/elevation-sample.mjs
 // 守るもの＝値は画素の中心にある（row0＝北）＝焼き（bake-dem10b）と描く側（downsampleFlipped・gx = u·w − ½）と同じ所の値を返す
 import assert from "node:assert/strict";
-import { sampleCell } from "../src/elevation/createGetHeight.js";
+import { sampleCell } from "../src/elevation/createGetHeight.ts";
 
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("✓", name); };

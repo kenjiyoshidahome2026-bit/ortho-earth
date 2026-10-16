@@ -2,8 +2,8 @@
 // 守るもの：①傾き 60° 以下・地形なし＝画面の全部が floor(MapLibre の z)（raster は round・tileSize 256 は＋1）②selectLOD に zOf を渡すとその z で敷く（従来の閾は静止時に一段細かかった）
 // ③地形あり・急な傾き＝距離の式（中心は z＋log2(1/cos(fov/2))・遠いほど粗い）④source の maxzoom（selectLOD の maxZ）で止まる ⑤zOf を渡さない既定の選び方は不変
 import assert from "node:assert/strict";
-import { mlTileZoomOf, mlCalculateTileZoom, ML_FOV_DEG } from "../src/mlcover.js";
-import { selectLOD } from "../src/tilecover.js";
+import { mlTileZoomOf, mlCalculateTileZoom, ML_FOV_DEG } from "../src/mlcover.ts";
+import { selectLOD } from "../src/tilecover.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 

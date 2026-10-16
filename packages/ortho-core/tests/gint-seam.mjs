@@ -8,8 +8,8 @@ globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "geopbf/pbf-base";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint } from "geopbf/gint";
-import { bakeBase } from "../src/gint/bake.js";
-import { hasSeamArc } from "../src/gint/utility.js";
+import { bakeBase } from "../src/gint/bake.ts";
+import { hasSeamArc } from "../src/gint/utility.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {

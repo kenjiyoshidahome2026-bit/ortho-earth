@@ -4,7 +4,7 @@
 //   2. 旧式＝invMvp（f32）を列順に積和して近平面と遠平面から視線を作ると、近景のチルトで 1 画素以上ずれる（縦縞の正体・再発させない理由の記録）
 //   3. 対数深度の逆：expm1 の級数は exp2(x)−1（f32）より桁が残る＝近景の w が 0.76m 刻みにならない
 // 使い方: node packages/ortho-core/tests/ao-rays.mjs
-import { cameraState, lonlatTo3D, setEllipsoid } from '../src/camera.js';
+import { cameraState, lonlatTo3D, setEllipsoid } from '../src/camera.ts';
 import { aoRays } from '../src/gpu/ao.js';
 
 let fails = 0;
