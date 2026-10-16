@@ -1,9 +1,23 @@
 // LOD選択と可視タイル算出（透視カメラ）。画面をサンプリングし各点をカメラ光線でunproject→タイルへ。
-import { lonLatToTile, tileBoundsInto, tileId } from "./tile.js";
-import { cameraState, unproject, projectInto, lonlatTo3D } from "./camera.js";
+import { lonLatToTile, tileBoundsInto, tileId, type TileXYZ } from "./tile.ts";
+import { cameraState, unproject, projectInto, lonlatTo3D, type CameraPose, type CameraState } from "./camera.ts";
 
 // 節ごとの作業域（selectLOD は同期＝使い回し）：タイル境界 [w,s,e,n]・射影 [sx,sy,front]。旧＝節ごと・隅ごとに配列を作って GC が選抜の 2 割
 const B = new Float64Array(4), P = new Float64Array(3);
+
+/** selectLOD の選択肢 */
+export interface SelectLODOptions {
+	minZ?: number; maxZ?: number; tilePx?: number; grid?: number;
+	/** 前回 update で分割されたノード集合（tileId の番号） */
+	sticky?: Set<number> | null; stickyRatio?: number;
+	floorZ?: number; floorRatio?: number;
+	/** 地形リフト球の半径（既定 1＝海面） */
+	groundR?: number;
+	/** (z, x, y) → そのタイルで望む z（mlcover.mlTileZoomOf） */
+	zOf?: ((z: number, x: number, y: number) => number) | null;
+}
+/** 選抜の節（s＝そのノードに入るサンプルの添字・根＝undefined＝全部） */
+interface LODNode extends TileXYZ { s?: number[] | null }
 
 // 距離別LOD（quadtree）：画面サンプルを含む root から、画面上のタイルサイズが閾値超なら4分割。
 // 近景=高z・遠景=低z を重なりなく敷く。可視判定はサンプル包含で（大タイルの4隅誤カリングを回避）。
@@ -20,9 +34,9 @@ const B = new Float64Array(4), P = new Float64Array(3);
 // 被覆は海面球との**和集合**で取る（サンプル・可視判定とも両球）＝リフト球は「手前の映り込み」を足すだけで、
 // 遠景は海面基準のまま守られる。中心標高が遠景より高い時（山上→谷）でも旧選抜の上位集合＝欠けの退行がない。
 // zOf＝(z, x, y) → そのタイルで望む z（MapLibre の選び方＝mlcover.mlTileZoomOf）。渡すと画面の大きさの閾（tilePx・sticky・floorZ）は使わず「z が望む z に届くまで割る」＝MapLibre の coveringTiles と同じ規則。可視判定はこのまま
-export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, zOf = null } = {}) {
+export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, zOf = null }: SelectLODOptions = {}): TileXYZ[] {
 	const st = cameraState(cam, W, H);
-	const samples = [];
+	const samples: [number, number][] = [];
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
 		const ll = unproject(st, ix / grid * W, iy / grid * H); if (ll) samples.push(ll);
 		if (groundR !== 1) {
@@ -42,14 +56,14 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 	// 見えない候補タイルごとに総なめ（選抜の 5 割）。sIn＝そのノードに入るサンプルの添字（根＝null＝全部）
 	const sLo = new Float64Array(samples.length), sLa = new Float64Array(samples.length);
 	for (let i = 0; i < samples.length; i++) { sLo[i] = samples[i][0]; sLa[i] = samples[i][1]; }
-	const rootMap = new Map();
+	const rootMap = new Map<number, LODNode>();
 	// 極の上（|緯度|>85.05°）のサンプルはメルカトルの外＝y が範囲外のタイル（実在しない）になる→上下の端の行へ畳む（旧＝1/0/-1 のような偽タイルが根になり、極の周りの帯が覆われず紙色のまま・2026-09-30）
 	const nRoot = 1 << minZ;
 	for (const [lo, la] of samples) { const [x0, y0] = lonLatToTile(lo, la, minZ); const x = ((x0 % nRoot) + nRoot) % nRoot, y = Math.max(0, Math.min(nRoot - 1, y0)); rootMap.set(tileId(minZ, x, y), { z: minZ, x, y }); }
-	const out = [], stack = [...rootMap.values()];
+	const out: TileXYZ[] = [], stack: LODNode[] = [...rootMap.values()];
 	let guard = 0;
 	while (stack.length && guard++ < 30000) {
-		const t = stack.pop();
+		const t = stack.pop()!;
 		const b = tileBoundsInto(t.x, t.y, t.z, B);
 		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, groundR);
 		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
@@ -68,12 +82,12 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 // 4隅の投影は海面と groundR（地形リフト球）の**両方**で行い bbox を合併：海面bboxだけだと、リフトで
 // 画面内へ持ち上がる手前タイルが「画面外」でculされ、疎な画面サンプル（grid=10）の網に掛かった数枚しか
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
-function tileMetrics(st, t, b, center, W, H, sLo, sLa, sIn, groundR = 1) {
+function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: ArrayLike<number>, W: number, H: number, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined, groundR = 1): number {
 	const w = b[0], s = b[1], e = b[2], n = b[3];
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
 	const K = t.z <= 4 ? 6 : 1;
 	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
-	const corner = (lo, la) => {
+	const corner = (lo: number, la: number): void => {
 		for (let r = 0; r < (groundR !== 1 ? 2 : 1); r++) {
 			projectInto(st, lo, la, r ? groundR : 1, P);
 			const sx = P[0], sy = P[1], f = P[2];
@@ -98,8 +112,8 @@ function tileMetrics(st, t, b, center, W, H, sLo, sLa, sIn, groundR = 1) {
 }
 
 // 境界 [w,s,e,n] に入るサンプルの添字（sIn＝親の分・null＝全部）
-function samplesIn(b, sLo, sLa, sIn) {
-	const w = b[0], s = b[1], e = b[2], n = b[3], o = [];
+function samplesIn(b: Float64Array, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined): number[] {
+	const w = b[0], s = b[1], e = b[2], n = b[3], o: number[] = [];
 	if (sIn) { for (let k = 0; k < sIn.length; k++) { const i = sIn[k], lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); } }
 	else for (let i = 0; i < sLo.length; i++) { const lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); }
 	return o;

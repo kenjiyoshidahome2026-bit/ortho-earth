@@ -2,13 +2,16 @@
 // 太陽の方向から建物を正射影で深度テクスチャへ描き、受け手（地形・球の床・塗り・線・建物・メッシュ）の FS が比べる。
 // 座標は単位球ワールド（camera.js lonlatTo3D と同じ軸）。行列は列優先（mat.js と同規約）・クリップ z は [0,1]（WebGPU 流。GL は受け手側で同じ z を使う）。
 // 影を点けない限りどの関数も呼ばれない＝影なしの描画には一切関与しない。
-import { lonlatTo3D, worldRadiusM } from "./camera.js";
+import { lonlatTo3D, worldRadiusM } from "./camera.ts";
 import { sunSubpoint } from "@ortho-earth/ephem/sun";
 
 const D2R = Math.PI / 180;
 
+/** 影の窓（shadowWindow の戻り） */
+export interface ShadowWindow { mvp: Float64Array; alt: number; texelM: number; zRangeM: number; eye: number[] }
+
 // 太陽の方向（単位ベクトル・ワールド）。t＝ms epoch
-export function sunVector(t) {
+export function sunVector(t: number): number[] {
 	const [lng, lat] = sunSubpoint(t);   // ラジアン（renderer の夜面と同じ出所）
 	const c = Math.cos(lat);
 	return [c * Math.cos(lng), Math.sin(lat), c * Math.sin(lng)];
@@ -18,7 +21,7 @@ export function sunVector(t) {
 //   sun＝太陽の方向・center＝[lon,lat]（カメラの注視点）・halfM＝窓の半幅(m)・N＝深度テクスチャの一辺(texel)
 // 戻り＝{ mvp(Float64Array 列優先), alt(rad), texelM, zRangeM } または null（太陽が地平線の下）。
 // 基底は太陽と地軸だけで決める（注視点に依らない）＝パンで窓の向きが回らない。窓の中心は texel の格子に吸着＝パンで影の縁が揺れない。
-export function shadowWindow(sun, center, halfM, N) {
+export function shadowWindow(sun: ArrayLike<number>, center: ArrayLike<number>, halfM: number, N: number): ShadowWindow | null {
 	const Re = worldRadiusM();
 	const C = lonlatTo3D(center[0], center[1]);
 	const up = norm(C);
@@ -47,7 +50,7 @@ export function shadowWindow(sun, center, halfM, N) {
 }
 
 // 窓の半幅(m)＝画面が見ている地面の広さ。1/4 段（2^0.25）に量子化＝小さなズームで窓が伸縮して影の縁が揺れない
-export function shadowHalfM(zoom, lat, W, H, dpr) {
+export function shadowHalfM(zoom: number, lat: number, W: number, H: number, dpr: number): number {
 	const mpp = 156543.03392 * Math.cos(lat * D2R) / Math.pow(2, zoom);   // CSS px あたり m
 	const want = 0.75 * Math.hypot(W, H) / (dpr || 1) * mpp;
 	const q = Math.pow(2, Math.round(Math.log2(Math.max(120, Math.min(6000, want))) * 4) / 4);
@@ -55,7 +58,7 @@ export function shadowHalfM(zoom, lat, W, H, dpr) {
 }
 
 // 深度の比較の余白（深度単位）：平らな屋根でも太陽が低いと 1 texel の中で深さが変わる＝その分を見込む
-export function shadowBias(win) {
+export function shadowBias(win: { alt: number; texelM: number; zRangeM: number }): number {
 	const slope = Math.min(1 / Math.tan(win.alt), 6);
 	return (0.25 + win.texelM * slope * 0.75) / win.zRangeM;
 }
@@ -64,7 +67,7 @@ export function shadowBias(win) {
 // 全点が [−1,1]² の同じ外側なら false＝その束の影は窓の中に落ちない（正射影＝窓に投げて入る物しか窓の中を暗くできない）。
 // 標本点＝4 隅＋辺の中点＋中心 × 高さ 2 段・余白 2%（束は区の大きさ＝数 km まで＝球の膨らみは余白に収まる）
 export const SH_CAST_HMAX_M = 700;   // 落とす側の高さの上限（m）＝最も高い建物（634m）＋余裕。高すぎると刈りが甘いだけ
-export function bboxInShadowWindow(mvp, bbox, hMaxM = SH_CAST_HMAX_M) {
+export function bboxInShadowWindow(mvp: ArrayLike<number>, bbox: readonly number[], hMaxM = SH_CAST_HMAX_M): boolean {
 	const [w, s, e, n] = bbox, lm = (w + e) / 2, bm = (s + n) / 2, m = mvp, M = 1.02, Re = worldRadiusM();
 	let outL = true, outR = true, outB = true, outT = true;
 	for (const [lo, la] of [[w, s], [e, s], [w, n], [e, n], [lm, s], [lm, n], [w, bm], [e, bm], [lm, bm]]) {
@@ -78,6 +81,6 @@ export function bboxInShadowWindow(mvp, bbox, hMaxM = SH_CAST_HMAX_M) {
 	return !(outL || outR || outB || outT);
 }
 
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const dot = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: ArrayLike<number>, b: ArrayLike<number>): number[] => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a: ArrayLike<number>): number[] => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };

@@ -1,7 +1,61 @@
 // 透視カメラ（チルト対応）。単位球ワールドで、対象地点(center)を注視する軌道カメラ。
 // pitch=0 で真上（従来の真俯瞰）、pitch>0 で地平へ傾く。bearing で方位回転。
-import * as mat from "./mat.js";
+// この地図は常に地球儀＝平面メルカトルの変換は無い。z の目盛りは 256px 世界（WORLD_PX）＝MapLibre の z＋1。
+import * as mat from "./mat.ts";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+/** 経緯度（度）。[lon, lat] */
+export type LonLat = [number, number];
+/** β 単位球（楕円体 off では単位球）上の 3D 点 */
+export type Vec3 = [number, number, number] | number[];
+
+/** カメラの生の状態（`map.cam`）。角はラジアン。 */
+export interface CameraPose {
+	center: LonLat;
+	/** エンジンの z（256px 世界）。 */
+	zoom: number;
+	/** チルト［rad］。0＝真上。 */
+	pitch?: number;
+	/** 方位［rad］。0＝北が上。 */
+	bearing?: number;
+	/** 視線まわりの回転［rad］（MapLibre の roll・正＝絵が時計回り・無指定＝0）。 */
+	roll?: number;
+	/** 縦の視野角［rad］。既定 50°。 */
+	fovy?: number;
+	dpr?: number;
+	/** 注視点の高さ［m］（MapLibre の centerClampedToGround 相当・無指定＝0）。 */
+	centerAlt?: number;
+	/** 注視点を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の centerOffset（padding の中身の中心）。消失点も動く。無指定＝[0,0]。 */
+	offset?: [number, number];
+}
+
+/** 視線の基底（viewRays の戻り） */
+export interface ViewRays { F: number[]; X: number[]; Y: number[] }
+
+/** cameraState の戻り＝1 フレームの行列と派生量。mvp/invMvp は列優先 f64。 */
+export interface CameraState {
+	mvp: Float64Array;
+	invMvp: Float64Array | null;
+	/** カメラ位置（β 空間）。 */
+	eye: number[];
+	W: number;
+	H: number;
+	dpr: number;
+	/** 注視点からカメラまでの距離（単位球のラジアン≈弧長）。 */
+	camDist: number;
+	/** 焦点距離（device px）。 */
+	focal: number;
+	/** 透視行列だけ（clip.x の反転込み）。MapLibre custom 層の projectionMatrix 相当。 */
+	projection: Float64Array;
+	/** 視線の基底の覚え書き（sphereRayUniforms が 1 フレームに 1 度だけ作る） */
+	rays?: ViewRays;
+}
+
+/** sphereRayUniforms の戻り（origin を渡すと錨 O・rho・beta0・EO・ll も付く） */
+export interface SphereRayUniforms {
+	F: number[]; X: number[]; Y: number[]; E: number[]; c: number;
+	O?: number[]; rho?: number; beta0?: number; EO?: number[]; ll?: [number, number];
+}
 
 // z の目盛り＝256px 世界（赤道一周 = 2^z × 256 CSSpx）。v1(d3-geo)・地理院地図・OSM と同一目盛り。
 // 旧実装は 512px 世界（MapLibre 流）＝同じ視野で z が1小さく、v1 移植の gint 式（256px 前提）や
@@ -16,14 +70,16 @@ export const WORLD_PX = 256;
 // r=1（球・既定）で全式がビット同値に退化する＝フラグ1本で新旧を往復でき、回帰面がゼロ。
 // 各実行文脈（main・render worker・mesh worker）は起動時に setEllipsoid を同値で呼ぶこと（init で搬送）。
 let R_AX = 1;   // b/a（球=1）。シェーダ側の dβ 補正は u_ellTrig=(0,…)＝球で厳密0（renderer が配る）
-export function setEllipsoid(on) { R_AX = on ? 1 - 1 / 298.257223563 : 1; }
-export const ellipsoidOn = () => R_AX !== 1;
-export const ellAxisRatio = () => R_AX;   // b/a（球=1）＝world＝S·β の S＝diag(1, b/a, 1)（断面の面を world で作って β へ移す・clip.js）
-export const worldRadiusM = () => R_AX === 1 ? 6371000 : 6378137;   // m→世界単位の換算半径（球＝従来値／楕円体＝a）
+/** WGS84 楕円体で立てる（全実行文脈で同値に呼ぶ）。 */
+export function setEllipsoid(on: boolean): void { R_AX = on ? 1 - 1 / 298.257223563 : 1; }
+export const ellipsoidOn = (): boolean => R_AX !== 1;
+export const ellAxisRatio = (): number => R_AX;   // b/a（球=1）＝world＝S·β の S＝diag(1, b/a, 1)（断面の面を world で作って β へ移す・clip.js）
+export const worldRadiusM = (): 6371000 | 6378137 => R_AX === 1 ? 6371000 : 6378137;   // m→世界単位の換算半径（球＝従来値／楕円体＝a）
 // 測地緯度 φ ⇄ 更成緯度 β（deg）。閉形式（atan2＝極も厳密）。球では恒等。
-export const betaOf = latDeg => R_AX === 1 ? latDeg
+/** 測地緯度 → 更成緯度（度）。球では恒等。 */
+export const betaOf = (latDeg: number): number => R_AX === 1 ? latDeg
 	: Math.atan2(R_AX * Math.sin(latDeg * D2R), Math.cos(latDeg * D2R)) * R2D;
-export const geodeticOf = betaDeg => R_AX === 1 ? betaDeg
+export const geodeticOf = (betaDeg: number): number => R_AX === 1 ? betaDeg
 	: Math.atan2(Math.sin(betaDeg * D2R), R_AX * Math.cos(betaDeg * D2R)) * R2D;
 
 // world空間の3D点（S 込み＝楕円体面上の点・S·eye）→ 測地経緯度 [lon,lat]（deg）。S⁻¹（yだけ1/R_AX）で
@@ -33,7 +89,7 @@ export const geodeticOf = betaDeg => R_AX === 1 ? betaDeg
 // S⁻¹ が二重に掛かり、緯度が反対側へ同じ量（36°で約+0.09°≒10km 北）ずれる＝updateUnderground の地中フェード
 // 誤発動の真因その2（2026-09-21・?ell=1）。8/15 の修正（57a1f19）は地心緯度(−10km)を +10km に裏返しただけで、
 // 加賀市は北 10km が日本海(0m)ゆえ「直った」ように見えていた。
-export function worldToLonLat(p) {
+export function worldToLonLat(p: ArrayLike<number>): LonLat {
 	const yb = p[1] / R_AX;                                       // world → β空間（S⁻¹＝y だけ 1/R_AX）
 	const len = Math.hypot(p[0], yb, p[2]) || 1;
 	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, yb / len))) * R2D);
@@ -46,7 +102,7 @@ export function worldToLonLat(p) {
 // updateUnderground/eyePose が「eye 直下の地表点」を引くための逆変換。β空間では動径が測地法線と ≤f·sin2φ/2
 // (≈0.1°) 開くため、eye の動径投影は測地的な直下点から高度×0.0017 だけずれる（高度 600m で約 1m＝
 // 地中フェードの帯 20m の内。高度 100km で 170m＝影響する消費者が出たら測地法線の足を反復で解くこと）。
-export function betaToLonLat(p) {
+export function betaToLonLat(p: ArrayLike<number>): LonLat {
 	const len = Math.hypot(p[0], p[1], p[2]) || 1;
 	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, p[1] / len))) * R2D);
 	const lon = Math.atan2(p[2], p[0]) * R2D;
@@ -55,7 +111,7 @@ export function betaToLonLat(p) {
 
 // 経緯度 → β単位球3D（球では従来の単位球そのまま＝ビット同値）。
 // 消費者（versor・LOD・ラベル・タイル被覆…）は「単位球上の点」として扱い続けてよい＝内部の主空間。
-export function lonlatTo3D(lon, lat) {
+export function lonlatTo3D(lon: number, lat: number): number[] {
 	const a = lon * D2R, b = lat * D2R;
 	let sb = Math.sin(b), cb = Math.cos(b);
 	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
@@ -63,7 +119,7 @@ export function lonlatTo3D(lon, lat) {
 }
 
 // 経緯度 → 点 p（β空間）までの距離（割り当てなし）＝lonlatTo3D と同じ式・同じ順（注記の標高フェード・距離フェード＝毎フレーム数千回）
-export function distTo(lon, lat, p) {
+export function distTo(lon: number, lat: number, p: ArrayLike<number>): number {
 	const a = lon * D2R, b = lat * D2R;
 	let sb = Math.sin(b), cb = Math.cos(b);
 	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
@@ -72,7 +128,7 @@ export function distTo(lon, lat, p) {
 
 // 測地法線（楕円体の「上」）の β空間像 m = S⁻¹·n_geo = (cosφcosλ, sinφ/r, cosφsinλ)。
 // 標高 h[m] の変位＝world で (h/a)·n_geo ＝ β空間で (h/a)·m（S を通すと単位法線に戻る）。球では m=u(φ)＝動径。
-export function ellNormal3D(lon, lat) {
+export function ellNormal3D(lon: number, lat: number): number[] {
 	const a = lon * D2R, b = lat * D2R, cb = Math.cos(b);
 	return [cb * Math.cos(a), Math.sin(b) / R_AX, cb * Math.sin(a)];
 }
@@ -81,7 +137,7 @@ export function ellNormal3D(lon, lat) {
 // roll＝視線（boresight）まわりの回転［rad］（MapLibre の roll と同じ向き＝正で絵が時計回りに回る・2026-10-12 A1）。0＝従来とビット同値
 // offset＝注視点（center）を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の transform.centerOffset（padding の中身の中心）。消失点も一緒に動く
 //   （clip 空間の平行移動＝x'＝x＋dx·w）。無指定・[0,0]＝従来とビット同値（2026-10-12 A3）
-export function cameraState(cam, W, H) {
+export function cameraState(cam: CameraPose, W: number, H: number): CameraState {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
 	const roll = cam.roll || 0;
 	const [lon, lat] = center;
@@ -145,10 +201,10 @@ export function cameraState(cam, W, H) {
 // 視線の基底（f64・純関数）：v(ndc)＝F＋ndc.x·X＋ndc.y·Y＝目から出る視線。長さは clip w が 1 になる向き（g·v＝1・g＝mvp の w 行）＝
 // 目からの相対位置は P＝w·v（w＝clip w＝深度から戻す奥行き）。透視は ndc に対して v がアフィン＝3 点で決まる。mvp/invMvp は列優先（mat.js）。
 // invMvp（f32）を GPU で積和すると近平面が浅い高ズームのチルトで視線が画素単位で揺れる（#46 の AO・#65 の球の床）＝CPU の f64 で作って uniform で渡す。
-export function viewRays(mvp, invMvp) {
+export function viewRays(mvp: ArrayLike<number>, invMvp: ArrayLike<number>): ViewRays {
 	const M = invMvp, g = [mvp[3], mvp[7], mvp[11]];
-	const un = (x, y, z) => { const o = [0, 1, 2, 3].map(r => M[r] * x + M[4 + r] * y + M[8 + r] * z + M[12 + r]); return [o[0] / o[3], o[1] / o[3], o[2] / o[3]]; };
-	const ray = (x, y) => { const a = un(x, y, 0), b = un(x, y, 1), v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], k = g[0] * v[0] + g[1] * v[1] + g[2] * v[2]; return v.map(c => c / k); };
+	const un = (x: number, y: number, z: number): number[] => { const o = [0, 1, 2, 3].map(r => M[r] * x + M[4 + r] * y + M[8 + r] * z + M[12 + r]); return [o[0] / o[3], o[1] / o[3], o[2] / o[3]]; };
+	const ray = (x: number, y: number): number[] => { const a = un(x, y, 0), b = un(x, y, 1), v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], k = g[0] * v[0] + g[1] * v[1] + g[2] * v[2]; return v.map(c => c / k); };
 	const F = ray(0, 0), X = ray(1, 0), Y = ray(0, 1);
 	return { F, X: X.map((c, i) => c - F[i]), Y: Y.map((c, i) => c - F[i]) };
 }
@@ -157,9 +213,9 @@ export function viewRays(mvp, invMvp) {
 // origin（シーン原点 lon/lat・deg）を渡すと錨も付く：O＝lonlatTo3D(origin)（β単位球の点）・rho＝cos β0・beta0（rad）・EO＝E−O（f64 で引いて f32 へ＝
 // 目の原点相対＝小さい）。シェーダは交点を δ＝EO＋t·d（原点相対・f32 で mm 級）で持ち、δ から経緯度の差を桁落ちなしの恒等式で作る（wgsl/glsl の deltaLL）＝
 // 絶対の経緯度（f32 で 139° は 1.5e-5°＝1.4 m 刻み）を経ない。uv は anchorUV の (off, 1/span) で off＋δll·inv（頂点パスの cogP/gnd と同じ作法）
-export function sphereRayUniforms(st, origin) {
-	const r = st.rays ??= viewRays(st.mvp, st.invMvp), E = st.eye;
-	const u = { F: r.F, X: r.X, Y: r.Y, E, c: E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1 };
+export function sphereRayUniforms(st: CameraState, origin?: ArrayLike<number> | null): SphereRayUniforms {
+	const r = st.rays ??= viewRays(st.mvp, st.invMvp!), E = st.eye;
+	const u: SphereRayUniforms = { F: r.F, X: r.X, Y: r.Y, E, c: E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1 };
 	if (origin) {
 		const O = lonlatTo3D(origin[0], origin[1]), b0 = betaOf(origin[1]) * D2R;
 		u.O = O; u.rho = Math.cos(b0); u.beta0 = b0; u.EO = [E[0] - O[0], E[1] - O[1], E[2] - O[2]]; u.ll = [origin[0], origin[1]];
@@ -167,25 +223,25 @@ export function sphereRayUniforms(st, origin) {
 	return u;
 }
 // 窓（[west, south, spanLon, spanLat]・deg）の uv 係数＝(原点の uv, 1/span)（f64）。uv＝off＋δll·inv。窓なし＝0
-export function anchorUV(origin, win) { return win ? [(origin[0] - win[0]) / win[2], (origin[1] - win[1]) / win[3], 1 / win[2], 1 / win[3]] : [0, 0, 0, 0]; }
+export function anchorUV(origin: ArrayLike<number>, win?: ArrayLike<number> | null): number[] { return win ? [(origin[0] - win[0]) / win[2], (origin[1] - win[1]) / win[3], 1 / win[2], 1 / win[3]] : [0, 0, 0, 0]; }
 
 // 経緯度＋動径 → 世界座標（単位球）。標高変位（ラベルを地形に乗せる）：球＝動径倍。楕円体＝測地法線に沿って持ち上げる（動径だと富士級で
 // 水平に十数mズレ＝シェーダの地形変位（同じ測地法線）とラベルの足が合わなくなる）。
-function liftedPos(u, lon, lat, radius) {
+function liftedPos(u: number[], lon: number, lat: number, radius: number): number[] {
 	return radius === 1 ? u
 		: R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius]
-		: (m => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
+		: ((m: number[]) => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
 }
 // 経緯度＋動径 → clip 座標 [x, y, z, w]（state.mvp・クランプなし）。w＝目からの奥行き＝シーンの深度（#47）と比べる尺度
-export function projectClip(state, lon, lat, radius = 1) {
+export function projectClip(state: CameraState, lon: number, lat: number, radius = 1): number[] {
 	const w = liftedPos(lonlatTo3D(lon, lat), lon, lat, radius);
 	return mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 }
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
-export function project(state, lon, lat, radius = 1) { return projectInto(state, lon, lat, radius, new Array(3)); }
+export function project(state: CameraState, lon: number, lat: number, radius = 1): number[] { return projectInto(state, lon, lat, radius, new Array<number>(3)); }
 // project の割り当てなし版：out[0..2] に書いて out を返す（タイル選抜＝1 update で数千点＝旧 project は 1 点 5 配列）。
 // 見える点の経路は lonlatTo3D・liftedPos・mat.transform・mat.dot と同じ式・同じ順＝ビット同値。見えない点（稀）は従来の経路へ
-export function projectInto(state, lon, lat, radius, out) {
+export function projectInto<T extends { [i: number]: number }>(state: CameraState, lon: number, lat: number, radius: number, out: T): T {
 	const a = lon * D2R, b = lat * D2R;
 	let sb = Math.sin(b), cb = Math.cos(b);
 	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
@@ -206,7 +262,7 @@ export function projectInto(state, lon, lat, radius, out) {
 	return out;
 }
 // 見えない点（地平線の向こう・カメラ後方）の射影クランプ＝project の遅い枝（呼び手は projectInto）
-function projectClamped(state, lon, lat, radius) {
+function projectClamped(state: CameraState, lon: number, lat: number, radius: number): number[] {
 	const u = lonlatTo3D(lon, lat);
 	const w = liftedPos(u, lon, lat, radius);
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
@@ -229,6 +285,7 @@ function projectClamped(state, lon, lat, radius) {
 		if (c2[3] <= 1e-6) return [0, 0, -1];
 		return [(c2[0] / c2[3] * 0.5 + 0.5) * state.W, (1 - (c2[1] / c2[3] * 0.5 + 0.5)) * state.H, Math.min(frontHemi, -1e-9)];
 	}
+	// TODO(ts): 上の block は常に return する＝ここから下は到達しない（従来のまま残す）
 	const sx = (c[0] / c[3] * 0.5 + 0.5) * state.W;
 	const sy = (1 - (c[1] / c[3] * 0.5 + 0.5)) * state.H;
 	return [sx, sy, frontHemi];
@@ -238,10 +295,10 @@ function projectClamped(state, lon, lat, radius) {
 // R>1＝地形リフト球：チルト時、標高hの地面は海面球より手前（画面下）まで映り込む。タイル選抜
 // (tilecover.selectLOD) が海面基準のままだと、その手前領域を「画面外」と誤判定して被覆が欠ける
 //（実測: 草津1200m・z15.8・チルト52°で画面下1/3が紙色＝タイル未選抜。2026-08-03）。
-export function unproject(state, sx, sy, R = 1) {
+export function unproject(state: CameraState, sx: number, sy: number, R = 1): LonLat | null {
 	const ndcx = sx / state.W * 2 - 1, ndcy = (1 - sy / state.H) * 2 - 1;
-	const near = mat.transform(state.invMvp, [ndcx, ndcy, -1, 1]);
-	const far = mat.transform(state.invMvp, [ndcx, ndcy, 1, 1]);
+	const near = mat.transform(state.invMvp!, [ndcx, ndcy, -1, 1]);
+	const far = mat.transform(state.invMvp!, [ndcx, ndcy, 1, 1]);
 	const A = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
 	const B = [far[0] / far[3], far[1] / far[3], far[2] / far[3]];
 	const d = mat.sub(B, A);

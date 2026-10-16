@@ -14,32 +14,34 @@ const D2R = Math.PI / 180;
 const A = 6378137, F = 1 / 298.257223563;               // WGS84 長半径・扁平率
 const B = A * (1 - F), E2 = F * (2 - F), E = Math.sqrt(E2);
 
-export const WGS84 = { a: A, b: B, f: F, e2: E2 };
+export const WGS84: { a: number; b: number; f: number; e2: number } = { a: A, b: B, f: F, e2: E2 };
 
 // authalic（等積）緯度の道具立て：q(φ) と q_p。sin(β_authalic) = q/q_p、R_A² = a²·q_p/2。
-function qOf(sinLat) {
+function qOf(sinLat: number): number {
 	const s = sinLat;
 	return (1 - E2) * (s / (1 - E2 * s * s) - (1 / (2 * E)) * Math.log((1 - E * s) / (1 + E * s)));
 }
 const QP = qOf(1);
-export const AUTHALIC_R = A * Math.sqrt(QP / 2);        // ≈ 6371007.18 m（面積等価球の半径）
+/** 面積等価球の半径 ≈ 6371007.18 m */
+export const AUTHALIC_R: number = A * Math.sqrt(QP / 2);        // ≈ 6371007.18 m（面積等価球の半径）
 // authalic 緯度 β（rad）：楕円体の面積を R_A の球へ正積に写す緯度（β(±90°)＝±π/2）。
-function authalicLat(latDeg) { return Math.asin(Math.max(-1, Math.min(1, qOf(Math.sin(latDeg * D2R)) / QP))); }
+function authalicLat(latDeg: number): number { return Math.asin(Math.max(-1, Math.min(1, qOf(Math.sin(latDeg * D2R)) / QP))); }
 
 // 卯酉線曲率半径 N(φ)：東西方向の「1radの地心経度差×cosφ が何mか」の芯。スケールバー・印刷縮尺用。
-export function primeVerticalRadius(latDeg) {
+export function primeVerticalRadius(latDeg: number): number {
 	const s = Math.sin(latDeg * D2R);
 	return A / Math.sqrt(1 - E2 * s * s);
 }
 // 子午線曲率半径 M(φ)：南北方向。
-export function meridionalRadius(latDeg) {
+export function meridionalRadius(latDeg: number): number {
 	const s = Math.sin(latDeg * D2R);
 	const w2 = 1 - E2 * s * s;
 	return A * (1 - E2) / (w2 * Math.sqrt(w2));
 }
 
 // Vincenty 逆解：2点 [lon,lat](deg) → 測地線距離 m。収束時の誤差 0.5mm 級。
-export function geodesicDistance(p1, p2) {
+/** 2 点間の測地距離［m］。p＝[lon, lat]。 */
+export function geodesicDistance(p1: ArrayLike<number>, p2: ArrayLike<number>): number {
 	const L = (p2[0] - p1[0]) * D2R;
 	const U1 = Math.atan((1 - F) * Math.tan(p1[1] * D2R)), U2 = Math.atan((1 - F) * Math.tan(p2[1] * D2R));
 	const sU1 = Math.sin(U1), cU1 = Math.cos(U1), sU2 = Math.sin(U2), cU2 = Math.cos(U2);
@@ -74,7 +76,8 @@ export function geodesicDistance(p1, p2) {
 // 楕円体の多角形面積 m²：閉リング（[lon,lat] の配列・末尾の重複閉点は有っても無くても可）。辺は大円（authalic 球の上）。
 // 各辺の寄与＝Δλ（南極から測る帯の項）＋赤道と辺の間の球面過剰。Δλ を [-π,π] へ畳む（antimeridian 跨ぎ）。
 // 極を囲むリングは南極側の面積が出るので、全球 4πR_A² との小さい方を返す（半球を超える多角形は扱わない）。
-export function geodesicArea(ring) {
+/** 環の測地面積［m²］。 */
+export function geodesicArea(ring: ArrayLike<number>[]): number {
 	if (ring.length < 3) return 0;
 	let sum = 0;
 	for (let i = 0; i < ring.length; i++) {
