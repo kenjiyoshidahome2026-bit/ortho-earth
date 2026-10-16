@@ -51,7 +51,7 @@ test("国境：globe は起動 50m・寄って 10m を読む（世界帯の中�
 	assert.match(s, /WORLD_CONTENT \? WORLD_Z\.admin1 : ADMIN0_FINE_Z/);
 });
 test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", () => {
-	const s = src("packages/globe/src/globe.js");
+	const s = src("packages/globe/src/globe.ts");
 	assert.match(s, /LOW_MEM \? "50m" : "10m"/); assert.match(s, /ne_\$\{RES\}_lakes/);
 	assert.match(s, /geopbf\(NAME, \{ gint: false \}\)/); assert.match(s, /geopbf\("below_sea_land", \{ gint: false \}\)/);
 	assert.match(src("packages/equal/src/layers.ts"), /"ne_10m_lakes"/);

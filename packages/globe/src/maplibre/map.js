@@ -5,7 +5,7 @@
 //   ・起動は既定で MapLibre の見え方（本人裁定 4）：夜面・星空・世界の海岸線・自前の地形なし（地形は setTerrain／style の terrain の時だけ）・z は MapLibre の目盛り
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
-import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup } from "../globe.js";
+import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup } from "../globe.ts";
 import { mercatorDz } from "../zoomscale.js";   // "mercator" の目盛り（view を組む dz）＝正典は zoomscale.js（globe.js の root export ではない・2.0.0）
 import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "./geo.js";
 import { unsupported } from "./report.js";
