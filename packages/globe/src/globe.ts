@@ -396,6 +396,8 @@ const loadExtStyle: GlobeScope["loadExtStyle"] = async (spec, transformStyle = n
 	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: ((u: string, init?: RequestInit) => requester.fetch(u, "Style", init)) as typeof fetch }) as { style: ExtStyleDoc; baseUrl: string | undefined };
 	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
 	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) as ExtStyleDoc | undefined ?? ms;
+	// sources の無い style（background だけ等＝MapLibre は通す）＝{} と見る（旧＝getStyle・基図の source の照会が EXT.ms.sources![id] で TypeError）。無い時だけ写す＝渡された object は書き換えない
+	if (ms.sources == null) ms = { ...ms, sources: {} };
 	// style の root の state（MapLibre v5：{ 鍵: { default } }）＝global-state の既定値。新しい style は状態を入れ替える（MapLibre の setStyle と同じ）
 	if (ms.state && typeof ms.state === "object") setMapGS(Object.fromEntries(Object.entries(ms.state).map(([k, d]) => [k, d && typeof d === "object" && "default" in d ? d.default : null])));
 	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
