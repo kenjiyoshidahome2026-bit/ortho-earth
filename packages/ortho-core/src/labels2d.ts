@@ -140,6 +140,26 @@ const css = (c: Color | string | null | undefined, op = 1): string => {
 };
 const PJ = new Float64Array(3), PE = new Float64Array(3), PS = new Float64Array(3);   // projectInto の作業域（錨・東・南の投影＝衝突判定・毎フレームの描画）
 let prBuf = new Float64Array(3 * 64);   // lineLayout の頂点投影の作業域（[x, y, front] × 頂点）
+// 書体の文字列（"bold 12.5px …"）から最初の「数（小数可）px」の数の部分（旧＝font.match(/(\d+(?:\.\d+)?)px/)?.[1]）。
+// 正規表現は先頭が囲われていない \d+ ＝数の長い並びで多項式の後戻り（CodeQL の指摘）＝添字の走査に（答えは同じ＝無作為の入力で旧の正規表現と突き合わせた）。
+// 数の並びの途中から始めても終わりは同じ＝並びの頭だけ試せばよい。小数部（"." と数）があればそれを含めて px を探し、無ければ（か続かなければ）整数部の直後に px
+const isDigitAt = (s: string, i: number): boolean => { const c = s.charCodeAt(i); return c >= 48 && c <= 57; };
+function pxNumOf(s: string): string | undefined {
+	const n = s.length;
+	for (let i = 0; i < n;) {
+		if (!isDigitAt(s, i)) { i++; continue; }
+		let j = i + 1;
+		while (j < n && isDigitAt(s, j)) j++;
+		if (s.charCodeAt(j) === 46 && isDigitAt(s, j + 1)) {
+			let k = j + 2;
+			while (k < n && isDigitAt(s, k)) k++;
+			if (s.startsWith("px", k)) return s.slice(i, k);
+		}
+		if (s.startsWith("px", j)) return s.slice(i, j);
+		i = j;
+	}
+	return undefined;
+}
 const NO_CHARS: readonly string[] = Object.freeze([]);   // 文字の無いラベル（記号だけ）の字の並び
 const ICOL0 = [0, 0, 0, 1];   // icon-color の既定（黒）
 // k＝利用者層 id（層またぎのキー衝突防止）・icon＝記号だけのラベル（text ""）の区別・MapLibre 由来の層（mlp）は層の添字 li も＝同じ点・同じ文字の別の層を 1 つに畳まない（tilemanager.labels の重複排除と同じ区別・poi_transit／poi_r1 2026-09-28）。
@@ -330,7 +350,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	function glyphSet(font: string, fill: string, halo: string | null, haloW: number, blur: number, dpr: number): GlyphSet {
 		const ss = dpr >= 1.5 ? 3 : 2; if (ss !== ga.ss) gaReset(ss);   // 動的解像度で dpr が細かく動いても焼き直さない（境は 1.5 だけ）
 		const key = font + "\u0001" + fill + "\u0001" + (halo || "") + "\u0001" + haloW + "\u0001" + blur;
-		let set = ga.sets.get(key); if (!set) ga.sets.set(key, set = { font, fill, halo, haloW, blur, px: parseFloat(font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 12 as unknown as string), m: new Map(), epoch: ga.epoch });
+		let set = ga.sets.get(key); if (!set) ga.sets.set(key, set = { font, fill, halo, haloW, blur, px: parseFloat(pxNumOf(font) ?? 12 as unknown as string), m: new Map(), epoch: ga.epoch });
 		return set;
 	}
 	function glyphSprite(set: GlyphSet, ch: string): GlyphSprite {
