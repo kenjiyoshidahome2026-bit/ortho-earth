@@ -100,7 +100,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 		mapEl.appendChild(st);
 		textEl = st.querySelector<HTMLElement>(".pq-text"); sel = st.querySelector<HTMLSelectElement>(".pq-color");
 		if (sel) {
-			sel.innerHTML = `<option value="">${t("(none) ##color")}</option>` + numericCols.map(c => `<option value="${c.replace(/"/g, "&quot;")}"${c === color ? " selected" : ""}>${c.replace(/</g, "&lt;")}</option>`).join("");
+			sel.innerHTML = `<option value="">${t("(none) ##color")}</option>` + numericCols.map(c => `<option value="${escHtml(c)}"${c === color ? " selected" : ""}>${escHtml(c)}</option>`).join("");   // 列名は外のデータ＝& も逃がす（旧＝" と < だけ＝"a&amp;b" の列が "a&b" に化け、選んでも value が列名と合わなかった）
 			sel.addEventListener("change", () => setColor(sel!.value || null), { signal });
 		}
 	}
