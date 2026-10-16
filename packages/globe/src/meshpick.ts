@@ -4,43 +4,51 @@
 //   feature state の色（tintColors）＝頂点色を地物ごとに差し替えた列（renderer の "meshCol" で色の頂点バッファだけ書き換える）。
 import { NO_FEATURE } from "./mesh-features.ts";
 import { betaToLonLat } from "@ortho-earth/core";
+import type { LonLat } from "../globe.d.ts";
+import type { MeshFeatures } from "./mesh-features.ts";
+import type { MeshPickEnv } from "./types/install.ts";
+
+/** 当てる束（原点相対の頂点・xf＝剛体変換（L 9＋xt 3）・lift＝原点の向きへの持ち上げ（世界単位））。_aabb・_up は pickMeshes が書く写し */
+export interface PickItem { pos: ArrayLike<number>; idx: ArrayLike<number>; origin: ArrayLike<number>; xf?: ArrayLike<number> | null; lift?: number; features?: Pick<MeshFeatures, "ids"> | null; hidden?: boolean; _aabb?: number[]; _up?: number[] }
+/** 一番手前の当たり（item＝束の番号・w＝奥行き（clip の w）・vertex＝一番近い頂点・world＝当たった点の世界座標） */
+export interface MeshPickHit { item: number; tri: number; w: number; featureId: number | null; vertex: number; world: number[] }
 // 束の局所の箱（原点相対）＝画面で外れる束を素早く捨てる
-function aabbOf(item) {
+function aabbOf(item: PickItem): number[] {
 	if (item._aabb) return item._aabb;
 	const p = item.pos, b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
 	for (let i = 0; i < p.length; i += 3) for (let k = 0; k < 3; k++) { const v = p[i + k]; if (v < b[k]) b[k] = v; if (v > b[k + 3]) b[k + 3] = v; }
 	return (item._aabb = b);
 }
 // 原点相対の点 → 世界座標（xf＝L 9（列優先）＋xt 3・lift＝原点の向きへの持ち上げ（世界単位））
-function worldOf(item, i, out) {
-	const p = item.pos, x = p[i*3], y = p[i*3+1], z = p[i*3+2], xf = item.xf, o = item.origin, L = item.lift || 0, u = item._up;
+function worldOf(item: PickItem, i: number, out: number[]): number[] {
+	const p = item.pos, x = p[i*3], y = p[i*3+1], z = p[i*3+2], xf = item.xf, o = item.origin, L = item.lift || 0, u = item._up!;
 	let ax = x, ay = y, az = z;
 	if (xf) { ax = xf[0]*x + xf[3]*y + xf[6]*z + xf[9]; ay = xf[1]*x + xf[4]*y + xf[7]*z + xf[10]; az = xf[2]*x + xf[5]*y + xf[8]*z + xf[11]; }
 	out[0] = o[0] + ax + L * u[0]; out[1] = o[1] + ay + L * u[1]; out[2] = o[2] + az + L * u[2];
 	return out;
 }
-const clip = (M, p) => [M[0]*p[0] + M[4]*p[1] + M[8]*p[2] + M[12], M[1]*p[0] + M[5]*p[1] + M[9]*p[2] + M[13], M[3]*p[0] + M[7]*p[1] + M[11]*p[2] + M[15]];
+const clip = (M: ArrayLike<number>, p: ArrayLike<number>) => [M[0]*p[0] + M[4]*p[1] + M[8]*p[2] + M[12], M[1]*p[0] + M[5]*p[1] + M[9]*p[2] + M[13], M[3]*p[0] + M[7]*p[1] + M[11]*p[2] + M[15]];
 // items＝[{ pos, idx, origin, xf?, lift?, features?: { ids }, two? }]・view＝{ mvp, W, H, eye }（CSS px）・(x, y)＝CSS px
 // → { item（番号）, tri, w（奥行き＝clip の w）, featureId（無し＝null）, world: [x,y,z] } | null
-export function pickMeshes(items, view, x, y) {
+export function pickMeshes(items: Array<PickItem | null>, view: MeshPickEnv["view"], x: number, y: number): MeshPickHit | null {
 	const { mvp: M, W, H, eye: E } = view;
-	let best = null;
+	let best: MeshPickHit | null = null;
 	const a = [0, 0, 0], b = [0, 0, 0], c = [0, 0, 0];
-	const scr = p => { const q = clip(M, p); return q[2] > 1e-9 ? [(q[0] / q[2] * 0.5 + 0.5) * W, (1 - (q[1] / q[2] * 0.5 + 0.5)) * H, q[2]] : null; };
+	const scr = (p: ArrayLike<number>) => { const q = clip(M, p); return q[2] > 1e-9 ? [(q[0] / q[2] * 0.5 + 0.5) * W, (1 - (q[1] / q[2] * 0.5 + 0.5)) * H, q[2]] : null; };
 	for (let k = 0; k < items.length; k++) {
 		const it = items[k]; if (!it || !it.pos?.length || !it.idx?.length || it.hidden) continue;
 		const ol = Math.hypot(it.origin[0], it.origin[1], it.origin[2]) || 1; it._up = [it.origin[0] / ol, it.origin[1] / ol, it.origin[2] / ol];
 		if (!it.xf) {   // 箱で外れ判定（剛体変換中は箱が回る＝省く）
 			const bb = aabbOf(it); let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, behind = false;
 			for (let m = 0; m < 8 && !behind; m++) {
-				const p = [it.origin[0] + bb[m & 1 ? 3 : 0] + (it.lift || 0) * it._up[0], it.origin[1] + bb[m & 2 ? 4 : 1] + (it.lift || 0) * it._up[1], it.origin[2] + bb[m & 4 ? 5 : 2] + (it.lift || 0) * it._up[2]];
+				const p = [it.origin[0] + bb[m & 1 ? 3 : 0] + (it.lift || 0) * it._up![0], it.origin[1] + bb[m & 2 ? 4 : 1] + (it.lift || 0) * it._up![1], it.origin[2] + bb[m & 4 ? 5 : 2] + (it.lift || 0) * it._up![2]];
 				const s = scr(p); if (!s) { behind = true; break; }
 				x0 = Math.min(x0, s[0]); y0 = Math.min(y0, s[1]); x1 = Math.max(x1, s[0]); y1 = Math.max(y1, s[1]);
 			}
 			if (!behind && (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1)) continue;
 		}
 		const I = it.idx, n = it.pos.length / 3, S = new Float64Array(n * 3), done = new Uint8Array(n);   // 頂点の画面（使う物だけ写す）
-		const sv = i => { if (!done[i]) { done[i] = 1; const s = scr(worldOf(it, i, a)); if (s) { S[i*3] = s[0]; S[i*3+1] = s[1]; S[i*3+2] = s[2]; } else S[i*3+2] = -1; } return S[i*3+2] > 0; };
+		const sv = (i: number) => { if (!done[i]) { done[i] = 1; const s = scr(worldOf(it, i, a)); if (s) { S[i*3] = s[0]; S[i*3+1] = s[1]; S[i*3+2] = s[2]; } else S[i*3+2] = -1; } return S[i*3+2] > 0; };
 		for (let t = 0; t + 2 < I.length; t += 3) {
 			const i0 = I[t], i1 = I[t+1], i2 = I[t+2];
 			if (!sv(i0) || !sv(i1) || !sv(i2)) continue;
@@ -63,12 +71,12 @@ export function pickMeshes(items, view, x, y) {
 }
 // 世界座標（描いた頂点と同じ空間＝β の単位球・S は mvp 側）→ [経度, 緯度]（度・測地）。楕円体では y を直に asin すると β＝緯度 35° で約 0.09°（≒10 km 南）ずれる
 // （2026-10-13・t-plugin?v=gltf の f.lngLat が既定＝楕円体の器で落ちた）＝core の betaToLonLat（β → 測地緯度・球は恒等）に通す。worldToLonLat は S⁻¹ が二重に掛かり逆に 10 km 北へずれる（実測）
-export const lngLatOfWorld = P => betaToLonLat(P);
+export const lngLatOfWorld = (P: ArrayLike<number>): LonLat => betaToLonLat(P);
 // feature state の色：col0（元の頂点色 RGBA8）・ids（頂点の番号）・colorOf(id) → [r,g,b(,a)]（0..255）| null（元のまま）
-export function tintColors(col0, ids, colorOf) {
+export function tintColors(col0: Uint8Array, ids: ArrayLike<number> | null | undefined, colorOf: (id: number) => ArrayLike<number> | null): Uint8Array {
 	const out = new Uint8Array(col0);
 	if (!ids) return out;
-	let last = -1, lastC = null;
+	let last = -1, lastC: ArrayLike<number> | null = null;
 	for (let i = 0; i < ids.length; i++) {
 		const id = ids[i]; if (id === NO_FEATURE) continue;
 		const c = id === last ? lastC : (lastC = colorOf(id), last = id, lastC);
