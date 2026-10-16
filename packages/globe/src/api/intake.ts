@@ -6,10 +6,23 @@ import { WORLD_PX } from "@ortho-earth/core";
 import { addProtocol, removeProtocol } from "../request.js";
 import { geopbf, geopbfCachePrune } from "geopbf";
 import { tr } from "../i18n.js";
+import type { GeoPBF } from "geopbf";
+import type { CogHandle, GeoPBF as PublicGeoPBF } from "../../globe.d.ts";
+import type { Feature, FeatureCollection } from "geopbf";
+import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
+import type { IntakeApi } from "../types/map.ts";
 
-export function installIntake(map, live, {
+/** 取り込みの表の 1 行（draw＝その形式が自分で描き切る／convert＝GeoPBF の File へ変えて本道へ合流） */
+interface IntakeRow {
+	name: string;
+	test(f: File, ctx?: IntakeCtx): boolean;
+	draw?(file: File, ctx: IntakeCtx): Promise<IntakeResult | GeoPBF>;
+	convert?(file: File, ctx?: IntakeCtx): Promise<File>;
+}
+
+export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 	D2R, cam, columnarOn, columnarProbe, columnarView, dbgHost, flyTo, gint, pageHash, remoteUrl, requester, size
-}) {
+}: IntakeDeps): IntakeReturn {
 	map.Marker = Marker; map.Popup = Popup;
 	// 取得の前の手入れ（#37・MapLibre 同名）：setTransformRequest(fn)＝以後の取得に効く（すでに取った基図タイルは取り直さない）・addProtocol は大域（SDK の export と同じ）
 	map.setTransformRequest = fn => { requester.setTransform(fn); return map; };
@@ -20,9 +33,9 @@ export function installIntake(map, live, {
 	{
 		const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 		const u = spec ? remoteUrl(spec, "tiles3d") : null;
-		if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh") || 0, fit: !pageHash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
-		const iu = q.get("i3s") ? remoteUrl(q.get("i3s"), "i3s") : null;   // ?i3s=<SceneServer の URL>（門は ?g= と共用）
-		if (iu) { const off = map.onFrame(() => { off(); map.addI3S(iu.href, { heightOffset: +q.get("t3dh") || 0, fit: !pageHash, ground: q.get("i3sground") || "absolute" }).catch(err => console.warn("[i3s] ?i3s=", err)); }); }
+		if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh")! || 0, fit: !pageHash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
+		const iu = q.get("i3s") ? remoteUrl(q.get("i3s")!, "i3s") : null;   // ?i3s=<SceneServer の URL>（門は ?g= と共用）
+		if (iu) { const off = map.onFrame(() => { off(); map.addI3S(iu.href, { heightOffset: +q.get("t3dh")! || 0, fit: !pageHash, ground: (q.get("i3sground") || "absolute") as "absolute" | "terrain" }).catch(err => console.warn("[i3s] ?i3s=", err)); }); }
 	}
 	// @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 	const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
@@ -35,13 +48,13 @@ export function installIntake(map, live, {
 	// ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
 	// CZML・GPX の時刻再生（#113 段 4）＝遅延 chunk（gadgets/czml.js）。起動時の URL の t=／s= は最初の 1 回だけ勝つ（本人裁定＝読み込んだ clock より URL）
 	const czmlGet = async () => live.czmlCtl ??= (await import("../gadgets/czml.js")).createCzmlPlayer({ map, keepUrlClock: () => { const k = live.czmlUrlClock; live.czmlUrlClock = false; return k; } });
-	const INTAKE = [
+	const INTAKE: IntakeRow[] = [
 		{
 			name: "timed",   // CZML・GPX＝時刻付きの地物は共通の時計で再生（render worker の組み込み czml・#113）・時刻の無い地物は本道（gint）へ。時刻付きが無ければ本道だけ（従来どおり）
 			test: f => /\.(czml|gpx)$/i.test(f.name),
 			draw: async (file, ctx) => {
 				const fs = (await geopbf(file, { gint: false, name: `drop/${file.name}` }).catch(err => { console.error("[timed] geopbf", file.name, err); return null; }))?.geojson?.features || [];
-				let packets = null; if (/\.czml$/i.test(file.name)) try { packets = JSON.parse(await file.text()); } catch { /* 読めない＝clock は無し */ }
+				let packets: unknown = null; if (/\.czml$/i.test(file.name)) try { packets = JSON.parse(await file.text()); } catch { /* 読めない＝clock は無し */ }
 				const c = await czmlGet(), timed = fs.filter(c.isTimed), rest = fs.filter(f => !c.isTimed(f));
 				if (!timed.length) { c.clear(); return mainRoad(file, ctx); }
 				if (rest.length) await mainRoad(new File([JSON.stringify({ type: "FeatureCollection", features: rest })], file.name.replace(/\.[^.]+$/, "") + ".geojson"), { ...ctx, fit: false });
@@ -54,7 +67,7 @@ export function installIntake(map, live, {
 		{
 			name: "raster-mbtiles",   // MBTiles（画像タイル）＝ローカル容器→プロバイダ worker→画像タイル層（基図・塗りは伏せる・2026-09-21）。ベクタ MBTiles は理由を言って断る
 			test: f => /\.mbtiles$/i.test(f.name),
-			draw: async file => live.rasterDropFile(file),
+			draw: async (file: File) => live.rasterDropFile(file),
 		},
 		{
 			name: "raster-gpkg",   // GeoPackage のラスタ（タイル表）。タイル表が無い（地物層だけ）なら従来のベクタ本道へ合流
@@ -64,9 +77,10 @@ export function installIntake(map, live, {
 		{
 			name: "cog",   // COG/GeoTIFF＝cog ガジェットへ（gint 経路の geopbf() は TIFF 非対応で null 死する）
 			test: f => /\.tiff?$/i.test(f.name),
-			draw: async file => {
+			draw: async (file: File) => {
 				live.annoCtl?.clear(); gint.clearUserGint();
-				return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
+				// TODO(ts): cog の手綱（gadgets/cog.js）は width／height を持たない＝トーストが "undefined×undefinedpx"（読めた COG の寸法は load の戻り）
+				return map.gadget.cog(file).then(c => ({ length: `${(c as CogHandle & { width?: number }).width}×${(c as CogHandle & { height?: number }).height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
 			},
 		},
 		{
@@ -78,7 +92,7 @@ export function installIntake(map, live, {
 				const bm = await createImageBitmap(file); const aspect = bm.height / bm.width; bm.close?.();
 				const c = ctx?.at || [cam.center[0], cam.center[1]];
 				const wDeg = 360 * size.w / (WORLD_PX * 2 ** cam.zoom) * 0.5, widthM = Math.max(5, Math.min(2e6, wDeg * 111320 * Math.cos(c[1] * D2R)));
-				const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { name: file.name.replace(/\.[^.]+$/, ""), [K]: file }, geometry: quadPolygon(placeCorners(c, widthM, aspect)) }] };
+				const fc: FeatureCollection = { type: "FeatureCollection", features: [{ type: "Feature", properties: { name: file.name.replace(/\.[^.]+$/, ""), [K]: file }, geometry: quadPolygon(placeCorners(c, widthM, aspect)) }] };
 				const pbf = await geopbf(fc, { gint: false, name: file.name });
 				return new File([pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
 			},
@@ -119,7 +133,7 @@ export function installIntake(map, live, {
 			// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
 			// 内部圧縮は none/snappy/gzip を自前で読む。zstd はブラウザに実装が無い（DecompressionStream("zstd") は未実装）＝
 			// fzstd を注入して読む（2026-09-22）。それでも読めない時の素のエラーは読み手を惑わすので包み直す。
-			convert: file => parquetToGeopbf(file),
+			convert: (file: File) => parquetToGeopbf(file),
 		},
 		{
 			name: "copc",   // 点群（#178）＝COPC はファイルのまま Range 相当（Blob.slice）で節だけ読む・普通の LAS/LAZ は丸ごと読んで八分木を作る（点群計画 段 3-3・2,000 万点まで）
@@ -131,7 +145,7 @@ export function installIntake(map, live, {
 			test: f => /\.json$/i.test(f.name) && f.size < 32e6,
 			draw: async (file, ctx) => {
 				if (!/"georeferencing"/.test(await file.slice(0, 65536).text())) return mainRoad(file, ctx);   // 頭に印が無い＝従来の .json（parse もしない＝従来と同じ道・同じ手間）
-				let j = null; try { j = JSON.parse(await file.text()); } catch { /* 読めない＝本道に任せる */ }
+				let j: object | null = null; try { j = JSON.parse(await file.text()); } catch { /* 読めない＝本道に任せる */ }
 				if (!j) return mainRoad(file, ctx);
 				const info = await map.raster.add("iiif", { iiif: j, name: file.name.replace(/\.[^.]+$/, "") }, { order: "over", opacity: 1, hideFills: false });
 				const b = info?.bbox || map.raster.info("iiif")?.bbox;
@@ -141,11 +155,11 @@ export function installIntake(map, live, {
 		},
 	];
 	// GeoParquet → GeoPBF の File（従来の全量変換・gint の道）＝INTAKE の geoparquet 行と、列チャンク層が「gint 向き」と言った時の合流に共用
-	const parquetToGeopbf = async file => {
+	const parquetToGeopbf = async (file: File): Promise<File> => {
 		const [{ fromGeoParquet }, { setZstdDecoder }] = await Promise.all([import("geopbf/geoparquet"), import("geopbf/parquet")]);
 		setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));   // zstd の列＝fzstd（当たった時だけ読み込む・geopbf は依存ゼロのまま＝注入）
 		const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
-			if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
+			if (/zstd/i.test((err as Error | null)?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
 			throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
 		});
 		const s = r.stats;
@@ -158,13 +172,13 @@ export function installIntake(map, live, {
 	// 本道＝geopbf(gint 焼き) → @スタイル付きなら anno（canvas2D 再生）／それ以外は gint スロット → bbox へ fit。
 	// fit＝読んだ図形へ寄る（ドロップ/?g=）。編集から戻した図形・起動時の復元は寄らない（今の視点のまま置き換える）。
 	// editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
-	const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等・gint:true＝列チャンク層を使わない）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
+	const loadUserFile = async (file: File, { fit = true, persist, ...ctx }: IntakeCtx = {}): Promise<IntakeResult> => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等・gint:true＝列チャンク層を使わない）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
 		live.gFollow?.destroy(); live.gFollow = null;   // ?g= のサービスの視野追従＝別の図形に替わった
 		if (!/\.(czml|gpx)$/i.test(file?.name || "")) live.czmlCtl?.clear();   // 別の図形に替わった＝時刻再生を消す（timed 行は自分で入れ替える）
 		for (const fmt of INTAKE) {
 			if (!fmt.test(file, ctx)) continue;
 			if (fmt.draw) return fmt.draw(file, { fit, persist, ...ctx });
-			file = await fmt.convert(file, ctx);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
+			file = await fmt.convert!(file, ctx);   // draw の無い行は convert を持つ   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 			break;
 		}
 		return mainRoad(file, { fit, persist });
@@ -173,7 +187,7 @@ export function installIntake(map, live, {
 	// 本道（gint 焼き→@検知で anno 再生 or gint スロット→bbox へ fit）＝取り込み表の draw 行からも合流できる（raster-gpkg の地物層フォールバック）
 	// persist＝編集中の図形の置き場（IDB）の扱い："save"＝編集の結果（× で戻した）を残す／"keep"＝起動の復元（置き場はそのまま）／
 	// 既定＝見ただけ（ドロップ・?g=）＝置き場を空にする（画面が別の図形に替わった＝古い編集結果を次の起動で蘇らせない・2026-09-22 本人再裁定）
-	const mainRoad = async (file, { fit = true, persist } = {}) => {
+	const mainRoad = async (file: File, { fit = true, persist }: IntakeCtx = {}): Promise<GeoPBF | null> => {
 		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 		if (!pbf?.unPackGint) return null;
 		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
@@ -181,9 +195,9 @@ export function installIntake(map, live, {
 		// 四隅で貼った画像（@image つき 4 頂点の面＝geoedit で置いた古地図・写真）＝画像タイル層へ。描く図形からは抜く（枠を二重に描かない）
 		const drawPbf = pbf.keys?.includes(IMAGE_KEY) ? await live.placeImages(pbf, file.name) : (live.clearImages(), pbf);
 		if (!drawPbf) { gint.clearUserGint(); live.annoCtl?.clear(); }
-		else if (drawPbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
+		else if (drawPbf.keys?.some((k: string) => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
 			gint.clearUserGint();
-			await map.gadget.anno(drawPbf);
+			await map.gadget.anno(drawPbf as unknown as PublicGeoPBF);   // TODO(ts): 公開の GeoPBF（globe.d.ts の主要面の写し）と geopbf の GeoPBF が食い違う（properties の null・bbox の長さ）＝gadget の batch で揃える
 		} else {
 			live.annoCtl?.clear();
 			gint.applyGintData(drawPbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
