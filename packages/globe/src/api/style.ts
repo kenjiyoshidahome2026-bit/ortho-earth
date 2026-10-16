@@ -6,7 +6,7 @@ import { DZ_KEY, evalExpr, layerDzOf, normalizeMLLayer, pmtilesInfo, rescaleZoom
 import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.ts";
 import { normLight } from "../light.ts";
 import { normSky } from "../sky-spec.ts";
-import { normSprite, spriteEcho } from "../mlsmall.ts";
+import { copyFontBytes, normSprite, spriteEcho } from "../mlsmall.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Bbox, LonLat, MapLibreLayer, QuantizedMeshSource, RasterDemSource, RenderedFeature, StyleExpression } from "../../globe.d.ts";
@@ -126,7 +126,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		if (typeof source === "string") { const r = await fetch(new URL(source, location.href).href, { credentials: "omit" }); if (!r.ok) throw new Error(`addFontFace: HTTP ${r.status} for ${source}`); }   // 先に取れるか確かめる（worker の失敗は黙る）
 		const buf = typeof source === "string" ? null : source;
 		const mainP = (async () => { if (typeof FontFace !== "function" || !document.fonts) return false; const ff = new FontFace(family, buf ?? src, descriptors); await ff.load(); document.fonts.add(ff); return true; })();
-		wPost({ type: "fontFace", family, source: buf ? buf.slice(0) : src, descriptors }, buf ? [] : undefined);
+		wPost({ type: "fontFace", family, source: buf ? copyFontBytes(buf) : src, descriptors }, buf ? [] : undefined);
 		await mainP;
 		requestDraw();
 		return map;

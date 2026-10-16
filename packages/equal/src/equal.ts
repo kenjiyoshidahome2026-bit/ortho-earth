@@ -34,7 +34,8 @@ import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.ts";   // UI 文言�
 import { createLabels, countryLabels, cityLabels, airportLabels } from "./labels.ts";
 import { countryName as countryNameOf, cityName as cityNameOf, shortEnNames, culturalUrl, culturalName, WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の中身の正本（名前の順・URL・出しズーム＝globe・world と共有）
 import type { Nation, NationDB } from "@ortho-earth/core/worldcontent";
-import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
+import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";
+import { setSafeHTML } from "@ortho-earth/globe/internal/html-safe.ts";   // tip・pop の中身（わざと HTML）＝動く物だけ抜いて入れる（globe の吹き出しと同じ関門）   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import type { AnnoMap, PopOptions } from "@ortho-earth/globe/gadgets/anno.js";
 import type * as OverlayModule from "@ortho-earth/globe/gadgets/anno-draw.js";
 import { search as searchGadget } from "@ortho-earth/globe/gadgets/searchbox.js";   // 地名検索の窓（#175）＝japan と同じ窓・世界の既定（国・州・都市・地形・26 言語）
@@ -741,9 +742,10 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 
 	// ホバーの吹き出し（#tip＝japan gadgets/tip.js と同じ置き方：カーソルの右 15px・縦中央・右端で反転）
 	const tip = el("div", { id: "tip" }); tip.style.display = "none"; mapEl.append(tip);
+	let tipHtml: string | null = null;   // 今 tip に入れた中身（setSafeHTML の後の innerHTML は元の文字列と違い得る＝渡された文字列で比べる）
 	function setTip(html: string | null): void {
 		if (!html || !pointer) { tip.style.display = "none"; return; }
-		if (tip.innerHTML !== html) tip.innerHTML = html;
+		if (tipHtml !== html) { tipHtml = html; setSafeHTML(tip, html); }   // 旧＝tip.innerHTML = html（素通し）
 		tip.style.display = "block";
 		const r = tip.getBoundingClientRect(), W = mapEl.clientWidth, H = mapEl.clientHeight;
 		if (coarseTip) {   // タッチ＝指の上（japan tip.js の coarse 分岐と同じ）
@@ -760,7 +762,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			if (v != null) {
 				const txt = typeof v === "number" ? v.toLocaleString(lang, { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 3 }) : String(v);
 				const yr = P.year?.(n, legendData.years ? settings.year : null);
-				s += `<div style="opacity:.8">${esc(legendData.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${yr})` : ""}</div>`;
+				s += `<div style="opacity:.8">${esc(legendData.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${esc(yr)})` : ""}</div>`;
 			}
 		}
 		return s;
@@ -836,7 +838,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		else if (annoTipOn) { annoTipOn = false; identify(); }
 	}
 	function popGadget(html: string, { x, y, onClose }: Partial<PopOptions> = {}): HTMLDivElement & { _remove?: () => void } {   // 最小の吹き出し（japan の pop ガジェットは i18n を抱える＝ここは静かな箱だけ）
-		const div: HTMLDivElement & { _remove?: () => void } = el("div", { class: "eq-pop" }, `<button class="panel-close" aria-label="close">×</button><div class="eq-pop-body">${html}</div>`);
+		const div: HTMLDivElement & { _remove?: () => void } = el("div", { class: "eq-pop" }, `<button class="panel-close" aria-label="close">×</button><div class="eq-pop-body"></div>`);
+		setSafeHTML(div.querySelector(".eq-pop-body")!, html);   // 中身は呼び手の HTML（<b>・表…）＝動く物だけ抜く（旧＝文字列に埋めて素通し）
 		Object.assign(div.style, { left: Math.max(4, x! + 12) + "px", top: Math.max(4, y! - 12) + "px" });
 		div.querySelector(".panel-close")!.addEventListener("click", () => { div.remove(); onClose?.(); });
 		div._remove = () => div.remove();

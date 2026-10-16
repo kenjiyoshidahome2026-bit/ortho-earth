@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 import sharp from 'sharp';
-import { Bucket } from '../../packages/native-bucket/src/Bucket.ts';
+import { Bucket } from '../../../packages/native-bucket/src/Bucket.ts';
 import { pool } from './pool.js';
 const __dir = dirname(fileURLToPath(import.meta.url));
 
