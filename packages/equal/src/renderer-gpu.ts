@@ -1,5 +1,5 @@
-// Equal Earth の WebGPU 描画＝renderer.js（WebGL2）と同じ API・同じ絵（2026-09-30 本人依頼「EqualEarth の WebGPU 化」）。
-// 式は renderer.js の GLSL を WGSL へ一対一で移したもの＝式を直す時は両方を直す（検定＝tests/gpu-parity.html を実ブラウザで）。
+// Equal Earth の WebGPU 描画＝renderer.ts（WebGL2）と同じ API・同じ絵（2026-09-30 本人依頼「EqualEarth の WebGPU 化」）。
+// 式は renderer.ts の GLSL を WGSL へ一対一で移したもの＝式を直す時は両方を直す（検定＝tests/gpu-parity.html を実ブラウザで）。
 // GL との違いは器だけ：
 //  ・描画は命令の記録＝beginFrame で encoder を開き、同じタスクの最後（microtask）で 1 回 submit。readFid は先に flush する。
 //  ・uniform は 1 本の構造体をリング（動的オフセット・1 描画 1 スロット）＝GL の「プログラムごとに uniform を詰め直す」と同じ値。
@@ -7,8 +7,9 @@
 //  ・ステンシルの層ごとのクリアは全画面の「0 書き」三角形（パス内で clear できない）。
 //  ・フラグメント座標は上原点＝外形の式へは y を反転して渡す（fc = (x, H − y)）。ID テクスチャは描いた向きのまま読む＝readFid は反転しない。
 //  ・readFid は Promise（GPU の読み戻しは非同期）。
-import { A1, A2, A3, A4, M, yOfLat, pxPerUnit } from "./equalearth.js";
+import { A1, A2, A3, A4, M, yOfLat, pxPerUnit } from "./equalearth.ts";
 import { f32ToF16 } from "@ortho-earth/core/f16";
+import type { Color, FrameState, LineStyle, Morph, NearAtlas, Renderer, View, WorldPal } from "./types.ts";
 
 // uniform 構造体（WGSL の U と同じ並び・float 単位のオフセット）
 const O = { vp: 0, ix0: 2, vw: 3, yc: 4, ppu: 5, zoom: 6, dpr: 7, morph: 8, ppuS: 9, sphLat: 10, camS: 11, sphDlon: 12, lon0: 13,
@@ -188,7 +189,7 @@ fn fcOf(pos: vec4f) -> vec2f { return vec2f(pos.x, u.vp.y - pos.y); }   // GL �
 }
 @fragment fn fsVeil() -> @location(0) vec4f { return vec4f(u.col.rgb * u.col.a, u.col.a); }
 
-// ── 全球ハイプソ（renderer.js WORLD_HYPSO と同式）──
+// ── 全球ハイプソ（renderer.ts WORLD_HYPSO と同式）──
 fn wetBox(ll: vec2f, b: vec4f) -> f32 {
 	return smoothstep(b.x - 3.0, b.x + 3.0, ll.x) * (1.0 - smoothstep(b.y - 3.0, b.y + 3.0, ll.x))
 	     * smoothstep(b.z - 3.0, b.z + 3.0, ll.y) * (1.0 - smoothstep(b.w - 3.0, b.w + 3.0, ll.y));
@@ -301,14 +302,21 @@ struct PtOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 }
 `;
 
+/** 頂点テクスチャ（rg32uint・幅 w で折り返し）＋グループ 1 の bind group */
+interface GpuVertexTexture { tex: GPUTexture; w: number; bg: GPUBindGroup }
+/** インスタンス配列＝vertex buffer＋件数 */
+interface GpuInstance { buf: GPUBuffer; count: number }
+/** createRenderPipeline の手綱（stencil＝STENCIL の鍵・null＝深度ステンシル無し） */
+interface PipeOptions { vs: string; fs: string; layout?: GPUPipelineLayout; buffers?: GPUVertexBufferLayout[]; stencil?: "none" | "invert" | "zero" | "equal1" | null; mask?: number; blend?: GPUBlendState; target?: GPUTextureFormat; samples?: number }
+
 // 失敗（アダプタ無し・デバイス/パイプライン作成の検証エラー）は null＝呼び手が WebGL2 へ落ちる。
 // canvas.getContext("webgpu") は全部通った後に取る＝失敗時は同じ canvas がまだ WebGL2 に使える。
 // opts.noFloatId＝float32-blendable が無い機体の落ち方（ステンシルの陸マスク）を検定で踏むための口
-export async function createRendererGPU(canvas, opts = {}) {
+export async function createRendererGPU(canvas: HTMLCanvasElement, opts: { noFloatId?: boolean } = {}): Promise<Renderer | null> {
 	const adapter = await navigator.gpu?.requestAdapter?.().catch(() => null);
 	if (!adapter) return null;
 	const hasFloatId = adapter.features.has("float32-blendable") && !opts.noFloatId;
-	const device = await adapter.requestDevice({ requiredFeatures: hasFloatId ? ["float32-blendable"] : [] }).catch(() => null);
+	const device = (await adapter.requestDevice({ requiredFeatures: hasFloatId ? ["float32-blendable"] : [] }).catch(() => null))!;   // 内側の function 宣言が読む＝null の除外は下の return で済む
 	if (!device) return null;
 	if (!hasFloatId) console.warn("[equal] WebGPU float32-blendable unavailable -> no choropleth / hover (land mask via stencil)");
 	device.pushErrorScope("validation");
@@ -326,17 +334,17 @@ export async function createRendererGPU(canvas, opts = {}) {
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } }] });
 	const layA = device.createPipelineLayout({ bindGroupLayouts: [bgl0] }), layV = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
-	const PREMUL = { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" } };
-	const ADD = { color: { srcFactor: "one", dstFactor: "one" }, alpha: { srcFactor: "one", dstFactor: "one" } };
-	const face = (compare, passOp = "keep") => ({ compare, passOp, failOp: "keep", depthFailOp: "keep" });
-	const STENCIL = {   // main パスは全部 stencil8 付き＝パイプラインも全部宣言する
+	const PREMUL: GPUBlendState = { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" } };
+	const ADD: GPUBlendState = { color: { srcFactor: "one", dstFactor: "one" }, alpha: { srcFactor: "one", dstFactor: "one" } };
+	const face = (compare: GPUCompareFunction, passOp: GPUStencilOperation = "keep"): GPUStencilFaceState => ({ compare, passOp, failOp: "keep", depthFailOp: "keep" });
+	const STENCIL: Record<"none" | "invert" | "zero" | "equal1", GPUDepthStencilState> = {   // main パスは全部 stencil8 付き＝パイプラインも全部宣言する
 		none: { format: "stencil8", depthWriteEnabled: false, depthCompare: "always", stencilReadMask: 1, stencilWriteMask: 0, stencilFront: face("always"), stencilBack: face("always") },
 		invert: { format: "stencil8", depthWriteEnabled: false, depthCompare: "always", stencilReadMask: 1, stencilWriteMask: 1, stencilFront: face("always", "invert"), stencilBack: face("always", "invert") },
 		zero: { format: "stencil8", depthWriteEnabled: false, depthCompare: "always", stencilReadMask: 0xff, stencilWriteMask: 0xff, stencilFront: face("always", "zero"), stencilBack: face("always", "zero") },
 		equal1: { format: "stencil8", depthWriteEnabled: false, depthCompare: "always", stencilReadMask: 1, stencilWriteMask: 0, stencilFront: face("equal"), stencilBack: face("equal") },
 	};
-	const vb = (comps) => [{ arrayStride: comps * 4, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: `uint32x${comps}` }] }];
-	const pipe = ({ vs, fs, layout = layA, buffers = [], stencil = "none", mask = 0xF, blend = PREMUL, target = format, samples = 4 }) => device.createRenderPipeline({
+	const vb = (comps: number): GPUVertexBufferLayout[] => [{ arrayStride: comps * 4, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: `uint32x${comps}` as GPUVertexFormat }] }];
+	const pipe = ({ vs, fs, layout = layA, buffers = [], stencil = "none", mask = 0xF, blend = PREMUL, target = format, samples = 4 }: PipeOptions): GPURenderPipeline => device.createRenderPipeline({
 		layout, vertex: { module, entryPoint: vs, buffers },
 		fragment: { module, entryPoint: fs, targets: [{ format: target, blend: mask ? blend : undefined, writeMask: mask }] },
 		primitive: { topology: "triangle-list", cullMode: "none" },
@@ -358,7 +366,7 @@ export async function createRendererGPU(canvas, opts = {}) {
 	};
 	const err = await device.popErrorScope();
 	if (err) { console.warn("[equal] WebGPU pipeline setup failed -> WebGL2", err.message); device.destroy(); return null; }
-	const ctx = canvas.getContext("webgpu");
+	const ctx = canvas.getContext("webgpu")!;
 	if (!ctx) { device.destroy(); return null; }
 	ctx.configure({ device, format, alphaMode: "opaque" });
 	let lost = false;
@@ -366,7 +374,7 @@ export async function createRendererGPU(canvas, opts = {}) {
 
 	const maxTex = device.limits.maxTextureDimension2D, MAX_TEX = Math.min(4096, maxTex);
 	const TEX = GPUTextureUsage;
-	const texture = (w, h, fmt, usage = TEX.TEXTURE_BINDING | TEX.COPY_DST) => device.createTexture({ size: [w, h], format: fmt, usage });
+	const texture = (w: number, h: number, fmt: GPUTextureFormat, usage: number = TEX.TEXTURE_BINDING | TEX.COPY_DST): GPUTexture => device.createTexture({ size: [w, h], format: fmt, usage });
 	const dummy = texture(1, 1, "rgba8unorm");
 	const sElev = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "repeat", addressModeV: "clamp-to-edge" });
 	const sClim = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "repeat", addressModeV: "repeat" });
@@ -377,11 +385,11 @@ export async function createRendererGPU(canvas, opts = {}) {
 	let slot = 0;
 
 	// 絵の材料（標高・気候・塗り表・国 ID）＝差し替えたらグループ 0 を作り直す
-	let elevTex = null, climTex = null, paintTex = null, paintW = 1, nearTex = null, nearB = null;
-	let idTex = null, msaa = null, stencil = null, tW = 0, tH = 0;
-	let bgMain = null, bgNoId = null;
-	const dirty = () => { bgMain = bgNoId = null; };
-	const group0 = (id) => device.createBindGroup({ layout: bgl0, entries: [
+	let elevTex: GPUTexture | null = null, climTex: GPUTexture | null = null, paintTex: GPUTexture | null = null, paintW = 1, nearTex: GPUTexture | null = null, nearB: number[] | null = null;
+	let idTex: GPUTexture | null = null, msaa: GPUTexture | null = null, stencil: GPUTexture | null = null, tW = 0, tH = 0;
+	let bgMain: GPUBindGroup | null = null, bgNoId: GPUBindGroup | null = null;
+	const dirty = (): void => { bgMain = bgNoId = null; };
+	const group0 = (id: GPUTexture | null): GPUBindGroup => device.createBindGroup({ layout: bgl0, entries: [
 		{ binding: 0, resource: { buffer: ubuf, size: U_BYTES } },
 		{ binding: 1, resource: (id || dummy).createView() },
 		{ binding: 2, resource: (elevTex || dummy).createView() },
@@ -390,10 +398,10 @@ export async function createRendererGPU(canvas, opts = {}) {
 		{ binding: 5, resource: (paintTex || dummy).createView() },
 		{ binding: 6, resource: sElev }, { binding: 7, resource: sClim }, { binding: 8, resource: sNear },
 	] });
-	const mainBG = () => bgMain ||= group0(idTex);
-	const noIdBG = () => bgNoId ||= group0(null);   // ID パス＝idTex を描き先にするので読み側に置かない
+	const mainBG = (): GPUBindGroup => bgMain ||= group0(idTex);
+	const noIdBG = (): GPUBindGroup => bgNoId ||= group0(null);   // ID パス＝idTex を描き先にするので読み側に置かない
 
-	function ensureTargets(W, H) {
+	function ensureTargets(W: number, H: number): void {
 		if (tW === W && tH === H) return;
 		msaa?.destroy(); stencil?.destroy(); idTex?.destroy();
 		msaa = device.createTexture({ size: [W, H], format, sampleCount: 4, usage: TEX.RENDER_ATTACHMENT });
@@ -403,25 +411,25 @@ export async function createRendererGPU(canvas, opts = {}) {
 	}
 
 	// ── 命令の記録と submit ──
-	let enc = null, pass = null, passPipe = null, flushQueued = false, cleared = false, canvasView = null, clearValue = null, frame = null, idsThisFrame = false;
-	const graveyard = [];   // freeVAO の buffer＝記録済み命令が使うかもしれない＝submit の後で捨てる
-	function ensureEnc() {
+	let enc: GPUCommandEncoder | null = null, pass: GPURenderPassEncoder | null = null, passPipe: GPURenderPipeline | null = null, flushQueued = false, cleared = false, canvasView: GPUTextureView | null = null, clearValue: GPUColorDict | null = null, frame: FrameState | null = null, idsThisFrame = false;
+	const graveyard: GPUBuffer[] = [];   // freeVAO の buffer＝記録済み命令が使うかもしれない＝submit の後で捨てる
+	function ensureEnc(): GPUCommandEncoder {
 		if (!enc) enc = device.createCommandEncoder();
 		if (!flushQueued) { flushQueued = true; queueMicrotask(flush); }
 		return enc;
 	}
-	function endPass() { if (pass) { pass.end(); pass = null; passPipe = null; } }
-	function mainPass() {
+	function endPass(): void { if (pass) { pass.end(); pass = null; passPipe = null; } }
+	function mainPass(): GPURenderPassEncoder {
 		if (pass) return pass;
 		const load = cleared ? "load" : "clear";
 		pass = ensureEnc().beginRenderPass({
-			colorAttachments: [{ view: msaa.createView(), resolveTarget: canvasView, loadOp: load, clearValue, storeOp: "store" }],
-			depthStencilAttachment: { view: stencil.createView(), stencilLoadOp: load, stencilClearValue: 0, stencilStoreOp: "store" },
+			colorAttachments: [{ view: msaa!.createView(), resolveTarget: canvasView!, loadOp: load, clearValue: clearValue!, storeOp: "store" }],
+			depthStencilAttachment: { view: stencil!.createView(), stencilLoadOp: load, stencilClearValue: 0, stencilStoreOp: "store" },
 		});
 		cleared = true;
 		return pass;
 	}
-	function flush() {
+	function flush(): void {
 		flushQueued = false;
 		if (!enc || lost) { enc = null; pass = null; return; }
 		if (frame && !cleared) mainPass();   // 何も描かないフレームも背景色で消す（GL の clear と同じ）
@@ -432,50 +440,50 @@ export async function createRendererGPU(canvas, opts = {}) {
 		for (const b of graveyard.splice(0)) b.destroy();
 	}
 	// 今の cur を 1 スロットへ＝動的オフセット（満杯なら途中で submit＝続きは load で開き直す）
-	function pushU() {
+	function pushU(): number {
 		if (slot >= CAP) flush();
 		staging.set(cur, slot * SLOT_F);
 		return (slot++) * SLOT;
 	}
-	function use(p, pl, off, vtx) {
+	function use(p: GPURenderPassEncoder, pl: GPURenderPipeline, off: number, vtx?: GpuVertexTexture): void {
 		if (passPipe !== pl) { p.setPipeline(pl); passPipe = pl; }
 		p.setBindGroup(0, p === pass ? mainBG() : noIdBG(), [off]);
 		if (vtx) p.setBindGroup(1, vtx.bg);
 	}
 
 	// 頂点テクスチャ（RG32UI・幅 4096 折り返し）
-	function uploadVertices(xy, count) {
+	function uploadVertices(xy: Uint32Array, count: number): GpuVertexTexture {
 		const w = Math.max(1, Math.min(MAX_TEX, count)), h = Math.max(1, Math.ceil(count / w));
 		const data = new Uint32Array(w * h * 2); data.set(xy.subarray(0, count * 2));
 		const tex = texture(w, h, "rg32uint");
 		device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: w * 8 }, [w, h]);
 		return { tex, w, bg: device.createBindGroup({ layout: bgl1, entries: [{ binding: 0, resource: tex.createView() }] }) };
 	}
-	function instanceVAO(u32, comps) {
+	function instanceVAO(u32: Uint32Array, comps: number): GpuInstance {
 		const buf = device.createBuffer({ size: Math.max(4, u32.byteLength), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		if (u32.byteLength) device.queue.writeBuffer(buf, 0, u32);
 		return { buf, count: u32.length / comps };
 	}
-	function freeVAO(v) { if (v) { if (enc) graveyard.push(v.buf); else v.buf.destroy(); } }
+	function freeVAO(v: GpuInstance | null | undefined): void { if (v) { if (enc) graveyard.push(v.buf); else v.buf.destroy(); } }
 
-	function setNearElevation(atlas) {
+	function setNearElevation(atlas: NearAtlas | null): void {
 		if (!atlas) { nearB = null; return; }
 		if (!nearTex || nearTex.width !== atlas.width || nearTex.height !== atlas.height) { nearTex?.destroy(); nearTex = texture(atlas.width, atlas.height, "r16float"); dirty(); }
 		device.queue.writeTexture({ texture: nearTex }, f32ToF16(atlas.data), { bytesPerRow: atlas.width * 2 }, [atlas.width, atlas.height]);
 		nearB = atlas.bounds;
 	}
-	function setElevation(f32, w, h) {
+	function setElevation(f32: Float32Array, w: number, h: number): void {
 		if (!elevTex || elevTex.width !== w || elevTex.height !== h) { elevTex?.destroy(); elevTex = texture(w, h, "r16float"); dirty(); }
 		device.queue.writeTexture({ texture: elevTex }, f32ToF16(f32), { bytesPerRow: w * 2 }, [w, h]);
 	}
-	function setClimate(img) {
+	function setClimate(img: HTMLImageElement): void {
 		const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
 		climTex?.destroy();
 		climTex = texture(w, h, "rgba8unorm", TEX.TEXTURE_BINDING | TEX.COPY_DST | TEX.RENDER_ATTACHMENT);
 		device.queue.copyExternalImageToTexture({ source: img }, { texture: climTex }, [w, h]);
 		dirty();
 	}
-	function setPaint(rgba8, count) {
+	function setPaint(rgba8: Uint8Array, count: number): void {
 		const w = Math.max(1, Math.min(1024, count)), h = Math.max(1, Math.ceil(count / w));
 		const data = new Uint8Array(w * h * 4); data.set(rgba8.subarray(0, Math.min(rgba8.length, w * h * 4)));
 		if (!paintTex || paintTex.width !== w || paintTex.height !== h) { paintTex?.destroy(); paintTex = texture(w, h, "rgba8unorm"); dirty(); }
@@ -483,7 +491,7 @@ export async function createRendererGPU(canvas, opts = {}) {
 		paintW = w;
 	}
 
-	function beginFrame(view, clearRGB, morph = null) {
+	function beginFrame(view: View, clearRGB: ArrayLike<number>, morph: Morph | null = null): void {
 		if (enc) flush();
 		idsThisFrame = false;
 		const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -506,58 +514,58 @@ export async function createRendererGPU(canvas, opts = {}) {
 		canvasView = ctx.getCurrentTexture().createView();
 		ensureEnc();
 	}
-	const set4 = (o, v) => { cur[o] = v[0]; cur[o + 1] = v[1]; cur[o + 2] = v[2]; cur[o + 3] = v[3] ?? 0; };
-	function setStyles(styles) {
+	const set4 = (o: number, v: ArrayLike<number>): void => { cur[o] = v[0]; cur[o + 1] = v[1]; cur[o + 2] = v[2]; cur[o + 3] = v[3] ?? 0; };
+	function setStyles(styles: LineStyle[]): void {
 		cur.fill(0, O.color, U_FLOATS);
 		styles.forEach((s, i) => { if (!s) return; set4(O.color + i * 4, s.color); cur[O.param + i * 4] = s.width ?? s.size ?? 0; });
 	}
-	const ok = () => frame && !lost;
+	const ok = (): boolean => !!frame && !lost;
 
-	function drawLines(vtx, vao, styles) {
+	function drawLines(vtx: GpuVertexTexture, vao: GpuInstance | null | undefined, styles: LineStyle[]): void {
 		if (!vao?.count || !ok()) return;
 		curI[O.vw] = vtx.w; setStyles(styles);
 		const off = pushU(), p = mainPass();
 		use(p, P.line, off, vtx); p.setVertexBuffer(0, vao.buf); p.draw(12, vao.count);
 	}
-	function stencilFan(vtx, vao) {   // 層ごとに偶奇をやり直す（全画面の 0 書き）→ 扇で反転
+	function stencilFan(vtx: GpuVertexTexture, vao: GpuInstance): void {   // 層ごとに偶奇をやり直す（全画面の 0 書き）→ 扇で反転
 		curI[O.vw] = vtx.w;
 		const off = pushU(), p = mainPass();
 		use(p, P.zero, off); p.draw(3);
 		use(p, P.fillSt, off, vtx); p.setVertexBuffer(0, vao.buf); p.draw(18, vao.count);
 	}
-	function drawVeil(color) {
+	function drawVeil(color: Color): void {
 		if (!(color[3] > 0.001) || !ok()) return;
 		set4(O.col, color);
 		const off = pushU(), p = mainPass();
 		use(p, P.veil, off); p.draw(3);
 	}
-	function drawSea(sea, bg, edge) {
+	function drawSea(sea: Color, bg: Color, edge: Color): void {
 		if (!ok()) return;
 		set4(O.sea, sea); set4(O.bg, bg); set4(O.edge, edge);
 		const off = pushU(), p = mainPass();
 		use(p, P.sea, off); p.draw(3);
 	}
-	function drawFill(vtx, vao, color) {
+	function drawFill(vtx: GpuVertexTexture, vao: GpuInstance | null | undefined, color: Color): void {
 		if (!vao?.count || !ok()) return;
 		stencilFan(vtx, vao);
 		set4(O.col, color);
 		const off = pushU(), p = mainPass();
 		use(p, P.cover, off); p.setStencilReference(1); p.draw(3);
 	}
-	function drawIds(vtx, vao) {
+	function drawIds(vtx: GpuVertexTexture, vao: GpuInstance | null | undefined): boolean {
 		if (!vao?.count || !ok()) return false;
 		if (hasFloatId) {
 			curI[O.vw] = vtx.w;
 			const off = pushU();
 			endPass();
-			const ip = ensureEnc().beginRenderPass({ colorAttachments: [{ view: idTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-			ip.setPipeline(P.id); ip.setBindGroup(0, noIdBG(), [off]); ip.setBindGroup(1, vtx.bg);
+			const ip = ensureEnc().beginRenderPass({ colorAttachments: [{ view: idTex!.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+			ip.setPipeline(P.id!); ip.setBindGroup(0, noIdBG(), [off]); ip.setBindGroup(1, vtx.bg);
 			ip.setVertexBuffer(0, vao.buf); ip.draw(18, vao.count);
 			ip.end();
 		} else stencilFan(vtx, vao);   // ステンシルは次の drawLand が消費する（直後に呼ぶこと）
 		return idsThisFrame = true;
 	}
-	function drawLand(o) {
+	function drawLand(o: { land: Color; hypso?: number; pal: WorldPal }): void {
 		if (!idsThisFrame || !ok()) return;
 		cur[O.hasId] = hasFloatId ? 1 : 0;
 		set4(O.land, o.land);
@@ -571,7 +579,7 @@ export async function createRendererGPU(canvas, opts = {}) {
 		p.draw(3);
 	}
 	const HOVER_DEFAULT = [0.10, 0.14, 0.20, 0.14];
-	function drawChoropleth(o = {}) {
+	function drawChoropleth(o: { alpha?: number; hover?: number; hoverColor?: Color } = {}): void {
 		if (!hasFloatId || !idTex || !idsThisFrame || !ok()) return;
 		const alpha = paintTex ? (o.alpha || 0) : 0, hover = o.hover ?? -1;
 		if (alpha <= 0.001 && hover < 0) return;
@@ -580,15 +588,15 @@ export async function createRendererGPU(canvas, opts = {}) {
 		const off = pushU(), p = mainPass();
 		use(p, P.choro, off); p.draw(3);
 	}
-	function drawPoints(vao, styles) {
+	function drawPoints(vao: GpuInstance | null | undefined, styles: LineStyle[]): void {
 		if (!vao?.count || !ok()) return;
 		setStyles(styles);
 		const off = pushU(), p = mainPass();
 		use(p, P.point, off); p.setVertexBuffer(0, vao.buf); p.draw(6, vao.count);
 	}
 	// 画面 CSS px（左上原点）の国 → Promise<fid | -1>。記録中の命令を先に submit＝このフレームの ID を読む
-	const readBufs = [];
-	async function readFid(cssX, cssY) {
+	const readBufs: GPUBuffer[] = [];
+	async function readFid(cssX: number, cssY: number): Promise<number> {
 		if (!hasFloatId || !idTex || !frame || lost) return -1;
 		const x = Math.floor(cssX * frame.dpr), y = Math.floor(cssY * frame.dpr);
 		if (x < 0 || y < 0 || x >= tW || y >= tH) return -1;
@@ -605,7 +613,7 @@ export async function createRendererGPU(canvas, opts = {}) {
 			return id > 0 ? id - 1 : -1;
 		} catch { rb.destroy(); return -1; }
 	}
-	function destroy() { lost = true; enc = null; pass = null; try { ctx.unconfigure(); } catch { /* 既に無い */ } device.destroy(); }
+	function destroy(): void { lost = true; enc = null; pass = null; try { ctx.unconfigure(); } catch { /* 既に無い */ } device.destroy(); }
 
 	return { backend: "webgpu", maxTex, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawVeil, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint, flush, destroy };
 }

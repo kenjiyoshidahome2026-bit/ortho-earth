@@ -3,11 +3,13 @@
 //   気候場＝koppen-clim.png（Köppen-Geiger / Beck et al. CC BY を 720×360 へ焼き縮め・正本は packages/globe/src/assets/koppen-clim.png＝各アプリの public はそこへのシンボリックリンク）
 // 等経緯度 1 枚のアトラス（行0=南）へ再標本化してレンダラへ渡す。
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell } from "@ortho-earth/core/elevation";
+import type { AltGrid, TileLoader } from "@ortho-earth/core/elevation";
+import type { ElevAtlas, NearAtlas, View } from "./types.ts";
 
 // ortho-core elevation.js downsampleFlipped と同規約：texel 中心標本・ALOS の最外周 2px（縁の fill 値）を読まない・異常値と負値は 0
-function resampleCell(tile, N, out, W, ox, oy) {
+function resampleCell(tile: AltGrid, N: number, out: Float32Array, W: number, ox: number, oy: number): void {
 	const { data, width: w, height: h } = tile;
-	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
+	const H = (x: number, y: number): number => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
 	const M = 2;
 	for (let j = 0; j < N; j++) {
 		const gy = Math.min(Math.max((j + 0.5) / N * (h - 1), M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
@@ -20,16 +22,16 @@ function resampleCell(tile, N, out, W, ox, oy) {
 	}
 }
 
-let loaderP = null;
-const getLoader = apiUrl => (loaderP ??= createTileLoader({ apiUrl }));
+let loaderP: Promise<TileLoader> | null = null;
+const getLoader = (apiUrl?: string): Promise<TileLoader> => (loaderP ??= createTileLoader({ apiUrl }));
 
 // cellRes＝90° あたりの texel（1024 で 4096×2048 ≈ 9.8km/texel・R90 の実力 2700 には届かないが近景は R10 窓が受け持つ）
 // 届いたセルから順に onUpdate（部分でも出す）。取れなかったセル（初回の激遅回線・worker タイムアウト）は裏で指数バックオフ再試行
 //＝一度の失敗で世界が平らなまま固まらない（japan terrain.js「一発死の禁止」と同じ流儀）。
-export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate } = {}) {
+export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate }: { apiUrl?: string; cellRes?: number; onUpdate?: (atlas: ElevAtlas) => void } = {}): Promise<ElevAtlas> {
 	const loadTile = await getLoader(apiUrl);
 	const N = cellRes, W = 4 * N, H = 2 * N, out = new Float32Array(W * H);
-	const atlas = { data: out, width: W, height: H };
+	const atlas: ElevAtlas = { data: out, width: W, height: H };
 	// 本線＝焼き済みの全球アトラス 1 本（uploader「world hypso atlas」・bucket GIS/alt・3.25MB・復号 1 回）。
 	// 無い/壊れている/セル寸法が割り切れない時だけ下の 8 枚経路（55MB・復号 8 回）へ退避＝出力は同じ物（Int16 丸め ±0.5m）。
 	const baked = await loadTile.byName(WORLD_ATLAS).catch(() => null);
@@ -39,9 +41,9 @@ export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate } = 
 		return atlas;
 	}
 	console.warn(`[hypso] ${WORLD_ATLAS} unavailable -> falling back to 8×R90`);
-	const cells = [];
+	const cells: [number, number][] = [];
 	for (const cy of [-90, 0]) for (const cx of [-180, -90, 0, 90]) cells.push([cx, cy]);
-	const fetchCell = async ([cx, cy]) => {
+	const fetchCell = async ([cx, cy]: [number, number]): Promise<boolean> => {
 		const t = await loadTile(cx, cy, 90).catch(() => null);
 		if (!(t?.data && t.width)) return false;
 		resampleCell(t, N, out, W, (cx + 180) / 90 * N, (cy + 90) / 90 * N);
@@ -53,7 +55,7 @@ export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate } = 
 	if (missing.length) {
 		console.warn(`[hypso] R90 cells missing: ${missing.map(c => c.join(",")).join(" ")} -> retrying in background`);
 		let wait = 5000, tries = 0;
-		const retry = () => setTimeout(async () => {
+		const retry = (): number => setTimeout(async () => {
 			for (let i = missing.length - 1; i >= 0; i--) if (await fetchCell(missing[i])) missing.splice(i, 1);
 			if (missing.length && ++tries < 8) { wait = Math.min(wait * 2, 120000); retry(); }
 		}, wait);
@@ -62,7 +64,7 @@ export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate } = 
 	return atlas;
 }
 
-export function loadClimate(url) {
+export function loadClimate(url: string): Promise<HTMLImageElement> {
 	return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = url; });
 }
 
@@ -71,15 +73,22 @@ export function loadClimate(url) {
 // 生タイル（2400²×int16≈11MB/枚）は窓へ再標本化したら捨てる＝常駐はセル単位の Float32（解像度つき）の LRU だけ。
 export const NEAR_MIN_ZOOM = 5.5;   // これ未満は R90 だけ（japan の R90/R10 境界と同じ。5 だと 1280px 幅で 6×4 セル×11MB≈260MB を初回に落とす＝重すぎる・2026-09-18）
 const CAP = 10;                   // 窓の最大セル数（片辺）
-export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }) {
-	const cellCache = new Map();   // "cx,cy,res" → Float32Array(res²)（行0=南）
+export interface NearElevationOptions { apiUrl?: string; maxTex?: number; onAtlas: (atlas: NearAtlas | null) => void; onBusy?: (busy: boolean) => void }
+export interface NearElevation {
+	/** view＝{lon,lat,zoom}・unprojectFn(sx,sy)→[lon,lat]|null・W,H＝CSS px */
+	ensure(view: View, W: number, H: number, unprojectFn: (sx: number, sy: number) => number[] | null): void;
+	/** 静止待ちのタイマーを捨て、作りかけの窓を無効にする（部品の destroy から） */
+	stop(): void;
+}
+export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }: NearElevationOptions): NearElevation {
+	const cellCache = new Map<string, Float32Array>();   // "cx,cy,res" → Float32Array(res²)（行0=南）
 	const CACHE_BYTES = 192 << 20;
 	let cacheBytes = 0, key = "", gen = 0, timer = 0, inflight = 0;
-	const remember = (k, a) => {
+	const remember = (k: string, a: Float32Array): void => {
 		cellCache.set(k, a); cacheBytes += a.byteLength;
 		for (const [ok, oa] of cellCache) { if (cacheBytes <= CACHE_BYTES || ok === k) break; cellCache.delete(ok); cacheBytes -= oa.byteLength; }
 	};
-	async function cell(cx, cy, res) {
+	async function cell(cx: number, cy: number, res: number): Promise<Float32Array> {
 		const lngN = ((cx % 360) + 540) % 360 - 180, k = `${lngN},${cy},${res}`;
 		const hit = cellCache.get(k);
 		if (hit) { cellCache.delete(k); cellCache.set(k, hit); return hit; }
@@ -91,12 +100,12 @@ export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }) 
 		return out;
 	}
 	// view＝{lon,lat,zoom}・unprojectFn(sx,sy)→[lon,lat]|null・W,H＝CSS px
-	function ensure(view, W, H, unprojectFn) {
+	function ensure(view: View, W: number, H: number, unprojectFn: (sx: number, sy: number) => number[] | null): void {
 		clearTimeout(timer);
 		if (view.zoom < NEAR_MIN_ZOOM) { if (key) { key = ""; gen++; onAtlas(null); } return; }
 		timer = setTimeout(() => build(view, W, H, unprojectFn), 180);   // 静止してから（ドラッグ中に窓を作り直さない）
 	}
-	async function build(view, W, H, unprojectFn) {
+	async function build(view: View, W: number, H: number, unprojectFn: (sx: number, sy: number) => number[] | null): Promise<void> {
 		const camCX = Math.floor(view.lon / 10);
 		let lox = 0, hix = 0, loy = 99, hiy = -99;
 		for (let j = 0; j <= 12; j++) for (let i = 0; i <= 16; i++) {
@@ -132,6 +141,6 @@ export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }) 
 		onAtlas({ data: atlas, width: W2, height: H2, bounds: [x0, y0, nx * 10, ny * 10] });
 	}
 	// stop＝静止待ちのタイマーを捨て、作りかけの窓を無効にする（部品の destroy から・2026-09-19）
-	function stop() { clearTimeout(timer); gen++; }
+	function stop(): void { clearTimeout(timer); gen++; }
 	return { ensure, stop };
 }

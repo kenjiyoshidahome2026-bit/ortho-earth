@@ -8,6 +8,7 @@
 import { WORLD_STYLE_THEMES, css } from "@ortho-earth/core/worldstyle";
 // 名前の順・URL・キャッシュ名・都市/空港の規則・飛行機の形＝世界帯の中身の正本（equal・globe と共有・2026-09-24 に写しを畳んだ）
 import { culturalUrl, culturalName, cityName as cityNameOf, cityLabelRule, airportLabelRule, loadI18n, loadNeCities, WORLD_Z, PLANE_PATH as PLANE } from "@ortho-earth/core/worldcontent";
+import type { NameTable } from "@ortho-earth/core/worldcontent";
 import type { GeoPBF, GeopbfFn, Feature, Geometry, Position, Properties } from "geopbf";
 
 /** worldstyle のテーマのうち、ここが読む項（WORLD_STYLE_THEMES は Record<string, unknown> の口＝形はここで宣言） */
@@ -50,7 +51,7 @@ export interface CountryLayers {
 type Ring = Position[];
 /** geopbf の器＋fmap（地物の表＝長さが地物の数。型定義の公開面に無いのでここで足す） */
 type WorldPbf = GeoPBF & { fmap?: ArrayLike<unknown> | null };
-type NameTables = { i18n?: Record<string, unknown> | null; ne?: unknown };
+type NameTables = { i18n?: NameTable | null; ne?: Record<string, string> | null };
 
 // 色＝ortho-core worldstyle の正本（WORLD_STYLE_THEMES.mono＝equal・globe と同じ表＝2 つのアプリで同じ世界に見える・2026-09-23 段階 3）
 const T = WORLD_STYLE_THEMES.mono as unknown as WorldTheme;

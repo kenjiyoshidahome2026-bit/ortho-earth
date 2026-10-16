@@ -14,7 +14,23 @@
 import { WORLD_STYLE_THEMES, hex as hexOf, normWorldTheme } from "@ortho-earth/core/worldstyle";
 
 export const hex = hexOf;
-export const THEMES = WORLD_STYLE_THEMES;
+/** GL 用の色＝"#rrggbb" か ["#rrggbb", α]（hex() で [r,g,b,a] へ） */
+export type ThemeColor = string | [string, number];
+/** worldstyle のテーマのうち equal が読む項（WORLD_STYLE_THEMES は Record<string, unknown> の口＝形はここで宣言・world と同じ流儀）。
+ *  残りの鍵（sea・bg・edge・coast…＝PALETTE のキー）は ThemeColor */
+export interface WorldTheme {
+	label: string;
+	swatch: string;
+	dark: boolean;
+	/** 全球ハイプソの色（worldpal の knob・null＝既定） */
+	world: unknown;
+	capital: string;
+	airport: ThemeColor;
+	land: ThemeColor;
+	labelColor: { country: string; city: string; halo: string };
+	[key: string]: unknown;
+}
+export const THEMES = WORLD_STYLE_THEMES as Record<string, WorldTheme>;
 
 export const THEME_NAMES = Object.keys(THEMES);
 export const normTheme = normWorldTheme;

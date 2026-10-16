@@ -1,11 +1,12 @@
 // Equal Earth の WebGL2 描画。ortho-core（球専用）には触らない＝アプリ内の専用描画（本人裁定 2026-09-18）。
-// WebGPU 版＝renderer-gpu.js（同じ API・同じ式の WGSL）。式を直す時は両方を直し、tests/gpu-parity.html で突き合わせる。
+// WebGPU 版＝renderer-gpu.ts（同じ API・同じ式の WGSL）。式を直す時は両方を直し、tests/gpu-parity.html で突き合わせる。
 // 流儀は gint と同じ：頂点は整数 (ix,iy) のテクスチャ・経度は中心からの整数差 dlonE7（360e7 周期で最短）＝
 // 中央経線を毎フレーム動かしても頂点データは不変。投影（Equal Earth）は頂点シェーダ。
 //
-// 画面の外形：縮小下限とスクロール範囲で「画面矩形 ⊂ 投影の外形」を保証（equalearth.js clampView）＝
+// 画面の外形：縮小下限とスクロール範囲で「画面矩形 ⊂ 投影の外形」を保証（equalearth.ts clampView）＝
 // 外形の縁は画面に出ない。antimeridian（中心の裏経線）を跨ぐ辺だけは頂点シェーダで縫い目の左右に割る。
-import { A1, A2, A3, A4, M, yOfLat, pxPerUnit } from "./equalearth.js";
+import { A1, A2, A3, A4, M, yOfLat, pxPerUnit } from "./equalearth.ts";
+import type { Color, FrameState, LineStyle, Morph, NearAtlas, Renderer, View, WorldPal } from "./types.ts";
 
 const COMMON = `#version 300 es
 precision highp float; precision highp int; precision highp usampler2D;
@@ -141,7 +142,7 @@ void main() {
 const FILL_FS = `#version 300 es
 precision highp float; flat in float v_id; out vec4 o; void main() { o = vec4(0.0); }`;
 // ID 塗り（国＝コロプレスの面）：扇の三角形ごとに ±(fid+1) を R32F へ加算。表＝+・裏＝−（gl_FrontFacing）。
-// 外環は反時計回りに正規化済み（bake.js）＝面の内側で巻き数 +1 → 画素値 = fid+1、外・穴 = 0。
+// 外環は反時計回りに正規化済み（bake.ts）＝面の内側で巻き数 +1 → 画素値 = fid+1、外・穴 = 0。
 // 国は互いに重ならない＝一回のパスで「陸マスク＋国ID」が同時に出る（ホバー識別も同じバッファを読む）。
 const ID_FS = `#version 300 es
 precision highp float; flat in float v_id; out vec4 o;
@@ -236,7 +237,7 @@ uniform sampler2D u_nearTex; uniform float u_hasNear; uniform vec4 u_nearB;   //
 const float A1=${A1}, A2=${A2}, A3=${A3}, A4=${A4}, M=${M};
 const float D2R = 0.017453292519943295, Y_MAX = 1.3173627591574;
 ${WORLD_HYPSO}
-vec2 eeInv(vec2 u) {   // 単位座標 → (dλ°, φ°)（Newton・CPU equalearth.js latOfY と同じ反復）
+vec2 eeInv(vec2 u) {   // 単位座標 → (dλ°, φ°)（Newton・CPU equalearth.ts latOfY と同じ反復）
 	float y = clamp(u.y, -Y_MAX, Y_MAX), l = y / A1;
 	for (int i = 0; i < 6; i++) {
 		float l2 = l * l, l6 = l2 * l2 * l2;
@@ -337,23 +338,32 @@ void main() {
 	float a = aOut * v_color.a; o = vec4(rgb * a, a);
 }`;
 
-function compile(gl, vs, fs) {
-	const mk = (type, src) => {
-		const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+/** コンパイル済みプログラムと uniform の場所（名前 → location・配列は [0] を外した名） */
+interface Program { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }
+/** 頂点テクスチャ（RG32UI・幅 w で折り返し） */
+interface GlVertexTexture { tex: WebGLTexture; w: number }
+/** インスタンス配列＝VAO＋buffer＋件数 */
+interface GlInstance { vao: WebGLVertexArrayObject; buf: WebGLBuffer; count: number }
+/** WebGL2 版のレンダラ＝共通 API＋gl（検定・診断用） */
+export interface GlRenderer extends Renderer { gl: WebGL2RenderingContext }
+
+function compile(gl: WebGL2RenderingContext, vs: string, fs: string): Program {
+	const mk = (type: number, src: string): WebGLShader => {
+		const sh = gl.createShader(type)!; gl.shaderSource(sh, src); gl.compileShader(sh);
 		if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh) + "\n" + src.split("\n").map((l, i) => `${i + 1}: ${l}`).join("\n"));
 		return sh;
 	};
 	const p = gl.createProgram();
 	gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
 	gl.linkProgram(p);
-	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-	const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-	for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i), name = info.name.replace(/\[0\]$/, ""); u[name] = gl.getUniformLocation(p, info.name); }
+	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
+	const u: Record<string, WebGLUniformLocation | null> = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+	for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i)!, name = info.name.replace(/\[0\]$/, ""); u[name] = gl.getUniformLocation(p, info.name); }
 	return { p, u };
 }
 
-export function createRenderer(canvas) {
-	const gl = canvas.getContext("webgl2", { antialias: true, stencil: true, alpha: false, premultipliedAlpha: true, preserveDrawingBuffer: false });
+export function createRenderer(canvas: HTMLCanvasElement): GlRenderer | null {
+	const gl = canvas.getContext("webgl2", { antialias: true, stencil: true, alpha: false, premultipliedAlpha: true, preserveDrawingBuffer: false })!;   // 内側の function 宣言が読む＝null の除外は下の return で済む
 	if (!gl) return null;
 	const MAX_TEX = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
 	// 国 ID は R32F への加算（float blend）。無い機体は陸マスクだけステンシルで作る＝コロプレス/ホバー無しで動く
@@ -371,11 +381,11 @@ export function createRenderer(canvas) {
 		point: compile(gl, POINT_VS, POINT_FS),
 		veil: compile(gl, COVER_VS, VEIL_FS),
 	};
-	let frame = null;   // 今フレームの共通 uniform 値
+	let frame: FrameState | null = null;   // 今フレームの共通 uniform 値
 	let idsThisFrame = false;   // このフレームで国 ID バッファ（またはステンシル陸マスク）を描いたか＝drawLand/drawChoropleth の前提
 
 	// 頂点テクスチャ（RG32UI・幅 4096 折り返し）
-	function uploadVertices(xy, count) {
+	function uploadVertices(xy: Uint32Array, count: number): GlVertexTexture {
 		const w = Math.max(1, Math.min(MAX_TEX, count)), h = Math.max(1, Math.ceil(count / w));
 		const data = new Uint32Array(w * h * 2); data.set(xy.subarray(0, count * 2));
 		const tex = gl.createTexture();
@@ -385,12 +395,12 @@ export function createRenderer(canvas) {
 		texParams(gl.NEAREST, gl.CLAMP_TO_EDGE);
 		return { tex, w };
 	}
-	function texParams(filter, wrapS, wrapT = gl.CLAMP_TO_EDGE) {
+	function texParams(filter: number, wrapS: number, wrapT: number = gl.CLAMP_TO_EDGE): void {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapT);
 	}
 	// インスタンス配列 → VAO（uint の整数属性・divisor 1）
-	function instanceVAO(u32, comps) {
+	function instanceVAO(u32: Uint32Array, comps: number): GlInstance {
 		const vao = gl.createVertexArray(), buf = gl.createBuffer();
 		gl.bindVertexArray(vao);
 		gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -402,11 +412,11 @@ export function createRenderer(canvas) {
 		return { vao, buf, count: u32.length / comps };
 	}
 
-	function freeVAO(v) { if (v) { gl.deleteVertexArray(v.vao); gl.deleteBuffer(v.buf); } }
+	function freeVAO(v: GlInstance | null | undefined): void { if (v) { gl.deleteVertexArray(v.vao); gl.deleteBuffer(v.buf); } }
 
 	// ── 国 ID バッファ（R32F・MSAA なし・canvas と同寸）──
-	let idTex = null, idFbo = null, idW = 0, idH = 0;
-	function ensureIdTarget(W, H) {
+	let idTex: WebGLTexture | null = null, idFbo: WebGLFramebuffer | null = null, idW = 0, idH = 0;
+	function ensureIdTarget(W: number, H: number): void {
 		if (!hasFloatId || (idW === W && idH === H)) return;
 		if (idTex) gl.deleteTexture(idTex);
 		if (idFbo) gl.deleteFramebuffer(idFbo);
@@ -420,8 +430,8 @@ export function createRenderer(canvas) {
 	}
 
 	// ── ハイプソの材料：標高アトラス（R16F 等経緯度・行0=南）・気候場（koppen-clim.png）・塗り表（fid→RGBA）──
-	let elevTex = null, climTex = null, paintTex = null, paintW = 1, nearTex = null, nearB = null;
-	function setNearElevation(atlas) {   // null＝近景なし（R90 だけ）
+	let elevTex: WebGLTexture | null = null, climTex: WebGLTexture | null = null, paintTex: WebGLTexture | null = null, paintW = 1, nearTex: WebGLTexture | null = null, nearB: number[] | null = null;
+	function setNearElevation(atlas: NearAtlas | null): void {   // null＝近景なし（R90 だけ）
 		if (!atlas) { nearB = null; return; }
 		if (!nearTex) nearTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, nearTex);
@@ -430,20 +440,20 @@ export function createRenderer(canvas) {
 		texParams(gl.LINEAR, gl.CLAMP_TO_EDGE);
 		nearB = atlas.bounds;
 	}
-	function setElevation(f32, w, h) {
+	function setElevation(f32: Float32Array, w: number, h: number): void {
 		if (!elevTex) elevTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, w, h, 0, gl.RED, gl.FLOAT, f32);
 		texParams(gl.LINEAR, gl.REPEAT);
 	}
-	function setClimate(img) {
+	function setClimate(img: HTMLImageElement): void {
 		climTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, climTex);
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
 		texParams(gl.LINEAR, gl.REPEAT);
 	}
-	function setPaint(rgba8, count) {   // rgba8 = Uint8Array(count*4)（0..255・a=0 は塗らない）
+	function setPaint(rgba8: Uint8Array, count: number): void {   // rgba8 = Uint8Array(count*4)（0..255・a=0 は塗らない）
 		const w = Math.max(1, Math.min(1024, count)), h = Math.max(1, Math.ceil(count / w));
 		const data = new Uint8Array(w * h * 4); data.set(rgba8.subarray(0, Math.min(rgba8.length, w * h * 4)));
 		if (!paintTex) paintTex = gl.createTexture();
@@ -455,7 +465,7 @@ export function createRenderer(canvas) {
 	}
 
 	// morph＝{ t: 0..1, ppuS: 球の中心の CSS px/単位, lat: 球の中心緯度(rad), cam: eye の球面からの距離(半径単位), dlon: 球の中心経度−地図の中心経度(deg) } または null（通常＝u_morph 1）
-	function beginFrame(view, clearRGB, morph = null) {
+	function beginFrame(view: View, clearRGB: ArrayLike<number>, morph: Morph | null = null): void {
 		idsThisFrame = false;   // ID バッファは毎フレーム描き直す＝前フレームの残りを当てにしない
 		const dpr = Math.min(window.devicePixelRatio || 1, 2);
 		const W = Math.round(canvas.clientWidth * dpr), H = Math.round(canvas.clientHeight * dpr);
@@ -474,9 +484,9 @@ export function createRenderer(canvas) {
 			morph: morph ? Math.max(0, Math.min(1, morph.t)) : 1, ppuS: morph ? morph.ppuS * dpr : 0, sphLat: morph ? morph.lat : 0, camS: morph ? morph.cam : 1, sphDlon: morph ? morph.dlon || 0 : 0,
 		};
 	}
-	const setMorph = u => { const f = frame; if (u.u_morph) gl.uniform1f(u.u_morph, f.morph); if (u.u_ppuS) gl.uniform1f(u.u_ppuS, f.ppuS); if (u.u_sphLat) gl.uniform1f(u.u_sphLat, f.sphLat); if (u.u_camS) gl.uniform1f(u.u_camS, f.camS); if (u.u_sphDlon) gl.uniform1f(u.u_sphDlon, f.sphDlon); };
-	function setCommon(pr, vtx) {
-		const u = pr.u, f = frame;
+	const setMorph = (u: Program["u"]): void => { const f = frame!; if (u.u_morph) gl.uniform1f(u.u_morph, f.morph); if (u.u_ppuS) gl.uniform1f(u.u_ppuS, f.ppuS); if (u.u_sphLat) gl.uniform1f(u.u_sphLat, f.sphLat); if (u.u_camS) gl.uniform1f(u.u_camS, f.camS); if (u.u_sphDlon) gl.uniform1f(u.u_sphDlon, f.sphDlon); };
+	function setCommon(pr: Program, vtx: GlVertexTexture | null): void {
+		const u = pr.u, f = frame!;
 		gl.useProgram(pr.p);
 		if (vtx) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, vtx.tex); gl.uniform1i(u.u_vtx, 0); gl.uniform1i(u.u_vw, vtx.w); }
 		gl.uniform1ui(u.u_ix0, f.ix0); gl.uniform1f(u.u_yc, f.yc); gl.uniform1f(u.u_ppu, f.ppu);
@@ -484,14 +494,14 @@ export function createRenderer(canvas) {
 		if (u.u_dpr) gl.uniform1f(u.u_dpr, f.dpr);
 		setMorph(u);   // 通常は 1（GL の uniform 既定値 0＝球になる＝毎回必ず入れる）
 	}
-	function setStyles(pr, styles) {   // styles[cls] = { color:[r,g,b,a], width }
+	function setStyles(pr: Program, styles: LineStyle[]): void {   // styles[cls] = { color:[r,g,b,a], width }
 		const col = new Float32Array(64), prm = new Float32Array(64);
 		styles.forEach((s, i) => { if (!s) return; col.set(s.color, i * 4); prm[i * 4] = s.width ?? s.size ?? 0; });
 		gl.uniform4fv(pr.u.u_color, col); gl.uniform4fv(pr.u.u_param, prm);
 	}
-	const fanDraw = vao => { gl.bindVertexArray(vao.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 18, vao.count); gl.bindVertexArray(null); };
+	const fanDraw = (vao: GlInstance): void => { gl.bindVertexArray(vao.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 18, vao.count); gl.bindVertexArray(null); };
 
-	function drawLines(vtx, vao, styles) {
+	function drawLines(vtx: GlVertexTexture, vao: GlInstance | null | undefined, styles: LineStyle[]): void {
 		if (!vao?.count) return;
 		const pr = prog.line; setCommon(pr, vtx); setStyles(pr, styles);
 		gl.bindVertexArray(vao.vao);
@@ -499,7 +509,7 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 	// 単色の面（湖・市街地）＝ステンシル偶奇
-	function stencilFan(vtx, vao) {
+	function stencilFan(vtx: GlVertexTexture, vao: GlInstance): void {
 		gl.clear(gl.STENCIL_BUFFER_BIT);   // 層ごとに偶奇をやり直す（外形の外に残る余分なビットを次層へ持ち越さない）
 		gl.enable(gl.STENCIL_TEST);
 		gl.colorMask(false, false, false, false);
@@ -510,21 +520,21 @@ export function createRenderer(canvas) {
 		gl.stencilFunc(gl.EQUAL, 1, 1); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 	}
 	// テクスチャユニットの割り当て（合成・コロプレス共通）。使わない時も各ユニットへ向ける＝unit0 の奪い合いを避ける
-	const bind = (unit, name, tex, u) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
+	const bind = (unit: number, name: string, tex: WebGLTexture | null, u: Program["u"]): void => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
 	// 外形の三つ組（被せ系のプログラム共通）
-	function setOutline(pr) { const u = pr.u, f = frame; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); setMorph(u); }
+	function setOutline(pr: Program): void { const u = pr.u, f = frame!; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); setMorph(u); }
 	// 幕＝全画面を色で覆う（外形で切らない・ステンシルなし）。変形の終わりに地図を黒から溶かし出す／畳む前に黒へ沈める
-	function drawVeil(color) {
+	function drawVeil(color: Color): void {
 		if (!(color[3] > 0.001)) return;
 		gl.useProgram(prog.veil.p); gl.uniform4fv(prog.veil.u.u_col, color);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 	}
-	function drawSea(sea, bg, edge) {
+	function drawSea(sea: Color, bg: Color, edge: Color): void {
 		const pr = prog.sea; gl.useProgram(pr.p); setOutline(pr);
 		gl.uniform3f(pr.u.u_sea, sea[0], sea[1], sea[2]); gl.uniform3f(pr.u.u_bg, bg[0], bg[1], bg[2]); gl.uniform4fv(pr.u.u_edge, edge);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 	}
-	function drawFill(vtx, vao, color) {
+	function drawFill(vtx: GlVertexTexture, vao: GlInstance | null | undefined, color: Color): void {
 		if (!vao?.count) return;
 		stencilFan(vtx, vao);
 		gl.useProgram(prog.cover.p); setOutline(prog.cover); gl.uniform4fv(prog.cover.u.u_col, color);
@@ -535,7 +545,7 @@ export function createRenderer(canvas) {
 	// 面の塗り（drawLand）・コロプレス（drawChoropleth）・ホバー識別（readFid）の 3 者が読む共有の材料で、
 	// どれか一つの持ち物ではない＝ここで単独に描く（2026-09-18 本人裁定「コロプレスをレイヤーから独立させて」）。
 	// float ID を作れない機体は代わりにステンシルで陸マスクだけ立てる＝面は塗れる（コロプレス/ホバーは成立しない）。
-	function drawIds(vtx, vao) {
+	function drawIds(vtx: GlVertexTexture, vao: GlInstance | null | undefined): boolean {
 		if (!vao?.count) return false;
 		if (hasFloatId) {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, idFbo);
@@ -550,9 +560,9 @@ export function createRenderer(canvas) {
 	}
 	// 面の塗り＝陸色＋ハイプソ。ID バッファ（またはステンシル）で陸だけに乗せる。コロプレスもホバーもここには居ない。
 	// o = { land:[r,g,b], hypso: 0..1, pal: WORLD_PAL }
-	function drawLand(o) {
+	function drawLand(o: { land: Color; hypso?: number; pal: WorldPal }): void {
 		if (!idsThisFrame) return;   // 材料（ID/ステンシル）が無い＝塗る場所が決まらない
-		const pr = prog.composite, u = pr.u, f = frame;
+		const pr = prog.composite, u = pr.u, f = frame!;
 		gl.useProgram(pr.p);
 		gl.uniform1f(u.u_hasId, hasFloatId ? 1 : 0);
 		setOutline(pr); gl.uniform1f(u.u_lon0, f.lon0);
@@ -574,7 +584,7 @@ export function createRenderer(canvas) {
 	// o = { alpha: 0..1, hover: fid|-1, hoverColor?:[r,g,b,a] }。同じフレームで drawIds が済んでいること（材料＝ID バッファ）。
 	// float ID が無い機体（ID バッファを作れない）＝コロプレスもホバーも成立しない＝何もしない（陸は合成パスが塗り済み）。
 	const HOVER_DEFAULT = [0.10, 0.14, 0.20, 0.14];
-	function drawChoropleth(o = {}) {
+	function drawChoropleth(o: { alpha?: number; hover?: number; hoverColor?: Color } = {}): void {
 		if (!hasFloatId || !idTex || !idsThisFrame) return;
 		const alpha = paintTex ? (o.alpha || 0) : 0, hover = o.hover ?? -1;
 		if (alpha <= 0.001 && hover < 0) return;
@@ -590,7 +600,7 @@ export function createRenderer(canvas) {
 	}
 	// 画面 CSS px（左上原点）の国 → fid | -1（ID バッファの直読み・1px）
 	const px4 = new Float32Array(4);
-	function readFid(cssX, cssY) {
+	function readFid(cssX: number, cssY: number): number {
 		if (!hasFloatId || !idFbo || !frame) return -1;
 		const x = Math.floor(cssX * frame.dpr), y = idH - 1 - Math.floor(cssY * frame.dpr);
 		if (x < 0 || y < 0 || x >= idW || y >= idH) return -1;
@@ -600,7 +610,7 @@ export function createRenderer(canvas) {
 		const id = Math.round(Math.abs(px4[0]));
 		return id > 0 ? id - 1 : -1;
 	}
-	function drawPoints(vao, styles) {
+	function drawPoints(vao: GlInstance | null | undefined, styles: LineStyle[]): void {
 		if (!vao?.count) return;
 		const pr = prog.point; setCommon(pr, null); setStyles(pr, styles);
 		gl.bindVertexArray(vao.vao);
@@ -608,6 +618,6 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	const destroy = () => gl.getExtension("WEBGL_lose_context")?.loseContext();
+	const destroy = (): void => gl.getExtension("WEBGL_lose_context")?.loseContext();
 	return { gl, backend: "webgl2", maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE), hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawVeil, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint, flush() {}, destroy };
 }
