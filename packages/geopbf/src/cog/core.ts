@@ -2,27 +2,80 @@
 // これに worker pool と createImageBitmap 系 imageDecoder を配線するだけ。
 // 流れ: source（ヘッダ一発読み）→ tiff（IFD/GeoKey）→ モデル化（overview 表・bboxLL・levelFor）
 //       → getTile(s)（sparse→null・coalesce 発注・LRU・注入キャッシュ）→ render(目標グリッドへ warp）。
-import { openSource } from "./source.js";
-import { parseTiff } from "./tiff.js";
-import { projFor, SUPPORTED_EPSG } from "./proj.js";
-import { decodeTile, toRGBA8, makeLut } from "./decode.js";
-import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.js";
-import { makeLRU, noopCache } from "./cache.js";
+import { openSource } from "./source.ts";
+import type { SourceInput, SourceOptions, SourceMetrics } from "./source.ts";
+import { parseTiff } from "./tiff.ts";
+import { projFor, SUPPORTED_EPSG } from "./proj.ts";
+import { decodeTile, toRGBA8, makeLut } from "./decode.ts";
+import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.ts";
+import { makeLRU, noopCache } from "./cache.ts";
+import type { ByteCache } from "./cache.ts";
+import type { Ifd, GeoLevel, BBox, Target, TileCoord, Stretch, StretchRange, LutSpec, Composite, Lut, RasterData } from "./types.ts";
 
 import { now } from "../modules/now.js";
 export { xyzTarget, lonlatTarget };
 
-export async function openCog(src, opts = {}) {
+/** JPEG/WebP タイルをブラウザでデコードする口（index.js が createImageBitmap 系を注入） */
+export type ImageDecoder = (bytes: Uint8Array, mime: string, w: number, h: number) => Promise<Uint8ClampedArray>;
+export interface CogOptions extends SourceOptions {
+	/** 二層目キャッシュ（圧縮バイト・IDB 等）。cacheKey か ETag があるときだけ使う */
+	cache?: ByteCache;
+	cacheKey?: string;
+	/** 一層目（デコード済み RGBA）の byte 予算（既定 128 MB） */
+	memBudget?: number;
+	/** "dualpol"＝samples≥2 の偽色合成 */
+	composite?: Composite | string;
+	/** 単バンドの LUT（名前か 256×3 バイト） */
+	colormap?: LutSpec;
+	/** 明示 [lo,hi]（dualpol は 3 本でも 1 本でも） */
+	stretch?: Stretch;
+	/** levelFor の猶予（既定 √2） */
+	lodBias?: number;
+	imageDecoder?: ImageDecoder;
+}
+export interface Overview { level: number; width: number; height: number; tilesX: number; tilesY: number; resX: number }
+export interface CogMetrics extends SourceMetrics { ttfhMs: number; tilesDecoded: number; decodeMs: number; cacheHits: number; lruBytes: number }
+export interface PlanOptions { level?: number }
+export interface RenderOptions extends PlanOptions { signal?: AbortSignal; nearest?: boolean }
+/** 目標グリッド → 必要源タイルの割り出し */
+export interface Plan { level: number; lv: Ifd; geoL: GeoLevel; list: TileCoord[] }
+/** デコード済みタイル: raster（型付き配列）か image（ブラウザでデコード済み RGBA） */
+export type RasterTile = { data: RasterData; image?: undefined } | { image: Uint8ClampedArray; data?: undefined };
+export type DType = "u8" | "i8" | "u16" | "i16" | "f32";
+/** openCog の戻り（DOM-free） */
+export interface Cog {
+	width: number; height: number; tileW: number; tileH: number;
+	samples: number; dtype: DType; epsg: number;
+	compression: number; bigtiff: boolean; nodata: number | null; citation: string | null;
+	bbox: BBox; bboxLL: BBox; overviews: Overview[]; etag: string | null;
+	/** 目標解像度以上を保つ最粗段 */
+	levelFor(unitsPerPx: number): number;
+	getTile(level: number, tx: number, ty: number, o?: { signal?: AbortSignal }): Promise<Uint8ClampedArray | null | undefined>;
+	getTiles(level: number, list: TileCoord[], o?: { signal?: AbortSignal }): Promise<(Uint8ClampedArray | null | undefined)[]>;
+	plan(tgt: Target, o?: PlanOptions): Plan | null;
+	render(tgt: Target, o?: RenderOptions): Promise<Uint8ClampedArray | null>;
+	/** 生の圧縮バイト（sparse は null） */
+	rawTiles(level: number, list: TileCoord[], signal?: AbortSignal): Promise<(Uint8Array | null | undefined)[]>;
+	ifdOf(level: number): Ifd;
+	littleEndian: boolean;
+	ensureStretch(): Promise<Stretch | null>;
+	/** ブラウザ層（index.js）が worker へそのまま運ぶ描画オプション（stretch は ensureStretch） */
+	drawOpts: { composite: Composite; lut: Lut | null };
+	metrics(): CogMetrics;
+	close(): void;
+}
+
+export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<Cog> {
 	const t0 = now();
 	const s = await openSource(src, opts);
 	// 二層目キャッシュ（圧縮バイト）は鍵が刻めるとき＝cacheKey か ETag があるときだけ（どちらも無い読み口＝署名 URL の proxy 等で
 	// 鍵が "cog::lv/tx/ty" に潰れて別ファイル同士が衝突する）。全量モードも素通し。
 	const cache2 = opts.cache && (opts.cacheKey || s.etag) ? opts.cache : noopCache;
-	const lru = makeLRU(opts.memBudget ?? 128 << 20);
+	const lru = makeLRU<Uint8ClampedArray | 0>(opts.memBudget ?? 128 << 20);   // null は 0 を番人に
 	const metrics = { ttfhMs: 0, tilesDecoded: 0, decodeMs: 0, cacheHits: 0 };
 
 	// ヘッダ窓に収まる読みはネットに出さない（16KB に IFD が収まるのが COG の通例）
-	const getBytes = async (from, len) => {
+	const getBytes = async (from: number, len: number): Promise<Uint8Array> => {
 		if (from + len <= s.head.length) return s.head.subarray(from, from + len);
 		return s.read(from, len);
 	};
@@ -30,12 +83,13 @@ export async function openCog(src, opts = {}) {
 	metrics.ttfhMs = now() - t0;
 
 	if (t.epsg === null) throw new Error("cog: no EPSG in GeoKeyDirectory");
-	const proj = projFor(t.epsg);
-	if (!proj) throw new Error(`cog: unsupported CRS EPSG:${t.epsg} (supported: ${SUPPORTED_EPSG})`);
+	const epsg = t.epsg;
+	const proj = projFor(epsg);
+	if (!proj) throw new Error(`cog: unsupported CRS EPSG:${epsg} (supported: ${SUPPORTED_EPSG})`);
 
 	const full = t.ifds[0];
 	const gsd = Math.sqrt(Math.abs(t.geo.ax * t.geo.by - t.geo.ay * t.geo.bx));   // 画素サイズ（CRS単位・回転でも面積ベースで正）
-	const overviews = t.ifds.map((lv, i) => ({
+	const overviews: Overview[] = t.ifds.map((lv, i) => ({
 		level: i, width: lv.width, height: lv.height, tilesX: lv.tilesX, tilesY: lv.tilesY,
 		resX: gsd * full.width / lv.width,
 	}));
@@ -52,7 +106,7 @@ export async function openCog(src, opts = {}) {
 	}
 
 	// 描画オプション（単バンド/2 バンドの見せ方）: composite="dualpol"（samples≥2＝R:b0・G:b1・B:b0−b1）・colormap（単バンド LUT）。
-	const composite = full.samples >= 2 && full.samples < 3 && !full.palette && opts.composite === "dualpol" ? "dualpol" : null;
+	const composite: Composite = full.samples >= 2 && full.samples < 3 && !full.palette && opts.composite === "dualpol" ? "dualpol" : null;
 	const lut = full.samples < 3 && !full.palette ? makeLut(opts.colormap) : null;
 
 	// stretch（単バンド全般＝u8 も含む）: 明示 [lo,hi] か auto＝最粗 overview の 2–98 percentile を f32 で。
@@ -60,14 +114,18 @@ export async function openCog(src, opts = {}) {
 	// dualpol は 3 本ぶん [[lo,hi]×3]（b0・b1・b0−b1）＝明示は 3 本でも 1 本（3 本に複製）でも可。
 	// ⚠標本化は画像の実領域だけ＝最粗段は 1 タイルに収まり、タイルの余白（ゼロ詰め）が値域を支配する
 	//（GCOM-C SST f32＝nodata −9999 で余白 0 が 98% を占め stretch が [0,0] に化けた・2026-09-16 実測）
-	let stretchP = null;
+	let stretchP: Promise<Stretch> | null = null;
 	const needStretch = full.samples < 3 && !full.palette;
-	const ensureStretch = () => stretchP ??= (async () => {
-		if (Array.isArray(opts.stretch)) return composite && !Array.isArray(opts.stretch[0]) ? [opts.stretch, opts.stretch, opts.stretch] : opts.stretch;
+	interface Col { v: Float64Array; n: number }
+	const ensureStretch = (): Promise<Stretch> => stretchP ??= (async (): Promise<Stretch> => {
+		if (Array.isArray(opts.stretch)) {
+			const st = opts.stretch;
+			return composite && !Array.isArray(st[0]) ? [st as StretchRange, st as StretchRange, st as StretchRange] : st;
+		}
 		const L = t.ifds.length - 1, lv = t.ifds[L];
 		const raster = await getRasterTiles(L, allTiles(lv));
-		const cols = Array.from({ length: composite ? 3 : 1 }, () => ({ v: new Float64Array(1 << 15), n: 0 }));   // 型付き配列＋ネイティブ数値 sort
-		const push = (c, x) => { if (c.n === c.v.length) { const g = new Float64Array(c.v.length * 2); g.set(c.v); c.v = g; } c.v[c.n++] = x; };
+		const cols: Col[] = Array.from({ length: composite ? 3 : 1 }, () => ({ v: new Float64Array(1 << 15), n: 0 }));   // 型付き配列＋ネイティブ数値 sort
+		const push = (c: Col, x: number): void => { if (c.n === c.v.length) { const g = new Float64Array(c.v.length * 2); g.set(c.v); c.v = g; } c.v[c.n++] = x; };
 		const S = lv.samples || 1;
 		const step = Math.max(1, ((lv.width * lv.height) / 20000) | 0);   // 全体で 2 万標本の目安
 		for (const [k, r] of raster) {
@@ -82,18 +140,18 @@ export async function openCog(src, opts = {}) {
 				if (composite) { const u = r.data[i + 1]; push(cols[1], u); push(cols[2], v - u); }
 			}
 		}
-		const pct = (c) => { if (!c.n) return [0, 1]; const a = c.v.subarray(0, c.n).sort(); return [a[(c.n * 0.02) | 0], a[Math.min(c.n - 1, (c.n * 0.98) | 0)]]; };
+		const pct = (c: Col): StretchRange => { if (!c.n) return [0, 1]; const a = c.v.subarray(0, c.n).sort(); return [a[(c.n * 0.02) | 0], a[Math.min(c.n - 1, (c.n * 0.98) | 0)]]; };
 		const out = cols.map(pct);
 		return composite ? out : out[0];
 	})();
 
-	const key = (lv, tx, ty) => `${lv}/${tx}/${ty}`;
-	const key2 = (lv, tx, ty) => `cog:${opts.cacheKey || s.etag || ""}:${lv}/${tx}/${ty}`;
+	const key = (lv: number, tx: number, ty: number): string => `${lv}/${tx}/${ty}`;
+	const key2 = (lv: number, tx: number, ty: number): string => `cog:${opts.cacheKey || s.etag || ""}:${lv}/${tx}/${ty}`;
 
 	// 生バイト（圧縮のまま）を sparse 判定込みで取る。二層目キャッシュはここ（圧縮バイト＝IDB に優しい）。
-	const rawTiles = async (level, list, signal) => {
+	const rawTiles = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, Uint8Array | null>> => {
 		const lv = t.ifds[level];
-		const out = new Map(), need = [];
+		const out = new Map<string, Uint8Array | null>(), need: { tx: number; ty: number; from: number; len: number }[] = [];
 		const items = list.map(([tx, ty]) => { const i = ty * lv.tilesX + tx; return { tx, ty, i, empty: tx < 0 || ty < 0 || tx >= lv.tilesX || ty >= lv.tilesY || !lv.offsets[i] || !lv.counts[i] }; });
 		const hits = s.wholeFile ? null : await Promise.all(items.map(it => it.empty ? null : cache2.get(key2(level, it.tx, it.ty))));   // IDB 照会はまとめて（旧＝タイルごとに直列 await）
 		items.forEach(({ tx, ty, i, empty }, j) => {
@@ -111,11 +169,11 @@ export async function openCog(src, opts = {}) {
 	};
 
 	// デコード済み raster（typed）タイル群＝stretch 算出と render が使う
-	const getRasterTiles = async (level, list, signal) => {
+	const getRasterTiles = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, RasterTile | null>> => {
 		const lv = t.ifds[level];
 		const raw = await rawTiles(level, list, signal);
 		const entries = [...raw];
-		const decoded = await Promise.all(entries.map(async ([, buf]) => {   // デコードは並列（旧＝タイルごとに直列 await＝DecompressionStream/createImageBitmap の待ちが足し算）
+		const decoded = await Promise.all(entries.map(async ([, buf]): Promise<RasterTile | null> => {   // デコードは並列（旧＝タイルごとに直列 await＝DecompressionStream/createImageBitmap の待ちが足し算）
 			if (!buf) return null;
 			const d0 = now();
 			const dec = await decodeTile(buf, lv, t.littleEndian);
@@ -126,15 +184,15 @@ export async function openCog(src, opts = {}) {
 			}
 			return { data: dec.data };
 		}));
-		const out = new Map();
+		const out = new Map<string, RasterTile | null>();
 		entries.forEach(([k], i) => out.set(k, decoded[i]));
 		return out;
 	};
 
 	// RGBA8 タイル（LRU 一層目）
-	const getTilesRGBA = async (level, list, signal) => {
+	const getTilesRGBA = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, Uint8ClampedArray | null>> => {
 		const lv = t.ifds[level];
-		const out = new Map(), miss = [];
+		const out = new Map<string, Uint8ClampedArray | null>(), miss: TileCoord[] = [];
 		for (const [tx, ty] of list) {
 			const c = lru.get(key(level, tx, ty));
 			c !== null ? out.set(key(level, tx, ty), c === 0 ? null : c) : miss.push([tx, ty]);
@@ -151,7 +209,7 @@ export async function openCog(src, opts = {}) {
 		return out;
 	};
 
-	const levelFor = (unitsPerPx) => {   // 目標解像度以上を保つ最粗段（LOD 思想の raster 版）
+	const levelFor = (unitsPerPx: number): number => {   // 目標解像度以上を保つ最粗段（LOD 思想の raster 版）
 		let best = 0;
 		for (const o of overviews) if (o.resX <= unitsPerPx * (opts.lodBias ?? 1.42)) best = o.level;   // √2 猶予
 		return best;
@@ -159,7 +217,7 @@ export async function openCog(src, opts = {}) {
 
 	// 目標グリッド → {level, lv, geoL, list}（必要源タイルの割り出し）。範囲外は null。
 	// render が内部で使うほか、ブラウザ層（index.js）が「raw 取得は main・warp は worker」に分業する時の共通口。
-	const plan = (tgt, o = {}) => {
+	const plan = (tgt: Target, o: PlanOptions = {}): Plan | null => {
 		const [lonA, latA] = tgt.mapLL(0, tgt.h / 2), [lonB, latB] = tgt.mapLL(tgt.w - 1, tgt.h / 2);
 		const [XA, YA] = proj.forward([lonA, latA]), [XB, YB] = proj.forward([lonB, latB]);
 		const level = o.level ?? levelFor(Math.hypot(XB - XA, YB - YA) / (tgt.w - 1));
@@ -174,13 +232,13 @@ export async function openCog(src, opts = {}) {
 		const tx0 = Math.max(0, (px0 / lv.tileW) | 0), tx1 = Math.min(lv.tilesX - 1, (px1 / lv.tileW) | 0);
 		const ty0 = Math.max(0, (py0 / lv.tileH) | 0), ty1 = Math.min(lv.tilesY - 1, (py1 / lv.tileH) | 0);
 		if (tx1 < tx0 || ty1 < ty0) return null;
-		const list = [];
+		const list: TileCoord[] = [];
 		for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) list.push([tx, ty]);
 		return { level, lv, geoL, list };
 	};
 
 	// 目標グリッドへ描く（DOM-free・raster 経路。JPEG/WebP は imageDecoder 注入時のみ）
-	const render = async (tgt, o = {}) => {
+	const render = async (tgt: Target, o: RenderOptions = {}): Promise<Uint8ClampedArray | null> => {
 		const pl = plan(tgt, o);
 		if (!pl) return null;
 		const tiles = await getTilesRGBA(pl.level, pl.list, o.signal);
@@ -189,7 +247,7 @@ export async function openCog(src, opts = {}) {
 
 	return {
 		width: full.width, height: full.height, tileW: full.tileW, tileH: full.tileH,
-		samples: full.samples, dtype: dtypeOf(full), epsg: t.epsg,
+		samples: full.samples, dtype: dtypeOf(full), epsg,
 		compression: full.compression, bigtiff: t.bigtiff, nodata: t.nodata, citation: t.citation,
 		bbox: t.bbox, bboxLL: [W, S, E, N], overviews, etag: s.etag,
 		levelFor,
@@ -206,5 +264,5 @@ export async function openCog(src, opts = {}) {
 	};
 }
 
-const allTiles = (lv) => { const a = []; for (let ty = 0; ty < lv.tilesY; ty++) for (let tx = 0; tx < lv.tilesX; tx++) a.push([tx, ty]); return a; };
-const dtypeOf = (ifd) => ifd.bits[0] === 8 ? (ifd.sampleFormat === 2 ? "i8" : "u8") : ifd.bits[0] === 16 ? (ifd.sampleFormat === 2 ? "i16" : "u16") : "f32";
+const allTiles = (lv: Ifd): TileCoord[] => { const a: TileCoord[] = []; for (let ty = 0; ty < lv.tilesY; ty++) for (let tx = 0; tx < lv.tilesX; tx++) a.push([tx, ty]); return a; };
+const dtypeOf = (ifd: Ifd): DType => ifd.bits[0] === 8 ? (ifd.sampleFormat === 2 ? "i8" : "u8") : ifd.bits[0] === 16 ? (ifd.sampleFormat === 2 ? "i16" : "u16") : "f32";

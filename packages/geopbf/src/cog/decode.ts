@@ -3,16 +3,17 @@
 // worker/index 側＝Node では明示スキップ）。deflate は modules/inflate.js＝Node は zlib・ブラウザは
 // DecompressionStream（writer/reader 直叩き）＝pako 不使用。そのため decodeTile は非同期。
 import { inflate } from "../modules/inflate.js";
+import type { LeanIfd, RasterData, DecodedTile, Stretch, StretchRange, Lut, LutSpec, Composite } from "./types.ts";
 
 // ---- TIFF LZW（compression=5・MSB-first・ClearCode=256・early change）約60行 ----------------
-export function lzwDecode(src, sizeHint = 4096) {
+export function lzwDecode(src: Uint8Array, sizeHint = 4096): Uint8Array {
 	let out = new Uint8Array(sizeHint), pos = 0;
-	const grow = (n) => { if (pos + n > out.length) { const g = new Uint8Array(Math.max(out.length * 2, pos + n)); g.set(out.subarray(0, pos)); out = g; } };
+	const grow = (n: number): void => { if (pos + n > out.length) { const g = new Uint8Array(Math.max(out.length * 2, pos + n)); g.set(out.subarray(0, pos)); out = g; } };
 	// 辞書は prefix/suffix の連鎖表（旧＝エントリごとに JS 配列を複製＝辞書 1 周で数千本の配列生成）
 	const prefix = new Int16Array(4096), suffix = new Uint8Array(4096), lens = new Uint16Array(4096), first = new Uint8Array(4096);
 	for (let i = 0; i < 256; i++) { prefix[i] = -1; suffix[i] = i; lens[i] = 1; first[i] = i; }
 	let width = 9, next = 258, prev = -1;
-	const emit = (c) => {   // エントリ c のバイト列を out へ（末尾から前へ辿る）
+	const emit = (c: number): void => {   // エントリ c のバイト列を out へ（末尾から前へ辿る）
 		const n = lens[c]; grow(n);
 		for (let k = pos + n - 1; c >= 0; c = prefix[c]) out[k--] = suffix[c];
 		pos += n;
@@ -27,7 +28,7 @@ export function lzwDecode(src, sizeHint = 4096) {
 		bit += width;
 		if (code === 257) break;                                   // EOI
 		if (code === 256) { width = 9; next = 258; prev = -1; continue; }   // Clear
-		let entryFirst;
+		let entryFirst: number;
 		if (code < next && code !== 256 && code !== 257) { emit(code); entryFirst = first[code]; }
 		else if (code === next && prev >= 0) { emit(prev); grow(1); out[pos++] = first[prev]; entryFirst = first[prev]; }   // KwKwK
 		else throw new Error("cog: corrupt LZW stream");
@@ -42,7 +43,7 @@ export function lzwDecode(src, sizeHint = 4096) {
 }
 
 // ---- predictor=2（水平差分の累積・バンド数 stride・8/16bit）---------------------------------
-function undoPredictor2(data, w, h, samples, bytesPer) {
+function undoPredictor2(data: RasterData, w: number, h: number, samples: number, bytesPer: number): RasterData {
 	if (bytesPer === 1) {
 		for (let r = 0; r < h; r++) {
 			const row = r * w * samples;
@@ -59,7 +60,7 @@ function undoPredictor2(data, w, h, samples, bytesPer) {
 
 // ---- バイト列 → 型付き配列（ファイル byte order → プラットフォーム）---------------------------
 const PLATFORM_LE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
-function typedOf(u8, ifd, le) {
+function typedOf(u8: Uint8Array, ifd: LeanIfd, le: boolean): RasterData {
 	const { bits, sampleFormat } = ifd;
 	const b = bits[0];
 	if (b === 8) return sampleFormat === 2 ? new Int8Array(u8.buffer, u8.byteOffset, u8.byteLength) : u8;
@@ -82,7 +83,7 @@ function typedOf(u8, ifd, le) {
 }
 
 // ---- JPEG-in-TIFF: JPEGTables(347) とタイルデータの連結（テーブルの EOI とタイルの SOI を落とす）----
-export function mergeJPEGTables(tables, tile) {
+export function mergeJPEGTables(tables: Uint8Array | null | undefined, tile: Uint8Array): Uint8Array {
 	if (!tables || tables.length < 4) return tile;
 	let tEnd = tables.length;
 	if (tables[tEnd - 2] === 0xFF && tables[tEnd - 1] === 0xD9) tEnd -= 2;   // EOI
@@ -97,12 +98,12 @@ export function mergeJPEGTables(tables, tile) {
 // ---- タイル1枚のデコード（DOM-free 経路）-----------------------------------------------------
 // 戻り: {kind:"raster", data:TypedArray} ＝ none/deflate/LZW（predictor 適用済み・プラットフォーム endian）
 //       {kind:"image", bytes, mime}      ＝ JPEG/WebP（呼び出し側が createImageBitmap）
-export async function decodeTile(raw, ifd, le) {
+export async function decodeTile(raw: Uint8Array, ifd: LeanIfd, le: boolean): Promise<DecodedTile> {
 	const { compression, tileW, tileH, samples, bits } = ifd;
 	const bytesPer = bits[0] >> 3;
 	if (compression === 7) return { kind: "image", bytes: mergeJPEGTables(ifd.jpegTables, raw), mime: "image/jpeg" };
 	if (compression === 50001) return { kind: "image", bytes: raw, mime: "image/webp" };
-	let u8;
+	let u8: Uint8Array;
 	if (compression === 1) u8 = ifd.predictor === 2 ? raw.slice() : raw;   // 無圧縮＋predictor は in-place 累積＝二層目キャッシュの生バイトを壊さないよう複製
 	else if (compression === 8 || compression === 32946) u8 = await inflate(raw, "deflate");   // zlib（TIFF deflate は zlib 包み）
 	else if (compression === 5) u8 = lzwDecode(raw, tileW * tileH * samples * bytesPer);
@@ -115,11 +116,11 @@ export async function decodeTile(raw, ifd, le) {
 // ---- カラーマップ（単バンドの描画用 LUT）--------------------------------------------------------
 // 名前（内蔵）か Uint8Array(256×3) を受けて Uint8Array(768) に正規化。null なら無し（グレー）。
 // thermal＝Google turbo の 9 点標本を区分線形で（海面水温・気温向け・低温=紫青・高温=赤）。
-const STOPS = {
+const STOPS: Record<string, number[][]> = {
 	thermal: [[48, 18, 59], [70, 98, 215], [54, 170, 249], [26, 228, 182], [114, 254, 94], [200, 239, 52], [250, 186, 57], [246, 107, 25], [122, 4, 3]],
 	gray: [[0, 0, 0], [255, 255, 255]],
 };
-export function makeLut(spec) {
+export function makeLut(spec: LutSpec): Lut | null {
 	if (!spec) return null;
 	if (spec instanceof Uint8Array || spec instanceof Uint8ClampedArray) { if (spec.length !== 768) throw new Error("cog: colormap must be 256×3 bytes"); return spec; }
 	const stops = typeof spec === "string" ? STOPS[spec] : Array.isArray(spec) ? spec : null;
@@ -132,17 +133,26 @@ export function makeLut(spec) {
 	return lut;
 }
 
+export interface ToRGBA8Options {
+	stretch?: Stretch | null;
+	nodata?: number | null;
+	composite?: Composite;
+	lut?: Lut | null;
+}
+/** stretch が 3 本ぶん（[[lo,hi]×3]）か */
+const isMulti = (s: Stretch | null | undefined): s is StretchRange[] => Array.isArray(s?.[0]);
+
 // ---- RGBA8 化（gray/RGB(A)/palette・stretch・nodata→alpha0）--------------------------------
 // stretch=[lo,hi] は単バンド用（u8 も auto＝core が最粗 overview の percentile を渡す）。edge タイルも tileW×tileH のまま返す
 // （TIFF はタイルを常にフル寸で持つ＝切り詰めは warp 側が画像境界で行う）。
 // composite="dualpol"（samples≥2）＝R:b0・G:b1・B:b0−b1 の偽色合成（2 偏波 SAR の定番＝森が緑・市街が紫・水が黒）。
 //   stretch は [[lo,hi]×3]（core の auto が 3 本ぶん出す）。lut（makeLut）は単バンドのグレーを色に置く。
-export function toRGBA8(data, ifd, { stretch = null, nodata = null, composite = null, lut = null } = {}) {
+export function toRGBA8(data: RasterData, ifd: LeanIfd, { stretch = null, nodata = null, composite = null, lut = null }: ToRGBA8Options = {}): Uint8ClampedArray {
 	const { tileW, tileH, samples, photometric, palette, extraSamples } = ifd;
 	const n = tileW * tileH;
 	const out = new Uint8ClampedArray(n * 4);
 	if (composite === "dualpol" && samples >= 2 && !palette) {
-		const S = samples, st = Array.isArray(stretch?.[0]) ? stretch : [stretch || [0, 255], stretch || [0, 255], stretch || [0, 255]];
+		const S = samples, st: StretchRange[] = isMulti(stretch) ? stretch : [stretch || [0, 255], stretch || [0, 255], stretch || [0, 255]];
 		const k = st.map(([lo, hi]) => 255 / Math.max(hi - lo, 1e-9));
 		for (let i = 0; i < n; i++) {
 			const a = data[i * S], b = data[i * S + 1];
@@ -174,7 +184,7 @@ export function toRGBA8(data, ifd, { stretch = null, nodata = null, composite = 
 	// 単バンド → グレー（stretch は f32 のまま計算＝バンディング回避）。
 	// samples=2 は「グレー＋追加バンド」＝先頭バンドを描く（Tellus の PALSAR-2 webcog は HH/HV 2 バンド u8＝
 	// 画素インターリーブなので stride を跨がないと横縞になる・2026-09-16 実測）
-	const [lo, hi] = Array.isArray(stretch?.[0]) ? stretch[0] : (stretch || [0, 255]);
+	const [lo, hi] = isMulti(stretch) ? stretch[0] : (stretch || [0, 255]);
 	const k = 255 / Math.max(hi - lo, 1e-9);
 	const S = samples || 1;
 	for (let i = 0; i < n; i++) {

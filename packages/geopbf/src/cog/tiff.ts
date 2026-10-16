@@ -4,10 +4,19 @@
 // 「幅=画像幅のタイル」へ正規化＝GDAL を通らないローカル .tif の救済）・overview チェーン・
 // GeoKeyDirectory→EPSG・ModelPixelScale/Tiepoint（回転付き ModelTransformation は軸平行のみ許容）。
 // 非対応（明示エラー）: PlanarConfig=2・predictor=3・12bit JPEG。未知タグは黙って skip（既存文化）。
+import type { Ifd, Geo, BBox, TiffInfo } from "./types.ts";
 
-const TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8, 17: 8, 18: 8 };
+const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8, 17: 8, 18: 8 };
 
-export async function parseTiff(getBytes) {
+/** ファイルの部分読み（from, len）→ バイト列 */
+export type GetBytes = (from: number, len: number) => Promise<Uint8Array>;
+/** IFD エントリ（inline＝値かポインタの生バイト） */
+interface TagEntry { type: number; count: number; at: number; inline: Uint8Array }
+type TagMap = Map<number, TagEntry>;
+/** モデル化途中の IFD（解析後に tags を手放す） */
+type ParsedIfd = Ifd & { tags?: TagMap };
+
+export async function parseTiff(getBytes: GetBytes): Promise<TiffInfo> {
 	const head = await getBytes(0, 16);
 	const hv = dv(head);
 	const le = hv.getUint16(0) === 0x4949;   // "II"
@@ -19,17 +28,17 @@ export async function parseTiff(getBytes) {
 
 	// オフセット/カウントの読み口を classic(4B)/BigTIFF(8B) で1本化
 	const OFF = big ? 8 : 4;
-	const getOff = (v, at) => big ? Number(v.getBigUint64(at, le)) : v.getUint32(at, le);
+	const getOff = (v: DataView, at: number): number => big ? Number(v.getBigUint64(at, le)) : v.getUint32(at, le);
 	const entrySize = big ? 20 : 12;
 
-	const ifds = [];
+	const ifds: TagMap[] = [];
 	let next = big ? Number(hv.getBigUint64(8, le)) : hv.getUint32(4, le);
 	while (next && ifds.length < 32) {   // 32 段あれば十分（COG の overview は高々十数段）
 		const cntBuf = await getBytes(next, big ? 8 : 2);
 		const nTags = big ? Number(dv(cntBuf).getBigUint64(0, le)) : dv(cntBuf).getUint16(0, le);
 		const body = await getBytes(next + (big ? 8 : 2), nTags * entrySize + OFF);
 		const bv = dv(body);
-		const tags = new Map();
+		const tags: TagMap = new Map();
 		for (let i = 0; i < nTags; i++) {
 			const o = i * entrySize;
 			const tag = bv.getUint16(o, le), type = bv.getUint16(o + 2, le);
@@ -42,12 +51,12 @@ export async function parseTiff(getBytes) {
 	if (!ifds.length) throw new Error("cog: no IFD");
 
 	// タグ値の取り出し（inline / pointer を吸収）。数値配列で返す。
-	const values = async (tags, tag) => {
+	const values = async (tags: TagMap, tag: number): Promise<number[] | null> => {
 		const e = tags.get(tag);
 		if (!e) return null;
 		const sz = (TYPE_SIZE[e.type] || 1) * e.count;
 		const raw = sz <= OFF ? e.inline.subarray(0, sz) : await getBytes(getOff(dv(e.inline), 0), sz);
-		const v = dv(raw), out = new Array(e.count);
+		const v = dv(raw), out: number[] = new Array(e.count);
 		for (let i = 0; i < e.count; i++) {
 			switch (e.type) {
 				case 1: case 2: case 7: out[i] = raw[i]; break;
@@ -65,16 +74,18 @@ export async function parseTiff(getBytes) {
 		}
 		return out;
 	};
-	const one = async (tags, tag, def) => { const a = await values(tags, tag); return a ? a[0] : def; };
-	const ascii = async (tags, tag) => { const a = await values(tags, tag); return a ? String.fromCharCode(...a.filter(c => c)).trim() : null; };
-	const bytes = async (tags, tag) => {   // UNDEFINED をそのまま（JPEGTables 用）
+	async function one(tags: TagMap, tag: number): Promise<number | undefined>;
+	async function one(tags: TagMap, tag: number, def: number): Promise<number>;
+	async function one(tags: TagMap, tag: number, def?: number): Promise<number | undefined> { const a = await values(tags, tag); return a ? a[0] : def; }
+	const ascii = async (tags: TagMap, tag: number): Promise<string | null> => { const a = await values(tags, tag); return a ? String.fromCharCode(...a.filter(c => c)).trim() : null; };
+	const bytes = async (tags: TagMap, tag: number): Promise<Uint8Array | null> => {   // UNDEFINED をそのまま（JPEGTables 用）
 		const e = tags.get(tag);
 		if (!e) return null;
 		return e.count <= OFF ? e.inline.slice(0, e.count) : await getBytes(getOff(dv(e.inline), 0), e.count);
 	};
 
 	// ---- 各 IFD をモデル化 -------------------------------------------------------
-	const out = [];
+	const out: ParsedIfd[] = [];
 	for (const tags of ifds) {
 		const sub = await one(tags, 254, 0);            // NewSubfileType: 1=縮小(overview) 4=mask
 		if (sub & 4) continue;                          // transparency mask IFD は読み飛ばす
@@ -89,7 +100,7 @@ export async function parseTiff(getBytes) {
 		if (compression === 7 && bits.some(b => b > 8)) throw new Error("cog: >8bit JPEG not supported");
 
 		let tileW = await one(tags, 322, 0), tileH = await one(tags, 323, 0);
-		let offsets, counts;
+		let offsets: number[] | null, counts: number[] | null;
 		if (tileW) {
 			offsets = await values(tags, 324); counts = await values(tags, 325);
 		} else {
@@ -100,7 +111,7 @@ export async function parseTiff(getBytes) {
 		if (!offsets || !counts) continue;
 
 		const colorMapRaw = await values(tags, 320);
-		let palette = null;
+		let palette: Uint8Array | null = null;
 		if (colorMapRaw) {   // 16bit×3面 → RGBA256（l03b-r-worker と同じ縮約・alpha は不透明）
 			const nn = colorMapRaw.length / 3;
 			palette = new Uint8Array(256 * 4);
@@ -131,37 +142,39 @@ export async function parseTiff(getBytes) {
 
 	// ---- ジオリファレンス（フル解像度 IFD から） ------------------------------------
 	const main = out.reduce((a, b) => (b.width > a.width ? b : a));
-	const mt = await values(main.tags, 33550);   // ModelPixelScale
-	const tp = await values(main.tags, 33922);   // ModelTiepoint
-	const xf = await values(main.tags, 34264);   // ModelTransformation（回転込みフルアフィン＝SAR GEC の実勢 9/6 対応）
+	const mainTags = main.tags as TagMap;   // 解析中＝まだ手放していない
+	const mt = await values(mainTags, 33550);   // ModelPixelScale
+	const tp = await values(mainTags, 33922);   // ModelTiepoint
+	const xf = await values(mainTags, 34264);   // ModelTransformation（回転込みフルアフィン＝SAR GEC の実勢 9/6 対応）
 	// geo＝フルアフィン統一: X = ox + ax·px + ay·py / Y = oy + bx·px + by·py（軸平行は ay=bx=0 の特殊形）
-	let geo = null;
+	let geo: Geo | null = null;
 	if (mt && tp) geo = { ox: tp[3] - tp[0] * mt[0], oy: tp[4] + tp[1] * mt[1], ax: mt[0], ay: 0, bx: 0, by: -mt[1] };
 	else if (xf) geo = { ox: xf[3], oy: xf[7], ax: xf[0], ay: xf[1], bx: xf[4], by: xf[5] };
 	if (!geo) throw new Error("cog: no georeference (ModelPixelScale/Tiepoint)");
 	if (Math.abs(geo.ax * geo.by - geo.ay * geo.bx) < 1e-30) throw new Error("cog: degenerate geotransform");
 	geo.rotated = !(geo.ay === 0 && geo.bx === 0);
 	// bbox（源 CRS）＝画像四隅のアフィン像の外接（回転でも正しい）
-	const cx = (px, py) => geo.ox + geo.ax * px + geo.ay * py, cy = (px, py) => geo.oy + geo.bx * px + geo.by * py;
+	const g = geo;
+	const cx = (px: number, py: number): number => g.ox + g.ax * px + g.ay * py, cy = (px: number, py: number): number => g.oy + g.bx * px + g.by * py;
 	let bx0 = 1e30, by0 = 1e30, bx1 = -1e30, by1 = -1e30;
 	for (const [px, py] of [[0, 0], [main.width, 0], [0, main.height], [main.width, main.height]]) {
 		bx0 = Math.min(bx0, cx(px, py)); bx1 = Math.max(bx1, cx(px, py));
 		by0 = Math.min(by0, cy(px, py)); by1 = Math.max(by1, cy(px, py));
 	}
-	const bbox = [bx0, by0, bx1, by1];
+	const bbox: BBox = [bx0, by0, bx1, by1];
 
 	// ---- GeoKeyDirectory → EPSG --------------------------------------------------
-	const gk = await values(main.tags, 34735);
-	let epsg = null;
+	const gk = await values(mainTags, 34735);
+	let epsg: number | null = null;
 	if (gk && gk.length >= 4) {
-		const keys = {};
+		const keys: Record<number, number> = {};
 		for (let i = 4; i + 3 < (4 + gk[3] * 4); i += 4) if (gk[i + 1] === 0) keys[gk[i]] = gk[i + 3];   // inline SHORT のみ
 		epsg = keys[3072] || (keys[1024] === 2 ? (keys[2048] || 4326) : null);   // projected 優先・geographic は 2048
 	}
 
-	const nodataStr = await ascii(main.tags, 42113);   // GDAL_NODATA（ASCII）
+	const nodataStr = await ascii(mainTags, 42113);   // GDAL_NODATA（ASCII）
 	const nodata = nodataStr !== null && nodataStr !== "" ? Number(nodataStr) : null;
-	const citation = await ascii(main.tags, 34737);
+	const citation = await ascii(mainTags, 34737);
 
 	for (const o of out) delete o.tags;   // 解析後はタグ表を手放す（保持コストゼロに）
 	// overviews はフル解像度含め width 降順＝level 0 がフル解像度
@@ -169,4 +182,4 @@ export async function parseTiff(getBytes) {
 	return { ifds: out, epsg, geo, bbox, nodata, citation, bigtiff: big, littleEndian: le };
 }
 
-const dv = (u8) => new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+const dv = (u8: Uint8Array): DataView => new DataView(u8.buffer, u8.byteOffset, u8.byteLength);

@@ -1,7 +1,7 @@
 // t-cog-proj: src/cog/proj.js（Krüger TM）と warp.js の検定。
 // 独立検証: 中央経線上の北距＝0.9996×子午線弧長を「数値積分」で照合（級数と独立の答え合わせ）。
-import { projFor } from "../src/cog/proj.js";
-import { warpRGBA, geoAtLevel, lonlatTarget } from "../src/cog/warp.js";
+import { projFor } from "../src/cog/proj.ts";
+import { warpRGBA, geoAtLevel, lonlatTarget } from "../src/cog/warp.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
