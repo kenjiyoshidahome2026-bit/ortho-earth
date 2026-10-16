@@ -1,7 +1,8 @@
-// 3D Tiles 1.1 implicit tiling（subtree）の純関数の検定（node・網なし・fixtures/tiles3d-implicit＝make.mjs で生成）。
+// 3D Tiles 1.1 implicit tiling（subtree）と metadata の純関数の検定（node・網なし・fixtures/tiles3d-implicit＝make.mjs で生成）。
 // 並び（Morton・段の始まり・ビットの順）・subtree の各書式（バイナリ／JSON／外部 buffer／constant／1.0 拡張の bufferView）・境界体積の分割・URI テンプレート・
 // 試料の木を subtree を辿って数え上げ、作った時の available の表と一致するか。
 import { readFileSync, existsSync } from "node:fs";
+import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../src/tiles3d-metadata.ts";
 import { implicitOf, levelOffset, morton, childCoord, indexIn, childSubtreeIndex, isAvailable, rankOf, expandUri, geometricErrorAt, volumeAt, parseSubtree } from "../src/tiles3d-implicit.ts";
 
 let fail = 0;
@@ -102,6 +103,29 @@ ok("試料の subtree＝7 個", subtrees === 7);
 ok("content の URI＝全部ファイルがある", uris.length === 15 && uris.every(u => existsSync(new URL(u, dir))), `${uris.length}`);
 const bv33 = volumeAt(ts.root.boundingVolume, { level: 3, x: 6, y: 6 }, 4).box;
 ok("段 3 (6,6) の箱（中心 東 200・北 200・半辺 40）", near(bv33, [200, 200, 25, 40, 0, 0, 0, 40, 0, 0, 0, 25]));
+
+// ── metadata（tileset・group・subtree の property table・意味）
+const schema = JSON.parse(readFileSync(new URL("schema.json", dir), "utf8"));
+const tsm = entityOf(ts.metadata, schema);
+ok("tileset の metadata＝scale／offset と default", tsm.class === "tileset" && tsm.properties.name === "implicit fixture" && tsm.properties.scaled === 20 && tsm.properties.missing === "dflt", JSON.stringify(tsm));
+ok("group", JSON.stringify(entityOf(ts.groups[0], schema)) === JSON.stringify({ class: "layer", properties: { name: "boxes", priority: 3 } }));
+ok("schema に無い class＝値をそのまま", JSON.stringify(entityOf({ class: "x", properties: { a: 1 } }, schema)) === JSON.stringify({ class: "x", properties: { a: 1 } }) && entityOf(null, schema) === null);
+const sch2 = { classes: { c: { properties: { n: { type: "SCALAR", componentType: "UINT8", normalized: true }, v: { type: "VEC2", componentType: "FLOAT32", offset: [1, 2], scale: [10, 100] }, nd: { type: "SCALAR", componentType: "INT8", noData: -1, default: 0 } } } } };
+const e2 = entityOf({ class: "c", properties: { n: 255, v: [1, 1], nd: -1 } }, sch2).properties;
+ok("normalized・成分ごとの offset／scale・noData→default", e2.n === 1 && e2.v[0] === 11 && e2.v[1] === 102 && e2.nd === 0, JSON.stringify(e2));
+const tb = subtreeTables(st0, schema);
+ok("subtree の property table", tb.length === 2 && tb[0].class === "tile" && tb[0].columns.label.join() === "0/0/0,1/0/0,1/0/1,1/1/1" && tb[1].columns.colorName.join() === "red,yellow,yellow,yellow", JSON.stringify(tb.map(t => t.columns)));
+ok("subtree の property table は 1 回だけ解く", subtreeTables(st0, schema) === tb);
+const i011 = indexIn({ level: 0, x: 0, y: 0 }, { level: 1, x: 0, y: 1 }, 4), row = rankOf(st0.tile, i011);
+ok("行＝available の中の順位（段 1 (0,1)＝3 行目）", i011 === 3 && row === 2 && rowEntity(tb[st0.json.tileMetadata], row).properties.label === "1/0/1");
+ok("rowEntity 範囲外＝null", rowEntity(tb[0], 4) === null && rowEntity(undefined, 0) === null);
+const sem = semanticsOf(rowEntity(tb[0], 0), schema);
+ok("意味 TILE_GEOMETRIC_ERROR", sem?.ge === 300 && semanticsOf(rowEntity(tb[1], 0), schema) === null);
+const semS = { classes: { t: { properties: { b: { type: "SCALAR", componentType: "FLOAT64", array: true, count: 6, semantic: "TILE_BOUNDING_REGION" }, lo: { type: "SCALAR", componentType: "FLOAT32", semantic: "TILE_MINIMUM_HEIGHT" }, hi: { type: "SCALAR", componentType: "FLOAT32", semantic: "TILE_MAXIMUM_HEIGHT" } } } } };
+const s3 = semanticsOf({ class: "t", properties: { b: [0, 0, 1, 1, -5, 500], lo: 10, hi: 20 } }, semS);
+ok("意味の上書き＝region と高さ", JSON.stringify(applySemantics({ box: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1] }, 7, s3)) === JSON.stringify({ bv: { region: [0, 0, 1, 1, 10, 20] }, ge: 7 }));
+ok("意味の上書き＝高さだけ（region の根）", JSON.stringify(applySemantics({ region: [0, 0, 1, 1, 0, 100] }, 7, semanticsOf({ class: "t", properties: { lo: 10 } }, semS)).bv) === JSON.stringify({ region: [0, 0, 1, 1, 10, 100] }));
+ok("意味が無い＝そのまま", JSON.stringify(applySemantics({ sphere: [0, 0, 0, 1] }, 3, null)) === JSON.stringify({ bv: { sphere: [0, 0, 0, 1] }, ge: 3 }));
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-implicit 全 PASS");
 process.exit(fail ? 1 : 0);
