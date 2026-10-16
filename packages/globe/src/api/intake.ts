@@ -46,7 +46,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 	// 旧構造は if の連なりで、形式が増えるたびに本道の手前が一段伸びた。表なら「行を1つ足す」で済む。
 	// ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
 	// CZML・GPX の時刻再生（#113 段 4）＝遅延 chunk（gadgets/czml.js）。起動時の URL の t=／s= は最初の 1 回だけ勝つ（本人裁定＝読み込んだ clock より URL）
-	const czmlGet = async () => live.czmlCtl ??= (await import("../gadgets/czml.js")).createCzmlPlayer({ map, keepUrlClock: () => { const k = live.czmlUrlClock; live.czmlUrlClock = false; return k; } });
+	const czmlGet = async () => live.czmlCtl ??= (await import("../gadgets/czml.ts")).createCzmlPlayer({ map, keepUrlClock: () => { const k = live.czmlUrlClock; live.czmlUrlClock = false; return k; } });
 	const INTAKE: IntakeRow[] = [
 		{
 			name: "timed",   // CZML・GPX＝時刻付きの地物は共通の時計で再生（render worker の組み込み czml・#113）・時刻の無い地物は本道（gint）へ。時刻付きが無ければ本道だけ（従来どおり）
