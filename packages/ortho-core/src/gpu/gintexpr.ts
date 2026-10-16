@@ -9,6 +9,7 @@
 // 数は f32（JS は f64）＝.5 の丸めの境で ±1/255 の差が出うる（検定は ±1 の許容）。
 import { paintKeys } from "../gint/attrcols.ts";
 import type { Dict, Kinds } from "../gint/attrcols.ts";
+export type { Kinds as ColumnKinds, ExprKeys, AttrFeature as FeatureLike } from "../gint/attrcols.ts";   // @ortho-earth/core/fidexpr の型の名（旧 types/fidexpr.d.ts）
 export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.ts";   // 呼び手（globe の層）が列を組む道具も同じ入口から
 import { parseRGBA } from "../color.ts";
 

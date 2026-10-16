@@ -24,10 +24,7 @@
 			"types": "./types/gl.d.ts",
 			"default": "./src/gl/backend.js"
 		},
-		"./labels": {
-			"types": "./types/labels.d.ts",
-			"default": "./src/labels2d.ts"
-		},
+		"./labels": "./src/labels2d.ts",
 		"./labelsync": "./src/labelsync.ts",
 		"./terrain": "./src/terrain.ts",
 		"./camera": "./src/camera.ts",
@@ -45,10 +42,7 @@
 		"./decode": "./src/decode.ts",
 		"./expr": "./src/expr.ts",
 		"./fidstyle": "./src/gint/style.ts",
-		"./fidexpr": {
-			"types": "./types/fidexpr.d.ts",
-			"default": "./src/gpu/gintexpr.ts"
-		},
+		"./fidexpr": "./src/gpu/gintexpr.ts",
 		"./color": "./src/color.ts",
 		"./build": "./src/build.ts",
 		"./tilelabels": "./src/labels.ts",
