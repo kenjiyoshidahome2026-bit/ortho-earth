@@ -5,6 +5,7 @@
 // projectLL＝経緯度→画面CSS座標[x,y,front]（実装は engine の project／注入は登録側）。
 // マーカー追随は本体 render のフック＝返す pop 関数の _update を登録側が frameHooks へ入れて毎フレ呼ぶ。
 import { tr } from "../i18n.ts";
+import { setSafeHTML } from "../html-safe.ts";   // 中身は呼び手が組む HTML＝script・on*・javascript: を抜いて入れる（tip と同じ・2026-10-16）
 const t = tr();
 // 📌 は絵文字でなく SVG（白抜きを環境非依存に・currentColor で色を CSS へ委譲）。
 // 固定中は「刺さったピンを真上から見た頭」＝○に切替（＝ここに刺さっている、の意）。
@@ -28,7 +29,7 @@ export function pop({ projectLL, signal } = {}) {
 		const div = document.createElement("div");
 		div.className = "pop";
 		const body = document.createElement("div");   // 文言だけの器＝×/📌を消さずに差し替えできる（編集器の @pop 追随用）
-		body.className = "pop-body"; body.innerHTML = toHTML(content);
+		body.className = "pop-body"; setSafeHTML(body, toHTML(content));
 		const close = document.createElement("button");
 		close.className = "panel-close"; close.textContent = "×"; close.title = t("Close"); close.setAttribute("aria-label", t("Close"));
 		close.addEventListener("click", e => {
@@ -66,7 +67,7 @@ export function pop({ projectLL, signal } = {}) {
 		});
 		// 追随フックとプログラム操作の手綱（既存の imperative 呼び出しには無害・編集器の照合が使う）＝
 		// 文言差し替え／アンカー移動／プログラム除去。これで「作った吹き出しが v2 ビューアでも同じ動きで再生」を同一実装で担保。
-		div._setContent = c => { body.innerHTML = toHTML(c); place(rec, parseFloat(div.style.left) || 0, parseFloat(div.style.top) || 0); draw(); };
+		div._setContent = c => { setSafeHTML(body, toHTML(c)); place(rec, parseFloat(div.style.left) || 0, parseFloat(div.style.top) || 0); draw(); };
 		div._setAnchor = (lng, lat) => { rec.coords = [lng, lat]; draw(); };
 		div._remove = () => { pops = pops.filter(p => p !== rec); div.remove(); draw(); };
 		pops.push(rec); draw();
