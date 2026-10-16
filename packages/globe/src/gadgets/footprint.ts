@@ -5,16 +5,28 @@
 //（初回は 0 m・届いた次のフレームから乗る）。旧＝ここで getHeight を引いて liftM に渡していた＝陸は地形リフトと二重に浮き、
 // 海は負の水深で描いた海面より下へ沈んだ（2026-09-27）。
 import { gcInterpolate } from "geopbf/edit/sphere";
+import type { GlobeMap } from "../types/map.ts";
 
-export function createFootprint(map, mapEl = map.mapEl) {
+/** フットプリントが使う map の口（makeProjectorH・onFrame・requestDraw・mapEl） */
+export type FootprintMap = Pick<GlobeMap, "mapEl" | "makeProjectorH" | "onFrame"> & Partial<Pick<GlobeMap, "requestDraw">>;
+/** 面の geometry（GeoJSON の Polygon／MultiPolygon・それ以外は輪を持たない） */
+export type FootprintGeometry = { type?: string; coordinates?: unknown } | null | undefined;
+/** フットプリントの手綱（set＝geometry か輪か null（消す）・ringOf＝geometry の外周） */
+export interface Footprint {
+	ringOf(g: FootprintGeometry): number[][] | null;
+	set(g: FootprintGeometry | number[][]): void;
+	destroy(): void;
+}
+
+export function createFootprint(map: FootprintMap, mapEl: HTMLElement = map.mapEl): Footprint {
 	const cv = document.createElement("canvas");
 	cv.style.cssText = "position:absolute;inset:0;pointer-events:none;";
 	mapEl.append(cv);
-	let pts = null, unsub = null;
+	let pts: number[][] | null = null, unsub: (() => void) | null = null;
 	const draw = () => {
 		const dpr = devicePixelRatio || 1, W = mapEl.clientWidth, H = mapEl.clientHeight;
 		if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
-		const ctx = cv.getContext("2d");
+		const ctx = cv.getContext("2d")!;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, W, H);
 		if (!pts) return;
@@ -30,12 +42,12 @@ export function createFootprint(map, mapEl = map.mapEl) {
 		ctx.lineWidth = 4.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();   // 白フチ＝衛星画像の上でも読める
 		ctx.lineWidth = 2; ctx.strokeStyle = "#3f4757"; ctx.stroke();
 	};
-	const ringOf = (g) => g?.type === "Polygon" ? g.coordinates[0] : g?.type === "MultiPolygon" ? g.coordinates[0][0] : null;
+	const ringOf = (g: FootprintGeometry) => g?.type === "Polygon" ? (g.coordinates as number[][][])[0] : g?.type === "MultiPolygon" ? (g.coordinates as number[][][][])[0][0] : null;
 	return {
 		ringOf,
 		// geometry（GeoJSON）か ring（[[lon,lat],…]）か null（消す）
 		set(g) {
-			const ring = Array.isArray(g) ? g : ringOf(g);
+			const ring = Array.isArray(g) ? g : ringOf(g as FootprintGeometry);
 			if (!ring) { pts = null; unsub?.(); unsub = null; draw(); return; }
 			const out = [];
 			for (let i = 0; i < ring.length; i++) {

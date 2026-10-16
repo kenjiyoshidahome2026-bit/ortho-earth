@@ -8,15 +8,38 @@
 //   host.requestDraw()＝@icon 画像の到着で次フレーム／host.post({ type:"hits" })＝シンボルの画面矩形（main の hover/click 用）
 import { SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, buildLinePath } from "geopbf/edit/draw";   // 正典（geoedit と同じ一本）
 
+/** geoedit の @スタイル（描く側が読む分・値は geopbf の属性のまま） */
+export interface AnnoStyle {
+	"@fill"?: string; "@stroke"?: string; "@width"?: number | string; "@blur"?: number | string; "@size"?: number | string;
+	"@shape"?: string; "@icon"?: string | Blob; "@text"?: string | number | null; "@poly"?: unknown;
+	"@start"?: string; "@end"?: string; "@cap0"?: string; "@cap1"?: string;
+	[k: string]: unknown;
+}
+/** main（anno.ts）から届く前処理済みの 1 地物（点＝pts・線＝lines・面＝rings。@spline は細分済み） */
+export interface AnnoItem { p: AnnoStyle; pts?: number[][]; lines?: number[][][]; rings?: number[][][] }
+/** シンボルの画面矩形（CSS px・fid＝items の添字）＝main の hover/click 用 */
+export interface AnnoHit { x0: number; y0: number; x1: number; y1: number; fid: number }
+/** オーバーレイの器（host）＝@icon の到着で次フレーム・main へ送る */
+export interface OverlayHost { requestDraw(): void; post(d: unknown): void }
+/** frame の api（lon, lat → [x, y, front]＝CSS px・左上原点・front<0＝裏側／projectH＝h メートル上） */
+export interface OverlayApi {
+	W: number; H: number; dpr: number;
+	project: (lon: number, lat: number) => number[];
+	projectH: (lon: number, lat: number, h?: number) => number[];
+}
+/** main から届く知らせ（set＝items・clear・probe＝検定の実画素） */
+type AnnoMsg = { type: "set"; items?: Array<AnnoItem | null> } | { type: "clear" } | { type: "probe"; id: number };
+type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 // ---- worker 側の描画状態（オーバーレイ 1 枚ぶん）----
 const FONT_FAMILY = '"Noto Sans JP","Hiragino Sans",sans-serif';
 const DEF_FILL = "rgba(120,170,221,.25)", DEF_STROKE = "#2b5f8f", DEF_PT = "#cc4444";
-let canvas = null, ctx = null, host = null, tracer = null;
-let items = [];                    // main から届く前処理済み items（[fid] → { p, pts|lines|rings }・null 可）
-const pictoCache = new Map();
-const images = new Map();          // @icon 値（data:URI 文字列 / Blob）→ ImageBitmap | "loading" | "bad"
-const getPicto = n => pictoCache.get(n) || (pictoCache.set(n, new Path2D(PICTO[n])), pictoCache.get(n));
-const iconImg = v => {
+let canvas: HTMLCanvasElement | OffscreenCanvas | null = null, ctx: Ctx2D | null = null, host: OverlayHost | null = null, tracer: ReturnType<typeof makeTracer> | null = null;
+let items: Array<AnnoItem | null> = [];                    // main から届く前処理済み items（[fid] → { p, pts|lines|rings }・null 可）
+const pictoCache = new Map<string, Path2D>();
+const images = new Map<unknown, ImageBitmap | "loading" | "bad">();          // @icon 値（data:URI 文字列 / Blob）→ ImageBitmap | "loading" | "bad"
+const getPicto = (n: string) => pictoCache.get(n) || (pictoCache.set(n, new Path2D(PICTO[n])), pictoCache.get(n)!);
+const iconImg = (v: unknown) => {
 	const im = images.get(v);
 	if (im) return im instanceof ImageBitmap ? im : null;
 	const key = v;
@@ -27,59 +50,59 @@ const iconImg = v => {
 		.then(bm => { images.set(key, bm); host?.requestDraw(); }, () => images.set(key, "bad"));
 	return null;
 };
-const shapePath = (kind, x, y, r) => {   // solid 図形（円/四角/三角/菱形/星）
-	ctx.beginPath();
-	if (kind === "square") ctx.rect(x - r, y - r, r * 2, r * 2);
-	else if (kind === "triangle") { ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.87, y + r * 0.5); ctx.lineTo(x - r * 0.87, y + r * 0.5); ctx.closePath(); }
-	else if (kind === "diamond") { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
-	else if (kind === "star") { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx[i ? "lineTo" : "moveTo"](x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); }
-	else ctx.arc(x, y, r, 0, Math.PI * 2);
+const shapePath = (kind: string, x: number, y: number, r: number) => {   // solid 図形（円/四角/三角/菱形/星）
+	ctx!.beginPath();
+	if (kind === "square") ctx!.rect(x - r, y - r, r * 2, r * 2);
+	else if (kind === "triangle") { ctx!.moveTo(x, y - r); ctx!.lineTo(x + r * 0.87, y + r * 0.5); ctx!.lineTo(x - r * 0.87, y + r * 0.5); ctx!.closePath(); }
+	else if (kind === "diamond") { ctx!.moveTo(x, y - r); ctx!.lineTo(x + r, y); ctx!.lineTo(x, y + r); ctx!.lineTo(x - r, y); ctx!.closePath(); }
+	else if (kind === "star") { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx![i ? "lineTo" : "moveTo"](x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx!.closePath(); }
+	else ctx!.arc(x, y, r, 0, Math.PI * 2);
 };
-function drawText(text, x, yBase, fpx, p, centerV) {   // 白フチ文字（geoedit と同じ流儀）。centerV=座標に縦中央
-	ctx.font = `${fpx}px ${FONT_FAMILY}`;
-	ctx.textAlign = "center";
+function drawText(text: string, x: number, yBase: number, fpx: number, p: AnnoStyle, centerV: boolean) {   // 白フチ文字（geoedit と同じ流儀）。centerV=座標に縦中央
+	ctx!.font = `${fpx}px ${FONT_FAMILY}`;
+	ctx!.textAlign = "center";
 	const lines = text.split("\\n").join("\n").split("\n");
 	const y0 = centerV ? yBase + fpx * 0.35 - (lines.length - 1) * fpx * 0.6 : yBase - (lines.length - 1) * fpx * 1.2;
 	let maxW = 0;
 	lines.forEach((l, i) => {
 		const yy = y0 + i * fpx * 1.2;
-		ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,.85)";
-		ctx.strokeText(l, x, yy);
-		ctx.fillStyle = centerV ? (p["@fill"] || "#223") : (p["@stroke"] || "#223");
-		ctx.fillText(l, x, yy);
-		maxW = Math.max(maxW, ctx.measureText(l).width);
+		ctx!.lineWidth = 3; ctx!.strokeStyle = "rgba(255,255,255,.85)";
+		ctx!.strokeText(l, x, yy);
+		ctx!.fillStyle = centerV ? (p["@fill"] || "#223") : (p["@stroke"] || "#223");
+		ctx!.fillText(l, x, yy);
+		maxW = Math.max(maxW, ctx!.measureText(l).width);
 	});
-	ctx.textAlign = "start";
+	ctx!.textAlign = "start";
 	return { x0: x - maxW / 2 - 4, y0: y0 - fpx, x1: x + maxW / 2 + 4, y1: y0 + (lines.length - 1) * fpx * 1.2 + 4 };
 }
 
-export function init(cv, opts, h) {
+export function init(cv: HTMLCanvasElement | OffscreenCanvas, opts: Record<string, unknown>, h: OverlayHost): void {
 	canvas = cv; host = h;
-	ctx = canvas.getContext("2d");
+	ctx = canvas.getContext("2d") as Ctx2D;
 	tracer = makeTracer(ctx);
 }
-export function message(d) {
+export function message(d: AnnoMsg): void {
 	if (d.type === "set") { items = d.items || []; }
 	else if (d.type === "clear") { items = []; }
 	else if (d.type === "probe") {   // 検定用＝実画素を main へ（tests/t-anno）
-		try { const im = ctx.getImageData(0, 0, canvas.width, canvas.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
-		catch (e) { host?.post({ type: "pixels", id: d.id, error: String(e?.message || e) }); }
+		try { const im = ctx!.getImageData(0, 0, canvas!.width, canvas!.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
+		catch (e) { host?.post({ type: "pixels", id: d.id, error: String((e as Error)?.message || e) }); }
 	}
 }
-export function destroy() { images.forEach(im => im instanceof ImageBitmap && im.close()); images.clear(); items = []; ctx = null; canvas = null; }
+export function destroy(): void { images.forEach(im => im instanceof ImageBitmap && im.close()); images.clear(); items = []; ctx = null; canvas = null; }
 
-export function frame(cam, s, size, api) {
+export function frame(cam: { zoom: number; pitch?: number; bearing?: number }, s: unknown, size: unknown, api: OverlayApi): boolean {
 	if (!ctx) return false;
 	const dpr = api.dpr, W = api.W, H = api.H, pr = api.project, prH = api.projectH, zoom = cam.zoom;
-	const { tracePts, projLine } = tracer;
+	const { tracePts, projLine } = tracer!;
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	ctx.clearRect(0, 0, W, H);
-	const symHits = [];
+	const symHits: AnnoHit[] = [];
 	if (items.length) {
 		// ① ぼかし面（下地）
 		for (const it of items) {
 			if (!it?.rings) continue;
-			const blur = +it.p["@blur"];
+			const blur = +it.p["@blur"]!;
 			if (!(blur > 0)) continue;
 			ctx.save(); ctx.filter = `blur(${blur}px)`;
 			ctx.beginPath();
@@ -89,19 +112,19 @@ export function frame(cam, s, size, api) {
 		}
 		// ② 面（crisp）
 		for (const it of items) {
-			if (!it?.rings || +it.p["@blur"] > 0) continue;
+			if (!it?.rings || +it.p["@blur"]! > 0) continue;
 			ctx.beginPath();
 			for (const r of it.rings) { tracePts(pr, r, true); ctx.closePath(); }   // 塗り＝地平円クランプで閉じる
 			ctx.fillStyle = it.p["@fill"] || DEF_FILL; ctx.fill("evenodd");
 			ctx.beginPath();
 			for (const r of it.rings) tracePts(pr, r);   // 線＝見えない区間で切る（地平線沿いに輪郭を引かない）
-			ctx.lineWidth = +it.p["@width"] > 0 ? +it.p["@width"] : 1.5;
+			ctx.lineWidth = +it.p["@width"]! > 0 ? +it.p["@width"]! : 1.5;
 			ctx.lineJoin = "round"; ctx.strokeStyle = it.p["@stroke"] || DEF_STROKE; ctx.stroke();
 		}
 		// ③ 線（@poly=帯／素の線）
 		for (const it of items) {
 			if (!it?.lines) continue;
-			const w = +it.p["@width"] > 0 ? +it.p["@width"] : 1.5;
+			const w = +it.p["@width"]! > 0 ? +it.p["@width"]! : 1.5;
 			if (it.p["@poly"]) {
 				const capS = it.p["@start"] || it.p["@cap0"] || "", capE = it.p["@end"] || it.p["@cap1"] || "";   // @cap0/1＝旧名の後方互換
 				for (const l of it.lines) {
@@ -122,7 +145,7 @@ export function frame(cam, s, size, api) {
 		for (let fid = 0; fid < items.length; fid++) {
 			const it = items[fid];
 			if (!it?.pts) continue;
-			const p = it.p, size_ = +p["@size"] > 0 ? +p["@size"] : 24;
+			const p = it.p, size_ = +p["@size"]! > 0 ? +p["@size"]! : 24;
 			for (const c of it.pts) {
 				const sxy = pr(c[0], c[1]);
 				if (sxy[2] < 0 || sxy[0] < -60 || sxy[0] > W + 60 || sxy[1] < -60 || sxy[1] > H + 60) continue;
@@ -145,7 +168,7 @@ export function frame(cam, s, size, api) {
 					if (text) drawText(String(text), h1[0], h1[1] - r, 12, p, false);   // ピンの頭上に「それが何か」
 					continue;
 				}
-				const bottom = BOTTOM_ANCHOR.has(shape);
+				const bottom = BOTTOM_ANCHOR.has(shape!);
 				if (!textOnly) symHits.push(bottom
 					? { x0: sxy[0] - size_ / 2, y0: sxy[1] - size_ * 1.1, x1: sxy[0] + size_ * (shape === "flag" ? 0.75 : 0.5), y1: sxy[1], fid }
 					: { x0: sxy[0] - size_ / 2, y0: sxy[1] - size_ / 2, x1: sxy[0] + size_ / 2, y1: sxy[1] + size_ / 2, fid });

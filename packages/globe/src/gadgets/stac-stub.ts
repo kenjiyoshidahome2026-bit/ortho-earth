@@ -4,6 +4,8 @@
 // 選んだシーンの COG（TCI）を map.gadget.cog へ渡す＝日付と雲量で選ぶ衛星画像の入口。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
+import type { GlobeMap } from "../types/map.ts";
+import type { StacOpts } from "./stac.ts";
 const t = tr();
 
 // 衛星グリフ（本体と共有＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
@@ -15,7 +17,7 @@ export const ICON = `
 		<rect x="18" y="15" width="4.5" height="4.5" rx="0.8" transform="rotate(45 20.25 17.25)"/>
 		<path d="M9 17c-2.5 0-4.5-2-4.5-4.5" stroke-width="1.2"/></svg>`;
 
-export function stac(opts = {}) {
+export function stac(this: GlobeMap, opts: StacOpts = {}): () => void {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#stac-btn")) return () => {};   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -23,13 +25,13 @@ export function stac(opts = {}) {
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
-	let real = null;   // Promise<handle>＝一度だけ import（失敗時は null に戻して再挑戦可）
+	let real: Promise<unknown> | null = null;   // Promise<handle>＝一度だけ import（失敗時は null に戻して再挑戦可）
 	let opening = false;
 	btn.addEventListener("click", () => {
 		if (opening) return;
 		if (real) return;   // 本体搭載後はボタンへ本体のトグルが付いている（このリスナーは実質初回のみ）
 		opening = true;
-		real = import("./stac.js")
+		real = import("./stac.ts")
 			.then(m => { const g = m.stac.call(map, { ...opts, btn }); g.toggle(); return g; })
 			.catch(e => { real = null; console.error("[stac] failed to load module", e); })
 			.finally(() => { opening = false; });

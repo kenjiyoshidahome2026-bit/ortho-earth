@@ -5,40 +5,48 @@
 // 絞って精細化・引いたら全域へ戻す。飛行中は発火しない（静定検出が兼ねる＝トランジション通過点で重い層を
 // 発火させない一般則）。lowMem はアトラス半辺（2048→1024）＝メモリと帯域の両方が半分以下。
 import { openCog } from "geopbf/cog";
+import type { BrowserCog, BrowserCogOptions, RenderOut } from "geopbf/cog";
+import type { CogHandle, CogOptions } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
+
+/** 窓のアトラス（等経緯度 RGBA・bboxLL＝覆う範囲 [w,s,e,n]）＝renderer の cogTex スロットへ */
+export interface CogTex { rgba: NonNullable<RenderOut>; w: number; h: number; bboxLL: number[] }
+/** createCog に globe が注入する物（setCogTex＝cogTex スロットへ（null＝外す）・fit＝範囲へ寄る・lowMem＝アトラスを半分に） */
+export interface CogDeps { setCogTex: (d: CogTex | null) => void; fit?: (bboxLL: number[]) => void; lowMem?: boolean; signal?: AbortSignal }
 
 // 生タイル（圧縮バイト）の共有メモリキャッシュ＝シーンを載せ替えても同じ Range を撃ち直さない（Tellus の ◀▶ 往復・偽色⇄グレー切替が無通信に）。
 // 鍵は core が cacheKey（呼び出し側が渡すシーン id）か ETag で刻む＝どちらも無い読み口は core 側で素通し（衝突しない）。
 // set は複製して持つ（core が渡す buf は coalesce 塊の subarray＝そのまま持つと親 4MB が居座る）。予算超過は古い順に落とす。
-function rawCache(budget) {
-	const m = new Map(); let bytes = 0;
+function rawCache(budget: number) {
+	const m = new Map<string, Uint8Array>(); let bytes = 0;
 	return {
-		async get(k) { const v = m.get(k); if (v) { m.delete(k); m.set(k, v); } return v || null; },   // 触った鍵を末尾へ＝LRU
-		async set(k, buf) { if (m.has(k)) return; const c = buf.slice(); m.set(k, c); bytes += c.byteLength; while (bytes > budget && m.size) { const [k0, v0] = m.entries().next().value; m.delete(k0); bytes -= v0.byteLength; } },
+		async get(k: string) { const v = m.get(k); if (v) { m.delete(k); m.set(k, v); } return v || null; },   // 触った鍵を末尾へ＝LRU
+		async set(k: string, buf: Uint8Array) { if (m.has(k)) return; const c = buf.slice(); m.set(k, c); bytes += c.byteLength; while (bytes > budget && m.size) { const [k0, v0] = m.entries().next().value!; m.delete(k0); bytes -= v0.byteLength; } },
 		get bytes() { return bytes; },
 	};
 }
 
-export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
+export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: CogDeps = {} as CogDeps): CogHandle {
 	const ATLAS_W = lowMem ? 1024 : 2048;
 	const cache = rawCache(lowMem ? 24 << 20 : 96 << 20);
-	let cog = null, timer = null, busy = false, cur = null;   // cur＝現アトラスが覆う bbox
-	let last = null, still = 0, rc = null;                    // rc＝進行中レンダの AbortController
+	let cog: BrowserCog | null = null, timer: ReturnType<typeof setInterval> | null = null, busy = false, cur: number[] | null = null;   // cur＝現アトラスが覆う bbox
+	let last: string | null = null, still = 0, rc: AbortController | null = null;                    // rc＝進行中レンダの AbortController
 
-	const renderWindow = async (bb) => {
+	const renderWindow = async (bb: number[]) => {
 		if (!cog || busy) return;
 		busy = true;
 		rc = new AbortController();
-		const onOuter = () => rc.abort();
+		const onOuter = () => rc!.abort();
 		signal?.addEventListener("abort", onOuter, { once: true });
 		try {
 			const [w, s, e, n] = bb;
 			const H = Math.max(64, Math.min(ATLAS_W, Math.round(ATLAS_W * (n - s) / Math.max(e - w, 1e-9))));
-			const rgba = await cog.renderTo({ bbox: bb, w: ATLAS_W, h: H }, { signal: rc.signal });
+			const rgba = await cog.renderTo({ bbox: bb as BrowserCog["bboxLL"], w: ATLAS_W, h: H }, { signal: rc.signal });
 			if (!rgba || !cog) return;   // 圏外 or 途中で clear/中断
 			cur = bb;
 			setCogTex({ rgba, w: ATLAS_W, h: H, bboxLL: bb });
 			map.requestDraw?.();
-		} catch (e) { if (e?.name !== "AbortError") console.warn("[cog] render", e.message); }
+		} catch (e) { if ((e as Error)?.name !== "AbortError") console.warn("[cog] render", (e as Error).message); }
 		finally { busy = false; rc = null; signal?.removeEventListener("abort", onOuter); }
 	};
 
@@ -52,11 +60,11 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		const el = map.mapEl, W = el.clientWidth, H = el.clientHeight;
 		const pts = [[W / 2, H / 2], [0, 0], [W, 0], [0, H], [W, H]].map(p => map.unprojectXY(p[0], p[1]));
 		if (pts.some(p => !p)) return cog.bboxLL.slice();
-		const c = pts[0];
+		const c = pts[0]!;
 		const capW = 360 * W / (256 * Math.pow(2, map.getZoom())) * 0.9;   // 中心±＝計1.8画面ぶん（精細化は少し広めに持つ）
 		const capH = capW * H / W;
 		let w = 1e9, s = 1e9, e = -1e9, n = -1e9;
-		for (const [lo, la] of pts) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
+		for (const [lo, la] of pts as number[][]) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
 		const mx = (e - w) * 0.2, my = (n - s) * 0.2;
 		w = Math.max(w - mx, c[0] - capW); e = Math.min(e + mx, c[0] + capW);
 		s = Math.max(s - my, c[1] - capH); n = Math.min(n + my, c[1] + capH);
@@ -70,7 +78,7 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		const bb = viewWindow();
 		if (!bb) return null;
 		const curSpan = cur ? cur[2] - cur[0] : 1e9, newSpan = bb[2] - bb[0];
-		const full = cog.bboxLL;
+		const full = cog!.bboxLL;
 		if (newSpan < curSpan * 0.6) return bb;                // 寄った＝窓を絞って精細化
 		if (cur && (newSpan > curSpan * 2.5 || bb[0] < cur[0] || bb[1] < cur[1] || bb[2] > cur[2] || bb[3] > cur[3]))
 			return newSpan > (full[2] - full[0]) * 0.7 ? full.slice() : bb;   // 出た/引いた＝広い窓 or 全域へ
@@ -101,9 +109,9 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		// fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）。
 		// fetch＝読み口の差し替え（stac の Tellus 経路＝署名 URL が 1 時間で失効するので 403 で再発行して読み直す包み）。
 		// 残り（stretch/composite/colormap/cacheKey）は geopbf/cog の openCog へそのまま＝見せ方はデータ側（tellus-api の cogOpts）が決める。
-		async load(src, { fit: doFit = true, fetch: f = null, ...cogOpts } = {}) {
+		async load(src, { fit: doFit = true, fetch: f = null, ...cogOpts }: CogOptions = {}) {
 			this.clear();
-			cog = await openCog(src, { signal, cache, ...cogOpts, ...(f ? { fetch: f } : {}) });
+			cog = await openCog(src, { signal, cache, ...cogOpts as BrowserCogOptions, ...(f ? { fetch: f } : {}) });
 			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
 			if (doFit) fit?.(cog.bboxLL);
 			timer = setInterval(tick, 200);
