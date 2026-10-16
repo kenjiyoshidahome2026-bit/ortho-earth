@@ -7,10 +7,15 @@
 // 表レコード（ortho-core style.js §7.1）: R=fill RGBA8 / G=line・circle色 / B=width(1/8px)<<24|dash<<16|radius(1/4px)<<8|flags / flags bit0=visible
 import { geopbf } from "geopbf";                      // side-effect込み＝GeoPBF.prototype に gint()/identifyAt/*File が載る
 import { GeoPBF, makeKeys } from "geopbf/pbf-base";   // ストリームエンコード用（set() を自前でなぞる）
+import type { Feature as GeoFeature, Geometry } from "geopbf";
 import { stitchGeometry, smoothGeom } from "geopbf/edit/model";
+import type { SplineGeometry } from "geopbf/edit/spline";
+import type { TopoArc, TopoFeature } from "geopbf/edit/topo-extract";
+import type { LargeFeature, LargeModel } from "geopbf/edit/large-model";
+import type { EditorMap, GintLayer, GintOpts, Model, Pbf } from "./types.ts";
 
 // #rgb / #rgba / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
-export function hexColor(s) {
+export function hexColor(s: unknown): number | null {
 	if (typeof s !== "string") return null;
 	const m = s.trim().match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
 	if (!m) return null;
@@ -21,21 +26,21 @@ export function hexColor(s) {
 }
 // CSS色全般（色名 red / rgb() / hsl() …）→ u32。ブラウザのfillStyle正規化に委譲＝手書き色名表を持たない。
 // 「#hexしか効かない＝redと書くと黙って既定色」の罠対策（本人報告 8/20）。不正値は null（既定色へ）。
-let colCtx = null;
-const colMemo = new Map();   // 文字列→u32|null（canvas fillStyle 往復は µs 級＝全 feature 再焼きで効く。効率レビュー C-1）
-export function cssColor(s) {
+let colCtx: CanvasRenderingContext2D | null = null;
+const colMemo = new Map<string, number | null>();   // 文字列→u32|null（canvas fillStyle 往復は µs 級＝全 feature 再焼きで効く。効率レビュー C-1）
+export function cssColor(s: unknown): number | null {
 	const hx = hexColor(s);
 	if (hx != null) return hx;
 	if (typeof s !== "string" || !s.trim()) return null;
-	if (colMemo.has(s)) return colMemo.get(s);
+	if (colMemo.has(s)) return colMemo.get(s)!;
 	if (colMemo.size > 4096) colMemo.clear();
 	const v0 = cssColorSlow(s); colMemo.set(s, v0); return v0;
 }
-function cssColorSlow(s) {
-	colCtx ??= document.createElement("canvas").getContext("2d");
+function cssColorSlow(s: string): number | null {
+	colCtx ??= document.createElement("canvas").getContext("2d")!;
 	colCtx.fillStyle = "#010203";               // 番兵：不正値は代入が無視される＝これが残ったら不正
 	colCtx.fillStyle = s;
-	const v = colCtx.fillStyle;
+	const v = colCtx.fillStyle as string;
 	if (v === "#010203" && s.trim() !== "#010203") return null;
 	if (v.startsWith("#")) return hexColor(v);   // 正規化結果は "#rrggbb" か "rgba(r, g, b, a)"
 	const m = v.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
@@ -51,25 +56,28 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 	radiusPx: 5,         // gint circle はシンボルオーバレイのフォールバック
 };
 
+/** 表の 1 行を焼くのに見る分（type と properties） */
+export type StyleSource = { type?: string; properties?: Record<string, unknown> | null } | null | undefined;
+
 // 1 feature 分の表（4 語）を u32 の i 行へ書く＝全件再構築（buildStyleTable）と 1 件差し替え（restyleOne）の共通部
-export function writeStyleRow(u32, i, f, forceVisible) {
+export function writeStyleRow(u32: Uint32Array, i: number, f: StyleSource, forceVisible: boolean): void {
 	const p = f?.properties || {};
 	const fill = cssColor(p["@fill"]) ?? (p["@image"] != null ? 0 : DEF.fill);   // 四隅の画像＝塗らない（画像は overlay が描く・枠だけ見せて掴めるように）
 	const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
-	const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
+	const w = Math.max(1, Math.min(255, Math.round((+p["@width"]! > 0 ? +p["@width"]! : DEF.widthPx) * 8)));
 	const r = Math.max(1, Math.min(255, Math.round(DEF.radiusPx * 4)));
 	// 点＝overlayのシンボルが唯一の描画。@blur＝overlay(canvas2D)のぼかし塗り（stroke無し）。
 	// @poly＝ポリゴン化した線（帯＝塗り+輪郭+端形状）＝overlay(canvas2D)が描く。
 	// いずれも gint は描かない（visible bit を落とす）。識別は幾何ベースで生きる。
 	// forceVisible＝大規模モード（オーバレイ無し＝gint が唯一の描画）は全て点灯。
 	const isPoint = f?.type === "Point" || f?.type === "MultiPoint";
-	const blurred = +p["@blur"] > 0;
+	const blurred = +p["@blur"]! > 0;
 	const banded = !!p["@poly"] && (f?.type === "LineString" || f?.type === "MultiLineString");   // 端形状=@start/@end（旧@cap0/1）
 	u32[i * 4] = fill;
 	u32[i * 4 + 1] = stroke;
 	u32[i * 4 + 2] = (w << 24) | (r << 8) | ((!forceVisible && (isPoint || blurred || banded)) ? 0 : 1);
 }
-export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // featsArr＝fid順の feature 参照列（type と properties を見る）
+export function buildStyleTable(featsArr: StyleSource[], { forceVisible = false }: { forceVisible?: boolean } = {}): Uint32Array {   // featsArr＝fid順の feature 参照列（type と properties を見る）
 	const n = featsArr.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) writeStyleRow(u32, i, featsArr[i], forceVisible);
 	return u32;
@@ -78,6 +86,10 @@ export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // 
 // 長辺の球面追従＝エンジン側の度アンカー（geopbf gint 焼き topology.js の insertDegreeAnchors・1°ごとの L1）が正典。
 // ここ（pbf エンコード）では細分しない＝pbf は常に制御点のまま（識別/保存/取り込みが密点で汚れない）。
 
+/** encodeModel が読む分（小規模モデル＝EditModel の feats/arcs/gridExp） */
+export interface EncodeSource { gridExp: number; arcs: Map<number, TopoArc>; feats: Map<number, TopoFeature> }
+export interface EncodeOptions { withEid?: boolean; name?: string; precision?: number; smooth?: boolean; cut?: boolean }
+
 // モデル→GeoPBF の直列エンコード（GeoJSON FC を一度も作らない＝8/20「根性で全部」）。
 // set() と同じ手順（makeKeys→setHead→setBody→close→getPosition）を、setBody の**関数渡し**で
 // 1フィーチャずつ縫合→書き込み→即GC。setFeature は q.geometry へ書き戻す（strictでgetter即死）ため
@@ -85,37 +97,37 @@ export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // 
 // smooth＝表示用の焼き（gint）だけ true＝@spline を密点に細分。保存/書き出しは false＝制御点のまま（＋@splineフラグ）
 // ＝再読込のたびに再細分する多重化を防ぐ（曲線は制御点からの描画時解釈に一本化）。
 // cut＝false でエンコーダの antimeridian 切断を止める（セッション保存専用＝復元で1つの環に戻る）。表示焼き/書き出しは既定（切断）。
-export async function encodeModel(model, { withEid = false, name = "geoedit", precision, smooth = false, cut = true } = {}) {
+export async function encodeModel(model: EncodeSource, { withEid = false, name = "geoedit", precision, smooth = false, cut = true }: EncodeOptions = {}): Promise<{ pbf: Pbf; eids: number[]; reshaped: boolean }> {
 	const eids = [...model.feats.keys()].sort((a, b) => a - b);
-	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e).properties, __eid: e } : model.feats.get(e).properties);
-	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp, cut });
+	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e)!.properties, __eid: e } : model.feats.get(e)!.properties);
+	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp, cut }) as Pbf;   // 器＋"geopbf" の拡張（gint）
 	const [keys, bufs] = await makeKeys(propsArr);
 	let reshaped = false;   // 表示焼きで形を変えたか（@spline細分）＝保存バッファは制御点で焼き直しが要る
 	pbf.setHead(keys, bufs).setBody(() => {
 		for (let i = 0; i < eids.length; i++) {
-			let geometry = stitchGeometry(model.arcs, model.feats.get(eids[i]));
+			let geometry = stitchGeometry(model.arcs, model.feats.get(eids[i])!) as SplineGeometry;
 			if (smooth && propsArr[i] && propsArr[i]["@spline"]) { geometry = smoothGeom(geometry); reshaped = true; }   // 表示用のみ曲線化（保存は制御点維持）
-			pbf.setFeature({ type: "Feature", geometry, properties: propsArr[i] });
+			pbf.setFeature({ type: "Feature", geometry: geometry as Geometry, properties: propsArr[i] } as GeoFeature);
 		}
 	}).close();
 	await pbf.getPosition();
 	return { pbf, eids, reshaped };
 }
 
-export function createGintLayer(map) {
-	let pbf = null;              // 現在コミット済みの geopbf（identify の真実源）
-	let fidEid = [];             // fid → eid
-	let eidFid = new Map();      // eid → fid
-	let baseTable = null;        // @スタイル込みの素の表
-	let hidden = new Set();      // 編集中に隠す eid 群
+export function createGintLayer(map: EditorMap): GintLayer {
+	let pbf: Pbf | null = null;              // 現在コミット済みの geopbf（identify の真実源）
+	let fidEid: number[] = [];             // fid → eid
+	let eidFid = new Map<number, number>();      // eid → fid
+	let baseTable: Uint32Array | null = null;        // @スタイル込みの素の表
+	let hidden = new Set<number>();      // 編集中に隠す eid 群
 	let gen = 0;                 // コミット世代（後勝ち）
 	let large = false;           // 大規模モード（点/blur/帯も gint が描く＝styleTable 全点灯）
-	let focusEids = null;        // 大規模モードの編集近傍（選択+arc共有隣接）＝gint消灯・オーバレイが正確に描く
+	let focusEids: Set<number> | null = null;        // 大規模モードの編集近傍（選択+arc共有隣接）＝gint消灯・オーバレイが正確に描く
 
-	const push = () => {
+	const push = (): void => {
 		if (!baseTable) return;
 		let t = baseTable;
-		const mut = () => (t === baseTable ? (t = baseTable.slice()) : t);
+		const mut = (): Uint32Array => (t === baseTable ? (t = baseTable.slice()) : t);
 		if (hidden.size) {
 			mut();
 			for (const eid of hidden) { const f = eidFid.get(eid); if (f !== undefined) t[f * 4 + 2] &= ~1; }   // visible bit を落とす
@@ -127,8 +139,8 @@ export function createGintLayer(map) {
 		map.paintTable(t, fidEid.length);
 	};
 
-	let saveBuf = null;          // セッション保存用バッファ＝常に制御点のまま（@spline は表示焼きだけ細分＝再読込の多重細分を封じる）
-	const largeOpts = () => {
+	let saveBuf: ArrayBuffer | null = null;          // セッション保存用バッファ＝常に制御点のまま（@spline は表示焼きだけ細分＝再読込の多重細分を封じる）
+	const largeOpts = (): GintOpts => {
 		const st = new Float32Array(256 * 4);
 		st.set([0x78 / 255, 0xaa / 255, 0xdd / 255, 0.30]);        // style0: ポリゴン（低ズーム単色塗り＝DEF.fill 系）
 		st.set([0x2b / 255, 0x5f / 255, 0x8f / 255, 0.88], 4);     // style1: 線（per-fid paint が主役＝これは保険）
@@ -166,7 +178,7 @@ export function createGintLayer(map) {
 		// gint(WASM) 焼き→GPU直行＝ビューアと同じ経路。fid=eid 恒等・スタイルは表で全点灯。
 		// lowFill＝fillOff級でも低ズーム帯（z<outlineZoom）の単色ベタ塗りは生かす（間引き表示にfill＝本人裁定 8/25）。
 		// style0＝その単色塗りの色（無指定はエンジン既定のオレンジ＝14条筆系統）＝geoedit の青灰 DEF.fill に合わせる。
-		async applyLarge(built, featsArr, { moveCamera = true } = {}) {
+		async applyLarge(built: Pbf, featsArr: LargeFeature[], { moveCamera = true } = {}) {
 			const g = ++gen;
 			await built.gint();   // WASM worker焼き（topology_full＝ZCTA級実証済）。焼き済みなら即返る
 			if (g !== gen) return null;
@@ -182,11 +194,11 @@ export function createGintLayer(map) {
 		// g再送（Phase2 ジオメトリ編集のコミット）：in-place 変異済みの unPackGint typed array を
 		// そのまま bake worker へ再送＝GPU束の再焼き。onReady＝焼き上がって表示束が差し替わった瞬間
 		//（それまで旧座標の絵が出ている＝隠し解除はこの後＝小規模コミットの「着地で引き継ぐ」と同じ規約）。
-		async resendLarge(model) {
+		async resendLarge(model: LargeModel) {
 			if (!large || !pbf) return null;
 			const g = ++gen;
 			model.refreshDirty();   // arcMeta/fid別bbox の部分再計算（identifyAt の正気）
-			await new Promise(res => {
+			await new Promise<void>(res => {
 				const t = setTimeout(res, 15000);   // 焼きが差し替えで捨てられた等＝保険（genガードが後始末）
 				map.applyGintData(pbf, "geoedit", false, { ...largeOpts(), onReady: () => { clearTimeout(t); res(); } });
 			});
@@ -198,20 +210,20 @@ export function createGintLayer(map) {
 		// 許容量はメートル固定でなく**画面ピクセル基準**（点12px・線8px）をズームからmへ換算＝
 		// 浅いズームで「見えているのにクリックできない」を防ぐ（identifyAt既定の50m/30mは深ズーム前提）。
 		// px＝当たり幅（画面px）。移動ツールは広め（点20/線14＝「掴みにくい」本人指摘 9/14）＝呼び手が渡す
-		identify(lng, lat, zoom = 14, px = { point: 12, polyline: 8 }) {
+		identify(lng: number, lat: number, zoom = 14, px = { point: 12, polyline: 8 }) {
 			const mpp = 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, zoom));   // Webメルカトル近似のm/px＝許容量換算用
 			const fid = pbf?.identifyAt?.(lng, lat, { point: Math.max(50, px.point * mpp), polyline: Math.max(30, px.polyline * mpp) });
 			return fid == null || fid < 0 ? null : fidEid[fid] ?? null;
 		},
-		hide(eids) { hidden = new Set(eids); push(); },
-		focus(eids) { focusEids = eids && eids.size ? new Set(eids) : null; if (large) push(); },   // 大規模モードの編集近傍消灯（null=解除）
+		hide(eids: Iterable<number>) { hidden = new Set(eids); push(); },
+		focus(eids: Set<number> | null) { focusEids = eids && eids.size ? new Set(eids) : null; if (large) push(); },   // 大規模モードの編集近傍消灯（null=解除）
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
-		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）＝全件
+		restyleProps(model: Model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）＝全件
 			if (!fidEid.length) return;
 			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)), { forceVisible: large });
 			push();
 		},
-		restyleOne(model, eid) {   // 1 件だけ差し替え（props プレビュー＝input 60Hz・undo/redo の props）＝表の 4 語だけ書いて再送。効率レビュー C-1
+		restyleOne(model: Model, eid: number) {   // 1 件だけ差し替え（props プレビュー＝input 60Hz・undo/redo の props）＝表の 4 語だけ書いて再送。効率レビュー C-1
 			const fid = eidFid.get(eid);
 			if (!baseTable || fid === undefined) return this.restyleProps(model);
 			writeStyleRow(baseTable, fid, model.feats.get(eid), large);

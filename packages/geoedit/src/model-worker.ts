@@ -8,9 +8,11 @@
 // 返り便は常に topoToTransfer 形（snap基底込み）＋ retopo は eids。
 import { GeoPBF } from "geopbf/pbf-base";
 import { buildTopology, createExtractor } from "geopbf/edit/topo-extract";
+import type { Topology, GeometryLike } from "geopbf/edit/topo-extract";
 import { topoToTransfer, topoFromTransfer, stitchGeometry } from "geopbf/edit/model";
+import type { ModelRequestMsg, ModelReply, TopoReplyPayload, PbfCore } from "./worker-msg.ts";
 
-const countVerts = g => {   // GeoJSON 幾何の座標数（環の閉点込み）。壊れ幾何（coordinates 無し/非配列＝moj 実データに在る）は 0＝extractor が warning で skip する
+const countVerts = (g: (GeometryLike & { geometries?: unknown }) | null | undefined): number => {   // GeoJSON 幾何の座標数（環の閉点込み）。壊れ幾何（coordinates 無し/非配列＝moj 実データに在る）は 0＝extractor が warning で skip する
 	if (!g) return 0;
 	const c = g.coordinates;
 	if (g.type === "GeometryCollection") { let n = 0; for (const x of Array.isArray(g.geometries) ? g.geometries : []) n += countVerts(x); return n; }
@@ -24,41 +26,44 @@ const countVerts = g => {   // GeoJSON 幾何の座標数（環の閉点込み�
 	return 0;
 };
 
-self.onmessage = async e => {
+const post = (msg: ModelReply, transfer?: Transferable[]): void => { transfer ? self.postMessage(msg, transfer) : self.postMessage(msg); };
+
+self.onmessage = async (e: MessageEvent<ModelRequestMsg>) => {
 	const { id, mode, fc, buffer, payload, gridExp, maxVerts } = e.data;
 	try {
-		let topo, eids = null;
+		let topo: Topology, eids: number[] | null = null;
 		if (mode === "pbf") {
-			const pbf = await new GeoPBF({}).set(buffer);
+			const pbf = await new GeoPBF({}).set(buffer!) as PbfCore;   // 器の内部（fmap）を読む
 			const ex = createExtractor(gridExp);
 			const n = pbf.fmap?.length ?? 0;
 			let verts = 0;
 			for (let i = 0; i < n; i++) {
-				let g = null, p = {};
+				let g = null, p: Record<string, unknown> = {};
 				try { g = pbf.getGeometry(i); p = pbf.getProperties(i) ?? {}; } catch { /* 壊れfeature＝skip（extractorがwarning化） */ }
-				if (maxVerts > 0 && (verts += countVerts(g)) > maxVerts) {   // 頂点数の門＝ここで打ち切り（Map網を組まない）
-					self.postMessage({ id, ok: true, payload: { large: true, verts, buffer } }, [buffer]);
+				if ((maxVerts ?? 0) > 0 && (verts += countVerts(g)) > maxVerts!) {   // 頂点数の門＝ここで打ち切り（Map網を組まない）
+					post({ id, ok: true, payload: { large: true, verts, buffer: buffer! } }, [buffer!]);
 					return;
 				}
 				ex.add(g, p);
 			}
 			topo = ex.finish();
 		} else if (mode === "retopo") {
-			const src = topoFromTransfer(payload);
+			const src = topoFromTransfer(payload!);
 			const ex = createExtractor(gridExp);
 			eids = [...src.feats.keys()].sort((a, b) => a - b);
 			for (const eid of eids) {
-				const f = src.feats.get(eid);
+				const f = src.feats.get(eid)!;
 				ex.add(stitchGeometry(src.arcs, f), f.properties);
 			}
 			topo = ex.finish();
 		} else {
-			topo = buildTopology(fc, gridExp);
+			topo = buildTopology(fc!, gridExp);
 		}
 		const { payload: out, transfer } = topoToTransfer(topo);
-		if (eids) out.eids = eids;
-		self.postMessage({ id, ok: true, payload: out }, transfer);
+		const reply: TopoReplyPayload = out;
+		if (eids) reply.eids = eids;
+		post({ id, ok: true, payload: reply }, transfer as Transferable[]);
 	} catch (err) {
-		self.postMessage({ id, ok: false, error: String(err?.stack || err) });
+		post({ id, ok: false, error: String((err as { stack?: unknown } | null)?.stack || err) });
 	}
 };

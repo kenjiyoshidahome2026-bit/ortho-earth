@@ -1,11 +1,12 @@
-import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import type { GeoPBF } from "geopbf";
 const t = tr();
 // 入出力：ドロップ取込（dropfile.js の depth-counter 作法）・8形式エクスポート（gishub と同じ *File() 群）・
 // IndexedDB セッション自動保存（コミット済み geopbf の ArrayBuffer を保存＝JSON化しない＝大規模対応）。
 
-export function initDrop(el, onFile, signal) {
+export function initDrop(el: HTMLElement, onFile: (f: File) => unknown, signal: AbortSignal): void {
 	let depth = 0;
-	const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+	const hasFiles = (e: DragEvent): boolean => [...(e.dataTransfer?.types || [])].includes("Files");
 	el.addEventListener("dragenter", e => { if (hasFiles(e)) { depth++; e.preventDefault(); } }, { signal });
 	el.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); }, { signal });
 	el.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); }, { signal });
@@ -13,12 +14,12 @@ export function initDrop(el, onFile, signal) {
 		depth = 0;
 		if (!hasFiles(e)) return;
 		e.preventDefault();
-		const f = e.dataTransfer.files?.[0];
+		const f = e.dataTransfer!.files?.[0];
 		if (f) onFile(f);
 	}, { signal });
 }
 
-export function download(file) {
+export function download(file: File): void {
 	const a = document.createElement("a");
 	a.href = URL.createObjectURL(file);
 	a.download = file.name;
@@ -27,12 +28,12 @@ export function download(file) {
 }
 
 // エクスポートパネル：getPbf() ＝素の fc から新規エンコードした geopbf（precision=格子段）
-export function exportPanel(container, getPbf, toast) {
+export function exportPanel(container: HTMLElement, getPbf: () => Promise<GeoPBF | null | undefined> | GeoPBF | null | undefined, toast: (msg: string) => void): HTMLDivElement {
 	container.querySelector(".ge-dialog")?.remove();   // 二重開き防止＝開き直し（クラウドと同じ一枠）
 	const panel = document.createElement("div");
 	panel.className = "ge-panel ge-dialog";
 	panel.innerHTML = `<h3>${t("Export")}</h3>`;
-	const funcs = [
+	const funcs: [string, (p: GeoPBF) => Promise<File | Blob | null>][] = [
 		["GeoPBF", p => p.geopbfFile()],
 		["GeoJSON", p => p.geojsonFile({ gz: false })],
 		["TopoJSON", p => p.topojsonFile({ gz: false })],
@@ -51,7 +52,7 @@ export function exportPanel(container, getPbf, toast) {
 				const pbf = await getPbf();
 				if (!pbf) { toast(t("Nothing to export")); return; }
 				const file = await fn(pbf);
-				if (file) { download(file); toast(t("Saved: $1", file.name)); }
+				if (file) { download(file as File); toast(t("Saved: $1", (file as File).name)); }
 			} catch (e) { console.error("[geoedit] export failed", e); toast(t("Export failed: $1", name)); }
 			finally { b.disabled = false; }
 		};
@@ -66,29 +67,31 @@ export function exportPanel(container, getPbf, toast) {
 }
 
 // ---- IndexedDB セッション（geoedit/session 一枠）----
+/** 自動保存の 1 件（コミット済み geopbf のバイト列＋格子段＋視点＋時刻） */
+export interface SessionRec { buf: ArrayBuffer; gridExp?: number; view?: string; t?: number }
 const DB = "geoedit", STORE = "session";
-const openDb = () => new Promise((res, rej) => {
+const openDb = (): Promise<IDBDatabase> => new Promise((res, rej) => {
 	const rq = indexedDB.open(DB, 1);
 	rq.onupgradeneeded = () => rq.result.createObjectStore(STORE);
 	rq.onsuccess = () => res(rq.result);
 	rq.onerror = () => rej(rq.error);
 });
-export async function idbSave(rec) {
+export async function idbSave(rec: SessionRec): Promise<void> {
 	try {
 		const db = await openDb();
-		await new Promise((res, rej) => {
+		await new Promise<void>((res, rej) => {
 			const tx = db.transaction(STORE, "readwrite");
 			tx.objectStore(STORE).put(rec, "last");
-			tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+			tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
 		});
 		db.close();
 	} catch (e) { console.warn("[geoedit] autosave failed", e); }
 }
-export async function idbLoad() {
+export async function idbLoad(): Promise<SessionRec | null> {
 	try {
 		// headless等でIDBが黙る環境に備えた起動ハング防止（3秒で「無し」扱い＝新規セッションへ）
-		const db = await Promise.race([openDb(), new Promise((_, rej) => setTimeout(() => rej(new Error("idb timeout")), 3000))]);
-		const rec = await new Promise((res, rej) => {
+		const db = await Promise.race([openDb(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("idb timeout")), 3000))]);
+		const rec = await new Promise<SessionRec | undefined>((res, rej) => {
 			const rq = db.transaction(STORE).objectStore(STORE).get("last");
 			rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
 		});
@@ -96,13 +99,13 @@ export async function idbLoad() {
 		return rec || null;
 	} catch { return null; }
 }
-export async function idbClear() {
+export async function idbClear(): Promise<void> {
 	try {
 		const db = await openDb();
-		await new Promise((res, rej) => {
+		await new Promise<void>((res, rej) => {
 			const tx = db.transaction(STORE, "readwrite");
 			tx.objectStore(STORE).delete("last");
-			tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+			tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
 		});
 		db.close();
 	} catch { /* noop */ }

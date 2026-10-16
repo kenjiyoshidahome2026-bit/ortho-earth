@@ -1,5 +1,10 @@
-import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { toVec, quatBetween, quatAngle, quatFromAxisAngle, quatMul, rotateLL, gcCentroid } from "geopbf/edit/sphere";   // 移動＝球の中心まわりの回転（本人裁定 9/14「球体上の図形として角度で移動」）・ホイール＝重心軸まわりの回転
+import type { Quat } from "geopbf/edit/sphere";
+import type { FeatureVerts } from "geopbf/edit/model";
+import type { SnapEntry } from "geopbf/edit/snap";
+import { small, nodeOf } from "./model-util.ts";
+import type { Cmd, Drag, EditorContext, Handle, HandleP, HandleV, Model, RotState } from "./types.ts";
 const t = tr();
 // ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ回転移動（f＝掴んだ点→今の点の球面回転を全頂点へ）。
 // capture-phase pointerdown で命中時だけエンジンから奪う（パンは発火しない）。Alt+クリック＝頂点削除もここ。
@@ -13,87 +18,87 @@ const t = tr();
 // base から毎回当て直す＝順序や往復で誤差が積まない・undo は base への厳密復元（既存の rot コマンドそのまま）。
 
 const DEG = Math.PI / 180;
-const wheelDeg = e => (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY) * 0.02;   // 1ノッチ(≈100)＝2°。行/ページ単位（Firefox）は px 相当へ
-const snapDeg = (raw, shift) => shift ? Math.round(raw / 15) * 15 : raw;
+const wheelDeg = (e: WheelEvent): number => (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY) * 0.02;   // 1ノッチ(≈100)＝2°。行/ページ単位（Firefox）は px 相当へ
+const snapDeg = (raw: number, shift: boolean): number => shift ? Math.round(raw / 15) * 15 : raw;
 const ROT_IDLE_MS = 500;   // Alt+ホイールの「手が止まった」＝1手として確定
-const baseLists = base => base.coords ? [base.coords] : base.rings.map(r => { const p = r.pts, out = new Array(p.length / 2); for (let i = 0; i < out.length; i++) out[i] = [p[i * 2], p[i * 2 + 1]]; return out; });   // featureVerts（Float64Array）→ 重心用の点列群（掴み始めに 1 回）
-const spinQ = (cVec, deg) => quatFromAxisAngle(cVec, -deg * DEG);   // 外向き法線まわりの右手系は反時計回り＝時計回りを正にするため符号反転
+const baseLists = (base: FeatureVerts): number[][][] => base.coords ? [base.coords] : base.rings.map(r => { const p = r.pts, out: number[][] = new Array(p.length / 2); for (let i = 0; i < out.length; i++) out[i] = [p[i * 2], p[i * 2 + 1]]; return out; });   // featureVerts（Float64Array）→ 重心用の点列群（掴み始めに 1 回）
+const spinQ = (cVec: ArrayLike<number>, deg: number): Quat => quatFromAxisAngle(cVec, -deg * DEG);   // 外向き法線まわりの右手系は反時計回り＝時計回りを正にするため符号反転
 
 // 移動ツール＝一緒に動く/隠すフィーチャ集合（自分＋共有arc・共有ノードでつながる隣）。affectedEids（controller）とも共用
-export const moveTargets = (model, eid) => {
+export const moveTargets = (model: Model, eid: number): Set<number> => {
 	const f = model.feats.get(eid), eids = new Set([eid]);
 	if (!f || f.coords) return eids;
 	for (const { list } of model.listsOf(f)) for (const s of list) {
 		const aid = s < 0 ? ~s : s;
-		for (const e2 of model.arcs.get(aid).refs) eids.add(e2);
-		for (const end of [0, 1]) {
+		for (const e2 of model.arcs.get(aid)!.refs) eids.add(e2);
+		for (const end of [0, 1] as const) {
 			const nid = model.endNodeOf(aid, end);
-			const nd = nid != null ? model.nodes.get(nid) : null;
-			if (nd) for (const [a2] of nd.ends) for (const e2 of model.arcs.get(a2).refs) eids.add(e2);
+			const nd = nid != null ? nodeOf(model, nid) : null;
+			if (nd) for (const [a2] of nd.ends) for (const e2 of model.arcs.get(a2)!.refs) eids.add(e2);
 		}
 	}
 	return eids;
 };
 
-export function installDrag(ed) {
+export function installDrag(ed: EditorContext): void {
 	const { st, map, mapEl, signal, overlay, layer, popLayer, hist, toast } = ed;
-	const dragTargets = h => {   // 動かす対象と、gint側で隠す eid 集合
+	const dragTargets = (h: HandleV | HandleP): Set<number> => {   // 動かす対象と、gint側で隠す eid 集合
 		if (h.kind === "p") return new Set([h.eid]);
-		const arc = st.model.arcs.get(h.arcId);
+		const arc = st.model!.arcs.get(h.arcId)!;
 		const eids = new Set(arc.refs);
 		const n = arc.pts.length / 2;
 		if (h.idx === 0 || h.idx === n - 1) {   // 端点＝ノード接続の全arcの参照フィーチャも動く
-			const nid = st.model.endNodeOf(h.arcId, h.idx === 0 ? 0 : 1);
-			const nd = st.model.nodes.get(nid);
-			if (nd) for (const [aid] of nd.ends) for (const e of st.model.arcs.get(aid).refs) eids.add(e);
+			const nid = st.model!.endNodeOf(h.arcId, h.idx === 0 ? 0 : 1);
+			const nd = nodeOf(st.model!, nid);
+			if (nd) for (const [aid] of nd.ends) for (const e of st.model!.arcs.get(aid)!.refs) eids.add(e);
 		}
 		return eids;
 	};
-	const hideSet = eids => {   // 隠し集合へ合流・tip 消し・pop 退避（掴み始め／Alt+ホイール開始の共通）
+	const hideSet = (eids: Iterable<number>): void => {   // 隠し集合へ合流・tip 消し・pop 退避（掴み始め／Alt+ホイール開始の共通）
 		st.dragEids = new Set([...(st.dragEids || []), ...eids]); st.hidden = st.dragEids;   // 未コミットの前回分と合流
 		ed.hideTip();
 		layer.hide(st.dragEids);
 		overlay.redraw();
 		popLayer.sync();   // 掴んだフィーチャの @pop 箱は隠す（着地=commit で戻す）
 	};
-	const begin = (e, eids) => {   // 共通の掴み始め：capture・カーソル
+	const begin = (e: PointerEvent, eids: Iterable<number>): void => {   // 共通の掴み始め：capture・カーソル
 		try { mapEl.setPointerCapture(e.pointerId); } catch { /* 合成イベント（試験）は capture 不可＝move/up は mapEl で拾えるので無害 */ }
 		mapEl.style.cursor = "grabbing";
 		hideSet(eids);
 	};
 
 	// ---- 回転移動の適用：q = q_move ∘ q_spin を base へ（恒等なら base をそのまま戻す）。st.rot＝軸（重心）の表示 ----
-	const applyRot = (eid, r) => {   // r = { base, c, cVec, qm, deg, snapped }
+	const applyRot = (eid: number, r: RotState): Quat | null => {   // r = { base, c, cVec, qm, deg, snapped }
 		const qs = r.deg ? spinQ(r.cVec, r.deg) : null;
 		const q = r.qm && qs ? quatMul(r.qm, qs) : (r.qm || qs);
-		st.model.rotateFeature(eid, q && quatAngle(q) > 0 ? q : null, r.base, { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
+		small(st.model!).rotateFeature(eid, q && quatAngle(q) > 0 ? q : null, r.base, { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
 		st.rot = r.deg || r.spun ? { c: q ? rotateLL(q, r.c[0], r.c[1]) : r.c, deg: r.deg, snapped: r.snapped } : null;   // 一度でも回したら軸を出し続ける（0°へ戻っても）
 		st.editGen++;
 		overlay.redraw();
 		return q;
 	};
-	const rotState = (eid, base) => { const c = gcCentroid(baseLists(base)); return { base, c, cVec: toVec(c[0], c[1]), qm: null, angRaw: 0, deg: 0, snapped: false, spun: false }; };
-	const wheelSpin = (e, r) => { r.angRaw += wheelDeg(e); r.deg = snapDeg(r.angRaw, e.shiftKey); r.snapped = e.shiftKey; r.spun = true; };
+	const rotState = (eid: number, base: FeatureVerts): RotState => { const c = gcCentroid(baseLists(base))!; return { base, c, cVec: toVec(c[0], c[1]), qm: null, angRaw: 0, deg: 0, snapped: false, spun: false }; };
+	const wheelSpin = (e: WheelEvent, r: RotState): void => { r.angRaw += wheelDeg(e); r.deg = snapDeg(r.angRaw, e.shiftKey); r.snapped = e.shiftKey; r.spun = true; };
 
 	// ---- Alt+ホイール（掴まずに回す）：移動ツールで選択中。手が止まって ROT_IDLE_MS で1手に確定（pointerdown/選択替え/ツール替えでも確定）----
-	let wr = null;   // { eid, model, r, q, timer }
-	const flushRot = () => {
+	let wr: { eid: number; model: Model; r: RotState; q: Quat | null; timer: ReturnType<typeof setTimeout> | 0 } | null = null;   // { eid, model, r, q, timer }
+	const flushRot = (): void => {
 		if (!wr) return;
 		clearTimeout(wr.timer);
 		const { eid, model, r, q } = wr;
 		wr = null; st.rot = null;
 		if (model === st.model && st.model.feats.has(eid)) {   // モデルが差し替わっていたら捨てるだけ
-			st.model.reindexFeature(eid);
+			small(st.model).reindexFeature(eid);
 			if (q) { hist.push({ op: "rot", eid, q, base: r.base, restore: false }); ed.bar.syncHist(hist.canUndo, hist.canRedo); }
 		}
 		ed.scheduleCommit();
 		overlay.redraw();
 	};
 	ed.flushRot = flushRot;
-	const wheelAlt = e => {
-		const eid = st.selection;
+	const wheelAlt = (e: WheelEvent): void => {
+		const eid = st.selection!;
 		if (wr && wr.eid !== eid) flushRot();
-		if (!wr) { wr = { eid, model: st.model, r: rotState(eid, st.model.featureVerts(eid)), q: null, timer: 0 }; hideSet(moveTargets(st.model, eid)); }
+		if (!wr) { wr = { eid, model: st.model!, r: rotState(eid, small(st.model!).featureVerts(eid)!), q: null, timer: 0 }; hideSet(moveTargets(st.model!, eid)); }
 		wheelSpin(e, wr.r);
 		wr.q = applyRot(eid, wr.r);
 		clearTimeout(wr.timer); wr.timer = setTimeout(flushRot, ROT_IDLE_MS);
@@ -115,7 +120,7 @@ export function installDrag(ed) {
 		flushRot();   // 進行中の Alt+ホイール回転は、次の操作が何であれここで1手に確定
 		// ツール不問＝選択中フィーチャのハンドル命中なら常にドラッグ（「作図ツールのまま頂点が動かせない」罠の根治 8/20）。
 		// スケッチ中だけは除外（クリック＝頂点追加が主導）。Shift 押下は @pop 開き専用＝ここでは掴まない。
-		if (st.busy || !st.model || st.sketch || e.shiftKey || !ed.onSurface(e)) return;   // 家具の押下は奪わない（同族＝sketch.js free）
+		if (st.busy || !st.model || st.sketch || e.shiftKey || !ed.onSurface(e)) return;   // 家具の押下は奪わない（同族＝sketch.ts free）
 		const [x, y] = ed.localXY(e);
 		if (st.tool === "move") {   // 移動モード＝「押した場所の要素」を掴んで平行移動（自動選択）。何も無い場所は素通し＝パン
 			const ll0 = map.unprojectXY(x, y);
@@ -124,28 +129,28 @@ export function installDrag(ed) {
 			if (target == null) return;
 			if (st.selection !== target) ed.select(target);
 			e.stopPropagation(); e.preventDefault();
-			st.drag = { kind: "f", eid: target, a: toVec(ll0[0], ll0[1]), r: rotState(target, st.model.featureVerts(target)), q: null, pointerId: e.pointerId, moved: false };   // r.base＝掴み始めの頂点列（毎回ここから回す）
+			st.drag = { kind: "f", eid: target, a: toVec(ll0[0], ll0[1]), r: rotState(target, small(st.model).featureVerts(target)!), q: null, pointerId: e.pointerId, moved: false };   // r.base＝掴み始めの頂点列（毎回ここから回す）
 			begin(e, moveTargets(st.model, target));
 			return;
 		}
 		if (st.selection == null) return;
-		let h = overlay.handleAt(x, y, e.pointerType === "touch");
+		let h: Handle | HandleV | null = overlay.handleAt(x, y, e.pointerType === "touch");
 		if (!h) return;
 		e.stopPropagation(); e.preventDefault();
 		if (e.altKey && h.kind === "v") {   // Alt+クリック＝頂点削除（doCmd 経由＝隠し/世代/pop の規約を他の構造操作と揃える）
 			if (st.model.large) return toast(t("Large mode cannot add/delete vertices (move only)"));
-			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx) }) === false) toast(t("This vertex cannot be deleted (endpoint / minimum shape)"));
+			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx)! }) === false) toast(t("This vertex cannot be deleted (endpoint / minimum shape)"));
 			return;
 		}
 		if (h.kind === "m") {   // 中点＝挿入してそのまま掴む
-			const cmd = { op: "insert", addr: st.model.addrOf(h.arcId, h.idx), ll: h.ll };
+			const cmd: Cmd = { op: "insert", addr: small(st.model).addrOf(h.arcId, h.idx)!, ll: h.ll };
 			ed.doCmd(cmd);
-			const r = st.model.resolveAddr(cmd.addrNew);
+			const r = small(st.model).resolveAddr(cmd.addrNew!)!;
 			h = { kind: "v", arcId: r.arcId, idx: r.idx };
 		}
 		const start = h.kind === "p"
-			? [...st.model.feats.get(h.eid).coords[h.ptIdx]]
-			: [st.model.arcs.get(h.arcId).pts[h.idx * 2], st.model.arcs.get(h.arcId).pts[h.idx * 2 + 1]];
+			? [...st.model.feats.get(h.eid)!.coords![h.ptIdx]]
+			: [st.model.arcs.get(h.arcId)!.pts[h.idx * 2], st.model.arcs.get(h.arcId)!.pts[h.idx * 2 + 1]];
 		st.drag = { ...h, start, last: start, pointerId: e.pointerId, moved: false };
 		begin(e, dragTargets(h));
 	}, { capture: true, signal });
@@ -166,16 +171,16 @@ export function installDrag(ed) {
 			overlay.redraw();
 			return;
 		}
-		const self = en => drag.kind === "p" ? en.eid === drag.eid && en.ptIdx === drag.ptIdx : en.arcId === drag.arcId && en.idx === drag.idx;
+		const self = (en: SnapEntry): boolean => drag.kind === "p" ? "eid" in en && en.eid === drag.eid && en.ptIdx === drag.ptIdx : "arcId" in en && en.arcId === drag.arcId && en.idx === drag.idx;
 		const snapped = ed.snapLL(ll, self);
-		if (drag.kind === "p") st.model.movePoint(drag.eid, drag.ptIdx, snapped[0], snapped[1]);
-		else st.model.moveVertex(drag.arcId, drag.idx, snapped[0], snapped[1]);
+		if (drag.kind === "p") small(st.model!).movePoint(drag.eid, drag.ptIdx, snapped[0], snapped[1]);
+		else st.model!.moveVertex(drag.arcId, drag.idx, snapped[0], snapped[1]);
 		st.editGen++;
 		drag.last = snapped; drag.moved = true;
 		overlay.redraw();
 	}, { capture: true, signal });
 
-	const endDrag = e => {
+	const endDrag = (e: PointerEvent): void => {
 		const d = st.drag;
 		if (!d || e.pointerId !== d.pointerId) return;
 		e.stopPropagation();
@@ -184,14 +189,14 @@ export function installDrag(ed) {
 		mapEl.style.cursor = "";
 		if (d.kind === "f") st.rot = null;
 		if (d.moved && (d.kind !== "f" || d.q)) {   // 回転移動は正味の回転が残った時だけ1手（回して戻した＝恒等は積まない）
-			if (d.kind === "f") st.model.reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
-			const cmd = d.kind === "f"
+			if (d.kind === "f") small(st.model!).reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
+			const cmd: Cmd = d.kind === "f"
 				? { op: "rot", eid: d.eid, q: d.q, base: d.r.base, restore: false }   // undo＝restore:true＝base へ厳密復元
 				: d.kind === "p"
 					? { op: "movePt", eid: d.eid, ptIdx: d.ptIdx, from: d.start, to: d.last }
-					: { op: "move", addr: st.model.addrOf(d.arcId, d.idx), from: d.start, to: d.last };
+					: moveCmd(st.model!, d.arcId, d.idx, d.start, d.last);
 			hist.push(cmd);   // 適用済み＝pushのみ（ドラッグ中に直接適用済み）
-			if (st.model.large) st.largeDirty = true;
+			if (st.model!.large) st.largeDirty = true;
 			ed.bar.syncHist(hist.canUndo, hist.canRedo);
 		}
 		ed.scheduleCommit();
@@ -200,3 +205,7 @@ export function installDrag(ed) {
 	mapEl.addEventListener("pointerup", endDrag, { capture: true, signal });
 	mapEl.addEventListener("pointercancel", endDrag, { capture: true, signal });
 }
+
+// 頂点移動の 1 手＝addr はモデルの addrOf（小規模＝{eid,path,vi}・大規模＝{gaid,idx}）
+const moveCmd = (m: Model, arcId: number, idx: number, from: number[], to: number[]): Cmd =>
+	m.large ? { op: "move", addr: m.addrOf(arcId, idx), from, to } : { op: "move", addr: m.addrOf(arcId, idx)!, from, to };

@@ -1,29 +1,32 @@
 // @tip ホバーツールチップ＋ハンドルホバーのカーソル（grab）。
 // 位置も内容も毎moveで即時（v1 tip.js の作法＝デバウンスの追従遅れ・消え残りを無くす）。
 // 識別（identifyAt＝全走査）は「@tip を持つ要素が一つでもあるか」をモデル/編集世代ごとに一度だけ調べて、無ければ払わない。
-import { sanitizeHTML } from "./overlay.js";
+import { sanitizeHTML } from "./overlay.ts";
+import type { EditorContext, Model } from "./types.ts";
 
-export function createTip(ed) {
-	const { st, map, mapEl, signal, overlay } = ed;
-	let tipEl = null, tipW = 0, tipH = 0;   // tipW/H＝内容確定時に測る器寸（毎moveのレイアウト読みを避ける）
-	let cache = { model: null, gen: -1, has: false };
-	const anyTip = () => {
+type TipEl = HTMLDivElement & { _raw?: string };
+
+export function createTip(ed: EditorContext): { hide(): void } {
+	const { st, mapEl, signal, overlay } = ed;
+	let tipEl: TipEl | null = null, tipW = 0, tipH = 0;   // tipW/H＝内容確定時に測る器寸（毎moveのレイアウト読みを避ける）
+	let cache: { model: Model | null; gen: number; has: boolean } = { model: null, gen: -1, has: false };
+	const anyTip = (): boolean => {
 		if (cache.model !== st.model || cache.gen !== st.editGen) {
 			let has = false;
-			for (const f of st.model.feats.values()) { const t = f.properties?.["@tip"]; if (t != null && t !== "") { has = true; break; } }
+			for (const f of st.model!.feats.values()) { const t = f.properties?.["@tip"]; if (t != null && t !== "") { has = true; break; } }
 			cache = { model: st.model, gen: st.editGen, has };
 		}
 		return cache.has;
 	};
-	const hide = () => { tipEl?.remove(); tipEl = null; };
-	const place = (x, y) => {   // pop の初期配置に合わせる（右＋12・縦中央）。画面端では内側へ寄せる。
+	const hide = (): void => { tipEl?.remove(); tipEl = null; };
+	const place = (x: number, y: number): void => {   // pop の初期配置に合わせる（右＋12・縦中央）。画面端では内側へ寄せる。
 		const W = mapEl.clientWidth, H = mapEl.clientHeight;
 		const left = (x + 12 + tipW > W) ? (x - tipW - 12) : (x + 12);   // 右端では左側へ出す（見切れ防止）
 		let top = y - tipH / 2; if (top < 0) top = 0; else if (top + tipH > H) top = H - tipH;
-		tipEl.style.left = left + "px"; tipEl.style.top = top + "px";
+		tipEl!.style.left = left + "px"; tipEl!.style.top = top + "px";
 	};
 	mapEl.addEventListener("pointermove", e => {
-		if (st.drag || st.sketch) return;   // ドラッグ/作図中は drag.js / sketch.js の担当
+		if (st.drag || st.sketch) return;   // ドラッグ/作図中は drag.ts / sketch.ts の担当
 		const [x, y] = ed.localXY(e);
 		const onHandle = st.selection != null && !st.busy && overlay.handleAt(x, y, e.pointerType === "touch");   // ハンドルにホバー＝掴めることをカーソルで示す
 		const moveHover = !onHandle && st.tool === "move" && !st.busy && !!st.model && ed.pick(x, y, undefined, true) != null;   // 移動ツール＝掴める要素の上でも grab（広い当たり幅で判定）
