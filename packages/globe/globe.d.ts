@@ -830,7 +830,7 @@ export interface LayerMouseEvent { type: string; point: { x: number; y: number }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
 export interface LayerPressEvent extends LayerMouseEvent { defaultPrevented: boolean; preventDefault(): void; points?: Array<{ x: number; y: number }>; lngLats?: Array<{ lng: number; lat: number } | null> }
 /** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
-export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
+export interface RenderedFeature { type: "Feature"; id?: number | string | null; properties: Record<string, any>; geometry: { type: string; coordinates?: unknown; geometries?: Array<{ type: string; coordinates?: unknown }> } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
 // ---- plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 maplibre-compat.md §9「拡張点の台帳」）----
 /** 拡張の形は 1 つ：definePlugin({ name, install(map, opts), uninstall? })。install は**同期**（非同期の仕事は中で始める）・返した関数は撤去の時に呼ぶ（uninstall が無い時）。

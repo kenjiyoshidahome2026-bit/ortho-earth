@@ -160,7 +160,7 @@ export interface ShadowsReturn {
 	/** 画素 (x, y)（CSS px）の地面が切られた側か */
 	clipCutXY(x: number, y: number): boolean;
 	/** 地物の形が全部切られた側か */
-	clipAllCut(g: { type: string; coordinates?: unknown; geometries?: Array<{ coordinates?: unknown }> } | null | undefined, hM?: number, pl?: ClipPlane[] | null): boolean;
+	clipAllCut(g: { type: string; coordinates?: unknown; geometries?: ReadonlyArray<{ type?: string; coordinates?: unknown }> } | null | undefined, hM?: number, pl?: ClipPlane[] | null): boolean;
 }
 
 export type ToolsLive = LiveOf<"inspectHide" | "inspectReapply" | "gFollow" | "columnarCtl" | "editDocHook" | "editDropOwner",
