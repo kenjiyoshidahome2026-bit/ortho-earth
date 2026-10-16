@@ -67,7 +67,7 @@ const server = createServer(async (req, res) => {
 	} catch { res.writeHead(404); res.end("nf"); }
 }).listen(PORT);
 
-const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/altpbf-npm-${process.pid}`, "--remote-debugging-port=0",
+const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", `--user-data-dir=/tmp/altpbf-npm-${process.pid}`, "--remote-debugging-port=0",
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", `http://localhost:${PORT}/`], { stdio: "ignore" });
 process.on("exit", () => { chrome.kill(); server.close(); });
 const t0 = Date.now();

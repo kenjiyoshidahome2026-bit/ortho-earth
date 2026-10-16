@@ -55,7 +55,6 @@
 	"files": [
 		"src",
 		"dist",
-		"scripts",
 		"LICENSE",
 		"README.md"
 	]
