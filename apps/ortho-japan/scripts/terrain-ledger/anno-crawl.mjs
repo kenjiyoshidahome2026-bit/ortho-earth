@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeTile } from "geopbf/internal/convert/mvt-decode.js";
+import { decodeTile } from "geopbf/internal/convert/mvt-decode";
 const DIR = path.dirname(fileURLToPath(import.meta.url)), CACHE = path.join(DIR, ".cache");
 const src = process.argv[2] || "optimal_bvmap-v1", zmin = +(process.argv[3] || 4), zmax = +(process.argv[4] || 9);
 const bbox = [122, 20, 154.5, 46];

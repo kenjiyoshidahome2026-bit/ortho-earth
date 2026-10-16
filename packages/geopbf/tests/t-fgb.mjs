@@ -7,7 +7,7 @@
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync } from "node:fs";
 import { GeoPBF } from "../src/pbf-base.js";
-import { fromFlatGeobuf, readFlatGeobufHeader, calcTreeSize } from "../src/convert/fgb.js";
+import { fromFlatGeobuf, readFlatGeobufHeader, calcTreeSize } from "../src/convert/fgb.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

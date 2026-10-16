@@ -990,7 +990,7 @@ function approxViewBbox(cam) {
 	const [lon, lat] = cam.center;
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
-// --- POI台帳（施設の点・z14+）＝地域宣言 poi が実装を持参する（日本＝packages/jp/src/poi.js：在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
+// --- POI台帳（施設の点・z14+）＝地域宣言 poi が実装を持参する（日本＝packages/jp/src/poi.ts：在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
 // 実装は poi.create(env)（動的 import を宣言側が握る＝ホストは地域のパッケージを知らない）＝施設層 ON×z14+ で初めて要った時に読む＝代理の窓口（読み取りは空・ver=0）。台帳を宣言しない地域＝null。
 let poiReal = null, poiWake = null;
 const poiReady = () => poiWake ??= Promise.resolve(REGION_POI.create({ viewBbox: approxViewBbox, requestDraw: requestDraw })).then(led => {
@@ -1470,7 +1470,7 @@ clock.on("change", () => {
 	for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: clock.isLive(), ticking: false }); } catch (e) { console.error("[map.on time]", e); } }
 });
 if (!clock.isLive()) sendClock();   // 起動時に過去/未来の t= か opts.time が来ていた
-// --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
+// --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.ts の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
 const railOverlay = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: requestDraw });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
@@ -1900,7 +1900,7 @@ function rebuildLabels(order) {
 			}
 		}
 	}
-	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝packages/jp/src/poi.js injectLabels
+	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝packages/jp/src/poi.ts injectLabels
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const bh = baseHiddenIdx();   // 隠した基図の層のラベル（worker のラベルは層の添字 li を持つ・段 7）
 	const merged = inspectHide ? [] : mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ（検査表示の間は基図の注記を出さない＝層の添字を持たない台帳の注記も）

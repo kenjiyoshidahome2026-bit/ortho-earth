@@ -1,5 +1,5 @@
 // decoder/gpkg.js ── ブラウザ用 worker：.gpkg（GeoPackage）→ GeoPBF バイト列。実体は convert/gpkg.js（読み専用・依存ゼロ）。
-import { fromGeoPackage } from "../convert/gpkg.js";
+import { fromGeoPackage } from "../convert/gpkg.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, description, license, attribution, layer, tky2jgd, patchjgd } = e.data;

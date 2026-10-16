@@ -3,8 +3,8 @@
 // リクエスト記録で「ヘッダ一発読み」「coalesce」「Range 拒否フォールバック」まで数字で確かめる。
 import { createServer } from "node:http";
 import { buildCog, lzwEncode } from "./cog/build-cog.mjs";
-import { openCog, lonlatTarget, xyzTarget } from "../src/cog/core.js";
-import { lzwDecode, mergeJPEGTables, decodeTile } from "../src/cog/decode.js";
+import { openCog, lonlatTarget, xyzTarget } from "../src/cog/core.ts";
+import { lzwDecode, mergeJPEGTables, decodeTile } from "../src/cog/decode.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

@@ -40,7 +40,7 @@ ok(onlyGlue.length === 0 && onlyRs.length === 0, `glue の export ${exported.siz
 
 // 4) JS が使う名前が全部ある・glue の export は全部 JS が使う（死蔵の再発止め）
 const used = new Set();
-for (const f of ["src/extension/gint.js", "src/convert/node-gint.js"]) {
+for (const f of ["src/extension/gint.js", "src/convert/node-gint.ts"]) {
 	const src = readFileSync(path.join(PKG, f), "utf8");
 	const m = /import\s+(?:init\s*,\s*)?\{([^}]*)\}\s*from\s*"[^"]*wasm\/pkg\/gint_wasm\.js"/.exec(src);
 	if (m) for (const n of m[1].split(",").map(s => s.trim()).filter(Boolean)) used.add(n);

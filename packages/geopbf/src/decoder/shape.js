@@ -4,8 +4,8 @@ import { decodeZIP } from "../modules/decodeZIP.js";
 
 import { mercToLonLat as fromMercator } from "../modules/mercator.js";   // 旧＝atan(sinh(y·π/R)) の自前式（数学的に同値・末位 ulp 差は precision 丸めで消える）
 import { pointInRing } from "../modules/geom.js";
-import { crsFromWKT } from "../convert/proj.js";   // 平面直角座標系 I〜XIX・UTM・日本測地系を経緯度へ（FileGDB / DXF と同じ判定）
-import { epsgToWKT } from "../convert/epsg.js";
+import { crsFromWKT } from "../convert/proj.ts";   // 平面直角座標系 I〜XIX・UTM・日本測地系を経緯度へ（FileGDB / DXF と同じ判定）
+import { epsgToWKT } from "../convert/epsg.ts";
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
 function detectCRS(wkt) {
     if (!wkt) return null;

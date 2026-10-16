@@ -3,12 +3,12 @@
 //   ① merc: X32 が BigInt の厳密 floor と一致／Y32 の表補間が double 直算と 3 単位以内・単調・極の飽和
 //   ② kernels: gint 展開の往復・wkb（double bit）・lod の閾値/重複除去/bbox
 //   ③ clip: 半平面クリップ・タイル分割   ④ mvt: 符号化↔復号・環の向き   ⑤ pmtiles: tileId・ディレクトリ往復
-import { lonToX32, latToY32, mercTable, decodeGint, LON_FULL, LAT_FULL } from "../src/convert/merc.js";
-import { projectCPU, lodCPU, wkbCPU, bboxCPU } from "../src/convert/kernels.js";
-import { clipRingHalf, clipLineHalf, splitToTiles } from "../src/convert/clip.js";
-import { encodeTile, signedArea2 } from "../src/convert/mvt.js";
-import { decodeTile } from "../src/convert/mvt-decode.js";
-import { zxyToTileId, tileIdToZxy, serializeDirectory, deserializeDirectory } from "../src/convert/pmtiles.js";
+import { lonToX32, latToY32, mercTable, decodeGint, LON_FULL, LAT_FULL } from "../src/convert/merc.ts";
+import { projectCPU, lodCPU, wkbCPU, bboxCPU } from "../src/convert/kernels.ts";
+import { clipRingHalf, clipLineHalf, splitToTiles } from "../src/convert/clip.ts";
+import { encodeTile, signedArea2 } from "../src/convert/mvt.ts";
+import { decodeTile } from "../src/convert/mvt-decode.ts";
+import { zxyToTileId, tileIdToZxy, serializeDirectory, deserializeDirectory } from "../src/convert/pmtiles.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
