@@ -9,9 +9,9 @@
 import { createElement as h, createContext, useContext, useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import type { ReactNode, CSSProperties, ForwardRefExoticComponent, RefAttributes, Context } from "react";
 import { createPortal } from "react-dom";
-import type { OrthoJapanMap, OrthoJapanOptions, MapLibreSource, MarkerOptions, LonLat, DataLayerHandle, Marker as GlobeMarker } from "@ortho-earth/globe";
+import type { GlobeMap, OrthoJapanOptions, MapLibreSource, MarkerOptions, LonLat, DataLayerHandle, Marker as GlobeMarker } from "@ortho-earth/globe";
 // @ortho-earth/globe は mount の時に動的 import（CSS を import する本体を SSR・node の検定へ持ち込まない・束ねる側の code splitting にも乗る）
-const defaultCreate = (opts: OrthoJapanOptions): Promise<OrthoJapanMap> => import("@ortho-earth/globe").then(m => m.createGlobe(opts));
+const defaultCreate = (opts: OrthoJapanOptions): Promise<GlobeMap> => import("@ortho-earth/globe").then(m => m.createGlobe(opts));
 import { shallowEqual, syncLayer, layerSpecOf, splitDataProps } from "./sync.ts";
 import type { LayerProps, DataProps } from "./sync.ts";
 export { shallowEqual, diffProps, syncLayer, layerSpecOf, splitDataProps } from "./sync.ts";
@@ -21,9 +21,9 @@ export type { LayerProps, DataProps, LayerSyncMap } from "./sync.ts";
 export interface GlobeProps {
 	/** createGlobe の options（target は <Globe> が足す）。mount の 1 回だけ読む */ options?: Omit<OrthoJapanOptions, "target">;
 	style?: CSSProperties; className?: string;
-	/** map ができた時（children はこの後に描かれる） */ onLoad?: (map: OrthoJapanMap) => void;
+	/** map ができた時（children はこの後に描かれる） */ onLoad?: (map: GlobeMap) => void;
 	onError?: (e: unknown) => void;
-	/** 検定・差し替え用＝createGlobe の代わり */ create?: (opts: OrthoJapanOptions) => Promise<OrthoJapanMap> | OrthoJapanMap;
+	/** 検定・差し替え用＝createGlobe の代わり */ create?: (opts: OrthoJapanOptions) => Promise<GlobeMap> | GlobeMap;
 	children?: ReactNode;
 }
 export type SourceProps = MapLibreSource & { id: string; children?: ReactNode };
@@ -36,18 +36,18 @@ export type MarkerProps = Omit<MarkerOptions, "element" | "draggable" | "altitud
 // map.on/off の総称の口（useGlobeEvent は type を文字列で受ける＝globe の個別の overload を通さない）
 interface GenericEvents { on(ev: string, ...args: unknown[]): unknown; off(ev: string, ...args: unknown[]): unknown }
 
-export const GlobeContext: Context<OrthoJapanMap | null> = createContext<OrthoJapanMap | null>(null);
+export const GlobeContext: Context<GlobeMap | null> = createContext<GlobeMap | null>(null);
 export const SourceContext: Context<string | null> = createContext<string | null>(null);
 /** 親の <Globe> の map（できる前は null） */
-export const useGlobe = (): OrthoJapanMap | null => useContext(GlobeContext);
+export const useGlobe = (): GlobeMap | null => useContext(GlobeContext);
 
 /** 地球儀を 1 つ描く。ref は map（できる前は null） */
-export const Globe: ForwardRefExoticComponent<GlobeProps & RefAttributes<OrthoJapanMap | null>> = forwardRef<OrthoJapanMap | null, GlobeProps>(function Globe({ options, style, className, onLoad, onError, create = defaultCreate, children }, ref) {
+export const Globe: ForwardRefExoticComponent<GlobeProps & RefAttributes<GlobeMap | null>> = forwardRef<GlobeMap | null, GlobeProps>(function Globe({ options, style, className, onLoad, onError, create = defaultCreate, children }, ref) {
 	const el = useRef<HTMLDivElement | null>(null);
-	const [map, setMap] = useState<OrthoJapanMap | null>(null);
-	useImperativeHandle<OrthoJapanMap | null, OrthoJapanMap | null>(ref, () => map, [map]);
+	const [map, setMap] = useState<GlobeMap | null>(null);
+	useImperativeHandle<GlobeMap | null, GlobeMap | null>(ref, () => map, [map]);
 	useEffect(() => {
-		let alive = true, m: OrthoJapanMap | null = null;
+		let alive = true, m: GlobeMap | null = null;
 		Promise.resolve().then(() => create({ ...(options || {}), target: el.current as HTMLElement })).then(mm => {
 			if (!alive) { mm?.destroy?.(); return; }
 			m = mm; setMap(mm); onLoad?.(mm);

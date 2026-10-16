@@ -28,8 +28,8 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 }: CameraDeps): CameraReturn {
 	map.setOpacity = ({ base, globe, hypso } = {}) => { const v: { baseAlpha?: number; globeAlpha?: number; worldHypsoOpacity?: number } = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); requestDraw(); };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 	// チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
-	map.setMaxPitch = rad => {
-		live.maxPitchCur = pitchIn(rad) ?? (pitchIn(opts.maxPitch) ?? MAXPITCH);
+	map.setMaxPitch = deg => {
+		live.maxPitchCur = pitchIn(deg) ?? (pitchIn(opts.maxPitch) ?? MAXPITCH);
 		input.setMaxPitch(live.maxPitchCur); flightCtl.setMaxPitch(live.maxPitchCur);
 		if (cam.pitch > live.maxPitchCur) { flightCtl.cancel(); cam.pitch = live.maxPitchCur; onMove(); }
 		requestDraw();

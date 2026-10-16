@@ -6,7 +6,7 @@
 //       (the content URIs inside those child tilesets are relative and come without it);
 //     - the attribution: "Google" plus the data providers of the tiles on screen (glTF asset.copyright, split on ";", most frequent first).
 //   The key is passed in by the app at run time. Nothing here stores, logs or bundles it.
-import type { OrthoJapanMap, OrthoPlugin, Tiles3DOptions, Tiles3DHandle } from "@ortho-earth/globe";
+import type { GlobeMap, OrthoPlugin, Tiles3DOptions, Tiles3DHandle } from "@ortho-earth/globe";
 
 export const GOOGLE_3D_TILES_ROOT = "https://tile.googleapis.com/v1/3dtiles/root.json";
 export const GOOGLE_TILES_HOST = "tile.googleapis.com";
@@ -39,9 +39,9 @@ export interface GoogleTilesOptions extends Omit<Tiles3DOptions, "id" | "request
 	[k: string]: unknown;
 }
 export interface GoogleTilesPluginOptions extends GoogleTilesOptions { gadget?: string }
-export interface GoogleTilesPlugin extends OrthoPlugin { name: "google-tiles"; version: string; install(map: OrthoJapanMap): void }
+export interface GoogleTilesPlugin extends OrthoPlugin { name: "google-tiles"; version: string; install(map: GlobeMap): void }
 /** add3DTiles を持つ map（@ortho-earth/globe の map・検定では偽の map） */
-export type GoogleTilesMap = Pick<OrthoJapanMap, "add3DTiles">;
+export type GoogleTilesMap = Pick<GlobeMap, "add3DTiles">;
 
 // 省略（undefined）は {} と同じ＝鍵の有無は実行時に検める（JS から呼ばれても同じ例外）
 const optsOf = <T extends object>(o: T | undefined): Partial<T> => o ?? {};
@@ -87,8 +87,8 @@ export function googleTilesPlugin(opts: GoogleTilesPluginOptions): GoogleTilesPl
 	return {
 		name: "google-tiles",
 		version: "0.1.0",
-		install(map: OrthoJapanMap): void {
-			map.registry.gadgets.add(gadget, (m: OrthoJapanMap, o: Partial<GoogleTilesOptions> = {}) => addGoogle3DTiles(m, { key, ...defaults, ...o }));   // gadget の本体＝map が第 1 引数（registerGadget と同じ形・2.0）
+		install(map: GlobeMap): void {
+			map.registry.gadgets.add(gadget, (m: GlobeMap, o: Partial<GoogleTilesOptions> = {}) => addGoogle3DTiles(m, { key, ...defaults, ...o }));   // gadget の本体＝map が第 1 引数（registerGadget と同じ形・2.0）
 		},
 	};
 }

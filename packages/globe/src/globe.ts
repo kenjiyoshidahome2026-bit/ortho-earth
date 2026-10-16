@@ -116,11 +116,11 @@ const t: GlobeScope["t"] = tr();
 //   opts.layers＝表示項目の固定（キー: place地名/terrain地形/rail鉄道/road道路/facility施設）：
 //     true=常時表示・false=常時非表示（どちらもチップ非搭載＝客に触らせない）、未記述=既定値から開始＋チップで選択
 //     例: { rail: true, facility: false }＝鉄道焼き付け・施設封印・残り3つは客に委ねる
-//   opts.chips＝チップ帯そのものの表示（true=搭載[既定]／false=出さない）。旧配列形式は後方互換で残存（非推奨）
+//   opts.chips＝チップ帯そのものの表示（true=搭載[既定]／false=出さない）。1.x の配列形式は 2.0 で外した
 //   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
-//   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は非推奨の別名（mesh が優先）
-//   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
+//   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は 2.0 で外した
+//   opts.maxPitch＝チルト上限（度・0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
 //   opts.sky／opts.night／opts.coastline＝星空劇場と太陽系圏／低ズームの夜面／世界の海岸線（true=[既定]／false=持たない・描かない＝MapLibre の口 src/maplibre/ の既定）
 //   opts.terrain＝false：setTerrain まで平ら（既定の標高を取らない＝MapLibre と同じ意味）。{ source, exaggeration }＝外来の標高タイル
@@ -463,13 +463,12 @@ const BASE_SOURCE: GlobeScope["BASE_SOURCE"] = EXT ? extSourceFields(EXT) : PM_U
 const TILE = 512, D2R: GlobeScope["D2R"] = Math.PI / 180, R2D: GlobeScope["R2D"] = 180 / Math.PI;
 
 // 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
-// 旧romajiキー（chimei/chikei/shisetsu）は公開済み共有URL・埋め込みの互換のため読みだけ受ける。
+// 旧romajiキー（chimei/chikei/shisetsu）は公開済み共有URL（l=）の互換のため、URL からの読みだけ受ける（opts.layers の読み替えは 2.0 で外した）。
 const LEGACY_LAYER_KEYS: Record<string, string> = { chimei: "place", chikei: "terrain", shisetsu: "facility" };
 const normLayerKey = (k: string) => LEGACY_LAYER_KEYS[k] || k;
 const fixedLayers: Record<string, boolean> = {};
-if (opts.layers) for (const [k0, v] of Object.entries(opts.layers)) {
-	const k = normLayerKey(k0);
-	if (!(k in defaultLayerState)) { console.warn(`[layers] unknown key "${k0}" (valid: ${Object.keys(defaultLayerState).join(", ")})`); continue; }
+if (opts.layers) for (const [k, v] of Object.entries(opts.layers)) {
+	if (!(k in defaultLayerState)) { console.warn(`[layers] unknown key "${k}" (valid: ${Object.keys(defaultLayerState).join(", ")})`); continue; }
 	if (typeof v === "boolean") fixedLayers[k] = v;   // boolean だけが固定。それ以外は「記述無し」と同じ＝既定＋チップ
 }
 const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedLayers));   // 客が触れる＝URLに載る集合
@@ -840,10 +839,10 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map<string, GintLayerH>();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive: string | null = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
-// map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
+const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／mesh=建物3D の読込合図）
+// map.on("mesh")（1.x の旧名 "plateau" は 2.0 で外した）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitMesh = (e: unknown) => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
+const emitMesh = (e: unknown) => { for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
 let mapLoaded: GlobeLive["mapLoaded"] = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -1064,13 +1063,12 @@ let moving = false, settleT: number | null = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
-// opts.mesh=false（旧 opts.plateau=false）＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
+// opts.mesh=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
-if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opts.mesh (same meaning)');   // 旧名（1.1.0 まで）＝次の大版まで別名で受ける
 // 省メモリ端末（LOW_MEM）で頁に地図がもう 1 枚生きている＝2 枚目は建物 3D を既定で切る（#173 段 3・本人裁定「全端末・LOW_MEM は軽い設定」）。
 // 建物メッシュが常駐メモリの最大の持ち主（GPU 固定常駐行＝数百 MB）＝2 枚ぶん持つと jetsam の危険。opts.mesh:true で入れられる
 const SECOND_LOWMEM = LOW_MEM && LIVE_CONTAINERS.size > 1;
-const MESH_ASKED = opts.mesh ?? opts.plateau;   // 明示の指定（旧名を含む）＝無ければ undefined
+const MESH_ASKED = opts.mesh;   // 明示の指定＝無ければ undefined
 const meshOn: GlobeScope["meshOn"] = (MESH_ASKED ?? !SECOND_LOWMEM) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 const REGION_BLD_LABELS: GlobeScope["REGION_BLD_LABELS"] = REGIONS.map(r => r.buildings?.labels).find(Boolean) ?? {};   // 建物 UI の文言（i18n キー）＝出所の名を出す地域の申告（日本＝PLATEAU）・無ければ汎用
 const REGION_BLD_ICON: GlobeScope["REGION_BLD_ICON"] = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
@@ -1385,10 +1383,8 @@ dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world�
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH: GlobeScope["MAXPITCH"] = 75 * D2R;
-// チルト上限の単位（1.3.0〜・台帳 R15）：MapLibre と同じ度で受ける。1.6 を超える値＝度・それ以下は従来のラジアン
-// （ラジアンの上限は 1.6 未満＝区別がつく・度で 1.6 以下は 0 以外に意味が無い・内製の呼び手は全部 0）。ラジアンは警告を 1 回
-let pitchWarned = false;
-const pitchIn: GlobeScope["pitchIn"] = v => { if (v == null) return v; if (v > 1.6) return v * D2R; if (v > 0 && !pitchWarned) { pitchWarned = true; console.warn(`[globe] maxPitch ${v} read as radians (deprecated) — pass degrees like MapLibre (e.g. 60)`); } return v; };
+// チルト上限の単位（1.3.0〜・台帳 R15）：MapLibre と同じ度で受ける（1.x の「1.6 以下はラジアン」の読み替えは 2.0 で外した）
+const pitchIn: GlobeScope["pitchIn"] = v => v == null ? v : v * D2R;
 let maxPitchCur: GlobeLive["maxPitchCur"] = pitchIn(opts.maxPitch) ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 // ZOOM_MAX は上方（基図の門より前）で決めている＝BASEMAP_MINZOOM が参照する（使う所より前で決める・TDZ の轍）
 const ZOOM_MIN: GlobeScope["ZOOM_MIN"] = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
@@ -2483,7 +2479,7 @@ meshMgr.update();   // 初期視点が z12+（復元/共有URL の街）なら�
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // registerGadget(name, (map, ...args) => handle) で登録し map.gadget.name() で画面に追加する（判断 2・2.0）。本体は map を第 1 引数に受ける素の関数＝
-// mapEl/flyTo 等の手綱がそのまま使える（旧来の map.gadget(name, func)＝this が map の登録も実行時は互換で残る）。検索・操作説明は標準装備から外した最初のオプトインガジェット。
+// mapEl/flyTo 等の手綱がそのまま使える（利用者・plugin の登録は map.registry.gadgets.add＝同じ登録口。1.x の map.gadget(name, func)＝this が map の登録は 2.0 で外した）。検索・操作説明は標準装備から外した最初のオプトインガジェット。
 // カメラ実位置（eye）＝透視カメラそのものの経緯度・海抜（updateUnderground と同式・cameraState の eye を球面へ戻す）。
 // zoom は「注視点での倍率」＝カメラ高度ではない：チルト時は注視点の後方上空に立つ（scene エディタの参考表示用）。
 const eyePose = () => {

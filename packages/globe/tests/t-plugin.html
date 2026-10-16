@@ -299,7 +299,7 @@ try {
 		throw null;
 	}
 	let bootMap = null, bootLoaded = null;
-	const boot = definePlugin({ name: "boot", provides: ["gadget.hello"], install(m, o) { bootMap = m; bootLoaded = o.flag; m.registry.gadgets.add("hello", function () { return "hi:" + this.getZoom().toFixed(1); }); } });
+	const boot = definePlugin({ name: "boot", provides: ["gadget.hello"], install(m, o) { bootMap = m; bootLoaded = o.flag; m.registry.gadgets.add("hello", mm => "hi:" + mm.getZoom().toFixed(1)); } });
 	const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false, plugins: [[boot, { flag: 7 }]] });
 	await map.once("load");
 	// ① 起動時の搭載
