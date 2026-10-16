@@ -3,7 +3,7 @@
 // backend が WebGPU か WebGL2 か・FPS・frame ms・動的解像度）、メモリのどこが太って落ちたか（Memory 台帳：合計/ピーク/予算残・
 // 過渡＝コールド落ちの主役）を一望する。数値は app.js が注入する snapshot() から取る＝この層はレイアウトと更新だけ（三戒：独立/抽象アクセス）。
 // 本体は hud= 指定時だけ import される（app.js 側で遅延）＝通常ユーザーの初期バンドルには乗らない。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 
 const mb = b => (b / 1048576).toFixed(0);                                   // バイト→MB（整数）
 const esc = s => String(s).replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;"));   // 畳んだ値を innerHTML へ入れる前の最小サニタイズ

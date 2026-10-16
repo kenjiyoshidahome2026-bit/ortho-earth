@@ -2,8 +2,8 @@
 // map.gadget.full() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // #map 自身を requestFullscreen＝埋め込み先でも地図だけが画面いっぱいに（body ではなく容れ物を全画面に）。
 // 非対応（iOS Safari 等）はボタンごと出さない＝出ない機能のボタンを見せない。signal＝destroy 時のリスナー解除。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 const EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;

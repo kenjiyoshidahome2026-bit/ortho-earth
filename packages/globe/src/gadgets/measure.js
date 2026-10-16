@@ -8,8 +8,8 @@
 // antimeridian対策込み）。※描画の弧・中点・重心は表示球（単位球）のまま＝見た目の道具。数字だけ楕円体。
 // 操作：クリックで頂点／最終点＋カーソルで閉じプレビュー／ダブルクリック or Esc で確定／ボタンOFFで全消去。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { geodesicDistance, geodesicArea } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();

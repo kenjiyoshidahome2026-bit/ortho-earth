@@ -3,7 +3,7 @@
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { WORLD_PX, decodeTile, fetchMVT, fetchPMTilesRaw, isRasterTileType, loadTileFormat, lonLatToTile, parseRGBA, pmtilesInfo } from "@ortho-earth/core";
 import { demo as demoGadget } from "../gadgets/demo-stub.js";
-import { dockStack } from "../gadgets/stack.js";
+import { dockStack } from "../gadgets/stack.ts";
 import { dropFile as dropFileGadget } from "../gadgets/dropfile.js";
 import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.js";
 import { edit as editGadget } from "../gadgets/edit.js";

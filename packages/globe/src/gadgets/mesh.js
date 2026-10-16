@@ -3,8 +3,8 @@
 // アイコンは地域宣言が持つ（日本＝Project PLATEAU 公式ロゴマーク・@ortho-earth/jp の buildings.icon）。宣言が無い地域は汎用の建物の形。
 // DOM id は #plateau-btn のまま（quiet-mono と利用者の CSS が当てる公開面・2026-09-22 の改名でも据え置き）。
 // 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は meshdb.js の領分。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 // 汎用の建物の形（地域がアイコンを宣言しない時）＝34px 規格・単色（夜テーマは quiet-mono が fill を差し替える）

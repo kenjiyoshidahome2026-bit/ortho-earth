@@ -3,7 +3,7 @@
 // 押す（or Esc）と mapEl から CustomEvent "ortho:close"（bubbles）を飛ばすだけ＝閉じる実務（モーダルを畳む・
 // destroy を呼ぶ等）は埋め込み側の領分。単体ページでは載せない＝モーダル/ライトボックスに地図を出す画面のための×。
 // 置き場所は右上（チップ列のさらに上ではなく #map 直下の後置＝スタック不参加。×は家具でなく「額縁の金具」）。
-import { modalOpen, isTypingTarget, isKeyOwner } from "./keys.js";
+import { modalOpen, isTypingTarget, isKeyOwner } from "./keys.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

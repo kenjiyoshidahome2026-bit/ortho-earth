@@ -27,7 +27,7 @@
 //   openDb()                  … データ管理モーダル
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.js";
-import { dockStack } from "../gadgets/stack.js";   // 左下ドック（読込トーストの容れ物）
+import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.js";
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）
 const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1] : def; };   // ?paz= 等の調律ノブ（app.js と同形）

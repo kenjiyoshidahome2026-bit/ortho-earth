@@ -2,7 +2,7 @@
 // 初回クリックで一度だけ import()＝初期バンドルから隔離（measure-stub と同流儀。キー割当はなし＝単キー名前空間を温存）。
 // 搭載APIは map.gadget.profile()。本体が付いたら同じボタンへ本体のトグル(start/stop)が付き、スタブは abort で退場。
 // ★frame hook（毎フレ再投影で球に追従）は core 側の frameHooks に触れる＝抽象アクセス opts.onBody(本体) 経由で本体到着後に配線。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

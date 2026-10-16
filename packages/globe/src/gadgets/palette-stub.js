@@ -2,7 +2,7 @@
 // 初期バンドルから隔離。ただし配色替えは常用＝「クリックで初めて import」だと初回の一拍が惜しい。そこで
 // ★起動後アイドルに本体を先読み（requestIdleCallback）＝初期表示は軽いまま・押した時にはもう載っている、の両取り。
 // アイドル前に押されても boot は冪等（real ||=）＝そのクリックが本体を呼び、開く。搭載APIは従来どおり map.gadget.palette()。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

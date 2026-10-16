@@ -6,8 +6,8 @@
 //   GL の生ピクセルは上下反転で来る＝合成時に flip して戻す。2D（ラベル/計測）はそのまま。
 //   ※pop の引出線は箱(DOM)無しでは意味を成さない＝合成に含めない。DOM家具は html2canvas 無しでは焼けない割り切り。
 // requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
-import { gadgetStack } from "./stack.js";
-import { keyBusy } from "./keys.js";
+import { gadgetStack } from "./stack.ts";
+import { keyBusy } from "./keys.ts";
 import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.js";
 const t = tr();

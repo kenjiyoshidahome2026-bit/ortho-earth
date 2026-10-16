@@ -5,7 +5,7 @@
 //   ・under（基図）＝ラジオ：ベクタ地図（既定）／地理院 標準・淡色・写真・色別標高…（塗りを伏せ、線と注記は残す）
 //   ・over（重ね）＝チェック：陰影起伏・洪水浸水想定…（塗りの後・線の前・半透明）
 // 状態の正本は map.raster（select/toggle/selected/onChange）＝URL ?r= と同期するのは app.js 側。ここは表示と操作だけ。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

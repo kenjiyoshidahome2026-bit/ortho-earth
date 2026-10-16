@@ -6,7 +6,7 @@
 // 空になったらパネルごと出さない（点火状態 layerState 自体は生きる＝UIが無いだけ）。
 // 置き場＝左上 #gadgets スタックの最上段（検索と同じ「押すと右へ開く」Netflix式＝右上は完全に空ける）。
 import { tr } from "../i18n.js";
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 const t = tr();
 const LEGACY = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   // 旧romajiキーの読み替え（後方互換）
 const CHIPS = [

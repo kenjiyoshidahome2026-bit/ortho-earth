@@ -4,7 +4,7 @@
 // ★"attr"（出典）を出さない場合でも、地理院タイル・PLATEAU・AW3D30 の出典明記義務は消えない＝
 //   埋め込み側が自分のページのどこかに同等の出典を記述すること（README「出典表記」参照）。
 import { tr } from "../i18n.js";
-import { dockStack } from "./stack.js";
+import { dockStack } from "./stack.ts";
 const t = tr();
 const KEYS = ["log", "pos", "scale", "attr"];
 // 出典の組み立て＝地域宣言の attribution（{ lines:[[{href,key|text}…]…], note } の列）→ HTML。#attr の中身と、#attr の無い画面での

@@ -5,7 +5,7 @@
 //   リアルタイムの影＝描画の中で太陽から建物の深度を描いて落とす（map.setShadows・WebGPU 専用＝GL2 では出さない）。時刻のスライダーを動かすと影がその場で動く
 // 計算は model 役の worker（sunshadow.js）＝画面に見えている範囲（一辺 3km まで）の建物を 1 棟ずつ接地して読み、影を升目へ数える。
 // 結果は四隅の画像として地面に貼る（map.raster の image＝ドレープ）。API＝map.sunShadow(opts)（UI なしでも使える）。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 

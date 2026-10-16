@@ -5,7 +5,7 @@
 // 戻り口の約束（アプリ間共通・2026-09-19）：呼び出し元が ?back=<今の URL> を渡す＝あちらは back がある時だけ「← 戻る」を出し、
 // 来た道なら history.back()（この視点そのまま）で帰ってくる。単体で開かれた solar には戻り口が出ない。
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr, getLang } from "../i18n.js";
 const t = tr();
 export function solar({ url } = {}) {

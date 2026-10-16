@@ -3,7 +3,7 @@
 // cam.zoom を整数段へ smoothstep で寄せる（compass と同じ rAF アニメ＝onMove を毎フレ叩く）。
 // 内部の手綱（フライト中断・onMove・z範囲）は本体が app.js の登録側で注入。
 // 縦2連の一体ボタン（＋上・−下）＝チップと同じ隣接ボーダー共有の意匠。置き場所はスタック。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.js";
 const t = tr();
 export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal } = {}) {
