@@ -242,7 +242,7 @@ let meshCamSent = 0;   // カメラ放送のスロットル（ロード中のみ
 function spawnMeshWorkers() {
 	if (meshWorkers.length || !meshOn) return;
 	for (let i = 0; i < MESH_NW; i++) {
-	const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "mesh" });
+	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "mesh" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
 	// ②区内デコード並列プール（MESH_DEC 本／区 worker）は **main が生成して MessagePort で渡す**。旧＝区 worker が入れ子で
 	// new Worker していたが、入口 1 本化（worker.js・name で役割指名）後は vite が入れ子生成を new Worker(self.location.href,…) に
@@ -250,7 +250,7 @@ function spawnMeshWorkers() {
 	// worker の所有者を main に一本化＝入れ子 worker を使わない。デコーダは区 worker と同時に起きる（遅延生成の暖機に乗る）。
 	const decPorts: MessagePort[] = [];
 	for (let k = 0; k < MESH_DEC; k++) {
-		const d = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "meshdecoder" });
+		const d = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "meshdecoder" });
 		const ch = new MessageChannel();
 		d.postMessage({ init: { port: ch.port1 } }, [ch.port1]);   // 以後の会話（init/exclude/job/tick）は全部この port で区 worker と直結
 		meshDecoders.push(d); decPorts.push(ch.port2);

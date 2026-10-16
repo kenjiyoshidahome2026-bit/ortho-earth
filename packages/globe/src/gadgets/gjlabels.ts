@@ -5,7 +5,7 @@
 // 止まるたび（settle）にタイルの集合と ["zoom"] の値（quantZoom）が変わっていれば焼き直す。衝突は基図の注記と同じ土俵（利用者の層が勝つ＝sort を負の帯に）。
 import { selectLOD } from "@ortho-earth/core";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
-import { clipLineGeom, substituteZoom, quantZoom } from "../vtops.js";
+import { clipLineGeom, substituteZoom, quantZoom } from "../vtops.ts";
 import type { MLLayer, TileXYZ } from "@ortho-earth/core";
 import type { GlobeMap } from "../types/map.ts";
 import type { DrawSize, GlobeCam } from "../types/scope.ts";

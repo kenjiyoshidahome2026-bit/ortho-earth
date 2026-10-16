@@ -8,7 +8,7 @@
 //         （key=名前#k・ward=名前）＝uv・頂点色（baseColorFactor×COLOR_0）・baseColorTexture を持つ派生パイプラインで描く（両バックエンド）。
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
-import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { normAnimation } from "../gltf-meta.ts";   // アニメの spec（F4）
 import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
@@ -249,7 +249,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		cur.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${cur!.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
 	};
 	const syncAnim = () => { if (!cur) return; const a = cur.animation; stopLoop(); applyPose(a ? a.time : 0); if (a?.playing && cur.rig && typeof requestAnimationFrame === "function") animRaf = requestAnimationFrame(tick); };
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
 	const rpc = pool.rpc;
 	const clear = () => { stopLoop(); if (cur) { setMesh(cur.name, null); cur = null; } };
 	// 押し出しの今＝slot → { name, stats, used }（模型とは別スロット＝GLB と並べて立てられる）。

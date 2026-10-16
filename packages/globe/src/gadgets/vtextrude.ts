@@ -8,7 +8,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey）を見て、変わった層だけ出ているタイルから組み直す（幾何は worker に残す＝高さと色だけ）。
 //   メッシュ＝1 タイル・1 層・1 本（名前 vtx:<層 id>:<z/x/y>#0）・drape（どこでも地表の標高へ）・keep2d（真上からも屋根）・伏せ枠なし・半透明は BLEND。
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
-import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
 import { hitExtrusion } from "../extrude-ml.ts";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
@@ -106,7 +106,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const sendVis = (ward: string, on: boolean) => { if (!meshPort) { meshVis(ward, on); return; } meshPort.postMessage({ vis: !!on, name: ward }); requestDraw(); };
 
 	// ── worker 2 本（タイルの鍵で振る＝同じタイルの層は同じ worker＝解読と幾何を共有）──
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtextrude" }), { size: 2, tag: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "vtextrude" }), { size: 2, tag: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
 	const workerOf = pool.pick, rpc = pool.rpc;
 
 	const schedule = () => { if (!rafU) rafU = requestAnimationFrame(() => { rafU = 0; update(); }); };
