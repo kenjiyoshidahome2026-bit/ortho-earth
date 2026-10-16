@@ -1,7 +1,7 @@
 // ortho-equal の頁＝殻。部品（equal.js の createEqual）を画面いっぱいに置き、URL（?lang ?labels ?hypso ?choro ?g ?csv と #z/lat/lon）との往復だけを持つ。
 // 部品は受け取った div の中だけで生きる＝サンプル集・埋め込みも同じ口（sample.html）。
 import { createEqual } from "@ortho-earth/equal";
-import { t } from "@ortho-earth/equal/i18n.js";
+import { t } from "@ortho-earth/equal/i18n";
 
 const Q = new URLSearchParams(location.search);
 const MORPH = Q.has("morph");   // 球から開いて着いた＝戻る時も球へ畳んでから
