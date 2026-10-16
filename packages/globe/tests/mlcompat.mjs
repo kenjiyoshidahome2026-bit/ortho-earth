@@ -5,9 +5,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as mlstyle from "@ortho-earth/core/internal/mlstyle.js";
+import * as mlstyle from "@ortho-earth/core/internal/mlstyle.ts";
 import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "@ortho-earth/core/expr";
-import { decodeDEM } from "@ortho-earth/core/internal/dem-src.js";
+import { decodeDEM } from "@ortho-earth/core/internal/dem-src.ts";
 import { expandTemplate } from "@ortho-earth/core/raster-src";
 import { symbolItems, poleOf } from "../src/gadgets/symbols-core.js";
 import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.js";
@@ -105,7 +105,7 @@ const SCENES = {
 	},
 	// ── 式の検査（段 5）＝知らない演算子を拾う・式でない所（ラベル・補間の型・literal の中）は見ない ──
 	"op-known-matches-build": () => {
-		const src = fs.readFileSync(fileURLToPath(import.meta.resolve("@ortho-earth/core/expr")), "utf8"), body = src.slice(src.indexOf('function build(e, o = "native"'));   // 実体の source を読む＝口（exports）経由で場所を引く
+		const src = fs.readFileSync(fileURLToPath(import.meta.resolve("@ortho-earth/core/expr")), "utf8"), body = src.slice(src.search(/\bfunction build\(e\b/));   // 2.0：expr.ts＝引数に型が付く＝名前で引く   // 実体の source を読む＝口（exports）経由で場所を引く
 		const cases = new Set([...body.matchAll(/case "([^"]+)":/g)].map(m => m[1]));
 		const miss = [...cases].filter(o => !KNOWN_OPS.has(o)), extra = [...KNOWN_OPS].filter(o => !cases.has(o));
 		return [!miss.length && !extra.length, `missing=${miss} extra=${extra}`];

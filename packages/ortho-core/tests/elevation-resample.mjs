@@ -2,8 +2,8 @@
 // 守るもの＝「速くしても値は同じ」：①downsampleFlipped は規約の写し（texel 中心 (i+0.5)/N・最外周 M=2 を読まない・異常値 <-420/>9000 は 0・負は 0・row0=南）と
 // 全 texel で bit 一致 ②f32→f16 は IEEE half の最近接丸め（Float16Array が使える環境ではそれと一致・無い環境は JS ループ）。
 // node tests/elevation-resample.mjs
-import { downsampleFlipped, cropResample } from "../src/elevation.js";
-import { f32ToF16, f32ToF16Loop } from "../src/gpu/f16.js";
+import { downsampleFlipped, cropResample } from "../src/elevation.ts";
+import { f32ToF16, f32ToF16Loop } from "../src/gpu/f16.ts";
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log(`${c ? "✓" : "✗"} ${msg}`); };

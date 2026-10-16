@@ -1,9 +1,9 @@
 // cameraState の cam.roll（視線まわりの回転［rad］・MapLibre の roll と同じ向き・2026-10-12 A1）：
 // 無指定＝0＝従来とビット同値／正の roll＝絵が画面上で時計回りに回る（北の点が右へ）／注視点は動かない／camDist・eye は不変。
 // 併せて viewurl の roll トークンと flight の easePlan の roll 補間。
-import { cameraState, project } from "../src/camera.js";
-import { parseViewHash, buildViewHash } from "../src/viewurl.js";
-import { easePlan } from "../src/flight.js";
+import { cameraState, project } from "../src/camera.ts";
+import { parseViewHash, buildViewHash } from "../src/viewurl.ts";
+import { easePlan } from "../src/flight.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };

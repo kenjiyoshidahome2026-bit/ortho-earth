@@ -10,7 +10,7 @@ engine（`packages/ortho-core`）＝純粋なカメラ/入力/飛行/URLの数�
 
 すべての土台。zの目盛りは「256px世界」＝**赤道一周 = 2^z × 256 CSSpx**。v1(d3-geo)・地理院地図・OSM と同一目盛り。
 
-- `WORLD_PX = 256` — [camera.js:9](../../packages/ortho-core/src/camera.js#L9)
+- `WORLD_PX = 256` — [camera.js:9](../../packages/ortho-core/src/camera.ts#L9)
 
 - 旧実装は 512px世界（MapLibre流）で、同じ視野でもzが1小さく、gint式（256前提）やDEM段閾値と1段ズレていた。commit `1bdb053` / `f3c7694` の「256統一」でここへ寄せた。
 
@@ -22,7 +22,7 @@ engine（`packages/ortho-core`）＝純粋なカメラ/入力/飛行/URLの数�
 
 ## 1. zの数学的定義：z → 解像度 → カメラ距離 → mat4
 
-中枢は [camera.js](../../packages/ortho-core/src/camera.js) の `cameraState()`。
+中枢は [camera.js](../../packages/ortho-core/src/camera.ts) の `cameraState()`。
 
 ### z → カメラ距離
 
@@ -37,7 +37,7 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 ### camDist → view/proj行列（mat4）
 
-[camera.js:35-61](../../packages/ortho-core/src/camera.js#L35-L61)
+[camera.js:35-61](../../packages/ortho-core/src/camera.ts#L35-L61)
 
 - eye = `T + back·camDist`（T＝単位球上の注視点）。lookAt + perspective で MVP を生成。
 
@@ -46,12 +46,12 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 ### fovy（視野角）はzと分離
 
-- `fovy = 50°` 固定（[camera.js:19](../../packages/ortho-core/src/camera.js#L19)）。camDistをfovyから逆算するので、どのfovyでも画面上の目盛りは `2^z·256` px/赤道に保たれる。
+- `fovy = 50°` 固定（[camera.js:19](../../packages/ortho-core/src/camera.ts#L19)）。camDistをfovyから逆算するので、どのfovyでも画面上の目盛りは `2^z·256` px/赤道に保たれる。
 - fovyスライダーは「暴れる」ため撤回済み（[app.js:568](../app.js#L568) の教訓メモ）。動的な遠近の揺れ > 静的歪み。
 
 ### z は緯度に依存しない（cos(lat)を掛けない）★重要な設計判断
 
-[camera.js:27-31](../../packages/ortho-core/src/camera.js#L27-L31)
+[camera.js:27-31](../../packages/ortho-core/src/camera.ts#L27-L31)
 
 - **z は正射スケールそのもの。同一zは緯度によらず同一倍率**（v1 d3-geoと同一定義）。
 - 旧実装は ×cos(lat) のwebメルカトル互換で、北へパンするほど膨らんだ（那覇→札幌で約26%）＝違和感の元。
@@ -71,25 +71,25 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 | 場所 | 範囲 | 位置 |
 |---|---|---|
-| engine `createInput` 既定 | 2..20 | [input.js:31](../../packages/ortho-core/src/input.js#L31) |
+| engine `createInput` 既定 | 2..20 | [input.js:31](../../packages/ortho-core/src/input.ts#L31) |
 | app が createInput へ渡す | 2..21 | [app.js:1239](../app.js#L1239) |
 | `applyCamView`（URL/復元/飛行先） | 2..21 | [app.js:663](../app.js#L663) |
 | zoom gadget | 2..21 | [zoom.js:7](../gadgets/zoom.js#L7) |
-| flight巡航フロア | `min(2, targetZoom)` | [flight.js:67](../../packages/ortho-core/src/flight.js#L67) |
+| flight巡航フロア | `min(2, targetZoom)` | [flight.js:67](../../packages/ortho-core/src/flight.ts#L67) |
 
 実効レンジは **z ∈ [2, 21]**（z21 ≈ 7.5cm/px、精度は原点相対RTEが担保）。
 
-### 入力ハンドラ（[input.js](../../packages/ortho-core/src/input.js)）
+### 入力ハンドラ（[input.js](../../packages/ortho-core/src/input.ts)）
 
-- **ホイール**：`cam.zoom -= e.deltaY * 0.002`（[input.js:180](../../packages/ortho-core/src/input.js#L180)）。⌘(Mac)/Ctrl(他)+ホイールは回転に切替。カーソル位置を `anchoredAt` で固定してズーム。
-- **ピンチ**：`dz = log2(currentDist / prevDist)`（[input.js:153](../../packages/ortho-core/src/input.js#L153)）、ピンチ中心にアンカー。12px超で tilt/free モード確定。
-- **キーボード**：Shift+↑↓でズーム、`KB_ZOOM = 0.028`/frame（[input.js:188](../../packages/ortho-core/src/input.js#L188)）。押下中はrAFループ。
+- **ホイール**：`cam.zoom -= e.deltaY * 0.002`（[input.js:180](../../packages/ortho-core/src/input.ts#L180)）。⌘(Mac)/Ctrl(他)+ホイールは回転に切替。カーソル位置を `anchoredAt` で固定してズーム。
+- **ピンチ**：`dz = log2(currentDist / prevDist)`（[input.js:153](../../packages/ortho-core/src/input.ts#L153)）、ピンチ中心にアンカー。12px超で tilt/free モード確定。
+- **キーボード**：Shift+↑↓でズーム、`KB_ZOOM = 0.028`/frame（[input.js:188](../../packages/ortho-core/src/input.ts#L188)）。押下中はrAFループ。
 - **ダブルクリックズームは無し**。
 - **ズームボタン（gadget）**：`glide(delta)` が整数段へアニメ＝in `floor(z+1)`/out `ceil(z-1)`、260msスムーズステップ（[zoom.js:18-32](../gadgets/zoom.js#L18-L32)）。押下時に飛行をキャンセル。
 
 ### アニメ・イージング・慣性
 
-- `flyTo`：van Wijk & Nuij 最適経路ズーム（ρ=√2、d3.interpolateZoomと同型）。巡航は線形（[flight.js](../../packages/ortho-core/src/flight.js)）。
+- `flyTo`：van Wijk & Nuij 最適経路ズーム（ρ=√2、d3.interpolateZoomと同型）。巡航は線形（[flight.js](../../packages/ortho-core/src/flight.ts)）。
 - `glideTo`：近距離スムーズステップ（`e = k·k·(3−2k)`）。
 - **慣性（inertia）は無し**。zは入力がアクティブな間だけ動く。ジェスチャーで飛行は即キャンセル（[app.js:1241](../app.js#L1241)）。
 
@@ -103,7 +103,7 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 ### URL / 永続化
 
-コーデックは [viewurl.js](../../packages/ortho-core/src/viewurl.js)。書式 `#zoom/lat/lon[/45t][/-30r][/l=…][/c=dark]`（GSI/OSMと同順）。
+コーデックは [viewurl.js](../../packages/ortho-core/src/viewurl.ts)。書式 `#zoom/lat/lon[/45t][/-30r][/l=…][/c=dark]`（GSI/OSMと同順）。
 
 - zは第0セグメント、`toFixed(2)`（lat/lonは5桁≈1m）。
 - 起動優先度：URL hash > localStorage(`ortho-japan.cam256`) > 既定。
@@ -111,13 +111,13 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 ### tilt/pitch と z の結合
 
-- **自動チルト**：`flyTo` でチルト未指定なら **z≥15 で 45°**、未満は水平着地（[flight.js:25](../../packages/ortho-core/src/flight.js#L25)）。
+- **自動チルト**：`flyTo` でチルト未指定なら **z≥15 で 45°**、未満は水平着地（[flight.js:25](../../packages/ortho-core/src/flight.ts#L25)）。
 - `MAXPITCH = 75°`（[app.js:651](../app.js#L651)）。
 - フリーズーム中にpitchをzから連続導出はしない（自動チルトは `flyTo` 経由のみ）。
 
 ### カメラ地形クランプ（commit `89339d9`「Cesium流押し上げ」）
 
-- engine側：eyeが地表に沈むと半径方向へ押し上げ（`cam.minEyeAlt`、[camera.js:38-56](../../packages/ortho-core/src/camera.js#L38-L56)）。注視点は保持＝実効pitchが滑らかに浅くなる。
+- engine側：eyeが地表に沈むと半径方向へ押し上げ（`cam.minEyeAlt`、[camera.js:38-56](../../packages/ortho-core/src/camera.ts#L38-L56)）。注視点は保持＝実効pitchが滑らかに浅くなる。
 - app側 `updateCamClamp()`（[app.js:564-594](../app.js#L564-L594)）：`getHeight(lon,lat, cam.zoom)` に**zを渡してDEM段（R90/R10/R01）を選ばせる**。マージン40m、10Hz制限、上げは即・下げは遅い非対称平滑、`pitch < 0.06`（ほぼ真俯瞰）では無効化。
 
 ---
@@ -126,8 +126,8 @@ camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高�
 
 ### タイル座標とLOD選択
 
-- `lonLatToTile(lon,lat,z)`＝標準Webメルカトル（[tile.js:4-9](../../packages/ortho-core/src/tile.js#L4-L9)）。
-- 距離ベースのクアッドツリー選択 `selectLOD(cam,W,H,{...})`（[tilecover.js:14](../../packages/ortho-core/src/tilecover.js#L14)）：既定 `minZ=4, maxZ=16, tilePx=560`。画面上サイズ > 閾値なら分割。`sticky`/`stickyRatio=0.8` で親子振動を防ぐ。
+- `lonLatToTile(lon,lat,z)`＝標準Webメルカトル（[tile.js:4-9](../../packages/ortho-core/src/tile.ts#L4-L9)）。
+- 距離ベースのクアッドツリー選択 `selectLOD(cam,W,H,{...})`（[tilecover.js:14](../../packages/ortho-core/src/tilecover.ts#L14)）：既定 `minZ=4, maxZ=16, tilePx=560`。画面上サイズ > 閾値なら分割。`sticky`/`stickyRatio=0.8` で親子振動を防ぐ。
 - **3層ピラミッド**（[tilemanager.js:76](../../packages/ortho-core/src/tilemanager.js#L76)）：main（selectLOD）＋coarse下地（`maxZ≈round(zoom)-4`）＋blanket（固定z4の保証床）。
 - **lodFloor**：`{ minViewZoom: 9, z: 8 }`（[app.js:621](../app.js#L621)）＝view z≥9でタイルLOD床をtile z8に強制（海のゲートに合わせる。optbvは海の全面WAをz8から供給）。
 

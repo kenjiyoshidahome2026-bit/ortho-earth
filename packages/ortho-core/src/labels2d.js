@@ -4,12 +4,12 @@
 // 向き（段 5）＝text-rotate・rotation-alignment map・pitch-alignment map＝錨での地面の基底から transform を組む（orient）。線の字は上向きを地面の直角へ。
 // 線に沿う注記（symbol-placement line・段 4）も同じ経路＝折れ線を毎フレーム投影して字を線に沿わせる（lineLayout）・字ごとの箱で衝突。
 // 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
-import { cameraState, projectInto, unproject, distTo, worldRadiusM } from "./camera.js";
-import { parseRGBA } from "./color.js";
-import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
-import { fontCss } from "./fontstack.js";
-import { charRotated, verticalize } from "./vertical.js";   // 縦書き（text-writing-mode・2026-10-03）
-import { labelKey } from "./labelkey.js";
+import { cameraState, projectInto, unproject, distTo, worldRadiusM } from "./camera.ts";
+import { parseRGBA } from "./color.ts";
+import { clipDistanceM } from "./clip.ts";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
+import { fontCss } from "./fontstack.ts";
+import { charRotated, verticalize } from "./vertical.ts";   // 縦書き（text-writing-mode・2026-10-03）
+import { labelKey } from "./labelkey.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝星空の注記も星（renderer）と同じ時刻で回す
 import { gmstAt } from "@ortho-earth/ephem/sun";       // 恒星時の正本（renderer の星と同じ式）
 

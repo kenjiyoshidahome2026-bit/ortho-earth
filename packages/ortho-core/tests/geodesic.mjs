@@ -6,7 +6,7 @@
 //   4. 曲率半径: N(0)=a・N/M の緯度依存の向き
 // 使い方: node packages/ortho-core/tests/geodesic.mjs
 import { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius,
-         AUTHALIC_R, WGS84 } from '../src/geodesic.js';
+         AUTHALIC_R, WGS84 } from '../src/geodesic.ts';
 
 let fails = 0;
 const ok = (cond, label, detail = '') => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label} ${detail}`); };

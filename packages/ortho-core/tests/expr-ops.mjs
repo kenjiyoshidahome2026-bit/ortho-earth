@@ -1,7 +1,7 @@
 // 式の残り（C2・2026-10-12）＝within・distance・config・semiliteral・number-format の unit/currency・collator・interpolate-hcl/lab・pitch・distance-from-center。
 // 期待値は MapLibre の意味（文書・color_spaces.ts）から。semiliteral は推定の意味（compat.md §4）
-import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS } from "../src/expr.js";
-import { featureGeomLL } from "../src/expr-geo.js";
+import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS } from "../src/expr.ts";
+import { featureGeomLL } from "../src/expr-geo.ts";
 
 let fails = 0;
 const ok = (name, cond, note = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); if (!cond) fails++; };

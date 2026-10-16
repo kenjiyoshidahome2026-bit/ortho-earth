@@ -1,6 +1,6 @@
 // 注記の差分配達（labelsync.js）：並びと中身が全送りと同じ・worker が持つ物は送らない・外れた物は捨てる・欠けは数えて reset で全部送り直す
 import assert from "node:assert/strict";
-import { createLabelSender, createLabelReceiver, labelKey } from "../src/labelsync.js";
+import { createLabelSender, createLabelReceiver, labelKey } from "../src/labelsync.ts";
 
 let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
 const pool = [...Array(300)].map((_, i) => ({ anchor: [139 + rnd(), 35 + rnd()], text: "L" + i, size: 12, color: [0, 0, 0, 1], li: i % 7 }));

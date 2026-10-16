@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // text-font（MapLibre のフォントスタック名）→ CSS の書体（fontstack.js・段 2）の検定（Node）
-import { parseFontStack, fontCss } from "../src/fontstack.js";
+import { parseFontStack, fontCss } from "../src/fontstack.ts";
 let fails = 0;
 const ok = (cond, label) => { if (cond) return; fails++; console.error(`  ✗ ${label}`); };
 const eq = (a, b, label) => ok(JSON.stringify(a) === JSON.stringify(b), `${label}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`);
