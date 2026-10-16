@@ -22,7 +22,7 @@
 	import GeoJSON from "ol/format/GeoJSON.js";
 	import { fromLonLat } from "ol/proj.js";
 	import "ol/ol.css";
-	import { makeGeopbfLoader } from "../src/openlayers.js";
+	import { makeGeopbfLoader } from "../src/openlayers.ts";
 
 	const done = s => document.title = s;
 	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);

@@ -4,7 +4,7 @@
 // 実 Leaflet との結合は tests/t-leaflet.html（自己判定式）が関門。
 import { createServer } from "node:http";
 import { GeoPBFBase } from "../src/pbf-base.ts";
-import { extendLeaflet, loadGeopbf } from "../src/leaflet.js";
+import { extendLeaflet, loadGeopbf } from "../src/leaflet.ts";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
 globalThis.ImageData ??= class ImageData {

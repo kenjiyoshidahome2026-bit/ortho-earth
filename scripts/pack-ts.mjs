@@ -9,7 +9,7 @@
 //   - tsconfig.worker.json があればそれも tsc する（worker の入口は本体の tsconfig から外してある＝これが無いと dist に worker が出ない）。
 //   - src の .ts 以外（手書きの .js・.mjs・.d.ts・json・css・画像など）を dist の同じ場所へ写す。写した .js／.mjs／.d.ts の
 //     相対の "….ts" は ".js" に直す（例：geopbf の src/maplibre.js → ./modules/geojson-load.ts）。
-//   - 口の差し替えは main・exports・imports・types・sideEffects の全部（"src/x.ts" の ./ 無しも・.mjs／.js／json はそのまま dist へ）。
+//   - 口の差し替えは main・exports・imports・types・sideEffects・bin の全部（"src/x.ts" の ./ 無しも・.mjs／.js／json はそのまま dist へ）。
 //   - files の "src" は "dist" に置き換える（口は全部 dist を指す＝src の .ts は npm では読めない死に物）。"!src/…" は "!dist/…" に写す。
 //   - files に入らない所を指す exports は落とす（globe の "./scripts/*"＝build の道具・Q6）。
 //   - 一番上の手書きの .d.ts と types/ の .d.ts が "./src/x.ts" を指していれば "./dist/x.js" に直す（globe.d.ts → src/types/map.ts）。
@@ -74,7 +74,7 @@ if (mode === "pre") {
 	const raw = fs.readFileSync(pj, "utf8");
 	fs.writeFileSync(bak, raw);
 	const p = JSON.parse(raw);
-	for (const k of ["main", "module", "types", "typings", "exports", "imports", "sideEffects"]) if (p[k] != null && typeof p[k] !== "boolean") p[k] = toDist(p[k]);
+	for (const k of ["main", "module", "types", "typings", "exports", "imports", "sideEffects", "bin"]) if (p[k] != null && typeof p[k] !== "boolean") p[k] = toDist(p[k]);
 	if (Array.isArray(p.files)) {
 		const files = p.files.flatMap(f => f === "src" || f === "src/" ? [] : /^!src\//.test(f) ? [f.replace(/^!src\//, "!dist/")] : [f]);
 		if (!files.includes("dist")) files.unshift("dist");

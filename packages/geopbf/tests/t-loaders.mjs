@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { parse, load } from "@loaders.gl/core";
 import { GeoPBFBase } from "../src/pbf-base.ts";
-import { GeoPBFLoader } from "../src/loaders.js";
+import { GeoPBFLoader } from "../src/loaders.ts";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
 globalThis.ImageData ??= class ImageData {

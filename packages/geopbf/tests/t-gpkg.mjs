@@ -157,7 +157,7 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 {
-	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
+	const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-gpkg-"));
 	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const src = new URL("./fixtures/gpkg/mixed.gpkg", import.meta.url).pathname;

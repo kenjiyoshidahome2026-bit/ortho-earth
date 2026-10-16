@@ -8,7 +8,7 @@ import VectorSource from "ol/source/Vector.js";
 import GeoJSON from "ol/format/GeoJSON.js";
 import { get as getProjection } from "ol/proj.js";
 import { GeoPBFBase } from "../src/pbf-base.ts";
-import { makeGeopbfLoader } from "../src/openlayers.js";
+import { makeGeopbfLoader } from "../src/openlayers.ts";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
 globalThis.ImageData ??= class ImageData {

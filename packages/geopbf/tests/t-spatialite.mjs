@@ -95,7 +95,7 @@ ok(L("places").columns.map(c => c.name).join() === "id,name,pop,ratio,flag,d,dt,
 }
 // ── CLI ──
 {
-	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	const out = execFileSync("node", [new URL("../src/cli/geopbf.ts", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	ok(/feature layers 8/.test(out) && /places/.test(out) && /jpr/.test(out), "CLI spatialite2pbf の一覧");
 }
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// t-cli: bin/geopbf.mjs の検定（Node 20+・外部データ不要＝決定的）。
+// t-cli: src/cli/geopbf.ts の検定（Node 20+・外部データ不要＝決定的）。
 // CLI は「別プロセスとして起動して標準出力と終了コードを見る」＝利用者と同じ経路で確かめる。
 // 使い方: node packages/geopbf/tests/t-cli.mjs
 import { execFileSync } from "node:child_process";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
-const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
+const CLI = new URL("../src/cli/geopbf.ts", import.meta.url).pathname;
 const dir = mkdtempSync(join(tmpdir(), "geopbf-cli-"));
 const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 
@@ -134,8 +134,8 @@ const fail = (...args) => { try { execFileSync(process.execPath, [CLI, ...args],
 }
 // 直接: 引数の表は使い方の文と一致（SPEC の全オプションが usage に載り、usage の --flag は SPEC にある）
 {
-	const { SPEC, parseArgs, numOpt } = await import("../bin/args.mjs");
-	const { t } = await import("../bin/messages.mjs");
+	const { SPEC, parseArgs, numOpt } = await import("../src/cli/args.ts");
+	const { t } = await import("../src/cli/messages.ts");
 	const usage = t("usage");
 	let miss = [];
 	for (const [cmd, sp] of Object.entries(SPEC)) {
