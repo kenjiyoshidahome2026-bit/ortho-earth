@@ -16,7 +16,7 @@
 		"test": "node tests/t-plugin-splat.mjs"
 	},
 	"peerDependencies": {
-		"@ortho-earth/globe": "^1.14.0"
+		"@ortho-earth/globe": "^2.0.0"
 	},
 	"keywords": ["gaussian-splatting", "3dgs", "splat", "ply", "spz", "globe", "ortho-earth"],
 	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-splat" },

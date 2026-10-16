@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, openSync
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { register } from "node:module";
-register("../src/node-hook.mjs", import.meta.url);   // @maplibre/mlt の拡張子なし import を Node で解く
+register("@ortho-earth/tile-formats/node-hook", import.meta.url);   // 自分の名前で引く＝npm では dist（段 5-9）・@maplibre/mlt の拡張子なし import を Node で解く
 const { encodeTile } = await import("@maplibre/mlt");
 const { decodeMVT, polygons } = await import("@ortho-earth/core/decode");
 
