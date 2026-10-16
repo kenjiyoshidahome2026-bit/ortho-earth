@@ -3,3 +3,5 @@
 
 /** 旗つきの地図（外側の顔）から素の map へ戻る鍵（Symbol.for("ortho-earth.map.raw")） */
 export const RAW: unique symbol;
+/** 公開の口の z → エンジンの z（dz＝目盛りの差・null はそのまま）＝gint/layers.ts が読む */
+export function zIn<T extends number | null | undefined>(z: T, dz: number): T;

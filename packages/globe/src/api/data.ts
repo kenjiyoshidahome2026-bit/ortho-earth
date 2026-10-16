@@ -208,7 +208,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
 	const columnarView: DataReturn["columnarView"] = async (src, name, o = {}) => {
 		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!(opts as { perf?: unknown }).perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
 		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
@@ -257,7 +257,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	}
 	// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 	map.addColumnar = async (src, o = {}) => {
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 	};
 	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
@@ -379,7 +379,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
 	//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
 	//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
-	const cellsMod = () => import("../cells/layer.js");
+	const cellsMod = () => import("../cells/layer.ts");
 	map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
 	map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
 	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });

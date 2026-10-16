@@ -7,7 +7,7 @@ import { normLight, lightPayload, LIGHT_TYPES } from "./light.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey } from "./extrude-ml.ts";
-import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
+import { createRawStore } from "./vtraw.ts";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import customglUrl from "./gadgets/customgl-draw.js?url";
 import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
@@ -34,7 +34,7 @@ import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-fact
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
 // 役割名は部品が付ける（"decoder:fgb" "ortho:tile" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）。
 // ⚠部品の組み込み worker はビルドの alias で「作らない版」に差し替え済み（vite.config.js）＝この口が必ず Worker を返すこと
-const hostWorker = role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+const hostWorker = role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
 setCoreWorkerFactory(hostWorker);   // core の worker（標高 ortho:height・タイル・シーン）も入口 1 本で
 setGeoeditWorkerFactory(hostWorker);
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
@@ -61,11 +61,11 @@ import { createFacade } from "./mlfacade.js";
 export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createGintLayers } from "./gint/layers.js";
-import { createWorldContent } from "./gint/worldcontent.js";
-import { createHillshadeProvider } from "./hillshade.js";
-import { createColorReliefProvider } from "./colorrelief.js";
-import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
+import { createGintLayers } from "./gint/layers.ts";
+import { createWorldContent } from "./gint/worldcontent.ts";
+import { createHillshadeProvider } from "./hillshade.ts";
+import { createColorReliefProvider } from "./colorrelief.ts";
+import { createDemTiles } from "./demtiles.ts";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
 import { createCustomGL } from "./gadgets/customgl.ts";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
@@ -507,7 +507,7 @@ canvas.width = size.w; canvas.height = size.h;             // transfer 前に初
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
-const renderWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
+const renderWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。

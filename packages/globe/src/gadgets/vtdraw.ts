@@ -9,10 +9,10 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
 //   feature-state（#109・押し出し 8①b と同じ作法）＝置き場は呼び手（globe の vtxFS）・ここは読むだけ。状態が変わった地物を含むタイルに印（touchFS）＝そのタイルだけ組み直す。
 //         paint に ["feature-state"] がある層だけが読む（filter は読まない＝MapLibre と同じ）。タイルごとに「含む地物の id」（ids）を worker から受け取って持つ。
-import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
-import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
+import { liOf, styleZoomProps, quantZoom } from "../vtops.ts";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Requester, ResolvedRequest } from "../request.d.ts";
 import type { GlobeMap } from "../types/map.ts";
@@ -83,7 +83,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const warnOnce = (k: string, msg: string) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
 
 	// ── 組み役 worker（タイルの鍵で振る＝lowMem は 1 本）──
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
 	const workerOf = pool.pick, rpc = pool.rpc;
 
 	// ── 結合役＝core の scene worker（md:false＝CPU 結合）。render worker への口の代わりに main が端を持つ ──
@@ -91,7 +91,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const mg = { seq: 0, inflight: false, want: false, sig: null as string | null, planSig: null as string | null, lastAt: 0, t0: 0, timer: 0, sent: 0, recv: 0 };   // planSig＝直近に見た計画の署名（計器の fsDone）・t0＝結合を出した時刻
 	const mergerW = () => {
 		if (merger) return merger;
-		const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "ortho:scene" });
+		const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "ortho:scene" });
 		const ch = new MessageChannel();
 		w.postMessage({ type: "connect", port: ch.port1 }, [ch.port1]);
 		ch.port2.postMessage({ type: "mode", md: false });   // CPU 結合（mergeTiles）＝render worker の常駐プールには触らない
