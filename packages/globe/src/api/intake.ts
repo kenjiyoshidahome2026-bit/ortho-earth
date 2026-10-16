@@ -7,7 +7,7 @@ import { addProtocol, removeProtocol } from "../request.js";
 import { geopbf, geopbfCachePrune } from "geopbf";
 import { tr } from "../i18n.js";
 import type { GeoPBF } from "geopbf";
-import type { CogHandle, GeoPBF as PublicGeoPBF } from "../../globe.d.ts";
+import type { CogHandle } from "../../globe.d.ts";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
 import type { IntakeApi } from "../types/map.ts";
@@ -197,7 +197,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 		if (!drawPbf) { gint.clearUserGint(); live.annoCtl?.clear(); }
 		else if (drawPbf.keys?.some((k: string) => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
 			gint.clearUserGint();
-			await map.gadget.anno(drawPbf as unknown as PublicGeoPBF);   // TODO(ts): 公開の GeoPBF（globe.d.ts の主要面の写し）と geopbf の GeoPBF が食い違う（properties の null・bbox の長さ）＝gadget の batch で揃える
+			await map.gadget.anno(drawPbf);
 		} else {
 			live.annoCtl?.clear();
 			gint.applyGintData(drawPbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火

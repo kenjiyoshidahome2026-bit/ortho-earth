@@ -1112,10 +1112,17 @@ export interface GeopbfOptions {
 	precision?: number;
 	[k: string]: unknown;
 }
-/** GeoPBF＝geopbf() が返す。主要面のみ型付け（全面は https://www.npmjs.com/package/geopbf） */
+/** GeoPBF の地物（geopbf の Feature の写し・実体どおり＝properties は null あり・GeometryCollection は coordinates の代わりに geometries） */
+export interface GeoPBFFeature {
+	type: "Feature"; id?: string | number; properties: Record<string, any> | null;
+	geometry: { type: string; coordinates?: unknown; geometries?: Array<{ type: string; coordinates?: unknown }> } | null; bbox?: number[];
+}
+/** GeoPBF＝geopbf() が返す。主要面のみ型付け（全面は https://www.npmjs.com/package/geopbf）。geopbf の GeoPBF の宣言の写し＝geopbf の GeoPBF はそのままこの型に入る
+ *  （TS 化 段 4・batch 2：bbox は geopbf の BBox＝4 数の組か数の配列・書き出しは File か Blob か null・地物の properties は null あり。
+ *  ここに無いメンバーは geopbf の型で＝import type { GeoPBF } from "geopbf"） */
 export interface GeoPBF {
-	readonly features: GeoJSONFeature[];
-	readonly geojson: GeoJSONFeatureCollection;
+	readonly features: GeoPBFFeature[];
+	readonly geojson: { type: "FeatureCollection"; features: GeoPBFFeature[]; bbox?: number[] };
 	/** フィーチャ数 */
 	readonly length: number;
 	/** feature i のジオメトリ型（"Point"…"MultiPolygon"）。引数なし＝全件の配列 */
@@ -1130,25 +1137,24 @@ export interface GeoPBF {
 	/** 点を含む面の fid（smallest-wins）。該当なし＝null */
 	contain(lnglat: LonLat): number | null;
 	/** 全体 bbox [w,s,e,n] */
-	readonly bbox: Bbox;
+	readonly bbox: Bbox | number[];
 	/** フィーチャ別 bbox の配列 */
-	readonly bboxes: Bbox[];
+	readonly bboxes: Array<Bbox | number[]>;
 	/** getBbox(i)＝feature i の bbox。引数なし＝全フィーチャの bbox 配列（全体は .bbox） */
-	getBbox(i: number): Bbox;
-	getBbox(): Bbox[];
+	getBbox(i: number): Bbox | number[];
+	getBbox(): Array<Bbox | number[]>;
 	/** 書き出し（File 名＝opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る）。忠実度：geopbf/geojson＝完全、
 	 *  kmz＝件数維持・属性は全て文字列化、gpx＝点と線のみ（面は落ちる）・属性は name/desc/type と各点の ele/time 配列、
 	 *  czml＝静的パケットは等価（幾何にした部分以外は czml 属性に温存）・時刻付きの線は sampled position */
-	geopbfFile(opts?: object): Promise<File>;
-	geojsonFile(opts?: object): Promise<File>;
-	topojsonFile(opts?: object): Promise<File>;
-	fgbFile(opts?: object): Promise<File>;
-	shapeFile(opts?: object): Promise<File>;
-	kmzFile(opts?: object): Promise<File>;
-	gmlFile(opts?: object): Promise<File>;
-	gpxFile(opts?: object): Promise<File>;
-	czmlFile(opts?: object): Promise<File>;
-	[k: string]: unknown;
+	geopbfFile(opts?: object): Promise<File | Blob | null>;
+	geojsonFile(opts?: object): Promise<File | Blob | null>;
+	topojsonFile(opts?: object): Promise<File | Blob | null>;
+	fgbFile(opts?: object): Promise<File | Blob | null>;
+	shapeFile(opts?: object): Promise<File | Blob | null>;
+	kmzFile(opts?: object): Promise<File | Blob | null>;
+	gmlFile(opts?: object): Promise<File | Blob | null>;
+	gpxFile(opts?: object): Promise<File | Blob | null>;
+	czmlFile(opts?: object): Promise<File | Blob | null>;
 }
 /**
  * SDK 同梱・初期化済みの geopbf ローダー。GeoJSON オブジェクト / File / URL / ArrayBuffer（geopbf/geojson/topojson/fgb/
