@@ -1,6 +1,6 @@
-// MapLibre の custom 層に渡す args（CustomLayerInterface の render(gl, args)）を cam から組む純関数＝main の customgl.js と render worker の customgl-draw.js が同じ物を使う（deck.gl 差分 PR-7・2026-10-12）。
+// MapLibre の custom 層に渡す args（CustomLayerInterface の render(gl, args)）を cam から組む純関数＝main の customgl.js と render worker の customgl-draw.js が同じ物を使う（worker 側は renderworker が host.customArgs で渡す＝customgl-draw.js は ?url の依存ゼロ）（deck.gl 差分 PR-7・2026-10-12）。
 // 行列＝mvp · [メルカトル → 単位球]（視点の中心で局所線形化）・prelude（mercator／globe の variant）・getProjectionData（タイル単位）。中身は customgl.js から切り出し（挙動は同じ）。
-import { cameraState, lonlatTo3D, ellipsoidOn } from "@ortho-earth/core";
+import { cameraState, lonlatTo3D, ellipsoidOn } from "@ortho-earth/core/camera";   // camera の口だけ（render worker も読む＝core の根（DOM の input 等）を worker へ引かない）
 import type { CameraPose } from "@ortho-earth/core/camera";
 
 const PI = Math.PI, D2R = PI / 180, EARTH_R_ML = 6371008.8;   // MapLibre の地球の半径（MercatorCoordinate と同じ）
