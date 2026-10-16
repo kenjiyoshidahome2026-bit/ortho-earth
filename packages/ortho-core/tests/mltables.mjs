@@ -1,7 +1,7 @@
 // MapLibre 形の fill/line/circle → gint の表（src/mltables.js・MapLibre 互換の台帳 段 4）の検定。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { packMLLayers, buildMLTable, zoomSensitivity } from "../src/mltables.js";
+import { packMLLayers, buildMLTable, zoomSensitivity } from "../src/mltables.ts";
 
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });
 const PG = (p = {}) => F("Polygon", [[[0, 0], [1, 0], [1, 1], [0, 0]]], p), LN = (p = {}) => F("LineString", [[0, 0], [1, 1]], p), PT = (p = {}) => F("Point", [0, 0], p);

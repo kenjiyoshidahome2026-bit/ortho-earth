@@ -1,8 +1,8 @@
 // feature-state を組み立てへ届ける口（#109・A1）：buildTileDrawList と buildLabels の省略できる stateOf(f)。
 // paint の ["feature-state", k] だけが読む（filter は読まない＝MapLibre と同じ）・渡さなければ今と同じ出力（基図＝黄金の写しは不変）。
 import assert from "node:assert/strict";
-import { buildTileDrawList } from "../src/build.js";
-import { buildLabels } from "../src/labels.js";
+import { buildTileDrawList } from "../src/build.ts";
+import { buildLabels } from "../src/labels.ts";
 
 const sq = (x0, y0, x1, y1) => ({ coords: new Int32Array([x0, y0, x1, y0, x1, y1, x0, y1, x0, y0]), ends: [10] });
 const hl = (on, off) => ["case", ["boolean", ["feature-state", "hl"], false], on, off];

@@ -3,9 +3,9 @@
 // ③破線と併用できる ④結合（merge）で持たないタイルの分は 0 で埋まる ⑤シェーダ 3 本（GL classic・multi_draw・WGSL）が off を読む
 // ⑥角の継ぎ（miterSlides）＝隣り合う線分のずらした端点が同じ所に着く（線分ごとの法線だけだと細かく折れる線が点々に散る）
 import assert from "node:assert/strict";
-import { buildTileDrawList, miterSlides } from "../src/build.js";
-import { mergeTiles } from "../src/scene.js";
-import { convertLayer } from "../src/mlstyle.js";
+import { buildTileDrawList, miterSlides } from "../src/build.ts";
+import { mergeTiles } from "../src/scene.ts";
+import { convertLayer } from "../src/mlstyle.ts";
 import { LINE_VS, LINE_MD_VS } from "../src/gl/glsl.js";
 import { LINE_WGSL, LINE_SH_WGSL } from "../src/gpu/wgsl.js";
 let n = 0;

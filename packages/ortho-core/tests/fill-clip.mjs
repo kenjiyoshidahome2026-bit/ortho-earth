@@ -1,5 +1,5 @@
 // build.js の clipToExtent＝塗りをタイルの extent で切り抜く（MVT の余白を隣同士が両方描くと半透明の塗りが二重＝縁の濃い帯・ズーム中のチラチラ・2026-09-30）
-import { clipToExtent, subdivideTris } from "../src/build.js";
+import { clipToExtent, subdivideTris } from "../src/build.ts";
 import earcut from "earcut";
 let fail = 0; const ok = (n, c) => { if (!c) fail++; console.log(`${c ? "PASS" : "FAIL"}  ${n}`); };
 const E = 4096, area = (f, t) => { let a = 0; for (let i = 0; i < t.length; i += 3) { const [a0,b0,c0]=[t[i]*2,t[i+1]*2,t[i+2]*2]; a += ((f[b0]-f[a0])*(f[c0+1]-f[a0+1]) - (f[c0]-f[a0])*(f[b0+1]-f[a0+1]))/2; } return Math.abs(a); };

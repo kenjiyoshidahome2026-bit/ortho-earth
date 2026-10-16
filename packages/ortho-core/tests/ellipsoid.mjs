@@ -8,8 +8,8 @@
 //   6. eye→直下の地表点（updateUnderground/eyePose）：β空間の eye は betaToLonLat の一段＝pitch=0 で center に戻る
 // 使い方: node packages/ortho-core/tests/ellipsoid.mjs
 import { cameraState, project, unproject, lonlatTo3D, setEllipsoid, betaOf, geodeticOf, ellNormal3D, betaToLonLat, worldToLonLat }
-	from '../src/camera.js';
-import { meridionalRadius, primeVerticalRadius } from '../src/geodesic.js';
+	from '../src/camera.ts';
+import { meridionalRadius, primeVerticalRadius } from '../src/geodesic.ts';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };

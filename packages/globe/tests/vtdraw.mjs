@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, labelPointsOf, poleOf, liOf, USER_LI0, unitsPerPx, quantZoom, styleZoomProps } from "../src/vtops.js";
 import { classifyRings, ringArea2 } from "../src/vtmesh.js";
-import { seaFbReal } from "@ortho-earth/core/internal/scene.js";
+import { seaFbReal } from "@ortho-earth/core/internal/scene.ts";
 import { buildTileDrawList } from "@ortho-earth/core/build";
-import { normalizeMLLayer } from "@ortho-earth/core/internal/mlstyle.js";
+import { normalizeMLLayer } from "@ortho-earth/core/internal/mlstyle.ts";
 
 let bad = 0, n = 0;
 const ok = (name, cond, note = "") => { n++; if (!cond) { bad++; console.log(`✗ ${name}${note ? ` (${note})` : ""}`); } };

@@ -7,7 +7,7 @@
 import { MOVE_THROTTLE_MS } from './state.js';
 import { findPolygon } from 'geopbf/identify';
 import { fidVisible } from './utility.js';
-import { unproject } from '../../camera.js';
+import { unproject } from '../../camera.ts';
 
 export function doIdentify(s, data) {
 	if (data.x === s.lastMX && data.y === s.lastMY) return;

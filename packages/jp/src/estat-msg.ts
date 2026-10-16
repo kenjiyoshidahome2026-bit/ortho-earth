@@ -1,11 +1,9 @@
 // e-Stat 小地域の main⇄worker の便りの形（estat.ts と estat-worker.ts が共に読む・型だけ＝実行時は空のモジュール）。
 // worker の入口（estat-worker.ts）は別の tsc（tsconfig.worker.json・lib webworker）で検査する＝main 側と型を分け合うのはこのファイル経由だけ。
-/** buildGeoJSONOverlay（core/geojson）の返りのうち transfer する typed array */
-export interface OverlayBuffers {
-	fanPos: ArrayBufferView<ArrayBuffer>; P1: ArrayBufferView<ArrayBuffer>; P2: ArrayBufferView<ArrayBuffer>;
-	lineCol: ArrayBufferView<ArrayBuffer>; lineHalf: ArrayBufferView<ArrayBuffer>;
-	[k: string]: unknown;
-}
+import type { GeoJSONOverlay } from "@ortho-earth/core/geojson";
+
+/** buildGeoJSONOverlay（core/geojson）の返り＝2.0 は src/geojson.ts の型そのもの（Float32Array<ArrayBuffer>＝.buffer を transfer できる） */
+export type OverlayBuffers = GeoJSONOverlay;
 /** main → worker */
 export type EstatRequest =
 	| { type: "load"; codes: (string | number)[]; year?: string; style?: Record<string, unknown> | null; interiorOnly?: boolean }

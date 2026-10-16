@@ -9,8 +9,8 @@
 // 使い方: bash prep-data.sh nps_all nps && node packages/ortho-core/tests/gint-baseline.mjs [prefix=nps]
 
 import { buildEdgeMeta, buildWeightHist, buildBoundaryEdgeMeta,
-         normalizeRingOrientation, buildPolyBboxByFid, deriveOutlineZoom } from '../src/gint/utility.js';
-import { tierPlan, CHUNK_EDGES } from '../src/gint/bake.js';   // 本番と同じ梯子/チャンク粒度＝drift しない
+         normalizeRingOrientation, buildPolyBboxByFid, deriveOutlineZoom } from '../src/gint/utility.ts';
+import { tierPlan, CHUNK_EDGES } from '../src/gint/bake.ts';   // 本番と同じ梯子/チャンク粒度＝drift しない
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

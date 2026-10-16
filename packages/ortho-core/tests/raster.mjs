@@ -6,9 +6,9 @@
 //   4. ancestorUV：子 (z,x,y) を祖先 d 段上のテクスチャで描く部分 uv（メルカトル線形＝厳密）
 //   5. createRaster：偽 renderer＋MessagePort プロバイダで add→update→描画リスト→hideFills→set/remove の一周（fetch/ImageBitmap 不要）
 // 使い方: node packages/ortho-core/tests/raster.mjs
-import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities, adjustRGBA } from "../src/raster-src.js";
-import { buildTileMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.js";
-import { tileBounds, tileLocalToLonLat } from "../src/tile.js";
+import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities, adjustRGBA } from "../src/raster-src.ts";
+import { buildTileMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.ts";
+import { tileBounds, tileLocalToLonLat } from "../src/tile.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) return; fails++; console.error(`  ✗ ${label}`); };

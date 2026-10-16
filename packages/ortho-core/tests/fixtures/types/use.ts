@@ -9,7 +9,7 @@ import { wmsTemplate } from "@ortho-earth/core/raster-src";
 
 const cam: CameraPose = { center: [139.767, 35.681], zoom: 12, pitch: 0.5, bearing: 0 };
 const st: CameraState = cameraState(cam, 800, 600);
-const xy: [number, number] | null = project(st, 139.7, 35.6);
+const xy: number[] = project(st, 139.7, 35.6);   // 2.0：[x, y, depth]（src/camera.ts が型そのもの＝1.15 の .d.ts の [x, y] | null は実装と違っていた）
 const ll = unproject(st, 400, 300);
 const px: 256 = WORLD_PX;
 const ctx: ExprContext = { zoom: 12, props: { name: "x" }, origin: "ml" };

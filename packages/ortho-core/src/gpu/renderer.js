@@ -12,10 +12,10 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.js";
-import { seaFbReal } from "../scene.js";
-import { resolveWorldPal, fadeWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
-import * as mat from "../mat.js";
+import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";
+import { seaFbReal } from "../scene.ts";
+import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
+import * as mat from "../mat.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
@@ -24,17 +24,17 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.js";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
-import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
-import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
-import { worldAtlasCell } from "../elevation/worldatlas.js";
-import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.js";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
-import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.js";   // 建物の影（点けた時だけ）
-import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.js";   // 断面とクリッピング平面（#111・切った時だけ）
+import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
+import { downsampleFlipped, cropResample } from "../elevation.ts";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
+import { worldAtlasCell } from "../elevation/worldatlas.ts";
+import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
+import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
+import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";
 import { createPostGPU } from "./postfx.js";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
-import { FAR_PIVOT } from "../gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
+import { FAR_PIVOT } from "../gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一

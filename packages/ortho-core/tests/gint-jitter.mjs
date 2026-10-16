@@ -11,8 +11,8 @@
 //
 // 使い方: node packages/ortho-core/tests/gint-jitter.mjs   （閾値超えで exit 1）
 
-import { cameraState, lonlatTo3D } from '../src/camera.js';
-import * as mat from '../src/mat.js';
+import { cameraState, lonlatTo3D } from '../src/camera.ts';
+import * as mat from '../src/mat.ts';
 
 const fr = Math.fround;
 const D2R = 0.017453292519943295;

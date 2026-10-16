@@ -76,6 +76,6 @@ export const orthoData = (command, base, root, scope) => JSON.stringify(command 
 // どちらも最初のタイル／節で動的 import（起動の束には入らない）。root＝リポジトリの根（packages/ の親・絶対パス）
 export const engineAliases = root => [
 	{ find: /^\.\.?\/(modules\/)?builtinWorkers\.(js|ts)$/, replacement: resolve(root, "packages/geopbf/src/modules/builtinWorkers.none.ts") },
-	{ find: "#tile-formats", replacement: resolve(root, "packages/ortho-core/src/tileformats-mlt.js") },
+	{ find: "#tile-formats", replacement: resolve(root, "packages/ortho-core/src/tileformats-mlt.ts") },
 	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.ts") },
 ];

@@ -7,9 +7,9 @@
 //   6. 段 4：対象ごとの面（群の配列・targets）・同一フレームのオーバーレイへ渡す uniform（clipPackOrigin）
 //   5. 段 1：水平面（下を残す／上を残す・中心から 1 km で浮くのは 8 cm 程度）・箱（向きを回しても辺までの距離が幾何と合う・6 枚）・URL の書き方（?clip=）
 // 使い方: node packages/ortho-core/tests/clip.mjs
-import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.js";
-import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.js";
-import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS } from "../src/clip.js";
+import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.ts";
+import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.ts";
+import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS } from "../src/clip.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
