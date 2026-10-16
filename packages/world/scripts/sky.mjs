@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { packs, moonPacks, moonGeoJSON, MOON_GEOPBF } from "../sky/packs.ts";
 import names from "../sky/names.json" with { type: "json" };
 import moon from "../sky/moon.json" with { type: "json" };
@@ -32,7 +32,7 @@ async function celestial(name) {   // d3-celestial の JSON＝一度引いたら
 	return JSON.parse(await readFile(p, "utf8"));
 }
 async function pbf(name, fc, opts = {}) {
-	const p = await new GeoPBF({ name, ...opts }).set({ type: "FeatureCollection", name, features: fc.features });
+	const p = await new GeoPBFBase({ name, ...opts }).set({ type: "FeatureCollection", name, features: fc.features });
 	if (!p.length) throw new Error(`${name}: 0 features`);
 	const buf = gzipSync(Buffer.from(p.arrayBuffer), { level: 9 });
 	await writeFile(path.join(OUT, name + ".geopbf"), buf);

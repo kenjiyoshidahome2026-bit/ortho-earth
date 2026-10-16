@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { encodeZIP } from "../modules/encodeZIP.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 
@@ -22,7 +22,7 @@ type XY = number[];
 onmessage = async (e: MessageEvent<EncodeRequest>) => {
 	const { buf, name, opts } = e.data, kmz = opts && opts.kmz !== undefined ? opts.kmz : true;
 	try {
-		const pbf = await new GeoPBF().name(name).set(buf);
+		const pbf = await new GeoPBFBase().name(name).set(buf);
 		const embeddedFiles: File[] = [];
 		// 逐次書き出し（gpx/geojson と同じ TransformStream 流儀）＝全文を 1 本の JS 文字列（UTF-16・2 倍）で抱えない
 		const enc = new TextEncoder();

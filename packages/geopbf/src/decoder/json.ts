@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { dissolve } from "../extension/dissolve.ts";
 import { geojson } from "../modules/geojson.ts";
 import { isObject } from "../modules/utility.ts";
@@ -16,7 +16,7 @@ const LARGE = 500 * 1024 * 1024;
 onmessage = async (e: MessageEvent<DecodeRequest>) => {
 	const file = e.data.file;
 	if (!file) { console.error("[json decoder] file is null"); postMessage(null); return; }
-	const pbf = new GeoPBF(e.data);
+	const pbf = new GeoPBFBase(e.data);
 
 	try {
 	if (file.size < SMALL) {
@@ -35,7 +35,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 		// geojson prunes chunks so the raw JSON string is not retained (only parsed objects).
 		const features: Feature[] = [];
 		await geojson(file, f => features.push(f as Feature), false);
-		const [keys, bufs] = await GeoPBF.makeKeys(features.map(f => f.properties));
+		const [keys, bufs] = await GeoPBFBase.makeKeys(features.map(f => f.properties));
 		pbf.setHead(keys, bufs);
 		pbf.setBody(() => features.forEach(f => pbf.setFeature(f)));
 		pbf.close();

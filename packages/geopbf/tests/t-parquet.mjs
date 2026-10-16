@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
 
 let fails = 0;
@@ -26,7 +26,7 @@ const fc = { type: "FeatureCollection", features: [
 	{ type: "Feature", properties: { n: "GC" }, geometry: { type: "GeometryCollection", geometries: [{ type: "Point", coordinates: [5, 5] }, { type: "LineString", coordinates: [[5, 5], [6, 6]] }] } },
 	{ type: "Feature", properties: { n: "empty" }, geometry: null },
 ] };
-const pbf = await new GeoPBF({ name: "fix", precision: 6, attribution: "t-parquet" }).set(structuredClone(fc));
+const pbf = await new GeoPBFBase({ name: "fix", precision: 6, attribution: "t-parquet" }).set(structuredClone(fc));
 const gj = pbf.geojson;
 const r = await toGeoParquet(pbf, { gpu: false, order: "none" });   // 行順の検定は入力順で（空間整列は後段で別に検定）
 const buf = r.buffer;
@@ -109,7 +109,7 @@ else {
 
 // ---- bbox 列の既定は true・"auto" なら点だけのデータで省く ----
 {
-	const pp = await new GeoPBF({ name: "p" }).set({ type: "FeatureCollection", features: [{ type: "Feature", properties: { a: 1 }, geometry: { type: "Point", coordinates: [1, 2] } }] });
+	const pp = await new GeoPBFBase({ name: "p" }).set({ type: "FeatureCollection", features: [{ type: "Feature", properties: { a: 1 }, geometry: { type: "Point", coordinates: [1, 2] } }] });
 	const ra = await toGeoParquet(pp, { gpu: false, codec: "none", bboxColumn: "auto" }), rb = await toGeoParquet(pp, { gpu: false, codec: "none" });
 	ok(!ra.geo.columns.geometry.covering && rb.geo.columns.geometry.covering && ra.buffer.length < rb.buffer.length, 'bbox 列: 既定は書く・"auto" は点だけのデータで省く');
 }
@@ -119,7 +119,7 @@ else {
 	let sd = 5; const rnd = () => (sd = (sd * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 	const N = 3000, feats = Array.from({ length: N }, (_, i) => ({ type: "Feature", properties: { i, lon: 0 }, geometry: { type: "Point", coordinates: [+(130 + rnd() * 10).toFixed(5), +(30 + rnd() * 10).toFixed(5)] } }));
 	feats.forEach(f => { f.properties.lon = f.geometry.coordinates[0]; });
-	const pp = await new GeoPBF({ name: "pts", precision: 5 }).set(structuredClone(feats.length ? { type: "FeatureCollection", features: feats } : null));
+	const pp = await new GeoPBFBase({ name: "pts", precision: 5 }).set(structuredClone(feats.length ? { type: "FeatureCollection", features: feats } : null));
 	const res = {};
 	for (const order of ["none", "morton", "hilbert", "str"]) { res[order] = await toGeoParquet(pp, { gpu: false, codec: "none", rowGroupSize: 500, order }); writeFileSync(join(dir, `ord-${order}.parquet`), res[order].buffer); }
 	ok(res.str.stats.order === "str", "order が stats に載る");
@@ -166,7 +166,7 @@ print(json.dumps(out))
 {
 	// cat: 3 値（run 多め＝RLE run）・alt: 2 値が交互（bit-packed）・cnt: 整数 5 値・uniq: 全て異なる（PLAIN のまま）・some: 後半だけ null
 	const N = 1000, feats = Array.from({ length: N }, (_, i) => ({ type: "Feature", properties: { cat: ["bus", "駅", "café"][Math.floor(i / 100) % 3], alt: i % 2 ? "b" : "a", cnt: i % 5, uniq: "u" + i, some: i < 300 ? i * 0.5 : null, flag: i % 3 === 0 }, geometry: { type: "Point", coordinates: [i % 100, Math.floor(i / 100)] } }));
-	const pp = await new GeoPBF({ name: "d", precision: 3 }).set({ type: "FeatureCollection", features: feats });
+	const pp = await new GeoPBFBase({ name: "d", precision: 3 }).set({ type: "FeatureCollection", features: feats });
 	const rd = await toGeoParquet(pp, { gpu: false, codec: "none", order: "none", rowGroupSize: 400, bboxColumn: false });
 	writeFileSync(join(dir, "dict.parquet"), rd.buffer);
 	const chk = spawnSync("python3", ["-c", `
@@ -269,7 +269,7 @@ ok(/features 7/.test(out) && /CPU/.test(out) && /Polygon/.test(out), "CLI parque
 const cliBuf = readFileSync(join(dir, "cli.parquet"));
 ok(cliBuf.subarray(0, 4).toString() === "PAR1" && cliBuf.length === r0.buffer.length, "CLI parquet: 出力（無圧縮）がライブラリ経路と同じ長さ");
 const out2 = run("parquet2pbf", join(dir, "cli.parquet"), join(dir, "back.geopbf"), "--no-gzip");
-const back = await new GeoPBF().set(new Uint8Array(readFileSync(join(dir, "back.geopbf"))));
+const back = await new GeoPBFBase().set(new Uint8Array(readFileSync(join(dir, "back.geopbf"))));
 ok(/features 7/.test(out2) && back.length === 7 && back.precision() === 6 && JSON.stringify(back.geojson.features.map(f => [f.geometry, f.properties])) === JSON.stringify(pbf.geojson.features.map(f => [f.geometry, f.properties])), "CLI parquet2pbf: GeoParquet → GeoPBF が元と一致");
 
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");

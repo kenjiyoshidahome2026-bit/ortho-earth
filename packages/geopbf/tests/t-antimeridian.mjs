@@ -1,12 +1,12 @@
 // t-antimeridian: encode（setFeature→antimeridianFeature）の跨ぎ切断。
 // 混符号の正規化表現（±179.9…＝エディタの normLon 産）でも、範囲外の連続表現（179.9→180.1）でも同じ結果に切れること。
 // ±180の縫い目に「接するだけ」のリング（南極型）は切断器に入れず無傷が正解（fix() が +180→-180 に書き換えるため）。
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 globalThis.ImageData ??= class ImageData {};   // node に無い（配列の属性を書く時に型を見る）
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
-const enc = async features => (await new GeoPBF({ name: "t-am" }).set({ type: "FeatureCollection", features })).features;
+const enc = async features => (await new GeoPBFBase({ name: "t-am" }).set({ type: "FeatureCollection", features })).features;
 const lons = g => { const out = []; const walk = a => typeof a[0] === "number" ? out.push(a[0]) : a.forEach(walk); walk(g.coordinates); return out; };
 const span = r => Math.max(...r) - Math.min(...r);
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });

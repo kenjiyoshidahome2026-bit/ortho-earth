@@ -7,7 +7,7 @@
 //  ⑥ 読み手の登録簿（拡張子・先頭バイト）
 import assert from "node:assert/strict";
 globalThis.ImageData ??= class ImageData { };   // pbf-base の makeKeys が触る（ブラウザの型）＝Node では空の型で
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { toGeoParquet } from "geopbf/geoparquet";
 import { parseWkb } from "geopbf/parquet";
 import { flatBuilder, addGeoJSON, addWkb, K, T } from "../src/columnar/flat.ts";
@@ -44,7 +44,7 @@ add({ type: "MultiPoint", coordinates: [[139.5, 35.0], [139.51, 35.0]] }, { v: 7
 add({ type: "Polygon", coordinates: [sq(139.6, 35.0, 0.00002)] }, { name: "tiny", v: 80 });                                                   // 7 極小の面（2m 角）
 for (let i = 0; i < 40; i++) add({ type: "Polygon", coordinates: [sq(140 + (i % 8) * 0.05, 36 + Math.floor(i / 8) * 0.05, 0.03)] }, { v: 100 + i });   // 8.. 筆風の格子
 const fc = { type: "FeatureCollection", features: feats };
-const pbf = new GeoPBF({ name: "t" }); await pbf.set(fc);
+const pbf = new GeoPBFBase({ name: "t" }); await pbf.set(fc);
 const N = feats.length;
 
 // フラットな幾何 → 比較しやすい形（行番号 → { type, parts:[{kind, xy:[…]}] }）

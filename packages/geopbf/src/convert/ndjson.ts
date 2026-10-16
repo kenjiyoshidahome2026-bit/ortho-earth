@@ -3,7 +3,7 @@
 //（stats.badLines）。改行を含む pretty-print の GeoJSON は対象外＝json デコーダの仕事。
 // 入力: Blob/File（stream で逐次・全文を 1 本の文字列に持たない）・Uint8Array/ArrayBuffer・string。
 // 大きい入力（既定 500 MB 以上）は 2 パス＝keys を先に拾い、2 回目は行→setFeature を逐次（pbf-base setBodyAsync）＝全地物を同時に持たない。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { Feature, FeatureCollection, Geometry } from "../pbf-base.ts";
 import type { MetaOptions } from "./types.ts";
 import { now } from "../modules/now.ts";
@@ -14,7 +14,7 @@ function* splitLines(text: string): Generator<string, void, undefined> { for (co
 export type NdjsonInput = string | ArrayBuffer | ArrayBufferView | Blob;
 export interface NdjsonOptions extends MetaOptions { twoPassBytes?: number }
 export interface NdjsonStats { lines: number; badLines: number; features: number; droppedGeometries: number; passes: number; ms?: { total: number } }
-export interface FromNdjsonResult { pbf: GeoPBF; stats: NdjsonStats }
+export interface FromNdjsonResult { pbf: GeoPBFBase; stats: NdjsonStats }
 
 /** 行を逐次に返す（空行と RS・CR は落とす） */
 export async function* linesOf(src: NdjsonInput): AsyncGenerator<string, void, undefined> {
@@ -54,16 +54,16 @@ export async function fromNdjson(src: NdjsonInput, opts: NdjsonOptions = {}): Pr
 	const stats: NdjsonStats = { lines: 0, badLines: 0, features: 0, droppedGeometries: 0, passes: 1 };
 	const size = typeof src === "string" ? src.length : src instanceof Blob ? src.size : src.byteLength;
 	const meta = { name: opts.name ?? "layer", precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution };
-	let pbf: GeoPBF;
+	let pbf: GeoPBFBase;
 	if (size < (opts.twoPassBytes ?? 500 * 1024 * 1024)) {
 		const features: Feature[] = [];
 		for await (const line of linesOf(src)) { stats.lines++; for (const f of featuresOf(line, stats)) features.push(f); }
-		pbf = await new GeoPBF(meta).set({ type: "FeatureCollection", features });
+		pbf = await new GeoPBFBase(meta).set({ type: "FeatureCollection", features });
 	} else {
 		stats.passes = 2;
 		const keySet = new Set<string>(), scratch = { badLines: 0 };
 		for await (const line of linesOf(src)) for (const f of featuresOf(line, scratch)) collectKeys(f, keySet);
-		pbf = new GeoPBF(meta);
+		pbf = new GeoPBFBase(meta);
 		pbf.setHead([...keySet].sort(), []);
 		await pbf.setBodyAsync(async () => { for await (const line of linesOf(src)) { stats.lines++; for (const f of featuresOf(line, stats)) pbf.setFeature(f); } });
 		pbf.close();

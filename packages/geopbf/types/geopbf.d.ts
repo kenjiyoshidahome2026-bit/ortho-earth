@@ -82,7 +82,7 @@ export interface WireTags { readonly NAME: 1; readonly KEYS: 2; readonly PRECISI
 /** 属性の行から鍵の一覧（dotted・ソート済み）と Blob／ImageData の中身（BUFS）を集める（setHead の引数）。行の Blob／ImageData には id が書き込まれる */
 export type MakeKeys = (properties: readonly (object | null | undefined)[]) => Promise<[keys: string[], bufs: ArrayBuffer[]]>;
 
-// GeoPBF の器（GeoPBFBase＝"geopbf/pbf-base"・"geopbf/core" の GeoPBF）と拡張つきの GeoPBF（"geopbf"）の型は実装の class が正本（TS 化 段 4・2026-10-16）。
+// GeoPBF の器（GeoPBFBase＝"geopbf/pbf-base"・"geopbf/core"。旧名 GeoPBF は 2.0 で外した）と拡張つきの GeoPBF（"geopbf"）の型は実装の class が正本（TS 化 段 4・2026-10-16）。
 // 旧＝ここに手書きの declare class があった。class の型は "geopbf"（src/index.ts）から取る。入口の入力（GeopbfInput・GeopbfOptions・GeopbfFn）も src/index.ts
 
 /** worker の入口（役割名 "decoder:shape"・"encoder:gint" …→ Worker・null＝既定） */

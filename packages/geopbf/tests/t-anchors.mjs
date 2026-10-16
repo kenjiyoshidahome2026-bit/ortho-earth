@@ -3,7 +3,7 @@
 //   ①長辺（>1°）＝L1点の内挿 ②密な低rank頂点列＝1°窓ごとの既存頂点L1昇格 ③1°箱内のarc＝完全無変換。
 // wasm 全量経路（topologyFullWasm→anchorFullGintBuf）で検定＝本番と同経路。
 globalThis.ImageData ??= class ImageData { };
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { topology, unPackGintBuffer } from "../src/extension/topology.ts";
 import { gint } from "../src/extension/gint.ts";
 import { identifyAt } from "../src/extension/identify.ts";
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });
-const bake = async features => { const p = await new GeoPBF({ name: "t-anchors" }).set({ type: "FeatureCollection", features }); return unPackGintBuffer(topology(p)); };   // node＝worker無し＝t-large と同じ直叩き
+const bake = async features => { const p = await new GeoPBFBase({ name: "t-anchors" }).set({ type: "FeatureCollection", features }); return unPackGintBuffer(topology(p)); };   // node＝worker無し＝t-large と同じ直叩き
 const LIMIT = 10000000;
 // arc走査の道具：頂点列（int）と rank（terminal=63）
 const arcVerts = (d, a) => {
@@ -93,7 +93,7 @@ const maxAnchorGap = vs => { let acc = 0, worst = 0; const ds = spans(vs); for (
 {
 	const PERIOD = 3600000000, onW = ix => ix <= 2, onE = ix => ix >= PERIOD - 2;
 	const rect = [[179, 34], [-179, 34], [-179, 36], [179, 36], [179, 34]];   // 縫い目を跨ぐ矩形（縦辺 2°）
-	const p = await new GeoPBF({ name: "t-anchors" }).set({ type: "FeatureCollection", features: [F("Polygon", [rect])] });
+	const p = await new GeoPBFBase({ name: "t-anchors" }).set({ type: "FeatureCollection", features: [F("Polygon", [rect])] });
 	ok(p.features[0].geometry.type === "MultiPolygon" && p.features[0].geometry.coordinates.length === 2, "エンコーダが2片に切っている（前提）");
 	const d = unPackGintBuffer(topology(p));
 	let mixed = 0, seamE = 0, seamW = 0;

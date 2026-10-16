@@ -6,7 +6,7 @@
 //   Z も float 差分・M は double のまま）。Multi*/Collection の各要素は 0x69（ENTITY 印）＋ class u32 で始まる。
 //   TinyPoint（SpatiaLite 5）: 0x00 | 0x81(LE)/0x80(BE) | SRID | kind(1 XY 2 XYZ 3 XYM 4 XYZM) | doubles | 0xFE。
 // CRS は spatial_ref_sys（auth_name/auth_srid/srtext）→ gpkg.js の classifyCrs（4326 素通し・3857 逆変換・投影 WKT は proj.js）。
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import { openSqlite } from "./sqlite.ts";
 import type { SqliteDb, SqlValue } from "./sqlite.ts";
 import { attrFilter } from "./attrs.ts";
@@ -33,7 +33,7 @@ export interface SpatiaLiteStats {
 	reprojected: boolean; datumApprox: boolean; datum: DatumStats | null; precision: number; droppedGeometries: number; emptyGeometries: number; badGeometries: number; bigints: number;
 	z: boolean; m: boolean; encoding: string; warnings: string[]; ms: MsStats;
 }
-export interface FromSpatiaLiteResult { pbf: GeoPBF; stats: SpatiaLiteStats }
+export interface FromSpatiaLiteResult { pbf: GeoPBFBase; stats: SpatiaLiteStats }
 type Single = Exclude<Geometry, { type: "GeometryCollection" }>;
 
 /** 幾何 BLOB → GeoJSON geometry（2D・Z/M は読み飛ばす）。ctx.vertices に頂点数を積む。null（NULL 幾何）はそのまま null */
@@ -133,7 +133,7 @@ export async function fromSpatiaLite(u8: Uint8Array | ArrayBuffer | ArrayBufferV
 		(geom as { coordinates: Nested }).coordinates = mapDeep(geom.coordinates, xf); return geom;
 	};
 	const keys = props.map(c => c.name).sort();   // スキーマの属性列（gpkg/gdb/parquet と同じ規則）
-	const pbf = new GeoPBF({ name: opts.name ?? layer.table, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
+	const pbf = new GeoPBFBase({ name: opts.name ?? layer.table, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
 	pbf.setHead(keys, []);
 	let count = 0;
 	pbf.setBody(() => {
