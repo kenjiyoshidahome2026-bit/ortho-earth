@@ -5,7 +5,7 @@
 // 再生中はつまみが時刻を追う。日時の入力の最小・最大も区間に合わせる。範囲が無い時の見た目は今のまま。
 // 時計が実時間でない（過去・未来・止めた・早送り）時は、開いていなくてもバーを出す（起動時・後から今を離れた時）＝共有リンクで開いた人に「今ではない」を見せる。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 

@@ -1,6 +1,6 @@
 // 点群の座標系の決め方（src/pointcloud-crs.js・点群計画 段 3-2）の検定。node tests/t-pointcloud-crs.mjs
 import assert from "node:assert/strict";
-import { resolveCrs } from "../src/pointcloud-crs.js";
+import { resolveCrs } from "../src/pointcloud-crs.ts";
 
 let k = 0;
 const t = (name, fn) => { fn(); k++; console.log("  ✔", name); };

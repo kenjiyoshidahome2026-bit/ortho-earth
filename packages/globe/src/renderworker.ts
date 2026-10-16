@@ -1,0 +1,1007 @@
+// render worker：WebGL2 の地図 と Canvas2D のラベルを OffscreenCanvas で回す。
+// worker-driven：自前 rAF で「最新の cam から mvp 生成 → 地図→ラベルを同じ frame で描画」。
+// main は cam を投げるだけ（往復待ちを排し、溜まった draw は最新一枚に畳む＝低レイテンシ）。
+// 描画フレームは軽い処理のみ（mvp生成+draw）。重い生成は main/他worker が停止後に行い set で渡す。
+// バックエンド（WebGL2 / WebGPU）は init で選んだ片方だけを dynamic import する（ortho-core/gl・ortho-core/gpu）。
+// index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
+// （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
+import { createLabelLayer } from "@ortho-earth/core/labels";
+import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
+import { createTerrain } from "@ortho-earth/core/terrain";
+import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
+// terrain の標高ローダ（core の elevation）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
+// 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
+setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
+import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
+import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
+import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
+import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
+import { shieldFor } from "./shields.ts";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
+
+import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
+import type { ClipPlane } from "@ortho-earth/core/clip";
+import type { DepthApi, DepthFrame } from "@ortho-earth/core/depthout";
+import type { ClockAnchor } from "@ortho-earth/ephem/clock";
+import type { Label2D, LabelImageInput, LabelLayer, SkyLabels, SkyMoon, UserLabel } from "@ortho-earth/core/labels";
+import type { Terrain, TerrainOptions, TerrainRenderer } from "@ortho-earth/core/terrain";
+import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
+import type { ScenePortMessage } from "@ortho-earth/core/internal/worker-msg.ts";
+import type { MergedScene } from "@ortho-earth/core/internal/scene.ts";
+
+/** 標高（sampleElev の 3 つ目の cam は読まれない＝従来の呼び方のまま通す） */
+type RwTerrain = Omit<Terrain, "sampleElev"> & { sampleElev(lon: number, lat: number, cam?: CameraPose): number };
+/** シーンの深度の書き出し口（renderer.depthOut(true) の戻り） */
+interface DepthOutH { begin(): boolean; end(o: { depth: boolean }): DepthFrame | null; abort(): void }
+/** バックエンドの描き手（ortho-core/gl・gpu の Renderer＝欄は index の unknown）のうち、ここが読む口 */
+interface RenderBackend extends TerrainRenderer, RasterRenderer {
+	set(cmd: string, data?: unknown, prop?: unknown): void;
+	/** true＝フォグ追従が収束中 */
+	draw(cam: CameraPose, opts?: unknown): boolean;
+	dispose?(): void; flush?(): void;
+	md?: boolean; mdMax?: number; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
+	tqTake?(): { tag: string; ms: number }[] | null;
+	depthOut?(on: boolean): DepthOutH | null;
+	gintCtx(): unknown;
+	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
+	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
+	lost?: Promise<{ message?: string } | null | undefined>;
+	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown;
+}
+/** WebGPU の描き手（検証スコープ・診断の口つき） */
+interface RenderBackendGPU extends RenderBackend {
+	gpuInfo: string;
+	device: { pushErrorScope(filter: string): void; popErrorScope(): Promise<{ message: string } | null> };
+	gpuErrors: string[];
+}
+/** gint.stats() の計器 */
+interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; vb?: number[] | null }
+/** gint の層の口（既定層と addLayer の層に共通＝set の cmd が層を指名して呼ぶ） */
+interface GintLayerOps {
+	set(data: unknown, prop?: unknown): void; setSlot(slot: unknown): void; setBaked(data: unknown, prop?: unknown): void;
+	range?(): { minZoom?: number | null; maxZoom?: number | null };
+	style(o: unknown): void; paint(t: unknown): void;
+	paintExpr?(d: unknown): unknown; exprState?(d: unknown): unknown;
+	setVisible(v: unknown): void; activate?(): void; setOrder?(n: unknown): void;
+}
+/** addLayer の層（共通の口＋外す） */
+type GintLayerEngine = GintLayerOps & { remove(): void };
+/** gint の描き手（ortho-core の createGintLayer／createGintLayerGPU の戻り＝既定層） */
+interface GintEngine extends GintLayerOps {
+	draw(cam: CameraPose, ctx: unknown): void;
+	stats(): GintStats;
+	addLayer?(o: { id: string; order: number | null }): GintLayerEngine;
+	drawn(): void; move(m: unknown): void; leave(): void; click(): void; dispose(): void;
+	bakeFaces?(cam: CameraPose, t: unknown): number; bakeSig?(): string;
+}
+/** オーバーレイの host（init の 3 つ目） */
+interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string }
+/** オーバーレイの frame の api（main の makeProjector と同じ規約） */
+interface OverlayApi {
+	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];
+	dpr: number; W: number; H: number; time: number; clock: ClockAnchor | null; depth: DepthApi | null;
+	elevM(lon: number, lat: number): number; liftScale: number; terrainOn: boolean; rAx: number;
+	clip: { planes: ClipPlane[]; distM(lon: number, lat: number, hM?: number): number; pack(origin: ArrayLike<number>): Float32Array } | null;
+}
+/** 最後に描いたフレーム（統一 picking が同じ cam で当てる） */
+interface LastOverlayFrame { cam: CameraPose; s: CameraState; size: { w: number; h: number }; api: OverlayApi }
+/** 同一フレームのオーバーレイのモジュールの契約 */
+interface OverlayModule {
+	init(canvas: OffscreenCanvas, opts: object, host: OverlayHost): unknown;
+	message(data: unknown): void;
+	frame(cam: CameraPose, s: CameraState, size: { w: number; h: number }, api: OverlayApi): unknown;
+	destroy(): void;
+	pick?(x: number, y: number, r: number, ctx: LastOverlayFrame): unknown;
+	placed?(): unknown[];
+}
+/** 1 枚のオーバーレイ（kind／ctx＝モジュールが取った文脈） */
+interface OverlayRec { canvas: OffscreenCanvas; mod: OverlayModule | null; queue: unknown[]; depth: boolean; kind?: string; ctx?: OffscreenRenderingContext }
+/** pick の答えの 1 件（モジュールが返した物に name を足す） */
+type OverlayHit = { distance?: number; [k: string]: unknown };
+/** draw の opts（main が描くたびに送る）・overlayAdd の opts */
+type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; skipMain?: boolean; [k: string]: unknown };
+/** main → render worker の 1 通（type ごとに使う欄だけ・set の data は cmd ごとに形が違う＝使う所で読む） */
+interface RwMsg {
+	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
+	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
+	perf?: boolean; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean;
+	noTQ?: boolean; noFade?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
+	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; gmax?: number;
+	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
+	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
+	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
+	port?: MessagePort; width?: number; height?: number; on?: boolean; bbox?: number[]; N?: number; cam?: CameraPose | null;
+}
+/** set の data（cmd ごと） */
+type UserLabelsMsg = { list?: UserLabel[] | null; minZoom?: number | null; maxZoom?: number | null } | null;
+type LabelImageMsg = (LabelImageInput & { name: string }) | null;
+type RasterAddMsg = { spec: Parameters<Raster["add"]>[1]; opts?: Parameters<Raster["add"]>[2] };
+/** multi_draw 系（scene worker の直結ポート・FIFO） */
+type MdMsg = Extract<ScenePortMessage, { type: "up" | "grow" | "dl" }>;
+/** 基図の場面（slot ごとに最新だけ・noFade＝動いている間の差し替え） */
+type SceneRec = MergedScene & { noFade?: boolean };
+/** 建物メッシュの列（plateau worker の直結ポート・set の meshSet/meshVis/meshXf/meshCol） */
+type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; col?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
+/** worker の self に置く計器の窓 */
+interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; __perfScene?: boolean; __perfHitch?: Record<string, number> }
+/** 非標準の JS ヒープ計器（Chromium） */
+type PerfMem = { memory?: { usedJSHeapSize: number } };
+
+let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
+// 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
+// モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
+// ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
+// init(canvas, opts, host)：host＝{ requestDraw()（画像到着などで次フレームを頼む）, post(data)（main の handle.onmessage へ） }。
+// frame(cam, s, size, api)：api＝{ project(lon,lat)→[x,y,f], projectH(lon,lat,hM), dpr, W, H（CSS px）}＝main の makeProjector/makeProjectorH と同じ
+//   規約（地形リフト＝pitch フェード×標高×elevBase・座標は CSS px・f<0＝裏側）。標高は worker の terrain から同期で引ける（main は非同期メモだった）
+//   api.time＝共通の時計のその時刻（ms・UTC エポック・#42）＝衛星などはこれで位置を出す（Date.now() を直に読まない）。api.clock＝基準 {sim,wall,rate}（rate＝実 1ms あたりのシミュレート ms・0＝停止）
+//   api.depth（#47）＝シーンの深度（地形・ビル・メッシュ）。申し出たオーバーレイがある時だけ本体が作る（opts.depth:true か init の戻り値 { depth:true }）。
+//   { w, h, logCoef, backend, glsl, texture(gl), bind(gl, prog, unit?, eps?) }｜null（申し出前・LOW_MEM・作れない環境）。
+//   api.clipH(lon,lat,hM)＝projectH と同じ点の clip 座標 [x,y,z,w]（s.mvp・地形リフト込み）＝CPU で置く点（ピン等）の w を得る口
+//   api.elevM(lon,lat)＝生の標高（m）・api.liftScale＝1m あたりの持ち上げ（pitch フェード込み）・api.terrainOn＝GPU 側で頂点を自分で持ち上げるオーバーレイ用（列チャンク層・#90）
+//   GLSL（host.depthGLSL＝api.depth.glsl＝@ortho-earth/core/depthout の DEPTH_GLSL）を FS に貼り、sceneOcclusion(gl_FragCoord.xy/描画面, gl_Position.w) で比べる。
+//   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
+const overlays = new Map<string, OverlayRec>();
+let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
+let dOutH: DepthOutH | null = null, depthSeq = 0;
+let postOn = false;   // 後処理（PR-8）が点いている＝GL2 は深度と同じ FBO（depthOut）を開いて end で合成する（WebGPU は renderer の flush が掛ける）   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
+// 書き出しが begin/end で落ちた＝以後このセッションでは作らない（毎フレーム落ちて地図ごと止まる形を断つ）。GL2 の読み替えは abort で素へ戻す
+function depthOff(e: unknown) {
+	console.warn("[render] depthOut failed (overlay depth off):", (e as Error)?.message || e);
+	try { dOutH?.abort(); renderer?.depthOut?.(false); } catch { /* 畳む途中の失敗は無害 */ }
+	dOutH = null; depthOk = false;
+}
+const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
+let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
+let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
+// 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
+// anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts") };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
+function overlayAdd(m: RwMsg) {
+	const o: OverlayRec = { canvas: m.canvas!, mod: null, queue: [], depth: !!m.opts?.depth };
+	overlays.set(m.name!, o);
+	// モジュールが取った文脈を覚える（撮影＝readOverlays が読む・後から getContext で探ると、まだ文脈の無い canvas に 2d を作って横取りしてしまう）
+	{ const gc = o.canvas.getContext.bind(o.canvas) as (type: string, attrs?: unknown) => OffscreenRenderingContext | null; (o.canvas as { getContext: typeof gc }).getContext = (type: string, attrs?: unknown) => { const c = gc(type, attrs); if (c) { o.kind = type; o.ctx = c; } return c; }; }
+	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
+	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
+	const stage = (st: string, extra?: Record<string, unknown>) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
+	stage("importing", { url: m.url || `builtin:${m.builtin}` });
+	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
+	// blob:／data: は問いを足すと引けなくなる（blob の実体は URL の丸ごと一致・data は本文に混ざる）＝断片（#ov=）で分ける。断片は取得では落ち、module map の鍵には残る
+	const instUrl = (u: string) => { try { const x = new URL(u); if (x.protocol === "blob:" || x.protocol === "data:") x.hash = "ov=" + encodeURIComponent(m.name!); else x.searchParams.set("ov", m.name!); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name!); } };
+	// builtin は表にある名前だけ（Object.hasOwn＝"constructor" 等の継承した名前で別の物を呼ばない・CodeQL js/unvalidated-dynamic-method-call）
+	const builtinLoad = (name: unknown): Promise<OverlayModule> => typeof name === "string" && Object.hasOwn(BUILTIN_OVERLAYS, name) ? (BUILTIN_OVERLAYS as Record<string, () => Promise<unknown>>)[name]() as Promise<OverlayModule> : Promise.reject(new Error(`unknown builtin overlay "${name}"`));
+	(m.builtin ? builtinLoad(m.builtin) : import(/* @vite-ignore */ instUrl(m.url!))).then((mod: OverlayModule) => {
+		if (!overlays.has(m.name!)) return;   // 待っている間に外された
+		stage("imported");
+		const ret = mod.init(o.canvas, m.opts || {}, host);
+		if (ret && typeof ret === "object" && (ret as { depth?: unknown }).depth) o.depth = true;   // init の戻り値で深度を申し出る（#47）
+		o.mod = mod;
+		for (const d of o.queue) mod.message(d);
+		o.queue = [];
+		stage("ready", { queued: o.queue.length });
+		dirty = true; armRaf();
+	}).catch((err: Error) => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); stage("failed", { error: String(err?.message || err) }); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
+}
+let lastOv: LastOverlayFrame | null = null;   // 最後に描いたフレームの { cam, s, size, api }（統一 picking＝overlayPick が同じ cam で当てる・PR-1）
+function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
+	if (!overlays.size) return false;
+	let more = false, s: CameraState | null = null, api: OverlayApi | null = null;
+	const depth = depthFrame ? makeDepthApi(depthFrame, ++depthSeq) : null;
+	for (const [name, o] of overlays) {
+		if (!o.mod) continue;
+		try {
+			if (!s) {
+				const W = o.canvas.width, H = o.canvas.height, dpr = camNow.dpr || 1;
+				s = cameraState(camNow, W, H);   // 注記と同じ＝素の cam・フル解像度（動的解像度の縮小は掛けない）
+				// 地形リフト＝main の dispRadius と同式（pitch 0.06→0.20 でフェードイン・標高×elevBase）。標高は terrain から同期
+				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+				const lift = pf > 0 && terrain ? (lon: number, lat: number) => (terrain!.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
+				const pr = (lon: number, lat: number, hM?: number) => {
+					const lz = lift(lon, lat), [x, y, f] = project(s!, lon, lat, 1 + lz + (hM || 0) * elevBase);
+					if (ovPl && clipDistanceM(ovPl, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) return [x / dpr, y / dpr, -1];   // 断面で切られた側＝見えない（front<0・#111 段 3・面はそのオーバーレイの対象）
+					return [x / dpr, y / dpr, f];
+				};
+				const clipH = (lon: number, lat: number, hM?: number) => projectClip(s!, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
+				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
+				api = { project: (lon: number, lat: number) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
+					elevM: terrain ? (lon: number, lat: number) => terrain!.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain,
+					rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, clip: null };   // 断面（#111 段 3）＝自前で描くオーバーレイ向け（面・点の距離 m・負＝切られる）   // 楕円体表示の b/a（#43）＝自前で位置を組むオーバーレイは tanβ＝rAx·tanφ の β 単位球に置く（camState.mvp が S を畳む）。球＝1
+			}
+			// 断面（#111 段 4）＝そのオーバーレイの対象の面：記号（symbols）と集約（cluster）＝注記＝labels・それ以外（heatmap・模様・anno・地震…）＝vector
+			ovPl = /^(symbols|cluster)/.test(name) ? clipPlL : clipPlW;
+			api!.clip = ovPl ? { planes: ovPl, distM: (lon: number, lat: number, hM = 0) => clipDistanceM(ovPl!, lon, lat, hM), pack: (origin: ArrayLike<number>) => clipPackOrigin(ovPl!, origin) } : null;   // pack(origin)＝自前の GPU シェーダ向けの uniform（WGSL の ClipP 先頭 112B＝pl[6]＋p・K はその原点）
+			if (o.mod.frame(camNow, s!, { w: o.canvas.width, h: o.canvas.height }, api!)) more = true;
+		} catch (e) { console.error("[render] overlay", name, "frame failed", (e as Error)?.message); }
+	}
+	if (s) lastOv = { cam: camNow, s, size: { w: baseW || api!.W * api!.dpr, h: baseH || api!.H * api!.dpr }, api: { ...api!, clip: null, depth: null } };
+	return more;
+}
+// 統一 picking（deck.gl 差分 PR-1・2026-10-11）：main の map.pickOverlays(x, y) → names の順（手前から）に各モジュールの pick(x, y, r, ctx) を問う。
+// x, y, r は CSS px で来る＝device px に直す。答え＝[{ name, id, distance（CSS px）, lngLat, properties, … }]（モジュールが返した物に name を足す）。pick の無いモジュールは飛ばす
+function overlayPick(m: RwMsg) {
+	const hits: OverlayHit[] = [];
+	if (lastOv) {
+		const dpr = lastOv.cam?.dpr || 1, r = (m.r ?? 6) * dpr;
+		for (const name of m.names || [...overlays.keys()].reverse()) {
+			const o = overlays.get(name);
+			if (!o?.mod?.pick) continue;
+			try {
+				const res = o.mod.pick(m.x! * dpr, m.y! * dpr, r, lastOv) as OverlayHit | OverlayHit[] | null | undefined;
+				for (const h of res == null ? [] : Array.isArray(res) ? res : [res]) if (h) hits.push({ ...h, name, distance: (h.distance ?? 0) / dpr });
+			} catch (e) { console.error("[render] overlay", name, "pick failed", (e as Error)?.message); }
+		}
+	}
+	postMessage({ type: "overlayPickResult", seq: m.seq, hits });
+}
+let cam: CameraPose | null = null, opts: RwOpts | null | undefined = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
+let frameEvents = false;   // 描いたフレームごとに { type:"frame", cam } を main へ（custom 層の同期・要求された時だけ）
+let glRef: WebGL2RenderingContext | null = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
+let gint: GintEngine | null = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
+const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
+const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
+(self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
+let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
+let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
+let raster: Raster | null = null;   // 画像タイル層（ortho-core/raster）：選抜・取得・在庫・描画リストを worker 内で完結（main は add/remove/set の指示だけ）
+// ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
+let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
+let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを1回読み戻し＝rendering/present の切り分け
+// ⚠iOS WebKit の疑い（2026-08-02）：WebGPU を構成した OffscreenCanvas の worker では rAF が一度も発火しない
+// （WebGL2 なら発火＝日常動作。probe は初回描画が同期だったため見逃した）。rAF を一元武装（rafArmed）し、
+// ポンプ（33ms 間隔）が「最後の frame 実行から 100ms 以上」を検知したら手動で frame() を回す＝自己修復。
+// 健全環境は rAF が 16ms で回る＝ポンプは常に不発（無害）。frameTicks は stay 診断 HUD 用の実行回数。
+let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
+let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty の給餌が届いているか）
+let pongD = 0, pongC = 0, loopN = 0;   // stay診断：main→worker 直結/ポートの生死＋worker内ループバック（message イベント配給の飢餓判定）
+let sceneMsgN = 0, relayRecvN = 0, pongB = 0;   // iOS診断：scenePort到着数・relay最終着数・BroadcastChannel生死
+function armRaf() {
+	if (rafArmed) return;
+	rafArmed = true;
+	requestAnimationFrame(() => { rafArmed = false; frame(); });
+}
+setInterval(() => {
+	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
+}, 33);
+// ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
+let memOn = false, memLast = 0, hudFrames = 0, hudGpuName = "";   // hudFrames＝FPS用の窓内実描画枚数・hudGpuName＝GPU名（backend確定時に一度採取）
+// ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
+// 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
+let noBld = false;
+let drawHudOn = false, drawHudLast = 0;   // ?drawhud=1＝描画実績HUD（実機で「背景が黒」の犯人を CPU/GPU に二分する計器）
+// GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
+// 「rAF/合成のカデンス」なのかを切り分ける本丸。map/gint を兄弟スパンで計測（TIME_ELAPSED は入れ子不可）。
+let tqExt: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null = null;
+const tqPending: { q: WebGLQuery; tag: string }[] = [], tqSum: Record<string, number> = {}, tqN: Record<string, number> = {};
+function tqSpan(tag: string, fn: () => void) {
+	if (!tqExt || tqPending.length > 60) { fn(); return; }   // 結果詰まり時は計測を落とす（本業を止めない）
+	const q = glRef!.createQuery();
+	glRef!.beginQuery(tqExt.TIME_ELAPSED_EXT, q);
+	fn();
+	glRef!.endQuery(tqExt.TIME_ELAPSED_EXT);
+	tqPending.push({ q, tag });
+}
+function tqPoll() {
+	// WebGPU 経路：renderer 内蔵の timestamp-query（pass単位・非同期回収）を同じ給餌口へ流す。
+	// GL の tqExt と排他（バックエンドはどちらか一方）＝以降の EMA/格付け/perf 行が両バックエンド共通で回る。
+	if (renderer && renderer.tqTake) {
+		const r = renderer.tqTake();
+		if (r) for (const e of r) tqFeed(e.tag, e.ms);
+	}
+	while (tqPending.length) {
+		const { q, tag } = tqPending[0];
+		if (!glRef!.getQueryParameter(q, glRef!.QUERY_RESULT_AVAILABLE)) break;
+		const ns = glRef!.getQueryParameter(q, glRef!.QUERY_RESULT);
+		glRef!.deleteQuery(q);
+		tqPending.shift();
+		if (!glRef!.getParameter(tqExt!.GPU_DISJOINT_EXT)) tqFeed(tag, ns / 1e6);
+	}
+}
+// GPU 実測1本ぶんの給餌（両バックエンド共通の合流点：GL=tqPoll のクエリ回収／WebGPU=renderer.tqTake）。
+function tqFeed(tag: string, ms: number) {
+	tqSum[tag] = (tqSum[tag] || 0) + ms; tqN[tag] = (tqN[tag] || 0) + 1;
+			// GPU格付け（スピードビニング）：物差しは純GPU時間＝ディスプレイ非依存（壁時計dtはvsync量子化＝
+			// 30Hzモニタでは常に33ms＝速いGPUでも永遠に「遅い」判定。動的解像度も同じ壁時計で30Hz環境では
+			// 移動中必ず縮むため resIdx をゲートに使うと恒久falseになる＝両方実測で確認。この計器だけが本丸）。
+			// 解像度段で正規化（ms/res²＝フル解像度換算。頂点負荷はピクセルに比例しない＝過大見積り側＝昇格が保守的）。
+			// フル換算<17ms を60サンプル維持＝fast＝main が静止時の手前詳細化(IDLE_TILE_PX)を許可。>24ms＝即降格
+			//（詳細化は真っ先に切る贅沢品）。17〜24msの中間帯は現状維持（ヒステリシス＝境目マシンの点滅防止）。
+			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
+			// 動的解像度用（現解像度の実コスト・map/gint別に追う）。非対称ゲイン＝重くなる方向は即応
+			//（軽ビュー→重ビューのズームで降段が遅れてガクつかない）、軽くなる方向はゆっくり（単発の谷で暴れない）。
+	if (tag === "gint") {
+		gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
+	}
+	if (tag === "shadow") shadowEmaRaw = shadowEmaRaw ? shadowEmaRaw + (ms - shadowEmaRaw) * (ms > shadowEmaRaw ? 0.3 : 0.1) : ms;
+	if (tag === "map") {
+		const s = RES_STEPS[resIdx], msFull = ms / (s * s);
+		gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
+		gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
+		if (gpuEma < 17) {
+			if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU tier fast (map-normalized ${gpuEma.toFixed(1)}ms) = idle near-detail allowed`); }
+		} else {
+			gpuFastStreak = 0;
+			if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU tier slow (map-normalized ${gpuEma.toFixed(1)}ms) = near-detail off`); }
+		}
+	}
+}
+
+// WebGL2 バックエンドの起動：renderer＋gint＋timer query＋標高(terrain)。レンダラ本体は ortho-core/gl を dynamic import
+// （WebGPU 経路と同じ形＝init は非同期・その間のメッセージは initQueue へ待避）。
+// GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
+async function bootWebGL(m: RwMsg) {
+	let createRenderer, createGintLayer;
+	bootStage = "awaiting gl import";
+	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
+	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && (err as Error).message || err) }); return; }
+	try { renderer = createRenderer(canvas!, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
+	catch (err) { postMessage({ type: "glfail", error: String(err && (err as Error).message || err) }); return; }
+	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
+	glRef = canvas!.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
+	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
+	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
+	gint = createGintLayer(glRef!, { requestDraw: () => { dirty = true; }, quad4: m.quad4 !== false }) as GintEngine;
+	// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
+	// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
+	tqExt = glRef!.getExtension("EXT_disjoint_timer_query_webgl2");
+	const dbg = glRef!.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef!.getExtension("WEBGL_debug_renderer_info");
+	hudGpuName = String(glRef!.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef!.RENDERER) || "");   // ?hud=1 状態盤に出すGPU名（perfログとも共有・落ちの端末特定に使う）
+	if (perfOn) console.log(`[perf] backend=webgl2 gpu="${hudGpuName}" timerQuery=${!!tqExt}`);
+}
+// 標高アトラスの部品（init の材料と DEM から）。起動時か、terrain:false の地図に初めて DEM が来た時（terrLazyInit）に作る
+let terrLazyInit: RwMsg | null = null;
+const makeTerrain = (m: RwMsg, dem: TerrainOptions["dem"] | undefined): RwTerrain => createTerrain({
+	renderer: renderer!, requestDraw: () => { dirty = true; },
+	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
+	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
+	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
+	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.ts から渡す（接地リフトと失効判定の根拠）
+	onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
+});
+// バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。
+function finishInit(m: RwMsg) {
+	// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
+	// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
+	// terrain モジュールは renderer.set 契約のみ＝バックエンド非依存（webgpu Phase 2 で elev* を実装済み）。
+	// ?noterr=1 ＝標高を丸ごと停止する A/B 計測ノブ（terrain=null＝以後の全参照が null ガードで平面へ）。
+	// opts.terrain:false（terrLazy・公式例の門 段 2）＝ここでは作らず、main の setTerrain の DEM が来た時に作る（MapLibre と同じ「setTerrain まで平ら」）
+	if (!m.noTerr) terrain = makeTerrain(m, m.dem);
+	else if (m.terrLazy) terrLazyInit = m;
+	// 全球の床（WORLD_ATLAS＝焼き済み 1 本 3.25MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
+	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
+	// アトラスが無い時の退避（R90 8枚・55MB）は terrain 側＝低メモリ端末はそこで見送る（デモ序盤の裏でデコードの山を作らない）。
+	if (terrain) setTimeout(() => terrain!.prefetchWorld(), 6000);
+	// 画像タイル層＝renderer の契約（rasterTex/rasterMesh/setRasterDraws）だけで動く＝バックエンド非依存。main へは rasterInfo/rasterError/rasterPending（未着）を通知
+	raster = createRaster({ renderer: renderer!, requestDraw: () => { dirty = true; armRaf(); }, lowMem: !!m.lowMem, post: msg => postMessage(msg) });
+	// gint の面（3D）＝地面アトラスへ焼く（RTT ドレープ統合・2026-09-21）。gint は後から差し替わり得る（context lost）＝変数を都度読む
+	if (renderer!.setGroundHook) renderer!.setGroundHook((cam, t) => gint?.bakeFaces ? gint.bakeFaces(cam, t) : 0, () => gint?.bakeSig ? gint.bakeSig() : "");   // 戻り値＝焼いた層数（drawhud gndFaces）
+	if (renderer!.lost) renderer!.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
+		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
+	});
+	if (m.scenePort) {
+		m.scenePort.onmessage = (ev: MessageEvent<ScenePortMessage>) => {                  // scene worker から直結：main を経由しない geometry
+			sceneMsgN++;
+			const d = ev.data;
+			if (d.type === "relayCtl") { relayRecvN++; dispatch({ data: d.msg as RwMsg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
+			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
+			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
+			if (d.type === "up" || d.type === "grow" || d.type === "dl") {
+				mdInbox.push(d);
+				// 同じ slot の未適用 fallback scene は dl より古い（同一ポートの FIFO）＝捨てる。scene worker は mode（下）が
+				// 届くまで fallback の scene を送る＝起動直後は scene→dl の順に来得る。両方が同じフレームに溜まると
+				// drainUploads が dl（新）→ scene（旧）の順に当てて古い scene が勝ち、dl の ack（dlApplied）で main は
+				// 「載った」と信じたまま＝静止中は永久に欠けた基図（2026-09-25・T3。worker が詰まると出る＝SwiftShader の
+				// snapshot readPixels で 3/4 再現・実機でも起動直後の長いフレームで起こり得る）
+				if (d.type === "dl") sceneInbox.delete(d.slot);
+			}
+			else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
+			dirty = true;
+		};
+		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
+		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
+	}
+	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
+}
+
+let initQueue: RwMsg[] | null = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
+let bootStage = "pre-boot";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
+let backendName = "webgl2";
+// ⚠iOS WebKit の轍（2026-08-02 実機確定）：module worker でグローバル onmessage を「読む」と関数が返らず、
+// onmessage({data}) の手動呼び出しが TypeError で silently 死ぬ（イベント経由の配達は正常・macOS は getter 正常）。
+// ＝自前の関数参照 dispatch を正とし、全ての合成配達（relay/BC/ctrlPort/再投入）は dispatch を呼ぶ。
+const dispatch = (e: { data: RwMsg }) => {
+	const m = e.data;
+	if (initQueue && m.type !== "init") { initQueue.push(m); return; }
+	switch (m.type) {
+		case "init":
+			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
+			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
+			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
+			labelCanvas = m.labelCanvas!;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
+			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
+			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
+			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
+			perfOn = !!m.perf;
+			stayProbe = m.stay ? 1 : 0;
+			depthOk = !m.lowMem;   // LOW_MEM＝深度を作らない（#47・Air3 jetsam の型＝FBO/ImageBitmap の上乗せを持ち込まない）
+			if (m.stay) {
+				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
+				setTimeout(() => { if (initQueue) { console.error("[render] initQueue stuck for 15s = force-releasing (diagnostic)"); const q = initQueue; initQueue = null; bootStage += "→force-released(" + q.length + ")"; for (const qm of q) dispatch({ data: qm }); } }, 15000);
+				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
+				lc.port1.onmessage = () => { loopN++; };
+				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
+			}
+			memOn = !!m.mem;
+			noBld = !!m.noBld;
+			drawHudOn = !!m.drawHud;
+			(self as RwSelf).__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
+			(self as RwSelf).__perfScene = perfOn;   // 計器 b（perf plan §1）＝renderer.setScene の [scene] apply 行
+			(self as RwSelf).__perfHitch = { elev: 0, scene: 0 };   // 引っ掛かり（4ms 超）の累計＝mem テレメトリで main へ（perf 旗の有無に依らず器は置く）
+			// バックエンドの起動は両経路とも非同期（選んだ片方だけを dynamic import）＝その間のメッセージは initQueue へ
+			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
+			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
+			initQueue = []; bootStage = "awaiting import";
+			(m.gpu ? import("@ortho-earth/core/gpu")
+					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
+						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
+						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
+						r.device.pushErrorScope("validation");
+						setTimeout(() => {
+							r.device.popErrorScope().then(e => { if (e) { r.gpuErrors.push("gint init validation: " + e.message); console.error("[gpu] gint init validation:", e.message); } }).catch(() => {});
+							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
+						}, 400);
+						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
+						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
+						bootStage = "gint ready";
+						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
+						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
+						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? " (timestamp-query = measured gpuMap/gpuGint, GPU tiering on)" : " (unsupported = ema wall-clock fallback)"}`);
+					}))
+					.catch(err => {
+						console.warn("[render] WebGPU init failed → WebGL2 fallback:", err && ((err as Error).message || err));
+						return bootWebGL(m);
+					})
+				: bootWebGL(m))
+					.then(() => {
+						bootStage = "pre-finishInit";
+						if (renderer) finishInit(m);
+						else { snapDead = true; snapFlush(); }   // 起動失敗（glfail）＝預かった撮影へ null で返す
+						bootStage = "finishInit done";
+						const q = initQueue; initQueue = null;
+						if (q) for (const qm of q) dispatch({ data: qm });   // 待避分を順序どおり再投入
+						bootStage = "queue released(" + (q ? q.length : 0) + ")";
+					});
+			break;
+		case "fontFace":   // Web フォント（main の map.addFontFace）＝この worker の canvas（注記・記号・集約）で使えるようにする。self.fonts が無い環境（古い WebKit）は黙って既定の束
+			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family!, m.source!, m.descriptors || {}); await ff.load(); self.fonts.add(ff); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, (err as Error)?.message || err); } })();
+			break;
+		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
+		case "overlayMsg": { const o = overlays.get(m.name!); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); noteTime(); dirty = true; armRaf(); } break; }   // 毎フレームの状態（地震の再生等）＝時計で動く描き直し（#125）
+		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
+		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
+		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			break;
+		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
+			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
+			// 画面サイズ従属テクスチャが上限超えで即死しない柵（実測 2026-09-02: h=9677→2^25 の過渡値）。
+			// 超過時は device px を切り詰め＝CSS側で引き伸ばされ僅かにボケるだけ（落ちるより百倍まし）。
+			const mt = renderer?.maxTex || 8192;
+			if (m.width! > mt || m.height! > mt) console.warn(`[render] resize ${m.width}x${m.height} exceeds device max ${mt} = clamped`);
+			baseW = Math.min(m.width!, mt); baseH = Math.min(m.height!, mt);
+			scheduleRes();                                       // 適用は次の描画フレーム先頭（リサイズ＝バッファクリアを描画と同一タスクに束ねる＝白フラッシュを見せない）
+			break;
+		}
+		case "set":
+			// gint 系＝m.layer で層を指名（gint draw spec §4 の多層プロトコル・2026-09-09）。layer 無し＝既定層（従来と同形）。
+			// 追加層は両バックエンド対応（gpu/gint.js＋gl/gint/embed.js・2026-09-09 整合）。addLayer 不在の旧構成だけ ack にエラー。
+			if (m.cmd === "gintAdd") { const okA = !!gint?.addLayer; if (okA) gintLs.set(m.layer, gint!.addLayer!({ id: m.layer!, order: (m.data as { order?: number | null } | null)?.order ?? null })); postMessage({ action: "gintAck", cmd: "gintAdd", layer: m.layer, error: okA ? null : "no-multilayer" }); }
+			else if (m.cmd === "gintRemove") { const h = gintLs.get(m.layer); if (h) { h.remove(); gintLs.delete(m.layer); } labelLayer?.setUserLabels(m.layer!, null); }
+			else if (m.cmd === "gintActivate") { (m.layer != null ? gintLs.get(m.layer) : gint)?.activate?.(); }
+			else if (m.cmd === "gintOrder") { gTgt(m)?.setOrder?.(m.data); }   // 実行時の重ね順変更（moveLayer 相当）
+			else if (m.cmd === "gintLabels") { labelLayer?.setUserLabels(m.layer ?? "u0", (m.data as UserLabelsMsg)?.list ?? null, (m.data as UserLabelsMsg) ?? {}); }   // 層のラベル集合（text-field）＝基図注記と同じ衝突/フェードへ相乗り
+			else if (m.cmd === "gint") { const g = gTgt(m); if (g) { g.set(m.data, m.prop); if (m.layer != null) postMessage({ action: "gintAck", cmd: "gint", layer: m.layer, error: null, ...g.range?.() }); } }   // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）。層指名はロード完了 ack（bakeBase 同期ゆえこの時点で搭載済み）
+			else if (m.cmd === "gintSlot") { gTgt(m)?.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）
+			else if (m.cmd === "gintBaked") { const g = gTgt(m); if (g) { g.setBaked(m.data, m.prop); if (m.layer != null) { g.setSlot(m.prop ?? "user"); postMessage({ action: "gintAck", cmd: "gintBaked", layer: m.layer, error: null, ...g.range?.() }); } } }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ）。既定層＝表示は変えない（gintSlot は main の調停）／層指名＝スロット舞踏が無い＝焼き着地で点火＋搭載 ack（main の ready）
+			else if (m.cmd === "gintStyle") { gTgt(m)?.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
+			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
+			else if (m.cmd === "gintPaintExpr" || m.cmd === "gintExprState") {   // fid 表を GPU で組む（geopbf 改良点 ⑦）＝WebGPU の層だけ。GL2／旧エンジン＝error で ack（main は CPU の表へ落ちる）
+				const g = gTgt(m), fn = m.cmd === "gintPaintExpr" ? g?.paintExpr : g?.exprState, seq = (m.data as { seq?: number | null } | null)?.seq ?? null;
+				const ack = (table: Uint32Array | null, error: string | null) => postMessage({ action: "gintAck", cmd: m.cmd, layer: m.layer, seq, error, table }, table ? [table.buffer] : []);
+				if (!fn) ack(null, "no-gpu-expr");
+				else { let r; try { r = fn.call(g, m.data); } catch (e) { ack(null, String((e as Error)?.message || e)); r = undefined; }
+					if (r === null) ack(null, "no-expr-job"); else if (r) Promise.resolve(r as Uint32Array | null | undefined).then(t => { ack(t ?? null, null); dirty = true; }, (e: Error) => ack(null, String(e?.message || e))); }
+			}
+			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
+			else if (m.cmd === "vtLabels") { const list = (m.data as UserLabelsMsg)?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer!, list, (m.data as UserLabelsMsg) ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
+			else if (m.cmd === "labels") { const r = labelReceiver(m.data as Parameters<typeof labelReceiver>[0]); pendingLabels = r.list; if (r.missing) postMessage({ type: "labelsResync" }); applyLabels(); }   // ラベル集合の更新（差分→集合。持たない番号＝main に全部送り直してもらう）（標高は cam が揃ってから付与）
+			else if (m.cmd === "labelImage") { if ((m.data as LabelImageMsg)?.bitmap) labelLayer?.setImage((m.data as LabelImageMsg)!.name, m.data as LabelImageInput); else labelLayer?.removeImage((m.data as LabelImageMsg)?.name as string); }   // 記号帳の写し（addImage / sprite）＝基図と vector の symbol 層の icon-image（段 3）。bitmap null＝外す
+			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data as SkyLabels | null); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
+			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data as SkyMoon | null); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
+			else if (m.cmd === "meshSet") meshInbox.push({ meshData: m.data as MeshItem["meshData"], name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
+			else if (m.cmd === "meshVis") meshInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
+			else if (m.cmd === "meshXf") meshInbox.push({ xf: m.data, name: m.prop });      // 剛体変換（W4）も同じ列＝バッチの到着前に届いた変換が捨てられない（雲の風・2026-10-12）
+			else if (m.cmd === "meshCol") meshInbox.push({ col: m.data, name: m.prop });      // 頂点色の書き換え（W7）も同じ列＝バッチの到着より先に効いて捨てられない
+			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
+			else if (m.cmd === "rasterAdd") { raster?.add(m.prop!, (m.data as RasterAddMsg).spec, (m.data as RasterAddMsg).opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
+			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop!); }
+			else if (m.cmd === "rasterSet") { raster?.set(m.prop!, m.data as Parameters<Raster["set"]>[1]); }   // opacity/visible/order/hideFills/minZoom/maxZoom/resampling/fadeDuration（C4）
+			else if (m.cmd === "scene") {                                        // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
+				// 滞留中の同slotの draw list（multi_draw）はこのクリアより古い＝パージ。残すと転送渋滞の1フレーム後に
+				// 古いシーンが復活する（遅れて届く dl は ack 側の再クリア（onMerged の z<4 分岐）が面倒を見る）。
+				for (let i = mdInbox.length - 1; i >= 0; i--) if (mdInbox[i].type === "dl" && (mdInbox[i] as { slot?: string }).slot === m.prop) mdInbox.splice(i, 1);
+				sceneInbox.set(m.prop!, m.data as SceneRec | null);
+			}
+			else if (m.cmd === "dem") {   // 外来の標高タイルの生き替え（#36）。terrain:false の地図は初めての DEM で地形を作る（外す時は作った地形の DEM を外す＝既定の標高に戻る・台帳 §4）
+				if (!terrain && terrLazyInit && m.data) { terrain = makeTerrain(terrLazyInit, m.data as TerrainOptions["dem"]); terrLazyInit = null; dirty = true; armRaf(); }
+				else terrain?.setDem((m.data || null) as Parameters<Terrain["setDem"]>[0]);
+				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam!) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
+			}
+			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
+			else if (m.cmd === "clock") { clockA = m.data as ClockAnchor | null; labelLayer?.setClock?.(clockA); noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
+			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
+			else if (m.cmd === "post") { postOn = !!m.data; renderer?.set(m.cmd, m.data, m.prop); }   // 後処理 bloom・vignette（PR-8）＝GL2 は下の dWant が FBO を開く
+			else if (m.cmd === "view" && m.data && ("clock" in (m.data as object) || "time" in (m.data as object))) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
+			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
+				const n = normClip(m.data as Parameters<typeof normClip>[0]), pl = (t: string) => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
+				clipPlW = pl("vector"); clipPlL = pl("labels"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
+			}   // 断面（#111）＝レンダラへ＋注記と同一フレームのオーバーレイ（面は worker の楕円体の状態で作る）
+			else if (renderer) renderer.set(m.cmd!, m.data, m.prop);              // view/overlay/elev…
+			dirty = true;                                        // 内容が変わった→描き直す
+			break;
+		case "pinRes":   // 録画（scene エディタ）＝動的解像度の固定/解除（on中は降段しない・即 res=1 へ）
+			resPinned = !!m.on;
+			if (resPinned && resIdx !== 0) { resIdx = 0; scheduleRes(); }
+			break;
+		case "pongD": pongD++; break;   // stay診断：main→worker 直結チャネルの配達実証
+		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
+		case "terrStats": postMessage({ type: "terrStats", data: terrain?.debug?.() ?? null }); break;   // __terr()＝標高アトラス内部状態の遠隔診断（dev実地用）
+		case "rasterStats": postMessage({ type: "rasterStats", id: m.id, data: raster?.stats() ?? null }); break;
+		case "labelsPlaced": postMessage({ type: "labelsPlaced", id: m.id, data: { labels: labelLayer?.placed?.() ?? [], symbols: [...overlays.values()].flatMap(o => o.mod?.placed?.() ?? []), debug: labelLayer?.placedDebug?.() ?? null } }); break;   // 置いたラベル/記号（labels2d＋placed() を持つ重ね描き＝symbols・cluster）＝公式例の門 段 0・debugGlobals の __placed   // 置いたラベル/記号（公式例の門 段 0＝文字を測る・debugGlobals の __placed）
+		case "elevGrid": (async () => {   // 標高の升目（可視域・見通し線＝#44）。範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北
+			const [w, s, e, n] = m.bbox!, N = m.N!, out = new Float32Array(N * N);
+			if (terrain) { const cs = []; for (let y = Math.floor(s); y <= Math.floor(n); y++) for (let x = Math.floor(w); x <= Math.floor(e); x++) cs.push(terrain.prefetch(x, y, 1).catch(() => null)); await Promise.all(cs); }
+			for (let r = 0; r < N; r++) { const lat = n - (r + 0.5) / N * (n - s); for (let c = 0; c < N; c++) out[r * N + c] = terrain ? terrain.sampleElev(w + (c + 0.5) / N * (e - w), lat) : 0; }
+			postMessage({ type: "elevGrid", id: m.id, data: out }, [out.buffer]);
+		})(); break;   // 画像タイル層の在庫/描画枚数（検定・診断）
+		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
+			drawMsgN++;
+			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。
+			// 初回 cam（prev 無し）は静止扱い＝初期表示は最初から品質段で描く。
+			if (cam && m.cam && (cam.center[0] !== m.cam.center[0] || cam.center[1] !== m.cam.center[1]
+				|| cam.zoom !== m.cam.zoom || (cam.pitch || 0) !== (m.cam.pitch || 0) || (cam.bearing || 0) !== (m.cam.bearing || 0) || (cam.roll || 0) !== (m.cam.roll || 0) || cam.fovy !== m.cam.fovy)) lastCamMoveT = performance.now();
+			cam = m.cam as CameraPose | null; opts = m.opts; dirty = true;
+			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
+			break;
+		case "snapshot": snapshot(m.id!); break;   // shot（画面保存）：今のカメラで1枚描いて ImageBitmap で返す
+		// gint の識別・settle（旧 gint worker のメッセージ面を移設。identify/click の返信は
+		// gint 側が postMessage({action:...}) で直接 main へ＝app は renderWorker.onmessage で受ける）
+		case "gintDrawn": if (gint) gint.drawn(); break;    // 地図静止＝picking buffer 構築（hover 識別の有効化）
+		case "gintMove":  if (gint) gint.move(m);  break;   // ホバー（x/y=CSS px）
+		case "gintLeave": if (gint) gint.leave();  break;
+		case "gintClick": if (gint) gint.click();  break;
+		case "destroy":
+			for (const o of overlays.values()) { try { o.mod?.destroy(); } catch {} }
+			overlays.clear();
+			if (gint) { gint.dispose(); gint = null; gintLs.clear(); }
+			if (raster) { raster.destroy(); raster = null; }
+			if (renderer && renderer.dispose) renderer.dispose();
+			renderer = null;
+			snapDead = true; snapFlush();   // 預かった撮影へ null で返す（以後の依頼も即 null）
+			dOutH = null;   // 深度の書き出し口は renderer.dispose が畳んだ
+			break;
+	}
+};
+self.onmessage = dispatch;   // 実イベントも同じディスパッチャ（グローバル getter は信用しない＝iOS轍）
+self.addEventListener("error", (e: ErrorEvent) => { try { postMessage({ type: "drawErr", msg: "worker error: " + (e.message || e), stack: String(e.filename || "") + ":" + (e.lineno || 0) }); } catch {} });   // 見えない例外の可視化（iOS診断で手動dispatchの silent throw を見逃した反省）
+self.addEventListener("unhandledrejection", e => { try { postMessage({ type: "drawErr", msg: "worker rejection: " + (e.reason && (e.reason as Error).message || e.reason) }); } catch {} });
+
+// shot 用：WebGL は preserveDrawingBuffer 無し＝別タスクでは読めない。同一タスクで「描画直後に createImageBitmap」
+// （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
+function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま（両バックエンド共通）
+	if (!labelCanvas) return { labels: null, lw: 0, lh: 0 };
+	const lw = labelCanvas.width, lh = labelCanvas.height;
+	return { labels: new Uint8Array(labelCanvas.getContext("2d")!.getImageData(0, 0, lw, lh).data.buffer), lw, lh };
+}
+// 同一フレームのオーバーレイも撮る（shot/print/サムネが画面と一致）：モジュール契約（init/message/frame/destroy）は無傷のまま、
+// worker が各 canvas を読む。GL 系（webgl2）は preserveDrawingBuffer 無し＝直前の overlayFrame と同一タスクで readPixels
+//（createImageBitmap/transferToImageBitmap は headless GL で詰まる＝基図と同じ手）。premultipliedAlpha の画素は ImageData
+//（非乗算）へ戻す。2D は getImageData。重ね順（注記の上下・DOM 順）と表示/非表示は main が知っている＝名前付きで返して main が並べる。
+// 文脈はモジュールが取った物（overlayAdd が覚えた o.kind／o.ctx）を読むだけ＝まだ取っていない canvas と WebGPU の canvas は撮らない
+function readOverlays() {
+	const out: { name: string; buf: ArrayBuffer; w: number; h: number; flip: boolean }[] = [], transfer: ArrayBuffer[] = [];
+	for (const [name, o] of overlays) {
+		if (!o.mod || !o.canvas.width || !o.canvas.height) continue;
+		try {
+			const w = o.canvas.width, h = o.canvas.height;
+			if (o.kind === "2d") {
+				const px = new Uint8Array((o.ctx as OffscreenCanvasRenderingContext2D).getImageData(0, 0, w, h).data.buffer);
+				out.push({ name, buf: px.buffer, w, h, flip: false }); transfer.push(px.buffer);
+			} else if (o.kind === "webgl2" || o.kind === "webgl") {
+				const gl = o.ctx as WebGL2RenderingContext;
+				if (gl.isContextLost()) continue;
+				const px = new Uint8Array(w * h * 4);
+				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+				gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+				if (gl.getContextAttributes()?.premultipliedAlpha !== false) {
+					for (let i = 0; i < px.length; i += 4) { const a = px[i + 3]; if (a && a < 255) { const k = 255 / a; px[i] = Math.min(255, px[i] * k); px[i + 1] = Math.min(255, px[i + 1] * k); px[i + 2] = Math.min(255, px[i + 2] * k); } }
+				}
+				out.push({ name, buf: px.buffer, w, h, flip: true }); transfer.push(px.buffer);
+			}
+		} catch (e) { console.error("[render] overlay", name, "snapshot failed", (e as Error)?.message); }
+	}
+	return { overlays: out, transfer };
+}
+// 撮影用に今の cam で描き直し→同一タスクで読む（GL の描画バッファは次タスクで消える）。
+// ⚠シーンの深度（#47）は渡さない＝深度で隠すオーバーレイは隠れないまま写る。画面にもその絵が残るので、深度を使う物がある時は必ず次フレームで描き直す
+function snapOverlays() {
+	if (!overlays.size) return { overlays: [], transfer: [] };
+	if (overlayFrame(cam!) || overlayWantsDepth()) { dirty = true; armRaf(); }
+	return readOverlays();
+}
+// 撮影の依頼には必ず返事する（main の requestSnapshot を宙吊りにしない）。renderer と cam が揃い最初の実描画（frame1）が
+// 済むまでは snapWait に預け、frame() の末尾でまとめて撮る（旧＝await createGlobe 直後の撮影は、WebGPU では最初の draw＝cam が
+// まだ届いておらず黙って捨てられ promise が永久に残った・GL2 は cam 無しのまま空の canvas を読んでいた）。撮れない時（例外・
+// destroy・起動失敗・SNAP_WAIT_MS 待っても初描画が来ない）は base:null で返す＝呼び出し側（shot・検定）は render.base 欠けを扱う。
+const SNAP_WAIT_MS = 15000;
+let snapWait: number[] = [], snapDead = false;   // snapDead＝もう描けない（起動失敗・destroy）＝待たせず即 null
+const snapNull = (id: number) => postMessage({ type: "snapshot", id, base: null, w: 0, h: 0, labels: null, lw: 0, lh: 0, flip: false });
+function snapFlush() {   // 預かり分を撮る（frame1 の後）／描けないと分かった時は null で返す
+	const q = snapWait; snapWait = [];
+	for (const id of q) (snapDead ? snapNull : snapshot)(id);
+}
+function snapshot(id: number) {
+	if (snapDead) { snapNull(id); return; }
+	if (!renderer || !cam || !sentFrame1) {
+		snapWait.push(id);
+		setTimeout(() => { const i = snapWait.indexOf(id); if (i >= 0) { snapWait.splice(i, 1); console.warn("[render] snapshot: no first frame in time = empty reply"); snapNull(id); } }, SNAP_WAIT_MS);
+		if (cam) armRaf();
+		return;
+	}
+	if (!glRef && renderer.readback) { snapshotGPU(id); return; }   // WebGPU＝非同期 readback 経路
+	try {
+		if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
+		const s = RES_STEPS[resIdx];
+		const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+		let sBegun = false;   // 後処理（PR-8）や深度の FBO が開いている地図＝撮影も同じ経路（begin〜end）で描く＝画面と同じ絵（bloom・vignette 込み）
+		if (dOutH) { try { sBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+		try {
+			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
+			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		} finally { if (sBegun) { try { dOutH!.end({ depth: false }); } catch (e) { depthOff(e); } } }
+		labelLayer && labelLayer.draw(cam);
+		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
+		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip:true で main が戻す。
+		const gl = glRef!, w = canvas!.width, h = canvas!.height;
+		const base = new Uint8Array(w * h * 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
+		const { labels, lw, lh } = readLabels();
+		const ov = snapOverlays();
+		const transfer: ArrayBuffer[] = [base.buffer, ...ov.transfer]; if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true, overlays: ov.overlays }, transfer);
+	} catch (e) { console.error("[render] snapshot exception", (e as Error)?.message, (e as Error)?.stack); snapNull(id); }
+}
+// WebGPU snapshot：draw→gint→flush→readback（copyTextureToBuffer+mapAsync）＝top-down（flip:false）。RGBA へ swizzle 済み。
+async function snapshotGPU(id: number) {   // 呼び手（snapshot）が renderer/cam/frame1 を確かめ済み
+	try {
+		if (resPending) applyRes();
+		const s = RES_STEPS[resIdx];
+		const glCam = s === 1 ? cam! : { ...cam!, dpr: (cam!.dpr || 1) * s };
+		renderer!.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 画面と同じ（building-extrusion を伏せている時）
+		if (gint) gint.draw(glCam, renderer!.gintCtx());
+		renderer!.flush!();
+		labelLayer && labelLayer.draw(cam!);
+		const ov = snapOverlays();   // await の前＝GL オーバーレイの描画バッファが生きているタスク内で読む
+		const rb = await renderer!.readback!();   // { base:ArrayBuffer(RGBA), w, h }
+		const { labels, lw, lh } = readLabels();
+		const transfer: ArrayBuffer[] = [...ov.transfer]; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false, overlays: ov.overlays }, transfer);
+	} catch (e) { console.error("[render] snapshotGPU exception", (e as Error)?.message, (e as Error)?.stack); snapNull(id); }
+}
+
+// ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。
+const labelReceiver = createLabelReceiver<Label2D>();
+function applyLabels() {
+	if (!labelLayer || !cam) return;
+	const list = pendingLabels!; pendingLabels = null;
+	for (const L of list) L.elev = terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0;   // terrain 無し（?noterr=1／webgpu 初期フェーズ）は平面
+	labelLayer.setLabels(list);
+}
+
+// --- 動的解像度（タブレット対策）：連続描画中のフレーム間隔を EMA で監視し、間に合わない端末では
+// GL キャンバスの実解像度を段階的に下げる（1→0.85→0.7→0.55）。ラベルは別キャンバス＝文字は常にくっきり。
+// renderer は毎フレーム canvas.width を読む＝サイズ変更だけで全系（viewport/mvp/terrain）が追随する。
+// 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
+// ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
+let baseW = 0, baseH = 0, resIdx = 0;
+let resPinned = false;   // 録画中（scene エディタ）＝動的解像度を res=1 に固定（映像に縮み絵を混ぜない・"pinRes" メッセージ）
+let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
+let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（map/gint別）＝動的解像度の物差しは合計
+let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA＝描いたパスだけで更新（省いたフレームは積まない）。計器だけ＝動的解像度の物差しには入れない
+// （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
+//   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
+const RES_STEPS = [1, 0.85, 0.7, 0.55];
+let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
+let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
+// 静止復帰：重いエピソード（デモ飛行など）は busyMs が終始高く upStreak を稼げない＝pendingUp が立たないまま静止に入り 0.55 に張り付く
+// （静止中は計測フレームが無く登れない）。そこで「描画が RES_SETTLE_MS 続けて止まった」＝フル解像度で描いてもタダ同然、を検出したら
+// 予約の有無に関わらず段階を踏まず一気に res=1 へ戻す。少し余裕（500ms）を持たせて誤検出を避ける。
+const RES_SETTLE_MS = 500;
+let lastDrewT = 0;
+// 遷移時AA（WebGPU・2026-08-19）：MSAA テクスチャの store/load/resolve 帯域が遷移フレーム最大の固定費
+//（?perf=1 実測＝msaa が最も効き、msaa=0 なら動的解像度も落ちない）。カメラ遷移・アニメ継続中は 1x 直描き
+//（renderer.draw の opts.aa=false）、静止が RES_SETTLE_MS 続いたら 4x 品質フレームを1枚描く（静止時詳細化・
+// 解像度の静止復帰と同じ思想＝同じ時計）。動きの最中のエッジは見えない＝1x で busyMs が下がり解像度も保たれる。
+// GL2 は antialias が context 生成時固定＝対象外。?msaa=0＝常時1x／?msaa=1＝常時4x固定（旧挙動・A/B用）。
+let aaDyn = false;     // webgpu かつ固定ノブ（?msaa=0/?msaa=1）無し＝遷移時AA有効
+let lastCamMoveT = 0;  // カメラが実際に動いた最終時刻（draw メッセージで cam 値が変わった時だけ更新）
+let animCont = false;  // 直前フレームがフェード/フォグ等の自前継続（dirty 自炊・オーバーレイの続き・時計の早送り）＝遷移扱い
+// 時計で動く描き直し（#125・2026-09-29）＝main から毎フレーム届く「時刻」の合図（影の時刻の送り＝set shadow・時計の基準＝set clock・view の clock・
+// オーバーレイへの毎フレームの状態＝overlayMsg）の最終時刻。RES_SETTLE_MS 以内に届いていれば「動いている」＝1x（カメラ移動と同じ）。
+// タイル到着等の set（scene/gint…）は従来どおり静止扱い＝4x のまま（動きでない）。止まれば下の !drew 節が 4x の品質フレームを 1 枚描く
+let lastTimeT = 0;
+const noteTime = () => { lastTimeT = performance.now(); };
+let lastAA = 0;        // 直近フレームの段数（1/4）＝静止時の品質フレーム発火判定
+
+// 重い GPU 転送の平準化（1フレーム1件）：同一フレームに bufferData が束で乗るとフレームが飛ぶ。
+// ・シーン（swapBase/swapScene のマージ結果＝丸ごと差し替え）は slot ごとに「最新だけ」保持＝
+//   ズーム中に連続で届く粗い下地の中間版は上げずに捨てる（転送の仕事そのものが減る）。
+// ・PLATEAU バッチ（typed array 10〜20MB）は FIFO＝解放(null)の追い越し禁止（先に解放が効くと
+//   後から亡霊バッチが立つ）。解放は deleteBuffer だけで軽い＝同フレームで続けて消化。
+const sceneInbox = new Map<string, SceneRec | null>(), meshInbox: MeshItem[] = [], mdInbox: MdMsg[] = [];
+// multi_draw 系の消化：FIFO 厳守（dl が up を追い越さない）・重い転送(up)だけバイト予算で平準化。
+// grow は GPU 内コピー、dl は参照リスト差し替え＝どちらもタダ同然なので同フレームで続けて消化する。
+const MD_BYTES_PER_FRAME = 3 << 20;
+const upBytes = (d: Extract<MdMsg, { type: "up" }>) => (d.fill ? d.fill.buf.byteLength : 0) + (d.idx ? d.idx.arr.byteLength : 0) + (d.line ? d.line.arr.byteLength : 0) + (d.bld ? d.bld.arr.byteLength : 0);
+function drainMD() {
+	let budget = MD_BYTES_PER_FRAME, spent = false;
+	while (mdInbox.length) {
+		const d = mdInbox[0];
+		if (d.type === "up") {
+			const b = upBytes(d);
+			if (spent && b > budget) break;   // 予算切れ＝続きは次フレーム（先頭の1件は予算超でも必ず通す＝詰まり防止）
+			budget -= b; spent = true;
+		}
+		mdInbox.shift();
+		try {
+			renderer!.set(d.type === "up" ? "mdUp" : d.type === "grow" ? "mdGrow" : "mdScene", d);
+			// dl の適用＝この瞬間から画面に載る＝ここで初めて main に ack（sig確定）。scene worker の送信時 ack だと
+			// アップロード渋滞の数フレーム分「ackされたのにまだ旧シーン」の窓ができ、退場機構が先走って古い線が混ざる。
+			if (d.type === "dl" && d.sig) postMessage({ type: "dlApplied", slot: d.slot, sig: d.sig });
+		} catch (err) { console.error("[render] md apply failed:", err && ((err as Error).message || err)); }   // 黙らせない＝ackも返さない（mainがタイムアウト再要求）
+		dirty = true;
+	}
+	if (spent) uploadSkip = 2;   // 転送の山は「次フレームのdt」に出る＝動的解像度のEMA計測から除外
+}
+function drainUploads() {
+	if (!renderer) return;
+	if (mdInbox.length) drainMD();
+	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
+		const [slot, scene] = sceneInbox.entries().next().value!;
+		sceneInbox.delete(slot);
+		if (scene && performance.now() - lastCamMoveT < RES_SETTLE_MS) scene.noFade = true;   // 動いている間の差し替えはクロスフェードしない（ズーム中は 60ms 刻みで場面が替わる＝旧場面を半透明で重ねると大きな塗りがちらつく・2026-09-30 本人）
+		try { renderer.set("scene", scene, slot); }
+		catch (err) { console.error("[render] scene apply failed:", err && ((err as Error).message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
+		dirty = true; uploadSkip = 2;
+		return;
+	}
+	while (meshInbox.length) {
+		const item = meshInbox.shift()!;
+		if ("vis" in item) { renderer.set("meshVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
+		if ("xf" in item) { renderer.set("meshXf", item.xf, item.name); dirty = true; continue; }   // 変換＝フラグだけ＝同フレームで続けて消化
+		if ("col" in item) { renderer.set("meshCol", item.col, item.name); dirty = true; continue; }
+		const { meshData, name } = item;
+		try { renderer.set("meshSet", meshData, name); }
+		finally {
+			if (item.port) {
+				// 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は
+				// この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
+				//（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
+				const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] as ArrayBuffer[] : [];
+				try { item.port.postMessage({ drained: 1, recycle: rec }, rec); }
+				catch { item.port.postMessage({ drained: 1 }); }
+			}
+		}
+		dirty = true;
+		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
+	}
+}
+// キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
+// rAF タスク末尾で compositor へ commit されると「地図だけ白抜け→次フレームで描き直し」の1フレーム点滅になる
+// （ラベルは別キャンバス＝文字だけ残るので「ベクタータイルの白抜け」に見える）。Mac は res=1 張り付きで
+// 無症状、Windows は ANGLE/D3D が遅く動的解像度の段切替が実際に起きる＝切替のたびに点滅が見えていた。
+// scheduleRes＝予約だけ立て、適用(applyRes)は frame() の描画直前＝リサイズと全描画が同一タスク＝
+// commit される絵は常に完成品。クリア済みバッファは構造的に画面へ出ない（ウィンドウリサイズも同経路）。
+let resPending = false;
+function scheduleRes() { resPending = true; dirty = true; }
+function applyRes() {
+	resPending = false;
+	if (!canvas || !baseW) return;
+	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
+	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
+	if (labelCanvas && (labelCanvas.width !== baseW || labelCanvas.height !== baseH)) { labelCanvas.width = baseW; labelCanvas.height = baseH; }   // ラベル(文字)は常にフル解像度
+	for (const o of overlays.values()) if (o.canvas.width !== baseW || o.canvas.height !== baseH) { o.canvas.width = baseW; o.canvas.height = baseH; }   // オーバーレイも注記と同じフル解像度
+}
+function tuneRes(drew: boolean) {
+	const now = performance.now(), dt = now - lastFrameT;
+	lastFrameT = now;
+	const skip = uploadSkip > 0 && (uploadSkip--, true);   // PLATEAU転送フレームのdt＝転送コミコミ＝描画の実力でない
+	const measured = drew && prevDrew && !skip && dt < 200;   // 連続描画フレームだけ計測（アイドル明け・タブ切替の外れ値は捨てる）
+	prevDrew = drew;
+	if (!measured) return;
+	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
+	if (now < resHoldUntil) return;
+	// 物差し：timer query があれば素のGPU時間の合計（map+gint）＝壁時計dtはvsync量子化で、30Hzモニタ
+	//（実機のデュアル外部ディスプレイで実測）では常に33ms＝速いGPUでも移動中必ず0.55まで縮む恒常誤判定だった。
+	// 解像度を下げて効くのはGPUバウンドの時だけ＝GPU実測が本来の物差し（CPU/カデンス起因のdtで絵を粗くしない）。
+	// gint を足すのが肝：球ビュー（デモ飛行）は gint海岸線 ≫ map＝map単独では総GPU予算超過を見逃す。
+	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
+	const busyMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
+	if (!resPinned && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
+		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
+		const sOld = RES_STEPS[resIdx];
+		resIdx++; scheduleRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
+		// EMAはゼロから再学習させず fill-bound 予測（×(sNew/sOld)²）で継承＝まだ重ければ350ms後に即もう一段
+		//（ゼロ化だと再学習+ホールドで降段カスケードが数秒かかり、フル解像度のまま重ビューへ突っ込んだズームがガクつく）。
+		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
+		gpuEmaRaw *= k; gintEmaRaw *= k;
+		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
+	} else if (resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
+		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
+	}
+}
+
+// terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
+// アトラス構成が変わり得るだけのカメラ移動（視野幅の~10%・ズーム0.05・チルト/方位~1°）があった時だけ呼ぶ。
+let lastEnsure: { lon: number; lat: number; zoom: number; pitch: number; bearing: number; w: number; h: number } | null = null;
+// c＝dpr補正済みカメラ（動的解像度中は dpr×resScale）。素の cam を渡すと縮小 canvas と食い違い、
+// camDist が×s に潰れた（＝ズームインした）仮想視点で標高窓の票を取ってしまう→実視野の遠景が窓の外＝
+// 標高ゼロの帯＋窓の縁の壁（スリット）になる（実測: res×0.55 で実視野の3.4%が窓外。res復帰で直る＝
+// 「リロードすると綺麗」の正体）。draw と同じ glCam を受け取り、描画と窓計算の視野を常に一致させる。
+// 地形リフト球の半径（overlayFrame の lift と同式）：チルト×高標高地で「手前くさび欠け」を作らない選抜のため
+function groundRNow(c: CameraPose) {
+	const pt = Math.max(0, Math.min(1, ((c.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	if (!(pf > 0) || !terrain) return 1;
+	const h = terrain.sampleElev ? (terrain.sampleElev(c.center[0], c.center[1], c) || 0) : 0;
+	return 1 + Math.max(0, h) * pf * elevBase;
+}
+function ensureIfMoved(c: CameraPose) {
+	const tol = 72 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)（256px世界のz）
+	if (lastEnsure &&
+		Math.abs(c.center[0] - lastEnsure.lon) < tol && Math.abs(c.center[1] - lastEnsure.lat) < tol &&
+		Math.abs(c.zoom - lastEnsure.zoom) < 0.05 &&
+		Math.abs((c.pitch || 0) - lastEnsure.pitch) < 0.02 && Math.abs((c.bearing || 0) - lastEnsure.bearing) < 0.02 &&
+		canvas!.width === lastEnsure.w && canvas!.height === lastEnsure.h) return;
+	lastEnsure = { lon: c.center[0], lat: c.center[1], zoom: c.zoom, pitch: c.pitch || 0, bearing: c.bearing || 0, w: canvas!.width, h: canvas!.height };
+	// false＝標高ローダ未準備（起動直後）。記憶を消して次フレームで再試行——ここで記憶したままだと
+	// 「リロード直後にカメラを動かすまで地形が平ら」になる（チルト復元起動で顕在化した）。
+	if (terrain!.ensure(c, { w: canvas!.width, h: canvas!.height }) === false) lastEnsure = null;
+}
+
+// worker 自前の rAF ループ。dirty かつ cam があれば、最新 cam で mvp 生成→地図→ラベルを同フレームで描く。
+// try/catch：draw中の例外が末尾の requestAnimationFrame に到達しないとループが永久死＝最後のフレームで凍結する。
+// 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
+function frame() {
+	lastFrameRun = performance.now(); frameTicks++;
+	let drew = false, depthBmp: ImageBitmap | null = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す
+	try {
+		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
+		if (dirty && renderer && cam) {
+			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
+			dirty = false; drew = true;
+			if (clockSet !== clockA) { renderer.set("view", { clock: clockA }); clockSet = clockA; }
+			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
+			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
+			const s = RES_STEPS[resIdx];
+			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
+			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
+			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
+			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
+			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
+			let fogAnim = false;
+			const pfT0 = perfOn ? performance.now() : 0;
+			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
+			// 遷移時AA：カメラ移動から RES_SETTLE_MS 以内・またはアニメ自前継続中＝1x 直描き。resPinned（録画）＝
+			// 常時4x（映像に段数切替の瞬きを混ぜない）。aaOn の品質フレームは連続描画でない＝tuneRes の計測対象外。
+			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS && lastFrameRun - lastTimeT > RES_SETTLE_MS);   // 時計で動く間も 1x（#125）
+			let dOpts: RwOpts | null | undefined = noBld ? { ...opts, noBld: 1 } : opts;
+			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
+			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
+			const ovDepth = overlayWantsDepth();
+			const dWant = depthOk && !!renderer.depthOut && (ovDepth || (postOn && !!glRef));   // 後処理（PR-8）は GL2 だけ FBO を要る（WebGPU は flush で掛ける）
+			if (dWant !== !!dOutH) {
+				try { dOutH = renderer.depthOut!(dWant); if (dWant && !dOutH) depthOff("unavailable"); }   // null＝この環境では作れない＝以後申し出ても作らない
+				catch (e) { depthOff(e); }
+			}
+			let dBegun = false;
+			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+			tqSpan("map", () => { fogAnim = renderer!.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			const pfT1 = perfOn ? performance.now() : 0;
+			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer!.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
+			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
+			let depthFrame: DepthFrame | null = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
+			if (dBegun) { try { depthFrame = dOutH!.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
+			if (perfOn) {
+				const pfT2 = performance.now();
+				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
+				if (pfT2 - pfLast > 2000 && pfN > 0) {
+					const heap = ((performance as PerfMem).memory?.usedJSHeapSize! / 1048576) | 0;
+					const glErr = glRef ? glRef.getError() : -1;   // 0以外＝どこかの draw が GL エラーを出している（perf 時のみ照会＝パイプライン停止を常用経路に持ち込まない）
+					const gm = tqN.map ? (tqSum.map / tqN.map).toFixed(2) : "-";     // GPU 実時間（timer query・数フレーム遅れの平均）
+					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
+					const gs: GintStats = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
+					// backend＋ema（壁時計＝両BE比較可）を先頭へ＝?perf=1 の A/B はこの ema を並べる。gpuMap/gpuGint は WebGL のみ（timer query）
+					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms${renderer?.shadowStats?.() ? ` gpuShadow=${shadowEmaRaw.toFixed(2)}ms` : ""} res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
+					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
+					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
+				}
+			}
+			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
+			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
+			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
+			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
+			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
+			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
+			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
+			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }
+			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
+			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
+				stayProbe = 2;
+				renderer.readback().then(r => {
+					if (!r) return postMessage({ type: "gpuPix", nz: -1, total: 0 });
+					const px = new Uint8Array(r.base); let nz = 0;
+					for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
+					postMessage({ type: "gpuPix", nz, total: px.length / 4 });
+				}).catch((e: Error) => postMessage({ type: "gpuPix", nz: -2, total: 0, err: String(e && e.message) }));
+			}
+			// ?hud=1 の状態盤テレメトリは dirty ブロックの外（frame 末尾）へ移設＝静止中も送る（FPS が実測で 0 に落ちる／メモリは動き続ける）。
+			// ?drawhud=1：直近フレームの描画実績を ~3Hz で main へ（実機の画面に出す計器）。
+			// 「背景が黒」の時に塗りの枚数がゼロなら CPU/状態側、枚数が出ているのに黒なら GPU 側＝二分の起点。
+			if (drawHudOn && performance.now() - drawHudLast > 350) {
+				drawHudLast = performance.now();
+				postMessage({ type: "drawhud", d: renderer?.dbg?.() || null, backend: backendName });
+			}
+		}
+		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
+	} catch (e) {
+		dOutH?.abort();   // 深度の書き出し中（GL2 の FBO 読み替え）に落ちた＝画面の束縛を素へ戻す
+		console.error("[render] frame exception (frame dropped, continuing)", (e as Error)?.message, (e as Error)?.stack);
+		// 初回だけ main へ通報＝モバイル等で worker コンソールが見づらい環境の一次診断（window.__drawErr に残る）。
+		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
+		if (!sentDrawErr) { sentDrawErr = true; postMessage({ type: "drawErr", msg: String((e as Error)?.message || e), stack: String((e as Error)?.stack || "").slice(0, 400) }); }
+	} finally { depthBmp?.close(); }   // WebGPU の深度の ImageBitmap＝全オーバーレイが上げ終えた（途中で落ちても）＝返す
+	if (snapWait.length && sentFrame1 && renderer && cam) snapFlush();   // 起動直後に預かった撮影＝最初の実描画の後に撮る
+	tuneRes(drew);
+	const nowT = performance.now();
+	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
+	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
+		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
+		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
+		console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
+	} else if (!drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
+		pendingUp = false;
+		if (resIdx > 0) {
+			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
+			console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (applied at idle)`);
+		}
+	}
+	// 遷移時AA：静止が RES_SETTLE_MS 続き画面が 1x のまま＝4x 品質フレームを1枚（解像度の静止復帰と同じ時計。
+	// 上の静止復帰 res ブロックが dirty を立てた時も次フレームは cam 不動＝aaOn＝同じ1枚で 4x になる）。
+	if (!drew && aaDyn && lastAA === 1 && nowT - lastDrewT > RES_SETTLE_MS) dirty = true;
+	// ?hud=1（旧mem=1）：状態盤テレメトリを~2Hzで main へ。dirty 外＝静止中も送る。terrain LRU＋JSヒープ＋GPU固定＋
+	// 描画実測（fps＝窓内の実描画枚数／frameMs＝emaMs／res＝動的解像度）＋backend/GPU名。plateau/tiles/navigator は main 側が合算。
+	if (memOn && renderer && nowT - memLast > 500) {
+		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
+		hudFrames = 0; memLast = nowT;
+		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
+			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
+	}
+	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
+}

@@ -2,7 +2,7 @@
 // map.gadget.hint() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOMと挙動をここで完結。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 export function hint(this: GlobeMap, { signal, onOpen }: { signal?: AbortSignal; onOpen?: () => void } = {}): { open(): void; close(remember?: boolean): void } | undefined {   // onOpen＝カードを開いた瞬間の合図（globe の「道具の排他」＝計測・日影などを閉じる）

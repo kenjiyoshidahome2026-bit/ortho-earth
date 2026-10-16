@@ -3,7 +3,7 @@
 // 「STAC が見つけ、COG が運ぶ」＝Earth Search（公開 STAC API）を現在ビューの bbox で引き、
 // 選んだシーンの COG（TCI）を map.gadget.cog へ渡す＝日付と雲量で選ぶ衛星画像の入口。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { StacOpts } from "./stac.ts";
 const t = tr();

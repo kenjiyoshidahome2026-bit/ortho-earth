@@ -6,7 +6,7 @@
 // 来た道なら history.back()（この視点そのまま）で帰ってくる。単体で開かれた solar には戻り口が出ない。
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
 import { gadgetStack } from "./stack.ts";
-import { tr, getLang } from "../i18n.js";
+import { tr, getLang } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 export function solar(this: GlobeMap, { url }: { url?: string } = {}): HTMLButtonElement | undefined {

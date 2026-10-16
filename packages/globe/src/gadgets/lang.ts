@@ -4,7 +4,7 @@
 // 選ぶと ?lang=<code> を URL に書いて読み直す（parks・physical・geopbf-demo が各自でやっていた作法を 1 本に・2026-10-04 デモ品質の段）＝
 // 地球儀の注記・地名表・エンジンの文言は起動時の言語で組まれるので、その場で差し替えず読み直すのが正。視点（hash）と他の ?引数 は URL に残る。
 import { gadgetStack } from "./stack.ts";
-import { tr, getLang, LANGUAGES } from "../i18n.js";
+import { tr, getLang, LANGUAGES } from "../i18n.ts";
 import type { Gadgets } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

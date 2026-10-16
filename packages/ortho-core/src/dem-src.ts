@@ -15,7 +15,7 @@ export type DemEncoding = "terrarium" | "mapbox" | "gsi" | "custom";
 /** encoding custom の係数（MapLibre の raster-dem） */
 export interface DemFactors { redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number }
 /** 利用者が書く spec（raster-dem） */
-export interface DemSpecInput extends DemFactors { type?: string; tiles?: string[]; url?: string; encoding?: DemEncoding | string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; headers?: Record<string, string> | null; credentials?: RequestCredentials; [k: string]: unknown }
+export interface DemSpecInput extends DemFactors { type?: string; tiles?: string[]; url?: string; encoding?: DemEncoding | string; tileSize?: number | null; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; headers?: Record<string, string> | null; credentials?: RequestCredentials; [k: string]: unknown }
 /** 整えた spec（normalizeDemSpec の戻り） */
 export interface DemSpec { tiles: string[]; encoding: string; tileSize: number; minzoom: number; maxzoom: number; bounds: number[] | null; dtm: boolean; cellZoom: number | null; headers: Record<string, string> | null; credentials: RequestCredentials; redFactor: number; greenFactor: number; blueFactor: number; baseShift: number }
 /** セルの標高格子（altpbf のタイルと同じ形＋出所と有効率） */

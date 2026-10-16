@@ -4,7 +4,7 @@
 // 箱はドラッグで移動・📌で固定・×で消す。裏半球へ回った錨は自動で隠れる。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（実装は engine の project／注入は登録側）。
 // マーカー追随は本体 render のフック＝返す pop 関数の _update を登録側が frameHooks へ入れて毎フレ呼ぶ。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 const t = tr();
 // 📌 は絵文字でなく SVG（白抜きを環境非依存に・currentColor で色を CSS へ委譲）。
 // 固定中は「刺さったピンを真上から見た頭」＝○に切替（＝ここに刺さっている、の意）。

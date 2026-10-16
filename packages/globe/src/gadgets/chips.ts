@@ -5,7 +5,7 @@
 // fixed＝opts.layers で true/false 固定されたキー集合＝ボタンを出さない（状態は焼き付け済み＝客に触らせない）。
 // 空になったらパネルごと出さない（点火状態 layerState 自体は生きる＝UIが無いだけ）。
 // 置き場＝左上 #gadgets スタックの最上段（検索と同じ「押すと右へ開く」Netflix式＝右上は完全に空ける）。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import { gadgetStack } from "./stack.ts";
 const t = tr();
 /** true＝全部（既定）／配列＝選択的（並びは定義順で固定・非推奨）／false＝出さない */

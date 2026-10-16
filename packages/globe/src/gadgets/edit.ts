@@ -4,7 +4,7 @@
 //（チルト上限・ズーム下限・右クリック項目・ドロップの所有を搭載前へ戻す）。持ち主は結果で自分の図形を置き換える（onResult）。
 // 出現域（z>2.5）は搭載側の zoom 宣言＝レジストリの門（他ガジェットと同じ流儀）。編集中はエディタがズーム下限 2.5 を敷く＝門の下へは落ちない。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { Gadgets } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();

@@ -17,13 +17,13 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/globe/src/columnar/view.js": {
+		"packages/globe/src/columnar/view.ts": {
 			"cos35°": {
 				"n": 1,
 				"why": "較正（地域の語ではない）：globe.js の approxViewBbox と同式（z は正射スケール＝m/px は緯度に依らない・0.819 は全球に同じく掛かる係数）。2026-10-15 に旧 @ortho-earth/columnar から移って数に入った"
 			}
 		},
-		"packages/globe/src/extrude-keys.js": {
+		"packages/globe/src/extrude-keys.ts": {
 			"和文": {
 				"n": 5,
 				"why": "負債（地域）：自動押し出しの高さ・階数の列名候補に PLATEAU/日本の属性名（建物高さ・計測高さ・階数）。地域の申告（region.extrudeKeys）へ移す"
@@ -83,7 +83,7 @@
 				"why": "負債（地域）：Tellus の API 読み口そのもの（/japan/tellus 専用）。地域パックへ移す"
 			}
 		},
-		"packages/globe/src/globe.js": {
+		"packages/globe/src/globe.ts": {
 			"plateau": {
 				"n": 8,
 				"why": "互換：opts.plateau・on(\"plateau\")（公開面の旧名）＋負債：計器とログの表示名（mesh へ）"
@@ -105,17 +105,17 @@
 				"why": "負債（地域）：政令指定都市の一覧 SEIREI（区名を出す時の市名の扱い）。日本の地域パックへ移す"
 			},
 			"和文": {
-				"n": 23,
-				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）と丁目の正規化の正規表現（丁目・漢数字）。上の seirei・chome と同じ移設で消える"
+				"n": 24,
+				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）と丁目の正規化（丁目・漢数字＝chomeCanon の正規表現と chomeShort の末尾からの数え上げ）。上の seirei・chome と同じ移設で消える"
 			}
 		},
-		"packages/globe/src/i18n/core.js": {
+		"packages/globe/src/i18n/core.ts": {
 			"jp": {
 				"n": 1,
 				"why": "言語コードの別名 jp→ja（norm は 2026-10-03 に i18n.js から core.js へ）"
 			}
 		},
-		"packages/globe/src/i18n/langs.js": {
+		"packages/globe/src/i18n/langs.ts": {
 			"日本": {
 				"n": 1,
 				"why": "言語名「日本語」（langs.json から焼いた生成物）"
@@ -125,49 +125,49 @@
 				"why": "言語（地域ではない）：言語の自称（日本語・中文）＝言語切替の表示名"
 			}
 		},
-		"packages/globe/src/mesh/manager.js": {
+		"packages/globe/src/mesh/manager.ts": {
 			"plateau": {
 				"n": 3,
 				"why": "凍結：DOM id plateau-toast（利用者 CSS）＋負債：ログの文言"
 			}
 		},
-		"packages/globe/src/meshdecode.js": {
+		"packages/globe/src/meshdecode.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "負債：ログの文言（除外表のファイル名 plateau-exclude.json）"
 			}
 		},
-		"packages/globe/src/meshfs.js": {
+		"packages/globe/src/meshfs.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "凍結：OPFS の置き場 plateau（利用者の端末の焼き）"
 			}
 		},
-		"packages/globe/src/meshworker.js": {
+		"packages/globe/src/meshworker.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "凍結：IndexedDB GIS/plateau（利用者の端末の焼き）"
 			}
 		},
-		"packages/globe/src/palettes.js": {
+		"packages/globe/src/palettes.ts": {
 			"gsi": {
 				"n": 3,
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
 			}
 		},
-		"packages/globe/src/planets.js": {
+		"packages/globe/src/planets.ts": {
 			"和文": {
 				"n": 6,
 				"why": "言語（地域ではない）：天体の和名（地球・水星…）。i18n 辞書へ寄せる負債"
 			}
 		},
-		"packages/globe/src/renderworker.js": {
+		"packages/globe/src/renderworker.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "負債：起動ログの文言"
 			}
 		},
-		"packages/globe/src/shields.js": {
+		"packages/globe/src/shields.ts": {
 			"kokudo": {
 				"n": 2,
 				"why": "負債（地域）：国道の標識（おにぎり）の描き手 kokudoShield。日本の地域パックの記号へ移す"
@@ -177,19 +177,19 @@
 				"why": "負債（地域）：空港・道の駅の注記名の判定（正規表現）。日本の地域パックの記号へ移す"
 			}
 		},
-		"packages/globe/src/sky/theater.js": {
+		"packages/globe/src/sky/theater.ts": {
 			"和文": {
 				"n": 7,
 				"why": "言語（地域ではない）：曜日の和名（日・月・火…）。i18n 辞書へ寄せる負債"
 			}
 		},
-		"packages/globe/src/solarsky.js": {
+		"packages/globe/src/solarsky.ts": {
 			"和文": {
 				"n": 11,
 				"why": "言語（地域ではない）：天体の和名（太陽・水星…）。i18n 辞書へ寄せる負債"
 			}
 		},
-		"packages/globe/src/style-gsi.js": {
+		"packages/globe/src/style-gsi.ts": {
 			"gsi": {
 				"n": 1,
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
@@ -211,7 +211,7 @@
 				"why": "負債（地域）：地理院配色 style そのもの（道路分類の値＝国道・都道府県道…と名前）。日本の地域パックへ移す"
 			}
 		},
-		"packages/globe/src/style-mono.js": {
+		"packages/globe/src/style-mono.ts": {
 			"都道府県": {
 				"n": 9,
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
@@ -231,7 +231,7 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/globe/src/themes.js": {
+		"packages/globe/src/themes.ts": {
 			"chome": {
 				"n": 7,
 				"why": "負債（地域）：町丁名の出しズーム CHOME_MINZOOM・CHOME800_MINZOOM と分類コード。日本の地域パックへ移す"

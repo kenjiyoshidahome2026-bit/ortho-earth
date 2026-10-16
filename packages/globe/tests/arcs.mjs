@@ -4,7 +4,7 @@
 //   ・adddata の焼き（bakePoints／bakeArcs／toGeoJSON）＝accessor（関数・定数）、GeoJSON の位置の既定、原点＝重心、theta は倍精度、無い物は null
 // GPU の経路（描く・当てる）は tests/t-adddata.html（verify:ui）。使い方：node packages/globe/tests/arcs.mjs
 import { arcPoint, arcTheta } from "../src/gadgets/arcs-gl.js";
-import { bakePoints, bakeArcs, toGeoJSON, columnRing, originOf } from "../src/adddata.js";
+import { bakePoints, bakeArcs, toGeoJSON, columnRing, originOf } from "../src/adddata.ts";
 import { lonlatTo3D } from "@ortho-earth/core/camera";
 
 let fails = 0;

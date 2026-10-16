@@ -9,11 +9,11 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { evalExpr } from "@ortho-earth/core/expr";
-import mono from "../src/style-mono.js";
-import gsi from "../src/style-gsi.js";
-import dark from "../src/style-dark.js";
-import sepia from "../src/style-sepia.js";
-import { pmLayers } from "../src/style-pm.js";
+import mono from "../src/style-mono.ts";
+import gsi from "../src/style-gsi.ts";
+import dark from "../src/style-dark.ts";
+import sepia from "../src/style-sepia.ts";
+import { pmLayers } from "../src/style-pm.ts";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const GOLD = path.join(DIR, "expr-golden.json");

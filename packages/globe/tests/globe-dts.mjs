@@ -19,7 +19,7 @@ const INTERNAL_MAP = new Set([
 
 const read = f => fs.readFileSync(path.join(GLOBE, f), "utf8");
 const apiFiles = fs.readdirSync(path.join(GLOBE, "src/api")).filter(f => /\.(js|ts)$/.test(f) && !f.endsWith(".d.ts")).map(f => "src/api/" + f).sort();
-const sources = ["src/globe.js", ...apiFiles].map(f => [f, read(f)]);
+const sources = ["src/globe.ts", ...apiFiles].map(f => [f, read(f)]);
 
 // ── 実装の側 ──
 const runtimeMap = new Map();   // name → 出所
@@ -46,7 +46,7 @@ for (const [f, src] of sources) {
 			if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0) break; continue; }
 			if (depth === 1) top += c;
 		}
-		for (const m of top.matchAll(/(?:^|[,{]|\n)\s*(?:get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*(?=[,:({}\n]|$)/g)) note(runtimeMap, m[1], "src/globe.js (const map = { … })");
+		for (const m of top.matchAll(/(?:^|[,{]|\n)\s*(?:get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*(?=[,:({}\n]|$)/g)) note(runtimeMap, m[1], "src/globe.ts (const map = { … })");
 	}
 }
 
@@ -105,7 +105,7 @@ const dtsInternal = membersOf("GlobeInternals", mapTs);
 	for (const m of dts.matchAll(/^export\s+\{([^}]+)\}/gm)) for (const n of m[1].split(",")) declared.add(n.trim().split(/\s+as\s+/).pop());
 	const missing = [...runtime].filter(n => !declared.has(n)), stale = [...declared].filter(n => !runtime.has(n));
 	ok("exports.declared", missing.length === 0 && runtime.size >= 10, missing.length ? "missing in globe.d.ts: " + missing.join(",") : `${runtime.size} names`);
-	ok("exports.exist", stale.length === 0, stale.length ? "declared but not exported by src/globe.js: " + stale.join(",") : "");
+	ok("exports.exist", stale.length === 0, stale.length ? "declared but not exported by src/globe.ts: " + stale.join(",") : "");
 	const pkg = JSON.parse(read("package.json"));
 	ok("exportsMap", pkg.exports["."]?.types === "./globe.d.ts" && pkg.types === "./globe.d.ts" && pkg.files.includes("globe.d.ts"));
 }
