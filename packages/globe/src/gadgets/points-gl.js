@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は points-gl.ts）。手で編集しない。
 // 汎用の点オーバーレイ（同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam に描く）。
 // 用途＝GeoParquet の点だけのファイル（gadgets/parquet-view.js）：列（経緯度）→ 単位球の xyz → そのまま GPU。gint も GeoPBF も経由しない。
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
@@ -119,7 +120,7 @@ export function init(canvas, _opts, h) {
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (points overlay)");
 	({ p: prog, u: uni } = compile(VS, FS));
-	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[points] pick pass unavailable", e?.message); }
+	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[points] pick pass unavailable", (e)?.message); }
 	maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
 }
 const drop = L => { if (!L) return; for (const b of [L.buf, L.cbuf, L.sbuf, L.fbuf, ...(L.bufs0 || [])]) if (b && !L.keep?.has(b)) gl.deleteBuffer(b); gl.deleteVertexArray(L.vao); L.vao = null; };
@@ -168,7 +169,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 let rAxNow = 1;   // 楕円体の b/a（frame の api から・マスクの経緯度）
 export function frame(cam, s, size, api) {

@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は copc-gl.ts）。手で編集しない。
 // COPC の点群の描き方（#178・同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam）。
 // 本人裁定 2026-09-30「描き方の強化は COPC だけ」＝3D Tiles の点（points-gl.js）は触らない＝このファイルは points-gl の兄弟。points-gl に足した物：
 //   ・奥行き：シーンの深度（#47・core の depthout）で隠れる所を捨てる（地形・建物の裏で点が透けない）＝init の戻り { depth: true } で本体に申し出る
@@ -109,7 +110,7 @@ function answerProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice(), info: { layers: layers.size, depth: wantDepth } }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 export function frame(cam, s, size, api) {
 	draw(cam, s, size, api);

@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は screengrid-draw.ts）。手で編集しない。
 // 画面格子の集約（deck.gl の ScreenGridLayer 相当・差分 PR-5・2026-10-12）＝同一フレームのオーバーレイ（canvas2D・レンダーワーカー内）。
 // 点を毎フレーム画面に投影して cellPx の格子に数え、色の段（colorRange）で塗る＝カメラが動けば格子も動く（画面に固定）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
@@ -42,7 +43,7 @@ export function frame(cam, s, { w, h }, api) {
 		}
 		ctx.globalAlpha = 1;
 	}
-	if (probes.length) { const ids = probes.splice(0); try { const img = ctx.getImageData(0, 0, w, h); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: false, data: id === ids[ids.length - 1] ? new Uint8Array(img.data.buffer) : new Uint8Array(img.data) }); } catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); } }
+	if (probes.length) { const ids = probes.splice(0); try { const img = ctx.getImageData(0, 0, w, h); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: false, data: id === ids[ids.length - 1] ? new Uint8Array(img.data.buffer) : new Uint8Array(img.data) }); } catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); } }
 	return false;
 }
 export function pick(x, y) {

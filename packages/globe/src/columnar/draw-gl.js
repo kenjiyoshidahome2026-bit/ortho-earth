@@ -1,3 +1,4 @@
+// 生成物＝npm run build:overlays（正本は draw-gl.ts）。手で編集しない。
 // draw-gl.js ── 列チャンク層の描画（同一フレームのオーバーレイ＝map.overlay・render worker 内で地球と同じ rAF・同じ cam に描く・#90）。
 // 契約（@ortho-earth/globe の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 //   opts { perf, drape=true, depth=true, rAx=1 }：drape＝頂点の標高を api.elevM（worker の地形）で引いて法線方向に持ち上げる（gint のドレープの軽い版）・
@@ -49,7 +50,7 @@ void main() {
 	v_col = col; v_rel = a_pos;
 	gl_Position = u_mvp * vec4(lifted(a_pos, a_elev), 1.0); v_w = gl_Position.w;
 }`;
-const FS_SURF = depthGLSL => `#version 300 es
+const FS_SURF = (depthGLSL) => `#version 300 es
 precision highp float;
 in vec4 v_col; in vec3 v_rel; in float v_w;
 uniform vec3 u_origin; uniform vec2 u_size;
@@ -107,7 +108,7 @@ void main() {
 	gl_PointSize = v_rad * 2.0 + 2.0;
 	gl_Position = c;
 }`;
-const FS_POINT = depthGLSL => `#version 300 es
+const FS_POINT = (depthGLSL) => `#version 300 es
 precision highp float;
 in vec4 v_col; in float v_rad; in float v_w;
 uniform vec2 u_size;
@@ -217,7 +218,7 @@ function upload(d) {
 }
 export function message(d) {
 	if (!gl) return;
-	try { message1(d); } catch (e) { console.error("[columnar overlay]", d.type, e?.message || e); host?.post?.({ type: "error", where: d.type, error: String(e?.message || e) }); }
+	try { message1(d); } catch (e) { console.error("[columnar overlay]", d.type, (e)?.message || e); host?.post?.({ type: "error", where: d.type, error: String((e)?.message || e) }); }
 }
 function message1(d) {
 	if (d.type === "chunk") upload(d);
@@ -233,7 +234,7 @@ function flushProbes(w, h) {
 	if (!probes.length) return;
 	const ids = probes.splice(0);
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); const glErr = gl.getError(); const info = { chunks: chunks.size, levels: [...chunks.values()].map(C => C.levels.map(L => [L.zoom, L.lines?.nSeg ?? 0, L.fills?.count ?? 0])), glErr, drape, depth: wantDepth }; for (const id of ids) host?.post?.({ type: "pixels", id, w, h, data: id === ids[ids.length - 1] ? data : data.slice(), info }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e)?.message || e) }); }
 }
 const levelFor = (C, z) => { for (const L of C.levels) if (L.zoom >= z) return L; return C.levels[C.levels.length - 1]; };   // 段がまだ揃わない間は有る中で一番近い段
 // ドレープ＝標高の引き直し（今の段だけ・1 フレームの予算内で・戻り＝続きがある）
@@ -267,7 +268,7 @@ export function frame(cam, s, { w, h }, api) {
 	const dpr = cam.dpr || 1, z = cam.zoom ?? 0, M = s.mvp, mvpL = new Float32Array(16), E = s.eye;
 	const lift = drape && api?.terrainOn ? (api.liftScale || 0) : 0;
 	const more = resample(api, t0 || performance.now(), z);
-	const setProg = P => {
+	const setProg = (P) => {
 		gl.useProgram(P.p); gl.uniform2f(P.u.u_size, w, h); gl.uniform1f(P.u.u_lift, lift);
 		if (wantDepth) { if (api?.depth) api.depth.bind(gl, P.p, 3); else if (P.u.u_sceneDepthOn) gl.uniform1f(P.u.u_sceneDepthOn, 0); }
 	};
