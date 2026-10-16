@@ -667,7 +667,8 @@ pbf.<span class="fn">identifyAt</span>(lng, lat, opts)   <span class="cm">// 点
 pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span class="fn">description</span>(<span class="st">'...'</span>); pbf.<span class="fn">license</span>(<span class="st">'MIT'</span>);   <span class="cm">// または pbf.updateHeader({ … })</span>
 
 <span class="cm">// ── 低いレベルの入口（パッケージのサブパス） ────────────────</span>
-<span class="cm">// geopbf/pbf        GeoPBF クラス（new GeoPBF(opts).set(…)）      geopbf/gint · /topology · /identify   Gint の焼き込み・GintBUF・当たり判定</span>
+<span class="cm">// geopbf             GeoPBF クラス（new GeoPBF(opts).set(…)）      geopbf/core · /pbf-base   GeoPBFBase＝拡張メソッドの無い器</span>
+<span class="cm">// geopbf/pbf         protobuf の wire の読み書き                   geopbf/gint · /topology · /identify   Gint の焼き込み・GintBUF・当たり判定</span>
 <span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       書き出しと読み込み（§13）</span>
 <span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   形式リーダ（自動判定の入口を通さず使える）</span>
 <span class="cm">// geopbf/proj · /datum       EPSG 投影・TKY2JGD / PatchJGD の測地系変換        geopbf/convert/node-gint   Node で Gint を焼く</span>
@@ -676,6 +677,18 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 <span class="cm">// geopbf/edit · /edit/*      編集モデル（DOM 非依存）         geopbf/worker · /no-builtin-workers   worker の入口とその外し方</span>
 <span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   ユーティリティ</span></code></pre>
 
+<div class="callout callout-note">
+	<div class="callout-head">2.0 での変更</div>
+	<p>
+		2.0 では 1.x が互換のために残していた物を外した。<code>noeval</code> オプション（FUNC 値は常にソース文字列のまま）、
+		<code>validate: "legacy"</code>（<code>"lenient"</code> に落ちる）、<code>closeFilter(f)</code>（<code>cloneMap({ filter: f })</code> を使う）、
+		静的な <code>GeoPBF.concatinate</code>（<code>pbf.concat(...others)</code> を使う）、そして <code>geopbf/core</code> と <code>geopbf/pbf-base</code> の
+		器の名前 <code>GeoPBF</code>（そこでは <code>GeoPBFBase</code>。<code>geopbf</code> の <code>GeoPBF</code> は拡張つきのクラス）である。
+		<code>fmap</code>・<code>_name</code> などの内部の欄は公開の型に出ない。<code>pbf.length</code>・<code>each</code>／<code>forEach</code>・<code>pbf.name()</code> を使う。
+		旧 → 新の全体は <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a>。
+	</p>
+</div>
+
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="integrations">10. 地図ライブラリ統合（v1.1）</h2>
 
@@ -683,7 +696,7 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 v1.1.0 以降、npm パッケージは主要 Web 地図ライブラリ向けのアダプタを同梱する。
 いずれもホスト側ライブラリを import しない<strong>依存ゼロのサブパス export</strong> であり、
 共通ローダの上に載る。ファイル全体 gzip はマジックバイトで判別して透過的に展開し、デコードは
-<code>new Function</code> を使わない CSP セーフの <code>noeval</code> モード、properties は
+<code>new Function</code> を使わない（FUNC 値はソース文字列のまま＝CSP セーフ。2.0 ではこれが唯一の挙動）。properties は
 JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素の配列、バイナリ値は除去）。
 各ライブラリの worker 受け渡しを壊さないための処置である。
 </p>
@@ -882,7 +895,7 @@ PMTiles に同等の逆変換は用意していない。タイルは簡略化さ
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.19.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v2.0.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>
