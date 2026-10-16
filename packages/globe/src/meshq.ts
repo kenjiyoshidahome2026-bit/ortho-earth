@@ -42,7 +42,10 @@ const PRISM_MIN_H = 0.3 / 6371000;  // 底/天の最小差＝30cm（それ未満
 //   https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13103-bldg-lod2-notexture-latest/
 //   → api.plateauview.mlit.go.jp_datacatalog_3dtiles_13103-bldg-lod2-notexture-latest
 export function bakeSlug(base: string): string {
-	return base.replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_");
+	// 末尾の "/" は添字の走査で落とす（旧 .replace(/\/+$/, "") と同じ結果・正規表現は "/" が続く入力で二乗＝CodeQL・2026-10-16）
+	const s = base.replace(/^https?:\/\//, "");
+	let e = s.length; while (e > 0 && s.charCodeAt(e - 1) === 47) e--;
+	return s.slice(0, e).replace(/[^A-Za-z0-9._-]+/g, "_");
 }
 // 球（既定）と楕円体（?ell=1）は座標が違う＝別焼き・別置き場（…/ell/）。fmtVer＝meshdecode.DECODE_VER
 export const bakeDir = (base: string, fmtVer: number, ell = false): string => `v${fmtVer}/${bakeSlug(base)}/${ell ? "ell/" : ""}`;

@@ -5,6 +5,7 @@
 import { tr } from "./i18n.js";
 
 const t = tr();
+const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);   // 題（地域の申告の i18n キー＝訳が無ければキーそのまま）は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL）
 
 /** 地区（台帳の 1 件・name＝表示名・base＝tileset の基底 URL） */
 export interface MeshDbSet { name: string; base: string; [k: string]: unknown }
@@ -41,7 +42,7 @@ export function createMeshDb<S extends MeshDbSet>({ getSets, idbList, idbDelete,
 		root = document.createElement("div"); root.id = "pdb";
 		root.innerHTML = `
 			<div id="pdb-panel">
-				<div id="pdb-head">${title ? t(title) : t("3D buildings — data manager")}<button id="pdb-close" title="${t("Close")}">×</button></div>
+				<div id="pdb-head">${title ? esc(t(title)) : t("3D buildings — data manager")}<button id="pdb-close" title="${t("Close")}">×</button></div>
 				<div id="pdb-sub"><span id="pdb-sum">${t("Loading…")}</span><button id="pdb-purge">${t("Delete all")}</button></div>
 				<input id="pdb-filter" type="search" placeholder="${t("Filter by municipality name")}" autocomplete="off" spellcheck="false">
 				<div id="pdb-list"></div>
