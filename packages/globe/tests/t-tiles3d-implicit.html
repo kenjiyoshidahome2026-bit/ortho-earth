@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- 実描画の検分：3D Tiles 1.1 の implicit tiling（subtree・2026-10-16）。試料＝tests/fixtures/tiles3d-implicit（make.mjs で生成）＝東京駅の ENU の根に 640m 四方の疎な四分木：
+     段 0＝赤・段 1＝黄・段 2＝緑・段 3＝青。subtreeLevels 2・availableLevels 4＝子 subtree を 6 個読む。?v=10＝1.0 の 3DTILES_implicit_tiling 拡張の tileset（同じ subtree）。
+     ①maxSSE を極小に＝木の底まで（出すのは 10 枚・subtree 7 個）②画素：青・緑・黄が出て赤は出ない ③maxSSE を極大に＝根だけ ④remove で全部降りる。globe（地域なし）・実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d-implicit</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (f()) return true; await sleep(250); } return false; };
+const v10 = new URLSearchParams(location.search).get("v") === "10";
+run(); async function run() { try {
+	const map = await createGlobe({ target: "#map", view: "#16.4/35.6812/139.7671/0", chips: false, debugGlobals: true });
+	await sleep(2500);
+	const h = await map.add3DTiles(`./fixtures/tiles3d-implicit/${v10 ? "tileset-10.json" : "tileset.json"}`, { fit: false, maxSSE: 1e-6 });
+	// 木の底：段 3 の 5 枚＋子の無い段 2 の 4 枚（(1,0)(0,1)(1,1)(2,2)）＋子の無い段 1 の (0,1)＝10 枚
+	const full = await until(() => h.stats.shown === 10 && h.stats.subtrees === 7);
+	ok("full", full, JSON.stringify(h.stats));
+	ok("tiles", h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" ") === "1_0_1.glb 2_0_1.glb 2_1_0.glb 2_1_1.glb 2_2_2.glb 3_0_0.glb 3_0_1.glb 3_1_0.glb 3_1_1.glb 3_6_6.glb", h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" "));
+	await sleep(1500);
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const count = (img, test) => { let k = 0; for (let i = 0; i < img.data.length; i += 4) if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; return k; };
+	// GPU への登録は 1 フレーム 1 件に平準化＝ソフトウェア描画（headless）では揃うまで数秒＝揃うまで撮り直す
+	let blue = 0, green = 0, yellow = 0, red = 0;
+	for (let k = 0; k < 8; k++) {
+		const img = await grab();
+		blue = count(img, (r, g, b) => b > 120 && b > r * 2 && b > g * 1.6); green = count(img, (r, g, b) => g > 120 && g > r * 2 && g > b * 2);
+		yellow = count(img, (r, g, b) => r > 150 && g > 130 && b < 90); red = count(img, (r, g, b) => r > 150 && g < 60 && b < 60);
+		if (blue > 500 && green > 200 && yellow > 200 && red < 50) break;
+		await sleep(2500);
+	}
+	ok("pixels", blue > 500 && green > 200 && yellow > 200 && red < 50, `blue=${blue} green=${green} yellow=${yellow} red=${red}`);
+	if (new URLSearchParams(location.search).has("hold")) { document.title = "HOLD " + t.join(" ") + " " + JSON.stringify(h.tiles) + " backend=" + map.backend; return; }
+	// 粗く＝根だけ（子は伏せて GPU には残る）
+	h.setOptions({ maxSSE: 1e9 });
+	const coarse = await until(() => h.stats.shown === 1 && h.tiles.some(x => x.on && x.uri === "0_0_0.glb"), 10000);
+	ok("coarse", coarse, JSON.stringify(h.stats));
+	h.remove();
+	await sleep(300);
+	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+</script>
+</body></html>

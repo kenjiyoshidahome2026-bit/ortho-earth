@@ -7,7 +7,7 @@
 /** tileset.json の境界体積（box＝中心＋半軸 3 本・region＝[w,s,e,n（rad）, h0, h1]・sphere＝[x,y,z,r]） */
 export interface BoundingVolume { box?: number[]; region?: number[]; sphere?: number[] }
 /** implicitTiling を読む欄（1.1）。1.0 拡張は maximumLevel（＝availableLevels − 1） */
-interface ImplicitTilingJson { subdivisionScheme?: string; subtreeLevels?: number; availableLevels?: number; maximumLevel?: number; subtrees?: { uri?: string } }
+export interface ImplicitTilingJson { subdivisionScheme?: string; subtreeLevels?: number; availableLevels?: number; maximumLevel?: number; subtrees?: { uri?: string } }
 /** 揃えた implicit tiling（n＝子の数 4｜8） */
 export interface ImplicitTiling { n: 4 | 8; subtreeLevels: number; availableLevels: number; subtreeUri: string }
 /** タイルの座標（z は八分木だけ） */

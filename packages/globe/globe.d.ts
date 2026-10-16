@@ -840,7 +840,7 @@ export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: n
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
 	attribution?: string | ((copyrights: string[]) => string | null) }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
