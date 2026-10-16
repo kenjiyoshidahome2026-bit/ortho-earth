@@ -12,7 +12,7 @@
 const Q = new URLSearchParams(location.search);
 const WAIT = +Q.get("wait") || 30000;
 const { createGlobe } = await import("@ortho-earth/globe");
-const { s2, geohash, mesh } = await import("../src/cells/core.js");
+const { s2, geohash, mesh } = await import("../src/cells/core.ts");
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));

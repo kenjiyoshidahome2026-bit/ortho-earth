@@ -13,7 +13,7 @@ import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { buildTileDrawList } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
-import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.js";
+import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.ts";
 
 const raw = new Map();   // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
 const R2D = 180 / Math.PI;

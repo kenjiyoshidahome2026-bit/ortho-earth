@@ -17,7 +17,7 @@ import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@o
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
-import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
+import { shieldFor } from "./shields.ts";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。

@@ -5,5 +5,12 @@
 		"outDir": "dist"
 	},
 	"include": ["src/**/*.ts"],
-	"exclude": ["src/gintbakeworker.ts"]
+	"exclude": ["src/gintbakeworker.ts",
+		"src/worker.ts",
+		"src/renderworker.ts",
+		"src/vtdraw-worker.ts",
+		"src/rastertiles-worker.ts",
+		"src/imagequad-worker.ts",
+		"src/iiif-worker.ts",
+		"src/columnar/worker.ts"]
 }

@@ -379,7 +379,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
 	//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
 	//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
-	const cellsMod = () => import("../cells/layer.js");
+	const cellsMod = () => import("../cells/layer.ts");
 	map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
 	map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
 	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });

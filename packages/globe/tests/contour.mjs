@@ -5,7 +5,7 @@
 //   ・isobands＝[0.25, 0.75] の帯は環状（面積 ≈ π(0.75² − 0.25²)）・帯の外には頂点が出ない
 //   ・joinSegments＝線分が 1 本の折れ線に繋がる・閉じる
 // 使い方：node packages/globe/tests/contour.mjs
-import { gridField, isolines, isobands, joinSegments, contourGeoJSON, autoThresholds, smooth } from "../src/cells/contour.js";
+import { gridField, isolines, isobands, joinSegments, contourGeoJSON, autoThresholds, smooth } from "../src/cells/contour.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };
