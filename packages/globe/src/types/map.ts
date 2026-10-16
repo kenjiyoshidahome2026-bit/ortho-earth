@@ -4,7 +4,8 @@
 // 2 か所で付けていたメンバーは持ち主を 1 つに：on/off＝QueryApi（globe.js が先に素の on/off を付け、api/query.ts が層 id 付きに包む＝包む側が最終の値）・
 // overlay＝OverlaysApi（関数だけ。globe.js が後から Object.assign で足す器のメソッドは公開の型に出さない＝GlobeInternals）・flyTo＝CameraApi（map の字面の内部の flyTo は外した）・
 // queryRenderedFeatures＝QueryApi（api/query.ts の中で断面と統一 picking の包みを重ねる）。
-// gadget の登録（map.gadget(name, func)・this＝map）は今の形のまま＝globe.d.ts の Gadgets（registerGadget への置き換えは gadget の batch）。
+// gadget の登録＝registerGadget(name, (map, ...args) => handle)（判断 2・batch 2）：本体は map を第 1 引数に受ける素の関数（this は使わない）。
+// 呼ぶ口 map.gadget.<名前>(…) は今のまま＝名前ごとの引数と戻りは globe.d.ts の Gadgets（＋表示の門 GadgetGate）。
 
 import type {
 	Bbox, BodyPosition, COPCHandle, COPCOptions, CameraOptions, CameraPose,
@@ -371,11 +372,34 @@ export interface RasterApi {
 	raster: RasterAPI;   // api/raster.ts:101
 }
 
-/** installGadgets (api/gadgets.js:25), called at globe.js:2698.
- *  Registers gadgets: search@57 hint@60 compass@65 equal@69 equalHere@72 lang@73 equalStart@74 solar@75 mesh@78 palette@83 zoom@87 full@91 cpos@94 contextmenu@98 tip@101 pop@104 explain@109 legend@110 measure@111 profile@120 */
+/** installGadgets (api/gadgets.ts), called at globe.js:2698. registerGadget の持ち主（後の installer と globe.js は戻りの registerGadget で登録する）。
+ *  Registers gadgets: search hint compass equal equalHere lang equalStart solar mesh palette zoom full cpos contextmenu tip pop explain legend measure profile */
 export interface GadgetsApi {
-	readonly gadget: Gadgets;   // api/gadgets.js:42
+	/** 登録された gadget を名前で呼ぶ（map.gadget.search() など）。登録した名前だけがあり、引数も名前ごとに検査される。
+	 *  実行時の map.gadget は関数でもある（旧来の map.gadget(name, func)＝this が map の登録・mlfacade の顔の登録が使う互換）が、2.0 の公開の型には出さない（判断 2） */
+	readonly gadget: GadgetCallers;   // api/gadgets.ts
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// Gadgets：registerGadget(name, (map, ...args) => handle)（判断 2・batch 2）。旧＝map.gadget(name, func) で登録し func.apply(map, arguments)（this＝map）
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** 表示の門（どの gadget も第 1 引数の opts で受ける＝api/gadgets.ts の registerGadget が読む）。zoom＝この域 [min, max) だけ出す・narrow:false＝狭い画面（480px 以下）では出さない。
+ *  門が効くのは、呼んだその場で左上のスタック（#gadgets）に要素を生やす gadget だけ */
+export interface GadgetGate { zoom?: [min: number, max: number]; narrow?: boolean }
+/** 第 1 引数が opts の gadget（門の鍵をそこで受ける）。残りはデータが先（src・pbf・url） */
+export type GatedGadgetName = "search" | "zoom" | "compass" | "full" | "shot" | "measure" | "profile" | "contextmenu" | "legend" | "palette"
+	| "hint" | "home" | "qr" | "print" | "cpos" | "mesh" | "dropFile" | "sunshadow" | "offline" | "viewshed" | "clock" | "tip" | "pop"
+	| "inspect" | "close" | "demo" | "edit" | "equal" | "explain" | "geoedit" | "globe" | "hud" | "lang" | "poiedit" | "raster" | "solar" | "stac";
+/** opts に門の鍵を足す（opts が同じ名の鍵を持つ時は opts の方＝search の zoom は数か門の配列） */
+type WithGate<F> = F extends (opts?: infer O) => infer R ? (opts?: (unknown extends O ? {} : NonNullable<O>) & Omit<GadgetGate, keyof NonNullable<O>>) => R : F;
+/** map.gadget：登録された名前だけ・名前ごとの引数（Gadgets）＋表示の門 */
+export type GadgetCallers = { readonly [K in keyof Gadgets]: K extends GatedGadgetName ? WithGate<Gadgets[K]> : Gadgets[K] };
+/** gadget の本体：map が第 1 引数（this は使わない）・その後ろに呼び手の引数 */
+export type GadgetFactory<F> = F extends (...args: infer A) => infer R ? (map: GlobeMap, ...args: A) => R : never;
+/** 登録口（api/gadgets.ts の installGadgets が返す・map ごと）。登録した名前は map.gadget.<名前> で呼べ、表示の門（GadgetGate）がかかる。
+ *  名前と型は Gadgets（globe.d.ts）が持つ。plugin の gadget は map.registry.gadgets.add(name, (map, ...args) => handle)（同じ登録口に入る） */
+export type RegisterGadget = <K extends keyof Gadgets>(name: K, factory: GadgetFactory<NonNullable<GadgetCallers[K]>>) => void;
 
 /** installShadows (api/shadows.ts:36), called at globe.js:2710.
  *  Registers gadgets: offline@141 sunshadow@153 clock@159 viewshed@160 shot@165 qr@168 home@172 print@177 close@180 poiedit@188 */

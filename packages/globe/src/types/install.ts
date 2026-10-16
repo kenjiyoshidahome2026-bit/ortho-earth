@@ -7,7 +7,7 @@
 //   その時には全部の installer が済んでいる＝他の installer の口（map.raster・map.on…）を読めてよい。公開の型に出さない内部のメンバー（GlobeInternals）を
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
-import type { GlobeInternals, GlobeMap, StyleApi } from "./map.ts";
+import type { GlobeInternals, GlobeMap, RegisterGadget, StyleApi } from "./map.ts";
 import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, ModelCtl, UserLayerRec, UserSource, WPost } from "./scope.ts";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer, queryTiles } from "@ortho-earth/core";
@@ -125,7 +125,7 @@ export interface DataReturn {
 	columnarView(src: string | File | Blob | ArrayBuffer | GeoPBF, name: string, o?: ColumnarLayerOptions): Promise<{ length: number; columnar: ColumnarLayerHandle } | null>;
 }
 export type ImagesLive = LiveOf<"imageIds" | "imageQuads" | "aggCtl" | "gjCtl" | "symCtl", "modelCtl" | "assertMLLayer" | "dpr" | "MAP_GS">;
-export type ImagesDeps = Pick<GlobeScope, "IMAGE_KEY" | "LOW_MEM" | "PUBLIC_DZ" | "ac" | "cam" | "imageAttrs" | "mapOn" | "modelCtlGet" | "ownDestroy" | "rasterChanged" | "readGeoData" | "requestDraw" | "size" | "wPost">;
+export type ImagesDeps = Pick<GlobeScope, "registerGadget" | "IMAGE_KEY" | "LOW_MEM" | "PUBLIC_DZ" | "ac" | "cam" | "imageAttrs" | "mapOn" | "modelCtlGet" | "ownDestroy" | "rasterChanged" | "readGeoData" | "requestDraw" | "size" | "wPost">;
 export interface ImagesReturn {
 	/** 四隅で貼った画像（@image つき 4 頂点の面）を画像の覆いへ・残りの図形を返す（無ければ null） */
 	placeImages(pbf: GeoPBF, name: string): Promise<GeoPBF | null>;
@@ -148,8 +148,16 @@ export interface ImagesReturn {
 	gjGet(): Promise<GJLabels>;
 	symbolsNative(src: unknown, layer?: Partial<MLLayer>): Promise<{ features: number } | null>;
 }
+export type GadgetsLive = LiveOf<"measureClick" | "measureBody" | "profileClick" | "profileBody", "mapEl" | "themeName" | "zoomMinCur" | "renderBackend">;
+export type GadgetsDeps = Pick<GlobeScope, "REGION_BLD_ICON" | "REGION_BLD_LABELS" | "REGION_SEARCH" | "ZOOM_MAX" | "ac" | "cam" | "demFirst" | "flightCtl" | "frameHooks" | "getHeightP"
+	| "makeProjector" | "meshMgr" | "meshOn" | "narrowMq" | "onMove" | "projectLL" | "requestDraw" | "requestSnapshot" | "saveView" | "size" | "switchTheme" | "themeFixed" | "toolClose"
+	| "toolOpen" | "unprojectAt" | "unprojectXY">;
+export interface GadgetsReturn {
+	/** gadget の登録口（registerGadget(name, (map, ...args) => handle)）＝後の installer（shadows・images・tools）と globe.js が使う */
+	registerGadget: RegisterGadget;
+}
 export type ShadowsLive = LiveOf<"clipByT" | "clipSpec" | "clipMain" | "poiClick", "renderBackend" | "mapLoaded" | "addSourceAt" | "addLayerAt" | "noTerr" | "EXT" | "poiReal">;
-export type ShadowsDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "LOW_MEM" | "REGION_DTM" | "REGION_HOME" | "REGION_PRINT_ATTR" | "TILE_MINZOOM" | "ac" | "approxViewBbox" | "attrTextNow" | "cam"
+export type ShadowsDeps = Pick<GlobeScope, "registerGadget" | "BASE_SOURCE" | "D2R" | "LOW_MEM" | "REGION_DTM" | "REGION_HOME" | "REGION_PRINT_ATTR" | "TILE_MINZOOM" | "ac" | "approxViewBbox" | "attrTextNow" | "cam"
 	| "dbgHost" | "makeProjector" | "mapOn" | "meshMgr" | "meshOn" | "onMove" | "ownDestroy" | "poi" | "printCapture" | "renderer" | "requestDraw" | "requestSnapshot" | "setLayer" | "t"
 	| "toolClose" | "toolOpen" | "unprojectXY" | "viewHash" | "wPost" | "wakeMesh">;
 export interface ShadowsReturn {
@@ -165,7 +173,7 @@ export interface ShadowsReturn {
 
 export type ToolsLive = LiveOf<"inspectHide" | "inspectReapply" | "gFollow" | "columnarCtl" | "editDocHook" | "editDropOwner",
 	"lastTileOrder" | "vtdCtl" | "EXT" | "autoBldHidden" | "land" | "annoCtl" | "cogCtl" | "czmlCtl" | "modelCtl" | "readySig" | "mainDesired" | "elevBusy" | "elevN">;
-export type ToolsDeps = Pick<GlobeScope, "BASEMAP_MINZOOM" | "BASE_SOURCE" | "CAM_ZOOM_MIN" | "HOME_VIEW" | "REGION_HOME" | "WORLD_VT" | "ZOOM_MIN" | "ac" | "baseSidNow" | "baseSrcSpec" | "cam"
+export type ToolsDeps = Pick<GlobeScope, "registerGadget" | "BASEMAP_MINZOOM" | "BASE_SOURCE" | "CAM_ZOOM_MIN" | "HOME_VIEW" | "REGION_HOME" | "WORLD_VT" | "ZOOM_MIN" | "ac" | "baseSidNow" | "baseSrcSpec" | "cam"
 	| "canvas" | "clearImages" | "evXY" | "flightCtl" | "flyTo" | "flyView" | "gint" | "glidePathView" | "loadUserFile" | "meshMgr" | "mlLayers" | "mlSources" | "mlVisible" | "opts"
 	| "remergeBase" | "renderer" | "requestDraw" | "requester" | "scenes" | "setAutoBld" | "size" | "t" | "unprojectAt" | "vtxDescOf">;
 

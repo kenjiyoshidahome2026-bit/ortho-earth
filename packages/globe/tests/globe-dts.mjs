@@ -28,7 +28,7 @@ const note = (m, k, where) => { if (!m.has(k)) m.set(k, where); };
 for (const [f, src] of sources) {
 	for (const m of src.replace(/^\s*\/\/.*$/gm, "").matchAll(/(?<![\w$.])map\.([A-Za-z_$][\w$]*)\s*=[^=>]/g)) note(runtimeMap, m[1], f);   // `map.X =`（行頭でなくても＝`a ??= map.__x =` も）。行コメントは見ない
 	for (const m of src.matchAll(/Object\.defineProperty\(map,\s*"([A-Za-z_$][\w$]*)"/g)) note(runtimeMap, m[1], f);
-	for (const m of src.matchAll(/map\.gadget\("([A-Za-z_$][\w$]*)"/g)) note(runtimeGadgets, m[1], f);
+	for (const m of src.matchAll(/(?:map\.gadget|registerGadget)\("([A-Za-z_$][\w$]*)"/g)) note(runtimeGadgets, m[1], f);
 }
 // `const map = { … };`（globe.js）の鍵：行コメントを落として波括弧の深さ 1 の字面だけ集め、短縮形・get X()・X: を拾う
 {
