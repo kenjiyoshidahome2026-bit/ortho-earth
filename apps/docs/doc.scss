@@ -1,4 +1,4 @@
-/* doc.css — shared stylesheet for all tech docs */
+/* doc.scss（build:all が doc.css に焼く）— shared stylesheet for all tech docs */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -98,10 +98,10 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .dt-cells { display: flex; gap: 4px; flex-wrap: wrap; }
 .dt-arrow { color: var(--dim); margin: 0 8px; }
 .dc       { padding: 3px 8px; border-radius: 4px; text-align: center; min-width: 60px; font-size: 0.75rem; }
-.dc-raw { background: rgba(248,113,113,0.15); color: var(--red);    border: 1px solid var(--red)44; }
-.dc-del { background: rgba(251,191,36,0.15);  color: var(--yellow); border: 1px solid var(--yellow)44; }
-.dc-int { background: rgba(56,189,248,0.15);  color: var(--accent); border: 1px solid var(--accent)44; }
-.dc-var { background: rgba(52,211,153,0.15);  color: var(--green);  border: 1px solid var(--green)44; }
+.dc-raw { background: rgba(248,113,113,0.15); color: var(--red);    border: 1px solid #{"var(--red)44"}; }
+.dc-del { background: rgba(251,191,36,0.15);  color: var(--yellow); border: 1px solid #{"var(--yellow)44"}; }
+.dc-int { background: rgba(56,189,248,0.15);  color: var(--accent); border: 1px solid #{"var(--accent)44"}; }
+.dc-var { background: rgba(52,211,153,0.15);  color: var(--green);  border: 1px solid #{"var(--green)44"}; }
 
 /* スマホ幅（2026-09-25）：ヘッダは 2 段（上＝戻り口と現在地・下＝頁の切替を横スクロール）・本文の余白を詰める・広い表とコードは自分の中で横に流す＝頁全体は横に張り出さない */
 @media (max-width: 640px) {
