@@ -7,7 +7,6 @@ import { addProtocol, removeProtocol } from "../request.js";
 import { geopbf, geopbfCachePrune } from "geopbf";
 import { tr } from "../i18n.js";
 import type { GeoPBF } from "geopbf";
-import type { CogHandle } from "../../globe.d.ts";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
 import type { IntakeApi } from "../types/map.ts";
@@ -79,8 +78,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 			test: f => /\.tiff?$/i.test(f.name),
 			draw: async (file: File) => {
 				live.annoCtl?.clear(); gint.clearUserGint();
-				// TODO(ts): cog の手綱（gadgets/cog.js）は width／height を持たない＝トーストが "undefined×undefinedpx"（読めた COG の寸法は load の戻り）
-				return map.gadget.cog(file).then(c => ({ length: `${(c as CogHandle & { width?: number }).width}×${(c as CogHandle & { height?: number }).height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
+				return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
 			},
 		},
 		{

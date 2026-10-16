@@ -385,7 +385,11 @@ export interface PathGadgetStub { (): void; open?(): Promise<PathGadget | undefi
 export interface AnnoHandle { set(pbf: GeoPBF | null): void; clear(): void; /** 描いた画素の検査窓（worker に問う） */ pixels(): Promise<unknown>; readonly pbf: GeoPBF | null; readonly count: number; readonly hits: unknown[] }
 /** cog ガジェットの load のオプション＝fit／fetch 以外は geopbf/cog の openCog へそのまま（stretch・composite・colormap・cacheKey…＝見せ方はデータ側が決める） */
 export interface CogOptions { fit?: boolean; fetch?: typeof fetch | null; [k: string]: unknown }
-export interface CogHandle { load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null }
+export interface CogHandle {
+	load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null;
+	/** 読めた COG の全解像度の寸法（px）。読む前・clear の後は null */
+	readonly width: number | null; readonly height: number | null;
+}
 /** demo ガジェットの opts（台本の形＝demo/scene-format.md） */
 export interface DemoOptions { scenes?: object[]; slide?: boolean; hold?: number; slideHold?: number; mobile?: number; lang?: string; preload?: string[]; btn?: HTMLElement | null; player?: boolean; zoom?: [number, number]; narrow?: boolean }
 export interface DemoHandle { start(i?: number, fly?: boolean, opts?: { scenes?: object[]; bare?: boolean; onScene?: (i: number, scene: object) => void; onEnd?: (reason: "finished" | "stopped") => void; [k: string]: unknown }): unknown; next(): void; prev(): void; exit(): void; play(): void; pause(): void }
