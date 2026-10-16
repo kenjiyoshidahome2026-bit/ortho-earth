@@ -3,7 +3,7 @@
 // canvas の今のテクスチャ（COPY_SRC）を控え（scratch）に copyTextureToTexture し、①明部の抜き出し（半解像度）②ぼかし横③ぼかし縦④合成（scratch＋bloom×strength・四隅の減光）を canvas へ描く。
 // 式は GL2（gl/depthout.js の BRIGHT_FS／BLUR_FS／POST_FS）と同じ。設定の形は ../postfx.js normPost。
 import { loadLUT } from "../lut.ts";
-const TM_MODE = { linear: 0, reinhard: 1, aces: 2, agx: 3, filmic: 4 };
+const TM_MODE: Record<string, number> = { linear: 0, reinhard: 1, aces: 2, agx: 3, filmic: 4 };
 const FULL_VS = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
@@ -96,7 +96,18 @@ fn lut3(c0: vec3f) -> vec3f {   // 帯＝x に B の板×size＋R・y に G
 
 // 検定（t-wgsl）がコンパイルを検める口
 export const POST_WGSL = Object.freeze({ POST_BRIGHT_WGSL: BRIGHT, POST_BLUR_WGSL: BLUR, POST_COMP_WGSL: COMP });
-export function createPostGPU(device, format, requestDraw) {
+/** encode が読む後処理の設定（normPost の戻りの形＝../postfx.js・型の正本は types/postfx.d.ts の PostProcessNormalized）。 */
+export interface PostFrameOptions {
+	bloom: { threshold: number; strength: number; radius: number } | null;
+	vignette: { strength: number; radius: number; softness: number } | null;
+	fxaa?: boolean;
+	tonemap?: { mode: string; exposure: number } | null;
+	lut?: { url: string; size: number; intensity: number } | null;
+}
+export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void; dispose(): void; bytes(): number }
+interface PostTargets { w: number; h: number; hw: number; hh: number; scratch: GPUTexture; half: GPUTexture[]; sv: GPUTextureView; hv: GPUTextureView[] }
+interface PostLut { url: string; size: number; tex: GPUTexture | null; view: GPUTextureView | null; n: number; ready: boolean }
+export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostGPU {
 	const F = GPUShaderStage.FRAGMENT;
 	const bgl = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} },
@@ -110,12 +121,12 @@ export function createPostGPU(device, format, requestDraw) {
 		{ binding: 3, visibility: F, texture: {} },
 		{ binding: 4, visibility: F, texture: {} },
 	] });
-	const pipe = (code, layout, fmt) => device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format: fmt }] }, primitive: { topology: "triangle-list" } });
+	const pipe = (code: string, layout: GPUBindGroupLayout, fmt: GPUTextureFormat): GPURenderPipeline => device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format: fmt }] }, primitive: { topology: "triangle-list" } });
 	const pBright = pipe(BRIGHT, bgl, "rgba8unorm"), pBlur = pipe(BLUR, bgl, "rgba8unorm"), pComp = pipe(COMP, bglComp, format);
 	const smp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const ub = [0, 1, 2, 3].map(() => device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));   // 明部・横・縦・合成
-	let T = null;   // { w, h, scratch, half: [3], views }
-	function ensure(W, H) {
+	let T: PostTargets | null = null;   // { w, h, scratch, half: [3], views }
+	function ensure(W: number, H: number): void {
 		if (T && T.w === W && T.h === H) return;
 		free();
 		const hw = Math.max(1, Math.ceil(W / 2)), hh = Math.max(1, Math.ceil(H / 2));
@@ -125,41 +136,41 @@ export function createPostGPU(device, format, requestDraw) {
 	}
 	function free() { if (!T) return; T.scratch.destroy(); for (const t of T.half) t.destroy(); T = null; }
 	const f32 = new Float32Array(24);
-	function uni(i, b, vig, size, dir, tm = [0, 1, 0, 0], lp = [1, 0, 0, 0]) { f32.set(b, 0); f32.set(vig, 4); f32.set(size, 8); f32.set(dir, 12); f32.set(tm, 16); f32.set(lp, 20); device.queue.writeBuffer(ub[i], 0, f32); }
+	function uni(i: number, b: ArrayLike<number>, vig: ArrayLike<number>, size: ArrayLike<number>, dir: ArrayLike<number>, tm: ArrayLike<number> = [0, 1, 0, 0], lp: ArrayLike<number> = [1, 0, 0, 0]): void { f32.set(b, 0); f32.set(vig, 4); f32.set(size, 8); f32.set(dir, 12); f32.set(tm, 16); f32.set(lp, 20); device.queue.writeBuffer(ub[i], 0, f32); }
 	// 3D LUT（W1）：url が変わったら読み直す。着くまでは LUT 無し（lut.z=0・束縛は 1×1 のダミー）。外したら返す
-	let L = null, dummy = null;   // L＝{ url, size, tex, view, n, ready }
+	let L: PostLut | null = null, dummy: GPUTexture | null = null;   // L＝{ url, size, tex, view, n, ready }
 	const dummyView = () => { dummy ??= device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING }); return dummy.createView(); };
 	function freeLut() { if (!L) return; L.tex?.destroy(); L = null; }
-	function syncLut(l) {
+	function syncLut(l: PostFrameOptions["lut"]): void {
 		if (!l) { freeLut(); return; }
 		if (L && L.url === l.url && L.size === l.size) return;
 		freeLut();
-		const me = L = { url: l.url, size: l.size, tex: null, view: null, n: 0, ready: false };
+		const me: PostLut = L = { url: l.url, size: l.size, tex: null, view: null, n: 0, ready: false };
 		loadLUT(l.url, l.size).then(r => {
 			if (L !== me) return;
 			me.tex = device.createTexture({ size: [r.size * r.size, r.size], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 			device.queue.writeTexture({ texture: me.tex }, r.data, { bytesPerRow: r.size * r.size * 4 }, { width: r.size * r.size, height: r.size });
 			me.view = me.tex.createView(); me.n = r.size; me.ready = true; requestDraw?.();
-		}).catch(e => { console.warn("[gpu] post lut load failed:", e?.message || e); });
+		}).catch((e: unknown) => { console.warn("[gpu] post lut load failed:", (e as Error | null)?.message || e); });
 	}
 	// enc＝開いたコマンドエンコーダ・canvasTex＝ctx.getCurrentTexture()（描き終えた色）・post＝normPost の形
-	function encode(enc, canvasTex, W, H, post) {
+	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void {
 		ensure(W, H);
 		const b = post.bloom, v = post.vignette, t = post.tonemap;
 		syncLut(post.lut);
 		const lutOn = !!(post.lut && L && L.ready && L.url === post.lut.url);
-		const tm = [t ? TM_MODE[t.mode] ?? 2 : 0, t ? t.exposure : 1, t ? 1 : 0, post.fxaa ? 1 : 0], lp = [lutOn ? L.n : 1, lutOn ? post.lut.intensity : 0, lutOn ? 1 : 0, 0];
-		enc.copyTextureToTexture({ texture: canvasTex }, { texture: T.scratch }, { width: W, height: H });
+		const tm = [t ? TM_MODE[t.mode] ?? 2 : 0, t ? t.exposure : 1, t ? 1 : 0, post.fxaa ? 1 : 0], lp = [lutOn ? L!.n : 1, lutOn ? post.lut!.intensity : 0, lutOn ? 1 : 0, 0];
+		enc.copyTextureToTexture({ texture: canvasTex }, { texture: T!.scratch }, { width: W, height: H });
 		const bb = b ? [b.threshold, b.strength, b.radius, 0] : [1, 0, 1, 0], vg = v ? [v.strength, v.radius, v.softness, 1] : [0, 1, 0.5, 0], sz = [W, H, 1 / W, 1 / H];
-		const pass = (pipeline, view, group) => { const p = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] }); p.setPipeline(pipeline); p.setBindGroup(0, group); p.draw(3); p.end(); };
-		const bg = (i, srcView) => device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub[i] } }, { binding: 1, resource: srcView }, { binding: 2, resource: smp }] });
+		const pass = (pipeline: GPURenderPipeline, view: GPUTextureView, group: GPUBindGroup) => { const p = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] }); p.setPipeline(pipeline); p.setBindGroup(0, group); p.draw(3); p.end(); };
+		const bg = (i: number, srcView: GPUTextureView) => device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub[i] } }, { binding: 1, resource: srcView }, { binding: 2, resource: smp }] });
 		if (b) {
-			uni(0, bb, vg, sz, [0, 0, 0, 0]); pass(pBright, T.hv[0], bg(0, T.sv));
-			uni(1, bb, vg, sz, [b.radius, 0, 0, 0]); pass(pBlur, T.hv[1], bg(1, T.hv[0]));
-			uni(2, bb, vg, sz, [0, b.radius, 0, 0]); pass(pBlur, T.hv[2], bg(2, T.hv[1]));
+			uni(0, bb, vg, sz, [0, 0, 0, 0]); pass(pBright, T!.hv[0], bg(0, T!.sv));
+			uni(1, bb, vg, sz, [b.radius, 0, 0, 0]); pass(pBlur, T!.hv[1], bg(1, T!.hv[0]));
+			uni(2, bb, vg, sz, [0, b.radius, 0, 0]); pass(pBlur, T!.hv[2], bg(2, T!.hv[1]));
 		}
 		uni(3, bb, vg, sz, [0, 0, 0, 0], tm, lp);
-		const comp = device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: { buffer: ub[3] } }, { binding: 1, resource: T.sv }, { binding: 2, resource: smp }, { binding: 3, resource: b ? T.hv[2] : T.sv }, { binding: 4, resource: lutOn ? L.view : dummyView() }] });
+		const comp = device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: { buffer: ub[3] } }, { binding: 1, resource: T!.sv }, { binding: 2, resource: smp }, { binding: 3, resource: b ? T!.hv[2] : T!.sv }, { binding: 4, resource: lutOn ? L!.view! : dummyView() }] });
 		pass(pComp, canvasTex.createView(), comp);
 	}
 	function dispose() { free(); freeLut(); dummy?.destroy(); dummy = null; for (const u of ub) u.destroy(); }

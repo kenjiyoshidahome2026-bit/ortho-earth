@@ -23,7 +23,7 @@ const FULL_VS = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(positi
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 // AO と合成が共有する頭：uniform・深度・画素の位置の復元（上の精度の掟）
-const AO_HEAD = ms => /* wgsl */`
+const AO_HEAD = (ms: boolean): string => /* wgsl */`
 struct AoP { rF: vec4f, rX: vec4f, rY: vec4f, eye: vec4f, p: vec4f, size: vec4f };
 // rF/rX/rY.xyz＝視線 v(ndc)＝rF＋ndc.x·rX＋ndc.y·rY（clip w が 1 の長さ＝P_rel＝w·v）・rF.w＝焦点距離（AO 面の px）・rX.w＝|eye|²−1・rY.w＝2·ln2／logCoef
 // eye.xyz＝目（β 単位球）・p=(0, 半径の係数, 強さ, 接平面の sin の下駄)・size=(W,H,1/W,1/H)（AO 面）
@@ -57,7 +57,7 @@ fn posRel(xy: vec2i) -> vec4f {   // AO 面の texel → 本体の 2×2 の左�
 }
 ${FULL_VS}`;
 
-export const AO_WGSL = ms => /* wgsl */`
+export const AO_WGSL = (ms: boolean): string => /* wgsl */`
 ${AO_HEAD(ms)}
 // 4×4 の Bayer＝隣り合う画素ほど離れた番号＝どの 4×4 の窓にも 16 通りが 1 つずつ
 const B4 = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
@@ -111,7 +111,7 @@ const B4 = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15
 // ぼかし＝縦横 2 段（dir＝(1,0)/(0,1)）の 7 点×深度の重み（|Δw| が視距離の 5% を超える texel は混ぜない＝縁を跨がない）。GB の深度は運ぶ。
 // 核＝(0.5,1,1,1,0.5)⊛(1,2,1)＝(0.5,2,3.5,4,3.5,2,0.5)/16：前者が周期 4 の回しの模様の各位相をちょうど 1 回ずつ足して消し（両端は同じ位相＝半分ずつ）、
 // 後者が標本の粗さを均す（旧 7 点ガウスと同じ幅）＝続いた面では模様が数学的に残らない
-export const AO_BLUR_WGSL = dir => /* wgsl */`
+export const AO_BLUR_WGSL = (dir: readonly [number, number]): string => /* wgsl */`
 @group(0) @binding(0) var aoT: texture_2d<f32>;   // R=AO・GB=深度（AO パスが同梱）
 ${DEC_W}
 const BW = array<f32, 7>(0.5, 2.0, 3.5, 4.0, 3.5, 2.0, 0.5);
@@ -133,7 +133,7 @@ ${FULL_VS}
 
 // 合成（乗算・blend＝dst×src）：画素の奥行き（本体の深度から posAt と同じ式）と、周りの 4 texel（texel i＝本体の画素 2i）の奥行きを比べて戻す。
 // 揃う texel（|Δw|＜5%）だけを双線形の重みで混ぜる・どれも揃わなければ奥行きが一番近い texel＝建物の縁に背景（や手前）の AO がにじまない＝動いても縁が泳がない
-export const AO_COMP_WGSL = ms => /* wgsl */`
+export const AO_COMP_WGSL = (ms: boolean): string => /* wgsl */`
 ${AO_HEAD(ms)}
 @group(0) @binding(2) var aoT: texture_2d<f32>;
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
@@ -161,32 +161,40 @@ ${AO_HEAD(ms)}
 export { aoRays };   // 視線の基底（f64）＝2026-09-27 から camera.js viewRays が正本（全画面レイキャスト #65 と共有）・名前は据え置き
 
 // device・format（canvas の色形式）。encode は main パスの後（同じエンコーダ）に 4 パスを積む。
-export function createAoGPU(device, format) {
+/** encode の入力（mvp/invMvp/eye は f64 のまま・phase＝模様の位相＝検定の口）。 */
+export interface AoFrame {
+	depthTex: GPUTexture; samples: number; W: number; H: number; colorView: GPUTextureView;
+	mvp: ArrayLike<number>; invMvp: ArrayLike<number>; eye: ArrayLike<number>;
+	focal: number; logCoef: number; strength: number; radiusK: number; biasSin: number; phase?: number;
+}
+interface AoBindGroups { dep: GPUTexture; ao: GPUBindGroup; blurH: GPUBindGroup; blurV: GPUBindGroup; comp: GPUBindGroup }
+export interface AoGPU { encode(enc: GPUCommandEncoder, d: AoFrame): void; dispose(): void; bytes(): number }
+export function createAoGPU(device: GPUDevice, format: GPUTextureFormat): AoGPU {
 	const F = GPUShaderStage.FRAGMENT;
-	const bglAo = ms => device.createBindGroupLayout({ entries: [
+	const bglAo = (ms: boolean): GPUBindGroupLayout => device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} },
 		{ binding: 1, visibility: F, texture: { sampleType: "depth", multisampled: ms } },
 	] });
-	const bglComp = ms => device.createBindGroupLayout({ entries: [
+	const bglComp = (ms: boolean): GPUBindGroupLayout => device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} },
 		{ binding: 1, visibility: F, texture: { sampleType: "depth", multisampled: ms } },
 		{ binding: 2, visibility: F, texture: { sampleType: "unfilterable-float" } },
 	] });
 	const bglBlur = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: { sampleType: "unfilterable-float" } }] });
-	const layouts = new Map();   // ms → { ao, comp }
-	const lay = ms => { let l = layouts.get(ms); if (!l) { l = { ao: bglAo(ms), comp: bglComp(ms) }; layouts.set(ms, l); } return l; };
-	const pipes = new Map();     // "ms"/"ss" → ao・"blurH"/"blurV"・`comp${sc}`
-	const mk = (code, layout, targets, sampleCount = 1) => {
+	const layouts = new Map<boolean, { ao: GPUBindGroupLayout; comp: GPUBindGroupLayout }>();   // ms → { ao, comp }
+	const lay = (ms: boolean) => { let l = layouts.get(ms); if (!l) { l = { ao: bglAo(ms), comp: bglComp(ms) }; layouts.set(ms, l); } return l; };
+	const pipes = new Map<string, GPURenderPipeline>();     // "ms"/"ss" → ao・"blurH"/"blurV"・`comp${sc}`
+	const mk = (code: string, layout: GPUBindGroupLayout, targets: GPUColorTargetState[], sampleCount = 1): GPURenderPipeline => {
 		const module = device.createShaderModule({ code });
 		return device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
-	const pipe = (k, make) => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
-	const R8 = [{ format: "rgba8unorm" }];
-	const MUL = [{ format, blend: { color: { srcFactor: "zero", dstFactor: "src", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } } }];
+	const pipe = (k: string, make: () => GPURenderPipeline): GPURenderPipeline => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
+	const R8: GPUColorTargetState[] = [{ format: "rgba8unorm" }];
+	const MUL: GPUColorTargetState[] = [{ format, blend: { color: { srcFactor: "zero", dstFactor: "src", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } } }];
 	const uBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const uCPU = new Float32Array(24);
-	let texA = null, texB = null, tw = 0, th = 0, bgs = null;
-	function ensure(W, H) {
+	let texA: GPUTexture | null = null, texB: GPUTexture | null = null, tw = 0, th = 0, bgs: AoBindGroups | null = null;
+	function ensure(W: number, H: number): void {
 		const w = Math.max(1, W >> 1), h = Math.max(1, H >> 1);
 		if (texA && tw === w && th === h) return;
 		texA?.destroy(); texB?.destroy();
@@ -195,7 +203,7 @@ export function createAoGPU(device, format) {
 		tw = w; th = h; bgs = null;
 	}
 	// enc＝フレームのエンコーダ・d＝{ depthTex, samples, W, H, colorView, mvp, invMvp, eye, focal, logCoef, strength, radiusK, biasSin, phase? }（mvp/invMvp/eye は f64 のまま・phase＝模様の位相＝検定の口）
-	function encode(enc, d) {
+	function encode(enc: GPUCommandEncoder, d: AoFrame): void {
 		ensure(d.W, d.H);
 		const ms = d.samples > 1, l = lay(ms);
 		const pAo = pipe(ms ? "ms" : "ss", () => mk(AO_WGSL(ms), l.ao, R8));
@@ -205,22 +213,22 @@ export function createAoGPU(device, format) {
 			const dv = d.depthTex.createView({ aspect: "depth-only" }), ub = { buffer: uBuf };
 			bgs = { dep: d.depthTex,
 				ao: device.createBindGroup({ layout: l.ao, entries: [{ binding: 0, resource: ub }, { binding: 1, resource: dv }] }),
-				blurH: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texA.createView() }] }),
-				blurV: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texB.createView() }] }),
-				comp: device.createBindGroup({ layout: l.comp, entries: [{ binding: 0, resource: ub }, { binding: 1, resource: dv }, { binding: 2, resource: texA.createView() }] }) };
+				blurH: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texA!.createView() }] }),
+				blurV: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texB!.createView() }] }),
+				comp: device.createBindGroup({ layout: l.comp, entries: [{ binding: 0, resource: ub }, { binding: 1, resource: dv }, { binding: 2, resource: texA!.createView() }] }) };
 		}
 		const r = aoRays(d.mvp, d.invMvp), e = d.eye, u = uCPU;
 		u.set(r.F, 0); u[3] = d.focal / 2;   // 焦点距離（device px）→AO 面（半解像度）
 		u.set(r.X, 4); u[7] = e[0] * e[0] + e[1] * e[1] + e[2] * e[2] - 1;   // |eye|²−1（球の床の交点・f64 で引く）
 		u.set(r.Y, 8); u[11] = 2 * Math.LN2 / d.logCoef;   // 対数深度 → ln(1+w)
 		u[12] = e[0]; u[13] = e[1]; u[14] = e[2]; u[15] = 0;
-		u[16] = d.phase | 0; u[17] = d.radiusK; u[18] = d.strength; u[19] = d.biasSin;
+		u[16] = d.phase! | 0; u[17] = d.radiusK; u[18] = d.strength; u[19] = d.biasSin;
 		u[20] = tw; u[21] = th; u[22] = 1 / tw; u[23] = 1 / th;
 		device.queue.writeBuffer(uBuf, 0, u);
-		const run = (view, p, bg, clear = true) => { const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: clear ? "clear" : "load", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] }); pass.setPipeline(p); pass.setBindGroup(0, bg); pass.draw(3); pass.end(); };
-		run(texA.createView(), pAo, bgs.ao);
-		run(texB.createView(), pH, bgs.blurH);   // 横
-		run(texA.createView(), pV, bgs.blurV);   // 縦（texA へ戻す＝合成が読む）
+		const run = (view: GPUTextureView, p: GPURenderPipeline, bg: GPUBindGroup, clear = true) => { const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: clear ? "clear" : "load", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] }); pass.setPipeline(p); pass.setBindGroup(0, bg); pass.draw(3); pass.end(); };
+		run(texA!.createView(), pAo, bgs.ao);
+		run(texB!.createView(), pH, bgs.blurH);   // 横
+		run(texA!.createView(), pV, bgs.blurV);   // 縦（texA へ戻す＝合成が読む）
 		run(d.colorView, pC, bgs.comp, false);    // 乗算合成（本体の色の的へ）
 	}
 	function dispose() { texA?.destroy(); texB?.destroy(); texA = texB = null; bgs = null; uBuf.destroy(); pipes.clear(); }

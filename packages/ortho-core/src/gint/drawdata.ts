@@ -22,7 +22,7 @@ export interface DrawData {
 	farAxes?: number[]; farScale?: number[]; lodRank?: number; near?: number[];
 }
 /** 地形の依存（細分の計画が読む分） */
-export interface SubDep { noSub?: boolean; elevScale?: number; hasElev?: boolean; meshG?: number; meshQ?: ArrayLike<number> | null }
+export interface SubDep { noSub?: boolean; elevScale?: number; hasElev?: boolean | number; meshG?: number; meshQ?: ArrayLike<number> | null }
 export interface SubPlan { N: Int32Array; skipE7: number; total: number }
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
@@ -174,7 +174,7 @@ export const SUB_MAX = 128;             // 1辺あたりのサブ区間上限（
 export const SUB_BUDGET = 1_500_000;    // 1層1フレームのサブ区間予算（Σ 複製行数×N[b]）。超えたら全バケット半減（下位から 1 へ落ち skip が上がる）
 // moving＝カメラ運動中は N を半分（区間は 2 進格子＝粗い方が細かい方の部分集合＝静止で「増える」だけ・滑らない）
 // ＝隠線パスの省略と同じ「移動中の描画予算」の作法（実測 z8.9 チルト admin0 世界図で細分パスが gpuGint +6ms）。
-export function subPlan(dep: SubDep | null | undefined, subRuns: readonly (readonly (readonly number[])[])[] | null | undefined, moving = false): SubPlan {   // subRuns[b] = [[start,count],…]（可視チャンクの複製行区間）
+export function subPlan(dep: SubDep | null | undefined, subRuns: readonly (readonly (readonly number[])[] | null | undefined)[] | null | undefined, moving = false): SubPlan {   // subRuns[b] = [[start,count],…]（可視チャンクの複製行区間）
 	const N = new Int32Array(SUB_NB).fill(1);
 	const plan: SubPlan = { N, skipE7: 0, total: 0 };
 	if (!dep || dep.noSub || !(dep.elevScale! > 0) || !dep.hasElev || !(dep.meshG! > 1) || !dep.meshQ) return plan;
