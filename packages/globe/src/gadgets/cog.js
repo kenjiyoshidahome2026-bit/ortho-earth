@@ -116,5 +116,8 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 			setCogTex(null); map.requestDraw?.();
 		},
 		metrics: () => cog ? { ...cog.metrics(), rawCacheBytes: cache.bytes } : null,
+		// 読めた COG の全解像度の寸法（px）＝ドロップのトースト「W×Hpx」が読む。読む前・clear の後は null
+		get width() { return cog ? cog.width : null; },
+		get height() { return cog ? cog.height : null; },
 	};
 }
