@@ -167,6 +167,6 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		else if (!$("#stac-list").children.length) search();
 	};
 	btn?.addEventListener("click", toggle, { signal });   // スタブの初回起動後はこのリスナーがトグルを担う（初回は stub が g.toggle() を呼ぶ）
-	signal?.addEventListener("abort", () => { ac?.abort(); unsub?.(); panel.remove(); cv.remove(); }, { once: true });
+	signal?.addEventListener("abort", () => { ac?.abort(); foot.destroy(); panel.remove(); }, { once: true });   // 枠の canvas と描画の購読は footprint が持つ（旧＝切り出す前の名 unsub／cv が残っていて ReferenceError＝パネルが残った）
 	return { toggle, search };
 }
