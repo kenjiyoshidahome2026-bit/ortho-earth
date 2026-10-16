@@ -9,34 +9,51 @@
 // 返り値＝{dur(総尺・秒), rows:[{i,t0,tArrive,t1,knots[],hash}], at(秒)→{lon,lat,zoom,pitch,bearing(ラジアン),cover(0..1),i,hash}}。
 //   時間は外側は全部「秒」（台本の掟）＝ms はプランの内側だけ。knots＝◇通過点の実到達時刻（末尾=着点自身）。
 import { parseScenes, compileVias } from "./scene-adapter.ts";
+import type { FlightController } from "@ortho-earth/core";
+import type { ParsedView } from "@ortho-earth/core/viewurl";
+import type { SceneRow } from "./scene-adapter.ts";
 const R2D = 180 / Math.PI;
 
-export function buildSceneTimeline(doc, { plan, parseView, portrait = false, zoomMin = 1 } = {}) {
+type Plan = FlightController["plan"];
+/** カメラ（角はラジアン） */
+interface Cam { lon: number; lat: number; zoom: number; pitch: number; bearing: number }
+/** 時刻の絵（cover＝fade の黒の濃さ 0..1） */
+type Pose = Cam & { cover?: number };
+/** 行の記録（t0＝始まり・tArrive＝着地・t1＝保持の終わり・knots＝通過点の到達・秒） */
+interface Rec { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined; evalT: ((sec: number) => Pose) | null; pose: Cam | null }
+/** buildSceneTimeline の deps（plan＝flightCtl.plan・parseView＝parseViewHash） */
+export interface SceneTimelineDeps { plan?: Plan | null; parseView?: ((hash: string) => ParsedView | null) | null; portrait?: boolean; zoomMin?: number }
+/** 総タイムラインの 1 行 */
+export interface SceneTimelineRow { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined }
+/** 総タイムライン（dur＝総尺 秒・at(秒)＝その時刻の絵） */
+export interface SceneTimeline { dur: number; rows: SceneTimelineRow[]; at(sec: number): Pose & { cover: number; i: number; hash: string | undefined } }
+
+export function buildSceneTimeline(doc: unknown, { plan, parseView, portrait = false, zoomMin = 1 }: SceneTimelineDeps = {}): SceneTimeline | null {
 	if (!plan || !parseView) return null;
 	const { scenes, mobile, hold: holdD = 3, slideHold: slideHoldD = 4 } = parseScenes(doc);
 	const rows = compileVias(scenes);
 	if (!rows.length) return null;
-	const camOf = (s, hash) => {   // 視点ハッシュ→カメラ（mobile:Δz＝mobView と同じ規則）
+	const camOf = (s: SceneRow, hash: unknown): Cam | null => {   // 視点ハッシュ→カメラ（mobile:Δz＝mobView と同じ規則）
 		const v = typeof hash === "string" ? parseView(hash) : null;
 		if (!v) return null;
 		const d = s.mobile ?? mobile;
 		const zoom = (portrait && d) ? Math.max(zoomMin, Math.round((v.zoom + d) * 100) / 100) : v.zoom;
 		return { lon: v.lon, lat: v.lat, zoom, pitch: v.pitch || 0, bearing: v.bearing || 0 };
 	};
-	const recs = [];
-	let t = 0, cam = null;
+	const recs: Rec[] = [];
+	let t = 0, cam: Cam | null = null;
 	rows.forEach((s, i) => {
 		const hash = s.view ?? s.glide ?? s.fade;
 		const tgt = hash ? camOf(s, hash) : null;
 		const from = cam;
-		let trans = 0, knots = [], evalT = null;   // evalT(局所秒)→{lon,lat,zoom,pitch,bearing,cover?}（遷移区間のみ）
+		let trans = 0, knots: number[] = [], evalT: ((sec: number) => Pose) | null = null;   // evalT(局所秒)→{lon,lat,zoom,pitch,bearing,cover?}（遷移区間のみ）
 		if (tgt && from && !s.jump) {
 			if (s.path) {   // via 連続ドリー＝1本のスプライン（glidePathView と同じ pts）
-				const pts = s.path.map(p => ({ ...camOf(s, p.view), secs: p.travel })).filter(p => Number.isFinite(p?.lon));
+				const pts = s.path.map(p => ({ ...camOf(s, p.view), secs: p.travel }) as Partial<Cam> & { secs?: number }).filter(p => Number.isFinite(p?.lon)) as Parameters<Plan["path"]>[1];
 				const pl = pts.length ? plan.path(from, pts) : null;
 				if (pl) { trans = pl.dur / 1000; knots = (pl.knots || []).map(ms => ms / 1000); evalT = sec => pl.at(sec * 1000); }
 			} else if (s.fade) {   // 溶暗→切替→溶明（fadeViewRun の写し）＝カメラは黒の中でカット
-				const f = (Number.isFinite(s.travel) && s.travel > 0) ? s.travel : 1.2;
+				const f = (Number.isFinite(s.travel) && s.travel! > 0) ? s.travel! : 1.2;
 				trans = f + 0.3 + f;
 				evalT = sec => ({ ...(sec < f + 0.15 ? from : tgt),
 					cover: sec < f ? sec / f : sec < f + 0.3 ? 1 : Math.max(0, 1 - (sec - f - 0.3) / f) });
@@ -47,7 +64,7 @@ export function buildSceneTimeline(doc, { plan, parseView, portrait = false, zoo
 				const pl = plan.glide(from, tgt.lon, tgt.lat, tgt.zoom, tgt.pitch * R2D, tgt.bearing * R2D);
 				trans = pl.dur / 1000; evalT = sec => pl.at(sec * 1000);
 			} else {   // 地図遷移＝球面フライト（pre＝まず pre へ飛び、+1秒で view へカット）
-				const pp = s.pre ? camOf(s, s.pre) : null, fl = pp ?? tgt;
+				const pp = s.pre ? camOf(s, s.pre) : null, fl: Cam = pp ?? tgt;
 				const pl = plan.fly(from, fl.lon, fl.lat, fl.zoom, fl.pitch * R2D, fl.bearing * R2D);
 				trans = pl.dur / 1000 + (pp ? 1 : 0);
 				evalT = sec => sec * 1000 < pl.dur ? pl.at(sec * 1000) : fl;
@@ -62,12 +79,12 @@ export function buildSceneTimeline(doc, { plan, parseView, portrait = false, zoo
 		t = tArrive + dwell;
 	});
 	const dur = t;
-	const at = sec => {
+	const at = (sec: number) => {
 		sec = Math.max(0, Math.min(sec ?? 0, dur));
 		let r = recs[0];
 		for (const q of recs) { if (sec >= q.t0) r = q; else break; }
 		const local = sec - r.t0;
-		const f = (local < r.tArrive - r.t0 && r.evalT) ? r.evalT(local) : (r.pose ?? { lon: 0, lat: 0, zoom: zoomMin, pitch: 0, bearing: 0 });
+		const f: Pose = (local < r.tArrive - r.t0 && r.evalT) ? r.evalT(local) : (r.pose ?? { lon: 0, lat: 0, zoom: zoomMin, pitch: 0, bearing: 0 });
 		return { lon: f.lon, lat: f.lat, zoom: f.zoom, pitch: f.pitch || 0, bearing: f.bearing || 0, cover: f.cover || 0, i: r.i, hash: r.hash };
 	};
 	return { dur, rows: recs.map(({ i, t0, tArrive, t1, knots, hash }) => ({ i, t0, tArrive, t1, knots, hash })), at };
