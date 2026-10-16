@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 実描画の検分：3D Tiles 1.1 の implicit tiling（subtree・2026-10-16）。試料＝tests/fixtures/tiles3d-implicit（make.mjs で生成）＝東京駅の ENU の根に 640m 四方の疎な四分木：
      段 0＝赤・段 1＝黄・段 2＝緑・段 3＝青。subtreeLevels 2・availableLevels 4＝子 subtree を 6 個読む。?v=10＝1.0 の 3DTILES_implicit_tiling 拡張の tileset（同じ subtree）。
-     ①maxSSE を極小に＝木の底まで（出すのは 10 枚・subtree 7 個）②画素：青・緑・黄が出て赤は出ない ③maxSSE を極大に＝根だけ ④remove で全部降りる。globe（地域なし）・実時間。 -->
+     ①maxSSE を極小に＝木の底まで（出すのは 10 枚・subtree 7 個）②metadata（手綱と pick）③画素：青・緑・黄が出て赤は出ない ④maxSSE を極大に＝根だけ ⑤remove で全部降りる。globe（地域なし）・実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d-implicit</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -14,11 +14,18 @@ const v10 = new URLSearchParams(location.search).get("v") === "10";
 run(); async function run() { try {
 	const map = await createGlobe({ target: "#map", view: "#16.4/35.6812/139.7671/0", chips: false, debugGlobals: true });
 	await sleep(2500);
-	const h = await map.add3DTiles(`./fixtures/tiles3d-implicit/${v10 ? "tileset-10.json" : "tileset.json"}`, { fit: false, maxSSE: 1e-6 });
+	const h = await map.add3DTiles(`./fixtures/tiles3d-implicit/${v10 ? "tileset-10.json" : "tileset.json"}`, { fit: false, maxSSE: 1e-6, pickable: true });
 	// 木の底：段 3 の 5 枚＋子の無い段 2 の 4 枚（(1,0)(0,1)(1,1)(2,2)）＋子の無い段 1 の (0,1)＝10 枚
 	const full = await until(() => h.stats.shown === 10 && h.stats.subtrees === 7);
 	ok("full", full, JSON.stringify(h.stats));
 	ok("tiles", h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" ") === "1_0_1.glb 2_0_1.glb 2_1_0.glb 2_1_1.glb 2_2_2.glb 3_0_0.glb 3_0_1.glb 3_1_0.glb 3_1_1.glb 3_6_6.glb", h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" "));
+	// metadata（tileset.json だけ）：schemaUri・tileset の metadata・groups／pick＝段 1 (0,1)（黄）のタイルの tile・content・group の metadata（根の subtree の property table）
+	if (!v10) {
+		ok("meta.handle", h.schema?.id === "implicitFixture" && h.tilesetMetadata?.properties.scaled === 20 && h.tilesetMetadata?.properties.missing === "dflt" && h.groups[0]?.properties.name === "boxes", JSON.stringify({ s: h.schema?.id, m: h.tilesetMetadata, g: h.groups }));
+		let hit = null;
+		for (let y = 10; y < 600 && !hit; y += 10) for (let x = 10; x < 960; x += 10) { const p = h.pick(x, y); if (p?.tileMetadata?.properties.label === "1/0/1") { hit = p; break; } }
+		ok("meta.pick", hit && hit.contentMetadata?.properties.colorName === "yellow" && hit.contentMetadata?.properties.triangles === 12 && hit.groupMetadata?.properties.priority === 3, JSON.stringify(hit && { t: hit.tileMetadata, c: hit.contentMetadata, g: hit.groupMetadata }));
+	} else ok("meta.none", h.schema === null && h.tilesetMetadata === null, JSON.stringify(h.schema));
 	await sleep(1500);
 	const shot = map.gadget.shot();
 	const grab = async () => {
