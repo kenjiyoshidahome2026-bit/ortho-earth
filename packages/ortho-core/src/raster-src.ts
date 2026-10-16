@@ -99,11 +99,33 @@ export function wmtsTemplate(w: WmtsSpec): string {
 	for (const [k, val] of Object.entries(q)) u.searchParams.set(k, val);
 	return decodeURI(u.href).replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 }
+// 要素の中の字だけを残す（旧 .replace(/<[^>]+>/g, "")）。正規表現は「<」が続く入力で二乗の後戻り（CodeQL）＝添字で同じ削り方をする。
+// 「<」から次の「>」までを落とす・「<>」は残す・閉じの無い「<」以降はそのまま
+function stripTags(s: string): string {
+	let out = "", i = 0;
+	for (;;) {
+		const lt = s.indexOf("<", i);
+		if (lt < 0) return out + s.slice(i);
+		const gt = s.indexOf(">", lt + 1);
+		if (gt < 0) return out + s.slice(i);
+		if (gt === lt + 1) { out += s.slice(i, lt + 1); i = lt + 1; continue; }
+		out += s.slice(i, lt); i = gt + 1;
+	}
+}
+// GetTile の <Operation …>…</Operation> を 1 つ（旧 /<Operation\s+name="GetTile"[\s\S]*?<\/Operation>/）。開きを見つけてから閉じを前へ探す＝閉じの無い開きが続いても線形（CodeQL）
+function getTileOperation(xml: string): string | undefined {
+	const open = /<(?:[\w-]+:)?Operation\s+name=["']GetTile["']/.exec(xml);
+	if (!open) return undefined;
+	const close = /<\/(?:[\w-]+:)?Operation>/g;
+	close.lastIndex = open.index + open[0].length;
+	const c = close.exec(xml);
+	return c ? xml.slice(open.index, c.index + c[0].length) : undefined;
+}
 // WMTS の GetCapabilities を読んで spec を作る（DOMParser 不要の最小の読み：Layer・TileMatrixSet・ResourceURL）。
 // 描けるのはウェブメルカトル（EPSG:3857 / 900913・GoogleMapsCompatible 相当）の行列だけ＝行列の id を z 順に並べて matrixIds へ
 export function wmtsFromCapabilities(xml: string, { layer, style, format, capabilitiesUrl }: { layer?: string; style?: string; format?: string; capabilitiesUrl?: string } = {}): { url: string; matrixIds: string[]; minZoom: number; maxZoom: number; name: string } {
 	const tag = (s: string, t: string): string[] => [...s.matchAll(new RegExp(`<(?:[\\w-]+:)?${t}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${t}>`, "g"))].map(m => m[1]);
-	const text = (s: string, t: string): string => (tag(s, t)[0] ?? "").replace(/<[^>]+>/g, "").trim();
+	const text = (s: string, t: string): string => stripTags(tag(s, t)[0] ?? "").trim();
 	const layers = tag(xml, "Layer");
 	const L = layers.find(l => !layer || text(l, "Identifier") === layer) || layers[0];
 	if (!L) throw new Error("wmts: no layer");
@@ -123,7 +145,7 @@ export function wmtsFromCapabilities(xml: string, { layer, style, format, capabi
 	// 次元（{Time} 等）＝Dimension の Default で埋める
 	const dims: Record<string, string> = Object.fromEntries(tag(L, "Dimension").map(d => [text(d, "Identifier"), text(d, "Default")]));
 	const fill = (u: string): string => u.replace(/&amp;/g, "&").replace("{Style}", sty).replace("{TileMatrixSet}", text(merc, "Identifier")).replace(/\{(\w+)\}/g, (m, k: string) => dims[k] ?? m);
-	const kvp = (/<(?:[\w-]+:)?Operation\s+name=["']GetTile["'][\s\S]*?<\/(?:[\w-]+:)?Operation>/.exec(xml)?.[0] || "").match(/href=["']([^"']+)["']/g)?.map(h => h.slice(6, -1)).find(h => /\?/.test(h) || /cgi|wmts/i.test(h));
+	const kvp = (getTileOperation(xml) || "").match(/href=["']([^"']+)["']/g)?.map(h => h.slice(6, -1)).find(h => /\?/.test(h) || /cgi|wmts/i.test(h));
 	const url = tmpl0 ? fill(tmpl0)
 		: wmtsTemplate({ url: (kvp || capabilitiesUrl)!.replace(/&amp;/g, "&").replace(/\?.*$/, ""), layer: lid, style: sty, tileMatrixSet: text(merc, "Identifier"), format: fmt });
 	return { url, matrixIds, minZoom: z0, maxZoom: z0 + ids.length - 1, name: text(L, "Title") || lid };
