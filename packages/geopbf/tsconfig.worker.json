@@ -4,6 +4,6 @@
 		"lib": ["es2022", "webworker"],
 		"types": ["node"]
 	},
-	"include": ["src/cog/worker.ts", "src/convert/tile-worker.ts"],
+	"include": ["src/worker.ts", "src/decoder/*.ts", "src/encoder/*.ts", "src/cog/worker.ts", "src/convert/tile-worker.ts"],
 	"exclude": []
 }

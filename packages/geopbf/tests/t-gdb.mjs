@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
-import { decodeZIP } from "../src/modules/decodeZIP.js";
+import { decodeZIP } from "../src/modules/decodeZIP.ts";
 import { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseTablx } from "../src/convert/filegdb.ts";
 import { bakeMeshGrid } from "../src/convert/datum.ts";
 

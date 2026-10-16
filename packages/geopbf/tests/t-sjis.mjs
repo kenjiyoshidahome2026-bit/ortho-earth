@@ -1,4 +1,4 @@
-// t-sjis: Shift_JIS の書き手（src/modules/sjis.js・B8・2026-09-25）。
+// t-sjis: Shift_JIS の書き手（src/modules/sjis.ts・B8・2026-09-25）。
 // 守るもの：依存ゼロ（旧＝実行時に esm.sh から encoding-japanese）で、encoding-japanese が書ける字は全部書ける／
 // 書いた符号を TextDecoder("shift_jis") で読むと元の字に戻る／Shapefile の sjis 書き出しが往復する。
 // encoding-japanese は突き合わせ専用の devDependency（src からは import しない）。
@@ -6,7 +6,7 @@ globalThis.ImageData ??= class ImageData {};
 import Encoding from "encoding-japanese";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { encodeSJIS } from "../src/modules/sjis.js";
+import { encodeSJIS } from "../src/modules/sjis.ts";
 import { GeoPBF } from "../src/pbf.js";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
@@ -18,8 +18,8 @@ ok(hex(encodeSJIS("日本")) === "93 fa 96 7b", "日本 → 93 FA 96 7B");
 ok(hex(encodeSJIS("Aｱ")) === "41 b1", "ASCII と半角カナは 1 バイト");
 ok(hex(encodeSJIS("😀x")) === "3f 78", "表に無い字（サロゲート対）は ? 1 つ");
 ok(hex(encodeSJIS("〜")) === hex(encodeSJIS("～")) && hex(encodeSJIS("−")) === hex(encodeSJIS("－")), "〜／～・−／－ は同じ符号（JIS 系／MS 系）");
-ok(!/esm\.sh|https?:\/\//.test(readFileSync(new URL("../src/encoder/shape.js", import.meta.url), "utf8").split("\n").filter(l => /import\s*\(/.test(l)).join("\n")),
-	"encoder/shape.js に実行時のネット import が無い");
+ok(!/esm\.sh|https?:\/\//.test(readFileSync(new URL("../src/encoder/shape.ts", import.meta.url), "utf8").split("\n").filter(l => /import\s*\(/.test(l)).join("\n")),
+	"encoder/shape.ts に実行時のネット import が無い");
 
 // (B) BMP 全域を encoding-japanese と突き合わせる
 let lost = [], mismatch = [], rtBad = [];
@@ -52,14 +52,14 @@ const quiet = async (f) => { const l = console.log; console.log = () => {}; try 
 const names = ["東京都千代田区", "ｶﾀｶﾅ", "①髙﨑", "abc"];
 const fc = { type: "FeatureCollection", features: names.map((n, i) => ({ type: "Feature", properties: { 名前: n }, geometry: { type: "Point", coordinates: [139 + i, 35] } })) };
 const src = await new GeoPBF().set(structuredClone(fc));
-const f = await quiet(() => runWorker(S + "/encoder/shape.js", { buf: src.arrayBuffer.slice(0), name: "s", opts: { encoding: "sjis" } }));
+const f = await quiet(() => runWorker(S + "/encoder/shape.ts", { buf: src.arrayBuffer.slice(0), name: "s", opts: { encoding: "sjis" } }));
 ok(f instanceof File, "sjis 指定の Shapefile 書き出しが返る（旧＝Node では esm.sh の import で落ちて null）");
 if (f instanceof File) {
-	const { decodeZIP } = await import(S + "/modules/decodeZIP.js");
+	const { decodeZIP } = await import(S + "/modules/decodeZIP.ts");
 	const ents = await decodeZIP(f);
 	const db = new Uint8Array(await ents.find(e => /\.dbf$/.test(e.name)).arrayBuffer());
 	ok(db[29] === 0x13, "DBF の LDID は 0x13（Shift_JIS）");
-	const back = await quiet(() => runWorker(S + "/decoder/shape.js", { file: f, name: "s", precision: 6 }));
+	const back = await quiet(() => runWorker(S + "/decoder/shape.ts", { file: f, name: "s", precision: 6 }));
 	const bp = await new GeoPBF().set(back.data);
 	const got = names.map((_, i) => bp.getProperties(i)["名前"]);
 	ok(JSON.stringify(got) === JSON.stringify(names), `欄名・値が往復（${JSON.stringify(got)}）`);

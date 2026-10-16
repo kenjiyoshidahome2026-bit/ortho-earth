@@ -87,7 +87,7 @@ ok(L("places").columns.map(c => c.name).join() === "id,name,pop,ratio,flag,d,dt,
 {
 	globalThis.onmessage = null;
 	const got = new Promise(resolve => { globalThis.postMessage = (m) => resolve(m); });
-	await import("../src/decoder/spatialite.js?v=" + Date.now());
+	await import("../src/decoder/spatialite.ts?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([fx], "mixed.sqlite"), name: "mixed", precision: 6, layer: "multi" } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
 	ok(r && r !== "TIMEOUT" && r.type === "spatialitedec" && r.data instanceof ArrayBuffer && /layer multi/.test(r.warning) && /1 rows without geometry/.test(r.warning), `decoder worker: ${r?.warning}`);

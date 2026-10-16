@@ -13,9 +13,9 @@
 //    geojson-vt を通らない＝隣接ポリゴンの境界が全ズームで継ぎ目無し・feature.id＝fid（promoteId 無しで feature-state が効く）・
 //    大きい GeoPBF でも最初の一枚が早い。source-layer はファイルのヘッダ name（options.tiler.layer で上書き）。
 //    1 つのハンドラで両方を捌く＝URL の末尾が /z/x/y（.pbf/.mvt 可）で、MapLibre が arrayBuffer を求める要求がタイル。
-// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.js（leaflet 統合と共用）。
-import { resolveInnerUrl, fetchAndDecode, sanitizeProperties, loadGeopbf } from "./modules/geojson-load.js";
-import { fetchGeopbfTiles } from "./modules/tile-load.js";
+// fetch/gzip透過/デコード/サニタイズの実体は modules/geojson-load.ts（leaflet 統合と共用）。
+import { resolveInnerUrl, fetchAndDecode, sanitizeProperties, loadGeopbf } from "./modules/geojson-load.ts";
+import { fetchGeopbfTiles } from "./modules/tile-load.ts";
 import { createTileSource } from "./convert/tilesource.ts";
 
 export { sanitizeProperties, loadGeopbf, createTileSource };

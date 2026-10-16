@@ -1,0 +1,89 @@
+import { GeoPBF } from "../pbf-base.js";
+import { decodeZIP } from "../modules/decodeZIP.ts";
+import type { Feature, Geometry } from "../../types/geopbf.js";
+import type { DecodeRequest, DecodeResponse } from "../worker-msg.ts";
+
+const parseCoords = (s: string): number[][] => s.trim().split(/\s+/).map(t => t.split(",").map(Number).slice(0, 2));
+import { unescXML } from "../modules/xml.ts";
+
+/** zip の中身（File）か、生 .kml を 1 エントリの疑似 zip として包んだ物 */
+interface KmlEntry { name: string; text(): Promise<string> }
+type Entry = File | KmlEntry;
+
+const kmlToFeatures = (text: string, nameToRes: Record<string, Entry>): Feature[] => {
+	const features: Feature[] = [];
+	const placemarks = text.match(/<Placemark[\s\S]*?<\/Placemark>/g) || [];
+	placemarks.forEach(pm => {
+		const props: Record<string, unknown> = {};
+		let id: string | undefined;
+		const nm = pm.match(/<name>(.*?)<\/name>/);
+		if (nm) id = unescXML(nm[1].trim()); // <name> becomes the feature id（往復対称）＋ properties.name にも複写（GeoPBF は id を持たない＝1.0.5・SDK ドッグフードで「名前が消える」）
+		const ds = pm.match(/<description>(.*?)<\/description>/);
+		if (ds) props.description = unescXML(ds[1].trim());
+		const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
+		if (sd) sd.forEach(t => {
+			const m = t.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/);
+			if (m) props[unescXML(m[1])] = unescXML(m[2]);
+		});
+		const dd = pm.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>[\s\S]*?<\/Data>/g);
+		if (dd) dd.forEach(t => {
+			const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
+			if (m) props[unescXML(m[1])] = unescXML(m[2]);
+		});
+		if (id !== undefined && props.name === undefined) props.name = id;
+		const hr = pm.match(/<href>(.*?)<\/href>/);
+		if (hr) {
+			const path = unescXML(hr[1].trim());
+			const res = nameToRes[path];
+			if (res) {
+				// Restore iconName + iconData as the encoder expects (round-trip symmetric).
+				props.iconName = path.replace(/^files\//, '');
+				props.iconData = res;
+			}
+		}
+		// Placemark の中の Point/LineString/Polygon を全部拾う＝MultiGeometry も読む（2026-09-25・B9＝encoder と対称）。
+		// 1 つ＝単体・同種が複数＝Multi*・混在＝GeometryCollection
+		const parts: { type: string; coordinates: unknown }[] = [];
+		for (const m of pm.matchAll(/<(Point|LineString|Polygon)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
+			if (m[1] === "Point") { const c = m[2].match(/<coordinates>([\s\S]*?)<\/coordinates>/); if (c) parts.push({ type: "Point", coordinates: parseCoords(c[1])[0] }); }
+			else if (m[1] === "LineString") { const c = m[2].match(/<coordinates>([\s\S]*?)<\/coordinates>/); if (c) parts.push({ type: "LineString", coordinates: parseCoords(c[1]) }); }
+			else {
+				const outer = m[2].match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
+				const inners = [...m[2].matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
+				if (outer) parts.push({ type: "Polygon", coordinates: [parseCoords(outer[1]), ...inners.map(q => parseCoords(q[1]))] });
+			}
+		}
+		const geometry = (parts.length === 0 ? null : parts.length === 1 ? parts[0]
+			: parts.every(g => g.type === parts[0].type) ? { type: "Multi" + parts[0].type, coordinates: parts.map(g => g.coordinates) }
+			: { type: "GeometryCollection", geometries: parts }) as Geometry | null;
+		if (geometry) features.push({ type: "Feature", id, geometry, properties: props });
+	});
+	return features;
+};
+
+onmessage = async (e: MessageEvent<DecodeRequest>) => {
+	const { file, name, precision } = e.data;
+	// 生 .kml（zip でない）もここで読む＝1 エントリの疑似 zip として扱う（1.0.5〜。旧＝.kmz のみで .kml は「illegal file」）
+	const isKml = /\.kml$/i.test(file.name || "");
+	let entries: Entry[] | null = null;
+	try { entries = isKml ? [{ name: file.name, text: () => file.text() }] : await decodeZIP(file); } catch (err) { console.error("[kmz] unzip failed:", (err as Error)?.message || err); }
+	if (!entries) { postMessage(null); return; }   // 旧＝無応答で geopbf() が永久に解決しなかった
+	const nameToRes: Record<string, Entry> = {};
+	entries.forEach(f => {
+		if (!f.name.endsWith(".kml")) nameToRes[f.name] = f;
+	});
+	const kmlEntries = entries.filter(t => t.name.endsWith(".kml"));
+	const allFeatures: Feature[] = [];
+	for (const entry of kmlEntries) {
+		const text = await entry.text();
+		allFeatures.push(...kmlToFeatures(text, nameToRes));
+	}
+	const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
+	const pbf = new GeoPBF({ name: name || file.name.replace(/\.km[lz]$/i, ""), precision });
+	pbf.setHead(keys, bufs);
+	pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
+	pbf.close();
+	const res = pbf.arrayBuffer;
+	const msg: DecodeResponse = { type: "kmzdec", data: res };
+	postMessage(msg, [res]);
+};
