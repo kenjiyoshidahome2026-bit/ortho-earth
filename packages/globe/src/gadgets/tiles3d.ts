@@ -12,7 +12,7 @@
 //   長く使っていない implicit の部分木は刈る（中身が上がっている子孫がいない時だけ）。content は 1 個目だけ（複数 content は未対応）。
 // metadata（3D Tiles 1.1・2026-10-16）＝schema（直書き／schemaUri）で tileset・groups・tile・content の metadata を読み（tiles3d-metadata.ts）、pick の答えに出す。
 //   implicit は subtree の property table の行（available の中の順位）。意味 TILE_BOUNDING_*／TILE_*_HEIGHT／TILE_GEOMETRIC_ERROR で境界と誤差を上書き。
-// スタイル（2026-10-16）＝地物ごとの color・show を MapLibre の式で（tiles3d-style.ts）。属性＝tileset ＜ group ＜ tile ＜ content の metadata ＜ 地物の属性。
+// スタイル（2026-10-16）＝地物ごとの color・show を MapLibre の式で（tiles3d-style.ts）・Cesium の 3D Tiles Styling は訳して（tiles3d-cesium-style.ts）。属性＝tileset ＜ group ＜ tile ＜ content の metadata ＜ 地物の属性。
 //   頂点色の書き換え（feature state と同じ meshCol・state の color が勝つ）。show:false＝α 0（OPAQUE の束は MASK で上げ直す）。点群（pnts）には効かない。
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
@@ -23,6 +23,7 @@ import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscod
 import { implicitOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../tiles3d-metadata.ts";   // metadata（tileset・group・tile・content）
 import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
+import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform, Tiles3DStyle } from "../../globe.d.ts";
@@ -370,8 +371,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		}
 	};
 	// スタイルを差し替え＝上げてあるタイルは塗り直す（元の色を持っていない・show に MASK が要るのに無い＝読み直す）
+	const styleOf = (spec: Tiles3DStyle | null | undefined) => compileStyle(isCesiumStyle(spec) ? cesiumToSpec(spec) : spec as StyleSpec | null | undefined);   // Cesium 形は訳す（訳せなければ例外）
 	const setStyle = (set: T3dSet, spec: Tiles3DStyle | null | undefined) => {
-		set.styleSpec = spec ?? null; set.style = compileStyle(spec as StyleSpec | null);
+		const st = styleOf(spec);
+		set.styleSpec = spec ?? null; set.style = st;
 		const sty = set.style;
 		for (const n of set.loaded()) {
 			if (n.state !== "ready" || !n.ward) continue;
@@ -511,7 +514,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [...abs.searchParams], pts: null, removed: false, hidden: false,
 				asset: j.asset ?? null, metadata: j.metadata ?? null, extras: j.extras ?? j.asset?.extras ?? null, extensionsUsed: j.extensionsUsed ?? [], extensionsRequired: j.extensionsRequired ?? [] } as T3dSet;   // root の見出し（F5）＝手綱から読める
 			set.scope = await scopeOf(j, abs.href, opts.requestTransform);
-			set.styleSpec = opts.style ?? null; set.style = compileStyle(opts.style as StyleSpec | null | undefined);
+			set.styleSpec = opts.style ?? null; set.style = styleOf(opts.style);
 			set.root = tileNode(j.root, I4, abs.href, set, null, set.scope);
 			if (!set.root.ge) set.root.ge = j.geometricError ?? 0;
 			set.loaded = () => [...set.ready];   // 中身が上がっている節点（load／unload が保つ＝毎回木を歩かない）

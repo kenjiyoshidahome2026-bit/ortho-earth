@@ -846,8 +846,9 @@ export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: n
 	/** スタイル（3D Tiles 1.1・地物ごとの color と show）。setStyle と同じ */
 	style?: Tiles3DStyle | null }
 /** 3D Tiles のスタイル。color・show＝MapLibre の式（["get", 名] は 地物の属性 ＞ content ＞ tile ＞ group ＞ tileset の metadata の順に引く・["id"]＝地物の番号・["feature-state", 名]）。
- *  color の結果＝CSS 色か [r,g,b,a]（0..1）・show の結果＝真偽（false で抜く）。feature state の color はスタイルの色より勝つ。点群（pnts）には効かない */
-export interface Tiles3DStyle { color?: unknown; show?: unknown }
+ *  color の結果＝CSS 色か [r,g,b,a]（0..1）・show の結果＝真偽（false で抜く）。feature state の color はスタイルの色より勝つ。点群（pnts）には効かない。
+ *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
+export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
 	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */

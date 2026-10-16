@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 実描画の検分：3D Tiles 1.1 の implicit tiling（subtree・2026-10-16）。試料＝tests/fixtures/tiles3d-implicit（make.mjs で生成）＝東京駅の ENU の根に 640m 四方の疎な四分木：
      段 0＝赤・段 1＝黄・段 2＝緑・段 3＝青。subtreeLevels 2・availableLevels 4＝子 subtree を 6 個読む。?v=10＝1.0 の 3DTILES_implicit_tiling 拡張の tileset（同じ subtree）。
-     ①maxSSE を極小に＝木の底まで（出すのは 10 枚・subtree 7 個）②metadata（手綱と pick）③画素 ③' スタイル（color・show・外す）：青・緑・黄が出て赤は出ない ④maxSSE を極大に＝根だけ ⑤remove で全部降りる。globe（地域なし）・実時間。 -->
+     ①maxSSE を極小に＝木の底まで（出すのは 10 枚・subtree 7 個）②metadata（手綱と pick）③画素 ③' スタイル（color・show・Cesium の式・外す）：青・緑・黄が出て赤は出ない ④maxSSE を極大に＝根だけ ⑤remove で全部降りる。globe（地域なし）・実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d-implicit</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -57,6 +57,9 @@ run(); async function run() { try {
 		await until(() => h.stats.shown === 10, 20000);
 		c = await shoot(c => c.magenta < 50 && c.cyan > 500);
 		ok("style.show", c.magenta < 50 && c.cyan > 500 && c.yellow < 50, JSON.stringify(c));
+		h.setStyle({ color: { conditions: [["${colorName} === 'yellow'", "color('#ff00ff')"], ["true", "color('cyan')"]] } });   // Cesium の式（conditions）＝MapLibre の式に訳す
+		c = await shoot(c => c.magenta > 200 && c.cyan > 500);
+		ok("style.cesium", c.magenta > 200 && c.cyan > 500 && c.yellow < 50, JSON.stringify(c));
 		h.setStyle(null);
 		c = await shoot(c => c.yellow > 200 && c.cyan < 50);
 		ok("style.off", c.yellow > 200 && c.cyan < 50 && c.magenta < 50 && h.style === null, JSON.stringify(c));
