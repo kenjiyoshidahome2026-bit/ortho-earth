@@ -10,45 +10,54 @@
 import { cameraState } from "@ortho-earth/core";
 import { BODIES, bodyPos, moonGeo, orbitPointsThrough, EPS, AU_KM } from "@ortho-earth/ephem";
 import { gmstAt } from "@ortho-earth/ephem/sun";
+import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
+import type { Body } from "@ortho-earth/ephem";
+import type { SkyNames } from "./sky/names.ts";
+
+type V3 = number[];
+/** 投影した点（device px・w＝clip の w） */
+interface Proj { x: number; y: number; w: number }
+/** 太陽系圏の手綱（render() 毎に frame） */
+export interface SolarSky { frame(cam: CameraPose, W: number, H: number, active: boolean): void }
 
 const KM_PER_UNIT = 6371;                    // engine 単位球＝地球半径
 const AU_UNIT = AU_KM / KM_PER_UNIT;         // 1AU＝約23481単位
 // 和名＝名前表（sky/names.js）が無い時の既定（読込前・古いパック）。UI の言語の名前は createSolarSky の names から
-const NAMES_JA = { sun: "太陽", mercury: "水星", venus: "金星", earth: "地球", moon: "月",
+const NAMES_JA: Record<string, string> = { sun: "太陽", mercury: "水星", venus: "金星", earth: "地球", moon: "月",
 	mars: "火星", jupiter: "木星", saturn: "土星", uranus: "天王星", neptune: "海王星", pluto: "冥王星" };
 const cE = Math.cos(EPS), sE = Math.sin(EPS);
 
 // 黄道XYZ(AU)→engine地球固定XYZ(単位球)。gmst=(cos,sin)。
 // 手順：黄道→赤道（planets.js toRaDec と同式）→engine軸並べ替え（y=北極）→GMST回転（STARS_VS と同式）
-function eclToWorld(p, cg, sg) {
+function eclToWorld(p: ArrayLike<number>, cg: number, sg: number): V3 {
 	const yq = p[1] * cE - p[2] * sE, zq = p[1] * sE + p[2] * cE;
 	const x = p[0] * AU_UNIT, y = zq * AU_UNIT, z = yq * AU_UNIT;
 	return [x * cg + z * sg, y, z * cg - x * sg];
 }
 
-export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.now() }) {   // now＝共通の時計の時刻（#42）
+export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.now() }: { mapEl: HTMLElement; names?: SkyNames | null; now?: () => number }): SolarSky {   // now＝共通の時計の時刻（#42）
 	const cv = document.createElement("canvas");
 	cv.id = "solar-sky";
 	cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
 	const engineCv = mapEl.querySelector("canvas");   // engine 球の直上・ラベル/家具の下
 	engineCv ? engineCv.insertAdjacentElement("afterend", cv) : mapEl.prepend(cv);
-	const ctx = cv.getContext("2d");
-	const orbitCache = {};   // id → { t, pts:[[x,y,z]…黄道AU・日心] }
-	let moonCache = null, moonCacheT = -1;
+	const ctx = cv.getContext("2d")!;
+	const orbitCache: Record<string, { t: number; pts: V3[] }> = {};   // id → { t, pts:[[x,y,z]…黄道AU・日心] }
+	let moonCache: V3[] | null = null, moonCacheT = -1;
 
-	function orbitOf(id, now) {
+	function orbitOf(id: string, now: number): V3[] {
 		// 標本起点＝天体の現在位置（orbitPointsThrough）＝天体は常に折れ線の頂点＝「軌道から浮く」誤差ゼロ。
 		// 起点は天体と一緒に動く＝1時間で焼き直し（地球で0.04°＝弦のたるみはサブピクセルに留まる。192点評価＝軽い）
 		const o = orbitCache[id];
 		if (o && Math.abs(now - o.t) < 36e5) return o.pts;
-		const f = orbitPointsThrough(id, new Date(now), 192), pts = [];
+		const f = orbitPointsThrough(id, new Date(now), 192), pts: V3[] = [];
 		for (let i = 0; i < 192; i++) pts.push([f[i * 3], f[i * 3 + 1], f[i * 3 + 2]]);
 		orbitCache[id] = { t: now, pts };
 		return pts;
 	}
-	function moonOrbitGeo(now) {   // 地心黄道AUの1恒星月（±半月＝継ぎ目は月の対極。ortho-solar の裁きと同じ）
+	function moonOrbitGeo(now: number): V3[] {   // 地心黄道AUの1恒星月（±半月＝継ぎ目は月の対極。ortho-solar の裁きと同じ）
 		if (moonCache && Math.abs(now - moonCacheT) < 216e5) return moonCache;
-		const P = 27.321661 * 864e5, n = 96, raw = [];
+		const P = 27.321661 * 864e5, n = 96, raw: V3[] = [];
 		for (let i = 0; i < n; i++) raw.push(moonGeo(new Date(now - P / 2 + i / n * P)));
 		const B = Math.round(n * 0.15), g = [raw[0][0] - raw[n - 1][0], raw[0][1] - raw[n - 1][1], raw[0][2] - raw[n - 1][2]];
 		for (let k = 1; k <= B; k++) { const i = n - 1 - B + k, w = k / B; raw[i][0] += g[0] * w; raw[i][1] += g[1] * w; raw[i][2] += g[2] * w; }
@@ -57,7 +66,7 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 	}
 
 	// 世界→デバイスpx。mvp は f64 のまま CPU で回す（点数百個＝軽い）。戻り null＝背面
-	function proj(st, w) {
+	function proj(st: CameraState, w: V3): Proj | null {
 		const m = st.mvp;
 		const cw = m[3] * w[0] + m[7] * w[1] + m[11] * w[2] + m[15];
 		if (cw <= 1e-9) return null;
@@ -68,15 +77,15 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 	// 閉じた世界折れ線をニアクリップつきで stroke。点単位の背面捨てだと「片端だけ背面」の区間ごと消え、
 	// カメラ直近を通る線（＝地球自身の公転軌道！）が画面を横切る肝心の一筆を失う。clip座標は世界に線形＝
 	// w=ε 平面との交点は線形補間で厳密（交点の投影は画面外遠方に飛ぶ＝canvas が正しく切る）
-	function strokeWorldLoop(st, pts) {
-		const m = st.mvp, eps = st.camDist * 0.02, n = pts.length, C = new Array(n);
+	function strokeWorldLoop(st: CameraState, pts: V3[]): void {
+		const m = st.mvp, eps = st.camDist * 0.02, n = pts.length, C: V3[] = new Array(n);
 		for (let i = 0; i < n; i++) {
 			const w = pts[i];
 			C[i] = [m[0] * w[0] + m[4] * w[1] + m[8] * w[2] + m[12],
 				m[1] * w[0] + m[5] * w[1] + m[9] * w[2] + m[13],
 				m[3] * w[0] + m[7] * w[1] + m[11] * w[2] + m[15]];
 		}
-		const S = c => [(c[0] / c[2] * 0.5 + 0.5) * st.W, (1 - (c[1] / c[2] * 0.5 + 0.5)) * st.H];
+		const S = (c: V3): [number, number] => [(c[0] / c[2] * 0.5 + 0.5) * st.W, (1 - (c[1] / c[2] * 0.5 + 0.5)) * st.H];
 		ctx.beginPath();
 		let pen = false;
 		for (let i = 0; i < n; i++) {
@@ -96,7 +105,7 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 		ctx.stroke();
 	}
 
-	function frame(cam, W, H, active) {
+	function frame(cam: CameraPose, W: number, H: number, active: boolean): void {
 		if (!active) { if (cv.style.display !== "none") { cv.style.display = "none"; } return; }
 		if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
 		cv.style.display = "";
@@ -109,13 +118,13 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 		const st = cameraState(cam, W, H); st.W = W; st.H = H;
 		const dpr = cam.dpr || 1;
 		const pE = bodyPos("earth", date);   // 日心黄道（AU）
-		const geo = p => eclToWorld([p[0] - pE[0], p[1] - pE[1], p[2] - pE[2]], cg, sg);
+		const geo = (p: ArrayLike<number>): V3 => eclToWorld([p[0] - pE[0], p[1] - pE[1], p[2] - pE[2]], cg, sg);
 		// 開帳の順序（本人裁定 2026-08-10）：まず自分の一本道（地球軌道）だけ。他の惑星の軌道は、
 		// 地球の軌道が「円」として認識できる深さ（太陽が視野に入る頃＝1AUが画面高2.2倍→1.2倍）で開帳。
 		// 肉眼惑星の点は常時（実際の夜空に見える光点＝正直）・望遠鏡級（天王星以遠）の点と名前は開帳と同時
 		const auPx = AU_UNIT * st.focal / Math.max(st.camDist, 1e-9);
 		const others = Math.max(0, Math.min(1, (2.2 * H - auPx) / H));
-		const NAKED = { mercury: 1, venus: 1, mars: 1, jupiter: 1, saturn: 1 };
+		const NAKED: Record<string, number> = { mercury: 1, venus: 1, mars: 1, jupiter: 1, saturn: 1 };
 
 		// 1) 軌道線（日心楕円を地心へ平行移動＝地球の公転軌道は画面中心を貫く）。月軌道は寄っている時だけ
 		ctx.lineWidth = Math.max(1, dpr);
@@ -135,7 +144,7 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 
 		// 2) 天体：太陽=グロー＋芯、惑星=最小px下駄つきの点。地球は engine 球が約3pxを切ってから代打
 		const globePx = st.focal / Math.max(st.camDist, 1e-9);   // engine 地球の見かけ半径(device px)
-		const labels = [];
+		const labels: Array<{ s: Proj; b: Body; r: number; a: number }> = [];
 		for (const b of BODIES) {
 			const isEarth = b.id === "earth";
 			// 点の点灯：太陽・地球・月・肉眼惑星=常時／望遠鏡級（天王星・海王星・冥王星）=軌道の開帳と同時
@@ -172,7 +181,7 @@ export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.no
 		// 置き場は常に天体の右（x＝右端＋5px から書き始める）＝RTL の頁では canvas の既定（direction=inherit・start 揃え）だと
 		// 文字が左へ伸びて円盤に重なる（ar/he/fa/ur・2026-09-19）。並べ方だけ ltr に固定＝アラビア文字の組みは文字列の中で正しく残る
 		ctx.direction = "ltr"; ctx.textAlign = "left";
-		const placed = [];
+		const placed: Array<{ x: number; y: number }> = [];
 		for (const L of labels) {
 			if (L.a < 0.02) continue;
 			if (L.b.id === "moon") {

@@ -8,7 +8,12 @@ const E_RADII_AU = 6378.14 / AU_KM;   // 月の距離の単位（地球赤道半
 
 // 等級 m = H + 5log10(rΔ) + 位相項(α=位相角deg)。係数は Meeus（天文アルゴリズム）＝内合の水星・金星が
 // ちゃんと暗くなる（省略すると内合の水星が-3等の偽輝星になる）。土星の環の寄与(±0.5等)だけは省略。
-const APPEAR = [
+type RGB = [number, number, number];
+/** 地心の赤経・赤緯（度）と距離（AU） */
+export interface RaDec { ra: number; dec: number; dist: number }
+/** 肉眼惑星（name は日本語名＝theater の PLANET_ID の鍵） */
+export interface PlanetPosition { name: string; ra: number; dec: number; mag: number; color: RGB }
+const APPEAR: Array<[name: string, id: string, H: number, phase: (alphaDeg: number) => number, color: RGB]> = [
 	["水星", "mercury", -0.42, a => 0.0380 * a - 0.000273 * a * a + 0.000002 * a * a * a, [0.85, 0.81, 0.77]],
 	["金星", "venus", -4.40, a => 0.0009 * a + 0.000239 * a * a - 0.00000065 * a * a * a, [1.00, 0.97, 0.88]],
 	["火星", "mars", -1.52, a => 0.016 * a, [1.00, 0.60, 0.40]],
@@ -17,14 +22,14 @@ const APPEAR = [
 ];
 
 // 黄道→赤道、直交→RA/Dec(deg)
-function toRaDec([x, y, z]) {
+function toRaDec([x, y, z]: number[]): RaDec {
 	const yq = y * Math.cos(EPS) - z * Math.sin(EPS), zq = y * Math.sin(EPS) + z * Math.cos(EPS);
 	const r = Math.hypot(x, yq, zq);
 	return { ra: Math.atan2(yq, x) * R2D, dec: Math.asin(zq / r) * R2D, dist: r };
 }
 
 // 肉眼惑星5つ＝[{name, ra, dec, mag, color}]（name は日本語名＝theater.js の PLANET_ID の鍵）
-export function planetPositions(date = new Date()) {
+export function planetPositions(date: Date = new Date()): PlanetPosition[] {
 	const E = bodyPos("earth", date);
 	const R = Math.hypot(E[0], E[1], E[2]);   // 太陽-地球距離（位相角の余弦定理用）
 	return APPEAR.map(([name, id, H, ph, color]) => {
@@ -38,13 +43,13 @@ export function planetPositions(date = new Date()) {
 }
 
 // 太陽の地心方向：地球ベクトルの反転
-export function sunPosition(date = new Date()) {
+export function sunPosition(date: Date = new Date()): RaDec {
 	const E = bodyPos("earth", date);
 	return toRaDec([-E[0], -E[1], -E[2]]);
 }
 
 // 月（地心・J2000 黄道＝惑星と同じ系）。視点は宇宙（軌道上の劇場）なので地心でよい＝地上観測の視差（最大~1°）は適用しない
-export function moonPosition(date = new Date()) {
+export function moonPosition(date: Date = new Date()): { name: string; ra: number; dec: number; dist: number; eclLat: number } {
 	const m = moonGeo(date), q = toRaDec(m);
 	return { name: "月", ra: q.ra, dec: q.dec, dist: q.dist / E_RADII_AU, eclLat: Math.asin(m[2] / Math.hypot(m[0], m[1], m[2])) * R2D };   // dist=地球半径単位、eclLat=検証用
 }
