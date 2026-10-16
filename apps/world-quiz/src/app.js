@@ -120,7 +120,7 @@ export async function mountApp(root) {
 	}
 	function ensureMap() {
 		if (S.mapView !== null) return Promise.resolve(S.mapView);
-		return import("./mapview.js").then(m => m.createMapView(mapHost, { lang })).then(v => { S.mapView = v || false; if (!v) mapWrap.hidden = true; else v.resize?.(); return S.mapView; });
+		return import("./mapview.js").then(m => m.createMapView(mapHost, { lang })).then(v => { S.mapView = v || false; if (!v) mapWrap.hidden = true; return S.mapView; });
 	}
 	function renderQuestion() {
 		clearTimeout(advance);
