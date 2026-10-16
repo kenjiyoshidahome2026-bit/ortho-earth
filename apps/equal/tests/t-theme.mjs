@@ -7,8 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { THEMES, THEME_NAMES, normTheme, hex } from "../../../packages/equal/src/themes.js";
-import { PALETTE } from "../../../packages/equal/src/layers.js";
+import { THEMES, THEME_NAMES, normTheme, hex } from "../../../packages/equal/src/themes.ts";
+import { PALETTE } from "../../../packages/equal/src/layers.ts";
 import { WORLD_PAL_THEMES, resolveWorldPal, WORLD_PAL_DEFAULT } from "@ortho-earth/core/worldpal";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -29,14 +29,14 @@ for (const name of THEME_NAMES) {
 
 // ② 同じオブジェクト literal に同じキーを二度書いていない（JS は黙って後勝ち＝上の轍の根）
 {
-	const src = fs.readFileSync(path.join(APP, "../../packages/equal/src/themes.js"), "utf8");
+	const src = fs.readFileSync(path.join(APP, "../../packages/equal/src/themes.ts"), "utf8");
 	let cur = null; const seen = {}; const dup = [];
 	for (const line of src.split("\n")) {
 		const t = line.match(/^\t(\w+): \{/); if (t) { cur = t[1]; seen[cur] = new Set(); continue; }
 		if (!cur) continue;
 		for (const m of line.matchAll(/(?:^|\s)(\w+):/g)) { const k = m[1]; if (seen[cur].has(k)) dup.push(`${cur}.${k}`); seen[cur].add(k); }
 	}
-	ok(dup.length === 0, `themes.js に重複キー → ${dup.join(", ")}`);
+	ok(dup.length === 0, `themes.ts に重複キー → ${dup.join(", ")}`);
 }
 
 // ③ 色は GL が読める形へ変換できる（hex→[r,g,b,a]・0..1）

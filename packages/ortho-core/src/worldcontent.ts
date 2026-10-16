@@ -12,8 +12,24 @@ import { gunzip, isGzip } from "geopbf/gzip";
 
 /** 地物の属性（NE の列は大小が揺れる＝F で引く） */
 export type Props = Record<string, unknown>;
-/** 国の台帳の 1 行（NationDB.items） */
-export interface Nation { key: string; name?: { en?: string; [lang: string]: string | undefined }; coord?: [number, number] | number[]; area?: number; [k: string]: unknown }
+/** 国の台帳の 1 行（NationDB.items）。統計は member 名の列（[最新年, 値…]＝[k] の口）。
+ *  area＝面積 km²（引く側は `> 0` で守る＝欠け・null は「面積なし」）・region＝地域の番号（equal の REGION_NAMES） */
+export interface Nation {
+	key: string;
+	name?: { en?: string; [lang: string]: string | undefined };
+	wiki?: { en?: string; [lang: string]: string | undefined };
+	/** 正式名の雛形（"People's Republic of _"＝_ に英語名） */
+	official?: string;
+	iso?: string[]; ioc?: string; qid?: string;
+	coord?: [number, number] | number[];
+	area?: number | null;
+	region?: number;
+	[k: string]: unknown;
+}
+/** 日本語の国名表の 1 行（NationDB.i18n/ja.json の nations[key]＝CSV の名寄せ用・equal） */
+export interface NationJa { name?: string; wiki?: string; official?: string; [k: string]: unknown }
+/** 国の台帳＝{ items, byKey（key → items の添字）, ja（key → 日本語名）, updated } */
+export interface NationDB { items: Nation[]; byKey: Map<string, number>; ja: Record<string, NationJa>; updated: unknown }
 /** 言語別の名前表（loadI18n の戻り） */
 export interface WorldI18n { nations?: Record<string, { name?: string; [k: string]: unknown }>; cities?: Record<string, { name?: string; [k: string]: unknown }>; [k: string]: unknown }
 
@@ -57,8 +73,8 @@ export const fetchJsonMaybeGz = async (url: string): Promise<unknown> => {
 	return JSON.parse(await (await isGzip(b) ? await gunzip(b) : b).text());
 };
 /** 国の台帳（NationDB）＝{ items, byKey, ja, updated }。ja＝日本語の国名表（CSV の名寄せ用・equal） */
-export async function loadNations(): Promise<{ items: Nation[]; byKey: Map<string, number>; ja: Record<string, unknown>; updated: unknown }> {
-	const [db, ja] = await Promise.all([fetchJsonMaybeGz(WORLD_DATA + "NationDB.json") as Promise<{ items?: Nation[]; updated?: unknown } & Nation[]>, fetchJsonMaybeGz(WORLD_DATA + "NationDB.i18n/ja.json").catch(() => null) as Promise<{ nations?: Record<string, unknown> } | null>]);
+export async function loadNations(): Promise<NationDB> {
+	const [db, ja] = await Promise.all([fetchJsonMaybeGz(WORLD_DATA + "NationDB.json") as Promise<{ items?: Nation[]; updated?: unknown } & Nation[]>, fetchJsonMaybeGz(WORLD_DATA + "NationDB.i18n/ja.json").catch(() => null) as Promise<{ nations?: Record<string, NationJa> } | null>]);
 	const items: Nation[] = db.items || db;
 	return { items, byKey: new Map(items.map((n, i) => [n.key, i])), ja: ja?.nations || {}, updated: db.updated };
 }
