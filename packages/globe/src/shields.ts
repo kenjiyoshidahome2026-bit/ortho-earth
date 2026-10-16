@@ -5,7 +5,7 @@ import type { LabelShield } from "@ortho-earth/core/labels";
 /** 描く先（注記層の 2D 文脈） */
 type Ctx = Parameters<LabelShield["draw"]>[0];
 /** 標識（w×h の CSS px・draw は錨の中心へ） */
-interface Shield { w: number; h: number; draw(g: Ctx, cx: number, cy: number): void }
+type Shield = { w: number; h: number; draw(g: Ctx, cx: number, cy: number): void };
 
 // 国道おにぎり標識：番号(2901)は素の数字でなく本物の標識で描く。
 const SHIELD_H = 20, SHIELD_VW = 455, SHIELD_VH = 435, SHIELD_W = Math.round(SHIELD_H * SHIELD_VW / SHIELD_VH);

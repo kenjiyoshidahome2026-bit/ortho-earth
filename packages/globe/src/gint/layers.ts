@@ -588,7 +588,7 @@ const bakePending = new Map();   // id → { key, raw, meta, onDone, cancelled }
 const legacyGintSend = p => { renderer.set("gint", (p.layer != null || Object.keys(p.meta ?? {}).length) ? { ...p.raw, ...p.meta } : p.raw, p.key, p.layer); p.onDone?.(); };   // 層指名 or meta あり（user の minZoom）＝meta を同期経路にも運ぶ
 function ensureBakeWorker() {
 	if (bakeWorker !== null) return bakeWorker;
-	try { bakeWorker = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "gintbake" }); }
+	try { bakeWorker = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "gintbake" }); }
 	catch (e) { console.warn("[gint] bake worker start failed = using sync path", e); return (bakeWorker = false); }
 	bakeWorker.onmessage = e => {
 		const d = e.data, p = bakePending.get(d.id);

@@ -3,7 +3,8 @@
 // 違いは評価の入力＝gint は「fid → properties の配列」、こちらは「チャンクごとの列」＝paint が参照する列だけ読んで行ごとの小さな props を組む。
 // 色の切り替えで幾何は作り直さない＝表（テクスチャ）だけ差し替える。
 import { buildFidStyle } from "@ortho-earth/core/fidstyle";
-import { TYPE_NAMES } from "./flat.js";
+import { TYPE_NAMES } from "./flat.ts";
+import type { FidFeature } from "@ortho-earth/core/fidstyle";
 
 // 既定の見た目（paint 未設定）＝gint の既定色（面 #FF6B35・線 #00B4D8）に寄せる。塗りは薄く（境界を 2 回描く層なので濃いと重なりが目立つ）
 export const DEFAULT_PAINT = {
@@ -15,8 +16,8 @@ export const DEFAULT_PAINT = {
 };
 
 // 式が参照する列名（["get", name]・["has", name]・["get", name, obj] の name が文字列の時）
-export function paintColumns(paint, filter, out = new Set()) {
-	const walk = e => {
+export function paintColumns(paint: unknown, filter: unknown, out: Set<string> = new Set()): Set<string> {
+	const walk = (e: unknown): void => {
 		if (!Array.isArray(e)) return;
 		if ((e[0] === "get" || e[0] === "has") && typeof e[1] === "string" && e.length === 2) out.add(e[1]);
 		for (let i = 1; i < e.length; i++) walk(e[i]);
@@ -27,10 +28,10 @@ export function paintColumns(paint, filter, out = new Set()) {
 }
 
 // cols＝{ 列名: 値[]（チャンク順）}・types＝Uint8Array（チャンク順）→ Uint32Array(n*4)
-export function tableFor({ paint, filter = null, zoom = 0, cols = {}, types, n, origin }) {
-	const names = Object.keys(cols), feats = new Array(n);
+export function tableFor({ paint, filter = null, zoom = 0, cols = {}, types, n, origin }: { paint?: Record<string, unknown> | null; filter?: unknown; zoom?: number; cols?: Record<string, ArrayLike<unknown>>; types: ArrayLike<number>; n: number; origin?: string }): Uint32Array {
+	const names = Object.keys(cols), feats: FidFeature[] = new Array(n);
 	for (let i = 0; i < n; i++) {
-		const p = {};
+		const p: Record<string, unknown> = {};
 		for (const nm of names) { const v = cols[nm][i]; if (v !== null && v !== undefined) p[nm] = v; }
 		feats[i] = { properties: p, geometry: { type: TYPE_NAMES[types[i]] ?? "" } };
 	}

@@ -249,7 +249,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		cur.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${cur!.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
 	};
 	const syncAnim = () => { if (!cur) return; const a = cur.animation; stopLoop(); applyPose(a ? a.time : 0); if (a?.playing && cur.rig && typeof requestAnimationFrame === "function") animRaf = requestAnimationFrame(tick); };
-	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
+	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
 	const rpc = pool.rpc;
 	const clear = () => { stopLoop(); if (cur) { setMesh(cur.name, null); cur = null; } };
 	// 押し出しの今＝slot → { name, stats, used }（模型とは別スロット＝GLB と並べて立てられる）。

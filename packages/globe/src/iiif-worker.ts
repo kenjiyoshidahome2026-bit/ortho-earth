@@ -9,37 +9,44 @@
 //        画像の外・枠（resourceMask）の外は透明。IIIF タイルは解いた画素で 128 枚まで控える（古い順に捨てる）。
 import { georefMapping, iiifImage, infoUrl } from "geopbf/georef";
 
+type Georeference = Parameters<typeof georefMapping>[0];
+type IiifInfo = Parameters<typeof iiifImage>[0];
+/** 解いた IIIF タイルの画素 */
+interface TilePixels { w: number; h: number; d: Uint8ClampedArray }
+/** openMap の戻り＝1 枚の地図 */
+type OpenedMap = Awaited<ReturnType<typeof openMap>>;
+
 const TS = 256, G = 16, CACHE_MAX = 128;
 
-const tileCache = new Map();   // url → Promise<{ w, h, d }>（LRU＝Map の順）
-function getTile(url) {
+const tileCache = new Map<string, Promise<TilePixels>>();   // url → Promise<{ w, h, d }>（LRU＝Map の順）
+function getTile(url: string): Promise<TilePixels> {
 	let p = tileCache.get(url);
 	if (p) { tileCache.delete(url); tileCache.set(url, p); return p; }
 	p = fetch(url).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`); return r.blob(); }).then(createImageBitmap).then(bm => {
-		const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true });
+		const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true })!;
 		g.drawImage(bm, 0, 0); bm.close?.();
 		return { w: cv.width, h: cv.height, d: g.getImageData(0, 0, cv.width, cv.height).data };
 	});
 	p.catch(() => tileCache.delete(url));
 	tileCache.set(url, p);
-	while (tileCache.size > CACHE_MAX) tileCache.delete(tileCache.keys().next().value);
+	while (tileCache.size > CACHE_MAX) tileCache.delete(tileCache.keys().next().value!);
 	return p;
 }
 // 点が多角形の内か（偶奇）
-const inside = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+const inside = (x: number, y: number, poly: number[][]) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
 
-async function openMap(g) {
+async function openMap(g: Georeference) {
 	const iu = infoUrl(g.image.id);
-	const info = await fetch(iu).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).catch(e => { throw new Error(`iiif: cannot read ${iu} (${e.message || e})`); });
+	const info = await fetch(iu).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<IiifInfo>; }).catch(e => { throw new Error(`iiif: cannot read ${iu} (${e.message || e})`); });
 	const img = iiifImage(info, { base: iu });
 	const gg = { ...g, image: { ...g.image, width: g.image.width || img.width, height: g.image.height || img.height } };
 	const m = georefMapping(gg);
-	const [x0, y0, x1, y1] = m.worldBox;
+	const [x0, y0, x1, y1] = m.worldBox!;
 	const nativeZ = Math.log2(Math.max(img.width, img.height) / Math.max(x1 - x0, y1 - y0) / TS);
-	return { img, m, box: m.worldBox, nativeZ, mask: m.mask, residuals: m.residuals, attribution: img.attribution };
+	return { img, m, box: m.worldBox!, nativeZ, mask: m.mask, residuals: m.residuals, attribution: img.attribution };
 }
 
-async function renderMap(M, z, tx, ty, o) {
+async function renderMap(M: OpenedMap, z: number, tx: number, ty: number, o: Uint8ClampedArray): Promise<boolean> {
 	const n = 2 ** z, bx0 = tx / n, by0 = ty / n, px = 1 / (n * TS);
 	const [mx0, my0, mx1, my1] = M.box;
 	if (bx0 + 1 / n < mx0 || bx0 > mx1 || by0 + 1 / n < my0 || by0 > my1) return false;
@@ -58,12 +65,12 @@ async function renderMap(M, z, tx, ty, o) {
 	const L = M.img.levelFor(foot);
 	const need = M.img.tilesIn(L, [rx0 - 2 * L.scale, ry0 - 2 * L.scale, rx1 + 2 * L.scale, ry1 + 2 * L.scale]);
 	if (!need.length) return false;
-	const tiles = new Map();
-	await Promise.all(need.map(async ([cc, rr]) => { const t = M.img.tile(L, cc, rr); try { tiles.set(`${cc},${rr}`, { t, px: await getTile(t.url) }); } catch (e) { console.warn("[iiif] tile", t.url, e.message || e); } }));
+	const tiles = new Map<string, { t: ReturnType<typeof M.img.tile>; px: TilePixels }>();
+	await Promise.all(need.map(async ([cc, rr]) => { const t = M.img.tile(L, cc, rr); try { tiles.set(`${cc},${rr}`, { t, px: await getTile(t.url) }); } catch (e) { console.warn("[iiif] tile", t.url, (e as Error).message || e); } }));
 	// 段の画素 (ix, iy) の色（タイルを跨いで引く）
 	const lw = Math.ceil(W / L.scale), lh = Math.ceil(H / L.scale);
 	const tw = L.tiled ? L.tw : lw, th = L.tiled ? L.th : lh;
-	const pix = (ix, iy, out) => {
+	const pix = (ix: number, iy: number, out: number[]) => {
 		ix = Math.max(0, Math.min(lw - 1, ix)); iy = Math.max(0, Math.min(lh - 1, iy));
 		const e = tiles.get(L.tiled ? `${(ix / tw) | 0},${(iy / th) | 0}` : "0,0"); if (!e) return false;
 		const P = e.px, lx = L.tiled ? ix - ((ix / tw) | 0) * tw : Math.round(ix * P.w / lw), ly = L.tiled ? iy - ((iy / th) | 0) * th : Math.round(iy * P.h / lh);
@@ -90,20 +97,20 @@ async function renderMap(M, z, tx, ty, o) {
 	return any;
 }
 
-self.onmessage = async e => {
-	const m = e.data || {};
+self.onmessage = async (e: MessageEvent) => {
+	const m = (e.data || {}) as { type?: string; maps?: Georeference[]; name?: string; attribution?: string; fallbackAttribution?: string; port: MessagePort };
 	if (m.type !== "open") return;
 	try {
 		if (!m.maps?.length) throw new Error("iiif: no georeferenced image in the annotation");
 		const maps = await Promise.all(m.maps.map(openMap));
 		const box = maps.reduce((b, M) => [Math.min(b[0], M.box[0]), Math.min(b[1], M.box[1]), Math.max(b[2], M.box[2]), Math.max(b[3], M.box[3])], [Infinity, Infinity, -Infinity, -Infinity]);
-		const toLL = ([x, y]) => [x * 360 - 180, Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI];
+		const toLL = ([x, y]: number[]) => [x * 360 - 180, Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI];
 		const [w, n] = toLL([box[0], box[1]]), [ee, s] = toLL([box[2], box[3]]);
 		const attribution = m.attribution || maps.map(M => M.attribution).filter(Boolean).join(" · ") || m.fallbackAttribution || null;   // 注記/manifest → info.json → ホスト名
 		const info = { tileSize: TS, minZoom: 0, maxZoom: Math.max(0, Math.min(22, Math.ceil(Math.max(...maps.map(M => M.nativeZ))))), bbox: [w, s, ee, n], name: m.name || "iiif", attribution,
 			residuals: maps.map(M => M.residuals) };   // 基準点の残差（メートル・地図ごと）＝main が stats に出す
-		const out = new OffscreenCanvas(TS, TS), og = out.getContext("2d");
-		const render = async (z, x, y) => {
+		const out = new OffscreenCanvas(TS, TS), og = out.getContext("2d")!;
+		const render = async (z: number, x: number, y: number) => {
 			const img = og.createImageData(TS, TS);
 			let any = false;
 			for (const M of maps) if (await renderMap(M, z, x, y, img.data)) any = true;   // 後ろの地図が上（注記の並び順）
@@ -112,15 +119,15 @@ self.onmessage = async e => {
 			return out.transferToImageBitmap();
 		};
 		const port = m.port;
-		port.onmessage = async ev => {
-			const q = ev.data || {};
+		port.onmessage = async (ev: MessageEvent) => {
+			const q = (ev.data || {}) as { id?: number; z: number; x: number; y: number; abort?: boolean };
 			if (q.abort || q.id == null) return;
 			try { const bmp = await render(q.z, q.x, q.y); port.postMessage({ id: q.id, bitmap: bmp }, bmp ? [bmp] : []); }
-			catch (err) { port.postMessage({ id: q.id, error: String(err && err.message || err) }); }
+			catch (err) { port.postMessage({ id: q.id, error: String(err && (err as Error).message || err) }); }
 		};
 		port.postMessage({ type: "info", info });
 		self.postMessage({ type: "opened", info });
 	} catch (err) {
-		self.postMessage({ type: "error", error: String(err && err.message || err) });
+		self.postMessage({ type: "error", error: String(err && (err as Error).message || err) });
 	}
 };

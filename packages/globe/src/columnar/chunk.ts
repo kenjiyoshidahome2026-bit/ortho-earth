@@ -15,17 +15,30 @@
 //     小さな面の塗りが低ズームで消えない。間引きが 25% に届かない段は作らない（前の段を使う）
 //   ・±180° を跨ぐ feature（辺の経度差 > 180°）は負の経度に 360 を足して連続にする（GeoParquet の外来データ向け・GeoPBF は書き込み時に切断済み）
 import earcut from "earcut";
-import { K } from "./flat.js";
+import { K } from "./flat.ts";
+import type { Flat } from "./flat.ts";
+
+/** 線（lines）・点（points）の配列 */
+export interface ChunkLines { pos: Float32Array<ArrayBuffer>; feat: Uint32Array<ArrayBuffer> }
+/** 面（fills）の配列 */
+export interface ChunkFills { pos: Float32Array<ArrayBuffer>; index: Uint32Array<ArrayBuffer>; feat: Uint32Array<ArrayBuffer> }
+/** 1 段（zoom 降順・先頭＝Infinity＝全解像度） */
+export interface ChunkLevel { zoom: number; lines: ChunkLines | null; fills: ChunkFills | null; verts: number; keep?: boolean }
+/** 列チャンク（上の注の形） */
+export interface ColumnarChunk { g: number; n: number; bbox: number[]; rows: Int32Array<ArrayBuffer>; types: Uint8Array<ArrayBuffer>; fbbox: Float64Array<ArrayBuffer>; origin: number[]; points: ChunkLines | null; levels: ChunkLevel[]; pending: boolean; _verts: number | null }
+/** buildChunk／buildLevels の opts */
+export interface BuildChunkOptions { g?: number; rAx?: number; lods?: number[]; maxEdgeDeg?: number; unwrap?: boolean; zoom?: number | null }
+type XY = Float64Array | number[];
 
 const D2R = Math.PI / 180;
 export const LOD_ZOOMS = [12, 9, 6];
 export const PART_END = 0x80000000;
 
-class GrowF32 { constructor(c = 4096) { this.a = new Float32Array(c); this.n = 0; } push3(x, y, z) { if (this.n + 3 > this.a.length) { const b = new Float32Array(Math.max(this.a.length * 2, this.n + 3)); b.set(this.a.subarray(0, this.n)); this.a = b; } this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z; } done() { return this.a.slice(0, this.n); } }
-class GrowU32 { constructor(c = 1024) { this.a = new Uint32Array(c); this.n = 0; } push(v) { if (this.n === this.a.length) { const b = new Uint32Array(this.n * 2); b.set(this.a); this.a = b; } this.a[this.n++] = v; } done() { return this.a.slice(0, this.n); } }
+class GrowF32 { declare a: Float32Array<ArrayBuffer>; declare n: number; constructor(c = 4096) { this.a = new Float32Array(c); this.n = 0; } push3(x: number, y: number, z: number) { if (this.n + 3 > this.a.length) { const b = new Float32Array(Math.max(this.a.length * 2, this.n + 3)); b.set(this.a.subarray(0, this.n)); this.a = b; } this.a[this.n++] = x; this.a[this.n++] = y; this.a[this.n++] = z; } done() { return this.a.slice(0, this.n); } }
+class GrowU32 { declare a: Uint32Array<ArrayBuffer>; declare n: number; constructor(c = 1024) { this.a = new Uint32Array(c); this.n = 0; } push(v: number) { if (this.n === this.a.length) { const b = new Uint32Array(this.n * 2); b.set(this.a); this.a = b; } this.a[this.n++] = v; } done() { return this.a.slice(0, this.n); } }
 
 // 経緯度 → 単位球 xyz（quakes/parquet-view の toPos と同式・rAx＝楕円体なら b/a）
-export function toXYZ(lon, lat, rAx, out = [0, 0, 0]) {
+export function toXYZ(lon: number, lat: number, rAx: number, out: number[] = [0, 0, 0]): number[] {
 	const a = lon * D2R, b = lat * D2R;
 	let sb = Math.sin(b), cb = Math.cos(b);
 	if (rAx !== 1) { const w = Math.hypot(cb, rAx * sb); sb = rAx * sb / w; cb = cb / w; }
@@ -34,7 +47,7 @@ export function toXYZ(lon, lat, rAx, out = [0, 0, 0]) {
 }
 
 // ±180° 跨ぎの連続化（feature 単位・xy を書き換える）。戻り＝跨いだ feature 数
-export function unwrapAntimeridian(flat) {
+export function unwrapAntimeridian(flat: Flat): number {
 	const { xy, featPart, partStart } = flat;
 	let hit = 0;
 	for (let f = 0; f < flat.n; f++) {
@@ -52,7 +65,7 @@ export function unwrapAntimeridian(flat) {
 }
 
 // feature ごとの bbox（連続化後の経緯度）
-export function featureBboxes(flat) {
+export function featureBboxes(flat: Flat): Float64Array<ArrayBuffer> {
 	const { xy, featPart, partStart } = flat, out = new Float64Array(flat.n * 4);
 	for (let f = 0; f < flat.n; f++) {
 		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -63,10 +76,10 @@ export function featureBboxes(flat) {
 }
 
 // 1 パートの間引き（zoom の格子・度）。閉じた輪＝closed。戻り＝Float64Array [x,y,…]（3 点未満に潰れた輪は bbox の四角・線は両端）
-function simplifyPart(xy, s, e, cell, closed) {
+function simplifyPart(xy: Float64Array, s: number, e: number, cell: number, closed: boolean): Float64Array | null {
 	const n = e - s;
 	if (n === 0) return null;
-	const out = [];
+	const out: number[] = [];
 	let lcx = Math.floor(xy[s * 2] / cell), lcy = Math.floor(xy[s * 2 + 1] / cell);
 	out.push(xy[s * 2], xy[s * 2 + 1]);
 	for (let v = s + 1; v < e; v++) {
@@ -88,20 +101,20 @@ function simplifyPart(xy, s, e, cell, closed) {
 }
 
 // 1 段ぶんの詰め替え（level＝{ zoom }・cell＝null なら全解像度）
-function packLevel(flat, cell, maxEdgeDeg, rAx, O) {
+function packLevel(flat: Flat, cell: number | null, maxEdgeDeg: number, rAx: number, O: number[]) {
 	const { xy, featPart, partKind, partStart } = flat;
 	const lpos = new GrowF32(), lfeat = new GrowU32(), fpos = new GrowF32(), fidx = new GrowU32(), ffeat = new GrowU32();
 	const tmp = [0, 0, 0];
 	let fillVerts = 0, linesN = 0, fillsN = 0;
-	const emitLineVertex = (x, y, f, end) => { toXYZ(x, y, rAx, tmp); lpos.push3(tmp[0] - O[0], tmp[1] - O[1], tmp[2] - O[2]); lfeat.push(end ? (f | PART_END) >>> 0 : f); };
+	const emitLineVertex = (x: number, y: number, f: number, end: boolean) => { toXYZ(x, y, rAx, tmp); lpos.push3(tmp[0] - O[0], tmp[1] - O[1], tmp[2] - O[2]); lfeat.push(end ? (f | PART_END) >>> 0 : f); };
 	// 辺の細分（両端を含まず中間点だけ）を coords 配列（閉じた輪なら末尾→先頭も）へ展開
-	const subdivided = (c, closed) => {
+	const subdivided = (c: XY, closed: boolean): XY => {
 		if (!(maxEdgeDeg > 0)) return c;
 		const m = c.length / 2;
 		let need = false;
 		for (let i = 0; i < m; i++) { const j = i + 1 < m ? i + 1 : (closed ? 0 : -1); if (j < 0) break; if (Math.abs(c[j * 2] - c[i * 2]) > maxEdgeDeg || Math.abs(c[j * 2 + 1] - c[i * 2 + 1]) > maxEdgeDeg) { need = true; break; } }
 		if (!need) return c;   // 細分不要＝写さない（速さの肝：筆級のデータは全部ここ）
-		const out = [];
+		const out: number[] = [];
 		for (let i = 0; i < m; i++) {
 			const x0 = c[i * 2], y0 = c[i * 2 + 1];
 			out.push(x0, y0);
@@ -112,21 +125,21 @@ function packLevel(flat, cell, maxEdgeDeg, rAx, O) {
 		}
 		return out;
 	};
-	const coordsOf = (p, closed) => {
+	const coordsOf = (p: number, closed: boolean) => {
 		const s = partStart[p], e = partStart[p + 1];
 		if (cell == null) return subdivided(xy.subarray(s * 2, e * 2), closed);
 		const c = simplifyPart(xy, s, e, cell, closed);
 		return c ? subdivided(c, closed) : null;
 	};
-	const emitLine = (c, f, closed) => {
+	const emitLine = (c: XY, f: number, closed: boolean) => {
 		const m = c.length / 2;
 		for (let i = 0; i < m; i++) emitLineVertex(c[i * 2], c[i * 2 + 1], f, !closed && i === m - 1);
 		if (closed) emitLineVertex(c[0], c[1], f, true);
 		linesN++;
 	};
-	const flushPoly = (rings, f) => {
+	const flushPoly = (rings: XY[], f: number) => {
 		if (!rings.length) return;
-		let flatXY, holes = null;
+		let flatXY: XY, holes: number[] | null = null;
 		if (rings.length === 1) flatXY = rings[0];
 		else {
 			let total = 0; for (const r of rings) total += r.length;
@@ -141,7 +154,7 @@ function packLevel(flat, cell, maxEdgeDeg, rAx, O) {
 		fillVerts += nv; fillsN++;
 	};
 	for (let f = 0; f < flat.n; f++) {
-		let rings = [];
+		let rings: XY[] = [];
 		for (let p = featPart[f]; p < featPart[f + 1]; p++) {
 			const kind = partKind[p];
 			if (kind === K.POINT) continue;
@@ -160,16 +173,16 @@ function packLevel(flat, cell, maxEdgeDeg, rAx, O) {
 }
 
 // 度／画素（256px 世界・正射スケール＝緯度に依らない）
-export const cellOfZoom = z => 360 / (256 * Math.pow(2, z));
+export const cellOfZoom = (z: number) => 360 / (256 * Math.pow(2, z));
 
 // 段の zoom 列（降順・先頭＝Infinity＝全解像度）
-const levelZooms = lods => [Infinity, ...[...lods].sort((a, b) => b - a)];
+const levelZooms = (lods: Iterable<number>) => [Infinity, ...[...lods].sort((a, b) => b - a)];
 // 今の zoom に要る段＝「zoom ≥ 今の zoom の最小の段」
-export const levelZoomFor = (lods, zoom) => { const zs = levelZooms(lods); let pick = Infinity; for (const z of zs) if (z >= zoom) pick = z; return pick; };
+export const levelZoomFor = (lods: Iterable<number>, zoom: number) => { const zs = levelZooms(lods); let pick = Infinity; for (const z of zs) if (z >= zoom) pick = z; return pick; };
 
 // flat → 列チャンク。opts: { g, rAx=1, lods=LOD_ZOOMS, maxEdgeDeg=1, unwrap=true, zoom }
 // zoom を渡すと**その zoom に要る段だけ**作って返す（最初の 1 枚を最短に）＝残りは buildLevels() で後から（chunk.pending＝true）
-export function buildChunk(flat, opts = {}) {
+export function buildChunk(flat: Flat, opts: BuildChunkOptions = {}): ColumnarChunk {
 	const { g = 0, rAx = 1, lods = LOD_ZOOMS, maxEdgeDeg = 1, zoom = null } = opts;
 	if (opts.unwrap !== false) unwrapAntimeridian(flat);
 	const fbbox = featureBboxes(flat);
@@ -178,14 +191,14 @@ export function buildChunk(flat, opts = {}) {
 	if (!(w <= e)) { w = s = e = n = 0; }
 	const O = toXYZ((w + e) / 2, (s + n) / 2, rAx);
 	// 点
-	let points = null;
+	let points: ChunkLines | null = null;
 	{
 		const { xy, featPart, partKind, partStart } = flat, pos = new GrowF32(), feat = new GrowU32(), tmp = [0, 0, 0];
 		let m = 0;
 		for (let f = 0; f < flat.n; f++) for (let p = featPart[f]; p < featPart[f + 1]; p++) if (partKind[p] === K.POINT) { const v = partStart[p]; toXYZ(xy[v * 2], xy[v * 2 + 1], rAx, tmp); pos.push3(tmp[0] - O[0], tmp[1] - O[1], tmp[2] - O[2]); feat.push(f); m++; }
 		if (m) points = { pos: pos.done(), feat: feat.done() };
 	}
-	const chunk = { g, n: flat.n, bbox: [w, s, e, n], rows: flat.rows.slice(), types: flat.types.slice(), fbbox, origin: O, points, levels: [], pending: false, _verts: null };   // rows/types は写し＝transfer で flat 側が detach しない
+	const chunk: ColumnarChunk = { g, n: flat.n, bbox: [w, s, e, n], rows: flat.rows.slice(), types: flat.types.slice(), fbbox, origin: O, points, levels: [], pending: false, _verts: null };   // rows/types は写し＝transfer で flat 側が detach しない
 	if (zoom != null) {
 		const zL = levelZoomFor(lods, zoom);
 		const L = packLevel(flat, zL === Infinity ? null : cellOfZoom(zL), maxEdgeDeg, rAx, O);
@@ -197,8 +210,8 @@ export function buildChunk(flat, opts = {}) {
 	return chunk;
 }
 // 残りの段を作る（buildChunk(…, { zoom }) の後）。戻り＝足した段（zoom 降順に並べ直した chunk.levels も更新・pending＝false）
-export function buildLevels(flat, chunk, opts = {}) {
-	const { rAx = 1, lods = LOD_ZOOMS, maxEdgeDeg = 1 } = opts, O = chunk.origin, have = new Map(chunk.levels.map(L => [L.zoom, L])), added = [];
+export function buildLevels(flat: Flat, chunk: ColumnarChunk, opts: BuildChunkOptions = {}): ChunkLevel[] {
+	const { rAx = 1, lods = LOD_ZOOMS, maxEdgeDeg = 1 } = opts, O = chunk.origin, have = new Map(chunk.levels.map(L => [L.zoom, L])), added: ChunkLevel[] = [];
 	let full = have.get(Infinity);
 	if (!full) { const L = packLevel(flat, null, maxEdgeDeg, rAx, O); full = { zoom: Infinity, lines: L.lines, fills: L.fills, verts: L.verts }; added.push(full); have.set(Infinity, full); }
 	if (full.lines || full.fills) {
@@ -218,21 +231,21 @@ export function buildLevels(flat, chunk, opts = {}) {
 }
 
 // transfer 用の buffer 一覧
-export function chunkBuffers(c) {
-	const out = [c.rows.buffer, c.types.buffer];   // fbbox は複製で運ぶ（worker の識別が使い続ける）
+export function chunkBuffers(c: ColumnarChunk): ArrayBuffer[] {
+	const out: ArrayBuffer[] = [c.rows.buffer, c.types.buffer];   // fbbox は複製で運ぶ（worker の識別が使い続ける）
 	if (c.points) out.push(c.points.pos.buffer, c.points.feat.buffer);
 	out.push(...levelBuffers(c.levels));
 	return [...new Set(out)];
 }
 // 写し＝chunkBuffers が渡す buffer を全部自前に持つ（transfer の後も worker 側で読める・IDB の構造化複製が通る）。fbbox/origin/bbox は渡さないので共有
-export const copyLevel = L => ({ zoom: L.zoom, verts: L.verts, lines: L.lines ? { pos: L.lines.pos.slice(), feat: L.lines.feat.slice() } : null, fills: L.fills ? { pos: L.fills.pos.slice(), index: L.fills.index.slice(), feat: L.fills.feat.slice() } : null });
-export function copyChunk(c) {
+export const copyLevel = (L: ChunkLevel): ChunkLevel => ({ zoom: L.zoom, verts: L.verts, lines: L.lines ? { pos: L.lines.pos.slice(), feat: L.lines.feat.slice() } : null, fills: L.fills ? { pos: L.fills.pos.slice(), index: L.fills.index.slice(), feat: L.fills.feat.slice() } : null });
+export function copyChunk(c: ColumnarChunk): ColumnarChunk {
 	return { ...c, rows: c.rows.slice(), types: c.types.slice(), points: c.points ? { pos: c.points.pos.slice(), feat: c.points.feat.slice() } : null, levels: c.levels.map(copyLevel) };
 }
-export function levelBuffers(levels) {
-	const out = [];
+export function levelBuffers(levels: ChunkLevel[]): ArrayBuffer[] {
+	const out: ArrayBuffer[] = [];
 	for (const L of levels) { if (L.lines) out.push(L.lines.pos.buffer, L.lines.feat.buffer); if (L.fills) out.push(L.fills.pos.buffer, L.fills.index.buffer, L.fills.feat.buffer); }
 	return out;
 }
 // 目安のバイト数（常駐の予算・GPU 概算）
-export function chunkBytes(c) { let b = c.rows.byteLength + c.fbbox.byteLength; if (c.points) b += c.points.pos.byteLength + c.points.feat.byteLength; for (const L of c.levels) { if (L.lines) b += L.lines.pos.byteLength + L.lines.feat.byteLength; if (L.fills) b += L.fills.pos.byteLength + L.fills.index.byteLength + L.fills.feat.byteLength; } return b; }
+export function chunkBytes(c: ColumnarChunk): number { let b = c.rows.byteLength + c.fbbox.byteLength; if (c.points) b += c.points.pos.byteLength + c.points.feat.byteLength; for (const L of c.levels) { if (L.lines) b += L.lines.pos.byteLength + L.lines.feat.byteLength; if (L.fills) b += L.fills.pos.byteLength + L.fills.index.byteLength + L.fills.feat.byteLength; } return b; }

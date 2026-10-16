@@ -14,17 +14,47 @@
 //       close?() }
 //   });
 // 読み手の仕事は「フラットな幾何と列を返す」まで。単位球 xyz・三角形分割・LOD・fid 表は columnar 側で共通にやる。
-const sources = [];
-export function registerColumnarSource(def) {
+import type { Flat } from "../flat.ts";
+import type { ShareStats } from "../share.ts";
+import type { Bbox } from "../../../globe.d.ts";
+
+/** 読み手の meta（上の注の形・読み手ごとの追加は [k] で） */
+export interface ColumnarMeta {
+	name: string; rows: number; chunks: { bbox: Bbox | null; rows: number; bytes: number }[]; columns: { name: string; numeric: boolean }[];
+	range: Record<string, [number, number]>; bbox: Bbox | null; types: string[]; crs?: string; precision?: number | null;
+	size?: number; etag?: string | null; wholeFile?: boolean; kind?: string; share: ShareStats | null; [k: string]: unknown;
+}
+type Awaitable<T> = T | Promise<T>;
+/** 列（チャンク順の値の配列） */
+export type ColumnarColumns = Record<string, ArrayLike<unknown>>;
+/** open の戻り＝読み手 */
+export interface ColumnarReader {
+	meta: ColumnarMeta;
+	select(bbox: readonly number[] | null | undefined): number[];
+	readGeometry(g: number): Awaitable<Flat>;
+	readColumns(g: number, names: string[], rows?: ArrayLike<number> | null): Awaitable<ColumnarColumns>;
+	readProps(g: number, row: number): Awaitable<Record<string, unknown>>;
+	range?(name: string): Awaitable<[number, number] | null>;
+	metrics?(): unknown;
+	close?(): void;
+}
+/** open の ctx */
+export interface ColumnarOpenContext { name?: string; rAx?: number; chunkFeatures?: number; chunkVertices?: number; order?: string }
+/** 源＝URL・バイト列・Blob・GeoPBF の写し（{ arrayBuffer }） */
+export type ColumnarInput = string | ArrayBuffer | Uint8Array | Blob | { arrayBuffer: ArrayBuffer; name?: string };
+/** 読み手の定義（registerColumnarSource が受ける形） */
+export interface ColumnarSourceDef { name: string; test(o: { name: string; head: Uint8Array }): boolean; open(src: ColumnarInput, ctx?: ColumnarOpenContext): Promise<ColumnarReader> }
+const sources: ColumnarSourceDef[] = [];
+export function registerColumnarSource(def: ColumnarSourceDef): ColumnarSourceDef {
 	if (!def?.name || typeof def.open !== "function" || typeof def.test !== "function") throw new Error("registerColumnarSource: { name, test, open } required");
 	const i = sources.findIndex(s => s.name === def.name);
 	if (i >= 0) sources[i] = def; else sources.push(def);
 	return def;
 }
 export const listColumnarSources = () => sources.map(s => s.name);
-export const hasColumnarSource = name => sources.some(s => s.name === name);
+export const hasColumnarSource = (name: string) => sources.some(s => s.name === name);
 // 名指し（hint）か test で選ぶ。head＝先頭バイト（Uint8Array・無ければ空）
-export function findColumnarSource({ name = "", head = new Uint8Array(0), hint = null } = {}) {
+export function findColumnarSource({ name = "", head = new Uint8Array(0), hint = null }: { name?: string; head?: Uint8Array; hint?: string | null } = {}): ColumnarSourceDef | null {
 	if (hint) return sources.find(s => s.name === hint) ?? null;
 	for (const s of sources) { try { if (s.test({ name, head })) return s; } catch { /* 名乗り損ね＝次へ */ } }
 	return null;

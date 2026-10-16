@@ -11,7 +11,7 @@ import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
 // terrain の標高ローダ（core の elevation）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
-setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
+setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない

@@ -208,7 +208,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
 	const columnarView: DataReturn["columnarView"] = async (src, name, o = {}) => {
 		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!(opts as { perf?: unknown }).perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
 		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
@@ -257,7 +257,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	}
 	// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 	map.addColumnar = async (src, o = {}) => {
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 	};
 	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：

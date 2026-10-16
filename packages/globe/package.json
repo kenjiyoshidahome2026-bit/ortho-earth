@@ -22,12 +22,12 @@
 		"./style-*.js": "./src/style-*.js",
 		"./boot/tier.js": "./src/boot/tier.js",
 		"./demo/scene-adapter.js": "./src/demo/scene-adapter.js",
-		"./worker.js": "./src/worker.js",
-		"./renderworker.js": "./src/renderworker.js",
+		"./worker.js": "./src/worker.ts",
+		"./renderworker.js": "./src/renderworker.ts",
 		"./mesh-loaders.js": "./src/mesh-loaders.js",
 		"./meshdecode.js": "./src/meshdecode.js",
 		"./meshq.js": "./src/meshq.js",
-		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.js",
+		"./columnar/sources/builtin.js": "./src/columnar/sources/builtin.ts",
 		"./gadgets/anno.js": "./src/gadgets/anno.ts",
 		"./gadgets/anno-draw.js": "./src/gadgets/anno-draw.ts",
 		"./gadgets/cloud.js": "./src/gadgets/cloud.ts",
@@ -41,7 +41,7 @@
 	},
 	"imports": {
 		"#pointcloud-formats": "./src/pointcloud-formats-none.js",
-		"#columnar-sources": "./src/columnar/sources/builtin.js"
+		"#columnar-sources": "./src/columnar/sources/builtin.ts"
 	},
 	"dependencies": {
 		"@loaders.gl/3d-tiles": "^4.3.0",
@@ -117,19 +117,19 @@
 	"sideEffects": [
 		"*.css",
 		"*.scss",
-		"./src/worker.js",
-		"./src/renderworker.js",
+		"./src/worker.ts",
+		"./src/renderworker.ts",
 		"./src/meshworker.js",
 		"./src/meshdecoder.js",
 		"./src/gintbakeworker.ts",
-		"./src/rastertiles-worker.js",
-		"./src/imagequad-worker.js",
-		"./src/iiif-worker.js",
+		"./src/rastertiles-worker.ts",
+		"./src/imagequad-worker.ts",
+		"./src/iiif-worker.ts",
 		"./src/copc-worker.js",
 		"./src/model-worker.js",
 		"./src/vtextrude-worker.js",
-		"./src/vtdraw-worker.js",
-		"./src/columnar/worker.js",
-		"./src/columnar/sources/builtin.js"
+		"./src/vtdraw-worker.ts",
+		"./src/columnar/worker.ts",
+		"./src/columnar/sources/builtin.ts"
 	]
 }

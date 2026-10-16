@@ -17,7 +17,7 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/globe/src/columnar/view.js": {
+		"packages/globe/src/columnar/view.ts": {
 			"cos35°": {
 				"n": 1,
 				"why": "較正（地域の語ではない）：globe.js の approxViewBbox と同式（z は正射スケール＝m/px は緯度に依らない・0.819 は全球に同じく掛かる係数）。2026-10-15 に旧 @ortho-earth/columnar から移って数に入った"
@@ -161,7 +161,7 @@
 				"why": "言語（地域ではない）：天体の和名（地球・水星…）。i18n 辞書へ寄せる負債"
 			}
 		},
-		"packages/globe/src/renderworker.js": {
+		"packages/globe/src/renderworker.ts": {
 			"plateau": {
 				"n": 1,
 				"why": "負債：起動ログの文言"

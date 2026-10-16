@@ -11,21 +11,21 @@ import { quadMapping, apply3 } from "geopbf/edit/imagequad";
 const MAX_SIDE = 4096;   // 取り込む画像の長辺上限の既定（それ以上は縮めてから持つ＝RGBA 64MB 以内）。main が省メモリ機では 2048 を渡す（maxSide）
 const TS = 256;
 
-self.onmessage = async e => {
-	const m = e.data || {};
+self.onmessage = async (e: MessageEvent) => {
+	const m = (e.data || {}) as { type?: string; image: Blob | ImageBitmap; corners: Parameters<typeof quadMapping>[0]; port: MessagePort; name?: string; maxSide?: number; attribution?: string };
 	if (m.type !== "open") return;
 	try {
 		let bm = m.image instanceof ImageBitmap ? m.image : await createImageBitmap(m.image);
-		const cap = Math.max(256, Math.min(MAX_SIDE, +m.maxSide || MAX_SIDE));
+		const cap = Math.max(256, Math.min(MAX_SIDE, +m.maxSide! || MAX_SIDE));
 		if (Math.max(bm.width, bm.height) > cap) {
 			const s = cap / Math.max(bm.width, bm.height);
 			const b2 = await createImageBitmap(bm, { resizeWidth: Math.max(1, Math.round(bm.width * s)), resizeHeight: Math.max(1, Math.round(bm.height * s)), resizeQuality: "high" });
 			bm.close?.(); bm = b2;
 		}
 		const W0 = bm.width, H0 = bm.height;
-		const cv = new OffscreenCanvas(W0, H0), g = cv.getContext("2d");
+		const cv = new OffscreenCanvas(W0, H0), g = cv.getContext("2d")!;
 		g.drawImage(bm, 0, 0); bm.close?.();
-		const levels = [{ w: W0, h: H0, d: g.getImageData(0, 0, W0, H0).data }];
+		const levels: { w: number; h: number; d: Uint8ClampedArray }[] = [{ w: W0, h: H0, d: g.getImageData(0, 0, W0, H0).data }];
 		while (levels.length < 14) {   // 箱フィルタで半分ずつ（1px まで）
 			const p = levels[levels.length - 1]; if (p.w <= 1 && p.h <= 1) break;
 			const w = Math.max(1, p.w >> 1), h = Math.max(1, p.h >> 1), d = new Uint8ClampedArray(w * h * 4);
@@ -39,9 +39,9 @@ self.onmessage = async e => {
 		const [mx0, my0, mx1, my1] = map.mercBox;
 		const nativeZ = Math.log2(Math.max(W0, H0) / Math.max(mx1 - mx0, my1 - my0) / TS);
 		const info = { tileSize: TS, minZoom: 0, maxZoom: Math.max(0, Math.min(22, Math.ceil(nativeZ))), bbox: map.bbox, name: m.name || "image", attribution: m.attribution || null };   // 出典＝地物の attribution（main が消毒して出典欄へ）
-		const out = new OffscreenCanvas(TS, TS), og = out.getContext("2d");
-		const Hi = map.Hi;
-		const render = (z, tx, ty) => {
+		const out = new OffscreenCanvas(TS, TS), og = out.getContext("2d")!;
+		const Hi = map.Hi!;
+		const render = (z: number, tx: number, ty: number) => {
 			const n = 2 ** z, bx0 = tx / n, by0 = ty / n, bx1 = (tx + 1) / n, by1 = (ty + 1) / n;
 			if (bx1 < mx0 || bx0 > mx1 || by1 < my0 || by0 > my1) return null;   // 画像の外接箱に掛からない
 			// 段＝タイル中心の足跡（画像 0 段の画素 / タイル画素）
@@ -73,15 +73,15 @@ self.onmessage = async e => {
 			return out.transferToImageBitmap();
 		};
 		const port = m.port;
-		port.onmessage = ev => {
-			const q = ev.data || {};
+		port.onmessage = (ev: MessageEvent) => {
+			const q = (ev.data || {}) as { id?: number; z: number; x: number; y: number; abort?: boolean };
 			if (q.abort || q.id == null) return;
 			try { const bmp = render(q.z, q.x, q.y); port.postMessage({ id: q.id, bitmap: bmp }, bmp ? [bmp] : []); }
-			catch (err) { port.postMessage({ id: q.id, error: String(err && err.message || err) }); }
+			catch (err) { port.postMessage({ id: q.id, error: String(err && (err as Error).message || err) }); }
 		};
 		port.postMessage({ type: "info", info });
 		self.postMessage({ type: "opened", info });
 	} catch (err) {
-		self.postMessage({ type: "error", error: String(err && err.message || err) });
+		self.postMessage({ type: "error", error: String(err && (err as Error).message || err) });
 	}
 };
