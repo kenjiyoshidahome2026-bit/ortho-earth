@@ -65,7 +65,7 @@ test("恒星：sky/theater は GitHub Pages の sky/stars.6.geopbf を読む＝�
 	assert.equal(job.kind, "fetch"); assert.equal(job.url, base + "sky/stars.6.geopbf");
 });
 test("ミニ地球儀：gadgets/globe.js は ne_110m_land を gint:false", () => {
-	assert.match(src("packages/globe/src/gadgets/globe.js"), /geopbf\("ne_110m_land", \{ gint: false \}\)/);
+	assert.match(src("packages/globe/src/gadgets/globe.ts"), /geopbf\("ne_110m_land", \{ gint: false \}\)/);
 	assert.ok(ids(planPrefetch({ low: true }).tier1).includes("minimap-land"));
 });
 test("河川・海洋境界：globe（gint あり・LOW_MEM は読まない）と equal", () => {

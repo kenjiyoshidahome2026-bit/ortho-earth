@@ -6,7 +6,7 @@ import arcsUrl from "../gadgets/arcs-gl.js?url";
 import { createScenePlayer } from "../scenes/player.js";
 import { evalExpr } from "@ortho-earth/core";
 import { geopbf, geopbfCachePrune, geopbfCached } from "geopbf";
-import { gunzipText } from "../gadgets/dropfile.js";
+import { gunzipText } from "../gadgets/dropfile.ts";
 import { normSplat } from "../splat.js";
 import pointsUrl from "../gadgets/points-gl.js?url";
 import { sanitizeHTML } from "geopbf/sanitize";

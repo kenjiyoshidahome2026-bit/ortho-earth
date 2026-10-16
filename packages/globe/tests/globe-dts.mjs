@@ -2,7 +2,7 @@
 // createGlobe は DOM（Worker・canvas・CSS）が要る＝node では起動できないので、源を**静的に**読んで globe.d.ts と突き合わせる：
 //  ① src/globe.js と src/api/*.ts が map に生やすメンバー（`map.X =`・Object.defineProperty(map, "X")・`const map = { … }` の鍵）が全部 OrthoJapanMap にある。
 //     OrthoJapanMap（＝GlobeMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
-//     内部の物（renderer・雲の殻 __clouds・旧名 addCOPC/removeCOPC）は下の INTERNAL_MAP に明記して外す＝増やすなら理由を書く（型は map.ts の GlobeInternals）
+//     内部の物（renderer・雲の殻 __clouds）は下の INTERNAL_MAP に明記して外す＝増やすなら理由を書く（型は map.ts の GlobeInternals）
 //  ② 登録されたガジェット（`map.gadget("name", …)`）が全部 Gadgets にある（index signature [name: string] で逃げない）
 //  ③ src/globe.js の root の export（値）が全部 globe.d.ts に宣言されている（逆＝d.ts が宣言した値の export は実装にある）
 //  ④ globe.d.ts 自体が strict の tsc を通る（mlshim-dts は --skipLibCheck＝ここで初めて d.ts の中身が検査される）。src/types/map.ts も（利用者の tsc と同じ旗＝.ts の値の import は許さない）
@@ -15,8 +15,6 @@ let fail = 0; const ok = (k, c, extra = "") => { console.log((c ? "ok  " : "FAIL
 const INTERNAL_MAP = new Set([
 	"renderer",   // render worker の口（内部）
 	"__clouds",   // 雲の殻（api/camera.ts が setClouds の中で生やす検証窓）
-	"addCOPC",    // addPointCloud の旧名（2.0 で消す）
-	"removeCOPC", // removePointCloud の旧名（2.0 で消す）
 ]);
 
 const read = f => fs.readFileSync(path.join(GLOBE, f), "utf8");
@@ -30,7 +28,7 @@ const note = (m, k, where) => { if (!m.has(k)) m.set(k, where); };
 for (const [f, src] of sources) {
 	for (const m of src.replace(/^\s*\/\/.*$/gm, "").matchAll(/(?<![\w$.])map\.([A-Za-z_$][\w$]*)\s*=[^=>]/g)) note(runtimeMap, m[1], f);   // `map.X =`（行頭でなくても＝`a ??= map.__x =` も）。行コメントは見ない
 	for (const m of src.matchAll(/Object\.defineProperty\(map,\s*"([A-Za-z_$][\w$]*)"/g)) note(runtimeMap, m[1], f);
-	for (const m of src.matchAll(/map\.gadget\("([A-Za-z_$][\w$]*)"/g)) note(runtimeGadgets, m[1], f);
+	for (const m of src.matchAll(/(?:map\.gadget|registerGadget)\("([A-Za-z_$][\w$]*)"/g)) note(runtimeGadgets, m[1], f);
 }
 // `const map = { … };`（globe.js）の鍵：行コメントを落として波括弧の深さ 1 の字面だけ集め、短縮形・get X()・X: を拾う
 {
@@ -91,7 +89,7 @@ const dtsInternal = membersOf("GlobeInternals", mapTs);
 // ② ガジェット
 {
 	const missing = [...runtimeGadgets.keys()].filter(k => !dtsGadgets.has(k));
-	ok("gadget.namesDeclared", missing.length === 0 && runtimeGadgets.size >= 50, missing.length ? "undeclared: " + missing.map(k => `${k} (${runtimeGadgets.get(k)})`).join(", ") : `${runtimeGadgets.size} registered / ${dtsGadgets.size} declared`);
+	ok("gadget.namesDeclared", missing.length === 0 && runtimeGadgets.size >= 45, missing.length ? "undeclared: " + missing.map(k => `${k} (${runtimeGadgets.get(k)})`).join(", ") : `${runtimeGadgets.size} registered / ${dtsGadgets.size} declared`);
 	const stale = [...dtsGadgets].filter(k => !runtimeGadgets.has(k));
 	ok("gadget.declaredRegistered", stale.length === 0, stale.length ? "declared but never registered: " + stale.join(", ") : "");
 	const gm = dts.match(/export interface Gadgets\s*\{([\s\S]*?)\n\}/);

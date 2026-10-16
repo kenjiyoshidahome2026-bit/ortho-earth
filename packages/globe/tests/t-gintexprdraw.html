@@ -30,7 +30,7 @@ try {
 	};
 	const FILTER = ["!=", ["get", "v"], 50];   // 面 5 枚目（v=50）を隠す
 	const makeMap = async (target, gpuExpr) => { const map = await createGlobe({ target, view: `#13/${LAT}/${LON}`, chips: false, persistView: false, mesh: false, gpuExpr, debugGlobals: true }); await new Promise(r => map.on("load", r)); await sleep(400); return map; };
-	const { composeLayersToCanvas } = await import("../src/gadgets/compose.js");   // shot と同じ合成の核（gadget は二重搭載で handle を返さない）
+	const { composeLayersToCanvas } = await import("../src/gadgets/compose.ts");   // shot と同じ合成の核（gadget は二重搭載で handle を返さない）
 	const readShot = async map => { const img = composeLayersToCanvas(await map.requestSnapshot(), null); const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d"); g.drawImage(img, 0, 0); return { at: (x, y) => g.getImageData(Math.round(x), Math.round(y), 1, 1).data, k: img.width / 800 }; };
 	const samples = [];
 	for (let i = 0; i < 12; i++) { const g = feats[i].geometry.coordinates; samples.push({ name: `poly${i}`, fid: i, ll: [g[0][0][0] + S * 0.5, g[0][0][1] + S * 0.5] }); }
