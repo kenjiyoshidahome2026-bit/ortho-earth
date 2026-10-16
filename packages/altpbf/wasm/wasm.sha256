@@ -1,0 +1,6 @@
+# altpbf の wasm の台帳（scripts/wasm-embed.mjs が書く・tests/svarint.mjs が照合）。rustc 1.96.0・wasm-opt 132
+c0f32d0faa28442433b75f82b0e3a4607777e3b8a143bb89570a6c5993f9dd70  Cargo.toml
+ed1f7a59189744d60b5b454ea68454e4149ffc9fc58ff5c0c8028a37460006ba  Cargo.lock
+cd6a8906d5e1877b8c5300605234510e0e8655c1d59d9019d32b6e712938bd12  rust-toolchain.toml
+5d7f9554bafb5b2aab49e1142d8a0458be13a4c5a9051276f368abe4de5a58fe  src/lib.rs
+85ea32e48c31ee73f679c40f5bbb2e511a94da9e2c65a900bbcc34153ddc5708  ../src/svarint-wasm.ts
