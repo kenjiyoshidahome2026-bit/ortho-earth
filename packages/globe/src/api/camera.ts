@@ -1,19 +1,19 @@
 // カメラの口（不透明度・上限と可動域・jumpTo／easeTo／flyTo・fitBounds・余白・注視点の高さ・制約・lookAt／follow・setCamera）と
 // 光・空・太陽と月・雲（setLight／setLights／setSky／setSun／setClouds）＝createGlobe から切り出した（globe.js の分割 ⑩・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { LIGHT_TYPES, localLightsPayload, normLight, normLights } from "../light.js";
+import { LIGHT_TYPES, localLightsPayload, normLight, normLights } from "../light.ts";
 import { WORLD_PX, shortBearingOf, wrapLon } from "@ortho-earth/core";
-import { createCloudShell } from "../clouds.js";
-import { ecefToLlh, positionAt } from "../czml-time.js";
+import { createCloudShell } from "../clouds.ts";
+import { ecefToLlh, positionAt } from "../czml-time.ts";
 import { moonAltAz, moonSubpoint, sunAltAz, sunSubpoint } from "@ortho-earth/ephem/sun";
-import { normClouds, normSun, sunToLight } from "../weather.js";
-import { normSky } from "../sky-spec.js";
+import { normClouds, normSun, sunToLight } from "../weather.ts";
+import { normSky } from "../sky-spec.ts";
 import type { CameraOptions, CameraTarget, LightSpec, LonLat, PaddingOptions } from "../../globe.d.ts";
 import type { CameraDeps, CameraLive, CameraReturn, Installing } from "../types/install.ts";
 import type { CameraApi, GlobeMap } from "../types/map.ts";
 import type { FollowState } from "../types/scope.ts";
-import type { CloudShell } from "../clouds.d.ts";
-import type { SunSpecNorm } from "../weather.d.ts";
+import type { CloudShell } from "../clouds.ts";
+import type { SunSpecNorm } from "../weather.ts";
 
 /** 経緯度の入力（[lon, lat]・{lng|lon, lat}） */
 type LngLatIn = LonLat | { lng?: number; lon?: number; lat: number };

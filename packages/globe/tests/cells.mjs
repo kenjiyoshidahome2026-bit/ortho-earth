@@ -4,7 +4,7 @@
 //   ・S2：面 level 0 の token＝1,3,5,7,9,b・中心を再符号化すると同じ token・親子・level・環の中に点がある・±180° と極
 //   ・binPoints の count/sum/mean/min/max・cellsToGeoJSON・resForZoom が単調
 // 使い方：node packages/globe/tests/cells.mjs
-import { grid, mesh, geohash, quadkey, s2, binPoints, cellsToGeoJSON, resForZoom, gridRes, pointsOf } from "../src/cells/core.js";
+import { grid, mesh, geohash, quadkey, s2, binPoints, cellsToGeoJSON, resForZoom, gridRes, pointsOf } from "../src/cells/core.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };

@@ -10,7 +10,7 @@ import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import copcGlUrl from "./copc-gl.js?url";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { COPCHandle, COPCOptions, OverlayHandle } from "../../globe.d.ts";
-import type { Requester } from "../request.d.ts";
+import type { Requester } from "../request.ts";
 import type { GlobeMap } from "../types/map.ts";
 
 /** worker（copc 役）の open が返す見出し＝公開の COPCHandle.info */
@@ -51,7 +51,7 @@ function planesOf(m: ArrayLike<number>) {
 const keyStr = (k: number[]) => k.join("-");
 
 export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requester, ell, earthM, setAttr = () => {} }: COPCEnv) {
-	const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "copc" });
+	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "copc" });
 	const pending = new Map<string | number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let rid = 0;
 	w.onmessage = e => { const d = e.data || {}; const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
 	const rpc = <T>(msg: Record<string, unknown>, key: string | number, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { pending.set(key, { res, rej } as { res: (d: unknown) => void; rej: (e: Error) => void }); w.postMessage({ ...msg, ell }, transfer); });

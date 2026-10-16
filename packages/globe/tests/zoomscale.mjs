@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS, ZOOM_SCALES, zoomScaleOf } from "../src/zoomscale.js";
+import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS, ZOOM_SCALES, zoomScaleOf } from "../src/zoomscale.ts";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const dts = fs.readFileSync(path.join(DIR, "../globe.d.ts"), "utf8");
@@ -53,7 +53,7 @@ if (zoomScaleOf({}) !== "ortho" || zoomScaleOf({ zoomScale: "maplibre" }) !== "m
 let threw = false; try { zoomScaleOf({ zoomScale: "mapbox" }); } catch { threw = true; }
 if (!threw) ng("zoomScaleOf must throw on an unknown scale");
 if (ZOOM_SCALES.length !== 3) ng("ZOOM_SCALES");
-{ const { mercatorDz } = await import("../src/zoomscale.js"); if (Math.abs(mercatorDz(0) - 1) > 1e-9 || Math.abs(mercatorDz(60) - 2) > 1e-9 || Math.abs(mercatorDz(38.9) - 1.3614) > 1e-3) ng("mercatorDz"); }
+{ const { mercatorDz } = await import("../src/zoomscale.ts"); if (Math.abs(mercatorDz(0) - 1) > 1e-9 || Math.abs(mercatorDz(60) - 2) > 1e-9 || Math.abs(mercatorDz(38.9) - 1.3614) > 1e-3) ng("mercatorDz"); }
 
 console.log(bad ? `zoomscale: ${bad} problem(s)` : `✓ zoomscale PASS（d.ts map ${n1}・gadget ${n2}・raster ${n3}・handle ${n4} 件が分類済み）`);
 process.exit(bad ? 1 : 0);

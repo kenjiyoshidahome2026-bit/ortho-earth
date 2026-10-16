@@ -3,7 +3,7 @@
 // 出典の文言＝日本のデータ源の名乗り。DOM順は最後尾群＝下辺の静かな層。
 // ★"attr"（出典）を出さない場合でも、地理院タイル・PLATEAU・AW3D30 の出典明記義務は消えない＝
 //   埋め込み側が自分のページのどこかに同等の出典を記述すること（README「出典表記」参照）。
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import { dockStack } from "./stack.ts";
 const t = tr();
 /** true＝全部（既定）／配列＝選択的（"pos","scale","attr","log"）／false＝出さない */

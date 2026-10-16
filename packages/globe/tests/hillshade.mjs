@@ -1,6 +1,6 @@
 // hillshade.js の shadeTile＝MapLibre 6.11.2 の hillshade_prepare＋hillshade fragment を画素で写した物の検定（node・網なし）。
 // 2026-09-30：傾き atan(0.625·|d|)・勾配×DEM の実寸・頭打ち ±4・向き atan(d.y,−d.x)・method 5 つ（公式例の門で斜面が暗すぎた）。
-import { shadeTile, hillshadeParams } from "../src/hillshade.js";
+import { shadeTile, hillshadeParams } from "../src/hillshade.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };

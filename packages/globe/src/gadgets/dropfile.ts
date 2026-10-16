@@ -10,7 +10,7 @@
 // 進捗は geopbf の window発火 ConvertProgress（detail: {name, loaded, total}）を拾って歩を出す。
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GeoPBF, LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { IntakeResult } from "../types/install.ts";

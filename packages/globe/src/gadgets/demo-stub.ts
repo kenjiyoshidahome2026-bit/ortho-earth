@@ -9,7 +9,7 @@
 //   だけ Promise で待ち合わせる保険。本番はバーのボタン駆動＝本体を直に叩くので、この差し替えは主にAPI利用者向け。
 import { gadgetStack } from "./stack.ts";
 import { ICON } from "./demo-icon.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { DemoHandle, DemoOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { DemoBodyOpts, DemoInner } from "./demo.ts";

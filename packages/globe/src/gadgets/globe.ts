@@ -5,7 +5,7 @@
 // 出現域＝z ≤ maxZoom（v1 既定 8）。狭画面（<480px）では出さない。毎フレームの追従は本体の frame フック（戻り値 update を登録側が掴む）。
 // 四戒：独立（エンジンへは this.unprojectXY / this.flyTo / this.cam のみ）／遅延（陸データは初回に取得）／抽象アクセス／表示は自前の display 裁き。
 import { geopbf } from "geopbf";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { Gadgets } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";

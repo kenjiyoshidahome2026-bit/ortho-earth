@@ -4,7 +4,7 @@
 //   marker.setPopup(popup)＝マーカーのクリックで開閉（MapLibre と同じ）。
 // 位置は描くたび（map.onFrame）に投影し直す＝地形の高さに乗る（altitude＝地表からの高さ m）・球の裏へ回ったら隠す。
 // 引出線つきの吹き出し（pop ガジェット）とは別物＝こちらは錨の真上に留まる箱。
-import { RAW } from "../zoomscale.js";
+import { RAW } from "../zoomscale.ts";
 import type { LonLat, MarkerOptions, PopupOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 

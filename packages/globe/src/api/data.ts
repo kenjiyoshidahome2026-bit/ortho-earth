@@ -3,19 +3,19 @@
 // createGlobe の他の所が使う物（scenes・readGeoData・remoteUrl・setSrcAttr・列チャンクの判定・source の読み込みと視野追従）は戻り値で返す。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import arcsUrl from "../gadgets/arcs-gl.js?url";
-import { createScenePlayer } from "../scenes/player.js";
+import { createScenePlayer } from "../scenes/player.ts";
 import { evalExpr } from "@ortho-earth/core";
 import { geopbf, geopbfCachePrune, geopbfCached } from "geopbf";
 import { gunzipText } from "../gadgets/dropfile.ts";
-import { normSplat } from "../splat.js";
+import { normSplat } from "../splat.ts";
 import pointsUrl from "../gadgets/points-gl.js?url";
 import { sanitizeHTML } from "geopbf/sanitize";
 import screengridUrl from "../gadgets/screengrid-draw.js?url";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import tripsUrl from "../gadgets/trips-gl.js?url";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { FeatureService } from "geopbf/featureservice";
-import type { CellCache } from "../featureservice.d.ts";
+import type { CellCache } from "../featureservice.ts";
 import type { Bbox, CellsLayerHandle, DataLayerHandle, MapLibreLayer, OverlayHandle } from "../../globe.d.ts";
 import type { DataDeps, DataLive, DataReturn, FsFollowEntry, Installing, IntakeCtx } from "../types/install.ts";
 import type { DataApi } from "../types/map.ts";
@@ -81,7 +81,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	const SECRET_Q = /[?&](token|key|apikey|api_key|access_token|accesstoken|sig|signature|auth)=/i;
 	const directOK = (url: string) => SECRET_Q.test(url);
 	// サービスの形（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）＝件数が WHOLE_MAX 以下なら丸ごと・超えたら視野追従（gint へ・本人裁定）
-	const fsMod = () => import("../featureservice.js");
+	const fsMod = () => import("../featureservice.ts");
 	const SERVICE_HINT = /\/(?:FeatureServer|MapServer)\/\d+|\/collections\/[^/?#]+/i;   // 形のあたり（確定は geopbf の parseServiceUrl）＝当たらない URL は読み口の chunk を読まない
 	const svcOpen = new Map<string, Promise<FeatureService | null>>();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
 	// 控えの掃除（本人 2026-09-30「掃除する機能は絶対に必要」）＝鍵の接頭辞 FS1:: だけ（他の控えには触らない）。頁で最初にサービスを開く時に一度：
@@ -208,7 +208,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	ownDestroy.push(() => { live.columnarCtl?.remove(); live.columnarCtl = null; });
 	const columnarView: DataReturn["columnarView"] = async (src, name, o = {}) => {
 		live.annoCtl?.clear(); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null;
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 		try { live.columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!(opts as { perf?: unknown }).perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
 		catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
@@ -257,7 +257,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	}
 	// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
 	map.addColumnar = async (src, o = {}) => {
-		const m = await import("../columnar/index.js");
+		const m = await import("../columnar/index.ts");
 		return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 	};
 	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
@@ -304,7 +304,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 		}
 		const name = id ?? `data${++dataSeq}`;
 		let props = acc, cur = data, removed = false;
-		const modP = import("../adddata.js");
+		const modP = import("../adddata.ts");
 		const h = { id: name, kind } as DataLayerHandle;
 		if (kind === "points" || kind === "arcs" || kind === "trips") {
 			const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
@@ -379,7 +379,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
 	//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
 	//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
-	const cellsMod = () => import("../cells/layer.js");
+	const cellsMod = () => import("../cells/layer.ts");
 	map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
 	map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
 	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });

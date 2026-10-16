@@ -25,11 +25,11 @@ const ALLOW = {
 	"apps/choju/choju.js": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
 	"packages/globe/src/api/query.ts": 1,   // 層イベントの問い合わせ（hitsFor）＝globe.js から切り出した（globe.js の分割 ②・2026-10-15）
-	"packages/globe/src/globe.js": 1,     // コメント 1（層イベントの hitsFor は api/query.ts へ）。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
+	"packages/globe/src/globe.ts": 1,     // コメント 1（層イベントの hitsFor は api/query.ts へ）。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
 	"packages/globe/src/api/tools.ts": 2,   // 検査表示の下地（#174）＝利用者の層を伏せる／戻す setLayoutProperty の visibility 2（利用者の口と同じ意味で伏せる＝戻すと同じ姿）。globe.js から切り出した（分割 ⑪）
 	"packages/globe/src/api/data.ts": 4,   // map.addData の面・線・柱（deck.gl 差分 PR-4・2026-10-12）＝addSource・addLayer・setLayoutProperty（visibility）・queryRenderedFeatures（h.pick）
 	                                      //   ＝利用者の層と同じ MapLibre の意味で良い（H3 と同じく既存の層経路に乗せる＝利用者が addLayer で描いたのと同じ姿・当たり）。globe.js から切り出した（分割 ⑤）
-	"packages/globe/src/cells/layer.js": 7,   // セル・等高線の層（deck.gl 差分 PR-5・2026-10-12）＝addSource 2・addLayer 4・setPaintProperty 1＝H3（packages/h3）と同じく意図して MapLibre の意味の層経路（利用者が addLayer で描いたのと同じ姿・当たり）
+	"packages/globe/src/cells/layer.ts": 7,   // セル・等高線の層（deck.gl 差分 PR-5・2026-10-12）＝addSource 2・addLayer 4・setPaintProperty 1＝H3（packages/h3）と同じく意図して MapLibre の意味の層経路（利用者が addLayer で描いたのと同じ姿・当たり）
 	"packages/globe/src/gadgets/inspect.ts": 2,   // 検査表示（#174・maplibre-gl-inspect 相当）＝検査の層は MapLibre の層の文書（addLayer）・札は queryRenderedFeatures＝MapLibre の意味そのもの
 };
 

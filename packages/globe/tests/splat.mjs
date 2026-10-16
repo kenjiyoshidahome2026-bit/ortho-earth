@@ -1,5 +1,5 @@
 // splat の受け口（F8）＝契約の検め。描く段は plugin
-import { normSplat, isSplatUrl, SPLAT_FORMATS } from "../src/splat.js";
+import { normSplat, isSplatUrl, SPLAT_FORMATS } from "../src/splat.ts";
 let fail = 0; const ok = (k, c, extra = "") => { console.log((c ? "ok  " : "FAIL ") + k + (extra ? " " + extra : "")); if (!c) fail++; };
 const th = f => { try { f(); return false; } catch (e) { return e.message; } };
 const mk = (n, over = {}) => ({ n, positions: new Float32Array(n * 3), scales: new Float32Array(n * 3), rotations: new Float32Array(n * 4), colors: new Uint8Array(n * 4), ...over });

@@ -1,4 +1,4 @@
-// @ortho-earth/globe の型定義（公開面のみ・手書きの正典）。実装＝packages/globe/src/globe.js（createGlobe が返す map）。
+// @ortho-earth/globe の型定義（公開面のみ・手書きの正典）。実装＝packages/globe/src/globe.ts（createGlobe が返す map）。
 // SDK（@ortho-earth/japan）の lib/ortho-japan.d.ts はこのファイル＋ SDK の入口（default orthoJapan）を build 時に継いだ物（sdk/japan/scripts/build-dts.mjs・2026-09-25）。
 // 名前の OrthoJapan* は SDK 以来の型名＝互換のため残す（globe の名前は末尾の GlobeMap / GlobeOptions）。
 // AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
@@ -27,7 +27,7 @@ export type LightSpec =
 	| { id?: string; type: string; [k: string]: unknown };
 /** glTF の見出し（F4・2026-10-12・src/gltf-meta.js）＝模型に何が入っているか。animations＝名前・長さ（秒）・channel の数・target の path。textureFormats＝画像の形式（"ktx2" なら KHR_texture_basisu＝変換器が要る）。
  *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る（W7 から pick・queryRenderedFeatures・setFeatureState で当たる）。structuralMetadata＝EXT_structural_metadata が在る */
-export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean }
+export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean; /** asset.copyright（W8・空でない時だけ） */ copyright?: string }
 export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
 /** 再生の spec（W4 から rigid アニメ＝ノードの translation/rotation/scale は描く・skin/morph は spec のまま）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
@@ -657,7 +657,7 @@ export type RasterSpec =
 	/** WMTS（#45）＝capabilities（GetCapabilities の URL）を読むか、KVP を手で（url・layer・tileMatrixSet）。ウェブメルカトルの行列だけ描ける。REST の型紙は url に {TileMatrix}/{TileRow}/{TileCol} を書いて XYZ 形で渡してもよい */
 	| { wmts: { capabilities: string; layer?: string; style?: string; format?: string } | { url: string; layer: string; tileMatrixSet: string; style?: string; format?: string; matrixIds?: string[] }; minZoom?: number; maxZoom?: number; attribution?: string; name?: string }
 	| { file: File; table?: string; name?: string; attribution?: string }
-	| { port: MessagePort; name?: string; attribution?: string }
+	| { port: MessagePort; name?: string; attribution?: string | null }
 	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string }
 	/** IIIF の古地図を基準点で歪みを直して地面に貼る（1.14.0〜・#177）。iiif＝Georeference Annotation（Allmaps の形・1 枚でもページでも）の URL か object。
 	 *  変換＝注記の transformation（polynomial 1〜3 次・thinPlateSpline・projective・helmert・無ければ 1 次）。画像は IIIF Image API（v2/v3・level0 の静的タイルも）から要る段とタイルだけ。
@@ -885,7 +885,8 @@ export interface PluginRegistry<T> {
 	readonly pending: string;
 	add(name: string, impl: T): this;
 	remove(name: string): boolean;
-	get(name: string): T | undefined;
+	/** builtin の名は null（実装は本体の中）・無い名は undefined */
+	get(name: string): T | null | undefined;
 	has(name: string): boolean;
 	isBuiltin(name: string): boolean;
 	/** 登録した plugin の名（builtin・直接の add は null） */
@@ -1141,6 +1142,9 @@ export interface GeoPBF {
 	readonly geojson: { type: "FeatureCollection"; features: GeoPBFFeature[]; bbox?: number[] };
 	/** フィーチャ数 */
 	readonly length: number;
+	/** feature i（fid）の地物／属性（addGint の層はこれで当たりの properties を引く） */
+	getFeature(i: number): GeoPBFFeature;
+	getProperties(i: number): Record<string, any> | null;
 	/** feature i のジオメトリ型（"Point"…"MultiPolygon"）。引数なし＝全件の配列 */
 	getType(i: number): string;
 	getType(): string[];
@@ -1211,8 +1215,8 @@ export interface DataLayerHandle {
 }
 /** addH3／addCells の opts（src＝点の並び・GeoJSON・セル id の並び）。weight＝集約の値（列名か d => 数）・paint＝fill の paint（式は ["get","count"|"sum"|…]）・extrude＝fill-extrusion の高さ（paint の式）・outline＝縁の line の paint（null で無し） */
 export interface CellsLayerOptions { id?: string; res?: number | "auto"; weight?: string | ((d: any) => number) | null; paint?: Record<string, StyleExpression> | null; extrude?: Record<string, StyleExpression> | StyleExpression | null; outline?: Record<string, StyleExpression> | null; props?: Record<string, unknown> | null; before?: string; minzoom?: number; maxzoom?: number }
-export interface CellsLayerHandle { readonly id: string; readonly cells: unknown; readonly geojson: GeoJSONFeatureCollection; readonly res: number; setData(src: unknown): Promise<CellsLayerHandle>; setPaint(paint: Record<string, StyleExpression>): CellsLayerHandle; setRes(res: number | "auto"): Promise<CellsLayerHandle>; remove(): void }
-export interface ContourLayerOptions { id?: string; cellSize?: number; thresholds?: number[] | null; bands?: number[] | null; weight?: string | ((d: any) => number) | null; agg?: "count" | "sum" | "mean" | "min" | "max"; smooth?: number; paint?: Record<string, StyleExpression> | null; linePaint?: Record<string, StyleExpression> | null; props?: Record<string, unknown> | null; before?: string; bbox?: Bbox | null }
-export interface ContourLayerHandle { readonly id: string; readonly field: unknown; readonly geojson: GeoJSONFeatureCollection; setData(src: unknown): Promise<ContourLayerHandle>; setThresholds(thresholds?: number[] | null, bands?: number[] | null): Promise<ContourLayerHandle>; remove(): void }
+export interface CellsLayerHandle { readonly id: string; readonly cells: unknown; readonly geojson: GeoJSONFeatureCollection; readonly res: number | { dLon: number; dLat: number; lon0: number; lat0: number }; setData(src: unknown): Promise<CellsLayerHandle>; setPaint(paint: Record<string, StyleExpression>): CellsLayerHandle; setRes(res: number | "auto"): Promise<CellsLayerHandle>; remove(): void }
+export interface ContourLayerOptions { id?: string; cellSize?: number; thresholds?: number[] | null; bands?: Array<[number, number]> | null; weight?: string | ((d: any) => number) | null; agg?: "count" | "sum" | "mean" | "min" | "max"; smooth?: number; paint?: Record<string, StyleExpression> | null; linePaint?: Record<string, StyleExpression> | null; props?: Record<string, unknown> | null; before?: string; bbox?: Bbox | null }
+export interface ContourLayerHandle { readonly id: string; readonly field: unknown; readonly geojson: GeoJSONFeatureCollection; setData(src: unknown): Promise<ContourLayerHandle>; setThresholds(thresholds?: number[] | null, bands?: Array<[number, number]> | null): Promise<ContourLayerHandle>; remove(): void }
 export interface ScreenGridOptions { id?: string; cellPx?: number; colorRange?: Array<[number, number, number, number?]> | string[]; weight?: string | ((d: any) => number) | null; agg?: "count" | "sum" | "mean" | "min" | "max"; opacity?: number; gap?: number; above?: boolean }
 export interface ScreenGridHandle { readonly id: string; n?: number; setData(points: unknown): ScreenGridHandle; setStyle(style: Record<string, unknown>): ScreenGridHandle; pick(x: number, y: number, radius?: number): Promise<any[]>; remove(): void }

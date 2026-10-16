@@ -34,7 +34,7 @@ async function checkMarks(map, tag, only = null) {
 }
 
 try {
-	await (await import("../src/i18n.js")).setLang("en");
+	await (await import("../src/i18n.ts")).setLang("en");
 	const { createGlobe } = await import("@ortho-earth/globe");
 	if (V === "raster") {
 		const map = await createGlobe({ target: "#map", view: "#12.3/35.686/139.751", chips: false, debugGlobals: true });

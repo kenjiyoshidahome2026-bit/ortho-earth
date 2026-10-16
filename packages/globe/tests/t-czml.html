@@ -7,7 +7,7 @@
 <body><div id="map"></div>
 <script type="module">
 import { createGlobe } from "@ortho-earth/globe";
-import { positionAt, trackOf, ecefToLlh } from "../src/czml-time.js";
+import { positionAt, trackOf, ecefToLlh } from "../src/czml-time.ts";
 const G = new URLSearchParams(location.search).get("g") || "main";
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);

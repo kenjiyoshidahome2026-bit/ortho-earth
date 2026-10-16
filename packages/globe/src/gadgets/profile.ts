@@ -9,7 +9,7 @@
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal・cut／canCut（3D で切る＝#111・WebGPU の時だけ）。
 import { gadgetStack } from "./stack.ts";
 import { geodesicDistance } from "@ortho-earth/core";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { LonLat, PathGadget } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { Projector } from "./measure.ts";

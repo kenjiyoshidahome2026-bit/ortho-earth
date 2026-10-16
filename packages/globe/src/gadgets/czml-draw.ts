@@ -8,11 +8,11 @@
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 // 当たり判定（統一 picking・deck.gl 差分 PR-1・2026-10-11）：pick(x, y, r, ctx)＝最後に描いたフレームの点・画像・札の位置（device px）から半径 r の中で一番近い軌跡
 //   ＝{ id, distance, lngLat, properties:{ id, name, description } }｜null。描いた物だけ当たる（出ていない区間・地球の陰は描いていない＝当たらない）。
-import { positionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.js";
+import { positionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.ts";
 import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
-import type { CzmlStyle, CzmlTrack } from "../czml-time.d.ts";
+import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
 
 /** render worker の host（init の第 3 引数）＝読む分 */
 interface OverlayHost { post(data: unknown): void; requestDraw(): void }
