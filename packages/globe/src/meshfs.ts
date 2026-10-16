@@ -7,12 +7,37 @@
 // 同期ハンドルは dedicated worker 専用＝この store は meshworker からのみ使う。
 // base→worker はハッシュ固定ルーティング＝同一ファイルを複数 worker が同時に触ることは無い。
 
+import type { PlqMesh } from "./meshq.ts";
+
+/** 保存するバッチ（tiles＝部分再開の差分計算用の葉 URI） */
+export type StoredBatch = PlqMesh & { tiles?: string[] | null };
+/** unpackBatch の戻り（headerOnly の時は pos/nrm/idx が無い・bytes＝OPFS のファイルサイズ） */
+export interface BatchHead { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[]; maskCells?: Uint32Array | null; bytes?: number }
+export type LoadedBatch = BatchHead & Partial<Pick<PlqMesh, "pos" | "nrm" | "idx">>;
+/** 読みのコールバック（view へ at から流し込み、読めたバイト数を返す） */
+export type ReadAt = (view: ArrayBufferView, at: number) => number;
+/** バッファ返却プールの取り出し口（byteLen→ArrayBuffer|null） */
+export type TakeBuf = (need: number) => ArrayBuffer | null | undefined;
+// OPFS の同期ハンドル（dedicated worker 専用＝DOM の型には無い）と非同期反復（dom.asynciterable は lib に無い）
+interface SyncAccessHandle { read(v: ArrayBufferView, o: { at: number }): number; write(v: ArrayBufferView, o: { at: number }): number; truncate(n: number): void; flush(): void; close(): void; getSize(): number }
+interface OpfsFile { createSyncAccessHandle?(): Promise<SyncAccessHandle> }
+interface OpfsDir { getFileHandle(name: string, o?: { create?: boolean }): Promise<OpfsFile>; removeEntry(name: string): Promise<void>; keys(): AsyncIterable<string> }
+/** opfsStore の戻り */
+export interface OpfsStore {
+	put(base: string, i: number, mesh: StoredBatch): Promise<void>;
+	read(base: string, i: number, headerOnly?: boolean, take?: TakeBuf | null): Promise<LoadedBatch | null>;
+	has(base: string, i: number): Promise<boolean>;
+	delBase(base: string): Promise<number>;
+	bases(): Promise<Set<string>>;
+	purge(): Promise<number>;
+}
+
 const MAGIC = 0x35424c50;   // "PLB5"（リトルエンディアン）＝形式印。meta.ver とは独立の破損検知
 
 // バッチ→単一バッファ（書き込みは1回の write で済ませる＝ロック窓最短）。
 // レイアウト: [u32 MAGIC][u32 jsonLen][json utf8][pad→4B整列][pos f32][nrm i8][idx u32]
 // json＝軽量メタ（origin/bbox/lodH/lodCounts/twoSided/tiles＋各配列の要素数）。tiles＝部分再開の差分計算用。
-export function packBatch(mesh) {
+export function packBatch(mesh: StoredBatch): Uint8Array {
 	const head = {
 		origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts,
 		twoSided: mesh.twoSided || 0, tiles: mesh.tiles ?? null,
@@ -32,14 +57,14 @@ export function packBatch(mesh) {
 	u8.set(new Uint8Array(mesh.idx.buffer, mesh.idx.byteOffset, mesh.idx.byteLength), o);
 	return u8;
 }
-const dataStart = jsonLen => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 4); };   // pos(f32) を 4B 整列
+const dataStart = (jsonLen: number) => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 4); };   // pos(f32) を 4B 整列
 
 // 読み＝readAt(view, at) コールバック（worker では ah.read(view,{at})、テストでは配列コピー）。
 // headerOnly＝tiles だけ欲しい部分再開の走査用（本体3配列を読まない）。壊れていれば null。
 // take＝バッファ返却プールの取り出し口（byteLen→ArrayBuffer|null）：render worker が GPU 登録後に返した器を
 // 再利用し pos/nrm/idx の使い捨てを断つ（復元churnのヒープ高水位対策・2026-08-04夜）。器は要求以上の大きさ
 // でもよい＝view（byteOffset0・要素数指定）が正寸を切り出す。null/未指定＝従来どおり新規確保。
-export function unpackBatch(readAt, headerOnly = false, take = null) {
+export function unpackBatch(readAt: ReadAt, headerOnly = false, take: TakeBuf | null = null): LoadedBatch | null {
 	const pre = new Uint8Array(8);
 	if (readAt(pre, 0) < 8) return null;
 	const dv = new DataView(pre.buffer);
@@ -47,12 +72,12 @@ export function unpackBatch(readAt, headerOnly = false, take = null) {
 	const jl = dv.getUint32(4, true);
 	const jb = new Uint8Array(jl);
 	if (readAt(jb, 8) < jl) return null;
-	let h;
+	let h: { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[] | null; cells?: number[] | null; pos: number; nrm: number; idx: number };
 	try { h = JSON.parse(new TextDecoder().decode(jb)); } catch { return null; }
-	const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined };
+	const base: BatchHead = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined };
 	if (headerOnly) return base;
 	const start = dataStart(jl);
-	const mk = (Ctor, elems) => { const need = elems * Ctor.BYTES_PER_ELEMENT; const buf = take && take(need); return buf ? new Ctor(buf, 0, elems) : new Ctor(elems); };
+	const mk = <T extends Float32Array | Int8Array | Uint32Array>(Ctor: { new (b: ArrayBuffer, o: number, n: number): T; new (n: number): T; BYTES_PER_ELEMENT: number }, elems: number): T => { const need = elems * Ctor.BYTES_PER_ELEMENT; const buf = take && take(need); return buf ? new Ctor(buf, 0, elems) : new Ctor(elems); };
 	const pos = mk(Float32Array, h.pos), nrm = mk(Int8Array, h.nrm), idx = mk(Uint32Array, h.idx);
 	if (readAt(pos, start) < pos.byteLength) return null;
 	if (readAt(nrm, start + pos.byteLength) < nrm.byteLength) return null;
@@ -62,29 +87,29 @@ export function unpackBatch(readAt, headerOnly = false, take = null) {
 
 // ストア本体。使えない環境（OPFS非対応・プライベートブラウズの沈黙失敗）は null＝呼び出し側が従来IDB経路へ。
 // probe で実際に同期ハンドルを1回開く＝「APIは在るが開けない」系をここで確定させる。
-export async function opfsStore() {
+export async function opfsStore(): Promise<OpfsStore | null> {
 	if (!navigator.storage?.getDirectory) return null;
 	const root = await navigator.storage.getDirectory();
-	const dir = await root.getDirectoryHandle("plateau", { create: true });   // ⚠名前は "plateau" のまま＝利用者の端末に残る OPFS の置き場（2026-09-22 の mesh 改名でも据え置き・変えると焼き済みが全部消える）
+	const dir = await root.getDirectoryHandle("plateau", { create: true }) as unknown as OpfsDir;   // ⚠名前は "plateau" のまま＝利用者の端末に残る OPFS の置き場（2026-09-22 の mesh 改名でも据え置き・変えると焼き済みが全部消える）
 	// probe 名は worker ごとに一意：MESH_NW 本が同時に initFs する＝同名だと同期ハンドルのロック競合で
 	// 後着が InvalidStateError＝そのworkerだけ silent に IDB フォールバックへ落ちる（E2E実測 2026-08-02＝4本中1本しか有効にならない）。
 	const probeName = "#probe-" + Math.random().toString(36).slice(2);
 	const probe = await dir.getFileHandle(probeName, { create: true });
 	if (!probe.createSyncAccessHandle) { dir.removeEntry(probeName).catch(() => {}); return null; }
-	(await probe.createSyncAccessHandle()).close();
+	(await probe.createSyncAccessHandle!()).close();
 	dir.removeEntry(probeName).catch(() => {});
-	const nameOf = (base, i) => encodeURIComponent(base) + "#" + i;
+	const nameOf = (base: string, i: number) => encodeURIComponent(base) + "#" + i;
 	return {
 		async put(base, i, mesh) {   // 失敗（quota等）は throw＝呼び出し側の QuotaExceeded 退避/idbFail が受ける
 			const fh = await dir.getFileHandle(nameOf(base, i), { create: true });
-			const ah = await fh.createSyncAccessHandle();
+			const ah = await fh.createSyncAccessHandle!();
 			try { const u8 = packBatch(mesh); ah.truncate(0); ah.write(u8, { at: 0 }); ah.flush(); }
 			finally { ah.close(); }
 		},
 		async read(base, i, headerOnly = false, take = null) {
 			try {
 				const fh = await dir.getFileHandle(nameOf(base, i));
-				const ah = await fh.createSyncAccessHandle();
+				const ah = await fh.createSyncAccessHandle!();
 				try {
 					const out = unpackBatch((view, at) => ah.read(view, { at }), headerOnly, take);
 					if (out && headerOnly) out.bytes = ah.getSize();   // 本体を読まない時の容量台帳用（ファイルサイズ≒メッシュ実バイト）
@@ -95,18 +120,18 @@ export async function opfsStore() {
 		async has(base, i) { try { await dir.getFileHandle(nameOf(base, i)); return true; } catch { return false; } },
 		async delBase(base) {   // 区の全バッチファイル（プレフィックス一致）。冪等＝purge広播との競合も無害
 			const prefix = encodeURIComponent(base) + "#";
-			const names = [];
+			const names: string[] = [];
 			for await (const k of dir.keys()) if (k.startsWith(prefix)) names.push(k);
 			for (const k of names) await dir.removeEntry(k).catch(() => {});
 			return names.length;
 		},
 		async bases() {   // 孤児掃除用＝ファイルが存在する base 一覧（decode 済み）
-			const s = new Set();
+			const s = new Set<string>();
 			for await (const k of dir.keys()) { const h = k.lastIndexOf("#"); if (h > 0) s.add(decodeURIComponent(k.slice(0, h))); }
 			return s;
 		},
 		async purge() {
-			const names = [];
+			const names: string[] = [];
 			for await (const k of dir.keys()) names.push(k);
 			for (const k of names) await dir.removeEntry(k).catch(() => {});
 			return names.length;

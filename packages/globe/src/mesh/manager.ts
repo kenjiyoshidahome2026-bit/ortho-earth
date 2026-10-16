@@ -29,15 +29,68 @@ import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.ts";
 import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.js";
+import type { GlobeInternals } from "../types/map.ts";
+import type { GlobeCam } from "../types/scope.ts";
+import type { MeshDbCached, MeshDbOpts } from "../meshdb.ts";
+
+/** 登録簿の 1 区（地域宣言の catalog＋直書き）＝noMask＝橋梁等（被覆マスク不参加）・clip/tilesetUrl/bakeBase＝任意欄 */
+export interface MeshSet { name: string; base: string; bbox: number[]; noMask?: boolean; clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; [k: string]: unknown }
+/** 読込進捗の 1 区（scan＝カタログ走査中の枚数・done/total＝タイル・stall＝見張りの理由） */
+export interface MeshProgEntry { name: string; scan?: number; done?: number; total?: number; stall?: string }
+/** 区 worker のロードの ack（"cancelled"＝視野離脱の協調キャンセル・"demoted"＝slow のまま完走） */
+type WorkerAck = boolean | "cancelled" | "demoted";
+/** 先読みの進捗（done／total 区・name＝焼けた区の名・最初の 1 回は null） */
+type OnProg = (done: number, total: number, name: string | null) => void;
+type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
+/** ロードの任意欄（登録簿の set をそのまま渡す） */
+interface MeshLoadEx { clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null }
+/** 区 worker（meshworker）からの便＝種類ごとに欄が違う（読む所でその種類の欄だけ読む） */
+interface MwReply {
+	type?: string; prog?: MeshProgEntry; name?: string; info?: string;
+	farMiss?: { name: string; perm?: boolean }; farSent?: { name: string }; farReady?: { name: string };
+	items?: MeshDbCached[]; base?: string; n?: number; cache?: number; live?: number;
+	id?: number; ok?: WorkerAck; bytes?: number; error?: string;
+}
+/** createMeshManager の env（globe.js の meshEnv＋catalog・cam 等は getter＝毎回読む） */
+export interface MeshEnv {
+	meshOn: boolean;
+	device: { LOW_MEM: boolean; MID_TIER: boolean; HI_TIER: boolean; gpuBackend: boolean; hudOn: boolean; ELL_ON: boolean; RENDER_FX?: unknown };
+	catalog: Promise<MeshSet[] | null | undefined> | MeshSet[] | null;
+	renderer: GlobeInternals["renderer"]; attachMeshPort(port: MessagePort): void;
+	mapEl: HTMLElement; dbgHost: Record<string, unknown>; emit(e: { phase: string; [k: string]: unknown }): void;
+	requestDraw(): void;
+	readonly cam: GlobeCam; readonly moving: boolean; readonly flying: boolean; readonly printHold: boolean; readonly elevBusy: boolean;
+	footPoint(): number[] | null; viewBbox(cam: { center: ArrayLike<number>; zoom: number }): number[]; playingNow(): boolean;
+	flyTo(lon: number, lat: number, zoom: number, pitch: number): unknown;
+	groupOf?: MeshDbOpts<MeshSet>["groupOf"]; bldLabels?: { manager?: string } | null;
+}
+/** createMeshManager の戻り（契約＝冒頭の注記） */
+export interface MeshManager {
+	update(settled?: boolean): void;
+	standUp(set: MeshSet, tiles?: string[]): Promise<boolean>;
+	prefetch(views: unknown[], names?: string[] | null, onProgress?: OnProg | null): Promise<MeshSet[]>;
+	trimForScript(views: unknown[]): void;
+	firstRevealSets(views: Array<string | ParsedView> | null | undefined): MeshSet[];
+	setExcludeMap(map: Record<string, string[]> | null): void;
+	setProgressTap(fn: (() => void) | null): void;
+	terminate(): void;
+	readonly sets: MeshSet[];
+	readonly progress: Map<string, MeshProgEntry>;
+	isActive(name: string): boolean; isDead(name: string): boolean;
+	visibleLoading(): string[];
+	memStats(): { bytes: number; regions: number; transient: { cache: number; live: number; bytes: number }; tier: { active: number; residentGB: number; workers: number } | null };
+	openDb(): void;
+}
+
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）
-const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1] : def; };   // ?paz= 等の調律ノブ（app.js と同形）
+const qNum = (re: RegExp, def: number) => { const m = location.search.match(re); return m ? +m[1] : def; };   // ?paz= 等の調律ノブ（app.js と同形）
 
 const D2R = Math.PI / 180;
 
-export function createMeshManager(env) {
+export function createMeshManager(env: MeshEnv): MeshManager {
 const { meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, dbgHost, mapEl, renderer, attachMeshPort, emit, requestDraw, footPoint, viewBbox, playingNow, flyTo } = env;
-let SETS = [];             // 登録簿（カタログ到着で確定。地域宣言の catalog＋地域が直書きする set）
-let excludeMap = null;     // 捨てる地物（gml_id）＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
+let SETS: MeshSet[] = [];             // 登録簿（カタログ到着で確定。地域宣言の catalog＋地域が直書きする set）
+let excludeMap: Record<string, string[]> | null = null;     // 捨てる地物（gml_id）＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
 // 登録簿の到着＝合図（map.on("mesh") catalog）と自動ロードの一突き（復元ビューが z15+ の街なら起動直後に立つ＝settled 扱い）。
 // 取得の失敗は警告のみ＝待つ側（prefetch）は解決を待ってから空の登録簿を見て諦める。一突きは .catch の外＝表示判定の例外を
 // 「catalog fetch failed」の皮を被せて飲まない（第二歩で foot の自己シャドウ TDZ がこの皮の下に隠れた轍・t-mesh が捕まえた）。
@@ -68,7 +121,7 @@ const farShown = new Set();                 // 要求済み/表示中の区（ac
 const farMissed = new Set();                // #far整備不能（完走焼き無し）＝farReadyが来るまで再要求しない
 // far育成キュー：#far無し(farMiss)の区は、焼きがあれば worker のfarBakeで「読むだけ導出」。1区ずつ直列＝
 // 視界いっぱいのfarMiss一斉発生でIDB/OPFS読みの山を作らない。育ったら farReady→autoFar が次のパスで点灯。
-const farBakeQ = []; const farBakeTried = new Set(); let farBaking = null;
+const farBakeQ: Array<{ base: string; name: string }> = []; const farBakeTried = new Set<string>(); let farBaking: { base: string; name: string } | null | undefined = null;
 function farBakeNext() {
 	if (farBaking || !farBakeQ.length) return;
 	// 育成は暇な時だけ：v3/閾値移行の残務（区ごと全量読み直し）が復元・飛行と重なると、workerヒープの
@@ -76,7 +129,7 @@ function farBakeNext() {
 	if (env.moving || env.flying) { setTimeout(farBakeNext, 3000); return; }
 	farBaking = farBakeQ.shift();
 	spawnMeshWorkers();
-	meshWorkers[hashStr(farBaking.base) % MESH_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
+	meshWorkers[hashStr(farBaking!.base) % MESH_NW].postMessage({ type: "farBake", base: farBaking!.base, ward: farBaking!.name });
 }
 dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
 	active: [...meshActive.keys()], loading: [...meshLoading.keys()], resident: [...meshResident.keys()],
@@ -91,11 +144,11 @@ dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baki
 			const view = viewBbox(env.cam);
 			const foot = footPoint();
 			if (foot) { view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]); view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]); }
-			const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+			const pd2 = (s: MeshSet, p: ArrayLike<number>) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
 			return SETS.filter(s => !s.noMask && bboxIntersects(s.bbox, view) && !meshDead(s.name))
 				.map(s => ({ n: s.name, d: +Math.sqrt(pd2(s, foot || env.cam.center)).toFixed(4) }))
 				.sort((a, b) => a.d - b.d).slice(0, 8).map(h => `${h.n}:${h.d}`);
-		} catch (e) { return ["ERR:" + (e.message || e)]; }
+		} catch (e) { return ["ERR:" + ((e as Error).message || e)]; }
 	})() });   // デバッグ：遠景枠の現在地＋本物側の状態機械＋カメラ＋ゲート＋選抜（箱残留の切り分けに一式）
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
 if (LOW_MEM) console.log("[mesh] low-memory device mode: 2 concurrent wards, 1 worker, no cache");
@@ -120,41 +173,41 @@ const MESH_EXTRA_ACTIVE = LOW_MEM ? 1 : (MID_TIER ? 2 : 4);
 const MESH_RESIDENT_BYTES = LOW_MEM ? 0 : (MID_TIER ? 0.5e9 : 1.2e9);   // 非表示常駐まで含めた総予算。表示中(最大4+橋4)は退避対象外＝予算超過でも守る
                                                       // MID_TIER=0.5GB＝内蔵GPUは常駐がシステムRAMを直に削る（1.2GBは独立VRAM/ユニファイド前提の値）
 const MESH_BYTES_FALLBACK = 200e6;                 // ack未着/不明時の安全側見積り（notexture実測最大141MB・texture都市はより大の想定）。橋梁(noMask)は一桁軽い
-const meshBytes = new Map();                       // name → メッシュ実バイト（workerのackに同乗。セッション中は不変なので消さない）
-const bytesOf = (name, set) => meshBytes.get(name) ?? (set?.noMask ? 20e6 : MESH_BYTES_FALLBACK);
+const meshBytes = new Map<string, number>();                       // name → メッシュ実バイト（workerのackに同乗。セッション中は不変なので消さない）
+const bytesOf = (name: string, set?: MeshSet | null) => meshBytes.get(name) ?? (set?.noMask ? 20e6 : MESH_BYTES_FALLBACK);
 const residentBytes = () => [...meshResident].reduce((s, [n, st]) => s + bytesOf(n, st), 0);
 const MESH_FAR_DEG = 0.5;                    // 本削除の距離閾値（deg≈55km）。都心の区巡り・近郊往復では誰も落ちない
-const meshActive = new Map();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
-const meshResident = new Map();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
-const meshLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
-const meshAutoLoading = new Map();      // autoMesh 発のロード中地区：name → set。視界確定時の退避対象（手動/プレロードは含めない）
-const meshCancelling = new Set();       // 遠方離脱→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
+const meshActive = new Map<string, MeshSet>();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
+const meshResident = new Map<string, MeshSet>();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
+const meshLoading = new Set<string>();          // fetch/デコード中の地区名（二重発火防止）
+const meshAutoLoading = new Map<string, MeshSet>();      // autoMesh 発のロード中地区：name → set。視界確定時の退避対象（手動/プレロードは含めない）
+const meshCancelling = new Set<string>();       // 遠方離脱→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
 // ── 同時ロード数と待ち行列（本人指定 2026-09-08「最大読み取り数は 3・後は待ち行列。スコープから外れたら途中までを保存して即座に打ち切り」）──
 // R2 焼き（第三の入口）で 1 区が数秒になり、旧・slow レーン在庫化（視界外でも読み続ける）と fast 枠ローテーションは不要になった。
 // 視界外＝即キャンセル（部分は worker が逐次 IDB/OPFS 保存済＝再訪は続きから）。枠待ちの区は「待ち行列」＝枠が空いた瞬間の
 // autoMesh(true)（ロード完了/中止の finally）で優先順の先頭から着手。LOW_MEM は 2（GPU/タブ予算）。?loadmax=N
 const MESH_LOAD_MAX = qNum(/[?&]loadmax=(\d+)/, LOW_MEM ? 2 : 3);
-let meshQueued = [];                    // 待ち行列（表示用＝毎パス再導出・視界内で枠待ちの区名・優先順）
+let meshQueued: string[] = [];                    // 待ち行列（表示用＝毎パス再導出・視界内で枠待ちの区名・優先順）
 let meshPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoMesh の建物枠を1つ譲る（総同時2区の保証）
 // ロード失敗の台帳：perm=葉0枚（廃止区＝浜松西区22133等の残骸）＝恒久に掴まない／非perm=通信失敗（APIハング等の
 // 一時障害）＝60秒バックオフ後に再挑戦（旧・Set＝一時障害もセッション永久追放で、真上に立っても本物が二度と
 // 来ず遠景箱だけが残った＝渋谷/新宿 z15.9 実測 2026-08-11）。毎onMoveの再挑戦スパムはバックオフが断つ。
-const meshFailed = new Map();           // 地区名 → { perm, ts }
+const meshFailed = new Map<string, { perm: boolean; ts: number }>();           // 地区名 → { perm, ts }
 const MESH_RETRY_MS = 60000;
-const meshDead = name => { const f = meshFailed.get(name); return !!f && (f.perm || performance.now() - f.ts < MESH_RETRY_MS); };
-let meshPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
-let meshScriptOnly = null;              // 台本 preload 明示時の関所＝上映中（playingNow）はこの集合外の区の新規自動ロードを始めない
+const meshDead = (name: string) => { const f = meshFailed.get(name); return !!f && (f.perm || performance.now() - f.ts < MESH_RETRY_MS); };
+let meshPinned = new Set<string>();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
+let meshScriptOnly: Set<string> | null = null;              // 台本 preload 明示時の関所＝上映中（playingNow）はこの集合外の区の新規自動ロードを始めない
                                            //（Kenji裁定 2026-08-21：デモ観客の自機で経由地の無関係区＝世田谷等を拾い急に重くなる件。preload 無し＝視点導出の台本は絞らない）
-function meshHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
+function meshHide(name: string) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (meshResident.has(name)) renderer.set("meshVis", false, name);
 	else renderer.set("meshSet", null, name);
 }
-function meshEvict(name) {  // 本削除＝GPUバッファ解放（遠方離脱/常駐上限超過だけがここへ来る）
+function meshEvict(name: string) {  // 本削除＝GPUバッファ解放（遠方離脱/常駐上限超過だけがここへ来る）
 	meshResident.delete(name);
 	renderer.set("meshSet", null, name);   // freeMeshWard の prefix 一致で `名前#far` の遠景箱も同時に手放す
 	farShown.delete(name);                     // 再訪時に autoFar が箱を再点灯できるように
 }
-function meshRetain(name, set) {   // 常駐登録＋LRU touch。予算超過は最古の非表示区から追い出す（表示中/読込中は守る）
+function meshRetain(name: string, set: MeshSet) {   // 常駐登録＋LRU touch。予算超過は最古の非表示区から追い出す（表示中/読込中は守る）
 	if (!MESH_RESIDENT_BYTES) return;
 	meshResident.delete(name); meshResident.set(name, set);
 	while (residentBytes() > MESH_RESIDENT_BYTES) {
@@ -178,9 +231,9 @@ function meshRetain(name, set) {   // 常駐登録＋LRU touch。予算超過は
 // MID_TIER は 2本上限＝各 worker が loaders.gl(Draco wasm/3d-tiles) を丸ごと抱える起動ベースラインが、
 // コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
 const MESH_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : MESH_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
-const meshWorkers = [], meshDecoders = [], meshPending = new Map();   // meshDecoders＝区 worker 配下のデコーダ（main が生成・所有）
-const MESH_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)[1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は地域の申告 buildings.bakeBase（無宣言＝焼き無し）
-const meshMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
+const meshWorkers: Worker[] = [], meshDecoders: Worker[] = [], meshPending = new Map<number, { resolve(v: WorkerAck): void; reject(e: Error): void; name: string }>();   // meshDecoders＝区 worker 配下のデコーダ（main が生成・所有）
+const MESH_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)![1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は地域の申告 buildings.bakeBase（無宣言＝焼き無し）
+const meshMemW: Array<{ cache?: number; live?: number } | undefined> = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let meshReqId = 0;
 let meshCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 // PLATEAU worker プールは初回必要時に起こす（処方②・ortho-earth#12・2026-09-14）。旧＝起動時に MESH_NW 本を無条件生成＝
@@ -195,7 +248,7 @@ function spawnMeshWorkers() {
 	// new Worker していたが、入口 1 本化（worker.js・name で役割指名）後は vite が入れ子生成を new Worker(self.location.href,…) に
 	// 書き換え、環境によって子が一度も走らず（in-app 3/3・headless 稀）ライブデコードが永久 STALL した（2026-09-14 実測）。
 	// worker の所有者を main に一本化＝入れ子 worker を使わない。デコーダは区 worker と同時に起きる（遅延生成の暖機に乗る）。
-	const decPorts = [];
+	const decPorts: MessagePort[] = [];
 	for (let k = 0; k < MESH_DEC; k++) {
 		const d = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "meshdecoder" });
 		const ch = new MessageChannel();
@@ -204,14 +257,14 @@ function spawnMeshWorkers() {
 	}
 	w.postMessage({ type: "init", meshPort: meshChan.port1, decPorts, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: MESH_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: MESH_BAKE_URL }, [meshChan.port1, ...decPorts]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	attachMeshPort(meshChan.port2);   // render worker へ直結ポートを渡す（transfer は app 側）
-	w.onmessage = e => {
+	w.onmessage = (e: MessageEvent<MwReply>) => {
 		if (e.data.prog) { const p = e.data.prog; const old = meshProg.get(p.name); if (old?.stall && (old.done ?? -1) === (p.done ?? -2)) p.stall = old.stall; meshProg.set(p.name, p); renderMeshProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）。停滞印は進捗が動くまで残す
 		if (e.data.type === "stall") {   // worker の見張り（30s 無進捗）＝トーストに ⚠ 理由を出し、60s 超で一度だけ打ち切り→再要求（partial から続き）
-			const n = e.data.name, p = meshProg.get(n) || { name: n };
+			const n = e.data.name!, p: MeshProgEntry = meshProg.get(n) || { name: n };
 			p.stall = e.data.info; meshProg.set(n, p); renderMeshProg();
 			console.warn("[mesh] stall reported", n, e.data.info);
 			const s = meshAutoLoading.get(n);
-			if (s && !meshCancelling.has(n) && !meshRestarted.has(n) && /\b(6\d|[7-9]\d|\d{3,})s\b/.test(e.data.info)) {
+			if (s && !meshCancelling.has(n) && !meshRestarted.has(n) && /\b(6\d|[7-9]\d|\d{3,})s\b/.test(e.data.info!)) {
 				meshRestarted.add(n);
 				meshWorkers[hashStr(s.base) % MESH_NW].postMessage({ type: "cancel", base: s.base });
 				meshCancelling.add(n);
@@ -244,21 +297,21 @@ function spawnMeshWorkers() {
 			if (!env.moving && !env.flying) autoMesh(true);   // 静止シーンでも即点灯（onMoveが来ない＝この一突きが無いと次のカメラ操作まで立たない）
 			return;
 		}
-		if (e.data.type === "idbList") { meshListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
-		if (e.data.type === "idbDeleted") { meshDeletePending.get(e.data.base)?.(e.data.n); meshDeletePending.delete(e.data.base); return; }
+		if (e.data.type === "idbList") { meshListPending.shift()?.(e.data.items!); return; }              // データ管理モーダルの一覧応答
+		if (e.data.type === "idbDeleted") { meshDeletePending.get(e.data.base!)?.(e.data.n!); meshDeletePending.delete(e.data.base!); return; }
 		if (e.data.type === "membytes") { meshMemW[i] = e.data; return; }   // ?hud=1：この worker の過渡（内部cache＋ロード中の保持）バイト
-		const p = meshPending.get(e.data.id); if (!p) return; meshPending.delete(e.data.id);
+		const p = meshPending.get(e.data.id!); if (!p) return; meshPending.delete(e.data.id!);
 		if (p.name) { meshProg.delete(p.name); renderMeshProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.bytes && p.name) meshBytes.set(p.name, e.data.bytes);   // 実測メッシュバイト＝常駐バイト予算LRUの物差し
 		if (e.data.error) p.reject(new Error(e.data.error));
-		else p.resolve(e.data.ok);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
+		else p.resolve(e.data.ok!);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};
 	meshWorkers.push(w);
 	if (excludeMap) w.postMessage({ type: "exclude", map: excludeMap });   // 起動前に届いていた除外マップを配る
 	}
 }
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
-function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
+function hashStr(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
 // デバッグ用：PLATEAUのメモリ/IDBキャッシュ全消去（デコード形式が壊れた疑いがある時に）。通常はFMT_VERが自動無効化する。
 dbgHost.__meshPurge = () => {
 	meshWorkers.forEach(w => w.postMessage({ type: "purge" }));
@@ -272,7 +325,7 @@ function meshSortAnchor() {
 	const foot = footPoint();
 	return foot ? [wrapLon(foot[0]), foot[1]] : [env.cam.center[0], env.cam.center[1]];
 }
-function workerLoadMesh(base, tiles, name, wardBbox, brid, ex = {}) {
+function workerLoadMesh(base: string, tiles: string[] | undefined, name: string, wardBbox: number[] | null, brid: boolean | undefined, ex: MeshLoadEx = {}) {
 	spawnMeshWorkers();
 	const id = ++meshReqId, w = meshWorkers[hashStr(base) % MESH_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
@@ -280,21 +333,21 @@ function workerLoadMesh(base, tiles, name, wardBbox, brid, ex = {}) {
 	// clip/tilesetUrl＝登録簿の任意欄（オランダ3DBAG等の「国土1枚もの」を街の矩形で切って使うため。PLATEAUは共に undefined）
 	// bakeBase＝R2 焼きの置き場（地域の申告 buildings.bakeBase を globe が set へ刻む・null＝焼きを持たない地域＝生経路のみ）
 	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null, bakeBase: ex.bakeBase || null });
-	return new Promise((resolve, reject) => meshPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
+	return new Promise<WorkerAck>((resolve, reject) => meshPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
 // メモリ/IDBキャッシュ命中時は一瞬で終わるので出ない。消灯は ack（完了/失敗）で行う。
 const meshEl = document.createElement("div");
 meshEl.id = "plateau-toast";   // スタイルは quiet-mono。左下ドック＝elev-toast の上へ積まれる
 dockStack(mapEl).append(meshEl);
-const meshProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
-let sceneProgTap = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderMeshProg より先＝初期化中の worker 便で TDZ を踏まない）
+const meshProg = new Map<string, MeshProgEntry>();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
+let sceneProgTap: (() => void) | null = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderMeshProg より先＝初期化中の worker 便で TDZ を踏まない）
 // 市区町村ごとに 1 行＝名前・プログレスバー・枚数（本人指定 9/8）。待ち行列の区は「待機」行（バー空）。
-const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+const escHtml = (s: unknown) => String(s).replace(/[&<>"]/g, c => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" } as Record<string, string>)[c]));
 function renderMeshProg() {
-	const rows = [];
+	const rows: string[] = [];
 	for (const p of meshProg.values()) {
-		const pct = p.total ? Math.min(100, Math.round(p.done / p.total * 100)) : 0;
+		const pct = p.total ? Math.min(100, Math.round(p.done! / p.total * 100)) : 0;
 		rows.push(`<div class="pl-row${p.stall ? " pl-stall" : ""}"><span class="pl-name">${escHtml(p.name)}</span><span class="pl-bar"><i style="width:${pct}%"></i></span><span class="pl-n">${p.total ? `${p.done}/${p.total}` : t("scanning")}</span></div>${p.stall ? `<div class="pl-why">⚠ ${escHtml(p.stall)}</div>` : ""}`);
 	}
 	for (const n of meshQueued) if (!meshProg.has(n)) rows.push(`<div class="pl-row pl-wait"><span class="pl-name">${escHtml(n)}</span><span class="pl-bar"></span><span class="pl-n">${t("queued")}</span></div>`);
@@ -304,10 +357,10 @@ function renderMeshProg() {
 	sceneProgTap?.();   // シーン再生の読み込み待ちパネルにも同じ進捗を流す（waitLoading 中だけ配線・未設定なら無音）
 }
 // --- 建物3D（PLATEAU）データ管理モーダル：カタログ×IDB。worker 配線だけ渡し、DOMはモジュール側が組む。
-const meshListPending = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
-const meshDeletePending = new Map();   // base → resolver（削除は base ルーティング＝メモリキャッシュの持ち主に届く）
-const meshIdbList = () => new Promise(res => { spawnMeshWorkers(); meshListPending.push(res); meshWorkers[0].postMessage({ type: "idbList" }); });
-const meshIdbDelete = base => new Promise(res => { spawnMeshWorkers(); meshDeletePending.set(base, res); meshWorkers[hashStr(base) % MESH_NW].postMessage({ type: "idbDelete", base }); })
+const meshListPending: Array<(items: MeshDbCached[]) => void> = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
+const meshDeletePending = new Map<string, (n: number) => void>();   // base → resolver（削除は base ルーティング＝メモリキャッシュの持ち主に届く）
+const meshIdbList = () => new Promise<MeshDbCached[]>(res => { spawnMeshWorkers(); meshListPending.push(res); meshWorkers[0].postMessage({ type: "idbList" }); });
+const meshIdbDelete = (base: string) => new Promise<number>(res => { spawnMeshWorkers(); meshDeletePending.set(base, res); meshWorkers[hashStr(base) % MESH_NW].postMessage({ type: "idbDelete", base }); })
 	.then(n => {   // GPU常駐コピーも道連れ（表示中は従来どおり残す）＝「削除」した区が常駐ヒットで蘇らないように
 		const name = [...meshResident.entries()].find(([, s]) => s.base === base)?.[0];
 		if (name && !meshActive.has(name)) meshEvict(name);
@@ -316,7 +369,7 @@ const meshIdbDelete = base => new Promise(res => { spawnMeshWorkers(); meshDelet
 // デモ台本のPLATEAU先読み：z14+で着地するシーンの足元の区を台本から自動導出し、IDBへ静かに仕込む（描画へは送らない）。
 // 台本の早いシーン（球・列島・スライド）の間に裏で完走→PLATEAUシーンに着いた時はIDB直読み＝初見のPCでも一発で街が立つ。
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
-async function prefetchMeshForViews(views, names, onProgress) {
+async function prefetchMeshForViews(views: unknown[], names?: string[] | null, onProgress?: OnProg | null): Promise<MeshSet[]> {
 	if (!meshOn) return [];
 	// 【▶の瞬間から走る】旧・LOW_MEM は boot+45秒遅延（鉄道地図z14.5タイルとデコードが重なる jetsam 対策）
 	// だったが、テーマ切替（c=）の各ページは十数秒で reload されタイマーごと消える＝iPhone では実質
@@ -326,10 +379,10 @@ async function prefetchMeshForViews(views, names, onProgress) {
 	await catalogReady;
 	if (!SETS.length) return [];
 	if (names?.length) {
-		const bad = [];
+		const bad: string[] = [];
 		const wanted = names
 			.map(n => { const s = SETS.find(x => x.name === n); if (!s) bad.push(n); return s; })
-			.filter(s => s && !meshDead(s.name));
+			.filter(s => s && !meshDead(s.name)) as MeshSet[];
 		if (bad.length) console.warn("[demo] plateau names not in catalog (script typo?):", bad.join(", "));
 		// ピン留め＝リスト記載の区は autoMesh の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
 		meshPinned = new Set(wanted.map(s => s.name));
@@ -348,10 +401,10 @@ async function prefetchMeshForViews(views, names, onProgress) {
 // ~900m）への近さで裁く＝東京駅シーン(東向き)の中央区(八重洲)は入り、新宿シーン(北東向き)の南隣・
 // 渋谷区（大区＝読むのに時間がかかる割に構図外）は落ちる（Kenji 指摘 2026-07-29）。
 // 中断は meshworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
-function deriveScriptSets(views) {
+function deriveScriptSets(views: unknown[]) {
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
 	const NEIGH = 0.008;    // 隣接区の前方点ゲート（≈900m）。MARGIN より狭い＝構図に実際入る近さだけ
-	const perView = [];
+	const perView: Array<{ bld: MeshSet[]; brid: MeshSet[]; fwd: number[] }> = [];
 	for (const hash of views) {
 		const v = typeof hash === "string" ? parseViewHash(hash) : null;
 		if (!v || v.zoom < MESH_AUTO_Z) continue;
@@ -360,12 +413,12 @@ function deriveScriptSets(views) {
 		const fwd = v.pitch > 0.35
 			? [p[0] + Math.sin(v.bearing) * NEIGH / Math.max(0.2, Math.cos(v.lat * D2R)), p[1] + Math.cos(v.bearing) * NEIGH]
 			: p;
-		const pd2 = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
+		const pd2 = (s: MeshSet, q: number[]) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 		// 同点タイブレーク＝重心距離（autoMesh の near と同じ規約）。bbox は矩形＝密集地では複数区の
 		// bbox が停止点を含み pd2=0 の同点になり、旧・カタログ配列順の成り行きで
 		// 東京駅→港区／スカイツリー→荒川区／新宿→渋谷区 と「主役でない区」を先読みしていた
 		//（＝正しい区はシーン到着後にゼロから読む二重読み＝iPhone クラッシュ圧の正体。実カタログで再現確認済み）。
-		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - p[0]) ** 2 + (cy - p[1]) ** 2; };
+		const c2 = (s: MeshSet) => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - p[0]) ** 2 + (cy - p[1]) ** 2; };
 		const near = SETS.filter(s => !meshDead(s.name) && pd2(s, p) < MARGIN * MARGIN)
 			.sort((a, b) => (pd2(a, p) - pd2(b, p)) || (c2(a) - c2(b)));
 		// 建物枠＋橋梁(noMask)別枠＝autoMesh の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
@@ -375,9 +428,9 @@ function deriveScriptSets(views) {
 			fwd,
 		});
 	}
-	const wanted = [], seen = new Set();
-	const take = s => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
-	const pd2q = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
+	const wanted: MeshSet[] = [], seen = new Set<string>();
+	const take = (s: MeshSet | undefined) => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
+	const pd2q = (s: MeshSet, q: number[]) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
 	return wanted;
@@ -386,7 +439,7 @@ function deriveScriptSets(views) {
 // 開いた瞬間（hold開始＝飛行も読み込みも静か）に demo が呼ぶ（onQuiet 注入・行ごと1回）。
 // 「残りの台本にもう出ない」非表示常駐区を GPU から降ろす＝台本知の特権（通常運転の LRU は未来を知らない）。
 // 表示中・読込中・現在視界と交差する区は触らない（構図と直後の回り込みを崩さない）。LOW_MEM は常駐ゼロ＝素通り。
-function meshTrimForScript(views) {
+function meshTrimForScript(views: unknown[]) {
 	if (!meshResident.size) return;
 	const keep = new Set(deriveScriptSets(views).map(s => s.name));
 	let freed = 0;
@@ -398,7 +451,7 @@ function meshTrimForScript(views) {
 	}
 	if (freed) console.log(`[mesh] quiet-window cleanup = evicted residents absent from remaining script ~${(freed / 1048576) | 0}MB (left ${meshResident.size} wards ~${(residentBytes() / 1048576) | 0}MB)`);
 }
-async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
+async function runPrefetch(wanted: MeshSet[], how: string, onProgress?: OnProg | null) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
 	if (!wanted.length) return wanted;
 	console.log(`[demo] PLATEAU prefetch ${wanted.length} wards (${how}): ${wanted.map(s => s.name).join(", ")}`);
 	meshPrefetchBusy = true;   // 先読み中＝autoMesh の建物枠を1つ譲る（デコード同時数の総枠を保つ）
@@ -435,7 +488,7 @@ async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区
 	} finally { meshPrefetchBusy = false; autoMesh(true); }   // 先読み終了＝譲っていた枠を返して再選抜
 	return wanted;
 }
-function meshPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
+function meshPreload(set: MeshSet): Promise<WorkerAck> {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (meshLoading.has(set.name) || meshActive.has(set.name)) return Promise.resolve(true);
 	meshLoading.add(set.name);
 	spawnMeshWorkers();
@@ -444,7 +497,7 @@ function meshPreload(set) {   // プレロード＝IDBに貯めるだけ（描�
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
 	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
 	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: meshSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null, bakeBase: set.bakeBase || null });
-	return new Promise((resolve, reject) => meshPending.set(id, { resolve, reject, name: set.name }))
+	return new Promise<WorkerAck>((resolve, reject) => meshPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => meshLoading.delete(set.name));
 }
 const meshDb = createMeshDb({
@@ -457,7 +510,7 @@ const meshDb = createMeshDb({
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
 if (meshOn) navigator.storage?.persist?.().then(ok => console.log(`[mesh] storage persist: ${ok ? "granted" : "denied"}`)).catch(() => {});
 
-const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+const bboxIntersects = (a: ArrayLike<number>, b: ArrayLike<number>) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 
 // 現在地＋ズームで登録簿を引き、視野に重なる地区を全部ロード／外れた地区は解放。区境をまたぐと複数地区が同時アクティブになる（上限 MESH_MAX_ACTIVE）。
 // onMove から毎回呼ぶがガードで実質タダ。
@@ -483,7 +536,7 @@ function autoFar() {
 	// スロットの物理上限）から溢れた隣接区（麻布台 z17.6 で渋谷区が hits5位・実測 2026-08-11）は実メッシュに
 	// 交代する日が来ない＝巨大箱が本物の隣に立ち続ける、の根治。遠景の箱は従来どおり。
 	const farNearD2 = 0.025 * 0.025;   // ~2.2km
-	const farPd2 = s => { const dx = Math.max(s.bbox[0] - env.cam.center[0], 0, env.cam.center[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - env.cam.center[1], 0, env.cam.center[1] - s.bbox[3]); return dx * dx + dy * dy; };
+	const farPd2 = (s: MeshSet) => { const dx = Math.max(s.bbox[0] - env.cam.center[0], 0, env.cam.center[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - env.cam.center[1], 0, env.cam.center[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const s of SETS) {
 		if (s.noMask) continue;   // 橋梁等は遠景箱の対象外
 		if (meshActive.has(s.name) || meshLoading.has(s.name)) {
@@ -543,7 +596,7 @@ function autoMesh(settled = false) {
 	//   ブロック問題は bldCap 側で解決済み）。
 	// ・遠距離（55km 超＝都市を跨いだ＝当分戻らない）→ cancel＝協調キャンセル。帯域/CPU/デコードメモリを
 	//   現地点へ全部返す。完成済みバッチは逐次 IDB（partial）済み＝戻れば idbLoadPartial が「続きから」。
-	const parkStale = (wanted) => {   // 視界から外れたロード中の区＝即キャンセル（部分は保存済＝再訪で続きから）。旧・近距離 demote（slow 在庫）は廃止（9/8）
+	const parkStale = (wanted: Set<string> | null) => {   // 視界から外れたロード中の区＝即キャンセル（部分は保存済＝再訪で続きから）。旧・近距離 demote（slow 在庫）は廃止（9/8）
 		for (const [name, s] of meshAutoLoading) {
 			if (wanted?.has(name) || meshCancelling.has(name)) continue;
 			meshWorkers[hashStr(s.base) % MESH_NW].postMessage({ type: "cancel", base: s.base });
@@ -589,17 +642,17 @@ function autoMesh(settled = false) {
 	// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
 	// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
 	// 同点は中心への近さ、それも同点（bbox重複）は重心距離。ロード発火もこの順＝手前から立ち始める。
-	const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
-	const d2 = s => pd2(s, foot || env.cam.center);   // 主キー：足元（真俯瞰は中心）
-	const m2 = s => pd2(s, env.cam.center);           // 第2キー：中心
-	const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - env.cam.center[0]) ** 2 + (cy - env.cam.center[1]) ** 2; };
-	const near = (a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b));
+	const pd2 = (s: MeshSet, p: ArrayLike<number>) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+	const d2 = (s: MeshSet) => pd2(s, foot || env.cam.center);   // 主キー：足元（真俯瞰は中心）
+	const m2 = (s: MeshSet) => pd2(s, env.cam.center);           // 第2キー：中心
+	const c2 = (s: MeshSet) => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - env.cam.center[0]) ** 2 + (cy - env.cam.center[1]) ** 2; };
+	const near = (a: MeshSet, b: MeshSet) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b));
 	// 選抜は建物（被覆マスクのスロット4を使う）と橋梁等（noMask＝スロット不要）で別枠＝橋が建物4区の枠を奪わない。
 	// 台本 plateau: リスト記載の区＝ピン留め＝視界に入っていれば選抜キャップを無視して同時表示
 	//（マスクスロット上限=4区まで）。旧・LOW_MEM の同時1区キャップは、東京駅〜丸の内の滑走で最寄り区が
 	// 千代田⇄中央と入れ替わるたび「片方を消して片方を読み直す」スラッシング（カタカタ）を起こしていた
 	//（lowMem=常駐ゼロ＝flip 毎に再ロード）。→ LOW_MEM=2区に既定化＝両方立てて入れ替わり自体が消えた（Kenji 指定 2026-07-29／2化 2026-07-30）。
-	const capMerge = (list, cap) => {
+	const capMerge = (list: MeshSet[], cap: number) => {
 		const sel = list.slice(0, cap);
 		for (const s of list.slice(cap)) if (meshPinned.has(s.name) && sel.length < 4) sel.push(s);
 		return sel;
@@ -618,7 +671,7 @@ function autoMesh(settled = false) {
 	// 始まらない）。建物は MESH_LOAD_MAX。数えるのは cancel 中を除くロード中の全区
 	const loadingN = () => [...meshAutoLoading.keys()].filter(n => !meshCancelling.has(n)).length;
 	const slotsFree = (noMask = false) => MESH_LOAD_MAX + (noMask ? 1 : 0) - (meshPrefetchBusy ? 1 : 0) - loadingN();
-	const queued = [];
+	const queued: string[] = [];
 	for (const h of hits) {
 		if (meshActive.has(h.name)) continue;
 		if (meshLoading.has(h.name)) {
@@ -692,7 +745,7 @@ function autoMesh(settled = false) {
 		const NEAR_PRE = 0.012;   // ≈1.3km（デモ先読みの MARGIN と同じ物差し）
 		let free = slotsFree() - meshNeighborPre.size;
 		if (free > 0) {
-			const pd = s => { const dx = Math.max(s.bbox[0] - view[2], 0, view[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - view[3], 0, view[1] - s.bbox[3]); return dx * dx + dy * dy; };
+			const pd = (s: MeshSet) => { const dx = Math.max(s.bbox[0] - view[2], 0, view[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - view[3], 0, view[1] - s.bbox[3]); return dx * dx + dy * dy; };
 			const cand = SETS.filter(s => !hitNames.has(s.name) && !meshLoading.has(s.name) && !meshActive.has(s.name) && !meshResident.has(s.name) && !meshDead(s.name) && !meshPreDone.has(s.name) && pd(s) < NEAR_PRE * NEAR_PRE)
 				.sort((x, y) => pd(x) - pd(y));
 			for (const s of cand.slice(0, free)) {
@@ -703,9 +756,9 @@ function autoMesh(settled = false) {
 		}
 	}
 }
-const meshRestarted = new Set();        // 見張りで一度打ち切った区（同じロードで二度はしない＝ループ防止。finally で解除）
-const meshNeighborPre = new Set();      // 隣接区の先読み中（枠に数える）
-const meshPreDone = new Set();          // このセッションで先読み済（同じ区を何度も IDB 確認しない＝存在確認は worker 側で即返るが往復は省く）
+const meshRestarted = new Set<string>();        // 見張りで一度打ち切った区（同じロードで二度はしない＝ループ防止。finally で解除）
+const meshNeighborPre = new Set<string>();      // 隣接区の先読み中（枠に数える）
+const meshPreDone = new Set<string>();          // このセッションで先読み済（同じ区を何度も IDB 確認しない＝存在確認は worker 側で即返るが往復は省く）
 // 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
 // カメラ操作なしでも回す（onMove/settle が来ない「静止して待つ」シーンでの飢餓/取りこぼし対策）。
 const pollT = setInterval(() => { if (meshLoading.size && !env.moving && !env.flying) autoMesh(true); }, 10e3);
@@ -717,7 +770,7 @@ const pokeT = setTimeout(() => { if (!env.moving && !env.flying) autoMesh(true);
 // 特定区を「今すぐ立てる」（カメラは動かさない）：常駐ヒット＝vis を戻すだけ（転送ゼロ）／未常駐＝IDB（温）or 網から
 // ロードして常駐＋表示。ロードのジッタ対策の外＝停止中の積み込み（waitLoading のリビール準備）と手打ちデモ(__mesh)で共用。
 // onMove→autoMesh との二重ロードは meshLoading ガードで防ぐ。返り＝立ったか(bool)の Promise。
-function standUpWard(set, tiles) {
+function standUpWard(set: MeshSet, tiles?: string[]) {
 	if (meshActive.has(set.name) || meshLoading.has(set.name)) return Promise.resolve(false);
 	if (meshResident.has(set.name)) {   // 常駐ヒット＝表示フラグを戻すだけ（autoMesh と同じ経路）
 		meshRetain(set.name, set); renderer.set("meshVis", true, set.name); meshActive.set(set.name, set); requestDraw();
@@ -733,7 +786,7 @@ function standUpWard(set, tiles) {
 // ロード本体（カメラは動かさない）：重い処理は meshworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
 // 直結ポートを流れ逐次表示される（main を通らない。ここに返るのは全バッチ完了の ack だけ）。
 // 成功可否 bool＝呼び出し側が meshActive に加えるかの判断に使う。
-async function loadMesh(base, tiles, name, wardBbox, brid, ex = {}) {
+async function loadMesh(base: string, tiles: string[] | undefined, name: string, wardBbox: number[] | null, brid: boolean | undefined, ex: MeshLoadEx = {}): Promise<WorkerAck> {
 	emit({ phase: "start", name, base });
 	const ok = await workerLoadMesh(base, tiles, name, wardBbox, brid, ex);
 	if (ok === "cancelled") { emit({ phase: "cancelled", name, base }); return ok; }   // 視野離脱の協調キャンセル＝呼び出し側（autoMesh）が残骸掃除する
@@ -747,7 +800,7 @@ async function loadMesh(base, tiles, name, wardBbox, brid, ex = {}) {
 
 // 台本の中で「建物が実際に見える最初の視点」（チルト＋寄り＝pitch≥閾 かつ zoom≥AUTO_Z）の視界に掛かる建物区を返す。
 // waitLoading のリビール準備で「開幕で立つ区だけ」を停止中に GPU へ積むための最小集合＝要らない区（真俯瞰・低ズーム・視界外の隣接・後続ホップ）は含めない。
-function firstRevealSets(views) {
+function firstRevealSets(views: Array<string | ParsedView> | null | undefined) {
 	for (const hash of views || []) {
 		const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 		if (!v || v.zoom < MESH_AUTO_Z || (v.pitch || 0) < 0.02) continue;   // 真俯瞰/低ズーム＝建物は出ない＝積まない
@@ -756,7 +809,7 @@ function firstRevealSets(views) {
 	}
 	return [];
 }
-function setExcludeMap(map) {   // 起動前に届けば spawn 時に配り、起動後なら起きている worker へ即配る
+function setExcludeMap(map: Record<string, string[]> | null) {   // 起動前に届けば spawn 時に配り、起動後なら起きている worker へ即配る
 	excludeMap = map;
 	meshWorkers.forEach(w => w.postMessage({ type: "exclude", map }));
 }

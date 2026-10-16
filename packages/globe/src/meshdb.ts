@@ -6,15 +6,36 @@ import { tr } from "./i18n.js";
 
 const t = tr();
 
+/** 地区（台帳の 1 件・name＝表示名・base＝tileset の基底 URL） */
+export interface MeshDbSet { name: string; base: string; [k: string]: unknown }
+/** 地区の並びと見出し（地域宣言 buildings.group） */
+export interface MeshDbGroup { order: number; key: string | number | null; label: string }
+/** IDB の台帳の 1 件 */
+export interface MeshDbCached { base: string; bytes?: number; count?: number; ts?: number; partial?: boolean }
+/** 進捗（name → {scan}|{done,total}） */
+export type MeshDbProg = Map<string, { done?: number; total?: number; scan?: number }>;
+/** createMeshDb の引数（S＝呼び手の地区の型） */
+export interface MeshDbOpts<S extends MeshDbSet = MeshDbSet> {
+	getSets(): S[];
+	idbList(): Promise<MeshDbCached[]>;
+	idbDelete(base: string): Promise<unknown>;
+	preload(set: S): Promise<unknown>;
+	show(set: S): unknown;
+	groupOf?: ((set: S) => MeshDbGroup | null | undefined) | null;
+	title?: string | null;
+	host?: HTMLElement | null;
+}
+interface Row<S extends MeshDbSet> { set: S; pref: string; rowEl: HTMLElement; statusEl: HTMLElement; drawEl: HTMLElement; actEl: HTMLElement }
+
 // groupOf(set)＝地域宣言 buildings.group（{ order（並び）, key（見出しの切れ目）, label（見出し）}・無ければ台帳順・見出しなし）
-export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null, title = null, host = null }) {   // host＝地図の容れ物（#173）   // title＝題の i18n キー（地域の申告・無ければ汎用）
-	let root = null, listEl = null, sumEl = null, filterEl = null;
-	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
-	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
-	let cached = new Map();      // base → { bytes, count, ts }
-	const busy = new Set();      // 実行中の地区名（ボタン連打防止）
-	let wasLoading = new Set(), lastProg = new Map();
-	const fmtMB = b => b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + "MB" : b > 0 ? (b / 1024).toFixed(0) + "KB" : "";
+export function createMeshDb<S extends MeshDbSet>({ getSets, idbList, idbDelete, preload, show, groupOf = null, title = null, host = null }: MeshDbOpts<S>): { open(): void; close(): void; onProg(progMap: MeshDbProg): void } {   // host＝地図の容れ物（#173）   // title＝題の i18n キー（地域の申告・無ければ汎用）
+	let root: HTMLElement | null = null, listEl: HTMLElement | null = null, sumEl: HTMLElement | null = null, filterEl: HTMLInputElement | null = null;
+	const rows = new Map<string, Row<S>>();      // name → { set, pref, rowEl, statusEl, actEl }
+	let blocks: Array<{ headerEl: HTMLElement; rows: Row<S>[] }> = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
+	let cached = new Map<string, MeshDbCached>();      // base → { bytes, count, ts }
+	const busy = new Set<string>();      // 実行中の地区名（ボタン連打防止）
+	let wasLoading = new Set<string>(), lastProg: MeshDbProg = new Map();
+	const fmtMB = (b: number) => b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + "MB" : b > 0 ? (b / 1024).toFixed(0) + "KB" : "";
 
 	function build() {
 		root = document.createElement("div"); root.id = "pdb";
@@ -26,28 +47,28 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 				<div id="pdb-list"></div>
 			</div>`;
 		(host || document.body).appendChild(root);   // 地図の容れ物の配下＝埋め込み時もモーダルが地図領域に収まる（頁に地図が複数でも自分の容れ物）
-		listEl = root.querySelector("#pdb-list"); sumEl = root.querySelector("#pdb-sum"); filterEl = root.querySelector("#pdb-filter");
+		listEl = root.querySelector<HTMLElement>("#pdb-list"); sumEl = root.querySelector<HTMLElement>("#pdb-sum"); filterEl = root.querySelector<HTMLInputElement>("#pdb-filter");
 		root.addEventListener("pointerdown", e => { if (e.target === root) close(); });   // 背景クリックで閉じる
-		root.querySelector("#pdb-close").addEventListener("click", close);
-		filterEl.addEventListener("input", applyFilter);
-		root.querySelector("#pdb-purge").addEventListener("click", async () => {
+		root.querySelector("#pdb-close")!.addEventListener("click", close);
+		filterEl!.addEventListener("input", applyFilter);
+		root.querySelector("#pdb-purge")!.addEventListener("click", async () => {
 			if (!cached.size || !confirm(t("Delete all $1 cached districts?", cached.size))) return;
 			for (const base of [...cached.keys()]) await idbDelete(base);
 			refresh();
 		});
 	}
 	function applyFilter() {
-		const q = filterEl.value.trim();
+		const q = filterEl!.value.trim();
 		// 市区町村名 or 都道府県名でマッチ（「東京」で東京都ブロック全体が出る）。空見出しのブロックは隠す。
 		for (const r of rows.values()) r.rowEl.style.display = !q || r.set.name.includes(q) || r.pref.includes(q) ? "" : "none";
 		for (const b of blocks) b.headerEl.style.display = b.rows.some(r => r.rowEl.style.display !== "none") ? "" : "none";
 	}
 	function buildRows() {
-		rows.clear(); blocks = []; listEl.innerHTML = "";
+		rows.clear(); blocks = []; listEl!.innerHTML = "";
 		// 並びと見出しは地域宣言 buildings.group（日本＝市区町村コード順・先頭2桁＝都道府県で見出し）。宣言が無ければ台帳順・見出しなし
-		const G = new Map(), grp = s => { let g = G.get(s); if (!g) G.set(s, g = groupOf?.(s) ?? { order: 0, key: null, label: "" }); return g; };
+		const G = new Map<S, MeshDbGroup>(), grp = (s: S) => { let g = G.get(s); if (!g) G.set(s, g = groupOf?.(s) ?? { order: 0, key: null, label: "" }); return g; };
 		const sets = [...getSets()].sort((a, b) => grp(a).order - grp(b).order);
-		let curKey = undefined, block = null;
+		let curKey: MeshDbGroup["key"] | undefined = undefined, block: { headerEl: HTMLElement; rows: Row<S>[] } | null = null;
 		for (const set of sets) {
 			const key = grp(set).key;
 			if (key !== curKey || !block) {
@@ -55,7 +76,7 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 				const headerEl = document.createElement("div"); headerEl.className = "pdb-pref";
 				headerEl.textContent = grp(set).label || (key == null ? "" : t("Other"));
 				if (!headerEl.textContent) headerEl.hidden = true;
-				listEl.appendChild(headerEl);
+				listEl!.appendChild(headerEl);
 				blocks.push(block = { headerEl, rows: [] });
 			}
 			const rowEl = document.createElement("div"); rowEl.className = "pdb-row";
@@ -66,31 +87,31 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 			drawEl.addEventListener("click", () => show(set));   // モーダルを閉じて球面フライト→autoMesh がキャッシュ命中で即表示
 			const actEl = document.createElement("button"); actEl.className = "pdb-act";
 			actEl.addEventListener("click", () => onAct(set));
-			rowEl.append(nameEl, statusEl, drawEl, actEl); listEl.appendChild(rowEl);
+			rowEl.append(nameEl, statusEl, drawEl, actEl); listEl!.appendChild(rowEl);
 			const r = { set, pref: grp(set).label || "", rowEl, statusEl, drawEl, actEl };
 			rows.set(set.name, r); block.rows.push(r);
 		}
 		applyFilter();
 	}
-	async function onAct(set) {
+	async function onAct(set: S) {
 		if (busy.has(set.name)) return;
 		busy.add(set.name);
 		try {
 			const c = cached.get(set.base);
 			if (c && !c.partial) await idbDelete(set.base);
-			else { renderRow(rows.get(set.name), t("Waiting…")); await preload(set); }   // 途中＝続きから（部分再開）。進捗は onProg が上書きする
+			else { renderRow(rows.get(set.name)!, t("Waiting…")); await preload(set); }   // 途中＝続きから（部分再開）。進捗は onProg が上書きする
 		} finally { busy.delete(set.name); }
 		refresh();
 	}
-	function renderRow(r, progText) {
+	function renderRow(r: Row<S>, progText?: string) {
 		if (progText != null) { r.statusEl.textContent = progText; r.actEl.style.display = "none"; r.drawEl.style.display = "none"; return; }
 		const c = cached.get(r.set.base);
 		if (c && !c.partial) {
-			r.statusEl.textContent = t("Done $1", fmtMB(c.bytes) || c.count + " batch");
+			r.statusEl.textContent = t("Done $1", fmtMB(c.bytes!) || c.count + " batch");
 			r.drawEl.style.display = "";   // 読み込み済み＝明示的な「描画」ボタン
 			r.actEl.textContent = t("Delete"); r.actEl.className = "pdb-act del";
 		} else if (c) {   // 中断の貯金（partial）＝続きからプレロードできる
-			r.statusEl.textContent = t("Partial $1", fmtMB(c.bytes) || c.count + " batch");
+			r.statusEl.textContent = t("Partial $1", fmtMB(c.bytes!) || c.count + " batch");
 			r.drawEl.style.display = "none";
 			r.actEl.textContent = t("Resume"); r.actEl.className = "pdb-act";
 		} else {
@@ -105,29 +126,29 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 		let total = 0; for (const it of cached.values()) total += it.bytes || 0;
 		// 端末のオリジン割当（クォータ）を添える＝デモ前の仕込みで残り容量を見ながら判断できる。取れない環境は地区合計のみ。
 		const est = await navigator.storage?.estimate?.().catch(() => null);
-		const fmtGB = b => b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + "GB" : fmtMB(b) || "0MB";
-		sumEl.innerHTML = t("Cached: $1 districts, about $2", cached.size, fmtGB(total))   // 挿入値は全て数値生成＝innerHTML可（<br>で2行に）
+		const fmtGB = (b: number) => b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + "GB" : fmtMB(b) || "0MB";
+		sumEl!.innerHTML = t("Cached: $1 districts, about $2", cached.size, fmtGB(total))   // 挿入値は全て数値生成＝innerHTML可（<br>で2行に）
 			+ (est?.quota ? "<br>" + t("(device quota $1, in use $2)", fmtGB(est.quota), fmtGB(est.usage || 0)) : "");
 		for (const r of rows.values()) renderRow(r);
 		onProg(lastProg);   // 進行中の行は進捗表示を優先で上書き
 	}
 	// main の進捗 Map（name → {scan}|{done,total}）を行表示へ。autoMesh 起点の読み込みも同じ経路で見える。
 	// 進行中だった行が消えた＝完了/失敗＝一覧を引き直して「済」へ（vanish→refresh→onProg は wasLoading が同期済みなので循環しない）。
-	function onProg(progMap) {
+	function onProg(progMap: MeshDbProg) {
 		lastProg = progMap;
 		if (!root || root.style.display === "none") return;
-		const nowLoading = new Set();
+		const nowLoading = new Set<string>();
 		for (const [name, p] of progMap) {
 			nowLoading.add(name);
 			const r = rows.get(name); if (!r) continue;
-			renderRow(r, p.total ? t("$1/$2 tiles", p.done, p.total) : t("scanning catalog $1…", p.scan ?? 0));
+			renderRow(r, p.total ? t("$1/$2 tiles", p.done!, p.total) : t("scanning catalog $1…", p.scan ?? 0));
 		}
 		let vanished = false;
 		for (const n of wasLoading) if (!nowLoading.has(n)) vanished = true;
 		wasLoading = nowLoading;
 		if (vanished) refresh();
 	}
-	function open() { if (!root) build(); root.style.display = "flex"; refresh(); }
-	function close() { root.style.display = "none"; }
+	function open() { if (!root) build(); root!.style.display = "flex"; refresh(); }
+	function close() { root!.style.display = "none"; }
 	return { open, close, onProg };
 }
