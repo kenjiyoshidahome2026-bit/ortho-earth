@@ -9,7 +9,10 @@
 //   建物の tileset なら ground:"terrain"＝1 棟ずつ最低点で地面に接地（PLATEAU の経路と同じ）。
 // implicit tiling（3D Tiles 1.1 の subtree・1.0 の 3DTILES_implicit_tiling・2026-10-16）＝implicit の根の下は subtree のビット列から子を作る（tiles3d-implicit.ts）。
 //   subtree は main で読む（小さく、ビット列は選びに要る）。子 subtree を読んでいる間は子が「まだ分からない」＝REPLACE の親を出したまま。
-//   長く使っていない implicit の部分木は刈る（中身が上がっている子孫がいない時だけ）。content は 1 個目だけ（複数 content は未対応）。
+//   長く使っていない implicit の部分木は刈る（中身が上がっている子孫がいない時だけ）。
+// 複数 content（3D Tiles 1.1 の contents・1.0 の 3DTILES_multiple_contents・2026-10-16）＝2 個目からはタイルに付く「content の節点」（extra）。
+//   木は歩かず、タイルと一緒に読み・出し・伏せる（全部が読めた／失敗してから出す＝REPLACE の親と重ねない）。implicit は content ごとのテンプレートと availability。
+//   外部 tileset（.json）は content が 1 個の時だけ（複数の中の .json は警告して読まない）。
 // metadata（3D Tiles 1.1・2026-10-16）＝schema（直書き／schemaUri）で tileset・groups・tile・content の metadata を読み（tiles3d-metadata.ts）、pick の答えに出す。
 //   implicit は subtree の property table の行（available の中の順位）。意味 TILE_BOUNDING_*／TILE_*_HEIGHT／TILE_GEOMETRIC_ERROR で境界と誤差を上書き。
 // スタイル（2026-10-16）＝地物ごとの color・show を MapLibre の式で（tiles3d-style.ts）・Cesium の 3D Tiles Styling は訳して（tiles3d-cesium-style.ts）。属性＝tileset ＜ group ＜ tile ＜ content の metadata ＜ 地物の属性。
@@ -20,7 +23,7 @@ import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当
 import { featureProperties } from "../mesh-features.ts";
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
-import { implicitOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
+import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../tiles3d-metadata.ts";   // metadata（tileset・group・tile・content）
 import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
 import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
@@ -37,8 +40,10 @@ import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 
-/** tileset.json のタイル（読む欄だけ）。implicitTiling／extensions＝implicit tiling の根（1.1／1.0 拡張） */
-interface TileJson { transform?: number[]; content?: { uri?: string; url?: string; metadata?: MetadataEntityJson; group?: number }; geometricError?: number; metadata?: MetadataEntityJson; refine?: string; boundingVolume?: BoundingVolume; children?: TileJson[];
+/** タイルの content（読む欄だけ） */
+interface ContentJson { uri?: string; url?: string; metadata?: MetadataEntityJson; group?: number }
+/** tileset.json のタイル（読む欄だけ）。contents＝複数 content（1.1）・implicitTiling／extensions＝implicit tiling の根（1.1／1.0 拡張）と 1.0 の 3DTILES_multiple_contents */
+interface TileJson { transform?: number[]; content?: ContentJson; contents?: ContentJson[]; geometricError?: number; metadata?: MetadataEntityJson; refine?: string; boundingVolume?: BoundingVolume; children?: TileJson[];
 	implicitTiling?: ImplicitTilingJson; extensions?: Record<string, unknown> }
 /** tileset.json の根（読む欄だけ） */
 interface TilesetJson {
@@ -71,8 +76,8 @@ export type MeshSetData = TileMesh & { [k: string]: unknown };
 interface PickPart { k: number; pos: Float32Array; idx: Uint32Array; origin: number[]; features: MeshFeatures | null; col0: Uint8Array | null }
 /** tileset.json ごとの metadata の前提（schema と groups）＝その tileset のタイルが引き継ぐ（外部 tileset は自分の物があれば差し替え） */
 interface T3dScope { schema: MetadataSchema | null; groups: Array<MetadataEntity | null> }
-/** implicit tiling の根ごとの共有（t＝分け方・bv／ge／refine＝根の境界・誤差・継ぎ方・content＝content のテンプレート URI・subtrees＝"L/x/y/z" → 読み込み） */
-interface ImpRoot { t: ImplicitTiling; bv: BoundingVolume; ge: number; refine: string; content: string | null; base: string; subtrees: Map<string, SubtreeSlot> }
+/** implicit tiling の根ごとの共有（t＝分け方・bv／ge／refine＝根の境界・誤差・継ぎ方・contents＝content ごとのテンプレート URI と group・subtrees＝"L/x/y/z" → 読み込み） */
+interface ImpRoot { t: ImplicitTiling; bv: BoundingVolume; ge: number; refine: string; contents: Array<{ uri: string; group?: number }>; base: string; subtrees: Map<string, SubtreeSlot> }
 interface SubtreeSlot { state: "loading" | "ready" | "failed"; st: Subtree | null }
 /** implicit の節点＝c＝自分の座標・r＝自分を含む subtree の根の座標・st＝その subtree（null＝まだ読んでいない＝自分が subtree の根） */
 interface ImpNode { R: ImpRoot; c: TileCoord; r: TileCoord; st: Subtree | null }
@@ -84,6 +89,8 @@ interface T3dNode {
 	json?: TileJson; base?: string; external?: boolean; i3s?: I3SNodeMsg; kidsState?: "none" | "loading" | "ready" | "failed"; imp?: ImpNode;
 	scope?: T3dScope; tileMeta?: MetadataEntity | null; contentMeta?: MetadataEntity | null; group?: number;
 	paint?: PaintPart[] | null;
+	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
+	extra?: T3dNode[] | null; owner?: T3dNode;
 	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; pts: string[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 }
@@ -208,35 +215,49 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const tileNode = (json: TileJson, parentM: ArrayLike<number>, base: string, set: T3dSet, parent: T3dNode | null, scope: T3dScope | null = parent?.scope ?? null): T3dNode => {
 		const M = json.transform ? m4mul(parentM, json.transform) : parentM;
 		const t = implicitOf(json);   // implicit の根＝content の URI はテンプレート・子は subtree から
-		const uri = json.content?.uri ?? json.content?.url ?? null;
+		const uriOf = (c: ContentJson) => c.uri ?? c.url ?? null;
+		let cs = contentsOf<ContentJson>(json).filter(c => uriOf(c) != null);
+		if (cs.length > 1 && cs.some(c => isJsonUri(uriOf(c)!))) { console.warn("[tiles3d] external tileset among multiple contents is not supported", cs.map(uriOf).join(" ")); cs = cs.filter(c => !isJsonUri(uriOf(c)!)); }
+		const c0 = cs[0], uri = c0 ? uriOf(c0) : null;
 		const tileMeta = entityOf(json.metadata, scope?.schema), { bv, ge } = applySemantics(json.boundingVolume ?? null, json.geometricError ?? 0, semanticsOf(tileMeta, scope?.schema));   // 意味（TILE_*）で境界と誤差を上書き
 		const n: T3dNode = { id: ++tileSeq, set, parent, M, ge, refine: (json.refine || parent?.refine || "REPLACE").toUpperCase(),
 			sphere: sphereOf(bv ?? undefined, M), uri: uri && !t ? withQuery(new URL(uri, base).href, set) : null, children: null, json, base,
-			state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: scope ?? undefined, tileMeta, contentMeta: t ? null : entityOf(json.content?.metadata, scope?.schema), group: json.content?.group };
-		n.external = !!n.uri && /\.json(\?|$)/i.test(n.uri);
+			state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: scope ?? undefined, tileMeta, contentMeta: t ? null : entityOf(c0?.metadata, scope?.schema), group: c0?.group };
+		n.external = !!n.uri && isJsonUri(n.uri);
 		if (t) {
-			const c0: TileCoord = t.n === 8 ? { level: 0, x: 0, y: 0, z: 0 } : { level: 0, x: 0, y: 0 };
-			n.imp = { R: { t, bv: json.boundingVolume || {}, ge: json.geometricError ?? 0, refine: n.refine, content: uri, base, subtrees: new Map() }, c: c0, r: c0, st: null };
+			const r0: TileCoord = t.n === 8 ? { level: 0, x: 0, y: 0, z: 0 } : { level: 0, x: 0, y: 0 };
+			n.imp = { R: { t, bv: json.boundingVolume || {}, ge: json.geometricError ?? 0, refine: n.refine, contents: cs.map(c => ({ uri: uriOf(c)!, group: c.group })), base, subtrees: new Map() }, c: r0, r: r0, st: null };
 			n.tileMeta = null;   // implicit の根の metadata は subtree から
 		}
+		else if (cs.length > 1) n.extra = cs.slice(1).map(c => contentNode(n, withQuery(new URL(uriOf(c)!, base).href, set), entityOf(c.metadata, scope?.schema), c.group));
 		return n;
 	};
+	const isJsonUri = (u: string) => /\.json(\?|$)/i.test(u);
+	// 複数 content の 2 個目から＝タイルの境界・誤差・metadata を写した content の節点（木は歩かない＝子は空）
+	const contentNode = (owner: T3dNode, uri: string, contentMeta: MetadataEntity | null, group: number | undefined): T3dNode => ({ id: ++tileSeq, set: owner.set, parent: owner.parent, owner, M: owner.M, ge: owner.ge, refine: owner.refine, sphere: owner.sphere,
+		uri, children: [], base: owner.base, external: false, state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: owner.scope, tileMeta: owner.tileMeta, contentMeta, group });
 	// implicit の節点（subtree の中＝st を親から・subtree の根＝st は読んでから impInit）
 	const impNode = (parent: T3dNode, c: TileCoord, r: TileCoord, st: Subtree | null): T3dNode => {
 		const R = parent.imp!.R, M = parent.M!;
 		const n: T3dNode = { id: ++tileSeq, set: parent.set, parent, M, ge: geometricErrorAt(R.ge, c.level), refine: R.refine, sphere: sphereOf(volumeAt(R.bv, c, R.t.n) ?? undefined, M),
-			uri: null, children: null, base: R.base, external: false, imp: { R, c, r, st }, state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: parent.scope, group: parent.json?.content?.group ?? parent.group };
+			uri: null, children: null, base: R.base, external: false, imp: { R, c, r, st }, state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: parent.scope };
 		if (st) impInit(n);
 		return n;
 	};
-	const impInit = (n: T3dNode) => {   // subtree が揃った節点＝content の有無と URI・metadata（tileMetadata／contentMetadata の行＝available の中の順位）と意味の上書き
-		const { R, c, r, st } = n.imp!, ca = st!.content[0], i = indexIn(r, c, R.t.n), has = !!(R.content && ca && isAvailable(ca, i)), schema = n.scope?.schema;
-		n.uri = has ? withQuery(new URL(expandUri(R.content!, c), R.base).href, n.set) : null;
-		const tables = schema && st!.json.propertyTables?.length ? subtreeTables(st!, schema) : null, tm = st!.json.tileMetadata, cm = st!.json.contentMetadata?.[0];
+	const impInit = (n: T3dNode) => {   // subtree が揃った節点＝content ごとの有無と URI・metadata（tileMetadata／contentMetadata の行＝available の中の順位）と意味の上書き
+		const { R, c, r, st } = n.imp!, i = indexIn(r, c, R.t.n), schema = n.scope?.schema;
+		const tables = schema && st!.json.propertyTables?.length ? subtreeTables(st!, schema) : null, tm = st!.json.tileMetadata;
 		n.tileMeta = tables && tm != null ? rowEntity(tables[tm], rankOf(st!.tile, i)) : null;
-		n.contentMeta = tables && cm != null && has ? rowEntity(tables[cm], rankOf(ca, i)) : null;
 		const sem = semanticsOf(n.tileMeta, schema);
 		if (sem) { const o = applySemantics(volumeAt(R.bv, c, R.t.n), geometricErrorAt(R.ge, c.level), sem); n.ge = o.ge; n.sphere = sphereOf(o.bv ?? undefined, n.M!); }
+		const parts = R.contents.map((ct, k) => {
+			const ca = st!.content[k], has = !!ca && isAvailable(ca, i), cm = st!.json.contentMetadata?.[k];
+			return has ? { uri: withQuery(new URL(expandUri(ct.uri, c), R.base).href, n.set), meta: tables && cm != null ? rowEntity(tables[cm], rankOf(ca, i)) : null, group: ct.group } : null;
+		});
+		const p0 = parts[0];
+		n.uri = p0?.uri ?? null; n.contentMeta = p0?.meta ?? null; n.group = p0?.group ?? R.contents[0]?.group;
+		const more = parts.slice(1).filter(p => p != null);
+		n.extra = more.length ? more.map(p => contentNode(n, p.uri, p.meta, p.group)) : null;
 	};
 	// 自分が根の subtree を読む（同じ座標の subtree は根ごとに 1 回＝刈った後に作り直した節点も読み込みを共有）。戻り＝揃ったか
 	const impSubtree = (n: T3dNode): "ready" | "loading" | "failed" => {
@@ -272,7 +293,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	};
 	// 刈り込み＝長く選びに来ていない implicit の部分木を落とす（中身が上がっている／読んでいる子孫がいない時だけ）。subtree の読み込みは根に残す
 	const PRUNE_AGE = 240, MAX_SUBTREES = 1024;
-	const busy = (n: T3dNode): boolean => n.state !== "none" || !!n.children?.some(busy);
+	const busy = (n: T3dNode): boolean => n.state !== "none" || !!n.extra?.some(busy) || !!n.children?.some(busy);
 	const prune = (n: T3dNode) => {
 		if (!n.children) return;
 		if (n.imp && n.children.every(k => frameNo - k.used > PRUNE_AGE) && !n.children.some(busy)) { n.children = null; return; }
@@ -391,7 +412,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const h = pickMeshes(items, env.view, x, y); if (!h) return null;
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
 		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
-			tile: n.id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states.get(h.featureId) || {}) } : {},
+			tile: (n.owner ?? n).id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states.get(h.featureId) || {}) } : {},
 			tileMetadata: n.tileMeta ?? null, contentMetadata: n.contentMeta ?? null, groupMetadata: n.group != null ? n.scope?.groups[n.group] ?? null : null };   // metadata（3D Tiles 1.1）
 	};
 	// 出典（W8）＝表示しているタイルの glTF asset.copyright を「;」で割って数え、多い順（Google Map Tiles の表示の決まり）。
@@ -461,13 +482,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				if (n.external) { if (n.state === "none") loadExternal(n); return n.state === "failed"; }
 				if (n.imp && !n.imp.st) { const st = impSubtree(n); if (st !== "ready") return st === "failed"; }   // subtree の根＝読めるまで中身も子も分からない（親を出したまま）
 				const kids = kidsOf(n);
-				const leaf = (!!kids && !kids.length) || (sse <= maxSSE && !!n.uri);   // 中身を持たない節点（外部 tileset の口・空の根）は子へ降りる
-				const need = (x: T3dNode) => { if (x.state === "none") want.push({ n: x, pri: sse }); return x.state === "ready" || x.state === "failed"; };
-				if (leaf) { if (!n.uri) return true; const ok = need(n); if (n.state === "ready") out.push(n); return ok; }
-				if (!kids) { if (n.uri) { need(n); if (n.state === "ready") out.push(n); } return false; }   // 子がまだ分からない＝自分を出す
+				const parts = n.extra ? (n.uri ? [n, ...n.extra] : n.extra) : n.uri ? [n] : [], has = parts.length > 0;   // タイルの content（複数 content＝extra も）
+				const leaf = (!!kids && !kids.length) || (sse <= maxSSE && has);   // 中身を持たない節点（外部 tileset の口・空の根）は子へ降りる
+				const settled = (x: T3dNode) => x.state === "ready" || x.state === "failed";
+				const need = () => { let ok = true; for (const x of parts) { if (x.state === "none") want.push({ n: x, pri: sse }); ok = settled(x) && ok; } return ok; };   // 戻り＝content が全部読めた（か失敗した）
+				const ready = () => parts.every(settled) && parts.some(x => x.state === "ready");   // 出せる＝全部揃って 1 つは読めた
+				const put = () => { for (const x of parts) if (x.state === "ready") out.push(x); };
+				if (leaf) { if (!has) return true; const ok = need(); if (ready()) put(); return ok; }
+				if (!kids) { if (has) { need(); if (ready()) put(); } return false; }   // 子がまだ分からない＝自分を出す
 				if (n.refine === "ADD") {
 					let ok = true;
-					if (n.uri) { ok = need(n); if (n.state === "ready") out.push(n); }
+					if (has) { ok = need(); if (ready()) put(); }
 					for (const k of kids) ok = walk(k, out) && ok;
 					return ok;
 				}
@@ -475,9 +500,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				let all = true;
 				for (const k of kids) all = walk(k, out) && all;
 				if (all) return true;
-				if (n.uri) {   // 子が揃うまで親を出す（揃った子は伏せる＝重ねない）
-					need(n);
-					if (n.state === "ready") { out.length = mark; out.push(n); return true; }
+				if (has) {   // 子が揃うまで親を出す（揃った子は伏せる＝重ねない）
+					need();
+					if (ready()) { out.length = mark; put(); return true; }
 					return false;
 				}
 				return false;

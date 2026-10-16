@@ -1,9 +1,9 @@
 // 3D Tiles 1.1 implicit tiling（subtree）と metadata の純関数の検定（node・網なし・fixtures/tiles3d-implicit＝make.mjs で生成）。
 // 並び（Morton・段の始まり・ビットの順）・subtree の各書式（バイナリ／JSON／外部 buffer／constant／1.0 拡張の bufferView）・境界体積の分割・URI テンプレート・
-// 試料の木を subtree を辿って数え上げ、作った時の available の表と一致するか。
+// 試料の木を subtree を辿って数え上げ、作った時の available の表と一致するか。複数 content（fixtures/tiles3d-multi）＝content の列と content ごとの availability・metadata の行。
 import { readFileSync, existsSync } from "node:fs";
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../src/tiles3d-metadata.ts";
-import { implicitOf, levelOffset, morton, childCoord, indexIn, childSubtreeIndex, isAvailable, rankOf, expandUri, geometricErrorAt, volumeAt, parseSubtree } from "../src/tiles3d-implicit.ts";
+import { implicitOf, contentsOf, levelOffset, morton, childCoord, indexIn, childSubtreeIndex, isAvailable, rankOf, expandUri, geometricErrorAt, volumeAt, parseSubtree } from "../src/tiles3d-implicit.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -126,6 +126,25 @@ const s3 = semanticsOf({ class: "t", properties: { b: [0, 0, 1, 1, -5, 500], lo:
 ok("意味の上書き＝region と高さ", JSON.stringify(applySemantics({ box: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1] }, 7, s3)) === JSON.stringify({ bv: { region: [0, 0, 1, 1, 10, 20] }, ge: 7 }));
 ok("意味の上書き＝高さだけ（region の根）", JSON.stringify(applySemantics({ region: [0, 0, 1, 1, 0, 100] }, 7, semanticsOf({ class: "t", properties: { lo: 10 } }, semS)).bv) === JSON.stringify({ region: [0, 0, 1, 1, 10, 100] }));
 ok("意味が無い＝そのまま", JSON.stringify(applySemantics({ sphere: [0, 0, 0, 1] }, 3, null)) === JSON.stringify({ bv: { sphere: [0, 0, 0, 1] }, ge: 3 }));
+
+// ── 複数 content（fixtures/tiles3d-multi）
+{
+	const md = new URL("./fixtures/tiles3d-multi/", import.meta.url), J = f => JSON.parse(readFileSync(new URL(f, md), "utf8"));
+	const mab = f => { const b = readFileSync(new URL(f, md)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
+	const m11 = J("tileset.json"), m10 = J("tileset-10.json"), mi = J("tileset-implicit.json"), mi10 = J("tileset-implicit-10.json");
+	const uris = cs => cs.map(c => c.uri).join(" ");
+	ok("contentsOf 1.1 contents", uris(contentsOf(m11.root)) === "a/0_0_0.glb b/0_0_0.glb" && uris(contentsOf(m11.root.children[3])) === "a/1_1_1.glb", uris(contentsOf(m11.root.children[3])));
+	ok("contentsOf 1.0 3DTILES_multiple_contents", uris(contentsOf(m10.root)) === "a/0_0_0.glb b/0_0_0.glb" && uris(contentsOf(m10.root.children[3])) === "a/1_1_1.glb");
+	ok("contentsOf 無し＝空・implicit のテンプレート", contentsOf({}).length === 0 && contentsOf(null).length === 0 && uris(contentsOf(mi.root)) === "a/{level}_{x}_{y}.glb b/{level}_{x}_{y}.glb" && uris(contentsOf(mi10.root)) === uris(contentsOf(mi.root)));
+	const Tm = implicitOf(mi.root), Tm10 = implicitOf(mi10.root), none = () => Promise.reject(new Error("no external buffer"));
+	const sm = await parseSubtree(mab("subtrees/0.0.0.subtree"), Tm, none), sm10 = await parseSubtree(mab("subtrees10/0.0.0.subtree"), Tm10, none);
+	const list = st => [{ level: 0, x: 0, y: 0 }, { level: 1, x: 0, y: 0 }, { level: 1, x: 1, y: 0 }, { level: 1, x: 0, y: 1 }, { level: 1, x: 1, y: 1 }].map(c => st.content.map(a => isAvailable(a, indexIn({ level: 0, x: 0, y: 0 }, c, 4)) ? 1 : 0).join("")).join(" ");
+	ok("subtree の content 2 本（1.1）", sm.content.length === 2 && list(sm) === "11 11 11 11 10", list(sm));
+	ok("subtree の content 2 本（1.0 拡張の contentAvailability）", sm10.content.length === 2 && list(sm10) === list(sm), list(sm10));
+	const mt = subtreeTables(sm, mi.schema), i11 = indexIn({ level: 0, x: 0, y: 0 }, { level: 1, x: 0, y: 1 }, 4);
+	const nameOf = k => rowEntity(mt[sm.json.contentMetadata[k]], rankOf(sm.content[k], i11))?.properties.name;
+	ok("content ごとの metadata の行（content ごとの順位）", nameOf(0) === "a1/0/1" && nameOf(1) === "b1/0/1", `${nameOf(0)} ${nameOf(1)}`);
+}
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-implicit 全 PASS");
 process.exit(fail ? 1 : 0);
