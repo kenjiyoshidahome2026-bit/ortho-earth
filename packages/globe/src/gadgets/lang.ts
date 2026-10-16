@@ -5,13 +5,16 @@
 // 地球儀の注記・地名表・エンジンの文言は起動時の言語で組まれるので、その場で差し替えず読み直すのが正。視点（hash）と他の ?引数 は URL に残る。
 import { gadgetStack } from "./stack.ts";
 import { tr, getLang, LANGUAGES } from "../i18n.js";
-import type { Gadgets, OrthoJapanLang } from "../../globe.d.ts";
+import type { Gadgets } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
+type LangOpts = NonNullable<Parameters<Gadgets["lang"]>[0]>;
+/** UI 言語の code（公開の型＝onChange が受け取る物） */
+type LangCode = Parameters<NonNullable<LangOpts["onChange"]>>[0];
 // 「文/A」の記号＝言語の切替の慣用。線色は本線インク直書き（quiet-mono の夜節が自動反転）
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 	<path d="M3 5h9M7.5 3v2M11 5c-.6 3.6-3 6.5-6.5 8.5M5.5 7.5c.9 2.3 2.8 4.3 5.5 5.5"/><path d="M13 20l4-10 4 10M14.4 16.6h5.2"/></svg>`;
-export function lang(this: GlobeMap, { onChange }: NonNullable<Parameters<Gadgets["lang"]>[0]> = {}): HTMLButtonElement | undefined {   // onChange(code)＝既定の「?lang= を書いて読み直す」を差し替える口（SDK の利用者向け）
+export function lang(this: GlobeMap, { onChange }: LangOpts = {}): HTMLButtonElement | undefined {   // onChange(code)＝既定の「?lang= を書いて読み直す」を差し替える口（SDK の利用者向け）
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#lang-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -25,7 +28,7 @@ export function lang(this: GlobeMap, { onChange }: NonNullable<Parameters<Gadget
 	const cur = getLang();
 	for (const l of LANGUAGES) { const o = document.createElement("option"); o.value = l.code; o.textContent = l.name; o.lang = l.code; if (l.code === cur) o.selected = true; sel.append(o); }
 	sel.addEventListener("change", () => {
-		const code = sel.value as OrthoJapanLang;   // 一覧（LANGUAGES）の code だけが選べる
+		const code = sel.value as LangCode;   // 一覧（LANGUAGES）の code だけが選べる
 		if (onChange) return onChange(code);
 		const u = new URL(location.href); u.searchParams.set("lang", code); location.assign(u);
 	});
