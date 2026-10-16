@@ -44,7 +44,7 @@ map.supports("data.squares");   // true
 
 1. **同一フレームのオーバーレイ**＝`map.overlay(url, { name, above })`。url は worker が `import()` する**依存ゼロ**のモジュール（import 文なし・vite の `?url`）で、
    `init(canvas, opts, host)`／`message(data)`／`frame(cam, camState, { w, h }, api) → boolean`／`pick?(x, y, r, ctx)`／`destroy()` を export する。地球・注記と同じフレーム・同じカメラで描き、
-   `api.project/projectH/clipH/depth`（シーンの深度＝建物や地形に隠れる）が使える。見本＝`src/gadgets/points-gl.js`（点・RTE・GPU picking）・`arcs-gl.js`・`trips-gl.js`・`three-draw.js`（three.js を worker で）。
+   `api.project/projectH/clipH/depth`（シーンの深度＝建物や地形に隠れる）が使える。見本＝`src/gadgets/points-gl.js`（点・RTE・GPU picking）・`arcs-gl.js`・`trips-gl.js`・`three-draw.ts`（three.js を worker で）。
    手綱の `post(data, transfer)` で状態を渡し、`pick(x, y, r)` で当たりを返す（統一 picking＝`map.on("click", id, cb)`・`queryRenderedFeatures({ layers: [id] })` に乗る）。
    **文脈の数に気をつける**：render worker の WebGL 文脈は Chrome で 4 つまで（地球が 1 つ使う）。超えると一番古い文脈＝地球が落ちる。層ごとにオーバーレイを作らず、一つのオーバーレイに多くの層を載せる：
    手綱の `addLayerId(id)`／`removeLayerId(id)` で層の id を名乗り、module の `pick` の答えに `layer: id` を入れると、`map.on(ev, id)`・`queryRenderedFeatures({ layers: [id] })`・`pickOverlays({ names: [id] })` がその id で当たる（W9）。

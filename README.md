@@ -42,6 +42,8 @@ const map = new maplibregl.Map({ container: "map", style: "https://demotiles.map
 
 For Japan, [`@ortho-earth/japan`](sdk/japan) is a self-contained bundle of the same engine plus the Japan region pack (GSI vector tiles, DEM, PLATEAU buildings, POI, search).
 
+**Upgrading from 1.x?** 2.0 removes the aliases and internal import paths that 1.x kept for compatibility. [`MIGRATION.md`](MIGRATION.md) lists every change, old → new, per package (in Japanese).
+
 ## Repository layout
 
 The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom, with the SDKs beside them in `sdk/` ([`LAYERS.md`](LAYERS.md)):
