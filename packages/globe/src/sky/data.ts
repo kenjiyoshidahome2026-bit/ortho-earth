@@ -7,7 +7,7 @@ import { WORLD_DATA } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import type { GeoPBF, GeopbfFn } from "geopbf";
 
-export const SKY_DATA: string = WORLD_DATA + "sky/";
+export const SKY_DATA = WORLD_DATA + "sky/";
 const get = (url: string): Promise<Response> => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
 /** sky/<name>.geopbf → GeoPBF（gint なし＝描く側が geojson を引くだけ） */
 export async function skyPbf(geopbf: GeopbfFn, name: string): Promise<GeoPBF> {
