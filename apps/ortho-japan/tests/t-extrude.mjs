@@ -3,7 +3,7 @@
 // 見るもの：①高さの鍵の自動判定（height/階数×3/"12m"/min_height/色の優先）②三角形数（屋根＋壁・穴つき）
 // ③法線＝屋根は鉛直・外周の壁は外向き・穴の壁は穴の中心向き（環の巻きが CW でも CCW でも）④高さの無い面は立てない。
 import { extrudeMesh } from "@ortho-earth/globe/internal/extrude.js";
-import { extrudePolys, heightOf, isMapLibreLayer } from "@ortho-earth/globe/internal/gadgets/model.js";
+import { extrudePolys, heightOf, isMapLibreLayer } from "@ortho-earth/globe/internal/gadgets/model.ts";
 import { hasHeightKey } from "@ortho-earth/globe/internal/extrude-keys.js";
 
 let ok = 0, ng = 0;

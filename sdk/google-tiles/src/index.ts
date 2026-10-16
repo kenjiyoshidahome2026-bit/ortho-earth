@@ -88,7 +88,7 @@ export function googleTilesPlugin(opts: GoogleTilesPluginOptions): GoogleTilesPl
 		name: "google-tiles",
 		version: "0.1.0",
 		install(map: OrthoJapanMap): void {
-			map.registry.gadgets.add(gadget, function (this: OrthoJapanMap, o: Partial<GoogleTilesOptions> = {}) { return addGoogle3DTiles(this, { key, ...defaults, ...o }); });
+			map.registry.gadgets.add(gadget, (m: OrthoJapanMap, o: Partial<GoogleTilesOptions> = {}) => addGoogle3DTiles(m, { key, ...defaults, ...o }));   // gadget の本体＝map が第 1 引数（registerGadget と同じ形・2.0）
 		},
 	};
 }

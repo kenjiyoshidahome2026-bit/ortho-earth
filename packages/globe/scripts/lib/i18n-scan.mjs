@@ -121,7 +121,7 @@ export function scanSource(src, rel = "") {
 export function listFiles(dir, out = [], root = dir, exclude = null) {
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 		if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) listFiles(path.join(dir, e.name), out, root, exclude); continue; }
-		if (e.name.endsWith(".js") && !(exclude && exclude.has(path.relative(root, path.join(dir, e.name))))) out.push(path.join(dir, e.name));
+		if (/\.(js|ts)$/.test(e.name) && !e.name.endsWith(".d.ts") && !(exclude && exclude.has(path.relative(root, path.join(dir, e.name))))) out.push(path.join(dir, e.name));
 	}
 	return out;
 }
