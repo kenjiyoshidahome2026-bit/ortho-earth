@@ -152,7 +152,7 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 
 // ── main（gadgets/vtdraw.js）の feature-state の配管（#109 段 1）：偽の Worker（組み役＝上の worker をそのまま・結合役＝受け取って返すだけ）・rAF＝setTimeout・試料の z14 の 4 枚 ──
 {
-	const { createVTDraw } = await import("../src/gadgets/vtdraw.js");
+	const { createVTDraw } = await import("../src/gadgets/vtdraw.ts");
 	const workerOnmessage = self.onmessage, builds = [];
 	const until = async (pred, ms = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (pred()) return true; await new Promise(r => setTimeout(r, 5)); } return false; };
 	globalThis.requestAnimationFrame = cb => setTimeout(cb, 0);

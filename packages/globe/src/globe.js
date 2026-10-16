@@ -3260,7 +3260,7 @@ const vtxStateOf = (sid, sl, id) => ({ ...(id == null || sl == null ? null : vtx
 const isVecSrc = sid => mlSources.get(sid)?.type === "vector" || !!baseSrcSpec(sid);
 let vtxCtl = null;
 const vtxGet = async () => {
-	const m = await import("./gadgets/vtextrude.js");
+	const m = await import("./gadgets/vtextrude.ts");
 	if (vtxCtl) return vtxCtl;
 	ownDestroy.push(() => vtxCtl?.destroy());   // worker 2 本・ポート・リスナー（map.destroy）
 	const ch = new MessageChannel();   // 押し出し専用の送り口（PLATEAU と同じ meshPort＝render worker は適用ごとに受け取りの印を返す＝背圧と「載った」の判定）
@@ -3318,7 +3318,7 @@ const vtdDesc = new Map();       // sid → 解いた記述子（問い合わせ
 const vtdMounting = new Map();   // sid → 記述子を待っている層の数（isSourceLoaded＝まだ）
 const vtdOrder = () => [...mlLayers.values()].filter(v => v.kind === "vtdraw" && vtdCtl?.has(v.layer.id)).map(v => v.layer.id);   // MapLibre の順（下から）
 const vtdGet = async () => {
-	const m = await import("./gadgets/vtdraw.js");
+	const m = await import("./gadgets/vtdraw.ts");
 	if (vtdCtl) return vtdCtl;
 	ownDestroy.push(() => vtdCtl?.destroy());   // 組み役・結合役の worker・リスナー（map.destroy）
 	vtdCtl = dbgHost.__vtd = m.createVTDraw(map, {
