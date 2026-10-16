@@ -7,6 +7,7 @@
 // cluster(src, opts)：{ clusterRadius:50, clusterMaxZoom:14, paint:{ circle-color/-radius/-stroke-color/-stroke-width/-opacity }（集約の丸）,
 //   text:{ color, size }, unclustered:{ paint } }。集約の属性＝{ cluster:true, point_count, point_count_abbreviated }（MapLibre と同じ名前）。
 //   クリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）。
+/// <reference path="../types/assets.d.ts" />   // ?url の型（この部品を型で引く他の包み＝equal 等にも届くように）
 import { evalExpr, originOfLayer, lonlatTo3D } from "@ortho-earth/core";
 import heatUrl from "../heatmap-gl.js?url";
 import clusterUrl from "../cluster-2d.js?url";
