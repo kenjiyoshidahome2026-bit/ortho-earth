@@ -1,0 +1,5 @@
+# wasm build の toolchain 固定（geopbf/wasm と同じ版）。rustup が wasm/ 配下の cargo でこの版を自動で使う
+[toolchain]
+channel = "1.96.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
