@@ -12,7 +12,7 @@
 // 端点は端点索引（同座標の全arc端）で溶接＝ノードと同じ意味論。arc数を変える操作（挿入/削除/追加/削除）は
 // Phase2 対象外（controller が入口で弾く）。書き出しは変更fidだけ GintBUF から再エンコード・他はバイト複写。
 // 依存は geopbf のみ（model.ts を経由しない）＝Node試験可。
-import { GeoPBF, makeKeys } from "../pbf-base.ts";
+import { GeoPBFBase, makeKeys } from "../pbf-base.ts";
 import { gint } from "../extension/gint.ts";
 import type { Geometry, UnPackGint } from "../../types/geopbf.js";
 import type { ArcTree, XY } from "./topo-extract.ts";
@@ -44,14 +44,14 @@ type Baked = UnPackGint & { arcMeta: Uint32Array; arcBuffer: BigUint64Array };
 
 export interface LargeModel {
 	large: true;
-	pbf: GeoPBF;
+	pbf: GeoPBFBase;
 	feats: Map<number, LargeFeature>; featsArr: LargeFeature[];
 	arcs: { get(aid: number): LargeArc | undefined };
 	warnings: string[];
 	nodes: { get(key: string): { ends: [number, 0 | 1][] } | undefined };
 	gridExp: number;
 	stitch(list: number[]): XY[]; arcCoords(s: number): XY[];
-	toPbf(opts?: { name?: string }): Promise<GeoPBF>;
+	toPbf(opts?: { name?: string }): Promise<GeoPBFBase>;
 	listsOf: typeof listsOf;
 	moveVertex(aid: number, vidx: number, lng: number, lat: number): { dirty: number[] } | null;
 	refreshDirty(): void;
@@ -67,7 +67,7 @@ export interface LargeModel {
 	stats(): { features: number; arcs: number; vertices: number };
 }
 
-export function createLargeModel(pbf: GeoPBF): LargeModel {
+export function createLargeModel(pbf: GeoPBFBase): LargeModel {
 	const n = pbf.length;
 	const feats = new Map<number, LargeFeature>(), featsArr = new Array<LargeFeature>(n);
 	const arcs = new Map<number, LargeArc>();       // 遅延lift済み arc：aid → { pts, closed, refs }
@@ -262,14 +262,14 @@ export function createLargeModel(pbf: GeoPBF): LargeModel {
 		if (f.type === "MultiLineString") return { type: "MultiLineString", coordinates: (f.arcs as number[][]).map(list => stitch(list)) };
 		return null;
 	};
-	async function toPbf({ name = "geoedit-export" }: { name?: string } = {}): Promise<GeoPBF> {
+	async function toPbf({ name = "geoedit-export" }: { name?: string } = {}): Promise<GeoPBFBase> {
 		const propsArr = featsArr.map(f => f.properties);
-		const out = new GeoPBF({ name, precision: pbf._precision });
+		const out = new GeoPBFBase({ name, precision: pbf._precision });
 		const [keys, bufs] = await makeKeys(propsArr);
 		out.setHead(keys, bufs).setBody(() => {
 			for (let i = 0; i < n; i++) {
 				if (dirtyFids.has(i)) out.setFeature({ type: "Feature", geometry: geometryOf(i), properties: propsArr[i] });   // 幾何が動いた fid＝現在値で再エンコード
-				else out.setMessage(GeoPBF.TAGS.FEATURE, () => { out.copyGeometry(pbf, i); out.setProperties(propsArr[i]); });   // 無変更＝バイト複写
+				else out.setMessage(GeoPBFBase.TAGS.FEATURE, () => { out.copyGeometry(pbf, i); out.setProperties(propsArr[i]); });   // 無変更＝バイト複写
 			}
 		}).close();
 		await out.getPosition();

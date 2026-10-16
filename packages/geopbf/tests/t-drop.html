@@ -10,7 +10,7 @@
 </script>
 <script type="module">
 	import { createGeopbf } from "../src/index.ts";
-	import { GeoPBF } from "../src/pbf-base.ts";
+	import { GeoPBFBase } from "../src/pbf-base.ts";
 	import { toGeoParquet } from "../src/convert/geoparquet.ts";
 	import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 	const done = s => document.title = s;
@@ -25,7 +25,7 @@
 			{ type: "Feature", properties: { n: "none" }, geometry: null },
 		] };
 		// parquet: ブラウザで toGeoParquet（CPU）→ File → .parquet ドロップ
-		const src = await new GeoPBF({ name: "fx" }).set(structuredClone(fc));
+		const src = await new GeoPBFBase({ name: "fx" }).set(structuredClone(fc));
 		const pq = await toGeoParquet(src, { gpu: false, order: "none" });
 		const p = await geopbf(new File([pq.buffer], "fx.parquet"), { nocache: true });
 		if (p.geojson.features.length !== 2) throw new Error(`parquet features ${p.geojson.features.length}`);

@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { bakeGint } from "../src/convert/node-gint.ts";
 import { toPMTiles, lodThreshold } from "../src/convert/tiler.ts";
 import { readPMTiles } from "../src/convert/pmtiles.ts";
@@ -37,7 +37,7 @@ const fc = { type: "FeatureCollection", features: [
 	{ type: "Feature", properties: { n: "Dust" }, geometry: { type: "MultiPolygon", coordinates: Array.from({ length: 100 }, (_, i) => [sq(35 + (i % 10) * 0.1, 35 + Math.floor(i / 10) * 0.1, 35.05 + (i % 10) * 0.1, 35.05 + Math.floor(i / 10) * 0.1)]) } },   // 小島 100（z0 で各 0.3 単位²）
 	{ type: "Feature", properties: { n: "L", d: new Date(0) }, geometry: { type: "LineString", coordinates: [[12, 9], [12.5, 8.5], [13, 9]] } },   // 属性が L と同一＝gint は同じ id に束ねる
 ] };
-const pbf = await new GeoPBF({ name: "fix", precision: 6, attribution: "t-pmtiles" }).set(structuredClone(fc));
+const pbf = await new GeoPBFBase({ name: "fix", precision: 6, attribution: "t-pmtiles" }).set(structuredClone(fc));
 const gint = await bakeGint(pbf);
 ok(gint instanceof ArrayBuffer && gint.byteLength > 64, `gint を wasm で焼く（${gint.byteLength} B）`);
 
@@ -148,7 +148,7 @@ ok(pm2.header.tc === 1 && pm2.header.minZoom === 2 && decodeTile(await pm2.getTi
 // 点の間引き（dropRate）: 多数の点で z0 は疎・maxZoom は全点・残る点は入れ子
 {
 	const pts = { type: "FeatureCollection", features: Array.from({ length: 2000 }, (_, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [10 + (i % 50) * 0.01, 10 + Math.floor(i / 50) * 0.01] } })) };
-	const pp = await new GeoPBF({ name: "pts", precision: 6 }).set(structuredClone(pts));
+	const pp = await new GeoPBFBase({ name: "pts", precision: 6 }).set(structuredClone(pts));
 	const pg = await bakeGint(pp);
 	const rp = await toPMTiles(pp, { gint: pg, gpu: false, minZoom: 0, maxZoom: 6, dropRate: 2.5 });
 	const pmp = await readPMTiles(rp.buffer);

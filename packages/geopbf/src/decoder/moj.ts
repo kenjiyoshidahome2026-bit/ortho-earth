@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import Pbf from "../modules/pbf.ts";
 import { inflate } from "../modules/inflate.ts";
 import type { Feature } from "../../types/geopbf.js";
@@ -406,7 +406,7 @@ onmessage = async (e: MessageEvent<DecodeRequest>) => {
 	const prefCode  = (name && name.length >= 2) ? name.substring(0, 2) : '13';
 	const defaultSys = PREF_SYS[prefCode] || 9;
 
-	const pbf = new GeoPBF({ name, precision, description, license, attribution });
+	const pbf = new GeoPBFBase({ name, precision, description, license, attribution });
 	pbf.setHead(KEYS);
 
 	// entry ごとに「伸長（非同期）→解析→feature をその場で符号化」。feature の JS オブジェクト配列は持たず、符号化済みの

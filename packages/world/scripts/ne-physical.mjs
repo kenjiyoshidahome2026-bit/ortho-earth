@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { parseCSV } from "../build/csv.js";
 import { rangeAxis, parseAxis } from "../build/geom.js";
 import { plates as pb2002Plates, steps as pb2002Steps, PLATE_NAMES } from "./lib/pb2002.mjs";
@@ -344,7 +344,7 @@ const withNames = (props, labels) => { for (const [l, v] of Object.entries(label
 // ── 書き出し ──────────────────────────────────────────────────────────────────────────────────────
 await mkdir(path.dirname(OUT), { recursive: true });
 const fc = { type: "FeatureCollection", name: "ne-physical", features };
-const pbf = await new GeoPBF({ name: "ne-physical", precision: PRECISION, attribution: `Natural Earth 10m ${NE_TAG} (public domain); positions from Wikidata (CC0)`, description: "ortho-earth world terrains: shapes for seed/terrains.csv (properties qid / category / name / shape / source)" }).set(fc);
+const pbf = await new GeoPBFBase({ name: "ne-physical", precision: PRECISION, attribution: `Natural Earth 10m ${NE_TAG} (public domain); positions from Wikidata (CC0)`, description: "ortho-earth world terrains: shapes for seed/terrains.csv (properties qid / category / name / shape / source)" }).set(fc);
 const buf = gzipSync(Buffer.from(pbf.arrayBuffer), { level: 9 });
 await writeFile(OUT + ".geopbf", buf);
 if (WANT_GEOJSON) await writeFile(OUT + ".geojson", JSON.stringify(fc));
@@ -366,7 +366,7 @@ const summary = { source: `Natural Earth 10m ${NE_TAG}`, generated: new Date().t
 	const idl = glines.find(f => f.properties.featurecla === "Date line");
 	if (idl) gf.push({ type: "Feature", properties: { name: "International Date Line", kind: "dateline", source: "ne", ...meta("International Date Line") }, geometry: idl.geometry });
 	{ const labels = await wikidataLabels(gf.map(f => f.properties.wikidataid)); for (const f of gf) withNames(f.properties, labels[f.properties.wikidataid]); }   // 地理線の多言語名
-	const gp = await new GeoPBF({ name: "ne-physical-lines", precision: 4, attribution: `circles of latitude computed for ${EPOCH} (IAU 2006 obliquity); International Date Line from Natural Earth 10m ${NE_TAG} (public domain)`, description: "equator, tropics, polar circles, date line (properties name / kind / lat / epoch)" }).set({ type: "FeatureCollection", name: "ne-physical-lines", features: gf });
+	const gp = await new GeoPBFBase({ name: "ne-physical-lines", precision: 4, attribution: `circles of latitude computed for ${EPOCH} (IAU 2006 obliquity); International Date Line from Natural Earth 10m ${NE_TAG} (public domain)`, description: "equator, tropics, polar circles, date line (properties name / kind / lat / epoch)" }).set({ type: "FeatureCollection", name: "ne-physical-lines", features: gf });
 	const gb = gzipSync(Buffer.from(gp.arrayBuffer), { level: 9 });
 	await writeFile(path.join(path.dirname(OUT), "ne-physical-lines.geopbf"), gb);
 	if (WANT_GEOJSON) await writeFile(path.join(path.dirname(OUT), "ne-physical-lines.geojson"), JSON.stringify({ type: "FeatureCollection", features: gf }));

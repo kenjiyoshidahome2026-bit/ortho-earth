@@ -146,7 +146,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 
 	// 形状台帳 → GeoJSON（台帳の物理量を属性へ結ぶ＝式で太さ・色を引く）
 	const shapes = [], geomsOf = new Map(), axisOf = new Map();   // axisOf＝山地・海溝の軸線（名前を帯の中心に置く）
-	for (let i = 0, n = pbf.fmap?.length ?? pbf.length ?? 0; i < n; i++) {
+	for (let i = 0, n = pbf.length; i < n; i++) {
 		const f = pbf.getFeature(i); const p = f?.properties || pbf.getProperties(i) || {};
 		if (!f?.geometry || !p.qid) continue;
 		const d = byQ.get(p.qid); if (!d) continue;
@@ -362,7 +362,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 		on ? shown.add("plate") : shown.delete("plate"); applyGroups();   // 構造線とプレートの名前は境界の重ねと一緒に
 		platesP ??= (async () => {
 			const p = await loadPbf(geopbf, WORLD_DATA + "plates.geopbf"), feats = [];
-			for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue; const pr = f.properties || p.getProperties(i) || {};
+			for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue; const pr = f.properties || p.getProperties(i) || {};
 				if (pr.kind !== "boundary") continue;
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { cls: PLATE_KIND_OF[pr.class] || "other" } }); }
 			map.addSource("tr-plates", { type: "geojson", data: { type: "FeatureCollection", features: feats } });

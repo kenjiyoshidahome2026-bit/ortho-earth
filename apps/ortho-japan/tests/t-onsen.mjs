@@ -43,7 +43,7 @@ t("文字列に undefined・null が混ざらない", !/"(undefined|null)"/.test
 
 // 辞書＝英語キー→25 言語。onsen.js の t("…") は全部この辞書か本体の ui.json に居る
 const dict = JSON.parse(fs.readFileSync(path.join(APP, "i18n/pages/onsen.json"), "utf8")).ui;
-const core = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/globe/src/i18n/ui.json"), "utf8")).ui ?? {};
+const core = JSON.parse(fs.readFileSync(fileURLToPath(import.meta.resolve("@ortho-earth/globe/i18n/ui.json")), "utf8")).ui ?? {};   // 本体の訳＝globe の公開の口（./i18n/*）
 const LANGS = "ja zh ko fr de es pt it nl pl ru uk hu sv tr el id vi th bn hi ar fa ur he".split(" ");
 t("辞書：全キーが 25 言語", Object.values(dict).every(v => LANGS.every(l => v[l])), JSON.stringify(Object.entries(dict).filter(([, v]) => !LANGS.every(l => v[l])).map(([k]) => k)));
 t("辞書：$1 の数がキーと揃う", Object.entries(dict).every(([k, v]) => LANGS.every(l => (v[l].match(/\$\d/g) || []).length === (k.match(/\$\d/g) || []).length)));

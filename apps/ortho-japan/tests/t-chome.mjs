@@ -7,12 +7,10 @@
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { decodeMVT } from "@ortho-earth/core/decode";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM } from "@ortho-earth/globe/themes.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(HERE, "../../../packages/globe/src/globe.ts"), "utf8");
+const src = readFileSync(fileURLToPath(import.meta.resolve("@ortho-earth/globe")), "utf8");   // globe の入口（exports の "."＝src/globe.ts）
 const from = src.indexOf("const chomeCanon"), to = src.indexOf("function rebuildLabels(order");
 if (from < 0 || to < 0 || to < from) { console.error("globe.ts から mergeChome を切り出せない（実装が移動した？）"); process.exit(1); }
 const mergeChome = new Function("CHOME800_MINZOOM", stripTypeScriptTypes(src.slice(from, to)) + "\nreturn mergeChome;")(CHOME800_MINZOOM);

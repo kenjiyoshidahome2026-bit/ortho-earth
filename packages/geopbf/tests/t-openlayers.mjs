@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import VectorSource from "ol/source/Vector.js";
 import GeoJSON from "ol/format/GeoJSON.js";
 import { get as getProjection } from "ol/proj.js";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { makeGeopbfLoader } from "../src/openlayers.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
@@ -20,7 +20,7 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 
 // ---- 配信データ -------------------------------------------------------------
 const amedas = await readFile(new URL("./fixtures/amedas.geopbf", import.meta.url));
-const synthPbf = await new GeoPBF({ name: "synth", attribution: "test-attribution" }).set({
+const synthPbf = await new GeoPBFBase({ name: "synth", attribution: "test-attribution" }).set({
 	type: "FeatureCollection",
 	features: [{ type: "Feature", geometry: { type: "Point", coordinates: [139.75, 35.68] }, properties: { n: 1 } }],
 });

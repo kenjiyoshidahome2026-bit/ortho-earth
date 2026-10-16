@@ -5,7 +5,7 @@
 //   ・引数の旧実装（pako 同期）が手元にあれば同じ入力で出力バイト列が一致（scripts 用: MOJ_OLD=path）
 globalThis.ImageData ??= class ImageData { };
 import { deflateRawSync, crc32 } from "node:zlib";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -78,7 +78,7 @@ const msgs = await runDecoder(new URL("../src/decoder/moj.ts", import.meta.url).
 const progress = msgs.filter(m => m?.type === "progress"), done = msgs.find(m => m?.type === "mojdec");
 ok(progress.length === 2 && progress.at(-1).loaded === 2 && progress.at(-1).total === 2, `progress が entry ごとに届く（${progress.length}）`);
 ok(done && done.data instanceof ArrayBuffer, "mojdec で GeoPBF が返る");
-const pbf = await new GeoPBF().set(done.data);
+const pbf = await new GeoPBFBase().set(done.data);
 const gj = pbf.geojson;
 ok(gj.features.length === 3, `3 筆（deflate 内側 zip 2 筆 + stored 内側 zip 1 筆・主題属性が先の並びも読む）＝${gj.features.length}`);
 ok(pbf.name() === "09201-0608-2026" && pbf.precision() === 7 && pbf.attribution() === "法務省", "ヘッダ（name/precision/attribution）");
@@ -100,7 +100,7 @@ ok(gj.features[2].properties["大字名"] === "馬場通り" && gj.features[2].g
 	const xmlG = mojXml({ cityCode: "10201", cityName: "前橋市", sys: 9, parcels: [{ xy: [1000, 2000, 1100, 2150], oaza: "001", oazaName: "大手町", chiban: "1-1" }] }).replace("<座標系>公共座標9系</座標系>", "<座標系>任意座標系</座標系>");
 	const zipG = makeZip([{ name: "10201-0001-2026.zip", data: makeZip([{ name: "10201-0001-2026.xml", data: enc.encode(xmlG), method: 8 }]), method: 8 }]);
 	const doneG = (await (async () => { const messages = []; globalThis.postMessage = m => messages.push(m); await globalThis.onmessage({ data: { file: new Blob([zipG]), name: "10201-0001-2026", precision: 7 } }); return messages; })()).find(m => m?.type === "mojdec");   // onmessage＝直前の import（mod）が張った物
-	const gG = (await new GeoPBF().set(doneG.data)).geojson.features[0].geometry.coordinates[0][0];
+	const gG = (await new GeoPBFBase().set(doneG.data)).geojson.features[0].geometry.coordinates[0][0];
 	ok(Math.abs(gG[1] - 36.009) < 0.002 && Math.abs(gG[0] - 139.8555) < 0.003, `任意座標系＋群馬のファイル名 → 9 系で読む（${gG.map(v => v.toFixed(5))}）`);
 }
 

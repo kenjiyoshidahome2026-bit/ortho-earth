@@ -3,7 +3,7 @@
 // 最小フェイク L でプラグインの配線（登録・load/error イベント・attribution 自動配線・メタ）を検定する。
 // 実 Leaflet との結合は tests/t-leaflet.html（自己判定式）が関門。
 import { createServer } from "node:http";
-import { GeoPBF } from "../src/pbf-base.ts";
+import { GeoPBFBase } from "../src/pbf-base.ts";
 import { extendLeaflet, loadGeopbf } from "../src/leaflet.js";
 
 // Node に ImageData が無い（pbf-base のエンコード経路が参照する）ためスタブ
@@ -29,7 +29,7 @@ FakeGeoJSON.extend = function (props) {
 const L = { GeoJSON: FakeGeoJSON };
 
 // ---- 配信データ -------------------------------------------------------------
-const synthPbf = await new GeoPBF({ name: "synth", attribution: "test-attribution", minZoom: 5, maxZoom: 12 }).set({
+const synthPbf = await new GeoPBFBase({ name: "synth", attribution: "test-attribution", minZoom: 5, maxZoom: 12 }).set({
 	type: "FeatureCollection",
 	features: [{ type: "Feature", geometry: { type: "Point", coordinates: [139.75, 35.68] }, properties: { n: 1 } }],
 });

@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.ts";
+import { GeoPBFBase } from "../pbf-base.ts";
 import type { EncodeRequest } from "../worker-msg.ts";
 const enc = new TextEncoder();
 import { escXML } from "../modules/xml.ts";   // " も逃がす（旧＝逃がさず属性値の " で壊れた）
@@ -22,7 +22,7 @@ interface GpxGeometry { type: string; coordinates: unknown }
 onmessage = async (e: MessageEvent<EncodeRequest>) => {
 	const { buf, name, opts } = e.data, gz = opts && opts.gz;
 	try {
-		const pbf = await new GeoPBF().name(name).set(buf);
+		const pbf = await new GeoPBFBase().name(name).set(buf);
 		const { readable, writable } = new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>();
 		const writer = writable.getWriter();
 		const out = gz ? readable.pipeThrough(new CompressionStream("gzip")) : readable;

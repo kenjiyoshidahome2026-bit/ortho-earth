@@ -4,7 +4,7 @@
 //   ⑤refreshDirty＝arcMeta/fid別bboxの部分再計算＋identifyAtの正気 ⑥toPbf＝変更fidだけ再エンコード・無変更はバイト複写
 //   ⑦undo（invertCmd適用で原座標へ）
 globalThis.ImageData ??= class ImageData { };   // makeKeys が instanceof で参照（ブラウザ専用API）
-import { GeoPBF } from "geopbf/pbf-base";
+import { GeoPBFBase } from "geopbf/pbf-base";
 import { gint } from "geopbf/gint";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint as _g } from "geopbf/gint";
@@ -43,7 +43,7 @@ const fc = {
 	],
 };
 
-const pbf = await new GeoPBF({ name: "t-edit", precision: 6 }).set(structuredClone(fc));
+const pbf = await new GeoPBFBase({ name: "t-edit", precision: 6 }).set(structuredClone(fc));
 const GINT = topology(pbf);                    // wasm 経路＝VW/L2込みの実GintBUF
 pbf.unPackGint = unPackGintBuffer(GINT);
 ok(!!pbf.unPackGint?.arcBuffer, "GintBUF焼き（wasm 経路）");
