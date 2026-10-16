@@ -5,29 +5,44 @@ import { evalExpr, normalizeMLLayer, rescaleZoomNum } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 import { hasHeightKey } from "../extrude-keys.js";
 import { sanitizeHTML } from "geopbf/sanitize";
+import type { MLLayer } from "@ortho-earth/core";
+import type { Feature, GeoPBF } from "geopbf";
+import type { OverlayHandle } from "../../globe.d.ts";
+import type { ClusterOpts } from "../gadgets/aggregate.d.ts";
+import type { ImagesDeps, ImagesLive, ImagesReturn, Installing } from "../types/install.ts";
+import type { ImagesApi } from "../types/map.ts";
 
-export function installImages(map, live, {
+/** ML 形 gadget の層（slot＝addLayer の層 id） */
+type LayerIn = Partial<MLLayer> & { slot?: string };
+type ClusterIn = ClusterOpts & { slot?: string };
+/** 層を丸ごと渡された時の src（{ type, source:{ data } }）／MapLibre の geojson source */
+type LayerSrc = { type?: unknown; source?: { data?: unknown } } | null | undefined;
+type SourceIn = { type?: unknown; data?: unknown; cluster?: unknown; [k: string]: unknown };
+/** 点の読み口に来る物（GeoPBF なら geojson を読む） */
+type PointsIn = { type?: unknown; geojson?: unknown } | null | undefined;
+
+export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 	IMAGE_KEY, LOW_MEM, PUBLIC_DZ, ac, cam, imageAttrs, mapOn, modelCtlGet, ownDestroy, rasterChanged, readGeoData, requestDraw, size, wPost
-}) {
+}: ImagesDeps): ImagesReturn {
 	// 覆う描き方（本人裁定 9/21「画像で覆いましょう」）＝画像タイル層（地面アトラス＝道路・注記が上に乗る）でなく、同一フレームのオーバーレイ
 	// （render worker 組み込み gadgets/imagequad-draw.js＝注記の後・geoedit と同じ drawImageQuad）。map.raster.add の { image, corners } は従来どおり地面へ貼る口
-	let quadOv = null;
+	let quadOv: OverlayHandle | null = null;
 	const quadOverlay = () => quadOv ??= map.overlay({ builtin: "imagequad" }, { name: "imagequad", above: true });   // 注記の上＝注記も覆う
 	const clearImages = () => { quadOv?.post({ type: "clear" }); for (const id of live.imageIds) imageAttrs.delete(id); live.imageIds = []; live.imageQuads = []; rasterChanged(); };
-	const placeImages = async (pbf, name) => {
+	const placeImages = async (pbf: GeoPBF, name: string): Promise<GeoPBF | null> => {
 		clearImages();
 		const { isImageFeature, cornersOf } = await import("geopbf/edit/imagequad");
-		const gj = pbf.geojson, imgs = [], rest = [];
-		for (const f of gj.features) (isImageFeature(f) && f.properties[IMAGE_KEY] instanceof Blob ? imgs : rest).push(f);
+		const gj = pbf.geojson, imgs: Feature[] = [], rest: Feature[] = [];
+		for (const f of gj.features) (isImageFeature(f) && f.properties![IMAGE_KEY] instanceof Blob ? imgs : rest).push(f);
 		const cap = LOW_MEM ? 2048 : 4096;   // 長辺の上限（省メモリ機＝Air3 jetsam の轍）
 		await Promise.all(imgs.map(async (f, k) => {
-			const id = `img:${k}`, op = +f.properties["@opacity"], corners = cornersOf(f.geometry);
-			live.imageIds.push(id); live.imageQuads.push({ id, corners, properties: f.properties });
+			const id = `img:${k}`, op = +(f.properties!["@opacity"] as number), corners = cornersOf(f.geometry as { coordinates?: unknown } | null);
+			live.imageIds.push(id); live.imageQuads.push({ id, corners, properties: f.properties! });
 			try {
-				let bm = await createImageBitmap(f.properties[IMAGE_KEY]);
+				let bm = await createImageBitmap(f.properties![IMAGE_KEY] as Blob);
 				if (Math.max(bm.width, bm.height) > cap) { const s2 = cap / Math.max(bm.width, bm.height); const b2 = await createImageBitmap(bm, { resizeWidth: Math.round(bm.width * s2), resizeHeight: Math.round(bm.height * s2), resizeQuality: "high" }); bm.close(); bm = b2; }
 				quadOverlay().post({ type: "set", id, bitmap: bm, corners, opacity: op > 0 && op <= 1 ? op : 1 }, [bm]);
-				const credit = f.properties.attribution || f.properties.name || f.properties[IMAGE_KEY].name || name;   // 出典（HTML 可）＝消毒して出典欄の画像の項へ
+				const credit = f.properties!.attribution || f.properties!.name || (f.properties![IMAGE_KEY] as File).name || name;   // 出典（HTML 可）＝消毒して出典欄の画像の項へ
 				if (credit) imageAttrs.set(id, sanitizeHTML(String(credit)));
 			} catch (err) { console.warn("[image] failed", id, err); }
 		}));
@@ -40,7 +55,7 @@ export function installImages(map, live, {
 	// 自動押し出し＝本道の続き。前の押し出しは外す（「最後の 1 枚が勝つ」）。高さの鍵が無ければ遅延 chunk も降ろさない
 	const extrudeQ = (() => { const v = new URLSearchParams(location.search).get("extrude"); if (v == null) return null; const [k, sc] = v.split(","); return { off: k === "0" || k === "off", key: k || undefined, scale: +sc > 0 ? +sc : 1 }; })();
 	const BOTTOM_Q = (v => v === "drape" || v === "ground" ? v : v != null && v !== "" && isFinite(+v) ? +v : null)(new URLSearchParams(location.search).get("bottom"));   // ?bottom=<m>＝ドロップ/?g= の自動押し出しの床の高さ（既定 2000m の平面）・?bottom=drape＝地形に沿わせる・?bottom=ground＝建物と同じ接地
-	const autoExtrude = async pbf => {
+	const autoExtrude = async (pbf: GeoPBF) => {
 		live.modelCtl?.clearExtrude();
 		if (extrudeQ?.off || !(extrudeQ?.key ? pbf.keys?.includes(extrudeQ.key) : hasHeightKey(pbf.keys))) return null;
 		try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1, bottom: BOTTOM_Q }); }
@@ -52,30 +67,30 @@ export function installImages(map, live, {
 	//   cluster(src, { clusterRadius, clusterMaxZoom, paint, unclustered:{ paint }, text }) または MapLibre の source（{ type:"geojson", data, cluster:true, … }）
 	//   null＝外す。ズームは ortho の z（MapLibre の z＋1 と同じ見た目の縮尺）。
 	const aggGet = async () => { const m = await import("../gadgets/aggregate.js"); return live.aggCtl ??= m.createAggregate(map, { signal: ac.signal }); };
-	const readPoints = async src => (typeof src === "string" || src instanceof Blob) ? await readGeoData(src) : (!src?.type && !Array.isArray(src) && src?.geojson) ? src.geojson : src;
+	const readPoints = async (src: unknown) => (typeof src === "string" || src instanceof Blob) ? await readGeoData(src) : (!(src as PointsIn)?.type && !Array.isArray(src) && (src as PointsIn)?.geojson) ? (src as PointsIn)!.geojson : src;
 	// 中身（native）＝層は正規化済み（エンジンの目盛り）で受ける。内部（addLayer の描き出し）はこちらを直に呼ぶ＝公開の入口を二度くぐらない（台帳 R4）
-	const heatmapNative = async (src, layer, slot) => (await aggGet()).heatmap(await readPoints(src), layer, slot);
-	const clusterNative = async (src, opts, slot) => (await aggGet()).cluster(await readPoints(src), opts, slot);
-	map.gadget("heatmap", async function (src, layer = {}) {
+	const heatmapNative = async (src: unknown, layer: Partial<MLLayer>, slot: string) => (await aggGet()).heatmap(await readPoints(src), layer, slot);
+	const clusterNative = async (src: unknown, opts: ClusterOpts, slot: string) => (await aggGet()).cluster(await readPoints(src), opts, slot);
+	map.gadget("heatmap", async function (src: unknown, layer: LayerIn = {}) {
 		if (src == null) { (await aggGet()).clear("heatmap", layer.slot ?? "default"); return null; }   // slot＝addLayer の層 id（#34）・既定 "default"＝ガジェット直呼びの 1 枠
-		if (src?.type === "heatmap") { layer = { ...src, ...layer }; src = src.source?.data ?? src.source; }
+		if ((src as LayerSrc)?.type === "heatmap") { layer = { ...(src as LayerIn), ...layer }; src = (src as LayerSrc)!.source?.data ?? (src as LayerSrc)!.source; }
 		live.assertMLLayer(layer, "heatmap");
-		return heatmapNative(src, normalizeMLLayer(layer, PUBLIC_DZ), layer.slot ?? "default");
+		return heatmapNative(src, normalizeMLLayer(layer as MLLayer, PUBLIC_DZ), layer.slot ?? "default");
 	});
-	map.gadget("cluster", async function (src, opts = {}) {
+	map.gadget("cluster", async function (src: unknown, opts: ClusterIn = {}) {
 		if (src == null) { (await aggGet()).clear("cluster", opts.slot ?? "default"); return null; }
-		if (src?.type === "geojson" && "data" in src) { const { data, cluster, type, ...rest } = src; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
+		if ((src as SourceIn)?.type === "geojson" && "data" in (src as object)) { const { data, cluster, type, ...rest } = src as SourceIn; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
 		live.assertMLLayer(opts, "cluster"); if (opts.unclustered) live.assertMLLayer(opts.unclustered, "cluster");
-		const o = { ...normalizeMLLayer(opts, PUBLIC_DZ), clusterMaxZoom: rescaleZoomNum(opts.clusterMaxZoom ?? 14, PUBLIC_DZ, 0) };   // clusterMaxZoom の既定 14 は公開の口の目盛り
-		if (opts.unclustered) o.unclustered = normalizeMLLayer(opts.unclustered, PUBLIC_DZ);
+		const o: ClusterOpts = { ...normalizeMLLayer(opts as MLLayer, PUBLIC_DZ), clusterMaxZoom: rescaleZoomNum(opts.clusterMaxZoom ?? 14, PUBLIC_DZ, 0)! };   // clusterMaxZoom の既定 14 は公開の口の目盛り
+		if (opts.unclustered) o.unclustered = normalizeMLLayer(opts.unclustered as MLLayer, PUBLIC_DZ);
 		return clusterNative(src, o, opts.slot ?? "default");
 	});
 	// ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 	// 線に沿う geojson の注記（C9・gadgets/gjlabels.js）＝symbol-placement line/line-center の geojson の symbol 層。vector の注記と同じ口（sendLabels "vt:"）へ
 	const gjGet = async () => { const m = await import("../gadgets/gjlabels.js"); if (live.gjCtl) return live.gjCtl; ownDestroy.push(() => live.gjCtl?.destroy()); return live.gjCtl = m.createGJLabels(map, { cam, size: () => size, dpr: live.dpr, sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); requestDraw(); } }); };
-	const gjIsLine = layer => { const p = layer.layout?.["symbol-placement"]; if (p == null) return false; const v = typeof p === "string" ? p : evalExpr(p, { zoom: cam.zoom, props: {}, geom: "LineString", vars: {}, gs: live.MAP_GS, origin: "ml" }); return v === "line" || v === "line-center"; };
-	const missingImgs = new Set();   // styleimagemissing を鳴らした名前（名前ごとに 1 回＝MapLibre と同じ）
-	function imageMissing(name) {
+	const gjIsLine = (layer: Partial<MLLayer>) => { const p = layer.layout?.["symbol-placement"]; if (p == null) return false; const v = typeof p === "string" ? p : evalExpr(p, { zoom: cam.zoom, props: {}, geom: "LineString", vars: {}, gs: live.MAP_GS, origin: "ml" }); return v === "line" || v === "line-center"; };
+	const missingImgs = new Set<string>();   // styleimagemissing を鳴らした名前（名前ごとに 1 回＝MapLibre と同じ）
+	function imageMissing(name: string) {
 		if (!name || missingImgs.has(name) || live.symCtl?.hasImage(name)) return;
 		missingImgs.add(name);
 		for (const cb of [...mapOn.styleimagemissing]) { try { cb({ id: name }); } catch (e) { console.error("[map.on styleimagemissing]", e); } }
@@ -86,7 +101,7 @@ export function installImages(map, live, {
 		onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); requestDraw(); }, onMissing: imageMissing }); };
 	// 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
 	// こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
-	const pendingImages = new Set();
+	const pendingImages = new Set<Promise<unknown>>();
 	map.addImage = (name, img, o) => {   // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
 		const p = (async () => (await symGet()).addImage(name, img, o))();
 		pendingImages.add(p); p.catch(() => {}).finally(() => pendingImages.delete(p));
@@ -101,16 +116,16 @@ export function installImages(map, live, {
 	map.listImages = () => live.symCtl?.listImages() ?? [];
 	map.loadSprite = async (base, prefix) => (await symGet()).loadSprite(base, prefix);                          // MapLibre の sprite（base.json＋base.png・@2x）
 	// 中身（native）＝層はエンジンの目盛り・ネイティブの意味で受ける（worldcontent の記号の層はここ＝MapLibre 形の入口を通らない・台帳 R8）
-	const symbolsNative = async (src, layer = {}) => {
+	const symbolsNative = async (src: unknown, layer: Partial<MLLayer> = {}) => {
 		const c = await symGet();
 		if (src == null) { c.removeLayer(layer.id || "symbols"); return null; }
 		return c.addLayer(layer.id || "symbols", await readPoints(src), layer);
 	};
-	map.gadget("symbols", async function (src, layer = {}) {   // 記号の層（src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと）・null＋{id}＝外す
+	map.gadget("symbols", async function (src: unknown, layer: LayerIn = {}) {   // 記号の層（src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと）・null＋{id}＝外す
 		if (src == null) return symbolsNative(null, layer);
-		if (src?.type === "symbol") { layer = { ...src, ...layer }; src = src.source?.data ?? src.source; }
+		if ((src as LayerSrc)?.type === "symbol") { layer = { ...(src as LayerIn), ...layer }; src = (src as LayerSrc)!.source?.data ?? (src as LayerSrc)!.source; }
 		live.assertMLLayer(layer, "symbols");
-		return symbolsNative(src, normalizeMLLayer(layer, PUBLIC_DZ));
+		return symbolsNative(src, normalizeMLLayer(layer as MLLayer, PUBLIC_DZ));
 	});
 
 	return { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints, clusterNative, aggGet, pendingImages, heatmapNative, gjIsLine, gjGet, symbolsNative };

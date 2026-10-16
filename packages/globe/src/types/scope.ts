@@ -2,18 +2,25 @@
 //   GlobeScope＝createGlobe の定数・関数（deps として渡す）・GlobeLive＝createGlobe の let（live の getter／setter で読み書きする）。
 //   どちらも installer が読む分だけを構造で書く（globe.js が持つ他のメンバーは書かない）。installer ごとの deps／live は install.ts が Pick で選ぶ。
 //   batch 3（globe.js → globe.ts）ではここが createGlobe の中の変数の注釈の元になる。
-import type { resolveVectorSource, splitMapLibreStyle } from "@ortho-earth/core";
+import type { MLLayer, parseViewHash, resolveVectorSource, splitMapLibreStyle } from "@ortho-earth/core";
 import type { DemSource } from "@ortho-earth/core";
 import type { FlightController, InputController } from "@ortho-earth/core";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { Clock } from "@ortho-earth/ephem/clock";
-import type { AnnoHandle, Bbox, CameraTarget, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
+import type { ClipPlane } from "@ortho-earth/core/clip";
+import type { DtmDecl } from "@ortho-earth/core/elevation";
+import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.d.ts";
-import type { DataReturn, ImagesReturn, IntakeReturn, ToolsReturn } from "./install.ts";
+import type { Aggregate } from "../gadgets/aggregate.d.ts";
+import type { GJLabels } from "../gadgets/gjlabels.d.ts";
+import type { Symbols } from "../gadgets/symbols.d.ts";
+import type { Corners } from "geopbf/edit/imagequad";
+import type { DataReturn, ImagesReturn, IntakeReturn, RasterReturn, StyleReturn, ToolsReturn } from "./install.ts";
 import type { GlobeInternals, GlobeMap } from "./map.ts";
 import type { VideoQuads } from "../gadgets/videoquad.d.ts";
 import type { Requester } from "../request.d.ts";
+import type { ScenePlayer } from "../scenes/player.d.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // globe.js の中の共有の部品（いくつもの installer が受ける物）
@@ -34,6 +41,33 @@ export type Translate = (key: string, ...args: Array<string | number>) => string
 
 /** 外来の MapLibre の source（core の MLSource＝addSource が受けた物をそのまま持つ・型は自由） */
 export type MLSourceSpec = Parameters<typeof resolveVectorSource>[0];
+/** 利用者の source（addSource の spec をそのまま持つ）＝installer が読む分 */
+export interface UserSource extends MLSourceSpec { type?: string; data?: unknown; cluster?: boolean; promoteId?: string | Record<string, string> | null }
+/** 利用者の層（addLayer の層＝MapLibre の形・custom 層は object そのまま） */
+export type UserLayer = MLLayer;
+/** 利用者の層の台帳の 1 件（globe.js の mlLayers の値）＝installer が読む分 */
+export interface UserLayerRec {
+	layer: UserLayer; src: UserSource; dz: number;
+	/** 描き方（gint／vtdraw／raster／custom …＝kindOf） */
+	kind?: string;
+	/** getStyle の順＝どの層の前か */
+	before?: string | null;
+	/** worker 経路の custom 層のオーバーレイ */
+	ov?: OverlayHandle | null;
+}
+/** vector source の読み口（vtxDescOf の戻り＝TileJSON／PMTiles を解いた物） */
+export interface VtxDesc {
+	tileUrl: ((z: number, x: number, y: number) => string | null | undefined) | null; pmtiles: string | null;
+	minzoom?: number; maxzoom?: number; bounds?: number[] | null; promoteId?: unknown; encoding?: string; coverage?: unknown;
+	vectorLayers?: Array<{ id: string; fields?: Record<string, string>; minzoom?: number; maxzoom?: number }> | null;
+}
+/** vector source の fill／line／circle／symbol（gadgets/vtdraw.js の戻り）＝installer が読む分 */
+export interface VtdCtl {
+	/** その source の出しているタイル */
+	shownTiles(sid: string): Array<{ key: string }> | null | undefined;
+}
+/** URL の #hash の視点（core の parseViewHash の戻り） */
+export type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
 /** 外来の MapLibre の style.json（core の MLStyle） */
 export type MLStyleSpec = Parameters<typeof splitMapLibreStyle>[0];
 /** 外来 style を読んだ物（globe.js の loadExtStyle の戻り＝EXT） */
@@ -59,6 +93,12 @@ export interface BaseStyle {
 /** 模型の制御（gadgets/model.js の createModels の戻り）＝installer が読む分 */
 export interface ModelCtl {
 	extrudedFeatures?: Array<{ h: number; f?: { geometry?: { type: string; coordinates?: unknown } | null } | null }>;
+	/** 押し出しを外す（slot 省略＝全部） */
+	clearExtrude(slot?: string): void;
+	/** 押し出し（src＝GeoJSON・opts＝{ height: 鍵名, scale, bottom, … } か MapLibre の fill-extrusion の層） */
+	/** 模型を全部外す */
+	clear(): void;
+	extrude(src: unknown, opts?: { height?: string; scale?: number; bottom?: number | "drape" | "ground" | null; [k: string]: unknown }): ReturnType<Gadgets["extrude"]>;
 }
 
 /** CZML／GPX の再生（gadgets/czml.js の createCzmlPlayer の戻り） */
@@ -87,6 +127,33 @@ export interface FollowState extends FollowHandle {
 
 /** plugin の器（plugin.js の createPluginHost の戻り）＝installer が読む分 */
 export interface PluginHost { readonly registry: MapRegistry }
+
+/** 基図の出どころ（globe.js の BASE_SOURCE＝外来 style／PMTiles／地域の基図／無し）＝installer が読む分 */
+export interface BaseSource {
+	kind: string; url: string | null;
+	/** XYZ の型紙（PMTiles は URL を返すだけ・基図なしは null） */
+	tileUrl: (z: number, x: number, y: number) => string | null | undefined;
+	coverage: unknown;
+	info: unknown; attrHTML: string | null;
+	encoding?: string;
+}
+/** 地域の「全体へ戻る」の着地点（地域の申告の home） */
+export interface RegionHome { view: number[]; span?: number[]; icon?: string; label?: string; id?: string }
+/** 建物メッシュの管理（globe.js の meshMgr＝本物が来るまでの代理の窓口）＝installer が読む分 */
+export interface MeshMgr {
+	readonly sets: Array<{ base: string; bbox: number[]; [k: string]: unknown }>;
+	prefetch(views: unknown[], names?: string[], onProg?: (p: unknown) => void): Promise<unknown>;
+	/** 区ごとの読み込みの進捗 */
+	readonly progress: Map<string, { done?: number; scan?: number }>;
+	/** これから見える区で読み込み中の物 */
+	visibleLoading(): string[];
+	/** 残りの台本に出ない常駐区を降ろす */
+	trimForScript(views: string[]): unknown;
+}
+/** POI 台帳（地域の申告の poi・起こすまでの代理） */
+export interface PoiProxy { ready(): Promise<unknown> }
+/** POI 台帳の本物（poiedit が読む分） */
+export interface PoiLedger { distM: unknown; apiBase: unknown; ovrName: unknown; patchedAll(): unknown; getOvr: unknown; setOvr: unknown }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -152,11 +219,71 @@ export interface GlobeScope {
 	pageHash: string;
 	remoteUrl: DataReturn["remoteUrl"];
 	columnarOn: DataReturn["columnarOn"]; columnarProbe: DataReturn["columnarProbe"]; columnarView: DataReturn["columnarView"];
+	IMAGE_KEY: IntakeReturn["IMAGE_KEY"];
+	/** 公開の口のズームとエンジンの z の差（zoomScale・ML 形の層を normalizeMLLayer で換算する dz） */
+	PUBLIC_DZ: number;
+	/** createGlobe の寿命（destroy で abort） */
+	ac: AbortController;
+	imageAttrs: RasterReturn["imageAttrs"]; rasterChanged: RasterReturn["rasterChanged"];
+	/** 模型の制御（gadgets/model.js・遅延 chunk）を起こす */
+	modelCtlGet(): Promise<ModelCtl>;
+	readGeoData: DataReturn["readGeoData"];
+	BASE_SOURCE: BaseSource;
+	/** 裸地標高の申告（今は日本だけ） */
+	REGION_DTM: DtmDecl | null;
+	REGION_HOME: RegionHome | null;
+	/** 印刷の出典（i18n の英語キー） */
+	REGION_PRINT_ATTR: string[];
+	TILE_MINZOOM: number;
+	/** 画面のおおよその範囲（球外を含む時も） */
+	approxViewBbox(cam: GlobeCam): Bbox;
+	/** 今の圏の出典（行の列） */
+	attrTextNow(): string[];
+	/** 経緯度 → canvas の CSS px（[x, y, 表か]） */
+	makeProjector(): (lon: number, lat: number) => [number, number, number];
+	meshMgr: MeshMgr; meshOn: boolean;
+	poi: PoiProxy | null;
+	/** 印刷の撮影（印刷カメラへ振って readPixels） */
+	printCapture(o: { zoom: number; cropCss?: unknown }): Promise<unknown>;
+	requestSnapshot(): Promise<unknown>;
+	setLayer(k: string, on: boolean): void;
+	/** 道具の排他（名 → close）・toolOpen＝他の道具を閉じる */
+	toolClose: Map<string, () => void>; toolOpen(name: string): void;
+	/** 今の視点の #hash */
+	viewHash(): string;
+	wakeMesh(): Promise<unknown>;
+	BASEMAP_MINZOOM: number; ZOOM_MIN: number;
+	/** 既定の起動の視点（地域の home・無ければ世界）＝[lon, lat, zoom] */
+	HOME_VIEW: number[];
+	/** 世界のベクタ（Natural Earth）の帯を出すか */
+	WORLD_VT: boolean;
+	baseSidNow(): string;
+	/** 基図の source の名前なら基図の印の spec（それ以外は undefined） */
+	baseSrcSpec(id: string): UserSource | undefined;
+	canvas: HTMLCanvasElement;
+	clearImages: ImagesReturn["clearImages"];
+	evXY: InputController["evXY"];
+	/** 視点へ飛ぶ（#hash か解いた視点） */
+	flyView(hash: string | ParsedView, opts?: { glide?: boolean; jump?: boolean }): unknown;
+	/** 台本の連続ドリー（{ view, travel } の列） */
+	glidePathView(entries: Array<string | { view: string | ParsedView; travel?: number }>): unknown;
+	applyCamView(v: ParsedView): unknown; applyViewLayers(v: ParsedView): unknown;
+	switchTheme(name: string): unknown;
+	loadUserFile: IntakeReturn["loadUserFile"];
+	mlLayers: Map<string, UserLayerRec>; mlSources: Map<string, UserSource>;
+	mlVisible(v: UserLayerRec): boolean;
+	remergeBase: StyleReturn["remergeBase"];
+	scenes: ScenePlayer;
+	/** 自動の建物を伏せる／戻す */
+	setAutoBld(hidden: boolean): void;
+	/** client 座標 → 経緯度（球外は null） */
+	unprojectAt(clientX: number, clientY: number): LonLat | null;
+	vtxDescOf(sid: string, sp: UserSource | undefined): Promise<VtxDesc | null>;
 }
 
 /** createGlobe の let（live） */
 export interface GlobeLive {
-	mlSources: Map<string, MLSourceSpec>;
+	mlSources: Map<string, UserSource>;
 	EXT: ExtStyle | null;
 	demSpec: TerrainSpec | null;
 	demMain: DemSource | null;
@@ -197,4 +324,36 @@ export interface GlobeLive {
 	rasterDropFile: ToolsReturn["rasterDropFile"];
 	placeImages: ImagesReturn["placeImages"]; clearImages: ImagesReturn["clearImages"]; autoExtrude: ImagesReturn["autoExtrude"];
 	loadUserFile: IntakeReturn["loadUserFile"];
+	/** 四隅で貼った画像の id と四隅（queryRenderedFeatures の画像層） */
+	imageIds: string[]; imageQuads: Array<{ id: string; corners: Corners | null; properties: Record<string, unknown> }>;
+	aggCtl: Aggregate | null; gjCtl: GJLabels | null; symCtl: Symbols | null;
+	/** 地図の global-state（setGlobalStateProperty・style の state） */
+	MAP_GS: Record<string, unknown>;
+	/** 知らない演算子を含む層は投げる（MapLibre と同じ）＝createGlobe で installImages より後に宣言される */
+	assertMLLayer(L: Partial<MLLayer>, where: string): void;
+	/** 切断（setClipping）＝対象ごとの面・公開面の写し・main 側の面（vector＝識別と問い合わせ） */
+	clipByT: Record<string, ClipPlane[] | null> | null; clipSpec: ClipOptions | ClipOptions[] | null; clipMain: ClipPlane[] | null;
+	/** 初描画で確定（"webgpu"／"webgl2"） */
+	renderBackend: "webgpu" | "webgl2" | null;
+	mapLoaded: boolean;
+	addSourceAt: StyleReturn["addSourceAt"]; addLayerAt: StyleReturn["addLayerAt"];
+	poiReal: PoiLedger | null;
+	/** POI 台帳編集の armed 中だけ（クリックの横取り） */
+	poiClick: ((x: number, y: number) => unknown) | null;
+	/** 直近フレームで描いた基図タイル */
+	lastTileOrder: Array<{ key: string; z: number }>;
+	vtdCtl: VtdCtl | null;
+	/** 検査表示の下地（伏せている間）・テーマを替えた後の掛け直し */
+	inspectHide: boolean; inspectReapply: () => void;
+	autoBldHidden: boolean;
+	/** 陸の色（RGBA 0..1） */
+	land: number[];
+	cogCtl: CogHandle | null;
+	columnarCtl: ColumnarLayerHandle | null;
+	/** 編集ガジェットがドロップを所有中 */
+	editDropOwner: boolean;
+	/** 基図の描き終わりの署名（readySig が mainDesired に追いつく＝穴なし） */
+	readySig: string; mainDesired: string;
+	/** 標高タイルの読込中・枚数 */
+	elevBusy: boolean; elevN: number;
 }

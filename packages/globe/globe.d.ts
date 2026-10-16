@@ -384,9 +384,9 @@ export interface Gadgets {
 	palette(): { open(): void; close(): void };
 	hint(): unknown;
 	/** 地域の全体へ戻るボタン（1.2.0〜・着地点/顔/札は地域宣言 home・宣言が無い地域＝載らない）。J キー */
-	home(): unknown;
+	home(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
 	/** @deprecated 1.2.0〜 home() を使う（同じもの）。次の大版で撤去 */
-	japan(): unknown;
+	japan(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
 	qr(): { open(): void; close(): void };
 	print(): { open(): void; close(): void };
 	cpos(): unknown;
@@ -498,7 +498,7 @@ export interface Gadgets {
 	/** 衛星シーン検索（STAC＝Earth Search／Tellus→選んだシーンの COG を球へ＝cog ガジェット）。ボタンだけ常駐・本体は初回クリックで遅延 chunk。戻り値＝no-op */
 	stac(opts?: { zoom?: [number, number]; narrow?: boolean }): () => void;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
-	(name: string, fn: (this: OrthoJapanMap, ...args: unknown[]) => unknown): void;
+	(name: string, fn: (this: OrthoJapanMap, ...args: never[]) => unknown): void;
 }
 
 /** paint() の式（リテラルか Mapbox 風の配列式） */
@@ -798,6 +798,8 @@ export interface ClipOptions {
 	planes?: [number, number, number, number][];
 	/** URL の ?clip= と同じ書き方の文字列 */
 	param?: string;
+	/** false＝切らない（setClipping(false) と同じ） */
+	on?: boolean;
 	/** false＝蓋なし（地形の土の色の幕・板と建物の疑似の蓋）・色は { terrain: [r,g,b], building: [r,g,b] }（0..1） */
 	cap?: false | { terrain?: [number, number, number]; building?: [number, number, number] };
 	/** false＝縁の帯なし・{ width（CSS px・既定 2）, color（[r,g,b] 0..1・既定 橙） } */
