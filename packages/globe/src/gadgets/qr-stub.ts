@@ -3,7 +3,7 @@
 // 搭載APIは従来どおり map.gadget.qr()。本体到着後は同じボタンへ自前リスナーを付け直し、スタブは abort で退場（二重発火なし）。
 // ★ガジェット規約：独立モジュール＋（重ければ）小さな常駐スタブ＋本体は import()＝print/demo/ai と同じ型。
 import { gadgetStack } from "./stack.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { QrHandle } from "./qr.ts";
 const t = tr();

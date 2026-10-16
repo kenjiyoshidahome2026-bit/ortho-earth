@@ -128,10 +128,10 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 			}
 			if (spec && (spec.file || spec.image || spec.iiif)) {   // ローカル容器／四隅で貼る画像／IIIF の古地図＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
 				const w = spec.iiif
-					? new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "iiif" })   // 基準点で歪みを直した IIIF の画像＝タイルに焼く（iiif-worker.js・#177）
+					? new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "iiif" })   // 基準点で歪みを直した IIIF の画像＝タイルに焼く（iiif-worker.js・#177）
 					: spec.image
-					? new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
-					: new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "rastertiles" });
+					? new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
+					: new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "rastertiles" });
 				rec.worker = w;
 				const ch = new MessageChannel();
 				const opened = new Promise<{ attribution?: string | null } | undefined>((res, rej) => {

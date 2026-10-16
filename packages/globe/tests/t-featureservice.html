@@ -81,7 +81,7 @@ const follow = () => window.__fsFollow?.() || [];
 const geojsonQueries = () => LOG.filter(l => /\/query/.test(l.url) && /f=geojson/.test(l.url)).length;
 
 try {
-	await (await import("../src/i18n.js")).setLang("en");
+	await (await import("../src/i18n.ts")).setLang("en");
 	const { createGlobe } = await import("@ortho-earth/globe");
 	if (V === "source") {
 		const map = await createGlobe({ target: "#map", view: "#6/35.5/137.5", chips: false, debugGlobals: true, transformRequest });

@@ -4,12 +4,12 @@
 //     データの区間（出ている区間の外枠か標本の範囲）・LOOP_STOP・速さ＝区間÷120 秒（1〜5184000）。起動時の URL の t=／s= があればそちらが勝つ（本人裁定）
 //   ・押した点＝画面で近い軌跡の名前と説明（消毒）を吹き出しに（直下点に付く＝衛星のような高い物は真下）
 //   ・消す＝オーバーレイを空に・写した範囲を外す
-import { trackOf, styleOf, positionAt, availableAt, ecefToLlh, parseIntervals } from "../czml-time.js";
+import { trackOf, styleOf, positionAt, availableAt, ecefToLlh, parseIntervals } from "../czml-time.ts";
 import { CLOCK_SPEEDS } from "@ortho-earth/ephem/clock";
 import { sanitizeHTML } from "geopbf/sanitize";
 import type { Feature } from "geopbf";
 import type { LonLat, OrthoClock, OverlayHandle, Popup } from "../../globe.d.ts";
-import type { CzmlStyle, CzmlTrack } from "../czml-time.d.ts";
+import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
 import type { GlobeMap } from "../types/map.ts";
 
 /** 再生している軌跡（見た目と説明つき） */

@@ -1,5 +1,5 @@
 // MapLibre の小口の純粋な部品（src/mlsmall.js・B6 2026-10-12）
-import { normSprite, spriteEcho, spritePrefix, tileOf, tilesFromPoints, fontFaceArgs } from "../src/mlsmall.js";
+import { normSprite, spriteEcho, spritePrefix, tileOf, tilesFromPoints, fontFaceArgs } from "../src/mlsmall.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = JSON.stringify;
 ok("sprite-string", J(normSprite("https://x/s")) === J([{ id: "default", url: "https://x/s" }]));

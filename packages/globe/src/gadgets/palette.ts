@@ -9,7 +9,7 @@
 // テーマの語彙（並び・短名・見本色）はここが持つ（chips.js が主題の語彙を持つのと同じ流儀）。★テーマ追加時はここにも1行。
 import { gadgetStack } from "./stack.ts";
 import { composeLayersToCanvas } from "./compose.ts";
-import { tr } from "../i18n.js";
+import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 

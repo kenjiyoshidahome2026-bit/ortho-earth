@@ -43,7 +43,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	const sunWaiting = new Map<number, SunWait>();
 	ownDestroy.push(() => { sunWorker?.terminate(); sunWorker = null; for (const p of sunWaiting.values()) p.rej(new Error("destroyed")); sunWaiting.clear(); });
 	map.sunShadow = async (o = {}) => {
-		sunWorker ??= (() => { const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
+		sunWorker ??= (() => { const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 		let bb = o.bbox || map.getBounds() || approxViewBbox(cam);
 		const c = [cam.center[0], cam.center[1]], half = 1500 / 111320, hx = half / Math.max(0.2, Math.cos(c[1] * D2R));
 		bb = [Math.max(bb[0], c[0] - hx), Math.max(bb[1], c[1] - half), Math.min(bb[2], c[0] + hx), Math.min(bb[3], c[1] + half)];   // 一辺 3km まで
@@ -104,7 +104,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	const elevGridWait = new Map<number, (grid: unknown) => void>(); let elevGridSeq = 0;
 	const elevGrid = (bbox: Bbox, N: number) => new Promise(res => { const id = ++elevGridSeq; elevGridWait.set(id, res); wPost({ type: "elevGrid", id, bbox, N }); });
 	const sunCall = <R>(kind: string, opts: object) => new Promise<R>((res, rej) => {
-		sunWorker ??= (() => { const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
+		sunWorker ??= (() => { const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 		const id = ++sunSeq; sunWaiting.set(id, { res: res as SunWait["res"], rej }); sunWorker.postMessage({ id, kind, opts });
 	});
 	const visArea = async (center: LonLat, radius: number, extra: object, o: VisOpts) => {

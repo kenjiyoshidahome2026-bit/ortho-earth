@@ -2,12 +2,12 @@
 // 中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { createDemSource, resolveVectorSource } from "@ortho-earth/core";
-import { createWalk, pointInPolygon } from "../walk.js";
+import { createWalk, pointInPolygon } from "../walk.ts";
 import type { HandlerImpl, LonLat, RenderedFeature, WalkHandle, WalkOptions } from "../../globe.d.ts";
 import type { Installing, TerrainDeps, TerrainLive } from "../types/install.ts";
 import type { GlobeMap, TerrainApi } from "../types/map.ts";
 import type { TerrainSpec } from "../types/scope.ts";
-import type { WalkInner } from "../walk.d.ts";
+import type { WalkInner } from "../walk.ts";
 
 /** sampleTerrain が受ける位置（座標の配列・{lng|lon,lat}・GeoJSON）を辿る形 */
 type PositionsIn = { type?: string; geometry?: PositionsIn; features?: Array<{ geometry?: PositionsIn }>; geometries?: PositionsIn[]; coordinates?: unknown };
