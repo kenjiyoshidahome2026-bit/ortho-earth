@@ -2,14 +2,14 @@
 // 時計／撮影／QR／ホーム／印刷／閉じる等の gadget・POI 編集＝createGlobe から切り出した（globe.js の分割 ⑧・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { clipDistanceM, clipPlanesFor, normClip } from "@ortho-earth/core/clip";
-import { clockGadget } from "../gadgets/clock.js";
-import { close as closeGadget } from "../gadgets/close.js";
+import { clockGadget } from "../gadgets/clock.ts";
+import { close as closeGadget } from "../gadgets/close.ts";
 import { createTileLoader } from "@ortho-earth/core/elevation";
-import { home as homeGadget } from "../gadgets/home.js";
+import { home as homeGadget } from "../gadgets/home.ts";
 import { offline as offlineGadget } from "../gadgets/offline.js";
-import { print as printGadget } from "../gadgets/print-stub.js";
-import { qr as qrGadget } from "../gadgets/qr-stub.js";
-import { shot as shotGadget } from "../gadgets/shot-stub.js";
+import { print as printGadget } from "../gadgets/print-stub.ts";
+import { qr as qrGadget } from "../gadgets/qr-stub.ts";
+import { shot as shotGadget } from "../gadgets/shot-stub.ts";
 import { sunShadow as sunShadowGadget } from "../gadgets/sunshadow.js";
 import { viewshed as viewshedGadget } from "../gadgets/viewshed.js";
 import type { ClipPlane } from "@ortho-earth/core/clip";

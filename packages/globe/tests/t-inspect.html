@@ -12,7 +12,7 @@
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-inspect</title></head>
 <body><div id="map"></div>
 <script type="module">
-import { brightColor } from "../src/gadgets/inspect.js";
+import { brightColor } from "../src/gadgets/inspect.ts";
 const V = new URLSearchParams(location.search).get("v") || "style";
 const t = [], errs = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);

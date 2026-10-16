@@ -6,7 +6,7 @@
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
 import { createGlobe } from "@ortho-earth/globe";
-import { qrSelfTest, qrMatrix, qrEncode } from "@ortho-earth/globe/internal/gadgets/qrcode.js";
+import { qrSelfTest, qrMatrix, qrEncode } from "@ortho-earth/globe/internal/gadgets/qrcode.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	const map = await createGlobe({ view: "#5/37/138" });
