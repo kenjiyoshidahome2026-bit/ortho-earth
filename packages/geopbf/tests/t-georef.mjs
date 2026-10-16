@@ -1,5 +1,5 @@
 // 基準点の当てはめ（#177・src/georef）＝既知の写像を点から当てはめ直せるか・往復誤差・注記の読み書き・IIIF の段とタイルの URL。
-import { fitTransform, residuals, parseGeoreference, toGeoreferenceAnnotation, georefMapping, iiifImage, infoUrl, lonLatToWorld, worldToLonLat } from "../src/georef/index.js";
+import { fitTransform, residuals, parseGeoreference, toGeoreferenceAnnotation, georefMapping, iiifImage, infoUrl, lonLatToWorld, worldToLonLat } from "../src/georef/index.ts";
 
 let fails = 0;
 const ok = (name, cond, note = "") => { if (!cond) fails++; console.log(`${cond ? "ok" : "NG"} ${name}${note ? "  " + note : ""}`); };
