@@ -17,6 +17,7 @@ import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr, 
 import { compileFidStyleWGSL, dictTables, Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "@ortho-earth/core/fidexpr";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import { geopbf } from "geopbf";
 import { zIn } from "../zoomscale.ts";
+import { propLines } from "../html-safe.ts";   // tip: true の既定整形＝属性のキー・値を逃がす（tip は HTML で入る・2026-10-16）
 
 import type { GeoPBF, UnPackGint, IdentifyAtOptions } from "geopbf";
 import type { WorldStyleTheme } from "@ortho-earth/core/worldstyle";
@@ -477,7 +478,7 @@ function addGint(pbf: GintSource, opts: GintAddOptions = {}): GintLayerH | null 
 	};
 	const props = (fid: number | null | undefined) => { try { return (fid != null ? pbf.getFeature(fid)?.properties : null) ?? null; } catch { return null; } };
 	// tip＝層の属性（§10.3）: true＝全属性の既定整形／fn＝持参整形（props→行配列）／無指定＝出さない（on('hover') でアプリが描く）
-	const tipFmt = opts.tip === true ? (pr: Record<string, unknown>) => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
+	const tipFmt = opts.tip === true ? propLines : (typeof opts.tip === "function" ? opts.tip : null);
 	const h: GintLayerH = {
 		id, ready, order: opts.order ?? null, _seq: seq,
 		_ack: d => { if (d.cmd === "gintPaintExpr" || d.cmd === "gintExprState") { exprAcks.get(d.seq!)?.(d); exprAcks.delete(d.seq!); return; } if (d.error) { console.warn("[addGint] %s: %s (legacy build without addLayer)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") { zr = { min: d.minZoom ?? null, max: d.maxZoom ?? null }; ackQ.shift()?.(true); } },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）。range を持たない旧エンジン＝null＝全ズーム

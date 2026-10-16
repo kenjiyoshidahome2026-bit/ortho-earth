@@ -35,7 +35,10 @@ export function contextmenu({ unprojectAt, signal, items } = {}) {
 		for (const it of arr) {
 			const p = document.createElement("button");
 			p.className = "ctxmenu-item";
-			p.innerHTML = (it.icon || "") + `<span>${it.name}</span>`;
+			p.innerHTML = it.icon || "";   // icon＝呼び手の HTML（SVG 等）
+			const label = document.createElement("span");
+			label.textContent = `${it.name}`;   // 名前は文字（HTML として解釈しない・2026-10-16）
+			p.append(label);
 			p.addEventListener("click", ev => { ev.stopPropagation(); hide(); it.onClick?.(c); });
 			menu.append(p);
 		}

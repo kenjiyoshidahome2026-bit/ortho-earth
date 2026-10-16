@@ -13,9 +13,10 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip, worldRadiusM } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
+import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.js（?url＝依存ゼロ）へ渡す（2026-10-16）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.ts";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
@@ -75,7 +76,8 @@ interface GintEngine extends GintLayerOps {
 	bakeFaces?(cam: CameraPose, t: unknown): number; bakeSig?(): string;
 }
 /** オーバーレイの host（init の 3 つ目） */
-interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string }
+/** customArgs＝MapLibre の custom 層の args（customgl-args.ts の makeCustomArgs・この worker の楕円体の設定で）＝?url のモジュールは import を持てない（vite がそのまま置く）ので host から渡す（customgl-draw.js） */
+interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs> }
 /** オーバーレイの frame の api（main の makeProjector と同じ規約） */
 interface OverlayApi {
 	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];
@@ -163,7 +165,8 @@ function overlayAdd(m: RwMsg) {
 	// モジュールが取った文脈を覚える（撮影＝readOverlays が読む・後から getContext で探ると、まだ文脈の無い canvas に 2d を作って横取りしてしまう）
 	{ const gc = o.canvas.getContext.bind(o.canvas) as (type: string, attrs?: unknown) => OffscreenRenderingContext | null; (o.canvas as { getContext: typeof gc }).getContext = (type: string, attrs?: unknown) => { const c = gc(type, attrs); if (c) { o.kind = type; o.ctx = c; } return c; }; }
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
-	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
+	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL,
+		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }) };
 	const stage = (st: string, extra?: Record<string, unknown>) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
