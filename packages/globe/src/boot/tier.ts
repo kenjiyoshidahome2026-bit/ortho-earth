@@ -11,7 +11,9 @@
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
 // 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。
-export const lowMem = nav => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxTouchPoints > 1;
+/** 判定が読む navigator の分（deviceMemory は Chrome 系だけ・userAgentData も同じ） */
+export interface TierNavigator { deviceMemory?: number; maxTouchPoints: number; hardwareConcurrency?: number; userAgentData?: { mobile?: boolean } }
+export const lowMem = (nav: TierNavigator): boolean => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxTouchPoints > 1;
 
 // --- 非力デスクトップ・ティア（MID_TIER）：メモリ天井の低い機体を見抜いて PLATEAU の山を半分にする ---
 // 2026-08-03 実測：Windows10 / i7 / 16GB / 内蔵HD Graphics / HDD が、コールド（キャッシュ無し）の PLATEAU 表示で
@@ -30,7 +32,7 @@ export const lowMem = nav => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxT
 // なので、コア数≥12 を物差しにする。効くのは PLATEAU のロード並行度だけ（fast枠3区・タイル並行16）＝描画系は不変。
 // ?hi=0 が逃げ道・?hi=1 で強制（弱い機でのA/B用）。
 //   search … location.search／nav … navigator／coarse() … matchMedia("(pointer: coarse)").matches（userAgentData.mobile が真なら呼ばれない＝元の短絡のまま）
-export function classifyTier({ LOW_MEM, gpuRenderer = "", search = "", nav, coarse }) {
+export function classifyTier({ LOW_MEM, gpuRenderer = "", search = "", nav, coarse }: { LOW_MEM: boolean; gpuRenderer?: string; search?: string; nav: TierNavigator; coarse: () => boolean }): { MOBILE_UA: boolean; MID_TIER: boolean; HI_TIER: boolean } {
 	const MOBILE_UA = nav.userAgentData?.mobile === true || (coarse() && nav.maxTouchPoints > 1);
 	const MID_TIER = /[?&]mid=1/.test(search) || (!/[?&]mid=0/.test(search) && !LOW_MEM && (
 		MOBILE_UA ||                                                            // RAM の多いスマホ/タブレット（LOW_MEM を素通りする層）
@@ -46,7 +48,7 @@ export function classifyTier({ LOW_MEM, gpuRenderer = "", search = "", nav, coar
 // RAM の多いスマホ/タブレット＝MOBILE_UA）は球。計測は常に WGS84（段階A）＝ここは表示だけ。純関数（t-tier で検定）。
 // 優先＝URL（?ell=1 で楕円体・?ell=0 で球＝逃げ道）→ opts.ellipsoid（true/false）→ "auto"（上の方針）。
 // 戻り＝{ ell, why }（why＝起動ログ "[geo] world=…" に添える理由）。
-export function ellipsoidMode({ opt = "auto", search = "", LOW_MEM = false, MID_TIER = false } = {}) {
+export function ellipsoidMode({ opt = "auto", search = "", LOW_MEM = false, MID_TIER = false }: { opt?: boolean | string; search?: string; LOW_MEM?: boolean; MID_TIER?: boolean } = {}): { ell: boolean; why: string } {
 	const m = search.match(/[?&]ell=([01])(?![0-9])/);
 	if (m) return { ell: m[1] === "1", why: `url ?ell=${m[1]}` };
 	if (opt === true || opt === false) return { ell: opt, why: `opts.ellipsoid=${opt}` };
@@ -57,31 +59,33 @@ export function ellipsoidMode({ opt = "auto", search = "", LOW_MEM = false, MID_
 // --- 描画の質の旗（#46・2026-09-26）：?pbr=1／?ao=1／?atmosphere=1 で点ける純関数（t-tier で検定）。ell と同じ作法＝既定は全端末で 0（本人裁定 2026-09-26）。
 // URL が勝つ（?pbr=0 は opts より強い）。opts.render.<name>:true＝組み込みで点ける口（既定 false）。WebGL2 は実装を持たない＝旗が立っても絵は変わらない。
 const FX_NAMES = ["atmosphere", "pbr", "ao"];
-export function renderFx({ render = null, search = "" } = {}) {
-	const fx = {};
+export function renderFx({ render = null, search = "" }: { render?: Partial<Record<string, unknown>> | null; search?: string } = {}): Record<string, boolean> {
+	const fx: Record<string, boolean> = {};
 	for (const n of FX_NAMES) { const m = search.match(new RegExp(`[?&]${n}=([01])`)); fx[n] = m ? m[1] === "1" : render?.[n] === true; }
 	return fx;
 }
 
 // 対応判定用の使い捨て WebGL2 コンテキスト：生存（ok）と GPU 素性（renderer＝拡張が無ければ null）。専用コンテキストは新設せず
 // この 1 枚に相乗りし、即返却（スロットを食い潰さない）。
-export function probeGL() {
+export function probeGL(): { ok: boolean; renderer: string | null } {
 	const g = document.createElement("canvas").getContext("webgl2");
 	const dbg = g?.getExtension("WEBGL_debug_renderer_info");
-	const renderer = dbg ? (g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") : null;
+	const renderer = dbg ? (g!.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") as string : null;
 	g?.getExtension("WEBGL_lose_context")?.loseContext();
 	return { ok: !!g, renderer };
 }
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
 // reloadLabel（文字列）で「再読み込み」ボタン付き（null＝無し）。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
-export function fatalOverlay(mapEl, title, detail, reloadLabel) {
+// 文言は innerHTML へ入る＝逃がす（detail に worker の誤りの文が入る・CodeQL・2026-10-16。訳文は & < > " を持たない＝見た目は同じ）
+const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+export function fatalOverlay(mapEl: HTMLElement, title: string, detail: string, reloadLabel?: string | null): HTMLDivElement {
 	const d = document.createElement("div");
 	d.id = "fatal";   // スタイルは style.css（#fatal）。最後に起きる事件＝最後の append＝DOM順で最上面
 	d.innerHTML = `<div class="fatal-box">
-		<div class="fatal-title">${title}</div>
-		<div class="fatal-detail">${detail}</div>
-		${reloadLabel ? `<button class="fatal-reload" onclick="location.reload()">${reloadLabel}</button>` : ""}</div>`;
+		<div class="fatal-title">${esc(title)}</div>
+		<div class="fatal-detail">${esc(detail)}</div>
+		${reloadLabel ? `<button class="fatal-reload" onclick="location.reload()">${esc(reloadLabel)}</button>` : ""}</div>`;
 	mapEl.appendChild(d);
 	return d;
 }
@@ -89,8 +93,8 @@ export function fatalOverlay(mapEl, title, detail, reloadLabel) {
 // 返す。旧・throw は未捕捉例外＝呼び側の then 連鎖ごと死に、site の boot カバーも畳まれない（Chrome の
 // ハードウェアアクセラレーション off で「エラーを吐いて落ちる」実測 2026-09-02）。Proxy＝map.gadget.search() の
 // ようなどんな連鎖・呼び出しも無害に自分を返して空転する（then だけ undefined＝await が即解決する約束）。
-export const deadMap = () => {
-	const stub = new Proxy(function () {}, {
+export const deadMap = (): object => {
+	const stub: object = new Proxy(function () {}, {
 		get: (_, k) => k === "then" ? undefined : (k === Symbol.toPrimitive || k === "toString") ? () => "" : stub,
 		apply: () => stub,
 		set: () => true,

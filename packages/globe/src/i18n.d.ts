@@ -9,3 +9,9 @@ export function tr(): Translate;
 export function getLang(): string;
 /** 言語の一覧（packages/world/i18n/langs.json の写し・26 言語） */
 export const LANGUAGES: ReadonlyArray<{ code: string; name: string; rtl: boolean }>;
+/** 言語を決めて表を読む（code が一覧に無ければ今の言語のまま）＝決まった言語のコード（batch 3・page.ts・globe.ts が読む） */
+export function setLang(code?: string | null): Promise<string>;
+/** その言語が右から左か（省略＝今の言語） */
+export function isRTL(code?: string): boolean;
+/** 頁ごとの辞書を本体の表に足す（importer(code) の default が { 英語キー: 訳 }）＝読んだ言語のコード */
+export function loadPage(importer: (code: string) => Promise<{ default: Record<string, string> }>, code?: string): Promise<string>;

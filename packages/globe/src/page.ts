@@ -10,9 +10,11 @@
 //（scripts/lib/shared-engine.mjs）。相対で引くと言語の状態が頁とエンジンで二つに割れる。
 import { setLang, getLang, isRTL, loadPage, tr } from "@ortho-earth/globe/i18n.js";
 const t = tr();
+/** 頁の辞書の読み口（c => import(`./i18n/lang/<page>/${c}.json`)） */
+export type PageDictImporter = (code: string) => Promise<{ default: Record<string, string> }>;
 
 // ① ② 言語を決め、<html> に lang/dir を書き、頁の辞書を足す。UI を組む前に await する（モジュール評価時に t() を呼ばない掟とセット）
-async function preparePage({ page, lang } = {}) {
+async function preparePage({ page, lang }: { page?: PageDictImporter | null; lang?: string | null } = {}): Promise<string> {
 	await setLang(lang);
 	if (page) await loadPage(page);
 	const code = getLang();
@@ -22,7 +24,7 @@ async function preparePage({ page, lang } = {}) {
 }
 
 // ③ 起動画面（#boot）を畳む（地図の初回フレームが描かれてから＝空 canvas のちらつきを避ける 2 フレーム待ち）。無ければ何もしない
-export function dismissBoot() {
+export function dismissBoot(): void {
 	requestAnimationFrame(() => requestAnimationFrame(() => {
 		const b = document.getElementById("boot");
 		if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); }
@@ -31,7 +33,7 @@ export function dismissBoot() {
 
 // ④ 起動の失敗を画面に。エンジンの fatalOverlay（globe.css の #fatal）はエンジンが起きた後にしか使えない＝ここは外部 CSS に依らない自前の面。
 //   tag＝console の印（"[parks]"）。target＝置き場（既定＝#map か body）。戻り＝作った要素
-export function startupFailed(tag, e, { target } = {}) {
+export function startupFailed(tag: string, e: unknown, { target }: { target?: string | HTMLElement | null } = {}): HTMLDivElement | null {
 	console.error(`[${tag}] startup failed`, e);
 	dismissBoot();
 	const host = (typeof target === "string" ? document.querySelector(target) : target) || document.getElementById("map") || document.body;
@@ -39,12 +41,12 @@ export function startupFailed(tag, e, { target } = {}) {
 	const d = document.createElement("div");
 	d.id = "page-fatal"; d.setAttribute("role", "alert");
 	d.style.cssText = "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:#f4f1ea;color:#333;font:14px/1.9 system-ui,sans-serif";
-	const detail = e?.message || String(e ?? "");
+	const detail = (e as { message?: string } | null | undefined)?.message || String(e ?? "");
 	d.innerHTML = `<div style="max-width:540px">
 		<div style="font-size:18px;font-weight:600;margin-bottom:10px"></div>
 		<div style="color:#555"></div>
 		<button type="button" style="margin-top:18px;padding:9px 22px;font-size:14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer"></button></div>`;
-	const [title, body, btn] = [d.children[0].children[0], d.children[0].children[1], d.children[0].children[2]];
+	const [title, body, btn] = [d.children[0]!.children[0]!, d.children[0]!.children[1]!, d.children[0]!.children[2]!];
 	title.textContent = t("Could not start the page");
 	body.textContent = t("Startup failed ($1). Reload the page — if it still fails, try another browser or check that hardware acceleration is on.", detail);
 	btn.textContent = t("Reload"); btn.addEventListener("click", () => location.reload());
@@ -53,7 +55,7 @@ export function startupFailed(tag, e, { target } = {}) {
 }
 
 // ①〜④ を一息で。fn（async）が地図を返す。失敗＝startupFailed。成功＝dismissBoot（fn の中で先に畳んでもよい＝二重は無害）
-export async function startPage(tag, fn, { page, lang, target } = {}) {
+export async function startPage<T>(tag: string, fn: () => T | Promise<T>, { page, lang, target }: { page?: PageDictImporter | null; lang?: string | null; target?: string | HTMLElement | null } = {}): Promise<T | null> {
 	try {
 		await preparePage({ page, lang });
 		const ret = await fn();

@@ -4,10 +4,16 @@
 // ・主の飛行（flyTo/easeTo）は止めない：主は自分の move を出し続け、従は毎回 jumpTo で追う（従の飛行は止まる＝追う側だから）
 // ・zoomDelta＝地図ごとのズームのずらし（虫めがね・ロケータ）：地図 i のズーム＝主のズーム − 主の delta ＋ i の delta
 // 始めに 2 枚目以降を 1 枚目の視点へ揃える。maps＝createGlobe の地図（か MapLibre 互換の Map）。戻り値＝連動を解く関数。Compare（段 5）が中で使う＝公開の口ではない。
-export function syncMaps(maps, { zoomDelta = null } = {}) {
-	const dz = i => (zoomDelta && Number.isFinite(zoomDelta[i]) ? zoomDelta[i] : 0);
+/** 連動する地図の口（createGlobe の地図か MapLibre 互換の Map）＝読む分だけ */
+export interface SyncMap {
+	getCenter(): { lng: number; lat: number }; getZoom(): number; getBearing(): number; getPitch(): number;
+	jumpTo(o: { center: [number, number]; zoom: number; bearing: number; pitch: number }): unknown;
+	on(ev: "move", cb: () => void): unknown; off(ev: "move", cb: () => void): unknown;
+}
+export function syncMaps(maps: SyncMap[], { zoomDelta = null }: { zoomDelta?: ArrayLike<number> | null } = {}): () => void {
+	const dz = (i: number) => (zoomDelta && Number.isFinite(zoomDelta[i]) ? zoomDelta[i] : 0);
 	let syncing = false;
-	const follow = i => () => {
+	const follow = (i: number) => () => {
 		if (syncing) return;
 		syncing = true;
 		try {

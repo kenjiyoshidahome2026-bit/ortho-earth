@@ -885,7 +885,8 @@ export interface PluginRegistry<T> {
 	readonly pending: string;
 	add(name: string, impl: T): this;
 	remove(name: string): boolean;
-	get(name: string): T | undefined;
+	/** builtin の名は null（実装は本体の中）・無い名は undefined */
+	get(name: string): T | null | undefined;
 	has(name: string): boolean;
 	isBuiltin(name: string): boolean;
 	/** 登録した plugin の名（builtin・直接の add は null） */
