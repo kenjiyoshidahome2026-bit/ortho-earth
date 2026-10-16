@@ -1,6 +1,6 @@
 // cameraState の cam.offset（注視点を画面の中心からずらす＝MapLibre の centerOffset・padding の中身の中心・2026-10-12 A3）：
 // 無指定・[0,0]＝従来とビット同値／[150,-100]＝注視点が (W/2+150·dpr, H/2−100·dpr) に写る／camDist・eye 不変／unproject と往復／傾けても同じ。
-import { cameraState, project, unproject } from "../src/camera.js";
+import { cameraState, project, unproject } from "../src/camera.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };

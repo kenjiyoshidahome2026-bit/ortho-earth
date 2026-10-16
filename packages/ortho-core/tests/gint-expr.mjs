@@ -2,7 +2,7 @@
 // 守るもの：①契約の演算子（globe.d.ts の一覧）がすべて fid 表まで届く ②評価規約（=== の比較・欠けた値・throw しない・入れ子の色の補間）
 // ③fid 表の詰め方（width 1/8・radius 1/4・visible ビット・点は circle-color・opacity の掛け方・dash-id は 0）
 import assert from "node:assert/strict";
-import { buildFidStyle } from "../src/gint/style.js";
+import { buildFidStyle } from "../src/gint/style.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 

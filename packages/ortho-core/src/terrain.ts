@@ -1,0 +1,540 @@
+// 標高アトラス（altpbf 多解像度）：ズームで R90/R10/R01 を選び、視野を覆うセル群を1枚のアトラスへ。
+// R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
+// DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
+// onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
+import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.ts";
+import { downsampleFlipped, cropResample } from "./elevation.ts";
+import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
+import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
+import type { CameraPose } from "./camera.ts";
+import type { ElevGrid, ElevTileGrid } from "./elevation.ts";
+import type { DtmDecl, TileLoader, ElevTile } from "./elevation/index.ts";
+import type { DemCell, DemSource, DemSpecInput } from "./dem-src.ts";
+import type { QmeshSpecInput } from "./qmesh-src.ts";
+
+/** アトラスへ上げる標高タイル（altpbf の生タイル・または DEM で上書きしたセル） */
+export type TerrainTile = ElevTile | DemCell;
+/** renderer へ渡すセルの中身：CPU 再標本化の Float32・または GPU 再標本化の記述子（renderer.gpuResample） */
+export type CellPayload = Float32Array | { tile: ElevTileGrid; mode: "down"; edge: number } | { tile: ElevTileGrid; mode: "crop"; lng0: number; lat0: number; span: number } | { atlas: ElevGrid; mode: "world"; cx: number; cy: number };
+/** 地形の renderer 契約（gl/renderer.js・gpu/renderer.js が実装） */
+export interface TerrainRenderer { set(slot: string, data?: unknown, extra?: unknown): void; gpuResample?: boolean }
+export type PendingCallback = (n: number, range: number, stat?: string | null) => void;
+export interface TerrainOptions {
+	renderer: TerrainRenderer; requestDraw: () => void; exag: number; earthM: number; apiUrl?: string; onPending?: PendingCallback | null;
+	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
+}
+/** 視野を覆うセル窓（range 刻みの原点セルと枚数・cellRes＝1 セルの texel） */
+export interface CellWindow { range: number; originCX: number; originCY: number; cellsX: number; cellsY: number; cellRes: number; wanted?: Set<string> | null }
+export interface TerrainSize { w: number; h: number }
+export interface TerrainDebug {
+	gen: string; loader: string | null; atlasKey: string; staging: boolean; stagePending: number; pendingElev: number; loaded: number; written: number; fails: [string, number][];
+	farKey: string; farLoaded: number; farWritten: number; farFails: [string, number][]; lru: number; bytes: number; world: string;
+	lastCam: { z: number; c: number[]; p: number } | null; lastSize: TerrainSize | null;
+}
+export interface Terrain {
+	ensure(cam: CameraPose, size: TerrainSize): boolean; sampleElev(lon: number, lat: number): number; prefetch(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null>;
+	prefetchWorld(): Promise<void>; bytes(): number; debug(): TerrainDebug; setDem(spec: DemSpecInput | QmeshSpecInput | null): void; demHeight(lon: number, lat: number, zHint?: number | null): Promise<number | null>;
+}
+interface PerfHitch { elev: number; scene: number; resMs?: number; resMax?: number; upMs?: number; upMax?: number; cellN?: number }
+interface PerfSelf { __perfElev?: boolean; __perfElevLast?: { gpu?: boolean; raw: number; f16: number; write: number } | null; __perfHitch?: PerfHitch }
+interface WindowChoice { ax: number; bx: number; ay: number; by: number; score: number; coversAll: boolean }
+
+// 申告された裸地標高(DTM)域と、リフト窓の重なりを取る（[lng0,lat0,spanLng,spanLat]・重なり無し=null）。
+// 純関数＝Node で検定できる（tests/t-dtm.mjs）。dtm 未申告＝裸地の保証がない＝リフトしない。
+export function clipToDTM(box: number[] | null | undefined, dtm: number[] | null | undefined): number[] | null {
+	if (!box || !dtm) return null;
+	const x0 = Math.max(box[0], dtm[0]), y0 = Math.max(box[1], dtm[1]);
+	const x1 = Math.min(box[0] + box[2], dtm[2]), y1 = Math.min(box[1] + box[3], dtm[3]);
+	return (x1 > x0 && y1 > y0) ? [x0, y0, x1 - x0, y1 - y0] : null;
+}
+
+// dtm＝呼び出し側が申告する裸地標高の域 { bbox:[西,南,東,北], range, brand }。段(range)だけでは
+// その段が裸地か表層かを決められない＝日本の R01 は DEM10B(裸地) だが国外の R01 は AW3D30(表層)。
+// 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
+// dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
+//   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null, gMax = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
+	const dtmDecl = dtm || null;
+	const S = self as unknown as PerfSelf;
+	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
+	// どちらも描画スレッド＝4ms 超は 1 フレーム落ちの引っ掛かり＝即 console・累計は self.__perfHitch.elev（mem テレメトリで main へ）。
+	// upload 行には renderer（WebGPU）の writeCell が残す f16／write の内訳を添える（GL は f16 変換が無い＝内訳なし）
+	const perfT = <T,>(what: "resample" | "upload", N: number, fn: () => T): T => {
+		if (!S.__perfElev) return fn();
+		const t0 = performance.now(), r = fn(), ms = performance.now() - t0, d = what === "upload" ? S.__perfElevLast : null;
+		const H = (S.__perfHitch ||= { elev: 0, scene: 0 });
+		// 累計（mem テレメトリ→ベンチ台）：resample／upload の合計 ms・最大・上げたセル数＝「セル 1 枚あたりの実測 ms」を前後で比べる物差し（perf plan P1）
+		if (what === "resample") { H.resMs = (H.resMs || 0) + ms; H.resMax = Math.max(H.resMax || 0, ms); }
+		else { H.upMs = (H.upMs || 0) + ms; H.upMax = Math.max(H.upMax || 0, ms); H.cellN = (H.cellN || 0) + 1; }
+		if (ms > 4) { H.elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? (d.gpu ? ` (gpu raw ${(d.raw / 1048576).toFixed(1)}MB)` : ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})`) : ""}`); }
+		return r;
+	};
+	const putCell = (slot: string, data: CellPayload, cx: number, cy: number, N: number): void => perfT("upload", N, () => renderer.set(slot, data, { cx, cy, cellRes: N }));
+	// GPU 再標本化（perf plan P1 step 1・2026-09-27）：renderer が gpuResample を掲げる（WebGPU・?cpuelev=1 でない）なら生タイルの記述子を渡し、
+	// 再標本化＋f16 変換を GPU で（描画スレッドの N² ループが消える）。無ければ従来＝ここで Float32 セルを作って上げる（GL・逃げ道）。
+	// 記述子の CPU 退避（型が想定外など）は renderer 側＝同じ式（elevation.js）＝絵は同じ。
+	const gpuRs = !!renderer.gpuResample;
+	// 縁の除外（downsampleFlipped の M）＝fill の縁を持つ ALOS の R01 だけ 2。GEBCO の R10/R90・brand 銘（DEM10B）の R01 は 0＝
+	// 10° の境で両側 2 画素をクランプして継ぎ目の帯を作らない（2026-10-02・東北 140°E）
+	const edgeOf = (tile: TerrainTile): number => (tile.range === 1 && !(dtm?.brand && String(tile.source || "").startsWith(dtm.brand))) ? 2 : 0;
+	const rsDown = (tile: TerrainTile, N: number): CellPayload => gpuRs ? { tile, mode: "down", edge: edgeOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile)));
+	const rsCrop = (tile: TerrainTile, lng0: number, lat0: number, span: number, N: number): CellPayload => gpuRs ? { tile, mode: "crop", lng0, lat0, span } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N));
+	let demSrc: DemSource | null = dem ? createDemSource(dem) : null;
+	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
+	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
+	let atlasKey = "", loadedCells = new Set<string>();
+	let cellFails = new Map<string, number>();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
+	// 遠景層（far）＝近窓が R01 級（cap4=4°）へ縮む深ズーム×チルトで、粗い R10 を第2アトラスへ常設。
+	// 特定の山の特別扱いはしない一般則：ズームインで近窓の外へ出た遠方の山（富士・アルプス・筑波…）は
+	// 全てこの層が受け持ち、シェーダ elev() が近窓の縁フェードで遠層の値へ溶ける（0 へ落とさない）。
+	let farKey = "", farLoaded = new Set<string>(), farWritten = new Set<string>(), farFails = new Map<string, number>();
+	console.log("[terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)");   // 版印＝タブが古い世代を掴んだままの切り分け用（HMR跨ぎ事故の実績 9/2）
+	let writtenCells = new Set<string>();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
+	let lastEnsureCam: CameraPose | null = null, lastEnsureSize: TerrainSize | null = null, auditT: ReturnType<typeof setTimeout> | 0 = 0, auditTries = 0;   // 検札＝静止中の自己修復用
+	let hasAtlas = false, staging = false, stagePending = new Set<string>();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
+	// "range,cx,cy" → 解決した生タイル（アトラスセル切り出し＋ラベル標高のCPUサンプル用）。
+	// 【LRUバイト予算】デコード済み標高タイルは R01(DEM10B)=1°で数十MB級。無制限だと混成窓(8×8セル)の
+	// settle 毎取得×地域移動で renderer プロセスが単調成長する（z9チルト75の zoom往復で 0.9→2.2GB/20秒、
+	// 実機では 13GB 到達を実測＝「drawn のたびにメモリ爆発」の正体）。ヒットで末尾へ回す挿入順 LRU。
+	const r10Tiles = new Map<string, TerrainTile>();
+	// 常駐上限：デスクトップ256MB＝現窓の R01 一式＋R10/R90 が収まる（IDB があるので再取得は安い）。
+	// 低メモリ端末（iOS＝タブ~1.4GBでjetsam）は64MB＝タブ予算の2割弱を1キャッシュに渡さない（不足分はIDB再取得）。
+	const TILE_CACHE_BYTES = (lowMem ? 64 : 256) << 20;
+	let tileBytes = 0;
+	const tileSize = (t: TerrainTile | null | undefined): number => (t?.data?.byteLength ?? 0) + 64;
+	function cacheTile(k: string, tile: TerrainTile): void {
+		const old = r10Tiles.get(k);
+		if (old) { r10Tiles.delete(k); tileBytes -= tileSize(old); }   // 同キー競合（並行fetch）は差し替え＝二重計上しない
+		r10Tiles.set(k, tile); tileBytes += tileSize(tile);
+		for (const [ok, ot] of r10Tiles) {
+			if (tileBytes <= TILE_CACHE_BYTES || ok === k) break;   // 予算内 or 自分（今入れた分）まで来たら終了
+			r10Tiles.delete(ok); tileBytes -= tileSize(ot);
+		}
+	}
+	let loadTile: TileLoader | null = null;          // altpbf createTileLoader（非同期セットアップ）
+	// 【一発死の禁止】旧・単発 await＝setup が一度落ちると標高システム全体が永久沈黙（loadTile=null →
+	// ensure が何もしない → トーストすら出ない → 山が平ら。借り物 iPhone13 のプライベートブラウズで実症状）。
+	// IDB 起因は altpbf 側で「キャッシュ無しで続行」へ縮退済み＝ここは残る失敗（index_alos のネットワーク断）
+	// を指数バックオフで再試行。成立時の requestDraw → 次の settle の ensure が自然に拾って自己回復する。
+	let loaderTries = 0;
+	let loaderStat: string | null = "初期化中…";   // ⛰トーストに出す自己申告（借り物端末＝インスペクタ不可でも画面から死因が読める）
+	const setupLoader = (): Promise<void> => createTileLoader({ apiUrl, dtm: dtmDecl })   // dtm＝古い表層キャッシュの失効判定（申告が無ければ判定しない）
+		.then(fn => { loadTile = fn; loaderStat = null; onPending && onPending(0, 0, null); requestDraw(); })   // stat トーストの残留も消す
+		.catch((e: unknown) => {
+			const retry = loaderTries++ < 8;
+			loaderStat = `初期化失敗: ${((e as Error)?.message ?? e)}${retry ? "（再試行中）" : "（打ち切り）"}`;
+			console.error("[tileLoader] setup failed", e, retry ? "-> retry" : "-> giving up");
+			if (retry) setTimeout(setupLoader, Math.min(30000, 1000 * 2 ** loaderTries));
+		});
+	setupLoader();
+
+	// 地形読込インジケータ：R01 初回は JAXA から数秒かかるので「何が起きているか」を明示（表示自体は呼び出し側=DOMを持つ側の責務）。
+	let pendingElev = 0;
+	function notifyPending(range: number): void { onPending && onPending(pendingElev, range); }
+
+	// R90=全球〜大陸眺め / R10=中 / R01=城下。
+	// R90/R10境界=z5.5（旧6.5→9/2本人裁定「遅くはなるが海岸のギザギザが消えて綺麗」）：
+	// R90(3.7km格子)はz5.5+で海岸縁に格子量子化の階段が見える（日本z5.7実測）＋陰影が磨りガラス化。
+	// 代償=帯5.5-6.5はカメラ追従R10窓（z5.7で~12枚45-55MB・初回のみ、IDB再訪はタダ）。
+	// z<5.5はR90固定窓のまま＝全球ぐるぐるの巡航コストゼロ設計は無傷（星空劇場z<5も内側）。
+	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z13で~4°先)まで届かず、
+	// 覆いの切れ目が「遠方の青い帯」になる（R10 なら広域を一括カバー＝地平線までフォグ内で連続）。
+	function selectRange(cam: CameraPose): number {
+		const z = cam.zoom;
+		if (z < 5.5) return 90;
+		if (z < 13 || ((cam.pitch || 0) > 0.9 && z < 14)) return 10;
+		return 1;
+	}
+	// DEM のセル（格子点・row0＝北）に、無効（NaN）の画素だけ altpbf のタイルの値を入れる（無ければ 0＝海）
+	function mergeDemCell(d: DemCell, base: ElevGrid | null): DemCell {
+		const { data, width: N } = d;
+		for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+			const i = r * N + c; if (data[i] === data[i]) continue;
+			if (!base) { data[i] = 0; continue; }
+			const w = base.width, h = base.height, gx = Math.max(0, c / (N - 1) * w - 0.5), gy = Math.max(0, r / (N - 1) * h - 0.5), x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = Math.min(1, gx - x0), fy = Math.min(1, gy - y0), B = base.data;   // 格子点 → タイルの画素中心（elevation.js と同じ規約）
+			const a = B[y0 * w + x0], b = B[y0 * w + x0 + 1], cc = B[(y0 + 1) * w + x0], dd = B[(y0 + 1) * w + x0 + 1];
+			data[i] = (a + (b - a) * fx) * (1 - fy) + (cc + (dd - cc) * fx) * fy;
+		}
+		return d;
+	}
+	// 外来の DEM の生き替え（null＝外す）。R01 のキャッシュとアトラスの世代を捨てて組み直す
+	function setDem(spec: DemSpecInput | QmeshSpecInput | null): void {
+		demSrc = spec ? createDemSource(spec) : null;
+		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
+		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
+		atlasKey = ""; requestDraw();
+	}
+	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
+	const demHeight = (lon: number, lat: number, zHint: number | null = null): Promise<number | null> => demSrc ? demSrc.height(lon, lat, zHint).then(v => (v === v ? v : null)) : Promise.resolve(null);
+	async function getCell(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null> {
+		if (!loadTile) return null;
+		// 経度は周期正規化：日付変更線を跨いだ窓のセルは cellLng が 180 や -270 になり、そのまま
+		// タイル名にすると実在しない（E180等）＝空振りで陰影が欠けていた（実測: lat70の北極海チルト）。
+		const lngN = ((cellLng % 360) + 540) % 360 - 180;
+		const k = range + "," + lngN + "," + cellLat;
+		const hit = r10Tiles.get(k);
+		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return hit; }   // ヒット＝LRU 末尾へ（追い出され順の更新）
+		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
+		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
+		let tile: TerrainTile | null = await loadTile(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		if ((range === 1 || range === 10) && demSrc?.covers(lngN, cellLat, range)) {   // 外来の DEM（#36）＝有効な画素だけ上書き（R01・R10。R90＝全球の眺めは既定のまま）
+			const src = demSrc, d = await src.cell(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] dem cell failed", k, (e as Error)?.message); return null; });
+			if (src !== demSrc) return null;   // 待っている間に差し替えられた
+			if (d) tile = mergeDemCell(d, tile && tile.data && tile.width ? tile : null);
+		}
+		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] malformed tile (Blob-contaminated cache?) -> treated as null", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
+		if (tile) cacheTile(k, tile);
+		return tile;
+	}
+	// 全球アトラス（WORLD_ATLAS＝uploader が R90 8 枚から焼いた 1 本・4096×2048 Int16・row0=北・3.25MB）：
+	// R90 固定窓（z<5.5 の近窓・z<8 の far 床）はこれ 1 本で埋める＝従来の R90 8 枚（55MB・復号 8 回・downsampleFlipped 8 回）が
+	// 1 本（復号 1 回・切り出しだけ）に。bucket に無い（焼き前）・取得失敗なら cell90 が従来の 8 枚経路へ退避＝絵は同じ（Int16 丸め ±0.5m）。
+	// 常駐 16MB は LRU 予算の外（R90 8 枚の生 117MB を LRU に持つ従来より軽い）。sampleElev の最後の床にも使う。
+	let worldAtlas: ElevTile | null = null, worldP: Promise<ElevTile | null> | null = null;
+	function getWorldAtlas(): Promise<ElevTile | null> {
+		if (worldAtlas) return Promise.resolve(worldAtlas);
+		if (!loadTile) return Promise.resolve(null);
+		return worldP ??= loadTile.byName(WORLD_ATLAS).catch(() => null).then(a => {
+			if (a?.data && a.width === 4 * WORLD_ATLAS_CELL && a.height === 2 * WORLD_ATLAS_CELL) worldAtlas = a;
+			else { console.warn(`[terrain] ${WORLD_ATLAS} unavailable -> R90 tiles`); setTimeout(() => { worldP = null; }, 60000); }   // 無い＝60 秒は退避経路のまま（焼き前の bucket をセル毎に叩かない）
+			return worldAtlas;
+		});
+	}
+	// R90 セル（cx 0..3 西から・cy 0..1 南から）を N² Float32（row0=南）で。アトラス優先・無ければ生 R90＋downsampleFlipped（従来経路）
+	async function cell90(cx: number, cy: number, N: number): Promise<CellPayload | null> {
+		const a = await getWorldAtlas();
+		if (a && WORLD_ATLAS_CELL % N === 0) return gpuRs ? { atlas: a, mode: "world", cx, cy } : worldAtlasCell(a, cx, cy, N);   // GPU＝箱平均をシェーダで（P1 step 1）
+		const tile = await getCell(-180 + cx * 90, -90 + cy * 90, 90);
+		return tile ? rsDown(tile, N) : null;
+	}
+	// 全球の先読み＝アトラス 1 本（16MB）。無ければ従来の R90 8 枚（lowMem は 117MB＝従来どおり見送り＝オンデマンド）
+	const prefetchWorld = (): Promise<void> => getWorldAtlas().then(a => { if (!a && !lowMem) for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) getCell(lng, lat, 90); });
+	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック→全球アトラス）
+	// downsampleFlipped と同じ南上げ規約でバイリニア。R10(約900m格子)だけだと谷の街に隣の山の標高が
+	// 滲み、チルト時にラベルが浮く。
+	function sampleElev(lon: number, lat: number): number {
+		let tile: TerrainTile | null | undefined = null;
+		for (const range of [1, 10, 90]) {
+			const cx0 = Math.floor(lon / range) * range, cy0 = Math.floor(lat / range) * range;
+			tile = r10Tiles.get(range + "," + cx0 + "," + cy0);
+			if (tile) break;
+		}
+		if (!tile) return worldAtlas ? sampleWorldAtlas(worldAtlas, lon, lat) : 0;   // R90 生タイルはアトラス運用では LRU に来ない＝床はアトラス
+		const cx = tile.lng, cy = tile.lat, range = tile.range;
+		const { data, width: w, height: h } = tile;
+		const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * w - 0.5));   // 画素中心（elevation.js と同じ規約・旧 (w-1) は境界で 1 画素の段差）
+		const gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * h - 0.5));
+		const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), tx = gx - x0, ty = gy - y0;
+		const H = (x: number, y: number): number => data[(h - 1 - y) * w + x];   // y:0=南（downsampleFlippedと同規約）
+		const top = H(x0, y0) + (H(x0 + 1, y0) - H(x0, y0)) * tx;
+		const bot = H(x0, y0 + 1) + (H(x0 + 1, y0 + 1) - H(x0, y0 + 1)) * tx;
+		const v = top + (bot - top) * ty;
+		return v < 0 ? 0 : v;
+	}
+	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化＝cropResample（elevation.js へ移設・2026-09-27・門＝tests/elevation-resample.mjs）
+	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
+	const EDGE_FADE = (r: number): number => r === 90 ? 0 : r === 10 ? 1.5 : 0.4;
+	function viewCellRange(cam: CameraPose, size: TerrainSize, range: number, mixed: boolean): CellWindow {
+		if (mixed) {
+			// 混成窓は決定的に：カメラセル基準＋方位ベクトルで前方（視線方向）へ2セル寄せる。
+			// unproject スパンの中点は高チルトの grazing 標本に引きずられて窓が海へ飛ぶ（実測: 富士で lat19 に飛んだ）。
+			const camCX = Math.floor(cam.center[0]), camCY = Math.floor(cam.center[1]);
+			const fx = Math.sin(cam.bearing || 0), fy = Math.cos(cam.bearing || 0);
+			const cells = 8, half = cells - 1 >> 1;
+			return { range: 1, originCX: camCX - half + Math.round(fx * 2), originCY: camCY - half + Math.round(fy * 2), cellsX: cells, cellsY: cells, cellRes: 400 };
+		}
+		if (range === 90) {
+			// 全球〜大陸ビュー（z<6.5）は窓を固定＝世界8セル（4×2）常駐。窓をカメラに追従させると
+			// versor回転のたびに atlasKey が変わり再構築→縁のセルが見え隠れ（没入感を壊す）。
+			// R90一式は先読み/IDB常備＝8セル固定のコストは初回のみ。4×2@1024=4096×2048で予算内。
+			// cellRes だけはズームの1オクターブ毎に追従（回転・パンではkey不変）。
+			const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
+			const useful = 90 * Math.PI / 180 / (radPerDevPx * 1.2);
+			const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
+			return { range, originCX: -2, originCY: -1, cellsX: 4, cellsY: 2, cellRes: Math.max(512, Math.min(usefulQ, 1024)) };
+		}
+		const st = cameraState(cam, size.w, size.h);
+		// 「必要なセル」は画素の実需で計算する：画面を等間隔サンプルし、各サンプル（＝等しい画面面積の代表）が
+		// 落ちるセルへ1票。旧実装の min/max 窓は、地球の縁の掠りサンプル（1pxに数十km）や視界に入った極が
+		// 窓を全球規模に爆発させ、セル予算を縁へ浪費して中心の解像度を潰していた（高緯度×チルトで顕著）。
+		// 窓は「カバーした票 × セル解像度」を最大化する連続矩形（cap以内・カメラセルを必ず含む）＝
+		// 画素が多い場所ほど細かく塗られ、掠りしか見えないセルは票が少なく自然に切り捨てられる。
+		const cellsPerWorld = Math.round(360 / range);
+		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
+		const wrapDx = (d: number): number => { d %= cellsPerWorld; return d > cellsPerWorld / 2 ? d - cellsPerWorld : d < -cellsPerWorld / 2 ? d + cellsPerWorld : d; };
+		// フォグの彼方は票に数えない：完全に霞んだ先のセルのために窓を広げない＝解像度の守り。
+		// 式は renderer の地形フォグ終端（max(camDist×5, 0.026×pfFog)）と同じ＋余白15%。
+		// これがあるから下の vmin=2（見えているセルはほぼ全部must）が安全になる（旧: 総票1%閾値では
+		// 広域チルトで票2-3の「見えている大地」が切り捨てられ、標高抜けの帯が残った＝シベリア実測）。
+		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
+		const fogFar = Math.max(st.camDist * 5.0, 0.026 * pfFog) * 1.15;
+		const votes = new Map<string, number>();   // "dx,dy"（カメラセル相対・経度は最短ラップ）→ 票
+		const NX = 32, NY = 22;    // 格子は密に（terrainGate=静止時のみ実行になったので704回のunprojectは安い）
+		for (let jy = 0; jy <= NY; jy++) for (let ix = 0; ix <= NX; ix++) {
+			const p = unproject(st, size.w * ix / NX, size.h * jy / NY);
+			if (!p) continue;
+			const q = lonlatTo3D(p[0], p[1]);
+			if (Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]) > fogFar) continue;
+			// 緯度は極でクランプ：lat=90ちょうどは floor で「90..180」の実在しないセルを指す
+			const dx = wrapDx(Math.floor(p[0] / range) - camCX), dy = Math.floor(Math.min(89.999, Math.max(-90, p[1])) / range) - camCY;
+			const k = dx + "," + dy;
+			votes.set(k, (votes.get(k) || 0) + 1);
+		}
+		votes.set("0,0", (votes.get("0,0") || 0) + 1);   // カメラセルは錨（全サンプル空振りでも1×1が立つ）
+		// カメラ近傍の縁フェード対策：カメラがセル境界から edgeFade+α 以内なら隣セルを必ず窓へ（票ブースト＝must化）。
+		// 窓の縁＝標高が0へ落ちるフェード帯が視界のど真ん中へ来るのを防ぐ。実測: z15 R01 で窓が1セルに縮み、
+		// カメラが南縁から0.014°＝視界(1-2km)全域がフェード帯(0.4°)内＝「z~15で高度が消える」（札幌 2026-07-26）。
+		const fadeFrac = EDGE_FADE(range) / range + 0.05;
+		if (fadeFrac < 0.5) {
+			const fx = cam.center[0] / range - camCX, fy = cam.center[1] / range - camCY;
+			if (fx < fadeFrac)     votes.set("-1,0", (votes.get("-1,0") || 0) + 999);
+			if (fx > 1 - fadeFrac) votes.set("1,0",  (votes.get("1,0")  || 0) + 999);
+			if (fy < fadeFrac)     votes.set("0,-1", (votes.get("0,-1") || 0) + 999);
+			if (fy > 1 - fadeFrac) votes.set("0,1",  (votes.get("0,1")  || 0) + 999);
+		}
+		// セル上限：R01 は近景特化で小さく高精細に（遠景まで広げると grazing で粗いメッシュの壁が出る）。
+		const cap = range === 1 ? 4 : 8;
+		let lox = 0, hix = 0, loy = 0, hiy = 0;
+		for (const k of votes.keys()) { const [dx, dy] = k.split(",").map(Number); lox = Math.min(lox, dx); hix = Math.max(hix, dx); loy = Math.min(loy, dy); hiy = Math.max(hiy, dy); }
+		// アトラス解像度の予算：総テクスチャ辺≤4096（実用機のMAX_TEXTURE_SIZE下限）・下限512・
+		// 上限①ソース密度（R90=2700/90°(3.7km)・R10=2400/10°(463m)・R01=1024運用）＝水増しのぼけをしない。
+		// 上限②画面が使い切れる密度（≈1.2 device px/texel）＝過剰割当でGPUメモリと票を浪費しない。
+		// ②は2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
+		// 旧予算(2048/一律400)はR90を8.8km/texelに潰し「R90の実力=3.7km」すら出ていなかった。
+		const srcMax = range === 90 ? 2700 : range === 10 ? 2400 : 1024;
+		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
+		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
+		const edgeBudget = lowMem ? 2048 : 4096;   // 低メモリ端末＝アトラス総辺半分（面積1/4＝GPU+アップロード過渡も1/4。アトラスは R16F＝2B/texel）
+		const resOf = (cx: number, cy: number): number => Math.min(srcMax, useful, Math.max(512, Math.floor(edgeBudget / Math.max(cx, cy))));
+		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×√解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
+		// 解像度は useful（画面が使い切れる密度）で頭打ち。√＝解像度の知覚は平方根程度の効きで、
+		// カバー欠けは「陰影が死ぬ継ぎ目」の崖＝僅差の精細のために画面の一部を切り捨てない
+		//（実例: ハドソン湾チルトで90°セル境界を跨ぐ西側18%が、2700vs2048の僅差で落ちた）。
+		// ただし√の傾斜だけでは境界ケースを守り切れない（実測: z9.6チルト39°×1920x1080で票7%の東隣セルが
+		// 2400vs2048の0.4%僅差で落ちた）＝「確実に見えているセル（票≥総数の1%）は必ず覆う」を制約に格上げし、
+		// 覆える窓の中からスコア最良を選ぶ。cap内に収まらない時だけ従来スコアへ退避。掠り（1-2票）は制約にしない。
+		// must の閾値は票2固定：フォグ内で確実に見えているセルは必ず覆う（1票＝サンプリングノイズだけ除外）。
+		// 旧 max(2, 総票1%) は広域ビューで実質3-4票となり、見えている遠方セルを落としていた。
+		const vmin = 2;
+		const must = [...votes.entries()].filter(([, v]) => v >= vmin).map(([k]) => k.split(",").map(Number));
+		let best: WindowChoice | null = null;
+		for (let ax = Math.max(lox, -cap + 1); ax <= 0; ax++) for (let bx = 0; bx <= Math.min(hix, ax + cap - 1); bx++)
+			for (let ay = Math.max(loy, -cap + 1); ay <= 0; ay++) for (let by = 0; by <= Math.min(hiy, ay + cap - 1); by++) {
+				let s = 0;
+				for (const [k, v] of votes) { const [dx, dy] = k.split(",").map(Number); if (dx >= ax && dx <= bx && dy >= ay && dy <= by) s += v; }
+				const coversAll = must.every(([dx, dy]) => dx >= ax && dx <= bx && dy >= ay && dy <= by);
+				const score = s * Math.sqrt(resOf(bx - ax + 1, by - ay + 1));
+				if (!best || (coversAll && !best.coversAll) || (coversAll === best.coversAll && score > best.score)) best = { ax, bx, ay, by, score, coversAll };
+			}
+		const cellsX = best!.bx - best!.ax + 1, cellsY = best!.by - best!.ay + 1;
+		const originCX = camCX + best!.ax, originCY = camCY + best!.ay;
+		// 割当は useful を2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
+		// 実確保も edgeBudget（lowMem=2048）に従う：従来ここだけ 4096 直書きで「lowMem はアトラス総辺半分」が
+		// スコア計算にしか効いていなかった（far/R10 窓が 3GB 機でも最大 33.5MB 確保）＝意図どおり面積1/4へ。
+		const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
+		const allocRes = Math.max(512, Math.min(srcMax, usefulQ, Math.max(512, Math.floor(edgeBudget / Math.max(cellsX, cellsY)))));
+		// 窓の中でも票ゼロのセル（対角ビューの角など画面に映らないセル）はフェッチしない＝必要なタイルだけ払う。
+		const wanted = new Set<string>();
+		for (const [k, v] of votes) {
+			const [dx, dy] = k.split(",").map(Number);
+			if (v > 0 && dx >= best!.ax && dx <= best!.bx && dy >= best!.ay && dy <= best!.by) wanted.add((dx - best!.ax) + "," + (dy - best!.ay));
+		}
+		return { range, originCX, originCY, cellsX, cellsY, cellRes: allocRes, wanted };
+	}
+	// 検札（カメラ静止でも自己修復）：wanted なのに書き込めなかったセル（fetch失敗・worker詰まり・部分commit）を
+	// 未読込へ戻して ensure を掛け直す。従来は「次の窓替え／カメラ移動」まで平らなセルが直らず、静止して
+	// 眺めている限りリロードしか回復手段が無かった（実測: チルトで標高抜けの帯が残る）。
+	function scheduleAudit(): void {
+		clearTimeout(auditT);
+		auditT = setTimeout(() => {
+			if (staging || pendingElev > 0) return scheduleAudit();   // 取り込み中＝結果が出てから検札（tryは消費しない）
+			const missing = [...loadedCells].filter(ck => !ck.endsWith("hi") && !writtenCells.has(ck));
+			const missingFar = [...farLoaded].filter(ck => !farWritten.has(ck));   // 遠景層も同じ検札（失敗セル＝遠方が平らなまま静止、を自己修復）
+			if (!missing.length && !missingFar.length) { auditTries = 0; return; }
+			if (auditTries >= 5) return;   // データが本当に無いセル（ALOS未整備の海等）は諦める＝リフェッチのスパムをしない
+			auditTries++;
+			console.warn("[terrain] audit: refetching unwritten cells", [...missing, ...missingFar.map(k => "F" + k)].join(" "), `(${auditTries}/5)`);
+			for (const ck of missing) loadedCells.delete(ck);
+			for (const ck of missingFar) farLoaded.delete(ck);
+			if (lastEnsureCam) ensure(lastEnsureCam, lastEnsureSize!);
+		}, 1000);
+	}
+	function ensure(cam: CameraPose, size: TerrainSize): boolean {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
+		if (!loadTile) {
+			// 沈黙禁止：ローダ未成立のまま地形が要求されている＝状態をトーストへ（stat 付き onPending）。
+			// 旧・黙って false は「山が平ら・トーストも出ない・理由は誰にも見えない」を生んだ（借り物iPhone13実症状）。
+			onPending && onPending(1, 0, loaderStat ?? "初期化中…");
+			return false;
+		}
+		// 検札の再実行用に最後の視点を控える（cam はアプリ側で毎フレーム書き換わる共有オブジェクト＝必ずコピー）
+		lastEnsureCam = { center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, dpr: cam.dpr, fovy: cam.fovy };
+		lastEnsureSize = { w: size.w, h: size.h };
+		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
+		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
+		// 旧・低メモリ端末は混成OFF＝全面R10だった：R01近傍9枚（1°タイル=数十MB級デコード）＋R32Fアトラス二重化の
+		// +1GBスパイクが富士3Dで iOSタブ予算(~1.4GB)を突破していた（80170b8）。→ アトラスR16F化（2B/texel＝半減）＋
+		// iOS 4GB実機で peak 84MB・完走を実測して安全確認＝lowMemでも既定ON（全端末で近景R01）。
+		// 逃げ道＝?nor01=1（過渡デコードで落ちる端末が出たら無効化＝全面R10へ）。
+		const mixed = !noMixed && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
+		const range = mixed ? 1 : selectRange(cam);
+		const r = viewCellRange(cam, size, range, mixed);
+		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
+		if (key !== atlasKey) {
+			atlasKey = key; loadedCells = new Set(); cellFails = new Map(); writtenCells = new Set(); auditTries = 0;
+			// 2枚目以降はダブルバッファ：舞台裏(stage)で構築し、初回分のセルが揃ったら一括スワップ。
+			// 直接張り替えるとゼロ初期化の瞬間に山影が全画面で消える（ズーム静止・R01/R10切替のたびに発症していた）。
+			staging = hasAtlas; stagePending = new Set();
+			// edgeFade＝窓の縁で標高を滑らかに0へ落とす幅(deg)。R90全球窓は縁が極/±180のみ＝無効(0)。
+			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
+			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
+			const edgeFade = EDGE_FADE(range);
+			// liftBounds＝「裸地標高(DTM)が保証される経緯度域」。メッシュ接地リフトはこの中でだけ有効：
+			// R10/R90 や国外の R01＝表層(DSM・ビル天端込み)でリフトすると屋根が斜面に裂ける（東新橋/汐留 z<13 高チルトで実測）。
+			// 純R01窓=窓全域 / 混成窓=近傍3×3（nearCam=camセル±1）/ R10・R90窓=なし(null)。最後に申告域(dtmBounds)で切る。
+			// ※混成の近傍セルは R01 到着までの数秒だけ R10 切り出しが入る＝過渡の歪みは許容（すぐ直る）。
+			const c1x = Math.floor(cam.center[0]), c1y = Math.floor(cam.center[1]);
+			// 窓は段が R01 の時だけ裸地になり得る＝そのうえで申告域と重なった分だけがリフト可。
+			const liftBounds = clipToDTM(mixed ? [c1x - 1, c1y - 1, 3, 3]
+				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null, dtmBounds);
+			// gMax＝地形メッシュ格子の上限（renderer が窓形状から G を決める時の天井）。lowMem=1024 で
+			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
+			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。
+			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: gMax || (lowMem ? 1024 : 1536) }, exag / earthM);
+			hasAtlas = true;
+			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
+				const k0 = key;
+				setTimeout(() => { if (staging && atlasKey === k0) { staging = false; renderer.set("elevAtlasCommit"); requestDraw(); } }, 4000);
+			}
+			requestDraw();
+		}
+		// セル書き込み先：staging 中は舞台裏へ。全セル解決で commit（スワップ）し、以降は表アトラスへ直書き。
+		const cellSlot = (): string => staging ? "elevCellStage" : "elevCell";
+		const doneOne = (ck2: string): void => {
+			if (!staging) return;
+			stagePending.delete(ck2);
+			if (!stagePending.size) { staging = false; renderer.set("elevAtlasCommit"); }
+		};
+		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
+		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
+			const ck = cx + "," + cy;
+			if (loadedCells.has(ck)) continue;
+			// 票ゼロ（画面に映らない）セルは取りに行かない。ただし「読込済み」には記録しない：wanted は
+			// ensure のたびに現視点の票で作り直されるので、同じ窓のままパン/回転で映り込めば次の ensure で
+			// 普通にフェッチされる。ここで loadedCells に入れると「窓は生きている・セルは未読込・二度と
+			// 取りに行かない」が成立し、回転後に標高が平らな帯として残る（実測: z7/チルト46°/回転-25°）。
+			if (r.wanted && !r.wanted.has(ck)) continue;
+			loadedCells.add(ck);
+			if (staging) stagePending.add(ck);
+			const cellLng = (r.originCX + cx) * range, cellLat = (r.originCY + cy) * range;
+			const nearCam = Math.abs(r.originCX + cx - camCX) <= 1 && Math.abs(r.originCY + cy - camCY) <= 1;
+			pendingElev++; notifyPending(range);
+			if (mixed) {
+				// 全セルまず R10 切り出しで即座に埋める（近傍も）＝R01 初回フェッチ(数秒×9)の間の平坦を防ぐ。
+				getCell(Math.floor(cellLng / 10) * 10, Math.floor(cellLat / 10) * 10, 10).then(parent => {
+					pendingElev--; notifyPending(range);
+					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
+						putCell(cellSlot(), rsCrop(parent, cellLng, cellLat, range, r.cellRes), cx, cy, r.cellRes);
+						writtenCells.add(ck);
+					}
+					if (!parent && atlasKey === key) {   // 親R10失敗も未読込へ戻す（非mixed経路と同じ再挑戦則）
+						const n = (cellFails.get(ck) || 0) + 1; cellFails.set(ck, n);
+						if (n <= 3) loadedCells.delete(ck);
+					}
+					if (atlasKey === key) doneOne(ck);
+					requestDraw();
+				});
+				if (nearCam) {   // 近傍3×3は R01 が届き次第上書き（富士の近景ディテール）。commit は待たせない
+					pendingElev++; notifyPending(range);
+					getCell(cellLng, cellLat, 1).then(tile => {
+						pendingElev--; notifyPending(range);
+						if (tile && atlasKey === key) {
+							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
+							writtenCells.add(ck);
+							putCell(cellSlot(), rsDown(tile, r.cellRes), cx, cy, r.cellRes); requestDraw();
+						}
+					});
+				}
+			} else {
+				// R90（世界 4×2 固定窓・originCX=-2/originCY=-1）＝全球アトラスの切り出し。R10/R01＝生タイル→downsampleFlipped
+				const cellP: Promise<CellPayload | null> = range === 90 ? cell90(r.originCX + cx + 2, r.originCY + cy + 1, r.cellRes)
+					: getCell(cellLng, cellLat, range).then(t => t ? rsDown(t, r.cellRes) : null);
+				cellP.then(tile => {
+					pendingElev--; notifyPending(range);
+					if (tile && atlasKey === key) { putCell(cellSlot(), tile, cx, cy, r.cellRes); writtenCells.add(ck); }
+					// 取得失敗は「未読込」へ戻す（上限3回）＝次の ensure（カメラが動けば必ず来る）で再挑戦。
+					// 従来は窓替えまで平らなセルが直らなかった。上限は恒久欠損セル（データ無し域）への
+					// 毎移動リフェッチのスパム防止。
+					if (!tile && atlasKey === key) {
+						const n = (cellFails.get(ck) || 0) + 1; cellFails.set(ck, n);
+						if (n <= 3) loadedCells.delete(ck);
+					}
+					if (atlasKey === key) doneOne(ck);
+					requestDraw();
+				});
+			}
+		}
+		// ── 遠景層（far）＝第2アトラス。二形態（elev()は近窓外→far参照＝カバーの床）──────
+		//   A) 深ズーム（近窓がR01級×チルト>0.9）＝R10視界窓（従来）：真俯瞰は近窓(4°)が視界を覆う＝
+		//      遠層は見えないのに 10-16MB のアトラスと遠景メッシュ2度描きを払わない。
+		//   B) 世界帯（近窓がR10・z<8）＝R90全球固定窓(4×2)：R10窓はcap=8(80°角)＝広域・高緯度・回転で
+		//      視界を覆い切れず、窓外の陸が標高0＝ハイプソが海色に落ちて国境だけ海に浮く
+		//      （ウクライナ #5.71/48/29/-17r 実測 9/2＝R90/R10境界を5.5へ下げて顕在化。旧6.5の隠れた
+		//      安全根拠がこれ＝R90全球固定窓はカバー欠けの原理が無い）。R90をfarの床に敷けば根治。
+		//      R90一式はworld下地用に先読み/IDB常備＝追加はGPU 16MB(lowMem 4MB)のみ。z≥8は近窓80°で十分。
+		const farSpan = noFar ? 0 : range === 1 && (cam.pitch || 0) > 0.9 ? 10 : range === 10 && cam.zoom < 8 ? 90 : 0;
+		if (farSpan) {
+			const fr: CellWindow = farSpan === 90
+				? { range: 90, originCX: -2, originCY: -1, cellsX: 4, cellsY: 2, cellRes: lowMem ? 512 : 1024, wanted: null }
+				: viewCellRange(cam, size, 10, false);
+			// 低メモリ端末＝R10遠層は 256/セル（926m/texel）へクランプ：遠層の仕事はフォグ越しの山のシルエット＝
+			// 精細は近窓の領分。8セル窓は 512 下限で edgeBudget が効かないため、ここで直接絞る
+			//（例 8×4 窓 16.8MB→4.2MB。3GB 機の飛行中 jetsam 対策の一部）。
+			if (farSpan === 10 && lowMem) fr.cellRes = Math.min(fr.cellRes, 256);
+			const fkey = ["F", farSpan, fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
+			if (fkey !== farKey) {
+				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+				// ダブルバッファ無し（近窓の staging と違い）：R10/R90 は LRU・IDB に居ることが多く、
+				// ゼロ初期化→同フレーム内のキャッシュヒット書込で埋まる。コールドはセル到着順にせり上がる（許容）。
+				renderer.set("elevAtlasFar", { originLng: fr.originCX * farSpan, originLat: fr.originCY * farSpan, cellsX: fr.cellsX, cellsY: fr.cellsY, cellRes: fr.cellRes, cellSpan: farSpan, edgeFade: EDGE_FADE(farSpan) });
+				requestDraw();
+			}
+			for (let cy = 0; cy < fr.cellsY; cy++) for (let cx = 0; cx < fr.cellsX; cx++) {
+				const ck = cx + "," + cy;
+				if (farLoaded.has(ck)) continue;
+				if (fr.wanted && !fr.wanted.has(ck)) continue;   // 票ゼロ（画面に映らない）セルは取りに行かない（近窓と同じ規約＝映り込めば次の ensure で拾う）
+				farLoaded.add(ck);
+				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
+				pendingElev++; notifyPending(farSpan);
+				const farP: Promise<CellPayload | null> = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
+					: getCell(cellLng, cellLat, farSpan).then(t => t ? rsDown(t, fr.cellRes) : null);
+				farP.then(tile => {
+					pendingElev--; notifyPending(farSpan);
+					if (tile && farKey === fkey) { putCell("elevCellFar", tile, cx, cy, fr.cellRes); farWritten.add(ck); }
+					if (!tile && farKey === fkey) {   // 取得失敗は未読込へ戻す（上限3回）＝近窓と同じ再挑戦則
+						const n = (farFails.get(ck) || 0) + 1; farFails.set(ck, n);
+						if (n <= 3) farLoaded.delete(ck);
+					}
+					requestDraw();
+				});
+			}
+		} else if (farKey) {   // 深ズーム離脱／真俯瞰・世界帯離脱へ＝遠層を畳んで GPU メモリを返す
+			farKey = ""; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+			renderer.set("elevAtlasFarOff");
+			requestDraw();
+		}
+		scheduleAudit();   // 取り込みの顛末を後から突合＝失敗セルを静止中でも埋め直す（リロード不要の自己修復）
+		return true;
+	}
+	// prefetch＝視野に関係なくセルをRAM/IDBへ温める（例: 全球R90の先読み＝地球ぐるぐるが最初から途切れない）
+	// debug()＝内部状態の覗き穴（__terr()＝dev実地の遠隔診断用 2026-09-02。雫形残留の追跡で必要になった）
+	const debug = (): TerrainDebug => ({
+		gen: "far2-20260902c", loader: loadTile ? "ready" : loaderStat,
+		atlasKey, staging, stagePending: stagePending.size, pendingElev,
+		loaded: loadedCells.size, written: writtenCells.size, fails: [...cellFails.entries()],
+		farKey, farLoaded: farLoaded.size, farWritten: farWritten.size, farFails: [...farFails.entries()],
+		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
+		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
+		lastSize: lastEnsureSize });
+	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+}

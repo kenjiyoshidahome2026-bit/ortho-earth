@@ -249,13 +249,13 @@
 				"why": "互換：gadget(\"plateau\")＝mesh の旧名（公開面の旧名）を zoom の分類表に載せる義務（分類漏れ検定）"
 			}
 		},
-		"packages/ortho-core/src/dem-src.js": {
+		"packages/ortho-core/src/dem-src.ts": {
 			"gsi": {
-				"n": 1,
-				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）"
+				"n": 2,
+				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）。2 件目＝その型の列挙 DemEncoding（2.0・TS 化）"
 			}
 		},
-		"packages/ortho-core/src/elevation/loader.js": {
+		"packages/ortho-core/src/elevation/loader.ts": {
 			"jp": {
 				"n": 2,
 				"why": "形式：データの在り処＝JAXA の全球 DSM（ALOS AW3D30）の URL（ドメイン eorc.jaxa.jp と経路 /jp/）＝全球のデータで地域の知識ではない（2026-09-25 に altpbf から core へ移設）"
@@ -295,7 +295,7 @@
 				"why": "言語（地域ではない）：開発者向けの GPU 検証エラーの見出し（初回フレーム検証・init検証）"
 			}
 		},
-		"packages/ortho-core/src/labels.js": {
+		"packages/ortho-core/src/labels.ts": {
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
@@ -307,25 +307,25 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
-		"packages/ortho-core/src/vertical.js": {
+		"packages/ortho-core/src/vertical.ts": {
 			"和文": {
 				"n": 1,
 				"why": "文字（地域ではない）：縦書き（text-writing-mode）の句読点・括弧の置換表に全角の中点・括弧が並ぶ（2026-10-03）"
 			}
 		},
-		"packages/ortho-core/src/terrain.js": {
+		"packages/ortho-core/src/terrain.ts": {
 			"和文": {
 				"n": 5,
 				"why": "言語（地域ではない）：標高ローダの自己申告トースト文言（初期化中…）。i18n 辞書へ寄せる負債"
 			}
 		},
-		"packages/ortho-core/src/worldcontent.js": {
+		"packages/ortho-core/src/worldcontent.ts": {
 			"和文": {
 				"n": 3,
 				"why": "言語（地域ではない）：NE の都市名の和・韓・中の接尾辞（市・特別市・都）を落とす正規表現と注記＝東アジアの言語処理"
 			}
 		},
-		"packages/ortho-core/src/worldstyle.js": {
+		"packages/ortho-core/src/worldstyle.ts": {
 			"gsi": {
 				"n": 1,
 				"why": "互換：配色テーマの旧名 gsi→topo（共有 URL の c=gsi を受ける）"

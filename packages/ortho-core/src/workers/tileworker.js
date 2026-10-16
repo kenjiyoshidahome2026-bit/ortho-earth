@@ -3,13 +3,13 @@
 // abort: 高速パンで視野から外れたタイルは fetch ごと中断（帯域とデコードCPUを空ける）。
 // index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
 // worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
-import { setGlobalState } from "../expr.js";   // style.globalState（main の setGlobalStateProperty）＝基図の filter/layout の global-state
-import { fetchMVT, neededSourceLayers } from "../decode.js";
+import { setGlobalState } from "../expr.ts";   // style.globalState（main の setGlobalStateProperty）＝基図の filter/layout の global-state
+import { fetchMVT, neededSourceLayers } from "../decode.ts";
 // PMTiles の読み口は pmtiles:// の源が来た時だけ読む（動的 import＝GSI 等の XYZ だけの起動では worker に乗せない・2026-09-22）
-const pmSrc = () => import("../pmtiles-src.js");
-import { buildTilePayload, opBuffers } from "../tilepayload.js";   // 組み立て（drawlist・水域・ラベル・建物）は main の既定経路と共通
-import { tileOutsideCoverage } from "../tile.js";
-import { setEllipsoid } from "../camera.js";
+const pmSrc = () => import("../pmtiles-src.ts");
+import { buildTilePayload, opBuffers } from "../tilepayload.ts";   // 組み立て（drawlist・水域・ラベル・建物）は main の既定経路と共通
+import { tileOutsideCoverage } from "../tile.ts";
+import { setEllipsoid } from "../camera.ts";
 
 let style = null, need = null, coverage = null, encoding = "mvt";   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox。encoding＝タイルの形式（mvt｜mlt・#88）
 const aborts = new Map();   // id → AbortController（in-flight のみ保持）

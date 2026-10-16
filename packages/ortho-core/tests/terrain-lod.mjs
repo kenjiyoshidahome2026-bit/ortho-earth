@@ -1,8 +1,8 @@
 // terrainlod（perf plan P4 step B・2026-09-27）の検定：チャンク主導 index の三角形の多重集合が従来（行主導）と同一＝絵は不変・区間は三角形境界／
 // カリングの健全性＝真俯瞰の小窓は全可視・中央の小箱は可視・地球の裏は不可視・全球窓は半球ぶん・高チルトの 8° 窓は一部（数は目安＝大きく外れたら幾何の退行）
-import { buildChunkIndex, visibleChunkRuns, chunkVisible, shadowChunkRuns } from "../src/terrainlod.js";
-import { shadowWindow, sunVector, bboxInShadowWindow } from "../src/shadow.js";
-import { cameraState } from "../src/camera.js";
+import { buildChunkIndex, visibleChunkRuns, chunkVisible, shadowChunkRuns } from "../src/terrainlod.ts";
+import { shadowWindow, sunVector, bboxInShadowWindow } from "../src/shadow.ts";
+import { cameraState } from "../src/camera.ts";
 let fails = 0; const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
 for (const G of [769, 1024, 1536]) {
 	const { idx, chunks } = buildChunkIndex(G);
