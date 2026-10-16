@@ -61,8 +61,8 @@ import { createFacade } from "./mlfacade.js";
 export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createGintLayers } from "./gint/layers.js";
-import { createWorldContent } from "./gint/worldcontent.js";
+import { createGintLayers } from "./gint/layers.ts";
+import { createWorldContent } from "./gint/worldcontent.ts";
 import { createHillshadeProvider } from "./hillshade.ts";
 import { createColorReliefProvider } from "./colorrelief.ts";
 import { createDemTiles } from "./demtiles.ts";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
