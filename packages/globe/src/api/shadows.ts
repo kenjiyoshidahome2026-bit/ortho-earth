@@ -14,7 +14,7 @@ import { sunShadow as sunShadowGadget } from "../gadgets/sunshadow.js";
 import { viewshed as viewshedGadget } from "../gadgets/viewshed.js";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { TileLoader } from "@ortho-earth/core/elevation";
-import type { Bbox, Gadgets, GeoJSONFeature, GeoJSONFeatureCollection, LonLat } from "../../globe.d.ts";
+import type { Bbox, GeoJSONFeature, GeoJSONFeatureCollection, LonLat } from "../../globe.d.ts";
 import type { Installing, ShadowsDeps, ShadowsLive, ShadowsReturn } from "../types/install.ts";
 import type { ShadowsApi } from "../types/map.ts";
 import type { OfflineSources } from "../gadgets/offline.d.ts";
@@ -173,7 +173,6 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 		if (!REGION_HOME) return null;   // 戻り先を宣言しない地域（/nl/・地球儀）＝ボタンを出さない
 		return homeGadget.call(this, { view: REGION_HOME.view, icon: REGION_HOME.icon, label: REGION_HOME.label, id: REGION_HOME.id, signal: ac.signal, ...opts });
 	});
-	map.gadget("japan", function (opts: Parameters<Gadgets["home"]>[0]) { return map.gadget.home.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
 	map.gadget("print", function (opts: GOpts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
 		return printGadget.call(this, { capture: printCapture, attribution: () => REGION_PRINT_ATTR.length ? REGION_PRINT_ATTR.map(k => t(k)) : attrTextNow(), signal: ac.signal, ...opts });
 	});

@@ -452,7 +452,7 @@ const meshDb = createMeshDb({
 	// 描画＝モーダルを閉じて地区中心へ球面フライト（z15.5=PLATEAU自動ロード圏・チルト45°）→ autoMesh がキャッシュ命中で即表示
 	show: set => { meshDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 15.5, 45); },
 });
-// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("plateau", …) で open を注入。
+// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("mesh", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
 if (meshOn) navigator.storage?.persist?.().then(ok => console.log(`[mesh] storage persist: ${ok ? "granted" : "denied"}`)).catch(() => {});
