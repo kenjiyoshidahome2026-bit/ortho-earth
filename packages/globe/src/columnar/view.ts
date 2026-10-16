@@ -29,6 +29,19 @@ type HoverCb = (f: { fid: number; properties: Record<string, unknown> } | null) 
 type ClickCb = (e: { fid: number; row: number; properties: Record<string, unknown>; lngLat: LonLat | null }) => void;
 type EnterCb = (f: { fid: number; properties: Record<string, unknown> }) => void;
 type LeaveCb = (e: { fid: number }) => void;
+/** on() の受け皿 */
+export interface ColumnarHandlers { hover: HoverCb[]; click: ClickCb[]; mouseenter: EnterCb[]; mouseleave: LeaveCb[] }
+// on(ev) の ev → 受け皿の配列（知らない名前＝null）。ev は呼び手の文字列＝鍵引き（旧 handlers[ev]?.push）は "constructor"・"__proto__" 等で
+// Object.prototype の物に当たり TypeError を投げた＝switch で 4 つの名前だけ
+export function handlerListOf(handlers: ColumnarHandlers, ev: unknown): Array<(e: never) => void> | null {
+	switch (ev) {
+		case "hover": return handlers.hover as Array<(e: never) => void>;
+		case "click": return handlers.click as Array<(e: never) => void>;
+		case "mouseenter": return handlers.mouseenter as Array<(e: never) => void>;
+		case "mouseleave": return handlers.mouseleave as Array<(e: never) => void>;
+		default: return null;
+	}
+}
 interface Hit { g: number; f: number; row: number; fid: number; properties: Record<string, unknown> }
 /** 読み込み済みチャンクの台帳の 1 行 */
 interface LoadedChunk { n: number; rows: Int32Array; bytes: number; cached: boolean; ms: number; msRead: number; msBuild: number }
@@ -100,7 +113,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 		mapEl.appendChild(st);
 		textEl = st.querySelector<HTMLElement>(".pq-text"); sel = st.querySelector<HTMLSelectElement>(".pq-color");
 		if (sel) {
-			sel.innerHTML = `<option value="">${t("(none) ##color")}</option>` + numericCols.map(c => `<option value="${c.replace(/"/g, "&quot;")}"${c === color ? " selected" : ""}>${c.replace(/</g, "&lt;")}</option>`).join("");
+			sel.innerHTML = `<option value="">${t("(none) ##color")}</option>` + numericCols.map(c => `<option value="${escHtml(c)}"${c === color ? " selected" : ""}>${escHtml(c)}</option>`).join("");   // 列名は外のデータ＝& も逃がす（旧＝" と < だけ＝"a&amp;b" の列が "a&b" に化け、選んでも value が列名と合わなかった）
 			sel.addEventListener("change", () => setColor(sel!.value || null), { signal });
 		}
 	}
@@ -210,7 +223,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 	async function setFilter(filter: unknown[] | null) { userFilter = filter ?? null; await repaint(); }
 
 	// ── 識別（worker）：hover（60ms 間引き・飛行中は無し）／click ──
-	const handlers: { hover: HoverCb[]; click: ClickCb[]; mouseenter: EnterCb[]; mouseleave: LeaveCb[] } = { hover: [], click: [], mouseenter: [], mouseleave: [] };
+	const handlers: ColumnarHandlers = { hover: [], click: [], mouseenter: [], mouseleave: [] };
 	const propsCache = new Map<string, Record<string, unknown>>();
 	const propsOf = async (g: number, row: number) => { const k = `${g}:${row}`; if (!propsCache.has(k)) { const r = await rpc<{ props?: Record<string, unknown> }>({ type: "props", g, row }); if (propsCache.size > 2000) propsCache.clear(); propsCache.set(k, r.props ?? {}); } return propsCache.get(k)!; };
 	const query = async (ll: LonLat | null | undefined): Promise<Hit | null> => {
@@ -270,7 +283,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 		setPaint, setFilter,
 		setVisible(v) { shown = !!v; ov.post({ type: "vis", on: shown }); },
 		get visible() { return shown; },
-		query, on: (ev: string, cb: (e: never) => void) => { (handlers as unknown as Record<string, Array<(e: never) => void>>)[ev]?.push(cb); return h as ColumnarLayerHandle; },
+		query, on: (ev: string, cb: (e: never) => void) => { handlerListOf(handlers, ev)?.push(cb); return h as ColumnarLayerHandle; },
 		refresh: update, pixels,   // pixels()＝オーバーレイの実画素（検定用・premultiplied RGBA・下が先）
 		metrics: () => rpc<{ metrics: unknown }>({ type: "metrics" }).then(r => r.metrics),
 		dump: () => rpc<{ dump: unknown }>({ type: "dump" }).then(r => r.dump),   // 診断（検定用）

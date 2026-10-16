@@ -70,5 +70,13 @@ t("丸ごと読みの上限", () => {
 	assert.match(wholeFileLimit({ count: LIMIT_POINTS + 1, size: 1e6, local: true }), /20,000,000 limit.*COPC/);
 	assert.match(wholeFileLimit({ count: 1e6, size: 600 * 1048576, local: false }), /500 MB limit/);
 	assert.equal(wholeFileLimit({ count: 1e6, size: 600 * 1048576, local: true }), null);
+	// 総長が分からない URL（Content-Range の総長が "*"＝size null）＝ヘッダの読む量（minBytes）で量る（旧＝門を素通り）
+	assert.match(wholeFileLimit({ count: 1e7, size: null, local: false, minBytes: 600 * 1048576 }), /600 MB of points.*500 MB limit/);
+	assert.equal(wholeFileLimit({ count: 1e6, size: null, local: false, minBytes: 40 * 1048576 }), null);
+	assert.match(wholeFileLimit({ count: LIMIT_POINTS + 1, size: null, local: false, minBytes: 1 }), /20,000,000 limit/);
+	assert.equal(wholeFileLimit({ count: 1e7, size: null, local: true, minBytes: 600 * 1048576 }), null);   // 手元のファイルは点数だけ
+	// 総長が分かる時は minBytes を見ない（旧と同じ）
+	assert.equal(wholeFileLimit({ count: 1e6, size: 4e7, local: false, minBytes: 600 * 1048576 }), null);
+	assert.match(wholeFileLimit({ count: 1e6, size: 600 * 1048576, local: false, minBytes: 1 }), /^pointcloud: 600 MB is over/);
 });
 console.log(`t-pointcloud-octree: ${tn} passed`);
