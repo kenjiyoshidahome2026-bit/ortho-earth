@@ -258,7 +258,7 @@ export interface GlobeCoreApi {
 export interface CameraApi {
 	/** 基図（紙・線）・球体（globe/terrain）・全球ハイプソ（低ズームの段彩＝0 で陸の地色だけ・1.7.x〜）の不透明度（0..1） */
 	setOpacity(o: { base?: number; globe?: number; hypso?: number }): void;   // api/camera.ts:29
-	/** チルト上限の実行時変更（1.3.0〜 **度**・1.6 以下は従来のラジアン＝非推奨・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
+	/** チルト上限の実行時変更（**度**・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
 	setMaxPitch(deg: number | null): void;   // api/camera.ts:31
 	/** 現在のチルト上限（ラジアン・ortho の口） */
 	maxPitch(): number;   // api/camera.ts:37
@@ -376,12 +376,12 @@ export interface RasterApi {
  *  Registers gadgets: search hint compass equal equalHere lang equalStart solar mesh palette zoom full cpos contextmenu tip pop explain legend measure profile */
 export interface GadgetsApi {
 	/** 登録された gadget を名前で呼ぶ（map.gadget.search() など）。登録した名前だけがあり、引数も名前ごとに検査される。
-	 *  実行時の map.gadget は関数でもある（旧来の map.gadget(name, func)＝this が map の登録・mlfacade の顔の登録が使う互換）が、2.0 の公開の型には出さない（判断 2） */
+	 *  自作の gadget の登録は map.registry.gadgets.add(name, (map, ...args) => handle)（2.0 で旧来の map.gadget(name, func)＝this が map の登録を外した） */
 	readonly gadget: GadgetCallers;   // api/gadgets.ts
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// Gadgets：registerGadget(name, (map, ...args) => handle)（判断 2・batch 2）。旧＝map.gadget(name, func) で登録し func.apply(map, arguments)（this＝map）
+// Gadgets：registerGadget(name, (map, ...args) => handle)（判断 2・batch 2）。1.x の map.gadget(name, func)（func.apply(map, arguments)・this＝map）は 2.0 で外した
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 /** 表示の門（どの gadget も第 1 引数の opts で受ける＝api/gadgets.ts の registerGadget が読む）。zoom＝この域 [min, max) だけ出す・narrow:false＝狭い画面（480px 以下）では出さない。
@@ -591,12 +591,10 @@ export interface QueryApi {
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;   // api/query.ts:307
 	// 持ち主は 1 つ（ここ）：globe.js が先に素の on（load/move/click…＝installQuery より前の installer も使う）を付け、api/query.ts がそれを包んで層 id 付きを足す＝最終の値はこちら
 	/** イベント購読（戻り値＝map・解除は map.off(ev, cb)）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
-	 *  mesh＝建物3D の読込合図（1.2.0〜・旧名 plateau も同じ合図を受ける）（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
+	 *  mesh＝建物3D の読込合図（1.2.0〜）（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
 	on(ev: "load", cb: (e: {}) => void): GlobeMap;   // api/query.ts:387
 	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): GlobeMap;   // api/query.ts:387
 	on(ev: "mesh", cb: (e: MeshEvent) => void): GlobeMap;   // api/query.ts:387
-	/** @deprecated 1.2.0〜 "mesh" を使う（同じ合図）。次の大版で撤去 */
-	on(ev: "plateau", cb: (e: MeshEvent) => void): GlobeMap;   // api/query.ts:387
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }> }) => void): GlobeMap;   // api/query.ts:387
 	/** 共通の時計（1.2.0〜・#42）。ticking＝再生中の刻み（最大フレームごと）／false＝段・日時・今・範囲の端など状態の変わり目 */
 	on(ev: "time", cb: (e: { time: number; step: number; live: boolean; ticking: boolean }) => void): GlobeMap;   // api/query.ts:387

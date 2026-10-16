@@ -22,7 +22,6 @@ try {
 	let fin = null, settled = false; const finP = new Promise(r => { fin = r; });
 	// 東京駅前・z16・チルト 55°＝自動ロード圏（AUTO_Z=15・pitch≥0.02）。建物メッシュは既定 ON。
 	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", chips: false });
-	let aliasN = 0; map.on("plateau", () => aliasN++);   // 旧名（非推奨の別名）にも同じ合図が届くこと（2026-09-22 の mesh 改名）
 	let meshN = 0;
 	map.on("mesh", e => {
 		meshN++;
@@ -41,7 +40,6 @@ try {
 	ok("done", ev.done.length > 0, ev.done.join("+"));
 	ok("active", !!st && st.active.length > 0, st ? st.active.join("+") : "no __farState");
 	ok("noFail", ev.failed.length === 0, ev.failed.join("+"));
-	ok("alias", aliasN > 0 && aliasN === meshN, `mesh=${meshN} plateau=${aliasN}`);
 	// データ管理モーダル＝並びと見出しは地域宣言 buildings.group（日本＝都道府県・北海道が先頭）。ホストは地域を知らない（LAYERS.md 段階 2 S3d）
 	map.gadget.mesh(); document.getElementById("plateau-btn")?.click();
 	await new Promise(r => setTimeout(r, 800));

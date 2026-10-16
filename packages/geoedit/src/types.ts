@@ -44,7 +44,7 @@ export type ContextMenuHandle = ((items: MenuItems | null) => void) | { setItems
 export type PopBox = HTMLElement & { _setContent(c: string): void; _remove?(): void };
 export type PopFn = (content: string, at: { lng: number; lat: number; x?: number; y?: number; hideOffscreen?: boolean; onClose?: () => void }) => PopBox | null | undefined;
 
-/** 編集器が触る地図の面（globe の OrthoJapanMap の、ここで使う分＝素の map でも旗つきの map でも可） */
+/** 編集器が触る地図の面（globe の GlobeMap の、ここで使う分＝素の map でも旗つきの map でも可） */
 export interface EditorMap {
 	mapEl: HTMLElement;
 	unprojectXY(x: number, y: number): LonLat | null;

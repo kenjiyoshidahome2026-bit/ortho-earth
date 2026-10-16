@@ -1,6 +1,6 @@
 // zoom の分類表（src/zoomscale.js）の漏れ検定（MapLibre 互換の台帳 R1・2026-09-26）。
-// globe.d.ts の公開面（OrthoJapanMap・Gadgets・RasterAPI・GintLayerHandle）のメンバーが全部、分類表に載っているか。
-// OrthoJapanMap（＝GlobeMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
+// globe.d.ts の公開面（GlobeMap・Gadgets・RasterAPI・GintLayerHandle）のメンバーが全部、分類表に載っているか。
+// GlobeMap（別名 OrthoJapanMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
 // 実行時にだけ在るキー（d.ts に無い物）は t-mlcompat が Object.getOwnPropertyNames で同じ表と突き合わせる。
 // 使い方：node packages/globe/tests/zoomscale.mjs
 import fs from "node:fs";
@@ -32,12 +32,12 @@ const mapParts = (mapTs.match(/export type GlobeMap\s*=\s*([^;]+);/)?.[1] ?? "")
 if (mapParts.length < 10) ng(`GlobeMap: parts not parsed (${mapParts.length})`);
 const membersOfMap = () => [...new Set(mapParts.flatMap(p => membersOf(p, mapTs)))];
 const check = (iface, table, label) => {
-	const names = iface === "OrthoJapanMap" ? membersOfMap() : membersOf(iface);
+	const names = iface === "GlobeMap" ? membersOfMap() : membersOf(iface);
 	if (!names.length) ng(`${iface}: no members parsed`);
 	for (const k of names) if (!(k in table)) ng(`${label}.${k} (${iface} in globe.d.ts) is not classified in src/zoomscale.js`);
 	return names.length;
 };
-const n1 = check("OrthoJapanMap", MAP_MEMBERS, "map");
+const n1 = check("GlobeMap", MAP_MEMBERS, "map");
 const n2 = check("Gadgets", GADGET_MEMBERS, "map.gadget");
 const n3 = check("RasterAPI", RASTER_MEMBERS, "map.raster");
 const n4 = check("GintLayerHandle", HANDLE_MEMBERS, "handle");

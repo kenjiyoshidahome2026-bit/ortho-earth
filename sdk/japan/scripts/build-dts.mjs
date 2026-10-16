@@ -10,16 +10,16 @@ const out = process.argv[2];
 if (!out) { console.error("usage: build-dts.mjs <out.d.ts>"); process.exit(1); }
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, "../../../packages/globe/globe.d.ts");
-// 公開の map の型（OrthoJapanMap／GlobeMap）の正本は globe の src/types/map.ts（TS 化 段 4・batch 1）＝globe.d.ts はそれを import／re-export する。
+// 公開の map の型（GlobeMap／別名 OrthoJapanMap）の正本は globe の src/types/map.ts（TS 化 段 4・batch 1）＝globe.d.ts はそれを import／re-export する。
 // SDK の 1 枚には中身を継ぐ：globe.d.ts の import／export … from "./src/types/map.ts" を map.ts の本文で置き換え、map.ts の import は
 // 同じ 1 枚の中の型（globe.d.ts）なので外す
 const mapSrc = path.resolve(here, "../../../packages/globe/src/types/map.ts");
 const mapTs = readFileSync(mapSrc, "utf8").replace(/^import type \{[^}]*\} from "\.\.\/\.\.\/globe\.d\.ts";\n/m, "");
 let globe = readFileSync(src, "utf8");
-const link = /^import type \{ OrthoJapanMap \} from "\.\/src\/types\/map\.ts";\nexport type \{[^}]*\} from "\.\/src\/types\/map\.ts";\n/m;
+const link = /^import type \{ GlobeMap \} from "\.\/src\/types\/map\.ts";\nexport type \{[^}]*\} from "\.\/src\/types\/map\.ts";\n/m;
 if (!link.test(globe) || /^import /m.test(mapTs)) { console.error("build-dts: cannot inline src/types/map.ts into globe.d.ts (the import lines changed)"); process.exit(1); }
 globe = globe.replace(link, () => mapTs);
 writeFileSync(out, `// ortho-japan SDK 型定義＝@ortho-earth/globe の globe.d.ts ＋ SDK の入口（scripts/build-dts.mjs が作る・手で直さない）\n\n${globe}
 /** 1行で地球儀が立ち上がる入口（globe＋日本の申告）。await 必須 */
-export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+export default function orthoJapan(opts?: OrthoJapanOptions): Promise<GlobeMap>;
 `);

@@ -1,7 +1,7 @@
 // 地図の口（@ortho-earth/globe）の型の検定（TS 化 段 2「契約を正す」・2026-10-15・tests/mlshim-dts.mjs と同型）。
 // createGlobe は DOM（Worker・canvas・CSS）が要る＝node では起動できないので、源を**静的に**読んで globe.d.ts と突き合わせる：
-//  ① src/globe.js と src/api/*.ts が map に生やすメンバー（`map.X =`・Object.defineProperty(map, "X")・`const map = { … }` の鍵）が全部 OrthoJapanMap にある。
-//     OrthoJapanMap（＝GlobeMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
+//  ① src/globe.js と src/api/*.ts が map に生やすメンバー（`map.X =`・Object.defineProperty(map, "X")・`const map = { … }` の鍵）が全部 GlobeMap にある。
+//     GlobeMap（別名 OrthoJapanMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
 //     内部の物（renderer・雲の殻 __clouds）は下の INTERNAL_MAP に明記して外す＝増やすなら理由を書く（型は map.ts の GlobeInternals）
 //  ② 登録されたガジェット（`map.gadget("name", …)`）が全部 Gadgets にある（index signature [name: string] で逃げない）
 //  ③ src/globe.js の root の export（値）が全部 globe.d.ts に宣言されている（逆＝d.ts が宣言した値の export は実装にある）
@@ -69,7 +69,7 @@ function membersOf(name, src = dts) {   // interface の本体（最初の階層
 // GlobeMap＝A & B & …（src/types/map.ts）の各 interface のメンバーの和＝公開の map の型
 const mapParts = (mapTs.match(/export type GlobeMap\s*=\s*([^;]+);/)?.[1] ?? "").split("&").map(s => s.trim()).filter(Boolean);
 ok("map.partsParsed", mapParts.length >= 10, mapParts.join(" & "));
-ok("map.aliases", /export type OrthoJapanMap\s*=\s*GlobeMap;/.test(mapTs) && /import type \{ OrthoJapanMap \} from "\.\/src\/types\/map\.ts";/.test(dts), "globe.d.ts の OrthoJapanMap／GlobeMap は src/types/map.ts の別名");
+ok("map.aliases", /export type OrthoJapanMap\s*=\s*GlobeMap;/.test(mapTs) && /import type \{ GlobeMap \} from "\.\/src\/types\/map\.ts";/.test(dts), "globe.d.ts の OrthoJapanMap／GlobeMap は src/types/map.ts の別名");
 const dtsMap = new Set(mapParts.flatMap(p => [...membersOf(p, mapTs)])), dtsGadgets = membersOf("Gadgets");
 const dtsInternal = membersOf("GlobeInternals", mapTs);
 

@@ -1,5 +1,6 @@
 <!doctype html>
-<!-- UI回帰：起動opts（chips/instruments の選択的表示・layers固定・未知キー警告・plateau機能スイッチ）と destroy/再起動。 -->
+<!-- UI回帰：起動opts（chips の有無・instruments の選択的表示・layers固定・未知キー警告・mesh 機能スイッチ）と destroy/再起動。
+     1.x の別名（chips の配列形とローマ字キー・opts.layers のローマ字キー・opts.plateau）は 2.0 で外した（stage 5-5）。共有 URL の l= のローマ字は互換で残る -->
 <html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-opts</title></head>
 <body>
 <script>
@@ -21,21 +22,18 @@ const probe = async opts => {   // 起動→観測→destroy＝毎回まっさ�
 };
 const d = await probe({});
 ok("default", d.chips === "place.terrain.rail.road.facility" && d.inst === "log.pos.scale.attr");
-const s = await probe({ chips: ["place", "rail"], instruments: ["scale", "attr"] });
-ok("selective", s.chips === "place.rail" && s.inst === "scale.attr");
-const lg = await probe({ chips: ["chimei", "rail"] });   // 旧romajiキー＝読み替えて同義（後方互換）
-ok("legacyChips", lg.chips === "place.rail");
+const s = await probe({ instruments: ["scale", "attr"] });
+ok("selective", s.chips === "place.terrain.rail.road.facility" && s.inst === "scale.attr");
 const o = await probe({ chips: false, instruments: false });
 ok("off", o.chips === "none" && o.inst === "none");
 // layers固定＝true/falseともチップ非搭載・未記述の3つだけ残る
 const f = await probe({ layers: { rail: true, facility: false } });
 ok("layersFixed", f.chips === "place.terrain.road");
-const fl = await probe({ layers: { chikei: true } });   // 旧romajiキーでも固定できる（読み替え）
-ok("layersLegacy", fl.chips === "place.rail.road.facility");
-await probe({ chips: ["chimie"], instruments: ["poss"], layers: { raill: true } });   // typo＝警告3件のはず
-ok("warn", __warns.filter(x => x.includes("unknown key")).length === 3);   // console英語統一(2026-08-19)に追随
+const fl = await probe({ chips: ["place"], instruments: ["poss"], layers: { raill: true, chikei: true } });   // typo と 1.x の別名（chips の配列形・layers のローマ字）＝読み替えず警告
+ok("warn", __warns.filter(x => x.includes("unknown key")).length === 3 && __warns.some(x => x.includes("[chips] the array form was removed")));   // console英語統一(2026-08-19)に追随
+ok("noLegacy", fl.chips === "place.terrain.rail.road.facility");   // chikei は固定されない・配列形は全部を出す
 ok("destroyClean", !document.getElementById("map") && !window.__cam);   // probe後は毎回まっさら
-// plateau:false＝カタログfetchが一切発生していない（全probe共通）
+// mesh:false＝カタログfetchが一切発生していない（全probe共通）
 ok("meshOff", !performance.getEntriesByType("resource").some(e => e.name.includes("plateau-sets.json")));
 // c= の旧名は正名へ（c=gsi → topo・2026-09-24 改名）＝配った共有URL・名刺QR・台本の綴りを殺さない
 const holder3 = document.createElement("div"); holder3.style.cssText = "position:fixed;inset:0";
@@ -44,7 +42,7 @@ const m3 = await orthoJapan({ target: holder3, view: "#13/35.68/139.76/c=gsi", m
 ok("themeAlias", m3.view.theme === "topo" && !__warns.some(x => x.includes("unknown theme")));
 m3.destroy(); holder3.remove();
 // target無指定＝容れ物を自作→destroyで丸ごと消える・同ページ再起動できる
-const m2 = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });   // 旧名 opts.plateau（非推奨の別名）が今も機能を止めること＝カタログ fetch ゼロの検分に乗る
+const m2 = await orthoJapan({ view: "#13/35.68/139.76", mesh: false });
 ok("reboot", !!document.getElementById("map") && typeof window.__cam === "function");
 m2.destroy();
 ok("ownRemoved", !document.getElementById("map"));
