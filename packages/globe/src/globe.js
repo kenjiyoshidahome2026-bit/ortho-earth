@@ -2911,7 +2911,7 @@ async function iiifOpen(src, attribution) {
 // ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
 // map.addPointCloud(url | File, opts)→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>[&copcattr=<出典>]（門は ?g= と共用）・.las／.laz のドロップ
 let copcCtl = null;
-const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.js")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
+const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
 	setAttr: (id, html) => {   // 出典の欄（#attr）＝opts.attribution・無ければ URL のホスト名（無出典で他人のデータを出さない＝サービスと同じ方針）。鍵は "pc:<id>"＝"src:" でない（様式の組み直しで source に無い "src:" は消される）
 		const k = "pc:" + id, v = html ? sanitizeHTML(String(html)) : null;
 		if ((vtxAttrs.get(k) ?? null) === v) return;
