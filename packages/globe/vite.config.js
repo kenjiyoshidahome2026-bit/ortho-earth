@@ -11,8 +11,12 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { crossOriginIsolation, engineAliases } from "./scripts/lib/vite-app.mjs";
 
+// "@ortho-earth/core/src/…"＝core の中身を白箱で見る検定頁（t-wgsl・t-gint*・t-elevcell）だけの口＝**この器の中でだけ**解ける。
+// core の package.json の exports には無い（2.0 で "./internal/*" を閉じた・段 5-7）＝利用者からは見えない。node の検定は相対パス（../../ortho-core/src/…）で読む。
+const CORE_SRC = { find: /^@ortho-earth\/core\/src\//, replacement: resolve(import.meta.dirname, "..", "ortho-core", "src") + "/" };
+
 export default defineConfig({
-	resolve: { alias: engineAliases(resolve(import.meta.dirname, "..", "..")) },
+	resolve: { alias: [...engineAliases(resolve(import.meta.dirname, "..", "..")), CORE_SRC] },
 	// three.js（検定 t-three だけの devDependency・利用者は CDN の URL を渡す）：bare の "three" を頁で import すると dep の事前束ね（?url が default を失う）に
 	// 入るので、ファイルの実パスを /@fs/ の URL として定数で渡す＝頁は __OE_THREE_URL__ を worker（map.addThree の opts.three）へそのまま渡す
 	define: { __OE_THREE_URL__: JSON.stringify("/@fs" + resolve(import.meta.dirname, "..", "..", "node_modules", "three", "build", "three.module.js")) },

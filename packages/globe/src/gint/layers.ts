@@ -21,7 +21,7 @@ import { propLines } from "../html-safe.ts";   // tip: true の既定整形＝�
 
 import type { GeoPBF, UnPackGint, IdentifyAtOptions } from "geopbf";
 import type { WorldStyleTheme } from "@ortho-earth/core/worldstyle";
-import type { GintBakeResponse } from "@ortho-earth/core/internal/worker-msg.ts";
+import type { GintBakeResponse } from "@ortho-earth/core/worker-msg";
 import type { GlobeInternals } from "../types/map.ts";
 import type { DebugHost } from "../types/scope.ts";
 import type { GintDrawStyle, GintPaint } from "../../globe.d.ts";

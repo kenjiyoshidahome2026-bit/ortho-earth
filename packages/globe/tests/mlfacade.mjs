@@ -2,7 +2,7 @@
 // 実描画での一巡は t-mlzoom.html（旗あり/なし）。使い方：node packages/globe/tests/mlfacade.mjs
 import { createFacade, FACADE_CONV } from "../src/mlfacade.ts";
 import { RAW, MAP_MEMBERS } from "../src/zoomscale.ts";
-import { shiftZoomExpr } from "@ortho-earth/core/internal/mlstyle.ts";
+import { shiftZoomExpr } from "@ortho-earth/core";
 
 let bad = 0, n = 0;
 const ok = (name, cond, note = "") => { n++; if (!cond) { bad++; console.log(`✗ ${name}${note ? ` (${note})` : ""}`); } };

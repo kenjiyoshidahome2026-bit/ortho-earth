@@ -15,7 +15,7 @@ const { hasTileFormat, tileFormatOfPmtilesType, tileFormatReady } = await import
 const { evalExpr } = await import("@ortho-earth/core/expr");
 const { encodeTile } = await import("@maplibre/mlt");
 const { toMLTLayers, mvtToMLT, writePMTiles } = await import("../scripts/mvt2mlt.mjs");
-const { classifyRings } = await import("@ortho-earth/globe/internal/vtmesh.ts");   // 相対の巻き方で外周と穴を分ける（globe の押し出し・描く層）
+const { classifyRings } = await import("../../globe/src/vtmesh.ts");   // globe の中身を白箱で（公開の口に無い＝同じ monorepo の src を相対で・段 5-7）。相対の巻き方で外周と穴を分ける（globe の押し出し・描く層）
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
@@ -83,7 +83,7 @@ await t("登録簿経由：#tile-formats の差し替え先（core の tileforma
 	sameLayers(decodeTile(mlt, null, "mlt"), decodeMVT(vtTiles[1].mvt), { where: "registry" });
 	sameLayers(await fetchMVT("x", null, new Set(["building"]), null, mlt.buffer.slice(mlt.byteOffset, mlt.byteOffset + mlt.byteLength), "mlt"), decodeMVT(vtTiles[1].mvt, new Set(["building"])), { where: "fetchMVT" });
 	// PMTiles（tileType 6）＝ヘッダの申告で mlt として解ける（pmtiles-src の tileTypeName＝登録簿の pmtilesType）
-	const { pmtilesInfo, fetchPMTiles } = await import("@ortho-earth/core/internal/pmtiles-src.ts");   // 公開面に無い（index は GL まで抱える）＝internal の口で（同じ実体＝登録簿は 1 つ）
+	const { pmtilesInfo, fetchPMTiles } = await import("../../ortho-core/src/pmtiles-src.ts");   // fetchPMTiles は公開面に無い（index は GL まで抱える）＝同じ monorepo の src を相対で（実パスが同じ＝同じ実体＝登録簿は 1 つ・段 5-7）
 	const pm = await writePMTiles(null, vtTiles.map(({ k, mvt }) => { const [z, x, y] = k.split("/").map(Number); return { z, x, y, buf: mvtToMLT(mvt) }; }), { tileType: 6, metadata: { name: "t" } });
 	globalThis.fetch = async (u, init) => {   // Range 対応の鯖の振り（pmtiles.js は Content-Length を見る）
 		const range = init?.headers instanceof Headers ? init.headers.get("range") : (init?.headers?.Range ?? init?.headers?.range ?? "");

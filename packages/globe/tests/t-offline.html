@@ -7,15 +7,15 @@
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:900px;height:600px}</style><title>t-offline</title></head>
 <body><div id="map"></div>
 <script type="module">
-import orthoJapan from "../app.js";
-import { PACK_CACHE, tileCount } from "@ortho-earth/globe/internal/offline-pack.ts";
+import { createGlobe } from "@ortho-earth/globe";   // 地域なしの地球儀（2026-10-16 に apps/ortho-japan から移設・オフラインパックは globe の gadget）
+import { PACK_CACHE, tileCount } from "../src/offline-pack.ts";
 import { Cache } from "native-bucket";
 const t = [], ok = (n, c, note = "") => t.push(`${c ? "ok" : "NG"}:${n}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {
 	await caches.delete(PACK_CACHE);
-	const FIX = new URL("./fixtures/amedas.geopbf", location.href).href;
-	const map = await orthoJapan({ target: "#map", view: "#12/35.68/139.76", chips: false, mesh: false, persistView: false });
+	const FIX = new URL("./fixtures/qmesh/8/470/170.terrain", location.href).href;
+	const map = await createGlobe({ target: "#map", view: "#12/35.68/139.76", chips: false, mesh: false, persistView: false });
 	await new Promise(r => map.on("load", r));
 	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0 });
 	let fetched = 0;
@@ -41,9 +41,9 @@ try {
 	ok("cached", keys.length === want, `${keys.length}/${want}`);
 	ok("row", panel.querySelectorAll(".of-row").length === 1);
 	// もう一度＝同じ計画＝同じ記録に続きから（全部飛ばす・容量は変わらない・行は増えない）
-	const before = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
+	const before = performance.getEntriesByType("resource").filter(e => e.name.includes("170.terrain?t=")).length;
 	await h.estimate(); await h.run();
-	const packs2 = await h.list(), after = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
+	const packs2 = await h.list(), after = performance.getEntriesByType("resource").filter(e => e.name.includes("170.terrain?t=")).length;
 	ok("resume", packs2.length === 1 && packs2[0].id === packs[0].id && packs2[0].bytes === packs[0].bytes && packs2[0].done && after === before, JSON.stringify(packs2.map(p => p.bytes)) + ` res=${before}→${after}`);
 	// 別の範囲（重なる）のパック＝共有 URL は片方を消しても残る → 両方消すと置き場ごと空
 	map.jumpTo({ center: [139.95, 35.55], zoom: 12, pitch: 0 }); await sleep(300);   // 重なりつつ別のタイルが要る所へ

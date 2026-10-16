@@ -5,8 +5,8 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
-import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "@ortho-earth/globe/internal/gadgets/print.ts";
+import { createGlobe } from "@ortho-earth/globe";   // 地域なしの地球儀（2026-10-16 に apps/ortho-japan から移設・印刷は globe の gadget）
+import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "../src/gadgets/print.ts";
 import { primeVerticalRadius } from "@ortho-earth/core";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
@@ -46,7 +46,7 @@ try {
 		&& head.includes(`/MediaBox [0 0 ${(L.W * 72 / 25.4).toFixed(2)} ${(L.H * 72 / 25.4).toFixed(2)}]`) && tail.includes("%%EOF"));
 
 	// UIフロー：captureスタブ注入→モーダル開＝自動プレビュー→img.src が blob:
-	const map = await orthoJapan({ view: "#15/35.681/139.767" });
+	const map = await createGlobe({ view: "#15/35.681/139.767" });
 	const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 180; a[i + 3] = 255; } return a.buffer; };
 	const stub = async ({ zoom, cropCss }) => ({
 		snap: { W: 640, H: 640, render: { base: mk(640), w: 640, h: 640, labels: null, lw: 0, lh: 0 } },

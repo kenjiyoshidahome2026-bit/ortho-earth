@@ -35,7 +35,7 @@ import { createLabels, countryLabels, cityLabels, airportLabels } from "./labels
 import { countryName as countryNameOf, cityName as cityNameOf, shortEnNames, culturalUrl, culturalName, WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の中身の正本（名前の順・URL・出しズーム＝globe・world と共有）
 import type { Nation, NationDB } from "@ortho-earth/core/worldcontent";
 import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";
-import { setSafeHTML } from "@ortho-earth/globe/internal/html-safe.ts";   // tip・pop の中身（わざと HTML）＝動く物だけ抜いて入れる（globe の吹き出しと同じ関門）   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
+import { setSafeHTML } from "@ortho-earth/globe/html-safe.js";   // tip・pop の中身（わざと HTML）＝動く物だけ抜いて入れる（globe の吹き出しと同じ関門）   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import type { AnnoMap, PopOptions } from "@ortho-earth/globe/gadgets/anno.js";
 import type * as OverlayModule from "@ortho-earth/globe/gadgets/anno-draw.js";
 import { search as searchGadget } from "@ortho-earth/globe/gadgets/searchbox.js";   // 地名検索の窓（#175）＝japan と同じ窓・世界の既定（国・州・都市・地形・26 言語）

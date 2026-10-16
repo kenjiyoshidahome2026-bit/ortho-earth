@@ -129,7 +129,10 @@
 		"./encodeXLSX": "./src/modules/encodeXLSX.ts",
 		"./decodeZIP": "./src/modules/decodeZIP.ts",
 		"./fname2mime": "./src/modules/fname2mime.ts",
-		"./internal/*": "./src/*.ts"
+		"./ndjson": "./src/convert/ndjson.ts",
+		"./convert/gpu": "./src/convert/gpu.ts",
+		"./cog/tiff": "./src/cog/tiff.ts",
+		"./cog/decode": "./src/cog/decode.ts"
 	},
 	"scripts": {
 		"build": "tsc -p . && tsc -p tsconfig.worker.json",

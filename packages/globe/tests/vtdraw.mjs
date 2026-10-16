@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, labelPointsOf, poleOf, liOf, USER_LI0, unitsPerPx, quantZoom, styleZoomProps } from "../src/vtops.ts";
 import { classifyRings, ringArea2 } from "../src/vtmesh.ts";
-import { seaFbReal } from "@ortho-earth/core/internal/scene.ts";
+import { seaFbReal } from "../../ortho-core/src/scene.ts";   // core の中身を白箱で（公開の口に無い・2.0 で internal/* を閉じた＝段 5-7）＝同じ monorepo の src を相対で
 import { buildTileDrawList } from "@ortho-earth/core/build";
-import { normalizeMLLayer } from "@ortho-earth/core/internal/mlstyle.ts";
+import { normalizeMLLayer } from "@ortho-earth/core";
 
 let bad = 0, n = 0;
 const ok = (name, cond, note = "") => { n++; if (!cond) { bad++; console.log(`✗ ${name}${note ? ` (${note})` : ""}`); } };
