@@ -77,15 +77,13 @@ export function probeGL(): { ok: boolean; renderer: string | null } {
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
 // reloadLabel（文字列）で「再読み込み」ボタン付き（null＝無し）。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
-// 文言は innerHTML へ入る＝逃がす（detail に worker の誤りの文が入る・CodeQL・2026-10-16。訳文は & < > " を持たない＝見た目は同じ）
-const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
 export function fatalOverlay(mapEl: HTMLElement, title: string, detail: string, reloadLabel?: string | null): HTMLDivElement {
 	const d = document.createElement("div");
 	d.id = "fatal";   // スタイルは style.css（#fatal）。最後に起きる事件＝最後の append＝DOM順で最上面
 	d.innerHTML = `<div class="fatal-box">
-		<div class="fatal-title">${esc(title)}</div>
-		<div class="fatal-detail">${esc(detail)}</div>
-		${reloadLabel ? `<button class="fatal-reload" onclick="location.reload()">${esc(reloadLabel)}</button>` : ""}</div>`;
+		<div class="fatal-title">${title}</div>
+		<div class="fatal-detail">${detail}</div>
+		${reloadLabel ? `<button class="fatal-reload" onclick="location.reload()">${reloadLabel}</button>` : ""}</div>`;
 	mapEl.appendChild(d);
 	return d;
 }
