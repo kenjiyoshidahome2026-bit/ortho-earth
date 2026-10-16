@@ -180,7 +180,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	// POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
 	// 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
 	// 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
-	if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("../gadgets/poiedit.js")).then(({ poiedit }) => {
+	if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("../gadgets/poiedit.ts")).then(({ poiedit }) => {
 		setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
 		registerGadget("poiedit", (m, opts) => {
 			const L = live.poiReal!;   // ?poiedit=1 は下で poi.ready() を待ってから搭載＝ここでは必ず本物

@@ -267,8 +267,17 @@ export interface SearchProvider { query(q: string, signal?: AbortSignal): Promis
 export interface ToolBody { _update?(): void; stop?(): void }   // stop＝道具の排他（globe.js の toolClose）
 /** POI 台帳（地域の申告の poi・起こすまでの代理） */
 export interface PoiProxy { ready(): Promise<unknown> }
+/** POI 台帳の点の表示形（anchor＝[lon,lat]・n＝名・r＝rank・s＝出典（pos<<4|type））＝@ortho-earth/jp の PoiPoint と同じ形 */
+export interface PoiPoint { anchor: [number, number]; n: string; r: number; s: number }
+/** 手差分 1 件（op＝add/move/rename/del・ll＝対象の位置・to＝移動先か新しい名・t/r＝add の種別と rank・d＝日付）＝jp の PoiOvrRec と同じ形 */
+export interface PoiOvrRec { id: number; op: "add" | "move" | "rename" | "del"; n: string; ll: [number, number]; to?: [number, number] | string; t?: number; r?: number; d?: string }
+/** 手差分の器（サーバーの overrides.json）＝jp の PoiOverrides と同じ形 */
+export interface PoiOverrides { v: number; seq?: number; recs: PoiOvrRec[] }
 /** POI 台帳の本物（poiedit が読む分） */
-export interface PoiLedger { distM: unknown; apiBase: unknown; ovrName: unknown; patchedAll(): unknown; getOvr: unknown; setOvr: unknown }
+export interface PoiLedger {
+	distM(a: number[], b: number[]): number; apiBase: string; ovrName: string; patchedAll(): PoiPoint[];
+	getOvr(): PoiOverrides | null; setOvr(o: PoiOverrides): void;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 

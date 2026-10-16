@@ -6,22 +6,35 @@
 // ctx＝{ lng, lat, x, y, map }。lng/lat は指した画面座標の逆投影（screen→world。裏半球や宇宙なら undefined）。
 // unprojectAt＝画面座標→経緯度（実装は engine の unproject／注入は登録側）。signal＝destroy 時のリスナー解除。
 import { tr } from "../i18n.ts";
+import type { ContextMenuItem, ContextMenuItems, LonLat } from "../../globe.d.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
-export function contextmenu({ unprojectAt, signal, items } = {}) {
-	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;
-	if (mapEl.querySelector("#ctxmenu")) { if (items !== undefined) mapEl._ctxSetItems?.(items); return { setItems: fn => mapEl._ctxSetItems?.(fn) }; }   // 二重搭載＝項目の差し替えだけ受ける（編集ガジェットが本体地図に載る時＝既定へ戻すのは setItems(null)）
-	const DEFAULT = [
-		{ name: t("Zoom to this point"), onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI) },
-		{ name: t("Copy coordinates"), onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) },
+
+export type { ContextMenuItems };
+/** 搭載の opts（unprojectAt＝画面座標→経緯度・登録側が注入／items＝項目の並び） */
+export interface ContextMenuOptions { unprojectAt: (clientX: number, clientY: number) => LonLat | null; signal?: AbortSignal; items?: ContextMenuItems; [k: string]: unknown }
+/** 指した地点（lng/lat＝逆投影・球に当たらなければ undefined） */
+type MenuCtx = Parameters<ContextMenuItem["onClick"]>[0];
+/** #map＝二重搭載で項目を差し替える口を持つ */
+type MenuHost = HTMLElement & { _ctxSetItems?: (fn: ContextMenuItems | undefined) => void };
+
+/** 右クリックメニュー。戻り値＝項目の setter（二重搭載＝{ setItems }） */
+export function contextmenu(this: GlobeMap, { unprojectAt, signal, items }: ContextMenuOptions = {} as ContextMenuOptions):
+	((set: ContextMenuItems) => void) | { setItems(fn: ContextMenuItems): void } {
+	const mapEl: MenuHost = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;
+	if (mapEl.querySelector("#ctxmenu")) { if (items !== undefined) mapEl._ctxSetItems?.(items); return { setItems: (fn: ContextMenuItems) => mapEl._ctxSetItems?.(fn) }; }   // 二重搭載＝項目の差し替えだけ受ける（編集ガジェットが本体地図に載る時＝既定へ戻すのは setItems(null)）
+	const DEFAULT: ContextMenuItem[] = [
+		{ name: t("Zoom to this point"), onClick: c => c.lng != null && flyTo(c.lng, c.lat!, Math.max(cam.zoom, 15), cam.pitch! * 180 / Math.PI) },
+		{ name: t("Copy coordinates"), onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat!.toFixed(6)}, ${c.lng.toFixed(6)}`) },
 	];
-	let list = items || DEFAULT;
+	let list: ContextMenuItems = items || DEFAULT;
 	mapEl._ctxSetItems = fn => { list = fn || DEFAULT; };
 	const menu = document.createElement("div");
 	menu.id = "ctxmenu"; menu.style.display = "none";
 	// 後置＝#map 直下（DOM順で上に描く。z-index不使用の掟）。
 	mapEl.append(menu);
 	const hide = () => { menu.style.display = "none"; };
-	const ctx = e => {
+	const ctx = (e: MouseEvent): MenuCtx => {
 		const r = mapEl.getBoundingClientRect();
 		const ll = unprojectAt(e.clientX, e.clientY);   // 球に当たらなければ null
 		return { lng: ll?.[0], lat: ll?.[1], x: e.clientX - r.left, y: e.clientY - r.top, map };
@@ -52,7 +65,7 @@ export function contextmenu({ unprojectAt, signal, items } = {}) {
 	// 閉じる：地図クリック・ドラッグ開始（押したまま動く＝パン/回転）・Esc（メニュー内クリックは項目ハンドラが閉じる）。
 	// 押下だけでは閉じない（メニューは瞬間に消えない）＝ボタンを押したまま動いた時に解除＝地図を掴んだ合図。
 	mapEl.addEventListener("click", hide, { signal });
-	mapEl.addEventListener("pointermove", e => { if (e.buttons !== 0 && !menu.contains(e.target)) hide(); }, { signal, passive: true });
+	mapEl.addEventListener("pointermove", e => { if (e.buttons !== 0 && !menu.contains(e.target as Node | null)) hide(); }, { signal, passive: true });
 	window.addEventListener("keydown", e => { if (e.key === "Escape") hide(); }, { signal });
-	return set => { list = set; };   // 呼び出し側の手綱（項目の差し替え。配列 or e→配列 の関数）
+	return (set: ContextMenuItems) => { list = set; };   // 呼び出し側の手綱（項目の差し替え。配列 or e→配列 の関数）
 }

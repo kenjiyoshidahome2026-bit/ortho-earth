@@ -4,9 +4,9 @@
 import { betaToLonLat, cameraState } from "@ortho-earth/core";
 import { clipDistanceM, clipPlanes } from "@ortho-earth/core/clip";
 import { compass as compassGadget } from "../gadgets/compass.ts";
-import { contextmenu as contextmenuGadget } from "../gadgets/contextmenu.js";
+import { contextmenu as contextmenuGadget } from "../gadgets/contextmenu.ts";
 import { cpos as cposGadget } from "../gadgets/cpos.ts";
-import { equal as equalGadget, equalHereItem, goEqual } from "../gadgets/equal.js";
+import { equal as equalGadget, equalHereItem, goEqual } from "../gadgets/equal.ts";
 import { explain as explainGadget } from "../gadgets/explain.ts";
 import { full as fullGadget } from "../gadgets/full.ts";
 import { hint as hintGadget } from "../gadgets/hint.ts";
@@ -15,11 +15,11 @@ import { legend as legendGadget } from "../gadgets/legend.ts";
 import { measure as measureGadget } from "../gadgets/measure-stub.ts";
 import { mesh as meshGadget } from "../gadgets/mesh.ts";
 import { palette as paletteGadget } from "../gadgets/palette-stub.ts";
-import { pop as popGadget } from "../gadgets/pop.js";
+import { pop as popGadget } from "../gadgets/pop.ts";
 import { profile as profileGadget } from "../gadgets/profile-stub.ts";
 import { search as searchGadget } from "../gadgets/searchbox.ts";
 import { solar as solarGadget } from "../gadgets/solar.ts";
-import { tip as tipGadget } from "../gadgets/tip.js";
+import { tip as tipGadget } from "../gadgets/tip.ts";
 import { zoom as zoomGadget } from "../gadgets/zoom.ts";
 
 import type { GlobeMap, GadgetCallers, GadgetGate, GadgetsApi, RegisterGadget } from "../types/map.ts";
