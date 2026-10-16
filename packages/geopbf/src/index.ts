@@ -15,8 +15,8 @@ import type {
 import type { Topology } from "./modules/topo2geo.ts";
 export { GeoPBF };   // 拡張メソッド付きの GeoPBF（1.20〜・改良点 10）。旧＝どの subpath からも拡張付きの class が取れなかった（pbf-base は器だけ・geopbf/pbf は protobuf の wire 読み書き）
 export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
-export type * from "../types/geopbf.js";   // 値の型（Feature・GeoPBFOptions・UnPackGint …）と器の型（GeoPBFBase＝型だけの名前）
-export type { FMapEntry } from "./pbf-base.ts";
+export type * from "../types/geopbf.js";   // 値の型（Feature・GeoPBFOptions・UnPackGint …）
+export type { GeoPBFBase, FMapEntry } from "./pbf-base.ts";   // 器の class（"geopbf" では型だけの名前＝値は "geopbf/core"・"geopbf/pbf-base" の GeoPBF）
 export type { FeatureCallback, CloneMapOptions } from "./pbf.ts";
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
