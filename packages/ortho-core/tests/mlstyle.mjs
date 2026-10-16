@@ -1,9 +1,9 @@
 // 外来の MapLibre style の読み替え（src/mlstyle.js・#33）と評価器の追加分（色の補間・常用の演算子・色名/HSL）の検定。
 // node packages/ortho-core/tests/mlstyle.mjs
 import assert from "node:assert/strict";
-import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter } from "../src/mlstyle.js";
-import { evalExpr, truthy } from "../src/expr.js";
-import { parseRGBA } from "../src/color.js";
+import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter } from "../src/mlstyle.ts";
+import { evalExpr, truthy } from "../src/expr.ts";
+import { parseRGBA } from "../src/color.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 const ctx = (props = {}, geom = "Polygon", zoom = 10) => ({ zoom, props, geom, vars: {} });

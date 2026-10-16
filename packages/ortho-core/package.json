@@ -4,31 +4,22 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
-		"test": "node tests/backend-split.mjs && node tests/tileformat.mjs && node tests/fontstack.mjs && node tests/labels.mjs && node tests/labels2d.mjs && node tests/labelsync.mjs && node tests/featurestate.mjs && node tests/fill-clip.mjs && node tests/dasharray.mjs && node tests/lineoffset.mjs && node tests/mlstyle.mjs && node tests/mltables.mjs && node tests/mlcover.mjs && node tests/tilemanager-lod.mjs && node tests/camera-centeralt.mjs && node tests/camera-roll.mjs && node tests/input-inertia.mjs && node tests/camera-offset.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/clip.mjs && node tests/qmesh.mjs && node tests/ao-rays.mjs && node tests/globe-rays.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-slots.mjs && node tests/gint-expr.mjs && node tests/expr-ops.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs && node tests/gint-texlayers.mjs && node tests/gint-exprgpu.mjs && node tests/elevation-resample.mjs && node tests/elevation-stale.mjs && node tests/elevation-sample.mjs && node tests/terrain-lod.mjs && node tests/types.mjs"
+		"test": "node tests/backend-split.mjs && node tests/tileformat.mjs && node tests/fontstack.mjs && node tests/labels.mjs && node tests/labels2d.mjs && node tests/labelsync.mjs && node tests/featurestate.mjs && node tests/fill-clip.mjs && node tests/dasharray.mjs && node tests/lineoffset.mjs && node tests/mlstyle.mjs && node tests/mltables.mjs && node tests/mlcover.mjs && node tests/tilemanager-lod.mjs && node tests/camera-centeralt.mjs && node tests/camera-roll.mjs && node tests/input-inertia.mjs && node tests/camera-offset.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/clip.mjs && node tests/qmesh.mjs && node tests/ao-rays.mjs && node tests/globe-rays.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-slots.mjs && node tests/gint-expr.mjs && node tests/expr-ops.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs && node tests/gint-texlayers.mjs && node tests/gint-exprgpu.mjs && node tests/elevation-resample.mjs && node tests/elevation-stale.mjs && node tests/elevation-sample.mjs && node tests/terrain-lod.mjs && node tests/types.mjs",
+		"build": "tsc -p . && tsc -p tsconfig.worker.json"
 	},
-	"main": "src/index.js",
-	"types": "./types/index.d.ts",
+	"main": "src/index.ts",
 	"imports": {
-		"#tile-formats": "./src/tileformats-none.js"
+		"#tile-formats": "./src/tileformats-none.ts"
 	},
 	"exports": {
-		".": {
-			"types": "./types/index.d.ts",
-			"default": "./src/index.js"
-		},
-		"./tileformat": {
-			"types": "./types/tileformat.d.ts",
-			"default": "./src/tileformat.js"
-		},
-		"./tileformats-mlt": "./src/tileformats-mlt.js",
+		".": "./src/index.ts",
+		"./tileformat": "./src/tileformat.ts",
+		"./tileformats-mlt": "./src/tileformats-mlt.ts",
 		"./gpu": {
 			"types": "./types/gpu.d.ts",
 			"default": "./src/gpu/backend.js"
 		},
-		"./f16": {
-			"types": "./types/f16.d.ts",
-			"default": "./src/gpu/f16.js"
-		},
+		"./f16": "./src/gpu/f16.ts",
 		"./gl": {
 			"types": "./types/gl.d.ts",
 			"default": "./src/gl/backend.js"
@@ -37,22 +28,10 @@
 			"types": "./types/labels.d.ts",
 			"default": "./src/labels2d.js"
 		},
-		"./labelsync": {
-			"types": "./types/labelsync.d.ts",
-			"default": "./src/labelsync.js"
-		},
-		"./terrain": {
-			"types": "./types/terrain.d.ts",
-			"default": "./src/terrain.js"
-		},
-		"./camera": {
-			"types": "./types/camera.d.ts",
-			"default": "./src/camera.js"
-		},
-		"./clip": {
-			"types": "./types/clip.d.ts",
-			"default": "./src/clip.js"
-		},
+		"./labelsync": "./src/labelsync.ts",
+		"./terrain": "./src/terrain.ts",
+		"./camera": "./src/camera.ts",
+		"./clip": "./src/clip.ts",
 		"./depthout": {
 			"types": "./types/depthout.d.ts",
 			"default": "./src/depthout.js"
@@ -61,86 +40,29 @@
 			"types": "./types/postfx.d.ts",
 			"default": "./src/postfx.js"
 		},
-		"./geojson": {
-			"types": "./types/geojson.d.ts",
-			"default": "./src/geojson.js"
-		},
-		"./viewurl": {
-			"types": "./types/viewurl.d.ts",
-			"default": "./src/viewurl.js"
-		},
-		"./decode": {
-			"types": "./types/decode.d.ts",
-			"default": "./src/decode.js"
-		},
-		"./expr": {
-			"types": "./types/expr.d.ts",
-			"default": "./src/expr.js"
-		},
-		"./fidstyle": {
-			"types": "./types/fidstyle.d.ts",
-			"default": "./src/gint/style.js"
-		},
+		"./geojson": "./src/geojson.ts",
+		"./viewurl": "./src/viewurl.ts",
+		"./decode": "./src/decode.ts",
+		"./expr": "./src/expr.ts",
+		"./fidstyle": "./src/gint/style.ts",
 		"./fidexpr": {
 			"types": "./types/fidexpr.d.ts",
 			"default": "./src/gpu/gintexpr.js"
 		},
-		"./color": {
-			"types": "./types/color.d.ts",
-			"default": "./src/color.js"
-		},
-		"./build": {
-			"types": "./types/build.d.ts",
-			"default": "./src/build.js"
-		},
-		"./tilelabels": {
-			"types": "./types/tilelabels.d.ts",
-			"default": "./src/labels.js"
-		},
-		"./geodesic": {
-			"types": "./types/geodesic.d.ts",
-			"default": "./src/geodesic.js"
-		},
-		"./worldpal": {
-			"types": "./types/worldpal.d.ts",
-			"default": "./src/worldpal.js"
-		},
-		"./raster": {
-			"types": "./types/raster.d.ts",
-			"default": "./src/raster.js"
-		},
-		"./raster-src": {
-			"types": "./types/raster-src.d.ts",
-			"default": "./src/raster-src.js"
-		},
-		"./workers/tile": {
-			"types": "./types/workers/tile.d.ts",
-			"default": "./src/workers/tileworker.js"
-		},
-		"./workers/scene": {
-			"types": "./types/workers/scene.d.ts",
-			"default": "./src/workers/sceneworker.js"
-		},
-		"./workers/gintbake": {
-			"types": "./types/workers/gintbake.d.ts",
-			"default": "./src/gint/bakeworker.js"
-		},
-		"./worldstyle": {
-			"types": "./types/worldstyle.d.ts",
-			"default": "./src/worldstyle.js"
-		},
-		"./worldcontent": {
-			"types": "./types/worldcontent.d.ts",
-			"default": "./src/worldcontent.js"
-		},
-		"./elevation": {
-			"types": "./types/elevation.d.ts",
-			"default": "./src/elevation/index.js"
-		},
-		"./workers/elevation": {
-			"types": "./types/workers/elevation.d.ts",
-			"default": "./src/elevation/worker.js"
-		},
+		"./color": "./src/color.ts",
+		"./build": "./src/build.ts",
+		"./tilelabels": "./src/labels.ts",
+		"./geodesic": "./src/geodesic.ts",
+		"./worldpal": "./src/worldpal.ts",
+		"./raster": "./src/raster.ts",
+		"./raster-src": "./src/raster-src.ts",
+		"./workers/tile": "./src/workers/tileworker.ts",
+		"./workers/scene": "./src/workers/sceneworker.ts",
+		"./workers/gintbake": "./src/gint/bakeworker.ts",
+		"./worldstyle": "./src/worldstyle.ts",
+		"./worldcontent": "./src/worldcontent.ts",
+		"./elevation": "./src/elevation/index.ts",
+		"./workers/elevation": "./src/elevation/worker.ts",
 		"./internal/*": "./src/*"
 	},
 	"description": "The core of the Ortho Earth 3D globe map engine: draws vector tiles, terrain at true scale, rasters and labels on a sphere with WebGPU (WebGL2 fallback). Used through @ortho-earth/globe.",
@@ -156,7 +78,9 @@
 		"@ortho-earth/tile-formats": ">=0.2.0"
 	},
 	"peerDependenciesMeta": {
-		"@ortho-earth/tile-formats": { "optional": true }
+		"@ortho-earth/tile-formats": {
+			"optional": true
+		}
 	},
 	"keywords": [
 		"map",
@@ -188,10 +112,10 @@
 		"README.md"
 	],
 	"sideEffects": [
-		"./src/workers/tileworker.js",
-		"./src/workers/sceneworker.js",
-		"./src/gint/bakeworker.js",
-		"./src/elevation/worker.js",
-		"./src/tileformats-mlt.js"
+		"./src/workers/tileworker.ts",
+		"./src/workers/sceneworker.ts",
+		"./src/gint/bakeworker.ts",
+		"./src/elevation/worker.ts",
+		"./src/tileformats-mlt.ts"
 	]
 }

@@ -2,7 +2,7 @@
 // 一時的な失敗（オフライン）の後、RETRY_MS を過ぎたら同じ archive を読み直せること。直後は再取得の嵐を起こさないこと。
 import assert from "node:assert/strict";
 import { mock } from "node:test";
-import { pmtilesInfo } from "../src/pmtiles-src.js";
+import { pmtilesInfo } from "../src/pmtiles-src.ts";
 
 // 最小の PMTiles v3（ヘッダ 127B＋空の root ディレクトリ 1B＋metadata JSON・内部圧縮なし）
 const md = new TextEncoder().encode(JSON.stringify({ vector_layers: [{ id: "roads" }], name: "tiny" }));

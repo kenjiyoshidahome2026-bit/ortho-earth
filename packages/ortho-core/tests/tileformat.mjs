@@ -2,10 +2,10 @@
 // 遅延読み込み（load）は await してから同期に解ける・PMTiles の tileType の名前は登録簿から引く・resolveVectorSource は encoding を返す・
 // fetchMVT（取得済みの本体）は encoding で振り分ける。node packages/ortho-core/tests/tileformat.mjs
 import assert from "node:assert/strict";
-import { registerTileFormat, loadTileFormat, decodeTile, hasTileFormat, tileFormatNames, tileFormatOfPmtilesType, tileFormatReady } from "../src/tileformat.js";
-import { decodeMVT, fetchMVT } from "../src/decode.js";
-import { resolveVectorSource, vectorLayersOf } from "../src/mlstyle.js";
-import { pmtilesInfo } from "../src/pmtiles-src.js";
+import { registerTileFormat, loadTileFormat, decodeTile, hasTileFormat, tileFormatNames, tileFormatOfPmtilesType, tileFormatReady } from "../src/tileformat.ts";
+import { decodeMVT, fetchMVT } from "../src/decode.ts";
+import { resolveVectorSource, vectorLayersOf } from "../src/mlstyle.ts";
+import { pmtilesInfo } from "../src/pmtiles-src.ts";
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
 const warns = [];

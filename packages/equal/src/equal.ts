@@ -21,7 +21,7 @@ import { createBackend } from "./backend.ts";   // WebGPU 既定・WebGL2 へ落
 import { LAYERS, GRATICULE, PALETTE } from "./layers.ts";
 import type { LayerDef } from "./layers.ts";
 import { THEMES, THEME_NAMES, normTheme, hex } from "./themes.ts";   // 配色テーマ＝japan と同じ名前・同じ c= トークン（世界パレットは ortho-core の共有正本）
-import type { ThemeColor } from "./themes.ts";
+import type { ThemeColor, WorldTheme } from "./themes.ts";
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.ts";
 import type { NearElevation } from "./hypso.ts";
 import { buildChoropleth } from "./choropleth.ts";
@@ -140,7 +140,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	let world: NationDB | null = null, NONE = 0, political: Int8Array | null = null, worldP: Promise<NationDB | null> | null = null, i18n: I18nTable | null = null, neCities: Record<string, string> | null = null, cityFeatures: PointFeature[] = [], markFeatures = new Map<string, PointFeature[]>(), shortEn = new Map<string, string>();   // markFeatures＝記号ラベルの材料（層 id → 地物）   // neCities＝NE 由来の都市名（言語別・小さな都市の i18n）   // shortEn＝NE admin_1 の admin（"Afghanistan"＝DB の正式寄りの英語名より短い）
 	const labelsLayer = createLabels(mapEl.querySelector<HTMLCanvasElement>("#labels")!);
 	const LABEL_PAL: LabelPal = { ...THEMES.mono.labelColor };   // テーマが中身を書き換える（rebuildLabels が読み直す）
-	let worldPal = resolveWorldPal(THEMES[settings.theme].world) as WorldPal;   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
+	let worldPal: WorldPal = resolveWorldPal(THEMES[settings.theme].world);   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
 	// 国名・都市名の出所の順（言語ごと）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と同じ順）
 	const countryName = (n: Nation): string => countryNameOf(n, i18n, shortEn);
 	const cityName = (p: Props): string => cityNameOf(p, lang, i18n, neCities);
@@ -292,8 +292,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const id = normTheme(name) || "mono", T = THEMES[id];
 		settings.theme = id;
 		const put = (key: string, v: ThemeColor): void => { const dst = PALETTE[key], c = Array.isArray(v) ? hex(v[0], v[1]) : hex(v); dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3]; };
-		for (const key in PALETTE) if (T[key] !== undefined) put(key, T[key] as ThemeColor);
-		worldPal = resolveWorldPal(T.world) as WorldPal;
+		for (const key in PALETTE) { const v = T[key as keyof WorldTheme]; if (v !== undefined) put(key, v as ThemeColor); }   // PALETTE のキー＝テーマの色の項
+		worldPal = resolveWorldPal(T.world);
 		Object.assign(LABEL_PAL, T.labelColor, { capital: T.capital, airport: Array.isArray(T.airport) ? T.airport[0] : T.airport });   // 記号（✈）の色もテーマから
 		// 家具（計器・出典・ガラス）は **どのテーマでも黒硝子のまま**＝japan の「白抜き家具＝常時ON」（本人裁定 2026-08-05）と揃える。
 		//   実測（2026-09-18）：ui-dark を外すと #attr/#pos の下地が明るい硝子へ転ぶのに、文字色は equal の #map{color:#cdd}

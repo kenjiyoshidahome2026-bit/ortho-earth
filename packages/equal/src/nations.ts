@@ -6,13 +6,13 @@
 
 // 読み込み（NationDB・言語別の国名/都市名・NE の小さな都市名）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と同じ URL・同じ作法）
 import { loadI18n as loadNameTable } from "@ortho-earth/core/worldcontent";
-import type { Nation, NameTable } from "@ortho-earth/core/worldcontent";
+import type { Nation, WorldI18n } from "@ortho-earth/core/worldcontent";
 import { uiTable } from "world-data/i18n/ui-table";
 import type { UiTable } from "world-data/i18n/ui-table";
 import type { Preset } from "./types.ts";
 export { loadNations, loadNeCities } from "@ortho-earth/core/worldcontent";
 /** 名前表（nations・cities）に画面の文言（ui・categories・plateBoundaries）を重ねた物 */
-export type I18nTable = NameTable & UiTable;
+export type I18nTable = WorldI18n & UiTable;
 // 名前表（国・台帳の都市＝DB の隣・配信）に画面の文言（ui＝プログラム・packages/world/i18n/ui.json）を重ねる＝旧来の i18n/<lang>.json と同じ形
 export const loadI18n = async (lang: string): Promise<I18nTable | null> => { const names = await loadNameTable(lang); return names && { ...names, ...uiTable(lang) }; };
 // 地図の中身の語（統計名・地域名・単位）を world の ui 表で引く（無い語は英語のまま＝world のビューアと同じ縮退）。

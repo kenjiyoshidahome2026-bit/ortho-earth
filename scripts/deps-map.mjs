@@ -18,7 +18,7 @@ import { gzipSync } from "node:zlib";
 // DEPS_ROOT＝別の checkout（前の版と比べる時）。入口の一覧が無い古い版（2026-10-15 より前）は当時の 5 つ
 const ROOT = path.resolve(process.env.DEPS_ROOT || path.join(import.meta.dirname, ".."));
 const ENTRIES = fs.existsSync(path.join(ROOT, "apps/engine/src/entries.mjs")) ? (await import(path.join(ROOT, "apps/engine/src/entries.mjs"))).ENTRIES
-	: [["@ortho-earth/globe", "globe", "apps/ortho-globe/engine/globe.js"], ["@ortho-earth/globe/i18n.js", "i18n", "packages/globe/src/i18n.js"], ["@ortho-earth/core", "core", "packages/ortho-core/src/index.js"], ["geopbf", "geopbf", "packages/geopbf/src/index.js"], ["@ortho-earth/h3/core", "h3", "packages/h3/src/core.js"]].map(([a, b, c]) => [a, b, path.join(ROOT, c)]);
+	: [["@ortho-earth/globe", "globe", "apps/ortho-globe/engine/globe.js"], ["@ortho-earth/globe/i18n.js", "i18n", "packages/globe/src/i18n.js"], ["@ortho-earth/core", "core", "packages/ortho-core/src/index.ts"], ["geopbf", "geopbf", "packages/geopbf/src/index.js"], ["@ortho-earth/h3/core", "h3", "packages/h3/src/core.js"]].map(([a, b, c]) => [a, b, path.join(ROOT, c)]);
 const rel = p => path.relative(ROOT, p);
 const SPEC = new Map(ENTRIES.map(([spec, , src]) => [spec, src]));
 const NONE = path.join(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.ts");
@@ -95,7 +95,7 @@ async function trace(entry, { engine, stdin, inEngine }) {
 				b.onResolve({ filter: /builtinWorkers\.(js|ts)$/ }, () => ({ path: NONE }));   // engineAliases と同じ＝エンジンは builtin worker を焼かない
 			}
 			b.onResolve({ filter: /^(common|native-bucket)\// }, a => { if (a.pluginData === "alias") return null; const [pk, ...rest] = a.path.split("/"); return b.resolve("./" + rest.join("/"), { kind: a.kind, resolveDir: path.join(ROOT, "packages", pk, "src"), pluginData: "alias" }); });
-			b.onResolve({ filter: /^#tile-formats$/ }, () => ({ path: path.join(ROOT, "packages/ortho-core/src/tileformats-mlt.js") }));
+			b.onResolve({ filter: /^#tile-formats$/ }, () => ({ path: path.join(ROOT, "packages/ortho-core/src/tileformats-mlt.ts") }));
 			b.onResolve({ filter: /^#pointcloud-formats$/ }, () => ({ path: path.join(ROOT, "packages/tile-formats/src/pointcloud.ts") }));
 			b.onLoad({ filter: /\.(m?js|ts)$/ }, a => {
 				if (a.path.includes("node_modules")) return null;
