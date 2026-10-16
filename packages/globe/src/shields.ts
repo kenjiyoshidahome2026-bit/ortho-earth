@@ -1,11 +1,17 @@
 // 道路標識のベクター描画。ラベルcanvas（DPRスケール済み）へ viewBox 座標で直接描く＝
 // 焼き付け画像を挟まず常にシャープ。国道おにぎり／高速ナンバリング盾。番号ごとにキャッシュ。
+import type { LabelShield } from "@ortho-earth/core/labels";
+
+/** 描く先（注記層の 2D 文脈） */
+type Ctx = Parameters<LabelShield["draw"]>[0];
+/** 標識（w×h の CSS px・draw は錨の中心へ） */
+interface Shield { w: number; h: number; draw(g: Ctx, cx: number, cy: number): void }
 
 // 国道おにぎり標識：番号(2901)は素の数字でなく本物の標識で描く。
 const SHIELD_H = 20, SHIELD_VW = 455, SHIELD_VH = 435, SHIELD_W = Math.round(SHIELD_H * SHIELD_VW / SHIELD_VH);
 const SHIELD_PATH = new Path2D("m227 425c25 0 48-10 66-26 69-69 120-155 146-249 3-8 5-19 5-30 0-45-31-83-74-94-46-11-92-17-143-17s-97 6-143 17c-43 11-74 49-74 94 0 11 2 21 5 30 26 94 77 180 146 249 18 16 41 26 66 26z");
-const shieldCache = new Map();
-function kokudoShield(num) {
+const shieldCache = new Map<string, Shield>();
+function kokudoShield(num: string): Shield {
 	let s = shieldCache.get(num);
 	if (s) return s;
 	s = { w: SHIELD_W, h: SHIELD_H, draw(g, cx, cy) {
@@ -23,8 +29,8 @@ function kokudoShield(num) {
 }
 // 高速道路ナンバリング（E1・E1A・E88・C4・CA…）：緑の角丸長方形＋白フチ＋白文字。実標識に準拠。
 const EXP_H = 18, EXP_VW = 220, EXP_VH = 150, EXP_W = Math.round(EXP_H * EXP_VW / EXP_VH);
-const expCache = new Map();
-function expresswayShield(text) {
+const expCache = new Map<string, Shield>();
+function expresswayShield(text: string): Shield {
 	let s = expCache.get(text);
 	if (s) return s;
 	s = { w: EXP_W, h: EXP_H, draw(g, cx, cy) {
@@ -43,8 +49,8 @@ function expresswayShield(text) {
 // 測量点：地形図の作法どおり地物別の記号＋標高値。公式コード表（optbv_featurecodes）に厳密準拠：
 // 7102=三角点△ / 7201・7221=標高点・ / 7103=水準点◎ / 7101=電子基準点◇。色は等高線と同じ茶(セピア)。
 const SURVEY_COLOR = "#6b4d2e";
-const surveyCache = new Map();
-function surveySymbol(code, num) {
+const surveyCache = new Map<string, Shield>();
+function surveySymbol(code: number, num: string): Shield {
 	const key = code + ":" + num;
 	let s = surveyCache.get(key); if (s) return s;
 	const R = 5;                                  // 記号の半径(px)
@@ -72,13 +78,13 @@ function surveySymbol(code, num) {
 // Material Icons "flight" のパス（viewBox 24）＝上向きの飛行機。
 const PLANE_PATH = new Path2D("M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z");
 const PLANE_S = 13;                             // 記号サイズ(px)
-const airportCache = new Map();
-function airportSymbol(text, markOnly) {
+const airportCache = new Map<string, Shield>();
+function airportSymbol(text: string, markOnly: boolean): Shield {
 	const key = (markOnly ? "#" : "") + text;    // markOnly=マークのみ（低ズームの静的台帳。名称はタイル注記が出るz11+から）
 	let s = airportCache.get(key); if (s) return s;
 	const tw = markOnly ? 0 : 3 + text.length * 10;   // 名称の概算幅（10px 和文）
 	s = { w: PLANE_S + tw, h: PLANE_S, draw(g, cx, cy) {
-		const x0 = cx - s.w / 2;                 // 記号+名称ブロック全体をアンカー中心に
+		const x0 = cx - s!.w / 2;                 // 記号+名称ブロック全体をアンカー中心に
 		g.save();
 		g.translate(x0, cy - PLANE_S / 2); g.scale(PLANE_S / 24, PLANE_S / 24);
 		g.lineJoin = "round"; g.strokeStyle = "#f6f6f4"; g.lineWidth = 3.5; g.stroke(PLANE_PATH);   // 地色ハロー
@@ -96,8 +102,8 @@ function airportSymbol(text, markOnly) {
 // 道の駅（412・テキストは常に固有名なしの「道の駅」）：地理院地図の記号に倣った紺の角丸正方形＋
 // 白のピクトグラム（ポプラ並木・家の輪郭・中に人・地面の帯）。IC/SA/PA も同じ 412 だがテキストが違うので通常テキストのまま。
 const ME_S = 16, ME_BLUE = "#2e4d82";
-let michiCache = null;
-function michiNoEkiSign() {
+let michiCache: Shield | null = null;
+function michiNoEkiSign(): Shield {
 	if (michiCache) return michiCache;
 	michiCache = { w: ME_S, h: ME_S, draw(g, cx, cy) {
 		g.save();
@@ -118,7 +124,7 @@ function michiNoEkiSign() {
 	} };
 	return michiCache;
 }
-export function shieldFor(L) {   // 道路ON時のみ抽出済み。2901=国道おにぎり／2903・2904=高速ナンバリング盾
+export function shieldFor(L: { code?: number; text: string; markOnly?: boolean }): Shield | null {   // 道路ON時のみ抽出済み。2901=国道おにぎり／2903・2904=高速ナンバリング盾
 	if (L.code === 2901) return kokudoShield(L.text);
 	if (L.code === 2903 || L.code === 2904) return expresswayShield(L.text);
 	if (L.code === 7102 || L.code === 7201 || L.code === 7221) return surveySymbol(L.code, L.text);   // 測量点（三角点△/標高点・/火山標高）。水準点7103・電子基準点7101は膨大でクラッタ＝出さない

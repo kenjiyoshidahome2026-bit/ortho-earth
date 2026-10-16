@@ -6,17 +6,25 @@
 //   ・color-relief-opacity は画像タイル層の不透明度（タイルを作り直さない）。resampling（linear/nearest）は読まない（画素ごとに色を引く）。
 // 隣のタイルは要らない（勾配を取らない）＝hillshade より単純。
 import { evalExpr } from "@ortho-earth/core";
-import { createDemTiles } from "./demtiles.js";
+import type { DemSpecInput, ExprContext } from "@ortho-earth/core";
+import { createDemTiles } from "./demtiles.ts";
+import type { DemFetch, DemTiles } from "./demtiles.ts";
+
+type GlobalState = ExprContext["gs"];
+/** 段の表（reliefRamp の戻り） */
+export interface ReliefRamp { elev: Float64Array; rgba: Float32Array; n: number }
+/** port プロバイダの切り分けの窓 */
+export interface ReliefStats { req: number; ok: number; empty: number; err: number; last: string | null; stops: number; lastErr?: string }
 
 const INTERP = new Set(["interpolate", "interpolate-hcl", "interpolate-lab"]);
-const at = (h, gs) => ({ zoom: 0, props: {}, geom: null, vars: { elevation: h }, gs, origin: "ml" });   // gs＝地図の global-state（#173 段 3b）
+const at = (h: number, gs: GlobalState): ExprContext => ({ zoom: 0, props: {}, geom: null, vars: { elevation: h }, gs, origin: "ml" });   // gs＝地図の global-state（#173 段 3b）
 
 // 段の表：{ elev: Float64Array（昇順）, rgba: Float32Array（事前乗算 0〜1・段ごとに 4）, n }
-export function reliefRamp(expr, gs) {
-	const elev = [], rgba = [];
+export function reliefRamp(expr: unknown, gs?: GlobalState): ReliefRamp {
+	const elev: number[] = [], rgba: number[] = [];
 	if (Array.isArray(expr) && INTERP.has(expr[0])) {
 		for (let i = 3; i + 1 < expr.length; i += 2) {
-			const h = +expr[i], c = evalExpr(["to-rgba", expr], at(h, gs));   // 段の標高で式を評価＝その段の色（MapLibre と同じ＝段の間の曲線は使わない）
+			const h = +expr[i], c = evalExpr<number[] | null>(["to-rgba", expr], at(h, gs));   // 段の標高で式を評価＝その段の色（MapLibre と同じ＝段の間の曲線は使わない）
 			if (!Number.isFinite(h) || !Array.isArray(c)) continue;
 			const a = c[3] ?? 1;
 			elev.push(h); rgba.push(c[0] / 255 * a, c[1] / 255 * a, c[2] / 255 * a, a);
@@ -28,10 +36,10 @@ export function reliefRamp(expr, gs) {
 }
 
 // 標高 h の色（事前乗算 0〜1）。範囲の外は端の色・NaN（無効）は透明
-export function reliefAt(R, h) {
+export function reliefAt(R: ReliefRamp, h: number): number[] {
 	const { elev, rgba, n } = R;
 	if (!(h === h)) return [0, 0, 0, 0];
-	const pick = i => [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]];
+	const pick = (i: number) => [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]];
 	if (h <= elev[0]) return pick(0);
 	if (h >= elev[n - 1]) return pick(n - 1);
 	let l = 0, r = n - 1;
@@ -41,7 +49,7 @@ export function reliefAt(R, h) {
 }
 
 // 1 タイルの色（h＝標高の画素・n×n）→ RGBA（事前乗算を戻した 0〜255＝ImageData）
-function reliefTile(h, n, R) {
+function reliefTile(h: Float32Array, n: number, R: ReliefRamp) {
 	const out = new Uint8ClampedArray(n * n * 4);
 	for (let i = 0; i < n * n; i++) {
 		const [r, g, b, a] = reliefAt(R, h[i]);
@@ -52,14 +60,16 @@ function reliefTile(h, n, R) {
 
 // port プロバイダ。dem＝raster-dem の spec（tiles 済み）・color＝color-relief-color の式・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, stats, close }
 // 色を変える時は呼び手が作り直す（setPaintProperty → 層を載せ直す＝hillshade と同じ）
-export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null, tiles = null, gs = undefined }) {
+export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null, tiles = null, gs = undefined }: {
+	dem: DemSpecInput | null | undefined; color: unknown; fetchFn?: DemFetch; name?: string; attribution?: string | null; tiles?: DemTiles | null; gs?: GlobalState;
+}): { port: MessagePort; stats: ReliefStats; close(): void } {
 	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, R = reliefRamp(color, gs);
 	const ch = new MessageChannel(), port = ch.port1;
-	const stats = { req: 0, ok: 0, empty: 0, err: 0, last: null, stops: R.n };   // 切り分けの窓（dbgHost.__colorRelief）
-	const acs = new Map();
+	const stats: ReliefStats = { req: 0, ok: 0, empty: 0, err: 0, last: null, stops: R.n };   // 切り分けの窓（dbgHost.__colorRelief）
+	const acs = new Map<number, boolean>();
 	port.postMessage({ type: "info", info: { tileSize: spec.tileSize, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
 	port.onmessage = async e => {
-		const { id, z, x, y, abort } = e.data || {};
+		const { id, z, x, y, abort } = (e.data || {}) as { id: number; z: number; x: number; y: number; abort?: boolean };
 		if (abort) { acs.delete(id); return; }
 		acs.set(id, true); stats.req++; stats.last = `${z}/${x}/${y}`;
 		try {
@@ -68,7 +78,7 @@ export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => f
 			if (!t) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
 			const bitmap = await createImageBitmap(new ImageData(reliefTile(t.h, t.n, R), t.n, t.n), { premultiplyAlpha: "none" });
 			stats.ok++; port.postMessage({ id, bitmap }, [bitmap]);
-		} catch (err) { stats.err++; stats.lastErr = String(err?.message || err); port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
+		} catch (err) { stats.err++; stats.lastErr = String((err as Error)?.message || err); port.postMessage({ id, bitmap: null, error: String((err as Error)?.message || err) }); }
 		finally { acs.delete(id); }
 	};
 	return { port: ch.port2, stats, close() { port.close(); ch.port2.close(); } };

@@ -12,3 +12,11 @@ export function filterZoom(tileZ: number, maxzoom: number, camZoom: number): num
 export function hasZoom(e: unknown): boolean;
 /** タイルの鍵（z/x/y） */
 export function tileKey(t: TileXYZ): string;
+/** 輪の座標（平坦な [x,y,…]・core の解読＝Int32Array か枠で切った後＝Float64Array） */
+export type RingCoords = Int32Array | Float64Array;
+/** 輪の符号付き面積の 2 倍（開いた輪） */
+export function ringArea2(r: ArrayLike<number>): number;
+/** 外周と穴に分ける（MapLibre の classifyRings）＝[外周, 穴…] の並び（開いた輪） */
+export function classifyRings(geom: { coords: RingCoords; ends: number[] }): RingCoords[][];
+/** 輪をタイルの枠 [0, E]² で切る（開いた Float64Array か null） */
+export function clipRing(r: ArrayLike<number>, E: number): Float64Array | null;

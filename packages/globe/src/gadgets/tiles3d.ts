@@ -12,7 +12,7 @@
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.js";   // 当たりと feature state の色（W7）
 import { featureProperties } from "../mesh-features.js";
-import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";

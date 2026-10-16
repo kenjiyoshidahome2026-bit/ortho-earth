@@ -167,7 +167,7 @@
 				"why": "負債：起動ログの文言"
 			}
 		},
-		"packages/globe/src/shields.js": {
+		"packages/globe/src/shields.ts": {
 			"kokudo": {
 				"n": 2,
 				"why": "負債（地域）：国道の標識（おにぎり）の描き手 kokudoShield。日本の地域パックの記号へ移す"

@@ -3,14 +3,29 @@
 // 読み口が WASM＝put の時に loadTileFormat を起こしておく＝済んでいれば同期）。持ち主（owner＝"vtdraw"／"vtextrude"）ごとに数え、両方が捨てたら消える。
 // 予算を超えたら古い順に捨てる（捨てた分は答えに出ない＝maplibre-compat.md §4）。
 import { decodeTile, loadTileFormat } from "@ortho-earth/core/decode";
+import type { DecodedTile } from "@ortho-earth/core/decode";
+
+interface RawEntry { sid: string; key: string; ab: ArrayBuffer; enc: string; bytes: number; used: number; data: DecodedTile | null; owners: Set<string> }
+/** 生のタイルの控え（createRawStore の戻り） */
+export interface RawStore {
+	put(owner: string, sid: string, key: string, ab: ArrayBuffer, enc?: string): void;
+	drop(owner: string, sid: string, key: string): void;
+	dropSource(owner: string, sid: string): void;
+	has(sid: string, key: string): boolean;
+	keys(sid: string): string[];
+	/** 解読済み（解けない＝{}・無い＝null） */
+	decoded(sid: string, key: string): DecodedTile | null;
+	stats(): { tiles: number; bytes: number; decoded: number };
+	clear(): void;
+}
 
 const RAW_Q_BUDGET = 24 << 20;   // 24 MiB（vtdraw の RAW_BUDGET と同じ桁＝渋谷 z14 の建物タイルで約 200 枚）
 
-export function createRawStore(budget = RAW_Q_BUDGET) {
-	const tiles = new Map();   // "sid|key" → { sid, key, ab, enc, bytes, used, data, owners: Set }
+export function createRawStore(budget = RAW_Q_BUDGET): RawStore {
+	const tiles = new Map<string, RawEntry>();   // "sid|key" → { sid, key, ab, enc, bytes, used, data, owners: Set }
 	let total = 0, clock = 0;
-	const kOf = (sid, key) => `${sid}|${key}`;
-	const del = (k, e) => { tiles.delete(k); total -= e.bytes; };
+	const kOf = (sid: string, key: string) => `${sid}|${key}`;
+	const del = (k: string, e: RawEntry) => { tiles.delete(k); total -= e.bytes; };
 	const evict = () => {
 		if (total <= budget) return;
 		const cand = [...tiles].sort((a, b) => a[1].used - b[1].used);
@@ -28,12 +43,12 @@ export function createRawStore(budget = RAW_Q_BUDGET) {
 		drop(owner, sid, key) { const k = kOf(sid, key), e = tiles.get(k); if (!e) return; e.owners.delete(owner); if (!e.owners.size) del(k, e); },
 		dropSource(owner, sid) { for (const [k, e] of [...tiles]) if (e.sid === sid) { e.owners.delete(owner); if (!e.owners.size) del(k, e); } },
 		has: (sid, key) => tiles.has(kOf(sid, key)),
-		keys(sid) { const o = []; for (const e of tiles.values()) if (e.sid === sid) o.push(e.key); return o; },
+		keys(sid) { const o: string[] = []; for (const e of tiles.values()) if (e.sid === sid) o.push(e.key); return o; },
 		// 解読済み（全 source-layer・遅延＝最初の問い合わせで解く）。解けない（形式の読み口が未着・壊れたバイト）は {}
 		decoded(sid, key) {
 			const e = tiles.get(kOf(sid, key)); if (!e) return null;
 			e.used = ++clock;
-			if (!e.data) { try { e.data = decodeTile(new Uint8Array(e.ab), null, e.enc) || {}; } catch (err) { console.warn("[vtraw] decode", sid, key, err?.message || err); e.data = {}; } }
+			if (!e.data) { try { e.data = decodeTile(new Uint8Array(e.ab), null, e.enc) || {}; } catch (err) { console.warn("[vtraw] decode", sid, key, (err as Error)?.message || err); e.data = {}; } }
 			return e.data;
 		},
 		stats: () => ({ tiles: tiles.size, bytes: total, decoded: [...tiles.values()].filter(e => e.data).length }),
