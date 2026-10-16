@@ -3,7 +3,9 @@
 // テーマは view.worldHypso に同名キーで部分上書き（palettes.js の台帳）＝未指定キー＝この既定
 // ＝mono(knob無し)は従来出力と一致・topo の「海だけ差し替え」も per-key マージで自動成立。
 // 標高ブレークポイント(400/1300/2800/4800m)・脱彩度・snow/arid の式はテーマ対象外＝シェーダ側に残る。
-export const WORLD_PAL_DEFAULT = {
+/** 全球ハイプソの色（各キーは [r,g,b]・grat だけ [r,g,b,α]） */
+export type WorldPal = Record<string, number[]>;
+export const WORLD_PAL_DEFAULT: WorldPal = {
 	sea:      [0.757, 0.847, 0.891],   // #c1d8e3（GLOBE u_seaC と湖レイヤは常に同色＝面一の水面）
 	lowHumid: [0.582, 0.716, 0.531],   // 低地・湿潤＝緑
 	lowArid:  [0.839, 0.796, 0.639],   // 低地・乾燥＝砂（cross-blend先）
@@ -20,7 +22,7 @@ export const WORLD_PAL_DEFAULT = {
 // 正本はここ 1 本＝ortho-japan（palettes.js MAP_THEMES[].worldHypso）と apps/equal（themes.js）が同じ値を引く。
 // 「japan で定義した night/sepia を equal でも表現する」＝色の定義を二度書かないための引き上げ（2026-09-18 本人裁定）。
 // 未指定キーは既定のまま＝mono は knob 無し（null）＝従来出力そのもの・topo は「海だけ差し替え」が per-key マージで成立。
-export const WORLD_PAL_THEMES = {
+export const WORLD_PAL_THEMES: Record<string, Partial<WorldPal> | null> = {
 	mono: null,   // 既定＝WORLD_PAL_DEFAULT（自然色・NE 風）
 	// dark＝夜の地球儀：海は style の海 #090c12 同族の深い青黒・陸は沈めた緑灰→暗砂→明るめの峰（「高いほど明るい」＝夜の反転則）
 	dark: {
@@ -47,15 +49,16 @@ export const WORLD_PAL_THEMES = {
 	},
 };
 
-export function resolveWorldPal(knob) {   // per-key マージ。knob=view.worldHypso（clim 等の異種キーは素通し無視）
-	const p = {};
-	for (const k in WORLD_PAL_DEFAULT) p[k] = (knob && knob[k]) || WORLD_PAL_DEFAULT[k];
+/** per-key マージ（knob＝view.worldHypso）。 */
+export function resolveWorldPal(knob: Partial<WorldPal> | Record<string, unknown> | null | undefined): WorldPal {   // per-key マージ。knob=view.worldHypso（clim 等の異種キーは素通し無視）
+	const p: WorldPal = {};
+	for (const k in WORLD_PAL_DEFAULT) p[k] = ((knob && knob[k]) as number[] | undefined) || WORLD_PAL_DEFAULT[k];
 	return p;
 }
 // 段彩の濃さ（view.worldHypsoOpacity・0..1）＝陸の色（低地〜雪）を地色 land へ寄せる。海・海面下の締め・レチクルは触らない＝
 // 0 で「地色の陸＋陰影だけ」（map.setOpacity({ hypso })・2026-10-01）。uniform を足さずパレットで表す＝両レンダラ・全パスで同じ色
 const LAND_KEYS = ["lowHumid", "lowArid", "midHumid", "midArid", "ramp1", "ramp2", "peak", "snow"];
-export function fadeWorldPal(pal, opacity, land) {
+export function fadeWorldPal(pal: WorldPal, opacity: number | null | undefined, land: ArrayLike<number> | null | undefined): WorldPal {
 	const a = Math.max(0, Math.min(1, opacity ?? 1)); if (a >= 1 || !land) return pal;
 	const out = { ...pal };
 	for (const k of LAND_KEYS) out[k] = [0, 1, 2].map(i => land[i] + (pal[k][i] - land[i]) * a);

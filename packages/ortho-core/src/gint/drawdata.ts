@@ -3,17 +3,35 @@
 // 単位は device px 一本（s.width/height は device px、線幅は ×s.dpr 済みで返す）。
 // 脱シングルトン（§10.1）：状態は第一引数 s で受ける＝GL2 側は state.js の singleton を渡し（挙動不変）、
 // WebGPU 側はエンジンのビュー状態 V（computeDrawData）/ 層状態 L（zoomInRange）を渡す。
-import { cameraState, unproject, lonlatTo3D } from '../camera.js';
-import * as mat from '../mat.js';
-import { SUB_S0, SUB_NB } from './utility.js';
+import { cameraState, unproject, lonlatTo3D } from '../camera.ts';
+import * as mat from '../mat.ts';
+import { SUB_S0, SUB_NB } from './utility.ts';
+import type { CameraPose, CameraState } from '../camera.ts';
+
+/** 描画の入力（cam＝カメラ・他＝スタイルのノブ） */
+export interface DrawInput {
+	cam: CameraPose; lineWidth?: number | null; fillColor?: unknown; styleTable?: unknown; dashTable?: unknown; maskColor?: unknown; hiliteColor?: unknown; hiliteWidth?: number | null; ptRadius?: number | null;
+	minZoom?: number | null; maxZoom?: number | null; outlineZoom?: number | null; moveBudget?: number | null; _forceLow?: unknown;
+}
+/** ビューの状態（width/height＝device px・dpr）。副作用＝cam と lastViewBbox */
+export interface ViewState { width: number; height: number; dpr: number; cam?: CameraState | null; lastViewBbox?: number[] | null }
+export interface DrawData {
+	mvp: Float32Array; eye: number[]; origin: number[]; clipT: number[]; originZr: number; originPt: number[]; zoom: number;
+	lineWidth: number; fillColor: unknown; styleTable: unknown; dashTable: unknown; maskColor: unknown; hiliteColor: unknown; hiliteWidth: number; ptRadius: number;
+	outlineZoom: number | null | undefined; moveBudget: number | null | undefined; _forceLow: unknown;
+	farAxes?: number[]; farScale?: number[]; lodRank?: number; near?: number[];
+}
+/** 地形の依存（細分の計画が読む分） */
+export interface SubDep { noSub?: boolean; elevScale?: number; hasElev?: boolean; meshG?: number; meshQ?: ArrayLike<number> | null }
+export interface SubPlan { N: Int32Array; skipE7: number; total: number }
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
 const SE = 1e7;
-function toMortonX(lon) { return (Math.round((lon + 180) * SE)) >>> 0; }
-function toMortonY(lat) { return (Math.round((lat +  90) * SE)) >>> 0; }
+function toMortonX(lon: number): number { return (Math.round((lon + 180) * SE)) >>> 0; }
+function toMortonY(lat: number): number { return (Math.round((lat +  90) * SE)) >>> 0; }
 
 // 現ズームが実描画レンジ内か（データ導出レンジ × style 指定レンジの積）。s＝minZoom/maxZoom を持つ状態（層）。
-export function zoomInRange(s, data) {
+export function zoomInRange(s: { minZoom?: number | null; maxZoom?: number | null }, data: { cam: { zoom: number }; minZoom?: number | null; maxZoom?: number | null }): boolean {
 	const zoom = data.cam.zoom;
 	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
 	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
@@ -23,7 +41,7 @@ export function zoomInRange(s, data) {
 // data: { cam, lineWidth?, fillColor?, styleTable?, dashTable?, maskColor?, ptRadius?, minZoom?, maxZoom? }
 // s＝width/height/dpr を持つビュー状態。副作用：s.cam（identify の unproject 用）と s.lastViewBbox
 // （可視カリング/JS fallback 絞り込み）を更新。
-export function computeDrawData(s, data) {
+export function computeDrawData(s: ViewState, data: DrawInput): DrawData {
 	// ── site 3：cam → mvp/eye/origin（v1 の d3 lastProj の建て替え）──
 	const st = cameraState(data.cam, s.width, s.height);
 	s.cam = st;                                    // identify の unproject 用（site 4）
@@ -40,7 +58,7 @@ export function computeDrawData(s, data) {
 	const T = lonlatTo3D(origin[0], origin[1]);
 	const clipT = mat.transform(st.mvp, [T[0], T[1], T[2], 1]);
 	const originZr = mat.dot(T, st.eye) - 1;
-	const drawData = {
+	const drawData: DrawData = {
 		mvp:        st.mvp instanceof Float32Array ? st.mvp : Float32Array.from(st.mvp),
 		eye:        st.eye,
 		origin, clipT, originZr,
@@ -89,7 +107,7 @@ export function computeDrawData(s, data) {
 			// 地表（経度×cosφ, 緯度）＝J·画面px、J＝[[ax,bx],[ay,by]] → 東(1,0)＝(by,−ay)/det・北(0,1)＝(−bx,ax)/det。NDC は y 上向き
 			const det = ax * by - bx * ay;
 			if (Math.abs(det) > 0) {
-				const nd = (px, py) => { const x = px * 2 / s.width, y = -py * 2 / s.height, l = Math.hypot(x, y); return l > 0 ? [x / l, y / l] : null; };
+				const nd = (px: number, py: number): number[] | null => { const x = px * 2 / s.width, y = -py * 2 / s.height, l = Math.hypot(x, y); return l > 0 ? [x / l, y / l] : null; };
 				const E = nd(by / det, -ay / det), N = nd(-bx / det, ax / det);
 				if (E && N) { drawData.farAxes = [E[0], E[1], N[0], N[1]]; drawData.farScale = [cl, 1]; }
 			}
@@ -156,11 +174,11 @@ export const SUB_MAX = 128;             // 1辺あたりのサブ区間上限（
 export const SUB_BUDGET = 1_500_000;    // 1層1フレームのサブ区間予算（Σ 複製行数×N[b]）。超えたら全バケット半減（下位から 1 へ落ち skip が上がる）
 // moving＝カメラ運動中は N を半分（区間は 2 進格子＝粗い方が細かい方の部分集合＝静止で「増える」だけ・滑らない）
 // ＝隠線パスの省略と同じ「移動中の描画予算」の作法（実測 z8.9 チルト admin0 世界図で細分パスが gpuGint +6ms）。
-export function subPlan(dep, subRuns, moving = false) {   // subRuns[b] = [[start,count],…]（可視チャンクの複製行区間）
+export function subPlan(dep: SubDep | null | undefined, subRuns: readonly (readonly (readonly number[])[])[] | null | undefined, moving = false): SubPlan {   // subRuns[b] = [[start,count],…]（可視チャンクの複製行区間）
 	const N = new Int32Array(SUB_NB).fill(1);
-	const plan = { N, skipE7: 0, total: 0 };
-	if (!dep || dep.noSub || !(dep.elevScale > 0) || !dep.hasElev || !(dep.meshG > 1) || !dep.meshQ) return plan;
-	const cell = Math.min(dep.meshQ[2], dep.meshQ[3]) / (dep.meshG - 1);   // 地形メッシュ 1 セル (deg・小さい側)
+	const plan: SubPlan = { N, skipE7: 0, total: 0 };
+	if (!dep || dep.noSub || !(dep.elevScale! > 0) || !dep.hasElev || !(dep.meshG! > 1) || !dep.meshQ) return plan;
+	const cell = Math.min(dep.meshQ[2], dep.meshQ[3]) / (dep.meshG! - 1);   // 地形メッシュ 1 セル (deg・小さい側)
 	if (!(cell > 0)) return plan;
 	const cnt = new Float64Array(SUB_NB);
 	for (let b = 0; b < SUB_NB; b++) {
@@ -171,7 +189,7 @@ export function subPlan(dep, subRuns, moving = false) {   // subRuns[b] = [[star
 		for (const r of (subRuns?.[b] ?? [])) cnt[b] += r[1];
 	}
 	// 予算＝細分パスの実費（N≥2 のバケットだけ。N=1 に落ちたバケットはメイン描画へ戻る＝費用は従来どおり）
-	const cost = () => { let t = 0; for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) t += cnt[b] * N[b]; return t; };
+	const cost = (): number => { let t = 0; for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) t += cnt[b] * N[b]; return t; };
 	let total = cost();
 	while (total > SUB_BUDGET) {
 		let any = false;
@@ -184,10 +202,10 @@ export function subPlan(dep, subRuns, moving = false) {   // subRuns[b] = [[star
 	return plan;
 }
 // ハイライト（1地物・複製行を使わず originals を一様インスタンス）用：層の最長辺スパンから N を 1 本決める
-export function drapeSubs(dep, runs) {
-	const n = runs.length, out = new Array(n).fill(1);
-	if (!dep || dep.noSub || !(dep.elevScale > 0) || !dep.hasElev || !(dep.meshG > 1) || !dep.meshQ) return out;
-	const cx = dep.meshQ[2] / (dep.meshG - 1), cy = dep.meshQ[3] / (dep.meshG - 1);   // 地形メッシュ 1 セル (deg)
+export function drapeSubs(dep: SubDep | null | undefined, runs: readonly (readonly number[])[]): number[] {
+	const n = runs.length, out: number[] = new Array<number>(n).fill(1);
+	if (!dep || dep.noSub || !(dep.elevScale! > 0) || !dep.hasElev || !(dep.meshG! > 1) || !dep.meshQ) return out;
+	const cx = dep.meshQ[2] / (dep.meshG! - 1), cy = dep.meshQ[3] / (dep.meshG! - 1);   // 地形メッシュ 1 セル (deg)
 	if (!(cx > 0) || !(cy > 0)) return out;
 	let total = 0;
 	for (let i = 0; i < n; i++) {
