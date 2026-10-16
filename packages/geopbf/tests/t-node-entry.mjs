@@ -5,6 +5,7 @@
 //   ・createGeopbf(undefined, { worker:false }) は各インスタンスへ worker:false が渡る（旧＝クラス静的な配線が勝って worker 経路に固定）
 //   ・geopbf(geojson) が gint を main スレッドの topology で焼く（encoder worker が作れない時の予備が Node でも効く）
 //   ・geopbf(ArrayBuffer)・geopbf(GeoPBF)・geopbf(Feature)・geopbf("https://…") の失敗（throw）
+//   ・段 4 の入口修正：geopbf([Feature…])・geopbf(名前の無い Blob) が中身を読む（旧＝空の GeoPBF）・mesh()（arc 無し）が MultiLineString を返す（旧＝TypeError）
 if (typeof globalThis.ImageData !== "undefined") { console.error("この検定は ImageData スタブ無しで走らせる"); process.exit(1); }
 import { createGeopbf, geopbf as legacy } from "../src/index.ts";
 import { GeoPBF } from "../src/pbf.ts";
@@ -43,6 +44,23 @@ ok(p2.length === 2 && !p2.unPackGint, "geopbf(ArrayBuffer, { gint:false }) が N
 ok((await g(p1)) === p1, "geopbf(GeoPBF) はそのまま返す");
 ok((await g({ type: "Feature", geometry: { type: "Point", coordinates: [1, 2] }, properties: {} }, { gint: false })).length === 1, "geopbf(Feature) は 1 件の FC に包む");
 { const e = await g({ type: "FeatureCollection", features: [] }); ok(e instanceof GeoPBF && e.length === 0, "0 件の FC は空の GeoPBF（文字列入力だけが throw）"); }
+
+// 3b) 段 4 の入口修正（旧＝3 つとも黙って空か TypeError）
+{
+	const fa = await g(clone().features, { gint: false });
+	ok(fa instanceof GeoPBF && fa.length === 2 && fa.getProperties(1).name === "b", "geopbf([Feature…]) は FeatureCollection に包んで読む（旧＝空の GeoPBF）");
+	const mixed = await g([...clone().features, { type: "Point", coordinates: [0, 0] }, null], { gint: false });
+	ok(mixed.length === 2, "配列の Feature でない要素は落とす");
+	const none = await g([], { gint: false });
+	ok(none instanceof GeoPBF && none.length === 0, "空の配列は空の GeoPBF（0 件の FC と同じ）");
+	const fb = await g(new Blob([bytes.slice(0)]), { gint: false });
+	ok(fb instanceof GeoPBF && fb.length === 2 && fb.getProperties(0).n === 1, "geopbf(名前の無い Blob) は GeoPBF のバイト列として読む（旧＝空の GeoPBF）");
+	const m = p1.mesh();
+	ok(m.type === "MultiLineString" && m.coordinates.length === 1 && m.coordinates[0].length >= 2, `mesh() は共有の辺を MultiLineString で返す（旧＝self.arcCoords の TypeError）: ${JSON.stringify(m.coordinates)}`);
+	const xs = m.coordinates[0].map(c => c[0]);
+	ok(xs.every(x => Math.abs(x - 1) < 1e-6), "共有の辺は x=1 の線");
+	ok(p1.mesh({ arc: true }).arcs.length === 1, "mesh({ arc: true }) は今までどおり arc の番号");
+}
 
 // 4) worker:false の入口
 const g2 = createGeopbf(undefined, { worker: false });

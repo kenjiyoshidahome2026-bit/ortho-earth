@@ -79,8 +79,8 @@ export function mesh(self: GeoPBFBase, opts: TopoFilterOptions = {}): MultiLineS
 	// Keep only arcs shared by exactly two polygons.
 	const arcs = findArcs(self, opts.filter).filter(([_, t]) => t.length === 2).map(t => t[0]);
 	if (opts.arc) return { type: "Topology", arcs };
-	// TODO(ts): fixed in the follow-up entry-fix PR — arcCoords is a module function below (arcCoords(self, id)), not a method: this throws a TypeError whenever an arc is shared
-	const coordinates = arcs.map(id => (self as GeoPBFBase & { arcCoords(id: number): Position[] }).arcCoords(id));
+	// arcCoords は下のモジュール関数（旧＝self.arcCoords(id) と呼んで共有の arc が 1 本でもあれば TypeError・段 4 の入口修正）
+	const coordinates = arcs.map(id => arcCoords(self, id));
 	return { type: types[3], coordinates } as MultiLineString;
 }
 
