@@ -405,15 +405,11 @@ export interface Gadgets {
 	hint(): unknown;
 	/** 地域の全体へ戻るボタン（1.2.0〜・着地点/顔/札は地域宣言 home・宣言が無い地域＝載らない）。J キー */
 	home(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
-	/** @deprecated 1.2.0〜 home() を使う（同じもの）。次の大版で撤去 */
-	japan(opts?: { view?: number[]; icon?: string; label?: string; id?: string }): unknown;
 	qr(): { open(): void; close(): void };
 	print(): { open(): void; close(): void };
 	cpos(): unknown;
 	/** 建物3D データ管理（先読み/削除）。mesh:false では載らない（1.2.0〜・アイコンは地域の宣言＝日本は PLATEAU 公式ロゴ） */
 	mesh(): unknown;
-	/** @deprecated 1.2.0〜 mesh() を使う（同じもの）。次の大版で撤去 */
-	plateau(): unknown;
 	/**
 	 * GIS ファイルのドラッグ&ドロップ受け口（geopbf() が読める全形式）。受け口は mapEl のみ（ページ他所は自前）。既定＝geopbf(file)→applyGintData
 	 * （単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。onLoad(pbf,file)＝読込成功の通知（1.0.5〜）。loadFile を渡すと既定ローダを置換
@@ -1035,7 +1031,7 @@ export interface SearchOptions {
 	/** 範囲 → 着地（既定＝map.cameraForBounds） */ fit?: (bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null;
 	narrow?: boolean;
 }
-/** COPC の点群のオプション（map.addCOPC） */
+/** COPC の点群のオプション（map.addPointCloud） */
 export interface COPCOptions {
 	/** 手綱の id（既定＝自動） */ id?: string;
 	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation";

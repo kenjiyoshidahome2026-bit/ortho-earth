@@ -79,7 +79,6 @@ export function installGadgets(map, live, {
 		if (!meshOn) { console.warn("[mesh] opts.mesh=false = feature disabled; gadget not mounted"); return; }
 		return meshGadget.call(this, { onOpen: meshMgr.openDb, icon: REGION_BLD_ICON, labels: REGION_BLD_LABELS, ...opts });
 	});
-	map.gadget("plateau", function (opts) { return map.gadget.mesh.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
 	map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 		if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
 		return paletteGadget.call(this, { current: live.themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => live.themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）

@@ -1,5 +1,5 @@
 // ガジェット：建物3Dデータ管理ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
-// map.gadget.mesh() で搭載する（旧名 map.gadget.plateau() は非推奨の別名・v1 ortho-map の gadget 作法＝this が map）。
+// map.gadget.mesh() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // アイコンは地域宣言が持つ（日本＝Project PLATEAU 公式ロゴマーク・@ortho-earth/jp の buildings.icon）。宣言が無い地域は汎用の建物の形。
 // DOM id は #plateau-btn のまま（quiet-mono と利用者の CSS が当てる公開面・2026-09-22 の改名でも据え置き）。
 // 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は meshdb.js の領分。

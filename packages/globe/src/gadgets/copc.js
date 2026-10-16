@@ -1,5 +1,5 @@
 // ガジェット：点群（COPC＝Cloud Optimized Point Cloud・.copc.laz）を範囲読みで直に流す（#178・maplibre-gl-lidar 相当・変換無し・サーバー無し）。
-//   map.addPointCloud(url | File, opts)（＝addCOPC）/ ?copc=<URL> / .las・.laz のドロップ。
+//   map.addPointCloud(url | File, opts) / ?copc=<URL> / .las・.laz のドロップ。
 //   普通の LAS/LAZ（COPC でない・点群計画 段 3-3）は worker が丸ごと読んでその場で八分木を作る＝ここから見ると節の並びは COPC と同じ（info.inMemory）。
 //   選び＝節の点の間隔を今の距離で画面の px に直し、density（既定 2px・LOW_MEM 3px）より粗ければ子へ降りる。COPC の節は足し算（ADD）＝親も子も描く。
 //   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。

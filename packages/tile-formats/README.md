@@ -53,7 +53,7 @@ const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, n
 
 ## Point clouds: LAZ for COPC and plain LAS/LAZ (`@ortho-earth/globe`)
 
-`map.addPointCloud(url | File)` (also `addCOPC`) in [`@ortho-earth/globe`](../globe) streams a
+`map.addPointCloud(url | File)` in [`@ortho-earth/globe`](../globe) streams a
 [COPC](https://copc.io/) point cloud node by node. Plain LAS/LAZ files (LAS 1.0–1.4, point formats 0–10, up to
 20 million points) are read whole and indexed into an octree in memory. It reads the COPC hierarchy by itself, but the points of each node are LAZ
 (LASzip-compressed LAS 1.4). The globe does not depend on a LAZ decoder. This package provides one on top of
@@ -65,7 +65,7 @@ const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, n
 resolve: { alias: [{ find: "#pointcloud-formats", replacement: "@ortho-earth/tile-formats/pointcloud" }] }
 ```
 
-Without the alias, `addCOPC` rejects before fetching anything, with a message that names this package.
+Without the alias, `addPointCloud` rejects before fetching anything, with a message that names this package.
 The decoder alone: `decodeLazChunk(lazPerfInstance, bytes, { format, recordLength, count })` from
 `@ortho-earth/tile-formats/laz` returns the raw LAS point records of one LAZ chunk, and
 `decodeLazFile(lazPerfInstance, bytes, onBatch)` decodes a whole (non-COPC) LAZ file in batches.

@@ -237,7 +237,7 @@ export interface GlobeCoreApi {
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;   // globe.js:2672
 	// ── point clouds and 3D Tiles
-	/** 点群（LAS／LAZ／COPC）を足す（addCOPC の新しい名）。COPC は節だけ範囲読み。普通の LAS/LAZ（1.0〜1.4・点の形式 0〜10）はファイルを丸ごと読み、その場で八分木を作る。
+	/** 点群（LAS／LAZ／COPC）を足す。COPC は節だけ範囲読み。普通の LAS/LAZ（1.0〜1.4・点の形式 0〜10）はファイルを丸ごと読み、その場で八分木を作る。
 	 *  丸ごと読みの上限＝2,000 万点・URL は 500 MB（超えたら COPC への変換を案内して reject）。.las／.laz のドロップも同じ */
 	addPointCloud(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;   // globe.js:2921
 	/** 点群を外す（id を省く＝全部） */
@@ -372,13 +372,13 @@ export interface RasterApi {
 }
 
 /** installGadgets (api/gadgets.js:25), called at globe.js:2698.
- *  Registers gadgets: search@57 hint@60 compass@65 equal@69 equalHere@72 lang@73 equalStart@74 solar@75 mesh@78 plateau@82 palette@83 zoom@87 full@91 cpos@94 contextmenu@98 tip@101 pop@104 explain@109 legend@110 measure@111 profile@120 */
+ *  Registers gadgets: search@57 hint@60 compass@65 equal@69 equalHere@72 lang@73 equalStart@74 solar@75 mesh@78 palette@83 zoom@87 full@91 cpos@94 contextmenu@98 tip@101 pop@104 explain@109 legend@110 measure@111 profile@120 */
 export interface GadgetsApi {
 	readonly gadget: Gadgets;   // api/gadgets.js:42
 }
 
 /** installShadows (api/shadows.ts:36), called at globe.js:2710.
- *  Registers gadgets: offline@141 sunshadow@153 clock@159 viewshed@160 shot@165 qr@168 home@172 japan@176 print@177 close@180 poiedit@188 */
+ *  Registers gadgets: offline@141 sunshadow@153 clock@159 viewshed@160 shot@165 qr@168 home@172 print@177 close@180 poiedit@188 */
 export interface ShadowsApi {
 	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
@@ -617,14 +617,6 @@ export interface GlobeInternals {
 	readonly renderer: { set(cmd: string, data?: unknown, prop?: unknown, layer?: unknown): void; draw(cam: unknown, opts?: unknown): void };   // globe.js:2355
 	// 内部：雲の殻（api/camera.ts が setClouds の中で生やす検証窓）
 	readonly __clouds?: unknown;   // api/camera.ts:256
-	// 2.0 で消す：addPointCloud の旧名（1.14〜・アプリは使っていない。tests/t-copc.html・t-copcbench.html と tile-formats の README は使う）
-	/** COPC の点群（Cloud Optimized Point Cloud・.copc.laz・1.14.0〜・#178）を範囲読みで直に流す（maplibre-gl-lidar 相当・変換無し・サーバー無し）。
-	 *  URL（HTTP Range・transformRequest の鍵）か File。節の点の間隔が画面で density px より粗ければ子へ降りる（足し算）。解読＝プラグイン（バンドラの alias で "#pointcloud-formats" → "@ortho-earth/tile-formats/pointcloud"＝laz-perf・WASM・遅延）＝差し込まないと reject。
-	 *  座標＝WKT（TM/UTM・メルカトル・LCC・Albers・経緯度）→ 経緯度・高さ＝楕円体高なら EGM96 の N を引いて標高へ。?copc=<URL>・.copc.laz のドロップも同じ */
-	addCOPC(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;   // globe.js:2923
-	// 2.0 で消す：removePointCloud の旧名
-	/** COPC を外す（id を省く＝全部） */
-	removeCOPC(id?: string): Promise<boolean>;   // globe.js:2923
 	// 内部：overlay の関数に globe.js が Object.assign した器（overlay.js の createOverlay）のメソッド＝census2020 の map.overlay.loadEstat 等の互換
 	readonly overlay: OverlaysApi["overlay"] & { setSelectionMask(geom: unknown, opts?: unknown): void; setHoverOutline(geom: unknown, opts?: unknown): void; loadOverlay(name: string): unknown; clearOverlay(): void; [k: string]: unknown };   // globe.js:2670
 }

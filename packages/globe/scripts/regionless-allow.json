@@ -1,12 +1,6 @@
 {
 	"_": "硬い層（globe・ortho-core）に残してよい地域の語と数（scripts/verify-regionless.mjs の爪車）。凍結＝利用者の端末や共有 URL に残る名。互換・形式＝公開面の旧名・線の上の形式名。負債＝消す予定（消したら --ratchet で枠を下げる）。足すのは理由を書いて手で",
 	"allow": {
-		"packages/globe/src/api/shadows.ts": {
-			"japan": {
-				"n": 1,
-				"why": "互換：gadget(\"japan\")＝home の旧名（globe.js から切り出した・分割 ⑧）"
-			}
-		},
 		"packages/globe/src/types/map.ts": {
 			"japan": {
 				"n": 1,
@@ -15,12 +9,6 @@
 			"plateau": {
 				"n": 1,
 				"why": "互換：map.on(\"plateau\")＝\"mesh\" の旧名の重ね書き（公開面の旧名・@deprecated）"
-			}
-		},
-		"packages/globe/src/api/gadgets.ts": {
-			"plateau": {
-				"n": 1,
-				"why": "互換：gadget(\"plateau\")＝mesh の旧名（公開面の旧名・globe.js から切り出した・分割 ⑨）"
 			}
 		},
 		"packages/globe/src/cluster-2d.js": {
@@ -247,16 +235,6 @@
 			"chome": {
 				"n": 7,
 				"why": "負債（地域）：町丁名の出しズーム CHOME_MINZOOM・CHOME800_MINZOOM と分類コード。日本の地域パックへ移す"
-			}
-		},
-		"packages/globe/src/zoomscale.js": {
-			"japan": {
-				"n": 1,
-				"why": "互換：gadget(\"japan\")＝home の旧名（公開面の旧名）を zoom の分類表に載せる義務（分類漏れ検定）"
-			},
-			"plateau": {
-				"n": 1,
-				"why": "互換：gadget(\"plateau\")＝mesh の旧名（公開面の旧名）を zoom の分類表に載せる義務（分類漏れ検定）"
 			}
 		},
 		"packages/ortho-core/src/dem-src.ts": {

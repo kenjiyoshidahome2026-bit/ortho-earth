@@ -1,4 +1,4 @@
-// ガジェット：地域の全体へ戻る（旧名 japan＝非推奨の別名）。標準装備でなくオプトイン＝map.gadget.home() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
+// ガジェット：地域の全体へ戻る。標準装備でなくオプトイン＝map.gadget.home() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // 押すと地域宣言 home の視点へ球面フライト＝真俯瞰(tilt=0)・北向き（flyTo が出発時に姿勢を倒す）。
 // 顔（icon＝SVG 文字列）・札（label＝t() の鍵）・DOM id は地域宣言が持つ（日本＝列島のブロック図・"Show all of Japan"・#japan-btn＝利用者 CSS の公開面）。
 // 宣言が無い項目は汎用（家の形・"Home"・#home-btn）。ショートカット＝J（球体まで回した所からワンキーで戻す狙い）。signal＝destroy時の解除。
