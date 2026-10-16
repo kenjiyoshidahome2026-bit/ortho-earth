@@ -1,20 +1,22 @@
 // 地図の口（@ortho-earth/globe）の型の検定（TS 化 段 2「契約を正す」・2026-10-15・tests/mlshim-dts.mjs と同型）。
 // createGlobe は DOM（Worker・canvas・CSS）が要る＝node では起動できないので、源を**静的に**読んで globe.d.ts と突き合わせる：
-//  ① src/globe.js と src/api/*.js が map に生やすメンバー（`map.X =`・Object.defineProperty(map, "X")・`const map = { … }` の鍵）が全部 OrthoJapanMap にある。
-//     内部の物（素の cam・renderer・録画用 pinRes・雲の殻 __clouds）は下の INTERNAL_MAP に明記して外す＝増やすなら理由を書く
+//  ① src/globe.js と src/api/*.ts が map に生やすメンバー（`map.X =`・Object.defineProperty(map, "X")・`const map = { … }` の鍵）が全部 OrthoJapanMap にある。
+//     OrthoJapanMap（＝GlobeMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
+//     内部の物（renderer・雲の殻 __clouds・旧名 addCOPC/removeCOPC）は下の INTERNAL_MAP に明記して外す＝増やすなら理由を書く（型は map.ts の GlobeInternals）
 //  ② 登録されたガジェット（`map.gadget("name", …)`）が全部 Gadgets にある（index signature [name: string] で逃げない）
 //  ③ src/globe.js の root の export（値）が全部 globe.d.ts に宣言されている（逆＝d.ts が宣言した値の export は実装にある）
-//  ④ globe.d.ts 自体が strict の tsc を通る（mlshim-dts は --skipLibCheck＝ここで初めて d.ts の中身が検査される）
+//  ④ globe.d.ts 自体が strict の tsc を通る（mlshim-dts は --skipLibCheck＝ここで初めて d.ts の中身が検査される）。src/types/map.ts も（利用者の tsc と同じ旗＝.ts の値の import は許さない）
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url"; import { execFileSync } from "node:child_process";
 const HERE = path.dirname(fileURLToPath(import.meta.url)), GLOBE = path.resolve(HERE, ".."), ROOT = path.resolve(GLOBE, "../..");
 let fail = 0; const ok = (k, c, extra = "") => { console.log((c ? "ok  " : "FAIL ") + k + (extra ? " " + extra : "")); if (!c) fail++; };
 
-// 内部＝d.ts に出さない map のメンバー（実行時には在る）。公開面は view（読み取り専用の写し）・requestSnapshot・setClouds
+// 内部＝d.ts に出さない map のメンバー（実行時には在る・型は src/types/map.ts の GlobeInternals）。公開面は view（読み取り専用の写し）・requestSnapshot・setClouds。
+// cam（エンジンの生の視点）・pinRes（録画用の解像度固定）は公開の型に出した（判断 3・2026-10-16）
 const INTERNAL_MAP = new Set([
-	"cam",        // エンジンの生の視点（書き換え可能）＝公開の写しは map.view。zoomscale.js の表では "engine"
 	"renderer",   // render worker の口（内部）
-	"pinRes",     // 録画用の解像度固定（scene エディタ）＝公開面にしない
 	"__clouds",   // 雲の殻（api/camera.ts が setClouds の中で生やす検証窓）
+	"addCOPC",    // addPointCloud の旧名（2.0 で消す）
+	"removeCOPC", // removePointCloud の旧名（2.0 で消す）
 ]);
 
 const read = f => fs.readFileSync(path.join(GLOBE, f), "utf8");
@@ -51,9 +53,9 @@ for (const [f, src] of sources) {
 }
 
 // ── 型の側 ──
-const dts = read("globe.d.ts");
-function membersOf(name) {   // interface の本体（最初の階層）のメンバー名：行頭のタブ 1 つ＋（readonly）名前＋「(」「?」「:」「<」（tests/zoomscale.mjs と同じ読み方）
-	const m = dts.match(new RegExp(`export interface ${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`));
+const dts = read("globe.d.ts"), mapTs = read("src/types/map.ts");
+function membersOf(name, src = dts) {   // interface の本体（最初の階層）のメンバー名：行頭のタブ 1 つ＋（readonly）名前＋「(」「?」「:」「<」（tests/zoomscale.mjs と同じ読み方）
+	const m = src.match(new RegExp(`export interface ${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`));
 	if (!m) { ok(`dts.interface.${name}`, false, "not found"); return new Set(); }
 	const out = new Set();
 	for (const line of m[1].split("\n")) {
@@ -66,7 +68,12 @@ function membersOf(name) {   // interface の本体（最初の階層）のメ�
 	}
 	return out;
 }
-const dtsMap = membersOf("OrthoJapanMap"), dtsGadgets = membersOf("Gadgets");
+// GlobeMap＝A & B & …（src/types/map.ts）の各 interface のメンバーの和＝公開の map の型
+const mapParts = (mapTs.match(/export type GlobeMap\s*=\s*([^;]+);/)?.[1] ?? "").split("&").map(s => s.trim()).filter(Boolean);
+ok("map.partsParsed", mapParts.length >= 10, mapParts.join(" & "));
+ok("map.aliases", /export type OrthoJapanMap\s*=\s*GlobeMap;/.test(mapTs) && /import type \{ OrthoJapanMap \} from "\.\/src\/types\/map\.ts";/.test(dts), "globe.d.ts の OrthoJapanMap／GlobeMap は src/types/map.ts の別名");
+const dtsMap = new Set(mapParts.flatMap(p => [...membersOf(p, mapTs)])), dtsGadgets = membersOf("Gadgets");
+const dtsInternal = membersOf("GlobeInternals", mapTs);
 
 // ① map のメンバー
 {
@@ -78,6 +85,8 @@ const dtsMap = membersOf("OrthoJapanMap"), dtsGadgets = membersOf("Gadgets");
 	ok("map.internalNotDeclared", both.length === 0, both.length ? "listed as internal yet declared: " + both.join(", ") : "");
 	const gone = [...INTERNAL_MAP].filter(k => !runtimeMap.has(k));
 	ok("map.internalExist", gone.length === 0, gone.length ? "listed as internal but no longer assigned: " + gone.join(", ") : "");
+	const untyped = [...INTERNAL_MAP].filter(k => !dtsInternal.has(k));
+	ok("map.internalTyped", untyped.length === 0, untyped.length ? "internal but not in GlobeInternals (src/types/map.ts): " + untyped.join(", ") : "");
 }
 // ② ガジェット
 {

@@ -1,5 +1,6 @@
 // zoom の分類表（src/zoomscale.js）の漏れ検定（MapLibre 互換の台帳 R1・2026-09-26）。
 // globe.d.ts の公開面（OrthoJapanMap・Gadgets・RasterAPI・GintLayerHandle）のメンバーが全部、分類表に載っているか。
+// OrthoJapanMap（＝GlobeMap）の本体は src/types/map.ts の *Api の合成（TS 化 段 4・batch 1）＝GlobeMap に並ぶ interface を全部読む。
 // 実行時にだけ在るキー（d.ts に無い物）は t-mlcompat が Object.getOwnPropertyNames で同じ表と突き合わせる。
 // 使い方：node packages/globe/tests/zoomscale.mjs
 import fs from "node:fs";
@@ -9,13 +10,14 @@ import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS, ZOOM_SCALE
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const dts = fs.readFileSync(path.join(DIR, "../globe.d.ts"), "utf8");
+const mapTs = fs.readFileSync(path.join(DIR, "../src/types/map.ts"), "utf8");
 let bad = 0;
 const ng = msg => { bad++; console.log("✗ " + msg); };
 
 // interface の本体（最初の階層だけ）からメンバー名を拾う：行頭のタブ 1 つ＋（readonly）名前＋「(」「?」「:」
-function membersOf(name) {
-	const m = dts.match(new RegExp(`export interface ${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`));
-	if (!m) { ng(`interface ${name} not found in globe.d.ts`); return []; }
+function membersOf(name, src = dts) {
+	const m = src.match(new RegExp(`export interface ${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`));
+	if (!m) { ng(`interface ${name} not found in ${src === dts ? "globe.d.ts" : "src/types/map.ts"}`); return []; }
 	const out = new Set();
 	for (const line of m[1].split("\n")) {
 		const k = line.match(/^\t(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*[(?:<]/);
@@ -25,8 +27,12 @@ function membersOf(name) {
 }
 
 const KINDS = new Set(["none", "in", "out", "io", "layer", "event", "gadget", "raster", "engine"]);
+// GlobeMap＝A & B & …（src/types/map.ts）の各 interface のメンバーの和
+const mapParts = (mapTs.match(/export type GlobeMap\s*=\s*([^;]+);/)?.[1] ?? "").split("&").map(s => s.trim()).filter(Boolean);
+if (mapParts.length < 10) ng(`GlobeMap: parts not parsed (${mapParts.length})`);
+const membersOfMap = () => [...new Set(mapParts.flatMap(p => membersOf(p, mapTs)))];
 const check = (iface, table, label) => {
-	const names = membersOf(iface);
+	const names = iface === "OrthoJapanMap" ? membersOfMap() : membersOf(iface);
 	if (!names.length) ng(`${iface}: no members parsed`);
 	for (const k of names) if (!(k in table)) ng(`${label}.${k} (${iface} in globe.d.ts) is not classified in src/zoomscale.js`);
 	return names.length;
