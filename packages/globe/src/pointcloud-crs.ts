@@ -6,13 +6,17 @@
 //         経緯度・メルカトルなら楕円体高（従来どおり）。平面の系で測った航空レーザの高さは測量の作法で標高が普通（座標系を書かない配布物の多くがこれ）
 import { crsFromWKT, parseWKTTree } from "geopbf/proj";
 import { epsgToWKT } from "geopbf/epsg";
+import type { CrsInfo, WKTArg, WKTNode } from "geopbf/proj";
 
-const find = (n, re) => { if (!n || typeof n !== "object") return null; if (re.test(n.name)) return n; for (const a of n.args || []) { const r = find(a, re); if (r) return r; } return null; };
-const unitOf = n => { const u = (n?.args || []).filter(a => a && typeof a === "object" && /^(UNIT|LENGTHUNIT)$/.test(a.name)).pop(); return u && typeof u.args[1] === "number" ? u.args[1] : null; };
+/** resolveCrs の戻り（ll＝原座標 → [経度, 緯度]（度）・vUnit＝鉛直の単位（m）・from＝座標系の出どころ） */
+export interface ResolvedCrs { crs: CrsInfo; ll: (p: readonly number[]) => ArrayLike<number>; label: string; vUnit: number; orthometric: boolean; verticalName: string; lonlat: boolean; from: "opts" | "wkt" | "geokeys" }
+
+const find = (n: WKTArg | null | undefined, re: RegExp): WKTNode | null => { if (!n || typeof n !== "object") return null; if (re.test(n.name)) return n; for (const a of n.args || []) { const r = find(a, re); if (r) return r; } return null; };
+const unitOf = (n: WKTNode | null) => { const u = (n?.args || []).filter(a => a && typeof a === "object" && /^(UNIT|LENGTHUNIT)$/.test(a.name)).pop() as WKTNode | undefined; return u && typeof u.args[1] === "number" ? u.args[1] : null; };
 const MERCATOR = /PROJECTION\["?(Mercator|Popular_Visualisation)|Pseudo-Mercator/i;   // TM（Transverse_Mercator）は含まない
 
 /** WKT の鉛直の側 → { has, orthometric, unit, name } */
-export function verticalOf(wkt) {
+export function verticalOf(wkt: string): { has: boolean; orthometric: boolean; unit: number; name: string | null } {
 	const t = parseWKTTree(wkt);
 	const v = find(t, /^(VERT_CS|VERTCRS|VERTICALCRS)$/), horiz = find(t, /^(PROJCS|PROJCRS)$/);
 	const ellipsoidalV = v && /ellipsoid/i.test(JSON.stringify(v));
@@ -23,8 +27,8 @@ export function verticalOf(wkt) {
  * @param {{ wkt?: string|null, geoKeys?: { horizontal: number|null, vertical: number|null }|null, crs?: string, vertical?: "orthometric"|"ellipsoidal" }} o
  * @returns {{ crs, ll, label: string, vUnit: number, orthometric: boolean, verticalName: string, lonlat: boolean, from: "opts"|"wkt"|"geokeys" }}
  */
-export function resolveCrs({ wkt = null, geoKeys = null, crs: optCrs, vertical: optV } = {}) {
-	let src = null, from = null;
+export function resolveCrs({ wkt = null, geoKeys = null, crs: optCrs, vertical: optV }: { wkt?: string | null; geoKeys?: { horizontal: number | null; vertical: number | null } | null; crs?: string; vertical?: "orthometric" | "ellipsoidal" } = {}): ResolvedCrs {
+	let src: string | null = null, from: ResolvedCrs["from"] | null = null;
 	if (optCrs) {
 		const m = /^EPSG:(\d+)$/i.exec(String(optCrs).trim());
 		src = m ? epsgToWKT(+m[1]) : String(optCrs); from = "opts";
@@ -38,13 +42,13 @@ export function resolveCrs({ wkt = null, geoKeys = null, crs: optCrs, vertical: 
 	const crs = crsFromWKT(src);
 	if (crs.kind === "other") throw new Error(`pointcloud: coordinate system not supported (${crs.label}) — TM/UTM, Mercator, Lambert conformal conic, Albers and lon/lat are`);
 	const v = verticalOf(src);
-	let orthometric, name;
+	let orthometric: boolean, name: string | null;
 	if (v.has) { orthometric = v.orthometric; name = v.name; }
-	else if (from === "geokeys" && geoKeys.vertical) { orthometric = true; name = `EPSG:${geoKeys.vertical}`; }
+	else if (from === "geokeys" && geoKeys!.vertical) { orthometric = true; name = `EPSG:${geoKeys!.vertical}`; }
 	else if (optV) { orthometric = optV === "orthometric"; name = optV; }
 	else { orthometric = crs.kind === "projected" && !MERCATOR.test(src); name = orthometric ? "orthometric (assumed: projected CRS without a vertical CRS)" : null; }
 	return {
 		crs, ll: crs.toLonLat || (p => p), label: crs.label, vUnit: v.unit, orthometric, verticalName: orthometric ? (name || "orthometric") : "ellipsoidal",
-		lonlat: crs.kind === "lonlat" || (crs.kind === "datum" && !/PROJ/i.test(src.slice(0, 20))), from,
+		lonlat: crs.kind === "lonlat" || (crs.kind === "datum" && !/PROJ/i.test(src.slice(0, 20))), from: from!,
 	};
 }

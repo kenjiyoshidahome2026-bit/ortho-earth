@@ -7,22 +7,32 @@
 
 export const G = 128, MAX_DEPTH = 20, MIN_SPLIT = 256;
 export const LIMIT_POINTS = 20e6, LIMIT_URL_BYTES = 500 * 1024 * 1024;
+/** 全点の入れ物（位置は記録のままの整数・scale/offset は LAS のヘッダ） */
+export interface PointStore {
+	n: number; at: number; scale: ArrayLike<number>; offset: ArrayLike<number>;
+	X: Int32Array; Y: Int32Array; Z: Int32Array; intensity: Uint16Array; classification: Uint8Array; rgb: Uint8Array | null;
+	min: number[]; max: number[];
+}
+/** readRecordsRaw の列（@ortho-earth/tile-formats/las の LasRecordsRaw） */
+export interface RawRecords { X: Int32Array; Y: Int32Array; Z: Int32Array; intensity: Uint16Array; classification: Uint8Array; rgb: Uint8Array | null }
+/** 八分木の節（key＝[d, x, y, z]・start／count＝idx の範囲） */
+export interface OctNode { key: number[]; start: number; count: number }
 
 /** 丸ごと読みの上限を超えたら理由（英語・利用者に見える）・超えなければ null */
-export function wholeFileLimit({ count, size, local }) {
-	const fmt = v => Math.round(v).toLocaleString("en-US");
+export function wholeFileLimit({ count, size, local }: { count: number; size: number; local: boolean }): string | null {
+	const fmt = (v: number) => Math.round(v).toLocaleString("en-US");
 	if (count > LIMIT_POINTS) return `pointcloud: ${fmt(count)} points is over the ${fmt(LIMIT_POINTS)} limit for a plain LAS/LAZ file — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
 	if (!local && size > LIMIT_URL_BYTES) return `pointcloud: ${fmt(size / 1048576)} MB is over the ${fmt(LIMIT_URL_BYTES / 1048576)} MB limit for a plain LAS/LAZ URL — convert it to COPC (.copc.laz, e.g. with PDAL or untwine) to stream it`;
 	return null;
 }
 
 /** 全点の入れ物（位置は記録のままの整数）。append で読んだ順に詰める */
-export function createStore(n, { rgb, scale, offset }) {
+export function createStore(n: number, { rgb, scale, offset }: { rgb: boolean; scale: ArrayLike<number>; offset: ArrayLike<number> }): PointStore {
 	return { n, at: 0, scale, offset, X: new Int32Array(n), Y: new Int32Array(n), Z: new Int32Array(n), intensity: new Uint16Array(n), classification: new Uint8Array(n), rgb: rgb ? new Uint8Array(n * 3) : null,
 		min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
 }
 /** readRecordsRaw の列を足す（範囲＝本物の点から取る＝ヘッダの min/max が誤っている物もある） */
-export function appendRaw(s, r, k) {
+export function appendRaw(s: PointStore, r: RawRecords, k: number): number {
 	k = Math.min(k, s.n - s.at);
 	const a = s.at, { X, Y, Z } = r;
 	s.X.set(X.subarray(0, k), a); s.Y.set(Y.subarray(0, k), a); s.Z.set(Z.subarray(0, k), a);
@@ -33,7 +43,7 @@ export function appendRaw(s, r, k) {
 		const x = X[i], y = Y[i], z = Z[i];
 		if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
 	}
-	const [sx, sy, sz] = s.scale, [ox, oy, oz] = s.offset, lo = [x0 * sx + ox, y0 * sy + oy, z0 * sz + oz], hi = [x1 * sx + ox, y1 * sy + oy, z1 * sz + oz];
+	const [sx, sy, sz] = s.scale as number[], [ox, oy, oz] = s.offset as number[], lo = [x0 * sx + ox, y0 * sy + oy, z0 * sz + oz], hi = [x1 * sx + ox, y1 * sy + oy, z1 * sz + oz];
 	for (let j = 0; j < 3; j++) { const a0 = Math.min(lo[j], hi[j]), a1 = Math.max(lo[j], hi[j]); if (a0 < s.min[j]) s.min[j] = a0; if (a1 > s.max[j]) s.max[j] = a1; }   // scale が負の物にも
 	s.at += k;
 	return k;
@@ -43,19 +53,19 @@ export function appendRaw(s, r, k) {
  * 八分木を作る。random＝先に混ぜる（既定＝混ぜない＝読んだ順のまま。LAS は走査の順＝近い点が近くに並ぶので読みが速い・升に 1 点ずつなので混ぜなくても見本は全体に散る）
  * @returns {{ info: { center: number[], halfsize: number, spacing: number }, nodes: Array<{ key: number[], start: number, count: number }>, idx: Uint32Array }}
  */
-export function buildOctree(s, { random = null } = {}) {
+export function buildOctree(s: PointStore, { random = null }: { random?: (() => number) | null } = {}): { info: { center: number[]; halfsize: number; spacing: number }; nodes: OctNode[]; idx: Uint32Array } {
 	const n = s.at;
 	const center = [0, 1, 2].map(j => (s.min[j] + s.max[j]) / 2);
 	const ext = Math.max(s.max[0] - s.min[0], s.max[1] - s.min[1], s.max[2] - s.min[2]);
 	const halfsize = Math.max(ext / 2 * (1 + 1e-6), 1e-3), side = halfsize * 2;
-	const [sx, sy, sz] = s.scale, [ox, oy, oz] = s.offset, x0 = center[0] - halfsize, y0 = center[1] - halfsize, z0 = center[2] - halfsize;
+	const [sx, sy, sz] = s.scale as number[], [ox, oy, oz] = s.offset as number[], x0 = center[0] - halfsize, y0 = center[1] - halfsize, z0 = center[2] - halfsize;
 	const X = s.X, Y = s.Y, Z = s.Z, idx = new Uint32Array(n);
 	for (let i = 0; i < n; i++) idx[i] = i;
 	if (random) for (let i = n - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)), t = idx[i]; idx[i] = idx[j]; idx[j] = t; }
-	const tmp = new Uint32Array(n), bits = new Uint32Array(G * G * G / 32), oct = new Uint8Array(n), nodes = [], G1 = G - 1, H = G / 2;
+	const tmp = new Uint32Array(n), bits = new Uint32Array(G * G * G / 32), oct = new Uint8Array(n), nodes: OctNode[] = [], G1 = G - 1, H = G / 2;
 	const stack = [{ key: [0, 0, 0, 0], a: 0, b: n }];
 	while (stack.length) {
-		const { key, a, b } = stack.pop(), [d, nx, ny, nz] = key;
+		const { key, a, b } = stack.pop()!, [d, nx, ny, nz] = key;
 		if (d >= MAX_DEPTH) { nodes.push({ key, start: a, count: b - a }); continue; }
 		// 節の升の番号＝記録の整数 × A ＋ B（節ごとに一次式を作っておく＝点ごとの割り算を省く）
 		const k0 = 2 ** d * G / side, ax = sx * k0, bx = (ox - x0) * k0 - nx * G, ay = sy * k0, by = (oy - y0) * k0 - ny * G, az = sz * k0, bz = (oz - z0) * k0 - nz * G;
@@ -91,13 +101,13 @@ export function buildOctree(s, { random = null } = {}) {
 }
 
 /** 節の点を集める → placeNode に渡す形（x,y,z は原座標＝scale・offset を掛けた値）＋強度・分類・RGB（8bit） */
-export function gatherNode(s, idx, start, count) {
+export function gatherNode(s: PointStore, idx: Uint32Array, start: number, count: number): { x: Float64Array; y: Float64Array; z: Float64Array; intensity: Uint16Array; classification: Uint8Array; rgb: Uint8Array | null } {
 	const x = new Float64Array(count), y = new Float64Array(count), z = new Float64Array(count), intensity = new Uint16Array(count), classification = new Uint8Array(count), rgb = s.rgb ? new Uint8Array(count * 3) : null;
-	const [sx, sy, sz] = s.scale, [ox, oy, oz] = s.offset;
+	const [sx, sy, sz] = s.scale as number[], [ox, oy, oz] = s.offset as number[];
 	for (let i = 0; i < count; i++) {
 		const p = idx[start + i];
 		x[i] = s.X[p] * sx + ox; y[i] = s.Y[p] * sy + oy; z[i] = s.Z[p] * sz + oz; intensity[i] = s.intensity[p]; classification[i] = s.classification[p];
-		if (rgb) { rgb[i * 3] = s.rgb[p * 3]; rgb[i * 3 + 1] = s.rgb[p * 3 + 1]; rgb[i * 3 + 2] = s.rgb[p * 3 + 2]; }
+		if (rgb) { rgb[i * 3] = s.rgb![p * 3]; rgb[i * 3 + 1] = s.rgb![p * 3 + 1]; rgb[i * 3 + 2] = s.rgb![p * 3 + 2]; }
 	}
 	return { x, y, z, intensity, classification, rgb };
 }
