@@ -1,7 +1,7 @@
 // pickFBO: GPU picking の ID バッファ
 // v1(ortho-map) の gintFBO を移植。node-free。唯一の適応＝v2 は width/height を device px で持つ（*dpr 不要）。
 
-import { s } from './state.js';
+import { s } from './state.ts';
 
 function makeFBO(gl, w, h) {
 	const colorTex = gl.createTexture();

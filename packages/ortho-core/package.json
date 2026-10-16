@@ -20,10 +20,7 @@
 			"default": "./src/gpu/backend.js"
 		},
 		"./f16": "./src/gpu/f16.ts",
-		"./gl": {
-			"types": "./types/gl.d.ts",
-			"default": "./src/gl/backend.js"
-		},
+		"./gl": "./src/gl/backend.ts",
 		"./labels": {
 			"types": "./types/labels.d.ts",
 			"default": "./src/labels2d.js"
@@ -32,14 +29,8 @@
 		"./terrain": "./src/terrain.ts",
 		"./camera": "./src/camera.ts",
 		"./clip": "./src/clip.ts",
-		"./depthout": {
-			"types": "./types/depthout.d.ts",
-			"default": "./src/depthout.js"
-		},
-		"./postfx": {
-			"types": "./types/postfx.d.ts",
-			"default": "./src/postfx.js"
-		},
+		"./depthout": "./src/depthout.ts",
+		"./postfx": "./src/postfx.ts",
 		"./geojson": "./src/geojson.ts",
 		"./viewurl": "./src/viewurl.ts",
 		"./decode": "./src/decode.ts",

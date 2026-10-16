@@ -12,15 +12,15 @@
 // メッセージ面（postMessage）は worker 版と同じ action（identify/click/tiers）＝main 側は受信元が
 // gintWorker→renderWorker へ変わるだけ。
 
-import { createGintPrograms, deleteGintPrograms } from './programs.js';
-import { checkZoomRange } from './utility.js';
-import { s, SLOT_FIELDS, emptySlot } from './state.js';
-import { uploadGintTextures, uploadBaked, addBakedTier, finishBakedTiers, deleteTextures, scheduleTierBuild } from './textures.js';
-import { createFBOs, deleteFBOs } from './fbo.js';
-import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.js';
-import { doIdentify, handleMove, handleLeave } from './identify.js';
+import { createGintPrograms, deleteGintPrograms } from './programs.ts';
+import { checkZoomRange } from './utility.ts';
+import { s, SLOT_FIELDS, emptySlot } from './state.ts';
+import { uploadGintTextures, uploadBaked, addBakedTier, finishBakedTiers, deleteTextures, scheduleTierBuild } from './textures.ts';
+import { createFBOs, deleteFBOs } from './fbo.ts';
+import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.ts';
+import { doIdentify, handleMove, handleLeave } from './identify.ts';
 import { computeDrawData, zoomInRange } from '../../gint/drawdata.ts';
-import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.js';
+import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.ts';
 import { unproject } from '../../camera.ts';
 import { gintDataOf } from '../../gint/bake.ts';
 

@@ -3,12 +3,12 @@
 // v1(ortho-map) の gintRenderPasses を移植。site 2 の点bind を mvp/eye/origin へ。
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
 
-import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
-import { bindSharedUniforms, bindPivot, bindDepthUniforms, farPivotGlobal, layerBboxOf } from './utility.js';
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.ts';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms, farPivotGlobal, layerBboxOf } from './utility.ts';
 import { drapeSubs, subPlan } from '../../gint/drawdata.ts';
-import { SUB_NB } from './utility.js';
+import { SUB_NB } from './utility.ts';
 import { betaOf, ellipsoidOn } from '../../camera.ts';
-import { canUseIdFill, renderIdFill } from './idfill.js';
+import { canUseIdFill, renderIdFill } from './idfill.ts';
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
 const OUTLINE_ZOOM = 13;   // 既定の切替z（256px世界。deriveOutlineZoom targetPx=8 と同じ「旧v2視覚と同点」の調律）

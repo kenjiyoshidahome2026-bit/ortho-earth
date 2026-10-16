@@ -30,7 +30,7 @@ import { worldAtlasCell } from "../elevation/worldatlas.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
 import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
-import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
+import { groundWindows, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";
 import { createPostGPU } from "./postfx.js";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
