@@ -108,7 +108,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			await h.setPaint(PAINT[g](T()), FILTER[g]);
 			h.setVisible(true);
 			H[g] = h; state[g] = 2;
-			console.log(`[world-content] ${g}: ${pbf.fmap?.length ?? 0} features`);
+			console.log(`[world-content] ${g}: ${pbf.length} features`);
 			if (g === "base") await labels();
 			if (g === "detail") await airports();
 			requestDraw();
@@ -134,7 +134,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		const pbf = held.base; if (!pbf) return;
 		const nm = await namesP(); if (!nm) return;
 		if (!imagesAdded) await images();
-		const n = pbf.fmap?.length ?? 0, feats: object[] = [];
+		const n = pbf.length, feats: object[] = [];
 		const shortEn = shortEnNames(n, i => pbf.getProperties(i));
 		for (const nation of nm.world.items) {
 			const r = countryLabelRule(nation); if (!r) continue;
@@ -182,7 +182,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 	async function airports() {
 		const pbf = held.detail; if (!pbf) return;
 		if (!imagesAdded) await images();
-		const n = pbf.fmap?.length ?? 0, feats: object[] = [];
+		const n = pbf.length, feats: object[] = [];
 		for (let i = 0; i < n; i++) {
 			const p = pbf.getProperties(i);
 			if (p?.layer !== "airports") continue;

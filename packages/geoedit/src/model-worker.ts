@@ -33,9 +33,9 @@ self.onmessage = async (e: MessageEvent<ModelRequestMsg>) => {
 	try {
 		let topo: Topology, eids: number[] | null = null;
 		if (mode === "pbf") {
-			const pbf = await new GeoPBF({}).set(buffer!) as PbfCore;   // 器の内部（fmap）を読む
+			const pbf = await new GeoPBF({}).set(buffer!) as PbfCore;   // 地物の数は length（器の公開の口）
 			const ex = createExtractor(gridExp);
-			const n = pbf.fmap?.length ?? 0;
+			const n = pbf.length;
 			let verts = 0;
 			for (let i = 0; i < n; i++) {
 				let g = null, p: Record<string, unknown> = {};

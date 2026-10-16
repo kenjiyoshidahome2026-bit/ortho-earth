@@ -44,8 +44,6 @@ export interface CountryLayers {
 	geometry?(fid: number): Geometry | null;
 }
 type Ring = Position[];
-/** geopbf の器＋fmap（地物の表＝長さが地物の数。型定義の公開面に無いのでここで足す） */
-type WorldPbf = GeoPBF & { fmap?: ArrayLike<unknown> | null };
 type NameTables = { i18n?: WorldI18n | null; ne?: Record<string, string> | null };   // 2.0：core の worldcontent.ts の型そのもの
 
 // 色＝ortho-core worldstyle の正本（WORLD_STYLE_THEMES.mono＝equal・globe と同じ表＝2 つのアプリで同じ世界に見える・2026-09-23 段階 3）
@@ -120,7 +118,7 @@ const simplifyGeom = (g: Geometry, tol: number): Geometry => g.type === "Polygon
 /** 国の形（スポットライトへ渡す）と中身（州境・道路・鉄道・市街地）。shape(key,nation) / show(key) / clear() */
 export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined): CountryLayers {
 	if (!geopbf || !map.addGint) return { shape: async () => null, show: async () => {}, clear: () => {} };   // 古いエンジン＝静かに何もしない
-	const layer: Record<string, GintHandle | null | undefined> = {}, held: Record<string, WorldPbf> = {};   // group → addGint のハンドル／原本
+	const layer: Record<string, GintHandle | null | undefined> = {}, held: Record<string, GeoPBF> = {};   // group → addGint のハンドル／原本
 	let key: string | null = null, dotAdded = false, planeAdded = false;
 	const planeBitmap = (): HTMLCanvasElement => { const s = 40, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d")!;
 		cx.translate(4, 4); cx.scale(32 / 24, 32 / 24); const path = new Path2D(PLANE); cx.lineWidth = 3; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.lineJoin = "round"; cx.stroke(path); cx.fillStyle = C.airport; cx.fill(path); return cv; };
@@ -158,7 +156,7 @@ export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined
 		async shape(k, nation = {}) {
 			await ensure("base");
 			const pbf = held.base; if (!pbf) return null;
-			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
+			const n = pbf.length, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || (p.layer !== "admin_1" && p.layer !== "admin_0")) continue;   // admin_0＝admin_1 に形の無い係争主体
@@ -173,7 +171,7 @@ export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined
 			const pbf = held.base; if (!pbf) return;
 			const t = await namesFor(lang);
 			if (k !== key) return;
-			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
+			const n = pbf.length, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "populated_places") continue;
@@ -208,7 +206,7 @@ export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined
 		/** 面（州の薄い色・係争地・市街地）＝anno（同一フレームの canvas2D）が毎フレーム塗る＝カメラ移動中も消えない（本人裁定 2026-09-23「1 で」） */
 		async fills(k) {
 			const feats: Feature[] = [], TOL = 0.006;
-			const take = (pbf: WorldPbf | undefined, want: Record<string, string>): void => { const n = pbf?.fmap?.length ?? 0; for (let i = 0; i < n; i++) {
+			const take = (pbf: GeoPBF | undefined, want: Record<string, string>): void => { const n = pbf?.length ?? 0; for (let i = 0; i < n; i++) {
 				const p = pbf!.getProperties(i) || {}; const fill = p.key === k ? want[p.layer] : null; if (!fill) continue;
 				const f = pbf!.getFeature(i); const g = f?.geometry; if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) continue;
 				feats.push({ type: "Feature", geometry: simplifyGeom(g, TOL), properties: { "@fill": fill, "@stroke": "rgba(0,0,0,0)", "@width": 0.01 } }); } };   // 線は gint＝anno の輪郭は透明
@@ -220,7 +218,7 @@ export function countryLayers(map: WorldMap, geopbf: GeopbfFn | null | undefined
 		/** 空港＝✈ の記号だけ（名前は出さない・z>5・大ハブほど先＝equal の airportLabels と同じ）。detail に airports が無い焼き（旧）なら何も出ない */
 		async airports(k) {
 			const pbf = held.detail; if (!pbf) return;
-			const n = pbf.fmap?.length ?? 0, feats: Feature[] = [];
+			const n = pbf.length, feats: Feature[] = [];
 			for (let i = 0; i < n; i++) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "airports") continue;
