@@ -8,17 +8,17 @@ import type { FlightController, InputController } from "@ortho-earth/core";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { Clock } from "@ortho-earth/ephem/clock";
 import type { ClipPlane } from "@ortho-earth/core/clip";
-import type { DtmDecl } from "@ortho-earth/core/elevation";
+import type { DtmDecl, createGetHeight } from "@ortho-earth/core/elevation";
 import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF, Geometry } from "geopbf";
-import type { CzmlPlayer } from "../gadgets/czml.d.ts";
-import type { Aggregate } from "../gadgets/aggregate.d.ts";
-import type { GJLabels } from "../gadgets/gjlabels.d.ts";
-import type { Symbols } from "../gadgets/symbols.d.ts";
+import type { CzmlPlayer } from "../gadgets/czml.ts";
+import type { Aggregate } from "../gadgets/aggregate.ts";
+import type { GJLabels } from "../gadgets/gjlabels.ts";
+import type { Symbols } from "../gadgets/symbols.ts";
 import type { Corners } from "geopbf/edit/imagequad";
 import type { DataReturn, ImagesReturn, IntakeReturn, OverlaysReturn, QueryReturn, RasterReturn, ShadowsReturn, StyleReturn, ToolsReturn } from "./install.ts";
-import type { GlobeInternals, GlobeMap } from "./map.ts";
-import type { VideoQuads } from "../gadgets/videoquad.d.ts";
+import type { GlobeInternals, GlobeMap, RegisterGadget } from "./map.ts";
+import type { VideoQuads } from "../gadgets/videoquad.ts";
 import type { Requester } from "../request.d.ts";
 import type { ScenePlayer } from "../scenes/player.d.ts";
 import type { SpriteEntry } from "../mlsmall.d.ts";
@@ -229,8 +229,10 @@ export interface BaseSource {
 export interface RegionHome { view: number[]; span?: number[]; icon?: string; label?: string; id?: string }
 /** 建物メッシュの管理（globe.js の meshMgr＝本物が来るまでの代理の窓口）＝installer が読む分 */
 export interface MeshMgr {
+	/** データ管理のモーダルを開く（建物 3D の gadget のボタン） */
+	openDb(): Promise<unknown>;
 	readonly sets: Array<{ base: string; bbox: number[]; [k: string]: unknown }>;
-	prefetch(views: unknown[], names?: string[], onProg?: (p: unknown) => void): Promise<unknown>;
+	prefetch(views: unknown[], names?: string[], onProg?: (done: number, total: number, name: string | null) => void): Promise<unknown>;   // onProg＝mesh/manager.js の runPrefetch（焼けた区の数・総数・区の名）
 	/** 区ごとの読み込みの進捗 */
 	readonly progress: Map<string, { done?: number; scan?: number }>;
 	/** これから見える区で読み込み中の物 */
@@ -238,6 +240,10 @@ export interface MeshMgr {
 	/** 残りの台本に出ない常駐区を降ろす */
 	trimForScript(views: string[]): unknown;
 }
+/** 地名検索の供給元（地域の申告の search・search.js の createSearch が引く） */
+export interface SearchProvider { query(q: string, signal?: AbortSignal): Promise<unknown>; histKey?: string; [k: string]: unknown }
+/** 計測・断面図の本体の手綱（gadgets/measure.ts・profile.ts）＝_update を描画ごとに呼ぶ */
+export interface ToolBody { _update?(): void; stop?(): void }   // stop＝道具の排他（globe.js の toolClose）
 /** POI 台帳（地域の申告の poi・起こすまでの代理） */
 export interface PoiProxy { ready(): Promise<unknown> }
 /** POI 台帳の本物（poiedit が読む分） */
@@ -385,6 +391,24 @@ export interface GlobeScope {
 	themeBootV: ParsedView | null;
 	/** 埋め込みの焼き付け（opts.theme） */
 	themeFixed: boolean;
+	/** 地域の申告の地名検索の供給元（日本＝地理院・null＝無し） */
+	REGION_SEARCH: SearchProvider | null;
+	/** 建物データ管理ボタンの顔（地域の申告の SVG の文字列・null＝汎用） */
+	REGION_BLD_ICON: string | null;
+	/** 寄りの上限（opts.zoomMax・1..20） */
+	ZOOM_MAX: number;
+	/** 外来の DEM（setTerrain）が在ればその標高・無ければ fallback */
+	demFirst(lon: number, lat: number, fallback: () => Promise<number>): Promise<number>;
+	/** 描画ごとに呼ぶ関数（gadget の追従＝コンパスの針・現在地の印・吹き出し・計測の線） */
+	frameHooks: Set<() => void>;
+	/** 標高の引き口（ローダの到着で解ける） */
+	getHeightP: ReturnType<typeof createGetHeight>;
+	/** gadget の登録口（installGadgets の戻り＝後の installer と globe.js が使う） */
+	registerGadget: RegisterGadget;
+	/** 狭い画面（max-width: 480px）＝gadget の門の narrow */
+	narrowMq: MediaQueryList;
+	/** 経緯度 → 容れ物の CSS px [x, y, 表か（負＝裏半球）] */
+	projectLL(lon: number, lat: number): [number, number, number];
 	/** 地域の基図の自動の 3D 建物の層 id（"building-extrusion"） */
 	AUTO_BLD: string;
 	/** 基図の source の印（baseSrcSpec の戻りに付く） */
@@ -563,6 +587,10 @@ export interface GlobeLive {
 	clipByT: Record<string, ClipPlane[] | null> | null; clipSpec: ClipOptions | ClipOptions[] | null; clipMain: ClipPlane[] | null;
 	/** 初描画で確定（"webgpu"／"webgl2"） */
 	renderBackend: "webgpu" | "webgl2" | null;
+	/** 計測・断面図の経路指定の間だけ＝クリックの横取り（null＝していない） */
+	measureClick: ((x: number, y: number) => unknown) | null; profileClick: ((x: number, y: number) => unknown) | null;
+	/** 計測・断面図の本体（遅延 chunk・着いたら）＝_update を描画ごとに */
+	measureBody: ToolBody | null; profileBody: ToolBody | null;
 	mapLoaded: boolean;
 	addSourceAt: StyleReturn["addSourceAt"]; addLayerAt: StyleReturn["addLayerAt"];
 	poiReal: PoiLedger | null;

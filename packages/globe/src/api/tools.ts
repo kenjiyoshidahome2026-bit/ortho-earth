@@ -2,26 +2,25 @@
 // デモ（gadget.demo）＝createGlobe から切り出した（globe.js の分割 ⑪・2026-10-15）。中身は切り出す前と同じ。createGlobe の他の所が使う物は戻り値で返す。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { WORLD_PX, decodeTile, fetchMVT, fetchPMTilesRaw, isRasterTileType, loadTileFormat, lonLatToTile, parseRGBA, pmtilesInfo } from "@ortho-earth/core";
-import { demo as demoGadget } from "../gadgets/demo-stub.js";
-import { dockStack } from "../gadgets/stack.js";
-import { dropFile as dropFileGadget } from "../gadgets/dropfile.js";
-import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.js";
-import { edit as editGadget } from "../gadgets/edit.js";
+import { demo as demoGadget } from "../gadgets/demo-stub.ts";
+import { dockStack } from "../gadgets/stack.ts";
+import { dropFile as dropFileGadget } from "../gadgets/dropfile.ts";
+import { editDocClear, editDocLoad, editDocSave } from "../gadgets/editdoc.ts";
+import { edit as editGadget } from "../gadgets/edit.ts";
 import { getLang } from "../i18n.js";
-import { inspect as inspectGadget } from "../gadgets/inspect-stub.js";
+import { inspect as inspectGadget } from "../gadgets/inspect-stub.ts";
 import type { Installing, ToolsDeps, ToolsLive, ToolsReturn } from "../types/install.ts";
 import type { ToolsApi } from "../types/map.ts";
 import type { VtxDesc } from "../types/scope.ts";
+import type { GeoPBF as GeoPBFFull } from "geopbf";
 
 /** 検査表示の層の台帳の 1 件（属性の名前＝型は空） */
 type InspectLayer = { id: string; fields?: Record<string, string>; minzoom?: number; maxzoom?: number };
-/** gadget の opts（利用者が渡す物＝そのまま注入に重ねる） */
-type GOpts = Record<string, unknown> | undefined;
 
 export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 	BASEMAP_MINZOOM, BASE_SOURCE, CAM_ZOOM_MIN, HOME_VIEW, REGION_HOME, WORLD_VT, ZOOM_MIN, ac, baseSidNow, baseSrcSpec, cam, canvas, clearImages, evXY,
 	flightCtl, flyTo, flyView, gint, glidePathView, loadUserFile, meshMgr, mlLayers, mlSources, mlVisible, opts, remergeBase, renderer, requestDraw,
-	requester, scenes, setAutoBld, size, t, unprojectAt, vtxDescOf
+	registerGadget, requester, scenes, setAutoBld, size, t, unprojectAt, vtxDescOf
 }: ToolsDeps): ToolsReturn {
 	// ── 検査表示（maplibre-gl-inspect 相当・#174）＝ベクタタイルの全 source-layer を層ごとの色で描き、カーソルの下の地物の属性を出す ──────────
 	// ここは地図の内側の 2 つだけ（本体の UI・札・色・層の出し入れは gadgets/inspect.js＝遅延 chunk）：
@@ -107,8 +106,8 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			requestDraw();
 		},
 	};
-	map.gadget("inspect", function (opts: GOpts) {   // 検査表示 … 層の台帳と下地の切り替え・座標の変換を注入。本体（inspect.js）は初回に import()＝初期バンドルから隔離
-		return inspectGadget.call(this, { signal: ac.signal, ...opts, listSources: inspectSources, view: inspectView, canvas, evXY });   // 内側の口は利用者の opts より後＝上書きさせない（opts.sources＝公式の「明示の層」とは別名）
+	registerGadget("inspect", (m, opts) => {   // 検査表示 … 層の台帳と下地の切り替え・座標の変換を注入。本体（inspect.js）は初回に import()＝初期バンドルから隔離
+		return inspectGadget.call(m, { signal: ac.signal, ...opts, listSources: inspectSources, view: inspectView, canvas, evXY });   // 内側の口は利用者の opts より後＝上書きさせない（opts.sources＝公式の「明示の層」とは別名）
 	});
 	// ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
 	const rasterDropFile = async (file: File, fallback = false) => {
@@ -123,18 +122,18 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			throw err;
 		}
 	};
-	map.gadget("dropFile", function (opts: GOpts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-		return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { live.gFollow?.destroy(); live.gFollow = null; live.annoCtl?.clear(); live.czmlCtl?.clear(); live.cogCtl?.clear(); live.modelCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null; live.editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => live.editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	registerGadget("dropFile", (m, opts) => {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
+		return dropFileGadget.call(m, { loadFile: loadUserFile, unprojectAt, clearGint: () => { live.gFollow?.destroy(); live.gFollow = null; live.annoCtl?.clear(); live.czmlCtl?.clear(); live.cogCtl?.clear(); live.modelCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); live.columnarCtl?.remove(); live.columnarCtl = null; live.editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => live.editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 	});
-	map.gadget("geoedit", function (opts: GOpts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
+	registerGadget("geoedit", (host, opts) => {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 		// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
-		return Promise.all([import("geoedit"), import("../gadgets/cloud.js")]).then(async ([m, cloud]) => {
+		return Promise.all([import("geoedit"), import("../gadgets/cloud.ts")]).then(async ([m, cloud]) => {
 			await m.setLang(getLang());
-			// TODO(ts): 公開の GeoPBF（globe.d.ts の主要面の写し）と geopbf の GeoPBF が食い違う（properties の null）＝GlobeMap がそのまま EditorMap にならない＝gadget の batch で揃える
-			return m.initEditor(this as unknown as Parameters<typeof m.initEditor>[0], { setDropOwner: on => { live.editDropOwner = !!on; }, dock: dockStack, cloudPanel: cloud.cloudPanel, ...opts });
+			// 公開の GeoPBF（globe.d.ts）は geopbf の GeoPBF の主要面の写し（SDK の d.ts を自足に保つ）＝userPbf() の戻りだけが EditorMap の求めより狭い。実行時は geopbf の GeoPBF そのもの
+			return m.initEditor(host as typeof host & { userPbf(): GeoPBFFull | null }, { setDropOwner: on => { live.editDropOwner = !!on; }, dock: dockStack, cloudPanel: cloud.cloudPanel, ...opts });
 		});
 	});
-	map.gadget("edit", function (opts: GOpts) {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を部品として搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
+	registerGadget("edit", (m, opts) => {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を部品として搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
 		// 編集中の図形（2026-09-19 本人裁定）：japan は図形を一つ持つ（初めは空）。ドロップ/?g= で読んだもの・編集から戻したものがそれ＝
 		// 専用の置き場（editdoc＝単独 geoedit の自動保存とは別）へ保存し、次に開いた時も続きから。編集＝geoedit に渡して部品として開き、
 		// 右端の「×」（かこのボタン）で結果を受け取り置き換える。?g= で開いた時は ?g= が勝つ（前回分は復元しない＝上書きされる）
@@ -151,7 +150,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			if (!rec.edited) { editDocClear(); return; }   // 旧い置き場（見ただけで残っていた・印なし）は復元せず捨てる
 			loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false, persist: "keep" });
 		});
-		return editGadget.call(this, {
+		return editGadget.call(m, {
 			mount: ({ onClose }) => { live.annoCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
 			onResult: async buf => {
 				if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false, persist: "save" });
@@ -160,7 +159,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			signal: ac.signal, ...opts,
 		});
 	});
-	map.gadget("demo", function (opts: GOpts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
+	registerGadget("demo", (m, opts) => {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 		// 終演の定位置＝地域が申告する「全体」（home.view の中心・home.span の縦横の度幅）を真俯瞰・北向きで画面に収める
 		// （fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）。span の無い地域・地球儀は既定の起動視点へ
 		const homeFit = () => {
@@ -170,7 +169,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 			flyTo(lon, lat, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 		};
-		scenes.demoHandle = demoGadget.call(this, { flyView, fadeView: scenes.fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || scenes.fadeBusy,
+		scenes.demoHandle = demoGadget.call(m, { flyView, fadeView: scenes.fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || scenes.fadeBusy,
 			// 書き終わりの合図（自動上演の行送りゲート・裁定2026-08-12「非力機は書き終わるまで待つ」）＝可視の立ち上げ
 			// (autoMesh発＝prefetchは含めない・ackはクレジット窓2で「ほぼ描き切り」)・標高タイル・基図sig（z<4は
 			// mainスロット空でsigが恒久不一致＝地球儀シーンを堰き止めないよう z≥4 限定）。裏仕込み(prefetch)は幕を止めない。

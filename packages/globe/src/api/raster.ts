@@ -96,7 +96,7 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 			: ((d as ArrayBuffer).byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d as ArrayBuffer]), bmOpts) : null;   // 残り＝ArrayBuffer／TypedArray（他の値は byteLength が無い＝null）
 	}
 	// 四隅の動画（#49）＝覆いのオーバーレイ（imagequad の組み込み・注記の下）へ毎コマ差し替え。動画を使うまで chunk も overlay も作らない
-	const videoGet = async () => live.videoCtl ??= (await import("../gadgets/videoquad.js")).createVideoQuads({ overlay: () => map.overlay({ builtin: "imagequad" }, { name: "videoquad" }), maxSide: LOW_MEM ? 1024 : 2048 });
+	const videoGet = async () => live.videoCtl ??= (await import("../gadgets/videoquad.ts")).createVideoQuads({ overlay: () => map.overlay({ builtin: "imagequad" }, { name: "videoquad" }), maxSide: LOW_MEM ? 1024 : 2048 });
 	ownDestroy.push(() => live.videoCtl?.clear());
 	map.raster = {
 		catalog: REGION_RASTERS,
