@@ -83,6 +83,21 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
   Without it you get the world: Natural Earth 10m, global hypsometry, lakes, rivers, maritime
   boundaries, stars — honest up to about z8, which is what world data can carry.
 
+## Upgrading from 1.x
+
+2.0 is a major release. The ones most likely to touch your code:
+
+- **Imports**: 1.x opened every file under `src/` (`"./*"`); 2.0 exports only named subpaths (`page.js`, `i18n.js`, `worker.js`,
+  `maplibre`, …; see `exports` in `package.json`), and `internal/*` is not public.
+- **Gadgets you write**: `map.registry.gadgets.add(name, (map, ...args) => handle)`. The 1.x `map.gadget(name, function () { this … })`
+  is gone; `map.gadget` is only the table of callers (`map.gadget.<name>(…)`).
+- **Aliases removed**: `plateau` → `mesh` (option, `map.on("mesh")`, type `MeshEvent`), `maxPitch` / `setMaxPitch` always in degrees,
+  `chips` takes `true` / `false` only, romaji keys in `opts.layers` (old shared URLs keep working), `addCOPC` / `removeCOPC` →
+  `addPointCloud` / `removePointCloud`. `OrthoJapanMap` stays as an alias of `GlobeMap`.
+
+Every change, old → new, per package: [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md)
+(Japanese). When 2.0 is published, 1.x is planned to stay installable under the `v1` dist-tag (`npm i @ortho-earth/globe@v1`).
+
 ## Verification
 
 The gates live with the code: `npm run verify:ui` (18 pages), `npm run verify:webgpu` (10 pages, real GPU; a page that

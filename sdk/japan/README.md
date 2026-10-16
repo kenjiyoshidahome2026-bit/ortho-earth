@@ -45,16 +45,15 @@ A working sample ships in the zip (`example/index.html`): serve the unzipped fol
 | `chips` | `true` | The layer/theme chip bar (top right) |
 | `instruments` | `true` | Bottom instrument bar. `true` = all, array = selective, `false` = none. Keys: `pos`, `scale`, `attr` (attribution), `log` |
 | `mesh` | `true` | 3D buildings (PLATEAU) master switch. `false` disables the catalog, workers, and auto-loading entirely — no multi-MB transfers ever start |
-| `plateau` | — | Deprecated alias of `mesh` (1.1.x name; still accepted, `mesh` wins if both are given). |
-| `maxPitch` | `75°` | Tilt limit in **radians**. `0` = locked top-down |
+| `maxPitch` | `75°` | Tilt limit in **degrees** (as in MapLibre). `0` = locked top-down. Shared-URL `t=` is clamped to it too |
 | `lang` | auto | UI language `"ja"` / `"en"`. Unset = `?lang=` → browser language. Applies to UI chrome only — map labels are part of the map data |
 | `assetBase` | `"./"` | Where the runtime assets live (see Install). Relative or absolute URL |
 
-Returns `map` — the full surface is typed in `dist/lib/ortho-japan.d.ts`: `view` / `flyTo` (Promise) / `on`/`off` (load, move, settle, mesh — old name plateau still fires —, click) / `projectLL`, `makeProjector`, `onFrame`, `requestDraw` (DOM overlays) / `unprojectXY` / `getHeight` / `gadget.*` / the gint handles (`applyGintData`, `paint`, `paintTable`, `onGintClick`) / `backend` / `destroy`.
+Returns `map` — the full surface is typed in `dist/lib/ortho-japan.d.ts`: `view` / `flyTo` (Promise) / `on`/`off` (load, move, settle, mesh, click) / `projectLL`, `makeProjector`, `onFrame`, `requestDraw` (DOM overlays) / `unprojectXY` / `getHeight` / `gadget.*` / the gint handles (`applyGintData`, `paint`, `paintTable`, `onGintClick`) / `backend` / `destroy`.
 
 `map.destroy()` tears everything down — workers, listeners, render loop, timers, DOM — and returns the container as it was (id restored, children removed, SDK classes removed). IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast. Re-create with `view: map.view.hash` to keep the viewpoint — that is also how you change `lang` or `theme`, which have no live-switch API. (1.0.3 and earlier: destroying within 20 s of a WebGPU boot left a watchdog that reloaded the host page — fixed in 1.0.4.)
 
-In an embed (`target` given) the SDK does not touch the page URL; pass `urlHash: true` to keep the view hash in the address bar as the full site does. Elevation tiles for the terrain are fetched on demand from `api.ortho-earth.com` (tens of MB over a session) even with `plateau: false`.
+In an embed (`target` given) the SDK does not touch the page URL; pass `urlHash: true` to keep the view hash in the address bar as the full site does. Elevation tiles for the terrain are fetched on demand from `api.ortho-earth.com` (tens of MB over a session) even with `mesh: false`.
 
 ## Opt-in gadgets (map.gadget.*)
 
@@ -77,7 +76,8 @@ map.gadget.contextmenu();
 map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML/GeoParquet/COG/glTF-GLB…)
 map.gadget.hint();      // gesture help card
 map.gadget.inspect();   // inspect the vector tiles: every source-layer in its own color, attributes on hover (same options as maplibre-gl-inspect; MapLibre-style maps: map.addControl(new MaplibreInspect()))
-map.gadget("myGadget", function () { /* this = map */ });   // your own
+map.registry.gadgets.add("myGadget", (map, opts) => { /* build it; return a handle */ });   // your own: the map is the first argument (no `this`)
+map.gadget.myGadget({ /* opts */ });                                                    // then call it like the built-ins
 ```
 
 ## Showcase pages (served next to `/japan/`)
@@ -144,6 +144,16 @@ The library is also published standalone on npm ([`geopbf`](https://www.npmjs.co
 ## Developing with AI agents
 
 A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts` (also served at https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts). Data loading goes through the SDK's own `geopbf` export (previous section). `sdk/verify-example.mjs` is a zero-dependency real-time headless-Chrome checker (title PASS/FAIL, screenshot, 4xx ledger) for self-judging test pages.
+
+## Upgrading from 1.x
+
+2.0 drops the 1.x aliases. `plateau` is now only `mesh` (the option, the `map.on("mesh")` event and the type `MeshEvent`; `PlateauEvent` is gone).
+`maxPitch` / `setMaxPitch` are always degrees (1.x read values ≤ 1.6 as radians). Your own gadgets are registered with
+`map.registry.gadgets.add(name, (map, ...args) => handle)`; `map.gadget(name, function () { this … })` is gone, and `map.gadget` is only the table of
+callers (`map.gadget.<name>(…)`). `chips` takes `true` / `false` only (pin single layers with `layers`), and `layers` no longer reads the romaji keys
+`chimei` / `chikei` / `shisetsu` (old shared URLs with them in `l=` still open). The full old → new list for every package is in
+[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). When 2.0 is published, 1.x is planned to stay
+installable under the `v1` dist-tag (`npm i @ortho-earth/japan@v1`).
 
 ## License
 
