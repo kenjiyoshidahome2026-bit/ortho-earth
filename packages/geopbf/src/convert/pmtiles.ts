@@ -4,7 +4,7 @@
 // 連続 id の同一内容は runLength に畳む（海の空タイル等）。内部圧縮・タイル圧縮は gzip（gzip.js＝Node は zlib・ブラウザは
 // CompressionStream・pako 不使用）。
 import { gzip, gunzip, gzipMany } from "./gzip.ts";
-import { readUvarint, writeUvarint } from "../modules/varint.js";
+import { readUvarint, writeUvarint } from "../modules/varint.ts";
 
 const tzValues = [0, 1, 5, 21, 85, 341, 1365, 5461, 21845, 87381, 349525, 1398101, 5592405, 22369621, 89478485, 357913941, 1431655765, 5726623061, 22906492245, 91625968981, 366503875925, 1466015503701, 5864062014805, 23456248059221, 93824992236885, 375299968947541, 1501199875790165];
 function rotate(n: number, xy: [number, number], rx: number, ry: number): void {

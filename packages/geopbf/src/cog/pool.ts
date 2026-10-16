@@ -1,9 +1,9 @@
 // worker プール＝altpbf/src/createGetHeight.js の型（NW=min(3,cores-2)・lane 直列 FIFO・
 // タイムアウトで worker 再生成＝死んだ worker は message も error も出さず lane を永久に塞ぐため）。
-// ⚠Vite 規律: worker URL は文字どおり new Worker(new URL('./worker.js', import.meta.url), {type:'module'})
+// ⚠Vite 規律: worker URL は文字どおり new Worker(new URL('./worker.ts', import.meta.url), {type:'module'})
 // と書く。変数に貯めると本番ビルドで data:URL にインライン化され worker 内の相対 import が silent 死。
-import { spawnWorker } from "../modules/workerFactory.js";
-import { builtinWorker } from "../modules/builtinWorkers.js";
+import { spawnWorker } from "../modules/workerFactory.ts";
+import { builtinWorker } from "../modules/builtinWorkers.ts";
 import type { CogWorkerRequest, CogWorkerResult, CogWorkerResponse } from "./worker-types.ts";
 const REQ_TIMEOUT = 45000;
 
@@ -24,7 +24,7 @@ interface Lane { w: Worker | null; queue: Job[]; busy: boolean }
 
 export function makePool(opts: PoolOptions = {}): CogPool {
 	const NW = opts.workers ?? Math.min(3, Math.max(1, (globalThis.navigator?.hardwareConcurrency || 4) - 2));
-	const mk = (): Worker => spawnWorker("geopbf:cog", () => builtinWorker("geopbf:cog"));   // ホストの入口が勝つ（setWorkerFactory）・既定＝geopbf の入口 src/worker.js の "geopbf:cog"
+	const mk = (): Worker => spawnWorker("geopbf:cog", () => builtinWorker("geopbf:cog"))!;   // ホストの入口が勝つ（setWorkerFactory）・既定＝geopbf の入口 src/worker.ts の "geopbf:cog"
 	const lanes: Lane[] = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
 	let seq = 0, rr = 0;
 

@@ -60,9 +60,9 @@
 		"./src/index.js",
 		"./src/pbf.js",
 		"./src/pbf-base.js",
-		"./src/worker.js",
-		"./src/decoder/*.js",
-		"./src/encoder/*.js",
+		"./src/worker.ts",
+		"./src/decoder/*.ts",
+		"./src/encoder/*.ts",
 		"./src/cog/worker.ts",
 		"./src/convert/tile-worker.ts",
 		"./wasm/pkg/*.js"
@@ -76,11 +76,8 @@
 			"types": "./types/core.d.ts",
 			"default": "./src/core.js"
 		},
-		"./worker": {
-			"types": "./types/worker.d.ts",
-			"default": "./src/worker.js"
-		},
-		"./no-builtin-workers": "./src/modules/builtinWorkers.none.js",
+		"./worker": "./src/worker.ts",
+		"./no-builtin-workers": "./src/modules/builtinWorkers.none.ts",
 		"./identify": {
 			"types": "./types/identify.d.ts",
 			"default": "./src/extension/identify.js"
@@ -94,11 +91,8 @@
 			"types": "./types/pbf-base.d.ts",
 			"default": "./src/pbf-base.js"
 		},
-		"./pbf": {
-			"types": "./types/pbf.d.ts",
-			"default": "./src/modules/pbf.js"
-		},
-		"./czml": "./src/modules/czml.js",
+		"./pbf": "./src/modules/pbf.ts",
+		"./czml": "./src/modules/czml.ts",
 		"./cog": "./src/cog/index.ts",
 		"./cog/core": "./src/cog/core.ts",
 		"./cog/source": "./src/cog/source.ts",
@@ -125,8 +119,8 @@
 		"./maplibre-cog": "./src/maplibre-cog.js",
 		"./leaflet-cog": "./src/leaflet-cog.js",
 		"./sanitize": "./src/sanitize.js",
-		"./edit": "./src/edit/index.js",
-		"./edit/*": "./src/edit/*.js",
+		"./edit": "./src/edit/index.ts",
+		"./edit/*": "./src/edit/*.ts",
 		"./maplibre": {
 			"types": "./types/maplibre.d.ts",
 			"default": "./src/maplibre.js"
@@ -145,25 +139,13 @@
 		},
 		"./load": {
 			"types": "./types/load.d.ts",
-			"default": "./src/modules/geojson-load.js"
+			"default": "./src/modules/geojson-load.ts"
 		},
-		"./gzip": {
-			"types": "./types/gzip.d.ts",
-			"default": "./src/modules/gzip.js"
-		},
-		"./encodeZIP": {
-			"types": "./types/encodeZIP.d.ts",
-			"default": "./src/modules/encodeZIP.js"
-		},
-		"./encodeXLSX": "./src/modules/encodeXLSX.js",
-		"./decodeZIP": {
-			"types": "./types/decodeZIP.d.ts",
-			"default": "./src/modules/decodeZIP.js"
-		},
-		"./fname2mime": {
-			"types": "./types/fname2mime.d.ts",
-			"default": "./src/modules/fname2mime.js"
-		},
+		"./gzip": "./src/modules/gzip.ts",
+		"./encodeZIP": "./src/modules/encodeZIP.ts",
+		"./encodeXLSX": "./src/modules/encodeXLSX.ts",
+		"./decodeZIP": "./src/modules/decodeZIP.ts",
+		"./fname2mime": "./src/modules/fname2mime.ts",
 		"./internal/*": "./src/*.ts"
 	},
 	"scripts": {

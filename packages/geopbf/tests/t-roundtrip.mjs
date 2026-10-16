@@ -28,9 +28,9 @@ const want = src.geojson.features;
 const sameGeom = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 for (const [enc, dec, opts, file] of [["gml", "gml", {}, "t.gml"], ["kmz", "kmz", { kmz: false }, "t.kml"], ["fgb", "fgb", {}, "t.fgb"]]) {
-	const f = await runWorker(`${S}/encoder/${enc}.js`, { buf: src.arrayBuffer.slice(0), name: "t", opts });
+	const f = await runWorker(`${S}/encoder/${enc}.ts`, { buf: src.arrayBuffer.slice(0), name: "t", opts });
 	ok(f && f !== "TIMEOUT", `${enc}：書き出せた`);
-	const back = await runWorker(`${S}/decoder/${dec}.js`, { file: new File([await f.arrayBuffer()], file), name: "t", precision: 6, encoding: "utf8" });
+	const back = await runWorker(`${S}/decoder/${dec}.ts`, { file: new File([await f.arrayBuffer()], file), name: "t", precision: 6, encoding: "utf8" });
 	ok(back && back !== "TIMEOUT" && back.data, `${enc}：読み戻せた`);
 	const got = (await new GeoPBF().set(back.data)).geojson.features;
 	ok(got.length === want.length, `${enc}：地物の数（${got.length}/${want.length}）`);

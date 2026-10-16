@@ -1,9 +1,9 @@
 // t-sphere: 完全球体の幾何（geopbf/edit/sphere）＋モデルの球面回転 rotateFeature（node tests/edit/t-sphere.mjs）
 //   ①slerp/gcMidpoint/gcDistance の基本性質 ②quatBetween/rotateVec＝a→b・距離保存・逆回転 ③smallCircle＝全点等距離
 //   ④rotateFeature＝隣接ポリゴンの共有ノードが一緒に動く・辺の中心角が保たれる・restore で厳密復元・applyCmd/invertCmd 往復
-import { toVec, toLL, slerp, gcMidpoint, gcInterpolate, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, quatFromAxisAngle, rotateVec, rotateLL, smallCircle, gcCentroid, gcRect } from "../../src/edit/sphere.js";
-import { buildTopology } from "../../src/edit/topo-extract.js";
-import { createModel } from "../../src/edit/model.js";
+import { toVec, toLL, slerp, gcMidpoint, gcInterpolate, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, quatFromAxisAngle, rotateVec, rotateLL, smallCircle, gcCentroid, gcRect } from "../../src/edit/sphere.ts";
+import { buildTopology } from "../../src/edit/topo-extract.ts";
+import { createModel } from "../../src/edit/model.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

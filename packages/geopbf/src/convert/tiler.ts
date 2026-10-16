@@ -29,7 +29,7 @@ import { buildTagTable } from "./tagtable.ts";
 import type { TagSource, FieldMap, FieldType } from "./tagtable.ts";
 import { calibrateArcThresholds } from "./calibrate.ts";
 import type { CalibrateStats } from "./calibrate.ts";
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 import type { AttrOptions } from "./types.ts";
 export { attrFilter };
 

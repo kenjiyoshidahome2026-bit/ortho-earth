@@ -12,7 +12,7 @@ import { makeLRU, noopCache } from "./cache.ts";
 import type { ByteCache } from "./cache.ts";
 import type { Ifd, GeoLevel, BBox, Target, TileCoord, Stretch, StretchRange, LutSpec, Composite, Lut, RasterData } from "./types.ts";
 
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 export { xyzTarget, lonlatTarget };
 
 /** JPEG/WebP タイルをブラウザでデコードする口（index.js が createImageBitmap 系を注入） */

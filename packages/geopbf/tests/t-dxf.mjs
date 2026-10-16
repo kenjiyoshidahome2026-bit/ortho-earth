@@ -116,7 +116,7 @@ const byType = (f, t) => f.filter(x => x.properties.type === t);
 	const src = dxf({ header: [["$EXTMIN", 10, 139, 35], ["$EXTMAX", 10, 140, 36]], entities: E("LINE", [8, "0"], [10, 139], [20, 35], [11, 140], [21, 36]) + E("HATCH", [8, "0"]) });
 	globalThis.onmessage = null;
 	const got = new Promise(resolve => { globalThis.postMessage = (m) => resolve(m); });
-	await import("../src/decoder/dxf.js?v=" + Date.now());
+	await import("../src/decoder/dxf.ts?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([src], "t.dxf"), name: "t", precision: 6 } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
 	ok(r && r !== "TIMEOUT" && r.type === "dxfdec" && r.data instanceof ArrayBuffer && /assumed lon\/lat/.test(r.warning) && /HATCH×1/.test(r.warning), `decoder worker: ${r?.warning}`);

@@ -1,10 +1,10 @@
-import Pbf from "./modules/pbf.js";
-import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isString, isSimpleObject, isFloat, isBbox } from "./modules/utility.js";
-import { antimeridianFeature } from "./modules/antimeridianFeature.js";
-import { cleanCoords, } from "./modules/cleanCoords.js";
-import { runInWorker } from "./modules/workerPool.js";
-import { hasWorkerFactory } from "./modules/workerFactory.js";
+import Pbf from "./modules/pbf.ts";
+import { bufferTub, readBufs } from "./modules/bufferTub.ts";
+import { isString, isSimpleObject, isFloat, isBbox } from "./modules/utility.ts";
+import { antimeridianFeature } from "./modules/antimeridianFeature.ts";
+import { cleanCoords, } from "./modules/cleanCoords.ts";
+import { runInWorker } from "./modules/workerPool.ts";
+import { hasWorkerFactory } from "./modules/workerFactory.ts";
 
 // Node（main / worker_threads）には ImageData が無い＝参照するだけで ReferenceError。instanceof の前に存在を見る（2026-10-11・俯瞰 §2-B 4）。
 // 旧＝CLI と試験 20 本が globalThis.ImageData のスタブで隠していた。読む側（image()）はファイルに IMAGE 型が入っている時だけ参照する
@@ -544,7 +544,7 @@ export function canUseWorker(self, factory) {
 }
 
 function _setViaWorker(self, buf) {
-	// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）
+	// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.ts の由来書き参照）
 	return runInWorker("decoder:pbf", GeoPBF._workerFactory, { buf }, [buf])
 		.then(r => {
 			self.init();

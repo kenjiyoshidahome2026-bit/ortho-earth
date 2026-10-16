@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { buildCog } from "./cog/build-cog.mjs";
 import { makeCogProtocol, cogProtocol } from "../src/maplibre-cog.js";
 import { cogGridLayer } from "../src/leaflet-cog.js";
-import { lonLatToWorld } from "../src/modules/mercator.js";
+import { lonLatToWorld } from "../src/modules/mercator.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

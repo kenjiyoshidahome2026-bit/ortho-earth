@@ -2,8 +2,8 @@
 // encodeZIP/decodeZIP の常設検定。要点＝**64KB を超えるファイル**（ストリームが複数チャンクに割れる）。
 // 2026-09-21 の実バグ：CRC をチャンク毎に確定（^-1）していたため、1 チャンクに収まらないファイルだけ
 // 「bad CRC」で出ていた（unzip -t が落ちる・実物は解凍できるので気づきにくい）。
-import { encodeZIP } from "../src/modules/encodeZIP.js";
-import { decodeZIP } from "../src/modules/decodeZIP.js";
+import { encodeZIP } from "../src/modules/encodeZIP.ts";
+import { decodeZIP } from "../src/modules/decodeZIP.ts";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

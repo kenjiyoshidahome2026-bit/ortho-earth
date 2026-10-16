@@ -6,5 +6,5 @@
 // Gint（identifyAt / contain / topojson / dissolve）や形式変換（Shapefile 等）は従来どおり "geopbf"（full）か各 subpath から。
 // pbf-base の GeoPBF は "geopbf/pbf" の拡張メソッド（centroid・clone・identifyAt …）を持たない＝型（types/core.d.ts）もその分だけ。
 export { GeoPBF, makeKeys, propsKeyOf } from "./pbf-base.js";
-export { loadGeopbf, decodeToGeojson, fetchAndDecode, sanitizeProperties, resolveInnerUrl } from "./modules/geojson-load.js";
-export { gzip, gunzip, isGzip } from "./modules/gzip.js";
+export { loadGeopbf, decodeToGeojson, fetchAndDecode, sanitizeProperties, resolveInnerUrl } from "./modules/geojson-load.ts";
+export { gzip, gunzip, isGzip } from "./modules/gzip.ts";

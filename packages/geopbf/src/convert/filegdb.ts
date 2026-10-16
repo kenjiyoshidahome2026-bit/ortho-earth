@@ -18,7 +18,7 @@ import { resolveDatum, datumStats } from "./datum.ts";
 import type { Datum, DatumOptions, DatumStats } from "./datum.ts";
 import { assemblePolygons } from "./esri-rings.ts";   // Esri の環の約束（フィーチャーサービスの f=json と共用・#176）
 import type { Geometry, Position, CrsInfo, XF, MetaOptions, AttrOptions, MsStats } from "./types.ts";
-import { now } from "../modules/now.js";
+import { now } from "../modules/now.ts";
 
 const utf16 = new TextDecoder("utf-16le"), utf8 = new TextDecoder("utf-8");
 const TYPE = ["int16", "int32", "float32", "float64", "string", "datetime", "objectid", "geometry", "binary", "raster", "uuid", "globalid", "xml", "int64", "date", "time", "datetimeoffset"];
