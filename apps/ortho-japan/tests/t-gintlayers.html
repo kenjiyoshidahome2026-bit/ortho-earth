@@ -43,7 +43,7 @@ const buildArcs = (arcs) => {
 // addGint の source 契約は geopbf（unPackGint＋fid整列の getProperties/getFeature）＝ここは同形のダック
 const duckPbf = (gint, n, identifyAt = null) => ({
 	unPackGint: { ...gint, precision: 6 },
-	fmap: { length: n },
+	length: n,
 	getProperties: i => ({ fid: i }),
 	getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [139.766, 35.68] } }),   // ラベル錨用（labelCount の物差し）
 	...(identifyAt ? { identifyAt } : {}),
