@@ -6,7 +6,7 @@
 //   tileset.json＝1.1 の implicitTiling・tileset-10.json＝1.0 の 3DTILES_implicit_tiling 拡張（同じ subtree を読む・metadata は読まない）。
 // metadata（tileset.json だけ）：schemaUri＝schema.json・tileset の metadata（scale／offset と default）・groups・根の subtree の property table（tile と content）。
 import { mkdirSync, writeFileSync } from "node:fs";
-import { ENU, pad8, boxGlb } from "../tiles3d-lib.mjs";
+import { ENU, boxGlb, subt } from "../tiles3d-lib.mjs";
 
 const SIZE = 640, COLORS = [[0.9, 0.1, 0.1, 1], [0.95, 0.85, 0.1, 1], [0.1, 0.8, 0.2, 1], [0.1, 0.2, 0.95, 1]];
 const avail = { 0: [[0, 0]], 1: [[0, 0], [0, 1], [1, 1]], 2: [[0, 0], [1, 0], [0, 1], [1, 1], [2, 2], [3, 3]], 3: [[0, 0], [1, 0], [0, 1], [1, 1], [6, 6]] };
@@ -15,12 +15,6 @@ mkdirSync("content", { recursive: true }); mkdirSync("subtrees", { recursive: tr
 for (const [L, list] of Object.entries(avail)) for (const [x, y] of list) {
 	const s = SIZE / 2 ** L, cx = -SIZE / 2 + (x + 0.5) * s, cy = -SIZE / 2 + (y + 0.5) * s;
 	writeFileSync(`content/${L}_${x}_${y}.glb`, boxGlb(s * 0.8, s * 0.8, 10 * (+L + 1), COLORS[L], cx, -cy));
-}
-// subtree のバイナリ（"subt"・version 1・JSON と本体の長さ uint64）
-function subt(json, bin = null) {
-	const J = pad8(Buffer.from(JSON.stringify(json))), B = bin ? pad8(bin, 0) : Buffer.alloc(0), h = Buffer.alloc(24);
-	h.write("subt", 0); h.writeUInt32LE(1, 4); h.writeBigUInt64LE(BigInt(J.length), 8); h.writeBigUInt64LE(BigInt(B.length), 16);
-	return Buffer.concat([h, J, B]);
 }
 const ZERO = { constant: 0 };
 // 根（0.0.0）：タイル／content＝[段 0 の 1 ビット, 段 1 の 4 ビット（Morton：(0,0)(1,0)(0,1)(1,1)）]＝0b11011・子 subtree＝段 2 の 16 ビット（Morton 0,1,2,3,12,15）

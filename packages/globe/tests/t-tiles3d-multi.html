@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- 実描画の検分：3D Tiles の複数 content（1.1 の contents・1.0 の 3DTILES_multiple_contents・2026-10-16）。試料＝tests/fixtures/tiles3d-multi（make.mjs で生成）＝東京駅の ENU の根に 640m 四方の四分木 2 段：
+     タイルごとに a＝橙（西半分）・b＝青（東半分）。段 1 の (1,1) だけ b が無い。?v=implicit＝1.1 の implicit・?v=10＝1.0 の拡張（明示）・?v=implicit10＝1.0 の implicit＋拡張。
+     ①maxSSE を極小に＝段 1 の 7 個 ②metadata（1.1 だけ・content ごとの metadata と group・同じタイルの 2 個は同じ tile）③画素（橙と青）④スタイル（1.1 だけ・show で b を抜く）⑤maxSSE を極大に＝根の 2 個 ⑥remove。globe（地域なし）・実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d-multi</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (f()) return true; await sleep(250); } return false; };
+const v = new URLSearchParams(location.search).get("v") || "";
+const file = { "": "tileset.json", implicit: "tileset-implicit.json", 10: "tileset-10.json", implicit10: "tileset-implicit-10.json" }[v], v11 = v === "" || v === "implicit";
+run(); async function run() { try {
+	const map = await createGlobe({ target: "#map", view: "#16.4/35.6812/139.7671/0", chips: false, debugGlobals: true });
+	await sleep(2500);
+	const h = await map.add3DTiles(`./fixtures/tiles3d-multi/${file}`, { fit: false, maxSSE: 1e-6, pickable: true });
+	const on = () => h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" ");
+	const full = await until(() => h.stats.shown === 7 && on() === "1_0_0.glb 1_0_0.glb 1_0_1.glb 1_0_1.glb 1_1_0.glb 1_1_0.glb 1_1_1.glb");
+	ok("full", full, `${JSON.stringify(h.stats)} ${on()}`);
+	if (v11) {   // pick＝content ごとの metadata と group・同じタイルの a と b は同じ tile の番号
+		const hits = new Map();
+		for (let y = 10; y < 600; y += 8) for (let x = 10; x < 960; x += 8) { const p = h.pick(x, y), name = p?.contentMetadata?.properties.name; if (name && !hits.has(name)) hits.set(name, p); }
+		const a = hits.get("a1/0/1"), b = hits.get("b1/0/1");
+		ok("meta.pick", a && b && a.groupMetadata?.properties.name === "west" && b.groupMetadata?.properties.name === "east" && a.tile === b.tile && !hits.has("b1/1/1"), JSON.stringify([...hits.keys()].sort()));
+	}
+	await sleep(1500);
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const count = (img, test) => { let k = 0; for (let i = 0; i < img.data.length; i += 4) if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; return k; };
+	const shoot = async (want, tries = 8) => { let c = {}; for (let k = 0; k < tries; k++) { const img = await grab(); c = { orange: count(img, (r, g, b) => r > 150 && g > 50 && g < 160 && b < 60), blue: count(img, (r, g, b) => b > 120 && b > r * 2 && b > g * 1.6) }; if (want(c)) break; await sleep(2500); } return c; };
+	// GPU への登録は 1 フレーム 1 件に平準化＝ソフトウェア描画（headless）では揃うまで数秒＝揃うまで撮り直す
+	let c = await shoot(c => c.orange > 500 && c.blue > 500);
+	ok("pixels", c.orange > 500 && c.blue > 500, JSON.stringify(c));
+	if (v11) {   // スタイル＝content の metadata（name）で b を抜く
+		h.setStyle({ show: ["!=", ["index-of", "b", ["get", "name"]], 0] });
+		await until(() => h.stats.shown === 7, 20000);
+		c = await shoot(c => c.orange > 500 && c.blue < 50);
+		ok("style.show", c.orange > 500 && c.blue < 50, JSON.stringify(c));
+		h.setStyle(null);
+		await until(() => h.stats.shown === 7, 20000);
+		c = await shoot(c => c.orange > 500 && c.blue > 500);
+		ok("style.off", c.orange > 500 && c.blue > 500, JSON.stringify(c));
+	}
+	// 粗く＝根の 2 個だけ
+	h.setOptions({ maxSSE: 1e9 });
+	const coarse = await until(() => h.stats.shown === 2 && on() === "0_0_0.glb 0_0_0.glb", 10000);
+	ok("coarse", coarse, `${JSON.stringify(h.stats)} ${on()}`);
+	h.remove();
+	await sleep(300);
+	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+</script>
+</body></html>
