@@ -1942,7 +1942,8 @@ function swapScene(order: TileOrder) {
 // 札幌(1330中37)・京都(2081中4)は 210 側がほぼ空＝800 が本体なので減らない。密度は丁目の低い
 // symbol-sort-key と labels2d の衝突間引きに任せ、足りなければ CHOME800_MINZOOM を上げる。
 const chomeCanon = (t: string) => t.replace(/[（(]([一二三四五六七八九十百]+)[)）]$/, "$1丁目");   // 突合キー＝正式表記へ寄せる
-const chomeShort = (t: string) => t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）");        // 表示＝（N）へ（丁目の無い町名はそのまま）
+// 表示＝（N）へ（丁目の無い町名はそのまま）。旧＝t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）")＝漢数字の長い並びで多項式（CodeQL）＝末尾から数えるのと同じ
+const chomeShort = (t: string) => { if (!t.endsWith("丁目")) return t; const e = t.length - 2; let i = e; while (i > 0 && "一二三四五六七八九十百".includes(t[i - 1])) i--; return i < e ? t.slice(0, i) + "（" + t.slice(i, e) + "）" : t; };
 const nearAnchor = (list: number[][] | undefined, a: readonly number[], m: number) => {   // list（経緯度の列）に a から m メートル以内の点があるか
 	if (!list) return false;
 	const cos = Math.cos(a[1] * Math.PI / 180);
