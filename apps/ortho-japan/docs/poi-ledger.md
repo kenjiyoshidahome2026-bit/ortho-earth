@@ -335,7 +335,7 @@ z14タイルへの施設集約は**編集方法まで含めて**設計する。�
 
 ### 12.7 実装（2026-08-11・1〜4完了＝残は5の一周実地検証）
 - **器**＝`GIS/pbf/poi/overrides.json` 1本（civic専用）：`{v:版, seq:次id, recs:[{id,op,n,ll,to?,t?,r?,d}]}`・op=add/move/rename/del。
-  意味論の正典＝`packages/jp/src/poi-schema.js applyOverrides`（match=名前完全一致∧300m最近傍・id昇順fold・moveはposSrc手管理へ）。
+  意味論の正典＝`packages/jp/src/poi-schema.ts applyOverrides`（match=名前完全一致∧300m最近傍・id昇順fold・moveはposSrc手管理へ）。
   空の台帳を初期化済み（表示側の404ゼロ維持）。
 - **表示**＝app.js `applyPoiOvr`＋`poiPatchedAll`（実行時パッチ・poiVer連動）。権威＝注記(1)に**手管理(3)を追加**＝
   add/moveした点は基図同名を上書き。`tests/t-poioverrides.mjs` が焼き側との**同値を機械検証**（17項目・t-chome方式の実ソース切り出し）。

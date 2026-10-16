@@ -100,7 +100,7 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			b.onLoad({ filter: /\.(m?js|ts)$/ }, a => {
 				if (a.path.includes("node_modules")) return null;
 				const src = fs.readFileSync(a.path, "utf8");
-				for (const m of src.matchAll(/new URL\(\s*["'`]([^"'`]+\.m?js)["'`]\s*,\s*import\.meta\.url\s*\)/g)) {
+				for (const m of src.matchAll(/new URL\(\s*["'`]([^"'`]+\.(?:m?js|ts))["'`]\s*,\s*import\.meta\.url\s*\)/g)) {
 					const w = path.resolve(path.dirname(a.path), m[1]); if (fs.existsSync(w)) workers.add(w);
 				}
 				return null;

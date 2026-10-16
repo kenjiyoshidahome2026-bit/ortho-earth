@@ -5,7 +5,7 @@
 //   ・topology(pbf, { shared:true }) は SharedArrayBuffer に直に組む、setGintBUF は SAB をそのまま掴む・AB を写さない
 //   ・identify / contain / topojson / cleanTopology / repack が view 経路でも同じ答え
 import { GeoPBF } from "../src/pbf.js";
-import { initGintWasm } from "../src/convert/node-gint.js";
+import { initGintWasm } from "../src/convert/node-gint.ts";
 import { topology, unPackGintBuffer, repackGintBuffer, isSharedView } from "../src/extension/topology.js";
 
 let fails = 0;

@@ -1,5 +1,5 @@
 // decoder/csv.js ── ブラウザ用 worker：.csv / .tsv / .xlsx（経緯度列か WKT 列を持つ表）→ GeoPBF バイト列。実体は convert/table.js の fromTable。
-import { fromTable } from "../convert/table.js";
+import { fromTable } from "../convert/table.ts";
 
 onmessage = async (e) => {
 	const { file, name, precision, encoding, fallbackEncoding, description, license, attribution, lon, lat, wkt, sheet, delimiter } = e.data;

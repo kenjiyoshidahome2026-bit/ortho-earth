@@ -7,7 +7,7 @@
 globalThis.ImageData ??= class ImageData { };
 import { createServer } from "node:http";
 import { GeoPBF } from "../src/pbf-base.js";
-import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.js";
+import { toGeoParquet, fromGeoParquet } from "../src/convert/geoparquet.ts";
 import { openParquet, readParquet } from "../src/parquet.js";
 
 let fails = 0;

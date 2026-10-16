@@ -7,7 +7,7 @@
 //
 // openCog はレイヤ生成時に1回（ヘッダ一発読み）。createTile は renderXYZ の ImageBitmap を
 // canvas へ描く。bounds は bboxLL から自動設定＝圏外タイルは Leaflet 側が要求しない。
-import { openCog } from "./cog/index.js";
+import { openCog } from "./cog/index.ts";
 
 export async function cogGridLayer(L, url, options = {}) {
 	const cog = await openCog(url, options);
