@@ -45,7 +45,7 @@ CDN 直 import（`https://www.ortho-earth.com/japan/lib/ortho-japan.js`・`asset
 - マーカー等＝`map.onFrame(() => { const P = map.makeProjector(); … P(lon,lat) → [x,y,front] … })`。座標は mapEl 左上原点の CSS px。**front<0＝見えない（[0,0,-1]・x,y は無効）**＝hidden にする。
   描画はオンデマンド＝載せた直後に `map.requestDraw()`。500 点でも 0.06ms/frame（`projectLL` の個別呼びはしない）。
 - 飛行の完了＝`await map.flyTo(lon, lat, zoom, tiltDeg, bearingDeg)`（1.0.5〜 Promise）。静止の合図＝`map.on("settle", e => …)`（1.0.5〜）／`off()` で解除。1.0.4 以前は `on("move")` の 300〜400ms 無音で判定。
-- 単位＝`view.pitch`/`view.bearing` は rad、`flyTo` の tilt/bearing は度、`maxPitch` は rad。`theme` をオプションで渡すと hash に c= が入らない＝再生成時は theme を渡し直す。
+- 単位＝`view.pitch`/`view.bearing` は rad、`flyTo` の tilt/bearing は度、`maxPitch` は度（2.0〜常に度）。`theme` をオプションで渡すと hash に c= が入らない＝再生成時は theme を渡し直す。
 - 全球ビュー（z<4）の世界層（海底・湖・国界・星＝約 5MB）は `on("load")` の 3 秒ほど後に着地＝スクショは 8〜10 秒待つ。
 
 ## データを載せる（GeoPBF/gint）
@@ -83,7 +83,8 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 - 容れ物は class で寸法・id は借りられて destroy() で返る。lang/theme の live 切替 API は無い＝`view: map.view.hash` を持って destroy()→再生成。
 - **1.0.3 以前は WebGPU 起動後 20 秒以内の destroy() でホストページが reload される**（番犬タイマー・1.0.4 で修正）＝古い lib なら 21 秒待つか `?stay=1`。
 - theme を指定すると palette は載らない（切替可にするなら view の c=dark）。contextmenu({items}) は既定 2 項目の**置換**。埋め込みでは URL ハッシュを書かない（urlHash:true で書く）。
-- backend は `map.backend`、建物3D（日本＝PLATEAU）の読込合図は `map.on("mesh", e => e.phase)`（catalog→start→done。1.2.0〜・1.0.4〜1.1.x の旧名 "plateau" も別名で効く。1.0.3 以前はコンソール文字列＝llms.txt 罠⑯）。
+- backend は `map.backend`、建物3D（日本＝PLATEAU）の読込合図は `map.on("mesh", e => e.phase)`（catalog→start→done。1.2.0〜。1.x の旧名 "plateau" は 2.0 で外した＝聞いても来ない。1.0.3 以前はコンソール文字列＝llms.txt 罠⑯）。
+- 自作ガジェット＝`map.registry.gadgets.add(name, (map, ...args) => 手綱)`（map は第 1 引数・`this` は使わない）→ `map.gadget.<name>(opts)`。1.x の `map.gadget(name, function () { this… })` は 2.0 で外した。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 

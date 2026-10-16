@@ -88,7 +88,7 @@ pbf.arrayBuffer     // → the GeoPBF binary (store it, ship it, re-load it)
 pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 ```
 
-For code that only reads or writes `.geopbf` files there is a light entry, `geopbf/core` (1.20): the `GeoPBFBase` container, the
+For code that only reads or writes `.geopbf` files there is a light entry, `geopbf/core` (2.0): the `GeoPBFBase` container, the
 `loadGeopbf` / `decodeToGeojson` loader and gzip helpers, without the WASM glue, identify, dissolve or the worker entry
 (14 files / 77 KB of source in the static import closure, against 30 / 218 KB for `geopbf`). TypeScript declarations ship
 with the package (`types/`); the converter subpaths are declared as `any` for now.
@@ -268,7 +268,7 @@ ortho-core uses at draw time — and two neighbouring polygons are simplified to
    MVT, gzips and content-hashes its tiles. The main thread merges by content key and packs PMTiles v3: Hilbert tile
    ids, run-length plus content de-duplication for interior tiles, leaf directories once the root exceeds 16 KB.
    Sharding only prunes the bisection tree, and the tiny-polygon accumulator is decided on the main thread per zoom
-   (1.20; before, a cluster of islets straddling a shard boundary could change the replacement squares), so **the output
+   (2.0; before, a cluster of islets straddling a shard boundary could change the replacement squares), so **the output
    is byte-identical at any worker count** (`workers: 0` runs inline).
 
 The assembly stage is typed-array based, stops bisecting as soon as a sub-range of tiles is provably interior to a
@@ -282,7 +282,7 @@ writer/reader directly in browsers (≈4× cheaper per tile than the `Blob`→`R
 Points skip the clipping tree entirely (tile index by shift, buffer copies to neighbours) and are thinned at lower
 zooms like tippecanoe's `-r`: `dropRate` 2.5 keeps 1/2.5 of the points per zoom step below `maxZoom`, chosen by a
 hash of (feature id, ordinal of the point within the feature) so the kept sets nest and a MultiPoint is thinned point by
-point (1.20; before, all points of a feature stood or fell together). `dropRate: 1` keeps every point in every tile.
+point (2.0; before, all points of a feature stood or fell together). `dropRate: 1` keeps every point in every tile.
 
 ### 5.2 Simplification is calibrated to tippecanoe's, per arc
 
@@ -719,7 +719,7 @@ pole convention), and an edge whose great circle passes over the pole gets ancho
 ## 8. Map library integrations
 
 None of these import the host library; each is a thin adapter you register yourself. All of them share one loader
-(gzip detection, `noeval` property decoding, sanitizing) and the same `{ fetch, sanitize, signal }` options.
+(gzip detection, decoding that never evaluates FUNC values, sanitizing) and the same `{ fetch, sanitize, signal }` options.
 
 ### 8.1 MapLibre GL JS
 
@@ -740,7 +740,7 @@ map.addSource("rail", { type: "geojson",
   mangling absolute URLs suffer (`https//` losing its colon), but relative paths cannot be recovered.
 - **Whole-file gzip** is detected by magic bytes and decompressed transparently.
 - **Properties are sanitized** to survive MapLibre's JSON round-trip to its worker: `Date` → ISO string, BBOX → plain
-  array, FUNC → source string (decoded with `noeval`, so no `new Function` — CSP-safe), Blob/ImageData values
+  array, FUNC → source string (never revived with `new Function` — CSP-safe; since 2.0 this is the only mode, the 1.x `noeval: false` opt-in is gone), Blob/ImageData values
   dropped. `makeGeopbfProtocol({ sanitize: false })` opts out.
 - **Metadata** — name / description / license / attribution / minZoom / maxZoom travel inside the file, but a
   protocol handler cannot set source attribution or layer zoom range. Use `loadGeopbf(url)` to get
@@ -976,6 +976,16 @@ export default { worker: { format: "es" } };
 ```
 
 ---
+
+## Upgrading from 1.x
+
+2.0 removes what 1.x kept for compatibility: the `noeval` option (FUNC values are always returned as source strings),
+`validate: "legacy"` (falls back to `"lenient"`), `closeFilter(f)` (use `cloneMap({ filter: f })`), the static `GeoPBF.concatinate`
+(use `pbf.concat(...others)`), and the name `GeoPBF` for the container class in `geopbf/pbf-base` and `geopbf/core` (it is
+`GeoPBFBase` there; `GeoPBF` from `geopbf` is the full class). Internal members such as `fmap` and `_name` are no longer in the
+published types: use `pbf.length`, `each` / `forEach`, `pbf.name()`. The full old → new list is in
+[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). When 2.0 is published,
+1.x is planned to stay installable under the `v1` dist-tag (`npm i geopbf@v1`).
 
 ## License
 
