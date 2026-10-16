@@ -1,5 +1,5 @@
 // MapLibre の小口の純粋な部品（src/mlsmall.js・B6 2026-10-12）
-import { normSprite, spriteEcho, spritePrefix, tileOf, tilesFromPoints, fontFaceArgs } from "../src/mlsmall.ts";
+import { normSprite, spriteEcho, spritePrefix, tileOf, tilesFromPoints, fontFaceArgs, copyFontBytes } from "../src/mlsmall.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = JSON.stringify;
 ok("sprite-string", J(normSprite("https://x/s")) === J([{ id: "default", url: "https://x/s" }]));
@@ -13,5 +13,16 @@ ok("tiles-dedupe-sort", t.length === 3 && t[0].key === "10/909/403" && t[1].key 
 ok("tiles-zfn-clamp", tilesFromPoints([[0, 0]], () => 7.9, { minzoom: 5, maxzoom: 6 })[0].canonical.z === 6 && tilesFromPoints([[0, 0]], 2, { minzoom: 3 })[0].canonical.z === 3);
 ok("fontface", J(fontFaceArgs({ "font-family": "Noto", src: "url('/f.woff2')", "font-weight": 700, "unicode-range": "U+3000-9FFF" })) === J({ family: "Noto", src: "/f.woff2", descriptors: { weight: "700", unicodeRange: "U+3000-9FFF" } }));
 ok("fontface-alt", fontFaceArgs({ family: "A", src: ["x.ttf", "y.ttf"], style: "italic" }).src === "x.ttf" && fontFaceArgs({ family: "A" }) === null && fontFaceArgs(null) === null && fontFaceArgs({ src: "x" }) === null);
+{   // addFontFace の worker 宛の複製：DataView は見ている範囲のバイト（旧＝buf.slice(0) が TypeError）・ArrayBuffer／型付き配列は slice(0) のまま
+	const ab = Uint8Array.from({ length: 16 }, (_, i) => i).buffer;
+	const dv = copyFontBytes(new DataView(ab, 3, 5));
+	ok("fontbytes-dataview", dv instanceof ArrayBuffer && J([...new Uint8Array(dv)]) === J([3, 4, 5, 6, 7]));
+	const a2 = copyFontBytes(ab);
+	ok("fontbytes-arraybuffer", a2 instanceof ArrayBuffer && a2 !== ab && a2.byteLength === 16 && new Uint8Array(a2)[15] === 15);
+	const u = new Uint8Array(ab, 2, 4), u2 = copyFontBytes(u);
+	ok("fontbytes-typed", u2 instanceof Uint8Array && u2 !== u && u2.buffer !== ab && J([...u2]) === J([2, 3, 4, 5]));
+	const f = new Float32Array([1.5, 2.5]), f2 = copyFontBytes(f);
+	ok("fontbytes-float32", f2 instanceof Float32Array && J([...f2]) === J([1.5, 2.5]) && f2.buffer !== f.buffer);
+}
 console.log(fail ? `✗ mlsmall: ${fail} failed` : "✓ mlsmall PASS");
 process.exit(fail ? 1 : 0);

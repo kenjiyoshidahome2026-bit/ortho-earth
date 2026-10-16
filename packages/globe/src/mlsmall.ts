@@ -44,6 +44,12 @@ export function tilesFromPoints(points: Array<ArrayLike<number> | null>, zOf: nu
 	}
 	return [...seen.values()].sort((a, b) => a.canonical.z - b.canonical.z || a.canonical.x - b.canonical.x || a.canonical.y - b.canonical.y);
 }
+// 書体のバイト（addFontFace の source）を worker へ送る複製。ArrayBuffer・型付き配列＝slice(0)（旧のまま）。
+// DataView など slice の無い view＝見ている範囲（byteOffset..+byteLength）のバイトだけを ArrayBuffer へ写す（旧＝buf.slice(0) が TypeError）
+export function copyFontBytes<T extends ArrayBuffer | ArrayBufferView>(b: T): T | ArrayBuffer {
+	if (ArrayBuffer.isView(b) && typeof (b as { slice?: unknown }).slice !== "function") return new Uint8Array(b.buffer, b.byteOffset, b.byteLength).slice().buffer;
+	return (b as unknown as { slice(start: number): T }).slice(0);
+}
 // font-faces の 1 件 → addFontFace の引数。{ "font-family"|family, src（"url(...)" も可・配列なら最初）, weight|"font-weight", style|"font-style", "unicode-range" }。family か src が無ければ null
 export function fontFaceArgs(face: unknown): FontFaceArgs | null {
 	if (!face || typeof face !== "object") return null;
