@@ -3,7 +3,7 @@
 // transferToImageBitmap で ImageBitmap にする（同じ worker のオーバーレイ＝別の WebGL2 コンテキストへ texImage2D で上がる）。
 // 深度テクスチャに TEXTURE_BINDING を足すのは申し出がある間だけ（renderer の targets が作り直す）。
 // 詰め方は ../depthout.js と同じ（24bit・R が上位）。行の向きは GL に揃える＝ImageBitmap の先頭行＝シーンの一番下の行。
-const WGSL = ms => `
+const WGSL = (ms: boolean): string => `
 @group(0) @binding(0) var dep: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
@@ -19,13 +19,16 @@ const WGSL = ms => `
 	return vec4f(r, g, b, 255.0) / 255.0;
 }`;
 
-export function createDepthOutGPU(device) {
+/** encode の入力＝{ tex（深度テクスチャ・TEXTURE_BINDING つき）, samples, w, h }。 */
+export interface DepthOutFrame { tex: GPUTexture; samples: number; w: number; h: number }
+export interface DepthOutGPU { encode(d: DepthOutFrame): ImageBitmap; dispose(): void; bytes(): number }
+export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
 	const cv = new OffscreenCanvas(1, 1);
 	const ctx = cv.getContext("webgpu");
 	if (!ctx) throw new Error("depthout: webgpu context unavailable");
 	ctx.configure({ device, format: "rgba8unorm", alphaMode: "premultiplied" });
-	const pipes = new Map();   // multisampled(bool) → pipeline
-	const pipe = ms => {
+	const pipes = new Map<boolean, GPURenderPipeline>();   // multisampled(bool) → pipeline
+	const pipe = (ms: boolean): GPURenderPipeline => {
 		let p = pipes.get(ms);
 		if (!p) {
 			const module = device.createShaderModule({ code: WGSL(ms) });
@@ -34,18 +37,18 @@ export function createDepthOutGPU(device) {
 		}
 		return p;
 	};
-	let bgKey = null, bg = null;
+	let bgKey: GPUTexture | null = null, bg: GPUBindGroup | null = null;
 	// d＝{ tex（深度テクスチャ・TEXTURE_BINDING つき）, samples, w, h }。戻り＝ImageBitmap
-	function encode(d) {
+	function encode(d: DepthOutFrame): ImageBitmap {
 		if (cv.width !== d.w || cv.height !== d.h) { cv.width = d.w; cv.height = d.h; }
 		const ms = d.samples > 1, p = pipe(ms);
 		if (bgKey !== d.tex) { bg = device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: [{ binding: 0, resource: d.tex.createView({ aspect: "depth-only" }) }] }); bgKey = d.tex; }
 		const enc = device.createCommandEncoder();
-		const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
+		const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx!.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
 		pass.setPipeline(p); pass.setBindGroup(0, bg); pass.draw(3); pass.end();
 		device.queue.submit([enc.finish()]);
 		return cv.transferToImageBitmap();
 	}
-	function dispose() { bg = null; bgKey = null; pipes.clear(); try { ctx.unconfigure(); } catch { /* 古い実装 */ } }
+	function dispose() { bg = null; bgKey = null; pipes.clear(); try { ctx!.unconfigure(); } catch { /* 古い実装 */ } }
 	return { encode, dispose, bytes: () => cv.width * cv.height * 4 };
 }

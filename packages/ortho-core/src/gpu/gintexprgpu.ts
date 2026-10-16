@@ -3,16 +3,35 @@
 // gpu/gint.js の paintExpr と検定頁（globe/tests/t-gintexpr.html）が共用＝検定は本物の走者で GPU の表を読み戻して CPU（buildFidStyle）と突き合わせる。
 // feature-state は 1 fid × 鍵の列をその場で writeBuffer（列の該当セル 8 B）＝CPU の全 fid 再評価を飛ばす（本題の勝ち筋）。
 const WG = 64;
-const align = (n, a) => Math.ceil(n / a) * a;
+import type { FidStyleWGSL } from "./gintexpr.ts";
 
-export function createFidExprRunner(device, { texW = 4096 } = {}) {
-	const pipes = new Map();   // wgsl → Promise<pipeline>
+const align = (n: number, a: number): number => Math.ceil(n / a) * a;
+
+/** create の入力（属性列・feature-state 列・geometry-type 列・辞書の表）。 */
+export interface FidExprData { count: number; props?: Uint32Array | null; states?: Uint32Array | null; geom?: Uint32Array | null; dnum?: Uint32Array | null; dcol?: Float32Array | null; zoom?: number | null }
+/** 1 層の走者（create の戻り）。 */
+export interface FidExprJob {
+	count: number; H: number; texW: number; prog: FidStyleWGSL;
+	uni: GPUBuffer; props: GPUBuffer; states: GPUBuffer; geom: GPUBuffer; dnum: GPUBuffer; dcol: GPUBuffer; out: GPUBuffer;
+	dictN: number; zoom: number; bg: GPUBindGroup | null; stateKeys: string[];
+	/** 走らせて（必要なら）表テクスチャへ写す。enc を渡せば呼び手の encoder に相乗り */
+	run(o?: { zoom?: number | null; tex?: GPUTexture | null; enc?: GPUCommandEncoder | null }): void;
+	/** feature-state の差し替え＝1 fid × 鍵ごとの [t, p] */
+	setState(fid: number, cells: ArrayLike<readonly [number, number] | null | undefined> | null | undefined): void;
+	growDict(dnum: Uint32Array, dcol: Float32Array): void;
+	setStates(states: Uint32Array): void;
+	readback(): Promise<Uint32Array>;
+	destroy(): void;
+}
+export interface FidExprRunner { create(prog: FidStyleWGSL, data: FidExprData): Promise<FidExprJob>; pipelineFor(wgsl: string): Promise<GPUComputePipeline>; dispose(): void }
+export function createFidExprRunner(device: GPUDevice, { texW = 4096 }: { texW?: number } = {}): FidExprRunner {
+	const pipes = new Map<string, Promise<GPUComputePipeline>>();   // wgsl → Promise<pipeline>
 	const bgl = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-		...[1, 2, 3, 4, 5].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } })),
+		...[1, 2, 3, 4, 5].map((binding): GPUBindGroupLayoutEntry => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } })),
 		{ binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
-	async function pipelineFor(wgsl) {
+	async function pipelineFor(wgsl: string): Promise<GPUComputePipeline> {
 		let p = pipes.get(wgsl);
 		if (!p) {
 			p = (async () => {
@@ -27,10 +46,10 @@ export function createFidExprRunner(device, { texW = 4096 } = {}) {
 		}
 		return p;
 	}
-	const mkBuf = (bytes, usage, label) => device.createBuffer({ size: Math.max(16, align(bytes, 16)), usage, label });
-	const upload = (data, usage, label, headroom = 1) => { const b = mkBuf(data.byteLength * headroom, usage | GPUBufferUsage.COPY_DST, label); if (data.byteLength) device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength); return b; };
+	const mkBuf = (bytes: number, usage: GPUBufferUsageFlags, label: string) => device.createBuffer({ size: Math.max(16, align(bytes, 16)), usage, label });
+	const upload = (data: Uint32Array | Float32Array, usage: GPUBufferUsageFlags, label: string, headroom = 1) => { const b = mkBuf(data.byteLength * headroom, usage | GPUBufferUsage.COPY_DST, label); if (data.byteLength) device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength); return b; };
 	// prog＝compileFidStyleWGSL の戻り、data＝{ count, props(Uint32Array), states(Uint32Array), geom(Uint32Array), dnum(Uint32Array), dcol(Float32Array), zoom }
-	async function create(prog, data) {
+	async function create(prog: FidStyleWGSL, data: FidExprData): Promise<FidExprJob> {
 		const pipeline = await pipelineFor(prog.wgsl);
 		const count = data.count | 0, H = Math.max(1, Math.ceil(count / texW));
 		const ST = GPUBufferUsage.STORAGE;
@@ -43,8 +62,8 @@ export function createFidExprRunner(device, { texW = 4096 } = {}) {
 			dnum: upload(data.dnum ?? new Uint32Array(0), ST, "gint-expr-dnum", 2),
 			dcol: upload(data.dcol ?? new Float32Array(0), ST, "gint-expr-dcol", 2),
 			out: mkBuf(texW * H * 16, ST | GPUBufferUsage.COPY_SRC, "gint-expr-out"),
-			dictN: ((data.dnum?.length ?? 0) / 2) | 0, zoom: +data.zoom || 0, bg: null, stateKeys: prog.stateKeys ?? [],
-		};
+			dictN: ((data.dnum?.length ?? 0) / 2) | 0, zoom: +data.zoom! || 0, bg: null, stateKeys: prog.stateKeys ?? [],
+		} as FidExprJob;
 		const rebind = () => { J.bg = device.createBindGroup({ layout: bgl, entries: [J.uni, J.props, J.states, J.geom, J.dnum, J.dcol, J.out].map((buffer, binding) => ({ binding, resource: { buffer } })) }); };
 		rebind();
 		const writeUni = () => { const u = new ArrayBuffer(16); new Uint32Array(u)[0] = count; new Float32Array(u)[1] = J.zoom; device.queue.writeBuffer(J.uni, 0, u); };
@@ -70,7 +89,7 @@ export function createFidExprRunner(device, { texW = 4096 } = {}) {
 			else { device.queue.writeBuffer(J.dnum, 0, dnum.buffer, dnum.byteOffset, dnum.byteLength); device.queue.writeBuffer(J.dcol, 0, dcol.buffer, dcol.byteOffset, dcol.byteLength); }
 			J.dictN = n;
 		};
-		J.setStates = states => { if (states.byteLength > J.states.size) { J.states.destroy(); J.states = upload(states, ST, "gint-expr-states"); rebind(); } else if (states.byteLength) device.queue.writeBuffer(J.states, 0, states.buffer, states.byteOffset, states.byteLength); };
+		J.setStates = (states: Uint32Array) => { if (states.byteLength > J.states.size) { J.states.destroy(); J.states = upload(states, ST, "gint-expr-states"); rebind(); } else if (states.byteLength) device.queue.writeBuffer(J.states, 0, states.buffer, states.byteOffset, states.byteLength); };
 		// 表の読み戻し（main の lastTable＝ラベルの filter 連動・照会の accept が visible ビットを読む）＝count × 4 u32
 		J.readback = async () => {
 			const bytes = count * 16; if (!bytes) return new Uint32Array(0);

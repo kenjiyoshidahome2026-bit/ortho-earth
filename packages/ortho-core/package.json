@@ -17,14 +17,11 @@
 		"./tileformats-mlt": "./src/tileformats-mlt.ts",
 		"./gpu": {
 			"types": "./types/gpu.d.ts",
-			"default": "./src/gpu/backend.js"
+			"default": "./src/gpu/backend.ts"
 		},
 		"./f16": "./src/gpu/f16.ts",
 		"./gl": "./src/gl/backend.ts",
-		"./labels": {
-			"types": "./types/labels.d.ts",
-			"default": "./src/labels2d.js"
-		},
+		"./labels": "./src/labels2d.ts",
 		"./labelsync": "./src/labelsync.ts",
 		"./terrain": "./src/terrain.ts",
 		"./camera": "./src/camera.ts",
@@ -36,10 +33,7 @@
 		"./decode": "./src/decode.ts",
 		"./expr": "./src/expr.ts",
 		"./fidstyle": "./src/gint/style.ts",
-		"./fidexpr": {
-			"types": "./types/fidexpr.d.ts",
-			"default": "./src/gpu/gintexpr.js"
-		},
+		"./fidexpr": "./src/gpu/gintexpr.ts",
 		"./color": "./src/color.ts",
 		"./build": "./src/build.ts",
 		"./tilelabels": "./src/labels.ts",

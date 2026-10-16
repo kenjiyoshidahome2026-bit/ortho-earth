@@ -3,7 +3,7 @@
 // ④載せない式を断る（CPU へ落ちる口）⑤paintKeys（鍵の収集）。値の一致（GPU 対 buildFidStyle）は globe/tests/t-gintexpr.html（verify:webgpu・器でも回る）が見る
 import assert from "node:assert/strict";
 import { Dict, encodeValue, newKinds, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow, T_UNDEF, T_NUM, T_STR, T_BOOL, T_NULL } from "../src/gint/attrcols.ts";
-import { compileFidStyleWGSL, dictTables } from "../src/gpu/gintexpr.js";
+import { compileFidStyleWGSL, dictTables } from "../src/gpu/gintexpr.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 const f32 = v => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); f[0] = v; return u[0]; };
