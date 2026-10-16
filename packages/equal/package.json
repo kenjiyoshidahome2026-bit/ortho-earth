@@ -10,7 +10,8 @@
 		"./i18n": "./src/i18n.ts"
 	},
 	"scripts": {
-		"build": "tsc -p ."
+		"build": "tsc -p .",
+		"test": "node tests/t-equalearth.mjs && node tests/t-csvjoin.mjs && node tests/t-choropleth.mjs && node tests/t-bake.mjs && node tests/t-labels.mjs && node tests/t-theme.mjs"
 	},
 	"dependencies": {
 		"altpbf": "*",

@@ -15,7 +15,7 @@ Served at `www.ortho-earth.com/equal/`; also mounted *inside* `/japan/` and `/gl
 
 ```
 npm run dev -w ortho-equal        # http://localhost:5198/equal/
-npm test -w ortho-equal           # node tests (projection, CSV join, choropleth, bake, labels, theme)
+npm test -w @ortho-earth/equal    # unit tests of the component (packages/equal/tests: projection, CSV join, choropleth, bake, labels, theme)
 npm run i18n:build -w ortho-equal # bake i18n/lang/<code>.json after editing i18n/ui.json
 ```
 
