@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// t-common: 共通化した小道具（改良点 15・2026-10-12）＝ modules/varint.js・modules/mercator.js・modules/now.js と、
+// t-common: 共通化した小道具（改良点 15・2026-10-12）＝ modules/varint.ts・modules/mercator.ts・modules/now.ts と、
 //   convert/proj.js の本初子午線・角度単位・順変換（fromLonLat）。
-import { readUvarint, readSvarint, writeUvarint, writeSvarint, zigzagEncode, zigzagDecode } from "../src/modules/varint.js";
-import { mercToLonLat, lonLatToMerc, worldToLonLat, lonLatToWorld, worldYToLat, latToWorldY, mercYToLat, R_MERC } from "../src/modules/mercator.js";
-import { now } from "../src/modules/now.js";
+import { readUvarint, readSvarint, writeUvarint, writeSvarint, zigzagEncode, zigzagDecode } from "../src/modules/varint.ts";
+import { mercToLonLat, lonLatToMerc, worldToLonLat, lonLatToWorld, worldYToLat, latToWorldY, mercYToLat, R_MERC } from "../src/modules/mercator.ts";
+import { now } from "../src/modules/now.ts";
 import { crsFromWKT, tmForward, tmInverse } from "../src/convert/proj.js";
 import { epsgToWKT } from "../src/convert/epsg.js";
 

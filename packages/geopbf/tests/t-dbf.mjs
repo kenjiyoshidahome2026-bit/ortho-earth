@@ -1,8 +1,8 @@
-// t-dbf: Shapefile の DBF の空欄と日付（B8・2026-09-25）。decoder/shape.js・encoder/shape.js の worker を Node で直に回す。
+// t-dbf: Shapefile の DBF の空欄と日付（B8・2026-09-25）。decoder/shape.ts・encoder/shape.ts の worker を Node で直に回す。
 // 守るもの：空白の N 欄・D 欄と "00000000" は null（0 や 1970-01-01 にしない）／書き出しの月がずれない／null の値で書き出しが落ちない
 globalThis.ImageData ??= class ImageData {};
 import { GeoPBF } from "../src/pbf.js";
-import { encodeZIP } from "../src/modules/encodeZIP.js";
+import { encodeZIP } from "../src/modules/encodeZIP.ts";
 import { fileURLToPath } from "node:url";
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
@@ -35,7 +35,7 @@ function dbf(rows) {   // fields: ID C4, NUM N6, DT D8
 }
 const rows = [["a", "    12", "20240315"], ["b", "      ", "        "], ["c", "     0", "00000000"]];
 const zip = await encodeZIP([new File([shpPoints(3)], "t.shp"), new File([dbf(rows)], "t.dbf"), new File(["UTF-8"], "t.cpg")], "t.zip");
-const r = await quiet(() => runWorker(S + "/decoder/shape.js", { file: zip, name: "t", precision: 6, encoding: "utf8" }));
+const r = await quiet(() => runWorker(S + "/decoder/shape.ts", { file: zip, name: "t", precision: 6, encoding: "utf8" }));
 const p = await new GeoPBF().set(r.data);
 const A = [0, 1, 2].map(i => p.getProperties(i));
 ok(A[0].NUM === 12 && A[0].DT instanceof Date && A[0].DT.toISOString().startsWith("2024-03-15"), "値のある欄はそのまま（12・2024-03-15）");
@@ -48,14 +48,14 @@ const fc = { type: "FeatureCollection", features: [
   { type: "Feature", properties: { id: "z", d: null }, geometry: { type: "Point", coordinates: [141, 35] } },
 ]};
 const src = await new GeoPBF().set(structuredClone(fc));
-const f = await quiet(() => runWorker(S + "/encoder/shape.js", { buf: src.arrayBuffer.slice(0), name: "o", opts: {} }));
-const { decodeZIP } = await import(S + "/modules/decodeZIP.js");
+const f = await quiet(() => runWorker(S + "/encoder/shape.ts", { buf: src.arrayBuffer.slice(0), name: "o", opts: {} }));
+const { decodeZIP } = await import(S + "/modules/decodeZIP.ts");
 const ents = await decodeZIP(f);
 const db = new Uint8Array(await ents.find(e => /\.dbf$/.test(e.name)).arrayBuffer());
 const hl = new DataView(db.buffer).getUint16(8, true), rl = new DataView(db.buffer).getUint16(10, true);
 const recs = [0, 1, 2].map(i => new TextDecoder().decode(db.subarray(hl + i * rl, hl + (i + 1) * rl)));
 ok(recs[0].includes("20240315") && recs[1].includes("20240110"), `書き出しの月がずれない（${JSON.stringify(recs.slice(0, 2))}）`);
-const back = await quiet(() => runWorker(S + "/decoder/shape.js", { file: f, name: "o", precision: 6, encoding: "utf8" }));
+const back = await quiet(() => runWorker(S + "/decoder/shape.ts", { file: f, name: "o", precision: 6, encoding: "utf8" }));
 const bp = await new GeoPBF().set(back.data);
 const B = [0, 1, 2].map(i => bp.getProperties(i));
 ok(B[0].d?.toISOString().startsWith("2024-03-15") && B[1].d?.toISOString().startsWith("2024-01-10") && B[2].id === "z" && B[2].d == null, "書き出し→読み戻しで日付が往復・null は null のまま");

@@ -1,7 +1,10 @@
-export function cleanCoords(pts) {
+/** 平面の点（[x, y]） */
+type XY = number[];
+
+export function cleanCoords(pts: XY[]): XY[] {
 	if (pts.length < 3) return pts;
-	const eps = 1e-9, q = [];
-	const ccw = (a, b, c) => (c[1] - a[1]) * (b[0] - a[0]) - (c[0] - a[0]) * (b[1] - a[1]);
+	const eps = 1e-9, q: XY[] = [];
+	const ccw = (a: XY, b: XY, c: XY): number => (c[1] - a[1]) * (b[0] - a[0]) - (c[0] - a[0]) * (b[1] - a[1]);
 	
 	for (let p of pts) {
 		while (q.length >= 2) {

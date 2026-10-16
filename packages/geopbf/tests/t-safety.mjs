@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { GeoPBF } from "../src/pbf-base.js";
 import { openSqlite } from "../src/convert/sqlite.js";
 import { snappy, MAX_PAGE } from "../src/convert/parquet-read.js";
-import { encodeZIP } from "../src/modules/encodeZIP.js";
-import { decodeZIP } from "../src/modules/decodeZIP.js";
+import { encodeZIP } from "../src/modules/encodeZIP.ts";
+import { decodeZIP } from "../src/modules/decodeZIP.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

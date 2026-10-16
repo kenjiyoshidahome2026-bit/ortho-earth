@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// t-draw: src/edit/draw.js（@スタイル描画の正典＝図形表・大円トレーサ・帯のパス・経度の最短差）の検定（改良点 17・2026-10-12）。
+// t-draw: src/edit/draw.ts（@スタイル描画の正典＝図形表・大円トレーサ・帯のパス・経度の最短差）の検定（改良点 17・2026-10-12）。
 //   canvas は要らない＝moveTo/lineTo/arc を記録するスタブ ctx で「何点がどこへ出たか」を数字で見る。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, dLon, buildLinePath } from "../src/edit/draw.js";
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, dLon, buildLinePath } from "../src/edit/draw.ts";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

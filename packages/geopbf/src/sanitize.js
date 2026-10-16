@@ -1,7 +1,7 @@
 // HTML消毒 — 表示用プロパティ（@tip/@pop 等）の非信頼HTMLを許可リスト式で無害化する。
 // GeoPBF は開いたフォーマット＝ファイルは誰でも作れる。プロパティを innerHTML で描画する
 // ビューアは、文字列が DOM に入る**出力側の境界で必ず**この関門を通すこと（保存側で
-// 消毒済みという前提は信用しない＝定石）。modules/geojson-load.js の sanitizeProperties は
+// 消毒済みという前提は信用しない＝定石）。modules/geojson-load.ts の sanitizeProperties は
 // 「型の消毒」（JSON安全化）、こちらは「表示の消毒」＝役割が別で、両方使う。
 //
 //   import { sanitizeHTML } from "geopbf/sanitize";

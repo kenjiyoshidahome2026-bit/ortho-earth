@@ -1,25 +1,25 @@
 import { GeoPBF } from "./pbf.js";
 import { createPbfio } from "./pbf-io.js";
-import { spawnWorker, setWorkerFactory } from "./modules/workerFactory.js";
-import { builtinWorker } from "./modules/builtinWorkers.js";   // geopbf 自身の worker（new Worker の直書きはここ 1 か所＝ホストはビルドの alias で「作らない版」に差し替えられる）
+import { spawnWorker, setWorkerFactory } from "./modules/workerFactory.ts";
+import { builtinWorker } from "./modules/builtinWorkers.ts";   // geopbf 自身の worker（new Worker の直書きはここ 1 か所＝ホストはビルドの alias で「作らない版」に差し替えられる）
 export { GeoPBF };   // 拡張メソッド付きの GeoPBF（1.20〜・改良点 10）。旧＝どの subpath からも拡張付きの class が取れなかった（pbf-base は器だけ・geopbf/pbf は protobuf の wire 読み書き）
 export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
-// 2026-09-22：new Worker の直書きは modules/builtinWorkers.js 1 か所へ（COG・タイル書き出しも同じ入口の役割に）。
+// 2026-09-22：new Worker の直書きは modules/builtinWorkers.ts 1 か所へ（COG・タイル書き出しも同じ入口の役割に）。
 // ホストは setWorkerFactory / createGeopbf の workerFactory で自分の入口へ寄せられる（spawnWorker が先に聞く）。
-// 形式の名簿（読む／書く）。worker を作るのは spawnWorker（ホストの入口が勝つ）→ 無ければ modules/builtinWorkers.js（geopbf 自身の入口）。
+// 形式の名簿（読む／書く）。worker を作るのは spawnWorker（ホストの入口が勝つ）→ 無ければ modules/builtinWorkers.ts（geopbf 自身の入口）。
 const DECODERS = new Set(["fgb", "gint", "gml", "gpkg", "gdb", "parquet", "csv", "czml", "dxf", "gpx", "json", "ndjson", "kmz", "moj", "pbf", "shape", "spatialite"]);
 const ENCODERS = new Set(["czml", "fgb", "geojson", "geopbf", "gint", "gml", "gpx", "kmz", "preview", "profile", "shape", "topojson"]);
 
 import { topology } from "./extension/topology.js";
 import { cleanGintBuffer } from "./extension/clean.js";
 import { gint } from "./extension/gint.js";
-import { topo2geo } from "./modules/topo2geo.js";
-import { gunzip, isGzip } from "./modules/gzip.js";
-import { decodeZIP } from "./modules/decodeZIP.js";
-import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
-import { prewarmWorkers } from "./modules/workerPool.js";
+import { topo2geo } from "./modules/topo2geo.ts";
+import { gunzip, isGzip } from "./modules/gzip.ts";
+import { decodeZIP } from "./modules/decodeZIP.ts";
+import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.ts"
+import { prewarmWorkers } from "./modules/workerPool.ts";
 
 // Worker を作る（ホストの入口 → geopbf 自身の入口）。Worker 自体が無い環境（Node の main スレッド）は null＝呼び手が main スレッドの道へ落とす
 const spawnWorkerOrNull = role => { try { return spawnWorker(role, () => builtinWorker(role)); } catch (e) { if (typeof Worker === "undefined") return null; throw e; } };
@@ -97,7 +97,7 @@ export async function geopbf(data, opts) {
 
 export function createGeopbf(apiBase, options = {}) {
     // set()/setGintBUF() の生バッファ解析（フィーチャインデックス走査・gintバッファunpack）はメインスレッド同期実行が既定だが、
-    // その worker 版（decoder/pbf.js・decoder/gint.js）は元々用意されているのに配線されていなかった。
+    // その worker 版（decoder/pbf.ts・decoder/gint.ts）は元々用意されているのに配線されていなかった。
     // decoderWorkers 同様 import.meta.url 起点で束ねる＝呼び出し側のバンドラに依存しない。options.worker===false で明示的にオフ可。
     if (options.worker !== false) {
         // 重要：バンドラ(vite)が worker チャンクとして静的検出できるのは「new Worker(new URL('…', import.meta.url), {静的 options})」の

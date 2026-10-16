@@ -934,7 +934,7 @@ To drop geopbf's own worker from the bundle as well, alias the one file that con
 (`new Worker` appears nowhere else) to the no-op version — Vite:
 
 ```js
-resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/,
+resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.(js|ts)$/,
   replacement: require.resolve("geopbf/no-builtin-workers") }] }
 ```
 

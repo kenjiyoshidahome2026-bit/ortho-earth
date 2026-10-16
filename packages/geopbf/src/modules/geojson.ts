@@ -13,11 +13,15 @@ SCAN_TABLE[CHAR_BACKSLASH] = 2;
 SCAN_TABLE[CHAR_LBRACE] = 3;
 SCAN_TABLE[CHAR_RBRACE] = 4;
 
-export const geojson = (file, callback, syncFlag = false) => {
+/** worker 専用の FileReaderSync（main の lib には無い＝globalThis から引く・型は両方の tsc で通る形） */
+interface FileReaderSyncLike { readAsArrayBuffer(blob: Blob): ArrayBuffer }
+
+/** GeoJSON の "features" 配列から Feature を 1 つずつ取り出して callback へ（JSON.parse 済み）。sync＝FileReaderSync（worker）・それ以外＝stream */
+export const geojson = (file: Blob, callback: (feature: unknown) => void, syncFlag = false): Promise<void> | undefined => {
 	const decoder = new TextDecoder();
 	const chunkSize = 2 * 1024 * 1024; // 2MB (sync path)
 
-	const chunks = [];
+	const chunks: Uint8Array[] = [];
 
 	let inFeatures = false;
 	let featMatchIdx = 0;
@@ -30,7 +34,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 	let scanPos = 0;
 	let featureStartPos = -1;
 
-	const pruneChunks = (uptoPos) => {
+	const pruneChunks = (uptoPos: number): void => {
 		while (chunks.length > 0 && uptoPos >= chunks[0].length) {
 			const removedLen = chunks[0].length;
 			uptoPos   -= removedLen;
@@ -40,7 +44,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 		}
 	};
 
-	const extractJsonString = (start, end) => {
+	const extractJsonString = (start: number, end: number): string => {
 		const c0 = chunks[0];
 		// Fast path: after pruning, the most common case is that the feature fits entirely in chunks[0].
 		if (end <= c0.length) return decoder.decode(c0.subarray(start, end));
@@ -60,7 +64,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 		return decoder.decode(res);
 	};
 
-	const findChunk = () => {
+	const findChunk = (): [number, number] => {
 		let ci = 0, cBase = 0;
 		while (ci < chunks.length && cBase + chunks[ci].length <= scanPos) {
 			cBase += chunks[ci].length; ci++;
@@ -68,7 +72,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 		return [ci, cBase];
 	};
 
-	const processBinary = () => {
+	const processBinary = (): void => {
 		let [ci, cBase] = findChunk();
 
 		// Phase 1: locate the '[' immediately after "features" (once per file).
@@ -133,14 +137,16 @@ export const geojson = (file, callback, syncFlag = false) => {
 
 	if (syncFlag) {
 		let offset = 0;
-		const reader = new FileReaderSync();
+		const FRS = (globalThis as { FileReaderSync?: new () => FileReaderSyncLike }).FileReaderSync!;
+		const reader = new FRS();
 		while (offset < file.size) {
 			chunks.push(new Uint8Array(reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize))));
 			processBinary();
 			offset += chunkSize;
 		}
+		return undefined;
 	} else {
-		return new Promise(async (resolve) => {
+		return new Promise<void>(async (resolve) => {
 			const stream = file.stream().getReader();
 			while (true) {
 				const { done, value } = await stream.read();

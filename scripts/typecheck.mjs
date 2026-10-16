@@ -11,7 +11,12 @@ const words = process.argv.slice(2);
 const dirs = [];
 for (const base of ["packages", "sdk"]) for (const e of fs.readdirSync(path.join(ROOT, base), { withFileTypes: true })) {
 	const d = path.join(base, e.name);
-	if (e.isDirectory() && fs.existsSync(path.join(ROOT, d, "tsconfig.json")) && (!words.length || words.some(w => d.includes(w)))) dirs.push(d);
+	if (e.isDirectory() && fs.existsSync(path.join(ROOT, d, "tsconfig.json")) && (!words.length || words.some(w => d.includes(w)))) {
+		dirs.push(d);
+		// worker 用の第 2 プログラム（lib: webworker＝onmessage／postMessage を持つ decoder・encoder・worker の入口）は tsconfig.worker.json＝あれば続けて回す（geopbf・TS 化 段 3）
+		const w = path.join(d, "tsconfig.worker.json");
+		if (fs.existsSync(path.join(ROOT, w))) dirs.push(w);
+	}
 }
 let bad = 0;
 for (const d of dirs) {

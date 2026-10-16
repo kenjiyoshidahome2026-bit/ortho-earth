@@ -8,7 +8,7 @@ import { simplified } from "./extension/simplify.js";
 import { unPackGintBuffer, repackGintBuffer, attachLazyStreams } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
-import { runInWorker } from "./modules/workerPool.js";
+import { runInWorker } from "./modules/workerPool.ts";
 
 // 旧 static GeoPBF.concatinate は 2.0 で撤去（setProperty に descriptor を値として渡していた＝object で呼べなかった）。結合は pbf.concat(...others)
 GeoPBF.setPrototype("centroid", function(i) { return centroid(this, i); });
@@ -70,7 +70,7 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 		payload = this._gintBuffer = buf;
 	}
 	if (canUseWorker(this, GeoPBF._gintWorkerFactory)) {
-		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）。
+		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.ts の由来書き参照）。
 		// postMessage は AB の場合 structured clone（unpack は内部でコピーする設計＝どちらでも正しい）。
 		// Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝受け側で attachLazyStreams を掛け直す
 		this.unPackGint = attachLazyStreams(await runInWorker("decoder:gint", GeoPBF._gintWorkerFactory, { sab: payload }));
