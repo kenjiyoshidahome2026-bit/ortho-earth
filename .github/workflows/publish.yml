@@ -1,0 +1,77 @@
+# npm の公開を Actions のボタンで（2026-10-17）＝scripts/publish-npm.mjs（版が npm にまだ無い物だけを依存の順に出す）。
+#   Actions タブ →「publish」→ Run workflow。押せるのは main だけ。版を上げる PR をマージしてから押す。
+#   dry_run（既定 ON）＝pack と中身の確認だけ。OFF にすると本当に出す → 公開物で verify:npm（FROM_NPM=1）→ mirror（ON の時）。
+# 認証＝npm の Trusted Publishing（OIDC）＝token も OTP も置かない。npmjs.com の各 package の Settings → Trusted Publisher に
+#   「GitHub Actions・kenjiyoshidahome2026-bit / ortho-earth・publish.yml・environment npm」を登録した物だけが出せる。
+#   provenance は repository.url がこの repo の物に自動で付く（geopbf 等のミラーを指す物は publish-npm.mjs が外す）。
+name: publish
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 出す package（空白区切り・空＝版が npm に無い物を全部）例「@ortho-earth/core」
+        type: string
+        default: ""
+      dry_run:
+        description: 乾いた走り（出さない）
+        type: boolean
+        default: true
+      mirror:
+        description: 出した後、ミラーのある物（geopbf・altpbf・geoedit・native-bucket・ortho-world・himekuri）を写す
+        type: boolean
+        default: true
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write   # Trusted Publishing（OIDC）と provenance
+    outputs:
+      published: ${{ steps.pub.outputs.published }}
+    env:
+      PACKAGES: ${{ inputs.packages }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --no-audit --no-fund
+      - name: npm 11（Trusted Publishing は npm 11.5.1 以上）
+        run: npm install -g npm@11 && npm -v
+      - name: 出す
+        id: pub
+        run: |
+          set -eu
+          for p in $PACKAGES; do case "$p" in *[!a-z0-9@/._-]*) echo "✗ package 名の形でない：$p"; exit 1;; esac; done
+          node scripts/publish-npm.mjs $PACKAGES $([ "$DRY_RUN" = true ] && echo --dry-run)
+      - name: Chrome for Testing のキャッシュ
+        if: steps.pub.outputs.published != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ortho-earth/chrome-for-testing
+          key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
+      - name: 公開物で検定（FROM_NPM=1 verify:npm）
+        if: steps.pub.outputs.published != ''
+        run: |
+          node packages/globe/scripts/lib/chrome.mjs --install
+          sleep 30   # 登録簿の CDN に新しい版が届くまで
+          FROM_NPM=1 npm run verify:npm -w @ortho-earth/globe
+
+  mirror:
+    needs: publish
+    if: inputs.mirror && needs.publish.outputs.published != ''
+    uses: ./.github/workflows/mirror.yml
+    with:
+      published: ${{ needs.publish.outputs.published }}
+    secrets: inherit
