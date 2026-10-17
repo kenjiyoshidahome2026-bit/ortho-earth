@@ -25,7 +25,7 @@
 
 ### 1.x を使い続けるには
 
-- npm：2.0 を公開する時、1.x の最後の版に dist-tag `v1` を付ける**予定**です（`npm i geopbf@v1`・`npm i @ortho-earth/globe@v1` などで 1.x が入る）。`latest` は 2.0 になります。
+- npm：`latest` は 2.0 です。1.x は版の範囲で指定します（`npm i geopbf@1`・`npm i @ortho-earth/globe@1`。`@v1` と書いても semver の範囲 `>=1.0.0 <2.0.0` として同じ物が入る）。1.x の最後の版は geopbf 1.19.0・@ortho-earth/globe 1.16.0・@ortho-earth/core 1.15.0・@ortho-earth/japan 1.14.0。dist-tag `v1` は npm が「semver の範囲と同じ名前」として受け付けないので付けていません。
 - GitHub：1.x のソースはブランチ `v1` に残してあります。
 
 ### 全体に共通の変更
