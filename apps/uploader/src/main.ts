@@ -1,12 +1,12 @@
 // uploader＝データを焼いて bucket（api.ortho-earth.com）へ置く作業台。
 // このファイルは「接続」と「メニュー表」だけ。焼きの中身は分野ごとのモジュールへ：
-//   globe.js       全球の基図（背景画像・Natural Earth）
+//   globe.ts       全球の基図（背景画像・Natural Earth）
 //   terrain/       標高（GEBCO 由来の海面下の陸・全球アトラス）
-//   japan.js       国土数値情報・環境省
+//   japan.ts       国土数値情報・環境省
 //   poi/           POI 台帳（schema.js は ortho-japan の検定と共用＝動かさない）
 //   world/         国別 DB（自前の節を持つ）
-//   models.js      名所 3D 模型（自前の節を持つ）
-//   shared-data.js gishub-jp・census2020 の共有データ（manifest のキー）
+//   models.ts      名所 3D 模型（自前の節を持つ）
+//   shared-data.ts gishub-jp・census2020 の共有データ（manifest のキー）
 //   lib/           共通の手順（bakeEach）と画像変換
 // ボタンを足す時は MENU に一行（と、中身は分野のモジュールへ）。
 import * as d3 from 'd3';
@@ -17,17 +17,17 @@ import { nativeBucket } from "native-bucket";
 import { createGeopbf } from "geopbf";
 import type { BucketProvider } from "geopbf";
 import type { LogDiv } from "common/screenLogger";
-import { GEBCO } from "./terrain/gebco.js";   // GEBCO の GeoTIFF → 標高タイル（焼きの道具＝uploader 専用・2026-09-25 に altpbf から移設）
+import { GEBCO } from "./terrain/gebco.ts";   // GEBCO の GeoTIFF → 標高タイル（焼きの道具＝uploader 専用・2026-09-25 に altpbf から移設）
 
-import * as globe from "./globe.js";
-import * as japan from "./japan.js";
-import { poi } from "./poi/bake.js";
-import { belowSeaLand } from "./terrain/belowsea.js";
-import { worldAtlas } from "./terrain/worldatlas.js";
-import { worldUI } from "./world/index.js";
-import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
-import { sharedData } from "./shared-data.js";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
-import { altTiles, nlftpCatalog } from "./bake-out.js";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
+import * as globe from "./globe.ts";
+import * as japan from "./japan.ts";
+import { poi } from "./poi/bake.ts";
+import { belowSeaLand } from "./terrain/belowsea.ts";
+import { worldAtlas } from "./terrain/worldatlas.ts";
+import { worldUI } from "./world/index.ts";
+import { modelsUI } from "./models.ts";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
+import { sharedData } from "./shared-data.ts";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
+import { altTiles, nlftpCatalog } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。

@@ -1,4 +1,4 @@
-// ortho-world 型定義（公開面のみ・手書きの正典）。実装＝apps/world/src/world.js。
+// ortho-world 型定義（公開面のみ・手書きの正典）。実装＝apps/world/src/world.ts。
 // AIエージェント/エディタ補完のための共有語彙＝散文（README）とセットで配布する。
 
 /** 国を指す識別子。ISO 3166-1 alpha-2 / alpha-3 / 数字コード・台帳キー・Wikidata QID・IOC コードのどれでも良い。
