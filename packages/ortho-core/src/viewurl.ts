@@ -11,10 +11,11 @@ export interface ParsedView {
 	layers: string[] | null; contour: boolean; theme: string | null; time: string | null; speed: number | null;
 }
 
-// 経度を(-180,180]へ正規化。地球を回し続けるとlonが1周ごとに+360°累積し、シーン結合の原点相対float32の
+// 経度を[-180,180)へ正規化（範囲内はそのまま返す＝1ulp も動かさない。180 は -180 に畳む＝geopbf/edit/sphere・equal と同じ半開区間）。
+// 地球を回し続けるとlonが1周ごとに+360°累積し、シーン結合の原点相対float32の
 // 前提|Δ|≤0.4°が壊れて基図が~44m格子に量子化される（「階段バグ」の正体。実測=保存カメラにlon 5539°=139°+15周）。
 // 周期関数には無害＝見た目は一切変わらない。消すと再発する。
-export const wrapLon = (lon: number): number => (Number.isFinite(lon) && (lon > 180 || lon <= -180)) ? ((lon + 180) % 360 + 360) % 360 - 180 : lon;
+export const wrapLon = (lon: number): number => (Number.isFinite(lon) && (lon >= 180 || lon < -180)) ? ((lon + 180) % 360 + 360) % 360 - 180 : lon;
 
 /** "#5/35.7/139.7/45t/60r" などを読む。3 項に満たない・数でなければ null。 */
 export function parseViewHash(h: string | null | undefined): ParsedView | null {
