@@ -30,6 +30,7 @@ onmessage = (e: MessageEvent<GintBakeRequest>) => {
 		if (artifacts.base?.metaU32)     bufs.add(artifacts.base.metaU32.buffer);
 		if (artifacts.boundary?.metaU32) bufs.add(artifacts.boundary.metaU32.buffer);
 		if (artifacts.pivot?.px)         bufs.add(artifacts.pivot.px.buffer);
+		if (artifacts.comp?.keys)        bufs.add(artifacts.comp.keys.buffer);
 		for (const t of tiers) if (t.metaU32) bufs.add(t.metaU32.buffer);
 		postMessage({ id, kind: 'done', gint: gintData, artifacts, tiers } satisfies GintBakeResponse, [...bufs] as ArrayBuffer[]);
 	} catch (err) {

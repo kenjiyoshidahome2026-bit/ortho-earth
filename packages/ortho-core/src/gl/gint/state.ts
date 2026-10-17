@@ -53,6 +53,7 @@ export interface GintGLState {
 	totalEdgesB: number; polyEdgesB: number;
 	fidStyleTex: WebGLTexture | null; fidStyleW: number; fidStyleCount: number; _fidStyleH?: number; _fidStyleData?: FidStyleData | null;
 	pivotTex: WebGLTexture | null; pivotW: number;
+	compTex: WebGLTexture | null; compW: number;
 	lodTiers: GLTier[];
 	metaChunks: EdgeChunk[] | null;
 	totalEdges: number; totalPoints: number;
@@ -99,6 +100,7 @@ export const s: GintGLState = {
 	totalEdgesB: 0, polyEdgesB: 0,
 	fidStyleTex: null, fidStyleW: 0, fidStyleCount: 0,   // fid スタイル表（RGBA32UI・paint の実体＝idfill.js）。CPU 控えは _fidStyleData（context restore 用）
 	pivotTex: null, pivotW: 0,     // stencil塗りの per-feature 扇要（fid→bbox中心 e7整数）。null=従来のクリップ原点
+	compTex: null, compW: 0,       // ポリゴン辺→塗り扇の鍵（R32UI・unit11）。多片地物（島・飛び地・世界規模の区分）の層だけ＝扇の要とカリングを構成ポリゴン単位に。null=鍵は fid
 	lodTiers: [],                  // 段階別 LOD メタ [{minW, edgeCount, tex}] minW 昇順（粗いほど後ろ）
 	metaChunks: null,              // 基準メタのチャンク台帳 [{start,end,bbox}]（可視カリング用）
 	totalEdges: 0, totalPoints: 0,

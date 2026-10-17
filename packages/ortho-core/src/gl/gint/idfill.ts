@@ -32,14 +32,15 @@ void main() {
 	int sub     = gl_VertexID % 3;
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	v_fid1 = float(meta.a + 1u);
-	if (!bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	uint key = fanKey(edge_id, meta.a);   // 扇の鍵＝fid か構成ポリゴン（多片地物の層）＝要とカリングはポリゴン単位・ID は fid のまま
+	if (!bboxVisible(key)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	// 不可視fid（filter で落とした feature）を winding 蓄積から除外＝重複被覆時に R/G が非整数化して
 	// 解決が discard＝下の feature まで塗りが消える事故を防ぐ（振興局が市区町村に重なる北海道で実証・WebGPU vsId と対）。
 	if (u_has_fidstyle == 1 &&
 		(texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0).b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }
+	if (sub == 0) { gl_Position = pivotClip(key); return; }
 	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsId と対）
 }`;
 
@@ -188,7 +189,7 @@ function ensurePrograms(gl: WebGL2RenderingContext): IdPrograms {
 	gS._idPrograms = {
 		idProgram, resolveProgram,
 		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES,   // 深度＝fetchClipDrape（面ドレープ）
-					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big',   // 遠方の要
+					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big', 'u_comp_tex', 'u_comp_w', 'u_has_comp',   // 遠方の要・辺→扇の鍵
 					'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']),   // 蓄積で不可視fidを弾く（重複被覆汚染防止）
 		uResolve: getUniforms(gl, resolveProgram, ['u_id_tex', 'u_fid_style', 'u_fid_w', 'u_fid_count', 'u_overlap']),
 	};
