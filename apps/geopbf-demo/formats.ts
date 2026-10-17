@@ -1,6 +1,11 @@
 // 読める形式・書ける形式の一覧＝このデモの正本（図・ファイル選択の accept・書き出しボタンは全部ここから作る）。
 // 並びと中身は geopbf の入口（packages/geopbf/src/index.ts の拡張子振り分け）と書き出し（encoder/*・convert/*）に合わせる。
 // 形式名は固有名詞＝訳さない。
+import type { Translate } from "@ortho-earth/globe/i18n/core.js";
+
+/** 図の丸札 1 枚（READ は ext が配列・WRITE は文字列） */
+interface Fmt { name: string; ext: string | string[]; title?: string }
+type MirrorX = (x: number, w?: number) => number;
 
 // 読む（落とす・選ぶ・URL）。ext＝file picker の accept。zip は中身で振り分け（Shapefile / FileGDB / 法務省 地図XML）
 export const READ = [
@@ -47,37 +52,37 @@ export const WRITE = [
 // ── 変換の図（インライン SVG）。旧 gishub.svg（8 形式の固定図）の作り直し＝一覧から組むので形式が増えても図が追従する。
 // 横長（広い画面）＝ 読む(2 列) → GeoPBF → 書く(2 列)・下に「球で見る」。縦長（狭い画面）＝ 読む(3 列)／GeoPBF／書く(3 列)。
 // 線は「行（または列）ごとに 1 本」＝18 本の交差を作らない。流れの点線は prefers-reduced-motion で止まる（CSS）。
-const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const esc = (s: unknown): string => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const PW = 100, PH = 24, PITCH = 30, GAP = 8;
 
 // 座標は LTR で組み、RTL（ar/fa/ur/he）は x だけ鏡に写す（X）＝読む側が右・流れは右→左。文字は裏返さない
-function pills(list, x0, y0, cols, cls, X) {
+function pills(list: Fmt[], x0: number, y0: number, cols: number, cls: string, X: MirrorX): { rows: number; svg: string } {
 	const rows = Math.ceil(list.length / cols);
 	return { rows, svg: list.map((f, i) => {
 		// 列優先（上から下へ・読む向きに列を進める）＝各列が読みやすい
 		const c = Math.floor(i / rows), r = i % rows;
 		const x = X(x0 + c * (PW + GAP), PW), y = y0 + r * PITCH;
-		const tip = [f.title, (f.ext.join ? f.ext.join(" ") : f.ext)].filter(Boolean).join(" · ");
+		const tip = [f.title, ((f.ext as string[]).join ? (f.ext as string[]).join(" ") : f.ext)].filter(Boolean).join(" · ");
 		return `<g class="pill ${cls}" data-i="${i}" transform="translate(${x},${y})"><title>${esc(f.name)} — ${esc(tip)}</title>` +
 			`<rect width="${PW}" height="${PH}" rx="12"/><text x="${PW / 2}" y="${PH / 2 + 0.5}">${esc(f.name)}</text></g>`;
 	}).join("") };
 }
-const curve = (X, x1, y1, x2, y2, horizontal) => {
+const curve = (X: MirrorX, x1: number, y1: number, x2: number, y2: number, horizontal: boolean): string => {
 	const m = horizontal ? (x1 + x2) / 2 : (y1 + y2) / 2;
 	return horizontal ? `M${X(x1)},${y1}C${X(m)},${y1} ${X(m)},${y2} ${X(x2)},${y2}` : `M${X(x1)},${y1}C${X(x1)},${m} ${X(x2)},${m} ${X(x2)},${y2}`;
 };
 
-export function conversionSVG(t, { narrow = false, rtl = false } = {}) {
+export function conversionSVG(t: Translate, { narrow = false, rtl = false }: { narrow?: boolean; rtl?: boolean } = {}): string {
 	const W = narrow ? 3 * PW + 2 * GAP : 780;
-	const X = (x, w = 0) => rtl ? W - x - w : x;
-	const hub = (cx, cy) =>
+	const X = (x: number, w = 0): number => rtl ? W - x - w : x;
+	const hub = (cx: number, cy: number): string =>
 		`<g class="hub" transform="translate(${X(cx)},${cy})"><rect x="-78" y="-34" width="156" height="68" rx="34"/>` +
 		`<text class="hub-name" y="-5">GeoPBF</text><text class="hub-sub" y="16">${esc(t("in your browser"))}</text></g>`;
-	const head = (x, y, s, end = false) => `<text class="head${end !== rtl ? " end" : ""}" x="${X(x)}" y="${y}">${esc(s)}</text>`;
-	const globe = (x, y) => `<g class="globe" transform="translate(${X(x)},${y})"><rect x="-70" y="-14" width="140" height="28" rx="14"/>` +
+	const head = (x: number, y: number, s: string, end = false): string => `<text class="head${end !== rtl ? " end" : ""}" x="${X(x)}" y="${y}">${esc(s)}</text>`;
+	const globe = (x: number, y: number): string => `<g class="globe" transform="translate(${X(x)},${y})"><rect x="-70" y="-14" width="140" height="28" rx="14"/>` +
 		`<text y="0.5">🌐 ${esc(t("View on the globe"))}</text></g>`;
 	const label = esc(t("$1 formats in, $2 formats out", READ.length, WRITE.length));
-	const paths = links => `<g class="links">${links.map(d => `<path d="${d}"/>`).join("")}</g>`;
+	const paths = (links: string[]): string => `<g class="links">${links.map(d => `<path d="${d}"/>`).join("")}</g>`;
 
 	if (!narrow) {
 		const top = 34;
@@ -101,7 +106,7 @@ export function conversionSVG(t, { narrow = false, rtl = false } = {}) {
 	const Wr = pills(WRITE, 0, wTop + 22, cols, "write", X);
 	const H = wTop + 22 + Wr.rows * PITCH;
 	// 球は GeoPBF から出る（書き出しの先ではない）＝狭い画面では GeoPBF の隣に置く
-	const colX = c => c * (PW + GAP) + PW / 2, cx = 80, gx = W - 72;
+	const colX = (c: number): number => c * (PW + GAP) + PW / 2, cx = 80, gx = W - 72;
 	const links = [
 		...Array.from({ length: cols }, (_, c) => curve(X, colX(c), rEnd - 2, cx, cy - 36, false)),
 		...Array.from({ length: cols }, (_, c) => curve(X, cx, cy + 36, colX(c), wTop + 18, false)),

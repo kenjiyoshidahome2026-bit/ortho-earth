@@ -21,15 +21,25 @@
 // 版の更新は各アプリ自身の読み込み（ETag の裏確認）に任せる。
 // 見送る条件＝データ節約（Save-Data）・遅い回線（2g/3g 相当）。デモを iframe で開いている間は止める（同じ物を二重に落とさない・回線を取り合わない）。
 import { lowMem } from "@ortho-earth/globe/boot/tier.js";   // 地球儀のホストの公開面（S4 2026-09-23）＝エンジンと同じ省メモリ判定
+import type { TierNavigator } from "@ortho-earth/globe/boot/tier.js";
+import type { BucketProvider } from "geopbf";
+import type { CacheFn } from "native-bucket";
+import type { TileLoader } from "@ortho-earth/core/elevation";
+
+/** 読む navigator の分（connection＝Network Information API・Chrome 系だけ） */
+type PrefetchNav = TierNavigator & { connection?: { saveData?: boolean; effectiveType?: string }; storage?: StorageManager };
+/** 先読みの仕事 1 つ（形は planPrefetch の頭の注を参照） */
+export interface PrefetchJob { id: string; store?: "pbf" | "alt"; key?: string; gint?: boolean; kind: "bucket" | "url" | "atlas" | "fetch"; name?: string; opts?: Record<string, unknown>; url?: string }
+type LogRow = { tier: number; id: string; state: string; MB?: number; ms?: number; error?: string };
 
 export const API = "https://api.ortho-earth.com";
-const CULTURAL = g => `${API}/bucket/GIS/world/ne-cultural-${g}.geopbf`;
+const CULTURAL = (g: string): string => `${API}/bucket/GIS/world/ne-cultural-${g}.geopbf`;
 const SKY_STARS = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/stars.6.geopbf";
 const WORLD_ATLAS_KEY = "WORLD1024_1";   // altpbf WORLD_ATLAS と同値（import すると 1 段目の前に altpbf を読む＝plan は純関数に保つ）
 const MB = 1 << 20;
 const TIER2_FREE = 512 * MB;   // 2 段目＝保存領域の空きがこれ未満なら見送る（ne-cultural-detail は十数 MB・GINT 込みでその倍）
 
-export function shouldPrefetch(nav = navigator) {
+export function shouldPrefetch(nav: PrefetchNav = navigator): boolean {
 	const c = nav.connection;
 	if (c?.saveData) return false;
 	if (c?.effectiveType && /(^|-)2g$|^3g$/.test(c.effectiveType)) return false;
@@ -39,10 +49,10 @@ export function shouldPrefetch(nav = navigator) {
 // 先読みの一覧（純関数＝tests/t-prefetch.mjs）。
 //   job＝{ id, store:"pbf"|"alt", key（IDB の鍵）, gint（GINT まで要るか）, kind:"bucket"|"url"|"atlas", name?, opts? }
 //   free＝保存領域の空き（bytes・不明は null＝2 段目は見送り）
-export function planPrefetch({ low = false, effectiveType = null, free = null } = {}) {
-	const pbf = (id, key, gint = true, extra = {}) => ({ id, store: "pbf", key, gint, kind: "bucket", name: key, opts: gint ? {} : { gint: false }, ...extra });
-	const url = (id, g) => ({ id, store: "pbf", key: CULTURAL(g), gint: true, kind: "url", name: CULTURAL(g), opts: { name: `ne-cultural-${g}.geopbf` } });
-	const tier1 = [
+export function planPrefetch({ low = false, effectiveType = null, free = null }: { low?: boolean; effectiveType?: string | null; free?: number | null } = {}): { tier1: PrefetchJob[]; tier2: PrefetchJob[]; tier2Skipped: string | null } {
+	const pbf = (id: string, key: string, gint = true, extra = {}): PrefetchJob => ({ id, store: "pbf", key, gint, kind: "bucket", name: key, opts: gint ? {} : { gint: false }, ...extra });
+	const url = (id: string, g: string): PrefetchJob => ({ id, store: "pbf", key: CULTURAL(g), gint: true, kind: "url", name: CULTURAL(g), opts: { name: `ne-cultural-${g}.geopbf` } });
+	const tier1: PrefetchJob[] = [
 		pbf("admin0-50m", "ne_50m_admin_0_countries"),   // 小さい・japan 系は起動で必ず読む＝最初に
 		{ id: "world-atlas", store: "alt", key: WORLD_ATLAS_KEY, gint: false, kind: "atlas" },
 		url("cultural-base", "base"),
@@ -65,26 +75,26 @@ export function planPrefetch({ low = false, effectiveType = null, free = null } 
 }
 
 // IDB に既にあるか（鍵の有無＝値は読まない。GINT が要る物だけ値を読んで GINT の有無を見る）
-async function presence(Cache) {
-	const stores = {};
-	const open = async s => stores[s] ??= await Cache(`GIS/${s}`).catch(() => null);
-	return async job => {
-		const c = await open(job.store); if (!c) return false;
+async function presence(Cache: (name: string) => Promise<CacheFn>): Promise<(job: PrefetchJob) => Promise<boolean>> {
+	const stores: Record<string, any> = {};   // "pbf"／"alt"＝CacheFn・"<store>:keys"＝鍵の Set
+	const open = async (s: string): Promise<CacheFn | null> => stores[s] ??= await Cache(`GIS/${s}`).catch(() => null);
+	return async (job: PrefetchJob) => {
+		const c = await open(job.store!); if (!c) return false;
 		const keys = (stores[job.store + ":keys"] ??= new Set(await c().catch(() => []) || []));
 		if (!keys.has(job.key)) return false;
 		if (!job.gint) return true;
-		const v = await c(job.key).catch(() => null);
+		const v = await c(job.key!).catch(() => null) as { PBF?: unknown; GINT?: unknown } | null;
 		return !!(v?.PBF && v.GINT);
 	};
 }
 
 // デモの iframe が開いている間（body.in-demo＝main.js showDemo）は次の仕事へ進まない
-const waitNoDemo = () => !document.body.classList.contains("in-demo") ? Promise.resolve() : new Promise(res => {
+const waitNoDemo = (): Promise<void> => !document.body.classList.contains("in-demo") ? Promise.resolve() : new Promise<void>(res => {
 	const mo = new MutationObserver(() => { if (!document.body.classList.contains("in-demo")) { mo.disconnect(); res(); } });
 	mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 });
 
-export async function prefetchWorldData(nav = navigator) {
+export async function prefetchWorldData(nav: PrefetchNav = navigator): Promise<LogRow[]> {
 	const t0 = performance.now();
 	const low = lowMem(nav);
 	const est = await nav.storage?.estimate?.().catch(() => null);
@@ -93,23 +103,23 @@ export async function prefetchWorldData(nav = navigator) {
 	const [{ createGeopbf }, { nativeBucket, Cache }, { createTileLoader }] = await Promise.all([
 		import("geopbf"), import("native-bucket"), import("@ortho-earth/core/elevation"),
 	]);
-	const geopbf = createGeopbf(API, { bucket: nativeBucket });
+	const geopbf = createGeopbf(API, { bucket: nativeBucket as BucketProvider });
 	const has = await presence(Cache);
-	let loadTile = null;
-	const run = async job => {
+	let loadTile: TileLoader | null = null;
+	const run = async (job: PrefetchJob): Promise<number> => {
 		if (job.kind === "atlas") {
 			loadTile ??= await createTileLoader({ apiUrl: API });
-			const a = await loadTile.byName(job.key);
+			const a = await loadTile.byName(job.key!);
 			return a?.data?.byteLength ?? 0;
 		}
-		if (job.kind === "fetch") return (await (await fetch(job.url)).arrayBuffer()).byteLength;
-		const pbf = await geopbf(job.name, job.opts);
+		if (job.kind === "fetch") return (await (await fetch(job.url!)).arrayBuffer()).byteLength;
+		const pbf = await geopbf(job.name!, job.opts);
 		const n = pbf?.size ?? 0; pbf?.destroy?.();
 		return n;
 	};
-	const log = [];
+	const log: LogRow[] = [];
 	// 1 本ずつ（回線を一度に塞がない・背景の地球やカードの画像と取り合わない）
-	for (const [tier, jobs] of [[1, plan.tier1], [2, plan.tier2]]) {
+	for (const [tier, jobs] of [[1, plan.tier1], [2, plan.tier2]] as [number, PrefetchJob[]][]) {
 		for (const job of jobs) {
 			await waitNoDemo();
 			const t = performance.now();
@@ -118,11 +128,11 @@ export async function prefetchWorldData(nav = navigator) {
 				const bytes = await run(job);
 				log.push({ tier, id: job.id, state: bytes ? "fetched" : "empty", MB: +(bytes / MB).toFixed(2), ms: Math.round(performance.now() - t) });
 			} catch (e) {
-				log.push({ tier, id: job.id, state: "failed", error: String(e?.message ?? e) });
+				log.push({ tier, id: job.id, state: "failed", error: String((e as Error)?.message ?? e) });
 			}
 		}
 	}
-	const n = s => log.filter(r => r.state === s).length;
+	const n = (s: string): number => log.filter(r => r.state === s).length;
 	console.info(`[prefetch] world data: ${n("fetched")} fetched, ${n("cached")} already cached, ${n("failed") + n("empty")} failed` +
 		` (${Math.round(performance.now() - t0)} ms, ${low ? "lowMem" : "full"}${plan.tier2Skipped ? `, tier 2 skipped: ${plan.tier2Skipped}` : ""})`);
 	console.table?.(log);

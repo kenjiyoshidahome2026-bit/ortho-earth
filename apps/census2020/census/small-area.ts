@@ -5,16 +5,29 @@
 //   以降は pyrIdbGet(cityCode5) で瞬時参照。UIは人口を先に描画し年齢は後追い（非ブロッキング）
 
 import { fetchSharedData } from '@ortho-earth/jp/shared-data';
-import { API_BASE } from '../ui/config.js';
+import { API_BASE } from '../ui/config.ts';
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const DB_NAME   = 'gishub-census';
+
+/** 年ごとの表番号と IDB ストア名（下の YEARS） */
+interface YearCfg { csv: string; sa: string; pyr: string; stat: string; pyrT: string; ind: string; occ: string; eco: string; fam: string; own: string; dwell: string }
+/** sa ストアの 1 行＝[小地域コード, 名前, 総数, 男, 女] */
+export type SaRow = [string, string, number, number, number];
+/** 小地域の年齢別（16 階級・男女） */
+export interface PyrRow { mAges: number[]; fAges: number[] }
+/** 小地域の就業・世帯（ind/occ/eco/fam/own/dwell → 各表の列） */
+export type StatRow = Record<string, number[]>;
+// IDB の要求を e.target で読む形（lib.dom の Event.target は EventTarget＝result／error を持たない）
+type ReqEv<T> = { target: { result: T; error: DOMException | null } };
+interface OpenReq { onupgradeneeded: (e: ReqEv<IDBDatabase>) => void; onsuccess: (e: ReqEv<IDBDatabase>) => void; onerror: (e: ReqEv<IDBDatabase>) => void; onblocked: () => void }
+interface Req<T> { onsuccess: (e: ReqEv<T>) => void; onerror: (e: ReqEv<T>) => void }
 
 // 年ごとの e-Stat GIS 小地域テーブル & IDB ストア設定。
 //   sa   人口       key=市区町村5桁 → [[code,name,total,m,f], ...]（CSV を初回だけ取り込み）
 //   pyr  年齢別     key=市区町村5桁 → Map<areaCode,{mAges,fAges}>（都道府県ZIPを初回取得）
 //   stat 就業・世帯 key=市区町村5桁 → Map<areaCode,{ind,occ,eco,fam,own,dwell}>
 //   pyr/stat とも各行 slice(7)。`__pref_NN` / `__pref6_NN` マーカーで都道府県取得済みを判定
-const YEARS = {
+const YEARS: Record<string, YearCfg> = {
     '2020': {
         csv: '2020-small.csv',
         sa: 'small2020', pyr: 'pyr2020', stat: 'stats2020',
@@ -46,7 +59,7 @@ const YEARS = {
     //     fam: 'T00XXXXX', own: 'T00XXXXX', dwell: 'T00XXXXX',
     // },
 };
-const _cfg = year => YEARS[year] || YEARS['2020'];
+const _cfg = (year: string): YearCfg => YEARS[year] || YEARS['2020'];
 
 const STORES = Object.values(YEARS).flatMap(y => [y.sa, y.pyr, y.stat]);
 
@@ -55,14 +68,14 @@ console.info('[small-area] loaded — stats2020対応版（就業・世帯経済
 
 // ---- IDB helpers -----------------------------------------------------------
 
-let _db = null;
+let _db: IDBDatabase | null = null;
 
-const _hasAllStores = db => STORES.every(s => db.objectStoreNames.contains(s));
+const _hasAllStores = (db: IDBDatabase): boolean => STORES.every(s => db.objectStoreNames.contains(s));
 
 // version 指定あり: 昇格して欠けているストアを作成。指定なし: 現行バージョンで開くだけ
-function _rawOpen(version) {
+function _rawOpen(version?: number): Promise<IDBDatabase> {
     return new Promise((res, rej) => {
-        const req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+        const req = (version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME)) as unknown as OpenReq;
         req.onupgradeneeded = ({ target: { result: db } }) => {
             for (const s of STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
         };
@@ -78,7 +91,7 @@ function _rawOpen(version) {
 // バージョン番号に依存せず、必要ストアが揃うことを保証して開く。
 // 既にオンディスクが最新バージョンでもストアが欠けていれば version+1 で強制アップグレードする
 // （＝以前 v4 だが stats2020 未作成、のような状態からも自己修復する）
-async function openDb() {
+async function openDb(): Promise<IDBDatabase> {
     if (_db && _hasAllStores(_db)) return _db;
     if (_db) { try { _db.close(); } catch {} _db = null; }
     let db = await _rawOpen();                 // 現行バージョンで開く
@@ -93,43 +106,43 @@ async function openDb() {
     return db;
 }
 
-function idbCount(saStore) {
+function idbCount(saStore: string): Promise<number> {
     return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(saStore, 'readonly').objectStore(saStore).count();
+        const req = db.transaction(saStore, 'readonly').objectStore(saStore).count() as unknown as Req<number>;
         req.onsuccess = e => res(e.target.result);
         req.onerror   = e => rej(e.target.error);
     }));
 }
 
-function idbGet(saStore, key) {
+function idbGet(saStore: string, key: string): Promise<SaRow[]> {
     return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(saStore, 'readonly').objectStore(saStore).get(key);
+        const req = db.transaction(saStore, 'readonly').objectStore(saStore).get(key) as unknown as Req<SaRow[] | undefined>;
         req.onsuccess = e => res(e.target.result ?? []);
         req.onerror   = e => rej(e.target.error);
     }));
 }
 
-function idbPutAll(saStore, map) {
+function idbPutAll(saStore: string, map: Map<string, SaRow[]>): Promise<unknown> {
     return openDb().then(db => new Promise((res, rej) => {
         const tx    = db.transaction(saStore, 'readwrite');
         const store = tx.objectStore(saStore);
         for (const [key, val] of map) store.put(val, key);
         tx.oncomplete = res;
-        tx.onerror    = e => rej(e.target.error);
+        tx.onerror    = e => rej((e.target as IDBRequest).error);
     }));
 }
 
 // ---- CSV → IDB 一括ロード --------------------------------------------------
 
-const _populatePromise = {};   // year → Promise
+const _populatePromise: Record<string, Promise<void> | null> = {};   // year → Promise
 
-async function _populate(year) {
+async function _populate(year: string): Promise<void> {
     const cfg = _cfg(year);
     if (await idbCount(cfg.sa) > 0) return;     // already stored
 
     const text = await fetchSharedData(`census/${cfg.csv}`, API_BASE);   // 正本は R2（packages/jp/shared-data・2026-09-30）
-    const map  = new Map();
-    for (const line of text.split('\n')) {
+    const map  = new Map<string, SaRow[]>();
+    for (const line of (text as string).split('\n')) {
         if (!line) continue;
         const ci   = line.indexOf(',');
         const code = line.slice(0, ci);
@@ -147,7 +160,7 @@ async function _populate(year) {
         const total = +tail[0] || 0, male = +tail[1] || 0, fem = +tail[2] || 0;
         const city  = code.slice(0, 5);
         if (!map.has(city)) map.set(city, []);
-        map.get(city).push([code, name, total, male, fem]);
+        map.get(city)!.push([code, name, total, male, fem]);
     }
     await idbPutAll(cfg.sa, map);
 }
@@ -157,19 +170,19 @@ export async function isSmallAreaReady(year = '2020') {
 }
 
 // バックグラウンドで IDB に書き込み開始（年ごとに二重実行しない）
-export function prefetchSmallAreaIdb(year = '2020') {
+export function prefetchSmallAreaIdb(year = '2020'): Promise<void> {
     if (!_populatePromise[year])
         _populatePromise[year] = _populate(year).catch(e => {
             console.warn(`[small-area] IDB populate failed (${year}):`, e);
             _populatePromise[year] = null;   // 失敗を固定しない＝通信断でも次の操作で再試行（旧: セッション中ずっと「データなし」）
         });
-    return _populatePromise[year];
+    return _populatePromise[year]!;
 }
 
 // ---- 小地域データ取得（IDB から） ------------------------------------------
 
 // Returns { items: [[code, name], ...], popMap: Map<code, {total,m,f}> }
-export async function fetchSmallAreaData(cityCode, year = '2020') {
+export async function fetchSmallAreaData(cityCode: string, year = '2020'): Promise<{ items: string[][]; popMap: Map<string, { total: number; m: number; f: number }> }> {
     await prefetchSmallAreaIdb(year);
     const entries = await idbGet(_cfg(year).sa, cityCode);
     const items   = entries.map(([code, name]) => [code, name]);
@@ -180,7 +193,7 @@ export async function fetchSmallAreaData(cityCode, year = '2020') {
 
 // ---- T001082 フェッチ（都道府県キャッシュ付き） ----------------------------
 
-async function unzipFirstEntry(blob) {
+async function unzipFirstEntry(blob: Blob): Promise<Uint8Array> {
     const buf = await blob.arrayBuffer();
     const u8  = new Uint8Array(buf);
     const v   = new DataView(buf);
@@ -206,37 +219,37 @@ async function unzipFirstEntry(blob) {
 
 // ---- ピラミッド IDB ヘルパー -----------------------------------------------
 
-function pyrIdbGet(pyrStore, cityCode) {
+function pyrIdbGet(pyrStore: string, cityCode: string): Promise<Map<string, PyrRow> | null> {
     return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(pyrStore, 'readonly').objectStore(pyrStore).get(cityCode);
+        const req = db.transaction(pyrStore, 'readonly').objectStore(pyrStore).get(cityCode) as unknown as Req<Map<string, PyrRow> | undefined>;
         req.onsuccess = e => res(e.target.result || null);
         req.onerror   = e => rej(e.target.error);
     }));
 }
 
-function pyrIdbHasPref(pyrStore, prefCode) {
-    return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(pyrStore, 'readonly').objectStore(pyrStore).get(`__pref_${prefCode}`);
+function pyrIdbHasPref(pyrStore: string, prefCode: string): Promise<boolean> {
+    return openDb().then(db => new Promise<boolean>((res, rej) => {
+        const req = db.transaction(pyrStore, 'readonly').objectStore(pyrStore).get(`__pref_${prefCode}`) as unknown as Req<unknown>;
         req.onsuccess = e => res(!!e.target.result);
         req.onerror   = e => rej(e.target.error);
     })).catch(() => false);
 }
 
 // 都道府県1件分の全市区町村マップをまとめて保存（+取得済みマーカー）
-function pyrIdbPutPref(pyrStore, prefCode, byCity) {
+function pyrIdbPutPref(pyrStore: string, prefCode: string, byCity: Map<string, Map<string, PyrRow>>): Promise<unknown> {
     return openDb().then(db => new Promise((res, rej) => {
         const tx    = db.transaction(pyrStore, 'readwrite');
         const store = tx.objectStore(pyrStore);
         for (const [city, map] of byCity) store.put(map, city);
         store.put(1, `__pref_${prefCode}`);
         tx.oncomplete = res;
-        tx.onerror    = e => rej(e.target.error);
+        tx.onerror    = e => rej((e.target as IDBRequest).error);
     }));
 }
 
 // ---- T001082 フェッチ（都道府県ZIP → 市区町村単位で IDB 永続化） -----------
 
-async function fetchStatRows(statsId, prefCode, apiBase) {
+async function fetchStatRows(statsId: string, prefCode: string, apiBase: string): Promise<string[][]> {
     const url  = `${GIS_STATS_BASE}?statsId=${statsId}&downloadType=2&code=${prefCode}`;
     const resp = await fetch(`${apiBase}/proxy/?url=${encodeURIComponent(url)}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -248,9 +261,9 @@ async function fetchStatRows(statsId, prefCode, apiBase) {
 }
 
 // 都道府県分を取得・パースして IDB に格納（二重取得は in-flight で dedup）
-const _prefLoading = new Map();
+const _prefLoading = new Map<string, Promise<void>>();
 
-async function ensurePrefPyramid(prefCode, apiBase, year) {
+async function ensurePrefPyramid(prefCode: string, apiBase: string, year: string): Promise<void> {
     const cfg = _cfg(year);
     if (await pyrIdbHasPref(cfg.pyr, prefCode)) return;
     const key = `${year}_${prefCode}`;
@@ -259,12 +272,12 @@ async function ensurePrefPyramid(prefCode, apiBase, year) {
         // 年齢別テーブル（2020 T001082 / 2015 T000849）。列位置は両年共通:
         // 男 col 28-42 + 46 = 16グループ、女 col 48-62 + 66
         const rows   = await fetchStatRows(cfg.pyrT, prefCode, apiBase);
-        const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{mAges,fAges}>
+        const byCity = new Map<string, Map<string, PyrRow>>();   // 市区町村5桁 → Map<areaCode,{mAges,fAges}>
         for (const t of rows) {
             const code = String(t[0] || '');
             if (code.length <= 5) continue;         // 市区町村集計行は除外
             const city  = code.slice(0, 5);
-            const clean = a => a.map(v => +v || 0);
+            const clean = (a: string[]): number[] => a.map(v => +v || 0);
             let m = byCity.get(city);
             if (!m) { m = new Map(); byCity.set(city, m); }
             m.set(code, {
@@ -280,37 +293,37 @@ async function ensurePrefPyramid(prefCode, apiBase, year) {
 
 // 市区町村の小地域ピラミッド Map<areaCode,{mAges,fAges}>
 // e-Stat 都道府県ZIP を直接取得 → 市区町村単位で IDB 永続化（初回のみ・以降は即時）
-export async function fetchSmallAreaPyramid(cityCode, apiBase, year = '2020') {
+export async function fetchSmallAreaPyramid(cityCode: string, apiBase: string, year = '2020'): Promise<Map<string, PyrRow>> {
     await ensurePrefPyramid(cityCode.slice(0, 2), apiBase, year);
     return (await pyrIdbGet(_cfg(year).pyr, cityCode)) || new Map();
 }
 
 // ---- 就業・世帯経済 IDB ヘルパー（stat ストア、pyr と同構造） ----------------
 
-function statIdbGet(statStore, cityCode) {
+function statIdbGet(statStore: string, cityCode: string): Promise<Map<string, StatRow> | null> {
     return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(statStore, 'readonly').objectStore(statStore).get(cityCode);
+        const req = db.transaction(statStore, 'readonly').objectStore(statStore).get(cityCode) as unknown as Req<Map<string, StatRow> | undefined>;
         req.onsuccess = e => res(e.target.result || null);
         req.onerror   = e => rej(e.target.error);
     }));
 }
 
-function statIdbHasPref(statStore, prefCode) {
-    return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(statStore, 'readonly').objectStore(statStore).get(`__pref6_${prefCode}`);
+function statIdbHasPref(statStore: string, prefCode: string): Promise<boolean> {
+    return openDb().then(db => new Promise<boolean>((res, rej) => {
+        const req = db.transaction(statStore, 'readonly').objectStore(statStore).get(`__pref6_${prefCode}`) as unknown as Req<unknown>;
         req.onsuccess = e => res(!!e.target.result);
         req.onerror   = e => rej(e.target.error);
     })).catch(() => false);
 }
 
-function statIdbPutPref(statStore, prefCode, byCity) {
+function statIdbPutPref(statStore: string, prefCode: string, byCity: Map<string, Map<string, StatRow>>): Promise<unknown> {
     return openDb().then(db => new Promise((res, rej) => {
         const tx    = db.transaction(statStore, 'readwrite');
         const store = tx.objectStore(statStore);
         for (const [city, map] of byCity) store.put(map, city);
         store.put(1, `__pref6_${prefCode}`);   // 6表版マーカー（旧__pref_は再取得させる）
         tx.oncomplete = res;
-        tx.onerror    = e => rej(e.target.error);
+        tx.onerror    = e => rej((e.target as IDBRequest).error);
     }));
 }
 
@@ -318,9 +331,9 @@ function statIdbPutPref(statStore, prefCode, byCity) {
 // 2020: ind=T001103, occ=T001104, eco=T001106, fam=T001084, own=T001085, dwell=T001086
 // 2015: ind=T000865, occ=T000866, eco=T000875, fam=T000851, own=T000852, dwell=T000853
 // いずれも各行 slice(7)。
-const _statLoading = new Map();
+const _statLoading = new Map<string, Promise<void>>();
 
-async function ensurePrefStats(prefCode, apiBase, year) {
+async function ensurePrefStats(prefCode: string, apiBase: string, year: string): Promise<void> {
     const cfg = _cfg(year);
     if (await statIdbHasPref(cfg.stat, prefCode)) return;
     const key = `${year}_${prefCode}`;
@@ -335,9 +348,9 @@ async function ensurePrefStats(prefCode, apiBase, year) {
             fetchStatRows(cfg.own, prefCode, apiBase),
             fetchStatRows(cfg.dwell, prefCode, apiBase),
         ]);
-        const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{ind,occ,eco,fam,dwell,own}>
-        const clean  = a => a.map(v => +v || 0);
-        const merge  = (rows, key) => {
+        const byCity = new Map<string, Map<string, StatRow>>();   // 市区町村5桁 → Map<areaCode,{ind,occ,eco,fam,dwell,own}>
+        const clean  = (a: string[]): number[] => a.map(v => +v || 0);
+        const merge  = (rows: string[][], key: string): void => {
             for (const t of rows) {
                 const code = String(t[0] || '');
                 if (code.length <= 5) continue;     // 市区町村集計行は除外
@@ -358,14 +371,14 @@ async function ensurePrefStats(prefCode, apiBase, year) {
 }
 
 // 市区町村の小地域就業・世帯経済 Map<areaCode,{ind,occ,eco,fam,own,dwell}>
-export async function fetchSmallAreaStats(cityCode, apiBase, year = '2020') {
+export async function fetchSmallAreaStats(cityCode: string, apiBase: string, year = '2020'): Promise<Map<string, StatRow>> {
     await ensurePrefStats(cityCode.slice(0, 2), apiBase, year);
     return (await statIdbGet(_cfg(year).stat, cityCode)) || new Map();
 }
 
 // ---- SVG 描画 ---------------------------------------------------------------
 
-export function miniAgeBar(mAges, fAges) {
+export function miniAgeBar(mAges: number[] | null | undefined, fAges: number[]): string {
     if (!mAges?.length) return '';
     const all   = mAges.map((m, i) => m + fAges[i]);
     const total = all.reduce((s, v) => s + v, 0);

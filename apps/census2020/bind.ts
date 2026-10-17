@@ -3,11 +3,13 @@
 // 地図→パネル: gintクリック（admin_all=市区町村）→ drillTo／estat identify（小地域）→ drillToArea。
 // スロット調停: 全国コロプレス(admin_all) ⇄ 市区町村スタック(筆/土砂/洪水) は同じ gint 単一スロットを
 // 取り合う＝占有者(slotOwner)をここで一元管理し、スタック解除で必ず admin へ戻す。
-import { onDrill, drillTo, drillToArea } from "./census/ui.js";
-import { prefetchSmallAreaIdb } from "./census/small-area.js";
-import { belongsTo } from "./jp/codes.js";
-import { initBousai } from "./bousai.js";
-import { ESTAT_MANIFEST } from "./census/tables.js";
+import { onDrill, drillTo, drillToArea } from "./census/ui.ts";
+import { prefetchSmallAreaIdb } from "./census/small-area.ts";
+import { belongsTo } from "./jp/codes.ts";
+import { initBousai } from "./bousai.ts";
+import { ESTAT_MANIFEST } from "./census/tables.ts";
+import type { Choropleth, CensusMap, LegendSetter } from "./choropleth.ts";
+import type { Bbox } from "@ortho-earth/globe";
 
 const ESTAT_CODES = ESTAT_MANIFEST.map(e => e.code);
 // 小地域(町丁目)の内側メッシュ線。淡すぎ＋地形とz-fightで時たま消える件（本人報告 2026-08-12）→
@@ -18,9 +20,9 @@ const ESTAT_CODES = ESTAT_MANIFEST.map(e => e.code);
 const ESTAT_STYLE = { lineColor: [0.31, 0.51, 0.81, 1.0], lineWidth: 0.6 };
 const SA_MAX_ZOOM = 16.3;   // 丁目 bbox は極小＝寄り過ぎ防止の上限（周りの区画が画面に残る＝「拡大」と「区画を残す」の両立点）
 
-export function initBind(map, { choro, legend }) {
-	const overlay = map.estat;   // 正式な口（旧 map.overlay＝9/20 に同一フレーム overlay の関数へ上書きされ起動不能になった轍・2026-09-23）
-	let cityCode = null;         // ドリル中の市区町村（estat 境界の単位）
+export function initBind(map: CensusMap, { choro, legend }: { choro: Choropleth; legend?: LegendSetter }): { readonly cityCode: string | null } {
+	const overlay = map.estat!;   // 正式な口（旧 map.overlay＝9/20 に同一フレーム overlay の関数へ上書きされ起動不能になった轍・2026-09-23）
+	let cityCode: string | null = null;         // ドリル中の市区町村（estat 境界の単位）
 	let slotOwner = "admin";     // gint 単一スロットの占有者: 'admin' | 'stack'
 	// ?area=＋hash 共有URLで開いた時は hash のカメラが正＝復元ドリルの flyTo を1回だけ抑止
 	let suppressFly = !!location.hash && new URLSearchParams(location.search).has("area");
@@ -34,7 +36,7 @@ export function initBind(map, { choro, legend }) {
 	});
 
 	// --- URL ?area=（view hash・他クエリ（?gl2=1 等）は温存。書くのは area だけ） ---
-	const writeArea = code => {
+	const writeArea = (code: string | null | undefined): void => {
 		const q = new URLSearchParams(location.search);
 		if (code) q.set("area", code); else q.delete("area");
 		const qs = q.toString();
@@ -42,13 +44,13 @@ export function initBind(map, { choro, legend }) {
 	};
 
 	// 政令市＝区コード列（estat ファイルは区単位）／それ以外＝自コード
-	const estatCodesFor = code => {
+	const estatCodesFor = (code: string): string[] => {
 		const members = ESTAT_CODES.filter(c => belongsTo(c, code));   // 政令市=区／東京都区部13100=23区／県=前方一致
 		return members.length ? members : (ESTAT_CODES.includes(code) ? [code] : []);
 	};
 
-	let estatReady = Promise.resolve(false);   // 現在の市の estat 読み込み完了（true=ok）。highlight/fly はこれを待つ＝ドリル直後のレース根治
-	function enterCity(code, { withBousai = true } = {}) {
+	let estatReady: Promise<boolean> = Promise.resolve(false);   // 現在の市の estat 読み込み完了（true=ok）。highlight/fly はこれを待つ＝ドリル直後のレース根治
+	function enterCity(code: string, { withBousai = true }: { withBousai?: boolean } = {}): void {
 		// 政令市の集約コード(34100 広島市 等)は bousai/moj データが区単位(34101〜)にしか無い＝集約コードを
 		// probe すると 404 を撒く。防災/筆は区ドリル(terminal)でのみ有効化＝集約レベルではトグルを出さない。
 		if (withBousai) bousai.enterCity(code);   // トグルUI更新は再入でも行う（在庫 probe 含む）
@@ -57,7 +59,7 @@ export function initBind(map, { choro, legend }) {
 		cityCode = code;
 		const codes = estatCodesFor(code);   // 集約コードは区コード列へ展開（estat 小地域は区単位で読む）
 		estatReady = codes.length
-			? new Promise(res => overlay.loadEstat(codes, "2020", ESTAT_STYLE, { moveCamera: false, quiet: true, interiorOnly: true, onLoaded: r => res(!!r?.ok) }))   // interiorOnly＝内側メッシュのみ（外周は admin_all=N03 一系統・二重線回避）
+			? new Promise<boolean>(res => overlay.loadEstat(codes, "2020", ESTAT_STYLE, { moveCamera: false, quiet: true, interiorOnly: true, onLoaded: r => res(!!r?.ok) }))   // interiorOnly＝内側メッシュのみ（外周は admin_all=N03 一系統・二重線回避）
 			: Promise.resolve(false);
 	}
 	function leaveCity() {
@@ -67,7 +69,7 @@ export function initBind(map, { choro, legend }) {
 		bousai.leaveCity();     // スタック解除 → onStackCleared → admin 復帰
 		overlay.clearOverlay();   // estat 境界とハイライトを消す
 	}
-	async function highlightAndFly(key) {
+	async function highlightAndFly(key: string): Promise<void> {
 		const noFly = suppressFly;   // 呼び出し時点の値を捕まえる（onDrill 末尾の suppressFly=false が await より先に走るため）
 		// ★元々のバグの根治：市ドリル直後は estat が読込中＝highlightKey が即 null を返し「選択マスクもズームも
 		// 黙って不発」だった（overlay.highlightKey は !estatActive で Promise.resolve(null)）。読込完了を待ってから引く。
@@ -77,7 +79,7 @@ export function initBind(map, { choro, legend }) {
 			const b = r.bbox;
 			// 最終の町丁目まで来たら寄る（本人指摘2026-08-14「拡大されません」）。SA_MAX_ZOOM の上限＝寄り過ぎを防ぎ
 			// 周りの区画も画面に残る（「区画は残して」との両立＝上限つきズーム）。tilt0＝真俯瞰維持。
-			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b)), 0);
+			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b as Bbox)), 0);
 		}
 	}
 
@@ -92,23 +94,23 @@ export function initBind(map, { choro, legend }) {
 				break;
 			case "pref":
 				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(e.code); choro.setScope(e.code);   // 県へ降下＋選択マスク（県の外を暗く）＋島嶼県トグル
-				if (!suppressFly) choro.flyToCode(e.code);
+				if (!suppressFly) choro.flyToCode(e.code!);
 				break;
 			case "designated":   // 政令市＝区一覧＋政令市単位で防災も有効（A31=メッシュ・A33=県の直読み＝集約コードでも動く。
 				// moj筆のみ区単位＝probeで自動不活性。旧「404を断つ」根拠は焼きデータ依存＝直読み化で解消・本人裁定2026-08-14）。
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
-				if (!suppressFly) choro.flyToCode(e.code);
-				enterCity(e.code);
+				if (!suppressFly) choro.flyToCode(e.code!);
+				enterCity(e.code!);
 				break;
 			case "kubu":   // 東京都区部(13100)＝23区の集約単位。政令市と同様に区部単位で防災を有効化（区へドリルも可）
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
-				if (!suppressFly) choro.flyToCode(e.code);
-				enterCity(e.code);
+				if (!suppressFly) choro.flyToCode(e.code!);
+				enterCity(e.code!);
 				break;
 			case "city":
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
-				if (!suppressFly) choro.flyToCode(e.code);
-				enterCity(e.code);
+				if (!suppressFly) choro.flyToCode(e.code!);
+				enterCity(e.code!);
 				break;
 			case "sa-table":
 				if (e.city && e.city !== cityCode) enterCity(e.city);
@@ -117,7 +119,7 @@ export function initBind(map, { choro, legend }) {
 			case "sa-leaf":
 				if (e.city && e.city !== cityCode) enterCity(e.city);
 				writeArea(e.code);
-				highlightAndFly(e.code);
+				highlightAndFly(e.code!);
 				break;
 		}
 		// レイヤ（防災・筆）チップは wiki カードの下（本人裁定2026-08-14）。ドリルの度に body が作り直される

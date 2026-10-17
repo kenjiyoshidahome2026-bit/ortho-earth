@@ -4,9 +4,10 @@
 // 対象＝パネルの UI だけ。ログ（screenLogger・geoExec の進捗行）と地図の中身（カタログのデータ名・属性）は英語のまま＝console/HUD の掟。
 import LANGS from "world-data/i18n/langs.json";   // 言語一覧の正本＝world
 import { createI18n } from "@ortho-earth/globe/i18n/core.js";
+import type { I18nTable } from "@ortho-earth/globe/i18n/core.js";
 
 const PACKS = import.meta.glob("./i18n/lang/*.json");
-const i18n = createI18n({ langs: LANGS, load: async c => { const k = Object.keys(PACKS).find(p => p.endsWith(`/${c}.json`)); return k ? (await PACKS[k]()).default : {}; } });
+const i18n = createI18n({ langs: LANGS, load: async c => { const k = Object.keys(PACKS).find(p => p.endsWith(`/${c}.json`)); return k ? (await PACKS[k]() as { default: I18nTable }).default : {}; } });
 export const { getLang, isRTL, LANGUAGES, norm, t } = i18n;
 // 頁の lang / dir も合わせる（この頁は html が UI＝従来どおり setLang が面倒を見る）
-export async function setLang(code) { const c = await i18n.setLang(norm(code) ?? "en"); i18n.applyHtml(); return c; }
+export async function setLang(code: string): Promise<string> { const c = await i18n.setLang(norm(code) ?? "en"); i18n.applyHtml(); return c; }

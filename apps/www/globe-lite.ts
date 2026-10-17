@@ -53,15 +53,18 @@ void main(){
 	gl_FragColor = vec4(mix(c, vec3(0.55, 0.72, 1.0), s.y), 1.0);
 }`;
 
-export function liteGlobe(host, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirstFrame } = {}) {
+/** liteGlobe の opts（src＝正距円筒の画像・onFirstFrame＝最初の 1 枚が出た時） */
+export interface LiteGlobeOpts { src?: string; degPerSec?: number; lat0?: number; lon0?: number; onFirstFrame?: () => void }
+export interface LiteGlobe { canvas: HTMLCanvasElement; destroy(): void; pause(): void; resume(): void }
+export function liteGlobe(host: HTMLElement, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirstFrame }: LiteGlobeOpts = {}): LiteGlobe | null {
 	const canvas = document.createElement("canvas");
 	Object.assign(canvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", display: "block" });
 	host.appendChild(canvas);
 	const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
-	let gl = canvas.getContext("webgl2", opts), v2 = !!gl;
-	if (!gl) gl = canvas.getContext("webgl", opts);
+	let gl = canvas.getContext("webgl2", opts) as WebGLRenderingContext, v2 = !!gl;   // WebGL1 の型で扱う（使う口は 1 と 2 の共通分だけ）
+	if (!gl) gl = canvas.getContext("webgl", opts) as WebGLRenderingContext;
 	if (!gl) { canvas.remove(); return null; }
-	const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+	const sh = (type: number, src: string): WebGLShader => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)!); return s; };
 	const prog = gl.createProgram();
 	gl.attachShader(prog, sh(gl.VERTEX_SHADER, v2 ? "#version 300 es\nin vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }" : VS));
 	gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, v2 ? FS2 : FS1));
@@ -73,7 +76,7 @@ export function liteGlobe(host, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirs
 	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 	const loc = gl.getAttribLocation(prog, "p");
 	gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-	const U = n => gl.getUniformLocation(prog, n);
+	const U = (n: string) => gl.getUniformLocation(prog, n);
 	const uCenter = U("uCenter"), uR = U("uR"), uLon = U("uLon"), uLat = U("uLat");
 	gl.uniform1i(U("uTex"), 0);
 	gl.uniform1f(uLat, lat0 * Math.PI / 180);
@@ -99,7 +102,7 @@ export function liteGlobe(host, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirs
 		if (spinning) start();
 	};
 	img.onerror = () => console.warn("[globe-lite] texture failed", src);
-	img.src = src;
+	img.src = src!;
 
 	const resize = () => {
 		const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -116,7 +119,7 @@ export function liteGlobe(host, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirs
 		gl.uniform1f(uLon, lon);
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 	}
-	const step = t => {
+	const step = (t: number): void => {
 		const dt = Math.min(0.1, (t - t0) / 1000); t0 = t;
 		lon += degPerSec * dt * Math.PI / 180;
 		draw();

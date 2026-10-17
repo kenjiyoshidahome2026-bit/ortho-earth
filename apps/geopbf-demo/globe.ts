@@ -2,6 +2,8 @@
 // エンジンは build 時に同梱（A 裁定 2026-09-23＝内製アプリは本番で /japan/lib を実行時に食わない・census2020/world と同じ型）。
 // CSS もエンジンのチャンクに付いて来る（旧＝/japan/lib/ortho-japan.css の link は不要）。
 import { createGintView } from "common/gintView";
+import type { GintMap } from "common/gintView";
+import type { GlobeMap } from "@ortho-earth/globe";
 
 const engineP = import("@ortho-earth/globe");
 
@@ -18,14 +20,14 @@ export const mapP = engineP.then(m => m.createGlobe({   // GeoPBF のデモ＝�
 	lang: "en",
 	countryTip: false,         // データの tip と国名 tip を混ぜない
 	persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
-	keyboard: () => document.querySelector(".demo")?.classList.contains("viewing"),   // 矢印キーは地図に入っている間だけ（待ち受け中はパネル側のもの）
+	keyboard: () => document.querySelector(".demo")?.classList.contains("viewing") as boolean,   // 矢印キーは地図に入っている間だけ（待ち受け中はパネル側のもの）
 }));
-export const viewP = mapP.then(map => createGintView(map, { overviewZoom }));
+export const viewP = mapP.then(map => createGintView(map as unknown as GintMap, { overviewZoom }));
 
 // 地図の道具（旧 v1 と同じ顔ぶれ：north→compass）。待ち受け中はパネルの下＝初めて地図に入る時に載せる
 // （載せた瞬間から Z=全画面・@=現在地 等のショートカットが window で生きるため）
 let tools = false;
-export function mountTools(map) {
+export function mountTools(map: GlobeMap): void {
 	if (tools) return; tools = true;
 	map.gadget.close(); map.gadget.compass(); map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.measure(); map.gadget.shot();
 }

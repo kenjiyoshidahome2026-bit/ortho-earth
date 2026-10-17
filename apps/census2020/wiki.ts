@@ -5,19 +5,20 @@
 // 冒頭＝Wikimedia REST summary（IDB 30 日）、記事＝頁の上の <iframe credentialless>（この頁は COEP credentialless＝
 // 素の iframe は遮断される・非対応ブラウザは別タブ）。
 // 差し込みは onDrill 購読の後追い（_fillTrends と同じ作法）＝ドリルUI本体は Wikipedia を知らない。
-import { onDrill } from "./census/ui.js";
-import { escHtml } from "./ui/shared.js";
+import { onDrill } from "./census/ui.ts";
+import { escHtml } from "./ui/shared.ts";
 import { createWikiFrame, summary, CAN_FRAME } from "@ortho-earth/globe/wiki.js";
 import WIKI_TITLES from "./data/wiki-titles.json" with { type: "json" };
+import type { WikiFrame } from "@ortho-earth/globe/wiki.js";
 
-let frame = null;   // 記事の枠（#stage の末尾＝DOM順で canvas/計器より上・z-index 不使用の掟）。✕ か Esc で閉じる
-const getFrame = () => frame ||= createWikiFrame({ host: document.getElementById("stage"), className: "c20-wiki-frame", labels: { newTab: "新しいタブで開く", close: "閉じる" } });
+let frame: WikiFrame | null = null;   // 記事の枠（#stage の末尾＝DOM順で canvas/計器より上・z-index 不使用の掟）。✕ か Esc で閉じる
+const getFrame = () => frame ||= createWikiFrame({ host: document.getElementById("stage")!, className: "c20-wiki-frame", labels: { newTab: "新しいタブで開く", close: "閉じる" } });
 
-export function initWiki() {
+export function initWiki(): void {
 	onDrill(e => {
 		closeFrame();   // ドリル遷移＝開いている記事は閉じる（古い記事が地図に残らない・本人要望2026-08-14）
 		if (e.level !== "pref" && e.level !== "city" && e.level !== "designated") return;
-		const title = WIKI_TITLES[e.code];
+		const title = (WIKI_TITLES as Record<string, string>)[e.code!];
 		if (title) inject(title);
 	});
 	// 右パネルでの操作（チップ/ドリル等のクリック）でも閉じる。capture＝wikiカード自身のクリックより先に走る
@@ -25,9 +26,9 @@ export function initWiki() {
 	document.getElementById("panel")?.addEventListener("click", () => closeFrame(), { capture: true });
 }
 
-function closeFrame() { frame?.close(); }
+function closeFrame(): void { frame?.close(); }
 
-async function inject(title) {
+async function inject(title: string): Promise<void> {
 	const wrap = document.querySelector("#panel-body .cs-drill-wrap");
 	if (!wrap || wrap.querySelector(".c20-wiki")) return;
 	const div = document.createElement("div");
@@ -35,7 +36,7 @@ async function inject(title) {
 	div.innerHTML = `<h3>Wikipedia</h3><div class="c20-wiki-body" style="color:#9ab;font-size:12px">読み込み中…</div>`;
 	const head = wrap.querySelector(".cs-drill-head");
 	head ? head.after(div) : wrap.appendChild(div);   // タイトル直下＝国勢調査の上（目立つ位置・本人要望2026-08-14）
-	const body = div.querySelector(".c20-wiki-body");
+	const body = div.querySelector<HTMLElement>(".c20-wiki-body")!;
 	try {
 		const s = await summary(title, "ja");
 		if (!body.isConnected) return;   // 取得中に画面遷移＝捨てる

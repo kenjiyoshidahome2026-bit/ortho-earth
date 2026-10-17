@@ -7,20 +7,37 @@
 // 3Dの絵作り: 層別ドレープ（エンジンが面も線も depth ctx で地形に乗せる）＋PLATEAU 突き刺し。
 //   旧・pitch-watcher（standupGint の gintBld 舞踏）は多層化で不要＝2026-09-09 退場（git 履歴が正）。
 import { geopbf } from "geopbf";
-import { loadMoj, mojSource, probeBucket } from "./moj.js";
-import { loadMaff, maffCode } from "./maff.js";
-import { escHtml } from "./ui/shared.js";
-import { DESIGNATED_CITIES } from "./jp/codes.js";
-import { cityClipper } from "./clip-city.js";   // 洪水浸水を区の境界で切り抜く（2026-10-14）
+import { loadMoj, mojSource, probeBucket } from "./moj.ts";
+import { loadMaff, maffCode } from "./maff.ts";
+import { escHtml } from "./ui/shared.ts";
+import { DESIGNATED_CITIES } from "./jp/codes.ts";
+import { cityClipper } from "./clip-city.ts";   // 洪水浸水を区の境界で切り抜く（2026-10-14）
+import type { GeoPBF, GeopbfInput } from "geopbf";
+import type { GintLayerHandle, LonLat } from "@ortho-earth/globe";
+import type { CensusMap, CodeGeom, LegendSetter } from "./choropleth.ts";
+
+type Ring = number[][];
+type Poly = Ring[];   // [外環, 穴…]
+type GeomLike = { type?: string; coordinates?: any };
+/** 束ねた区域（props ごとに切れ端 comps を集める） */
+type ZoneGroup = { props: Record<string, unknown>; comps: Poly[] };
+/** 避難場所の 1 行＝[経度, 緯度, 名称, 住所, 対応災害ビット] */
+type HinanRow = [number, number, string, string, number];
+type ClickEv = { lngLat: LonLat; hits: Array<{ layer: GintLayerHandle | null; fid: number; feature: { properties: Record<string, any> | null } }> };
+/** initBousai の受け口（bind.ts が渡す） */
+export interface BousaiOpts {
+	bboxForCode?: (code: string) => number[] | null; cityGeomForCode?: (code: string) => CodeGeom | null; legend?: LegendSetter;
+	onStackApplied?: () => void; onStackCleared?: () => void;
+}
 
 const API = "https://api.ortho-earth.com";
 const HINAN_MAX = 1500;                        // 市区町村 bbox 内マーカー上限（DOM 予算）
 const HINAN_FLAGS = ["洪水", "土砂", "高潮", "地震", "津波", "大火", "内水", "火山"];   // bake の flags ビット順
 
 const A31_COLORS = ["#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c"];   // 浸水深ランク1..6
-const A31_DEPTH = { 1: "〜0.5m", 2: "0.5〜3.0m", 3: "3.0〜5.0m", 4: "5.0〜10.0m", 5: "10.0〜20.0m", 6: "20.0m〜" };   // A31b_101/201 浸水深ランク→ラベル（計画/最大 共通尺）
+const A31_DEPTH: Record<number, string> = { 1: "〜0.5m", 2: "0.5〜3.0m", 3: "3.0〜5.0m", 4: "5.0〜10.0m", 5: "10.0〜20.0m", 6: "20.0m〜" };   // A31b_101/201 浸水深ランク→ラベル（計画/最大 共通尺）
 
-const gunzipBuf = async buf => {
+const gunzipBuf = async (buf: ArrayBuffer): Promise<ArrayBuffer> => {
 	const h = new Uint8Array(buf, 0, 2);
 	return (h[0] === 0x1f && h[1] === 0x8b)
 		? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()
@@ -35,27 +52,27 @@ const GINT_LAYERS = [
 ];
 // チップ並び＝土砂災害・洪水浸水・避難場所・14条地図・筆ポリゴン（本人裁定 2026-08-18）
 const CHIP_DEFS = [GINT_LAYERS[0], GINT_LAYERS[1], { key: "hinan", label: "避難場所" }, GINT_LAYERS[2], GINT_LAYERS[3]];
-const MAFF_LINE = { 100: "#2fae52", 200: "#b0731f" };   // 田=緑 / 畑=黄土（黄緑は緑と1px線で判別不能＝色相を離す・moj橙#ff8c26とも別系統）
+const MAFF_LINE: Record<number, string> = { 100: "#2fae52", 200: "#b0731f" };   // 田=緑 / 畑=黄土（黄緑は緑と1px線で判別不能＝色相を離す・moj橙#ff8c26とも別系統）
 const MAFF_FILL_ALPHA = 0.18;                           // 田畑の塗り＝線と同色相の淡面（真俯瞰の読図用・ハザード面0.5より控えめ＝基図を殺さない）
 
-export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackApplied, onStackCleared } = {}) {
-	let city = null;
-	const on = new Set();              // 点灯中の gint レイヤ key
+export function initBousai(map: CensusMap, { bboxForCode, cityGeomForCode, legend, onStackApplied, onStackCleared }: BousaiOpts = {}) {
+	let city: string | null = null;
+	const on = new Set<string>();              // 点灯中の gint レイヤ key
 	let hinanOn = false;
 	let stackApplied = false;          // gint スロットをスタックが占有中か
 	let a31Mode = "max", a31PlanOk = false;   // 洪水の規模＝max:想定最大(-20-)⇄plan:計画(-10-)。状態1本＝排他が構造（本人裁定2026-08-29）
 	let seq = 0;                       // 再入ガード（連打・都市切替中の非同期競合）
-	const fcCache = new Map();         // `${city}/${key}` → Feature[]（セッション内メモ）
+	const fcCache = new Map<string, unknown[]>();         // `${city}/${key}` → Feature[]（セッション内メモ）
 
 	// --- トグルUI（#panel-head・市区町村ドリル中のみ表示） ---
-	const head = document.getElementById("panel-head");
+	const head = document.getElementById("panel-head")!;
 	const wrap = document.createElement("span");
 	wrap.id = "c20-layers";
 	wrap.style.cssText = "display:none;gap:6px;align-items:center;flex-wrap:wrap";   // 置き場はドリル面（wikiカード直下）＝bind.js が再親付け。意匠は panel.scss
 	head.appendChild(wrap);
 	const sta = document.createElement("span");
 	sta.style.cssText = "font-size:11px;color:#89a";
-	const chips = new Map();
+	const chips = new Map<string, HTMLButtonElement>();
 	for (const def of CHIP_DEFS) {
 		const b = document.createElement("button");
 		b.className = "c20-chip"; b.type = "button"; b.textContent = def.label; b.disabled = true;
@@ -65,7 +82,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 洪水の規模切替（最大⇄計画）＝a31 点灯中のみ現れる従属チップ。片方だけ点く＝排他は a31Mode 1本が保証。
 	const a31Seg = document.createElement("span");
 	a31Seg.style.cssText = "display:none;gap:2px;align-items:center";
-	const segBtns = new Map();
+	const segBtns = new Map<string, HTMLButtonElement>();
 	for (const [m, label] of [["max", "最大"], ["plan", "計画"]]) {
 		const b = document.createElement("button");
 		b.className = "c20-chip"; b.type = "button"; b.textContent = label;
@@ -77,14 +94,14 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		});
 		a31Seg.appendChild(b); segBtns.set(m, b);
 	}
-	wrap.insertBefore(a31Seg, chips.get("a31").nextSibling);
+	wrap.insertBefore(a31Seg, chips.get("a31")!.nextSibling);
 	wrap.appendChild(sta);
-	const say = t => { sta.textContent = t || ""; };
+	const say = (t?: string): void => { sta.textContent = t || ""; };
 	const nextFrame = () => new Promise(r => setTimeout(r, 0));   // 重い await/同期ループの前に状況表示を描かせる譲り
 	// 防災層の凡例（コロプレスの legendHtml と同じ行様式）。洪水=浸水深6段（深い順）・土砂=警戒/特別警戒。
-	const legRow = (c, t) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7"><span style="width:14px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</div>`;
-	function hazardLegend(keys) {
-		const secs = [];
+	const legRow = (c: string, t: string): string => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7"><span style="width:14px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</div>`;
+	function hazardLegend(keys: string[]): string | null {
+		const secs: string[] = [];
 		if (keys.includes("a31")) {
 			const rows = [6, 5, 4, 3, 2, 1].map(r => legRow(A31_COLORS[r - 1], A31_DEPTH[r])).join("");   // 深い順に上から
 			secs.push(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">洪水浸水想定 <span style="font-weight:400;color:#89a">${a31Mode === "plan" ? "計画規模" : "想定最大規模"}・浸水深</span></div>${rows}`);
@@ -105,18 +122,18 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		chips.forEach((b, k) => b.setAttribute("aria-pressed", String(k === "hinan" ? hinanOn : on.has(k))));
 		a31Seg.style.display = on.has("a31") ? "inline-flex" : "none";   // 従属チップは親点灯中だけ
 		segBtns.forEach((b, m) => b.setAttribute("aria-pressed", String(a31Mode === m)));
-		const pb = segBtns.get("plan");
+		const pb = segBtns.get("plan")!;
 		pb.disabled = !a31PlanOk; pb.title = a31PlanOk ? "" : "計画規模データ未整備";
 	};
 
 	// --- 在庫 probe（市区町村ごと・並列）。無い層は非活性＝「未整備」を正直に見せる ---
-	async function probeAvailability(code) {
+	async function probeAvailability(code: string): Promise<void> {
 		const mySeq = ++seq;
 		chips.forEach(b => { b.disabled = true; b.title = "確認中…"; });
 		// moj筆(14条地図)は末端の区/市単位のみ＝集約コード(政令市14100・特別区部13100)は持たない。
 		// 探ると geojsonl フォールバックまで落ちて 404 を撒く（本人報告2026-08-14 moj/13100.geojsonl）＝probeを省く。
 		const mojEligible = !(DESIGNATED_CITIES.has(code) || code === "13100");
-		const probes = {   // GET+即中断（bucket Worker は HEAD 405＝moj.js probeBucket の轍）
+		const probes: Record<string, Promise<boolean>> = {   // GET+即中断（bucket Worker は HEAD 405＝moj.js probeBucket の轍）
 			moj: mojEligible ? mojSource(code).then(s => !!s) : Promise.resolve(false),
 			maff: Promise.resolve(!!maffCode(code)),   // 網羅表の in-memory 判定＝network 0（農地の無い市区町村は表に無い）
 			a33: a33TargetForPref(code.slice(0, 2)).then(t => !!t).catch(() => false),   // browser-native＝県に A33 KSJ があれば有効（catalog確認）
@@ -134,7 +151,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		};
 		for (const [k, p] of Object.entries(probes)) p.then(ok => {
 			if (mySeq !== seq || city !== code) return;   // 別の市区町村へ移った後の到着は捨てる
-			const b = chips.get(k);
+			const b = chips.get(k)!;
 			b.disabled = !ok;
 			b.title = ok ? "" : "データ未整備";
 		});
@@ -150,17 +167,17 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// legacy-geopbf-init-order の罠）。ここでは再呼びしない。
 	// legacy geopbf(url) は CORS遮断の MLIT KSJ zip を api worker の proxy 経由で取り→zip内geojson抽出→ingest、
 	// かつ geopbf の URL キャッシュ規約で自動IDB＝2回目爆速（moj AIGID と同じ）。target は catalog（正典）から。
-	const A33_GENSHO = { 1: "急傾斜地の崩壊", 2: "土石流", 3: "地滑り" };   // A33_001＝現象の種類
+	const A33_GENSHO: Record<number, string> = { 1: "急傾斜地の崩壊", 2: "土石流", 3: "地滑り" };   // A33_001＝現象の種類
 	// 境界クリップの素（外周リングの点in面・穴は無視＝十分）。旧a33-batch/ksj-common と同一。
-	const pointInRing = (x, y, ring) => { let hit = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const a = ring[i], b = ring[j]; if (((a[1] > y) !== (b[1] > y)) && (x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0])) hit = !hit; } return hit; };
-	const pointInGeom = (x, y, g) => g.type === "Polygon" ? pointInRing(x, y, g.coordinates[0]) : g.type === "MultiPolygon" ? g.coordinates.some(p => pointInRing(x, y, p[0])) : false;
-	let _a33Cat = null;
-	const catJson = async url => { const r = await fetch(url, { cache: "no-store" }); return r.ok ? JSON.parse(new TextDecoder().decode(await gunzipBuf(await r.arrayBuffer()))) : null; };
-	async function a33TargetForPref(pref) {   // 県コード→ A33 KSJ target（zipURL#zip内path）を catalog から
+	const pointInRing = (x: number, y: number, ring: Ring): boolean => { let hit = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const a = ring[i], b = ring[j]; if (((a[1] > y) !== (b[1] > y)) && (x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0])) hit = !hit; } return hit; };
+	const pointInGeom = (x: number, y: number, g: GeomLike): boolean => g.type === "Polygon" ? pointInRing(x, y, g.coordinates[0]) : g.type === "MultiPolygon" ? g.coordinates.some((p: Poly) => pointInRing(x, y, p[0])) : false;
+	let _a33Cat: Map<string, string> | null = null;
+	const catJson = async (url: string): Promise<any> => { const r = await fetch(url, { cache: "no-store" }); return r.ok ? JSON.parse(new TextDecoder().decode(await gunzipBuf(await r.arrayBuffer()))) : null; };
+	async function a33TargetForPref(pref: string): Promise<string | null> {   // 県コード→ A33 KSJ target（zipURL#zip内path）を catalog から
 		if (!_a33Cat) {
 			_a33Cat = new Map();
 			const idx = await catJson(`${API}/bucket/catalog/index.json`) || [];
-			const a33 = idx.find(d => /土砂災害警戒/.test(d.title || ""));   // 最新 A33（A33-2025 等）を自動選択
+			const a33 = idx.find((d: any) => /土砂災害警戒/.test(d.title || ""));   // 最新 A33（A33-2025 等）を自動選択
 			const ds = a33 && await catJson(`${API}/bucket/catalog/${a33.dataset_code}.json`);
 			for (const f of ds?.files || []) if (f.scope === "都道府県" && f.format === "geojson" && /Polygon/i.test(f.target)) _a33Cat.set(f.pref_code, f.target);   // 面(Polygon)を明示選択＝一部県(広島34)は線(Line)geojsonも持つ→線を拾うと面merge が空振りして出ない
 		}
@@ -169,11 +186,11 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 境界クリップ closure（A33/A31 共有）＝表示中の市区町村ポリゴンで絞る。「少しでも市にかかっていれば、その区域を
 	// 丸ごと出す」＝外周頂点が1つでも市内なら feature ごと採用。重心割当てと違い境界の欠けを作らない（安全側）。
 	// 矩形クリップの隅の劣化も消える。県/メッシュ丸ごとを gint に渡すと idfill 巻き数が溢れるのも、市の数へ落として回避。
-	function makeCityClip(code) {
+	function makeCityClip(code: string): (comps: Poly[]) => boolean {
 		const cityGeom = cityGeomForCode?.(code) ?? null;   // 市境界ポリゴン（無ければ bbox のみのフォールバック）
 		const bb = bboxForCode?.(code);   // 点in面の前置ふるい（市bbox外の頂点は即skip）
-		const inBB = c => !bb || (c[0] >= bb[0] && c[0] <= bb[2] && c[1] >= bb[1] && c[1] <= bb[3]);
-		return comps => {   // 外周頂点が1つでも市内→採用（早期脱出）。少しでもかかれば出す＝欠け無し優先。
+		const inBB = (c: number[]): boolean => !bb || (c[0] >= bb[0] && c[0] <= bb[2] && c[1] >= bb[1] && c[1] <= bb[3]);
+		return (comps: Poly[]) => {   // 外周頂点が1つでも市内→採用（早期脱出）。少しでもかかれば出す＝欠け無し優先。
 			for (const poly of comps) for (const c of poly[0]) {
 				if (!inBB(c)) continue;
 				if (!cityGeom) return true;   // 市ポリゴン無→bbox内に頂点があれば出す（フォールバック）
@@ -182,12 +199,12 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			return false;
 		};
 	}
-	const compsOf = g => g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-	const groupsToFeats = groups => [...groups.values()].map(({ props, comps }) => ({
+	const compsOf = (g: GeomLike): Poly[] => g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+	const groupsToFeats = (groups: Map<string, ZoneGroup>): unknown[] => [...groups.values()].map(({ props, comps }) => ({
 		type: "Feature", properties: props,
 		geometry: comps.length === 1 ? { type: "Polygon", coordinates: comps[0] } : { type: "MultiPolygon", coordinates: comps },
 	}));
-	async function loadA33Pref(code) {
+	async function loadA33Pref(code: string): Promise<unknown[] | null> {
 		const target = await a33TargetForPref(code.slice(0, 2)).catch(() => null);
 		if (!target) return null;
 		say("土砂データ取得中…（初回のみ・proxy 経由）");   // moj 作法＝8秒級の初回読みに進捗を出す
@@ -197,15 +214,15 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		// ②生KSJ props(A33_002区分/A33_001現象)→{kbn,gensho} へ写像し kbn/gensho で束ねて fid を1桁に（gint idfill fid≤2047）。
 		const zoneHitsCity = makeCityClip(code);
 		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;   // 浸水と同じく区の境界で切り抜く（2026-10-14）
-		const groups = new Map();
+		const groups = new Map<string, ZoneGroup>();
 		for (const f of raw) {
 			let comps = compsOf(f.geometry ?? {});
 			comps = cut ? comps.flatMap(cut) : zoneHitsCity(comps) ? comps : [];   // 区の境界で切った切れ端（市ポリゴン無し＝少しでも市にかかれば feature 単位で丸ごと）
 			if (!comps.length) continue;
-			const kbn = +f.properties?.A33_002 === 2 ? 2 : 1, gensho = A33_GENSHO[+f.properties?.A33_001] ?? "";
+			const kbn = +(f.properties?.A33_002 as number) === 2 ? 2 : 1, gensho = A33_GENSHO[+(f.properties?.A33_001 as number)] ?? "";
 			const k = `${kbn}/${gensho}`;
 			if (!groups.has(k)) groups.set(k, { props: { _src: "a33", kbn, gensho }, comps: [] });
-			for (const q of comps) groups.get(k).comps.push(q);
+			for (const q of comps) groups.get(k)!.comps.push(q);
 		}
 		return groupsToFeats(groups);
 	}
@@ -213,17 +230,17 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 旧・サーバー焼き geopbf（thinRingsで階段を潰した）を廃し、catalog A31b（1次メッシュ単位 geojson・原典メッシュ忠実）を
 	// メッシュ毎に legacy geopbf 直読み（proxy＋自動IDBキャッシュ＝2回目爆速）→市境界クリップ→浸水深ランクで束ねる。
 	// A33 が県単位なのに対し A31 は1次メッシュ単位配布＝索引を location_code（メッシュ）で持ち、市bboxを覆うメッシュだけ引く。
-	let _a31Cat = null;
-	async function a31CatIndex() {   // { max, plan } 各＝1次メッシュコード → [geojson target, …]（河川区分ごとに複数あり得る）
+	let _a31Cat: { max: Map<string, string[]>; plan: Map<string, string[]> } | null = null;
+	async function a31CatIndex(): Promise<{ max: Map<string, string[]>; plan: Map<string, string[]> }> {   // { max, plan } 各＝1次メッシュコード → [geojson target, …]（河川区分ごとに複数あり得る）
 		if (!_a31Cat) {
 			_a31Cat = { max: new Map(), plan: new Map() };   // max=想定最大規模(-20-)／plan=計画規模(-10-)
 			const idx = await catJson(`${API}/bucket/catalog/index.json`) || [];
-			const a31 = idx.find(d => /^A31b/.test(d.dataset_code || "") || /洪水浸水想定区域（1次メッシュ/.test(d.title || ""));   // 最新 A31b（メッシュ単位）
+			const a31 = idx.find((d: any) => /^A31b/.test(d.dataset_code || "") || /洪水浸水想定区域（1次メッシュ/.test(d.title || ""));   // 最新 A31b（メッシュ単位）
 			const ds = a31 && await catJson(`${API}/bucket/catalog/${a31.dataset_code}.json`);
 			// 想定最大規模(-20-)と計画規模(-10-)を採用（継続時間/家屋倒壊系は捨てる）。catalog は旧 A31(2022) と A31b(2025) を
 			// 同居させており両方読むと同一区域を二重取得する＝target 名から年度を解析し (規模×メッシュ×河川区分) ごとに
 			// 最新年度だけ採る（本人裁定2026-08-14「最新年度のみ」）。製品名(A31/A31b)に依らず年度で採択＝将来カタログが年度を混ぜても堅牢。
-			const best = new Map();   // `${layer}/${mesh}/${rc}` → { year, layer, mesh, target }
+			const best = new Map<string, { year: number; layer: string; mesh: string; target: string }>();   // `${layer}/${mesh}/${rc}` → { year, layer, mesh, target }
 			for (const f of ds?.files || []) {
 				if (f.format !== "geojson") continue;
 				const m = (f.target.split("#")[1] || "").match(/A31b?-(10|20)-(\d+)_(\d+)_(\d+)/);   // (規模層, year, 河川区分, メッシュ)
@@ -235,32 +252,32 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			for (const { layer, mesh, target } of best.values()) {
 				const cat = layer === "10" ? _a31Cat.plan : _a31Cat.max;
 				if (!cat.has(mesh)) cat.set(mesh, []);
-				cat.get(mesh).push(target);
+				cat.get(mesh)!.push(target);
 			}
 		}
 		return _a31Cat;
 	}
 	// 1次メッシュコード＝`${floor(lat*1.5)}${floor(lon)-100}`（a31-all.mjs meshBbox の逆算）。市bboxを覆う候補を列挙。
-	const meshesForBbox = bb => {
+	const meshesForBbox = (bb: number[] | null | undefined): string[] => {
 		if (!bb) return [];
-		const out = [];
+		const out: string[] = [];
 		for (let p = Math.floor(bb[1] * 1.5); p <= Math.floor(bb[3] * 1.5); p++)
 			for (let q = Math.floor(bb[0]) - 100; q <= Math.floor(bb[2]) - 100; q++)
 				out.push(`${p}${String(q).padStart(2, "0")}`);
 		return out;
 	};
-	async function loadA31Meshes(code, mode = a31Mode) {
+	async function loadA31Meshes(code: string, mode = a31Mode): Promise<unknown[] | null> {
 		const bb = bboxForCode?.(code);
 		const all = await a31CatIndex().catch(e => { console.warn("[a31]", e); return null; });
-		const cat = all?.[mode];
+		const cat = all?.[mode as "max" | "plan"];
 		if (!bb || !cat) return null;
-		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m));
+		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m)!);
 		if (!targets.length) { if (mode === "plan") say("この市区町村の計画規模データは未整備です"); return null; }
 		const zoneHitsCity = makeCityClip(code);
 		// 区の境界で切り抜く（本人裁定 2026-10-14「境界で切る」）＝A31b は区域が大きな面にまとまっていて、丸ごと採ると区外まで塗れた。
 		// 市ポリゴンが無い時だけ従来の「少しでもかかれば丸ごと」
 		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;
-		const groups = new Map();
+		const groups = new Map<string, ZoneGroup>();
 		const N = targets.length;
 		for (let mi = 0; mi < N; mi++) {
 			const of = N > 1 ? ` ${mi + 1}/${N}` : "";
@@ -276,9 +293,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			for (let i = 0; i < raw.length; i++) {
 				if ((i & 0x1FFFF) === 0) { say(`洪水域を市域でクリップ中${of}…（${Math.floor(i / raw.length * 100)}%）`); await nextFrame(); }
 				const g = raw[i].geometry;
-				const polys = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+				const polys: Poly[] = g?.type === "Polygon" ? [g.coordinates as Poly] : g?.type === "MultiPolygon" ? g.coordinates as Poly[] : [];
 				if (!polys.length) continue;
-				const pr = raw[i].properties || {};   // 浸水深ランク＝計画規模は *_101・想定最大は *_201（A31b/旧A31 両対応）
+				const pr: Record<string, any> = raw[i].properties || {};   // 浸水深ランク＝計画規模は *_101・想定最大は *_201（A31b/旧A31 両対応）
 				const rank = Math.max(1, Math.min(6, (mode === "plan" ? (+pr.A31b_101 || +pr.A31_101) : (+pr.A31b_201 || +pr.A31_201)) || 1));
 				const k = `r${rank}`;
 				let bkt = groups.get(k);
@@ -292,10 +309,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		}
 		return groupsToFeats(groups);
 	}
-	async function sourceFC(code, key) {
+	async function sourceFC(code: string, key: string): Promise<unknown[] | null> {
 		const ck = `${code}/${key === "a31" ? `a31:${a31Mode}` : key}`;   // a31 は規模別に保持＝最大⇄計画の往復が爆速。a33 は境界クリップ済の少数feature＝市単位で軽くセッション保持（県ファイル自体は geopbf の URL キャッシュで使い回し＝2回目爆速）
-		if (fcCache.has(ck)) return fcCache.get(ck);
-		let feats = null;
+		if (fcCache.has(ck)) return fcCache.get(ck)!;
+		let feats: unknown[] | null = null;
 		if (key === "moj") {
 			const pbf = await loadMoj(code, { onStatus: say });
 			feats = pbf?.geojson?.features?.map(f => ({ ...f, properties: { ...f.properties, _src: "moj" } })) ?? null;
@@ -312,7 +329,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	}
 	// 筆層のホバーtip＝筆の情報（moj=大字・地番／maff=田畑）。点灯中は町丁目tipと排他（エンジン側で tip 持参層が主導）。
 	// ホバーの見た目は従来の線ハイライトのまま（本人裁定2026-08-18「ホバーは線太化でいい」）。
-	const FUDE_TIP = p => {
+	const FUDE_TIP = (p: Record<string, any>): string[] | null => {
 		const src = p._src || "moj";
 		if (src === "moj") return [`${p["大字名"] || p.oaza || ""} ${p["地番"] || p.chiban || ""}`.trim() || "筆", "登記所備付地図（14条）"];
 		if (src === "maff") return [+p.land_type === 100 ? "田" : +p.land_type === 200 ? "畑" : "農地", "筆ポリゴン（農林水産省）"];
@@ -327,36 +344,36 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	//   ・チルト＝エンジンの層別ドレープ（面も線も depth ctx で地形に乗る）＝standupGint(gintBld) 舞踏は不使用
 	// 両バックエンド対応（2026-09-09 GL2 addLayer 整合）。admin コロプレスは点灯時に clearUserGint で
 	// スロットから退避（合成経路の「置換」と同じ見た目）・全消灯で onStackCleared→applyAdmin 復帰（既存の分業）。
-	const ML_ORDER = { a33: 10, a31: 20, moj: 30, maff: 40 };   // 面のハザードが下・線の筆が上（GINT_LAYERS の合成順と同義）
-	const ML_PAINT = {   // 旧・合成スタックの塗り表と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
+	const ML_ORDER: Record<string, number> = { a33: 10, a31: 20, moj: 30, maff: 40 };   // 面のハザードが下・線の筆が上（GINT_LAYERS の合成順と同義）
+	const ML_PAINT: Record<string, object> = {   // 旧・合成スタックの塗り表と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
 		a33: { "fill-color": ["match", ["get", "kbn"], 2, "#c0392b80", "#d9a4416b"], "line-width": 0 },
 		a31: { "fill-color": ["match", ["get", "rank"], 6, "#08519c80", 5, "#2171b580", 4, "#4292c680", 3, "#6baed680", 2, "#9ecae180", "#c6dbef80"], "line-width": 0 },
 		moj: { "line-color": "#ff8c26e6", "line-width": 0.5 },   // line-width は CSS px（2026-09-26 に単位を直した＝旧 1 device px と同じ見た目＝0.5）
 		maff: { "line-color": ["match", ["get", "land_type"], 100, "#2fae52e6", "#b0731fe6"],
 			"fill-color": ["match", ["get", "land_type"], 100, "#2fae522e", "#b0731f2e"], "line-width": 0.5 },
 	};
-	const mlLayers = new Map();     // lkey → { h, key }（lkey: a33 / a31:max / a31:plan / moj / maff）
-	const mlPbfCache = new Map();   // `${code}/${lkey}` → pbf（セッション内＝fcCache と同格。geopbf の URL/IDB キャッシュは別途効く）
+	const mlLayers = new Map<string, { h: GintLayerHandle; key: string }>();     // lkey → { h, key }（lkey: a33 / a31:max / a31:plan / moj / maff）
+	const mlPbfCache = new Map<string, GeoPBF>();   // `${code}/${lkey}` → pbf（セッション内＝fcCache と同格。geopbf の URL/IDB キャッシュは別途効く）
 	function mlClearLayers() { for (const { h } of mlLayers.values()) h.remove(); mlLayers.clear(); }
-	async function mlPbf(code, key) {
+	async function mlPbf(code: string, key: string): Promise<GeoPBF | null> {
 		const lkey = key === "a31" ? `a31:${a31Mode}` : key;
 		const ck = `${code}/${lkey}`;
-		if (mlPbfCache.has(ck)) return mlPbfCache.get(ck);
-		let pbf = null;
+		if (mlPbfCache.has(ck)) return mlPbfCache.get(ck)!;
+		let pbf: GeoPBF | null = null;
 		if (key === "moj") pbf = await loadMoj(code, { onStatus: say });
 		else if (key === "maff") pbf = await loadMaff(code, { onStatus: say });
 		else {
 			const feats = await sourceFC(code, key);   // 既存ローダ共用（fcCache も共用）
 			if (feats?.length) {
 				say(`焼き中…（${feats.length.toLocaleString()}地物）`);
-				pbf = await geopbf({ type: "FeatureCollection", features: feats }, { gint: true, name: `ml/${code}/${lkey}` }).catch(e => { console.warn("[ml]", e); return null; });
+				pbf = await geopbf({ type: "FeatureCollection", features: feats } as GeopbfInput, { gint: true, name: `ml/${code}/${lkey}` }).catch(e => { console.warn("[ml]", e); return null; });
 			}
 		}
 		if (!pbf?.unPackGint) return null;
 		mlPbfCache.set(ck, pbf);
 		return pbf;
 	}
-	async function syncML() {
+	async function syncML(): Promise<void> {
 		const mySeq = ++seq, code = city;
 		const keys = GINT_LAYERS.map(l => l.key).filter(k => on.has(k));
 		// 消灯＝setVisible(false)（層は保持＝再点灯ゼロコスト）。a31 は規模別レイヤ＝現モード以外も消す
@@ -366,7 +383,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		for (const key of keys) {
 			const lk = key === "a31" ? `a31:${a31Mode}` : key;
 			if (mlLayers.has(lk)) continue;
-			const pbf = await mlPbf(code, key);
+			const pbf = await mlPbf(code!, key);
 			if (mySeq !== seq || city !== code) return;   // 読み込み中にトグル/都市が変わった＝この結果は捨てる
 			if (!pbf) { say("データが空でした"); on.delete(key); syncChips(); continue; }
 			const isFude = key === "moj" || key === "maff";
@@ -392,7 +409,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		say("");
 	}
 	// ML クリック＝層をまたぐ照会（手前の層から・点灯中の層だけ）→ 種別カード。admin ドリルは slotOwner の分業のまま
-	map.on?.("click", ({ lngLat, hits }) => {
+	map.on?.("click", ({ lngLat, hits }: ClickEv) => {
 		if (!stackApplied) return;
 		for (const t of hits) {
 			const ent = [...mlLayers.entries()].find(([, e]) => e.h === t.layer);
@@ -417,9 +434,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	htip.className = "c20-hinan-tip";
 	htip.style.display = "none";
 	map.mapEl.appendChild(htip);
-	let markers = [];   // { el, lon, lat, row }
+	let markers: { el: HTMLButtonElement; lon: number; lat: number; row: HinanRow }[] = [];   // { el, lon, lat, row }
 	function clearMarkers() { layerEl.textContent = ""; markers = []; card.style.display = "none"; htip.style.display = "none"; }
-	function showTip(row) {
+	function showTip(row: HinanRow): void {
 		const [lon, lat, name, addr, flags] = row;
 		const [x, y, f] = map.projectLL(lon, lat);
 		if (f < 0) return;
@@ -430,10 +447,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		htip.style.left = `${Math.round(x + 12)}px`; htip.style.top = `${Math.round(y - 8)}px`;
 		htip.style.display = "block";
 	}
-	async function loadHinan(code) {
+	async function loadHinan(code: string): Promise<void> {
 		const mySeq = ++seq;
 		say("避難場所を取得中…");
-		let rows = null;
+		let rows: HinanRow[] | null = null;
 		try {
 			const res = await fetch(`${API}/bucket/bousai/hinan/${code.slice(0, 2)}.json`);
 			if (res.ok) rows = JSON.parse(new TextDecoder().decode(await gunzipBuf(await res.arrayBuffer())));
@@ -455,7 +472,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		}
 		if (inCity.length > HINAN_MAX) console.warn("[hinan] %d件を上限%dに切詰め", inCity.length, HINAN_MAX);
 	}
-	async function showCard(row) {
+	async function showCard(row: HinanRow): Promise<void> {
 		const [lon, lat, name, addr, flags] = row;
 		const [x, y, f] = map.projectLL(lon, lat);
 		if (f < 0) return;
@@ -468,7 +485,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			<div class="c20-card-elev" style="font-size:11px;color:#8ab4f8;margin-top:4px">標高 …</div>`;
 		card.style.left = `${Math.round(x + 10)}px`; card.style.top = `${Math.round(y - 10)}px`;
 		card.style.display = "block";
-		card.querySelector(".c20-card-x").addEventListener("click", () => { card.style.display = "none"; });
+		card.querySelector(".c20-card-x")!.addEventListener("click", () => { card.style.display = "none"; });
 		const h = await map.getHeight(lon, lat);   // 標高＝垂直避難か水平避難かの読みどころ
 		const el = card.querySelector(".c20-card-elev");
 		if (el?.isConnected) el.textContent = `標高 約${Math.round(h)}m`;
@@ -484,17 +501,17 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	});
 
 	// --- トグル・出入り ---
-	function toggle(key) {
+	function toggle(key: string): void {
 		if (key === "hinan") {
 			hinanOn = !hinanOn;
-			if (hinanOn) loadHinan(city); else { clearMarkers(); say(""); }
+			if (hinanOn) loadHinan(city!); else { clearMarkers(); say(""); }
 		} else {
 			on.has(key) ? on.delete(key) : on.add(key);
 			syncML();   // トグル＝setVisible（層は保持＝再焼きゼロ）
 		}
 		syncChips();
 	}
-	function enterCity(code) {
+	function enterCity(code: string): void {
 		if (city !== code) {   // 都市替え＝前の都市の点灯を引き継がない（データが別物）
 			city = code;
 			on.clear(); hinanOn = false; clearMarkers(); mlClearLayers();
@@ -511,7 +528,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (stackApplied) { stackApplied = false; onStackCleared?.(); }
 	}
 	// スタック地物クリック（bind 経由）＝種別に応じた属性カード
-	function onFeatureClick(fid, props, lnglat) {
+	function onFeatureClick(fid: number, props: Record<string, any> | null | undefined, lnglat: number[] | null | undefined): void {
 		if (!props) return;
 		const src = props._src || "moj";   // ML の click 経路は _src を必ず刻印済み（map.on('click') ルート）
 		// click 応答に経緯度が無い個体がある（renderworker の返り実測）＝その時は画面中央へ置く
@@ -529,10 +546,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		card.innerHTML = `<button class="c20-card-x" type="button" aria-label="閉じる">×</button>${html}`;
 		card.style.left = `${Math.round(x + 10)}px`; card.style.top = `${Math.round(y - 10)}px`;
 		card.style.display = "block";
-		card.querySelector(".c20-card-x").addEventListener("click", () => { card.style.display = "none"; });
+		card.querySelector(".c20-card-x")!.addEventListener("click", () => { card.style.display = "none"; });
 	}
 	// 曝露突合（浸水域内人口 等）の継ぎ目＝将来 worker/bake で実装。v1 は常に null（UI 非表示）
-	async function exposure(_cityCode) { return null; }
+	async function exposure(_cityCode: string): Promise<null> { return null; }
 
 	return { enterCity, leaveCity, onFeatureClick, exposure, isActive: () => stackApplied || hinanOn, layersEl: wrap };   // layersEl＝bind がドリル毎に wiki 直下へ再親付け（detach 後は getElementById で見つからない＝参照渡しが正）
 }
