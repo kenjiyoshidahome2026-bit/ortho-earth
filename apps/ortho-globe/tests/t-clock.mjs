@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createResolver, describe, groupZones, utcLabel, cityOf } from "../clock-zones.js";
+import { createResolver, describe, groupZones, utcLabel, cityOf } from "../clock-zones.ts";
 
 const table = JSON.parse(readFileSync(new URL("../clock-zones.json", import.meta.url), "utf8"));
 const resolve = createResolver(table);

@@ -2,10 +2,10 @@
 // 一覧（並べ替え）と比較図（高さ比べ・長さ比べ）を地図と連動させる。
 // このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を自分の束に焼いてエンジンを起こし、描画と案内板は ./physical.js（遅延 chunk）。
 // データ＝packages/world の TerrainDB（物理量）・i18n/<lang>（名前）・ne-physical.geopbf（形状台帳）。本番は GitHub Pages（ortho-data/globe/）、dev は手元の out/（vite の __WORLD_OUT__）。?data=URL で差し替え可。
-// 言語（html の lang/dir）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。言語の切替は physical.js の案内板が持つ（select）
+// 言語（html の lang/dir）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。言語の切替は physical.ts の案内板が持つ（select）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("physical", async () => {
-	const [{ createGlobe, geopbf }, { mountPhysical }] = await Promise.all([import("@ortho-earth/globe"), import("./physical.js")]);
+	const [{ createGlobe, geopbf }, { mountPhysical }] = await Promise.all([import("@ortho-earth/globe"), import("./physical.ts")]);
 	// 初期視点＝ヒマラヤからアフリカまで（大山脈・大河・大砂漠が一度に入る）。共有 URL の hash があればそちら
 	const map = await createGlobe({ target: "#map", view: location.hash || "#3.4/26/62", chips: false, zoomMax: 8,
 		worldContent: { groups: ["lakes"] }, worldLines: false, night: false, countryTip: "shift",   // Shift＋ホバー＝国名（本人 2026-10-01）・ふだんは地形の tip

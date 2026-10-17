@@ -1,6 +1,6 @@
 // 雲（いまの雲＝静止気象衛星の赤外画像）を地球儀（@ortho-earth/globe）に描く（clouds.html から遅延 import）。
 // 既定＝輝度温度から雲頂の高さを出して高度 0〜17 km の層を歩く（体積の雲の第 1 段）・vol=false＝高度 alt の殻 1 枚（clouds-gl.js）。
-// 骨格は人工衛星（sats.js）と同じ：器＝clouds.html／読み・詰め替え・UI＝ここ／GPU 描画＝clouds-gl.js（レンダーワーカー内・同一フレーム）。
+// 骨格は人工衛星（sats.ts）と同じ：器＝clouds.html／読み・詰め替え・UI＝ここ／GPU 描画＝clouds-gl.js（レンダーワーカー内・同一フレーム）。
 //
 // データ：静止気象衛星 5 機の赤外（10.4〜10.8 µm・昼も夜も）を直読み（どちらも CORS 開放・鯖焼き無し）。全機とも EPSG:4326 の同じ升目（段 L）＝タイル位置ごとに重ねる。
 //   NASA GIBS の WMTS … Himawari（JMA・東経 140.7°）／GOES-West（NOAA・西経 137°）／GOES-East（NOAA・西経 75.2°）。10 分ごと。
@@ -21,14 +21,22 @@ import { sunSubpoint } from "@ortho-earth/ephem/sun";   // 太陽直下点＝雲
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";
 import glUrl from "./clouds-gl.js?url";   // worker が import() する URL（⚠?worker&url は殻になる＝sats と同じ轍）＝モジュールは依存ゼロが掟
 import { ENC, T_WARM } from "./clouds-gl.js";
+import type { GlobeMap } from "@ortho-earth/globe";
 const t = tr();
+
+/** 静止気象衛星 1 機 */
+interface Sat { src: "gibs" | "wms"; id: string; name: string; org: string; lon: number; step: number; edge: number }
+type Pixels = Uint8ClampedArray;
+/** タイル 1 枚ぶんの温度（℃・NaN＝データ無し） */
+interface TileT { i: number; T: Float32Array; w: number; h: number }
+interface Job { row: number; col: number; who: number[] }
 
 export const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best";
 export const EUMETVIEW = "https://view.eumetsat.int/geoserver/wms";
 const COLORMAP = "https://gibs.earthdata.nasa.gov/colormaps/v1.3/Clean_Longwave_Infrared_Window_Band.xml";
 const MIN = 60e3;
 // src＝gibs（WMTS・色の温度パレット）／wms（EUMETView・灰色＝放射輝度）。step＝観測の刻み。edge＝使う角度（EUMETView は重なりが広い＝少し狭く＝読むタイルを減らす）
-export const SATS = [
+export const SATS: Sat[] = [
 	{ src: "gibs", id: "Himawari_AHI_Band13_Clean_Infrared", name: "Himawari", org: "JMA", lon: 140.7, step: 10 * MIN, edge: 78 },
 	{ src: "gibs", id: "GOES-West_ABI_Band13_Clean_Infrared", name: "GOES-West", org: "NOAA", lon: -137.0, step: 10 * MIN, edge: 78 },
 	{ src: "gibs", id: "GOES-East_ABI_Band13_Clean_Infrared", name: "GOES-East", org: "NOAA", lon: -75.2, step: 10 * MIN, edge: 78 },
@@ -39,16 +47,16 @@ const TILE = 512;                                   // GIBS の EPSG:4326 は 51
 const SPAN = [288, 144, 72, 36, 18, 9];             // 段 L のタイル 1 枚の度数（2km 系・段 0 は 2×1 枚）
 const REFRESH_MS = 10 * MIN, SUN_MS = 20e3, POOL = 6, BACK = 3;
 const STEP_MS = 10 * MIN;                           // 時計の刻み（GIBS の観測の刻み）
-const isoOf = ms => new Date(ms).toISOString().slice(0, 19) + "Z";
-const floorTo = (ms, step) => Math.floor(ms / step) * step;
+const isoOf = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
+const floorTo = (ms: number, step: number) => Math.floor(ms / step) * step;
 const D2R = Math.PI / 180;
 
 // ── GIBS のパレット（色 → ℃）＝画像 1 枚ぶんの RGBA を温度（NaN＝データ無し）へ ──
-async function loadPalette(signal) {
+async function loadPalette(signal: AbortSignal) {
 	const xml = await (await fetch(COLORMAP, { signal })).text();
-	const warm = [], coldGray = [], colored = [];
+	const warm: number[][] = [], coldGray: number[][] = [], colored: number[][] = [];
 	for (const m of xml.matchAll(/rgb="(\d+),(\d+),(\d+)" transparent="false"[^>]*?sourceValue="([^"]*)"/g)) {
-		const [r, g, b] = [+m[1], +m[2], +m[3]], v = m[4], n = v.match(/-?[\d.]+/g).map(Number);
+		const [r, g, b] = [+m[1], +m[2], +m[3]], v = m[4], n = v.match(/-?[\d.]+/g)!.map(Number);
 		const T = v.includes("-INF") ? n[0] - 0.5 : v.includes("+INF") ? n[0] + 0.5 : (n[0] + n[1]) / 2;
 		if (r === g && g === b) (T > -30 ? warm : coldGray).push([r, T]); else colored.push([r, g, b, T]);
 	}
@@ -70,7 +78,7 @@ async function loadPalette(signal) {
 		const r = ((i >> 10) << 3) + 4, g = (((i >> 5) & 31) << 3) + 4, b = ((i & 31) << 3) + 4;
 		let best = Infinity; for (const p of colored) { const d = (p[0] - r) ** 2 + (p[1] - g) ** 2 + (p[2] - b) ** 2; if (d < best) { best = d; near[i] = p[3]; } }
 	}
-	return (px, w, h) => {
+	return (px: Pixels, w: number, h: number) => {
 		const n = w * h, T = new Float32Array(n).fill(NaN), coldC = new Uint8Array(n);
 		for (let i = 0; i < n; i++) {                   // 1 回目：色つき
 			const p = i * 4, r = px[p], g = px[p + 1], b = px[p + 2];
@@ -97,7 +105,7 @@ const MSG_T = (() => {
 	for (let g = 0; g < 256; g++) { const L = Math.max((262.95 - g) / 28.84, 0.05) * 1e6; a[g] = c2 / (lam * Math.log(1 + c1 / (lam ** 5 * L))) - 273.15; }
 	return a;
 })();
-function decodeGray(px, w, h) {
+function decodeGray(px: Pixels, w: number, h: number) {
 	const n = w * h, T = new Float32Array(n).fill(NaN);
 	for (let i = 0; i < n; i++) { const p = i * 4; if (px[p + 3] >= 128) T[i] = MSG_T[px[p]]; }
 	return T;
@@ -105,7 +113,7 @@ function decodeGray(px, w, h) {
 
 // ── 最新の観測時刻 ──
 // GIBS＝DescribeDomains を直近 12 時間に絞る（数百 B）。EUMETView＝目録（GetCapabilities）は 280 KB と重い＝一つ前の刻みから読んでみて、無ければ前へ（BACK 段）
-async function latestTime(sat, signal) {
+async function latestTime(sat: Sat, signal: AbortSignal) {
 	if (sat.src === "wms") return isoOf(floorTo(Date.now(), sat.step) - sat.step);
 	const now = Date.now();
 	const url = `${GIBS}/1.0.0/${sat.id}/default/2km/all/${isoOf(now - 12 * 3600e3)}--${isoOf(now + 3600e3)}.xml`;
@@ -116,7 +124,7 @@ async function latestTime(sat, signal) {
 	return last;
 }
 // タイル 1 枚の URL（段 L・行 row・列 col・時刻 tm）。EUMETView は WMS 1.3.0 の EPSG:4326＝bbox は 緯度,経度 の順
-function tileUrl(sat, L, row, col, tm) {
+function tileUrl(sat: Sat, L: number, row: number, col: number, tm: string) {
 	if (sat.src === "gibs") return `${GIBS}/${sat.id}/default/${tm}/2km/${L}/${row}/${col}.png`;
 	const span = SPAN[L], n = 90 - row * span, s = Math.max(-90, n - span), w = -180 + col * span, e = w + span;
 	const h = Math.round(TILE * (n - s) / span);   // 段 2 の最下行は南極より下へはみ出す＝−90 で切って縦の画素も縮める（上から詰める）
@@ -124,28 +132,28 @@ function tileUrl(sat, L, row, col, tm) {
 }
 
 // ── 画像 → RGBA（色の変換なし＝パレット・灰色の値そのまま）──
-async function decodePng(blob) {
+async function decodePng(blob: Blob) {
 	const bmp = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
-	const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext("2d", { willReadFrequently: true });
+	const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext("2d", { willReadFrequently: true })!;
 	g.drawImage(bmp, 0, 0); bmp.close();
 	return { px: g.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height };
 }
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountClouds(map, { level, alt = 10000, vol = true, look, perf = false, panelHost } = {}) {
+export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = true, look, perf = false, panelHost }: { level?: number; alt?: number; vol?: boolean; look?: number[]; perf?: boolean; panelHost?: HTMLElement | null } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/clouds/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む（sats と同じ）
 	document.title = t("Clouds now — ortho-globe");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Infrared images from five geostationary weather satellites (Himawari, GOES, Meteosat), read straight from NASA GIBS and EUMETSAT and drawn in 3D over the globe at the time of the shared clock."));
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
-	const lowMem = (navigator.deviceMemory || 8) <= 4 || matchMedia("(max-width:640px)").matches;
+	const lowMem = ((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 8) <= 4 || matchMedia("(max-width:640px)").matches;
 	const L = Math.max(2, Math.min(5, level ?? (lowMem ? 2 : 3)));
 	const span = SPAN[L], cols = Math.round(360 / span), rows = Math.ceil(180 / span);
 	const texW = cols * TILE, texH = rows * TILE, vspan = rows * span;
 
 	const ov = map.overlay(glUrl, { name: "clouds", opts: { alt, vol, perf, ...(look ? { look } : {}) } });
-	let lastPerf = null;   // 計測（?perf=1）＝worker が 30 フレームごとに平均の描画時間（gl.finish 込み）を返す
-	ov.onmessage = d => { if (d?.type === "perf") { lastPerf = d; console.log(`[clouds] ${d.mode} ${d.ms.toFixed(2)} ms (${d.how}) @ ${d.w}x${d.h}`); } };
+	let lastPerf: { type: "perf"; mode: string; ms: number; how: string; w: number; h: number } | null = null;   // 計測（?perf=1）＝worker が 30 フレームごとに平均の描画時間（gl.finish 込み）を返す
+	ov.onmessage = (d: any) => { if (d?.type === "perf") { lastPerf = d; console.log(`[clouds] ${d.mode} ${d.ms.toFixed(2)} ms (${d.how}) @ ${d.w}x${d.h}`); } };
 
 	// ── パネル（sats と同じ意匠＝暗いガラス）──
 	const panel = document.createElement("div");
@@ -178,14 +186,14 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 <div class="honest">${t("Beyond about 75° latitude no geostationary satellite sees well, and low warm clouds are faint in infrared. Meteosat temperatures are matched to Himawari and GOES from the image grey levels (about ±3 °C).")}</div>
 </div>`;
 	(panelHost || mapEl).appendChild(panel);
-	const $ = k => panel.querySelector(`[data-k="${k}"]`);
-	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
+	const $ = (k: string) => panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
+	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
-	const fmtTime = iso => { const d = new Date(iso); return d.toLocaleString(getLang(), { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}), month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
-	const ago = iso => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60e3));
-	const showSats = (times, live) => {
-		$("sats").innerHTML = SATS.map((s, i) => `<div class="sat"><span>${s.name} <em>${s.org}</em></span><span>${times[i] ? `${fmtTime(times[i])}${live ? ` <em>${t("$1 min ago", ago(times[i]))}</em>` : ""}` : `<em>${t("unavailable")}</em>`}</span></div>`).join("");
+	const fmtTime = (iso: string) => { const d = new Date(iso); return d.toLocaleString(getLang(), { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" as const } : {}), month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
+	const ago = (iso: string) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60e3));
+	const showSats = (times: (string | null)[], live: boolean) => {
+		$("sats").innerHTML = SATS.map((s, i) => `<div class="sat"><span>${s.name} <em>${s.org}</em></span><span>${times[i] ? `${fmtTime(times[i]!)}${live ? ` <em>${t("$1 min ago", ago(times[i]!))}</em>` : ""}` : `<em>${t("unavailable")}</em>`}</span></div>`).join("");
 	};
 
 	// ── 時刻＝共通の時計（#42・map.clock）。実時間＝最新の観測・時計を動かした＝その時刻の観測（10 分刻み）──
@@ -199,14 +207,14 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 	// 一度に走る読み込みは 1 本。読み終えた時に時計が別の刻みへ進んでいたら、その一番新しい刻みだけ読み直す（行列を作らない＝早送りでも溜まらない）。
 	// 時計が 1 時間より大きく飛んだら読みかけは捨てる。GIBS は no-store（手元に残らない）＝同じ時刻へ戻ると取り直す
 	const palP = loadPalette(signal);
-	let latest = SATS.map(() => null), latestAt = 0;    // 最新の観測（衛星ごと ISO）と、それを聞いた時刻
-	let loadedKey = "", loading = null, gridSent = false;
+	let latest: (string | null)[] = SATS.map(() => null), latestAt = 0;    // 最新の観測（衛星ごと ISO）と、それを聞いた時刻
+	let loadedKey = "", loading: { key: string; w: number | null; ac: AbortController } | null = null, gridSent = false;
 	const refreshLatest = async () => {
-		latest = await Promise.all(SATS.map(s => latestTime(s, signal).catch(e => { if (e?.name === "AbortError") throw e; console.warn("[clouds] time", s.name, e?.message); return null; })));
+		latest = await Promise.all(SATS.map(s => latestTime(s, signal).catch((e): null => { if (e?.name === "AbortError") throw e; console.warn("[clouds] time", s.name, e?.message); return null; })));
 		latestAt = Date.now();
 	};
-	const timesFor = w => SATS.map((s, i) => !latest[i] ? null : w == null ? latest[i] : isoOf(floorTo(Math.min(w, Date.parse(latest[i])), s.step)));   // 衛星の刻みへ丸める
-	const setStatus = (w, done, n) => {
+	const timesFor = (w: number | null) => SATS.map((s, i) => !latest[i] ? null : w == null ? latest[i] : isoOf(floorTo(Math.min(w, Date.parse(latest[i]!)), s.step)));   // 衛星の刻みへ丸める
+	const setStatus = (w: number | null, done: number, n: number) => {
 		const ahead = w != null && latest.some(x => x && w > Date.parse(x));   // 時計が最新の観測より先＝最新で止めている
 		$("status").textContent = done < n ? t("Loading cloud images… $1/$2", done, n) : w == null || ahead ? t("Latest images loaded") : t("Images for $1", fmtTime(isoOf(w)));
 		$("ahead").style.display = ahead ? "" : "none";
@@ -216,7 +224,7 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 		const w = want();
 		try {
 			if (w == null || !latestAt || Date.now() - latestAt > REFRESH_MS) await refreshLatest();
-		} catch (e) { if (e?.name !== "AbortError") $("status").textContent = t("Could not load cloud images"); return; }
+		} catch (e) { if ((e as Error)?.name !== "AbortError") $("status").textContent = t("Could not load cloud images"); return; }
 		const times = timesFor(w), key = times.join("|");
 		if (key === loadedKey) { setStatus(w, 1, 1); return; }
 		const lac = new AbortController(), off = () => lac.abort();
@@ -228,15 +236,15 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 			showSats(used, w == null);
 			setStatus(w, 1, 1);
 		} catch (e) {
-			if (e?.name !== "AbortError") { console.error("[clouds] load failed", e); $("status").textContent = t("Could not load cloud images"); }
+			if ((e as Error)?.name !== "AbortError") { console.error("[clouds] load failed", e); $("status").textContent = t("Could not load cloud images"); }
 		} finally { loading = null; signal.removeEventListener("abort", off); }
 		const w2 = want();
 		if (!signal.aborted && w2 !== w) kick();   // 読んでいる間に時計が進んだ＝追いかける
 	};
-	const loadTimes = async (times, sig, w) => {
+	const loadTimes = async (times: (string | null)[], sig: AbortSignal, w: number | null) => {
 		const toPal = await palP;
 		// タイル位置 → その位置を見ている衛星（直下点から edge° 以内に掛かる列・緯度 ±78° に掛かる行）
-		const jobs = [];
+		const jobs: Job[] = [];
 		for (let row = 0; row < rows; row++) {
 			const n = 90 - row * span, s = Math.max(-90, n - span);
 			if (s > 78 || n < -78) continue;
@@ -247,24 +255,24 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 			}
 		}
 		if (!gridSent) { ov.post({ type: "grid", w: texW, h: texH, vspan }); gridSent = true; }
-		const used = SATS.map(() => null);
+		const used: (string | null)[] = SATS.map(() => null);
 		let done = 0;
 		setStatus(w, 0, jobs.length);
-		const one = async ({ row, col, who }) => {
+		const one = async ({ row, col, who }: Job) => {
 			// GIBS は最新時刻を目録に載せてから全タイルが焼き上がるまで数分かかる（その間は 404＝CORS ヘッダ無しで fetch が投げる・実測 9/29）
 			// ・定時の欠測もある・EUMETView の最新は推定＝読めなければ衛星の刻みずつ前へ BACK 段まで下がる。実際に使った時刻は衛星ごとに一番古いものをパネルへ（正直さ）
-			const imgs = await Promise.all(who.map(async i => {
+			const imgs = await Promise.all(who.map(async (i): Promise<TileT | null> => {
 				const sat = SATS[i];
 				for (let k = 0; k <= BACK; k++) {
-					const tm = isoOf(Date.parse(times[i]) - k * sat.step), url = tileUrl(sat, L, row, col, tm);
+					const tm = isoOf(Date.parse(times[i]!) - k * sat.step), url = tileUrl(sat, L, row, col, tm);
 					try {
-						const r = await fetch(url, { signal: sig }); if (!r.ok) throw new Error(r.status);
+						const r = await fetch(url, { signal: sig }); if (!r.ok) throw new Error(r.status as unknown as string);
 						if (!(r.headers.get("content-type") || "").startsWith("image/")) throw new Error("not an image");   // WMS の例外は XML で 200 が来る
 						const im = await decodePng(await r.blob());
 						const T = sat.src === "gibs" ? toPal(im.px, im.w, im.h) : decodeGray(im.px, im.w, im.h);
-						if (!used[i] || tm < used[i]) used[i] = tm;
+						if (!used[i] || tm < used[i]!) used[i] = tm;
 						return { i, T, w: im.w, h: im.h };
-					} catch (e) { if (e?.name === "AbortError") throw e; if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, e?.message); }
+					} catch (e) { if ((e as Error)?.name === "AbortError") throw e; if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, (e as Error)?.message); }
 				}
 				return null;
 			}));
@@ -281,7 +289,7 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 					for (let k = 0; k < imgs.length; k++) {
 						const im = imgs[k]; if (!im || y >= im.h || x >= im.w) continue;
 						const T = im.T[y * im.w + x]; if (T !== T) continue;   // NaN＝円盤の外・データ無し
-						const c = cosLat[y] * cosDl[k][x] - cosEdge[k]; if (c <= 0) continue;
+						const c = cosLat[y] * cosDl[k]![x] - cosEdge[k]; if (c <= 0) continue;
 						const wt = c * c;
 						sw += wt; st += wt * T;
 					}
@@ -294,7 +302,7 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 		};
 		// 同時 POOL 本。いま見ている所から先に（画面の中心に近いタイル位置から）
 		const [clon, clat] = map.cam.center, cx = (clon + 180) / span - 0.5, cy = (90 - clat) / span - 0.5;
-		const dcol = c => { const d = Math.abs(c - cx) % cols; return Math.min(d, cols - d); };
+		const dcol = (c: number) => { const d = Math.abs(c - cx) % cols; return Math.min(d, cols - d); };
 		jobs.sort((a, b) => Math.hypot(dcol(a.col), a.row - cy) - Math.hypot(dcol(b.col), b.row - cy));
 		let next = 0;
 		await Promise.all(Array.from({ length: POOL }, async () => { while (next < jobs.length && !sig.aborted) await one(jobs[next++]); }));
@@ -307,7 +315,7 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 		const w = want();
 		if (w === lastWant) return;
 		lastWant = w; postSun();
-		if (loading) { const lw = loading.w; if ((w == null) !== (lw == null) || (w != null && Math.abs(w - lw) > 3600e3)) loading.ac.abort(); }
+		if (loading) { const lw = loading.w; if ((w == null) !== (lw == null) || (w != null && Math.abs(w - lw!) > 3600e3)) loading.ac.abort(); }
 		clearTimeout(kickT); kickT = setTimeout(kick, 250);
 	};
 	map.clock?.on("change", onClock).on("tick", onClock);
@@ -317,8 +325,9 @@ export async function mountClouds(map, { level, alt = 10000, vol = true, look, p
 	return {
 		get loaded() { return loadedKey !== ""; },     // 一度でも全タイルを読み終えた（verify-prod の起動判定）
 		reload: () => { loadedKey = ""; return kick(); },
-		style: s => ov.post({ type: "style", ...s }),   // { vol:bool, alt:m（殻）, look:[地表の目安より何度冷たければ雲か, 真っ白の温度℃, ガンマ, 最大不透明度], fadeLod }
-		perf: on => { ov.post({ type: "perf", on: on !== false }); return lastPerf; },
+		style: (s: Record<string, unknown>) => ov.post({ type: "style", ...s }),   // { vol:bool, alt:m（殻）, look:[地表の目安より何度冷たければ雲か, 真っ白の温度℃, ガンマ, 最大不透明度], fadeLod }
+		perf: (on?: boolean) => {
+ ov.post({ type: "perf", on: on !== false }); return lastPerf; },
 		destroy() { ac.abort(); clearInterval(sunT); clearInterval(refT); clearTimeout(kickT); map.clock?.off("change", onClock).off("tick", onClock); ov.remove(); panel.remove(); },
 	};
 }

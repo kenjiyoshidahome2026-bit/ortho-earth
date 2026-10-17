@@ -21,6 +21,9 @@ import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import type { GlobeMap } from "@ortho-earth/globe";
+import type { CameraState } from "@ortho-earth/core";
+import type { OMM, Satrec, Vec3 } from "@ortho-earth/ephem/sgp4";
 const t = tr();
 
 export const MIRROR = "https://www.ortho-earth.com/sats/active.csv";   // 専用 Worker apps/sats-mirror（CORS 開放＝開発機からも読める）
@@ -37,15 +40,15 @@ const OMEGA = 7.2921159e-5;                 // 地球自転（rad/s）＝TEME→
 const D2R = Math.PI / 180;
 const F = 1 / 298.257223563;
 
-const fmt = n => n.toLocaleString(getLang());
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const catLabel = { starlink: () => "Starlink", leo: () => t("Low Earth orbit"), meo: () => t("Medium Earth orbit (GPS etc.)"), geo: () => t("Geostationary orbit"), heo: () => t("Highly elliptical orbit") };
-const cssColor = c => `rgb(${c.join(",")})`;
+const fmt = (n: number) => n.toLocaleString(getLang());
+const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+const catLabel: Record<string, () => string> = { starlink: () => "Starlink", leo: () => t("Low Earth orbit"), meo: () => t("Medium Earth orbit (GPS etc.)"), geo: () => t("Geostationary orbit"), heo: () => t("Highly elliptical orbit") };
+const cssColor = (c: number[]) => `rgb(${c.join(",")})`;
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = {}) {
+export async function mountSats(map: GlobeMap, { src = [MIRROR, CELESTRAK], panelHost }: { src?: string | string[]; panelHost?: HTMLElement | null } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/sats/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/sats.json）も足す
-	document.title = t("Satellites in orbit now — ortho-globe");   // 器（sats.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
+	document.title = t("Satellites in orbit now — ortho-globe");   // 器（sats.html）の題名と説明もここで＝i18n の走査器が読む頁の本体（.ts）に置く
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("About 16,000 active satellites (CelesTrak GP) propagated in your browser with SGP4 and shown in 3D around the globe in real time."));
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
@@ -57,14 +60,14 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	// 衛星（ECEF km）→ ワールド。球（既定）＝測地の緯度・経度・高さで置く＝地図と同じ置き方（経緯度をそのまま球の緯度に置く）
 	// ＝衛星は地図の直下点の真上・真下への糸は球の法線（旧＝地心の向きに置いていた＝測地緯度の直下点とずれ、糸が斜めだった・中緯度の ISS で約 20 km）。
 	// 楕円体（?ell=1）＝β ワールドは ECEF を a で割った形（y だけ b/a で割る）＝そのままで厳密
-	const toWorld = (r, g, X, Y, Z) => {
+	const toWorld = (r: Vec3, g: number, X: number, Y: number, Z: number) => {
 		if (RAX !== 1) return [X * K, Z * KY, Y * K];
 		const ll = temeToGeodetic(r, g), q = surf(ll.lon, ll.lat), k = 1 + ll.h * 1000 / EARTH_M;
 		return [q[0] * k, q[1] * k, q[2] * k];
 	};
-	const sunDirOf = ms => { const [lon, dec] = sunSubpoint(ms), c = Math.cos(dec); return [c * Math.cos(lon), Math.sin(dec), c * Math.sin(lon)]; };   // 太陽の向き（ワールドの軸）
-	const inShadow = (x, y, z, u) => { const d = x * u[0] + y * u[1] + z * u[2]; return d < 0 && x * x + y * y + z * z - d * d < 1; };   // 地球の影（円柱＝半影は無視・sats-gl.js と同じ式）
-	const surf = (lon, lat) => {   // 経緯度 → β 単位球の地表点（quakes-worker の toGpu と同式）
+	const sunDirOf = (ms: number) => { const [lon, dec] = sunSubpoint(ms), c = Math.cos(dec); return [c * Math.cos(lon), Math.sin(dec), c * Math.sin(lon)]; };   // 太陽の向き（ワールドの軸）
+	const inShadow = (x: number, y: number, z: number, u: number[]) => { const d = x * u[0] + y * u[1] + z * u[2]; return d < 0 && x * x + y * y + z * z - d * d < 1; };   // 地球の影（円柱＝半影は無視・sats-gl.js と同じ式）
+	const surf = (lon: number, lat: number) => {   // 経緯度 → β 単位球の地表点（quakes-worker の toGpu と同式）
 		const a = lon * D2R, b = lat * D2R;
 		let sb = Math.sin(b), cb = Math.cos(b);
 		if (RAX !== 1) { const w = Math.hypot(cb, RAX * sb); sb = RAX * sb / w; cb = cb / w; }
@@ -76,23 +79,23 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 
 	// 状態
 	const vis = new Set(CATS.map(c => c.key));
-	let S = [], cat = null, names = [], norad = null;   // 衛星（sgp4init 済み）と分類（Float32＝GPU の属性そのもの）・名前・NORAD 番号
-	let Wp = null, Wv = null, ok = null, tProp = 0;     // 直近の伝播（β ワールド・位置と速度/秒）と時刻(ms)
+	let S: Satrec[] = [], cat: Float32Array = null!, names: string[] = [], norad: Int32Array = null!;   // 衛星（sgp4init 済み）と分類（Float32＝GPU の属性そのもの）・名前・NORAD 番号
+	let Wp: Float64Array | null = null, Wv: Float64Array = null!, ok: Uint8Array = null!, tProp = 0;     // 直近の伝播（β ワールド・位置と速度/秒）と時刻(ms)
 	let pick = -1, pathAt = 0, dataAt = 0, catDirty = false;
-	let catBase = null, epochMs = null, launchY = null, sunNow = [1, 0, 0];   // 本来の分類（打ち上げ前で隠した後の戻し先）・各衛星の元期(ms)・打ち上げ年・今の太陽の向き
-	const effTime = (i, now) => Math.max(epochMs[i] - FAR_MS, Math.min(epochMs[i] + FAR_MS, now));   // 伝播に使う時刻＝元期±FAR_D に収める（その先は止める）
+	let catBase: Float32Array = null!, epochMs: Float64Array = null!, launchY: Int16Array = null!, sunNow = [1, 0, 0];   // 本来の分類（打ち上げ前で隠した後の戻し先）・各衛星の元期(ms)・打ち上げ年・今の太陽の向き
+	const effTime = (i: number, now: number) => Math.max(epochMs[i] - FAR_MS, Math.min(epochMs[i] + FAR_MS, now));   // 伝播に使う時刻＝元期±FAR_D に収める（その先は止める）
 	const n = () => S.length;
 	// その時刻＝共通の時計（#42・map.clock）。早送り・巻き戻し・日時の指定で衛星も同じ時刻へ（無ければ実時刻）
 	const simNow = () => map.clock ? map.clock.time : Date.now();
-	const nowPos = (i, now = simNow()) => {   // 直近の伝播から直線外挿した今の位置（GPU と同じ式）
+	const nowPos = (i: number, now = simNow()) => {   // 直近の伝播から直線外挿した今の位置（GPU と同じ式）
 		const dt = Math.max(-DT_MAX, Math.min(DT_MAX, (now - tProp) / 1000));   // 外挿は ±DT_MAX 秒まで（sats-gl.js と同じ）
-		return [Wp[i * 3] + Wv[i * 3] * dt, Wp[i * 3 + 1] + Wv[i * 3 + 1] * dt, Wp[i * 3 + 2] + Wv[i * 3 + 2] * dt];
+		return [Wp![i * 3] + Wv[i * 3] * dt, Wp![i * 3 + 1] + Wv[i * 3 + 1] * dt, Wp![i * 3 + 2] + Wv[i * 3 + 2] * dt];
 	};
 
 	// ── pick と札の投影は main の cam から。1 フレーム遅らせる（quakes.js と同じ）：地球はレンダーワーカーが次の rAF で描く（main の render は
 	// cam を送るだけ）ので、onFrame の cam をそのまま使うと札だけ 1 フレーム先行する。前フレームに送った cam＝地球が今見せている姿。
-	let shownCam = null, catchUp = 0;
-	const snapCam = () => ({ ...map.cam, center: [...map.cam.center] });
+	let shownCam: GlobeMap["cam"] | null = null, catchUp = 0;
+	const snapCam = () => ({ ...map.cam, center: [...map.cam.center] as GlobeMap["cam"]["center"] });
 	const camState = () => {
 		const c = shownCam ?? map.cam;
 		const dpr = c.dpr || devicePixelRatio || 1;
@@ -100,7 +103,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		return { s: cameraState(c, W, H), dpr, W, H };
 	};
 	// β ワールドの点 → 画面（device px）。地球の陰（視線と地球の交差）・カメラ後方・画面外は null
-	const project = (s, x, y, z, W, H) => {
+	const project = (s: CameraState, x: number, y: number, z: number, W: number, H: number) => {
 		const m = s.mvp, E = s.eye;
 		const w = m[3] * x + m[7] * y + m[11] * z + m[15];
 		if (w <= 1e-6) return null;
@@ -112,7 +115,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (sx < 0 || sy < 0 || sx > W || sy > H) return null;
 		return { x: sx, y: sy };
 	};
-	const earthPxOf = s => { const E = s.eye; return s.focal / Math.sqrt(Math.max(E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1, 1e-12)); };   // 地球の見かけの半径（device px）
+	const earthPxOf = (s: CameraState) => { const E = s.eye; return s.focal / Math.sqrt(Math.max(E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1, 1e-12)); };   // 地球の見かけの半径（device px）
 	const offFrame = map.onFrame(() => {
 		placeTags();
 		shownCam = snapCam();
@@ -173,12 +176,12 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 <div class="note">${t("Click a dot to see its orbit")}<br>${t("Faint dots are in Earth's shadow")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>
 </div>`;
 	(panelHost || mapEl).appendChild(panel);
-	const $ = k => panel.querySelector(`[data-k="${k}"]`);
+	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const tip = document.createElement("div");
 	tip.className = "sats-tip"; tip.style.display = "none";
 	mapEl.appendChild(tip);
 	// 折り畳み：小さい画面は最初から畳む（見出し＋件数だけ残す）
-	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
+	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
 
@@ -189,9 +192,9 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 			<i style="background:${cssColor(c.color)}"></i><span>${catLabel[c.key]()}</span><em>${fmt(counts[k])}</em></button>`).join("");
 	};
 	panel.addEventListener("click", e => {
-		const b = e.target.closest(".cat"); if (!b) return;
-		const k = b.dataset.c; vis.has(k) ? vis.delete(k) : vis.add(k);
-		b.classList.toggle("off", !vis.has(k)); b.setAttribute("aria-pressed", vis.has(k));
+		const b = (e.target as HTMLElement).closest<HTMLElement>(".cat"); if (!b) return;
+		const k = b.dataset.c!; vis.has(k) ? vis.delete(k) : vis.add(k);
+		b.classList.toggle("off", !vis.has(k)); b.setAttribute("aria-pressed", vis.has(k) as unknown as string);
 		ov.post({ type: "state", vis: CATS.map(c => vis.has(c.key) ? 1 : 0) });
 		placeTags();
 	});
@@ -200,21 +203,21 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	const renderHits = () => {
 		const q = $("q").value.trim().toUpperCase(), box = $("hits");
 		if (!q || !n()) { box.innerHTML = ""; return; }
-		const num = /^\d+$/.test(q), hits = [];
+		const num = /^\d+$/.test(q), hits: number[] = [];
 		for (let i = 0; i < n() && hits.length < HIT_MAX; i++) if (num ? String(norad[i]).startsWith(q) : names[i].toUpperCase().includes(q) || (STATIONS.get(norad[i]) || "").toUpperCase().includes(q)) hits.push(i);   // 表示名（ISS/Tiangong）でも引ける（登録名は ISS (ZARYA)・CSS (TIANHE)）
 		box.innerHTML = hits.length
 			? hits.map(i => `<button type="button" class="hit" data-i="${i}"><span>${esc(names[i])}</span><em>${cat[i] < CAT_NONE ? catLabel[CATS[cat[i]].key]() : ""} · ${norad[i]}</em></button>`).join("")
 			: `<div class="nohit">${t("No satellite matches")}</div>`;
 	};
-	const goTo = i => {   // 選択＋直下点を画面中央へ（ズームはそのまま）
+	const goTo = (i: number) => {   // 選択＋直下点を画面中央へ（ズームはそのまま）
 		setPick(i);
 		const jd = jdOf(effTime(i, simNow())), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
 		if (p && map.flyTo) { const ll = temeToGeodetic(p.r, gmst(jd)); map.flyTo(ll.lon, ll.lat, map.getZoom ? map.getZoom() : map.cam.zoom); }
 	};
 	$("q").addEventListener("input", renderHits);
-	$("q").addEventListener("keydown", e => { if (e.key === "Enter") { const b = $("hits").querySelector(".hit"); if (b) goTo(+b.dataset.i); } else if (e.key === "Escape") { $("q").value = ""; renderHits(); $("q").blur(); } });
-	$("hits").addEventListener("click", e => { const b = e.target.closest(".hit"); if (b) goTo(+b.dataset.i); });
-	const setStatus = html => { $("status").innerHTML = html; };
+	$("q").addEventListener("keydown", e => { if (e.key === "Enter") { const b = $("hits").querySelector<HTMLElement>(".hit"); if (b) goTo(+b.dataset.i!); } else if (e.key === "Escape") { $("q").value = ""; renderHits(); $("q").blur(); } });
+	$("hits").addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLElement>(".hit"); if (b) goTo(+b.dataset.i!); });
+	const setStatus = (html: string) => { $("status").innerHTML = html; };
 	const setSub = () => {
 		const when = dataAt ? new Date(dataAt).toLocaleString(getLang(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 		$("sub").textContent = t("Orbital data: CelesTrak (NORAD GP) · $1", when);
@@ -235,12 +238,12 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	};
 
 	// ── 札（宇宙ステーション＋選択衛星の名前）＝点の右に貼る DOM。位置は前フレームの cam＋今の外挿位置 ──
-	let tags = [];   // { i, el }
+	let tags: { i: number; el: HTMLDivElement }[] = [];   // { i, el }
 	const clearTags = () => { tags.forEach(x => x.el.remove()); tags = []; };
 	const refreshTags = () => {
 		clearTags();
 		if (!n()) return;
-		const want = [];
+		const want: number[] = [];
 		norad.forEach((id, i) => { if (STATIONS.has(id)) want.push(i); });
 		if (pick >= 0 && !STATIONS.has(norad[pick])) want.push(pick);
 		for (const i of want) {
@@ -265,7 +268,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	}
 
 	// ── 当たり（ホバー＝名前・クリック＝選択）＝CPU で最寄りを探す ──
-	function nearest(x, y, rad) {   // x,y＝CSS px。戻り＝添字（無ければ -1）
+	function nearest(x: number, y: number, rad: number) {   // x,y＝CSS px。戻り＝添字（無ければ -1）
 		if (!Wp) return -1;
 		const { s, dpr, W, H } = camState();
 		if (earthPxOf(s) / dpr < MIN_EARTH_PX) return -1;
@@ -284,7 +287,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	}
 	let hoverI = -1;
 	mapEl.addEventListener("pointermove", e => {
-		if (e.pointerType === "touch" || !n() || panel.contains(e.target)) return;
+		if (e.pointerType === "touch" || !n() || panel.contains(e.target as Node)) return;
 		const b = mapEl.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
 		const i = nearest(x, y, 7);
 		if (i !== hoverI) hoverI = i;
@@ -292,32 +295,32 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		tip.textContent = names[i]; tip.style.left = x + "px"; tip.style.top = y + "px"; tip.style.display = "block";
 	}, { signal, passive: true });
 	mapEl.addEventListener("pointerleave", () => { hoverI = -1; tip.style.display = "none"; }, { signal });
-	let down = null;
+	let down: number[] | null = null;
 	mapEl.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; }, { signal, capture: true });
 	mapEl.addEventListener("pointerup", e => {
-		if (!down || !n() || panel.contains(e.target)) return;
+		if (!down || !n() || panel.contains(e.target as Node)) return;
 		const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]); down = null;
 		if (moved > 4) return;
 		const r = mapEl.getBoundingClientRect();
 		const i = nearest(e.clientX - r.left, e.clientY - r.top, 10);
 		if (i >= 0) setPick(i);
 	}, { signal, capture: true });
-	function setPick(i) {
+	function setPick(i: number) {
 		pick = i; selKey = ""; tip.style.display = "none";
 		postMarks(); buildPath(simNow()); showSel(); refreshTags();
 	}
 	const postMarks = () => {
-		const st = []; norad.forEach((id, i) => { if (STATIONS.has(id)) st.push(i); });
+		const st: number[] = []; norad.forEach((id, i) => { if (STATIONS.has(id)) st.push(i); });
 		ov.post({ type: "marks", stations: Uint32Array.from(st), pick: pick >= 0 && !STATIONS.has(norad[pick]) ? Uint32Array.of(pick) : new Uint32Array(0), sel: pick });   // sel＝真下への糸を引く衛星（宇宙ステーションでも）
 	};
 
 	// ── データ ──
 	async function fetchCsv() {
-		let cache = null, hit = null;
+		let cache: Cache | null = null, hit: Response | null | undefined = null;
 		try { cache = await caches.open(CACHE); hit = await cache.match(CACHE_KEY); } catch { /* Cache API 無し（非セキュア文脈等）＝毎回取る */ }
-		const at = hit ? +hit.headers.get("x-fetched-at") || 0 : 0;
+		const at = hit ? +hit.headers.get("x-fetched-at")! || 0 : 0;
 		if (hit && Date.now() - at < FRESH_MS) return await hit.text();
-		const isCsv = text => text.startsWith("OBJECT_NAME,");
+		const isCsv = (text: string) => text.startsWith("OBJECT_NAME,");
 		for (const url of (Array.isArray(src) ? src : [src])) {
 			try {
 				const r = await fetch(url, { signal });
@@ -331,18 +334,18 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (hit) return await hit.text();
 		throw new Error("no orbital data");
 	}
-	function parseCsv(text) {
+	function parseCsv(text: string) {
 		const lines = text.split(/\r?\n/).filter(Boolean), head = lines[0].split(",");
-		const rows = [];
+		const rows: Record<string, string>[] = [];
 		for (let i = 1; i < lines.length; i++) {
 			const f = splitCsv(lines[i]); if (f.length < head.length) continue;
-			const o = {}; head.forEach((h, j) => { o[h] = f[j]; }); rows.push(o);
+			const o: Record<string, string> = {}; head.forEach((h, j) => { o[h] = f[j]; }); rows.push(o);
 		}
 		return rows;
 	}
-	function splitCsv(line) {   // 名前に , が入る時だけ "…" で括られる＝最小の CSV 読み
+	function splitCsv(line: string) {   // 名前に , が入る時だけ "…" で括られる＝最小の CSV 読み
 		if (!line.includes('"')) return line.split(",");
-		const out = []; let cur = "", q = false;
+		const out: string[] = []; let cur = "", q = false;
 		for (let i = 0; i < line.length; i++) {
 			const c = line[i];
 			if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
@@ -350,7 +353,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		}
 		out.push(cur); return out;
 	}
-	const classify = o => {   // 添字＝CATS の並び
+	const classify = (o: Record<string, string>) => {   // 添字＝CATS の並び
 		const nn = +o.MEAN_MOTION, e = +o.ECCENTRICITY;
 		if (/^STARLINK/.test(o.OBJECT_NAME)) return 0;
 		if (e > 0.25) return 4;             // 長楕円（モルニア・静止トランスファー等）
@@ -361,9 +364,9 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	let propTimer = 0, tagTimer = 0;   // 伝播（1 Hz）と札の追従（10 Hz）のタイマー＝destroy で止める
 	const loaded = (async () => {
 		const text = await fetchCsv();
-		const rows = parseCsv(text), sats = [], cats = [], nm = [], ids = [], ly = [];
+		const rows = parseCsv(text), sats: Satrec[] = [], cats: number[] = [], nm: string[] = [], ids: number[] = [], ly: number[] = [];
 		for (const o of rows) {
-			let s; try { s = sgp4init(parseOMM(o)); } catch { continue; }
+			let s; try { s = sgp4init(parseOMM(o as unknown as OMM)); } catch { continue; }
 			if (s.error) continue;
 			sats.push(s); cats.push(classify(o)); nm.push(o.OBJECT_NAME); ids.push(+o.NORAD_CAT_ID);
 			ly.push(+String(o.OBJECT_ID || "").slice(0, 4) || 0);   // 国際標識（例 1998-067A）の頭＝打ち上げ年（読めない＝0＝いつでも出す）
@@ -382,7 +385,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		// 時計の時刻で 1 秒ぶん進んだら伝播し直す（実時間＝従来どおり 1 Hz／早送り＝PROP_TICK ごと＝外挿は ±DT_MAX で頭打ち＝低軌道が接線へ飛び出さない）
 		propTimer = setInterval(() => { const now = simNow(); if (Math.abs(now - tProp) >= PROP_MS) propagateAll(now); }, PROP_TICK);
 		// 時計が跳んだ（日時の指定・今へ戻る・段の変更）＝その場で伝播し直し・軌道も引き直す
-		const onTime = e => { if (e.ticking) return; const now = simNow(); propagateAll(now); buildPath(now); showSel(); placeTags(); };
+		const onTime = (e: { ticking: boolean }) => { if (e.ticking) return; const now = simNow(); propagateAll(now); buildPath(now); showSel(); placeTags(); };
 		map.on?.("time", onTime); signal.addEventListener("abort", () => map.off?.("time", onTime), { once: true });
 		tagTimer = setInterval(() => { placeTags(); showSel(); }, TAG_MS);
 		return { n: N };
@@ -390,7 +393,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	loaded.catch(e => { if (!signal.aborted) { console.error("[sats]", e); setStatus(t("Could not load orbital data")); } });   // 呼び手が await しない使い方で unhandled にしない
 
 	// ── 伝播（1 Hz）＝TEME → ECEF（GMST で回す・速度は自転を差し引く）→ β ワールド → GPU へ写しを送る ──
-	function propagateAll(now) {
+	function propagateAll(now: number) {
 		const N = n(), jdN = jdOf(now), gN = gmst(jdN), yr = new Date(now).getUTCFullYear();
 		const pos = new Float32Array(N * 3), vel = new Float32Array(N * 3);
 		let shown = 0, unlaunched = 0;
@@ -408,39 +411,39 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 			const c = Math.cos(g), sn = Math.sin(g);
 			const X = p.r[0] * c + p.r[1] * sn, Y = -p.r[0] * sn + p.r[1] * c, Z = p.r[2];   // ECEF km
 			const w = toWorld(p.r, g, X, Y, Z);
-			Wp[i * 3] = pos[i * 3] = w[0]; Wp[i * 3 + 1] = pos[i * 3 + 1] = w[1]; Wp[i * 3 + 2] = pos[i * 3 + 2] = w[2];
+			Wp![i * 3] = pos[i * 3] = w[0]; Wp![i * 3 + 1] = pos[i * 3 + 1] = w[1]; Wp![i * 3 + 2] = pos[i * 3 + 2] = w[2];
 			if (still) { Wv[i * 3] = Wv[i * 3 + 1] = Wv[i * 3 + 2] = 0; continue; }   // 止めた衛星は外挿しない（vel は 0 のまま）
 			const vx = p.v[0] * c + p.v[1] * sn + OMEGA * Y, vy = -p.v[0] * sn + p.v[1] * c - OMEGA * X, vz = p.v[2];   // ECEF km/s（v − ω×r）
 			// 外挿用の速さ＝ECEF のまま（球の置き方との差は 1 秒で数十 m＝次の伝播で消える）
 			Wv[i * 3] = vel[i * 3] = vx * K; Wv[i * 3 + 1] = vel[i * 3 + 1] = vz * KY; Wv[i * 3 + 2] = vel[i * 3 + 2] = vy * K;
 		}
 		tProp = now; sunNow = sunDirOf(now);
-		const msg = { type: "sats", n: N, pos, vel, t0: now, sun: sunNow }, transfer = [pos.buffer, vel.buffer];
-		if (catDirty) { msg.cat = cat.slice(); transfer.push(msg.cat.buffer); catDirty = false; buildCats(); }
+		const msg: { type: string; n: number; pos: Float32Array; vel: Float32Array; t0: number; sun: number[]; cat?: Float32Array } = { type: "sats", n: N, pos, vel, t0: now, sun: sunNow }, transfer: Transferable[] = [pos.buffer, vel.buffer];
+		if (catDirty) { msg.cat = cat.slice(); transfer.push(msg.cat!.buffer); catDirty = false; buildCats(); }
 		ov.post(msg, transfer);
 		report(now, shown, unlaunched);
 		if (pick >= 0 && Math.abs(now - pathAt) > PATH_MS) buildPath(now);
 	}
 	// 件数と時刻の正直さの札（変わった時だけ書く）：打ち上げ前を隠している／元期から NEAR_D 日より離れた＝近似／FAR_D 日より先＝分からない（止めた）
 	let reportKey = "";
-	function report(now, shown, unlaunched) {
+	function report(now: number, shown: number, unlaunched: number) {
 		const yr = new Date(now).getUTCFullYear(), gapD = dataAt ? Math.abs(now - dataAt) / DAY_MS : 0;
 		const level = gapD > FAR_D ? 2 : gapD > NEAR_D ? 1 : 0;
 		const key = `${shown}|${unlaunched ? yr : ""}|${level}`;
 		if (key === reportKey) return; reportKey = key;
 		setStatus(t("Showing $1 ##count", `<b>${fmt(shown)}</b>`));
-		const lines = [];
+		const lines: string[] = [];
 		if (unlaunched) lines.push(t("Only satellites launched by $1 that are still active today", yr));
 		if (level === 2) lines.push(t("Positions at this time are unknown — shown on today's orbits as a guide"));
 		else if (level === 1) lines.push(t("Positions are approximate — the orbit data is from $1", new Date(dataAt).toLocaleDateString(getLang(), { year: "numeric", month: "short", day: "numeric" })));
 		$("honest").innerHTML = lines.map(esc).join("<br>");
 		$("honest").style.display = lines.length ? "" : "none";
 	}
-	function buildPath(now) {   // 選択衛星の前後半周（最長 1 日）＝地球固定での通り道（自転込み）＋地上軌跡。止めた衛星は止めた時刻を中心に
+	function buildPath(now: number) {   // 選択衛星の前後半周（最長 1 日）＝地球固定での通り道（自転込み）＋地上軌跡。止めた衛星は止めた時刻を中心に
 		pathAt = now;
 		if (pick < 0 || !ok[pick]) { ov.post({ type: "path", space: null }); return; }
 		const s = S[pick], period = Math.min(1440, 2 * Math.PI / s.no), tC = effTime(pick, now);
-		const space = [], ground = [];
+		const space: number[] = [], ground: number[] = [];
 		for (let k = 0; k <= PATH_N; k++) {
 			const jd = jdOf(tC) + ((k / PATH_N - 0.5) * period) / 1440;
 			const p = sgp4(s, (jd - s.jdEpoch) * 1440);
@@ -460,8 +463,9 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		get count() { return n(); },
 		get pick() { return pick >= 0 ? { i: pick, name: names[pick], norad: norad[pick] } : null; },
 		stats: () => ({ total: n(), ok: ok ? ok.reduce((a, b) => a + b, 0) : 0, pick: pick >= 0 ? names[pick] : null, dataAt }),
-		select: i => { if (i >= 0 && i < n()) setPick(i); },
-		nearest: (x, y) => nearest(x, y, 10),   // console 検証用（CSS px → 添字）
+		select: (i: number) => { if (i >= 0 && i < n()) setPick(i); },
+		nearest: (x: number, y: number) =>
+ nearest(x, y, 10),   // console 検証用（CSS px → 添字）
 		destroy() {
 			ac.abort(); clearInterval(propTimer); clearInterval(tagTimer); clearTags(); offFrame(); cancelAnimationFrame(catchUp);
 			ov.remove(); panel.remove(); tip.remove();

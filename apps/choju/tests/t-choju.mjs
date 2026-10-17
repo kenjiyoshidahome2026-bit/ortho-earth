@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// choju.js の常設検定（Node だけ・外部網なし）＝CSV の読み（BOM・引用・引用内の改行）と、行 → 地図の点の変換（読めない行は落とす）。
-import { parseCSV, toRecords, GROUPS, groupOf } from "../choju.js";
+// choju.ts の常設検定（Node だけ・外部網なし）＝CSV の読み（BOM・引用・引用内の改行）と、行 → 地図の点の変換（読めない行は落とす）。
+import { parseCSV, toRecords, GROUPS, groupOf } from "../choju.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 

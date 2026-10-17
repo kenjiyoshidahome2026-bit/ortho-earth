@@ -11,7 +11,7 @@
 // 国の中で夏時間が分かれる所（米アリゾナなど）は admin1 が要る＝第一版では見ない（NE の面の代表＝デンバー）。
 
 // 国の名前が zone.tab に無い所・-99 の国（admin0 の ADM0_A3 で引く）
-export const COUNTRY_ZONE = {
+export const COUNTRY_ZONE: Record<string, string> = {
 	KOS: "Europe/Belgrade",    // コソボ（zone.tab に XK が無い）
 	SOL: "Africa/Mogadishu",   // ソマリランド
 	CYN: "Asia/Famagusta",     // 北キプロス
@@ -19,7 +19,7 @@ export const COUNTRY_ZONE = {
 };
 // 手直しの表＝ADM0_A3 → NE の面の zone（UTC との差・時間）→ 今の IANA の名前。段 0 の照合（scripts/clock-audit.mjs）で数えた食い違いのうち、
 // 規則（上の 2・海外の領土）で直らない物だけを置く
-export const OVERRIDE = {
+export const OVERRIDE: Record<string, Record<number, string>> = {
 	// ロシア＝2011〜2014 の「通年夏時間」の区切り（NE は 2012 年）→ 2014 年の組み替えの後の名前
 	RUS: { 3: "Europe/Kaliningrad", 4: "Europe/Moscow", 6: "Asia/Yekaterinburg", 7: "Asia/Novosibirsk", 8: "Asia/Krasnoyarsk", 9: "Asia/Irkutsk", 10: "Asia/Yakutsk", 11: "Asia/Vladivostok", 12: "Asia/Kamchatka" },
 	// フランスの海外県（admin0 のフランスに含まれる）
@@ -34,40 +34,44 @@ export const OVERRIDE = {
 };
 
 // ── 時刻の道具（Intl だけ）──
-const fmtCache = new Map();
-const dtf = (key, make) => fmtCache.get(key) ?? (fmtCache.set(key, make()), fmtCache.get(key));
-export function isZone(tz) {
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+const dtf = (key: string, make: () => Intl.DateTimeFormat): Intl.DateTimeFormat => fmtCache.get(key) ?? (fmtCache.set(key, make()), fmtCache.get(key)!);
+export function isZone(tz: unknown): tz is string {
 	if (!tz || typeof tz !== "string" || tz.endsWith("/")) return false;
 	try { dtf("z|" + tz, () => new Intl.DateTimeFormat("en-US", { timeZone: tz })); return true; } catch { return false; }
 }
 // その時刻のその名前の UTC との差（分）。Intl の各欄を UTC として組み直した時刻との差（longOffset に頼らない＝古いブラウザでも同じ）
-export function offsetMin(tz, date) {
+export function offsetMin(tz: string, date: Date) {
 	const f = dtf("o|" + tz, () => new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" }));
-	const p = {}; for (const x of f.formatToParts(date)) p[x.type] = x.value;
+	const p: Record<string, string> = {}; for (const x of f.formatToParts(date)) p[x.type] = x.value;
 	const t = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
 	return Math.round((t - Math.floor(date.getTime() / 1000) * 1000) / 60000);
 }
 // 今年の冬と夏（1 月・7 月の中頃）の差＝[1 月, 7 月]。標準時＝小さい方（夏時間は差を増やす）
-const seasons = (tz, year) => [offsetMin(tz, new Date(Date.UTC(year, 0, 15, 12))), offsetMin(tz, new Date(Date.UTC(year, 6, 15, 12)))];
-export const standardMin = (tz, year) => Math.min(...seasons(tz, year));
+const seasons = (tz: string, year: number) => [offsetMin(tz, new Date(Date.UTC(year, 0, 15, 12))), offsetMin(tz, new Date(Date.UTC(year, 6, 15, 12)))];
+export const standardMin = (tz: string, year: number) => Math.min(...seasons(tz, year));
 // 名前の振る舞い（今年の冬と夏の差の対）＝同じなら同じ時計
-const behaviour = (tz, year) => seasons(tz, year).join("/");
+const behaviour = (tz: string, year: number) => seasons(tz, year).join("/");
 
 // ── 点 → 名前 ──
 // place＝{ a3: admin0 の ADM0_A3, iso2: ISO_A2_EH, zone: NE の面の zone（時間・null＝面の外）, tz: NE の面の tz_name1st }
 // 戻り＝{ tz: IANA の名前 | null, fixed: UTC との差（分・tz が null の時）, how: 決め方 }
-export function createResolver(table) {
-	const byCountry = new Map();   // iso2 → { zones, single }（年ごとに作り直す）
+/** resolve の引数（点のある所） */
+export interface Place { a3?: string | null; iso2?: string | null; zone?: number | null; tz?: string | null }
+/** resolve の戻り */
+export interface Resolved { tz: string | null; fixed?: number; how: string }
+export function createResolver(table: Record<string, string[]>) {
+	const byCountry = new Map<string, { zones: string[]; single: boolean } | null>();   // iso2 → { zones, single }（年ごとに作り直す）
 	let year = 0;
-	const country = (iso2, y) => {
+	const country = (iso2: string, y: number) => {
 		if (y !== year) { byCountry.clear(); year = y; }
 		if (byCountry.has(iso2)) return byCountry.get(iso2);
 		const zones = (table[iso2] ?? []).filter(isZone);
 		const v = zones.length ? { zones, single: new Set(zones.map(z => behaviour(z, y))).size === 1 } : null;
 		byCountry.set(iso2, v); return v;
 	};
-	const fixed = (zone, how) => zone == null ? { tz: null, fixed: 0, how: "none" } : { tz: null, fixed: Math.round(zone * 60), how };
-	return function resolve({ a3, iso2, zone = null, tz = null } = {}, date = new Date()) {
+	const fixed = (zone: number | null, how: string): Resolved => zone == null ? { tz: null, fixed: 0, how: "none" } : { tz: null, fixed: Math.round(zone * 60), how };
+	return function resolve({ a3, iso2, zone = null, tz = null }: Place = {}, date = new Date()): Resolved {
 		const y = date.getUTCFullYear();
 		const neTz = isZone(tz) ? tz : null;
 		if (a3 && COUNTRY_ZONE[a3]) return { tz: COUNTRY_ZONE[a3], how: "country" };
@@ -89,19 +93,19 @@ export function createResolver(table) {
 
 // ── 名前 → 見せる物 ──
 // r＝resolve の戻り。lang＝表示言語。戻り＝{ time "14:05", date "Tue, Oct 14", name "Japan Standard Time", offset 分, utc "UTC+9", dst 真偽, key（同じ時計の印） }
-const pad2 = n => String(n).padStart(2, "0");
-export function utcLabel(min) {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+export function utcLabel(min: number) {
 	const s = min < 0 ? "−" : "+", a = Math.abs(min);
 	return a === 0 ? "UTC" : `UTC${s}${Math.floor(a / 60)}${a % 60 ? ":" + pad2(a % 60) : ""}`;
 }
-export function describe(r, date, lang = "en") {
+export function describe(r: { tz: string | null; fixed?: number } | null | undefined, date: Date, lang = "en") {
 	if (!r) return null;
-	let off, name, dst = false, at = date, tz = r.tz;
+	let off: number, name: string | undefined, dst = false, at = date, tz = r.tz;
 	if (tz) {
 		off = offsetMin(tz, date);
 		dst = off > standardMin(tz, date.getUTCFullYear());
-		try { name = dtf(`n|${lang}|${tz}`, () => new Intl.DateTimeFormat(lang, { timeZone: tz, timeZoneName: "long" })).formatToParts(date).find(p => p.type === "timeZoneName")?.value; } catch { /* 古い Intl */ }
-	} else { off = r.fixed; at = new Date(date.getTime() + off * 60000); tz = "UTC"; }
+		try { name = dtf(`n|${lang}|${tz}`, () => new Intl.DateTimeFormat(lang, { timeZone: tz!, timeZoneName: "long" })).formatToParts(date).find(p => p.type === "timeZoneName")?.value; } catch { /* 古い Intl */ }
+	} else { off = r.fixed!; at = new Date(date.getTime() + off * 60000); tz = "UTC"; }
 	const time = dtf(`t|${lang}|${tz}`, () => new Intl.DateTimeFormat(lang, { timeZone: tz, hour: "numeric", minute: "2-digit" })).format(at);
 	const day = dtf(`d|${lang}|${tz}`, () => new Intl.DateTimeFormat(lang, { timeZone: tz, weekday: "short", month: "short", day: "numeric" })).format(at);
 	const utc = utcLabel(off), key = `${off}|${name || utc}`;   // 同じ時計の印＝Intl の名前のまま（下で都市に替える前）
@@ -109,14 +113,16 @@ export function describe(r, date, lang = "en") {
 	return { tz: r.tz, time, date: day, name: name || utc, offset: off, utc, dst, key };
 }
 // 同じ時計に束ねる（Shift の国の一覧）＝今の差と名前が同じ物を 1 行に。並び＝西から東（差の小さい順）
-export function groupZones(zones, date, lang) {
-	const m = new Map();
+export type Described = NonNullable<ReturnType<typeof describe>>;
+export function groupZones(zones: string[], date: Date, lang?: string) {
+	const m = new Map<string, Described & { zones: string[] }>();
 	for (const tz of zones) {
 		const d = describe({ tz }, date, lang); if (!d) continue;
-		const g = m.get(d.key) ?? m.set(d.key, { ...d, zones: [] }).get(d.key);
+		const g = m.get(d.key) ?? m.set(d.key, { ...d, zones: [] }).get(d.key)!;
 		g.zones.push(tz);
 	}
 	return [...m.values()].sort((a, b) => a.offset - b.offset);
 }
 // IANA の名前の都市（"America/Argentina/Buenos_Aires" → "Buenos Aires"）
-export const cityOf = tz => (tz || "").split("/").pop().replace(/_/g, " ");
+export const cityOf = (tz: string | null | undefined) => (tz || "").split("/").pop()!.replace(
+/_/g, " ");

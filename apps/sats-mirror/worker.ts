@@ -2,7 +2,7 @@
 // なぜ：CelesTrak は同じグループを同一 IP から 2 時間に 1 回しか返さない（間は HTTP 200 の断り文）＝学校・会社のように IP を
 //   共有する教室では、ブラウザ直読みだと 2 人目以降が初回から読めない。ここが 2 時間に 1 回だけ取って KV に置き、皆はここを読む。
 //   CelesTrak 利用ポリシー（celestrak.org/usage-policy.php）の「更新（2 時間）ごとに 1 回だけ取る」にもこの方が沿う。
-// 形：加工しない（CSV のまま gzip で置くだけ＝鯖焼きではない）。読み手は apps/ortho-globe/sats.js（/globe/sats）。
+// 形：加工しない（CSV のまま gzip で置くだけ＝鯖焼きではない）。読み手は apps/ortho-globe/sats.ts（/globe/sats）。
 //   GET /sats/active.csv   CSV（gzip 配信・CORS 開放）。まだ一度も取れていなければ 503
 //   GET /sats/status       { fetchedAt, rows, bytes, halted }（見張り用）
 // 掟（同ポリシー）：
@@ -16,26 +16,38 @@
 //     （エラーを積むと IP ごとファイアウォール送り＝2 時間で 50 回）。
 //   ・200 なのに CSV でない本文（断り文以外＝仕様変更・障害の頁）＝見送り。3 回続いたら停止（B19・2026-09-25。旧＝毎回 "refused" で
 //     見送るだけ＝止まらず毎時取り続け、古いミラーを黙って配り続けた）。断り文（NOT_UPDATED）は数えない
+// KV の binding（env.SATS）・cron の口＝使う所だけの最小の形（@cloudflare/workers-types は入れない＝native-bucket の workers/types.ts と同じ流儀）
+interface KVNamespace {
+	get(key: string): Promise<string | null>;
+	get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+	get(key: string, type: "arrayBuffer"): Promise<ArrayBuffer | null>;
+	put(key: string, value: string | ArrayBuffer): Promise<void>;
+	delete(key: string): Promise<void>;
+}
+interface ExecutionContext { waitUntil(promise: Promise<unknown>): void }
+export interface Env { SATS: KVNamespace }
+interface Meta { fetchedAt: number; rows: number; bytes: number }
+type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 const SRC = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
 const UA = "ortho-earth sats-mirror/1.0 (+https://www.ortho-earth.com/)";
 const MIN_INTERVAL_MS = 110 * 60e3;
 const K = { data: "active.csv.gz", meta: "meta", halt: "halt", transient: "transient", odd: "odd" };
 const NOT_UPDATED = /has not updated since your last successful/i;   // CelesTrak の「2 時間に 1 回」の断り文（403 で返る）
-const TRANSIENT = st => st >= 520 && st <= 526, TRANSIENT_MAX = 3;   // 一時的な 5xx（Cloudflare の本体接続エラー）＝見送り・連続 3 回で停止
+const TRANSIENT = (st: number) => st >= 520 && st <= 526, TRANSIENT_MAX = 3;   // 一時的な 5xx（Cloudflare の本体接続エラー）＝見送り・連続 3 回で停止
 const ODD_MAX = 3;   // 200 で CSV でない本文（断り文以外）＝見送り・連続 3 回で停止
 
 // 戻り値＝何をしたか（ログとテスト用）："halted" | "fresh" | "refused" | "transient" | "odd" | "error" | "stored"
-export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
+export async function mirror(env: Env, now = Date.now(), fetchImpl: Fetch = fetch) {
 	const kv = env.SATS;
 	if (await kv.get(K.halt)) { console.warn("[sats-mirror] halted — delete KV key 'halt' after checking the cause"); return "halted"; }
-	const meta = await kv.get(K.meta, "json");
+	const meta = await kv.get<Meta>(K.meta, "json");
 	if (meta && now - meta.fetchedAt < MIN_INTERVAL_MS) return "fresh";
 	const res = await fetchImpl(SRC, { headers: { "User-Agent": UA } });
 	if (res.status !== 200) {
 		const body = (await res.text().catch(() => "")).slice(0, 500);
 		if (res.status === 403 && NOT_UPDATED.test(body)) { await kv.delete(K.transient); console.warn("[sats-mirror] not updated yet:", body.slice(0, 160)); return "refused"; }
 		if (TRANSIENT(res.status)) {
-			const count = ((await kv.get(K.transient, "json"))?.count ?? 0) + 1;
+			const count = ((await kv.get<{ count: number }>(K.transient, "json"))?.count ?? 0) + 1;
 			if (count < TRANSIENT_MAX) {
 				await kv.put(K.transient, JSON.stringify({ count, status: res.status, at: new Date(now).toISOString() }));
 				console.warn(`[sats-mirror] HTTP ${res.status} (transient ${count}/${TRANSIENT_MAX}) — skipped, retry next hour`);
@@ -54,7 +66,7 @@ export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 	await kv.delete(K.transient);   // 応答が返った＝一時的な失敗の数え直し
 	if (!text.startsWith("OBJECT_NAME,")) {
 		if (NOT_UPDATED.test(text)) { await kv.delete(K.odd); console.warn("[sats-mirror] refused:", text.slice(0, 160)); return "refused"; }
-		const count = ((await kv.get(K.odd, "json"))?.count ?? 0) + 1, body = text.slice(0, 500);
+		const count = ((await kv.get<{ count: number }>(K.odd, "json"))?.count ?? 0) + 1, body = text.slice(0, 500);
 		if (count < ODD_MAX) {
 			await kv.put(K.odd, JSON.stringify({ count, at: new Date(now).toISOString(), body }));
 			console.warn(`[sats-mirror] HTTP 200 but not CSV (${count}/${ODD_MAX}) — skipped:`, body.slice(0, 160));
@@ -74,18 +86,18 @@ export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 }
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS" };
-const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+const json = (obj: unknown, status = 200) => new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
-export async function serve(req, env) {
+export async function serve(req: Request, env: Env) {
 	if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 	if (req.method !== "GET" && req.method !== "HEAD") return json({ error: "method not allowed" }, 405);
 	const path = new URL(req.url).pathname.replace(/^\/sats/, "");
 	if (path === "/status") {
-		const [meta, halt, transient, odd] = await Promise.all([env.SATS.get(K.meta, "json"), env.SATS.get(K.halt, "json"), env.SATS.get(K.transient, "json"), env.SATS.get(K.odd, "json")]);
+		const [meta, halt, transient, odd] = await Promise.all([env.SATS.get<Meta>(K.meta, "json"), env.SATS.get(K.halt, "json"), env.SATS.get(K.transient, "json"), env.SATS.get(K.odd, "json")]);
 		return json({ ...(meta || {}), halted: halt || false, transient: transient || false, odd: odd || false });
 	}
 	if (path === "/active.csv") {
-		const [gz, meta] = await Promise.all([env.SATS.get(K.data, "arrayBuffer"), env.SATS.get(K.meta, "json")]);
+		const [gz, meta] = await Promise.all([env.SATS.get(K.data, "arrayBuffer"), env.SATS.get<Meta>(K.meta, "json")]);
 		if (!gz) return json({ error: "mirror not filled yet" }, 503);
 		return new Response(req.method === "HEAD" ? null : gz, {
 			encodeBody: "manual",   // 既に gzip＝ランタイムに圧縮し直させない（Content-Encoding どおりブラウザが解く）
@@ -94,12 +106,12 @@ export async function serve(req, env) {
 				"Cache-Control": "public, max-age=600",   // 10 分＝要素の更新は 2 時間毎なので十分・KV 読みも減る
 				...(meta ? { "Last-Modified": new Date(meta.fetchedAt).toUTCString() } : {}),
 			},
-		});
+		} as ResponseInit);   // encodeBody は Workers の拡張（標準の ResponseInit に無い）
 	}
 	return json({ error: "not found" }, 404);
 }
 
 export default {
-	fetch: (req, env) => serve(req, env),
-	scheduled(event, env, ctx) { ctx.waitUntil(mirror(env).catch(e => console.error("[sats-mirror]", e))); },
+	fetch: (req: Request, env: Env) => serve(req, env),
+	scheduled(event: unknown, env: Env, ctx: ExecutionContext) { ctx.waitUntil(mirror(env).catch(e => console.error("[sats-mirror]", e))); },
 };

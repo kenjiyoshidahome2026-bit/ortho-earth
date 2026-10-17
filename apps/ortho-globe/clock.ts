@@ -1,5 +1,5 @@
 // 世界時計（/globe/clock・clock.html から遅延 import）＝地球儀の上で「その場所がいま何時か」を見せる部品（issue #309）。
-// 骨格：器＝clock.html（URL を読んで置くだけ）／ここ＝部品（mountClock(map, geopbf) → { destroy }）／時刻の芯＝clock-zones.js（純な関数・tests/t-clock.mjs）。
+// 骨格：器＝clock.html（URL を読んで置くだけ）／ここ＝部品（mountClock(map, geopbf) → { destroy }）／時刻の芯＝clock-zones.ts（純な関数・tests/t-clock.mjs）。
 //
 // データ：
 //   ・時間帯の面＝Natural Earth ne_10m_time_zones（naturalearth.s3.amazonaws.com は CORS 開放＝ブラウザが直に読む・bucket に置かない・geopbf が IDB に残す）
@@ -13,24 +13,32 @@
 //   どの端末も＝案内板の「時間帯 — 国」のスイッチ（Shift はその逆を一時的に）・クリック／タップ＝案内板に留める
 // 光らせる単位＝NE の面 1 枚（形は一年中同じ・出る時刻だけが夏時間で変わる）／国の表示＝admin0 の国の輪郭。
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない（辞書は startPage が足す）
-import { createResolver, describe, groupZones, cityOf } from "./clock-zones.js";
+import { createResolver, describe, groupZones, cityOf } from "./clock-zones.ts";
+import type { Described } from "./clock-zones.ts";
 import ZONES from "./clock-zones.json";
+import type { GlobeMap, GeoPBF, LonLat } from "@ortho-earth/globe";
+type ZoneTable = Record<string, string[]>;   // 国 → 名前の列（"_" の注記の欄は引かない）
 const t = tr();
+type Geopbf = typeof import("@ortho-earth/globe").geopbf;
+/** 点のある所（placeAt の戻り） */
+interface Place { zf: number | null; cf: number | null; a3: string | null; iso2: string | null; zone: number | null; tz: string | null; country: string }
+type Mode = "zone" | "country";
+
 
 export const NE_TIME_ZONES = "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_time_zones.zip";
 const A0_NAME = "ne_50m_admin_0_countries";
 const A0_ZIP = `https://naturalearth.s3.amazonaws.com/50m_cultural/${A0_NAME}.zip`;
 // NE の map_color8（1..8）＝隣の面が同じ色にならない塗り分け
 const PALETTE = ["#e8c37a", "#9cc9a8", "#a9b9e6", "#e6a9a9", "#c9b0e0", "#9fd3d6", "#e3b98f", "#b9cf8a"];
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+const rgba = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
-export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost } = {}) {
+export async function mountClock(map: GlobeMap, geopbf: Geopbf, { tzSrc = NE_TIME_ZONES, panelHost }: { tzSrc?: string; panelHost?: HTMLElement | null } = {}) {
 	document.title = t("World clock — ortho-globe");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("What time is it there? Hover over the globe to see the local time of every time zone, with daylight saving time — or hold Shift to see all the time zones of a country."));
 	const mapEl = map.mapEl;
 	const lang = getLang();
-	const resolve = createResolver(ZONES);
+	const resolve = createResolver(ZONES as unknown as ZoneTable);
 	const now = () => map.clock?.date ?? new Date();
 	const coarse = matchMedia("(pointer: coarse)").matches;
 	const hours = new Intl.NumberFormat(lang, { style: "unit", unit: "hour", unitDisplay: "short", maximumFractionDigits: 2 });
@@ -77,18 +85,18 @@ export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost
 	<div class="note">${t("Time zones and countries: Natural Earth. Times and daylight saving: your browser's time zone database (IANA).")}</div>
 </div>`;
 	(panelHost || mapEl).appendChild(panel);
-	const $ = k => panel.querySelector(`[data-k="${k}"]`);
-	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
+	const $ = (k: string) => panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
+	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 
-	let mode = "zone", shift = false;
+	let mode: Mode = "zone", shift = false;
 	const effMode = () => shift ? (mode === "zone" ? "country" : "zone") : mode;
-	const markMode = () => { for (const b of panel.querySelectorAll(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.mode === effMode())); };   // Shift の間は逆の側を光らせる
-	const setMode = m => { mode = m; refresh(); };
-	panel.querySelector(".switch").addEventListener("click", e => { const b = e.target.closest("button[data-mode]"); if (b) setMode(b.dataset.mode); });
+	const markMode = () => { for (const b of panel.querySelectorAll<HTMLElement>(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.mode === effMode())); };   // Shift の間は逆の側を光らせる
+	const setMode = (m: Mode) => { mode = m; refresh(); };
+	panel.querySelector(".switch")!.addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLElement>("button[data-mode]"); if (b) setMode(b.dataset.mode as Mode); });
 
 	// ── データ（面と国）──
-	let tzPbf = null, a0Pbf = null, layer = null;
+	let tzPbf: GeoPBF | null = null, a0Pbf: GeoPBF | null = null, layer: ReturnType<NonNullable<GlobeMap["addGint"]>> | null = null;
 	const loadA0 = async () => {
 		const p = await geopbf(A0_NAME).catch(() => null);
 		return p?.length ? p : geopbf(A0_ZIP, { name: A0_NAME });
@@ -98,58 +106,58 @@ export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost
 		$("status").textContent = "";
 	} catch (e) {
 		console.warn("[clock] data", e);
-		$("status").textContent = t("Failed to load: $1", String(e?.message || e));
+		$("status").textContent = t("Failed to load: $1", String((e as Error)?.message || e));
 	}
 	if (tzPbf && map.addGint) {
 		layer = map.addGint(tzPbf, { order: -4, interactive: false });
-		layer?.ready.then(() => layer.setPaint({ "fill-color": ["match", ["get", "map_color8"], ...PALETTE.flatMap((c, i) => [i + 1, rgba(c, 0.22)]), "rgba(0,0,0,0)"], "line-color": "rgba(80,90,110,0.55)", "line-width": 0.6 })).catch(() => {});
+		layer?.ready.then(() => layer!.setPaint({ "fill-color": ["match", ["get", "map_color8"], ...PALETTE.flatMap((c, i) => [i + 1, rgba(c, 0.22)]), "rgba(0,0,0,0)"], "line-color": "rgba(80,90,110,0.55)", "line-width": 0.6 })).catch(() => {});
 	}
 
 	// ── 点 → 見せる物 ──
-	const props = (pbf, fid) => { try { return pbf.getProperties(fid) || {}; } catch { return {}; } };
-	const countryName = p => p["NAME_" + lang.toUpperCase()] || p.NAME_EN || p.NAME || p.ADMIN || "";
-	const placeAt = ll => {
+	const props = (pbf: GeoPBF, fid: number): Record<string, any> => { try { return pbf.getProperties(fid) || {}; } catch { return {}; } };
+	const countryName = (p: Record<string, any>) => p["NAME_" + lang.toUpperCase()] || p.NAME_EN || p.NAME || p.ADMIN || "";
+	const placeAt = (ll: LonLat): Place => {
 		const zf = tzPbf?.contain(ll) ?? null, cf = a0Pbf?.contain(ll) ?? null;
-		const z = zf != null ? props(tzPbf, zf) : null, c = cf != null ? props(a0Pbf, cf) : null;
+		const z = zf != null ? props(tzPbf!, zf) : null, c = cf != null ? props(a0Pbf!, cf) : null;
 		const iso2 = c ? (/^[A-Z]{2}$/.test(c.ISO_A2_EH) ? c.ISO_A2_EH : /^[A-Z]{2}$/.test(c.ISO_A2) ? c.ISO_A2 : null) : null;
 		return { zf, cf, a3: c?.ADM0_A3 || null, iso2, zone: z?.zone ?? null, tz: z?.tz_name1st || null, country: c ? countryName(c) : "" };
 	};
 	const mine = () => describe({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, now(), lang);
-	const diffText = off => {
+	const diffText = (off: number) => {
 		const d = off - (mine()?.offset ?? 0);
 		if (!d) return t("Same time as you");
 		return d > 0 ? t("$1 ahead of you", hours.format(d / 60)) : t("$1 behind you", hours.format(-d / 60));
 	};
-	const dstMark = d => d.dst ? `<span class="dst">${t("Daylight saving time")}</span>` : "";
-	const zoneRows = pl => {
+	const dstMark = (d: Described) => d.dst ? `<span class="dst">${t("Daylight saving time")}</span>` : "";
+	const zoneRows = (pl: Place) => {
 		const d = describe(resolve(pl, now()), now(), lang); if (!d) return null;
 		return [`<span class="zt">${esc(d.time)}</span> <span class="c">${esc(d.date)}</span>`,
 			...(d.name !== d.utc || d.dst ? [`${esc(d.name)}${dstMark(d)}`] : []),   // 海の上＝名前が UTC±n だけ＝次の行と重なる
 			`<span class="c">${esc(d.utc)} · ${esc(diffText(d.offset))}</span>`,
 			`<span class="c">${esc(pl.country || t("Open sea"))}</span>`];
 	};
-	const countryRows = pl => {
+	const countryRows = (pl: Place) => {
 		if (!pl.a3) return zoneRows(pl);   // 海の上＝国が無い＝時間帯のまま
 		const own = resolve(pl, now()).tz;
-		const list = new Set(ZONES[pl.iso2] ?? []);
+		const list = new Set((ZONES as unknown as ZoneTable)[pl.iso2!] ?? []);
 		if (own) list.add(own);
 		const groups = list.size ? groupZones([...list], now(), lang) : [];
 		if (groups.length <= 1) return [`<b>${esc(pl.country)}</b>`, ...(zoneRows(pl) ?? []).slice(0, 3)];
 		return [`<b>${esc(pl.country)}</b> <span class="c">${esc(t("$1 time zones", groups.length))}</span>`,
 			...groups.slice(0, 14).map(g => `<div class="row"><b>${esc(g.time)}</b><span>${esc(g.name)}${dstMark(g)} <span class="c">${esc(g.utc)} · ${esc(g.zones.slice(0, 3).map(cityOf).join(", "))}</span></span></div>`)];
 	};
-	const rowsFor = pl => effMode() === "country" ? countryRows(pl) : zoneRows(pl);
-	const outlineFor = pl => {
+	const rowsFor = (pl: Place) => effMode() === "country" ? countryRows(pl) : zoneRows(pl);
+	const outlineFor = (pl: Place) => {
 		try {
-			if (effMode() === "country" && pl.cf != null) return a0Pbf.getFeature(pl.cf);
-			if (pl.zf != null) return tzPbf.getFeature(pl.zf);
+			if (effMode() === "country" && pl.cf != null) return a0Pbf!.getFeature(pl.cf);
+			if (pl.zf != null) return tzPbf!.getFeature(pl.zf);
 		} catch { /* 壊れ feature */ }
 		return null;
 	};
 
 	// ── ホバー（tip）・クリック（留める）──
 	const tip = map.gadget.tip();
-	let hoverLL = null, pinned = null, raf = 0;
+	let hoverLL: LonLat | null = null, pinned: (Place & { ll: LonLat }) | null = null, raf = 0;
 	const showHover = () => {
 		if (!hoverLL) { tip(null); setOutline(pinned); return; }
 		const pl = placeAt(hoverLL);
@@ -158,12 +166,12 @@ export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost
 		tip(rows ? [`<div class="clock-tip">${rows.map(r => `<div>${r}</div>`).join("")}</div>`] : null);
 		setOutline(pl);
 	};
-	let outKey = null;
-	const setOutline = pl => {
+	let outKey: string | null = null;
+	const setOutline = (pl: Place | null) => {
 		const key = pl ? `${effMode()}|${effMode() === "country" && pl.cf != null ? "c" + pl.cf : "z" + pl.zf}` : null;
 		if (key === outKey) return; outKey = key;
 		const f = pl && outlineFor(pl);
-		map.gadget.outline(f || null, { color: effMode() === "country" ? [1, 0.85, 0.45, 0.95] : [1, 1, 1, 0.95], width: 2 });
+		map.gadget.outline((f || null) as Parameters<GlobeMap["gadget"]["outline"]>[0], { color: effMode() === "country" ? [1, 0.85, 0.45, 0.95] : [1, 1, 1, 0.95], width: 2 });
 	};
 	const renderPin = () => {
 		const el = $("pin");
@@ -171,29 +179,29 @@ export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost
 		const rows = rowsFor(placeAt(pinned.ll));
 		el.innerHTML = rows ? rows.map(r => `<div>${r}</div>`).join("") : "";
 	};
-	const xyOf = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-	const onMove = e => {
+	const xyOf = (e: PointerEvent): [number, number] => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	const onMove = (e: PointerEvent) => {
 		if (e.pointerType === "touch") return;
 		if (shift !== e.shiftKey) { shift = e.shiftKey; markMode(); }
 		const ll = map.unprojectXY(...xyOf(e));
-		hoverLL = ll ? [ll[0] ?? ll.lng, ll[1] ?? ll.lat] : null;
+		hoverLL = ll ? [(ll as any)[0] ?? (ll as any).lng, (ll as any)[1] ?? (ll as any).lat] : null;
 		if (!raf) raf = requestAnimationFrame(() => { raf = 0; showHover(); });
 	};
 	const onLeave = () => { hoverLL = null; tip(null); setOutline(pinned); };
-	let down = null;
-	const onDown = e => { down = [e.clientX, e.clientY]; };
-	const onUp = e => {
+	let down: [number, number] | null = null;
+	const onDown = (e: PointerEvent) => { down = [e.clientX, e.clientY]; };
+	const onUp = (e: PointerEvent) => {
 		if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) { down = null; return; }   // ドラッグ＝回しただけ
 		down = null;
-		if (e.target.closest?.(".clock-panel")) return;
+		if ((e.target as Element).closest?.(".clock-panel")) return;
 		const ll = map.unprojectXY(...xyOf(e));
-		const p = ll ? [ll[0] ?? ll.lng, ll[1] ?? ll.lat] : null;
+		const p: LonLat | null = ll ? [(ll as any)[0] ?? (ll as any).lng, (ll as any)[1] ?? (ll as any).lat] : null;
 		const pl = p && placeAt(p);
 		pinned = pl && (pl.zf != null || pl.cf != null) ? { ...pl, ll: p } : null;
 		renderPin();
 		if (e.pointerType === "touch") setOutline(pinned);
 	};
-	const onKey = e => {
+	const onKey = (e: KeyboardEvent) => {
 		if (e.key !== "Shift" || shift === (e.type === "keydown")) return;
 		shift = e.type === "keydown";
 		refresh();
@@ -220,8 +228,9 @@ export async function mountClock(map, geopbf, { tzSrc = NE_TIME_ZONES, panelHost
 	return {
 		get mode() { return mode; }, setMode,
 		/** 試験・console 用：その点の表示（[経度, 緯度]・mode 省略＝今の側） */
-		at(ll, m) { const keep = mode; if (m) mode = m; const pl = placeAt(ll); const r = { place: pl, resolved: resolve(pl, now()), rows: rowsFor(pl) }; mode = keep; return r; },
-		pin(ll) { const pl = placeAt(ll); pinned = { ...pl, ll }; renderPin(); setOutline(pinned); },
+		at(ll: LonLat, m?: Mode) { const keep = mode; if (m) mode = m; const pl = placeAt(ll); const r = { place: pl, resolved: resolve(pl, now()), rows: rowsFor(pl) }; mode = keep; return r; },
+		pin(ll: LonLat) {
+ const pl = placeAt(ll); pinned = { ...pl, ll }; renderPin(); setOutline(pinned); },
 		get layer() { return layer; },
 		destroy() {
 			clearTimeout(timer); cancelAnimationFrame(raf);
