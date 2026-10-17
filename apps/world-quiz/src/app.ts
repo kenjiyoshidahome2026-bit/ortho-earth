@@ -71,7 +71,7 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 	// ---- 始めの面 ----
 	function showHome() {
 		clearInterval(timer); clearTimeout(advance); stopConfetti?.(); stopConfetti = null;
-		S.set = null; mapWrap.hidden = true; (S.mapView as MapView | null)?.clear();   // ⚠地図なし（mapView＝false）だと false?.x() は TypeError（?. は false を止めない）＝挙動は据え置き（TS 化 2026-10-17 で気付いた）
+		S.set = null; mapWrap.hidden = true; (S.mapView || null)?.clear();   // || null＝地図なし（false）も止める（?. は false を止めない・2026-10-17）
 		play_.hidden = result.hidden = true; home.hidden = false;
 		const seg = <T>(items: T[], cur: T, set: (v: T) => void, render: (v: T) => Kid | Kid[]): HTMLElement => el("div", { class: "q-seg", role: "radiogroup" }, items.map(v => el("button", { type: "button", role: "radio", "aria-checked": String(v === cur), class: v === cur ? "on" : "", onclick: () => { set(v); play("tap"); showHome(); } }, render(v))));
 		const poolN = pool(countries, { mode: S.mode, level: S.level, region: S.region }).length;
@@ -135,7 +135,7 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		clearTimeout(advance);
 		if (window.scrollY) window.scrollTo(0, 0);   // 前の問で下までスクロールしていても、問題文が上の帯に隠れないよう頭から
 		const Q = S.set![S.i], c = Q.answer; S.answered = false;
-		(S.mapView as MapView | null)?.clear?.();
+		(S.mapView || null)?.clear?.();
 		const hint = mapWrap.querySelector<HTMLElement>(".q-map-hint")!; hint.hidden = true;
 		const head = el("div", { class: "q-head" },
 			el("span", { class: "q-count", text: t("Question $1 of $2", S.i + 1, S.set!.length) }),
@@ -177,11 +177,11 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		if (S.answered) return;
 		const Q = S.set![S.i], a = Q.answer, hit = key ? byKey.get(key) : null;
 		const inside = !!hit && (hit.key === a.key || hit.territory === a.key || a.territory === hit.key);
-		(S.mapView as MapView | null)?.disarm();
+		(S.mapView || null)?.disarm();
 		const r = inside || !lngLat || !S.mapView ? null : await S.mapView.reach(a, lngLat).catch(() => null);   // 外れ＝形までの距離を測る（小さい国は指で押し損ねる）
 		if (S.answered || S.set![S.i] !== Q) return;
 		const ok = tapHits({ inside, hitOther: !!hit, px: r?.px ?? Infinity, size: r?.size ?? 0 });
-		(S.mapView as MapView | null)?.mark(ok && !inside ? a.key : key, lngLat);   // 近くで救った時は正解の国に印
+		(S.mapView || null)?.mark(ok && !inside ? a.key : key, lngLat);   // 近くで救った時は正解の国に印
 		judge(ok, ok ? a : hit);
 	}
 	function answer(o: QuizCountry): void {
@@ -239,9 +239,9 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 					st === 3 ? null : el("button", { type: "button", class: "q-start", onclick: () => startSet(), text: t("Play again") }),   // 全問正解は「もう一度」を出さない＝花吹雪で締める（Kenji 2026-10-12）
 					S.wrong.length ? el("button", { type: "button", class: "q-start q-review", onclick: () => startSet({ keys: S.wrong.map(c => c.key) }), text: t("Retry the $1 you missed", S.wrong.length) }) : null,
 					el("button", { type: "button", class: "q-start q-home-btn", onclick: () => showHome(), text: t("Back to start") }))),
-			S.wrong.length ? el("section", { class: "q-card" }, el("h3", { text: t("Remember these") }), el("ul", { class: "q-missed" }, S.wrong.map(c => el("li", { onclick: () => (S.mapView as MapView | null)?.focus(c, { pad: 1.8 }) }, flagImg(c, "small"), el("span", {}, nameOf(c), c.capital ? el("small", { text: " · " + c.capital }) : null))))) : null,
+			S.wrong.length ? el("section", { class: "q-card" }, el("h3", { text: t("Remember these") }), el("ul", { class: "q-missed" }, S.wrong.map(c => el("li", { onclick: () => (S.mapView || null)?.focus(c, { pad: 1.8 }) }, flagImg(c, "small"), el("span", {}, nameOf(c), c.capital ? el("small", { text: " · " + c.capital }) : null))))) : null,
 			el("section", { class: "q-card q-muted q-small", text: t("Country data: ortho-earth World database (Natural Earth, Wikidata, UN). Flags: Wikimedia Commons.") }));
-		if (S.wrong.length) (S.mapView as MapView | null)?.focus(S.wrong[0], { pad: 1.8 });   // ⚠地図なし（mapView＝false）だと false?.x() は TypeError（?. は false を止めない）＝挙動は据え置き（TS 化 2026-10-17 で気付いた）
+		if (S.wrong.length) (S.mapView || null)?.focus(S.wrong[0], { pad: 1.8 });
 		stopConfetti?.(); stopConfetti = st === 3 ? confetti() : null;
 	}
 
