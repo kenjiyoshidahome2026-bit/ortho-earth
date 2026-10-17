@@ -113,6 +113,7 @@ function subListRuns(list: readonly number[] | null | undefined): SubRuns | null
 function bindPivotBoundary(gl: WebGL2RenderingContext, u: Uniforms, s: GintGLState | null = null, data: GLDrawData | null = null): void {
 	gl.uniform1i(u.u_has_pivot, 0);   // pivotClip → クリップ原点 vec4(0,0,0,1)（遠方の要があればその点）
 	gl.uniform1i(u.u_use_vbb, 0);     // bboxVisible → 常に true
+	gl.uniform1i(u.u_has_comp, 0);    // 辺→鍵の表も読まない（鍵＝fid のまま・どのみち has_pivot=0 で使われない）
 	if (!u.u_far_q) return;
 	const P = s && data ? farPivotGlobal(data, s.lastViewBbox, layerBboxOf(s.polyBboxByFid)) : null;
 	gl.uniform4f(u.u_far_q, 0, 0, P ? 2 : 0, 0);

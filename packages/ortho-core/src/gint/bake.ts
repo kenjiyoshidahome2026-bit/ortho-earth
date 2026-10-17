@@ -6,11 +6,12 @@
 //   base:     { metaU32, edgeCount, polyEdgeCount, polyEdgeByFid, chunks }（Morton整列＋約16k辺チャンク台帳）
 //   boundary: { metaU32, edgeCount, polyEdgeCount } | null（正味参照≠0 の arc のみ＝stencil/低ズーム線用）
 //   polyBboxByFid / outlineZoom / fillOff / capMinW / weightHist
-//   pivot:    { px, w, h } | null（fid→bbox テクスチャの中身＝stencil 扇要＋GPU bbox カリング）
+//   pivot:    { px, w, h } | null（鍵→bbox テクスチャの中身＝stencil 扇要＋GPU bbox カリング。鍵＝fid、続けて多片地物の構成ポリゴンの鍵）
+//   comp:     { keys, w, h } | null（ポリゴン辺→塗り扇の鍵。多片地物（1 地物に複数の構成ポリゴン）がある層だけ・無い層は null＝従来どおり fid）
 // tier は bakeTier() で1段ずつ（遅延構築・progressive 送信の単位に合わせる）。
 
 import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
-         buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.ts';
+         buildPolyBboxByFid, buildPolyCompBbox, deriveOutlineZoom, buildWeightHist } from './utility.ts';
 import type { ArcBuffer, EdgeMeta, BoundaryEdgeMeta, EdgeChunk, WeightHist } from './utility.ts';
 
 /** 受け取った gint ペイロード（unPackGint の形・読む分） */
@@ -18,7 +19,9 @@ export interface GintPayload { arcBuffer?: ArcBuffer | null; arcMeta?: Uint32Arr
 /** ベイクが読む gintData（_ringsNormalized／_capMinW はベイクが書く印） */
 export interface GintData { arcBuffer: ArcBuffer | null; arcMeta: Uint32Array | null; polyStream: Int32Array | null; lineStream: Int32Array | null; pointBuffer: ArrayBufferView | null; point: unknown; polyCompBbox: unknown; fillMaxEdges: number | null; lowFill: boolean; _ringsNormalized?: boolean; _capMinW?: number }
 export interface GintPivot { px: Uint32Array; w: number; h: number }
-export interface BakeBaseResult { base: EdgeMeta; boundary: BoundaryEdgeMeta | null; polyBboxByFid: Map<number, number[]> | null; outlineZoom: number | null; fillOff: boolean; lowFill: boolean; capMinW: number; weightHist: WeightHist | null; pivot: GintPivot | null }
+/** ポリゴン辺 → 塗り扇の鍵（pivot の行）。R32UI・幅 w＝pivot と同じ 4096 */
+export interface GintComp { keys: Uint32Array; w: number; h: number }
+export interface BakeBaseResult { base: EdgeMeta; boundary: BoundaryEdgeMeta | null; polyBboxByFid: Map<number, number[]> | null; outlineZoom: number | null; fillOff: boolean; lowFill: boolean; capMinW: number; weightHist: WeightHist | null; pivot: GintPivot | null; comp: GintComp | null }
 export interface BakedTier { minW: number; edgeCount: number; chunks: EdgeChunk[] | null; metaU32: Uint32Array }
 
 // 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先
@@ -69,7 +72,12 @@ export function bakeBase(gintData: GintData): BakeBaseResult {
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 
 	const polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
-	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
+	// 構成ポリゴン（外環＋穴）ごとの bbox。1 地物に複数の構成ポリゴンがある層（多片＝島・飛び地・世界規模の気候区分）だけ、
+	// 塗り扇の要と裏側カリングをポリゴン単位にする（辺→鍵の表 comp）。全地物が 1 片の層は従来どおり（出力は byte で同一）
+	const compBbox = buildPolyCompBbox(ps, am);
+	let multi = false;
+	if (compBbox) { const seen = new Set<number>(); for (const bb of compBbox.values()) { if (seen.has(bb[4])) { multi = true; break; } seen.add(bb[4]); } }
+	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES, compOfEdge: multi };
 	let capMinW = 0;
 	let weightHist: WeightHist | null = null;
 	let base = buildEdgeMeta(am, ps, ls, ab, 0, metaOpts);   // ab＝縫い目辺（切断の痕）の除去に使う（minWeight=0 なので LOD キャップは掛からない）
@@ -104,24 +112,46 @@ export function bakeBase(gintData: GintData): BakeBaseResult {
 
 	// fid→bbox テクスチャの中身（①stencil 扇要=bbox中心＝TBDR パラメータバッファ爆発の根治
 	// ②feature 単位 GPU bbox カリング）。異常に疎な fid はテクスチャが無駄に巨大化＝null（従来要へ）。
-	let pivot: GintPivot | null = null;
+	// 多片地物の構成ポリゴンは fid の後ろの行（鍵 maxFid+1…）に bbox を持ち、辺→鍵の表（comp）が塗り扇をそこへ引く。
+	// 1 片の地物の鍵は fid そのもの（行は同じ bbox）。線パスは従来どおり fid の行（地物 bbox）で刈る
+	let pivot: GintPivot | null = null, comp: GintComp | null = null;
 	if (polyBboxByFid?.size) {
 		let maxFid = 0;
 		for (const fid of polyBboxByFid.keys()) if (fid > maxFid) maxFid = fid;
-		if (maxFid < (1 << 22)) {
-			const W = 4096, H = Math.ceil((maxFid + 1) / W);
+		const keyOfComp = new Map<number, number>();   // 構成ポリゴンの見出し位置 → 鍵（多片地物の片だけ）
+		if (multi && compBbox) {
+			const nComp = new Map<number, number>();
+			for (const bb of compBbox.values()) nComp.set(bb[4], (nComp.get(bb[4]) ?? 0) + 1);
+			let key = maxFid + 1;
+			for (const [head, bb] of compBbox) if (nComp.get(bb[4])! > 1) keyOfComp.set(head, key++);
+		}
+		const rows = maxFid + 1 + keyOfComp.size;
+		if (rows <= (1 << 22)) {
+			const W = 4096, H = Math.ceil(rows / W);
 			const px = new Uint32Array(W * H * 4);
 			for (const [fid, bb] of polyBboxByFid) {
 				px[fid * 4] = bb[0]; px[fid * 4 + 1] = bb[1]; px[fid * 4 + 2] = bb[2]; px[fid * 4 + 3] = bb[3];
 			}
+			for (const [head, key] of keyOfComp) {
+				const bb = compBbox!.get(head)!;
+				px[key * 4] = bb[0]; px[key * 4 + 1] = bb[1]; px[key * 4 + 2] = bb[2]; px[key * 4 + 3] = bb[3];
+			}
 			pivot = { px, w: W, h: H };
+			if (keyOfComp.size && base.compOfEdge) {
+				const n = base.polyEdgeCount, CH = Math.max(1, Math.ceil(n / W));
+				const keys = new Uint32Array(W * CH);
+				const co = base.compOfEdge, mu = base.metaU32;
+				for (let e = 0; e < n; e++) keys[e] = keyOfComp.get(co[e]) ?? mu[e * 4 + 3];   // 1 片の地物の辺＝fid
+				comp = { keys, w: W, h: CH };
+			}
 		}
 	}
+	base.compOfEdge = null;   // 表に写し終えた（転送・比較の対象から外す）
 
 	// lowFill＝fillOff でも低ズーム帯（z<outlineZoom）の単色ベタ塗りだけは生かす層別フラグ（geoedit 大規模モード）。
 	// 低ズーム塗りは境界メタ stencil（正味winding≠0のみ＝隣接データなら桁減）＝v1(ortho-map) が全密度で滑らかに
 	// 描けていた帯であり、fillOff の本来の標的（per-fid idfill・全ズーム常時の全密度扇）とはコスト構造が別。
-	return { base, boundary, polyBboxByFid, outlineZoom, fillOff, lowFill: !!gintData.lowFill, capMinW, weightHist, pivot };
+	return { base, boundary, polyBboxByFid, outlineZoom, fillOff, lowFill: !!gintData.lowFill, capMinW, weightHist, pivot, comp };
 }
 
 // tier の適応梯子＝構築せずに hist の先読み件数で選定（edgeCount(w)=hist[w]-nUsages、ハーネスで一致証明済）。

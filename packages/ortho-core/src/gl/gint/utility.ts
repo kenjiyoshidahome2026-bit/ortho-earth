@@ -48,6 +48,10 @@ export function bindPivot(s: GintGLState, gl: WebGL2RenderingContext, u: Uniform
 	gl.uniform1i(u.u_pivot_tex, 2);
 	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
 	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
+	// 辺→塗り扇の鍵（多片地物の層だけ・unit11）。塗り扇（stencil/idfill）だけが読む＝線パス（uRender）は鍵の uniform を持たない＝無視される
+	gl.uniform1i(u.u_comp_tex, 11);
+	gl.uniform1i(u.u_comp_w, s.compW || 1);
+	gl.uniform1i(u.u_has_comp, (s.pivotTex && s.compTex) ? 1 : 0);
 	const vb = s.lastViewBbox;
 	gl.uniform1i(u.u_use_vbb, (s.pivotTex && vb) ? 1 : 0);
 	if (vb) gl.uniform4ui(u.u_view_bbox,
@@ -60,7 +64,8 @@ export function bindPivot(s: GintGLState, gl: WebGL2RenderingContext, u: Uniform
 	}
 	// pivot 無しでも「null を」バインド＝unit2 は基図の メッシュマスク（float）と共用。残留 float を
 	// usampler(u_pivot_tex) が掴むと sampler型不整合で draw 全滅（renderer unit1 の標高と対の同病）。
-	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex || null); gl.activeTexture(gl.TEXTURE0);
+	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex || null);
+	gl.activeTexture(gl.TEXTURE11); gl.bindTexture(gl.TEXTURE_2D, s.compTex || null); gl.activeTexture(gl.TEXTURE0);
 }
 
 // 深度統合（1canvas 段階B）uniform：data.depth（renderer の frame コンテキスト＝terrainDepth 時のみ非null）

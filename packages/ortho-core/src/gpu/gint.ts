@@ -77,9 +77,9 @@ export interface GintAtlasTarget { enc: GPUCommandEncoder; view: GPUTextureView;
 type GpuGintData = GintData & { pointBuffer: ArcBuffer | null; point: Uint32Array };
 interface GintTier { minW: number; edgeCount: number; chunks: EdgeChunk[] | null; tex: GPUTexture }
 /** スロット束（GintSlot のテクスチャ＝GPUTexture） */
-interface GpuSlot extends Omit<GintSlot, "gintData" | "arcTex" | "metaTex" | "metaTexB" | "ptTex" | "ptMetaTex" | "pivotTex" | "lodTiers" | "metaChunks" | "subB"
+interface GpuSlot extends Omit<GintSlot, "gintData" | "arcTex" | "metaTex" | "metaTexB" | "ptTex" | "ptMetaTex" | "pivotTex" | "compTex" | "lodTiers" | "metaChunks" | "subB"
 	| "polyEdgeByFid" | "polyBboxByFid" | "outlineZoom" | "fidStyleTex" | "_fidStyleData"> {
-	gintData: GpuGintData | null; arcTex: GPUTexture | null; metaTex: GPUTexture | null; metaTexB: GPUTexture | null; ptTex: GPUTexture | null; ptMetaTex: GPUTexture | null; pivotTex: GPUTexture | null;
+	gintData: GpuGintData | null; arcTex: GPUTexture | null; metaTex: GPUTexture | null; metaTexB: GPUTexture | null; ptTex: GPUTexture | null; ptMetaTex: GPUTexture | null; pivotTex: GPUTexture | null; compTex: GPUTexture | null;
 	lodTiers: GintTier[]; metaChunks: EdgeChunk[] | null; subB: number[] | null;
 	polyEdgeByFid: Map<number, [number, number]> | null; polyBboxByFid: Map<number, number[]> | null; outlineZoom: number | null;
 	fidStyleTex: GPUTexture | null; _fidStyleData: { u32: Uint32Array; count: number } | null;
@@ -189,6 +189,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		{ binding: 1, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } },
 		{ binding: 2, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "float" } },
 		{ binding: 3, visibility: GPUShaderStage.VERTEX, sampler: { type: "filtering" } },
+		{ binding: 4, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } },   // compTex（辺→塗り扇の鍵・R32UI・多片地物の層だけ・無い層は dummy）
 	] });
 	const bglBuf2 = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
@@ -406,14 +407,14 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	};
 	// group(3)＝pivot/fidStyle/標高（層ごとキャッシュ＝何かが差し替わった時だけ作り直す）
 	function auxGroup(L: GintLayer, elevView: GPUTextureView | null | undefined, elevSamp: GPUSampler | null | undefined): GPUBindGroup {
-		const p = L.pivotTex || dummyU32, f = L.fidStyleTex || dummyU32;
+		const p = L.pivotTex || dummyU32, f = L.fidStyleTex || dummyU32, c = L.compTex || dummyU32;
 		const ev = elevView || dummyF32.createView(), es = elevSamp || dummySamp;
-		const key = [p, f, elevView || dummyF32, es];
+		const key = [p, f, elevView || dummyF32, es, c];
 		if (L._auxBG && L._auxKey && L._auxKey.every((v, i) => v === key[i])) return L._auxBG;
 		L._auxKey = key;
 		return L._auxBG = device.createBindGroup({ layout: bglAux, entries: [
 			{ binding: 0, resource: p.createView() }, { binding: 1, resource: f.createView() },
-			{ binding: 2, resource: ev }, { binding: 3, resource: es }] });
+			{ binding: 2, resource: ev }, { binding: 3, resource: es }, { binding: 4, resource: c.createView() }] });
 	}
 
 	// ── テクスチャ搭載（textures.js の WebGPU 版）────────────────────────
@@ -455,6 +456,13 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (art.pivot && art.pivot.w <= TEX_ARC_W) {
 			L.pivotTex = texU32(art.pivot.px, art.pivot.w, art.pivot.h, "rgba32uint", 4);
 			L.pivotW = art.pivot.w;
+		}
+		// compTex: ポリゴン辺→塗り扇の鍵（R32UI）。多片地物の層だけ（GL textures.ts と対）＝扇の要と裏側カリングを構成ポリゴン単位に
+		if (L.compTex) { L.compTex.destroy(); L.compTex = null; }
+		L.compW = 0;
+		if (L.pivotTex && art.comp && art.comp.w <= TEX_ARC_W) {
+			L.compTex = texU32(art.comp.keys, art.comp.w, art.comp.h, "r32uint", 1);
+			L.compW = art.comp.w;
 		}
 		dropTex(L.metaTexB);
 		L.metaTexB = null;
@@ -515,12 +523,12 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		setTimeout(buildNext, 0);
 	}
 	function deleteTextures(L: GintLayer) {
-		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex"] as const) { dropTex(L[f]); L[f] = null; }
+		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "compTex"] as const) { dropTex(L[f]); L[f] = null; }
 		if (L.lodTiers?.length) L.lodTiers.forEach(t => dropTex(t.tex));
 		L.lodTiers = [];
 		L.metaChunks = null;
 		L.totalEdgesB = L.polyEdgesB = 0;
-		L.pivotW = 0;
+		L.pivotW = 0; L.compW = 0;
 	}
 
 	// ── fid スタイル表（idfill.js uploadFidStyle の WebGPU 版）──────────────
@@ -624,7 +632,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		L._pfLineEdges = 0; L._pfTierW = -1;
 	};
 	const deleteBundleTextures = (b: Partial<GpuSlot>) => {
-		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "fidStyleTex"] as const)
+		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "compTex", "fidStyleTex"] as const)
 			{ dropTex(b[f]); b[f] = null; }
 		if (b.lodTiers?.length) b.lodTiers.forEach(t => dropTex(t.tex));
 		b.lodTiers = [];
@@ -815,7 +823,9 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (fp) { gfF[o + 128] = fp.axes[0]; gfF[o + 129] = fp.axes[1]; gfF[o + 130] = fp.axes[2]; gfF[o + 131] = fp.axes[3]; }
 		else if (gP) { gfF[o + 128] = gP[0]; gfF[o + 129] = gP[1]; gfF[o + 130] = 0; gfF[o + 131] = 0; }
 		gfF[o + 132] = fp ? fp.q[0] : 0; gfF[o + 133] = fp ? fp.q[1] : 0; gfF[o + 134] = fp ? 1 : gP ? 2 : 0; gfF[o + 135] = FAR_K;
-		gfU[o + 136] = fp ? fp.big[0] : 0; gfU[o + 137] = fp ? fp.big[1] : 0; gfU[o + 138] = 0; gfU[o + 139] = 0;
+		gfU[o + 136] = fp ? fp.big[0] : 0; gfU[o + 137] = fp ? fp.big[1] : 0;
+		gfU[o + 138] = (!noPivot && L.pivotTex && L.compTex) ? (L.compW || 1) : 0;   // farBig.z＝辺→塗り扇の鍵の表の幅（0＝表なし＝鍵は fid）。境界メタ（noPivot）は読まない
+		gfU[o + 139] = 0;
 		const ci = clipInfo();   // 断面（#111 段 3）＝派生の GF だけが読む末尾（float 80〜127）
 		if (ci) packClip(gfF, o + 80, d.origin, ci);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}

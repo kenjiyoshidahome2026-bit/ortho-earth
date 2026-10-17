@@ -255,6 +255,17 @@ uniform int        u_use_vbb;     // 1＝bboxカリング有効（bboxテクス�
 uniform vec4       u_far_axes;
 uniform vec4       u_far_q;
 uniform uvec2      u_far_big;
+// 辺→塗り扇の鍵（R32UI・unit11・bake comp）：多片地物（1 地物に複数の構成ポリゴン）の層だけ。鍵は fid か、多片地物の片なら
+// pivot テクスチャの fid の後ろの行＝構成ポリゴンの bbox。扇の要と裏側カリングを「地物」でなく「構成ポリゴン」単位にする：
+// 世界規模の気候区分（アジアと南米が 1 地物）を地物 bbox で見ると半球級＝裏側の片も描かれ、地平円へ潰れた環が画面を一周して
+// 海まで塗った（2026-10-17）。u_has_comp=0（全地物 1 片・線パス・境界メタ）＝鍵は fid（従来どおり）
+uniform usampler2D u_comp_tex;
+uniform int        u_comp_w;
+uniform int        u_has_comp;
+uint fanKey(int edge_id, uint fid) {
+	if (u_has_comp == 0) return fid;
+	return texelFetch(u_comp_tex, ivec2(edge_id % u_comp_w, edge_id / u_comp_w), 0).r;
+}
 // 地面アトラスへの焼き込み（RTT ドレープ・2026-09-21）：窓座標モード＝原点相対 dLL（deg）を経緯度整列の窓へ線形写像。
 // 球面投影・地平クランプ・ドレープ・視野カリングは無効（窓の外は FBO の外＝クリップ）。塗り扇（stencil/idfill）だけが使う。
 uniform vec4       u_atlas;       // xy＝原点−窓南西隅(deg・CPU f64)・zw＝1/窓幅
@@ -272,10 +283,10 @@ uvec4 fetchFidBbox(uint fid) {
 // cos d(φ)=A sinφ+B cosφ（B<0）のくぼみが角より遠くなり得る＝解析的に取る。3.5° の余裕＝標高で地平線の向こうが
 // 覗く分と bbox 中心≒キャップ中心の粗さ。Δλ≥180°（縫い目跨ぎ bbox）は rad が 180° へ伸びる＝自然に「常に可視」。
 // 対蹠点を囲む面は horizonClamp だけだと環が地平円を一周＝全面 ±1 になる（2026-09-02 実測）＝この棄却が要。
+// 経度スパン ≥180° の bbox も免除しない（旧＝免除・2026-09-15「縫い目を跨ぐ円が z≈6 以下で消える」の応急）：縫い目跨ぎは bake の
+// 周期対応合流（x>360e7）で中心が正しく、全幅の bbox も rad が縁の経線（中心の対蹠経線）まで伸びる＝保守的に正しい。免除したままだと
+// 南極の EF（全幅）や世界規模の区分の片が裏側でも描かれ、対蹠点を囲む環が地平円を一周して画面全体を塗った（2026-10-17 ケッペン）
 bool capVisible(uvec4 bb) {
-	// 縫い目（±180）を跨ぐ feature＝切断後の bbox が経度全幅＝中心が反対側（lon 0）に化けて裏と誤判定＝丸ごと消える
-	//（本人報告 2026-09-15「z≈6 以下で円だけ消える」＝縫い目を跨ぐ円）。スパン ≥180° はキャップが半球級＝判定の意味も無い＝免除
-	if (bb.z - bb.x >= 1800000000u) return true;
 	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u, cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox（x>360e7）＝中心を [0,360e7) へ
 	float latC = (u_origin.y + float(int(cy - u_iy_center)) * 1e-7) * D2R;
 	float lat0 = (u_origin.y + float(int(bb.y - u_iy_center)) * 1e-7) * D2R;
@@ -567,10 +578,11 @@ void main() {
 	int edge_id = gl_VertexID / 3;
 	int sub     = gl_VertexID % 3;
 	uvec4 meta = fetchEdgeMeta(edge_id);
-	if (!bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 視野外 feature＝丸ごと棄却
+	uint key = fanKey(edge_id, meta.a);   // 扇の鍵＝fid か構成ポリゴン（多片地物の層）
+	if (!bboxVisible(key)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 視野外（裏側）の構成ポリゴン＝丸ごと棄却
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（TBDRパラメータバッファ対策）
+	if (sub == 0) { gl_Position = pivotClip(key); return; }   // 扇要＝構成ポリゴン局所（TBDRパラメータバッファ対策）
 	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsStencil と対）
 }`;
 
@@ -1029,7 +1041,7 @@ export function createGintPrograms(gl: WebGL2RenderingContext, { quad4 = true }:
 		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
 		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
 		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add', 'u_fid_wscale']);        // per-fid スタイル（paint）
-	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big']);   // 深度＝fetchClipDrape（面ドレープ）・遠方の要
+	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big', 'u_comp_tex', 'u_comp_w', 'u_has_comp']);   // 深度＝fetchClipDrape（面ドレープ）・遠方の要・辺→扇の鍵
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);
 	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']);
