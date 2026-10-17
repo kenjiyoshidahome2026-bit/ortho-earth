@@ -34,7 +34,7 @@ orthoJapan().then(map => {
 		nav.append(b);
 	}
 	(document.getElementById("map") || document.body).append(nav);
-	mark(); (map.on as (ev: string, cb: () => void) => unknown)("moveend", mark);   // as＝"moveend" は GlobeMap の合図に無い（型の口は move・settle）＝実行時の map.on は知らない名を黙って捨てる。挙動不変の TS 化なので字面はそのまま
+	mark(); map.on("settle", mark);   // 止まるたび＝今いる都市のボタンを押し込む（旧 "moveend" は GlobeMap に無い名で一度も呼ばれなかった）
 }).catch(e => import("@ortho-earth/globe/page.js").then(m => m.startupFailed("nl", e), () => { console.error("[nl] startup failed", e); dismissBoot(); }));   // 起動失敗＝画面に言葉で（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 if (location.protocol === "https:" && "serviceWorker" in navigator)
 	addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
