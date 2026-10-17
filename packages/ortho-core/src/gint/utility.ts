@@ -4,9 +4,9 @@
 export type ArcBuffer = ArrayBufferView & { length: number };
 /** 辺メタのチャンク台帳の 1 件（可視カリング単位） */
 export interface EdgeChunk { start: number; end: number; bbox: number[]; sx: number; sy: number; sub?: number[] | null }
-export interface EdgeMetaOptions { orderBbox?: Map<number, number[]> | null; chunkEdges?: number }
+export interface EdgeMetaOptions { orderBbox?: Map<number, number[]> | null; chunkEdges?: number; compOfEdge?: boolean }   // compOfEdge＝ポリゴン辺ごとの構成ポリゴン（polyStream の見出し位置）を返す（bake の塗り扇の要・カリングをポリゴン単位にする）
 /** buildEdgeMeta の戻り */
-export interface EdgeMeta { metaU32: Uint32Array; edgeCount: number; polyEdgeCount: number; polyEdgeByFid: Map<number, [number, number]>; chunks: EdgeChunk[] | null; seamSkipped?: number; subCount?: number; sub?: number[] | null; spanX?: number; spanY?: number }
+export interface EdgeMeta { metaU32: Uint32Array; edgeCount: number; polyEdgeCount: number; polyEdgeByFid: Map<number, [number, number]>; chunks: EdgeChunk[] | null; seamSkipped?: number; subCount?: number; sub?: number[] | null; spanX?: number; spanY?: number; compOfEdge?: Uint32Array | null }   // compOfEdge＝opts.compOfEdge の時だけ：ポリゴン辺 e → その辺が属する構成ポリゴンの polyStream 見出し位置
 /** buildBoundaryEdgeMeta の戻り */
 export interface BoundaryEdgeMeta { metaU32: Uint32Array; edgeCount: number; polyEdgeCount: number; subCount?: number; sub?: number[] | null; spanX?: number; spanY?: number }
 export interface WeightHist { hist: Float64Array; nUsages: number }
@@ -225,6 +225,11 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
+	// 構成ポリゴン（外環＋穴＝polyStream の 1 見出し）ごとの辺の帰属（opts.compOfEdge）。塗り扇の要と裏側カリングを「地物」でなく
+	// 「構成ポリゴン」単位にする材料（bake）。同じ地物の遠く離れた片（世界規模の気候区分＝アジアと南米が 1 地物）を、
+	// 地物 bbox が半球級だからと裏側のまま描くと、地平円へ潰れた環が画面全体を一周して海まで塗った（2026-10-17 ケッペン）
+	const compOf = opts?.compOfEdge && polyStream ? new Uint32Array(total) : null;
+	let curComp = 0;   // 今書いている構成ポリゴンの見出し位置（addArc が辺ごとに写す・折れ線は書かない）
 
 	// チャンク台帳（可視カリング単位）
 	const chunkEdges = opts?.chunkEdges ?? 0;
@@ -261,6 +266,7 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 				const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
 				if (seamSkip) { const k = seamKeyOf(a, b); if (k !== null && seamSkip.has(k)) { skipped++; continue; } }
 				if (span) bucketOf![j >> 2] = span.add(a, b);
+				if (compOf && styleId === 0) compOf[j >> 2] = curComp;
 				buf[j++] = a; buf[j++] = b;
 				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 			}
@@ -275,6 +281,7 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 					if (prev !== -1) {
 						if (seamSkip) { const k = seamKeyOf(prev, idx); if (k !== null && seamSkip.has(k)) { skipped++; ei++; prev = idx; continue; } }
 						if (span) bucketOf![j >> 2] = span.add(prev, idx);
+						if (compOf && styleId === 0) compOf[j >> 2] = curComp;
 						buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid;
 					}
 					prev = idx;
@@ -309,6 +316,7 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 			seamSkip = seamU32 ? seamPairsOf(start, end) : null;   // 縫い目対（切断の痕）はこの fid の辺から落とす
 			let p = start;
 			while (p < end) {
+				curComp = p;
 				p++; const numRings = polyStream[p++];
 				for (let r = 0; r < numRings; r++) {
 					const ac = polyStream[p++];
@@ -352,7 +360,8 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 	const sub: SubRows = span ? appendSubRows(meta0, edgeCount, bucketOf!, chunks) : { metaU32: meta0, subCount: 0, sub: null };
 	return { metaU32: sub.metaU32, edgeCount, polyEdgeCount, polyEdgeByFid, chunks, seamSkipped: skipped,
 		subCount: sub.subCount, sub: sub.sub,   // 複製行（長辺の細分用）の行数と、台帳無し時の [b,start,count,…]（台帳有りは chunk.sub）
-		spanX: span ? span.ax : -1, spanY: span ? span.ay : -1 };   // 最長辺の経緯度スパン（e7・全体）。-1＝未知
+		spanX: span ? span.ax : -1, spanY: span ? span.ay : -1,   // 最長辺の経緯度スパン（e7・全体）。-1＝未知
+		compOfEdge: compOf ? compOf.subarray(0, polyEdgeCount) : null };   // ポリゴン辺の構成ポリゴン（縫い目辺を落とした分は詰まっている＝buf と同じ j の並び）
 }
 
 // arc bbox が ±180（ix=0 または 360e7）に載る arc が1つでもあるか＝縫い目辺の有無の門（v1 hasAntimeridianSeam の写し）。
@@ -597,6 +606,32 @@ export function buildPolyBboxByFid(polyStream: Int32Array | null | undefined, ar
 		}
 	}
 	return byFid;
+}
+
+// 構成ポリゴン（polyStream の 1 見出し＝外環＋穴）ごとの bbox（buildPolyBboxByFid と同じ周期対応の合流）。
+// 鍵＝見出しの polyStream 位置（buildEdgeMeta の compOfEdge と同じ鍵）・値＝[x0,y0,x1,y1,fid]。bake が塗り扇の要と裏側カリングを
+// ポリゴン単位にする材料。縫い目で切られた 2 片は別の構成ポリゴン＝それぞれ細い bbox（地物 bbox の全幅フォールバックに頼らない）
+export function buildPolyCompBbox(polyStream: Int32Array | null | undefined, arcMeta: Uint32Array | null | undefined): Map<number, number[]> | null {
+	if (!polyStream || !arcMeta || !polyStream.length) return null;
+	const byComp = new Map<number, number[]>(); let p = 0;
+	while (p < polyStream.length) {
+		const head = p, fid = polyStream[p++], numRings = polyStream[p++];
+		const bb = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0, fid]; byComp.set(head, bb);
+		for (let r = 0; r < numRings; r++) { const ac = polyStream[p++];
+			for (let a = 0; a < ac; a++) {
+				const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8;
+				let x0 = arcMeta[m+4], x1 = arcMeta[m+6];
+				if (bb[2] >= bb[0]) {
+					const d = (x0 + x1) / 2 - (bb[0] + bb[2]) / 2;
+					if (d < -HALF_E7 && x1 + PERIOD_E7 <= U32_MAX) { x0 += PERIOD_E7; x1 += PERIOD_E7; }
+					else if (d > HALF_E7 && bb[2] + PERIOD_E7 <= U32_MAX) { bb[0] += PERIOD_E7; bb[2] += PERIOD_E7; }
+				}
+				if (x0 < bb[0]) bb[0] = x0; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
+				if (x1 > bb[2]) bb[2] = x1; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
+			}
+		}
+	}
+	return byComp;
 }
 
 // アウトライン⇄ベタ塗りの切替ズームをデータ粒度から導出（ortho-map から移植）。中央値ポリゴンが
