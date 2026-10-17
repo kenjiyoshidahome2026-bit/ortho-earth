@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["main.ts"]
+	"include": ["main.ts", "solar.ts", "i18n.ts"]
 }

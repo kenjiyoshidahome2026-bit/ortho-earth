@@ -2,6 +2,7 @@
 // quakes/sats と同じ骨格：器＝fireworks.html／UI と合図＝ここ／描画＝fireworks-gl.js（レンダーワーカー内・地球と同じフレーム・同じ cam）。
 // 発射地点＝隅田川（桜橋の下流・隅田川花火大会の第一会場のあたり）。視点は南から北を見る＝東京スカイツリー（634 m）が花火の手前に立つ。
 import { worldRadiusM } from "@ortho-earth/core";
+import type { GlobeMap } from "@ortho-earth/globe";
 import glUrl from "./fireworks-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く
 import { SHELLS, COLORS, KINDS } from "./fireworks-gl.js";   // 玉の表（正本は fireworks-gl.js）
 import { tr, setLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
@@ -10,7 +11,7 @@ const t = tr();
 export const SITE = { lon: 139.8065, lat: 35.7195 };   // 桜橋のすぐ下流（隅田川）
 const VIEW = { lon: 139.8092, lat: 35.7138, zoom: 15.4, tilt: 63, bearing: 340 };   // 南南東から＝スカイツリー（発射地点の南南東 1.1 km）が花火の手前に立つ
 
-export async function mountFireworks(map, { panelHost, quiet = false, fly = true } = {}) {   // quiet＝最初の 1 発を上げない・fly=false＝視点へ飛ばない（検定）
+export async function mountFireworks(map: GlobeMap, { panelHost, quiet = false, fly = true }: { panelHost?: HTMLElement; quiet?: boolean; fly?: boolean } = {}) {   // quiet＝最初の 1 発を上げない・fly=false＝視点へ飛ばない（検定）
 	await setLang(); await loadPage(c => import(`./i18n/lang/fireworks/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む
 	document.title = t("Fireworks over Sumida — ortho-japan");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Full-scale fireworks (a 10-inch shell opens 320 m wide at 330 m) launched over the Sumida River, hidden by the buildings and Tokyo Skytree in front of them."));
@@ -19,7 +20,7 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 	ov.post({ type: "site", lon: SITE.lon, lat: SITE.lat });
 
 	const st = { go: 10, auto: false, color: -1, kind: "kiku" };
-	const KIND_LABEL = { kiku: t("Chrysanthemum"), botan: t("Peony"), yanagi: t("Willow"), henka: t("Colour change") };
+	const KIND_LABEL: Record<string, string> = { kiku: t("Chrysanthemum"), botan: t("Peony"), yanagi: t("Willow"), henka: t("Colour change") };
 	let autoT = 0, count = 0;
 	const launch = (go = st.go) => {
 		const dx = (Math.random() - 0.5) * 60, dy = (Math.random() - 0.5) * 30;   // 台船の並び＝少しばらける
@@ -57,18 +58,18 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 <div class="row"><button class="view">${t("Back to the river")}</button></div>
 <div class="note">${t("Launched: $1", '<span class="cnt">0</span>')}. ${t("Stars behind a building or the Skytree are hidden by the scene depth (#47). Tilt and orbit to see it.")}</div>`;
 	(panelHost || map.mapEl).appendChild(panel);
-	const upd = () => { panel.querySelector(".cnt").textContent = String(count); };
-	panel.querySelector(".shells").addEventListener("click", e => { const b = e.target.closest("button[data-go]"); if (!b) return; st.go = +b.dataset.go; for (const x of panel.querySelectorAll(".shells button")) x.classList.toggle("on", x === b); launch(); });
-	panel.querySelector(".kinds").addEventListener("click", e => { const b = e.target.closest("button[data-kind]"); if (!b) return; st.kind = b.dataset.kind; for (const x of panel.querySelectorAll(".kinds button")) x.classList.toggle("on", x === b); launch(); });
-	panel.querySelector(".colors").addEventListener("click", e => { const b = e.target.closest("button[data-c]"); if (!b) return; st.color = +b.dataset.c; for (const x of panel.querySelectorAll(".colors button")) x.classList.toggle("on", x === b); });
-	panel.querySelector(".launch").addEventListener("click", () => launch());
-	const autoBtn = panel.querySelector(".auto");
-	const setAuto = on => { st.auto = on; autoBtn.classList.toggle("on", on); autoBtn.textContent = on ? t("Stop") : t("Auto"); clearTimeout(autoT); if (on) autoTick(); };   // 連発中は「止める」
+	const upd = () => { panel.querySelector(".cnt")!.textContent = String(count); };
+	panel.querySelector(".shells")!.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("button[data-go]"); if (!b) return; st.go = +b.dataset.go!; for (const x of panel.querySelectorAll(".shells button")) x.classList.toggle("on", x === b); launch(); });
+	panel.querySelector(".kinds")!.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("button[data-kind]"); if (!b) return; st.kind = b.dataset.kind!; for (const x of panel.querySelectorAll(".kinds button")) x.classList.toggle("on", x === b); launch(); });
+	panel.querySelector(".colors")!.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("button[data-c]"); if (!b) return; st.color = +b.dataset.c!; for (const x of panel.querySelectorAll(".colors button")) x.classList.toggle("on", x === b); });
+	panel.querySelector(".launch")!.addEventListener("click", () => launch());
+	const autoBtn = panel.querySelector(".auto")!;
+	const setAuto = (on: boolean) => { st.auto = on; autoBtn.classList.toggle("on", on); autoBtn.textContent = on ? t("Stop") : t("Auto"); clearTimeout(autoT); if (on) autoTick(); };   // 連発中は「止める」
 	autoBtn.addEventListener("click", () => setAuto(!st.auto));
-	panel.querySelector(".clear").addEventListener("click", () => { setAuto(false); ov.post({ type: "clear" }); });   // 消す＝連発も止める
-	panel.querySelector(".view").addEventListener("click", () => map.flyTo(VIEW.lon, VIEW.lat, VIEW.zoom, VIEW.tilt, VIEW.bearing));
+	panel.querySelector(".clear")!.addEventListener("click", () => { setAuto(false); ov.post({ type: "clear" }); });   // 消す＝連発も止める
+	panel.querySelector(".view")!.addEventListener("click", () => map.flyTo(VIEW.lon, VIEW.lat, VIEW.zoom, VIEW.tilt, VIEW.bearing));
 	// 地図のクリック＝その場所から 1 発（発射地点は変えない＝台船は川の上）
-	const onKey = e => { if (e.key === " " && !e.target.closest("input,textarea,button")) { e.preventDefault(); launch(); } };
+	const onKey = (e: KeyboardEvent) => { if (e.key === " " && !(e.target as Element).closest("input,textarea,button")) { e.preventDefault(); launch(); } };
 	window.addEventListener("keydown", onKey);
 
 	// 最初の 1 発＝視点に着いてから（読み込みの準備時間＝遷移の時間）

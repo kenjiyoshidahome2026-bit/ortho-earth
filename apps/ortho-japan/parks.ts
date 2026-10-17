@@ -10,43 +10,51 @@
 import { gunzip } from "geopbf/gzip";   // bucket の置き物は gzip（Content-Type application/gzip＝素の fetch では解かれない）＝models と同じく自分で解く
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain, pickTitle, wikiUrl as wikiHref, DEFAULT_FALLBACK as WIKI_FALLBACK } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠・冒頭・URL の共通の芯（2026-10-03）
+import type { geopbf as GeopbfFn } from "@ortho-earth/regions/app";
+import type { GlobeMap, GintLayerHandle, GeoJSONFeature, GeoJSONFeatureCollection, Bbox } from "@ortho-earth/globe";
 const t = tr();
 
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// 台帳（parks.json）の 1 件と全体（scripts/parks-ledger が組む）
+type Names = Record<string, string>;
+export interface Park { id: string; key?: string; name: Names; region: string; prefs: string[]; designated: string; areaHa: number; bbox: Bbox; wiki?: Names; site?: string; siteEn?: string;
+	photo?: { src?: string; thumb?: string; artist?: string; license?: string; licenseUrl?: string; page?: string } }
+export interface ParkCatalog { parks?: Park[]; prefNames?: Record<string, Names> }
+
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
 const REGIONS = ["hokkaido", "tohoku", "kanto", "chubu", "kinki", "chugoku-shikoku", "kyushu-okinawa"];   // 並び＝北から南
 // 地方の名＝訳のキーを**リテラルで** t() に渡す（i18n の走査器は t("…") の文字列だけ読む）＝mount 時に一度引く
-const zoneNames = () => ({ "特別保護地区": t("Special Protection Zone"), "第1種特別地域": t("Class 1 Special Zone"), "第2種特別地域": t("Class 2 Special Zone"), "第3種特別地域": t("Class 3 Special Zone"), "普通地域": t("Ordinary Zone"), "海域公園地区": t("Marine Park Zone"), "区分未定": t("Undetermined") });
-const regionNames = () => ({ hokkaido: t("Hokkaidō"), tohoku: t("Tōhoku"), kanto: t("Kantō"), chubu: t("Chūbu"), kinki: t("Kinki"), "chugoku-shikoku": t("Chūgoku & Shikoku"), "kyushu-okinawa": t("Kyūshū & Okinawa") });
+const zoneNames = (): Record<string, string> => ({ "特別保護地区": t("Special Protection Zone"), "第1種特別地域": t("Class 1 Special Zone"), "第2種特別地域": t("Class 2 Special Zone"), "第3種特別地域": t("Class 3 Special Zone"), "普通地域": t("Ordinary Zone"), "海域公園地区": t("Marine Park Zone"), "区分未定": t("Undetermined") });
+const regionNames = (): Record<string, string> => ({ hokkaido: t("Hokkaidō"), tohoku: t("Tōhoku"), kanto: t("Kantō"), chubu: t("Chūbu"), kinki: t("Kinki"), "chugoku-shikoku": t("Chūgoku & Shikoku"), "kyushu-okinawa": t("Kyūshū & Okinawa") });
 // 地種区分（環境省 nps_all の属性「地域区」）＝色は保護の強さの順（濃い緑→黄）・海域は青。bucket の nps_all（10MB gzip・1.1 万面）は押した時だけ読む
 const ZONES_URL = "https://api.ortho-earth.com/bucket/GIS/pbf/nps_all";
-const ZONES = [["特別保護地区", "#1b5e20", 0.62], ["第1種特別地域", "#2e7d32", 0.52], ["第2種特別地域", "#7cb342", 0.46], ["第3種特別地域", "#c0ca33", 0.42], ["普通地域", "#fff176", 0.30], ["海域公園地区", "#29b6f6", 0.45], ["区分未定", "#9e9e9e", 0.35]];
+const ZONES: [string, string, number][] = [["特別保護地区", "#1b5e20", 0.62], ["第1種特別地域", "#2e7d32", 0.52], ["第2種特別地域", "#7cb342", 0.46], ["第3種特別地域", "#c0ca33", 0.42], ["普通地域", "#fff176", 0.30], ["海域公園地区", "#29b6f6", 0.45], ["区分未定", "#9e9e9e", 0.35]];
 // gint 層の持参スタイル：単色フォールバック（移動中に予算を超えた時・z 跨ぎで表が無い時の層の色＝既定は 14 条筆のオレンジ/水色）を透明に・表（256 色）はゼロ
-const NO_SOLID = { fillColor: [0, 0, 0, 0], styleTable: new Float32Array(256 * 4), outlineZoom: 0 };
+const NO_SOLID = { fillColor: [0, 0, 0, 0] as [number, number, number, number], styleTable: new Float32Array(256 * 4), outlineZoom: 0 };
 const NO_SOLID_MOVING = { ...NO_SOLID, moveBudget: Infinity };   // 外周＝軽い（5.8 万頂点）＝移動中も表で描く
-const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+const rgba = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountParks(map, geopbf, { catalog, boundary, panelHost } = {}) {
+export async function mountParks(map: GlobeMap, geopbf: typeof GeopbfFn, { catalog, boundary, panelHost }: { catalog?: string | ParkCatalog; boundary?: string; panelHost?: HTMLElement } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/parks/${c}.json`));   // 訳を用意してから UI を組む（ページの辞書＝i18n/pages/parks.json）
 	document.title = t("National Parks of Japan — ortho-japan");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Japan's 35 national parks on a 3D globe — photos, official boundaries, facts and Wikipedia links in 26 languages."));
 	const mapEl = map.mapEl;
 	const lang = getLang();
 	const RN = regionNames(), ZN = zoneNames();
-	const L = v => (v && typeof v === "object") ? (v[lang] ?? v.en ?? v.ja ?? Object.values(v)[0] ?? "") : (v ?? "");
-	const fmtN = n => Number(n).toLocaleString(lang);
-	const fmtDate = s => { try { return new Date(s + "T00:00:00Z").toLocaleDateString(lang, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }); } catch { return s; } };
-	const km2 = ha => fmtN(Math.round(ha / 100));   // 陸域 ha → km²（整数）
+	const L = (v: Names | string | undefined) => (v && typeof v === "object") ? (v[lang] ?? v.en ?? v.ja ?? Object.values(v)[0] ?? "") : (v ?? "");
+	const fmtN = (n: number) => Number(n).toLocaleString(lang);
+	const fmtDate = (s: string) => { try { return new Date(s + "T00:00:00Z").toLocaleDateString(lang, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }); } catch { return s; } };
+	const km2 = (ha: number) => fmtN(Math.round(ha / 100));   // 陸域 ha → km²（整数）
 
 	// 台帳
-	const doc = typeof catalog === "string" ? await (await fetch(catalog, { credentials: "omit" })).json() : catalog;
+	const doc: ParkCatalog = typeof catalog === "string" ? await (await fetch(catalog, { credentials: "omit" })).json() : catalog as ParkCatalog;
 	const parks = doc.parks ?? [], PN = doc.prefNames ?? {};
-	const prefName = c => L(PN[c]) || c;
+	const prefName = (c: string) => L(PN[c]) || c;
 	const byId = new Map(parks.map(p => [p.id, p]));
-	const nameOf = p => L(p.name);
+	const nameOf = (p: Park) => L(p.name);
 	const WIKI_LANGS = langChain(lang, WIKI_FALLBACK);   // 自分の言語 → 英語 → 日本語
-	const wikiOf = p => pickTitle(p.wiki, WIKI_LANGS);
-	const wikiUrl = w => w ? wikiHref(w.title, w.lang) : null;
+	const wikiOf = (p: Park) => pickTitle(p.wiki, WIKI_LANGS);
+	const wikiUrl = (w: { lang: string; title: string } | null) => w ? wikiHref(w.title, w.lang) : null;
 	// 写真＝台帳の URL をそのまま使う（thumb＝一覧用の 960px・src＝詳細用の 1280px）。⚠ 幅を URL で差し替えてはいけない＝Commons は API で生成された幅しか配信しない（任意幅は 400・2026-10 実測）
 
 	// ── パネル（models/quakes/sats と同じ意匠＝暗いガラス・写真の格子）──
@@ -144,16 +152,16 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 </div>
 <div class="body"><div data-k="list"></div><div class="note">${t("Boundaries: Ministry of the Environment, Japan (national park areas). Names and links: Wikidata. Photos: Wikimedia Commons, each with its own licence.")}</div></div>`;
 	(panelHost || mapEl).appendChild(panel);
-	const $ = k => panel.querySelector(`[data-k="${k}"]`);
+	const $ = (k: string) => panel.querySelector(`[data-k="${k}"]`) as HTMLElement;
 	// Wikipedia の枠（記事は m. 版・↗ で別タブ・✕/Esc で閉じる）。公園を替える・一覧へ戻る＝閉じる
 	const wikiFrame = createWikiFrame({ host: mapEl, className: "parks-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
-	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
+	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
-	$("lang").addEventListener("change", e => { try { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.replace(u.href); } catch { /* 埋め込み先 */ } });
+	$("lang").addEventListener("change", e => { try { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.replace(u.href); } catch { /* 埋め込み先 */ } });
 
 	// ── 一覧（検索・地方・並び）──
-	let region = "", query = "", sort = "north", cur = null;
+	let region = "", query = "", sort = "north", cur: Park | null = null;
 	const visible = () => {
 		const q = query.trim().toLowerCase();
 		let list = parks.filter(p => (!region || p.region === region) && (!q || [p.name.ja, p.name.en, nameOf(p), p.key, ...p.prefs.map(prefName)].some(s => String(s ?? "").toLowerCase().includes(q))));
@@ -169,27 +177,27 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 			<span class="shade"></span><span class="yr">${p.designated.slice(0, 4)}</span>
 			<span class="txt"><b>${esc(nameOf(p))}</b><small>${esc(p.prefs.map(c => prefName(c).replace(/ Prefecture$/, "")).join(" · "))}</small></span></button>`).join("")}</div>`;
 	};
-	const body = panel.querySelector(".body");
+	const body = panel.querySelector(".body")!;
 	body.addEventListener("click", e => {
-		const b = e.target.closest(".card[data-id]"); if (b) { show(b.dataset.id); return; }
-		const n = e.target.closest("[data-nav]"); if (!n) return;
+		const b = (e.target as Element).closest<HTMLElement>(".card[data-id]"); if (b) { show(b.dataset.id!); return; }
+		const n = (e.target as Element).closest<HTMLElement>("[data-nav]"); if (!n) return;
 		if (n.dataset.nav === "back") back(); else step(n.dataset.nav === "next" ? 1 : -1);
 	});
 	// ホバー＝球にその公園の輪郭（世界の国の地図と同じ作法＝選択はマスク・ホバーは線）
-	body.addEventListener("pointerover", e => { const b = e.target.closest(".card[data-id]"); if (b) hover(b.dataset.id); });
+	body.addEventListener("pointerover", e => { const b = (e.target as Element).closest<HTMLElement>(".card[data-id]"); if (b) hover(b.dataset.id!); });
 	body.addEventListener("pointerleave", () => hover(null));
-	$("q").addEventListener("input", e => { query = e.target.value; renderList(); });
-	$("sort").addEventListener("change", e => { sort = e.target.value; renderList(); });
-	$("chips").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; region = c.dataset.r; for (const x of $("chips").children) x.classList.toggle("on", x === c); renderList(); });
+	$("q").addEventListener("input", e => { query = (e.target as HTMLInputElement).value; renderList(); });
+	$("sort").addEventListener("change", e => { sort = (e.target as HTMLSelectElement).value; renderList(); });
+	$("chips").addEventListener("click", e => { const c = (e.target as Element).closest<HTMLElement>(".chip"); if (!c) return; region = c.dataset.r!; for (const x of $("chips").children) x.classList.toggle("on", x === c); renderList(); });
 
 	// ── 外周（parks.geopbf）＝全公園を薄い緑で常時・名前のラベル・ホバー/クリック ──
-	let zones = null, zonesOn = false, zonesLoading = null;
+	let zones: GintLayerHandle | null = null, zonesOn = false, zonesLoading: Promise<void> | null = null;
 	const BOUNDARY_PAINT = { "fill-color": "rgba(90,200,130,0.20)", "line-color": "#8fd3a7", "line-width": 1.1 };
-	let pbf = null, layer = null;
-	const shapes = new Map();   // id → FeatureCollection（spotlight / outline に渡す形・初回に組む）
-	const shapeOf = id => { if (shapes.has(id)) return shapes.get(id); if (!pbf) return null;
-		const feats = []; for (let i = 0; i < pbf.length; i++) { let pr = null; try { pr = pbf.getProperties(i); } catch { /* 壊れ feature */ } if (pr?.id === id) feats.push(pbf.getFeature(i)); }
-		const fc = feats.length ? { type: "FeatureCollection", features: feats } : null; shapes.set(id, fc); return fc; };
+	let pbf: Awaited<ReturnType<typeof GeopbfFn>> | null = null, layer: GintLayerHandle | null = null;
+	const shapes = new Map<string, GeoJSONFeatureCollection | null>();   // id → FeatureCollection（spotlight / outline に渡す形・初回に組む）
+	const shapeOf = (id: string) => { if (shapes.has(id)) return shapes.get(id); if (!pbf) return null;
+		const feats: GeoJSONFeature[] = []; for (let i = 0; i < pbf.length; i++) { let pr = null; try { pr = pbf.getProperties(i); } catch { /* 壊れ feature */ } if (pr?.id === id) feats.push(pbf.getFeature(i) as GeoJSONFeature); }
+		const fc: GeoJSONFeatureCollection | null = feats.length ? { type: "FeatureCollection", features: feats } : null; shapes.set(id, fc); return fc; };
 	(async () => {
 		try {
 			if (!boundary || !geopbf || !map.addGint) return;
@@ -201,12 +209,13 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 			await layer?.ready;
 			await layer?.setPaint?.(zonesOn ? { ...BOUNDARY_PAINT, "fill-color": "rgba(0,0,0,0)" } : BOUNDARY_PAINT);
 			layer?.on?.("click", e => { const id = e?.properties?.id; if (id && byId.has(id)) show(id); });
-			layer?.on?.("hover", e => { const id = e?.properties?.id ?? null; for (const b of panel.querySelectorAll(".card")) b.classList.toggle("hov", b.dataset.id === id); });
+			layer?.on?.("hover", e => { const id = e?.properties?.id ?? null; for (const b of panel.querySelectorAll<HTMLElement>(".card")) b.classList.toggle("hov", b.dataset.id === id); });
+			// @ts-expect-error TS2448（宣言より前の使用）は誤検知：ここは await の後＝applySpot の宣言（下）は済んでいる
 			if (cur) applySpot(cur);   // 外周が後から届いた＝選択済みの公園にスポットライトを当て直す
 		} catch (e) { console.warn("[parks] boundary", e); }
 	})();
 	// ── 地種区分（押した時だけ bucket の nps_all を読む・2 回目からは IDB）＝公園の塗りは消して区分の色に譲る ──
-	const setZones = async on => {
+	const setZones = async (on: boolean) => {
 		zonesOn = on;
 		$("zones").classList.toggle("on", on); $("zones").setAttribute("aria-pressed", String(on)); $("legend").classList.toggle("on", on);
 		if (on && !zones) {
@@ -224,7 +233,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 					await h?.ready;
 					await h?.setPaint?.({ "fill-color": ["match", ["get", "地域区"], ...ZONES.flatMap(([k, c, a]) => [k, rgba(c, a)]), "rgba(0,0,0,0)"], "line-color": "rgba(255,255,255,0.35)", "line-width": 0.4 });
 					zones = h;
-				} catch (e) { console.warn("[parks] zones", e); $("zstatus").textContent = t("Failed to load: $1", String(e?.message || e)); }
+				} catch (e) { console.warn("[parks] zones", e); $("zstatus").textContent = t("Failed to load: $1", String((e as Error)?.message || e)); }
 				finally { $("zones").removeAttribute("aria-busy"); zonesLoading = null; }
 			})();
 			await zonesLoading;
@@ -235,13 +244,13 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		map.requestDraw?.();
 	};
 	$("zones").addEventListener("click", () => setZones(!zonesOn));
-	let hovId = null;
-	const hover = id => { if (id === hovId) return; hovId = id; const fc = id && shapeOf(id); map.gadget.outline(fc || null, { color: [1, 1, 1, 0.9], width: 2 }); };
-	const applySpot = p => { const fc = shapeOf(p.id); if (fc) map.gadget.spotlight(fc, { fit: false, opacity: 0.32 }); };   // マスクの濃さ 0.32（旧 0.5・本人 10/2「不透明度を下げて」）
+	let hovId: string | null = null;
+	const hover = (id: string | null) => { if (id === hovId) return; hovId = id; const fc = id && shapeOf(id); map.gadget.outline(fc || null, { color: [1, 1, 1, 0.9], width: 2 }); };
+	const applySpot = (p: Park) => { const fc = shapeOf(p.id); if (fc) map.gadget.spotlight(fc, { fit: false, opacity: 0.32 }); };   // マスクの濃さ 0.32（旧 0.5・本人 10/2「不透明度を下げて」）
 
 	// ── 詳細 ──
 	let seq = 0;
-	const renderDetail = async p => {
+	const renderDetail = async (p: Park) => {
 		const my = ++seq, w = wikiOf(p), url = wikiUrl(w), site = lang === "ja" ? p.site : (p.siteEn || p.site);   // 公式サイト＝環境省の公園の頁（日本語／それ以外の言語は英語版）
 		$("list").innerHTML = `<div class="detail">
 			<div class="nav"><button type="button" data-nav="back">← ${t("Back to list")}</button><span><button type="button" data-nav="prev" aria-label="${t("Previous park")}">‹</button> <button type="button" data-nav="next" aria-label="${t("Next park")}">›</button></span></div>
@@ -258,14 +267,14 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 			${p.photo?.src ? `<div class="credit">${t("Photo: $1 ($2)", esc(p.photo.artist || "Wikimedia Commons"), p.photo.licenseUrl ? `<a href="${esc(p.photo.licenseUrl)}" target="_blank" rel="noopener">${esc(p.photo.license || "")}</a>` : esc(p.photo.license || ""))}${p.photo.page ? ` · <a href="${esc(p.photo.page)}" target="_blank" rel="noopener">Wikimedia Commons</a>` : ""}</div>` : ""}
 		</div>`;
 		body.scrollTop = 0;
-		const wp = $("list").querySelector(".wp"); if (wp) wikiFrame.link(wp, url, nameOf(p));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
+		const wp = $("list").querySelector<HTMLAnchorElement>(".wp"); if (wp) wikiFrame.link(wp, url!, nameOf(p));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
 		// Wikipedia の冒頭＝REST summary（共通の芯・IDB 30 日）。自分の言語 → 英語 → 日本語
 		const el = $("extract");
 		const s = await summaryIn(p.wiki, WIKI_LANGS).catch(() => null);
 		if (my !== seq) return;
 		el.textContent = s?.extract || ""; el.classList.remove("wait");
 	};
-	function show(id, { fly = true } = {}) {
+	function show(id: string, { fly = true } = {}) {
 		const p = byId.get(id); if (!p) return;
 		cur = p; hover(null); wikiFrame.close();
 		renderDetail(p);
@@ -283,12 +292,12 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		renderList();
 		try { const u = new URL(location.href); u.searchParams.delete("p"); history.replaceState(null, "", u); } catch { /* 同上 */ }
 	}
-	function step(d) {
+	function step(d: number) {
 		const list = visible(); if (!list.length) return;
 		const i = Math.max(0, list.findIndex(p => p.id === cur?.id));
 		show(list[(i + d + list.length) % list.length].id);
 	}
-	const onKey = e => { if (e.target.closest?.("input,select,textarea")) return; if (!cur) return;
+	const onKey = (e: KeyboardEvent) => { if ((e.target as Element).closest?.("input,select,textarea")) return; if (!cur) return;
 		if (e.key === "Escape" && wikiFrame.isOpen) return;   // 記事が開いている＝Esc は枠が閉じる（一覧へは戻らない）
 		if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); else if (e.key === "Escape") back(); else return; e.preventDefault(); };
 	window.addEventListener("keydown", onKey);

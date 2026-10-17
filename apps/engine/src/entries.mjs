@@ -12,20 +12,20 @@ const src = spec => { const f = fileURLToPath(import.meta.resolve(spec)); return
 const P = p => resolve(ROOT, p);
 // [import の名前, 入口の名（出力＝<名>.js）, ソース]
 export const ENTRIES = [
-	["@ortho-earth/globe", "globe", resolve(import.meta.dirname, "globe.js")],
+	["@ortho-earth/globe", "globe", resolve(import.meta.dirname, "globe.ts")],
 	["@ortho-earth/globe/i18n.js", "i18n", P("packages/globe/src/i18n.ts")],
 	["@ortho-earth/core", "core", P("packages/ortho-core/src/index.ts")],
 	["geopbf", "geopbf", P("packages/geopbf/src/index.ts")],
 	["@ortho-earth/h3/core", "h3", P("packages/h3/src/core.ts")],
 	// 地域の切り替え口（packages/regions＝orthoJapan・2026-10-15 に jp から出した）と地域パック（jp・nl）＝japan・census2020・choju・ortho-nl・gishub-jp が共に読む（2026-10-14）
-	["@ortho-earth/regions/app", "regions/app", resolve(import.meta.dirname, "regions-app.js")],
+	["@ortho-earth/regions/app", "regions/app", resolve(import.meta.dirname, "regions-app.ts")],
 	["@ortho-earth/jp", "jp/index", P("packages/jp/src/index.ts")],
 	["@ortho-earth/jp/region", "jp/region", P("packages/jp/src/region.ts")],
 	["@ortho-earth/jp/codes", "jp/codes", P("packages/jp/src/codes.ts")],
 	["@ortho-earth/jp/shared-data", "jp/shared-data", P("packages/jp/shared-data/index.ts")],
 	["@ortho-earth/nl", "nl/index", P("packages/nl/src/region.ts")],
 	// Equal Earth の部品（packages/equal）＝ortho-globe・ortho-japan（div で重ねる）・equal の頁が共に読む（2026-10-15）。言語の状態は equal 自前（globe の i18n とは別の口）
-	["@ortho-earth/equal", "equal", resolve(import.meta.dirname, "equal.js")],
+	["@ortho-earth/equal", "equal", resolve(import.meta.dirname, "equal.ts")],
 	["@ortho-earth/equal/i18n", "equal-i18n", P("packages/equal/src/i18n.ts")],
 	// 部品の入口（2026-10-15・二重焼きの門番 packages/globe/scripts/lib/engine-modules.mjs が見つけた物）＝アプリがパッケージの
 	// サブパスを直に import していて、そのソースがエンジンにも入っている物。アプリの束に焼くと同じコードを 2 か所で配り、

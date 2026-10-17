@@ -13,9 +13,10 @@ if (!document.querySelector("link[data-ortho-engine]")) {
 import { setWorkerFactory } from "geopbf";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
 import { createEqual as create } from "@ortho-earth/equal";
-const hostWorker = role => new Worker(new URL("@ortho-earth/globe/worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+import type { CreateEqualOptions } from "@ortho-earth/equal";
+const hostWorker = (role: string) => new Worker(new URL("@ortho-earth/globe/worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
 export * from "@ortho-earth/equal";
-export function createEqual(opts = {}) {
+export function createEqual(opts: CreateEqualOptions = {}) {
 	if (opts.geopbf !== false) { setWorkerFactory(hostWorker); setCoreWorkerFactory(hostWorker); }
 	return create(opts);
 }

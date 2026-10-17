@@ -10,7 +10,7 @@
 localStorage.setItem("oj.hint", "closed");
 </script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const Q = new URLSearchParams(location.search);
 const LOAD_MS = +Q.get("load") || 18000, MEASURE_MS = +Q.get("measure") || 9000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));

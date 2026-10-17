@@ -6,22 +6,22 @@
 	],
 	"pages": {
 		"models": [
-			"models.js"
+			"models.ts"
 		],
 		"fireworks": [
-			"fireworks.js"
+			"fireworks.ts"
 		],
 		"parks": [
-			"parks.js"
+			"parks.ts"
 		],
 		"terrain": [
-			"terrain.js"
+			"terrain.ts"
 		],
 		"onsen": [
-			"onsen.js"
+			"onsen.ts"
 		],
 		"tellus": [
-			"tellus.js"
+			"tellus.ts"
 		]
 	}
 }

@@ -13,57 +13,68 @@
 //   選択 … 地図・一覧のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?o=ID で共有できる
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { createWikiFrame, langChain, pickTitle, wikiUrl } from "@ortho-earth/globe/wiki.js";
+import type { GlobeMap, LayerMouseEvent, RenderedFeature, MapLibreLayer, StyleExpression, LonLat, Bbox, GeoJSONFeature, GeoPBF } from "@ortho-earth/globe";
 const t = tr();
+
+// 台帳（onsen.json）の形＝scripts/onsen-ledger/ledger-build.mjs の短い鍵
+//   k＝"o"（温泉）／"g"（温泉郷）・n＝名前・en＝英語名・r＝よみ・p＝都道府県コード・m＝市区町村・w＝Wikipedia の題名（言語→題）・c＝座標
+//   a＝推定の精度 m（0＝実測）・e＝推定の方法・h＝会員宿（inns の添字）・s＝源泉・par＝属する温泉郷・poly＝温泉郷の面・qc＝泉質の分類
+//   q＝泉質・t＝温度・ph・l＝液性・site＝公式サイト
+interface OnsenSource { c?: LonLat; f?: string; k?: string; d?: number; fn?: string; x?: string }
+export interface OnsenItem { id: string; k: "o" | "g"; n: string; en?: string; r?: string; p?: number; m?: string; w?: Record<string, string>; c: LonLat;
+	a: number; e?: string; h?: number[]; s?: OnsenSource; par?: string[]; poly?: LonLat[]; qc?: number[]; q?: string; t?: number; ph?: number; l?: string; site?: string }
+export interface OnsenInn { c?: LonLat; o?: string; n: string; u: string; q?: string }
+interface OnsenDb { items: OnsenItem[]; inns?: OnsenInn[]; prefNames?: Record<string, Record<string, string>> }
 
 // ── 泉質の 10 分類（台帳の classes と同じ順）──────────────────────────────────
 const CLASS_COLORS = ["#7a8699", "#2f78c4", "#2aa198", "#8e6bbf", "#5bc0eb", "#b5542b", "#d6336c", "#6b4226", "#e0b100", "#3c9a3c"];
 const UNKNOWN = "#9aa3ad";
-const className = i => [t("Simple spring"), t("Chloride spring"), t("Bicarbonate spring"), t("Sulfate spring"), t("Carbon dioxide spring"),
+const className = (i: number) => [t("Simple spring"), t("Chloride spring"), t("Bicarbonate spring"), t("Sulfate spring"), t("Carbon dioxide spring"),
 	t("Iron spring"), t("Acidic spring"), t("Iodine spring"), t("Sulfur spring"), t("Radioactive spring")][i] ?? t("Not recorded");
 const SEL = "#d7263d", SRC = "#c0392b", KYO = "#7a4a8c";
-const estName = e => ({ osm: t("Estimated from place names on OpenStreetMap"), addr: t("Estimated from the address (GSI geocoder)"), muni: t("Placed at the municipal office"), region: t("Placed in the region only"), kyo: t("Placed at its onsen district") })[e] || t("Estimated position");
-const srcKindName = k => ({ 遠隔: t("Piped from a distant source"), 運搬: t("Hot water is carried in by truck"), 引湯元あり: t("Piped from another hot spring"), 源泉座標あり: t("The source lies away from the town") })[k] || t("The source lies away from the town");
+const estName = (e: string | undefined) => ({ osm: t("Estimated from place names on OpenStreetMap"), addr: t("Estimated from the address (GSI geocoder)"), muni: t("Placed at the municipal office"), region: t("Placed in the region only"), kyo: t("Placed at its onsen district") } as Record<string, string>)[e!] || t("Estimated position");
+const srcKindName = (k: string | undefined) => ({ 遠隔: t("Piped from a distant source"), 運搬: t("Hot water is carried in by truck"), 引湯元あり: t("Piped from another hot spring"), 源泉座標あり: t("The source lies away from the town") } as Record<string, string>)[k!] || t("The source lies away from the town");
 
 // ひらがな・カタカナの区別なく検索する
-const kana = s => String(s || "").toLowerCase().replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
-const kmOf = (a, b) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
+const kana = (s: string | undefined) => String(s || "").toLowerCase().replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const kmOf = (a: LonLat, b: LonLat) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
 // 半径 m の円（推定の誤差・anno の面）
-const circle = ([lon, lat], m, n = 48) => { const ring = [], kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110570;
+const circle = ([lon, lat]: LonLat, m: number, n = 48) => { const ring: LonLat[] = [], kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110570;
 	for (let i = 0; i <= n; i++) { const a = -2 * Math.PI * i / n; ring.push([lon + Math.cos(a) * m / kx, lat + Math.sin(a) * m / ky]); } return { type: "Polygon", coordinates: [ring] }; };
-const bboxOf = pts => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
+const bboxOf = (pts: LonLat[]): Bbox => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountOnsen(map, { base = "./" } = {}) {
+export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/onsen/${c}.json`));
 	document.title = t("Hot springs of Japan — ortho-japan");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("About 2,000 hot springs of Japan from Wikipedia on a 3D map, colored by spring type, with onsen districts, distant sources and member inns of the Japan Secluded Hot Spring Association."));
 	const lang = getLang(), mapEl = map.mapEl;
 
-	const db = await fetch(base + "onsen.json", { credentials: "omit" }).then(r => { if (!r.ok) throw new Error("onsen.json HTTP " + r.status); return r.json(); });
+	const db: OnsenDb = await fetch(base + "onsen.json", { credentials: "omit" }).then(r => { if (!r.ok) throw new Error("onsen.json HTTP " + r.status); return r.json(); });
 	const items = db.items, byId = new Map(items.map(d => [d.id, d])), inns = db.inns || [];
 	const onsens = items.filter(d => d.k === "o"), kyos = items.filter(d => d.k === "g");
-	const membersOf = new Map(); for (const d of onsens) for (const g of d.par || []) (membersOf.get(g) || membersOf.set(g, []).get(g)).push(d.id);
+	const membersOf = new Map<string, string[]>(); for (const d of onsens) for (const g of d.par || []) (membersOf.get(g) || membersOf.set(g, []).get(g))!.push(d.id);
 	// 名前＝日本語の頁は日本語・それ以外は英語名（en 記事の題名か よみのローマ字）→ 日本語
-	const nameOf = d => lang === "ja" ? d.n : d.en || d.n;
-	const prefOf = d => { const v = d.p && db.prefNames?.[String(d.p).padStart(2, "0")]; return v ? v[lang] || v.en || v.ja : ""; };   // prefNames の鍵は "01"〜"47"
-	const wikiOf = d => { const w = d.w ? pickTitle(d.w, lang === "ja" ? ["ja", "en"] : langChain(lang, ["en", "ja"])) : null; return w ? wikiUrl(w.title, w.lang) : null; };
-	const srcPos = d => d.s?.c || (d.s?.f && byId.get(d.s.f)?.c) || null;   // 源泉の位置＝座標か、引湯元の温泉の位置
+	const nameOf = (d: OnsenItem) => lang === "ja" ? d.n : d.en || d.n;
+	const prefOf = (d: OnsenItem) => { const v = d.p && db.prefNames?.[String(d.p).padStart(2, "0")]; return v ? v[lang] || v.en || v.ja : ""; };   // prefNames の鍵は "01"〜"47"
+	const wikiOf = (d: OnsenItem) => { const w = d.w ? pickTitle(d.w, lang === "ja" ? ["ja", "en"] : langChain(lang, ["en", "ja"])) : null; return w ? wikiUrl(w.title, w.lang) : null; };
+	const srcPos = (d: OnsenItem) => d.s?.c || (d.s?.f && byId.get(d.s.f)?.c) || null;   // 源泉の位置＝座標か、引湯元の温泉の位置
 
 	// ── 地物 ──
-	const qflags = d => { const f = { qx: d.qc?.length ? 0 : 1 }; for (let i = 0; i < 10; i++) f["q" + i] = d.qc?.includes(i) ? 1 : 0; return f; };
-	const points = onsens.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: d.c },
+	const qflags = (d: OnsenItem) => { const f: Record<string, number> = { qx: d.qc?.length ? 0 : 1 }; for (let i = 0; i < 10; i++) f["q" + i] = d.qc?.includes(i) ? 1 : 0; return f; };
+	const points: GeoJSONFeature[] = onsens.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: d.c },
 		properties: { id: d.id, cls: d.qc?.[0] ?? -1, est: d.a > 0 ? 1 : 0, inn: d.h ? 1 : 0, src: d.s ? 1 : 0, name: nameOf(d), ...qflags(d),
 			sort: (d.a > 0 ? 1e4 : 0) - (d.h ? 3000 : 0) - (d.w?.en ? 2000 : 0) - (d.par ? 0 : 500) - (d.s ? 1000 : 0) } }));
-	const kyoFeats = kyos.filter(d => d.poly).map(d => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [d.poly] }, properties: { id: d.id, name: nameOf(d) } }));
-	const kyoPts = kyos.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: d.poly ? centerOf(d.poly) : d.c }, properties: { id: d.id, name: nameOf(d) } }));
-	const srcFeats = [];
+	const kyoFeats: GeoJSONFeature[] = kyos.filter(d => d.poly).map(d => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [d.poly!] }, properties: { id: d.id, name: nameOf(d) } }));
+	const kyoPts: GeoJSONFeature[] = kyos.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: d.poly ? centerOf(d.poly) : d.c }, properties: { id: d.id, name: nameOf(d) } }));
+	const srcFeats: GeoJSONFeature[] = [];
 	for (const d of items) { const p = srcPos(d); if (!d.s || !p || kmOf(d.c, p) < 0.05) continue;
 		srcFeats.push({ type: "Feature", geometry: { type: "LineString", coordinates: [d.c, p] }, properties: { id: d.id, name: nameOf(d) } });
 		srcFeats.push({ type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { id: d.id, name: nameOf(d) } }); }
-	const innFeats = inns.map((x, j) => x.c && ({ type: "Feature", geometry: { type: "Point", coordinates: x.c }, properties: { j, id: x.o || "", name: x.n } })).filter(Boolean);
+	const innFeats = inns.map((x, j) => x.c && ({ type: "Feature", geometry: { type: "Point", coordinates: x.c }, properties: { j, id: x.o || "", name: x.n } })).filter(Boolean) as GeoJSONFeature[];
 
 	// ── 記号の画像（秘湯の宿＝提灯色の家）──
-	const icon = (draw, s = 22) => { const c = document.createElement("canvas"); c.width = c.height = s; const x = c.getContext("2d"); x.lineJoin = "round"; draw(x, s); return c; };
+	const icon = (draw: (x: CanvasRenderingContext2D, s: number) => void, s = 22) => { const c = document.createElement("canvas"); c.width = c.height = s; const x = c.getContext("2d")!; x.lineJoin = "round"; draw(x, s); return c; };
 	await map.addImage("on-inn", icon((x, s) => { x.beginPath(); x.moveTo(s / 2, 2.5); x.lineTo(s - 3, s / 2 - 1); x.lineTo(s - 5, s / 2 - 1); x.lineTo(s - 5, s - 3); x.lineTo(5, s - 3); x.lineTo(5, s / 2 - 1); x.lineTo(3, s / 2 - 1); x.closePath();
 		x.fillStyle = "#a8402a"; x.fill(); x.lineWidth = 1.8; x.strokeStyle = "#fff"; x.stroke(); x.fillStyle = "#fff"; x.fillRect(s / 2 - 2, s - 9, 4, 6); }), { pixelRatio: 2 });
 
@@ -73,9 +84,9 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 	map.addSource("on-kyo-pts", { type: "geojson", data: { type: "FeatureCollection", features: kyoPts } });
 	map.addSource("on-src", { type: "geojson", data: { type: "FeatureCollection", features: srcFeats } });
 	map.addSource("on-inns", { type: "geojson", data: { type: "FeatureCollection", features: innFeats } });
-	const clsColor = ["match", ["get", "cls"], ...CLASS_COLORS.flatMap((c, i) => [i, c]), UNKNOWN];
-	const radius = ["interpolate", ["linear"], ["zoom"], 4, 2.6, 8, 4.5, 12, 7];
-	const LAYERS = {
+	const clsColor: StyleExpression = ["match", ["get", "cls"], ...CLASS_COLORS.flatMap((c, i) => [i, c]), UNKNOWN];
+	const radius: StyleExpression = ["interpolate", ["linear"], ["zoom"], 4, 2.6, 8, 4.5, 12, 7];
+	const LAYERS: Record<string, Omit<MapLibreLayer, "id">> = {
 		"on-kyo-fill": { type: "fill", source: "on-kyo", paint: { "fill-color": KYO, "fill-opacity": 0.01 } },   // 当たり判定だけ（塗りは anno）
 		"on-src-line": { type: "line", source: "on-src", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round" }, paint: { "line-color": SRC, "line-width": 1.8, "line-dasharray": [2, 2], "line-opacity": 0.9 } },
 		"on-src-pt": { type: "circle", source: "on-src", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 2.5, 12, 5], "circle-color": "#fff", "circle-stroke-color": SRC, "circle-stroke-width": 2 } },
@@ -95,7 +106,7 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 
 	// 表示の切り替え（泉質・重ね）＝点の層の filter を組み直す
 	const shownCls = new Set([...CLASS_COLORS.keys(), -1]);
-	const ov = { kyo: true, src: true, est: true, inn: true, innOnly: false };
+	const ov: Record<string, boolean> = { kyo: true, src: true, est: true, inn: true, innOnly: false };
 	const ptFilter = () => {
 		const any = [...shownCls].map(i => ["==", ["get", i < 0 ? "qx" : "q" + i], 1]);
 		return ["all", any.length ? ["any", ...any] : false, ...(ov.est ? [] : [["==", ["get", "est"], 0]]), ...(ov.innOnly ? [["==", ["get", "inn"], 1]] : [])];
@@ -104,7 +115,7 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 		const f = ptFilter();
 		map.setFilter("on-pt", ["all", LAYERS["on-pt"].filter, f]); map.setFilter("on-est", ["all", LAYERS["on-est"].filter, f]); map.setFilter("on-label", ["all", LAYERS["on-label"].filter, f]);
 		map.setFilter("on-src-ring", ["all", LAYERS["on-src-ring"].filter, f]);
-		const vis = on => on ? "visible" : "none";
+		const vis = (on: boolean) => on ? "visible" : "none";
 		for (const id of ["on-src-line", "on-src-pt", "on-src-ring"]) map.setLayoutProperty(id, "visibility", vis(ov.src));
 		for (const id of ["on-kyo-fill", "on-kyo-label"]) map.setLayoutProperty(id, "visibility", vis(ov.kyo));
 		map.setLayoutProperty("on-inn", "visibility", vis(ov.inn));
@@ -113,27 +124,27 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 
 	// 面の絵（anno）：温泉郷の面・選んだ物の縁取り・推定の誤差の円。切り替えと選択のたびに積み直す
 	const KYO_FILL = "rgba(122,74,140,.10)", KYO_EDGE = "rgba(122,74,140,.55)";
-	let annoSeq = 0, annoChain = Promise.resolve();
+	let annoSeq = 0, annoChain: Promise<unknown> = Promise.resolve();
 	function drawAnno() {
-		const fs = [];
+		const fs: GeoJSONFeature[] = [];
 		if (ov.kyo) for (const f of kyoFeats) fs.push({ type: "Feature", geometry: f.geometry, properties: { "@fill": KYO_FILL, "@stroke": KYO_EDGE, "@width": 1 } });
-		const d = sel && byId.get(sel);
+		const d = (sel && byId.get(sel)) as OnsenItem | null | undefined;
 		if (d?.k === "g" && d.poly) fs.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [d.poly] }, properties: { "@fill": "rgba(215,38,61,.08)", "@stroke": SEL, "@width": 2.4 } });
 		if (d?.k === "o" && d.a > 0) fs.push({ type: "Feature", geometry: circle(d.c, d.a), properties: { "@fill": "rgba(215,38,61,.06)", "@stroke": "rgba(215,38,61,.6)", "@width": 1.2 } });
 		const my = ++annoSeq;   // 呼び出しを 1 列に並べて最後の版だけ流す（terrain と同じ）
-		annoChain = annoChain.then(() => my === annoSeq ? map.gadget.anno({ type: "FeatureCollection", features: fs }) : null).catch(e => console.warn("[onsen] anno", e));
+		annoChain = annoChain.then(() => my === annoSeq ? map.gadget.anno({ type: "FeatureCollection", features: fs } as unknown as GeoPBF) : null).catch(e => console.warn("[onsen] anno", e));
 	}
 
 	// ── 選択（地図・一覧の共通の口）──
-	let sel = null;
-	async function select(id, { fly = true } = {}) {
-		const d = byId.get(id) || null; sel = d?.id ?? null;
+	let sel: string | null = null;
+	async function select(id: string | null, { fly = true } = {}) {
+		const d = byId.get(id!) || null; sel = d?.id ?? null;
 		map.setFilter("on-sel", ["==", ["get", "id"], d?.k === "o" ? sel : ""]);
 		drawAnno();
 		const u = new URL(location.href); sel ? u.searchParams.set("o", sel) : u.searchParams.delete("o"); history.replaceState(null, "", u);
 		wikiFrame.close(); renderDetail(); list.mark();
 		if (!d || !fly) return;
-		const pts = d.k === "g" ? [...(d.poly || [d.c]), ...(membersOf.get(d.id) || []).map(m => byId.get(m).c)] : [d.c, ...(srcPos(d) ? [srcPos(d)] : [])];
+		const pts = d.k === "g" ? [...(d.poly || [d.c]), ...(membersOf.get(d.id) || []).map(m => byId.get(m)!.c)] : [d.c, ...(srcPos(d) ? [srcPos(d)!] : [])];
 		const bb = bboxOf(pts);
 		if (bb[2] - bb[0] > 0.02 || bb[3] - bb[1] > 0.02) await map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(5, Math.min(12.5, map.fitZoomForBbox(bb) - 0.4)));
 		else await map.flyTo(d.c[0], d.c[1], d.a > 20000 ? 9 : d.a > 3000 ? 11 : 12.5);
@@ -142,8 +153,8 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 	// ── 地図の操作（ホバー＝名前と泉質・クリック＝選択）──
 	const tip = map.gadget.tip();
 	const HIT = ["on-pt", "on-est", "on-label", "on-src-pt", "on-src-line", "on-inn", "on-kyo-label", "on-kyo-fill"];
-	const top = e => (e.features || []).filter(f => f.properties?.id || f.properties?.j != null).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0];
-	const tipLines = f => {
+	const top = (e: LayerMouseEvent) => (e.features || []).filter(f => f.properties?.id || f.properties?.j != null).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0];
+	const tipLines = (f: RenderedFeature | undefined) => {
 		if (!f) return null;
 		if (f.layer?.id === "on-inn") { const x = inns[f.properties.j]; return [`<b>${esc(x.n)}</b>　${esc(t("Member inn of the Japan Secluded Hot Spring Association"))}`]; }
 		const d = byId.get(f.properties.id); if (!d) return null;
@@ -151,12 +162,12 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 		return [`<b>${esc(nameOf(d))}</b>　${esc(d.k === "g" ? t("Onsen district") : prefOf(d))}`,
 			...(d.qc ? [d.qc.map(i => esc(className(i))).join(" · ")] : []), ...(d.t != null ? [`${esc(t("Temperature"))}: ${d.t} °C`] : []), ...(d.a > 0 ? [esc(t("Estimated position"))] : [])];
 	};
-	map.on("mousemove", HIT, e => tip(tipLines(top(e))));
+	map.on("mousemove", HIT, (e: LayerMouseEvent) => tip(tipLines(top(e))));
 	map.on("mouseleave", HIT, () => tip(null));
-	map.on("click", HIT, e => { const f = top(e); if (!f) return; const id = f.properties.id || inns[f.properties.j]?.o; if (id) select(id, { fly: false }); else if (f.properties.j != null) window.open(inns[f.properties.j].u, "_blank", "noopener"); });
+	map.on("click", HIT, (e: LayerMouseEvent) => { const f = top(e); if (!f) return; const id = f.properties.id || inns[f.properties.j]?.o; if (id) select(id, { fly: false }); else if (f.properties.j != null) window.open(inns[f.properties.j].u, "_blank", "noopener"); });
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧）──
-	const count = i => onsens.filter(d => i < 0 ? !d.qc?.length : d.qc?.includes(i)).length;
+	const count = (i: number) => onsens.filter(d => i < 0 ? !d.qc?.length : d.qc?.includes(i)).length;
 	const panel = document.createElement("div");
 	panel.className = "on-panel";
 	panel.innerHTML = `<style>${CSS}</style>
@@ -181,7 +192,7 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 				<p class="src">${esc(t("Data: Japanese Wikipedia (CC BY-SA 4.0), Wikidata (CC0), © OpenStreetMap contributors (ODbL), GSI, Japan Secluded Hot Spring Association"))}</p>
 			</div>
 			<div class="pane" data-pane="list" hidden>
-				<div class="ctl"><select class="pref"><option value="">${esc(t("All prefectures"))}</option>${Object.keys(db.prefNames || {}).map(c => `<option value="${c}">${esc(db.prefNames[c][lang] || db.prefNames[c].en)}</option>`).join("")}</select>
+				<div class="ctl"><select class="pref"><option value="">${esc(t("All prefectures"))}</option>${Object.keys(db.prefNames || {}).map(c => `<option value="${c}">${esc(db.prefNames![c][lang] || db.prefNames![c].en)}</option>`).join("")}</select>
 					<select class="kind"><option value="">${esc(t("All"))}</option><option value="g">${esc(t("Onsen districts"))}</option><option value="s">${esc(t("Sources away from the town"))}</option><option value="h">${esc(t("Secluded hot spring inns"))}</option><option value="e">${esc(t("Estimated positions"))}</option></select></div>
 				<input class="find" type="search" placeholder="${esc(t("Search by name"))}">
 				<p class="cnt"></p>
@@ -189,15 +200,15 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 			</div>
 		</div>`;
 	mapEl.appendChild(panel);
-	const $ = s => panel.querySelector(s);
-	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.assign(u); };   // 言語＝読み直す（視点と選択は URL に残る）
+	const $ = <E extends HTMLElement = HTMLElement>(s: string) => panel.querySelector(s) as E;
+	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); };   // 言語＝読み直す（視点と選択は URL に残る）
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
-	panel.querySelectorAll("input[data-c]").forEach(inp => inp.onchange = () => { const i = +inp.dataset.c; inp.checked ? shownCls.add(i) : shownCls.delete(i); apply(); });
-	panel.querySelectorAll("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll("input[data-c]").forEach(inp => { inp.checked = b.dataset.all === "1"; const i = +inp.dataset.c; inp.checked ? shownCls.add(i) : shownCls.delete(i); }); apply(); });
-	panel.querySelectorAll("input[data-ov]").forEach(inp => inp.onchange = () => { ov[inp.dataset.ov] = inp.checked; apply(); });
-	panel.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+	panel.querySelectorAll<HTMLInputElement>("input[data-c]").forEach(inp => inp.onchange = () => { const i = +inp.dataset.c!; inp.checked ? shownCls.add(i) : shownCls.delete(i); apply(); });
+	panel.querySelectorAll<HTMLElement>("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll<HTMLInputElement>("input[data-c]").forEach(inp => { inp.checked = b.dataset.all === "1"; const i = +inp.dataset.c!; inp.checked ? shownCls.add(i) : shownCls.delete(i); }); apply(); });
+	panel.querySelectorAll<HTMLInputElement>("input[data-ov]").forEach(inp => inp.onchange = () => { ov[inp.dataset.ov!] = inp.checked; apply(); });
+	panel.querySelectorAll<HTMLElement>(".tabs button").forEach(b => b.onclick = () => {
 		panel.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
-		panel.querySelectorAll(".pane").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+		panel.querySelectorAll<HTMLElement>(".pane").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
 		if (b.dataset.tab === "list") list.render();
 	});
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
@@ -210,11 +221,11 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 		const el = $(".detail"), d = sel && byId.get(sel);
 		if (!d) { el.hidden = true; el.innerHTML = ""; return; }
 		const w = wikiOf(d), alt = [lang !== "ja" ? d.n : null, d.r].filter(Boolean).filter(s => s !== nameOf(d));
-		const row = (k, v) => v == null || v === "" ? "" : `<div class="m"><span>${esc(k)}</span><b>${v}</b></div>`;
+		const row = (k: string, v: string | null | undefined) => v == null || v === "" ? "" : `<div class="m"><span>${esc(k)}</span><b>${v}</b></div>`;
 		const chips = (d.qc || []).map(i => `<span class="chip" style="--c:${CLASS_COLORS[i]}">${esc(className(i))}</span>`).join("");
 		const pos = d.a > 0 ? `${esc(estName(d.e))} <small>(±${d.a >= 1000 ? fmt(d.a / 1000) + " km" : fmt(d.a) + " m"})</small>` : esc(t("From Wikipedia or Wikidata"));
-		const par = (d.par || []).map(id => byId.get(id)).filter(Boolean).map(g => `<a href="#" data-go="${g.id}">${esc(nameOf(g))}</a>`).join(" · ");
-		const mem = d.k === "g" ? (membersOf.get(d.id) || []).map(id => byId.get(id)).sort((a, b) => kana(a.r || a.n).localeCompare(kana(b.r || b.n), "ja")).map(m => `<a href="#" data-go="${m.id}">${esc(nameOf(m))}</a>`).join(" · ") : "";
+		const par = ((d.par || []).map(id => byId.get(id)).filter(Boolean) as OnsenItem[]).map(g => `<a href="#" data-go="${g.id}">${esc(nameOf(g))}</a>`).join(" · ");
+		const mem = d.k === "g" ? (membersOf.get(d.id) || []).map(id => byId.get(id)!).sort((a, b) => kana(a.r || a.n).localeCompare(kana(b.r || b.n), "ja")).map(m => `<a href="#" data-go="${m.id}">${esc(nameOf(m))}</a>`).join(" · ") : "";
 		const s = d.s, sp = srcPos(d), from = s?.f && byId.get(s.f);
 		const srcHtml = s ? `<div class="srcbox"><b>${esc(srcKindName(s.k))}</b>${s.d ? ` <small>${esc(t("about $1 km", fmt(s.d / 1000)))}</small>` : sp ? ` <small>${esc(t("about $1 km", fmt(kmOf(d.c, sp))))}</small>` : ""}
 			${from ? `<div>${esc(t("Source"))}: <a href="#" data-go="${from.id}">${esc(nameOf(from))}</a></div>` : s.fn && lang === "ja" ? `<div>${esc(t("Source"))}: ${esc(s.fn)}</div>` : ""}
@@ -230,15 +241,15 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 			${srcHtml}
 			${myInns ? `<div class="inns"><span>${esc(t("Secluded hot spring inns"))}</span><ul>${myInns}</ul></div>` : ""}
 			<div class="dl"><span>${d.c[1].toFixed(4)}°, ${d.c[0].toFixed(4)}°</span><span>${w ? `<a class="wk" href="${esc(w)}" target="_blank" rel="noopener">Wikipedia</a>` : ""}${d.site ? ` <a href="${esc(d.site)}" target="_blank" rel="noopener">${esc(t("Official site"))}</a>` : ""}</span></div>`;
-		el.querySelector(".x").onclick = () => select(null);
-		el.querySelectorAll("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.go); });
-		const sg = el.querySelector(".srcgo"); if (sg) sg.onclick = e => { e.preventDefault(); const bb = bboxOf([d.c, sp]); map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(8, Math.min(13, map.fitZoomForBbox(bb) - 0.6))); };
-		const wk = el.querySelector(".wk"); if (wk) wikiFrame.link(wk, w, nameOf(d));
+		el.querySelector<HTMLElement>(".x")!.onclick = () => select(null);
+		el.querySelectorAll<HTMLElement>("[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.go!); });
+		const sg = el.querySelector<HTMLElement>(".srcgo"); if (sg) sg.onclick = e => { e.preventDefault(); const bb = bboxOf([d.c, sp!]); map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(8, Math.min(13, map.fitZoomForBbox(bb) - 0.6))); };
+		const wk = el.querySelector<HTMLAnchorElement>(".wk"); if (wk) wikiFrame.link(wk, w!, nameOf(d));
 	}
 
 	// ── 一覧（都道府県・種別で絞る・名前／よみ／ローマ字で検索）──
-	const prefSel = $(".pref"), kindSel = $(".kind"), find = $(".find"), ol = $(".list"), cnt = $(".cnt");
-	const KIND = { g: d => d.k === "g", s: d => !!d.s, h: d => !!d.h, e: d => d.a > 0 };
+	const prefSel = $<HTMLSelectElement>(".pref"), kindSel = $<HTMLSelectElement>(".kind"), find = $<HTMLInputElement>(".find"), ol = $(".list"), cnt = $(".cnt");
+	const KIND: Record<string, (d: OnsenItem) => boolean> = { g: d => d.k === "g", s: d => !!d.s, h: d => !!d.h, e: d => d.a > 0 };
 	const list = {
 		render() {
 			const p = +prefSel.value || 0, k = KIND[kindSel.value], q = kana(find.value.trim());
@@ -253,9 +264,9 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 	prefSel.onchange = () => { list.render(); const p = +prefSel.value; if (p) { const bb = bboxOf(items.filter(d => d.p === p).map(d => d.c)); map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(5, Math.min(10, map.fitZoomForBbox(bb) - 0.3))); } };
 	kindSel.onchange = () => list.render();
 	find.oninput = () => list.render();
-	ol.onclick = e => { const li = e.target.closest("li"); if (li) select(li.dataset.o); };
-	ol.onmouseover = e => { const li = e.target.closest("li"); map.setFilter("on-sel", ["match", ["get", "id"], [sel ?? "", li?.dataset.o ?? ""], true, false]); };
-	ol.onmouseleave = () => map.setFilter("on-sel", ["==", ["get", "id"], byId.get(sel)?.k === "o" ? sel : ""]);
+	ol.onclick = e => { const li = (e.target as Element).closest("li"); if (li) select(li.dataset.o!); };
+	ol.onmouseover = e => { const li = (e.target as Element).closest("li"); map.setFilter("on-sel", ["match", ["get", "id"], [sel ?? "", li?.dataset.o ?? ""], true, false]); };
+	ol.onmouseleave = () => map.setFilter("on-sel", ["==", ["get", "id"], byId.get(sel!)?.k === "o" ? sel : ""]);
 
 	apply();
 	// 共有 URL（?o=ID）の選択を復元
@@ -265,9 +276,9 @@ export async function mountOnsen(map, { base = "./" } = {}) {
 	return { select, items, byId, inns, points, kyoFeats, srcFeats, get sel() { return sel; }, list };
 }
 
-function centerOf(ring) { const bb = bboxOf(ring); return [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]; }
-const fmt = v => (+v).toLocaleString(getLang(), { maximumFractionDigits: v < 10 ? 1 : 0 });
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function centerOf(ring: LonLat[]): LonLat { const bb = bboxOf(ring); return [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]; }
+const fmt = (v: number) => (+v).toLocaleString(getLang(), { maximumFractionDigits: v < 10 ? 1 : 0 });
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝terrain と同じ）──
 const CSS = `
