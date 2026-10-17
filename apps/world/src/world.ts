@@ -240,9 +240,9 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 	}).catch(e => console.warn("refresh:", e));
 	// ディープリンク: ?open=key（iso2 か台帳キー）で国旗モーダルを開いた状態で起動
 	{
-		// ⚠ open に数（NationId の 392 等）が来ると q.toUpperCase で落ちる（型定義は number も許す）＝挙動は据え置き
-		const q = (opts.open ?? (useURL ? new URLSearchParams(location.search).get("open") : null)) as string | null;
-		const t = q && (model.nation_hash[q] || model.key_hash[q] || model.key_hash[q.toUpperCase()]);
+		// open は NationId＝数（ISO 番号 392 等）も来る＝字にしてから引き、台帳に無ければ find と同じ索引（iso・QID・IOC も引く）へ（旧＝q.toUpperCase で落ちた・2026-10-17）
+		const o = opts.open ?? (useURL ? new URLSearchParams(location.search).get("open") : null), q = o == null ? null : String(o);
+		const t = q && (model.nation_hash[q] || model.key_hash[q] || model.key_hash[q.toUpperCase()] || index.get(q.toUpperCase()));
 		t && setTimeout(() => openFlag(t, scroll.select(".nation img.hover").node() || root.node()), 300);
 	}
 	////-------------------------------------------------------------------------------------------------------------
