@@ -1,5 +1,5 @@
 // 生成物＝npm run i18n:build。手で編集しない。言語コード → その言語の表を読む関数（字面の import＝どのバンドラでも束ねられる）
-export default {
+const LOADERS: Record<string, (() => Promise<{ default: Record<string, string> }>) | undefined> = {
 	"ja": () => import("./lang/ja.json"),
 	"zh": () => import("./lang/zh.json"),
 	"ko": () => import("./lang/ko.json"),
@@ -26,3 +26,4 @@ export default {
 	"ur": () => import("./lang/ur.json"),
 	"he": () => import("./lang/he.json"),
 };
+export default LOADERS;
