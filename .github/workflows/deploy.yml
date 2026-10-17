@@ -36,6 +36,9 @@ jobs:
       TARGET: ${{ inputs.target }}
       APPS: ${{ inputs.apps }}
     steps:
+      - name: secrets の有無（検定の前に止める）
+        run: |
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "✗ Environment production に secret CLOUDFLARE_API_TOKEN が無い（Settings → Environments → production）"; exit 1; }
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める
@@ -51,7 +54,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: 検定用の Chrome を入れる
         if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only'
-        run: node packages/globe/scripts/lib/chrome.mjs --install
+        run: |
+          # Ubuntu 24.04 の runner は AppArmor が非特権の user namespace を塞ぐ＝Chrome for Testing（AppArmor の profile が無い）は
+          # sandbox を立てられず即落ちる（2026-10-17 run 39073272182：verify-prod の CDP が ECONNREFUSED）。使い捨ての runner の中だけ緩める（本人の裁定 2026-10-17）
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          node packages/globe/scripts/lib/chrome.mjs --install
       - name: 配る
         run: |
           set -eu
