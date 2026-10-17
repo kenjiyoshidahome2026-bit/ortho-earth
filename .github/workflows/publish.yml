@@ -64,6 +64,7 @@ jobs:
       - name: 公開物で検定（FROM_NPM=1 verify:npm）
         if: steps.pub.outputs.published != ''
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # deploy.yml と同じ（Chrome の sandbox）
           node packages/globe/scripts/lib/chrome.mjs --install
           sleep 30   # 登録簿の CDN に新しい版が届くまで
           FROM_NPM=1 npm run verify:npm -w @ortho-earth/globe
