@@ -36,12 +36,8 @@
 		"xlsx": "^0.18.5"
 	},
 	"allowScripts": {
-		"esbuild@0.21.5": true,
-		"esbuild@0.25.12": true,
-		"esbuild@0.28.1": true,
-		"sharp@0.34.5": true,
-		"sharp@0.35.2": true,
-		"workerd@1.20260617.1": true,
+		"esbuild@0.28.2": true,
+		"workerd@1.20261006.1": true,
 		"@parcel/watcher@2.5.6": true,
 		"fsevents@2.3.3": true
 	}
