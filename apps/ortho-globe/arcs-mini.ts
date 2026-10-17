@@ -1,24 +1,30 @@
 // 弧の頁（arcs.html）の右下の小さなメルカトル図（本人 2026-10-12「右下に globe ではなく mercator の小さな地図を置き、表示されている領域・選択されている路線を表示すると違いがわかって面白い」）。
 // 球の上で真っすぐな大円は、ここでは曲がって見える。等角航路はここで真っすぐ＝同じ 2 点の 2 本の道の違いが一目で分かる。
 // 描くもの：陸（NE admin_0 50m＝エンジンが読むのと同じ geopbf・同じキャッシュ）・地球儀に今見えている所（図の画素ごとに地球儀へ投影して塗る）・頁が渡す線。
-// 中心の経度は地球儀の中心に合わせて回す（見えている所が図の端で割れない）。緯度は ±80°まで。canvas 2D・依存は arcs-data.js だけ。
-import { mercY, invMercY, wrap180 } from "./arcs-data.js";
+// 中心の経度は地球儀の中心に合わせて回す（見えている所が図の端で割れない）。緯度は ±80°まで。canvas 2D・依存は arcs-data.ts だけ。
+import type { GlobeMap } from "@ortho-earth/globe";
+import { mercY, invMercY, wrap180 } from "./arcs-data.ts";
+
+/** 頁が渡す線と点 */
+export interface MiniLine { pts?: number[][]; color: string; width?: number; alpha?: number; dash?: number[] | null }
+export interface MiniMark { pos: number[]; color: string; r?: number }
+export type Mini = ReturnType<typeof createMini>;
 
 const LAT_MAX = 80, Y_MAX = mercY(LAT_MAX);
 
-export function createMini(map, { host, label = "Mercator", hideLabel = "Hide map", showLabel = "Show map" } = {}) {
+export function createMini(map: GlobeMap, { host, label = "Mercator", hideLabel = "Hide map", showLabel = "Show map" }: { host?: HTMLElement | null; label?: string; hideLabel?: string; showLabel?: string } = {}) {
 	const el = document.createElement("div");
 	el.className = "arcs-mini";
 	el.innerHTML = `<canvas></canvas><span class="cap"></span><button type="button" class="tog" aria-expanded="true">−</button>`;
 	(host || map.mapEl).appendChild(el);
-	const cv = el.querySelector("canvas"), ctx = cv.getContext("2d"), cap = el.querySelector(".cap"), tog = el.querySelector(".tog");
+	const cv = el.querySelector("canvas")!, ctx = cv.getContext("2d")!, cap = el.querySelector<HTMLElement>(".cap")!, tog = el.querySelector<HTMLButtonElement>(".tog")!;
 	cap.textContent = label;
-	const setOpen = on => { el.classList.toggle("min", !on); tog.textContent = on ? "−" : "＋"; tog.setAttribute("aria-expanded", on); tog.setAttribute("aria-label", on ? hideLabel : showLabel); if (on) { footKey = ""; draw(); schedule(); } };
+	const setOpen = (on: boolean) => { el.classList.toggle("min", !on); tog.textContent = on ? "−" : "＋"; tog.setAttribute("aria-expanded", on as unknown as string); tog.setAttribute("aria-label", on ? hideLabel : showLabel); if (on) { footKey = ""; draw(); schedule(); } };
 	tog.addEventListener("click", () => setOpen(el.classList.contains("min")));
 
-	let W = 0, H = 0, dpr = 1, land = null, landStrip = null, lines = [], marks = [], foot = null, footKey = "", centerLon = 0;
-	const xOf = lon => (wrap180(lon - centerLon) / 360 + 0.5) * W;           // 図の中の x（中心の経度が真ん中）
-	const yOf = lat => (1 - (mercY(Math.max(-LAT_MAX, Math.min(LAT_MAX, lat))) + Y_MAX) / (2 * Y_MAX)) * H;
+	let W = 0, H = 0, dpr = 1, land: number[][][] | null = null, landStrip: HTMLCanvasElement | null = null, lines: MiniLine[] = [], marks: MiniMark[] = [], foot: HTMLCanvasElement | null = null, footKey = "", centerLon = 0;
+	const xOf = (lon: number) => (wrap180(lon - centerLon) / 360 + 0.5) * W;           // 図の中の x（中心の経度が真ん中）
+	const yOf = (lat: number) => (1 - (mercY(Math.max(-LAT_MAX, Math.min(LAT_MAX, lat))) + Y_MAX) / (2 * Y_MAX)) * H;
 	const resize = () => {
 		const w = Math.round(el.clientWidth) || 240;
 		dpr = Math.min(2, devicePixelRatio || 1);
@@ -30,8 +36,8 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 	const bakeLand = () => {
 		if (!land || !W) return;
 		const c = document.createElement("canvas"); c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
-		const g = c.getContext("2d"); g.scale(dpr, dpr); g.fillStyle = "#3a4560";
-		const X = lon => (lon + 180) / 360 * W;
+		const g = c.getContext("2d")!; g.scale(dpr, dpr); g.fillStyle = "#3a4560";
+		const X = (lon: number) => (lon + 180) / 360 * W;
 		g.beginPath();
 		for (const ring of land) { ring.forEach((p, i) => i ? g.lineTo(X(p[0]), yOf(p[1])) : g.moveTo(X(p[0]), yOf(p[1]))); g.closePath(); }
 		g.fill("evenodd");
@@ -57,7 +63,7 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		}
 		for (let k = 0; k < d.length; k += 4) d[k] = d[k + 1] = d[k + 2] = 255;
 		if (!hit) return null;   // 見えている所が図の 1 画素より小さい（強く寄った）＝面は描かず、中心の印だけ（draw）
-		const c = document.createElement("canvas"); c.width = fw; c.height = fh; c.getContext("2d").putImageData(img, 0, 0);
+		const c = document.createElement("canvas"); c.width = fw; c.height = fh; c.getContext("2d")!.putImageData(img, 0, 0);
 		return c;
 	};
 	const draw = () => {
@@ -114,9 +120,10 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 	return {
 		el,
 		/** 陸の環（[[lon, lat], …] の配列） */
-		setLand(rings) { land = rings; landStrip = null; draw(); },
+		setLand(rings: number[][][] | null) { land = rings; landStrip = null; draw(); },
 		/** 線 [{ pts: [[lon, lat], …]（経度は連続）, color, width, alpha, dash }] と点 [{ pos, color, r }] */
-		setLines(ls, ms = []) { lines = ls || []; marks = ms || []; draw(); },
+		setLines(ls: MiniLine[] | null | undefined, ms: MiniMark[] | null = []) {
+ lines = ls || []; marks = ms || []; draw(); },
 		setOpen,
 		destroy() { offFrame(); ro.disconnect(); el.remove(); },
 	};

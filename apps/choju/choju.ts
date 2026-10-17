@@ -14,6 +14,13 @@
 //   座標 … 捕獲地点の無い記録は送信位置・補完住所の座標（座標の出所）＝点を白抜きにする
 //   UI は日本語のみ（日本の自治体の捕獲記録）
 
+import type { GlobeMap, LayerMouseEvent, MapLibreLayer, StyleExpression, LonLat, Bbox, GeoJSONFeature } from "@ortho-earth/globe";
+
+type Row = Record<string, string>;
+// 地図の点 1 つ（toRecords の出力）
+export interface Rec { i: number; s: number; k: number; lon: number; lat: number; d: number; tm: string; code: string; muni: string; o: number; len: number | null; wt: number | null; rno: string; uid: string }
+interface Muni { code: string; pref: string; name: string }
+
 const SP = ["イノシシ", "シカ", "サル", "タヌキ", "アナグマ", "ハクビシン", "アライグマ", "ヌートリア", "鳥類", "その他"];
 const SP_COLORS = ["#b4532a", "#2f6b55", "#7a5aa6", "#8a7a3a", "#3f7fb0", "#c0457a", "#d08a1a", "#5a8a2a", "#4a4f57", "#9a9a9a"];
 const CLS = ["ジビエ（施設搬入）", "食肉利用（自家消費など）", "廃棄（埋設・焼却）", "ジビエ用アプリで登録", "不明（処分方法が未記入）"];
@@ -23,13 +30,13 @@ export const GROUPS = [
 	{ name: "ジビエ（食肉利用）", ks: [0, 1, 3], color: "#c0702a" },
 	{ name: "捕獲（廃棄・不明）", ks: [2, 4], color: "#3f6fa8" },
 ];
-export const groupOf = k => GROUPS.findIndex(g => g.ks.includes(k));
+export const groupOf = (k: number) => GROUPS.findIndex(g => g.ks.includes(k));
 const SEL = "#d7263d";
 
 // RFC 4180 の CSV（BOM・引用・引用内の改行）を行のオブジェクトへ
-export function parseCSV(text) {
+export function parseCSV(text: string): Row[] {
 	text = text.replace(/^\uFEFF/, "");
-	const rows = []; let row = [], cell = "", q = false;
+	const rows: string[][] = []; let row: string[] = [], cell = "", q = false;
 	for (let i = 0; i < text.length; i++) {
 		const c = text[i];
 		if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; continue; }
@@ -44,9 +51,9 @@ export function parseCSV(text) {
 }
 
 // CSV の行 → 地図の点（読めない行は落とす）
-export function toRecords(caps, munis) {
+export function toRecords(caps: Row[], munis: Row[]): Rec[] {
 	const name = new Map(munis.map(r => [r["市区町村コード"], { pref: r["都道府県"] || "", name: r["市区町村名"] || "" }]));
-	const out = [];
+	const out: Rec[] = [];
 	for (const r of caps) {
 		const s = SP.indexOf(r["獣種"]), k = CLS.indexOf(r["利用区分"]), lon = +r["経度"], lat = +r["緯度"];
 		const m = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d:\d\d)/.exec(r["hkk_tm"] || "");
@@ -60,30 +67,30 @@ export function toRecords(caps, munis) {
 	return out;
 }
 
-const fetchText = url => fetch(url, { credentials: "omit" }).then(r => { if (!r.ok) throw new Error(`${url} HTTP ${r.status}`); return r.text(); });
-const bboxOf = pts => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
-const ymd = n => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`;
-const fmt = v => (+v).toLocaleString("ja");
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const fetchText = (url: string) => fetch(url, { credentials: "omit" }).then(r => { if (!r.ok) throw new Error(`${url} HTTP ${r.status}`); return r.text(); });
+const bboxOf = (pts: LonLat[]): Bbox => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
+const ymd = (n: number) => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`;
+const fmt = (v: number) => (+v).toLocaleString("ja");
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountChoju(map, { base = "./" } = {}) {
+export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 	document.title = "鳥獣の捕獲記録";
 	const mapEl = map.mapEl;
 	const [capText, muniText] = await Promise.all([fetchText(base + "captures.csv"), fetchText(base + "munis.csv")]);
 	const muniRows = parseCSV(muniText), recs = toRecords(parseCSV(capText), muniRows);
-	const munis = muniRows.map(r => ({ code: r["市区町村コード"], pref: r["都道府県"], name: r["市区町村名"] }))
+	const munis: Muni[] = muniRows.map(r => ({ code: r["市区町村コード"], pref: r["都道府県"], name: r["市区町村名"] }))
 		.filter(m => recs.some(d => d.code === m.code)).sort((a, b) => a.code.localeCompare(b.code));
 	const muniOf = new Map(munis.map(m => [m.code, m]));
 	const dMin = recs.reduce((a, d) => Math.min(a, d.d), 99999999), dMax = recs.reduce((a, d) => Math.max(a, d.d), 0);
 
 	// ── 層 ──
-	const feats = recs.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: [d.lon, d.lat] }, properties: { i: d.i, s: d.s, k: d.k, g: groupOf(d.k), d: d.d, m: d.code, o: d.o } }));
+	const feats: GeoJSONFeature[] = recs.map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: [d.lon, d.lat] }, properties: { i: d.i, s: d.s, k: d.k, g: groupOf(d.k), d: d.d, m: d.code, o: d.o } }));
 	map.addSource("cj-pts", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
-	const COLORS = { sp: ["match", ["get", "s"], ...SP_COLORS.flatMap((c, i) => [i, c]), "#9a9a9a"], g: ["match", ["get", "g"], ...GROUPS.flatMap((g, i) => [i, g.color]), "#9a9a9a"] };
+	const COLORS: Record<string, StyleExpression> = { sp: ["match", ["get", "s"], ...SP_COLORS.flatMap((c, i) => [i, c]), "#9a9a9a"], g: ["match", ["get", "g"], ...GROUPS.flatMap((g, i) => [i, g.color]), "#9a9a9a"] };
 	const color = COLORS.sp;
 	const radius = ["interpolate", ["linear"], ["zoom"], 4, 2.2, 8, 3.6, 12, 6];
-	const LAYERS = {
+	const LAYERS: Record<string, Omit<MapLibreLayer, "id">> = {
 		"cj-pt": { type: "circle", source: "cj-pts", filter: ["==", ["get", "o"], 0], paint: { "circle-radius": radius, "circle-color": color, "circle-opacity": 0.8, "circle-stroke-color": "#fff", "circle-stroke-width": 0.8 } },
 		"cj-est": { type: "circle", source: "cj-pts", filter: [">", ["get", "o"], 0], paint: { "circle-radius": radius, "circle-color": "rgba(255,255,255,.85)", "circle-stroke-color": color, "circle-stroke-width": 1.4, "circle-opacity": 0.8 } },
 		"cj-sel": { type: "circle", source: "cj-pts", filter: ["==", ["get", "i"], -1], paint: { "circle-radius": ["+", 4, radius], "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": SEL, "circle-stroke-width": 2.4 } },
@@ -92,7 +99,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 
 	// 絞り込みの状態
 	const st = { sp: new Set(SP.keys()), cls: new Set(CLS.keys()), d0: dMin, d1: dMax, muni: "" };
-	const shown = d => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1;
+	const shown = (d: Rec) => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1;
 	const filterExpr = () => ["all",
 		["match", ["get", "s"], st.sp.size ? [...st.sp] : [-1], true, false],
 		["match", ["get", "k"], st.cls.size ? [...st.cls] : [-1], true, false],
@@ -104,8 +111,8 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	}
 
 	// ── 選択 ──
-	let sel = null;
-	function select(i) {
+	let sel: Rec | null = null;
+	function select(i: number | null) {
 		sel = i == null ? null : recs[i];
 		map.setFilter("cj-sel", ["==", ["get", "i"], sel ? sel.i : -1]);
 		renderDetail();
@@ -114,7 +121,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	// ── 地図の操作（ホバー＝獣種と日付・クリック＝詳細）──
 	const tip = map.gadget.tip();
 	const HIT = ["cj-pt", "cj-est"];
-	const top = e => (e.features || []).find(f => f.properties?.i != null);
+	const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
 	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(`${GROUPS[groupOf(d.k)].name}・${CLS[d.k]}`),
 		...(d.rno ? [`受付番号 ${esc(d.rno)}`] : []), ...(d.uid ? [`捕獲者 ID ${esc(d.uid)}`] : [])] : null); });
 	map.on("mouseleave", HIT, () => tip(null));
@@ -143,30 +150,30 @@ export async function mountChoju(map, { base = "./" } = {}) {
 			<p class="note">白抜きの点は捕獲地点の座標が無く、送信位置か住所の座標で置いた記録です。獣種と利用区分は書き出しのコードからの推定です。</p>
 		</div>`;
 	mapEl.appendChild(panel);
-	const $ = s => panel.querySelector(s);
+	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
-	panel.querySelectorAll("input[data-s]").forEach(inp => inp.onchange = () => { inp.checked ? st.sp.add(+inp.dataset.s) : st.sp.delete(+inp.dataset.s); apply(); });
+	panel.querySelectorAll<HTMLInputElement>("input[data-s]").forEach(inp => inp.onchange = () => { inp.checked ? st.sp.add(+inp.dataset.s!) : st.sp.delete(+inp.dataset.s!); apply(); });
 	// 大分類の箱＝中の利用区分をまとめて切る。中を一部だけ切った時は大分類の箱を「一部」（indeterminate）に
 	const syncGroups = () => GROUPS.forEach((g, gi) => { const box = $(`input[data-g="${gi}"]`), on = g.ks.filter(k => st.cls.has(k)).length;
 		box.checked = on === g.ks.length; box.indeterminate = on > 0 && on < g.ks.length; });
-	const setCls = (k, on) => { on ? st.cls.add(k) : st.cls.delete(k); $(`input[data-k="${k}"]`).checked = on; };
-	panel.querySelectorAll("input[data-k]").forEach(inp => inp.onchange = () => { setCls(+inp.dataset.k, inp.checked); syncGroups(); apply(); });
-	panel.querySelectorAll("input[data-g]").forEach(inp => inp.onchange = () => { for (const k of GROUPS[+inp.dataset.g].ks) setCls(k, inp.checked); syncGroups(); apply(); });
-	$(".cmode").onchange = e => { const c = COLORS[e.target.value] || COLORS.sp; map.setPaintProperty("cj-pt", "circle-color", c); map.setPaintProperty("cj-est", "circle-stroke-color", c); };
-	panel.querySelectorAll("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll("input[data-s]").forEach(inp => { inp.checked = b.dataset.all === "1"; inp.checked ? st.sp.add(+inp.dataset.s) : st.sp.delete(+inp.dataset.s); }); apply(); });
-	const D0 = $(".d0"), D1 = $(".d1"), num = v => +v.replaceAll("-", "");
-	const setDates = (a, b) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
+	const setCls = (k: number, on: boolean) => { on ? st.cls.add(k) : st.cls.delete(k); $(`input[data-k="${k}"]`).checked = on; };
+	panel.querySelectorAll<HTMLInputElement>("input[data-k]").forEach(inp => inp.onchange = () => { setCls(+inp.dataset.k!, inp.checked); syncGroups(); apply(); });
+	panel.querySelectorAll<HTMLInputElement>("input[data-g]").forEach(inp => inp.onchange = () => { for (const k of GROUPS[+inp.dataset.g!].ks) setCls(k, inp.checked); syncGroups(); apply(); });
+	$(".cmode").onchange = e => { const c = COLORS[(e.target as HTMLSelectElement).value] || COLORS.sp; map.setPaintProperty("cj-pt", "circle-color", c); map.setPaintProperty("cj-est", "circle-stroke-color", c); };
+	panel.querySelectorAll<HTMLButtonElement>("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll<HTMLInputElement>("input[data-s]").forEach(inp => { inp.checked = b.dataset.all === "1"; inp.checked ? st.sp.add(+inp.dataset.s!) : st.sp.delete(+inp.dataset.s!); }); apply(); });
+	const D0 = $(".d0"), D1 = $(".d1"), num = (v: string) => +v.replaceAll("-", "");
+	const setDates = (a: number, b: number) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
 	D0.onchange = () => D0.value && setDates(num(D0.value), st.d1);
 	D1.onchange = () => D1.value && setDates(st.d0, num(D1.value));
-	$(".muni").onchange = e => setMuni(e.target.value);
+	$(".muni").onchange = e => setMuni((e.target as HTMLSelectElement).value);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 
 	// 市区町村を選ぶ＝そこへ飛ぶだけ（点は絞らず全国を出したまま・本人指摘 2026-10-14）。URL の ?m= に残す
-	async function setMuni(code, { fly = true } = {}) {
+	async function setMuni(code: string, { fly = true } = {}) {
 		st.muni = muniOf.has(code) ? code : ""; $(".muni").value = st.muni;
 		const u = new URL(location.href); st.muni ? u.searchParams.set("m", st.muni) : u.searchParams.delete("m"); history.replaceState(null, "", u);
 		if (!fly) return;
-		const pts = (st.muni ? recs.filter(d => d.code === st.muni) : recs).map(d => [d.lon, d.lat]);
+		const pts = (st.muni ? recs.filter(d => d.code === st.muni) : recs).map((d): LonLat => [d.lon, d.lat]);
 		const bb = bboxOf(pts);
 		await map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, st.muni ? Math.max(6, Math.min(12, map.fitZoomForBbox(bb) - 0.4)) : 4.6);
 	}
@@ -188,7 +195,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 	function renderDetail() {
 		const el = $(".detail"), d = sel;
 		if (!d) { el.hidden = true; el.innerHTML = ""; return; }
-		const row = (k, v) => v == null || v === "" ? "" : `<div class="m"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
+		const row = (k: string, v: unknown) => v == null || v === "" ? "" : `<div class="m"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
 		el.hidden = false;
 		el.innerHTML = `<div class="dh"><span class="sw" style="background:${SP_COLORS[d.s]}"></span><div><b class="nm">${esc(SP[d.s])}</b><small>${esc(d.tm)}</small></div><button class="x" type="button" aria-label="閉じる">×</button></div>
 			${row("市区町村", `${muniOf.get(d.code)?.pref || ""}${(d.muni || "").replace(muniOf.get(d.code)?.pref || "", "")}（${d.code}）`)}
@@ -196,7 +203,7 @@ export async function mountChoju(map, { base = "./" } = {}) {
 			${row("体長", d.len ? `${d.len} cm` : null)}${row("体重", d.wt ? `${d.wt} kg` : null)}
 			${row("座標", `${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}（${SRC[d.o]}）`)}
 			${row("受付番号", d.rno)}${row("捕獲者 ID", d.uid)}`;
-		el.querySelector(".x").onclick = () => select(null);
+		el.querySelector<HTMLButtonElement>(".x")!.onclick = () => select(null);
 	}
 
 	apply();

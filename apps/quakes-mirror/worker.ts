@@ -10,11 +10,16 @@
 //   node apps/quakes/scripts/usgs-quakes-build.mjs --end 2026-08-31 --manifest --out usgs-quakes-archive.geopbf
 //   npx wrangler r2 object put ortho-quakes/archive.geopbf --file usgs-quakes-archive.geopbf --remote
 //   npx wrangler r2 object put ortho-quakes/archive.json --file usgs-quakes-archive.geopbf.json --remote
+// R2 の binding（env.QUAKES）＝使う所だけの最小の形（@cloudflare/workers-types は入れない＝native-bucket の workers/types.ts と同じ流儀）
+interface R2Object { httpEtag: string; uploaded: Date; size: number; json<T = unknown>(): Promise<T> }
+interface R2ObjectBody extends R2Object { body: ReadableStream }
+interface R2Bucket { get(key: string, options?: { onlyIf?: Headers }): Promise<R2Object | R2ObjectBody | null> }
+export interface Env { QUAKES: R2Bucket }
 const K = { archive: "archive.geopbf", archiveMeta: "archive.json" };
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS", "Cross-Origin-Resource-Policy": "cross-origin" };
-const json = (obj, status = 200, cache = "no-store") => new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": cache } });
+const json = (obj: unknown, status = 200, cache = "no-store") => new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": cache } });
 
-export async function serve(req, env) {
+export async function serve(req: Request, env: Env) {
 	if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 	if (req.method !== "GET" && req.method !== "HEAD") return json({ error: "method not allowed" }, 405);
 	const path = new URL(req.url).pathname.replace(/^\/quakes/, "");
@@ -22,7 +27,7 @@ export async function serve(req, env) {
 		const o = await env.QUAKES.get(K.archiveMeta);
 		return json({ archive: o ? await o.json() : null });
 	}
-	let key, type, cache;
+	let key: string, type: string, cache: string;
 	if (path === "/archive.geopbf") [key, type, cache] = [K.archive, "application/octet-stream", "public, max-age=86400"];
 	else if (path === "/archive.json") [key, type, cache] = [K.archiveMeta, "application/json", "public, max-age=600"];
 	else return json({ error: "not found" }, 404);
@@ -33,4 +38,4 @@ export async function serve(req, env) {
 	return new Response(req.method === "HEAD" ? null : obj.body, { headers: { ...headers, "Content-Length": String(obj.size) } });
 }
 
-export default { fetch: (req, env) => serve(req, env) };
+export default { fetch: (req: Request, env: Env) => serve(req, env) };

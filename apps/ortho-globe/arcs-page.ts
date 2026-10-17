@@ -6,13 +6,13 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("arcs", async () => {
-	const [{ createGlobe, geopbf }, { mountArcs }] = await Promise.all([import("@ortho-earth/globe"), import("./arcs.js")]);
+	const [{ createGlobe, geopbf }, { mountArcs }] = await Promise.all([import("@ortho-earth/globe"), import("./arcs.ts")]);
 	const map = await createGlobe({ target: "#map", view: location.hash || "#1.9/20/140", chips: false, zoomMax: 8,
 		mesh: false, glOverlay: true, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });
 	dismissBoot();
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 	const q = new URLSearchParams(location.search);
-	const arcs = await mountArcs(map, geopbf, { csv: q.get("csv"), mode: q.get("mode") } as Parameters<typeof mountArcs>[2]);   // 引数の型＝JS 本体の既定値からの推論（既定値の無い欄・null 既定は狭く出る）＝呼び口で JS の口に合わせる
+	const arcs = await mountArcs(map, geopbf, { csv: q.get("csv"), mode: q.get("mode") });
 	window.__map = map; window.__arcs = arcs;   // console 検証用
 	return map;
 }, { page: c => import(`./i18n/lang/arcs/${c}.json`) });

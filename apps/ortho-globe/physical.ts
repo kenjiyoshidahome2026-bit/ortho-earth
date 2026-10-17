@@ -17,7 +17,16 @@ import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui-table";   // 分類名（Wikidata のクラスのラベル・26 言語）
+import type { GlobeMap, GeoPBF, LayerMouseEvent, MapLibreLayer, MapLibreSource, Bbox } from "@ortho-earth/globe";
 const t = tr();
+type Geopbf = typeof import("@ortho-earth/globe").geopbf;
+/** TerrainDB の 1 行（物理量は欄ごとに有ったり無かったり） */
+interface Terrain { qid: string; category: string; coord: number[]; name: { en: string }; wiki?: { en?: string }; rank?: number | null; [k: string]: any }
+/** GeoJSON の形（中身の座標の入れ子は型ごとに違う） */
+interface Geom { type: string; coordinates: any }
+type Feat = { type: "Feature"; geometry: Geom; properties: Record<string, any> };
+type Pt = number[];
+interface Preset { id: string; cats: string[]; metrics: string[]; shape?: string }
 
 // ── 系統（凡例と表示の切り替えの単位）──────────────────────────────────────────
 const GROUPS = [
@@ -30,32 +39,32 @@ const GROUPS = [
 // 「重ねる」で出す系統（上の一覧には無い）＝プレート（境界の重ねと一緒に名前）・海流（矢印）。本人 2026-10-01「海流は重ねに・プレートは重ねのみ」
 const OVERLAY_GROUPS = [{ id: "plate", color: "#b04a9c", ink: "#8e3a7e", cats: ["plate"] }, { id: "current", color: "#d4553a", ink: "#a8402a", cats: ["current"] }];
 const ALL_GROUPS = [...GROUPS, ...OVERLAY_GROUPS];
-const groupName = id => ({ relief: t("Mountains & relief"), water: t("Rivers & lakes"), sea: t("Seas & oceans"), dry: t("Deserts & ice"), land: t("Continents & islands") })[id];
-const GROUP_OF = Object.fromEntries(ALL_GROUPS.flatMap(g => g.cats.map(c => [c, g.id])));
+const groupName = (id: string) => ({ relief: t("Mountains & relief"), water: t("Rivers & lakes"), sea: t("Seas & oceans"), dry: t("Deserts & ice"), land: t("Continents & islands") } as Record<string, string>)[id];
+const GROUP_OF: Record<string, string> = Object.fromEntries(ALL_GROUPS.flatMap(g => g.cats.map(c => [c, g.id])));
 const SEL = "#d7263d";   // 選択の縁取り（どの系統の色とも違う赤）
 
 // プレート境界（PB2002 の 7 種別）→ 動きの 3 系統（広がる・近づく・すれ違う）
 // ケッペン気候区分の大区分（30 区分は属性に残し、塗りは大区分＝Kenji 2026-09-15）。色は従来の地図帳の系統（熱帯＝青・乾燥＝赤橙・温帯＝緑・亜寒帯＝紫・寒帯＝灰青）を淡く
 const KOPPEN_GROUPS = [{ id: "A", color: "#1e60c8" }, { id: "B", color: "#de6028" }, { id: "C", color: "#4ca83c" }, { id: "D", color: "#8c48b0" }, { id: "E", color: "#8cb8ce" }];
-const koppenGroupName = id => ({ A: t("Tropical (A)"), B: t("Arid (B)"), C: t("Temperate (C)"), D: t("Continental (D)"), E: t("Polar (E)") })[id];
+const koppenGroupName = (id: string) => ({ A: t("Tropical (A)"), B: t("Arid (B)"), C: t("Temperate (C)"), D: t("Continental (D)"), E: t("Polar (E)") } as Record<string, string>)[id];
 const PLATE_KINDS = [{ id: "divergent", color: "#e0a020" }, { id: "convergent", color: "#b04a9c" }, { id: "transform", color: "#5a6472" }];
-const PLATE_KIND_OF = { OSR: "divergent", CRB: "divergent", SUB: "convergent", OCB: "convergent", CCB: "convergent", OTF: "transform", CTF: "transform" };
-const plateKindName = id => ({ divergent: t("Spreading (ridges, rifts)"), convergent: t("Converging (subduction, collision)"), transform: t("Sliding (transform faults)") })[id];
+const PLATE_KIND_OF: Record<string, string> = { OSR: "divergent", CRB: "divergent", SUB: "convergent", OCB: "convergent", CCB: "convergent", OTF: "transform", CTF: "transform" };
+const plateKindName = (id: string) => ({ divergent: t("Spreading (ridges, rifts)"), convergent: t("Converging (subduction, collision)"), transform: t("Sliding (transform faults)") } as Record<string, string>)[id];
 
 // ── 物理量 ─────────────────────────────────────────────────────────────────
-const METRICS = {
+const METRICS: Record<string, { unit: string }> = {
 	elevation: { unit: "m" }, prominence: { unit: "m" }, height: { unit: "m" }, depth: { unit: "m" },
 	length: { unit: "km" }, area: { unit: "km²" }, basin: { unit: "km²" }, volume: { unit: "km³" }, discharge: { unit: "m³/s" },
 };
-const metricName = k => ({ elevation: t("Elevation"), prominence: t("Prominence"), height: t("Height"), depth: t("Depth"), length: t("Length"),
-	area: t("Area"), basin: t("Drainage basin"), volume: t("Volume"), discharge: t("Discharge") })[k];
+const metricName = (k: string) => ({ elevation: t("Elevation"), prominence: t("Prominence"), height: t("Height"), depth: t("Depth"), length: t("Length"),
+	area: t("Area"), basin: t("Drainage basin"), volume: t("Volume"), discharge: t("Discharge") } as Record<string, string>)[k];
 // 海溝・海盆は標高が負（最深部）＝深さとして読む
-const valueOf = (d, k) => k === "depth" ? (d.depth ?? (d.elevation < 0 ? -d.elevation : null)) : d[k] ?? null;
-const fmtNum = v => v == null ? "" : v.toLocaleString(getLang(), { maximumFractionDigits: v < 10 ? 2 : v < 100 ? 1 : 0 });
-const fmtVal = (v, k) => v == null ? "–" : `${fmtNum(v)} ${METRICS[k].unit}`;
+const valueOf = (d: Terrain, k: string): number | null => k === "depth" ? (d.depth ?? (d.elevation < 0 ? -d.elevation : null)) : d[k] ?? null;
+const fmtNum = (v: number | null | undefined) => v == null ? "" : v.toLocaleString(getLang(), { maximumFractionDigits: v < 10 ? 2 : v < 100 ? 1 : 0 });
+const fmtVal = (v: number | null | undefined, k: string) => v == null ? "–" : `${fmtNum(v)} ${METRICS[k].unit}`;
 
 // 比較図の題目（分類 × 量。2 量は同じ行で並べた小さな 2 枚＝軸を共有しない）
-const PRESETS = [
+const PRESETS: Preset[] = [
 	{ id: "peaks", cats: ["peak", "volcano"], metrics: ["elevation", "prominence"], shape: "mountain" },
 	{ id: "rivers", cats: ["river"], metrics: ["length", "discharge"] },
 	{ id: "lakes", cats: ["lake"], metrics: ["area", "depth"] },
@@ -65,14 +74,14 @@ const PRESETS = [
 	{ id: "seas", cats: ["sea", "ocean"], metrics: ["area", "depth"] },
 	{ id: "trenches", cats: ["trench"], metrics: ["depth"] },
 ];
-const presetName = id => ({ peaks: t("Highest mountains"), rivers: t("Longest rivers"), lakes: t("Largest lakes"), waterfalls: t("Tallest waterfalls"),
-	islands: t("Largest islands"), deserts: t("Largest deserts"), seas: t("Seas and oceans"), trenches: t("Deepest trenches") })[id];
+const presetName = (id: string) => ({ peaks: t("Highest mountains"), rivers: t("Longest rivers"), lakes: t("Largest lakes"), waterfalls: t("Tallest waterfalls"),
+	islands: t("Largest islands"), deserts: t("Largest deserts"), seas: t("Seas and oceans"), trenches: t("Deepest trenches") } as Record<string, string>)[id];
 
 // 山脈の帯：軸線（約 120 km 間隔の 3〜40 点）を Catmull-Rom で滑らかにし、左右へ幅の半分ずつ張り出した面にする。
 // 両端の 2 割はすぼめる（地図帳の山脈の形）。距離は点ごとの局所の正距（経度は cos 緯度）で測る＝z≤8 の尺で十分。
 // 幅の無い手書きの軸線（ペナイン・コルドバ）は 60 km
-function rangeBand(geom, widthKm) {
-	const src = geom?.type === "LineString" ? geom.coordinates : null; if (!src || src.length < 2) return null;
+function rangeBand(geom: Geom | null | undefined, widthKm: number | null | undefined): Geom | null {
+	const src: Pt[] | null = geom?.type === "LineString" ? geom.coordinates : null; if (!src || src.length < 2) return null;
 	const P = src.map(p => [p[0], p[1]]);
 	for (let i = 1; i < P.length; i++) P[i][0] += 360 * Math.round((P[i - 1][0] - P[i][0]) / 360);   // 経度をほどく（日付変更線）
 	const S = [P[0]], K = 6;
@@ -81,9 +90,9 @@ function rangeBand(geom, widthKm) {
 		for (let j = 1; j <= K; j++) { const u = j / K, u2 = u * u, u3 = u2 * u;
 			S.push([0, 1].map(d => 0.5 * (2 * p1[d] + (-p0[d] + p2[d]) * u + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * u2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * u3))); }
 	}
-	const KX = lat => 111.32 * Math.cos(lat * Math.PI / 180), KY = 110.57;
+	const KX = (lat: number) => 111.32 * Math.cos(lat * Math.PI / 180), KY = 110.57;
 	const cum = [0]; for (let i = 1; i < S.length; i++) cum.push(cum[i - 1] + Math.hypot((S[i][0] - S[i - 1][0]) * KX(S[i][1]), (S[i][1] - S[i - 1][1]) * KY));
-	const L = cum.at(-1) || 1, half = (widthKm > 0 ? widthKm : 60) / 2, left = [], right = [];
+	const L = cum.at(-1) || 1, half = (widthKm! > 0 ? widthKm! : 60) / 2, left: Pt[] = [], right: Pt[] = [];
 	for (let i = 0; i < S.length; i++) {
 		const a = S[Math.max(0, i - 1)], b = S[Math.min(S.length - 1, i + 1)], kx = KX(S[i][1]);
 		let tx = (b[0] - a[0]) * kx, ty = (b[1] - a[1]) * KY; const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
@@ -91,11 +100,11 @@ function rangeBand(geom, widthKm) {
 		left.push([S[i][0] - ty * w / kx, S[i][1] + tx * w / KY]); right.push([S[i][0] + ty * w / kx, S[i][1] - tx * w / KY]);
 	}
 	// 経度は折り返さない＝ほどいたまま（±180 を越えてよい・anno の投影は周期的）。折り返すと日付変更線をまたぐ帯（アリューシャン・トンガ）が地球を横切る
-	const shift = 360 * Math.round(-(P[0][0] + P.at(-1)[0]) / 720);
+	const shift = 360 * Math.round(-(P[0][0] + P.at(-1)![0]) / 720);
 	// 長い帯は約 2,000 km ごとの塊（隣と断面を共有）に分けた MultiPolygon にする：anno の塗りは見えない点を地平線へ押し付けて結ぶ＝
 	// 「一部が見え・一部が視点の真裏（対蹠点）近く」の 1 枚の面は押し付けの向きが暴れて画面を横切る弦の塗りになった（大西洋中央海嶺・
 	// 本人 2026-10-01）。塊が短ければその両立は起きない・真裏の塊は描かれない・1 地物の塊は 1 回で塗る＝継ぎ目は出ない
-	const pieces = Math.max(1, Math.round(L / 2000)), parts = [];
+	const pieces = Math.max(1, Math.round(L / 2000)), parts: Pt[][][] = [];
 	for (let k = 0; k < pieces; k++) {
 		const a = Math.round(k * (S.length - 1) / pieces), b = Math.round((k + 1) * (S.length - 1) / pieces);
 		const ring = [...left.slice(a, b + 1), ...right.slice(a, b + 1).reverse()]; ring.push(ring[0]);
@@ -108,12 +117,12 @@ function rangeBand(geom, widthKm) {
 }
 
 // 線（LineString / 日付変更線で割れた MultiLineString）を経度をほどいた 1 本の座標列に（継ぎ目の重複点は落とす）
-function joinParts(g) {
-	const parts = g?.type === "LineString" ? [g.coordinates] : g?.type === "MultiLineString" ? g.coordinates : null; if (!parts) return null;
-	const out = [];
+function joinParts(g: Geom | null | undefined) {
+	const parts: Pt[][] | null = g?.type === "LineString" ? [g.coordinates] : g?.type === "MultiLineString" ? g.coordinates : null; if (!parts) return null;
+	const out: Pt[] = [];
 	for (const part of parts) for (const c of part) {
-		const p = out.length ? [c[0] + 360 * Math.round((out.at(-1)[0] - c[0]) / 360), c[1]] : [c[0], c[1]];
-		if (out.length && Math.abs(p[0] - out.at(-1)[0]) < 1e-6 && Math.abs(p[1] - out.at(-1)[1]) < 1e-6) continue;
+		const p = out.length ? [c[0] + 360 * Math.round((out.at(-1)![0] - c[0]) / 360), c[1]] : [c[0], c[1]];
+		if (out.length && Math.abs(p[0] - out.at(-1)![0]) < 1e-6 && Math.abs(p[1] - out.at(-1)![1]) < 1e-6) continue;
 		out.push(p);
 	}
 	return out.length >= 2 ? out : null;
@@ -121,7 +130,7 @@ function joinParts(g) {
 
 // 形状台帳を読む＝fetch（HTTP キャッシュが ETag で新旧を確かめる）→ 中身を geopbf へ。geopbf(URL) は URL ごとに IDB へ写して以後は版を見ずに使い回す
 //（bucket の名前読み＝GIS/pbf だけが版を突き合わせる）＝台帳を作り直しても開いたことのあるブラウザに届かなかった（海溝・海嶺の帯が出ない・本人 2026-10-01）
-async function loadPbf(geopbf, url) {
+async function loadPbf(geopbf: Geopbf, url: string) {
 	const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
 	const b = await r.blob();
 	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { gint: false });   // 地物を引くだけ（getFeature）＝GintBUF は焼かない（1.6MB の台帳で初回の待ちが縮む）
@@ -129,12 +138,12 @@ async function loadPbf(geopbf, url) {
 
 // ── 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）────────────────
 const SIMPLIFY_TOL = 0.004;   // 度（赤道の z8 で約 0.7 画素）
-function simplifyPts(P, tol, closed) {
+function simplifyPts(P: Pt[], tol: number, closed: boolean) {
 	const n = P.length, min = closed ? 4 : 2; if (n <= min || !(tol > 0)) return P;
 	const keep = new Uint8Array(n); keep[0] = keep[n - 1] = 1;
 	const t2 = tol * tol, stack = [[0, n - 1]];
 	while (stack.length) {
-		const [a, b] = stack.pop(); if (b - a < 2) continue;
+		const [a, b] = stack.pop()!; if (b - a < 2) continue;
 		const k = Math.cos(((P[a][1] + P[b][1]) / 2) * Math.PI / 180), ax = P[a][0] * k, ay = P[a][1], dx = P[b][0] * k - ax, dy = P[b][1] - ay, L2 = dx * dx + dy * dy;
 		let best = -1, bd = t2;
 		for (let i = a + 1; i < b; i++) {
@@ -143,37 +152,37 @@ function simplifyPts(P, tol, closed) {
 		}
 		if (best > 0) { keep[best] = 1; stack.push([a, best], [best, b]); }
 	}
-	const out = []; for (let i = 0; i < n; i++) if (keep[i]) out.push(P[i]);
+	const out: Pt[] = []; for (let i = 0; i < n; i++) if (keep[i]) out.push(P[i]);
 	return out.length >= min ? out : P;   // 潰れた小さな環（小島）は元のまま
 }
-function simplifyGeom(g, tol) {
-	const L = l => simplifyPts(l, tol, false), R = r => simplifyPts(r, tol, true);
+function simplifyGeom(g: Geom, tol: number): Geom {
+	const L = (l: Pt[]) => simplifyPts(l, tol, false), R = (r: Pt[]) => simplifyPts(r, tol, true);
 	switch (g?.type) {
 		case "LineString": return { type: g.type, coordinates: L(g.coordinates) };
 		case "MultiLineString": return { type: g.type, coordinates: g.coordinates.map(L) };
 		case "Polygon": return { type: g.type, coordinates: g.coordinates.map(R) };
-		case "MultiPolygon": return { type: g.type, coordinates: g.coordinates.map(p => p.map(R)) };
+		case "MultiPolygon": return { type: g.type, coordinates: g.coordinates.map((p: Pt[][]) => p.map(R)) };
 		default: return g;
 	}
 }
-const countPts = g => { let n = 0; const w = c => { if (typeof c[0] === "number") n++; else for (const k of c) w(k); }; if (g?.coordinates) w(g.coordinates); return n; };
+const countPts = (g: Geom) => { let n = 0; const w = (c: any) => { if (typeof c[0] === "number") n++; else for (const k of c) w(k); }; if (g?.coordinates) w(g.coordinates); return n; };
 
 // 名前の出しズーム（NE scalerank＝小さいほど大きな物。手動追加は rank なし）
-const minZoomOf = d => d.category === "continent" || d.category === "ocean" ? 0 : d.category === "ridge" ? 1.8 : d.rank == null ? 3.2 : [1, 1.8, 2.6, 3.4, 4.2, 5, 5.6][Math.min(6, d.rank)];   // 海嶺＝rank なし（手動）だが地球規模＝遠くから
-const textSizeOf = d => d.category === "continent" ? 15 : d.category === "ocean" ? 14 : d.rank == null ? 11 : Math.max(10.5, 13.5 - d.rank * 0.6);
-const ICON = { peak: "ph-peak", volcano: "ph-volcano", pass: "ph-pass", waterfall: "ph-fall", trench: "ph-trench", cape: "ph-dot", reef: "ph-dot", pole: "ph-dot" };
+const minZoomOf = (d: Terrain) => d.category === "continent" || d.category === "ocean" ? 0 : d.category === "ridge" ? 1.8 : d.rank == null ? 3.2 : [1, 1.8, 2.6, 3.4, 4.2, 5, 5.6][Math.min(6, d.rank)];   // 海嶺＝rank なし（手動）だが地球規模＝遠くから
+const textSizeOf = (d: Terrain) => d.category === "continent" ? 15 : d.category === "ocean" ? 14 : d.rank == null ? 11 : Math.max(10.5, 13.5 - d.rank * 0.6);
+const ICON: Record<string, string> = { peak: "ph-peak", volcano: "ph-volcano", pass: "ph-pass", waterfall: "ph-fall", trench: "ph-trench", cape: "ph-dot", reef: "ph-dot", pole: "ph-dot" };
 const LINE_LABEL = new Set(["river", "current", "canal"]);   // 名前を線に沿わせる
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 // 焼きの控えの鍵＝地図へ渡す地物そのものの要約（SHA-256 の頭 12 バイト）。エンジンは source の cacheKey が同じなら、焼いた GeoPBF＋GintBUF を IDB から戻して
 // 焼かない（本体 25 万頂点の焼き＝毎回 10 秒・2026-10-13）。中身から作る＝データ・言語（属性の名前）・この頁の作り方（単純化・帯の幅）のどれが変わっても鍵が変わる
-async function sourceKey(id, features) {
+async function sourceKey(id: string, features: Feat[]) {
 	const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(features))));
 	return `physical/${id}/` + Array.from(h.subarray(0, 12), x => x.toString(16).padStart(2, "0")).join("");
 }
-const geojsonSource = async (id, features) => ({ type: "geojson", data: { type: "FeatureCollection", features }, cacheKey: await sourceKey(id, features) });
+const geojsonSource = async (id: string, features: Feat[]) => ({ type: "geojson", data: { type: "FeatureCollection", features }, cacheKey: await sourceKey(id, features) } as MapLibreSource);
 
-export async function mountPhysical(map, { geopbf, data } = {}) {
+export async function mountPhysical(map: GlobeMap, { geopbf, data }: { geopbf: Geopbf; data?: string | null } = {} as { geopbf: Geopbf }) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/physical/${c}.json`));
 	document.title = t("Physical world — ortho-globe");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Mountains, rivers, lakes, seas and deserts of the world on a 3D globe, with their heights, lengths, areas and depths side by side."));
@@ -182,24 +191,24 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 
 	// データ（3 本を並行に）。名前表の失敗は英語で出すだけ（地図は止めない）
 	const [db, i18n, pbf] = await Promise.all([
-		fetchJsonMaybeGz(base + "TerrainDB.json"),
-		lang === "en" ? null : fetchJsonMaybeGz(`${base}TerrainDB.i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
+		fetchJsonMaybeGz(base + "TerrainDB.json") as Promise<any>,
+		lang === "en" ? null : fetchJsonMaybeGz(`${base}TerrainDB.i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)) as Promise<{ terrains?: Record<string, { name?: string; wiki?: string }> } | null>,
 		loadPbf(geopbf, base + "ne-physical.geopbf"),
 	]);
-	const items = (db.items || db).filter(d => d.coord);
+	const items: Terrain[] = (db.items || db).filter((d: Terrain) => d.coord);
 	const byQ = new Map(items.map(d => [d.qid, d]));
-	const nameOf = d => i18n?.terrains?.[d.qid]?.name || d.name.en;
-	const catName = c => CATEGORY_NAMES[c]?.[lang] || CATEGORY_NAMES[c]?.en || c;
-	const wikiUrl = d => { const w = i18n?.terrains?.[d.qid]?.wiki; return w ? wikiHref(w, lang) : d.wiki?.en ? wikiHref(d.wiki.en, "en") : null; };
+	const nameOf = (d: Terrain) => i18n?.terrains?.[d.qid]?.name || d.name.en;
+	const catName = (c: string) => (CATEGORY_NAMES as Record<string, Record<string, string> | undefined>)[c]?.[lang] || (CATEGORY_NAMES as Record<string, Record<string, string> | undefined>)[c]?.en || c;
+	const wikiUrl = (d: Terrain) => { const w = i18n?.terrains?.[d.qid]?.wiki; return w ? wikiHref(w, lang) : d.wiki?.en ? wikiHref(d.wiki.en, "en") : null; };
 
 	// 形状台帳 → GeoJSON（TerrainDB の物理量を属性へ結ぶ＝式で太さ・色を引く）
-	const shapes = [], geomsOf = new Map(), axisOf = new Map();   // axisOf＝山脈の軸線（名前を沿わせる）
+	const shapes: Feat[] = [], geomsOf = new Map<string, Geom[]>(), axisOf = new Map<string, Pt[]>();   // axisOf＝山脈の軸線（名前を沿わせる）
 	for (let i = 0, n = pbf.length; i < n; i++) {
-		const f = pbf.getFeature(i); const p = f?.properties || pbf.getProperties(i) || {};
+		const f = pbf.getFeature(i) as Feat; const p = f?.properties || pbf.getProperties(i) || {};
 		if (!f?.geometry || !p.qid) continue;
 		const d = byQ.get(p.qid); if (!d && p.category !== "current") continue;   // 英語記事の無い「絵」（対馬海流）は線だけ描く
 		const g = GROUP_OF[p.category] || "land";
-		(geomsOf.get(p.qid) || geomsOf.set(p.qid, []).get(p.qid)).push(f.geometry);
+		(geomsOf.get(p.qid) || geomsOf.set(p.qid, []).get(p.qid)!).push(f.geometry);
 		// 山脈＝軸線を実寸の幅の帯（面）にして描く。NE の山脈ポリゴンは粗く重なる＝描かない（寄り先の範囲にだけ使う）
 		if (p.category === "range" && p.shape === "polygon") continue;
 		// 軸線は 1 本の線に（台帳の書き出しが日付変更線で MultiLineString に割る＝アリューシャン海溝）＝経度をほどいて継ぎ直す
@@ -216,34 +225,35 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	for (const f of shapes) { nBefore += countPts(f.geometry); f.geometry = simplifyGeom(f.geometry, SIMPLIFY_TOL); nAfter += countPts(f.geometry); }
 	console.log(`[physical] 単純化 ${nBefore} → ${nAfter} 頂点（許容 ${SIMPLIFY_TOL}°）`);
 	// 線に沿う名前の材料＝川・海流・運河ごとに最も長い 1 区間だけ（NE の川は区間の束＝区間ごとに名前を置くと同じ名が並ぶ）
-	const segLen = c => { let L = 0; for (let i = 1; i < c.length; i++) L += Math.hypot((c[i][0] - c[i - 1][0]) * Math.cos(c[i][1] * Math.PI / 180), c[i][1] - c[i - 1][1]); return L; };
-	const lineLabels = [];
+	const segLen = (c: Pt[]) => { let L = 0; for (let i = 1; i < c.length; i++) L += Math.hypot((c[i][0] - c[i - 1][0]) * Math.cos(c[i][1] * Math.PI / 180), c[i][1] - c[i - 1][1]); return L; };
+	const lineLabels: Feat[] = [];
 	for (const f of shapes) {
 		if (!LINE_LABEL.has(f.properties.category) || !/LineString$/.test(f.geometry.type)) continue;
 		const parts = f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.coordinates;
-		let best = null, bl = 0; for (const c of parts) { const L = segLen(c); if (L > bl) { bl = L; best = c; } }
+		let best: Pt[] | null = null, bl = 0; for (const c of parts as Pt[][]) { const L = segLen(c); if (L > bl) { bl = L; best = c; } }
 		if (best) lineLabels.push({ type: "Feature", geometry: { type: "LineString", coordinates: best }, properties: { ...f.properties, deg: bl } });
 	}
 	// 山脈の名前＝帯の中心（軸線の長さの中点）に置く（本人 2026-10-01「ポリゴンの中心においた方がわかりやすい」。代表点 P625 は主峰寄りで帯の端に出ることがある）
-	const midOf = c => { const half = segLen(c) / 2; let acc = 0;
+	const midOf = (c: Pt[]) => { const half = segLen(c) / 2; let acc = 0;
 		for (let i = 1; i < c.length; i++) { const l = segLen([c[i - 1], c[i]]); if (acc + l >= half) { const t = (half - acc) / (l || 1); return [c[i - 1][0] + (c[i][0] - c[i - 1][0]) * t, c[i - 1][1] + (c[i][1] - c[i - 1][1]) * t]; } acc += l; }
 		return c[c.length >> 1]; };
 	// 名前と記号の点（代表点＝Wikidata の P625 か NE の代表点）。線に沿わせる物（川・海流・運河）はここに入れない
-	const valLabel = d => d.category === "waterfall" ? fmtVal(d.height ?? null, "height") : d.elevation != null ? fmtVal(d.elevation, "elevation") : "";
-	const points = items.filter(d => !LINE_LABEL.has(d.category) || !geomsOf.has(d.qid)).map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: (d.category === "range" || d.category === "ridge") && axisOf.has(d.qid) ? midOf(axisOf.get(d.qid)) : d.coord },
+	const valLabel = (d: Terrain) => d.category === "waterfall" ? fmtVal(d.height ?? null, "height") : d.elevation != null ? fmtVal(d.elevation, "elevation") : "";
+	const points: Feat[] = items.filter(d => !LINE_LABEL.has(d.category) || !geomsOf.has(d.qid)).map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: (d.category === "range" || d.category === "ridge") && axisOf.has(d.qid) ? midOf(axisOf.get(d.qid)!) : d.coord },
 		properties: { qid: d.qid, category: d.category, g: GROUP_OF[d.category] || "land", name: nameOf(d), elev: d.elevation ?? 0, sub: ICON[d.category] && d.category !== "trench" ? valLabel(d) : d.category === "trench" && valueOf(d, "depth") != null ? "−" + fmtVal(valueOf(d, "depth"), "depth") : "",
 			icon: ICON[d.category] || "", mz: minZoomOf(d), size: textSizeOf(d), ...(d.category === "ridge" && axisOf.has(d.qid) ? { label: 1 } : {}),   // 海嶺＝名前は帯の中心（山脈の名前の層）
 			sort: (d.rank ?? 4) * 1e5 - (d.category === "range" ? 5000 : d.elevation ?? d.length ?? Math.sqrt(d.area ?? 0)) } }));   // 山脈＝同じ rank の 5,000 m 級の山と同格
 	// 海溝（軸線のある物）＝名前は帯の中心（山脈と同じ層）・最深部の ▼ には深さだけを残す（チャレンジャー海淵などの代表点＝P625）
 	for (const f of points.slice()) {
 		const p = f.properties; if (p.category !== "trench" || !axisOf.has(p.qid)) continue;
-		points.push({ type: "Feature", geometry: { type: "Point", coordinates: midOf(axisOf.get(p.qid)) }, properties: { ...p, icon: "", sub: "", label: 1 } });
+		points.push({ type: "Feature", geometry: { type: "Point", coordinates: midOf(axisOf.get(p.qid)!) }, properties: { ...p, icon: "", sub: "", label: 1 } });
 		p.name = "";
 	}
 
 	// ── 記号の画像 ──
-	const icon = (draw, s = 22) => { const c = document.createElement("canvas"); c.width = c.height = s; const x = c.getContext("2d"); x.lineJoin = "round"; draw(x, s); return c; };
-	const tri = (color, down = false) => (x, s) => { x.beginPath(); if (down) { x.moveTo(3, 5); x.lineTo(s - 3, 5); x.lineTo(s / 2, s - 3); } else { x.moveTo(s / 2, 3); x.lineTo(s - 3, s - 5); x.lineTo(3, s - 5); } x.closePath();
+	type Draw = (x: CanvasRenderingContext2D, s: number) => void;
+	const icon = (draw: Draw, s = 22) => { const c = document.createElement("canvas"); c.width = c.height = s; const x = c.getContext("2d")!; x.lineJoin = "round"; draw(x, s); return c; };
+	const tri = (color: string, down = false): Draw => (x, s) => { x.beginPath(); if (down) { x.moveTo(3, 5); x.lineTo(s - 3, 5); x.lineTo(s / 2, s - 3); } else { x.moveTo(s / 2, 3); x.lineTo(s - 3, s - 5); x.lineTo(3, s - 5); } x.closePath();
 		x.fillStyle = color; x.fill(); x.lineWidth = 2; x.strokeStyle = "rgba(255,255,255,.95)"; x.stroke(); };
 	await Promise.all([
 		map.addImage("ph-peak", icon(tri("#8f4a14")), { pixelRatio: 2 }),
@@ -255,14 +265,14 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	]);
 
 	// ── 層 ──
-	const colorBy = key => ["match", ["get", "g"], ...ALL_GROUPS.flatMap(g => [g.id, g[key]]), "#5a6472"];
+	const colorBy = (key: "color" | "ink") => ["match", ["get", "g"], ...ALL_GROUPS.flatMap(g => [g.id, g[key]]), "#5a6472"];
 	const shown = new Set(GROUPS.map(g => g.id));
 	const groupFilter = () => ["match", ["get", "g"], [...shown].length ? [...shown] : ["-"], true, false];
 	// 面の塗り：乾燥（砂漠・塩原）と氷だけ色を敷く＝他の面（海・高原・島…）は名前だけ（NE の地域面は粗く重なる＝塗ると地図が濁る）
-	const FILL_CATS = { desert: "rgba(224,160,32,.16)", saltflat: "rgba(224,160,32,.26)", ice: "rgba(255,255,255,.7)", wetland: "rgba(47,120,196,.12)", delta: "rgba(47,120,196,.10)" };
+	const FILL_CATS: Record<string, string> = { desert: "rgba(224,160,32,.16)", saltflat: "rgba(224,160,32,.26)", ice: "rgba(255,255,255,.7)", wetland: "rgba(47,120,196,.12)", delta: "rgba(47,120,196,.10)" };
 	// gint に積むのは描く物と当たり判定に使う物だけ（川・運河・海流の線・山脈の帯・乾燥と氷の面）。大陸・湖・海・島…の面は名前だけ＝積まない
 	//（寄り先の範囲と選択の縁取り＝anno は shapes から引く）
-	const drawnShape = f => /LineString$/.test(f.geometry.type) || f.properties.shape === "axis" || !!FILL_CATS[f.properties.category];
+	const drawnShape = (f: Feat) => /LineString$/.test(f.geometry.type) || f.properties.shape === "axis" || !!FILL_CATS[f.properties.category];
 	map.addSource("ph", await geojsonSource("ph", shapes.filter(drawnShape)));
 	map.addSource("ph-pts", { type: "geojson", data: { type: "FeatureCollection", features: points } });
 	map.addSource("ph-lab", { type: "geojson", data: { type: "FeatureCollection", features: lineLabels } });
@@ -271,7 +281,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// 高い地形（チベット・アンデス・南極の氷床）に隠れて消えた（2026-10-01・?noterr=1 で全部出ることを確認）。
 	// gint の fill 層は当たり判定（ホバー・クリック）のためだけに残す＝ほぼ透明（0.01）。fill-opacity 0 は問い合わせにも当たらない
 	//（MapLibre は不透明度に依らず返る＝互換の差の疑い・2026-10-01）
-	const LAYERS = {
+	const LAYERS: Record<string, Omit<MapLibreLayer, "id">> = {
 		"ph-fill": { type: "fill", source: "ph", filter: ["all", polyF, ["match", ["get", "category"], Object.keys(FILL_CATS), true, false]], paint: { "fill-opacity": 0.01 } },
 		"ph-range": { type: "fill", source: "ph", filter: ["==", ["get", "shape"], "axis"], paint: { "fill-opacity": 0.01 } },
 		"ph-river": { type: "line", source: "ph", filter: ["all", ["match", ["get", "category"], ["river", "canal"], true, false], ["!=", ["geometry-type"], "Polygon"]],
@@ -314,15 +324,15 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// 海流＝半透明の太い矢印（anno の @poly 線＝帯＋先端の矢じり・幅は画面 px）。長い流れは約 2,000 km ごとに区切って矢印を連ねる＝途中でも向きが読める
 	const CURRENT_FILL = { warm: "rgba(214,85,58,.5)", cold: "rgba(47,120,196,.5)" }, CURRENT_EDGE = { warm: "rgba(168,64,42,.55)", cold: "rgba(31,94,164,.55)" };
 	const arrowWidth = () => Math.max(4, Math.min(14, 1 + map.view.zoom * 2.2));   // ズームで太らせる（z2≈5px・z4≈10px・z6 以上 14px）
-	const kmOf = (a, b) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
-	const chunks = (line, step = 2000, gap = 0.04) => {   // 累積距離で step km ごとに切る（各片の頭の gap を空ける＝矢じりと次の尾が重ならない）
-		const total = line.slice(1).reduce((L, p, i) => L + kmOf(line[i], p), 0), n = Math.max(1, Math.round(total / step)), seg = total / n, out = [];
+	const kmOf = (a: Pt, b: Pt) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
+	const chunks = (line: Pt[], step = 2000, gap = 0.04) => {   // 累積距離で step km ごとに切る（各片の頭の gap を空ける＝矢じりと次の尾が重ならない）
+		const total = line.slice(1).reduce((L, p, i) => L + kmOf(line[i], p), 0), n = Math.max(1, Math.round(total / step)), seg = total / n, out: Pt[][] = [];
 		for (let k = 0; k < n; k++) {
-			const a = k * seg + (k ? seg * gap : 0), b = (k + 1) * seg - (k + 1 < n ? seg * gap : 0), part = [];
+			const a = k * seg + (k ? seg * gap : 0), b = (k + 1) * seg - (k + 1 < n ? seg * gap : 0), part: Pt[] = [];
 			let acc = 0;
 			for (let i = 0; i < line.length; i++) {
 				const l = i ? kmOf(line[i - 1], line[i]) : 0, a0 = acc; acc += l;
-				const at = t => [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t];
+				const at = (t: number) => [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t];
 				if (i && a0 < a && acc > a) part.push(at((a - a0) / l));
 				if (acc >= a && acc <= b) part.push(line[i]);
 				if (i && a0 < b && acc > b) { part.push(at((b - a0) / l)); break; }
@@ -333,22 +343,22 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	};
 	let arrowW = 0, annoLod = -1;
 	// anno（canvas2D）は毎フレーム全頂点を投影し直す＝ズームの段ごとに粗い版を使う（1 画素の半分を許容＝見た目は同じ）。段ごとに一度だけ作って持つ
-	const lodOf = z => z < 2.5 ? 0 : z < 4 ? 1 : z < 5.5 ? 2 : 3, LOD_TOL = [0.08, 0.025, 0.008, 0];
-	const lodCache = [new Map(), new Map(), new Map(), null];
-	const lodGeom = (key, g, lv) => { if (!LOD_TOL[lv]) return g; let m = lodCache[lv].get(key); if (!m) lodCache[lv].set(key, m = simplifyGeom(g, LOD_TOL[lv])); return m; };
+	const lodOf = (z: number) => z < 2.5 ? 0 : z < 4 ? 1 : z < 5.5 ? 2 : 3, LOD_TOL = [0.08, 0.025, 0.008, 0];
+	const lodCache = [new Map<object, Geom>(), new Map<object, Geom>(), new Map<object, Geom>(), null];
+	const lodGeom = (key: object, g: Geom, lv: number) => { if (!LOD_TOL[lv]) return g; let m = lodCache[lv]!.get(key); if (!m) lodCache[lv]!.set(key, m = simplifyGeom(g, LOD_TOL[lv])); return m; };
 	map.on("settle", () => { if (Math.abs(arrowWidth() - arrowW) >= 1 || lodOf(map.view.zoom) !== annoLod) drawAnno(); });   // 太さと粗さはズームで変わる＝止まった所で積み直す
 	let koppenOn = false;   // 気候区分の重ね（下の koppenOverlay が点ける・ホバーが読む）
 	function drawAnno() {
-		const fs = [];
+		const fs: Feat[] = [];
 		arrowW = arrowWidth(); annoLod = lodOf(map.view.zoom); const lv = annoLod;
 		for (const f of shapes) {
 			const { g, category, flow } = f.properties;
 			if (category !== "current" || !shown.has(g) || !/LineString$/.test(f.geometry.type)) continue;
 			const parts = f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.coordinates, w = flow ? "warm" === flow ? "warm" : "cold" : "cold";
 			// 経度をほどいてから区切る（日付変更線をまたぐ北太平洋海流など＝179°→−179° を反対回りの 358° と読まない。投影は周期的＝ほどいたままで描ける）
-			const unwrap = l => l.reduce((o, p) => (o.push(o.length ? [p[0] + 360 * Math.round((o.at(-1)[0] - p[0]) / 360), p[1]] : [p[0], p[1]]), o), []);
-			for (const part of parts) for (const c of chunks(unwrap(part)))
-				fs.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { "@poly": true, "@width": arrowW, "@end": "arrow", "@fill": CURRENT_FILL[w], "@stroke": CURRENT_EDGE[w] } });
+			const unwrap = (l: Pt[]) => l.reduce((o: Pt[], p) => (o.push(o.length ? [p[0] + 360 * Math.round((o.at(-1)![0] - p[0]) / 360), p[1]] : [p[0], p[1]]), o), []);
+			for (const part of parts as Pt[][]) for (const c of chunks(unwrap(part)))
+				fs.push({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: { "@poly": true, "@width": arrowW, "@end": "arrow", "@fill": CURRENT_FILL[w as "warm"], "@stroke": CURRENT_EDGE[w as "warm"] } });
 		}
 		for (const f of shapes) {
 			const { g, category, shape, qid } = f.properties; if (f.geometry.type !== "Polygon" && f.geometry.type !== "MultiPolygon") continue;
@@ -364,29 +374,29 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		}
 		// 呼び出しを 1 列に並べて最後の版だけ流す＝起動直後の 2 回（初回と ?q= の選択）が入れ替わり、選択の縁取りが消えた（2026-10-01）
 		const my = ++annoSeq;
-		annoChain = annoChain.then(() => my === annoSeq ? map.gadget.anno({ type: "FeatureCollection", features: fs }) : null).catch(e => console.warn("[physical] anno", e));
+		annoChain = annoChain.then(() => my === annoSeq ? map.gadget.anno({ type: "FeatureCollection", features: fs } as unknown as GeoPBF) : null).catch(e => console.warn("[physical] anno", e));   // anno は .features だけ読む＝FeatureCollection のままで渡る
 	}
-	let annoSeq = 0, annoChain = Promise.resolve();
+	let annoSeq = 0, annoChain: Promise<unknown> = Promise.resolve();
 
 	// ── 選択（地図・一覧・比較図の共通の口）──
-	let sel = null;
+	let sel: string | null = null;
 	applyGroups();   // 系統の絞りの初回（海流・プレートは「重ねる」で点けるまで出さない）＋面の絵の初回（sel の宣言の後＝drawAnno が読む）
-	const bboxOf = qid => {
+	const bboxOf = (qid: string): Bbox | null => {
 		const gs = geomsOf.get(qid); if (!gs) return null;
 		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-		const walk = c => { if (typeof c[0] === "number") { if (c[0] < x0) x0 = c[0]; if (c[0] > x1) x1 = c[0]; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; } else for (const k of c) walk(k); };
+		const walk = (c: any) => { if (typeof c[0] === "number") { if (c[0] < x0) x0 = c[0]; if (c[0] > x1) x1 = c[0]; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; } else for (const k of c) walk(k); };
 		for (const g of gs) walk(g.coordinates);
 		return x0 <= x1 ? [x0, y0, x1, y1] : null;
 	};
-	async function select(qid, { fly = true } = {}) {
-		const d = byQ.get(qid) || null; sel = d?.qid ?? null;
+	async function select(qid: string | null, { fly = true } = {}) {
+		const d = byQ.get(qid!) || null; sel = d?.qid ?? null;
 		const f = ["==", ["get", "qid"], sel ?? ""];
 		map.setFilter("ph-sel-line", ["all", f, ["!=", ["geometry-type"], "Polygon"]]); map.setFilter("ph-sel-pt", ["all", f, ["!", ["has", "label"]]]);   // 名前だけの点（海溝の帯の中心）には輪を付けない
 		drawAnno();
 		const u = new URL(location.href); sel ? u.searchParams.set("q", sel) : u.searchParams.delete("q"); history.replaceState(null, "", u);
 		closeWiki(); renderDetail(); list.mark(); chart.mark();
 		if (!d || !fly) return;
-		const bb = bboxOf(qid), [lon, lat] = d.coord;
+		const bb = bboxOf(qid!), [lon, lat] = d.coord;
 		if (bb && bb[2] - bb[0] < 180 && (bb[2] - bb[0] > 0.5 || bb[3] - bb[1] > 0.5)) {
 			const z = Math.max(1.5, Math.min(6, map.fitZoomForBbox(bb) - 0.3));
 			await map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, z);
@@ -396,12 +406,12 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// ── 地図の操作（ホバー＝名前と主な量・クリック＝選択）──
 	const tip = map.gadget.tip();
 	const HIT = ["ph-poi", "ph-range-label", "ph-area-label", "ph-line-label", "ph-river", "ph-range", "ph-current", "ph-fill", "ph-koppen"];
-	const keyMetrics = d => Object.keys(METRICS).filter(k => valueOf(d, k) != null).slice(0, 2);
+	const keyMetrics = (d: Terrain) => Object.keys(METRICS).filter(k => valueOf(d, k) != null).slice(0, 2);
 	// 重なって当たった時は HIT の順（記号 → 名前 → 線 → 面）で 1 つ＝山の記号の下の氷河の面を拾わない
-	const topQid = e => (e.features || []).filter(f => f.properties?.qid).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0]?.properties.qid;
+	const topQid = (e: LayerMouseEvent): string | undefined => (e.features || []).filter(f => f.properties?.qid).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0]?.properties.qid;
 	map.on("mousemove", HIT, e => {
 		if (e.originalEvent?.shiftKey) return;   // Shift＝国名（エンジンの countryTip:"shift" が出す）
-		const q = topQid(e), d = byQ.get(q);
+		const q = topQid(e), d = byQ.get(q!);
 		const kf = !d && koppenOn ? (e.features || []).find(f => f.layer?.id === "ph-koppen")?.properties : null;   // 地形が無い所＝気候区分（記号と名前）
 		if (kf) return tip([`<b>${esc(kf.koppen)}</b>　${esc(kf.kname)}`, esc(koppenGroupName(kf.group))]);
 		tip(d ? [`<b>${esc(nameOf(d))}</b>　${esc(catName(d.category))}`, ...keyMetrics(d).map(k => `${esc(metricName(k))}: ${esc(fmtVal(valueOf(d, k), k))}`)] : null);
@@ -448,21 +458,21 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			</div>
 		</div>`;
 	mapEl.appendChild(panel);
-	const $ = s => panel.querySelector(s);
+	const $ = <T extends HTMLElement = HTMLElement>(s: string) => panel.querySelector<T>(s)!;
 	// 言語（world と同じ＝その言語の呼び名を並べた select・26 言語）。地球儀の注記・地形の名前表・エンジンの文言は起動時の言語で組む＝
 	// ?lang= を書き換えて読み直す（視点＝hash・選択＝?q= は URL に残る＝同じ場所・同じ選択へ戻る）
-	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.assign(u); };
+	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); };
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
-	panel.querySelectorAll("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g) : shown.delete(inp.dataset.g); applyGroups(); });
-	panel.querySelectorAll("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov, inp.checked));
+	panel.querySelectorAll<HTMLInputElement>("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g!) : shown.delete(inp.dataset.g!); applyGroups(); });
+	panel.querySelectorAll<HTMLInputElement>("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov!, inp.checked));
 	// 段彩（全球ハイプソ）の濃さ＝エンジンの setOpacity({ hypso })・0 で陸の地色だけ（本人 2026-10-01）
-	const hy = $(".hypso"), hyOut = hy.nextElementSibling;
+	const hy = $<HTMLInputElement>(".hypso"), hyOut = hy.nextElementSibling!;
 	hy.oninput = () => { const a = +hy.value / 100; map.setOpacity({ hypso: a }); hyOut.textContent = `${hy.value}%`; };
 
 	// ── 重ね（プレート境界＝PB2002・地理線）＝初めて点けた時に読む ──
-	const ovLoaded = {};
-	async function overlay(id, on) {
-		const leg = panel.querySelector(`[data-leg="${id}"]`); if (leg) leg.hidden = !on;
+	const ovLoaded: Record<string, Promise<string[]>> = {};
+	async function overlay(id: string, on: boolean) {
+		const leg = panel.querySelector<HTMLElement>(`[data-leg="${id}"]`); if (leg) leg.hidden = !on;
 		if (id === "koppen") return koppenOverlay(on);
 		if (id === "currents") { on ? shown.add("current") : shown.delete("current"); return applyGroups(); }   // 海流＝矢印（anno）と名前（線に沿う）＝系統の出し入れと同じ
 		if (id === "plates") { on ? shown.add("plate") : shown.delete("plate"); applyGroups(); }   // プレートの名前は境界の重ねと一緒に
@@ -470,14 +480,14 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			if (!on) return;
 			ovLoaded[id] = (async () => {
 				const file = id === "plates" ? "plates.geopbf" : "ne-physical-lines.geopbf";
-				const p = await loadPbf(geopbf, base + file), feats = [];
-				for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
+				const p = await loadPbf(geopbf, base + file), feats: Feat[] = [];
+				for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i) as Feat; if (!f?.geometry) continue;
 					const pr = f.properties || p.getProperties(i) || {};
 					if (id === "lines" && pr.kind === "dateline") continue;   // 日付変更線は人が決めた線＝地形の地図には入れない（赤道・回帰線・極圏＝自転軸の傾きで決まる線だけ・本人 2026-10-01）
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
 						: { kind: pr.kind, name: pr["name_" + lang] || pr.name } }); }
 				map.addSource("ph-" + id, await geojsonSource(id, feats));
-				const L = id === "plates" ? [
+				const L: MapLibreLayer[] = id === "plates" ? [
 					{ id: "ph-plates", type: "line", source: "ph-plates", filter: ["==", ["get", "kind"], "boundary"],
 						paint: { "line-color": ["match", ["get", "cls"], ...PLATE_KINDS.flatMap(k => [k.id, k.color]), "#5a6472"], "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.2, 6, 2.6], "line-opacity": 0.85 } },
 				] : [
@@ -491,24 +501,24 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			})();
 		}
 		const ids = await ovLoaded[id];
-		for (const l of ids) map.setLayoutProperty(l, "visibility", panel.querySelector(`input[data-ov="${id}"]`).checked ? "visible" : "none");
+		for (const l of ids) map.setLayoutProperty(l, "visibility", panel.querySelector<HTMLInputElement>(`input[data-ov="${id}"]`)!.checked ? "visible" : "none");
 	}
 
 	// ── 気候区分（ケッペン）＝0.1° の格子のセル辺そのまま（間引かない＝z8 まで寄っても四角の集まりのまま・本人 2026-10-01）を gint の塗りで。
 	// 頂点 37.5 万は GPU の LOD に任せる（anno で毎フレーム投影するより軽い）。30 区分は属性に残し、塗りは大区分。高地（チベット）でも塗りは出る（実測）
-	let koppenP = null, koppenMode = "group";   // 既定＝大区分 5 色・「詳細」で 30 区分（Beck の配色）＝本人 2026-10-01
+	let koppenP: Promise<void> | null = null, koppenMode = "group";   // 既定＝大区分 5 色・「詳細」で 30 区分（Beck の配色）＝本人 2026-10-01
 	const koppenColor = () => koppenMode === "class" ? ["get", "kc"] : ["match", ["get", "group"], ...KOPPEN_GROUPS.flatMap(g => [g.id, g.color]), "rgba(0,0,0,0)"];
-	panel.querySelector(".kmore").onclick = async e => {
+	panel.querySelector<HTMLElement>(".kmore")!.onclick = async e => {
 		koppenMode = koppenMode === "group" ? "class" : "group";
-		e.currentTarget.setAttribute("aria-pressed", String(koppenMode === "class")); e.currentTarget.classList.toggle("on", koppenMode === "class");
-		panel.querySelector(".kleg").classList.toggle("grp", koppenMode === "group");
+		(e.currentTarget as HTMLElement).setAttribute("aria-pressed", String(koppenMode === "class")); (e.currentTarget as HTMLElement).classList.toggle("on", koppenMode === "class");
+		panel.querySelector(".kleg")!.classList.toggle("grp", koppenMode === "group");
 		if (koppenP) { await koppenP; map.setPaintProperty("ph-koppen", "fill-color", koppenColor()); }
 	};
-	async function koppenOverlay(on) {
-		const leg = panel.querySelector(`[data-leg="koppen"]`); if (leg) leg.hidden = !on;
+	async function koppenOverlay(on: boolean) {
+		const leg = panel.querySelector<HTMLElement>(`[data-leg="koppen"]`); if (leg) leg.hidden = !on;
 		koppenP ??= (async () => {
-			const p = await loadPbf(geopbf, base + "climate-koppen.geopbf"), feats = [];
-			for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
+			const p = await loadPbf(geopbf, base + "climate-koppen.geopbf"), feats: Feat[] = [];
+			for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i) as Feat; if (!f?.geometry) continue;
 				const pr = f.properties || {};
 				const kc = Array.isArray(pr.color) ? `rgb(${pr.color.join(",")})` : "#888";   // Beck et al. の標準配色（区分ごと）
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { koppen: pr.code, group: pr.group, kname: pr["name_" + lang] || pr.name, kc } });
@@ -526,10 +536,10 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	overlay("lines", true);   // 赤道・回帰線・極圏＝上の一覧で既定で点灯（本人 2026-10-01）＝ovLoaded・koppen の宣言の後で呼ぶ
 
 	let tab = "layers";
-	panel.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
-		tab = b.dataset.tab;
+	panel.querySelectorAll<HTMLElement>(".tabs button").forEach(b => b.onclick = () => {
+		tab = b.dataset.tab!;
 		panel.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
-		panel.querySelectorAll(".pane").forEach(p => p.hidden = p.dataset.pane !== tab);
+		panel.querySelectorAll<HTMLElement>(".pane").forEach(p => p.hidden = p.dataset.pane !== tab);
 		chart.show(tab === "compare");
 		if (tab === "rank") list.render();
 	});
@@ -544,33 +554,33 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	function renderDetail() {
 		const el = $(".detail"), d = sel && byQ.get(sel);
 		if (!d) { el.hidden = true; el.innerHTML = ""; return; }
-		const rows = Object.keys(METRICS).map(k => [k, valueOf(d, k)]).filter(([, v]) => v != null)
+		const rows = Object.keys(METRICS).map((k): [string, number | null] => [k, valueOf(d, k)]).filter(([, v]) => v != null)
 			.map(([k, v]) => `<div class="m"><span>${esc(metricName(k))}</span><b>${esc(fmtVal(v, k))}</b>${rankNote(d, k)}</div>`).join("");
-		const w = wikiUrl(d), g = ALL_GROUPS.find(x => x.id === (GROUP_OF[d.category] || "land"));
+		const w = wikiUrl(d), g = ALL_GROUPS.find(x => x.id === (GROUP_OF[d.category] || "land"))!;
 		el.hidden = false;
 		el.innerHTML = `<div class="dh"><span class="sw" style="background:${g.color}"></span><div><b class="nm">${esc(nameOf(d))}</b><small>${esc(catName(d.category))}${lang !== "en" && nameOf(d) !== d.name.en ? " · " + esc(d.name.en) : ""}</small></div><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			${rows || `<p class="note">${esc(t("No measurements recorded for this feature."))}</p>`}
 			<div class="dl"><span>${d.coord[1].toFixed(2)}°, ${d.coord[0].toFixed(2)}°</span>${w ? `<a class="wk">Wikipedia</a>` : ""}</div>`;
-		el.querySelector(".x").onclick = () => select(null);
-		const wk = el.querySelector(".wk"); if (wk) wikiFrame.link(wk, w, nameOf(d));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
+		el.querySelector<HTMLElement>(".x")!.onclick = () => select(null);
+		const wk = el.querySelector<HTMLAnchorElement>(".wk"); if (wk) wikiFrame.link(wk, w!, nameOf(d));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
 	}
 	// 同じ分類の中で何番目か（例：世界で 3 番目に高い）
-	function rankNote(d, k) {
+	function rankNote(d: Terrain, k: string) {
 		const peers = items.filter(x => x.category === d.category && valueOf(x, k) != null);
 		if (peers.length < 3) return "";
-		const r = 1 + peers.filter(x => valueOf(x, k) > valueOf(d, k)).length;
+		const r = 1 + peers.filter(x => valueOf(x, k)! > valueOf(d, k)!).length;
 		return `<small>${esc(t("#$1 of $2", r, peers.length))}</small>`;
 	}
 
 	// ── 一覧（分類 × 量で並べ替え・名前で検索）＝地図の表の顔 ──
-	const catSel = $(".cat"), metSel = $(".met"), find = $(".find"), ol = $(".list");
+	const catSel = $<HTMLSelectElement>(".cat"), metSel = $<HTMLSelectElement>(".met"), find = $<HTMLInputElement>(".find"), ol = $(".list");
 	const CAT_ORDER = ALL_GROUPS.flatMap(g => g.cats).filter(c => items.some(d => d.category === c));
 	catSel.innerHTML = CAT_ORDER.map(c => `<option value="${c}">${esc(catName(c))} (${items.filter(d => d.category === c).length})</option>`).join("");
 	catSel.value = "peak";
 	// 分類ごとの「まず比べたい量」（無い分類は量の並びの先頭）
-	const MAIN_METRIC = { lake: "area", river: "length", canal: "length", waterfall: "height", island: "area", islands: "area", desert: "area", ice: "area", sea: "area", ocean: "area", bay: "area",
+	const MAIN_METRIC: Record<string, string> = { lake: "area", river: "length", canal: "length", waterfall: "height", island: "area", islands: "area", desert: "area", ice: "area", sea: "area", ocean: "area", bay: "area",
 		strait: "length", peninsula: "area", continent: "area", trench: "depth", plateau: "elevation", basin: "area", plain: "area", reef: "length", saltflat: "area", delta: "area", wetland: "area" };
-	const metricsFor = c => Object.keys(METRICS).filter(k => items.some(d => d.category === c && valueOf(d, k) != null));
+	const metricsFor = (c: string) => Object.keys(METRICS).filter(k => items.some(d => d.category === c && valueOf(d, k) != null));
 	const fillMetrics = () => { const ms = metricsFor(catSel.value); metSel.innerHTML = ms.map(k => `<option value="${k}">${esc(metricName(k))}</option>`).join("") + `<option value="">${esc(t("Name"))}</option>`; metSel.value = ms.includes(MAIN_METRIC[catSel.value]) ? MAIN_METRIC[catSel.value] : ms[0] ?? ""; };
 	fillMetrics();
 	const list = {
@@ -583,17 +593,17 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 				return `<li data-q="${d.qid}"><span class="i">${k && !q && v != null ? i + 1 : ""}</span><span class="n">${esc(nameOf(d))}${q ? `<small>${esc(catName(d.category))}</small>` : ""}</span><span class="v">${v != null ? esc(fmtVal(v, k)) : ""}</span>${v != null ? `<span class="bar" style="width:${(100 * v / max).toFixed(1)}%"></span>` : ""}</li>`; }).join("");
 			this.mark();
 		},
-		mark() { ol.querySelectorAll("li").forEach(li => li.classList.toggle("on", li.dataset.q === sel)); },
+		mark() { ol.querySelectorAll<HTMLElement>("li").forEach(li => li.classList.toggle("on", li.dataset.q === sel)); },
 	};
 	catSel.onchange = () => { fillMetrics(); find.value = ""; list.render(); };
 	metSel.onchange = () => list.render();
 	find.oninput = () => list.render();
-	ol.onclick = e => { const li = e.target.closest("li"); if (li) select(li.dataset.q); };
-	ol.onmouseover = e => { const li = e.target.closest("li"); for (const id of ["ph-sel-pt"]) map.setFilter(id, ["match", ["get", "qid"], [sel ?? "", li?.dataset.q ?? ""], true, false]); };
+	ol.onclick = e => { const li = (e.target as HTMLElement).closest("li"); if (li) select(li.dataset.q!); };
+	ol.onmouseover = e => { const li = (e.target as HTMLElement).closest("li"); for (const id of ["ph-sel-pt"]) map.setFilter(id, ["match", ["get", "qid"], [sel ?? "", li?.dataset.q ?? ""], true, false]); };
 
 	// ── 比較図（下の帯）──
 	const chart = makeChart({ mapEl, items, byQ, nameOf, getSel: () => sel, onPick: q => select(q) });
-	$(".preset").onchange = e => chart.draw(PRESETS.find(p => p.id === e.target.value));
+	$(".preset").onchange = e => chart.draw(PRESETS.find(p => p.id === (e.target as HTMLSelectElement).value));
 	chart.draw(PRESETS[0]);
 
 	// 共有 URL（?q=QID）の選択を復元
@@ -604,32 +614,32 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 }
 
 // ── 比較図：高さ比べ（山＝三角の影絵）と長さ・広さ比べ（横棒・2 量は並べた 2 枚）──
-function makeChart({ mapEl, items, byQ, nameOf, getSel, onPick }) {
+function makeChart({ mapEl, items, byQ, nameOf, getSel, onPick }: { mapEl: HTMLElement; items: Terrain[]; byQ: Map<string, Terrain>; nameOf: (d: Terrain) => string; getSel: () => string | null; onPick: (q: string) => void }) {
 	const el = document.createElement("div");
 	el.className = "ph-chart"; el.hidden = true;
 	el.innerHTML = `<div class="ch"><b class="tt"></b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div><div class="cv"></div><div class="ctip" hidden></div>`;
 	mapEl.appendChild(el);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) el.addEventListener(ev, e => e.stopPropagation());
-	const cv = el.querySelector(".cv"), ctip = el.querySelector(".ctip");
-	let preset = null;
-	el.querySelector(".x").onclick = () => { el.hidden = true; };
+	const cv = el.querySelector<HTMLElement>(".cv")!, ctip = el.querySelector<HTMLElement>(".ctip")!;
+	let preset: Preset | null = null;
+	el.querySelector<HTMLElement>(".x")!.onclick = () => { el.hidden = true; };
 	const N = 20;
-	const pick = p => items.filter(d => p.cats.includes(d.category) && valueOf(d, p.metrics[0]) != null)
-		.sort((a, b) => valueOf(b, p.metrics[0]) - valueOf(a, p.metrics[0])).slice(0, N);
-	const nice = v => { const e = 10 ** Math.floor(Math.log10(v)), m = v / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e; };
+	const pick = (p: Preset) => items.filter(d => p.cats.includes(d.category) && valueOf(d, p.metrics[0]) != null)
+		.sort((a, b) => valueOf(b, p.metrics[0])! - valueOf(a, p.metrics[0])!).slice(0, N);
+	const nice = (v: number) => { const e = 10 ** Math.floor(Math.log10(v)), m = v / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e; };
 
-	function mountains(rows, W, H) {   // 高さ比べ＝各峰を等脚三角形（底辺＝高さに比例＝昔の地図帳の山の比較図）。0 m の地平線から実寸比
-		const k = rows[0] ? valueOf(rows[0], "elevation") : 1, top = 22, bot = 40, h = H - top - bot;
+	function mountains(rows: Terrain[], W: number, H: number) {   // 高さ比べ＝各峰を等脚三角形（底辺＝高さに比例＝昔の地図帳の山の比較図）。0 m の地平線から実寸比
+		const k = rows[0] ? valueOf(rows[0], "elevation")! : 1, top = 22, bot = 40, h = H - top - bot;
 		const step = W / rows.length, grid = nice(k / 4), lines = [], ticks = [];
 		for (let v = grid; v <= k; v += grid) { const y = top + h * (1 - v / k); lines.push(`<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="gl"/>`); ticks.push(`<text x="${W - 2}" y="${y - 3}" class="ax" text-anchor="end">${fmtVal(v, "elevation")}</text>`); }
-		const peaks = rows.map((d, i) => { const v = valueOf(d, "elevation"), x = step * (i + 0.5), y = top + h * (1 - v / k), hw = Math.max(6, step * 0.62);
+		const peaks = rows.map((d, i) => { const v = valueOf(d, "elevation")!, x = step * (i + 0.5), y = top + h * (1 - v / k), hw = Math.max(6, step * 0.62);
 			return `<g class="mk" data-q="${d.qid}"><path d="M${x - hw} ${top + h}L${x} ${y}L${x + hw} ${top + h}Z" class="${d.category === "volcano" ? "vol" : "mtn"}"/>
 				<text x="${x}" y="${y - 4}" class="val">${fmtNum2(v)}</text>
 				<text x="${x}" y="${top + h + 13 + (i % 2) * 13}" class="lb">${esc(fit(nameOf(d), step * 1.9))}</text>
 				<rect x="${x - step / 2}" y="${top}" width="${step}" height="${h + bot}" class="hit"/></g>`; }).join("");
 		return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${lines.join("")}<line x1="0" x2="${W}" y1="${top + h}" y2="${top + h}" class="base"/>${peaks}${ticks.join("")}</svg>`;
 	}
-	function bars(rows, metrics, W) {   // 横棒（行＝地物・列＝量）。量ごとに独立した尺＝軸を共有しない小さな複数枚
+	function bars(rows: Terrain[], metrics: string[], W: number) {   // 横棒（行＝地物・列＝量）。量ごとに独立した尺＝軸を共有しない小さな複数枚
 		const nameW = Math.min(150, W * 0.3), rowH = 18, colW = (W - nameW - 8) / metrics.length, H = rows.length * rowH + 22;
 		const max = metrics.map(k => Math.max(...rows.map(d => valueOf(d, k) ?? 0), 1));
 		const head = metrics.map((k, j) => `<text x="${nameW + 8 + j * colW}" y="12" class="mh">${esc(metricName(k))}</text>`).join("");
@@ -640,34 +650,35 @@ function makeChart({ mapEl, items, byQ, nameOf, getSel, onPick }) {
 				`<rect x="0" y="${y}" width="${W}" height="${rowH}" class="hit"/></g>`; }).join("");
 		return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${head}${body}</svg>`;
 	}
-	function draw(p) {
+	function draw(p?: Preset) {
 		if (p) preset = p; if (!preset) return;
 		const rows = pick(preset), W = Math.max(280, cv.clientWidth || el.clientWidth - 24);
-		el.querySelector(".tt").textContent = t("$1 — top $2", presetName(preset.id), rows.length);
+		el.querySelector(".tt")!.textContent = t("$1 — top $2", presetName(preset.id), rows.length);
 		cv.innerHTML = preset.shape === "mountain" ? mountains(rows, W, Math.max(180, (cv.clientHeight || 220))) : bars(rows, preset.metrics, W);
 		cv.classList.toggle("scroll", preset.shape !== "mountain");
 		mark();
 	}
-	function mark() { const s = getSel(); cv.querySelectorAll(".mk").forEach(g => g.classList.toggle("on", g.dataset.q === s)); }
-	cv.addEventListener("click", e => { const g = e.target.closest(".mk"); if (g) onPick(g.dataset.q); });
+	function mark() { const s = getSel(); cv.querySelectorAll<SVGElement>(".mk").forEach(g => g.classList.toggle("on", g.dataset.q === s)); }
+	cv.addEventListener("click", e => { const g = (e.target as Element).closest<SVGElement>(".mk"); if (g) onPick(g.dataset.q!); });
 	cv.addEventListener("pointermove", e => {
-		const g = e.target.closest(".mk"), d = g && byQ.get(g.dataset.q);
+		const g = (e.target as Element).closest<SVGElement>(".mk"), d = g && byQ.get(g.dataset.q!);
 		if (!d) { ctip.hidden = true; return; }
-		const ms = (preset.metrics).filter(k => valueOf(d, k) != null);
+		const ms = (preset!.metrics).filter(k => valueOf(d, k) != null);
 		ctip.innerHTML = `<b>${esc(nameOf(d))}</b>${ms.map(k => `<div>${esc(metricName(k))}: ${esc(fmtVal(valueOf(d, k), k))}</div>`).join("")}`;
 		const r = el.getBoundingClientRect(); ctip.hidden = false;
 		ctip.style.left = Math.min(r.width - 180, e.clientX - r.left + 12) + "px"; ctip.style.top = Math.max(4, e.clientY - r.top - 40) + "px";
 	});
 	cv.addEventListener("pointerleave", () => ctip.hidden = true);
 	addEventListener("resize", () => { if (!el.hidden) draw(); });
-	return { draw, mark, show(on) { el.hidden = !on; if (on) requestAnimationFrame(() => draw()); } };
+	return { draw, mark, show(on: boolean) { el.hidden = !on; if (on) requestAnimationFrame(() => draw()); } };
 }
-const fmtNum2 = v => v.toLocaleString(getLang(), { maximumFractionDigits: 0 });
+const fmtNum2 = (v: number) => v.toLocaleString(getLang(), { maximumFractionDigits: 0 });
 // 名前を幅（px）に収める（比較図の山の名前＝2 段の互い違いで 1 峰あたり約 2 本ぶんの幅）
-const measure = (() => { let cx; return s => (cx ||= document.createElement("canvas").getContext("2d"), cx.font = "10px system-ui, sans-serif", cx.measureText(s).width); })();
-const fit = (s, w) => { if (measure(s) <= w) return s; const a = [...s]; while (a.length > 1 && measure(a.join("") + "…") > w) a.pop(); return a.join("") + "…"; };
-const short = (s, n = 12) => [...s].length > n ? [...s].slice(0, n - 1).join("") + "…" : s;
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const measure = (() => { let cx: CanvasRenderingContext2D; return (s: string) => (cx ||= document.createElement("canvas").getContext("2d")!, cx.font = "10px system-ui, sans-serif", cx.measureText(s).width); })();
+const fit = (s: string, w: number) => { if (measure(s) <= w) return s; const a = [...s]; while (a.length > 1 && measure(a.join("") + "…") > w) a.pop(); return a.join("") + "…"; };
+const short = (s: string, n = 12) => [...s].length > n ? [...s].slice(0, n - 1).join("") + "…" : s;
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
+
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝昼夜の配色テーマに追随）──
 const CSS = `

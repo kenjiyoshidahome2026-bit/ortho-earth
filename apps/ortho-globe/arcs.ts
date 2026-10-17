@@ -6,49 +6,70 @@
 //   空の道       … OpenFlights の路線（約 3.7 万の向きのある対・2014 年 6 月の姿・ODbL）。空港を押すとそこから出る路線だけ・指した所の弧だけ光る（brush）・
 //                  距離のつまみ（GPU の範囲フィルタ＝getFilterValue＋setFilter）・国で切る（setMask＝NE admin_0 の形）
 //   自分の表     … 出発と到着の列がある CSV を落とす（座標・空港の記号・国の記号のどれでも・?csv=URL）
-// どの見方も弧の上を光の粒が飛ぶ（kind:"trips"）。右下は小さなメルカトル図（arcs-mini.js）＝見えている所と選んだ道（本人 2026-10-12）。
+// どの見方も弧の上を光の粒が飛ぶ（kind:"trips"）。右下は小さなメルカトル図（arcs-mini.ts）＝見えている所と選んだ道（本人 2026-10-12）。
 // データ：首都＝world の台帳（NationDB・CityDB＝GitHub Pages の ortho-data/globe/・worldcontent の WORLD_DATA）。
 //   空港・路線＝OpenFlights（airports.dat・routes.dat）をブラウザが直に読む（raw.githubusercontent.com・CORS 開放）→ Cache API に置く＝R2 には何も置かない。
 //   国の形＝NE admin_0 50m（エンジンが世界の線に読むのと同じ geopbf・同じキャッシュ名）。
 // エンジンとの接点は公開面だけ：map.addData（points／arcs／trips）・map.on(ev, 層, cb)・map.project／unproject・onFrame・mapEl。
-import { gcDistance, gcPath, rhumbPath, rhumbDistance, rhumbBearing, tripOf, parseAirports, parseRoutes, parseTable, detectColumns, makeResolver, tableToArcs } from "./arcs-data.js";
-import { createMini } from "./arcs-mini.js";
+import { gcDistance, gcPath, rhumbPath, rhumbDistance, rhumbBearing, tripOf, parseAirports, parseRoutes, parseTable, detectColumns, makeResolver, tableToArcs } from "./arcs-data.ts";
+import { createMini } from "./arcs-mini.ts";
+import type { MiniLine, MiniMark } from "./arcs-mini.ts";
+import type { Airport, Arc, Nation as ArcNation, Resolver } from "./arcs-data.ts";
+import type { GlobeMap, DataLayerHandle, LonLat } from "@ortho-earth/globe";
+import type { GeoPBF } from "geopbf";
+type GeopbfFn = typeof import("@ortho-earth/globe").geopbf;
+import type { Nation, WorldI18n } from "@ortho-earth/core/worldcontent";
 import { WORLD_DATA, fetchJsonMaybeGz, loadI18n, F } from "@ortho-earth/core/worldcontent";
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない。頁の辞書は startPage（page.js）が足す
 const t = tr();
+
+type RGBA = number[];
+type Pos = number[];
+/** 首都 */
+interface Cap { pos: Pos; name: string; nameEn: string; country: string; key: string }
+/** 空港（路線の数 deg つき） */
+type AirportDeg = Airport & { deg: number };
+/** 弧の層の 1 本（見方ごとに中身が違う＝ここから世界へ cap・空の道 a/b/n・自分の表 sLabel/tLabel/w0・比べる flat） */
+interface ArcItem { s: Pos; t: Pos; c0: RGBA; c1: RGBA; w: number; km: number; flat?: boolean; cap?: Cap; a?: AirportDeg; b?: AirportDeg; n?: number; sLabel?: string; tLabel?: string; w0?: number }
+/** 点の層の 1 つ */
+interface PtItem { pos: Pos; c: RGBA; r: number; cap?: Cap; ap?: AirportDeg }
+interface TripItem { path: number[][]; timestamps: number[] }
+interface Country { key: string; name: string; rings: number[][][] }
+type Mode = "here" | "cmp" | "air" | "csv";
 
 export const OPENFLIGHTS = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/";
 const CACHE = "ortho-arcs-v1";   // 路線は 2014 年で止まっている＝一度取れば取り直さない（版を変える時だけ名前を変える）
 const H0 = 0.18;                 // 弧の高さ（弦の長さに対する比）の既定
 const KM_MAX = 20100;
-const C = {   // 色（0〜255・deck.gl と同じ）
+const C: Record<string, RGBA> = {   // 色（0〜255・deck.gl と同じ）
 	src: [255, 190, 80, 235], dst: [90, 200, 255, 235],
 	gc: [255, 214, 90, 255], rh: [255, 92, 150, 255],
 	cap: [225, 232, 245, 200], ap: [150, 210, 255, 210], apSel: [255, 214, 90, 255],
 	base: [110, 160, 230, 46], hot0: [255, 190, 80, 230], hot1: [90, 220, 255, 230],
 	trip: [255, 250, 225, 255],
 };
-const css = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a ?? (c[3] ?? 255) / 255})`;
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const fmt = (n, d = 0) => (+n).toLocaleString(getLang(), { maximumFractionDigits: d, minimumFractionDigits: d });
-const km = n => t("$1 km", fmt(n));
+const css = (c: RGBA, a?: number) => `rgba(${c[0]},${c[1]},${c[2]},${a ?? (c[3] ?? 255) / 255})`;
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+const fmt = (n: number, d = 0) => (+n).toLocaleString(getLang(), { maximumFractionDigits: d, minimumFractionDigits: d });
+const km = (n: number) => t("$1 km", fmt(n));
 
 // ── データ ───────────────────────────────────────────────────────────────────
 // 首都＝[{ pos, name, country, key }]（台帳の都市名と国名は言語ごとの名前表）
-async function loadCapitals(lang) {
-	const [nd, cd, names] = await Promise.all([fetchJsonMaybeGz(WORLD_DATA + "NationDB.json"), fetchJsonMaybeGz(WORLD_DATA + "CityDB.json"), loadI18n(lang).catch(() => null)]);
-	const nations = nd.items || nd, cities = new Map((cd.items || cd).map(c => [c.qid, c]));
-	const caps = [];
+interface City { qid: string; coords?: number[]; name?: { en?: string } }
+async function loadCapitals(lang: string) {
+	const [nd, cd, names] = await Promise.all([fetchJsonMaybeGz(WORLD_DATA + "NationDB.json") as Promise<any>, fetchJsonMaybeGz(WORLD_DATA + "CityDB.json") as Promise<any>, loadI18n(lang).catch((): WorldI18n | null => null)]);
+	const nations: (Nation & { capital?: string })[] = nd.items || nd, cities = new Map<string, City>((cd.items || cd).map((c: City) => [c.qid, c]));
+	const caps: Cap[] = [];
 	for (const n of nations) {
 		const c = n.capital ? cities.get(n.capital) : null;
 		if (!c?.coords) continue;
 		caps.push({ pos: [c.coords[0], c.coords[1]], name: names?.cities?.[c.qid]?.name || c.name?.en || "", nameEn: c.name?.en || "", country: names?.nations?.[n.key]?.name || n.name?.en || n.key, key: n.key });
 	}
-	const nat = nations.map(n => ({ iso: n.iso, coord: n.coord, name: names?.nations?.[n.key]?.name || n.name?.en, nameEn: n.name?.en }));
+	const nat: ArcNation[] = nations.map(n => ({ iso: n.iso, coord: n.coord, name: names?.nations?.[n.key]?.name || n.name?.en, nameEn: n.name?.en }));
 	return { caps, nations: nat };
 }
 // 手元のキャッシュ（Cache API）を先に・無ければ取って置く
-async function cachedText(url) {
+async function cachedText(url: string) {
 	const cache = await caches.open(CACHE).catch(() => null);
 	const hit = await cache?.match(url).catch(() => null);
 	if (hit) return hit.text();
@@ -57,28 +78,28 @@ async function cachedText(url) {
 	cache?.put(url, new Response(txt, { headers: { "content-type": "text/plain" } })).catch(() => {});
 	return txt;
 }
-let airportsP = null, routesP = null;
+let airportsP: Promise<Map<number, Airport>> | null = null, routesP: Promise<{ ap: Map<number, Airport>; routes: ReturnType<typeof parseRoutes> }> | null = null;
 const loadAirports = () => airportsP ??= cachedText(OPENFLIGHTS + "airports.dat").then(parseAirports).catch(e => { airportsP = null; throw e; });
 const loadRoutes = () => routesP ??= Promise.all([loadAirports(), cachedText(OPENFLIGHTS + "routes.dat")]).then(([ap, txt]) => ({ ap, routes: parseRoutes(txt, ap) })).catch(e => { routesP = null; throw e; });
 // 国の形（NE admin_0 50m）＝[{ key（ISO_A2 か ADM0_A3）, name, rings }]。小地図の陸と国で切るマスクの両方に使う
-async function loadCountries(geopbf, lang) {
-	const pbf = await geopbf("ne_50m_admin_0_countries");
-	const out = [], L = lang.replace("-", "_").toUpperCase();
+async function loadCountries(geopbf: GeopbfFn, lang: string) {
+	const pbf = await geopbf("ne_50m_admin_0_countries") as GeoPBF;   // getGeometry は geopbf の GeoPBF の口（globe の型は主要面だけ）
+	const out: Country[] = [], L = lang.replace("-", "_").toUpperCase();
 	for (let i = 0; i < pbf.length; i++) {
 		const p = pbf.getProperties(i), g = pbf.getGeometry(i); if (!p || !g) continue;
-		const rings = g.type === "Polygon" ? g.coordinates : g.type === "MultiPolygon" ? g.coordinates.flat() : null; if (!rings) continue;
+		const rings = (g.type === "Polygon" ? g.coordinates : g.type === "MultiPolygon" ? g.coordinates.flat() : null) as number[][][] | null; if (!rings) continue;
 		const iso = F(p, "ISO_A2"), a3 = F(p, "ADM0_A3");
-		out.push({ key: iso && iso !== "-99" ? iso : a3, name: F(p, `NAME_${L}`) || F(p, `NAME_${L.slice(0, 2)}`) || F(p, "NAME_EN") || F(p, "NAME") || a3, rings });
+		out.push({ key: (iso && iso !== "-99" ? iso : a3) as string, name: (F(p, `NAME_${L}`) || F(p, `NAME_${L.slice(0, 2)}`) || F(p, "NAME_EN") || F(p, "NAME") || a3) as string, rings });
 	}
 	return out.sort((a, b) => a.name.localeCompare(b.name, lang));
 }
 // 間引き（Douglas–Peucker・度）＝小地図の陸
-const simplify = (ring, tol) => {
+const simplify = (ring: number[][], tol: number) => {
 	if (ring.length <= 8) return ring;
 	const keep = new Uint8Array(ring.length); keep[0] = keep[ring.length - 1] = 1;
 	const st = [[0, ring.length - 1]];
 	while (st.length) {
-		const [a, b] = st.pop(); if (b - a < 2) continue;
+		const [a, b] = st.pop()!; if (b - a < 2) continue;
 		const [ax, ay] = ring[a], [bx, by] = ring[b], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
 		let best = -1, bi = -1;
 		for (let i = a + 1; i < b; i++) { const [px, py] = ring[i]; const d = L ? Math.abs((px - ax) * dy - (py - ay) * dx) / L : Math.hypot(px - ax, py - ay); if (d > best) { best = d; bi = i; } }
@@ -87,14 +108,14 @@ const simplify = (ring, tol) => {
 	return ring.filter((_, i) => keep[i]);
 };
 // 見る人の居場所の見当＝タイムゾーンの都市名が首都の英語名に当たればそこ（当たらなければ null＝地図の中心）。位置の許可は求めない（ボタンを押した時だけ）
-const tzCapital = caps => { const z = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; const city = z.split("/").pop().replace(/_/g, " ").toLowerCase(); return caps.find(c => c.nameEn.toLowerCase() === city) ?? null; };
+const tzCapital = (caps: Cap[]) => { const z = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; const city = z.split("/").pop()!.replace(/_/g, " ").toLowerCase(); return caps.find(c => c.nameEn.toLowerCase() === city) ?? null; };
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
-export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } = {}) {
-	document.title = t("The shortest way is an arc — ortho-globe");   // 器（arcs.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
+export async function mountArcs(map: GlobeMap, geopbf: GeopbfFn, { csv = null, mode: mode0 = null }: { csv?: string | null; mode?: string | null } = {}) {
+	document.title = t("The shortest way is an arc — ortho-globe");   // 器（arcs.html）の題名と説明もここで＝i18n の走査器が読む頁の本体（.ts）に置く
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("On a globe the shortest way between two places is a great circle. Arcs from anywhere to every capital, 37,000 air routes, great circle vs rhumb line, and your own CSV."));
 	const lang = getLang(), mapEl = map.mapEl;
-	const state = { mode: null, H: H0, trips: true, origin: null, originLabel: "", A: null, B: null, aLabel: "", bLabel: "", nextB: false, sel: null, kmLo: 0, kmHi: KM_MAX, country: "", brush: true, csvArcs: [] };
+	const state: { mode: Mode | null; H: number; trips: boolean; origin: Pos | null; originLabel: string; A: Pos | null; B: Pos | null; aLabel: string; bLabel: string; nextB: boolean; sel: AirportDeg | null; kmLo: number; kmHi: number; country: string; brush: boolean; csvArcs: ArcItem[] } = { mode: null, H: H0, trips: true, origin: null, originLabel: "", A: null, B: null, aLabel: "", bLabel: "", nextB: false, sel: null, kmLo: 0, kmHi: KM_MAX, country: "", brush: true, csvArcs: [] };
 	const touch = matchMedia("(pointer: coarse)").matches;
 
 	// ── パネル ──
@@ -188,10 +209,10 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 </div>
 </div>`;
 	mapEl.appendChild(panel);
-	const $ = k => panel.querySelector(`[data-k="${k}"]`);
+	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const tip = document.createElement("div"); tip.className = "arcs-tip"; tip.style.display = "none"; mapEl.appendChild(tip);
-	const showTip = (pt, html) => { if (!pt) { tip.style.display = "none"; return; } tip.innerHTML = html; tip.style.left = pt.x + "px"; tip.style.top = pt.y + "px"; tip.style.display = ""; };
-	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
+	const showTip = (pt: { x: number; y: number } | null, html?: string | null) => { if (!pt) { tip.style.display = "none"; return; } tip.innerHTML = html!; tip.style.left = pt.x + "px"; tip.style.top = pt.y + "px"; tip.style.display = ""; };
+	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
 	const mini = createMini(map, { label: t("Mercator map"), hideLabel: t("Hide map"), showLabel: t("Show map") });
@@ -199,56 +220,57 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 	// ── 層（map.addData）＝5 つだけ（1 層＝オーバーレイ 1 枚＝WebGL の文脈 1 つ。見方ごとに層を持つと 12 枚になり、文脈の上限で地球が消えた・2026-10-14 実測）。
 	//   見方を替える＝同じ層に別のデータを入れ直す。描く順に足す（後の物が上・当たりも後の物）
 	//   base … 空の道の全路線（薄く・空の道を開いた時に作る）  arcs … 主役の弧（見方ごと）  trips … 弧の上の光の粒  pts … 首都か空港の点＋印（起点・比べる 2 点）＝印は後ろに足す（上に描く）
-	const trip = (a, b, phase = 0) => tripOf(a, b, { h: state.H, phase });
-	const heightOf = d => d.flat ? 0 : state.H;
-	const L = {
-		arcs: map.addData([], { id: "arcs", kind: "arcs", getSourcePosition: d => d.s, getTargetPosition: d => d.t, getSourceColor: d => d.c0, getTargetColor: d => d.c1, getWidth: d => d.w, getHeight: heightOf, getFilterValue: d => d.km }),
-		trips: map.addData([], { id: "trips", kind: "trips", getPath: d => d.path, getTimestamps: d => d.timestamps, getColor: C.trip, getWidth: 2.4, trailLength: 0.55, fadeTrail: true }),
-		pts: map.addData([], { id: "pts", kind: "points", getPosition: d => d.pos, getColor: d => d.c, getRadius: d => d.r }),
+	const trip = (a: Pos, b: Pos, phase = 0): TripItem => tripOf(a, b, { h: state.H, phase });
+	const heightOf = (d: ArcItem) => d.flat ? 0 : state.H;
+	const L: { arcs: DataLayerHandle; trips: DataLayerHandle; pts: DataLayerHandle; base?: DataLayerHandle } = {
+		arcs: map.addData([], { id: "arcs", kind: "arcs", getSourcePosition: (d: ArcItem) => d.s, getTargetPosition: (d: ArcItem) => d.t, getSourceColor: (d: ArcItem) => d.c0, getTargetColor: (d: ArcItem) => d.c1, getWidth: (d: ArcItem) => d.w, getHeight: heightOf, getFilterValue: (d: ArcItem) => d.km }),
+		trips: map.addData([], { id: "trips", kind: "trips", getPath: (d: TripItem) => d.path, getTimestamps: (d: TripItem) => d.timestamps, getColor: C.trip, getWidth: 2.4, trailLength: 0.55, fadeTrail: true }),
+		pts: map.addData([], { id: "pts", kind: "points", getPosition: (d: PtItem) => d.pos, getColor: (d: PtItem) => d.c, getRadius: (d: PtItem) => d.r }),
 	};
-	let arcsNow = [], ptsNow = [], tripsNow = [], dotsNow = [], marksNow = [];   // 層に今入っているデータ（当たりの index はこの配列の添字）
-	const setArcs = d => { arcsNow = d; return L.arcs.setData(d); };
+	let arcsNow: ArcItem[] = [], ptsNow: PtItem[] = [], tripsNow: TripItem[] = [], dotsNow: PtItem[] = [], marksNow: PtItem[] = [];   // 層に今入っているデータ（当たりの index はこの配列の添字）
+	const setArcs = (d: ArcItem[]) => { arcsNow = d; return L.arcs.setData(d); };
 	const flushPts = () => { ptsNow = dotsNow.concat(marksNow); return L.pts.setData(ptsNow); };
-	const setPts = (dots, marks = []) => { dotsNow = dots; marksNow = marks; return flushPts(); };
-	const setTrips = d => { tripsNow = d; return L.trips.setData(d).then(() => { if (tripsNow !== d) return; const tMax = d.reduce((m, x) => Math.max(m, x.timestamps[x.timestamps.length - 1]), 0); d.length ? L.trips.animate({ from: 0, to: tMax + 0.8, speed: 1, loop: true }) : L.trips.animate(false); }); };
+	const setPts = (dots: PtItem[], marks: PtItem[] = []) => { dotsNow = dots; marksNow = marks; return flushPts(); };
+	const setTrips = (d: TripItem[]) => { tripsNow = d; return L.trips.setData(d).then(() => { if (tripsNow !== d) return; const tMax = d.reduce((m, x) => Math.max(m, x.timestamps[x.timestamps.length - 1]), 0); d.length ? L.trips.animate!({ from: 0, to: tMax + 0.8, speed: 1, loop: true }) : L.trips.animate!(false); }); };
 	L.trips.setVisible(state.trips);
 	// 空の道の絞り（距離・国）は base・arcs・trips の 3 層に。他の見方では外す
-	let maskPoly = null, maskOn = null, maskBase = false;
+	type Mask = { type: "MultiPolygon"; coordinates: number[][][][] } | null;
+	let maskPoly: Mask = null, maskOn: Mask = null, maskBase = false;
 	const applyFilters = () => {
 		const air = state.mode === "air";
 		const r = air && !(state.kmLo <= 0 && state.kmHi >= KM_MAX) ? [state.kmLo, state.kmHi] : null;
-		L.base?.setFilter(r); L.arcs.setFilter(r);
+		L.base?.setFilter!(r as [number, number] | null); L.arcs.setFilter!(r as [number, number] | null);
 		const m = air ? maskPoly : null;   // マスクは画像に焼く（重い）＝変わった時だけ送る
-		if (m !== maskOn || (L.base && !maskBase)) { maskOn = m; maskBase = !!L.base; for (const h of [L.base, L.arcs, L.trips]) h?.setMask(m); }
-		L.arcs.brush(air && !state.sel && state.brush && !touch, 46);
+		if (m !== maskOn || (L.base && !maskBase)) { maskOn = m; maskBase = !!L.base; for (const h of [L.base, L.arcs, L.trips]) h?.setMask!(m); }
+		L.arcs.brush!(air && !state.sel && state.brush && !touch, 46);
 	};
 
 	// ── ここから世界へ ──
-	let caps = [], nations = [], hereData = [];
-	const capPts = () => caps.map(c => ({ pos: c.pos, c: C.cap, r: 2.6, cap: c }));
-	const nearestCap = p => { let best = null, bd = Infinity; for (const c of caps) { const d = gcDistance(p, c.pos); if (d < bd) { bd = d; best = c; } } return best ? { c: best, km: bd } : null; };
+	let caps: Cap[] = [], nations: ArcNation[] = [], hereData: ArcItem[] = [];
+	const capPts = () => caps.map((c): PtItem => ({ pos: c.pos, c: C.cap, r: 2.6, cap: c }));
+	const nearestCap = (p: Pos) => { let best: Cap | null = null, bd = Infinity; for (const c of caps) { const d = gcDistance(p, c.pos); if (d < bd) { bd = d; best = c; } } return best ? { c: best, km: bd } : null; };
 	const showHere = () => {
 		setPts(capPts(), state.origin ? [{ pos: state.origin, c: C.src, r: 6 }] : []); setArcs(hereData);
 		setTrips(hereData.map(d => trip(d.s, d.t)));
 	};
-	const setOrigin = (pos, label) => {
+	const setOrigin = (pos: Pos, label?: string | null) => {
 		state.origin = pos;
 		const near = label ? null : nearestCap(pos);
 		state.originLabel = label || (near ? (near.km < 60 ? near.c.name : t("Near $1", near.c.name)) : `${pos[1].toFixed(2)}, ${pos[0].toFixed(2)}`);
 		hereData = caps.filter(c => gcDistance(pos, c.pos) > 30).map(c => ({ s: pos, t: c.pos, c0: C.src, c1: C.dst, w: 1.6, cap: c, km: gcDistance(pos, c.pos) }));
-		const far = hereData.reduce((m, d) => d.km > m.km ? d : m, { km: 0 });
+		const far = hereData.reduce((m: { km: number; cap?: Cap }, d) => d.km > m.km ? d : m, { km: 0 });
 		$("hereStat").innerHTML = `<span class="big">${esc(state.originLabel)}</span><br>${t("$1 capitals · farthest: $2 ($3)", fmt(hereData.length), esc(far.cap?.name ?? "—"), km(far.km))}`;
 		if (state.mode === "here") { showHere(); refreshMini(); }
 	};
 	$("geo").addEventListener("click", () => {
 		if (!navigator.geolocation) return;
-		navigator.geolocation.getCurrentPosition(p => { const pos = [p.coords.longitude, p.coords.latitude]; setOrigin(pos, t("My location")); map.flyTo({ center: pos, zoom: Math.min(map.getZoom(), 2) }); }, () => { $("hereStat").textContent = t("Could not get your location"); }, { timeout: 10000 });
+		navigator.geolocation.getCurrentPosition(p => { const pos = [p.coords.longitude, p.coords.latitude]; setOrigin(pos, t("My location")); map.flyTo({ center: pos as LonLat, zoom: Math.min(map.getZoom(), 2) }); }, () => { $("hereStat").textContent = t("Could not get your location"); }, { timeout: 10000 });
 	});
 
 	// ── 比べる（等角航路は短い大円の弧の連なりで描く＝同じ層・高さ 0）──
-	let cmpData = [];
+	let cmpData: ArcItem[] = [];
 	const showCmp = () => {
-		setPts(capPts(), [state.A, state.B].filter(Boolean).map(pos => ({ pos, c: [255, 255, 255, 255], r: 5 }))); setArcs(cmpData); setTrips([]);
+		setPts(capPts(), ([state.A, state.B].filter(Boolean) as Pos[]).map(pos => ({ pos, c: [255, 255, 255, 255], r: 5 }))); setArcs(cmpData); setTrips([]);
 	};
 	const setCompare = () => {
 		const { A, B } = state;
@@ -264,22 +286,22 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 		}
 		if (state.mode === "cmp") { showCmp(); refreshMini(); }
 	};
-	const placeLabel = p => { const n = nearestCap(p); return n && n.km < 80 ? n.c.name : `${p[1].toFixed(1)}, ${p[0].toFixed(1)}`; };
+	const placeLabel = (p: Pos) => { const n = nearestCap(p); return n && n.km < 80 ? n.c.name : `${p[1].toFixed(1)}, ${p[0].toFixed(1)}`; };
 	const cmpPick = () => { state.nextB = false; state.B = null; state.A = null; $("cmpTitle").textContent = t("Click the starting point"); $("gcKm").textContent = $("rhKm").textContent = $("cmpDiff").textContent = ""; setCompare(); };
 	$("swapAB").addEventListener("click", cmpPick);
 
 	// ── 空の道 ──
-	let ap = null, routes = [], apList = [], countries = [], airReady = false, airLoading = null;
+	let ap: Map<number, Airport> | null = null, routes: ArcItem[] = [], apList: AirportDeg[] = [], countries: Country[] = [], airReady = false, airLoading: Promise<void> | null = null;
 	const airArcs = () => state.sel ? routes.filter(r => r.a === state.sel) : routes;
 	const showAir = () => {
 		if (!airReady) { setPts([]); setArcs([]); setTrips([]); return; }
 		const data = airArcs();
-		setPts(apList.map(a => ({ pos: [a.lon, a.lat], c: a === state.sel ? C.apSel : C.ap, r: a === state.sel ? 7 : 1.2 + Math.min(5, Math.sqrt(a.deg) * 0.45), ap: a })));
+		setPts(apList.map((a): PtItem => ({ pos: [a.lon, a.lat], c: a === state.sel ? C.apSel : C.ap, r: a === state.sel ? 7 : 1.2 + Math.min(5, Math.sqrt(a.deg) * 0.45), ap: a })));
 		setArcs(state.sel ? data : (state.brush && !touch ? routes : []));
 		setTrips(state.sel ? data.map((r, i) => trip(r.s, r.t, (i % 7) * 0.35)) : []);
 		$("clearSel").hidden = !state.sel;
 		if (state.sel) {
-			const far = data.reduce((m, r) => r.km > m.km ? r : m, { km: 0 });
+			const far = data.reduce((m: { km: number; b?: AirportDeg }, r) => r.km > m.km ? r : m, { km: 0 });
 			$("airSel").innerHTML = `<b>${esc(state.sel.iata || state.sel.icao || "")}</b> ${esc(state.sel.name)}${state.sel.city ? ` · ${esc(state.sel.city)}` : ""}<br>${t("$1 routes · longest: $2 ($3)", fmt(data.length), esc(far.b ? (far.b.iata || far.b.city) : "—"), km(far.km))}`;
 		} else $("airSel").textContent = "";
 		applyFilters();
@@ -287,19 +309,19 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 	const ensureAir = () => airLoading ??= (async () => {
 		try {
 			const d = await loadRoutes(); ap = d.ap;
-			const deg = new Map(); for (const r of d.routes) { deg.set(r.s, (deg.get(r.s) || 0) + 1); deg.set(r.t, (deg.get(r.t) || 0) + 1); }
-			routes = d.routes.map(r => { const a = ap.get(r.s), b = ap.get(r.t); return { s: [a.lon, a.lat], t: [b.lon, b.lat], a, b, n: r.n, km: r.km, c0: C.hot0, c1: C.hot1, w: 1 + Math.min(3, Math.sqrt(r.n) * 0.7) }; });
-			apList = [...deg].map(([id, n]) => Object.assign(ap.get(id), { deg: n })).sort((x, y) => x.deg - y.deg);   // 大きい空港を後に＝上に描く・当たりも優先
+			const deg = new Map<number, number>(); for (const r of d.routes) { deg.set(r.s, (deg.get(r.s) || 0) + 1); deg.set(r.t, (deg.get(r.t) || 0) + 1); }
+			routes = d.routes.map(r => { const a = ap!.get(r.s) as AirportDeg, b = ap!.get(r.t) as AirportDeg; return { s: [a.lon, a.lat], t: [b.lon, b.lat], a, b, n: r.n, km: r.km!, c0: C.hot0, c1: C.hot1, w: 1 + Math.min(3, Math.sqrt(r.n) * 0.7) }; });
+			apList = [...deg].map(([id, n]) => Object.assign(ap!.get(id)!, { deg: n })).sort((x, y) => x.deg - y.deg);   // 大きい空港を後に＝上に描く・当たりも優先
 			airReady = true;
 			// 全路線の薄い層は空の道を開いた時に初めて作る（オーバーレイ 1 枚＝WebGL の文脈 1 つ＝要る時だけ）
-			L.base ??= map.addData([], { id: "base", kind: "arcs", getSourcePosition: d => d.s, getTargetPosition: d => d.t, getColor: C.base, getWidth: 0.9, getHeight: heightOf, getFilterValue: d => d.km });
+			L.base ??= map.addData([], { id: "base", kind: "arcs", getSourcePosition: (d: ArcItem) => d.s, getTargetPosition: (d: ArcItem) => d.t, getColor: C.base, getWidth: 0.9, getHeight: heightOf, getFilterValue: (d: ArcItem) => d.km });
 			await L.base.setData(routes);
 			L.base.setVisible(state.mode === "air");
 			$("airStat").innerHTML = t("$1 routes between $2 airports", `<b>${fmt(routes.length)}</b>`, `<b>${fmt(apList.length)}</b>`);
 			if (state.mode === "air") { showAir(); refreshMini(); }
 		} catch (e) { airLoading = null; console.warn("[arcs] routes", e); $("airStat").textContent = t("Could not load the air routes"); }
 	})();
-	const selectAirport = a => { state.sel = a; if (state.mode === "air") { showAir(); refreshMini(); } };
+	const selectAirport = (a: AirportDeg | null) => { state.sel = a; if (state.mode === "air") { showAir(); refreshMini(); } };
 	$("clearSel").addEventListener("click", () => selectAirport(null));
 	const setRange = () => {
 		state.kmLo = +$("kmLo").value; state.kmHi = Math.max(state.kmLo, +$("kmHi").value);
@@ -308,9 +330,9 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 	};
 	$("kmLo").addEventListener("input", setRange); $("kmHi").addEventListener("input", setRange);
 	$("kmLoV").textContent = km(0); $("kmHiV").textContent = km(KM_MAX);
-	$("brush")?.addEventListener("change", e => { state.brush = e.target.checked; if (state.mode === "air") showAir(); });
+	$("brush")?.addEventListener("change", e => { state.brush = (e.target as HTMLInputElement).checked; if (state.mode === "air") showAir(); });
 	$("country").addEventListener("change", e => {
-		const c = countries.find(x => x.key === e.target.value) ?? null; state.country = c?.key ?? "";
+		const c = countries.find(x => x.key === (e.target as HTMLSelectElement).value) ?? null; state.country = c?.key ?? "";
 		maskPoly = c ? { type: "MultiPolygon", coordinates: c.rings.map(r => [r]) } : null;
 		applyFilters();
 	});
@@ -320,28 +342,28 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 		setPts([]); setArcs(state.csvArcs);
 		setTrips(state.csvArcs.slice(0, 3000).map((a, i) => trip(a.s, a.t, (i % 11) * 0.3)));
 	};
-	const loadTable = async (text, name) => {
+	const loadTable = async (text: string, name: string) => {
 		$("csvStat").textContent = t("Reading…");
 		const tb = parseTable(text), det = detectColumns(tb.cols);
-		let resolver = null;
+		let resolver: Resolver | null = null;
 		if (det?.kind === "codes") {
 			const vals = tb.rows.slice(0, 200).flatMap(r => [r[det.s], r[det.t]]).filter(Boolean);
 			const r0 = makeResolver({ nations });
 			resolver = r0.needsAirports(vals) ? makeResolver({ airports: await loadAirports().catch(() => null), nations }) : r0;
 		}
-		const { arcs, skipped, how } = tableToArcs(tb, det, resolver);
+		const { arcs, skipped, how } = tableToArcs(tb, det, resolver!);
 		const wMax = arcs.reduce((m, a) => Math.max(m, Number.isFinite(a.w) ? a.w : 0), 0) || 1;
-		state.csvArcs = arcs.map(a => ({ ...a, c0: C.src, c1: C.dst, w0: a.w, w: det?.weight >= 0 ? 0.8 + 5 * Math.sqrt(Math.max(0, a.w) / wMax) : 1.6 }));
-		const HOW = { coords: t("coordinates"), iata: t("airport codes"), icao: t("airport codes"), iso2: t("country codes"), iso3: t("country codes"), name: t("country names") };
+		state.csvArcs = arcs.map((a: Arc) => ({ ...a, c0: C.src, c1: C.dst, w0: a.w, w: det?.weight! >= 0 ? 0.8 + 5 * Math.sqrt(Math.max(0, a.w) / wMax) : 1.6 }));
+		const HOW: Record<string, string> = { coords: t("coordinates"), iata: t("airport codes"), icao: t("airport codes"), iso2: t("country codes"), iso3: t("country codes"), name: t("country names") };
 		$("csvStat").innerHTML = arcs.length
-			? `<b>${esc(name)}</b><br>${t("$1 arcs ($2)", fmt(arcs.length), esc(HOW[how] ?? how ?? ""))}${skipped ? ` · ${t("$1 rows skipped", fmt(skipped))}` : ""}`
+			? `<b>${esc(name)}</b><br>${t("$1 arcs ($2)", fmt(arcs.length), esc(HOW[how!] ?? how ?? ""))}${skipped ? ` · ${t("$1 rows skipped", fmt(skipped))}` : ""}`
 			: t("No arcs found. Check the column names.");
 		if (state.mode !== "csv") setMode("csv"); else { showCsv(); refreshMini(); }
-		if (arcs.length) map.flyTo({ center: arcs[0].s, zoom: Math.min(map.getZoom(), 1.8) });
+		if (arcs.length) map.flyTo({ center: arcs[0].s as LonLat, zoom: Math.min(map.getZoom(), 1.8) });
 	};
-	const readFile = f => f && f.text().then(txt => loadTable(txt, f.name)).catch(e => { console.warn("[arcs] csv", e); $("csvStat").textContent = t("Could not read the file"); });
+	const readFile = (f: File | null | undefined) => f && f.text().then(txt => loadTable(txt, f.name)).catch(e => { console.warn("[arcs] csv", e); $("csvStat").textContent = t("Could not read the file"); });
 	$("pick").addEventListener("click", () => $("file").click());
-	$("file").addEventListener("change", e => readFile(e.target.files?.[0]));
+	$("file").addEventListener("change", e => readFile((e.target as HTMLInputElement).files?.[0]));
 	const drop = $("drop");
 	for (const ev of ["dragenter", "dragover"]) drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); });
 	for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, () => drop.classList.remove("over"));
@@ -351,11 +373,11 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 	mapEl.addEventListener("drop", e => { const f = e.dataTransfer?.files?.[0]; if (!f || !/\.(csv|tsv|txt)$/i.test(f.name)) return; e.preventDefault(); e.stopPropagation(); readFile(f); }, true);
 
 	// ── 見方の切替 ──
-	const SHOW = { here: showHere, cmp: showCmp, air: showAir, csv: showCsv };
-	const setMode = m => {
+	const SHOW: Record<Mode, () => void> = { here: showHere, cmp: showCmp, air: showAir, csv: showCsv };
+	const setMode = (m: Mode) => {
 		state.mode = m; hovered = null;
-		panel.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.m === m));
-		panel.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.dataset.p === m));
+		panel.querySelectorAll<HTMLElement>(".tab").forEach(b => b.setAttribute("aria-selected", (b.dataset.m === m) as unknown as string));
+		panel.querySelectorAll<HTMLElement>(".pane").forEach(p => p.classList.toggle("on", p.dataset.p === m));
 		const u = new URL(location.href); if (m === "here") u.searchParams.delete("mode"); else u.searchParams.set("mode", m); history.replaceState(null, "", u);
 		showTip(null);
 		L.base?.setVisible(m === "air" && airReady);
@@ -364,23 +386,23 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 		applyFilters();
 		refreshMini();
 	};
-	panel.addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) setMode(b.dataset.m); });
+	panel.addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLElement>(".tab"); if (b) setMode(b.dataset.m as Mode); });
 
 	// ── 共通：高さ・光の粒 ──
 	const setH = () => {
 		state.H = +$("h").value; $("hV").textContent = state.H ? fmt(state.H, 2) : t("flat");
 		if (state.mode === "air") L.base?.setProps({});
-		SHOW[state.mode]();
+		SHOW[state.mode!]();
 	};
 	let hT = 0; $("h").addEventListener("input", () => { $("hV").textContent = +$("h").value ? fmt(+$("h").value, 2) : t("flat"); clearTimeout(hT); hT = setTimeout(setH, 120); });
 	$("hV").textContent = fmt(H0, 2);
-	$("trips").addEventListener("change", e => { state.trips = e.target.checked; L.trips.setVisible(state.trips); });
+	$("trips").addEventListener("change", e => { state.trips = (e.target as HTMLInputElement).checked; L.trips.setVisible(state.trips); });
 
 	// ── 地図のクリック ──
 	map.on("click", async e => {
 		const ll = e.lngLat; if (!ll) return;
-		const p = Array.isArray(ll) ? [ll[0], ll[1]] : [ll.lng, ll.lat];
-		const xy = map.project(p);
+		const p: Pos = Array.isArray(ll) ? [ll[0], ll[1]] : [(ll as { lng: number }).lng, (ll as { lat: number }).lat];
+		const xy = map.project(p as [number, number])!;
 		const hit = (await L.pts.pick(xy.x, xy.y, state.mode === "air" ? 8 : 6))?.[0], d = hit ? ptsNow[hit.index] : null;
 		if (state.mode === "here") setOrigin(d?.cap ? d.cap.pos : p, d?.cap ? d.cap.name : null);   // 首都の点に当たれば、そこへ吸い付く
 		else if (state.mode === "cmp") {
@@ -390,18 +412,19 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 		} else if (state.mode === "air" && d?.ap) selectAirport(d.ap);
 	});
 	// ── 乗せると（pointer の下の弧・点）──
-	let hovered = null;
-	const routeTip = r => r && `<b>${esc(r.a.iata || r.a.city)}</b> ${esc(r.a.city || "")} → <b>${esc(r.b.iata || r.b.city)}</b> ${esc(r.b.city || "")} · ${km(r.km)} · ${t("$1 airlines", fmt(r.n))}`;
-	const arcTip = d => {
+	let hovered: ArcItem | null = null;
+	const routeTip = (r: ArcItem | null) => r && `<b>${esc(r.a!.iata || r.a!.city)}</b> ${esc(r.a!.city || "")} → <b>${esc(r.b!.iata || r.b!.city)}</b> ${esc(r.b!.city || "")} · ${km(r.km)} · ${t("$1 airlines", fmt(r.n!))}`;
+	const arcTip = (d: ArcItem | null) => {
 		if (!d) return null;
-		if (state.mode === "here") return `${esc(state.originLabel)} → <b>${esc(d.cap.name)}</b> <span style="color:#9aa6bd">${esc(d.cap.country)}</span> · ${km(d.km)}`;
+		if (state.mode === "here") return `${esc(state.originLabel)} → <b>${esc(d.cap!.name)}</b> <span style="color:#9aa6bd">${esc(d.cap!.country)}</span> · ${km(d.km)}`;
 		if (state.mode === "air") return routeTip(d);
-		if (state.mode === "csv") return `${esc(d.sLabel)} → ${esc(d.tLabel)} · ${km(d.km)}${Number.isFinite(d.w0) && d.w0 !== 1 ? ` · ${fmt(d.w0)}` : ""}`;
+		if (state.mode === "csv") return `${esc(d.sLabel)} → ${esc(d.tLabel)} · ${km(d.km)}${Number.isFinite(d.w0) && d.w0 !== 1 ? ` · ${fmt(d.w0!)}` : ""}`;
 		return null;
 	};
-	const ptTip = d => d?.cap ? `<b>${esc(d.cap.name)}</b> <span style="color:#9aa6bd">${esc(d.cap.country)}</span>` : d?.ap ? `<b>${esc(d.ap.iata || d.ap.icao || "")}</b> ${esc(d.ap.name)} · ${t("$1 routes", fmt(d.ap.deg))}` : null;
-	const hover = (id, get, tipOf) => {
-		map.on("mousemove", id, e => { const i = e.features?.[0]?.overlay?.index, d = i != null ? get()[i] : null, s = tipOf(d); showTip(s ? e.point : null, s); const h = d && id !== "pts" ? d : null; if (h !== hovered) { hovered = h; refreshMiniHover(); } });
+	const ptTip = (d: PtItem | null) => d?.cap ? `<b>${esc(d.cap.name)}</b> <span style="color:#9aa6bd">${esc(d.cap.country)}</span>` : d?.ap ? `<b>${esc(d.ap.iata || d.ap.icao || "")}</b> ${esc(d.ap.name)} · ${t("$1 routes", fmt(d.ap.deg))}` : null;
+	const hover = <T,>(id: string, get: () => T[], tipOf: (d: T | null) => string | null | undefined) => {
+		map.on("mousemove", id, e => { const i = (e.features as ({ overlay?: { index?: number } } | undefined)[] | undefined)?.[0]?.overlay?.index, d = i != null ? get()[i] : null, s = tipOf(d); showTip(s ? e.point : null, s); const h = d && id !== "pts" ? d as unknown as ArcItem : null;
+ if (h !== hovered) { hovered = h; refreshMiniHover(); } });
 		map.on("mouseleave", id, () => { showTip(null); if (hovered) { hovered = null; refreshMiniHover(); } });
 	};
 	hover("pts", () => ptsNow, ptTip);
@@ -409,23 +432,23 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 	hover("base", () => routes, d => state.mode === "air" ? routeTip(d) : null);
 
 	// ── 小地図に渡す線 ──
-	const path = (a, b) => gcPath(a, b, 48);
-	let miniBase = [], miniMarks = [];
+	const path = (a: Pos, b: Pos) => gcPath(a, b, 48);
+	let miniBase: MiniLine[] = [], miniMarks: MiniMark[] = [];
 	const refreshMiniHover = () => {
-		const d = hovered, extra = d && d.s && d.t && !d.flat ? [{ pts: path(d.s, d.t), color: "#fff", width: 2.4 }, { pts: rhumbPath(d.s, d.t, 48), color: css(C.rh), width: 1.4, dash: [3, 3] }] : [];
+		const d = hovered, extra: MiniLine[] = d && d.s && d.t && !d.flat ? [{ pts: path(d.s, d.t), color: "#fff", width: 2.4 }, { pts: rhumbPath(d.s, d.t, 48), color: css(C.rh), width: 1.4, dash: [3, 3] }] : [];
 		mini.setLines(miniBase.concat(extra), miniMarks);
 	};
 	const refreshMini = () => {
 		miniBase = []; miniMarks = [];
 		if (state.mode === "here" && state.origin) { miniBase = hereData.map(d => ({ pts: path(d.s, d.t), color: css(C.src), width: 0.8, alpha: 0.55 })); miniMarks = [{ pos: state.origin, color: css(C.src), r: 3.5 }]; }
-		if (state.mode === "cmp") { if (state.A && state.B) miniBase = [{ pts: rhumbPath(state.A, state.B, 64), color: css(C.rh), width: 2 }, { pts: path(state.A, state.B), color: css(C.gc), width: 2.2 }]; miniMarks = [state.A, state.B].filter(Boolean).map(pos => ({ pos, color: "#fff" })); }
+		if (state.mode === "cmp") { if (state.A && state.B) miniBase = [{ pts: rhumbPath(state.A, state.B, 64), color: css(C.rh), width: 2 }, { pts: path(state.A, state.B), color: css(C.gc), width: 2.2 }]; miniMarks = ([state.A, state.B].filter(Boolean) as Pos[]).map(pos => ({ pos, color: "#fff" })); }
 		if (state.mode === "air" && state.sel) { miniBase = airArcs().map(r => ({ pts: path(r.s, r.t), color: css(C.hot1), width: 0.9, alpha: 0.7 })); miniMarks = [{ pos: [state.sel.lon, state.sel.lat], color: css(C.apSel), r: 3.5 }]; }
 		if (state.mode === "csv") miniBase = state.csvArcs.slice(0, 1500).map(a => ({ pts: path(a.s, a.t), color: css(C.dst), width: 0.8, alpha: 0.6 }));
 		refreshMiniHover();
 	};
 
 	// ── 起動：見方・首都・国の形 ──
-	setMode(["here", "cmp", "air", "csv"].includes(mode0) ? mode0 : "here");
+	setMode(["here", "cmp", "air", "csv"].includes(mode0!) ? mode0 as Mode : "here");
 	loadCountries(geopbf, lang).then(cs => {
 		countries = cs;
 		mini.setLand(cs.flatMap(c => c.rings.map(r => simplify(r, 0.25))).filter(r => r.length >= 4));
@@ -440,14 +463,16 @@ export async function mountArcs(map, geopbf, { csv = null, mode: mode0 = null } 
 		const home = tzCapital(caps);
 		setOrigin(home ? home.pos : [map.getCenter().lng, map.getCenter().lat], home ? home.name : null);
 		if (home && !location.hash) map.jumpTo({ center: [home.pos[0], Math.max(-30, Math.min(30, home.pos[1]))], zoom: map.getZoom() });
-		if (state.mode !== "air" && state.mode !== "csv") SHOW[state.mode]();
+		if (state.mode !== "air" && state.mode !== "csv") SHOW[state.mode!]();
+
 		refreshMini();
 	} catch (e) { console.warn("[arcs] capitals", e); $("hereStat").textContent = t("Could not load the capitals"); }
-	if (csv) fetch(csv).then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))).then(txt => loadTable(txt, decodeURIComponent(csv.split("/").pop().split("?")[0]) || "CSV")).catch(e => { console.warn("[arcs] ?csv", e); setMode("csv"); $("csvStat").textContent = t("Could not read the file"); });
+	if (csv) fetch(csv).then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))).then(txt => loadTable(txt, decodeURIComponent(csv.split("/").pop()!.split("?")[0]) || "CSV")).catch(e => { console.warn("[arcs] ?csv", e); setMode("csv"); $("csvStat").textContent = t("Could not read the file"); });
 
 	return {
 		get mode() { return state.mode }, setMode, setOrigin, selectAirport, loadTable, ensureAir, layers: L, state,
 		get capitals() { return caps }, get routes() { return routes }, get airports() { return apList }, get count() { return arcsNow.length },
-		destroy() { for (const h of Object.values(L)) h.remove(); mini.destroy(); panel.remove(); tip.remove(); },
+		destroy() { for (const h of Object.values(L)) h!.remove();
+ mini.destroy(); panel.remove(); tip.remove(); },
 	};
 }
