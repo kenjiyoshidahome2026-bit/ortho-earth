@@ -50,7 +50,8 @@ export { Compare } from "./compare.ts";   // 2 枚の地図をスワイプで比
 import { MAP_THEMES } from "./palettes.ts";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
-import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
+import { createLabelSender } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
+import { mergeChome } from "./chome.ts";   // 町丁名の二系統(210/800)の畳み込み
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.ts";
 import { createOverlay } from "./overlay.ts";
 
@@ -1946,43 +1947,7 @@ function swapScene(order: TileOrder) {
 // 実測（z16・市中心5km四方）：重複除去が効くのは東京(566中274=48%)・高知(205中157=77%)で、
 // 札幌(1330中37)・京都(2081中4)は 210 側がほぼ空＝800 が本体なので減らない。密度は丁目の低い
 // symbol-sort-key と labels2d の衝突間引きに任せ、足りなければ CHOME800_MINZOOM を上げる。
-const chomeCanon = (t: string) => t.replace(/[（(]([一二三四五六七八九十百]+)[)）]$/, "$1丁目");   // 突合キー＝正式表記へ寄せる
-// 表示＝（N）へ（丁目の無い町名はそのまま）。旧＝t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）")＝漢数字の長い並びで多項式（CodeQL）＝末尾から数えるのと同じ
-const chomeShort = (t: string) => { if (!t.endsWith("丁目")) return t; const e = t.length - 2; let i = e; while (i > 0 && "一二三四五六七八九十百".includes(t[i - 1])) i--; return i < e ? t.slice(0, i) + "（" + t.slice(i, e) + "）" : t; };
-const nearAnchor = (list: number[][] | undefined, a: readonly number[], m: number) => {   // list（経緯度の列）に a から m メートル以内の点があるか
-	if (!list) return false;
-	const cos = Math.cos(a[1] * Math.PI / 180);
-	return list.some(p => Math.hypot((p[0] - a[0]) * 111320 * cos, (p[1] - a[1]) * 111320) < m);
-};
-const chomeCopies = new WeakMap<HostLabel, HostLabel>();   // 800 の元 → （N）表記の写し（文字が変わる＝鍵も付け直す）
-const chomeCopy = (L: HostLabel) => { let c = chomeCopies.get(L); if (!c) { c = { ...L, text: chomeShort(L.text), code: 210 }; c.key = labelKey({ ...c, key: undefined }); chomeCopies.set(L, c); } return c; };
-function mergeChome(all: HostLabel[], zoom: number) {
-	if (!all.some(L => L.code === 800)) return all;   // 800 が来ないズーム/地域＝素通り（配列コピーもしない）
-	if (zoom < CHOME800_MINZOOM) return all.filter(L => L.code !== 800);
-	const by = new Map<string, number[][]>();   // 210 の正規化名 → アンカー列（同名の町丁が全国に居るので位置でも裁く）
-	for (const L of all) if (L.code === 210) {
-		const k = chomeCanon(L.text);
-		let a = by.get(k); if (!a) by.set(k, a = []);
-		a.push(L.anchor);
-	}
-	const seen = new Map<string, number[][]>();   // 出した町丁名 → アンカー列（同じ注記が隣タイルにも入っている分の重複よけ）
-	const out: HostLabel[] = [];
-	for (const L of all) {
-		if (L.code !== 800 && L.code !== 210) { out.push(L); continue; }
-		const k = chomeCanon(L.text);
-		// 1km＝同じ町丁の 210/800 のアンカーずれ（実測で最大300m級）は確実に拾い、
-		// 同名の別の町（「本町一丁目」等は全国にある）は拾わない距離。
-		if (L.code === 800 && nearAnchor(by.get(k), L.anchor, 1000)) continue;   // 210 が既に出す町丁＝そちらに任せる
-		// 30m＝「同じ注記が二度来た」だけを消す距離。GSI は境界の注記を隣タイルにも入れており、
-		// 800 は件数が桁違いなので実害が出る（実測 z16 市中心5km四方の同名30m以内ペア：札幌104・京都230。
-		// うち大半は距離5m未満＝完全な同一点）。長い町丁を両端に打った正規の二つ（数百m離れ）は残る。
-		if (nearAnchor(seen.get(k), L.anchor, 30)) continue;
-		let a = seen.get(k); if (!a) seen.set(k, a = []);
-		a.push(L.anchor);
-		out.push(L.code === 800 ? chomeCopy(L) : L);   // コピー＝タイル側のラベルキャッシュを壊さない（同じ元には同じ写し＝worker へ送り直さない）
-	}
-	return out;
-}
+// 実体＝src/chome.ts の mergeChome（実タイルの検査 tests/t-chome.mjs が同じ物を読む）
 // 作り直すたびに同じ中身の物を新しく作らない＝worker へ送るのは初めての物だけ（labelsync）。インクが変わった（テーマ）時だけ作り直す
 const landmarkLabels = new WeakMap<object, { color: readonly number[]; halo: readonly number[]; haloW: number; L: HostLabel }>();
 const landmarkLabel = (m: { text: string; anchor: [number, number] }, color: readonly number[], halo: readonly number[], haloW: number) => { let e = landmarkLabels.get(m); if (!e || e.color !== color || e.halo !== halo || e.haloW !== haloW) landmarkLabels.set(m, e = { color, halo, haloW, L: { text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW } }); return e.L; };   // size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
@@ -2755,7 +2720,7 @@ map.getDebug = () => ({ ...dbgState });
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
-	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
+	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) { const e = wrapLon(v[2]); camBounds = [wrapLon(v[0]), v[1], e === -180 && v[2] > v[0] ? 180 : e, v[3]]; } }   // 東端の 180 は 180 のまま（wrapLon は [-180,180) に畳む＝[-180,…,180] が幅 0 の可動域にならないように）
 	onMove(); return map;
 };
 map.getMaxBounds = () => camBounds ? [...camBounds] : null;
