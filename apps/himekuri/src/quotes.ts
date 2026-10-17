@@ -2,7 +2,7 @@
 // 日めくりの下に一句。著作権の切れた言葉（古典・近代の文人・西洋の古典の要約訳）を出典つきで。年通日（1 月 1 日＝0）で選ぶ＝同じ日は毎年同じ句、閏年は 2/29 で一つずれる。
 // 暦の中身と同じで訳さない（日本語の日めくりの一部）。足す時は [言葉, 出典] を末尾に（順番を変えると日付と句の対応が変わる）。
 import { dayNumber } from "himekuri/共通関数.js";
-export const QUOTES = [
+export const QUOTES: [string, string][] = [
 	["学びて時にこれを習う、また説ばしからずや。", "『論語』学而"],
 	["過ちて改めざる、これを過ちという。", "『論語』衛霊公"],
 	["己の欲せざる所、人に施すことなかれ。", "『論語』顔淵"],
@@ -370,4 +370,4 @@ export const QUOTES = [
 	["死生命あり、富貴天にあり。", "『論語』顔淵"],
 	["四海の内、皆兄弟なり。", "『論語』顔淵"],
 ];
-export const quoteOf = ymd => { const [text, source] = QUOTES[dayNumber(ymd) % QUOTES.length]; return { text, source }; };
+export const quoteOf = (ymd: [number, number, number]) => { const [text, source] = QUOTES[dayNumber(ymd) % QUOTES.length]; return { text, source }; };
