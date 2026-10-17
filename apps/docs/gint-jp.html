@@ -179,6 +179,9 @@ properties がまったく同じ地物は、一つの地物 — <code>fid</code>
 式は JavaScript で地物ごとに<strong>一度だけ</strong>評価され、結果はスタイル表 — 地物 1 つにテクセル 1 つ — に書かれます。
 GPU は描きながらその表を読むだけで、フレームごとに式を走らせることはありません。塗り替えは、地物を一巡する評価とテクスチャ 1 枚の更新です。
 幾何は作り直しません。日本の 1,919 市区町村なら表は 31 KB です。
+WebGPU では、同じ表を GPU で組むこともできます（選んだ時だけ — <code>createGlobe({ gpuExpr: true })</code>、または URL に <code>?gintexpr=1</code>）。
+式は一度だけ compute シェーダになり、地物の状態が変わっても、全部の地物を評価し直さずに表の 1 セルを書き換えるだけです。
+載らない式と WebGL2 は JavaScript に戻ります。絵は同じです。
 </p>
 <table>
 	<tr><th>プロパティ</th><th>対象</th><th>値</th></tr>
@@ -464,7 +467,8 @@ Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いませ�
 <code>map.addSource(id, { type: "geojson", data })</code> と <code>map.addLayer({ type: "fill" | "line" | "circle", … })</code> は、下に Gint の層を作ります。
 MapLibre のコードがそのまま動き、<code>setPaintProperty</code>・<code>setLayoutProperty</code>（<code>visibility</code>）・<code>setFilter</code>・<code>moveLayer</code>・
 <code>setFeatureState({ source, id }, state)</code>・<code>queryRenderedFeatures</code>・<code>map.on("click", layerId, …)</code> がすべて効きます。
-一つの source の層は<strong>一枚</strong>の Gint の層になります：paint は混ぜ合わされ、filter は <code>all</code> でつながります。
+一つの source の続いた層は<strong>一枚</strong>の Gint の層を分け合い、塗り・線・点の順に描きます。どの地物に何を描くかは、それぞれの層の filter・ズームの範囲・ジオメトリの型が地物ごとに決めます。
+同じ型の層がもう一枚来たら、また線の上に塗りが来たら、別の Gint の層になります。
 ズームの範囲は MapLibre に従い、<code>minzoom</code> の無い層はズーム 0 から描きます。
 </p>
 <p>
@@ -485,12 +489,12 @@ MapLibre のコードがそのまま動き、<code>setPaintProperty</code>・<co
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-lod">
-		<div class="pipe-head"><span class="pipe-num n-lod">2</span><div><div class="pipe-title">焼き — 読み込みごとに一度</div><div class="pipe-sub">GintBUF → GPU のテクスチャ · 焼きの worker</div></div></div>
+		<div class="pipe-head"><span class="pipe-num n-lod">2</span><div><div class="pipe-title">焼き — 読み込みごとに一度</div><div class="pipe-sub">GintBUF → GPU のテクスチャ · 焼きの worker（gintbake）・載せるのは描画 worker</div></div></div>
 		<div class="pipe-items"><span>辺のメタ · 段の梯子 · 間引きの塊 · 境界メタ · 地物ごとの bbox とスタイル表</span></div>
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-gpu">
-		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">描画 — 毎フレーム</div><div class="pipe-sub">WebGPU か WebGL2 · 両方で同じパス</div></div></div>
+		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">描画 — 毎フレーム</div><div class="pipe-sub">WebGPU か WebGL2 · 描画 worker の中 · 両方で同じパス</div></div></div>
 		<div class="pipe-items"><span>間引き · 頂点シェーダの中の LOD · 巻き数の塗り · カプセルの線 · ドレープ · 選択</span></div>
 	</div>
 </div>
@@ -532,7 +536,7 @@ MapLibre のコードがそのまま動き、<code>setPaintProperty</code>・<co
 <h3>8.4 GintBUF</h3>
 <p>
 結果は一つのバッファです。64 byte のヘッダ（magic <code>"Gint"</code>・版・件数・bbox・流れの長さ）の後に、弧の頂点符号・点の符号・
-弧ごとのメタ <code>[開始, 長さ, 重み, –, bbox]</code>、そして面・線・隣接の流れが続きます。
+弧ごとのメタ <code>[開始, 長さ, 重み, –, bbox]</code>・点の fid、そして面・線・隣接の流れが続きます。
 IndexedDB に保存するので、二度目の訪問では符号化を丸ごと飛ばします。
 </p>
 
@@ -564,7 +568,8 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 <h2 id="fill">10. 三角形に割らずに面を塗る</h2>
 
 <p>
-面は三角形に割りません。面の辺を、その地物の bbox の中心を要にした<strong>扇</strong>としてステンシルに描きます。
+面は三角形に割りません。面の辺を、その地物の bbox の中心を要にした<strong>扇</strong>としてステンシルに描きます
+（多片の地物 — 島・飛び地・世界に散らばる気候区分 — がある層では、片ごとに自分の要と bbox を持ち、片ごとに間引きます）。
 表向きの三角形は +1、裏向きは −1（<strong>非ゼロ巻き数</strong>）。二つ目のパスで、数がゼロでない画素を塗ります。
 凹んだ形も穴も特別扱い無しに正しく出ます。扇どうしの重なりは打ち消し合います。
 </p>
@@ -589,8 +594,8 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 <h2 id="sphere">12. 球の上で — 地平線と日付変更線</h2>
 
 <ul>
-	<li><strong>地平線。</strong>地球の裏側の頂点は 3D で地平線の円に投影します。地平線をまたぐ面も輪郭が閉じたまま正しく塗れます。丸ごと裏側の地物は、球冠の判定で間引きます。</li>
-	<li><strong>日付変更線。</strong>±180° をまたぐ地物は符号化のときにそこで切ります。切り口の辺は見分けて描かないので、切れ目は見えません。</li>
+	<li><strong>地平線。</strong>地球の裏側の頂点は 3D で地平線の円に投影します。地平線をまたぐ面も輪郭が閉じたまま正しく塗れます。丸ごと裏側の地物は、球冠の判定で間引きます — 塗りでは多片の地物の片ごとに判定するので、裏側の片が手前を塗りつぶすことはありません。</li>
+	<li><strong>日付変更線。</strong>±180° をまたぐ地物は符号化のときにそこで切ります。切り口の辺は見分けて線としては描かないので、切れ目は見えません。</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->

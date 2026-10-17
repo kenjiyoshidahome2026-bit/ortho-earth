@@ -120,7 +120,7 @@ They meet only through the declaration that the app passes in.
 
 <p>
 The main thread holds the camera, input and DOM. Everything that decodes, builds or draws runs in workers.
-All workers start from <strong>one entry file</strong> (<code>worker.js</code>) and are told their role by the Worker's <code>name</code> —
+All workers start from <strong>one entry file</strong> (<code>worker.ts</code>) and are told their role by the Worker's <code>name</code> —
 so the bundler builds one worker graph, and shared code (the GeoPBF core, loaders.gl, the shaders) exists once, not once per worker.
 </p>
 
@@ -155,11 +155,14 @@ so the bundler builds one worker graph, and shared code (the GeoPBF core, loader
 	<tr><td><code>gintbake</code></td><td>Bakes gint layers (LOD ranks, edges) off the render thread.</td></tr>
 	<tr><td><code>ortho:height</code></td><td>Decodes elevation tiles.</td></tr>
 	<tr><td><code>rastertiles</code> / <code>imagequad</code></td><td>Serves raster tiles from local GeoPackage/MBTiles, or from an image pinned by four corners.</td></tr>
-	<tr><td><code>decoder:*</code> / <code>encoder:*</code></td><td>GeoPBF format conversion (dropped files, exports).</td></tr>
+	<tr><td><code>columnar</code></td><td>Reads and packs column-chunk layers (GeoParquet, chunked GeoPBF) for <code>map.addColumnar</code>.</td></tr>
+	<tr><td><code>vtdraw</code> / <code>vtextrude</code></td><td>MapLibre fill / line / circle / symbol layers and fill-extrusions on vector sources.</td></tr>
+	<tr><td><code>iiif</code> / <code>copc</code></td><td>Georeferenced IIIF map images baked into tiles / COPC point clouds read by range.</td></tr>
+	<tr><td><code>decoder:*</code> / <code>encoder:*</code> / <code>geopbf:*</code></td><td>GeoPBF format conversion (dropped files, exports).</td></tr>
 </table>
 
 <p>
-A region pack can add roles (Japan adds its statistics worker) through a build-time slot, so the host never knows about them.
+A region pack starts its own workers from its own entry (Japan's statistics worker, <code>estat-worker.ts</code> in <code>@ortho-earth/jp</code>), so the host never knows about them.
 Cross-origin isolation is <em>not</em> required: with it, GeoPBF buffers travel to workers without copying (SharedArrayBuffer);
 without it, they are copied once. Every feature works either way, and a gate (<code>verify:nocoi</code>) checks that.
 </p>
@@ -169,7 +172,7 @@ without it, they are copied once. Every feature works either way, and a gate (<c
 
 <p>
 The core has two renderers with the same face — <code>set</code>, <code>draw</code>, <code>dispose</code> — one on WebGPU, one on WebGL2.
-The render worker picks one at start:
+The boot picks one at start:
 </p>
 
 <table>
@@ -177,7 +180,8 @@ The render worker picks one at start:
 	<tr><td><code>?gl2=1</code></td><td>WebGL2 (manual escape hatch)</td></tr>
 	<tr><td>no <code>navigator.gpu</code></td><td>WebGL2 directly</td></tr>
 	<tr><td>Android</td><td>WebGL2 (silent black-screen faults on some mobile GPU drivers)</td></tr>
-	<tr><td>a previous WebGPU start failed in this tab</td><td>WebGL2</td></tr>
+	<tr><td>Safari / WebKit, on a page that declares <code>glOverlay: true</code></td><td>WebGL2 (a WebGL2 overlay over WebGPU is not composited there)</td></tr>
+	<tr><td>a previous WebGPU start failed in this tab</td><td>WebGL2 (once: the next boot only; twice: for the rest of the tab session; <code>?gpu=1</code> retries)</td></tr>
 	<tr><td>otherwise</td><td><strong>WebGPU</strong></td></tr>
 </table>
 
@@ -187,9 +191,9 @@ WebGPU has three safety nets: an init failure falls back to WebGL2 inside the wo
 </p>
 
 <p>
-Two quality levers run on both backends. <strong>Transition anti-aliasing</strong>: while the camera moves, frames are drawn at 1× MSAA;
+Two quality levers keep frames smooth. <strong>Transition anti-aliasing</strong> (WebGPU; WebGL2 fixes its anti-aliasing when the context is created): while the camera moves, frames are drawn at 1× MSAA;
 once it has been still for about half a second, one 4× frame is drawn. <strong>Dynamic resolution</strong>: when frames get slow, the canvas
-resolution steps down, and line widths stay constant on screen.
+resolution steps down, and line widths stay constant on screen (both backends).
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -209,14 +213,14 @@ The camera is a small plain object — <code>center</code>, <code>zoom</code>, <
 </ul>
 
 <p>
-The view lives in the URL — <code>#zoom/lat/lon[/45t][/-30r][/l=…][/c=theme][/t=UTC][/s=speed]</code> — so the address bar is always a link to what you see.
+The view lives in the URL — <code>#zoom/lat/lon[/45t][/-30r][/15roll][/l=…][/c=theme][/t=UTC][/s=speed]</code> — so the address bar is always a link to what you see.
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="terrain">5. Terrain at True Scale</h2>
 
 <p>
-Elevation is drawn <strong>without exaggeration</strong>. The heights come from <a href="altpbf.html">AltPBF</a>: 1° cells at three resolutions,
+Elevation is drawn <strong>without exaggeration</strong>. The heights come from <a href="altpbf.html">AltPBF</a>: tiles of three spans (1°, 10° and 90°),
 decoded in a worker and packed into two elevation atlases — a <strong>near</strong> atlas of fine cells around the camera, and a <strong>far</strong> atlas
 of coarse cells for the horizon. The shader reads one continuous height field from both.
 </p>
@@ -240,7 +244,7 @@ That is honestly as far as world data can carry.
 <strong>Above that, a region takes over</strong> from the zoom its declaration names (Japan: z6.5, with the GSI vector basemap).
 Vector tiles go through the tile and scene workers; in tilted 3D views, a zoom-out keeps the finer tiles on screen while they still cover the ground, instead of swapping them for coarser ones.
 Tile formats are plugins on one registry: MVT is built in, and MLT (MapLibre Tile) comes from <code>@ortho-earth/tile-formats</code>,
-enabled at build time by aliasing <code>#tile-formats</code> to its register module — the decoder loads on the first MLT tile, so a map that
+enabled at build time by aliasing <code>#tile-formats</code> to <code>@ortho-earth/core/tileformats-mlt</code>, which registers it — the decoder loads on the first MLT tile, so a map that
 never meets one pays nothing. A vector source says <code>"encoding": "mlt"</code> as in MapLibre; a PMTiles archive is recognised by its header.
 </p>
 <p>
@@ -332,10 +336,11 @@ map.flyTo({ center: [<span class="nm">139.767</span>, <span class="nm">35.681</s
 <p>
 The shape of the API follows MapLibre where it can, so existing styles and habits carry over.
 Everything above is covered by gates that boot pages through the published package itself — what is tested is what you install.
+Since 2.0 the libraries are written in strict TypeScript and ships its type definitions (compiled <code>.js</code> + <code>.d.ts</code> on npm); the 1.x compatibility layers are gone — see <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a>.
 </p>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	@ortho-earth/core · @ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+	@ortho-earth/core · @ortho-earth/globe · GPL-3.0-or-later · Kenji Yoshida · 2026
 </div>
 
 </div><!-- .page -->

@@ -20,8 +20,16 @@ Ortho Earth reads the open data of the Earth in your own browser — on a round 
 
 - [GeoPBF](https://www.ortho-earth.com/docs/geopbf): Compact binary format for geometry and an in-browser converter — 18 formats in, 14 out. npm `geopbf` (MIT).
 - [Gint](https://www.ortho-earth.com/docs/gint): Shared-edge topology in a GPU-readable form (GPL-3.0-or-later).
-- [AltPBF](https://www.ortho-earth.com/docs/altpbf): Elevation tiles in Protocol Buffers (MIT).
+- [AltPBF](https://www.ortho-earth.com/docs/altpbf): Elevation tiles in Protocol Buffers. npm `altpbf` (MIT).
 - glbconv: GLB → glTF / OBJ / PLY / STL / USDZ / 3D Tiles in the browser. npm `glbconv` (MIT).
+- `@ortho-earth/japan`: a 3D globe of Japan for any page with no bundler — GSI vector tiles and PLATEAU buildings in one self-contained bundle (GPL-3.0-or-later).
+- geoedit: the GeoPBF editor — shapes edited on the sphere, large files in place. npm `geoedit` (MIT).
+- `@ortho-earth/ephem`: planets, Moon and Sun 1800–2050, satellites (SGP4/SDP4) and the shared clock (GPL-3.0-or-later).
+- native-bucket: Cloudflare R2/Workers ↔ IndexedDB bridge and cache for heavy binary data (MIT).
+- `@ortho-earth/tile-formats`: lazily loaded decoders — MLT vector tiles and LAZ points for COPC (GPL-3.0-or-later).
+- Add-ons for the globe: `@ortho-earth/react`, `@ortho-earth/google-tiles`, `@ortho-earth/ktx2`, `@ortho-earth/plugin-splat`, `@ortho-earth/plugin-scene`, `@ortho-earth/h3` (GPL-3.0-or-later).
+
+Since 2.0 the libraries are written in TypeScript (strict) and ship their types; upgrading from 1.x: [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md).
 
 ## Documentation
 
