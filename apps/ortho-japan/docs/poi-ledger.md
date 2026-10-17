@@ -14,7 +14,7 @@
 | `public/plateau-names.json` | 33,805棟・2.93MB（同名クラスタを畳んだ後） |
 | `public/plateau-landmarks.json` | 135棟・8.7KB（h≥60m の名札用） |
 | `app.js` | 施設チップON時のみランドマーク名札（梯子 z11→150m / z12.5→100m / z14→60m） |
-| `tests/t-chome.mjs` `tests/t-landmarks.mjs` | どちらも app.js の実ソースを切り出して評価する方式 |
+| `tests/t-landmarks.mjs` | globe.ts の実ソースを切り出して評価する方式（町丁名の `t-chome.mjs` は 2026-10-17 に packages/globe/tests へ移り、src/chome.ts を直接 import する） |
 
 中間生成物 `plateau-names-out/`（14MB・地区別＋`merged/`）は gitignore。**再生成には76GBの再ダウンロードが要る**ので消さないこと。
 

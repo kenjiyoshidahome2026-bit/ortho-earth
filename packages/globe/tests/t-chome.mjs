@@ -1,19 +1,12 @@
-// 町丁名の二系統(Anno 210/800)の畳み込みを実タイルで検証する Node ハーネス。
+// 町丁名の二系統(Anno 210/800)の畳み込みを実タイル（地理院の最適化ベクトルタイル）で検証する Node ハーネス＝ネットが要る（npm run test:net）。
 //   node tests/t-chome.mjs            … 既定4都市（東京/札幌/京都/高知）
 //   node tests/t-chome.mjs 東京       … 都市を絞る
-// mergeChome は地球儀ホスト（packages/globe/src/globe.ts）の実ソースから切り出して（型を剥がして）評価する（写経した複製を試験しても意味が無いため）。
-// 旧＝app.js から切り出していた。app.js が薄い包みになって（2026-09-23）以来ずっと落ちていた・T2 で向け直し（2026-09-25）。
-// themes.js は純関数モジュール＝そのまま import して分類（施設/地形/丁目）を本番と同一条件で通す。
-import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
-import { fileURLToPath } from "node:url";
+// mergeChome は本番と同じ src/chome.ts をそのまま import する（旧＝globe.ts の文字列を切り出して評価していた＝周りが動くたびに壊れた・2026-10-17）。
+// 旧の置き場＝apps/ortho-japan/tests。ネット不要の単体検査は tests/t-chome-merge.mjs（npm test）。
+// themes は純関数モジュール＝そのまま import して分類（施設/地形/丁目）を本番と同一条件で通す。
 import { decodeMVT } from "@ortho-earth/core/decode";
-import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM } from "@ortho-earth/globe/themes.js";
-
-const src = readFileSync(fileURLToPath(import.meta.resolve("@ortho-earth/globe")), "utf8");   // globe の入口（exports の "."＝src/globe.ts）
-const from = src.indexOf("const chomeCanon"), to = src.indexOf("function rebuildLabels(order");
-if (from < 0 || to < 0 || to < from) { console.error("globe.ts から mergeChome を切り出せない（実装が移動した？）"); process.exit(1); }
-const mergeChome = new Function("CHOME800_MINZOOM", stripTypeScriptTypes(src.slice(from, to)) + "\nreturn mergeChome;")(CHOME800_MINZOOM);
+import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM } from "../src/themes.ts";
+import { mergeChome } from "../src/chome.ts";
 
 const Z = 16;
 const AREAS = {
