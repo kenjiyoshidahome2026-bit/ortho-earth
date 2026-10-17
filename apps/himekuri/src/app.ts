@@ -108,20 +108,18 @@ export async function mountApp(root: HTMLElement) {
 		if (!s) { c.append(el("p", { class: "hk-muted", text: t("Allow location access or enter a place in Settings to see sunrise and sunset.") })); return; }
 		if (s.polar === "day") c.append(el("p", { class: "hk-note", text: t("The Sun does not set today (midnight sun).") }));
 		if (s.polar === "night") c.append(el("p", { class: "hk-note", text: t("The Sun does not rise today (polar night).") }));
-		// 方位が無い日（極地）は null を append する＝文字列 "null" が出る（既存の挙動のまま・型は Node に寄せる）
-		c.append(
-			row(t("Sunrise"), timeOf(s.rise), s.rise != null ? null : null), (s.riseAz != null ? el("div", { class: "hk-sub" }, t("Azimuth"), " ", ...az(s.riseAz)) : null) as Node,
+		c.append(...([   // 方位が無い日（極地）＝null は落とす（旧＝append(null) が文字列 "null" を出していた・2026-10-17）
+			row(t("Sunrise"), timeOf(s.rise), s.rise != null ? null : null), (s.riseAz != null ? el("div", { class: "hk-sub" }, t("Azimuth"), " ", ...az(s.riseAz)) : null),
 			row(t("Solar noon"), timeOf(s.noon), s.noonAlt != null ? t("altitude $1", fmtDeg(s.noonAlt, 1)) : null),
-			row(t("Sunset"), timeOf(s.set)), (s.setAz != null ? el("div", { class: "hk-sub" }, t("Azimuth"), " ", ...az(s.setAz)) : null) as Node,
+			row(t("Sunset"), timeOf(s.set)), (s.setAz != null ? el("div", { class: "hk-sub" }, t("Azimuth"), " ", ...az(s.setAz)) : null),
 			row(t("Day length"), fmtDuration(s.dayLength)),
 			el("h3", { text: t("Twilight") }),
 			row(t("Civil"), `${timeOf(s.civil.dawn)} – ${timeOf(s.civil.dusk)}`),
 			row(t("Nautical"), `${timeOf(s.nautical.dawn)} – ${timeOf(s.nautical.dusk)}`),
 			row(t("Astronomical"), `${timeOf(s.astro.dawn)} – ${timeOf(s.astro.dusk)}`),
 			el("div", { class: "hk-sub" }, t("Declination $1 · equation of time $2 min", fmtDeg(s.dec, 2), s.eot.toFixed(1))),
-		);
-		// set／set0 は見ていない＝出はあるが入りが無い日は「NaN min」になる（既存の挙動のまま）
-		if (s.dip > 0 && s.rise != null && s.rise0 != null && Math.abs(s.rise0 - s.rise) >= 3e4) c.append(el("p", { class: "hk-note", text: t("Horizon dip from $1 m elevation: $2. At sea level sunrise would be $3 and sunset $4.", Math.round(S.loc!.elev!), fmtDeg(s.dip, 2), fmtDiffMin(s.rise0 - s.rise), fmtDiffMin(s.set0! - s.set!)) }));
+		] as (Node | null)[]).filter((x): x is Node => x != null));
+		if (s.dip > 0 && s.rise != null && s.rise0 != null && s.set != null && s.set0 != null && Math.abs(s.rise0 - s.rise) >= 3e4) c.append(el("p", { class: "hk-note", text: t("Horizon dip from $1 m elevation: $2. At sea level sunrise would be $3 and sunset $4.", Math.round(S.loc!.elev!), fmtDeg(s.dip, 2), fmtDiffMin(s.rise0 - s.rise), fmtDiffMin(s.set0 - s.set)) }));
 		else if (S.loc && S.loc.dip === false) c.append(el("p", { class: "hk-note hk-muted", text: t("Horizon dip is off (times are for sea level).") }));
 	}
 	function renderMoon(info: DayInfo) {

@@ -219,7 +219,7 @@ export function initChoropleth(map: CensusMap, { legend }: { legend?: LegendSett
 			n = L.features.length;
 			codeOf = i => L.groups[i].code;
 			valueOf = i => AGG_VALUE[indicator]?.(L.groups[i].members) ?? null;
-			existsOf = i => ((L.groups[i].members as unknown as unknown[])?.length ?? 0) > 0;   // ⚠members は Set＝length は常に undefined→0＝集約層は色分けで全部不可視（挙動は据え置き・TS 化 2026-10-17 で気付いた）
+			existsOf = i => L.groups[i].members.size > 0;   // members は Set（旧 .length は常に undefined＝集約層が色分けで全部不可視だった・2026-10-17）
 		} else {
 			if (!feats) return;
 			n = feats.length;

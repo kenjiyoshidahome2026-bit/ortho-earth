@@ -31,7 +31,7 @@ const FRAMES: Record<string, number[]> = { "16:9": [16, 9], "9:16": [9, 16], "1:
 const isVia = (r: Row | undefined) => r?.via != null && !r.view && !r.glide && !r.fade;
 const hashOf = (r: Row) => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
 
-const CSS = `
+const STYLE = `
 	#sc-stage { padding:38px 0 46px; box-sizing:border-box; }   /* 上端＝カメラ実位置チップの帯・下端＝タイムライン・スクラブの帯（fit も同じ分を差し引く） */
 	#sc-scrub { position:absolute; left:16px; right:16px; bottom:9px; display:flex; align-items:center; gap:10px; color:#cdd6e6; font:11px/1 system-ui,sans-serif; user-select:none; }
 	#sc-scrub .tk { position:relative; flex:1; height:22px; cursor:pointer; touch-action:none; }
@@ -152,7 +152,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	window.addEventListener("resize", fit);
 
 	// ── パネル（DOM自給）──
-	const styleEl = document.createElement("style"); styleEl.textContent = CSS; document.head.append(styleEl);
+	const styleEl = document.createElement("style"); styleEl.textContent = STYLE; document.head.append(styleEl);
 	// ロゴ＝起動画面と同じ球儀マーク（index.html #boot の一筆書きを currentColor で）
 	const LOGO = `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>`;
 	panelEl.innerHTML = `
@@ -209,8 +209,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const thumbDb = () => new Promise<IDBDatabase>((res, rej) => { const rq = indexedDB.open("oj-scene-editor", 1); rq.onupgradeneeded = () => rq.result.createObjectStore("thumbs"); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
 	const thumbGet = async (key: string) => { try { const db = await thumbDb(); return await new Promise<string | null>(r => { const q = db.transaction("thumbs").objectStore("thumbs").get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } };
 	const thumbPut = async (key: string, url: string) => { try { const db = await thumbDb(); db.transaction("thumbs", "readwrite").objectStore("thumbs").put(url, key); } catch { /* 無くても編集は成立 */ } };
-	// 不具合（未修正・挙動は据え置き）：CSS はこのモジュールの CSS 文字列定数が覆っている＝CSS.escape は undefined で呼ぶと TypeError（captureThumb の catch で撮り直し→thumbPut に届かない）
-	// @ts-expect-error 上記＝コードどおり（CSS は文字列）
+	// CSS.escape＝大域の CSS（旧＝同名の文字列定数が覆って TypeError＝サムネが IndexedDB に残らなかった・2026-10-17 に定数を STYLE へ改名）
 	const showThumb = (key: string, url: string) => rowsEl.querySelectorAll<HTMLElement>(`.sc-thumb[data-thumb="${CSS.escape(key)}"]`).forEach(el => { el.style.backgroundImage = `url("${url}")`; });
 	const captureThumb = async (key: string, retry = 1): Promise<void> => {   // 今の画面を撮って key の絵にする（失敗は1回だけ撮り直し・それでも駄目なら無視＝サムネは補助）
 		if (!key || !map.requestSnapshot) return;
