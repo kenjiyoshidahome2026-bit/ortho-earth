@@ -56,6 +56,12 @@ try {
 	ok("maxBoundsWrapIn", near(map.getCenter().lng, -175, 1e-6));
 	map.jumpTo({ center: [160, -10] });
 	ok("maxBoundsWrapOut", near(map.getCenter().lng, 170, 1e-6), map.getCenter().lng.toFixed(2));
+	map.setMaxBounds([-180, -90, 180, 90]);   // 東端 180＝全経度（wrapLon が 180 を -180 に畳んでも幅 0 にしない）
+	map.jumpTo({ center: [10, -10] });
+	ok("maxBoundsWorld", near(map.getCenter().lng, 10, 1e-6) && map.getMaxBounds()[2] === 180, `${map.getCenter().lng} ${map.getMaxBounds()}`);
+	map.setMaxBounds([170, -90, 180, 90]);
+	map.jumpTo({ center: [175, -10] });
+	ok("maxBoundsEast180", near(map.getCenter().lng, 175, 1e-6), map.getCenter().lng.toFixed(2));
 	map.setMaxBounds(null);
 	map.jumpTo({ center: [10, 50] });
 	ok("maxBoundsOff", near(map.getCenter().lng, 10, 1e-6));

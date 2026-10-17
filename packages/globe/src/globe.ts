@@ -2755,7 +2755,7 @@ map.getDebug = () => ({ ...dbgState });
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
-	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
+	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) { const e = wrapLon(v[2]); camBounds = [wrapLon(v[0]), v[1], e === -180 && v[2] > v[0] ? 180 : e, v[3]]; } }   // 東端の 180 は 180 のまま（wrapLon は [-180,180) に畳む＝[-180,…,180] が幅 0 の可動域にならないように）
 	onMove(); return map;
 };
 map.getMaxBounds = () => camBounds ? [...camBounds] : null;
