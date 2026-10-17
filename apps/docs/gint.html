@@ -181,6 +181,9 @@ Any number of layers can be on the map at once, on both backends (WebGPU and Web
 The expressions are evaluated <strong>once</strong>, in JavaScript, for every feature, and the results are written into a style table — one texel per feature.
 The GPU reads that table while it draws; no expression runs per frame. A restyle is one pass over the features plus one texture update.
 The geometry is never rebuilt. For the 1,919 municipalities of Japan the table is 31 KB.
+On WebGPU you can opt in to building the same table on the GPU — <code>createGlobe({ gpuExpr: true })</code>, or <code>?gintexpr=1</code> in the URL:
+the expressions become a compute shader once, and a feature-state change rewrites one cell instead of evaluating every feature again.
+Expressions it cannot take, and WebGL2, fall back to JavaScript; the picture is the same.
 </p>
 <table>
 	<tr><th>Property</th><th>Applies to</th><th>Value</th></tr>
@@ -470,7 +473,8 @@ into multi-polygons — the fill cost is the same.
 <code>map.addSource(id, { type: "geojson", data })</code> with <code>map.addLayer({ type: "fill" | "line" | "circle", … })</code> builds a Gint layer underneath,
 so MapLibre code runs as it is: <code>setPaintProperty</code>, <code>setLayoutProperty</code> (<code>visibility</code>), <code>setFilter</code>, <code>moveLayer</code>,
 <code>setFeatureState({ source, id }, state)</code>, <code>queryRenderedFeatures</code> and <code>map.on("click", layerId, …)</code> all work on it.
-The layers of one source become <strong>one</strong> Gint layer: their paints are merged, and their filters are joined with <code>all</code>.
+Consecutive layers of one source share <strong>one</strong> Gint layer, drawn fill, then line, then circle; each layer's own filter, zoom range and geometry type decide, feature by feature, what it draws.
+A second layer of the same type, or a fill above a line, starts another Gint layer.
 Zoom ranges follow MapLibre: without <code>minzoom</code> a layer is drawn from zoom 0.
 </p>
 <p>
@@ -491,12 +495,12 @@ The older single-layer methods (<code>applyGintData</code>, <code>paint</code>, 
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-lod">
-		<div class="pipe-head"><span class="pipe-num n-lod">2</span><div><div class="pipe-title">Bake — once per load</div><div class="pipe-sub">GintBUF → GPU textures · bake worker</div></div></div>
+		<div class="pipe-head"><span class="pipe-num n-lod">2</span><div><div class="pipe-title">Bake — once per load</div><div class="pipe-sub">GintBUF → GPU textures · gintbake worker, uploaded by the render worker</div></div></div>
 		<div class="pipe-items"><span>edge meta · tier ladder · culling chunks · boundary meta · per-feature bbox and style tables</span></div>
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-gpu">
-		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">Draw — every frame</div><div class="pipe-sub">WebGPU or WebGL2 · same passes on both</div></div></div>
+		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">Draw — every frame</div><div class="pipe-sub">WebGPU or WebGL2 · in the render worker · same passes on both</div></div></div>
 		<div class="pipe-items"><span>cull · level of detail in the vertex shader · winding fill · capsule lines · drape · pick</span></div>
 	</div>
 </div>
@@ -539,7 +543,7 @@ The same formula, fed the ground area of one screen pixel, gives the rank the cu
 <h3>8.4 GintBUF</h3>
 <p>
 The result is one buffer: a 64-byte header (magic <code>"Gint"</code>, version, counts, bbox, stream lengths), then the arc vertex codes,
-the point codes, per-arc metadata <code>[offset, length, weight, –, bbox]</code>, and the polygon, line and neighbour streams.
+the point codes, per-arc metadata <code>[offset, length, weight, –, bbox]</code>, the point fids, and the polygon, line and neighbour streams.
 It is cached in IndexedDB, so a second visit skips the encoder entirely.
 </p>
 
@@ -571,7 +575,8 @@ A national dataset can have millions of edges. Two structures keep the vertex sh
 <h2 id="fill">10. Filling Polygons Without Triangles</h2>
 
 <p>
-Polygons are never triangulated. Each polygon's edges are drawn as a <strong>fan</strong> from a pivot — the centre of that feature's bbox — into the stencil buffer:
+Polygons are never triangulated. Each polygon's edges are drawn as a <strong>fan</strong> from a pivot — the centre of that feature's bbox — into the stencil buffer
+(in a layer with multi-part features — islands, exclaves, a climate zone scattered over the world — each part has its own pivot and its own bbox, and is culled on its own):
 front-facing triangles increment, back-facing triangles decrement (<strong>nonzero winding</strong>). A second pass covers every pixel whose count is not zero.
 Concave shapes and holes come out right with no special cases; the fan's own overlaps cancel.
 </p>
@@ -596,8 +601,8 @@ restyling a map is a texture update, not a rebuild.
 <h2 id="sphere">12. On a Sphere — Horizon and Antimeridian</h2>
 
 <ul>
-	<li><strong>Horizon.</strong> Vertices on the far side of the globe are projected onto the horizon circle in 3D, so a polygon that straddles the horizon keeps a closed outline and still fills correctly. Features entirely on the far side are culled by a spherical-cap test.</li>
-	<li><strong>Antimeridian.</strong> Features that cross ±180° are cut there when encoded; the seam edges are recognised and never drawn, so the cut is invisible.</li>
+	<li><strong>Horizon.</strong> Vertices on the far side of the globe are projected onto the horizon circle in 3D, so a polygon that straddles the horizon keeps a closed outline and still fills correctly. Features entirely on the far side are culled by a spherical-cap test — for the fill, each part of a multi-part feature on its own, so a part on the far side cannot paint over the near side.</li>
+	<li><strong>Antimeridian.</strong> Features that cross ±180° are cut there when encoded; the seam edges are recognised and never drawn as lines, so the cut is invisible.</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->

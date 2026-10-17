@@ -92,11 +92,11 @@ A GeoPBF file consists of two parts: a <strong>Header Section</strong> and a <st
 	<div class="bin-row">
 		<div class="bin-cell" style="background:#1e3a5f;color:var(--accent);flex:0 0 110px;border-radius:6px 0 0 6px">
 			Header
-			<div class="bin-label">fixed-length metadata</div>
+			<div class="bin-label">metadata</div>
 		</div>
 		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
 			NAME · KEYS (global attribute dictionary) · PRECISION · BUFS (binary pool)<br>
-			DESCRIPTION · LICENSE · ATTRIBUTION
+			DESCRIPTION · LICENSE · ATTRIBUTION · MIN_ZOOM · MAX_ZOOM
 			<div class="bin-label" style="margin-top:4px">Metadata can be updated O(1) via binary slice — no re-encoding required</div>
 		</div>
 	</div>
@@ -219,7 +219,7 @@ Varint encodes small integers in fewer bytes, giving GeoPBF a property that is i
 
 <p>
 GeoPBF is not merely a storage format — it acts as a <strong>conversion hub</strong> among major GIS formats,
-with decoding (import) and encoding (export) paths for all of them.
+with a decoding (import) path for every format and an encoding (export) path for most of them.
 Placing GeoPBF at the center enables any-to-any format conversion in a single step.
 </p>
 
@@ -235,12 +235,12 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS tracks &amp; waypoints</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Streaming-friendly binary</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Topology-preserving I/O</td></tr>
-	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="good">✓</td><td class="dim">one feature per line (<code>.ndjson .geojsonl .geojsons .jsonl</code>)</td></tr>
+	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="bad">—</td><td class="dim">one feature per line (<code>.ndjson .geojsonl .geojsons .jsonl</code>); <code>geopbf/ndjson</code> streams it in. No built-in writer</td></tr>
 	<tr><td><strong>CZML</strong> (Cesium)</td><td class="good">✓</td><td class="good">✓</td><td class="dim">time-sampled positions kept as <code>time</code> arrays; the rest of the packet round-trips in a <code>czml</code> property</td></tr>
 	<tr><td><strong>GeoPackage</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">dependency-free SQLite reader, one layer (<code>{ layer }</code>); <code>geopbf/gpkg</code> also opens tile tables</td></tr>
 	<tr><td><strong>SpatiaLite</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim"><code>.sqlite .sqlite3 .spatialite .db</code>; same reader, SpatiaLite BLOB geometry</td></tr>
 	<tr><td><strong>File Geodatabase</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Esri <code>.gdb</code> folder zipped; detected by <code>*.gdbtable</code> inside the archive, <code>{ layer }</code> picks the table</td></tr>
-	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">lon/lat columns or a WKT column (<code>{ lon, lat, wkt, sheet, delimiter }</code>); export writes attributes + lon/lat or WKT</td></tr>
+	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">lon/lat columns or a WKT column (<code>{ lon, lat, wkt, sheet, delimiter }</code>); export: <code>pbf.getCSV()</code> (attributes + lng/lat for points, bbox otherwise) and <code>geopbf/encodeXLSX</code></td></tr>
 	<tr><td><strong>DXF</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">AutoCAD DXF with <code>{ crs, unitScale, closedAsPolygon }</code>; JGD plane-rectangular zones via <code>geopbf/proj</code></td></tr>
 	<tr><td><strong>MOJ 登記所備付地図</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Japanese cadastral parcels; JGD2011 plane-rectangular (19 zones) → WGS84 on decode. Opt in with <code>{ format: "moj" }</code>, since the extension is also <code>.zip</code></td></tr>
 	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox covering column, spatially ordered rows. Dependency-free reader accepts geopandas / pyarrow / DuckDB output — §13</td></tr>
@@ -256,8 +256,8 @@ Every row with a ✓ under <em>Read</em> goes through the auto-detecting entry p
 large enough to be worth loading on demand, so it lives behind its own subpath export
 (<code>geopbf/pmtiles</code>) and is covered in §13. Rasters travel a
 separate path again: <code>geopbf/cog</code> reads Cloud Optimized GeoTIFF by HTTP Range without converting
-it at all (§12). Everything here also has a CLI equivalent — <code>npx geopbf enc / dec / pmtiles / parquet /
-parquet2pbf</code> — running on plain Node with no GDAL.
+it at all (§12). Much of this also has a CLI equivalent — <code>npx geopbf enc / dec / pmtiles / parquet /
+parquet2pbf / gpkg2pbf / spatialite2pbf / dxf2pbf / csv2pbf / gdb2pbf</code> — running on plain Node with no GDAL.
 </p>
 
 <div class="callout callout-note">
@@ -266,8 +266,8 @@ parquet2pbf</code> — running on plain Node with no GDAL.
 		Whatever you pass to <code>geopbf(input)</code> — a <code>File</code>, <code>Blob</code>,
 		<code>ArrayBuffer</code>, or plain <code>Object</code> — the library auto-detects the format
 		from the file extension, MIME type, or magic bytes and routes to the correct decoder. Accepted:
-		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .jsonl .fgb .gpkg .sqlite .db .parquet
-		.csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>, each
+		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .geojsons .jsonl .fgb .gpkg .sqlite .sqlite3 .spatialite .db
+		.parquet .geoparquet .csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>, each
 		optionally <code>.gz</code> (gzip is recognised by signature, not extension). The caller never has
 		to think about format. A <code>.zip</code> is looked into: <code>*.gdbtable</code> means File Geodatabase,
 		otherwise Shapefile; the one exception is the MOJ cadastral archive, whose <code>.zip</code>
@@ -295,11 +295,11 @@ parquet2pbf</code> — running on plain Node with no GDAL.
 <span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
 <span class="kw">import</span> { toGeoParquet, fromGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
 <span class="kw">const</span> { buffer } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// → PMTiles (MVT) bytes</span>
-<span class="kw">const</span> pq  = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                    <span class="cm">// → GeoParquet bytes</span>
-<span class="kw">const</span> back = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);                  <span class="cm">// ← GeoParquet, incl. geopandas/DuckDB output</span>
+<span class="kw">const</span> pq  = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                    <span class="cm">// → { buffer, geo, stats }</span>
+<span class="kw">const</span> { pbf: back } = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);         <span class="cm">// ← GeoParquet, incl. geopandas/DuckDB output</span>
 
 <span class="cm">// Save as native .geopbf (gzip-compressed)</span>
-<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → downloads coastline.geopbf</span></code></pre>
+<span class="kw">const</span> file = <span class="kw">await</span> pbf.<span class="fn">geopbfFile</span>();   <span class="cm">// → File "&lt;name&gt;.geopbf" (pbf.save() stores to the bucket instead)</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="antimeridian">5. Antimeridian Handling</h2>
@@ -314,7 +314,8 @@ Renderers, spatial indexes, and clipping operations all break silently on such d
 <p>
 GeoPBF treats antimeridian correctness as a <strong>format invariant</strong>:
 every geometry stored in GeoPBF is guaranteed to be antimeridian-cut.
-No straddling polygon can exist inside the format.
+No straddling polygon can exist inside the format. The one opt-out is <code>new GeoPBF({ cut: false })</code>,
+for a container that must round-trip shapes unchanged (geoedit's session save).
 </p>
 
 <div class="callout callout-key">
@@ -341,7 +342,7 @@ After cutting, each sub-polygon is a valid closed ring with vertices inserted at
 <span class="cm">// p[i][0] * p[i+1][0] < 0  &&  abs(p[i][0] - p[i+1][0]) > 180</span>
 
 <span class="cm">// Spherical intersection latitude (great-circle formula)</span>
-<span class="cm">// x = sin(Δlat/2)·sin(avgLng)·cos(halfDeltaLng) - sin(avgLat)·cos(avgLng)·sin(halfDeltaLng)</span>
+<span class="cm">// x = sin(lat0−lat1)·sin(avgLng)·cos(halfDeltaLng) - sin(lat0+lat1)·cos(avgLng)·sin(halfDeltaLng)</span>
 <span class="cm">// z = cos(lat0)·cos(lat1)·sin(Δlng)</span>
 <span class="cm">// intersectLat = atan2(x, |z|)   ← geometrically exact on the sphere</span></code></pre>
 
@@ -386,7 +387,7 @@ yielding three important properties.
 		<div class="wd-item" style="color:var(--purple)">SharedArrayBuffer</div>
 		<div class="wd-item">concurrent multi-worker reads</div>
 		<div class="wd-item">LOD filter</div>
-		<div class="wd-item">Canvas / WebGL draw</div>
+		<div class="wd-item">WebGPU / WebGL2 draw</div>
 	</div>
 </div>
 
@@ -458,12 +459,12 @@ a <strong>single 64-bit integer</strong> that simultaneously stores both the Mor
 		<span class="b64-label">L2 node<br><span style="font-size:0.65rem;color:var(--dim)">(detail)</span></span>
 		<div class="b64-seg b64-term" style="flex:0 0 20px;background:rgba(52,211,153,0.2);color:var(--green);border-color:var(--green)" title="Not terminal">0</div>
 		<div class="b64-gap"></div>
-		<div class="b64-seg b64-mort" title="Morton code">Morton code (58 bits)</div>
+		<div class="b64-seg b64-mort" title="Morton code">Morton code (57 bits)</div>
 		<div class="b64-gap"></div>
 		<div class="b64-seg b64-vw" title="VW weight rank 0-63">VW rank<br>(6 bits)</div>
 	</div>
 	<div style="margin:4px 0;padding-left:64px;font-size:0.68rem;color:var(--dim)">
-		bit 63 = 0 → L2 (detail vertex, LOD-filtered) &nbsp;·&nbsp; bits 0-5 = VW weight rank (0–63)
+		bit 63 = 0 → L2 (detail vertex, LOD-filtered, grid snapped to 8×10⁻⁷ deg) &nbsp;·&nbsp; bits 6-62 = Morton &nbsp;·&nbsp; bits 0-5 = VW weight rank (0–63)
 	</div>
 </div>
 
@@ -475,8 +476,8 @@ both spatial queries and LOD filtering reduce to simple integer arithmetic.
 <pre><code><span class="cm">// L1 / L2 check (most-significant bit)</span>
 <span class="kw">const</span> isAnchor = (code >> <span class="nm">63n</span>) === <span class="nm">1n</span>;
 
-<span class="cm">// Extract Morton code (L2: upper 58 bits)</span>
-<span class="kw">const</span> mortonCode = code & <span class="nm">0x7FFFFFFFFFFFFFF8n</span>;  <span class="cm">// bits 3-62</span>
+<span class="cm">// Extract Morton code (L2: bits 6-62; the low 6 bits of the snapped grid are zero)</span>
+<span class="kw">const</span> mortonCode = code & <span class="nm">0x7FFFFFFFFFFFFFC0n</span>;  <span class="cm">// bits 6-62</span>
 
 <span class="cm">// Extract VW weight rank (L2: lower 6 bits)</span>
 <span class="kw">const</span> vwRank = Number(code & <span class="nm">0x3Fn</span>);  <span class="cm">// bits 0-5 → 0–63</span>
@@ -623,7 +624,7 @@ directly comparable. The shapefiles hold the original full-precision doubles, bu
 		<td class="dim">External library needed</td>
 		<td class="dim">External library needed</td>
 		<td class="bad">Limited</td>
-		<td class="good">12 formats built-in</td>
+		<td class="good">18 read formats built-in</td>
 	</tr>
 	<tr>
 		<td><strong>Topology</strong></td>
@@ -668,10 +669,11 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 <span class="cm">// ── Lower-level entry points (package subpaths) ────────</span>
 <span class="cm">// geopbf             GeoPBF class (new GeoPBF(opts).set(…))      geopbf/core · /pbf-base   GeoPBFBase, the container without extension methods</span>
 <span class="cm">// geopbf/pbf         protobuf wire read/write                    geopbf/gint · /topology · /identify   Gint baking, GintBUF, hit tests</span>
-<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       writers and readers (§13)</span>
-<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   format readers, usable without the auto-detecting entry</span>
-<span class="cm">// geopbf/proj · /datum       EPSG projections, TKY2JGD / PatchJGD datum shifts        geopbf/convert/node-gint   Gint from Node</span>
-<span class="cm">// geopbf/cog · /cog/core · /cog/source · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF (§12)</span>
+<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       writers and readers (§13)     geopbf/tilesource   on-demand MVT from the Gint</span>
+<span class="cm">// geopbf/convert             every converter in one import       geopbf/convert/gpu   the WebGPU device the converters use</span>
+<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table · /ndjson   format readers, usable without the auto-detecting entry</span>
+<span class="cm">// geopbf/proj · /epsg · /datum   WKT / EPSG projections, TKY2JGD / PatchJGD datum shifts    geopbf/convert/node-gint   Gint from Node</span>
+<span class="cm">// geopbf/cog · /cog/core · /cog/source · /cog/tiff · /cog/decode · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF (§12)</span>
 <span class="cm">// geopbf/featureservice      ArcGIS FeatureServer / OGC API – Features as a source   geopbf/georef   IIIF Georeference Annotation</span>
 <span class="cm">// geopbf/edit · /edit/*      the editing model (DOM-free)         geopbf/worker · /no-builtin-workers   the worker entry and its opt-out</span>
 <span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   utilities</span></code></pre>
@@ -684,7 +686,8 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 		the static <code>GeoPBF.concatinate</code> (use <code>pbf.concat(...others)</code>), and the name <code>GeoPBF</code> for the container in
 		<code>geopbf/core</code> and <code>geopbf/pbf-base</code> (it is <code>GeoPBFBase</code> there; <code>GeoPBF</code> from <code>geopbf</code> is the full class).
 		Internal fields such as <code>fmap</code> and <code>_name</code> are no longer in the published types: use <code>pbf.length</code>,
-		<code>each</code> / <code>forEach</code> and <code>pbf.name()</code>. Every change, old → new:
+		<code>each</code> / <code>forEach</code> and <code>pbf.name()</code>. The library itself is now TypeScript (strict): the npm package
+		ships the compiled JavaScript with <code>.d.ts</code> declarations, so <code>geopbf</code> and its subpaths are typed without extra packages. Every change, old → new:
 		<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a> (in Japanese).
 	</p>
 </div>
@@ -800,7 +803,7 @@ makes them <em>display-safe</em> (markup). Use both.
 <p>
 A COG (Cloud Optimized GeoTIFF) is a static file read by HTTP Range requests — the same
 no-server philosophy as GeoPBF, applied to rasters. v1.4's <code>geopbf/cog</code> is a
-hand-written reader with zero new dependencies: the header is fetched in <strong>one 16 KB
+hand-written reader with zero new dependencies: the header is fetched in <strong>one 64 KB
 range request</strong>, tile requests are sorted and adjacent ranges <strong>coalesced into a
 single request</strong>, decode and reprojection run in a worker pool, and JPEG/WebP tiles go
 straight to the browser's native decoder. <code>cog.metrics()</code> reports the numbers at any
@@ -815,7 +818,8 @@ time (range requests, coalesce ratio, decode time).
 The supported subset follows what public COG feeds actually serve: tiled and stripped layouts,
 BigTIFF, compression none/deflate/LZW/JPEG/WebP, predictor 2, uint8 RGB(A)/palette/single-band
 uint16/int16/float32 (auto percentile stretch, <code>GDAL_NODATA</code> → transparent), CRS
-EPSG:4326/3857/UTM (hand-written Krüger n-series, nm accuracy). Anything outside fails with an
+lon/lat (EPSG:4326/4258/4269/4612/6668), 3857, UTM (WGS84 326xx/327xx, JGD 6688–6691 / 3097–3101) and the Japanese
+plane-rectangular zones I–XIX (6669–6687 / 2443–2461), through the same hand-written Krüger n-series as <code>geopbf/proj</code> (nm accuracy). Anything outside fails with an
 explicit error pointing to <code>gdal_translate -of COG</code>. One line each for MapLibre
 (<code>cog://</code> protocol via <code>geopbf/maplibre-cog</code>) and Leaflet
 (<code>geopbf/leaflet-cog</code>). The CLI prints structure and measured numbers:
