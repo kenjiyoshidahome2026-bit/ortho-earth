@@ -152,8 +152,8 @@ A one-page canon for AI coding agents (API surface, pitfall ledger, verification
 `map.registry.gadgets.add(name, (map, ...args) => handle)`; `map.gadget(name, function () { this … })` is gone, and `map.gadget` is only the table of
 callers (`map.gadget.<name>(…)`). `chips` takes `true` / `false` only (pin single layers with `layers`), and `layers` no longer reads the romaji keys
 `chimei` / `chikei` / `shisetsu` (old shared URLs with them in `l=` still open). The full old → new list for every package is in
-[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). When 2.0 is published, 1.x is planned to stay
-installable under the `v1` dist-tag (`npm i @ortho-earth/japan@v1`).
+[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). 1.x stays installable by version
+range: `npm i @ortho-earth/japan@1` (the last 1.x is 1.14.0).
 
 ## License
 

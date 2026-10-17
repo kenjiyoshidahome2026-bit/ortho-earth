@@ -40,7 +40,7 @@ declaration passed in from outside — see `@ortho-earth/globe` and its region p
 nobody imported (`flyPlan`, `glidePlan`, `glidePathPlan`, `isPMTiles`, `createTileManager`, `mergeTiles`, `decodeQuantizedMesh`, …;
 `ORIGIN_KEY` stays in `./expr`, `wmtsTemplate` in `./raster-src`) and the 1.15 type name `DtmSpec` (now `DtmDecl`). The full
 old → new list is in [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese).
-When 2.0 is published, 1.x is planned to stay installable under the `v1` dist-tag (`npm i @ortho-earth/core@v1`).
+1.x stays installable by version range: `npm i @ortho-earth/core@1` (the last 1.x is 1.15.0).
 
 ## License
 
