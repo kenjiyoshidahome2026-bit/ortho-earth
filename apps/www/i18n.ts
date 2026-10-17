@@ -8,4 +8,4 @@ import { createI18n } from "@ortho-earth/globe/i18n/core.js";
 const i18n = createI18n({ langs: LANGS, load: c => fetch(`/i18n/${c}.json`).then(r => r.ok ? r.json() : null, () => null) });   // 名前の決まった JSON＝index.html が preload した物をそのまま使う
 export const { getLang, isRTL, LANGUAGES, norm, t, has } = i18n;
 // 頁の lang / dir も合わせる（従来どおり setLang が面倒を見る）
-export async function setLang(code) { const c = await i18n.setLang(norm(code) ?? "en"); i18n.applyHtml(); return c; }
+export async function setLang(code: string): Promise<string> { const c = await i18n.setLang(norm(code) ?? "en"); i18n.applyHtml(); return c; }

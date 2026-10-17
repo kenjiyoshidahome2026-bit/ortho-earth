@@ -1,23 +1,23 @@
 // 花吹雪＝全問正解の結果の面に降らせる（Kenji 2026-10-12「10 問正解は、もう一回は要らない。花吹雪！」）。
 // 画面いっぱいの canvas に花びら（桜色の楕円）と色紙を数秒降らせて消える。prefers-reduced-motion では降らせない。
 const COLORS = ["#ffb7c5", "#ff8fab", "#ffd166", "#06d6a0", "#8ecae6", "#f4a261", "#fff"];
-export function confetti({ ms = 4200, count = 160 } = {}) {
+export function confetti({ ms = 4200, count = 160 }: { ms?: number; count?: number } = {}): () => void {
 	if (matchMedia?.("(prefers-reduced-motion: reduce)").matches) return () => {};
 	const cv = document.createElement("canvas");
 	cv.setAttribute("aria-hidden", "true");
 	cv.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:50";
 	document.body.append(cv);
-	const cx = cv.getContext("2d"), dpr = Math.min(2, devicePixelRatio || 1);
+	const cx = cv.getContext("2d")!, dpr = Math.min(2, devicePixelRatio || 1);
 	const fit = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; };
 	fit(); addEventListener("resize", fit);
-	const W = () => cv.width, H = () => cv.height, R = (a, b) => a + Math.random() * (b - a);
+	const W = () => cv.width, H = () => cv.height, R = (a: number, b: number): number => a + Math.random() * (b - a);
 	const bits = Array.from({ length: count }, (_, i) => ({
 		x: R(0, W()), y: R(-H(), -10 * dpr), r: R(5, 10) * dpr, vy: R(1.2, 3.2) * dpr, vx: R(-0.8, 0.8) * dpr,
 		a: R(0, Math.PI * 2), va: R(-0.08, 0.08), sway: R(0.01, 0.04), ph: R(0, 6.3), petal: i % 3 !== 0, c: COLORS[i % COLORS.length],
 	}));
 	const t0 = performance.now(); let raf = 0, done = false;
 	const stop = () => { if (done) return; done = true; cancelAnimationFrame(raf); removeEventListener("resize", fit); cv.remove(); };
-	const tick = now => {
+	const tick = (now: number): void => {
 		const el = now - t0, fade = Math.max(0, Math.min(1, (ms - el) / 800));
 		cx.clearRect(0, 0, W(), H()); cx.globalAlpha = fade;
 		for (const b of bits) {

@@ -1,7 +1,7 @@
 // 効果音＝WebAudio の短い音（音源ファイル無し）。切替は進捗に保存。初回の操作の中で AudioContext を起こす（自動再生の制限）
-let ctx = null;
-const ac = () => { try { ctx ||= new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === "suspended") ctx.resume(); return ctx; } catch { return null; } };
-const tone = (c, f, t0, dur, type = "sine", gain = 0.12) => { const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(gain, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); o.connect(g).connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.02); };
+let ctx: AudioContext | null = null;
+const ac = () => { try { ctx ||= new (window.AudioContext || window.webkitAudioContext!)(); if (ctx.state === "suspended") ctx.resume(); return ctx; } catch { return null; } };
+const tone = (c: AudioContext, f: number, t0: number, dur: number, type: OscillatorType = "sine", gain = 0.12): void => { const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(gain, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); o.connect(g).connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.02); };
 export const sfx = {
 	tap() { const c = ac(); if (c) tone(c, 880, c.currentTime, 0.06, "triangle", 0.05); },
 	correct() { const c = ac(); if (!c) return; const t = c.currentTime; tone(c, 659, t, 0.12); tone(c, 988, t + 0.1, 0.22); },

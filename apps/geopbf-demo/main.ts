@@ -12,9 +12,9 @@ import { Cache, nativeBucket } from "native-bucket";
 import "common/d3/highlight";
 import "common/d3/fileio";
 import "./main.scss";
-import { t, setLang, norm, LANGUAGES, getLang, isRTL } from "./i18n.js";
-import { READ, WRITE, ACCEPT, conversionSVG } from "./formats.js";
-import { mapP, viewP, mountTools } from "./globe.js";
+import { t, setLang, norm, LANGUAGES, getLang, isRTL } from "./i18n.ts";
+import { READ, WRITE, ACCEPT, conversionSVG } from "./formats.ts";
+import { mapP, viewP, mountTools } from "./globe.ts";
 
 const API_BASE = "https://api.ortho-earth.com";
 const params = new URLSearchParams(location.search);

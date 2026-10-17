@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { planPrefetch, shouldPrefetch } from "../prefetch.js";
+import { planPrefetch, shouldPrefetch } from "../prefetch.ts";
 import { WORLD_ATLAS } from "@ortho-earth/core/elevation";
 
 const ids = jobs => jobs.map(j => j.id);
