@@ -360,6 +360,7 @@ fn capVisible(bb: vec4u) -> bool {
 	let crm = cr * 0.998135 - sr * 0.061049;
 	let srm = sqrt(max(1.0 - crm * crm, 0.0));
 	let el = length(F.eye); let ch = min(1.0, 1.0 / el); let sh = sqrt(max(1.0 - ch * ch, 0.0));
+	if (crm <= -ch) { return true; }   // rad'+hor ≥ 180°＝キャップは必ず交わる（GL と同じ・閾値 cos(hor+rad') は和が 180° を超えると裏と誤判定＝縫い目に頂点を持つ環が消えた 2026-10-17）
 	let C = normalize(F.originPt + deltaToRel(dlonE7(cx, F.centers.x) * 1e-7, f32(i32(cy - F.centers.y)) * 1e-7));
 	return dot(C, F.eye) / el > ch * crm - sh * srm;
 }
