@@ -375,6 +375,33 @@ fn bboxVisible(fid: u32) -> bool {
 	if (F.atlasQ.x > 0.5) { return true; }   // 窓座標モード＝vbb（窓 bbox）だけで刈る・地平キャップは無い
 	return capVisible(bb);
 }
+// ── 窓座標モード（地面アトラスへの焼き込み）の塗り扇の頂点（GL programs.ts atlasFanVertex と 1:1）──
+// 頂点ごとの最短周回では原点の対蹠経線（origin±180°）を跨ぐ環が窓の両端に割れ、割れ目の辺（幅 360°）と扇の閉じ残しが緯線帯として
+// 窓を横切った（チルトの「世界の地形」でケッペンの帯・2026-10-17）。環（鍵＝構成ポリゴン）の bbox 中心の周りで連続になるよう ±360° ずらし、
+// 原点±180° を跨ぐ環は反対側の写し（±360°）をインスタンス 1 で描く。ずらす量は整数（e7）で決め、位置は従来の dlonE7＋360 の整数倍
+fn dlonE7i(a: u32, b: u32) -> i32 {
+	var d = max(a, b) - min(a, b); var neg = a < b;
+	if (d > 1800000000u) { d = 3600000000u - d; neg = !neg; }
+	return select(i32(d), -i32(d), neg);
+}
+fn keyLonSpan(key: u32) -> vec2i {   // x＝鍵の bbox 中心の原点相対経度（e7）・y＝半幅（e7）。bbox 無し＝(0,0)
+	if (F.flags.x == 0u) { return vec2i(0, 0); }
+	let bb = fetchFidBbox(key);
+	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u;
+	return vec2i(dlonE7i(cx, F.centers.x), i32((bb.z - bb.x) / 2u));
+}
+fn atlasCopyShift(cs: vec2i) -> f32 {   // 写し（インスタンス 1）のずらし量（deg）。0＝写し不要
+	if (f32(cs.x) + f32(cs.y) > 1.8e9) { return -360.0; }
+	if (f32(cs.x) - f32(cs.y) < -1.8e9) { return 360.0; }
+	return 0.0;
+}
+fn atlasFanVertex(idx: u32, cs: vec2i, shift: f32) -> vec4f {
+	let v = decodeIXY(idx);
+	let dx = dlonE7i(v.x, F.centers.x);
+	var k = 0.0;
+	if (F.flags.x != 0u) { let diff = f32(dx) - f32(cs.x); if (diff > 1.8e9) { k = -1.0; } else if (diff < -1.8e9) { k = 1.0; } }
+	return atlasClip(f32(dx) * 1e-7 + 360.0 * k + shift, f32(i32(v.y - F.centers.y)) * 1e-7);
+}
 // stencil 塗りの扇要（feature bbox 中心）＝TBDR パラメータバッファ対策。無し＝クリップ原点（z01写像済み）
 fn pivotClip(fid: u32) -> vec4f {
 	if (F.flags.x == 0u) {   // 単一要（境界メタ）＝クリップ原点（z は WebGPU [0,w] の中央）か遠方の 1 点（farQ.z=2・GL と同じ）
@@ -589,7 +616,7 @@ struct PickOut {
 export const GINT_STENCIL_WGSL = /* wgsl */`
 ${HEADER}
 struct SOut { @builtin(position) pos: vec4f };
-@vertex fn vsStencil(@builtin(vertex_index) vi: u32) -> SOut {
+@vertex fn vsStencil(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SOut {
 	var o: SOut;
 	o.pos = DEGEN;
 	let edgeId = i32(vi) / 3;
@@ -599,6 +626,12 @@ struct SOut { @builtin(position) pos: vec4f };
 	if (!bboxVisible(key)) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);   // 塗り stencil は lodRank=0（GF側）＝全密度
 	if (!sn.keep) { return o; }
+	if (F.atlasQ.x > 0.5) {   // 窓座標モード＝環を鍵の中心の周りで連続に・写し（インスタンス 1）は ±360°
+		let cs = keyLonSpan(key); let shift = select(atlasCopyShift(cs), 0.0, ii == 0u);
+		if (ii != 0u && shift == 0.0) { return o; }
+		o.pos = select(atlasFanVertex(select(sn.b, sn.a, sub == 1), cs, shift), pivotClip(key), sub == 0);
+		return o;
+	}
 	if (sub == 0) { o.pos = pivotClip(key); return o; }
 	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;
@@ -632,7 +665,7 @@ struct FOut { @builtin(position) pos: vec4f };
 // コロプレス ID 蓄積（idfill.js VS_ID/FS_ID）：stencil と同じ fan 幾何＋fid を flat varying へ。
 // FS は front_facing で ±(fid+1) を rg16float へ加算＝R=Σ±(fid+1)・G=Σ±1(winding)。解決パスが R/G で fid 復元。
 struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fid1: f32 };
-@vertex fn vsId(@builtin(vertex_index) vi: u32) -> IdOut {
+@vertex fn vsId(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> IdOut {
 	var o: IdOut;
 	o.pos = DEGEN; o.fid1 = 0.0;
 	let edgeId = i32(vi) / 3;
@@ -648,6 +681,12 @@ struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fi
 		(textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0).b & 1u) == 0u) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);   // lodRank=0（GF側）＝全密度（自己交差斑点を出さない）
 	if (!sn.keep) { return o; }
+	if (F.atlasQ.x > 0.5) {   // 窓座標モード＝環を鍵の中心の周りで連続に・写し（インスタンス 1）は ±360°（vsStencil と対）
+		let cs = keyLonSpan(key); let shift = select(atlasCopyShift(cs), 0.0, ii == 0u);
+		if (ii != 0u && shift == 0.0) { return o; }
+		o.pos = select(atlasFanVertex(select(sn.b, sn.a, sub == 1), cs, shift), pivotClip(key), sub == 0);
+		return o;
+	}
 	if (sub == 0) { o.pos = pivotClip(key); return o; }
 	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;

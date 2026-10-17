@@ -40,6 +40,12 @@ void main() {
 		(texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0).b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if (u_atlasOn > 0.5) {   // 窓座標モード＝環を鍵の中心の周りで連続に・写し（インスタンス 1）は ±360°（VS_STENCIL と対）
+		ivec2 cs = keyLonSpan(key); float shift = gl_InstanceID == 0 ? 0.0 : atlasCopyShift(cs);
+		if (gl_InstanceID != 0 && shift == 0.0) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+		gl_Position = sub == 0 ? pivotClip(key) : atlasFanVertex(sub == 1 ? lodA : lodB, cs, shift);
+		return;
+	}
 	if (sub == 0) { gl_Position = pivotClip(key); return; }
 	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsId と対）
 }`;
@@ -255,7 +261,8 @@ export function renderIdFill(s: GintLive, data: GLDrawData, targetFBO: WebGLFram
 		gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex); gl.activeTexture(gl.TEXTURE0);
 	}
 	gl.uniform1f(uId.u_lod_rank, 0);
-	gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
+	if (data.atlas) gl.drawArraysInstanced(gl.TRIANGLES, 0, s.polyEdges * 3, 2);   // 窓座標モード＝インスタンス 1 は原点±180° を跨ぐ環の写し（VS_ID）
+	else gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
 
 	// ② 解決（fid→スタイル表→色）を本来のターゲットへ straight alpha で。
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);

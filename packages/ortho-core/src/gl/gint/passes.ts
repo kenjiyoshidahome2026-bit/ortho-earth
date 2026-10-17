@@ -219,7 +219,9 @@ export function renderCleanScene(s: GintLive, data: GLDrawData, targetFBO: WebGL
 	const idDone = !data.noFaces && !data._forceLow && canUseIdFill(s) && renderIdFill(s, data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める。noFaces＝面は地面アトラス側
 	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。
 	// ID バッファ塗りは fid 重みのため境界メタ不可＝基準メタ固定（renderIdFill 側）。
-	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
+	// 窓座標モード（地面アトラスへの焼き込み）は境界メタを使わない：fid 混成ループには環ごとの bbox が無く、原点±180° を跨ぐループを
+	// 連続に置けない（VS_STENCIL の atlasFanVertex＝鍵の bbox 中心の周りで連続）＝基準メタ（鍵＝構成ポリゴン）で焼く。焼き込みは窓が変わった時だけ
+	const hasB = !!(s.metaTexB && s.polyEdgesB > 0) && !data.atlas;
 	const stTex = hasB ? s.metaTexB : metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
 	if (!data.noFaces && !idDone && fc[3] > 0 && stCount > 0 && !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8)) {   // 安表現中の塗り予算（embed.js sync の canFill と同じ物差し）
 		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
@@ -237,7 +239,8 @@ export function renderCleanScene(s: GintLive, data: GLDrawData, targetFBO: WebGL
 		if (hasB) bindPivotBoundary(gl, uStencil, s, data); else bindPivot(s, gl, uStencil, data);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
-		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
+		if (data.atlas) gl.drawArraysInstanced(gl.TRIANGLES, 0, stCount * 3, 2);   // 窓座標モード＝インスタンス 1 は原点±180° を跨ぐ環の写し（VS_STENCIL）
+		else gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
 		gl.useProgram(fillProgram);
 		if (occ) {   // 建物 bit7 の画素の winding を 0 へ（REPLACE は ref 0x80 を stencilMask 0x7F で書く＝0）→cover(≠0) が陰を跳ぶ
 			gl.stencilFunc(gl.EQUAL, 0x80, 0x80);
