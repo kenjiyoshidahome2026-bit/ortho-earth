@@ -1,19 +1,26 @@
 import { geoExec } from 'common/geoExec';
+import type { GeoExecInfo, GeoExecOpts } from 'common/geoExec';
+import type { GeopbfFn, GeoPBF } from 'geopbf';
+import type { GlobeDs } from './globe.ts';
 import { screenLogger } from 'common/screenLogger';
 import { saveTo, openDirectory, comma } from 'common';
-import { showToast } from './shared.js';
+import { showToast } from './shared.ts';
 import { select as d3select } from 'd3';
-import { geopbf } from './gpbf.js';
-import { execGlobeView } from './globe.js';
-import { ctx } from './ctx.js';
+import type { Selection } from 'd3';
+import { geopbf } from './gpbf.ts';
+import { execGlobeView } from './globe.ts';
+import { ctx } from './ctx.ts';
+
+type Sel = Selection<HTMLElement, unknown, any, any>;
+type Geom = { type: string; coordinates?: any; geometries?: Geom[] } | null | undefined;
 
 export function closeGeoPreview() {
-    const panel = document.getElementById('geo-preview');
+    const panel = document.getElementById('geo-preview')!;
     panel.classList.remove('visible');
     panel.innerHTML = '';
 }
 
-export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null) {
+export function renderExecView(entry: GeoExecInfo, onBack: (() => void) | null = null, geopbfFn: GeopbfFn | null = null, ds: GlobeDs | null = null) {
     closeGeoPreview();
     ctx.setDetailHtml(`
         <div class="detail-inner">
@@ -23,15 +30,15 @@ export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null)
         </div>
     `);
 
-    const actionEl = d3select('#exec-action');
-    const logEl    = d3select('#exec-log');
-    const tablesEl = d3select('#exec-tables').hide();
+    const actionEl = d3select<HTMLElement, unknown>('#exec-action');
+    const logEl    = d3select<HTMLElement, unknown>('#exec-log');
+    const tablesEl = d3select<HTMLElement, unknown>('#exec-tables').hide();
     const logger   = new screenLogger(logEl);
 
     geoExec(entry, {
         geopbf: geopbfFn || geopbf,
         logger,
-        async onSuccess(pbf) {
+        async onSuccess(pbf: GeoPBF) {
             actionEl.html('');
             const p = actionEl.append('div').classed('exec-action-row', true);
             p.append('button').classed('accent', true).text('🌍 地球に描画').on('click', () => execGlobeView(pbf, ds));
@@ -41,28 +48,28 @@ export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null)
 
             const q = logger.empty();
             q.append('span').text('📥 [DOWNLOAD]').classed('big', true);
-            const save = async s => {
+            const save = async (s: File | Blob | null | undefined) => {
                 if (!s) return;
-                if (await saveTo(s)) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`);
+                if (await saveTo(s as File)) logger.log(`📥 Saved: ${(s as File).name} (${comma(s.size)} bytes)`);
             };
-            const active = v => logEl.selectAll('button').attr('disabled', v ? null : true);
+            const active = (v: boolean) => logEl.selectAll('button').attr('disabled', v ? null : true);
             const fmts = [
                 { name: 'GeoPBF',  fn: () => pbf.geopbfFile() },
-                { name: 'GeoJSON',  fn: async () => pbf.geojsonFile({ gz: await logger.confirm('GeoJSON Gzipped', false) }) },
-                { name: 'TopoJSON', fn: async () => pbf.topojsonFile({ gz: await logger.confirm('TopoJSON Gzipped', false) }) },
-                { name: 'FGB',      fn: async () => pbf.fgbFile({ gz: await logger.confirm('FGB Gzipped', false) }) },
+                { name: 'GeoJSON',  fn: async () => pbf.geojsonFile({ gz: await logger.confirm('GeoJSON Gzipped', false) as boolean }) },
+                { name: 'TopoJSON', fn: async () => pbf.topojsonFile({ gz: await logger.confirm('TopoJSON Gzipped', false) as boolean }) },
+                { name: 'FGB',      fn: async () => pbf.fgbFile({ gz: await logger.confirm('FGB Gzipped', false) as boolean }) },
                 { name: 'Shape',   fn: async () => pbf.shapeFile({ encoding: await logger.prompt('encoding (default: utf8)', 'utf8') }) },
-                { name: 'KMZ',     fn: async () => pbf.kmzFile({ kmz: await logger.select('KMZ or KML', { KMZ: true, KML: false }) }) },
-                { name: 'GML',     fn: async () => pbf.gmlFile({ gz: await logger.confirm('GML Gzipped', false) }) },
-                { name: 'GPX',     fn: async () => pbf.gpxFile({ gz: await logger.confirm('GPX Gzipped', false) }) },
-                { name: 'NDJSON',  fn: async () => ndjsonFile(pbf, await logger.confirm('NDJSON Gzipped', false)) },
-                { name: 'CZML',    fn: async () => pbf.czmlFile({ gz: await logger.confirm('CZML Gzipped', false) }) },
+                { name: 'KMZ',     fn: async () => pbf.kmzFile({ kmz: await logger.select('KMZ or KML', { KMZ: true, KML: false }) as boolean }) },
+                { name: 'GML',     fn: async () => pbf.gmlFile({ gz: await logger.confirm('GML Gzipped', false) as boolean }) },
+                { name: 'GPX',     fn: async () => pbf.gpxFile({ gz: await logger.confirm('GPX Gzipped', false) as boolean }) },
+                { name: 'NDJSON',  fn: async () => ndjsonFile(pbf, await logger.confirm('NDJSON Gzipped', false) as boolean) },
+                { name: 'CZML',    fn: async () => pbf.czmlFile({ gz: await logger.confirm('CZML Gzipped', false) as boolean }) },
                 { name: 'GeoParquet', fn: async () => {
                     logger.log(`🔄 ${pbf.name()}: conversion from GeoPBF to GeoParquet …`);
                     pbf.propertiesTable;   // 遅延復号の属性を全部起こしてから（toGeoParquet は pbf.props を直に読む）
                     const { toGeoParquet } = await import('geopbf/geoparquet');
                     const { buffer } = await toGeoParquet(pbf);
-                    return new File([buffer], `${pbf.name()}.parquet`, { type: 'application/vnd.apache.parquet' });
+                    return new File([buffer as Uint8Array<ArrayBuffer>], `${pbf.name()}.parquet`, { type: 'application/vnd.apache.parquet' });
                 } },
                 { name: 'PMTiles', fn: async () => {
                     const z = Math.max(0, Math.min(16, parseInt(await logger.prompt('PMTiles max zoom (0-16)', '12'), 10) || 12));
@@ -70,7 +77,7 @@ export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null)
                     pbf.propertiesTable;
                     const { toPMTiles } = await import('geopbf/pmtiles');
                     const { buffer } = await toPMTiles(pbf, { maxZoom: z });
-                    return new File([buffer], `${pbf.name()}.pmtiles`, { type: 'application/vnd.pmtiles' });
+                    return new File([buffer as Uint8Array<ArrayBuffer>], `${pbf.name()}.pmtiles`, { type: 'application/vnd.pmtiles' });
                 } },
                 { name: 'CSV（形つき）',   fn: async () => new File(['\ufeff' + toCSV(geoRows(pbf, logger))], `${pbf.name()}.csv`, { type: 'text/csv' }) },
                 { name: 'Excel（形つき）', fn: async () => {
@@ -84,15 +91,15 @@ export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null)
                 .on('click', async () => {
                     active(false);
                     try { if (await openDirectory()) await save(await f.fn()); }
-                    catch (e) { console.error(`[export ${f.name}]`, e); logger.error(`${f.name}: ${e.message || e}`); }
+                    catch (e) { console.error(`[export ${f.name}]`, e); logger.error(`${f.name}: ${(e as Error).message || e}`); }
                     active(true);
                 }));
         },
         onError() {},
-    });
+    } as unknown as GeoExecOpts);
 }
 
-export function showPropTable(pbf, logEl, tablesEl, actionEl) {
+export function showPropTable(pbf: GeoPBF, logEl: Sel, tablesEl: Sel, actionEl: Sel) {
     const PAGE = 100;
     const data = pbf.getPropertyTable();
     if (!data?.length) return;
@@ -100,22 +107,22 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
     const rows = data.slice(1);
     const pages = Math.ceil(rows.length / PAGE) || 1;
     let page = 0;
-    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const cut = s => { const t = String(s); return esc(t.length > 20 ? t.slice(0, 19) + ' …' : t); };
+    const esc = (s: unknown) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cut = (s: unknown) => { const t = String(s); return esc(t.length > 20 ? t.slice(0, 19) + ' …' : t); };
 
     logEl.hide();
     actionEl.hide();
     tablesEl.show().html(
         `<div class="exec-prop-header"><h2>${esc(pbf.name() || '')}<span>${esc(pbf.description() || '')}</span></h2><div class="exec-prop-btns"></div></div>` +
-        `<div class="exec-prop-table"><table><thead><tr>${headers.map(h => `<th>${esc(String(h))}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`
+        `<div class="exec-prop-table"><table><thead><tr>${headers.map((h: unknown) => `<th>${esc(String(h))}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`
     );
     const tbody  = tablesEl.select('tbody');
     const btnRow = tablesEl.select('.exec-prop-btns');
 
     const renderPage = () => {
         tbody.html(rows.slice(page * PAGE, (page + 1) * PAGE)
-            .map(row => `<tr>${row.map(c => `<td>${cut(c)}</td>`).join('')}</tr>`).join(''));
-        tablesEl.select('.exec-prop-table').node().scrollTop = 0;
+            .map((row: unknown[]) => `<tr>${row.map((c: unknown) => `<td>${cut(c)}</td>`).join('')}</tr>`).join(''));
+        tablesEl.select<HTMLElement>('.exec-prop-table').node()!.scrollTop = 0;
     };
     renderPage();
 
@@ -124,7 +131,7 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
         const pageInfo = btnRow.append('span').classed('exec-page-info', true).text(`1 / ${pages}`);
         btnRow.append('button').text('▶').on('click', () => { if (page < pages-1) { page++; pageInfo.text(`${page+1} / ${pages}`); renderPage(); } });
     }
-    const saveProp = async s => { if (!s) return; await saveTo(s); };
+    const saveProp = async (s: File) => { if (!s) return; await saveTo(s); };
     btnRow.append('button').text('📥 CSV').on('click', () =>
         saveProp(new File(['\ufeff' + pbf.getCSV()], (pbf.name() || 'data') + '.csv', { type: 'text/csv' })));   // BOM＝Excel で開いても日本語が化けない
     btnRow.append('button').text('📥 Excel').on('click', async () => {
@@ -142,8 +149,8 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
 // ---- 書き出しの追加形式（GeoPBF のデモと同じ作り） ----
 
 // NDJSON（GeoJSON Lines）＝1 行 1 地物
-async function ndjsonFile(pbf, gz) {
-    const parts = [];
+async function ndjsonFile(pbf: GeoPBF, gz: boolean) {
+    const parts: string[] = [];
     for (let i = 0; i < pbf.length; i++) {
         let f; try { f = pbf.getFeature(i); } catch { continue; }
         parts.push(JSON.stringify({ type: 'Feature', geometry: f.geometry ?? null, properties: f.properties ?? {} }), '\n');
@@ -153,12 +160,12 @@ async function ndjsonFile(pbf, gz) {
 }
 
 // 表＝属性＋形（読み戻せる形）：点だけなら lon / lat 列、それ以外は wkt 列（QGIS・geopbf の表リーダが列名で見つける）
-const wktOf = g => {
+const wktOf = (g: Geom): string => {
     if (!g) return '';
-    const xy = c => `${c[0]} ${c[1]}`, ring = r => `(${r.map(xy).join(',')})`, poly = p => `(${p.map(ring).join(',')})`;
+    const xy = (c: number[]) => `${c[0]} ${c[1]}`, ring = (r: number[][]) => `(${r.map(xy).join(',')})`, poly = (p: number[][][]) => `(${p.map(ring).join(',')})`;
     switch (g.type) {
         case 'Point': return `POINT (${xy(g.coordinates)})`;
-        case 'MultiPoint': return `MULTIPOINT (${g.coordinates.map(c => `(${xy(c)})`).join(',')})`;
+        case 'MultiPoint': return `MULTIPOINT (${g.coordinates.map((c: number[]) => `(${xy(c)})`).join(',')})`;
         case 'LineString': return `LINESTRING ${ring(g.coordinates)}`;
         case 'MultiLineString': return `MULTILINESTRING (${g.coordinates.map(ring).join(',')})`;
         case 'Polygon': return `POLYGON ${poly(g.coordinates)}`;
@@ -167,16 +174,16 @@ const wktOf = g => {
     }
     return '';
 };
-const cellOf = v => v == null ? '' : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : v;
+const cellOf = (v: unknown) => v == null ? '' : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : v;
 const EXCEL_CELL = 32767;   // Excel の 1 セルの上限（字）
-function geoRows(pbf, logger, { excel = false } = {}) {
+function geoRows(pbf: GeoPBF, logger: screenLogger, { excel = false } = {}) {
     const [keys, ...props] = pbf.propertiesTable;
     const points = pbf.getType().every(t => t === 'Point');
     let skipped = 0;
-    const rows = [keys.concat(points ? ['lon', 'lat'] : ['wkt'])];
+    const rows: unknown[][] = [keys.concat(points ? ['lon', 'lat'] : ['wkt'])];
     for (let i = 0; i < pbf.length; i++) {
-        const row = keys.map((_, k) => cellOf(props[i]?.[k]));
-        let g = null; try { g = pbf.getGeometry(i); } catch {}
+        const row = keys.map((_: unknown, k: number) => cellOf(props[i]?.[k]));
+        let g: Geom = null; try { g = pbf.getGeometry(i); } catch {}
         if (points) row.push(g?.coordinates?.[0] ?? '', g?.coordinates?.[1] ?? '');
         else { const w = wktOf(g); if (excel && w.length > EXCEL_CELL) { skipped++; row.push(''); } else row.push(w); }
         rows.push(row);
@@ -184,4 +191,4 @@ function geoRows(pbf, logger, { excel = false } = {}) {
     if (skipped) logger.warn(`${comma(skipped)} 件の形が Excel の 1 セルの上限（${comma(EXCEL_CELL)} 字）を超えたので空にしました（形は CSV で）`);
     return rows;
 }
-const toCSV = rows => rows.map(r => r.map(v => { const t = String(v); return /[",\r\n]|^0\d/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(',')).join('\r\n');
+const toCSV = (rows: unknown[][]) => rows.map(r => r.map(v => { const t = String(v); return /[",\r\n]|^0\d/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(',')).join('\r\n');

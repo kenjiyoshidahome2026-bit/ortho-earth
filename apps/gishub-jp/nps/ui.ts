@@ -1,7 +1,7 @@
 // 環境省 国立公園 区域・地種区分（bucket: GIS/pbf/nps_all・全35公園）
 // データ生成は apps/uploader の nps()＝環境ジオポータル FeatureServer → GeoPBF。
 // 全国版に無い日高山脈襟裳十勝（2024-06指定・35番目）は北海道事務所データ（nps_hokkaido）で補完済み。
-import { ctx } from '../ui/ctx.js';
+import { ctx } from '../ui/ctx.ts';
 
 const NPS_ENTRY = {
     name:        'nps_all',

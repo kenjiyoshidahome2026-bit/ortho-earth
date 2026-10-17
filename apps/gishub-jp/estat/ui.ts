@@ -1,9 +1,11 @@
 import ESTAT_MANIFEST from './manifest.json' with { type: 'json' };
-import { PREFS, fmtBytes, escHtml } from '../ui/shared.js';
-import { ctx } from '../ui/ctx.js';
-import { renderMinistryList } from '../ui/ministry-list.js';
-import { geopbf } from '../ui/gpbf.js';
-import { API_BASE } from '../ui/config.js';
+import { PREFS, fmtBytes, escHtml } from '../ui/shared.ts';
+import { ctx } from '../ui/ctx.ts';
+import { renderMinistryList } from '../ui/ministry-list.ts';
+import { geopbf } from '../ui/gpbf.ts';
+import { API_BASE } from '../ui/config.ts';
+import type { GeopbfFn } from 'geopbf';
+import type { BulkEntry } from '../ui/bulk-download.ts';
 
 export { ESTAT_MANIFEST };
 
@@ -11,23 +13,25 @@ export { ESTAT_MANIFEST };
 
 const ESTAT_DL_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 export const ESTAT_SURVEY = 'A002005212020';
+type EstatRec = typeof ESTAT_MANIFEST[number];
+type EstatCity = ReturnType<typeof buildEstatCityList>[number];
 
-export function estatDlUrl(code) {
+export function estatDlUrl(code: string) {
     return `${ESTAT_DL_BASE}?dlserveyId=${ESTAT_SURVEY}&code=${code}&coordSys=1&format=shape&downloadType=5&datum=2011`;
 }
 
 // ---- data -------------------------------------------------------
 
 const ESTAT_BY_PREF = (() => {
-    const m = new Map();
+    const m = new Map<string, EstatRec[]>();
     for (const e of ESTAT_MANIFEST) {
         if (!m.has(e.prefCode)) m.set(e.prefCode, []);
-        m.get(e.prefCode).push(e);
+        m.get(e.prefCode)!.push(e);
     }
     return m;
 })();
 
-// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
+// サイドバー項目は ui/entries.ts（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- list -------------------------------------------------------
 
@@ -41,7 +45,7 @@ function buildEstatCityList() {
     }));
 }
 
-function estatCityItemHtml(city) {
+function estatCityItemHtml(city: EstatCity) {
     const sizeBadge = city.size
         ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">ZIP</span></span>`
         : '';
@@ -55,7 +59,7 @@ function estatCityItemHtml(city) {
     `;
 }
 
-export function estatToEntry(e) {
+export function estatToEntry(e: EstatRec) {
     return {
         name:        `${e.code}_${ESTAT_SURVEY}`,
         description: `${PREFS[e.prefCode] || e.prefCode} ${e.name} 小地域（国勢調査2020）`,
@@ -65,7 +69,7 @@ export function estatToEntry(e) {
     };
 }
 
-let estatListSearch = '', estatExpandedPrefs = new Set();
+let estatListSearch = '', estatExpandedPrefs = new Set<string>();
 
 export function renderEstatList() {
     const cities = buildEstatCityList();
@@ -89,19 +93,19 @@ export function renderEstatList() {
         },
         onItemClick: city => {
             const entry = estatToEntry(city._raw);
-            const estatFetch = async (target, _opts) => {
+            const estatFetch = async (target: string, _opts?: unknown) => {
                 const proxyUrl = `${API_BASE}/proxy/?url=${encodeURIComponent(target)}`;
                 const resp = await fetch(proxyUrl);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const blob = await resp.blob();
                 return geopbf(new File([blob], `${entry.name}.zip`), { name: entry.name });
             };
-            ctx.renderExecView(entry, () => { history.replaceState(null, '', '#estat'); renderEstatList(); }, estatFetch);
+            ctx.renderExecView(entry, () => { history.replaceState(null, '', '#estat'); renderEstatList(); }, estatFetch as GeopbfFn);
         },
     });
 }
 
-export async function estatGeopbf(entry) {
+export async function estatGeopbf(entry: BulkEntry) {
     const proxyUrl = `${API_BASE}/proxy/?url=${encodeURIComponent(entry.target)}`;
     const resp = await fetch(proxyUrl);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

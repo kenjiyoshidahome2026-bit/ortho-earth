@@ -5,8 +5,14 @@
  * 完了後：「地球に描画」「ZIP ダウンロード」ボタンが出現
  * 「地球に描画」：オーバーレイを閉じて地球儀へ転送、X ボタンで復帰
  */
-import { API_BASE } from '../ui/config.js';
-import { enterGlobeView, showMeshRaster } from '../ui/globe.js';
+import { API_BASE } from '../ui/config.ts';
+import { enterGlobeView, showMeshRaster } from '../ui/globe.ts';
+import type { PaletteEntry, RasterMesh } from 'common/gintView';
+import l03bRWorkerUrl from './l03b-r-worker.ts?worker&url';   // worker の束（旧 .js は new URL で素のまま置かれていた＝.ts は vite に束ねさせる）
+
+// IDB の 1 件・worker の返り（meshCode → 画像＋分類コード）
+interface L03bRTile { webpData: Uint8Array<ArrayBuffer>; bbox: number[]; classes: Uint8Array<ArrayBuffer>; width: number; height: number }
+interface L03bRRecord extends L03bRTile { meshCode: string; format: string }
 
 const NLFTP_BASE  = 'https://nlftp.mlit.go.jp';
 const PAGE_PATH   = '/ksj/gml/datalist/KsjTmplt-L03-b_r.html';
@@ -19,7 +25,7 @@ const MAP = { west: 122, east: 154, south: 20, north: 47 };
 
 // 土地利用種別（平成26年度）＝GeoTIFF の画素値と ColorMap（zip 同梱 LandUseCd-TIFF.htm と TIFF の ColorMap で確認 2026-09-21）。
 // 0＝解析範囲外（透明）。地球表示で WebP/JPEG の圧縮にじみをこの色へ吸着し、ホバーで種別名を出す。
-const LANDUSE = [
+const LANDUSE: PaletteEntry[] = [
     { code: 10,  label: '田',             rgb: [255, 255,   0] },
     { code: 20,  label: 'その他の農用地', rgb: [255, 204, 153] },
     { code: 50,  label: '森林',           rgb: [  0, 170,   0] },
@@ -34,45 +40,45 @@ const LANDUSE = [
     { code: 160, label: 'ゴルフ場',       rgb: [  0, 255,   0] },
 ];
 
-function nlftp2proxy(url) {
+function nlftp2proxy(url: string) {
     return `${API_BASE}/proxy/?url=${encodeURIComponent(url)}`;
 }
 
 // ---- IDB ---------------------------------------------------------------
 
 function openDB() {
-    return new Promise((resolve, reject) => {
+    return new Promise<IDBDatabase>((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = e => {
-            const db = e.target.result;
+            const db = (e.target as IDBOpenDBRequest).result;
             if (!db.objectStoreNames.contains(STORE_NAME))
                 db.createObjectStore(STORE_NAME, { keyPath: 'meshCode' });
         };
-        req.onsuccess = e => resolve(e.target.result);
-        req.onerror   = e => reject(e.target.error);
+        req.onsuccess = e => resolve((e.target as IDBOpenDBRequest).result);
+        req.onerror   = e => reject((e.target as IDBOpenDBRequest).error);
     });
 }
-function idbGetAll(db) {
-    return new Promise((resolve, reject) => {
+function idbGetAll(db: IDBDatabase) {
+    return new Promise<L03bRRecord[]>((resolve, reject) => {
         const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).getAll();
         req.onsuccess = () => resolve(req.result);
-        req.onerror   = e => reject(e.target.error);
+        req.onerror   = e => reject((e.target as IDBRequest).error);
     });
 }
-function idbPut(db, record) {
+function idbPut(db: IDBDatabase, record: L03bRRecord) {
     return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         tx.objectStore(STORE_NAME).put(record);
         tx.oncomplete = resolve;
-        tx.onerror    = e => reject(e.target.error);
+        tx.onerror    = e => reject((e.target as IDBRequest).error);
     });
 }
-function idbClear(db) {
+function idbClear(db: IDBDatabase) {
     return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         tx.objectStore(STORE_NAME).clear();
         tx.oncomplete = resolve;
-        tx.onerror    = e => reject(e.target.error);
+        tx.onerror    = e => reject((e.target as IDBRequest).error);
     });
 }
 
@@ -89,13 +95,13 @@ function buildCrcTable() {
 }
 const CRC_TABLE = buildCrcTable();
 
-function crc32(data) {
+function crc32(data: Uint8Array) {
     let c = 0xffffffff;
     for (let i = 0; i < data.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ data[i]) & 0xff];
     return (c ^ 0xffffffff) >>> 0;
 }
 
-function buildZip(entries) {
+function buildZip(entries: { name: string; data: Uint8Array }[]) {
     const enc   = new TextEncoder();
     const names = entries.map(e => enc.encode(e.name));
     const crcs  = entries.map(e => crc32(e.data));
@@ -108,10 +114,10 @@ function buildZip(entries) {
 
     const out = new Uint8Array(totalSize);
     const dv  = new DataView(out.buffer);
-    const w16 = (o, v) => dv.setUint16(o, v, true);
-    const w32 = (o, v) => dv.setUint32(o, v, true);
+    const w16 = (o: number, v: number) => dv.setUint16(o, v, true);
+    const w32 = (o: number, v: number) => dv.setUint32(o, v, true);
     let pos = 0;
-    const offsets = [];
+    const offsets: number[] = [];
 
     for (let i = 0; i < entries.length; i++) {
         offsets.push(pos);
@@ -143,16 +149,16 @@ function buildZip(entries) {
 
 // ---- メイン ------------------------------------------------------------
 
-const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG', png: 'PNG' };
-const FMT_EXT   = { webp: '.webp', jpeg: '.jpg', png: '.png' };
-const FMT_MIME  = { webp: 'image/webp', jpeg: 'image/jpeg', png: 'image/png' };
+const FMT_LABEL: Record<string, string> = { webp: 'WebP', jpeg: 'JPEG', png: 'PNG' };
+const FMT_EXT: Record<string, string>   = { webp: '.webp', jpeg: '.jpg', png: '.png' };
+const FMT_MIME: Record<string, string>  = { webp: 'image/webp', jpeg: 'image/jpeg', png: 'image/png' };
 
 export async function openL03bRViewer(format = 'webp') {
     // 二重起動防止
     if (document.querySelector('.l03br-overlay')) return;
 
     // IDB（失敗しても続行）
-    let db = null;
+    let db: IDBDatabase | null = null;
     try { db = await openDB(); } catch (e) { console.warn('[L03-b_r] IDB 利用不可:', e); }
 
     // ---- オーバーレイ UI -----------------------------------------------
@@ -178,22 +184,22 @@ export async function openL03bRViewer(format = 'webp') {
     `;
     document.body.appendChild(overlay);
 
-    const canvas    = document.getElementById('l03br-canvas');
-    const mapCtx    = canvas.getContext('2d');
-    const statusEl  = document.getElementById('l03br-status');
-    const progEl    = document.getElementById('l03br-prog');
-    const btnsEl    = document.getElementById('l03br-btns');
-    const globeBtn  = document.getElementById('l03br-globe-btn');
-    const dlBtn     = document.getElementById('l03br-dl-btn');
-    const redoBtn   = document.getElementById('l03br-redo-btn');
+    const canvas    = document.getElementById('l03br-canvas') as HTMLCanvasElement;
+    const mapCtx    = canvas.getContext('2d')!;
+    const statusEl  = document.getElementById('l03br-status')!;
+    const progEl    = document.getElementById('l03br-prog')!;
+    const btnsEl    = document.getElementById('l03br-btns')!;
+    const globeBtn  = document.getElementById('l03br-globe-btn')!;
+    const dlBtn     = document.getElementById('l03br-dl-btn') as HTMLButtonElement;
+    const redoBtn   = document.getElementById('l03br-redo-btn')!;
 
     let alive = true;
-    const workers = new Set();
-    const webpMap = new Map(); // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n], classes, width, height }
+    const workers = new Set<Worker>();
+    const webpMap = new Map<string, L03bRTile>(); // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n], classes, width, height }
     let total = 0, done = 0, errors = 0;
 
     // ---- キャンバス描画ヘルパー ----------------------------------------
-    function geo2px(lon, lat) {
+    function geo2px(lon: number, lat: number) {
         return [
             (lon - MAP.west)  / (MAP.east  - MAP.west)  * canvas.width,
             (MAP.north - lat) / (MAP.north - MAP.south) * canvas.height,
@@ -215,7 +221,7 @@ export async function openL03bRViewer(format = 'webp') {
         }
     }
 
-    function drawTileOnCanvas(webpData, bbox) {
+    function drawTileOnCanvas(webpData: Uint8Array<ArrayBuffer>, bbox: number[]) {
         const blobUrl = URL.createObjectURL(new Blob([webpData], { type: 'image/webp' }));
         const img = new Image();
         img.onload = () => {
@@ -246,14 +252,14 @@ export async function openL03bRViewer(format = 'webp') {
     drawBackground();
 
     // ---- 閉じる --------------------------------------------------------
-    document.getElementById('l03br-close').addEventListener('click', () => {
+    document.getElementById('l03br-close')!.addEventListener('click', () => {
         alive = false;
         for (const w of workers) w.terminate();
         overlay.remove();
     });
 
     // ---- IDB キャッシュ確認 -------------------------------------------
-    let cachedRecords = [];
+    let cachedRecords: L03bRRecord[] = [];
     if (db) {
         try { cachedRecords = await idbGetAll(db); } catch (e) {}
     }
@@ -286,16 +292,16 @@ export async function openL03bRViewer(format = 'webp') {
         statusEl.textContent  = 'NLFTPからファイルリストを取得中...';
         progEl.textContent    = '';
 
-        const workerUrl = new URL('./l03b-r-worker.js', import.meta.url);
+        const workerUrl = new URL(l03bRWorkerUrl, import.meta.url);
 
-        function onTileDone(data) {
+        function onTileDone(data: Partial<L03bRTile> & { meshCode: string; error?: string }) {
             if (!alive) return;
             if (data.error) {
                 errors++;
                 console.warn(`[L03-b_r] ${data.meshCode}: ${data.error}`);
             } else {
                 done++;
-                const { meshCode, webpData, bbox, classes, width, height } = data;
+                const { meshCode, webpData, bbox, classes, width, height } = data as L03bRTile & { meshCode: string };
                 webpMap.set(meshCode, { webpData, bbox, classes, width, height });
                 drawTileOnCanvas(webpData, bbox);
                 if (db) idbPut(db, { meshCode, webpData, bbox, format, classes, width, height }).catch(() => {});
@@ -303,7 +309,7 @@ export async function openL03bRViewer(format = 'webp') {
             updateProgress();
         }
 
-        function startWorker(item, queue) {
+        function startWorker(item: { meshCode: string; url: string } | undefined, queue: { meshCode: string; url: string }[]) {
             if (!alive || !item) return;
             const { meshCode, url } = item;
             const w = new Worker(workerUrl, { type: 'module' });
@@ -334,7 +340,7 @@ export async function openL03bRViewer(format = 'webp') {
                 const items = paths.map(path => {
                     const m = path.match(/_(\d{4}(?:_\d+)?)\.zip$/i);
                     return {
-                        meshCode: m ? m[1] : path.split('/').pop().replace('.zip', ''),
+                        meshCode: m ? m[1] : path.split('/').pop()!.replace('.zip', ''),
                         url:      `${NLFTP_BASE}/ksj/gml/data/${path}`,
                     };
                 });
@@ -346,7 +352,7 @@ export async function openL03bRViewer(format = 'webp') {
                 const queue = [...items];
                 for (let i = 0; i < CONCURRENCY && queue.length; i++) startWorker(queue.shift(), queue);
             } catch (e) {
-                statusEl.textContent = `エラー: ${e.message}`;
+                statusEl.textContent = `エラー: ${(e as Error).message}`;
             }
         })();
     }
@@ -359,10 +365,10 @@ export async function openL03bRViewer(format = 'webp') {
         for (const w of workers) w.terminate();
 
         // gint v2：画像タイル層（map.raster）へ＝メッシュ画像（経緯度矩形）をタイル供給へ写す（common/gintView）
-        let remove = null, closed = false;
+        let remove: (() => void) | null = null, closed = false;
         const map = await enterGlobeView(() => { closed = true; remove?.(); remove = null; });   // × ボタン・Escape で外す
         try {
-            remove = await showMeshRaster(webpMap, { id: 'L03bR-Raster', name: 'L03-b_r', attribution: '国土数値情報（土地利用細分メッシュ）', opacity: 0.85,
+            remove = await showMeshRaster(webpMap as Map<string, RasterMesh>, { id: 'L03bR-Raster', name: 'L03-b_r', attribution: '国土数値情報（土地利用細分メッシュ）', opacity: 0.85,
                 palette: LANDUSE, legendTitle: '土地利用種別（平成26年度）' });
             if (closed) { remove(); remove = null; return; }   // 準備中に閉じられた
         } catch (e) {
@@ -370,7 +376,7 @@ export async function openL03bRViewer(format = 'webp') {
             return;
         }
         // 全メッシュの範囲へ寄る（日本全域）
-        const bb = [MAP.west, MAP.south, MAP.east, MAP.north];
+        const bb: [number, number, number, number] = [MAP.west, MAP.south, MAP.east, MAP.north];
         map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, map.fitZoomForBbox(bb), 0, 0);
     });
 

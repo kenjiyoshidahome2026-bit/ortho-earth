@@ -1,22 +1,33 @@
-import { PREFS, escHtml } from './shared.js';
+import { PREFS, escHtml } from './shared.ts';
 
-export function renderGroupedCities(cities, containerId, expandedSet, itemHtml, {
+// 一覧の 1 行（市区町村など）＝検索が読む欄だけ
+export interface GroupItem { pref?: string; name?: string; code?: string; prefName?: string; [k: string]: any }
+export interface GroupedOpts<T> {
+    query?: string;
+    groupFn?: (c: T) => { key: string; name: string };
+    onBulkClick?: ((group: string, btn: HTMLElement) => void) | null;
+    onItemClick?: ((e: MouseEvent) => void) | null;
+    groupHeaderHtml?: ((key: string, name: string, items: T[]) => string) | null;
+    bulkLabel?: string | null;
+}
+
+export function renderGroupedCities<T extends GroupItem>(cities: T[], containerId: string, expandedSet: Set<string>, itemHtml: (c: T) => string, {
     query           = '',
-    groupFn         = c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+    groupFn         = (c: T) => ({ key: c.pref!, name: PREFS[c.pref!] || c.pref! }),
     onBulkClick     = null,
     onItemClick     = null,
     groupHeaderHtml = null,
     bulkLabel       = '一括↓IDB',   // null＝一括ボタンを出さない
-} = {}) {
+}: GroupedOpts<T> = {}) {
     const q = query.toLowerCase();
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const groups = new Map();
+    const groups = new Map<string, { name: string; items: T[] }>();
     for (const c of cities) {
         const { key, name } = groupFn(c);
         if (!groups.has(key)) groups.set(key, { name, items: [] });
-        groups.get(key).items.push(c);
+        groups.get(key)!.items.push(c);
     }
 
     const isSearching = q.length > 0;
@@ -57,15 +68,15 @@ export function renderGroupedCities(cities, containerId, expandedSet, itemHtml, 
     container.innerHTML = html.join('');
 
     container.onclick = e => {
-        const bulkBtn = e.target.closest('.pref-bulk-btn');
+        const bulkBtn = (e.target as Element).closest<HTMLElement>('.pref-bulk-btn');
         if (bulkBtn) {
-            onBulkClick?.(bulkBtn.dataset.group, bulkBtn);
+            onBulkClick?.(bulkBtn.dataset.group!, bulkBtn);
             return;
         }
-        const header = e.target.closest('.pref-header');
+        const header = (e.target as Element).closest<HTMLElement>('.pref-header');
         if (header) {
-            const key = header.dataset.group;
-            const citiesDiv = header.nextElementSibling;
+            const key = header.dataset.group!;
+            const citiesDiv = header.nextElementSibling!;
             const expanding = header.classList.contains('collapsed');
             header.classList.toggle('collapsed', !expanding);
             citiesDiv.classList.toggle('hidden', !expanding);

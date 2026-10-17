@@ -2,6 +2,15 @@
 // エンジンは build 時に同梱（A 裁定 2026-09-23＝内製アプリは本番で /japan/lib を実行時に食わない・census2020/world と同じ型）。
 // 地図の口は common/gintView（map.addGint の薄い1枚）に封じる＝このファイルの外はエンジンを知らない。
 import { createGintView, showRasterMeshes } from 'common/gintView';
+import type { GintMap, GintLayer, GintView, RasterMesh, RasterMeshesOpts, PaletteEntry } from 'common/gintView';
+import type { GeoPBF } from 'geopbf';
+import type { GlobeMap } from '@ortho-earth/regions/app';
+
+// 地物の tip/pop が読むデータセットの記述（属性名の辞書・コード表）
+export interface GlobeDs { title?: string; attributes?: Record<string, string>; codelist?: Record<string, string | Record<string, string>> }
+// execGlobeView の opts（下の注記）
+export type PaintableLayer = GintLayer & { setPaint(paint: object): Promise<void> };   // view.show の層＝実体は addGint のハンドル（setPaint を持つ）
+export interface GlobeViewOpts { paint?: object; legend?: string; pop?: boolean; onReady?: (map: GlobeMap, layer: PaintableLayer, view: GintView) => (() => void) | void | null }
 
 const engineP = import('@ortho-earth/regions/app');   // orthoJapan＝本番は共有エンジンの入口（regions/app.js・2026-10-14）
 
@@ -9,7 +18,7 @@ const engineP = import('@ortho-earth/regions/app');   // orthoJapan＝本番は�
 const _overviewZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
 const HOME_LAT = 35;
 let _viewing = false;   // 地図に入っている間（パネルが退いている）
-const _host = document.getElementById('globe-bg').appendChild(document.createElement('div'));   // エンジンに貸す容れ物（id は map へ改名される）
+const _host = document.getElementById('globe-bg')!.appendChild(document.createElement('div'));   // エンジンに貸す容れ物（id は map へ改名される）
 const _mapP = engineP.then(m => m.default({
     target: _host,
     view: `#${_overviewZoom.toFixed(2)}/${HOME_LAT}/135`,
@@ -20,22 +29,22 @@ const _mapP = engineP.then(m => m.default({
 }));
 const _viewP = _mapP.then(map => {
     map.mapEl.addEventListener('ortho:close', exitGlobeView);
-    const view = createGintView(map, { overviewZoom: _overviewZoom });
+    const view = createGintView(map as unknown as GintMap, { overviewZoom: _overviewZoom });
     if (!_viewing) view.spin(true);
     return view;
 });
 
 // 地図の道具。待ち受け中はパネルの下＝初めて地図に入る時に載せる（載せた瞬間から Z=全画面 等のショートカットが window で生きるため）
-let _tools = false, _legend = null;
-function _mountTools(map) {
+let _tools = false, _legend: ((html: string | null) => unknown) | null = null;
+function _mountTools(map: GlobeMap) {
     if (_tools) return; _tools = true;
     map.gadget.close(); map.gadget.compass(); map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.measure(); map.gadget.shot();
     _legend = map.gadget.legend();   // 凡例（左下）の setter。二度目の搭載は空関数が返る＝ここで一度だけ
 }
 
-const _esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const _esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function _resolveValue(k, v, ds) {
+function _resolveValue(k: string, v: unknown, ds: GlobeDs | null) {
     const cl = ds?.codelist?.[k];
     if (!cl || cl === 'admin-boundary') return { label: ds?.attributes?.[k] || k, display: String(v), decoded: null };
     const decoded = typeof cl === 'object' ? cl[String(v)] : null;
@@ -44,7 +53,7 @@ function _resolveValue(k, v, ds) {
 
 // gishub 本家と同じ「全プロパティのテーブル」形式（.identify-table）。
 // jp の強み＝codelist デコード（コード値→名称 (コード)）はセル内で維持する。
-function _buildTip(props, ds) {
+function _buildTip(props: Record<string, unknown> | null | undefined, ds: GlobeDs | null) {
     if (!props) return null;
     const rows = Object.entries(props)
         .filter(([, v]) => v !== null && v !== undefined && v !== '')
@@ -59,7 +68,7 @@ function _buildTip(props, ds) {
     return rows.length ? `<table class="identify-table">${rows.join('')}</table>` : null;
 }
 
-function _buildPop(props, ds) {
+function _buildPop(props: Record<string, unknown> | null | undefined, ds: GlobeDs | null) {
     if (!props) return null;
     const entries = Object.entries(props).filter(([, v]) => v !== null && v !== undefined && v !== '');
     if (!entries.length) return null;
@@ -81,14 +90,14 @@ function _buildPop(props, ds) {
 }
 
 // L03-b_r などのカスタムビューが登録するクリーンアップ関数
-let _onExitExtra = null;
+let _onExitExtra: (() => void) | null = null;
 
 // 地図に入る＝履歴を 1 段積む（ブラウザの「戻る」・スマホの戻る操作で地図を閉じて一覧へ戻れる）
-function _enter(map) {
+function _enter(map: GlobeMap) {
     _mountTools(map);
     if (!_viewing) history.pushState({ ...history.state, globe: 1 }, '', location.href);
     _viewing = true;
-    document.getElementById('app').classList.add('viewing');
+    document.getElementById('app')!.classList.add('viewing');
     document.body.classList.add('globe-viewing');
 }
 
@@ -96,7 +105,7 @@ function _enter(map) {
 window.addEventListener('popstate', () => { if (_viewing && !history.state?.globe) exitGlobeView(); });
 
 // 地球ビューに入る（× ボタン・Esc で exitGlobeView ＋ cleanup）。戻り値＝map（カスタムビューが map.raster 等を使う）
-export async function enterGlobeView(cleanup) {
+export async function enterGlobeView(cleanup?: (() => void) | null) {
     const [map, view] = await Promise.all([_mapP, _viewP]);
     view.clear();
     view.spin(false);
@@ -107,23 +116,23 @@ export async function enterGlobeView(cleanup) {
 
 // 経緯度矩形の画像群（Map<key,{webpData,bbox}>）を画像タイル層として重ねる＝戻り値は外す関数。
 // opts.palette（分類色表）があれば：色を分類色へ吸着＋ホバーで分類名の tip＋凡例（opts.legendTitle）
-export async function showMeshRaster(meshes, opts = {}) {
+export async function showMeshRaster(meshes: Iterable<[string, RasterMesh]>, opts: RasterMeshesOpts & { legendTitle?: string } = {}) {
     const [map, view] = await Promise.all([_mapP, _viewP]);
-    const remove = await showRasterMeshes(map, meshes, opts);
+    const remove = await showRasterMeshes(map as unknown as GintMap, meshes, opts);
     if (!opts.palette?.length) return remove;
-    const swatch = p => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.6"><span style="width:14px;height:10px;border-radius:2px;display:inline-block;background:rgb(${p.rgb.join(',')})"></span>${_esc(p.label)}</div>`;
+    const swatch = (p: PaletteEntry) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.6"><span style="width:14px;height:10px;border-radius:2px;display:inline-block;background:rgb(${p.rgb.join(',')})"></span>${_esc(p.label)}</div>`;
     _legend?.(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">${_esc(opts.legendTitle || opts.name || '')}</div>${opts.palette.map(swatch).join('')}`);
     // ホバー＝カーソル位置の分類名（1フレームに1回・最後の位置だけ引く）
     const el = map.mapEl;
-    let raf = 0, last = null, seq = 0;
-    const onMove = e => {
+    let raf = 0, last: number[] | null = null, seq = 0;
+    const onMove = (e: PointerEvent) => {
         const r = el.getBoundingClientRect();
         last = [e.clientX - r.left, e.clientY - r.top];
         if (raf) return;
         raf = requestAnimationFrame(async () => {
             raf = 0;
             const my = ++seq, ll = last && map.unprojectXY(last[0], last[1]);
-            const hit = ll ? await remove.query(ll[0], ll[1]) : null;
+            const hit = ll ? await remove.query!(ll[0], ll[1]) : null;
             if (my === seq) view.tip(hit ? `${_esc(hit.label)} <span class="cat-tip-code">(${_esc(String(hit.code))})</span>` : null);
         });
     };
@@ -145,7 +154,7 @@ export async function showMeshRaster(meshes, opts = {}) {
 //   legend … 左下の凡例に流す HTML（層を替える/閉じる時はこちらで消す）
 //   pop:false … 地物クリックの既定ポップを出さない（クリックを呼び手が全部持つ層）
 //   onReady(map, layer, view) … 追加の結線（map.on('click') など）。返した関数は地図を出る時に呼ばれる
-export async function execGlobeView(pbf, ds = null, opts = {}) {
+export async function execGlobeView(pbf: GeoPBF | null | undefined, ds: GlobeDs | null = null, opts: GlobeViewOpts = {}) {
     if (!pbf?.length) return null;
     const [map, view] = await Promise.all([_mapP, _viewP]);
     _onExitExtra?.();   // L03-b_r などのカスタムビューを畳む
@@ -153,12 +162,12 @@ export async function execGlobeView(pbf, ds = null, opts = {}) {
     _enter(map);
     _legend?.(null);    // 前の層の凡例を残さない（_enter で _mountTools 済み＝ここで初めて setter が居る）
     const layer = await view.show(pbf, {
-        tipHtml: (fid, props) => _buildTip(props ?? pbf.getFeature(fid)?.properties, ds),
-        popHtml: opts.pop === false ? null : (fid, props) => _buildPop(props ?? pbf.getFeature(fid)?.properties, ds),
+        tipHtml: (fid, props) => _buildTip(props ?? pbf.getFeature(fid!)?.properties, ds),
+        popHtml: opts.pop === false ? null : (fid, props) => _buildPop(props ?? pbf.getFeature(fid!)?.properties, ds),
     });
-    if (opts.paint && layer) await layer.setPaint(opts.paint);
+    if (opts.paint && layer) await (layer as PaintableLayer).setPaint(opts.paint);
     if (opts.legend) _legend?.(opts.legend);
-    if (opts.onReady && layer) _onExitExtra = opts.onReady(map, layer, view) ?? null;
+    if (opts.onReady && layer) _onExitExtra = opts.onReady(map, layer as PaintableLayer, view) ?? null;
     return layer;
 }
 
@@ -169,7 +178,7 @@ export async function exitGlobeView() {
     _onExitExtra?.();
     _onExitExtra = null;
     _legend?.(null);
-    document.getElementById('app').classList.remove('viewing');
+    document.getElementById('app')!.classList.remove('viewing');
     document.body.classList.remove('globe-viewing');
     const view = await _viewP;
     view.clear();

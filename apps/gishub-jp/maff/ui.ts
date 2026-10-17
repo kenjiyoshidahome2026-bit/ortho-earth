@@ -1,20 +1,23 @@
 import MAFF_MANIFEST from './manifest.json' with { type: 'json' };
-import { PREFS, fmtBytes, escHtml } from '../ui/shared.js';
-import { ctx } from '../ui/ctx.js';
-import { renderMinistryList } from '../ui/ministry-list.js';
+import { PREFS, fmtBytes, escHtml } from '../ui/shared.ts';
+import { ctx } from '../ui/ctx.ts';
+import { renderMinistryList } from '../ui/ministry-list.ts';
 
 // ---- data -------------------------------------------------------
 
+type MaffRec = typeof MAFF_MANIFEST[number];
+type MaffCity = ReturnType<typeof buildMaffCityList>[number];
+
 const MAFF_BY_PREF = (() => {
-    const m = new Map();
+    const m = new Map<string, MaffRec[]>();
     for (const e of MAFF_MANIFEST) {
         if (!m.has(e.prefCd)) m.set(e.prefCd, []);
-        m.get(e.prefCd).push(e);
+        m.get(e.prefCd)!.push(e);
     }
     return m;
 })();
 
-// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
+// サイドバー項目は ui/entries.ts（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- list -------------------------------------------------------
 
@@ -29,7 +32,7 @@ function buildMaffCityList() {
     }));
 }
 
-function maffCityItemHtml(city) {
+function maffCityItemHtml(city: MaffCity) {
     const sizeBadge = city.size
         ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">PBF</span></span>`
         : '';
@@ -43,7 +46,7 @@ function maffCityItemHtml(city) {
     `;
 }
 
-function maffToEntry(e) {
+function maffToEntry(e: MaffRec) {
     return {
         name:        `${e.prefCityCd}_${e.year}`,
         description: `${e.prefName} ${e.cityName} 筆ポリゴン ${e.year}年度`,
@@ -55,7 +58,7 @@ function maffToEntry(e) {
     };
 }
 
-let maffListSearch = '', maffExpandedPrefs = new Set();
+let maffListSearch = '', maffExpandedPrefs = new Set<string>();
 
 export function renderMaffList() {
     const cities = buildMaffCityList();

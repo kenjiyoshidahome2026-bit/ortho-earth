@@ -1,17 +1,27 @@
-import { PREFS, escHtml, fmtBytes } from '../ui/shared.js';
-import { ctx } from '../ui/ctx.js';
-import { fetchDataset, NLFTP_SOURCE } from './catalog.js';
-import { meshBulkDownload } from './mesh.js';
-import { API_BASE } from '../ui/config.js';
-import { openL03bRViewer } from './l03b-r-viewer.js';
+import { PREFS, escHtml, fmtBytes } from '../ui/shared.ts';
+import { ctx } from '../ui/ctx.ts';
+import { fetchDataset, NLFTP_SOURCE } from './catalog.ts';
+import { meshBulkDownload } from './mesh.ts';
+import { API_BASE } from '../ui/config.ts';
+import { openL03bRViewer } from './l03b-r-viewer.ts';
+import type { GlobeDs } from '../ui/globe.ts';
+
+// ---- カタログの形（スクレイプ由来＝欄はどれも欠けうる） ----
+export interface NlftpFile { target: string; format: string; year?: string | number; pref_code?: string | number; location_code?: string; scope?: string; size?: number }
+type NlftpAttr = { code: string; label: string; codelist?: unknown };
+export interface NlftpDs {
+    dataset_code: string; title: string; license?: string; page_url?: string;
+    attributes?: Record<string, string> | NlftpAttr[]; codelist?: Record<string, any>;
+    files?: NlftpFile[]; _source?: { attribution?: string };
+}
 
 // ---- 内部状態（このモジュールが所有） -------------------------------------------------------
-let _currentDs = null;
-let _currentFilteredFiles = [];
+let _currentDs: NlftpDs | null = null;
+let _currentFilteredFiles: NlftpFile[] = [];
 
 // ---- 公開 API -------------------------------------------------------
 
-export function renderDetail(ds, showBack = false) {
+export function renderDetail(ds: NlftpDs, showBack = false) {
     _currentDs = ds;
     _currentFilteredFiles = [];   // 前データセットのフィルタ結果を持ち越さない（空=フィルタ未適用）
 
@@ -23,8 +33,8 @@ export function renderDetail(ds, showBack = false) {
         ? attrs.map(a => [a.code, a.label])
         : Object.entries(attrs);
     const getCodelist = Array.isArray(attrs)
-        ? (code, i) => { const a = attrs[i]; return Array.isArray(a?.codelist) ? a.codelist : null; }
-        : (code) => ds.codelist?.[code] ?? null;
+        ? (code: string, i: number) => { const a = attrs[i]; return Array.isArray(a?.codelist) ? a.codelist : null; }
+        : (code: string) => ds.codelist?.[code] ?? null;
 
     const attrHtml = attrEntries.length ? `
         <section class="detail-section">
@@ -80,23 +90,23 @@ export function renderDetail(ds, showBack = false) {
     }
 }
 
-export async function nlftpSelectDataset(code) {
+export async function nlftpSelectDataset(code: string) {
     history.replaceState(null, '', `#${code}`);
     ctx.setDetailHtml('<div class="loading-msg" style="padding:40px">読み込み中...</div>');
     try {
         const data = await fetchDataset(code);
         renderDetail(data);
     } catch (e) {
-        ctx.setDetailHtml(`<div class="error-msg">エラー: ${escHtml(e?.message ?? e)}</div>`);   // 例外の文言も外から来る（取得先の応答）＝エスケープ（S6）
+        ctx.setDetailHtml(`<div class="error-msg">エラー: ${escHtml((e as Error)?.message ?? e)}</div>`);   // 例外の文言も外から来る（取得先の応答）＝エスケープ（S6）
     }
 }
 
 export function applyFileFilters() {
     if (!_currentDs?.files?.length) return;
-    const year = document.getElementById('ff-year')?.value || 'all';
-    const fmt  = document.getElementById('ff-fmt')?.value  || 'all';
-    const pref = document.getElementById('ff-pref')?.value || 'all';
-    const mesh = document.getElementById('ff-mesh')?.value || 'all';
+    const year = (document.getElementById('ff-year') as HTMLSelectElement | null)?.value || 'all';
+    const fmt  = (document.getElementById('ff-fmt') as HTMLSelectElement | null)?.value  || 'all';
+    const pref = (document.getElementById('ff-pref') as HTMLSelectElement | null)?.value || 'all';
+    const mesh = (document.getElementById('ff-mesh') as HTMLSelectElement | null)?.value || 'all';
 
     const raw = _currentDs.files.some(f => f.format === 'geojson')
         ? _currentDs.files.filter(f => f.format !== 'shp')
@@ -111,8 +121,8 @@ export function applyFileFilters() {
     }));
 
     _currentFilteredFiles = filtered;
-    document.getElementById('files-cnt').textContent = filtered.length;
-    document.getElementById('files-list').innerHTML  = _buildFileRows(filtered, _currentDs);
+    document.getElementById('files-cnt')!.textContent = filtered.length as unknown as string;
+    document.getElementById('files-list')!.innerHTML  = _buildFileRows(filtered, _currentDs);
     const bulkBtn = document.getElementById('files-dl-all');
     if (bulkBtn) {
         const totalBytes = _zipBytes(filtered);
@@ -122,48 +132,48 @@ export function applyFileFilters() {
 }
 
 export function initDetailEventListeners() {
-    document.getElementById('detail').addEventListener('change', e => {
-        if (e.target.classList.contains('file-filter')) applyFileFilters();
-        if (e.target.name === 'l03br-format') {
-            const sizes = { webp: '～5MB', jpeg: '～8MB', png: '～30MB' };
+    document.getElementById('detail')!.addEventListener('change', e => {
+        if ((e.target as HTMLInputElement).classList.contains('file-filter')) applyFileFilters();
+        if ((e.target as HTMLInputElement).name === 'l03br-format') {
+            const sizes: Record<string, string> = { webp: '～5MB', jpeg: '～8MB', png: '～30MB' };
             const btn = document.getElementById('files-dl-raster');
-            if (btn) btn.textContent = `一括↓IDB (${sizes[e.target.value]})`;
+            if (btn) btn.textContent = `一括↓IDB (${sizes[(e.target as HTMLInputElement).value]})`;
         }
     });
 
-    document.getElementById('detail').addEventListener('click', async e => {
-        if (e.target.classList.contains('load-more-btn')) { _handleLoadMore(e.target); return; }
+    document.getElementById('detail')!.addEventListener('click', async e => {
+        if ((e.target as HTMLInputElement).classList.contains('load-more-btn')) { _handleLoadMore(e.target as HTMLButtonElement); return; }
 
-        const title = e.target.closest('.section-title');
-        if (title) { title.parentElement.classList.toggle('collapsed'); return; }
+        const title = (e.target as HTMLInputElement).closest('.section-title');
+        if (title) { title.parentElement!.classList.toggle('collapsed'); return; }
 
-        if (e.target.classList.contains('codelist-btn')) {
-            if (e.target.classList.contains('admin-boundary-btn')) {
-                _showAdminBoundaryPopup(e.target);
+        if ((e.target as HTMLInputElement).classList.contains('codelist-btn')) {
+            if ((e.target as HTMLInputElement).classList.contains('admin-boundary-btn')) {
+                _showAdminBoundaryPopup(e.target as HTMLButtonElement);
                 return;
             }
-            const attrs = _currentDs.attributes || {};
-            let cl;
+            const attrs = _currentDs!.attributes || {};
+            let cl: any;
             if (Array.isArray(attrs)) {
-                cl = attrs[parseInt(e.target.dataset.clIdx)]?.codelist || [];
+                cl = attrs[parseInt((e.target as HTMLInputElement).dataset.clIdx!)]?.codelist || [];
                 const entries = Array.isArray(cl) ? cl : Object.entries(cl).map(([c,l])=>({code:c,label:l}));
-                _showCodelistPopup(entries, e.target);
+                _showCodelistPopup(entries, (e.target as HTMLInputElement));
             } else {
-                cl = _currentDs.codelist?.[e.target.dataset.clCode] || {};
-                _showCodelistPopup(Object.entries(cl).map(([c,l])=>({code:c,label:l})), e.target);
+                cl = _currentDs!.codelist?.[(e.target as HTMLInputElement).dataset.clCode!] || {};
+                _showCodelistPopup(Object.entries(cl).map(([c,l])=>({code:c,label:l})), (e.target as HTMLInputElement));
             }
             return;
         }
 
-        if (e.target.id === 'files-dl-raster') {
-            const fmt = document.querySelector('#detail input[name="l03br-format"]:checked')?.value || 'webp';
+        if ((e.target as HTMLInputElement).id === 'files-dl-raster') {
+            const fmt = document.querySelector<HTMLInputElement>('#detail input[name="l03br-format"]:checked')?.value || 'webp';
             openL03bRViewer(fmt);
             return;
         }
 
-        if (e.target.id === 'files-dl-all') {
+        if ((e.target as HTMLInputElement).id === 'files-dl-all') {
             const files   = _currentFilteredFiles.length ? _currentFilteredFiles : (_currentDs?.files || []);
-            const entries = files.map(f => _fileEntry(f, _currentDs));
+            const entries = files.map(f => _fileEntry(f, _currentDs!));
             const label   = _currentDs?.title || '国土数値情報';
             if (_isMesh(_currentDs)) {
                 meshBulkDownload(entries, label);
@@ -173,10 +183,10 @@ export function initDetailEventListeners() {
             return;
         }
 
-        const row = e.target.closest('.file-row');
+        const row = (e.target as HTMLInputElement).closest<HTMLElement>('.file-row');
         if (row?.dataset.entry) {
             const entry = JSON.parse(row.dataset.entry);
-            ctx.renderExecView(entry, () => renderDetail(_currentDs), null, _currentDs);
+            ctx.renderExecView(entry, () => renderDetail(_currentDs!), null, _currentDs as GlobeDs | null);
             return;
         }
     });
@@ -184,18 +194,18 @@ export function initDetailEventListeners() {
 
 // ---- 内部関数 -------------------------------------------------------
 
-function _isMesh(ds) {
+function _isMesh(ds: NlftpDs | null) {
     return ds?.files?.some(f => f.scope?.includes('メッシュ'));
 }
 
-function _licKey(lic) {
+function _licKey(lic: string | undefined) {
     if (!lic) return 'ng';
     if (lic.includes('NC')) return 'ng';   // CC BY-NC 系＝非商用（"CC BY"を含むため先に弾く）
     if (lic.includes('商用可') || lic.includes('CC BY') || lic.includes('CC_BY')) return 'ok';
     return 'ng';
 }
 
-function _renderFiles(ds) {
+function _renderFiles(ds: NlftpDs) {
     if (ds.dataset_code === 'L03-b_r') {
         return `
             <section class="detail-section" id="files-section">
@@ -223,8 +233,8 @@ function _renderFiles(ds) {
     const allFiles  = _sortFiles(raw);
     const years     = [...new Set(allFiles.map(f => f.year).filter(Boolean))].sort().reverse();
     const formats   = [...new Set(allFiles.map(f => f.format))].sort();
-    const prefCodes = [...new Set(allFiles.filter(f => f.pref_code).map(f => f.pref_code))].sort();
-    const meshCodes = [...new Set(allFiles.filter(f => f.location_code && f.scope?.includes('メッシュ')).map(f => f.location_code))].sort();
+    const prefCodes = [...new Set(allFiles.filter(f => f.pref_code).map(f => f.pref_code!))].sort();
+    const meshCodes = [...new Set(allFiles.filter(f => f.location_code && f.scope?.includes('メッシュ')).map(f => f.location_code!))].sort();
 
     const yearOpts = ['all', ...years].map(y =>
         `<option value="${escHtml(y)}">${y === 'all' ? '年度: すべて' : escHtml(y)}</option>`).join('');   // 年度・形式・県・メッシュもカタログ（スクレイプ）由来＝エスケープ（S6）
@@ -270,7 +280,7 @@ function _renderFiles(ds) {
     `;
 }
 
-function _buildFileRows(files, ds, limit = 200) {
+function _buildFileRows(files: NlftpFile[], ds: NlftpDs, limit = 200) {
     const shown = files.slice(0, limit);
     const rest  = files.length - shown.length;
     return shown.map(f => _fileRow(f, ds)).join('') +
@@ -278,18 +288,18 @@ function _buildFileRows(files, ds, limit = 200) {
 }
 
 // 合計サイズ＝zip ごとに 1 回（size は zip の大きさ＝同じ zip の中の市区町村ファイルを足すと数十倍に膨らんでいた）
-function _zipBytes(files) {
-    const seen = new Map();
+function _zipBytes(files: NlftpFile[]) {
+    const seen = new Map<string, number>();
     for (const f of files) seen.set(f.target.split('#')[0], f.size || 0);
     let s = 0; for (const v of seen.values()) s += v; return s;
 }
 
 // 市区町村別ファイル＝zip の中のファイル名が _<5桁の行政区域コード>.<拡張子> で終わるもの
-function _cityCodeOf(f) {
+function _cityCodeOf(f: NlftpFile) {
     return (f.target || '').split('#')[1]?.match(/_(\d{5})\.(?:geojson|shp)$/i)?.[1] || null;
 }
 
-function _scopeLabel(f) {
+function _scopeLabel(f: NlftpFile) {
     const city = _cityCodeOf(f);
     if (city?.endsWith('000') && PREFS[city.slice(0, 2)]) return `${PREFS[city.slice(0, 2)]}（全域）`;   // 例 13000＝都全体
     if (city && _adminNames?.has(city)) return `${PREFS[city.slice(0, 2)] || ''} ${_adminNames.get(city)}`.trim();   // 例「北海道 札幌市」（同名の市＝府中市・伊達市 等があるので県名つき）
@@ -309,9 +319,9 @@ function _scopeLabel(f) {
     return f.location_code || f.pref_code || scope;
 }
 
-function _sortFiles(files) {
+function _sortFiles(files: NlftpFile[]) {
     return [...files].sort((a, b) => {
-        const order = s => s === '全国' ? 0 : s === '都道府県' ? 1 : s.includes('メッシュ') ? 2 : 3;
+        const order = (s: string) => s === '全国' ? 0 : s === '都道府県' ? 1 : s.includes('メッシュ') ? 2 : 3;
         const so = order(a.scope || '全国') - order(b.scope || '全国');
         if (so !== 0) return so;
         const ka = a.pref_code || a.location_code || '';
@@ -320,9 +330,9 @@ function _sortFiles(files) {
     });
 }
 
-function _fileEntry(f, ds) {
+function _fileEntry(f: NlftpFile, ds: NlftpDs) {
     const zipUrl   = f.target.split('#')[0];
-    const zipName  = zipUrl.split('/').pop();
+    const zipName  = zipUrl.split('/').pop()!;
     const fileName = f.target.split('#')[1] || '';
     const name     = fileName.replace(/\.[^.]+$/, '') || zipName.replace(/\.[^.]+$/, '');
     const area     = _scopeLabel(f);
@@ -338,7 +348,7 @@ function _fileEntry(f, ds) {
     };
 }
 
-function _fileRow(f, ds) {
+function _fileRow(f: NlftpFile, ds: NlftpDs) {
     const entry    = _fileEntry(f, ds);
     const zipUrl   = f.target.split('#')[0];
     const zipName  = zipUrl.split('/').pop();
@@ -355,7 +365,7 @@ function _fileRow(f, ds) {
     `;
 }
 
-function _showCodelistPopup(entries, btn) {
+function _showCodelistPopup(entries: { code: unknown; label: unknown }[], btn: Element) {
     document.querySelectorAll('.codelist-popup').forEach(el => el.remove());
     const popup = document.createElement('div');
     popup.className = 'codelist-popup';
@@ -379,14 +389,15 @@ function _showCodelistPopup(entries, btn) {
     popup.style.left = `${left}px`;
     popup.style.top  = `${top}px`;
 
-    const close = e => { if (!popup.contains(e.target) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
+    const close = (e: Event) => { if (!popup.contains(e.target as Node) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
     setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
 // --- 行政区域コード表（bucket catalog/admin-boundary.csv・欠番込み）＝ポップアップとファイル一覧の市区町村名で共用 ---
-let _adminBoundaryRows = null; // キャッシュ
-let _adminNames = null;        // code5 → 市区町村名
-let _adminLoading = null;
+type AdminRow = { code: string; pref: string; city: string; status: string };
+let _adminBoundaryRows: AdminRow[] | null = null; // キャッシュ
+let _adminNames: Map<string, string> | null = null;        // code5 → 市区町村名
+let _adminLoading: Promise<AdminRow[]> | null = null;
 
 function _loadAdminRows() {
     return _adminLoading ??= (async () => {
@@ -409,7 +420,7 @@ function _loadAdminRows() {
     })().catch(e => { _adminLoading = null; throw e; });   // 失敗は次回やり直せるように
 }
 
-async function _showAdminBoundaryPopup(btn) {
+async function _showAdminBoundaryPopup(btn: HTMLButtonElement) {
     document.querySelectorAll('.codelist-popup').forEach(el => el.remove());
 
     if (!_adminBoundaryRows) {
@@ -420,14 +431,14 @@ async function _showAdminBoundaryPopup(btn) {
         } catch (e) {
             btn.disabled = false;
             btn.textContent = '行政区域コード';
-            alert('読み込みエラー: ' + e.message);
+            alert('読み込みエラー: ' + (e as Error).message);
             return;
         }
         btn.disabled = false;
         btn.textContent = '行政区域コード';
     }
 
-    const prefs = [...new Set(_adminBoundaryRows.map(r => r.pref).filter(Boolean))];
+    const prefs = [...new Set(_adminBoundaryRows!.map(r => r.pref).filter(Boolean))];
 
     const popup = document.createElement('div');
     popup.className = 'codelist-popup ab-popup';
@@ -463,16 +474,16 @@ async function _showAdminBoundaryPopup(btn) {
     popup.style.left = `${left}px`;
     popup.style.top  = `${top}px`;
 
-    const tbody = popup.querySelector('.ab-tbody');
-    const prefSel = popup.querySelector('.ab-pref-sel');
-    const obsoleteChk = popup.querySelector('.ab-obsolete-chk');
-    const searchInput = popup.querySelector('.ab-search');
+    const tbody = popup.querySelector('.ab-tbody')!;
+    const prefSel = popup.querySelector<HTMLSelectElement>('.ab-pref-sel')!;
+    const obsoleteChk = popup.querySelector<HTMLInputElement>('.ab-obsolete-chk')!;
+    const searchInput = popup.querySelector<HTMLInputElement>('.ab-search')!;
 
     function render() {
         const pref    = prefSel.value;
         const showObs = obsoleteChk.checked;
         const q       = searchInput.value.trim().toLowerCase();
-        const rows    = _adminBoundaryRows.filter(r => {
+        const rows    = _adminBoundaryRows!.filter(r => {
             if (!showObs && r.status === '欠番') return false;
             if (pref && r.pref !== pref) return false;
             if (q && !r.code.includes(q) && !r.pref.toLowerCase().includes(q) && !r.city.toLowerCase().includes(q)) return false;
@@ -489,21 +500,21 @@ async function _showAdminBoundaryPopup(btn) {
     searchInput.addEventListener('input', render);
     render();
 
-    const close = e => { if (!popup.contains(e.target) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
+    const close = (e: Event) => { if (!popup.contains(e.target as Node) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
     setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
-async function _handleLoadMore(btn) {
-    const row = btn.closest('.more-row');
+async function _handleLoadMore(btn: HTMLButtonElement) {
+    const row = btn.closest('.more-row')!;
     btn.disabled = true; btn.textContent = '読み込み中...';
     try {
         // フィルタ適用中はその結果の続きを出す（全ファイルを混ぜない）。空=フィルタ未適用
         const files = _currentFilteredFiles.length
             ? _currentFilteredFiles
-            : _sortFiles(_currentDs.files.some(f => f.format === 'geojson')
-                ? _currentDs.files.filter(f => f.format !== 'shp')
-                : _currentDs.files);
-        row.insertAdjacentHTML('beforebegin', files.slice(200).map(f => _fileRow(f, _currentDs)).join(''));
+            : _sortFiles(_currentDs!.files!.some(f => f.format === 'geojson')
+                ? _currentDs!.files!.filter(f => f.format !== 'shp')
+                : _currentDs!.files!);
+        row.insertAdjacentHTML('beforebegin', files.slice(200).map(f => _fileRow(f, _currentDs!)).join(''));
         row.remove();
     } catch { btn.textContent = 'エラー'; }
 }
