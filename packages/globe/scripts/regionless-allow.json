@@ -89,8 +89,8 @@
 				"why": "凍結：localStorage の鍵 ortho-japan.cam256（前回の視点）"
 			},
 			"chome": {
-				"n": 17,
-				"why": "負債（地域）：町丁名（optbv Anno 210/800）の畳み込み mergeChome＋（N）表記の写し chomeCopy（2026-10-03・鍵の付け直し）。日本の地域パックの注記処理へ移す"
+				"n": 7,
+				"why": "負債（地域）：町丁名の畳み込み mergeChome を呼ぶ所と CHOME_MINZOOM・CHOME800_MINZOOM の門（実体は 2026-10-17 に src/chome.ts へ）。日本の地域パックの注記処理へ移す"
 			},
 			"cos35°": {
 				"n": 1,
@@ -101,8 +101,18 @@
 				"why": "負債（地域）：政令指定都市の一覧 SEIREI（区名を出す時の市名の扱い）。日本の地域パックへ移す"
 			},
 			"和文": {
-				"n": 24,
-				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）と丁目の正規化（丁目・漢数字＝chomeCanon の正規表現と chomeShort の末尾からの数え上げ）。上の seirei・chome と同じ移設で消える"
+				"n": 20,
+				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）。上の seirei と同じ移設で消える（丁目の正規化は 2026-10-17 に src/chome.ts へ）"
+			}
+		},
+		"packages/globe/src/chome.ts": {
+			"chome": {
+				"n": 13,
+				"why": "負債（地域）：町丁名（optbv Anno 210/800）の畳み込み mergeChome＋（N）表記の写し chomeCopy（2026-10-03・鍵の付け直し）。2026-10-17 に globe.ts から出した（実タイルの検査 tests/t-chome.mjs が文字列の切り出しでなく import で読むため）。日本の地域パックの注記処理へ移す"
+			},
+			"和文": {
+				"n": 4,
+				"why": "負債（地域）：丁目の正規化（丁目・漢数字＝chomeCanon の正規表現と chomeShort の末尾からの数え上げ）。上の chome と同じ移設で消える"
 			}
 		},
 		"packages/globe/src/i18n/core.ts": {
