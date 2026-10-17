@@ -1,16 +1,6 @@
-import CENSUS_MANIFEST    from '@ortho-earth/jp/census/manifest.json'    with { type: 'json' };
-import CENSUS_2025_POP    from '@ortho-earth/jp/census/2025-pop.json'    with { type: 'json' };
-import CENSUS_2020_POP    from '@ortho-earth/jp/census/2020-pop.json'    with { type: 'json' };
-import CENSUS_2020_STATS  from '@ortho-earth/jp/census/2020-stats.json'  with { type: 'json' };
-import CENSUS_2015_STATS  from '@ortho-earth/jp/census/2015-stats.json'  with { type: 'json' };
-import CENSUS_2020_AGES   from '@ortho-earth/jp/census/2020-ages.json'   with { type: 'json' };
-import CENSUS_2020_HOUSEHOLD from '@ortho-earth/jp/census/2020-household.json' with { type: 'json' };
-import CENSUS_2015_AGES      from '@ortho-earth/jp/census/2015-ages.json'      with { type: 'json' };
-import CENSUS_2015_HOUSEHOLD from '@ortho-earth/jp/census/2015-household.json' with { type: 'json' };
+import { CENSUS_MANIFEST, CENSUS_2025_POP, CENSUS_2020_POP, CENSUS_2020_STATS, CENSUS_2015_STATS, CENSUS_2020_AGES, CENSUS_2020_HOUSEHOLD,
+         CENSUS_2015_AGES, CENSUS_2015_HOUSEHOLD, CENSUS_KANA, ESTAT_MANIFEST, CITY_HISTORY } from './tables.js';   // 表は別アセット（tables.js）＝CITY_HISTORY は [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import SMALL_AREA_DIFF        from '@ortho-earth/jp/census/small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
-import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
-import CENSUS_KANA        from '@ortho-earth/jp/census/kana.json'        with { type: 'json' };
-import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 // 政令市・振興局・郡などの行政コード知識は jp/codes.js が正本（1か所管理）
 import { DESIGNATED_CITIES, wardParent as _wardParent,
          SHICHO as CENSUS_SHICHO, GUN as CENSUS_GUN } from '../jp/codes.js';
