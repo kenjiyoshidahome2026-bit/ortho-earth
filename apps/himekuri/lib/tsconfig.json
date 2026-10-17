@@ -1,4 +1,11 @@
 {
-	"extends": "../../../tsconfig.app.json",
-	"include": ["src/main.ts"]
+	// npm の版は scripts/pack-ts.mjs（prepack）が tsc -p . で dist/（.js と .d.ts）を出す。main.ts（デモ頁の入口）も型検査のため含めるが、files の "!src/main.*"（pack 時は "!dist/main.*"）で npm には出さない
+	"extends": "../../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "src",
+		"outDir": "dist",
+		// 世界時計.ts の import "./digital-font.css"（Vite が束ねる・npm の版でも dist に写して同じ口のまま）は型の無い副作用 import＝検査しない
+		"noUncheckedSideEffectImports": false
+	},
+	"include": ["src/*.ts"]
 }

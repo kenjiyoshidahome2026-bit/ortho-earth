@@ -1,5 +1,5 @@
-import { 日カレンダー, 世界時計, tip } from "./index.js";
-import { date2ymd, dayAfter, monthLength } from "./共通関数.js";
+import { 日カレンダー, 世界時計, tip } from "./index.ts";
+import { date2ymd, dayAfter, monthLength } from "./共通関数.ts";
 
 type YMD = [number, number, number];   // [年, 月, 日]
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
