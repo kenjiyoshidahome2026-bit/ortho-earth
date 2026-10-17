@@ -5,10 +5,7 @@
 import { geopbf } from "geopbf";
 import { belongsTo } from "./jp/codes.js";
 import { initAggregate, AGG_VALUE } from "./aggregate.js";
-import CENSUS_MANIFEST from "@ortho-earth/jp/census/manifest.json" with { type: "json" };
-import POP2020 from "@ortho-earth/jp/census/2020-pop.json" with { type: "json" };
-import STATS2015 from "@ortho-earth/jp/census/2015-stats.json" with { type: "json" };
-import AGES2020 from "@ortho-earth/jp/census/2020-ages.json" with { type: "json" };
+import { CENSUS_MANIFEST, CENSUS_2020_POP as POP2020, CENSUS_2015_STATS as STATS2015, CENSUS_2020_AGES as AGES2020 } from "./census/tables.js";
 
 const MB = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
 

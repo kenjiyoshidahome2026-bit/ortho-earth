@@ -8,11 +8,14 @@
 import { geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import MOJ_PBF from "./data/moj-pbf-manifest.json" with { type: "json" };
-import MOJ_AIGID from "./data/moj-geojson.json" with { type: "json" };
+import MOJ_AIGID_URL from "./data/moj-geojson.json?url";   // 0.9 MB＝筆を見る時だけ取る（入口の束に入れない・2026-10-17）
 
 const API = "https://api.ortho-earth.com";
 const PBF_SET = new Set(MOJ_PBF.map(e => e.cityCode));
-const AIGID = new Map(MOJ_AIGID.map(e => [e.name.slice(0, 5), e]));   // name 先頭5桁＝市区町村コード
+let _aigidP = null;   // name 先頭5桁＝市区町村コード → AIGID の項。取れなかった時は空＝次の呼び出しで取り直す
+const aigid = () => (_aigidP ||= fetch(MOJ_AIGID_URL).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+	.then(a => new Map(a.map(e => [e.name.slice(0, 5), e])))
+	.catch(e => { console.warn("[moj] AIGID 台帳", e); _aigidP = null; return new Map(); }));
 
 let _cacheP = null;
 const getCache = () => (_cacheP ||= nativeBucket(API).Cache("GIS/pbf"));
@@ -40,7 +43,7 @@ export async function probeBucket(url) {
 // moj/01106.geojsonl 404）。疎な bucket geojsonl は AIGID に無い稀な市だけ探る。
 export async function mojSource(code) {
 	if (PBF_SET.has(code)) return { kind: "pbf", key: `${API}/bucket/moj/${code}.pbf` };
-	const e = AIGID.get(code);
+	const e = (await aigid()).get(code);
 	if (e) return { kind: "aigid", key: e.target, precision: e.precision || 7, size: e.size };
 	if (await probeBucket(`${API}/bucket/moj/${code}.geojsonl`)) return { kind: "jsonl", key: `${API}/bucket/moj/${code}.geojsonl` };
 	return null;
