@@ -25,8 +25,8 @@ interface I3SContent {
 export interface I3SSummary { id: number | string; c: number[]; r: number; thr: number; kids: Array<number | string>; mesh: boolean }
 /** i3sContent の戻り */
 export interface I3SContentOut { batches: Array<{ mesh: MeshOut; tex: TexOut | null; alphaMode: string; alphaCutoff: number }>; stats: { triangles: number; vertices?: number } }
-let _l: Promise<typeof import("./i3s-loaders.js")> | null = null;
-const L = () => _l ??= import("./i3s-loaders.js");   // loaders.gl の i3s は最初の I3S を読む時だけ
+let _l: Promise<typeof import("./i3s-loaders.ts")> | null = null;
+const L = () => _l ??= import("./i3s-loaders.ts");   // loaders.gl の i3s は最初の I3S を読む時だけ
 
 const I3S_OPTS = { worker: false, i3s: { useDracoGeometry: true, useCompressedTextures: false, decodeTextures: false, coordinateSystem: 0 } };   // coordinateSystem 0＝METER_OFFSETS（頂点が ECEF で来る）
 const sets = new Map<string, Promise<I3SLayer>>();   // layer URL → Promise<tileset>

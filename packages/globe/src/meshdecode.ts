@@ -7,8 +7,8 @@
 // loaders.gl（core＋3d-tiles＋gltf＋draco ≈ 220 KB）は最初のタイルを解く時に読む（処方②・ortho-earth#12・2026-09-14）。
 // 静的 import だと meshworker / meshdecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
-let _loaders: Promise<typeof import("./mesh-loaders.js")> | null = null;
-const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
+let _loaders: Promise<typeof import("./mesh-loaders.ts")> | null = null;
+const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 import { rigFromGltf } from "./gltf-anim.ts";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す

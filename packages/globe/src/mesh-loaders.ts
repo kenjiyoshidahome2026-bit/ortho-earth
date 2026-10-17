@@ -2,6 +2,7 @@
 // パッケージを直接 dynamic import すると namespace 取得扱いで tree-shaking が効かず、未使用の export まで
 // 遅延チャンクに乗る（計量：239 KB → 302 KB に膨れた・2026-09-14）。名前付きの静的 import をここで固定すれば
 // 遅延チャンク内で従来どおり刈り込まれる。GLTFLoader は Tiles3DLoader が内部で使う同じ物＝チャンクは増えない（glb 直読み・2026-09-20）。
+// 型は tsconfig の paths が types/loaders.gl/ の宣言へ向ける（本物の型の木は Node の大域を持ち込む・2026-10-17 まで JS のままだった理由）。
 export { parse as loadParse } from "@loaders.gl/core";
 export { Tiles3DLoader } from "@loaders.gl/3d-tiles";
 export { GLTFLoader, postProcessGLTF } from "@loaders.gl/gltf";
