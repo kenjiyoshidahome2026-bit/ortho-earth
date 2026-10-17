@@ -101,11 +101,11 @@ GeoPBF ファイルは <strong>Header Section</strong> と <strong>Body Section�
 	<div class="bin-row">
 		<div class="bin-cell" style="background:#1e3a5f;color:var(--accent);flex:0 0 110px;border-radius:6px 0 0 6px">
 			Header
-			<div class="bin-label">固定長メタデータ</div>
+			<div class="bin-label">メタデータ</div>
 		</div>
 		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
 			NAME · KEYS（属性名グローバル辞書）· PRECISION · BUFS（バイナリプール）<br>
-			DESCRIPTION · LICENSE · ATTRIBUTION
+			DESCRIPTION · LICENSE · ATTRIBUTION · MIN_ZOOM · MAX_ZOOM
 			<div class="bin-label" style="margin-top:4px">メタデータは O(1) でバイナリスライスにより更新可能（再エンコード不要）</div>
 		</div>
 	</div>
@@ -224,7 +224,7 @@ Varint は小さな整数を少ないバイト数で表現するため、
 
 <p>
 GeoPBF は単なる保存フォーマットではなく、主要 GIS フォーマット間の <strong>変換ハブ</strong> として機能する。
-入力（デコード）と出力（エンコード）の両方に変換パスを持ち、
+すべての形式に入力（デコード）の、大半の形式に出力（エンコード）の変換パスを持ち、
 GeoPBF を中心に置くことで任意フォーマット間の相互変換が 1 ステップで可能になる。
 </p>
 
@@ -240,12 +240,12 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS トラック・ウェイポイント</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">高速ストリーミング対応</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">トポロジー保持 入出力</td></tr>
-	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="good">✓</td><td class="dim">1 行 1 地物（<code>.ndjson .geojsonl .geojsons .jsonl</code>）</td></tr>
+	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="bad">—</td><td class="dim">1 行 1 地物（<code>.ndjson .geojsonl .geojsons .jsonl</code>）。<code>geopbf/ndjson</code> が流し読みする。書き出しの口は内蔵しない</td></tr>
 	<tr><td><strong>CZML</strong>（Cesium）</td><td class="good">✓</td><td class="good">✓</td><td class="dim">時刻つき位置は <code>time</code> 配列に、パケットの残りは <code>czml</code> 属性で往復</td></tr>
 	<tr><td><strong>GeoPackage</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">依存ゼロの SQLite リーダで 1 層（<code>{ layer }</code>）。<code>geopbf/gpkg</code> はタイル表も開く</td></tr>
 	<tr><td><strong>SpatiaLite</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim"><code>.sqlite .sqlite3 .spatialite .db</code>。同じリーダ・SpatiaLite の BLOB ジオメトリ</td></tr>
 	<tr><td><strong>File Geodatabase</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Esri の <code>.gdb</code> フォルダを zip したもの。中の <code>*.gdbtable</code> で判別、<code>{ layer }</code> で表を選ぶ</td></tr>
-	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">経緯度列か WKT 列（<code>{ lon, lat, wkt, sheet, delimiter }</code>）。書き出しは属性＋経緯度か WKT</td></tr>
+	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">経緯度列か WKT 列（<code>{ lon, lat, wkt, sheet, delimiter }</code>）。書き出しは <code>pbf.getCSV()</code>（属性＋点なら経緯度・それ以外は bbox）と <code>geopbf/encodeXLSX</code></td></tr>
 	<tr><td><strong>DXF</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">AutoCAD DXF（<code>{ crs, unitScale, closedAsPolygon }</code>）。平面直角座標系は <code>geopbf/proj</code></td></tr>
 	<tr><td><strong>登記所備付地図</strong>（法務省）</td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">14条地図・筆ポリゴン。デコード時に JGD2011 平面直角座標（19 系）→ WGS84 を実施。拡張子が <code>.zip</code> で Shapefile と競合するため <code>{ format: "moj" }</code> で明示指定</td></tr>
 	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox 覆域列・行は空間順。依存ゼロのリーダは geopandas / pyarrow / DuckDB の出力も読む — §13</td></tr>
@@ -259,8 +259,8 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 「読み込み」に ✓ のある行はすべて自動判定の入口 <code>geopbf(input)</code> を通る（GeoParquet も。依存ゼロの
 リーダは <code>geopbf/geoparquet</code> にある）。PMTiles の書き出しは規模が大きく必要時に読めば足りるため、
 専用のサブパス export（<code>geopbf/pmtiles</code>）に分けてある（詳細は §13）。ラスタはさらに別経路で、<code>geopbf/cog</code> は Cloud Optimized GeoTIFF を
-HTTP Range で直接読み、変換自体を行わない（§12）。いずれも CLI に対応物があり、
-<code>npx geopbf enc / dec / pmtiles / parquet / parquet2pbf</code> が GDAL 無しの素の Node で動く。
+HTTP Range で直接読み、変換自体を行わない（§12）。多くは CLI に対応物があり、
+<code>npx geopbf enc / dec / pmtiles / parquet / parquet2pbf / gpkg2pbf / spatialite2pbf / dxf2pbf / csv2pbf / gdb2pbf</code> が GDAL 無しの素の Node で動く。
 </p>
 
 <div class="callout callout-note">
@@ -269,8 +269,8 @@ HTTP Range で直接読み、変換自体を行わない（§12）。いずれ�
 		<code>geopbf(input)</code> に <code>File</code>・<code>Blob</code>・<code>ArrayBuffer</code>・
 		<code>Object</code> のいずれを渡しても、拡張子・MIME タイプ・マジックバイトから
 		フォーマットを自動判定して適切なデコーダを呼び出す。対応は
-		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .jsonl .fgb .gpkg .sqlite .db .parquet
-		.csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>
+		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .geojsons .jsonl .fgb .gpkg .sqlite .sqlite3 .spatialite .db
+		.parquet .geoparquet .csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>
 		（いずれも <code>.gz</code> 可・gzip は署名で判別）。呼び出し側はフォーマットを意識する必要がない。
 		<code>.zip</code> は中身を見る（<code>*.gdbtable</code> があれば File Geodatabase、無ければ Shapefile）。
 		唯一の例外が登記所備付地図で、拡張子 <code>.zip</code> が両方と重なるため
@@ -297,11 +297,11 @@ HTTP Range で直接読み、変換自体を行わない（§12）。いずれ�
 <span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
 <span class="kw">import</span> { toGeoParquet, fromGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
 <span class="kw">const</span> { buffer } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// → PMTiles（MVT）バイト列</span>
-<span class="kw">const</span> pq   = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                   <span class="cm">// → GeoParquet バイト列</span>
-<span class="kw">const</span> back = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);                 <span class="cm">// ← GeoParquet（geopandas/DuckDB 出力も可）</span>
+<span class="kw">const</span> pq   = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                   <span class="cm">// → { buffer, geo, stats }</span>
+<span class="kw">const</span> { pbf: back } = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);        <span class="cm">// ← GeoParquet（geopandas/DuckDB 出力も可）</span>
 
 <span class="cm">// ネイティブ保存（gzip 済み .geopbf）</span>
-<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → coastline.geopbf をダウンロード</span></code></pre>
+<span class="kw">const</span> file = <span class="kw">await</span> pbf.<span class="fn">geopbfFile</span>();   <span class="cm">// → File「&lt;name&gt;.geopbf」（pbf.save() は bucket へ保存する別の口）</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="antimeridian">5. アンチメリジアン処理</h2>
@@ -316,7 +316,8 @@ HTTP Range で直接読み、変換自体を行わない（§12）。いずれ�
 <p>
 GeoPBF はアンチメリジアンの正確さを<strong>フォーマット不変条件</strong>として扱う：
 GeoPBF に格納されたジオメトリはすべてアンチメリジアンで切断されていることが保証される。
-アンチメリジアンをまたぐポリゴンはフォーマット内に存在できない。
+アンチメリジアンをまたぐポリゴンはフォーマット内に存在できない。唯一の外し方は <code>new GeoPBF({ cut: false })</code> で、
+形を変えずに往復させたい器（geoedit のセッション保存）のためにある。
 </p>
 
 <div class="callout callout-key">
@@ -343,7 +344,7 @@ GeoPBF に格納されたジオメトリはすべてアンチメリジアンで�
 <span class="cm">// p[i][0] * p[i+1][0] < 0  &&  abs(p[i][0] - p[i+1][0]) > 180</span>
 
 <span class="cm">// 球面交点緯度（大円の公式）</span>
-<span class="cm">// x = sin(Δlat/2)·sin(avgLng)·cos(halfΔlng) - sin(avgLat)·cos(avgLng)·sin(halfΔlng)</span>
+<span class="cm">// x = sin(lat0−lat1)·sin(avgLng)·cos(halfΔlng) - sin(lat0+lat1)·cos(avgLng)·sin(halfΔlng)</span>
 <span class="cm">// z = cos(lat0)·cos(lat1)·sin(Δlng)</span>
 <span class="cm">// intersectLat = atan2(x, |z|)   ← 球面上で幾何学的に正確</span></code></pre>
 
@@ -388,7 +389,7 @@ GeoPBF の内部表現は一貫して <code>ArrayBuffer</code> である。
 		<div class="wd-item" style="color:var(--purple)">SharedArrayBuffer</div>
 		<div class="wd-item">複数 Worker が同時参照</div>
 		<div class="wd-item">LOD フィルタ処理</div>
-		<div class="wd-item">Canvas / WebGL 描画</div>
+		<div class="wd-item">WebGPU / WebGL2 描画</div>
 	</div>
 </div>
 
@@ -462,12 +463,12 @@ GeoPBF に gint エンコードを適用すると、各頂点の座標が
 		<span class="b64-label">L2 node<br><span style="font-size:0.65rem;color:var(--dim)">(detail)</span></span>
 		<div class="b64-seg b64-term" style="flex:0 0 20px;background:rgba(52,211,153,0.2);color:var(--green);border-color:var(--green)" title="Not terminal">0</div>
 		<div class="b64-gap"></div>
-		<div class="b64-seg b64-mort" title="Morton code">Morton code (58 bits)</div>
+		<div class="b64-seg b64-mort" title="Morton code">Morton code (57 bits)</div>
 		<div class="b64-gap"></div>
 		<div class="b64-seg b64-vw" title="VW weight rank 0-63">VW rank<br>(6 bits)</div>
 	</div>
 	<div style="margin:4px 0;padding-left:64px;font-size:0.68rem;color:var(--dim)">
-		bit 63 = 0 → L2（詳細頂点、LOD フィルタ対象）&nbsp;·&nbsp; bits 0-5 = VW ウェイトランク（0〜63）
+		bit 63 = 0 → L2（詳細頂点、LOD フィルタ対象・格子は 8×10⁻⁷ deg に丸め）&nbsp;·&nbsp; bits 6-62 = Morton &nbsp;·&nbsp; bits 0-5 = VW ウェイトランク（0〜63）
 	</div>
 </div>
 
@@ -479,8 +480,8 @@ GeoPBF に gint エンコードを適用すると、各頂点の座標が
 <pre><code><span class="cm">// L1 / L2 判定（最上位ビット）</span>
 <span class="kw">const</span> isAnchor = (code >> <span class="nm">63n</span>) === <span class="nm">1n</span>;
 
-<span class="cm">// Morton コード取り出し（L2 の場合上位 58bit）</span>
-<span class="kw">const</span> mortonCode = code & <span class="nm">0x7FFFFFFFFFFFFFF8n</span>;  <span class="cm">// bits 3-62</span>
+<span class="cm">// Morton コード取り出し（L2 の場合 bits 6-62。丸めた格子の下位 6bit は 0）</span>
+<span class="kw">const</span> mortonCode = code & <span class="nm">0x7FFFFFFFFFFFFFC0n</span>;  <span class="cm">// bits 6-62</span>
 
 <span class="cm">// VW ウェイトランク取り出し（L2 の場合下位 6bit）</span>
 <span class="kw">const</span> vwRank = Number(code & <span class="nm">0x3Fn</span>);  <span class="cm">// bits 0-5 → 0〜63</span>
@@ -624,7 +625,7 @@ shapefile は原典の double をそのまま持つが、精度によらず 1 �
 		<td class="dim">要外部ライブラリ</td>
 		<td class="dim">要外部ライブラリ</td>
 		<td class="bad">限定的</td>
-		<td class="good">12 フォーマット内蔵</td>
+		<td class="good">18 フォーマットの読み込み内蔵</td>
 	</tr>
 	<tr>
 		<td><strong>トポロジー</strong></td>
@@ -669,10 +670,11 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 <span class="cm">// ── 低いレベルの入口（パッケージのサブパス） ────────────────</span>
 <span class="cm">// geopbf             GeoPBF クラス（new GeoPBF(opts).set(…)）      geopbf/core · /pbf-base   GeoPBFBase＝拡張メソッドの無い器</span>
 <span class="cm">// geopbf/pbf         protobuf の wire の読み書き                   geopbf/gint · /topology · /identify   Gint の焼き込み・GintBUF・当たり判定</span>
-<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       書き出しと読み込み（§13）</span>
-<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   形式リーダ（自動判定の入口を通さず使える）</span>
-<span class="cm">// geopbf/proj · /datum       EPSG 投影・TKY2JGD / PatchJGD の測地系変換        geopbf/convert/node-gint   Node で Gint を焼く</span>
-<span class="cm">// geopbf/cog · /cog/core · /cog/source · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF（§12）</span>
+<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       書き出しと読み込み（§13）     geopbf/tilesource   Gint から要求タイルだけ MVT に</span>
+<span class="cm">// geopbf/convert             変換器を一括で import               geopbf/convert/gpu   変換器が使う WebGPU デバイス</span>
+<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table · /ndjson   形式リーダ（自動判定の入口を通さず使える）</span>
+<span class="cm">// geopbf/proj · /epsg · /datum   WKT / EPSG 投影・TKY2JGD / PatchJGD の測地系変換    geopbf/convert/node-gint   Node で Gint を焼く</span>
+<span class="cm">// geopbf/cog · /cog/core · /cog/source · /cog/tiff · /cog/decode · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF（§12）</span>
 <span class="cm">// geopbf/featureservice      ArcGIS FeatureServer / OGC API – Features をソースに   geopbf/georef   IIIF Georeference Annotation</span>
 <span class="cm">// geopbf/edit · /edit/*      編集モデル（DOM 非依存）         geopbf/worker · /no-builtin-workers   worker の入口とその外し方</span>
 <span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   ユーティリティ</span></code></pre>
@@ -685,6 +687,7 @@ pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span 
 		静的な <code>GeoPBF.concatinate</code>（<code>pbf.concat(...others)</code> を使う）、そして <code>geopbf/core</code> と <code>geopbf/pbf-base</code> の
 		器の名前 <code>GeoPBF</code>（そこでは <code>GeoPBFBase</code>。<code>geopbf</code> の <code>GeoPBF</code> は拡張つきのクラス）である。
 		<code>fmap</code>・<code>_name</code> などの内部の欄は公開の型に出ない。<code>pbf.length</code>・<code>each</code>／<code>forEach</code>・<code>pbf.name()</code> を使う。
+		ライブラリ自体は TypeScript（strict）になった。npm パッケージはコンパイル済みの JavaScript と <code>.d.ts</code> の型宣言を同梱するので、<code>geopbf</code> とそのサブパスは追加のパッケージ無しで型が付く。
 		旧 → 新の全体は <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a>。
 	</p>
 </div>
@@ -799,7 +802,7 @@ worker からの import も安全である。§10 との役割分担は明確で
 <p>
 COG（Cloud Optimized GeoTIFF）は HTTP Range で部分読みできる静的ファイルであり、GeoPBF と同じ
 「サーバー不要」の構成をラスタへ適用した形式である。v1.4 の <code>geopbf/cog</code> は依存追加ゼロの
-自前リーダで、ヘッダは <strong>16KB の range 1 本</strong>で読み、タイル要求はオフセット順に
+自前リーダで、ヘッダは <strong>64KB の range 1 本</strong>で読み、タイル要求はオフセット順に
 整列して隣接 range を<strong>1 リクエストへ合体</strong>（coalesce）する。解凍と再投影は worker
 プール、JPEG/WebP はブラウザのネイティブデコーダへ渡す。実測値は
 <code>cog.metrics()</code> が随時返す（range 本数・coalesce 圧縮率・デコード時間）。
@@ -812,8 +815,8 @@ COG（Cloud Optimized GeoTIFF）は HTTP Range で部分読みできる静的フ
 <p>
 対応サブセットは公共 COG 配信の実勢に合わせてある。タイル/ストリップ両レイアウト・BigTIFF・
 圧縮 none/deflate/LZW/JPEG/WebP・predictor 2・uint8 RGB(A)/パレット/単バンド uint16/int16/float32
-（自動パーセンタイル・ストレッチ、<code>GDAL_NODATA</code>→透明）・CRS は EPSG:4326/3857/UTM
-（Krüger n 級数 6 次＝nm 精度の自前実装）。これを外れるファイルは黙って壊れるのではなく明示エラーで
+（自動パーセンタイル・ストレッチ、<code>GDAL_NODATA</code>→透明）・CRS は経緯度（EPSG:4326/4258/4269/4612/6668）・3857・UTM（WGS84 326xx/327xx・JGD 6688–6691 / 3097–3101）・
+平面直角座標系 I〜XIX（6669–6687 / 2443–2461）（<code>geopbf/proj</code> と同じ Krüger n 級数 6 次＝nm 精度の自前実装）。これを外れるファイルは黙って壊れるのではなく明示エラーで
 拒否し、<code>gdal_translate -of COG</code> による事前変換を案内する。MapLibre へは
 <code>geopbf/maplibre-cog</code> の <code>cog://</code> プロトコル、Leaflet へは
 <code>geopbf/leaflet-cog</code> の GridLayer を、それぞれ 1 行で接続する。
