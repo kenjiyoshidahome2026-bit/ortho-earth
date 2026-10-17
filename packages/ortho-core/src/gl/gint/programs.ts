@@ -277,6 +277,39 @@ vec4 atlasClip(float dlon, float dlat) {
 uvec4 fetchFidBbox(uint fid) {
 	return texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0);
 }
+// ── 窓座標モード（地面アトラスへの焼き込み）の塗り扇の頂点 ──
+// 窓座標は原点相対の経度 dlon（最短周回）の線形写像。頂点ごとに最短周回を取ると、原点の対蹠経線（origin±180°）を跨ぐ環は窓の
+// 両端に割れる＝割れ目の辺（幅 360°）と扇の閉じ残し（要→端点の楔）が緯線帯として窓いっぱいに走り、海を塗った（チルトの「世界の地形」で
+// ケッペンの帯・2026-10-17。遠窓は 360° 超＝縫い目跨ぎの窓は bbox カリングも無く全球の辺が来る。画面側の球面投影には無い病）。
+// 直し＝環（扇の鍵＝構成ポリゴン）の bbox 中心の周りで連続になるよう頂点を ±360° ずらす（環は割れない＝閉じた環の巻き数は要に依らず正確）。
+// 中心から見て原点±180° を跨ぐ環は、標本化される中央の 360°（原点±180°）の両端に掛かる＝反対側の写し（±360°）をインスタンス 1 で描く。
+// ずらす量は整数（e7・uint）で決め、位置は従来の dlonE7（原点近傍で厳密）＋360 の整数倍＝原点近傍の精度は不変（高ズームの窓を崩さない）
+int dlonE7i(uint a, uint b) {   // dlonE7 と同じ符号規約の int 版（|値| ≤ 180e7＝int に収まる）
+	uint d = max(a, b) - min(a, b); bool neg = a < b;
+	if (d > 1800000000u) { d = 3600000000u - d; neg = !neg; }
+	return neg ? -int(d) : int(d);
+}
+// 鍵（構成ポリゴン）の bbox：x＝中心の原点相対経度（e7）・y＝半幅（e7）。u_has_pivot=0（境界メタ・bbox 無し）＝(0,0)＝従来の最短周回
+ivec2 keyLonSpan(uint key) {
+	if (u_has_pivot == 0) return ivec2(0, 0);
+	uvec4 bb = fetchFidBbox(key);
+	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u;   // 周期対応 bbox（x>360e7）＝中心を [0,360e7) へ
+	return ivec2(dlonE7i(cx, u_ix_center), int((bb.z - bb.x) / 2u));
+}
+// 写し（インスタンス 1）のずらし量（deg）。0＝写し不要（環が中央の 360° に収まる）。和は int を溢れる＝float で
+float atlasCopyShift(ivec2 cs) {
+	if (float(cs.x) + float(cs.y) > 1.8e9) return -360.0;
+	if (float(cs.x) - float(cs.y) < -1.8e9) return 360.0;
+	return 0.0;
+}
+// 扇の辺端点：鍵の中心の周りで連続な経度（＋写しのずらし）
+vec4 atlasFanVertex(uint idx, ivec2 cs, float shift) {
+	uvec2 v = decodeIXY(idx);
+	int dx = dlonE7i(v.x, u_ix_center);
+	float k = 0.0;
+	if (u_has_pivot != 0) { float diff = float(dx) - float(cs.x); if (diff > 1.8e9) k = -1.0; else if (diff < -1.8e9) k = 1.0; }   // 中心から 180° 超＝反対の周回へ（ちょうど 180°＝そのまま：全幅の環の縫い目頂点は両端とも同じ側）
+	return atlasClip(float(dx) * 1e-7 + 360.0 * k + shift, float(int(v.y - u_iy_center)) * 1e-7);
+}
 // 球面キャップの可視判定（renderer stencilWorldFan の CPU 二段構え①を GPU で）：feature bbox（経緯度矩形）を囲む
 // 小円 (C, rad) が可視キャップ（中心 Ê・半径 hor＝acos(1/|E|)）と交わらなければ完全に裏＝頂点ごと捨てる。
 // 交差条件 dot(C,Ê) > cos(hor+rad)（cos 加法）。rad＝矩形内で C から最遠の点＝緯線上は角、経線上は Δλ>90° で
@@ -586,6 +619,12 @@ void main() {
 	if (!bboxVisible(key)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 視野外（裏側）の構成ポリゴン＝丸ごと棄却
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if (u_atlasOn > 0.5) {   // 窓座標モード＝環を鍵の中心の周りで連続に・写し（インスタンス 1）は ±360°（要は閉じた環なら何処でもよい）
+		ivec2 cs = keyLonSpan(key); float shift = gl_InstanceID == 0 ? 0.0 : atlasCopyShift(cs);
+		if (gl_InstanceID != 0 && shift == 0.0) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+		gl_Position = sub == 0 ? pivotClip(key) : atlasFanVertex(sub == 1 ? lodA : lodB, cs, shift);
+		return;
+	}
 	if (sub == 0) { gl_Position = pivotClip(key); return; }   // 扇要＝構成ポリゴン局所（TBDRパラメータバッファ対策）
 	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsStencil と対）
 }`;
