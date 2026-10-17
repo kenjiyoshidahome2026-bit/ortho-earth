@@ -1,0 +1,6 @@
+{
+	// L03-b_r の変換 worker（nlftp/l03b-r-worker.ts・?worker&url＝別の束）＝lib webworker の第 2 プログラム（DOM と webworker の lib は一つの program に同居できない）
+	"extends": "../../tsconfig.app.json",
+	"compilerOptions": { "lib": ["es2022", "webworker"], "types": [] },
+	"include": ["nlftp/l03b-r-worker.ts"]
+}

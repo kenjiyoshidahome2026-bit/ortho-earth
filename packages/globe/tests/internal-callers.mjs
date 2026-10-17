@@ -18,11 +18,11 @@ const RE = [
 // 2026-09-26 の数（段 0）。ファイル→呼び出しの数
 const ALLOW = {
 	"packages/world/src/worldlayers.ts": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
-	"apps/ortho-globe/physical.js": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
-	"apps/ortho-globe/hex.js": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
-	"apps/ortho-japan/terrain.js": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
-	"apps/ortho-japan/onsen.js": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
-	"apps/choju/choju.js": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
+	"apps/ortho-globe/physical.ts": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
+	"apps/ortho-globe/hex.ts": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
+	"apps/ortho-japan/terrain.ts": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
+	"apps/ortho-japan/onsen.ts": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
+	"apps/choju/choju.ts": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
 	"packages/globe/src/api/query.ts": 1,   // 層イベントの問い合わせ（hitsFor）＝globe.js から切り出した（globe.js の分割 ②・2026-10-15）
 	"packages/globe/src/globe.ts": 1,     // コメント 1（層イベントの hitsFor は api/query.ts へ）。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した

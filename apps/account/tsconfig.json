@@ -1,0 +1,11 @@
+{
+	// account Worker（workers/*.ts）＝Cloudflare Workers の実行環境＝lib webworker（DOM は持ち込まない）・@cloudflare/workers-types は入れない（workers/types.ts に使う所だけ）
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"lib": ["es2022", "webworker"],
+		"types": [],
+		"noEmit": true,
+		"declaration": false
+	},
+	"include": ["workers/*.ts"]
+}

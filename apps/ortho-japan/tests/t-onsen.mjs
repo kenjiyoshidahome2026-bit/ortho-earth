@@ -47,7 +47,7 @@ const core = JSON.parse(fs.readFileSync(fileURLToPath(import.meta.resolve("@orth
 const LANGS = "ja zh ko fr de es pt it nl pl ru uk hu sv tr el id vi th bn hi ar fa ur he".split(" ");
 t("辞書：全キーが 25 言語", Object.values(dict).every(v => LANGS.every(l => v[l])), JSON.stringify(Object.entries(dict).filter(([, v]) => !LANGS.every(l => v[l])).map(([k]) => k)));
 t("辞書：$1 の数がキーと揃う", Object.entries(dict).every(([k, v]) => LANGS.every(l => (v[l].match(/\$\d/g) || []).length === (k.match(/\$\d/g) || []).length)));
-const src = fs.readFileSync(path.join(APP, "onsen.js"), "utf8"), used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+const src = fs.readFileSync(path.join(APP, "onsen.ts"), "utf8"), used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
 const missing = [...new Set(used)].filter(k => !dict[k] && !(k in core));
 t("辞書：onsen.js の t() は全部ある", !missing.length, JSON.stringify(missing));
 

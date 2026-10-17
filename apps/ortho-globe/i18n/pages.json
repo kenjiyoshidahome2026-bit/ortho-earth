@@ -2,30 +2,30 @@
 	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル。正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json。本体の訳（globe の ui.json）は @ortho-earth/globe が持つ＝ここでは足さない",
 	"pages": {
 		"sats": [
-			"sats.js",
+			"sats.ts",
 			"sats-gl.js"
 		],
 		"clouds": [
-			"clouds.js",
+			"clouds.ts",
 			"clouds-gl.js"
 		],
 		"physical": [
-			"physical.js"
+			"physical.ts"
 		],
 		"parks": [
-			"parks.js"
+			"parks.ts"
 		],
 		"clock": [
-			"clock.js",
-			"clock-zones.js"
+			"clock.ts",
+			"clock-zones.ts"
 		],
 		"hex": [
-			"hex.js"
+			"hex.ts"
 		],
 		"arcs": [
-			"arcs.js",
-			"arcs-mini.js",
-			"arcs-data.js"
+			"arcs.ts",
+			"arcs-mini.ts",
+			"arcs-data.ts"
 		]
 	}
 }

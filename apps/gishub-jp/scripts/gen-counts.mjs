@@ -17,7 +17,7 @@ const read  = p => JSON.parse(readFileSync(join(app, p), 'utf8'));
 
 const mojManifest = read('moj/manifest.json');
 const counts = {
-    moj:   new Set(mojManifest.map(e => e.cityCode)).size,   // moj/ui.js MOJ_CITIES.size と同一定義
+    moj:   new Set(mojManifest.map(e => e.cityCode)).size,   // moj/ui.ts MOJ_CITIES.size と同一定義
     maff:  read('maff/manifest.json').length,
     estat: read('estat/manifest.json').length,
     munic: read('munic/manifest.json').length,   // 市区町村のオープンデータ（G空間の自治体組織）の団体数

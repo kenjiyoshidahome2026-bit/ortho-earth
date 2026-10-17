@@ -11,7 +11,7 @@
 localStorage.setItem("oj.hint", "closed");
 </script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 import { lonlatTo3D } from "@ortho-earth/core";
 const Q = new URLSearchParams(location.search);
 const LOAD_MS = +Q.get("load") || 15000, MEASURE_MS = +Q.get("measure") || 6000;

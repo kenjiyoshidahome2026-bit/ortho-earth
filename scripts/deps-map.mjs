@@ -154,7 +154,7 @@ function htmlRoots(html, appDir) {
 
 const ENTRY = {
 	"/": "apps/www/index.html", "/quiz/": "apps/world-quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
-	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.js")) ? "apps/engine/src/maplibre.js" : "apps/ortho-globe/engine/maplibre.js",
+	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.ts")) ? "apps/engine/src/maplibre.ts" : "apps/ortho-globe/engine/maplibre.js",
 	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html",
 };
 const entryOf = href => {

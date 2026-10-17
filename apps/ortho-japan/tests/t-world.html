@@ -11,7 +11,7 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const mkSnap = () => {   // 合成スナップショット（palette の撮影スタブ＝t-palette-live と同じ骨格・内容は不問）
 	const W = 20, H = 14, a = new Uint8Array(W * H * 4).fill(255);

@@ -23,7 +23,7 @@ export default defineConfig({
 		target: "esnext",
 		cssCodeSplit: false,
 		lib: {
-			entry: path.resolve(__dirname, "src/world.js"),
+			entry: path.resolve(__dirname, "src/world.ts"),
 			formats: ["es"],
 			fileName: () => "ortho-world.js",
 		},

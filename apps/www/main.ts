@@ -1,7 +1,7 @@
 import * as d3 from "d3-selection";   // select／selectAll だけ＝d3 全体を名前空間で読むと d3-transition・d3-brush の副作用まで束に入る（index 49.7KB → 24.8KB・2026-09-30 実測）
 import './main.scss';
-import { liteGlobe } from "./globe-lite.js";
-import { t, has, setLang, norm, LANGUAGES, getLang } from "./i18n.js";
+import { liteGlobe } from "./globe-lite.ts";
+import { t, has, setLang, norm, LANGUAGES, getLang } from "./i18n.ts";
 //------------------------------------------------------
 // 言語：?lang= → ブラウザ → 英語（26 言語）。文言は data-t（キー）/ data-t-<attr> を持つ要素を貼り替えるだけ＝HTML は英語のまま焼いてある。
 // 選んだ言語（?lang= か右上の選択）はデモへのリンクへ伝搬＝www→デモの導線でも言語が保てる（LT 2026-08-24 からの作法を全リンクへ）。
@@ -69,14 +69,14 @@ d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Ear
 // ＝同オリジンのアプリが IDB から立つ。データ節約・遅い回線では見送る・デモの iframe を開いている間は止まる。
 const whenIdle = (cb: () => void) => ((window as Partial<Window>).requestIdleCallback ? requestIdleCallback(cb, { timeout: 3000 }) : setTimeout(cb, 500));   // Partial＝Safari は requestIdleCallback を持たない（lib.dom は常にある扱い）
 const afterLoad = (cb: () => void) => document.readyState === "complete" ? cb() : addEventListener("load", cb, { once: true });
-const globe = liteGlobe(document.getElementById('mapContainer'), {
+const globe = liteGlobe(document.getElementById('mapContainer')!, {
 	src: "/earth-lite.webp",
 	onFirstFrame: () => afterLoad(() => whenIdle(async () => {
-		const { shouldPrefetch, prefetchWorldData } = await import("./prefetch.js");
+		const { shouldPrefetch, prefetchWorldData } = await import("./prefetch.ts");
 		if (shouldPrefetch()) prefetchWorldData().catch(e => console.warn("[prefetch]", e));
 		else console.info("[prefetch] skipped (save-data or slow connection)");
 	})),
-} as Parameters<typeof liteGlobe>[1]);   // as＝liteGlobe の opts の型は JS の既定値からの推論（既定値の無い src・onFirstFrame が落ちる）
+});
 //------------------------------------------------------
 // デモ＝ページを離れずにナビの下の iframe で開く（本人 2026-09-22「デモに行くと戻りづらい・ナビを残して本文を iframe に・ナビに戻る」）。
 // ・カードのクリック（修飾キーなし＝新しいタブで開きたい操作は邪魔しない）を受けて iframe に入れ、履歴を一段積む（?d=<デモのパス>）

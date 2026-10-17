@@ -1,0 +1,6 @@
+{
+	// 読み込み worker（quakes-worker.ts・new Worker(new URL(…))＝別の束）＝lib webworker の第 2 プログラム（DOM と webworker の lib は一つの program に同居できない）
+	"extends": "../../tsconfig.app.json",
+	"compilerOptions": { "lib": ["es2022", "webworker"], "types": [] },
+	"include": ["quakes-worker.ts"]
+}

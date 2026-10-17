@@ -13,7 +13,7 @@ window.confirm = () => false;   // クラウド削除等の確認＝試験では
 import { createGeopbf } from "geopbf";
 import { gcDistanceDeg, gcMidpoint } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 import { GeoPBFBase } from "geopbf/pbf-base";
 import { initEditor as initEditor0, setLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示（この頁は日本語の UI 文字列で判定する）
 import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // japan のホスト契約＝クラウド保存パネルを注入（ボタン列の検定は japan に載った形で数える）

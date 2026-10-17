@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, reachOf, tapHits, TAP_SLOP, SET_SIZE } from "../src/quiz.js";
+import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, reachOf, tapHits, TAP_SLOP, SET_SIZE } from "../src/quiz.ts";
 
 const csv = fs.readFileSync(path.resolve(import.meta.dirname, "../../../packages/world/seed/nations.csv"), "utf8").trim().split("\n").slice(1);
 let seed = 1; const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;   // 固定の列

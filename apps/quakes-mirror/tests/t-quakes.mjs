@@ -3,7 +3,7 @@
 //   配信：空は 503 → archive.geopbf / archive.json / status → CORS → ETag 一致で 304 → 知らない道は 404 → POST は 405
 //   読み手（globe の quakes-worker.js）の検定は apps/quakes/tests/t-quakes-reader.mjs（形の約束＝apps/quakes/usgs.js。ここは焼いた bytes をそのまま返すだけ＝中身は問わない＝アプリはアプリを読まない）
 //   node apps/quakes-mirror/tests/t-quakes.mjs
-import { serve } from "../worker.js";
+import { serve } from "../worker.ts";
 
 // ── 偽 R2（get/put/delete と onlyIf の If-None-Match だけ）───────────────────
 const store = new Map();

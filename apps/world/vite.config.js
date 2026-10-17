@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';   // build の時だけ地球儀は共有エンジン（/globe/engine/<版>/）を URL で読む（縮小計画 項目 9・2026-09-30）
 import { crossOriginIsolation, coepHeadersFile, noChunkOptimization, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 // 本番の COOP/COEP＝coepHeadersFile が dist/site/_headers を書く（www のデモ一覧の iframe に載る頁＝www と同じ COEP credentialless が要る・2026-09-22・理由は vite-app.mjs）。
-// 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev はソース直・build は共有エンジン
+// 地図パネル（src/mappane.ts）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev はソース直・build は共有エンジン
 // （sharedEngine＝/globe/engine/<版>/・2026-09-30 に A 裁定 2026-09-23「自分の束に焼く」を改めた。気候場 koppen-clim.png はエンジン同梱の 1 枚＝assetBase を渡さない・2026-10-15）。
 // noChunkOptimization＝rolldown（vite 8）の決まり（2026-09-25・理由は vite-app.mjs）。worker は別ビルド＝build と worker の両方に要る。
 

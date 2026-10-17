@@ -6,8 +6,8 @@
 <script type="module">
 // 地形は切る（?noterr=1＝globe.js が起動時に読む＝import の前に URL へ書く）：通信の無い環境でも配線だけを速く見る
 if (!/[?&]noterr=1/.test(location.search)) history.replaceState(null, "", location.pathname + location.search + (location.search ? "&" : "?") + "noterr=1");
-const { default: orthoJapan } = await import("../app.js");
-const { mountFireworks } = await import("../fireworks.js");
+const { default: orthoJapan } = await import("../app.ts");
+const { mountFireworks } = await import("../fireworks.ts");
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));

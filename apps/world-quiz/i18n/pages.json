@@ -3,8 +3,8 @@
 	"pages": {
 		"quiz": [
 			"main.ts",
-			"src/app.js",
-			"src/mapview.js"
+			"src/app.ts",
+			"src/mapview.ts"
 		]
 	}
 }

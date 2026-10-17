@@ -1,6 +1,6 @@
 // 太陽・月の出入りの検定＝国立天文台の暦（東京・ホノルル）と実際の朔望の時刻に合わせる（許容＝太陽 1 分・月の位相 10 分・月の出入り 3 分）
 import assert from "node:assert/strict";
-import * as A from "../src/astro.js";
+import * as A from "../src/astro.ts";
 const TOKYO = [35.6762, 139.6503], HNL = [21.3069, -157.8583];
 const hm = (ms, tz) => new Date(ms).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
 const near = (ms, tz, want, tolMin, what) => {

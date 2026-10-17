@@ -3,10 +3,10 @@
 	"pages": {
 		"himekuri": [
 			"main.ts",
-			"src/app.js",
-			"src/week.js",
-			"src/format.js",
-			"src/elevation.js"
+			"src/app.ts",
+			"src/week.ts",
+			"src/format.ts",
+			"src/elevation.ts"
 		]
 	}
 }

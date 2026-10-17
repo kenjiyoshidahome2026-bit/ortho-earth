@@ -1,8 +1,8 @@
 // /me/works（公開台帳の管理）・/works/*（公開面）の検定（デプロイ不要・router を直に叩く）。
 //   node apps/account/tests/t-works.mjs
-// 仕様の正本は workers/works.js の冒頭コメント。
-import worker from "../workers/index.js";
-import { createSession } from "../workers/session.js";
+// 仕様の正本は workers/works.ts の冒頭コメント。
+import worker from "../workers/index.ts";
+import { createSession } from "../workers/session.ts";
 import { makeEnv, t, eq, done } from "./shims.mjs";
 
 const ORIGIN = "https://www.ortho-earth.com";

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 世界時計（/globe/clock）段 0＝データの照合：「国（admin0）× NE の時間帯の面」の組を全部数え、各組がどの名前に決まるか（clock-zones.js の resolve）と、
-// NE の面の UTC との差（2012 年）と今の標準時の差の食い違いを一覧にする＝手直しの表（clock-zones.js の OVERRIDE）の大きさをここで測る。
+// 世界時計（/globe/clock）段 0＝データの照合：「国（admin0）× NE の時間帯の面」の組を全部数え、各組がどの名前に決まるか（clock-zones.ts の resolve）と、
+// NE の面の UTC との差（2012 年）と今の標準時の差の食い違いを一覧にする＝手直しの表（clock-zones.ts の OVERRIDE）の大きさをここで測る。
 // 組は格子の点（既定 0.5°）で数える＝面積の目安（小さな島は落ちる）。ブラウザは要らない・データは NE の生 zip を展開した物を渡す：
 //   curl -sSO https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_time_zones.zip && unzip -o ne_10m_time_zones.zip -d tz
 //   curl -sSO https://naturalearth.s3.amazonaws.com/50m_cultural/ne_50m_admin_0_countries.zip && unzip -o ne_50m_admin_0_countries.zip -d a0
@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createResolver, standardMin, utcLabel } from "../clock-zones.js";
+import { createResolver, standardMin, utcLabel } from "../clock-zones.ts";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const [tzBase, a0Base, stepArg] = process.argv.slice(2);

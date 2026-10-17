@@ -5,6 +5,6 @@ import { tr } from "@ortho-earth/globe/i18n.js";
 startPage("himekuri", async () => {
 	const t = tr();
 	document.title = t("Daily calendar — himekuri");
-	const { mountApp } = await import("./src/app.js");
-	return mountApp(document.getElementById("app"));
+	const { mountApp } = await import("./src/app.ts");
+	return mountApp(document.getElementById("app")!);
 }, { page: c => import(`./i18n/lang/himekuri/${c}.json`), target: "#app" });

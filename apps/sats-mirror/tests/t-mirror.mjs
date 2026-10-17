@@ -3,7 +3,7 @@
 //   取得：保存 → 110 分以内は見送り → 断り文は見送り（古いミラー温存）→ 200 以外は停止札 → 札がある間は fetch しない → 札を消せば再開
 //   配信：空は 503 → /active.csv は gzip のまま・CORS 開放 → /status → 知らない道は 404
 //   node apps/sats-mirror/tests/t-mirror.mjs
-import { mirror, serve } from "../worker.js";
+import { mirror, serve } from "../worker.ts";
 
 const store = new Map();
 const kv = {

@@ -1,7 +1,7 @@
 // OAuth フローの検定（デプロイ不要・グローバル fetch を差し替えて router を直に叩く）。
 //   node apps/account/tests/t-auth.mjs
-// 仕様の正本は workers/oauth.js・workers/index.js の冒頭コメント。ここは「そのとおりに閉まっているか」を数える。
-import worker from "../workers/index.js";
+// 仕様の正本は workers/oauth.ts・workers/index.ts の冒頭コメント。ここは「そのとおりに閉まっているか」を数える。
+import worker from "../workers/index.ts";
 import { makeEnv, t, eq, done } from "./shims.mjs";
 
 const ORIGIN = "https://www.ortho-earth.com";
@@ -135,7 +135,7 @@ await t("同意キャンセル（?error=）はエラーページでなく ?login
 await t("★return=//evil.com と絶対URLは /japan/geoedit へフォールバック", async () => {
 	for (const bad of ["//evil.com", "https://evil.com/x"]) {
 		const { cb } = await loginFlow(makeEnv(), { ret: bad });
-		eq(cb.headers.get("Location"), "/japan/geoedit", `return=${bad}`);   // oauth.js の RETURN_FALLBACK（19f10b68 で新 URL へ）
+		eq(cb.headers.get("Location"), "/japan/geoedit", `return=${bad}`);   // oauth.ts の RETURN_FALLBACK（19f10b68 で新 URL へ）
 	}
 });
 

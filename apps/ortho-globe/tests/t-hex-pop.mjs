@@ -1,10 +1,10 @@
 // /globe/hex の純関数の検定（node・DOM なし）：
-//  ① 人口の置き形 H3P1（hex-pop.js）＝書いて読むと同じ・親ごとの束・res − parentRes の上限・壊れた物は投げる
+//  ① 人口の置き形 H3P1（hex-pop.ts）＝書いて読むと同じ・親ごとの束・res − parentRes の上限・壊れた物は投げる
 //  ② 親への足し上げ（sumToParent）＝合計が保たれる・粗い段のセルは細かい段の親
 //  ③ 段の選び方（resAt）＝ズームが上がると細かく・上限を守る
 //  ④ ファイル → 点（csvPoints・toPoints）＝緯度経度の列名・引用符・区切り・線と面は代表点
 import assert from "node:assert/strict";
-import { encodeHexPop, decodeHexPop, sumToParent, bytesOf } from "../hex-pop.js";
+import { encodeHexPop, decodeHexPop, sumToParent, bytesOf } from "../hex-pop.ts";
 import { h3 } from "@ortho-earth/h3/core";
 
 let n = 0;
@@ -51,7 +51,7 @@ await t("sumToParent＝合計が保たれる・親の段のセル", async () => 
 	assert.equal(m.size, 1); assert.equal([...m.values()][0], pop.reduce((a, b) => a + b, 0)); assert.equal(h3.getResolution([...m.keys()][0]), 3);
 });
 
-const { resAt, csvPoints, toPoints } = await import("../hex.js").catch(e => { console.error("hex.js を node で読めない（ブラウザ専用の import が上に来た？）", e.message); process.exit(1); });
+const { resAt, csvPoints, toPoints } = await import("../hex.ts").catch(e => { console.error("hex.ts を node で読めない（ブラウザ専用の import が上に来た？）", e.message); process.exit(1); });
 await t("resAt＝寄ると細かく・上限を守る", async () => {
 	const rs = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(z => resAt(z));
 	for (let i = 1; i < rs.length; i++) assert.ok(rs[i] >= rs[i - 1], rs.join(","));

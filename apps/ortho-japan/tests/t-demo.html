@@ -5,7 +5,7 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const SLIDE = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#ccc"/></svg>');
 try {

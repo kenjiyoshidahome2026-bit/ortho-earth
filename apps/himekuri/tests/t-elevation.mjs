@@ -1,6 +1,6 @@
 // 標高の取り方の順と、地理院 .txt タイルの読み（モック fetch＝器は外部網が閉じている）
 import assert from "node:assert/strict";
-import { lookupElevation, tileXY, pickGsiTxt } from "../src/elevation.js";
+import { lookupElevation, tileXY, pickGsiTxt } from "../src/elevation.ts";
 const mem = () => { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
 const res = (ok, body) => ({ ok, json: async () => body, text: async () => body });
 let n = 0;
