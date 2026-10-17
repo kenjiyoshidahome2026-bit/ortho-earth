@@ -14,23 +14,25 @@
 // AbortController で一括して外す・描画ループ/監視/タイマー/GL は destroy で必ず止める。同じ頁に同時に置くのは 1 つを目安
 // （WebGL のコンテキストには上限がある）。言語は頁で 1 つ（i18n.js の既定＝最初に来た lang）。
 import { createGeopbf, geopbf } from "geopbf";
+import type { BucketProvider } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { BODIES, byId, bodyPos, orientation, orbitPointsRel, moonOrbitPoints, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
 	SATELLITES, satById, satPos, satOrbitPoints } from "@ortho-earth/ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
-import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
+import type { Body, Satellite, Vec3, Mat3 } from "@ortho-earth/ephem";
+import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.ts";
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝地図（globe）と同じ部品
 
 // 星空・太陽系のデータ＝GitHub Pages（リポ ortho-data の globe/sky/・2026-10-13〜。旧＝bucket の GIS/pbf と GIS/space）＝置くのは git push だけ。
 // globe の sky/data.js と同じ URL を自前の数行で読む（コードを共有しない＝データで繋ぐ）。写しは HTTP キャッシュ任せ・回線が無ければ古い写しで出す
 const SKY_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/";
-const skyGet = url => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
-const skyPbf = async name => { const r = await skyGet(`${SKY_DATA}${name}.geopbf`); if (!r.ok) throw new Error(`sky/${name}: HTTP ${r.status}`);
+const skyGet = (url: string) => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
+const skyPbf = async (name: string) => { const r = await skyGet(`${SKY_DATA}${name}.geopbf`); if (!r.ok) throw new Error(`sky/${name}: HTTP ${r.status}`);
 	const b = await r.blob(); return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { name, gint: false }); };
-const skyJson = path => skyGet(SKY_DATA + path).then(r => r.ok ? r.json() : null).catch(() => null);
+const skyJson = (path: string) => skyGet(SKY_DATA + path).then(r => r.ok ? r.json() : null).catch(() => null);
 // bucket 基盤は頁で一度（ortho-japan と同じ・読み出しキー不要）＝部品を何度作り直しても 1 回
 let geopbfReady = false;
-const ensureGeopbf = () => { if (!geopbfReady) { createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket }); geopbfReady = true; } };
+const ensureGeopbf = () => { if (!geopbfReady) { createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket as BucketProvider }); geopbfReady = true; } };
 
 // 見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字。全部 .ortho-solar の中＝頁の他の物に触らない
 const CSS = `
@@ -138,10 +140,25 @@ const MARKUP = `
 	<div class="os-attr"><span data-t>Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-t>Pluto</span>: NASA/JHUAPL/SwRI<br>
 		<span data-t>Stars</span>: d3-celestial · <span data-t>Ephemeris</span>: <span data-t>JPL approximate elements</span> · © 2026 Kenji Yoshida</div>`;
 
+// 型：天体の棚（BODIES＝惑星等・SATELLITES＝衛星）を一つの並びで扱う＝片方にしか無い欄は省略可。描画が実行時に足す欄（clamped・hidden・環/雲/街明かりの GL 資源・_rel 等）も持つ
+type SolarBody = (Body & Partial<Omit<Satellite, keyof Body>> | Satellite & Partial<Omit<Body, keyof Satellite>>) & {
+	clamped?: boolean; hidden?: boolean; ringTex?: WebGLTexture; ringMesh?: { vao: WebGLVertexArrayObject; n: number };
+	cloudTex?: WebGLTexture; nightTex?: WebGLTexture; _rel?: Vec3; _drawR?: number; _sun?: number[]; _M?: Mat3;
+};
+type Screen = { x: number; y: number; dist: number };
+type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
+type LineVao = { vao: WebGLVertexArrayObject; b: WebGLBuffer; n: number; t?: number };
+type SkyLabel = { v: number[]; text: string; kind?: string };
+// 星空の geopbf の地物（sky/*.geopbf）＝properties・座標の形は台帳ごと（恒星＝mag・bv／星座＝name／メシエ＝name・type／月の地名＝id・name・code・diameter）
+type SkyFeature = { properties: Record<string, any> | null; geometry: { type: string; coordinates: any } };
+type MoonName = { v: number[]; text: string; code: string; d: number; rank: number };
+type LabelEl = HTMLButtonElement & { _w?: number; _on?: boolean };
+type SolarListener = (v?: string) => void;
+export interface SolarOptions { target?: string | Element; lang?: string; view?: string; hash?: boolean; keyboard?: boolean; texBase?: string }
 // target＝置き場（要素か CSS セレクタ・大きさは持ち主が決める）。lang＝UI 言語（省略＝?lang= かブラウザ）。
 // view＝初期視点（"f=moon&d=…" 書式・省略時 hash:true なら location.hash）。hash＝URL のハッシュと往復する（殻＝true・埋め込み＝false）。
 // keyboard＝矢印/+/−/Space/C のキー操作を聞く（頁に他の主役がいる埋め込みでは false）。texBase＝テクスチャの置き場（既定＝この頁の tex/）
-export async function createSolar({ target, lang, view, hash = false, keyboard = true, texBase = "tex/" } = {}) {
+export async function createSolar({ target, lang, view, hash = false, keyboard = true, texBase = "tex/" }: SolarOptions = {}) {
 	const host = typeof target === "string" ? document.querySelector(target) : target;
 	if (!host) throw new Error("createSolar: target not found");
 	await setLang(lang);   // UI を組む前に一度だけ待つ＝訳が揃ってから文字が出る
@@ -152,20 +169,20 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	rootEl.innerHTML = MARKUP;
 	applyDom(rootEl);   // 雛形の英語（＝キー）をその場で訳へ
 	host.append(rootEl);
-	const $ = n => rootEl.querySelector(".os-" + n);
+	const $ = (n: string) => rootEl.querySelector(".os-" + n) as HTMLElement;
 	// 後片付けの台帳：大域のイベント（signal）・監視（observers）・描画ループ（raf）
-	const ac = new AbortController(), signal = ac.signal, observers = [];
-	const observe = (node, fn) => { const o = new ResizeObserver(fn); o.observe(node); observers.push(o); };
+	const ac = new AbortController(), signal = ac.signal, observers: ResizeObserver[] = [];
+	const observe = (node: Element, fn: ResizeObserverCallback) => { const o = new ResizeObserver(fn); o.observe(node); observers.push(o); };
 	let raf = 0, destroyed = false;
-	const handlers = {};
-	const emit = (type, v) => { for (const fn of handlers[type] || []) try { fn(v); } catch (e) { console.error(e); } };
+	const handlers: Record<string, Set<SolarListener>> = {};
+	const emit = (type: string, v?: string) => { for (const fn of handlers[type] || []) try { fn(v); } catch (e) { console.error(e); } };
 
-	const canvas = $("c");
-	const gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
+	const canvas = $("c") as HTMLCanvasElement;
+	const gl = canvas.getContext("webgl2", { antialias: true, alpha: false }) as WebGL2RenderingContext;
 	if (!gl) { $("nogl").style.display = "grid"; throw new Error("WebGL2 unavailable"); }
 
 	// 数は言語の流儀で（桁区切り・アラビア数字）。d 指定＝小数桁を固定（指定なし＝元の桁のまま）
-	const nfmt = (n, d) => n.toLocaleString(LANG, d === undefined ? undefined : { minimumFractionDigits: d, maximumFractionDigits: d });
+	const nfmt = (n: number, d?: number) => n.toLocaleString(LANG, d === undefined ? undefined : { minimumFractionDigits: d, maximumFractionDigits: d });
 	const MYRIAD = new Set(["ja", "zh", "ko"]);   // 億で読む言語＝大きな距離は 1e8 刻み（他は百万 km）＝読み癖に合わせる
 	// 天体名も UI 文言＝ephem の英語名がそのままキー（"Earth" は出口ボタンと同じ 1 行）。
 	// この台帳は検定（verify:i18n）に「使っている」と見せるための並び＝ephem と食い違えば起動時に気づく
@@ -174,12 +191,12 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		"Miranda", "Ariel", "Umbriel", "Titania", "Oberon", "Triton", "Charon"];
 	// 天体の棚：BODIES＝太陽・惑星・月・冥王星（下段チップの顔ぶれ）／SATELLITES＝惑星と冥王星の主な衛星（親に寄ると現れる＝チップには並べない）。
 	// ALL＝描画・ラベル・タップ・影の総なめ用。any＝id 引き。posOf＝日心位置の一本口。parentOf＝「親の点に埋まる間は描かない」の親
-	const ALL = [...BODIES, ...SATELLITES];
-	const any = { ...byId, ...satById };
-	const posOf = (id, date) => satById[id] ? satPos(id, date) : bodyPos(id, date);
-	const parentOf = b => b.parent || (b.id === "moon" ? "earth" : null);
+	const ALL: SolarBody[] = [...BODIES, ...SATELLITES];
+	const any: Record<string, SolarBody> = { ...byId, ...satById };
+	const posOf = (id: string, date: Date) => satById[id] ? satPos(id, date) : bodyPos(id, date);
+	const parentOf = (b: SolarBody) => b.parent || (b.id === "moon" ? "earth" : null);
 	for (const b of ALL) if (!BODY_KEYS.includes(b.name)) console.warn("[solar] body name missing from the i18n ledger:", b.name);
-	const bName = b => t(b.name);
+	const bName = (b: SolarBody) => t(b.name);
 
 	// ---- 時刻機械：共通の時計（@ortho-earth/core/clock・#42）＝時刻(ms)と符号つき速度段（−8〜+8：0=停止・正=順行・負=逆行）。
 	// 範囲＝1800〜2049（JPL 要素の有効期間）で端に着くと止まる。◀◀は停止を通り越してそのまま逆再生へ。実時間で「今」を見ている間は時計が Date.now() に張り付く
@@ -189,16 +206,16 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// ---- カメラ：焦点天体を球面座標で周回（yaw/pitch/dist）。焦点は天体と一緒に動く＝時を回すと追走 ----
 	const cam = { focus: "sun", yaw: -60 * D2R, pitch: 22 * D2R, dist: 26, fovy: 45 * D2R };
 	const OVERVIEW_DIST = 26;   // Sunボタン＝太陽系全景（土星軌道まで入る）
-	let camPos = [0, 0, 26], viewR = null, camD = 26;   // 毎フレーム更新（f64）。camD＝カメラ〜焦点の今の距離（飛行中は補間値）
-	let flight = null;   // {t0,dur, fromFocus,toFocus, fromD,toD} 焦点間フライト（800ms・log補間）
+	let camPos: Vec3 = [0, 0, 26], viewR: Mat3 = null!, camD = 26;   // 毎フレーム更新（f64）。camD＝カメラ〜焦点の今の距離（飛行中は補間値）
+	let flight: { t0: number; dur: number; fromFocus: string; toFocus: string; fromD: number; toD: number } | null = null;   // {t0,dur, fromFocus,toFocus, fromD,toD} 焦点間フライト（800ms・log補間）
 	// 次の rAF で描き直す旗。宣言はここ（上の方）＝起動時の readHash・星座・テクスチャ到着など、描画の節より上で
 	// 走る口がみな触る（下で宣言していた頃は readHash から触って TDZ で落ちた 2026-09-19）
 	let needsDraw = true;
 
-	const v3 = { sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len: a => Math.hypot(a[0], a[1], a[2]) };
-	const P = {};   // id → 日心位置（AU・f64）。frame() の頭で一度だけ引く＝カメラ・描画・影・情報パネルが同じ値を見る
-	function focusPos(id, date) { return P[id] || posOf(id, date); }
-	function updateCamera(date) {
+	const v3 = { sub: (a: number[], b: number[]): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len: (a: number[]) => Math.hypot(a[0], a[1], a[2]) };
+	const P: Record<string, Vec3> = {};   // id → 日心位置（AU・f64）。frame() の頭で一度だけ引く＝カメラ・描画・影・情報パネルが同じ値を見る
+	function focusPos(id: string, date: Date) { return P[id] || posOf(id, date); }
+	function updateCamera(date: Date) {
 		let F = focusPos(cam.focus, date), d = cam.dist;
 		if (flight) {   // フライト中＝焦点位置と距離を同時補間（位置は生きた天体位置で毎フレーム評価）
 			const k = Math.min(1, (performance.now() - flight.t0) / flight.dur);
@@ -212,11 +229,11 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		camPos = [F[0] + off[0], F[1] + off[1], F[2] + off[2]]; camD = d;
 		// 視線基底（前=−z）。up＝黄道北。行優先3行＝right/up/back
 		const f = [-off[0] / d, -off[1] / d, -off[2] / d];
-		let r = [f[1], -f[0], 0]; const rl = Math.hypot(r[0], r[1]) || 1; r = [r[0] / rl, r[1] / rl, 0];
-		const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+		let r: Vec3 = [f[1], -f[0], 0]; const rl = Math.hypot(r[0], r[1]) || 1; r = [r[0] / rl, r[1] / rl, 0];
+		const u: Vec3 = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
 		viewR = [r, u, [-f[0], -f[1], -f[2]]];
 	}
-	function flyTo(id) {
+	function flyTo(id: string) {
 		const b = any[id];
 		requestTex(b);   // 着くまでの 0.9 秒で絵を取りに行く（遅延テクスチャ）
 		// 近景＝半径の9倍＝天体の直径が画面高の約27%。旧5.5倍は45%＝寄りすぎで、土星は環（半径2.33R）の
@@ -245,16 +262,16 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	const LOG_FAR = 200;   // 対数深度の far（AU）
 	const logC = 2 / Math.log2(LOG_FAR + 1);
 	const LOGZ = `P.z = (log2(max(P.w + 1.0, 1e-9)) * u_logC - 1.0) * P.w;`;
-	function prog(vs, fs) {
-		const mk = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+	function prog(vs: string, fs: string): Prog {
+		const mk = (t: number, s: string) => { const o = gl.createShader(t)!; gl.shaderSource(o, s); gl.compileShader(o);
 			if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o) + "\n" + s); return o; };
 		const p = gl.createProgram();
 		gl.attachShader(p, mk(gl.VERTEX_SHADER, "#version 300 es\nprecision highp float;\n" + vs));
 		gl.attachShader(p, mk(gl.FRAGMENT_SHADER, "#version 300 es\nprecision highp float;\n" + fs));
 		gl.linkProgram(p);
-		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-		const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-		for (let i = 0; i < n; i++) { const inf = gl.getActiveUniform(p, i); u[inf.name.replace(/\[0\]$/, "")] = gl.getUniformLocation(p, inf.name); }
+		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
+		const u: Prog["u"] = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+		for (let i = 0; i < n; i++) { const inf = gl.getActiveUniform(p, i)!; u[inf.name.replace(/\[0\]$/, "")] = gl.getUniformLocation(p, inf.name); }
 		return { p, u };
 	}
 	// 球（テクスチャ+ランバート／emissive）。u_model＝向き×半径、u_trans＝カメラ相対位置
@@ -404,10 +421,10 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		}`);
 
 	// ---- メッシュ ----
-	function buf(target, data) { const b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, gl.STATIC_DRAW); return b; }
+	function buf(target: number, data: AllowSharedBufferSource) { const b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, gl.STATIC_DRAW); return b; }
 	// UV球（96×48）：v=0が北極（画像の上端）・u=0が経度180°W＝正距円筒テクスチャの標準
 	const sphere = (() => {
-		const NX = 96, NY = 48, pos = [], uv = [], idx = [];
+		const NX = 96, NY = 48, pos: number[] = [], uv: number[] = [], idx: number[] = [];
 		for (let iy = 0; iy <= NY; iy++) {
 			const lat = Math.PI / 2 - iy / NY * Math.PI, cl = Math.cos(lat);
 			for (let ix = 0; ix <= NX; ix++) {
@@ -427,8 +444,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		return { vao, n: idx.length };
 	})();
 	// 環アニュラス（128分割・2三角形帯）。座標は惑星半径単位＝u_model の半径スケールで実寸へ
-	function ringMesh(inner, outer) {
-		const N = 128, pos = [], us = [];
+	function ringMesh(inner: number, outer: number) {
+		const N = 128, pos: number[] = [], us: number[] = [];
 		for (let i = 0; i <= N; i++) {
 			const t = i / N * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
 			pos.push(c * inner, s * inner, c * outer, s * outer); us.push(0, 1);
@@ -446,14 +463,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	})();
 	// 軌道線 VBO（動的）：惑星ごとに保持。頂点＝惑星自身からの相対（RTE・惑星の傍ほど密）＝時刻が動いたら焼き直す
 	// （512 点×10 惑星のケプラー解き＝0.1ms 級。止めて見回す間は焼かない）
-	const orbitVbo = {};
-	function lineVao(data) {
+	const orbitVbo: Record<string, LineVao> = {};
+	function lineVao(data: Float32Array): LineVao {
 		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
 		const b = buf(gl.ARRAY_BUFFER, data);
 		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 		return { vao, b, n: data.length / 3 };
 	}
-	function ensureOrbit(id, date) {
+	function ensureOrbit(id: string, date: Date) {
 		let o = orbitVbo[id];
 		if (o && o.t === date.getTime()) return o;
 		const pts = orbitPointsRel(id, date);
@@ -464,8 +481,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	}
 	// 月の軌道線：形は 6 時間キャッシュ。頂点は「焼いた時刻の地球」からの相対＝描く時は今の地球に付いて動く。
 	// （旧：絶対座標のまま 6 時間持っていた＝地球は 6 時間で 65 万 km 進む＝早回しで軌道の輪が地球から外れ、6 時間ごとに戻った）
-	let moonOrbit = null, moonOrbitT = -1;
-	function ensureMoonOrbit(date) {
+	let moonOrbit: LineVao | null = null, moonOrbitT = -1;
+	function ensureMoonOrbit(date: Date) {
 		if (moonOrbit && Math.abs(date.getTime() - moonOrbitT) < 216e5) return moonOrbit;
 		const pts = moonOrbitPoints(date), e = bodyPos("earth", date);
 		for (let i = 0; i < pts.length; i += 3) { pts[i] -= e[0]; pts[i + 1] -= e[1]; pts[i + 2] -= e[2]; }
@@ -475,8 +492,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		return moonOrbit;
 	}
 	// 衛星の軌道線（その時刻の楕円）：親からの相対。起点＝衛星の今の位置（衛星は常に折れ線の頂点）＝描くたびに焼く（192 点×衛星数＝親の傍でだけ）
-	const satOrbit = {};
-	function ensureSatOrbit(b, date) {
+	const satOrbit: Record<string, LineVao> = {};
+	function ensureSatOrbit(b: SolarBody, date: Date) {
 		const pts = satOrbitPoints(b.id, date, 192, true);   // 親心のまま受け取る（日心で f32 を通すと遠い親ほど線が崩れる）
 		let o = satOrbit[b.id];
 		if (!o) o = satOrbit[b.id] = lineVao(pts);
@@ -488,7 +505,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 全景では惑星はどれも 2.6px の点＝絵は 1 画素も見えていない。旧版は起動時に 14 枚 5.8MB を全部取っていた
 	// （実測 2026-09-18）＝さりげなく読む（autoPlateau と同じ型）。環の α だけは起動時（12KB・クランプ中も環は描く）。
 	// 衛星は絵を持たない＝天体色の球のまま（tex なし）
-	function makeTex(color) {
+	function makeTex(color: number[]) {
 		const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
 			new Uint8Array([color[0] * 255, color[1] * 255, color[2] * 255, 255]));
@@ -497,8 +514,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 絵の形式（2026-09-30・縮小計画 項目7）：ephem の台帳の名前は .jpg のまま（公開データの名前は変えない）で、置き場の実体は WebP（q85・
 	// 元の JPEG との差は PSNR 36〜48dB）＝6.1MB → 2.9MB。雲だけは WebP の方が大きい（432→473KB）ので JPEG のまま。
 	const JPEG_KEPT = new Set(["2k_earth_clouds.jpg"]);
-	const texUrl = src => texBase + (JPEG_KEPT.has(src) ? src : src.replace(/\.jpe?g$/, ".webp"));
-	function loadInto(tex, src, clampS) {
+	const texUrl = (src: string) => texBase + (JPEG_KEPT.has(src) ? src : src.replace(/\.jpe?g$/, ".webp"));
+	function loadInto(tex: WebGLTexture, src: string, clampS?: boolean) {
 		const img = new Image();
 		img.onload = () => {
 			if (gl.isContextLost()) return;
@@ -511,14 +528,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		};
 		img.src = texUrl(src);
 	}
-	const textures = {}, texAsked = new Set();
+	const textures: Record<string, WebGLTexture> = {}, texAsked = new Set<string>();
 	const TEX_PX = 3;   // 見かけの半径がこの px を超えたら絵を取りに行く（クランプの点 2.6px より上＝点の間は取らない）
-	function requestTex(b) {
+	function requestTex(b: SolarBody) {
 		if (!b.tex || texAsked.has(b.id)) return;
 		texAsked.add(b.id);
 		loadInto(textures[b.id], b.tex);
 		// 地球の追加2枚（雲殻・夜の街明かり）。届くまで殻は描かず・街明かりは消灯＝読み込み途中でも嘘にならない
-		for (const [key, slot] of [["clouds", "cloudTex"], ["night", "nightTex"]]) {
+		for (const [key, slot] of [["clouds", "cloudTex"], ["night", "nightTex"]] as const) {
 			if (!b[key]) continue;
 			const tex = gl.createTexture(), img = new Image();
 			img.onload = () => {
@@ -529,7 +546,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 				b[slot] = tex; needsDraw = true;
 			};
-			img.src = texUrl(b[key]);
+			img.src = texUrl(b[key]!);
 		}
 	}
 	for (const b of ALL) {
@@ -543,17 +560,17 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	const blackTex = makeTex([0, 0, 0]);   // ユニット1（街明かり）・ユニット2（環の影）の既定＝持たない天体でも未バインドを踏まない
 
 	// ---- 恒星：sky/stars.6（RA/Dec・等級・B-V）→黄道系単位ベクトル＋色＋点径（ortho-japan と同式） ----
-	let starVao = null, starN = 0;
-	const bvColor = v => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v < 0.3 ? [0.97, 0.98, 1] : v < 0.6 ? [1, 0.97, 0.94] :
+	let starVao: WebGLVertexArrayObject | null = null, starN = 0;
+	const bvColor = (v: number) => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v < 0.3 ? [0.97, 0.98, 1] : v < 0.6 ? [1, 0.97, 0.94] :
 		v < 0.8 ? [1, 0.95, 0.78] : v < 1.1 ? [1, 0.88, 0.71] : v < 1.4 ? [1, 0.80, 0.60] : [1, 0.67, 0.57];
 	(async () => {
 		try {
 			const pbf = await skyPbf("stars.6");
-			const fs = pbf?.geojson?.features; if (!fs || destroyed) return;
+			const fs = pbf?.geojson?.features as SkyFeature[] | undefined; if (!fs || destroyed) return;
 			const dpr = Math.min(2, devicePixelRatio || 1);
 			const data = new Float32Array(fs.length * 8);
 			for (let i = 0; i < fs.length; i++) {
-				const { mag, bv } = fs[i].properties, [ra, dec] = fs[i].geometry.coordinates;
+				const { mag, bv } = fs[i].properties!, [ra, dec] = fs[i].geometry.coordinates;
 				const p = eqToEcl(ra, dec), c = bvColor(bv);
 				data.set([p[0], p[1], p[2], c[0], c[1], c[2],
 					Math.max(1.5, (9 - mag) * 0.4 * dpr), Math.max(0, 1 - mag / 8)], i * 8);
@@ -574,22 +591,22 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 線＝薄い青（japan の太陽系圏と同じ）・星座名とメシエ天体＝2D の重ね絵（#sky2d）に同じ天球の向きを投影（japan の labels2d と同じ色と記号）。
 	// 名前＝sky/names/<lang>.json（正本は packages/world/sky・packages/world の npm run sky が焼く）を fetch＝コードでなくデータで繋ぐ（globe も同じ JSON を読む）。
 	// 状態は URL の c=1（writeHash）・ボタンと c キーで切替
-	let constOn = false, constVao = null, constN = 0, constLoad = null, skyLab = null;
+	let constOn = false, constVao: WebGLVertexArrayObject | null = null, constN = 0, constLoad: Promise<void> | null = null, skyLab: { names: SkyLabel[]; messier: SkyLabel[] } | null = null;
 	// その言語の 1 本＋英語（欠けは英語で補う＝星座は IAU 名・メシエは英語の通称。英語も取れなければ略号/番号のまま＝壊れない）。
 	// 置き場＝ortho-data の sky/names/<lang>.json（素の JSON）
-	async function loadSkyNames(lang) {
-		const get = l => skyJson(`names/${l}.json`);
+	async function loadSkyNames(lang: string) {
+		const get = (l: string) => skyJson(`names/${l}.json`);
 		const [p, en] = await Promise.all([lang === "en" ? null : get(lang), get("en")]);
 		const E = en || { c: {}, m: {} }, L = p || E;
 		if (!en) console.warn("[space] names not reachable (ortho-data sky/names) — showing IAU abbreviations");
 		return {
 			lang: p ? lang : "en",
-			constellation: a => L.c[a] || E.c[a] || String(a ?? ""),
-			messierLabel: id => { const n = L.m[id] || E.m[id]; return n ? `${id} ${n}` : String(id); },
+			constellation: (a: string) => L.c[a] || E.c[a] || String(a ?? ""),
+			messierLabel: (id: string) => { const n = L.m[id] || E.m[id]; return n ? `${id} ${n}` : String(id); },
 		};
 	}
 	// メシエの種別（d3-celestial）→記号。銀河は s/e/i（渦巻・楕円・不規則）で来る
-	const messierKind = t => t === "gc" ? "globular" : t === "oc" ? "open" : t === "s" || t === "e" || t === "i" ? "galaxy" : "nebula";
+	const messierKind = (t: unknown) => t === "gc" ? "globular" : t === "oc" ? "open" : t === "s" || t === "e" || t === "i" ? "galaxy" : "nebula";
 	const constBtn = $("const-btn");
 	function ensureConst() {
 		constLoad ||= Promise.all([
@@ -598,8 +615,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			loadSkyNames(LANG),
 		]).then(([pbf, ms, n]) => {
 			if (destroyed) return;
-			const seg = [], names = [], messier = [];
-			for (const f of pbf?.geojson?.features || []) {
+			const seg: number[] = [], names: SkyLabel[] = [], messier: SkyLabel[] = [];
+			for (const f of (pbf?.geojson?.features || []) as SkyFeature[]) {
 				const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
 				let vx = 0, vy = 0, vz = 0;
 				for (const line of lines) for (let i = 0; i < line.length; i++) {
@@ -610,7 +627,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 				const l = Math.hypot(vx, vy, vz) || 1;
 				names.push({ v: [vx / l, vy / l, vz / l], text: n.constellation(f.properties?.name) });
 			}
-			for (const f of ms?.geojson?.features || []) {
+			for (const f of (ms?.geojson?.features || []) as SkyFeature[]) {
 				const c = f.geometry.coordinates;
 				messier.push({ v: eqToEcl(c[0], c[1]), text: n.messierLabel(f.properties?.name || ""), kind: messierKind(f.properties?.type) });
 			}
@@ -622,11 +639,11 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	}
 	// 星座名とメシエ天体の 2D 注記：天球の向き v（黄道 J2000 単位ベクトル）を回転だけで投影（平行移動なし＝無限遠）。
 	// 毎描画で消して描き直す（消灯時も消すだけ走る）＝88 文字列＋110 記号・1ms 未満
-	const sky2d = $("sky2d"), sctx = sky2d.getContext("2d");
+	const sky2d = $("sky2d") as HTMLCanvasElement, sctx = sky2d.getContext("2d")!;
 	// ---- 月の地名：sky/moon_nomenclature.geopbf（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/world/sky/moon.json）＋
 	// 多言語 sky/moon_nomenclature.i18n/<lang>.json（{ GPN id: 名前 }・欠けは英語＝IAU 名）。月が画面で大きくなった時に初めて読む（さりげなく読む）。
 	// 座標は月面の経緯度（IAU・東経正）＝体固定の単位ベクトル（x＝本初子午線・z＝北極＝球メッシュと同じ約束）→ orientation("moon") で世界へ
-	let moonNames = null, moonNamesLoad = null;
+	let moonNames: MoonName[] | null = null, moonNamesLoad: Promise<void> | null = null;
 	const MOON_SEAS = new Set(["ME", "OC", "LC", "SI", "PA"]);   // 海・大洋・湖・入江・沼＝月見の地図の主役（常に優先）
 	const MOON_SITES = new Set(["ST", "PL"]);                     // 着陸地点（Statio＝アポロ 11 号の静かの基地・嫦娥・チャンドラヤーン）・着陸平原（ルナ 9 号）
 	const MOON_LINES = new Set(["RI", "DO", "VA", "CA", "RU"]);    // 谷・尾根・谷・クレーター列・断崖＝細長い（diameter は長さ）＝閾値を高めに
@@ -637,8 +654,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			LANG === "en" ? null : skyJson(`moon_nomenclature.i18n/${LANG}.json`),
 		]).then(([pbf, pack]) => {
 			const L = pack?.names || {};
-			const list = (pbf?.geojson?.features || []).map(f => {
-				const p = f.properties, [lon, lat] = f.geometry.coordinates, cl = Math.cos(lat * D2R);
+			const list = ((pbf?.geojson?.features || []) as SkyFeature[]).map(f => {
+				const p = f.properties!, [lon, lat] = f.geometry.coordinates, cl = Math.cos(lat * D2R);
 				const rank = MOON_SEAS.has(p.code) ? 0 : MOON_SITES.has(p.code) ? 1 : 2;
 				return { v: [cl * Math.cos(lon * D2R), cl * Math.sin(lon * D2R), Math.sin(lat * D2R)], text: L[p.id] || p.name, code: p.code, d: p.diameter, rank };
 			});
@@ -648,14 +665,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		}).catch(e => { console.warn("[moon] names load failed", e); moonNames = []; });   // 失敗＝この回は地名なし（毎フレームの取り直しで回線を叩かない）
 	}
 	const MOON_R_KM = 1737.4;
-	function drawMoonNames(dpr, screens, w, h) {
-		const b = byId.moon, s = screens.moon;
+	function drawMoonNames(dpr: number, screens: Record<string, Screen | null>, w: number, h: number) {
+		const b: SolarBody = byId.moon, s = screens.moon;
 		if (!s || b.hidden || b.clamped) return;
 		const rPx = b.radiusAU / s.dist * pxPerRad / dpr;   // 月の見かけの半径（CSS px）
 		if (rPx < 60) return;
 		if (!moonNames) { ensureMoonNames(); return; }
 		const M = orientation("moon", simDate()), c = P.moon, R = b.radiusAU;
-		const placed = [];
+		const placed: number[][] = [];
 		sctx.textAlign = "center"; sctx.textBaseline = "middle"; sctx.direction = isRTL() ? "rtl" : "ltr";
 		for (const f of moonNames) {
 			// 画面上の大きさで間引く：海など＝画面で 16px 以上・着陸地点＝月が 140px から・細長い地形＝70px 以上・他＝36px 以上
@@ -679,20 +696,20 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		}
 	}
 	// screens＝天体の画面位置（frame の値）。天体の円盤の内側に落ちる注記は描かない＝線と星が天体の後ろに隠れるのと揃える
-	function drawSky2d(dpr, screens) {
+	function drawSky2d(dpr: number, screens: Record<string, Screen | null>) {
 		const w = canvas.clientWidth, h = canvas.clientHeight;
 		if (sky2d.width !== Math.round(w * dpr) || sky2d.height !== Math.round(h * dpr)) { sky2d.width = Math.round(w * dpr); sky2d.height = Math.round(h * dpr); }
 		sctx.setTransform(dpr, 0, 0, dpr, 0, 0); sctx.clearRect(0, 0, w, h);
 		drawMoonNames(dpr, screens, w, h);   // 月の地名（月に寄った時だけ・星座の点灯とは独立）
 		if (!constOn || !skyLab) return;
 		const k = pxPerRad / dpr, [R, U, B] = viewR;
-		const discs = [];
+		const discs: number[][] = [];
 		for (const b of ALL) {
 			const sb = screens[b.id]; if (!sb || b.hidden) continue;
 			const r = b.radiusAU / sb.dist * k * (b.ring && !b.clamped ? b.ring.outer : 1);   // 土星は環の外縁まで
 			if (r > 3) discs.push([sb.x, sb.y, r + 4]);
 		}
-		const put = v => {
+		const put = (v: number[]) => {
 			const z = B[0] * v[0] + B[1] * v[1] + B[2] * v[2];
 			if (z > -0.05) return null;   // 背後と視野の縁すれすれは描かない
 			const x = w / 2 + (R[0] * v[0] + R[1] * v[1] + R[2] * v[2]) / -z * k, y = h / 2 - (U[0] * v[0] + U[1] * v[1] + U[2] * v[2]) / -z * k;
@@ -716,7 +733,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			sctx.fillText(M.text, x, y + sz + 10);
 		}
 	}
-	function setConst(on) {
+	function setConst(on: boolean) {
 		constOn = on;
 		constBtn.classList.toggle("on", on); constBtn.setAttribute("aria-pressed", String(on));
 		if (on) ensureConst();
@@ -725,7 +742,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	constBtn.onclick = () => { setConst(!constOn); writeHash(); };
 
 	// ---- 行列 ----
-	let proj = null, pxPerRad = 1;
+	let proj: Float32Array | null = null, pxPerRad = 1;
 	function resize() {
 		const dpr = Math.min(2, devicePixelRatio || 1);
 		const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
@@ -742,9 +759,9 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		VIEW.set([viewR[0][0], viewR[1][0], viewR[2][0], 0, viewR[0][1], viewR[1][1], viewR[2][1], 0, viewR[0][2], viewR[1][2], viewR[2][2], 0, 0, 0, 0, 1]);
 		return VIEW;
 	};
-	const model3 = (M, k) => { M3.set([M[0][0] * k, M[1][0] * k, M[2][0] * k, M[0][1] * k, M[1][1] * k, M[2][1] * k, M[0][2] * k, M[1][2] * k, M[2][2] * k]); return M3; };
+	const model3 = (M: Mat3, k: number) => { M3.set([M[0][0] * k, M[1][0] * k, M[2][0] * k, M[0][1] * k, M[1][1] * k, M[2][1] * k, M[0][2] * k, M[1][2] * k, M[2][2] * k]); return M3; };
 	// 世界→スクリーン（px）。視野外/背後は null
-	function project(pw) {
+	function project(pw: number[]): Screen | null {
 		const r = v3.sub(pw, camPos);
 		const x = viewR[0][0] * r[0] + viewR[0][1] * r[1] + viewR[0][2] * r[2];
 		const y = viewR[1][0] * r[0] + viewR[1][1] * r[1] + viewR[1][2] * r[2];
@@ -764,19 +781,19 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		el.onclick = () => flyTo(b.id);
 		chipsEl.appendChild(el);
 	}
-	const labels = {};
+	const labels: Record<string, LabelEl> = {};
 	const labelsEl = $("labels");
 	for (const b of ALL) {
-		const el = document.createElement("button");   // button＝Tab で辿れて Enter で訪ねられる（旧 div は指とマウス専用だった）
+		const el: LabelEl = document.createElement("button");   // button＝Tab で辿れて Enter で訪ねられる（旧 div は指とマウス専用だった）
 		el.className = "bl"; el.textContent = bName(b); el.title = t("Visit $1", bName(b));
 		el.style.color = `rgb(${b.color.map(c => Math.round(160 + c * 95)).join(",")})`;
 		el.onclick = () => flyTo(b.id);
 		labelsEl.appendChild(el); labels[b.id] = el;
 		el._w = el.offsetWidth;   // 団子よけの幅＝実測（旧 64px 決め打ち＝"ดาวพฤหัสบดี" や "Sao Thiên Vương" で重なりを見落とした）
 	}
-	const dtEl = $("dt"), speedEl = $("speed");
-	const fmtLocal = t => {   // datetime-local 用（ローカル時刻・分まで）
-		const d = new Date(t), p = n => String(n).padStart(2, "0");
+	const dtEl = $("dt") as HTMLInputElement, speedEl = $("speed");
+	const fmtLocal = (t: number) => {   // datetime-local 用（ローカル時刻・分まで）
+		const d = new Date(t), p = (n: number) => String(n).padStart(2, "0");
 		return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 	};
 	let dtEditing = false;
@@ -801,7 +818,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	observe(bottomEl, syncBottomH);
 	syncBottomH();
 	let infoShown = "";
-	function updateInfo(date) {
+	function updateInfo(date: Date) {
 		const b = any[cam.focus];
 		let html;
 		if (b.id === "sun") {
@@ -822,7 +839,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 				b.note ? t(b.note) : "",
 				b.parent ? t("Moon of $1", bName(any[b.parent])) : "",
 				t("Radius $1 km", nfmt(b.radiusKm)),
-				b.parent ? t("From $1: $2 km", bName(any[b.parent]), nfmt(Math.round(b.aKm))) : "",
+				b.parent ? t("From $1: $2 km", bName(any[b.parent]), nfmt(Math.round(b.aKm!))) : "",
 				t("From Sun $1 AU ($2)", nfmt(rSun, 3), far),
 				b.id !== "earth" ? t("From Earth $1 AU · light $2", nfmt(rE, 3), light) : "",
 				b.rot.Wd < 0 ? t("Rotation $1 (retrograde)", rot) : t("Rotation $1", rot),
@@ -836,16 +853,16 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 1 光年（63,241AU）はカメラの上限 120AU の遥か先＝光年の目盛りは出さない（2026-09-19 本人裁定）
 	const scaleTxt = $("scale-txt"), scaleBar = $("scale-bar");
 	let scaleShown = "";
-	const nice125 = x => { const r = Math.pow(10, Math.floor(Math.log10(x))), m = x / r; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * r; };
-	const sig2 = v => v.toLocaleString(LANG, { maximumSignificantDigits: 2 });   // 有効 2 桁（旧＝小数 3 桁で丸めて 100km が「光で 0 秒」だった）
-	function lightTime(au) {
+	const nice125 = (x: number) => { const r = Math.pow(10, Math.floor(Math.log10(x))), m = x / r; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * r; };
+	const sig2 = (v: number) => v.toLocaleString(LANG, { maximumSignificantDigits: 2 });   // 有効 2 桁（旧＝小数 3 桁で丸めて 100km が「光で 0 秒」だった）
+	function lightTime(au: number) {
 		const s = au * LIGHT_MIN_PER_AU * 60;
 		return s < 90 ? t("$1 s", sig2(s)) : s < 5400 ? t("$1 min", sig2(s / 60)) : s < 172800 ? t("$1 h", sig2(s / 3600)) : t("$1 days", sig2(s / 86400));
 	}
 	function updateScale() {
 		const dpr = Math.min(2, devicePixelRatio || 1), auPx = camD * dpr / pxPerRad;   // 焦点の奥行きで CSS 1px が何 AU か
 		const base = auPx * (canvas.clientWidth < 720 ? 110 : 160);                      // 物差しの最長（px）。1-2-5 で丸めて 40%〜100%
-		let au = nice125(base), dist;
+		let au = nice125(base), dist: string;
 		if (au < 0.05) { const km = nice125(base * AU_KM); au = km / AU_KM; dist = t("$1 km", nfmt(km)); }
 		else dist = t("$1 AU", nfmt(au));
 		const txt = t("$1 · light $2", dist, lightTime(au)), w = (au / auPx).toFixed(1);
@@ -855,7 +872,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	}
 	// 時刻欄と情報パネル＝描画とは別の拍（最大 4 回/秒・中身が変わった時だけ DOM に触る）
 	let lastUi = 0, uiDirty = true, dtShown = "";
-	function uiTick(now, date) {
+	function uiTick(now: number, date: Date) {
 		if (!uiDirty && now - lastUi < 250) return;
 		lastUi = now; uiDirty = false;
 		if (clock.playing && now - hashAt > 1000) { hashAt = now; writeHash(); }   // 先に刻む＝250ms 拍の度に debounce を巻き戻さない   // 再生中も URL の t を追わせる＝いつコピーしても今の場面
@@ -868,7 +885,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// t＝UTC（末尾 Z）。旧版はタイムゾーン無しのローカル時刻＝別の時間帯で開くと場面がずれた（東京→オランダで 7〜8 時間）。
 	// Z の無い旧リンクは従来どおりローカル時刻として読む（new Date の規則）。
 	// 実時間で「今」を見ている時は t を書かない＝後で開いても「今」から始まる生きたリンク（日時を固定したい時は止めて共有）
-	let hashTimer = null, hashWritten = "", hashAt = 0;
+	let hashTimer: ReturnType<typeof setTimeout> | null = null, hashWritten = "", hashAt = 0;
 	// 視点の文字列（URL のハッシュと同じ書式＝"f=moon&d=…&t=…"）。hash:true（殻）は location.hash と往復・埋め込みは view と "view" イベント
 	const viewString = () => {
 		const p = new URLSearchParams({ f: cam.focus, d: cam.dist.toPrecision(4),
@@ -878,22 +895,22 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		return p.toString().replace(/%3A/g, ":");   // フラグメントの ':' は素のままで合法＝人が読める日時に
 	};
 	function writeHash() {
-		clearTimeout(hashTimer);
+		clearTimeout(hashTimer!);
 		hashTimer = setTimeout(() => {
 			const v = viewString(); hashAt = performance.now();
 			if (hash) { hashWritten = "#" + v; history.replaceState(null, "", hashWritten); }
 			emit("view", v);
 		}, 300);
 	}
-	function readHash(str = hash ? location.hash : "") {
+	function readHash(str: string = hash ? location.hash : "") {
 		const p = new URLSearchParams(String(str).replace(/^#/, ""));
 		if (p.get("t") || (p.get("s") ?? "") !== "") clock.fromParams(p);   // t＝UTC・s＝段（t 無し＋s=1＝生きたリンク＝開いた瞬間の「今」）。どちらも無い貼り替えは時刻に触らない
-		if (p.get("f") && any[p.get("f")]) cam.focus = p.get("f");
+		if (p.get("f") && any[p.get("f")!]) cam.focus = p.get("f")!;
 		// 下限＝焦点天体の半径の 1.1 倍（手のドリーの下限 focusMinDist より手前＝URL の手書きで天体の中に入らない。
 		// focusMinDist は下で宣言＝ここから呼ぶと TDZ）
-		if (p.get("d")) cam.dist = Math.max(any[cam.focus].radiusAU * 1.1, Math.min(120, +p.get("d") || OVERVIEW_DIST));
-		if (p.get("yaw")) cam.yaw = +p.get("yaw") * D2R;
-		if (p.get("pit")) cam.pitch = Math.max(-88, Math.min(88, +p.get("pit"))) * D2R;
+		if (p.get("d")) cam.dist = Math.max(any[cam.focus].radiusAU * 1.1, Math.min(120, +p.get("d")! || OVERVIEW_DIST));
+		if (p.get("yaw")) cam.yaw = +p.get("yaw")! * D2R;
+		if (p.get("pit")) cam.pitch = Math.max(-88, Math.min(88, +p.get("pit")!)) * D2R;
 		const chipId = satById[cam.focus] ? satById[cam.focus].parent : cam.focus;
 		chipsEl.querySelectorAll("button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
 		setConst(p.get("c") === "1");
@@ -909,9 +926,9 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// タブレットではピンチのたびに視点がぐるぐる回った。pinchD ガードも touchmove 到着まで効かず素通りしていた。
 	// 3本以上は関知しない＝iPadOS のシステムジェスチャに譲る。
 	const ORBIT_RATE = 0.005;      // rad/CSSpx（周回の手触り＝ortho-japan 太陽系圏と共通）
-	const pts = new Map();         // pointerId → {x,y}（触れている指/ボタン）
-	let pinch = null;              // 2本指状態 {d,cx,cy}（前フレーム）
-	let tap = null;                // 単指タップ候補（2本目が触れた/6px以上動いた時点で捨てる）
+	const pts = new Map<number, { x: number; y: number }>();         // pointerId → {x,y}（触れている指/ボタン）
+	let pinch: { d: number; cx: number; cy: number } | null = null;              // 2本指状態 {d,cx,cy}（前フレーム）
+	let tap: { x: number; y: number } | null = null;                // 単指タップ候補（2本目が触れた/6px以上動いた時点で捨てる）
 	// 手でのドリー下限＝天体が画面の95%を占めるところで止める（旧: 半径1.1倍＝地表すれすれまで寄れて
 	// 2k テクスチャの粗が出た）。視野は縦(fovy)基準なので、縦画面では横幅が先に尽きる＝min(1,W/H)を掛ける。
 	// tanθ=t の見かけ半角に対し d = R·√(1+t²)/t（球の接線から）。焦点天体ごと・画面比ごとに毎回引き直す
@@ -919,8 +936,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		const t = 0.95 * Math.tan(cam.fovy / 2) * Math.min(1, canvas.clientWidth / canvas.clientHeight);
 		return any[cam.focus].radiusAU * Math.sqrt(1 + t * t) / t + 1e-8;
 	};
-	const setDist = d => { cam.dist = Math.max(focusMinDist(), Math.min(120, d)); if (flight) flight.toD = cam.dist; needsDraw = true; };
-	const orbitBy = (dx, dy) => {
+	const setDist = (d: number) => { cam.dist = Math.max(focusMinDist(), Math.min(120, d)); if (flight) flight.toD = cam.dist; needsDraw = true; };
+	const orbitBy = (dx: number, dy: number) => {
 		cam.yaw -= dx * ORBIT_RATE;
 		cam.pitch = Math.max(-88 * D2R, Math.min(88 * D2R, cam.pitch + dy * ORBIT_RATE));
 		needsDraw = true;
@@ -950,12 +967,12 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			writeHash();
 		}
 	});
-	const liftPointer = e => {
+	const liftPointer = (e: PointerEvent) => {
 		pts.delete(e.pointerId);
 		pinch = pts.size === 2 ? pinchNow() : null;   // 3本→2本＝残った2本で仕切り直し／1本以下＝解除
 		if (pts.size) { tap = null; return; }         // まだ指が残っている＝タップではない
 		if (tap) {   // タップ／クリック＝一番近い天体ヒットで訪問
-			let best = null, bestD = 18;
+			let best: string | null = null, bestD = 18;
 			for (const b of ALL) {
 				if (b.hidden) continue;                                  // 親の点に埋まっている月・衛星は当てない
 				const s = project(P[b.id] || posOf(b.id, simDate())); if (!s) continue;
@@ -986,13 +1003,13 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		const tag = ae?.tagName;
 		if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 		const step = e.shiftKey ? 80 : 24;
-		const act = {
+		const act = ({
 			ArrowLeft: () => orbitBy(step, 0), ArrowRight: () => orbitBy(-step, 0), ArrowUp: () => orbitBy(0, step), ArrowDown: () => orbitBy(0, -step),
 			"+": () => setDist(cam.dist * 0.85), "=": () => setDist(cam.dist * 0.85), "-": () => setDist(cam.dist / 0.85),
 			c: () => setConst(!constOn),
 			",": () => clock.slower(), ".": () => clock.faster(), Home: () => flyTo("sun"),
 			" ": tag === "BUTTON" ? null : () => clock.toggle(),
-		}[e.key];
+		} as Record<string, (() => void) | null>)[e.key];
 		if (!act) return;
 		e.preventDefault(); act(); writeHash();
 	}, { signal });
@@ -1008,20 +1025,20 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	const MIN_PX = 2.6;   // 最小ピクセル半径クランプ（実スケールのまま可視性の下駄）
 	// 衛星が現れる距離（カメラ〜親）＝親ごとに「一番外の衛星の軌道半径の 9.5 倍」＝衛星系が画面に収まり始める頃
 	// （木星 0.12AU＝カリスト 0.0126AU の 9.5 倍・土星はイアペトゥスで 0.23AU・火星はダイモスで 0.0015AU）
-	const SAT_NEAR = {};
+	const SAT_NEAR: Record<string, number> = {};
 	for (const b of SATELLITES) SAT_NEAR[b.parent] = Math.max(SAT_NEAR[b.parent] || 0, 9.5 * b.aKm / AU_KM);
-	const satNear = b => v3.len(v3.sub(P[b.parent], camPos)) < SAT_NEAR[b.parent];
+	const satNear = (b: SolarBody) => v3.len(v3.sub(P[b.parent!], camPos)) < SAT_NEAR[b.parent!];
 	gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 	gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-	function setCommon(P_, view) {
-		gl.uniformMatrix4fv(P_.u.u_view, false, view); gl.uniformMatrix4fv(P_.u.u_proj, false, proj);
+	function setCommon(P_: Prog, view: Float32Array) {
+		gl.uniformMatrix4fv(P_.u.u_view, false, view); gl.uniformMatrix4fv(P_.u.u_proj, false, proj!);
 		gl.uniform1f(P_.u.u_logC, logC);
 	}
 	// 影を落とし合う組：[受ける側] → 遮る側（親⇄その衛星）。月食の本影だけ赤銅色が残る（地球の大気が曲げた夕焼けの光）
-	const OCCLUDERS = { earth: ["moon"], moon: ["earth"] };
+	const OCCLUDERS: Record<string, string[]> = { earth: ["moon"], moon: ["earth"] };
 	for (const b of SATELLITES) { (OCCLUDERS[b.parent] ||= []).push(b.id); OCCLUDERS[b.id] = [b.parent]; }
 	const MAX_OCC = 4;   // シェーダの u_occ[4]。土星（7）・天王星（5）は「太陽の側にいて、太陽の方向に一番近い」順に 4 つ＝影を落とし得るもの
-	const UMBRA = { moon: [0.30, 0.09, 0.04] };
+	const UMBRA: Record<string, number[]> = { moon: [0.30, 0.09, 0.04] };
 	const OCC = new Float32Array(16);
 
 	// 「時が進んだだけ」の時に描くかどうか：最後に描いた絵から、画面の上で何かが MOVE_PX 以上動いたか。
@@ -1030,7 +1047,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	//   天体の画面上の移動（公転・カメラが焦点天体を追う分も含む）／自転による表面の流れ（角度差×見かけの半径）
 	// 入力・飛行・絵の到着は needsDraw が別に立てる＝この判定を通らない。
 	const MOVE_PX = 0.3;
-	const drawn = {};   // id → { x, y, t }＝最後に描いた時の画面位置（見えていなければ x=null）と時刻
+	const drawn: Record<string, { x: number | null; y: number; t: number }> = {};   // id → { x, y, t }＝最後に描いた時の画面位置（見えていなければ x=null）と時刻
 	function movedSinceDraw() {
 		const dpr = Math.min(2, devicePixelRatio || 1), half = Math.hypot(canvas.clientWidth, canvas.clientHeight) / 2;
 		for (const b of ALL) {
@@ -1038,14 +1055,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			if (!k) return true;
 			if (!s !== (k.x === null)) return true;                    // 視野への出入り
 			if (!s) continue;
-			if (Math.hypot(s.x - k.x, s.y - k.y) >= MOVE_PX) return true;
+			if (Math.hypot(s.x - k.x!, s.y - k.y) >= MOVE_PX) return true;
 			const rPx = Math.min(half, b.radiusAU / s.dist * pxPerRad / dpr);
 			if (rPx > 1 && Math.abs(b.rot.Wd * D2R * (clock.time - k.t) / 864e5) * rPx >= MOVE_PX) return true;
 		}
 		return false;
 	}
 
-	function frame(now) {
+	function frame(now: number) {
 		if (destroyed) return;
 		raf = requestAnimationFrame(frame);
 		const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
@@ -1083,13 +1100,13 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 
 		// 2) 天体球（+土星の環）。位置はCPUでカメラ相対化（RTE）・遠い天体は最小px径に半径を持ち上げ
 		const dpr = Math.min(2, devicePixelRatio || 1);
-		const screens = {};
-		for (const b of ALL) { screens[b.id] = project(P[b.id]); drawn[b.id] = { x: screens[b.id] ? screens[b.id].x : null, y: screens[b.id] ? screens[b.id].y : 0, t: clock.time }; }
+		const screens: Record<string, Screen | null> = {};
+		for (const b of ALL) { screens[b.id] = project(P[b.id]); drawn[b.id] = { x: screens[b.id] ? screens[b.id]!.x : null, y: screens[b.id] ? screens[b.id]!.y : 0, t: clock.time }; }
 		gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
 		gl.useProgram(sphereP.p); setCommon(sphereP, view);
 		// ユニット0＝地表テクスチャ（天体ごとに差し替え）、ユニット1＝夜の街明かり（地球の1枚）、ユニット2＝環の α（環の影用・土星の時だけ差し替え）
 		gl.uniform1i(sphereP.u.u_tex, 0); gl.uniform1i(sphereP.u.u_night, 1); gl.uniform1i(sphereP.u.u_ringTex, 2);
-		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, byId.earth.nightTex || blackTex);
+		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (byId.earth as SolarBody).nightTex || blackTex);
 		gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, blackTex);
 		gl.activeTexture(gl.TEXTURE0);
 		for (const b of ALL) {
@@ -1120,7 +1137,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			gl.uniform1f(sphereP.u.u_hasNight, b.nightTex ? 1 : 0);   // 街明かりを持つのは地球だけ
 			// 影（食・環）：実寸で描いている時だけ（クランプ中の点は寸法が嘘＝影を載せない）。単位＝この天体の半径
 			let occ = !b.clamped && !b.emissive && OCCLUDERS[b.id] || [];
-			if (occ.length > MAX_OCC) occ = occ.map(oid => {   // 遮る側の向きと太陽方向のなす角（太陽の反対側＝影にならない＝外す）
+			if (occ.length > MAX_OCC) occ = occ.map((oid): [string, number] => {   // 遮る側の向きと太陽方向のなす角（太陽の反対側＝影にならない＝外す）
 				const q = v3.sub(P[oid], p), ql = v3.len(q);
 				return [oid, (q[0] * sd[0] + q[1] * sd[1] + q[2] * sd[2]) / ql];
 			}).filter(o => o[1] > 0).sort((a, b_) => b_[1] - a[1]).slice(0, MAX_OCC).map(o => o[0]);
@@ -1140,8 +1157,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			gl.uniform1f(sphereP.u.u_hasRing, ringShadow ? 1 : 0);
 			if (ringShadow) {
 				gl.uniform3f(sphereP.u.u_ringN, M[0][2], M[1][2], M[2][2]);
-				gl.uniform2f(sphereP.u.u_ringR, b.ring.inner, b.ring.outer);
-				gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, b.ringTex); gl.activeTexture(gl.TEXTURE0);
+				gl.uniform2f(sphereP.u.u_ringR, b.ring!.inner, b.ring!.outer);
+				gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, b.ringTex!); gl.activeTexture(gl.TEXTURE0);
 			}
 			gl.bindTexture(gl.TEXTURE_2D, textures[b.id]);
 			gl.bindVertexArray(sphere.vao); gl.drawElements(gl.TRIANGLES, sphere.n, gl.UNSIGNED_SHORT, 0);
@@ -1165,18 +1182,18 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		}
 		// 環は球の後（半透明・両面）。クランプ中も環ごと拡大＝土星の見た目を保つ
 		gl.disable(gl.CULL_FACE);
-		for (const b of BODIES) {
+		for (const b of BODIES as SolarBody[]) {
 			if (!b.ring || b.hidden) continue;
 			gl.useProgram(ringP.p); setCommon(ringP, view);
-			const M = b._M, s = b._drawR;
+			const M = b._M!, s = b._drawR!;
 			gl.uniformMatrix3fv(ringP.u.u_model, false, model3(M, s));
 			gl.uniform1f(ringP.u.u_R, s);
-			gl.uniform3f(ringP.u.u_trans, b._rel[0], b._rel[1], b._rel[2]);
-			gl.uniform3f(ringP.u.u_sun, b._sun[0], b._sun[1], b._sun[2]);
+			gl.uniform3f(ringP.u.u_trans, b._rel![0], b._rel![1], b._rel![2]);
+			gl.uniform3f(ringP.u.u_sun, b._sun![0], b._sun![1], b._sun![2]);
 			const n = [M[0][2], M[1][2], M[2][2]];
-			gl.uniform1f(ringP.u.u_light, 0.35 + 0.65 * Math.abs(n[0] * b._sun[0] + n[1] * b._sun[1] + n[2] * b._sun[2]));
-			gl.uniform1i(ringP.u.u_tex, 0); gl.bindTexture(gl.TEXTURE_2D, b.ringTex);
-			gl.bindVertexArray(b.ringMesh.vao); gl.drawArrays(gl.TRIANGLE_STRIP, 0, b.ringMesh.n);
+			gl.uniform1f(ringP.u.u_light, 0.35 + 0.65 * Math.abs(n[0] * b._sun![0] + n[1] * b._sun![1] + n[2] * b._sun![2]));
+			gl.uniform1i(ringP.u.u_tex, 0); gl.bindTexture(gl.TEXTURE_2D, b.ringTex!);
+			gl.bindVertexArray(b.ringMesh!.vao); gl.drawArrays(gl.TRIANGLE_STRIP, 0, b.ringMesh!.n);
 		}
 
 		// 3) 軌道線（深度テストのみ＝手前の球に隠れる）。惑星に寄ったら空を横切る他軌道は退場
@@ -1186,7 +1203,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			gl.depthMask(false);
 			gl.useProgram(lineP.p); setCommon(lineP, view);
 			// 頂点は基準天体からの相対＝「カメラ − 基準」を f64 で引いて渡す（惑星の軌道＝惑星自身・月と衛星の軌道＝親）
-			const relLine = (o, parentId, col, a) => {
+			const relLine = (o: LineVao, parentId: string, col: number[], a: number) => {
 				const c = P[parentId];
 				gl.uniform3f(lineP.u.u_camPos, camPos[0] - c[0], camPos[1] - c[1], camPos[2] - c[2]);
 				gl.uniform4f(lineP.u.u_color, col[0], col[1], col[2], a * lineFade);
@@ -1216,14 +1233,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 
 		// 5) HTML ラベル（クリック＝訪問）。寄っている天体（画面の1/4超）は引っ込める。
 		//    全景の中心では内惑星のラベルが団子になる＝縦に押し下げて整列（BODIES順＝太陽から優先）。幅は実測（el._w）
-		const placed = [];
+		const placed: { x: number; y: number; w: number }[] = [];
 		for (const b of ALL) {
 			const el = labels[b.id], s = screens[b.id];
 			if (!s || b.hidden || s.x < -40 || s.x > canvas.clientWidth + 40 || s.y < 0 || s.y > canvas.clientHeight) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
 			const rPx = b.radiusAU / s.dist * pxPerRad / dpr;
 			// 手前の天体の円盤の内側に落ちる名前＝その天体の向こう側＝隠す（月に寄った時、背後の土星・海王星の名前が月面に出ていた）
-			const behind = ALL.some(o => o !== b && !o.hidden && screens[o.id] && screens[o.id].dist < s.dist &&
-				Math.hypot(screens[o.id].x - s.x, screens[o.id].y - s.y) < o.radiusAU / screens[o.id].dist * pxPerRad / dpr);
+			const behind = ALL.some(o => o !== b && !o.hidden && screens[o.id] && screens[o.id]!.dist < s.dist &&
+				Math.hypot(screens[o.id]!.x - s.x, screens[o.id]!.y - s.y) < o.radiusAU / screens[o.id]!.dist * pxPerRad / dpr);
 			if (behind || rPx > canvas.clientHeight * 0.22) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
 			const w = el._w || 64, off = Math.max(6, rPx * 0.8) + 4;
 			let x = s.x + off, y = s.y - 9;
@@ -1241,7 +1258,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	return {
 		el: rootEl,
 		// 左上の縦並び（星座ボタンの下）に持ち主のボタンを足す＝戻る・保存など。arrow＝先頭に ←（RTL で向きを返す）
-		addButton({ text = "", title = "", arrow = false, onClick } = {}) {
+		addButton({ text = "", title = "", arrow = false, onClick }: { text?: string; title?: string; arrow?: boolean; onClick?: (e: MouseEvent) => void } = {}) {
 			const b = document.createElement("button");
 			if (arrow) { const i = document.createElement("i"); i.className = "os-arrow"; i.setAttribute("aria-hidden", "true"); i.textContent = "←"; b.append(i); }
 			b.append(text); if (title) { b.title = title; b.setAttribute("aria-label", title); }
@@ -1250,14 +1267,14 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			return b;
 		},
 		get view() { return viewString(); },
-		set view(v) { readHash(v); },
+		set view(v: string) { readHash(v); },
 		flyTo,
-		on(type, fn) { (handlers[type] ||= new Set()).add(fn); return () => handlers[type].delete(fn); },
+		on(type: string, fn: SolarListener) { (handlers[type] ||= new Set()).add(fn); return () => handlers[type].delete(fn); },
 		// 跡形なく消す：描画ループ・監視・大域のイベント・タイマーを止め、GL を手放し、DOM を外す（作り直しは createSolar をもう一度）
 		destroy() {
 			if (destroyed) return;
 			destroyed = true;
-			cancelAnimationFrame(raf); clearTimeout(hashTimer);
+			cancelAnimationFrame(raf); clearTimeout(hashTimer!);
 			ac.abort();
 			for (const o of observers) o.disconnect();
 			gl.getExtension("WEBGL_lose_context")?.loseContext();

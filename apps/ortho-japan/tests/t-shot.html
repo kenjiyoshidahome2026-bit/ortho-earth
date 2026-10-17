@@ -6,7 +6,7 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 200; a[i + 3] = 255; } return a.buffer; };
 try {

@@ -10,7 +10,7 @@
 <body>
 <script>localStorage.setItem("oj.hint", "closed"); if (!/drawhud=/.test(location.search)) history.replaceState(null, "", location.href + (location.search ? "&" : "?") + "drawhud=1");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 import { writePMTiles } from "geopbf/convert";
 const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
 const mark = s => { document.title = "… " + s; };

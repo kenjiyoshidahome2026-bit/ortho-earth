@@ -6,10 +6,10 @@
 	const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
 	await setLang();
 	document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
-	const engineP = import("./app.js");
+	const engineP = import("./app.ts");
 	const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
 	try {
-		const [{ default: orthoJapan }, { mountOnsen }] = await Promise.all([engineP, import("./onsen.js")]);
+		const [{ default: orthoJapan }, { mountOnsen }] = await Promise.all([engineP, import("./onsen.ts")]);
 		// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D・基図の施設・鉄道・道路は出さない（温泉の点が主役）
 		const map = await orthoJapan({ target: "#map", view: location.hash || "#4.8/36.5/137.5/25t", chips: false, mesh: false,
 			layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });

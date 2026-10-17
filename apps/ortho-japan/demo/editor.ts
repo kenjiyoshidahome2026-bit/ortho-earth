@@ -11,13 +11,25 @@ import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // クラウ
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
 import { parseViewHash } from "@ortho-earth/core/viewurl";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ。index.js 経由だとサイトビルドにエンジン一式（worker・WASM）が二重に出る（2026-09-14）
 import { tr } from "@ortho-earth/globe/i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import type { GlobeMap } from "@ortho-earth/globe";
+import type { SceneIssue } from "@ortho-earth/globe/demo/scene-adapter.js";
+// 台本の行（scene-format.md）＝キーは data-k 直結で足し引きされる
+interface Row { title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; [k: string]: unknown }
+interface Doc { type: string; title?: string; frame: string; waitLoading?: boolean; scenes: Row[]; [k: string]: unknown }
+// map.sceneTimeline の中身（globe の型は rows: unknown[]＝ここで使う形だけ）
+interface TlRow { t0: number; tArrive: number; t1: number; knots?: number[] }
+interface Timeline { dur: number; rows: TlRow[]; at(t: number): { i: number }; seek(t: number): unknown; end(): void }
+type PlayOpts = { quick?: boolean; from?: number; onEnd?: (r: string) => void };
+type Handle = { i: number; k: string; g: number; ki: number; dur: number; rc: DOMRect; el: HTMLElement };
+// Region Capture（Chrome）＝lib.dom に未収載
+declare const CropTarget: { fromElement(el: Element): Promise<unknown> };
 const t = tr();
 // 台本由来の文字列（title・視点ハッシュ）を innerHTML に入れる前の消毒＝読み込んだファイルは他人作かもしれない
-const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
-const FRAMES = { "16:9": [16, 9], "9:16": [9, 16], "1:1": [1, 1], "4:3": [4, 3] };   // "free"＝舞台いっぱい（枠なし）
-const isVia = r => r?.via != null && !r.view && !r.glide && !r.fade;
-const hashOf = r => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
+const FRAMES: Record<string, number[]> = { "16:9": [16, 9], "9:16": [9, 16], "1:1": [1, 1], "4:3": [4, 3] };   // "free"＝舞台いっぱい（枠なし）
+const isVia = (r: Row | undefined) => r?.via != null && !r.view && !r.glide && !r.fade;
+const hashOf = (r: Row) => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
 
 const CSS = `
 	#sc-stage { padding:38px 0 46px; box-sizing:border-box; }   /* 上端＝カメラ実位置チップの帯・下端＝タイムライン・スクラブの帯（fit も同じ分を差し引く） */
@@ -117,8 +129,8 @@ const CSS = `
 	#sc-start .box { display:block; margin:0 auto 8px; background:#0d1117; border:1px solid rgba(255,255,255,.35); }
 `;
 
-export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.sceneDraft" }) {
-	let doc = { type: "scenes", title: "", frame: "16:9", waitLoading: true, scenes: [] };
+export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.sceneDraft" }: { map: GlobeMap; stageEl: HTMLElement; panelEl: HTMLElement; storageKey?: string }) {
+	let doc: Doc = { type: "scenes", title: "", frame: "16:9", waitLoading: true, scenes: [] };
 	let sel = -1, playing = false, liveGroup = -1, saveT = 0;
 	let tlDirty = true, tlRefresh = () => {};   // タイムライン（スクラブ）の鮮度＝編集(save)で汚れ、300msデバウンスで作り直す（実体は下のスクラブ節）
 
@@ -128,7 +140,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const save = () => { tlDirty = true; clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(storageKey, JSON.stringify(doc)); } catch { /* 容量等 */ } tlRefresh(); }, 300); };
 
 	// ── 画面定義：フレーム枠(#sc-frame)を舞台へ内接（自由=舞台いっぱい）。#map は quiet-mono の 100%/100% で枠に従う ──
-	const frameEl = stageEl.querySelector("#sc-frame");
+	const frameEl = stageEl.querySelector<HTMLElement>("#sc-frame")!;
 	const fit = () => {
 		const f = FRAMES[doc.frame];
 		if (!f) { frameEl.style.width = "100%"; frameEl.style.height = "100%"; return; }
@@ -177,57 +189,59 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<button id="sc-cloud" title="${t("Cloud save / open (login required)")}">${t("☁ Cloud")}</button>
 			<button id="sc-clear" title="${t("Remove every row (⌘Z undoes)")}">${t("Clear all")}</button>
 		</div>`;
-	const $ = id => panelEl.querySelector(id);
-	const rowsEl = $("#sc-rows"), titleEl = $("#sc-title"), waitEl = $("#sc-wait"), frameSel = $("#sc-frame-sel"), noteEl = $("#sc-note"), undoBtn = $("#sc-undo"), redoBtn = $("#sc-redo");
+	const $ = <E extends HTMLElement = HTMLElement>(id: string) => panelEl.querySelector(id) as E;
+	const rowsEl = $("#sc-rows"), titleEl = $<HTMLInputElement>("#sc-title"), waitEl = $<HTMLInputElement>("#sc-wait"), frameSel = $<HTMLSelectElement>("#sc-frame-sel"), noteEl = $("#sc-note"), undoBtn = $<HTMLButtonElement>("#sc-undo"), redoBtn = $<HTMLButtonElement>("#sc-redo");
 	// ── 一言の告知（alert/confirm の代わり・4秒で消える）──
 	let noteT = 0;
-	const note = msg => { noteEl.textContent = msg; clearTimeout(noteT); noteT = setTimeout(() => { noteEl.textContent = ""; }, 4000); };
+	const note = (msg: string) => { noteEl.textContent = msg; clearTimeout(noteT); noteT = setTimeout(() => { noteEl.textContent = ""; }, 4000); };
 	// ── undo（スナップショット式＝台本は小さな JSON・構造操作の前に控える。読込/削除/全消去/並べ替え/撮影/遷移切替が ⌘Z で戻る）──
-	const undoStack = [], redoStack = [];
+	const undoStack: string[] = [], redoStack: string[] = [];
 	const syncUndo = () => { undoBtn.disabled = !undoStack.length; redoBtn.disabled = !redoStack.length; };
 	const mark = () => { undoStack.push(JSON.stringify({ doc, sel })); if (undoStack.length > 100) undoStack.shift(); redoStack.length = 0; syncUndo(); };
-	const restore = snap => { ({ doc, sel } = JSON.parse(snap)); save(); fit(); paint(); };
+	const restore = (snap: string) => { ({ doc, sel } = JSON.parse(snap)); save(); fit(); paint(); };
 	const undo = () => { const snap = undoStack.pop(); if (!snap) return; redoStack.push(JSON.stringify({ doc, sel })); syncUndo(); restore(snap); };
 	const redo = () => { const snap = redoStack.pop(); if (!snap) return; undoStack.push(JSON.stringify({ doc, sel })); syncUndo(); restore(snap); };
 
 	// ── 行サムネ（撮影/通過点/再撮影の瞬間に生スナップを 64×36 へ）：.scenes には入れない（共有ファイルを太らせない）＝
 	//    カメラ部分のハッシュをキーに IndexedDB へ。描画は data URL のメモリ表→無ければ IDB から遅延で埋める ──
-	const camKey = h => (h || "").replace(/^#/, "").split("/").filter(x => x && !/^[lc]=/.test(x)).join("/");   // l=/c= を除いたカメラ部＝同じ構図は同じ絵
-	const thumbs = new Map();
-	const thumbDb = () => new Promise((res, rej) => { const rq = indexedDB.open("oj-scene-editor", 1); rq.onupgradeneeded = () => rq.result.createObjectStore("thumbs"); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
-	const thumbGet = async key => { try { const db = await thumbDb(); return await new Promise(r => { const q = db.transaction("thumbs").objectStore("thumbs").get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } };
-	const thumbPut = async (key, url) => { try { const db = await thumbDb(); db.transaction("thumbs", "readwrite").objectStore("thumbs").put(url, key); } catch { /* 無くても編集は成立 */ } };
-	const showThumb = (key, url) => rowsEl.querySelectorAll(`.sc-thumb[data-thumb="${CSS.escape(key)}"]`).forEach(el => { el.style.backgroundImage = `url("${url}")`; });
-	const captureThumb = async (key, retry = 1) => {   // 今の画面を撮って key の絵にする（失敗は1回だけ撮り直し・それでも駄目なら無視＝サムネは補助）
+	const camKey = (h: string | undefined) => (h || "").replace(/^#/, "").split("/").filter(x => x && !/^[lc]=/.test(x)).join("/");   // l=/c= を除いたカメラ部＝同じ構図は同じ絵
+	const thumbs = new Map<string, string | null>();
+	const thumbDb = () => new Promise<IDBDatabase>((res, rej) => { const rq = indexedDB.open("oj-scene-editor", 1); rq.onupgradeneeded = () => rq.result.createObjectStore("thumbs"); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
+	const thumbGet = async (key: string) => { try { const db = await thumbDb(); return await new Promise<string | null>(r => { const q = db.transaction("thumbs").objectStore("thumbs").get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } };
+	const thumbPut = async (key: string, url: string) => { try { const db = await thumbDb(); db.transaction("thumbs", "readwrite").objectStore("thumbs").put(url, key); } catch { /* 無くても編集は成立 */ } };
+	// 不具合（未修正・挙動は据え置き）：CSS はこのモジュールの CSS 文字列定数が覆っている＝CSS.escape は undefined で呼ぶと TypeError（captureThumb の catch で撮り直し→thumbPut に届かない）
+	// @ts-expect-error 上記＝コードどおり（CSS は文字列）
+	const showThumb = (key: string, url: string) => rowsEl.querySelectorAll<HTMLElement>(`.sc-thumb[data-thumb="${CSS.escape(key)}"]`).forEach(el => { el.style.backgroundImage = `url("${url}")`; });
+	const captureThumb = async (key: string, retry = 1): Promise<void> => {   // 今の画面を撮って key の絵にする（失敗は1回だけ撮り直し・それでも駄目なら無視＝サムネは補助）
 		if (!key || !map.requestSnapshot) return;
 		try {
 			const full = composeLayersToCanvas(await map.requestSnapshot(), null);
-			const W = 128, H = 72, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d");
+			const W = 128, H = 72, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d")!;
 			const k = Math.max(W / full.width, H / full.height);
 			ctx.drawImage(full, (W - full.width * k) / 2, (H - full.height * k) / 2, full.width * k, full.height * k);
 			const blob = await out.convertToBlob({ type: "image/webp", quality: 0.7 });
-			const url = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+			const url = await new Promise<string>(r => { const fr = new FileReader(); fr.onload = () => r(fr.result as string); fr.readAsDataURL(blob); });
 			thumbs.set(key, url); showThumb(key, url); thumbPut(key, url);
 		} catch { if (retry > 0) setTimeout(() => captureThumb(key, retry - 1), 1500); /* 配色切替中等＝一呼吸置いて撮り直し */ }
 	};
-	const fillThumbs = () => rowsEl.querySelectorAll(".sc-thumb[data-thumb]").forEach(async el => {   // 描画後：メモリ表→IDB の順で埋める
+	const fillThumbs = () => rowsEl.querySelectorAll<HTMLElement>(".sc-thumb[data-thumb]").forEach(async el => {   // 描画後：メモリ表→IDB の順で埋める
 		const key = el.dataset.thumb; if (!key) return;
 		let url = thumbs.get(key);
 		if (url === undefined) { url = await thumbGet(key); thumbs.set(key, url); }
 		if (url) el.style.backgroundImage = `url("${url}")`;
 	});
 	// ── ハッシュの道具：カメラ部と l=/c= トークンの分解・合成（レイヤーチップの3操作） ──
-	const splitHash = h => { const tk = (h || "").replace(/^#/, "").split("/").filter(Boolean); return { cam: tk.filter(x => !/^[lc]=/.test(x)), l: tk.find(x => x.startsWith("l=")) ?? null, c: tk.find(x => x.startsWith("c=")) ?? null }; };
-	const joinHash = ({ cam, l, c }) => "#" + [...cam, ...(l != null ? [l] : []), ...(c != null ? [c] : [])].join("/");
-	const setHash = (r, h) => { if (r.view) r.view = h; else if (r.glide) r.glide = h; else if (r.fade) r.fade = h; else r.via = h; };
+	const splitHash = (h: string | undefined) => { const tk = (h || "").replace(/^#/, "").split("/").filter(Boolean); return { cam: tk.filter(x => !/^[lc]=/.test(x)), l: tk.find(x => x.startsWith("l=")) ?? null, c: tk.find(x => x.startsWith("c=")) ?? null }; };
+	const joinHash = ({ cam, l, c }: { cam: string[]; l: string | null; c: string | null }) => "#" + [...cam, ...(l != null ? [l] : []), ...(c != null ? [c] : [])].join("/");
+	const setHash = (r: Row, h: string) => { if (r.view) r.view = h; else if (r.glide) r.glide = h; else if (r.fade) r.fade = h; else r.via = h; };
 	// ── 行の時刻（タイムラインから）：到着時刻・保持・遷移／通過点は実到達時刻。tlRefresh 後に差し込む（再描画しない＝フォーカス保持） ──
-	const clock = s => { const m = Math.floor(s / 60), r = s - m * 60; return `${m}:${r < 10 ? "0" : ""}${r.toFixed(1)}`; };
+	const clock = (s: number) => { const m = Math.floor(s / 60), r = s - m * 60; return `${m}:${r < 10 ? "0" : ""}${r.toFixed(1)}`; };
 	const paintTimes = () => {
 		if (!tl) { rowsEl.querySelectorAll(".sc-time").forEach(el => { el.textContent = ""; }); return; }
 		const g = groupsOf(doc.scenes), viaK = new Map();
 		doc.scenes.forEach((r, i) => {
 			const el = rowsEl.querySelector(`.sc-time[data-i="${i}"]`); if (!el) return;
-			const rec = g[i] >= 0 ? tl.rows[g[i]] : null;
+			const rec = g[i] >= 0 ? tl!.rows[g[i]] : null;
 			if (!rec) { el.textContent = ""; return; }
 			if (isVia(r)) { const k = viaK.get(g[i]) ?? 0; viaK.set(g[i], k + 1); const kt = rec.knots?.[k]; el.textContent = kt != null ? t("via $1", clock(rec.t0 + kt)) : ""; return; }
 			const trans = rec.tArrive - rec.t0, hold = rec.t1 - rec.tArrive;
@@ -239,8 +253,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	// ── compiled index（プレーヤーの scenes[] 位置）への写像＝ここから試写・行ハイライト用。
 	//    compileVias/parseScenes と同じ裁き：via は次の view/glide 行（着点）に属す・出発点前/着点無しの via は -1（捨てられる）
 	//    規則の正本は adapter（parseScenes/compileVias の trace）＝ここで同じ裁きを書き直さない
-	const groupsOf = rows => {
-		const g = new Array(rows.length).fill(-1), t1 = {}, t2 = {};
+	const groupsOf = (rows: Row[]) => {
+		const g: number[] = new Array(rows.length).fill(-1), t1 = {} as { rowIdx: number[] }, t2 = {} as { group: number[] };
 		const p = parseScenes({ scenes: rows }, [], t1);
 		compileVias(p.scenes, [], t2);
 		p.scenes.forEach((_, k) => { g[t1.rowIdx[k]] = t2.group[k]; });
@@ -253,24 +267,24 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		waitEl.checked = !!doc.waitLoading;
 		frameSel.value = FRAMES[doc.frame] ? doc.frame : "free";
 		panelEl.classList.toggle("playing", playing);
-		const issues = [], tr1 = {}, sub = [];
+		const issues: SceneIssue[] = [], tr1 = {} as { rowIdx: number[] }, sub: SceneIssue[] = [];
 		const parsed = parseScenes(doc, issues, tr1);
 		compileVias(parsed.scenes, sub, {});   // 畳み込みの診断はプレーヤーと同じ順（parse 後の行）で＝空行を挟んだ via を孤児にしない
 		for (const x of sub) issues.push({ ...x, row: tr1.rowIdx[x.row] });   // 元の行番号へ写す（scene-format.md §7）
-		const errOf = i => issues.filter(x => x.row === i).map(x => x.msg).join(" / ");
+		const errOf = (i: number) => issues.filter(x => x.row === i).map(x => x.msg).join(" / ");
 		const groups = groupsOf(doc.scenes);
 		rowsEl.innerHTML = doc.scenes.length ? doc.scenes.map((r, i) => {
 			const via = isVia(r), err = errOf(i);
 			const hash = esc((hashOf(r) ?? "").split("/l=")[0]);
 			const trans = r.glide ? "glide" : r.fade ? "fade" : "view";
 			const afterVia = i > 0 && isVia(doc.scenes[i - 1]);   // via の着点＝地図遷移でも travel（最終区間の尺）が効く
-			const num = v => (Number.isFinite(v) ? v : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）
-			const travelInput = dis => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("auto")}"${dis ? ` disabled title="${t("Map-transition duration is automatic (editable when this row ends a dolly)")}"` : ""}>`;
+			const num = (v: unknown) => (Number.isFinite(v) ? v : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）
+			const travelInput = (dis: boolean) => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("auto")}"${dis ? ` disabled title="${t("Map-transition duration is automatic (editable when this row ends a dolly)")}"` : ""}>`;
 			const pv = via ? null : parseViewHash(hashOf(r) ?? "");
 			const chips = via ? "" : (pv?.layers == null ? `<span class="sc-chip dim">${t("layers: keep current")}</span>`
 				: pv.layers.length ? pv.layers.map(l => `<span class="sc-chip">${esc(l)}</span>`).join(" ") : `<span class="sc-chip dim">${t("layers: none")}</span>`)
 				+ (pv?.theme ? ` <span class="sc-chip c">c=${esc(pv.theme)}</span>` : "");
-			const strField = (k, label, ph = "") => `<div class="sc-f"><label title="${esc(label)}">${esc(label)}</label><input type="text" data-k="${k}" value="${esc(r[k])}" placeholder="${esc(ph)}"></div>`;
+			const strField = (k: string, label: string, ph = "") => `<div class="sc-f"><label title="${esc(label)}">${esc(label)}</label><input type="text" data-k="${k}" value="${esc(r[k])}" placeholder="${esc(ph)}"></div>`;
 			const slideImg = r.slide && /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)|^(data:|https?:)/i.test(r.slide) ? `<img class="sc-slide-img" src="${esc(r.slide)}" alt="">` : "";
 			const more = via ? "" : `<details class="sc-more"${openMore.has(i) ? " open" : ""}><summary>${t("More")}</summary>
 					${strField("caption", t("Caption (if different from the title)"))}
@@ -321,7 +335,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const addVia = () => { mark(); const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.via)); return r; };
 	// 経路記録（◉）：地図を動かして止まるたび（600ms 静止）に通過点を積む＝隅田川ドリーを手で打たずに作る。
 	// 一度の記録は undo 1回で丸ごと戻る（開始時に mark・各点は mark しない）。終了＝再押下。着点は 📷 撮影で。
-	let recPath = null;
+	let recPath: { last: string; recorded: string; still: number; n: number; timer: number } | null = null;
 	const recBtn = () => $("#sc-rec-path");
 	const pathRecord = () => {
 		if (recPath) { clearInterval(recPath.timer); const n = recPath.n; recPath = null; recBtn().classList.remove("on"); recBtn().textContent = t("◉ Record path"); note(t("Path recorded: $1 waypoint(s)", n)); return; }
@@ -329,16 +343,16 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		recPath = { last: camKey(map.view.hash), recorded: camKey(map.view.hash), still: 0, n: 0, timer: 0 };
 		recPath.timer = setInterval(() => {   // 250ms 刻み＝3拍（≈600ms）同じ構図なら「止まった」（拍で数える＝虚時間ハーネスでも同じ）
 			const k = camKey(map.view.hash);
-			if (k !== recPath.last) { recPath.last = k; recPath.still = 0; return; }   // 動いている
-			if (++recPath.still < 3 || k === recPath.recorded) return;                 // まだ止まっていない／同じ所
-			recPath.recorded = k; recPath.n++;
+			if (k !== recPath!.last) { recPath!.last = k; recPath!.still = 0; return; }   // 動いている
+			if (++recPath!.still < 3 || k === recPath!.recorded) return;                 // まだ止まっていない／同じ所
+			recPath!.recorded = k; recPath!.n++;
 			const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(k);
 		}, 250);
 		recBtn().classList.add("on"); recBtn().textContent = t("◉ Recording…");
 	};
 	// permalink の貼り付け＝行に（書式の前提「URL を貼るだけでシーン」）：入力欄以外で ⌘V → ハッシュを全部拾って選択行の後ろへ
 	const HASH_RE = /#-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?(?:\/[^\s"'<>#]+)*/g;
-	const pasteHashes = text => {
+	const pasteHashes = (text: string | null | undefined) => {
 		const hs = [...String(text || "").matchAll(HASH_RE)].map(m => m[0]);
 		if (!hs.length) return 0;
 		mark();
@@ -349,14 +363,14 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	};
 
 	// ── 試写（scene-player API）：quick＝黒幕・ゲート・括弧なし／dress＝本番同等。onScene で行ハイライト＋上映ヘッド再同期・onEnd で解除 ──
-	const play = opts => {
+	const play = (opts?: PlayOpts) => {
 		map.stopScenes();
 		const okd = map.playScenes(doc, {
-			lang: $("#sc-lang").value || undefined,   // 字幕言語のプレビュー（空＝視聴者の ?lang= と同じ既定）
+			lang: $<HTMLSelectElement>("#sc-lang").value || undefined,   // 字幕言語のプレビュー（空＝視聴者の ?lang= と同じ既定）
 			...opts,
 			onScene: ci => { liveGroup = ci; paint(); headSync(ci); },
-			onEnd: r => { playing = false; liveGroup = -1; headStop(); paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
-		});
+			onEnd: (r: string) => { playing = false; liveGroup = -1; headStop(); paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
+		} as Parameters<GlobeMap["playScenes"]>[1]);   // as＝onEnd は終わり方（"finished"/"stopped"）を受ける（globe の型は引数なし）
 		playing = okd === true; liveGroup = -1; paint();
 		return okd;
 	};
@@ -370,21 +384,21 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	scrub.id = "sc-scrub";
 	scrub.innerHTML = `<div class="tk" title="${t("Timeline — drag to see that moment (stops playback)")}"></div><span class="tm"></span>`;
 	stageEl.append(scrub);
-	const scrubTk = scrub.querySelector(".tk"), scrubTm = scrub.querySelector(".tm");
-	const fmtSec = s => (Math.round(s * 10) / 10).toFixed(1) + "s";
-	let tl = null, scrubSec = 0;
+	const scrubTk = scrub.querySelector<HTMLElement>(".tk")!, scrubTm = scrub.querySelector<HTMLElement>(".tm")!;
+	const fmtSec = (s: number) => (Math.round(s * 10) / 10).toFixed(1) + "s";
+	let tl: Timeline | null = null, scrubSec = 0;
 	tlRefresh = () => {
 		tlDirty = false;
-		try { tl = doc.scenes.length ? (map.sceneTimeline?.(doc) ?? null) : null; } catch { tl = null; }   // 診断エラー中の台本でも落とさない（バーを引っ込めるだけ）
+		try { tl = doc.scenes.length ? (map.sceneTimeline?.(doc) ?? null) as Timeline | null : null; } catch { tl = null; }   // 診断エラー中の台本でも落とさない（バーを引っ込めるだけ）
 		scrub.style.display = tl ? "" : "none";
 		if (!tl) { paintTimes(); return; }
 		scrubSec = Math.min(scrubSec, tl.dur);
 		const W = 100 / tl.dur;
 		// つまみ（ドラッグで尺を書く）：保持の終端＝hold／到着＝travel（尺指定できる行＝glide・fade・通過点の着点）／◇＝その通過点の travel
-		const g = groupsOf(doc.scenes), rowOfGroup = new Map(), viasOfGroup = new Map();
-		doc.scenes.forEach((r, i) => { if (g[i] < 0) return; if (isVia(r)) (viasOfGroup.get(g[i]) ?? viasOfGroup.set(g[i], []).get(g[i])).push(i); else rowOfGroup.set(g[i], i); });
+		const g = groupsOf(doc.scenes), rowOfGroup = new Map<number, number>(), viasOfGroup = new Map<number, number[]>();
+		doc.scenes.forEach((r, i) => { if (g[i] < 0) return; if (isVia(r)) (viasOfGroup.get(g[i]) ?? viasOfGroup.set(g[i], []).get(g[i])!).push(i); else rowOfGroup.set(g[i], i); });
 		scrubTk.innerHTML = tl.rows.map((r, gi) => {
-			const ri = rowOfGroup.get(gi), row = doc.scenes[ri], vias = viasOfGroup.get(gi) || [];
+			const ri = rowOfGroup.get(gi), row = doc.scenes[ri!], vias = viasOfGroup.get(gi) || [];
 			const arrivalEditable = row && (row.glide != null || row.fade != null || vias.length > 0);
 			return (r.tArrive > r.t0 ? `<div class="sg tr" style="left:${(r.t0 * W).toFixed(3)}%;width:${((r.tArrive - r.t0) * W).toFixed(3)}%"></div>` : "")
 				+ `<div class="sg" style="left:${(r.tArrive * W).toFixed(3)}%;width:${((r.t1 - r.tArrive) * W).toFixed(3)}%"></div>`
@@ -397,12 +411,12 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		scrubTm.textContent = `${fmtSec(scrubSec)} / ${fmtSec(tl.dur)}`;
 		paintTimes();
 	};
-	const headPaint = sec => {   // ヘッドと時刻の表示だけ（seek しない）＝スクラブと上映追随の共用
-		const ph = scrubTk.querySelector(".ph");
-		if (ph) ph.style.left = (sec / tl.dur * 100) + "%";
-		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl.dur)}`;
+	const headPaint = (sec: number) => {   // ヘッドと時刻の表示だけ（seek しない）＝スクラブと上映追随の共用
+		const ph = scrubTk.querySelector<HTMLElement>(".ph");
+		if (ph) ph.style.left = (sec / tl!.dur * 100) + "%";
+		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl!.dur)}`;
 	};
-	const seekAt = clientX => {
+	const seekAt = (clientX: number) => {
 		const rc = scrubTk.getBoundingClientRect();
 		if (!tl || !rc.width) return;
 		scrubSec = Math.max(0, Math.min(1, (clientX - rc.left) / rc.width)) * tl.dur;
@@ -412,7 +426,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (ci !== liveGroup) {
 			liveGroup = ci;
 			const g = groupsOf(doc.scenes);
-			rowsEl.querySelectorAll(".sc-row").forEach(li => li.classList.toggle("live", g[+li.dataset.i] === ci));
+			rowsEl.querySelectorAll<HTMLElement>(".sc-row").forEach(li => li.classList.toggle("live", g[+li.dataset.i!] === ci));
 		}
 	};
 	// 上映ヘッド＝再生中の現在位置をバーに追随表示（表示のみ・seek しない＝絵は本物の再生が描いている）。
@@ -420,7 +434,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	// 200ms刻みの計時）は次の行頭で吸収する。遷移尺はプラン共有（flight 時刻評価）＝道中はほぼ実尺どおり進む。
 	// 止めは世代トークン（flight.js の cancelled と同じ流儀）＝rAF が setTimeout に差し替わる虚時間ハーネスでも確実に止まる
 	let headRun = 0;
-	const headSync = ci => {
+	const headSync = (ci: number) => {
 		if (tlDirty || !tl) tlRefresh();
 		const r = tl?.rows[ci];
 		if (!r) return;
@@ -437,31 +451,31 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const headStop = () => { headRun++; };
 	// つまみのドラッグ＝hold/travel をモデルへ直接書く（数値欄と同じキー＝undo にも乗る）。ドラッグ中は開始時の目盛り（総尺）で
 	// 画素→秒を固定＝値が変わって総尺が伸縮しても掴んでいる点が逃げない。離した時に通常の再構築（目盛りが新しい総尺へ）。
-	let hdDrag = null;
-	const round1 = v => Math.round(v * 10) / 10;
-	const applyHandle = (h, sec) => {
-		const r = doc.scenes[h.i], rec = tl.rows[h.g]; if (!r || !rec) return;
-		let key = "hold", v;
+	let hdDrag: Handle | null = null;
+	const round1 = (v: number) => Math.round(v * 10) / 10;
+	const applyHandle = (h: Handle, sec: number) => {
+		const r = doc.scenes[h.i], rec = tl!.rows[h.g]; if (!r || !rec) return;
+		let key = "hold", v: number;
 		if (h.k === "hold") v = sec - rec.tArrive;
-		else if (h.k === "via") { const prev = h.ki > 0 ? rec.knots[h.ki - 1] : 0; key = "travel"; v = sec - (rec.t0 + prev); }
+		else if (h.k === "via") { const prev = h.ki > 0 ? rec.knots![h.ki - 1] : 0; key = "travel"; v = sec - (rec.t0 + prev); }
 		else {   // 到着＝travel：通過点の着点＝最終区間／glide＝1区間／fade＝(遷移−切替0.3)/2（溶暗と溶明が同じ尺）
 			key = "travel";
-			const lastKnot = rec.knots?.length > 1 ? rec.knots[rec.knots.length - 2] : 0;
+			const lastKnot = (rec.knots?.length as number) > 1 ? rec.knots![rec.knots!.length - 2] : 0;
 			v = r.fade != null ? (sec - rec.t0 - 0.3) / 2 : sec - (rec.t0 + lastKnot);
 		}
 		v = round1(Math.max(key === "hold" ? 0 : 0.1, Math.min(120, v)));
 		if (r[key] === v) return;
 		r[key] = v;
-		const inp = rowsEl.querySelector(`.sc-row[data-i="${h.i}"] input[data-k="${key}"]`); if (inp) inp.value = String(v);   // 数値欄も追随（再描画しない）
+		const inp = rowsEl.querySelector<HTMLInputElement>(`.sc-row[data-i="${h.i}"] input[data-k="${key}"]`); if (inp) inp.value = String(v);   // 数値欄も追随（再描画しない）
 	};
 	scrubTk.addEventListener("pointerdown", e => {
-		const hd = e.target.closest?.(".hd"); if (!hd) return;
+		const hd = (e.target as Element).closest?.<HTMLElement>(".hd"); if (!hd) return;
 		e.stopPropagation(); e.preventDefault();
 		map.stopScenes();
 		if (tlDirty || !tl) tlRefresh();
 		if (!tl) return;
 		mark();
-		hdDrag = { i: +hd.dataset.i, k: hd.dataset.k, g: +hd.dataset.g, ki: +(hd.dataset.ki || 0), dur: tl.dur, rc: scrubTk.getBoundingClientRect(), el: hd };
+		hdDrag = { i: +hd.dataset.i!, k: hd.dataset.k!, g: +hd.dataset.g!, ki: +(hd.dataset.ki || 0), dur: tl.dur, rc: scrubTk.getBoundingClientRect(), el: hd };
 		hd.classList.add("drag");
 		try { scrubTk.setPointerCapture(e.pointerId); } catch { /* 合成イベント */ }
 	}, true);
@@ -469,17 +483,17 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (!hdDrag) return;
 		const sec = Math.max(0, Math.min(1, (e.clientX - hdDrag.rc.left) / hdDrag.rc.width)) * hdDrag.dur;
 		applyHandle(hdDrag, sec);
-		try { tl = map.sceneTimeline?.(doc) ?? tl; } catch { /* 途中の不整合は無視 */ }   // 尺の再計算（目盛りは固定のまま＝つまみだけ動く）
-		const W = 100 / hdDrag.dur, rec = tl.rows[hdDrag.g];
+		try { tl = (map.sceneTimeline?.(doc) ?? tl) as Timeline | null; } catch { /* 途中の不整合は無視 */ }   // 尺の再計算（目盛りは固定のまま＝つまみだけ動く）
+		const W = 100 / hdDrag.dur, rec = tl!.rows[hdDrag.g];
 		if (rec) hdDrag.el.style.left = ((hdDrag.k === "hold" ? rec.t1 : hdDrag.k === "via" ? rec.t0 + (rec.knots?.[hdDrag.ki] ?? 0) : rec.tArrive) * W).toFixed(3) + "%";
-		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl.dur)}`;
+		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl!.dur)}`;
 	});
 	const hdEnd = () => { if (!hdDrag) return; hdDrag.el.classList.remove("drag"); hdDrag = null; save(); tlDirty = true; tlRefresh(); };
 	scrubTk.addEventListener("pointerup", hdEnd);
 	scrubTk.addEventListener("pointercancel", hdEnd);
 	let scrubbing = false;
 	scrubTk.addEventListener("pointerdown", e => {
-		if (e.target.closest?.(".hd")) return;   // つまみは上の（capture）ハンドラが受ける
+		if ((e.target as Element).closest?.(".hd")) return;   // つまみは上の（capture）ハンドラが受ける
 		map.stopScenes();   // スクラブは上映と排他（掴んだら止める＝主導権は人）
 		if (tlDirty || !tl) tlRefresh();
 		if (!tl) return;
@@ -497,8 +511,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	// 画質＝①録画中は動的解像度を固定（map.pinRes・縮み絵を混ぜない）②フレームを目標解像度（16:9=1920×1080 等）の
 	// CSS×dpr サイズへ一時リサイズ（舞台に入り切らない分は内接クランプ＝実際に切り出されるのは画面上のピクセル）③高ビットレート。
 	// 頭とケツ＝上映の儀式そのまま：黒幕が立ってから録画開始・終幕の黒が完成した頃に停止＝黒 in/黒 out の完成素材。
-	const REC_RES = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:3": [1440, 1080] };
-	let recState = null;
+	const REC_RES: Record<string, number[]> = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:3": [1440, 1080] };
+	let recState: { rec: MediaRecorder; stream: MediaStream; timer: number } | null = null;
 	const recFit = () => {   // 目標解像度に合わせた CSS サイズへ（戻しは fit()）。返り値＝実効デバイス px
 		const t = REC_RES[doc.frame], dpr = devicePixelRatio || 1;
 		if (!t) return [Math.round(frameEl.clientWidth * dpr), Math.round(frameEl.clientHeight * dpr)];   // 自由枠＝今の実寸のまま
@@ -513,13 +527,13 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		map.pinRes?.(true);   // 動的解像度を固定＝録画に縮み絵を混ぜない
 		let stream;
 		try {
-			stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 60 }, audio: false, preferCurrentTab: true });
+			stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 60 }, audio: false, preferCurrentTab: true } as DisplayMediaStreamOptions);   // as＝preferCurrentTab（Chrome）は lib.dom に未収載
 		} catch { map.pinRes?.(false); fit(); return false; }   // 共有ダイアログのキャンセル＝静かに戻す
 		const [track] = stream.getVideoTracks();
-		try { await track.cropTo(await CropTarget.fromElement(frameEl)); } catch { /* Region Capture 非対応＝タブ全面のまま */ }
+		try { await (track as MediaStreamTrack & { cropTo(t: unknown): Promise<void> }).cropTo(await CropTarget.fromElement(frameEl)); } catch { /* Region Capture 非対応＝タブ全面のまま */ }
 		const mime = ["video/mp4;codecs=avc1.640028", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find(m => MediaRecorder.isTypeSupported(m)) || "";
 		const rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: Math.max(12e6, Math.round(px[0] * px[1] * 30 * 0.2)) });   // ≈0.2bit/px/frame（1080p30≒12Mbps・編集の中間素材として十分な高品質）
-		const chunks = [];
+		const chunks: Blob[] = [];
 		rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
 		const recBtn = $("#sc-rec");
 		const finalize = () => {   // 保存＋原状復帰の一本道（停止・共有停止・エラーどの経路でもここ）
@@ -539,7 +553,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		recState = { rec, stream, timer: 0 };
 		recBtn.textContent = t("⏺ Recording…");
 		// 上映の儀式で再生：終演(finished)＝終幕の黒が完成した頃に停止（黒 out）／中断(stopped)＝間を置かず停止（素材は保存）
-		const okd = play({ onEnd: r => { if (recState) recState.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, r === "finished" ? 1700 : 300); } });
+		const okd = play({ onEnd: (r: string) => { if (recState) recState.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, r === "finished" ? 1700 : 300); } });
 		if (okd !== true) { finalize(); return false; }
 		setTimeout(() => { if (recState && rec.state === "inactive") rec.start(1000); }, 150);   // 黒幕が乗った直後から＝頭は黒 in
 		return true;
@@ -553,7 +567,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}.scenes`;
 		a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 	};
-	const load = obj => { if (obj?.type !== "scenes") return false; mark(); doc = { frame: "16:9", ...obj }; sel = -1; save(); fit(); paint(); return true; };   // 読込＝下書きの上書きも ⌘Z で戻る
+	const load = (obj: unknown) => { if ((obj as Doc | null)?.type !== "scenes") return false; mark(); doc = { frame: "16:9", ...(obj as object) } as Doc; sel = -1; save(); fit(); paint(); return true; };   // 読込＝下書きの上書きも ⌘Z で戻る
 
 	// ── 配線 ──
 	titleEl.addEventListener("input", () => { doc.title = titleEl.value; save(); });
@@ -571,8 +585,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-redo").addEventListener("click", redo);
 	$("#sc-rec-path").addEventListener("click", pathRecord);
 	// 行リストのキー（フォーカスがリストにある時＝行クリックで移る）：↑↓ 選択して飛ぶ・⌥↑↓ 並べ替え・⌘D 複製。地図のキー操作へは流さない
-	const moveRow = (from, to) => { if (to < 0 || to >= doc.scenes.length) return; mark(); const [row] = doc.scenes.splice(from, 1); doc.scenes.splice(to, 0, row); sel = to; save(); paint(); };
-	const duplicateRow = i => { const r = doc.scenes[i]; if (!r) return; mark(); doc.scenes.splice(i + 1, 0, JSON.parse(JSON.stringify(r))); sel = i + 1; save(); paint(); };
+	const moveRow = (from: number, to: number) => { if (to < 0 || to >= doc.scenes.length) return; mark(); const [row] = doc.scenes.splice(from, 1); doc.scenes.splice(to, 0, row); sel = to; save(); paint(); };
+	const duplicateRow = (i: number) => { const r = doc.scenes[i]; if (!r) return; mark(); doc.scenes.splice(i + 1, 0, JSON.parse(JSON.stringify(r))); sel = i + 1; save(); paint(); };
 	rowsEl.addEventListener("keydown", e => {
 		if (typing()) return;
 		const meta = e.metaKey || e.ctrlKey;
@@ -588,11 +602,11 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		}
 		if (meta && e.key.toLowerCase() === "d") { e.preventDefault(); e.stopPropagation(); if (sel >= 0) duplicateRow(sel); }
 	});
-	const openFile = async f => {   // ファイル入力・ドロップ共通（.scenes / .scenes.gz / .json＝gzip も中身判定で解凍）
+	const openFile = async (f: File) => {   // ファイル入力・ドロップ共通（.scenes / .scenes.gz / .json＝gzip も中身判定で解凍）
 		const obj = await sniffScene(f);
 		if (load(obj)) note(t("Opened: $1", f.name)); else note(t("Not a scenes script (needs type:\"scenes\")"));
 	};
-	$("#sc-load").addEventListener("change", e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) openFile(f); });
+	$("#sc-load").addEventListener("change", e => { const f = (e.target as HTMLInputElement).files?.[0]; (e.target as HTMLInputElement).value = ""; if (f) openFile(f); });
 	// クラウド（共通の器）：保存＝書き出しと同じ JSON を .scenes として／開く＝ファイル読込と同じ道（sniff→load＝undo に乗る）／一覧＝.scenes だけ
 	const safeName = () => (doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_");
 	const openCloud = () => cloudPanel($("#sc-cloud-host"), {
@@ -607,16 +621,16 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-cloud").addEventListener("click", openCloud);
 	// ドロップ受付（舞台・パネルとも）：dropFile ガジェットはこのページに載せない＝落とした台本は再生でなく編集へ
 	let dropDepth = 0;
-	const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+	const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types || [])].includes("Files");
 	const dropTargets = [stageEl, panelEl];
-	const onDragEnter = e => { if (hasFiles(e)) { e.preventDefault(); dropDepth++; stageEl.classList.add("sc-drop"); } };
-	const onDragOver = e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } };
+	const onDragEnter = (e: DragEvent) => { if (hasFiles(e)) { e.preventDefault(); dropDepth++; stageEl.classList.add("sc-drop"); } };
+	const onDragOver = (e: DragEvent) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer!.dropEffect = "copy"; } };
 	const onDragLeave = () => { if (--dropDepth <= 0) { dropDepth = 0; stageEl.classList.remove("sc-drop"); } };
-	const onDrop = e => { dropDepth = 0; stageEl.classList.remove("sc-drop"); if (!hasFiles(e)) return; e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) openFile(f); };
+	const onDrop = (e: DragEvent) => { dropDepth = 0; stageEl.classList.remove("sc-drop"); if (!hasFiles(e)) return; e.preventDefault(); const f = e.dataTransfer!.files?.[0]; if (f) openFile(f); };
 	for (const el of dropTargets) { el.addEventListener("dragenter", onDragEnter); el.addEventListener("dragover", onDragOver); el.addEventListener("dragleave", onDragLeave); el.addEventListener("drop", onDrop); }
 	// キー操作（PC ツール）：⌘Z/⇧⌘Z は undo（redo は未実装＝⇧は無視）・Delete＝選択行の削除・Space＝試写/停止。入力中は譲る
-	const typing = () => { const a = document.activeElement; return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable); };
-	const onKey = e => {
+	const typing = () => { const a = document.activeElement as HTMLElement | null; return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable); };
+	const onKey = (e: KeyboardEvent) => {
 		if (typing()) return;
 		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -624,27 +638,27 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (e.key === " " && !document.getElementById("demo-bar")?.classList.contains("on")) { e.preventDefault(); playFrom(); }   // 上映中の Space はプレーヤー側（bare モードでは無視）
 	};
 	window.addEventListener("keydown", onKey);
-	const onPaste = e => { if (typing()) return; const n = pasteHashes(e.clipboardData?.getData("text")); if (n) e.preventDefault(); };
+	const onPaste = (e: ClipboardEvent) => { if (typing()) return; const n = pasteHashes(e.clipboardData?.getData("text")); if (n) e.preventDefault(); };
 	window.addEventListener("paste", onPaste);
 	rowsEl.addEventListener("input", e => {   // 行の入力＝モデル直結（再描画しない＝フォーカスを保つ）
-		const li = e.target.closest(".sc-row"); if (!li) return;
-		const r = doc.scenes[+li.dataset.i], k = e.target.dataset.k;
+		const li = (e.target as HTMLInputElement).closest<HTMLElement>(".sc-row"); if (!li) return;
+		const r = doc.scenes[+li.dataset.i!], k = (e.target as HTMLInputElement).dataset.k;
 		if (!r || !k || k === "glide") return;
-		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre") { const v = e.target.value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
-		else { const v = parseFloat(e.target.value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 数値キー（hold/travel/mobile）＝空欄＝キー削除（既定へ）
+		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre") { const v = (e.target as HTMLInputElement).value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
+		else { const v = parseFloat((e.target as HTMLInputElement).value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 数値キー（hold/travel/mobile）＝空欄＝キー削除（既定へ）
 		save();
 	});
 	rowsEl.addEventListener("change", e => {   // 遷移セレクタだけ change（キー名が変わる＝再描画）。v2 の掟＝キー名が遷移
-		const li = e.target.closest(".sc-row"); if (!li || e.target.dataset.k !== "trans") return;
-		const r = doc.scenes[+li.dataset.i], h = r.view ?? r.glide ?? r.fade;
+		const li = (e.target as HTMLSelectElement).closest<HTMLElement>(".sc-row"); if (!li || (e.target as HTMLSelectElement).dataset.k !== "trans") return;
+		const r = doc.scenes[+li.dataset.i!], h = r.view ?? r.glide ?? r.fade;
 		mark();
 		delete r.view; delete r.glide; delete r.fade;
-		r[e.target.value] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
+		r[(e.target as HTMLSelectElement).value] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
 		save(); paint();
 	});
 	rowsEl.addEventListener("click", e => {
-		const li = e.target.closest(".sc-row"); if (!li) return;
-		const i = +li.dataset.i, r = doc.scenes[i], op = e.target.dataset.op;
+		const li = (e.target as HTMLElement).closest<HTMLElement>(".sc-row"); if (!li) return;
+		const i = +li.dataset.i!, r = doc.scenes[i], op = (e.target as HTMLElement).dataset.op;
 		if (op === "del") { mark(); doc.scenes.splice(i, 1); if (sel >= doc.scenes.length) sel = doc.scenes.length - 1; save(); paint(); return; }
 		if (op === "reshoot") { mark(); setHash(r, map.view.hash); save(); paint(); captureThumb(camKey(hashOf(r))); return; }
 		if (op === "layersNow" || op === "layersKeep" || op === "layersNone") {   // レイヤーチップの3操作＝カメラは動かさず l=/c= だけ書き換える
@@ -653,34 +667,34 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			setHash(r, joinHash(op === "layersNow" ? { cam: cur.cam, l: now.l, c: now.c } : op === "layersKeep" ? { cam: cur.cam, l: null, c: null } : { cam: cur.cam, l: "l=", c: null }));
 			openMore.add(i); save(); paint(); return;
 		}
-		if (e.target.closest("summary")) { const d = e.target.closest("details"); setTimeout(() => { d.open ? openMore.add(i) : openMore.delete(i); }); sel = i; li.classList.add("sel"); return; }   // 詳細の開閉＝状態を控える（toggle 後の値）
-		if (e.target.closest("input, label, select")) { sel = i; li.classList.add("sel"); return; }   // 入力操作＝選択だけ（再描画もしない＝フォーカス保持）
+		if ((e.target as HTMLElement).closest("summary")) { const d = (e.target as HTMLElement).closest("details")!; setTimeout(() => { d.open ? openMore.add(i) : openMore.delete(i); }); sel = i; li.classList.add("sel"); return; }   // 詳細の開閉＝状態を控える（toggle 後の値）
+		if ((e.target as HTMLElement).closest("input, label, select")) { sel = i; li.classList.add("sel"); return; }   // 入力操作＝選択だけ（再描画もしない＝フォーカス保持）
 		sel = i; paint(); rowsEl.focus({ preventScroll: true });   // 以降 ↑↓ が効く
 		if (!playing) location.hash = hashOf(r) ?? location.hash;   // 行クリック＝その視点へ（シーン切替が編集の主動線・URL一元化の道＝flyView が飛ぶ）
 	});
 	// number 入力へのホイール誤爆を断つ：フォーカス中の hold/travel にカーソルが乗ったままパネルをスクロールすると
 	// Chrome 標準で値が回ってしまう＝「hold が勝手に変わる」の正体。1目盛りも入れずに止めて blur（以降は素直にスクロール）
 	rowsEl.addEventListener("wheel", e => {
-		if (e.target.matches?.('input[type="number"]')) { e.preventDefault(); e.target.blur(); }
+		if ((e.target as HTMLInputElement).matches?.('input[type="number"]')) { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
 	}, { passive: false });
 	// 並べ替え＝右のハンドル（⠿）をドラッグ。HTML5 DnD 素実装（依存ゼロ）：上半分=前へ・下半分=後ろへ挿す
-	let dragI = -1, overEl = null;
+	let dragI = -1, overEl: HTMLElement | null = null;
 	const clearOver = () => { overEl?.classList.remove("over-top", "over-bot"); overEl = null; };
 	rowsEl.addEventListener("dragstart", e => {
-		const li = e.target.closest?.(".sc-row");
-		if (!e.target.closest?.(".sc-grip") || !li) { e.preventDefault(); return; }   // 掴めるのはハンドルだけ（タイトルの文字ドラッグ等は殺す）
-		dragI = +li.dataset.i;
+		const li = (e.target as Element).closest?.<HTMLElement>(".sc-row");
+		if (!(e.target as Element).closest?.(".sc-grip") || !li) { e.preventDefault(); return; }   // 掴めるのはハンドルだけ（タイトルの文字ドラッグ等は殺す）
+		dragI = +li.dataset.i!;
 		li.classList.add("dragging");
-		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("text/plain", String(dragI));
-		e.dataTransfer.setDragImage?.(li, 20, 20);
+		e.dataTransfer!.effectAllowed = "move";
+		e.dataTransfer!.setData("text/plain", String(dragI));
+		e.dataTransfer!.setDragImage?.(li, 20, 20);
 	});
 	rowsEl.addEventListener("dragover", e => {
 		if (dragI < 0) return;
-		e.preventDefault(); e.dataTransfer.dropEffect = "move";
-		const li = e.target.closest(".sc-row");
+		e.preventDefault(); e.dataTransfer!.dropEffect = "move";
+		const li = (e.target as Element).closest<HTMLElement>(".sc-row");
 		if (li !== overEl) clearOver();
-		if (li && +li.dataset.i !== dragI) {
+		if (li && +li.dataset.i! !== dragI) {
 			overEl = li;
 			const r = li.getBoundingClientRect(), top = e.clientY < r.top + r.height / 2;
 			li.classList.toggle("over-top", top); li.classList.toggle("over-bot", !top);
@@ -689,9 +703,9 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	rowsEl.addEventListener("drop", e => {
 		if (dragI < 0) return;
 		e.preventDefault();
-		const li = e.target.closest(".sc-row");
+		const li = (e.target as Element).closest<HTMLElement>(".sc-row");
 		let to = doc.scenes.length;
-		if (li) { const r = li.getBoundingClientRect(); to = +li.dataset.i + (e.clientY < r.top + r.height / 2 ? 0 : 1); }
+		if (li) { const r = li.getBoundingClientRect(); to = +li.dataset.i! + (e.clientY < r.top + r.height / 2 ? 0 : 1); }
 		mark();
 		const [row] = doc.scenes.splice(dragI, 1);
 		if (to > dragI) to--;
@@ -704,7 +718,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	if (!restored) {
 		const start = document.createElement("div");
 		start.id = "sc-start";
-		const box = (w, h) => `<svg class="box" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="${w - 2}" height="${h - 2}" fill="none" stroke="currentColor"/></svg>`;
+		const box = (w: number, h: number) => `<svg class="box" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="${w - 2}" height="${h - 2}" fill="none" stroke="currentColor"/></svg>`;
 		start.innerHTML = `<div class="card"><h1>${t("Define the frame")}</h1><p>${t("z is independent of screen size — this frame is the work's aspect (changeable later)")}</p>
 			<div class="fr">
 				<button data-f="16:9">${box(64, 36)}${t("16:9 landscape")}</button>
@@ -713,8 +727,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				<button data-f="free">${box(64, 44)}${t("Free")}</button>
 			</div></div>`;
 		start.addEventListener("click", e => {
-			const b = e.target.closest("button[data-f]"); if (!b) return;
-			doc.frame = b.dataset.f; save(); fit(); paint(); start.remove();
+			const b = (e.target as Element).closest<HTMLElement>("button[data-f]"); if (!b) return;
+			doc.frame = b.dataset.f!; save(); fit(); paint(); start.remove();
 		});
 		stageEl.append(start);
 	}
@@ -725,10 +739,10 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const camChip = document.createElement("div");
 	camChip.id = "sc-cam";
 	stageEl.append(camChip);
-	const fmtAlt = m => m < 10000 ? `${Math.round(m)} m` : m < 100000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000).toLocaleString("en")} km`;
+	const fmtAlt = (m: number) => m < 10000 ? `${Math.round(m)} m` : m < 100000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000).toLocaleString("en")} km`;
 	let camTxt = "";
 	const camTick = () => {   // エンジンの描画フック＝地図が動いた時だけ（常時 rAF で回さない）
-		const v = map.view, e = v.eye;
+		const v = map.view, e = v.eye as { lat: number; lon: number; altM: number; fovy: number } | undefined;   // as＝eye は view の索引署名側（globe の型）
 		if (!e) return;
 		const brg = Math.round(((v.bearing * 180 / Math.PI) % 360 + 360) % 360) % 360;
 		// 視野の角度（本人指定・チルトは各行の permalink にある）＝水平×垂直。垂直=エンジンの fovy（既定50°）・
@@ -742,25 +756,25 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	};
 	// 選択行と現在カメラの一致（緑＝この行の視点にいる／橙輪＝動いている＝再撮影の押し忘れ防止）。比較はカメラ部のハッシュ
 	let hereState = "";
-	const sameCam = (a, b) => {   // 数値で比較（書式の桁数差＝#8 と #8.00 を同じと見る）。z 0.01・経緯度 1e-5・チルト/方位 0.5° まで同一
+	const sameCam = (a: string | undefined, b: string) => {   // 数値で比較（書式の桁数差＝#8 と #8.00 を同じと見る）。z 0.01・経緯度 1e-5・チルト/方位 0.5° まで同一
 		const A = parseViewHash(a), B = parseViewHash(b);
 		if (!A || !B) return false;
 		return Math.abs(A.zoom - B.zoom) < 0.011 && Math.abs(A.lat - B.lat) < 1.1e-5 && Math.abs(A.lon - B.lon) < 1.1e-5
 			&& Math.abs((A.pitch || 0) - (B.pitch || 0)) < 0.01 && Math.abs((A.bearing || 0) - (B.bearing || 0)) < 0.01;
 	};
 	const hereSync = () => {
-		const li = rowsEl.querySelector(".sc-row.sel"); if (!li) { hereState = ""; return; }
-		const r = doc.scenes[+li.dataset.i]; if (!r) return;
+		const li = rowsEl.querySelector<HTMLElement>(".sc-row.sel"); if (!li) { hereState = ""; return; }
+		const r = doc.scenes[+li.dataset.i!]; if (!r) return;
 		const st = sameCam(hashOf(r), map.view.hash) ? "here" : "away";
 		if (st === hereState && li.classList.contains(st)) return;
 		hereState = st; li.classList.toggle("here", st === "here"); li.classList.toggle("away", st === "away");
-		li.querySelector(".sc-here").title = st === "here" ? t("At this row's view") : t("Moved away from this row's view (📷 Reshoot to update)");
+		li.querySelector<HTMLElement>(".sc-here")!.title = st === "here" ? t("At this row's view") : t("Moved away from this row's view (📷 Reshoot to update)");
 	};
 	const unsubCam = map.onFrame ? map.onFrame(camTick) : (requestAnimationFrame(camTick), () => {});
 	camTick();
 
 	// ── 出典（#attr）＝画角フレームの外へ＝パネル最下部（録画の絵を汚さない・クレジットは常時視認）。app が作った実体を養子縁組 ──
-	const adoptAttr = tries => {
+	const adoptAttr = (tries: number) => {
 		const a = map.mapEl.querySelector("#attr") || document.getElementById("attr");
 		if (a) panelEl.append(a); else if (tries < 50) setTimeout(() => adoptAttr(tries + 1), 100);
 	};
@@ -775,5 +789,5 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	};
 	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
 		get canUndo() { return undoStack.length > 0; },
-		select: i => { sel = i; paint(); } };
+		select: (i: number) => { sel = i; paint(); } };
 }

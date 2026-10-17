@@ -7,7 +7,7 @@
 <body>
 <script>localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? `(${x})` : ""));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SITE = [139.7671, 35.6812];

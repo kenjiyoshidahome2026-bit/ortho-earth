@@ -9,7 +9,7 @@
 localStorage.setItem("oj.hint", "closed");
 </script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
 const mark = s => { document.title = "… " + s; };   // 途中で止まっても最後に着いた段が title に残る
 	// console の warn/error を採取＝NG の時に title へ添える（原因が黙って飲まれる型＝catalog の .catch 等を見抜く）

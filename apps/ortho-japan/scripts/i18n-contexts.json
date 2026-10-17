@@ -10,7 +10,7 @@
   "globe/gadgets/close.ts": {
     "閉じる (Esc)": "Close (Esc) ##map"
   },
-  "demo/editor.js": {
+  "demo/editor.ts": {
     "作品タイトル": "Title ##work"
   },
   "globe/gadgets/cloud.ts": {
