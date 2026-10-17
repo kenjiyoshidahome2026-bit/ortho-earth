@@ -1,0 +1,70 @@
+# 本番の配布を Actions のボタンで（2026-10-17）＝手元の `npm run deploy:engine` と同じ中身を GitHub の runner で回す。
+#   Actions タブ →「deploy」→ Run workflow（スマホの GitHub アプリからも押せる）。押せるのは main だけ（下の if）。
+#   target：engine-and-apps＝エンジン → それを使う全アプリ（apps に名前を書けばそのアプリだけ・空白区切り）
+#           engine-only＝エンジンだけ ／ native-bucket・quakes-mirror・sats-mirror＝それぞれの Worker だけ
+#   gishub-jp・geopbf-demo・www は今まで通り Cloudflare Pages が main の push で自動で組む＝ここでは配らない。
+# 要る物（Settings → Environments → production）：secret CLOUDFLARE_API_TOKEN（Workers を編集できる token）・CLOUDFLARE_ACCOUNT_ID。
+# 検定（verify-prod 等）は Chrome for Testing＋swiftshader の headless＝runner でも同じ門を通ってから配る。門は緩めない。
+# ortho-japan の deploy は前回の配布 tag（japan-deployed＝手元だけの tag）が無い＝エディタ関門は毎回「全部」になる（遅いが安全側）。
+name: deploy
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 配る物
+        type: choice
+        default: engine-and-apps
+        options: [engine-and-apps, engine-only, native-bucket, quakes-mirror, sats-mirror]
+      apps:
+        description: engine-and-apps の時だけ・配るアプリ（空白区切り・空＝全部）例「census2020 world」
+        type: string
+        default: ""
+concurrency:
+  group: deploy-production   # 配布は 1 本ずつ（2 本目は前が終わるまで待つ）
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ inputs.target }}
+      APPS: ${{ inputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Chrome for Testing のキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ortho-earth/chrome-for-testing
+          key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
+      - run: npm ci --no-audit --no-fund
+      - name: 検定用の Chrome を入れる
+        if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only'
+        run: node packages/globe/scripts/lib/chrome.mjs --install
+      - name: 配る
+        run: |
+          set -eu
+          case "$TARGET" in
+            engine-and-apps)
+              # APPS は自由記入＝名前の形だけ通す（deploy-engine.mjs が知らない名前を弾く）
+              for a in $APPS; do case "$a" in *[!a-z0-9-]*) echo "✗ アプリ名の形でない：$a"; exit 1;; esac; done
+              node scripts/deploy-engine.mjs $APPS ;;
+            engine-only)   node scripts/deploy-engine.mjs --engine-only ;;
+            native-bucket) npm run deploy -w native-bucket ;;
+            quakes-mirror) cd apps/quakes-mirror && npx wrangler deploy ;;
+            sats-mirror)   cd apps/sats-mirror && npx wrangler deploy ;;
+          esac
+      - name: まとめ
+        if: always()
+        run: echo "### deploy：$TARGET ${APPS:-（全部）}（main ${GITHUB_SHA::7}）— ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

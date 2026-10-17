@@ -1,0 +1,57 @@
+# 公開ミラー（別 repo）への写しを Actions のボタンで（2026-10-17）＝各 workspace の `npm run mirror`（subtree split → 各 repo の main へ --force push）。
+#   Actions タブ →「mirror」→ Run workflow（targets 空＝6 つ全部）。publish.yml からも呼ばれる（出した package のうちミラーのある物だけ）。
+# 要る物（Settings → Environments → mirror）：secret MIRROR_TOKEN＝6 つのミラー repo（geopbf・altpbf・geoedit・native-bucket・ortho-world・himekuri）に
+#   Contents: Read and write を持つ fine-grained PAT。この repo の GITHUB_TOKEN は他の repo へ押せない。
+name: mirror
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 写す workspace（空白区切り・空＝全部）geopbf altpbf geoedit native-bucket ortho-world himekuri
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      published:
+        description: publish で出した package 名（空白区切り）
+        type: string
+        required: true
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  mirror:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: mirror
+    env:
+      TARGETS: ${{ inputs.targets || inputs.published }}
+      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0              # subtree split は全履歴が要る
+          persist-credentials: false  # GITHUB_TOKEN の認証ヘッダが MIRROR_TOKEN とぶつからないように
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: 写す
+        run: |
+          set -eu
+          [ -n "$MIRROR_TOKEN" ] || { echo "✗ secret MIRROR_TOKEN が無い"; exit 1; }
+          git config --global url."https://x-access-token:${MIRROR_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "mirror"
+          git config --global user.email "kenji.yoshida.home.2026@gmail.com"
+          ALL="geopbf altpbf geoedit native-bucket ortho-world himekuri"
+          want="${TARGETS:-$ALL}" done=""
+          for w in $ALL; do
+            case " $want " in *" $w "*) ;; *) continue;; esac
+            echo "=== $w"; npm run mirror -w "$w"; done="$done $w"
+          done
+          for w in $want; do case " $ALL " in *" $w "*) ;; *) echo "・ ミラーの無い物は飛ばす：$w";; esac; done
+          echo "### mirror：${done:- なし}（main ${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
