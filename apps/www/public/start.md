@@ -19,7 +19,7 @@ There are two routes. Pick one.
 
 ## Route A — with Vite
 
-Requirements: Node.js 20 or newer.
+Requirements: Node.js 20.19+ or 22.12+ (what the Vite that `npm create vite` installs needs).
 
 ### A1. Create a project
 
@@ -100,7 +100,7 @@ await map.addLayer({ id: "cities", type: "circle", source: "cities",
   paint: { "circle-radius": 6, "circle-color": "#e4572e" } });
 ```
 
-`data` can also be a URL of a GeoJSON file. Layer types: `fill`, `line`, `circle`, `symbol`, `fill-extrusion`, `heatmap`, `raster`.
+`data` can also be a URL of a GeoJSON file. Layer types: `fill`, `line`, `circle`, `symbol`, `fill-extrusion`, `heatmap`, `raster`, `hillshade`, `color-relief`.
 Other formats (Shapefile, GeoPackage, FlatGeobuf, GeoParquet, KML, GPX …) are read with `geopbf` — `import { geopbf } from "@ortho-earth/globe"`.
 Dropping a time-tagged `.czml` or `.gpx` file (or opening it with `?g=`) plays it on the shared clock (`map.clock`), like Cesium: the CZML `clock` sets the time range and speed.
 
@@ -122,6 +122,18 @@ await map.flyTo({ center: [139.77, 35.68], zoom: 12, pitch: 60 });   // resolves
 ```
 
 Camera: `jumpTo`, `easeTo`, `flyTo`, `fitBounds`, `getCenter`, `getZoom`. Events: `map.on("move" | "settle" | "click" | "time", …)`.
+
+### A7. More
+
+- 3D Tiles and I3S: `await map.add3DTiles(url)`, `await map.addI3S(url)`
+- Your own terrain (`raster-dem`): `map.setTerrain({ source: { tiles: [url], encoding: "terrarium" } })`
+- Raster tiles (XYZ, WMS, WMTS, PMTiles): `map.addSource(id, { type: "raster", tiles: [url] })` + a `raster` layer
+- A MapLibre `style.json`: `createGlobe({ style: url })`
+- Time: `map.clock` (night side, stars and satellites follow it)
+- Analysis: `map.sunShadow()`, `map.viewshed()`, `map.lineOfSight(a, b)`
+- Screen ⇄ map: `map.project([lng, lat])` → `{ x, y }`, `map.unproject([x, y])` → `{ lng, lat }` (or `null` off the globe)
+- The country name that follows the mouse at low zoom: `createGlobe({ countryTip: false })` turns it off
+- TypeScript definitions ship with the package (`@ortho-earth/globe/globe.d.ts`) — your editor picks them up by itself. The `map` API is the same in both routes. The engine overview is at https://www.ortho-earth.com/docs/core.html
 
 ### A8. Already have MapLibre GL JS code?
 
@@ -151,18 +163,6 @@ map.on("load", () => {
 
 Zoom levels follow MapLibre's, so `zoom`, `minzoom`/`maxzoom` and tile levels mean the same as in your existing code. If you use MapLibre's controls, keep linking `maplibre-gl.css`.
 All 139 official MapLibre GL JS examples run on it with their code unchanged — each one with its source, how closely it matches MapLibre, and a Run button: https://www.ortho-earth.com/maplibre/
-
-### A7. More
-
-- 3D Tiles and I3S: `await map.add3DTiles(url)`, `await map.addI3S(url)`
-- Your own terrain (`raster-dem`): `map.setTerrain({ source: { tiles: [url], encoding: "terrarium" } })`
-- Raster tiles (XYZ, WMS, WMTS, PMTiles): `map.addSource(id, { type: "raster", tiles: [url] })` + a `raster` layer
-- A MapLibre `style.json`: `createGlobe({ style: url })`
-- Time: `map.clock` (night side, stars and satellites follow it)
-- Analysis: `map.sunShadow()`, `map.viewshed()`, `map.lineOfSight(a, b)`
-- Screen ⇄ map: `map.project([lng, lat])` → `{ x, y }`, `map.unproject([x, y])` → `{ lng, lat }` (or `null` off the globe)
-- The country name that follows the mouse at low zoom: `createGlobe({ countryTip: false })` turns it off
-- TypeScript definitions ship with the package (`@ortho-earth/globe/globe.d.ts`) — your editor picks them up by itself. The `map` API is the same in both routes. The engine overview is at https://www.ortho-earth.com/docs/core.html
 
 ---
 

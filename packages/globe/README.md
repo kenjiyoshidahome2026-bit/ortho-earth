@@ -96,7 +96,7 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
   `addPointCloud` / `removePointCloud`. `OrthoJapanMap` stays as an alias of `GlobeMap`.
 
 Every change, old → new, per package: [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md)
-(Japanese). When 2.0 is published, 1.x is planned to stay installable under the `v1` dist-tag (`npm i @ortho-earth/globe@v1`).
+(Japanese). 1.x stays installable by version range: `npm i @ortho-earth/globe@1` (the last 1.x is 1.16.0).
 
 ## Verification
 
