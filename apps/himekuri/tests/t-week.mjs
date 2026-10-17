@@ -1,6 +1,6 @@
 // 一日分の簡略データ（暦＋太陽・月）が himekuri と astro の両方を正しく束ねているか
 import assert from "node:assert/strict";
-import { dayInfo, createDayCache, iso, parseISO, addDays, diffDays } from "../src/week.js";
+import { dayInfo, createDayCache, iso, parseISO, addDays, diffDays } from "../src/week.ts";
 let n = 0;
 const loc = { lat: 35.6762, lon: 139.6503, elev: 40, dip: true };
 const d = dayInfo([2026, 10, 8], loc, "Asia/Tokyo");

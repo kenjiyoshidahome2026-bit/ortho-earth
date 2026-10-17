@@ -1,7 +1,7 @@
 // iCalendar の読みと繰り返しの展開（終日・TZID・UTC・DAILY/WEEKLY/MONTHLY/YEARLY・COUNT/UNTIL・EXDATE・RECURRENCE-ID・折り返し行）
 import assert from "node:assert/strict";
-import { parseICS, expand, parseDuration, unfold } from "../src/ical.js";
-import { zonedToUTC } from "../src/astro.js";
+import { parseICS, expand, parseDuration, unfold } from "../src/ical.ts";
+import { zonedToUTC } from "../src/astro.ts";
 const TZ = "Asia/Tokyo", day = (y, m, d) => zonedToUTC(y, m, d, 0, 0, 0, TZ);
 const ICS = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:テスト\r\nBEGIN:VEVENT\r\nUID:a\r\nSUMMARY:終日の予定\\, 句読点つき\r\nDTSTART;VALUE=DATE:20261008\r\nDTEND;VALUE=DATE:20261009\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:b\r\nSUMMARY:朝会\r\nDTSTART;TZID=Asia/Tokyo:20261001T090000\r\nDTEND;TZID=Asia/Tokyo:20261001T093000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261031T000000Z\r\nEXDATE;TZID=Asia/Tokyo:20261009T090000\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:c\r\nSUMMARY:UTC の予定で長い題名が折り返されて\r\n いる\r\nDTSTART:20261008T030000Z\r\nDURATION:PT45M\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:d\r\nSUMMARY:月例（第 2 木曜）\r\nDTSTART;TZID=Asia/Tokyo:20260108T190000\r\nDTEND;TZID=Asia/Tokyo:20260108T200000\r\nRRULE:FREQ=MONTHLY;BYDAY=2TH;COUNT=12\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:e\r\nSUMMARY:誕生日\r\nDTSTART;VALUE=DATE:19900715\r\nRRULE:FREQ=YEARLY\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:f\r\nSUMMARY:毎日（3 回）\r\nDTSTART;TZID=Asia/Tokyo:20261007T120000\r\nDTEND;TZID=Asia/Tokyo:20261007T123000\r\nRRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:b\r\nRECURRENCE-ID;TZID=Asia/Tokyo:20261012T090000\r\nSUMMARY:朝会（時間変更）\r\nDTSTART;TZID=Asia/Tokyo:20261012T100000\r\nDTEND;TZID=Asia/Tokyo:20261012T103000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
 let n = 0;
