@@ -926,7 +926,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	}
 
 	// 塗り（面）の計画（renderCleanScene の判定＝逐語）。noFaces＝面は地面アトラス側（bakeFaces）＝画面では描かない
-	function fillPlan(L: GintLayer, data: GintDraw) {
+	function fillPlan(L: GintLayer, data: GintDraw, atlas = false) {   // atlas＝窓座標モード（bakeFaces）＝境界メタを使わない（下）
 		const st = data.styleTable ?? DEF_STYLE;
 		const zoomV = data.zoom ?? 99, oz = data.outlineZoom ?? L.outlineZoom ?? OUTLINE_ZOOM;   // スタイル側上書き（gl/passes.js と同型＝admin0 の境界メタ縮退切り）
 		const lowZoom = zoomV < oz;
@@ -936,7 +936,9 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
 			: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
 		const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
-		const hasB = !!(L.metaTexB && L.polyEdgesB > 0);
+		// 窓座標モードは境界メタを使わない：fid 混成ループには環ごとの bbox が無く、原点±180° を跨ぐループを連続に置けない
+		//（vsStencil の atlasFanVertex＝鍵の bbox 中心の周りで連続）＝基準メタ（鍵＝構成ポリゴン）で焼く（gl/passes.ts と対）
+		const hasB = !!(L.metaTexB && L.polyEdgesB > 0) && !atlas;
 		const stTex = hasB ? L.metaTexB : L.metaTex, stCount = hasB ? L.polyEdgesB : L.polyEdges;
 		const doFill = !data.noFaces && fc[3] > 0 && stCount > 0 && L.arcTex
 			&& !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8);   // 安表現中の塗り予算（sync の canFill と同じ物差し）
@@ -1392,7 +1394,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			if (L._forceLowMove) data._forceLow = true;
 			if (!zoomInRange(L, data) || L.totalEdges === 0) continue;
 			const dd = computeDrawData(V, data) as GintDraw;
-			const fp = fillPlan(L, dd);
+			const fp = fillPlan(L, dd, true);
 			const idFill = fp.idFill && !!L.fidStyleTex;
 			if (!idFill && !fp.doFill) continue;
 			L.sbOn = sbReady(L);
@@ -1411,7 +1413,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 				idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
 				idPass.setBindGroup(0, L.frameBGA[index * 2]); idPass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 				idPass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex)); idPass.setBindGroup(3, aux);
-				idPass.draw(L.polyEdges * 3);
+				idPass.draw(L.polyEdges * 3, 2);   // インスタンス 1＝原点±180° を跨ぐ環の写し（vsId・窓座標モードだけ）
 				idPass.end();
 			} else {
 				packGP(ROLE.fill, { color: fp.fc });
@@ -1427,7 +1429,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			} else {
 				pass.setBindGroup(0, L.frameBGA[index * 2 + (fp.hasB ? 1 : 0)]); pass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 				pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, fp.stTex)); pass.setBindGroup(3, aux);
-				pass.setPipeline(PA.stencilFan); pass.draw(fp.stCount * 3);
+				pass.setPipeline(PA.stencilFan); pass.draw(fp.stCount * 3, 2);   // インスタンス 1＝原点±180° を跨ぐ環の写し（vsStencil・窓座標モードだけ）
 				pass.setPipeline(PA.cover); pass.setBindGroup(1, L.paramBG[ROLE.fill]); pass.draw(3);
 			}
 			pass.end();
