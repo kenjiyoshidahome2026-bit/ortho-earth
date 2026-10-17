@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // 縫い目辺（antimeridian 切断の痕）の除去＝buildEdgeMeta（bakeBase 経由）。
-//   ① ±180 を跨ぐ円＝エンコーダが2片に切る→同一 fid で対になる縫い目辺（両端 ix=±180）が線パスの辺メタから消える
+//   ① ±180 を跨ぐ円＝エンコーダが2片に切る→同一 fid で対になる縫い目辺（両端 ix=±180）。
+//      bakeBase は多片地物（1 fid に 2 片）＝構成ポリゴン単位の扇（compOfEdge）になるので縫い目辺を**残す**（対の相殺は両片が同じ要から
+//      扇られる時だけ成り立つ・要が違うとレンズ形の塗り残し＝t-rectlook の円 2026-10-17）。線パスはシェーダの onSeam で飛ばす。
+//      compOfEdge 無し（単片の層の経路）の buildEdgeMeta では従来どおり対を落とす
 //   ② 縫い目に無関係な四角形＝辺数不変（skip ゼロ）
 //   ③ -180 に沿う正規の辺（-180〜-170 の矩形＝対にならない縫い目辺）＝無傷（落とさない）
 // 使い方: node packages/ortho-core/tests/gint-seam.mjs（geopbf の wasm pkg が要る＝t-anchors と同じ）
@@ -9,7 +12,7 @@ import { GeoPBFBase } from "geopbf/pbf-base";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint } from "geopbf/gint";
 import { bakeBase } from "../src/gint/bake.ts";
-import { hasSeamArc } from "../src/gint/utility.ts";
+import { buildEdgeMeta, hasSeamArc } from "../src/gint/utility.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {
@@ -41,11 +44,15 @@ const seamEdges = edges => edges.filter(e => onSeam(e.ixa) && onSeam(e.ixb));
 	ok(d.arcMeta[0] === 0, "arcBuffer の先頭 arc offset=0（bake の添字規約）");
 	ok(hasSeamArc(d.arcMeta), "arc bbox が縫い目に触れる（門が開く）");
 	const { base, edges } = edgesOf(d);
-	ok(seamEdges(edges).length === 0, `縫い目辺が線パスの辺メタに残っていない（残り ${seamEdges(edges).length}）`);
-	ok(base.seamSkipped >= 2, `対になった縫い目辺を落とした（skip=${base.seamSkipped}）`);
+	ok(seamEdges(edges).length === 2 && !base.seamSkipped, `多片地物＝構成ポリゴン単位の扇では対の縫い目辺を残す（seam辺 ${seamEdges(edges).length}・skip ${base.seamSkipped}）`);
 	ok(base.edgeCount + (base.subCount ?? 0) === base.metaU32.length / 4, "edgeCount＋複製行 と metaU32 長が一致（詰め直し）");
 	const nonSeam = edges.filter(e => !(onSeam(e.ixa) && onSeam(e.ixb)));
 	ok(nonSeam.length >= 36, `円周の辺は残っている（${nonSeam.length} ≥ 36）`);
+	// compOfEdge 無し＝従来の経路：対になった縫い目辺を落とす
+	const plain = buildEdgeMeta(d.arcMeta, d.polyStream, d.lineStream, d.arcBuffer, 0, null);
+	const plainSeam = []; for (let e = 0; e < plain.edgeCount; e++) { const a = plain.metaU32[e * 4], b = plain.metaU32[e * 4 + 1]; if (onSeam(gint.unpackToInt(d.arcBuffer[a])[0]) && onSeam(gint.unpackToInt(d.arcBuffer[b])[0])) plainSeam.push(e); }
+	ok(plainSeam.length === 0 && plain.seamSkipped >= 2, `compOfEdge 無しでは対の縫い目辺を落とす（残り ${plainSeam.length}・skip=${plain.seamSkipped}）`);
+	ok(plain.edgeCount + (plain.subCount ?? 0) === plain.metaU32.length / 4, "落とした後の edgeCount と metaU32 長が一致（詰め直し）");
 }
 // ② 縫い目に無関係な四角形＝無変換
 {

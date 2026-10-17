@@ -303,6 +303,10 @@ bool capVisible(uvec4 bb) {
 	float crm = cr * 0.998135 - sr * 0.061049;                  // cos(rad + 3.5°)
 	float srm = sqrt(max(1.0 - crm * crm, 0.0));
 	float el = length(u_eye), ch = min(1.0, 1.0 / el), sh = sqrt(max(1.0 - ch * ch, 0.0));   // cos/sin hor
+	// rad+3.5° と hor の和が 180° 以上＝二つのキャップは必ず交わる＝常に可視。加法定理の閾値 cos(hor+rad) は和が 180° を超えると
+	// 向きが戻って（cos が増える）裏と誤判定する＝縫い目に頂点を持つ環（ix=0 と 360e7 近くが同じ arc＝bbox が経度全幅・rad≈180°）が
+	// 消えた（t-rectlook の円・2026-10-17＝旧「≥180° は免除」が隠していた）。crm ≤ −ch ⟺ rad' ≥ 180°−hor
+	if (crm <= -ch) return true;
 	vec3 C = normalize(u_origin_pt + deltaToRel(dlonE7(cx, u_ix_center) * 1e-7, float(int(cy - u_iy_center)) * 1e-7));
 	return dot(C, u_eye) / el > ch * crm - sh * srm;
 }
