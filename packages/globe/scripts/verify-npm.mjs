@@ -27,7 +27,9 @@ process.on("exit", cleanup);
 // 1) pack（手元の中身＝publish する物そのもの）
 const pack = dir => {
 	const out = execFileSync("npm", ["pack", "--json", "--pack-destination", os.tmpdir()], { cwd: dir, encoding: "utf8" });
-	const name = JSON.parse(out.slice(out.indexOf("[")))[0].filename;
+	// --json の形は npm 10 が配列・npm 11 以降は package 名を鍵にした object（2026-10-17）＝他の verify-npm と同じく末尾の "filename" を拾う
+	const name = [...out.matchAll(/"filename":\s*"([^"]+)"/g)].at(-1)?.[1];
+	if (!name) fail("npm pack の出力から filename を特定できない");
 	return path.join(os.tmpdir(), name);
 };
 // FROM_NPM=1＝pack せず npm に公開済みの版を入れる（公開した後の確かめ＝利用者が実際に受け取る物）
