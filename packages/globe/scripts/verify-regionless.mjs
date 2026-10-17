@@ -84,7 +84,6 @@ function scan() {
 	const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : /\.(m?js|ts)$/.test(e.name) ? [path.join(d, e.name)] : []);
 	for (const root of ROOTS) for (const abs of walk(path.join(REPO, root))) {
 		const rel = path.relative(REPO, abs), src = fs.readFileSync(abs, "utf8");
-		if (src.startsWith("// 生成物＝npm run build:overlays")) continue;   // 型を剥いだ写し（正本の .ts を数える＝二重に数えない）
 		for (const seg of segments(src)) {
 			if (seg.kind === "num") { if (MAGIC[seg.text]) ((found[rel] ??= {})[MAGIC[seg.text]] ??= []).push(seg.line); continue; }
 			if (seg.kind === "template" || seg.kind === "string") seg.text = stripShaderComments(seg.text);   // 文字列に入れた WGSL/GLSL の注記も（T4）

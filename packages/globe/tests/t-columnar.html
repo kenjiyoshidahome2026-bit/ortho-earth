@@ -5,7 +5,7 @@
        setFilter で 1 枚だけ隠す・query が行を返す・setVisible・remove。GeoParquet（toGeoParquet → File）も同じ標本で同じ当たり。
      g=perf：段 0 の物差し＝筆風の小さな面 N 枚（?n=・既定 20000）を同じ GeoPBF から gint と列チャンク層で載せ、最初の 1 枚までの時間・
        オーバーレイの frame の CPU ms・JS ヒープを title に出す。判定＝列チャンク層の最初の 1 枚が gint より速い。
-     実時間（render worker が draw-gl.js を URL で import する＝仮想時間では解決しない）。GL2（verify:ui）と WebGPU（verify:webgpu）の両方で回す。 -->
+     実時間（render worker が draw-gl.ts を遅延チャンクで import する＝仮想時間では解決しない）。GL2（verify:ui）と WebGPU（verify:webgpu）の両方で回す。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-columnar</title></head>
 <body><div id="map"></div>
 <script type="module">
