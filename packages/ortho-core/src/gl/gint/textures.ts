@@ -64,6 +64,13 @@ function applyArtifacts(s: GintGLState, art: BakeBaseResult): void {
 		s.pivotTex = uploadTex2D(gl, art.pivot.px, art.pivot.w, art.pivot.h, gl.RGBA32UI, gl.RGBA_INTEGER);
 		s.pivotW = art.pivot.w;
 	}
+	// compTex: ポリゴン辺→塗り扇の鍵（R32UI）。多片地物の層だけ bake が作る＝扇の要と裏側カリングを構成ポリゴン単位に（pivotTex の後ろの行）
+	if (s.compTex) { gl.deleteTexture(s.compTex); s.compTex = null; }
+	s.compW = 0;
+	if (s.pivotTex && art.comp && art.comp.w <= s.TEX_ARC_W) {
+		s.compTex = uploadTex2D(gl, art.comp.keys, art.comp.w, art.comp.h, gl.R32UI, gl.RED_INTEGER);
+		s.compW = art.comp.w;
+	}
 
 	// metaTexB: 境界エッジメタ（正味参照≠0 の arc のみ＋折れ線全量）。stencil 単色塗りは常時こちら
 	//（winding 等価で桁違いに軽い）、線パスは低ズーム(z<outlineZoom)で切替＝アウトライン表示。
@@ -199,10 +206,11 @@ export function deleteTextures(s: GintGLState): void {
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
 	if (s.pivotTex)  gl.deleteTexture(s.pivotTex);
+	if (s.compTex)   gl.deleteTexture(s.compTex);
 	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 	s.lodTiers = [];
 	s.metaChunks = null;
-	s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = s.pivotTex = null;
+	s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = s.pivotTex = s.compTex = null;
 	s.totalEdgesB = s.polyEdgesB = 0;
-	s.pivotW = 0;
+	s.pivotW = 0; s.compW = 0;
 }

@@ -1,0 +1,156 @@
+<!doctype html>
+<!-- 回帰：全球規模の 1 feature（ケッペン気候区分＝1 区分 1 MultiPolygon・0.1° のセル辺の環が数千本）を geojson の fill で載せた時、
+     環の外（海）が塗られないか（本人スクショ 2026-10-17「世界の地形でケッペンの gint 塗りにバグ」＝海が一面に塗られた）。
+     原因＝塗り扇の裏側カリングが地物 bbox 単位で、半球級の地物（アジアと南米が 1 地物）は免除＝裏側の片の環が地平円へ潰れて画面を一周し、
+     対蹠点（南米）を囲む環が画面全体を塗った。直し＝扇の要とカリングを構成ポリゴン単位に（core gint bake の comp・capVisible の免除撤廃）。
+     合成データ＝B（乾燥）に似せた経度 -120..155 の広がりの環・南極に似せた ±180／-90 に接する環（視点 28N からは丸ごと裏側＝対蹠点を囲む）。
+     v=real＝fixtures/koppen/climate-koppen.geopbf（ortho-data 公開物・2026-10-17 に 8 の字の環を切り分け直した物）。
+     判定＝層を消した基図との画素差（橙が混ざれば ΔR≫ΔG,ΔB）を CPU の内外判定と照らす（海岸・小島・縁の画素は見ない）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:760px;height:800px}</style><title>t-koppenfill</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [], ok = (n, c, note = "") => t.push((c ? "ok:" : "NG:") + n + (note ? `(${note})` : ""));
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const q = new URLSearchParams(location.search), MODE = q.get("v") || "cells";   // cells＝セルごとの環・rings＝辺を繋いだ環（穴つき）・real＝実データ（realsplit＝8 の字の環を切り分けてから）
+// ── 合成の「区分」：経度 -120..155・緯度 -40..50 の 1° 格子で、陸っぽい塊（波で決める）＝B の広がりに似せる ──
+const W = 275, H = 90, X0 = -120, Y0 = -40;
+const land = (x, y) => { const lon = X0 + x + 0.5, lat = Y0 + y + 0.5; return Math.sin(lon * 0.11) + Math.cos(lat * 0.17) + Math.sin((lon + lat) * 0.23) * 0.7 > 0.9; };
+const grid = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) grid[y * W + x] = land(x, y) ? 1 : 0;
+const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : grid[y * W + x];
+const lon = x => X0 + x, lat = y => Y0 + H - y;   // 画面座標（y 下向き）→ 経緯度（koppen.mjs と同じ向き）
+// koppen.mjs の vectorize と同じ：区分の外側と接するセル辺を集め、環に繋ぎ、共線の頂点を落とし、向きで外環／穴に分ける
+function vectorize() {
+	const key = (x, y) => y * (W + 1) + x, outE = new Map();
+	const add = (ax, ay, bx, by) => { const k = key(ax, ay); let a = outE.get(k); if (!a) outE.set(k, a = []); a.push(key(bx, by)); };
+	for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+		if (!grid[y * W + x]) continue;
+		if (!at(x, y - 1)) add(x, y, x + 1, y); if (!at(x + 1, y)) add(x + 1, y, x + 1, y + 1);
+		if (!at(x, y + 1)) add(x + 1, y + 1, x, y + 1); if (!at(x - 1, y)) add(x, y + 1, x, y);
+	}
+	const rings = [];
+	const splitPinched = ring => { const out = [], stack = [], seen = new Map();
+		for (let i = 0; i < ring.length - 1; i++) { const k = ring[i], j = seen.get(k); if (j !== undefined) { const loop = stack.splice(j); for (const v of loop) seen.delete(v); loop.push(k); out.push(loop); } seen.set(k, stack.length); stack.push(k); }
+		stack.push(stack[0]); out.push(stack); return out; };
+	const dirOf = (a, b) => { const ax = a % (W + 1), ay = (a - ax) / (W + 1), bx = b % (W + 1), by = (b - bx) / (W + 1); return [bx - ax, by - ay]; };
+	for (const [start, list] of outE) {
+		while (list.length) {
+			let prev = start, cur = list.pop(); const ring = [start, cur];
+			while (cur !== start) {
+				const cand = outE.get(cur); if (!cand || !cand.length) { ring.length = 0; break; }
+				let pick = 0;
+				if (cand.length > 1) { const [dx1, dy1] = dirOf(prev, cur); let best = -9;
+					cand.forEach((n, i) => { const [dx2, dy2] = dirOf(cur, n); const cross = dx1 * dy2 - dy1 * dx2, dot = dx1 * dx2 + dy1 * dy2; const score = cross > 0 ? 3 : dot > 0 ? 2 : cross < 0 ? 1 : 0; if (score > best) { best = score; pick = i; } }); }
+				const next = cand.splice(pick, 1)[0]; prev = cur; cur = next; ring.push(cur);
+			}
+			if (ring.length) for (const r of splitPinched(ring)) rings.push(r);
+		}
+	}
+	const polys = rings.map(r => {
+		const pts = r.slice(0, -1).map(k => { const x = k % (W + 1); return [x, (k - x) / (W + 1)]; }), out = [];
+		for (let i = 0; i < pts.length; i++) { const p = pts[(i + pts.length - 1) % pts.length], q = pts[i], n = pts[(i + 1) % pts.length]; if ((q[0] - p[0]) * (n[1] - q[1]) - (q[1] - p[1]) * (n[0] - q[0]) !== 0) out.push(q); }
+		let a = 0; for (let i = 0, j = out.length - 1; i < out.length; j = i++) a += out[j][0] * out[i][1] - out[i][0] * out[j][1];
+		return { pts: out, area: a };
+	}).filter(p => p.pts.length >= 3);
+	const outers = polys.filter(p => p.area > 0).sort((u, v) => v.area - u.area), holes = polys.filter(p => p.area < 0);
+	const bbox = p => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of p.pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
+	for (const o of outers) { o.bb = bbox(o); o.holes = []; }
+	const pip = (pts, x, y) => { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins; } return ins; };
+	for (const h of holes) { const [ax, ay] = h.pts[0], [bx, by] = h.pts[1], L = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / L, uy = (by - ay) / L;
+		const cx = ax + ux * 0.5 + uy * 0.5, cy = ay + uy * 0.5 - ux * 0.5; let owner = null;
+		for (const o of outers) if (cx >= o.bb[0] && cx <= o.bb[2] && cy >= o.bb[1] && cy <= o.bb[3] && pip(o.pts, cx, cy)) owner = o;
+		if (owner) owner.holes.push(h); }
+	const toLL = pts => { const r = pts.map(([x, y]) => [lon(x), lat(y)]).reverse(); r.push(r[0]); return r; };
+	return outers.map(o => [toLL(o.pts), ...o.holes.map(h => toLL(h.pts))]);
+}
+const cellPolys = () => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (grid[y * W + x]) out.push([[[lon(x), lat(y + 1)], [lon(x + 1), lat(y + 1)], [lon(x + 1), lat(y)], [lon(x), lat(y)], [lon(x), lat(y + 1)]]]); return out; };
+// ── 実データ（v=real／v=realsplit）＝ortho-data の climate-koppen.geopbf（fixtures/koppen/・gzip）を physical.js と同じ読み方で ──
+// realsplit＝同じ頂点を 2 回通る環（8 の字・pinch）を単純な環に切り分けてから載せる（koppen.mjs の splitPinched と同じ手）＝壊れの原因の切り分け
+const splitPinchedLL = ring => { const out = [], stack = [], seen = new Map();
+	for (let i = 0; i < ring.length - 1; i++) { const pt = ring[i], k = pt[0] + "," + pt[1], j = seen.get(k); if (j !== undefined) { const loop = stack.splice(j); for (const v of loop) seen.delete(v[0] + "," + v[1]); loop.push(pt); out.push(loop); } seen.set(k, stack.length); stack.push(pt); }
+	stack.push(stack[0]); out.push(stack); return out; };
+const areaOf = r => { let a = 0; for (let i = 0; i < r.length - 1; i++) a += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return a / 2; };
+const pipLL = (pts, x, y) => { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins; } return ins; };
+const bboxOf = pts => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
+// MultiPolygon の全環を切り分け、外環の向き（元の外環の符号）で外環／穴に分け、穴は含む最小の外環へ
+function resplit(mp) {
+	const sign = Math.sign(areaOf(mp[0][0])) || 1, loops = [];
+	for (const poly of mp) for (const r of poly) for (const l of splitPinchedLL(r)) if (l.length >= 4) loops.push(l);
+	const outers = loops.filter(l => Math.sign(areaOf(l)) === sign).map(l => ({ pts: l, bb: bboxOf(l), a: Math.abs(areaOf(l)), holes: [] })).sort((u, v) => v.a - u.a);
+	const holes = loops.filter(l => Math.sign(areaOf(l)) !== sign);
+	for (const h of holes) { const [ax, ay] = h[0], [bx, by] = h[1], L = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / L, uy = (by - ay) / L;
+		// 穴の内側の点＝最初の辺の中点から、進行方向の（外環と逆向きなので）内側へ半セル（0.05°）
+		const s = sign > 0 ? -1 : 1, cx = ax + ux * 0.5 * L + s * uy * 0.05, cy = ay + uy * 0.5 * L - s * ux * 0.05; let owner = null;
+		for (const o of outers) if (cx >= o.bb[0] && cx <= o.bb[2] && cy >= o.bb[1] && cy <= o.bb[3] && pipLL(o.pts, cx, cy)) owner = o;
+		if (owner) owner.holes.push(h); }
+	return outers.map(o => [o.pts, ...o.holes]);
+}
+let realFeats = null, realPolys = null;   // realPolys＝[区分の bbox つき環] 内外判定用
+if (MODE.startsWith("real")) {
+	const { createGeopbf } = await import("geopbf");
+	const geopbf = createGeopbf(location.origin + "/nope");
+	const r = await fetch("./fixtures/koppen/climate-koppen.geopbf"); const b = await r.blob();
+	const gz = await new Response(b.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+	const p = await geopbf(gz, { gint: false });
+	realFeats = []; realPolys = [];
+	let pinch = 0;
+	const only = (q.get("only") || "").split(",").filter(Boolean), skip = (q.get("skip") || "").split(",").filter(Boolean);   // 区分の絞り込み（切り分け用）
+	for (let i = 0, n = p.length; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue; const pr = f.properties || {};
+		if ((only.length && !only.includes(pr.code)) || skip.includes(pr.code)) continue;
+		for (const poly of f.geometry.coordinates) for (const rg of poly) { const seen = new Set(); for (let k = 0; k < rg.length - 1; k++) { const key = rg[k][0] + "," + rg[k][1]; if (seen.has(key)) pinch++; seen.add(key); } }
+		const coords = MODE === "realsplit" ? resplit(f.geometry.coordinates) : f.geometry.coordinates;
+		realFeats.push({ type: "Feature", geometry: { type: "MultiPolygon", coordinates: coords }, properties: { koppen: pr.code, group: pr.group } });
+		for (const poly of coords) realPolys.push({ bb: bboxOf(poly[0]), poly }); }
+	t.push(`info:pinch=${pinch}`);
+}
+const polysB = MODE === "rings" ? vectorize() : MODE === "cells" ? cellPolys() : [];
+const antarctic = [[[-180, -90], [180, -90], [180, -62], [-180, -62], [-180, -90]]];   // 南極型＝±180 に接し -90 を底にする環（EF）。視点（28N）からは丸ごと裏側＝対蹠点（南極）を囲む環が地平円を一周して画面全体を塗らないか（同じ橙で塗って海の標本で捕まえる）
+const feats = realFeats || [
+	{ type: "Feature", properties: { group: "B" }, geometry: { type: "MultiPolygon", coordinates: polysB } },
+	{ type: "Feature", properties: { group: "E" }, geometry: { type: "MultiPolygon", coordinates: [antarctic] } },
+];
+let nv = 0; const walk = c => Array.isArray(c[0]) ? c.forEach(walk) : nv++; for (const f of feats) walk(f.geometry.coordinates);
+// 内外の正解＝格子そのもの（セル辺ちょうどは避けて標本を取る）
+const insideReal = (lo, la) => { for (const { bb, poly } of realPolys) { if (lo < bb[0] || lo > bb[2] || la < bb[1] || la > bb[3]) continue; if (!pipLL(poly[0], lo, la)) continue; let inHole = false; for (let h = 1; h < poly.length && !inHole; h++) inHole = pipLL(poly[h], lo, la); if (!inHole) return true; } return false; };
+const insideB = realPolys ? insideReal : (lo, la) => { const x = Math.floor(lo - X0), y = Math.floor(Y0 + H - la); return at(x, y) === 1; };
+// 窓 [lo±m, la±m] に外環の bbox が掛かるか（小島の見落とし避け）。合成は 1° 格子＝周り 9 点で足りる
+const nearLand = realPolys ? (lo, la, m) => realPolys.some(({ bb }) => !(bb[2] < lo - m || bb[0] > lo + m || bb[3] < la - m || bb[1] > la + m)) : () => false;
+const insideE = (lo, la) => la < -62;
+try {
+	const view = q.get("view") || "#1.9/28/112";
+	const map = await createGlobe({ target: "#map", view, chips: false, maxPitch: 0 });
+	await sleep(2500);
+	map.addSource("k", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+	// 実データも式で塗る（physical.js の match と同じ per-fid の経路＝ID 塗り／per-fid stencil。定数色は境界メタの単一要の経路で別物）
+	await map.addLayer({ id: "k", type: "fill", source: "k", paint: { "fill-color": realFeats ? ["case", ["==", ["get", "koppen"], "__"], "#000000", "#de6028"] : ["match", ["get", "group"], "B", "#de6028", "E", "#de6028", "rgba(0,0,0,0)"], "fill-opacity": 0.42 } });
+	const mapEl = document.getElementById("map");
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	const px = (S, lng, la) => { const p = map.projectLL(lng, la); if (!p || p[2] < 0.5) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };   // p[2]<0＝裏側・縁（<0.5）は画素が潰れる＝見ない
+	// 塗られたか＝層を消した基図との差で見る（夜側の陰や陸の色に依らない）：橙 #de6028 を 0.42 で混ぜると ΔR が ΔG・ΔB を大きく上回る
+	map.setLayoutProperty("k", "visibility", "none"); await sleep(600);
+	const S0 = await shot();
+	const tinted = (S, lng, la) => { const c = px(S, lng, la), b = px(S0, lng, la); if (!c || !b) return null; const dr = c[0] - b[0], dg = c[1] - b[1], db = c[2] - b[2]; return dr - Math.max(dg, db) > 12; };
+	map.setLayoutProperty("k", "visibility", "visible");
+	let S = null;
+	for (let i = 0; i < 80; i++) { S = await shot(); if (tinted(S, 138, -24) || tinted(S, 100, 40) || (realFeats && tinted(S, 80, 45))) break; await sleep(250); }   // 塗りが立つまで待つ（標本点は陸＝塗られるはず）
+	const samples = [];
+	for (let la = -58; la <= 58; la += 4) for (let lo = -179.5; lo < 180; lo += 5) {
+		const inB = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) inB.push(insideB(lo + dx, la + dy));   // 周り 1° まで同じ側＝海岸の画素（z1.9 で 1°≈2.6px）は見ない
+		if (inB.some(v => v !== inB[0])) continue;
+		if (!inB[0] && nearLand(lo, la, 1)) continue;   // 外の標本は 1° 以内に小島（点の標本では拾えない 0.1° セル）が無い所だけ
+		const tt = tinted(S, lo, la); if (tt === null) continue;   // 裏側・縁
+		samples.push([lo, la, inB[0], tt, px(S, lo, la)]);
+	}
+	const bad = samples.filter(s => s[2] !== s[3]), nIn = samples.filter(s => s[2]).length, nOut = samples.length - nIn;
+	const badOut = bad.filter(s => !s[2]), badIn = bad.filter(s => s[2]);
+	ok(`B_${MODE}:頂点${nv}:内=${nIn}:外=${nOut}:海が塗られた=${badOut.length}:陸が塗られない=${badIn.length}`, bad.length === 0 && nIn > 20 && nOut > 20, [...badOut.slice(0, 5).map(s => `海${s[0]},${s[1]}:${s[4]}`), ...badIn.slice(0, 5).map(s => `陸${s[0]},${s[1]}:${s[4]}`)].join("/"));
+	if (realFeats) {   // 海の点に当たる地物＝どの区分が海を塗っているか（切り分け）
+		for (const [lo, la] of [[160, 20], [75, -30], [-30, 30], [10, 25], [135, -25]]) { const pt = map.projectLL(lo, la); const hit = pt ? await map.queryRenderedFeatures(pt, { layers: ["k"] }) : []; t.push(`info:${lo},${la}=${hit.map(f => f.properties?.koppen).join("+") || "-"}`); }
+	}
+	window.__samples = samples;
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:") && !x.startsWith("info:")) ? "FAIL " : "PASS ") + t.join(" ");   // info:＝切り分けの読み物（判定に入れない）
+</script>
+</body></html>

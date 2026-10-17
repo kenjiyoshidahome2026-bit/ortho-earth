@@ -38,7 +38,7 @@ struct GF {
 	gfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない
 	farA: vec4f,       // 遠方の要（塗り扇の画面カリング・gint/utility.js farPivotParams）：NDC の東(xy)・北(zw)（packGF 128-131）
 	farQ: vec4f,       // (経度差の重み, 緯度差の重み, 有効(1), 距離 K)＝z=0 は無効＝従来の bbox 中心・z=2＝単一要を farA.xy（NDC）へ（packGF 132-135）
-	farBig: vec4u,     // xy＝要を遠方へ置く feature の幅/高さ下限（e7）（packGF 136-139）
+	farBig: vec4u,     // xy＝要を遠方へ置く feature の幅/高さ下限（e7）・z＝辺→塗り扇の鍵の表（compTex）の幅（0＝表なし＝鍵は fid）（packGF 136-139）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -58,6 +58,7 @@ ${GF}
 @group(2) @binding(1) var metaTex: texture_2d_array<u32>;
 @group(3) @binding(0) var pivotTex: texture_2d<u32>;
 @group(3) @binding(1) var fidTex: texture_2d<u32>;
+@group(3) @binding(4) var compTex: texture_2d<u32>;   // ポリゴン辺→塗り扇の鍵（R32UI・多片地物の層だけ・bake comp）
 @group(3) @binding(2) var elevTex: texture_2d<f32>;
 @group(3) @binding(3) var elevSamp: sampler;
 // group(2) の読み＝層ごと TEX_LAYER_H 行の 2D 配列（gint.js texArrU32 と対・分割送り＝1 枚 268 MB の壁を外す）。
@@ -331,11 +332,17 @@ fn fetchRank(idx: u32) -> u32 {
 fn fetchFidBbox(fid: u32) -> vec4u {
 	return textureLoad(pivotTex, vec2i(i32(fid) % i32(F.flags.z), i32(fid) / i32(F.flags.z)), 0);
 }
+// 塗り扇の鍵（GL fanKey と同式）：表が無ければ fid・あれば fid か構成ポリゴンの行（pivot の fid の後ろ）＝要と裏側カリングをポリゴン単位に。
+// 世界規模の気候区分（アジアと南米が 1 地物）を地物 bbox で見ると半球級＝裏側の片も描かれ、地平円へ潰れた環が画面を一周して海まで塗った（2026-10-17）
+fn fanKey(edgeId: i32, fid: u32) -> u32 {
+	if (F.farBig.z == 0u) { return fid; }
+	return textureLoad(compTex, vec2i(edgeId % i32(F.farBig.z), edgeId / i32(F.farBig.z)), 0).r;
+}
 // feature 単位 GPU bbox カリング
 // 球面キャップの可視判定（GL capVisible と同式）：bbox を囲む小円 (C, rad) が可視キャップ（Ê, hor）と交わらなければ
 // 完全に裏＝捨てる。rad＝矩形内の最遠点（緯線上は角・経線上は Δλ>90° のくぼみを解析的に）＋3.5° の余裕。
+// 経度スパン ≥180° の免除は外した（GL と同じ・2026-10-17）：全幅の bbox でも rad が中心の対蹠経線まで伸びる＝保守的に正しい。免除は南極の EF 等を裏側でも描き、環が地平円を一周して画面全体を塗った
 fn capVisible(bb: vec4u) -> bool {
-	if (bb.z - bb.x >= 1800000000u) { return true; }   // 経度全幅（周期合流できなかった巨大 feature）＝免除（GL と同じ・9/15）
 	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u; let cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox＝中心を [0,360e7) へ
 	let latC = (F.origin.y + f32(i32(cy - F.centers.y)) * 1e-7) * D2R;
 	let lat0 = (F.origin.y + f32(i32(bb.y - F.centers.y)) * 1e-7) * D2R;
@@ -587,10 +594,11 @@ struct SOut { @builtin(position) pos: vec4f };
 	let edgeId = i32(vi) / 3;
 	let sub = i32(vi) % 3;
 	let em = fetchEdgeMeta(edgeId);
-	if (!bboxVisible(em.a)) { return o; }
+	let key = fanKey(edgeId, em.a);   // 扇の鍵＝fid か構成ポリゴン（多片地物の層）
+	if (!bboxVisible(key)) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);   // 塗り stencil は lodRank=0（GF側）＝全密度
 	if (!sn.keep) { return o; }
-	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
+	if (sub == 0) { o.pos = pivotClip(key); return o; }
 	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;
 }
@@ -603,7 +611,7 @@ struct MOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fea
 	let sub = i32(vi) % 3;
 	let em = fetchEdgeMeta(edgeId);
 	o.featId = i32(em.a);
-	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
+	if (sub == 0) { o.pos = pivotClip(fanKey(edgeId, em.a)); return o; }
 	o.pos = fetchClip(select(em.g, em.r, sub == 1));
 	return o;
 }
@@ -630,7 +638,8 @@ struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fi
 	let sub = i32(vi) % 3;
 	let em = fetchEdgeMeta(edgeId);
 	o.fid1 = f32(em.a + 1u);
-	if (!bboxVisible(em.a)) { return o; }
+	let key = fanKey(edgeId, em.a);   // 扇の鍵＝fid か構成ポリゴン（多片地物の層）＝要とカリングはポリゴン単位・ID は fid のまま
+	if (!bboxVisible(key)) { return o; }
 	// 不可視fid（filter で落とした feature）は winding 蓄積から除外する。含めると重複被覆時に
 	// R/G が非整数化して解決パスが discard＝下の feature まで塗りが消える（振興局が市区町村に重なる
 	// 北海道で実証 2026-08-12）。単被覆前提の idfill を「除外した feature は無い物」として正す。
@@ -638,7 +647,7 @@ struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fi
 		(textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0).b & 1u) == 0u) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);   // lodRank=0（GF側）＝全密度（自己交差斑点を出さない）
 	if (!sn.keep) { return o; }
-	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
+	if (sub == 0) { o.pos = pivotClip(key); return o; }
 	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;
 }

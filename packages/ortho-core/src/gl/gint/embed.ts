@@ -189,7 +189,7 @@ export function createGintLayer(gl: WebGL2RenderingContext, { requestDraw, quad4
 		s._pfLineEdges = 0; s._pfTierW = -1;          // 移動予算の物差しも新スロットで測り直す
 	};
 	const deleteBundleTextures = (b: GLBundle): void => {             // 束の GPU 資産だけ解放（s を経由しない）
-		for (const f of ['arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'fidStyleTex'] as const)
+		for (const f of ['arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'compTex', 'fidStyleTex'] as const)
 			if (b[f]) { gl.deleteTexture(b[f]!); b[f] = null; }
 		if (b.lodTiers?.length) b.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 		b.lodTiers = [];

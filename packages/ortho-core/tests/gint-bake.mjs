@@ -125,5 +125,48 @@ for (const [prefix, label] of [['nps', '国立公園 nps_all'], ['coast', 'NE10m
 	verify(`実データ: ${label}`, mk, mk, arcU32);
 }
 
+{	// 多片地物（1 地物に複数の構成ポリゴン＝島・飛び地・世界規模の区分）：辺→塗り扇の鍵（comp）と pivot の後ろの行（構成ポリゴンの bbox）
+	console.log('■ 多片地物（構成ポリゴン単位の扇の鍵）');
+	const g = genData(mulberry32(0xBEEF));
+	const one = g.mk();   // 全地物 1 片＝comp 無し・pivot は従来どおり
+	const a1 = bakeBase(one);
+	ok(a1.comp === null, '全地物 1 片 → comp は null');
+	ok(a1.pivot && a1.pivot.px.length === a1.pivot.w * a1.pivot.h * 4, 'pivot は従来の形');
+	const two = g.mk();   // fid 0 を 3 片（arc 0,1 / arc 3,4 / arc 6,7）・fid 1000 を 2 片に＝他は 1 片のまま
+	const ps = Array.from(two.polyStream);
+	ps.push(0, 1, 2, 3, 4, 0, 1, 2, 6, 7, 1000, 1, 2, ~7, ~6);
+	two.polyStream = Int32Array.from(ps);
+	const a2 = bakeBase(two);
+	const ref = g.mk(); ref.polyStream = Int32Array.from(ps);
+	const r2 = bakeBase(ref);
+	ok(sameU32(a2.base.metaU32, r2.base.metaU32), 'メタは決定的（2 回焼いて同一）');
+	const plain = buildEdgeMeta(two.arcMeta, two.polyStream, two.lineStream, two.arcBuffer, 0, { orderBbox: a2.polyBboxByFid, chunkEdges: CHUNK_EDGES });
+	ok(sameU32(a2.base.metaU32, plain.metaU32), 'compOfEdge を頼んでもメタは byte-exact');
+	ok(!!a2.comp && a2.comp.keys.length >= a2.base.polyEdgeCount, 'comp（辺→鍵）がある');
+	let maxFid = 0; for (const f of a2.polyBboxByFid.keys()) if (f > maxFid) maxFid = f;
+	const rows = a2.pivot.px.length / 4;
+	ok(rows >= maxFid + 1 + 5, `pivot の行 ${rows} ≥ fid ${maxFid + 1} + 片 5`);
+	// 1 片の地物の辺＝鍵は fid・多片の辺＝鍵は fid より大きい行で、片ごとに鍵が違い、鍵の bbox がその辺の arc bbox を含む
+	const m = a2.base.metaU32, am = two.arcMeta, keysOf = new Map();
+	let badKey = 0, badBox = 0;
+	for (let e = 0; e < a2.base.polyEdgeCount; e++) {
+		const fid = m[e * 4 + 3], key = a2.comp.keys[e];
+		if (fid !== 0 && fid !== 1000) { if (key !== fid) badKey++; continue; }
+		if (key <= maxFid) { badKey++; continue; }
+		(keysOf.get(fid) ?? keysOf.set(fid, new Set()).get(fid)).add(key);
+		const bb = a2.pivot.px.subarray(key * 4, key * 4 + 4);
+		// 辺の両端（arc の頂点番号）が属する arc を引き、その arc bbox が鍵の bbox に収まるか
+		const v = m[e * 4]; let aid = -1;
+		for (let a = 0; a < am.length / 8; a++) if (v >= am[a * 8] && v < am[a * 8] + am[a * 8 + 1]) { aid = a; break; }
+		const x0 = am[aid * 8 + 4], y0 = am[aid * 8 + 5], x1 = am[aid * 8 + 6], y1 = am[aid * 8 + 7];
+		const inX = (x0 >= bb[0] && x1 <= bb[2]) || (x0 + 3600000000 >= bb[0] && x1 + 3600000000 <= bb[2]);
+		if (!inX || y0 < bb[1] || y1 > bb[3]) badBox++;
+	}
+	ok(badKey === 0, `鍵の割り当て（1 片＝fid・多片＝後ろの行）: 外れ ${badKey}`);
+	ok(keysOf.get(0)?.size === 3 && keysOf.get(1000)?.size === 2, `片ごとに別の鍵: fid0=${keysOf.get(0)?.size} fid1000=${keysOf.get(1000)?.size}`);
+	ok(badBox === 0, `鍵の bbox が辺の arc を含む: 外れ ${badBox}`);
+	console.log(fails ? `  → 失敗あり` : '  ✓ 全一致');
+}
+
 console.log(fails ? `✗ ${fails} 件失敗` : '✓ gint-bake 全項目 PASS');
 process.exit(fails ? 1 : 0);
