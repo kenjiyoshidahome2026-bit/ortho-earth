@@ -16,7 +16,7 @@ import type { ContextMenuItems } from "@ortho-earth/globe";   // 型だけ（エ
 	try {
 		const { createGlobe } = await engineP;
 		const map = await createGlobe({ target: "#map", view: location.hash || "#1.6/20/138", chips: false, zoomMax: 8,   // 日本を持たない地球儀（z<8＝世界データの範囲）
-			worldContent: /[?&]wc=0/.test(location.search) ? false : /[?&]wcg=([\w,]+)/.test(location.search) ? { groups: location.search.match(/[?&]wcg=([\w,]+)/)![1].split(",") } as unknown as boolean : true, mesh: false,   // ?wc=0＝世界帯の中身を切る（比較の切り分け）   // as boolean＝globe.d.ts の worldContent は boolean だけ（実行時は { groups } も受ける）
+			worldContent: /[?&]wc=0/.test(location.search) ? false : /[?&]wcg=([\w,]+)/.test(location.search) ? { groups: location.search.match(/[?&]wcg=([\w,]+)/)![1].split(",") as Array<"base" | "lakes" | "detail"> } : true, mesh: false,   // ?wc=0＝世界帯の中身を切る（比較の切り分け）
 			persistView: false,   // /japan/ の「前回の視点」を上書きしない（localStorage はオリジン単位＝world の地図パネルと同じ作法）
 			instruments: ["pos", "attr", "scale"], urlHash: true,   // pos＝緯度経度（左下＝Equal Earth と同じ置き場所）
 			debugGlobals: /[?&]debug=1/.test(location.search) });   // ?debug=1＝検証窓（__cam・__worldContent…）
