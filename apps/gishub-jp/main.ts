@@ -20,7 +20,8 @@ import {
 } from './ui/entries.js';
 
 // dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
-const LAZY_VIEWS = {
+interface LazyView { load: () => Promise<object>; fn: string }   // fn＝読んだモジュールの描画関数の名前
+const LAZY_VIEWS: Record<string, LazyView> = {
     'moj':               { load: () => import('./moj/ui.js'),    fn: 'renderMojList' },
     'maff':              { load: () => import('./maff/ui.js'),   fn: 'renderMaffList' },
     'estat':             { load: () => import('./estat/ui.js'),  fn: 'renderEstatList' },
@@ -35,11 +36,11 @@ const LAZY_VIEWS = {
     'census-small-2020': { load: () => import('./census/ui.js'), fn: 'renderCensusSmall2020' },
 };
 
-async function runLazyView(code) {
+async function runLazyView(code: string) {
     try {
         const { load, fn } = LAZY_VIEWS[code];
         const mod = await load();
-        await mod[fn]();
+        await (mod as Record<string, () => unknown>)[fn]();
     } catch (e) {
         console.error(`[lazy-view] ${code}:`, e);
         showToast('モジュールの読み込みに失敗しました。再読み込みしてください');
@@ -49,15 +50,17 @@ async function runLazyView(code) {
 // ============================================================
 // State
 // ============================================================
-let catalog   = [];
-let active    = null;
+// サイドバーの 1 行（ui/entries.js の静的な入口・nlftp/catalog.js のカタログ）
+interface CatalogEntry { dataset_code: string; title: string; license?: string; file_count: number; note?: string; _sourceId?: string }
+let catalog: CatalogEntry[] = [];
+let active: string | null = null;
 let licFilter = 'all';
 
 // ============================================================
 // カタログ
 // ============================================================
 async function loadCatalog() {
-	const list = document.getElementById('dataset-list');
+	const list = document.getElementById('dataset-list')!;
 	list.innerHTML = '<div class="loading-msg">読み込み中...</div>';
 	try {
 		const staticEntries = [
@@ -93,14 +96,14 @@ async function loadCatalog() {
 			}
 		}
 	} catch (e) {
-		list.innerHTML = `<div class="error-msg">読み込みエラー: ${escHtml(e.message)}</div>`;
+		list.innerHTML = `<div class="error-msg">読み込みエラー: ${escHtml((e as Error).message)}</div>`;
 	}
 }
 
 // ============================================================
 // サイドバーリスト
 // ============================================================
-const SOURCE_GROUP_LABELS = {
+const SOURCE_GROUP_LABELS: Record<string, string> = {
 	moj:   '法務省 G空間情報センター',
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
@@ -111,7 +114,7 @@ const SOURCE_GROUP_LABELS = {
 	munic: '市区町村（G空間情報センター・データカタログ横断検索）',
 };
 
-const SOURCE_GROUP_URLS = {
+const SOURCE_GROUP_URLS: Record<string, string> = {
 	moj:   'https://www.geospatial.jp/ckan/organization/moj',
 	maff:  'https://open.fude.maff.go.jp/',
 	estat: 'https://www.e-stat.go.jp/gis',
@@ -122,7 +125,7 @@ const SOURCE_GROUP_URLS = {
 	munic: 'https://search.ckan.jp/',
 };
 
-function dsItemHtml(ds) {
+function dsItemHtml(ds: CatalogEntry) {
 	// nlftpカタログはスクレイプ由来（保存型注入面）＝全フィールドをエスケープして流す
 	return `
 		<div class="ds-item${ds.dataset_code === active ? ' active' : ''}" data-code="${escHtml(ds.dataset_code)}">
@@ -140,9 +143,9 @@ function dsItemHtml(ds) {
 }
 
 function renderList() {
-	const q = document.getElementById('search').value.trim().toLowerCase();
+	const q = (document.getElementById('search') as HTMLInputElement).value.trim().toLowerCase();
 	// 題名・コードに加えて省庁名（「法務省」「国土交通省」）と注記でも引ける
-	const hit = ds => [ds.title, ds.dataset_code, ds.note, SOURCE_GROUP_LABELS[ds._sourceId]]
+	const hit = (ds: CatalogEntry) => [ds.title, ds.dataset_code, ds.note, SOURCE_GROUP_LABELS[ds._sourceId!]]
 		.some(v => v && String(v).toLowerCase().includes(q));
 	const items = catalog.filter(ds => {
 		if (q && !hit(ds)) return false;
@@ -151,16 +154,16 @@ function renderList() {
 		return true;
 	});
 
-	document.getElementById('list-count').textContent = `${items.length} / ${catalog.length} 件`;
+	document.getElementById('list-count')!.textContent = `${items.length} / ${catalog.length} 件`;
 
-	const list = document.getElementById('dataset-list');
+	const list = document.getElementById('dataset-list')!;
 	if (!items.length) { list.innerHTML = '<div class="empty-msg">該当なし</div>'; return; }
 
-	const groups = new Map();
+	const groups = new Map<string, CatalogEntry[]>();
 	for (const ds of items) {
 		const sid = ds._sourceId || 'other';
 		if (!groups.has(sid)) groups.set(sid, []);
-		groups.get(sid).push(ds);
+		groups.get(sid)!.push(ds);
 	}
 
 	const html = [];
@@ -175,12 +178,12 @@ function renderList() {
 		html.push(`</div>`);
 	}
 	list.innerHTML = html.join('');
-	list.querySelectorAll('.ds-item').forEach(el => {
-		el.addEventListener('click', () => selectDataset(el.dataset.code, true));
+	list.querySelectorAll<HTMLElement>('.ds-item').forEach(el => {
+		el.addEventListener('click', () => selectDataset(el.dataset.code!, true));
 	});
 }
 
-function _licFilterKey(lic) {
+function _licFilterKey(lic: string | undefined) {
 	if (!lic) return 'ng';
 	if (lic.includes('NC')) return 'ng';   // CC BY-NC 系＝非商用（"CC BY"を含むため先に弾く）
 	if (lic.includes('商用可') || lic.includes('CC BY') || lic.includes('CC_BY')) return 'ok';
@@ -190,23 +193,23 @@ function _licFilterKey(lic) {
 // ============================================================
 // データセット選択
 // ============================================================
-function setDetailHtml(html) {
-	document.getElementById('detail-body').innerHTML = html;
+function setDetailHtml(html: string) {
+	document.getElementById('detail-body')!.innerHTML = html;
 	const isTop = html.includes('class="placeholder"');
-	document.getElementById('detail-header').style.display = isTop ? 'none' : '';
+	document.getElementById('detail-header')!.style.display = isTop ? 'none' : '';
 }
 
-let _selectTimer = null;
-function selectDataset(code, immediate = false) {
-	clearTimeout(_selectTimer);
+let _selectTimer: ReturnType<typeof setTimeout> | null = null;
+function selectDataset(code: string, immediate = false) {
+	clearTimeout(_selectTimer!);
 	if (immediate) { _selectDatasetNow(code); return; }
 	_selectTimer = setTimeout(() => _selectDatasetNow(code), 150);
 }
 
-async function _selectDatasetNow(code) {
+async function _selectDatasetNow(code: string) {
 	active = code;
 	closeGeoPreview();
-	document.querySelectorAll('.ds-item').forEach(el => el.classList.toggle('active', el.dataset.code === code));
+	document.querySelectorAll<HTMLElement>('.ds-item').forEach(el => el.classList.toggle('active', el.dataset.code === code));
 
 	if (LAZY_VIEWS[code]) { history.replaceState(null, '', `#${code}`); runLazyView(code); return; }
 
@@ -216,7 +219,7 @@ async function _selectDatasetNow(code) {
 // ============================================================
 // ユーティリティ
 // ============================================================
-async function copyEntries(entries, feedbackEl) {
+async function copyEntries(entries: { name: string }[], feedbackEl?: HTMLElement | null) {
 	const text = entries.length === 1
 		? JSON.stringify(entries[0], null, 2)
 		: JSON.stringify(entries, null, 2);
@@ -254,19 +257,19 @@ document.addEventListener('keydown', e => {
 	const tag = document.activeElement?.tagName;
 	const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
 
-	if (e.key === '/' && !inInput) { e.preventDefault(); document.getElementById('search').select(); return; }
+	if (e.key === '/' && !inInput) { e.preventDefault(); (document.getElementById('search') as HTMLInputElement).select(); return; }
 	if (e.key === 'Escape' && tag === 'INPUT') {
-		const s = document.getElementById('search');
+		const s = (document.getElementById('search') as HTMLInputElement);
 		if (s.value) { s.value = ''; renderList(); }
 		s.blur(); return;
 	}
 	if (!['ArrowUp','ArrowDown','Enter'].includes(e.key) || inInput) return;
-	if (e.key === 'Enter' && ['SUMMARY', 'BUTTON', 'A'].includes(tag)) return;   // 折りたたみ見出し・ボタン・リンクの Enter は奪わない
+	if (e.key === 'Enter' && ['SUMMARY', 'BUTTON', 'A'].includes(tag!)) return;   // 折りたたみ見出し・ボタン・リンクの Enter は奪わない
 	e.preventDefault();
 
-	const items = [...document.querySelectorAll('.ds-item')];
+	const items = [...document.querySelectorAll<HTMLElement>('.ds-item')];
 	if (!items.length) return;
-	if (e.key === 'Enter') { const cur = document.querySelector('.ds-item.active'); if (cur) selectDataset(cur.dataset.code); return; }
+	if (e.key === 'Enter') { const cur = document.querySelector<HTMLElement>('.ds-item.active'); if (cur) selectDataset(cur.dataset.code!); return; }
 
 	const curIdx  = items.findIndex(el => el.dataset.code === active);
 	const nextIdx = e.key === 'ArrowDown'
@@ -277,7 +280,7 @@ document.addEventListener('keydown', e => {
 	items.forEach(el => el.classList.remove('kbd-focus'));
 	next.classList.add('kbd-focus');
 	next.scrollIntoView({ block: 'nearest' });
-	selectDataset(next.dataset.code);
+	selectDataset(next.dataset.code!);
 });
 
 window.addEventListener('hashchange', () => {
@@ -294,11 +297,11 @@ window.addEventListener('hashchange', () => {
 // 初期化
 // ============================================================
 async function init() {
-	document.getElementById('search').addEventListener('input', renderList);
-	document.getElementById('license-filter').addEventListener('click', e => {
-		const btn = e.target.closest('.chip');
+	(document.getElementById('search') as HTMLInputElement).addEventListener('input', renderList);
+	document.getElementById('license-filter')!.addEventListener('click', e => {
+		const btn = (e.target as Element).closest<HTMLElement>('.chip');
 		if (!btn) return;
-		licFilter = btn.dataset.lic;
+		licFilter = btn.dataset.lic!;
 		document.querySelectorAll('#license-filter .chip').forEach(b => b.classList.toggle('active', b === btn));
 		renderList();
 	});
@@ -307,29 +310,29 @@ async function init() {
 
 
 // トップのカード＝アプリ内で開く（旧＝配布元の外部サイトへ飛んでいた。配布元はカード内の小さなリンクへ）
-function goCard(code) {
+function goCard(code: string) {
 	if (LAZY_VIEWS[code]) { selectDataset(code, true); document.querySelector(`.ds-item[data-code="${code}"]`)?.scrollIntoView({ block: 'nearest' }); return; }
 	// 国土数値情報＝一覧の該当グループへ（狭い画面ではサイドバーを開く・絞り込み中なら解く）
 	sidebar.open();
 	let group = document.querySelector(`.sidebar-group[data-source="${code}"]`);
-	if (!group) { document.getElementById('search').value = ''; renderList(); group = document.querySelector(`.sidebar-group[data-source="${code}"]`); }
+	if (!group) { (document.getElementById('search') as HTMLInputElement).value = ''; renderList(); group = document.querySelector(`.sidebar-group[data-source="${code}"]`); }
 	group?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
-const detailBody = document.getElementById('detail-body');
+const detailBody = document.getElementById('detail-body')!;
 detailBody.addEventListener('click', e => {
-	const card = e.target.closest('.ph-card[data-go]');
-	if (card && !e.target.closest('a')) goCard(card.dataset.go);
+	const card = (e.target as Element).closest<HTMLElement>('.ph-card[data-go]');
+	if (card && !(e.target as Element).closest('a')) goCard(card.dataset.go!);
 });
 detailBody.addEventListener('keydown', e => {
-	const card = e.target.closest?.('.ph-card[data-go]');
-	if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); goCard(card.dataset.go); }
+	const card = (e.target as Element).closest?.<HTMLElement>('.ph-card[data-go]');
+	if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); goCard(card.dataset.go!); }
 });
 
 init();
 const sidebar = initSidebarToggle();
 initDetailEventListeners();
 
-document.getElementById('sidebar-brand').addEventListener('click', goHome);
+document.getElementById('sidebar-brand')!.addEventListener('click', goHome);
 
 // execGlobeView を globalThis に置く（将来の外部連携用）
 globalThis._execGlobeView = execGlobeView;

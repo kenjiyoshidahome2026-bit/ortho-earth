@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 門：アプリが別のアプリを読んでいないかを数える爪車（本人 2026-10-14「アプリがアプリを読んでいるのが基本的な問題。2 つ以上で使うならモジュールにして共に参照」）。
-//   数える物＝apps/<A> のソース（js/mjs/html/css・vite.config・package.json の scripts）から apps/<B>（B≠A）へ届く参照
+//   数える物＝apps/<A> のソース（js/mjs/ts/html/css・vite.config・package.json の scripts）から apps/<B>（B≠A）へ届く参照
 //     ・相対パスの文字列（'../ortho-japan/app.js'・new URL("../../census2020/…", import.meta.url)・path.resolve(__dirname, '../ortho-globe/public')）
 //     ・アプリの workspace 名での import（import("ortho-equal/src/equal.ts")）
 //     ・package.json の scripts の中の ../<B>/ の道・依存（dependencies 等）に B の workspace 名
@@ -17,7 +17,7 @@ const APPS = path.join(ROOT, "apps");
 const ALLOW_FILE = path.join(ROOT, "scripts/app-imports-allow.json");
 const EXEMPT = new Set(["www"]);
 const SKIP_DIR = new Set(["node_modules", "dist", ".wrangler", ".vite", "coverage"]);
-const EXT = /\.(m?js|html|css)$/;
+const EXT = /\.(m?[jt]s|html|css)$/;   // ts＝アプリの入口の TS 化（2026-10-17）
 
 const apps = fs.readdirSync(APPS, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith(".")).map(e => e.name);   // package.json の無いアプリ（quakes-mirror 等の Worker）も 1 つのアプリ
 const pkgName = new Map(apps.filter(a => fs.existsSync(path.join(APPS, a, "package.json"))).map(a => [JSON.parse(fs.readFileSync(path.join(APPS, a, "package.json"), "utf8")).name, a]));

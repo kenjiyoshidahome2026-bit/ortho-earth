@@ -2,6 +2,9 @@
 // 見せ方＝落とす → 球で確かめる → 別の形式で書き出す。ファイルは手元から出ない（変換は全部このタブの中）。
 import * as d3 from "d3";
 import { geopbf, createGeopbf } from "geopbf";
+import type { BucketProvider, GeoPBF, Geometry, Point, Position } from "geopbf";
+import type { LogDiv } from "common/screenLogger";
+import type { GeoExecInfo, GeoExecOpts } from "common/geoExec";
 import { screenLogger } from "common/screenLogger";
 import { geoExec } from "common/geoExec";
 import { comma, download, openDirectory, saveTo, inputFile } from "common";
@@ -16,7 +19,7 @@ import { mapP, viewP, mountTools } from "./globe.js";
 const API_BASE = "https://api.ortho-earth.com";
 const params = new URLSearchParams(location.search);
 await setLang(norm(params.get("lang")) || norm(navigator.language) || "en");
-createGeopbf(API_BASE, { bucket: nativeBucket });
+createGeopbf(API_BASE, { bucket: nativeBucket as BucketProvider });
 // IDB の器の名前は旧名のまま（改名で既存の変換キャッシュを捨てさせない・利用者には見えない）
 const hubCache = await Cache("GISHUB").catch(() => null);
 // 地球儀（gint v2 エンジン）は裏で立ち上げる＝パネルは地図を待たない
@@ -29,33 +32,35 @@ const app = d3.select("body").append("div").attr("class", "demo").classed("close
 
 // ── 文言の貼り方：data-t（キー）と data-a（$1… の引数）を要素に残す＝言語切替は relabel() で貼り替えるだけ（作り直さない）
 const ATTRS = ["placeholder", "title", "aria-label"];
-function L(sel, key, ...args) { return sel.attr("data-t", key).attr("data-a", args.length ? JSON.stringify(args) : null).text(t(key, ...args)); }
-function LA(sel, attr, key) { return sel.attr(`data-t-${attr}`, key).attr(attr, t(key)); }
+type AnySel = d3.Selection<any, any, any, any>;   // 文言を貼る先＝どの要素の選択でも（返りは受けた選択の型のまま＝続けて .on() できる）
+function L<S extends AnySel>(sel: S, key: string, ...args: unknown[]): S { return sel.attr("data-t", key).attr("data-a", args.length ? JSON.stringify(args) : null).text(t(key, ...args)); }
+function LA<S extends AnySel>(sel: S, attr: string, key: string): S { return sel.attr(`data-t-${attr}`, key).attr(attr, t(key)); }
 function relabel() {
-	document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.dataset.t, ...(el.dataset.a ? JSON.parse(el.dataset.a) : [])));
-	for (const a of ATTRS) document.querySelectorAll(`[data-t-${a}]`).forEach(el => el.setAttribute(a, t(el.getAttribute(`data-t-${a}`))));
+	document.querySelectorAll<HTMLElement>("[data-t]").forEach(el => el.textContent = t(el.dataset.t!, ...(el.dataset.a ? JSON.parse(el.dataset.a) : [])));
+	for (const a of ATTRS) document.querySelectorAll(`[data-t-${a}]`).forEach(el => el.setAttribute(a, t(el.getAttribute(`data-t-${a}`)!)));
 	document.title = `GeoPBF — ${t("Convert GIS files in your browser")}`;
 	drawDiagram();
 }
 
 ////------------------------------------------------------ 左：見本データ（カタログ）
 const left = app.append("aside").attr("class", "left");
-const groups = (a => { const tub = new Map();
+interface Sample extends GeoExecInfo { name: string; attribution: string }   // 見本データ（catalog.json の 1 行）
+const groups = ((a: Sample[]) => { const tub = new Map<string, { group: string; contents: Sample[] }>();
 	a.forEach(d => {
 		if (!tub.has(d.attribution)) tub.set(d.attribution, { group: d.attribution, contents: [] });
-		tub.get(d.attribution).contents.push(d);
+		tub.get(d.attribution)!.contents.push(d);
 	});
 	return [...tub.values()];
-})(await d3.json("./catalog.json").catch(e => { console.error("[geopbf-demo] catalog load failed:", e); return []; }));
+})(await d3.json<Sample[]>("./catalog.json").catch(e => { console.error("[geopbf-demo] catalog load failed:", e); return []; }) as Sample[]);
 LA(left.append("img").attr("src", "menu.svg"), "alt", "Menu").on("click", () => { app.classed("close", !app.classed("close")); setTimeout(drawDiagram, 300); });   // 幅が変わる＝横長／縦長を選び直す
 LA(left.append("input").attr("type", "text").attr("name", "search"), "placeholder", "Search sample data…")
 .on("input", function() {
-	const keyword = this.value.trim().toLowerCase(), exist = s => String(s ?? "").toLowerCase().includes(keyword);
-	const hasKeyword = d => exist(d.name) || exist(d.description) || exist(d.license);
-	left.selectAll(".group").style("display", d => (d.contents.some(c => hasKeyword(c)) || exist(d.group)) ? null : "none").highlight(keyword);
-	left.selectAll(".card").style("display", d => hasKeyword(d) ? null : "none").highlight(keyword);
+	const keyword = this.value.trim().toLowerCase(), exist = (s: unknown) => String(s ?? "").toLowerCase().includes(keyword);
+	const hasKeyword = (d: Sample) => exist(d.name) || exist(d.description) || exist(d.license);
+	left.selectAll<HTMLElement, { group: string; contents: Sample[] }>(".group").style("display", d => (d.contents.some(c => hasKeyword(c)) || exist(d.group)) ? null : "none").highlight(keyword);
+	left.selectAll<HTMLElement, Sample>(".card").style("display", d => hasKeyword(d) ? null : "none").highlight(keyword);
 });
-const escHtml = s => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escHtml = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const nav = left.append("nav");
 L(nav.append("h3").attr("class", "nav-title"), "Sample data");
 const section = nav.selectAll(".group").data(groups).join("section").attr("class", "group");
@@ -86,13 +91,13 @@ LA(tools.append("button").attr("class", "globe-btn"), "title", "Show the bare Ea
 	.select("span").call(L, "Globe");
 
 ////------------------------------------------------------
-const logger = new screenLogger(main.append("div").attr("dir", "ltr"));   // ログは英語の register（console/HUD と同じ）＝左→右で固定
+const logger = new screenLogger(main.append("div").attr("dir", "ltr") as unknown as LogDiv);   // ログは英語の register（console/HUD と同じ）＝左→右で固定
 // ⚠ログは window の FetchStart/ConvertStart を拾う＝背景の地球儀エンジンの読み込み（ne_50m_admin_0_countries 等）も拾う。
 // 待ち受け中は隠す（透明な入口の裏に透けて出ていた）。読み込み開始で geoExec が clear().show() する＝溜まった行も消える
 logger.hide();
 const tables = main.append("div").attr("class", "tables").hide();
 
-const fname = s => s.split('/').pop().split('?')[0].replace(/\..+$/i, '');
+const fname = (s: string) => s.split('/').pop()!.split('?')[0].replace(/\..+$/i, '');
 const uploads = main.append("div").attr("class", "uploads").dropFile(f => f && exec({ name: fname(f.name), target: f, description: "dropped file" }));
 L(uploads.append("p").attr("class", "lead"), "Convert GIS files in your browser");
 L(uploads.append("p"), "Drop a file, check it on the globe, then write it out in another format. Everything runs on your own machine — the file never leaves it. No server, no account, no install.");
@@ -116,41 +121,41 @@ L(links.append("span").attr("class", "mit"), "MIT license");
 function pick(accept = ACCEPT) { inputFile(accept).then(f => f && exec({ name: fname(f.name), target: f, description: "selected file" })); }
 
 // 図：読む形式を押す＝その形式だけのファイル選択。幅で横長／縦長を選び直す（言語切替でも描き直す＝見出しが訳される）
-let narrow = null;
+let narrow: boolean | null = null;
 function drawDiagram() {
-	const w = uploads.node().clientWidth || innerWidth;
+	const w = uploads.node()!.clientWidth || innerWidth;
 	narrow = w < 620;
 	diagram.html(conversionSVG(t, { narrow, rtl: isRTL() }));
-	fitText(diagram.select("svg").node());
-	diagram.selectAll(".pill.read").on("click", function() { pick(READ[+this.dataset.i].ext.join(",")); });
+	fitText(diagram.select<SVGSVGElement>("svg").node());
+	diagram.selectAll<SVGElement, unknown>(".pill.read").on("click", function() { pick(READ[+this.dataset.i!].ext.join(",")); });
 	diagram.select(".globe").on("click", globeView);
 }
 // 訳で長くなった見出し・札は枠に収める（はみ出す時だけ字間を詰める）
-function fitText(svg) {
+function fitText(svg: SVGSVGElement | null) {
 	if (!svg) return;
 	const W = svg.viewBox.baseVal.width;
-	const fit = (el, max) => { el.removeAttribute("textLength"); if (el.getComputedTextLength() > max) { el.setAttribute("textLength", max); el.setAttribute("lengthAdjust", "spacingAndGlyphs"); } };
-	svg.querySelectorAll(".head").forEach(el => fit(el, svg.classList.contains("narrow") ? W : W / 2 - 12));
-	svg.querySelectorAll(".hub-sub").forEach(el => fit(el, 136));
-	svg.querySelectorAll(".globe text").forEach(el => fit(el, 126));
+	const fit = (el: SVGTextContentElement, max: number) => { el.removeAttribute("textLength"); if (el.getComputedTextLength() > max) { el.setAttribute("textLength", max as unknown as string); el.setAttribute("lengthAdjust", "spacingAndGlyphs"); } };
+	svg.querySelectorAll<SVGTextContentElement>(".head").forEach(el => fit(el, svg.classList.contains("narrow") ? W : W / 2 - 12));
+	svg.querySelectorAll<SVGTextContentElement>(".hub-sub").forEach(el => fit(el, 136));
+	svg.querySelectorAll<SVGTextContentElement>(".globe text").forEach(el => fit(el, 126));
 }
-let resizeT;
-addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { const w = uploads.node().clientWidth; if (w && (w < 620) !== narrow) drawDiagram(); }, 150); });
+let resizeT: ReturnType<typeof setTimeout> | undefined;
+addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { const w = uploads.node()!.clientWidth; if (w && (w < 620) !== narrow) drawDiagram(); }, 150); });
 relabel();
 
 ////------------------------------------------------------ 読み込み → 見る／書き出す
 // 保存：フォルダを選べるブラウザ（File System Access API）はフォルダへ、無ければ普通のダウンロード（Safari / Firefox でも書き出せる）。
 // ⚠フォルダの選択は押した瞬間（ユーザ操作の有効期間内）に済ませる＝変換の後だと SecurityError（旧 GIS-HUB も先に openDirectory していた）
 const hasPicker = () => typeof window.showDirectoryPicker === "function";
-const save = async make => {
+const save = async (make: () => Blob | null | undefined | Promise<Blob | null | undefined>) => {
 	if (hasPicker() && !(await openDirectory())) return;
 	const f = await make();
 	if (!f) return;
 	const ok = hasPicker() ? await saveTo(f) : (download(f), true);
-	if (ok) logger.log(`📥 Saved: ${f.name} (${comma(f.size)} bytes)`);
+	if (ok) logger.log(`📥 Saved: ${(f as File).name} (${comma(f.size)} bytes)`);
 };
 // zip は中身で振り分ける：中に zip が並ぶ＝法務省 地図XML（配布そのまま）。*.gdbtable＝FileGDB は geopbf が自分で見分ける
-async function zipFormat(file) {
+async function zipFormat(file: unknown) {
 	if (!(file instanceof File) || !/\.zip$/i.test(file.name)) return "";
 	try {
 		const { decodeZIP } = await import("geopbf/decodeZIP");
@@ -160,7 +165,7 @@ async function zipFormat(file) {
 	} catch { return ""; }
 }
 
-async function exec(info) {
+async function exec(info: GeoExecInfo) {
 	uploads.hide(); tables.empty().hide();
 	left.selectAll(".card").attr("disabled", true);
 	if (!info.format) { const f = await zipFormat(info.target); if (f) info = { ...info, format: f }; }
@@ -169,7 +174,7 @@ async function exec(info) {
 		geopbf,
 		logger,
 		cache: hubCache,
-		async onSuccess(pbf) {
+		async onSuccess(pbf: GeoPBF) {
 			left.selectAll(".card").attr("disabled", null);
 			if (!pbf?.length) return;
 
@@ -185,42 +190,43 @@ async function exec(info) {
 			L(q.append("span").classed("big", true), "Download as");
 			const row = q.append("div").attr("class", "formats");
 			const opt = q.append("div").attr("class", "options");
-			const check = (key, on = false) => { const l = opt.append("label"); const c = l.append("input").attr("type", "checkbox").property("checked", on); L(l.append("span"), key); return c; };
+			const check = (key: string, on = false) => { const l = opt.append("label"); const c = l.append("input").attr("type", "checkbox").property("checked", on); L(l.append("span"), key); return c; };
 			const gz = check("gzip");
 			const kml = check("KML instead of KMZ");
 			const encL = opt.append("label"); L(encL.append("span"), "Shapefile text encoding");
 			const enc = encL.append("select").attr("translate", "no"); enc.selectAll("option").data(["utf8", "shift_jis"]).join("option").text(d => d);
 			const zL = opt.append("label"); L(zL.append("span"), "PMTiles max zoom");
 			const maxZoom = zL.append("input").attr("type", "number").attr("min", 0).attr("max", 18).property("value", 14);
-			const busy = v => q.selectAll("button").attr("disabled", v ? true : null);
+			const busy = (v: boolean) => q.selectAll("button").attr("disabled", v ? true : null);
 			row.selectAll("button").data(WRITE).join("button").attr("translate", "no").classed("accent", d => d.key === "geopbf")
 				.attr("title", d => `${d.ext}${d.title ? " · " + d.title : ""}`).text(d => d.name)
 				.on("click", async (e, d) => {
 					busy(true);
 					try { await save(() => write(pbf, d, { gz: d.gz && gz.property("checked"), kmz: !kml.property("checked"), encoding: enc.property("value"), maxZoom: Math.max(0, Math.min(18, +maxZoom.property("value") || 14)) })); }
-					catch (err) { console.error(`[geopbf-demo] ${d.name}`, err); logger.error(`${d.name}: ${err.message || err}`); }
+					catch (err) { console.error(`[geopbf-demo] ${d.name}`, err); logger.error(`${d.name}: ${(err as Error).message || err}`); }
 					busy(false);
 				});
 		},
 		onError() {
 			left.selectAll(".card").attr("disabled", null);
 		},
-	});
+	} as unknown as GeoExecOpts);   // as＝geoExec の口は geopbf の返りを使う欄だけ（GeoExecPbf）で受ける＝この頁は GeoPBF のまま使う
 }
 
 // 書き出し：worker のエンコーダ（pbf.*File）＋ convert（GeoParquet / PMTiles）＋ 表（CSV / Excel）＋ NDJSON（1 行 1 地物）
-async function write(pbf, d, o) {
+interface WriteOpts { gz?: boolean; kmz?: boolean; encoding?: string; maxZoom?: number }
+async function write(pbf: GeoPBF, d: { key: string }, o?: WriteOpts) {   // o＝書き出しの選択（属性だけの Excel＝attrs-xlsx は読まない＝省く）
 	const name = pbf.name();
 	switch (d.key) {
 		case "geopbf":   return pbf.geopbfFile();
-		case "geojson":  return pbf.geojsonFile({ gz: o.gz });
-		case "topojson": return pbf.topojsonFile({ gz: o.gz });
-		case "fgb":      return pbf.fgbFile({ gz: o.gz });
-		case "kmz":      return pbf.kmzFile({ kmz: o.kmz });
-		case "shape":    return pbf.shapeFile({ encoding: o.encoding });
-		case "gml":      return pbf.gmlFile({ gz: o.gz });
-		case "gpx":      return pbf.gpxFile({ gz: o.gz });
-		case "czml":     return pbf.czmlFile({ gz: o.gz });
+		case "geojson":  return pbf.geojsonFile({ gz: o!.gz });
+		case "topojson": return pbf.topojsonFile({ gz: o!.gz });
+		case "fgb":      return pbf.fgbFile({ gz: o!.gz });
+		case "kmz":      return pbf.kmzFile({ kmz: o!.kmz });
+		case "shape":    return pbf.shapeFile({ encoding: o!.encoding });
+		case "gml":      return pbf.gmlFile({ gz: o!.gz });
+		case "gpx":      return pbf.gpxFile({ gz: o!.gz });
+		case "czml":     return pbf.czmlFile({ gz: o!.gz });
 		case "ndjson": {
 			const parts = [];
 			for (let i = 0; i < pbf.length; i++) {
@@ -228,21 +234,21 @@ async function write(pbf, d, o) {
 				parts.push(JSON.stringify({ type: "Feature", geometry: f.geometry ?? null, properties: f.properties ?? {} }), "\n");
 			}
 			const file = new File(parts, `${name}.ndjson`, { type: "application/geo+json-seq" });
-			return o.gz ? (await import("geopbf/gzip")).gzip(file) : file;
+			return o!.gz ? (await import("geopbf/gzip")).gzip(file) : file;
 		}
 		case "parquet": {
 			logger.log(`🔄 ${name}: conversion from GeoPBF to GeoParquet …`);
 			pbf.propertiesTable;   // 遅延復号の属性を全部起こしてから（toGeoParquet は pbf.props を直に読む）
 			const { toGeoParquet } = await import("geopbf/geoparquet");
 			const { buffer } = await toGeoParquet(pbf);
-			return new File([buffer], `${name}.parquet`, { type: "application/vnd.apache.parquet" });
+			return new File([buffer as Uint8Array<ArrayBuffer>], `${name}.parquet`, { type: "application/vnd.apache.parquet" });
 		}
 		case "pmtiles": {
-			logger.log(`🔄 ${name}: conversion from GeoPBF to PMTiles (z0–${o.maxZoom}) …`);
+			logger.log(`🔄 ${name}: conversion from GeoPBF to PMTiles (z0–${o!.maxZoom}) …`);
 			pbf.propertiesTable;
 			const { toPMTiles } = await import("geopbf/pmtiles");
-			const { buffer } = await toPMTiles(pbf, { maxZoom: o.maxZoom });
-			return new File([buffer], `${name}.pmtiles`, { type: "application/vnd.pmtiles" });
+			const { buffer } = await toPMTiles(pbf, { maxZoom: o!.maxZoom });
+			return new File([buffer as Uint8Array<ArrayBuffer>], `${name}.pmtiles`, { type: "application/vnd.pmtiles" });
 		}
 		case "csv":  return new File([toCSV(geoRows(pbf))], `${name}.csv`, { type: "text/csv" });
 		case "xlsx": { const { encodeXLSX } = await import("geopbf/encodeXLSX"); return encodeXLSX(geoRows(pbf, { excel: true }), `${name}.xlsx`, { sheetName: name }); }
@@ -251,9 +257,9 @@ async function write(pbf, d, o) {
 }
 
 // 表の書き出し＝属性＋形（読み戻せる形）：点だけなら lon / lat 列、それ以外は wkt 列（geopbf の表リーダが列名で見つける）
-const wktOf = g => {
+const wktOf = (g: Geometry | null): string => {
 	if (!g) return "";
-	const xy = c => `${c[0]} ${c[1]}`, ring = r => `(${r.map(xy).join(",")})`, poly = p => `(${p.map(ring).join(",")})`;
+	const xy = (c: Position) => `${c[0]} ${c[1]}`, ring = (r: Position[]) => `(${r.map(xy).join(",")})`, poly = (p: Position[][]) => `(${p.map(ring).join(",")})`;
 	switch (g.type) {
 		case "Point": return `POINT (${xy(g.coordinates)})`;
 		case "MultiPoint": return `MULTIPOINT (${g.coordinates.map(c => `(${xy(c)})`).join(",")})`;
@@ -265,9 +271,9 @@ const wktOf = g => {
 	}
 	return "";
 };
-const cell = v => v == null ? "" : (typeof v === "object" && !(v instanceof Date)) ? JSON.stringify(v) : v instanceof Date ? v.toISOString() : v;
+const cell = (v: unknown) => v == null ? "" : (typeof v === "object" && !(v instanceof Date)) ? JSON.stringify(v) : v instanceof Date ? v.toISOString() : v;
 const EXCEL_CELL = 32767;   // Excel の 1 セルの上限（字）
-function geoRows(pbf, { excel = false } = {}) {
+function geoRows(pbf: GeoPBF, { excel = false } = {}) {
 	const [keys, ...props] = pbf.propertiesTable;
 	const points = pbf.getType().every(t => t === "Point");
 	let skipped = 0;
@@ -275,23 +281,23 @@ function geoRows(pbf, { excel = false } = {}) {
 	for (let i = 0; i < pbf.length; i++) {
 		const row = keys.map((_, k) => cell(props[i]?.[k]));
 		let g = null; try { g = pbf.getGeometry(i); } catch {}
-		if (points) row.push(g?.coordinates?.[0] ?? "", g?.coordinates?.[1] ?? "");
+		if (points) row.push((g as Point | null)?.coordinates?.[0] ?? "", (g as Point | null)?.coordinates?.[1] ?? "");   // as＝points の時は全部 Point
 		else { const w = wktOf(g); if (excel && w.length > EXCEL_CELL) { skipped++; row.push(""); } else row.push(w); }
 		rows.push(row);
 	}
 	if (skipped) logger.warn(`${skipped} geometries are longer than Excel's ${comma(EXCEL_CELL)}-character cell limit and were left empty (use CSV for them).`);
 	return rows;
 }
-const toCSV = rows => rows.map(r => r.map(v => { const s = String(v); return /[",\r\n]|^0\d/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\r\n");
+const toCSV = (rows: unknown[][]) => rows.map(r => r.map(v => { const s = String(v); return /[",\r\n]|^0\d/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\r\n");
 
-function showProp(pbf) {
+function showProp(pbf: GeoPBF) {
 	const PAGE = 100;
-	const data = pbf.getPropertyTable();
+	const data = pbf.getPropertyTable()!;
 	const headers = data[0];
 	const rows = data.slice(1);
 	const pages = Math.ceil(rows.length / PAGE) || 1;
 	let page = 0;
-	const cut = s => { const t = String(s ?? ""); return escHtml(t.length > 16 ? t.substring(0, 15) + " …" : t); };
+	const cut = (s: unknown) => { const t = String(s ?? ""); return escHtml(t.length > 16 ? t.substring(0, 15) + " …" : t); };
 
 	logger.hide();
 	tables.show().attr("translate", "no").html(
@@ -304,12 +310,12 @@ function showProp(pbf) {
 	const renderPage = () => {
 		const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
 		tbody.html(slice.map(row => `<tr>${row.map(c => `<td>${cut(c)}</td>`).join("")}</tr>`).join(""));
-		tables.select(".prop-table").node().scrollTop = 0;
+		tables.select<HTMLElement>(".prop-table").node()!.scrollTop = 0;
 	};
 	renderPage();
 
 	if (pages > 1) {
-		const go = n => { page = n; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); };
+		const go = (n: number) => { page = n; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); };
 		LA(h2.append("button").text("◀"), "aria-label", "Previous page").on("click", () => page > 0 && go(page - 1));
 		const pageInfo = h2.append("span").attr("class", "page").text(`1 / ${pages}`);
 		LA(h2.append("button").text("▶"), "aria-label", "Next page").on("click", () => page < pages - 1 && go(page + 1));
@@ -322,16 +328,16 @@ function showProp(pbf) {
 	L(h2.append("button"), "Close").on("click", () => { logger.show(); tables.empty().hide(); });
 }
 // ── 地図に入る／出る（gint v2：map.addGint＝common/gintView の薄い1枚）──
-function enterView(map) {
+function enterView(map: Awaited<typeof mapP>) {
 	mountTools(map);
 	app.classed("viewing", true);
 }
-async function execView(pbf) {
+async function execView(pbf: GeoPBF) {
 	if (!pbf?.length) return;
 	const [map, view] = await Promise.all([mapP, viewP]);
 	enterView(map);
-	const propTable = (fid, props) => {
-		const entries = Object.entries(props ?? pbf.getProperties(fid) ?? {});
+	const propTable = (fid: number | null | undefined, props?: Record<string, unknown> | null) => {
+		const entries = Object.entries(props ?? pbf.getProperties(fid!) ?? {});
 		if (!entries.length) return null;
 		const rows = entries.map(([k, v]) => `<tr><th>${escHtml(k)}</th><td>${escHtml(v)}</td></tr>`).join("");
 		return `<table class="identify-table">${rows}</table>`;

@@ -1,0 +1,15 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"declaration": false,
+		"allowJs": true,
+		"checkJs": false,
+		"resolveJsonModule": true,
+		"types": ["vite/client"],
+		// globe の src も束ねて型を見る＝loaders.gl の本物の型（Node の大域を持ち込む）ではなく globe と同じ最小の宣言へ（packages/globe/tsconfig.json と同じ）
+		"paths": { "@loaders.gl/*": ["./packages/globe/types/loaders.gl/*.d.ts"] }
+	}
+}

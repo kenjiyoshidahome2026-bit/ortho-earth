@@ -3,9 +3,10 @@
 // 共有エンジン（/globe/engine/<版>/・ortho-globe の Worker が配る）から読む＝/globe/ や /world/ とブラウザのキャッシュを分かち合う
 // （2026-09-30・本人裁定「A」・LAYERS.md 掟 3）。旧＝本番だけ /japan/lib/ の SDK 配布物を実行時に食う二重構成。
 // SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
+import type { ContextMenuItems } from "@ortho-earth/globe";   // 型だけ（初回の contextmenu() の戻り＝項目の setter）
 const engineP = import("./app.js");
 const failedP = import("@ortho-earth/globe/page.js");   // 起動失敗の表示（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
-// 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.jsは触らない。
+// 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.tsは触らない。
 const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
 	requestAnimationFrame(() => requestAnimationFrame(() => {
 		const boot = document.getElementById("boot");
@@ -50,7 +51,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.mesh({ zoom: [6.5, 99] });   // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）＝日本の道具
 	map.gadget.offline({ zoom: [8, 99] });  // オフラインパック（#40）＝今の画面の範囲を先に取って残す（配るのは下の SW）
 	map.gadget.stac({ zoom: [5, 99] });        // 衛星画像を探す（STAC/Earth Search→日付・雲量で選んで COG を球へ）＝世界帯から使える
-	const setMenu = map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
+	const setMenu = map.gadget.contextmenu() as (items: ContextMenuItems) => void; // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	setMenu((c, defaults) => map.getZoom() < 5 ? [...defaults, map.gadget.equalHere()] : defaults);   // 地球全体の距離では「この地点を中心に全球図へ」を足す
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
 	const demoH = map.gadget.demo({ lazy: () => import("./demo/scenes.js").then(m => m.default) });   // ▶だけ先に出し、台本と本体は押した時に読む（2026-09-22＝起動の転送から約 9KB 外す）   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
@@ -63,14 +64,14 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 		if (stack) stack.style.visibility = "hidden";
 		map.on("load", () => {
 			const btn = document.getElementById("demo-btn");
-			btn?.click(); demoH.play();
+			btn?.click(); demoH!.play();
 			if (btn && stack) { let on = false; new MutationObserver((_, mo) => { if (btn.getAttribute("aria-pressed") === "true") on = true; else if (on) { stack.style.visibility = ""; mo.disconnect(); } }).observe(btn, { attributes: true, attributeFilter: ["aria-pressed"] }); }
 		});
 	}
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 }).catch(e => failedP.then(m => m.startupFailed("japan", e), () => console.error("[japan] startup failed", e)));
 // サービスワーカー登録（public/sw.js→packages/globe/scripts/lib/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
-// 本番 https と localhost（検定の頁 tests/*.html は site.js を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
+// 本番 https と localhost（検定の頁 tests/*.html は site.ts を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
 // updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。
 // localhost（http でも安全な文脈）も掛ける（2026-09-25・#40）＝オフラインパックは SW が配るので dev で確かめられる。?nosw=1 で外す
 if ((location.protocol === "https:" || location.hostname === "localhost") && !/[?&]nosw=1/.test(location.search) && "serviceWorker" in navigator)

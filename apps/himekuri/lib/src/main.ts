@@ -1,28 +1,29 @@
 import { 日カレンダー, 世界時計, tip } from "./index.js";
 import { date2ymd, dayAfter, monthLength } from "./共通関数.js";
 
-const $ = id => document.getElementById(id);
-const iso = ([y, m, d]) => `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-const parse = s => { const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s || ""); return m && [+m[1], +m[2], +m[3]]; };
-const today = () => date2ymd().slice(0, 3);
+type YMD = [number, number, number];   // [年, 月, 日]
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const iso = ([y, m, d]: YMD) => `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const parse = (s: string | null): YMD | null => { const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s || ""); return m && [+m[1], +m[2], +m[3]]; };
+const today = () => date2ymd().slice(0, 3) as YMD;
 
 let hideTip = () => {};
-let ymd = parse(new URLSearchParams(location.search).get("d")) || today();
+let ymd: YMD = parse(new URLSearchParams(location.search).get("d")) || today();
 
-function show(dir = 0) {
+function show(dir = 0): void {
 	const page = document.createElement("div");
 	page.innerHTML = 日カレンダー(ymd);
 	if (dir) page.className = dir > 0 ? "flip-next" : "flip-prev";
 	$("page").replaceChildren(page);
 	hideTip();   // めくったら前の頁の吹き出しは消す
-	$("pick").value = iso(ymd);
+	$<HTMLInputElement>("pick").value = iso(ymd);
 	const url = new URL(location.href);
 	const isToday = iso(ymd) === iso(today());
 	isToday ? url.searchParams.delete("d") : url.searchParams.set("d", iso(ymd));
 	history.replaceState(null, "", url);
 }
-const move = n => { ymd = dayAfter(ymd, n); show(Math.sign(n)); };
-const moveMonth = n => {
+const move = (n: number) => { ymd = dayAfter(ymd, n) as YMD; show(Math.sign(n)); };
+const moveMonth = (n: number) => {
 	let [y, m, d] = ymd;
 	m += n; while (m > 12) { m -= 12; y++; } while (m < 1) { m += 12; y--; }
 	ymd = [y, m, Math.min(d, monthLength([y, m]))];
@@ -32,9 +33,9 @@ const moveMonth = n => {
 $("prev").onclick = () => move(-1);
 $("next").onclick = () => move(1);
 $("today").onclick = () => { ymd = today(); show(); };
-$("pick").onchange = e => { const v = parse(e.target.value); if (v) { ymd = v; show(); } };
+$("pick").onchange = e => { const v = parse((e.target as HTMLInputElement).value); if (v) { ymd = v; show(); } };
 addEventListener("keydown", e => {
-	if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
+	if ((e.target as HTMLElement).tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey) return;
 	if (e.key === "ArrowLeft") e.shiftKey ? moveMonth(-1) : move(-1);
 	else if (e.key === "ArrowRight") e.shiftKey ? moveMonth(1) : move(1);
 	else if (e.key === "t" || e.key === "T") { ymd = today(); show(); }
@@ -42,7 +43,7 @@ addEventListener("keydown", e => {
 	e.preventDefault();
 });
 // スワイプ：横に 40px 以上
-let x0 = null;
+let x0: number | null = null;
 $("page").addEventListener("pointerdown", e => { x0 = e.clientX; });
 $("page").addEventListener("pointerup", e => {
 	if (x0 === null) return;

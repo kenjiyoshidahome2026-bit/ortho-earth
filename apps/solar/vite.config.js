@@ -12,7 +12,7 @@ export default defineConfig({
 	plugins: [coepHeadersFile(resolve(import.meta.dirname, "dist/site")), sharedEngine()],
 	server: { port: 5199 },   // ortho-japan の太陽系ガジェット（gadgets/solar.js）が開発時に叩く固定ポート＝素の 5173 だと japan と取り合う
 
-	// target es2022＝main.js 冒頭の top-level await（訳を待ってから UI を組む）を素通しさせる。
+	// target es2022＝main.ts 冒頭の top-level await（訳を待ってから UI を組む）を素通しさせる。
 	// 既定の "modules" は Safari 14 を含む＝TLA でビルドが落ちる（WebGL2 必須のアプリ＝素性の古い端末は元から対象外）
 	build: { outDir: "dist/site/solar", emptyOutDir: true, target: "es2022" },
 	worker: { format: "es" },   // geopbf は module worker 連鎖＝既定 iife だとビルドが落ちる（ortho-japan と同じ轍）

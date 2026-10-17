@@ -36,25 +36,6 @@
 <body>
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
-	<script type="module">
-		// 弧の頁（issue #311）＝いちばん近い道は弧になる。deck.gl の ArcLayer・GreatCircleLayer に当たる map.addData(…, { kind: "arcs" }) を球の上で見せる。
-		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を起こし、案内板・層・小さなメルカトル図は ./arcs.js（遅延 chunk）。
-		// データ＝首都は world の台帳（GitHub Pages）・空港と路線は OpenFlights をブラウザが直読み（Cache API に置く）・国の形は NE admin_0 50m（エンジンと同じ geopbf）。
-		// ?mode=here|cmp|air|csv で起動する見方・?csv=URL で表を読む。
-		// glOverlay＝同一フレームのオーバーレイ（弧・点・光の粒）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（sats・quakes と同じ）
-		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
-		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
-		startPage("arcs", async () => {
-			const [{ createGlobe, geopbf }, { mountArcs }] = await Promise.all([import("@ortho-earth/globe"), import("./arcs.js")]);
-			const map = await createGlobe({ target: "#map", view: location.hash || "#1.9/20/140", chips: false, zoomMax: 8,
-				mesh: false, glOverlay: true, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });
-			dismissBoot();
-			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
-			const q = new URLSearchParams(location.search);
-			const arcs = await mountArcs(map, geopbf, { csv: q.get("csv"), mode: q.get("mode") });
-			window.__map = map; window.__arcs = arcs;   // console 検証用
-			return map;
-		}, { page: c => import(`./i18n/lang/arcs/${c}.json`) });
-	</script>
+	<script type="module" src="./arcs-page.ts"></script>
 </body>
 </html>

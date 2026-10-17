@@ -13,7 +13,7 @@ globalThis.equal = app;   // 検証・コンソール用の口（旧来と同じ
 //   → 親へ: { type:"equal:frame" }（最初の 1 枚＝重ねてよい）・{ type:"equal:closed", view:{zoom,lat,lon} }（球へ畳み終えた＝この視点で下の japan を合わせて閉じる）
 //   ← 親から: { type:"equal:go" }（見えたので開き始めよ）
 if (EMBED) {
-	const post = m => window.parent.postMessage(m, "*");
+	const post = (m: unknown) => window.parent.postMessage(m, "*");
 	if (app.drawn) post({ type: "equal:frame" }); else app.on("frame", () => post({ type: "equal:frame" }));
 	addEventListener("message", e => { if (e.source === window.parent && e.data?.type === "equal:go") app.releaseMorph(); });
 	app.on("closed", view => post({ type: "equal:closed", view }));   // 「地球儀」ボタン／Esc＝球へ畳んで japan へ返す（部品側が emit）
@@ -24,7 +24,7 @@ if (EMBED) {
 const BACK = (() => {
 	const b = new URLSearchParams(location.search).get("back"); if (!b) return null;
 	try {
-		const u = new URL(b, location.href), local = h => h === "localhost" || h === "127.0.0.1";
+		const u = new URL(b, location.href), local = (h: string) => h === "localhost" || h === "127.0.0.1";
 		return u.origin === location.origin || (local(u.hostname) && local(location.hostname)) ? u : null;
 	} catch { return null; }
 })();
