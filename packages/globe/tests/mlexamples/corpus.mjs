@@ -118,8 +118,10 @@ async function fetchAll() {
 	});
 	// 本物の dist＝npm pack（lock も node_modules も触らない）→ dist/ だけ残す
 	const tmp = fs.mkdtempSync(path.join(CACHE, "..", ".pack-"));
-	const info = JSON.parse(execFileSync("npm", ["pack", `maplibre-gl@${PIN.version}`, "--pack-destination", tmp, "--json"], { encoding: "utf8" }))[0];
-	execFileSync("tar", ["-xzf", path.join(tmp, info.filename), "-C", tmp]);
+	const packOut = execFileSync("npm", ["pack", `maplibre-gl@${PIN.version}`, "--pack-destination", tmp, "--json"], { encoding: "utf8" });
+	const filename = [...packOut.matchAll(/"filename":\s*"([^"]+)"/g)].at(-1)?.[1];   // npm 10 は配列・11 以降は object（2026-10-17）
+	if (!filename) throw new Error("npm pack の出力から filename を特定できない");
+	execFileSync("tar", ["-xzf", path.join(tmp, filename), "-C", tmp]);
 	fs.rmSync(path.join(CACHE, "dist"), { recursive: true, force: true });
 	fs.cpSync(path.join(tmp, "package/dist"), path.join(CACHE, "dist"), { recursive: true });
 	fs.rmSync(tmp, { recursive: true, force: true });
