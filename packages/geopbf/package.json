@@ -95,6 +95,7 @@
 		"./georef": "./src/georef/index.ts",
 		"./proj": "./src/convert/proj.ts",
 		"./epsg": "./src/convert/epsg.ts",
+		"./shapefile": "./src/decoder/shapefile.ts",
 		"./datum": "./src/convert/datum.ts",
 		"./table": "./src/convert/table.ts",
 		"./convert/node-gint": "./src/convert/node-gint.ts",

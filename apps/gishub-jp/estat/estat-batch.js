@@ -18,7 +18,7 @@ import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
-import * as shapefile from 'shapefile';
+import { readShapefile } from 'geopbf/shapefile';   // 自前の読み手（2026-10-17・旧＝shapefile@0.6.6＝Node 版が保守終了の text-encoding を引いた）
 import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
 const __dir = dirname(fileURLToPath(import.meta.url));
 
@@ -71,17 +71,17 @@ async function processEntry(entry, bucket) {
 
 	const zip      = new AdmZip(buf);
 	const entries  = zip.getEntries();
-	const shpEntry = entries.find(e => e.entryName.toLowerCase().endsWith('.shp'));
-	const dbfEntry = entries.find(e => e.entryName.toLowerCase().endsWith('.dbf'));
+	const byExt    = ext => entries.find(e => e.entryName.toLowerCase().endsWith(ext));
+	const shpEntry = byExt('.shp'), dbfEntry = byExt('.dbf'), cpgEntry = byExt('.cpg'), prjEntry = byExt('.prj');
 	if (!shpEntry || !dbfEntry) throw new Error('SHP/DBF not found');
 
-	const source   = await shapefile.open(shpEntry.getData().buffer, dbfEntry.getData().buffer, { encoding: 'shift_jis' });
+	// 空欄の属性は持たない（旧＝null）・文字欄の NUL 詰めは落とす。形は旧と同一（Natural Earth 1,139 件で突き合わせ・2026-10-17）
 	const lines    = [];
-	let result     = await source.read();
-	while (!result.done) {
-		if (result.value?.geometry) lines.push(JSON.stringify(result.value));
-		result = await source.read();
-	}
+	for (const f of readShapefile({
+		shp: shpEntry.getData(), dbf: dbfEntry.getData(),
+		cpg: cpgEntry?.getData().toString('utf8'), prj: prjEntry?.getData().toString('utf8'),
+		encoding: 'shift_jis',
+	})) lines.push(JSON.stringify(f));
 	if (!lines.length) throw new Error('変換結果が空');
 	const geojsonl = lines.join('\n');
 
