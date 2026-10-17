@@ -128,7 +128,13 @@ try {
 	await map.addLayer({ id: "k", type: "fill", source: "k", paint: { "fill-color": realFeats ? ["case", ["==", ["get", "koppen"], "__"], "#000000", "#de6028"] : ["match", ["get", "group"], "B", "#de6028", "E", "#de6028", "rgba(0,0,0,0)"], "fill-opacity": 0.42 } });
 	const mapEl = document.getElementById("map");
 	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
-	const px = (S, lng, la) => { const p = map.projectLL(lng, la); if (!p || p[2] < 0.5) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };   // p[2]<0＝裏側・縁（<0.5）は画素が潰れる＝見ない
+	// p[2]（front＝f＝dot(P,E)−1・手前の最大 ≈ |E|−1）<0＝裏側。縁は画素が潰れ、大気の霞が塗りを消す＝見ない：従来の f<0.5 に加えて
+	// 視線の掠め角 cosθ＝dot(P,E−P)/|E−P|＝f/√(|E|²−2f−1) が 0.5 未満（|E| は手前最大の f から）。チルトで地平近くまで傾いた視点
+	//（本人の 4.61/24t）は f だけでは縁の霞（画面上端）を拾い、低ズーム 35t は縁の陰の 1 画素で判定が揺れた（2026-10-17）
+	let frontMax = 0; for (let la = -60; la <= 60; la += 10) for (let lo = -180; lo < 180; lo += 10) { const p = map.projectLL(lo, la); if (p && p[2] > frontMax) frontMax = p[2]; }
+	const eye2 = (frontMax + 1) * (frontMax + 1);
+	const graze = f => f / Math.sqrt(Math.max(eye2 - 2 * f - 1, 1e-6));
+	const px = (S, lng, la) => { const p = map.projectLL(lng, la); if (!p || p[2] < 0.5 || graze(p[2]) < 0.5 || p[0] < 0 || p[1] < 0 || p[0] >= mapEl.clientWidth || p[1] >= mapEl.clientHeight) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
 	// 塗られたか＝層を消した基図との差で見る（夜側の陰や陸の色に依らない）：橙 #de6028 を 0.42 で混ぜると ΔR が ΔG・ΔB を大きく上回る
 	map.setLayoutProperty("k", "visibility", "none"); await sleep(600);
 	let S0 = await shot();
@@ -138,12 +144,15 @@ try {
 	for (let i = 0; i < 80; i++) { S = await shot(); if (tinted(S, 138, -24) || tinted(S, 100, 40) || (realFeats && tinted(S, 80, 45))) break; await sleep(250); }   // 塗りが立つまで待つ（標本点は陸＝塗られるはず）
 	// 基図は層なしの撮り直し（S0 を取り直す）＝塗りが立つまでの間に地形タイルや陰が変わると、層と無関係の画素差を塗りと誤る（チルトの縁で踏んだ・2026-10-17）
 	map.setLayoutProperty("k", "visibility", "none"); await sleep(800); S0 = await shot();
+	map.setLayoutProperty("k", "visibility", "visible"); await sleep(800);   // 下の切り分け（海の点に当たる地物）と最後の絵は層あり
 	const samples = [];
-	for (let la = -58; la <= 58; la += 4) for (let lo = -179.5; lo < 180; lo += 5) {
+	const zv = parseFloat(view.replace(/^#/, "")) || 1.9, dLa = zv >= 3 ? 2 : 4, dLo = zv >= 3 ? 2.5 : 5;   // 寄った視点（本人の 4.61/24t）は画面に入る範囲が狭い＝標本を密に（内外とも 20 点超を保つ）
+	for (let la = -58; la <= 58; la += dLa) for (let lo = -179.5; lo < 180; lo += dLo) {
 		const inB = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) inB.push(insideB(lo + dx, la + dy));   // 周り 1° まで同じ側＝海岸の画素（z1.9 で 1°≈2.6px）は見ない
 		if (inB.some(v => v !== inB[0])) continue;
 		if (!inB[0] && nearLand(lo, la, 1)) continue;   // 外の標本は 1° 以内に小島（点の標本では拾えない 0.1° セル）が無い所だけ
 		const tt = tinted(S, lo, la); if (tt === null) continue;   // 裏側・縁
+		if (inB[0]) { const b = px(S0, lo, la); if (b && b[2] - b[0] > 40) continue; }   // 陸の標本が基図の川・湖（青の線は塗りの上に描かれる＝寄った視点で見える）に当たったら見ない
 		samples.push([lo, la, inB[0], tt, px(S, lo, la)]);
 	}
 	const bad = samples.filter(s => s[2] !== s[3]), nIn = samples.filter(s => s[2]).length, nOut = samples.length - nIn;
