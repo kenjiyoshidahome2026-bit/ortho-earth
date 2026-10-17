@@ -27,7 +27,7 @@
 	},
 	"files": [
 		"src",
-		"!src/main.js",
+		"!src/main.ts",
 		"LICENSE",
 		"README.md"
 	],

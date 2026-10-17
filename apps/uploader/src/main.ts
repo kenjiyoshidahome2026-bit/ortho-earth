@@ -15,6 +15,8 @@ import { screenLogger } from "common/screenLogger";
 import "common/d3/selection";
 import { nativeBucket } from "native-bucket";
 import { createGeopbf } from "geopbf";
+import type { BucketProvider } from "geopbf";
+import type { LogDiv } from "common/screenLogger";
 import { GEBCO } from "./terrain/gebco.js";   // GEBCO の GeoTIFF → 標高タイル（焼きの道具＝uploader 専用・2026-09-25 に altpbf から移設）
 
 import * as globe from "./globe.js";
@@ -32,17 +34,18 @@ const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.o
 // .env.local の VITE_API_KEY から注入。無ければ起動時に警告＝気づけるように。
 const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 if (!API_KEY) console.warn("uploader: VITE_API_KEY が未設定（.env.local）＝アップロードは 403 で失敗します");
-createGeopbf(API_BASE, { apiKey: API_KEY, bucket: nativeBucket });
+createGeopbf(API_BASE, { apiKey: API_KEY, bucket: nativeBucket as BucketProvider });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 const ctx = { Fetch, Bucket, Cache, apiUrl: API_BASE };
 
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
 const LOG = body.append("div").attr("id", "logArea").classed("logArea", true);
-const q = new screenLogger(LOG);
+const q = new screenLogger(LOG as unknown as LogDiv);   // as＝d3 の Selection は要素・親の型引数で互いに読み替えられない＝screenLogger の受け口（LogDiv）へ
 
 // [節, [[ボタン, 実行]...]]。実行は (q, ctx) を受ける
-const MENU = [
+type Run = (q: screenLogger, c: typeof ctx) => unknown;
+const MENU: [string, [string, Run][]][] = [
 	["全球の基図", [
 		["base ER pictures", globe.baseImages],
 		["borders", globe.borders],
@@ -71,7 +74,7 @@ const MENU = [
 		// 京都・全civic合流＝学校P29＋郵便局P30＋役場P34（z14窓）＋寺院662を注記から掃引（三十三間堂の正しい位置＝§1解決）。
 		["POI civic 京都 (P29+P30+P34+寺院)", (q, c) => poi(q, c, {
 			sets: ["P29", "P30", "P34"], anno: [{ code: 662, label: "寺院", bbox: [135.70, 34.95, 135.83, 35.06] }],
-		})],
+		} as Parameters<typeof poi>[2])],   // as＝poi の opts の型は JS の既定値（anno = []）からの推論
 	]],
 ];
 
@@ -90,7 +93,7 @@ for (const [title, buttons] of MENU) {
 			if (btn.classed("busy")) return;   // 二度押しで同じ焼きが並走しない
 			btn.classed("busy", true).classed("ok ng", false);
 			try { await run(q, ctx); btn.classed("ok", true); }
-			catch (e) { console.error(e); q.error(`${label}: 失敗 — ${e?.message || e}`); btn.classed("ng", true); }
+			catch (e) { console.error(e); q.error(`${label}: 失敗 — ${(e as Error)?.message || e}`); btn.classed("ng", true); }
 			finally { btn.classed("busy", false); }
 		});
 	}

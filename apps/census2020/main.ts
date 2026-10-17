@@ -3,12 +3,13 @@
 // 各機能は独立モジュール＝bind(双方向)・choropleth(コロプレス)・bousai(防災)・moj(筆)・wiki(Wikipedia)。
 import "./panel.scss";
 import { createGeopbf } from "geopbf";
+import type { BucketProvider } from "geopbf";
 import { nativeBucket } from "native-bucket";
 // ★census自前バンドルの geopbf を必ずここで初期化する。SDK分割後、lib(/japan/lib/)の中の geopbf と
 //   census がバンドルする geopbf は**別モジュールインスタンス**＝エンジン(app.js)の createGeopbf は
 //   lib側コピーにしか効かない（本番だけ choro.ready 失敗の罠・8/20実地）。devはソース直＝同一インスタンスの
 //   二重呼びになるが createGeopbf は冪等（同apiBase）＝無害。
-createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket as BucketProvider });
 // ★エンジンは自分の束に焼く（本人裁定 2026-09-23「A 一択」）：dev も本番もソース直＝build 時にワークスペースの
 //   ortho-japan/app.js ごと束ねる。旧（8/20〜9/23）は本番だけ /japan/lib/ の SDK 配布物を実行時に食っていた＝japan を
 //   出すたびに全消費者が同時に変わり、9/20 の map.overlay 上書きで本番の census2020 が 3 日間起動不能だった。
@@ -22,8 +23,8 @@ import { setup } from "./ui/ctx.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
 
 // パネル注入口（ドリルUIの唯一の外部継ぎ目＝gishub-jp と同じ setDetailHtml 契約）
-const panelBody = document.getElementById("panel-body");
-setup({ setDetailHtml: html => { panelBody.innerHTML = html; panelBody.scrollTop = 0; } });
+const panelBody = document.getElementById("panel-body") as HTMLElement;
+setup({ setDetailHtml: (html: string) => { panelBody.innerHTML = html; panelBody.scrollTop = 0; } });
 
 // パネル初期描画（地図と並走）。?area= 共有URLは最初からその場所を描く＝全国ビューを経由しない
 // （renderCensusSmall2020 の非同期 national 描画が復元ドリルへ後勝ちする事故を構造的に断つ）。
@@ -41,8 +42,8 @@ if (!VERIFY) Promise.all([uiP, import("./wiki.js")]).then(([{ renderCensusSmall2
 }).catch(e => console.error("[census2020] 国勢調査の表を読めない", e));
 
 // パネル出し入れ（6:4 ⇄ 地図全幅）。canvas はエンジンの ResizeObserver(#map) が自動追随
-const shell = document.getElementById("shell");
-const toggleBtn = document.getElementById("panel-toggle");
+const shell = document.getElementById("shell") as HTMLElement;
+const toggleBtn = document.getElementById("panel-toggle") as HTMLElement;
 const syncToggle = () => { toggleBtn.textContent = shell.classList.contains("map-full") ? "◀" : "▶"; };
 toggleBtn.addEventListener("click", () => { shell.classList.toggle("map-full"); syncToggle(); });
 syncToggle();

@@ -11,7 +11,7 @@ document.documentElement.dir = isRTL() ? "rtl" : "ltr";
 document.title = t("ortho-solar — the Solar System, heliocentric");
 
 // hash:true＝視点・時刻・速度・星座を URL のハッシュと往復（共有リンク・読み直しで同じ場面へ）
-const app = await createSolar({ target: "#app", hash: true });
+const app = await createSolar({ target: "#app", hash: true } as Parameters<typeof createSolar>[0]);   // as＝JS 本体の引数型は既定値からの推論（既定値の無い target・lang・view が落ちる）
 
 // 戻り口＝アプリ間の URL の約束（2026-09-19 本人裁定「単体なら要らない・統一的な考え方で」）：
 //   呼び出し元が ?back=<戻り先の URL（同一オリジン）> を付けて開いた時だけ「← 戻る」を出す。単体で開いたら出さない。
@@ -21,7 +21,7 @@ const app = await createSolar({ target: "#app", hash: true });
 const BACK = (() => {
 	const b = new URLSearchParams(location.search).get("back"); if (!b) return null;
 	try {
-		const u = new URL(b, location.href), local = h => h === "localhost" || h === "127.0.0.1";
+		const u = new URL(b, location.href), local = (h: string) => h === "localhost" || h === "127.0.0.1";
 		return u.origin === location.origin || (local(u.hostname) && local(location.hostname)) ? u : null;
 	} catch { return null; }
 })();
@@ -32,4 +32,4 @@ if (BACK) app.addButton({
 		if (from && from.origin === BACK.origin && from.pathname === BACK.pathname && history.length > 1) history.back();
 		else location.href = BACK.href;
 	},
-});
+} as Parameters<typeof app.addButton>[0]);   // as＝addButton の型は JS の既定値からの推論（onClick が落ちる）
