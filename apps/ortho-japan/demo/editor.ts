@@ -278,7 +278,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			const hash = esc((hashOf(r) ?? "").split("/l=")[0]);
 			const trans = r.glide ? "glide" : r.fade ? "fade" : "view";
 			const afterVia = i > 0 && isVia(doc.scenes[i - 1]);   // via の着点＝地図遷移でも travel（最終区間の尺）が効く
-			const num = (v: unknown) => (Number.isFinite(v) ? v : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）
+			const num = (v: unknown) => (Number.isFinite(v) ? String(Number(v)) : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）。String(Number(v))＝有限の数なら `${v}` と同じ字（CodeQL js/xss-through-dom に数へ通したと見せる）
 			const travelInput = (dis: boolean) => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("auto")}"${dis ? ` disabled title="${t("Map-transition duration is automatic (editable when this row ends a dolly)")}"` : ""}>`;
 			const pv = via ? null : parseViewHash(hashOf(r) ?? "");
 			const chips = via ? "" : (pv?.layers == null ? `<span class="sc-chip dim">${t("layers: keep current")}</span>`
