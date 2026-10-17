@@ -123,7 +123,7 @@ export async function createColumnarView(map: GlobeMap, src: ColumnarSrc, opts: 
 		textEl.textContent = t("$1: $2/$3 chunks · $4 MB of $5 MB", name, n, total, MB(read), MB(sizeBytes)) + extra;
 	};
 
-	const drawUrl = opts.drawUrl ?? new URL("./draw-gl.js", import.meta.url).href;
+	const drawUrl = opts.drawUrl ?? { builtin: "columnar" };
 	const ovName = opts.overlayName ?? `columnar-${++seqView}`;
 	const ov = map.overlay(drawUrl, { name: ovName, opts: { perf: !!opts.perf, drape: opts.drape !== false, depth: opts.depth !== false, rAx } });   // drape＝地形に沿わせる（頂点の標高を worker の地形から）・depth＝シーンの深度で隠す（#47）
 	const stats: { frameMs: number | null; chunksDrawn: number; errors: string[] } = { frameMs: null, chunksDrawn: 0, errors: [] };

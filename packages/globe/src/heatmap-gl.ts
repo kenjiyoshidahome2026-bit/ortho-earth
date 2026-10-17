@@ -2,7 +2,7 @@
 // main（gadgets/aggregate.js）が点の列（単位球ワールド xyz・重み）と、ズームごとの半径/強さの表・色表（heatmap-density 0..1 → RGBA）を渡す。
 // 描き方は MapLibre と同じ二段：①密度＝各点のガウス核（weight×intensity×GAUSS_COEF×exp(−½·3²·d²)）を浮動小数の窓へ加算
 // ②密度 0..1 を色表で引いて不透明度を掛けて画面へ。地球の裏側の点は足さない（視点側の半球だけ）。
-// 契約（app.js の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size) / destroy()。依存ゼロ（worker が URL で import()）。
+// 契約（app.js の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size) / destroy()（render worker の組み込み＝BUILTIN_OVERLAYS が遅延チャンクで読み create() で実体を作る・2026-10-17 まで URL で import() する依存ゼロのモジュール）。
 // 検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
 import type { CameraPose, CameraState, OverlayHost, OverlaySize } from "./types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
@@ -14,11 +14,6 @@ type Msg =
 	| { type: "probe"; id: unknown } | { type: "clear" }
 	| { type: "points"; pos: Float32Array; w: Float32Array }
 	| ({ type: "style" } & Partial<HeatStyle>);
-
-let gl: WebGL2RenderingContext = null!, dens: DensityTarget | null = null, prog: Prog | null = null, colorProg: Prog | null = null, vao: WebGLVertexArrayObject | null = null, quad: WebGLBuffer | null = null, rampTex: WebGLTexture | null = null;
-let n = 0, posBuf: WebGLBuffer | null = null, wBuf: WebGLBuffer | null = null, st: HeatStyle = { radius: [30], intensity: [1], opacity: 1, zStep: 0.5 }, fmt: TexFormat | null = null;
-let host: OverlayHost | null = null;
-const probes: unknown[] = [];
 
 const VS = `#version 300 es
 precision highp float;
@@ -54,108 +49,117 @@ void main() {
 	vec4 c = texture(u_ramp, vec2(t, 0.5));
 	o = vec4(c.rgb * c.a, c.a) * u_opacity;          // 前乗算
 }`;
-function compile(vs: string, fs: string): Prog {
-	const p = gl.createProgram();
-	for (const [t, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]] as [GLenum, string][]) {
-		const s = gl.createShader(t)!; gl.shaderSource(s, src); gl.compileShader(s);
-		if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)!);
-		gl.attachShader(p, s);
+
+// 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
+export function create() {
+	let gl: WebGL2RenderingContext = null!, dens: DensityTarget | null = null, prog: Prog | null = null, colorProg: Prog | null = null, vao: WebGLVertexArrayObject | null = null, quad: WebGLBuffer | null = null, rampTex: WebGLTexture | null = null;
+	let n = 0, posBuf: WebGLBuffer | null = null, wBuf: WebGLBuffer | null = null, st: HeatStyle = { radius: [30], intensity: [1], opacity: 1, zStep: 0.5 }, fmt: TexFormat | null = null;
+	let host: OverlayHost | null = null;
+	const probes: unknown[] = [];
+	function compile(vs: string, fs: string): Prog {
+		const p = gl.createProgram();
+		for (const [t, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]] as [GLenum, string][]) {
+			const s = gl.createShader(t)!; gl.shaderSource(s, src); gl.compileShader(s);
+			if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)!);
+			gl.attachShader(p, s);
+		}
+		gl.linkProgram(p);
+		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
+		const u: Uniforms = {}; for (const k of ["u_mvp", "u_eye", "u_px", "u_radius", "u_intensity", "u_d", "u_ramp", "u_opacity"]) u[k] = gl.getUniformLocation(p, k);
+		return { p, u };
 	}
-	gl.linkProgram(p);
-	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
-	const u: Uniforms = {}; for (const k of ["u_mvp", "u_eye", "u_px", "u_radius", "u_intensity", "u_d", "u_ramp", "u_opacity"]) u[k] = gl.getUniformLocation(p, k);
-	return { p, u };
-}
-export function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
-	host = h || null;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext;
-	// 密度の窓＝半精度浮動小数（描けない GPU は RGBA8＝量子化するが見た目は近い）
-	fmt = gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float") ? { i: gl.R16F, f: gl.RED, t: gl.HALF_FLOAT } : { i: gl.RGBA8, f: gl.RGBA, t: gl.UNSIGNED_BYTE };
-	prog = compile(VS, FS); colorProg = compile(CVS, CFS);
-	quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-	vao = gl.createVertexArray();
-	rampTex = gl.createTexture();
-	setRamp(null);
-}
-function setRamp(rgba: Uint8Array | null | undefined) {
-	const d = rgba || (() => { const a = new Uint8Array(256 * 4); for (let i = 0; i < 256; i++) { a[i * 4] = 255; a[i * 4 + 3] = i; } return a; })();
-	gl.bindTexture(gl.TEXTURE_2D, rampTex);
-	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-}
-// data＝{ type:"points", pos: Float32Array(xyz), w: Float32Array } | { type:"style", radius:[px…], intensity:[…], zStep, opacity, ramp: Uint8Array(1024) } | { type:"clear" }
-export function message(d: Msg) {
-	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
-	if (!gl) return;
-	if (d.type === "clear") { n = 0; return; }
-	if (d.type === "points") {
-		n = d.w.length;
-		posBuf ??= gl.createBuffer(); wBuf ??= gl.createBuffer();
-		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, d.pos, gl.STATIC_DRAW);
-		gl.bindBuffer(gl.ARRAY_BUFFER, wBuf); gl.bufferData(gl.ARRAY_BUFFER, d.w, gl.STATIC_DRAW);
-		gl.bindVertexArray(vao);
-		gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
-		gl.bindBuffer(gl.ARRAY_BUFFER, wBuf); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(2, 1);
-		gl.bindVertexArray(null);
+	function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
+		host = h || null;
+		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext;
+		// 密度の窓＝半精度浮動小数（描けない GPU は RGBA8＝量子化するが見た目は近い）
+		fmt = gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float") ? { i: gl.R16F, f: gl.RED, t: gl.HALF_FLOAT } : { i: gl.RGBA8, f: gl.RGBA, t: gl.UNSIGNED_BYTE };
+		prog = compile(VS, FS); colorProg = compile(CVS, CFS);
+		quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+		vao = gl.createVertexArray();
+		rampTex = gl.createTexture();
+		setRamp(null);
 	}
-	if (d.type === "style") { st = { ...st, ...d }; if (d.ramp) setRamp(d.ramp); }
-}
-const byZoom = (tab: number[], z: number) => { const k = z / st.zStep, i = Math.max(0, Math.min(tab.length - 1, Math.floor(k))), j = Math.min(tab.length - 1, i + 1), t = Math.max(0, Math.min(1, k - i)); return tab[i] + (tab[j] - tab[i]) * t; };
-// 検定用の画素（dbgHost.__ovPixels・t-ellparity）＝probe を受けたら、次の frame で描いた直後に readPixels して host へ（columnar の draw-gl と同じ口・premultiplied RGBA・下が先）
-function answerProbes(w: number, h: number) {
-	if (!probes.length) return;
-	const ids = probes.splice(0);
-	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
-}
-export function frame(cam: CameraPose, s: CameraState, size: OverlaySize) {
-	const r = draw(cam, s, size);
-	if (gl) answerProbes(size.w, size.h);
-	return r;
-}
-function draw(cam: CameraPose, s: CameraState, { w, h }: OverlaySize) {
-	if (!gl) return false;
-	gl.viewport(0, 0, w, h);
-	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-	if (!n) return false;
-	const dpr = cam.dpr || 1, z = cam.zoom || 0;
-	if (z < (st.minzoom ?? -99) || z >= (st.maxzoom ?? 99)) return false;   // 層の minzoom/maxzoom（MapLibre の heatmap は高ズームで点へ譲るのが定番）
-	// 密度の窓（画面の半分の解像度＝核はぼけるので十分・帯域半分）
-	const dw = Math.max(1, w >> 1), dh = Math.max(1, h >> 1);
-	if (!dens || dens.w !== dw || dens.h !== dh) {
-		if (dens) { gl.deleteTexture(dens.tex); gl.deleteFramebuffer(dens.fbo); }
-		const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
-		gl.texImage2D(gl.TEXTURE_2D, 0, fmt!.i, dw, dh, 0, fmt!.f, fmt!.t, null);
+	function setRamp(rgba: Uint8Array | null | undefined) {
+		const d = rgba || (() => { const a = new Uint8Array(256 * 4); for (let i = 0; i < 256; i++) { a[i * 4] = 255; a[i * 4 + 3] = i; } return a; })();
+		gl.bindTexture(gl.TEXTURE_2D, rampTex);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-		dens = { tex, fbo, w: dw, h: dh };
 	}
-	gl.bindFramebuffer(gl.FRAMEBUFFER, dens.fbo); gl.viewport(0, 0, dw, dh);
-	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
-	gl.useProgram(prog!.p);
-	gl.uniformMatrix4fv(prog!.u.u_mvp, false, new Float32Array(s.mvp));
-	gl.uniform3fv(prog!.u.u_eye, new Float32Array(s.eye));
-	gl.uniform2f(prog!.u.u_px, 2 / w, 2 / h);
-	gl.uniform1f(prog!.u.u_radius, byZoom(st.radius, z) * dpr);
-	gl.uniform1f(prog!.u.u_intensity, byZoom(st.intensity, z));
-	gl.bindVertexArray(vao);
-	gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
-	gl.bindVertexArray(null);
-	// 色付け
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h);
-	gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-	gl.useProgram(colorProg!.p);
-	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dens.tex); gl.uniform1i(colorProg!.u.u_d, 0);
-	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, rampTex); gl.uniform1i(colorProg!.u.u_ramp, 1);
-	gl.uniform1f(colorProg!.u.u_opacity, st.opacity ?? 1);
-	gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(0, 0);
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-	gl.disableVertexAttribArray(0);
-	gl.activeTexture(gl.TEXTURE0);
-	return false;
+	// data＝{ type:"points", pos: Float32Array(xyz), w: Float32Array } | { type:"style", radius:[px…], intensity:[…], zStep, opacity, ramp: Uint8Array(1024) } | { type:"clear" }
+	function message(d: Msg) {
+		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
+		if (!gl) return;
+		if (d.type === "clear") { n = 0; return; }
+		if (d.type === "points") {
+			n = d.w.length;
+			posBuf ??= gl.createBuffer(); wBuf ??= gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, d.pos, gl.STATIC_DRAW);
+			gl.bindBuffer(gl.ARRAY_BUFFER, wBuf); gl.bufferData(gl.ARRAY_BUFFER, d.w, gl.STATIC_DRAW);
+			gl.bindVertexArray(vao);
+			gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+			gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
+			gl.bindBuffer(gl.ARRAY_BUFFER, wBuf); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(2, 1);
+			gl.bindVertexArray(null);
+		}
+		if (d.type === "style") { st = { ...st, ...d }; if (d.ramp) setRamp(d.ramp); }
+	}
+	const byZoom = (tab: number[], z: number) => { const k = z / st.zStep, i = Math.max(0, Math.min(tab.length - 1, Math.floor(k))), j = Math.min(tab.length - 1, i + 1), t = Math.max(0, Math.min(1, k - i)); return tab[i] + (tab[j] - tab[i]) * t; };
+	// 検定用の画素（dbgHost.__ovPixels・t-ellparity）＝probe を受けたら、次の frame で描いた直後に readPixels して host へ（columnar の draw-gl と同じ口・premultiplied RGBA・下が先）
+	function answerProbes(w: number, h: number) {
+		if (!probes.length) return;
+		const ids = probes.splice(0);
+		try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
+		catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
+	}
+	function frame(cam: CameraPose, s: CameraState, size: OverlaySize) {
+		const r = draw(cam, s, size);
+		if (gl) answerProbes(size.w, size.h);
+		return r;
+	}
+	function draw(cam: CameraPose, s: CameraState, { w, h }: OverlaySize) {
+		if (!gl) return false;
+		gl.viewport(0, 0, w, h);
+		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+		if (!n) return false;
+		const dpr = cam.dpr || 1, z = cam.zoom || 0;
+		if (z < (st.minzoom ?? -99) || z >= (st.maxzoom ?? 99)) return false;   // 層の minzoom/maxzoom（MapLibre の heatmap は高ズームで点へ譲るのが定番）
+		// 密度の窓（画面の半分の解像度＝核はぼけるので十分・帯域半分）
+		const dw = Math.max(1, w >> 1), dh = Math.max(1, h >> 1);
+		if (!dens || dens.w !== dw || dens.h !== dh) {
+			if (dens) { gl.deleteTexture(dens.tex); gl.deleteFramebuffer(dens.fbo); }
+			const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, fmt!.i, dw, dh, 0, fmt!.f, fmt!.t, null);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+			dens = { tex, fbo, w: dw, h: dh };
+		}
+		gl.bindFramebuffer(gl.FRAMEBUFFER, dens.fbo); gl.viewport(0, 0, dw, dh);
+		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+		gl.useProgram(prog!.p);
+		gl.uniformMatrix4fv(prog!.u.u_mvp, false, new Float32Array(s.mvp));
+		gl.uniform3fv(prog!.u.u_eye, new Float32Array(s.eye));
+		gl.uniform2f(prog!.u.u_px, 2 / w, 2 / h);
+		gl.uniform1f(prog!.u.u_radius, byZoom(st.radius, z) * dpr);
+		gl.uniform1f(prog!.u.u_intensity, byZoom(st.intensity, z));
+		gl.bindVertexArray(vao);
+		gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
+		gl.bindVertexArray(null);
+		// 色付け
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h);
+		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+		gl.useProgram(colorProg!.p);
+		gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dens.tex); gl.uniform1i(colorProg!.u.u_d, 0);
+		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, rampTex); gl.uniform1i(colorProg!.u.u_ramp, 1);
+		gl.uniform1f(colorProg!.u.u_opacity, st.opacity ?? 1);
+		gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(0, 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		gl.disableVertexAttribArray(0);
+		gl.activeTexture(gl.TEXTURE0);
+		return false;
+	}
+	function destroy() { gl?.getExtension("WEBGL_lose_context")?.loseContext(); gl = null!; }
+	return { init, message, frame, destroy };
 }
-export function destroy() { gl?.getExtension("WEBGL_lose_context")?.loseContext(); gl = null!; }

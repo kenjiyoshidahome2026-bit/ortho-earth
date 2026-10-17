@@ -2,17 +2,13 @@
 // map.addData・セルと集約（map.addCells 等）＝createGlobe から切り出した（globe.js の分割 ⑤・2026-10-15）。中身は切り出す前と同じ。
 // createGlobe の他の所が使う物（scenes・readGeoData・remoteUrl・setSrcAttr・列チャンクの判定・source の読み込みと視野追従）は戻り値で返す。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import arcsUrl from "../gadgets/arcs-gl.js?url";
 import { createScenePlayer } from "../scenes/player.ts";
 import { evalExpr } from "@ortho-earth/core";
 import { geopbf, geopbfCachePrune, geopbfCached } from "geopbf";
 import { gunzipText } from "../gadgets/dropfile.ts";
 import { normSplat } from "../splat.ts";
-import pointsUrl from "../gadgets/points-gl.js?url";
 import { sanitizeHTML } from "geopbf/sanitize";
-import screengridUrl from "../gadgets/screengrid-draw.js?url";
 import { tr } from "../i18n.ts";
-import tripsUrl from "../gadgets/trips-gl.js?url";
 import type { Feature, FeatureCollection } from "geopbf";
 import type { FeatureService } from "geopbf/featureservice";
 import type { CellCache } from "../featureservice.ts";
@@ -307,7 +303,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 		const modP = import("../adddata.ts");
 		const h = { id: name, kind } as DataLayerHandle;
 		if (kind === "points" || kind === "arcs" || kind === "trips") {
-			const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
+			const ov = map.overlay({ builtin: kind === "points" ? "points" : kind === "arcs" ? "arcs" : "trips" }, { name, above });
 			const style: Record<string, unknown> = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
 			if (acc.trailLength != null) style.trail = acc.trailLength; if (acc.fadeTrail != null) style.fade = acc.fadeTrail;
 			if (acc.color) style.color = [(acc.color as number[])[0] / 255, (acc.color as number[])[1] / 255, (acc.color as number[])[2] / 255, ((acc.color as number[])[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
@@ -382,7 +378,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	const cellsMod = () => import("../cells/layer.ts");
 	map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
 	map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
-	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });
-	map.addAggregate = async (src, o = {}) => (await cellsMod()).addAggregate(map, src, { evalExpr, ...o }, { screengrid: screengridUrl });
+	map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, o);
+	map.addAggregate = async (src, o = {}) => (await cellsMod()).addAggregate(map, src, { evalExpr, ...o });
 	return { scenes, readGeoData, remoteUrl, setSrcAttr, columnarOn, columnarView, columnarProbe, sourceData, dropFollow, fsFollow };
 }

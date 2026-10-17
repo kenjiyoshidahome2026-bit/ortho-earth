@@ -12,7 +12,7 @@ const Q = new URLSearchParams(location.search);
 const WAIT = +Q.get("wait") || 30000;
 const { createGlobe } = await import("@ortho-earth/globe");
 const { lonlatTo3D, betaToLonLat } = await import("@ortho-earth/core/camera");
-const { arcPoint } = await import("../src/gadgets/arcs-gl.js");
+const { arcPoint } = await import("../src/gadgets/arcs-gl.ts");
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -9,7 +9,7 @@
 // 補間（純関数 arcPoint＝node の検定 tests/arcs.mjs が読む）：p(t) = (sin((1−t)θ)·A + sin(tθ)·B) / sinθ（単位球の上）＋ 4·h·弦長·t(1−t) を動径の向きへ。
 //   原点相対のまま：p − O = cA·(A−O) + cB·(B−O) + (cA+cB−1)·O ＝ 近い 2 点（θ 小）では cA+cB−1 ≈ 0 で O の f32 誤差が消える（RTE が効く）。
 // 当たり判定（統一 picking・PR-1）：pick(x, y, r, ctx)＝弧の番号（層の base＋gl_InstanceID・1 から）を RGBA8 に焼く別パス＝points-gl と同じ流儀。
-// ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く。
+// render worker の組み込み（BUILTIN_OVERLAYS の "arcs"・create() で実体を作る）。
 import type { CameraPose, CameraState, LastOverlayFrame, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと）＝has＝属性を持つか（無ければ style の定数） */
@@ -98,7 +98,6 @@ void main() {
 	float a = v_col.a * cov;
 	o = vec4(v_col.rgb * a, a);
 }`;
-const VS_PICK = VS.replace("out vec4 v_col;", "out vec4 v_col; flat out highp uint v_id; uniform highp uint u_base;").replace("v_col = mix(a_c0, a_c1, t);", "v_col = mix(a_c0, a_c1, t); v_id = u_base + uint(gl_InstanceID);");
 const FS_PICK = `#version 300 es
 precision highp float;
 flat in highp uint v_id; in float v_side; in float v_half; in float v_hid;
@@ -120,165 +119,171 @@ export function arcPoint(A: ArrayLike<number>, B: ArrayLike<number>, t: number, 
 	return p;
 }
 export const decodeId = (r: number, g: number, b: number, a: number): number => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
-function nearestId(data: ArrayLike<number>, side: number) {
-	const c = (side - 1) / 2; let best: { id: number; distance: number } | null = null;
-	for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
-		const k = (j * side + i) * 4, id = decodeId(data[k], data[k + 1], data[k + 2], data[k + 3]);
-		if (!id) continue;
-		const d = Math.hypot(i - c, (side - 1 - j) - c);
-		if (!best || d < best.distance) best = { id, distance: d };
-	}
-	return best;
-}
 
-let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, pickProg: WebGLProgram | null = null, pickUni: Uniforms = {}, pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
-let geomBuf: WebGLBuffer | null = null, geomSeg = 0, geomN = 0;   // 頂点ごとの (t, side)＝(seg+1)×2 の帯（全層で共用）
-const layers = new Map<string, Layer>();   // q → { n, bufs, vao, has:{c,w,h}, src, dst, origin, on, base }
-function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
-let style: Style = { width: 2, color: [0.2, 0.6, 1, 0.9], color2: null, height: 0.3, segments: 32 };
-let brush: { x: number; y: number; r: number } | null = null, mask: { bbox: number[]; w: number; h: number } | null = null, maskTex: WebGLTexture | null = null, rAxNow = 1;
-let host: OverlayHost | null = null;
-const probes: unknown[] = [];
+// 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
+export function create() {
+	const VS_PICK = VS.replace("out vec4 v_col;", "out vec4 v_col; flat out highp uint v_id; uniform highp uint u_base;").replace("v_col = mix(a_c0, a_c1, t);", "v_col = mix(a_c0, a_c1, t); v_id = u_base + uint(gl_InstanceID);");
+	function nearestId(data: ArrayLike<number>, side: number) {
+		const c = (side - 1) / 2; let best: { id: number; distance: number } | null = null;
+		for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
+			const k = (j * side + i) * 4, id = decodeId(data[k], data[k + 1], data[k + 2], data[k + 3]);
+			if (!id) continue;
+			const d = Math.hypot(i - c, (side - 1 - j) - c);
+			if (!best || d < best.distance) best = { id, distance: d };
+		}
+		return best;
+	}
 
-function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
-	const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
-	const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
-	if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
-	const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
-	return { p, u };
-}
-function geometry(seg: number) {
-	if (geomBuf && geomSeg === seg) return;
-	seg = Math.max(2, Math.min(256, seg | 0));
-	const v = new Float32Array((seg + 1) * 4);
-	for (let i = 0; i <= seg; i++) { const t = i / seg; v[i * 4] = t; v[i * 4 + 1] = -1; v[i * 4 + 2] = t; v[i * 4 + 3] = 1; }
-	geomBuf ??= gl!.createBuffer(); gl!.bindBuffer(gl!.ARRAY_BUFFER, geomBuf); gl!.bufferData(gl!.ARRAY_BUFFER, v, gl!.STATIC_DRAW);
-	geomSeg = seg; geomN = (seg + 1) * 2;
-	for (const L of layers.values()) bindGeom(L);   // VAO は geomBuf を指しているだけ＝差し替え不要・ただし初回に作る層のため
-}
-function bindGeom(L: Layer) { gl!.bindVertexArray(L.vao); gl!.bindBuffer(gl!.ARRAY_BUFFER, geomBuf); gl!.enableVertexAttribArray(0); gl!.vertexAttribPointer(0, 2, gl!.FLOAT, false, 0, 0); gl!.vertexAttribDivisor(0, 0); gl!.bindVertexArray(null); }
-export function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
-	host = h || null;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
-	if (!gl) throw new Error("WebGL2 is not available (arcs overlay)");
-	({ p: prog, u: uni } = compile(VS, FS));
-	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[arcs] pick pass unavailable", (e as Error)?.message); }
-	geometry(style.segments);
-}
-const drop: (L: Layer | undefined) => void = L => { if (!L) return; for (const b of L.bufs) gl!.deleteBuffer(b); gl!.deleteVertexArray(L.vao); };
-export function message(d: Msg) {
-	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
-	if (!gl) return;
-	if (d.type === "layer") {
-		drop(layers.get(d.q));
-		const vao = gl.createVertexArray(), bufs: WebGLBuffer[] = [];
-		const L: Layer = { n: d.n, bufs, vao, has: { c: !!d.rgba, c2: !!d.rgba2, w: !!d.width, h: !!d.height }, src: d.src, dst: d.dst, origin: d.origin || null, on: true, base: 0 };
-		bindGeom(L);
-		gl.bindVertexArray(vao);
-		const inst = (loc: number, arr: ArrayBufferView, size: number, type: GLenum, norm: boolean) => { const b = gl!.createBuffer(); bufs.push(b); gl!.bindBuffer(gl!.ARRAY_BUFFER, b); gl!.bufferData(gl!.ARRAY_BUFFER, arr, gl!.STATIC_DRAW); gl!.enableVertexAttribArray(loc); gl!.vertexAttribPointer(loc, size, type, norm, 0, 0); gl!.vertexAttribDivisor(loc, 1); };
-		inst(1, d.src, 3, gl.FLOAT, false); inst(2, d.dst, 3, gl.FLOAT, false); inst(3, d.theta, 1, gl.FLOAT, false);
-		if (d.rgba) inst(4, d.rgba, 4, gl.UNSIGNED_BYTE, true); else gl.disableVertexAttribArray(4);
-		if (d.rgba2) inst(5, d.rgba2, 4, gl.UNSIGNED_BYTE, true);
-		else if (d.rgba) { gl.bindBuffer(gl.ARRAY_BUFFER, bufs[3]); gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.UNSIGNED_BYTE, true, 0, 0); gl.vertexAttribDivisor(5, 1); L.has.c2 = true; }   // 始点の色だけ＝終点も同じ色
-		else gl.disableVertexAttribArray(5);
-		if (d.width) inst(6, d.width, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(6);
-		if (d.height) inst(7, d.height, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(7);
-		if (d.f) { inst(8, d.f, 1, gl.FLOAT, false); L.has.f = true; } else gl.disableVertexAttribArray(8);
-		gl.bindVertexArray(null);
-		L.filter = layers.get(d.q)?.filter ?? null;
-		layers.set(d.q, L); rebase();
-	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
-	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
-	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); }
-	else if (d.type === "style") { style = { ...style, ...d }; if (d.segments) geometry(d.segments); }
-	else if (d.type === "filter") { const r = d.range ? [+d.range[0], +d.range[1]] : null; if (d.q != null) { const L = layers.get(d.q); if (L) L.filter = r; } else for (const L of layers.values()) L.filter = r; }
-	else if (d.type === "brush") brush = d.x != null && d.r > 0 ? { x: d.x, y: d.y, r: d.r } : null;
-	else if (d.type === "mask") {
-		if (maskTex) { gl.deleteTexture(maskTex); maskTex = null; } mask = null;
-		if (d.data && d.w && d.h) { maskTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, d.w, d.h, 0, gl.RED, gl.UNSIGNED_BYTE, d.data); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); mask = { bbox: d.bbox, w: d.w, h: d.h }; }
+	let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, pickProg: WebGLProgram | null = null, pickUni: Uniforms = {}, pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
+	let geomBuf: WebGLBuffer | null = null, geomSeg = 0, geomN = 0;   // 頂点ごとの (t, side)＝(seg+1)×2 の帯（全層で共用）
+	const layers = new Map<string, Layer>();   // q → { n, bufs, vao, has:{c,w,h}, src, dst, origin, on, base }
+	function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
+	let style: Style = { width: 2, color: [0.2, 0.6, 1, 0.9], color2: null, height: 0.3, segments: 32 };
+	let brush: { x: number; y: number; r: number } | null = null, mask: { bbox: number[]; w: number; h: number } | null = null, maskTex: WebGLTexture | null = null, rAxNow = 1;
+	let host: OverlayHost | null = null;
+	const probes: unknown[] = [];
+
+	function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
+		const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
+		const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
+		if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
+		const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
+		return { p, u };
 	}
-	host?.requestDraw?.();
-}
-function answerProbes(w: number, h: number) {
-	if (!probes.length) return;
-	const ids = probes.splice(0);
-	try { const data = new Uint8Array(w * h * 4); gl!.readPixels(0, 0, w, h, gl!.RGBA, gl!.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
-}
-export function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
-	if (!gl) return false;
-	if (api?.rAx) rAxNow = api.rAx;
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	gl.viewport(0, 0, size.w, size.h);
-	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-	if (layers.size) { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); drawLayers(prog, uni, s, cam.dpr || 1, size, false); }
-	answerProbes(size.w, size.h);
-	return false;
-}
-function drawLayers(P: WebGLProgram | null, U: Uniforms, s: CameraState, dpr: number, { w, h }: OverlaySize, idMode: boolean) {
-	gl!.useProgram(P);
-	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M), E = s.eye;
-	gl!.uniform2f(U.u_half, w / 2, h / 2); gl!.uniform1f(U.u_dpr, dpr); gl!.uniform1f(U.u_seg, geomSeg);
-	if (brush) gl!.uniform3f(U.u_brush, brush.x * dpr, brush.y * dpr, brush.r * dpr); else gl!.uniform3f(U.u_brush, 0, 0, 0);
-	if (mask && maskTex) { gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, maskTex); gl!.uniform1i(U.u_mask, 0); gl!.uniform1f(U.u_maskOn, 1); gl!.uniform4f(U.u_maskBox, mask.bbox[0], mask.bbox[1], mask.bbox[2], mask.bbox[3]); gl!.uniform1f(U.u_rAx, rAxNow); } else { gl!.uniform1f(U.u_maskOn, 0); gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, null); }   // マスク無し＝unit 0 を空に（pick の FBO の texture が残っていると「読みながら書く」＝描画が黙って捨てられる）
-	const c1 = style.color, c2 = style.color2 || style.color;
-	for (const L of layers.values()) {
-		if (!L.on) continue;
-		const o = L.origin;
-		if (o) {
-			for (let i = 0; i < 12; i++) mvpL[i] = M[i];
-			for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
-			gl!.uniformMatrix4fv(U.u_mvp, false, mvpL); gl!.uniform3f(U.u_origin, o[0], o[1], o[2]);
-		} else { gl!.uniformMatrix4fv(U.u_mvp, false, mvp0); gl!.uniform3f(U.u_origin, 0, 0, 0); }
-		const oo = o || [0, 0, 0], ex = E[0] - oo[0], ey = E[1] - oo[1], ez = E[2] - oo[2];
-		gl!.uniform3f(U.u_eyeRel, ex, ey, ez); gl!.uniform1f(U.u_oe, oo[0] * ex + oo[1] * ey + oo[2] * ez);
-		if (idMode) gl!.uniform1ui(U.u_base, L.base);
-		gl!.uniform1f(U.u_filterOn, L.filter && L.has.f ? 1 : 0); if (L.filter) gl!.uniform2f(U.u_filter, L.filter[0], L.filter[1]);
-		gl!.bindVertexArray(L.vao);
-		if (!L.has.f) gl!.vertexAttrib1f(8, 0);
-		// 無い属性は定数（generic attribute＝VAO の外の状態＝描く時に入れる）
-		if (!L.has.c) gl!.vertexAttrib4f(4, c1[0], c1[1], c1[2], c1[3] ?? 1);
-		if (!L.has.c2) gl!.vertexAttrib4f(5, c2[0], c2[1], c2[2], c2[3] ?? 1);
-		if (!L.has.w) gl!.vertexAttrib1f(6, style.width);
-		if (!L.has.h) gl!.vertexAttrib1f(7, style.height);
-		gl!.drawArraysInstanced(gl!.TRIANGLE_STRIP, 0, geomN, L.n);
+	function geometry(seg: number) {
+		if (geomBuf && geomSeg === seg) return;
+		seg = Math.max(2, Math.min(256, seg | 0));
+		const v = new Float32Array((seg + 1) * 4);
+		for (let i = 0; i <= seg; i++) { const t = i / seg; v[i * 4] = t; v[i * 4 + 1] = -1; v[i * 4 + 2] = t; v[i * 4 + 3] = 1; }
+		geomBuf ??= gl!.createBuffer(); gl!.bindBuffer(gl!.ARRAY_BUFFER, geomBuf); gl!.bufferData(gl!.ARRAY_BUFFER, v, gl!.STATIC_DRAW);
+		geomSeg = seg; geomN = (seg + 1) * 2;
+		for (const L of layers.values()) bindGeom(L);   // VAO は geomBuf を指しているだけ＝差し替え不要・ただし初回に作る層のため
 	}
-	gl!.bindVertexArray(null);
-}
-const toLngLat = (arr: ArrayLike<number> | null | undefined, i: number, o: ArrayLike<number>, rAx: number) => {
-	if (!arr || arr.length < i * 3 + 3) return null;
-	const px = arr[i * 3] + o[0], py = arr[i * 3 + 1] + o[1], pz = arr[i * 3 + 2] + o[2];
-	const lon = Math.atan2(pz, px) * 180 / Math.PI, beta = Math.asin(Math.max(-1, Math.min(1, py / Math.hypot(px, py, pz))));
-	return [lon, Math.atan(Math.tan(beta) / rAx) * 180 / Math.PI];
-};
-export function pick(x: number, y: number, r: number, ctx: LastOverlayFrame) {
-	if (!gl || !pickProg || !layers.size || !ctx?.s) return null;
-	const { w, h } = ctx.size, dpr = ctx.cam?.dpr || 1;
-	if (pickW !== w || pickH !== h || !pickFbo) {
-		if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo);
-		pickTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, pickTex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
-		pickFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTex, 0);
-		pickW = w; pickH = h;
-	} else gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo);
-	gl.viewport(0, 0, w, h); gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
-	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-	rAxNow = ctx.api?.rAx || rAxNow;
-	drawLayers(pickProg, pickUni, ctx.s, dpr, { w, h }, true);
-	const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = (h - 1 - Math.round(y)) - rr;
-	const data = new Uint8Array(side * side * 4);
-	const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
-	if (cx1 > cx0 && cy1 > cy0) {
-		const sub = new Uint8Array((cx1 - cx0) * (cy1 - cy0) * 4);
-		gl.readPixels(cx0, cy0, cx1 - cx0, cy1 - cy0, gl.RGBA, gl.UNSIGNED_BYTE, sub);
-		for (let j = 0; j < cy1 - cy0; j++) data.set(sub.subarray(j * (cx1 - cx0) * 4, (j + 1) * (cx1 - cx0) * 4), ((j + cy0 - y0) * side + (cx0 - x0)) * 4);
+	function bindGeom(L: Layer) { gl!.bindVertexArray(L.vao); gl!.bindBuffer(gl!.ARRAY_BUFFER, geomBuf); gl!.enableVertexAttribArray(0); gl!.vertexAttribPointer(0, 2, gl!.FLOAT, false, 0, 0); gl!.vertexAttribDivisor(0, 0); gl!.bindVertexArray(null); }
+	function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
+		host = h || null;
+		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		if (!gl) throw new Error("WebGL2 is not available (arcs overlay)");
+		({ p: prog, u: uni } = compile(VS, FS));
+		try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[arcs] pick pass unavailable", (e as Error)?.message); }
+		geometry(style.segments);
 	}
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	const best = nearestId(data, side);
-	if (!best) return null;
-	let q: string | null = null, L: Layer | null = null; for (const [k, v] of layers) if (best.id >= v.base && best.id < v.base + v.n) { q = k; L = v; break; }
-	if (!L) return null;
-	const index = best.id - L.base, o = L.origin || [0, 0, 0], rAx = ctx.api?.rAx || 1;
-	const source = toLngLat(L.src, index, o, rAx), target = toLngLat(L.dst, index, o, rAx);
-	return { id: best.id, q, index, distance: best.distance, lngLat: source, properties: { q, index, source, target } };
+	const drop: (L: Layer | undefined) => void = L => { if (!L) return; for (const b of L.bufs) gl!.deleteBuffer(b); gl!.deleteVertexArray(L.vao); };
+	function message(d: Msg) {
+		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
+		if (!gl) return;
+		if (d.type === "layer") {
+			drop(layers.get(d.q));
+			const vao = gl.createVertexArray(), bufs: WebGLBuffer[] = [];
+			const L: Layer = { n: d.n, bufs, vao, has: { c: !!d.rgba, c2: !!d.rgba2, w: !!d.width, h: !!d.height }, src: d.src, dst: d.dst, origin: d.origin || null, on: true, base: 0 };
+			bindGeom(L);
+			gl.bindVertexArray(vao);
+			const inst = (loc: number, arr: ArrayBufferView, size: number, type: GLenum, norm: boolean) => { const b = gl!.createBuffer(); bufs.push(b); gl!.bindBuffer(gl!.ARRAY_BUFFER, b); gl!.bufferData(gl!.ARRAY_BUFFER, arr, gl!.STATIC_DRAW); gl!.enableVertexAttribArray(loc); gl!.vertexAttribPointer(loc, size, type, norm, 0, 0); gl!.vertexAttribDivisor(loc, 1); };
+			inst(1, d.src, 3, gl.FLOAT, false); inst(2, d.dst, 3, gl.FLOAT, false); inst(3, d.theta, 1, gl.FLOAT, false);
+			if (d.rgba) inst(4, d.rgba, 4, gl.UNSIGNED_BYTE, true); else gl.disableVertexAttribArray(4);
+			if (d.rgba2) inst(5, d.rgba2, 4, gl.UNSIGNED_BYTE, true);
+			else if (d.rgba) { gl.bindBuffer(gl.ARRAY_BUFFER, bufs[3]); gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.UNSIGNED_BYTE, true, 0, 0); gl.vertexAttribDivisor(5, 1); L.has.c2 = true; }   // 始点の色だけ＝終点も同じ色
+			else gl.disableVertexAttribArray(5);
+			if (d.width) inst(6, d.width, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(6);
+			if (d.height) inst(7, d.height, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(7);
+			if (d.f) { inst(8, d.f, 1, gl.FLOAT, false); L.has.f = true; } else gl.disableVertexAttribArray(8);
+			gl.bindVertexArray(null);
+			L.filter = layers.get(d.q)?.filter ?? null;
+			layers.set(d.q, L); rebase();
+		} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
+		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
+		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); }
+		else if (d.type === "style") { style = { ...style, ...d }; if (d.segments) geometry(d.segments); }
+		else if (d.type === "filter") { const r = d.range ? [+d.range[0], +d.range[1]] : null; if (d.q != null) { const L = layers.get(d.q); if (L) L.filter = r; } else for (const L of layers.values()) L.filter = r; }
+		else if (d.type === "brush") brush = d.x != null && d.r > 0 ? { x: d.x, y: d.y, r: d.r } : null;
+		else if (d.type === "mask") {
+			if (maskTex) { gl.deleteTexture(maskTex); maskTex = null; } mask = null;
+			if (d.data && d.w && d.h) { maskTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, d.w, d.h, 0, gl.RED, gl.UNSIGNED_BYTE, d.data); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); mask = { bbox: d.bbox, w: d.w, h: d.h }; }
+		}
+		host?.requestDraw?.();
+	}
+	function answerProbes(w: number, h: number) {
+		if (!probes.length) return;
+		const ids = probes.splice(0);
+		try { const data = new Uint8Array(w * h * 4); gl!.readPixels(0, 0, w, h, gl!.RGBA, gl!.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
+		catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
+	}
+	function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
+		if (!gl) return false;
+		if (api?.rAx) rAxNow = api.rAx;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0, 0, size.w, size.h);
+		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+		if (layers.size) { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); drawLayers(prog, uni, s, cam.dpr || 1, size, false); }
+		answerProbes(size.w, size.h);
+		return false;
+	}
+	function drawLayers(P: WebGLProgram | null, U: Uniforms, s: CameraState, dpr: number, { w, h }: OverlaySize, idMode: boolean) {
+		gl!.useProgram(P);
+		const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M), E = s.eye;
+		gl!.uniform2f(U.u_half, w / 2, h / 2); gl!.uniform1f(U.u_dpr, dpr); gl!.uniform1f(U.u_seg, geomSeg);
+		if (brush) gl!.uniform3f(U.u_brush, brush.x * dpr, brush.y * dpr, brush.r * dpr); else gl!.uniform3f(U.u_brush, 0, 0, 0);
+		if (mask && maskTex) { gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, maskTex); gl!.uniform1i(U.u_mask, 0); gl!.uniform1f(U.u_maskOn, 1); gl!.uniform4f(U.u_maskBox, mask.bbox[0], mask.bbox[1], mask.bbox[2], mask.bbox[3]); gl!.uniform1f(U.u_rAx, rAxNow); } else { gl!.uniform1f(U.u_maskOn, 0); gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, null); }   // マスク無し＝unit 0 を空に（pick の FBO の texture が残っていると「読みながら書く」＝描画が黙って捨てられる）
+		const c1 = style.color, c2 = style.color2 || style.color;
+		for (const L of layers.values()) {
+			if (!L.on) continue;
+			const o = L.origin;
+			if (o) {
+				for (let i = 0; i < 12; i++) mvpL[i] = M[i];
+				for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
+				gl!.uniformMatrix4fv(U.u_mvp, false, mvpL); gl!.uniform3f(U.u_origin, o[0], o[1], o[2]);
+			} else { gl!.uniformMatrix4fv(U.u_mvp, false, mvp0); gl!.uniform3f(U.u_origin, 0, 0, 0); }
+			const oo = o || [0, 0, 0], ex = E[0] - oo[0], ey = E[1] - oo[1], ez = E[2] - oo[2];
+			gl!.uniform3f(U.u_eyeRel, ex, ey, ez); gl!.uniform1f(U.u_oe, oo[0] * ex + oo[1] * ey + oo[2] * ez);
+			if (idMode) gl!.uniform1ui(U.u_base, L.base);
+			gl!.uniform1f(U.u_filterOn, L.filter && L.has.f ? 1 : 0); if (L.filter) gl!.uniform2f(U.u_filter, L.filter[0], L.filter[1]);
+			gl!.bindVertexArray(L.vao);
+			if (!L.has.f) gl!.vertexAttrib1f(8, 0);
+			// 無い属性は定数（generic attribute＝VAO の外の状態＝描く時に入れる）
+			if (!L.has.c) gl!.vertexAttrib4f(4, c1[0], c1[1], c1[2], c1[3] ?? 1);
+			if (!L.has.c2) gl!.vertexAttrib4f(5, c2[0], c2[1], c2[2], c2[3] ?? 1);
+			if (!L.has.w) gl!.vertexAttrib1f(6, style.width);
+			if (!L.has.h) gl!.vertexAttrib1f(7, style.height);
+			gl!.drawArraysInstanced(gl!.TRIANGLE_STRIP, 0, geomN, L.n);
+		}
+		gl!.bindVertexArray(null);
+	}
+	const toLngLat = (arr: ArrayLike<number> | null | undefined, i: number, o: ArrayLike<number>, rAx: number) => {
+		if (!arr || arr.length < i * 3 + 3) return null;
+		const px = arr[i * 3] + o[0], py = arr[i * 3 + 1] + o[1], pz = arr[i * 3 + 2] + o[2];
+		const lon = Math.atan2(pz, px) * 180 / Math.PI, beta = Math.asin(Math.max(-1, Math.min(1, py / Math.hypot(px, py, pz))));
+		return [lon, Math.atan(Math.tan(beta) / rAx) * 180 / Math.PI];
+	};
+	function pick(x: number, y: number, r: number, ctx: LastOverlayFrame) {
+		if (!gl || !pickProg || !layers.size || !ctx?.s) return null;
+		const { w, h } = ctx.size, dpr = ctx.cam?.dpr || 1;
+		if (pickW !== w || pickH !== h || !pickFbo) {
+			if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo);
+			pickTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, pickTex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+			pickFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTex, 0);
+			pickW = w; pickH = h;
+		} else gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo);
+		gl.viewport(0, 0, w, h); gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
+		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+		rAxNow = ctx.api?.rAx || rAxNow;
+		drawLayers(pickProg, pickUni, ctx.s, dpr, { w, h }, true);
+		const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = (h - 1 - Math.round(y)) - rr;
+		const data = new Uint8Array(side * side * 4);
+		const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
+		if (cx1 > cx0 && cy1 > cy0) {
+			const sub = new Uint8Array((cx1 - cx0) * (cy1 - cy0) * 4);
+			gl.readPixels(cx0, cy0, cx1 - cx0, cy1 - cy0, gl.RGBA, gl.UNSIGNED_BYTE, sub);
+			for (let j = 0; j < cy1 - cy0; j++) data.set(sub.subarray(j * (cx1 - cx0) * 4, (j + 1) * (cx1 - cx0) * 4), ((j + cy0 - y0) * side + (cx0 - x0)) * 4);
+		}
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		const best = nearestId(data, side);
+		if (!best) return null;
+		let q: string | null = null, L: Layer | null = null; for (const [k, v] of layers) if (best.id >= v.base && best.id < v.base + v.n) { q = k; L = v; break; }
+		if (!L) return null;
+		const index = best.id - L.base, o = L.origin || [0, 0, 0], rAx = ctx.api?.rAx || 1;
+		const source = toLngLat(L.src, index, o, rAx), target = toLngLat(L.dst, index, o, rAx);
+		return { id: best.id, q, index, distance: best.distance, lngLat: source, properties: { q, index, source, target } };
+	}
+	function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); if (maskTex) gl.deleteTexture(maskTex); maskTex = null; mask = null; gl.deleteProgram(prog); if (pickProg) gl.deleteProgram(pickProg); if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo); if (geomBuf) gl.deleteBuffer(geomBuf); geomBuf = null; geomSeg = 0; pickProg = pickTex = pickFbo = null; pickW = pickH = 0; gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
+	return { init, message, frame, pick, destroy };
 }
-export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); if (maskTex) gl.deleteTexture(maskTex); maskTex = null; mask = null; gl.deleteProgram(prog); if (pickProg) gl.deleteProgram(pickProg); if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo); if (geomBuf) gl.deleteBuffer(geomBuf); geomBuf = null; geomSeg = 0; pickProg = pickTex = pickFbo = null; pickW = pickH = 0; gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
