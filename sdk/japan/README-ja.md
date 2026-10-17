@@ -166,7 +166,7 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 `maxPitch`／`setMaxPitch` は常に度（1.x は 1.6 以下をラジアンと読んでいた）。自作ガジェットは `map.registry.gadgets.add(name, (map, ...args) => 手綱)` で登録する
 （`map.gadget(name, function () { this … })` は外した。`map.gadget` は `map.gadget.<名前>(…)` で呼ぶ表だけ）。`chips` は `true`／`false` だけ（個々の固定は `layers`）。
 全 package の旧 → 新の一覧は [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md)。
-2.0 を公開した後も、1.x は npm の dist-tag `v1` で入れられるようにする予定（`npm i @ortho-earth/japan@v1`）。
+1.x は版の範囲で入れられる（`npm i @ortho-earth/japan@1`。1.x の最後の版は 1.14.0）。
 
 ## 制約
 
