@@ -8,7 +8,7 @@
 //   ・同じ葉（同じ cwd・同じ命令）は 1 回だけ（solar→ephem の重複）
 //   ・CPU の数だけ並べて回す（TEST_JOBS=N で変える・1 で直列）。出力は葉ごとに溜めて**元の並び順**で出す（混ざらない）
 //   ・落ちても止めず全部回し、最後に落ちた葉の一覧と遅い葉を出す。exit 1＝どれか落ちた
-// 使い方: node scripts/test-all.mjs [--gate test|i18n] [--list] [絞り込み語…]（例：`node scripts/test-all.mjs geopbf` ＝葉の cwd か命令に geopbf を含む物だけ）
+// 使い方: node scripts/test-all.mjs [--gate test|i18n] [--list] [--skip 語] [絞り込み語…]（例：`node scripts/test-all.mjs geopbf` ＝葉の cwd か命令に geopbf を含む物だけ・`--skip typecheck`＝命令に typecheck を含む葉を外す）
 //   TEST_VERBOSE=1＝通った葉の出力も全部出す
 import fs from "node:fs";
 import os from "node:os";
@@ -67,7 +67,8 @@ const argv = process.argv.slice(2);
 const gateName = argv[argv.indexOf("--gate") + 1] || "test";
 const GATE = GATES[argv.includes("--gate") ? gateName : "test"];
 if (!GATE) { console.error(`--gate は ${Object.keys(GATES).join("／")} のどれか`); process.exit(2); }
-const list = argv.includes("--list"), words = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--gate");
+const list = argv.includes("--list"), words = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--gate" && argv[i - 1] !== "--skip");
+const skips = argv.filter((a, i) => argv[i - 1] === "--skip");
 const seen = new Set();
 let jobs = [];
 for (const [ws, sc] of GATE) {
@@ -81,6 +82,7 @@ for (const [ws, sc] of GATE) {
 	}
 }
 if (words.length) jobs = jobs.filter(j => words.some(w => j.rel.includes(w) || j.cmd.includes(w) || j.ws.includes(w)));
+if (skips.length) jobs = jobs.filter(j => !skips.some(w => j.cmd.includes(w)));
 if (list) { for (const j of jobs) console.log(`${j.rel.padEnd(28)} ${j.cmd}`); process.exit(0); }
 if (!jobs.length) { console.error("該当する検定が無い"); process.exit(2); }
 

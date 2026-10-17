@@ -10,6 +10,8 @@ packages/*/*.tgz
 sdk/*/*.tgz
 dist/
 dist-tsc/
+# npm run coverage の出力（scripts/coverage.mjs）
+/coverage/
 build/
 # 国別DB v2 の組み立て（Node CLI と uploader で共用）＝ソースなので追跡
 !packages/world/build/
