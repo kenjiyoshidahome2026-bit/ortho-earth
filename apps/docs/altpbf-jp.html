@@ -17,8 +17,8 @@
 .tier-zoom { padding:10px 14px; font-size:0.72rem; color:var(--dim); text-align:right; flex-shrink:0; align-self:center; }
 .t-hgt90 { background:#1e3a5f; color:var(--sky); } .t-hgt10 { background:#1a3a2a; color:#6ee7b7; } .t-hgt01 { background:#3a1e2a; color:#f9a8d4; }
 .tier.hgt90 { border:1px solid #38bdf844; } .tier.hgt10 { border:1px solid #34d39944; } .tier.hgt01 { border:1px solid #c084fc44; }
-.cmap { display:flex; gap:3px; margin:14px 0; font-family:var(--mono); font-size:0.72rem; }
-.cm-col { flex:1; border-radius:6px; padding:8px 6px; text-align:center; display:flex; flex-direction:column; gap:3px; }
+.cmap { display:flex; flex-wrap:wrap; gap:3px; margin:14px 0; font-family:var(--mono); font-size:0.72rem; }
+.cm-col { flex:1 1 60px; border-radius:6px; padding:8px 6px; text-align:center; display:flex; flex-direction:column; gap:3px; }
 .cm-ht { font-weight:bold; font-size:0.78rem; } .cm-rng { font-size:0.65rem; }
 .cache-flow { display:flex; gap:10px; margin:16px 0; align-items:center; flex-wrap:wrap; }
 .cf-box { background:var(--card); border:1px solid var(--muted); border-radius:8px; padding:10px 14px; font-family:var(--mono); font-size:0.75rem; }
@@ -52,7 +52,7 @@
 
 <h1>altpbf — 標高タイルフォーマット</h1>
 <p class="lead">Protocol Buffers ベースのラスター標高タイル。<br>
-3段階ズーム LOD · GEBCO + ALOS 2ソース · Int16 デルタ + deflateRaw · Worker ゼロコピー</p>
+3段階ズーム LOD · GEBCO + ALOS（日本は地理院 DEM10B も） · Int16 デルタ + deflateRaw · Worker ゼロコピー</p>
 
 <div class="toc">
 	<div class="toc-title">Table of Contents</div>
@@ -83,7 +83,18 @@ altpbf は<em>ラスター</em>標高グリッド、すなわち
 各タイルは <code>Int16</code> 標高値（メートル）の矩形グリッドを
 デルタエンコードし deflateRaw で圧縮したものである。
 3 種類のタイルサイズが異なる解像度で地球全体をカバーし、
-ズームレベルに応じて適切なティアが自動選択される。
+ズームレベルに応じて ortho-earth エンジンが適切なティアを自動選択する。
+</p>
+
+<p>
+npm パッケージ <code>altpbf</code>（1.2.0）は<em>フォーマット</em>だけを受け持つ：
+<code>encode</code>・<code>decode</code>・<code>encodeName</code> / <code>decodeName</code>・<code>altpbf2png</code>。
+TypeScript（strict）で書かれ、型定義
+（<code>AltpbfTile</code>・<code>AltpbfDecoded</code>・<code>AltpbfSource</code>・<code>Altpbf2PngOptions</code> など）を同梱する。
+実行時の依存は <code>geopbf</code> のみ。<code>CompressionStream</code> が必要で、
+<code>altpbf2png</code> はさらに <code>OffscreenCanvas</code> を要する。
+取得・キャッシュ・Worker でのデコード・標高の引き当て（<code>createGetHeight</code>・<code>createTileLoader</code>）は
+エンジン側の <code>@ortho-earth/core/elevation</code> にある。
 </p>
 
 <div class="callout callout-key">
@@ -112,14 +123,22 @@ altpbf は<em>ラスター</em>標高グリッド、すなわち
 		<td class="good">約 30 m (1 arc-sec)</td>
 		<td>HGT01</td>
 	</tr>
+	<tr>
+		<td><strong>GSI DEM10B</strong><br><span class="dim" style="font-size:0.72rem">国土地理院 数値標高モデル</span></td>
+		<td class="mid">日本のみ（地表面＝裸地）</td>
+		<td class="good">約 10 m、1″ 格子へ焼き直し</td>
+		<td>HGT01（日本）· HGT10（日本、GEBCO と合成）</td>
+	</tr>
 </table>
 
 <p>
 GEBCO は海底地形を含む全球データであり、すべてのズームレベルのベースラインとして機能する。
 ALOS AW3D30 は JAXA が公開する高精度陸地 DEM であり、
 30 m 解像度により近距離の地形レンダリングで視覚的に意味のある詳細を提供する。
-ALOS タイルは陸地のみに存在するため、altpbf は利用可能タイルのインデックスを保持し、
+ALOS タイルは陸地のみに存在するため、エンジンは利用可能タイルのインデックスを保持し、
 海洋クエリに対しては GEBCO HGT10 へシームレスにフォールバックする。
+日本域の HGT01 は地理院 DEM10B（裸地の DTM。AW3D30 は建物・樹冠込みの表層モデル）から焼き直してバケットに置いてあり、
+エンジンはまずバケットを見て、焼き直し済みタイルが無い場合だけ JAXA へフォールバックする。
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -127,7 +146,7 @@ ALOS タイルは陸地のみに存在するため、altpbf は利用可能タ�
 
 <p>
 altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる角度範囲の地球をカバーする。
-<code>createGetHeight</code> は現在のズームレベルに基づいてティアを切り替え、
+<code>createGetHeight</code>（<code>@ortho-earth/core/elevation</code>）は現在のズームレベルに基づいてティアを切り替え、
 デフォルトは <code>level1 = 7</code>、<code>level2 = 12</code> である。
 </p>
 
@@ -144,15 +163,15 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 		<div class="tier-badge t-hgt10">HGT10<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">10° タイル</div></div>
 		<div class="tier-body">
 			<div class="t-title" style="color:#6ee7b7">広域 — GEBCO</div>
-			<div class="t-detail">324 タイルで全球。緯度調整幅（極収縮）適用。100 km スケールの地形が可視化できる。</div>
+			<div class="t-detail">648 タイルで全球（90° 象限あたり 81 枚）。緯度調整幅（極収縮）適用。100 km スケールの地形が可視化できる。</div>
 		</div>
 		<div class="tier-zoom">7 ≤ zoom &lt; 12</div>
 	</div>
 	<div class="tier hgt01">
 		<div class="tier-badge t-hgt01">HGT01<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">1° タイル</div></div>
 		<div class="tier-body">
-			<div class="t-title" style="color:#f9a8d4">局所詳細 — ALOS AW3D30</div>
-			<div class="t-detail">約 64,800 陸地タイル、30 m 解像度。陸地のみ存在。それ以外は HGT10 へフォールバック。</div>
+			<div class="t-title" style="color:#f9a8d4">局所詳細 — ALOS AW3D30（日本は地理院 DEM10B）</div>
+			<div class="t-detail">JAXA の AW3D30 一覧にある陸地の 1° セルごとに 1 タイル、30 m 解像度。陸地のみ存在。それ以外は HGT10 へフォールバック。</div>
 		</div>
 		<div class="tier-zoom">zoom ≥ 12</div>
 	</div>
@@ -213,7 +232,7 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 		</div>
 		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
 			Raw DEFLATE（gzip ヘッダなし）：<code>deflateRaw</code> / <code>inflateRaw</code><br>
-			PBF パース前にその場で伸張
+			PBF パース前に伸張
 		</div>
 	</div>
 </div>
@@ -265,6 +284,13 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 典型的に <strong>5〜15 倍</strong> 小さくなる。
 </p>
 
+<p>
+<code>decode</code> は packed SVarint の本体を出力の <code>Int16Array</code> へ直接書き込む（中間の JS 配列を作らない）。
+読みは埋め込みの小さな WebAssembly カーネル（使えれば SIMD128、無ければスカラー wasm）で行い、
+wasm が使えない環境（CSP で止められた頁など）では素の JS 版に切り替わる。
+570 万点の HGT10 タイル 1 枚の復号は、旧実装の約 99 ms / +230 MB に対し約 21 ms / +12 MB。
+</p>
+
 <h3>4.2 標高カラーマップ</h3>
 
 <p><code>altpbf2png</code> は標高・水深ステップに応じたカラーで PNG としてタイルをレンダリングする：</p>
@@ -272,15 +298,19 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 <div class="cmap">
 	<div class="cm-col" style="background:rgba(20,50,100,0.6);border:1px solid #20509044">
 		<div class="cm-ht" style="color:#5ba3c9">深海</div>
-		<div class="cm-rng" style="color:var(--dim)">&lt; −2000 m</div>
+		<div class="cm-rng" style="color:var(--dim)">&lt; −6000 m</div>
 	</div>
 	<div class="cm-col" style="background:rgba(40,100,150,0.6);border:1px solid #286496">
 		<div class="cm-ht" style="color:#7dc4e4">海洋</div>
-		<div class="cm-rng" style="color:var(--dim)">&lt; −200 m</div>
+		<div class="cm-rng" style="color:var(--dim)">−2000〜−6000 m</div>
 	</div>
-	<div class="cm-col" style="background:rgba(120,200,220,0.6);border:1px solid #78c8dc">
-		<div class="cm-ht" style="color:#aadcec">大陸棚</div>
-		<div class="cm-rng" style="color:var(--dim)">0 以下（海）</div>
+	<div class="cm-col" style="background:rgba(100,180,210,0.6);border:1px solid #64b4d2">
+		<div class="cm-ht" style="color:#9fd2e6">大陸斜面</div>
+		<div class="cm-rng" style="color:var(--dim)">−200〜−2000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(170,220,240,0.6);border:1px solid #aadcf0">
+		<div class="cm-ht" style="color:#d2eef8">大陸棚</div>
+		<div class="cm-rng" style="color:var(--dim)">0〜−200 m</div>
 	</div>
 	<div class="cm-col" style="background:rgba(85,107,47,0.6);border:1px solid #556b2f">
 		<div class="cm-ht" style="color:#8fa860">低地</div>
@@ -290,6 +320,10 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 		<div class="cm-ht" style="color:#a8bf78">丘陵</div>
 		<div class="cm-rng" style="color:var(--dim)">200–500 m</div>
 	</div>
+	<div class="cm-col" style="background:rgba(189,183,107,0.6);border:1px solid #bdb76b">
+		<div class="cm-ht" style="color:#d4cf8a">低山</div>
+		<div class="cm-rng" style="color:var(--dim)">500–1000 m</div>
+	</div>
 	<div class="cm-col" style="background:rgba(180,130,70,0.6);border:1px solid #b48246">
 		<div class="cm-ht" style="color:#c8a068">高地</div>
 		<div class="cm-rng" style="color:var(--dim)">1000–2000 m</div>
@@ -297,6 +331,10 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 	<div class="cm-col" style="background:rgba(130,80,60,0.6);border:1px solid #82503c">
 		<div class="cm-ht" style="color:#b07060">高山</div>
 		<div class="cm-rng" style="color:var(--dim)">2000–4000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(100,60,40,0.6);border:1px solid #643c28">
+		<div class="cm-ht" style="color:#a07a62">高峰</div>
+		<div class="cm-rng" style="color:var(--dim)">4000–6000 m</div>
 	</div>
 	<div class="cm-col" style="background:rgba(200,200,200,0.6);border:1px solid #c8c8c8">
 		<div class="cm-ht" style="color:#e0e0e0">雪線</div>
@@ -313,20 +351,24 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 
 <pre><code><span class="fn">encodeName</span>(lng, lat, range)
 <span class="cm">// range > 0  →  "R{02d(range)}{緯度符号}{03d(|lat|)}{経度符号}{03d(|lng|)}"</span>
-<span class="cm">// range = 0  →  "{緯度符号}{03d(|lat|)}{経度符号}{03d(|lng|)}"  (ALOS 1° タイル)</span>
+<span class="cm">// range 省略 / 0  →  "{緯度符号}{03d(|lat|)}{経度符号}{03d(|lng|)}"  (JAXA AW3D30 一覧のキー)</span>
+<span class="cm">// (lng, lat) はタイルの左下（南西）隅。decodeName(name) → [lng, lat, range]</span>
 
 <span class="cm">// 例：</span>
-<span class="fn">encodeName</span>(<span class="nm">0</span>, <span class="nm">-90</span>, <span class="nm">90</span>)  <span class="cm">// → "R90S090E000"  (HGT90 南西象限)</span>
+<span class="fn">encodeName</span>(<span class="nm">0</span>, <span class="nm">-90</span>, <span class="nm">90</span>)  <span class="cm">// → "R90S090E000"  (HGT90 東経 0–90°・南緯 0–90° の象限)</span>
 <span class="fn">encodeName</span>(<span class="nm">130</span>, <span class="nm">30</span>, <span class="nm">10</span>)  <span class="cm">// → "R10N030E130"  (HGT10 日本周辺)</span>
-<span class="fn">encodeName</span>(<span class="nm">135</span>, <span class="nm">35</span>, <span class="nm">0</span>)   <span class="cm">// →    "N035E135"  (HGT01 ALOS、近畿地方)</span></code></pre>
+<span class="fn">encodeName</span>(<span class="nm">135</span>, <span class="nm">35</span>, <span class="nm">1</span>)   <span class="cm">// → "R01N035E135"  (HGT01、近畿地方)</span>
+<span class="fn">encodeName</span>(<span class="nm">135</span>, <span class="nm">35</span>)      <span class="cm">// →    "N035E135"  (AW3D30 一覧のキー)</span>
+<span class="fn">decodeName</span>(<span class="st">"R01N035E135"</span>)   <span class="cm">// → [135, 35, 1]</span></code></pre>
 
 <div class="callout callout-note">
 	<div class="callout-head">ALOS タイル存在確認</div>
 	<p>
 		ALOS AW3D30 タイルは陸地にしか存在しない。
-		HGT01 タイルをリクエストする前に、altpbf は JAXA タイルリストから
-		読み込んだインメモリインデックス（<code>index_alos()</code>）を確認する。
+		HGT01 タイルをリクエストする前に、エンジンは JAXA タイルリストから
+		読み込んだインメモリインデックス（<code>@ortho-earth/core/elevation</code> の <code>index_alos()</code>、IndexedDB にキャッシュ）を確認する。
 		海洋クエリはネットワークラウンドトリップなしで即座に HGT10 へフォールバックする。
+		JAXA に届かない時は空のインデックスで続行し、裏で再取得する。
 	</p>
 </div>
 
@@ -348,31 +390,36 @@ altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる�
 	<div class="cf-arrow">→ ミス →</div>
 	<div class="cf-box">
 		<div class="cf-title">Worker</div>
-		<div class="cf-name">worker.js</div>
+		<div class="cf-name">elevation/worker.ts</div>
 		<div class="cf-desc">ロード + デコード<br>Int16Array 転送</div>
 	</div>
 	<div class="cf-arrow">→</div>
 	<div class="cf-box">
 		<div class="cf-title">L2 ストレージ</div>
 		<div class="cf-name">nativeBucket</div>
-		<div class="cf-desc">サーバーバケット<br>"GIS/alt"</div>
+		<div class="cf-desc">サーバーバケット<br>"GIS/alt" · HGT01 は JAXA</div>
 	</div>
 </div>
 
-<pre><code><span class="cm">// worker.js — Int16Array をゼロコピーでメインスレッドへ転送</span>
-<span class="kw">import</span> { load } <span class="kw">from</span> <span class="st">"./altpbf.js"</span>;
+<pre><code><span class="cm">// packages/ortho-core/src/elevation/worker.ts — Int16Array をゼロコピーでメインスレッドへ転送</span>
+<span class="kw">import</span> { load, setApiUrl } <span class="kw">from</span> <span class="st">"./loader.ts"</span>;
 onmessage = <span class="kw">async</span> e => {
 	<span class="kw">const</span> { name, apiUrl } = e.data;
 	<span class="kw">if</span> (apiUrl) <span class="fn">setApiUrl</span>(apiUrl);
-	<span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">load</span>(name);
-	obj ? <span class="fn">postMessage</span>(obj, [obj.data.buffer])  <span class="cm">// ← Transferable: ゼロコピー</span>
-		: <span class="fn">postMessage</span>(<span class="kw">null</span>);
+	<span class="kw">try</span> { <span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">load</span>(name);
+		obj ? <span class="fn">postMessage</span>(obj, [obj.data.buffer])  <span class="cm">// ← Transferable: ゼロコピー</span>
+			: <span class="fn">postMessage</span>(<span class="kw">null</span>);
+	} <span class="kw">catch</span> (e) { <span class="fn">postMessage</span>(<span class="kw">null</span>); }
 };</code></pre>
 
 <p>
 Worker はタイルの伸張・デコードをメインスレッド外で行い、
 <code>Int16Array</code> バッファを Transferable インターフェースでゼロコピー返却する。
-1 つの Worker がリクエストを直列処理するため、ロード中に来た追加クエリは同じ Promise を待つ。
+Worker はエンジンの Worker 役割 <code>"ortho:height"</code> として起動される。
+<code>createGetHeight</code> は 1 つの Worker でリクエストを直列処理する。ロード中に来た描画側のクエリは到着まで 0 を返し、
+<code>{ wait: true }</code> で呼んだ場合はその完了を待つ。
+地形アトラスが使う <code>createTileLoader</code> は最大 3 本の Worker プールを持ち、同じタイルへの並行要求を 1 本に併合し、
+入れ子 Worker が使えない環境ではその場（同スレッド）でデコードする。
 デコード後はセッションをまたいで即時再利用できるよう IndexedDB に永続化される。
 </p>
 
@@ -380,16 +427,17 @@ Worker はタイルの伸張・デコードをメインスレッド外で行い�
 <h2 id="gebco">7. GEBCO 処理パイプライン</h2>
 
 <p>
-GEBCO の生ソースは 90° 象限ごとに 21,600 × 21,600 ピクセルのグローバル GeoTIFF
-（全球で 43,200 × 21,600）。
-<code>GEBCO()</code> 関数がこれをダウンロードして altpbf 形式にタイル化する：
+GEBCO の生ソースは 90° 象限ごとに 21,600 × 21,600 ピクセルの GeoTIFF 群
+（8 象限、全球で 86,400 × 43,200）。
+uploader アプリの <code>GEBCO()</code> 関数（<code>apps/uploader/src/terrain/gebco.js</code>、altpbf パッケージには含まれない）が
+これをダウンロードして altpbf 形式にタイル化する：
 </p>
 
 <pre><code><span class="cm">// Step 1 — HGT90: 8× 平均プーリングダウンサンプル</span>
 <span class="cm">// 21600 × 21600 → 2700 × 2700  (象限ごとに 1 つの 90° タイル)</span>
 <span class="cm">// 出力 1 ピクセル = 8×8 ソースピクセルの平均</span>
 
-<span class="cm">// Step 2 — HGT10: 象限ごとに 9×9 = 81 サブタイルを切り出し</span>
+<span class="cm">// Step 2 — HGT10: 象限ごとに 9×9 = 81 サブタイルを切り出し（高さ 2400 px）</span>
 <span class="cm">// 極収縮（polar shrink）を適用してタイルが画面上で正方形に見えるよう調整</span>
 </code></pre>
 
@@ -417,7 +465,12 @@ GEBCO HGT10 タイル生成では、極域のタイルのピクセル幅を縮�
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="api">8. API リファレンス</h2>
 
-<pre><code><span class="cm">// ── createGetHeight — メインエントリーポイント ─────────</span>
+<pre><code><span class="cm">// ── altpbf（npm）— フォーマット ──────────────────────────</span>
+<span class="kw">import</span> { encode, decode, encodeName, decodeName, altpbf2png } <span class="kw">from</span> <span class="st">"altpbf"</span>;
+<span class="kw">import type</span> { AltpbfTile, AltpbfDecoded, AltpbfSource, AltpbfColorMap, Altpbf2PngOptions } <span class="kw">from</span> <span class="st">"altpbf"</span>;
+
+<span class="cm">// ── createGetHeight — エンジンのエントリーポイント（@ortho-earth/core/elevation） ──</span>
+<span class="kw">import</span> { createGetHeight } <span class="kw">from</span> <span class="st">"@ortho-earth/core/elevation"</span>;
 <span class="kw">const</span> getHeight = <span class="kw">await</span> <span class="fn">createGetHeight</span>({
 	apiUrl:  <span class="st">'https://your-api.example.com'</span>,  <span class="cm">// nativeBucket ベース URL</span>
 	level1:  <span class="nm">7</span>,    <span class="cm">// HGT90 → HGT10 切替ズーム閾値</span>
@@ -439,21 +492,21 @@ GEBCO HGT10 タイル生成では、極域のタイルのピクセル幅を縮�
 });
 
 <span class="cm">// ── 低レベル encode / decode ─────────────────────────────</span>
-<span class="kw">const</span> buf = <span class="kw">await</span> <span class="fn">encode</span>({ name, source, lng, lat, range, width, height, data });
+<span class="kw">const</span> buf = <span class="kw">await</span> <span class="fn">encode</span>({ name, source, lng, lat, range, width, height, data });  <span class="cm">// → Uint8Array</span>
 <span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">decode</span>(blob);  <span class="cm">// → { name, source, lng, lat, range, width, height, data: Int16Array }</span>
 
-<span class="cm">// ── GEBCO 一括タイル生成 ─────────────────────────────────</span>
+<span class="cm">// ── GEBCO 一括タイル生成（apps/uploader） ────────────────</span>
 <span class="kw">await</span> <span class="fn">GEBCO</span>({ year: <span class="nm">2026</span>, noIce: <span class="kw">false</span>, log: console });
 <span class="cm">// 約 12 GB ソースをダウンロード、HGT90 + HGT10 altpbf タイルを生成してバケットへアップロード</span>
 
-<span class="cm">// ── ALOS タイルインデックス ───────────────────────────────</span>
+<span class="cm">// ── ALOS タイルインデックス（エンジン内部・elevation/loader.ts） ──</span>
 <span class="kw">const</span> index = <span class="kw">await</span> <span class="fn">index_alos</span>();
 <span class="cm">// → { "N035E135": "v2404", "N036E135": "v2404", ... }</span></code></pre>
 
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	altpbf 1.x · Kenji Yoshida · MIT License · 2026
+	altpbf 1.2.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

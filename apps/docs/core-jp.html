@@ -119,7 +119,7 @@ import の向きは一方通行で、<code>japan → globe → core → ephem</c
 
 <p>
 メインスレッドが持つのはカメラ・入力・DOM だけです。解読・組み立て・描画はすべて worker で動きます。
-worker はすべて<strong>一つの入口</strong>（<code>worker.js</code>）から起動し、Worker の <code>name</code> で役割を指名します。
+worker はすべて<strong>一つの入口</strong>（<code>worker.ts</code>）から起動し、Worker の <code>name</code> で役割を指名します。
 そのためバンドラが作る worker のビルドは一つで、共有する部品（GeoPBF の核・loaders.gl・シェーダ）は worker の数だけ複製されません。
 </p>
 
@@ -154,11 +154,14 @@ worker はすべて<strong>一つの入口</strong>（<code>worker.js</code>）�
 	<tr><td><code>gintbake</code></td><td>gint の層を焼く（LOD の順位・辺）— 描画スレッドの外で</td></tr>
 	<tr><td><code>ortho:height</code></td><td>標高タイルの解読</td></tr>
 	<tr><td><code>rastertiles</code> / <code>imagequad</code></td><td>手元の GeoPackage／MBTiles、または四隅で貼った画像から、画像タイルを配る</td></tr>
-	<tr><td><code>decoder:*</code> / <code>encoder:*</code></td><td>GeoPBF の形式変換（落としたファイル・書き出し）</td></tr>
+	<tr><td><code>columnar</code></td><td>列チャンク層（GeoParquet・チャンクに切った GeoPBF）を読んで詰める（<code>map.addColumnar</code>）</td></tr>
+	<tr><td><code>vtdraw</code> / <code>vtextrude</code></td><td>vector source の MapLibre の fill／line／circle／symbol と fill-extrusion</td></tr>
+	<tr><td><code>iiif</code> / <code>copc</code></td><td>基準点で合わせた IIIF の地図画像をタイルに焼く／COPC の点群を Range で読む</td></tr>
+	<tr><td><code>decoder:*</code> / <code>encoder:*</code> / <code>geopbf:*</code></td><td>GeoPBF の形式変換（落としたファイル・書き出し）</td></tr>
 </table>
 
 <p>
-地域パックは、ビルド時の空き枠を通して役割を足せます（日本は統計の worker を足す）。ホストはそれを知りません。
+地域パックは自前の入口から自分の worker を起こします（日本の統計 worker＝<code>@ortho-earth/jp</code> の <code>estat-worker.ts</code>）。ホストはそれを知りません。
 crossOriginIsolated は<em>必須ではありません</em>。あれば GeoPBF のバッファがコピー無しで worker へ渡り（SharedArrayBuffer）、
 無ければ一度だけコピーされます。どちらでも全機能が動くことを関門（<code>verify:nocoi</code>）で確かめています。
 </p>
@@ -168,7 +171,7 @@ crossOriginIsolated は<em>必須ではありません</em>。あれば GeoPBF �
 
 <p>
 core には同じ顔（<code>set</code>・<code>draw</code>・<code>dispose</code>）を持つ描画器が二つあります。WebGPU 版と WebGL2 版です。
-render worker が起動時にどちらかを選びます。
+起動時にどちらかを選びます。
 </p>
 
 <table>
@@ -176,7 +179,8 @@ render worker が起動時にどちらかを選びます。
 	<tr><td><code>?gl2=1</code></td><td>WebGL2（手動の逃げ道）</td></tr>
 	<tr><td><code>navigator.gpu</code> が無い</td><td>WebGL2 に直行</td></tr>
 	<tr><td>Android</td><td>WebGL2（一部のモバイル GPU ドライバで、黙って画面が黒くなる不具合があるため）</td></tr>
-	<tr><td>このタブで前回 WebGPU の起動に失敗した</td><td>WebGL2</td></tr>
+	<tr><td>Safari／WebKit で、<code>glOverlay: true</code> を宣言した頁</td><td>WebGL2（そこでは WebGPU の上に重ねた WebGL2 のオーバーレイが合成されない）</td></tr>
+	<tr><td>このタブで前回 WebGPU の起動に失敗した</td><td>WebGL2（1 回目は次の起動だけ、2 回目からはタブを閉じるまで。<code>?gpu=1</code> で再試行）</td></tr>
 	<tr><td>それ以外</td><td><strong>WebGPU</strong></td></tr>
 </table>
 
@@ -186,8 +190,8 @@ WebGPU には三枚の落ち網があります。初期化に失敗したら wor
 </p>
 
 <p>
-画質のための仕組みが二つ、両方の土台で動きます。<strong>遷移時の AA</strong>：カメラが動いている間は MSAA 1× で描き、
-約 0.5 秒止まったら 4× で一枚だけ描く。<strong>動的解像度</strong>：フレームが重くなると canvas の解像度を段階的に下げ、線の太さは画面上で変えない。
+画質のための仕組みが二つあります。<strong>遷移時の AA</strong>（WebGPU。WebGL2 の AA はコンテキスト生成時に固定）：カメラが動いている間は MSAA 1× で描き、
+約 0.5 秒止まったら 4× で一枚だけ描く。<strong>動的解像度</strong>：フレームが重くなると canvas の解像度を段階的に下げ、線の太さは画面上で変えない（両方の土台）。
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -207,14 +211,14 @@ WebGPU には三枚の落ち網があります。初期化に失敗したら wor
 </ul>
 
 <p>
-視点は URL にあります — <code>#zoom/lat/lon[/45t][/-30r][/l=…][/c=テーマ][/t=UTC][/s=速さ]</code>。アドレス欄はいつでも「いま見ているもの」へのリンクです。
+視点は URL にあります — <code>#zoom/lat/lon[/45t][/-30r][/15roll][/l=…][/c=テーマ][/t=UTC][/s=速さ]</code>。アドレス欄はいつでも「いま見ているもの」へのリンクです。
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="terrain">5. 実スケールの地形</h2>
 
 <p>
-標高は<strong>誇張せずに</strong>描きます。高さは <a href="altpbf-jp.html">AltPBF</a> から：三つの解像度の 1° セルを worker で解読し、
+標高は<strong>誇張せずに</strong>描きます。高さは <a href="altpbf-jp.html">AltPBF</a> から：三つの大きさ（1°・10°・90°）のタイルを worker で解読し、
 二つの標高アトラスに詰めます — カメラの周りの細かいセルの<strong>近景</strong>アトラスと、地平線までの粗いセルの<strong>遠景</strong>アトラス。
 シェーダは両方から一続きの高さの場を読みます。
 </p>
@@ -237,7 +241,7 @@ WebGPU には三枚の落ち網があります。初期化に失敗したら wor
 <strong>そこから上は地域が引き継ぎます</strong>。入場するズームは地域の申告が決めます（日本は z6.5 から地理院のベクタ基図）。
 ベクタタイルは tile と scene の worker を通ります。傾けた 3D の視点では、ズームアウトしても細かいタイルが地面を覆えている間は、粗いタイルに差し替えません。
 タイルの形式は一つの登録簿に載るプラグインです。MVT は同梱、MLT（MapLibre Tile）は <code>@ortho-earth/tile-formats</code> が持ち、
-ビルド時に <code>#tile-formats</code> をその登録モジュールへ alias すると使えます。解読器は最初の MLT タイルで読まれるので、MLT に出会わない地図は何も払いません。
+ビルド時に <code>#tile-formats</code> を <code>@ortho-earth/core/tileformats-mlt</code>（登録する側）へ alias すると使えます。解読器は最初の MLT タイルで読まれるので、MLT に出会わない地図は何も払いません。
 vector source は MapLibre と同じく <code>"encoding": "mlt"</code> と書き、PMTiles はヘッダで形式が分かります。
 </p>
 <p>
@@ -327,10 +331,11 @@ map.flyTo({ center: [<span class="nm">139.767</span>, <span class="nm">35.681</s
 <p>
 API の形は、できる所は MapLibre に合わせています。既存のスタイルや手癖がそのまま使えます。
 上のすべては、公開パッケージそのものから頁を起動する関門で検めています — 検めたものが、インストールするものです。
+2.0 からはライブラリが strict な TypeScript で書かれ、型定義も同梱しています（npm にはコンパイル済みの <code>.js</code> と <code>.d.ts</code>）。1.x の互換層は外しました — <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a> を参照。
 </p>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	@ortho-earth/core · @ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+	@ortho-earth/core · @ortho-earth/globe · GPL-3.0-or-later · Kenji Yoshida · 2026
 </div>
 
 </div><!-- .page -->
