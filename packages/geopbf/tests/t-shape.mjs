@@ -90,5 +90,16 @@ const lonlat = pbf => pbf.getGeometry(0).coordinates[0][0];
 	const [lon, lat] = pbf ? lonlat(pbf) : [0, 0];
 	ok(Math.abs(lon - 135) < 1e-6 && Math.abs(lat - 35) < 1e-6, `JGD2011 経緯度はそのまま（${lon}, ${lat}）`);
 }
+// geopbf/shapefile（worker と Node の手元バッチが共有する読み手・2026-10-17）：Feature を順に返す・null shape は飛ばす・空欄は持たない・Shift_JIS
+{
+	const { readShapefile } = await import("../src/decoder/shapefile.ts");
+	const feats = [...readShapefile({ shp: shp(5), dbf: dbf(["A", "B", "C"]), prj: epsgToWKT(6668) })];
+	ok(feats.length === 2 && feats[0].type === "Feature" && feats[1].properties.NAME === "C", `readShapefile＝形のある 2 件・null shape の後も属性がずれない（${feats.map(f => f.properties.NAME)}）`);
+	ok(feats[0].geometry.coordinates[0][0][0] === 135 && feats[0].geometry.coordinates[0][0][1] === 35, "readShapefile＝経緯度の .prj は無変換（座標は double のまま）");
+	const sj = dbf(["", "", ""]);   // NAME 欄に「千代田」（Shift_JIS）を 1 行目だけ書く。2・3 行目は空欄
+	sj.set([0x90, 0xe7, 0x91, 0xe3, 0x93, 0x63], 32 + 32 + 1 + 1);
+	const fs = [...readShapefile({ shp: shp(5), dbf: sj, encoding: "shift_jis" })];
+	ok(fs[0].properties.NAME === "千代田" && !("NAME" in fs[1].properties), `readShapefile＝Shift_JIS を読み、空欄は持たない（${JSON.stringify(fs.map(f => f.properties))}）`);
+}
 console.log(fails ? `\n✗ ${fails} failed` : "\nPASS");
 process.exit(fails ? 1 : 0);
