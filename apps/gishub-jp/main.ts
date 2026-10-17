@@ -1,39 +1,39 @@
 // ============================================================
 // インポート
 // ============================================================
-import { showToast, escHtml } from './ui/shared.js';
-import { setup as ctxSetup }  from './ui/ctx.js';
-import { execGlobeView }      from './ui/globe.js';
-import { renderExecView, closeGeoPreview } from './ui/exec-view.js';
-import { bulkDownload }       from './ui/bulk-download.js';
-import { initDetailEventListeners, nlftpSelectDataset } from './nlftp/ui.js';
-import { loadCatalogEntries } from './nlftp/catalog.js';
-import { placeholder }        from './ui/placeholder.js';
-import { initSidebarToggle }  from './ui/sidebar.js';
-// サイドバー項目は軽量メタ（ui/entries.js）から。省庁モジュール本体は選択時に dynamic import
+import { showToast, escHtml } from './ui/shared.ts';
+import { setup as ctxSetup }  from './ui/ctx.ts';
+import { execGlobeView }      from './ui/globe.ts';
+import { renderExecView, closeGeoPreview } from './ui/exec-view.ts';
+import { bulkDownload }       from './ui/bulk-download.ts';
+import { initDetailEventListeners, nlftpSelectDataset } from './nlftp/ui.ts';
+import { loadCatalogEntries } from './nlftp/catalog.ts';
+import { placeholder }        from './ui/placeholder.ts';
+import { initSidebarToggle }  from './ui/sidebar.ts';
+// サイドバー項目は軽量メタ（ui/entries.ts）から。省庁モジュール本体は選択時に dynamic import
 // （静的 import に戻すと moj/census 等のマニフェスト約4MBが初期バンドルへ逆流するので禁止）
 import {
     mojSidebarEntry, maffSidebarEntry, estatSidebarEntry,
     census2025SidebarEntry, censusSmall2020SidebarEntry, census2015SidebarEntry,
     npsSidebarEntry, municSidebarEntry,
     jishinSeismicSidebarEntry, jishinFaultSidebarEntry, jmaAmedasSidebarEntry,
-} from './ui/entries.js';
+} from './ui/entries.ts';
 
 // dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
 interface LazyView { load: () => Promise<object>; fn: string }   // fn＝読んだモジュールの描画関数の名前
 const LAZY_VIEWS: Record<string, LazyView> = {
-    'moj':               { load: () => import('./moj/ui.js'),    fn: 'renderMojList' },
-    'maff':              { load: () => import('./maff/ui.js'),   fn: 'renderMaffList' },
-    'estat':             { load: () => import('./estat/ui.js'),  fn: 'renderEstatList' },
-    'amedas':            { load: () => import('./jma/ui.js'),    fn: 'showAmedas' },
-    'seismic':           { load: () => import('./jishin/ui.js'), fn: 'showSeismic' },
-    'fault':             { load: () => import('./jishin/ui.js'), fn: 'showFault' },
-    'nps':               { load: () => import('./nps/ui.js'),    fn: 'renderNpsView' },
-    'munic':             { load: () => import('./munic/ui.js'),  fn: 'renderMunicList' },
-    'census2025':        { load: () => import('./census/ui.js'), fn: 'renderCensus2025List' },
-    'census2020':        { load: () => import('./census/ui.js'), fn: 'renderCensus2020List' },
-    'census2015':        { load: () => import('./census/ui.js'), fn: 'renderCensus2015List' },
-    'census-small-2020': { load: () => import('./census/ui.js'), fn: 'renderCensusSmall2020' },
+    'moj':               { load: () => import('./moj/ui.ts'),    fn: 'renderMojList' },
+    'maff':              { load: () => import('./maff/ui.ts'),   fn: 'renderMaffList' },
+    'estat':             { load: () => import('./estat/ui.ts'),  fn: 'renderEstatList' },
+    'amedas':            { load: () => import('./jma/ui.ts'),    fn: 'showAmedas' },
+    'seismic':           { load: () => import('./jishin/ui.ts'), fn: 'showSeismic' },
+    'fault':             { load: () => import('./jishin/ui.ts'), fn: 'showFault' },
+    'nps':               { load: () => import('./nps/ui.ts'),    fn: 'renderNpsView' },
+    'munic':             { load: () => import('./munic/ui.ts'),  fn: 'renderMunicList' },
+    'census2025':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2025List' },
+    'census2020':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2020List' },
+    'census2015':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2015List' },
+    'census-small-2020': { load: () => import('./census/ui.ts'), fn: 'renderCensusSmall2020' },
 };
 
 async function runLazyView(code: string) {
@@ -50,7 +50,7 @@ async function runLazyView(code: string) {
 // ============================================================
 // State
 // ============================================================
-// サイドバーの 1 行（ui/entries.js の静的な入口・nlftp/catalog.js のカタログ）
+// サイドバーの 1 行（ui/entries.ts の静的な入口・nlftp/catalog.ts のカタログ）
 interface CatalogEntry { dataset_code: string; title: string; license?: string; file_count: number; note?: string; _sourceId?: string }
 let catalog: CatalogEntry[] = [];
 let active: string | null = null;

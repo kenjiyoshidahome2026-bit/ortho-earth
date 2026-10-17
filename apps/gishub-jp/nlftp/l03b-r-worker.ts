@@ -6,18 +6,18 @@
  *   （webpData は ZIP 書き出し用の画像。WebP/JPEG は非可逆で分類が崩れるので表示には使わない）
  */
 
-function readU16LE(u8, off) { return u8[off] | (u8[off + 1] << 8); }
-function readU32LE(u8, off) {
+function readU16LE(u8: Uint8Array, off: number) { return u8[off] | (u8[off + 1] << 8); }
+function readU32LE(u8: Uint8Array, off: number) {
     return (u8[off] | (u8[off+1]<<8) | (u8[off+2]<<16) | (u8[off+3]<<24)) >>> 0;
 }
 
-function parseGeoTiff(u8) {
+function parseGeoTiff(u8: Uint8Array) {
     const ifdOff = readU32LE(u8, 4);
     const nTags  = readU16LE(u8, ifdOff);
 
     let width = 0, height = 0;
-    let stripOffsets = [], stripByteCounts = [];
-    let colorMap = null, pixelScaleOff = -1, tiepointOff = -1;
+    let stripOffsets: number[] = [], stripByteCounts: number[] = [];
+    let colorMap: { off: number; n: number } | null = null, pixelScaleOff = -1, tiepointOff = -1;
 
     for (let i = 0; i < nTags; i++) {
         const o     = ifdOff + 2 + i * 12;
@@ -53,7 +53,7 @@ function parseGeoTiff(u8) {
     }
 
     // BBOX (GeoTIFF ModelPixelScale + ModelTiepoint)
-    let bbox = null;
+    let bbox: number[] | null = null;
     if (pixelScaleOff >= 0 && tiepointOff >= 0) {
         const dv     = new DataView(u8.buffer, u8.byteOffset);
         const scaleX = dv.getFloat64(pixelScaleOff, true);
@@ -86,7 +86,7 @@ function parseGeoTiff(u8) {
     return { width, height, rgba, bbox, rawPx };
 }
 
-async function extractTifFromZip(u8) {
+async function extractTifFromZip(u8: Uint8Array) {
     let pos = 0;
     while (pos + 30 <= u8.length) {
         if (readU32LE(u8, pos) !== 0x04034b50) break; // Local File Header
@@ -114,7 +114,7 @@ async function extractTifFromZip(u8) {
     throw new Error('TIF not found in ZIP');
 }
 
-self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }) => {
+self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }: MessageEvent<{ meshCode: string; proxyUrl: string; format?: string }>) => {
     try {
         const res = await fetch(proxyUrl);
         if (!res.ok) throw new Error(`HTTP ${res.status} (${proxyUrl})`);
@@ -125,13 +125,13 @@ self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }) => {
         const classes = new Uint8Array(await new Response(new Blob([rawPx]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
 
         const canvas = new OffscreenCanvas(width, height);
-        canvas.getContext('2d').putImageData(new ImageData(rgba, width, height), 0, 0);
+        canvas.getContext('2d')!.putImageData(new ImageData(rgba, width, height), 0, 0);
         const quality = format === 'jpeg' ? 0.8 : format === 'webp' ? 0.85 : undefined;
         const blob    = await canvas.convertToBlob({ type: `image/${format}`, quality });
         const webpData = new Uint8Array(await blob.arrayBuffer());
 
         self.postMessage({ meshCode, webpData, bbox, format, classes, width, height }, [webpData.buffer, classes.buffer]);
     } catch (e) {
-        self.postMessage({ meshCode, error: e.message });
+        self.postMessage({ meshCode, error: (e as Error).message });
     }
 };

@@ -3,8 +3,9 @@
 // 2013〜2026 年版を重ね合わせて「掲載初年／最終年」を持たせてある（最終年が最新でない点＝その後の版から消えた観測点）。
 // ortho-data/japan/jishin/seismic.geopbf（本番＝GitHub Pages・dev＝手元の正本＝vite.config の __DATA_JAPAN__）を自前fetch → geopbf(buffer) デコード → execGlobeView 描画。
 // 生成は jishin/seismic-to-geopbf.mjs。突合の正本は jishin/seismic.geojson（uid を持つ）。
-import { geopbf } from '../ui/gpbf.js';
-import { execGlobeView } from '../ui/globe.js';
+import { geopbf } from '../ui/gpbf.ts';
+import { execGlobeView } from '../ui/globe.ts';
+import type { GeoPBF } from 'geopbf';
 
 // 観測網＝生成側 NETS の tag と対。GeoPBF は符号で持ち、名前はここで開く
 const NET = {
@@ -32,7 +33,7 @@ const SEISMIC_PAINT = {
     'circle-color':  ['case', ['==', ['get', 'last'], LATEST], C_LIVE, C_GONE],
     'circle-radius': ['case', ['==', ['get', 'last'], LATEST], 1.6, 1.1],
 };
-const _swatch = (c, label, r = 5) =>
+const _swatch = (c: string, label: string, r = 5) =>
     `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7">` +
     `<span style="width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center">` +
     `<span style="width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:${c};display:inline-block"></span></span>` +
@@ -43,7 +44,7 @@ const SEISMIC_LEGEND =
     _swatch(C_GONE, '掲載終了 1,832', 3) +
     `<div style="font-size:10px;opacity:.7;margin-top:4px;max-width:170px">「掲載」の有無であって設置・廃止ではない</div>`;
 
-let _pbf = null;
+let _pbf: GeoPBF | null = null;
 export async function showSeismic() {
     if (!_pbf) {
         const res = await fetch(`${__DATA_JAPAN__}jishin/seismic.geopbf`);
@@ -83,7 +84,7 @@ const JSHIS = 'https://www.j-shis.bosai.go.jp/map/api/fltsearch'
 const C_FAULT = '#4FB3C4', C_HIT = '#FFC24B', C_DIM = '#2C4650';
 // line-width は CSS px（2026-09-26 に Gint の表の幅の単位を直した＝旧 device px の値の半分で同じ見た目）
 const FAULT_PAINT = { 'line-color': C_FAULT, 'line-width': 0.55 };
-const faultPaintFor = bands => bands.length
+const faultPaintFor = (bands: string[]) => bands.length
     ? { 'line-color': ['match', ['get', 'band'], bands, C_HIT, C_DIM],
         'line-width': ['match', ['get', 'band'], bands, 1.3, 0.35] }
     : { 'line-color': C_DIM, 'line-width': 0.35 };
@@ -94,17 +95,19 @@ const FAULT_LEGEND =
     `<span style="opacity:.7">（防災科研 J-SHIS・30年・平均ケース）</span></div>`;
 
 // 断層帯名の突合＝括弧と中黒を落として部分一致（J-SHIS の長期評価名 ⇄ こちらの断層帯名）
-const norm = v => String(v ?? '').replace(/[（(][^）)]*[）)]/g, '').replace(/[・\s\u3000]/g, '');
-const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const pct = v => { const n = +v; return Number.isFinite(n) ? (n * 100).toFixed(n < 0.01 ? 2 : 1) + '%' : '—'; };
-const mag = v => { const t = String(v ?? '').split(',').map(x => x.replace(/^-/, '')).filter(Boolean); return t.length ? 'M' + t.join('〜') : '—'; };
+const norm = (v: unknown) => String(v ?? '').replace(/[（(][^）)]*[）)]/g, '').replace(/[・\s\u3000]/g, '');
+const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const pct = (v: unknown) => { const n = +(v as number); return Number.isFinite(n) ? (n * 100).toFixed(n < 0.01 ? 2 : 1) + '%' : '—'; };
+const mag = (v: unknown) => { const t = String(v ?? '').split(',').map(x => x.replace(/^-/, '')).filter(Boolean); return t.length ? 'M' + t.join('〜') : '—'; };
 
-let _fault = null, _bands = null;
+let _fault: GeoPBF | null = null, _bands: string[] | null = null;
+// 盤の 1 行（J-SHIS の 1 件＋突合の結果）
+interface FaultRow { rank: unknown; name: string; bands: string[]; hit: boolean; why: string; m: unknown; p: unknown; i55: unknown; score: number }
 
 // 描画用 GeoPBF から断層帯名の一覧を一度だけ集める（突合の左辺）
-function bandsOf(pbf) {
+function bandsOf(pbf: GeoPBF) {
     if (_bands) return _bands;
-    const set = new Set();
+    const set = new Set<string>();
     for (let i = 0; i < pbf.length; i++) {
         try { const b = pbf.getFeature(i)?.properties?.band; if (b) set.add(b); } catch { /* 壊れfeature */ }
     }
@@ -113,7 +116,7 @@ function bandsOf(pbf) {
 
 // 盤の体裁＝エンジンの .pop は max-width:280px（中身 ≈234px）＝表組みは入らない。
 // 横に並べず 1 件 3 行の積み上げにする（名前／種別・規模／確率）。CSS はこちらに閉じる（エンジンは触らない）。
-function popHtml(rows, lon, lat, shown, grabbed = null) {
+function popHtml(rows: FaultRow[], lon: number, lat: number, shown: number, grabbed: Record<string, any> | null = null) {
     const seg = grabbed?.band
         ? `<div style="font-size:11px;margin:0 0 6px;line-height:1.4"><span style="color:${C_HIT}">━</span> `
           + `${esc([grabbed.band, grabbed.fault, grabbed.seg].filter(Boolean).join(' '))}</div>` : '';
@@ -121,7 +124,7 @@ function popHtml(rows, lon, lat, shown, grabbed = null) {
         + `<div style="font-size:10px;opacity:.6;margin:-2px 0 6px;line-height:1.4">`
         + `${lat.toFixed(4)}, ${lon.toFixed(4)}<br>30年・平均ケース・J-SHIS Y2024／寄与の大きい順</div>` + seg;
     if (!rows.length) return head + `<div style="font-size:11px">該当なし（陸域のモデル外）</div>`;
-    const row = r => `<div style="display:flex;gap:5px;padding:4px 0;border-top:1px solid rgba(255,255,255,.12)">`
+    const row = (r: FaultRow) => `<div style="display:flex;gap:5px;padding:4px 0;border-top:1px solid rgba(255,255,255,.12)">`
         + `<span style="opacity:.45;font-size:10px;min-width:1.1em;text-align:right;padding-top:1px">${esc(r.rank)}</span>`
         + `<span style="padding-top:1px">${r.hit ? `<span style="color:${C_HIT}">●</span>` : `<span style="opacity:.35">○</span>`}</span>`
         + `<span style="flex:1;min-width:0">`
@@ -148,19 +151,19 @@ export async function showFault() {
         pop: false,          // この層のポップ＝J-SHIS の盤。地物の既定ポップと二重に出さない（属性はホバーの tip で読める）
 
         onReady: (map, layer, view) => {
-            const bands = bandsOf(_fault);
+            const bands = bandsOf(_fault!);
             let seq = 0;
             // 線の上で止めない＝断層が密な所（関東など）で「何も起きない」を作らない。
             // 掴んだ区間があれば盤の見出しに出す（既定ポップを止めた分の埋め合わせ）。
-            const onClick = async ({ lngLat, hits }) => {
+            const onClick = async ({ lngLat, hits }: { lngLat: [number, number]; hits: { fid?: number; feature?: { properties?: Record<string, any> | null }; properties?: Record<string, any> | null }[] }) => {
                 const my = ++seq, [lon, lat] = lngLat;
                 const grabbed = hits?.length ? (hits[0].feature?.properties ?? hits[0].properties
-                    ?? (hits[0].fid != null ? _fault.getFeature(hits[0].fid)?.properties : null)) : null;
+                    ?? (hits[0].fid != null ? _fault!.getFeature(hits[0].fid)?.properties : null)) : null;
                 const [x, y] = map.projectLL(lon, lat);
                 // pop は呼ぶたびに箱を積む＝出す前に畳む（clear() は 📌 で固定した箱を残す＝2地点の見比べが効く）
                 view.pop.clear();
                 view.pop(`<div class="cat-pop-title">問い合わせ中…</div>`, { x, y, lng: lon, lat });
-                let data = null;
+                let data: any = null;
                 try {
                     const r = await fetch(`${JSHIS}&position=${lon.toFixed(6)},${lat.toFixed(6)}`);
                     data = r.ok ? await r.json() : null;
@@ -174,7 +177,7 @@ export async function showFault() {
                     layer.setPaint(FAULT_PAINT);
                     return;
                 }
-                const rows = data.Fault.map(f => {
+                const rows: FaultRow[] = data.Fault.map((f: any) => {
                     const name = f.ltename || f.ltecode || '';
                     const hitBands = bands.filter(b => norm(name).includes(norm(b)) || norm(b).includes(norm(name)));
                     return {
@@ -183,7 +186,7 @@ export async function showFault() {
                         m: f.magnitude, p: f.probability, i55: f.i55_ps,
                         score: +f.score || 0,
                     };
-                }).sort((a, b) => b.score - a.score);
+                }).sort((a: FaultRow, b: FaultRow) => b.score - a.score);
                 layer.setPaint(faultPaintFor([...new Set(rows.flatMap(r => r.bands))]));
                 view.pop.clear();
                 view.pop(popHtml(rows, lon, lat, 6, grabbed), { x, y, lng: lon, lat });

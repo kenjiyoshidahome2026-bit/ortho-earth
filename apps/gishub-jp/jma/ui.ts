@@ -1,8 +1,9 @@
 // 気象庁 アメダス観測所レイヤー（静的GeoPBF配信・独立モジュール）
 // ortho-data/japan/jma/amedas.geopbf（本番＝GitHub Pages・dev＝手元の正本＝vite.config の __DATA_JAPAN__）を自前fetch → geopbf(buffer) でデコード（bucket不要）→
 // 既存の execGlobeView で地図描画。生成は jma/amedas-to-geopbf.mjs。
-import { geopbf } from '../ui/gpbf.js';
-import { execGlobeView } from '../ui/globe.js';
+import { geopbf } from '../ui/gpbf.ts';
+import { execGlobeView } from '../ui/globe.ts';
+import type { GeoPBF } from 'geopbf';
 
 // 種類＝**観測装置の種類**（公式 PDF「地域気象観測所一覧」(3) の略字表・2026-09-23 確認）。
 // bosai API の type（A/B/C…＝説明非公開）は使わない。旧実装はそこに要素名を貼っていて
@@ -35,7 +36,7 @@ const AMEDAS_PAINT = {
     'circle-color':  ['match', ['get', 'kind'], '官', C_KIND['官'], '雨', C_KIND['雨'], C_KIND['四']],
     'circle-radius': ['match', ['get', 'kind'], '官', 2.0, '雨', 1.2, 1.6],
 };
-const _dot = (c, r, label) =>
+const _dot = (c: string, r: number, label: string) =>
     `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7">`
     + `<span style="width:14px;display:inline-flex;justify-content:center">`
     + `<span style="width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:${c};display:inline-block"></span></span>`
@@ -47,7 +48,7 @@ const AMEDAS_LEGEND =
     + _dot(C_KIND['雨'], 3, '有線ロボット雨量計 370')
     + `<div style="font-size:10px;opacity:.7;margin-top:4px;max-width:180px">気象庁「地域気象観測所一覧」の種類</div>`;
 
-let _pbf = null;
+let _pbf: GeoPBF | null = null;
 export async function showAmedas() {
     if (!_pbf) {
         const res = await fetch(`${__DATA_JAPAN__}jma/amedas.geopbf`);

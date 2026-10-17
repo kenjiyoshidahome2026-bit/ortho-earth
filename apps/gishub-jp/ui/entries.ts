@@ -1,6 +1,6 @@
 // サイドバーの静的エントリ定義（正本・1か所管理）
 // 件数は ui/counts.json（scripts/gen-counts.mjs が manifest から焼き出す軽量メタ）。
-// 省庁モジュール本体（moj/maff/estat/census の ui.js）は選択時に dynamic import されるため、
+// 省庁モジュール本体（moj/maff/estat/census の ui.ts）は選択時に dynamic import されるため、
 // ここに重いマニフェストを import してはならない（初期バンドルに 4MB 級 JSON が混入した前科）。
 import COUNTS from './counts.json' with { type: 'json' };
 

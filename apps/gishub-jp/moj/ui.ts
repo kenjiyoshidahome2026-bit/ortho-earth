@@ -1,22 +1,25 @@
 import MOJ_MANIFEST         from './manifest.json'      with { type: 'json' };
 import MOJ_GEOJSON_MANIFEST from './geojson.json'       with { type: 'json' };
 import MOJ_PBF_MANIFEST     from './pbf-manifest.json'  with { type: 'json' };
-import { PREFS, escHtml, fmtBytes, cityArea } from '../ui/shared.js';
-import { ctx } from '../ui/ctx.js';
-import { renderGroupedCities } from '../ui/grouped-list.js';
+import { PREFS, escHtml, fmtBytes, cityArea } from '../ui/shared.ts';
+import { ctx } from '../ui/ctx.ts';
+import { renderGroupedCities } from '../ui/grouped-list.ts';
 
 // ---- data maps -------------------------------------------------------
+type MojRec = typeof MOJ_MANIFEST[number];
+type MojGeojsonRec = typeof MOJ_GEOJSON_MANIFEST[number];
+type MojCity = ReturnType<typeof buildMojCityList>[number];
 
 function _buildCities() {
-    const m = new Map();
+    const m = new Map<string, MojRec[]>();
     for (const e of MOJ_MANIFEST) {
         if (!m.has(e.cityCode)) m.set(e.cityCode, []);
-        m.get(e.cityCode).push(e);
+        m.get(e.cityCode)!.push(e);
     }
     return m;
 }
 function _buildGeojsonMap() {
-    const m = new Map();
+    const m = new Map<string, MojGeojsonRec>();
     for (const e of MOJ_GEOJSON_MANIFEST) m.set(e.name.slice(0, 5), e);
     return m;
 }
@@ -28,10 +31,10 @@ export const MOJ_PBF_MAP     = new Map(MOJ_PBF_MANIFEST.map(e => [e.cityCode, e]
 // ---- size cache -------------------------------------------------------
 
 const MOJ_SIZE_KEY = 'moj-pbf-sizes';
-function mojSavedSizes() {
+function mojSavedSizes(): Record<string, number> {
     try { return JSON.parse(localStorage.getItem(MOJ_SIZE_KEY) || '{}'); } catch { return {}; }
 }
-export function mojSavePbfSize(name, bytes) {
+export function mojSavePbfSize(name: string, bytes: number) {
     try {
         const saved = mojSavedSizes();
         saved[name] = bytes;
@@ -39,7 +42,7 @@ export function mojSavePbfSize(name, bytes) {
     } catch {}
 }
 
-// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
+// サイドバー項目は ui/entries.ts（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- city list -------------------------------------------------------
 
@@ -67,7 +70,7 @@ function buildMojCityList() {
     });
 }
 
-function mojCityItemHtml(city) {
+function mojCityItemHtml(city: MojCity) {
     const extra = !city.hasGeojson && city.extra > 0 ? `<span class="extra-cnt">+${city.extra}</span>` : '';
     const badge = city.hasGeojson
         ? `<span class="badge fmt-geojson">GeoJSON</span>`
@@ -97,7 +100,7 @@ function mojCityItemHtml(city) {
 // ---- list render -------------------------------------------------------
 
 let mojListSearch = '';
-let mojExpandedPrefs = new Set();
+let mojExpandedPrefs = new Set<string>();
 
 export function renderMojList() {
     const cities = buildMojCityList();
@@ -128,9 +131,9 @@ export function renderMojList() {
         groupFn:     c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
         onBulkClick: (pref, _btn) => ctx.bulkDownload(mojPrefEntries(pref), `法務省 ${PREFS[pref] || pref}`),
         onItemClick: e => {
-            const item = e.target.closest('.moj-city-item');
+            const item = (e.target as Element).closest<HTMLElement>('.moj-city-item');
             if (!item) return;
-            const entries = mojCityEntries(item.dataset.code);
+            const entries = mojCityEntries(item.dataset.code!);
             if (!entries.length) return;
             ctx.renderExecView(entries[0], () => { history.replaceState(null, '', '#moj'); renderMojList(); });
         },
@@ -146,10 +149,10 @@ export function renderMojList() {
             return `<span class="pref-coord-sys">直角座標系:${areas.join(',')}</span>` + sizeHtml;
         },
     });
-    document.getElementById('moj-bulk-all').addEventListener('click', () => {
+    document.getElementById('moj-bulk-all')!.addEventListener('click', () => {
         ctx.bulkDownload(mojAllEntries(), '法務省 登記所備付地図 全国');
     });
-    document.getElementById('moj-search').addEventListener('input', function() {
+    (document.getElementById('moj-search') as HTMLInputElement).addEventListener('input', function() {
         mojListSearch = this.value;
         mojRender();
     });
@@ -158,7 +161,7 @@ export function renderMojList() {
 
 // ---- entry helpers -------------------------------------------------------
 
-export function mojCityEntries(cityCode) {
+export function mojCityEntries(cityCode: string) {
     const geojson = MOJ_GEOJSON_MAP.get(cityCode);
     if (geojson) return [{ ...geojson, precision: 7 }];
     const pbf = MOJ_PBF_MAP.get(cityCode);
@@ -175,7 +178,7 @@ export function mojCityEntries(cityCode) {
     }));
 }
 
-export function mojPrefEntries(prefCode) {
+export function mojPrefEntries(prefCode: string) {
     const result = [];
     for (const code of MOJ_CITIES.keys()) {
         if (code.slice(0, 2) === prefCode) result.push(...mojCityEntries(code));

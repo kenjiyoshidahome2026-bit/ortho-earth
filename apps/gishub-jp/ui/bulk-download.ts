@@ -1,10 +1,15 @@
-import { fmtBytes, escHtml, showToast } from './shared.js';
-import { geopbf } from './gpbf.js';
+import { fmtBytes, escHtml, showToast } from './shared.ts';
+import { geopbf } from './gpbf.ts';
+import type { GeoPBF } from 'geopbf';
+
+// 一括読込の 1 件（省庁モジュールの toEntry が作る）
+export interface BulkEntry { name: string; target?: any; format?: string; size?: number | null; [k: string]: unknown }
+interface DlState { loaded: number; total: number; phase: string }
 
 let _dlActive = false;
 let _dlCancel = false;
 
-export async function bulkDownload(entries, label, fetchFn = null, parallel = null, onComplete = null) {
+export async function bulkDownload(entries: BulkEntry[], label: string, fetchFn: ((e: BulkEntry) => Promise<GeoPBF | null | undefined>) | null = null, parallel: number | null = null, onComplete: ((pbf: GeoPBF) => unknown) | null = null) {
     if (_dlActive || !entries.length) return;
 
     const isMoj = entries.some(e => e.format === 'moj');
@@ -23,14 +28,14 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
     _dlActive = true;
     _dlCancel = false;
 
-    const fn       = fetchFn ?? (e => e.format === 'moj' ? geopbf(e.target, { format: 'moj' }) : geopbf(e.target));
+    const fn       = fetchFn ?? ((e: BulkEntry) => e.format === 'moj' ? geopbf(e.target, { format: 'moj' }) : geopbf(e.target));
     const PARALLEL = parallel ?? 5;
     const total    = entries.length;
     let done = 0, errors = 0;
-    const active = new Map();
+    const active = new Map<string, DlState>();
 
     const modal = _openDlModal(label, total);
-    modal.querySelector('.dl-cancel-btn').onclick = () => {
+    modal.querySelector<HTMLElement>('.dl-cancel-btn')!.onclick = () => {
         _dlCancel = true;
         _dlActive = false;
         _closeDlModal(modal);
@@ -38,32 +43,32 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
 
     const refresh = () => _refreshDlModal(modal, done, total, errors, active);
 
-    const onFetchProgress = ({ detail }) => {
+    const onFetchProgress = ({ detail }: CustomEvent) => {
         const name = (detail.name || '').replace(/\.[^.]+$/, '');
         if (!active.has(name)) return;
-        const s = active.get(name);
+        const s = active.get(name)!;
         s.phase = 'fetch'; s.loaded = detail.loaded; s.total = detail.total;
         refresh();
     };
-    const onConvertStart = ({ detail }) => {
+    const onConvertStart = ({ detail }: CustomEvent) => {
         if (!active.has(detail.name)) return;
-        active.get(detail.name).phase = 'convert';
+        active.get(detail.name)!.phase = 'convert';
         refresh();
     };
-    const onConvertProgress = ({ detail }) => {
+    const onConvertProgress = ({ detail }: CustomEvent) => {
         if (!active.has(detail.name)) return;
-        const s = active.get(detail.name);
+        const s = active.get(detail.name)!;
         s.phase = 'convert'; s.loaded = detail.loaded; s.total = detail.total;
         refresh();
     };
-    window.addEventListener('FetchProgress',   onFetchProgress);
-    window.addEventListener('ConvertStart',    onConvertStart);
-    window.addEventListener('ConvertProgress', onConvertProgress);
+    window.addEventListener('FetchProgress',   onFetchProgress as EventListener);
+    window.addEventListener('ConvertStart',    onConvertStart as EventListener);
+    window.addEventListener('ConvertProgress', onConvertProgress as EventListener);
 
     const queue = [...entries];
     const runWorker = async () => {
         while (queue.length && !_dlCancel) {
-            const entry = queue.shift();
+            const entry = queue.shift()!;
             active.set(entry.name, { loaded: 0, total: 0, phase: 'fetch' });
             refresh();
             try {
@@ -75,10 +80,10 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
                     s.phase = 'done';
                     const sz = pbf?.size || entry.size || s.total || s.loaded;
                     s.loaded = sz; s.total = sz;
-                    // moj/ui.js は静的 import しない（マニフェスト4MB級が初期バンドルへ逆流するため）。
+                    // moj/ui.ts は静的 import しない（マニフェスト4MB級が初期バンドルへ逆流するため）。
                     // moj の一括DL時点でモジュールは読込済み＝この import はキャッシュから即時解決
                     if (pbf?.size && entry.format === 'moj') {
-                        import('../moj/ui.js').then(m => m.mojSavePbfSize(entry.name, pbf.size)).catch(() => {});
+                        import('../moj/ui.ts').then(m => m.mojSavePbfSize(entry.name, pbf.size)).catch(() => {});
                     }
                 }
             } catch {
@@ -96,9 +101,9 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
     try {
         await Promise.all(Array.from({ length: PARALLEL }, runWorker));
     } finally {
-        window.removeEventListener('FetchProgress',   onFetchProgress);
-        window.removeEventListener('ConvertStart',    onConvertStart);
-        window.removeEventListener('ConvertProgress', onConvertProgress);
+        window.removeEventListener('FetchProgress',   onFetchProgress as EventListener);
+        window.removeEventListener('ConvertStart',    onConvertStart as EventListener);
+        window.removeEventListener('ConvertProgress', onConvertProgress as EventListener);
         _dlActive = false;
     }
 
@@ -108,7 +113,7 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
     }
 }
 
-function _openDlModal(label, total) {
+function _openDlModal(label: string, total: number) {
     const el = document.createElement('div');
     el.className = 'dl-modal';
     el.innerHTML = `
@@ -131,10 +136,10 @@ function _openDlModal(label, total) {
     return el;
 }
 
-function _refreshDlModal(modal, done, total, errors, active) {
+function _refreshDlModal(modal: HTMLElement, done: number, total: number, errors: number, active: Map<string, DlState>) {
     if (!modal.isConnected) return;
     const pct = (done / total * 100).toFixed(1);
-    const fill  = modal.querySelector('#dl-fill');  if (fill)  fill.style.width = `${pct}%`;
+    const fill  = modal.querySelector<HTMLElement>('#dl-fill');  if (fill)  fill.style.width = `${pct}%`;
     const pctEl = modal.querySelector('#dl-pct');   if (pctEl) pctEl.textContent = `${pct}%`;
     const doneEl = modal.querySelector('#dl-done'); if (doneEl) doneEl.textContent = done.toLocaleString();
     const errEl  = modal.querySelector('#dl-err');  if (errEl)  errEl.textContent = errors ? `${errors}件エラー` : '';
@@ -151,7 +156,7 @@ function _refreshDlModal(modal, done, total, errors, active) {
     }).join('');
 }
 
-function _closeDlModal(modal) {
+function _closeDlModal(modal: HTMLElement) {
     modal.classList.add('dl-closing');
     setTimeout(() => modal.remove(), 200);
 }

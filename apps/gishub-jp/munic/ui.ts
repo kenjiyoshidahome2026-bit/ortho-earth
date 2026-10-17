@@ -2,28 +2,32 @@
 // 台帳は munic-manifest.js が作る（アプリ同梱）：目次 manifest.json（一覧）＋ 都道府県ごとの pref/<2桁>.json（市区町村を開いた時にその県の分だけ）。
 // データ本体は配布元を直読みしてその場で GeoPBF 変換（G空間は CORS 可・取れない先は native-bucket の中継が自動で拾う＝bucket には置かない）。
 import MUNIC from './manifest.json' with { type: 'json' };
-const PREF_FILES = import.meta.glob('./pref/*.json', { import: 'default' });   // 県ごとに別チャンク
-const prefCache = new Map();
-async function loadCity(code) {
+// pref/<2桁>.json の 1 件＝市区町村（データセット → 資料）
+interface MunicRes { name: string; fmt: string; url: string }
+interface MunicSet { id: string; title: string; cat: string; license: string; crs?: string | number | null; page?: string; src?: string; res: MunicRes[] }
+interface MunicCity { code: string; pref: string; city: string; org?: string; orgTitle: string; sets: MunicSet[] }
+const PREF_FILES = import.meta.glob<MunicCity[]>('./pref/*.json', { import: 'default' });   // 県ごとに別チャンク
+const prefCache = new Map<string, Promise<MunicCity[]>>();
+async function loadCity(code: string) {
 	const k = code.slice(0, 2);
 	if (!prefCache.has(k)) prefCache.set(k, PREF_FILES[`./pref/${k}.json`]?.() ?? Promise.resolve([]));
-	return (await prefCache.get(k)).find(e => e.code === code) || null;
+	return (await prefCache.get(k))!.find(e => e.code === code) || null;
 }
-import { PREFS, escHtml } from '../ui/shared.js';
-import { ctx } from '../ui/ctx.js';
-import { renderMinistryList } from '../ui/ministry-list.js';
+import { PREFS, escHtml } from '../ui/shared.ts';
+import { ctx } from '../ui/ctx.ts';
+import { renderMinistryList } from '../ui/ministry-list.ts';
 
 const CAD = '地番図・地籍';
 const CAT_ORDER = [CAD, '防災', '都市計画・道路', '施設・観光', '医療・AED', 'その他'];
-const FMT_LABEL = { geojson: 'GeoJSON', kml: 'KML', kmz: 'KMZ', zip: 'Shape(zip)', gml: 'GML', gpkg: 'GPKG', fgb: 'FGB', csv: 'CSV', xlsx: 'Excel' };
-const FMT_CLASS = { geojson: 'fmt-geojson', kml: 'fmt-gml', kmz: 'fmt-gml', zip: 'fmt-shp', gml: 'fmt-gml', gpkg: 'fmt-pbf', fgb: 'fmt-pbf', csv: 'fmt-none', xlsx: 'fmt-none' };
+const FMT_LABEL: Record<string, string> = { geojson: 'GeoJSON', kml: 'KML', kmz: 'KMZ', zip: 'Shape(zip)', gml: 'GML', gpkg: 'GPKG', fgb: 'FGB', csv: 'CSV', xlsx: 'Excel' };
+const FMT_CLASS: Record<string, string> = { geojson: 'fmt-geojson', kml: 'fmt-gml', kmz: 'fmt-gml', zip: 'fmt-shp', gml: 'fmt-gml', gpkg: 'fmt-pbf', fgb: 'fmt-pbf', csv: 'fmt-none', xlsx: 'fmt-none' };
 // 横断検索の分は配布元のページ・G空間は id から。page は横断検索の収集値＝https? だけ通す（javascript: 等を href に入れない・S6）
-const pageOf = s => /^https?:\/\//i.test(s.page || "") ? s.page : `https://www.geospatial.jp/ckan/dataset/${encodeURIComponent(s.id)}`;
+const pageOf = (s: MunicSet) => /^https?:\/\//i.test(s.page || "") ? s.page : `https://www.geospatial.jp/ckan/dataset/${encodeURIComponent(s.id)}`;
 
-let listSearch = '', expanded = new Set(), cadOnly = false;
+let listSearch = '', expanded = new Set<string>(), cadOnly = false;
 
 // ---- 一覧（都道府県 → 市区町村） ----
-function cityItemHtml(c) {
+function cityItemHtml(c: { code: string; name: string; _raw: typeof MUNIC[number] }) {
 	const e = c._raw;
 	return `
 		<div class="moj-city-item" data-code="${escHtml(c.code)}" title="開く">
@@ -54,11 +58,11 @@ export function renderMunicList() {
 		onItemClick: async c => { const e = await loadCity(c.code); if (e) renderCity(e); },
 		noBulk: true,   // 市区町村ごとの束は種類がばらばら＝一括読込は意味が無い
 	});
-	document.getElementById('munic-cad-only')?.addEventListener('change', ev => { cadOnly = ev.target.checked; renderMunicList(); });
+	document.getElementById('munic-cad-only')?.addEventListener('change', ev => { cadOnly = (ev.target as HTMLInputElement).checked; renderMunicList(); });
 }
 
 // ---- 市区町村の中（分類 → データセット → 資料） ----
-function toEntry(e, set, r) {
+function toEntry(e: MunicCity, set: MunicSet, r: MunicRes) {
 	return {
 		name: (r.name || set.title).replace(/\.[a-z0-9]+$/i, ''),
 		description: `${PREFS[e.code.slice(0, 2)] || ''} ${e.city} ${set.title}`,
@@ -70,13 +74,13 @@ function toEntry(e, set, r) {
 	};
 }
 
-function renderCity(e) {
+function renderCity(e: MunicCity) {
 	history.replaceState(null, '', `#munic`);
 	const back = () => renderMunicList();
 	// 地番図・地籍は年度違いが並ぶ＝新しい年度を上に（題名の降順＝「令和８年度…」が先）
-	const groups = CAT_ORDER.map(cat => [cat, e.sets.filter(s => s.cat === cat)]).filter(([, s]) => s.length)
-		.map(([cat, s]) => [cat, cat === CAD ? [...s].sort((a, b) => b.title.localeCompare(a.title, 'ja', { numeric: true })) : s]);
-	const setHtml = (s, si) => `
+	const groups = CAT_ORDER.map(cat => [cat, e.sets.filter(s => s.cat === cat)] as [string, MunicSet[]]).filter(([, s]) => s.length)
+		.map(([cat, s]) => [cat, cat === CAD ? [...s].sort((a, b) => b.title.localeCompare(a.title, 'ja', { numeric: true })) : s] as [string, MunicSet[]]);
+	const setHtml = (s: MunicSet, si: number | undefined) => `
 		<div class="munic-set">
 			<div class="munic-set-head">
 				<span class="munic-set-title">${escHtml(s.title)}</span>
@@ -107,14 +111,14 @@ function renderCity(e) {
 					<div class="section-body munic-sets">${sets.map(s => setHtml(s, idx.get(s))).join('')}</div>
 				</section>`).join('')}
 		</div>`);
-	document.getElementById('munic-back').addEventListener('click', back);
-	const body = document.querySelector('.munic-city');
+	document.getElementById('munic-back')!.addEventListener('click', back);
+	const body = document.querySelector('.munic-city')!;
 	body.addEventListener('click', ev => {
-		const t = ev.target.closest('.section-title');
-		if (t) { t.parentElement.classList.toggle('collapsed'); return; }
-		const b = ev.target.closest('.munic-res-btn');
+		const t = (ev.target as Element).closest('.section-title');
+		if (t) { t.parentElement!.classList.toggle('collapsed'); return; }
+		const b = (ev.target as Element).closest<HTMLElement>('.munic-res-btn');
 		if (!b) return;
-		const set = e.sets[+b.dataset.s], r = set.res[+b.dataset.r];
+		const set = e.sets[+b.dataset.s!], r = set.res[+b.dataset.r!];
 		ctx.renderExecView(toEntry(e, set, r), () => renderCity(e));
 	});
 }

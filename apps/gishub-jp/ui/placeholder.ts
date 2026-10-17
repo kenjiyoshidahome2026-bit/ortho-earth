@@ -1,10 +1,10 @@
 // 件数は軽量メタ（重いマニフェストを初期バンドルへ引き込まない）。更新は scripts/gen-counts.mjs
 import COUNTS from './counts.json' with { type: 'json' };
 
-export function placeholder(catalog) {
+export function placeholder(catalog: { _sourceId?: string; file_count?: number }[]) {
     const nlftpDs    = catalog.filter(d => d._sourceId === 'nlftp');
     const nlftpFiles = nlftpDs.reduce((s, d) => s + (d.file_count || 0), 0);
-    const fmt = n => typeof n === 'number' ? n.toLocaleString() : n;
+    const fmt = (n: unknown) => typeof n === 'number' ? n.toLocaleString() : n;
 
     const cards = [
         {
