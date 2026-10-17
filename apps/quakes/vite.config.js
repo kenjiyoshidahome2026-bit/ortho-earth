@@ -4,7 +4,7 @@ import { rmSync } from "node:fs";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
 import { crossOriginIsolation, noChunkOptimization, engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
-// ortho-quakes＝世界の地震（/globe/quakes/）。2026-10-15 に ortho-globe から独立＝頁・読み込み worker・USGS の形（usgs.js）・archive を焼く道具を一つの家に持つ。
+// ortho-quakes＝世界の地震（/globe/quakes/）。2026-10-15 に ortho-globe から独立＝頁・読み込み worker・USGS の形（usgs.ts）・archive を焼く道具を一つの家に持つ。
 // エンジンは共有エンジン（/globe/engine/<版>/）を URL で読む＝build の時だけ（dev はソース直）。地域の申告は持たない（ortho-globe と同じ）。
 // COOP/COEP（credentialless）＝gint の SharedArrayBuffer（ゼロコピー）の点火条件＝crossOriginIsolation()。本番は deploy-worker.js が同じ 2 ヘッダを刻む。
 const ROOT = resolve(import.meta.dirname, "../..");

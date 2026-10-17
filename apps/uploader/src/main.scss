@@ -26,7 +26,7 @@ div.command { position:absolute; inset:0; right:auto; width:280px; box-sizing:bo
 		&:hover { background:var(--hover); border-color:var(--line); }
 		&:active { background:var(--line); }
 		&:disabled { color:var(--muted); cursor:default; background:transparent; }
-		// 実行状態（main.js の MENU のボタンだけ）＝右端に印
+		// 実行状態（main.ts の MENU のボタンだけ）＝右端に印
 		&::after { float:right; margin-left:8px; }
 		&.busy { color:var(--accent); cursor:progress; &::after { content:"…"; } }
 		&.ok::after { content:"✓"; color:var(--ok); }

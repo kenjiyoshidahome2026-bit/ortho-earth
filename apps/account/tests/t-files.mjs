@@ -1,8 +1,8 @@
 // /me・/me/files の検定（デプロイ不要・router を直に叩く）。
 //   node apps/account/tests/t-files.mjs
-// 仕様の正本は workers/files.js の冒頭コメント。
-import worker from "../workers/index.js";
-import { createSession } from "../workers/session.js";
+// 仕様の正本は workers/files.ts の冒頭コメント。
+import worker from "../workers/index.ts";
+import { createSession } from "../workers/session.ts";
 import { makeEnv, t, eq, done } from "./shims.mjs";
 
 const ORIGIN = "https://www.ortho-earth.com";

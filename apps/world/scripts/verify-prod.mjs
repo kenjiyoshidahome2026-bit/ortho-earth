@@ -6,7 +6,7 @@
 // 検査項目:
 //   ① 静的: d3 が混ざっていない（common/dom へ移した後の逆戻り検知＝xlink 名前空間はd3-selection固有の指紋）
 //   ② 実走: 起動→カード262枚→旗/サムネの実描画→tip→検索+highlight→一覧表→国旗モーダル（resumeShow）→地図パネル
-//      地図パネル（src/mappane.js）は **エンジンの偽物**を /japan/lib/ に差して検める＝ここで見たいのは殻の配線
+//      地図パネル（src/mappane.ts）は **エンジンの偽物**を /japan/lib/ に差して検める＝ここで見たいのは殻の配線
 //      （合図→パネル生成→起動オプション→spotlight にその国が渡る）。実描画は japan 側の関門（tests/t-spotlight）の領分。
 //   ③ コンソール: **自分のオリジンの全ターゲット**に接続して例外/error を数える（worker や同一オリジン iframe を
 //      将来足しても取りこぼさない）。Wikipedia の iframe は別オリジン＝別ターゲットで、数に入れず落とした件数だけ出す
@@ -50,7 +50,7 @@ execFileSync("npm", ["run", "build"], { cwd: APP, stdio: "inherit" });
 // ── 素の静的サーバ（出荷物そのもの）────────────────────────────────────────
 const read = promisify(readFile);
 const requests = [];
-// エンジンの偽物＝注入口 window.__orthoEngine（mappane.js）へ index.html の先頭 module script で渡す（A 裁定でエンジンは同梱＝URL では差せない）
+// エンジンの偽物＝注入口 window.__orthoEngine（mappane.ts）へ index.html の先頭 module script で渡す（A 裁定でエンジンは同梱＝URL では差せない）
 const ENGINE_STUB = `export const createGlobe = opts => stub({ region: [], ...opts });
 export default async function (opts) { return stub(opts); }
 async function stub(opts) {
@@ -217,7 +217,7 @@ const covers = await ev(`document.querySelectorAll('.overlay-fullbody').length`)
 if (covers) { bye(); fail(`実走: resumeShow の覆いが ${covers} 枚残っている（アニメ終了後の後片付け漏れ）`); }
 console.log("ok:modal（国旗モーダル・覆いの後片付けまで）");
 
-// 地図パネル（カードの地図ボタン＝on("map") → src/mappane.js）。エンジンは偽物＝殻の配線だけを見る
+// 地図パネル（カードの地図ボタン＝on("map") → src/mappane.ts）。エンジンは偽物＝殻の配線だけを見る
 {
 	await ev(`document.querySelector('[name=modal] [name=close]')?.click() ?? document.querySelector('[name=modal] button[name=close]')?.click()`);
 	await sleep(600);

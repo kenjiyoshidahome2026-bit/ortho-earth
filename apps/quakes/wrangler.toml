@@ -1,6 +1,6 @@
 # ortho-quakes＝世界の地震の頁（www.ortho-earth.com/globe/quakes/）。2026-10-15 に ortho-globe から独立（本人「quakes を独立させて、その中に持った方が」）。
 # route は /globe/quakes と /globe/quakes/* だけ＝ortho-globe の /globe/* より specific＝こちらが受ける（共有エンジンの /globe/engine/* と同じ理屈）。
-# データ＝同一オリジンの /quakes/*（apps/quakes-mirror・archive を配るだけ）＋直近分はブラウザが USGS FDSN から直接取る（quakes-worker.js）。
+# データ＝同一オリジンの /quakes/*（apps/quakes-mirror・archive を配るだけ）＋直近分はブラウザが USGS FDSN から直接取る（quakes-worker.ts）。
 name = "ortho-quakes"
 main = "deploy-worker.js"
 compatibility_date = "2025-06-01"
