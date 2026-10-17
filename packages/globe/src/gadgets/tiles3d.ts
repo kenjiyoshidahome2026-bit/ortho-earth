@@ -28,7 +28,6 @@ import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from 
 import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
 import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
-import pointsUrl from "./points-gl.js?url";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform, Tiles3DStyle } from "../../globe.d.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
 import type { BoundingVolume, ImplicitTiling, ImplicitTilingJson, Subtree, TileCoord } from "../tiles3d-implicit.ts";
@@ -350,7 +349,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
 			if (r.points.length) {
-				set.pts ??= map.overlay(pointsUrl, { name: `tiles3d:${set.id}` });
+				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
 				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1] });
 				n.pts = r.points.map((p, k) => { const q = `${n.id}:${k}`; n.bytes += p.pos.byteLength + p.rgba.byteLength; set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba: p.rgba, origin: p.origin }, [p.pos.buffer, p.rgba.buffer]); return q; });
 			}

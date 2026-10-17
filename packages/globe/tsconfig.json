@@ -2,7 +2,9 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"rootDir": "src",
-		"outDir": "dist"
+		"outDir": "dist",
+		// loaders.gl の型は Node の大域を持ち込む＝globe が使う名前だけの宣言（types/loaders.gl/）で解く（src/mesh-loaders.ts・i3s-loaders.ts）
+		"paths": { "@loaders.gl/*": ["./types/loaders.gl/*.d.ts"] }
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["src/gintbakeworker.ts",

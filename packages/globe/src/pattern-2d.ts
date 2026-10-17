@@ -3,7 +3,7 @@
 // ⚠設計原則「紙の遺物を捨てる」（破線・ハッチ＝紙の産物）の側の機能＝既定では何も描かない。MapLibre の層を受けるための互換の口だけ。
 // main（app.js の addLayer）が記号帳の画像（名前→ImageBitmap・pixelRatio）と、面/線の経緯度列・模様の名前を渡す。
 // 模様は画面ピクセルで敷き詰め（MapLibre と同じく大きさはズームで変わらない）・錨＝層の最初の頂点の投影＝パンに合わせて地図と一緒に動く。
-// 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size, api) / destroy()。依存ゼロ。
+// 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size, api) / destroy()（render worker の組み込み＝BUILTIN_OVERLAYS が遅延チャンクで読み create() で実体を作る・2026-10-17 まで URL で import() する依存ゼロのモジュール）。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "./types/overlay.ts";
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /** 面／線の 1 つ（rings＝経緯度の平たい列） */
@@ -12,26 +12,6 @@ interface PatLayer { type: "layer"; id: string; kind: "fill" | "line"; items: Pa
 type PatMsg = { type: "probe"; id: unknown } | { type: "image"; name: string; bitmap: CanvasImageSource; pixelRatio?: number } | PatLayer | { type: "removeLayer"; id: string };
 /** 色の止め［位置 0..1, CSS 色］ */
 type Stop = [number, string];
-
-let ctx: Ctx2D | null = null;
-const images = new Map<string, { bm: CanvasImageSource; pr: number }>(), pats = new Map<string, { p: CanvasPattern; pr: number }>(), layers = new Map<string, PatLayer>();
-let host: OverlayHost | null = null;
-export function init(canvas: HTMLCanvasElement | OffscreenCanvas, _opts?: unknown, h?: OverlayHost): void { ctx = canvas.getContext("2d") as Ctx2D | null; host = h || null; }
-// data＝{ type:"image", name, bitmap, pixelRatio } | { type:"layer", id, kind:"fill"|"line", items, order } | { type:"removeLayer", id }
-// items＝[{ rings:[Float64Array(lon,lat…)], pattern?, color?, opacity, width, offset?, dash?, grad? }]
-//   pattern＝記号帳の名前（模様）・無ければ color（CSS 色）で塗る。offset＝line-offset（画面 px・右が正）。dash＝線幅倍の模様。
-//   grad＝line-gradient＝{ prog:[Float32Array(各頂点の進み 0..1)]（rings と対）, lut:[CSS 色…]（進み 0..1 を等分した見本） }
-export function message(d: PatMsg): void {
-	if (d.type === "probe") {   // 検定用＝今の画素を main へ（dbgHost.__ovPixels・t-linedeco）
-		try { const im = ctx!.getImageData(0, 0, ctx!.canvas.width, ctx!.canvas.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
-		catch (e) { host?.post({ type: "pixels", id: d.id, error: String((e as Error)?.message || e) }); }
-		return;
-	}
-	if (d.type === "image") { images.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1 }); pats.delete(d.name); }
-	else if (d.type === "layer") layers.set(d.id, d);
-	else if (d.type === "removeLayer") layers.delete(d.id);
-}
-const patOf = (name: string) => { let p = pats.get(name); if (!p) { const im = images.get(name); if (!im || !ctx) return null; p = { p: ctx.createPattern(im.bm, "repeat") as CanvasPattern, pr: im.pr }; pats.set(name, p); } return p; };
 
 // 画面の折れ線（[x0,y0,x1,y1…]）を進行方向の右へ off px 平行にずらす（MapLibre の line-offset と同じ向き＝画面は y 下向き）。
 // 角はマイター（二等分線の方向へ off/cos(θ/2)）。鋭角でマイターが伸びすぎる所（2×|off| 超）は二等分線の長さで打ち切る。
@@ -62,62 +42,86 @@ export function gradStops(lut: string[], t0: number, t1: number): Stop[] {
 	return stops;
 }
 
-export function frame(cam: CameraPose, s: CameraState, { w, h }: OverlaySize, api: OverlayApi | null): boolean {
-	if (!ctx) return false;
-	ctx.setTransform(1, 0, 0, 1, 0, 0);
-	ctx.clearRect(0, 0, w, h);
-	if (!layers.size || !api) return false;
-	const dpr = api.dpr || 1;
-	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-	for (const L of [...layers.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
-		const a0 = L.items[0]?.rings?.[0];
-		const anc = a0 ? api.project(a0[0], a0[1]) : [0, 0, 1];
-		for (const it of L.items) {
-			let paint: string | CanvasPattern = it.color || "#000";
-			if (it.pattern) {
-				const pt = patOf(it.pattern); if (!pt) continue;
-				pt.p.setTransform(new DOMMatrix().translate(anc[0], anc[1]).scale(1 / pt.pr));   // 錨＝地図に貼り付く・pixelRatio で実寸
-				paint = pt.p;
-			}
-			// 投影（画面の折れ線）。地球の裏へ回る図形は描かない（地平で切らない＝簡略）
-			const scr: Float64Array[] = [];
-			let back = false;
-			for (const r of it.rings) {
-				const q = new Float64Array(r.length);
-				for (let i = 0; i < r.length; i += 2) { const v = api.project(r[i], r[i + 1]); if (v[2] < 0) { back = true; break; } q[i] = v[0]; q[i + 1] = v[1]; }
-				if (back) break;
-				scr.push(it.offset ? offsetPolyline(q, it.offset) : q);
-			}
-			if (back) continue;
-			ctx.globalAlpha = it.opacity ?? 1;
-			if (L.kind === "fill") {
-				ctx.beginPath();
-				for (const q of scr) { for (let i = 0; i < q.length; i += 2) i ? ctx!.lineTo(q[i], q[i + 1]) : ctx!.moveTo(q[i], q[i + 1]); ctx!.closePath(); }
-				ctx.fillStyle = paint; ctx.fill("evenodd");
-				continue;
-			}
-			const wd = it.width || 1;
-			ctx.lineWidth = wd; ctx.lineJoin = "round"; ctx.lineCap = it.dash ? "butt" : "round";
-			ctx.setLineDash(it.dash ? it.dash.map(v => v * wd) : []);
-			if (it.grad) {   // 線分ごとに線形の色（止めは見本から）＝線に沿った色の変化。丸端の重なりで継ぎ目を埋める
-				scr.forEach((q, ri) => {
-					const pr = it.grad!.prog[ri];
-					for (let i = 0; i + 3 < q.length; i += 2) {
-						const g = ctx!.createLinearGradient(q[i], q[i + 1], q[i + 2], q[i + 3]);
-						for (const [o, c] of gradStops(it.grad!.lut, pr[i >> 1], pr[(i >> 1) + 1])) g.addColorStop(o, c);
-						ctx!.beginPath(); ctx!.moveTo(q[i], q[i + 1]); ctx!.lineTo(q[i + 2], q[i + 3]);
-						ctx!.strokeStyle = g; ctx!.stroke();
-					}
-				});
-				continue;
-			}
-			ctx.beginPath();
-			for (const q of scr) for (let i = 0; i < q.length; i += 2) i ? ctx!.lineTo(q[i], q[i + 1]) : ctx!.moveTo(q[i], q[i + 1]);
-			ctx.strokeStyle = paint; ctx.stroke();
+// 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
+export function create() {
+	let ctx: Ctx2D | null = null;
+	const images = new Map<string, { bm: CanvasImageSource; pr: number }>(), pats = new Map<string, { p: CanvasPattern; pr: number }>(), layers = new Map<string, PatLayer>();
+	let host: OverlayHost | null = null;
+	function init(canvas: HTMLCanvasElement | OffscreenCanvas, _opts?: unknown, h?: OverlayHost): void { ctx = canvas.getContext("2d") as Ctx2D | null; host = h || null; }
+	// data＝{ type:"image", name, bitmap, pixelRatio } | { type:"layer", id, kind:"fill"|"line", items, order } | { type:"removeLayer", id }
+	// items＝[{ rings:[Float64Array(lon,lat…)], pattern?, color?, opacity, width, offset?, dash?, grad? }]
+	//   pattern＝記号帳の名前（模様）・無ければ color（CSS 色）で塗る。offset＝line-offset（画面 px・右が正）。dash＝線幅倍の模様。
+	//   grad＝line-gradient＝{ prog:[Float32Array(各頂点の進み 0..1)]（rings と対）, lut:[CSS 色…]（進み 0..1 を等分した見本） }
+	function message(d: PatMsg): void {
+		if (d.type === "probe") {   // 検定用＝今の画素を main へ（dbgHost.__ovPixels・t-linedeco）
+			try { const im = ctx!.getImageData(0, 0, ctx!.canvas.width, ctx!.canvas.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
+			catch (e) { host?.post({ type: "pixels", id: d.id, error: String((e as Error)?.message || e) }); }
+			return;
 		}
+		if (d.type === "image") { images.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1 }); pats.delete(d.name); }
+		else if (d.type === "layer") layers.set(d.id, d);
+		else if (d.type === "removeLayer") layers.delete(d.id);
 	}
-	ctx.globalAlpha = 1;
-	ctx.setLineDash([]);
-	return false;
+	const patOf = (name: string) => { let p = pats.get(name); if (!p) { const im = images.get(name); if (!im || !ctx) return null; p = { p: ctx.createPattern(im.bm, "repeat") as CanvasPattern, pr: im.pr }; pats.set(name, p); } return p; };
+
+	function frame(cam: CameraPose, s: CameraState, { w, h }: OverlaySize, api: OverlayApi | null): boolean {
+		if (!ctx) return false;
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, w, h);
+		if (!layers.size || !api) return false;
+		const dpr = api.dpr || 1;
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		for (const L of [...layers.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
+			const a0 = L.items[0]?.rings?.[0];
+			const anc = a0 ? api.project(a0[0], a0[1]) : [0, 0, 1];
+			for (const it of L.items) {
+				let paint: string | CanvasPattern = it.color || "#000";
+				if (it.pattern) {
+					const pt = patOf(it.pattern); if (!pt) continue;
+					pt.p.setTransform(new DOMMatrix().translate(anc[0], anc[1]).scale(1 / pt.pr));   // 錨＝地図に貼り付く・pixelRatio で実寸
+					paint = pt.p;
+				}
+				// 投影（画面の折れ線）。地球の裏へ回る図形は描かない（地平で切らない＝簡略）
+				const scr: Float64Array[] = [];
+				let back = false;
+				for (const r of it.rings) {
+					const q = new Float64Array(r.length);
+					for (let i = 0; i < r.length; i += 2) { const v = api.project(r[i], r[i + 1]); if (v[2] < 0) { back = true; break; } q[i] = v[0]; q[i + 1] = v[1]; }
+					if (back) break;
+					scr.push(it.offset ? offsetPolyline(q, it.offset) : q);
+				}
+				if (back) continue;
+				ctx.globalAlpha = it.opacity ?? 1;
+				if (L.kind === "fill") {
+					ctx.beginPath();
+					for (const q of scr) { for (let i = 0; i < q.length; i += 2) i ? ctx!.lineTo(q[i], q[i + 1]) : ctx!.moveTo(q[i], q[i + 1]); ctx!.closePath(); }
+					ctx.fillStyle = paint; ctx.fill("evenodd");
+					continue;
+				}
+				const wd = it.width || 1;
+				ctx.lineWidth = wd; ctx.lineJoin = "round"; ctx.lineCap = it.dash ? "butt" : "round";
+				ctx.setLineDash(it.dash ? it.dash.map(v => v * wd) : []);
+				if (it.grad) {   // 線分ごとに線形の色（止めは見本から）＝線に沿った色の変化。丸端の重なりで継ぎ目を埋める
+					scr.forEach((q, ri) => {
+						const pr = it.grad!.prog[ri];
+						for (let i = 0; i + 3 < q.length; i += 2) {
+							const g = ctx!.createLinearGradient(q[i], q[i + 1], q[i + 2], q[i + 3]);
+							for (const [o, c] of gradStops(it.grad!.lut, pr[i >> 1], pr[(i >> 1) + 1])) g.addColorStop(o, c);
+							ctx!.beginPath(); ctx!.moveTo(q[i], q[i + 1]); ctx!.lineTo(q[i + 2], q[i + 3]);
+							ctx!.strokeStyle = g; ctx!.stroke();
+						}
+					});
+					continue;
+				}
+				ctx.beginPath();
+				for (const q of scr) for (let i = 0; i < q.length; i += 2) i ? ctx!.lineTo(q[i], q[i + 1]) : ctx!.moveTo(q[i], q[i + 1]);
+				ctx.strokeStyle = paint; ctx.stroke();
+			}
+		}
+		ctx.globalAlpha = 1;
+		ctx.setLineDash([]);
+		return false;
+	}
+	function destroy(): void { ctx = null; layers.clear(); pats.clear(); images.clear(); }
+	return { init, message, frame, destroy };
 }
-export function destroy(): void { ctx = null; layers.clear(); pats.clear(); images.clear(); }

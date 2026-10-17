@@ -7,7 +7,6 @@
 //   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に 4 つまで（LOW_MEM 2）。
 //   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる。
 import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
-import copcGlUrl from "./copc-gl.js?url";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { COPCHandle, COPCOptions, OverlayHandle } from "../../globe.d.ts";
 import type { Requester } from "../request.ts";
@@ -77,7 +76,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 		for (const p of opened.root.pages) set.pages.set(keyStr(p.key), { ...p, state: "none" });
 		const host = typeof src === "string" ? (() => { try { return new URL(src, location.href).host; } catch { return null; } })() : null;
 		setAttr(id, set.opts.attribution || (host && host !== location.host ? host : null));   // 出典＝opts.attribution・無ければ他所の URL のホスト名（手元のファイル・同じオリジンは出さない）
-		set.ov = map.overlay(copcGlUrl, { name: `copc:${id}`, opts: { depth: set.opts.depth !== false } });
+		set.ov = map.overlay({ builtin: "copc" }, { name: `copc:${id}`, opts: { depth: set.opts.depth !== false } });
 		applyStyle(set);
 		if (set.opts.fit !== false) map.fitBounds(set.info.bbox, { padding: 40, maxZoom: 18 });
 		schedule();

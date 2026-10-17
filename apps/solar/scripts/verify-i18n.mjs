@@ -47,7 +47,7 @@ function stripComments(src) {
 // ---- 走査：コードの t("…")／表に並べた英語リテラル（BODY_KEYS のような台帳）／HTML の data-t・data-t-title ----
 const used = new Map();                      // キー → 出所の並び
 const put = (k, where) => { if (!used.has(k)) used.set(k, []); used.get(k).push(where); };
-const jsFiles = fs.readdirSync(APP).filter(f => f.endsWith(".js"));
+const jsFiles = fs.readdirSync(APP).filter(f => /\.[jt]s$/.test(f) && !f.endsWith(".d.ts"));   // ts＝頁の入口（main.ts・2026-10-17）
 for (const f of jsFiles) {
 	const src = stripComments(rd(f));
 	for (const m of src.matchAll(/(?<![\w$.])t\(\s*"((?:[^"\\]|\\.)*)"/g)) put(JSON.parse(`"${m[1]}"`), f);

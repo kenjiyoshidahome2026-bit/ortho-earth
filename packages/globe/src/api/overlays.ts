@@ -33,7 +33,7 @@ export function installOverlays(map: Installing<OverlaysApi>, { mapEl, labelCanv
 		}
 		return { ...d, overlays: below, overlaysAbove: above };
 	}
-	map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
+	map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール）か { builtin: "anno" }（render worker のバンドル内・renderworker.ts の BUILTIN_OVERLAYS）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 		name ??= "ov" + (overlays.size + 1);
 		if (overlays.has(name) || ovLayerIds.has(name)) throw new Error(`overlay "${name}" already exists`);
 		const cv = document.createElement("canvas");

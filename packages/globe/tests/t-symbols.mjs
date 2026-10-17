@@ -26,7 +26,7 @@ t("icon も text も無い地物は落ちる", symbolItems(fc, { layout: {} }, 1
 	const v = symbolItems(fc, { layout: { "text-field": "{name}", "text-variable-anchor": ["top", "bottom", "left"], "text-radial-offset": 1, "icon-text-fit": "both", "icon-text-fit-padding": [2, 4, 2, 4] } }, 10);
 	t("text-variable-anchor＝文字列の配列はそのまま（式にしない）", JSON.stringify(v[0].textVariableAnchor) === '["top","bottom","left"]' && v[0].textRadialOffset === 1);
 	t("icon-text-fit と余白", v[0].iconTextFit === "both" && v[0].iconTextFitPadding.join() === "2,4,2,4");
-	const S = await import("../src/symbols-2d.ts");
+	const S = (await import("../src/symbols-2d.ts")).create();   // オーバーレイの 1 つの実体（render worker と同じ作り方）
 	const drawn = [], ctx = { setTransform() {}, clearRect() {}, measureText: s => ({ width: s.length * 10 }), fillText: (s, x, y) => drawn.push(["t", s, x, y]), strokeText() {}, drawImage: (im, x, y, w, h) => drawn.push(["i", x, y, w, h]), save() {}, restore() {}, translate() {}, rotate() {}, set font(_) {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set lineJoin(_) {}, set textAlign(_) {}, set textBaseline(_) {}, set globalAlpha(_) {} };
 	S.init({ getContext: () => ctx });
 	const api = { dpr: 1, project: (lon, lat) => [100 + (lon - 139.7) * 1e4, 100 - (lat - 35.6) * 1e4, 1] };

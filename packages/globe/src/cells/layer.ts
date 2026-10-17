@@ -32,7 +32,7 @@ export interface ContourOptions {
 /** addScreenGrid の options（code が読む形） */
 export interface ScreenGridOpts {
 	id?: string; cellPx?: number; colorRange?: unknown; weight?: CellWeight; agg?: string; opacity?: number; gap?: number; above?: boolean;
-	evalExpr?: EvalExpr | null; screengridUrl?: string;
+	evalExpr?: EvalExpr | null;
 }
 type CellsHandle = CellsLayerHandle & { lineId: string; kind: string };
 type ContourHandle = ContourLayerHandle & { lineId: string };
@@ -100,8 +100,8 @@ export async function createContourLayer(map: GlobeMap, src: unknown, { id = "co
 	return h;
 }
 
-export function createScreenGrid(map: GlobeMap, src: unknown, { id = "screengrid", cellPx = 24, colorRange, weight = null, agg = "sum", opacity, gap, above = false, evalExpr = null, screengridUrl }: ScreenGridOpts = {}): ScreenGridHandle {
-	const ov = map.overlay(screengridUrl as string, { name: id, above });
+export function createScreenGrid(map: GlobeMap, src: unknown, { id = "screengrid", cellPx = 24, colorRange, weight = null, agg = "sum", opacity, gap, above = false, evalExpr = null }: ScreenGridOpts = {}): ScreenGridHandle {
+	const ov = map.overlay({ builtin: "screengrid" }, { name: id, above });
 	const style: Props = { cellPx, agg }; if (colorRange) style.colorRange = colorRange; if (opacity != null) style.opacity = opacity; if (gap != null) style.gap = gap;
 	ov.post({ type: "style", ...style });
 	const bake = (pts: unknown) => {
@@ -120,9 +120,9 @@ export function createScreenGrid(map: GlobeMap, src: unknown, { id = "screengrid
 	return h;
 }
 
-export async function addAggregate(map: GlobeMap, src: unknown, { kind = "grid", ...o }: { kind?: string; evalExpr?: EvalExpr | null; [k: string]: unknown } = {}, urls: { screengrid?: string } = {}): ReturnType<DataApi["addAggregate"]> {
+export async function addAggregate(map: GlobeMap, src: unknown, { kind = "grid", ...o }: { kind?: string; evalExpr?: EvalExpr | null; [k: string]: unknown } = {}): ReturnType<DataApi["addAggregate"]> {
 	if (kind === "h3") return map.addH3(src, o as CellsLayerOptions);
-	if (kind === "screen") return createScreenGrid(map, src, { ...o, screengridUrl: urls.screengrid });
+	if (kind === "screen") return createScreenGrid(map, src, o);
 	if (kind === "contour") return createContourLayer(map, src, o);
 	return createCellsLayer(map, src, { kind, ...o });
 }

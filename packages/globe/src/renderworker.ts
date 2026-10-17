@@ -16,7 +16,7 @@ import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層
 import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip, worldRadiusM } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
-import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.js（?url＝依存ゼロ）へ渡す（2026-10-16）
+import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.ts（組み込みのオーバーレイ）へ渡す（2026-10-16）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.ts";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
@@ -137,7 +137,12 @@ let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   //
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
-const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts") };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts"),
+	// 旧＝URL で読ませたオーバーレイ（vite の ?url は変換せずに置く＝型を剥いだ .js を src に併置していた）を、この worker の遅延チャンクとして読む（2026-10-17）。
+	// モジュールの中身は create() の閉包＝呼ぶたびに別の実体（旧＝URL に ?ov= を足して overlay ごとに別のモジュール実体にしていたのと同じ分け方）
+	heatmap: () => import("./heatmap-gl.ts").then(m => m.create()), cluster: () => import("./cluster-2d.ts").then(m => m.create()), pattern: () => import("./pattern-2d.ts").then(m => m.create()), symbols: () => import("./symbols-2d.ts").then(m => m.create()),
+	columnar: () => import("./columnar/draw-gl.ts").then(m => m.create()), arcs: () => import("./gadgets/arcs-gl.ts").then(m => m.create()), copc: () => import("./gadgets/copc-gl.ts").then(m => m.create()), customgl: () => import("./gadgets/customgl-draw.ts").then(m => m.create()),
+	points: () => import("./gadgets/points-gl.ts").then(m => m.create()), screengrid: () => import("./gadgets/screengrid-draw.ts").then(m => m.create()), trips: () => import("./gadgets/trips-gl.ts").then(m => m.create()) };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m: RwMsg) {
 	const o: OverlayRec = { canvas: m.canvas!, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name!, o);

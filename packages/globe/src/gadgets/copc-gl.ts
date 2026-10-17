@@ -7,7 +7,7 @@
 //   message { type:"layer", q, n, pos: Float32Array(n*3), origin, rgb?: Uint8Array(n*3), intensity: Uint16Array(n), cls: Uint8Array(n), elev: Float32Array(n), spacing }
 //           spacing＝この節の点の間隔（世界単位）／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }
 //           { type:"style", mode, size, attenuation, elevRange:[m, m], intensityRange:[lo, hi], opacity }／検定用 { type:"probe", id }
-// ⚠ 依存ゼロ（import 文なし）＝render worker が URL で import() する。深度の GLSL は host.depthGLSL を貼る。
+// render worker の組み込み（BUILTIN_OVERLAYS の "copc"・create() で実体を作る）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
@@ -63,7 +63,10 @@ void main() {
 	gl_PointSize = v_rad * 2.0 + 2.0;
 	gl_Position = cpos;
 }`;
-const FS: (depthGLSL: string) => string = depthGLSL => `#version 300 es
+
+// 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
+export function create() {
+	const FS: (depthGLSL: string) => string = depthGLSL => `#version 300 es
 precision highp float;
 in vec4 v_col; in float v_rad; in float v_w;
 uniform vec2 u_vp;
@@ -77,85 +80,87 @@ void main() {
 	float a = v_col.a * cov;
 	o = vec4(v_col.rgb * a, a);
 }`;
-let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, maxPt = 1, wantDepth = false, host: OverlayHost | null = null;
-const layers = new Map<string, Layer>();
-let style: Style = { mode: "rgb", size: 2, attenuation: true, elevRange: [0, 100], intensityRange: [0, 65535], opacity: 1 };
-const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3 };
-const probes: unknown[] = [];
+	let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, maxPt = 1, wantDepth = false, host: OverlayHost | null = null;
+	const layers = new Map<string, Layer>();
+	let style: Style = { mode: "rgb", size: 2, attenuation: true, elevRange: [0, 100], intensityRange: [0, 65535], opacity: 1 };
+	const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3 };
+	const probes: unknown[] = [];
 
-function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
-	const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
-	const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
-	if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
-	const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
-	return { p, u };
-}
-export function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
-	host = h;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
-	if (!gl) throw new Error("WebGL2 is not available (COPC overlay)");
-	wantDepth = opts.depth !== false && !!h?.depthGLSL;
-	({ p: prog, u: uni } = compile(VS, FS(wantDepth ? h!.depthGLSL : DEPTH_STUB)));
-	maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
-	return wantDepth ? { depth: true } : undefined;
-}
-const drop: (L: Layer | undefined) => void = L => { if (!L) return; for (const b of L.bufs) gl!.deleteBuffer(b); gl!.deleteVertexArray(L.vao); };
-const attr = (loc: number, data: ArrayBufferView, size: number, type: GLenum, norm: boolean) => { const b = gl!.createBuffer(); gl!.bindBuffer(gl!.ARRAY_BUFFER, b); gl!.bufferData(gl!.ARRAY_BUFFER, data, gl!.STATIC_DRAW); gl!.enableVertexAttribArray(loc); gl!.vertexAttribPointer(loc, size, type, norm, 0, 0); return b; };
-export function message(d: Msg) {
-	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
-	if (!gl) return;
-	if (d.type === "layer") {
-		drop(layers.get(d.q));
-		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
-		const bufs = [attr(0, d.pos, 3, gl.FLOAT, false), attr(2, d.intensity, 1, gl.UNSIGNED_SHORT, false), attr(3, d.cls, 1, gl.UNSIGNED_BYTE, false), attr(4, d.elev, 1, gl.FLOAT, false)];
-		if (d.rgb) bufs.push(attr(1, d.rgb, 3, gl.UNSIGNED_BYTE, true)); else { gl.disableVertexAttribArray(1); gl.vertexAttrib3f(1, 0.85, 0.85, 0.85); }
-		gl.bindVertexArray(null);
-		layers.set(d.q, { n: d.n, vao, bufs, origin: d.origin, spacing: d.spacing || 0, on: true });
-	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); }
-	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
-	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
-	else if (d.type === "style") { style = { ...style, ...d }; }
-}
-function answerProbes(w: number, h: number) {
-	if (!probes.length) return;
-	const ids = probes.splice(0);
-	try { const data = new Uint8Array(w * h * 4); gl!.readPixels(0, 0, w, h, gl!.RGBA, gl!.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice(), info: { layers: layers.size, depth: wantDepth } }); }
-	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
-}
-export function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
-	draw(cam, s, size, api);
-	if (gl) answerProbes(size.w, size.h);
-	return false;
-}
-function draw(cam: CameraPose, s: CameraState, { w, h }: OverlaySize, api: OverlayApi) {
-	if (!gl) return;
-	gl.viewport(0, 0, w, h);
-	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-	if (!layers.size) return;
-	const dpr = cam.dpr || 1;
-	gl.useProgram(prog);
-	if (wantDepth) { if (api?.depth) api.depth.bind(gl, prog!, 3); else if (uni.u_sceneDepthOn) gl.uniform1f(uni.u_sceneDepthOn, 0); }
-	gl.uniform2f(uni.u_vp, w, h);
-	gl.uniform3fv(uni.u_eye, new Float32Array(s.eye));
-	gl.uniform1i(uni.u_mode, MODES[style.mode] ?? 0);
-	gl.uniform1f(uni.u_size, Math.max(0.5, style.size * dpr));
-	gl.uniform1f(uni.u_atten, style.attenuation ? 1 : 0);
-	gl.uniform1f(uni.u_focal, s.focal);
-	gl.uniform1f(uni.u_maxPt, maxPt);
-	gl.uniform2f(uni.u_elev, style.elevRange[0], style.elevRange[1]);
-	gl.uniform2f(uni.u_intRange, style.intensityRange[0], style.intensityRange[1]);
-	gl.uniform1f(uni.u_opacity, style.opacity ?? 1);
-	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.DEPTH_TEST);
-	const M = s.mvp, mvpL = new Float32Array(16);
-	for (const L of layers.values()) {
-		if (!L.on) continue;
-		const o = L.origin;   // mvp·T(o)＝4 列目だけが変わる（倍精度で掛ける）
-		for (let i = 0; i < 12; i++) mvpL[i] = M[i];
-		for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
-		gl.uniformMatrix4fv(uni.u_mvp, false, mvpL); gl.uniform3f(uni.u_origin, o[0], o[1], o[2]);
-		gl.uniform1f(uni.u_spacing, L.spacing);
-		gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
+	function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
+		const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
+		const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
+		if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
+		const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
+		return { p, u };
 	}
-	gl.bindVertexArray(null);
+	function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
+		host = h;
+		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		if (!gl) throw new Error("WebGL2 is not available (COPC overlay)");
+		wantDepth = opts.depth !== false && !!h?.depthGLSL;
+		({ p: prog, u: uni } = compile(VS, FS(wantDepth ? h!.depthGLSL : DEPTH_STUB)));
+		maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
+		return wantDepth ? { depth: true } : undefined;
+	}
+	const drop: (L: Layer | undefined) => void = L => { if (!L) return; for (const b of L.bufs) gl!.deleteBuffer(b); gl!.deleteVertexArray(L.vao); };
+	const attr = (loc: number, data: ArrayBufferView, size: number, type: GLenum, norm: boolean) => { const b = gl!.createBuffer(); gl!.bindBuffer(gl!.ARRAY_BUFFER, b); gl!.bufferData(gl!.ARRAY_BUFFER, data, gl!.STATIC_DRAW); gl!.enableVertexAttribArray(loc); gl!.vertexAttribPointer(loc, size, type, norm, 0, 0); return b; };
+	function message(d: Msg) {
+		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
+		if (!gl) return;
+		if (d.type === "layer") {
+			drop(layers.get(d.q));
+			const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+			const bufs = [attr(0, d.pos, 3, gl.FLOAT, false), attr(2, d.intensity, 1, gl.UNSIGNED_SHORT, false), attr(3, d.cls, 1, gl.UNSIGNED_BYTE, false), attr(4, d.elev, 1, gl.FLOAT, false)];
+			if (d.rgb) bufs.push(attr(1, d.rgb, 3, gl.UNSIGNED_BYTE, true)); else { gl.disableVertexAttribArray(1); gl.vertexAttrib3f(1, 0.85, 0.85, 0.85); }
+			gl.bindVertexArray(null);
+			layers.set(d.q, { n: d.n, vao, bufs, origin: d.origin, spacing: d.spacing || 0, on: true });
+		} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); }
+		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
+		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
+		else if (d.type === "style") { style = { ...style, ...d }; }
+	}
+	function answerProbes(w: number, h: number) {
+		if (!probes.length) return;
+		const ids = probes.splice(0);
+		try { const data = new Uint8Array(w * h * 4); gl!.readPixels(0, 0, w, h, gl!.RGBA, gl!.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice(), info: { layers: layers.size, depth: wantDepth } }); }
+		catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
+	}
+	function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
+		draw(cam, s, size, api);
+		if (gl) answerProbes(size.w, size.h);
+		return false;
+	}
+	function draw(cam: CameraPose, s: CameraState, { w, h }: OverlaySize, api: OverlayApi) {
+		if (!gl) return;
+		gl.viewport(0, 0, w, h);
+		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+		if (!layers.size) return;
+		const dpr = cam.dpr || 1;
+		gl.useProgram(prog);
+		if (wantDepth) { if (api?.depth) api.depth.bind(gl, prog!, 3); else if (uni.u_sceneDepthOn) gl.uniform1f(uni.u_sceneDepthOn, 0); }
+		gl.uniform2f(uni.u_vp, w, h);
+		gl.uniform3fv(uni.u_eye, new Float32Array(s.eye));
+		gl.uniform1i(uni.u_mode, MODES[style.mode] ?? 0);
+		gl.uniform1f(uni.u_size, Math.max(0.5, style.size * dpr));
+		gl.uniform1f(uni.u_atten, style.attenuation ? 1 : 0);
+		gl.uniform1f(uni.u_focal, s.focal);
+		gl.uniform1f(uni.u_maxPt, maxPt);
+		gl.uniform2f(uni.u_elev, style.elevRange[0], style.elevRange[1]);
+		gl.uniform2f(uni.u_intRange, style.intensityRange[0], style.intensityRange[1]);
+		gl.uniform1f(uni.u_opacity, style.opacity ?? 1);
+		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.DEPTH_TEST);
+		const M = s.mvp, mvpL = new Float32Array(16);
+		for (const L of layers.values()) {
+			if (!L.on) continue;
+			const o = L.origin;   // mvp·T(o)＝4 列目だけが変わる（倍精度で掛ける）
+			for (let i = 0; i < 12; i++) mvpL[i] = M[i];
+			for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
+			gl.uniformMatrix4fv(uni.u_mvp, false, mvpL); gl.uniform3f(uni.u_origin, o[0], o[1], o[2]);
+			gl.uniform1f(uni.u_spacing, L.spacing);
+			gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
+		}
+		gl.bindVertexArray(null);
+	}
+	function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); gl.deleteProgram(prog); gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
+	return { init, message, frame, destroy };
 }
-export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); gl.deleteProgram(prog); gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
