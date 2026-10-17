@@ -7,7 +7,7 @@ import { onDrill, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
 import { belongsTo } from "./jp/codes.js";
 import { initBousai } from "./bousai.js";
-import ESTAT_MANIFEST from "./estat/manifest.json" with { type: "json" };
+import { ESTAT_MANIFEST } from "./census/tables.js";
 
 const ESTAT_CODES = ESTAT_MANIFEST.map(e => e.code);
 // 小地域(町丁目)の内側メッシュ線。淡すぎ＋地形とz-fightで時たま消える件（本人報告 2026-08-12）→
