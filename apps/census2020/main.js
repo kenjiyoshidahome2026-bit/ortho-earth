@@ -15,12 +15,11 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
 //   代償＝エンジン分（gzip 300KB 台）の重複＝japan とのブラウザキャッシュ共有は無くなる。実行時アセット（airports.json 等）は
 //   引き続き /japan/ の共有棚（データであってコードではない）。
 const engineP = import("@ortho-earth/regions/app");   // orthoJapan＝本番は共有エンジンの入口 /globe/engine/<版>/regions/app.js（2026-10-14・旧 ../ortho-japan/app.js を束に焼いていた）
+// 国勢調査の表（census/tables.js＝4 MB 余の JSON を別アセットで取る）を引く側は import() で後から読む＝エンジンの取得と並走する
+// （2026-10-17・旧＝静的 import で入口チャンクが 3.7 MB になり、エンジンの import() はその解析が済むまで始まらなかった）。
+const uiP = import("./census/ui.js");
 import { setup } from "./ui/ctx.js";
-import { renderCensusSmall2020, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
-import { initWiki } from "./wiki.js";
-import { initBind } from "./bind.js";
-import { initChoropleth } from "./choropleth.js";
 
 // パネル注入口（ドリルUIの唯一の外部継ぎ目＝gishub-jp と同じ setDetailHtml 契約）
 const panelBody = document.getElementById("panel-body");
@@ -34,11 +33,12 @@ setup({ setDetailHtml: html => { panelBody.innerHTML = html; panelBody.scrollTop
 // （本番の実利用には無関係＝フラグ無しの挙動は従来どおり一字も変えない）。
 const VERIFY = /[?&]verify=1/.test(location.search);
 const area0 = new URLSearchParams(location.search).get("area");
-if (VERIFY) { /* 静穏＝パネルは殻のまま・エンジン起動だけを検定する */ }
-else if (!area0) renderCensusSmall2020();   // 全国CSV→IDB の自動プリフェッチもここから始まる
-else if (area0.length <= 5) drillTo(area0);
-else prefetchSmallAreaIdb().then(() => drillToArea(area0)).catch(() => drillTo(area0.slice(0, 5)));
-if (!VERIFY) initWiki();   // onDrill 購読＝都道府県/市区町村ビューに Wikipedia カードを後追い差し込み
+if (!VERIFY) Promise.all([uiP, import("./wiki.js")]).then(([{ renderCensusSmall2020, drillTo, drillToArea }, { initWiki }]) => {   // VERIFY＝静穏＝パネルは殻のまま・エンジン起動だけを検定する
+	initWiki();   // onDrill 購読＝都道府県/市区町村ビューに Wikipedia カードを後追い差し込み（最初のドリルより先に購読する）
+	if (!area0) renderCensusSmall2020();   // 全国CSV→IDB の自動プリフェッチもここから始まる
+	else if (area0.length <= 5) drillTo(area0);
+	else prefetchSmallAreaIdb().then(() => drillToArea(area0)).catch(() => drillTo(area0.slice(0, 5)));
+}).catch(e => console.error("[census2020] 国勢調査の表を読めない", e));
 
 // パネル出し入れ（6:4 ⇄ 地図全幅）。canvas はエンジンの ResizeObserver(#map) が自動追随
 const shell = document.getElementById("shell");
@@ -72,8 +72,10 @@ engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW,
 	map.gadget.contextmenu(); // 右クリックメニュー
 	map.gadget.hint();        // 操作説明カード
 	const legend = map.gadget.legend();   // 左下の凡例＝コロプレス/防災の色の読み物
-	const choro = initChoropleth(map, { legend });
-	initBind(map, { choro, legend });
+	return Promise.all([import("./choropleth.js"), import("./bind.js")]).then(([{ initChoropleth }, { initBind }]) => {   // 表が揃ってから（地図は先に動く）
+		const choro = initChoropleth(map, { legend });
+		initBind(map, { choro, legend });
+	});
 }).catch(e => import("@ortho-earth/globe/page.js").then(m => m.startupFailed("census2020", e), () => { console.error("[census2020] エンジン起動失敗", e); dismissBoot(); }));   // 起動失敗＝画面に言葉で（共通の器・2026-10-04）
 
 if (location.protocol === "https:" && "serviceWorker" in navigator)
