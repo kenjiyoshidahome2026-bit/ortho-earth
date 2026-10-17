@@ -5,9 +5,7 @@
 //   text-halo-color/width・text-opacity・text-allow-overlap・symbol-sort-key）。意味と既定値は MapLibre どおり。
 //   描画は同一フレームの canvas2D オーバーレイ（symbols-2d.js）＝エンジン本体は触らない。式に ["zoom"] があれば止まるたびに評価し直す。
 //   ⚠基図（地域パックのスタイル）の注記は従来どおりエンジンの注記層が描く＝ここは利用者の層のための記号帳。
-/// <reference path="../types/assets.d.ts" />   // ?url の型（この部品を型で引く他の包み＝equal 等にも届くように）
 import { symbolItems } from "./symbols-core.ts";
-import symUrl from "../symbols-2d.js?url";
 import type { MLLayer } from "@ortho-earth/core";
 import type { OverlayHandle } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
@@ -52,7 +50,7 @@ export function createSymbols(map: GlobeMap, { signal, onImage = null, onImageRe
 	const images = new Map<string, SymbolImage>();   // name → { bitmap, pixelRatio, sdf }
 	const layers = new Map<string, SymLayer>();   // id → { src, layer, items, zoomDep }
 	let ov: OverlayHandle | null = null, order = 0;
-	const overlay = () => ov ??= map.overlay(symUrl, { name: "symbols" });
+	const overlay = () => ov ??= map.overlay({ builtin: "symbols" }, { name: "symbols" });
 	const toBitmap = async (src: SymbolImageSource) => {
 		if (typeof src === "string") { const r = await (map.fetchResource ? map.fetchResource(src, "Image") : fetch(src, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); src = await r.blob(); }
 		if (src && !(src instanceof Blob) && (src as { data?: unknown }).data && src.width) src = new ImageData(new Uint8ClampedArray((src as { data: Uint8Array | Uint8ClampedArray }).data), src.width, src.height);   // { width, height, data }（MapLibre の addImage と同じ形）

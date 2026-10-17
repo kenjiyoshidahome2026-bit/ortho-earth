@@ -25,7 +25,7 @@ try {
 	// 原点相対（RTE）＝原点を 1 点目に・pos は原点からの差
 	const o = lonlatTo3D(LON, LAT), pos = new Float32Array(PTS.length * 3);
 	PTS.forEach(([lo, la], i) => { const u = lonlatTo3D(lo, la); pos[i * 3] = u[0] - o[0]; pos[i * 3 + 1] = u[1] - o[1]; pos[i * 3 + 2] = u[2] - o[2]; });
-	const ov = map.overlay(new URL("../src/gadgets/points-gl.js", import.meta.url).href, { name: "pts" });
+	const ov = map.overlay({ builtin: "points" }, { name: "pts" });
 	ov.post({ type: "style", size: 6, color: [1, 0.3, 0.2, 1] });
 	ov.post({ type: "layer", q: "a", n: PTS.length, pos, origin: [o[0], o[1], o[2]] });
 	// 描けたことは画素で確かめる（probe）＝pick は最後に描いたフレームで当てる

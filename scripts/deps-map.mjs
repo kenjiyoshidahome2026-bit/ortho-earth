@@ -55,7 +55,7 @@ const shown = n => !n.startsWith("npm:") || n === "npm:loaders.gl" || npmDirect.
 // build:css の生成物 → 正本（packages/globe/scripts/build-css.mjs・packages/geoedit/scripts/css-build.mjs と同じ並び）。生成物は素の CSS／文字列＝そのままでは正本が見えない
 const GENERATED = {
 	"packages/globe/src/globe.css": ["quiet-mono/tokens.scss", "quiet-mono/components.scss", "./style.scss"],
-	"packages/geoedit/src/editor.css.js": ["./editor.scss"],
+	"packages/geoedit/src/editor.css.ts": ["./editor.scss"],
 };
 for (const f of Object.keys(GENERATED)) if (!fs.existsSync(path.join(ROOT, f))) process.stderr.write(`  GENERATED に無いファイル: ${f}（build:css の出力が変わったら直す）\n`);
 // sass の道の解き方（相対＝partial の _ と拡張子と index を試す・裸の名＝esbuild の解決＝package.json の exports）

@@ -8,8 +8,6 @@ import { normSky, skyHasExpr, skyPayload } from "./sky-spec.ts";
 import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.ts";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey } from "./extrude-ml.ts";
 import { createRawStore } from "./vtraw.ts";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
-import patUrl from "./pattern-2d.js?url";
-import customglUrl from "./gadgets/customgl-draw.js?url";
 import { normPostChain, POST_TYPES } from "./postchain.ts";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.ts";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 import { installOverlays } from "./api/overlays.ts";
@@ -3304,7 +3302,7 @@ const lineProgress = (r: Float64Array) => {
 const addPattern = async (layer: MLLayer, data: unknown, order?: number) => {
 	const pf: PatFeatOut[] = [];   // 問い合わせ用の地物（画面の px で当てる）
 	const P0 = layer.paint || {}, needSym = P0["fill-pattern"] != null || P0["line-pattern"] != null;
-	const c = needSym ? await symGet() : null; patOv ??= map.overlay(patUrl, { name: "pattern" });
+	const c = needSym ? await symGet() : null; patOv ??= map.overlay({ builtin: "pattern" }, { name: "pattern" });
 	let d = data as GjLike | string | Blob | undefined; if (typeof d === "string" || d instanceof Blob) d = await readGeoData(d) as GjLike | undefined;
 	const feats = (d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : [])) as Array<PatFeature | null>, P = layer.paint || {}, fill = layer.type === "fill", items: PatOut[] = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
 	for (const f of feats) {
@@ -3503,7 +3501,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 		if (typeof v.layer.url === "string") {
 			v.ov?.remove();
 			const abs = (u: string) => new URL(u, location.href).href;
-			v.ov = map.overlay(customglUrl, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: (customHost as CustomHostLike | null)?.getProjection?.()?.type ?? "mercator" } });
+			v.ov = map.overlay({ builtin: "customgl" }, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: (customHost as CustomHostLike | null)?.getProjection?.()?.type ?? "mercator" } });
 			return null;
 		}
 		customGet().add(v.layer as unknown as CustomLayer, order); return null;
@@ -3688,7 +3686,7 @@ gint.hoverTip = map.gadget.tip();
 if (opts.worldContent && WORLD_VT) {
 	worldContentH = createWorldContent({ addGint: gint.addGint, geopbf, symbols: symbolsNative, addImage: map.addImage,
 		getZoom: () => cam.zoom, lang: getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
-		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: requestDraw, groups: (opts.worldContent as unknown as { groups?: string[] | null } | undefined)?.groups ?? null });
+		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: requestDraw, groups: (typeof opts.worldContent === "object" ? opts.worldContent.groups : null) ?? null });
 	map.on("settle", () => { if (!flying) worldContentH!.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
 	map.on("load", () => worldContentH!.update());                          // 初回の描画（起動時の視点が確定した後）でも判定＝動かさなくても detail が来る
 	worldContentH.update();

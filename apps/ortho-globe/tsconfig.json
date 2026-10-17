@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["main.ts", "arcs-page.ts", "clock-page.ts", "clouds-page.ts", "hex-page.ts", "parks-page.ts", "physical-page.ts", "sats-page.ts", "env.d.ts"]
+}

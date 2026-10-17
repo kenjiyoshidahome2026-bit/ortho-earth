@@ -17,7 +17,7 @@
 //
 // 語順の掟：文単位でキー化する（単語を連結しない）。"Source: " + name のような足し算は言語によって語順が壊れる。
 import LANGS from "./i18n/langs.ts";
-import LOADERS from "./i18n/lang-loaders.js";
+import LOADERS from "./i18n/lang-loaders.ts";
 import { createI18n } from "./i18n/core.ts";
 export type { Translate, I18n, I18nLang, I18nTable } from "./i18n/core.ts";
 

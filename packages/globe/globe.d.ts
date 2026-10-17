@@ -247,8 +247,9 @@ export interface OrthoJapanOptions {
 	countryTip?: boolean | "shift";   // "shift"＝Shift を押している間だけ（地物の tip を持つ頁が国名を出し分ける・1.7.x〜）
 	/** 世界帯（低ズーム・地域の基図より手前）に Equal Earth と同じ中身を描く（1.2.1〜）：州境（z≥4）・係争地の線・湖の岸線・
 	 *  市街地（z≥4）・道路/鉄道（z≥5）・国名・首都/都市・空港 ✈（z≥5）。海岸線/国境は全ズーム・河川/海洋境界は z1.5 から。
-	 *  名前は map の言語（26 言語）。データと規則は Equal Earth と共有（Natural Earth 10m・World DB）。既定 false */
-	worldContent?: boolean;
+	 *  名前は map の言語（26 言語）。データと規則は Equal Earth と共有（Natural Earth 10m・World DB）。既定 false
+	 *  { groups }＝読む群を限る（"base"＝州境・道路・都市など／"lakes"＝湖／"detail"＝寄った時の詳細・既定＝全部） */
+	worldContent?: boolean | { groups?: Array<"base" | "lakes" | "detail"> | null };
 	/** 世界帯（低ズーム）の河川・海洋境界線（Natural Earth 10m・z1.5 から）。false＝読まない／["rivers" | "maritime"]＝その種類だけ（既定 true＝全部）。
 	 *  自前の川を描く頁が二重に描かない・読まない口（1.7.x〜） */
 	worldLines?: boolean | Array<"rivers" | "maritime">;

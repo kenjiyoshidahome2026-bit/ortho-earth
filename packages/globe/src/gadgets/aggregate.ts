@@ -7,10 +7,7 @@
 // cluster(src, opts)：{ clusterRadius:50, clusterMaxZoom:14, paint:{ circle-color/-radius/-stroke-color/-stroke-width/-opacity }（集約の丸）,
 //   text:{ color, size }, unclustered:{ paint } }。集約の属性＝{ cluster:true, point_count, point_count_abbreviated }（MapLibre と同じ名前）。
 //   クリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）。
-/// <reference path="../types/assets.d.ts" />   // ?url の型（この部品を型で引く他の包み＝equal 等にも届くように）
 import { evalExpr, originOfLayer, lonlatTo3D } from "@ortho-earth/core";
-import heatUrl from "../heatmap-gl.js?url";
-import clusterUrl from "../cluster-2d.js?url";
 
 import { ctxOf, abbr, pointsOf, heatStyle, buildClusters, clusterDraw } from "./aggregate-core.ts";   // 計算部分（検定 t-aggregate が直接読む）
 import type { MLLayer } from "@ortho-earth/core";
@@ -55,7 +52,7 @@ export function createAggregate(map: GlobeMap, { signal }: { signal?: AbortSigna
 	const heats = new Map<string, OverlayHandle>();   // slot → overlay handle
 	const cluss = new Map<string, ClusterSlot>();   // slot → { ov, draw, pts, cl }
 	const ovName = (kind: string, slot: string) => slot === "default" ? kind : `${kind}:${slot}`;
-	const ensureHeat = (slot: string) => { let h = heats.get(slot); if (!h) heats.set(slot, h = map.overlay(heatUrl, { name: ovName("heatmap", slot) })); return h; };
+	const ensureHeat = (slot: string) => { let h = heats.get(slot); if (!h) heats.set(slot, h = map.overlay({ builtin: "heatmap" }, { name: ovName("heatmap", slot) })); return h; };
 	// クリック＝集約へ寄る（丸の中をクリック）
 	const onClick = (e: MouseEvent) => {
 		if (!cluss.size) return;
@@ -92,7 +89,7 @@ export function createAggregate(map: GlobeMap, { signal }: { signal?: AbortSigna
 			const pts = pointsOf(src), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
 			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties, gs });
 			const draw = clusterDraw(pts, cl, { ...opts, gs });
-			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) } as ClusterSlot);
+			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay({ builtin: "cluster" }, { name: ovName("cluster", slot) }) } as ClusterSlot);
 			// 層 id と層ごとの出しズーム（MapLibre の集約の層＝丸と単点で別の層・maxzoom 排他）。無指定＝従来の名前・全ズーム
 			const ids = { clusters: opts.layerIds?.clusters ?? "clusters", unclustered: opts.layerIds?.unclustered ?? "unclustered-point" };
 			const rg: ClusterSlot["rg"] = { clusters: opts.ranges?.clusters ?? [-Infinity, Infinity], unclustered: opts.ranges?.unclustered ?? [-Infinity, Infinity] };
