@@ -1,8 +1,8 @@
-// 弧の頁（/globe/arcs）の純関数の検定（node・ブラウザ不要）＝arcs-data.js。
+// 弧の頁（/globe/arcs）の純関数の検定（node・ブラウザ不要）＝arcs-data.ts。
 //   大円と等角航路の距離（既知の値）・点列が日付変更線で跳ばない・arcs-gl と同じ持ち上げ・OpenFlights の読み・CSV の列の当て方と記号の引き
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as D from "../arcs-data.js";
+import * as D from "../arcs-data.ts";
 
 const NRT = [140.386, 35.765], JFK = [-73.779, 40.640], LHR = [-0.4614, 51.4775];
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ""} ${a} vs ${b} (±${tol})`);

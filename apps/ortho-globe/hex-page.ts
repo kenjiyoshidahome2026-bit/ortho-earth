@@ -4,7 +4,7 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("hex", async () => {
-	const [{ createGlobe, geopbf }, { mountHex }] = await Promise.all([import("@ortho-earth/globe"), import("./hex.js")]);
+	const [{ createGlobe, geopbf }, { mountHex }] = await Promise.all([import("@ortho-earth/globe"), import("./hex.ts")]);
 	// 初期視点＝アジア（人口の山が一番高い所）を少し傾けて。共有 URL の hash があればそちら。z の上限 9＝解像度 6（一辺 約 3.7 km）の六角形が見える所まで
 	const map = await createGlobe({ target: "#map", view: location.hash || "#3.8/20/86/55t", theme: "dark", chips: false, zoomMax: 9,
 		mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });

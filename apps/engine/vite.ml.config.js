@@ -13,7 +13,7 @@ const toEngineEntry = {
 	name: "engine-entry-external",
 	enforce: "pre",
 	async resolveId(id, importer) {
-		if (id === "./globe.js" && importer?.endsWith("/engine/src/maplibre.js")) return { id: "./globe.js", external: true };
+		if (id === "./globe.js" && importer?.endsWith("/engine/src/maplibre.ts")) return { id: "./globe.js", external: true };
 		const r = await this.resolve(id, importer, { skipSelf: true });
 		return r?.id === FACE ? { id: "./globe.js", external: true } : null;
 	},
@@ -26,7 +26,7 @@ export default defineConfig({
 		outDir: "dist/_build",
 		emptyOutDir: false,   // 本体のビルドの出力に足す（scripts/build.mjs が本体の後に呼ぶ）
 		sourcemap: true,
-		lib: { entry: { maplibre: resolve(import.meta.dirname, "src/maplibre.js") }, formats: ["es"] },
+		lib: { entry: { maplibre: resolve(import.meta.dirname, "src/maplibre.ts") }, formats: ["es"] },
 		rollupOptions: { output: { minify: true, entryFileNames: "[name].js", chunkFileNames: "assets/ml-[name]-[hash].js" } },
 	},
 });

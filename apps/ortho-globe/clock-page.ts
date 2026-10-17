@@ -5,7 +5,7 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("clock", async () => {
-	const [{ createGlobe, geopbf }, { mountClock }] = await Promise.all([import("@ortho-earth/globe"), import("./clock.js")]);
+	const [{ createGlobe, geopbf }, { mountClock }] = await Promise.all([import("@ortho-earth/globe"), import("./clock.ts")]);
 	// 初期視点＝見ている人の経度を正面に（UTC との差 1 時間＝15°）。共有 URL の hash があればそちら
 	const lon = Math.max(-180, Math.min(180, Math.round(-new Date().getTimezoneOffset() / 4)));
 	const map = await createGlobe({ target: "#map", view: location.hash || `#2.4/20/${lon}`, chips: false, zoomMax: 8,   // 世界のアプリ＝地球儀（地域の申告なし）

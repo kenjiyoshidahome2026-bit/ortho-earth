@@ -8,7 +8,7 @@ window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16)
 localStorage.setItem("oj.hint", "closed");
 </script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const lang = new URLSearchParams(location.search).get("lang") || "ja";
 const RTL = ["ar", "fa", "ur", "he"].includes(lang);

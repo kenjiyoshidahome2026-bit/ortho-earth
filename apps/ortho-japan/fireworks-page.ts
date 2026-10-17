@@ -3,7 +3,7 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("fireworks", async () => {
-	const [{ default: orthoJapan }, { mountFireworks }] = await Promise.all([import("./app.js"), import("./fireworks.js")]);
+	const [{ default: orthoJapan }, { mountFireworks }] = await Promise.all([import("./app.ts"), import("./fireworks.ts")]);
 	// 初期視点＝隅田川の上空（共有 URL の hash があればそちら）。glOverlay＝WebKit では本体を WebGL2 に（WebGPU 本体＋WebGL2 オーバーレイは合成されない）
 	const map = await orthoJapan({ target: "#map", view: location.hash || "#14/35.716/139.807", chips: false, theme: "dark",
 		instruments: ["pos", "scale", "attr"], urlHash: true, glOverlay: true, assetBase: import.meta.env.BASE_URL });

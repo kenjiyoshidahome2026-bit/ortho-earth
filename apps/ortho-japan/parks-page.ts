@@ -4,7 +4,7 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。言語の切替は parks.js の案内板が持つ（select）
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("parks", async () => {
-	const [{ default: orthoJapan, geopbf }, { mountParks }] = await Promise.all([import("./app.js"), import("./parks.js")]);
+	const [{ default: orthoJapan, geopbf }, { mountParks }] = await Promise.all([import("./app.ts"), import("./parks.ts")]);
 	// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D は出さない（公園に街は要らない・起動も軽い）
 	const map = await orthoJapan({ target: "#map", view: location.hash || "#4.3/36.8/137.2/35t", chips: false,
 		mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });

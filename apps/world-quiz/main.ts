@@ -5,6 +5,6 @@ import { tr } from "@ortho-earth/globe/i18n.js";
 startPage("quiz", async () => {
 	const t = tr();
 	document.title = t("World quiz — flags, capitals and the globe");
-	const { mountApp } = await import("./src/app.js");
-	return mountApp(document.getElementById("app"));
+	const { mountApp } = await import("./src/app.ts");
+	return mountApp(document.getElementById("app")!);
 }, { page: c => import(`./i18n/lang/quiz/${c}.json`), target: "#app" });

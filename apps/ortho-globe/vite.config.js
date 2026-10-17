@@ -21,7 +21,7 @@ const ROOT = resolve(import.meta.dirname, "../..");
 
 export default defineConfig(({ command }) => ({
 	base: "/globe/",
-	// 地形の頁（physical.js）のデータ置き場：dev＝手元の packages/world/out/（npm run build / ne:physical の生成物を置く前に見る）・本番＝空＝GitHub Pages の ortho-data/globe/（physical.js の DATA）
+	// 地形の頁（physical.ts）のデータ置き場：dev＝手元の packages/world/out/（npm run build / ne:physical の生成物を置く前に見る）・本番＝空＝GitHub Pages の ortho-data/globe/（physical.ts の DATA）
 	// 国立公園の頁（parks.html）のデータ置き場：dev＝手元の正本 ortho-data/us/・本番＝GitHub Pages の ortho-data/us/（vite-app.mjs の orthoData）
 	define: { __WORLD_OUT__: JSON.stringify(command === "serve" ? "/globe/@fs" + resolve(import.meta.dirname, "../../packages/world/out") + "/" : ""), __DATA_US__: orthoData(command, "/globe/", ROOT, "us") },
 	server: { port: 5186 },

@@ -23,7 +23,7 @@
 	<div class="frame" id="slot"></div>
 	<pre id="log"></pre>
 	<script type="module">
-		import { createSolar } from "./solar.js";
+		import { createSolar } from "./solar.ts";
 		const slot = document.getElementById("slot"), logEl = document.getElementById("log");
 		const log = s => { logEl.textContent = `${new Date().toISOString().slice(11, 19)}  ${s}\n` + logEl.textContent; };
 		let app = null;

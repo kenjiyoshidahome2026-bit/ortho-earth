@@ -3,10 +3,10 @@
 // 描画と案内板は ./sats.js（遅延 chunk・GPU 描画は sats-gl.js＝レンダーワーカー内の同一フレーム）。
 // データ＝ミラー（www.ortho-earth.com/sats/active.csv＝apps/sats-mirror・CORS 開放）→ だめなら CelesTrak 直読み。ブラウザが SGP4 で伝播する（鯖焼き無し）。
 // ?src=URL で差し替え可（CSV・OMM 形式）。
-// 言語（html の lang/dir）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。文言（title/description/パネル）は sats.js が t() で組む
+// 言語（html の lang/dir）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。文言（title/description/パネル）は sats.ts が t() で組む
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("sats", async () => {
-	const [{ createGlobe }, { mountSats, MIRROR, CELESTRAK }] = await Promise.all([import("@ortho-earth/globe"), import("./sats.js")]);
+	const [{ createGlobe }, { mountSats, MIRROR, CELESTRAK }] = await Promise.all([import("@ortho-earth/globe"), import("./sats.ts")]);
 	// 初期視点＝地球を少し引いて眺める（低軌道の殻と中軌道が見える距離。静止軌道はさらに引く）（共有 URL の hash があればそちら）
 	const map = await createGlobe({ target: "#map", view: location.hash || "#1.9/25/140", chips: false, zoomMax: 8,   // 世界のアプリ＝地球儀（地域の申告なし・z<8＝LAYERS.md 段階 2 S6）
 		// glOverlay＝同一フレームのオーバーレイ（人工衛星）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（本人 iPad 実機 2026-09-21）
@@ -14,6 +14,6 @@ startPage("sats", async () => {
 	dismissBoot();
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock(); map.gadget.lang();   // clock＝共通の時計（#42）＝早送り・巻き戻し・日時で衛星も夜の側も同じ時刻へ
 	const src = new URLSearchParams(location.search).get("src") || [MIRROR, CELESTRAK];   // 読む順＝ミラー → 本家
-	const sats = await mountSats(map, { src } as Parameters<typeof mountSats>[1]);   // 引数の型＝JS 本体の既定値からの推論（既定値の無い欄・null 既定は狭く出る）＝呼び口で JS の口に合わせる
+	const sats = await mountSats(map, { src });
 	window.__map = map; window.__sats = sats;   // console 検証用
 });

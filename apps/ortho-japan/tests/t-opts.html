@@ -9,7 +9,7 @@ const _w = console.warn.bind(console);
 console.warn = (...a) => { window.__warns.push(a.join(" ")); _w(...a); };
 </script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const probe = async opts => {   // 起動→観測→destroy＝毎回まっさら（destroy自体も毎回テストされる）
 	const holder = document.createElement("div"); holder.style.cssText = "position:fixed;inset:0";

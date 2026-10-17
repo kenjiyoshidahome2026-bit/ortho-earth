@@ -1,0 +1,36 @@
+// 国別 DB（world）の bucket 入出力。データの正本と組み立ては packages/world（seed/ + build/）＝ここは保存と資産（旗・音源・地形PNG）だけ。
+//   キー体系: 国=key（iso2 か B コード・FR-CP）、都市/地形=Wikidata QID、言語=ISO 639、通貨=ISO 4217、係争地=Conflicts の key、旗=flags/<key>.svg
+import type { Bucket } from "native-bucket";
+export const DIRE = "GIS/world";
+export const NATION = "NationDB", CITY = "CityDB", TERRAIN = "TerrainDB", LANGUAGE = "LanguageDB", CURRENCY = "CurrencyDB", CONFLICT = "Conflicts";
+export const DBS = [NATION, CITY, TERRAIN, LANGUAGE, CURRENCY, CONFLICT];
+export const FLAG = "flags";     // flags.zip（<key>.svg）＋ flags/<key>.svg
+export const SOUND = "音源";      // 音源.zip（mp3・OtoLogic CC BY 4.0）
+export const RANGES = "range";    // range.json（山脈の軸線 2〜4 点 GeoJSON＝表示側で spline＋ポリゴン化）
+export const RIVERS = "rivers";  // rivers.json（川の形状 GeoJSON＝Natural Earth 10m・build が seed の QID で結合）
+export const GEOMS = "geoms";    // geoms.zip（<key>.png）＋ geoms/<key>.png
+export const CULTURAL = "ne-cultural";   // ne-cultural.geopbf（NE Cultural を key ごとに切った台帳＝apps/equal が国/道路/鉄道/市街地に読む）＋ne-cultural.json（要約）
+// 国以外の旗の id（flags/<id>.svg）。UI 用と旧例外地域（NationDB に無い＝資産として保持）
+export const FLAG_KEYS = ["UN", "EU", "NATO", "DISPUTED", "X-CATALONIA", "X-KURDISTAN", "X-KERGUELEN", "X-DARFUR", "X-CHECHNYA", "X-TIBET", "X-BOUGAINVILLE", "X-MADEIRA", "X-WESTPAPUA"];
+
+// 保存形式＝{ updated, count, items } の版スタンプ包み。i18n/<lang>.json はオブジェクトのまま（updated 付き）
+export function makeDB(bucket: Bucket) {
+	const unwrap = (v: any) => (v && v.items !== undefined) ? v.items : v;
+	// ?_t= キャッシュバスター必須＝bucket GET は edge(s-maxage 1h)+ブラウザ(max-age 4h)でキャッシュされる
+	const loadJSON = async (name: string) => unwrap(await bucket.get(`${name}.json?_t=${Date.now()}`, "json"));
+	const saveJSON = (name: string, a: unknown) => {
+		const wrapped = Array.isArray(a) ? { updated: new Date().toISOString().slice(0, 10), count: a.length, items: a } : a;
+		return bucket.put(new File([JSON.stringify(wrapped)], `${name}.json`, { type: "application/json" }));
+	};
+	// 形状台帳（*.geopbf）＝gzip のまま素通しで置く（Bucket.put は isGzip 検出で二重圧縮せず Content-Encoding も付けない
+	// ＝Node の scripts が書く out/*.geopbf と同じ実体＝読む側（geopbf / bucket.get）が解く）
+	const saveGeoPBF = (name: string, gzBlob: Blob) => bucket.put(new File([gzBlob], name, { type: "application/x-geopbf" }));
+	const zipAndFiles = (name: string, mime: string) => async (files: File[]) => { await bucket.puts(`${name}.zip`, files); for (const f of files) await bucket.put(new File([f], `${name}/${f.name}`, { type: mime })); };
+	return {
+		loadJSON, saveJSON, saveGeoPBF,
+		// 旗/geoPNG＝zip（保管・一括DL）に加えて個別ファイル（flags/<key>.svg・geoms/<key>.png）も配置＝ビューアは見えた分だけ遅延取得
+		loadFlagDB: () => bucket.gets(FLAG), saveFlagDB: zipAndFiles(FLAG, "image/svg+xml"),
+		loadSoundDB: () => bucket.gets(SOUND), saveSoundDB: (files: File[]) => bucket.puts(`${SOUND}.zip`, files),
+		loadGeoPNG: () => bucket.gets(GEOMS), saveGeoPNG: zipAndFiles(GEOMS, "image/png"),
+	};
+}

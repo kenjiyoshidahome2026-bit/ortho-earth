@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kontur Population（H3 のセルごとの人口・CC BY 4.0）→ /globe/hex が読む小さな二進（hex-pop.js の H3P1）を焼く（issue #310・2026-10-14）。
+// Kontur Population（H3 のセルごとの人口・CC BY 4.0）→ /globe/hex が読む小さな二進（hex-pop.ts の H3P1）を焼く（issue #310・2026-10-14）。
 // 置き場＝GitHub Pages（リポ ortho-data の globe/h3/kontur-<版>/・本人裁定 10/14「uploader を使わずに github.io に置く」）。
 // 焼いた先＝packages/world/out/h3/（world の out/ と同じ＝作り直せる生成物・git に入らない）→ 置くのは world の publish-pages.mjs：
 //   node apps/ortho-globe/scripts/kontur-h3.mjs                                   … Kontur の S3 から gpkg.gz を取って焼く（r6 は 185MB）
@@ -10,11 +10,11 @@
 //   r6/<親>.h3p.gz   … 解像度 6（一辺 約 3.7 km）を res 1 の親ごとに 1 本（501 本・計 約 7.6MB）。頁は視野に入った親だけ読む。5 は頁が足し上げる
 //   r6/index.json    … 親 → セル数（頁が「無い親」を読みに行かない）
 //   meta.json        … 出典・ライセンス・版・数
-// .gz＝中身を gzip のまま置く（Pages は二進を圧縮して配らない＝帯域が 2 倍になる）。頁は gzip の頭を見て自分で解く（hex-pop.js の bytesOf）。
+// .gz＝中身を gzip のまま置く（Pages は二進を圧縮して配らない＝帯域が 2 倍になる）。頁は gzip の頭を見て自分で解く（hex-pop.ts の bytesOf）。
 import fs from "node:fs"; import path from "node:path"; import { gunzipSync, gzipSync } from "node:zlib"; import { fileURLToPath } from "node:url";
 import { openSqlite } from "geopbf/sqlite";
 import { h3 } from "@ortho-earth/h3/core";
-import { encodeHexPop } from "../hex-pop.js";
+import { encodeHexPop } from "../hex-pop.ts";
 
 const VERSION = "20231101";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");

@@ -7,7 +7,7 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import orthoJapan from "../app.ts";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 // 合成スナップショット（20×14＝カード比10:7そのまま）：列で領域を分ける＝写像後の色をx位置でサンプルできる。
 // 紙／幹線青／水系点火(海・水色)／宇宙(黒)。縦方向は一様＝合成時のGL上下反転に依存しない。

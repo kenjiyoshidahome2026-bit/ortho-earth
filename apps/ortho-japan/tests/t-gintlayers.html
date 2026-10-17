@@ -48,7 +48,7 @@ const duckPbf = (gint, n, identifyAt = null) => ({
 	getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [139.766, 35.68] } }),   // ラベル錨用（labelCount の物差し）
 	...(identifyAt ? { identifyAt } : {}),
 });
-import("../app.js").then(async ({ default: orthoJapan }) => {
+import("../app.ts").then(async ({ default: orthoJapan }) => {
 	try {
 		const m = await orthoJapan({ view: "#13/35.68/139.76", mesh: false });
 		const t0 = performance.now();

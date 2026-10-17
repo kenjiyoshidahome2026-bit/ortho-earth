@@ -5,7 +5,7 @@
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。文言（title/description/パネル）は models.js が t() で組む
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("models", async () => {
-	const [{ default: orthoJapan }, { mountModels }] = await Promise.all([import("./app.js"), import("./models.js")]);
+	const [{ default: orthoJapan }, { mountModels }] = await Promise.all([import("./app.ts"), import("./models.ts")]);
 	// 初期視点＝日本を眺める球（共有 URL の hash があればそちら）。建物 3D（PLATEAU）はそのまま＝模型の周りに街が立つ
 	const map = await orthoJapan({ target: "#map", view: location.hash || "#3/36/138", chips: false,
 		// mesh:false＝エンジンの PLATEAU 建物（LOD2）は出さない。模型が同じ建物の LOD3 版＝重なって壁の絵が明滅するため（本人 2026-09-21）

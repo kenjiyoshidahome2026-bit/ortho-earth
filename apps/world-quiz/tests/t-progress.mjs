@@ -1,6 +1,6 @@
 // 進捗の保存の検定（偽の localStorage）
 import assert from "node:assert/strict";
-import { createProgress, STORE_KEY } from "../src/progress.js";
+import { createProgress, STORE_KEY } from "../src/progress.ts";
 const mem = new Map(), storage = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
 const P = createProgress(storage);
 assert.equal(P.answer("JP", true), 1); assert.equal(P.answer("FR", true), 2); assert.equal(P.answer("DE", false), 0);

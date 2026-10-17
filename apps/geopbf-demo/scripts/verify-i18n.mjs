@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const src = ["main.ts", "formats.js"].map(f => fs.readFileSync(path.join(APP, f), "utf8")).join("\n");
+const src = ["main.ts", "formats.ts"].map(f => fs.readFileSync(path.join(APP, f), "utf8")).join("\n");
 const ui = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui;
 const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8")).map(l => l.code).filter(c => c !== "en");
 const S = `"((?:[^"\\\\]|\\\\.)*)"`;
