@@ -33,22 +33,22 @@ export async function baseImages(q: screenLogger, { Bucket, Cache, Fetch }: Nati
 		baseMap[base] = await bucket.get(base) || await createBaseMap(t);
 		q.success(base);
 		q.log(baseMap[base]);
-		await cache(base, await createImageBitmap(baseMap[base] as Blob))   // ⚠ 焼いた直後は createBaseMap が何も返さない＝undefined を渡して落ちる（bucket には置けている・次回は get で通る）＝挙動は据え置き
+		await cache(base, await createImageBitmap(baseMap[base] as Blob))   // 焼いた直後も createBaseMap が焼いた File を返す（旧＝何も返さず undefined で落ちた・2026-10-17）
 	});
 	q.log(await bucket.list());
 	async function createBaseMap(layer: typeof BASES[number]) {
 		const base = layer.base;
 		switch (base) {
-			case "naturalEarth.webp": await NaturalEarth("HYP_LR_SR_OB_DR"); break;
-			case "whiteEarth.webp": await NaturalEarth("GRAY_LR_SR_OB_DR"); break;
-			case "google.satellite.webp": await tile2rect(layer.tile!); break;
-			case "osm.satellite.webp": await tile2rect(layer.tile!); break;
+			case "naturalEarth.webp": return NaturalEarth("HYP_LR_SR_OB_DR");
+			case "whiteEarth.webp": return NaturalEarth("GRAY_LR_SR_OB_DR");
+			case "google.satellite.webp": return tile2rect(layer.tile!);
+			case "osm.satellite.webp": return tile2rect(layer.tile!);
 		}
-		async function tile2rect(url: TileURL) { await saveWEBPs(await tile2canvas(url)); }
+		async function tile2rect(url: TileURL) { return saveWEBPs(await tile2canvas(url)); }
 		async function NaturalEarth(target: string) {
 			const url = `https://naciscdn.org/naturalearth/10m/raster/${target}.zip`;
 			const tiff = await Fetch(url, { target: `${target}.tif`, cors: true });
-			await saveWEBPs(await tiff2canvas(tiff as File));
+			return saveWEBPs(await tiff2canvas(tiff as File));
 		}
 		async function saveWEBPs(canvas: OffscreenCanvas) {
 			const dstX = 10000, dstY = dstX / 2;
@@ -60,6 +60,7 @@ export async function baseImages(q: screenLogger, { Bucket, Cache, Fetch }: Nati
 			const file = new File([await target.convertToBlob({ type, quality })], base, { type });
 			await bucket.put(file);
 			console.log(`%c${file.name}: [ ${comma(dstX)} x ${comma(dstY)} ] ${comma(file.size)} bytes`, "font-size:1.5em");
+			return file;
 		}
 	}
 }
