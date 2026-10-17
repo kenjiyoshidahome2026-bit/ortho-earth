@@ -313,7 +313,10 @@ export function buildEdgeMeta(arcMeta: Uint32Array | null | undefined, polyStrea
 		}
 		for (const [fid, start, end] of groups) {
 			const eStart = j >> 2;
-			seamSkip = seamU32 ? seamPairsOf(start, end) : null;   // 縫い目対（切断の痕）はこの fid の辺から落とす
+			// 縫い目対（切断の痕）はこの fid の辺から落とす。ただし構成ポリゴン単位の扇（compOf＝多片地物の層）では落とさない：
+			// 対の相殺は両片が同じ要から扇られる時だけ成り立つ（要が違うと「要・縫い目辺」の三角形 2 枚が相殺せず、縫い目の周りに
+			// レンズ形の塗り残し＝t-rectlook の円 2026-10-17）。線パスは onSeam でシェーダが縫い目辺を飛ばす＝絵は変わらない
+			seamSkip = seamU32 && !compOf ? seamPairsOf(start, end) : null;
 			let p = start;
 			while (p < end) {
 				curComp = p;
