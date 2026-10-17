@@ -984,8 +984,8 @@ export default { worker: { format: "es" } };
 (use `pbf.concat(...others)`), and the name `GeoPBF` for the container class in `geopbf/pbf-base` and `geopbf/core` (it is
 `GeoPBFBase` there; `GeoPBF` from `geopbf` is the full class). Internal members such as `fmap` and `_name` are no longer in the
 published types: use `pbf.length`, `each` / `forEach`, `pbf.name()`. The full old → new list is in
-[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). When 2.0 is published,
-1.x is planned to stay installable under the `v1` dist-tag (`npm i geopbf@v1`).
+[MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md) (Japanese). 1.x stays installable
+by version range: `npm i geopbf@1` (the last 1.x is 1.19.0).
 
 ## License
 
