@@ -4,6 +4,8 @@
 // 四元数は x,y,z,w（契約＝globe の SplatData）。scales は楕円の各軸の σ（m・線形）。colors の A は不透明度。
 // sh＝DC より上の球面調和の係数（n × K×3・係数が先・色が後＝sh[i*K*3 + k*3 + c]・K＝3／8／15＝次数 1／2／3・.spz と同じ並び。.ply の f_rest_* は色が先なので読む時に並べ替える）。
 //   WebGPU の描き手が視線の向きで色を変える（splat-gpu.ts）。WebGL2 の描き手は DC だけ。packSh が 8 bit に詰める（.spz と同じ目）。
+// LoD＝importanceRank が「大きくて濃い splat が先」の順位を付ける（0 が一番重い）。遠くから見る時は描き手が先頭の N 個だけ描く（splat-gpu.ts）。
+// 読み手・下ごしらえ・順位は splat-reader.ts（worker）で回す＝main は止まらない。worker が立たない器では index.ts が main で同じ関数を呼ぶ。
 export const SH_C0 = 0.28209479177387814;
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
 const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
@@ -232,3 +234,60 @@ export function packSh(sh: Float32Array, n: number, maxDeg = 3): PackedSh | null
 }
 // 中心の経緯度（当たりの答え用・近似＝錨の東北上から）
 export function enuToLngLat(anchor: ArrayLike<number>, e: number, n: number): [number, number] { return [anchor[0] + e / (Math.cos(anchor[1] * D2R) * D2R * R_SPHERE), anchor[1] + n / (D2R * R_SPHERE)]; }
+
+/** LoD の順位＝大きくて濃い splat が先（0 が一番重い）。重さ＝不透明度 × 尺の幾何平均（m）。数え上げ（16 bit の桶・対数）で O(n) */
+export function importanceRank(scales: Float32Array, colors: Uint8Array, n: number): Uint32Array<ArrayBuffer> {
+	const rank = new Uint32Array(n);
+	if (!n) return rank;
+	const key = new Float32Array(n);
+	let lo = Infinity, hi = -Infinity;
+	for (let i = 0; i < n; i++) {
+		const a = colors[i * 4 + 3] / 255, v = Math.abs(scales[i * 3] * scales[i * 3 + 1] * scales[i * 3 + 2]);
+		const k = Math.log(a * Math.cbrt(v) + 1e-12); key[i] = k; if (k < lo) lo = k; if (k > hi) hi = k;
+	}
+	const B = 65536, sc = hi > lo ? (B - 1) / (hi - lo) : 0, counts = new Uint32Array(B + 1), q = new Uint16Array(n);
+	for (let i = 0; i < n; i++) { const b = B - 1 - Math.min(B - 1, Math.max(0, Math.round((key[i] - lo) * sc))); q[i] = b; counts[b + 1]++; }   // 重い物が小さい桶
+	for (let b = 0; b < B; b++) counts[b + 1] += counts[b];
+	for (let i = 0; i < n; i++) rank[i] = counts[q[i]]++;
+	return rank;
+}
+
+// 契約の形（globe の normSplat と同じ検め＝plugin を直に呼んだ時・worker の中でも）
+export const checkEnum = <T>(v: T, list: readonly string[], name: string): T => { if (!list.some(x => x === v)) throw new Error(`plugin-splat: ${name} must be ${list.join(" | ")} (got ${JSON.stringify(v)})`); return v; };
+export function checkSplatData(d: SplatData): SplatData & { n: number; crs: SplatCrs } {
+	if (!d || typeof d !== "object") throw new TypeError("plugin-splat: data must be SplatData or a .ply/.splat/.spz URL");
+	const n = d.n ?? (d.positions instanceof Float32Array ? d.positions.length / 3 : NaN), crs = d.crs ?? "lnglat";
+	if (!Number.isInteger(n) || n < 0) throw new RangeError("plugin-splat: n must be a non-negative integer");
+	checkEnum(crs, ["lnglat", "ecef", "local"], "crs");
+	const f = (v: unknown, nm: string, len: number): void => { if (!(v instanceof Float32Array) || v.length !== len) throw new TypeError(`plugin-splat: ${nm} must be a Float32Array of length ${len}`); };
+	f(d.positions, "positions", n * 3); f(d.scales, "scales", n * 3); f(d.rotations, "rotations", n * 4);
+	if (!(d.colors instanceof Uint8Array) || d.colors.length !== n * 4) throw new TypeError(`plugin-splat: colors must be a Uint8Array of length ${n * 4}`);
+	return { ...d, n, crs };
+}
+/** format → 読み手（表の添字引きではなく switch＝外から来た名前で任意のメソッドへ飛ばない・知らない名前は投げる） */
+export function readerFor(format: SplatFormat): (bytes: Uint8Array) => LocalSplatData | Promise<LocalSplatData> {
+	switch (format) {
+		case "ply": return parsePly;
+		case "splat": return parseSplat;
+		case "spz": return parseSpz;
+		default: throw new Error(`plugin-splat: format must be ply | splat | spz (got ${JSON.stringify(format)})`);
+	}
+}
+/** 下ごしらえの一式＝描き手に渡す物（index.ts の main 経路と splat-reader.ts の worker 経路で同じ） */
+export interface Prepared { n: number; crs: SplatCrs; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number; rot: Float32Array; sh: PackedSh | null; rank: Uint32Array<ArrayBuffer> | null }
+export interface PrepareOptions extends ToEnuOptions { shDegree?: number; lod?: boolean }
+/** SplatData（検め済み）→ Prepared（東北上・SH の詰め・LoD の順位）。copyColors＝渡した人の配列を手放さない（transfer する時は写し） */
+export function prepare(d: SplatData & { n: number; crs: SplatCrs }, o: PrepareOptions, copyColors: boolean): Prepared {
+	const e = toEnu(d, { origin: o.origin, upAxis: o.upAxis, orientation: o.orientation, scale: o.scale ?? 1, opacity: o.opacity ?? 1 });
+	const rgba = copyColors && e.rgba === d.colors ? e.rgba.slice() : e.rgba;
+	const sh = d.sh && (o.shDegree ?? 3) > 0 ? packSh(d.sh, e.n, o.shDegree ?? 3) : null;
+	const rank = o.lod !== false ? importanceRank(d.scales, rgba, e.n) : null;
+	return { n: e.n, crs: d.crs, anchor: e.anchor, ctr: e.ctr, cov: e.cov, rgba, radius: e.radius, rot: e.rot, sh, rank };
+}
+/** transfer する buffer（Prepared の配列の裏）＝worker → main → 描き手で同じ一覧 */
+export function transferables(p: Prepared): ArrayBuffer[] {
+	const out: ArrayBuffer[] = [p.ctr.buffer, p.cov.buffer, p.rgba.buffer as ArrayBuffer];
+	if (p.sh) out.push(p.sh.shq.buffer);
+	if (p.rank) out.push(p.rank.buffer);
+	return [...new Set(out)];
+}

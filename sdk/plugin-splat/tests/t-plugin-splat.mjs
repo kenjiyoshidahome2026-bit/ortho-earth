@@ -1,8 +1,9 @@
 // node の検定：読み手（.ply・.splat・.spz v2/v3）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
 import { gzipSync } from "node:zlib";
-import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { read } from "../src/splat-reader.ts";
 import { sortOrder, enuBasis } from "../src/splat-gl.ts";
-import { depthRange } from "../src/splat-gpu.ts";
+import { depthRange, lodCount, pixelsPerMeter } from "../src/splat-gpu.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-5) => Math.abs(a - b) <= e;
@@ -135,6 +136,38 @@ function makeSpz(version, pts) {
 	const o2 = sortOrder(ctr, 4, [0, -1, 0]);
 	ok("sort.turn", [...o2].join(",") === "1,3,0,2", [...o2].join(","));
 	ok("sort.flat", sortOrder(new Float32Array(6), 2, [0, 0, 1]).length === 2);
+}
+// ---- LoD（順位＝大きくて濃い物が先・個数＝足跡 × 密度を 1.25 倍の段に） ----
+{
+	const sc = new Float32Array([1, 1, 1, 0.1, 0.1, 0.1, 1, 1, 1, 5, 5, 5]), co = new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 10, 0, 0, 0, 255]);
+	const r = importanceRank(sc, co, 4);
+	ok("rank.order", r[3] === 0 && r[0] === 1 && r[1] === 2 && r[2] === 3, JSON.stringify([...r]));   // 大きい 5m → 1m 濃い → 小さい 0.1m（α 1 × 0.1 m＝0.1）→ 1m 薄い（α 0.04 × 1 m＝0.04）
+	ok("rank.perm", new Set(r).size === 4 && importanceRank(new Float32Array(0), new Uint8Array(0), 0).length === 0);
+	const same = importanceRank(new Float32Array(6).fill(1), new Uint8Array(8).fill(255), 2);
+	ok("rank.ties", new Set(same).size === 2, JSON.stringify([...same]));   // 同じ重さでも順位は重ならない
+	ok("lod.all", lodCount(1e9, 100000, 2) === 100000 && lodCount(10, 3000, 2) === 3000 && lodCount(10, 100000, 0) === 100000);   // 足跡が大きい・小さい層・密度 0＝全部
+	const n1 = lodCount(100, 1000000, 2), n2 = lodCount(10000, 1000000, 2);
+	ok("lod.min", n1 >= 4096 && n1 <= 4096 * 1.25 && n1 < 1000000, String(n1));   // 最低 4096 を 1.25 倍の段に
+	ok("lod.step", n2 === Math.round(1.25 ** 45) && n2 >= 20000 && n2 <= 25000, String(n2));   // 10000 px² × 2＝20000 → 次の 1.25 倍の段（1.25^45≈22959）
+	// 画素／m：ピンホール（焦点 f px）で錨が z=10m 先＝1 m が f/10 px。mvp は列優先（col j＝東北上の j 軸・col 3＝錨）
+	const f = 500, w = 1000, h = 800, mvp = [f / (w / 2), 0, 0, 0, 0, f / (h / 2), 0, 0, 0, 0, 1, 1, 0, 0, 0, 10];   // x,y → ndc＝f·x/(w/2)/w_clip・z 軸は w に効く
+	ok("ppm", near(pixelsPerMeter(mvp, w, h), f / 10, 1e-6) && pixelsPerMeter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1], w, h) === 0, String(pixelsPerMeter(mvp, w, h)));
+}
+// ---- 下ごしらえの一式（prepare＝main と worker で同じ）・worker の read を main で呼ぶ ----
+{
+	const d = checkSplatData({ positions: new Float32Array([139.7, 35.6, 10, 139.7001, 35.6, 10]), scales: new Float32Array([1, 1, 1, 3, 3, 3]), rotations: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1]), colors: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]), sh: new Float32Array(18).fill(0.5) });
+	const p = prepare(d, { shDegree: 3, lod: true }, true);
+	ok("prep.shape", p.n === 2 && p.ctr.length === 6 && p.cov.length === 12 && p.rank?.length === 2 && p.sh?.shDeg === 1 && p.rgba !== d.colors, JSON.stringify({ n: p.n, rank: [...(p.rank || [])], sh: p.sh?.shDeg }));
+	ok("prep.rank", p.rank[1] === 0 && p.rank[0] === 1);   // 3m の方が重い
+	ok("prep.noLod", prepare(d, { lod: false }, false).rank === null && prepare(d, { shDegree: 0 }, false).sh === null);
+	const b = new ArrayBuffer(32), dv = new DataView(b); [1, 2, 3].forEach((v, k) => dv.setFloat32(k * 4, v, true)); [0.5, 0.5, 0.5].forEach((v, k) => dv.setFloat32(12 + k * 4, v, true)); new Uint8Array(b).set([255, 255, 0, 255, 255, 128, 128, 128], 24);
+	const rd = await read(b, "splat", { origin: [139.7, 35.6, 0], lod: true });
+	ok("read.bytes", rd.n === 1 && rd.crs === "local" && near(rd.anchor[0], 139.7) && rd.rank?.length === 1, JSON.stringify({ n: rd.n, a: rd.anchor }));
+	const rf = await read("http://x/a.splat", "splat", { origin: [0, 0] }, async () => ({ ok: true, arrayBuffer: async () => b }));
+	ok("read.fetch", rf.n === 1 && rf.rgba[0] === 255 && rf.rgba[2] === 0);
+	ok("read.http", await athrows(() => read("http://x/a.splat", "splat", { origin: [0, 0] }, async () => ({ ok: false, status: 404 }))));
+	ok("read.data", (await read({ positions: new Float32Array([1, 2, 3]), scales: new Float32Array([1, 1, 1]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array([1, 2, 3, 4]) }, null, {})).n === 1);
+	ok("read.noFormat", await athrows(() => read(b, null, {})));
 }
 // ---- 契約・plugin の形 ----
 {
