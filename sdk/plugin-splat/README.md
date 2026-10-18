@@ -5,7 +5,8 @@ Gaussian splats for [`@ortho-earth/globe`](../../packages/globe). The plugin fil
 - **Drawing** is a same-frame overlay with the globe's camera, **WebGPU first**: splats are sorted back to front on the GPU (a counting sort in three compute passes, re-run whenever the view direction turns), each splat is an ellipse projected from its 3D covariance, and the color is evaluated per view direction from the **spherical harmonics** (degree 1–3, as in the file). The plugin shares the map's `GPUDevice` and reads the map's depth texture directly: no copy and no read-back. Where the map draws with WebGL2 (no WebGPU in the browser) the plugin falls back to a WebGL2 renderer (DC color only, CPU sort).
 - Splats are **hidden by terrain and buildings** through the scene depth.
 - They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the splat `index`, its `lngLat` and your `properties`.
-- **Readers** are plain JS on the main thread: 3DGS `.ply` (binary little endian, `f_rest_*` kept as SH), `.splat` (32 bytes per splat) and `.spz` v2 / v3 (with SH). `.spz` is gunzipped with the browser's built-in `DecompressionStream`, so no WASM is needed. To use your own reader (for example a WASM build), pass `splatPlugin({ decoders: { spz: bytes => splatData } })`.
+- **Readers** run in a worker (`splat-reader.ts`): fetch, gunzip, parse, ENU placement, SH packing and the LoD ranking all happen off the main thread, which only forwards the buffers (transferred, not copied) to the renderer. 3DGS `.ply` (binary little endian, `f_rest_*` kept as SH), `.splat` (32 bytes per splat) and `.spz` v2 / v3 (with SH); `.spz` is gunzipped with the built-in `DecompressionStream`, so no WASM is needed. Your own reader (for example a WASM build) plugs in with `splatPlugin({ decoders: { spz: bytes => splatData } })` and runs on the main thread (a function cannot cross to the worker). `handle.reader` says where the last source was read.
+- **Level of detail** (WebGPU): every splat gets a rank by weight (opacity × size) when it is read. When a layer is small on screen only the heaviest splats are drawn, about 2 per screen pixel of the layer's footprint (at least 4096), and the GPU sort only touches those. Zooming in brings the rest back; `handle.drawn` says how many the last frame drew. `lod: false` draws everything, a number sets the density.
 
 ```js
 import { createGlobe } from "@ortho-earth/globe";
@@ -41,8 +42,9 @@ mine.remove();
 | `above` | draw above the labels |
 | `properties` | merged into every pick hit's properties |
 | `shDegree` | highest spherical-harmonics degree to draw: `0` (DC only) … `3` (default: whatever the data has). WebGPU only |
+| `lod` | level of detail: `true` (default, about 2 splats per screen pixel of the layer's footprint when it is small on screen), a number (that density), `false` (always every splat). WebGPU only |
 
-`SplatData` is `{ n?, positions, scales, rotations, colors, sh?, crs? }`. `scales` are the sigma of each axis in meters, `rotations` are quaternions `x, y, z, w`, and the alpha of `colors` is the opacity. With `crs: "lnglat"` (default) the rotations are in the local east-north-up frame; with `crs: "ecef"` they are in earth-centered axes. `sh` holds the coefficients above DC, coefficient-major: `n × K×3` with `sh[i*K*3 + k*3 + c]`, `K = 3 / 8 / 15` for degree 1 / 2 / 3 (the `.spz` order; the readers reorder `.ply`'s `f_rest_*`). The handle is `{ id, kind, n, anchor, backend, ready, setData, setProps, setVisible, pick, remove, overlay }`.
+`SplatData` is `{ n?, positions, scales, rotations, colors, sh?, crs? }`. `scales` are the sigma of each axis in meters, `rotations` are quaternions `x, y, z, w`, and the alpha of `colors` is the opacity. With `crs: "lnglat"` (default) the rotations are in the local east-north-up frame; with `crs: "ecef"` they are in earth-centered axes. `sh` holds the coefficients above DC, coefficient-major: `n × K×3` with `sh[i*K*3 + k*3 + c]`, `K = 3 / 8 / 15` for degree 1 / 2 / 3 (the `.spz` order; the readers reorder `.ply`'s `f_rest_*`). The handle is `{ id, kind, n, anchor, backend, drawn, reader, ready, setData, setProps, setVisible, pick, remove, overlay }`.
 
 ## Renderers
 
@@ -52,15 +54,16 @@ mine.remove();
 | sorting | GPU counting sort, every time the view direction turns | CPU counting sort on the render worker; layers above 200,000 splats at most every 0.1 s |
 | depth | the map's packed depth texture, shared when the map draws with WebGPU (no copy) | the map's depth uploaded as a texture once per frame |
 | picking | id pass to `r32uint`, read back asynchronously (needs an `@ortho-earth/globe` newer than 2.0.1, whose render worker awaits a Promise from `pick`) | id pass, synchronous read |
+| level of detail | the heaviest N splats when the layer is small on screen (`lod`, `handle.drawn`) | every splat, always |
 
 `splatPlugin({ backend })` picks: `"auto"` (default) draws with WebGPU when the map itself draws with WebGPU (sharing its device) and with WebGL2 otherwise; `"webgpu"` uses WebGPU even under a WebGL2 map (its own device, depth uploaded per frame) and fails where there is none; `"webgl2"` forces the fallback. `handle.backend` says which one draws.
 
 ## Limits
 
 - A layer is placed rigidly around one anchor (the mean of its positions, or `origin`), so the scene should span kilometers at most. `positions` in `crs: "lnglat"` are `Float32Array` by contract, which rounds to about a meter; use a file with `origin` for finer scenes.
-- No level of detail yet: every splat of a layer is drawn each frame. Keep layers to a few million splats.
+- The level of detail is a weight-ordered subset of one file (the heaviest splats first), not a hierarchy: a layer that fills the screen still draws every splat, and the whole file is read and uploaded. Keep layers to a few million splats; streamed, tiled splats (3D Tiles with `KHR_gaussian_splatting`) are the next step.
 - One overlay holds every splat layer of a map (the render worker allows only a few WebGL contexts).
 - `map.snapshot()` does not include the WebGPU overlay canvas yet.
 - The SH coefficients are stored as 8-bit signed values scaled by the layer's largest coefficient, like `.spz`.
 
-Tests: `npm test -w @ortho-earth/plugin-splat` (node: the three readers including `.spz` v2 and v3 and the `.ply` SH reorder, ENU placement for lnglat / ecef / local, covariances, SH packing and the SH frame, sorting, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-psplat` (WebGL2) and `npm run verify:webgpu -- t-psplat` (WebGPU): a tower at Tokyo Station, a splat in front is drawn and one behind is hidden, an elongated ellipse stays elongated on screen, a near splat is drawn over a far one, `.splat` and `.spz` URLs, a degree-1 SH splat changes color with the view (WebGPU), picks, setVisible, remove, unuse.
+Tests: `npm test -w @ortho-earth/plugin-splat` (node: the three readers including `.spz` v2 and v3 and the `.ply` SH reorder, ENU placement for lnglat / ecef / local, covariances, SH packing and the SH frame, sorting, the LoD rank and count, the reader's `read` with bytes / URL / data, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-psplat` (WebGL2) and `npm run verify:webgpu -- t-psplat` (WebGPU): a tower at Tokyo Station, a splat in front is drawn and one behind is hidden, an elongated ellipse stays elongated on screen, a near splat is drawn over a far one, `.splat` and `.spz` URLs, a degree-1 SH splat changes color with the view (WebGPU), every source read in the worker, a 20,000-splat patch drawn with fewer splats while it is small on screen and with all of them after `lod: false` (WebGPU), picks, setVisible, remove, unuse.
