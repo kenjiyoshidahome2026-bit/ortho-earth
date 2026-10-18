@@ -31,7 +31,7 @@ URL＝`https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/names/<la
 - 他言語＝Wikidata の見出し（2026-09-19 取得）から百科事典の曖昧さ回避（「(…)」・hu の「csillagkép」）とカタログ番号型（Messier 13 など）を除去。
   同じ言語の星座名と同じメシエの見出しは捨てる（星座の項目を指している）。抜き取り検査で見つけた取り違えは手で当て直した（bn おおいぬ座・ar/pt アンドロメダ銀河・es オリオン大星雲）
 - 天体（bodies）＝ortho-solar の UI 辞書（apps/solar/i18n/ui.json）から写した（26 言語そろい）
-- 組み直し＝`scripts/names-from-wikidata.py`（Wikidata への問い合わせ文は先頭のコメント）
+- 組み直し＝`node scripts/names-from-wikidata.mjs <dir>`（Wikidata への問い合わせ文は先頭のコメント・2026-10-18 に Python 版から移植）
 
 ## 検定
 

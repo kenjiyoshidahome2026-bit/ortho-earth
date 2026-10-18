@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // t-gpkg: GeoPackage → GeoPBF（自前 SQLite リーダ・決定的・外部ツール不要）。
-//   固定資料は tests/fixtures/gpkg/make.py（python3 標準 sqlite3）で生成したもの。
+//   固定資料は tests/fixtures/gpkg/make.mjs（Node 標準の node:sqlite）で生成したもの。
 //   ・SQLite リーダ: 多段 B-tree（page 1024・1200 行）・overflow ページ・rowid 別名・全 serial type・UTF-16le・CREATE TABLE の列解釈
 //   ・GPKG: 層一覧・全ジオメトリ種・BE envelope/BE WKB・Z 落とし・空/NULL 落とし・EPSG:3857→経緯度・型変換（bool/date/巨大整数/BLOB 列除外）
 //   ・CLI（gpkg2pbf 一覧と変換）
@@ -137,16 +137,16 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 	let threw = ""; try { openGpkgTiles(tiny, "nope"); } catch (e) { threw = e.message; } ok(/tile table "nope" not found \(tile tables: tiny, geo\)/.test(threw), "無いタイル表は候補付きで拒否");
 	threw = ""; try { openGpkgTiles(mixed); } catch (e) { threw = e.message; } ok(/no tile tables \(data_type='tiles'\)/.test(threw), "タイル表の無い gpkg は拒否");
 	ok(mimeOf(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])) === "image/jpeg" && mimeOf(new TextEncoder().encode("RIFF....WEBPVP8 ")) === "image/webp", "mimeOf: JPEG / WebP");
-	// 地理院タイルの実物（tests/fixtures/gpkg/make-raster.py で生成・git 非追跡・あれば検定）
+	// 地理院タイルの実物（tests/fixtures/gpkg/make-raster.mjs で生成・git 非追跡・あれば検定）
 	const gsiPath = new URL("./fixtures/gpkg/gsi-tokyo.gpkg", import.meta.url);
-	if (!existsSync(gsiPath)) console.log("– skip: 地理院タイル gpkg（make-raster.py 未実行）");
+	if (!existsSync(gsiPath)) console.log("– skip: 地理院タイル gpkg（make-raster.mjs 未実行）");
 	else {
 		const gsi = new Uint8Array(readFileSync(gsiPath));
 		const r = readGeoPackage(gsi);
 		ok(r.tiles.map(t => t.table).join() === "std,photo" && r.tiles[0].zooms.join() === "10,11,12,13,14" && r.tiles[1].zooms.join() === "12,13,14", "GSI: std/photo の 2 表とズーム域");
 		const std = openGpkgTiles(gsi, "std"), photo = openGpkgTiles(gsi, "photo");
 		ok(std.xyz && std.count === 20 && photo.xyz && photo.count === 17 && std.bboxLonLat.map(v => v.toFixed(2)).join() === "139.74,35.66,139.79,35.70", "GSI: XYZ 同型・枚数・bbox");
-		// z14 の範囲は bbox から XYZ 式で導く（make-raster.py の tile_xy と同じ）＝14551–14553 × 6450–6452 の 3×3
+		// z14 の範囲は bbox から XYZ 式で導く（make-raster.mjs の tileXY と同じ）＝14551–14553 × 6450–6452 の 3×3
 		const txy = (lon, lat, z) => { const n = 2 ** z, r = lat * Math.PI / 180; return [Math.floor((lon + 180) / 360 * n), Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n)]; };
 		const [x0, y0] = txy(139.74, 35.70, 14), [x1, y1] = txy(139.79, 35.66, 14);
 		const z14 = []; for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) if (std.has(14, x, y)) z14.push([x, y]);

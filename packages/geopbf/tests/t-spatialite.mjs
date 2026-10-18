@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// t-spatialite: SpatiaLite（自前 SQLite リーダ＋幾何 BLOB 復号）→ GeoPBF。固定資料は tests/fixtures/spatialite/make.py（mod_spatialite）。
+// t-spatialite: SpatiaLite（自前 SQLite リーダ＋幾何 BLOB 復号）→ GeoPBF。固定資料は tests/fixtures/spatialite/mixed.sqlite（mod_spatialite で作って commit 済み・作り方は同じ場所の README.md）。
 // 古典 BLOB・圧縮（XYZ/XYZM・float 差分）・TinyPoint・Multi/Collection（ENTITY 印）・NULL・3857/平面直角の逆変換・型付き属性・BLOB 列の除外・層一覧・エラー文言。
 globalThis.ImageData ??= class ImageData { };
 import { readFileSync, mkdtempSync } from "node:fs";
