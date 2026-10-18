@@ -41,8 +41,6 @@ clock.set({ face: 1, hand: 0 }); // 見た目を変える
 clock.stop(); clock.start();
 ```
 
-世界時計はフォントの CSS を `import` するので、Vite などのバンドラ経由で使ってください。
-
 ### 世界時計のオプション
 
 | 名前 | 既定 | 内容 |
@@ -80,4 +78,4 @@ import { 旧暦計算 } from "himekuri/旧暦.js";            // 旧暦 { 年, �
 ## ライセンス
 
 - コード：MIT（[LICENSE](LICENSE)）
-- 同梱フォント DSEG7 / DSEG14：© keshikan、SIL Open Font License 1.1（[src/assets/fonts/LICENSE-DSEG.txt](src/assets/fonts/LICENSE-DSEG.txt)）
+- 同梱フォント DSEG7 / DSEG14：© keshikan、SIL Open Font License 1.1（[LICENSE-DSEG.txt](LICENSE-DSEG.txt)・`src/fonts.ts` に data: URL で同梱）
