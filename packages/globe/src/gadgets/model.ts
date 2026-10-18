@@ -428,6 +428,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			pick(x, y) { if (!live(it)) return null; const env = envNow(); return env ? pickOne(it, x, y, env) : null; },
 			// 地物の一覧の見出し＝{ primitives, tables: [{ name, class, count, columns }] } | null
 			get features() {
+				if (!live(it)) return null;   // 外した（clear／置き換えた）手綱は pick と同じく null
 				const fb = it.batches.find(b => b.features); if (!fb) return it.stats.features ? { ...it.stats.features, tables: [] } : null;
 				return { ...(it.stats.features || {}) as NonNullable<ModelStats["features"]>, tables: (fb.features!.tables || []).map(T => ({ name: T.name, class: T.class, count: T.count, columns: Object.keys(T.columns) })) };
 			},
