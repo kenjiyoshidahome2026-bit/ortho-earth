@@ -78,7 +78,7 @@ const parent = []; for (let i = 0; i < 200; i++) parent.push({ pos: [-90 + (i % 
 writeFileSync("parent.glb", specGlb(parent));
 // 子（glTF の z＝−北）
 writeFileSync("child0.glb", specGlb(grid(-50, 50, 50, 40, 1.2, [1, 0.1, 0.1]), { color0: true }));                       // 南西・赤
-writeFileSync("child1.glb", specGlb(grid(50, 50, 50, 40, 1.2, [0.1, 0.9, 0.1]), { sh1: [[-1.5, -1.5, 2.5], [0, 0, 0], [0, 0, 0]] }));   // 南東・緑（1 次の SH＝m＝−1（y＝glTF の上）の係数＝上から見ると青へ寄る）
+writeFileSync("child1.glb", specGlb(grid(50, 50, 50, 40, 1.2, [0.1, 0.9, 0.1]), { sh1: [[-0.25, -0.25, 0.4], [0, 0, 0], [0, 0, 0]] }));   // 南東・緑（1 次の SH＝m＝−1（y＝glTF の上）の係数＝上から見るとわずかに青へ寄るが緑のまま＝WebGPU は SH を評価する）
 writeFileSync("child2.glb", draftGlb(grid(-50, -50, 50, 40, 1.2, [0.1, 0.2, 1])));                                      // 北西・青（草案の名・log の尺）
 writeFileSync("child3.glb", spzGlb(grid(50, -50, 50, 40, 1.2, [1, 1, 1])));                                               // 北東・白（SPZ）
 const kid = (ex, ny, uri) => ({ boundingVolume: box(ex, ny, 6, 52, 52, 6), geometricError: 0, content: { uri } });

@@ -30,7 +30,7 @@ ok("child0.noSh", s0.sh === null && s0.shDegree === 0 && s0.spz === null && s0.c
 
 const c1 = await decode("child1.glb");
 const s1 = c1.splats[0];
-ok("child1.sh", s1.shDegree === 1 && s1.sh && s1.sh.length === 1600 * 9 && near(s1.sh[0], -1.5) && near(s1.sh[2], 2.5) && s1.sh[3] === 0 && near(s1.sh[9], -1.5), s1.sh ? `${[...s1.sh.slice(0, 10)]}` : "null");   // 係数が先（k*3+c）＝COEF_0 の RGB → COEF_1 の RGB …
+ok("child1.sh", s1.shDegree === 1 && s1.sh && s1.sh.length === 1600 * 9 && near(s1.sh[0], -0.25) && near(s1.sh[2], 0.4) && s1.sh[3] === 0 && near(s1.sh[9], -0.25), s1.sh ? `${[...s1.sh.slice(0, 10)]}` : "null");   // 係数が先（k*3+c）＝COEF_0 の RGB → COEF_1 の RGB …
 ok("child1.color", Math.abs(s1.colors[0] - 26) <= 1 && Math.abs(s1.colors[1] - 230) <= 1, `${[...s1.colors.slice(0, 4)]}`);
 
 const c2 = await decode("child2.glb");   // 草案＝_SCALE（log）・_ROTATION（short 正規化）・_OPACITY・COLOR_0（線形）
