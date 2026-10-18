@@ -5,6 +5,7 @@
      ③pick が箱の名前を返す ④onMessage で箱を動かせる ⑤RTE＝z18 で箱の画素の重心が projectH の点から 2px 以内 ⑥remove で消える
      ⑦（2026-10-18）2 つ目の addThree（名前を渡さない＝"three2"）が 1 つ目と混ざらない（overlay ごとの実体）・モジュールが bare の `import * as T from "three"`・
        `import { GLTFLoader } from "three/addons/…"` を書ける（worker の中で解く・T は setup の THREE と同じ実体）・ready は setup の後
+     ?r=webgpu＝同じ検分を three の WebGPURenderer で（深度は前置き・?gpu=1 で本体の device と深度テクスチャを共有）。
      three.js は globe の devDependency（検定だけ）＝vite.config.js の rawThree が /__three/ に素のまま配る（利用者は CDN の URL を渡す）。実時間（worker の動的 import）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-three</title></head>
 <body><div id="map"></div>
@@ -12,7 +13,8 @@
 const Q = new URLSearchParams(location.search);
 const WAIT = +Q.get("wait") || 40000;
 const { createGlobe } = await import("@ortho-earth/globe");
-const threeUrl = new URL(__OE_THREE_URL__, location.href).href;   // vite.config.js の define＝/@fs/…/three.module.js（検定だけの devDependency）
+const R = Q.get("r") === "webgpu" ? "webgpu" : "webgl";   // ?r=webgpu＝three の WebGPURenderer（three.webgpu.js）・?gpu=1 と併せる＝本体も WebGPU（device と深度を共有）
+const threeUrl = new URL(R === "webgpu" ? __OE_THREE_URL__.replace("three.module.js", "three.webgpu.js") : __OE_THREE_URL__, location.href).href;   // vite.config.js の define＝/__three/build/three.module.js（検定だけの devDependency）
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -32,7 +34,7 @@ try {
 	const behind = hAt(25, 600), front = hAt(-25, -150), above = [LON, LAT, 450];
 	const boxes = [{ name: "behind", lon: behind[0], lat: behind[1], h: behind[2], size: 40, color: 0xff2020 }, { name: "front", lon: front[0], lat: front[1], h: front[2], size: 40, color: 0xff2020 }, { name: "above", lon: above[0], lat: above[1], h: above[2], size: 40, color: 0xff2020 }];
 	let setupMsg = null;
-	const h = map.addThree({ three: threeUrl, module: new URL("./fixtures/three/boxes.js", location.href).href, origin: [LON, LAT, 0], params: { boxes }, name: "three" });
+	const h = map.addThree({ renderer: R, three: threeUrl, module: new URL("./fixtures/three/boxes.js", location.href).href, origin: [LON, LAT, 0], params: { boxes }, name: "three" });
 	h.onmessage = d => { if (d?.type === "setup") setupMsg = d; };
 	await h.ready;
 	ok("readyAfterSetup", !!setupMsg, "ready で setup の知らせが届いている");
@@ -79,7 +81,7 @@ export function setup(THREE, scene, h) {
 	h.post({ type: "bare", same: T === THREE, gltf: typeof new GLTFLoader().parse === "function" });
 }`;
 	let bare = null;
-	const h2 = map.addThree({ three: threeUrl, module: URL.createObjectURL(new Blob([src2], { type: "text/javascript" })), origin: [LON, LAT, 0] });
+	const h2 = map.addThree({ renderer: R, three: threeUrl, module: URL.createObjectURL(new Blob([src2], { type: "text/javascript" })), origin: [LON, LAT, 0] });
 	h2.onmessage = d => { if (d?.type === "bare") bare = d; };
 	await h2.ready;
 	ok("secondName", h2.name === "three2", h2.name);

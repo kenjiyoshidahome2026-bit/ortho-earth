@@ -152,7 +152,8 @@ function overlayAdd(m: RwMsg) {
 	const stage = (st: string, extra?: Record<string, unknown>) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL,
 		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }),
-		stage: (st, extra) => { if (overlays.get(m.name!) === o) stage(st, extra); } };   // モジュールが非同期の準備を済ませた段（three の "setup"・失敗の "failed"）を名乗る
+		stage: (st, extra) => { if (overlays.get(m.name!) === o) stage(st, extra); },
+		gpuDevice: () => backendName === "webgpu" ? ((renderer as RenderBackendGPU | null)?.device as unknown as GPUDevice | undefined) ?? null : null };   // 本体の GPUDevice（WebGPU の時）＝共有して描くオーバーレイ（three の WebGPURenderer）が深度をコピーなしで読む   // モジュールが非同期の準備を済ませた段（three の "setup"・失敗の "failed"）を名乗る
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
 	// blob:／data: は問いを足すと引けなくなる（blob の実体は URL の丸ごと一致・data は本文に混ざる）＝断片（#ov=）で分ける。断片は取得では落ち、module map の鍵には残る
@@ -873,7 +874,7 @@ function ensureIfMoved(c: CameraPose) {
 // 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
 	lastFrameRun = performance.now(); frameTicks++;
-	let drew = false, depthBmp: ImageBitmap | null = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す
+	let drew = false, depthBmp: ImageBitmap | null = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す（WebGL のオーバーレイが求めた時だけ作られる）
 	try {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
@@ -911,7 +912,7 @@ function frame() {
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer!.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			let depthFrame: DepthFrame | null = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
-			if (dBegun) { try { depthFrame = dOutH!.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
+			if (dBegun) { try { depthFrame = dOutH!.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; const bm = depthFrame?.bitmap; if (typeof bm === "function") depthFrame!.bitmap = () => depthBmp ??= bm(); else depthBmp = bm || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;

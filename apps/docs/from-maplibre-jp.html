@@ -86,7 +86,7 @@ MapLibre GL JS の公式例はすべて、コードを変えずに（import だ�
 <ul>
 	<li><strong>いつも球です。</strong>平らなメルカトルの表示はありません。<code>projection</code> は何と書いても球として読み、<code>renderWorldCopies</code> は写す物がありません。この project の平らな世界図は <a href="equal-earth-jp.html">Equal Earth</a> です。</li>
 	<li><strong>描くのは worker です。</strong>物として渡した custom layer は地図の上に描かれます。<code>url</code> を持つ custom layer は描画 worker の中で走り、地形と建物に隠れます。deck.gl の <code>MapboxOverlay</code> は重ねる形で動きます（<code>interleaved: true</code> は重ねる形に落ちる）。</li>
-	<li><strong>three.js は <code>map.addThree({ module })</code> が近道です。</strong>描画 worker の中で地図と同じカメラで描き、地形と建物に隠れ、クリックで当たります。モジュールは <code>import * as THREE from "three"</code>・<code>"three/addons/…"</code> と普段どおり書けます（three.js は既定で jsDelivr から・深度で隠すには r180 以上）。MapLibre の custom layer をそのまま移すなら、モジュールにして <code>url</code> と <code>three</code> を渡します（手引き＝パッケージの THREE.md）。</li>
+	<li><strong>three.js は <code>map.addThree({ module })</code> が近道です。</strong>描画 worker の中で地図と同じカメラで描き、地形と建物に隠れ、クリックで当たります。モジュールは <code>import * as THREE from "three"</code>・<code>"three/addons/…"</code> と普段どおり書けます（three.js は既定で jsDelivr から・深度で隠すには r180 以上）。<code>renderer: "webgpu"</code> なら three の WebGPURenderer で描き、地図が WebGPU の時は GPU と深度を共有します（毎フレームの写しなし）。MapLibre の custom layer をそのまま移すなら、モジュールにして <code>url</code> と <code>three</code> を渡します（手引き＝パッケージの THREE.md）。</li>
 	<li><strong>MapLibre より多くのこと。</strong>同じ地図に 3D Tiles（<code>map.add3DTiles</code>）・I3S・quantized-mesh の地形・glTF の模型・夜の側と星を動かす共通の時計・日影や見通しの解析を載せられます。CesiumJS も使っているなら <a href="from-cesium-jp.html">CesiumJS から来た人へ</a> を見てください。</li>
 </ul>
 
