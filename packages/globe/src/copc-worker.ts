@@ -1,8 +1,10 @@
 // 点群（COPC・普通の LAS/LAZ）の読み手 worker（#178）。main（gadgets/copc.js）が選んだ節だけを Range で取って LAZ を解き、原点相対の点にして返す。
 //   普通の LAS/LAZ（COPC info が無い物・点群計画 段 3-3）は open で丸ごと読み、その場で八分木を作る（pointcloud-octree.js）＝以降の節は手元から集めるだけ。
 //   開く  { type:"open", id, src: URL | Blob, headers?, crs?, vertical?, ell } → { type:"opened", id, info, root: { nodes, pages } }
+//         ZIP（.zip・"PK\3\4"）＝中の最初の LAS/LAZ を解いてから（pointcloud-zip.js）。取る間は { type:"progress", id, loaded, total } を送る
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
-//   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), ms: { read, decode, proj } }
+//   節    { type:"node", id, rid, node, N } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), gs, ms: { read, decode, proj } }
+//         gs＝地面の見本（Float64 [経度, 緯度, 標高 m]×最大 GS 点・分類 2＝地面を優先）＝地形に合わせる（手綱の fitTerrain）の材料。heightOffset は描き（copc-gl の lift）で足す＝ここでは足さない
 // 解読＝"#pointcloud-formats" の laz（プラグイン @ortho-earth/tile-formats/pointcloud＝laz-perf 0.0.7 の ChunkDecoder・WASM・Apache-2.0）。
 //   globe 自身は laz-perf に依存しない（本人裁定＝プラグインの形）・差し込まれていなければ open で何を足すかを返す。最初の節で一度だけ起こす（起動の重さは 0）。
 // 座標＝opts.crs／WKT（LASF_Projection 2112）／GeoTIFF キー（34735）→ pointcloud-crs.js（geopbf/proj の crsFromWKT＝TM・メルカトル・LCC・Albers・経緯度）→ 経緯度。高さ＝z（鉛直の単位）
@@ -14,6 +16,7 @@ import { resolveCrs } from "./pointcloud-crs.ts";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.ts";
 import { placeNode } from "./copc-place.ts";
 import { wholeFileLimit, createStore, appendRaw, buildOctree, gatherNode } from "./pointcloud-octree.ts";
+import { isZip, unzipPointCloud } from "./pointcloud-zip.ts";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
 import type { CopcInfo, CopcNode, CopcPage, LasHeader, LasRecords, LasVlr, NodeKey } from "@ortho-earth/tile-formats/las";
 import type { Source } from "geopbf/cog/source";
@@ -33,7 +36,7 @@ type SphNode = CopcNode & { c?: number[]; r?: number; ll?: ArrayLike<number>; sp
 interface CopcMsg {
 	type?: "open" | "page" | "node" | "close"; id: number; rid?: number; ell?: boolean;
 	src?: string | Blob; headers?: Record<string, string>; crs?: string; vertical?: "orthometric" | "ellipsoidal";
-	page?: { offset: number; byteSize: number }; node?: CopcNode; N?: number; heightOffset?: number;
+	page?: { offset: number; byteSize: number }; node?: CopcNode; N?: number;
 }
 
 let LAZ: ReturnType<NonNullable<PointcloudFormats["laz"]>> | null = null;
@@ -87,7 +90,12 @@ async function open(m: CopcMsg) {
 	const name = typeof m.src === "string" ? new URL(m.src, self.location.href).pathname : (m.src as File | undefined)?.name || "";
 	if (!POINTCLOUD_FORMATS.laz && /\.laz$/i.test(name)) throw new Error(NO_LAZ);   // 取りに行く前に（.las は解読器なしで読める＝ヘッダを見るまで分からない物だけ取る）
 	const fetchFn = m.headers ? (u: RequestInfo | URL, init: RequestInit = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...m.headers } }) : undefined;
-	const src = await openSource(m.src!, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) });
+	let src = await openSource(m.src!, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) }), local = typeof m.src !== "string";
+	if (isZip(src.head)) {   // ZIP の中の LAS/LAZ（静岡県の配布物など）＝解いた物は手元の Blob＝以降は手元のファイルと同じ（上限は点の数だけ）
+		const { blob, name: inner } = await unzipPointCloud(src, { onProgress: (loaded, total) => self.postMessage({ type: "progress", id: m.id, loaded, total }), check: count => wholeFileLimit({ count, size: null, local: true }) });
+		if (!POINTCLOUD_FORMATS.laz && /\.laz$/i.test(inner)) throw new Error(NO_LAZ);
+		src = await openSource(blob, { headerBytes: 65536 }); local = true;
+	}
 	let head = new Uint8Array(src.head);
 	const hdr = parseHeader(head);
 	if (hdr.pointOffset > head.byteLength) head = new Uint8Array(await src.read(0, hdr.pointOffset));
@@ -107,7 +115,7 @@ async function open(m: CopcMsg) {
 	const gk = vlrs.find(v => v.userId === "LASF_Projection" && v.recordId === 34735);
 	const r = resolveCrs({ wkt, geoKeys: gk ? geoKeysEpsg(head, gk.offset, gk.length) : null, crs: m.crs, vertical: m.vertical });   // 水平・鉛直の決め方＝pointcloud-crs.js（点を読む前に＝座標系が無ければ早く断る）
 	const { crs, ll } = r;
-	const whole = ci ? null : await readWhole(src, hdr, vlrs, typeof m.src !== "string");
+	const whole = ci ? null : await readWhole(src, hdr, vlrs, local);
 	const info = ci ? parseCopcInfo(head, ci.offset) : whole!.tree.info;
 	const set: PcSet = { src: whole ? null : src, hdr, info, crs, ll, vUnit: r.vUnit, orthometric: r.orthometric, lonlat: r.lonlat, mem: whole && { store: whole.store, idx: whole.tree.idx } };
 	sets.set(m.id, set);
@@ -125,6 +133,19 @@ async function open(m: CopcMsg) {
 	};
 }
 
+// 地面の見本＝分類 2（地面）の点から等間隔に GS 点（地面の分類が無ければ全点から）→ [経度, 緯度, 標高 m]
+const GS = 24;
+function groundSample(r: { x: ArrayLike<number>; y: ArrayLike<number>; classification: Uint8Array }, n: number, ll: ResolvedCrs["ll"], elev: Float32Array) {
+	let g = 0; for (let i = 0; i < n; i++) if (r.classification[i] === 2) g++;
+	const want = g ? 2 : -1, m = g || n, step = Math.max(1, Math.floor(m / GS)), out: number[] = [];
+	for (let i = 0, k = 0; i < n && out.length < GS * 3; i++) {
+		if (want >= 0 && r.classification[i] !== want) continue;
+		if (k++ % step) continue;
+		const p = ll([r.x[i], r.y[i]]); out.push(p[0], p[1], elev[i]);
+	}
+	return new Float64Array(out);
+}
+
 async function node(m: CopcMsg & { node: CopcNode }) {
 	const set = sets.get(m.id); if (!set) throw new Error("copc: not open");
 	const { hdr, ll } = set, n = m.node.pointCount;
@@ -138,15 +159,16 @@ async function node(m: CopcMsg & { node: CopcNode }) {
 		r = readRecords(rec, n, hdr);
 	}
 	const t2 = performance.now();
-	const dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0);
+	const dz = set.orthometric ? 0 : -(m.N || 0);
 	const { pos, origin, elev, affine } = placeNode(r, n, { ll, vUnit: set.vUnit, dz, EW: earthW(), bounds: nodeBounds(set.info as CopcInfo, m.node.key) });   // 節ごとの二次式（ずれ 1 cm 超は 1 点ずつ）＝copc-place.js
+	const gs = groundSample(r, n, ll, elev);
 	let rgb: Uint8Array | Uint16Array | null = null;
 	if (r.rgb && set.mem) rgb = r.rgb;
 	else if (r.rgb) {   // LAS の RGB は 16bit が作法だが 8bit のまま入れる書き手もいる＝最大値で見分ける
 		let mx = 0; for (let i = 0; i < r.rgb.length; i++) if (r.rgb[i] > mx) mx = r.rgb[i];
 		const sh = mx > 255 ? 8 : 0; rgb = new Uint8Array(n * 3); for (let i = 0; i < rgb.length; i++) rgb[i] = r.rgb[i] >> sh;
 	}
-	return { n, pos, origin, affine, rgb, intensity: r.intensity, cls: r.classification, elev, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
+	return { n, pos, origin, affine, rgb, intensity: r.intensity, cls: r.classification, elev, gs, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
 }
 
 self.onmessage = async (e: MessageEvent<CopcMsg | null>) => {

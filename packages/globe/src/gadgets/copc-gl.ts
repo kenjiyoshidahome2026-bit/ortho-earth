@@ -6,13 +6,14 @@
 // 契約：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 //   message { type:"layer", q, n, pos: Float32Array(n*3), origin, rgb?: Uint8Array(n*3), intensity: Uint16Array(n), cls: Uint8Array(n), elev: Float32Array(n), spacing }
 //           spacing＝この節の点の間隔（世界単位）／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }
-//           { type:"style", mode, size, attenuation, elevRange:[m, m], intensityRange:[lo, hi], opacity }／検定用 { type:"probe", id }
+//           { type:"style", mode, size, attenuation, elevRange:[m, m], intensityRange:[lo, hi], opacity, lift（世界単位）, liftM（m） }／検定用 { type:"probe", id }
+//           lift＝高さの足し込み（heightOffset）＝点を鉛直（球の法線）に持ち上げる・段彩の値にも liftM を足す＝読み直さずに効く（2026-10-18）
 // render worker の組み込み（BUILTIN_OVERLAYS の "copc"・create() で実体を作る）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
 interface Layer { n: number; vao: WebGLVertexArrayObject | null; bufs: WebGLBuffer[]; origin: ArrayLike<number>; spacing: number; on: boolean }
-interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number }
+interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number; lift: number; liftM: number }
 /** message(d) の形 */
 type Msg =
 	| { type: "probe"; id: unknown }
@@ -29,7 +30,7 @@ layout(location = 3) in float a_cls;
 layout(location = 4) in float a_elev;
 uniform mat4 u_mvp; uniform vec3 u_origin; uniform vec3 u_eye;
 uniform int u_mode; uniform float u_size; uniform float u_atten; uniform float u_spacing; uniform float u_focal; uniform float u_maxPt;
-uniform vec2 u_elev; uniform vec2 u_intRange; uniform float u_opacity;
+uniform vec2 u_elev; uniform vec2 u_intRange; uniform float u_opacity; uniform float u_lift; uniform float u_liftM;
 out vec4 v_col; out float v_rad; out float v_w;
 vec3 ramp(float t) {   // 標高の段彩（青→緑→黄→赤）
 	t = clamp(t, 0.0, 1.0);
@@ -51,14 +52,15 @@ vec3 clsColor(float c) {   // ASPRS LAS 1.4 の分類
 }
 void main() {
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
-	vec3 d = (a_pos + u_origin) - u_eye;   // 地平線の向こう（球の裏側）は描かない
+	vec3 pos = a_pos + normalize(a_pos + u_origin) * u_lift;   // 高さの足し込み（球の法線＝数 m なら楕円体の法線との差は無視できる）
+	vec3 d = (pos + u_origin) - u_eye;   // 地平線の向こう（球の裏側）は描かない
 	float a = dot(d, d), b = dot(u_eye, d), c = dot(u_eye, u_eye) - 1.0, disc = b * b - a * c;
 	if (disc > 0.0) { float s = sqrt(disc); float t0 = (-b - s) / a; if (t0 > 1e-4 && t0 < 1.0 - 1e-4) { gl_Position = off; gl_PointSize = 0.0; v_col = vec4(0.0); v_rad = 0.0; v_w = 1.0; return; } }
-	vec4 cpos = u_mvp * vec4(a_pos, 1.0);
+	vec4 cpos = u_mvp * vec4(pos, 1.0);
 	if (cpos.w <= 0.0) { gl_Position = off; gl_PointSize = 0.0; v_col = vec4(0.0); v_rad = 0.0; v_w = 1.0; return; }
 	float rad = u_atten > 0.5 ? clamp(0.5 * u_spacing * u_focal / max(1e-9, sqrt(a)), 1.0, u_size * 4.0) : u_size;
 	v_rad = min(rad, u_maxPt * 0.5 - 1.0);
-	vec3 col = u_mode == 0 ? a_rgb : u_mode == 1 ? clsColor(a_cls) : u_mode == 2 ? vec3(clamp((a_int - u_intRange.x) / max(1e-6, u_intRange.y - u_intRange.x), 0.0, 1.0)) : ramp((a_elev - u_elev.x) / max(1e-6, u_elev.y - u_elev.x));
+	vec3 col = u_mode == 0 ? a_rgb : u_mode == 1 ? clsColor(a_cls) : u_mode == 2 ? vec3(clamp((a_int - u_intRange.x) / max(1e-6, u_intRange.y - u_intRange.x), 0.0, 1.0)) : ramp((a_elev + u_liftM - u_elev.x) / max(1e-6, u_elev.y - u_elev.x));
 	v_col = vec4(col, u_opacity); v_w = cpos.w;
 	gl_PointSize = v_rad * 2.0 + 2.0;
 	gl_Position = cpos;
@@ -82,7 +84,7 @@ void main() {
 }`;
 	let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, maxPt = 1, wantDepth = false, host: OverlayHost | null = null;
 	const layers = new Map<string, Layer>();
-	let style: Style = { mode: "rgb", size: 2, attenuation: true, elevRange: [0, 100], intensityRange: [0, 65535], opacity: 1 };
+	let style: Style = { mode: "rgb", size: 2, attenuation: true, elevRange: [0, 100], intensityRange: [0, 65535], opacity: 1, lift: 0, liftM: 0 };
 	const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3 };
 	const probes: unknown[] = [];
 
@@ -148,6 +150,7 @@ void main() {
 		gl.uniform2f(uni.u_elev, style.elevRange[0], style.elevRange[1]);
 		gl.uniform2f(uni.u_intRange, style.intensityRange[0], style.intensityRange[1]);
 		gl.uniform1f(uni.u_opacity, style.opacity ?? 1);
+		gl.uniform1f(uni.u_lift, style.lift || 0); gl.uniform1f(uni.u_liftM, style.liftM || 0);
 		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.DEPTH_TEST);
 		const M = s.mvp, mvpL = new Float32Array(16);
 		for (const L of layers.values()) {

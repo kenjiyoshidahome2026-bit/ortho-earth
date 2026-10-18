@@ -5,7 +5,9 @@
 //   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。
 //   描き＝copc-gl.js（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
 //   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に 4 つまで（LOW_MEM 2）。
-//   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる。
+//   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる
+//     （描きの lift＝読み直さずに効く・2026-10-18）。fitTerrain()＝節が持ってくる地面の見本（gs）と描いている地形（map.sampleTerrain）の差の中央値を heightOffset に。
+//   ZIP（.zip の中の LAS/LAZ）は worker が解く＝取る間の進み具合は opts.onProgress(loaded, total)。
 import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { COPCHandle, COPCOptions, OverlayHandle } from "../../globe.d.ts";
@@ -16,7 +18,7 @@ import type { GlobeMap } from "../types/map.ts";
 type COPCInfo = COPCHandle["info"];
 /** 八分木の節（worker の答え）＋選びの状態。key＝[d, x, y, z]・c／r＝β 単位球の外接球・ll＝中心の経緯度 */
 interface NodeMsg { key: number[]; offset: number; byteSize: number; pointCount: number; c: number[]; r: number; spacingM: number; ll: number[] }
-interface PcNode extends NodeMsg { state: "none" | "loading" | "ready" | "failed"; used: number; on: boolean; q?: string; points?: number }
+interface PcNode extends NodeMsg { state: "none" | "loading" | "ready" | "failed"; used: number; on: boolean; q?: string; points?: number; gs?: Float64Array }
 /** 階層の頁（要る時に読む） */
 interface PageMsg { key: number[]; offset: number; byteSize: number }
 interface PcPage extends PageMsg { state: "none" | "loading" | "ready" | "failed" }
@@ -52,8 +54,11 @@ const keyStr = (k: number[]) => k.join("-");
 export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requester, ell, earthM, setAttr = () => {} }: COPCEnv) {
 	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "copc" });
 	const pending = new Map<string | number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let rid = 0;
-	w.onmessage = e => { const d = e.data || {}; const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
+	w.onmessage = e => { const d = e.data || {};
+		if (d.type === "progress") { const st = sets.get(d.id); try { st?.opts.onProgress?.(d.loaded, d.total); } catch (err) { console.warn("[copc] onProgress", err); } return; }   // ZIP を取る間の進み具合（rpc の答えでない）
+		const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
 	const rpc = <T>(msg: Record<string, unknown>, key: string | number, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { pending.set(key, { res, rej } as { res: (d: unknown) => void; rej: (e: Error) => void }); w.postMessage({ ...msg, ell }, transfer); });
+	const GS_MAX = 1200;   // fitTerrain に使う地面の見本の上限（粗い節から＝全体に散る）
 	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 2 : 4;
 	const sets = new Map<string, PcSet>();
 	let seq = 0, inflight = 0, loadedPts = 0, raf = 0, frameNo = 0;
@@ -87,6 +92,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 		const o = set.opts, info = set.info!;
 		const mode = o.color === "auto" ? (info.hasRgb ? "rgb" : "elevation") : o.color;
 		set.ov?.post({ type: "style", mode, size: o.pointSize, attenuation: o.attenuation !== false, elevRange: o.elevationRange || info.zRange.map(v => v - (info.vertical === "ellipsoidal" ? geoidHeight(info.center[0], info.center[1]) || 0 : 0) + (o.heightOffset || 0)),
+			lift: (o.heightOffset || 0) / earthM, liftM: o.heightOffset || 0,
 			intensityRange: o.intensityRange || [0, 65535], opacity: o.opacity ?? 1 });
 	}
 	const childrenOf = ([d, x, y, z]: number[]) => { const out: number[][] = []; for (let i = 0; i < 8; i++) out.push([d + 1, 2 * x + (i & 1), 2 * y + ((i >> 1) & 1), 2 * z + ((i >> 2) & 1)]); return out; };
@@ -102,10 +108,10 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 		n.state = "loading"; inflight++; if (!set.info!.inMemory) { set.stats.requests++; set.stats.bytes += n.byteSize; }
 		const N = set.info!.vertical === "ellipsoidal" ? geoidHeight(n.ll[0], n.ll[1]) || 0 : 0;
 		const q = ++rid;
-		rpc<{ n: number; pos: Float32Array; origin: number[]; rgb?: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; affine?: boolean; ms?: Partial<COPCMetrics["ms"]> }>({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, heightOffset: set.opts.heightOffset || 0 }, q).then(r => {
+		rpc<{ n: number; pos: Float32Array; origin: number[]; rgb?: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; gs?: Float64Array; affine?: boolean; ms?: Partial<COPCMetrics["ms"]> }>({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N }, q).then(r => {
 			inflight--;
 			if (!sets.has(set.id) || set.nodes.get(keyStr(n.key)) !== n) return;
-			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
+			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; if (r.gs?.length) n.gs = r.gs; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
 			const st = set.stats; if (r.affine) st.affine++; if (r.ms) for (const k in st.ms) st.ms[k as keyof COPCMetrics["ms"]] += r.ms[k as keyof COPCMetrics["ms"]] || 0; if (!st.firstAt) st.firstAt = performance.now() - st.t0;
 			set.ov!.post({ type: "layer", q: n.q, n: r.n, pos: r.pos, origin: r.origin, rgb: r.rgb, intensity: r.intensity, cls: r.cls, elev: r.elev, spacing: n.spacingM / earthM }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 			n.on = true;
@@ -165,7 +171,21 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 			setOptions(o = {}) { Object.assign(set.opts, o); applyStyle(set); if (o.density != null) schedule(); return this; },
 			setVisible(v: boolean) { set.hidden = !v; if (!v) for (const n of set.nodes.values()) if (n.state === "ready") setOn(set, n, false); schedule(); return this; },   // 出す時は次の選びが節を戻す
 			remove: () => remove(set.id),
+			fitTerrain: (o = {}) => fitTerrain(set, o),
 		};
+	}
+	// 地形に合わせる＝読んだ節の地面の見本（粗い節から GS_MAX 点）を描いている地形で引き、差（地形 − 点）の中央値を heightOffset に（apply:false＝測るだけ）
+	async function fitTerrain(set: PcSet, { apply = true }: { apply?: boolean } = {}) {
+		const pts: number[][] = [];
+		const nodes = [...set.nodes.values()].filter(n => n.gs).sort((a, b) => a.key[0] - b.key[0]);
+		for (const n of nodes) { for (let i = 0; i + 2 < n.gs!.length && pts.length < GS_MAX; i += 3) pts.push([n.gs![i], n.gs![i + 1], n.gs![i + 2]]); if (pts.length >= GS_MAX) break; }
+		if (!pts.length) return { offset: null, samples: 0 };
+		const hs = await map.sampleTerrain(pts.map(p => [p[0], p[1]] as [number, number]));
+		const d = hs.map((h, i) => h.height - pts[i][2]).filter(Number.isFinite).sort((a, b) => a - b);
+		if (!d.length) return { offset: null, samples: 0 };
+		const offset = Math.round(d[d.length >> 1] * 100) / 100;
+		if (apply && sets.get(set.id) === set) { set.opts.heightOffset = offset; applyStyle(set); }
+		return { offset, samples: d.length };
 	}
 	function remove(id: string) {
 		const set = sets.get(id); if (!set) return false;

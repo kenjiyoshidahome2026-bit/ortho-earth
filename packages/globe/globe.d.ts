@@ -1067,13 +1067,14 @@ export interface COPCOptions {
 	/** 点の半径（CSS px・既定 2）／attenuation＝距離で縮む（既定 true＝節の点の間隔 × 焦点距離 / 距離・1〜size×4 px）・false＝画素固定 */ pointSize?: number; attenuation?: boolean;
 	/** 細かさ（節の点の間隔の画面 px がこれより粗ければ子へ・既定 2・LOW_MEM 3） */ density?: number;
 	/** 地形・建物の裏で隠れる（シーンの深度・既定 true） */ depth?: boolean;
-	/** 高さの足し込み（m） */ heightOffset?: number;
+	/** 高さの足し込み（m・setOptions で読み直さずに効く）。地形に合わせるなら手綱の fitTerrain() */ heightOffset?: number;
 	/** 段彩の範囲（m・既定＝ファイルの z の範囲）・強度の範囲（既定 0〜65535） */ elevationRange?: [number, number]; intensityRange?: [number, number];
 	opacity?: number;
 	/** 読んだら範囲へ寄る（既定 true） */ fit?: boolean;
 	/** 出典（HTML・消毒して地図の出典の欄に出す）。省略＝他所の URL ならホスト名 */ attribution?: string;
 	/** 水平の座標系（"EPSG:6676" か WKT）＝ファイルの WKT・GeoTIFF キーより先。座標系の書かれていないファイルに要る */ crs?: string;
 	/** 鉛直（ファイルに書かれていない時だけ効く）＝"orthometric"（標高）か "ellipsoidal"（楕円体高）。既定＝投影座標系なら標高 */ vertical?: "orthometric" | "ellipsoidal";
+	/** ZIP（.zip の中の LAS/LAZ）を取る間の進み具合（取った生のバイト・その項の生の総長） */ onProgress?: (loaded: number, total: number) => void;
 }
 export interface COPCHandle {
 	id: string;
@@ -1086,6 +1087,8 @@ export interface COPCHandle {
 	setOptions(o: Partial<COPCOptions>): COPCHandle;
 	setVisible(v: boolean): COPCHandle;
 	remove(): boolean;
+	/** 地形に合わせる＝読んだ節の地面の点（分類 2）と描いている地形の差の中央値（m）を heightOffset に（apply:false＝測るだけ）。見本が無ければ offset は null */
+	fitTerrain(opts?: { apply?: boolean }): Promise<{ offset: number | null; samples: number }>;
 }
 /** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
 export interface InspectOptions {
