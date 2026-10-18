@@ -41,10 +41,12 @@ const ENV = { MY_BUCKET: R2, API_KEY: KEY, PROXY_ALLOWED_HOSTS: "data.test", ALL
 
 // ── 偽の配信元（Range も答える）──
 const files = new Map();
+const urlOf = u => new URL(u instanceof Request ? u.url : String(u));
+const isApi = u => urlOf(u).origin === API;   // 宛先は origin で見る（前方一致は "https://api.test.evil" も通す）
 const upstream = [];
 globalThis.fetch = async (url, init = {}) => {
 	const req = url instanceof Request ? url : new Request(String(url), init);
-	if (req.url.startsWith(API)) { const r = await worker.fetch(req, ENV, ctx); await Promise.all(pending); pending = []; return r; }
+	if (isApi(req)) { const r = await worker.fetch(req, ENV, ctx); await Promise.all(pending); pending = []; return r; }
 	upstream.push({ url: req.url, key: req.headers.get("X-API-Key"), range: req.headers.get("range"), method: req.method });
 	const path = new URL(req.url).pathname, f = files.get(path);
 	if (!f) return new Response("no", { status: 404 });
@@ -96,7 +98,7 @@ const gz = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream()
 	globalThis.fetch = real0;
 	upstream.length = 0;
 	ok("許可表の外・鍵なし＝proxy は 403 → 直に取る", await F("https://other.test/a.txt", "text") === "hello");
-	ok("直に取る時は proxy を通らない（転送先へ直）", upstream.some(u => u.url.startsWith("https://other.test/a.txt?_t=")));
+	ok("直に取る時は proxy を通らない（転送先へ直）", upstream.some(u => urlOf(u.url).origin === "https://other.test" && urlOf(u.url).pathname === "/a.txt" && urlOf(u.url).searchParams.has("_t")));
 	upstream.length = 0;
 	const nk = nativeBucket(API, { apiKey: KEY });
 	ok("鍵あり＝許可表の外も proxy を通る", await nk.Fetch("https://other.test/a.txt", "text") === "hello");
@@ -107,7 +109,7 @@ const gz = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream()
 	ok("イベント：FetchStart・FetchEnd（名前）", same(seen, [["FetchStart", "a.txt"], ["FetchEnd", "a.txt"]]));
 	files.set("/gone.txt", enc("x"));
 	const realFetch = globalThis.fetch;
-	globalThis.fetch = async (u, i) => String(u).startsWith("https://data.test/gone.txt?_t=") || (String(u).startsWith(API) && String(u).includes("gone.txt") && !String(u).includes("mode=check")) ? new Response("err", { status: 500 }) : realFetch(u, i);
+	globalThis.fetch = async (u, i) => (urlOf(u).origin === "https://data.test" && urlOf(u).pathname === "/gone.txt") || (isApi(u) && urlOf(u).searchParams.get("url") === "https://data.test/gone.txt" && urlOf(u).searchParams.get("mode") !== "check") ? new Response("err", { status: 500 }) : realFetch(u, i);
 	seen.length = 0; let err = null;
 	try { await F("https://data.test/gone.txt", { type: "text", eventTarget: ev }); } catch (e) { err = e; }
 	ok("本体が 500＝投げる・FetchError", err?.message === "500" && seen.some(s => s[0] === "FetchError"));
