@@ -45,7 +45,7 @@
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/jp": "*",
 		"@ortho-earth/tile-formats": "*",
-		"adm-zip": "^0.5.18",
+		"adm-zip": "^0.6.1",
 		"altpbf": "*",
 		"draco3d": "^1.5.7",
 		"earcut": "^3.2.3",
