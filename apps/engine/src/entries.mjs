@@ -43,6 +43,8 @@ export const ENTRIES = [
 		// common＝world・GeoPBF・gishub-jp／common の d3 部品＝GeoPBF・gishub-jp／world の読込と国の層＝world・quiz／xlsx の書き出し＝GeoPBF・gishub-jp／
 		// 国勢調査のグラフ＝census2020・gishub-jp／Wikipedia の枠＝world・census2020・ortho-globe・ortho-japan
 		"common", "common/geoExec", "common/screenLogger", "common/gintView",
+		// 案内パネルの器（2026-10-18）＝ortho-globe・ortho-japan・quakes・yokohama・choju の頁が共に読む
+		"common/panel",
 		"world-data/data", "world-data/worldlayers", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts", "@ortho-earth/globe/wiki.js",
 	].map(spec => [spec, sub(spec), src(spec)]),
 ];

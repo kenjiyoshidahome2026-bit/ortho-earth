@@ -12,8 +12,9 @@
 //   量   … 山の記号＝標高・川の太さ＝長さ・山地の帯の幅＝実寸（km）。数値は名前の下に添える（山・火山・滝）
 //   出し … rank（地理院が名前を置く最小のズーム）で名前の出しズームを決める＝大きな物ほど遠くから
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
-import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { gunzip, isGzip } from "geopbf/gzip";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { geopbf as GeopbfFn } from "@ortho-earth/regions/app";
 import type { GlobeMap, LayerMouseEvent, MapLibreLayer, StyleExpression, Bbox, GeoJSONFeature, GeoPBF } from "@ortho-earth/globe";
 const t = tr();
@@ -329,11 +330,12 @@ export async function mountTerrain(map: GlobeMap, { geopbf, base = "./" }: { geo
 	map.on("click", HIT, (e: LayerMouseEvent) => { const q = topQid(e); if (q) select(q, { fly: false }); });
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧・比較）──
-	const panel = document.createElement("div");
-	panel.className = "tr-panel";
-	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head"><h1>${esc(t("Landforms of Japan"))}</h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button class="fold" type="button" aria-label="${esc(t("Fold"))}">–</button></div>
-		<div class="body">
+	// 枠（見出し・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（紙の地図＝light）。言語の切替は地図のボタン（gadget.lang）
+	const P = createPanel({ host: mapEl, title: t("Landforms of Japan"), cls: "tr-panel", theme: "light",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
 			<div class="detail" hidden></div>
 			<div class="tabs" role="tablist">
 				<button type="button" data-tab="layers" class="on">${esc(t("Layers"))}</button>
@@ -358,11 +360,8 @@ export async function mountTerrain(map: GlobeMap, { geopbf, base = "./" }: { geo
 				<div class="ctl"><select class="preset">${PRESETS.map(p => `<option value="${p.id}">${esc(presetName(p.id))}</option>`).join("")}</select></div>
 				<p class="note">${esc(t("Hover a bar for its value; click to go there."))}</p>
 			</div>
-		</div>`;
-	mapEl.appendChild(panel);
+		`;
 	const $ = <E extends HTMLElement = HTMLElement>(s: string) => panel.querySelector(s) as E;
-	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); };   // 言語＝読み直す（視点と選択は URL に残る）
-	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll<HTMLInputElement>("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g!) : shown.delete(inp.dataset.g!); applyGroups(); });
 	panel.querySelectorAll<HTMLInputElement>("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov!, inp.checked));
 
@@ -538,14 +537,7 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&a
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝physical と同じ）──
 const CSS = `
-.tr-panel{position:absolute;top:12px;right:12px;z-index:30;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
-	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
-.tr-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.tr-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tr-panel .head .lang{flex:none;max-width:120px;font-size:12px;padding:3px 4px}
-.tr-panel .fold,.tr-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
-.tr-panel.min .body{display:none}
+.tr-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .tr-panel .tabs{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
 .tr-panel .tabs button{flex:1;border:0;background:none;padding:6px 4px;font:inherit;color:var(--qm-text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .tr-panel .tabs button.on{color:var(--qm-ink);font-weight:700;border-bottom-color:var(--qm-ink)}
@@ -618,8 +610,7 @@ const CSS = `
 .tr-chart .mk.on .nm,.tr-chart .mk.on .lb{fill:#d7263d;font-weight:700}
 .tr-chart .ctip{position:absolute;pointer-events:none;min-width:120px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.97);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-card);font-size:12px}
 .tr-chart .ctip[hidden]{display:none}
-@media (max-width:720px){
+@media (max-width:640px){
 	.tr-wiki{left:8px;right:8px;top:8px;width:auto}
-	.tr-panel{left:12px;right:12px;width:auto;max-height:44vh}
-	.tr-chart{left:8px;right:8px;height:240px}
+	.tr-chart{left:52px;right:8px;top:calc(8px + env(safe-area-inset-top, 0px));bottom:auto;height:220px}   /* 下端は案内のシート＝断面図は上へ（左はボタン列を空ける） */
 }`;

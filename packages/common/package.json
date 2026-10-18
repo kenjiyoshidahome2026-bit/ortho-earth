@@ -16,7 +16,8 @@
 		"./screenLogger": "./src/screenLogger.ts",
 		"./geoExec": "./src/geoExec.ts",
 		"./gintView": "./src/gintView.ts",
-		"./wiki": "./src/wiki.ts"
+		"./wiki": "./src/wiki.ts",
+		"./panel": "./src/panel.ts"
 	},
 	"files": [
 		"src",

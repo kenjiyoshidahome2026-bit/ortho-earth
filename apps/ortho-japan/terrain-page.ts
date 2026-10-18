@@ -15,7 +15,7 @@
 		const map = await orthoJapan({ target: "#map", view: location.hash || "#5.2/36.5/138/30t", chips: false, mesh: false,
 			layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 		dismissBoot();
-		map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+		map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 		const terrain = await mountTerrain(map, { geopbf, base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ } as Parameters<typeof mountTerrain>[1]);   // ?data=URL で台帳を差し替え
 		window.__map = map; window.__terrain = terrain;   // console 検証用
 	} catch (e) { console.error("[terrain] startup failed", e); dismissBoot(); }
