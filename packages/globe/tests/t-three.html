@@ -3,7 +3,9 @@
      three の箱（40m・無灯・赤）を ①棟の南 150m・高さ 150m（手前＝見える）②棟の北 600m・画面上で棟の中腹と同じ高さ（向こう＝隠れる）③棟の真上 450m（見える）に置く。
      ①setup が走り ENU の向き（東＝経度＋・北＝緯度＋・上＝高さ＋）が正しい ②箱の中心の画素＝赤（見える）・透明（隠れる）＝本体の深度で隠れている
      ③pick が箱の名前を返す ④onMessage で箱を動かせる ⑤RTE＝z18 で箱の画素の重心が projectH の点から 2px 以内 ⑥remove で消える
-     three.js は globe の devDependency（検定だけ）＝vite.config.js の define で /@fs/ の URL にして worker へ渡す（利用者は CDN の URL を渡す）。実時間（worker の動的 import）。 -->
+     ⑦（2026-10-18）2 つ目の addThree（名前を渡さない＝"three2"）が 1 つ目と混ざらない（overlay ごとの実体）・モジュールが bare の `import * as T from "three"`・
+       `import { GLTFLoader } from "three/addons/…"` を書ける（worker の中で解く・T は setup の THREE と同じ実体）・ready は setup の後
+     three.js は globe の devDependency（検定だけ）＝vite.config.js の rawThree が /__three/ に素のまま配る（利用者は CDN の URL を渡す）。実時間（worker の動的 import）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-three</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -33,6 +35,7 @@ try {
 	const h = map.addThree({ three: threeUrl, module: new URL("./fixtures/three/boxes.js", location.href).href, origin: [LON, LAT, 0], params: { boxes }, name: "three" });
 	h.onmessage = d => { if (d?.type === "setup") setupMsg = d; };
 	await h.ready;
+	ok("readyAfterSetup", !!setupMsg, "ready で setup の知らせが届いている");
 	await until(() => setupMsg, WAIT);
 	ok("setup", setupMsg?.n === 3, JSON.stringify(setupMsg));
 	const E = setupMsg?.east, N = setupMsg?.north, U = setupMsg?.up;
@@ -65,6 +68,31 @@ try {
 	{ let sx = 0, sy = 0, n = 0; for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) { const k = (y * img.w + x) * 4; if (img.data[k + 3] > 200 && img.data[k] > 150 && img.data[k + 1] < 80) { sx += x; sy += (img.flipY ? img.h - 1 - y : y); n++; } }
 	  const P2 = map.makeProjectorH(), c = P2(front[0], front[1], front[2]); const cx = sx / n / dpr, cy = sy / n / dpr;
 	  ok("rte", n > 100 && Math.hypot(cx - c[0], cy - c[1]) < 2, `n=${n} centroid=${cx?.toFixed(1)},${cy?.toFixed(1)} proj=${c[0].toFixed(1)},${c[1].toFixed(1)}`); }
+	// ⑦ 2 つ目（bare の import・名前なし）＝緑の箱を above の東 200m に。1 つ目と混ざらない
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+	const g = ll(200, 0), cMv = P(mv[0], mv[1], 450);
+	const src2 = `import * as T from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+export function setup(THREE, scene, h) {
+	const m = new T.Mesh(new T.BoxGeometry(40, 40, 40), new T.MeshBasicMaterial({ color: 0x20ff20 }));
+	m.position.copy(h.lnglatToLocal(${g[0]}, ${g[1]}, 450)); m.name = "green"; scene.add(m);
+	h.post({ type: "bare", same: T === THREE, gltf: typeof new GLTFLoader().parse === "function" });
+}`;
+	let bare = null;
+	const h2 = map.addThree({ three: threeUrl, module: URL.createObjectURL(new Blob([src2], { type: "text/javascript" })), origin: [LON, LAT, 0] });
+	h2.onmessage = d => { if (d?.type === "bare") bare = d; };
+	await h2.ready;
+	ok("secondName", h2.name === "three2", h2.name);
+	ok("bareImport", bare?.same === true && bare?.gltf === true, JSON.stringify(bare));
+	await sleep(600);
+	{ const img2 = await (() => new Promise(res => { const prev = h2.onmessage; h2.onmessage = d => { if (d?.type === "pixels") { h2.onmessage = prev; res(d); } else prev?.(d); }; h2.post({ type: "probe", id: "q" }); }))();
+	  const cG = P(g[0], g[1], 450), green = px(img2, cG[0], cG[1]);
+	  ok("secondDrawn", green[1] > 150 && green[0] < 80 && green[3] > 200, JSON.stringify(green));
+	  ok("secondOwnCanvas", !red(px(img2, cMv[0], cMv[1])), "2 つ目の canvas に 1 つ目の箱が無い"); }
+	img = await pixels();
+	ok("firstStill", img && red(px(img, cMv[0], cMv[1])), "1 つ目は 2 つ目を足した後も描く");
+	{ const cH = cMv; const hits2 = await map.pickOverlays(cH[0], cH[1]); ok("firstPick", hits2.some(x => x.name === "three" && x.properties?.name === "above"), JSON.stringify(hits2.map(x => [x.name, x.properties?.name]))); }
+	h2.remove();
 	// ⑥ remove
 	h.remove(); await sleep(300);
 	ok("removed", (await map.pickOverlays(cF[0], cF[1])).length === 0 && !document.querySelector('canvas[data-overlay="three"]'));

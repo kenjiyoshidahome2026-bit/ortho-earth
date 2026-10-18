@@ -137,7 +137,7 @@ let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   //
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
-const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts"),
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts").then(m => m.create()),
 	// 旧＝URL で読ませたオーバーレイ（vite の ?url は変換せずに置く＝型を剥いだ .js を src に併置していた）を、この worker の遅延チャンクとして読む（2026-10-17）。
 	// モジュールの中身は create() の閉包＝呼ぶたびに別の実体（旧＝URL に ?ov= を足して overlay ごとに別のモジュール実体にしていたのと同じ分け方）
 	heatmap: () => import("./heatmap-gl.ts").then(m => m.create()), cluster: () => import("./cluster-2d.ts").then(m => m.create()), pattern: () => import("./pattern-2d.ts").then(m => m.create()), symbols: () => import("./symbols-2d.ts").then(m => m.create()),
@@ -149,9 +149,10 @@ function overlayAdd(m: RwMsg) {
 	// モジュールが取った文脈を覚える（撮影＝readOverlays が読む・後から getContext で探ると、まだ文脈の無い canvas に 2d を作って横取りしてしまう）
 	{ const gc = o.canvas.getContext.bind(o.canvas) as (type: string, attrs?: unknown) => OffscreenRenderingContext | null; (o.canvas as { getContext: typeof gc }).getContext = (type: string, attrs?: unknown) => { const c = gc(type, attrs); if (c) { o.kind = type; o.ctx = c; } return c; }; }
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
-	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL,
-		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }) };
 	const stage = (st: string, extra?: Record<string, unknown>) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
+	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL,
+		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }),
+		stage: (st, extra) => { if (overlays.get(m.name!) === o) stage(st, extra); } };   // モジュールが非同期の準備を済ませた段（three の "setup"・失敗の "failed"）を名乗る
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
 	// blob:／data: は問いを足すと引けなくなる（blob の実体は URL の丸ごと一致・data は本文に混ざる）＝断片（#ov=）で分ける。断片は取得では落ち、module map の鍵には残る
