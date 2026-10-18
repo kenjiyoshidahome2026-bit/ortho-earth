@@ -15,5 +15,10 @@ ok("badType", /Float32Array/.test(th(() => normSplat(mk(1, { scales: [0, 0, 0] }
 ok("badColors", /colors/.test(th(() => normSplat(mk(1, { colors: new Float32Array(4) })))));
 ok("sh", normSplat(mk(2, { sh: new Float32Array(2 * 9) })).sh.length === 18 && /sh/.test(th(() => normSplat(mk(2, { sh: new Float32Array(5) })))));
 ok("empty", normSplat(mk(0)).n === 0);
+const xf = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 200, 300, 1];
+ok("local", normSplat(mk(1, { crs: "local", transform: xf })).crs === "local" && normSplat(mk(1, { crs: "local", transform: new Float64Array(xf) })).transform.length === 16);
+ok("localNoXf", /transform/.test(th(() => normSplat(mk(1, { crs: "local" })))) && /transform/.test(th(() => normSplat(mk(1, { crs: "local", transform: [1, 2] })))) && /transform/.test(th(() => normSplat(mk(1, { crs: "local", transform: xf.map((v, i) => i === 3 ? NaN : v) })))));
+const bytes = new Uint8Array([1, 2, 3]);
+ok("bytesPass", normSplat(bytes) === bytes && normSplat(bytes.buffer) === bytes.buffer);
 ok("notObj", /SplatData/.test(th(() => normSplat(null))) && /SplatData/.test(th(() => normSplat("x.glb"))));
 console.log(fail ? `splat: ${fail} FAIL` : "splat: all ok"); process.exit(fail ? 1 : 0);

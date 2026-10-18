@@ -4,14 +4,14 @@
 // 三角形は meshdecode の decodeModel（PLATEAU・模型と同じ後段＝テクスチャ/マテリアル/両面）へ、点は経緯度に直して
 // 点のオーバーレイ（gadgets/points-gl.js・原点相対）の形で返す。高さは接地しない＝絶対高さ（楕円体高）−baseH をそのまま持つ。
 import { decodeModel, ecef2geo, geoWorld, earthW } from "./meshdecode.ts";
-import type { ModelBatchOut, ModelOut, ModelPoints } from "./meshdecode.ts";
+import type { ModelBatchOut, ModelOut, ModelPoints, SplatPrimOut } from "./meshdecode.ts";
 
 /** 点（points-gl の層に渡す形）＝原点相対の float32・RGBA8 */
 export interface PointsOut { pos: Float32Array; origin: number[]; rgba: Uint8Array; n: number }
 /** decodeTile3D の戻り（null＝描く物なし） */
-export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; stats: { triangles: number; points: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）
-/** decodeTile3D の opts（transform＝列優先 4x4・baseH＝高さの基準（m）・ground＝"terrain"｜"absolute"） */
-export interface Tile3DOpts { transform?: ArrayLike<number> | null; baseUri?: string; baseH?: number; textures?: boolean; maxInstances?: number; ground?: string; featureIdSet?: number }
+export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
+/** decodeTile3D の opts（transform＝列優先 4x4・baseH＝高さの基準（m）・ground＝"terrain"｜"absolute"・splats＝KHR_gaussian_splatting を splat として返す（false＝点として描く）） */
+export interface Tile3DOpts { transform?: ArrayLike<number> | null; baseUri?: string; baseH?: number; textures?: boolean; maxInstances?: number; ground?: string; featureIdSet?: number; splats?: boolean }
 /** 3D Tiles の変換（L＝列優先 3x3・t＝平行移動） */
 interface Xf3 { L: Float64Array; t: number[] }
 interface TypedCtor { new (buffer: ArrayBufferLike, byteOffset?: number, length?: number): ArrayLike<number>; readonly BYTES_PER_ELEMENT: number }
@@ -135,14 +135,16 @@ async function decodeI3dm(ab: ArrayBuffer, M: Xf3, opts: { baseUri?: string; tex
 
 // 中身一つ → { batches, points, stats }（null＝描く物なし）
 // ground＝"terrain"：三角形は PLATEAU と同じ「連結成分ごとに最低点で接地」（呼び手は地形へ持ち上げて置く）＝建物の tileset 向け。既定＝絶対高さ（写真測量の街並み・点群）
-export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH = 0, textures = true, maxInstances = 5000, ground = "absolute", featureIdSet = 0 }: Tile3DOpts = {}): Promise<Tile3DOut | null> {
+export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH = 0, textures = true, maxInstances = 5000, ground = "absolute", featureIdSet = 0, splats = false }: Tile3DOpts = {}): Promise<Tile3DOut | null> {
 	const M = splitM4(transform || [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-	const out: Tile3DOut = { batches: [], points: [], stats: { triangles: 0, points: 0 } };
+	const out: Tile3DOut = { batches: [], points: [], splats: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0 } };
 	const gOpt = ground === "terrain" ? { ground: "each" } : {}, bH = ground === "terrain" ? null : baseH;   // 接地＝baseH を渡さない（decodeModel が成分ごとの最低点を使う）
-	const merge = (r: ((Omit<Partial<ModelOut>, "points"> & { points?: ModelPoints | PointsOut | null }) | (PointsOut & { batches?: undefined; stats?: undefined; points?: undefined })) | null) => {
+	const merge = (r: ((Omit<Partial<ModelOut>, "points"> & { points?: ModelPoints | PointsOut | null }) | (PointsOut & { batches?: undefined; stats?: undefined; points?: undefined; splats?: undefined })) | null) => {
 		if (!r) return;
 		if (r.batches?.length) { out.batches.push(...r.batches); out.stats.triangles += r.stats?.triangles || 0; }
 		if (r.stats?.gltf?.copyright) (out.stats.copyright ??= []).includes(r.stats.gltf.copyright) || out.stats.copyright!.push(r.stats.gltf.copyright);   // glTF の asset.copyright（W8）＝tileset の出典を集める
+		if (r.splats?.length) { out.splats.push(...r.splats); out.stats.splats += r.stats?.splats || 0; }
+		out.stats.splatPoints += r.stats?.splatPoints || 0;
 		const p = r.points && !(r.points as PointsOut).pos ? pointsOut(r.points as ModelPoints, baseH) : r.points as PointsOut | null | undefined;   // decodeModel の点（経緯度）は形を揃える
 		if (p) { out.points.push(p); out.stats.points += p.n; }
 		if ((r as PointsOut).pos && (r as PointsOut).n) { out.points.push(r as PointsOut); out.stats.points += (r as PointsOut).n; }
@@ -155,16 +157,16 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 			const glb = buf.slice(28 + ftJ + ftB + btJ + btB);
 			const nB = J.BATCH_LENGTH! | 0, BT = nB && btJ ? jsonAt(buf, 28 + ftJ + ftB, btJ) : null;   // batch table（W7）＝_BATCHID の地物の属性（JSON の配列＋binary 参照）
 			const batchTable = BT ? { json: BT, bin: btB ? new Uint8Array(buf, 28 + ftJ + ftB + btJ, btB) : null, count: nB } : null;
-			merge(await decodeModel(glb, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true, batchTable } }));
+			merge(await decodeModel(glb, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true, splats, batchTable } }));
 		} else if (magic === "i3dm") merge(await decodeI3dm(buf, M, { baseUri, textures, baseH: bH, gOpt }, maxInstances));   // ground も b3dm と同じく（旧＝渡さず terrain でも絶対高さ＝地形の上に浮いた）
 		else if (magic === "pnts") merge(decodePnts(buf, M, baseH));
 		else if (magic === "cmpt") {
 			const dv = new DataView(buf), nT = dv.getUint32(12, true);
 			let off = 16;
 			for (let k = 0; k < nT && off + 12 <= buf.byteLength; k++) { const len = new DataView(buf, off).getUint32(8, true); await one(buf.slice(off, off + len)); off += len; }
-		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: null, baseH: bH, points: true } }));   // glb / glTF(JSON)＝3D Tiles 1.1
+		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: null, baseH: bH, points: true, splats } }));   // glb / glTF(JSON)＝3D Tiles 1.1
 		else throw new Error(`unknown tile content "${magic}"`);
 	};
 	await one(ab);
-	return out.batches.length || out.points.length ? out : null;
+	return out.batches.length || out.points.length || out.splats.length ? out : null;
 }
