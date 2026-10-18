@@ -746,6 +746,8 @@ export interface OverlayDepth {
 	glsl: string;
 	/** このフレームの深度をその gl のテクスチャとして返す（同じフレームで二度上げない・gl の束縛と unpack の状態は戻す） */
 	texture(gl: WebGL2RenderingContext): WebGLTexture;
+	/** このフレームの深度を GPUDevice で読めるテクスチャとして返す（rgba8unorm・行は下から）。本体と同じ device なら本体のテクスチャそのもの（コピーなし） */
+	gpuTexture(device: GPUDevice): GPUTexture;
 	/** glsl の uniform を埋める（prog は useProgram 済み）。unit＝使うテクスチャユニット（既定 7）・eps＝許し（深度の単位・既定 2e-6） */
 	bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit?: number, eps?: number): void;
 }

@@ -54,7 +54,9 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
   worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by terrain and buildings through the
   scene depth, pickable with the overlay picking above. Your module may `import * as THREE from "three"` and
   `import { GLTFLoader } from "three/addons/…"` (resolved inside the worker). three.js is not a dependency: `three` defaults to
-  jsDelivr's `three@0.186.1`, or pass your own URL (r180 or later for depth). Guide, limits and MapLibre porting: [THREE.md](./THREE.md)
+  jsDelivr's `three@0.186.1`, or pass your own URL (r180 or later for depth). `renderer: "webgpu"` uses three's `WebGPURenderer`
+  and, when the map runs on WebGPU, shares its `GPUDevice` and depth texture (no per-frame copy). Guide, limits and MapLibre
+  porting: [THREE.md](./THREE.md)
 - **Custom layers in the worker**: `map.addLayer({ id, type: "custom", renderingMode: "3d", url: <URL of a module exporting createLayer(params)> , params })`
   runs a MapLibre-style `CustomLayerInterface` (`onAdd(map, gl)` / `render(gl, args)` with `args.defaultProjectionData.mainMatrix`, prelude and
   `getProjectionData`) inside the render worker on the same camera; the scene depth is written into the layer's depth buffer first, so a "3d" layer is

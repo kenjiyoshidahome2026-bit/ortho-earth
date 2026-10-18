@@ -56,7 +56,8 @@ the module sends with `h.post(...)` inside the worker.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `three` | jsDelivr `three@0.186.1` | URL of `three.module.js`. Use r180 or later for scene depth |
+| `renderer` | `"webgl"` | `"webgpu"` draws with three's `WebGPURenderer` (see [WebGPU](#webgpu)) |
+| `three` | jsDelivr `three@0.186.1` | URL of `three.module.js` (`three.webgpu.js` with `renderer: "webgpu"`). Use r180 or later for scene depth |
 | `addons` | derived from `three` | URL of `three/examples/jsm/` (needed only when `three` does not end in `build/three.module.js`) |
 | `module` | none | URL of your module (`setup` / `update` / `onMessage` / `dispose`, all optional) |
 | `origin` | current map center | `[lon, lat, hM]`: the scene's origin (relative-to-eye, so no jitter at street zoom) |
@@ -104,10 +105,24 @@ const hits = await h.pick(x, y);                                             // 
   scene is drawn without depth (always in front) and a console warning says so.
 - **One WebGL context per `addThree`.** The render worker can hold about 4 WebGL contexts in Chrome and the globe uses one;
   going over drops the oldest, which is the globe. Put all your models in one `addThree` scene instead of one per model.
-- **Depth costs a read-back.** Each `addThree` gets its own context, so the scene depth is copied to it once per frame.
-  Turn it off with `depth: false` for things that never go behind buildings (a sky object, a HUD-like marker).
-- **WebGL2 only.** three.js's `WebGPURenderer` and TSL are not supported in this route.
+- **Depth costs a copy with `renderer: "webgl"`.** A WebGL context cannot read the map's GPU textures, so the scene depth
+  is copied to it once per frame (a GPU-to-CPU read-back when the map runs on WebGL2). `renderer: "webgpu"` avoids the copy
+  when the map runs on WebGPU (below). Turn depth off with `depth: false` for things that never go behind buildings.
 - **Lights are yours.** The map's sun is not applied to your materials; add lights in `setup` (or use unlit materials).
+
+## WebGPU
+
+```js
+map.addThree({ renderer: "webgpu", module: "./scene.js" });   // three defaults to jsDelivr's three@0.186.1/build/three.webgpu.js
+```
+
+With `renderer: "webgpu"` the overlay uses three's `WebGPURenderer`, and `"three"` in your module resolves to
+`three.webgpu.js` (so `"three/tsl"` and node materials work too). When the map itself draws with WebGPU (the default on
+desktop browsers that have it), three shares the map's `GPUDevice` and reads the map's depth texture directly: no copy and
+no read-back per frame. Occlusion is done by writing the map's depth into three's depth buffer before your scene, so any
+material, including your own TSL materials, is hidden by terrain and buildings without changes. When the map runs on
+WebGL2, three creates its own device and the depth is uploaded once per frame. `h.renderer` is the `WebGPURenderer`
+(already initialized when `setup` runs). Browsers without WebGPU reject `ready`; use the default `"webgl"` there.
 
 ## Porting a MapLibre custom layer
 
