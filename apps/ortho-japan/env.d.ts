@@ -4,4 +4,4 @@
 // ・@ortho-earth/equal（site.ts の Equal Earth）は src の .ts を直に束ねる＝equal の型検査と同じ補い（WebGPU の定数・vite の glob・globe のサブパス）をここでも読む
 /// <reference path="../../packages/equal/src/ambient.d.ts" />
 declare const __DATA_JAPAN__: string;
-interface Window { __map?: unknown; __fw?: unknown; __editor?: unknown; __models?: unknown; __onsen?: unknown; __parks?: unknown; __tellus?: unknown; __terrain?: unknown }
+interface Window { __map?: unknown; __fw?: unknown; __editor?: unknown; __models?: unknown; __onsen?: unknown; __parks?: unknown; __tellus?: unknown; __terrain?: unknown; __pointcloud?: unknown }

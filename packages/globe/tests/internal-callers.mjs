@@ -22,6 +22,7 @@ const ALLOW = {
 	"apps/ortho-globe/hex.ts": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
 	"apps/ortho-japan/terrain.ts": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/ortho-japan/onsen.ts": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
+	"apps/ortho-japan/pointcloud.ts": 7,   // 静岡県の点群（2026-10-18）＝図郭の区画を addSource 2・addLayer 4・setLayoutProperty 1（visibility）＝onsen と同じく MapLibre の意味で良い
 	"apps/choju/choju.ts": 7,
 	"apps/yokohama/twin.ts": 5,   // 横浜市デジタルツイン（2026-10-18）＝避難場所の点の層（addSource 1・addLayer 1・setLayoutProperty 2＝出し入れ・setFilter 1＝対応災害で絞る）＝MapLibre の意味で良い   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
