@@ -24,7 +24,8 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc -p ."
+		"build": "tsc -p .",
+		"test": "node tests/t-utility.mjs && node tests/t-gintView.mjs && node tests/t-geoExec.mjs && node tests/t-wiki.mjs"
 	},
 	"dependencies": {
 		"d3": "^7.9.0",
