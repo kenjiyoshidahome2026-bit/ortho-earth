@@ -22,6 +22,9 @@
 		],
 		"tellus": [
 			"tellus.ts"
+		],
+		"pointcloud": [
+			"pointcloud.ts"
 		]
 	}
 }

@@ -14,7 +14,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs && node tests/t-pbrdecode.mjs && node tests/t-poioverrides.mjs && node tests/t-landmarks.mjs && node tests/t-meshq.mjs && node tests/t-fireworks.mjs && node tests/t-terrain.mjs && node tests/t-onsen.mjs && node tests/t-deploy.mjs",
+		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs && node tests/t-pbrdecode.mjs && node tests/t-poioverrides.mjs && node tests/t-landmarks.mjs && node tests/t-meshq.mjs && node tests/t-fireworks.mjs && node tests/t-terrain.mjs && node tests/t-onsen.mjs && node tests/t-pointcloud.mjs && node tests/t-deploy.mjs",
 		"test:net": "npm --prefix ../../packages/globe run test:net",
 		"build": "vite build",
 		"build:prod": "npm run build -w @ortho-earth/japan && vite build && cp -R ../../sdk/japan/dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",

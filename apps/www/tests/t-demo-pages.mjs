@@ -16,7 +16,7 @@ const demos = JSON.parse(readFileSync(path.join(WWW, "demos.json"), "utf8")).dem
 // デモの URL → 入口 HTML（本番の Worker の規則＝/japan/<名前> は apps/ortho-japan/<名前>.html・拡張子なし）
 const ENTRY = [
 	[/^\/japan\/census2020\//, "census2020/index.html"],
-	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
+	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain|pointcloud)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
 	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
 	[/^\/globe\/(physical|sats|clouds|parks|clock|hex)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
