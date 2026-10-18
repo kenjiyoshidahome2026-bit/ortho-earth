@@ -83,5 +83,8 @@ for (const [entry, ds] of pages) {
 	if (html.includes('id="boot"')) test(`${entry}（${ids}）：起動画面＝aria-label "Loading"・reduced-motion で止まる`, () => {
 		assert.ok(/id="boot"><svg[^>]*aria-label="Loading"/.test(html), 'boot aria-label="Loading" (not 起動中: the head is English)');
 		assert.ok(/prefers-reduced-motion:\s*reduce/.test(html), "prefers-reduced-motion rule for #boot");
+		// スマホのブラウザのバー（theme-color）＝起動画面の地色と同じ色（2026-10-18・紙色の頁が濃紺のバーのままだった＝yokohama・choju・onsen・terrain）
+		const bg = (html.match(/#boot\{[^}]*background:\s*(#[0-9a-fA-F]{3,8})/) || [])[1];
+		if (bg) assert.equal(name(html, "theme-color")?.toLowerCase(), bg.toLowerCase(), "theme-color should match the #boot background");
 	});
 }
