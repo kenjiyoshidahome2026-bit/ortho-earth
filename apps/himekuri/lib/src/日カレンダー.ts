@@ -1,7 +1,29 @@
-import { date2ymd, ymd2jdn, yearLength, monthLength, ymdComp, dayNumber, ymd2day, mod, r360, initAngle, SunDegree, SunDegreeDay } from "./共通関数.js"
-import { 節説明, 六曜説明, 九星説明, 直説明, 宿説明, 暦注説明, 七十二候説明 } from "./説明.js"; 
-import { 年間休日, 月間休日 } from "./休日.js";
-import { 旧暦計算, 九星計算 } from "./旧暦.js";
+import { date2ymd, ymd2jdn, yearLength, monthLength, ymdComp, dayNumber, ymd2day, mod, r360, initAngle, SunDegree, SunDegreeDay } from "./共通関数.ts"
+import { 節説明, 六曜説明, 九星説明, 直説明, 宿説明, 暦注説明, 七十二候説明 } from "./説明.ts"; 
+import { 年間休日, 月間休日 } from "./休日.ts";
+import { 旧暦計算, 九星計算 } from "./旧暦.ts";
+import type { 旧暦 } from "./旧暦.ts";
+
+/** 日暦情報() の戻り値 */
+export interface 日暦 {
+	年: number; 月: number; 日: number;
+	/** [元号名, 元号の年]（明治より前は ["", 西暦年]） */
+	元号: [string, number];
+	暦注: string[];
+	休日: string;
+	曜日: string; Day: string;
+	六曜: string;
+	/** 今日からの日数（未来が正） */
+	日差: number;
+	十二直: string; 二十八宿: string; 二十七宿: string;
+	年家九星: string; 月家九星: string; 日家九星: string;
+	日干支: string; 日干支読: string;
+	節気: string;
+	旧暦: 旧暦; 旧暦名: string;
+	旧月: string; Month: string;
+	/** [正午の太陽黄経, 七十二候 [名, 読み, 意味], 直前の節気, その何日目, 次の節気, それまでの日数] */
+	黄経: [number, string[], string, number, string, number];
+}
 
 const 七曜名 = "日月火水木金土".split("");
 const Weeks = "SUN|MON|TUE|WED|THU|FRI|SAT".split("|");
@@ -18,7 +40,7 @@ const 十二直名 = "建除満平定執破危成納開閉".split("");
 const 二十四山 = "子癸丑艮寅甲卯乙辰巽巳丙午丁未坤申庚酉辛戌乾亥壬".split("");
 const 二十七宿名 = "角亢氐房心尾箕斗女虚危室壁奎婁胃昴畢觜参井鬼柳星張翼軫".split("");
 const 二十八宿名 = "角亢氐房心尾箕斗牛女虚危室壁奎婁胃昴畢觜参井鬼柳星張翼軫".split("");
-const 二十四節気 = {
+const 二十四節気: Record<string, string> = {
 	"285": "小寒", "300": "大寒", "315": "立春", "330": "雨水", "345": "啓蟄", "0": "春分",
 	"15": "清明", "30": "穀雨", "45": "立夏", "60": "小満", "75": "芒種", "90": "夏至",
 	"105": "小暑", "120": "大暑", "135": "立秋", "150": "処暑", "165": "白露", "180": "秋分",
@@ -26,22 +48,23 @@ const 二十四節気 = {
 	"80": "入梅", "100": "半夏生", "297": "土用入", "27": "土用入", "117": "土用入", "207": "土用入"
 };
 // 説明の吹き出し：<title>（ブラウザ既定の tooltip）でなく data-tip に載せ、tip.js が拾って出す。一行目＝見出し
-const 属性 = t => String(t).replace(/[&<>"\n]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\n": "&#10;" })[c]);
-const tip = (見出し, 説明) => 説明 ? ` data-tip="${属性(`${見出し}\n${説明}`)}"` : "";
-function 元号計算(YMD) {
-   const v = ymdComp(YMD, [2019, 5, 1]) >= 0 ? ["R", YMD[0] - 2018] :
+const 属性 = (t: unknown) => String(t).replace(/[&<>"\n]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\n": "&#10;" } as Record<string, string>)[c]);
+const tip = (見出し: unknown, 説明: unknown) => 説明 ? ` data-tip="${属性(`${見出し}\n${説明}`)}"` : "";
+function 元号計算(YMD: readonly number[]): [string, number] {
+   const v: [string, number] = ymdComp(YMD, [2019, 5, 1]) >= 0 ? ["R", YMD[0] - 2018] :
 		ymdComp(YMD, [1989, 1, 8]) >= 0 ? ["H", YMD[0] - 1988] :
 		ymdComp(YMD, [1926, 12, 25]) >= 0 ? ["S", YMD[0] - 1925] :
 		ymdComp(YMD, [1912, 7, 30]) >= 0 ? ["T", YMD[0] - 1911] :
 		ymdComp(YMD, [1868, 9, 8]) >= 0 ? ["M", YMD[0] - 1867] : ["", YMD[0]];
-	return [({ R: "令和", H: "平成", S: "昭和", T: "大正", M: "明治" })[v[0]] || "", v[1]];
+	return [({ R: "令和", H: "平成", S: "昭和", T: "大正", M: "明治" } as Record<string, string>)[v[0]] || "", v[1]];
 }
-function 節気計算(YMD, tdiff = 9) {
+function 節気計算(YMD: readonly number[], tdiff = 9): Record<number, string> {
 	const Y = YMD[0];
 	const angle = Object.keys(二十四節気);
 	const dt = initAngle(Y, tdiff);
-	const p = {};
-	angle.forEach(r => p[Math.floor(SunDegreeDay(Y, r) - dt)] = 二十四節気[r]);
+	const p: Record<number, string> = {};
+	// r は Object.keys の文字列のまま SunDegreeDay に渡る（中の比較・引き算で数に化けるので結果は同じ）
+	angle.forEach(r => p[Math.floor(SunDegreeDay(Y, r as unknown as number) - dt)] = 二十四節気[r]);
 	let n = Math.floor(SunDegreeDay(Y, 315) - dt);
 	p[n - 1] = "節分"; p[n + 88] = "八十八夜"; p[n + 210] = "二百十日"; p[n + 220] = "二百二十日";
 	n = Math.floor(SunDegreeDay(Y, 0) - dt); 
@@ -50,15 +73,15 @@ function 節気計算(YMD, tdiff = 9) {
 	p[n - 3] = "彼岸入"; p[n + 3] = "彼岸明";
 	return p;
 }
-function 節月計算(year, tdiff = 9) {
-	let angle = []; 
+function 節月計算(year: number, tdiff = 9): number[] {
+	let angle: number[] = []; 
 	for (let i = 0; i < 12; i++) angle.push(r360(285 + i * 30));
 	const dt = initAngle(year, tdiff);
 	angle = angle.map(r => Math.floor(SunDegreeDay(year, r) - dt) - 1);
 	angle.unshift(Math.floor(SunDegreeDay(year - 1, 255) - dt) - 1 - yearLength(year - 1));
 	return angle;
 }
-function 節日計算(YMD) {
+function 節日計算(YMD: readonly number[]): { 年: number; 月: number; 日: number } {
 	const 年通日 = dayNumber(YMD) + 1;
 	const 節月 = 節月計算(YMD[0]);
 	let sY = YMD[0] - 1, sM = 0, sD = 0;
@@ -70,7 +93,7 @@ function 節日計算(YMD) {
 	});
 	return { 年: sY, 月: sM, 日: sD };
 }
-function 十二直計算(YMD) {
+function 十二直計算(YMD: readonly number[]): string {
 	const 通日 = ymd2jdn(YMD);
 	const 年通日 = dayNumber(YMD) + 1;
 	const 節月 = 節月計算(YMD[0]);
@@ -86,10 +109,10 @@ function 十二直計算(YMD) {
 	return 十二直名[((m1 > n0) ? (12 + d0 - n0 - 1) : (12 + d1 - n1 - 1)) % 12];
 }
 // その日の現地 h 時の太陽黄経（ymd2jdn は 0時UT の MJD・J2000.0 = MJD 51544.5）
-function 黄経計算(YMD, h = 24, tdiff = 9) {
+function 黄経計算(YMD: readonly number[], h = 24, tdiff = 9): number {
 	return r360(SunDegree(ymd2jdn(YMD) + (h - tdiff) / 24 - 51544.5));
 }
-export function 日暦情報(YMD) {
+export function 日暦情報(YMD: readonly number[]): 日暦 {
 	const [年, 月, 日] = YMD;
 	const 元号 = 元号計算(YMD);
 	const 通日 = ymd2jdn(YMD);
@@ -104,7 +127,7 @@ export function 日暦情報(YMD) {
 		月: 十干名[(((旧暦.年 + 2) % 5) * 2 + 旧暦.月 - 1) % 10] + 十二支名[(旧暦.月 + 1) % 12],
 		日: 十干名[mod(通日, 10)] + 十二支名[mod(通日 + 2, 12)]
 	};
-	const 暦注 = [];
+	const 暦注: string[] = [];
 	const 干支Num = mod(通日 + 50, 60), 干 = 干支Num % 10, 支 = 干支Num % 12, 月Num = 節日.月 - 1;
 	(旧暦.月 == 8 && 旧暦.日 === 1) && 暦注.push("八朔");
 	(旧暦.月 == 1 && 旧暦.日 === 1) && 暦注.push("旧正月");
@@ -182,7 +205,7 @@ export function 日暦情報(YMD) {
 		[[0, 6], [1, 7], [4, 5], [2, 8], [3, 9], [4, 5], [0, 6], [1, 7], [4, 5], [2, 8], [3, 9], [4, 5]][月Num].includes(干) && 暦注.push("復日");
 	}
 	// 黄経関連計算：前年〜翌年の二十四節気を通日で並べ、今日を挟む二つを引く
-	const 節入 = [];
+	const 節入: [number, string][] = [];
 	for (const y of [年 - 1, 年, 年 + 1]) for (let r = 0; r < 360; r += 15)
 		節入.push([ymd2jdn([y, 1, 1]) + Math.floor(SunDegreeDay(y, r) - initAngle(y)) - 1, 二十四節気[r]]);
 	節入.sort((a, b) => a[0] - b[0]);
@@ -205,7 +228,7 @@ export function 日暦情報(YMD) {
 	};
 }
 
-export function 日カレンダー(年月日) { 
+export function 日カレンダー(年月日: readonly number[]): string { 
  	const {年, 月, 日, 曜日, 日差, Day, 節気, 旧暦, 旧暦名, 暦注, 休日, 元号, 十二直, 二十八宿, 二十七宿, 旧月, Month, 六曜, 日干支, 日干支読, 日家九星, 黄経} = 日暦情報(年月日);
 	const 曜日色 = 曜日=="日" ? "red": (曜日 == "土" ? "blue" : "black");
 	const 日数 = 日差 ==0? "今日": `${Math.abs(日差).toLocaleString()}日${日差 > 0?"後":"前"}`;
@@ -262,7 +285,7 @@ export function 日カレンダー(年月日) {
 	</svg>`;
 }
 
-function 月カレンダー(YMD) {
+function 月カレンダー(YMD: readonly number[]): string {
 	const todayYMD = date2ymd();
 	const today = (todayYMD[0] == YMD[0] && todayYMD[1] === YMD[1]) ? todayYMD[2] : 0;
 	const w = 100 / 8, h = 10;
@@ -279,7 +302,7 @@ function 月カレンダー(YMD) {
 	return `<svg viewBox="0 0 100 70"><g dominant-baseline="middle">${body.join("")}</g></svg>`;
 }
 
-export function 月相(n) { 
+export function 月相(n: number): string { 
 	const T = 29.530589, r = Math.min(1, Math.max(0, (n / T))), p = Math.floor(r * 4), R = Math.cos(r * 2 * Math.PI);
 	const D = `M 0 -50 A 50 50 0 0 ${p < 2 ? 1 : 0} 0 50 A ${Math.abs(50 * R)} 50 0 0 ${p % 2 ? 1 : 0} 0 -50 Z`;
 	return `<svg viewBox="-51 -51 102 102">

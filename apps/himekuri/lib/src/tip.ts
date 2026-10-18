@@ -10,7 +10,7 @@ const CSS = `
 }
 .himekuri-tip > div:first-child { font-weight: 700; }
 `;
-export function tip(el, { signal } = {}) {
+export function tip(el: HTMLElement, { signal }: { signal?: AbortSignal } = {}): () => void {
 	if (!document.getElementById("himekuri-tip-css")) {
 		const st = document.createElement("style");
 		st.id = "himekuri-tip-css"; st.textContent = CSS;
@@ -20,18 +20,18 @@ export function tip(el, { signal } = {}) {
 	div.className = "himekuri-tip";
 	document.body.append(div);
 	signal?.addEventListener("abort", () => div.remove());
-	let cur = null, size = { w: 0, h: 0 };
+	let cur: HTMLElement | null = null, size = { w: 0, h: 0 };
 	const hide = () => { cur = null; div.style.display = "none"; };
-	const set = text => {
+	const set = (text: string) => {
 		div.replaceChildren(...text.split("\n").map(t => Object.assign(document.createElement("div"), { textContent: t })));
 		div.style.display = "block"; div.style.visibility = "hidden";   // 実寸を測ってから指先の脇へ
 		const r = div.getBoundingClientRect(); size = { w: r.width, h: r.height };
 		div.style.visibility = "";
 	};
-	const move = e => {
-		const t = e.target.closest?.("[data-tip]");
+	const move = (e: PointerEvent) => {
+		const t = (e.target as Element).closest?.<HTMLElement>("[data-tip]");
 		if (!t || !el.contains(t)) return hide();
-		if (t !== cur) { cur = t; set(t.dataset.tip); }
+		if (t !== cur) { cur = t; set(t.dataset.tip!); }
 		const touch = e.pointerType === "touch";
 		const W = innerWidth, H = innerHeight, x = e.clientX, y = e.clientY, { w, h } = size;
 		const osx = touch ? 40 : 15, osy = touch ? -(h + 30) : -h / 2;   // タッチは指の上に出す
