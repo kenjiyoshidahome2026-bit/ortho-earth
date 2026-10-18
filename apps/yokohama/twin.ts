@@ -6,8 +6,8 @@
 //   解析 … 可視域・切り取り（断面）・一人称で歩く・距離と面積・断面図
 // 状態は URL の search（?tab=&hz=&era=&ward=&spot=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は日本語のみ（横浜市の頁）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
-import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, ERAS, CITY_VIEW, HINAN_FLAGS, yokohamaShelters, flagsOf, parseState, writeState } from "./data.ts";
+import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression } from "@ortho-earth/globe";
+import { WARDS, SPOTS, TOUR, HAZARDS, ERAS, CITY_VIEW, HINAN_FLAGS, LOD1_WARDS, lod1Url, yokohamaShelters, flagsOf, parseState, writeState } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -55,6 +55,9 @@ export async function mountTwin(map: GlobeMap) {
 				<h2>名所</h2>
 				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(s.name)}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
+				<h2>建物</h2>
+				<label class="grp"><input type="checkbox" class="lod1"><b>残り 13 区の建物（LOD1）</b><small class="lod1-n"></small></label>
+				<p class="sub">鶴見・神奈川・西・中・瀬谷の 5 区は屋根の形まで（LOD2）が自動で出ます。他の 13 区は箱（LOD1）＝この箱を入れると読みます（通信量は多め）。</p>
 				<p class="note">建物は国土交通省 PLATEAU の 3D 都市モデル。傾ける＝右ドラッグか 2 本指。</p>
 			</section>
 			<section data-pane="risk" hidden>
@@ -123,6 +126,24 @@ export async function mountTwin(map: GlobeMap) {
 		flyView(w ? { lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 45, bearing: 0 } : CITY_VIEW);
 	};
 
+	// ── まち：残り 13 区の LOD1 建物（PLATEAU の 3D Tiles を直に・エンジンの登録簿は LOD2 だけ）──
+	const lod1: Tiles3DHandle[] = [];
+	let lod1Loading = false;
+	async function setLod1(on: boolean) {
+		$(".lod1").checked = on;
+		if (!on) { for (const h of lod1) h.setVisible(false); return; }
+		if (lod1.length) { for (const h of lod1) h.setVisible(true); return; }
+		if (lod1Loading) return;
+		lod1Loading = true; $<HTMLElement>(".lod1-n").textContent = "読み込み中…";
+		const hs = await Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: "国土交通省 PLATEAU（建築物 LOD1）" })
+			.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })));
+		for (const h of hs) if (h) lod1.push(h);
+		lod1Loading = false;
+		$<HTMLElement>(".lod1-n").textContent = `${lod1.length} / ${LOD1_WARDS.length} 区`;
+		if (!$(".lod1").checked) for (const h of lod1) h.setVisible(false);   // 読んでいる間に切られた
+	}
+	$(".lod1").onchange = () => setLod1($(".lod1").checked);
+
 	// ── 名所ツアー（画面の下に札・地図に触れたら止まる）──
 	const cap = document.createElement("div");
 	cap.className = "yk-cap"; cap.hidden = true;
@@ -182,7 +203,8 @@ export async function mountTwin(map: GlobeMap) {
 
 	// ── 防災：指定緊急避難場所（点の層・押すと詳細と標高）──
 	let shelters: HinanRow[] | null = null, hinanOn = false;
-	const hnFilter = () => { const f = +$<HTMLSelectElement>(".hnf").value; return f < 0 ? ["==", 1, 1] : ["==", ["get", `f${f}`], 1]; };
+	// 「すべて」＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
+	const hnFilter = (): StyleExpression | null => { const f = +$<HTMLSelectElement>(".hnf").value; return f < 0 ? null : ["==", ["get", `f${f}`], 1]; };
 	async function setHinan(on: boolean) {
 		hinanOn = on; $(".hinan").checked = on;
 		if (!on) { if (shelters) map.setLayoutProperty("yk-hinan", "visibility", "none"); $<HTMLElement>(".detail").hidden = true; return; }
@@ -196,7 +218,8 @@ export async function mountTwin(map: GlobeMap) {
 			const feats: GeoJSONFeature[] = shelters.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] },
 				properties: { i, ...Object.fromEntries(HINAN_FLAGS.map((_, b) => [`f${b}`, r[4] & (1 << b) ? 1 : 0])) } }));
 			map.addSource("yk-hinan", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
-			await map.addLayer({ id: "yk-hinan", type: "circle", source: "yk-hinan", filter: hnFilter(),
+			const f0 = hnFilter();
+			await map.addLayer({ id: "yk-hinan", type: "circle", source: "yk-hinan", ...(f0 ? { filter: f0 } : {}),
 				paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5, 18, 8], "circle-color": "#1f9d55", "circle-stroke-color": "#fff", "circle-stroke-width": 1.2 } });
 			const tip = map.gadget.tip();
 			const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
@@ -296,7 +319,7 @@ export async function mountTwin(map: GlobeMap) {
 	for (const id of st.hz) setHazard(id, true);
 	setEra(st.era);
 
-	return { state: st, setTab, setHazard, setHinan, setEra, tour, stopTour, get shelters() { return shelters; } };
+	return { state: st, setTab, setHazard, setHinan, setEra, setLod1, tour, stopTour, get shelters() { return shelters; }, get lod1() { return lod1; } };
 }
 
 // ── 意匠（quiet-mono のトークン＝#map の変数・choju の案内板と同じ黒地白文字）──
