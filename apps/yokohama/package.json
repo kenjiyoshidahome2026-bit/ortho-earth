@@ -1,0 +1,22 @@
+{
+	"name": "yokohama",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "横浜市デジタルツイン：3D 都市モデル（PLATEAU）の横浜に防災・年代の航空写真・影・解析を重ねる頁（/yokohama/）",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"test": "node tests/t-yokohama.mjs",
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"dependencies": {
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/regions": "*"
+	}
+}

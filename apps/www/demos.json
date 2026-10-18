@@ -305,6 +305,20 @@
 			}
 		},
 		{
+			"id": "yokohama",
+			"href": "/yokohama/",
+			"group": "japan",
+			"icon": "🏙️",
+			"title": "Yokohama digital twin",
+			"lang": "ja",
+			"desc": "A digital twin of Yokohama: PLATEAU 3D buildings with flood, storm surge, tsunami and landslide hazards, evacuation sites, aerial photos from 1945 to today, building shadows, viewsheds and cross sections.",
+			"img": "/thumbs/yokohama.webp",
+			"shot": {
+				"url": "/yokohama/?spot=mm21",
+				"wait": 20
+			}
+		},
+		{
 			"id": "tellus",
 			"href": "/japan/tellus",
 			"group": "earth",
