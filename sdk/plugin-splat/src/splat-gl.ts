@@ -20,8 +20,10 @@ export type SplatApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { 
 export interface PickContext { s: CamState; api: SplatApi; size: { w: number; h: number } }
 export type SplatAltitude = "relative" | "absolute";
 /** main（index.ts）から届く層の中身（type・q は手綱が足す） */
-/** rot・shq・shScale・shDeg・shWords＝SH（WebGPU の描き手だけが読む・splat-gpu.ts）。この WebGL2 の描き手は DC だけ */
-export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number }
+/** rot・shq・shScale・shDeg・shWords＝SH、rank・lod＝LoD（WebGPU の描き手だけが読む・splat-gpu.ts）。この WebGL2 の描き手は DC だけ・全部描く */
+export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number;
+	/** LoD の順位（0 が一番重い・importanceRank）。lod＝画面の 1 px² あたり描く個数（0＝全部描く） */
+	rank?: Uint32Array | null; lod?: number }
 export type SplatMessage = ({ type: "layer"; q: string } & SplatLayerBody) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
 /** pick の答え（統一 picking が layer で手綱に配る） */
 export interface SplatPickResult { id: number; q: string; layer: string; index: number; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number } }

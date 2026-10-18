@@ -123,7 +123,7 @@ map.addData(peaks, { kind: "labels3d", id: "peaks", getText: d => d.name, getSiz
 
 ## Gaussian splat（@ortho-earth/plugin-splat）
 
-`map.use(splatPlugin())` で予約された kind "splat" に中身が入る（第 3 波 W10）。読み手（.ply／.splat／.spz）は main の素の JS、描き手（`splat-gl.ts`）は worker で視線順に並べ替えて楕円を描く。plugin-scene と同じく一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
+`map.use(splatPlugin())` で予約された kind "splat" に中身が入る（第 3 波 W10）。読み手（.ply／.splat／.spz・東北上への下ごしらえ・SH の詰め・LoD の順位）は plugin 自身の worker（`splat-reader.ts`・2026-10-18）、描き手は render worker のオーバーレイ＝WebGPU（`splat-gpu.ts`＝SH・GPU の並べ替え・LoD＝画面で小さい層は重い順の先頭だけ）か WebGL2（`splat-gl.ts`）。plugin-scene と同じく一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
 
 ```js
 import { splatPlugin } from "@ortho-earth/plugin-splat";

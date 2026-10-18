@@ -6,7 +6,9 @@
 // 色＝DC（colors）＋球面調和（sh・次数 1〜3・8 bit に詰めた snorm × scale）を視線の向き（錨の東北上の目の位置 → 元の軸へ rot で戻す）で評価＝実写の見え方が視点で変わる。
 // 順＝GPU の数え上げの並べ替え（compute 3 段＝鍵と度数・累積・散らし・16 bit の桶）。向きが変わるたびに並べ直す（CPU に戻さない）。混ぜ＝前乗せの α。深度は書かない（本体の深度で隠れるだけ）。
 // 当たり＝番号を r32uint に焼く別パス → 近傍を buffer へ写して mapAsync（非同期＝pick は Promise を返す。render worker が待つ・2026-10-18）。
-// message は splat-gl.ts と同じ（SplatMessage）＋層の rot・shq・shScale・shDeg・shWords。
+// LoD＝層が画面で小さい時は重い順（rank＝importanceRank・0 が一番重い）の先頭 N 個だけ描く。N＝層の画面上の足跡（px²）× lod（1 px² あたりの個数）を 1.25 倍の段に丸め、
+//   最低 4096（か n）。並べ替えは順位が N 未満の物だけを数える（keyHist／scatter が飛ばす）＝order の先頭 N 個が描く順。N が変わった時は host.post({ type:"lod", q, drawn }) で main へ。
+// message は splat-gl.ts と同じ（SplatMessage）＋層の rot・shq・shScale・shDeg・shWords・rank・lod。
 import type { OverlayFrameApi } from "@ortho-earth/globe";
 import type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, CamState, SplatApi, PickContext, OverlayHost } from "./splat-gl.ts";
 
@@ -14,7 +16,7 @@ import type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, CamS
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 const TEX = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, RENDER_ATTACHMENT: 0x10 } as const;
 const STAGE = { VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4 } as const;
-const R_SPHERE = 6371000, R_ELL = 6378137, WG = 256, UB_SIZE = 192, SU_SIZE = 32;
+const R_SPHERE = 6371000, R_ELL = 6378137, WG = 256, UB_SIZE = 192, SU_SIZE = 32, LOD_MIN = 4096, LOD_STEP = 1.25;
 const D2R = Math.PI / 180;
 
 // ---- WGSL ----
@@ -113,14 +115,17 @@ fn occluded(pos: vec2f, w: f32) -> bool {
 }`;
 // 並べ替え（奥から手前＝w の降順）＝数え上げ（16 bit の桶）を GPU で：keyHist（鍵と度数）→ scan（累積・1 workgroup）→ scatter（散らし）。桶の中の順は任意（同じ奥行き＝混ぜる順は効かない）
 const SORT_WGSL = /* wgsl */`
-struct SortUni { row: vec3f, lo: f32, hi: f32, n: u32, pad0: u32, pad1: u32 }
+struct SortUni { row: vec3f, lo: f32, hi: f32, n: u32, keep: u32, pad0: u32 }
 @group(0) @binding(0) var<uniform> S: SortUni;
 @group(0) @binding(1) var<storage, read> ctr: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> keys: array<u32>;
 @group(0) @binding(3) var<storage, read_write> counts: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> order: array<u32>;
+@group(0) @binding(5) var<storage, read> rank: array<u32>;
+// LoD＝順位が keep 以上の物は数えない・散らさない（keep < n の時だけ rank を読む）
+fn skip(i: u32) -> bool { return S.keep < S.n && rank[i] >= S.keep; }
 @compute @workgroup_size(${WG}) fn keyHist(@builtin(global_invocation_id) g: vec3u) {
-	let i = g.x; if (i >= S.n) { return; }
+	let i = g.x; if (i >= S.n || skip(i)) { return; }
 	let d = dot(S.row, ctr[i].xyz);
 	let sc = select(0.0, 65535.0 / (S.hi - S.lo), S.hi > S.lo);
 	let k = u32(clamp((S.hi - d) * sc, 0.0, 65535.0));   // 奥（w が大）が小さい鍵
@@ -136,19 +141,34 @@ var<workgroup> part: array<u32, 256>;
 	for (var j = 0u; j < 256u; j++) { let idx = t * 256u + j; let c = atomicLoad(&counts[idx]); atomicStore(&counts[idx], run); run += c; }
 }
 @compute @workgroup_size(${WG}) fn scatter(@builtin(global_invocation_id) g: vec3u) {
-	let i = g.x; if (i >= S.n) { return; }
+	let i = g.x; if (i >= S.n || skip(i)) { return; }
 	let p = atomicAdd(&counts[keys[i]], 1u); order[p] = i;
 }`;
 
 /** 層（GPU に載せた物） */
 interface Layer {
-	n: number; anchor: [number, number, number]; alt: SplatAltitude; radius: number; occl: boolean; properties: Record<string, unknown> | null;
+	q: string; n: number; anchor: [number, number, number]; alt: SplatAltitude; radius: number; occl: boolean; properties: Record<string, unknown> | null;
+	lod: number; bRank: GPUBuffer | null; drawn: number; sortedN: number;   // LoD＝密度（0＝全部）・順位・今描く個数・並べ替えた時の個数
 	ctr: Float32Array;   // 東北上の中心（m・CPU 側に持つ＝当たりの経緯度はここから。GPU から読み戻さない）
 	bb: Float32Array;   // 東北上の箱（min xyz・max xyz）＝奥行きの範囲は箱の 8 隅で決まる（線形）
 	bCtr: GPUBuffer; bCov: GPUBuffer; bCol: GPUBuffer; bOrder: GPUBuffer; bKeys: GPUBuffer; bSh: GPUBuffer | null; ub: GPUBuffer; su: GPUBuffer;
 	shDeg: number; shWords: number; shScale: number; rot: Float32Array;
 	sortBG: GPUBindGroup; drawBG: GPUBindGroup | null; drawTex: GPUTexture | null;
 	dir: number[] | null; on: boolean; base: number;
+}
+/** LoD の個数＝足跡（px²）× 密度を 1.25 倍の段に丸める（最低 LOD_MIN か n）。密度 0＝全部 */
+export function lodCount(areaPx: number, n: number, density: number): number {
+	if (!(density > 0) || n <= LOD_MIN) return n;
+	const want = Math.max(LOD_MIN, areaPx * density);
+	if (want >= n) return n;
+	return Math.min(n, Math.round(Math.pow(LOD_STEP, Math.ceil(Math.log(want) / Math.log(LOD_STEP)))));
+}
+/** 錨の所の画素／m（mvp＝錨の東北上 m → clip・画面 w×h px）＝頂点の Jacobian と同じ式。錨が目の後ろ＝0 */
+export function pixelsPerMeter(mvp: ArrayLike<number>, w: number, h: number): number {
+	const cw = mvp[15]; if (!(cw > 1e-9)) return 0;
+	const nx = mvp[12] / cw, ny = mvp[13] / cw; let best = 0;
+	for (let j = 0; j < 3; j++) { const dx = (mvp[j * 4] - nx * mvp[j * 4 + 3]) / cw * 0.5 * w, dy = (mvp[j * 4 + 1] - ny * mvp[j * 4 + 3]) / cw * 0.5 * h, l = Math.hypot(dx, dy); if (l > best) best = l; }
+	return best;
 }
 export interface SplatGpuModule {
 	/** device（host.gpuDevice() か自前）・pipeline・canvas の文脈を整える。失敗＝reject（canvas の文脈は取っていない＝splat-draw.ts が WebGL2 へ落とせる） */
@@ -181,7 +201,7 @@ export function create(): SplatGpuModule {
 	let shared = false, wantDepth = false, dead = false;
 	let drawPipe: GPURenderPipeline | null = null, pickPipe: GPURenderPipeline | null = null, drawLayout: GPUBindGroupLayout | null = null, sortLayout: GPUBindGroupLayout | null = null;
 	let pKey: GPUComputePipeline | null = null, pScan: GPUComputePipeline | null = null, pScatter: GPUComputePipeline | null = null;
-	let counts: GPUBuffer | null = null, dummySh: GPUBuffer | null = null, dummyDep: GPUTexture | null = null;
+	let counts: GPUBuffer | null = null, dummySh: GPUBuffer | null = null, dummyRank: GPUBuffer | null = null, dummyDep: GPUTexture | null = null;
 	let pickTex: GPUTexture | null = null, pickW = 0, pickH = 0;
 	const layers = new Map<string, Layer>(), probes: unknown[] = [];
 	const uData = new ArrayBuffer(UB_SIZE), uF = new Float32Array(uData), uU = new Uint32Array(uData), sData = new ArrayBuffer(SU_SIZE), sF = new Float32Array(sData), sU = new Uint32Array(sData);
@@ -214,7 +234,7 @@ export function create(): SplatGpuModule {
 		const sbuf = (binding: number, type: GPUBufferBindingType, visibility: number): GPUBindGroupLayoutEntry => ({ binding, visibility, buffer: { type } });
 		drawLayout = device.createBindGroupLayout({ label: "splat-draw", entries: [sbuf(0, "uniform", STAGE.VERTEX | STAGE.FRAGMENT), sbuf(1, "read-only-storage", STAGE.VERTEX), sbuf(2, "read-only-storage", STAGE.VERTEX), sbuf(3, "read-only-storage", STAGE.VERTEX), sbuf(4, "read-only-storage", STAGE.VERTEX), sbuf(5, "read-only-storage", STAGE.VERTEX),
 			{ binding: 6, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }] });
-		sortLayout = device.createBindGroupLayout({ label: "splat-sort", entries: [sbuf(0, "uniform", STAGE.COMPUTE), sbuf(1, "read-only-storage", STAGE.COMPUTE), sbuf(2, "storage", STAGE.COMPUTE), sbuf(3, "storage", STAGE.COMPUTE), sbuf(4, "storage", STAGE.COMPUTE)] });
+		sortLayout = device.createBindGroupLayout({ label: "splat-sort", entries: [sbuf(0, "uniform", STAGE.COMPUTE), sbuf(1, "read-only-storage", STAGE.COMPUTE), sbuf(2, "storage", STAGE.COMPUTE), sbuf(3, "storage", STAGE.COMPUTE), sbuf(4, "storage", STAGE.COMPUTE), sbuf(5, "read-only-storage", STAGE.COMPUTE)] });
 		const [dm, sm] = await Promise.all([compile(DRAW_WGSL, "draw"), compile(SORT_WGSL, "sort")]);
 		if (dead) return;
 		const dl = device.createPipelineLayout({ bindGroupLayouts: [drawLayout] }), sl = device.createPipelineLayout({ bindGroupLayouts: [sortLayout] });
@@ -229,14 +249,15 @@ export function create(): SplatGpuModule {
 		if (dead) return;
 		counts = device.createBuffer({ label: "splat-counts", size: 65536 * 4, usage: BUF.STORAGE | BUF.COPY_DST });
 		dummySh = device.createBuffer({ label: "splat-sh0", size: 16, usage: BUF.STORAGE });
+		dummyRank = device.createBuffer({ label: "splat-rank0", size: 16, usage: BUF.STORAGE });
 		dummyDep = device.createTexture({ label: "splat-dep0", size: [1, 1], format: "rgba8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
 		const c = canvas.getContext("webgpu" as "2d") as unknown as GPUCanvasContext | null;   // lib.dom の OffscreenCanvas は "webgpu" の overload を持たない
 		if (!c) throw new Error("webgpu canvas context unavailable");
 		c.configure({ device, format, alphaMode: "premultiplied", usage: TEX.RENDER_ATTACHMENT | TEX.COPY_SRC });
 		ctx = c;
 	}
-	// 層を GPU に載せる（ctr＝vec4 の列・cov＝vec4×2 の列・色＝u32・順＝0..n-1・SH＝u32 の列）
-	function build(d: SplatLayerBody): Layer {
+	// 層を GPU に載せる（ctr＝vec4 の列・cov＝vec4×2 の列・色＝u32・順＝0..n-1・SH＝u32 の列・LoD の順位＝u32 の列）
+	function build(q: string, d: SplatLayerBody): Layer {
 		const n = d.n, C = new Float32Array(n * 4), V = new Float32Array(n * 8), bb = new Float32Array([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
 		for (let i = 0; i < n; i++) {
 			const x = d.ctr[i * 3], y = d.ctr[i * 3 + 1], z = d.ctr[i * 3 + 2];
@@ -250,18 +271,19 @@ export function create(): SplatGpuModule {
 		const bCtr = mkBuf(C, BUF.STORAGE, "splat-ctr"), bCov = mkBuf(V, BUF.STORAGE, "splat-cov"), bCol = mkBuf(new Uint8Array(d.rgba.buffer, d.rgba.byteOffset, n * 4), BUF.STORAGE, "splat-col");
 		const bOrder = mkBuf(order, BUF.STORAGE, "splat-order"), bKeys = device!.createBuffer({ label: "splat-keys", size: Math.max(16, n * 4), usage: BUF.STORAGE });
 		const bSh = sh ? mkBuf(sh, BUF.STORAGE, "splat-sh") : null;
+		const lod = d.lod && d.rank && d.rank.length === n ? d.lod : 0, bRank = lod ? mkBuf(d.rank!, BUF.STORAGE, "splat-rank") : null;
 		const ub = device!.createBuffer({ label: "splat-u", size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST }), su = device!.createBuffer({ label: "splat-su", size: SU_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
-		const sortBG = device!.createBindGroup({ layout: sortLayout!, entries: [{ binding: 0, resource: { buffer: su } }, { binding: 1, resource: { buffer: bCtr } }, { binding: 2, resource: { buffer: bKeys } }, { binding: 3, resource: { buffer: counts! } }, { binding: 4, resource: { buffer: bOrder } }] });
-		return { n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: d.ctr, bb,
+		const sortBG = device!.createBindGroup({ layout: sortLayout!, entries: [{ binding: 0, resource: { buffer: su } }, { binding: 1, resource: { buffer: bCtr } }, { binding: 2, resource: { buffer: bKeys } }, { binding: 3, resource: { buffer: counts! } }, { binding: 4, resource: { buffer: bOrder } }, { binding: 5, resource: { buffer: bRank ?? dummyRank! } }] });
+		return { q, n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: d.ctr, bb, lod, bRank, drawn: n, sortedN: 0,
 			bCtr, bCov, bCol, bOrder, bKeys, bSh, ub, su, shDeg: sh ? d.shDeg! : 0, shWords: sh ? d.shWords! : 0, shScale: d.shScale ?? 1, rot: d.rot && d.rot.length === 9 ? d.rot : new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
 			sortBG, drawBG: null, drawTex: null, dir: null, on: true, base: 0 };
 	}
-	const drop = (L: Layer | undefined): void => { if (!L) return; for (const b of [L.bCtr, L.bCov, L.bCol, L.bOrder, L.bKeys, L.bSh, L.ub, L.su]) b?.destroy(); };
+	const drop = (L: Layer | undefined): void => { if (!L) return; for (const b of [L.bCtr, L.bCov, L.bCol, L.bOrder, L.bKeys, L.bSh, L.bRank, L.ub, L.su]) b?.destroy(); };
 	function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 	function message(d: SplatMessage): void {
 		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 		if (!device || !ctx) return;
-		if (d.type === "layer") { drop(layers.get(d.q)); layers.set(d.q, build(d)); rebase(); host?.requestDraw?.(); }
+		if (d.type === "layer") { drop(layers.get(d.q)); layers.set(d.q, build(d.q, d)); rebase(); host?.requestDraw?.(); }
 		else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); host?.requestDraw?.(); }
 		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; host?.requestDraw?.(); }
 		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); host?.requestDraw?.(); }
@@ -293,13 +315,20 @@ export function create(): SplatGpuModule {
 			L.drawTex = tex;
 		}
 	}
-	// 向きが変わったら GPU で並べ直す（3 段の compute を enc に積む）
-	function sortIfTurned(L: Layer, enc: GPUCommandEncoder): void {
+	// LoD の個数（place の後＝mvpL が層の物）
+	function lodOf(L: Layer, w: number, h: number): number {
+		if (!L.lod || !L.bRank) return L.n;
+		const ppm = pixelsPerMeter(mvpL, w, h); if (!ppm) return L.n;
+		const r = L.radius * ppm, area = Math.min(Math.PI * r * r, w * h);
+		return lodCount(area, L.n, L.lod);
+	}
+	// 向きが変わった・描く個数が変わったら GPU で並べ直す（3 段の compute を enc に積む）
+	function sortIfTurned(L: Layer, enc: GPUCommandEncoder, keep: number): void {
 		const row = [mvpL[3], mvpL[7], mvpL[11]], l = Math.hypot(...row) || 1, dir = row.map(v => v / l);
-		if (L.dir && dir[0] * L.dir[0] + dir[1] * L.dir[1] + dir[2] * L.dir[2] > 0.99995) return;
-		if (!L.n) { L.dir = dir; return; }
+		if (L.dir && L.sortedN === keep && dir[0] * L.dir[0] + dir[1] * L.dir[1] + dir[2] * L.dir[2] > 0.99995) return;
+		if (!L.n) { L.dir = dir; L.sortedN = keep; return; }
 		const [lo, hi] = depthRange(L.bb, dir);
-		sF[0] = dir[0]; sF[1] = dir[1]; sF[2] = dir[2]; sF[3] = lo; sF[4] = hi; sU[5] = L.n;
+		sF[0] = dir[0]; sF[1] = dir[1]; sF[2] = dir[2]; sF[3] = lo; sF[4] = hi; sU[5] = L.n; sU[6] = keep;
 		device!.queue.writeBuffer(L.su, 0, sData);
 		enc.clearBuffer(counts!);
 		const groups = Math.ceil(L.n / WG);
@@ -309,7 +338,7 @@ export function create(): SplatGpuModule {
 		p.setPipeline(pScan!); p.dispatchWorkgroups(1);
 		p.setPipeline(pScatter!); p.dispatchWorkgroups(groups);
 		p.end();
-		L.dir = dir;
+		L.dir = dir; L.sortedN = keep;
 	}
 	// 検定の probe＝canvas の今の絵を buffer へ写して読む（行は上から・BGRA は RGBA へ）
 	async function readCanvas(w: number, h: number): Promise<Uint8Array> {
@@ -337,12 +366,14 @@ export function create(): SplatGpuModule {
 		const vis: Layer[] = [];
 		for (const L of layers.values()) {
 			if (!L.on || !L.n || !place(L, s, api)) continue;
-			sortIfTurned(L, enc);
+			const keep = lodOf(L, w, h);
+			if (keep !== L.drawn) { L.drawn = keep; host?.post?.({ type: "lod", q: L.q, drawn: keep, n: L.n }); }
+			sortIfTurned(L, enc, keep);
 			writeU(L, w, h, dep, false);
 			vis.push(L);
 		}
 		const pass = enc.beginRenderPass({ label: "splat-draw", colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-		if (vis.length) { pass.setPipeline(drawPipe); for (const L of vis) { pass.setBindGroup(0, L.drawBG!); pass.draw(6, L.n); } }
+		if (vis.length) { pass.setPipeline(drawPipe); for (const L of vis) { pass.setBindGroup(0, L.drawBG!); pass.draw(6, L.drawn); } }
 		pass.end();
 		device.queue.submit([enc.finish()]);
 		answerProbes(w, h);
@@ -357,7 +388,7 @@ export function create(): SplatGpuModule {
 		const vis: Layer[] = [];
 		for (const L of layers.values()) { if (!L.on || !L.n || !place(L, ctx0.s, ctx0.api)) continue; writeU(L, w, h, null, true); vis.push(L); }
 		const pass = enc.beginRenderPass({ colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-		if (vis.length) { pass.setPipeline(pickPipe); for (const L of vis) { pass.setBindGroup(0, L.drawBG!); pass.draw(6, L.n); } }
+		if (vis.length) { pass.setPipeline(pickPipe); for (const L of vis) { pass.setBindGroup(0, L.drawBG!); pass.draw(6, L.sortedN || L.n); } }
 		pass.end();
 		const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = Math.round(y) - rr;
 		const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
@@ -383,7 +414,7 @@ export function create(): SplatGpuModule {
 	function destroy(): void {
 		dead = true;
 		layers.forEach(drop); layers.clear();
-		for (const b of [counts, dummySh]) b?.destroy();
+		for (const b of [counts, dummySh, dummyRank]) b?.destroy();
 		dummyDep?.destroy(); pickTex?.destroy();
 		try { ctx?.unconfigure(); } catch { /* 古い実装 */ }
 		if (device && !shared) device.destroy();
