@@ -20,14 +20,15 @@
 		"url": "git+https://github.com/kenjiyoshidahome2026-bit/himekuri.git"
 	},
 	"type": "module",
-	"main": "src/index.js",
+	"main": "./src/index.ts",
 	"exports": {
-		".": "./src/index.js",
+		".": "./src/index.ts",
+		"./*.js": "./src/*.ts",
 		"./*": "./src/*"
 	},
 	"files": [
 		"src",
-		"!src/main.ts",
+		"!src/main.*",
 		"LICENSE",
 		"README.md"
 	],
@@ -35,6 +36,8 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
+		"prepack": "node ../../../scripts/pack-ts.mjs pre",
+		"postpack": "node ../../../scripts/pack-ts.mjs post",
 		"mirror": "git -C ../../.. subtree split --prefix=apps/himekuri/lib -b himekuri-mirror && git -C ../../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../../.. branch -D himekuri-mirror"
 	},
 	"devDependencies": {

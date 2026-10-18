@@ -5,10 +5,28 @@ const 月名 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV
 const 曜名 = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 const romanSpecial = ["Ⅻ","Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","Ⅶ","Ⅷ","Ⅸ","Ⅹ","Ⅺ"];
 const arabicStandard = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+/** 世界時計() の設定（省略した所は既定値） */
+export interface 世界時計Options {
+	fg?: string; bg?: string;
+	/** 時差(時間)か IANA 名 */
+	offset?: number | string;
+	/** 文字盤 0=ローマ数字・1=アラビア数字・2=点 */
+	face?: number;
+	/** 針の意匠 0〜2 */
+	hand?: number;
+	gauge?: boolean; digital?: boolean; dfg?: string; dbg?: string; label?: string;
+}
+/** 世界時計() が返す <svg>（操作の口つき） */
+export interface 世界時計Element extends SVGSVGElement {
+	zone(z: number | string): 世界時計Element;
+	set(p?: 世界時計Options): 世界時計Element;
+	stop(): 世界時計Element;
+	start(): 世界時計Element;
+}
 let 通番 = 0;
-const 書式 = {};
+const 書式: Record<string, Intl.DateTimeFormat> = {};
 // 指定ゾーンの壁時計 {Y,M,D,h,m,s,w}
-function 現地時刻(zone, now = new Date()) {
+function 現地時刻(zone: number | string, now = new Date()) {
 	if (typeof zone === "number") {
 		const t = new Date(now.getTime() + zone * 3600000);
 		return { Y: t.getUTCFullYear(), M: t.getUTCMonth(), D: t.getUTCDate(), h: t.getUTCHours(), m: t.getUTCMinutes(), s: t.getUTCSeconds(), w: t.getUTCDay() };
@@ -16,7 +34,7 @@ function 現地時刻(zone, now = new Date()) {
 	const f = 書式[zone] ??= new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23",
 		year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", weekday: "short" });
 	const p = Object.fromEntries(f.formatToParts(now).map(x => [x.type, x.value]));
-	return { Y: +p.year, M: p.month - 1, D: +p.day, h: +p.hour % 24, m: +p.minute, s: +p.second, w: 曜名.indexOf(p.weekday.toUpperCase()) };
+	return { Y: +p.year, M: (p.month as unknown as number) - 1, D: +p.day, h: +p.hour % 24, m: +p.minute, s: +p.second, w: 曜名.indexOf(p.weekday.toUpperCase()) };
 }
 	const handData = {
 		h: [{ s: 1, d: "M-1.5,5 L1.5,5 L0.5,-20 L-0.5,-20 Z" },
@@ -29,8 +47,8 @@ function 現地時刻(zone, now = new Date()) {
 			{ s: 0.105, d: "m-7.2 115.7 14-1c0-24.7-2-49.3-2-74 0-7.6-2.1-15.4-0.9-23 0.7-4.1 3.9-5 6.8-7.4 3.3-2.7 5.4-6.3 5.9-10.6C17.7-10 9.9-16.8 0.8-17.3V-330.3H-2.2v206 68c0 11.2 0.9 22.8-0.1 34-0.5 5.1-4.4 5.6-7.8 8.6-3.4 2.9-5 7-5.1 11.4-0.1 4.3 1.4 8.4 4.5 11.5 2.9 2.9 6 4 6.4 8.5 0.9 10-0.5 20-0.9 30-1 22.6-2 45.3-2 68z" },
 			{ s: 0.105, d: "m-7.2 115.7 14-1c0-24.7-2-49.3-2-74 0-7.6-2.1-15.4-0.9-23 0.7-4.1 3.9-5 6.8-7.4 3.3-2.7 5.4-6.3 5.9-10.6C17.7-10 9.9-16.8 0.8-17.3V-330.3H-2.2v206 68c0 11.2 0.9 22.8-0.1 34-0.5 5.1-4.4 5.6-7.8 8.6-3.4 2.9-5 7-5.1 11.4-0.1 4.3 1.4 8.4 4.5 11.5 2.9 2.9 6 4 6.4 8.5 0.9 10-0.5 20-0.9 30-1 22.6-2 45.3-2 68z" }]
 	};
-export const 世界時計 = function(opts = {}) {
-	const o = Object.assign({ fg: "#b29600", bg: "#050505", offset: 9, face: 0, hand: 1,
+export const 世界時計 = function(opts: 世界時計Options = {}): 世界時計Element {
+	const o: Required<世界時計Options> = Object.assign({ fg: "#b29600", bg: "#050505", offset: 9, face: 0, hand: 1,
 		gauge: true, digital: true, dfg: "#222", dbg: "#eee", label: "" }, opts);
 	const id = `wc${++通番}`;	// フィルタ ID を時計ごとに分ける（同じページに何台並べても衝突しない）
 	const generateTemplate = () => {
@@ -56,7 +74,7 @@ export const 世界時計 = function(opts = {}) {
 			}
 		}).join('');
 		const h = handData.h[hand], m = handData.m[hand], s = handData.s[hand];
-		const esc = t => String(t).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+		const esc = (t: unknown) => String(t).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 		return `
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="-58 -58 116 116" style="width:100%; height:100%;" class="world-clock-root">
 			<defs>
@@ -90,15 +108,15 @@ export const 世界時計 = function(opts = {}) {
 	};
 
 	const parser = new DOMParser();
-	const svg = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement;
-	let el = {};
-	const bind = () => { el = Object.fromEntries([...svg.querySelectorAll("[data-k]")].map(e => [e.dataset.k, e])); };
+	const svg = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement as unknown as 世界時計Element;
+	let el: Record<string, SVGElement> = {};
+	const bind = () => { el = Object.fromEntries([...svg.querySelectorAll<SVGElement>("[data-k]")].map(e => [e.dataset.k!, e])); };
 	const redraw = () => {
 		svg.innerHTML = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement.innerHTML;
 		bind(); update();
 	};
 
-	const pad = n => String(n).padStart(2, "0");
+	const pad = (n: number) => String(n).padStart(2, "0");
 	const update = () => {
 		const t = 現地時刻(o.offset);
 		el.s.setAttribute("transform", `rotate(${t.s * 6})`);
@@ -113,8 +131,8 @@ export const 世界時計 = function(opts = {}) {
 	let timer = 0;
 	const tick = () => { update(); timer = setTimeout(tick, 1000 - Date.now() % 1000 + 5); };
 
-	svg.zone = z => { o.offset = z; update(); return svg; };
-	svg.set = (p = {}) => { Object.assign(o, p); redraw(); return svg; };
+	svg.zone = (z: number | string) => { o.offset = z; update(); return svg; };
+	svg.set = (p: 世界時計Options = {}) => { Object.assign(o, p); redraw(); return svg; };
 	svg.stop = () => { clearTimeout(timer); timer = 0; return svg; };
 	svg.start = () => { clearTimeout(timer); tick(); return svg; };
 

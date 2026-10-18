@@ -1,12 +1,14 @@
-import { dayNumber, yearDay, ymd2day, initAngle, SunDegreeDay } from "./共通関数.js";
+import { dayNumber, yearDay, ymd2day, initAngle, SunDegreeDay } from "./共通関数.ts";
+/** 年通日-1 → 祝日名 */
+export type 休日表 = Record<number, string>;
 // 祝日法（1948/7/20 施行）の変遷を年で切り替える。キー=年通日-1（dayNumber）
-const 休日tub = {};
-export function 年間休日(year) {
+const 休日tub: Record<number, 休日表> = {};
+export function 年間休日(year: number): 休日表 {
 	if (休日tub[year]) return 休日tub[year];
-	const 祝日 = {};
-	const 日 = (m, d, name) => { 祝日[dayNumber([year, m, d])] = name; };
-	const 月曜 = (m, nth, name) => 日(m, 1 + (8 - ymd2day([year, m, 1])) % 7 + (nth - 1) * 7, name);
-	const 節日 = r => Math.floor(SunDegreeDay(year, r) - initAngle(year, 9)) - 1;
+	const 祝日: 休日表 = {};
+	const 日 = (m: number, d: number, name: string) => { 祝日[dayNumber([year, m, d])] = name; };
+	const 月曜 = (m: number, nth: number, name: string) => 日(m, 1 + (8 - ymd2day([year, m, 1])) % 7 + (nth - 1) * 7, name);
+	const 節日 = (r: number) => Math.floor(SunDegreeDay(year, r) - initAngle(year, 9)) - 1;
 	if (year < 1948) return (休日tub[year] = {});
 	if (year > 1948) {
 		日(1, 1, "元日");
@@ -28,7 +30,7 @@ export function 年間休日(year) {
 	日(11, 3, "文化の日");
 	日(11, 23, "勤労感謝の日");
 	// 特例法（皇室行事・五輪の移動）
-	const 移 = (from, to, name) => { delete 祝日[dayNumber([year, ...from])]; 日(...to, name); };
+	const 移 = (from: [number, number], to: [number, number], name: string) => { delete 祝日[dayNumber([year, ...from])]; 日(...to, name); };
 	({
 		1959: () => 日(4, 10, "皇太子明仁親王の結婚の儀"),
 		1989: () => 日(2, 24, "昭和天皇の大喪の礼"),
@@ -37,9 +39,9 @@ export function 年間休日(year) {
 		2019: () => { 日(5, 1, "天皇の即位の日"); 日(10, 22, "即位礼正殿の儀の行われる日"); },
 		2020: () => { 移([7, 20], [7, 23], "海の日"); 移([10, 12], [7, 24], "スポーツの日"); 移([8, 11], [8, 10], "山の日"); },
 		2021: () => { 移([7, 19], [7, 22], "海の日"); 移([10, 11], [7, 23], "スポーツの日"); 移([8, 11], [8, 8], "山の日"); },
-	})[year]?.();
+	} as Record<number, () => void>)[year]?.();
 	const 休日 = { ...祝日 };
-	const 曜 = n => ymd2day(yearDay(year, n));
+	const 曜 = (n: number) => ymd2day(yearDay(year, n));
 	const 日順 = Object.keys(祝日).map(Number).sort((a, b) => a - b);
 	// 振替休日（1973/4/12〜）：祝日が日曜 → 翌日（2007〜は祝日でない最初の日）
 	for (const n of 日順) {
@@ -56,8 +58,8 @@ export function 年間休日(year) {
 	}
 	return (休日tub[year] = 休日);
 }
-export function 月間休日(YM) {
-	const v = 年間休日(YM[0]), u = {};
+export function 月間休日(YM: readonly number[]): Record<number, string> {
+	const v = 年間休日(YM[0]), u: Record<number, string> = {};
 	for (const k in v) {
 		const ymd = yearDay(YM[0], +k);
 		if (ymd[1] === YM[1]) u[ymd[2]] = v[k];

@@ -1,24 +1,24 @@
-const div = (m, n) => Math.floor(m / n);
-export const mod = (m, n) => ((m % n) + n) % n;
-const isLeap = Y => !(Y % 400) || !(Y % 4) && (Y % 100);
+const div = (m: number, n: number) => Math.floor(m / n);
+export const mod = (m: number, n: number) => ((m % n) + n) % n;
+const isLeap = (Y: number) => !(Y % 400) || !(Y % 4) && (Y % 100);
 
-export const r360 = r => { while (r < 0) r += 360; while (r >= 360) r -= 360; return r; };
+export const r360 = (r: number) => { while (r < 0) r += 360; while (r >= 360) r -= 360; return r; };
 export const date2ymd = (dt = new Date()) => [dt.getFullYear(), dt.getMonth() + 1, dt.getDate(), dt.getHours(), dt.getMinutes(), dt.getSeconds()];
-export const yearLength = Y => isLeap(Y) ? 366 : 365;
-export const monthLength = YM => [31, isLeap(YM[0]) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][YM[1] - 1];
-export const dayAfter = (YMD, n) => jdn2ymd(ymd2jdn(YMD) + n);
-export const dayNumber = YMD => ymd2jdn(YMD) - ymd2jdn([YMD[0], 1, 1]);
-export const ymdComp = (d1, d2) => ymd2jdn(d1) - ymd2jdn(d2 ? d2 : date2ymd().slice(0, 3));
-export const yearDay = (Y, n) => dayAfter([Y, 1, 1], n);
-export const ymd2day = YMD => mod(ymd2jdn(YMD) + 3, 7);
+export const yearLength = (Y: number) => isLeap(Y) ? 366 : 365;
+export const monthLength = (YM: readonly number[]) => [31, isLeap(YM[0]) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][YM[1] - 1];
+export const dayAfter = (YMD: readonly number[], n: number) => jdn2ymd(ymd2jdn(YMD) + n);
+export const dayNumber = (YMD: readonly number[]) => ymd2jdn(YMD) - ymd2jdn([YMD[0], 1, 1]);
+export const ymdComp = (d1: readonly number[], d2?: readonly number[]) => ymd2jdn(d1) - ymd2jdn(d2 ? d2 : date2ymd().slice(0, 3));
+export const yearDay = (Y: number, n: number) => dayAfter([Y, 1, 1], n);
+export const ymd2day = (YMD: readonly number[]) => mod(ymd2jdn(YMD) + 3, 7);
 
-export function ymd2jdn(YMD, flag=false) {
+export function ymd2jdn(YMD: readonly number[], flag=false): number {
 	const y = YMD[0] + div((YMD[1] - 3), 12);
 	const m = mod(YMD[1] - 3, 12), d = YMD[2] - 1;
 	return d + div((153 * m + 2), 5) + 365 * y + div(y, 4) - div(y, 100) + div(y, 400) - 678881 + (flag ? 2400001 : 0);
 }
 
-export function jdn2ymd(n, flag=false) {
+export function jdn2ymd(n: number, flag=false): number[] {
 	n = n + (flag ? 0 : 2400001);
 	const a = 4 * (n + 1401 - 38 + div(div(4 * n + 274277, 146097) * 3, 4)) + 3;
 	const b = 5 * div(mod(a, 1461), 4) + 2;
@@ -28,9 +28,9 @@ export function jdn2ymd(n, flag=false) {
 	return [y, m, d];
 }
 
-export function initAngle(Y, tdiff = 9) { return (58 + 0.44 * (Y - 1990)) / 86400 - (tdiff / 24); }
+export function initAngle(Y: number, tdiff = 9): number { return (58 + 0.44 * (Y - 1990)) / 86400 - (tdiff / 24); }
 
-export function SunDegree(T) {
+export function SunDegree(T: number): number {
 	T /= 36525;
 	const p180 = Math.PI / 180;
 	const sl = [
@@ -42,7 +42,9 @@ export function SunDegree(T) {
 	return r360(sum + d);
 }
 
-export function SunDegreeDay(year, degree) {
+// while (1) は TS が無限ループと見ないので戻り値が number | undefined に推論される＝型だけの多重定義で number と宣言する（実行時は同じ）
+export function SunDegreeDay(year: number, degree: number): number;
+export function SunDegreeDay(year: number, degree: number) {
 	let t0 = ymd2jdn([year, 1, 0]) - ymd2jdn([2000, 1, 1.5]);
 	let r0 = SunDegree(t0);
 	const ofs = (degree < r0) ? 360 : 0;
