@@ -433,12 +433,12 @@
 		},
 		{
 			"id": "pointcloud",
-			"href": "/japan/?copc=https://kenjiyoshidahome2026-bit.github.io/ortho-data/japan/pointcloud/atami-08NF2392.copc.laz&copcattr=VIRTUAL%20SHIZUOKA%20(Shizuoka%20Prefecture%2C%20CC%20BY%204.0)#17.6/35.1082/139.0816/50t/-20r",
+			"href": "/japan/pointcloud",
 			"group": "japan",
 			"icon": "☁️",
-			"title": "Point cloud of Atami",
+			"title": "Point clouds of Shizuoka",
 			"lang": "26",
-			"desc": "9.5 million laser points of Atami from Shizuoka Prefecture's open data (VIRTUAL SHIZUOKA), streamed as a COPC file and drawn on the 3D map, coloured by height.",
+			"desc": "Laser point clouds of Shizuoka Prefecture (VIRTUAL SHIZUOKA): pick a survey and a map sheet, and the open data is read straight from the prefecture's files and drawn on the 3D map. Change the point size and colours, and fit the heights to the terrain.",
 			"img": "/thumbs/pointcloud.webp",
 			"shot": {
 				"wait": 35
