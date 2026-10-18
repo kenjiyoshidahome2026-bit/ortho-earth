@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "yokohama", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const args = process.argv.slice(2), engineOnly = args.includes("--engine-only");
 const pick = args.filter(a => !a.startsWith("--"));
 const bad = pick.filter(a => !APPS.includes(a));
