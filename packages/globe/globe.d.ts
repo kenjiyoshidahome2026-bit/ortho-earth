@@ -32,9 +32,32 @@ export interface GltfAnimationInfo { index: number; name: string; duration: numb
 /** 再生の spec（W4 から rigid アニメ＝ノードの translation/rotation/scale は描く・skin/morph は spec のまま）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
 export interface AnimationState extends Required<Omit<AnimationSpec, "name" | "index">> { name: string | null; index: number | null; duration: number }
+/** 模型の置き方（at＝錨の経緯度・heading＝北から時計回りの度・scale＝倍率・altitude＝地面からの高さ m）。CESIUM_RTC・ECEF 入りの模型は外接矩形の中心を錨に見立て heading 0・scale 1 から数える */
+export interface ModelTransform { at: LonLat; heading: number; scale: number; altitude: number }
 export interface ModelHandle {
 	/** ドロップのトーストの文言（"$1 triangles"・模型が無ければ "?"） */
 	toastLength(): string;
+	/** 置き場（map.model の opts.slot・既定 "default"）。同じ slot に次を置くとこの模型は外れ、手綱は死ぶ（stats/bbox/name が null） */
+	readonly slot: string;
+	/** 置き方を変える（頂点は焼き直さない＝束の剛体変換で動かす・地形への接地は動かした先で引く）。渡した欄だけ変わる。戻り＝自分（連鎖） */
+	setTransform(tf: Partial<ModelTransform>): ModelHandle;
+	getTransform(): ModelTransform;
+	setLngLat(ll: LonLat | { lng?: number; lon?: number; lat: number }): ModelHandle;
+	getLngLat(): LonLat;
+	/** 北から時計回りの度 */
+	setHeading(deg: number): ModelHandle;
+	getHeading(): number;
+	/** 倍率（焼いた時の scale とは独立の「今の倍率」＝load の scale から数える） */
+	setScale(k: number): ModelHandle;
+	getScale(): number;
+	/** 地面からの高さ（m） */
+	setAltitude(m: number): ModelHandle;
+	getAltitude(): number;
+	/** 置き方が変わるたび（setTransform・ギズモのドラッグ）。戻り値で解除 */
+	onTransform(f: (tf: ModelTransform, model: ModelHandle) => void): () => void;
+	/** 置き方の取っ手（錨の丸＝移動・輪の丸＝回転・四角＝倍率）を出す／畳む（DOM・mapEl の上）。✓ で畳む。gizmo:"auto" で置いた模型はクリックで出し直せる */
+	gizmo(on?: boolean): ModelHandle;
+	readonly gizmoOn: boolean;
 	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta; /** KHR_texture_basisu の texture がある時だけ（W5）：数・変換器で素の RGBA になった数・できなかった数（変換器が無い／読めない／壊れている） */ ktx2?: { textures: number; transcoded: number; failed: number } } | null;
 	readonly bbox: [number, number, number, number] | null; readonly name: string | null;
 	/** 模型のアニメの見出し（無ければ []） */
@@ -439,7 +462,8 @@ export interface Gadgets {
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number }): Promise<ModelHandle>;
+	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number;
+		/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（複数の模型） */ slot?: string; /** 地面からの高さ（m） */ altitude?: number; /** 置き方の取っ手を出す（"auto"＝錨で置いた模型だけ＝ドロップの既定） */ gizmo?: boolean | "auto" }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。

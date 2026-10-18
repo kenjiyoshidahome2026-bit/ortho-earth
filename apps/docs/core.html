@@ -292,7 +292,7 @@ One mesh core streams every kind of 3D data. It does not know which country the 
 	<tr><td>City buildings (Japan's PLATEAU, the Netherlands' 3DBAG)</td><td>per-district loads declared by the region pack</td></tr>
 	<tr><td>Any 3D Tiles tileset</td><td><code>map.add3DTiles(url)</code> — screen-space-error traversal, b3dm / i3dm / pnts / cmpt / glb</td></tr>
 	<tr><td>I3S scene layers</td><td><code>map.addI3S(url)</code> — decoded with loaders.gl</td></tr>
-	<tr><td>glTF / GLB models</td><td>dropped files or <code>?g=</code> links</td></tr>
+	<tr><td>glTF / GLB models</td><td>dropped files, <code>?g=</code> links or <code>map.model(src, { at, heading, scale, slot })</code> — several side by side (one per <code>slot</code>); the handle moves, turns, scales and lifts the model afterwards (<code>setLngLat / setHeading / setScale / setAltitude</code>, no re-bake: the batches get a rigid transform, grounding follows the new spot) and <code>gizmo(true)</code> shows drag handles for placing by hand — a dropped model shows them at once</td></tr>
 </table>
 
 <p>
