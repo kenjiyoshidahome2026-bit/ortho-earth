@@ -70,7 +70,8 @@ export const HAZARDS: Hazard[] = [
 	{ id: "hightide", name: "高潮（想定最大規模）", urls: [DP + "03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png"], maxZoom: 17, legend: DEPTH, note: "台風の高潮で海があふれた時の浸水の深さ。" },
 	{ id: "tsunami", name: "津波", urls: [DP + "04_tsunami_newlegend_data/{z}/{x}/{y}.png"], maxZoom: 17, legend: DEPTH, note: "神奈川県の津波浸水想定の深さ。" },
 	{ id: "dosha", name: "土砂災害警戒区域", urls: ["05_dosekiryukeikaikuiki", "05_kyukeishakeikaikuiki", "05_jisuberikeikaikuiki"].map(d => `${DP}${d}/{z}/{x}/{y}.png`), maxZoom: 17,
-		legend: [{ color: "#f5e95c", label: "警戒区域" }, { color: "#e5463c", label: "特別警戒区域" }], note: "土石流・急傾斜地の崩壊（がけ崩れ）・地すべりの警戒区域。" },
+		legend: [{ color: "#f5e95c", label: "警戒区域" }, { color: "#e5463c", label: "特別警戒区域" }, { color: "#00008b", label: "急傾斜地崩壊危険区域（急傾斜地法）" }],
+		note: "土石流・急傾斜地の崩壊（がけ崩れ）・地すべりの警戒区域。紺は急傾斜地法に基づく危険区域。" },
 ];
 
 const GSI = "https://cyberjapandata.gsi.go.jp/xyz/";
@@ -84,6 +85,12 @@ export const ERAS: Era[] = [
 	{ id: "1961", name: "1961〜69 年", url: GSI + "ort_old10/{z}/{x}/{y}.png", minZoom: 10, maxZoom: 17 },
 	{ id: "1945", name: "1945〜50 年", url: GSI + "ort_USA10/{z}/{x}/{y}.png", minZoom: 10, maxZoom: 17 },
 ];
+
+/** PLATEAU の建物が LOD2（屋根の形まで）で配信される区＝エンジンの登録簿（plateau-sets.json）が自動で読む 5 区。残り 13 区は LOD1（箱）だけ＝この頁が任意で足す（2026-10-18 の配信を確認） */
+export const LOD2_WARDS = ["14101", "14102", "14103", "14104", "14114"];
+export const LOD1_WARDS = WARDS.filter(w => !LOD2_WARDS.includes(w.code));
+/** 区の LOD1 建築物の 3D Tiles（PLATEAU の datacatalog・texture 版しか無い＝読む時にテクスチャは落とす） */
+export const lod1Url = (code: string) => `https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/${code}-bldg-lod1-texture-latest/tileset.json`;
 
 /** 指定緊急避難場所の対応災害（census2020 の焼き bousai/hinan の flags のビット順） */
 export const HINAN_FLAGS = ["洪水", "土砂", "高潮", "地震", "津波", "大火", "内水", "火山"];
