@@ -87,6 +87,7 @@ On the grading of 12 October 2026, 66 draw the same picture, 50 give the same an
 <ul>
 	<li><strong>Always a globe.</strong> There is no flat Mercator mode: <code>projection</code> is read as globe whatever it says, and <code>renderWorldCopies</code> has nothing to copy. The flat world map of this project is <a href="equal-earth.html">Equal Earth</a>.</li>
 	<li><strong>Drawing happens in a worker.</strong> A custom layer passed as an object is drawn on top of the map; a custom layer with a <code>url</code> runs inside the render worker and is hidden by terrain and buildings. deck.gl's <code>MapboxOverlay</code> works as an overlay (<code>interleaved: true</code> falls back to overlaid).</li>
+	<li><strong>For three.js, use <code>map.addThree({ module })</code>.</strong> It draws inside the render worker with the map's camera, is hidden by terrain and buildings, and answers clicks. Your module imports <code>"three"</code> and <code>"three/addons/…"</code> as usual (three.js comes from jsDelivr by default; depth needs r180 or later). To move a MapLibre custom layer over unchanged, put it in a module and pass <code>url</code> and <code>three</code> (guide: THREE.md in the package).</li>
 	<li><strong>More than MapLibre.</strong> The same map takes 3D Tiles (<code>map.add3DTiles</code>), I3S, quantized-mesh terrain, glTF models, a shared clock with the night side and the stars, and analysis such as sun shadow and viewshed. Coming from CesiumJS too? See <a href="from-cesium.html">From CesiumJS</a>.</li>
 </ul>
 

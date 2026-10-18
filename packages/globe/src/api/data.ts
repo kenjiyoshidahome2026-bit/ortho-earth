@@ -17,10 +17,10 @@ import type { DataDeps, DataLive, DataReturn, FsFollowEntry, Installing, IntakeC
 import type { DataApi } from "../types/map.ts";
 import type { UserSource } from "../types/scope.ts";
 
+/** map.addThree の three を省いた時の three.js（jsDelivr・globe の devDependency と同じ版・r180〜＝深度で隠れる） */
+export const DEFAULT_THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js";
 /** dev の検証窓のオーバーレイの段（dbgHost.__overlay） */
 type OverlayStages = Record<string, { stage?: string; error?: string }>;
-/** three のオーバーレイの知らせ（失敗＝{ type:"error", error }） */
-type OverlayMsg = { type?: string; error?: string } | null | undefined;
 
 export function installData(map: Installing<DataApi>, live: DataLive, {
 	BUILTIN_DATA_KINDS, CAM_ZOOM_MIN, ELL_ON, LOW_MEM, REGION_BLD_LABELS, ac, applyCamView, applyViewLayers, cam, canvas, dbgHost, flightCtl, flyView,
@@ -256,20 +256,23 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 		const m = await import("../columnar/index.ts");
 		return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 	};
-	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
-	//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない）, module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)）,
-	//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる）, params, name, above })
-	//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
-	map.addThree = ({ three, module, origin, depth = true, params, name = "three", above = false } = {} as Parameters<DataApi["addThree"]>[0]) => {
-		if (!three) throw new Error("addThree: three (URL of three.module.js) is required");
+	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.ts・手引き＝THREE.md）：
+	//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない・省略＝jsDelivr の DEFAULT_THREE_URL）, addons: URL（three/examples/jsm/・省略＝three から推す）,
+	//                  module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)・中で import "three"／"three/addons/…" と書いてよい）,
+	//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる・three r180〜）, params, name, above })
+	//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise＝setup が済んだら解決）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
+	map.addThree = ({ three = DEFAULT_THREE_URL, addons, module, origin, depth = true, params, name, above = false } = {} as NonNullable<Parameters<DataApi["addThree"]>[0]>) => {
 		const abs = (u: string | undefined) => u == null ? u : new URL(u, location.href).href;
-		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } }) as OverlayHandle & { ready: Promise<OverlayHandle> };
+		if (name == null) { name = "three"; for (let i = 2; overlays.has(name); i++) name = "three" + i; }   // 2 つ目からは three2, three3…（名前を渡さずに複数置ける）
+		delete (dbgHost.__overlay as OverlayStages | undefined)?.[name];   // 同じ名前の前の段（外した物の "setup"）で ready が早まらない
+		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), addons: abs(addons), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } }) as OverlayHandle & { ready: Promise<OverlayHandle> };
+		const nm = name;
+		// ready＝worker の three-draw が setup を済ませて名乗る段（"setup"）。読み込みの失敗は "failed"
 		h.ready = new Promise((res, rej) => {
-			const prev = h.onmessage;
-			h.onmessage = d => { if ((d as OverlayMsg)?.type === "error") { h.onmessage = prev; rej(new Error((d as OverlayMsg)!.error)); } else prev?.(d); };
-			const poll = () => { const st = (dbgHost.__overlay as OverlayStages | undefined)?.[name]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (!overlays.has(name)) { rej(new Error("removed")); return; } if (st?.stage === "ready") res(h); else setTimeout(poll, 100); };
+			const poll = () => { const st = (dbgHost.__overlay as OverlayStages | undefined)?.[nm]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (overlays.get(nm) !== h) { rej(new Error("removed")); return; } if (st?.stage === "setup") res(h); else setTimeout(poll, 100); };
 			poll();
 		});
+		h.ready.catch(() => { /* 待たない利用者の未処理の reject を出さない（失敗は console と __overlay に残る） */ });
 		return h;
 	};
 	// H3 のセル（@ortho-earth/h3・deck.gl 差分 PR-2・2026-10-11）：map.addH3(cells | points, { id, res, weight, paint, extrude, outline }) → 手綱（setData/setPaint/setRes/remove）。

@@ -49,7 +49,7 @@ map.supports("data.squares");   // true
    **文脈の数に気をつける**：render worker の WebGL 文脈は Chrome で 4 つまで（地球が 1 つ使う）。超えると一番古い文脈＝地球が落ちる。層ごとにオーバーレイを作らず、一つのオーバーレイに多くの層を載せる：
    手綱の `addLayerId(id)`／`removeLayerId(id)` で層の id を名乗り、module の `pick` の答えに `layer: id` を入れると、`map.on(ev, id)`・`queryRenderedFeatures({ layers: [id] })`・`pickOverlays({ names: [id] })` がその id で当たる（W9）。
 2. **GeoJSON の層**＝`map.addSource/addLayer`（fill/line/circle/symbol/fill-extrusion/heatmap）＝MapLibre の意味で評価される既存の経路。`addData` の polygons/paths/columns はこれ。
-3. **three.js**＝`map.addThree(url)`（worker 内の three.js・深度で隠れる）。
+3. **three.js**＝`map.addThree({ module })`（worker 内の three.js・深度で隠れる・モジュールは `import … from "three"`／`"three/addons/…"` と書ける）。手引き＝[THREE.md](./THREE.md)。
 4. **DOM**＝`map.mapEl` に自前の要素（Marker/Popup と同じ層）。`map.makeProjectorH()` で毎フレーム投影。
 5. **CSS filter**＝`map.mapEl.querySelector("canvas")` への filter（tone mapping や LUT の簡易な代わり＝postEffects の apply で掛け外しする）。
 

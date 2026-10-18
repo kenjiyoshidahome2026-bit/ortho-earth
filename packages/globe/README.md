@@ -50,14 +50,16 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
 - **Overlays**: `map.overlay(url)` draws in the render worker's frame (same camera, scene depth on request); overlays that export
   `pick(x, y, r, ctx)` answer `map.pickOverlays(x, y)`, `map.on("click" | "mousemove", overlayName, cb)` and
   `queryRenderedFeatures({ layers: [overlayName] })` like any layer (GPU id pass for points, geometry for canvas overlays)
-- **three.js**: `map.addThree({ three: <URL of three.module.js>, module: <URL of your module exporting setup(THREE, scene, h)> })` runs
-  three.js inside the render worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by
-  terrain and buildings through the scene depth, pickable with the overlay picking above. three.js is not a dependency; you bring it
+- **three.js**: `map.addThree({ module: <URL of your module exporting setup(THREE, scene, h)> })` runs three.js inside the render
+  worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by terrain and buildings through the
+  scene depth, pickable with the overlay picking above. Your module may `import * as THREE from "three"` and
+  `import { GLTFLoader } from "three/addons/…"` (resolved inside the worker). three.js is not a dependency: `three` defaults to
+  jsDelivr's `three@0.186.1`, or pass your own URL (r180 or later for depth). Guide, limits and MapLibre porting: [THREE.md](./THREE.md)
 - **Custom layers in the worker**: `map.addLayer({ id, type: "custom", renderingMode: "3d", url: <URL of a module exporting createLayer(params)> , params })`
   runs a MapLibre-style `CustomLayerInterface` (`onAdd(map, gl)` / `render(gl, args)` with `args.defaultProjectionData.mainMatrix`, prelude and
   `getProjectionData`) inside the render worker on the same camera; the scene depth is written into the layer's depth buffer first, so a "3d" layer is
-  occluded by terrain and buildings without touching its shaders (`depth: false` to opt out). `map.getCustomLayerHandle(id)` posts messages to the layer's
-  `onMessage`. Passing a layer object (no `url`) keeps the main-thread canvas route (always on top, no depth).
+  occluded by terrain and buildings without touching its shaders (`depth: false` to opt out). Add `three: <URL of three.module.js>` to let the module
+  import `"three"` and its addons by bare name. `map.getCustomLayerHandle(id)` posts messages to the layer's `onMessage`. Passing a layer object (no `url`) keeps the main-thread canvas route (always on top, no depth).
 - **deck.gl**: `MapboxOverlay` (overlaid) from `@deck.gl/mapbox` works on the MapLibre-shaped `Map` (`@ortho-earth/globe/maplibre`) through the usual
   `map.addControl(overlay)`: the camera follows the `render` event, picking and `onClick` go through the container's mouse and drag events.
   `interleaved: true` falls back to overlaid (the map is drawn in a worker, so deck.gl cannot share its GL context). deck.gl is not a dependency; it is
