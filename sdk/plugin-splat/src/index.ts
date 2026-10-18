@@ -51,7 +51,7 @@ export interface SplatOptions {
 export interface SplatPluginOptions {
 	/** your own readers (e.g. a WASM .spz decoder) */
 	decoders?: SplatDecoders;
-	/** "auto" (default): WebGPU, else WebGL2. "webgpu": WebGPU or fail. "webgl2": always WebGL2 (DC color, CPU sort) */
+	/** "auto" (default): WebGPU when the map draws with WebGPU (shared device), else WebGL2. "webgpu": WebGPU (own device under a WebGL2 map) or fail. "webgl2": always WebGL2 (DC color, CPU sort) */
 	backend?: SplatBackend | "auto";
 }
 /** handle.pick の 1 件＝統一 picking の答え（layer＝手綱の id・index＝描いた番号） */

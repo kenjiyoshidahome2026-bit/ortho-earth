@@ -20,7 +20,7 @@ const D2R = Math.PI / 180;
 // ---- WGSL ----
 // 描き（頂点＝splat-gl.ts の VS と同じ数式・SH を足す。片＝深度で隠れる・前乗せ α／当たり＝番号）
 const DRAW_WGSL = /* wgsl */`
-struct U {
+struct Uni {
 	mvp: mat4x4f,     // mvp×平行移動(錨)×東北上→単位球（倍精度で掛けてから f32）
 	rot: mat3x3f,     // 東北上の向き → 元の軸（SH の評価）
 	eye: vec3f,       // 目の位置（錨の東北上 m）
@@ -30,7 +30,7 @@ struct U {
 	base: u32, occl: u32, shDeg: u32, depthOn: u32,
 	shWords: u32, pad0: u32, pad1: u32, pad2: u32,
 };
-@group(0) @binding(0) var<uniform> U: U;
+@group(0) @binding(0) var<uniform> U: Uni;
 @group(0) @binding(1) var<storage, read> ctr: array<vec4f>;
 @group(0) @binding(2) var<storage, read> cov: array<vec4f>;
 @group(0) @binding(3) var<storage, read> col: array<u32>;
@@ -113,8 +113,8 @@ fn occluded(pos: vec2f, w: f32) -> bool {
 }`;
 // 並べ替え（奥から手前＝w の降順）＝数え上げ（16 bit の桶）を GPU で：keyHist（鍵と度数）→ scan（累積・1 workgroup）→ scatter（散らし）。桶の中の順は任意（同じ奥行き＝混ぜる順は効かない）
 const SORT_WGSL = /* wgsl */`
-struct SU { row: vec3f, lo: f32, hi: f32, n: u32, pad0: u32, pad1: u32 }
-@group(0) @binding(0) var<uniform> S: SU;
+struct SortUni { row: vec3f, lo: f32, hi: f32, n: u32, pad0: u32, pad1: u32 }
+@group(0) @binding(0) var<uniform> S: SortUni;
 @group(0) @binding(1) var<storage, read> ctr: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> keys: array<u32>;
 @group(0) @binding(3) var<storage, read_write> counts: array<atomic<u32>>;
@@ -327,7 +327,7 @@ export function create(): SplatGpuModule {
 		if (!probes.length) return;
 		const ids = probes.splice(0);
 		readCanvas(w, h).then(data => { for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: false, data: id === ids[ids.length - 1] ? data : data.slice() }); })
-			.catch(e => { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as { message?: string } | null)?.message || e) }); });
+			.catch(e => { console.warn("[plugin-splat] probe failed", e); for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as { message?: string } | null)?.message || e) }); });
 	}
 	function frame(cam: unknown, s: CamState, { w, h }: { w: number; h: number }, api: SplatApi): boolean {
 		if (!device || !ctx || !drawPipe) return false;

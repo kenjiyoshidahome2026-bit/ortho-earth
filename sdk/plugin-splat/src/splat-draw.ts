@@ -1,6 +1,8 @@
 // Gaussian splat のオーバーレイの入口（map.overlay が URL で import() する・依存ゼロ）。@ortho-earth/plugin-splat（2026-10-18）。
 // 器を見て描き手を選ぶ：WebGPU（splat-gpu.ts＝SH・GPU の並べ替え・本体の device と深度を共有）→ 無い・失敗＝WebGL2（splat-gl.ts＝DC の色だけ・CPU の並べ替え）。
-// opts.backend＝"auto"（既定）／"webgpu"（無ければ失敗）／"webgl2"。選んだら host.post({ type: "backend", backend }) で main（index.ts の手綱 backend）へ。
+// opts.backend＝"auto"（既定＝本体が WebGPU で描いている時だけ WebGPU＝device を共有。本体が WebGL2＝WebGL2）／"webgpu"（本体が WebGL2 でも自前の device で・無ければ失敗）／"webgl2"。
+//   auto で本体に合わせる理由＝WebGPU の無い・弱い器（SwiftShader）では本体も WebGPU を諦めて WebGL2 に落ちている＝そこで自前の device を立てても同じ轍（instance が落ちる）・device が二つになる。
+// 選んだら host.post({ type: "backend", backend }) で main（index.ts の手綱 backend）へ。
 // 描き手は import.meta.url の問い（?ov=…＝render worker がオーバーレイごとに付ける）を引き継いで import する＝二つのオーバーレイ（above と below）で実体が混ざらない。
 // 届いた message は選び終わるまで溜める。frame は選び終わるまで何も描かない（false）。pick は描き手の答え（WebGPU は Promise）をそのまま返す。
 import type { SplatMessage, SplatPickResult, CamState, SplatApi, PickContext, OverlayHost } from "./splat-gl.ts";
@@ -19,10 +21,11 @@ const GPU_URL = (): string => withQuery(new URL("./splat-gpu.js", import.meta.ur
 const hasGpu = (): boolean => !!(globalThis as { navigator?: { gpu?: unknown } }).navigator?.gpu;
 
 export function init(canvas: OffscreenCanvas, opts: SplatDrawOpts = {}, h: OverlayHost | null = null): { depth: true } | undefined {
-	const pref = opts.backend ?? "auto", want = opts.depth !== false;
+	const pref = opts.backend ?? "auto", want = opts.depth !== false, t0 = performance.now();
 	(async () => {
 		try {
-			if (pref !== "webgl2" && hasGpu()) {
+			const tryGpu = pref === "webgpu" ? hasGpu() : pref === "auto" && hasGpu() && !!h?.gpuDevice?.();   // auto＝本体の device がある時だけ
+			if (tryGpu) {
 				try {
 					const mod = await import(/* @vite-ignore */ GPU_URL()) as typeof import("./splat-gpu.ts");
 					if (dead) return;
@@ -43,6 +46,7 @@ export function init(canvas: OffscreenCanvas, opts: SplatDrawOpts = {}, h: Overl
 			}
 			for (const d of queue) impl.m.message(d);
 			queue = [];
+			console.info(`[plugin-splat] backend=${impl.kind}${impl.kind === "webgpu" && impl.m.shared ? " (map's device)" : ""} in ${Math.round(performance.now() - t0)}ms`);
 			h?.post?.({ type: "backend", backend: impl.kind, shared: impl.kind === "webgpu" && impl.m.shared });
 			h?.requestDraw?.();
 		} catch (e) {

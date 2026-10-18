@@ -2,7 +2,7 @@
 
 Gaussian splats for [`@ortho-earth/globe`](../../packages/globe). The plugin fills the reserved `map.addData` kind `"splat"`. The globe already checks the contract (`SplatData` in `src/splat.js`, or a `.ply` / `.splat` / `.spz` URL); this package reads the files and draws them.
 
-- **Drawing** is a same-frame overlay with the globe's camera, **WebGPU first**: splats are sorted back to front on the GPU (a counting sort in three compute passes, re-run whenever the view direction turns), each splat is an ellipse projected from its 3D covariance, and the color is evaluated per view direction from the **spherical harmonics** (degree 1–3, as in the file). When the map itself draws with WebGPU the plugin shares the map's `GPUDevice` and reads the map's depth texture directly: no copy and no read-back. Browsers without WebGPU fall back to a WebGL2 renderer (DC color only, CPU sort).
+- **Drawing** is a same-frame overlay with the globe's camera, **WebGPU first**: splats are sorted back to front on the GPU (a counting sort in three compute passes, re-run whenever the view direction turns), each splat is an ellipse projected from its 3D covariance, and the color is evaluated per view direction from the **spherical harmonics** (degree 1–3, as in the file). The plugin shares the map's `GPUDevice` and reads the map's depth texture directly: no copy and no read-back. Where the map draws with WebGL2 (no WebGPU in the browser) the plugin falls back to a WebGL2 renderer (DC color only, CPU sort).
 - Splats are **hidden by terrain and buildings** through the scene depth.
 - They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the splat `index`, its `lngLat` and your `properties`.
 - **Readers** are plain JS on the main thread: 3DGS `.ply` (binary little endian, `f_rest_*` kept as SH), `.splat` (32 bytes per splat) and `.spz` v2 / v3 (with SH). `.spz` is gunzipped with the browser's built-in `DecompressionStream`, so no WASM is needed. To use your own reader (for example a WASM build), pass `splatPlugin({ decoders: { spz: bytes => splatData } })`.
@@ -53,7 +53,7 @@ mine.remove();
 | depth | the map's packed depth texture, shared when the map draws with WebGPU (no copy) | the map's depth uploaded as a texture once per frame |
 | picking | id pass to `r32uint`, read back asynchronously (needs an `@ortho-earth/globe` newer than 2.0.1, whose render worker awaits a Promise from `pick`) | id pass, synchronous read |
 
-`splatPlugin({ backend })` picks: `"auto"` (default) tries WebGPU and falls back, `"webgpu"` fails without it, `"webgl2"` forces the fallback. `handle.backend` says which one draws.
+`splatPlugin({ backend })` picks: `"auto"` (default) draws with WebGPU when the map itself draws with WebGPU (sharing its device) and with WebGL2 otherwise; `"webgpu"` uses WebGPU even under a WebGL2 map (its own device, depth uploaded per frame) and fails where there is none; `"webgl2"` forces the fallback. `handle.backend` says which one draws.
 
 ## Limits
 
