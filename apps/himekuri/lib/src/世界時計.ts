@@ -1,4 +1,4 @@
-import "./digital-font.css";
+import { addDsegFonts } from "./fonts.ts";
 // 世界時計(opts) → <svg>。zone は時差(時間)か IANA 名（"America/New_York" 等・夏時間込み）
 // svg.zone(z) / svg.set(opts) / svg.stop() / svg.start()
 const 月名 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
@@ -48,6 +48,7 @@ function 現地時刻(zone: number | string, now = new Date()) {
 			{ s: 0.105, d: "m-7.2 115.7 14-1c0-24.7-2-49.3-2-74 0-7.6-2.1-15.4-0.9-23 0.7-4.1 3.9-5 6.8-7.4 3.3-2.7 5.4-6.3 5.9-10.6C17.7-10 9.9-16.8 0.8-17.3V-330.3H-2.2v206 68c0 11.2 0.9 22.8-0.1 34-0.5 5.1-4.4 5.6-7.8 8.6-3.4 2.9-5 7-5.1 11.4-0.1 4.3 1.4 8.4 4.5 11.5 2.9 2.9 6 4 6.4 8.5 0.9 10-0.5 20-0.9 30-1 22.6-2 45.3-2 68z" }]
 	};
 export const 世界時計 = function(opts: 世界時計Options = {}): 世界時計Element {
+	addDsegFonts();
 	const o: Required<世界時計Options> = Object.assign({ fg: "#b29600", bg: "#050505", offset: 9, face: 0, hand: 1,
 		gauge: true, digital: true, dfg: "#222", dbg: "#eee", label: "" }, opts);
 	const id = `wc${++通番}`;	// フィルタ ID を時計ごとに分ける（同じページに何台並べても衝突しない）
