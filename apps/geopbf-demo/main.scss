@@ -5,7 +5,9 @@ $side: min(300px, 100vw);
 
 body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$text; }
 // 背景の地球儀（ortho-japan エンジン）。中の div がエンジンに貸す容れ物（id は map へ改名される＝寸法はここで与える）
-.globe-bg { position: fixed; inset: 0; z-index: 0; > div { width: 100%; height: 100%; } }
+.globe-bg { position: fixed; inset: 0; z-index: 0; > div { width: 100%; height: 100%; }
+	#sky-clock { display: none; } }
+body:has(.demo:not(.viewing)) .globe-bg #attr { display: none; }   // 待ち受け（地球儀は飾りの背景）の間は出典を畳む＝本文・GeoPBF ボタンの裏に透けていた。地図に入れば出る   // 夜空の時計は出さない＝右上は頁の見出し（言語・🌐）の場所（重なっていた）
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
 button, a, select { touch-action: manipulation; } // Safari 300ms タップ遅延除去
 :focus-visible { outline: 2px solid $accent; outline-offset: 2px; }

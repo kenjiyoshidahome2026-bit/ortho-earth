@@ -17,7 +17,7 @@ const host = frame.appendChild(document.createElement("div"));
 export const mapP = engineP.then(m => m.createGlobe({   // GeoPBF のデモ＝世界の器（地域の申告なし＝LAYERS.md 段階 2 S6）。落とした地物を寄って見るので z の上限は既定のまま
 	target: host,
 	view: /^#-?\d/.test(location.hash) ? location.hash : `#${overviewZoom.toFixed(2)}/0/0`,
-	lang: "en",
+	// 言語は省く＝エンジンが頁と同じ規則（?lang= > ブラウザ）で決める＝出典・道具の札がパネルと同じ言語（旧 "en" 固定＝日本語の頁に英語の出典）
 	countryTip: false,         // データの tip と国名 tip を混ぜない
 	persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
 	keyboard: () => document.querySelector(".demo")?.classList.contains("viewing") as boolean,   // 矢印キーは地図に入っている間だけ（待ち受け中はパネル側のもの）
