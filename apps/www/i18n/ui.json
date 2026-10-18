@@ -3875,6 +3875,41 @@
 			"fa": "رمزگشاهایی که موتور فقط در نخستین نیاز بار می‌کند: کاشی‌های برداری MLT ‏(MapLibre Tile) و رکوردهای نقطهٔ LAZ برای ابرنقاط COPC.",
 			"ur": "ڈیکوڈر جنہیں انجن صرف پہلی ضرورت پر لوڈ کرتا ہے: MLT (MapLibre Tile) ویکٹر ٹائلیں، اور COPC پوائنٹ کلاؤڈ کے LAZ پوائنٹ ریکارڈ۔",
 			"he": "מפענחים שהמנוע טוען רק כשהם נדרשים לראשונה: אריחים וקטוריים MLT ‏(MapLibre Tile), ורשומות נקודה LAZ לענני נקודות COPC."
+		},
+		"Yokohama digital twin": {
+			"ja": "横浜市デジタルツイン",
+			"zh": "横滨数字孪生",
+			"ko": "요코하마 디지털 트윈",
+			"fr": "Jumeau numérique de Yokohama",
+			"de": "Digitaler Zwilling von Yokohama",
+			"es": "Gemelo digital de Yokohama",
+			"pt": "Gêmeo digital de Yokohama",
+			"it": "Gemello digitale di Yokohama",
+			"nl": "Digitale tweeling van Yokohama",
+			"pl": "Cyfrowy bliźniak Jokohamy",
+			"ru": "Цифровой двойник Йокогамы",
+			"uk": "Цифровий двійник Йокогами",
+			"hu": "Jokohama digitális ikerpárja",
+			"sv": "Yokohamas digitala tvilling",
+			"tr": "Yokohama dijital ikizi",
+			"el": "Ψηφιακό δίδυμο της Γιοκοχάμα",
+			"id": "Kembaran digital Yokohama",
+			"vi": "Bản sao số Yokohama",
+			"th": "ดิจิทัลทวินโยโกฮามา",
+			"bn": "ইয়োকোহামার ডিজিটাল টুইন",
+			"hi": "योकोहामा का डिजिटल ट्विन",
+			"ar": "التوأم الرقمي ليوكوهاما",
+			"fa": "همزاد دیجیتال یوکوهاما",
+			"ur": "یوکوہاما کا ڈیجیٹل ٹوئن",
+			"he": "התאום הדיגיטלי של יוקוהמה"
+		},
+		"A digital twin of Yokohama: PLATEAU 3D buildings with flood, storm surge, tsunami and landslide hazards, evacuation sites, aerial photos from 1945 to today, building shadows, viewsheds and cross sections.": {
+			"ja": "横浜市のデジタルツイン。PLATEAU の 3D 建物に、洪水・高潮・津波・土砂災害の想定と避難場所、1945 年からいままでの航空写真、建物の影、可視域、断面を重ねます。",
+			"zh": "横滨市的数字孪生：在 PLATEAU 3D 建筑上叠加洪水、风暴潮、海啸和滑坡风险、避难场所、1945 年至今的航拍照片、建筑阴影、可视域和剖面。",
+			"ko": "요코하마시의 디지털 트윈. PLATEAU 3D 건물 위에 홍수·고조·쓰나미·산사태 위험, 대피소, 1945년부터 현재까지의 항공사진, 건물 그림자, 가시권, 단면을 겹쳐 봅니다.",
+			"fr": "Un jumeau numérique de Yokohama : bâtiments 3D PLATEAU avec risques d'inondation, de surcote, de tsunami et de glissement de terrain, sites d'évacuation, photos aériennes de 1945 à aujourd'hui, ombres des bâtiments, champs de vision et coupes.",
+			"de": "Ein digitaler Zwilling Yokohamas: PLATEAU-3D-Gebäude mit Hochwasser-, Sturmflut-, Tsunami- und Hangrutschrisiken, Evakuierungsorten, Luftbildern von 1945 bis heute, Gebäudeschatten, Sichtfeldern und Schnitten.",
+			"es": "Un gemelo digital de Yokohama: edificios 3D de PLATEAU con riesgos de inundación, marejada, tsunami y deslizamiento, sitios de evacuación, fotos aéreas de 1945 a hoy, sombras de edificios, cuencas visuales y secciones."
 		}
 	}
 }
