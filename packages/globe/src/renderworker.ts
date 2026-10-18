@@ -208,20 +208,22 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 }
 // 統一 picking（deck.gl 差分 PR-1・2026-10-11）：main の map.pickOverlays(x, y) → names の順（手前から）に各モジュールの pick(x, y, r, ctx) を問う。
 // x, y, r は CSS px で来る＝device px に直す。答え＝[{ name, id, distance（CSS px）, lngLat, properties, … }]（モジュールが返した物に name を足す）。pick の無いモジュールは飛ばす
+// pick は Promise を返してもよい（WebGPU の描き手＝番号の読み戻しは mapAsync・plugin-splat 2026-10-18）＝全部そろってから答える（順は names のまま・main は 3 秒で諦める）
 function overlayPick(m: RwMsg) {
-	const hits: OverlayHit[] = [];
+	type Res = OverlayHit | OverlayHit[] | null | undefined;
+	const parts: Promise<OverlayHit[]>[] = [];
 	if (lastOv) {
 		const dpr = lastOv.cam?.dpr || 1, r = (m.r ?? 6) * dpr;
 		for (const name of m.names || [...overlays.keys()].reverse()) {
 			const o = overlays.get(name);
 			if (!o?.mod?.pick) continue;
-			try {
-				const res = o.mod.pick(m.x! * dpr, m.y! * dpr, r, lastOv) as OverlayHit | OverlayHit[] | null | undefined;
-				for (const h of res == null ? [] : Array.isArray(res) ? res : [res]) if (h) hits.push({ ...h, name, distance: (h.distance ?? 0) / dpr });
-			} catch (e) { console.error("[render] overlay", name, "pick failed", (e as Error)?.message); }
+			const fail = (e: unknown): OverlayHit[] => { console.error("[render] overlay", name, "pick failed", (e as Error)?.message); return []; };
+			const list = (res: Res): OverlayHit[] => (res == null ? [] : Array.isArray(res) ? res : [res]).filter(Boolean).map(h => ({ ...h, name, distance: (h.distance ?? 0) / dpr }));
+			try { parts.push(Promise.resolve(o.mod.pick(m.x! * dpr, m.y! * dpr, r, lastOv) as Res | Promise<Res>).then(list, fail)); }
+			catch (e) { parts.push(Promise.resolve(fail(e))); }
 		}
 	}
-	postMessage({ type: "overlayPickResult", seq: m.seq, hits });
+	Promise.all(parts).then(all => postMessage({ type: "overlayPickResult", seq: m.seq, hits: all.flat() }));
 }
 let cam: CameraPose | null = null, opts: RwOpts | null | undefined = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let frameEvents = false;   // 描いたフレームごとに { type:"frame", cam } を main へ（custom 層の同期・要求された時だけ）
