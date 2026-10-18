@@ -97,10 +97,14 @@ export function create() {
 		const p = lonlatTo3D(lon, lat), U = [Math.cos(b) * Math.cos(a), Math.sin(b) / rAx, Math.cos(b) * Math.sin(a)];
 		return new THREE!.Vector3(p[0] + U[0] * h * K, p[1] + U[1] * h * K, p[2] + U[2] * h * K).applyMatrix4(Minv!);
 	}
+	// world（β 単位球）→ 経緯度・高さ。β の y に rAx を掛けると本物の楕円体（a＝1・b＝rAx）＝測地の逆算（反復）。旧＝β 球の動径で高さを取っていた＝楕円体で
+	// 上 1km が 1.1m 高く・北へ 3m ずれた（t-three の enu・verify:webgpu は楕円体が既定・2026-10-18）。球（rAx＝1）は動径と同じ
 	function localToLnglat(v: TVector3) {
-		const p = v.clone().applyMatrix4(M!), rAx = ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, r = Math.hypot(p.x, p.y, p.z);
-		const lon = Math.atan2(p.z, p.x) / D2R, beta = Math.asin(Math.max(-1, Math.min(1, p.y / r)));
-		return [lon, Math.atan(Math.tan(beta) / rAx) / D2R, (r - 1) * worldRadiusM()];
+		const p = v.clone().applyMatrix4(M!), rAx = ellipsoidOn() ? 1 - 1 / 298.257223563 : 1;
+		const X = p.x, Y = p.y * rAx, Z = p.z, q = Math.hypot(X, Z), e2 = 1 - rAx * rAx;
+		let lat = Math.atan2(Y, q * (1 - e2)), h = 0;
+		for (let i = 0; i < 5; i++) { const s = Math.sin(lat), N = 1 / Math.sqrt(1 - e2 * s * s); h = Math.abs(Math.cos(lat)) > 1e-9 ? q / Math.cos(lat) - N : Math.abs(Y) - N * (1 - e2); lat = Math.atan2(Y, q * (1 - e2 * N / (N + h))); }
+		return [Math.atan2(Z, X) / D2R, lat / D2R, h * worldRadiusM()];
 	}
 	// 本体の深度で隠す＝材質の shader に貼る（1 回だけ・customProgramCacheKey で本体の program と分ける）
 	function patchMaterial(mat: TMaterial | null | undefined) {
