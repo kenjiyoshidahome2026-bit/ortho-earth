@@ -2,6 +2,7 @@
 // quakes/sats と同じ骨格：器＝fireworks.html／UI と合図＝ここ／描画＝fireworks-gl.js（レンダーワーカー内・地球と同じフレーム・同じ cam）。
 // 発射地点＝隅田川（桜橋の下流・隅田川花火大会の第一会場のあたり）。視点は南から北を見る＝東京スカイツリー（634 m）が花火の手前に立つ。
 import { worldRadiusM } from "@ortho-earth/core";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap } from "@ortho-earth/globe";
 import glUrl from "./fireworks-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く
 import { SHELLS, COLORS, KINDS } from "./fireworks-gl.js";   // 玉の表（正本は fireworks-gl.js）
@@ -30,15 +31,11 @@ export async function mountFireworks(map: GlobeMap, { panelHost, quiet = false, 
 	const autoTick = () => { if (!st.auto) return; const k = st.kind; st.kind = KINDS[(Math.random() * KINDS.length) | 0].key; launch(SHELLS[(Math.random() * SHELLS.length) | 0].go); st.kind = k; autoT = setTimeout(autoTick, 900 + Math.random() * 1800); };   // 連発＝号数も種類もおまかせ
 
 	// ── パネル（quakes/sats と同じ意匠＝暗いガラス）──
-	const panel = document.createElement("div");
-	panel.className = "fw-panel";
-	panel.innerHTML = `
-<style>
-.fw-panel{position:absolute;top:12px;right:12px;z-index:30;width:292px;max-width:calc(100% - 24px);box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;
- background:rgba(12,17,32,.86);color:#e7ecf5;border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.fw-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.fw-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。打ち上げの列は畳んでも残す（主役の操作）
+	const P = createPanel({ host: panelHost || map.mapEl, title: t("Fireworks over Sumida"), sub: t("Real size. A 10-inch shell opens about 320 m wide at 330 m up."), cls: "fw-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .fw-panel .row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .fw-panel .row label{width:100%;color:#b9c3d6}
 .fw-panel button{border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e7ecf5;padding:5px 10px;cursor:pointer;font:inherit}
@@ -48,16 +45,15 @@ export async function mountFireworks(map: GlobeMap, { panelHost, quiet = false, 
 .fw-panel .sw.on{border-color:#fff}
 .fw-panel .note{color:#9aa6bd;font-size:11px;margin-top:8px}
 .fw-panel .cnt{color:#fff;font-variant-numeric:tabular-nums}
+
 </style>
-<h1>${t("Fireworks over Sumida")}</h1>
-<div class="sub">${t("Real size. A 10-inch shell opens about 320 m wide at 330 m up.")}</div>
+<div class="row"><button class="big launch">${t("Launch")}</button><button class="auto">${t("Auto")}</button><button class="clear">${t("Clear")}</button></div>`);
+	P.body.innerHTML = `
 <div class="row shells"><label>${t("Shell")}</label>${SHELLS.map(s => `<button data-go="${s.go}" class="${s.go === st.go ? "on" : ""}">${t("$1-go", s.go)}<br><small>⌀${s.diam} m</small></button>`).join("")}</div>
 <div class="row kinds"><label>${t("Type")}</label>${KINDS.map(k => `<button data-kind="${k.key}" class="${k.key === st.kind ? "on" : ""}">${KIND_LABEL[k.key]}</button>`).join("")}</div>
 <div class="row colors"><label>${t("Colour")}</label><button class="sw on" data-c="-1" title="${t("Random")}" style="background:conic-gradient(#f55,#fd5,#5e6,#5af,#f5f,#f55)"></button>${COLORS.map((c, i) => `<button class="sw" data-c="${i}" style="background:rgb(${c.map(v => Math.round(v * 255)).join(",")})"></button>`).join("")}</div>
-<div class="row"><button class="big launch">${t("Launch")}</button><button class="auto">${t("Auto")}</button><button class="clear">${t("Clear")}</button></div>
 <div class="row"><button class="view">${t("Back to the river")}</button></div>
 <div class="note">${t("Launched: $1", '<span class="cnt">0</span>')}. ${t("Stars behind a building or the Skytree are hidden by the scene depth (#47). Tilt and orbit to see it.")}</div>`;
-	(panelHost || map.mapEl).appendChild(panel);
 	const upd = () => { panel.querySelector(".cnt")!.textContent = String(count); };
 	panel.querySelector(".shells")!.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("button[data-go]"); if (!b) return; st.go = +b.dataset.go!; for (const x of panel.querySelectorAll(".shells button")) x.classList.toggle("on", x === b); launch(); });
 	panel.querySelector(".kinds")!.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("button[data-kind]"); if (!b) return; st.kind = b.dataset.kind!; for (const x of panel.querySelectorAll(".kinds button")) x.classList.toggle("on", x === b); launch(); });
@@ -79,6 +75,6 @@ export async function mountFireworks(map: GlobeMap, { panelHost, quiet = false, 
 	return {
 		launch, site: SITE, view: VIEW, overlay: ov,
 		get count() { return count; },
-		destroy() { setAuto(false); window.removeEventListener("keydown", onKey); panel.remove(); ov.remove(); },
+		destroy() { setAuto(false); window.removeEventListener("keydown", onKey); P.destroy(); ov.remove(); },
 	};
 }

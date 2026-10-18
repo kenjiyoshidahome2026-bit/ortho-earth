@@ -34,6 +34,13 @@
 			box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 12px 42px rgba(0,0,0,.45); }
 		#sc-panel { width: 400px; min-width: 400px; height: 100%; overflow-y: auto; background: #11161f;
 			border-left: 1px solid rgba(255,255,255,.08); box-sizing: border-box; }
+		/* 狭い画面（2026-10-18）：PC 専用の作りは変えず、崩れないだけにする＝横並びだと 400px のパネルが舞台を幅 0 に潰していた。
+		   縦に積む（上＝舞台・下＝パネル） */
+		@media (max-width: 640px) {
+			body { flex-direction: column; }
+			#sc-stage { flex: none; height: 46dvh; }
+			#sc-panel { width: auto; min-width: 0; flex: 1; height: auto; border-left: 0; border-top: 1px solid rgba(255,255,255,.08); }
+		}
 	</style>
 </head>
 <body>
