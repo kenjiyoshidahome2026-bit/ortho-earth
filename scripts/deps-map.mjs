@@ -85,10 +85,10 @@ async function trace(entry, { engine, stdin, inEngine }) {
 			});
 			b.onLoad({ filter: /.*/, namespace: "asset" }, a => /\.s[ac]ss$/.test(a.path) ? { contents: asImports(a.path, scssDeps(a.path)), loader: "js", resolveDir: path.dirname(a.path) } : { contents: "", loader: "empty" });
 			b.onLoad({ filter: /\.s[ac]ss$/ }, a => ({ contents: asImports(a.path, scssDeps(a.path)), loader: "js", resolveDir: path.dirname(a.path) }));
-			b.onLoad({ filter: /\.css(\.js)?$/ }, a => {
+			b.onLoad({ filter: /\.css(\.[jt]s)?$/ }, a => {   // editor.css.ts（2026-10-17・TS 化）も生成物＝正本の scss を辿る
 				const g = GENERATED[rel(a.path)]; if (!g) return null;
-				const own = a.path.endsWith(".js") ? fs.readFileSync(a.path, "utf8") + "\n" : "";
-				return { contents: own + asImports(a.path, g), loader: "js", resolveDir: path.dirname(a.path) };
+				const own = /\.[jt]s$/.test(a.path) ? fs.readFileSync(a.path, "utf8") + "\n" : "";
+				return { contents: own + asImports(a.path, g), loader: a.path.endsWith(".ts") ? "ts" : "js", resolveDir: path.dirname(a.path) };
 			});
 			if (engine) {
 				if (!inEngine) b.onResolve({ filter: /.*/ }, a => SPEC.has(a.path) ? (hits.add(a.path), { path: a.path, external: true }) : null);
@@ -184,7 +184,7 @@ for (const d of demos) {
 	const cells = {}, appName = ownerOf(path.join(ROOT, appDir, "package.json"));
 	const mark = (f, k) => { const o = ownerOf(f); if (!o || o === appName || o === "ortho-engine") return; const n = npmFamily(o); if (!shown(n)) return; cells[n] = (cells[n] || "").includes(k) ? cells[n] : (cells[n] || "") + k; };
 	const baked = {};   // 束に入る内製パッケージのファイル（共有エンジンを読む頁で、どのサブパスが焼かれるか）
-	for (const f of own.files) if (!isMl) { mark(f, "B"); const o = ownerOf(f); if (shared && o && o !== appName && !o.startsWith("npm:") && /\.m?js$/.test(f)) (baked[o] ??= []).push(rel(f)); }
+	for (const f of own.files) if (!isMl) { mark(f, "B"); const o = ownerOf(f); if (shared && o && o !== appName && !o.startsWith("npm:") && /\.(m?js|ts)$/.test(f)) (baked[o] ??= []).push(rel(f)); }
 	// 大きさ：束＝own.size の和（worker の束ごとに数える）・エンジン＝読む入口の和集合（同じファイルは 1 つ＝エンジンの chunk は入口を跨いで共有）
 	const sizeOf = {}, add = (k, n, kind) => { if (!n) return; const s = sizeOf[k] ??= { B: 0, E: 0 }; s[kind] += n; };
 	const keyOf = f => { if (LANG.test(f)) return "(lang)"; const o = ownerOf(f); return !o ? null : o === appName ? "(app)" : npmFamily(o).startsWith("npm:") ? (shown(npmFamily(o)) ? npmFamily(o) : "npm:(other)") : o; };
@@ -228,7 +228,7 @@ for (const [n, dir] of Object.entries(dirs)) {
 	}
 }
 // sdk/*＝外へ配る SDK と単体の道具（2026-10-15）。デモの頁からは辿らない＝src の import と peerDependencies に出る内製パッケージを辺にする（unused には数えない）
-const importsIn = d => { const out = new Set(); const walk = p => { for (const e of fs.readdirSync(p, { withFileTypes: true })) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else if (/\.m?js$/.test(e.name)) for (const m of fs.readFileSync(q, "utf8").matchAll(/(?:from\s*|import\s*\(\s*)["']([^"'./][^"']*)["']/g)) out.add(m[1]); } }; if (fs.existsSync(d)) walk(d); return out; };
+const importsIn = d => { const out = new Set(); const walk = p => { for (const e of fs.readdirSync(p, { withFileTypes: true })) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else if (/\.(m?js|ts)$/.test(e.name)) for (const m of fs.readFileSync(q, "utf8").matchAll(/(?:from\s*|import\s*\(\s*)["']([^"'./][^"']*)["']/g)) out.add(m[1]); } }; if (fs.existsSync(d)) walk(d); return out; };
 for (const [n, dir] of Object.entries(dirs)) {
 	if (!dir.startsWith("sdk/")) continue;
 	edges[n] ??= new Set();
