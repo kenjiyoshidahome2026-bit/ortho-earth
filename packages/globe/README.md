@@ -43,7 +43,7 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
   `setFilter` / `moveLayer` / per-layer events, `queryRenderedFeatures`-equivalent
 - **Vectors**: Gint layers (`map.addGint`: topology, GPU picking, draping) and, for big GeoPBF / GeoParquet
   files you only look at, column chunks (`map.addColumnar`: no topology pass, first frame after read + pack)
-- **3D**: extrusions, glTF/GLB models, any 3D Tiles tileset (`map.add3DTiles`), I3S (`map.addI3S`)
+- **3D**: extrusions, glTF/GLB models (`map.model`: several at once, move / turn / scale / lift after loading, drag handles), any 3D Tiles tileset (`map.add3DTiles`), I3S (`map.addI3S`)
 - **Terrain**: built-in elevation, or your own `raster-dem` source (`map.setTerrain`)
 - **Analysis**: sun shadow / shadow-hours, viewshed, line of sight, profiles, measurement
 - **DOM**: `new Marker().setLngLat([lon, lat]).addTo(map)`, `Popup`, `addProtocol`, `transformRequest`

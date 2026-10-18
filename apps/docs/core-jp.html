@@ -288,7 +288,7 @@ Gint の強さは、最初の 1 枚の前に一周の下ごしらえ（共有弧
 	<tr><td>都市の建物（日本の PLATEAU・オランダの 3DBAG）</td><td>地域パックが申告する区ごとの読み込み</td></tr>
 	<tr><td>任意の 3D Tiles</td><td><code>map.add3DTiles(url)</code> — 画面上の誤差で辿る・b3dm／i3dm／pnts／cmpt／glb</td></tr>
 	<tr><td>I3S のシーンレイヤ</td><td><code>map.addI3S(url)</code> — loaders.gl で解読</td></tr>
-	<tr><td>glTF／GLB の模型</td><td>ファイルを落とす・<code>?g=</code> のリンク</td></tr>
+	<tr><td>glTF／GLB の模型</td><td>ファイルを落とす・<code>?g=</code> のリンク・<code>map.model(src, { at, heading, scale, slot })</code>。<code>slot</code> ごとに 1 体＝複数を並べられる。手綱で置いた後に動かせる（<code>setLngLat / setHeading / setScale / setAltitude</code>＝頂点は焼き直さず束の剛体変換で・接地は動かした先の地面）。<code>gizmo(true)</code> で移動・回転・倍率の取っ手＝落とした模型には最初から出る</td></tr>
 </table>
 
 <p>

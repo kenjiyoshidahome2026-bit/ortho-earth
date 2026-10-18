@@ -116,8 +116,37 @@ try {
 	// ⑧ BLEND＝2 箱目が半透明（alphaMode=BLEND・α0.4）＝blended 1・不透明 1
 	c = await map.gadget.model(makeGlb({ mats: 2, blend: true }), { at: AT, fit: false });
 	ok("blend", c.stats.materials === 2 && c.stats.blended === 1, `mats=${c.stats.materials} blended=${c.stats.blended}`);
-	// ⑤ 置き換え＝単一スロット・clear で空
-	c.clear(); ok("cleared", !window.__model?.name);
+	// ⑨ スロット（2026-10-18）：別の slot は並ぶ・同じ slot は置き換え（手綱は死ぬ）・ctl は最後の模型の顔・models は 2 体
+	const h1 = await map.gadget.model(makeGlb(), { at: AT, fit: false, slot: "a" });
+	const h2 = await map.gadget.model(makeGlb({ w: 40, d: 20 }), { at: [AT[0] + 0.001, AT[1]], fit: false, slot: "b" });
+	ok("twoSlots", h1.name && h2.name && h1.name !== h2.name && window.__model.models.length === 3, `${h1.name} ${h2.name} n=${window.__model.models.length}`);   // default（⑧の模型）＋a＋b
+	ok("ctlIsLast", window.__model.name === h2.name && window.__model.get("a") === h1 && window.__model.get("b") === h2);
+	const h1b = await map.gadget.model(makeGlb(), { at: AT, fit: false, slot: "a" });
+	ok("replaceSlot", !h1.name && !h1.bbox && h1b.name && window.__model.models.length === 3, `dead=${h1.name} live=${h1b.name}`);
+	// ⑩ 動かす：setLngLat＝外接矩形の中心が追う・setHeading 90＝幅と奥行きが入れ替わる・setScale 2＝倍・setAltitude＝置き方に残る・onTransform が鳴る
+	let fired = 0; const offTf = h2.onTransform(() => fired++);
+	const B = [AT[0] + 0.002, AT[1] + 0.001];
+	h2.setLngLat(B); let b2 = h2.bbox;
+	ok("moveCenter", near((b2[0] + b2[2]) / 2, B[0], 2e-6) && near((b2[1] + b2[3]) / 2, B[1], 2e-6), `${((b2[0] + b2[2]) / 2).toFixed(6)},${((b2[1] + b2[3]) / 2).toFixed(6)}`);
+	ok("getLngLat", near(h2.getLngLat()[0], B[0], 1e-9) && near(h2.getLngLat()[1], B[1], 1e-9));
+	let sz = spans(h2.bbox, B[1]); ok("movedSize", near(sz[0], 40, 4) && near(sz[1], 20, 2), sz.map(v => v.toFixed(1)).join("x"));
+	h2.setHeading(90); sz = spans(h2.bbox, B[1]); ok("setHeading90", near(sz[0], 20, 2) && near(sz[1], 40, 4) && h2.getHeading() === 90, sz.map(v => v.toFixed(1)).join("x"));
+	h2.setScale(2); sz = spans(h2.bbox, B[1]); ok("setScale2", near(sz[0], 40, 4) && near(sz[1], 80, 8) && h2.getScale() === 2, sz.map(v => v.toFixed(1)).join("x"));
+	h2.setAltitude(12.5); ok("setAltitude", h2.getAltitude() === 12.5 && h2.getTransform().altitude === 12.5);
+	ok("transformFired", fired === 4, String(fired)); offTf();
+	h2.setTransform({ heading: 0, scale: 1 }); sz = spans(h2.bbox, B[1]); ok("setTransformBack", near(sz[0], 40, 4) && near(sz[1], 20, 2), sz.map(v => v.toFixed(1)).join("x"));
+	// ⑪ ギズモ＝mapEl に SVG が 1 枚・畳むと消える。gizmo:"auto"＝錨の模型は出る・CESIUM_RTC は出ない
+	h2.gizmo(true); ok("gizmoOn", h2.gizmoOn && map.mapEl.querySelectorAll(".oe-gizmo").length === 1, String(map.mapEl.querySelectorAll(".oe-gizmo").length));
+	ok("gizmoKnobs", !!map.mapEl.querySelector(".oe-gizmo .gz-move") && !!map.mapEl.querySelector(".oe-gizmo .gz-rot") && !!map.mapEl.querySelector(".oe-gizmo .gz-scale"));
+	h2.gizmo(false); ok("gizmoOff", !h2.gizmoOn && map.mapEl.querySelectorAll(".oe-gizmo").length === 0);
+	const hAuto = await map.gadget.model(makeGlb(), { at: AT, fit: false, slot: "auto", gizmo: "auto" });
+	ok("gizmoAutoAnchor", hAuto.gizmoOn && map.mapEl.querySelectorAll(".oe-gizmo").length === 1);
+	const hRtc = await map.gadget.model(makeGlb({ rtc: ecef(OSAKA[0], OSAKA[1]), xf: enu2glb(OSAKA[0], OSAKA[1]) }), { at: AT, fit: false, slot: "rtc", gizmo: "auto" });
+	ok("gizmoAutoRtcNone", !hRtc.gizmoOn && hRtc.stats.mode === "rtc");
+	hAuto.clear(); ok("clearRemovesGizmo", map.mapEl.querySelectorAll(".oe-gizmo").length === 0 && !hAuto.name);
+	// ⑤ 置き換え＝default スロット・clear で空（ガジェットの clear＝全部）
+	c.clear(); ok("clearedDefault", !window.__model?.get("default") && window.__model.models.length === 3, String(window.__model.models.length));
+	window.__model.clear(); ok("cleared", !window.__model?.name && window.__model.models.length === 0);
 	await new Promise(r => setTimeout(r, 800));   // 送出→render worker の受理（エラーが出るならここまでに）
 	ok("noErr", !logs.some(l => /error|uncaught|unhandled/i.test(l)), logs.slice(0, 2).join(" || "));
 	const pass = t.every(x => x.startsWith("ok:"));

@@ -7,19 +7,25 @@
 //   描く：renderer の meshSet スロット（setMesh＝app が wPost を注入）＝建物 3D と同じシェーダ（法線陰影・両面）。マテリアルごとに 1 バッチ
 //         （key=名前#k・ward=名前）＝uv・頂点色（baseColorFactor×COLOR_0）・baseColorTexture を持つ派生パイプラインで描く（両バックエンド）。
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
-//   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
+//   スロット（2026-10-18・生成 AI の模型を「並べる」）：opts.slot（既定 "default"）ごとに 1 体＝同じ slot は置き換え（ドロップの掟「最後の 1 枚が勝つ」は default の中で）・
+//         別の slot は並ぶ。load の戻り＝その模型の手綱（ModelHandle）。ガジェット（ctl）の stats/bbox/name は最後に置いた模型・pick は全部から一番手前・clear()＝全部外す。
+//   動かす（2026-10-18）：handle.setLngLat／setHeading／setScale／setAltitude／setTransform＝頂点は焼き直さず、束の剛体変換（W4 の meshXf）に
+//         「元の ENU → 今の ENU」の回転＋倍率＋平行移動を畳んで renderer へ（アニメの姿勢と合成）。地形への持ち上げは shader が頂点の今の経緯度で引く＝動かした先の地面に乗る。
+//         ギズモ（handle.gizmo(true)・model-gizmo.js）＝錨の取っ手（移動）・輪（回転）・角（倍率）を DOM で描き、つまんで動かす。
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { normAnimation } from "../gltf-meta.ts";   // アニメの spec（F4）
 import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.ts";
+import { createGizmo } from "./model-gizmo.ts";   // 置き方の取っ手（2026-10-18）
+import type { Gizmo } from "./model-gizmo.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
 import { featureProperties } from "../mesh-features.ts";
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.ts";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.ts";
-import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
+import { evalExpr, truthy, parseRGBA, originOfLayer, lonlatTo3D, worldRadiusM } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）・lonlatTo3D＝β単位球の世界座標（模型を動かす回転の土台）
 import type { ExprContext } from "@ortho-earth/core";
-import type { AnimationState, Bbox, LonLat, ModelHandle } from "../../globe.d.ts";
-import type { GltfPlace, GltfRig } from "../gltf-anim.ts";
+import type { AnimationState, Bbox, LonLat, ModelHandle, ModelTransform } from "../../globe.d.ts";
+import type { GltfPlace, GltfRig, WorldXf } from "../gltf-anim.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
@@ -57,21 +63,40 @@ export interface ModelLoadOptions {
 	at?: LonLat | null; heading?: number; scale?: number; name?: string | null; fit?: boolean; textures?: boolean;
 	/** "each"＝連結成分ごとに接地・既定 "batch"＝一体で接地 */
 	ground?: string; mask?: boolean; pickable?: boolean; featureIdSet?: number;
+	/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（2026-10-18） */
+	slot?: string;
+	/** 地面からの高さ（m・既定 0）＝置いた後も setAltitude で変えられる */
+	altitude?: number;
+	/** 置き方の取っ手を出す。"auto"＝錨で置いた模型（CESIUM_RTC・ECEF 入りでない）だけ＝ドロップの既定 */
+	gizmo?: boolean | "auto";
 }
 /** worker の stats（公開の ModelHandle.stats＋地物の番号の数） */
 type ModelStats = NonNullable<ModelHandle["stats"]> & { features?: { primitives: number; texture: number; tables: number } };
-/** 模型の束（node＝アニメするノード・xf＝今の剛体変換・pos 以下＝当たりの写し（W7）） */
-interface ModelBatch { node: number; origin: number[]; xfOn: boolean; xf: Float32Array | null; pos?: Float32Array; idx?: Uint32Array; features?: MeshFeatures | null; col0?: Uint8Array | null }
-/** 今の模型 */
-interface ModelCur {
-	name: string; stats: ModelStats; src: string; animation: AnimationState | null; rig: GltfRig | null; place: GltfPlace | null;
+/** 模型の束（node＝アニメするノード・xfA＝アニメの剛体変換・xf＝renderer に渡した合成（アニメ×置き方）・pos 以下＝当たりの写し（W7）） */
+interface ModelBatch { node: number; origin: number[]; xfOn: boolean; xf: Float32Array | null; xfA: Float32Array | null; pos?: Float32Array; idx?: Uint32Array; features?: MeshFeatures | null; col0?: Uint8Array | null }
+/** 置いた模型（slot ごとに 1 体） */
+interface ModelItem {
+	slot: string; name: string; stats: ModelStats; src: string; animation: AnimationState | null; rig: GltfRig | null; place: GltfPlace | null;
 	batches: ModelBatch[]; pickable: boolean; states: Map<number, Record<string, unknown>>;
+	/** 焼いた時の置き方（at＝錨・CESIUM_RTC/ECEF の模型は bbox の中心・bbox＝焼いた時の外接矩形） */
+	base: { at: LonLat; heading: number; scale: number; bbox: Bbox };
+	/** 今の置き方 */
+	now: { at: LonLat; heading: number; scale: number; altitude: number };
+	/** 世界座標の剛体変換（base → now・恒等なら null）と、束ごとの xt（原点相対の平行移動＝pick が原点を動かす分） */
+	xfM: WorldXf | null;
+	animRaf: number; animLast: number | null;
+	handle: ModelHandle; gizmo: Gizmo | null; gizmoAuto: boolean;
+	tfListeners: Set<(t: ModelTransform, model: ModelHandle) => void>;
 }
 /** worker（model 役）の答え */
 interface LoadReply { stats: ModelStats; rig?: GltfRig | null; place?: GltfPlace | null; batches: Array<TileBatch & { node?: number }>; mask?: { bbox: number[]; n: number } | null }
 interface ExtrudeReply { stats: ExtrudeStats; batches: Array<{ mesh: TileBatch["mesh"] }>; mask?: { bbox: number[]; n: number } | null }
 /** createModel の戻り（公開の ModelHandle＋押し出し・読み込み） */
 export interface ModelGadget extends ModelHandle {
+	/** 置いてある模型（置いた順） */
+	readonly models: ModelHandle[];
+	/** slot の模型（無ければ null） */
+	get(slot?: string): ModelHandle | null;
 	/** 押し出しの stats（"default" のスロット・無ければ最後のスロット） */
 	readonly extruded: ExtrudeStats | null;
 	readonly extrudedFeatures: Array<ExtrudeUsed & { slot: string }>;
@@ -79,7 +104,7 @@ export interface ModelGadget extends ModelHandle {
 	readonly extrudeSlots: string[];
 	clearExtrude(slot?: string | null): void;
 	extrude(src: ExtrudeSrc, opts?: ModelExtrudeOptions): Promise<ExtrudeStats | null>;
-	load(src: File | string, opts?: ModelLoadOptions): Promise<ModelGadget>;
+	load(src: File | string, opts?: ModelLoadOptions): Promise<ModelHandle>;
 }
 /** createModel の deps（globe.js の modelCtlGet が渡す） */
 export interface ModelEnv {
@@ -217,63 +242,244 @@ export function extrudePolys(src: ExtrudeSrc, { height, base, color, scale = 1, 
 }
 
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
+// ── 置き方の算術（2026-10-18）─────────────────────────────────────────────────
+// 世界座標（β単位球・lonlatTo3D と同じ軸＝y が北極）の ENU 基底。E＝経度方向・U＝動径・N＝E×U（右手系・lon=0,lat=0 で (0,1,0)）
+const m3v = (L: ArrayLike<number>, v: ArrayLike<number>) => [L[0]*v[0] + L[3]*v[1] + L[6]*v[2], L[1]*v[0] + L[4]*v[1] + L[7]*v[2], L[2]*v[0] + L[5]*v[1] + L[8]*v[2]];   // 列優先 3x3 × ベクトル
+const m3mulF = (a: ArrayLike<number>, b: ArrayLike<number>) => { const o = new Float64Array(9); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2]; return o; };
+function enuBasis(lon: number, lat: number): { P: number[]; E: number[]; N: number[]; U: number[] } {
+	const P = lonlatTo3D(lon, lat), l = lon * Math.PI / 180;
+	const U = P, E = [-Math.sin(l), 0, Math.cos(l)];
+	const N = [E[1]*U[2] - E[2]*U[1], E[2]*U[0] - E[0]*U[2], E[0]*U[1] - E[1]*U[0]];
+	return { P, E, N, U };
+}
+/** base（焼いた置き方）→ now の世界座標の剛体変換（倍率込み）。恒等なら null。
+ *  v' = C1 + alt·U1 + k·Q·(v − C0)、Q＝[E1 N1 U1]·Rh(Δheading)·[E0 N0 U0]ᵀ、k＝scale1/scale0。heading は北から時計回り（ENU 内で e'=c·e+s·n・n'=−s·e+c·n） */
+export function modelWorldXf(base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number; altitude: number }): WorldXf | null {
+	const same = (a: number, b: number) => Math.abs(a - b) < 1e-12;
+	if (same(base.at[0], now.at[0]) && same(base.at[1], now.at[1]) && same(base.heading, now.heading) && same(base.scale, now.scale) && same(0, now.altitude)) return null;
+	const b0 = enuBasis(base.at[0], base.at[1]), b1 = enuBasis(now.at[0], now.at[1]);
+	const B0 = Float64Array.of(...b0.E, ...b0.N, ...b0.U), B1 = Float64Array.of(...b1.E, ...b1.N, ...b1.U);   // 列＝E・N・U
+	const B0t = Float64Array.of(B0[0], B0[3], B0[6], B0[1], B0[4], B0[7], B0[2], B0[5], B0[8]);
+	const ps = (now.heading - base.heading) * Math.PI / 180, c = Math.cos(ps), s = Math.sin(ps);
+	const Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // meshdecode と同じ並び（列優先）
+	const k = (now.scale || 1) / (base.scale || 1);
+	const L = m3mulF(B1, m3mulF(Rh, B0t)); for (let i = 0; i < 9; i++) L[i] *= k;
+	const ar = (now.altitude || 0) / worldRadiusM();
+	const C1 = [b1.P[0] + ar * b1.U[0], b1.P[1] + ar * b1.U[1], b1.P[2] + ar * b1.U[2]], LC0 = m3v(L, b0.P);
+	return { L, t: [C1[0] - LC0[0], C1[1] - LC0[1], C1[2] - LC0[2]] };
+}
+/** 外接矩形（度）を base → now に写す（錨の周りで回して倍率を掛け、新しい錨へ） */
+export function transformBbox(bbox: Bbox, base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number }): Bbox {
+	const mLon0 = 111320 * Math.cos(base.at[1] * Math.PI / 180), mLon1 = 111320 * Math.cos(now.at[1] * Math.PI / 180), mLat = 110950;
+	const ps = (now.heading - base.heading) * Math.PI / 180, c = Math.cos(ps), s = Math.sin(ps), k = (now.scale || 1) / (base.scale || 1);
+	const out: Bbox = [Infinity, Infinity, -Infinity, -Infinity];
+	for (const [x, y] of [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]]) {
+		const e = (x - base.at[0]) * mLon0, n = (y - base.at[1]) * mLat;
+		const e2 = (c * e + s * n) * k, n2 = (-s * e + c * n) * k;
+		const lon = now.at[0] + e2 / (mLon1 || 1e-9), lat = now.at[1] + n2 / mLat;
+		if (lon < out[0]) out[0] = lon; if (lon > out[2]) out[2] = lon; if (lat < out[1]) out[1] = lat; if (lat > out[3]) out[3] = lat;
+	}
+	return out;
+}
+/** 束の剛体変換の合成：置き方 m（Float32Array(12)・原点相対）∘ アニメ a（同）。ap → L_m·(L_a·ap + xt_a) + xt_m */
+export function composeXf(m: Float32Array | null, a: Float32Array | null): Float32Array | null {
+	if (!m) return a; if (!a) return m;
+	const o = new Float32Array(12);
+	for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = m[r]*a[c*3] + m[3+r]*a[c*3+1] + m[6+r]*a[c*3+2];
+	for (let r = 0; r < 3; r++) o[9+r] = m[r]*a[9] + m[3+r]*a[10] + m[6+r]*a[11] + m[9+r];
+	return o;
+}
+
 export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshCol = null, pickEnv = null, fit, center, ell = false, signal }: ModelEnv = {} as ModelEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const t = tr();
-	let seq = 0, cur: ModelCur | null = null;   // seq＝模型・押し出しの名前の連番・cur＝{ name, stats, src }
+	let seq = 0;   // seq＝模型・押し出しの名前の連番
+	const models = new Map<string, ModelItem>();   // slot → 模型（置いた順）
+	let cur: ModelItem | null = null;   // 最後に置いた模型（ガジェットの stats/bbox/name はこれ）
+	const live = (it: ModelItem | null | undefined): it is ModelItem => !!it && models.get(it.slot) === it;   // 置き換え・clear された手綱は死ぬ
 	const animListeners = new Set<(state: AnimationState | null, model: ModelHandle) => void>();   // setAnimation の合図（F4）
-	// rigid アニメの再生（W4）：cur.rig（ノードの親子・静止 TRS・channel）・cur.place（ローカル→ECEF→世界座標の写し）・cur.batches（束ごとのノード番号と原点）から、
+	// rigid アニメの再生（W4）：rig（ノードの親子・静止 TRS・channel）・place（ローカル→ECEF→世界座標の写し）・batches（束ごとのノード番号と原点）から、
 	// アニメの時刻でノードの world 行列を標本化し、束ごとの剛体変換（L 3x3＋原点相対の平行移動）を renderer の "meshXf" へ。頂点は焼き直さない。
 	// 時計＝map.getNow（setNow で止められる＝決定論の撮影）。playing の間は rAF で進め、loop 無しは端で止まる（playing=false）。skin／morph は読まない（spec のまま）
-	let animRaf = 0, animLast: number | null = null;
+	// 置き方（2026-10-18）＝世界座標の剛体変換 xfM を束ごとに原点相対へ直し（batchXf）、アニメの姿勢と合成（composeXf）して同じ "meshXf" へ。
 	const nowMs = () => map?.getNow?.() ?? performance.now();
-	const poseAt = (time: number) => {   // → 束ごとの Float32Array(12)|null（アニメが無い／動かない束は null）
-		const a = cur?.animation; if (!cur?.rig || !cur.place || !a || a.index == null) return null;
-		const pose = samplePose(cur.rig, a.index, wrapTime(time, a.duration, a.loop)); if (!pose) return null;
-		return cur.batches.map(b => b.node >= 0 ? batchXf(worldXf(pose, b.node, cur!.place!), b.origin) : null);
+	const poseAt = (it: ModelItem, time: number) => {   // → 束ごとの Float32Array(12)|null（アニメが無い／動かない束は null）
+		const a = it.animation; if (!it.rig || !it.place || !a || a.index == null) return null;
+		const pose = samplePose(it.rig, a.index, wrapTime(time, a.duration, a.loop)); if (!pose) return null;
+		return it.batches.map(b => b.node >= 0 ? batchXf(worldXf(pose, b.node, it.place!), b.origin) : null);
 	};
-	const applyPose = (time: number) => { const xs = poseAt(time); if (!cur || !setMeshXf) return; cur.batches.forEach((b, k) => { const xf = xs ? xs[k] : null; b.xf = xf; if (xf || b.xfOn) { setMeshXf(`${cur!.name}#${k}`, xf); b.xfOn = !!xf; } }); };   // b.xf＝当たり（W7）も同じ姿勢で
-	const stopLoop = () => { if (animRaf) cancelAnimationFrame(animRaf); animRaf = 0; animLast = null; };
-	const tick = () => {
-		animRaf = 0; const a = cur?.animation; if (!a || !a.playing) { animLast = null; return; }
-		const t = nowMs(), dt = animLast == null ? 0 : Math.min(0.25, Math.max(0, (t - animLast) / 1000)); animLast = t;
+	const pushXf = (it: ModelItem) => {   // 束ごとに（置き方 ∘ アニメ）を renderer へ（変わった束だけ・恒等は null で戻す）
+		if (!setMeshXf) return;
+		it.batches.forEach((b, k) => { const xf = composeXf(batchXf(it.xfM, b.origin), b.xfA); b.xf = xf; if (xf || b.xfOn) { setMeshXf(`${it.name}#${k}`, xf); b.xfOn = !!xf; } });   // b.xf＝当たり（W7）も同じ姿勢で
+	};
+	const applyPose = (it: ModelItem, time: number) => { const xs = poseAt(it, time); it.batches.forEach((b, k) => { b.xfA = xs ? xs[k] : null; }); pushXf(it); };
+	const stopLoop = (it: ModelItem) => { if (it.animRaf) cancelAnimationFrame(it.animRaf); it.animRaf = 0; it.animLast = null; };
+	const tick = (it: ModelItem) => {
+		it.animRaf = 0; const a = it.animation; if (!live(it) || !a || !a.playing) { it.animLast = null; return; }
+		const t = nowMs(), dt = it.animLast == null ? 0 : Math.min(0.25, Math.max(0, (t - it.animLast) / 1000)); it.animLast = t;
 		let time = a.time + dt * a.speed, playing = true;
 		if (!a.loop && a.duration > 0 && (time >= a.duration || time <= 0)) { time = time <= 0 ? 0 : a.duration; playing = false; }   // 端で止まる
 		else time = wrapTime(time, a.duration, a.loop);
-		cur!.animation = { ...a, time, playing };
-		applyPose(time);
-		if (playing) animRaf = requestAnimationFrame(tick); else animLast = null;
+		it.animation = { ...a, time, playing };
+		applyPose(it, time);
+		if (playing) it.animRaf = requestAnimationFrame(() => tick(it)); else it.animLast = null;
 	};
-	const repaintStates = () => {   // feature state の色（W7）＝束ごとに元の頂点色から差し替えた列を renderer の "meshCol" へ（state の無い束も一度戻す）
-		if (!cur || !setMeshCol) return;
-		const colorOf = (id: number) => { const c = cur!.states.get(id)?.color; const v = c ? rgbaOf(String(c)) : null; return v ? v.slice(0, 3) : null; };
-		cur.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${cur!.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
+	const repaintStates = (it: ModelItem) => {   // feature state の色（W7）＝束ごとに元の頂点色から差し替えた列を renderer の "meshCol" へ（state の無い束も一度戻す）
+		if (!setMeshCol) return;
+		const colorOf = (id: number) => { const c = it.states.get(id)?.color; const v = c ? rgbaOf(String(c)) : null; return v ? v.slice(0, 3) : null; };
+		it.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${it.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
 	};
-	const syncAnim = () => { if (!cur) return; const a = cur.animation; stopLoop(); applyPose(a ? a.time : 0); if (a?.playing && cur.rig && typeof requestAnimationFrame === "function") animRaf = requestAnimationFrame(tick); };
+	const syncAnim = (it: ModelItem) => { const a = it.animation; stopLoop(it); applyPose(it, a ? a.time : 0); if (a?.playing && it.rig && typeof requestAnimationFrame === "function") it.animRaf = requestAnimationFrame(() => tick(it)); };
 	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
 	const rpc = pool.rpc;
-	const clear = () => { stopLoop(); if (cur) { setMesh(cur.name, null); cur = null; } };
+	const removeItem = (it: ModelItem) => {
+		stopLoop(it); it.gizmo?.destroy(); it.gizmo = null;
+		setMesh(it.name, null);
+		if (models.get(it.slot) === it) models.delete(it.slot);
+		if (cur === it) cur = [...models.values()].pop() || null;
+	};
+	const clear = (slot?: string | null) => { for (const it of [...models.values()]) if (slot == null || it.slot === slot) removeItem(it); };
+	// ── 置き方（2026-10-18）──────────────────────────────────────────────────────
+	const transformOf = (it: ModelItem): ModelTransform => ({ at: [it.now.at[0], it.now.at[1]], heading: it.now.heading, scale: it.now.scale, altitude: it.now.altitude });
+	const setTransform = (it: ModelItem, tf: Partial<ModelTransform>) => {
+		if (!live(it)) return;
+		const n = it.now;
+		if (tf.at) { const lon = +tf.at[0], lat = +tf.at[1]; if (Number.isFinite(lon) && Number.isFinite(lat)) n.at = [((lon + 180) % 360 + 360) % 360 - 180, Math.max(-89.9, Math.min(89.9, lat))]; }
+		if (tf.heading != null && Number.isFinite(+tf.heading)) n.heading = ((+tf.heading % 360) + 360) % 360;
+		if (tf.scale != null && Number.isFinite(+tf.scale) && +tf.scale > 0) n.scale = Math.max(1e-4, Math.min(1e5, +tf.scale));
+		if (tf.altitude != null && Number.isFinite(+tf.altitude)) n.altitude = +tf.altitude;
+		it.xfM = modelWorldXf(it.base, n);
+		it.stats = { ...it.stats, bbox: transformBbox(it.base.bbox, it.base, n) };
+		pushXf(it);
+		it.gizmo?.refresh();
+		const snap = transformOf(it);
+		for (const f of it.tfListeners) { try { f(snap, it.handle); } catch (e) { console.warn("[model] transform listener", e); } }
+	};
+	const gizmoOf = (it: ModelItem, on: boolean) => {
+		if (!on) { it.gizmo?.destroy(); it.gizmo = null; return; }
+		if (it.gizmo || !live(it) || typeof document === "undefined") return;
+		it.gizmo = createGizmo(map, it.handle, { onDone: () => { it.gizmo?.destroy(); it.gizmo = null; } });
+	};
+	// 模型をクリック→（✓ で畳んだ）取っ手を出し直す（gizmo:"auto" の模型だけ）。地図を動かした指のクリックは無視（4px 以上動いたら）
+	let clickBound = false, downAt: [number, number] | null = null;
+	const bindClick = () => {
+		if (clickBound || typeof document === "undefined" || !map?.mapEl) return; clickBound = true;
+		map.mapEl.addEventListener("pointerdown", e => { downAt = [e.clientX, e.clientY]; }, { passive: true });
+		map.mapEl.addEventListener("click", e => {
+			if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+			if (![...models.values()].some(it => it.gizmoAuto && !it.gizmo)) return;
+			const r = map.mapEl.getBoundingClientRect(), h = pickAll(e.clientX - r.left, e.clientY - r.top);
+			if (h && h.it.gizmoAuto && !h.it.gizmo) gizmoOf(h.it, true);
+		});
+	};
+	// ── 当たり（第 3 波 W7）＝全部の模型から一番手前 ────────────────────────────────
+	// pick(x, y)＝画面の点（CSS px）に一番手前の三角形 → { featureId, properties, table, batch, distance, lngLat } | null。
+	// featureId＝EXT_mesh_features（組は load の featureIdSet・attribute／implicit）か _BATCHID の番号（無ければ null＝模型そのものに当たった）
+	// 動かした模型（xfM）＝原点を動かした先（O'＝O＋xt_m）に置き直し、xf からその分を抜く＝地形への持ち上げも動かした先の地面で
+	const pickItems = (it: ModelItem, env: MeshPickEnv) => it.batches.map(b => {
+		if (!b.pos) return null;
+		const xm = batchXf(it.xfM, b.origin);
+		const origin = xm ? [b.origin[0] + xm[9], b.origin[1] + xm[10], b.origin[2] + xm[11]] : b.origin;
+		const xf = xm && b.xf ? Float32Array.of(b.xf[0], b.xf[1], b.xf[2], b.xf[3], b.xf[4], b.xf[5], b.xf[6], b.xf[7], b.xf[8], b.xf[9] - xm[9], b.xf[10] - xm[10], b.xf[11] - xm[11]) : b.xf;
+		return { pos: b.pos, idx: b.idx!, origin, xf, lift: env.lift(origin), features: b.features };
+	});
+	const pickOne = (it: ModelItem, x: number, y: number, env: MeshPickEnv) => {
+		if (!it.pickable) return null;
+		const h = pickMeshes(pickItems(it, env), env.view, x, y); if (!h) return null;
+		const b = it.batches[h.item], f = b.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
+		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
+			batch: h.item, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(it.states.get(h.featureId) || {}) } : {} };
+	};
+	const envNow = () => { if (!pickEnv) return null; const env = pickEnv(); return env && env.show3d ? env : null; };   // 真俯瞰＝模型は描かれない（renderer の show3d）＝当てない
+	const pickAll = (x: number, y: number) => {
+		const env = envNow(); if (!env) return null;
+		let best: { it: ModelItem; hit: NonNullable<ReturnType<typeof pickOne>> } | null = null;
+		for (const it of models.values()) { const h = pickOne(it, x, y, env); if (h && (!best || h.distance < best.hit.distance)) best = { it, hit: h }; }
+		return best;
+	};
+	// ── 模型の手綱（slot ごと）────────────────────────────────────────────────────
+	const makeHandle = (it: ModelItem): ModelHandle => {
+		const h: ModelHandle = {
+			get slot() { return it.slot; },
+			get stats() { return live(it) ? it.stats : null; },
+			get bbox() { return live(it) ? it.stats.bbox : null; },
+			get name() { return live(it) ? it.name : null; },
+			// glTF の口（F4・2026-10-12・src/gltf-meta.js）：animations＝模型に入っているアニメの見出し（name/duration/paths）・setAnimation(spec)＝再生の spec を受けて保つ
+			get animations() { return (it.stats.gltf?.animations || []).map(a => ({ ...a, paths: [...a.paths] })); },
+			get gltf() { return it.stats.gltf ? { ...it.stats.gltf, animations: h.animations } : null; },
+			setAnimation(spec) { if (!live(it)) throw new Error("setAnimation: no model loaded"); it.animation = normAnimation(spec, it.stats.gltf?.animations || []); syncAnim(it); for (const f of animListeners) { try { f(it.animation, h); } catch (e) { console.warn("[model] animation listener", e); } } return h; },
+			getAnimation() { return it.animation ? { ...it.animation } : null; },
+			play(nameOrSpec) { return h.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
+			stop() { if (it.animation) { it.animation = { ...it.animation, playing: false }; stopLoop(it); } return h; },
+			// 再生の時刻での束ごとの剛体変換（検定・台本の口）：time 省略＝今の spec の時刻。[Float32Array(12)|null]（L 3x3 列優先＋原点相対の平行移動）｜null（アニメ無し）
+			pose(time) { return poseAt(it, time ?? it.animation?.time ?? 0); },
+			get animating() { return !!it.animRaf; },
+			onAnimation(f) { animListeners.add(f); return () => animListeners.delete(f); },   // plugin が再生を担う時の合図（spec が変わるたび）
+			// 置き方（2026-10-18）
+			getTransform() { return transformOf(it); },
+			setTransform(tf) { setTransform(it, tf || {}); return h; },
+			getLngLat() { return [it.now.at[0], it.now.at[1]]; },
+			setLngLat(ll) { setTransform(it, { at: Array.isArray(ll) ? [ll[0], ll[1]] : [(ll.lng ?? ll.lon)!, ll.lat] }); return h; },
+			getHeading() { return it.now.heading; }, setHeading(d) { setTransform(it, { heading: d }); return h; },
+			getScale() { return it.now.scale; }, setScale(s) { setTransform(it, { scale: s }); return h; },
+			getAltitude() { return it.now.altitude; }, setAltitude(m) { setTransform(it, { altitude: m }); return h; },
+			onTransform(f) { it.tfListeners.add(f); return () => it.tfListeners.delete(f); },
+			gizmo(on = true) { gizmoOf(it, on !== false); return h; },
+			get gizmoOn() { return !!it.gizmo; },
+			pick(x, y) { if (!live(it)) return null; const env = envNow(); return env ? pickOne(it, x, y, env) : null; },
+			// 地物の一覧の見出し＝{ primitives, tables: [{ name, class, count, columns }] } | null
+			get features() {
+				const fb = it.batches.find(b => b.features); if (!fb) return it.stats.features ? { ...it.stats.features, tables: [] } : null;
+				return { ...(it.stats.features || {}) as NonNullable<ModelStats["features"]>, tables: (fb.features!.tables || []).map(T => ({ name: T.name, class: T.class, count: T.count, columns: Object.keys(T.columns) })) };
+			},
+			// feature state（MapLibre の setFeatureState と同じ置き場の考え方）＝{ color: CSS 色 } を描きに効かせる（頂点色を差し替え＝テクスチャに掛かる）。他の鍵は保つだけ
+			setFeatureState(id, state) {
+				if (!live(it) || id == null) return h;
+				const prev = it.states.get(+id) || {}, next = state == null ? {} : { ...prev, ...state };
+				if (Object.keys(next).length) it.states.set(+id, next); else it.states.delete(+id);
+				repaintStates(it); return h;
+			},
+			getFeatureState(id) { return { ...(it.states.get(+id) || {}) }; },
+			removeFeatureState(id) { if (!live(it)) return h; if (id == null) it.states.clear(); else it.states.delete(+id); repaintStates(it); return h; },
+			toastLength() { return t("$1 triangles", it.stats.triangles); },
+			clear() { if (live(it)) removeItem(it); },
+			destroy() { h.clear(); },
+		};
+		return h;
+	};
 	// 押し出しの今＝slot → { name, stats, used }（模型とは別スロット＝GLB と並べて立てられる）。
 	// slot＝層の名前（map.addLayer の fill-extrusion は層 id ごと＝複数並べられる・#34）。ガジェット直呼びは "default"＝従来どおり置き換え
 	const exts = new Map<string, ExtSlot>();
 	const clearExtrude = (slot?: string | null) => {
 		for (const [k, e] of [...exts]) if (slot == null || k === slot) { setMesh(e.name, null); exts.delete(k); }
 	};
+	// ガジェット（ctl）＝最後に置いた模型の顔（stats/bbox/name/アニメ/feature state は cur へ）＋全部の模型の口（models・get・pick は一番手前・clear は全部）
+	const curH = () => cur?.handle || null;
 	const ctl: ModelGadget = {
+		get slot() { return cur?.slot ?? "default"; },
+		get models() { return [...models.values()].map(it => it.handle); },
+		get(slot = "default") { return models.get(slot)?.handle || null; },
 		get stats() { return cur?.stats || null; },
-		// glTF の口（F4・2026-10-12・src/gltf-meta.js）：animations＝模型に入っているアニメの見出し（name/duration/paths）・setAnimation(spec)＝再生の spec を受けて保つ（描くのは第 3 波か plugin＝capabilities "gltf.animation" は spec）
-		get animations() { return (cur?.stats?.gltf?.animations || []).map(a => ({ ...a, paths: [...a.paths] })); },
-		get gltf() { return cur?.stats?.gltf ? { ...cur.stats.gltf, animations: ctl.animations } : null; },
-		setAnimation(spec) { if (!cur) throw new Error("setAnimation: no model loaded"); cur.animation = normAnimation(spec, cur.stats.gltf?.animations || []); syncAnim(); for (const f of animListeners) { try { f(cur.animation, ctl); } catch (e) { console.warn("[model] animation listener", e); } } return ctl; },
-		getAnimation() { return cur?.animation ? { ...cur.animation } : null; },
+		get animations() { return curH()?.animations || []; },
+		get gltf() { return curH()?.gltf || null; },
+		setAnimation(spec) { if (!cur) throw new Error("setAnimation: no model loaded"); cur.handle.setAnimation(spec); return ctl; },
+		getAnimation() { return curH()?.getAnimation() || null; },
 		play(nameOrSpec) { return ctl.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
-		stop() { if (cur?.animation) { cur.animation = { ...cur.animation, playing: false }; stopLoop(); } return ctl; },
-		// 再生の時刻での束ごとの剛体変換（検定・台本の口）：time 省略＝今の spec の時刻。[Float32Array(12)|null]（L 3x3 列優先＋原点相対の平行移動）｜null（アニメ無し）
-		pose(time) { return poseAt(time ?? cur?.animation?.time ?? 0); },
-		get animating() { return !!animRaf; },
-		onAnimation(f) { animListeners.add(f); return () => animListeners.delete(f); },   // plugin が再生を担う時の合図（spec が変わるたび）
+		stop() { curH()?.stop(); return ctl; },
+		pose(time) { return curH()?.pose(time) ?? null; },
+		get animating() { return !!cur?.animRaf; },
+		onAnimation(f) { animListeners.add(f); return () => animListeners.delete(f); },
+		getTransform() { return curH()?.getTransform() || { at: [0, 0], heading: 0, scale: 1, altitude: 0 }; },
+		setTransform(tf) { curH()?.setTransform(tf); return ctl; },
+		getLngLat() { return curH()?.getLngLat() || [0, 0]; }, setLngLat(ll) { curH()?.setLngLat(ll); return ctl; },
+		getHeading() { return curH()?.getHeading() ?? 0; }, setHeading(d) { curH()?.setHeading(d); return ctl; },
+		getScale() { return curH()?.getScale() ?? 1; }, setScale(s) { curH()?.setScale(s); return ctl; },
+		getAltitude() { return curH()?.getAltitude() ?? 0; }, setAltitude(m) { curH()?.setAltitude(m); return ctl; },
+		onTransform(f) { return curH()?.onTransform(f) || (() => {}); },
+		gizmo(on = true) { curH()?.gizmo(on); return ctl; },
+		get gizmoOn() { return !!cur?.gizmo; },
 		get bbox() { return cur?.stats?.bbox || null; },
 		get name() { return cur?.name || null; },
-		clear,
+		clear() { clear(); },
 		get extruded() { return exts.get("default")?.stats ?? [...exts.values()].pop()?.stats ?? null; },
 		get extrudedFeatures() { return [...exts].flatMap(([slot, e]) => e.used.map(u => ({ ...u, slot }))); },   // [{ f: Feature, h, base, slot }]（新しいスロットが後ろ）
 		// map.queryRenderedFeatures の押し出し層（立体の当たり）＝スロットごと [{ slot, used: [{ f, h, base }], mode: "plane"|"ground"|"drape", lift: 床の平面の高さ[m] }]（新しいスロットが後ろ）
@@ -317,10 +523,11 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			return r.stats;
 		},
 		destroy() { clear(); clearExtrude(); pool.destroy(); },
-		// src＝File | URL 文字列。戻り値＝ctl（stats/bbox）。失敗は throw（dropFile がトーストへ出す）
+		// src＝File | URL 文字列。戻り値＝その模型の手綱（ModelHandle）。失敗は throw（dropFile がトーストへ出す）
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0 } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
+		// slot＝置き場（既定 "default"＝置き換え・別名＝並ぶ）。altitude＝地面からの高さ（m）。gizmo＝置き方の取っ手（true／"auto"＝錨で置いた時だけ）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, gizmo = false } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab: ArrayBuffer, baseUri: string | null = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -339,42 +546,29 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
-			clear();
+			clear(slot);
 			const key = `model/${++seq}`;
-			cur = { name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], xfOn: false, xf: null,
-				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map() };   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
+			const bb = r.stats.bbox, at0: LonLat = r.stats.mode === "anchor" && anchor ? [anchor[0], anchor[1]] : [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];   // 錨で置いた＝錨・埋め込み（rtc/ecef）＝外接矩形の中心を錨に見立てる
+			const it: ModelItem = { slot, name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], xfOn: false, xf: null, xfA: null,
+				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map(),   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
+				base: { at: at0, heading: r.stats.mode === "anchor" ? heading : 0, scale: r.stats.mode === "anchor" ? scale : 1, bbox: [bb[0], bb[1], bb[2], bb[3]] },
+				now: { at: [at0[0], at0[1]], heading: r.stats.mode === "anchor" ? heading : 0, scale: r.stats.mode === "anchor" ? scale : 1, altitude: 0 },
+				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set() };
+			it.handle = makeHandle(it);
+			models.set(slot, it); cur = it;
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
-			if (doFit && fit) fit(r.stats.bbox);
-			return ctl;
+			if (altitude) setTransform(it, { altitude });
+			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);
+			if (it.gizmoAuto) bindClick();
+			if (doFit && fit) fit(it.stats.bbox);
+			return it.handle;
 		},
-		// ── 当たりと feature state（第 3 波 W7）──────────────────────────────────────
-		// pick(x, y)＝画面の点（CSS px）に一番手前の三角形 → { featureId, properties, table, batch, distance, lngLat } | null。
-		// featureId＝EXT_mesh_features（組は load の featureIdSet・attribute／implicit）か _BATCHID の番号（無ければ null＝模型そのものに当たった）
-		pick(x, y) {
-			if (!cur?.pickable || !pickEnv) return null;
-			const env = pickEnv(); if (!env) return null;
-			if (!env.show3d) return null;   // 真俯瞰＝模型は描かれない（renderer の show3d）＝当てない
-			const items = cur.batches.map(b => b.pos ? { pos: b.pos, idx: b.idx!, origin: b.origin, xf: b.xf, lift: env.lift(b.origin), features: b.features } : null);
-			const h = pickMeshes(items, env.view, x, y); if (!h) return null;
-			const b = cur.batches[h.item], f = b.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
-			return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
-				batch: h.item, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(cur.states.get(h.featureId) || {}) } : {} };
-		},
-		// 地物の一覧の見出し＝{ primitives, tables: [{ name, class, count, columns }] } | null
-		get features() {
-			const fb = cur?.batches?.find(b => b.features); if (!fb) return cur?.stats?.features ? { ...cur.stats.features, tables: [] } : null;
-			return { ...(cur!.stats.features || {}) as NonNullable<ModelStats["features"]>, tables: (fb.features!.tables || []).map(T => ({ name: T.name, class: T.class, count: T.count, columns: Object.keys(T.columns) })) };
-		},
-		// feature state（MapLibre の setFeatureState と同じ置き場の考え方）＝{ color: CSS 色 } を描きに効かせる（頂点色を差し替え＝テクスチャに掛かる）。他の鍵は保つだけ
-		setFeatureState(id, state) {
-			if (!cur || id == null) return ctl;
-			const prev = cur.states.get(+id) || {}, next = state == null ? {} : { ...prev, ...state };
-			if (Object.keys(next).length) cur.states.set(+id, next); else cur.states.delete(+id);
-			repaintStates(); return ctl;
-		},
-		getFeatureState(id) { return { ...(cur?.states.get(+id) || {}) }; },
-		removeFeatureState(id) { if (!cur) return ctl; if (id == null) cur.states.clear(); else cur.states.delete(+id); repaintStates(); return ctl; },
+		pick(x, y) { return pickAll(x, y)?.hit || null; },
+		get features() { return curH()?.features || null; },
+		setFeatureState(id, state) { curH()?.setFeatureState(id, state); return ctl; },
+		getFeatureState(id) { return curH()?.getFeatureState(id) || {}; },
+		removeFeatureState(id) { curH()?.removeFeatureState(id); return ctl; },
 		toastLength() { return cur ? t("$1 triangles", cur.stats.triangles) : "?"; },
 	};
 	signal?.addEventListener("abort", () => ctl.destroy(), { once: true });
