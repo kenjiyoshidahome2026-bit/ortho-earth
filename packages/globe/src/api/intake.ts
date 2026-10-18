@@ -100,7 +100,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 			test: f => /\.(glb|gltf)$/i.test(f.name),
 			draw: async (file, ctx) => {
 				live.annoCtl?.clear(); gint.clearUserGint();
-				const c = await map.gadget.model(file, { at: ctx?.at, heading: ctx?.heading, scale: ctx?.scale });
+				const c = await map.gadget.model(file, { at: ctx?.at, heading: ctx?.heading, scale: ctx?.scale, gizmo: "auto" });   // gizmo:"auto"＝錨で置いた模型（生成 AI の GLB など）は落とした直後に取っ手＝つまんで置き直せる（2026-10-18）
 				return { length: c.toastLength() };
 			},
 		},
