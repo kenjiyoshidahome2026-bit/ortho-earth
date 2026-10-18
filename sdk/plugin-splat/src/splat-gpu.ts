@@ -143,6 +143,7 @@ var<workgroup> part: array<u32, 256>;
 /** 層（GPU に載せた物） */
 interface Layer {
 	n: number; anchor: [number, number, number]; alt: SplatAltitude; radius: number; occl: boolean; properties: Record<string, unknown> | null;
+	ctr: Float32Array;   // 東北上の中心（m・CPU 側に持つ＝当たりの経緯度はここから。GPU から読み戻さない）
 	bb: Float32Array;   // 東北上の箱（min xyz・max xyz）＝奥行きの範囲は箱の 8 隅で決まる（線形）
 	bCtr: GPUBuffer; bCov: GPUBuffer; bCol: GPUBuffer; bOrder: GPUBuffer; bKeys: GPUBuffer; bSh: GPUBuffer | null; ub: GPUBuffer; su: GPUBuffer;
 	shDeg: number; shWords: number; shScale: number; rot: Float32Array;
@@ -251,7 +252,7 @@ export function create(): SplatGpuModule {
 		const bSh = sh ? mkBuf(sh, BUF.STORAGE, "splat-sh") : null;
 		const ub = device!.createBuffer({ label: "splat-u", size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST }), su = device!.createBuffer({ label: "splat-su", size: SU_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
 		const sortBG = device!.createBindGroup({ layout: sortLayout!, entries: [{ binding: 0, resource: { buffer: su } }, { binding: 1, resource: { buffer: bCtr } }, { binding: 2, resource: { buffer: bKeys } }, { binding: 3, resource: { buffer: counts! } }, { binding: 4, resource: { buffer: bOrder } }] });
-		return { n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, bb,
+		return { n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: d.ctr, bb,
 			bCtr, bCov, bCol, bOrder, bKeys, bSh, ub, su, shDeg: sh ? d.shDeg! : 0, shWords: sh ? d.shWords! : 0, shScale: d.shScale ?? 1, rot: d.rot && d.rot.length === 9 ? d.rot : new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
 			sortBG, drawBG: null, drawTex: null, dir: null, on: true, base: 0 };
 	}
@@ -372,12 +373,9 @@ export function create(): SplatGpuModule {
 		buf.unmap(); buf.destroy();
 		if (!best) return null;
 		for (const [q, L] of layers) if (best.id >= L.base && best.id < L.base + L.n) {
-			const index = best.id - L.base, a = L.anchor;
-			// 中心の経緯度（当たりの答え）＝錨の東北上から（中心は GPU にしか無い＝buffer から 1 点だけ読む）
-			const pb = device.createBuffer({ size: 16, usage: BUF.MAP_READ | BUF.COPY_DST }), e2 = device.createCommandEncoder();
-			e2.copyBufferToBuffer(L.bCtr, index * 16, pb, 0, 16); device.queue.submit([e2.finish()]);
-			await pb.mapAsync(BUF.MAP_READ); const c = new Float32Array(pb.getMappedRange().slice(0)); pb.unmap(); pb.destroy();
-			const lngLat: [number, number] = [a[0] + c[0] / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + c[1] / (D2R * R_SPHERE)];
+			const index = best.id - L.base, a = L.anchor, e = L.ctr[index * 3], nn = L.ctr[index * 3 + 1];
+			// 中心の経緯度（当たりの答え）＝錨の東北上から（WebGL2 の描き手と同じ式）
+			const lngLat: [number, number] = [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)];
 			return { id: best.id, q, layer: q, index, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index } };
 		}
 		return null;
