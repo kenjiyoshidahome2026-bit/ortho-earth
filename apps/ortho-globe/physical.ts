@@ -12,11 +12,12 @@
 //   量   … 山の記号＝標高・川の太さ＝長さ・山脈の帯の幅＝実寸（km）。数値は名前の下に添える（山・火山・滝）
 //   出し … NE の scalerank（rank）で名前の出しズームを決める＝大きな物ほど遠くから
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
-import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui-table";   // 分類名（Wikidata のクラスのラベル・26 言語）
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, GeoPBF, LayerMouseEvent, MapLibreLayer, MapLibreSource, Bbox } from "@ortho-earth/globe";
 const t = tr();
 type Geopbf = typeof import("@ortho-earth/globe").geopbf;
@@ -420,11 +421,12 @@ export async function mountPhysical(map: GlobeMap, { geopbf, data }: { geopbf: G
 	map.on("click", HIT, e => { const q = topQid(e); if (q) select(q, { fly: false }); });
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧・比較）──
-	const panel = document.createElement("div");
-	panel.className = "ph-panel";
-	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head"><h1>${esc(t("Physical world"))}</h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button class="fold" type="button" aria-label="${esc(t("Fold"))}">–</button></div>
-		<div class="body">
+	// 枠（見出し・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（紙の地図＝light）。言語の切替は地図のボタン（gadget.lang）
+	const P = createPanel({ host: mapEl, title: t("Physical world"), cls: "ph-panel", theme: "light",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
 			<div class="detail" hidden></div>
 			<div class="tabs" role="tablist">
 				<button type="button" data-tab="layers" class="on">${esc(t("Layers"))}</button>
@@ -456,13 +458,10 @@ export async function mountPhysical(map: GlobeMap, { geopbf, data }: { geopbf: G
 				<div class="ctl"><select class="preset">${PRESETS.map(p => `<option value="${p.id}">${esc(presetName(p.id))}</option>`).join("")}</select></div>
 				<p class="note">${esc(t("Hover a bar for its value; click to go there."))}</p>
 			</div>
-		</div>`;
-	mapEl.appendChild(panel);
+		`;
 	const $ = <T extends HTMLElement = HTMLElement>(s: string) => panel.querySelector<T>(s)!;
 	// 言語（world と同じ＝その言語の呼び名を並べた select・26 言語）。地球儀の注記・地形の名前表・エンジンの文言は起動時の言語で組む＝
 	// ?lang= を書き換えて読み直す（視点＝hash・選択＝?q= は URL に残る＝同じ場所・同じ選択へ戻る）
-	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); };
-	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll<HTMLInputElement>("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g!) : shown.delete(inp.dataset.g!); applyGroups(); });
 	panel.querySelectorAll<HTMLInputElement>("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov!, inp.checked));
 	// 段彩（全球ハイプソ）の濃さ＝エンジンの setOpacity({ hypso })・0 で陸の地色だけ（本人 2026-10-01）
@@ -682,14 +681,7 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&a
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝昼夜の配色テーマに追随）──
 const CSS = `
-.ph-panel{position:absolute;top:12px;right:12px;z-index:30;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
-	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
-.ph-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.ph-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ph-panel .head .lang{flex:none;max-width:120px;font-size:12px;padding:3px 4px}
-.ph-panel .fold,.ph-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
-.ph-panel.min .body{display:none}
+.ph-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .ph-panel .tabs{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
 .ph-panel .tabs button{flex:1;border:0;background:none;padding:6px 4px;font:inherit;color:var(--qm-text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .ph-panel .tabs button.on{color:var(--qm-ink);font-weight:700;border-bottom-color:var(--qm-ink)}
@@ -769,8 +761,7 @@ const CSS = `
 .ph-chart .mk.on .nm,.ph-chart .mk.on .lb{fill:#d7263d;font-weight:700}
 .ph-chart .ctip{position:absolute;pointer-events:none;min-width:120px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.97);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-card);font-size:12px}
 .ph-chart .ctip[hidden]{display:none}
-@media (max-width:720px){
+@media (max-width:640px){
 	.oe-wiki.ph-wiki{left:8px;right:8px;top:8px;width:auto}
-	.ph-panel{left:12px;right:12px;width:auto;max-height:44vh}
-	.ph-chart{left:8px;right:8px;height:240px}
+	.ph-chart{left:52px;right:8px;top:calc(8px + env(safe-area-inset-top, 0px));bottom:auto;height:220px}   /* 下端は案内のシート＝比較の図は上へ（左はボタン列を空ける） */
 }`;

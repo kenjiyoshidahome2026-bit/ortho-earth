@@ -32,8 +32,8 @@ button { cursor: pointer; font-family: $font; touch-action: manipulation; } // 3
 	// エンジンに貸す容れ物（ui/globe.js が生やす div・id は map へ改名される＝寸法はここで与える）
 	> div { width: 100% !important; height: 100% !important; }
 }
-// 待ち受け（一覧の背後で自転）中は地図の時計を出さない＝一覧の見出し・ボタンに重なる
-body:not(.globe-viewing) #globe-bg #sky-clock { display: none; }
+// 待ち受け（一覧の背後で自転）中は地図の時計と出典を出さない＝一覧の見出し・ボタン・カードに重なる（GeoPBF のデモと同じ作法）
+body:not(.globe-viewing) #globe-bg :is(#sky-clock, #attr) { display: none; }
 
 // ============================================================
 // レイアウト（2ペイン）

@@ -6,6 +6,7 @@
 //   解析 … 可視域・切り取り（断面）・一人称で歩く・距離と面積・断面図
 // 状態は URL の search（?tab=&hz=&era=&ward=&spot=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は日本語のみ（横浜市の頁）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, ERAS, CITY_VIEW, HINAN_FLAGS, LOD1_WARDS, lod1Url, yokohamaShelters, flagsOf, parseState, writeState } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab } from "./data.ts";
@@ -38,14 +39,12 @@ export async function mountTwin(map: GlobeMap) {
 	const flySpot = (s: Spot) => flyView(s);
 
 	// ── 案内板（右上）──
-	const panel = document.createElement("div");
-	panel.className = "yk-panel";
-	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head">
-			<div class="ttl"><h1>横浜市デジタルツイン</h1><p>3D 都市モデルに、防災・歴史・解析を重ねる</p></div>
-			<button class="fold" type="button" aria-label="畳む">–</button>
-		</div>
-		<div class="body">
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（夜の配色）。ここは中身だけ
+	const P = createPanel({ host: mapEl, title: "横浜市デジタルツイン", sub: "3D 都市モデルに、防災・歴史・解析を重ねる", cls: "yk-panel",
+		labels: { fold: "畳む", unfold: "開く" } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
 			<button class="tour" type="button">▶ 名所ツアー</button>
 			<nav class="tabs" role="tablist">
 				${(["city", "risk", "time", "tools"] as Tab[]).map(t => `<button type="button" role="tab" data-tab="${t}">${{ city: "まち", risk: "防災", time: "時間", tools: "解析" }[t]}</button>`).join("")}
@@ -95,12 +94,10 @@ export async function mountTwin(map: GlobeMap) {
 				<p class="sub toolmsg"></p>
 			</section>
 			<p class="attr">出典：国土交通省 PLATEAU・国土地理院・ハザードマップポータルサイト・指定緊急避難場所データ（国土地理院）</p>
-		</div>`;
-	mapEl.appendChild(panel);
+		`;
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
 	const $$ = <T extends HTMLElement = HTMLInputElement>(s: string) => [...panel.querySelectorAll<T>(s)];
-	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 
 	// ── 面の切り替え ──
 	function setTab(t: Tab) {
@@ -325,16 +322,7 @@ export async function mountTwin(map: GlobeMap) {
 
 // ── 意匠（quiet-mono のトークン＝#map の変数・choju の案内板と同じ黒地白文字）──
 const CSS = `
-.yk-panel{--qm-ink:#fff;--qm-text:#f1f3f6;--qm-text-dim:rgba(255,255,255,.72);--qm-text-faint:rgba(255,255,255,.5);--qm-border-soft:rgba(255,255,255,.22);color-scheme:dark}
-.yk-panel{position:absolute;top:12px;right:12px;z-index:30;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:14px 14px 12px;border-radius:var(--qm-r-l);background:rgba(8,14,26,.9);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
-	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
-.yk-panel .head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.yk-panel .ttl{flex:1;min-width:0}
-.yk-panel h1{font-size:17px;margin:0;font-weight:700;color:var(--qm-ink);letter-spacing:.02em}
-.yk-panel .ttl p{margin:2px 0 0;color:var(--qm-text-dim);font-size:12px}
-.yk-panel .fold,.yk-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
-.yk-panel.min .body{display:none}
+.yk-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .yk-panel .tour{width:100%;margin:12px 0 10px;padding:9px 10px;border:0;border-radius:var(--qm-r-m);background:linear-gradient(90deg,#1565c0,#0d8bb0);color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .yk-panel .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px}
 .yk-panel .tabs button{font:inherit;padding:6px 0;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
@@ -378,4 +366,4 @@ const CSS = `
 .yk-cap b{font-size:18px;color:#fff}
 .yk-cap p{margin:3px 0 0;color:rgba(255,255,255,.8)}
 .yk-cap .x{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
-@media (max-width:720px){ .yk-panel{top:auto;bottom:36px;left:12px;right:12px;width:auto;max-height:48vh} .yk-cap{bottom:auto;top:12px} }`;
+@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} }`;

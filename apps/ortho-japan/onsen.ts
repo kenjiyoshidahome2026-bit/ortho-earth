@@ -11,8 +11,9 @@
 //   推定 … 座標を推定した温泉は白抜きの輪（実測は塗りの丸）。選ぶと推定の誤差の円を出す
 //   郷   … 淡い紫の面（構成する温泉の集合）。源泉 … 赤い破線で温泉地と結ぶ・源泉の位置が分からない物は赤い外輪だけ
 //   選択 … 地図・一覧のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?o=ID で共有できる
-import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { createWikiFrame, langChain, pickTitle, wikiUrl } from "@ortho-earth/globe/wiki.js";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, MapLibreLayer, StyleExpression, LonLat, Bbox, GeoJSONFeature, GeoPBF } from "@ortho-earth/globe";
 const t = tr();
 
@@ -168,11 +169,12 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧）──
 	const count = (i: number) => onsens.filter(d => i < 0 ? !d.qc?.length : d.qc?.includes(i)).length;
-	const panel = document.createElement("div");
-	panel.className = "on-panel";
-	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head"><h1>${esc(t("Hot springs of Japan"))}</h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button class="fold" type="button" aria-label="${esc(t("Fold"))}">–</button></div>
-		<div class="body">
+	// 枠（見出し・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（紙の地図＝light）。言語の切替は地図のボタン（gadget.lang）
+	const P = createPanel({ host: mapEl, title: t("Hot springs of Japan"), cls: "on-panel", theme: "light",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
 			<div class="detail" hidden></div>
 			<div class="tabs" role="tablist">
 				<button type="button" data-tab="layers" class="on">${esc(t("Layers"))}</button>
@@ -198,11 +200,8 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 				<p class="cnt"></p>
 				<ol class="list"></ol>
 			</div>
-		</div>`;
-	mapEl.appendChild(panel);
+		`;
 	const $ = <E extends HTMLElement = HTMLElement>(s: string) => panel.querySelector(s) as E;
-	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); };   // 言語＝読み直す（視点と選択は URL に残る）
-	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll<HTMLInputElement>("input[data-c]").forEach(inp => inp.onchange = () => { const i = +inp.dataset.c!; inp.checked ? shownCls.add(i) : shownCls.delete(i); apply(); });
 	panel.querySelectorAll<HTMLElement>("button[data-all]").forEach(b => b.onclick = () => { panel.querySelectorAll<HTMLInputElement>("input[data-c]").forEach(inp => { inp.checked = b.dataset.all === "1"; const i = +inp.dataset.c!; inp.checked ? shownCls.add(i) : shownCls.delete(i); }); apply(); });
 	panel.querySelectorAll<HTMLInputElement>("input[data-ov]").forEach(inp => inp.onchange = () => { ov[inp.dataset.ov!] = inp.checked; apply(); });
@@ -282,14 +281,7 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&a
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝terrain と同じ）──
 const CSS = `
-.on-panel{position:absolute;top:12px;right:12px;z-index:30;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
-	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
-.on-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.on-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.on-panel .head .lang{flex:none;max-width:120px;font-size:12px;padding:3px 4px}
-.on-panel .fold,.on-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
-.on-panel.min .body{display:none}
+.on-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .on-panel .tabs{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
 .on-panel .tabs button{flex:1;border:0;background:none;padding:6px 4px;font:inherit;color:var(--qm-text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .on-panel .tabs button.on{color:var(--qm-ink);font-weight:700;border-bottom-color:var(--qm-ink)}
@@ -343,7 +335,6 @@ const CSS = `
 .on-panel a{color:var(--qm-ink)}
 .on-panel .dl{display:flex;justify-content:space-between;gap:8px;margin-top:8px;font-size:12px;color:var(--qm-text-faint)}
 .oe-wiki.on-wiki{left:12px;top:12px;bottom:calc(40px + var(--qm-safe-b));width:min(560px,calc(100% - 356px));z-index:31}
-@media (max-width:720px){
+@media (max-width:640px){
 	.oe-wiki.on-wiki{left:8px;right:8px;top:8px;width:auto}
-	.on-panel{left:12px;right:12px;width:auto;max-height:44vh}
 }`;

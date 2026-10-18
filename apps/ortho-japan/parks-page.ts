@@ -9,7 +9,7 @@ startPage("parks", async () => {
 	const map = await orthoJapan({ target: "#map", view: location.hash || "#4.3/36.8/137.2/35t", chips: false,
 		mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 	dismissBoot();
-	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 	const parks = await mountParks(map, geopbf, { catalog: `${__DATA_JAPAN__}parks.json`, boundary: `${__DATA_JAPAN__}parks.geopbf` });
 	window.__map = map; window.__parks = parks;   // console 検証用
 });

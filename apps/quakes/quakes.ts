@@ -20,6 +20,7 @@ export { depthColor };
 
 const Y_MIN = 1967;   // カタログの先頭年（USGS ComCat の網羅は 1967〜）
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, CameraPose } from "@ortho-earth/globe";
 const t = tr();
 
@@ -86,19 +87,12 @@ export async function mountQuakes(map: GlobeMap, { src, panelHost }: { src?: Qua
 	const redraw = () => { syncState(); placeTags(); };
 
 	// ── パネル ──
-	const panel = document.createElement("div");
-	panel.className = "quakes-panel";
-	panel.innerHTML = `
-<style>
-.quakes-panel{position:absolute;top:12px;right:12px;z-index:30;width:292px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.quakes-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.quakes-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.quakes-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.quakes-panel.min .body{display:none}
-.quakes-panel.min{padding-bottom:10px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: panelHost || mapEl, title: t("World earthquakes"), cls: "quakes-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.sub.innerHTML = `${t("USGS ANSS ComCat · M2+ · $1", `<span data-k="span">${t("$1– ##since year", Y_MIN)}</span>`)}`;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .quakes-panel .play{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .quakes-panel .play button{border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#ff8c1a;color:#1a0d00;font-weight:700;padding:5px 12px;cursor:pointer;font:inherit;font-weight:700}
 .quakes-panel .play button.on{background:#e7ecf5;color:#0b1021}
@@ -116,7 +110,6 @@ export async function mountQuakes(map: GlobeMap, { src, panelHost }: { src?: Qua
 .quakes-tag small{display:block;color:#b9c3d6;font-size:11px}
 .quakes-tag::after{content:"";position:absolute;left:50%;bottom:-6px;width:10px;height:10px;transform:translateX(-50%) rotate(45deg);background:rgba(12,17,32,.9);border-right:1px solid rgba(255,140,26,.7);border-bottom:1px solid rgba(255,140,26,.7)}
 .quakes-clock small{display:block;font-size:12px;font-weight:400;color:#b9c3d6;text-align:center;margin-top:2px}
-.quakes-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
 .quakes-panel .row{margin:9px 0}
 .quakes-panel label{display:flex;justify-content:space-between;color:#b9c3d6}
 .quakes-panel label b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
@@ -142,12 +135,10 @@ export async function mountQuakes(map: GlobeMap, { src, panelHost }: { src?: Qua
  font:12px/1.55 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.4);transform:translate(12px,-50%)}
 .quakes-info b{font-size:15px}
 .quakes-info .sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
-@media (max-width:640px){.quakes-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}.quakes-clock{bottom:auto;top:10px;font-size:24px;padding:6px 14px}}
+@media (max-width:640px){.quakes-clock{bottom:auto;top:10px;font-size:24px;padding:6px 14px}}
 </style>
-<div class="head"><h1>${t("World earthquakes")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("USGS ANSS ComCat · M2+ · $1", `<span data-k="span">${t("$1– ##since year", Y_MIN)}</span>`)}</div>
-<div class="row"><div data-k="status" class="stat">${t("Loading…")}</div></div>
-<div class="body">
+<div class="row"><div data-k="status" class="stat">${t("Loading…")}</div></div>`);
+	P.body.innerHTML = `
 <div class="row">
  <label>${t("Period")} <b data-k="yearLab"></b></label>
  <div class="dual"><input type="range" data-k="y0" step="1"><input type="range" data-k="y1" step="1"></div>
@@ -178,9 +169,7 @@ export async function mountQuakes(map: GlobeMap, { src, panelHost }: { src?: Qua
  <div class="row"><label>${t("Opacity of small earthquakes")} <b data-k="faintLab"></b></label><input type="range" data-k="faint" min="0.02" max="1" step="0.01"></div>
  <div class="row"><label>${t("Earth transparency")} <b data-k="clearLab"></b></label><input type="range" data-k="clear" min="0" max="1" step="0.01"></div>
 </details>
-<div class="note">${t("Click an earthquake for details. Play steps through the period range by year or month (Esc to stop). Tilt (right-drag / two fingers) to see hypocenter depth in 3D.")}<br>${t("Source: $1", "U.S. Geological Survey, ANSS Comprehensive Earthquake Catalog")}</div>
-</div>`;
-	(panelHost || mapEl).appendChild(panel);
+<div class="note">${t("Click an earthquake for details. Play steps through the period range by year or month (Esc to stop). Tilt (right-drag / two fingers) to see hypocenter depth in 3D.")}<br>${t("Source: $1", "U.S. Geological Survey, ANSS Comprehensive Earthquake Catalog")}</div>`;
 	const $ = (k: string) => panel.querySelector(`[data-k="${k}"]`) as unknown as Field;
 	const info = document.createElement("div");
 	info.className = "quakes-info"; info.style.display = "none";
@@ -238,9 +227,6 @@ export async function mountQuakes(map: GlobeMap, { src, panelHost }: { src?: Qua
 		placeTags();
 	};
 	// 折り畳み：小さい画面は最初から畳む（見出し＋件数だけ残す）
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
 
 	// 凡例
 	$("bar").style.background = `linear-gradient(90deg,${STOPS.map(([t, c]) => `rgb(${c}) ${(t * 100).toFixed(1)}%`).join(",")})`;
@@ -489,6 +475,6 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 		get bigCount() { return layers.reduce((a, L) => a + (L?.nBig ?? 0), 0); },
 		get layers() { return layers; },   // console 検証用（層ごとの pos/attr/lon/lat/time の列）
 		pick: (x: number, y: number) => total() ? pick(x, y) : null,
-		destroy() { stopPlay(); clearTags(); removeEventListener("keydown", onKey); clock.remove(); offFrame(); cancelAnimationFrame(catchUp); ov.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
+		destroy() { stopPlay(); clearTags(); removeEventListener("keydown", onKey); clock.remove(); offFrame(); cancelAnimationFrame(catchUp); ov.remove(); P.destroy(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
 	};
 }

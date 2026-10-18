@@ -9,7 +9,7 @@ startPage("parks", async () => {
 	const map = await createGlobe({ target: "#map", view: location.hash || "#2.3/44/-112/20t", chips: false,
 		worldContent: true, mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false });
 	dismissBoot();
-	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 	const D = __DATA_US__;
 	const parks = await mountParks(map, geopbf, { catalog: `${D}parks-us.json`, boundary: `${D}parks-us.geopbf`, units: `${D}nps-units.geopbf` });
 	window.__map = map; window.__parks = parks;   // console 検証用
