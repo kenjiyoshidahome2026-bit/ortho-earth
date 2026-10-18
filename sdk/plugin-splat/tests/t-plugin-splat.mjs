@@ -153,6 +153,39 @@ function makeSpz(version, pts) {
 	const f = 500, w = 1000, h = 800, mvp = [f / (w / 2), 0, 0, 0, 0, f / (h / 2), 0, 0, 0, 0, 1, 1, 0, 0, 0, 10];   // x,y → ndc＝f·x/(w/2)/w_clip・z 軸は w に効く
 	ok("ppm", near(pixelsPerMeter(mvp, w, h), f / 10, 1e-6) && pixelsPerMeter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1], w, h) === 0, String(pixelsPerMeter(mvp, w, h)));
 }
+// ---- local＋transform（列優先 4×4・file → ECEF＝3D Tiles の glTF）＝錨は重心・中心は錨からの東北上・共分散と SH の向きは transform の 3×3 ----
+{
+	const lon = 139.7671 * Math.PI / 180, lat = 35.6812 * Math.PI / 180, h0 = 40, a = 6378137, e2 = 0.00669437999014, N = a / Math.sqrt(1 - e2 * Math.sin(lat) ** 2);
+	const O = [(N + h0) * Math.cos(lat) * Math.cos(lon), (N + h0) * Math.cos(lat) * Math.sin(lon), (N * (1 - e2) + h0) * Math.sin(lat)];
+	const E = [-Math.sin(lon), Math.cos(lon), 0], Nn = [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), Math.cos(lat)], U = [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
+	const ENU = [...E, 0, ...Nn, 0, ...U, 0, ...O, 1];   // 列優先＝x 東・y 北・z 上
+	const two = (over = {}) => ({ n: 2, crs: "local", positions: new Float32Array([0, 0, 0, 10, 0, 4]), scales: new Float32Array([1, 2, 3, 1, 2, 3]), rotations: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1]), colors: new Uint8Array(8), ...over });
+	const e = toEnu(two(), { transform: ENU });
+	const lonC = 139.7671 + 5 / (111320 * Math.cos(lat));   // 重心＝(5, 0, 2)＝東 5m・上 2m
+	ok("xf.anchor", near(e.anchor[0], lonC, 2e-7) && near(e.anchor[1], 35.6812, 2e-6) && near(e.anchor[2], 42, 0.05), JSON.stringify(e.anchor));
+	ok("xf.ctr", near(e.ctr[0], -5, 1e-3) && near(e.ctr[1], 0, 1e-3) && near(e.ctr[2], -2, 1e-3) && near(e.ctr[3], 5, 1e-3) && near(e.ctr[5], 2, 1e-3), JSON.stringify([...e.ctr]));
+	ok("xf.cov", near(e.cov[0], 1, 1e-4) && near(e.cov[3], 4, 1e-4) && near(e.cov[5], 9, 1e-4) && near(e.cov[1], 0, 1e-4), JSON.stringify([...e.cov.slice(0, 6)]));   // 回転無し＝対角（東 1・北 4・上 9）
+	ok("xf.rot", near(e.rot[0], 1, 1e-6) && near(e.rot[4], 1, 1e-6) && near(e.rot[8], 1, 1e-6), JSON.stringify([...e.rot]));
+	// glTF の Y-up（x 東・y 上・z 南）＝SWAP を畳んだ transform：局所の y が上に、z が −北に
+	const SW = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1];   // 列優先：(x,y,z) → (x, −z, y)
+	const mul = (A, B) => { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c * 4 + r] = A[r] * B[c * 4] + A[4 + r] * B[c * 4 + 1] + A[8 + r] * B[c * 4 + 2] + A[12 + r] * B[c * 4 + 3]; return o; };
+	const y = toEnu({ ...two(), positions: new Float32Array([0, 0, 0, 0, 10, 0]) }, { transform: mul(ENU, SW) });
+	ok("xf.yup", near(y.ctr[2], -5, 1e-3) && near(y.ctr[5], 5, 1e-3) && near(y.ctr[0], 0, 1e-3), JSON.stringify([...y.ctr]));
+	ok("xf.yupCov", near(y.cov[0], 1, 1e-4) && near(y.cov[3], 9, 1e-4) && near(y.cov[5], 4, 1e-4), JSON.stringify([...y.cov.slice(0, 6)]));   // 尺 (1,2,3)＝東 1・上 2（y）・北 3（z）
+	ok("xf.yupRot", near(y.rot[5], 1, 1e-6) && near(y.rot[7], -1, 1e-6), JSON.stringify([...y.rot]));   // 東北上 → file：上 → y・北 → −z
+	// 尺を持つ transform（2 倍）＝中心も共分散も 2 倍（共分散は 4 倍）
+	const S2 = [...ENU]; for (let i = 0; i < 12; i++) S2[i] *= 2;
+	const s = toEnu(two(), { transform: S2 });
+	ok("xf.scale", near(s.ctr[3], 10, 1e-3) && near(s.cov[0], 4, 1e-3) && near(s.rot[0], 1, 1e-6), JSON.stringify([...s.ctr, ...s.cov.slice(0, 1)]));
+	// data の transform（SplatData.transform）でも同じ・opts が勝つ
+	const d2 = toEnu(two({ transform: ENU }));
+	ok("xf.inData", near(d2.ctr[3], 5, 1e-3));
+	ok("xf.optsWin", near(toEnu(two({ transform: ENU }), { transform: S2 }).ctr[3], 10, 1e-3));
+	// prepare は origin 無しでも transform で通る・形の間違いは投げる
+	const p = prepare(checkSplatData(two({ transform: ENU })), { lod: false }, false);
+	ok("xf.prepare", p.n === 2 && near(p.anchor[0], lonC, 2e-7) && p.rank === null);
+	ok("xf.bad", throws(() => checkSplatData(two({ transform: [1, 2, 3] }))) && throws(() => checkSplatData(two({ transform: new Array(16).fill(NaN) }))) && throws(() => toEnu(two(), { transform: [1] })));
+}
 // ---- 下ごしらえの一式（prepare＝main と worker で同じ）・worker の read を main で呼ぶ ----
 {
 	const d = checkSplatData({ positions: new Float32Array([139.7, 35.6, 10, 139.7001, 35.6, 10]), scales: new Float32Array([1, 1, 1, 3, 3, 3]), rotations: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1]), colors: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]), sh: new Float32Array(18).fill(0.5) });

@@ -96,7 +96,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 ## 予約された kind（受け口＝契約だけ・2026-10-12）
 
-- `dataKinds` の **`splat`**（Gaussian splat）：`map.addData(data, { kind: "splat" })`。data＝`{ n, positions: Float32Array(n*3)（[lng,lat,alt] か ECEF＝opts.crs）, scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数）, colors: Uint8Array(n*4), sh?: Float32Array }` か .ply/.splat/.spz の URL（読み手は plugin）。
+- `dataKinds` の **`splat`**（Gaussian splat）：`map.addData(data, { kind: "splat" })`。data＝`{ n, positions: Float32Array(n*3)（[lng,lat,alt] か ECEF か局所＝crs lnglat|ecef|local）, scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数）, colors: Uint8Array(n*4), sh?: Float32Array, transform?: 列優先 4×4（local → ECEF・crs "local" に必須） }` か .ply/.splat/.spz の URL か bytes（`format` で名乗る・読み手は plugin）。3D Tiles の `KHR_gaussian_splatting` は gadget tiles3d がタイルごとに `{ crs: "local", transform }`（SPZ 圧縮は bytes＋`format: "spz"`＋`transform`）で `create` に渡す＝plugin は `transform` と `setVisible`／`remove` を受けること。
   plugin が無ければ `addData` は投げる（`capabilities()["data.splat"]` は "spec"）。描く段は同一フレームのオーバーレイ（深度つき・視線順のソート）＝`@ortho-earth/plugin-splat`（下の節）が実装している。
   `sh` の並び＝係数が先・色が後（`sh[i*K*3 + k*3 + c]`・K＝3／8／15＝次数 1／2／3・.spz と同じ）。WebGPU の描き手が視線の向きで色を変える（2026-10-18）。
 - `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import() する module（`export transcode(bytes: Uint8Array, { mimeType }) → { width, height, rgba: Uint8Array(width*height*4) }`・Promise でもよい）。模型（gadget model）と 3D Tiles の glb の KHR_texture_basisu の画像がこれを通って普通のテクスチャになる（第 3 波 W5）。登録が無ければ fallback の画像（texture.source）のまま＝`capabilities()["texture.ktx2"]` は "spec"、登録があれば "plugin"。`@ortho-earth/ktx2` が basis_universal の WASM（opt-in・既定は unpkg の @loaders.gl/textures の libs・`libraryPath` で自前配布）で実装している：`map.use(ktx2Plugin({ libraryPath }))`。
@@ -132,7 +132,9 @@ map.addData("/scenes/room.spz", { kind: "splat", id: "room", origin: [139.7671, 
 map.addData({ positions, scales, rotations, colors }, { kind: "splat", id: "mine" });   // 経緯度の SplatData
 ```
 
-URL と bytes は `origin` が要る（file の原点を置く経緯度）。`upAxis` の既定は .ply／.splat が "-y"（y 下・z 前）、.spz が "y"（y 上・z 後）。描くのは DC の色だけ（球面調和の残りは持つが使わない）。
+URL と bytes は `origin` が要る（file の原点を置く経緯度）か、`transform`（列優先 4×4・局所 → ECEF m）で置く。`upAxis` の既定は .ply／.splat が "-y"（y 下・z 前）、.spz が "y"（y 上・z 後）。色は WebGPU なら球面調和つき、WebGL2 は DC だけ。
+
+**3D Tiles の splat（2026-10-18・W10d）**＝`map.add3DTiles(url)` の glTF に `KHR_gaussian_splatting`（Release Candidate の属性名 `KHR_gaussian_splatting:SCALE`…・Cesium の草案 `_SCALE`（log の尺）／`_ROTATION`／`_OPACITY`・圧縮 `KHR_gaussian_splatting_compression_spz_2` の bytes）があれば、model worker（`meshdecode.ts` の `splatPrim`）が局所の座標＋タイルの transform（列優先 4×4・ECEF・heightOffset は重心の鉛直に）で返し、gadget tiles3d がタイルごとに `map.addData({ crs: "local", transform, … }, { kind: "splat", id: "tiles3d:<set>:<tile>:<k>", altitude: "absolute", properties: { tile } , ...opts.splat })` の層を立てる。タイルの出し入れ＝`setVisible`（層が立つ前に伏せても覚える）・unload＝`remove`。plugin が無ければ worker は splat を点として返し（仕様の fallback）一度だけ warn。手綱の `stats.splats`・`tiles[].splats`。
 
 ## 検定
 
