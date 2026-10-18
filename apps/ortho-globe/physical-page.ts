@@ -14,7 +14,7 @@ startPage("physical", async () => {
 		 instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false,
 		debugGlobals: /[?&]debug=1/.test(location.search) });   // ?debug=1＝検証窓（__perf…）
 	dismissBoot();
-	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 	const physical = await mountPhysical(map, { geopbf, data: new URLSearchParams(location.search).get("data") });   // 省略＝dev は手元の out/・本番は GitHub Pages（ortho-data）
 	window.__map = map; window.__physical = physical;   // console 検証用
 });

@@ -7,8 +7,9 @@
 // 写真と Wikipedia の本文は実行時に直読み（直接取れる物は置かない方針）。Wikipedia の記事＝頁の上の iframe（共通の芯 @ortho-earth/globe/wiki.js）。
 // 「他の NPS ユニット」＝国立公園以外の 380（国定記念物・史跡・海岸・保養地…）を ortho-data/us/nps-units.geopbf（0.11MB）から押した時だけ読む（日本版の地種区分と同じ口）。
 // ?p=<id> で起動時に選ぶ（共有）。←/→ で隣の公園・Esc で一覧へ。
-import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない。辞書は startPage（page.js）が足す
+import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない。辞書は startPage（page.js）が足す
 import { createWikiFrame, summaryIn, langChain, pickTitle, wikiUrl as wikiHref, DEFAULT_FALLBACK as WIKI_FALLBACK } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠・冒頭・URL の共通の芯
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, GeoPBF, GintLayerHandle, Bbox } from "@ortho-earth/globe";
 const t = tr();
 type Geopbf = typeof import("@ortho-earth/globe").geopbf;
@@ -52,20 +53,18 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 	// 写真＝台帳の URL をそのまま使う（thumb＝一覧用・src＝詳細用の 1280px）。⚠ 幅を URL で差し替えてはいけない＝Commons は API で生成された幅しか配信しない
 
 	// ── パネル（japan の parks と同じ意匠＝暗いガラス・写真の格子）──
-	const panel = document.createElement("div");
-	panel.className = "parks-panel";
-	panel.innerHTML = `
-<style>
-.parks-panel{position:absolute;top:12px;inset-inline-start:12px;z-index:30;width:420px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);display:flex;flex-direction:column;
- box-sizing:border-box;border-radius:14px;background:rgba(10,15,28,.84);color:#e9eef7;overflow:hidden;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
- font:12.5px/1.55 system-ui,"Segoe UI",Roboto,"Noto Sans","Noto Sans JP",sans-serif;box-shadow:0 10px 36px rgba(0,0,0,.45)}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。言語の切替は地図のボタン（gadget.lang）
+	const P = createPanel({ host: panelHost || mapEl, title: t("National Parks of the United States"), sub: t("$1 parks. Click one to fly there — the boundaries are the National Park Service's official park areas.", fmtN(parks.length)), cls: "parks-panel", width: 420,
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.h1.insertAdjacentHTML("afterbegin", `<small>${t("United States")}</small>`);
+	P.body.insertAdjacentHTML("beforebegin", `<style>
+.parks-panel{display:flex;flex-direction:column;overflow:hidden}   /* 道具（検索・並べ替え）は留め、一覧だけ流す */
+.parks-panel .oe-panel-head h1 small{display:block;font-size:11px;color:#8fd3a7;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:2px}
+.parks-panel.min .tools{display:none}
+.parks-panel .tools{padding:8px 0;display:flex;flex-direction:column;gap:8px}
+.parks-panel .oe-panel-body{overflow:auto;flex:1;min-height:0;margin:0 -14px;padding:0 14px 2px;scrollbar-width:thin}
 .parks-panel *{box-sizing:border-box}
-.parks-panel .head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:14px 16px 0}
-.parks-panel h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em;line-height:1.3}
-.parks-panel h1 small{display:block;font-size:11px;color:#8fd3a7;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:2px}
-.parks-panel .lang{flex:none;max-width:120px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9eef7;padding:4px 6px;font:inherit;font-size:11.5px;outline:none}
-.parks-panel .lang option{color:#000}
 .parks-panel .units{flex:none;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);color:#cfd8e8;padding:5px 10px;font:inherit;cursor:pointer;white-space:nowrap}
 .parks-panel .units.on{background:#8fd3a7;border-color:#8fd3a7;color:#0b1021;font-weight:700}
 .parks-panel .units[aria-busy="true"]{opacity:.6;cursor:progress}
@@ -74,10 +73,6 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 .parks-panel .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-inline-end:4px;border:1px solid rgba(255,255,255,.25)}
 .parks-panel .ustatus{color:#9aa6bd;font-size:11px}
 .parks-panel .ustatus:empty{display:none}
-.parks-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9eef7;font-size:14px;line-height:1;cursor:pointer}
-.parks-panel.min .body,.parks-panel.min .sub,.parks-panel.min .tools{display:none}
-.parks-panel.min{padding-bottom:12px}
-.parks-panel .sub{color:#9aa6bd;font-size:11.5px;padding:4px 16px 0}
 .parks-panel .tools{padding:10px 16px 8px;display:flex;flex-direction:column;gap:8px}
 .parks-panel .row{display:flex;gap:6px;align-items:center}
 .parks-panel input[type=search]{flex:1;min-width:0;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);color:#fff;padding:6px 10px;font:inherit;outline:none}
@@ -88,7 +83,6 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 .parks-panel .chips::-webkit-scrollbar{display:none}
 .parks-panel .chip{flex:none;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#cfd8e8;padding:3px 10px;font:inherit;font-size:11.5px;cursor:pointer;white-space:nowrap}
 .parks-panel .chip.on{background:#8fd3a7;border-color:#8fd3a7;color:#0b1021;font-weight:700}
-.parks-panel .body{overflow:auto;padding:0 16px 14px;flex:1;min-height:0;scrollbar-width:thin}
 .parks-panel .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .parks-panel .card{position:relative;display:block;aspect-ratio:4/3;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.08);background:#1a2236;cursor:pointer;padding:0;font:inherit;color:inherit;text-align:start;
  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
@@ -134,28 +128,21 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 .parks-panel .credit a{color:#9cc4ff}
 .parks-panel .note{color:#8793aa;font-size:10.5px;line-height:1.5;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)}
 .parks-panel .note a{color:#9cc4ff}
-.oe-wiki.parks-wiki{inset-inline-start:444px;top:12px;bottom:12px;width:min(640px,calc(100% - 456px));z-index:30}
-@media (max-width:640px){.parks-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:56%}.parks-panel .grid{grid-template-columns:1fr 1fr}.parks-panel .facts{grid-template-columns:1fr 1fr}
+.oe-wiki.parks-wiki{inset-inline-end:444px;top:12px;bottom:12px;width:min(640px,calc(100% - 456px));z-index:30}
+@media (max-width:640px){.parks-panel .grid{grid-template-columns:1fr 1fr}.parks-panel .facts{grid-template-columns:1fr 1fr}
  .oe-wiki.parks-wiki{left:8px;right:8px;top:8px;bottom:8px;width:auto;z-index:31}}
 </style>
-<div class="head"><h1><small>${t("United States")}</small>${t("National Parks of the United States")}</h1><span class="row"><select class="lang" data-k="lang" aria-label="${t("Language")}">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></span></div>
-<div class="sub">${t("$1 parks. Click one to fly there — the boundaries are the National Park Service's official park areas.", fmtN(parks.length))}</div>
 <div class="tools">
 	<div class="row"><input type="search" data-k="q" placeholder="${t("Search parks…")}" aria-label="${t("Search parks…")}">
 		<select data-k="sort" aria-label="${t("Sort")}"><option value="west">${t("West to east")}</option><option value="name">${t("Name")}</option><option value="year">${t("Year established")}</option><option value="area">${t("Area")}</option><option value="visitors">${t("Visitors")}</option></select></div>
 	<div class="row"><button type="button" class="units" data-k="units" aria-pressed="false">${t("Other NPS units")}</button><span class="ustatus" data-k="ustatus"></span></div>
 	<div class="legend" data-k="legend">${UNITS.map(([k, c, a]) => `<span><i style="background:${rgba(c, Math.min(1, a + 0.3))}"></i>${esc(UN[k])}</span>`).join("")}</div>
 	<div class="chips" data-k="chips"><button type="button" class="chip on" data-r="">${t("All")}</button>${REGIONS.map(r => `<button type="button" class="chip" data-r="${r}">${RN[r]}</button>`).join("")}</div>
-</div>
-<div class="body"><div data-k="list"></div><div class="note">${t("Boundaries: National Park Service (public domain). Facts: NPS, via Wikipedia's list of national parks. Names and links: Wikidata. Photos: Wikimedia Commons, each with its own licence.")}</div></div>`;
-	(panelHost || mapEl).appendChild(panel);
+</div>`);
+	P.body.innerHTML = `<div data-k="list"></div><div class="note">${t("Boundaries: National Park Service (public domain). Facts: NPS, via Wikipedia's list of national parks. Names and links: Wikidata. Photos: Wikimedia Commons, each with its own licence.")}</div>`;
 	const $ = (k: string) => panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
 	// Wikipedia の枠（記事は m. 版・↗ で別タブ・✕/Esc で閉じる）。公園を替える・一覧へ戻る＝閉じる
 	const wikiFrame = createWikiFrame({ host: mapEl, className: "parks-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
-	$("lang").addEventListener("change", e => { try { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.replace(u.href); } catch { /* 埋め込み先 */ } });
 
 	// ── 一覧（検索・地域・並び）──
 	let region = "", query = "", sort = "west", cur: Park | null = null;
@@ -175,7 +162,7 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 			<span class="shade"></span><span class="yr">${p.established.slice(0, 4)}</span>
 			<span class="txt"><b>${esc(nameOf(p))}</b><small>${esc(p.states.map(stateName).join(" · "))}</small></span></button>`).join("")}</div>`;
 	};
-	const body = panel.querySelector<HTMLElement>(".body")!;
+	const body = P.body;
 	body.addEventListener("click", e => {
 		const b = (e.target as HTMLElement).closest<HTMLElement>(".card[data-id]"); if (b) { show(b.dataset.id!); return; }
 		const n = (e.target as HTMLElement).closest<HTMLElement>("[data-nav]"); if (!n) return;
@@ -302,6 +289,6 @@ export async function mountParks(map: GlobeMap, geopbf: Geopbf | null | undefine
 		get current() { return cur; },
 		get layer() { return layer; },
 		get units() { return unitsLayer; }, setUnits,
-		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); unitsLayer?.remove?.(); wikiFrame.remove(); panel.remove(); },
+		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); unitsLayer?.remove?.(); wikiFrame.remove(); P.destroy(); },
 	};
 }

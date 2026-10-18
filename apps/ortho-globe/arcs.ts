@@ -13,6 +13,7 @@
 // エンジンとの接点は公開面だけ：map.addData（points／arcs／trips）・map.on(ev, 層, cb)・map.project／unproject・onFrame・mapEl。
 import { gcDistance, gcPath, rhumbPath, rhumbDistance, rhumbBearing, tripOf, parseAirports, parseRoutes, parseTable, detectColumns, makeResolver, tableToArcs } from "./arcs-data.ts";
 import { createMini } from "./arcs-mini.ts";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { MiniLine, MiniMark } from "./arcs-mini.ts";
 import type { Airport, Arc, Nation as ArcNation, Resolver } from "./arcs-data.ts";
 import type { GlobeMap, DataLayerHandle, LonLat } from "@ortho-earth/globe";
@@ -119,19 +120,11 @@ export async function mountArcs(map: GlobeMap, geopbf: GeopbfFn, { csv = null, m
 	const touch = matchMedia("(pointer: coarse)").matches;
 
 	// ── パネル ──
-	const panel = document.createElement("div");
-	panel.className = "arcs-panel";
-	panel.innerHTML = `
-<style>
-.arcs-panel{position:absolute;top:12px;right:12px;z-index:30;width:316px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.arcs-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.arcs-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.arcs-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.arcs-panel.min .body{display:none}
-.arcs-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:8px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: mapEl, title: t("The shortest way is an arc"), sub: t("On a globe the shortest way is straight; on a flat map it bends."), cls: "arcs-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .arcs-panel .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:8px 0 10px}
 .arcs-panel .tab{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#cfd7e6;border-radius:7px;padding:5px 2px;font:inherit;font-size:11.5px;line-height:1.25;cursor:pointer}
 .arcs-panel .tab[aria-selected=true]{background:rgba(255,214,90,.16);border-color:rgba(255,214,90,.55);color:#fff}
@@ -161,13 +154,10 @@ export async function mountArcs(map: GlobeMap, geopbf: GeopbfFn, { csv = null, m
 .arcs-mini .tog{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(12,17,32,.7);color:#e7ecf5;font-size:12px;line-height:1;cursor:pointer}
 .arcs-mini.min{width:112px;height:30px}.arcs-mini.min canvas{display:none}
 @media (max-width:640px){
- .arcs-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:46%}
- .arcs-mini{top:10px;right:8px;bottom:auto;width:168px}
+ .arcs-mini{top:calc(38px + env(safe-area-inset-top, 0px));right:8px;bottom:auto;width:168px}   /* 右上の時計（#sky-clock）の下＝重ねない */
 }
-</style>
-<div class="head"><h1>${t("The shortest way is an arc")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("On a globe the shortest way is straight; on a flat map it bends.")}</div>
-<div class="body">
+</style>`);
+	P.body.innerHTML = `
 <div class="tabs" role="tablist">
  <button type="button" class="tab" role="tab" data-m="here">${t("From here")}</button>
  <button type="button" class="tab" role="tab" data-m="cmp">${t("Compare")}</button>
@@ -206,15 +196,11 @@ export async function mountArcs(map: GlobeMap, geopbf: GeopbfFn, { csv = null, m
  <div class="rng"><span>${t("Arc height")}</span><input type="range" data-k="h" min="0" max="0.5" step="0.01" value="${H0}" aria-label="${t("Arc height")}"><em data-k="hV"></em></div>
  <label class="ck"><input type="checkbox" data-k="trips" checked>${t("Lights flying along the arcs")}</label>
  <div class="note">${t("Height 0 draws the great circle on the ground.")}</div>
-</div>
 </div>`;
 	mapEl.appendChild(panel);
 	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const tip = document.createElement("div"); tip.className = "arcs-tip"; tip.style.display = "none"; mapEl.appendChild(tip);
 	const showTip = (pt: { x: number; y: number } | null, html?: string | null) => { if (!pt) { tip.style.display = "none"; return; } tip.innerHTML = html!; tip.style.left = pt.x + "px"; tip.style.top = pt.y + "px"; tip.style.display = ""; };
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
 	const mini = createMini(map, { label: t("Mercator map"), hideLabel: t("Hide map"), showLabel: t("Show map") });
 
 	// ── 層（map.addData）＝5 つだけ（1 層＝オーバーレイ 1 枚＝WebGL の文脈 1 つ。見方ごとに層を持つと 12 枚になり、文脈の上限で地球が消えた・2026-10-14 実測）。
@@ -473,6 +459,6 @@ export async function mountArcs(map: GlobeMap, geopbf: GeopbfFn, { csv = null, m
 		get mode() { return state.mode }, setMode, setOrigin, selectAirport, loadTable, ensureAir, layers: L, state,
 		get capitals() { return caps }, get routes() { return routes }, get airports() { return apList }, get count() { return arcsNow.length },
 		destroy() { for (const h of Object.values(L)) h!.remove();
- mini.destroy(); panel.remove(); tip.remove(); },
+ mini.destroy(); P.destroy(); tip.remove(); },
 	};
 }

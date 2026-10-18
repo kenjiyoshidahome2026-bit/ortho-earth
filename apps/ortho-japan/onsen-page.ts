@@ -14,7 +14,7 @@
 		const map = await orthoJapan({ target: "#map", view: location.hash || "#4.8/36.5/137.5/25t", chips: false, mesh: false,
 			layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 		dismissBoot();
-		map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+		map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
 		const onsen = await mountOnsen(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ });   // ?data=URL で台帳を差し替え
 		window.__map = map; window.__onsen = onsen;   // console 検証用
 	} catch (e) { console.error("[onsen] startup failed", e); dismissBoot(); }
