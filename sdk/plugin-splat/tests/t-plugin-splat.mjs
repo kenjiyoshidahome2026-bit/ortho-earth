@@ -1,7 +1,8 @@
 // node の検定：読み手（.ply・.splat・.spz v2/v3）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
 import { gzipSync } from "node:zlib";
-import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
 import { sortOrder, enuBasis } from "../src/splat-gl.ts";
+import { depthRange } from "../src/splat-gpu.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-5) => Math.abs(a - b) <= e;
@@ -37,7 +38,11 @@ function makePly(rows, props) {
 	ok("ply.alpha", d.colors[3] === 128, String(d.colors[3]));   // sigmoid(0)＝0.5
 	ok("ply.dc", d.colors[0] === Math.round((0.5 + SH_C0) * 255) && d.colors[1] === 128 && d.colors[2] === Math.round((0.5 - SH_C0) * 255), JSON.stringify([...d.colors]));
 	ok("ply.rot", near(d.rotations[3], 1) && near(d.rotations[0], 0));   // rot_0＝w・正規化
-	ok("ply.sh", d.sh?.length === 2 && d.sh[0] === 0.5);
+	ok("ply.sh", d.sh?.length === 2 && d.sh[0] === 0.5);   // 3 の倍数でない f_rest＝並べ替えない（次数は 0）
+	// f_rest は色が先（R の K 個・G の K 個・B の K 個）→ 係数が先（k*3+c）に並べ替える（.spz と同じ・描き手の評価の並び）
+	const rest = Array.from({ length: 9 }, (_, i) => "f_rest_" + i), row = { x: 0, y: 0, z: 0 }; rest.forEach((p, i) => { row[p] = i; });
+	const d9 = parsePly(makePly([row], ["x", "y", "z", ...rest]));
+	ok("ply.shOrder", d9.sh?.length === 9 && d9.sh[0] === 0 && d9.sh[1] === 3 && d9.sh[2] === 6 && d9.sh[3] === 1 && d9.sh[8] === 8, JSON.stringify([...(d9.sh ?? [])]));
 	const pc = parsePly(makePly([{ x: 5, y: 6, z: 7 }], ["x", "y", "z"]));
 	ok("ply.points", pc.n === 1 && pc.colors[3] === 255 && near(pc.scales[0], 0.01));
 	ok("ply.ascii", throws(() => parsePly(new TextEncoder().encode("ply\nformat ascii 1.0\nelement vertex 0\nend_header\n"))));
@@ -98,6 +103,29 @@ function makeSpz(version, pts) {
 	const op = toEnu({ ...d, colors: new Uint8Array([10, 10, 10, 200, 10, 10, 10, 100]) }, { opacity: 0.5 });
 	ok("opacity", op.rgba[3] === 100 && op.rgba[7] === 50);
 	const b = enuBasis(0, 0); ok("basis", near(b.U[0] * 6371000, 1) && near(Math.hypot(...b.E) * 6371000, 1));
+}
+// ---- SH の詰め方（8 bit・4 個／u32・係数が先）と向き（rot＝東北上 → 元の軸） ----
+{
+	ok("shDeg", shDegreeOf(9) === 1 && shDegreeOf(24) === 2 && shDegreeOf(45) === 3 && shDegreeOf(7) === 0);
+	const sh = new Float32Array(2 * 9); sh[0] = 2; sh[1] = -1; sh[8] = 0.5; sh[9 + 4] = -2;
+	const p = packSh(sh, 2);
+	const b = new Int8Array(p.shq.buffer);
+	ok("pack.deg1", p && p.shDeg === 1 && p.words === 3 && p.shq.length === 6 && near(p.shScale, 2), JSON.stringify(p && { d: p.shDeg, w: p.words, s: p.shScale }));
+	ok("pack.q", b[0] === 127 && b[1] === -63 && b[8] === 32 && b[12 + 4] === -127 && b[9] === 0, JSON.stringify([...b]));   // 係数 i*words*4 + k＝snorm8（×scale で戻る）
+	const p2 = packSh(new Float32Array(45), 1); ok("pack.deg3", p2.shDeg === 3 && p2.words === 12 && p2.shq.length === 12);
+	ok("pack.cap", packSh(new Float32Array(45), 1, 1).shDeg === 1 && packSh(new Float32Array(45), 1, 0) === null && packSh(new Float32Array(7), 1) === null);
+	// rot：lnglat＝単位、local の heading 90°（北の 10 m が東へ）＝東北上の東の向きは元の軸の北（y）
+	const un = toEnu({ n: 1, crs: "lnglat", positions: new Float32Array([139.7, 35.7, 0]), scales: new Float32Array(3).fill(1), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array(4) });
+	ok("rot.lnglat", [...un.rot].every((v, i) => near(v, i % 4 === 0 ? 1 : 0)), JSON.stringify([...un.rot]));
+	const hd = toEnu({ n: 1, crs: "local", positions: new Float32Array([0, 10, 0]), scales: new Float32Array([1, 1, 1]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array(4) }, { origin: [140, 35], upAxis: "z", orientation: [90, 0, 0], scale: 2 });
+	const R = hd.rot, ex = [R[0] * 1 + R[1] * 0 + R[2] * 0, R[3] * 1, R[6] * 1];   // 東北上の東 (1,0,0) → 元の軸
+	ok("rot.heading", near(ex[0], 0, 1e-6) && near(ex[1], 1, 1e-6) && near(ex[2], 0, 1e-6) && near(Math.hypot(R[0], R[1], R[2]), 1, 1e-6), JSON.stringify(ex));   // 尺（2）は入らない
+	const ec = toEnu({ n: 1, crs: "ecef", positions: new Float32Array([6378137, 0, 0]), scales: new Float32Array([1, 1, 1]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array(4) });
+	const up = [ec.rot[2], ec.rot[5], ec.rot[8]];   // 東北上の上 (0,0,1) → 地心直交＝+x
+	ok("rot.ecef", near(up[0], 1, 1e-6) && near(up[1], 0, 1e-6) && near(up[2], 0, 1e-6), JSON.stringify(up));
+	// 奥行きの範囲＝箱の 8 隅
+	const [lo, hi] = depthRange([-1, -2, -3, 1, 2, 3], [0, 1, 0]); ok("range", lo === -2 && hi === 2);
+	const [lo2, hi2] = depthRange([-1, -2, -3, 1, 2, 3], [1, 1, 1]); ok("range.diag", lo2 === -6 && hi2 === 6);
 }
 // ---- 並べ替え（奥＝w の大きい物が先） ----
 {

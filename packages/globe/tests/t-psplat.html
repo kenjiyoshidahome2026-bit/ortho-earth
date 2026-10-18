@@ -1,5 +1,7 @@
 <!doctype html>
-<!-- 実描画の検分：@ortho-earth/plugin-splat（第 3 波 W10・2026-10-12）＝予約された map.addData の kind "splat"（同一フレームのオーバーレイ・WebGL2）。
+<!-- 実描画の検分：@ortho-earth/plugin-splat（第 3 波 W10・2026-10-12・WebGPU の描き手 2026-10-18）＝予約された map.addData の kind "splat"（同一フレームのオーバーレイ）。
+     描き手は器で選ぶ＝WebGPU（SH・GPU の並べ替え・本体の device と深度を共有）→ 無ければ WebGL2。verify:ui（gl2=1・SwiftShader）＝WebGL2、verify:webgpu＝WebGPU（backend を検める）。
+     ⑥SH：赤の DC に 1 次の z の係数（4,-4,0）＝上から見る（視線の z≈−0.5）と緑に変わる＝WebGPU だけ（WebGL2 は DC のまま赤）。
      試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-pscene と同じ）・北向きに 60° 傾けて南から見る。
      ①plugin の形：map.use(splatPlugin()) で capabilities の data.splat が plugin・unuse で外れて "spec" の受け口に戻る（addData は投げる）
      ②SplatData（経緯度・Float32）：赤＝棟の南 250m（見える）、緑＝北 500m（棟に隠れる＝本体の深度）、青＝東西に長い楕円（画面でも横長）、
@@ -49,14 +51,18 @@ try {
 	const C = [[230, 30, 30], [30, 220, 60], [40, 60, 240], [240, 40, 230], [40, 230, 240]];
 	const n = P.length, data = { n, positions: new Float32Array(P.flat()), scales: new Float32Array(S.flat()), rotations: new Float32Array(n * 4).map((_, i) => i % 4 === 3 ? 1 : 0), colors: new Uint8Array(C.flatMap(c => [...c, 255])) };
 	const hs = map.addData(data, { kind: "splat", id: "scene", properties: { name: "test" } });
+	// ⑥ SH（1 次）：DC は赤・z の係数 [4, −4, 0]＝視線の z が −0.5 なら C1·(−0.5)·[4, −4, 0]≈[−0.98, +0.98, 0] → 緑（WebGPU）。WebGL2 は DC だけ＝赤のまま
+	const PS = ll(-130, -80, 30);
+	const hsh = map.addData({ n: 1, positions: new Float32Array(PS), scales: new Float32Array([12, 12, 12]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array([230, 30, 30, 255]), sh: new Float32Array([0, 0, 0, 4, -4, 0, 0, 0, 0]) }, { kind: "splat", id: "shl" });
 	const hy = map.addData(new URL("./fixtures/splat/yellow.splat", location.href).href, { kind: "splat", id: "yellow", origin: ll(150, -300, 30) });
 	const hw = map.addData(new URL("./fixtures/splat/white.spz", location.href).href, { kind: "splat", id: "white", origin: ll(-120, -380, 30) });
-	await Promise.all([hs.ready, hy.ready, hw.ready]);
+	await Promise.all([hs.ready, hy.ready, hw.ready, hsh.ready]);
 	ok("n", hs.n === 5 && hy.n === 1 && hw.n === 1 && hs.kind === "splat", `${hs.n}/${hy.n}/${hw.n}`);
 	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-splat"]').length === 1 && hs.overlay === hy.overlay);
 	let dup = false; try { map.addData(data, { kind: "splat", id: "scene" }); } catch { dup = true; }
 	ok("dupIdThrows", dup);
-	const Q = { get R() { return at(P[0]); }, get G() { return at(P[1]); }, get B() { return at(P[2]); }, get M() { return at(P[3]); }, get Y() { return at(ll(150, -300, 30)); }, get Wh() { return at(ll(-120, -380, 30)); } };
+	const Q = { get R() { return at(P[0]); }, get G() { return at(P[1]); }, get B() { return at(P[2]); }, get M() { return at(P[3]); }, get Y() { return at(ll(150, -300, 30)); }, get Wh() { return at(ll(-120, -380, 30)); }, get S() { return at(PS); } };
+	const expectGpu = !new URLSearchParams(location.search).has("gl2");   // verify:webgpu（gl2 無し）＝WebGPU の描き手を期待・verify:ui（gl2=1・SwiftShader）＝WebGL2 でよい
 	const W = 40000;
 	// 一つの canvas＝一度の probe で全部を見る。見えた物は覚えておく
 	const seen = {};
@@ -66,7 +72,9 @@ try {
 		if (!seen.m && near(d, Q.M[0], Q.M[1], magenta, 2)) seen.m = d;
 		if (!seen.y && near(d, Q.Y[0], Q.Y[1], yellow, 4)) seen.y = d;
 		if (!seen.w && near(d, Q.Wh[0], Q.Wh[1], white, 4)) seen.w = d;
-		return seen.r && seen.b && seen.m && seen.y && seen.w; }, 2 * W);
+		if (!seen.sh && hs.backend && near(d, Q.S[0], Q.S[1], hs.backend === "webgpu" ? green : red, 3)) seen.sh = d;
+		return seen.r && seen.b && seen.m && seen.y && seen.w && seen.sh; }, 2 * W);
+	ok("backend", hs.backend === "webgpu" || (!expectGpu && hs.backend === "webgl2"), String(hs.backend));
 	const diag = async (f, c) => { const d = await probe(hs); if (!d) return "no probe"; const b = box(d, f); return `${b ? `${b.n}@${b.cx.toFixed(0)},${b.cy.toFixed(0)} ${b.w.toFixed(0)}x${b.h.toFixed(0)}` : "0"} want ${c[0].toFixed(0)},${c[1].toFixed(0)}`; };
 	ok("front", !!seen.r, seen.r ? "" : await diag(red, Q.R));
 	ok("behindHidden", !!seen.r && !near(seen.r, Q.G[0], Q.G[1], green, 6), seen.r ? JSON.stringify(px(seen.r, Q.G[0], Q.G[1])) : "");
@@ -74,6 +82,7 @@ try {
 	ok("sorted", !!seen.m, seen.m ? "" : await diag(magenta, Q.M) + " c=" + await diag(cyan, Q.M));
 	ok("url.splat", !!seen.y, seen.y ? "" : await diag(yellow, Q.Y));
 	ok("url.spz", !!seen.w, seen.w ? "" : await diag(white, Q.Wh));
+	ok("sh", !!seen.sh, seen.sh ? hs.backend : `${hs.backend} g=` + await diag(green, Q.S) + " r=" + await diag(red, Q.S));
 	// ③ 当たり（本体は往復 3 秒で諦める＝空なら撮り直す）
 	const again = f => until(async () => { const r = await f(); return r.length ? r : null; }, 30000).then(r => r ?? []);
 	stage = "pick";
@@ -87,7 +96,7 @@ try {
 	stage = "vis";
 	hs.setVisible(false);
 	ok("hidden", !!await until(async () => { const d = await probe(hy); return d && !near(d, Q.R[0], Q.R[1], red) && near(d, Q.Y[0], Q.Y[1], yellow) ? d : null; }, W));
-	hs.remove(); hw.remove();
+	hs.remove(); hw.remove(); hsh.remove();
 	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-splat"]') && !!await until(async () => { const d = await probe(hy); return d && near(d, Q.Y[0], Q.Y[1], yellow) && !near(d, Q.Wh[0], Q.Wh[1], white) ? d : null; }, W));
 	hy.remove(); await sleep(300);
 	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
