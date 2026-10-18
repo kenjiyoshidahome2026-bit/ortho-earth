@@ -30,12 +30,11 @@
 		"src",
 		"!src/main.*",
 		"LICENSE",
+		"LICENSE-DSEG.txt",
 		"README.md"
 	],
 	"scripts": {
 		"dev": "vite",
-		"build": "vite build",
-		"preview": "vite preview",
 		"prepack": "node ../../../scripts/pack-ts.mjs pre",
 		"postpack": "node ../../../scripts/pack-ts.mjs post",
 		"mirror": "git -C ../../.. subtree split --prefix=apps/himekuri/lib -b himekuri-mirror && git -C ../../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../../.. branch -D himekuri-mirror"
