@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- 実描画の検分：3D Tiles の Gaussian splat（glTF の KHR_gaussian_splatting・2026-10-18）。試料＝tests/fixtures/tiles3d-splat（make.mjs）＝東京駅の ENU の根：
+     親＝橙の大きな splat（粗い・REPLACE）／子 4 棟＝赤（仕様の属性名・COLOR_0 の fallback つき）・緑（1 次の SH）・青（Cesium の草案の名・log の尺）・白（SPZ 圧縮）。
+     worker（tile3d）が splat のプリミティブを局所の座標＋transform のまま返し、main（gadgets/tiles3d.ts）がタイルごとに plugin-splat の層（crs "local"）にする。
+     ①寄ると子 4 枚がそろい（REPLACE）stats.splats＝3×1600＋親 200（SPZ の子は plugin が解く＝数えない）・各タイルが層 1 つ
+     ②画素（オーバーレイの probe＝同じ canvas）：各象限の中心に赤・緑・青・白＝transform の置き方（Y-up・ENU・ECEF）が合っている ③当たり（pickOverlays＝layer "tiles3d:…"・properties.tile）＝WebGPU で検める（SwiftShader の WebGL2 は 3 秒で諦める＝既知）
+     ④離れると親だけ（子の層は伏せる＝赤が消え橙が出る）⑤remove で層が全部降りる（probe 用の層を外すと canvas も外れる）
+     ?v=noplugin＝plugin 無し＝仕様の fallback どおり点として描く（stats.points＝3×1600・stats.splats＝0・一度 warn・点のオーバーレイが立つ）。実時間（worker の動的 import）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:520px}</style><title>t-tiles3d-splat</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const V = new URLSearchParams(location.search), noPlugin = V.get("v") === "noplugin", expectGpu = !V.has("gl2");
+const t = [];
+let stage = "boot";
+const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-tiles3d-splat @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
+const heart = setInterval(beat, 1000);
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); beat(); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(1000); } return null; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
+const warns = []; const warn0 = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(" ")); warn0(...a); };
+try {
+	const plugins = noPlugin ? [] : [(await import("@ortho-earth/plugin-splat")).splatPlugin()];
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false, debugGlobals: true, plugins });
+	await map.once("load");
+	map.jumpTo({ center: [LON, LAT], zoom: 17.2, pitch: 50, bearing: 0 });
+	await sleep(1500);
+	const h = await map.add3DTiles("./fixtures/tiles3d-splat/tileset.json", { fit: false, ...(V.has("nodepth") ? { splat: { depthTest: false } } : {}) });   // ?nodepth=1＝深度で隠さない（見立て用）
+	stage = "load";
+	const full = await until(() => h.stats.shown === 4 ? h.stats : null, 40000);
+	ok("replace", !!full && full.shown === 4 && full.failed === 0, JSON.stringify(h.stats));
+	if (noPlugin) {   // 仕様の fallback＝点として（SPZ の子は属性の本体が無い＝描く物なし）
+		ok("fallback.points", h.stats.points === 3 * 1600 + 200 && h.stats.splats === 0, JSON.stringify(h.stats));   // 親（200）も読んである（伏せているだけ）
+		ok("fallback.warn", warns.some(w => /KHR_gaussian_splatting drawn as points/.test(w)), warns.length + " warns");
+		ok("fallback.overlay", !!await until(() => window.__overlay?.["tiles3d:" + h.id]?.stage === "ready"), JSON.stringify(window.__overlay?.["tiles3d:" + h.id] ?? null));
+		ok("fallback.noSplatLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]') && h.tiles.every(x => x.splats === 0));
+		h.remove(); await sleep(300);
+		ok("removed", h.stats.loaded === 0, JSON.stringify(h.stats));
+	} else {
+		ok("splats", h.stats.splats === 3 * 1600 + 200 && h.stats.points === 0, JSON.stringify(h.stats));   // 子 3 枚＋親（読んである・伏せている）。SPZ の子は plugin が解く＝数えない
+		ok("layers", h.tiles.filter(x => x.on).length === 4 && h.tiles.filter(x => x.on).every(x => x.splats === 1 && !x.meshes && x.pts === 0), JSON.stringify(h.tiles.map(x => [x.uri, x.on, x.splats])));
+		// probe 用の層（同じ canvas）＝目に見えない小さな splat を 1 つ、上空に
+		const hp = map.addData({ n: 1, positions: new Float32Array(ll(0, 0, 1500)), scales: new Float32Array([0.01, 0.01, 0.01]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array([0, 0, 0, 255]) }, { kind: "splat", id: "probe" });
+		await hp.ready;
+		const dpr = Math.min(2, devicePixelRatio || 1);
+		const probe = () => new Promise(res => { const ov = hp.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
+			ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
+		const px = (img, x, y) => { const X = Math.round(x * dpr), Y = img.flipY ? img.h - 1 - Math.round(y * dpr) : Math.round(y * dpr), k = (Y * img.w + X) * 4; return [img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]]; };
+		const near = (img, x, y, f, r = 8) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (f(px(img, x + dx, y + dy))) return true; return false; };
+		const count = (img, f) => { let n = 0; for (let k = 0; k < img.data.length; k += 4) if (f([img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]])) n++; return n; };
+		const col = c => c[3] > 100 ? [c[0] * 255 / c[3], c[1] * 255 / c[3], c[2] * 255 / c[3]] : null;
+		const red = c => { const v = col(c); return v && v[0] > 2 * v[1] + 30 && v[0] > 2 * v[2] + 30; }, green = c => { const v = col(c); return v && v[1] > 2 * v[0] + 30 && v[1] > v[2] + 30; };
+		const blue = c => { const v = col(c); return v && v[2] > 2 * v[0] + 30 && v[2] > 1.5 * v[1] + 20; }, white = c => { const v = col(c); return v && v[0] > 190 && v[1] > 190 && v[2] > 190; };
+		const orange = c => { const v = col(c); return v && v[0] > 180 && v[1] > 90 && v[1] < 180 && v[2] < 90; };
+		const at = p => map.makeProjectorH()(p[0], p[1], p[2]);
+		const H = 40 + 6;   // 根の楕円体高 40m＋splat の高さ 6m（絶対高さ）
+		const Q = { R: () => at(ll(-50, -50, H)), G: () => at(ll(50, -50, H)), B: () => at(ll(-50, 50, H)), W: () => at(ll(50, 50, H)), C: () => at(ll(0, 0, H)) };
+		stage = "pixels";
+		const seen = {};
+		const W = 40000;
+		await until(async () => { const d = await probe(); if (!d) return null;
+			const r = Q.R(), g = Q.G(), b = Q.B(), w = Q.W();
+			if (!seen.r && near(d, r[0], r[1], red)) seen.r = true;
+			if (!seen.g && near(d, g[0], g[1], green)) seen.g = true;
+			if (!seen.b && near(d, b[0], b[1], blue)) seen.b = true;
+			if (!seen.w && near(d, w[0], w[1], white)) seen.w = true;
+			return seen.r && seen.g && seen.b && seen.w; }, W);
+		const diag = async () => { const d = await probe(); return d ? `red=${count(d, red)} green=${count(d, green)} blue=${count(d, blue)} white=${count(d, white)} R@${Q.R().map(v => v.toFixed(0))} G@${Q.G().map(v => v.toFixed(0))} B@${Q.B().map(v => v.toFixed(0))} W@${Q.W().map(v => v.toFixed(0))} ${d.w}x${d.h} layers=${JSON.stringify(d.layers)}` : "no probe"; };
+		ok("backend", hp.backend === "webgpu" || (!expectGpu && hp.backend === "webgl2"), String(hp.backend));
+		ok("px.red", !!seen.r, seen.r ? "" : await diag());        // 南西＝仕様の属性名
+		ok("px.green", !!seen.g, seen.g ? "" : await diag());      // 南東＝1 次の SH
+		ok("px.blue", !!seen.b, seen.b ? "" : await diag());       // 北西＝草案の名・log の尺・short の回転
+		ok("px.white", !!seen.w, seen.w ? "" : await diag());      // 北東＝SPZ 圧縮（plugin の読み手が解く）
+		// ③ 当たり＝統一 picking（layer＝"tiles3d:<set>:<tile>:<k>"・properties.tile）。SwiftShader の WebGL2 は往復が 3 秒で切れる（既知）＝WebGPU で検める
+		stage = "pick";
+		const r0 = Q.R();
+		const pk = (await until(async () => { const r = await map.pickOverlays(r0[0], r0[1], { radius: 6, names: ["plugin-splat"] }); return r.length ? r : null; }, expectGpu ? 30000 : 8000)) ?? [];
+		const hit = pk.find(x => /^tiles3d:/.test(String(x.layer)));
+		ok("pick", hit ? Number.isInteger(hit.properties?.tile) && Number.isInteger(hit.index) && Math.abs(hit.lngLat[1] - ll(-50, -50)[1]) < 3e-4 : !expectGpu, hit ? `${hit.layer} tile=${hit.properties?.tile}` : `no hit (${pk.length})`);
+		// ④ 離れる＝親だけ（子の層は伏せる）
+		stage = "coarse";
+		map.jumpTo({ zoom: 12.8, pitch: 0 });
+		const coarse = await until(() => h.stats.shown === 1 ? h.stats : null, 20000);
+		ok("coarse", !!coarse && h.tiles.filter(x => x.on).length === 1 && h.tiles.find(x => x.on)?.uri === "parent.glb", JSON.stringify(h.tiles.map(x => [x.uri, x.on])));
+		const cz = await until(async () => { const d = await probe(); if (!d) return null; const c = Q.C(); return count(d, red) === 0 && near(d, c[0], c[1], orange, 12) ? d : null; }, W);
+		ok("coarse.px", !!cz, cz ? "" : await diag());
+		// ⑤ 外す＝層が全部降りる（probe の層だけ残る）→ それも外すと canvas が外れる
+		stage = "remove";
+		h.remove(); await sleep(300);
+		ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+		const gone = await until(async () => { const d = await probe(); return d && count(d, orange) === 0 && count(d, red) === 0 ? d : null; }, W);
+		ok("removed.px", !!gone, gone ? "" : await diag());
+		ok("probeCanvas", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
+		hp.remove(); await sleep(300);
+		ok("canvasGone", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
+		ok("noWarn", !warns.some(w => /\[tiles3d\] splat/.test(w)), warns.filter(w => /splat/.test(w)).join(" | ").slice(0, 200));
+	}
+	clearInterval(heart);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>

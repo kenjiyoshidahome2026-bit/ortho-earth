@@ -30,13 +30,15 @@ export interface SplatData {
 	crs?: SplatCrs;
 	/** "local" only: which file axis is up ("z"; "y" = right-up-back; "-y" = right-down-forward) */
 	axes?: SplatAxes;
+	/** "local" only: a column-major 4×4 that takes the file's coordinates (meters) to ECEF (meters), e.g. a glTF node matrix × a 3D Tiles tile transform. Replaces origin / upAxis / orientation / scale; the splats are placed at absolute altitude */
+	transform?: ArrayLike<number>;
 }
 /** 読み手の戻り＝n・crs "local"・axes が必ず入った SplatData */
 export interface LocalSplatData extends SplatData { n: number; crs: "local"; axes: SplatAxes }
 /** [heading (clockwise from north), pitch, roll] degrees */
 export type Hpr = [number, number?, number?];
 export type Origin = [number, number, number?];
-export interface ToEnuOptions { origin?: Origin; upAxis?: SplatAxes; orientation?: Hpr; scale?: number; opacity?: number }
+export interface ToEnuOptions { origin?: Origin; upAxis?: SplatAxes; orientation?: Hpr; scale?: number; opacity?: number; /** crs "local": file → ECEF (column-major 4×4; wins over data.transform) */ transform?: ArrayLike<number> | null }
 /** SplatData → what the overlay draws: an anchor, ENU centers (m), ENU covariances (m², xx xy xz yy yz zz), and rot = the 3×3 (row-major) that takes an ENU direction back into the data's frame (for the SH) */
 export interface EnuSplats { n: number; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number; rot: Float32Array }
 /** packSh の戻り＝8 bit に詰めた SH（4 個／u32・係数が先・色が後）・その目（係数＝snorm × scale）・次数 */
@@ -188,11 +190,23 @@ export function ecefToLngLat(x: number, y: number, z: number): [number, number, 
 }
 // SplatData（lnglat／ecef／local）→ { n, anchor:[lng,lat,alt], ctr: Float32Array(n*3)（東北上 m）, cov: Float32Array(n*6)（東北上 m²）, rgba, radius（m） }
 //   local＝origin（[lng,lat,alt]）・upAxis（既定は file の axes）・orientation（[heading,pitch,roll] 度）・scale で置く。lnglat の回転は東北上の中の向き、ecef の回転は地心直交の中の向き
-export function toEnu(d: SplatData & { n: number }, { origin, upAxis, orientation, scale = 1, opacity = 1 }: ToEnuOptions = {}): EnuSplats {
+//   local＋transform（列優先 4×4・file → ECEF・3D Tiles の glTF＝タイル変換×ノード）＝錨は重心を ECEF に写した経緯度、中心は倍精度で 錨からの東北上（ECEF の float32 を通さない＝0.5m のガタつきを出さない）、
+//     共分散と SH の向きは T＝東北上の基底 × transform の 3×3（回転も尺も transform の物）。origin／upAxis／orientation／scale は見ない
+export function toEnu(d: SplatData & { n: number }, { origin, upAxis, orientation, scale = 1, opacity = 1, transform }: ToEnuOptions = {}): EnuSplats {
 	const n = d.n, P = d.positions, ctr = new Float32Array(n * 3), cov = new Float32Array(n * 6);
 	let anchor: [number, number, number], T: Mat3;
-	if (d.crs === "local") {
-		if (!origin || !Number.isFinite(+origin[0]) || !Number.isFinite(+origin[1])) throw new Error("plugin-splat: a .ply/.splat/.spz source needs opts.origin [lng, lat, alt?]");
+	const M = d.crs === "local" ? (transform ?? d.transform ?? null) : null;
+	if (M) {
+		if (M.length < 16) throw new Error("plugin-splat: transform must be a column-major 4×4 (16 numbers)");
+		const lin: Mat3 = [M[0], M[4], M[8], M[1], M[5], M[9], M[2], M[6], M[10]];   // 列優先 → 行優先の 3×3
+		let sx = 0, sy = 0, sz = 0; for (let i = 0; i < n; i++) { sx += P[i * 3]; sy += P[i * 3 + 1]; sz += P[i * 3 + 2]; }
+		const c = n ? [sx / n, sy / n, sz / n] : [0, 0, 0];
+		const a = [lin[0] * c[0] + lin[1] * c[1] + lin[2] * c[2] + M[12], lin[3] * c[0] + lin[4] * c[1] + lin[5] * c[2] + M[13], lin[6] * c[0] + lin[7] * c[1] + lin[8] * c[2] + M[14]];   // 重心（ECEF）
+		if (!a.every(Number.isFinite)) throw new Error("plugin-splat: transform must be finite");
+		anchor = ecefToLngLat(a[0], a[1], a[2]); T = mul3(enuBasis(anchor[0], anchor[1]), lin);
+		for (let i = 0; i < n; i++) { const x = P[i * 3] - c[0], y = P[i * 3 + 1] - c[1], z = P[i * 3 + 2] - c[2]; ctr[i * 3] = T[0] * x + T[1] * y + T[2] * z; ctr[i * 3 + 1] = T[3] * x + T[4] * y + T[5] * z; ctr[i * 3 + 2] = T[6] * x + T[7] * y + T[8] * z; }
+	} else if (d.crs === "local") {
+		if (!origin || !Number.isFinite(+origin[0]) || !Number.isFinite(+origin[1])) throw new Error("plugin-splat: a .ply/.splat/.spz source needs opts.origin [lng, lat, alt?] (or opts.transform)");
 		anchor = [+origin[0], +origin[1], +(origin[2] as number) || 0]; T = placeMat(upAxis ?? d.axes ?? "z", orientation, scale);
 		for (let i = 0; i < n; i++) { const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2]; ctr[i * 3] = T[0] * x + T[1] * y + T[2] * z; ctr[i * 3 + 1] = T[3] * x + T[4] * y + T[5] * z; ctr[i * 3 + 2] = T[6] * x + T[7] * y + T[8] * z; }
 	} else if (d.crs === "ecef") {
@@ -262,7 +276,14 @@ export function checkSplatData(d: SplatData): SplatData & { n: number; crs: Spla
 	const f = (v: unknown, nm: string, len: number): void => { if (!(v instanceof Float32Array) || v.length !== len) throw new TypeError(`plugin-splat: ${nm} must be a Float32Array of length ${len}`); };
 	f(d.positions, "positions", n * 3); f(d.scales, "scales", n * 3); f(d.rotations, "rotations", n * 4);
 	if (!(d.colors instanceof Uint8Array) || d.colors.length !== n * 4) throw new TypeError(`plugin-splat: colors must be a Uint8Array of length ${n * 4}`);
+	if (d.transform != null) checkTransform(d.transform);
 	return { ...d, n, crs };
+}
+/** transform（列優先 4×4・file → ECEF）の形＝16 個の有限な数 */
+export function checkTransform(m: unknown): number[] {
+	const a = m != null && typeof m === "object" && typeof (m as ArrayLike<number>).length === "number" ? Array.from(m as ArrayLike<number>, Number) : null;
+	if (!a || a.length !== 16 || !a.every(Number.isFinite)) throw new TypeError("plugin-splat: transform must be a column-major 4×4 (16 finite numbers, file meters → ECEF meters)");
+	return a;
 }
 /** format → 読み手（表の添字引きではなく switch＝外から来た名前で任意のメソッドへ飛ばない・知らない名前は投げる） */
 export function readerFor(format: SplatFormat): (bytes: Uint8Array) => LocalSplatData | Promise<LocalSplatData> {
@@ -278,7 +299,7 @@ export interface Prepared { n: number; crs: SplatCrs; anchor: [number, number, n
 export interface PrepareOptions extends ToEnuOptions { shDegree?: number; lod?: boolean }
 /** SplatData（検め済み）→ Prepared（東北上・SH の詰め・LoD の順位）。copyColors＝渡した人の配列を手放さない（transfer する時は写し） */
 export function prepare(d: SplatData & { n: number; crs: SplatCrs }, o: PrepareOptions, copyColors: boolean): Prepared {
-	const e = toEnu(d, { origin: o.origin, upAxis: o.upAxis, orientation: o.orientation, scale: o.scale ?? 1, opacity: o.opacity ?? 1 });
+	const e = toEnu(d, { origin: o.origin, upAxis: o.upAxis, orientation: o.orientation, scale: o.scale ?? 1, opacity: o.opacity ?? 1, transform: o.transform ?? null });
 	const rgba = copyColors && e.rgba === d.colors ? e.rgba.slice() : e.rgba;
 	const sh = d.sh && (o.shDegree ?? 3) > 0 ? packSh(d.sh, e.n, o.shDegree ?? 3) : null;
 	const rank = o.lod !== false ? importanceRank(d.scales, rgba, e.n) : null;

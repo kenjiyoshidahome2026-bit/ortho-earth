@@ -868,6 +868,9 @@ export interface ClipOptions {
 export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/plugin-splat の SplatOptions）。
+	 *  描き手＝plugin-splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
+	splat?: Record<string, unknown> | null;
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
 	attribution?: string | ((copyrights: string[]) => string | null);
 	/** スタイル（3D Tiles 1.1・地物ごとの color と show）。setStyle と同じ */
@@ -877,7 +880,7 @@ export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: n
  *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
 export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
@@ -934,12 +937,13 @@ export interface PluginRegistry<T> {
 /** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz）も受ける＝読み手は plugin */
 export interface SplatData {
 	/** 個数（省略なら positions.length / 3） */ n?: number;
-	/** 位置＝crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交 m（n*3） */ positions: Float32Array;
+	/** 位置＝crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交 m、"local" なら transform で ECEF へ写す座標 m（n*3） */ positions: Float32Array;
 	/** 楕円の各軸の尺（m・n*3） */ scales: Float32Array;
 	/** 向き＝四元数 x,y,z,w（n*4） */ rotations: Float32Array;
 	/** RGBA 0〜255（n*4） */ colors: Uint8Array;
 	/** 球面調和の係数（任意・長さは n の倍数＝次数は plugin が決める） */ sh?: Float32Array;
-	crs?: "lnglat" | "ecef";
+	crs?: "lnglat" | "ecef" | "local";
+	/** crs "local" に必須＝列優先 4×4（local m → ECEF m）。3D Tiles の glTF の splat（KHR_gaussian_splatting）＝タイル変換 × ノード変換 */ transform?: ArrayLike<number>;
 }
 /** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat" は契約が予約済み＝data は検めた SplatData か URL） */
 export interface DataKindImpl { create(map: GlobeMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }

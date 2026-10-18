@@ -19,6 +19,9 @@
 //   頂点色の書き換え（feature state と同じ meshCol・state の color が勝つ）。show:false＝α 0（OPAQUE の束は MASK で上げ直す）。点群（pnts）には効かない。
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
+// Gaussian splat（KHR_gaussian_splatting・2026-10-18）＝glTF の splat のプリミティブは worker が局所の座標＋transform（列優先 4×4・ECEF）のまま返し、
+//   main がタイルごとに map.addData({ crs: "local", transform, … }, { kind: "splat" }) の層にする（描き手＝@ortho-earth/plugin-splat・タイルの出し入れ＝setVisible／remove）。
+//   plugin が無い（registry.dataKinds に "splat" が無い）時は worker に splats:false を渡す＝仕様の fallback どおり点として描き、tileset ごとに一度だけ warn。opts.splat＝層に渡す opts（lod・shDegree・opacity…）
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
 import { featureProperties } from "../mesh-features.ts";
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
@@ -65,8 +68,13 @@ export interface TileBatch {
 interface TileReply {
 	batches: TileBatch[];
 	points: Array<{ n: number; pos: Float32Array<ArrayBuffer>; rgba: Uint8Array<ArrayBuffer>; origin: number[] }>;
-	stats: { triangles: number; points: number; bytes?: number; copyright?: string[] | null };
+	splats?: TileSplat[];
+	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; bytes?: number; copyright?: string[] | null };
 }
+/** worker が返す Gaussian splat（meshdecode の SplatPrimOut）＝局所の座標＋transform（ECEF）・spz＝圧縮の本体（plugin が解く） */
+interface TileSplat { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: number; transform: number[]; spz: Uint8Array | null; colorSpace: string }
+/** plugin-splat の手綱（使う口だけ） */
+interface SplatLayer { ready?: Promise<unknown>; setVisible(on: boolean): unknown; remove(): void }
 /** worker（i3sOpen）の答え */
 interface I3SInfo { name: string | null; copyright: string | null; root: I3SNodeMsg }
 /** renderer の meshSet に渡す物（束のメッシュ＋描き方の印） */
@@ -90,21 +98,21 @@ interface T3dNode {
 	paint?: PaintPart[] | null;
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
 	extra?: T3dNode[] | null; owner?: T3dNode;
-	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; pts: string[] | null; on: boolean; used: number; err: number;
+	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; pts: string[] | null; splat?: SplatLayer[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 }
 /** add／addI3S の opts（既定を補った物） */
-type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string };
+type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string; splat?: Record<string, unknown> | null };
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
-	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; subtrees: number };
-	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean;
+	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; bytes: number; subtrees: number };
+	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; splatWarned?: boolean;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null;
 	root: T3dNode; ready: Set<T3dNode>; scope?: T3dScope; style?: CompiledStyle | null; styleSpec?: Tiles3DStyle | null; metaBase?: Record<string, unknown>; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
 }
 /** add の手綱（公開の Tiles3DHandle＋検分用の tiles） */
-type T3dHandle = Tiles3DHandle & { readonly tiles: Array<{ id: number; uri: string | undefined; on: boolean; ward: string | null; meshes: number | undefined; pts: number; bbox: number[] | null | undefined }> };
+type T3dHandle = Tiles3DHandle & { readonly tiles: Array<{ id: number; uri: string | undefined; on: boolean; ward: string | null; meshes: number | undefined; pts: number; splats: number; bbox: number[] | null | undefined }> };
 /** addI3S の opts と手綱（map.addI3S と同じ） */
 type I3SOptions = Parameters<GlobeMap["addI3S"]>[1];
 type I3SHandle = Awaited<ReturnType<GlobeMap["addI3S"]>>;
@@ -205,6 +213,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	let seq = 0, tileSeq = 0;
 	// worker（model 役）を 2 本＝取りに行く・解くを並列に（順繰り）。1 本あたり同時 3 件まで
 	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { size: 2, tag: "tiles3d" });
+	// Gaussian splat の描き手が居るか＝registry.dataKinds の "splat"（@ortho-earth/plugin-splat）。無ければ worker は splat を点として返す（仕様の fallback）
+	const hasSplat = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("splat") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
 	const rpc = pool.rpc;
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, MAX_INFLIGHT = lowMem ? 3 : 6;
 	let inflight = 0, gpuBytes = 0, rafPending = 0;
@@ -331,7 +341,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const rq: Partial<ResolvedRequest> = set.kind !== "i3s" ? resolveFor(set.opts.requestTransform, n.uri!, "Tile") : { url: n.uri! };
 		const body = (rq.load ? rq.load("arrayBuffer") : Promise.resolve(null)) as Promise<ArrayBuffer | null>;   // 独自スキーム＝main が読み口で取って本体を worker へ
 		body.then(ab => set.kind === "i3s" ? rpc<TileReply>({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s!.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
-			: rpc<TileReply>({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute", featureIdSet: set.opts.featureIdSet ?? 0, transcoders: transcodersOf(map) }, ab ? [ab] : [])).then(r => {
+			: rpc<TileReply>({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute", featureIdSet: set.opts.featureIdSet ?? 0, transcoders: transcodersOf(map), splats: hasSplat() }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
@@ -353,9 +363,22 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1] });
 				n.pts = r.points.map((p, k) => { const q = `${n.id}:${k}`; n.bytes += p.pos.byteLength + p.rgba.byteLength; set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba: p.rgba, origin: p.origin }, [p.pos.buffer, p.rgba.buffer]); return q; });
 			}
-			gpuBytes += n.bytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.bytes += r.stats.bytes || 0;
+			if (r.splats?.length) {   // Gaussian splat＝タイルごとに plugin-splat の層（crs "local"＋transform・絶対高さ）。spz＝bytes＋format で読み手へ
+				n.splat = [];
+				r.splats.forEach((s, k) => {
+					const q = `tiles3d:${set.id}:${n.id}:${k}`, bytes = s.spz ? s.spz.byteLength : s.positions.byteLength + s.scales.byteLength + s.rotations.byteLength + s.colors.byteLength + (s.sh?.byteLength || 0);
+					const common = { kind: "splat", id: q, altitude: "absolute", depthTest: true, properties: { tile: n.id }, ...(set.opts.splat || {}) };
+					try {
+						const h = (s.spz ? map.addData(s.spz, { ...common, format: "spz", transform: s.transform }) : map.addData({ n: s.n, crs: "local", transform: s.transform, positions: s.positions, scales: s.scales, rotations: s.rotations, colors: s.colors, ...(s.sh ? { sh: s.sh } : {}) }, common)) as unknown as SplatLayer;
+						h.ready?.catch?.((err: Error) => console.warn("[tiles3d] splat", n.uri, err?.message || err));
+						n.splat!.push(h); n.bytes += bytes;
+					} catch (err) { console.warn("[tiles3d] splat", n.uri, (err as Error)?.message || err); }
+				});
+			}
+			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/plugin-splat to draw Gaussian splats`); }
+			gpuBytes += n.bytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.bytes += r.stats.bytes || 0;
 			n.state = "ready"; n.on = true;   // 上げた直後は見えている（次の update で要らなければ消す）
-			if (n.ward || n.pts) set.ready.add(n);
+			if (n.ward || n.pts || n.splat) set.ready.add(n);
 		}).catch(err => { n.state = "failed"; n.err++; set.stats.failed++; console.warn("[tiles3d] tile", n.uri, err.message); })
 			.finally(() => { inflight--; schedule(); });
 	};
@@ -430,13 +453,15 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (n.state !== "ready") return;
 		if (n.ward) setMesh(n.ward, null);
 		if (n.pts) for (const q of n.pts) n.set.pts?.post({ type: "remove", q });
-		gpuBytes -= n.bytes; n.bytes = 0; n.pts = null; n.pick = null; n.paint = null; n.ward = null; n.state = "none"; n.on = false; n.set.stats.loaded--; n.set.ready.delete(n);
+		if (n.splat) for (const h of n.splat) { try { h.remove(); } catch (err) { console.warn("[tiles3d] splat remove", (err as Error)?.message || err); } }
+		gpuBytes -= n.bytes; n.bytes = 0; n.pts = null; n.splat = null; n.pick = null; n.paint = null; n.ward = null; n.state = "none"; n.on = false; n.set.stats.loaded--; n.set.ready.delete(n);
 	};
 	const setOn = (n: T3dNode, on: boolean) => {
 		if (n.on === on || n.state !== "ready") return;
 		n.on = on;
 		if (n.ward) meshVis(n.ward, on);
 		if (n.pts) for (const q of n.pts) n.set.pts?.post({ type: "vis", q, on });
+		if (n.splat) for (const h of n.splat) h.setVisible(on);
 	};
 
 	// 選び（毎移動・rAF に畳む）
@@ -535,7 +560,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (!j.root) throw new Error("not a 3D Tiles tileset (no root)");
 			const id = opts.id ?? `t${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [...abs.searchParams], pts: null, removed: false, hidden: false,
+			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [...abs.searchParams], pts: null, removed: false, hidden: false,
 				asset: j.asset ?? null, metadata: j.metadata ?? null, extras: j.extras ?? j.asset?.extras ?? null, extensionsUsed: j.extensionsUsed ?? [], extensionsRequired: j.extensionsRequired ?? [] } as T3dSet;   // root の見出し（F5）＝手綱から読める
 			set.scope = await scopeOf(j, abs.href, opts.requestTransform);
 			set.styleSpec = opts.style ?? null; set.style = styleOf(opts.style);
@@ -551,7 +576,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			}
 			schedule();
 			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), inflight } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
-				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, bbox: n.bbox })); },   // 検分用
+				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, splats: n.splat?.length || 0, bbox: n.bbox })); },   // 検分用
 				get asset() { return set.asset!; }, get metadata() { return set.metadata!; },
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
@@ -574,7 +599,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const info = await rpc<I3SInfo>({ kind: "i3sOpen", url: abs, token: opts.token });
 			const id = opts.id ?? `i${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
+			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
 			set.root = i3sNode(info.root, set, null);
 			set.loaded = () => [...set.ready];
 			sets.set(id, set);
