@@ -3,7 +3,7 @@
 //   答え＝{ seq, ok: true, …Prepared }（配列は transfer＝写さない）か { seq, ok: false, error }。main はそのまま描き手（render worker のオーバーレイ）へ transfer する。
 //   自前の読み手（splatPlugin({ decoders })）は関数＝worker へ渡せないので、その format だけ main が読む（index.ts）。
 //   worker が立たない器（別オリジンの CDN から読んだ時の SecurityError など）では index.ts が同じ関数（formats.ts）を main で呼ぶ＝答えは同じ。
-import { READERS, checkEnum, checkSplatData, prepare, transferables } from "./formats.ts";
+import { readerFor, checkSplatData, prepare, transferables } from "./formats.ts";
 import type { SplatData, SplatFormat, PrepareOptions, Prepared } from "./formats.ts";
 
 /** main → worker */
@@ -15,11 +15,11 @@ export async function read(src: ReaderRequest["src"], format: SplatFormat | null
 	let d: SplatData & { n: number; crs: SplatData["crs"] & string };
 	if (typeof src === "string" || src instanceof ArrayBuffer || src instanceof Uint8Array) {
 		if (!format) throw new Error("plugin-splat: format is required for bytes");
-		checkEnum(format, ["ply", "splat", "spz"], "format");
+		const reader = readerFor(format);   // 知らない format はここで投げる
 		let bytes: Uint8Array;
 		if (typeof src === "string") { const r = await fetchFn(src); if (!r.ok) throw new Error(`plugin-splat: ${src} → HTTP ${r.status}`); bytes = new Uint8Array(await r.arrayBuffer()); }
 		else bytes = src instanceof ArrayBuffer ? new Uint8Array(src) : src;
-		d = checkSplatData(await READERS[format](bytes));
+		d = checkSplatData(await reader(bytes));
 	} else d = checkSplatData(src);
 	return prepare(d, opts, false);   // worker の中の配列は自分の物＝写さずに transfer できる
 }

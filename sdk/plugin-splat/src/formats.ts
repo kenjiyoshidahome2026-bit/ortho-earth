@@ -264,8 +264,15 @@ export function checkSplatData(d: SplatData): SplatData & { n: number; crs: Spla
 	if (!(d.colors instanceof Uint8Array) || d.colors.length !== n * 4) throw new TypeError(`plugin-splat: colors must be a Uint8Array of length ${n * 4}`);
 	return { ...d, n, crs };
 }
-/** 読み手の表（format → bytes → SplatData） */
-export const READERS: Record<SplatFormat, (bytes: Uint8Array) => LocalSplatData | Promise<LocalSplatData>> = { ply: parsePly, splat: parseSplat, spz: parseSpz };
+/** format → 読み手（表の添字引きではなく switch＝外から来た名前で任意のメソッドへ飛ばない・知らない名前は投げる） */
+export function readerFor(format: SplatFormat): (bytes: Uint8Array) => LocalSplatData | Promise<LocalSplatData> {
+	switch (format) {
+		case "ply": return parsePly;
+		case "splat": return parseSplat;
+		case "spz": return parseSpz;
+		default: throw new Error(`plugin-splat: format must be ply | splat | spz (got ${JSON.stringify(format)})`);
+	}
+}
 /** 下ごしらえの一式＝描き手に渡す物（index.ts の main 経路と splat-reader.ts の worker 経路で同じ） */
 export interface Prepared { n: number; crs: SplatCrs; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number; rot: Float32Array; sh: PackedSh | null; rank: Uint32Array<ArrayBuffer> | null }
 export interface PrepareOptions extends ToEnuOptions { shDegree?: number; lod?: boolean }

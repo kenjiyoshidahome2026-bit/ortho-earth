@@ -7,7 +7,7 @@
 //   Reading (fetch, gunzip, parse, ENU placement, SH packing, LoD ranking) runs in a worker (splat-reader.ts); the main thread only forwards the buffers (transfer).
 //   A decoder of your own (e.g. a WASM build) plugs in via splatPlugin({ decoders }) and runs on the main thread (functions cannot cross to the worker).
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
-import { formatOf, checkEnum, checkSplatData, prepare, READERS, transferables } from "./formats.ts";
+import { formatOf, checkEnum, checkSplatData, prepare, readerFor, transferables } from "./formats.ts";
 import type { SplatData, SplatFormat, SplatCrs, SplatAxes, Hpr, Origin, Prepared, PrepareOptions } from "./formats.ts";
 import type { ReaderRequest, ReaderReply } from "./splat-reader.ts";
 export { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, importanceRank, prepare, checkSplatData, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
@@ -156,7 +156,7 @@ async function load(src: SplatSource, o: SplatOptions, decoders: SplatDecoders |
 		let bytes: Uint8Array;
 		if (typeof bytesOrUrl === "string") { const r = await fetch(bytesOrUrl); if (!r.ok) throw new Error(`plugin-splat: ${bytesOrUrl} → HTTP ${r.status}`); bytes = new Uint8Array(await r.arrayBuffer()); }
 		else bytes = bytesOrUrl instanceof ArrayBuffer ? new Uint8Array(bytesOrUrl) : bytesOrUrl;
-		d = checkSplatData({ crs: "local", ...(await (own ?? READERS[fmt])(bytes)) });
+		d = checkSplatData({ crs: "local", ...(await (own ?? readerFor(fmt))(bytes)) });
 	} else d = checkSplatData(src as SplatData);
 	return { ...prepare(d, popts, !isFileSource(src)), reader: "main" };
 }
