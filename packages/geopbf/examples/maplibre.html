@@ -8,13 +8,13 @@
 <head>
 	<meta charset="utf-8">
 	<title>geopbf × MapLibre demo</title>
-	<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+	<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css">
 	<style>html, body, #map { margin: 0; height: 100%; }</style>
 </head>
 <body>
 <div id="map"></div>
 <script type="module">
-	import maplibregl from "https://esm.sh/maplibre-gl@5";
+	import maplibregl from "https://esm.sh/maplibre-gl@6.11.2";
 	import { geopbfProtocol, loadGeopbf } from "https://esm.sh/geopbf@1.1.0/maplibre";
 
 	// ① プロトコル登録（一度だけ）。内側URLは絶対で書くのが契約（pmtiles と同じ）。

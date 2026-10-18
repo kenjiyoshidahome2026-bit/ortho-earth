@@ -10,7 +10,7 @@
  *
  * node scripts/build-pop-history.mjs
  */
-import * as XLSX from 'xlsx';   // 読み込み専用・root の devDependencies（手動実行の整備道具＝出荷物ではない）
+import { readXLSXRows } from 'geopbf/table';   // 読み込み専用（npm の xlsx は脆弱性の修正版が出ないので geopbf 自前の読み込みに替えた・2026-10-18）
 import { writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -39,7 +39,8 @@ async function fetchXlsx(id, tries = 3) {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const b = Buffer.from(await r.arrayBuffer());
             if (!(b[0] === 0x50 && b[1] === 0x4b)) throw new Error('not xlsx');
-            return XLSX.read(b, { type: 'buffer' });
+            const u8 = new Uint8Array(b);
+            return { SheetNames: (await readXLSXRows(u8)).sheets, rows: async sn => (await readXLSXRows(u8, { sheet: sn })).rows };
         } catch (e) {
             if (a === tries) throw e;
             await new Promise(res => setTimeout(res, 1500 * a));
@@ -57,7 +58,7 @@ for (let i = 0; i < IDS.length; i++) {
                 || wb.SheetNames.find(s => s === `${base}_原数値`)
                 || wb.SheetNames.find(s => s === base);
         if (!sn) continue;
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '' });
+        const rows = await wb.rows(sn);
         for (const t of rows) {
             if (!/^\d+$/.test(String(t[2]))) continue;
             const code = String(parseInt(t[2], 10)).padStart(5, '0');

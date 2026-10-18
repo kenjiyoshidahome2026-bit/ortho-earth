@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tests/fixtures/table/make.mjs ── t-table.mjs の固定資料（Node 標準のみ・2026-10-18 に make.py から移植）。再生成: node tests/fixtures/table/make.mjs
 //   sjis.csv   Shift_JIS（cp932）・BOM 無し・経度/緯度列・CRLF
-//   book.xlsx  手組みの Excel ブック: sharedStrings（重複文字列の共有）・inlineStr・数値・論理値・数式（キャッシュ値）・空セル・2 シート
+//   book.xlsx  手組みの Excel ブック: sharedStrings（重複文字列の共有・ふりがな rPh）・inlineStr・数値・論理値・数式（キャッシュ値）・空セル・2 シート
 // Shift_JIS の符号化と ZIP の書き出しは、検定される側（src の encodeSJIS・encodeZIP）を使わずここで組む＝答えが独立。
 import fs from "node:fs";
 import path from "node:path";
@@ -54,7 +54,7 @@ function xlsx() {
 		'<row r="1"><c r="A1" t="inlineStr"><is><t>wkt</t></is></c><c r="B1" t="inlineStr"><is><t>n</t></is></c></row>' +
 		'<row r="2"><c r="A2" t="inlineStr"><is><t>LINESTRING(0 0, 1 1)</t></is></c><c r="B2"><v>7</v></c></row></sheetData></worksheet>';
 	const sst = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="8" uniqueCount="8">' +
-		ss.map(s => `<si><t>${s}</t></si>`).join("") + "</sst>";
+		ss.map(s => s === "東京" ? `<si><t>${s}</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh><phoneticPr fontId="1"/></si>` : `<si><t>${s}</t></si>`).join("") + "</sst>";   // 東京＝日本語版 Excel が付けるふりがな（rPh）入り
 	const wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
 		'<sheets><sheet name="地点" sheetId="1" r:id="rId1"/><sheet name="Lines" sheetId="2" r:id="rId2"/></sheets></workbook>';
 	const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +

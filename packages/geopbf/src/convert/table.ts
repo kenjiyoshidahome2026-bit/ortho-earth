@@ -3,6 +3,7 @@
 //   const { pbf, stats } = await fromTable(u8OrText, { name, precision, lon, lat, wkt, sheet, encoding, fallbackEncoding, delimiter, include/exclude/excludeAll });
 //   parseCSV(text, { delimiter }) → { header: string[], rows: string[][] }        RFC 4180（引用・改行入りセル）・区切りは , \t ; | を自動判別
 //   readXLSX(u8, { sheet }) → { header, rows, sheet, sheets }                     xlsx の最初の（または名指しの）シート・sharedStrings / inlineStr / 数値 / 論理値
+//   readXLSXRows(u8, { sheet }) → { rows, sheet, sheets }                         同じシートの生の行（見出し無し・行番号どおり＝npm xlsx の sheet_to_json header:1 相当）
 //   decodeText(u8, encoding, fallback) → string                                   BOM を剥がす・UTF-8 で読めなければ fallback（既定 Shift_JIS・TextDecoder 組込み・依存なし）
 //   parseWKT(text) → GeoJSON geometry | null                                      POINT〜GEOMETRYCOLLECTION・Z/M は落とす・EMPTY は null
 //
@@ -142,6 +143,22 @@ export function decodeText(u8: Uint8Array, encoding?: string | null, fallback = 
 // セル: <c r="B3" t="s|b|inlineStr|str|n|e" s="…"><v>…</v>|<is><t>…</t></is></c>。日付は数値（シリアル値）のまま＝スタイルは見ない。
 export interface XlsxTable { header: string[]; rows: CellValue[][]; sheet: string; sheets: string[] }
 export async function readXLSX(u8: Uint8Array, opts: XlsxOptions = {}): Promise<XlsxTable> {
+	const { grid, sheet, sheets } = await readXLSXGrid(u8, opts);
+	const rowsAll = grid.filter(Boolean);
+	const hi = rowsAll.findIndex(r => r.some(v => v !== undefined && v !== ""));
+	if (hi < 0) return { header: [], rows: [], sheet, sheets };
+	const header = Array.from(rowsAll[hi], v => v == null ? "" : String(v));
+	const rows = rowsAll.slice(hi + 1).map(r => Array.from({ length: header.length }, (_, i): CellValue => r[i] == null ? "" : r[i] as CellValue)).filter(r => r.some(v => v !== ""));
+	return { header, rows, sheet, sheets };
+}
+/** シートの生の行（見出し扱いも列の切り詰めも無し＝行番号どおり・空行も空セルも "" で埋めて全行同じ幅）。npm xlsx の sheet_to_json(ws, { header: 1, defval: "" }) 相当（整備スクリプト用） */
+export interface XlsxRows { rows: CellValue[][]; sheet: string; sheets: string[] }
+export async function readXLSXRows(u8: Uint8Array, opts: XlsxOptions = {}): Promise<XlsxRows> {
+	const { grid, sheet, sheets } = await readXLSXGrid(u8, opts);
+	const w = grid.reduce((m, r) => r ? Math.max(m, r.length) : m, 0);   // 全行を一番広い行の幅に揃える（sheet_to_json の defval と同じ）
+	return { rows: Array.from(grid, r => Array.from({ length: w }, (_, i): CellValue => r?.[i] ?? "")), sheet, sheets };
+}
+async function readXLSXGrid(u8: Uint8Array, opts: XlsxOptions): Promise<{ grid: (CellValue | undefined)[][]; sheet: string; sheets: string[] }> {
 	const entries = await decodeZIP(new Blob([u8 as BlobPart]));
 	if (!entries) throw new Error("xlsx: cannot open as zip");
 	const byName = new Map(entries.map(f => [f.name.replace(/^\//, ""), f]));
@@ -156,7 +173,7 @@ export async function readXLSX(u8: Uint8Array, opts: XlsxOptions = {}): Promise<
 	const path = (pick.rid && relMap[pick.rid]) || `xl/worksheets/sheet${pick.sheetId || 1}.xml`;
 	const xml = await text(path); if (!xml) throw new Error(`xlsx: ${path} not found`);
 	const ss: string[] = []; const sst = await text("xl/sharedStrings.xml");
-	if (sst) for (const m of sst.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) ss.push(unesc([...m[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join("")));
+	if (sst) for (const m of sst.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) ss.push(siText(m[1]));
 	const grid: (CellValue | undefined)[][] = [];   // 行番号 → 列番号 → 値
 	for (const rm of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
 		for (const cm of rm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
@@ -164,18 +181,15 @@ export async function readXLSX(u8: Uint8Array, opts: XlsxOptions = {}): Promise<
 			if (!ref) continue;
 			const { r, c } = cellRef(ref);
 			let v: CellValue;
-			if (t === "inlineStr") v = unesc([...inner.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(x => x[1]).join(""));
+			if (t === "inlineStr") v = siText(inner);
 			else { const vm = inner.match(/<v>([\s\S]*?)<\/v>/); if (!vm) continue; const raw = unesc(vm[1]); v = t === "s" ? ss[+raw] ?? "" : t === "b" ? raw === "1" : t === "str" || t === "e" ? raw : Number(raw); }
 			(grid[r] ??= [])[c] = v;
 		}
 	}
-	const rowsAll = grid.filter(Boolean);
-	const hi = rowsAll.findIndex(r => r.some(v => v !== undefined && v !== ""));
-	if (hi < 0) return { header: [], rows: [], sheet: pick.name, sheets: sheets.map(s => s.name) };
-	const header = Array.from(rowsAll[hi], v => v == null ? "" : String(v));
-	const rows = rowsAll.slice(hi + 1).map(r => Array.from({ length: header.length }, (_, i): CellValue => r[i] == null ? "" : r[i] as CellValue)).filter(r => r.some(v => v !== ""));
-	return { header, rows, sheet: pick.name, sheets: sheets.map(s => s.name) };
+	return { grid, sheet: pick.name, sheets: sheets.map(s => s.name) };
 }
+// 文字列セルの本文＝<t> を連ねる。ふりがな（<rPh>…<t>カナ</t></rPh>・日本語版 Excel が自動で付ける）は本文ではないので除く
+const siText = (xml: string): string => unesc([...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join(""));
 const attr = (tag: string, name: string): string | null => { const m = tag.match(new RegExp(`\\s${name}="([^"]*)"`)); return m ? m[1] : null; };
 const unesc = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(+d)).replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16))).replace(/&amp;/g, "&");
 function cellRef(ref: string): { r: number; c: number } { const m = ref.match(/^([A-Z]+)(\d+)$/) as RegExpMatchArray; let c = 0; for (const ch of m[1]) c = c * 26 + (ch.charCodeAt(0) - 64); return { r: +m[2] - 1, c: c - 1 }; }
