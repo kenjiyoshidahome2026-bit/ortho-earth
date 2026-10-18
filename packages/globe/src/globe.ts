@@ -3501,7 +3501,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 		if (typeof v.layer.url === "string") {
 			v.ov?.remove();
 			const abs = (u: string) => new URL(u, location.href).href;
-			v.ov = map.overlay({ builtin: "customgl" }, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: (customHost as CustomHostLike | null)?.getProjection?.()?.type ?? "mercator" } });
+			v.ov = map.overlay({ builtin: "customgl" }, { name: v.layer.id, opts: { module: abs(v.layer.url), three: typeof v.layer.three === "string" ? abs(v.layer.three) : undefined, addons: typeof v.layer.addons === "string" ? abs(v.layer.addons) : undefined, params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: (customHost as CustomHostLike | null)?.getProjection?.()?.type ?? "mercator" } });
 			return null;
 		}
 		customGet().add(v.layer as unknown as CustomLayer, order); return null;

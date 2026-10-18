@@ -11,7 +11,8 @@ export type { CameraPose, CameraState, DepthApi };
 export interface OverlaySize { w: number; h: number }
 /** オーバーレイの host（init の 3 つ目） */
 /** customArgs＝MapLibre の custom 層の args（customgl-args.ts の makeCustomArgs・この worker の楕円体の設定で）＝host から渡す（2026-10-17 まで ?url のモジュールは import を持てなかった名残）（customgl-draw） */
-export interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs> }
+/** stage＝モジュールが非同期の準備の段を名乗る（main の __overlay に残る・"failed" は失敗＝addThree の ready が reject）（three-draw の "setup"） */
+export interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs>; stage?(st: string, extra?: Record<string, unknown>): void }
 /** オーバーレイの frame の api（main の makeProjector と同じ規約） */
 export interface OverlayApi {
 	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];

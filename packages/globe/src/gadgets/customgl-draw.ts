@@ -5,17 +5,19 @@
 //   addLayer の層の指定＝{ id, type: "custom", renderingMode: "3d", url: <モジュールの URL>, params, depth: true }（globe.js の mountLayer がこの overlay を作る）
 //   モジュール＝export function createLayer(params, env) → 層（onAdd(map, gl) / prerender?(gl, args) / render(gl, args) / onRemove?(map, gl) / onMessage?(data, map)）
 //           または export default 層。args は main の customgl と同じ物（customgl-args.js・mainMatrix＝メルカトル→クリップ・getProjectionData・prelude）。
-//   onAdd/render の map＝小さな代理（triggerRepaint・getCanvas（OffscreenCanvas）・getProjection・getZoom）。three.js を使う層は三者の URL をモジュール内で import する（three-draw.js と同じ流儀＝repo の依存にしない）。
+//   onAdd/render の map＝小さな代理（triggerRepaint・getCanvas（OffscreenCanvas）・getProjection・getZoom）。three.js を使う層は three の URL をモジュール内で import するか、
+//   層の指定に three: <three.module.js の URL>（addons: <three/examples/jsm/ の URL> も）を足す＝モジュールの `import … from "three"`・"three/addons/…" を worker の中で解く（three-resolve.ts・2026-10-18）。
 //   メッセージ：h.post(data) → 層の onMessage(data, map)。検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }）。
 // 深度の前置き：全画面 1 三角形・colorMask off・depthFunc ALWAYS で、シーンの深度（log の 24bit・DEPTH_GLSL の depthOfW の逆）を層と同じ透視行列の NDC z に戻して gl_FragDepth へ。
 //   クリア値（1＝何も無い）はそのまま 1。深度の無いフレーム（申し出前・LOW_MEM）は前置きを飛ばす＝隠れない（従来の挙動）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(d) / frame(cam, s, size, api) / destroy()。opts＝{ module, params, renderingMode, depth, projection }
 // render worker の組み込み（BUILTIN_OVERLAYS の "customgl"・create() で実体を作る・2026-10-17 まで ?url の依存ゼロ）。args（customgl-args.ts の makeCustomArgs）は host.customArgs、深度の GLSL は host.depthGLSL（render worker が渡す）。
 import type { CameraPose, CameraState, DepthApi, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
+import { createThreeLoader, addonsBaseOf } from "./three-resolve.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 type CustomArgs = ReturnType<OverlayHost["customArgs"]>;
 type RenderingMode = "2d" | "3d";
-interface CustomGLOpts { module?: string; params?: unknown; renderingMode?: RenderingMode; depth?: boolean; projection?: string }
+interface CustomGLOpts { module?: string; params?: unknown; renderingMode?: RenderingMode; depth?: boolean; projection?: string; three?: string; addons?: string }
 interface ProxyMap {
 	triggerRepaint(): void; getCanvas(): OffscreenCanvas | null; getProjection(): { type: string }; getZoom(): number;
 	getCenter(): { lng: number; lat: number }; getBearing(): number; getPitch(): number; getContainer(): null; readonly version: string;
@@ -40,6 +42,7 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 // 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
 export function create() {
 	let gl: WebGL2RenderingContext = null!, host: OverlayHost | null = null, opts: CustomGLOpts | null = null, layer: CustomLayer | null | undefined = null, ready = false, failed: string | null = null, canvasRef: OffscreenCanvas | null = null, lastCam: CameraPose | null = null, lastSize: OverlaySize | null = null;
+	let loader: ReturnType<typeof createThreeLoader> | null = null;   // 層の指定に three がある時だけ（bare の three を解く）
 	let dprog: WebGLProgram | null = null, duni: Uniforms | null = null, dvao: WebGLVertexArrayObject | null = null;   // 深度の前置きパス
 	const probes: unknown[] = [];
 	const FS_DEPTH = (depthGLSL: string) => `#version 300 es
@@ -93,7 +96,8 @@ void main() {
 		if (!opts.module) { failed = "custom layer: url of the layer module is required"; console.error("[customgl]", failed); host?.post?.({ type: "error", error: failed }); return; }
 		(async () => {
 			try {
-				const mod = await import(/* @vite-ignore */ opts!.module!) as LayerModule;
+				if (opts!.three) loader = createThreeLoader({ three: opts!.three, addons: opts!.addons || addonsBaseOf(opts!.three) });
+				const mod = (loader ? await loader.load(opts!.module!) : await import(/* @vite-ignore */ opts!.module!)) as LayerModule;
 				layer = typeof mod.createLayer === "function" ? await mod.createLayer(opts!.params, { host }) : (mod.default ?? mod.layer);
 				if (!layer || typeof layer.render !== "function") throw new Error("custom layer module must export createLayer(params) or a default layer with render(gl, args)");
 				if (opts!.renderingMode && !layer.renderingMode) layer.renderingMode = opts!.renderingMode;
@@ -151,7 +155,7 @@ void main() {
 	}
 	function destroy() {
 		try { if (ready) layer!.onRemove?.(proxyMap, gl); } catch { /* 片付けの失敗は無害 */ }
-		layer = null; ready = false; gl = null!; dprog = null; dvao = null; canvasRef = null;
+		layer = null; ready = false; gl = null!; dprog = null; dvao = null; canvasRef = null; loader?.dispose(); loader = null;
 	}
 	const _state = () => ({ ready, failed, depthUsed });
 	return { init, message, frame, destroy, _state };
