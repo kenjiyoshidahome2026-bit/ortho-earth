@@ -196,15 +196,15 @@
     },
     {
       "name": "mlexamples-report",
-      "runtimeExecutable": "python3",
+      "runtimeExecutable": "npx",
       "runtimeArgs": [
-        "-m",
-        "http.server",
+        "vite",
+        ".cache/mlexamples",
+        "--port",
         "5299",
-        "--bind",
-        "127.0.0.1",
-        "--directory",
-        ".cache/mlexamples"
+        "--strictPort",
+        "--host",
+        "127.0.0.1"
       ],
       "port": 5299
     },

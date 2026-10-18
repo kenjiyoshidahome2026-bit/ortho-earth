@@ -154,6 +154,7 @@
 	"devDependencies": {
 		"@loaders.gl/core": "^4.3.0",
 		"encoding-japanese": "^2.1.0",
+		"hyparquet": "^1.31.2",
 		"leaflet": "^1.9.4",
 		"maplibre-gl": "^5.0.0",
 		"ol": "^10.0.0",
