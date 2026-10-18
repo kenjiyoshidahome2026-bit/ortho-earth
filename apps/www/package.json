@@ -24,8 +24,5 @@
 		"@ortho-earth/core": "*",
 		"world-data": "*"
 	},
-	"devDependencies": {
-		"repomix": "^1.14.0"
-	},
 	"type": "module"
 }

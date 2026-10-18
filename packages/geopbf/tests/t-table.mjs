@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { GeoPBFBase } from "../src/pbf-base.ts";
-import { fromTable, parseCSV, parseWKT, decodeText, readXLSX } from "../src/convert/table.ts";
+import { fromTable, parseCSV, parseWKT, decodeText, readXLSX, readXLSXRows } from "../src/convert/table.ts";
 import { encodeXLSX } from "../src/modules/encodeXLSX.ts";
 import { openMBTiles } from "../src/convert/mbtiles.ts";
 
@@ -82,6 +82,10 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	const t = await readXLSX(book);
 	ok(t.sheet === "地点" && t.sheets.join() === "地点,Lines" && t.header.join() === "名前,lon,lat,flag,memo", "readXLSX: 先頭シート・sharedStrings の列名");
 	ok(t.rows.length === 4 && t.rows[0][0] === "東京" && t.rows[0][1] === 139.767125 && t.rows[0][3] === true && t.rows[0][4] === "inline & text" && t.rows[1][1] === 135.497125 && t.rows[1][3] === false && t.rows[2][4] === "重複" && t.rows[3][0] === "nolat", "readXLSX: 数値・論理値・inlineStr・数式のキャッシュ値・空セル・t=str");
+	ok(!/トウキョウ/.test(JSON.stringify(t.rows)), "readXLSX: ふりがな（rPh）は本文に混ぜない");
+	const g = await readXLSXRows(book);
+	ok(g.rows.length === 5 && g.rows.every(r => r.length === 5) && g.rows[0].join() === "名前,lon,lat,flag,memo" && g.rows[1][0] === "東京" && g.rows[3][1] === "" && g.rows[4].join() === "nolat,1,,,", "readXLSXRows: 見出しも生の行・全行同じ幅・空セルは \"\"");
+	ok((await readXLSXRows(book, { sheet: "Lines" })).rows[1][1] === 7, "readXLSXRows: 名指しシート");
 	const { pbf, stats: s } = await fromTable(book);
 	ok(s.kind === "xlsx" && s.features === 2 && s.droppedGeometries === 2 && pbf.name() === "地点" && pbf.geojson.features[0].properties.flag === true && pbf.geojson.features[0].properties.memo === "inline & text", "XLSX → GeoPBF: 2 点・座標なし 2 行を落とす・name はシート名");
 	const l = await fromTable(book, { sheet: "Lines" });

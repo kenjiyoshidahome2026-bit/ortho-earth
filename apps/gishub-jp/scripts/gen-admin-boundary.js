@@ -32,7 +32,7 @@
  * ─────────────────────────────────────────────────────────────────
  */
 
-import xlsx from 'xlsx';   // 読み込み専用・root の devDependencies（手動実行の整備道具＝出荷物ではない）
+import { readXLSXRows } from 'geopbf/table';   // 読み込み専用（npm の xlsx は脆弱性の修正版が出ないので geopbf 自前の読み込みに替えた・2026-10-18）
 import { writeFileSync, existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -79,9 +79,7 @@ async function fetchXlsx() {
 
 // メイン
 const buf  = await fetchXlsx();
-const wb   = xlsx.read(buf, { type: 'buffer' });
-const ws   = wb.Sheets[wb.SheetNames[0]];
-const data = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
+const { rows: data } = await readXLSXRows(new Uint8Array(buf));   // 先頭シート
 
 // 先頭3行（タイトル・空行・ヘッダ）をスキップ、5桁コード行のみ
 const rows = data.slice(3)

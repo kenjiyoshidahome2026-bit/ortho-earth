@@ -8,7 +8,6 @@
 		"dev": "vite",
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"preview": "vite preview",
-		"summary": "repomix --style markdown --output project_summary.md",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs"
 	},
