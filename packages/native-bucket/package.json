@@ -44,6 +44,7 @@
 		"test:proxy": "node tests/t-proxy.mjs",
 		"test:tellus": "node tests/t-tellus.mjs",
 		"test:bucket": "node tests/t-bucket.mjs",
+		"test:client": "node tests/t-client.mjs",
 		"mirror": "node scripts/mirror.mjs"
 	},
 	"sideEffects": false,
