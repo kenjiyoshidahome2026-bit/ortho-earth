@@ -7,7 +7,8 @@
      ②SplatData（経緯度・Float32）：赤＝棟の南 250m（見える）、緑＝北 500m（棟に隠れる＝本体の深度）、青＝東西に長い楕円（画面でも横長）、
        視線の上に重ねた手前の桃色と奥の水色（配列は手前が先＝並べ替えが無いと奥の水色が上に来る）
      ③当たり（handle.pick・queryRenderedFeatures）④URL：.splat（黄）と .spz（白・gzip を DecompressionStream で解く）＝origin で置く・同じ canvas
-     ⑤setVisible・remove（一つ外しても残りは描く・全部外すと canvas が外れる）・同じ id は投げる。GL2（verify:ui）・実時間（worker の動的 import）。 -->
+     ⑤setVisible・remove（一つ外しても残りは描く・全部外すと canvas が外れる）・同じ id は投げる。GL2（verify:ui）・実時間（worker の動的 import）。
+     ⑦読み手の worker（handle.reader＝"worker"）⑧LoD：小さな splat 2 万個の 20 m 角＝画面では小さい → WebGPU は重い順の先頭だけ描く（drawn < n）・lod:false で全部（drawn＝n）。WebGL2 は全部。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-psplat</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -56,8 +57,13 @@ try {
 	const hsh = map.addData({ n: 1, positions: new Float32Array(PS), scales: new Float32Array([12, 12, 12]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array([230, 30, 30, 255]), sh: new Float32Array([0, 0, 0, 4, -4, 0, 0, 0, 0]) }, { kind: "splat", id: "shl" });
 	const hy = map.addData(new URL("./fixtures/splat/yellow.splat", location.href).href, { kind: "splat", id: "yellow", origin: ll(150, -300, 30) });
 	const hw = map.addData(new URL("./fixtures/splat/white.spz", location.href).href, { kind: "splat", id: "white", origin: ll(-120, -380, 30) });
-	await Promise.all([hs.ready, hy.ready, hw.ready, hsh.ready]);
+	// ⑧ LoD：2 万個の小さな splat（σ 5 cm）を 20 m 角に撒く（棟の西 300 m・画面で数十 px＝足跡が小さい）
+	const NL = 20000, PL = new Float32Array(NL * 3), SL = new Float32Array(NL * 3).fill(0.05), RL = new Float32Array(NL * 4), CL = new Uint8Array(NL * 4);
+	for (let i = 0; i < NL; i++) { const p = ll(-300 + (i % 100) * 0.2, -100 + Math.floor(i / 100) * 0.1, 30); PL.set(p, i * 3); RL[i * 4 + 3] = 1; CL.set([255, 160, 0, 255], i * 4); }
+	const hl = map.addData({ n: NL, positions: PL, scales: SL, rotations: RL, colors: CL }, { kind: "splat", id: "lod" });
+	await Promise.all([hs.ready, hy.ready, hw.ready, hsh.ready, hl.ready]);
 	ok("n", hs.n === 5 && hy.n === 1 && hw.n === 1 && hs.kind === "splat", `${hs.n}/${hy.n}/${hw.n}`);
+	ok("reader", hs.reader === "worker" && hy.reader === "worker" && hw.reader === "worker" && hl.reader === "worker", `${hs.reader}/${hy.reader}/${hw.reader}/${hl.reader}`);   // ⑦ 読み手は worker
 	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-splat"]').length === 1 && hs.overlay === hy.overlay);
 	let dup = false; try { map.addData(data, { kind: "splat", id: "scene" }); } catch { dup = true; }
 	ok("dupIdThrows", dup);
@@ -83,6 +89,16 @@ try {
 	ok("url.splat", !!seen.y, seen.y ? "" : await diag(yellow, Q.Y));
 	ok("url.spz", !!seen.w, seen.w ? "" : await diag(white, Q.Wh));
 	ok("sh", !!seen.sh, seen.sh ? hs.backend : `${hs.backend} g=` + await diag(green, Q.S) + " r=" + await diag(red, Q.S));
+	// ⑧ LoD（WebGPU＝drawn が main に届くまで待つ・WebGL2＝全部）
+	stage = "lod";
+	if (hs.backend === "webgpu") {
+		const d1 = await until(async () => hl.drawn > 0 && hl.drawn < hl.n ? hl.drawn : null, W);
+		ok("lod", d1 != null && d1 >= 4096 && d1 < NL, `${hl.drawn}/${hl.n}`);
+		await hl.setProps({ lod: false });
+		const d2 = await until(async () => hl.drawn === hl.n ? hl.drawn : null, W);
+		ok("lod.off", d2 === NL, `${hl.drawn}/${hl.n}`);
+	} else ok("lod", hl.drawn === hl.n, `${hl.backend} ${hl.drawn}/${hl.n}`);
+	hl.remove();
 	// ③ 当たり（本体は往復 3 秒で諦める＝空なら撮り直す）
 	const again = f => until(async () => { const r = await f(); return r.length ? r : null; }, 30000).then(r => r ?? []);
 	stage = "pick";
