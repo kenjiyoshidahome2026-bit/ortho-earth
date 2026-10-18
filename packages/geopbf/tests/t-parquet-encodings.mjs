@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // t-parquet-encodings: 他所の writer（pyarrow）が書く符号化を読む（改良点 14・2026-10-12）。
-//   固定具は tests/fixtures/parquet/（make.py で生成・commit 済み）、正解は expected.json。
+//   固定具は tests/fixtures/parquet/（pyarrow で作って commit 済み・作り方は同じ場所の README.md）、正解は expected.json。
 //   ・DataPage v2（無圧縮）と v1（snappy）の両方で DELTA_BINARY_PACKED（INT32/INT64）・DELTA_BYTE_ARRAY（BYTE_ARRAY/FIXED）・
 //     DELTA_LENGTH_BYTE_ARRAY・BYTE_STREAM_SPLIT（FLOAT/DOUBLE）・RLE（BOOLEAN）が null 込みで一致、ページ跨ぎ・row group 跨ぎあり
 //   ・INT96 timestamp（旧式）が Date で一致
