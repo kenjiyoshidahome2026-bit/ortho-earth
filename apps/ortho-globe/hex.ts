@@ -18,6 +18,7 @@
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { h3, EDGE_M } from "@ortho-earth/h3/core";
 import { decodeHexPop, sumToParent, bytesOf } from "./hex-pop.ts";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, CellsLayerHandle, CellsLayerOptions, LayerMouseEvent } from "@ortho-earth/globe";
 
 const t = tr();
@@ -57,20 +58,12 @@ export async function mountHex(map: GlobeMap, { geopbf, data }: { geopbf?: Geopb
 	const st: { scale: number; minDens: number; showPop: boolean; pent: boolean; pentAt: number; z: number | null; pitch: number; res: number | null; center: { lng: number; lat: number } | null; kind: string; stat: string; weight: string } = { scale: 1, minDens: 0, showPop: true, pent: false, pentAt: -1, z: null, pitch: 0, res: null, center: null, kind: "h3", stat: "count", weight: "" };
 
 	// ── 案内板 ──
-	const panel = document.createElement("div");
-	panel.className = "hex-panel";
 	const legend = COLORS.map(c => `<span style="background:${c}"></span>`).join("");
-	panel.innerHTML = `
-<style>
-.hex-panel{position:absolute;top:12px;right:12px;z-index:30;width:300px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.hex-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.hex-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.hex-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.hex-panel.min .body{display:none}
-.hex-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:6px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: mapEl, title: t("World population in hexagons"), sub: t("Kontur Population · H3 hexagons"), cls: "hex-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .hex-panel .stat{font-variant-numeric:tabular-nums;color:#fff}
 .hex-panel .lvl{color:#b9c3d6;font-variant-numeric:tabular-nums}
 .hex-panel .row{margin:9px 0}
@@ -100,13 +93,10 @@ export async function mountHex(map: GlobeMap, { geopbf, data }: { geopbf?: Geopb
 .hex-tip small{color:#9aa6bd}
 .hex-drop{position:absolute;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(20,28,40,.4);pointer-events:none}
 .hex-drop div{padding:20px 28px;border-radius:12px;border:2.5px dashed rgba(255,255,255,.85);background:rgba(30,40,56,.6);color:#fff;font:600 15px/1.6 system-ui,sans-serif;text-align:center}
-@media (max-width:640px){.hex-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}}
 </style>
-<div class="head"><h1>${t("World population in hexagons")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("Kontur Population · H3 hexagons")}</div>
 <div class="stat" data-k="status">${t("Loading…")}</div>
-<div class="lvl" data-k="level"></div>
-<div class="body">
+<div class="lvl" data-k="level"></div>`);
+	P.body.innerHTML = `
  <div class="row"><label class="chk"><input type="checkbox" data-k="showPop" checked> ${t("Population columns")}</label></div>
  <div class="row"><label>${t("Column height")} <b data-k="scaleV">×1</b></label><input type="range" data-k="scale" min="-1" max="0.7" step="0.05" value="0"></div>
  <div class="row"><label>${t("Only places denser than")} <b data-k="minV"></b></label><input type="range" data-k="min" min="0" max="${FILTERS.length - 1}" step="1" value="0"></div>
@@ -137,15 +127,10 @@ export async function mountHex(map: GlobeMap, { geopbf, data }: { geopbf?: Geopb
    <tr><td><code>map.addCells(points, { kind })</code></td><td>S2Layer · GeohashLayer · QuadkeyLayer · GridLayer</td></tr>
   </table>
  </details>
- <div class="note">${t("Population: $1 (2023-11-01), CC BY 4.0", `<a href="${SOURCE_URL}" target="_blank" rel="noopener">Kontur Population</a>`)}</div>
-</div>`;
-	mapEl.append(panel);
+ <div class="note">${t("Population: $1 (2023-11-01), CC BY 4.0", `<a href="${SOURCE_URL}" target="_blank" rel="noopener">Kontur Population</a>`)}</div>`;
 	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const tip = document.createElement("div"); tip.className = "hex-tip"; mapEl.append(tip);
 	const drop = document.createElement("div"); drop.className = "hex-drop"; drop.innerHTML = `<div>${t("Drop points here to count them")}</div>`; mapEl.append(drop);
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	if (matchMedia("(max-width:640px)").matches) setFold(true);   // スマホ＝最初は畳む（地球を先に見せる）
 
 	// ── データ（r4＝全球・r6＝res 1 の親ごと）──
 	const fetchBin = async (url: string) => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status} ${url}`); return decodeHexPop(await bytesOf(r)); };

@@ -21,6 +21,7 @@ import { sunSubpoint } from "@ortho-earth/ephem/sun";   // 太陽直下点＝雲
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";
 import glUrl from "./clouds-gl.js?url";   // worker が import() する URL（⚠?worker&url は殻になる＝sats と同じ轍）＝モジュールは依存ゼロが掟
 import { ENC, T_WARM } from "./clouds-gl.js";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap } from "@ortho-earth/globe";
 const t = tr();
 
@@ -156,40 +157,24 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 	ov.onmessage = (d: any) => { if (d?.type === "perf") { lastPerf = d; console.log(`[clouds] ${d.mode} ${d.ms.toFixed(2)} ms (${d.how}) @ ${d.w}x${d.h}`); } };
 
 	// ── パネル（sats と同じ意匠＝暗いガラス）──
-	const panel = document.createElement("div");
-	panel.className = "clouds-panel";
-	panel.innerHTML = `
-<style>
-.clouds-panel{position:absolute;top:12px;right:12px;z-index:30;width:292px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.clouds-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.clouds-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.clouds-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.clouds-panel.min .body{display:none}
-.clouds-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: panelHost || mapEl, title: t("Clouds now"), sub: t("Infrared · NASA GIBS (Himawari: JMA · GOES: NOAA) · EUMETView (Meteosat: EUMETSAT)"), cls: "clouds-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .clouds-panel .stat{font-variant-numeric:tabular-nums;color:#fff;margin:8px 0}
 .clouds-panel .sat{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-variant-numeric:tabular-nums}
 .clouds-panel .sat em{font-style:normal;color:#9aa6bd}
 .clouds-panel .note{color:#8793aa;font-size:10.5px;margin-top:8px;line-height:1.5}
 .clouds-panel .honest{color:#ffd479;font-size:11px;line-height:1.45;margin-top:6px}
-@media (max-width:640px){.clouds-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}}
 </style>
-<div class="head"><h1>${t("Clouds now")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("Infrared · NASA GIBS (Himawari: JMA · GOES: NOAA) · EUMETView (Meteosat: EUMETSAT)")}</div>
 <div class="stat" data-k="status">${t("Loading cloud images…")}</div>
-<div class="honest" data-k="ahead" style="display:none">${t("The clock is ahead of the newest images — showing the latest.")}</div>
-<div class="body">
+<div class="honest" data-k="ahead" style="display:none">${t("The clock is ahead of the newest images — showing the latest.")}</div>`);
+	P.body.innerHTML = `
 <div data-k="sats"></div>
 <div class="note">${t("Cold cloud tops are drawn white and opaque; the same infrared image works day and night.")}<br>${t("Cloud-top height is estimated from the infrared temperature (6.5 °C per km below a rough surface temperature) and drawn at true scale — tilt the globe to see it.")}</div>
-<div class="honest">${t("Beyond about 75° latitude no geostationary satellite sees well, and low warm clouds are faint in infrared. Meteosat temperatures are matched to Himawari and GOES from the image grey levels (about ±3 °C).")}</div>
-</div>`;
-	(panelHost || mapEl).appendChild(panel);
+<div class="honest">${t("Beyond about 75° latitude no geostationary satellite sees well, and low warm clouds are faint in infrared. Meteosat temperatures are matched to Himawari and GOES from the image grey levels (about ±3 °C).")}</div>`;
 	const $ = (k: string) => panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
 	const fmtTime = (iso: string) => { const d = new Date(iso); return d.toLocaleString(getLang(), { ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" as const } : {}), month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
 	const ago = (iso: string) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60e3));
 	const showSats = (times: (string | null)[], live: boolean) => {
@@ -328,6 +313,6 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 		style: (s: Record<string, unknown>) => ov.post({ type: "style", ...s }),   // { vol:bool, alt:m（殻）, look:[地表の目安より何度冷たければ雲か, 真っ白の温度℃, ガンマ, 最大不透明度], fadeLod }
 		perf: (on?: boolean) => {
  ov.post({ type: "perf", on: on !== false }); return lastPerf; },
-		destroy() { ac.abort(); clearInterval(sunT); clearInterval(refT); clearTimeout(kickT); map.clock?.off("change", onClock).off("tick", onClock); ov.remove(); panel.remove(); },
+		destroy() { ac.abort(); clearInterval(sunT); clearInterval(refT); clearTimeout(kickT); map.clock?.off("change", onClock).off("tick", onClock); ov.remove(); P.destroy(); },
 	};
 }

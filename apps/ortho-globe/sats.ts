@@ -21,6 +21,7 @@ import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap } from "@ortho-earth/globe";
 import type { CameraState } from "@ortho-earth/core";
 import type { OMM, Satrec, Vec3 } from "@ortho-earth/ephem/sgp4";
@@ -123,20 +124,12 @@ export async function mountSats(map: GlobeMap, { src = [MIRROR, CELESTRAK], pane
 	});
 
 	// ── パネル（quakes と同じ意匠＝暗いガラス）──
-	const panel = document.createElement("div");
-	panel.className = "sats-panel";
-	panel.innerHTML = `
-<style>
-.sats-panel{position:absolute;top:12px;right:12px;z-index:30;width:292px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.sats-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.sats-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.sats-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.sats-panel.min .body{display:none}
-.sats-panel.min{padding-bottom:10px}
-.sats-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: panelHost || mapEl, title: t("Satellites in orbit now"), sub: t("Orbital data: CelesTrak (NORAD GP) · $1", ""), cls: "sats-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.sub.dataset.k = "sub";
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .sats-panel .row{margin:9px 0}
 .sats-panel .stat{font-variant-numeric:tabular-nums;color:#fff}
 .sats-panel .q{width:100%;box-sizing:border-box;margin:2px 0 6px;padding:6px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font:inherit;outline:none}
@@ -163,27 +156,18 @@ export async function mountSats(map: GlobeMap, { src = [MIRROR, CELESTRAK], pane
 .sats-tag.pick{border-color:rgba(255,255,255,.45)}
 .sats-tip{position:absolute;z-index:31;pointer-events:none;transform:translate(10px,-50%);padding:1px 6px;border-radius:5px;white-space:nowrap;
  background:rgba(20,24,32,.82);color:#fff;font:11px/1.6 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif}
-@media (max-width:640px){.sats-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}}
 </style>
-<div class="head"><h1>${t("Satellites in orbit now")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub" data-k="sub">${t("Orbital data: CelesTrak (NORAD GP) · $1", "")}</div>
-<div class="row"><div data-k="status" class="stat">${t("Loading orbits…")}</div><div data-k="honest" class="honest" style="display:none"></div></div>
-<div class="body">
+<div class="row"><div data-k="status" class="stat">${t("Loading orbits…")}</div><div data-k="honest" class="honest" style="display:none"></div></div>`);
+	P.body.innerHTML = `
 <input class="q" data-k="q" type="search" autocomplete="off" spellcheck="false" placeholder="${t("Search satellites (name or NORAD ID)")}" aria-label="${t("Search satellites (name or NORAD ID)")}">
 <div class="hits" data-k="hits"></div>
 <div class="row" data-k="cats"></div>
 <div class="sel" data-k="sel" style="display:none"></div>
-<div class="note">${t("Click a dot to see its orbit")}<br>${t("Faint dots are in Earth's shadow")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>
-</div>`;
-	(panelHost || mapEl).appendChild(panel);
+<div class="note">${t("Click a dot to see its orbit")}<br>${t("Faint dots are in Earth's shadow")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>`;
 	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const tip = document.createElement("div");
 	tip.className = "sats-tip"; tip.style.display = "none";
 	mapEl.appendChild(tip);
-	// 折り畳み：小さい画面は最初から畳む（見出し＋件数だけ残す）
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
 
 	// 凡例（分類の行＝押すと出し入れ）
 	const buildCats = () => {
@@ -468,7 +452,7 @@ export async function mountSats(map: GlobeMap, { src = [MIRROR, CELESTRAK], pane
  nearest(x, y, 10),   // console 検証用（CSS px → 添字）
 		destroy() {
 			ac.abort(); clearInterval(propTimer); clearInterval(tagTimer); clearTags(); offFrame(); cancelAnimationFrame(catchUp);
-			ov.remove(); panel.remove(); tip.remove();
+			ov.remove(); P.destroy(); tip.remove();
 		},
 	};
 }

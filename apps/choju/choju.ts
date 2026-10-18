@@ -14,6 +14,7 @@
 //   座標 … 捕獲地点の無い記録は送信位置・補完住所の座標（座標の出所）＝点を白抜きにする
 //   UI は日本語のみ（日本の自治体の捕獲記録）
 
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { GlobeMap, LayerMouseEvent, MapLibreLayer, StyleExpression, LonLat, Bbox, GeoJSONFeature } from "@ortho-earth/globe";
 
 type Row = Record<string, string>;
@@ -129,12 +130,12 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 
 	// ── 案内板（右上）──
 	const prefs = [...new Set(munis.map(m => m.pref))];
-	const panel = document.createElement("div");
-	panel.className = "cj-panel";
-	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head"><h1>鳥獣の捕獲記録</h1><button class="fold" type="button" aria-label="畳む">–</button></div>
-		<div class="body">
-			<p class="span">${esc(ymd(dMin).replaceAll("-", "/"))} 〜 ${esc(ymd(dMax).replaceAll("-", "/"))}・${fmt(munis.length)} 市区町村</p>
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（黒地白文字）。ここは中身だけ
+	const P = createPanel({ host: mapEl, title: "鳥獣の捕獲記録", sub: `${ymd(dMin).replaceAll("-", "/")} 〜 ${ymd(dMax).replaceAll("-", "/")}・${fmt(munis.length)} 市区町村`, cls: "cj-panel",
+		labels: { fold: "畳む", unfold: "開く" } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
 			<label class="msel"><span>市区町村</span><select class="muni"><option value="">すべての市区町村</option>${prefs.map(p => `<optgroup label="${esc(p)}">${munis.filter(m => m.pref === p).map(m => `<option value="${m.code}">${esc(m.name.replace(p, "") || m.name)}（${fmt(recs.filter(d => d.code === m.code).length)}）</option>`).join("")}</optgroup>`).join("")}</select></label>
 			<p class="total"><b></b> 件を表示中</p>
 			<div class="detail" hidden></div>
@@ -148,10 +149,8 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 			<h2>捕獲日</h2>
 			<div class="dates"><label>から<input type="date" class="d0" value="${ymd(dMin)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label><label>まで<input type="date" class="d1" value="${ymd(dMax)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label></div>
 			<p class="note">白抜きの点は捕獲地点の座標が無く、送信位置か住所の座標で置いた記録です。獣種と利用区分は書き出しのコードからの推定です。</p>
-		</div>`;
-	mapEl.appendChild(panel);
+		`;
 	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
-	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll<HTMLInputElement>("input[data-s]").forEach(inp => inp.onchange = () => { inp.checked ? st.sp.add(+inp.dataset.s!) : st.sp.delete(+inp.dataset.s!); apply(); });
 	// 大分類の箱＝中の利用区分をまとめて切る。中を一部だけ切った時は大分類の箱を「一部」（indeterminate）に
 	const syncGroups = () => GROUPS.forEach((g, gi) => { const box = $(`input[data-g="${gi}"]`), on = g.ks.filter(k => st.cls.has(k)).length;
@@ -215,16 +214,7 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝onsen と同じ）──
 const CSS = `
-/* 黒地・白文字（本人指摘 2026-10-14）＝共通の qm 色をこの板の中だけ白系に差し替える */
-.cj-panel{--qm-ink:#fff;--qm-text:#f1f3f6;--qm-text-dim:rgba(255,255,255,.72);--qm-text-faint:rgba(255,255,255,.5);--qm-border-soft:rgba(255,255,255,.22);color-scheme:dark}
-.cj-panel{position:absolute;top:12px;right:12px;z-index:30;width:300px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;box-sizing:border-box;
-	padding:12px 14px;border-radius:var(--qm-r-l);background:rgba(10,12,16,.9);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
-	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
-.cj-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cj-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink)}
-.cj-panel .fold,.cj-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
-.cj-panel.min .body{display:none}
-.cj-panel .span{margin:2px 0 8px;color:var(--qm-text-dim);font-size:12px}
+.cj-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .cj-panel .msel{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--qm-text-dim)}
 .cj-panel select,.cj-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
 .cj-panel .total{margin:10px 0 4px;color:var(--qm-text-dim)}
@@ -250,4 +240,4 @@ const CSS = `
 .cj-panel .m{display:flex;align-items:baseline;gap:8px;padding:2px 0}
 .cj-panel .m span{flex:none;color:var(--qm-text-dim);min-width:64px}
 .cj-panel .m b{font-weight:500;color:var(--qm-ink)}
-@media (max-width:720px){ .cj-panel{left:12px;right:12px;width:auto;max-height:46vh} }`;
+`;

@@ -10,6 +10,7 @@
 // 選んだ模型は GLB／glTF(.zip) でそのまま落とせる＝このデモの芯（3D Tiles を GLB へ変換してから描いている）。?m=<id> で起動時に選ぶ（共有）。
 import { gunzip } from "geopbf/gzip";
 import { convertToFile, FORMATS } from "glbconv";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { DecodeDraco, DracoDecoded, FormatName, TranscodeImage } from "glbconv";
 import type { GlobeMap, ModelHandle } from "@ortho-earth/globe";   // GLB → glTF/OBJ/PLY/STL/USDZ/3D Tiles（依存ゼロの変換ライブラリ・Draco は注入口）
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
@@ -39,20 +40,12 @@ export async function mountModels(map: GlobeMap, { catalog, panelHost }: { catal
 	const urlOf = (m: ModelEntry) => m.url ?? (base + m.id + ".glb");
 
 	// ── パネル（quakes/sats と同じ意匠＝暗いガラス）──
-	const panel = document.createElement("div");
-	panel.className = "models-panel";
-	panel.innerHTML = `
-<style>
-.models-panel{position:absolute;top:12px;right:12px;z-index:30;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 80px);overflow:auto;
- box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
- border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
- font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.models-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.models-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
-.models-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
-.models-panel.min .body{display:none}
-.models-panel.min{padding-bottom:10px}
-.models-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:8px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: panelHost || mapEl, title: t("Landmarks in GLB"), cls: "models-panel",
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.sub.innerHTML = `${t("Click a landmark to fly there and see its 3D model.")}<br>${t("The models are PLATEAU LOD3 city models (MLIT Japan, CC BY 4.0), read straight from GLB.")}`;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .models-panel .status{margin:6px 0 8px;color:#fff;min-height:1.4em}
 .models-panel .status.err{color:#ffb86b}
 .models-panel .list{display:flex;flex-direction:column;gap:6px}
@@ -74,20 +67,12 @@ export async function mountModels(map: GlobeMap, { catalog, panelHost }: { catal
 .models-panel .dl a:hover{background:rgba(255,255,255,.18)}
 .models-panel .dl a[aria-disabled="true"]{opacity:.45;pointer-events:none}
 .models-panel .note{color:#8793aa;font-size:10.5px;margin-top:8px;line-height:1.5}
-@media (max-width:640px){.models-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:50%}}
-</style>
-<div class="head"><h1>${t("Landmarks in GLB")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("Click a landmark to fly there and see its 3D model.")}<br>${t("The models are PLATEAU LOD3 city models (MLIT Japan, CC BY 4.0), read straight from GLB.")}</div>
-<div class="body">
+</style>`);
+	P.body.innerHTML = `
 <div class="status" data-k="status"></div>
 <div class="list" data-k="list"></div>
-<div class="cur" data-k="cur" style="display:none"></div>
-</div>`;
-	(panelHost || mapEl).appendChild(panel);
+<div class="cur" data-k="cur" style="display:none"></div>`;
 	const $ = (k: string) => panel.querySelector(`[data-k="${k}"]`) as HTMLElement;
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
-	setFold(matchMedia("(max-width:640px)").matches);
 
 	// 一覧
 	$("list").innerHTML = models.map(m => `<button type="button" class="card" data-id="${esc(m.id)}">
@@ -182,6 +167,6 @@ export async function mountModels(map: GlobeMap, { catalog, panelHost }: { catal
 		models, show,
 		get current() { return cur; },
 		get stats() { return ctl?.stats || null; },
-		destroy() { seq++; ctl?.clear?.(); panel.remove(); },
+		destroy() { seq++; ctl?.clear?.(); P.destroy(); },
 	};
 }

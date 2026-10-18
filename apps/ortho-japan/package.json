@@ -56,6 +56,7 @@
 		"@ortho-earth/equal": "*"
 	},
 	"dependencies": {
+		"common": "*",
 		"@ortho-earth/regions": "*"
 	}
 }

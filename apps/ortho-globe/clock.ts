@@ -14,6 +14,7 @@
 // 光らせる単位＝NE の面 1 枚（形は一年中同じ・出る時刻だけが夏時間で変わる）／国の表示＝admin0 の国の輪郭。
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない（辞書は startPage が足す）
 import { createResolver, describe, groupZones, cityOf } from "./clock-zones.ts";
+import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { Described } from "./clock-zones.ts";
 import ZONES from "./clock-zones.json";
 import type { GlobeMap, GeoPBF, LonLat } from "@ortho-earth/globe";
@@ -44,17 +45,12 @@ export async function mountClock(map: GlobeMap, geopbf: Geopbf, { tzSrc = NE_TIM
 	const hours = new Intl.NumberFormat(lang, { style: "unit", unit: "hour", unitDisplay: "short", maximumFractionDigits: 2 });
 
 	// ── 案内板 ──
-	const panel = document.createElement("div");
-	panel.className = "clock-panel";
-	panel.innerHTML = `<style>
-.clock-panel{position:absolute;top:12px;inset-inline-start:12px;z-index:30;width:320px;max-width:calc(100% - 24px);box-sizing:border-box;border-radius:14px;
- background:rgba(10,15,28,.84);color:#e9eef7;border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
- font:12.5px/1.5 system-ui,"Segoe UI",Roboto,"Noto Sans","Noto Sans JP",sans-serif;box-shadow:0 10px 36px rgba(0,0,0,.45);padding:12px 14px}
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel。ここは中身だけ
+	const P = createPanel({ host: panelHost || mapEl, title: t("World clock"), cls: "clock-panel", foldMobile: false,   // 時計は畳まない＝「あなたの時刻」が主役
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	P.body.insertAdjacentHTML("beforebegin", `<style>
 .clock-panel *{box-sizing:border-box}
-.clock-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.clock-panel h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.02em}
-.clock-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9eef7;font-size:14px;line-height:1;cursor:pointer}
-.clock-panel.min .body{display:none}
 .clock-panel .you{margin-top:8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .clock-panel .you small{color:#9aa6bd;font-size:11px;letter-spacing:.08em;text-transform:uppercase;flex-basis:100%}
 .clock-panel .big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
@@ -73,21 +69,16 @@ export async function mountClock(map: GlobeMap, geopbf: Geopbf, { tzSrc = NE_TIM
 .clock-tip .row b{font-variant-numeric:tabular-nums;min-width:4.2em}
 .clock-tip .dst{display:inline-block;border-radius:5px;background:#f2c46d;color:#0b1021;font-size:10.5px;font-weight:700;padding:0 5px;margin-inline-start:4px}
 .clock-tip .c{color:#7c8698;font-size:11px}
-@media (max-width:640px){.clock-panel{top:auto;bottom:44px;left:8px;right:8px;width:auto;max-height:46%;overflow:auto;padding:10px 12px}.clock-panel .big{font-size:22px}.clock-panel .note{display:none}.clock-panel .switch{margin:8px 0 4px}}
-</style>
-<div class="head"><h1>${t("World clock")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="body">
+@media (max-width:640px){.clock-panel .big{font-size:22px}.clock-panel .note{display:none}.clock-panel .switch{margin:8px 0 4px}}
+</style>`);
+	P.body.innerHTML = `
 	<div class="you"><small>${t("Your time")}</small><span class="big" data-k="you"></span><span class="muted" data-k="youz"></span></div>
 	<div class="switch" role="group" aria-label="${t("Show by")}"><button type="button" data-mode="zone" aria-pressed="true">${t("Time zones")}</button><button type="button" data-mode="country" aria-pressed="false">${t("Countries")}</button></div>
 	<div class="hint">${coarse ? t("Tap the globe to see the time there.") : t("Hover over the globe to see the time there. Hold Shift to see a country's time zones. Click to pin.")}</div>
 	<div class="status" data-k="status">${t("Loading…")}</div>
 	<div class="pin clock-tip" data-k="pin"></div>
-	<div class="note">${t("Time zones and countries: Natural Earth. Times and daylight saving: your browser's time zone database (IANA).")}</div>
-</div>`;
-	(panelHost || mapEl).appendChild(panel);
+	<div class="note">${t("Time zones and countries: Natural Earth. Times and daylight saving: your browser's time zone database (IANA).")}</div>`;
 	const $ = (k: string) => panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
-	const setFold = (min: boolean) => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
-	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 
 	let mode: Mode = "zone", shift = false;
 	const effMode = () => shift ? (mode === "zone" ? "country" : "zone") : mode;
@@ -238,7 +229,7 @@ export async function mountClock(map: GlobeMap, geopbf: Geopbf, { tzSrc = NE_TIM
 			mapEl.removeEventListener("pointermove", onMove); mapEl.removeEventListener("pointerleave", onLeave);
 			mapEl.removeEventListener("pointerdown", onDown); mapEl.removeEventListener("pointerup", onUp);
 			window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKey); window.removeEventListener("blur", onBlur);
-			tip(null); map.gadget.outline(null); layer?.remove?.(); panel.remove();
+			tip(null); map.gadget.outline(null); layer?.remove?.(); P.destroy();
 		},
 	};
 }
