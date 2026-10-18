@@ -142,7 +142,6 @@
 		"test:convert": "node tests/t-encoders.mjs && node tests/t-convert.mjs && node tests/t-pmtiles.mjs && node tests/t-tiler-shards.mjs && node tests/t-parquet.mjs && node tests/t-parquet-range.mjs && node tests/t-parquet-encodings.mjs && node tests/t-gpkg.mjs && node tests/t-fgb.mjs && node tests/t-table.mjs && node tests/t-gdb.mjs && node tests/t-datum.mjs",
 		"verify:gpu": "node scripts/verify-convert-gpu.mjs",
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-imagequad.mjs && node tests/edit/t-spline.mjs && node tests/edit/t-sphere.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
-		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"verify:pages": "node scripts/verify-pages.mjs",
 		"verify:examples": "node scripts/verify-examples.mjs",
@@ -156,10 +155,9 @@
 		"encoding-japanese": "^2.1.0",
 		"hyparquet": "^1.31.2",
 		"leaflet": "^1.9.4",
-		"maplibre-gl": "^5.0.0",
+		"maplibre-gl": "^6.15.0",
 		"ol": "^10.0.0",
 		"playwright": "^1.63.0",
-		"repomix": "^1.14.0",
 		"vite": "^8.3.1"
 	}
 }

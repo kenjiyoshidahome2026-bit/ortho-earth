@@ -13,7 +13,6 @@
 		"dev:uploader": "npm run dev -w uploader",
 		"build:all": "npm run build -w www && npm run build -w geopbf-demo && npm run build -w gishub-jp && npm run build -w ortho-world && rm -rf apps/www/dist/docs && cp -r apps/docs apps/www/dist/docs && sass --no-source-map apps/docs:apps/www/dist/docs && rm apps/www/dist/docs/*.scss && rm -rf apps/www/dist/geopbf && cp -r apps/geopbf-demo/dist apps/www/dist/geopbf && rm -rf apps/www/dist/gishub-jp && cp -r apps/gishub-jp/dist apps/www/dist/gishub-jp && rm -rf apps/www/dist/world && cp -r apps/world/dist apps/www/dist/world && rm -rf apps/www/dist/globe/engine && mkdir -p apps/www/dist/globe && cp -r apps/engine/dist/site/globe/engine apps/www/dist/globe/engine && rm apps/www/dist/globe/engine/current.json && find apps/www/dist -name '*.map' -delete",
 		"preview:all": "npm run preview -w www",
-		"summary": "repomix --style markdown --output project_summary.md",
 		"dev:world": "npm run dev -w ortho-world",
 		"test:mirrors": "node apps/quakes-mirror/tests/t-quakes.mjs && node apps/sats-mirror/tests/t-mirror.mjs",
 		"deploy:engine": "node scripts/deploy-engine.mjs",
@@ -34,8 +33,11 @@
 		"sass-embedded": "^1.99.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.3.1",
-		"vite-plugin-wasm": "^3.6.0",
-		"xlsx": "^0.18.5"
+		"vite-plugin-wasm": "^3.6.0"
+	},
+	"overrides": {
+		"@loaders.gl/compression": { "fflate": "^0.8.3" },
+		"texture-compressor": { "argparse": "^2.0.1", "image-size": "^2.0.4" }
 	},
 	"allowScripts": {
 		"esbuild@0.28.2": true,
