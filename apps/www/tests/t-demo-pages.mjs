@@ -18,7 +18,7 @@ const ENTRY = [
 	[/^\/japan\/census2020\//, "census2020/index.html"],
 	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
-	[/^\/globe\/quakes\//, "quakes/index.html"],
+	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
 	[/^\/globe\/(physical|sats|clouds|parks|clock|hex)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
 	[/^\/globe\//, "ortho-globe/index.html"],
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
@@ -33,6 +33,7 @@ const IMG = [
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/(ogp\.jpg)$/, m => `ortho-japan/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/globe\/og\/(.+)$/, m => `ortho-globe/public/og/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/globe\/quakes\/(og\.jpg)$/, m => `quakes/public/${m[1]}`],
+	[/^https:\/\/www\.ortho-earth\.com\/yokohama\/(og\.jpg)$/, m => `yokohama/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/solar\/(ogp\.jpg)$/, m => `solar/public/${m[1]}`],
 ];
 const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (m) return to(m); } return null; };
@@ -44,9 +45,9 @@ const name = (html, n) => meta(html, new RegExp(`<meta\\s+name="${n}"\\s+content
 const pages = new Map();   // 入口 HTML → それを使うデモ（同じ頁を複数のカードが指す＝japan の 5 枚）
 for (const d of demos) { const e = entryOf(d.href); assert.ok(e, `demos.json: no entry page for ${d.id} (${d.href}) — add a rule to ENTRY`); (pages.get(e) ?? pages.set(e, []).get(e)).push(d); }
 
-test("demos.json の全カードが入口 HTML に辿り着く（31 枚・15 頁以上）", () => {
-	assert.equal(demos.length, 31);
-	assert.ok(pages.size >= 15, `${pages.size} pages`);
+test("demos.json の全カードが入口 HTML に辿り着く（32 枚・16 頁以上）", () => {
+	assert.equal(demos.length, 32);
+	assert.ok(pages.size >= 16, `${pages.size} pages`);
 	for (const e of pages.keys()) assert.ok(existsSync(path.join(APPS, e)), `${e} missing`);
 });
 
