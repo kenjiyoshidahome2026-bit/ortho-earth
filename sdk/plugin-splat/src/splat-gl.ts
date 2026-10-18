@@ -21,7 +21,7 @@ export interface PickContext { s: CamState; api: SplatApi; size: { w: number; h:
 export type SplatAltitude = "relative" | "absolute";
 /** main（index.ts）から届く層の中身（type・q は手綱が足す） */
 /** rot・shq・shScale・shDeg・shWords＝SH、rank・lod＝LoD（WebGPU の描き手だけが読む・splat-gpu.ts）。この WebGL2 の描き手は DC だけ・全部描く */
-export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number;
+export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; on?: boolean; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number;
 	/** LoD の順位（0 が一番重い・importanceRank）。lod＝画面の 1 px² あたり描く個数（0＝全部描く） */
 	rank?: Uint32Array | null; lod?: number }
 export type SplatMessage = ({ type: "layer"; q: string } & SplatLayerBody) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
@@ -82,7 +82,7 @@ void main() {
 interface Layer {
 	n: number; ctr: Float32Array; anchor: [number, number, number]; alt: SplatAltitude; radius: number; occl: boolean; properties: Record<string, unknown> | null;
 	tC: WebGLTexture; tV: WebGLTexture; tP: WebGLTexture; vao: WebGLVertexArrayObject; ib: WebGLBuffer; order: Uint32Array; keys: Uint16Array;
-	dir: number[] | null; sortedAt: number; on: boolean; base: number; timer?: ReturnType<typeof setTimeout> | 0;
+	dir: number[] | null; sortedAt: number; on: boolean; base: number; timer?: ReturnType<typeof setTimeout> | 0; dist: number;   // dist＝目から錨まで（層を奥から描く順）
 }
 let glc: GL | null = null, host: OverlayHost | null = null, prog: Program | null = null, pickProg: Program | null = null, quad: WebGLBuffer | null = null, wantDepth = false, dummyTex: WebGLTexture | null = null;
 let pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
@@ -151,7 +151,7 @@ function build(d: SplatLayerBody): Layer {
 	gl.bufferData(gl.ARRAY_BUFFER, order, gl.DYNAMIC_DRAW);
 	gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 1, gl.UNSIGNED_INT, 0, 0); gl.vertexAttribDivisor(1, 1);
 	gl.bindVertexArray(null);
-	return { n, ctr: d.ctr, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, tC, tV, tP, vao, ib, order, keys: new Uint16Array(n), dir: null, sortedAt: 0, on: true, base: 0 };
+	return { n, ctr: d.ctr, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, tC, tV, tP, vao, ib, order, keys: new Uint16Array(n), dir: null, sortedAt: 0, on: d.on !== false, base: 0, dist: 0 };
 }
 const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; clearTimeout(L.timer); gl.deleteTexture(L.tC); gl.deleteTexture(L.tV); gl.deleteTexture(L.tP); gl.deleteBuffer(L.ib); gl.deleteVertexArray(L.vao); };
 function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
@@ -172,6 +172,7 @@ function place(L: Layer, s: CamState, api: SplatApi | null | undefined): boolean
 	for (let j = 0; j < 3; j++) for (let row = 0; row < 4; row++) mvpL[j * 4 + row] = M[row] * cols[j][0] + M[4 + row] * cols[j][1] + M[8 + row] * cols[j][2];
 	for (let row = 0; row < 4; row++) mvpL[12 + row] = M[row] * o[0] + M[4 + row] * o[1] + M[8 + row] * o[2] + M[12 + row];
 	const E = s.eye, rr = L.radius * k;   // 地平線の向こう（錨の半径ぶんの余裕）
+	L.dist = E ? Math.hypot(E[0] - o[0], E[1] - o[1], E[2] - o[2]) : 0;
 	const behind = E ? o[0] * (E[0] - o[0]) + o[1] * (E[1] - o[1]) + o[2] * (E[2] - o[2]) < -rr * Math.hypot(...o) - 1e-9 : false;
 	return !behind;
 }
@@ -201,8 +202,11 @@ function drawAll(pick: boolean, s: CamState, api: SplatApi | null | undefined, w
 	gl.useProgram(P.p); bindDepth(P, api);
 	gl.uniform2f(P.u.u_vp, w, h); gl.uniform1i(P.u.u_tw, TW);
 	gl.uniform1i(P.u.u_ctr, 0); gl.uniform1i(P.u.u_cov, 1); gl.uniform1i(P.u.u_col, 2);
-	for (const L of layers.values()) {
-		if (!L.on || !L.n || !place(L, s, api)) continue;
+	const vis: Layer[] = [];
+	for (const L of layers.values()) if (L.on && L.n && place(L, s, api)) vis.push(L);
+	vis.sort((a, b) => b.dist - a.dist);   // 層は奥から（3D Tiles のタイルごとの層が重なる所・当たりは手前の層が勝つ）
+	for (const L of vis) {
+		place(L, s, api);   // mvpL をこの層の物に
 		if (!pick) sortIfTurned(L);
 		gl.uniformMatrix4fv(P.u.u_mvp, false, mvpL);
 		gl.uniform1ui(P.u.u_base, L.base); gl.uniform1f(P.u.u_occl, L.occl ? 1 : 0);
@@ -217,7 +221,8 @@ function answerProbes(w: number, h: number): void {
 	if (!probes.length) return;
 	const gl = glc!;
 	const ids = probes.splice(0);
-	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
+	const ls = [...layers].map(([q, L]) => ({ q, on: L.on, n: L.n, dist: +L.dist.toFixed(4), anchor: L.anchor, alt: L.alt }));   // 層の目録（検定の見立て用）
+	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, layers: ls, data: id === ids[ids.length - 1] ? data : data.slice() }); }
 	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as { message?: string } | null)?.message || e) }); }
 }
 export function frame(cam: unknown, s: CamState, { w, h }: { w: number; h: number }, api: SplatApi): boolean {

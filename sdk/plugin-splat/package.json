@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/plugin-splat",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "Gaussian splats for @ortho-earth/globe: fills the reserved map.addData kind \"splat\" (SplatData or .ply / .splat / .spz URLs), drawn as a same-frame overlay (WebGPU: spherical harmonics, GPU sort, shared device and depth; WebGL2 fallback) with scene depth, unified picking, a worker reader and LoD.",

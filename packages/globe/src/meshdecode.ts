@@ -69,18 +69,22 @@ export interface ModelBatchOut {
 }
 /** 模型の点（経緯度 rad と RGBA） */
 export interface ModelPoints { geo: number[]; rgba: number[] }
+/** 3D Tiles の glTF の Gaussian splat（KHR_gaussian_splatting・2026-10-18）＝局所の座標のまま＋transform（列優先 4×4・局所 → ECEF＝タイル変換 × ノード変換・heightOffset 込み）。
+ *  main（gadgets/tiles3d.ts）が plugin-splat の層（SplatData crs "local"）にする＝ECEF を float32 に通さない（0.5m のガタつき）。scales＝線形の σ（m）・rotations＝x,y,z,w・colors＝RGBA（sRGB・A＝不透明度）・
+ *  sh＝DC より上の係数（n × K×3・係数が先・K＝3／8／15）。spz＝圧縮の拡張（KHR_gaussian_splatting_compression_spz_*）の本体＝plugin の読み手（parseSpz）が解く（その時 n＝0・配列は空） */
+export interface SplatPrimOut { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: 0 | 1 | 2 | 3; transform: number[]; spz: Uint8Array | null; colorSpace: string }
 /** decodeModel の stats */
 export interface ModelStats {
-	vertices: number; triangles: number; instances: number; mode: string; points?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;
+	vertices: number; triangles: number; instances: number; mode: string; points?: number; splats?: number; splatPoints?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;   // splats＝splat の個数・splatPoints＝splat を点として描いた個数（plugin が無い時）
 	ktx2?: { textures: number; transcoded: number; failed: number }; features?: { primitives: number; texture: number; tables: number };
 }
 /** decodeModel の戻り */
 export interface ModelOut {
 	batches: ModelBatchOut[]; rig?: GltfRig | null; place?: GltfPlace | null; features?: { tables: PropertyTable[]; primitives: number; texture: number; warnings: string[] } | null;
-	mask: { bbox: number[]; n: number } | null; points: ModelPoints | null; stats: ModelStats;
+	mask: { bbox: number[]; n: number } | null; points: ModelPoints | null; splats?: SplatPrimOut[] | null; stats: ModelStats;
 }
-/** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable */
-export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
+/** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く） */
+export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
 export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number }
 /** 模型の束の断片（プリミティブ 1 つ分） */
@@ -745,6 +749,67 @@ async function textureOf(texture: GltfTexture | null | undefined, cache: Map<Glt
 	return out;
 }
 const dequant = (A: NumArr) => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array ? 1 / 255 : A instanceof Int16Array ? 1 / 32767 : A instanceof Uint16Array ? 1 / 65535 : 1;   // 正規化整数属性の係数（float は 1）
+// ---- Gaussian splat のプリミティブ（KHR_gaussian_splatting・Khronos の RC 2025・2026-10-18）----
+//   mode 0（点）＋ primitive.extensions.KHR_gaussian_splatting。属性＝POSITION・KHR_gaussian_splatting:SCALE（線形の σ・VEC3）・:ROTATION（x,y,z,w）・:OPACITY（0〜1）・
+//   :SH_DEGREE_l_COEF_k（VEC3・l＝0 が DC・l≧1 は m の低い方から）・COLOR_0（fallback＝線形の RGB＋α）。Cesium の草案（_SCALE／_ROTATION／_OPACITY・log の尺）も読む＝尺に負があれば log と見る。
+//   色＝DC（0.282095×sh0＋0.5）→ sRGB の 0〜255（colorSpace lin_rec709_display は sRGB の伝達関数を掛ける・COLOR_0 は glTF の決まりで線形＝同じく）。SH の並び＝plugin の SplatData（係数が先・色が後）
+const SPLAT_EXT = "KHR_gaussian_splatting";
+const splatAttr = (pr: GltfPrimitive, name: string): GltfAccessor | undefined => pr.attributes?.[`${SPLAT_EXT}:${name}`] ?? pr.attributes?.[`_${name}`];
+const srgb8 = (v: number): number => { const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, Math.round(c * 255))); };
+const clamp8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v * 255)));
+const SH_C0 = 0.28209479177387814;
+function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: ArrayLike<number>, lift: number): SplatPrimOut | null {
+	const ext = (pr.extensions?.[SPLAT_EXT] ?? {}) as { colorSpace?: string }, colorSpace = typeof ext.colorSpace === "string" ? ext.colorSpace : "srgb_rec709_display", linear = colorSpace === "lin_rec709_display";
+	const transform = [lin[0], lin[1], lin[2], 0, lin[3], lin[4], lin[5], 0, lin[6], lin[7], lin[8], 0, o[0], o[1], o[2], 1];   // 列優先（lin は列優先の 3×3）
+	const empty = (spz: Uint8Array): SplatPrimOut => ({ n: 0, positions: new Float32Array(0), scales: new Float32Array(0), rotations: new Float32Array(0), colors: new Uint8Array(0), sh: null, shDegree: 0, transform, spz, colorSpace });
+	const lifted = (out: SplatPrimOut, cx: number, cy: number, cz: number): SplatPrimOut => {   // heightOffset＝重心の ECEF の上向きに沿って持ち上げる（タイルの中身と同じ「高さへの足し込み」）
+		if (!lift) return out;
+		const ex = lin[0] * cx + lin[3] * cy + lin[6] * cz + o[0], ey = lin[1] * cx + lin[4] * cy + lin[7] * cz + o[1], ez = lin[2] * cx + lin[5] * cy + lin[8] * cz + o[2], l = Math.hypot(ex, ey, ez) || 1;
+		out.transform[12] += lift * ex / l; out.transform[13] += lift * ey / l; out.transform[14] += lift * ez / l;
+		return out;
+	};
+	// 圧縮（SPZ）＝bufferView の本体をそのまま持たせる（plugin の parseSpz が gzip を解いて読む・局所の座標は glTF の軸のまま＝transform で置く）
+	const comp = Object.entries(pr.extensions || {}).find(([k]) => k.startsWith(`${SPLAT_EXT}_compression_spz`))?.[1] as { bufferView?: number } | undefined;
+	if (comp && Number.isInteger(comp.bufferView)) {
+		const data = gltf.bufferViews?.[comp.bufferView!]?.data;
+		if (!data) return null;
+		const P0 = pr.attributes?.POSITION as (GltfAccessor & { min?: number[]; max?: number[] }) | undefined, mn = P0?.min, mx = P0?.max;   // 重心の当ては accessor の min/max（本体は解いていない）
+		return lifted(empty(data.slice()), mn && mx ? (mn[0] + mx[0]) / 2 : 0, mn && mx ? (mn[1] + mx[1]) / 2 : 0, mn && mx ? (mn[2] + mx[2]) / 2 : 0);
+	}
+	const P = pr.attributes?.POSITION?.value, S = splatAttr(pr, "SCALE")?.value, R = splatAttr(pr, "ROTATION")?.value;
+	if (!P || !S || !R) return null;
+	const n = P.length / 3 | 0;
+	if (S.length < n * 3 || R.length < n * 4) return null;
+	const qP = pr.attributes!.POSITION!.normalized ? dequant(P) : 1, qS = splatAttr(pr, "SCALE")!.normalized ? dequant(S) : 1, qR = splatAttr(pr, "ROTATION")!.normalized ? dequant(R) : 1;
+	const positions = new Float32Array(n * 3), scales = new Float32Array(n * 3), rotations = new Float32Array(n * 4), colors = new Uint8Array(n * 4);
+	let cx = 0, cy = 0, cz = 0, sMin = Infinity;
+	for (let i = 0; i < n * 3; i++) { positions[i] = P[i] * qP; const s = S[i] * qS; scales[i] = s; if (s < sMin) sMin = s; }
+	for (let i = 0; i < n; i++) { cx += positions[i * 3]; cy += positions[i * 3 + 1]; cz += positions[i * 3 + 2]; }
+	const logScale = sMin < 0 || (!pr.attributes?.[`${SPLAT_EXT}:SCALE`] && !!pr.attributes?._SCALE);   // 草案（_SCALE）＝log の尺。仕様の名でも負があれば log（仕様の尺は非負）
+	if (logScale) for (let i = 0; i < n * 3; i++) scales[i] = Math.exp(scales[i]);
+	for (let i = 0; i < n; i++) { const x = R[i * 4] * qR, y = R[i * 4 + 1] * qR, z = R[i * 4 + 2] * qR, w = R[i * 4 + 3] * qR, l = Math.hypot(x, y, z, w) || 1; rotations[i * 4] = x / l; rotations[i * 4 + 1] = y / l; rotations[i * 4 + 2] = z / l; rotations[i * 4 + 3] = w / l; }
+	// 色＝SH の DC（無ければ COLOR_0）・不透明度＝OPACITY（無ければ COLOR_0 の α・無ければ 1）
+	const dcA = splatAttr(pr, "SH_DEGREE_0_COEF_0"), DC = dcA?.value, C0A = pr.attributes?.COLOR_0, C0 = C0A?.value, cN = C0 ? (C0.length / n) | 0 : 0, qC = C0 ? (C0A!.normalized ? dequant(C0) : 1) : 1;
+	const OA = splatAttr(pr, "OPACITY"), O = OA?.value, qO = O ? (OA!.normalized ? dequant(O) : 1) : 1;
+	const to8 = linear ? srgb8 : clamp8;
+	for (let i = 0; i < n; i++) {
+		if (DC && DC.length >= n * 3) { for (let c = 0; c < 3; c++) colors[i * 4 + c] = to8(SH_C0 * DC[i * 3 + c] + 0.5); }
+		else if (C0 && cN >= 3) { for (let c = 0; c < 3; c++) colors[i * 4 + c] = srgb8(C0[i * cN + c] * qC); }   // COLOR_0 は線形（glTF）
+		else { colors[i * 4] = colors[i * 4 + 1] = colors[i * 4 + 2] = 255; }
+		colors[i * 4 + 3] = O && O.length >= n ? clamp8(O[i] * qO) : C0 && cN === 4 ? clamp8(C0[i * 4 + 3] * qC) : 255;
+	}
+	// SH（1〜3 次）＝そろっている次数まで（次数は部分的に欠けない＝欠けた所で止める）
+	const coefs: Array<ArrayLike<number>> = [];
+	let shDegree: 0 | 1 | 2 | 3 = 0;
+	outer: for (let l = 1; l <= 3; l++) {
+		const row: Array<ArrayLike<number>> = [];
+		for (let k = 0; k < 2 * l + 1; k++) { const a = splatAttr(pr, `SH_DEGREE_${l}_COEF_${k}`)?.value; if (!a || a.length < n * 3) break outer; row.push(a); }
+		coefs.push(...row); shDegree = l as 1 | 2 | 3;
+	}
+	let sh: Float32Array | null = null;
+	if (shDegree) { const K = coefs.length; sh = new Float32Array(n * K * 3); for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) { const a = coefs[k]; sh[(i * K + k) * 3] = a[i * 3]; sh[(i * K + k) * 3 + 1] = a[i * 3 + 1]; sh[(i * K + k) * 3 + 2] = a[i * 3 + 2]; } }
+	return lifted({ n, positions, scales, rotations, colors, sh, shDegree, transform, spz: null, colorSpace }, n ? cx / n : 0, n ? cy / n : 0, n ? cz / n : 0);
+}
 // ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
 // mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
 // 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
@@ -807,6 +872,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	const matNo = new Map<GltfMaterial | null, number>(); const gkOf = (prefix: string, mat: GltfMaterial | null) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
+	const splats: SplatPrimOut[] = []; let nSplat = 0, nSplatPts = 0;   // Gaussian splat（KHR_gaussian_splatting）＝tile.splats なら層として・でなければ点として（spec の fallback）
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
@@ -817,8 +883,14 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
 		for (const pr of (mesh.primitives || [])) {
 			const mode4 = pr.mode ?? 4;
+			if (mode4 === 0 && pr.extensions?.[SPLAT_EXT] && tile?.splats) {   // Gaussian splat＝局所の座標＋transform のまま main へ（plugin-splat の層）
+				const sp = splatPrim(pr, gltf, lin, [ox, oy, oz], tile.baseH != null ? -tile.baseH : 0);
+				if (sp) { splats.push(sp); nSplat += sp.n; }
+				continue;
+			}
 			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
+				if (pr.extensions?.[SPLAT_EXT]) nSplatPts += P.length / 3;
 				const q = pr.attributes!.POSITION!.normalized ? dequant(P) : 1, n = P.length / 3;
 				const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1, f = baseColorOf(pr.material || null, gltf).factor;
 				for (let i = 0; i < n; i++) {
@@ -911,7 +983,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		}
 	}
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
-	if (!nTri) return pts?.geo.length ? { batches: [], mask: null, points: pts, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts.geo.length / 3 } } : null;
+	if (!nTri) return pts?.geo.length || splats.length ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map<GltfImage, TexOut | null>();
 	const batches: ModelBatchOut[] = [];
@@ -958,5 +1030,5 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
 	})() : null;
 	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;
-	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
+	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
 }
