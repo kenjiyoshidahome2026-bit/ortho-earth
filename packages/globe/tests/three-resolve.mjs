@@ -2,10 +2,12 @@
 // three.js の bare import を worker の中で解く仕掛け（src/gadgets/three-resolve.ts・map.addThree・2026-10-18）の常設検定：
 //   ・addons の基底の推し方（build/three.module(.min).js → examples/jsm/）
 //   ・"three"／"three/addons/…"／"three/examples/jsm/…"／相対／よその bare の解き方
+//   ・WebGPU の深度（toWebGPUDepth＝GL の透視の clip z∈[−w,w] → [0,w]）
 //   ・本文の書き換え（静的 import・export from・動的 import・import.meta.url）と、相対の先・addons の先まで辿ること（three 本体は辿らない）
 // 実描画（worker の中で GLTFLoader を読む・THREE が同じ実体）は tests/t-three.html（verify:ui）。
 // 使い方：node packages/globe/tests/three-resolve.mjs
 import { addonsBaseOf, resolveSpec, rewriteSource, specifiersOf, createThreeLoader } from "../src/gadgets/three-resolve.ts";
+import { toWebGPUDepth } from "../src/gadgets/three-webgpu.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };
@@ -58,6 +60,14 @@ ok(topText.includes(`from "${T}"`) && !/from "three/.test(topText) && /from "blo
 await loader.prepare(base); ok(fetched.length === 4, "同じ URL は 2 度取らない");
 { const l2 = createThreeLoader(map, async u => ({ "https://c/a.js": `import "./b.js";`, "https://c/b.js": `import "./a.js";` })[u]); let msg = ""; try { await l2.prepare("https://c/a.js"); } catch (e) { msg = e.message; } ok(/circular import/.test(msg), "循環は分かるエラー（" + msg + "）"); }
 URL.createObjectURL = origCreate;
+
+// WebGPU の透視：近い面→0・遠い面→1（GL の −1・1）・x/y/w は変えない
+{ const n = 0.1, f = 100, P = new Float64Array(16); P[0] = 1.2; P[5] = 1.5; P[10] = (f + n) / (n - f); P[11] = -1; P[14] = 2 * f * n / (n - f);
+  const Q = toWebGPUDepth(P), z = (M, ze) => (M[10] * ze + M[14]) / (M[11] * ze + M[15]);
+  ok(Math.abs(z(P, -n) + 1) < 1e-9 && Math.abs(z(Q, -n)) < 1e-9 && Math.abs(z(Q, -f) - 1) < 1e-9, "toWebGPUDepth：near→0・far→1");
+  ok(Q[0] === P[0] && Q[5] === P[5] && Q[11] === P[11] && Q[15] === P[15], "x・y・w の行はそのまま"); }
+ok(resolveSpec("three/webgpu", base, map)?.url === "https://cdn.example/npm/three@0.186.1/build/three.webgpu.js" && resolveSpec("three/tsl", base, map)?.rewrite === true, '"three/webgpu"・"three/tsl"＝build の隣（tsl は中の bare を解くため辿る）');
+ok(addonsBaseOf(T.replace("three.module.js", "three.webgpu.js")) === A, "three.webgpu.js からも addons を推せる");
 
 if (fails) { console.error(`\n✗ ${fails} 件`); process.exit(1); }
 console.log("\n✓ three-resolve");

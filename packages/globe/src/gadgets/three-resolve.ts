@@ -18,16 +18,18 @@ export const maskComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\/|(^|[^
 /** 三つの名前の基底 */
 export interface ThreeSpecMap { three: string; addons: string | null }
 
-/** three の URL から addons の基底を推す（build/three.module(.min).js → examples/jsm/）。推せない＝null */
+/** three の URL から addons の基底を推す（build/three.module(.min).js・three.webgpu.js → examples/jsm/）。推せない＝null */
 export function addonsBaseOf(threeUrl: string): string | null {
-	const m = /^(.*\/)build\/three\.module(\.min)?\.js(\?.*)?$/.exec(threeUrl);
+	const m = /^(.*\/)build\/three\.(module|webgpu)(\.min)?\.js(\?.*)?$/.exec(threeUrl);
 	return m ? m[1] + "examples/jsm/" : null;
 }
 
 /** 指定子を解く。戻り＝{ url, rewrite }（rewrite＝その先も書き換えて読む）・null＝触らない（よその bare・http の絶対 URL） */
 export function resolveSpec(spec: string, base: string, map: ThreeSpecMap): { url: string; rewrite: boolean } | null {
 	if (spec === "three") return { url: map.three, rewrite: false };
-	if (spec === "three/webgpu" || spec === "three/tsl") return { url: new URL(spec === "three/webgpu" ? "three.webgpu.js" : "three.tsl.js", map.three).href, rewrite: false };   // build/ の隣（three.core.js を共有＝同じ実体）
+	// build/ の隣（three.core.js を共有＝同じ実体）。three.tsl.js は中で "three/webgpu" を bare で読む＝書き換えて読む
+	if (spec === "three/webgpu") return { url: new URL("three.webgpu.js", map.three).href, rewrite: false };
+	if (spec === "three/tsl") return { url: new URL("three.tsl.js", map.three).href, rewrite: true };
 	const sub = /^three\/(addons|examples\/jsm)\/(.+)$/.exec(spec);
 	if (sub) {
 		if (!map.addons) throw new Error(`three overlay: cannot resolve "${spec}" (pass addons: <URL of three/examples/jsm/>)`);

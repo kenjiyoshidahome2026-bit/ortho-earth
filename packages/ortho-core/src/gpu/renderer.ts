@@ -2654,7 +2654,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}).catch(() => { st.busy = false; });
 		}, 0); }
 	}
-	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { bitmap, w, h, logCoef }, abort() }／depthOut(false)＝畳む。
+	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { bitmap()（遅延）, gpu: { device, texture }, w, h, logCoef }, abort() }／depthOut(false)＝畳む。
 	// begin＝申し出の確認だけ（深度テクスチャは常に読める形）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
@@ -2662,7 +2662,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let light: { dir: number[]; color?: number[] | null; intensity?: number } | null = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
 	let post: PostFrameOptions | null = null, postFx: PostGPU | null = null;   // 後処理（PR-8）＝set("post") の間だけ資源を持つ
-	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: ImageBitmap; w: number; h: number; logCoef: number } | null } | null {
+	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: () => ImageBitmap; gpu: { device: GPUDevice; texture: GPUTexture }; w: number; h: number; logCoef: number } | null } | null {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
 			try { dOut = createDepthOutGPU(device); }
@@ -2674,7 +2674,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			end: () => {
 				const d = lastDepth; lastDepth = null;
 				if (!d || !dOut) return null;
-				try { return { bitmap: dOut.encode(d), w: d.w, h: d.h, logCoef: d.logCoef }; }
+				try { const r = dOut.encode(d); return { bitmap: r.bitmap, gpu: { device, texture: r.texture }, w: d.w, h: d.h, logCoef: d.logCoef }; }   // bitmap は WebGL のオーバーレイが求めた時だけ（遅延）
 				catch (e) { dOutFailed = true; console.warn("[gpu] depthOut failed (disabled):", (e as Error)?.message || e); depthOut(false); return null; }
 			},
 		};
