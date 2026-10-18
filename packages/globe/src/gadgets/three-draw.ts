@@ -10,6 +10,8 @@
 //   h（helpers）＝{ THREE, scene, camera, renderer, origin, params, lnglatToLocal(lon, lat, hM) → Vector3（ENU m）, localToLnglat(v) → [lon, lat, hM], importAddon(path), requestDraw(), post(data), earthRadiusM, time, clock }
 // 実体＝create() の閉包（renderworker の BUILTIN_OVERLAYS が overlay ごとに呼ぶ＝addThree を 2 つ置いても状態が混ざらない・2026-10-18）。ただし 1 つごとに WebGL 文脈が 1 つ増える
 //   （render worker の文脈は Chrome で 4 つまで・地球が 1 つ）＝模型が多い時は 1 つの addThree に載せる。
+// renderer: "webgpu"（three.webgpu.js）＝WebGPURenderer で描く（three-webgpu.ts）。本体が WebGPU なら本体の GPUDevice を共有し、深度は本体の GPUTexture を
+//   そのまま前置きで three の深度へ書く（材質を直さない・毎フレームの読み戻しなし）。本体が WebGL2 なら three は自前の device・深度は writeTexture で上がる。
 // 版：depth（本体の深度で隠す）は THREE.ExternalTexture（r180〜）を使う。古い three は depth を切って描く（警告を 1 回）。setup が済んだら host.stage("setup")＝addThree の ready
 //
 // 座標：scene の単位は m・原点 origin の東北上（ENU）。world（β 単位球）← ENU は行列 M（customgl と同じ作り・楕円体は y を 1/rAx）。
@@ -22,6 +24,8 @@ import { lonlatTo3D, ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera"
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { OverlayFrameApi } from "../../globe.d.ts";
 import { createThreeLoader, addonsBaseOf } from "./three-resolve.ts";
+import { createDepthPrepass, toWebGPUDepth, readCanvasPixels } from "./three-webgpu.ts";
+import type { ThreeGPU } from "./three-webgpu.ts";
 
 // three.js は利用者が URL で持ち込む（repo の依存にしない）＝型も持たない。ここで使う分だけを構造で書く
 interface TMatrix4 { fromArray(a: ArrayLike<number>): TMatrix4; clone(): TMatrix4; invert(): TMatrix4; multiply(m: TMatrix4): TMatrix4; copy(m: TMatrix4): TMatrix4; decompose(position: TVector3, quaternion: unknown, scale: unknown): TMatrix4 }
@@ -31,8 +35,10 @@ interface TShader { uniforms: Record<string, unknown>; vertexShader: string; fra
 interface TMaterial { onBeforeCompile?: (shader: TShader, renderer: unknown) => void; customProgramCacheKey?: () => string; needsUpdate: boolean }
 interface TObject3D { id: number; name: string; userData: Record<string, unknown>; material?: TMaterial | TMaterial[] | null; children: TObject3D[] }
 interface TScene extends TObject3D { traverse(fn: (o: TObject3D) => void): void }
-interface TCamera { projectionMatrix: TMatrix4; projectionMatrixInverse: TMatrix4; matrixWorldInverse: TMatrix4; matrixWorld: TMatrix4; position: TVector3; quaternion: unknown; scale: unknown; matrixAutoUpdate: boolean; matrixWorldAutoUpdate: boolean }
+interface TCamera { coordinateSystem?: number; projectionMatrix: TMatrix4; projectionMatrixInverse: TMatrix4; matrixWorldInverse: TMatrix4; matrixWorld: TMatrix4; position: TVector3; quaternion: unknown; scale: unknown; matrixAutoUpdate: boolean; matrixWorldAutoUpdate: boolean }
 interface TRenderer { setPixelRatio(r: number): void; setClearColor(color: number, alpha: number): void; autoClear: boolean; getContext(): WebGL2RenderingContext; setSize(w: number, h: number, updateStyle: boolean): void; render(scene: TScene, camera: TCamera): void; dispose(): void; forceContextLoss?(): void }
+/** three.webgpu.js の WebGPURenderer（使う分） */
+interface TGpuRenderer extends TRenderer { init(): Promise<unknown>; clear(): void; backend: { isWebGPUBackend?: boolean; device?: GPUDevice } }
 interface TExternalTexture { sourceTexture: WebGLTexture | null }
 interface TRaycaster { setFromCamera(coords: TVector2, camera: TCamera): void; intersectObjects(objects: TObject3D[], recursive: boolean): Array<{ object: TObject3D; point: TVector3 }> }
 /** three.module.js（opts.three の URL）の使う分 */
@@ -41,6 +47,9 @@ interface ThreeModule {
 	WebGLRenderer: new (o: { canvas: OffscreenCanvas; alpha: boolean; antialias: boolean; premultipliedAlpha: boolean; preserveDrawingBuffer: boolean }) => TRenderer;
 	Scene: new () => TScene; PerspectiveCamera: new () => TCamera; ExternalTexture?: new (texture: WebGLTexture | null) => TExternalTexture; Raycaster: new () => TRaycaster;
 	REVISION?: string;
+	/** three.webgpu.js だけが持つ（renderer: "webgpu"） */
+	WebGPURenderer?: new (o: { canvas: OffscreenCanvas; alpha: boolean; antialias: boolean; device?: GPUDevice }) => TGpuRenderer;
+	WebGPUCoordinateSystem?: number;
 }
 /** 利用者のモジュール（opts.module の URL） */
 interface UserModule { setup?(THREE: ThreeModule, scene: TScene, h: Helpers): unknown; update?(dt: number, h: Helpers): unknown; onMessage?(data: ThreeMsg, h: Helpers): void; dispose?(h: Helpers | null): void }
@@ -51,9 +60,9 @@ interface Helpers {
 	earthRadiusM: number; time: number; clock: OverlayFrameApi["clock"];
 }
 /** init の opts（map.addThree が渡す） */
-interface ThreeOpts { three?: string; addons?: string; module?: string; origin?: number[]; depth?: boolean; params?: unknown }
+interface ThreeOpts { three?: string; addons?: string; renderer?: "webgl" | "webgpu"; module?: string; origin?: number[]; depth?: boolean; params?: unknown }
 /** render worker の host（init の第 3 引数）＝読む分 */
-interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL: string; stage?(st: string, extra?: Record<string, unknown>): void }
+interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL: string; stage?(st: string, extra?: Record<string, unknown>): void; gpuDevice?(): GPUDevice | null }
 /** 本体の深度の uniform（材質に貼る） */
 interface DepthUniforms { u_sceneDepth: { value: TExternalTexture }; u_sceneLogCoef: { value: number }; u_sceneDepthEps: { value: number }; u_sceneDepthOn: { value: number }; u_oeSize: { value: TVector2 } }
 /** main からの指示（検定の probe 以外は利用者の onMessage へそのまま） */
@@ -68,6 +77,7 @@ export function create() {
 	let M: TMatrix4 | null = null, Minv: TMatrix4 | null = null, origin: number[] | null = null, ready = false, failed: string | null = null, lastT = 0, lastW = 0, lastH = 0;
 	let du: DepthUniforms | null = null, extTex: TExternalTexture | null = null, depthUsed = false, dead = false;
 	let loader: ReturnType<typeof createThreeLoader> | null = null, queue: ThreeMsg[] | null = null;
+	let gpu: { device: GPUDevice; ctx: GPUCanvasContext; renderer: TGpuRenderer; pre: ReturnType<typeof createDepthPrepass> | null } | null = null, canvasRef: OffscreenCanvas | null = null;   // renderer: "webgpu" の時
 	const patched = new WeakSet<TMaterial>();
 	const probes: unknown[] = [];
 	let helpers: Helpers | null = null;
@@ -123,14 +133,30 @@ export function create() {
 				if (dead) return;
 				const rev = parseInt(THREE.REVISION || "0", 10);
 				let depthOn = want;
-				if (want && !THREE.ExternalTexture) { depthOn = false; console.warn(`[three overlay] three r${rev || "?"} has no THREE.ExternalTexture: drawn without scene depth (not hidden by terrain or buildings). Use three r${MIN_DEPTH_REVISION} or later, or pass depth: false.`); }
-				renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
-				renderer.setPixelRatio(1); renderer.setClearColor(0x000000, 0); renderer.autoClear = true;
+				if (want && !THREE.ExternalTexture && opts!.renderer !== "webgpu") { depthOn = false; console.warn(`[three overlay] three r${rev || "?"} has no THREE.ExternalTexture: drawn without scene depth (not hidden by terrain or buildings). Use three r${MIN_DEPTH_REVISION} or later, or pass depth: false.`); }
+				canvasRef = canvas;
+				if (opts!.renderer === "webgpu") {
+					const WGR = THREE.WebGPURenderer;
+					if (!WGR) throw new Error(`three overlay: renderer "webgpu" needs three.webgpu.js (opts.three = ${opts!.three})`);
+					const shared = host!.gpuDevice?.() ?? undefined;   // 本体が WebGPU＝同じ device（深度をコピーなしで）
+					const r = new WGR({ canvas, alpha: true, antialias: true, device: shared });
+					await r.init();
+					if (dead) { r.dispose(); return; }
+					if (!r.backend.isWebGPUBackend || !r.backend.device) throw new Error("three overlay: WebGPU is not available in this browser (use renderer: \"webgl\")");
+					renderer = r; renderer.autoClear = false;
+					gpu = { device: r.backend.device, ctx: canvas.getContext("webgpu") as GPUCanvasContext, renderer: r, pre: null };
+				} else {
+					renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
+					renderer.autoClear = true;
+				}
+				renderer.setPixelRatio(1); renderer.setClearColor(0x000000, 0);
 				scene = new THREE.Scene();
 				camera = new THREE.PerspectiveCamera(); camera.matrixAutoUpdate = false; camera.matrixWorldAutoUpdate = false;
+				if (gpu) camera.coordinateSystem = THREE.WebGPUCoordinateSystem;   // 先に揃える（揃っていないと render が updateProjectionMatrix で透視を既定に戻す）
 				origin = opts!.origin || [0, 0, 0];
 				M = buildM(origin); Minv = M.clone().invert();
-				if (depthOn) { extTex = new THREE.ExternalTexture!(null); du = { u_sceneDepth: { value: extTex }, u_sceneLogCoef: { value: 1 }, u_sceneDepthEps: { value: 2e-6 }, u_sceneDepthOn: { value: 0 }, u_oeSize: { value: new THREE.Vector2(1, 1) } }; }
+				if (depthOn && gpu) gpu.pre = createDepthPrepass(THREE as unknown as ThreeGPU);
+				else if (depthOn) { extTex = new THREE.ExternalTexture!(null); du = { u_sceneDepth: { value: extTex }, u_sceneLogCoef: { value: 1 }, u_sceneDepthEps: { value: 2e-6 }, u_sceneDepthOn: { value: 0 }, u_oeSize: { value: new THREE.Vector2(1, 1) } }; }
 				helpers = { THREE, scene, camera, renderer, origin, params: opts!.params, lnglatToLocal, localToLnglat, importAddon: (path: string) => loader!.addon(path),
 					requestDraw: () => host!.requestDraw(), post: (d: unknown) => host!.post(d), earthRadiusM: worldRadiusM(), time: 0, clock: null };
 				await user.setup?.(THREE, scene, helpers);
@@ -149,6 +175,12 @@ export function create() {
 	}
 	function answerProbes(w: number, h: number) {
 		if (!probes.length) return;
+		if (gpu) {   // WebGPU の canvas＝今の絵を buffer へ写して読む（非同期・行は上から）
+			const ids = probes.splice(0);
+			readCanvasPixels(gpu.device, gpu.ctx, w, h).then(data => { for (const id of ids) host!.post({ type: "pixels", id, w, h, flipY: false, data: id === ids[ids.length - 1] ? data : data.slice() }); })
+				.catch(e => { for (const id of ids) host!.post({ type: "pixels", id, error: String((e as Error)?.message || e) }); });
+			return;
+		}
 		const gl = renderer!.getContext(), ids = probes.splice(0);
 		try { const data = new Uint8Array(w * h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host!.post({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
 		catch (e) { for (const id of ids) host!.post({ type: "pixels", id, error: String((e as Error)?.message || e) }); }
@@ -156,7 +188,8 @@ export function create() {
 	// カメラ＝本体の透視と P⁻¹·mvp·M（f64 の配列で掛ける）
 	function setCamera(s: CameraState) {
 		const P = new THREE!.Matrix4().fromArray(s.projection), V = P.clone().invert().multiply(new THREE!.Matrix4().fromArray(s.mvp)).multiply(M!);
-		camera!.projectionMatrix.copy(P); camera!.projectionMatrixInverse.copy(P).invert();
+		const Pc = gpu ? new THREE!.Matrix4().fromArray(toWebGPUDepth(s.projection)) : P;   // WebGPU の深度は [0, 1]
+		camera!.projectionMatrix.copy(Pc); camera!.projectionMatrixInverse.copy(Pc).invert();
 		camera!.matrixWorldInverse.copy(V); camera!.matrixWorld.copy(V).invert();
 		camera!.matrixWorld.decompose(camera!.position, camera!.quaternion, camera!.scale);   // 利用者の Raycaster・lookAt 系の便宜（matrixAutoUpdate は false のまま）
 	}
@@ -165,6 +198,11 @@ export function create() {
 		if (queue) { const q = queue; queue = null; for (const d of q) message(d); }
 		if (w !== lastW || h !== lastH) { renderer!.setSize(w, h, false); lastW = w; lastH = h; }
 		setCamera(s);
+		if (gpu?.pre) {
+			const d = api.depth, src = d ? d.gpuTexture(gpu.device) : null;
+			gpu.pre.update(src, d?.logCoef ?? 1, d?.w ?? 1, d?.h ?? 1, w, h, s.projection);
+			if (src) depthUsed = true;
+		}
 		if (du) {
 			if (api.depth) { extTex!.sourceTexture = api.depth.texture(renderer!.getContext()); du.u_sceneLogCoef.value = api.depth.logCoef; du.u_sceneDepthOn.value = 1; depthUsed = true; }
 			else du.u_sceneDepthOn.value = 0;
@@ -175,6 +213,7 @@ export function create() {
 		const now = api.time ?? 0, dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
 		let more = false;
 		try { more = !!user!.update?.(dt, helpers!); } catch (e) { console.error("[three overlay] update", e); }
+		if (gpu) { gpu.renderer.clear(); if (gpu.pre) renderer!.render(gpu.pre.scene as unknown as TScene, camera!); }   // 前置き（本体の深度）→ 利用者のシーン（深度は引き継ぐ）
 		renderer!.render(scene!, camera!);
 		answerProbes(w, h);
 		return more;
@@ -194,7 +233,7 @@ export function create() {
 		dead = true;
 		try { user?.dispose?.(helpers); } catch { /* 利用者の後始末 */ }
 		try { renderer?.dispose(); renderer?.forceContextLoss?.(); } catch { /* 文脈はもう無い */ }
-		loader?.dispose();
+		loader?.dispose(); gpu?.pre?.dispose(); gpu = null; canvasRef = null;
 		THREE = renderer = scene = camera = user = helpers = M = Minv = du = extTex = loader = null; ready = false; lastW = lastH = 0; queue = null;
 	}
 	return { init, message, frame, pick, destroy, _state: () => ({ ready, failed, depthUsed }) };

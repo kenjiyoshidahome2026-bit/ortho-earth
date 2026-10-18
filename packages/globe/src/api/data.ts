@@ -19,6 +19,8 @@ import type { UserSource } from "../types/scope.ts";
 
 /** map.addThree の three を省いた時の three.js（jsDelivr・globe の devDependency と同じ版・r180〜＝深度で隠れる） */
 export const DEFAULT_THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js";
+/** renderer: "webgpu" の時の既定（WebGPURenderer と TSL を持つ build） */
+export const DEFAULT_THREE_WEBGPU_URL = "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js";
 /** dev の検証窓のオーバーレイの段（dbgHost.__overlay） */
 type OverlayStages = Record<string, { stage?: string; error?: string }>;
 
@@ -259,13 +261,14 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.ts・手引き＝THREE.md）：
 	//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない・省略＝jsDelivr の DEFAULT_THREE_URL）, addons: URL（three/examples/jsm/・省略＝three から推す）,
 	//                  module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)・中で import "three"／"three/addons/…" と書いてよい）,
+	//                  renderer: "webgl"（既定）| "webgpu"（three.webgpu.js の WebGPURenderer・本体が WebGPU なら device と深度を共有＝読み戻しなし）,
 	//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる・three r180〜）, params, name, above })
 	//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise＝setup が済んだら解決）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
-	map.addThree = ({ three = DEFAULT_THREE_URL, addons, module, origin, depth = true, params, name, above = false } = {} as NonNullable<Parameters<DataApi["addThree"]>[0]>) => {
+	map.addThree = ({ renderer = "webgl", three = renderer === "webgpu" ? DEFAULT_THREE_WEBGPU_URL : DEFAULT_THREE_URL, addons, module, origin, depth = true, params, name, above = false } = {} as NonNullable<Parameters<DataApi["addThree"]>[0]>) => {
 		const abs = (u: string | undefined) => u == null ? u : new URL(u, location.href).href;
 		if (name == null) { name = "three"; for (let i = 2; overlays.has(name); i++) name = "three" + i; }   // 2 つ目からは three2, three3…（名前を渡さずに複数置ける）
 		delete (dbgHost.__overlay as OverlayStages | undefined)?.[name];   // 同じ名前の前の段（外した物の "setup"）で ready が早まらない
-		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), addons: abs(addons), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } }) as OverlayHandle & { ready: Promise<OverlayHandle> };
+		const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), addons: abs(addons), renderer, module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } }) as OverlayHandle & { ready: Promise<OverlayHandle> };
 		const nm = name;
 		// ready＝worker の three-draw が setup を済ませて名乗る段（"setup"）。読み込みの失敗は "failed"
 		h.ready = new Promise((res, rej) => {
