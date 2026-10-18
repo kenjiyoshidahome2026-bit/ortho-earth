@@ -135,7 +135,8 @@ export async function mountTwin(map: GlobeMap) {
 		if (lod1.length) { for (const h of lod1) h.setVisible(true); return; }
 		if (lod1Loading) return;
 		lod1Loading = true; $<HTMLElement>(".lod1-n").textContent = "読み込み中…";
-		const hs = await Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: "国土交通省 PLATEAU（建築物 LOD1）" })
+		const hs = await Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: "国土交通省 PLATEAU（建築物 LOD1）",
+			style: { color: "#8d96a3" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる
 			.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })));
 		for (const h of hs) if (h) lod1.push(h);
 		lod1Loading = false;
