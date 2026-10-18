@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { EXCLUDE, excludedBy } from "./coverage-scope.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, "coverage"), RAW = path.join(OUT, "tmp");
@@ -43,4 +44,18 @@ for (const [k, p] of [...pkgs].sort((a, b) => b[1].total - a[1].total))
 	console.log(`${k.padEnd(28)} ${`${p.hit}/${p.files}`.padStart(12)} ${`${p.covered}/${p.total}`.padStart(13)} ${pct(p.covered, p.total).padStart(6)}`);
 const T = sum.total.lines;
 console.log(`\n全体 ${T.covered}/${T.total} 行 ${pct(T.covered, T.total)}・ファイル別＝coverage/index.html`);
+
+// 公称値＝描画・UI・地図本体・アプリ・型だけを外した「計算・データ処理」の行（範囲は scripts/coverage-scope.mjs）。
+// 絞り込み語つきの実行は一部の検定しか回らない＝公称値は出さない（全部回した時の値だけが公称値）
+if (process.argv.length <= 2) {
+	const out = new Map(EXCLUDE.map(c => [c.name, { files: 0, covered: 0, total: 0 }])), inScope = { files: 0, covered: 0, total: 0 };
+	for (const [f, v] of Object.entries(sum)) {
+		if (f === "total") continue;
+		const by = excludedBy(path.relative(ROOT, f).split(path.sep).join("/")), b = by ? out.get(by) : inScope;
+		b.files++; b.covered += v.lines.covered; b.total += v.lines.total;
+	}
+	console.log(`\n公称値（計算・データ処理） ${pct(inScope.covered, inScope.total)}  ＝ ${inScope.covered}/${inScope.total} 行・${inScope.files} ファイル`);
+	for (const c of EXCLUDE) { const o = out.get(c.name); console.log(`  外した：${c.name.padEnd(8)} ${String(o.total).padStart(7)} 行・${String(o.files).padStart(4)} ファイル（${c.why}）`); }
+	fs.writeFileSync(path.join(OUT, "official.json"), JSON.stringify({ lines: { covered: inScope.covered, total: inScope.total, pct: +(100 * inScope.covered / inScope.total).toFixed(1) }, files: inScope.files, excluded: Object.fromEntries(out) }, null, "\t") + "\n");
+}
 process.exit(t.status ?? 1);
