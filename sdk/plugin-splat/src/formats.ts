@@ -1,7 +1,9 @@
 // Gaussian splat の読み手と、描く前の下ごしらえ（純関数・main で動く・node で検定できる）。@ortho-earth/plugin-splat。
 //   読み手（.ply／.splat／.spz）は file の局所座標の SplatData（crs "local"・単位 m・軸は file の約束＝axes）を返す。
 //   下ごしらえ（toEnu）は SplatData（lnglat／ecef／local）を「錨（経度・緯度・高さ）＋東北上 m の中心＋東北上の共分散（6 個）＋RGBA」にする＝worker はこれだけ描く。
-// 四元数は x,y,z,w（契約＝globe の SplatData）。scales は楕円の各軸の σ（m・線形）。colors の A は不透明度。sh は持つが描かない（DC＝colors だけ）。
+// 四元数は x,y,z,w（契約＝globe の SplatData）。scales は楕円の各軸の σ（m・線形）。colors の A は不透明度。
+// sh＝DC より上の球面調和の係数（n × K×3・係数が先・色が後＝sh[i*K*3 + k*3 + c]・K＝3／8／15＝次数 1／2／3・.spz と同じ並び。.ply の f_rest_* は色が先なので読む時に並べ替える）。
+//   WebGPU の描き手が視線の向きで色を変える（splat-gpu.ts）。WebGL2 の描き手は DC だけ。packSh が 8 bit に詰める（.spz と同じ目）。
 export const SH_C0 = 0.28209479177387814;
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
 const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
@@ -21,7 +23,7 @@ export interface SplatData {
 	rotations: Float32Array;
 	/** RGBA 0..255; A is the opacity */
 	colors: Uint8Array;
-	/** spherical harmonics beyond DC (kept, not drawn) */
+	/** spherical harmonics beyond DC: n × K×3, coefficient-major (sh[i*K*3 + k*3 + c]), K = 3 / 8 / 15 for degree 1 / 2 / 3. Drawn by the WebGPU renderer */
 	sh?: Float32Array;
 	crs?: SplatCrs;
 	/** "local" only: which file axis is up ("z"; "y" = right-up-back; "-y" = right-down-forward) */
@@ -33,8 +35,10 @@ export interface LocalSplatData extends SplatData { n: number; crs: "local"; axe
 export type Hpr = [number, number?, number?];
 export type Origin = [number, number, number?];
 export interface ToEnuOptions { origin?: Origin; upAxis?: SplatAxes; orientation?: Hpr; scale?: number; opacity?: number }
-/** SplatData → what the overlay draws: an anchor, ENU centers (m), ENU covariances (m², xx xy xz yy yz zz) */
-export interface EnuSplats { n: number; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number }
+/** SplatData → what the overlay draws: an anchor, ENU centers (m), ENU covariances (m², xx xy xz yy yz zz), and rot = the 3×3 (row-major) that takes an ENU direction back into the data's frame (for the SH) */
+export interface EnuSplats { n: number; anchor: [number, number, number]; ctr: Float32Array<ArrayBuffer>; cov: Float32Array<ArrayBuffer>; rgba: Uint8Array; radius: number; rot: Float32Array }
+/** packSh の戻り＝8 bit に詰めた SH（4 個／u32・係数が先・色が後）・その目（係数＝snorm × scale）・次数 */
+export interface PackedSh { shq: Uint32Array<ArrayBuffer>; shScale: number; shDeg: 1 | 2 | 3; words: number }
 type Mat3 = number[];
 type BinSource = ArrayBuffer | Uint8Array | ArrayLike<number>;
 const toU8 = (buf: BinSource): Uint8Array => buf instanceof Uint8Array ? buf : new Uint8Array(buf as ArrayBuffer);
@@ -70,7 +74,7 @@ export function parsePly(buf: BinSource): LocalSplatData {
 		const positions = new Float32Array(n * 3), scales = new Float32Array(n * 3), rotations = new Float32Array(n * 4), colors = new Uint8Array(n * 4);
 		const gs = !!at.scale_0, hasRot = !!at.rot_0, dc = !!at.f_dc_0, rgb = !!at.red;
 		const rest = Object.keys(at).filter(k => /^f_rest_\d+$/.test(k)).sort((a, b) => +a.slice(7) - +b.slice(7));
-		const sh = rest.length ? new Float32Array(n * rest.length) : null;
+		const sh = rest.length ? new Float32Array(n * rest.length) : null, shK = rest.length % 3 === 0 ? rest.length / 3 : 0;
 		for (let i = 0; i < n; i++) {
 			positions[i * 3] = rd(i, "x"); positions[i * 3 + 1] = rd(i, "y"); positions[i * 3 + 2] = rd(i, "z");
 			if (gs) for (let k = 0; k < 3; k++) scales[i * 3 + k] = Math.exp(rd(i, "scale_" + k));
@@ -82,7 +86,7 @@ export function parsePly(buf: BinSource): LocalSplatData {
 			else if (rgb) { colors[i * 4] = rd(i, "red"); colors[i * 4 + 1] = rd(i, "green"); colors[i * 4 + 2] = rd(i, "blue"); }
 			else colors.fill(200, i * 4, i * 4 + 3);
 			colors[i * 4 + 3] = at.opacity ? clamp255(sigmoid(rd(i, "opacity")) * 255) : at.alpha ? rd(i, "alpha") : 255;
-			if (sh) for (let k = 0; k < rest.length; k++) sh[i * rest.length + k] = rd(i, rest[k]);
+			if (sh) { if (shK) for (let k = 0; k < shK; k++) for (let c = 0; c < 3; c++) sh[i * rest.length + k * 3 + c] = rd(i, rest[c * shK + k]); else for (let k = 0; k < rest.length; k++) sh[i * rest.length + k] = rd(i, rest[k]); }   // f_rest は色が先（R の 15 個・G の 15 個・B の 15 個）＝係数が先の並びへ
 		}
 		return { n, crs: "local", axes: "-y", positions, scales, rotations, colors, ...(sh ? { sh } : {}) };
 	}
@@ -208,7 +212,23 @@ export function toEnu(d: SplatData & { n: number }, { origin, upAxis, orientatio
 	}
 	let rgba = d.colors;
 	if (opacity !== 1) { rgba = rgba.slice(); for (let i = 3; i < rgba.length; i += 4) rgba[i] = clamp255(rgba[i] * opacity); }
-	return { n, anchor, ctr, cov, rgba, radius: Math.sqrt(r2) };
+	// SH の向き＝東北上の視線を元の軸へ戻す回転（T の列を正規化した R の転置・行優先）。lnglat＝そのまま、ecef＝地心直交へ、local＝file の軸へ
+	const rot = new Float32Array(9);
+	for (let c = 0; c < 3; c++) { const l = Math.hypot(T[c], T[3 + c], T[6 + c]) || 1; rot[c * 3] = T[c] / l; rot[c * 3 + 1] = T[3 + c] / l; rot[c * 3 + 2] = T[6 + c] / l; }
+	return { n, anchor, ctr, cov, rgba, radius: Math.sqrt(r2), rot };
+}
+/** SH の次数（1 個あたりの係数の数 9／24／45 → 1／2／3・他は 0＝使わない） */
+export const shDegreeOf = (perSplat: number): 0 | 1 | 2 | 3 => perSplat === 9 ? 1 : perSplat === 24 ? 2 : perSplat === 45 ? 3 : 0;
+// SH を 8 bit に詰める（.spz と同じ目＝snorm8・4 個を u32 に）。目（scale）は層の最大の絶対値＝描き手が unpack4x8snorm × scale で戻す。maxDeg で次数を落とせる（係数の先頭だけ残す）
+export function packSh(sh: Float32Array, n: number, maxDeg = 3): PackedSh | null {
+	if (!n || !sh?.length || sh.length % n) return null;
+	const per = sh.length / n, deg = Math.min(shDegreeOf(per), maxDeg) as 0 | 1 | 2 | 3;
+	if (!deg) return null;
+	const K = [0, 3, 8, 15][deg] * 3, words = Math.ceil(K / 4);
+	let mx = 0; for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) { const a = Math.abs(sh[i * per + k]); if (a > mx) mx = a; }
+	const shScale = mx > 1e-6 ? mx : 1, inv = 127 / shScale, shq = new Uint32Array(n * words), b = new Uint8Array(shq.buffer);
+	for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) { let q = Math.round(sh[i * per + k] * inv); if (q > 127) q = 127; else if (q < -127) q = -127; b[i * words * 4 + k] = q & 255; }
+	return { shq, shScale, shDeg: deg, words };
 }
 // 中心の経緯度（当たりの答え用・近似＝錨の東北上から）
 export function enuToLngLat(anchor: ArrayLike<number>, e: number, n: number): [number, number] { return [anchor[0] + e / (Math.cos(anchor[1] * D2R) * D2R * R_SPHERE), anchor[1] + n / (D2R * R_SPHERE)]; }

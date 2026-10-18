@@ -28,6 +28,7 @@ export interface OverlayModule {
 	message(data: unknown): void;
 	frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi): unknown;
 	destroy(): void;
+	/** 当たり（統一 picking）。Promise でもよい（WebGPU の描き手＝読み戻しは非同期・2026-10-18） */
 	pick?(x: number, y: number, r: number, ctx: LastOverlayFrame): unknown;
 	placed?(): unknown[];
 }

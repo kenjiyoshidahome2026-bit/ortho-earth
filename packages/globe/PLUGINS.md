@@ -45,6 +45,8 @@ map.supports("data.squares");   // true
 1. **同一フレームのオーバーレイ**＝`map.overlay(url, { name, above })`。url は worker が `import()` する**依存ゼロ**のモジュール（import 文なし・vite の `?url`）で、
    `init(canvas, opts, host)`／`message(data)`／`frame(cam, camState, { w, h }, api) → boolean`／`pick?(x, y, r, ctx)`／`destroy()` を export する。地球・注記と同じフレーム・同じカメラで描き、
    `api.project/projectH/clipH/depth`（シーンの深度＝建物や地形に隠れる）が使える。見本＝`src/gadgets/points-gl.js`（点・RTE・GPU picking）・`arcs-gl.js`・`trips-gl.js`・`three-draw.ts`（three.js を worker で）。
+   **WebGPU で描く**なら `host.gpuDevice()`（本体が WebGPU の時の GPUDevice・他は null＝自前の adapter を取る）で canvas の "webgpu" 文脈を configure し、深度は `api.depth.gpuTexture(device)`（rgba8unorm・詰めた 24 bit の対数深度・行は下から）を束ねる＝コピーも読み戻しも無い。
+   `pick` は Promise を返してよい（番号の読み戻しが mapAsync＝非同期・render worker が全部そろうまで待つ・2026-10-18）。見本＝`sdk/plugin-splat/src/splat-gpu.ts`（WGSL の compute で並べ替え・SH・r32uint の当たり）。
    手綱の `post(data, transfer)` で状態を渡し、`pick(x, y, r)` で当たりを返す（統一 picking＝`map.on("click", id, cb)`・`queryRenderedFeatures({ layers: [id] })` に乗る）。
    **文脈の数に気をつける**：render worker の WebGL 文脈は Chrome で 4 つまで（地球が 1 つ使う）。超えると一番古い文脈＝地球が落ちる。層ごとにオーバーレイを作らず、一つのオーバーレイに多くの層を載せる：
    手綱の `addLayerId(id)`／`removeLayerId(id)` で層の id を名乗り、module の `pick` の答えに `layer: id` を入れると、`map.on(ev, id)`・`queryRenderedFeatures({ layers: [id] })`・`pickOverlays({ names: [id] })` がその id で当たる（W9）。
@@ -96,6 +98,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 - `dataKinds` の **`splat`**（Gaussian splat）：`map.addData(data, { kind: "splat" })`。data＝`{ n, positions: Float32Array(n*3)（[lng,lat,alt] か ECEF＝opts.crs）, scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数）, colors: Uint8Array(n*4), sh?: Float32Array }` か .ply/.splat/.spz の URL（読み手は plugin）。
   plugin が無ければ `addData` は投げる（`capabilities()["data.splat"]` は "spec"）。描く段は同一フレームのオーバーレイ（深度つき・視線順のソート）＝`@ortho-earth/plugin-splat`（下の節）が実装している。
+  `sh` の並び＝係数が先・色が後（`sh[i*K*3 + k*3 + c]`・K＝3／8／15＝次数 1／2／3・.spz と同じ）。WebGPU の描き手が視線の向きで色を変える（2026-10-18）。
 - `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import() する module（`export transcode(bytes: Uint8Array, { mimeType }) → { width, height, rgba: Uint8Array(width*height*4) }`・Promise でもよい）。模型（gadget model）と 3D Tiles の glb の KHR_texture_basisu の画像がこれを通って普通のテクスチャになる（第 3 波 W5）。登録が無ければ fallback の画像（texture.source）のまま＝`capabilities()["texture.ktx2"]` は "spec"、登録があれば "plugin"。`@ortho-earth/ktx2` が basis_universal の WASM（opt-in・既定は unpkg の @loaders.gl/textures の libs・`libraryPath` で自前配布）で実装している：`map.use(ktx2Plugin({ libraryPath }))`。
 
 ## 3D Tiles の要求と出典（requestTransform・attribution）

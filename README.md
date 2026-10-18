@@ -89,7 +89,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/google-tiles`](sdk/google-tiles) | 0.1.0 | GPL-3.0-or-later | Google Photorealistic 3D Tiles: API key and session handling plus attribution |
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/plugin-scene`](sdk/plugin-scene) | 0.1.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
-| [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.1.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz`) as a `map.addData` kind |
+| [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.2.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz`) as a `map.addData` kind: WebGPU renderer with spherical harmonics and GPU sort, WebGL2 fallback |
 | [`glbconv`](sdk/glbconv) | 0.2.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps

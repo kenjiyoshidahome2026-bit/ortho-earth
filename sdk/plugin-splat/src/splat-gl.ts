@@ -1,4 +1,5 @@
-// Gaussian splat の描き手（同一フレームのオーバーレイ＝map.overlay・render worker の中で地球と同じ rAF・同じ cam）。@ortho-earth/plugin-splat。
+// Gaussian splat の WebGL2 の描き手（同一フレームのオーバーレイ＝map.overlay・render worker の中で地球と同じ rAF・同じ cam）。@ortho-earth/plugin-splat。
+// 2026-10-18 から WebGPU の描き手（splat-gpu.ts＝SH・GPU の並べ替え）が主で、こちらは WebGPU の無い器の逃げ道（splat-draw.ts が選ぶ）＝DC の色だけ・CPU の並べ替え。
 // ⚠ 依存ゼロ（実行時の import 文なし・型だけの import は消える）＝render worker が URL で import() する。深度の GLSL は host.depthGLSL を貼る（建物・地形に隠れる）。
 // 一つの map の全部の層を一つのオーバーレイ＝一つの WebGL 文脈で描く（render worker の文脈は Chrome で 4 つまで）。当たりの答えに layer: q（本体の addLayerId と組む）。
 // message { type:"layer", q, n, anchor:[lng,lat,alt], alt:"relative"|"absolute", ctr: Float32Array(n*3)（錨からの東北上 m）, cov: Float32Array(n*6)（東北上 m²＝xx xy xz yy yz zz）,
@@ -11,7 +12,7 @@ import type { OverlayFrameApi } from "@ortho-earth/globe";
 type GL = WebGL2RenderingContext;
 interface Program { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }
 /** init の第 3 引数（render worker が渡す）＝深度の GLSL・描き直しの依頼・main への返事 */
-export interface OverlayHost { depthGLSL?: string | null; requestDraw?(): void; post?(d: unknown): void }
+export interface OverlayHost { depthGLSL?: string | null; requestDraw?(): void; post?(d: unknown): void; gpuDevice?(): GPUDevice | null }
 /** frame の camState（render worker の内部の形＝この描き手が読む欄だけ） */
 export interface CamState { mvp: ArrayLike<number>; eye?: ArrayLike<number> | null }
 /** frame の api＝OverlayFrameApi のうち、この描き手が読む欄（pick の ctx.api は depth: null） */
@@ -19,7 +20,8 @@ export type SplatApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { 
 export interface PickContext { s: CamState; api: SplatApi; size: { w: number; h: number } }
 export type SplatAltitude = "relative" | "absolute";
 /** main（index.ts）から届く層の中身（type・q は手綱が足す） */
-export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null }
+/** rot・shq・shScale・shDeg・shWords＝SH（WebGPU の描き手だけが読む・splat-gpu.ts）。この WebGL2 の描き手は DC だけ */
+export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number }
 export type SplatMessage = ({ type: "layer"; q: string } & SplatLayerBody) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
 /** pick の答え（統一 picking が layer で手綱に配る） */
 export interface SplatPickResult { id: number; q: string; layer: string; index: number; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number } }
