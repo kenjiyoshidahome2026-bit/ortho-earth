@@ -446,10 +446,13 @@ export interface DataApi {
 	 *  src＝GeoParquet の URL（footer → 視野の row group だけ Range）／File・GeoPBF の File／ArrayBuffer／geopbf() の戻り。本体は動的 import＝使わない頁には 0 バイト。
 	 *  失うもの＝共有境界は 2 回描く・重なった面は後勝ち・LOD は 2〜3 段・地形には沿わない（楕円体の上）。編集や位相が要る時は gint（addGint）へ */
 	addColumnar(src: string | File | Blob | ArrayBuffer | GeoPBF, opts?: ColumnarLayerOptions): Promise<ColumnarLayerHandle | null>;   // api/data.ts:259
-	/** three.js を render worker の中で描く（PR-3・gadgets/three-draw.js）。three＝three.module.js の URL（利用者が持ち込む＝依存にしない）・module＝利用者のモジュールの URL（export setup(THREE, scene, h)／update?(dt, h)／onMessage?(d, h)／dispose?(h)）・
-	 *  origin＝[lon, lat, hM]（シーンの ENU m の原点＝RTE・省略＝今の中心）・depth＝地形・建物に隠れる（既定 true）・params＝setup へ渡す物・name＝オーバーレイの名前（既定 "three"）・above＝注記の上。
-	 *  戻り値＝オーバーレイの手綱＋ready（setup が済んだら解決・module の読み込み失敗は reject） */
-	addThree(opts: { three: string; module?: string; origin?: [number, number, number]; depth?: boolean; params?: unknown; name?: string; above?: boolean }): OverlayHandle & { ready: Promise<OverlayHandle> };   // api/data.ts:267
+	/** three.js を render worker の中で描く（PR-3・gadgets/three-draw.ts・手引き＝packages/globe/THREE.md）。three＝three.module.js の URL（利用者が持ち込む＝依存にしない・省略＝jsDelivr の three@0.186.1）・
+	 *  addons＝three/examples/jsm/ の URL（省略＝three の URL から推す）・module＝利用者のモジュールの URL（export setup(THREE, scene, h)／update?(dt, h)／onMessage?(d, h)／dispose?(h)。中で `import * as THREE from "three"`・
+	 *  `import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"` と書いてよい＝worker の中で解く）・origin＝[lon, lat, hM]（シーンの ENU m の原点＝RTE・省略＝今の中心）・
+	 *  depth＝地形・建物に隠れる（既定 true・three r180 以上。古い three は深度なしで描いて警告）・params＝setup へ渡す物・name＝オーバーレイの名前（既定 "three"・2 つ目から "three2"…）・above＝注記の上。
+	 *  モジュールは worker で動く＝DOM（document・window）は無い。1 つごとに WebGL 文脈が 1 つ増える（worker の文脈は Chrome で 4 つまで・地球が 1 つ）＝模型は 1 つの addThree にまとめる。
+	 *  戻り値＝オーバーレイの手綱＋ready（setup が済んだら解決・読み込みや setup の失敗は reject） */
+	addThree(opts?: { three?: string; addons?: string; module?: string; origin?: [number, number, number]; depth?: boolean; params?: unknown; name?: string; above?: boolean }): OverlayHandle & { ready: Promise<OverlayHandle> };   // api/data.ts:267
 	/** H3 のセル（@ortho-earth/h3・PR-2・本体は遅延 import）＝点をセルに集約（count／sum／mean／min／max）か、セル id の並びをそのまま面に。fill か fill-extrusion の層（既存の層経路＝描画・当たりは addLayer と同じ） */
 	addH3(src: unknown, opts?: CellsLayerOptions): Promise<CellsLayerHandle>;   // api/data.ts:281
 	/** deck.gl の Layer（配列＋accessor）の相当（PR-4／PR-6・src/adddata.js）。kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）・"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth／getHeight 弦長比）・

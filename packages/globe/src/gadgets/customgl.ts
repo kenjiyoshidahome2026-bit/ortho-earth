@@ -40,6 +40,8 @@ export interface CustomGLEnv {
 }
 
 // env＝{ mapEl, before（この canvas をこの要素の前に差す＝注記の下）, size()→{w,h}（device px）, dpr, cam, earthM, requestDraw, onFrame(fn)→off, hostMap（onAdd/render に渡す map） }
+let warned3d = false;   // "3d" の層を main の経路で受けた案内（頁で 1 回）
+
 export function createCustomGL(env: CustomGLEnv) {
 	const { mapEl, before, size, cam, earthM, requestDraw, onFrame, onWorkerFrame } = env;   // onWorkerFrame＝worker が描いた絵の cam で呼ばれる（あれば同期＝こちらを使う）
 	const layers: Array<{ layer: CustomLayer; order: number }> = [];   // { layer, order }
@@ -84,6 +86,8 @@ export function createCustomGL(env: CustomGLEnv) {
 		add(layer: CustomLayer, order = layers.length) {
 			const g = ensure();
 			this.remove(layer.id);
+			// "3d" の層をこの経路（main の canvas）で受けると地図の深度を持てない＝模型が建物・地形の手前に出る。worker 経路の書き方を 1 回だけ案内する（THREE.md）
+			if (layer.renderingMode === "3d" && !warned3d) { warned3d = true; console.warn(`[custom layer] "${layer.id}": renderingMode "3d" layers passed as objects run on the main thread and are not hidden by terrain or buildings. Pass { type: "custom", url: <module URL>, three?: <three.module.js URL> } to draw in the render worker with scene depth, or use map.addThree (see packages/globe/THREE.md).`); }
 			layers.push({ layer, order }); layers.sort((p, q) => p.order - q.order);
 			try { layer.onAdd?.(env.hostMap ?? null, g); } catch (err) { console.error(`[custom layer] ${layer.id} onAdd`, err); }
 			requestDraw();
