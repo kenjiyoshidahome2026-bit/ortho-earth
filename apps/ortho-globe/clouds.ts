@@ -47,6 +47,12 @@ export const SATS: Sat[] = [
 const TILE = 512;                                   // GIBS の EPSG:4326 は 512 px 四方（EUMETView も同じ升目で頼む）
 const SPAN = [288, 144, 72, 36, 18, 9];             // 段 L のタイル 1 枚の度数（2km 系・段 0 は 2×1 枚）
 const REFRESH_MS = 10 * MIN, SUN_MS = 20e3, POOL = 6, BACK = 3;
+// 衛星ごとの見切り（2026-10-19・EUMETView が 500/502 を返し続けて「読み込み中… 46/50」のまま止まり、deploy の関門も 240 秒で落ちた）：
+// 1 本の要求は FETCH_MS で打ち切る。ある衛星が、BACK 段まで下がっても読めないタイルを SAT_FAIL_TILES 枚出すか、読み始めから
+// SAT_GIVEUP_MS たっても 1 枚も読めていなければ、その回はその衛星を諦める（残りのタイルでは取りに行かない）＝取れた衛星だけで読み終える。
+// 諦めた衛星はパネルに「unavailable」（used が null のまま）。次の読み直し（10 分毎・時計の刻み）でまた試す
+// 全体も LOAD_CAP_MS で締める（一部は読めるが残りが落ち続ける衛星・夜の GIBS の遅さ）＝それまでに読めなかったタイルは空のまま読み終える
+const FETCH_MS = 12e3, SAT_FAIL_TILES = 2, SAT_GIVEUP_MS = 30e3, LOAD_CAP_MS = 90e3;
 const STEP_MS = 10 * MIN;                           // 時計の刻み（GIBS の観測の刻み）
 const isoOf = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
 const floorTo = (ms: number, step: number) => Math.floor(ms / step) * step;
@@ -241,6 +247,16 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 		}
 		if (!gridSent) { ov.post({ type: "grid", w: texW, h: texH, vspan }); gridSent = true; }
 		const used: (string | null)[] = SATS.map(() => null);
+		const failed = SATS.map(() => 0), gaveUp = SATS.map(() => false), t0 = performance.now();   // 衛星ごとの見切り（上の FETCH_MS 等）
+		let capped = false;
+		const quit = (i: number) => {
+			if (gaveUp[i]) return true;
+			const el = performance.now() - t0;
+			if (el > LOAD_CAP_MS) { if (!capped) { capped = true; console.warn("[clouds] load cap", LOAD_CAP_MS / 1e3, "s reached = finishing with the tiles loaded so far"); } return true; }
+			if (!used[i] && el > SAT_GIVEUP_MS) { gaveUp[i] = true; console.warn("[clouds]", SATS[i].name, "gave up (no tile in", SAT_GIVEUP_MS / 1e3, "s)"); return true; }
+			return false;
+		};
+		const anySig = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;   // 外の中止＋1 本の打ち切り（無い環境は外の中止だけ）
 		let done = 0;
 		setStatus(w, 0, jobs.length);
 		const one = async ({ row, col, who }: Job) => {
@@ -249,16 +265,21 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 			const imgs = await Promise.all(who.map(async (i): Promise<TileT | null> => {
 				const sat = SATS[i];
 				for (let k = 0; k <= BACK; k++) {
+					if (quit(i)) return null;   // この回は諦めた衛星
 					const tm = isoOf(Date.parse(times[i]!) - k * sat.step), url = tileUrl(sat, L, row, col, tm);
 					try {
-						const r = await fetch(url, { signal: sig }); if (!r.ok) throw new Error(r.status as unknown as string);
+						const r = await fetch(url, { signal: anySig ? anySig([sig, AbortSignal.timeout(FETCH_MS)]) : sig }); if (!r.ok) throw new Error(r.status as unknown as string);
 						if (!(r.headers.get("content-type") || "").startsWith("image/")) throw new Error("not an image");   // WMS の例外は XML で 200 が来る
 						const im = await decodePng(await r.blob());
 						const T = sat.src === "gibs" ? toPal(im.px, im.w, im.h) : decodeGray(im.px, im.w, im.h);
 						if (!used[i] || tm < used[i]!) used[i] = tm;
 						return { i, T, w: im.w, h: im.h };
-					} catch (e) { if ((e as Error)?.name === "AbortError") throw e; if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, (e as Error)?.message); }
+					} catch (e) {
+						if (sig.aborted) throw e;   // 外の中止だけ投げる（1 本の打ち切り＝TimeoutError は失敗の 1 回として次の段へ）
+						if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, (e as Error)?.message);
+					}
 				}
+				if (!used[i] && ++failed[i] >= SAT_FAIL_TILES && !gaveUp[i]) { gaveUp[i] = true; console.warn("[clouds]", sat.name, "gave up (", failed[i], "tiles failed)"); }
 				return null;
 			}));
 			const out = new Uint8Array(TILE * TILE);
