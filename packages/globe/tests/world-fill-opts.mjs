@@ -13,7 +13,7 @@ ok("標高ローダは noTerr の時だけ遅延（起動で作らない）", ()
 	assert.equal((src.match(/createGetHeight\(/g) || []).length, 1, "createGetHeight の呼び出しは 1 か所（ensureHeightLoader の中）");
 	assert.match(src, /const ensureHeightLoader = \(\) => heightLoader \?\?=/);
 	assert.match(src, /if \(!noTerr\) ensureHeightLoader\(\);/);
-	assert.match(src, /getHeightP: GlobeScope\["getHeightP"\] = \{ then: \(ok, ng\) => ensureHeightLoader\(\)\.then\(ok, ng\) \}/);
+	assert.match(src, /const getHeightP = \{\s*then: \(ok, ng\) => ensureHeightLoader\(\)\.then\(ok, ng\),/);
 });
 
 ok("湖・海面下の陸は worldFill:false で読まない", () => {
