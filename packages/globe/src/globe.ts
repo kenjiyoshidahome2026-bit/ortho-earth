@@ -1776,7 +1776,13 @@ const ensureHeightLoader = () => heightLoader ??= (() => {
 	p.then(f => { getHeight = f; updateUnderground(true); });   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
 	return p;
 })();
-const getHeightP: GlobeScope["getHeightP"] = { then: (ok, ng) => ensureHeightLoader().then(ok, ng) };   // 遅延の引き口＝then で初めてローダを作る。到着を待って照会（起動直後でも0mに化けない）
+// 遅延の引き口＝then／catch／finally で初めてローダを作る（Promise の形のまま＝呼ぶ側は今まで通り）。到着を待って照会（起動直後でも0mに化けない）
+const getHeightP = {
+	then: (ok, ng) => ensureHeightLoader().then(ok, ng),
+	catch: ng => ensureHeightLoader().catch(ng),
+	finally: f => ensureHeightLoader().finally(f),
+	[Symbol.toStringTag]: "Promise",
+} as GlobeScope["getHeightP"];
 if (!noTerr) ensureHeightLoader();
 ownDestroy.push(() => heightLoader?.then(f => f.terminate?.()));
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
