@@ -251,6 +251,16 @@ function armRaf() {
 	rafArmed = true;
 	requestAnimationFrame(() => { rafArmed = false; frame(); });
 }
+// 起こす口（描くものが届いた時だけ rAF を張る）。旧＝frame() 末尾で cam があれば無条件に張り直し＝静止中も毎 vsync 空回り
+//（上限なし計測では毎秒~1万回＝Viz に溢れて頁の rAF が 55Hz に絞られた・2026-10-19 ベンチ実測）。dirty を立てる経路は
+// 受信の口（dispatch・scenePort・mesh port）と requestDraw が kick() で起こす。取りこぼしても下の 33ms ポンプが 100ms で拾う＝凍らない
+const kick = () => { if (cam) armRaf(); };
+const IDLE_GRACE_MS = 1000;   // 最後に描いてからこの間は rAF を張り続ける（寝るのは本当に静かになってから）
+let settleTimer = 0;   // 静止の品質フレーム（4x）・解像度の静止復帰を RES_SETTLE_MS 後に一度だけ起こす（空回りで待たない）
+function armSettle() {
+	if (settleTimer || !(resIdx > 0 || (aaDyn && lastAA === 1))) return;
+	settleTimer = setTimeout(() => { settleTimer = 0; kick(); }, Math.max(0, lastDrewT + RES_SETTLE_MS + 1 - performance.now())) as unknown as number;
+}
 setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
@@ -331,7 +341,7 @@ async function bootWebGL(m: RwMsg) {
 	glRef = canvas!.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
 	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
-	gint = createGintLayer(glRef!, { requestDraw: () => { dirty = true; }, quad4: m.quad4 !== false }) as GintEngine;
+	gint = createGintLayer(glRef!, { requestDraw: () => { dirty = true; kick(); }, quad4: m.quad4 !== false }) as GintEngine;
 	// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
 	// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
 	tqExt = glRef!.getExtension("EXT_disjoint_timer_query_webgl2");
@@ -342,7 +352,7 @@ async function bootWebGL(m: RwMsg) {
 // 標高アトラスの部品（init の材料と DEM から）。起動時か、terrain:false の地図に初めて DEM が来た時（terrLazyInit）に作る
 let terrLazyInit: RwMsg | null = null;
 const makeTerrain = (m: RwMsg, dem: TerrainOptions["dem"] | undefined): RwTerrain => createTerrain({
-	renderer: renderer!, requestDraw: () => { dirty = true; },
+	renderer: renderer!, requestDraw: () => { dirty = true; kick(); },
 	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
 	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
@@ -386,7 +396,7 @@ function finishInit(m: RwMsg) {
 				if (d.type === "dl") sceneInbox.delete(d.slot);
 			}
 			else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
-			dirty = true;
+			dirty = true; kick();
 		};
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
 		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
@@ -443,7 +453,7 @@ const dispatch = (e: { data: RwMsg }) => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
+						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; kick(); }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
@@ -472,7 +482,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -502,7 +512,7 @@ const dispatch = (e: { data: RwMsg }) => {
 				const ack = (table: Uint32Array | null, error: string | null) => postMessage({ action: "gintAck", cmd: m.cmd, layer: m.layer, seq, error, table }, table ? [table.buffer] : []);
 				if (!fn) ack(null, "no-gpu-expr");
 				else { let r; try { r = fn.call(g, m.data); } catch (e) { ack(null, String((e as Error)?.message || e)); r = undefined; }
-					if (r === null) ack(null, "no-expr-job"); else if (r) Promise.resolve(r as Uint32Array | null | undefined).then(t => { ack(t ?? null, null); dirty = true; }, (e: Error) => ack(null, String(e?.message || e))); }
+					if (r === null) ack(null, "no-expr-job"); else if (r) Promise.resolve(r as Uint32Array | null | undefined).then(t => { ack(t ?? null, null); dirty = true; kick(); }, (e: Error) => ack(null, String(e?.message || e))); }
 			}
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
 			else if (m.cmd === "vtLabels") { const list = (m.data as UserLabelsMsg)?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer!, list, (m.data as UserLabelsMsg) ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
@@ -583,6 +593,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			dOutH = null;   // 深度の書き出し口は renderer.dispose が畳んだ
 			break;
 	}
+	if (dirty) kick();   // 受信で描くものが増えた（cam・set・meshSet…）＝次の rAF を張る
 };
 self.onmessage = dispatch;   // 実イベントも同じディスパッチャ（グローバル getter は信用しない＝iOS轍）
 self.addEventListener("error", (e: ErrorEvent) => { try { postMessage({ type: "drawErr", msg: "worker error: " + (e.message || e), stack: String(e.filename || "") + ":" + (e.lineno || 0) }); } catch {} });   // 見えない例外の可視化（iOS診断で手動dispatchの silent throw を見逃した反省）
@@ -721,6 +732,18 @@ let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の�
 // 予約の有無に関わらず段階を踏まず一気に res=1 へ戻す。少し余裕（500ms）を持たせて誤検出を避ける。
 const RES_SETTLE_MS = 500;
 let lastDrewT = 0;
+// 読込の束ね（2026-10-19・PLATEAU ベンチ実測）：初回表示の約 6 秒、カメラは 2 姿勢しか取らないのに地図全体を 300〜470 回描いていた
+//（タイル 1 枚の転送・表示切替・main の描き直し依頼のたびに 1 枚）。読込の最中（転送が LOAD_BURST_MS 以内にあった）で、
+// カメラが動いておらず、時計で動く物も自前の継続（フェード等）も無い間は、描き直しを LOAD_BATCH_MS に 1 回へまとめる。
+// 転送そのものは毎ティック進む（drainUploads）＝溜まった到着を次の 1 枚で一度に見せる。動かした瞬間・読込が止んだ後は従来どおり即描く
+const LOAD_BATCH_MS = 200, LOAD_BURST_MS = 400;
+let lastLoadT = 0;   // 最後に転送（シーン・multi_draw・メッシュ・表示切替）を当てた時刻
+const hiddenWards = new Set<string>();   // renderer の meshHidden の写し（meshVis／解放で保つ）＝伏せた区への転送は描き直しの理由にしない
+function holdForBatch(now: number) {
+	return sentFrame1 && !animCont && !resPending && !snapWait.length
+		&& now - lastLoadT < LOAD_BURST_MS && now - lastDrewT < LOAD_BATCH_MS
+		&& lastCamMoveT <= lastDrewT && now - lastTimeT > RES_SETTLE_MS;
+}
 // 遷移時AA（WebGPU・2026-08-19）：MSAA テクスチャの store/load/resolve 帯域が遷移フレーム最大の固定費
 //（?perf=1 実測＝msaa が最も効き、msaa=0 なら動的解像度も落ちない）。カメラ遷移・アニメ継続中は 1x 直描き
 //（renderer.draw の opts.aa=false）、静止が RES_SETTLE_MS 続いたら 4x 品質フレームを1枚描く（静止時詳細化・
@@ -767,6 +790,11 @@ function drainMD() {
 	if (spent) uploadSkip = 2;   // 転送の山は「次フレームのdt」に出る＝動的解像度のEMA計測から除外
 }
 function drainUploads() {
+	const n0 = mdInbox.length + sceneInbox.size + meshInbox.length;
+	drainUploads0();
+	if (mdInbox.length + sceneInbox.size + meshInbox.length !== n0) lastLoadT = performance.now();   // 何か当てた＝読込の最中
+}
+function drainUploads0() {
 	if (!renderer) return;
 	if (mdInbox.length) drainMD();
 	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
@@ -780,10 +808,18 @@ function drainUploads() {
 	}
 	while (meshInbox.length) {
 		const item = meshInbox.shift()!;
-		if ("vis" in item) { renderer.set("meshVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
+		if ("vis" in item) {   // 表示切替＝フラグだけ＝同フレームで続けて消化
+			renderer.set("meshVis", item.vis, item.name);
+			const w = String(item.name);
+			if (item.vis ? hiddenWards.delete(w) : !hiddenWards.has(w) && !!hiddenWards.add(w)) dirty = true;   // 変わった時だけ描き直す（伏せ済みを伏せる・出ている物を出す＝絵は同じ）
+			continue;
+		}
 		if ("xf" in item) { renderer.set("meshXf", item.xf, item.name); dirty = true; continue; }   // 変換＝フラグだけ＝同フレームで続けて消化
 		if ("col" in item) { renderer.set("meshCol", item.col, item.name); dirty = true; continue; }
 		const { meshData, name } = item;
+		const ward = String((meshData as { ward?: string } | null | undefined)?.ward || String(name).split("#")[0]);   // renderer と同じ区の決め方（data.ward か名前の # の前）
+		const unseen = !!meshData && hiddenWards.has(ward);   // 伏せた区への転送＝画面は変わらない（tiles3d は伏せてから上げる）＝描き直さない
+		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
 			if (item.port) {
@@ -795,7 +831,7 @@ function drainUploads() {
 				catch { item.port.postMessage({ drained: 1 }); }
 			}
 		}
-		dirty = true;
+		if (!unseen) dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
 }
@@ -879,7 +915,7 @@ function frame() {
 	let drew = false, depthBmp: ImageBitmap | null = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す（WebGL のオーバーレイが求めた時だけ作られる）
 	try {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
-		if (dirty && renderer && cam) {
+		if (dirty && renderer && cam && !holdForBatch(lastFrameRun)) {   // 読込の最中の止まった画面は束ねる（上の holdForBatch）＝dirty は立ったまま次のティックへ
 			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
 			dirty = false; drew = true;
 			if (clockSet !== clockA) { renderer.set("view", { clock: clockA }); clockSet = clockA; }
@@ -994,5 +1030,12 @@ function frame() {
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
-	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
+	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か
+	// ポンプ（33ms 毎に 100ms 無音を検知＝iOS の rAF 不発の救済）が起こす。cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
+	// 束ねで待っている間も dirty は立ったまま＝次の rAF を張る（読込の最中だけの短い窓）。タイマで寝て待つ版は
+	// 層の切替直後の撮影（t-koppenfill）で古い絵を返す回があった＝確実な rAF の側に倒す（2026-10-19）
+	// 描いた後 IDLE_GRACE_MS は従来どおり毎フレーム起きる（直後に続く仕事＝層の切替・知性の層の収束などの間合いを変えない）。それを過ぎて
+	// 何も無ければ寝る＝止まった地図は毎 vsync 起きない（受信の kick・静止タイマ・ポンプが起こす）
+	if (dirty || resPending || pendingUp || mdInbox.length || sceneInbox.size || meshInbox.length || snapWait.length || nowT - lastDrewT < IDLE_GRACE_MS) kick();
+	else armSettle();
 }
