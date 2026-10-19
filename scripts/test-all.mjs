@@ -15,7 +15,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { requireNode } from "./lib/node-version.mjs";
 
+requireNode();   // 古い node（.ts を読めない）は葉を回す前に止める
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // root の関門。workspace 名＝package.json の name
