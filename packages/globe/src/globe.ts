@@ -3071,8 +3071,8 @@ map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(
 let t3dCtl: T3dLive | null = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); return t3dCtl ??= m.createTiles3D(map, {
 	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
-	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); requestDraw(); },
-	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); requestDraw(); },
+	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); },   // 描き直しは worker が転送を当てた時に決める（伏せた区への転送は描かない＝main から同じカメラの描き直しを頼まない・2026-10-19）
+	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); },   // 同上＝worker が切替を当てた時（変わった時だけ）描き直す
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）
 	pickEnv: meshPickEnv,   // 当たり（W7）
 	setAttribution: (id, text) => setSrcAttr("t3d:" + id, text ? sanitizeHTML(String(text)) : null),   // tileset の出典（W8・opts.attribution）＝出典の欄（#attr）へ

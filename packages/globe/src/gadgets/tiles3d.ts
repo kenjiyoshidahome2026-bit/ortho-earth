@@ -333,8 +333,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		}).catch(err => { n.state = "failed"; console.warn("[tiles3d] external tileset", n.uri, err.message); })
 			.finally(() => { inflight--; schedule(); });
 	};
-	const load = (n: T3dNode) => {
-		if (n.state !== "none" || inflight >= MAX_INFLIGHT) return;
+	const load = (n: T3dNode, force = false) => {   // force＝塊の残り（兄弟）＝同時数の上限を越えても一緒に投げる
+		if (n.state !== "none" || (!force && inflight >= MAX_INFLIGHT)) return;
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
@@ -350,6 +350,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
 			const sty = set.style, opaque = (b: TileBatch) => (b.alphaMode ?? "OPAQUE") === "OPAQUE";
 			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: !!sty.show && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
+			if (r.batches.length) meshVis(n.ward, false);   // 伏せてから上げる（同じ列＝転送より先に効く）＝出すかは次の update が決める（兄弟が揃う前に出さない）
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = !!sty?.show && opaque(b);   // show で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
@@ -377,7 +378,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			}
 			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/plugin-splat to draw Gaussian splats`); }
 			gpuBytes += n.bytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.bytes += r.stats.bytes || 0;
-			n.state = "ready"; n.on = true;   // 上げた直後は見えている（次の update で要らなければ消す）
+			// 上げた直後は伏せておく（次の update が出す物だけ出す）。旧＝上げた直後は見えていて次の update で消した＝兄弟が揃う前の子が
+			// 1 枚ずつ現れては消える（描いては消す・2026-10-19）。メッシュは上で転送の前に伏せた。点と splat はここで伏せる
+			if (n.pts) for (const q of n.pts) set.pts?.post({ type: "vis", q, on: false });
+			if (n.splat) for (const h of n.splat) h.setVisible(false);
+			n.state = "ready"; n.on = false;
 			if (n.ward || n.pts || n.splat) set.ready.add(n);
 		}).catch(err => { n.state = "failed"; n.err++; set.stats.failed++; console.warn("[tiles3d] tile", n.uri, err.message); })
 			.finally(() => { inflight--; schedule(); });
@@ -470,7 +475,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (!sets.size) return;
 		frameNo++;
 		const W = size().w, H = size().h, s = cameraState(cam, W, H), planes = planesOf(s.mvp), eye = s.eye, fpx = s.focal / (cam.dpr || dpr || 1);
-		const want: Array<{ n: T3dNode; pri: number }> = [];   // 読みたいタイル（優先度＝SSE）
+		// 読みたいタイル。並べ方＝親ごとの塊（2026-10-19）：gp＝親の SSE（塊の優先度）・g＝親（同じ親の兄弟を連続して投げる）・pri＝自分の SSE。
+		// 旧＝自分の SSE だけで並べた＝兄弟の距離の差で他の塊と混ざって届き、塊が揃う（＝親から入れ替わる）のが遅れた
+		const want: Array<{ n: T3dNode; pri: number; gp: number; g: number }> = [];
 		for (const set of sets.values()) {
 			if (!set.root || set.hidden) continue;
 			const show = new Set<T3dNode>();
@@ -484,20 +491,21 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
 				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
-			const walk = (n: T3dNode, out: T3dNode[]): boolean => {   // 戻り＝描くべき物が全部揃ったか
+			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）
+				const g = n.parent?.id ?? 0;
 				const v = visible(n);
 				if (!v.ok) return true;
 				n.used = frameNo;
 				if (n.i3s) {   // I3S＝境界球の画面上の直径が lodThreshold（px）を超えたら子へ（loaders.gl の i3s-lod と同じ規則）
 					const diam = 2 * n.sphere!.r * fpx / v.distC!;
 					if (diam < 2) return true;
-					const need = (x: T3dNode) => { if (x.state === "none") want.push({ n: x, pri: diam }); return x.state === "ready" || x.state === "failed"; };
+					const need = (x: T3dNode) => { if (x.state === "none") want.push({ n: x, pri: diam, gp, g }); return x.state === "ready" || x.state === "failed"; };
 					const dig = n.i3s.kids.length > 0 && diam > n.i3s.thr * (set.opts.lodScale ?? 1);
 					if (!dig) { if (!n.uri) return true; const ok = need(n); if (n.state === "ready") out.push(n); return ok; }
 					const kids = i3sKids(n);
 					const mark = out.length;
 					let all = !!kids;
-					for (const k of kids || []) all = walk(k, out) && all;
+					for (const k of kids || []) all = walk(k, out, diam) && all;
 					if (all) return true;
 					if (n.uri) { need(n); if (n.state === "ready") { out.length = mark; out.push(n); return true; } }
 					return false;
@@ -509,7 +517,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				const parts = n.extra ? (n.uri ? [n, ...n.extra] : n.extra) : n.uri ? [n] : [], has = parts.length > 0;   // タイルの content（複数 content＝extra も）
 				const leaf = (!!kids && !kids.length) || (sse <= maxSSE && has);   // 中身を持たない節点（外部 tileset の口・空の根）は子へ降りる
 				const settled = (x: T3dNode) => x.state === "ready" || x.state === "failed";
-				const need = () => { let ok = true; for (const x of parts) { if (x.state === "none") want.push({ n: x, pri: sse }); ok = settled(x) && ok; } return ok; };   // 戻り＝content が全部読めた（か失敗した）
+				const need = () => { let ok = true; for (const x of parts) { if (x.state === "none") want.push({ n: x, pri: sse, gp, g }); ok = settled(x) && ok; } return ok; };   // 戻り＝content が全部読めた（か失敗した）
 				const ready = () => parts.every(settled) && parts.some(x => x.state === "ready");   // 出せる＝全部揃って 1 つは読めた
 				const put = () => { for (const x of parts) if (x.state === "ready") out.push(x); };
 				if (leaf) { if (!has) return true; const ok = need(); if (ready()) put(); return ok; }
@@ -517,16 +525,20 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				if (n.refine === "ADD") {
 					let ok = true;
 					if (has) { ok = need(); if (ready()) put(); }
-					for (const k of kids) ok = walk(k, out) && ok;
+					for (const k of kids) ok = walk(k, out, sse) && ok;
 					return ok;
 				}
 				const mark = out.length;
 				let all = true;
-				for (const k of kids) all = walk(k, out) && all;
+				for (const k of kids) all = walk(k, out, sse) && all;
 				if (all) return true;
 				if (has) {   // 子が揃うまで親を出す（揃った子は伏せる＝重ねない）
+					// 揃っていない兄弟は親が未着でも出さない（同じ親の子は揃った時に一度に入れ替える＝Cesium と同じ「塊で出る」・2026-10-19）。
+					// 旧＝親より先に着いた子をばらばらに出し、親が着くと伏せ、子が揃うとまた出す＝描いては消す（表示切替と描き直しの空回り）。
+					// 親が未着の間は祖父母（読めていれば）がこの塊を受け持つ。中身の無い親（空の根など）は従来どおり揃った子から出す（塊が巨大で何も出なくなる）
+					out.length = mark;
 					need();
-					if (ready()) { out.length = mark; put(); return true; }
+					if (ready()) { put(); return true; }
 					return false;
 				}
 				return false;
@@ -541,8 +553,13 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		}
 		if (frameNo % 64 === 0) for (const set of sets.values()) if (set.root) prune(set.root);   // implicit の部分木の刈り込み（時々）
 		// 読む（SSE の大きい＝粗すぎて目立つ物から）
-		want.sort((a, b) => b.pri - a.pri);
-		for (const { n } of want) { if (inflight >= MAX_INFLIGHT) break; load(n); }
+		want.sort((a, b) => b.gp - a.gp || a.g - b.g || b.pri - a.pri);   // 親の SSE の大きい塊から・同じ親の兄弟は続けて・塊の中は自分の SSE 順
+		// 塊ごとに投げる（2026-10-19）：塊の始めだけ同時数の上限を見て、同じ親の兄弟は上限を越えても一緒に投げる＝塊が一度に揃う
+		for (let i = 0; i < want.length;) {
+			if (inflight >= MAX_INFLIGHT) break;
+			const g = want[i].g;
+			for (let first = true; i < want.length && want[i].g === g; i++, first = false) load(want[i].n, !first);
+		}
 		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる
 		if (gpuBytes > BUDGET) {
 			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on).sort((a, b) => a.used - b.used);
