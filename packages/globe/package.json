@@ -51,7 +51,7 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@loaders.gl/i3s": "^4.4.3",
-		"@ortho-earth/core": "^2.0.1",
+		"@ortho-earth/core": "^2.0.2",
 		"@ortho-earth/ephem": "^1.3.0",
 		"@ortho-earth/h3": "^0.2.0",
 		"@ortho-earth/tile-formats": "^0.2.0",
