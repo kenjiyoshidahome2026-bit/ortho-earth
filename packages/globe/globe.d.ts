@@ -276,6 +276,9 @@ export interface OrthoJapanOptions {
 	/** 世界帯（低ズーム）の河川・海洋境界線（Natural Earth 10m・z1.5 から）。false＝読まない／["rivers" | "maritime"]＝その種類だけ（既定 true＝全部）。
 	 *  自前の川を描く頁が二重に描かない・読まない口（1.7.x〜） */
 	worldLines?: boolean | Array<"rivers" | "maritime">;
+	/** 世界帯（低ズーム）の湖（Natural Earth lakes）と海面下の陸（below_sea_land）の塗り。false＝読まない・描かない（既定 true）。
+	 *  3D Tiles だけを描く頁や自前の基図を持つ頁が、見えない世界の塗りを取りに行かないための口（2.0.2〜） */
+	worldFill?: boolean;
 	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
 	assetBase?: string;
 	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない。
