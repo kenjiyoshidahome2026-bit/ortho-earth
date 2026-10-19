@@ -764,6 +764,9 @@ export interface OverlayFrameApi {
  *  海面の球は深度を書かない＝地平線の向こうは従来どおり front<0 で隠す。詰め方＝対数深度 d＝log2(1+w)·logCoef/2 を 24bit（R が上位）・d=1＝何も無い。
  *  行は下から（GL の窓座標と同じ）＝uv＝gl_FragCoord.xy / 自分の描画面の大きさ で引く。大きさ（w,h）は本体の描画解像度（動的解像度の縮小込み）。
  *  1 フレーム 1 回のコピー（GL2＝readPixels／WebGPU＝ImageBitmap）が要る＝GPU の完了を待つ。使うのは要る時だけ。 */
+/** WebGPU の GPUDevice / GPUTexture。lib.dom に WebGPU の型は無い＝@webgpu/types を入れた環境ではその型、無い環境では object で受ける（利用者の tsc を落とさない） */
+export type OverlayGPUDevice = typeof globalThis extends { GPUDevice: { prototype: infer D } } ? D : object;
+export type OverlayGPUTexture = typeof globalThis extends { GPUTexture: { prototype: infer T } } ? T : object;
 export interface OverlayDepth {
 	w: number; h: number;
 	/** 深度の尺度＝2/log2(far+1)（GLSL の u_sceneLogCoef） */
@@ -774,7 +777,7 @@ export interface OverlayDepth {
 	/** このフレームの深度をその gl のテクスチャとして返す（同じフレームで二度上げない・gl の束縛と unpack の状態は戻す） */
 	texture(gl: WebGL2RenderingContext): WebGLTexture;
 	/** このフレームの深度を GPUDevice で読めるテクスチャとして返す（rgba8unorm・行は下から）。本体と同じ device なら本体のテクスチャそのもの（コピーなし） */
-	gpuTexture(device: GPUDevice): GPUTexture;
+	gpuTexture(device: OverlayGPUDevice): OverlayGPUTexture;
 	/** glsl の uniform を埋める（prog は useProgram 済み）。unit＝使うテクスチャユニット（既定 7）・eps＝許し（深度の単位・既定 2e-6） */
 	bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit?: number, eps?: number): void;
 }
