@@ -62,7 +62,7 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.0.1 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.0.2 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
 | [`@ortho-earth/globe`](packages/globe) | 2.0.2 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/h3`](packages/h3) | 0.2.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
@@ -84,7 +84,7 @@ Published for outside users from [`sdk/*`](sdk).
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/japan`](sdk/japan) | 2.0.1 | GPL-3.0-or-later | Self-contained Japan globe for any web page: the engine plus the Japan region pack, no API keys or servers |
+| [`@ortho-earth/japan`](sdk/japan) | 2.0.2 | GPL-3.0-or-later | Self-contained Japan globe for any web page: the engine plus the Japan region pack, no API keys or servers |
 | [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/google-tiles`](sdk/google-tiles) | 0.1.0 | GPL-3.0-or-later | Google Photorealistic 3D Tiles: API key and session handling plus attribution |
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
