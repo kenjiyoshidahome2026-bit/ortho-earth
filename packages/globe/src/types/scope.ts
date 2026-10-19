@@ -431,8 +431,8 @@ export interface GlobeScope {
 	demFirst(lon: number, lat: number, fallback: () => Promise<number>): Promise<number>;
 	/** 描画ごとに呼ぶ関数（gadget の追従＝コンパスの針・現在地の印・吹き出し・計測の線） */
 	frameHooks: Set<() => void>;
-	/** 標高の引き口（ローダの到着で解ける） */
-	getHeightP: ReturnType<typeof createGetHeight>;
+	/** 標高の引き口（ローダの到着で解ける）。terrain:false の地図は then を呼んだ時に初めてローダを作る（遅延） */
+	getHeightP: PromiseLike<Awaited<ReturnType<typeof createGetHeight>>>;
 	/** gadget の登録口（installGadgets の戻り＝後の installer と globe.js が使う） */
 	registerGadget: RegisterGadget;
 	/** 狭い画面（max-width: 480px）＝gadget の門の narrow */
