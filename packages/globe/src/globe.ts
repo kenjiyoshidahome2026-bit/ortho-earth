@@ -1544,7 +1544,7 @@ const gint = createGintLayers({
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
 	layers: { map: extGint, get active() { return extActive; }, set active(v) { extActive = v; }, nextId: () => ++gintLayerSeq },
 	smallAreaHover: !!opts.smallAreaHover,
-	requestDraw: requestDraw, onMove: () => onMove(), flyTo: (...args: Parameters<GlobeScope["flyTo"]>) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
+	requestDraw: requestDraw, onMove: () => onMove(), flyTo: (...args: Parameters<GlobeScope["flyTo"]>) => flyTo(...args), loadBelowSea: () => { if (!flying && opts.worldFill !== false) loadBelowSea(); }, loadLakes: () => { if (!flying && opts.worldFill !== false) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）。worldFill:false＝湖・海面下の陸を読まない（旧＝切る口が無く、世界帯を通るだけで必ず読んでいた・2026-10-19）
 	get flying() { return flying; },   // 国境の細密版（10m）も飛行の通過点では読まない
 });
 ownDestroy.push(() => gint.destroy());   // gint の bake worker
@@ -1768,9 +1768,23 @@ posEl.innerHTML = `<table><thead><tr><th>${t("Lon")}</th><th>${t("Lat")}</th><th
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse: { x: number; y: number } | null = null, posElev: number | null = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight: Awaited<GlobeScope["getHeightP"]> | null = null;
 setAltApiUrl("https://api.ortho-earth.com");
-const getHeightP: GlobeScope["getHeightP"] = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
-getHeightP.then(f => { getHeight = f; updateUnderground(true); });
-ownDestroy.push(() => getHeightP.then(f => f.terminate?.()));   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
+// 標高ローダは作った時点で AW3D30 の一覧（index_alos）などを取りに行く。terrain:false（noTerr）の地図は「setTerrain まで平ら・既定の標高を取らない」約束
+// ＝起動では作らず、標高を初めて問われた時（map.getHeight・断面図・setTerrain 後の照会）に作る（旧＝常に起動で作り、地形を切った地図でも一覧を読んでいた・2026-10-19）
+let heightLoader: ReturnType<typeof createGetHeight> | null = null;
+const ensureHeightLoader = () => heightLoader ??= (() => {
+	const p = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）
+	p.then(f => { getHeight = f; updateUnderground(true); });   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
+	return p;
+})();
+// 遅延の引き口＝then／catch／finally で初めてローダを作る（Promise の形のまま＝呼ぶ側は今まで通り）。到着を待って照会（起動直後でも0mに化けない）
+const getHeightP = {
+	then: (ok, ng) => ensureHeightLoader().then(ok, ng),
+	catch: ng => ensureHeightLoader().catch(ng),
+	finally: f => ensureHeightLoader().finally(f),
+	[Symbol.toStringTag]: "Promise",
+} as GlobeScope["getHeightP"];
+if (!noTerr) ensureHeightLoader();
+ownDestroy.push(() => heightLoader?.then(f => f.terminate?.()));
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
 // px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
