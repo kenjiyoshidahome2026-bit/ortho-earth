@@ -19,7 +19,7 @@ export const GeoPBFLoader = {
 	name: "GeoPBF",
 	id: "geopbf",
 	module: "geopbf",
-	version: "2.0.0", // package.json の version と揃える＝t-loaders が突き合わせる（旧＝手で揃える約束で 1.7.0 のまま 7 版ずれていた）
+	version: "2.1.0", // package.json の version と揃える＝t-loaders が突き合わせる（旧＝手で揃える約束で 1.7.0 のまま 7 版ずれていた）
 	worker: false,
 	extensions: ["geopbf"],
 	// application/gzip も受ける（2026-10-12・改良点 17 の煙試験が発見）: 配布物は gzip 丸ごと＝R2 等が "application/gzip" を付けて配り、
