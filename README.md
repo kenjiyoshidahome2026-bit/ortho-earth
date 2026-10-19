@@ -116,7 +116,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 ## Development
 
-Node 22 and npm. `npm install` at the root installs every workspace.
+Node 22.18 or newer (the tests import `.ts` sources directly, which needs Node's built-in type stripping) and npm. `npm install` at the root installs every workspace.
 
 - `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w ortho-japan`, `-w ortho-globe`).
 - `npm run build:all` — builds www, geopbf-demo, gishub-jp and world and assembles `apps/www/dist` (docs, geopbf, gishub-jp, world, the shared engine).
