@@ -68,7 +68,7 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`@ortho-earth/h3`](packages/h3) | 0.2.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.2.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
 | [`@ortho-earth/ephem`](packages/ephem) | 1.3.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
-| [`geopbf`](packages/geopbf) | 2.0.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
+| [`geopbf`](packages/geopbf) | 2.1.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
 | [`geoedit`](packages/geoedit) | 0.4.0 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
 | [`altpbf`](packages/altpbf) | 1.2.0 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
 | [`native-bucket`](packages/native-bucket) | 1.1.0 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
@@ -106,7 +106,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 | [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
 | [/solar/](https://www.ortho-earth.com/solar/) | `apps/solar` | The planets and their moons, now and replayed over time |
-| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri` | Daily calendar with sunrise, sunset, twilight and the Moon. Owns the npm package [`himekuri`](apps/himekuri/lib) (1.1.0, MIT, tear-off calendar and world-clock SVG widgets) |
+| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri` | Daily calendar with sunrise, sunset, twilight and the Moon. Owns the npm package [`himekuri`](apps/himekuri/lib) (2.0.0, MIT, tear-off calendar and world-clock SVG widgets) |
 | [/nl/](https://www.ortho-earth.com/nl/) | `apps/ortho-nl` | The Netherlands from 3DBAG |
 | [/geopbf/](https://www.ortho-earth.com/geopbf/) | `apps/geopbf-demo` | Drop a GIS file, check it on the globe, write it in another format |
 | [/gishub-jp/](https://www.ortho-earth.com/gishub-jp/) | `apps/gishub-jp` | Japan's open GIS data: view and convert |
