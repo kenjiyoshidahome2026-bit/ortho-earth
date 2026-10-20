@@ -57,4 +57,51 @@ t("mlTileZoomOf の key：同じ入力で同じ・違う入力で違う", () => 
 	assert.notEqual(k(cam), k({ ...cam, bearing: 0.31 }));
 	assert.notEqual(mlTileZoomOf(cam, 600, { dz: 1.3 }).key, mlTileZoomOf({ ...cam, pitch: 0 }, 600, { dz: 1.3 }).key);
 });
+// 未着の枠の代打（2026-10-20・止まった時の白抜き）：選びが細かくなっても、兄弟がそろうまでは描いていた親のまま。
+// 子がそろえば子へ。粗くなる側は、未着の親の代わりに常駐の子孫で覆う。祖先も子孫も無い枠は従来どおり落ちる（下地が見える）
+const readyAll = (a, keys) => { for (const k of keys) a.cache.set(k, { status: "ready", origin: [0, 0], z: +k.split("/")[0], dl: null, labels: [] }); };
+const keysOf = r => r.order.map(o => o.key).sort();
+const kidsOf = k => { const [z, x, y] = k.split("/").map(Number); return [0, 1, 2, 3].map(i => `${z + 1}/${x * 2 + (i & 1)}/${y * 2 + (i >> 1)}`); };
+const parentOf = k => { const [z, x, y] = k.split("/").map(Number); return `${z - 1}/${x >> 1}/${y >> 1}`; };
+t("代打：細かくなった枠が未着の間は親のまま・兄弟がそろったら子へ", () => {
+	const a = mgr(), cam = { center: [139.7671, 35.6812], zoom: 15, pitch: 0, bearing: 0 };
+	const zKeys = z => [...a.cache.keys()].filter(k => +k.split("/")[0] === z);
+	a.update(cam, 960, 600, { tilePx: 560 });
+	readyAll(a, zKeys(14));
+	const r0 = a.update(cam, 960, 600, { tilePx: 560 });
+	assert.ok(r0.covered && r0.order.length > 0 && keysOf(r0).every(k => k.startsWith("14/")), "粗い段（z14）が全部そろう");
+	const fine = a.update(cam, 960, 600, { tilePx: 384 });
+	assert.ok(!fine.covered, "細かい段は未着");
+	assert.deepEqual(keysOf(fine), keysOf(r0), "未着の間は親（今描いている物）のまま＝穴を作らない");
+	const split = zKeys(15).sort();   // 割れて選ばれた子（未着）
+	assert.ok(split.length >= 4);
+	const p0 = split.map(parentOf).sort((x, y) => kidsOf(y).filter(k => split.includes(k)).length - kidsOf(x).filter(k => split.includes(k)).length)[0];   // 子が一番多く選ばれた親
+	const sib = kidsOf(p0).filter(k => split.includes(k));
+	assert.ok(sib.length >= 2);
+	readyAll(a, sib.slice(0, sib.length - 1));   // 兄弟の 1 枚だけ未着
+	const r1 = a.update(cam, 960, 600, { tilePx: 384 });
+	assert.ok(keysOf(r1).includes(p0) && !sib.some(k => keysOf(r1).includes(k)), "兄弟が欠けている間は親（そろった子と重ねない）");
+	readyAll(a, sib);
+	const r2 = a.update(cam, 960, 600, { tilePx: 384 });
+	assert.ok(!keysOf(r2).includes(p0) && sib.every(k => keysOf(r2).includes(k)), "兄弟がそろえば子へ");
+	readyAll(a, split);
+	const r3 = a.update(cam, 960, 600, { tilePx: 384 });
+	assert.ok(r3.covered && keysOf(r3).some(k => k.startsWith("15/")));
+});
+t("代打：粗くなった枠が未着なら常駐の子孫で覆う・何も無い枠は落ちる", () => {
+	const a = mgr(), cam = { center: [139.7671, 35.6812], zoom: 15, pitch: 0, bearing: 0 };
+	a.update(cam, 960, 600, { tilePx: 384 });
+	const fineKeys = [...a.cache.keys()].filter(k => +k.split("/")[0] === 15);
+	readyAll(a, fineKeys);
+	const r0 = a.update(cam, 960, 600, { tilePx: 384 });
+	assert.ok(r0.covered);
+	const r1 = a.update(cam, 960, 600, { tilePx: 560 });   // 一段粗い枠（z14）は未着
+	assert.ok(!r1.covered);
+	assert.ok(keysOf(r1).every(k => !k.startsWith("14/")), "未着の z14 は出さない");
+	const full = keysOf(r1).filter(k => k.startsWith("15/"));
+	assert.ok(full.length > 0, "子孫で覆える所は子孫");
+	// 何も手元に無いカメラ＝全部落ちる（従来どおり）
+	const b = mgr(), r = b.update({ ...cam, center: [135.5, 34.7] }, 960, 600, {});
+	assert.equal(r.order.length, 0); assert.ok(!r.covered);
+});
 console.log(`tilemanager-lod: ${n} 件 OK`);
