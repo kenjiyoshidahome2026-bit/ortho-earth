@@ -55,7 +55,7 @@ run(); async function run() { try {
 	ok("coarse", coarse, `${JSON.stringify(h.stats)} ${on()}`);
 	h.remove();
 	await sleep(300);
-	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0 && h.stats.mainMB === 0, JSON.stringify(h.stats));
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
 </script>
