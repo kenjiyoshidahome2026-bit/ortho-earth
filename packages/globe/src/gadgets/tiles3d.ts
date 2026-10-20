@@ -573,9 +573,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const g = want[i].g;
 			for (let first = true; i < want.length && want[i].g === g; i++, first = false) load(want[i].n, !first);
 		}
-		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる
+		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる。
+		// 今回の選びで塊の一員だった物（used === frameNo・兄弟が揃うのを待って伏せている子）は捨てない（2026-10-20）：旧＝伏せている子も捨てた＝
+		// 揃いかけの塊が予算を越えると、着いた兄弟を捨てては取り直す空回り（合成 48 枚・lowMem 160 MB で 150 s に 5.4 GB を取り直し・表示は根のまま・
+		// render worker の受け箱が 760 MB まで膨らむ）。塊が予算を越える時は越えたまま揃えて出す（表示中の物を捨てないのと同じ扱い）
 		if (gpuBytes > BUDGET) {
-			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on).sort((a, b) => a.used - b.used);
+			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on && n.used !== frameNo).sort((a, b) => a.used - b.used);
 			for (const n of cand) { if (gpuBytes <= BUDGET * 0.85) break; unload(n); }
 		}
 	}
