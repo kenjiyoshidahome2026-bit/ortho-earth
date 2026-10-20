@@ -873,7 +873,9 @@ export interface ClipOptions {
  *  戻り＝{ url?, headers?, credentials? }（null＝そのまま）。鍵・session の付与（Google Photorealistic 3D Tiles 等）や署名つき URL への差し替えは呼び手の closure で（鍵を repo に置かない） */
 export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
-export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+export interface Tiles3DOptions { id?: string; maxSSE?: number;
+	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
+	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/plugin-splat の SplatOptions）。
 	 *  描き手＝plugin-splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;
