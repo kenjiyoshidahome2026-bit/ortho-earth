@@ -494,10 +494,20 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
 				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
-			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）
+			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity, sib = false): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）。sib＝親が中身を持つ REPLACE（この塊がそろうまで親が受け持つ）
 				const g = n.parent?.id ?? 0;
 				const v = visible(n);
-				if (!v.ok) return true;
+				if (!v.ok) {
+					// 画面外の兄弟（2026-10-20・本人報告「周回で遠方が一瞬白抜き」）：親が中身を持つ REPLACE の塊は、画面外の子も読んで
+					// そろうのを待つ（描きはしない）＝Cesium の基本の巡回と同じ。旧＝画面外の子を「そろった」と数えた＝周回で視野へ入った子が
+					// 未着だと、出ていた兄弟の塊ごと親へ巻き戻し、届くとまた子へ戻した（親の中身が粗い・疎だと一角が抜けて見える）
+					if (!sib || n.i3s || n.external || (n.imp && !n.imp.st)) return true;
+					n.used = frameNo;   // 塊の一員＝予算の追い出しでは「使っている」側
+					const parts = n.extra ? (n.uri ? [n, ...n.extra] : n.extra) : n.uri ? [n] : [];
+					let ok = true;
+					for (const x of parts) { if (x.state === "none") want.push({ n: x, pri: 0, gp, g }); ok = (x.state === "ready" || x.state === "failed") && ok; }   // 同じ塊（g）で見えている兄弟と一緒に投げる
+					return ok;
+				}
 				n.used = frameNo;
 				if (n.i3s) {   // I3S＝境界球の画面上の直径が lodThreshold（px）を超えたら子へ（loaders.gl の i3s-lod と同じ規則）
 					const diam = 2 * n.sphere!.r * fpx / v.distC!;
@@ -533,7 +543,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				}
 				const mark = out.length;
 				let all = true;
-				for (const k of kids) all = walk(k, out, sse) && all;
+				for (const k of kids) all = walk(k, out, sse, has) && all;
 				if (all) return true;
 				if (has) {   // 子が揃うまで親を出す（揃った子は伏せる＝重ねない）
 					// 揃っていない兄弟は親が未着でも出さない（同じ親の子は揃った時に一度に入れ替える＝Cesium と同じ「塊で出る」・2026-10-19）。
