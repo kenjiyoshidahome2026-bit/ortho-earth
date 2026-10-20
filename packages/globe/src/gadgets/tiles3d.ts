@@ -216,7 +216,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// Gaussian splat の描き手が居るか＝registry.dataKinds の "splat"（@ortho-earth/plugin-splat）。無ければ worker は splat を点として返す（仕様の fallback）
 	const hasSplat = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("splat") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
 	const rpc = pool.rpc;
-	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, MAX_INFLIGHT = lowMem ? 3 : 6;
+	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, DEF_INFLIGHT = lowMem ? 3 : 6;
+	// 同時取得数の上限＝既定は lowMem 3／他 6。tileset の opts.maxInflight（1〜32）があれば、その最大で上書き（全 tileset で共通の枠・2026-10-20）。
+	// 使い道＝ベンチで端末判定の差を外して比べる時（iPhone はタッチで一律 lowMem＝3 本）。setOptions での変更も次の選びから効く
+	const maxInflight = (): number => { let m = 0; for (const s of sets.values()) { const v = s.opts.maxInflight; if (typeof v === "number" && v > 0) m = Math.max(m, v); } return m ? Math.min(32, Math.floor(m)) || 1 : DEF_INFLIGHT; };
 	let inflight = 0, gpuBytes = 0, rafPending = 0;
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
@@ -334,7 +337,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			.finally(() => { inflight--; schedule(); });
 	};
 	const load = (n: T3dNode, force = false) => {   // force＝塊の残り（兄弟）＝同時数の上限を越えても一緒に投げる
-		if (n.state !== "none" || (!force && inflight >= MAX_INFLIGHT)) return;
+		if (n.state !== "none" || (!force && inflight >= maxInflight())) return;
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
@@ -556,7 +559,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		want.sort((a, b) => b.gp - a.gp || a.g - b.g || b.pri - a.pri);   // 親の SSE の大きい塊から・同じ親の兄弟は続けて・塊の中は自分の SSE 順
 		// 塊ごとに投げる（2026-10-19）：塊の始めだけ同時数の上限を見て、同じ親の兄弟は上限を越えても一緒に投げる＝塊が一度に揃う
 		for (let i = 0; i < want.length;) {
-			if (inflight >= MAX_INFLIGHT) break;
+			if (inflight >= maxInflight()) break;
 			const g = want[i].g;
 			for (let first = true; i < want.length && want[i].g === g; i++, first = false) load(want[i].n, !first);
 		}
@@ -570,7 +573,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const onMove = () => schedule();
 	map.on("move", onMove); map.on("settle", onMove);
 	const ctl = {
-		// url＝tileset.json。opts＝{ maxSSE:16, heightOffset:0（m・高さへの足し込み）, ground:"absolute"|"terrain"（1 棟ずつ地面へ接地）, pointSize:1.5（px）, textures:true, fit:true（寄る）}
+		// url＝tileset.json。opts＝{ maxSSE:16, heightOffset:0（m・高さへの足し込み）, ground:"absolute"|"terrain"（1 棟ずつ地面へ接地）, pointSize:1.5（px）, textures:true, fit:true（寄る）, maxInflight（同時取得数・既定 lowMem 3／他 6）}
 		async add(url: string, opts: Tiles3DOptions = {}): Promise<T3dHandle> {
 			const abs = /^[a-z][\w+.-]*:\/\//i.test(url) ? new URL(url) : new URL(url, location.href);
 			const j = await getJSON(abs.href, "Source", opts.requestTransform);
