@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.0 を公開しました — TypeScript になり、公開の口を整えた大版</title>
+<meta name="description" content="@ortho-earth/globe・core・japan・geopbf を 2.0 にしました。ソースは TypeScript（strict）、公開の口は名前を挙げたサブパスだけ、1.x が互換のために残していた別名を外しました。React・Google 3D Tiles・KTX2・シーン・Gaussian splat の新しいパッケージも出ています。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-0-jp">
+<meta property="og:title" content="Ortho Earth 2.0 を公開しました">
+<meta property="og:description" content="ソースは TypeScript（strict）、公開の口を整理し、1.x の別名を外した大版。1.x からの移り方と、2.0.2 までの直し。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-0-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-17">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="articles-jp.html" class="logo">記事</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">2.0 を公開</span>
+	<div class="nav-links">
+		<a href="/" class="nav-top">top ⇧</a>
+		<a href="articles-jp.html">記事の一覧</a>
+		<a href="release-2-0.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Ortho Earth 2.0 を公開しました</h1>
+<p class="lead">TypeScript になり、公開の口を整えた大版<br>
+<span style="font-size:0.85em">2026-10-17 &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/japan &middot; geopbf</span></p>
+
+<p>
+地球儀の地図エンジン <code>@ortho-earth/globe</code> と、それを支えるパッケージを 2.0 にしました。
+2.0 は、ライブラリを TypeScript に移したのに合わせて、1.x が互換のために残していた別名・古い口・内部への入口を外す大版です。
+地図の描き方や API の大半は 1.x と同じで、多くのコードは import もそのままで動きます。
+</p>
+
+<h2 id="what">1. 何が変わったか</h2>
+
+<ul>
+	<li><strong>ソースは TypeScript（<code>strict</code>）。</strong>型は源から作ります。1.x の手書きの型と実体のずれ（型にあって実体に無い名前、その逆）は、実体に合わせて直しました。import の書き方は変わりません。</li>
+	<li><strong>公開の口は名前を挙げたものだけ。</strong>1.x は <code>src/</code> の全ファイルを読めましたが、2.0 は各パッケージの <code>package.json</code> の <code>exports</code> に並ぶサブパスだけを出します。<code>internal/*</code> は閉じました。</li>
+	<li><strong>1.x の別名を外した。</strong><code>plateau</code> は <code>mesh</code> に、<code>maxPitch</code> は常に度（MapLibre と同じ）に、<code>addCOPC</code> は <code>addPointCloud</code> に。自作ガジェットは <code>map.registry.gadgets.add(name, (map, ...args) =&gt; handle)</code> で登録し、本体は map を第 1 引数で受けます。</li>
+	<li><strong>新しいパッケージ。</strong>React の部品 <code>@ortho-earth/react</code>、Google の写実 3D Tiles <code>@ortho-earth/google-tiles</code>、KTX2 のテクスチャ <code>@ortho-earth/ktx2</code>、大量の模型・看板・3D の文字の <code>@ortho-earth/plugin-scene</code>、Gaussian splat の <code>@ortho-earth/plugin-splat</code> を初めて公開しました。</li>
+</ul>
+
+<table>
+	<tr><th>パッケージ</th><th>1.x の最後</th><th>2.0</th></tr>
+	<tr><td><code>@ortho-earth/globe</code></td><td>1.16.0</td><td>2.0.0（今は 2.0.2）</td></tr>
+	<tr><td><code>@ortho-earth/core</code></td><td>1.15.0</td><td>2.0.0（今は 2.0.2）</td></tr>
+	<tr><td><code>@ortho-earth/japan</code></td><td>1.14.0</td><td>2.0.0（今は 2.0.2）</td></tr>
+	<tr><td><code>geopbf</code></td><td>1.19.0</td><td>2.0.0（今は 2.1.0）</td></tr>
+</table>
+
+<h2 id="install">2. 入れ方</h2>
+
+<pre><code>npm i @ortho-earth/globe</code></pre>
+
+<p>
+<code>latest</code> は 2.0 です。最初の地図の出し方は <a href="/#get-started">Get started</a> に、MapLibre GL JS や CesiumJS のコードから移る道は <a href="from-maplibre-jp.html">MapLibre から</a>・<a href="from-cesium-jp.html">CesiumJS から</a> にあります。
+</p>
+
+<h2 id="migrate">3. 1.x から移る・1.x を使い続ける</h2>
+
+<p>
+書き換えが要る所は、パッケージごとに「1.x の書き方 → 2.0 の書き方」の表にまとめました：
+<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md（1.x から 2.0 への移行）</a>。表に無い API は 1.x と同じです。
+</p>
+
+<div class="callout callout-note">
+	<div class="callout-head">1.x のままでいたい場合</div>
+	<p>
+		版の範囲で指定します：<code>npm i @ortho-earth/globe@1</code>（geopbf なら <code>geopbf@1</code>）。
+		1.x のソースは GitHub のブランチ <code>v1</code> に残してあります。
+		配った URL や QR を壊さないため、URL の互換（<code>l=</code> のローマ字キー、<code>lang=jp</code> など）は 2.0 でも読み続けます。
+	</p>
+</div>
+
+<h2 id="fixes">4. 2.0.2 までの直し</h2>
+
+<p>2.0.0 の公開の後、使って見つかった所を直しています。2.0.2（2026-10-19）の主な直し：</p>
+
+<ul>
+	<li>worker の中で <code>@loaders.gl</code> 4.5 と組むと b3dm の 3D Tiles を描けなかった所を直しました。</li>
+	<li>世界の塗りや標高の索引を切った地図では、それらを取りに行かないようにしました。</li>
+	<li>起動時の描き直しを束ね、3D Tiles は兄弟のタイルが揃ってから塊で出すようにしました。描画 worker の空回りも止めました。</li>
+</ul>
+
+<p>
+3D の建物を表示する速さは、MapLibre GL JS（deck.gl）・CesiumJS・Navara・TerriaJS と同じ条件で比べた記事を準備しています。出たら <a href="articles-jp.html">記事の一覧</a> に足します。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

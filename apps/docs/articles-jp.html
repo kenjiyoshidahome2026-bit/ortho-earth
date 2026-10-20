@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>記事 — Ortho Earth</title>
+<meta name="description" content="Ortho Earth のリリースの知らせ、性能の比べ、使い方の読み物の一覧。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/articles-jp">
+<meta property="og:title" content="記事 — Ortho Earth">
+<meta property="og:description" content="リリースの知らせ、性能の比べ、使い方の読み物の一覧。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/articles-jp">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+.articles { list-style: none; padding: 0; }
+.articles li { padding: 14px 0; border-bottom: 1px solid var(--muted); }
+.articles .date { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+.articles a { font-weight: 600; }
+.articles p { margin: 4px 0 0; }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/" class="logo">Ortho Earth</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">記事</span>
+	<div class="nav-links">
+		<a href="/" class="nav-top">top ⇧</a>
+		<a href="articles.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>記事</h1>
+<p class="lead">リリースの知らせ・性能の比べ・使い方の読み物</p>
+
+<h2 id="news">新しい順</h2>
+
+<ul class="articles">
+	<li>
+		<span class="date">2026-10-17</span><br>
+		<a href="release-2-0-jp.html">Ortho Earth 2.0 を公開しました</a>
+		<p>ソースは TypeScript（strict）になり、公開の口を整え、1.x の別名を外しました。1.x からの移り方と、2.0.2 までの直し。</p>
+	</li>
+</ul>
+
+<h2 id="guides">使い方の読み物</h2>
+
+<ul class="articles">
+	<li><a href="from-maplibre-jp.html">MapLibre GL JS のコードをそのまま 3D の球へ</a><p>import を 1 行替えるだけで、MapLibre のコードが地球儀で動く。</p></li>
+	<li><a href="from-cesium-jp.html">CesiumJS から来た人へ — 同じことを Ortho Earth で書く</a><p>CesiumJS で書いていたことを、Ortho Earth の書き方と並べて。</p></li>
+	<li><a href="equal-earth-jp.html">Equal Earth 図法を GPU で描く</a><p>面積の正しい平らな世界図を、動かせる地図で。</p></li>
+	<li><a href="introduction.html">独り地理院 — はじめに</a><p>このプロジェクトを始めたわけ。</p></li>
+</ul>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	Ortho Earth · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
