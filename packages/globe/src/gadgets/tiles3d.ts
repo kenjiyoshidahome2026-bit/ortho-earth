@@ -79,8 +79,8 @@ interface SplatLayer { ready?: Promise<unknown>; setVisible(on: boolean): unknow
 interface I3SInfo { name: string | null; copyright: string | null; root: I3SNodeMsg }
 /** renderer の meshSet に渡す物（束のメッシュ＋描き方の印） */
 export type MeshSetData = TileMesh & { [k: string]: unknown };
-/** 当たりの写し（W7）＝束ごとの頂点・index・地物の番号・元の頂点色 */
-interface PickPart { k: number; pos: Float32Array; idx: Uint32Array; origin: number[]; features: MeshFeatures | null; col0: Uint8Array | null }
+/** 当たりの写し（W7）＝束ごとの頂点・index・地物の番号・元の頂点色。pos・idx＝null＝頂点の写しは持たない（lowMem の "auto"・2026-10-20）＝当たりは引けないが feature state の色（col0・features）は効く */
+interface PickPart { k: number; pos: Float32Array | null; idx: Uint32Array | null; origin: number[]; features: MeshFeatures | null; col0: Uint8Array | null }
 /** tileset.json ごとの metadata の前提（schema と groups）＝その tileset のタイルが引き継ぐ（外部 tileset は自分の物があれば差し替え） */
 interface T3dScope { schema: MetadataSchema | null; groups: Array<MetadataEntity | null> }
 /** implicit tiling の根ごとの共有（t＝分け方・bv／ge／refine＝根の境界・誤差・継ぎ方・contents＝content ごとのテンプレート URI と group・subtrees＝"L/x/y/z" → 読み込み） */
@@ -98,7 +98,7 @@ interface T3dNode {
 	paint?: PaintPart[] | null;
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
 	extra?: T3dNode[] | null; owner?: T3dNode;
-	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; pts: string[] | null; splat?: SplatLayer[] | null; on: boolean; used: number; err: number;
+	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; splat?: SplatLayer[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 }
 /** add／addI3S の opts（既定を補った物） */
@@ -220,7 +220,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// 同時取得数の上限＝既定は lowMem 3／他 6。tileset の opts.maxInflight（1〜32）があれば、その最大で上書き（全 tileset で共通の枠・2026-10-20）。
 	// 使い道＝ベンチで端末判定の差を外して比べる時（iPhone はタッチで一律 lowMem＝3 本）。setOptions での変更も次の選びから効く
 	const maxInflight = (): number => { let m = 0; for (const s of sets.values()) { const v = s.opts.maxInflight; if (typeof v === "number" && v > 0) m = Math.max(m, v); } return m ? Math.min(32, Math.floor(m)) || 1 : DEF_INFLIGHT; };
-	let inflight = 0, gpuBytes = 0, rafPending = 0;
+	// gpuBytes＝GPU へ送った量・mainBytes＝main のヒープに残る写し（当たりの頂点・index、塗り直しの元の頂点色、地物の番号）。予算（BUDGET）は両方の和で見る（2026-10-20 の総点検：
+	// 写しはタイル実バイトの約 7 割（合成 161 MB で main 115 MB）あり、どの予算にも数えていなかった）
+	let inflight = 0, gpuBytes = 0, mainBytes = 0, rafPending = 0;
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
 	const withQuery = (uri: string, set: T3dSet) => { if (!set.query.length) return uri; const u = new URL(uri); for (const [k, v] of set.query) if (!u.searchParams.has(k)) u.searchParams.set(k, v); return u.href; };   // 親の URL の鍵（?key= 等）を子へ引き継ぐ
@@ -234,7 +236,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const tileMeta = entityOf(json.metadata, scope?.schema), { bv, ge } = applySemantics(json.boundingVolume ?? null, json.geometricError ?? 0, semanticsOf(tileMeta, scope?.schema));   // 意味（TILE_*）で境界と誤差を上書き
 		const n: T3dNode = { id: ++tileSeq, set, parent, M, ge, refine: (json.refine || parent?.refine || "REPLACE").toUpperCase(),
 			sphere: sphereOf(bv ?? undefined, M), uri: uri && !t ? withQuery(new URL(uri, base).href, set) : null, children: null, json, base,
-			state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: scope ?? undefined, tileMeta, contentMeta: t ? null : entityOf(c0?.metadata, scope?.schema), group: c0?.group };
+			state: "none", ward: null, bytes: 0, mainBytes: 0, pts: null, on: false, used: 0, err: 0, scope: scope ?? undefined, tileMeta, contentMeta: t ? null : entityOf(c0?.metadata, scope?.schema), group: c0?.group };
 		n.external = !!n.uri && isJsonUri(n.uri);
 		if (t) {
 			const r0: TileCoord = t.n === 8 ? { level: 0, x: 0, y: 0, z: 0 } : { level: 0, x: 0, y: 0 };
@@ -247,12 +249,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const isJsonUri = (u: string) => /\.json(\?|$)/i.test(u);
 	// 複数 content の 2 個目から＝タイルの境界・誤差・metadata を写した content の節点（木は歩かない＝子は空）
 	const contentNode = (owner: T3dNode, uri: string, contentMeta: MetadataEntity | null, group: number | undefined): T3dNode => ({ id: ++tileSeq, set: owner.set, parent: owner.parent, owner, M: owner.M, ge: owner.ge, refine: owner.refine, sphere: owner.sphere,
-		uri, children: [], base: owner.base, external: false, state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: owner.scope, tileMeta: owner.tileMeta, contentMeta, group });
+		uri, children: [], base: owner.base, external: false, state: "none", ward: null, bytes: 0, mainBytes: 0, pts: null, on: false, used: 0, err: 0, scope: owner.scope, tileMeta: owner.tileMeta, contentMeta, group });
 	// implicit の節点（subtree の中＝st を親から・subtree の根＝st は読んでから impInit）
 	const impNode = (parent: T3dNode, c: TileCoord, r: TileCoord, st: Subtree | null): T3dNode => {
 		const R = parent.imp!.R, M = parent.M!;
 		const n: T3dNode = { id: ++tileSeq, set: parent.set, parent, M, ge: geometricErrorAt(R.ge, c.level), refine: R.refine, sphere: sphereOf(volumeAt(R.bv, c, R.t.n) ?? undefined, M),
-			uri: null, children: null, base: R.base, external: false, imp: { R, c, r, st }, state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0, scope: parent.scope };
+			uri: null, children: null, base: R.base, external: false, imp: { R, c, r, st }, state: "none", ward: null, bytes: 0, mainBytes: 0, pts: null, on: false, used: 0, err: 0, scope: parent.scope };
 		if (st) impInit(n);
 		return n;
 	};
@@ -314,7 +316,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// ── I3S（#48）：節点＝worker が返す見出し { id, c:[lon,lat,h], r, thr(px の直径), kids, mesh }。子の見出しは要る時に worker へ（nodepages）
 	const D2R = Math.PI / 180;
 	const i3sNode = (sm: I3SNodeMsg, set: T3dSet, parent: T3dNode | null): T3dNode => ({ id: ++tileSeq, set, parent, i3s: sm, sphere: { c: geo2ecef(sm.c[0] * D2R, sm.c[1] * D2R, sm.c[2]), r: sm.r }, uri: sm.mesh ? `i3s:${sm.id}` : null,
-		refine: "REPLACE", ge: 0, children: null, kidsState: "none", state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0 });
+		refine: "REPLACE", ge: 0, children: null, kidsState: "none", state: "none", ward: null, bytes: 0, mainBytes: 0, pts: null, on: false, used: 0, err: 0 });
 	const i3sKids = (n: T3dNode): T3dNode[] | null => {   // 揃っていれば子の配列・取りに行っている間は null
 		if (n.children) return n.children;
 		if (n.kidsState === "none") {
@@ -349,10 +351,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
 
-			const pk = set.opts.pickable ?? "auto";   // 当たりの写し（W7）＝"auto"＝地物の番号がある束だけ・true＝全部・false＝持たない
-			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
+			// 当たりの写し（W7）＝"auto"＝地物の番号がある束だけ・true＝全部・false＝持たない。
+			// 頂点・index の写し（geom）は lowMem の "auto" では持たない（2026-10-20）＝iPhone 等では pick が引けない代わりに main のヒープがタイル実バイトの約 7 割分減る。要るなら pickable:true で明示
+			const pk = set.opts.pickable ?? "auto", geom = pk === true || (pk === "auto" && !lowMem);
+			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: geom ? b.mesh.pos.slice() : null, idx: geom ? b.mesh.idx.slice() : null, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
 			const sty = set.style, opaque = (b: TileBatch) => (b.alphaMode ?? "OPAQUE") === "OPAQUE";
 			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: !!sty.show && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
+			// main に残る写しの量＝当たりの頂点・index・元の頂点色＋塗り直しの元の頂点色＋地物の番号（ids・tblV＝束ごとに 1 回）。属性の表（文字列の配列）は数えない
+			n.mainBytes = 0;
+			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) : 0;
+			for (const p of n.pick || []) n.mainBytes += (p.pos?.byteLength || 0) + (p.idx?.byteLength || 0) + (p.col0?.byteLength || 0) + featBytes(p.features);
+			for (const p of n.paint || []) n.mainBytes += p.col0.byteLength + (n.pick?.some(q => q.k === p.k) ? 0 : featBytes(p.features));
 			if (r.batches.length) meshVis(n.ward, false);   // 伏せてから上げる（同じ列＝転送より先に効く）＝出すかは次の update が決める（兄弟が揃う前に出さない）
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = !!sty?.show && opaque(b);   // show で抜く＝OPAQUE を MASK に（見える地物は α 255）
@@ -380,7 +389,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				});
 			}
 			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/plugin-splat to draw Gaussian splats`); }
-			gpuBytes += n.bytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.bytes += r.stats.bytes || 0;
+			gpuBytes += n.bytes; mainBytes += n.mainBytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.bytes += r.stats.bytes || 0;
 			// 上げた直後は伏せておく（次の update が出す物だけ出す）。旧＝上げた直後は見えていて次の update で消した＝兄弟が揃う前の子が
 			// 1 枚ずつ現れては消える（描いては消す・2026-10-19）。メッシュは上で転送の前に伏せた。点と splat はここで伏せる
 			if (n.pts) for (const q of n.pts) set.pts?.post({ type: "vis", q, on: false });
@@ -438,7 +447,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const pickSet = (set: T3dSet, x: number, y: number) => {
 		const env = pickEnv?.(); if (!env) return null;
 		const onGround = set.opts.ground === "terrain", items: PickItem[] = [], refs: Array<[T3dNode, PickPart]> = [];
-		for (const n of set.loaded()) if (n.on && n.pick) for (const p of n.pick) { items.push({ pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, lift: env.lift(p.origin, onGround ? "drape" : "plane") }); refs.push([n, p]); }
+		for (const n of set.loaded()) if (n.on && n.pick) for (const p of n.pick) { if (!p.pos || !p.idx) continue; items.push({ pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, lift: env.lift(p.origin, onGround ? "drape" : "plane") }); refs.push([n, p]); }
 		const h = pickMeshes(items, env.view, x, y); if (!h) return null;
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
 		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
@@ -462,7 +471,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (n.ward) setMesh(n.ward, null);
 		if (n.pts) for (const q of n.pts) n.set.pts?.post({ type: "remove", q });
 		if (n.splat) for (const h of n.splat) { try { h.remove(); } catch (err) { console.warn("[tiles3d] splat remove", (err as Error)?.message || err); } }
-		gpuBytes -= n.bytes; n.bytes = 0; n.pts = null; n.splat = null; n.pick = null; n.paint = null; n.ward = null; n.state = "none"; n.on = false; n.set.stats.loaded--; n.set.ready.delete(n);
+		gpuBytes -= n.bytes; mainBytes -= n.mainBytes; n.bytes = 0; n.mainBytes = 0; n.pts = null; n.splat = null; n.pick = null; n.paint = null; n.ward = null; n.state = "none"; n.on = false; n.set.stats.loaded--; n.set.ready.delete(n);
 	};
 	const setOn = (n: T3dNode, on: boolean) => {
 		if (n.on === on || n.state !== "ready") return;
@@ -573,13 +582,13 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const g = want[i].g;
 			for (let first = true; i < want.length && want[i].g === g; i++, first = false) load(want[i].n, !first);
 		}
-		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる。
+		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる。量＝GPU へ送った分＋main に残る写し（2026-10-20）。
 		// 今回の選びで塊の一員だった物（used === frameNo・兄弟が揃うのを待って伏せている子）は捨てない（2026-10-20）：旧＝伏せている子も捨てた＝
 		// 揃いかけの塊が予算を越えると、着いた兄弟を捨てては取り直す空回り（合成 48 枚・lowMem 160 MB で 150 s に 5.4 GB を取り直し・表示は根のまま・
 		// render worker の受け箱が 760 MB まで膨らむ）。塊が予算を越える時は越えたまま揃えて出す（表示中の物を捨てないのと同じ扱い）
-		if (gpuBytes > BUDGET) {
+		if (gpuBytes + mainBytes > BUDGET) {
 			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on && n.used !== frameNo).sort((a, b) => a.used - b.used);
-			for (const n of cand) { if (gpuBytes <= BUDGET * 0.85) break; unload(n); }
+			for (const n of cand) { if (gpuBytes + mainBytes <= BUDGET * 0.85) break; unload(n); }
 		}
 	}
 
@@ -608,7 +617,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				map.flyTo(lon * R2D, lat * R2D, Math.max(2, Math.min(18, z)), 50);
 			}
 			schedule();
-			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), inflight } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
+			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
 				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, splats: n.splat?.length || 0, bbox: n.bbox })); },   // 検分用
 				get asset() { return set.asset!; }, get metadata() { return set.metadata!; },
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
@@ -639,7 +648,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const sp = set.root.sphere;
 			if (opts.fit !== false && sp) { const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320))); map.flyTo(info.root.c[0], info.root.c[1], Math.max(2, Math.min(18, z)), 50); }
 			schedule();
-			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), inflight } },
+			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight } },
 				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); }, setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
 		remove(id: string) {
