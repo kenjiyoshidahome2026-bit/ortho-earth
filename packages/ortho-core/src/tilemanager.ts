@@ -109,6 +109,28 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return c && c.status === "ready" ? [{ z, x, y }] : null;
 	}
 
+	// 未着の枠の代打（update の説明）。戻り＝描く枠の列（全部 ready なら drawSel そのもの＝covered の印）。代打の無い未着の枠は
+	// そのまま残る（ready() が落とす＝従来どおり下地が見える穴。パンの先端など、祖先も子孫も手元に無い所）
+	const FILL_UP = 2, FILL_DOWN = 2;
+	const isReady = (z: number, x: number, y: number): boolean => cache.get(`${z}/${x}/${y}`)?.status === "ready";
+	function fillGaps(sel: TileXYZ[]): TileXYZ[] {
+		if (sel.every(t => isReady(t.z, t.x, t.y))) return sel;
+		const out: TileXYZ[] = [], anc: TileXYZ[] = [];
+		for (const t of sel) {
+			if (isReady(t.z, t.x, t.y)) { out.push(t); continue; }
+			const kids = residentCover(t.z, t.x, t.y, FILL_DOWN);   // 自身は未着＝返るのは隙間なく覆う子孫だけ
+			if (kids) { out.push(...kids); continue; }
+			let z = t.z, x = t.x, y = t.y, a: TileXYZ | null = null;
+			for (let d = 0; d < FILL_UP && z > minZ; d++) { z--; x >>= 1; y >>= 1; if (isReady(z, x, y)) { a = { z, x, y }; break; } }
+			if (!a) { out.push(t); continue; }
+			if (!anc.some(b => b.z === a!.z && b.x === a!.x && b.y === a!.y)) anc.push(a);
+		}
+		if (!anc.length) return out;
+		// 祖先の下に入る物（ready な兄弟・他の祖先の子孫・子孫の代打）は祖先 1 枚に畳む
+		const under = (t: TileXYZ, b: TileXYZ) => t.z > b.z && (t.x >> (t.z - b.z)) === b.x && (t.y >> (t.z - b.z)) === b.y;
+		const top = anc.filter(a => !anc.some(b => under(a, b)));
+		return [...top, ...out.filter(t => !top.some(b => under(t, b)))];
+	}
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit: Set<number> | null = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
 	let selMaxZ = 0;          // 直近 update の「選択レベル」の最細 z（keepFine の子孫代打を除いた素の選抜）＝labels の近景窓の基準
@@ -155,6 +177,12 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 				if (cov) drawSel.push(...cov); else drawSel.push(t);
 			}
 		}
+		// 未着の枠の代打（2026-10-20・本人報告「止まった時の描き直しで一瞬の白抜き」）：選んだ枠が未着の間、その場所を
+		// 常駐の子孫（隙間なく覆える時）か、ready な祖先（FILL_UP 段まで）で埋める。旧＝ready な枠だけを main へ結合していた＝
+		// 選びが変わった瞬間（静止の手前詳細化で一段細かく割れる・ズーム・パンの先）に未着の区画が一度空になり、取得→展開→結合→
+		// 転送の後でやっと描かれた（下地の線は main に線がある間は伏せる＝紙色の白抜き）。祖先で埋める時は、その祖先の下の枠を
+		// ready な物も含めてまとめて祖先に替える＝兄弟がそろうまで親のまま（重ねて描かない・3D Tiles と同じ「塊で入れ替える」）
+		const fillSel = fillGaps(drawSel);
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
@@ -174,6 +202,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		lod = ck === null ? null : { key: ck, selected, coarse, blanket, keepKeys };
 		const keep = new Set(keepKeys);
 		if (drawSel !== selected) for (const t of drawSel) keep.add(keyOf(t));
+		if (fillSel !== drawSel) for (const t of fillSel) keep.add(keyOf(t));   // 代打の祖先・子孫も LRU に食わせない
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
@@ -226,8 +255,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// covered＝「この視野を覆うために描くべき枠（keepFine の子孫代打後）」が全部 ready＝主層に穴が無いことが
 		// 構造的に確定。app の render は これと merge 済み集合の一致で下地(base)の要否を厳密に判定する
 		// （「移動中かどうか」という代理指標に頼らない）。sel＝その枠数（診断用）。total は従来どおり素の選抜数。
-		const draw = ready(drawSel);
-		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: draw.length === drawSel.length };
+		const draw = ready(fillSel);
+		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: fillSel === drawSel };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
