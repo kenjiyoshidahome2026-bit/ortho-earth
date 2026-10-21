@@ -127,7 +127,7 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 		try {
 			if (st.mode === "tiles") {
 				await Promise.all(scenes.map(async s => {
-					const h = await map.add3DTiles(`${base}${s.id}/tileset.json`, { id: `splat:${s.id}`, fit: false, heightOffset: lift, maxSSE: 12, splat: splatOpts(), attribution: "Niantic Labs (MIT)" });
+					const h = await map.add3DTiles(`${base}${s.id}/tileset.json`, { id: `splat:${s.id}`, fit: false, heightOffset: lift, maxSSE: 16, splat: splatOpts(), attribution: "Niantic Labs (MIT)" });
 					if (my !== loading) { h.remove(); return; } tiles.set(s.id, h);
 				}));
 			} else {
