@@ -875,7 +875,7 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。
  *  低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）の "auto" は頂点・index の写しを持たない（2026-10-20）＝pick と queryRenderedFeatures は当たらないが feature state の色とスタイルは効く。要るなら true で明示。
  *  写しの量は stats.mainMB に出て、gpuMB との和が予算（低メモリ 160 MB・他 512 MB）に数えられる。featureIdSet＝何組目の番号で当てるか（既定 0） */
-export interface Tiles3DOptions { id?: string; maxSSE?: number;
+export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限（px・既定 16・低メモリ端末 24）。予算（gpuMB + mainMB）を越えると stats.sseScale 倍に引き上げられる */ maxSSE?: number;
 	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
 	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/plugin-splat の SplatOptions）。
@@ -890,7 +890,7 @@ export interface Tiles3DOptions { id?: string; maxSSE?: number;
  *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
 export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; bytes: number; gpuMB: number; /** main のヒープに残る写し（当たりの頂点・index・元の頂点色・地物の番号）の MB。gpuMB との和が予算に数えられる */ mainMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; bytes: number; gpuMB: number; /** main のヒープに残る写し（当たりの頂点・index・元の頂点色・地物の番号）の MB。gpuMB との和が予算に数えられる */ mainMB: number; inflight: number; /** 予算を越えた時の maxSSE の倍率（1＝そのまま・最大 16）。gpuMB + mainMB が予算を越えると 1.25 倍ずつ上がって粗い段で止め、動いた時に 1 s に 1 段ずつ 0.9 倍で戻る（2026-10-21） */ sseScale: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
