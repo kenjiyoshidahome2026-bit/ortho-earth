@@ -1,4 +1,4 @@
-// Gaussian splat の読み手の worker（@ortho-earth/plugin-splat・2026-10-18）＝fetch・gunzip・読み（.ply／.splat／.spz）・東北上への下ごしらえ・SH の詰め・LoD の順位を main の外で。
+// Gaussian splat の読み手の worker（@ortho-earth/plugin-splat・2026-10-18）＝fetch・gunzip・読み（.ply／.splat／.spz／.ksplat／.sog）・東北上への下ごしらえ・SH の詰め・LoD の順位を main の外で。
 //   main（index.ts）が new Worker(new URL("./splat-reader.ts", import.meta.url), { type: "module" }) で一つ立て、層ごとに { seq, src, … } を送る。
 //   答え＝{ seq, ok: true, …Prepared }（配列は transfer＝写さない）か { seq, ok: false, error }。main はそのまま描き手（render worker のオーバーレイ）へ transfer する。
 //   自前の読み手（splatPlugin({ decoders })）は関数＝worker へ渡せないので、その format だけ main が読む（index.ts）。

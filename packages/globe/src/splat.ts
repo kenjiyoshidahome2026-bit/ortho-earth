@@ -1,14 +1,14 @@
 // Gaussian splat の受け口（第 2 波 F8・2026-10-12）＝契約だけ。描く段（視線順のソート・楕円の描画・深度）は registry.dataKinds の "splat" を plugin が足す
-//   map.addData(data, { kind: "splat" })：data＝SplatData（下）か、.ply/.splat/.spz の URL（読み手も plugin＝WASM は opt-in alias）
+//   map.addData(data, { kind: "splat" })：data＝SplatData（下）か、.ply/.splat/.spz/.ksplat/.sog の URL（読み手も plugin＝WASM は opt-in alias・.ksplat/.sog は 2026-10-21）
 //   SplatData＝{ n, positions: Float32Array(n*3), scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数 x,y,z,w）, colors: Uint8Array(n*4)（RGBA 0〜255）, sh?: Float32Array, crs?: "lnglat"|"ecef" }
 //   positions は crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交（m）、"local" なら file の座標（m）＋transform（列優先 4×4・local → ECEF＝3D Tiles の glTF の splat・2026-10-18）。plugin はこの形で受け取る＝normSplat が検める
 import type { SplatData } from "../globe.d.ts";
 
 /** normSplat が検める前の形（欄は何が来てもよい） */
 type SplatIn = { [K in keyof SplatData]?: unknown } & { n?: number; positions?: Float32Array; colors?: Uint8Array; sh?: Float32Array; crs?: string; transform?: ArrayLike<number> };
-export const SPLAT_FORMATS: readonly string[] = Object.freeze(["ply", "splat", "spz"]);
+export const SPLAT_FORMATS: readonly string[] = Object.freeze(["ply", "splat", "spz", "ksplat", "sog"]);
 const SPLAT_CRS: readonly string[] = Object.freeze(["lnglat", "ecef", "local"]);
-export const isSplatUrl = (u: unknown): u is string => typeof u === "string" && /\.(ply|splat|spz)(\?|#|$)/i.test(u);
+export const isSplatUrl = (u: unknown): u is string => typeof u === "string" && /\.(ply|splat|spz|ksplat|sog)(\?|#|$)/i.test(u);
 const f32 = (v: unknown, name: string, len: number) => {
 	if (!(v instanceof Float32Array)) throw new TypeError(`splat: ${name} must be a Float32Array`);
 	if (v.length !== len) throw new RangeError(`splat: ${name} length ${v.length} != ${len}`);
@@ -18,7 +18,7 @@ const f32 = (v: unknown, name: string, len: number) => {
 export const normSplat = (data: unknown): string | ArrayBuffer | Uint8Array | (SplatData & { n: number; crs: "lnglat" | "ecef" | "local" }) => {
 	if (isSplatUrl(data)) return data;
 	if (data instanceof ArrayBuffer || data instanceof Uint8Array) return data;
-	if (!data || typeof data !== "object") throw new TypeError("splat: data must be SplatData or a .ply/.splat/.spz URL");
+	if (!data || typeof data !== "object") throw new TypeError("splat: data must be SplatData or a .ply/.splat/.spz/.ksplat/.sog URL");
 	const n = (data as SplatIn).n ?? ((data as SplatIn).positions instanceof Float32Array ? (data as SplatIn).positions!.length / 3 : NaN);
 	if (!Number.isInteger(n) || n < 0) throw new RangeError("splat: n must be a non-negative integer");
 	const crs = (data as SplatIn).crs ?? "lnglat";
