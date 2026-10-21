@@ -5,4 +5,4 @@
 /// <reference path="../../packages/equal/src/ambient.d.ts" />
 declare const __DATA_US__: string;
 declare const __WORLD_OUT__: string;
-interface Window { __map?: unknown; __arcs?: unknown; __clock?: unknown; __clouds?: unknown; __hex?: unknown; __parks?: unknown; __physical?: unknown; __sats?: unknown }
+interface Window { __map?: unknown; __arcs?: unknown; __clock?: unknown; __clouds?: unknown; __hex?: unknown; __parks?: unknown; __physical?: unknown; __sats?: unknown; __splat?: unknown }
