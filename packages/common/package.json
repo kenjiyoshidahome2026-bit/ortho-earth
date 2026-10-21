@@ -17,7 +17,8 @@
 		"./geoExec": "./src/geoExec.ts",
 		"./gintView": "./src/gintView.ts",
 		"./wiki": "./src/wiki.ts",
-		"./panel": "./src/panel.ts"
+		"./panel": "./src/panel.ts",
+		"./bigtable": "./src/bigtable.ts"
 	},
 	"files": [
 		"src",
@@ -26,7 +27,7 @@
 	],
 	"scripts": {
 		"build": "tsc -p .",
-		"test": "node tests/t-utility.mjs && node tests/t-gintView.mjs && node tests/t-geoExec.mjs && node tests/t-wiki.mjs"
+		"test": "node tests/t-utility.mjs && node tests/t-gintView.mjs && node tests/t-geoExec.mjs && node tests/t-wiki.mjs && node tests/t-bigtable.mjs"
 	},
 	"dependencies": {
 		"d3": "^7.9.0",
