@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -335,12 +335,19 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	}
 	$$("[data-area]").forEach(inp => inp.onchange = () => setArea(inp.dataset.area as AreaId, inp.checked));
 
-	// ── 建物：18 区とも常に（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に）──
+	// ── 建物：18 区（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に・z が BUILDINGS_MIN_ZOOM 以上の時だけ）──
 	const lod1: Tiles3DHandle[] = [];
 	const lod1Ready = Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: LOD1_ATTR,
 		style: { color: "color('#8d96a3')" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる。文字列は Cesium の式として読まれる＝素の "#rrggbb" は字句で落ちて 13 区とも出なかった＝color() で包む
 		.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })))
-		.then(hs => { for (const h of hs) if (h) lod1.push(h); return lod1; });
+		.then(hs => { for (const h of hs) if (h) { h.setVisible(lod1Shown); lod1.push(h); } return lod1; });
+	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
+	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
+	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）も同じしきいで伏せる＝しきい未満の LOD1 の区を点々と残さない。LOD2 の 5 区のメッシュは公開の口が無く隠せない（エンジン側）
+	const extrusion = (on: boolean) => { try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
+	const lod1Gate = () => { const on = map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
+	extrusion(lod1Shown);
+	map.on("move", lod1Gate);
 
 	// ── 名所ツアー（画面の下に札・地図に触れたら止まる）──
 	const cap = document.createElement("div");

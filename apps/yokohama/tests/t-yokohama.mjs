@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, ZONES, AREAS } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -52,5 +52,6 @@ t("港の物語：章の id は port- で重複なし・年は昇順・借りる
 t("港の物語・海の眺め：視点は横浜市の中・地図の域", [...PORT_STORY, ...SEA_VIEWS].every(v => inCity(v.lon, v.lat) && v.zoom >= 12 && v.zoom <= 19 && v.tilt >= 0 && v.tilt <= 75) && PORT_STORY.every(c => WARDS.some(w => w.code === c.ward)));
 t("公共施設の種別：どの区分にも 1 つ以上・種別名は重ならない・知らない種別は区分の先頭へ", FACILITY_CATS.every((_, i) => FACILITY_SUBS.some(x => x.cat === i)) && new Set(FACILITY_SUBS.flatMap(x => x.kinds.map(k => x.cat + k))).size === FACILITY_SUBS.reduce((n, x) => n + x.kinds.length, 0) && subOf(5, "交番") === FACILITY_SUBS.findIndex(x => x.name === "Police boxes") && subOf(2, "謎の学校") === FACILITY_SUBS.findIndex(x => x.cat === 2));
 t("用途地域：13 種・正式名と色は重ならない／区域：id とファイルは重ならない", ZONES.length === 13 && new Set(ZONES.map(z => z.ja)).size === 13 && new Set(ZONES.map(z => z.color)).size === 13 && ZONES.every(z => /地域$/.test(z.ja)) && new Set(AREAS.map(a => a.id)).size === AREAS.length && new Set(AREAS.map(a => a.file)).size === AREAS.length);
+t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）より上・LOD1 の区の名所はその下限以上で寄る（ツアーで建物が出ない名所を作らない）", BUILDINGS_MIN_ZOOM > Math.max(...WARDS.map(w => w.zoom)) && BUILDINGS_MIN_ZOOM >= 15 && BUILDINGS_MIN_ZOOM <= 18 && SPOTS.filter(s => LOD1_WARDS.some(w => w.code === s.ward)).every(s => s.zoom >= BUILDINGS_MIN_ZOOM), SPOTS.filter(s => LOD1_WARDS.some(w => w.code === s.ward) && s.zoom < BUILDINGS_MIN_ZOOM).map(s => s.id).join());
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
