@@ -38,7 +38,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
 	const HAZARD_ATTR = `<a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">${esc(t("Hazard Map Portal Site (MLIT)"))}</a>`;
 	const HINAN_ATTR = t("Designated emergency evacuation site data (GSI)");
-	const KSJ_ATTR = (what: string) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>`;
+	// nc＝国土数値情報の使用許諾が「非商用」の物（P17 消防署・P18 警察署・P27 文化施設・P28 国の機関）＝出典に書き添える（本人 2026-10-21：今は非商用で良い・横浜市が使う時に一緒に詰める）
+	const KSJ_ATTR = (what: string, nc = false) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>${nc ? ` (${esc(t("non-commercial use"))})` : ""}`;
 	const LOD1_ATTR = t("MLIT PLATEAU (LOD1 buildings)");
 	const num = (n: number) => n.toLocaleString(lang);
 	document.title = t("Yokohama Digital Twin");
@@ -243,7 +244,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const d = await ledger<{ rows: FacilityRow[] }>("facilities.json");
 		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
 		fac = d.rows;
-		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc."),
+		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc.", true),
 			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3], s: subOf(r[3], r[5]) } })) } });
 		const f0 = facFilter();
 		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
@@ -298,7 +299,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			if (id === "zoning") { const has = new Set(fc.features.map(f => zoneOf(String(f.properties?.n || "")))); $$<HTMLElement>(".zlg [data-z]").forEach(e => e.style.display = has.has(+e.dataset.z!) ? "" : "none"); }   // 凡例は市内にある種だけ（田園住居地域は無い）
 			const [fid, lid] = areaIds(id);
 			const data = id === "zoning" ? { ...fc, features: fc.features.map(f => ({ ...f, properties: { ...f.properties, z: zoneOf(String(f.properties?.n || "")) } })) } : fc;
-			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name) });
+			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name, id === "police" || id === "fire") });
 			await map.addLayer({ id: fid, type: "fill", source: fid, layout: { visibility: "none" },
 				paint: id === "zoning" ? { "fill-color": ["match", ["get", "z"], ...ZONES.flatMap((z, i) => [i, z.color]), "#bbbbbb"], "fill-opacity": 0.5 } : { "fill-color": x.color, "fill-opacity": 0.06 } });
 			await map.addLayer({ id: lid, type: "line", source: fid, layout: { visibility: "none" },
