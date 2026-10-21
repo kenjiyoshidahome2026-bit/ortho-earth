@@ -223,6 +223,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// gpuBytes＝GPU へ送った量・mainBytes＝main のヒープに残る写し（当たりの頂点・index、塗り直しの元の頂点色、地物の番号）。予算（BUDGET）は両方の和で見る（2026-10-20 の総点検：
 	// 写しはタイル実バイトの約 7 割（合成 161 MB で main 115 MB）あり、どの予算にも数えていなかった）
 	let inflight = 0, gpuBytes = 0, mainBytes = 0, rafPending = 0;
+	// 予算の SSE 引き上げ（2026-10-21・総点検の残件 1）：捨てられる物（表示も選びもしていない物）を捨てても予算を越えていれば、次の選びから maxSSE を
+	// sseScale 倍（1.25 倍ずつ・上限 16 倍）にして粗い段で止める＝表示中の塊そのものを縮める（Cesium の memory-adaptive SSE と同じ考え）。旧＝表示中の塊が
+	// 予算を越えると越えたまま持ち続けた（iPhone の 160 MB は密な街区で越え得る）。戻し＝使っている物（表示中＋今回の選びで塊の一員）の量が予算の 7 割を
+	// 切っていれば、動いた時に 1 s に 1 段ずつ 0.9 倍で 1 倍まで（止まっている間は戻さない・取っておいた物（捨てていない隠れた子）は量に数えない＝戻せなくなる）
+	let sseScale = 1, moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
 	const withQuery = (uri: string, set: T3dSet) => { if (!set.query.length) return uri; const u = new URL(uri); for (const [k, v] of set.query) if (!u.searchParams.has(k)) u.searchParams.set(k, v); return u.href; };   // 親の URL の鍵（?key= 等）を子へ引き継ぐ
@@ -493,7 +498,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (const set of sets.values()) {
 			if (!set.root || set.hidden) continue;
 			const show = new Set<T3dNode>();
-			const baseH = -set.opts.heightOffset, maxSSE = set.opts.maxSSE ?? (lowMem ? 24 : 16);
+			const baseH = -set.opts.heightOffset, maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * sseScale;
 			const visible = (n: T3dNode): { ok: true; dist: number; distC?: number } | { ok: false } => {
 				if (!n.sphere) return { ok: true, dist: 1 };
 				const c = worldOf(n.sphere.c, baseH, ell, EARTH_M), r = n.sphere.r / EARTH_M;
@@ -588,9 +593,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on && n.used !== frameNo).sort((a, b) => a.used - b.used);
 			for (const n of cand) { if (gpuBytes + mainBytes <= BUDGET * 0.85) break; unload(n); }
 		}
+		// 予算の SSE 引き上げ／戻し（上の sseScale の注釈）。上げたら選び直す（止まっていても効く）・戻すのは今回の選び（動いた時）の分だけ
+		if (gpuBytes + mainBytes > BUDGET) { if (sseScale < 16) { sseScale = Math.min(16, sseScale * 1.25); schedule(); } }
+		else if (sseScale > 1 && moved && performance.now() - sseDownAt > 1000) {
+			let live = 0;
+			for (const set of sets.values()) for (const n of set.loaded()) if (n.on || n.used === frameNo) live += n.bytes + n.mainBytes;
+			if (live < BUDGET * 0.7) { sseScale = sseScale * 0.9 < 1.05 ? 1 : sseScale * 0.9; sseDownAt = performance.now(); }
+		}
+		moved = false;
 	}
 
-	const onMove = () => schedule();
+	const onMove = () => { moved = true; schedule(); };
 	map.on("move", onMove); map.on("settle", onMove);
 	const ctl = {
 		// url＝tileset.json。opts＝{ maxSSE:16, heightOffset:0（m・高さへの足し込み）, ground:"absolute"|"terrain"（1 棟ずつ地面へ接地）, pointSize:1.5（px）, textures:true, fit:true（寄る）, maxInflight（同時取得数・既定 lowMem 3／他 6）}
@@ -615,7 +628,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				map.flyTo(lon * R2D, lat * R2D, Math.max(2, Math.min(18, z)), 50);
 			}
 			schedule();
-			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
+			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +sseScale.toFixed(2) } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
 				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, splats: n.splat?.length || 0, bbox: n.bbox })); },   // 検分用
 				get asset() { return set.asset!; }, get metadata() { return set.metadata!; },
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
@@ -646,7 +659,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const sp = set.root.sphere;
 			if (opts.fit !== false && sp) { const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320))); map.flyTo(info.root.c[0], info.root.c[1], Math.max(2, Math.min(18, z)), 50); }
 			schedule();
-			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight } },
+			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +sseScale.toFixed(2) } },
 				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); }, setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
 		remove(id: string) {
