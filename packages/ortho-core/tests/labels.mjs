@@ -1,6 +1,6 @@
 // buildLabels（labels.js）の記号（段 3・2026-09-28）：icon-image だけの層もラベルになる（text ""）・icon の性質が焼かれる・文字も記号も無い層／名前が空の記号は出ない・同じ点の文字と記号は別のラベル
 import assert from "node:assert/strict";
-import { buildLabels } from "../src/labels.ts";
+import { buildLabels, labelsBytes } from "../src/labels.ts";
 
 const src = { extent: 4096, features: [{ type: "Point", props: { name: "Cafe", ic: "cafe" }, geom: { coords: [100, 200] } }] };
 const style = { layers: [
@@ -92,6 +92,15 @@ assert.equal(o0.rot, undefined); assert.equal(o0.ra, undefined); assert.equal(o0
 	assert.deepEqual(f[0].sec, [{ t: "東京タワー", fs: 1.2 }, { t: "\n" }, { t: "TOKYO TOWER", fs: 0.8, col: [1, 0, 0, 1], fnt: { fam: ["Noto Sans"], w: 400, st: "italic" } }], "区間＝文字（transform 済み）・font-scale・色・書体");
 	assert.equal(f[1].wm, undefined, "ラテンだけ＝横書き"); assert.equal(f[1].sec.length, 3);
 	assert.equal(p[0].text, "東京タワー Tokyo Tower"); assert.equal(p[0].sec, undefined, "書式の無い format は区間を焼かない");
+}
+
+// ── 注記が main に占める量の概算（メモリ総点検の残件 5・2026-10-21）：点は 1 件 400 B＋文字列の 2 B/文字、線に沿う注記は path/cum の実バイトが乗る＝tilemanager の予算に数える
+{
+	const pt = labelsBytes([by.txt]);
+	assert.ok(pt >= 400 + "Cafe".length * 2 && pt < 1000, `点の注記 1 件＝400 B 台（${pt}）`);
+	const line = ll.find(L => L.path);
+	assert.ok(line && labelsBytes([line]) >= 400 + line.path.byteLength, "線に沿う注記＝path の実バイトを数える");
+	assert.equal(labelsBytes([]), 0);
 }
 
 console.log("labels.mjs: ok (", labels.length, "+", ll.length, "+", sl.length, "+", z14.length, "+", ol.length, "labels )");
