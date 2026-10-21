@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -561,7 +561,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			(shelters ? Promise.resolve(shelters) : setHinan(true).then(() => shelters)),
 		]);
 		if (probeOut.dataset.run !== run) return;
-		const near = rows ? nearestRows(rows, [lon, lat], 3) : [];
+		const near = rows ? nearestSites(rows, [lon, lat], 3) : [];   // 同じ学校の棟違いは 1 件に
 		const worst = Math.max(...depths);
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
 		probeOut.innerHTML = `<div class="dh"><b>${Number.isFinite(here) ? esc(t("Elevation about $1 m", num(Math.round(here)))) : ""}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
@@ -585,7 +585,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		});
 	}
 	probeOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { probeOut.hidden = true; probeMark?.remove(); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "none"); } });
-	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; setProbing(false); if (narrow()) P.setFold(false); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
+	// スマホ：開いた板（下からのシート）に押した点と最寄りへの線が隠れる＝点が板の上の見える所の中ほどに来るよう地図をずらす
+	const revealAbovePanel = (ll: LonLat) => requestAnimationFrame(() => {
+		const pr = panel.getBoundingClientRect(), mr = mapEl.getBoundingClientRect(), top = pr.top - mr.top;
+		const p = map.project(ll), want = top / 2;
+		if (top <= 0 || p.y < top - 24) return;   // もう見えている
+		const c = map.unproject([mapEl.clientWidth / 2, mapEl.clientHeight / 2 + (p.y - want)]);
+		if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 });
+	});
+	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
 
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {

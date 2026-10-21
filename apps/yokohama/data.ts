@@ -5,7 +5,7 @@
 
 export interface Ward { code: string; /** 日本語の名（住所の照合に使う） */ name: string; /** 訳の鍵（i18n/pages/yokohama.json） */ en: string; lon: number; lat: number; zoom: number }
 export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string }
-export interface Legend { color: string; label: string }
+export interface Legend { color: string; label: string; /** 画素の照合だけに使う、同じ帯のほかの色（凡例には出さない） */ match?: string[] }
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
 /** 面＝観光・交通・防災・解析（2026-10-21 に「まち」→「観光」・「時間」を外し「交通」を足した） */
@@ -116,9 +116,9 @@ export const SEA_VIEWS = [
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
 export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
 
-/** 浸水深の凡例（重ねるハザードマップの共通の色・洪水／高潮／津波） */
+/** 浸水深の凡例（重ねるハザードマップの共通の色・洪水／高潮／津波）。タイルには細かい帯の色（0.3m 未満 #ffffb3・0.5〜1m #f8e1a6）も混じる＝match で同じ帯に寄せる（2026-10-21 タイル実測） */
 export const DEPTH: Legend[] = [
-	{ color: "#f7f5a9", label: "Under 0.5 m" }, { color: "#ffd8c0", label: "0.5–3 m" }, { color: "#ffb7b7", label: "3–5 m" },
+	{ color: "#f7f5a9", label: "Under 0.5 m", match: ["#ffffb3"] }, { color: "#ffd8c0", label: "0.5–3 m", match: ["#f8e1a6"] }, { color: "#ffb7b7", label: "3–5 m" },
 	{ color: "#ff9191", label: "5–10 m" }, { color: "#f285c9", label: "10–20 m" }, { color: "#dc7adc", label: "20 m or more" },
 ];
 const DP = "https://disaportaldata.gsi.go.jp/raster/";
@@ -128,7 +128,7 @@ export const HAZARDS: Hazard[] = [
 	{ id: "hightide", name: "Storm surge (maximum assumed)", urls: [DP + "03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png"], maxZoom: 17, legend: DEPTH, note: "Flood depth when a typhoon storm surge overtops the sea defenses." },
 	{ id: "tsunami", name: "Tsunami", urls: [DP + "04_tsunami_newlegend_data/{z}/{x}/{y}.png"], maxZoom: 17, legend: DEPTH, note: "Inundation depth in Kanagawa Prefecture's tsunami scenario." },
 	{ id: "dosha", name: "Sediment disaster warning areas", urls: ["05_dosekiryukeikaikuiki", "05_kyukeishakeikaikuiki", "05_jisuberikeikaikuiki"].map(d => `${DP}${d}/{z}/{x}/{y}.png`), maxZoom: 17,
-		legend: [{ color: "#f5e95c", label: "Warning area" }, { color: "#e5463c", label: "Special warning area" }, { color: "#00008b", label: "Steep-slope collapse hazard area (Steep Slope Act)" }],
+		legend: [{ color: "#fae600", label: "Warning area" }, { color: "#fa2800", label: "Special warning area" }, { color: "#00008b", label: "Steep-slope collapse hazard area (Steep Slope Act)" }],
 		note: "Warning areas for debris flows, steep-slope collapses (cliff failures) and landslides. Navy shows hazard areas under the Steep Slope Act." },
 ];
 
@@ -193,7 +193,7 @@ export function tilePixel(lon: number, lat: number, z: number): { x: number; y: 
 export function legendIndex(legend: Legend[], r: number, g: number, b: number, a: number): number {
 	if (a < 128) return -1;
 	let bi = -1, bd = 40 * 40 * 3;
-	legend.forEach((l, i) => { const c = parseInt(l.color.slice(1), 16), d = (r - (c >> 16)) ** 2 + (g - (c >> 8 & 255)) ** 2 + (b - (c & 255)) ** 2; if (d < bd) { bd = d; bi = i; } });
+	legend.forEach((l, i) => { for (const hex of [l.color, ...l.match ?? []]) { const c = parseInt(hex.slice(1), 16), d = (r - (c >> 16)) ** 2 + (g - (c >> 8 & 255)) ** 2 + (b - (c & 255)) ** 2; if (d < bd) { bd = d; bi = i; } } });
 	return bi;
 }
 /** 浸水の深さの帯（DEPTH の番号）→ 水が届く階（1 階＝3m とみなす・0.5m 未満は 0＝床下）。20m 以上は 7 */
@@ -207,6 +207,14 @@ export function distM(a: [number, number], b: [number, number]): number {
 /** 近い順に k 件（避難場所の行・直線距離） */
 export function nearestRows<T extends [number, number, ...unknown[]]>(rows: T[], at: [number, number], k: number): { row: T; m: number }[] {
 	return rows.map(row => ({ row, m: distM(at, [row[0], row[1]]) })).sort((a, b) => a.m - b.m).slice(0, k);
+}
+/** 避難場所の「場所」の名＝名称の空白（全角・半角）より前。避難場所の台帳は校舎・体育館ごとに 1 行＝「横浜市立岡野中学校　校舎７」「…　体育館」は同じ学校 */
+export const siteName = (name: string) => String(name || "").split(/[\s\u3000]/)[0] || String(name || "");
+/** 近い順に k か所（同じ場所の別の棟は最も近い 1 行だけ＝最寄り 3 件が 1 校の棟違いで埋まらないように） */
+export function nearestSites<T extends [number, number, string, ...unknown[]]>(rows: T[], at: [number, number], k: number): { row: T; m: number }[] {
+	const seen = new Set<string>(), out: { row: T; m: number }[] = [];
+	for (const x of nearestRows(rows, at, rows.length)) { const key = siteName(x.row[2]); if (seen.has(key)) continue; seen.add(key); out.push(x); if (out.length >= k) break; }
+	return out;
 }
 /** 歩いて何分（80m/分＝不動産の表示と同じ・道のりは直線の 1.3 倍とみなす） */
 export const walkMin = (m: number) => Math.max(1, Math.round(m * 1.3 / 80));
