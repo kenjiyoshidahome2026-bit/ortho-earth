@@ -143,7 +143,9 @@ export class GeoPBF extends GeoPBFBase {
 			// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.ts の由来書き参照）。
 			// postMessage は AB の場合 structured clone（unpack は内部でコピーする設計＝どちらでも正しい）。
 			// Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝受け側で attachLazyStreams を掛け直す
-			this.unPackGint = attachLazyStreams(await runInWorker<GintDecodeResponse>("decoder:gint", GeoPBF._gintWorkerFactory as LaneFactory, { sab: payload }));
+			// unpackFailed＝版検札落ち等＝メインスレッド経路（unPackGintBuffer が null）と同じ着地にする＝呼び手が _staleGint で再焼き
+			const r = await runInWorker<GintDecodeResponse>("decoder:gint", GeoPBF._gintWorkerFactory as LaneFactory, { sab: payload });
+			this.unPackGint = "unpackFailed" in r ? null : attachLazyStreams(r);
 		} else {
 			this.unPackGint = unPackGintBuffer(payload);
 		}
