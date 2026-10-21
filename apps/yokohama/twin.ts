@@ -61,15 +61,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		.catch(e => { console.warn("[yokohama]", name, e); return null; })).get(name)!) as Promise<T | null>;
 
 	// ── カメラ ──
-	// 地区（区・全市）＝平面の淡色地図（地理院の淡色＝注記・建物・等高線まで全部入り）。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の基図へ戻す（本人 2026-10-21）
-	let baseBefore: string | null | undefined;   // undefined＝淡色にしていない
-	const setPale = async (on: boolean) => {
-		try {
-			if (on) { if (baseBefore === undefined) baseBefore = map.raster.selected().base; showAreas(true); await map.raster.select("gsi-pale"); }
-			else if (baseBefore !== undefined) { const b = baseBefore; baseBefore = undefined; showAreas(false); await map.raster.select(b); }
-		} catch (e) { console.warn("[yokohama] pale", e); }
+	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路・施設）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
+	const ALL_LAYERS = { place: true, terrain: true, rail: true, road: true, facility: true };
+	let layersBefore: ReturnType<GlobeMap["getBaseLayers"]> | undefined;   // undefined＝平面にしていない
+	const setFlat = (on: boolean) => {
+		if (!map.setBaseLayers) { showAreas(on); return; }   // 旧エンジン（setBaseLayers 前）＝区域だけ
+		if (on) { if (layersBefore === undefined) layersBefore = map.getBaseLayers(); showAreas(true); map.setBaseLayers(ALL_LAYERS); }
+		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); map.setBaseLayers(b); }
 	};
-	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setPale(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
+	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
 	const flySpot = (s: Spot) => flyView(s);
 
 	// ── 案内板（右上）──
@@ -209,7 +209,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const f = fc?.features.find(x => x.properties.code === code);
 		const bb = f?.properties.bbox ?? (w ? null : cityBox(fc) ?? CITY_BBOX);   // 全市＝市の境界の外接矩形（読めない時は台帳の矩形）
 		if (fc) map.setFilter("yk-ward-on", ["==", ["get", "code"], code || "-"]);   // 全市＝どの区も塗らない
-		setPale(true);
+		setFlat(true);
 		if (bb) await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0 });
 		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
 	}

@@ -2771,6 +2771,10 @@ map.getReduceMotion = () => reduceMotionOn();
 // 伏せている間は表示も新しい読み込みもしない（常駐は保つ＝戻すと即）。opts.mesh=false の地図では何もしない（getMeshVisible は false）
 map.setMeshVisible = on => { meshVisible = !!on; meshReal?.setVisible(meshVisible); requestDraw(); return map; };
 map.getMeshVisible = () => meshOn && meshVisible;
+// 基図の表示項目（opts.layers と同じキー：place地名/terrain地形/rail鉄道/road道路/facility施設）を実行時に点ける／消す（2026-10-21・横浜：平面の地区図は全層）。
+// チップと同じ正規経路（setLayer＝見た目・副作用・共有URL）。opts.layers で固定したキーと未知のキーは黙って無視（埋め込み主の固定は破れない）
+map.setBaseLayers = o => { for (const [k, v] of Object.entries(o || {})) if (FREE_LAYER_KEYS.includes(k) && typeof v === "boolean") setLayer(k, v); return map; };
+map.getBaseLayers = () => ({ place: layerState.place, terrain: layerState.terrain, rail: layerState.rail, road: layerState.road, facility: layerState.facility });
 // 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
 map.getBounds = () => {
 	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）

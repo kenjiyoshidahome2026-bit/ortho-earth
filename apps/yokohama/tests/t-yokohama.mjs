@@ -25,9 +25,9 @@ t("避難場所：対応災害のビット", HINAN_FLAGS.length === 8 && flagsOf
 
 const s = parseState("?tab=risk&hz=flood,bogus,tsunami,flood&era=1974&ward=14104&spot=mm21&tr=bus,x,subway&data=x");
 t("状態：読む（知らない値は落とし重複は畳む）", s.tab === "risk" && s.hz.join() === "flood,tsunami" && s.ward === "14104" && s.spot === "mm21" && s.tr.join() === "subway,bus", JSON.stringify(s));
-const DEF = { tab: "sight", ward: "", hz: [], spot: "", tr: ["subway"] };
+const DEF = { tab: "sight", ward: "", hz: [], spot: "", tr: [] };
 t("状態：既定値は書かず、他の鍵は残す（旧 era は消す）", writeState("?data=x&era=1974", DEF) === "?data=x");
-t("状態：交通を全部消した＝tr= を残す（既定の地下鉄に戻さない）", writeState("", { ...DEF, tr: [] }) === "?tr=" && parseState("?tr=").tr.length === 0);
+t("状態：交通は最初は何も出さない（地下鉄も OFF・旧 URL の tr= も同じ）", parseState("").tr.length === 0 && parseState("?tr=").tr.length === 0 && writeState("", DEF) === "" && writeState("", { ...DEF, tr: ["subway"] }) === "?tr=subway");
 t("状態：旧い面の名（city→観光・time→解析）・地域の面", parseState("?tab=area").tab === "area" && parseState("?tab=city").tab === "sight" && parseState("?tab=time").tab === "tools" && TRANSIT[0].id === "subway");
 t("状態：往復", JSON.stringify(parseState(writeState("", s))) === JSON.stringify(s));
 t("状態：壊れた値は既定へ", JSON.stringify(parseState("?tab=x&era=1800&ward=13101")) === JSON.stringify(DEF));
