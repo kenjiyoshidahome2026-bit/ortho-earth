@@ -60,7 +60,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		.catch(e => { console.warn("[yokohama]", name, e); return null; })).get(name)!) as Promise<T | null>;
 
 	// ── カメラ ──
-	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing });
+	// 地区（区・全市）＝平面の淡色地図（地理院の淡色＝注記・建物・等高線まで全部入り）。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の基図へ戻す（本人 2026-10-21）
+	let baseBefore: string | null | undefined;   // undefined＝淡色にしていない
+	const setPale = async (on: boolean) => {
+		try {
+			if (on) { if (baseBefore === undefined) baseBefore = map.raster.selected().base; await map.raster.select("gsi-pale"); }
+			else if (baseBefore !== undefined) { const b = baseBefore; baseBefore = undefined; await map.raster.select(b); }
+		} catch (e) { console.warn("[yokohama] pale", e); }
+	};
+	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setPale(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
 	const flySpot = (s: Spot) => flyView(s);
 
 	// ── 案内板（右上）──
@@ -175,14 +183,21 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		return { top: side, left: side + (desk && onLeft ? pr.right - mr.left : 0), right: side + (desk && !onLeft ? mr.right - pr.left : 0), bottom: side + (sheet ? mr.bottom - pr.top : 0) };
 	};
 	const wardSel = $<HTMLSelectElement>(".ward");
+	const cityBox = (fc: WardFC | null): [number, number, number, number] | null => {
+		const pts = fc?.city?.flat() ?? fc?.features.flatMap(f => [[f.properties.bbox[0], f.properties.bbox[1]], [f.properties.bbox[2], f.properties.bbox[3]]] as LonLat[]) ?? [];
+		if (!pts.length) return null;
+		const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+		return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+	};
 	async function setWard(code: string) {
 		st.ward = code; save(); wardSel.value = code; closePop();
 		const w = WARDS.find(x => x.code === code);
 		const fc = await loadWards();
 		if (st.ward !== code) return;   // 読んでいる間に選び直した
 		const f = fc?.features.find(x => x.properties.code === code);
-		const bb = f?.properties.bbox ?? (w ? null : CITY_BBOX);
+		const bb = f?.properties.bbox ?? (w ? null : cityBox(fc) ?? CITY_BBOX);   // 全市＝市の境界の外接矩形（読めない時は台帳の矩形）
 		if (fc) map.setFilter("yk-ward-on", ["==", ["get", "code"], code || "-"]);   // 全市＝どの区も塗らない
+		setPale(true);
 		if (bb) await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0 });
 		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
 	}
