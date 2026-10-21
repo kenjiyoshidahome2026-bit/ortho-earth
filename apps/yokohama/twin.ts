@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -83,7 +83,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="spot-note" hidden></div>
 				<h2>${esc(t("Public facilities"))}</h2>
 				<label class="grp"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
-				<div class="cats">${FACILITY_CATS.map((c, i) => `<button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>`).join("")}</div>
+				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
+					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on sub" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 			</section>
 			<section data-pane="transit" hidden>
@@ -205,9 +206,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 
 	// ── 観光：公共施設（区分ごとに出し入れ・押すと吹き出し）──
 	let fac: FacilityRow[] | null = null, facOn = $(".fac").checked;
-	const catOn = new Set(FACILITY_CATS.map((_, i) => i));
+	const subOn = new Set(FACILITY_SUBS.map((_, i) => i));   // 種別ごと（区分のチップは中の種別をまとめて出し入れ）
 	// 全区分＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
-	const facFilter = (): StyleExpression | null => catOn.size === FACILITY_CATS.length ? null : ["match", ["get", "c"], [...catOn].length ? [...catOn] : [-1], true, false];
+	const facFilter = (): StyleExpression | null => subOn.size === FACILITY_SUBS.length ? null : ["match", ["get", "s"], [...subOn].length ? [...subOn] : [-1], true, false];
 	let facReady: Promise<void> | null = null;
 	const loadFac = () => facReady ??= (async () => {
 		$<HTMLElement>(".fac-n").textContent = t("Loading…");
@@ -215,7 +216,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
 		fac = d.rows;
 		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc."),
-			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3] } })) } });
+			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3], s: subOf(r[3], r[5]) } })) } });
 		const f0 = facFilter();
 		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
 			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 3, 15, 5.5, 18, 8], "circle-color": ["match", ["get", "c"], ...FACILITY_CATS.flatMap((c, i) => [i, c.color]), "#777"],
@@ -226,25 +227,31 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		map.on("mouseleave", "yk-fac", () => tip(null));
 		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null);
 			const c = FACILITY_CATS[r[3]];
-			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] && lang === "ja" ? `・${esc(r[5])}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
+			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `・${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
+		$$<HTMLButtonElement>("[data-sub]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => subOf(r[3], r[5]) === +b.dataset.sub!).length); });
 		countFac();
 	})();
-	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => catOn.has(r[3])).length)); };
+	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length)); };
 	async function setFac(on: boolean) {
 		facOn = on; $(".fac").checked = on;
 		if (on) await loadFac();
 		if (fac) map.setLayoutProperty("yk-fac", "visibility", facOn ? "visible" : "none");
 	}
 	$(".fac").onchange = () => setFac($(".fac").checked);
-	$$<HTMLButtonElement>("[data-cat]").forEach(b => b.onclick = () => {
-		const i = +b.dataset.cat!;
-		catOn.has(i) ? catOn.delete(i) : catOn.add(i);
-		b.classList.toggle("on", catOn.has(i));
-		if (fac) map.setFilter("yk-fac", facFilter());
-		countFac();
-		if (!facOn) setFac(true);
+	// チップの見た目＝種別は on/off・区分は中の種別が全部 on＝on・一部＝part
+	const paintChips = () => {
+		$$<HTMLButtonElement>("[data-sub]").forEach(b => b.classList.toggle("on", subOn.has(+b.dataset.sub!)));
+		$$<HTMLButtonElement>("[data-cat]").forEach(b => { const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), n = js.filter(j => subOn.has(j)).length;
+			b.classList.toggle("on", n === js.length); b.classList.toggle("part", n > 0 && n < js.length); });
+	};
+	const applyFac = () => { paintChips(); if (fac) map.setFilter("yk-fac", facFilter()); countFac(); if (!facOn) setFac(true); };
+	$$<HTMLButtonElement>("[data-cat]").forEach(b => b.onclick = () => {   // 区分＝中の種別が 1 つでも出ていれば全部消す・全部消えていれば全部出す
+		const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), any = js.some(j => subOn.has(j));
+		for (const j of js) any ? subOn.delete(j) : subOn.add(j);
+		applyFac();
 	});
+	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
 
 	// ── 建物：18 区とも常に（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に）──
 	const lod1: Tiles3DHandle[] = [];
@@ -678,7 +685,10 @@ const CSS = `
 .yk-panel .spots button,.yk-panel .cats button{font:inherit;font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 .yk-panel .spots button.on{background:#4fc3f7;border-color:#4fc3f7;color:#06121f}
 .yk-panel .cats button{opacity:.45}
-.yk-panel .cats button.on{opacity:1;background:rgba(255,255,255,.08)}
+.yk-panel .cats button.on,.yk-panel .cats button.part{opacity:1;background:rgba(255,255,255,.08)}
+.yk-panel .cats button.part{border-style:dashed}
+.yk-panel .cats .cg{display:flex;flex-wrap:wrap;gap:4px;width:100%;align-items:center}
+.yk-panel .cats button.sub{font-size:11px;padding:2px 7px}
 .yk-panel .cats i,.yk-panel .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .yk-panel .cats small{margin-left:5px;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .yk-panel .spot-note{margin-top:8px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
