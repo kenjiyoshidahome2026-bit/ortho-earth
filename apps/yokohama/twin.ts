@@ -66,7 +66,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	let layersBefore: ReturnType<GlobeMap["getBaseLayers"]> | undefined;   // undefined＝平面にしていない
 	const setFlat = (on: boolean) => {
 		if (!map.setBaseLayers) { showAreas(on); return; }   // 旧エンジン（setBaseLayers 前）＝区域だけ
-		if (on) { if (layersBefore === undefined) layersBefore = map.getBaseLayers(); showAreas(true); map.setBaseLayers(ALL_LAYERS); }
+		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = Object.values(now).every(Boolean) ? { ...now, terrain: false, rail: false, road: false, facility: false } : now; } showAreas(true); map.setBaseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
 		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); map.setBaseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
