@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22   # engines ≥ 22.18（Mac の /usr/local/bin/node が古くても runner はこちらを使う）
-          cache: npm
+          # cache: npm は付けない＝Mac の ~/.npm がそのまま効く。付けると毎回 1.3GB を GitHub のキャッシュへ上げ直す（run 39651871635 で 2.5 分）
       - run: npm ci --no-audit --no-fund
       - name: wrangler のログイン（検定の前に止める）
         if: inputs.target != 'gate-only'
