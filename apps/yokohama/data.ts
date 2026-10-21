@@ -192,6 +192,12 @@ export const LOD1_WARDS = WARDS.filter(w => !LOD2_WARDS.includes(w.code));
  *  LOD1 の 3D Tiles は 4 段（REPLACE）で、粗い段には大きな建物しか入っていない＝細かい段が届いた枠と届いていない枠で「有る／無い」の四角いまだらになる。
  *  Mac 実測（保土ケ谷・旭・戸塚・南・真上）：z16.5 で 3〜32 秒で出そろう・z16 は 4 か所中 3 か所が 90 秒でも出そろわない（13 区が同時取得 6 本ずつ張り付く） */
 export const BUILDINGS_MIN_ZOOM = 16.5;
+/** 市営地下鉄（線・駅の記号）を出す最小の z＝これ未満（市より広い縮尺）では消す（本人 2026-10-21）。全市を真上から収めた時（z≈10.5〜11）は出る */
+export const SUBWAY_MIN_ZOOM = 10;
+/** 市の外の覆い（穴＝市の外周）の外枠 [w,s,e,n]。枠の縁が画面に入ったら覆いごと消す（縁を見せない・本人 2026-10-21） */
+export const MASK_BOX: [number, number, number, number] = [138.6, 34.8, 140.6, 36.2];
+/** 見えている範囲が覆いの外枠の内側か（null＝球の縁が見える＝内側でない） */
+export const insideBox = (view: ArrayLike<number> | null, box: ArrayLike<number>) => !!view && view[0] > box[0] && view[1] > box[1] && view[2] < box[2] && view[3] < box[3];
 export const lod1Url = (code: string) => `https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/${code}-bldg-lod1-texture-latest/tileset.json`;
 
 /** 指定緊急避難場所の対応災害（census2020 の焼き bousai/hinan の flags のビット順） */
