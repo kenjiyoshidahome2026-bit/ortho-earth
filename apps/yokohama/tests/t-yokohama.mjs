@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -50,5 +50,6 @@ t("徒歩圏：5・10・15 分＝直線 約 308・615・923m", WALK_RINGS.join()
 t("徒歩圏：輪ごとの数（内側の輪は外側にも数える・絞り込み）", JSON.stringify(countRings([[139.638, 35.4457, 0], [139.638, 35.4487, 1], [139.638, 35.47, 0]], [139.638, 35.4437])) === "[1,2,2]" && JSON.stringify(countRings([[139.638, 35.4457, 0], [139.638, 35.4487, 1]], [139.638, 35.4437], r => r[2] === 1)) === "[0,1,1]");
 t("港の物語：章の id は port- で重複なし・年は昇順・借りる写真は名所にある", new Set(PORT_STORY.map(c => c.id)).size === PORT_STORY.length && PORT_STORY.every((c, i) => c.id === "port-" + c.year && (!i || +c.year > +PORT_STORY[i - 1].year) && (!c.photo || SPOTS.some(s => s.id === c.photo))));
 t("港の物語・海の眺め：視点は横浜市の中・地図の域", [...PORT_STORY, ...SEA_VIEWS].every(v => inCity(v.lon, v.lat) && v.zoom >= 12 && v.zoom <= 19 && v.tilt >= 0 && v.tilt <= 75) && PORT_STORY.every(c => WARDS.some(w => w.code === c.ward)));
+t("公共施設の種別：どの区分にも 1 つ以上・種別名は重ならない・知らない種別は区分の先頭へ", FACILITY_CATS.every((_, i) => FACILITY_SUBS.some(x => x.cat === i)) && new Set(FACILITY_SUBS.flatMap(x => x.kinds.map(k => x.cat + k))).size === FACILITY_SUBS.reduce((n, x) => n + x.kinds.length, 0) && subOf(5, "交番") === FACILITY_SUBS.findIndex(x => x.name === "Police boxes") && subOf(2, "謎の学校") === FACILITY_SUBS.findIndex(x => x.cat === 2));
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
