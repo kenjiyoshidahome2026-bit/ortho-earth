@@ -9,8 +9,8 @@ export interface Legend { color: string; label: string; /** 画素の照合だ�
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
 /** 面＝観光・交通・防災・解析（2026-10-21 に「まち」→「観光」・「時間」を外し「交通」を足した） */
-export type Tab = "sight" | "transit" | "risk" | "tools";
-export const TAB_NAMES: Record<Tab, string> = { sight: "Sightseeing", transit: "Transport", risk: "Disasters", tools: "Analysis" };
+export type Tab = "sight" | "area" | "transit" | "risk" | "tools";
+export const TAB_NAMES: Record<Tab, string> = { sight: "Sightseeing", area: "Area", transit: "Transport", risk: "Disasters", tools: "Analysis" };
 
 /** 横浜市の外接矩形（18 区を包む）と全景の視点 */
 export const CITY_BBOX: [number, number, number, number] = [139.46, 35.31, 139.73, 35.60];
@@ -208,7 +208,7 @@ export function wardOfAddress(addr: string): Ward | null {
 export const flagsOf = (bits: number) => HINAN_FLAGS.filter((_, i) => bits & (1 << i));
 
 // ── URL の状態（共有できる）：?tab=risk&hz=flood,tsunami&ward=14104&spot=mm21&tr=subway,bus ──
-export const TABS: Tab[] = ["sight", "transit", "risk", "tools"];
+export const TABS: Tab[] = ["sight", "area", "transit", "risk", "tools"];   // 観光と地域を分ける（本人 2026-10-21）
 const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools" };   // 2026-10-21 より前の共有 URL
 export function parseState(search: string): TwinState {
 	const q = new URLSearchParams(search);
