@@ -5453,6 +5453,33 @@
 			"fa": "ایستگاه‌ها و ستاد آتش‌نشانی",
 			"ur": "فائر اسٹیشن اور ہیڈکوارٹر",
 			"he": "תחנות כיבוי ומטה"
+		},
+		"Show the whole city": {
+			"ja": "横浜市全体を表示",
+			"zh": "显示横滨全市",
+			"ko": "요코하마시 전체 보기",
+			"fr": "Voir toute la ville",
+			"de": "Ganze Stadt zeigen",
+			"es": "Ver toda la ciudad",
+			"pt": "Ver a cidade inteira",
+			"it": "Mostra tutta la città",
+			"nl": "Hele stad tonen",
+			"pl": "Pokaż całe miasto",
+			"ru": "Показать весь город",
+			"uk": "Показати все місто",
+			"hu": "Az egész város",
+			"sv": "Visa hela staden",
+			"tr": "Tüm şehri göster",
+			"el": "Εμφάνιση όλης της πόλης",
+			"id": "Tampilkan seluruh kota",
+			"vi": "Xem toàn thành phố",
+			"th": "แสดงทั้งเมือง",
+			"bn": "পুরো শহর দেখুন",
+			"hi": "पूरा शहर दिखाएँ",
+			"ar": "عرض المدينة كاملة",
+			"fa": "نمایش کل شهر",
+			"ur": "پورا شہر دکھائیں",
+			"he": "הצג את כל העיר"
 		}
 	}
 }
