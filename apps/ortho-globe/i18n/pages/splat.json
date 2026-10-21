@@ -1107,6 +1107,33 @@
 			"fa": "مارمولک شاخ‌دار",
 			"ur": "سینگ والی چھپکلی",
 			"he": "לטאה מקרינה"
+		},
+		"Shown at $1× real size: the closest this globe gets is about 150 m, where the real animals would be a few pixels.": {
+			"ja": "実物の $1 倍で置いています：この地球儀の一番の寄りは約 150 m で、実寸の動物は数 px にしかならないためです。",
+			"zh": "以实物的 $1 倍显示：这个地球仪最近只能到约 150 m，实际大小的动物只有几个像素。",
+			"ko": "실물의 $1배로 표시합니다. 이 지구본은 약 150 m까지만 다가갈 수 있어 실제 크기의 동물은 몇 픽셀에 불과하기 때문입니다.",
+			"fr": "Affiché à $1× la taille réelle : ce globe ne s'approche pas à moins d'environ 150 m, où les vrais animaux ne feraient que quelques pixels.",
+			"de": "In $1-facher Originalgröße: Dieser Globus kommt nur bis etwa 150 m heran, wo die echten Tiere nur wenige Pixel groß wären.",
+			"es": "Mostrado a $1× el tamaño real: este globo no se acerca a menos de unos 150 m, donde los animales reales serían unos pocos píxeles.",
+			"pt": "Mostrado a $1× o tamanho real: este globo não se aproxima a menos de cerca de 150 m, onde os animais reais seriam apenas alguns píxeis.",
+			"it": "Mostrato a $1× la dimensione reale: questo globo non si avvicina a meno di circa 150 m, dove gli animali reali sarebbero pochi pixel.",
+			"nl": "Getoond op $1× ware grootte: deze globe komt niet dichterbij dan ongeveer 150 m, waar de echte dieren maar een paar pixels zouden zijn.",
+			"pl": "Pokazane w skali $1× rzeczywistej wielkości: ten globus nie zbliża się bardziej niż na około 150 m, gdzie prawdziwe zwierzęta miałyby kilka pikseli.",
+			"ru": "Показано в $1 раз крупнее натуральной величины: этот глобус не приближается ближе ~150 м, где настоящие животные заняли бы несколько пикселей.",
+			"uk": "Показано в $1 разів більше за натуральну величину: цей глобус не наближається ближче ~150 м, де справжні тварини зайняли б кілька пікселів.",
+			"hu": "Valós méret $1-szeresében: ez a földgömb legfeljebb kb. 150 m-re közelít, ahol a valódi állatok csak néhány pixelnyiek lennének.",
+			"sv": "Visas i $1× verklig storlek: den här globen kommer inte närmare än cirka 150 m, där de riktiga djuren bara skulle vara några pixlar.",
+			"tr": "Gerçek boyutun $1 katı gösteriliyor: bu küre en fazla yaklaşık 150 m'ye yaklaşır ve gerçek hayvanlar birkaç piksel olurdu.",
+			"el": "Εμφανίζεται σε $1× το πραγματικό μέγεθος: η υδρόγειος δεν πλησιάζει πέρα από ~150 m, όπου τα αληθινά ζώα θα ήταν λίγα pixel.",
+			"id": "Ditampilkan $1× ukuran asli: globe ini paling dekat sekitar 150 m, di mana hewan berukuran asli hanya beberapa piksel.",
+			"vi": "Hiển thị ở $1× kích thước thật: quả cầu này chỉ tới gần được khoảng 150 m, nơi các con vật thật chỉ là vài pixel.",
+			"th": "แสดงที่ $1 เท่าของขนาดจริง: ลูกโลกนี้เข้าใกล้ได้สุดราว 150 ม. ซึ่งสัตว์ขนาดจริงจะเหลือเพียงไม่กี่พิกเซล",
+			"bn": "বাস্তব আকারের $1 গুণে দেখানো হয়েছে: এই গ্লোব প্রায় ১৫০ মিটারের বেশি কাছে যায় না, যেখানে আসল প্রাণীগুলো মাত্র কয়েক পিক্সেল হত।",
+			"hi": "वास्तविक आकार के $1 गुना पर दिखाया गया: यह ग्लोब लगभग 150 मीटर से अधिक पास नहीं जाता, जहाँ असली जानवर कुछ पिक्सेल भर होते।",
+			"ar": "معروض بـ $1 أضعاف الحجم الحقيقي: هذه الكرة الأرضية لا تقترب أكثر من نحو 150 م، حيث لا تتعدى الحيوانات الحقيقية بضع بكسلات.",
+			"fa": "با $1 برابر اندازه واقعی نمایش داده می‌شود: این کره بیش از حدود ۱۵۰ متر نزدیک نمی‌شود و جانوران واقعی تنها چند پیکسل می‌شدند.",
+			"ur": "اصل سائز سے $1 گنا دکھایا گیا: یہ گلوب تقریباً 150 میٹر سے زیادہ قریب نہیں جاتا، جہاں اصل جانور چند پکسل ہی ہوتے۔",
+			"he": "מוצג ב-$1× מהגודל האמיתי: הגלובוס הזה לא מתקרב ליותר מכ-150 מ', שם החיות האמיתיות היו רק כמה פיקסלים."
 		}
 	}
 }

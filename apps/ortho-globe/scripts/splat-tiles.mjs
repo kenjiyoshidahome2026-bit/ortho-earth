@@ -24,13 +24,14 @@ const INNER = +arg("inner") || 60000;         // 中の節の見本の上限
 const INNER_RATIO = 0.35;                      // 中の節の見本＝部分木の 35%（親は子より必ず粗い）
 const ONLY = arg("scene").split(",").filter(Boolean);
 const SOURCE = "https://github.com/nianticlabs/spz", RAW = "https://raw.githubusercontent.com/nianticlabs/spz/main/samples/";
-// 見本＝東京駅 丸の内駅前広場（楕円体高＝標高 ≈3.3 m＋ジオイド ≈36.7 m）。2 体を 7 m 離して置く。clip＝中心からこの距離（m）の外は捨てる・maxSigma＝これより大きい splat は捨てる（空や背景の巨大な楕円）
+// 見本＝東京駅 丸の内駅前広場。origin の高さ＝標高（engine の高さは標高基準＝楕円体高ではない・Mac の実描画で 37 m 浮いた 2026-10-21）。
+// scale＝実物の何倍で置くか：この地球儀の一番の寄りは約 150 m（z20 の上限）＝実寸のアライグマは数 px にしかならない → 10 倍（広場に 50〜60 m の像として立つ）。2 体は 90 m 離す
 const SCENES = [
 //   clip＝床の中心からの水平の半径（m）・clipY＝床からの高さの上限（m）・maxSigma＝これより大きい splat は捨てる（空や背景の巨大な楕円）。床＝y の最頻値（2 cm 刻み）＝床より 10 cm 下の浮き（floater）も捨てる
-	{ id: "racoonfamily", file: "racoonfamily.spz", title: "Raccoon family", origin: [139.76585, 35.68085, 40], heading: 20, clip: 2.5, clipY: 2.5, maxSigma: 0.4 },
-	{ id: "hornedlizard", file: "hornedlizard.spz", title: "Horned lizard", origin: [139.76593, 35.68080, 40], heading: -30, clip: 3, clipY: 2.5, maxSigma: 0.4 },
+	{ id: "racoonfamily", file: "racoonfamily.spz", title: "Raccoon family", origin: [139.76560, 35.68150, 3.3], heading: 20, scale: 10, clip: 2.5, clipY: 2.5, maxSigma: 0.4 },
+	{ id: "hornedlizard", file: "hornedlizard.spz", title: "Horned lizard", origin: [139.76560, 35.68070, 3.3], heading: -30, scale: 10, clip: 3, clipY: 2.5, maxSigma: 0.4 },
 ];
-const LICENSE = { source: "Niantic Labs — spz sample scenes", url: SOURCE, license: "MIT", note: "Copyright (c) 2024 Niantic Labs. Cleaned (clipped, re-centred) and re-encoded for the demo." };
+const LICENSE = { source: "Niantic Labs — spz sample scenes", url: SOURCE, license: "MIT", note: "Copyright (c) 2024 Niantic Labs. Cleaned (clipped, re-centred), scaled up and re-encoded for the demo." };
 
 const pad4 = b => { const n = (4 - b.length % 4) % 4; return n ? Buffer.concat([b, Buffer.alloc(n, 0)]) : b; };
 const kb = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}MB` : `${(n / 1e3).toFixed(0)}KB`;
@@ -102,6 +103,9 @@ async function bake(sc) {
 	}
 	const c = subset(d, keep), n = c.n;
 	for (let i = 0; i < n; i++) { c.positions[i * 3] -= med[0]; c.positions[i * 3 + 1] -= floor; c.positions[i * 3 + 2] -= med[2]; }
+	const S = sc.scale || 1;   // 拡大＝位置と σ を S 倍（タイルにも 1 本にも焼き込む＝頁は何も足さない）
+	if (S !== 1) for (let i = 0; i < n * 3; i++) { c.positions[i] *= S; c.scales[i] *= S; }
+	const pad = 3 * sc.maxSigma * S;   // 箱の余白＝一番大きい σ の 3 倍（拡大後）
 	console.log(`  床 y=${floor.toFixed(3)}（元の座標）・中心 x=${med[0].toFixed(3)} z=${med[2].toFixed(3)}`);
 	const all = Array.from({ length: n }, (_, i) => i), [MN, MX] = bboxOf(c, all);
 	console.log(`  掃除 → ${n.toLocaleString()} 個（${(100 * n / n0).toFixed(1)}%）・箱 x ${MN[0].toFixed(2)}..${MX[0].toFixed(2)} y ${MN[1].toFixed(2)}..${MX[1].toFixed(2)} z ${MN[2].toFixed(2)}..${MX[2].toFixed(2)} m`);
@@ -114,14 +118,14 @@ async function bake(sc) {
 	const node = (idx, name, depth) => {
 		depthMax = Math.max(depthMax, depth);
 		const [mn, mx] = bboxOf(c, idx), ext = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
-		if (idx.length <= LEAF || ext < 0.05) { write(`${name}.glb`, idx); return { boundingVolume: tileBox(mn, mx, 3 * sc.maxSigma), geometricError: 0, content: { uri: `t/${name}.glb` } }; }
+		if (idx.length <= LEAF || ext < 0.05) { write(`${name}.glb`, idx); return { boundingVolume: tileBox(mn, mx, pad), geometricError: 0, content: { uri: `t/${name}.glb` } }; }
 		const sample = idx.slice().sort((a, b) => w[b] - w[a]).slice(0, Math.min(INNER, Math.ceil(idx.length * INNER_RATIO)));
 		write(`${name}.glb`, sample);
 		const mid = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2], bins = Array.from({ length: 8 }, () => []);
 		for (const i of idx) bins[(c.positions[i * 3] >= mid[0] ? 1 : 0) | (c.positions[i * 3 + 1] >= mid[1] ? 2 : 0) | (c.positions[i * 3 + 2] >= mid[2] ? 4 : 0)].push(i);
 		const children = bins.map((b, k) => b.length ? node(b, `${name}${k}`, depth + 1) : null).filter(Boolean);
 		// 画面の誤差＝節の大きさの 1/4（maxSSE 16 px なら、節の広がりが画面で約 64 px 以上になった時に子へ）
-		return { boundingVolume: tileBox(mn, mx, 3 * sc.maxSigma), geometricError: Math.max(0.02, ext / 4), refine: "REPLACE", content: { uri: `t/${name}.glb` }, children };
+		return { boundingVolume: tileBox(mn, mx, pad), geometricError: Math.max(0.02, ext / 4), refine: "REPLACE", content: { uri: `t/${name}.glb` }, children };
 	};
 	const root = node(all, "r", 0);
 	root.transform = enuTransform(sc.origin, sc.heading);
@@ -129,12 +133,12 @@ async function bake(sc) {
 	fs.writeFileSync(path.join(dir, "tileset.json"), JSON.stringify(tileset));
 	// 掃除した 1 本（SH つき）
 	const one = gzipSync(encodeSpzRaw(c), { level: 9 }); fs.writeFileSync(path.join(dir, `${sc.id}.spz`), one);
-	const meta = { ...LICENSE, scene: sc.id, title: sc.title, file: sc.file, origin: sc.origin, heading: sc.heading, splats: n, splatsSource: n0, shDegree: shDeg, bbox: { min: MN, max: MX }, tiles, depth: depthMax, bytesTiles: bytesOut, bytesSpz: one.length, leaf: LEAF, inner: INNER, baked: new Date().toISOString().slice(0, 10) };
+	const meta = { ...LICENSE, scene: sc.id, title: sc.title, file: sc.file, origin: sc.origin, heading: sc.heading, scale: S, splats: n, splatsSource: n0, shDegree: shDeg, bbox: { min: MN, max: MX }, tiles, depth: depthMax, bytesTiles: bytesOut, bytesSpz: one.length, leaf: LEAF, inner: INNER, baked: new Date().toISOString().slice(0, 10) };
 	fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta, null, 1));
 	console.log(`  → ${tiles} 枚・深さ ${depthMax}・タイル ${kb(bytesOut)}・1 本 ${kb(one.length)}・${((performance.now() - t0) / 1000).toFixed(1)} s`);
 	return meta;
 }
 const metas = [];
 for (const sc of SCENES.filter(s => !ONLY.length || ONLY.includes(s.id))) metas.push(await bake(sc));
-fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ ...LICENSE, scenes: metas.map(m => ({ id: m.scene, title: m.title, origin: m.origin, heading: m.heading, splats: m.splats, tiles: m.tiles, bytesTiles: m.bytesTiles, bytesSpz: m.bytesSpz })) }, null, 1));
+fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ ...LICENSE, scenes: metas.map(m => ({ id: m.scene, title: m.title, origin: m.origin, heading: m.heading, scale: m.scale, splats: m.splats, tiles: m.tiles, bytesTiles: m.bytesTiles, bytesSpz: m.bytesSpz })) }, null, 1));
 console.log(`index.json → ${OUT}`);

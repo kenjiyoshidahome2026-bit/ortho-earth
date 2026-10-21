@@ -14,12 +14,13 @@ import type { GlobeMap, Tiles3DHandle } from "@ortho-earth/globe";
 const t = tr();
 export const DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/splat/";   // GitHub Pages（焼く＝scripts/splat-tiles.mjs・置く＝world の publish-pages.mjs）
 const SOURCE_URL = "https://github.com/nianticlabs/spz";
-/** 置き場＝東京駅 丸の内駅前広場（2 体の間・標高の目安 3.3 m＝tileset の root.transform は楕円体高 40 m で焼いてある） */
-export const SITE: [number, number] = [139.76589, 35.68082];
+/** 置き場＝東京駅 丸の内駅前広場（2 体の間）。tileset の root.transform は高さ 3.3 m（＝この地点の標高。engine の高さは標高基準＝楕円体高で焼くと 37 m 浮く・2026-10-21）で焼いてあり、
+ *  実際の地形の高さ（map.getHeight）との差だけ heightOffset で持ち上げる */
+export const SITE: [number, number] = [139.76560, 35.68110];
 const BAKED_GROUND_M = 3.3;
 /** 見本の題名（index.json の title と同じ文字列＝辞書の鍵。index.json に無い時の控え） */
 const TITLES: Record<string, string> = { racoonfamily: "Raccoon family", hornedlizard: "Horned lizard" };
-interface Scene { id: string; title: string; origin: [number, number, number]; heading: number; splats: number; tiles: number; bytesTiles: number; bytesSpz: number }
+interface Scene { id: string; title: string; origin: [number, number, number]; heading: number; scale?: number; splats: number; tiles: number; bytesTiles: number; bytesSpz: number }
 type Mode = "tiles" | "file";
 type Fmt = SplatFormat;
 const FORMATS: readonly Fmt[] = ["ply", "splat", "spz", "ksplat", "sog"];
@@ -70,6 +71,7 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
  <div class="row"><div class="seg"><button type="button" data-k="modeTiles">${t("3D Tiles (streamed)")}</button><button type="button" data-k="modeFile">${t("One .spz file")}</button></div>
   <div class="note" data-k="modeNote" style="margin-top:4px"></div></div>
  <div class="row"><div class="btns" data-k="scenes"></div></div>
+ <div class="note" data-k="scaleNote"></div>
  <div class="row"><label class="chk"><input type="checkbox" data-k="depth" checked> ${t("Hidden by buildings and terrain")}</label></div>
  <div class="row"><label>${t("Spherical harmonics")} <select data-k="sh"><option value="0">${t("Off (flat color)")}</option><option value="1">${t("Degree $1", "1")}</option><option value="2">${t("Degree $1", "2")}</option><option value="3" selected>${t("Degree $1", "3")}</option></select></label>
   <div class="note" data-k="shNote" style="margin-top:2px"></div></div>
@@ -98,12 +100,16 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const drop = document.createElement("div"); drop.className = "splat-drop"; drop.innerHTML = `<div>${t("Drop a splat file here")}</div>`; mapEl.append(drop);
 
+	// ── 地面＝地理院の空中写真（この地球儀の基図は z20 では無地＝広場も駅も出ない）。z18 までの画像を引き伸ばす ──
+	const GSI = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg";
+	map.raster.add("splat:gsi-photo", { url: GSI, minZoom: 2, maxZoom: 18, bbox: [122, 20, 154, 46], name: t("GSI Aerial Photo"), attribution: `<a href="https://maps.gsi.go.jp/development/ichiran.html#seamlessphoto" target="_blank" rel="noopener">${t("GSI Aerial Photo")}</a>` }, { order: "under", minZoom: 14 }).catch(e => console.warn("[splat] gsi photo", e));
 	// ── データ（index.json＝シーンの一覧） ──
 	let scenes: Scene[] = [];
 	try { const r = await fetch(base + "index.json"); if (!r.ok) throw new Error(`${r.status}`); scenes = (await r.json()).scenes; }
 	catch (e) { console.error("[splat] index", e); $("status").innerHTML = `<span class="err">${t("Could not load the scene list from $1", base)}</span>`; }
+	{ const sc = scenes[0]?.scale || 1; $("scaleNote").textContent = sc > 1 ? t("Shown at $1× real size: the closest this globe gets is about 150 m, where the real animals would be a few pixels.", sc) : ""; }
 	$("scenes").innerHTML = scenes.map(s => `<button type="button" class="b" data-scene="${s.id}">${t(s.title || TITLES[s.id] || s.id)}</button>`).join("");
-	for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-scene]")) b.addEventListener("click", () => { const s = scenes.find(x => x.id === b.dataset.scene); if (s) flyTo(s, 9); });
+	for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-scene]")) b.addEventListener("click", () => { const s = scenes.find(x => x.id === b.dataset.scene); if (s) flyTo(s); });
 
 	// 地面＝tileset は楕円体高 40 m（標高 3.3 m の見込み）で焼いてある＝この地図の地面との差を heightOffset で埋める
 	let lift = 0;
@@ -132,7 +138,7 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 			}
 		} finally { if (my === loading) refresh(); }
 	};
-	const flyTo = (s: Scene, distance = 9) => { map.lookAt([s.origin[0], s.origin[1], 0.5], { distance, pitch: 62, bearing: 150, duration: 1200 }); };
+	const flyTo = (s: Scene) => { map.lookAt([s.origin[0], s.origin[1], 2], { zoom: 20, pitch: 62, bearing: 150, duration: 1200 }); };   // 一番の寄り＝z20（この地球儀の上限＝約 150 m）
 
 	// ── 表示 ──
 	// 描き手の名（WebGPU／WebGL2）＝plugin の手綱から。3D Tiles の層は gadget の物で手綱が無い＝見えない 1 個の層（probe）を置いて聞く
@@ -187,7 +193,7 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 	$("open").addEventListener("click", () => $("file").click());
 	$("file").addEventListener("change", e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) readFile(f); (e.target as HTMLInputElement).value = ""; });
 	$("scale").addEventListener("input", e => { st.ownScale = +(10 ** +(e.target as HTMLInputElement).value).toPrecision(2); $("scaleV").textContent = `×${st.ownScale}`; own?.setProps({ scale: st.ownScale }); });
-	$("ownGo").addEventListener("click", () => { if (own?.anchor) map.lookAt([own.anchor[0], own.anchor[1], 0.5], { distance: 10, pitch: 60, duration: 1000 }); });
+	$("ownGo").addEventListener("click", () => { if (own?.anchor) map.lookAt([own.anchor[0], own.anchor[1], 2], { zoom: 20, pitch: 60, duration: 1000 }); });
 	$("ownOff").addEventListener("click", () => { own?.remove(); own = null; ownName = ""; $("ownCtl").hidden = true; $("ownStatus").textContent = ""; refresh(); });
 	let dragN = 0;
 	mapEl.addEventListener("dragenter", e => { if (!e.dataTransfer?.types?.includes("Files")) return; e.preventDefault(); dragN++; drop.style.display = "flex"; });
@@ -197,7 +203,7 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 
 	// ── 起動 ──
 	const ready = place().then(() => true);
-	if (fly && scenes.length) { const s0 = scenes[0], s1 = scenes[scenes.length - 1]; map.lookAt([(s0.origin[0] + s1.origin[0]) / 2, (s0.origin[1] + s1.origin[1]) / 2, 0.6], { distance: 15, pitch: 64, bearing: 150 }); }
+	if (fly && scenes.length) { const s0 = scenes[0], s1 = scenes[scenes.length - 1]; map.lookAt([(s0.origin[0] + s1.origin[0]) / 2, (s0.origin[1] + s1.origin[1]) / 2, 5], { zoom: 19.1, pitch: 62, bearing: 120 }); }
 	await ready;
 	refresh();
 
@@ -205,6 +211,6 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 		get mode() { return st.mode; }, get scenes() { return scenes; }, get ready() { return scenes.length > 0 && (st.mode === "tiles" ? tiles.size === scenes.length : files.size === scenes.length); },
 		get tiles() { return { ...stats }; }, get splats() { return stats.splats; }, get backend() { return backendOf(); }, get own() { return own ? { name: ownName, n: own.n } : null },
 		get lift() { return lift; }, formats: FORMATS, setMode(m: Mode) { if (m !== st.mode) { st.mode = m; return place(); } return Promise.resolve(); }, flyTo, readFile, refresh,
-		destroy() { clearInterval(tick); clearAll(); own?.remove(); probe.remove(); P.destroy(); drop.remove(); },
+		destroy() { clearInterval(tick); clearAll(); own?.remove(); probe.remove(); map.raster.remove("splat:gsi-photo"); P.destroy(); drop.remove(); },
 	};
 }
