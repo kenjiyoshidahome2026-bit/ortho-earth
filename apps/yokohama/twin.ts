@@ -12,8 +12,8 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
-import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -64,8 +64,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	let baseBefore: string | null | undefined;   // undefined＝淡色にしていない
 	const setPale = async (on: boolean) => {
 		try {
-			if (on) { if (baseBefore === undefined) baseBefore = map.raster.selected().base; await map.raster.select("gsi-pale"); }
-			else if (baseBefore !== undefined) { const b = baseBefore; baseBefore = undefined; await map.raster.select(b); }
+			if (on) { if (baseBefore === undefined) baseBefore = map.raster.selected().base; showAreas(true); await map.raster.select("gsi-pale"); }
+			else if (baseBefore !== undefined) { const b = baseBefore; baseBefore = undefined; showAreas(false); await map.raster.select(b); }
 		} catch (e) { console.warn("[yokohama] pale", e); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setPale(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
@@ -95,6 +95,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
 					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				<h2>${esc(t("Zones and districts"))}</h2>
+				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
+				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
+				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map(z => `<span><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
@@ -269,6 +273,50 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		applyFac();
 	});
 	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
+
+	// ── 観光：平面の地区地図に重ねる区域（用途地域・小／中学校区・警察署／消防署の管轄）＝淡色の平面の時だけ出す（本人 2026-10-21）──
+	const areaOn = new Set<AreaId>(), areaReady = new Map<AreaId, Promise<boolean>>();
+	let flat = false;
+	const zoneOf = (n: string) => ZONES.findIndex(z => z.ja === n);
+	const areaIds = (id: AreaId) => [`yk-area-${id}`, `yk-area-${id}-line`];
+	const loadArea = (id: AreaId) => {
+		let p = areaReady.get(id);
+		if (p) return p;
+		const x = AREAS.find(a => a.id === id)!;
+		p = ledger<{ type: "FeatureCollection"; features: GeoJSONFeature[] }>(x.file).then(async fc => {
+			const n = $<HTMLElement>(`[data-arn="${id}"]`);
+			if (!fc?.features?.length) { n.textContent = t("Could not load"); return false; }
+			n.textContent = "";
+			const [fid, lid] = areaIds(id);
+			const data = id === "zoning" ? { ...fc, features: fc.features.map(f => ({ ...f, properties: { ...f.properties, z: zoneOf(String(f.properties?.n || "")) } })) } : fc;
+			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name) });
+			await map.addLayer({ id: fid, type: "fill", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "fill-color": ["match", ["get", "z"], ...ZONES.flatMap((z, i) => [i, z.color]), "#bbbbbb"], "fill-opacity": 0.5 } : { "fill-color": x.color, "fill-opacity": 0.06 } });
+			await map.addLayer({ id: lid, type: "line", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "line-color": "#ffffff", "line-width": 0.6, "line-opacity": 0.8 } : { "line-color": x.color, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 16, 2.6], "line-opacity": 0.85 } });
+			map.on("click", fid, (e: LayerMouseEvent) => {
+				if (probing) return;
+				const f = (e.features || [])[0], p = f?.properties || {}, ll = e.lngLat; if (!f || !ll) return;
+				const z = id === "zoning" ? ZONES[zoneOf(String(p.n || ""))] : null;
+				openPop([ll.lng, ll.lat], `<div class="pk">${esc(t(x.name))}</div><b>${esc(z ? (lang === "ja" ? z.ja : t(z.name)) : String(p.n || ""))}</b>`
+					+ (z && (p.b || p.f) ? `<p>${esc(t("Building coverage $1% · Floor area ratio $2%", p.b ?? "?", p.f ?? "?"))}</p>` : "")
+					+ (p.a ? `<p>${esc(String(p.a))}</p>` : "") + (id === "police" || id === "fire" ? `<p>${esc(t("Boundaries as of 2012."))}</p>` : ""));
+			});
+			return true;
+		});
+		areaReady.set(id, p);
+		return p;
+	};
+	const areaVis = (id: AreaId) => { if (!areaReady.has(id)) return; areaReady.get(id)!.then(ok => { if (ok) for (const l of areaIds(id)) map.setLayoutProperty(l, "visibility", flat && areaOn.has(id) ? "visible" : "none"); }); };
+	function showAreas(on: boolean) { flat = on; for (const x of AREAS) areaVis(x.id); }
+	async function setArea(id: AreaId, on: boolean) {
+		on ? areaOn.add(id) : areaOn.delete(id);
+		$(`[data-area="${id}"]`).checked = on;
+		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
+		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
+		areaVis(id);
+	}
+	$$("[data-area]").forEach(inp => inp.onchange = () => setArea(inp.dataset.area as AreaId, inp.checked));
 
 	// ── 建物：18 区とも常に（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に）──
 	const lod1: Tiles3DHandle[] = [];
@@ -725,6 +773,8 @@ const CSS = `
 .yk-panel .lines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 24px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel .sw{display:inline-block;font-style:normal;font-weight:700;font-size:10px;color:#fff;border-radius:3px;padding:0 4px;margin-right:5px}
 .yk-panel .legend{margin-top:8px}
+.yk-panel .zlg{margin-top:6px}
+.yk-panel i.ar{display:inline-block;width:12px;height:9px;border:2px solid;border-radius:2px;margin-right:6px;vertical-align:-1px}
 .yk-panel .lg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-bottom:4px;font-size:11.5px;color:var(--qm-text-dim)}
 .yk-panel .lg small{width:100%;color:var(--qm-text-faint)}
 .yk-panel .lg i{border-radius:3px;width:12px;height:12px;margin-right:4px;vertical-align:-2px}
