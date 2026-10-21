@@ -75,6 +75,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			</nav>
 			<section data-pane="sight">
 				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
+				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
 				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
 				<button class="tour port" type="button">${esc(t("⚓ Port story (1859 to today)"))}</button>
 				<button class="act sea" type="button">${esc(t("View the city from the sea"))}</button>
@@ -186,6 +187,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
 	}
 	wardSel.onchange = () => { setWard(wardSel.value); };
+	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
 
 	// ── 観光：名所（写真つき）──
 	const photos = () => ledger<Record<string, Photo>>("photos.json");
