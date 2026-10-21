@@ -542,7 +542,7 @@ export interface Gadgets {
 	/** GeoPBF のトポロジカル編集（geoedit・npm・遅延 chunk）を部品として搭載＝公開面だけで動く。data＝編集する図形（GeoPBF の ArrayBuffer・null＝空）・adopt＝表示中のユーザーデータ（ドロップ／?g=）を取り込む（既定 true）・
 	 *  persist＝自動保存（既定 true）・onClose＝ツールバー右端の ×（持ち主が editor.result() で結果を受け取る）。搭載中はドロップをエディタが所有（dropFile は譲る）。戻り値＝Promise<editor>（geoedit の initEditor の戻り） */
 	geoedit(opts?: { data?: ArrayBuffer | null; adopt?: boolean; persist?: boolean; onClose?: () => void; [k: string]: unknown }): Promise<unknown>;
-	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
+	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る（全球が画面に収まる時は隠す）。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
 	globe(opts?: { size?: number; maxZoom?: number; land?: string; sea?: string; line?: string }): unknown;
 	/** 計測器 HUD（メモリ・タイル・GPU・階層の状態表＝右下）。URL の ?hud=1|0 で起動した地図にだけ登録される（本体は遅延 chunk・起動時に自動で搭載＝1 は開いて・0 は畳んで）。それ以外の地図では undefined */
 	hud?(opts?: { open?: boolean }): void;
