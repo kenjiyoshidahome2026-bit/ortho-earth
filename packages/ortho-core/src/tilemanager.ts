@@ -49,10 +49,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	const put = (k: string, v: TileEntry): void => { const o = cache.get(k); if (o) totalBytes -= o.bytes || 0; cache.set(k, v); totalBytes += v.bytes || 0; };
 	const drop = (k: string): void => { const o = cache.get(k); if (o) { totalBytes -= o.bytes || 0; cache.delete(k); } };
 
-	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
+	// tess済み geometry（＋注記の概算・2026-10-21）の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
 	// 同一に数えると枚数上限がメモリの代理にならない。予算は端末メモリで自動調整（navigator.deviceMemory=GB・
 	// 上限8で頭打ち／Safari・FF は未提供＝4GB相当とみなす）。呼び出し側 memBudgetMB で明示上書き可。
-	// geometry の実体は scene worker 側（main はメタのみ保持）＝この予算は onEvict 経由で鏡(scene worker)を縛る。
+	// geometry の実体は scene worker 側（main はメタと注記を保持）＝この予算は onEvict 経由で鏡(scene worker)を縛り、注記の分は main を縛る。
 	const dm = (typeof navigator !== "undefined" && (navigator as { deviceMemory?: number }).deviceMemory) || 4;
 	const autoMB = Math.max(24, Math.min(96, dm * 12));   // 自動＝端末メモリで [24,96]MB（16GB機≒96 / 4GBタブ≒48 / 2GB≒24）
 	const budgetBytes = (memBudgetMB || autoMB) * 1024 * 1024;   // memBudgetMB 明示時はそのまま（呼び出し側を信頼＝上限に丸めない）
