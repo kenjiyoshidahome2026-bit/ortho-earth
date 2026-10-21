@@ -95,6 +95,24 @@ export type StationRow = [number, number, string, string, number];
 /** 市営バスの停留所の 1 行＝[経度, 緯度, 停留所名, "系統・…"] */
 export type BusRow = [number, number, string, string];
 
+/** 港の物語＝開港（1859）から今までの章。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake-yokohama.mjs が両方焼く） */
+export interface Chapter extends Spot { year: string; photo?: string }
+export const PORT_STORY: Chapter[] = [
+	{ id: "port-1859", year: "1859", wiki: "象の鼻パーク", name: "The port opens", ward: "14104", lon: 139.6430, lat: 35.4502, zoom: 17.4, tilt: 62, bearing: 60, note: "Yokohama opened to foreign trade in 1859. The curved breakwater at Zou-no-hana (Elephant's Trunk) Park traces the early pier." },
+	{ id: "port-1872", year: "1872", wiki: "桜木町駅", name: "Japan's first railway", ward: "14104", lon: 139.6311, lat: 35.4510, zoom: 17.2, tilt: 58, bearing: 0, note: "In 1872 Japan's first railway linked Shimbashi in Tokyo with Yokohama, today's Sakuragicho Station." },
+	{ id: "port-1911", year: "1911", photo: "akarenga", wiki: "横浜赤レンガ倉庫", name: "Warehouses for a busy port", ward: "14104", lon: 139.6425, lat: 35.4529, zoom: 17.6, tilt: 60, bearing: 20, note: "The Red Brick Warehouses (1911 and 1913) stored the goods passing through the port." },
+	{ id: "port-1930", year: "1930", wiki: "氷川丸", name: "Rebuilt after the earthquake", ward: "14104", lon: 139.6497, lat: 35.4471, zoom: 17.4, tilt: 62, bearing: 40, note: "The 1923 Great Kanto Earthquake devastated the city. Its rubble became Yamashita Park (1930); the ocean liner Hikawa Maru, built in 1930, has been moored beside it since 1961." },
+	{ id: "port-1983", year: "1983", photo: "mm21", wiki: "みなとみらい21", name: "Shipyards become Minato Mirai", ward: "14103", lon: 139.6315, lat: 35.4546, zoom: 16.2, tilt: 62, bearing: -20, note: "From 1983, old shipyards and rail yards became Minato Mirai 21. Landmark Tower opened in 1993, with a stone dock from the 1890s preserved at its foot." },
+	{ id: "port-1989", year: "1989", photo: "baybridge", wiki: "横浜ベイブリッジ", name: "A bridge across the harbor", ward: "14104", lon: 139.6740, lat: 35.4545, zoom: 15.8, tilt: 65, bearing: -60, note: "Yokohama Bay Bridge opened in 1989, carrying traffic over the harbor entrance." },
+	{ id: "port-2002", year: "2002", photo: "osanbashi", wiki: "横浜港大さん橋国際客船ターミナル", name: "Gateway for cruise ships", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 17.0, tilt: 60, bearing: 140, note: "The pier first built in 1894 got today's Osanbashi terminal in 2002. Cruise ships still arrive here." },
+];
+/** 海からの眺め＝港の沖に船を置いたつもりで、街並みを順に見渡す（中心＝見る先・bearing＝向き） */
+export const SEA_VIEWS = [
+	{ lon: 139.6330, lat: 35.4560, zoom: 15.4, tilt: 75, bearing: -50 },   // みなとみらいを南東の沖から
+	{ lon: 139.6480, lat: 35.4470, zoom: 15.6, tilt: 75, bearing: -95 },   // 大さん橋・山下公園を東の沖から
+	{ lon: 139.6740, lat: 35.4545, zoom: 15.0, tilt: 72, bearing: -10 },   // ベイブリッジを南の沖から
+];
+
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
 export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
 
