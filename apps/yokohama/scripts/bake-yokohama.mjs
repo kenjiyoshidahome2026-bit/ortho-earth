@@ -4,7 +4,7 @@
 //
 //   node apps/yokohama/scripts/bake-yokohama.mjs            # 全部
 //   node apps/yokohama/scripts/bake-yokohama.mjs --inspect  # 各 zip の属性の鍵と見本 3 行だけ出す（KSJ の列名を確かめる）
-//   node apps/yokohama/scripts/bake-yokohama.mjs --only=wards,rail,bus,facilities,photos
+//   node apps/yokohama/scripts/bake-yokohama.mjs --only=wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire
 //
 // 出す物（座標は経度・緯度の小数 5 桁＝約 1m）：
 //   wards.json      … 18 区の境界（N03）{ type:"FeatureCollection", features:[{ properties:{ code, name, bbox:[w,s,e,n] }, geometry }], city:[[[lon,lat]…]…] }（間引き 約 10m）
@@ -13,6 +13,12 @@
 //   bus.json        … 横浜市営バスの停留所（P11-22）{ stops: [[lon, lat, 停留所名, "系統・…"]] }
 //   facilities.json … 公共施設（KSJ の P05・P29・P27・P28・P17・P18・P04）{ cats: [名…], rows: [[lon, lat, 名称, 区分の番号, 住所, 種別]] }
 //   photos.json     … 名所の写真（Wikipedia の記事の代表画像＝Wikimedia Commons）{ [名所 id]: { src, file, artist, license, page } }
+//   zoning.json     … 用途地域（A29-19＝2019 年度・横浜市の分）FeatureCollection（properties { n: 用途地域の名, b: 建ぺい率 %, f: 容積率 % }）
+//   school-e.json   … 小学校区（A27-21＝2021 年度・横浜市立）FeatureCollection（properties { n: 学校名, a: 所在地 }）
+//   school-j.json   … 中学校区（A32-21＝2021 年度・横浜市立）FeatureCollection（properties { n: 学校名, a: 所在地 }）
+//   police-areas.json … 警察署の管轄区域（P18-12＝2012 年度・横浜市内の署）FeatureCollection（properties { n: 署名 }）＝同じ署の面は 1 つに束ねる
+//   fire-areas.json   … 消防署の管轄区域（P17-12＝2012 年度・横浜市消防局の署）FeatureCollection（properties { n: 署名 }）
+//   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
 // 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
 import fs from "node:fs";
 import path from "node:path";
@@ -25,7 +31,7 @@ const OUT = path.join(ROOT, "ortho-data/japan/yokohama");
 const CACHE = path.join(HERE, ".cache");
 const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
-const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos").split(",");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
 const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
@@ -87,6 +93,15 @@ function readDbf(b, enc) {
 	}
 	return rows;
 }
+// shp の面＝外周は時計回り・穴は反時計回り（ESRI の仕様）。穴は、それを含む外周に付ける（含む外周が無い＝向きの乱れ＝外周として扱う）
+const ringArea = r => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };   // 正＝時計回り（経度を x・緯度を y）
+const inRing = ([x, y], r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+function shpPolygons(rings) {
+	const polys = [], holes = [];
+	for (const r of rings) (ringArea(r) >= 0 ? polys.push([r]) : holes.push(r));
+	for (const h of holes) { const p = polys.find(p => inRing(h[0], p[0])); p ? p.push(h) : polys.push([h]); }
+	return polys;
+}
 function readShp(b) {
 	const geoms = [];
 	for (let o = 100; o + 8 <= b.length;) {
@@ -97,7 +112,7 @@ function readShp(b) {
 			for (let i = 0; i < np; i++) parts.push(b.readInt32LE(c + 44 + i * 4));
 			const pts = c + 44 + np * 4, rings = [];
 			for (let i = 0; i < np; i++) { const ring = []; for (let k = parts[i]; k < (parts[i + 1] ?? nn); k++) ring.push([b.readDoubleLE(pts + k * 16), b.readDoubleLE(pts + k * 16 + 8)]); rings.push(ring); }
-			geoms.push(t === 3 ? { type: "MultiLineString", coordinates: rings } : { type: "MultiPolygon", coordinates: rings.map(r => [r]) });
+			geoms.push(t === 3 ? { type: "MultiLineString", coordinates: rings } : { type: "MultiPolygon", coordinates: shpPolygons(rings) });
 		} else geoms.push(null);
 		o += 8 + len;
 	}
@@ -314,5 +329,64 @@ async function photos() {
 	write("photos.json", out);
 }
 
-for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
+// ── 6. 平面の地図に重ねる面（用途地域・校区・警察／消防の管轄）──
+const AREA_TOL = 0.00004;   // 約 4m（1 本 2MB を超えるなら強める）
+/** 面の geometry → 間引いた MultiPolygon（環が潰れた物は落とす・外周が潰れたら面ごと落とす） */
+function slimPoly(g, tol = AREA_TOL) {
+	const ps = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+	const out = [];
+	for (const p of ps) { const outer = dp(p[0], tol); if (outer.length < 4) continue; out.push([outer, ...p.slice(1).map(r => dp(r, tol)).filter(r => r.length >= 4)]); }
+	return out.length ? { type: "MultiPolygon", coordinates: out } : null;
+}
+/** 同じ名の面を 1 つの MultiPolygon に束ねる（並びは最初に出た順） */
+function mergeByName(feats) {
+	const m = new Map();
+	for (const f of feats) { const k = f.properties.n, g = m.get(k); if (g) g.geometry.coordinates.push(...f.geometry.coordinates); else m.set(k, { type: "Feature", properties: { ...f.properties }, geometry: { type: "MultiPolygon", coordinates: [...f.geometry.coordinates] } }); }
+	return [...m.values()];
+}
+const fc = features => ({ type: "FeatureCollection", features });
+const areaReport = (label, feats) => { const n = new Map(); for (const f of feats) n.set(f.properties.n, (n.get(f.properties.n) || 0) + 1); console.log(`${label}：${feats.length} 面（名 ${n.size}）`); return n; };
+
+async function zoning() {
+	const feats = await ksjFeatures(`${KSJ}A29/A29-19/A29-19_14_GML.zip`, /A29-19_14100/);   // 県の zip の中に市町村ごとの shp＝14100 が横浜市
+	if (INSPECT) return inspect("A29 用途地域（14100）", feats);
+	const out = [];
+	for (const f of feats) { const p = f.properties, g = f.geometry && slimPoly(f.geometry); if (!g || !p.A29_005) continue; out.push({ type: "Feature", properties: { n: String(p.A29_005).trim(), b: +p.A29_006 || null, f: +p.A29_007 || null }, geometry: g }); }
+	const n = areaReport("用途地域", out);
+	for (const [k, v] of [...n].sort((a, b) => b[1] - a[1])) console.log(`  ${k} ${v}`);
+	write("zoning.json", fc(out));
+}
+async function schoolAreas(label, url, re, pre, file) {
+	const feats = await ksjFeatures(url, re);
+	if (INSPECT) return inspect(label, feats);
+	const out = [];
+	for (const f of feats) { const p = f.properties, g = f.geometry && slimPoly(f.geometry);
+		if (!g || p[pre + "_001"] !== "14100" || !/^横浜市/.test(String(p[pre + "_002"] || ""))) continue;   // 横浜市（14100）の市立だけ
+		out.push({ type: "Feature", properties: { n: String(p[pre + "_004"] || "").trim(), a: String(p[pre + "_005"] || "").trim() }, geometry: g }); }
+	areaReport(label, out);
+	write(file, fc(out));
+}
+const eschool = () => schoolAreas("小学校区", `${KSJ}A27/A27-21/A27-21_14_GML.zip`, /A27-21_14/, "A27", "school-e.json");
+const jschool = () => schoolAreas("中学校区", `${KSJ}A32/A32-21/A32-21_14_GML.zip`, /A32-21_14/, "A32", "school-j.json");
+async function police() {
+	const zipUrl = `${KSJ}P18/P18-12/P18-12_14_GML.zip`;
+	const areas = await ksjFeatures(zipUrl, /P18-\d+_14_PoliceStationJurisdiction/);
+	if (INSPECT) return inspect("P18 警察署の管轄", areas);
+	// 横浜市内の署＝点（PoliceStation）の行政区域が横浜市の区（14101〜14118＝1413x の川崎・1415x の相模原を拾わない）の警察署。管轄の面はその署の名で選ぶ
+	const st = await ksjFeatures(zipUrl, /P18-\d+_14_PoliceStation/);   // 先に並ぶ PoliceStation.shp が当たる（Jurisdiction より前）
+	const names = new Set(st.filter(f => /^141(0[1-9]|1[0-8])$/.test(String(f.properties.P18_002)) && String(f.properties.P18_003) === "2").map(f => String(f.properties.P18_001).trim()));
+	const out = mergeByName(areas.filter(f => names.has(String(f.properties.P18_005).trim())).map(f => ({ properties: { n: String(f.properties.P18_005).trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
+	areaReport(`警察署の管轄（横浜市内の署 ${names.size}）`, out);
+	const miss = [...names].filter(n => !out.some(f => f.properties.n === n)); if (miss.length) console.warn(`  管轄の面が無い署：${miss.join("・")}`);
+	write("police-areas.json", fc(out));
+}
+async function fire() {
+	const areas = await ksjFeatures(`${KSJ}P17/P17-12/P17-12_14_GML.zip`, /P17-\d+_14_FireStationJurisdiction/);
+	if (INSPECT) return inspect("P17 消防署の管轄", areas);
+	const out = mergeByName(areas.filter(f => /^横浜市消防局/.test(String(f.properties.P17_005))).map(f => ({ properties: { n: String(f.properties.P17_005).replace(/^横浜市消防局/, "").trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
+	areaReport("消防署の管轄（横浜市消防局）", out);
+	write("fire-areas.json", fc(out));
+}
+
+for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
 console.log(INSPECT ? "\n（--inspect：何も書いていない）" : "\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write");

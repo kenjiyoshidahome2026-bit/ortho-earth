@@ -12,7 +12,16 @@
 
 旧「時間」（年代の航空写真）は継ぎ目と色むらが目立つので外した（2026-10-21）。出典は案内板に書かず地図の出典の欄にまとめる（写真の作者と使用許諾だけは写真に添える）。
 
-台帳＝`ortho-data/japan/yokohama/`（wards・rail・bus・facilities・photos の 5 本の JSON）。組む＝`node apps/yokohama/scripts/bake-yokohama.mjs`（外部網が要る＝手元の Mac・`--inspect` で KSJ の列名を確かめる）、
+台帳＝`ortho-data/japan/yokohama/`（wards・rail・bus・facilities・photos、平面の地図に重ねる面＝zoning・school-e・school-j・police-areas・fire-areas の 10 本の JSON）。
+
+| 台帳 | 中身 | 出どころ（国土数値情報）・年度 | 使用許諾 |
+|---|---|---|---|
+| zoning | 用途地域（12 種・1,864 面）{ n 名・b 建ぺい率 %・f 容積率 % } | A29-19（横浜市の分 14100）・2019 年度 | KSJ 利用規約＋横浜市＝オープンデータ公開可 |
+| school-e／school-j | 小学校区 339・中学校区 144（横浜市立）{ n 学校名・a 所在地 } | A27-21／A32-21・2021 年度 | 横浜市＝オープンデータ公開・特記条件なし |
+| police-areas | 警察署の管轄（横浜市内の 21 署）{ n 署名 } | P18-12 の PoliceStationJurisdiction・**2012 年度**（その後の署の新設・管轄の変更は入っていない） | 非商用 |
+| fire-areas | 消防署の管轄（横浜市消防局の 18 署）{ n 署名 } | P17-12 の FireStationJurisdiction・**2012 年度** | 非商用（有償刊行物から作成） |
+
+組む・置く：組む＝`node apps/yokohama/scripts/bake-yokohama.mjs`（外部網が要る＝手元の Mac・`--inspect` で KSJ の列名を確かめる）、
 置く＝`npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write`。dev は手元の正本を読む。
 
 URL：`?tab=sight|transit|risk|tools`・`&ward=14101〜14118`・`&spot=<名所の id>`（data.ts）・`&hz=flood,hightide,tsunami,dosha`・`&tr=subway,bus,rail`（既定 subway）。旧 `tab=city|time` は観光・解析へ読み替える。
