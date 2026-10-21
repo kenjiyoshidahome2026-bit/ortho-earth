@@ -9,6 +9,7 @@
 //     資産          ne-cities/<lang>.json・flags/<key>.svg・geoms/<key>.png・sfx.zip（uploader が作る物＝手元に在れば）
 //     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/world/sky・焼く＝npm run sky）
 //     人口（H3）    h3/kontur-<版>/＝/globe/hex が読む Kontur Population（焼く＝apps/ortho-globe/scripts/kontur-h3.mjs）
+//     splat         splat/<scene>/＝/globe/splat が読む Gaussian splat（3D Tiles の KHR_gaussian_splatting＋SPZ と 1 本の .spz・Niantic の見本・焼く＝apps/ortho-globe/scripts/splat-tiles.mjs）
 //   目録            manifest.json＝{ updated, files: { 相対パス: 中身の sha1 の頭 12 桁 } }＝置くたびに globe/ 全体から作り直す。
 //                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（packages/world/src/data.ts）
 //   使い方: node scripts/publish-pages.mjs            … 予行（何も書かない＝今の Pages と比べて 新規／変更／同じ を出す）
@@ -31,7 +32,7 @@ const WRITE = process.argv.includes("--write"), ALLOW_OLDER = process.argv.inclu
 const ONLY = arg("only").split(",").filter(Boolean);
 const DBS = ["NationDB", "CityDB", "LanguageDB", "CurrencyDB", "Conflicts", "TerrainDB"];
 const FILES = [...DBS.map(d => d + ".json"), "ne-physical.geopbf", "plates.geopbf", "ne-physical-lines.geopbf", "climate-koppen.geopbf", "sfx.zip"];
-const FOLDERS = [...DBS.map(d => d + ".i18n"), "search", "ne-cities", "flags", "geoms", "sky", "h3"];
+const FOLDERS = [...DBS.map(d => d + ".i18n"), "search", "ne-cities", "flags", "geoms", "sky", "h3", "splat"];
 const walk = (d, rel = "") => fs.readdirSync(path.join(d, rel), { withFileTypes: true }).flatMap(e => e.name.startsWith(".") ? [] : e.isDirectory() ? walk(d, rel + e.name + "/") : [rel + e.name]);
 const have = TRACKED ? (fs.existsSync(SRC) ? walk(SRC).filter(f => f !== MANIFEST).sort() : []) : [...FILES.filter(f => fs.existsSync(path.join(SRC, f))), ...FOLDERS.filter(f => fs.existsSync(path.join(SRC, f))).flatMap(f => walk(SRC, f + "/"))].sort();
 const LIST = have.filter(f => !ONLY.length || ONLY.some(o => f === o || f.startsWith(o.replace(/\/$/, "") + "/")));

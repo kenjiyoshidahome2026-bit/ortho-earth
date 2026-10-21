@@ -10,7 +10,7 @@ import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-e
 import { formatOf, checkEnum, checkSplatData, checkTransform, prepare, readerFor, transferables, SPLAT_FORMATS } from "./formats.ts";
 import type { SplatData, SplatFormat, SplatCrs, SplatAxes, Hpr, Origin, Prepared, PrepareOptions } from "./formats.ts";
 import type { ReaderRequest, ReaderReply } from "./splat-reader.ts";
-export { parsePly, parseSplat, parseSpz, decodeSpz, parseKsplat, parseSog, decodeImageDefault, zipEntries, inflateRaw, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, checkSplatData, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
+export { parsePly, parseSplat, parseSpz, decodeSpz, encodeSpzRaw, parseKsplat, parseSog, decodeImageDefault, zipEntries, inflateRaw, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, checkSplatData, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
 export type { SplatData, SplatFormat, SplatCrs, SplatAxes, LocalSplatData, Hpr, Origin, ToEnuOptions, EnuSplats, PackedSh, Prepared, PrepareOptions, RgbaImage, ImageDecoder, SogOptions } from "./formats.ts";
 export type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, OverlayHost, CamState, SplatApi, PickContext, EnuBasis } from "./splat-gl.ts";
 export type { SplatBackend, SplatDrawOpts } from "./splat-draw.ts";

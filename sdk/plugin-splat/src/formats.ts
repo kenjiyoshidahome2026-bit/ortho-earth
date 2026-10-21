@@ -335,6 +335,22 @@ export async function parseSog(buf: BinSource, { decodeImage = decodeImageDefaul
 }
 
 /** URL／ファイル名 → format（拡張子） */
+// ---- .spz の書き手（v2・SH つき）＝3D Tiles 化（apps/ortho-globe/scripts/splat-tiles.mjs）と検定の往復に。gzip は呼び手（node＝zlib・browser＝CompressionStream）----
+/** SplatData（局所・axes は .spz の約束＝RUB "y" で渡す）→ .spz v2 の中身（gzip 前）。frac＝位置の小数の bit 数（既定 12＝±2048 m・0.24 mm 刻み）。尺は 1/16 の log・色は 0.15 の目・回転は 3 byte（w≧0）・SH は 8 bit（×128） */
+export function encodeSpzRaw(d: SplatData & { n: number }, { frac = 12 }: { frac?: number } = {}): Uint8Array<ArrayBuffer> {
+	const n = d.n, perSplat = d.sh && n ? d.sh.length / n : 0, shDeg = shDegreeOf(perSplat), shN = [0, 9, 24, 45][shDeg];
+	if (frac < 0 || frac > 23) throw new RangeError("plugin-splat: encodeSpz frac must be 0–23");
+	const b = new Uint8Array(16 + n * (9 + 1 + 3 + 3 + 3 + shN)), dv = new DataView(b.buffer), f = 1 << frac, lim = 0x7fffff;
+	dv.setUint32(0, 0x5053474e, true); dv.setUint32(4, 2, true); dv.setUint32(8, n, true); b[12] = shDeg; b[13] = frac;
+	let o = 16;
+	for (let i = 0; i < n * 3; i++, o += 3) { const q = Math.max(-lim - 1, Math.min(lim, Math.round(d.positions[i] * f))) & 0xffffff; b[o] = q & 255; b[o + 1] = (q >> 8) & 255; b[o + 2] = (q >> 16) & 255; }
+	for (let i = 0; i < n; i++, o++) b[o] = d.colors[i * 4 + 3];
+	for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++, o++) b[o] = clamp255(((d.colors[i * 4 + k] / 255 - 0.5) / SH_C0 * 0.15 + 0.5) * 255);
+	for (let i = 0; i < n * 3; i++, o++) { const s = d.scales[i]; b[o] = s > 0 ? clamp255((Math.log(s) + 10) * 16) : 0; }
+	for (let i = 0; i < n; i++) { const neg = d.rotations[i * 4 + 3] < 0 ? -1 : 1; for (let k = 0; k < 3; k++, o++) b[o] = clamp255((neg * d.rotations[i * 4 + k] + 1) * 127.5); }
+	if (shN) for (let i = 0; i < n * shN; i++, o++) b[o] = clamp255(d.sh![i] * 128 + 128);
+	return b;
+}
 export const formatOf = (u: unknown): SplatFormat | null => { const m = String(u).match(/\.(ply|splat|spz|ksplat|sog)(\?|#|$)/i); return m ? m[1].toLowerCase() as SplatFormat : null; };
 
 // ---- 下ごしらえ ----

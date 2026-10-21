@@ -1,7 +1,7 @@
 // node の検定：読み手（.ply・.splat・.spz v2/v3・.ksplat 圧縮 0/1/2・.sog v2）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
 import { gzipSync, deflateSync, deflateRawSync } from "node:zlib";
 import { decodePng } from "../../../packages/globe/tests/mlexamples/compare.mjs";
-import { parsePly, parseSplat, parseSpz, decodeSpz, parseKsplat, parseSog, zipEntries, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { parsePly, parseSplat, parseSpz, decodeSpz, encodeSpzRaw, parseKsplat, parseSog, zipEntries, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
 import { read } from "../src/splat-reader.ts";
 import { sortOrder, enuBasis } from "../src/splat-gl.ts";
 import { depthRange, lodCount, pixelsPerMeter } from "../src/splat-gpu.ts";
@@ -80,6 +80,18 @@ function makeSpz(version, pts) {
 		ok(`spz${v}.rot`, near(Math.abs(d.rotations[2]), s, 0.01) && near(Math.abs(d.rotations[3]), c, 0.01) && near(d.rotations[0], 0, 0.01), JSON.stringify([...d.rotations]));
 		ok(`spz${v}.axes`, d.axes === "y");
 	}
+	// 書き手（v2・SH 3 次）→ 読み手の往復
+	const sh45 = new Float32Array(2 * 45).map((_, i) => ((i * 37) % 200 - 100) / 128);
+	const src = { n: 2, positions: new Float32Array([1.5, -2.25, 0.125, -300.5, 7, 0.0005]), scales: new Float32Array([1, Math.exp(-1), 0.01, 2, 2, 2]), rotations: new Float32Array([0, 0, s, c, 0.5, 0.5, 0.5, -0.5]), colors: new Uint8Array([255, 128, 0, 200, 10, 240, 60, 255]), sh: sh45 };
+	const rt = await parseSpz(gzipSync(encodeSpzRaw(src)));
+	ok("spz.rt.n", rt.n === 2 && rt.sh?.length === 90 && rt.axes === "y");
+	ok("spz.rt.pos", near(rt.positions[0], 1.5, 1e-3) && near(rt.positions[3], -300.5, 1e-3) && near(rt.positions[5], 0.0005, 3e-4), JSON.stringify([...rt.positions]));
+	ok("spz.rt.scale", near(rt.scales[0], 1, 0.04) && near(rt.scales[2], 0.01, 0.0004) && near(rt.scales[3], 2, 0.07));
+	ok("spz.rt.color", Math.abs(rt.colors[0] - 255) <= 3 && Math.abs(rt.colors[1] - 128) <= 3 && Math.abs(rt.colors[2]) <= 3 && rt.colors[3] === 200 && rt.colors[7] === 255, JSON.stringify([...rt.colors]));
+	ok("spz.rt.rot", near(rt.rotations[2], s, 0.01) && near(rt.rotations[3], c, 0.01) && near(rt.rotations[4], -0.5, 0.01) && near(rt.rotations[7], 0.5, 0.01), JSON.stringify([...rt.rotations]));   // w<0 は符号を返して w≧0 に
+	ok("spz.rt.sh", [...rt.sh].every((v, i) => near(v, sh45[i], 1 / 128)));
+	ok("spz.rt.frac", near((await parseSpz(gzipSync(encodeSpzRaw(src, { frac: 20 })))).positions[5], 0.0005, 2e-6));
+	ok("spz.rt.noSh", !(await parseSpz(gzipSync(encodeSpzRaw({ ...src, sh: undefined })))).sh);
 	ok("spz.badMagic", await athrows(() => parseSpz(gzipSync(new Uint8Array(32)))));
 	const raw = new Uint8Array(16); new DataView(raw.buffer).setUint32(0, 0x5053474e, true); new DataView(raw.buffer).setUint32(4, 9, true);
 	ok("spz.badVersion", throws(() => decodeSpz(raw)));
