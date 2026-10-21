@@ -88,6 +88,32 @@ export const FACILITY_CATS = [
 	{ name: "Ward offices and government", color: "#d84315" }, { name: "Community centers and halls", color: "#8e24aa" }, { name: "Schools", color: "#1e88e5" },
 	{ name: "Libraries and culture", color: "#00897b" }, { name: "Fire stations", color: "#e53935" }, { name: "Police", color: "#3949ab" }, { name: "Hospitals", color: "#43a047" },
 ];
+/** 用途地域（都市計画法の 13 種）＝zoning.json の n（正式名）で引く。色＝用途地域図の慣例（住居系＝緑〜黄・商業系＝桃〜赤・工業系＝紫〜青） */
+export const ZONES: { ja: string; name: string; color: string }[] = [
+	{ ja: "第一種低層住居専用地域", name: "Category 1 low-rise exclusive residential", color: "#2e9b5f" },
+	{ ja: "第二種低層住居専用地域", name: "Category 2 low-rise exclusive residential", color: "#7cc576" },
+	{ ja: "第一種中高層住居専用地域", name: "Category 1 mid/high-rise exclusive residential", color: "#a8d86e" },
+	{ ja: "第二種中高層住居専用地域", name: "Category 2 mid/high-rise exclusive residential", color: "#d4e88a" },
+	{ ja: "第一種住居地域", name: "Category 1 residential", color: "#f6e27a" },
+	{ ja: "第二種住居地域", name: "Category 2 residential", color: "#f3c96b" },
+	{ ja: "準住居地域", name: "Quasi-residential", color: "#f2b25c" },
+	{ ja: "田園住居地域", name: "Rural residential", color: "#c9a46a" },
+	{ ja: "近隣商業地域", name: "Neighborhood commercial", color: "#f4a3b8" },
+	{ ja: "商業地域", name: "Commercial", color: "#e8556d" },
+	{ ja: "準工業地域", name: "Quasi-industrial", color: "#b58fd0" },
+	{ ja: "工業地域", name: "Industrial", color: "#8fc7e8" },
+	{ ja: "工業専用地域", name: "Exclusively industrial", color: "#4f8fd0" },
+];
+/** 平面の地区地図に重ねる区域（台帳＝ortho-data/japan/yokohama/<file>・bake-yokohama.mjs）。zoning は塗り分け・他は線と淡い塗り（押すと名前） */
+export const AREAS = [
+	{ id: "zoning", file: "zoning.json", name: "Land-use zoning", color: "" },
+	{ id: "school-e", file: "school-e.json", name: "Elementary school districts", color: "#1e88e5" },
+	{ id: "school-j", file: "school-j.json", name: "Junior high school districts", color: "#8e24aa" },
+	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab" },
+	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935" },
+] as const;
+export type AreaId = typeof AREAS[number]["id"];
+
 /** 施設の種別ごとの出し入れ（本人 2026-10-21「それぞれでトグル」）＝区分（FACILITY_CATS）の中を、台帳の種別（行の 6 列目）で束ねる。並びが番号 */
 export const FACILITY_SUBS: { cat: number; name: string; kinds: string[] }[] = [
 	{ cat: 0, name: "Ward offices", kinds: ["区役所"] },
