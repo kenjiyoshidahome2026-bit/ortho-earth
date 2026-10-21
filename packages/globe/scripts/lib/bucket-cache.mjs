@@ -58,7 +58,8 @@ export async function startBucketCache() {
 	const passed = (req, why) => { stats.pass++; const k = `${req.method} ${req.url.split("?")[0].split("/").slice(0, 4).join("/")} (${why})`; stats.passBy[k] = (stats.passBy[k] || 0) + 1; };
 	const flights = new Map();   // 鍵 → 取得中の Promise（同じ物を同時に 2 回取らない・頁が閉じても続く）
 	const paths = key => ({ meta: `${DIR}/${key}.json`, body: `${DIR}/${key}.bin` });
-	const readEntry = key => { try { const p = paths(key), meta = JSON.parse(readFileSync(p.meta, "utf8")); return { meta, mtime: statSync(p.meta).mtimeMs, bodyPath: p.body }; } catch { return null; } };
+	// body も在る時だけ「在る」＝macOS は /tmp の古い物を日ごとに消す（periodic daily＝3 日）。meta は 304 のたびに時刻を延ばすが body は延ばさない＝body だけ消えて ENOENT で頁が落ちた（2026-10-21・deploy の prod 門）
+	const readEntry = key => { try { const p = paths(key), meta = JSON.parse(readFileSync(p.meta, "utf8")); statSync(p.body); return { meta, mtime: statSync(p.meta).mtimeMs, bodyPath: p.body }; } catch { return null; } };
 	const writeEntry = (key, meta, body) => {
 		const p = paths(key), t = `.tmp${process.pid}-${Math.random().toString(36).slice(2)}`;
 		writeFileSync(p.body + t, body); renameSync(p.body + t, p.body);
@@ -71,7 +72,7 @@ export async function startBucketCache() {
 			const h = { ...reqHeaders }; delete h["if-none-match"]; delete h["if-modified-since"];
 			if (prev?.meta.headers.etag) h["if-none-match"] = prev.meta.headers.etag;
 			const r = await (prev?.meta.volatile ? upstream("GET", path, h, null, VOLATILE_TRY_MS) : withRetry(() => upstream("GET", path, h)));   // 移ろう物は 1 回だけ・短く（駄目なら呼び手が古い物で返す）
-			if (r.status === 304 && prev) { const now = new Date(); utimesSync(paths(key).meta, now, now); stats.revalidated++; return readEntry(key); }
+			if (r.status === 304 && prev) { const now = new Date(); utimesSync(paths(key).body, now, now); utimesSync(paths(key).meta, now, now); stats.revalidated++; return readEntry(key); }
 			if (r.status === 200) { const ma = maxAgeOf(r.headers); writeEntry(key, { path, status: 200, headers: cleanHeaders(r.headers), maxAge: ma > 0 ? ma : 0, volatile: !(ma > 0) }, r.body); return readEntry(key); }
 			return { direct: r };   // 持てない応答＝そのまま返す
 		})().finally(() => flights.delete(key));
