@@ -84,7 +84,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<h2>${esc(t("Public facilities"))}</h2>
 				<label class="grp"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on sub" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
+					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 			</section>
 			<section data-pane="transit" hidden>
@@ -227,7 +227,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		map.on("mouseleave", "yk-fac", () => tip(null));
 		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null);
 			const c = FACILITY_CATS[r[3]];
-			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `・${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
+			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
 		$$<HTMLButtonElement>("[data-sub]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => subOf(r[3], r[5]) === +b.dataset.sub!).length); });
 		countFac();
@@ -688,7 +688,7 @@ const CSS = `
 .yk-panel .cats button.on,.yk-panel .cats button.part{opacity:1;background:rgba(255,255,255,.08)}
 .yk-panel .cats button.part{border-style:dashed}
 .yk-panel .cats .cg{display:flex;flex-wrap:wrap;gap:4px;width:100%;align-items:center}
-.yk-panel .cats button.sub{font-size:11px;padding:2px 7px}
+.yk-panel .cats button.kd{font-size:11px;padding:2px 7px}   /* 種別のチップ（.sub は注記の段落の字下げ＝別の名に） */
 .yk-panel .cats i,.yk-panel .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .yk-panel .cats small{margin-left:5px;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .yk-panel .spot-note{margin-top:8px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
