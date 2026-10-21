@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin, distM, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -87,6 +87,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				${TRANSIT.map(x => `<label class="grp"><input type="checkbox" data-tr="${x.id}"><b>${esc(t(x.name))}</b><small data-trn="${x.id}"></small></label>`).join("")}
 				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${l.color}">${l.id}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
 				<p class="sub flat">${esc(t("Subway stations carry their station numbers (B = Blue Line, G = Green Line). Tap a station or stop to see its lines or routes."))}</p>
+				<h2>${esc(t("Walking distance from a station"))}</h2>
+				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a subway station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${l.id}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
+				<p class="sub flat">${esc(t("Or tap any station on the map and choose “Walking distance”."))}</p>
+				<div class="detail walk-out" hidden></div>
 			</section>
 			<section data-pane="risk" hidden>
 				<h2>${esc(t("Check a location"))}</h2>
@@ -296,7 +300,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		map.on("mousemove", "yk-rail-st", e => { const f = top(e); tip(f ? `<b>${esc(t("$1 Station", ost[f.properties.i][2]))}</b>` : null); });
 		map.on("mouseleave", "yk-rail-st", () => tip(null));
 		map.on("click", "yk-rail-st", e => { const f = top(e), s = f && ost[f.properties.i]; if (!s) return; tip(null);
-			openPop([s[0], s[1]], `<div class="pk">${esc(t("Railway station"))}</div><b>${esc(t("$1 Station", s[2]))}</b><p>${esc(clip(s[3], 8, t))}</p>`); });
+			openPop([s[0], s[1]], `<div class="pk">${esc(t("Railway station"))}</div><b>${esc(t("$1 Station", s[2]))}</b><p>${esc(clip(s[3], 8, t))}</p>${walkBtn(s[0], s[1], s[2])}`); });
 		// 地下鉄の線＝路線の色（N02 の路線名で塗り分けを焼く＝式に文字列の部分一致を頼らない）
 		map.addSource("yk-sub", { type: "geojson", data: { type: "FeatureCollection", features: sub.map(f => ({ ...f, properties: { ...f.properties, col: lineColor(String(f.properties?.line || "")) } })) } });
 		await map.addLayer({ id: "yk-sub-case", type: "line", source: "yk-sub", layout: { visibility: "none" }, paint: { "line-color": "#fff", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 9] } });
@@ -309,7 +313,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			el.innerHTML = `<span class="sym">${codes.map(c => `<i style="--c:${c.line.color}">${c.code}</i>`).join("") || "<i>?</i>"}</span><span class="nm">${esc(staName(s[2]))}</span>`;
 			el.title = t("$1 Station", staName(s[2]));
 			el.addEventListener("click", ev => { ev.stopPropagation();
-				openPop([s[0], s[1]], `<div class="pk">${esc(t("Yokohama Municipal Subway"))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${c.code} · ${esc(t(c.line.name))}`).join("<br>") || esc(s[3])}</p>`); });
+				openPop([s[0], s[1]], `<div class="pk">${esc(t("Yokohama Municipal Subway"))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${c.code} · ${esc(t(c.line.name))}`).join("<br>") || esc(s[3])}</p>${walkBtn(s[0], s[1], staName(s[2]))}`); });
 			subMarks.push(new ML.Marker({ element: el, anchor: "center" }).setLngLat([s[0], s[1]]));
 		}
 		$<HTMLElement>('[data-trn="subway"]').textContent = t("$1 stations", num(subMarks.length));
@@ -350,6 +354,53 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const nameGate = () => mapEl.classList.toggle("yk-sta-names", map.getZoom() >= 13.5);
 	map.on("move", nameGate); nameGate();
 
+	// ── 交通：駅からの徒歩圏（5・10・15 分の輪と、輪の中の公共施設・バス停・駅・避難場所の数）＝東京都の頁に無い「暮らしの読み」（本人 2026-10-21）──
+	// 輪は直線の目安（80m/分・道のりは直線の 1.3 倍）。道路網の到達圏ではない＝注記で言う
+	function walkBtn(lon: number, lat: number, name: string) { return `<button type="button" class="walkr" data-lon="${lon}" data-lat="${lat}" data-name="${esc(name)}">${esc(t("Walking distance"))}</button>`; }
+	const walkOut = $<HTMLElement>(".walk-out");
+	let walkLayer = false; const walkLabels: Marker[] = [];
+	const clearWalk = () => { walkOut.hidden = true; walkLabels.splice(0).forEach(m => m.remove()); if (walkLayer) { map.setLayoutProperty("yk-walk", "visibility", "none"); map.setLayoutProperty("yk-walk-line", "visibility", "none"); } };
+	async function walkFrom(lon: number, lat: number, name: string) {
+		closePop(); clearWalk();
+		if (st.tab !== "transit") setTab("transit");
+		if (narrow()) P.setFold(false);
+		const at: [number, number] = [lon, lat];
+		const fc = { type: "FeatureCollection" as const, features: [...WALK_RINGS].reverse().map(m => ({ type: "Feature" as const, properties: { m }, geometry: { type: "Polygon" as const, coordinates: [circleRing(at, walkRadius(m))] } })) };
+		if (!walkLayer) {
+			walkLayer = true;
+			map.addSource("yk-walk", { type: "geojson", data: fc });
+			await map.addLayer({ id: "yk-walk", type: "fill", source: "yk-walk", paint: { "fill-color": "#1f6fc5", "fill-opacity": ["match", ["get", "m"], 5, 0.16, 10, 0.1, 0.06] } });
+			await map.addLayer({ id: "yk-walk-line", type: "line", source: "yk-walk", paint: { "line-color": "#1f6fc5", "line-width": 1.6, "line-opacity": 0.8 } });
+		} else { map.getSource("yk-walk")?.setData?.(fc); map.setLayoutProperty("yk-walk", "visibility", "visible"); map.setLayoutProperty("yk-walk-line", "visibility", "visible"); }
+		for (const m of WALK_RINGS) {
+			const el = document.createElement("div"); el.className = "yk-wlab"; el.textContent = t("$1 min", m);
+			walkLabels.push(new ML.Marker({ element: el, anchor: "bottom" }).setLngLat(circleRing(at, walkRadius(m), 4)[0]).addTo(map));
+		}
+		const r = circleRing(at, walkRadius(WALK_RINGS[WALK_RINGS.length - 1]), 4);
+		map.fitBounds([[r[3][0], r[2][1]], [r[1][0], r[0][1]]], { padding: pad90(), pitch: 0, bearing: 0 });
+		walkOut.hidden = false;
+		const head = `<div class="dh"><b>${esc(t("Walking distance from $1", t("$1 Station", name)))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		walkOut.innerHTML = head + `<p class="sub flat">${esc(t("Loading…"))}</p>`;
+		const run = walkOut.dataset.run = String(Date.now());
+		const [, rail, , sh] = await Promise.all([loadFac(), loadRail(), loadBus(), loadShelters()]);
+		if (walkOut.dataset.run !== run) return;
+		const rows: [string, string, number[]][] = [];
+		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, t(c.name), n]); });
+		if (sh) rows.push(["#1f9d55", t("Evacuation sites"), countRings(sh, at)]);
+		if (bus) rows.push(["#ef6c00", t("Bus stops"), countRings(bus, at)]);
+		if (rail) rows.push(["#37474f", t("Railway stations"), countRings(rail.stations.filter(s => distM(at, [s[0], s[1]]) > 30), at)]);   // 自分の駅は数えない
+		walkOut.innerHTML = head + `<table class="wt"><thead><tr><th></th>${WALK_RINGS.map(m => `<th>${esc(t("$1 min", m))}</th>`).join("")}</tr></thead>
+			<tbody>${rows.map(([c, n, v]) => `<tr><td><i style="background:${c}"></i>${esc(n)}</td>${v.map(x => `<td>${num(x)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+			<p class="sub flat">${esc(t("Rings are rough estimates: 80 m per minute, with routes 1.3 times the straight line."))}</p>`;
+	}
+	walkOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { clearWalk(); $<HTMLSelectElement>(".wsta").value = ""; } });
+	$<HTMLSelectElement>(".wsta").onchange = async () => {
+		const n = $<HTMLSelectElement>(".wsta").value; if (!n) { clearWalk(); return; }
+		const d = await loadRail(); const s = d?.stations.find(x => x[4] && subwayCodes(x[2]).some(c => c.line.stations[+c.code.slice(1) - 1] === n));
+		if (s) walkFrom(s[0], s[1], staName(s[2]));
+	};
+	document.addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".walkr"); if (b) walkFrom(+b.dataset.lon!, +b.dataset.lat!, b.dataset.name!); });
+
 	// ── 防災：ハザードの画像タイル ──
 	const hzOn = new Set<string>();
 	let hzOpacity = 0.7;
@@ -381,28 +432,34 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	let shelters: HinanRow[] | null = null, hinanOn = false;
 	// 「すべて」＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
 	const hnFilter = (): StyleExpression | null => { const f = +$<HTMLSelectElement>(".hnf").value; return f < 0 ? null : ["==", ["get", `f${f}`], 1]; };
+	// 避難場所の台帳（読むだけ・層は隠して足す）＝防災の点・地点を調べる・駅の徒歩圏で使い回す
+	let shReady: Promise<HinanRow[] | null> | null = null;
+	const loadShelters = () => shReady ??= (async () => {
+		$<HTMLElement>(".hn-n").textContent = t("Loading…");
+		try {
+			const r = await fetch(HINAN_URL, { credentials: "omit" });
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			shelters = yokohamaShelters(JSON.parse(new TextDecoder().decode(await gunzip(await r.arrayBuffer()))));
+		} catch (e) { console.warn("[yokohama] hinan", e); $<HTMLElement>(".hn-n").textContent = t("Could not load"); shReady = null; return null; }
+		const feats: GeoJSONFeature[] = shelters.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] },
+			properties: { i, ...Object.fromEntries(HINAN_FLAGS.map((_, b) => [`f${b}`, r[4] & (1 << b) ? 1 : 0])) } }));
+		map.addSource("yk-hinan", { type: "geojson", data: { type: "FeatureCollection", features: feats }, attribution: HINAN_ATTR });
+		const f0 = hnFilter();
+		await map.addLayer({ id: "yk-hinan", type: "circle", source: "yk-hinan", ...(f0 ? { filter: f0 } : {}), layout: { visibility: "none" },
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5, 18, 8], "circle-color": "#1f9d55", "circle-stroke-color": "#fff", "circle-stroke-width": 1.2 } });
+		const tip = map.gadget.tip();
+		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
+		map.on("mousemove", "yk-hinan", e => { const f = top(e), r = f && shelters![f.properties.i]; tip(r ? [`<b>${esc(r[2])}</b>`, esc(flagsOf(r[4]).map(f => t(f)).join(" · ") || t("No disaster types listed"))] : null); });
+		map.on("mouseleave", "yk-hinan", () => tip(null));
+		map.on("click", "yk-hinan", e => { const f = top(e); if (f) showShelter(shelters![f.properties.i]); });
+		countShelters();
+		return shelters;
+	})();
 	async function setHinan(on: boolean) {
 		hinanOn = on; $(".hinan").checked = on;
 		if (!on) { if (shelters) map.setLayoutProperty("yk-hinan", "visibility", "none"); $<HTMLElement>(".detail").hidden = true; return; }
-		if (!shelters) {
-			$<HTMLElement>(".hn-n").textContent = t("Loading…");
-			try {
-				const r = await fetch(HINAN_URL, { credentials: "omit" });
-				if (!r.ok) throw new Error(`HTTP ${r.status}`);
-				shelters = yokohamaShelters(JSON.parse(new TextDecoder().decode(await gunzip(await r.arrayBuffer()))));
-			} catch (e) { console.warn("[yokohama] hinan", e); $<HTMLElement>(".hn-n").textContent = t("Could not load"); hinanOn = false; $(".hinan").checked = false; return; }
-			const feats: GeoJSONFeature[] = shelters.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] },
-				properties: { i, ...Object.fromEntries(HINAN_FLAGS.map((_, b) => [`f${b}`, r[4] & (1 << b) ? 1 : 0])) } }));
-			map.addSource("yk-hinan", { type: "geojson", data: { type: "FeatureCollection", features: feats }, attribution: HINAN_ATTR });
-			const f0 = hnFilter();
-			await map.addLayer({ id: "yk-hinan", type: "circle", source: "yk-hinan", ...(f0 ? { filter: f0 } : {}),
-				paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5, 18, 8], "circle-color": "#1f9d55", "circle-stroke-color": "#fff", "circle-stroke-width": 1.2 } });
-			const tip = map.gadget.tip();
-			const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
-			map.on("mousemove", "yk-hinan", e => { const f = top(e), r = f && shelters![f.properties.i]; tip(r ? [`<b>${esc(r[2])}</b>`, esc(flagsOf(r[4]).map(f => t(f)).join(" · ") || t("No disaster types listed"))] : null); });
-			map.on("mouseleave", "yk-hinan", () => tip(null));
-			map.on("click", "yk-hinan", e => { const f = top(e); if (f) showShelter(shelters![f.properties.i]); });
-		}
+		if (!await loadShelters()) { hinanOn = false; $(".hinan").checked = false; return; }
+		if (!hinanOn) return;   // 読んでいる間に外した
 		map.setLayoutProperty("yk-hinan", "visibility", "visible");
 		countShelters();
 	}
@@ -621,6 +678,13 @@ const CSS = `
 .yk-pop b{font-size:14px}
 .yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}
 .yk-pop .pk{font-size:11px;opacity:.7;margin-bottom:1px}
+.yk-pop .walkr{margin-top:7px;padding:5px 10px;border-radius:6px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:600 12px/1.2 system-ui,sans-serif;cursor:pointer;min-height:32px}
+.yk-wlab{padding:1px 6px;border-radius:9px;background:#1f6fc5;color:#fff;font:600 11px/1.4 system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
+.yk-panel .wt{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+.yk-panel .wt th{font-weight:600;color:var(--qm-text-faint);text-align:right;padding:2px 4px;white-space:nowrap}
+.yk-panel .wt td{padding:3px 4px;text-align:right;color:var(--qm-ink);font-variant-numeric:tabular-nums}
+.yk-panel .wt td:first-child{text-align:start;color:var(--qm-text-dim)}
+.yk-panel .wt td i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:5px}
 .yk-pop .pk i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
 .yk-sta{display:flex;flex-direction:column;align-items:center;transform:translateY(25%)}
 .yk-sta .sym{display:flex;gap:1px}
