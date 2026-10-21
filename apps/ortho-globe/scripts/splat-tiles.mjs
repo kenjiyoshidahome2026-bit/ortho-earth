@@ -31,6 +31,8 @@ const SCENES = [
 	{ id: "racoonfamily", file: "racoonfamily.spz", title: "Raccoon family", origin: [139.76560, 35.68150, 3.3], heading: 20, scale: 10, clip: 2.5, clipY: 2.5, maxSigma: 0.4 },
 	{ id: "hornedlizard", file: "hornedlizard.spz", title: "Horned lizard", origin: [139.76560, 35.68070, 3.3], heading: -30, scale: 10, clip: 3, clipY: 2.5, maxSigma: 0.4 },
 ];
+// 地面＝見本の下に敷く画像タイル（地理院の空中写真・z18 まで）。頁（/globe/）は地域を持たない決まりなので、どこの何を敷くかは index.json の側で申告する（verify-prod の static の門）
+const GROUND = { url: "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", href: "https://maps.gsi.go.jp/development/ichiran.html#seamlessphoto", name: "GSI Aerial Photo", minZoom: 2, maxZoom: 18, bbox: [122, 20, 154, 46] };
 const LICENSE = { source: "Niantic Labs — spz sample scenes", url: SOURCE, license: "MIT", note: "Copyright (c) 2024 Niantic Labs. Cleaned (clipped, re-centred), scaled up and re-encoded for the demo." };
 
 const pad4 = b => { const n = (4 - b.length % 4) % 4; return n ? Buffer.concat([b, Buffer.alloc(n, 0)]) : b; };
@@ -140,5 +142,5 @@ async function bake(sc) {
 }
 const metas = [];
 for (const sc of SCENES.filter(s => !ONLY.length || ONLY.includes(s.id))) metas.push(await bake(sc));
-fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ ...LICENSE, scenes: metas.map(m => ({ id: m.scene, title: m.title, origin: m.origin, heading: m.heading, scale: m.scale, splats: m.splats, tiles: m.tiles, bytesTiles: m.bytesTiles, bytesSpz: m.bytesSpz })) }, null, 1));
+fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ ...LICENSE, ground: GROUND, scenes: metas.map(m => ({ id: m.scene, title: m.title, origin: m.origin, heading: m.heading, scale: m.scale, splats: m.splats, tiles: m.tiles, bytesTiles: m.bytesTiles, bytesSpz: m.bytesSpz })) }, null, 1));
 console.log(`index.json → ${OUT}`);
