@@ -16,7 +16,7 @@
 置く＝`npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write`。dev は手元の正本を読む。
 
 URL：`?tab=sight|transit|risk|tools`・`&ward=14101〜14118`・`&spot=<名所の id>`（data.ts）・`&hz=flood,hightide,tsunami,dosha`・`&tr=subway,bus,rail`（既定 subway）。旧 `tab=city|time` は観光・解析へ読み替える。
-UI は日本語のみ。市政の中立な道具として作る（選挙・候補者・政策の中身には触れない）。
+UI は 26 言語（英語キー・`i18n/pages/yokohama.json`・`npm run i18n:build -w yokohama` で焼く）。市政の中立な道具として作る（選挙・候補者・政策の中身には触れない）。
 
 ## 開発
 

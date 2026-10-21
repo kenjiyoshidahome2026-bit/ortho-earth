@@ -21,7 +21,7 @@ const rows = [[139.63, 35.45, "みなとみらい本町小学校", "神奈川県
 const ys = yokohamaShelters(rows);
 t("避難場所：住所が横浜市の行だけ・座標の壊れた行は落とす", ys.length === 1 && ys[0][2] === "みなとみらい本町小学校", JSON.stringify(ys));
 t("避難場所：住所から区", wardOfAddress(ys[0][3])?.code === "14103" && wardOfAddress("神奈川県川崎市") === null);
-t("避難場所：対応災害のビット", HINAN_FLAGS.length === 8 && flagsOf(0b11001).join() === "洪水,地震,津波");
+t("避難場所：対応災害のビット", HINAN_FLAGS.length === 8 && flagsOf(0b11001).join() === "Flood,Earthquake,Tsunami");
 
 const s = parseState("?tab=risk&hz=flood,bogus,tsunami,flood&era=1974&ward=14104&spot=mm21&tr=bus,x,subway&data=x");
 t("状態：読む（知らない値は落とし重複は畳む）", s.tab === "risk" && s.hz.join() === "flood,tsunami" && s.ward === "14104" && s.spot === "mm21" && s.tr.join() === "subway,bus", JSON.stringify(s));
