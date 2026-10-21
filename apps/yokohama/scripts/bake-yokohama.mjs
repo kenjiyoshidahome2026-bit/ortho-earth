@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { WARDS, SPOTS, CITY_BBOX } from "../data.ts";
+import { WARDS, SPOTS, PORT_STORY, CITY_BBOX } from "../data.ts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, "../../..");
@@ -301,7 +301,7 @@ async function photos() {
 	const api = "https://ja.wikipedia.org/w/api.php", commons = "https://commons.wikimedia.org/w/api.php";
 	const get = async (base, q) => { await sleep(1500); const r = await fetch(`${base}?${new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...q })}`, { headers: UA }); if (!r.ok) throw new Error(`${base}: HTTP ${r.status}`); return r.json(); };
 	const out = {};
-	for (const s of SPOTS) {
+	for (const s of [...SPOTS, ...PORT_STORY.filter(c => !c.photo)]) {   // 港の物語の章は、名所の写真を借りない章だけ焼く
 		const d = await get(api, { action: "query", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "640", titles: s.wiki, redirects: "1" });
 		const pg = d.query?.pages?.[0];
 		if (!pg?.pageimage || !pg.thumbnail) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }

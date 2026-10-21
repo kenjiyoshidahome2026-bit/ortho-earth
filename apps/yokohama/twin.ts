@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin, distM, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -74,6 +74,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			<section data-pane="sight">
 				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
 				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
+				<button class="tour port" type="button">${esc(t("⚓ Port story (1859 to today)"))}</button>
+				<button class="act sea" type="button">${esc(t("View the city from the sea"))}</button>
 				<h2>${esc(t("Landmarks"))}</h2>
 				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(t(s.name))}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
@@ -253,14 +255,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	cap.className = "yk-cap"; cap.hidden = true;
 	mapEl.appendChild(cap);
 	let touring = 0;   // ツアーの通し番号（0＝止まっている）
-	const stopTour = () => { if (!touring) return; touring = 0; cap.hidden = true; $(".tour").textContent = t("▶ Landmark tour"); };
+	const stopTour = () => { if (!touring) return; touring = 0; cap.hidden = true; $(".tour:not(.port)").textContent = t("▶ Landmark tour"); $(".port").textContent = t("⚓ Port story (1859 to today)"); };
 	for (const ev of ["pointerdown", "wheel"]) mapEl.addEventListener(ev, e => { if (!panel.contains(e.target as Node) && !cap.contains(e.target as Node)) stopTour(); });
 	cap.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) stopTour(); });
 	async function tour() {
 		if (touring) { stopTour(); return; }
 		const run = touring = Date.now();
 		setTab("sight");
-		$(".tour").textContent = t("■ Stop the tour");
+		$(".tour:not(.port)").textContent = t("■ Stop the tour");
 		const stops = TOUR.map(id => SPOTS.find(s => s.id === id)!);
 		const ph = await photos();
 		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
@@ -278,7 +280,44 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		await flyView(CITY_VIEW);
 		stopTour();
 	}
-	$(".tour").onclick = () => { tour(); };
+	$(".tour:not(.port)").onclick = () => { tour(); };
+
+	// ── 港の物語（1859 の開港から今まで・章ごとに年と写真）と、海からの眺め＝東京都の頁に無い「横浜の物語」（本人 2026-10-21）──
+	async function seaView(run: number) {
+		for (const [i, v] of SEA_VIEWS.entries()) {
+			if (touring !== run) return;
+			await (i ? map.easeTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing, duration: 7000 }) : flyView(v));
+			if (touring !== run) return;
+			await map.easeTo({ bearing: v.bearing + 25, duration: 5000 });   // 船の上から見渡す
+		}
+	}
+	async function portStory() {
+		if (touring) { stopTour(); return; }
+		const run = touring = Date.now();
+		setTab("sight"); showSpot(null);
+		$(".port").textContent = t("■ Stop the tour");
+		const ph = await photos();
+		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
+		for (const c of PORT_STORY) {
+			if (touring !== run) return;
+			say(`${photoHTML(ph?.[c.photo || c.id], "cph")}<div class="ct"><small class="yr">${c.year}</small><b>${esc(t(c.name))}</b><p>${esc(t(c.note))}</p></div>`);
+			await flySpot(c);
+			if (touring !== run) return;
+			await map.easeTo({ bearing: c.bearing + 35, duration: 5500 });
+		}
+		if (touring !== run) return;
+		say(`<div class="ct"><small class="yr">${esc(t("Today"))}</small><b>${esc(t("View the city from the sea"))}</b><p>${esc(t("The skyline as seen from a ship entering the harbor."))}</p></div>`);
+		await seaView(run);
+		stopTour();
+	}
+	$(".port").onclick = () => { portStory(); };
+	$(".sea").onclick = async () => {
+		if (touring) stopTour();
+		const run = touring = Date.now();
+		$(".port").textContent = t("■ Stop the tour");
+		await seaView(run);
+		if (touring === run) stopTour();
+	};
 
 	// ── 交通：地下鉄（線＝路線の色・駅＝駅番号の記号）・JR と私鉄・市営バス ──
 	type RailLedger = { lines: { type: "FeatureCollection"; features: GeoJSONFeature[] }; stations: StationRow[] };
@@ -613,6 +652,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 const CSS = `
 .yk-panel .oe-panel-head h1{font-size:19px;letter-spacing:.04em}
 .yk-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
+.yk-panel .tour.port{background:linear-gradient(90deg,#0b3d6b,#1565c0);margin-top:6px}
+.yk-cap .yr{font-weight:700;letter-spacing:.04em}
 .yk-panel .tour{width:100%;margin:10px 0 2px;padding:9px 10px;border:0;border-radius:var(--qm-r-m);background:linear-gradient(90deg,#1565c0,#0d8bb0);color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .yk-panel .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:10px 0 8px}
 .yk-panel .tabs button{font:inherit;padding:6px 0;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
