@@ -338,8 +338,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		}).catch(err => { n.state = "failed"; console.warn("[tiles3d] external tileset", n.uri, err.message); })
 			.finally(() => { inflight--; schedule(); });
 	};
-	const load = (n: T3dNode, force = false) => {   // force＝塊の残り（兄弟）＝同時数の上限を越えても一緒に投げる
-		if (n.state !== "none" || (!force && inflight >= maxInflight())) return;
+	const load = (n: T3dNode) => {   // 同時取得の上限（maxInflight）は塊の途中でも守る（旧 force＝兄弟は上限を越えても投げた・2026-10-20 に廃止）
+		if (n.state !== "none" || inflight >= maxInflight()) return;
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
@@ -576,12 +576,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (frameNo % 64 === 0) for (const set of sets.values()) if (set.root) prune(set.root);   // implicit の部分木の刈り込み（時々）
 		// 読む（SSE の大きい＝粗すぎて目立つ物から）
 		want.sort((a, b) => b.gp - a.gp || a.g - b.g || b.pri - a.pri);   // 親の SSE の大きい塊から・同じ親の兄弟は続けて・塊の中は自分の SSE 順
-		// 塊ごとに投げる（2026-10-19）：塊の始めだけ同時数の上限を見て、同じ親の兄弟は上限を越えても一緒に投げる＝塊が一度に揃う
-		for (let i = 0; i < want.length;) {
-			if (inflight >= maxInflight()) break;
-			const g = want[i].g;
-			for (let first = true; i < want.length && want[i].g === g; i++, first = false) load(want[i].n, !first);
-		}
+		// 塊ごとに投げる（2026-10-19）：want は塊順（同じ親の兄弟が続く）＝上限の枠が空くたびに同じ塊の続きから投げる＝塊は切れ目なく揃う。
+		// 旧＝塊の始めだけ上限を見て、兄弟は上限を越えても一緒に投げた＝同時取得が「上限 + 一番大きな塊 − 1」まで伸び（兄弟 48 枚で 49 本・iPhone の 3 本は効かない）、
+		// model worker の外部メモリ（取った本体＋解く途中の配列）の山が 2 倍になった（2026-10-20 の総点検・合成 48 枚で 244 MB → 123 MB・初回表示は遅くならない）
+		for (const w of want) { if (inflight >= maxInflight()) break; load(w.n); }
 		// 予算＝使っていない物（今回選ばれず表示もしていない）から古い順に捨てる。量＝GPU へ送った分＋main に残る写し（2026-10-20）。
 		// 今回の選びで塊の一員だった物（used === frameNo・兄弟が揃うのを待って伏せている子）は捨てない（2026-10-20）：旧＝伏せている子も捨てた＝
 		// 揃いかけの塊が予算を越えると、着いた兄弟を捨てては取り直す空回り（合成 48 枚・lowMem 160 MB で 150 s に 5.4 GB を取り直し・表示は根のまま・
