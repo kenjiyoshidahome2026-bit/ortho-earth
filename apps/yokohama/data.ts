@@ -75,13 +75,13 @@ export function subwayCodes(name: string): { code: string; line: SubwayLine }[] 
 	for (const l of SUBWAY) { const i = l.stations.findIndex(s => normSta(s) === n); if (i >= 0) out.push({ code: `${l.id}${String(i + 1).padStart(2, "0")}`, line: l }); }
 	return out;
 }
-/** 交通の層（既定は地下鉄だけ） */
+/** 交通の層（最初は全部 OFF） */
 export const TRANSIT = [
 	{ id: "subway", name: "Yokohama Municipal Subway (Blue Line, Green Line)" },
 	{ id: "bus", name: "Yokohama Municipal Bus stops" },
 	{ id: "rail", name: "JR and private railway stations and lines" },
 ] as const;
-export const TRANSIT_DEFAULT = ["subway"];
+export const TRANSIT_DEFAULT: string[] = [];   // 最初は何も出さない（本人 2026-10-21「市営地下鉄は最初は OFF」）＝旧 URL の "tr=" も同じ意味で読める
 
 /** 公共施設の区分（bake-yokohama.mjs の CATS と同じ並び＝facilities.json の区分の番号）。色＝地図の点と凡例 */
 export const FACILITY_CATS = [
@@ -237,7 +237,7 @@ export function writeState(search: string, st: TwinState): string {
 	const set = (k: string, v: string, def: string) => v && v !== def ? q.set(k, v) : q.delete(k);
 	set("tab", st.tab, "sight"); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
 	const tr = TRANSIT.filter(x => st.tr.includes(x.id)).map(x => x.id).join(",");
-	if (tr === TRANSIT_DEFAULT.join(",")) q.delete("tr"); else q.set("tr", tr);   // 全部消した＝"tr=" を残す（既定の地下鉄に戻さない）
+	if (tr === TRANSIT_DEFAULT.join(",")) q.delete("tr"); else q.set("tr", tr);
 	q.delete("era");   // 旧「時間」の鍵
 	const s = q.toString();
 	return s ? "?" + s : "";
