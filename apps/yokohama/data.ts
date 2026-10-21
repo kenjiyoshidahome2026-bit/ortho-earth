@@ -1,14 +1,16 @@
-// 横浜市デジタルツインの台帳（区・名所・ツアー・ハザード・年代の写真・URL の状態）＝描画を持たない純データ（Node の検定がそのまま読む）。
+// 横浜市デジタルツインの台帳（区・名所・ツアー・地下鉄の駅番号・公共施設の区分・ハザード・URL の状態）＝描画を持たない純データ（Node の検定がそのまま読む）。
 // 座標は区の中ほど／名所の建物の位置（WGS84）。ズームはこの地図の z（MapLibre の z＋1）・tilt と bearing は度。
-// 画像タイルは国土地理院（地理院タイル・重ねるハザードマップ）を、ブラウザが直に取る（焼かない・置き場を持たない）。
+// 画像タイルは国土地理院（重ねるハザードマップ）を、ブラウザが直に取る。区の境界・鉄道・バス停・公共施設・名所の写真は scripts/bake-yokohama.mjs が組んで
+// ortho-data/japan/yokohama/ に置く（GitHub Pages・DATA.md）。年代の航空写真（旧「時間」）は継ぎ目と色むらが目立つので外した（本人 2026-10-21）。
 
 export interface Ward { code: string; name: string; lon: number; lat: number; zoom: number }
-export interface Spot { id: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string }
+export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string }
 export interface Legend { color: string; label: string }
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
-export interface Era { id: string; name: string; url: string | null; minZoom: number; maxZoom: number }
-export interface TwinState { tab: Tab; ward: string; hz: string[]; era: string; spot: string }
-export type Tab = "city" | "risk" | "time" | "tools";
+export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
+/** 面＝観光・交通・防災・解析（2026-10-21 に「まち」→「観光」・「時間」を外し「交通」を足した） */
+export type Tab = "sight" | "transit" | "risk" | "tools";
+export const TAB_NAMES: Record<Tab, string> = { sight: "観光", transit: "交通", risk: "防災", tools: "解析" };
 
 /** 横浜市の外接矩形（18 区を包む）と全景の視点 */
 export const CITY_BBOX: [number, number, number, number] = [139.46, 35.31, 139.73, 35.60];
@@ -38,22 +40,58 @@ export const WARDS: Ward[] = [
 
 /** 名所（ツアーの止まり先を兼ねる）。note＝止まった時に出す一行（事実だけ） */
 export const SPOTS: Spot[] = [
-	{ id: "yokohama-st", name: "横浜駅", ward: "14103", lon: 139.6223, lat: 35.4657, zoom: 16.2, tilt: 58, bearing: 30, note: "鉄道 6 社が乗り入れる横浜の玄関口。駅の東西にビルが集まる。" },
-	{ id: "mm21", name: "みなとみらい 21", ward: "14103", lon: 139.6315, lat: 35.4546, zoom: 15.6, tilt: 62, bearing: -20, note: "造船所と操車場の跡地に築いた新しい都心。横浜ランドマークタワー（高さ 296m・1993 年開業）が建つ。" },
-	{ id: "akarenga", name: "横浜赤レンガ倉庫", ward: "14104", lon: 139.6425, lat: 35.4529, zoom: 16.8, tilt: 60, bearing: 20, note: "明治末から大正初めに建てられた国の保税倉庫。いまは商業と文化の施設。" },
-	{ id: "osanbashi", name: "大さん橋", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 16.4, tilt: 60, bearing: 140, note: "大型客船が着く国際客船ターミナル。屋上は誰でも歩ける広場。" },
-	{ id: "yamashita", name: "山下公園", ward: "14104", lon: 139.6505, lat: 35.4460, zoom: 16.4, tilt: 60, bearing: 60, note: "関東大震災のがれきで海を埋め立てて造った臨海公園（1930 年開園）。" },
-	{ id: "chinatown", name: "横浜中華街", ward: "14104", lon: 139.6460, lat: 35.4425, zoom: 16.8, tilt: 62, bearing: 45, note: "開港後に生まれた日本最大級の中華街。" },
-	{ id: "marine-tower", name: "横浜マリンタワー", ward: "14104", lon: 139.6506, lat: 35.4437, zoom: 17.0, tilt: 55, bearing: -30, note: "1961 年に開業した港のタワー。" },
-	{ id: "stadium", name: "横浜スタジアム", ward: "14104", lon: 139.6400, lat: 35.4433, zoom: 16.8, tilt: 58, bearing: 0, note: "横浜公園の中にある球場。" },
-	{ id: "city-hall", name: "横浜市役所", ward: "14104", lon: 139.6330, lat: 35.4513, zoom: 16.8, tilt: 58, bearing: 200, note: "2020 年に北仲通の新庁舎へ移った市役所。" },
-	{ id: "baybridge", name: "横浜ベイブリッジ", ward: "14104", lon: 139.6740, lat: 35.4545, zoom: 15.2, tilt: 65, bearing: -60, note: "1989 年に開通した斜張橋。橋は PLATEAU の橋梁モデルで立つ。" },
-	{ id: "daikoku", name: "大黒ふ頭", ward: "14101", lon: 139.6800, lat: 35.4620, zoom: 15.2, tilt: 55, bearing: 20, note: "コンテナや自動車を扱う埠頭。" },
-	{ id: "sankeien", name: "三溪園", ward: "14104", lon: 139.6620, lat: 35.4170, zoom: 16.2, tilt: 55, bearing: 0, note: "実業家 原三溪が造り 1906 年に公開した日本庭園。" },
-	{ id: "shin-yokohama", name: "新横浜", ward: "14109", lon: 139.6150, lat: 35.5085, zoom: 15.4, tilt: 58, bearing: -30, note: "新幹線の駅と日産スタジアムのある北の拠点。" },
-	{ id: "center-kita", name: "港北ニュータウン", ward: "14118", lon: 139.5785, lat: 35.5470, zoom: 15.4, tilt: 55, bearing: 0, note: "丘陵を開いて計画的に造った住宅都市。センター北・センター南が核。" },
-	{ id: "hakkeijima", name: "八景島", ward: "14108", lon: 139.6420, lat: 35.3380, zoom: 15.6, tilt: 58, bearing: 30, note: "金沢の海に造った人工島。" },
+	{ id: "yokohama-st", wiki: "横浜駅", name: "横浜駅", ward: "14103", lon: 139.6223, lat: 35.4657, zoom: 17.0, tilt: 58, bearing: 30, note: "鉄道 6 社が乗り入れる横浜の玄関口。駅の東西にビルが集まる。" },
+	{ id: "mm21", wiki: "みなとみらい21", name: "みなとみらい 21", ward: "14103", lon: 139.6315, lat: 35.4546, zoom: 16.4, tilt: 62, bearing: -20, note: "造船所と操車場の跡地に築いた新しい都心。横浜ランドマークタワー（高さ 296m・1993 年開業）が建つ。" },
+	{ id: "akarenga", wiki: "横浜赤レンガ倉庫", name: "横浜赤レンガ倉庫", ward: "14104", lon: 139.6425, lat: 35.4529, zoom: 17.6, tilt: 60, bearing: 20, note: "明治末から大正初めに建てられた国の保税倉庫。いまは商業と文化の施設。" },
+	{ id: "osanbashi", wiki: "横浜港大さん橋国際客船ターミナル", name: "大さん橋", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 17.2, tilt: 60, bearing: 140, note: "大型客船が着く国際客船ターミナル。屋上は誰でも歩ける広場。" },
+	{ id: "yamashita", wiki: "山下公園", name: "山下公園", ward: "14104", lon: 139.6505, lat: 35.4460, zoom: 17.2, tilt: 60, bearing: 60, note: "関東大震災のがれきで海を埋め立てて造った臨海公園（1930 年開園）。" },
+	{ id: "chinatown", wiki: "横浜中華街", name: "横浜中華街", ward: "14104", lon: 139.6460, lat: 35.4425, zoom: 17.6, tilt: 62, bearing: 45, note: "開港後に生まれた日本最大級の中華街。" },
+	{ id: "marine-tower", wiki: "横浜マリンタワー", name: "横浜マリンタワー", ward: "14104", lon: 139.6506, lat: 35.4437, zoom: 17.8, tilt: 55, bearing: -30, note: "1961 年に開業した港のタワー。" },
+	{ id: "stadium", wiki: "横浜スタジアム", name: "横浜スタジアム", ward: "14104", lon: 139.6400, lat: 35.4433, zoom: 17.6, tilt: 58, bearing: 0, note: "横浜公園の中にある球場。" },
+	{ id: "city-hall", wiki: "横浜市役所", name: "横浜市役所", ward: "14104", lon: 139.6330, lat: 35.4513, zoom: 17.6, tilt: 58, bearing: 200, note: "2020 年に北仲通の新庁舎へ移った市役所。" },
+	{ id: "baybridge", wiki: "横浜ベイブリッジ", name: "横浜ベイブリッジ", ward: "14104", lon: 139.6740, lat: 35.4545, zoom: 16.0, tilt: 65, bearing: -60, note: "1989 年に開通した斜張橋。橋は PLATEAU の橋梁モデルで立つ。" },
+	{ id: "daikoku", wiki: "大黒ふ頭", name: "大黒ふ頭", ward: "14101", lon: 139.6800, lat: 35.4620, zoom: 16.0, tilt: 55, bearing: 20, note: "コンテナや自動車を扱う埠頭。" },
+	{ id: "sankeien", wiki: "三溪園", name: "三溪園", ward: "14104", lon: 139.6620, lat: 35.4170, zoom: 17.0, tilt: 55, bearing: 0, note: "実業家 原三溪が造り 1906 年に公開した日本庭園。" },
+	{ id: "shin-yokohama", wiki: "新横浜駅", name: "新横浜", ward: "14109", lon: 139.6150, lat: 35.5085, zoom: 16.2, tilt: 58, bearing: -30, note: "新幹線の駅と日産スタジアムのある北の拠点。" },
+	{ id: "center-kita", wiki: "港北ニュータウン", name: "港北ニュータウン", ward: "14118", lon: 139.5785, lat: 35.5470, zoom: 16.2, tilt: 55, bearing: 0, note: "丘陵を開いて計画的に造った住宅都市。センター北・センター南が核。" },
+	{ id: "hakkeijima", wiki: "横浜・八景島シーパラダイス", name: "八景島", ward: "14108", lon: 139.6420, lat: 35.3380, zoom: 16.4, tilt: 58, bearing: 30, note: "金沢の海に造った人工島。" },
 ];
+
+/** 名所の写真の 1 件（photos.json・Wikimedia Commons の代表画像） */
+export interface Photo { src: string; file: string; artist: string; license: string; page: string }
+
+/** 横浜市営地下鉄の路線と駅番号（駅ナンバリング）。地図の駅は N02 の駅名で引き当てて記号を付ける */
+export interface SubwayLine { id: "B" | "G"; name: string; color: string; stations: string[] }
+export const SUBWAY: SubwayLine[] = [
+	{ id: "B", name: "ブルーライン", color: "#1f6fc5", stations: ["湘南台", "下飯田", "立場", "中田", "踊場", "戸塚", "舞岡", "下永谷", "上永谷", "港南中央", "上大岡", "弘明寺", "蒔田", "吉野町", "阪東橋", "伊勢佐木長者町", "関内", "桜木町", "高島町", "横浜", "三ツ沢下町", "三ツ沢上町", "片倉町", "岸根公園", "新横浜", "北新横浜", "新羽", "仲町台", "センター南", "センター北", "中川", "あざみ野"] },
+	{ id: "G", name: "グリーンライン", color: "#1e9b4f", stations: ["中山", "川和町", "都筑ふれあいの丘", "センター南", "センター北", "北山田", "東山田", "高田", "日吉本町", "日吉"] },
+];
+/** 駅名 → 駅番号の並び（"B29"・"G04"…）。乗換駅（センター南・北）は 2 つ。名前の揺れ（ヶ・ケ）は畳む */
+const normSta = (n: string) => String(n || "").replace(/ケ/g, "ヶ").replace(/駅$/, "").trim();
+export function subwayCodes(name: string): { code: string; line: SubwayLine }[] {
+	const n = normSta(name), out: { code: string; line: SubwayLine }[] = [];
+	for (const l of SUBWAY) { const i = l.stations.findIndex(s => normSta(s) === n); if (i >= 0) out.push({ code: `${l.id}${String(i + 1).padStart(2, "0")}`, line: l }); }
+	return out;
+}
+/** 交通の層（既定は地下鉄だけ） */
+export const TRANSIT = [
+	{ id: "subway", name: "横浜市営地下鉄（ブルーライン・グリーンライン）" },
+	{ id: "bus", name: "横浜市営バスの停留所" },
+	{ id: "rail", name: "JR・私鉄の駅と線路" },
+] as const;
+export const TRANSIT_DEFAULT = ["subway"];
+
+/** 公共施設の区分（bake-yokohama.mjs の CATS と同じ並び＝facilities.json の区分の番号）。色＝地図の点と凡例 */
+export const FACILITY_CATS = [
+	{ name: "区役所・行政", color: "#d84315" }, { name: "地区センター・集会", color: "#8e24aa" }, { name: "学校", color: "#1e88e5" },
+	{ name: "図書館・文化", color: "#00897b" }, { name: "消防", color: "#e53935" }, { name: "警察", color: "#3949ab" }, { name: "病院", color: "#43a047" },
+];
+/** 施設の 1 行＝[経度, 緯度, 名称, 区分の番号, 住所, 種別] */
+export type FacilityRow = [number, number, string, number, string, string];
+/** 鉄道の駅の 1 行＝[経度, 緯度, 駅名, "事業者 路線・…", 地下鉄なら 1] */
+export type StationRow = [number, number, string, string, number];
+/** 市営バスの停留所の 1 行＝[経度, 緯度, 停留所名, "系統・…"] */
+export type BusRow = [number, number, string, string];
 
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
 export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
@@ -72,18 +110,6 @@ export const HAZARDS: Hazard[] = [
 	{ id: "dosha", name: "土砂災害警戒区域", urls: ["05_dosekiryukeikaikuiki", "05_kyukeishakeikaikuiki", "05_jisuberikeikaikuiki"].map(d => `${DP}${d}/{z}/{x}/{y}.png`), maxZoom: 17,
 		legend: [{ color: "#f5e95c", label: "警戒区域" }, { color: "#e5463c", label: "特別警戒区域" }, { color: "#00008b", label: "急傾斜地崩壊危険区域（急傾斜地法）" }],
 		note: "土石流・急傾斜地の崩壊（がけ崩れ）・地すべりの警戒区域。紺は急傾斜地法に基づく危険区域。" },
-];
-
-const GSI = "https://cyberjapandata.gsi.go.jp/xyz/";
-/** 年代の航空写真（地理院タイル）。url:null＝写真を重ねない（いまの地図） */
-export const ERAS: Era[] = [
-	{ id: "map", name: "いまの地図", url: null, minZoom: 0, maxZoom: 0 },
-	{ id: "now", name: "いまの写真", url: GSI + "seamlessphoto/{z}/{x}/{y}.jpg", minZoom: 2, maxZoom: 18 },
-	{ id: "1988", name: "1988〜90 年", url: GSI + "gazo4/{z}/{x}/{y}.jpg", minZoom: 10, maxZoom: 17 },
-	{ id: "1979", name: "1979〜83 年", url: GSI + "gazo2/{z}/{x}/{y}.jpg", minZoom: 10, maxZoom: 17 },
-	{ id: "1974", name: "1974〜78 年", url: GSI + "gazo1/{z}/{x}/{y}.jpg", minZoom: 10, maxZoom: 17 },
-	{ id: "1961", name: "1961〜69 年", url: GSI + "ort_old10/{z}/{x}/{y}.png", minZoom: 10, maxZoom: 17 },
-	{ id: "1945", name: "1945〜50 年", url: GSI + "ort_USA10/{z}/{x}/{y}.png", minZoom: 10, maxZoom: 17 },
 ];
 
 /** PLATEAU の建物が LOD2（屋根の形まで）で配信される区＝エンジンの登録簿（plateau-sets.json）が自動で読む 5 区。残り 13 区は LOD1（箱）だけ＝この頁が任意で足す（2026-10-18 の配信を確認） */
@@ -109,22 +135,28 @@ export function wardOfAddress(addr: string): Ward | null {
 }
 export const flagsOf = (bits: number) => HINAN_FLAGS.filter((_, i) => bits & (1 << i));
 
-// ── URL の状態（共有できる）：?tab=risk&hz=flood,tsunami&era=1974&ward=14104&spot=mm21 ──
-const TABS: Tab[] = ["city", "risk", "time", "tools"];
+// ── URL の状態（共有できる）：?tab=risk&hz=flood,tsunami&ward=14104&spot=mm21&tr=subway,bus ──
+export const TABS: Tab[] = ["sight", "transit", "risk", "tools"];
+const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools" };   // 2026-10-21 より前の共有 URL
 export function parseState(search: string): TwinState {
 	const q = new URLSearchParams(search);
-	const tab = TABS.includes(q.get("tab") as Tab) ? q.get("tab") as Tab : "city";
+	const t = q.get("tab") || "";
+	const tab = TABS.includes(t as Tab) ? t as Tab : OLD_TABS[t] || "sight";
 	const hz = (q.get("hz") || "").split(",").filter(id => HAZARDS.some(h => h.id === id));
-	const era = ERAS.some(e => e.id === q.get("era")) ? q.get("era")! : "map";
 	const ward = WARDS.some(w => w.code === q.get("ward")) ? q.get("ward")! : "";
 	const spot = SPOTS.some(s => s.id === q.get("spot")) ? q.get("spot")! : "";
-	return { tab, hz: [...new Set(hz)], era, ward, spot };
+	const want = q.has("tr") ? (q.get("tr") || "").split(",") : TRANSIT_DEFAULT;
+	const tr = TRANSIT.map(x => x.id as string).filter(id => want.includes(id));   // 台帳の並びに揃える（往復で同じ）
+	return { tab, ward, hz: [...new Set(hz)], spot, tr };
 }
 /** 状態 → search（既定値は書かない＝素の URL を短く保つ）。他の鍵（?data= 等）は残す */
 export function writeState(search: string, st: TwinState): string {
 	const q = new URLSearchParams(search);
 	const set = (k: string, v: string, def: string) => v && v !== def ? q.set(k, v) : q.delete(k);
-	set("tab", st.tab, "city"); set("hz", st.hz.join(","), ""); set("era", st.era, "map"); set("ward", st.ward, ""); set("spot", st.spot, "");
+	set("tab", st.tab, "sight"); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
+	const tr = TRANSIT.filter(x => st.tr.includes(x.id)).map(x => x.id).join(",");
+	if (tr === TRANSIT_DEFAULT.join(",")) q.delete("tr"); else q.set("tr", tr);   // 全部消した＝"tr=" を残す（既定の地下鉄に戻さない）
+	q.delete("era");   // 旧「時間」の鍵
 	const s = q.toString();
 	return s ? "?" + s : "";
 }
