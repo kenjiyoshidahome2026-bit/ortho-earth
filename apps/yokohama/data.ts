@@ -9,8 +9,8 @@ export interface Legend { color: string; label: string; /** 画素の照合だ�
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
 /** 面＝観光・交通・防災・解析（2026-10-21 に「まち」→「観光」・「時間」を外し「交通」を足した） */
-export type Tab = "sight" | "transit" | "risk" | "tools";
-export const TAB_NAMES: Record<Tab, string> = { sight: "Sightseeing", transit: "Transport", risk: "Disasters", tools: "Analysis" };
+export type Tab = "sight" | "area" | "transit" | "risk" | "tools";
+export const TAB_NAMES: Record<Tab, string> = { sight: "Sightseeing", area: "Area", transit: "Transport", risk: "Disasters", tools: "Analysis" };
 
 /** 横浜市の外接矩形（18 区を包む）と全景の視点 */
 export const CITY_BBOX: [number, number, number, number] = [139.46, 35.31, 139.73, 35.60];
@@ -52,9 +52,9 @@ export const SPOTS: Spot[] = [
 	{ id: "baybridge", wiki: "横浜ベイブリッジ", name: "Yokohama Bay Bridge", ward: "14104", lon: 139.6740, lat: 35.4545, zoom: 16.0, tilt: 65, bearing: -60, note: "Cable-stayed bridge opened in 1989, shown with PLATEAU's bridge model." },
 	{ id: "daikoku", wiki: "大黒ふ頭", name: "Daikoku Pier", ward: "14101", lon: 139.6800, lat: 35.4620, zoom: 16.0, tilt: 55, bearing: 20, note: "Pier handling containers and cars." },
 	{ id: "sankeien", wiki: "三溪園", name: "Sankeien Garden", ward: "14104", lon: 139.6620, lat: 35.4170, zoom: 17.0, tilt: 55, bearing: 0, note: "Japanese garden created by businessman Hara Sankei and opened to the public in 1906." },
-	{ id: "shin-yokohama", wiki: "新横浜駅", name: "Shin-Yokohama", ward: "14109", lon: 139.6150, lat: 35.5085, zoom: 16.2, tilt: 58, bearing: -30, note: "Northern hub with the Shinkansen station and Nissan Stadium." },
-	{ id: "center-kita", wiki: "港北ニュータウン", name: "Kohoku New Town", ward: "14118", lon: 139.5785, lat: 35.5470, zoom: 16.2, tilt: 55, bearing: 0, note: "Planned residential town developed on the hills, centered on Center-Kita and Center-Minami." },
-	{ id: "hakkeijima", wiki: "横浜・八景島シーパラダイス", name: "Hakkeijima", ward: "14108", lon: 139.6420, lat: 35.3380, zoom: 16.4, tilt: 58, bearing: 30, note: "Artificial island built in the sea off Kanazawa." },
+	{ id: "shin-yokohama", wiki: "新横浜駅", name: "Shin-Yokohama", ward: "14109", lon: 139.6150, lat: 35.5085, zoom: 16.6, tilt: 58, bearing: -30, note: "Northern hub with the Shinkansen station and Nissan Stadium." },
+	{ id: "center-kita", wiki: "港北ニュータウン", name: "Kohoku New Town", ward: "14118", lon: 139.5785, lat: 35.5470, zoom: 16.6, tilt: 55, bearing: 0, note: "Planned residential town developed on the hills, centered on Center-Kita and Center-Minami." },
+	{ id: "hakkeijima", wiki: "横浜・八景島シーパラダイス", name: "Hakkeijima", ward: "14108", lon: 139.6420, lat: 35.3380, zoom: 16.6, tilt: 58, bearing: 30, note: "Artificial island built in the sea off Kanazawa." },
 ];
 
 /** 名所の写真の 1 件（photos.json・Wikimedia Commons の代表画像） */
@@ -88,6 +88,32 @@ export const FACILITY_CATS = [
 	{ name: "Ward offices and government", color: "#d84315" }, { name: "Community centers and halls", color: "#8e24aa" }, { name: "Schools", color: "#1e88e5" },
 	{ name: "Libraries and culture", color: "#00897b" }, { name: "Fire stations", color: "#e53935" }, { name: "Police", color: "#3949ab" }, { name: "Hospitals", color: "#43a047" },
 ];
+/** 用途地域（都市計画法の 13 種）＝zoning.json の n（正式名）で引く。色＝用途地域図の慣例（住居系＝緑〜黄・商業系＝桃〜赤・工業系＝紫〜青） */
+export const ZONES: { ja: string; name: string; color: string }[] = [
+	{ ja: "第一種低層住居専用地域", name: "Category 1 low-rise exclusive residential", color: "#2e9b5f" },
+	{ ja: "第二種低層住居専用地域", name: "Category 2 low-rise exclusive residential", color: "#7cc576" },
+	{ ja: "第一種中高層住居専用地域", name: "Category 1 mid/high-rise exclusive residential", color: "#a8d86e" },
+	{ ja: "第二種中高層住居専用地域", name: "Category 2 mid/high-rise exclusive residential", color: "#d4e88a" },
+	{ ja: "第一種住居地域", name: "Category 1 residential", color: "#f6e27a" },
+	{ ja: "第二種住居地域", name: "Category 2 residential", color: "#f3c96b" },
+	{ ja: "準住居地域", name: "Quasi-residential", color: "#f2b25c" },
+	{ ja: "田園住居地域", name: "Rural residential", color: "#c9a46a" },
+	{ ja: "近隣商業地域", name: "Neighborhood commercial", color: "#f4a3b8" },
+	{ ja: "商業地域", name: "Commercial", color: "#e8556d" },
+	{ ja: "準工業地域", name: "Quasi-industrial", color: "#b58fd0" },
+	{ ja: "工業地域", name: "Industrial", color: "#8fc7e8" },
+	{ ja: "工業専用地域", name: "Exclusively industrial", color: "#4f8fd0" },
+];
+/** 平面の地区地図に重ねる区域（台帳＝ortho-data/japan/yokohama/<file>・bake-yokohama.mjs）。zoning は塗り分け・他は線と淡い塗り（押すと名前） */
+export const AREAS = [
+	{ id: "zoning", file: "zoning.json", name: "Land-use zoning", color: "" },
+	{ id: "school-e", file: "school-e.json", name: "Elementary school districts", color: "#1e88e5" },
+	{ id: "school-j", file: "school-j.json", name: "Junior high school districts", color: "#8e24aa" },
+	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab" },
+	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935" },
+] as const;
+export type AreaId = typeof AREAS[number]["id"];
+
 /** 施設の種別ごとの出し入れ（本人 2026-10-21「それぞれでトグル」）＝区分（FACILITY_CATS）の中を、台帳の種別（行の 6 列目）で束ねる。並びが番号 */
 export const FACILITY_SUBS: { cat: number; name: string; kinds: string[] }[] = [
 	{ cat: 0, name: "Ward offices", kinds: ["区役所"] },
@@ -102,7 +128,7 @@ export const FACILITY_SUBS: { cat: number; name: string; kinds: string[] }[] = [
 	{ cat: 3, name: "Libraries", kinds: ["図書館"] },
 	{ cat: 3, name: "Museums", kinds: ["博物館・資料館", "美術館"] },
 	{ cat: 3, name: "Zoos and aquariums", kinds: ["動植物園", "水族館"] },
-	{ cat: 4, name: "Fire stations", kinds: ["消防本部", "消防署"] },
+	{ cat: 4, name: "Fire stations and headquarters", kinds: ["消防本部", "消防署"] },   // 区分の名（Fire stations＝消防）と同じ名にしない＝チップが「消防 / 消防」と二重に見えた
 	{ cat: 4, name: "Fire branch offices", kinds: ["出張所"] },
 	{ cat: 5, name: "Police stations", kinds: ["警察署", "警察本部", "警察学校"] },
 	{ cat: 5, name: "Police boxes", kinds: ["交番", "派出所", "駐在所", "地域安全センター"] },
@@ -162,6 +188,16 @@ export const HAZARDS: Hazard[] = [
 export const LOD2_WARDS = ["14101", "14102", "14103", "14104", "14114"];
 export const LOD1_WARDS = WARDS.filter(w => !LOD2_WARDS.includes(w.code));
 /** 区の LOD1 建築物の 3D Tiles（PLATEAU の datacatalog・texture 版しか無い＝読む時にテクスチャは落とす） */
+/** LOD1 の建物を出すズームの下限（本人 2026-10-21「ないところがあるなら全部ない方がいい」「傾きに関係なく z で決めていい」）。
+ *  LOD1 の 3D Tiles は 4 段（REPLACE）で、粗い段には大きな建物しか入っていない＝細かい段が届いた枠と届いていない枠で「有る／無い」の四角いまだらになる。
+ *  Mac 実測（保土ケ谷・旭・戸塚・南・真上）：z16.5 で 3〜32 秒で出そろう・z16 は 4 か所中 3 か所が 90 秒でも出そろわない（13 区が同時取得 6 本ずつ張り付く） */
+export const BUILDINGS_MIN_ZOOM = 16.5;
+/** 市営地下鉄（線・駅の記号）を出す最小の z＝これ未満（市より広い縮尺）では消す（本人 2026-10-21）。全市を真上から収めた時（z≈10.5〜11）は出る */
+export const SUBWAY_MIN_ZOOM = 10;
+/** 市の外の覆い（穴＝市の外周）の外枠 [w,s,e,n]。枠の縁が画面に入ったら覆いごと消す（縁を見せない・本人 2026-10-21） */
+export const MASK_BOX: [number, number, number, number] = [138.6, 34.8, 140.6, 36.2];
+/** 見えている範囲が覆いの外枠の内側か（null＝球の縁が見える＝内側でない） */
+export const insideBox = (view: ArrayLike<number> | null, box: ArrayLike<number>) => !!view && view[0] > box[0] && view[1] > box[1] && view[2] < box[2] && view[3] < box[3];
 export const lod1Url = (code: string) => `https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/${code}-bldg-lod1-texture-latest/tileset.json`;
 
 /** 指定緊急避難場所の対応災害（census2020 の焼き bousai/hinan の flags のビット順） */
@@ -182,7 +218,7 @@ export function wardOfAddress(addr: string): Ward | null {
 export const flagsOf = (bits: number) => HINAN_FLAGS.filter((_, i) => bits & (1 << i));
 
 // ── URL の状態（共有できる）：?tab=risk&hz=flood,tsunami&ward=14104&spot=mm21&tr=subway,bus ──
-export const TABS: Tab[] = ["sight", "transit", "risk", "tools"];
+export const TABS: Tab[] = ["sight", "area", "transit", "risk", "tools"];   // 観光と地域を分ける（本人 2026-10-21）
 const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools" };   // 2026-10-21 より前の共有 URL
 export function parseState(search: string): TwinState {
 	const q = new URLSearchParams(search);

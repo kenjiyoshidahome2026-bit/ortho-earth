@@ -71,7 +71,7 @@ import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.ts";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
-import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
+import { attributionHTML, setAttrHTML, attrFullHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { stac as stacGadget } from "./gadgets/stac-stub.ts";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
@@ -1154,13 +1154,14 @@ const meshEnv = {
 	groupOf: REGIONS.map(r => r.buildings?.group).find(Boolean) ?? null,   // データ管理モーダルの見出し・並び（日本＝都道府県）＝地域の申告
 	bldLabels: REGION_BLD_LABELS,   // データ管理モーダルの題（地域の申告・無ければ汎用）
 };
-let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null;
+let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null, meshVisible = true;   // meshVisible＝map.setMeshVisible（起こす前に来ても覚えておく）
 const MESH_NO_PROGRESS: MeshManager["progress"] = new Map();
 const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
 	const catalog = loadMeshCatalog();
 	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）
 	if (meshTap) meshReal.setProgressTap(meshTap);
+	if (!meshVisible) meshReal.setVisible(false);
 	// 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。manager が起きている worker と後から起きる worker の両方へ配る
 	if (REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) meshReal?.setExcludeMap(map); }).catch(() => {});
 	await catalog?.catch(() => {});   // 登録簿が manager に入ってから解決（manager の受け取りは先に登録済み＝この後に走る）
@@ -1169,7 +1170,7 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 }).catch(e => { console.error("[mesh] manager load failed", e); return null; });
 // 代理の窓口の型＝本物（MeshManager）と同じ口。違いは standUp／openDb が本物を起こしてから呼ぶ（非同期・起こせなければ undefined）・
 // firstRevealSets は台本の視点（検めていない列）をそのまま受けて本物へ渡す・ready が増える
-const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets"> & {
+const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets" | "setVisible" | "visible"> & {
 	standUp(...a: Parameters<MeshManager["standUp"]>): Promise<boolean | undefined>; openDb(): Promise<void>;
 	firstRevealSets(views: unknown[]): ReturnType<MeshManager["firstRevealSets"]>; ready: typeof wakeMesh;
 } = {
@@ -2240,8 +2241,8 @@ function render() {
 			attrZone = zone;
 			const attr = mapEl.querySelector("#attr");
 			if (attr) {
-				if (attrRegionHTML == null) attrRegionHTML = attr.innerHTML;   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
-				attr.innerHTML = attrHTMLOf(zone);
+				if (attrRegionHTML == null) attrRegionHTML = attrFullHTML(attr as HTMLElement);   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
+				setAttrHTML(attr as HTMLElement, attrHTMLOf(zone));   // 1 行の銘＋「データ一覧」の札（全文は札の中）
 			}
 		}
 	}
@@ -2766,6 +2767,10 @@ map.restoreNow = () => { nowPin = null; clockLastT = performance.now(); requestD
 map.getNow = () => animNow();
 map.setReduceMotion = v => { reduceMotionOpt = typeof v === "boolean" ? v : null; return map; };
 map.getReduceMotion = () => reduceMotionOn();
+// 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21・横浜：引いた縮尺で区ごとに有る／無いを出さない）。
+// 伏せている間は表示も新しい読み込みもしない（常駐は保つ＝戻すと即）。opts.mesh=false の地図では何もしない（getMeshVisible は false）
+map.setMeshVisible = on => { meshVisible = !!on; meshReal?.setVisible(meshVisible); requestDraw(); return map; };
+map.getMeshVisible = () => meshOn && meshVisible;
 // 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
 map.getBounds = () => {
 	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）
