@@ -1,33 +1,6 @@
 {
 	"_": "parks（/globe/parks）の頁の辞書＝英語キー → 25 言語。japan の parks と同じキーは同じ訳（apps/ortho-japan/i18n/pages/parks.json から写した）",
 	"ui": {
-		"Language": {
-			"ja": "言語",
-			"zh": "语言",
-			"ko": "언어",
-			"fr": "Langue",
-			"de": "Sprache",
-			"es": "Idioma",
-			"pt": "Idioma",
-			"it": "Lingua",
-			"nl": "Taal",
-			"pl": "Język",
-			"ru": "Язык",
-			"uk": "Мова",
-			"hu": "Nyelv",
-			"sv": "Språk",
-			"tr": "Dil",
-			"el": "Γλώσσα",
-			"id": "Bahasa",
-			"vi": "Ngôn ngữ",
-			"th": "ภาษา",
-			"bn": "ভাষা",
-			"hi": "भाषा",
-			"ar": "اللغة",
-			"fa": "زبان",
-			"ur": "زبان",
-			"he": "שפה"
-		},
 		"Search parks…": {
 			"ja": "公園を検索…",
 			"zh": "搜索公园…",
