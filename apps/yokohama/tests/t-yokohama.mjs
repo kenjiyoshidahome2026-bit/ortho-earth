@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, walkMin } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -31,5 +31,15 @@ t("状態：交通を全部消した＝tr= を残す（既定の地下鉄に戻�
 t("状態：旧い面の名（city→観光・time→解析）", parseState("?tab=city").tab === "sight" && parseState("?tab=time").tab === "tools" && TRANSIT[0].id === "subway");
 t("状態：往復", JSON.stringify(parseState(writeState("", s))) === JSON.stringify(s));
 t("状態：壊れた値は既定へ", JSON.stringify(parseState("?tab=x&era=1800&ward=13101")) === JSON.stringify(DEF));
+
+const tp = tilePixel(139.6380, 35.4437, 17);
+t("地点：タイルと画素（z17・横浜駅付近）", tp.x === Math.floor((139.6380 + 180) / 360 * 2 ** 17) && tp.px >= 0 && tp.px < 256 && tp.py >= 0 && tp.py < 256 && tilePixel(-180, 0, 1).x === 0 && tilePixel(0, 0, 1).py === 0, JSON.stringify(tp));
+const c0 = parseInt(DEPTH[2].color.slice(1), 16);
+t("地点：画素の色→凡例（透明は -1・近い色・遠い色は -1）", legendIndex(DEPTH, c0 >> 16, c0 >> 8 & 255, c0 & 255, 255) === 2 && legendIndex(DEPTH, c0 >> 16, c0 >> 8 & 255, c0 & 255, 0) === -1 && legendIndex(DEPTH, 0, 0, 0, 255) === -1);
+t("地点：浸水の帯→階（床下 0・5m 帯で 2 階・20m 以上 7）", floorsOfDepth(0) === 0 && floorsOfDepth(2) === 2 && floorsOfDepth(5) === 7 && floorsOfDepth(9) === 0);
+const d = distM([139.6380, 35.4437], [139.6380, 35.4537]);
+t("地点：距離（緯度 0.01 度＝約 1112m）・徒歩分（80m/分×1.3）", Math.abs(d - 1112) < 3 && walkMin(d) === 18 && walkMin(0) === 1, String(d));
+const nr = nearestRows([[139.70, 35.44, "遠"], [139.64, 35.444, "近"], [139.65, 35.45, "中"]], [139.638, 35.4437], 2);
+t("地点：近い順に k 件", nr.length === 2 && nr[0].row[2] === "近" && nr[1].row[2] === "中" && nr[0].m < nr[1].m);
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

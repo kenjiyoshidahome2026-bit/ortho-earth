@@ -9,10 +9,10 @@
 // 出典は案内板に書かず、地図の出典の欄（#attr）にまとめる（各 source／raster／tiles3d の attribution・本人 2026-10-21）。写真の作者と使用許諾だけは写真に添える（CC の条件）。
 // 状態は URL の search（?tab=&hz=&ward=&spot=&tr=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
-import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
+import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestRows, walkMin } from "./data.ts";
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -89,6 +89,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<p class="sub flat">${esc(t("Subway stations carry their station numbers (B = Blue Line, G = Green Line). Tap a station or stop to see its lines or routes."))}</p>
 			</section>
 			<section data-pane="risk" hidden>
+				<h2>${esc(t("Check a location"))}</h2>
+				<button type="button" class="act probe">${esc(t("Tap the map to check a location"))}</button>
+				<div class="detail probe-out" hidden></div>
 				<h2>${esc(t("Overlay hazard scenarios"))}</h2>
 				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${h.id}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${h.id}" hidden>${esc(t(h.note))}</p>`).join("")}
 				<label class="msel hzop-w" hidden><span>${esc(t("Opacity"))}</span><input type="range" class="hzop" min="0.2" max="1" step="0.05" value="0.7"></label>
@@ -423,6 +426,68 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	$(".hinan").onchange = () => setHinan($(".hinan").checked);
 	$<HTMLSelectElement>(".hnf").onchange = () => { if (shelters) map.setFilter("yk-hinan", hnFilter()); countShelters(); };
 
+	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
+	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
+	const probeOut = $<HTMLElement>(".probe-out");
+	let probing = false, probeMark: Marker | null = null, probeLine = false;
+	const setProbing = (on: boolean) => { probing = on; $(".probe").textContent = t(on ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on); mapEl.classList.toggle("yk-probing", on); };
+	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
+	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
+	$(".probe").onclick = () => { setProbing(!probing); if (probing && narrow()) P.setFold(true); };
+	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
+		const z = 17, p = tilePixel(lon, lat, z);
+		try {
+			const r = await fetch(url.replace("{z}", String(z)).replace("{x}", String(p.x)).replace("{y}", String(p.y)), { credentials: "omit" });
+			if (!r.ok) return -1;   // 404＝その枡に想定なし
+			const bmp = await createImageBitmap(await r.blob());
+			const cv = new OffscreenCanvas(1, 1), cx = cv.getContext("2d")!;
+			cx.drawImage(bmp, p.px, p.py, 1, 1, 0, 0, 1, 1);
+			const d = cx.getImageData(0, 0, 1, 1).data;
+			return legendIndex(legend, d[0], d[1], d[2], d[3]);
+		} catch { return -1; }
+	}
+	async function probe(ll: LonLat) {
+		const [lon, lat] = ll;
+		probeMark?.remove();
+		const el = document.createElement("div"); el.className = "yk-probe";
+		probeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
+		probeOut.hidden = false;
+		probeOut.innerHTML = `<div class="dh"><b>${esc(t("Loading…"))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		const run = probeOut.dataset.run = String(Date.now());
+		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
+		const [here, depths, dz, rows] = await Promise.all([
+			map.getHeight(lon, lat).catch(() => NaN),
+			Promise.all(water.map(h => samplePx(h.urls[0], lon, lat, h.legend))),
+			Promise.all(dosha.urls.map(u => samplePx(u, lon, lat, dosha.legend))).then(a => Math.max(...a)),
+			(shelters ? Promise.resolve(shelters) : setHinan(true).then(() => shelters)),
+		]);
+		if (probeOut.dataset.run !== run) return;
+		const near = rows ? nearestRows(rows, [lon, lat], 3) : [];
+		const worst = Math.max(...depths);
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
+		probeOut.innerHTML = `<div class="dh"><b>${Number.isFinite(here) ? esc(t("Elevation about $1 m", num(Math.round(here)))) : ""}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
+			<h3>${esc(t("Expected flood depth here"))}</h3>
+			<div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}
+				<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div></div>
+			${floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""}
+			<h3>${esc(t("Nearest evacuation sites"))}</h3>
+			<ol class="near">${near.map(({ row, m }, i) => `<li data-i="${i}"><b>${esc(row[2])}</b><small>${esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)))}</small><small class="el"></small></li>`).join("")}</ol>
+			<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`;
+		// 最寄りへ線を引く（直線）
+		const n0 = near[0]?.row;
+		const fc = { type: "FeatureCollection" as const, features: n0 ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [[lon, lat], [n0[0], n0[1]]] } }] : [] };
+		if (!probeLine) { probeLine = true; map.addSource("yk-probe", { type: "geojson", data: fc }); await map.addLayer({ id: "yk-probe", type: "line", source: "yk-probe", paint: { "line-color": "#e65100", "line-width": 3 } }); }
+		else map.getSource("yk-probe")?.setData?.(fc);
+		// 避難場所の標高と、ここからの差（高台へ逃げるか）
+		near.forEach(async ({ row }, i) => {
+			const h = await map.getHeight(row[0], row[1]).catch(() => NaN);
+			const li = probeOut.querySelector(`[data-i="${i}"] .el`);
+			if (li && probeOut.dataset.run === run && Number.isFinite(h)) li.textContent = t("Elevation about $1 m ($2 m from here)", num(Math.round(h)), Number.isFinite(here) ? (h - here >= 0 ? "+" : "") + Math.round(h - here) : "?");
+		});
+	}
+	probeOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { probeOut.hidden = true; probeMark?.remove(); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "none"); } });
+	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; setProbing(false); if (narrow()) P.setFold(false); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
+
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {
 		const day = $(".sday"), hour = $(".shour"), out = $<HTMLOutputElement>(".shour-o");
@@ -537,6 +602,21 @@ const CSS = `
 .yk-panel .badges{display:flex;flex-wrap:wrap;gap:4px}
 .yk-panel .badges span{border:1px solid rgba(143,211,154,.6);color:#bfe8c6;border-radius:4px;padding:0 5px;font-size:11.5px}
 .yk-panel .note{color:var(--qm-text-dim);font-size:12px;margin:10px 0 0}
+.yk-panel .act.on{border-color:#ffb74d;background:rgba(255,183,77,.15)}
+.yk-panel .detail h3{font-size:11.5px;margin:8px 0 3px;color:var(--qm-text-faint);font-weight:600}
+.yk-panel .pr{display:grid;gap:2px}
+.yk-panel .pr div{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.yk-panel .pr small{color:var(--qm-text-dim)}
+.yk-panel .pr span{color:var(--qm-ink);white-space:nowrap}
+.yk-panel .pr span.out{color:var(--qm-text-faint)}
+.yk-panel .pr i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.yk-panel .warn{margin:6px 0 0;padding:5px 8px;border-radius:6px;background:rgba(229,57,53,.18);color:#ffcdd2;font-size:12px}
+.yk-panel .near{margin:0;padding-left:18px}
+.yk-panel .near li{margin:3px 0}
+.yk-panel .near b{display:block;color:var(--qm-ink);font-size:12.5px}
+.yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
+.yk-probing canvas{cursor:crosshair}
+.yk-probe{width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}
 .yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}

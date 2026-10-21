@@ -99,7 +99,7 @@ export type BusRow = [number, number, string, string];
 export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
 
 /** 浸水深の凡例（重ねるハザードマップの共通の色・洪水／高潮／津波） */
-const DEPTH: Legend[] = [
+export const DEPTH: Legend[] = [
 	{ color: "#f7f5a9", label: "Under 0.5 m" }, { color: "#ffd8c0", label: "0.5–3 m" }, { color: "#ffb7b7", label: "3–5 m" },
 	{ color: "#ff9191", label: "5–10 m" }, { color: "#f285c9", label: "10–20 m" }, { color: "#dc7adc", label: "20 m or more" },
 ];
@@ -162,3 +162,33 @@ export function writeState(search: string, st: TwinState): string {
 	const s = q.toString();
 	return s ? "?" + s : "";
 }
+
+// ── 防災を自分ごとに（地点を調べる・2026-10-21）＝押した所の想定浸水の深さ・最寄りの避難場所（距離・徒歩・標高差）──
+/** 経緯度 → z の XYZ タイル番号と、そのタイルの中の画素（256px） */
+export function tilePixel(lon: number, lat: number, z: number): { x: number; y: number; px: number; py: number } {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	const fx = (lon + 180) / 360 * n, fy = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
+	const x = Math.floor(fx), y = Math.floor(fy);
+	return { x, y, px: Math.min(255, Math.floor((fx - x) * 256)), py: Math.min(255, Math.floor((fy - y) * 256)) };
+}
+/** 画素の色 → 凡例の何番目か（-1＝透明＝想定の外）。重ねるハザードマップの PNG は凡例の色そのまま＝最も近い色（距離 40 以内）を採る */
+export function legendIndex(legend: Legend[], r: number, g: number, b: number, a: number): number {
+	if (a < 128) return -1;
+	let bi = -1, bd = 40 * 40 * 3;
+	legend.forEach((l, i) => { const c = parseInt(l.color.slice(1), 16), d = (r - (c >> 16)) ** 2 + (g - (c >> 8 & 255)) ** 2 + (b - (c & 255)) ** 2; if (d < bd) { bd = d; bi = i; } });
+	return bi;
+}
+/** 浸水の深さの帯（DEPTH の番号）→ 水が届く階（1 階＝3m とみなす・0.5m 未満は 0＝床下）。20m 以上は 7 */
+export const floorsOfDepth = (i: number) => [0, 1, 2, 4, 7, 7][i] ?? 0;
+/** 2 点の距離（m・球面） */
+export function distM(a: [number, number], b: [number, number]): number {
+	const R = 6371008.8, r = Math.PI / 180, dla = (b[1] - a[1]) * r, dlo = (b[0] - a[0]) * r;
+	const h = Math.sin(dla / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dlo / 2) ** 2;
+	return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+/** 近い順に k 件（避難場所の行・直線距離） */
+export function nearestRows<T extends [number, number, ...unknown[]]>(rows: T[], at: [number, number], k: number): { row: T; m: number }[] {
+	return rows.map(row => ({ row, m: distM(at, [row[0], row[1]]) })).sort((a, b) => a.m - b.m).slice(0, k);
+}
+/** 歩いて何分（80m/分＝不動産の表示と同じ・道のりは直線の 1.3 倍とみなす） */
+export const walkMin = (m: number) => Math.max(1, Math.round(m * 1.3 / 80));
