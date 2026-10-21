@@ -98,7 +98,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<h2>${esc(t("Zones and districts"))}</h2>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
 				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
-				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map(z => `<span><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
+				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
@@ -287,6 +287,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			const n = $<HTMLElement>(`[data-arn="${id}"]`);
 			if (!fc?.features?.length) { n.textContent = t("Could not load"); return false; }
 			n.textContent = "";
+			if (id === "zoning") { const has = new Set(fc.features.map(f => zoneOf(String(f.properties?.n || "")))); $$<HTMLElement>(".zlg [data-z]").forEach(e => e.style.display = has.has(+e.dataset.z!) ? "" : "none"); }   // 凡例は市内にある種だけ（田園住居地域は無い）
 			const [fid, lid] = areaIds(id);
 			const data = id === "zoning" ? { ...fc, features: fc.features.map(f => ({ ...f, properties: { ...f.properties, z: zoneOf(String(f.properties?.n || "")) } })) } : fc;
 			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name) });
