@@ -192,3 +192,17 @@ export function nearestRows<T extends [number, number, ...unknown[]]>(rows: T[],
 }
 /** 歩いて何分（80m/分＝不動産の表示と同じ・道のりは直線の 1.3 倍とみなす） */
 export const walkMin = (m: number) => Math.max(1, Math.round(m * 1.3 / 80));
+/** 駅からの徒歩圏の輪（分）。半径＝分×80m を道のり 1.3 倍で割り戻した直線距離 */
+export const WALK_RINGS = [5, 10, 15] as const;
+export const walkRadius = (min: number) => min * 80 / 1.3;
+/** 円（中心・半径 m）を n 角形で（経度は緯度で縮める） */
+export function circleRing(c: [number, number], m: number, n = 64): [number, number][] {
+	const dLat = m / 111320, dLon = dLat / Math.cos(c[1] * Math.PI / 180);
+	return Array.from({ length: n + 1 }, (_, i) => { const a = i % n / n * 2 * Math.PI; return [c[0] + dLon * Math.sin(a), c[1] + dLat * Math.cos(a)]; });
+}
+/** 輪ごとの数（rows の中で、半径の内側にあるもの）。返り値は WALK_RINGS と同じ並び */
+export function countRings<T extends [number, number, ...unknown[]]>(rows: T[], at: [number, number], keep: (r: T) => boolean = () => true): number[] {
+	const out = WALK_RINGS.map(() => 0);
+	for (const r of rows) { if (!keep(r)) continue; const m = distM(at, [r[0], r[1]]); WALK_RINGS.forEach((w, i) => { if (m <= walkRadius(w)) out[i]++; }); }
+	return out;
+}

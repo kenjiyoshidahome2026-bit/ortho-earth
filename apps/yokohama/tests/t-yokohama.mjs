@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, walkMin } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, walkMin, WALK_RINGS, walkRadius, circleRing, countRings } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -41,5 +41,9 @@ const d = distM([139.6380, 35.4437], [139.6380, 35.4537]);
 t("地点：距離（緯度 0.01 度＝約 1112m）・徒歩分（80m/分×1.3）", Math.abs(d - 1112) < 3 && walkMin(d) === 18 && walkMin(0) === 1, String(d));
 const nr = nearestRows([[139.70, 35.44, "遠"], [139.64, 35.444, "近"], [139.65, 35.45, "中"]], [139.638, 35.4437], 2);
 t("地点：近い順に k 件", nr.length === 2 && nr[0].row[2] === "近" && nr[1].row[2] === "中" && nr[0].m < nr[1].m);
+const ring = circleRing([139.638, 35.4437], 500, 64);
+t("徒歩圏：円は閉じ、どの点も中心から半径の距離（±1%）", ring.length === 65 && ring[0][0] === ring[64][0] && ring.every(p => Math.abs(distM([139.638, 35.4437], p) - 500) < 5));
+t("徒歩圏：5・10・15 分＝直線 約 308・615・923m", WALK_RINGS.join() === "5,10,15" && Math.round(walkRadius(10)) === 615);
+t("徒歩圏：輪ごとの数（内側の輪は外側にも数える・絞り込み）", JSON.stringify(countRings([[139.638, 35.4457, 0], [139.638, 35.4487, 1], [139.638, 35.47, 0]], [139.638, 35.4437])) === "[1,2,2]" && JSON.stringify(countRings([[139.638, 35.4457, 0], [139.638, 35.4487, 1]], [139.638, 35.4437], r => r[2] === 1)) === "[0,1,1]");
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
