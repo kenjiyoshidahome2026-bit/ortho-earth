@@ -11,7 +11,7 @@
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
-import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
+import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
@@ -158,7 +158,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 吹き出し（施設・駅・停留所で 1 つを使い回す）──
 	let pop: Popup | null = null;
 	const closePop = () => { pop?.remove(); pop = null; };   // 面・地区を替えたら閉じる
-	const openPop = (ll: LonLat, html: string) => { pop?.remove(); pop = new ML.Popup({ closeButton: true, maxWidth: "260px", className: "yk-pop", offset: 10 }).setLngLat(ll).setHTML(html).addTo(map); };
+	// 地点を調べる中（と、その一押しの直後）は吹き出しを出さない＝層のクリックと地図のクリックの順はエンジン任せ（どちらが先でも止める）
+	const openPop = (ll: LonLat, html: string) => { if (probing || Date.now() - probedAt < 600) return; pop?.remove(); pop = new ML.Popup({ closeButton: true, maxWidth: "260px", className: "yk-pop", offset: 10 }).setLngLat(ll).setHTML(html).addTo(map); };
 
 	// ── 観光：地区＝平面（真上から・北が上）で区の外接矩形を画面の 9 割に収める ──
 	// 区の境界（wards.json）は起動時に読み、市の外の薄い覆い・全区の線・選んだ区の塗りを描く（「全部入り」の地図）。区の名前は基図が出す（重ねると二重になる・Mac 実測）
@@ -276,6 +277,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 
 	// ── 観光：平面の地区地図に重ねる区域（用途地域・小／中学校区・警察署／消防署の管轄）＝淡色の平面の時だけ出す（本人 2026-10-21）──
 	const areaOn = new Set<AreaId>(), areaReady = new Map<AreaId, Promise<boolean>>();
+	const POINT_LAYERS = new Set(["yk-fac", "yk-hinan", "yk-bus", "yk-rail-st"]);   // 面より先に答える点の層
 	let flat = false;
 	const zoneOf = (n: string) => ZONES.findIndex(z => z.ja === n);
 	const areaIds = (id: AreaId) => [`yk-area-${id}`, `yk-area-${id}-line`];
@@ -295,19 +297,31 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				paint: id === "zoning" ? { "fill-color": ["match", ["get", "z"], ...ZONES.flatMap((z, i) => [i, z.color]), "#bbbbbb"], "fill-opacity": 0.5 } : { "fill-color": x.color, "fill-opacity": 0.06 } });
 			await map.addLayer({ id: lid, type: "line", source: fid, layout: { visibility: "none" },
 				paint: id === "zoning" ? { "line-color": "#ffffff", "line-width": 0.6, "line-opacity": 0.8 } : { "line-color": x.color, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 16, 2.6], "line-opacity": 0.85 } });
-			map.on("click", fid, (e: LayerMouseEvent) => {
-				if (probing) return;
-				const f = (e.features || [])[0], p = f?.properties || {}, ll = e.lngLat; if (!f || !ll) return;
-				const z = id === "zoning" ? ZONES[zoneOf(String(p.n || ""))] : null;
-				openPop([ll.lng, ll.lat], `<div class="pk">${esc(t(x.name))}</div><b>${esc(z ? (lang === "ja" ? z.ja : t(z.name)) : String(p.n || ""))}</b>`
-					+ (z && (p.b || p.f) ? `<p>${esc(t("Building coverage $1% · Floor area ratio $2%", p.b ?? "?", p.f ?? "?"))}</p>` : "")
-					+ (p.a ? `<p>${esc(String(p.a))}</p>` : "") + (id === "police" || id === "fire" ? `<p>${esc(t("Boundaries as of 2012."))}</p>` : ""));
-			});
+			map.on("click", fid, (e: LayerMouseEvent) => { areaPop(e); });
 			return true;
 		});
 		areaReady.set(id, p);
 		return p;
 	};
+	// 区域の吹き出し＝押した所にある区域（出している物だけ）を 1 つにまとめる（重ねた時に片方しか出なかった・Mac 実測 2026-10-21）。
+	// 1 回の押しで層ごとに呼ばれる＝同じ点の 2 回目からは捨てる。点（施設・避難場所・バス停・駅）を押した時は出さない＝面が点のクリックを奪っていた
+	let areaPopKey = "";
+	async function areaPop(e: LayerMouseEvent) {
+		const ll = e.lngLat, key = `${e.point.x},${e.point.y},${e.originalEvent?.timeStamp ?? ""}`;
+		if (probing || !ll || key === areaPopKey) return;
+		areaPopKey = key;
+		const under = await map.queryRenderedFeatures([e.point.x, e.point.y]).catch(() => [] as RenderedFeature[]);
+		if (under.some(g => POINT_LAYERS.has(String(g.layer?.id)))) return;
+		const rows: string[] = [];
+		for (const x of AREAS) {
+			const f = under.find(g => g.layer?.id === `yk-area-${x.id}`); if (!f) continue;
+			const p = f.properties || {}, z = x.id === "zoning" ? ZONES[zoneOf(String(p.n || ""))] : null;
+			rows.push(`<div class="pk">${esc(t(x.name))}</div><b>${esc(z ? (lang === "ja" ? z.ja : t(z.name)) : String(p.n || ""))}</b>`
+				+ (z && (p.b || p.f) ? `<p>${esc(t("Building coverage $1% · Floor area ratio $2%", p.b ?? "?", p.f ?? "?"))}</p>` : "")
+				+ (p.a ? `<p>${esc(String(p.a))}</p>` : "") + (x.id === "police" || x.id === "fire" ? `<p>${esc(t("Boundaries as of 2012."))}</p>` : ""));
+		}
+		if (rows.length) openPop([ll.lng, ll.lat], rows.join(`<hr class="ys">`));
+	}
 	const areaVis = (id: AreaId) => { if (!areaReady.has(id)) return; areaReady.get(id)!.then(ok => { if (ok) for (const l of areaIds(id)) map.setLayoutProperty(l, "visibility", flat && areaOn.has(id) ? "visible" : "none"); }); };
 	function showAreas(on: boolean) { flat = on; for (const x of AREAS) areaVis(x.id); }
 	async function setArea(id: AreaId, on: boolean) {
@@ -602,7 +616,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
 	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
 	const probeOut = $<HTMLElement>(".probe-out");
-	let probing = false, probeMark: Marker | null = null, probeLine = false;
+	let probing = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false;
 	const setProbing = (on: boolean) => { probing = on; $(".probe").textContent = t(on ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on); mapEl.classList.toggle("yk-probing", on); };
 	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
 	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
@@ -667,7 +681,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const c = map.unproject([mapEl.clientWidth / 2, mapEl.clientHeight / 2 + (p.y - want)]);
 		if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 });
 	});
-	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
+	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; probedAt = Date.now(); setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
 
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {
@@ -808,6 +822,7 @@ const CSS = `
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}
 .yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}
+.yk-pop hr.ys{border:0;border-top:1px solid rgba(127,127,127,.3);margin:6px 0}
 .yk-pop .pk{font-size:11px;opacity:.7;margin-bottom:1px}
 .yk-pop .walkr{margin-top:7px;padding:5px 10px;border-radius:6px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:600 12px/1.2 system-ui,sans-serif;cursor:pointer;min-height:32px}
 .yk-wlab{padding:1px 6px;border-radius:9px;background:#1f6fc5;color:#fff;font:600 11px/1.4 system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
