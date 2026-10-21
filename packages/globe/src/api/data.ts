@@ -146,7 +146,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	// fill/line/circle の層の data（gintDataOf）：サービスで件数が多い＝視野追従（動いて止まったら足りない枡を読み、source を組み直す）
 	const sourceData = async (sid: string, d: unknown, sp?: UserSource) => {
 		const svc = typeof d === "string" ? await openSvc(d) : null;
-		if (!svc) { dropFollow(sid); setSrcAttr(sid, null); return readGeoData(d); }   // サービスでない＝従来どおり（出典の欄も触らない）
+		if (!svc) { dropFollow(sid); setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : null); return readGeoData(d); }   // サービスでない＝attribution（MapLibre の宣言）だけ出典の欄へ（2026-10-21・それまでは無視していた）
 		let e: FsFollowEntry | null | undefined = fsFollow.get(sid);
 		if (e && e.url !== d) { dropFollow(sid); e = null; }
 		if (!e) { e = { url: d as string, fc: null, follow: null }; fsFollow.set(sid, e); }

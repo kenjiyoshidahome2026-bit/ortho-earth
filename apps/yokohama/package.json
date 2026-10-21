@@ -7,8 +7,10 @@
 	"description": "横浜市デジタルツイン：3D 都市モデル（PLATEAU）の横浜に防災・年代の航空写真・影・解析を重ねる頁（/yokohama/）",
 	"scripts": {
 		"dev": "vite",
-		"build": "vite build",
+		"build": "node scripts/verify-i18n.mjs && vite build",
 		"test": "node tests/t-yokohama.mjs",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"deploy": "vite build && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
