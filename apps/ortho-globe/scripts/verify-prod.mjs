@@ -39,7 +39,12 @@ if (!fs.existsSync(path.join(SITE, "globe/index.html"))) fail("dist/site/globe �
 	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(js|html)$/.test(e.name)) { const hit = regionIn(p); if (hit) bad.push(`${path.relative(SITE, p)}: ${hit}`); } } };
 	walk(path.join(SITE, "globe"));
 	if (bad.length) fail(`static: 地域／japan の物が束に混ざっている\n  ${bad.join("\n  ")}`);
-	console.log("ok:static（japan の SDK・地域の申告なし）");
+	// 束の中に生の .ts が居ない（SDK の plugin の描き手 new URL("./splat-draw.js", import.meta.url) を vite が資産と見て .ts のまま写した事故＝worker の import() が
+	// 読めない・2026-10-21）。アプリの束で実体のチャンクにするのは vite-app.mjs の moduleUrlAsChunk
+	const raw = []; const walkTs = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walkTs(p); else if (/\.(ts|tsx|mts)$/.test(e.name)) raw.push(path.relative(SITE, p)); } };
+	walkTs(path.join(SITE, "globe"));
+	if (raw.length) fail(`static: 生の TypeScript が束に出ている（vite が資産扱い＝worker が import() できない）\n  ${raw.join("\n  ")}`);
+	console.log("ok:static（japan の SDK・地域の申告なし・生の .ts なし）");
 }
 
 // 配る（本番の deploy-worker と同じ規則）＋ /globe/ の外は本番へ中継
