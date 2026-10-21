@@ -82,14 +82,16 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
 			</nav>
 			<section data-pane="sight">
-				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
-				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
 				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
 				<button class="tour port" type="button">${esc(t("⚓ Port story (1859 to today)"))}</button>
 				<button class="act sea" type="button">${esc(t("View the city from the sea"))}</button>
 				<h2>${esc(t("Landmarks"))}</h2>
 				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(t(s.name))}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
+			</section>
+			<section data-pane="area" hidden>
+				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
+				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
 				<h2>${esc(t("Public facilities"))}</h2>
 				<label class="grp"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
