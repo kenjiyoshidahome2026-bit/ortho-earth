@@ -506,6 +506,61 @@
 #attr a:hover {
   text-decoration: underline;
 }
+/* 1 行の銘「© 2026 [logo] ortho-earth　データ一覧」＋押すと開く出典の札（本人 2026-10-21・gadgets/instruments.ts の setAttrHTML） */
+#attr .attr-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+#attr .attr-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+#attr .attr-logo {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 7;
+}
+#attr .attr-more {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#attr .attr-full {
+  position: relative;
+  max-width: min(440px, calc(100vw - 32px));
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  margin-bottom: 6px;
+  padding: 2px 18px 6px 0;
+  border-bottom: 1px solid var(--qm-glass-border);
+}
+#attr .attr-full[hidden] {
+  display: none;
+}
+#attr .attr-close {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+}
 
 /* --- 状態盤HUD（?hud=1／?hud=0・右下＝出典の上）：実機で「落ちる」の切り分け用の計器（Device / Render / Memory 台帳）。
        中身と開閉は gadgets/hud.js＝既定は display:none、計測器ボタン(#hud-btn)で開く。位置は bottom を JS が出典(#attr)の

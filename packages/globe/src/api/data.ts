@@ -247,7 +247,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 					const line = document.createElement("div");
 					line.className = "g-src";
 					line.textContent = tr()("Map data: $1", u.host);
-					attr.append(line);
+					(attr.querySelector(".attr-body") ?? attr).append(line);   // 出典の全文は「データ一覧」の札の中
 				}
 				console.info("[g] loaded", u.href, `${pbf.length ?? "?"} features`);
 			} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
