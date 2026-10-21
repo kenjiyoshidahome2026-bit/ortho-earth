@@ -54,7 +54,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 地名検索の索引 `search/`（13,154 件） | `globe/` | エンジンの検索窓（10/13 まで本番は 404 だった） |
 | 宇宙：stars.6・星座線・メシエ・月の地名（.geopbf）と名前 | `globe/sky/` | solar・エンジンの星空・www の先読み |
 | 世界の人口（Kontur Population・H3 の r4 と r6・計 7.6MB）`h3/kontur-20231101/` | `globe/h3/`（10/14 に置いた・焼く＝`apps/ortho-globe/scripts/kontur-h3.mjs`→`--only=h3`） | /globe/hex |
-| Gaussian splat の見本（Niantic の .spz 2 シーン・MIT・3D Tiles の KHR_gaussian_splatting＋SPZ ＝ 52＋43 枚・掃除した 1 本ずつ・計 約 88MB）`splat/<scene>/` | `globe/splat/`（焼く＝`apps/ortho-globe/scripts/splat-tiles.mjs`→`--only=splat`・2026-10-21） | /globe/splat |
+| Gaussian splat の見本（Niantic の .spz 2 シーン・MIT・3D Tiles の KHR_gaussian_splatting＋SPZ ＝ 52＋43 枚・掃除した 1 本ずつ・計 約 90MB・実物の 10 倍）`splat/<scene>/` | `globe/splat/`（焼く＝`apps/ortho-globe/scripts/splat-tiles.mjs`→`--only=splat`・2026-10-21） | /globe/splat |
 | アメリカの国立公園：`parks-us.json`・`parks-us.geopbf`・`nps-units.geopbf` | `us/` | /globe/parks |
 | 日本の頁の台帳：`parks.*`・`terrain.*`・`terrain.i18n/`・`onsen.json`・`models.json` | `japan/` | /japan/parks・terrain・onsen・models（uploader も `models.json` を直読み） |
 | 横浜市デジタルツインの台帳：`yokohama/`（`wards`・`rail`・`bus`・`facilities`・`photos`・平面の地図に重ねる面＝`zoning`・`school-e`・`school-j`・`police-areas`・`fire-areas`＝.json・2026-10-21） | `japan/`（git で追う・組む＝`apps/yokohama/scripts/bake-yokohama.mjs`） | /yokohama/。国土数値情報（N03・N02・P11・P05・P29・P27・P28・P17・P18・P04・用途地域 A29-19＝2019 年度・小学校区 A27-21／中学校区 A32-21＝2021 年度・警察署／消防署の管轄＝P18-12／P17-12 の面＝**2012 年度で古い・非商用**）・写真は Wikimedia Commons（作者と使用許諾を台帳に持つ）。A29・A27・A32 は横浜市が「オープンデータ公開・特記条件なし」（KSJ の市町村別の利用条件表）。P17・P18・P27・P28 は KSJ の使用許諾が「非商用」 |
