@@ -2,7 +2,7 @@
 // 標準装備でなくオプトイン＝map.gadget.globe() で搭載（v1 の gadget 作法＝this が map）。
 // 小さな正射投影の地球（海・陸＝Natural Earth 110m land・経緯線・縁）に、今の視野の枠（画面四辺を 30 点ずつ逆投影→再投影）を赤線で描く。
 // v1 との差＝d3 を使わない（自前の正射式・数十行）。北上（bearing は畳む＝v1 も γ=0）。クリック＝その地点へ同ズームで飛ぶ（v2 で追加）。
-// 出現域＝z ≤ maxZoom（v1 既定 8）。狭画面（<480px）では出さない。毎フレームの追従は本体の frame フック（戻り値 update を登録側が掴む）。
+// 出現域＝z ≤ maxZoom（v1 既定 8）。狭画面（<480px）・全球が画面に収まっている時（画面四辺がどこも球に当たらない＝枠が描けない）は出さない。毎フレームの追従は本体の frame フック（戻り値 update を登録側が掴む）。
 // 四戒：独立（エンジンへは this.unprojectXY / this.flyTo / this.cam のみ）／遅延（陸データは初回に取得）／抽象アクセス／表示は自前の display 裁き。
 import { geopbf } from "geopbf";
 import { tr } from "../i18n.ts";
@@ -57,7 +57,13 @@ export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160
 		for (const [lon, lat] of ring) { const [x, y] = proj(lon, lat); if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y); }
 		ctx.closePath();
 	};
-	function draw() {
+	// 視野の枠＝画面四辺を各 30 点逆投影（球外＝null）
+	const viewEdge = () => {
+		const W = mapEl.clientWidth, H = mapEl.clientHeight, N = 30;
+		const edge = (x0: number, y0: number, x1: number, y1: number) => { const out: Array<[number, number] | null> = []; for (let i = 0; i < N; i++) { const s = i / N; out.push(map.unprojectXY(x0 + (x1 - x0) * s, y0 + (y1 - y0) * s)); } return out; };
+		return [...edge(0, 0, W, 0), ...edge(W, 0, W, H), ...edge(W, H, 0, H), ...edge(0, H, 0, 0)];
+	};
+	function draw(pts: Array<[number, number] | null>) {
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, size, size);
 		const cx = size / 2, cy = size / 2;
@@ -72,10 +78,7 @@ export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160
 		ctx.stroke();
 		ctx.restore();
 		ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1.5; ctx.stroke();
-		// 視野の枠＝画面四辺を各 30 点逆投影（球外＝null＝pen up）→ ミニ地球儀へ再投影
-		const W = mapEl.clientWidth, H = mapEl.clientHeight, N = 30;
-		const edge = (x0: number, y0: number, x1: number, y1: number) => { const out: Array<[number, number] | null> = []; for (let i = 0; i < N; i++) { const s = i / N; out.push(map.unprojectXY(x0 + (x1 - x0) * s, y0 + (y1 - y0) * s)); } return out; };
-		const pts = [...edge(0, 0, W, 0), ...edge(W, 0, W, H), ...edge(W, H, 0, H), ...edge(0, H, 0, 0)];
+		// 視野の枠（pts＝viewEdge の逆投影・球外＝null＝pen up）→ ミニ地球儀へ再投影
 		if (pts.some(p => p)) {
 			ctx.beginPath(); let up = true;
 			for (const p of pts) { if (!p) { up = true; continue; } const [x, y, v] = proj(p[0], p[1]); if (!v) { up = true; continue; } if (up) { ctx.moveTo(x, y); up = false; } else ctx.lineTo(x, y); }
@@ -95,16 +98,19 @@ export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160
 	}, { signal });
 	signal?.addEventListener("abort", () => cv.remove(), { once: true });
 
-	function update() {   // 本体 render のフック＝視点が変わった時だけ描く。z>maxZoom・狭画面は隠す
+	function update() {   // 本体 render のフック＝視点が変わった時だけ描く。z>maxZoom・狭画面・全球が収まる時は隠す
 		const narrow = mapEl.clientWidth < 480;
-		const show = cam.zoom <= maxZoom && !narrow;
-		cv.style.display = show ? "block" : "none";
-		if (!show) return;
+		if (cam.zoom > maxZoom || narrow) { cv.style.display = "none"; last = ""; return; }
 		const key = `${cam.center[0].toFixed(3)}/${cam.center[1].toFixed(3)}/${cam.zoom.toFixed(2)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${mapEl.clientWidth}x${mapEl.clientHeight}`;
 		if (key === last) return;
 		last = key;
+		// 全球が画面に収まる＝四辺がどこも球に当たらず、画面中央は球上（中央も外＝空だけの画は隠さない）
+		const pts = viewEdge();
+		const whole = !pts.some(p => p) && !!map.unprojectXY(mapEl.clientWidth / 2, mapEl.clientHeight / 2);
+		cv.style.display = whole ? "none" : "block";
+		if (whole) return;
 		lon0 = cam.center[0]; cosP0 = Math.cos(cam.center[1] * D2R); sinP0 = Math.sin(cam.center[1] * D2R);
-		draw();
+		draw(pts);
 	}
 	update.el = cv;
 	return update;

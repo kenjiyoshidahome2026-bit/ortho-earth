@@ -57,5 +57,16 @@ for (let i = 0; i < 50 && !document.getElementById("map").classList.contains("me
 ok("ex:measure>hint", document.getElementById("map").classList.contains("measuring") && !shown("#hint"));
 document.getElementById("sunshadow-btn").click();
 ok("ex:sun>measure", shown(".sunshadow-panel") && !document.getElementById("map").classList.contains("measuring"));
+// ミニ地球儀（右下）＝全球が画面に収まる時は隠し、寄ると出る（2026-10-21・本人指名）。狭画面（<480px）は元から出ない
+map.gadget.globe();
+const mini = () => getComputedStyle(document.getElementById("globe-mini")).display !== "none";
+if (document.getElementById("map").clientWidth >= 480) {
+	window.__cam(139.76, 35.68, 0.5, 0, 0); map.requestDraw();
+	await new Promise(r => setTimeout(r, 300));
+	ok("mini:whole", !mini());
+	window.__cam(139.76, 35.68, 5, 0, 0); map.requestDraw();
+	await new Promise(r => setTimeout(r, 300));
+	ok("mini:zoomed", mini());
+}
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
 </script></body></html>
