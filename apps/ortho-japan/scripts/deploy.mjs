@@ -59,6 +59,7 @@ if (pr === 0 && (gl !== 0 || ed !== 0)) {
 }
 if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} globe=${gl} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
 console.log(`✓ 関門 PASS ${el()}`);
+if (process.argv.includes("--gate-only")) process.exit(0);   // 門だけ（scripts/deploy-engine.mjs --gate-only・配らない）
 // 配布物の掃除（dev 専用・重い置き土産）→ deploy → 実配信の検定
 const sh = (cmd) => run("sh", ["-c", cmd], "deploy");
 if (await sh("rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete") !== 0) process.exit(1);
