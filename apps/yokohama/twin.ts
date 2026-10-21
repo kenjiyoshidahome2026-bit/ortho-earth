@@ -343,8 +343,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		.then(hs => { for (const h of hs) if (h) { h.setVisible(lod1Shown); lod1.push(h); } return lod1; });
 	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
 	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
-	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）も同じしきいで伏せる＝しきい未満の LOD1 の区を点々と残さない。LOD2 の 5 区のメッシュは公開の口が無く隠せない（エンジン側）
-	const extrusion = (on: boolean) => { try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
+	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
+	const extrusion = (on: boolean) => { map.setMeshVisible(on); try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
 	const lod1Gate = () => { const on = map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
 	extrusion(lod1Shown);
 	map.on("move", lod1Gate);
