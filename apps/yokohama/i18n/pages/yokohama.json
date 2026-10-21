@@ -6101,6 +6101,33 @@
 			"fa": "منطقه",
 			"ur": "علاقہ",
 			"he": "אזור"
+		},
+		"non-commercial use": {
+			"ja": "非商用",
+			"zh": "非商业用途",
+			"ko": "비상업적 이용",
+			"fr": "usage non commercial",
+			"de": "nicht kommerzielle Nutzung",
+			"es": "uso no comercial",
+			"pt": "uso não comercial",
+			"it": "uso non commerciale",
+			"nl": "niet-commercieel gebruik",
+			"pl": "użytek niekomercyjny",
+			"ru": "некоммерческое использование",
+			"uk": "некомерційне використання",
+			"hu": "nem kereskedelmi felhasználás",
+			"sv": "icke-kommersiell användning",
+			"tr": "ticari olmayan kullanım",
+			"el": "μη εμπορική χρήση",
+			"id": "penggunaan nonkomersial",
+			"vi": "sử dụng phi thương mại",
+			"th": "การใช้งานที่ไม่ใช่เชิงพาณิชย์",
+			"bn": "অবাণিজ্যিক ব্যবহার",
+			"hi": "गैर-व्यावसायिक उपयोग",
+			"ar": "استخدام غير تجاري",
+			"fa": "استفادهٔ غیرتجاری",
+			"ur": "غیر تجارتی استعمال",
+			"he": "שימוש לא מסחרי"
 		}
 	}
 }
