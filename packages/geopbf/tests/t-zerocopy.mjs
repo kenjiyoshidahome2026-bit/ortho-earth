@@ -60,5 +60,30 @@ ok(same(new Uint8Array(re), new Uint8Array(ab)), "repack は byte 同一");
 p2.cleanTopology({});
 ok(p2.unPackGint && p2.contain([0.25, 0.25]) === 0, "cleanTopology 後も contain");
 
+// 4) worker 経路の版検札落ち（2026-10-21 N02 駅）：decoder:gint は旧版 GintBUF に null ではなく { unpackFailed } を返し、
+//    setGintBUF は例外にせず unPackGint=null（＝呼び手の _staleGint 自己修復へ）。旧＝null→workerPool が「脚本の読込失敗」で reject
+{
+	const posted = [];
+	globalThis.postMessage = (m) => posted.push(m); globalThis.onmessage = null;   // worker の大域を Node に用意
+	await import("../src/decoder/gint.ts");
+	const decode = globalThis.onmessage;
+	const stale = ab.slice(0); new Uint32Array(stale, 0, 2)[1] = 3;   // 版を v3 に書き換えた旧キャッシュ
+	const err = console.error; console.error = () => {};
+	decode({ data: { sab: stale } });
+	console.error = err;
+	ok(posted[0] && posted[0].unpackFailed === true, "decoder:gint は旧版に { unpackFailed:true }（null ではない）");
+	class FakeWorker { postMessage(msg) { posted.length = 0; const e = console.error; console.error = () => {}; decode({ data: msg }); console.error = e;
+		const data = posted[0]; queueMicrotask(() => this.onmessage({ data })); } terminate() {} }
+	const prevW = globalThis.Worker, prevF = GeoPBF._gintWorkerFactory;
+	globalThis.Worker = FakeWorker; GeoPBF._gintWorkerFactory = () => new FakeWorker();
+	const p4 = await new GeoPBF().set(pbf.arrayBuffer);
+	let threw = null; try { await p4.setGintBUF(stale.slice(0)); } catch (e) { threw = e; }
+	ok(!threw && p4.unPackGint === null, "worker 経路: 旧版 GINT は unPackGint=null（例外にしない＝自己修復へ）");
+	await p4.setGintBUF(ab.slice(0));
+	ok(p4.unPackGint && p4.unPackGint.arcCount === d.arcCount, "worker 経路: 現行版は普通に解ける");
+	globalThis.Worker = prevW; GeoPBF._gintWorkerFactory = prevF;
+	delete globalThis.postMessage; delete globalThis.onmessage;
+}
+
 console.log(fails ? `\nFAIL ${fails}` : "\nPASS t-zerocopy");
 process.exit(fails ? 1 : 0);
