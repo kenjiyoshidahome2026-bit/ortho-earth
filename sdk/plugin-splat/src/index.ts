@@ -7,17 +7,17 @@
 //   Reading (fetch, gunzip, parse, ENU placement, SH packing, LoD ranking) runs in a worker (splat-reader.ts); the main thread only forwards the buffers (transfer).
 //   A decoder of your own (e.g. a WASM build) plugs in via splatPlugin({ decoders }) and runs on the main thread (functions cannot cross to the worker).
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-earth/globe";
-import { formatOf, checkEnum, checkSplatData, checkTransform, prepare, readerFor, transferables } from "./formats.ts";
+import { formatOf, checkEnum, checkSplatData, checkTransform, prepare, readerFor, transferables, SPLAT_FORMATS } from "./formats.ts";
 import type { SplatData, SplatFormat, SplatCrs, SplatAxes, Hpr, Origin, Prepared, PrepareOptions } from "./formats.ts";
 import type { ReaderRequest, ReaderReply } from "./splat-reader.ts";
-export { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, importanceRank, prepare, checkSplatData, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
-export type { SplatData, SplatFormat, SplatCrs, SplatAxes, LocalSplatData, Hpr, Origin, ToEnuOptions, EnuSplats, PackedSh, Prepared, PrepareOptions } from "./formats.ts";
+export { parsePly, parseSplat, parseSpz, decodeSpz, parseKsplat, parseSog, decodeImageDefault, zipEntries, inflateRaw, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, checkSplatData, quatMat, placeMat, AXES, SH_C0 } from "./formats.ts";
+export type { SplatData, SplatFormat, SplatCrs, SplatAxes, LocalSplatData, Hpr, Origin, ToEnuOptions, EnuSplats, PackedSh, Prepared, PrepareOptions, RgbaImage, ImageDecoder, SogOptions } from "./formats.ts";
 export type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, OverlayHost, CamState, SplatApi, PickContext, EnuBasis } from "./splat-gl.ts";
 export type { SplatBackend, SplatDrawOpts } from "./splat-draw.ts";
 import type { SplatBackend } from "./splat-draw.ts";
 // 描き手（worker）の URL＝入口（splat-draw.js が WebGPU／WebGL2 を選んで兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const SPLAT_URL = new URL("./splat-draw.js", import.meta.url).href;
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 /** your own reader, e.g. a WASM build: bytes → SplatData (crs "local" by default) */
@@ -29,7 +29,7 @@ export interface SplatOptions {
 	id?: string;
 	/** file sources only: where the file's origin sits, [lng, lat, alt m] */
 	origin?: Origin;
-	/** file sources only: the file's up axis (default .ply / .splat "-y", .spz "y") */
+	/** file sources only: the file's up axis (default .ply / .splat / .ksplat "-y", .spz / .sog "y") */
 	upAxis?: SplatAxes;
 	/** file sources only: [heading (clockwise from north), pitch, roll] degrees */
 	orientation?: Hpr;
@@ -137,8 +137,8 @@ async function load(src: SplatSource, o: SplatOptions, decoders: SplatDecoders |
 	let fmt: SplatFormat | null = null, bytesOrUrl: string | ArrayBuffer | Uint8Array | null = null;
 	if (isFileSource(src)) {
 		fmt = o.format ?? formatOf(src);
-		if (!fmt) throw new Error(`plugin-splat: cannot tell the format of ${String(src).slice(0, 80)} (pass opts.format "ply" | "splat" | "spz")`);
-		checkEnum(fmt, ["ply", "splat", "spz"], "format");
+		if (!fmt) throw new Error(`plugin-splat: cannot tell the format of ${String(src).slice(0, 80)} (pass opts.format ${SPLAT_FORMATS.map(f => JSON.stringify(f)).join(" | ")})`);
+		checkEnum(fmt, SPLAT_FORMATS, "format");
 		bytesOrUrl = typeof src === "string" || src instanceof URL ? new URL(String(src), globalThis.location?.href).href : src;
 	} else checkSplatData(src);   // 形の間違いは今・同期に投げる（worker へ送ってからでは遅い）
 	const own = fmt ? decoders?.[fmt] : undefined;

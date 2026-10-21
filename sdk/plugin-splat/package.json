@@ -1,9 +1,9 @@
 {
 	"name": "@ortho-earth/plugin-splat",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "Gaussian splats for @ortho-earth/globe: fills the reserved map.addData kind \"splat\" (SplatData or .ply / .splat / .spz URLs), drawn as a same-frame overlay (WebGPU: spherical harmonics, GPU sort, shared device and depth; WebGL2 fallback) with scene depth, unified picking, a worker reader and LoD.",
+	"description": "Gaussian splats for @ortho-earth/globe: fills the reserved map.addData kind \"splat\" (SplatData or .ply / .splat / .spz / .ksplat / .sog URLs), drawn as a same-frame overlay (WebGPU: spherical harmonics, GPU sort, shared device and depth; WebGL2 fallback) with scene depth, unified picking, a worker reader and LoD.",
 	"main": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts"
@@ -18,7 +18,7 @@
 	"peerDependencies": {
 		"@ortho-earth/globe": "^2.0.2"
 	},
-	"keywords": ["gaussian-splatting", "3dgs", "splat", "ply", "spz", "webgpu", "globe", "ortho-earth"],
+	"keywords": ["gaussian-splatting", "3dgs", "splat", "ply", "spz", "ksplat", "sog", "webgpu", "globe", "ortho-earth"],
 	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-splat" },
 	"homepage": "https://www.ortho-earth.com/",
 	"files": ["src", "dist", "LICENSE", "README.md"]

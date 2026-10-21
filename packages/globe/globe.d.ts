@@ -944,7 +944,7 @@ export interface PluginRegistry<T> {
 	ownerOf(name: string): string | null;
 	names(): string[];
 }
-/** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz）も受ける＝読み手は plugin */
+/** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz/.ksplat/.sog）も受ける＝読み手は plugin */
 export interface SplatData {
 	/** 個数（省略なら positions.length / 3） */ n?: number;
 	/** 位置＝crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交 m、"local" なら transform で ECEF へ写す座標 m（n*3） */ positions: Float32Array;

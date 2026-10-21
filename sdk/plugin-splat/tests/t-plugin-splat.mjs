@@ -1,6 +1,7 @@
-// node の検定：読み手（.ply・.splat・.spz v2/v3）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
-import { gzipSync } from "node:zlib";
-import { parsePly, parseSplat, parseSpz, decodeSpz, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+// node の検定：読み手（.ply・.splat・.spz v2/v3・.ksplat 圧縮 0/1/2・.sog v2）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
+import { gzipSync, deflateSync, deflateRawSync } from "node:zlib";
+import { decodePng } from "../../../packages/globe/tests/mlexamples/compare.mjs";
+import { parsePly, parseSplat, parseSpz, decodeSpz, parseKsplat, parseSog, zipEntries, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
 import { read } from "../src/splat-reader.ts";
 import { sortOrder, enuBasis } from "../src/splat-gl.ts";
 import { depthRange, lodCount, pixelsPerMeter } from "../src/splat-gpu.ts";
@@ -82,6 +83,122 @@ function makeSpz(version, pts) {
 	ok("spz.badMagic", await athrows(() => parseSpz(gzipSync(new Uint8Array(32)))));
 	const raw = new Uint8Array(16); new DataView(raw.buffer).setUint32(0, 0x5053474e, true); new DataView(raw.buffer).setUint32(4, 9, true);
 	ok("spz.badVersion", throws(() => decodeSpz(raw)));
+}
+// ---- .ksplat（GaussianSplats3D の SplatBuffer・圧縮 0／1／2・バケツ・SH の並べ替え） ----
+const toF16 = v => {   // 数 → IEEE 半精度（丸めは最近接）
+	if (v === 0) return 0; const s = v < 0 ? 0x8000 : 0; v = Math.abs(v);
+	let e = Math.floor(Math.log2(v)), m = v / 2 ** e - 1;
+	if (e < -14) return s | Math.round(v / 2 ** -24);
+	if (e > 15) return s | 0x7c00;
+	return s | ((e + 15) << 10) | Math.round(m * 1024);
+};
+// splats＝[{ pos, scale, rot:[w,x,y,z], rgba, sh:[file の並び] }]・level 1/2 はバケツ（bucketSize 個ずつ・最後は部分）
+function makeKsplat(level, splats, { deg = 0, bucketSize = 2, block = 10, shMin = -1.5, shMax = 1.5 } = {}) {
+	const n = splats.length, shComp = [0, 9, 24][deg], stride = level === 0 ? 44 + 4 * shComp : level === 1 ? 24 + 2 * shComp : 24 + shComp;
+	const bucketCount = level ? Math.ceil(n / bucketSize) : 0, full = level ? Math.floor(n / bucketSize) : 0, partial = level && n % bucketSize ? 1 : 0, range = 32767;
+	const bucketsBytes = bucketCount * 12 + partial * 4, b = new Uint8Array(4096 + 1024 + bucketsBytes + stride * n), dv = new DataView(b.buffer);
+	b[0] = 0; b[1] = 1; dv.setUint32(4, 1, true); dv.setUint32(8, 1, true); dv.setUint32(12, n, true); dv.setUint32(16, n, true); dv.setUint16(20, level, true); dv.setFloat32(36, shMin, true); dv.setFloat32(40, shMax, true);
+	const h = 4096; dv.setUint32(h, n, true); dv.setUint32(h + 4, n, true); dv.setUint32(h + 8, level ? bucketSize : 0, true); dv.setUint32(h + 12, bucketCount, true); dv.setFloat32(h + 16, level ? block : 0, true); dv.setUint16(h + 20, level ? 12 : 0, true); dv.setUint32(h + 24, level ? range : 0, true); dv.setUint32(h + 28, bucketsBytes + stride * n, true); dv.setUint32(h + 32, full, true); dv.setUint32(h + 36, partial, true); dv.setUint16(h + 40, deg, true);
+	let o = 5120;
+	if (partial) { dv.setUint32(o, n % bucketSize, true); o += 4; }
+	const centers = [];
+	for (let k = 0; k < bucketCount; k++) { const c = splats[k * bucketSize].pos; centers.push(c); c.forEach((v, j) => dv.setFloat32(o + j * 4, v, true)); o += 12; }
+	splats.forEach((sp, i) => {
+		const at = o + i * stride;
+		if (level === 0) {
+			sp.pos.forEach((v, k) => dv.setFloat32(at + k * 4, v, true)); sp.scale.forEach((v, k) => dv.setFloat32(at + 12 + k * 4, v, true)); sp.rot.forEach((v, k) => dv.setFloat32(at + 24 + k * 4, v, true));
+			b.set(sp.rgba, at + 40); (sp.sh ?? []).forEach((v, k) => dv.setFloat32(at + 44 + k * 4, v, true));
+		} else {
+			const c = centers[Math.floor(i / bucketSize)], sf = block / 2 / range;
+			sp.pos.forEach((v, k) => dv.setUint16(at + k * 2, Math.round((v - c[k]) / sf) + range, true)); sp.scale.forEach((v, k) => dv.setUint16(at + 6 + k * 2, toF16(v), true)); sp.rot.forEach((v, k) => dv.setUint16(at + 12 + k * 2, toF16(v), true));
+			b.set(sp.rgba, at + 20);
+			(sp.sh ?? []).forEach((v, k) => { if (level === 1) dv.setUint16(at + 24 + k * 2, toF16(v), true); else b[at + 24 + k] = Math.round((v - shMin) / (shMax - shMin) * 255); });
+		}
+	});
+	return b;
+}
+{
+	ok("f16", f16(toF16(1)) === 1 && near(f16(toF16(-0.3333)), -0.3333, 1e-3) && near(f16(toF16(2000)), 2000, 1) && f16(0x7c00) === Infinity && near(f16(toF16(1e-6)), 1e-6, 1e-7));
+	const s = Math.sin(Math.PI / 8), c = Math.cos(Math.PI / 8);
+	const sh9 = Array.from({ length: 9 }, (_, i) => i);   // file＝帯 1 は色が先（R k0 k1 k2・G・B）
+	const d0 = parseKsplat(makeKsplat(0, [{ pos: [1, 2, 3], scale: [0.5, 0.25, 0.125], rot: [c, 0, 0, s], rgba: [255, 0, 10, 200], sh: sh9 }, { pos: [-4, 0, 0], scale: [1, 1, 1], rot: [1, 0, 0, 0], rgba: [0, 255, 0, 255], sh: sh9.map(() => 0) }], { deg: 1 }));
+	ok("ksplat0.n", d0.n === 2 && d0.crs === "local" && d0.axes === "-y");
+	ok("ksplat0.pos", d0.positions[0] === 1 && d0.positions[2] === 3 && d0.positions[3] === -4 && d0.scales[1] === 0.25);
+	ok("ksplat0.rot", near(d0.rotations[2], s) && near(d0.rotations[3], c) && near(d0.rotations[7], 1), JSON.stringify([...d0.rotations]));   // file は w x y z → x y z w
+	ok("ksplat0.color", d0.colors[0] === 255 && d0.colors[2] === 10 && d0.colors[3] === 200 && d0.colors[5] === 255);
+	ok("ksplat0.sh", d0.sh?.length === 18 && d0.sh[0] === 0 && d0.sh[1] === 3 && d0.sh[2] === 6 && d0.sh[3] === 1 && d0.sh[8] === 8 && d0.sh[9] === 0, JSON.stringify([...(d0.sh ?? [])]));   // 係数が先（k*3+c）
+	// 圧縮 1＝バケツ 2 個ずつ（満杯 1・部分 1）・f16
+	const pts = [{ pos: [0, 0, 0], scale: [1, 2, 0.5], rot: [1, 0, 0, 0], rgba: [1, 2, 3, 4] }, { pos: [1, 2, 3], scale: [1, 1, 1], rot: [c, 0, 0, s], rgba: [5, 6, 7, 8] }, { pos: [100, -50, 0.5], scale: [0.01, 0.01, 0.01], rot: [0, 1, 0, 0], rgba: [9, 10, 11, 12] }];
+	const d1 = parseKsplat(makeKsplat(1, pts));
+	ok("ksplat1.n", d1.n === 3 && !d1.sh);
+	ok("ksplat1.pos", near(d1.positions[3], 1, 1e-3) && near(d1.positions[4], 2, 1e-3) && near(d1.positions[5], 3, 1e-3) && near(d1.positions[6], 100, 1e-3) && near(d1.positions[7], -50, 1e-3) && near(d1.positions[8], 0.5, 1e-3), JSON.stringify([...d1.positions]));
+	ok("ksplat1.scale", d1.scales[1] === 2 && d1.scales[2] === 0.5 && near(d1.scales[6], 0.01, 1e-5));
+	ok("ksplat1.rot", near(d1.rotations[6], s, 1e-3) && near(d1.rotations[7], c, 1e-3) && near(d1.rotations[8], 1) && near(d1.rotations[11], 0), JSON.stringify([...d1.rotations]));
+	ok("ksplat1.color", d1.colors[7] === 8 && d1.colors[8] === 9);
+	// 圧縮 2＝SH は u8（shMin〜shMax）・次数 2（帯 2 は R の k3..7・G・B）
+	const sh24 = new Array(24).fill(0); sh24[9] = 1.5; sh24[9 + 5 * 2 + 4] = -1.5;   // (c0,k3)・(c2,k7)
+	const d2 = parseKsplat(makeKsplat(2, [{ pos: [5, 5, 5], scale: [1, 1, 1], rot: [1, 0, 0, 0], rgba: [0, 0, 0, 255], sh: sh24 }], { deg: 2 }));
+	ok("ksplat2.sh", d2.sh?.length === 24 && near(d2.sh[9], 1.5, 1e-6) && near(d2.sh[23], -1.5, 1e-6) && near(d2.sh[0], 0, 0.006) && near(d2.sh[12], 0, 0.006), JSON.stringify([...(d2.sh ?? [])].map(v => +v.toFixed(3))));
+	ok("ksplat2.pos", near(d2.positions[0], 5, 1e-3));
+	ok("ksplat.short", throws(() => parseKsplat(new Uint8Array(100))));
+	const bad = makeKsplat(0, []); bad[0] = 2; ok("ksplat.version", throws(() => parseKsplat(bad)));
+	const trunc = makeKsplat(0, [{ pos: [0, 0, 0], scale: [1, 1, 1], rot: [1, 0, 0, 0], rgba: [0, 0, 0, 0] }]); ok("ksplat.trunc", throws(() => parseKsplat(trunc.subarray(0, trunc.length - 1))));
+}
+// ---- .sog（PlayCanvas v2＝zip・meta.json・画は PNG で代える＝解き手は差し替え） ----
+const CRC = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return b => { let c = -1; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; }; })();
+function makePng(w, h, rgba) {   // 8 bit RGBA・filter 0
+	const raw = new Uint8Array((w * 4 + 1) * h); for (let y = 0; y < h; y++) raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
+	const chunk = (type, data) => { const b = new Uint8Array(12 + data.length), dv = new DataView(b.buffer); dv.setUint32(0, data.length); b.set(new TextEncoder().encode(type), 4); b.set(data, 8); dv.setUint32(8 + data.length, CRC(b.subarray(4, 8 + data.length))); return b; };
+	const ihdr = new Uint8Array(13), hv = new DataView(ihdr.buffer); hv.setUint32(0, w); hv.setUint32(4, h); ihdr[8] = 8; ihdr[9] = 6;
+	return Buffer.concat([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", new Uint8Array(0))]);
+}
+function makeZip(files) {   // files＝[{ name, data, deflate }]
+	const enc = new TextEncoder(), locals = [], cds = []; let off = 0;
+	for (const f of files) {
+		const name = enc.encode(f.name), body = f.deflate ? deflateRawSync(f.data) : f.data, crc = CRC(f.data);
+		const lh = new Uint8Array(30 + name.length), lv = new DataView(lh.buffer); lv.setUint32(0, 0x04034b50, true); lv.setUint16(8, f.deflate ? 8 : 0, true); lv.setUint32(14, crc, true); lv.setUint32(18, body.length, true); lv.setUint32(22, f.data.length, true); lv.setUint16(26, name.length, true); lh.set(name, 30);
+		const cd = new Uint8Array(46 + name.length), cv = new DataView(cd.buffer); cv.setUint32(0, 0x02014b50, true); cv.setUint16(10, f.deflate ? 8 : 0, true); cv.setUint32(16, crc, true); cv.setUint32(20, body.length, true); cv.setUint32(24, f.data.length, true); cv.setUint16(28, name.length, true); cv.setUint32(42, off, true); cd.set(name, 46);
+		locals.push(lh, body); cds.push(cd); off += lh.length + body.length;
+	}
+	const cdLen = cds.reduce((s, c) => s + c.length, 0), eocd = new Uint8Array(22), ev = new DataView(eocd.buffer); ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true); ev.setUint32(12, cdLen, true); ev.setUint32(16, off, true);
+	return Buffer.concat([...locals, ...cds, eocd]);
+}
+const pngDecoder = async bytes => { const { w, h, rgba } = decodePng(Buffer.from(bytes)); return { width: w, height: h, data: rgba }; };
+{
+	const n = 2, px = (...rows) => { const a = new Uint8Array(n * 4); rows.forEach((r, i) => a.set(r, i * 4)); return makePng(n, 1, a); };
+	const mins = [-Math.LN2, 0, 0], maxs = [Math.LN2, Math.log(3), Math.log(5)];
+	const scaleBook = new Array(256).fill(0); scaleBook[1] = Math.LN2; scaleBook[2] = Math.log(0.5);
+	const dcBook = new Array(256).fill(0); dcBook[1] = 1; dcBook[2] = -1;
+	const acBook = new Array(256).fill(0); acBook[10] = 0.5; acBook[20] = -0.5;
+	const meta = { version: 2, count: n, means: { mins, maxs, files: ["means_l.webp", "means_u.webp"] }, scales: { codebook: scaleBook, files: ["scales.webp"] }, quats: { files: ["quats.webp"] }, sh0: { codebook: dcBook, files: ["sh0.webp"] }, shN: { count: 2, bands: 1, codebook: acBook, files: ["shN_centroids.webp", "shN_labels.webp"] } };
+	const cent = new Uint8Array(192 * 4); cent.set([10, 20, 0, 255], 3 * 4);   // 重心 1 の係数 0＝(R 10・G 20・B 0)
+	const files = [
+		{ name: "meta.json", data: new TextEncoder().encode(JSON.stringify(meta)), deflate: true },
+		{ name: "means_l.webp", data: px([255, 255, 255, 255], [0, 0, 0, 255]) }, { name: "means_u.webp", data: px([255, 255, 255, 255], [0, 0, 0, 255]) },
+		{ name: "quats.webp", data: px([128, 128, 128, 252], [255, 128, 128, 255]), deflate: true },   // 0＝単位（w を落とす）・1＝z 軸まわり 90°（w＝√½・z を落とす）
+		{ name: "scales.webp", data: px([0, 1, 2, 255], [0, 0, 0, 255]) },
+		{ name: "sh0.webp", data: px([1, 0, 2, 255], [0, 0, 0, 64]) },
+		{ name: "shN_centroids.webp", data: makePng(192, 1, cent) }, { name: "shN_labels.webp", data: px([1, 0, 0, 255], [0, 0, 0, 255]) },
+	];
+	const zip = makeZip(files);
+	ok("zip.entries", zipEntries(zip).length === 8 && zipEntries(zip)[0].name === "meta.json" && zipEntries(zip)[0].method === 8);
+	const d = await parseSog(zip, { decodeImage: pngDecoder });
+	ok("sog.n", d.n === 2 && d.crs === "local" && d.axes === "y");
+	ok("sog.pos", near(d.positions[0], 1, 1e-6) && near(d.positions[1], 2, 1e-6) && near(d.positions[2], 4, 1e-6) && near(d.positions[3], -1, 1e-6) && d.positions[4] === 0, JSON.stringify([...d.positions]));
+	ok("sog.scale", near(d.scales[0], 1) && near(d.scales[1], 2) && near(d.scales[2], 0.5));
+	ok("sog.rot", near(d.rotations[3], 1, 0.01) && near(d.rotations[0], 0, 0.01) && near(d.rotations[6], Math.SQRT1_2, 0.01) && near(d.rotations[7], Math.SQRT1_2, 0.01) && near(d.rotations[4], 0, 0.01), JSON.stringify([...d.rotations]));
+	ok("sog.color", d.colors[0] === Math.round((0.5 + SH_C0) * 255) && d.colors[1] === 128 && d.colors[2] === Math.round((0.5 - SH_C0) * 255) && d.colors[3] === 255 && d.colors[7] === 64, JSON.stringify([...d.colors]));
+	ok("sog.sh", d.sh?.length === 18 && d.sh[0] === 0.5 && d.sh[1] === -0.5 && d.sh[2] === 0 && d.sh[3] === 0 && [...d.sh.slice(9)].every(v => v === 0), JSON.stringify([...(d.sh ?? [])]));
+	const noSh = await parseSog(makeZip([{ ...files[0], data: new TextEncoder().encode(JSON.stringify({ ...meta, shN: undefined })) }, ...files.slice(1, 6)]), { decodeImage: pngDecoder });
+	ok("sog.noSh", noSh.n === 2 && !noSh.sh && near(noSh.positions[2], 4, 1e-6));
+	const sub = await parseSog(makeZip(files.map(f => ({ ...f, name: "scene/" + f.name }))), { decodeImage: pngDecoder });
+	ok("sog.folder", sub.n === 2 && near(sub.scales[1], 2));
+	ok("sog.notZip", await athrows(() => parseSog(new Uint8Array(64), { decodeImage: pngDecoder })));
+	ok("sog.version", await athrows(() => parseSog(makeZip([{ ...files[0], data: new TextEncoder().encode(JSON.stringify({ ...meta, version: 1 })) }, ...files.slice(1)]), { decodeImage: pngDecoder })));
+	ok("sog.missing", await athrows(() => parseSog(makeZip(files.slice(0, 3)), { decodeImage: pngDecoder })));
+	ok("sog.badMode", await athrows(() => parseSog(makeZip(files.map(f => f.name === "quats.webp" ? { ...f, data: px([128, 128, 128, 7], [255, 128, 128, 255]) } : f)), { decodeImage: pngDecoder })));
+	ok("sog.noDecoder", await athrows(() => parseSog(zip)));   // node には createImageBitmap が無い
+	ok("formats", SPLAT_FORMATS.join() === "ply,splat,spz,ksplat,sog");
 }
 // ---- 共分散・置き方 ----
 {
@@ -201,6 +318,9 @@ function makeSpz(version, pts) {
 	ok("read.http", await athrows(() => read("http://x/a.splat", "splat", { origin: [0, 0] }, async () => ({ ok: false, status: 404 }))));
 	ok("read.data", (await read({ positions: new Float32Array([1, 2, 3]), scales: new Float32Array([1, 1, 1]), rotations: new Float32Array([0, 0, 0, 1]), colors: new Uint8Array([1, 2, 3, 4]) }, null, {})).n === 1);
 	ok("read.noFormat", await athrows(() => read(b, null, {})));
+	const k = makeKsplat(0, [{ pos: [0, 0, 0], scale: [1, 1, 1], rot: [1, 0, 0, 0], rgba: [255, 0, 0, 255] }]);
+	ok("read.ksplat", (await read(k, "ksplat", { origin: [0, 0] })).n === 1);
+	ok("read.badFormat", await athrows(() => read(b, "gltf", {})));
 }
 // ---- 契約・plugin の形 ----
 {
