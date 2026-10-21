@@ -12,7 +12,7 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -167,13 +167,17 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 区の境界（wards.json）は起動時に読み、市の外の薄い覆い・全区の線・選んだ区の塗りを描く（「全部入り」の地図）。区の名前は基図が出す（重ねると二重になる・Mac 実測）
 	type WardFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { code: string; name: string; bbox: [number, number, number, number] } })[]; city?: LonLat[][] };
 	let wardsReady: Promise<WardFC | null> | null = null;
+	const maskOn = () => insideBox(map.getBounds(), MASK_BOX);
 	const loadWards = () => wardsReady ??= ledger<WardFC>("wards.json").then(async fc => {
 		if (!fc?.features?.length) return null;
 		// 市の外を薄く覆う（本人 2026-10-21）＝周りの大きな矩形に市の外周の環を穴として開ける
 		if (fc.city?.length) {
 			map.addSource("yk-mask", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {},
-				geometry: { type: "Polygon", coordinates: [[[138.6, 34.8], [140.6, 34.8], [140.6, 36.2], [138.6, 36.2], [138.6, 34.8]], ...fc.city] } }] } });
-			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
+				geometry: { type: "Polygon", coordinates: [[[MASK_BOX[0], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[1]]], ...fc.city] } }] } });
+			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", layout: { visibility: maskOn() ? "visible" : "none" }, paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
+			// 外枠の縁が画面に入ったら覆いごと消す（枠を見せない・本人 2026-10-21）
+			let maskShown = maskOn();
+			map.on("move", () => { const on = maskOn(); if (on !== maskShown) { maskShown = on; map.setLayoutProperty("yk-mask", "visibility", on ? "visible" : "none"); } });
 		}
 		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("administrative boundaries") });
 		await map.addLayer({ id: "yk-ward-on", type: "fill", source: "yk-wards", filter: ["==", ["get", "code"], ""], paint: { "fill-color": "#1e88e5", "fill-opacity": 0.12 } });
@@ -482,11 +486,21 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (on) $<HTMLElement>(`[data-trn="${id}"]`).textContent ||= t("Loading…");
 		const d = await loadRail();
 		if (!d) { $<HTMLElement>(`[data-trn="${id}"]`).textContent = t("Could not load"); return; }
-		const sub = trOn.has("subway"), rail = trOn.has("rail");
-		vis("yk-sub-case", sub); vis("yk-sub", sub);
-		for (const m of subMarks) sub ? m.addTo(map) : m.remove();
+		const rail = trOn.has("rail");
+		subReady = true; subShown = null; subGate();
 		vis("yk-rail", rail); vis("yk-rail-st", rail);
 	}
+	// 市営地下鉄は SUBWAY_MIN_ZOOM 未満（市より広い縮尺）では線も駅の記号も消す（本人 2026-10-21）
+	let subShown: boolean | null = null, subReady = false;   // subReady＝地下鉄の層と記号ができた（loadRail の後）
+	function subGate() {
+		if (!subReady) return;
+		const on = trOn.has("subway") && map.getZoom() >= SUBWAY_MIN_ZOOM;
+		if (on === subShown) return;
+		subShown = on;
+		for (const l of ["yk-sub-case", "yk-sub"]) map.setLayoutProperty(l, "visibility", on ? "visible" : "none");
+		for (const m of subMarks) on ? m.addTo(map) : m.remove();
+	}
+	map.on("move", subGate);
 	$$("[data-tr]").forEach(inp => inp.onchange = () => setTransit(inp.dataset.tr!, inp.checked));
 	// 地下鉄の駅名は寄った時だけ（引くと記号だけ）
 	const nameGate = () => mapEl.classList.toggle("yk-sta-names", map.getZoom() >= 13.5);
