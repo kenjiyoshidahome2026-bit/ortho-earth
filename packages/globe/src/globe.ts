@@ -71,7 +71,7 @@ import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.ts";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
-import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
+import { attributionHTML, setAttrHTML, attrFullHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { stac as stacGadget } from "./gadgets/stac-stub.ts";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
@@ -2241,8 +2241,8 @@ function render() {
 			attrZone = zone;
 			const attr = mapEl.querySelector("#attr");
 			if (attr) {
-				if (attrRegionHTML == null) attrRegionHTML = attr.innerHTML;   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
-				attr.innerHTML = attrHTMLOf(zone);
+				if (attrRegionHTML == null) attrRegionHTML = attrFullHTML(attr as HTMLElement);   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
+				setAttrHTML(attr as HTMLElement, attrHTMLOf(zone));   // 1 行の銘＋「データ一覧」の札（全文は札の中）
 			}
 		}
 	}

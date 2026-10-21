@@ -17,6 +17,27 @@ const A = (href: string | undefined, label: string | undefined) => href ? `<a hr
 const renderAttribution = (at: AttributionDecl) => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
 	+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
 export const attributionHTML = (attribution: AttributionDecl[] = []): string => attribution.map(renderAttribution).join("<br>");
+// 出典の欄（#attr）の形（本人 2026-10-21「右下は (c) 2026 [logo] ortho-earth　データ一覧」・出典が増えて欄が大きくなりすぎた）：
+// いつも出すのは 1 行の銘だけ。出典の全文は「データ一覧」で開く札（.attr-full）へ＝全文は DOM に残す（hidden）＝
+// textContent で読む検定・shot／print の焼き込み（attrLines）は今まで通り全部を読める。開閉の状態は書き直し（圏・source の増減）でも保つ
+const LOGO = `<svg class="attr-logo" viewBox="0 0 100 100" aria-hidden="true"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88M11 72H88M50 5V95M5 50H95"/></svg>`;
+export function setAttrHTML(attr: HTMLElement, full: string): void {
+	const open = attr.classList.contains("open");
+	attr.innerHTML = `<div class="attr-full"${open ? "" : " hidden"}><button type="button" class="attr-close" aria-label="${t("Close")}">×</button><div class="attr-body">${full}</div></div>`
+		+ `<div class="attr-bar">© 2026 <a class="attr-brand" href="https://www.ortho-earth.com/" target="_blank" rel="noopener">${LOGO}ortho-earth</a><button type="button" class="attr-more" aria-expanded="${open}">${t("Data sources")}</button></div>`;
+	if (attr.dataset.wired) return;
+	attr.dataset.wired = "1";
+	attr.addEventListener("click", e => {
+		const b = (e.target as Element | null)?.closest?.(".attr-more, .attr-close");
+		if (!b) return;
+		const on = b.classList.contains("attr-more") && !attr.classList.contains("open");
+		attr.classList.toggle("open", on);
+		attr.querySelector(".attr-full")?.toggleAttribute("hidden", !on);
+		attr.querySelector(".attr-more")?.setAttribute("aria-expanded", String(on));
+	});
+}
+/** 出典の全文（HTML）＝札の中身（setAttrHTML 前の素の #attr＝静的な先描きはそのまま） */
+export const attrFullHTML = (attr: HTMLElement): string => attr.querySelector(".attr-body")?.innerHTML ?? attr.innerHTML;
 export function mountInstruments(mapEl: HTMLElement, keys: InstrumentsSpec = true, attribution: AttributionDecl[] = []): void {
 	if (Array.isArray(keys))   // typo は黙って0個になる＝開発時の迷子防止に一声
 		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
@@ -51,7 +72,7 @@ export function mountInstruments(mapEl: HTMLElement, keys: InstrumentsSpec = tru
 		// 表示義務以前に嘘になる（3DBAG は CC BY 4.0＝表示が義務）。2026-09-17 に宣言へ移設。
 		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準＝宣言側が行で分ける。#attr の
 		// text-wrap:balance は超狭幅の保険。末尾は加工注記＋© を必ず付ける（地域に依らない）。
-		attr.innerHTML = attributionHTML(attribution);
+		setAttrHTML(attr, attributionHTML(attribution));
 		els.push(attr);
 	} else document.querySelector("#attr[data-boot]")?.remove();   // 出典を出さない構成＝静的版も残さない（埋め込み側の出典明記義務は README どおり）
 	mapEl.append(...els);
