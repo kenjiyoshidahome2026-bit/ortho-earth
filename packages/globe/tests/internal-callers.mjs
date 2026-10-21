@@ -24,7 +24,7 @@ const ALLOW = {
 	"apps/ortho-japan/onsen.ts": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/ortho-japan/pointcloud.ts": 7,   // 静岡県の点群（2026-10-18）＝図郭の区画を addSource 2・addLayer 4・setLayoutProperty 1（visibility）＝onsen と同じく MapLibre の意味で良い
 	"apps/choju/choju.ts": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
-	"apps/yokohama/twin.ts": 36,   // 横浜市デジタルツイン（2026-10-21）＝区の覆いと線・公共施設・鉄道と地下鉄・バス停・避難場所・地点と徒歩圏の線と輪（addSource 10・addLayer 13・setLayoutProperty 10＝出し入れ・setFilter 3＝区の塗り・施設の区分・対応災害）＝onsen と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
+	"apps/yokohama/twin.ts": 44,   // 横浜市デジタルツイン（2026-10-21）＝区の覆いと線・公共施設・鉄道と地下鉄・バス停・避難場所・地点と徒歩圏の線と輪・平面の区域（用途地域・校区・管轄）（addSource 11・addLayer 15・setLayoutProperty 14＝出し入れ（基図の押し出し building-extrusion を建物のしきいで伏せる 1・市外の覆いを外枠が見えたら消す 1・地下鉄を z で消す 1 を含む）・setFilter 3＝区の塗り・施設の区分・対応災害・queryRenderedFeatures 1＝区域の吹き出しで点を優先）＝onsen と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
 	"packages/globe/src/api/query.ts": 1,   // 層イベントの問い合わせ（hitsFor）＝globe.js から切り出した（globe.js の分割 ②・2026-10-15）
 	"packages/globe/src/globe.ts": 1,     // コメント 1（層イベントの hitsFor は api/query.ts へ）。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した

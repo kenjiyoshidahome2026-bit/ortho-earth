@@ -11,9 +11,9 @@
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
-import type { GlobeMap, LayerMouseEvent, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
-import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
+import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -38,7 +38,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
 	const HAZARD_ATTR = `<a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">${esc(t("Hazard Map Portal Site (MLIT)"))}</a>`;
 	const HINAN_ATTR = t("Designated emergency evacuation site data (GSI)");
-	const KSJ_ATTR = (what: string) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>`;
+	// nc＝国土数値情報の使用許諾が「非商用」の物（P17 消防署・P18 警察署・P27 文化施設・P28 国の機関）＝出典に書き添える（本人 2026-10-21：今は非商用で良い・横浜市が使う時に一緒に詰める）
+	const KSJ_ATTR = (what: string, nc = false) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>${nc ? ` (${esc(t("non-commercial use"))})` : ""}`;
 	const LOD1_ATTR = t("MLIT PLATEAU (LOD1 buildings)");
 	const num = (n: number) => n.toLocaleString(lang);
 	document.title = t("Yokohama Digital Twin");
@@ -60,7 +61,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		.catch(e => { console.warn("[yokohama]", name, e); return null; })).get(name)!) as Promise<T | null>;
 
 	// ── カメラ ──
-	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing });
+	// 地区（区・全市）＝平面の淡色地図（地理院の淡色＝注記・建物・等高線まで全部入り）。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の基図へ戻す（本人 2026-10-21）
+	let baseBefore: string | null | undefined;   // undefined＝淡色にしていない
+	const setPale = async (on: boolean) => {
+		try {
+			if (on) { if (baseBefore === undefined) baseBefore = map.raster.selected().base; showAreas(true); await map.raster.select("gsi-pale"); }
+			else if (baseBefore !== undefined) { const b = baseBefore; baseBefore = undefined; showAreas(false); await map.raster.select(b); }
+		} catch (e) { console.warn("[yokohama] pale", e); }
+	};
+	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setPale(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
 	const flySpot = (s: Spot) => flyView(s);
 
 	// ── 案内板（右上）──
@@ -74,18 +83,25 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
 			</nav>
 			<section data-pane="sight">
-				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
 				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
 				<button class="tour port" type="button">${esc(t("⚓ Port story (1859 to today)"))}</button>
 				<button class="act sea" type="button">${esc(t("View the city from the sea"))}</button>
 				<h2>${esc(t("Landmarks"))}</h2>
 				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(t(s.name))}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
+			</section>
+			<section data-pane="area" hidden>
+				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
+				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
 				<h2>${esc(t("Public facilities"))}</h2>
 				<label class="grp"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on sub" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
+					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				<h2>${esc(t("Zones and districts"))}</h2>
+				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
+				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
+				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
@@ -145,19 +161,24 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 吹き出し（施設・駅・停留所で 1 つを使い回す）──
 	let pop: Popup | null = null;
 	const closePop = () => { pop?.remove(); pop = null; };   // 面・地区を替えたら閉じる
-	const openPop = (ll: LonLat, html: string) => { pop?.remove(); pop = new ML.Popup({ closeButton: true, maxWidth: "260px", className: "yk-pop", offset: 10 }).setLngLat(ll).setHTML(html).addTo(map); };
+	// 地点を調べる中（と、その一押しの直後）は吹き出しを出さない＝層のクリックと地図のクリックの順はエンジン任せ（どちらが先でも止める）
+	const openPop = (ll: LonLat, html: string) => { if (probing || Date.now() - probedAt < 600) return; pop?.remove(); pop = new ML.Popup({ closeButton: true, maxWidth: "260px", className: "yk-pop", offset: 10 }).setLngLat(ll).setHTML(html).addTo(map); };
 
 	// ── 観光：地区＝平面（真上から・北が上）で区の外接矩形を画面の 9 割に収める ──
 	// 区の境界（wards.json）は起動時に読み、市の外の薄い覆い・全区の線・選んだ区の塗りを描く（「全部入り」の地図）。区の名前は基図が出す（重ねると二重になる・Mac 実測）
 	type WardFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { code: string; name: string; bbox: [number, number, number, number] } })[]; city?: LonLat[][] };
 	let wardsReady: Promise<WardFC | null> | null = null;
+	const maskOn = () => insideBox(map.getBounds(), MASK_BOX);
 	const loadWards = () => wardsReady ??= ledger<WardFC>("wards.json").then(async fc => {
 		if (!fc?.features?.length) return null;
 		// 市の外を薄く覆う（本人 2026-10-21）＝周りの大きな矩形に市の外周の環を穴として開ける
 		if (fc.city?.length) {
 			map.addSource("yk-mask", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {},
-				geometry: { type: "Polygon", coordinates: [[[138.6, 34.8], [140.6, 34.8], [140.6, 36.2], [138.6, 36.2], [138.6, 34.8]], ...fc.city] } }] } });
-			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
+				geometry: { type: "Polygon", coordinates: [[[MASK_BOX[0], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[1]]], ...fc.city] } }] } });
+			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", layout: { visibility: maskOn() ? "visible" : "none" }, paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
+			// 外枠の縁が画面に入ったら覆いごと消す（枠を見せない・本人 2026-10-21）
+			let maskShown = maskOn();
+			map.on("move", () => { const on = maskOn(); if (on !== maskShown) { maskShown = on; map.setLayoutProperty("yk-mask", "visibility", on ? "visible" : "none"); } });
 		}
 		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("administrative boundaries") });
 		await map.addLayer({ id: "yk-ward-on", type: "fill", source: "yk-wards", filter: ["==", ["get", "code"], ""], paint: { "fill-color": "#1e88e5", "fill-opacity": 0.12 } });
@@ -174,18 +195,26 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		return { top: side, left: side + (desk && onLeft ? pr.right - mr.left : 0), right: side + (desk && !onLeft ? mr.right - pr.left : 0), bottom: side + (sheet ? mr.bottom - pr.top : 0) };
 	};
 	const wardSel = $<HTMLSelectElement>(".ward");
+	const cityBox = (fc: WardFC | null): [number, number, number, number] | null => {
+		const pts = fc?.city?.flat() ?? fc?.features.flatMap(f => [[f.properties.bbox[0], f.properties.bbox[1]], [f.properties.bbox[2], f.properties.bbox[3]]] as LonLat[]) ?? [];
+		if (!pts.length) return null;
+		const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+		return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+	};
 	async function setWard(code: string) {
 		st.ward = code; save(); wardSel.value = code; closePop();
 		const w = WARDS.find(x => x.code === code);
 		const fc = await loadWards();
 		if (st.ward !== code) return;   // 読んでいる間に選び直した
 		const f = fc?.features.find(x => x.properties.code === code);
-		const bb = f?.properties.bbox ?? (w ? null : CITY_BBOX);
+		const bb = f?.properties.bbox ?? (w ? null : cityBox(fc) ?? CITY_BBOX);   // 全市＝市の境界の外接矩形（読めない時は台帳の矩形）
 		if (fc) map.setFilter("yk-ward-on", ["==", ["get", "code"], code || "-"]);   // 全市＝どの区も塗らない
+		setPale(true);
 		if (bb) await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0 });
 		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
 	}
 	wardSel.onchange = () => { setWard(wardSel.value); };
+	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
 
 	// ── 観光：名所（写真つき）──
 	const photos = () => ledger<Record<string, Photo>>("photos.json");
@@ -215,7 +244,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const d = await ledger<{ rows: FacilityRow[] }>("facilities.json");
 		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
 		fac = d.rows;
-		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc."),
+		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc.", true),
 			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3], s: subOf(r[3], r[5]) } })) } });
 		const f0 = facFilter();
 		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
@@ -227,7 +256,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		map.on("mouseleave", "yk-fac", () => tip(null));
 		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null);
 			const c = FACILITY_CATS[r[3]];
-			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `・${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
+			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
 		$$<HTMLButtonElement>("[data-sub]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => subOf(r[3], r[5]) === +b.dataset.sub!).length); });
 		countFac();
@@ -253,12 +282,77 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	});
 	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
 
-	// ── 建物：18 区とも常に（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に）──
+	// ── 観光：平面の地区地図に重ねる区域（用途地域・小／中学校区・警察署／消防署の管轄）＝淡色の平面の時だけ出す（本人 2026-10-21）──
+	const areaOn = new Set<AreaId>(), areaReady = new Map<AreaId, Promise<boolean>>();
+	const POINT_LAYERS = new Set(["yk-fac", "yk-hinan", "yk-bus", "yk-rail-st"]);   // 面より先に答える点の層
+	let flat = false;
+	const zoneOf = (n: string) => ZONES.findIndex(z => z.ja === n);
+	const areaIds = (id: AreaId) => [`yk-area-${id}`, `yk-area-${id}-line`];
+	const loadArea = (id: AreaId) => {
+		let p = areaReady.get(id);
+		if (p) return p;
+		const x = AREAS.find(a => a.id === id)!;
+		p = ledger<{ type: "FeatureCollection"; features: GeoJSONFeature[] }>(x.file).then(async fc => {
+			const n = $<HTMLElement>(`[data-arn="${id}"]`);
+			if (!fc?.features?.length) { n.textContent = t("Could not load"); return false; }
+			n.textContent = "";
+			if (id === "zoning") { const has = new Set(fc.features.map(f => zoneOf(String(f.properties?.n || "")))); $$<HTMLElement>(".zlg [data-z]").forEach(e => e.style.display = has.has(+e.dataset.z!) ? "" : "none"); }   // 凡例は市内にある種だけ（田園住居地域は無い）
+			const [fid, lid] = areaIds(id);
+			const data = id === "zoning" ? { ...fc, features: fc.features.map(f => ({ ...f, properties: { ...f.properties, z: zoneOf(String(f.properties?.n || "")) } })) } : fc;
+			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name, id === "police" || id === "fire") });
+			await map.addLayer({ id: fid, type: "fill", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "fill-color": ["match", ["get", "z"], ...ZONES.flatMap((z, i) => [i, z.color]), "#bbbbbb"], "fill-opacity": 0.5 } : { "fill-color": x.color, "fill-opacity": 0.06 } });
+			await map.addLayer({ id: lid, type: "line", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "line-color": "#ffffff", "line-width": 0.6, "line-opacity": 0.8 } : { "line-color": x.color, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 16, 2.6], "line-opacity": 0.85 } });
+			map.on("click", fid, (e: LayerMouseEvent) => { areaPop(e); });
+			return true;
+		});
+		areaReady.set(id, p);
+		return p;
+	};
+	// 区域の吹き出し＝押した所にある区域（出している物だけ）を 1 つにまとめる（重ねた時に片方しか出なかった・Mac 実測 2026-10-21）。
+	// 1 回の押しで層ごとに呼ばれる＝同じ点の 2 回目からは捨てる。点（施設・避難場所・バス停・駅）を押した時は出さない＝面が点のクリックを奪っていた
+	let areaPopKey = "";
+	async function areaPop(e: LayerMouseEvent) {
+		const ll = e.lngLat, key = `${e.point.x},${e.point.y},${e.originalEvent?.timeStamp ?? ""}`;
+		if (probing || !ll || key === areaPopKey) return;
+		areaPopKey = key;
+		const under = await map.queryRenderedFeatures([e.point.x, e.point.y]).catch(() => [] as RenderedFeature[]);
+		if (under.some(g => POINT_LAYERS.has(String(g.layer?.id)))) return;
+		const rows: string[] = [];
+		for (const x of AREAS) {
+			const f = under.find(g => g.layer?.id === `yk-area-${x.id}`); if (!f) continue;
+			const p = f.properties || {}, z = x.id === "zoning" ? ZONES[zoneOf(String(p.n || ""))] : null;
+			rows.push(`<div class="pk">${esc(t(x.name))}</div><b>${esc(z ? (lang === "ja" ? z.ja : t(z.name)) : String(p.n || ""))}</b>`
+				+ (z && (p.b || p.f) ? `<p>${esc(t("Building coverage $1% · Floor area ratio $2%", p.b ?? "?", p.f ?? "?"))}</p>` : "")
+				+ (p.a ? `<p>${esc(String(p.a))}</p>` : "") + (x.id === "police" || x.id === "fire" ? `<p>${esc(t("Boundaries as of 2012."))}</p>` : ""));
+		}
+		if (rows.length) openPop([ll.lng, ll.lat], rows.join(`<hr class="ys">`));
+	}
+	const areaVis = (id: AreaId) => { if (!areaReady.has(id)) return; areaReady.get(id)!.then(ok => { if (ok) for (const l of areaIds(id)) map.setLayoutProperty(l, "visibility", flat && areaOn.has(id) ? "visible" : "none"); }); };
+	function showAreas(on: boolean) { flat = on; for (const x of AREAS) areaVis(x.id); }
+	async function setArea(id: AreaId, on: boolean) {
+		on ? areaOn.add(id) : areaOn.delete(id);
+		$(`[data-area="${id}"]`).checked = on;
+		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
+		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
+		areaVis(id);
+	}
+	$$("[data-area]").forEach(inp => inp.onchange = () => setArea(inp.dataset.area as AreaId, inp.checked));
+
+	// ── 建物：18 区（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に・z が BUILDINGS_MIN_ZOOM 以上の時だけ）──
 	const lod1: Tiles3DHandle[] = [];
 	const lod1Ready = Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: LOD1_ATTR,
 		style: { color: "color('#8d96a3')" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる。文字列は Cesium の式として読まれる＝素の "#rrggbb" は字句で落ちて 13 区とも出なかった＝color() で包む
 		.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })))
-		.then(hs => { for (const h of hs) if (h) lod1.push(h); return lod1; });
+		.then(hs => { for (const h of hs) if (h) { h.setVisible(lod1Shown); lod1.push(h); } return lod1; });
+	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
+	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
+	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
+	const extrusion = (on: boolean) => { map.setMeshVisible(on); try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
+	const lod1Gate = () => { const on = map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
+	extrusion(lod1Shown);
+	map.on("move", lod1Gate);
 
 	// ── 名所ツアー（画面の下に札・地図に触れたら止まる）──
 	const cap = document.createElement("div");
@@ -393,11 +487,21 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (on) $<HTMLElement>(`[data-trn="${id}"]`).textContent ||= t("Loading…");
 		const d = await loadRail();
 		if (!d) { $<HTMLElement>(`[data-trn="${id}"]`).textContent = t("Could not load"); return; }
-		const sub = trOn.has("subway"), rail = trOn.has("rail");
-		vis("yk-sub-case", sub); vis("yk-sub", sub);
-		for (const m of subMarks) sub ? m.addTo(map) : m.remove();
+		const rail = trOn.has("rail");
+		subReady = true; subShown = null; subGate();
 		vis("yk-rail", rail); vis("yk-rail-st", rail);
 	}
+	// 市営地下鉄は SUBWAY_MIN_ZOOM 未満（市より広い縮尺）では線も駅の記号も消す（本人 2026-10-21）
+	let subShown: boolean | null = null, subReady = false;   // subReady＝地下鉄の層と記号ができた（loadRail の後）
+	function subGate() {
+		if (!subReady) return;
+		const on = trOn.has("subway") && map.getZoom() >= SUBWAY_MIN_ZOOM;
+		if (on === subShown) return;
+		subShown = on;
+		for (const l of ["yk-sub-case", "yk-sub"]) map.setLayoutProperty(l, "visibility", on ? "visible" : "none");
+		for (const m of subMarks) on ? m.addTo(map) : m.remove();
+	}
+	map.on("move", subGate);
 	$$("[data-tr]").forEach(inp => inp.onchange = () => setTransit(inp.dataset.tr!, inp.checked));
 	// 地下鉄の駅名は寄った時だけ（引くと記号だけ）
 	const nameGate = () => mapEl.classList.toggle("yk-sta-names", map.getZoom() >= 13.5);
@@ -536,7 +640,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
 	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
 	const probeOut = $<HTMLElement>(".probe-out");
-	let probing = false, probeMark: Marker | null = null, probeLine = false;
+	let probing = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false;
 	const setProbing = (on: boolean) => { probing = on; $(".probe").textContent = t(on ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on); mapEl.classList.toggle("yk-probing", on); };
 	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
 	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
@@ -601,7 +705,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const c = map.unproject([mapEl.clientWidth / 2, mapEl.clientHeight / 2 + (p.y - want)]);
 		if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 });
 	});
-	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
+	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; probedAt = Date.now(); setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
 
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {
@@ -688,7 +792,7 @@ const CSS = `
 .yk-panel .cats button.on,.yk-panel .cats button.part{opacity:1;background:rgba(255,255,255,.08)}
 .yk-panel .cats button.part{border-style:dashed}
 .yk-panel .cats .cg{display:flex;flex-wrap:wrap;gap:4px;width:100%;align-items:center}
-.yk-panel .cats button.sub{font-size:11px;padding:2px 7px}
+.yk-panel .cats button.kd{font-size:11px;padding:2px 7px}   /* 種別のチップ（.sub は注記の段落の字下げ＝別の名に） */
 .yk-panel .cats i,.yk-panel .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .yk-panel .cats small{margin-left:5px;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .yk-panel .spot-note{margin-top:8px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
@@ -708,6 +812,8 @@ const CSS = `
 .yk-panel .lines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 24px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel .sw{display:inline-block;font-style:normal;font-weight:700;font-size:10px;color:#fff;border-radius:3px;padding:0 4px;margin-right:5px}
 .yk-panel .legend{margin-top:8px}
+.yk-panel .zlg{margin-top:6px}
+.yk-panel i.ar{display:inline-block;width:12px;height:9px;border:2px solid;border-radius:2px;margin-right:6px;vertical-align:-1px}
 .yk-panel .lg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-bottom:4px;font-size:11.5px;color:var(--qm-text-dim)}
 .yk-panel .lg small{width:100%;color:var(--qm-text-faint)}
 .yk-panel .lg i{border-radius:3px;width:12px;height:12px;margin-right:4px;vertical-align:-2px}
@@ -740,6 +846,7 @@ const CSS = `
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}
 .yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}
+.yk-pop hr.ys{border:0;border-top:1px solid rgba(127,127,127,.3);margin:6px 0}
 .yk-pop .pk{font-size:11px;opacity:.7;margin-bottom:1px}
 .yk-pop .walkr{margin-top:7px;padding:5px 10px;border-radius:6px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:600 12px/1.2 system-ui,sans-serif;cursor:pointer;min-height:32px}
 .yk-wlab{padding:1px 6px;border-radius:9px;background:#1f6fc5;color:#fff;font:600 11px/1.4 system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
