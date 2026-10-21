@@ -21,6 +21,8 @@ const BAKED_GROUND_M = 3.3;
 /** 見本の題名（index.json の title と同じ文字列＝辞書の鍵。index.json に無い時の控え） */
 const TITLES: Record<string, string> = { racoonfamily: "Raccoon family", hornedlizard: "Horned lizard" };
 interface Scene { id: string; title: string; origin: [number, number, number]; heading: number; scale?: number; splats: number; tiles: number; bytesTiles: number; bytesSpz: number }
+/** 見本の束が申告する地面の画像タイル（index.json の ground）。name＝辞書の鍵（globe の ui.json にある語） */
+interface Ground { url: string; href: string; name: string; minZoom?: number; maxZoom?: number; bbox?: [number, number, number, number] | null }
 type Mode = "tiles" | "file";
 type Fmt = SplatFormat;
 const FORMATS: readonly Fmt[] = ["ply", "splat", "spz", "ksplat", "sog"];
@@ -100,13 +102,14 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 	const $ = (k: string) => panel.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
 	const drop = document.createElement("div"); drop.className = "splat-drop"; drop.innerHTML = `<div>${t("Drop a splat file here")}</div>`; mapEl.append(drop);
 
-	// ── 地面＝地理院の空中写真（この地球儀の基図は z20 では無地＝広場も駅も出ない）。z18 までの画像を引き伸ばす ──
-	const GSI = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg";
-	map.raster.add("splat:gsi-photo", { url: GSI, minZoom: 2, maxZoom: 18, bbox: [122, 20, 154, 46], name: t("GSI Aerial Photo"), attribution: `<a href="https://maps.gsi.go.jp/development/ichiran.html#seamlessphoto" target="_blank" rel="noopener">${t("GSI Aerial Photo")}</a>` }, { order: "under", minZoom: 14 }).catch(e => console.warn("[splat] gsi photo", e));
 	// ── データ（index.json＝シーンの一覧） ──
 	let scenes: Scene[] = [];
-	try { const r = await fetch(base + "index.json"); if (!r.ok) throw new Error(`${r.status}`); scenes = (await r.json()).scenes; }
+	let ground: Ground | null = null;
+	try { const r = await fetch(base + "index.json"); if (!r.ok) throw new Error(`${r.status}`); const idx = await r.json() as { scenes: Scene[]; ground?: Ground }; scenes = idx.scenes; ground = idx.ground || null; }
 	catch (e) { console.error("[splat] index", e); $("status").innerHTML = `<span class="err">${t("Could not load the scene list from $1", base)}</span>`; }
+	// ── 地面＝見本の束（index.json）が言う画像タイルを下に敷く（この地球儀の基図は z20 では無地＝広場も駅も出ない）。
+	//    どの地域の何を敷くかはデータの側の申告＝この頁（/globe/）は地域を持たない（verify-prod の static の門・2026-10-21） ──
+	if (ground?.url) map.raster.add("splat:ground", { url: ground.url, minZoom: ground.minZoom ?? 2, maxZoom: ground.maxZoom ?? 18, bbox: ground.bbox ?? null, name: t(ground.name), attribution: `<a href="${ground.href}" target="_blank" rel="noopener">${t(ground.name)}</a>` }, { order: "under", minZoom: 14 }).catch(e => console.warn("[splat] ground", e));
 	{ const sc = scenes[0]?.scale || 1; $("scaleNote").textContent = sc > 1 ? t("Shown at $1× real size: the closest this globe gets is about 150 m, where the real animals would be a few pixels.", sc) : ""; }
 	$("scenes").innerHTML = scenes.map(s => `<button type="button" class="b" data-scene="${s.id}">${t(s.title || TITLES[s.id] || s.id)}</button>`).join("");
 	for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-scene]")) b.addEventListener("click", () => { const s = scenes.find(x => x.id === b.dataset.scene); if (s) flyTo(s); });
@@ -211,6 +214,6 @@ export async function mountSplat(map: GlobeMap, { data, mode: modeIn, fly = true
 		get mode() { return st.mode; }, get scenes() { return scenes; }, get ready() { return scenes.length > 0 && (st.mode === "tiles" ? tiles.size === scenes.length : files.size === scenes.length); },
 		get tiles() { return { ...stats }; }, get splats() { return stats.splats; }, get backend() { return backendOf(); }, get own() { return own ? { name: ownName, n: own.n } : null },
 		get lift() { return lift; }, formats: FORMATS, setMode(m: Mode) { if (m !== st.mode) { st.mode = m; return place(); } return Promise.resolve(); }, flyTo, readFile, refresh,
-		destroy() { clearInterval(tick); clearAll(); own?.remove(); probe.remove(); map.raster.remove("splat:gsi-photo"); P.destroy(); drop.remove(); },
+		destroy() { clearInterval(tick); clearAll(); own?.remove(); probe.remove(); map.raster.remove("splat:ground"); P.destroy(); drop.remove(); },
 	};
 }
