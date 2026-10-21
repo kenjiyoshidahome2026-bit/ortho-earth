@@ -5426,6 +5426,33 @@
 			"fa": "پاسگاه‌های پلیس (کوبان)",
 			"ur": "پولیس چوکیاں (کوبان)",
 			"he": "עמדות משטרה (קובאן)"
+		},
+		"Fire stations and headquarters": {
+			"ja": "消防署・消防本部",
+			"zh": "消防署和消防本部",
+			"ko": "소방서·소방본부",
+			"fr": "Casernes et état-major des pompiers",
+			"de": "Feuerwachen und Feuerwehrzentrale",
+			"es": "Estaciones y cuartel de bomberos",
+			"pt": "Quartéis e comando de bombeiros",
+			"it": "Caserme e comando dei vigili del fuoco",
+			"nl": "Brandweerkazernes en hoofdkwartier",
+			"pl": "Remizy i komenda straży pożarnej",
+			"ru": "Пожарные части и управление",
+			"uk": "Пожежні частини та управління",
+			"hu": "Tűzoltóságok és parancsnokság",
+			"sv": "Brandstationer och huvudkontor",
+			"tr": "İtfaiye istasyonları ve merkezi",
+			"el": "Πυροσβεστικοί σταθμοί και διοίκηση",
+			"id": "Stasiun dan markas pemadam kebakaran",
+			"vi": "Trạm và trụ sở cứu hỏa",
+			"th": "สถานีและกองบัญชาการดับเพลิง",
+			"bn": "দমকল স্টেশন ও সদর দপ্তর",
+			"hi": "अग्निशमन केंद्र और मुख्यालय",
+			"ar": "مراكز الإطفاء والقيادة",
+			"fa": "ایستگاه‌ها و ستاد آتش‌نشانی",
+			"ur": "فائر اسٹیشن اور ہیڈکوارٹر",
+			"he": "תחנות כיבוי ומטה"
 		}
 	}
 }

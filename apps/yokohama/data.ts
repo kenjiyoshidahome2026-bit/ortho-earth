@@ -102,7 +102,7 @@ export const FACILITY_SUBS: { cat: number; name: string; kinds: string[] }[] = [
 	{ cat: 3, name: "Libraries", kinds: ["図書館"] },
 	{ cat: 3, name: "Museums", kinds: ["博物館・資料館", "美術館"] },
 	{ cat: 3, name: "Zoos and aquariums", kinds: ["動植物園", "水族館"] },
-	{ cat: 4, name: "Fire stations", kinds: ["消防本部", "消防署"] },
+	{ cat: 4, name: "Fire stations and headquarters", kinds: ["消防本部", "消防署"] },   // 区分の名（Fire stations＝消防）と同じ名にしない＝チップが「消防 / 消防」と二重に見えた
 	{ cat: 4, name: "Fire branch offices", kinds: ["出張所"] },
 	{ cat: 5, name: "Police stations", kinds: ["警察署", "警察本部", "警察学校"] },
 	{ cat: 5, name: "Police boxes", kinds: ["交番", "派出所", "駐在所", "地域安全センター"] },
