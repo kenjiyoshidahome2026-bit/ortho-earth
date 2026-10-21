@@ -106,11 +106,12 @@ export const PORT_STORY: Chapter[] = [
 	{ id: "port-1989", year: "1989", photo: "baybridge", wiki: "横浜ベイブリッジ", name: "A bridge across the harbor", ward: "14104", lon: 139.6740, lat: 35.4545, zoom: 15.8, tilt: 65, bearing: -60, note: "Yokohama Bay Bridge opened in 1989, carrying traffic over the harbor entrance." },
 	{ id: "port-2002", year: "2002", photo: "osanbashi", wiki: "横浜港大さん橋国際客船ターミナル", name: "Gateway for cruise ships", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 17.0, tilt: 60, bearing: 140, note: "The pier first built in 1894 got today's Osanbashi terminal in 2002. Cruise ships still arrive here." },
 ];
-/** 海からの眺め＝港の沖に船を置いたつもりで、街並みを順に見渡す（中心＝見る先・bearing＝向き） */
+/** 海からの眺め＝港の沖に船を置いたつもりで、街並みを順に見渡す（中心＝見る先・bearing＝向き＝カメラは中心の反対側に立つ）。
+ *  向きは手前（画面の下）が海になるよう実測で決めた（2026-10-21 CDP・下端の unproject が水面）。見渡しで +25° 回すので、回した後も海が手前に残る向き */
 export const SEA_VIEWS = [
-	{ lon: 139.6330, lat: 35.4560, zoom: 15.4, tilt: 75, bearing: -50 },   // みなとみらいを南東の沖から
-	{ lon: 139.6480, lat: 35.4470, zoom: 15.6, tilt: 75, bearing: -95 },   // 大さん橋・山下公園を東の沖から
-	{ lon: 139.6740, lat: 35.4545, zoom: 15.0, tilt: 72, bearing: -10 },   // ベイブリッジを南の沖から
+	{ lon: 139.6330, lat: 35.4560, zoom: 15.4, tilt: 75, bearing: -110 },   // みなとみらいを東の内港から（手前＝内港の水面）
+	{ lon: 139.6480, lat: 35.4470, zoom: 15.6, tilt: 75, bearing: -140 },   // 大さん橋・山下公園を北東の内港から
+	{ lon: 139.6740, lat: 35.4545, zoom: 15.0, tilt: 72, bearing: -75 },    // ベイブリッジを東京湾の側から＝港に入る船の目（奥に街）
 ];
 
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
