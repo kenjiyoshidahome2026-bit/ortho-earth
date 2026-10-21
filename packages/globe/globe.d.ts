@@ -804,11 +804,11 @@ export type MapLibreSource =
 	 *  公開のフィーチャーサービス（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）も data に渡せる（1.14.0〜・#176）：件数が 5 万以下は丸ごと・
 	 *  超えたら fill/line/circle の層は視野の枡だけ読む（動いて止まったら足す・引きすぎの間は読まない）。サービスの取得は transformRequest を通る。
 	 *  一度読んだ分は IndexedDB に GeoPBF で控える（30 日・2,000 件・256MB を超えた分は掃除・map.clearFeatureServiceCache()）。
-	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る）。
+	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る・サービスでない data でも attribution は出る＝2026-10-21〜）。
 	 *  cacheKey（この地図の拡張・data が object の時だけ）＝fill/line/circle の層のために焼いた結果（GeoPBF＋GintBUF）を、この鍵で IndexedDB に控える。
 	 *  次に同じ鍵の source を足すと焼かずに戻す（大きな data の焼きは秒の桁）。**中身は見比べない**＝data が変わったら鍵も変える（data の要約や版を鍵に入れる）。
 	 *  控えるのは足した時の data だけ（setData／updateData で入れ替えると鍵は外れる）。30 日・200 件・256MB を超えた分は掃除 */
-	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean; cacheKey?: string }
+	| { type: "geojson"; data: GeoJSONFeatureCollection | string; /** 出典（HTML・消毒して #attr に出す・URL でない data でも＝2026-10-21〜） */ attribution?: string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean; cacheKey?: string }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
 	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
