@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -41,6 +41,9 @@ const d = distM([139.6380, 35.4437], [139.6380, 35.4537]);
 t("地点：距離（緯度 0.01 度＝約 1112m）・徒歩分（80m/分×1.3）", Math.abs(d - 1112) < 3 && walkMin(d) === 18 && walkMin(0) === 1, String(d));
 const nr = nearestRows([[139.70, 35.44, "遠"], [139.64, 35.444, "近"], [139.65, 35.45, "中"]], [139.638, 35.4437], 2);
 t("地点：近い順に k 件", nr.length === 2 && nr[0].row[2] === "近" && nr[1].row[2] === "中" && nr[0].m < nr[1].m);
+t("地点：タイルの実際の色（0.5〜1m #f8e1a6・0.3m 未満 #ffffb3・土砂 #fae600／#fa2800）を正しい帯に", legendIndex(DEPTH, 248, 225, 166, 255) === 1 && legendIndex(DEPTH, 255, 255, 179, 255) === 0 && legendIndex(HAZARDS.find(h => h.id === "dosha").legend, 250, 230, 0, 255) === 0 && legendIndex(HAZARDS.find(h => h.id === "dosha").legend, 250, 40, 0, 255) === 1);
+const ns = nearestSites([[139.6381, 35.4437, "甲小学校　校舎１"], [139.6382, 35.4437, "甲小学校　体育館"], [139.6383, 35.4437, "乙中学校 校舎"], [139.64, 35.4437, "丙公園"]], [139.638, 35.4437], 3);
+t("地点：避難場所は同じ場所の棟違いを 1 件に（全角・半角の空白より前で束ねる）", ns.map(x => x.row[2]).join() === "甲小学校　校舎１,乙中学校 校舎,丙公園" && siteName("横浜市立岡野中学校　校舎７（２階以上）") === "横浜市立岡野中学校");
 const ring = circleRing([139.638, 35.4437], 500, 64);
 t("徒歩圏：円は閉じ、どの点も中心から半径の距離（±1%）", ring.length === 65 && ring[0][0] === ring[64][0] && ring.every(p => Math.abs(distM([139.638, 35.4437], p) - 500) < 5));
 t("徒歩圏：5・10・15 分＝直線 約 308・615・923m", WALK_RINGS.join() === "5,10,15" && Math.round(walkRadius(10)) === 615);
