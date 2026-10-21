@@ -18,6 +18,7 @@
 //   school-j.json   … 中学校区（A32-21＝2021 年度・横浜市立）FeatureCollection（properties { n: 学校名, a: 所在地 }）
 //   police-areas.json … 警察署の管轄区域（P18-12＝2012 年度・横浜市内の署）FeatureCollection（properties { n: 署名 }）＝同じ署の面は 1 つに束ねる
 //   fire-areas.json   … 消防署の管轄区域（P17-12＝2012 年度・横浜市消防局の署）FeatureCollection（properties { n: 署名 }）
+//   ＊police-areas・fire-areas は properties に { lic: "非商用", src, y: 2012 }・FeatureCollection に license／source を付記（KSJ の使用許諾が非商用）
 //   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
 // 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
 import fs from "node:fs";
@@ -308,7 +309,8 @@ async function facilities() {
 	}
 	if (INSPECT) return;
 	for (let i = 0; i < CATS.length; i++) console.log(`  ${CATS[i]}: ${rows.filter(r => r[3] === i).length}`);
-	write("facilities.json", { cats: CATS, rows });
+	// 非商用の出どころ（P27・P28・P17・P18＝KSJ の使用許諾「非商用」）＝区分の番号で付記（行の並びは変えない＝頁の FacilityRow のまま）
+	write("facilities.json", { cats: CATS, rows, license: { "非商用": ["P27 文化施設（図書館・文化の一部）", "P28 国・都道府県の機関", "P17 消防署", "P18 警察署"], note: "国土数値情報の使用許諾が非商用の出どころを含む（横浜市が使うと決めた時に詰める）" } });
 }
 
 // ── 5. 名所の写真（ja.wikipedia の代表画像 → Commons の作者と使用許諾）──
@@ -345,6 +347,8 @@ function mergeByName(feats) {
 	return [...m.values()];
 }
 const fc = features => ({ type: "FeatureCollection", features });
+// 国土数値情報の使用許諾が「非商用」の台帳は、属性に付記する（本人 2026-10-21「今の時点では非商用と考え、属性にその旨付記」・横浜市が使うと決めた時に一緒に詰める）
+const NC = src => ({ lic: "非商用", src: `国土数値情報 ${src}`, y: 2012 });
 const areaReport = (label, feats) => { const n = new Map(); for (const f of feats) n.set(f.properties.n, (n.get(f.properties.n) || 0) + 1); console.log(`${label}：${feats.length} 面（名 ${n.size}）`); return n; };
 
 async function zoning() {
@@ -378,14 +382,16 @@ async function police() {
 	const out = mergeByName(areas.filter(f => names.has(String(f.properties.P18_005).trim())).map(f => ({ properties: { n: String(f.properties.P18_005).trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
 	areaReport(`警察署の管轄（横浜市内の署 ${names.size}）`, out);
 	const miss = [...names].filter(n => !out.some(f => f.properties.n === n)); if (miss.length) console.warn(`  管轄の面が無い署：${miss.join("・")}`);
-	write("police-areas.json", fc(out));
+	for (const f of out) Object.assign(f.properties, NC("P18-12"));
+	write("police-areas.json", { ...fc(out), license: NC("P18-12").lic, source: "国土数値情報 P18-12（警察署・管轄区域・2012 年度）" });
 }
 async function fire() {
 	const areas = await ksjFeatures(`${KSJ}P17/P17-12/P17-12_14_GML.zip`, /P17-\d+_14_FireStationJurisdiction/);
 	if (INSPECT) return inspect("P17 消防署の管轄", areas);
 	const out = mergeByName(areas.filter(f => /^横浜市消防局/.test(String(f.properties.P17_005))).map(f => ({ properties: { n: String(f.properties.P17_005).replace(/^横浜市消防局/, "").trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
 	areaReport("消防署の管轄（横浜市消防局）", out);
-	write("fire-areas.json", fc(out));
+	for (const f of out) Object.assign(f.properties, NC("P17-12"));
+	write("fire-areas.json", { ...fc(out), license: NC("P17-12").lic, source: "国土数値情報 P17-12（消防署・管轄区域・2012 年度）" });
 }
 
 for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
