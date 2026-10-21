@@ -41,6 +41,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const mapEl = map.mapEl;
 	const ML = map as MapDom;
 	const st: TwinState = parseState(location.search);
+	// backend は初描画（frame1）で決まる＝それまで null。案内板を組む前に待つ（最長 10 秒）＝待たないと WebGPU でも切り取り・影の口が出なかった（2026-10-21 CDP 実測）
+	for (let i = 0; i < 100 && !map.backend; i++) await sleep(100);
 	const gpu = map.backend === "webgpu";
 	const save = () => { const s = writeState(location.search, st); history.replaceState(history.state, "", location.pathname + s + location.hash); };
 	// 台帳（JSON）＝一度だけ取る。無い・壊れた＝null（その機能だけ黙る）
@@ -231,7 +233,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 建物：18 区とも常に（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に）──
 	const lod1: Tiles3DHandle[] = [];
 	const lod1Ready = Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: LOD1_ATTR,
-		style: { color: "#8d96a3" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる
+		style: { color: "color('#8d96a3')" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる。文字列は Cesium の式として読まれる＝素の "#rrggbb" は字句で落ちて 13 区とも出なかった＝color() で包む
 		.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })))
 		.then(hs => { for (const h of hs) if (h) lod1.push(h); return lod1; });
 
@@ -543,6 +545,7 @@ const CSS = `
 .yk-sta-names .yk-sta .nm{display:block}
 .yk-cap{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:31;width:min(600px,calc(100% - 24px));box-sizing:border-box;padding:12px 44px 12px 12px;display:flex;gap:12px;align-items:flex-start;
 	border-radius:var(--qm-r-l);background:rgba(8,14,26,.88);color:#f1f3f6;font:13px/1.5 var(--qm-font);box-shadow:var(--qm-shadow-pop);backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur))}
+.yk-cap[hidden]{display:none}
 .yk-cap .cph{flex:none;width:168px;margin:0}
 .yk-cap .cph img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;background:#222}
 .yk-cap .ct{min-width:0}

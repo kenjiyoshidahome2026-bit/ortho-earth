@@ -10,7 +10,7 @@
 //   wards.json      … 18 区の境界（N03）{ type:"FeatureCollection", features:[{ properties:{ code, name, bbox:[w,s,e,n] }, geometry }], city:[[[lon,lat]…]…] }（間引き 約 10m）
 //                     city＝市の外周の環（区の境で接する辺を消して繋ぐ）＝頁が市の外を薄く覆う覆いの穴
 //   rail.json       … 鉄道（N02）{ lines: FeatureCollection（properties { line, op, subway:0|1 }）, stations: [[lon, lat, 駅名, "事業者 路線・…", subway:0|1]] }
-//   bus.json        … 横浜市営バスの停留所（P11）{ stops: [[lon, lat, 停留所名, "系統・…"]] }
+//   bus.json        … 横浜市営バスの停留所（P11-22）{ stops: [[lon, lat, 停留所名, "系統・…"]] }
 //   facilities.json … 公共施設（KSJ の P05・P29・P27・P28・P17・P18・P04）{ cats: [名…], rows: [[lon, lat, 名称, 区分の番号, 住所, 種別]] }
 //   photos.json     … 名所の写真（Wikipedia の記事の代表画像＝Wikimedia Commons）{ [名所 id]: { src, file, artist, license, page } }
 // 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
@@ -28,6 +28,7 @@ const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh")
 const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
+const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
 fs.mkdirSync(CACHE, { recursive: true }); fs.mkdirSync(OUT, { recursive: true });
 
 // 市の外接矩形に少し余白（市境をまたぐ線と駅を切らない）
@@ -163,7 +164,7 @@ function outline(rings) {
 
 // ── 1. 区の境界（N03）──
 async function wards() {
-	const feats = await ksjFeatures(`${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`, /N03-\d+_14/);
+	const feats = await ksjFeatures(N03_URL, /N03-\d+_14/);
 	if (INSPECT) return inspect("N03", feats);
 	const out = [], rawRings = [];
 	for (const w of WARDS) {
@@ -211,16 +212,16 @@ async function rail() {
 	write("rail.json", { lines: { type: "FeatureCollection", features: ln }, stations });
 }
 
-// ── 3. 市営バスの停留所（P11）＝事業者に「横浜市」を含む停留所 ──
+// ── 3. 市営バスの停留所（P11・令和 4 年）＝事業者（P11_002）が「横浜市」（交通局）の停留所。系統は P11_003_01〜35（1 つの欄に「,」区切りで複数もある）──
 async function bus() {
-	const feats = await ksjFeatures(`${KSJ}P11/P11-22/P11-22_14_GML.zip`, /P11-\d+_14/);
+	const feats = await ksjFeatures(`${KSJ}P11/P11-22/P11-22_14_SHP.zip`, /P11-\d+_14/);   // GML の zip は XML だけ＝shp の zip を読む
 	if (INSPECT) return inspect("P11", feats);
-	const vals = (p, re) => Object.keys(p).filter(k => re.test(k)).map(k => String(p[k] ?? "").trim()).filter(v => v && v !== "null" && v !== "None");
+	const vals = (p, re) => Object.keys(p).filter(k => re.test(k)).flatMap(k => String(p[k] ?? "").split(",")).map(v => v.trim()).filter(v => v && v !== "null" && v !== "None");
 	const stops = [];
 	for (const f of feats) {
 		const p = f.properties, c = firstPt(f.geometry);
-		if (!c || !inBox(c) || !vals(p, /^P11_003/).some(v => v.includes("横浜市"))) continue;
-		stops.push([r5(c[0]), r5(c[1]), p.P11_001, [...new Set(vals(p, /^P11_004/))].join("・")]);
+		if (!c || !inBox(c) || !/^横浜市(交通局)?$/.test(String(p.P11_002 || "").trim())) continue;
+		stops.push([r5(c[0]), r5(c[1]), p.P11_001, [...new Set(vals(p, /^P11_003_/))].join("・")]);
 	}
 	if (stops.length < 1000) throw new Error(`P11: 市営バスの停留所が ${stops.length} 件しか無い（列名を --inspect で確かめる）`);
 	console.log(`市営バス：停留所 ${stops.length}`);
@@ -228,20 +229,48 @@ async function bus() {
 }
 
 // ── 4. 公共施設（KSJ の点データを束ねる）。cat＝頁の区分（data.ts の FACILITY_CATS と同じ並び）──
-// name・addr・kind＝属性の鍵。keep＝この行を採るか（公立だけ等）。kind は区分の中の種別（「小学校」等）＝吹き出しに出す
+// name・addr・kind＝属性の鍵。keep＝この行を採るか（公立だけ等）。kind は区分の中の種別（「小学校」等）＝吹き出しに出す。
+// 市内かどうかは住所でなく N03 の区の面で決める（P27・P04 の住所には市名が無い）＝区も分かるので住所の頭に「横浜市◯◯区」を補う
 const CATS = ["区役所・行政", "地区センター・集会", "学校", "図書館・文化", "消防", "警察", "病院"];
 const SRC = [
-	{ url: "P05/P05-22/P05-22_14_GML.zip", re: /P05-\d+_14/, label: "P05 市町村役場等・公的集会施設",
-		cat: p => /役所|役場|支所|出張所|本庁|事務所/.test(p.P05_003) ? 0 : 1, name: "P05_003", addr: "P05_004", kind: p => ({ 1: "本庁", 2: "支所・出張所", 3: "公民館", 4: "集会施設" })[p.P05_002] || "" },
-	{ url: "P29/P29-23/P29-23_14_GML.zip", re: /P29-\d+_14/, label: "P29 学校",
-		cat: () => 2, name: "P29_004", addr: "P29_005", keep: p => ["1", "2", "3"].includes(String(p.P29_006)),   // 管理者＝国・都道府県・市区町村（公立）だけ
-		kind: p => ({ 16001: "小学校", 16002: "中学校", 16003: "義務教育学校", 16004: "高等学校", 16005: "中等教育学校", 16006: "特別支援学校", 16007: "大学", 16008: "短期大学", 16009: "高等専門学校", 16011: "幼稚園", 16012: "幼保連携型認定こども園" })[p.P29_003] || "" },
-	{ url: "P27/P27-13/P27-13_14_GML.zip", re: /P27-\d+_14/, label: "P27 文化施設", cat: () => 3, name: "P27_005", addr: "P27_006", kind: p => ({ 1: "図書館", 2: "博物館・美術館", 3: "公民館", 4: "劇場・ホール", 5: "その他" })[p.P27_004] || "" },
-	{ url: "P28/P28-22/P28-22_14_GML.zip", re: /P28-\d+_14/, label: "P28 国・都道府県の機関", cat: () => 0, name: "P28_005", addr: "P28_006", kind: () => "国・県の機関" },
-	{ url: "P17/P17-12/P17-12_14_GML.zip", re: /P17-\d+_14/, label: "P17 消防署", cat: () => 4, name: "P17_004", addr: "P17_005", kind: p => ({ 1: "消防本部", 2: "消防署", 3: "出張所" })[p.P17_003] || "" },
-	{ url: "P18/P18-12/P18-12_14_GML.zip", re: /P18-\d+_14/, label: "P18 警察署", cat: () => 5, name: "P18_004", addr: "P18_005", kind: p => ({ 1: "警察本部", 2: "警察署", 3: "交番", 4: "駐在所" })[p.P18_003] || "" },
-	{ url: "P04/P04-20/P04-20_14_GML.zip", re: /P04-\d+_14/, label: "P04 医療機関", cat: () => 6, name: "P04_002", addr: "P04_003", keep: p => String(p.P04_001) === "1", kind: () => "病院" },   // 病院だけ（診療所は数が多すぎる）
+	{ url: "P05/P05-22/P05-22_14_GML.zip", re: /P05-\d+_14/, label: "P05 市町村役場等・公的集会施設",   // 施設分類 1 本庁・2 支所等・3 他の行政窓口・4 公民館・5 集会施設
+		cat: p => +p.P05_002 <= 3 ? 0 : 1, name: "P05_003", addr: "P05_004", kind: p => ({ 1: "区役所", 2: "支所・出張所", 3: "行政サービス窓口", 4: "公民館", 5: "集会施設" })[p.P05_002] || "" },
+	{ url: "P29/P29-21/P29-21_14_GML.zip", re: /P29-\d+_14/, label: "P29 学校",
+		cat: () => 2, name: "P29_004", addr: "P29_005", keep: p => [1, 2, 3].includes(+p.P29_006) && +p.P29_007 !== 2,   // 管理者＝国・都道府県・市区町村（公立）だけ・休校中は除く
+		kind: p => ({ 16001: "小学校", 16002: "中学校", 16003: "中等教育学校", 16004: "高等学校", 16005: "高等専門学校", 16006: "短期大学", 16007: "大学", 16011: "幼稚園", 16012: "特別支援学校", 16013: "幼保連携型認定こども園", 16014: "義務教育学校", 16015: "各種学校", 16016: "専修学校" })[p.P29_003] || "" },
+	{ url: "P27/P27-13/P27-13_14.zip", re: /P27-\d+_14/, label: "P27 文化施設", cat: () => 3, name: "P27_005", addr: "P27_006",
+		keep: p => /^0300[1-5]$/.test(p.P27_004),   // 文化（美術館・博物館・図書館・水族館・動植物園）だけ＝運動施設（0310x〜）は採らない
+		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P27_004] || "" },
+	{ url: "P28/P28-22/P28-22_14.zip", re: /P28-\d+_14/, label: "P28 国・都道府県の機関", cat: p => /^03/.test(p.P28_002) ? 3 : 0, name: "P28_003", addr: "P28_004",
+		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P28_002] || ({ 1: "国の機関", 2: "県の機関" })[+p.P28_005] || "国・県の機関" },
+	{ url: "P17/P17-12/P17-12_14_GML.zip", re: /P17-\d+_14_FireStation/, label: "P17 消防署", cat: () => 4, name: "P17_001", addr: "P17_004", kind: p => ({ 1: "消防本部", 2: "消防署", 3: "出張所" })[p.P17_003] || "" },
+	{ url: "P18/P18-12/P18-12_14_GML.zip", re: /P18-\d+_14_PoliceStation/, label: "P18 警察署", cat: () => 5, name: "P18_001", addr: "P18_004",
+		kind: p => ({ 1: "警察本部", 2: "警察署", 3: "分庁舎", 4: "交番", 5: "駐在所", 6: "派出所", 7: "警察学校", 8: "地域安全センター" })[p.P18_003] || "" },
+	{ url: "P04/P04-20/P04-20_14_GML.zip", re: /P04-\d+_14/, label: "P04 医療機関", cat: () => 6, name: "P04_002", addr: "P04_003", keep: p => +p.P04_001 === 1, kind: () => "病院" },   // 病院だけ（診療所・歯科は採らない）
 ];
+// 区の面（N03・間引き前）＝点がどの区にあるか。外接矩形で先に篩う
+let wardPolys;
+async function wardOf([x, y]) {
+	if (!wardPolys) {
+		wardPolys = [];
+		for (const f of await ksjFeatures(N03_URL, /N03-\d+_14/)) {
+			const w = WARDS.find(w => w.code === f.properties.N03_007); if (!w) continue;
+			const g = f.geometry; for (const p of g.type === "Polygon" ? [g.coordinates] : g.coordinates) {
+				let bb = [180, 90, -180, -90]; for (const [a, b] of p[0]) bb = [Math.min(bb[0], a), Math.min(bb[1], b), Math.max(bb[2], a), Math.max(bb[3], b)];
+				wardPolys.push({ w, ring: p[0], bb });
+			}
+		}
+	}
+	for (const { w, ring, bb } of wardPolys) {
+		if (x < bb[0] || x > bb[2] || y < bb[1] || y > bb[3]) continue;
+		let inside = false;
+		for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; }
+		if (inside) return w;
+	}
+	return null;
+}
+/** 住所を「横浜市◯◯区…」に揃える（県名は落とし、市名・区名が無ければ補う） */
+const fullAddr = (addr, w) => { const a = addr.replace(/^神奈川県/, ""); return /^横浜市/.test(a) ? a : a.startsWith(w.name) ? "横浜市" + a : a ? `横浜市${w.name}${a}` : ""; };
 async function facilities() {
 	const rows = [];
 	for (const s of SRC) {
@@ -249,19 +278,21 @@ async function facilities() {
 		try { feats = await ksjFeatures(KSJ + s.url, s.re); } catch (e) { console.warn(`✗ ${s.label}: ${e.message}`); if (!INSPECT) throw e; continue; }
 		if (INSPECT) { inspect(s.label, feats); continue; }
 		let n = 0;
+		const seen = new Set();
 		for (const f of feats) {
 			const p = f.properties, c = firstPt(f.geometry);
 			if (!c || !inBox(c) || (s.keep && !s.keep(p))) continue;
-			const addr = String(p[s.addr] ?? "");
-			if (addr && !/横浜市/.test(addr) && !/^141\d\d/.test(String(Object.values(p)[0]))) continue;   // 市外（川崎・鎌倉…）は落とす
+			const w = await wardOf(c); if (!w) continue;   // 市外（川崎・鎌倉…）は落とす
 			const name = String(p[s.name] ?? "").trim();
 			if (!name) continue;
-			rows.push([r5(c[0]), r5(c[1]), name, s.cat(p), addr, s.kind(p)]); n++;
+			const k = `${name}|${r5(c[0])}|${r5(c[1])}`; if (seen.has(k)) continue; seen.add(k);
+			rows.push([r5(c[0]), r5(c[1]), name, s.cat(p), fullAddr(String(p[s.addr] ?? "").trim(), w), s.kind(p)]); n++;
 		}
 		console.log(`${s.label}: ${n} 件`);
 		if (!n) throw new Error(`${s.label}: 0 件（列名を --inspect で確かめる）`);
 	}
 	if (INSPECT) return;
+	for (let i = 0; i < CATS.length; i++) console.log(`  ${CATS[i]}: ${rows.filter(r => r[3] === i).length}`);
 	write("facilities.json", { cats: CATS, rows });
 }
 
