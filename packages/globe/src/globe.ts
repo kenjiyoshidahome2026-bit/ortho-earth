@@ -3220,7 +3220,7 @@ const gintDataOf = async (sid: string, force: boolean, gen: number) => {
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
 	let d: unknown = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
-	else { dropFollow(sid); setSrcAttr(sid, null); }
+	else { dropFollow(sid); setSrcAttr(sid, (sp as { attribution?: unknown } | undefined)?.attribution ? sanitizeHTML(String((sp as { attribution?: unknown }).attribution)) : null); }   // data が object の geojson も attribution（MapLibre の宣言）を出典の欄へ（2026-10-21・横浜の台帳の出典と「非商用」が全部落ちていた＝URL の時だけ渡していた）
 	// 焼いた結果の控え（source の cacheKey・data が object の時だけ）＝鍵が同じなら IDB の GeoPBF＋GintBUF を戻して焼かない。
 	// 鍵は呼び手が決める＝中身が変われば鍵も変える約束（中身を見比べない）。setData／updateData は鍵を外す＝控えは足した時の data だけ。
 	// URL の data は geopbf／サービスの側が自分の控えを持つ
