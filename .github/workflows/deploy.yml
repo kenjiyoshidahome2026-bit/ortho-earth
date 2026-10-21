@@ -4,9 +4,11 @@
 #           engine-only＝エンジンだけ ／ native-bucket・quakes-mirror・sats-mirror＝それぞれの Worker だけ
 #           gate-only＝門だけ（ortho-globe の verify:prod と各アプリの Chrome の門・何も配らない・鍵が要らない・2026-10-21）
 #   gishub-jp・geopbf-demo・www は今まで通り Cloudflare Pages が main の push で自動で組む＝ここでは配らない。
-# 要る物（Settings → Environments → production）：secret CLOUDFLARE_API_TOKEN（Workers を編集できる token）・CLOUDFLARE_ACCOUNT_ID。
-# 検定（verify-prod 等）は Chrome for Testing＋swiftshader の headless＝runner でも同じ門を通ってから配る。門は緩めない。
-# ortho-japan の deploy は前回の配布 tag（japan-deployed＝手元だけの tag）が無い＝エディタ関門は毎回「全部」になる（遅いが安全側）。
+# 走る場所＝本人の Mac（self-hosted runner・label ortho-deploy・2026-10-21 本人の裁定）。GitHub の runner には GPU が無い＝
+#   ortho-japan の門（globe の WebGPU の画素検定 約 70 頁）が通らない（run 39636724562：5/6 PASS・ortho-japan だけ FAIL）。
+#   Mac なら手元の deploy:engine と同じ門（実 GPU）をそのまま通る。Cloudflare へは Mac の wrangler のログイン（wrangler login 済み）で出す＝鍵は置かない。
+#   Mac が眠っている・runner が止まっている時は job が「Waiting for a runner」のまま待つ（Mac を起こせば走り出す）。
+# ortho-japan のエディタ関門の範囲＝tag japan-deployed からの差分。配り終えたらこの workflow が tag を push する。
 name: deploy
 on:
   workflow_dispatch:
@@ -28,39 +30,26 @@ permissions:
 jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: production
+    runs-on: [self-hosted, macOS, ortho-deploy]
+    timeout-minutes: 120
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TARGET: ${{ inputs.target }}
       APPS: ${{ inputs.apps }}
     steps:
-      - name: secrets の有無（検定の前に止める）
-        if: inputs.target != 'gate-only'
-        run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "✗ Environment production に secret CLOUDFLARE_API_TOKEN が無い（Settings → Environments → production）"; exit 1; }
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める
+          fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める（tag japan-deployed も一緒に来る）
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22   # engines ≥ 22.18（Mac の /usr/local/bin/node が古くても runner はこちらを使う）
           cache: npm
-      - name: Chrome for Testing のキャッシュ
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ortho-earth/chrome-for-testing
-          key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
       - run: npm ci --no-audit --no-fund
-      - name: 検定用の Chrome を入れる
+      - name: wrangler のログイン（検定の前に止める）
+        if: inputs.target != 'gate-only'
+        run: npx wrangler whoami --json > /dev/null || { echo "✗ Mac の wrangler がログインしていない＝Mac で npx wrangler login"; exit 1; }
+      - name: 検定用の Chrome（Mac の ~/.cache を手元の検定と共有＝入っていれば何もしない）
         if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only' || inputs.target == 'gate-only'
-        run: |
-          # Ubuntu 24.04 の runner は AppArmor が非特権の user namespace を塞ぐ＝Chrome for Testing（AppArmor の profile が無い）は
-          # sandbox を立てられず即落ちる（2026-10-17 run 39073272182：verify-prod の CDP が ECONNREFUSED）。使い捨ての runner の中だけ緩める（本人の裁定 2026-10-17）
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          node packages/globe/scripts/lib/chrome.mjs --install
+        run: node packages/globe/scripts/lib/chrome.mjs --install
       - name: 配る
         run: |
           set -eu
