@@ -297,7 +297,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 		const { kind = "points", id, before, above = false, paint, ...acc } = o;
 		if (!BUILTIN_DATA_KINDS.includes(kind)) {   // plugin の kind（registry.dataKinds・PR-F0）＝{ create(map, data, opts) → 手綱 }。知らない kind は投げる（黙って points にしない）
 			const ext = pluginHost.registry.dataKinds.get(kind);
-			if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
+			if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz/.ksplat/.sog の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
 				data = normSplat(data);
 				if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "splat" is a reserved contract (capabilities()["data.splat"] is "spec"); install a plugin that registers map.registry.dataKinds "splat" (see PLUGINS.md)`);
 			}
