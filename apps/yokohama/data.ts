@@ -88,6 +88,31 @@ export const FACILITY_CATS = [
 	{ name: "Ward offices and government", color: "#d84315" }, { name: "Community centers and halls", color: "#8e24aa" }, { name: "Schools", color: "#1e88e5" },
 	{ name: "Libraries and culture", color: "#00897b" }, { name: "Fire stations", color: "#e53935" }, { name: "Police", color: "#3949ab" }, { name: "Hospitals", color: "#43a047" },
 ];
+/** 施設の種別ごとの出し入れ（本人 2026-10-21「それぞれでトグル」）＝区分（FACILITY_CATS）の中を、台帳の種別（行の 6 列目）で束ねる。並びが番号 */
+export const FACILITY_SUBS: { cat: number; name: string; kinds: string[] }[] = [
+	{ cat: 0, name: "Ward offices", kinds: ["区役所"] },
+	{ cat: 0, name: "National and prefectural offices", kinds: ["国の機関", "国・県の機関", "県の機関"] },
+	{ cat: 0, name: "Service counters", kinds: ["行政サービス窓口"] },
+	{ cat: 1, name: "Community centers and halls", kinds: ["集会施設"] },
+	{ cat: 2, name: "Elementary schools", kinds: ["小学校", "義務教育学校"] },
+	{ cat: 2, name: "Junior high schools", kinds: ["中学校"] },
+	{ cat: 2, name: "High schools", kinds: ["高等学校"] },
+	{ cat: 2, name: "Special needs schools", kinds: ["特別支援学校"] },
+	{ cat: 2, name: "Universities and colleges", kinds: ["大学", "専修学校"] },
+	{ cat: 3, name: "Libraries", kinds: ["図書館"] },
+	{ cat: 3, name: "Museums", kinds: ["博物館・資料館", "美術館"] },
+	{ cat: 3, name: "Zoos and aquariums", kinds: ["動植物園", "水族館"] },
+	{ cat: 4, name: "Fire stations", kinds: ["消防本部", "消防署"] },
+	{ cat: 4, name: "Fire branch offices", kinds: ["出張所"] },
+	{ cat: 5, name: "Police stations", kinds: ["警察署", "警察本部", "警察学校"] },
+	{ cat: 5, name: "Police boxes", kinds: ["交番", "派出所", "駐在所", "地域安全センター"] },
+	{ cat: 6, name: "Hospitals", kinds: ["病院"] },
+];
+/** 行 → 種別の番号（台帳に新しい種別が出たら、その区分の先頭の種別へ寄せる） */
+export function subOf(cat: number, kind: string): number {
+	const i = FACILITY_SUBS.findIndex(s => s.cat === cat && s.kinds.includes(kind));
+	return i >= 0 ? i : FACILITY_SUBS.findIndex(s => s.cat === cat);
+}
 /** 施設の 1 行＝[経度, 緯度, 名称, 区分の番号, 住所, 種別] */
 export type FacilityRow = [number, number, string, number, string, string];
 /** 鉄道の駅の 1 行＝[経度, 緯度, 駅名, "事業者 路線・…", 地下鉄なら 1] */
