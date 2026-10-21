@@ -56,6 +56,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 世界の人口（Kontur Population・H3 の r4 と r6・計 7.6MB）`h3/kontur-20231101/` | `globe/h3/`（10/14 に置いた・焼く＝`apps/ortho-globe/scripts/kontur-h3.mjs`→`--only=h3`） | /globe/hex |
 | アメリカの国立公園：`parks-us.json`・`parks-us.geopbf`・`nps-units.geopbf` | `us/` | /globe/parks |
 | 日本の頁の台帳：`parks.*`・`terrain.*`・`terrain.i18n/`・`onsen.json`・`models.json` | `japan/` | /japan/parks・terrain・onsen・models（uploader も `models.json` を直読み） |
+| 横浜市デジタルツインの台帳：`yokohama/`（`wards`・`rail`・`bus`・`facilities`・`photos`＝.json・2026-10-21） | `japan/`（git で追う・組む＝`apps/yokohama/scripts/bake-yokohama.mjs`） | /yokohama/。国土数値情報（N03・N02・P11・P05・P29・P27・P28・P17・P18・P04）・写真は Wikimedia Commons（作者と使用許諾を台帳に持つ） |
 | 観測点：`jishin/seismic`・`jishin/fault`・`jma/amedas`（.geopbf） | `japan/` | gishub-jp |
 | 点群の見本：`pointcloud/atami-08NF2392.copc.laz`（熱海 951 万点・77 MB・JGD2011 平面直角 VIII 系＋標高・COPC＝**gzip しない**＝範囲読みするので生のまま）＋出典の `README.md` | `japan/`（**正本は git に入れない**＝大きすぎる。置く元は作業場所・`--scope=japan --from=<作業場所> --only=pointcloud`・2026-10-15・gh-pages 239ed08＝鉛直付き EPSG:6676+6695 で作り直し） | /japan/pointcloud の見本・t-copcbench（点群の計測・`packages/globe/scripts/copc-bench.mjs`）。VIRTUAL SHIZUOKA（静岡県）CC BY 4.0 |
 | 静岡県の点群（VIRTUAL SHIZUOKA・図郭ごとの `.zip` に `.las`・CC BY 4.0／ODbL） | **自前で持たない**＝静岡県の S3（`s3://virtual-shizuoka`・Open Data on AWS・CORS 可・範囲読み可）を頁が直に一覧して読む（2026-10-18） | /japan/pointcloud（apps/ortho-japan/pointcloud.ts）・エンジンの ZIP の口（packages/globe/src/pointcloud-zip.ts） |
