@@ -16,11 +16,7 @@ import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WA
 import type { Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
-const HAZARD_ATTR = `<a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">ハザードマップポータルサイト（国土交通省）</a>`;
-const HINAN_ATTR = "指定緊急避難場所データ（国土地理院）";
-const KSJ_ATTR = (what: string) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">国土数値情報（${what}）</a>`;
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
-const LOD1_ATTR = "国土交通省 PLATEAU（建築物 LOD1）";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -39,11 +35,17 @@ type MapDom = GlobeMap & { Marker: typeof Marker; Popup: typeof Popup };   // ma
 
 export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const t = tr(), lang = getLang();
+	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
+	const HAZARD_ATTR = `<a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">${esc(t("Hazard Map Portal Site (MLIT)"))}</a>`;
+	const HINAN_ATTR = t("Designated emergency evacuation site data (GSI)");
+	const KSJ_ATTR = (what: string) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>`;
+	const LOD1_ATTR = t("MLIT PLATEAU (LOD1 buildings)");
 	const num = (n: number) => n.toLocaleString(lang);
 	document.title = t("Yokohama Digital Twin");
 	const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? t(w.en) : ""; };
 	// 地下鉄の駅名＝日本語以外はローマ字（SUBWAY.romaji）。他の駅・停留所・施設の名は台帳の日本語のまま（固有名）
-	const staName = (ja: string) => { if (lang === "ja") return ja; const c = subwayCodes(ja)[0]; return c ? c.line.romaji[+c.code.slice(1) - 1] : ja; };
+	const staName = (ja: string) => { if (lang === "ja" || lang === "zh") return ja;   // 中国語は漢字の駅名がそのまま読める
+		const c = subwayCodes(ja)[0]; return c ? c.line.romaji[+c.code.slice(1) - 1] : ja; };
 	const mapEl = map.mapEl;
 	const ML = map as MapDom;
 	const st: TwinState = parseState(location.search);
@@ -156,7 +158,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				geometry: { type: "Polygon", coordinates: [[[138.6, 34.8], [140.6, 34.8], [140.6, 36.2], [138.6, 36.2], [138.6, 34.8]], ...fc.city] } }] } });
 			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
 		}
-		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("行政区域") });
+		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("administrative boundaries") });
 		await map.addLayer({ id: "yk-ward-on", type: "fill", source: "yk-wards", filter: ["==", ["get", "code"], ""], paint: { "fill-color": "#1e88e5", "fill-opacity": 0.12 } });
 		await map.addLayer({ id: "yk-ward-line", type: "line", source: "yk-wards", paint: { "line-color": "#37474f", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 15, 2.5], "line-opacity": 0.75 } });
 		return fc;
@@ -167,7 +169,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const pr = panel.getBoundingClientRect(), mr = mapEl.getBoundingClientRect();
 		const desk = pr.width < w * 0.6 && !panel.classList.contains("min");
 		const sheet = !desk && !panel.classList.contains("min") && pr.top > mr.top + h * 0.3;   // スマホ＝下端のシート
-		return { top: side, left: side, right: side + (desk ? mr.right - pr.left : 0), bottom: side + (sheet ? mr.bottom - pr.top : 0) };
+		const onLeft = pr.left + pr.width / 2 < mr.left + w / 2;   // RTL（ar・fa・ur・he）は板が左に来る＝余白を足す側を板のある側に
+		return { top: side, left: side + (desk && onLeft ? pr.right - mr.left : 0), right: side + (desk && !onLeft ? mr.right - pr.left : 0), bottom: side + (sheet ? mr.bottom - pr.top : 0) };
 	};
 	const wardSel = $<HTMLSelectElement>(".ward");
 	async function setWard(code: string) {
@@ -211,7 +214,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const d = await ledger<{ rows: FacilityRow[] }>("facilities.json");
 		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
 		fac = d.rows;
-		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("公共施設・学校・文化施設・医療機関ほか"),
+		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc."),
 			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3] } })) } });
 		const f0 = facFilter();
 		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
@@ -328,7 +331,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const loadRail = () => railReady ??= ledger<RailLedger>("rail.json").then(async d => {
 		if (!d?.lines?.features?.length) return null;
 		const sub = d.lines.features.filter(f => f.properties?.subway), other = d.lines.features.filter(f => !f.properties?.subway);
-		map.addSource("yk-rail", { type: "geojson", data: { type: "FeatureCollection", features: other }, attribution: KSJ_ATTR("鉄道") });
+		map.addSource("yk-rail", { type: "geojson", data: { type: "FeatureCollection", features: other }, attribution: KSJ_ATTR("railways") });
 		await map.addLayer({ id: "yk-rail", type: "line", source: "yk-rail", layout: { visibility: "none" }, paint: { "line-color": "#5d6670", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 16, 3] } });
 		const ost = d.stations.filter(s => !s[4]);
 		map.addSource("yk-rail-st", { type: "geojson", data: { type: "FeatureCollection", features: ost.map((s, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [s[0], s[1]] }, properties: { i } })) } });
@@ -363,7 +366,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const loadBus = () => busReady ??= ledger<{ stops: BusRow[] }>("bus.json").then(async d => {
 		if (!d?.stops?.length) { $<HTMLElement>('[data-trn="bus"]').textContent = t("Could not load"); return; }
 		bus = d.stops;
-		map.addSource("yk-bus", { type: "geojson", attribution: KSJ_ATTR("バス停留所"), data: { type: "FeatureCollection", features: bus.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i } })) } });
+		map.addSource("yk-bus", { type: "geojson", attribution: KSJ_ATTR("bus stops"), data: { type: "FeatureCollection", features: bus.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i } })) } });
 		await map.addLayer({ id: "yk-bus", type: "circle", source: "yk-bus", minzoom: 12.5, layout: { visibility: "none" },
 			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 2, 15, 4, 18, 6.5], "circle-color": "#ef6c00", "circle-stroke-color": "#fff", "circle-stroke-width": 1 } });
 		const tip = map.gadget.tip();
@@ -655,8 +658,8 @@ const CSS = `
 .yk-panel .tour.port{background:linear-gradient(90deg,#0b3d6b,#1565c0);margin-top:6px}
 .yk-cap .yr{font-weight:700;letter-spacing:.04em}
 .yk-panel .tour{width:100%;margin:10px 0 2px;padding:9px 10px;border:0;border-radius:var(--qm-r-m);background:linear-gradient(90deg,#1565c0,#0d8bb0);color:#fff;font:inherit;font-weight:700;cursor:pointer}
-.yk-panel .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:10px 0 8px}
-.yk-panel .tabs button{font:inherit;padding:6px 0;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
+.yk-panel .tabs{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 8px}
+.yk-panel .tabs button{flex:1 1 0;min-width:max-content;font:inherit;padding:6px 8px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
 .yk-panel .tabs button[aria-selected=true]{background:#fff;color:#0b1220;border-color:#fff;font-weight:700}
 .yk-panel h2{font-size:12px;margin:12px 0 4px;color:var(--qm-text-dim);font-weight:600}
 .yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}
