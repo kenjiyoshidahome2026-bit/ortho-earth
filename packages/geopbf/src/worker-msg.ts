@@ -44,7 +44,7 @@ export interface PbfDecodeResponse {
 }
 /** decoder:gint（GintBUF → unPackGint・SAB なら共有のまま） */
 export interface GintDecodeRequest { sab: ArrayBuffer | SharedArrayBuffer }
-export type GintDecodeResponse = UnPackGint | null;
+export type GintDecodeResponse = UnPackGint | { unpackFailed: true };   // unpackFailed＝解けない GintBUF（旧版キャッシュ等）＝呼び手は unPackGint=null として自己修復へ
 
 /** 書き出しの options（createGeopbf の ExportOptions のうち worker が読む分） */
 export interface EncodeOptions {
