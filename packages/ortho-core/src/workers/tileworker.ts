@@ -14,14 +14,14 @@ import type { Style } from "../build.ts";
 import type { TileData } from "../decode.ts";
 import type { TileRequest, TileResponse } from "../worker-msg.ts";
 
-let style: Style | null = null, need: Set<string> | null = null, coverage: number[] | null = null, encoding = "mvt";   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox。encoding＝タイルの形式（mvt｜mlt・#88）
+let style: Style | null = null, need: Set<string> | null = null, coverage: number[] | null = null, encoding = "mvt", drape = true;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox。encoding＝タイルの形式（mvt｜mlt・#88）。drape＝線の細分（地形の有無・§3.2）
 const aborts = new Map<number, AbortController>();   // id → AbortController（in-flight のみ保持）
 
 self.onmessage = async (e: MessageEvent<TileRequest>) => {
 	const m = e.data;
 	if (m.type === "init" || m.type === "setStyle") setGlobalState(m.style?.globalState as Record<string, unknown> | null | undefined);
-	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; encoding = m.encoding || "mvt"; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
-	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); if (m.encoding) encoding = m.encoding; return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）。setStyle で基図の置き場が替わる時は形式も一緒に来る
+	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; encoding = m.encoding || "mvt"; drape = m.drape !== false; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
+	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); if (m.encoding) encoding = m.encoding; if (m.drape != null) drape = m.drape; return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）。setStyle で基図の置き場が替わる時は形式も一緒に来る。drape＝地形の有無が替わる時（setTerrain）
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y, init } = m, body = m.bytes;   // init＝{headers,credentials}・body＝addProtocol が main で取った本体（#37）⚠名前 bytes は下の try で転送量の let に使う（TDZ）
 	const ac = new AbortController();
@@ -34,7 +34,7 @@ self.onmessage = async (e: MessageEvent<TileRequest>) => {
 			: url.startsWith("pmtiles://") ? await (await pmSrc()).fetchPMTiles(url, z, x, y, ac.signal, need)   // 全球ソース（PMTiles）＝配信圏(coverage)の外でも正当。形式はアーカイブのヘッダ（tileType）が決める
 			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need, init, null, encoding);
 		const t1 = performance.now();
-		const { origin, dl, labels, buildings, bytes } = buildTilePayload(layers, { z, x, y }, style!);   // bytes＝scene worker が保持する geometry の実バイト
+		const { origin, dl, labels, buildings, bytes } = buildTilePayload(layers, { z, x, y }, style!, { drape });   // bytes＝scene worker が保持する geometry の実バイト
 		const t = { fetch: t1 - t0, build: performance.now() - t1 };
 		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z, bytes, t } satisfies TileResponse, opBuffers(dl.ops, buildings) as ArrayBuffer[]);   // transfer＝境界跨ぎのコピーを避ける
 	} catch (err) {

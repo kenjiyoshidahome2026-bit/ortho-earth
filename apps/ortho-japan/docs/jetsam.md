@@ -97,6 +97,8 @@ peak(常駐) + 過渡(~0.3GB × 同時デコード数)  <  タブ予算(~900MB /
 | `?maxact=N` | PLATEAU 同時表示区数の上書き（絞りを緩める） |
 | `?tbudget=N` | タイル tess 予算(MB)の上書き（`?tbudget=48`で戻す・`0`で auto） |
 | `?nomd=1` / `?md=1` | multi_draw 常駐プールの OFF/強制ON |
+| `?tileq=0` | タイル worker の優先付き共有キュー（主層→下地→毛布・画面中心の近い順）を切り、旧の round-robin に戻す（vt perf plan §3.1） |
+| `?linesub=1` | 地形を描かない地図でも線を 700m ごとに細分する（旧挙動・vt perf plan §3.2） |
 | `?nocov=1` | 圏外タイル抑制の無効化（旧挙動＝周縁404復活） |
 | `?nor01=1` | 混成R01近景の無効化（全面R10へ＝R01過渡で落ちる端末の逃げ道） |
 | `?nogint=1` | gint 層の無効化 |

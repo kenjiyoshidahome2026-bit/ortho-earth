@@ -10,10 +10,10 @@ import type { BakeBaseResult, BakedTier, GintData, GintPayload } from "./gint/ba
 export type { MergedScene };   // scene の便り（ScenePortMessage の "scene"）の中身＝受け手（globe の renderworker）がこの口だけで読めるように
 
 // ── ortho:tile（workers/tileworker.ts）＝fetch→decode→tessellation
-/** main → tile worker：起動（style・配信圏・楕円体・形式） */
-export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string }
-/** main → tile worker：配色テーマ／基図の生き替え（coverage は据置・形式は来た時だけ） */
-export interface TileSetStyleRequest { type: "setStyle"; style: Style; encoding?: string }
+/** main → tile worker：起動（style・配信圏・楕円体・形式・drape＝地形にドレープする＝線を細分する・既定 true・vt perf plan §3.2） */
+export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string; drape?: boolean }
+/** main → tile worker：配色テーマ／基図の生き替え（coverage は据置・形式と drape は来た時だけ） */
+export interface TileSetStyleRequest { type: "setStyle"; style: Style; encoding?: string; drape?: boolean }
 /** main → tile worker：視野外の in-flight を中断 */
 export interface TileAbortRequest { type: "abort"; id: number }
 /** main → tile worker：タイル 1 枚の要求（type 無し）。init＝{headers,credentials}・bytes＝addProtocol が main で取った本体（#37） */

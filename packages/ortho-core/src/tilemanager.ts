@@ -24,8 +24,10 @@ export type TileRole = 0 | 1 | 2;
 export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number; role?: TileRole; needAt?: number; readyAt?: number; shownAt?: number }
 /** 計器 e の 1 件（shown が返す）：total＝必要になった→画面・ready＝必要になった→組み立てが届いた・wait＝ready のうち worker の時間（t）を除いた待ち（キューと転送） */
 export interface TileLatency { key: string; z: number; total: number; ready: number; wait: number; t: TileTimings | null }
-/** タイルの組み立て（worker 経路は abort を持つ） */
-export type BuildTileFn = ((t: TileXYZ) => Promise<TileResult>) & { abort?: (key: string) => void };
+/** 組み立ての急ぎ具合（vt perf plan §3.1 の優先付きキューの鍵）：role＝主層 0／下地 1／毛布 2・dist＝画面中心からの距離（度・大きいほど後） */
+export interface BuildHint { role: TileRole; dist: number }
+/** タイルの組み立て（worker 経路は abort・priority（待ちの優先度の付け直し）・stats を持つ） */
+export type BuildTileFn = ((t: TileXYZ, hint?: BuildHint) => Promise<TileResult>) & { abort?: (key: string) => void; priority?: (key: string, hint: BuildHint) => void; stats?: () => { queued: number; inflight: number } | null };
 export interface LodFloor { minViewZoom: number; z: number }
 export interface TileManagerOptions {
 	style: Style; tileUrl: (z: number, x: number, y: number) => string; onChange?: (() => void) | null; cap?: number; buildTile?: BuildTileFn | null; onEvict?: ((keys: string[]) => void) | null;
@@ -35,7 +37,7 @@ export interface TileManagerOptions {
 export interface OrderItem { key: string; origin: number[] | null; z: number }
 export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
-export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number }
+export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number; queue?: { queued: number; inflight: number } | null }
 export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void; shown(keys: Iterable<string>): TileLatency[] }
 interface LodMemo { key: unknown[]; selected: TileXYZ[]; coarse: TileXYZ[]; blanket: TileXYZ[]; keepKeys: string[] }
 
@@ -75,17 +77,23 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	}
 	const build: BuildTileFn = buildTile || defaultBuildTile;
 
-	// role＝この ensure を出した経路（0 主層・1 下地・2 毛布）。同じタイルが複数の役で要るなら最も近い役（小さい方）を残す＝計器 e は主層として要った瞬間から数える
+	// role＝この ensure を出した経路（0 主層・1 下地・2 毛布）。同じタイルが複数の役で要るなら最も近い役（小さい方）を残す＝計器 e は主層として要った瞬間から数える。
+	// dist＝画面中心（cam.center）からタイル中心までの距離（度）＝優先付きキュー（§3.1）の第 2 鍵。読込中の枠は update ごとに付け直す（build.priority）
 	const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
-	async function ensure(t: TileXYZ, role: TileRole = 0): Promise<void> {
+	const distOf = (t: TileXYZ, c: readonly number[]): number => { const n = 1 << t.z, lon = ((t.x + 0.5) / n) * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 0.5) / n))) * 180 / Math.PI; let dl = lon - c[0]; if (dl > 180) dl -= 360; else if (dl < -180) dl += 360; return Math.hypot(dl * Math.cos(c[1] * Math.PI / 180), lat - c[1]); };
+	async function ensure(t: TileXYZ, role: TileRole = 0, center: readonly number[] = [0, 0]): Promise<void> {
 		const k = keyOf(t);
 		const ex = cache.get(k);
-		if (ex && ex.status !== "error") { if (role < (ex.role ?? 2)) { ex.role = role; if (ex.status === "loading") ex.needAt = now(); } return; }   // loading/ready はそのまま（役だけ近い方へ・読込中に主層になったらそこから数える）
+		if (ex && ex.status !== "error") {   // loading/ready はそのまま（役だけ近い方へ・読込中に主層になったらそこから数える）。待っている物は優先度を付け直す
+			if (role < (ex.role ?? 2)) { ex.role = role; if (ex.status === "loading") ex.needAt = now(); }
+			if (ex.status === "loading" && build.priority) build.priority(k, { role: ex.role ?? role, dist: distOf(t, center) });
+			return;
+		}
 		const tries = ex ? (ex.tries || 0) : 0;
 		if (tries >= 3) return;                     // 3回失敗＝諦める（本当に無いタイル等での永久リトライ回避）
 		put(k, { status: "loading", tries, role, needAt: now() });
 		try {
-			const r = await build(t);   // worker or main
+			const r = await build(t, { role, dist: distOf(t, center) });   // worker or main
 			const cur = cache.get(k);   // 読込中に役が近くなった分（ensure の先頭）を引き継ぐ
 			put(k, { status: "ready", ...r, role: cur?.role ?? role, needAt: cur?.needAt, readyAt: now() });
 			onChange && onChange();
@@ -211,9 +219,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const keep = new Set(keepKeys);
 		if (drawSel !== selected) for (const t of drawSel) keep.add(keyOf(t));
 		if (fillSel !== drawSel) for (const t of fillSel) keep.add(keyOf(t));   // 代打の祖先・子孫も LRU に食わせない
-		for (const t of blanket) ensure(t, 2);
-		for (const t of coarse) ensure(t, 1);
-		for (const t of selected) ensure(t, 0);
+		for (const t of blanket) ensure(t, 2, cam.center);
+		for (const t of coarse) ensure(t, 1, cam.center);
+		for (const t of selected) ensure(t, 0, cam.center);
 		// 視野から外れた読込中タイルは fetch ごと中断（高速パンで帯域とworker CPUを空ける）。
 		// エントリは ensure の catch("aborted") が消す＝パンで戻ってきたら普通に再取得される。
 		if (build.abort) {
@@ -312,7 +320,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	function stats(): TileStats {
 		let tiles = 0, bytes = 0;
 		for (const c of cache.values()) if (c.status === "ready") { tiles++; bytes += c.bytes || 0; }
-		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size };
+		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size, queue: build.stats ? build.stats() : null };
 	}
 
 	// restyle（配色テーマの生き替え）：全タイルを捨てる＝scene worker の鏡(geom/GPU常駐)も onEvict で同時に空へ。

@@ -16,11 +16,13 @@ export { opBuffers };
 /** タイル 1 枚の荷＝描画 op 列・注記・建物・実バイト */
 export interface TilePayload { origin: number[]; dl: DrawList; labels: Label[]; buildings: BuildingsGeom | null; z: number; bytes: number }
 
+/** 組み立ての口：drape＝地形にドレープする（既定 true＝線を 700m ごとに細分）。false＝細分なし（vt perf plan §3.2・terrain の無い地図） */
+export interface PayloadOptions { drape?: boolean }
 // layers＝decode の結果（{ __empty } を含む）・t＝{ z, x, y }。戻り＝{ origin, dl, labels, buildings, z, bytes }
-export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: Style): TilePayload {
+export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: Style, opts?: PayloadOptions): TilePayload {
 	const [w, , , n] = tileBounds(x, y, z);
 	const origin = [w, n];
-	const dl = buildTileDrawList({ layers, z, x, y }, style, origin);
+	const dl = buildTileDrawList({ layers, z, x, y, subLenM: opts?.drape === false ? Infinity : undefined }, style, origin);
 	// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
 	const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 	const { labels } = buildLabels({ layers, z, x, y }, style);
