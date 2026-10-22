@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第2版までの半年</title>
+<meta name="description" content="2026 年 4 月の最初の一行から半年。Gint、PLATEAU、WebGPU、26 言語、MapLibre 互換を経て、TypeScript で書き直した第 2 版を出すまでの話。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v2-jp">
+<meta property="og:title" content="第2版までの半年">
+<meta property="og:description" content="2026 年 4 月の最初の一行から半年。Gint、PLATEAU、WebGPU、26 言語、MapLibre 互換を経て、TypeScript で書き直した第 2 版を出すまでの話。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v2-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-22">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。体裁は独り地理院（introduction.html）の生成りの紙に合わせた共通の story.css -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v2.html" lang="en">English</a></nav>
+<header class="masthead"><h1>第2版までの半年</h1><p class="byline">2026-10-22 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>2026 年 4 月 15 日、最初のコミットを置きました。題は「Workspace setup」。それから半年で、コミットは 3,500 近くになりました。10 月 17 日、ortho-earth は第 2 版、2.0 になりました。節目なので、ここまでの道のりを一度振り返っておきます。</p>
+<h2>春：見えない半分から</h2>
+<p>4 月は初代の地図 ortho-map から始めましたが、5 月と 6 月に力を注いだのは、地図そのものではなく、地図の下に敷く層でした。地理データを図形のまま運ぶ入れ物 GeoPBF と、その図形を GPU が直接読める形で抱く Gint です。画面には何も出ないので、外から見れば何もしていないのと同じです。それでも、ここを先にやらなければ、後で必ず作り直すことになると思っていました。</p>
+<h2>夏：日本を載せる</h2>
+<p>7 月、PLATEAU の建物を球に載せました。最初は 1 地区、すぐに全国 300 の市区町村へ広げました。7 地区だけ建物が出ない、という不具合を一つずつ潰していく日々でした。丸い地球の上に、東京の街が立ち上がった時のことはよく覚えています。</p>
+<p>8 月 1 日には、描画を WebGPU へ移しました。地球、地形、建物、Gint、星空と、移植の段を一日で通しました。翌日は iPhone で一日中白い画面と向き合い、原因を一つずつ名指しする道具を作り続けて、ようやく実機で動きました。その日のうちに、WebGPU を既定にすると決めました。古い端末には WebGL2 が残っています。</p>
+<p>同じ月に、実スケールの太陽系 ortho-solar と、国勢調査 2020 の可視化を作りました。地図は地球の上で止まる必要はないし、統計は表のままでいる必要もありません。</p>
+<h2>秋：世界へ、そして互換へ</h2>
+<p>9 月は、日本の地図を世界の地図にした月でした。画面の言葉を 26 の言語にし、Equal Earth という平らな世界地図と、丸い地球の間を行き来できるようにしました。www のトップも作り直し、「Equal to all, fair to the Earth」という言葉を掲げました。地球は丸い。地図は誰のものでもある。それを最初に言っておきたかったのです。</p>
+<p>月の終わりには、地球儀を @ortho-earth/globe という独立した部品に切り出し、MapLibre GL JS と同じ書き方で使えるようにしました。物差しには MapLibre 自身の公式例 139 本を使いました。それぞれを本物と並べて走らせ、絵と答えが一致するかを採点します。最初は同じ絵が 0 本でしたが、今は 66 本が同じ絵、50 本が同じ答えになり、動かない例はありません。新しい API を覚えてもらうのではなく、知っている書き方がそのまま丸い地球で動く。これが一番やりたかったことです。</p>
+<h2>2.0 で、何を捨てたか</h2>
+<p>第 2 版の中身は、一言で言えば「書き直しと、片付け」です。全てのライブラリを TypeScript（strict）で書き直し、1.x が互換のために残していた古い名前や裏口を閉じました。使う人には少し不親切な変更ですが、新しい形に入る時には古いものを捨てる、というのがこの工房の決まりです。何が変わったかは「Ortho Earth 2.0 を公開しました」に詳しく書きました。</p>
+<h2>2.0 のあと</h2>
+<p>出してすぐ、他のエンジンと並べて性能を測りました。測ってみると、自分では気づかなかった弱点が次々に見つかります。iPhone で読み込みを控えすぎていたこと、止まった瞬間に一瞬白く抜けること、メモリの数え方の甘さ。数日のうちに直して、2.0.2 と次の版に入れました。その話は「PLATEAU 3D 都市モデルの描画性能比較」に書きました。</p>
+<h2>第2版までのマイルストーン</h2>
+<p>コミットの記録から拾った、第 2 版までの主な節目です。</p>
+<div class="table-wrap"><table><thead><tr><th>日付</th><th>出来事</th></tr></thead><tbody><tr><td>4月15日</td><td>最初のコミット。初代の地図 ortho-map と、データを置く道具を作り始める</td></tr><tr><td>4月22日</td><td>左目の白内障の手術</td></tr><tr><td>4月29日</td><td>右目の白内障の手術。目が見えるようになった</td></tr><tr><td>5月10日</td><td>GIS-HUB（今の GeoPBF のデモ）を作り始める</td></tr><tr><td>5月26日</td><td>Gint の符号化。地理データを GPU が直接読める形にする</td></tr><tr><td>6月12日</td><td>地理データの入れ物を GeoPBF としてまとめる</td></tr><tr><td>6月13日</td><td>ドメイン ortho-earth.com を取得し、Cloudflare にアカウントを作る。製図係 Sonnet 4.6 の名がコミットに初めて残る</td></tr><tr><td>6月18日</td><td>描画を WebGL2 で作り直す</td></tr><tr><td>7月1日</td><td>製図係に Opus 4.8 が加わる</td></tr><tr><td>7月4日</td><td>国土地理院のベクトルタイルを球の上に描く。建物の押し出しと、標高で地形を起こす</td></tr><tr><td>7月6日</td><td>描画を worker へ移す。主スレッドを空ける作りの始まり</td></tr><tr><td>7月8日</td><td>PLATEAU の LOD2 建物を球に載せ、全国 300 市区町村へ広げる。製図係に Fable 5 が加わる</td></tr><tr><td>7月10日</td><td>日本地図 ortho-japan を www.ortho-earth.com で公開</td></tr><tr><td>7月12日</td><td>1 行で日本が立ち上がる API。地図をどの頁にも埋め込める部品にする</td></tr><tr><td>7月22日</td><td>日本の地形を 10 m の数値標高モデルへ</td></tr><tr><td>8月1日</td><td>描画を WebGPU へ移植。地球・地形・建物・Gint・星空を一日で</td></tr><tr><td>8月2日</td><td>iPhone の実機で WebGPU が動く。WebGPU を既定にする</td></tr><tr><td>8月5日</td><td>製図係に Opus 5 が加わる</td></tr><tr><td>8月6日</td><td>MacBook Pro（M5 Pro・64 GB）を買う</td></tr><tr><td>8月10日</td><td>実スケールの太陽系 ortho-solar</td></tr><tr><td>8月13日</td><td>国勢調査 2020 の可視化</td></tr><tr><td>8月19日</td><td>ortho-japan 1.0.0。翌日、初めて npm に公開</td></tr><tr><td>8月24日</td><td>CNG Japan で、初めて ortho-earth のデモを人前で見せる</td></tr><tr><td>8月31日</td><td>日本の外に世界の下地が生える</td></tr><tr><td>9月4日</td><td>製図係が Fable 5.1 になる</td></tr><tr><td>9月5日</td><td>衛星画像の COG を、サーバーなしで直接読む</td></tr><tr><td>9月10日〜19日</td><td>画面の言葉を 26 言語に</td></tr><tr><td>9月18日〜20日</td><td>Equal Earth の世界地図と、球との行き来</td></tr><tr><td>9月22日</td><td>www を作り直し、「Equal to all, fair to the Earth」を掲げる</td></tr><tr><td>9月23日</td><td>地球儀を @ortho-earth/globe として切り出す。I3S を読む。製図係に Opus 5.5 が加わる</td></tr><tr><td>9月26日〜27日</td><td>MapLibre GL JS 互換。公式例 139 本を物差しにする</td></tr><tr><td>10月2日〜11日</td><td>海外旅行。その間もスマホで開発を続け、コミットは 35</td></tr><tr><td>10月14日</td><td>1.x の最後の版（globe 1.16.0）</td></tr><tr><td>10月15日</td><td>全てのライブラリを TypeScript（strict）へ</td></tr><tr><td>10月17日</td><td>第 2 版、2.0 を npm に公開</td></tr></tbody></table></div>
+<h2>振り返って</h2>
+<p>半年前、ここまで来られるとは思っていませんでした。私はコードを一行も書いていません。毎日やっていたのは、出てきた画面を見て「違う」と言うことと、「根治せよ」と言うことだけです。それでも 3,500 回の小さな裁定を積むと、ちゃんと地図になるのだと、今は少し驚いています。</p>
+<p>2.0 は終わりではなく、やっと土台が固まったところです。ここから先は、この地球の上に、私が本当に描きたいものを載せていくつもりです。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

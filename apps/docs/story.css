@@ -1,0 +1,67 @@
+/* Stories の記事の体裁（2026-10-22）＝独り地理院（introduction.html）の生成りの紙・明朝に合わせ、長い記事のための見出し・表・棒グラフを足した物。
+   頁は apps/www/stories.json のカードから www のナビの下の iframe で開く */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+	--paper:   #ece1c9;
+	--paper2:  #e4d7b8;
+	--ink:     #2c241a;
+	--ink-soft:#463b2b;
+	--ink-dim: #8a7856;
+	--rule:    #c3b18a;
+	--indigo:  #3f4a68;
+	--bar:     #a8956c;
+	--mincho: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Times New Roman", serif;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--mincho); line-height: 2.0; position: relative; }
+body::before {
+	content: ""; position: fixed; inset: 0; z-index: 9999; pointer-events: none; opacity: 0.05; mix-blend-mode: multiply;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+	background: radial-gradient(120% 80% at 50% 0%, rgba(255,250,238,0.55), rgba(120,100,60,0.10) 100%); }
+a { color: var(--indigo); }
+
+.story-nav { max-width: 700px; margin: 0 auto; padding: 18px 24px 0; display: flex; justify-content: space-between; font-size: 0.85rem; letter-spacing: 0.05em; }
+.story-nav a { color: var(--ink-dim); text-decoration: none; }
+.story-nav a:hover { color: var(--ink); }
+
+.masthead { max-width: 700px; margin: 0 auto; padding: 36px 24px 0; text-align: center; }
+.masthead h1 { border-top: 3px double var(--ink-soft); border-bottom: 3px double var(--ink-soft); padding: 20px 0 22px;
+	font-size: clamp(1.5rem, 4.6vw, 2.2rem); font-weight: 600; line-height: 1.5; letter-spacing: 0.08em; color: var(--ink); }
+.masthead .byline { margin-top: 10px; font-size: 0.85rem; color: var(--ink-dim); letter-spacing: 0.05em; }
+
+.reading { max-width: 680px; margin: 0 auto; padding: 32px 24px 64px; }
+.essay h2 { font-size: 1.25rem; font-weight: 600; color: var(--ink); margin: 2.2em 0 0.8em; padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+.essay p, .essay li { color: var(--ink-soft); font-size: 1.04rem; line-height: 2.1; text-align: justify; text-justify: inter-character; }
+.essay p { margin: 0 0 1.3em; }
+.essay ul, .essay ol { margin: 0 0 1.4em 1.4em; }
+.essay li { margin-bottom: 0.5em; }
+.essay strong { color: var(--ink); }
+.essay .note-small, .essay .chart-cap { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.8; }
+.essay .chart-cap { margin: 1.4em 0 0.4em; color: var(--ink); font-weight: 600; }
+.sig { margin: 40px 0 8px; text-align: right; font-size: 1.1rem; color: var(--ink); letter-spacing: 0.05em; }
+
+.table-wrap { overflow-x: auto; margin: 0 0 1.5em; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; line-height: 1.6; color: var(--ink-soft); }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--rule); text-align: start; vertical-align: top; }
+th { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--ink-dim); white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+
+.chart { margin: 0 0 1.6em; padding: 16px 18px; background: var(--paper2); border: 1px solid var(--rule); }
+.chart-group + .chart-group { margin-top: 14px; }
+.chart-sub { font-size: 0.85rem; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.bar-row { display: grid; grid-template-columns: 11em 1fr; align-items: center; gap: 10px; font-size: 0.82rem; line-height: 1.5; color: var(--ink-soft); }
+.bar-label { text-align: end; }
+.bar-track { display: flex; align-items: center; gap: 6px; }
+.bar { display: block; height: 12px; background: var(--bar); }
+.bar-row.cull .bar { background: var(--indigo); }
+.bar-row.ref .bar { opacity: 0.45; }
+.bar-row.ref .bar-label { color: var(--ink-dim); }
+.bar-val { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+	.essay p, .essay li { font-size: 1.0rem; line-height: 2.0; text-align: left; }
+	.bar-row { grid-template-columns: 8.5em 1fr; font-size: 0.76rem; }
+	td:first-child { white-space: normal; }
+}
