@@ -11,7 +11,7 @@
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
-import { buildTileDrawList, DASH_GPU_MAX } from "@ortho-earth/core/build";
+import { buildTileDrawList, DASH_GPU_MAX, dashOffsetOk } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.ts";
 import type { DecodedFeature, DecodedLayer } from "@ortho-earth/core/decode";
@@ -117,9 +117,9 @@ function build(m: VtMsg) {
 				run({ ...L, type: "line", paint: { "line-color": P["fill-outline-color"], "line-width": 1, "line-opacity": P["fill-opacity"] ?? 1, "line-translate": P["fill-translate"], "line-translate-anchor": P["fill-translate-anchor"] }, layout: {} }, os, 1);   // 縁も面と一緒にずらす（S-P1-4/5）
 			}
 		} else if (L.type === "line") {
-			if (L.paint["line-dasharray"] != null && pz !== z) {   // CPU で刻む破線（ずらす層・模様 9 個以上）はタイルの縮尺で刻まれる（core build）＝表示の z との差の分だけ縮める。シェーダの破線（core S-P1-3）は表示の z の尺で描く＝そのまま
+			if (L.paint["line-dasharray"] != null && pz !== z) {   // CPU で刻む破線（地物ごとにずらす層・模様 9 個以上）はタイルの縮尺で刻まれる（core build）＝表示の z との差の分だけ縮める。シェーダの破線（core S-P1-3）は表示の z の尺で描く＝そのまま
 				const d = evalExpr(L.paint["line-dasharray"], pctx);
-				const gpu = Array.isArray(d) && d.length <= DASH_GPU_MAX && L.paint["line-offset"] == null && L.paint["line-gap-width"] == null;
+				const gpu = Array.isArray(d) && d.length <= DASH_GPU_MAX && dashOffsetOk(L.paint, "ml");   // ずらしが層で 1 つの値の層もシェーダ（core paintzoom.ts）
 				if (Array.isArray(d) && !gpu) L.paint = { ...L.paint, "line-dasharray": ["literal", d.map((v: number) => v * 2 ** (z - pz))] };
 			}
 			const fs: object[] = [];

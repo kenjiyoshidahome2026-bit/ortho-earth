@@ -5,7 +5,7 @@
 import earcut from "earcut";
 import type { DrawOp, LineOp } from "./scene.ts";
 import type { DecodedFeature, DecodedGeom, DecodedTile, EmptyTile, TileData } from "./tileformat.ts";
-import type { ExprContext } from "./expr.ts";
+import type { ExprContext, ExprOrigin } from "./expr.ts";
 import type { GeoCtxTile } from "./expr-geo.ts";
 import type { TileXYZ } from "./tile.ts";
 import type { BuildingsSchema } from "./buildings.ts";
@@ -234,6 +234,9 @@ export function dashPattern(v: unknown, ml = false): number[] | null {
 // 距離の単位＝z24 の px（256 px 世界＝このエンジンの z）＝世界の幅の 2^32 分の 1。タイルの中で環（線）の始点から数える（MVT はタイルで切られて来る＝MapLibre と同じ）。
 // シェーダは floor(zoom) の px に直して模様（線幅の倍数）を当てる＝MapLibre の tileZoom と同じ（このエンジンの z は MapLibre の z＋1）
 export const DASH_GPU_MAX = 8;
+/** シェーダの破線と並ぶずらし（無い・0・層で 1 つの値＝paintzoom.ts の of）。line-gap-width を持つ層は並ばない（CPU で刻む）。vtdraw-worker が CPU の破線の尺を直すかの判定に使う */
+export const dashOffsetOk = (paint: Record<string, unknown> | null | undefined, eo: ExprOrigin): boolean =>
+	paint?.["line-gap-width"] == null && (paint?.["line-offset"] == null || paint["line-offset"] === 0 || layerPaintZoom("line", paint, eo)?.of != null);
 // 外来の奇数個の模様を CPU で刻む形へ：[a, b, c]＝c と a がつながる＝[c+a, b]・刻み始めは最初の線の残り a
 function dashCpuML(p: number[]): [number[], number] | null {
 	if (!(p.length & 1)) return [p, p[0]];
@@ -458,7 +461,10 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// 層が持つ時だけ配列を作る（無い層は 0 バイト）
 			// line-gap-width（MapLibre 互換・2026-10-03）：線の芯の両脇に幅 line-width の線を 2 本（芯から gap/2＋width/2 ずらす＝ずらしの口（off）で描く・継ぎはマイター）
 			const gapExpr = L.paint?.["line-gap-width"];
-			const offExpr = L.paint?.["line-offset"], off = offExpr != null || gapExpr != null ? B.off : null; if (off) off.n = 0;
+			const offExpr = L.paint?.["line-offset"] === 0 ? null : L.paint?.["line-offset"], off = offExpr != null || gapExpr != null ? B.off : null; if (off) off.n = 0;   // 0＝ずらさない層（端と継ぎも効く）
+			// ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色・線幅・ずらしを差し替える。uOff＝ずらしが層で 1 つの値（paintzoom.ts）＝描き手が uniform で置く
+			// ＝今の z で 0 でも角の継ぎ（tS/tE）を持つ・シェーダの破線と並べる（GL2 の線分プールの語 6 が空く）
+			const pzL = eo ? layerPaintZoom("line", L.paint, eo) : null, uOff = !!(off && pzL?.of != null);
 			// 端と継ぎ（S-P1-1）：丸でない層だけ線分に隣の点 [P0, P3] を添える。ずらす層（line-offset・line-gap-width）は今は丸のまま（角の継ぎは miterSlides）
 			const cj = lineCapJoin(L.layout, z, eo), jf = !off && cj & 15 ? B.jf : null; if (jf) jf.n = 0;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
@@ -468,7 +474,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
 			const dashV = evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
 			const ml = !!(eo && L.dashInLineWidths), dashRaw = dashPattern(dashV, ml);
-			const gpuDash = ml && dashRaw && !off && dashRaw.length <= DASH_GPU_MAX ? dashRaw : null;   // シェーダで描く（S-P1-3）＝刻まない
+			const gpuDash = ml && dashRaw && (!off || uOff) && dashRaw.length <= DASH_GPU_MAX ? dashRaw : null;   // シェーダで描く（S-P1-3）＝刻まない。ずらす層は層で 1 つの値の時だけ
 			const dist = gpuDash ? B.dist : null; if (dist) dist.n = 0;
 			const dK = 2 ** (32 - z) / extent;   // タイル単位 → z24 の px
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
@@ -529,7 +535,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 					for (let j = 0, cn = col.n, hn = half.n; j < n; j++) { c4[cn++] = cr; c4[cn++] = cg; c4[cn++] = cb; c4[cn++] = ca; hf[hn++] = hw; }
 					P1.n += n * 2; P2.n += n * 2; col.n += n * 4; half.n += n;
 					if (off) {
-						const sl = ow ? g.rs.map((s0, r) => miterSlides(coords, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
+						const sl = ow || uOff ? g.rs.map((s0, r) => miterSlides(coords, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
 						const o = off.reserve(n * 3); let on = off.n;
 						for (let j = 0; j < n; j++) {
 							const fl = g.fl[j], k = g.k[j], sr = sl ? sl[g.r[j]] : NO_SLIDES;
@@ -542,7 +548,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				let ls = 0;
 				for (let r = 0; r < ends.length; r++) {
 					const le = ends[r];
-					const [tS, tE] = ow ? miterSlides(coords, ls, le) : NO_SLIDES;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
+					const [tS, tE] = ow || uOff ? miterSlides(coords, ls, le) : NO_SLIDES;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
 					if (dashPat) {
 						const k = (L.dashInLineWidths ? w : 1) * extent / 256;   // 模様の 1 単位＝タイル単位
 						let pi = 0, rem = cpu![1] * k;   // 模様の何番目か（偶数＝線・奇数＝間）とその残り。頂点をまたいで継続＝角でダッシュが割れない
@@ -570,11 +576,11 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			}
 			if (half.n) {
 				const op: LineOp = { kind: "line", li, id: L.id, P1: P1.out(), P2: P2.out(), col: col.out(), half: half.out() };
-				if (off) { let any = false; for (let i = 0; i < off.n; i += 3) if (off.a[i]) { any = true; break; } if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない
+				if (off) { let any = uOff; for (let i = 0; !any && i < off.n; i += 3) if (off.a[i]) any = true; if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない（層で 1 つの値の層は持つ＝他の z で 0 でない）
 				if (jf) { op.jf = jf.out(); op.cj = cj; }
 				if (dist) { op.dist = dist.out(); op.dash = gpuDash!; op.dz = z; }
 				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
-				const pz = eo ? layerPaintZoom("line", L.paint, eo) : null; if (pz) op.pz = pz;   // ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色と線幅を差し替える
+				if (pzL) op.pz = pzL;
 				ops.push(op);
 			}
 		}

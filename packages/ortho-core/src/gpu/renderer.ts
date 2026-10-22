@@ -13,6 +13,8 @@
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";
+import { evalPaintZoom } from "../paintzoom.ts";   // 破線でずらす md の列のずらし（線分プールの語 6 が距離＝層で 1 つの値を uniform で置く）
+import type { PaintZoom } from "../paintzoom.ts";
 import { seaFbReal, dashIntervals, chopDash } from "../scene.ts";   // dashIntervals＝破線（S-P1-3）の区間（GL2 の dashU と同じ uniform を組む）・chopDash＝?nolx=1 の逃げ道（旧＝CPU で刻む）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
@@ -181,12 +183,12 @@ type SceneDraw = FillDraw | LineDraw;
 interface SceneBld { bufs: GPUBuffer[]; bPos: GPUBuffer; bSh: GPUBuffer; bAnc: GPUBuffer; count: number }
 interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number; md?: MDScene | null }
 /** タイル GPU 常駐プールのシーン（scene worker の dl＝プール内レンジの列・vt perf plan §4）。orgOff＝origins（タイル原点−シーン原点）の頂点バッファ内 byte 位置 */
-interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null }
+interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null; dOff: PaintZoom | null }
 interface MDBldRun { counts: Int32Array; firsts: Int32Array; orgOff: number }
 interface MDScene { layers: MDLayer[]; bld: MDBldRun[] | null; orgBuf: GPUBuffer }
 interface MDPool { buf: GPUBuffer | null; bytes: number }
 interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
-interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string; cj?: number; dash?: number[]; fx?: number[] }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
+interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string; cj?: number; dash?: number[]; fx?: number[]; pz?: PaintZoom }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
 interface MDPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline }
 type DrawSrc = SceneDraw[] | MDScene;
 /** set("scene") の入力（classic merge のシーン） */
@@ -997,9 +999,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// 線の bind group：cj → lx.z・破線 → dashP（P・区間の数・丸い端・尺）＋dashI0/1・fx → tr と lx.x/.y。
 	// 尺 K＝模様の px（MapLibre の tileZoom＝floor(外来の z) の px）÷ z24 の px（地面・メルカトル）＝gl/renderer.ts setDash と同式
-	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null): GPUBindGroup {
-		return lxSlot(role, key, "", patDummyView, o => {
+	// off＝破線でずらす md の列のずらし（CSS px）→ tr.w（鍵に含める）
+	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null, off = 0): GPUBindGroup {
+		return lxSlot(role, off ? `${key}|${off}` : key, "", patDummyView, o => {
 			lxFx(o, fx, true);
+			lxCPU[o + 3] = off;
 			lxCPU[o + 6] = cj;
 			if (dash) {
 				const z = lxCam.zoom, zs = z - (view.dashDz ?? 1);
@@ -2062,7 +2066,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const layers: MDLayer[] = m.layers.map(L => {
 			const cj = L.cj || 0, dash = L.kind === "line" ? dashU(L.dash, cj) : null, fx = L.fx || null;
 			return { kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}), cj, dash, fx,
-				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx) };
+				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx), dOff: dash && L.pz?.of != null ? L.pz : null };
 		});
 		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
 		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -2750,7 +2754,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (!md!.lineBG) return;
 				pass.setPipeline(terrainDepth ? MDX!.lineTest : MDX!.lineOff);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx) : paramBG[ROLE.normal]);
+				pass.setBindGroup(1, e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx, e.dOff ? evalPaintZoom(e.dOff, lxCam.zoom).off! : 0) : paramBG[ROLE.normal]);
 				pass.setBindGroup(2, grp(slot) || emptyBG);
 				pass.setBindGroup(3, md!.lineBG);
 				pass.setVertexBuffer(0, orgBuf, e.orgOff);
