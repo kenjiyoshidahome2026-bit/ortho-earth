@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- 実描画の検分：層の画面効果（MapLibre の fill-translate／line-translate／circle-translate（-anchor）・line-blur・circle-blur・互換の計画 S-P1-4/5・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw の線分プール／?nomd=1＝classic の属性）。
+     形は頁の中で作った MVT（addProtocol の fx://）＝画面の点を unproject した経緯度。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）の 2 回。
+     ①line-translate [0,20]（map）＝線が地面の南へ 20px ②[30,0]（viewport）＝縦の線が画面の右へ 30px ③line-blur 8＝幅 20 の線の縁から内へ薄く
+     ④circle-translate [20,0]・circle-blur 1＝中心から縁へ薄い円 ⑤fill-translate [0,30]＝四角が南へ 30px ⑥方位 90°：map はずれが地図と一緒に回る・viewport は画面のまま。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linefx</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {   // feats＝[{ k, t（1 点・2 線・3 面）, pts: [[x, y], …]（タイル座標） }]
+	const keys = ["k"], vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);   // version＝2
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.t);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		if (f.pts.length > 1) {
+			g.push((2 & 7) | ((f.pts.length - 1) << 3));
+			for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		}
+		if (f.t === 3) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, keys[0].split("").map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let SHAPES = [];   // [{ k, t, ll: [[lon, lat], …] }]
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("fx", async ({ url }) => {
+	const [z, x, y] = url.replace("fx://", "").split("/").map(Number);
+	return { data: mvt(SHAPES.map(l => ({ k: l.k, t: l.t, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+
+// 形の置き場（画面の CSS px・z15 で unproject）：t＝1 点・2 線・3 面
+const CASES = {
+	tr: [2, [[100, 120], [700, 120]]], trv: [2, [[300, 180], [300, 280]]], blur: [2, [[100, 330], [700, 330]]], plain: [2, [[100, 370], [700, 370]]],
+	dot: [1, [[200, 450]]], sq: [3, [[450, 420], [550, 420], [550, 480], [450, 480]]],
+};
+const F = k => ["==", ["get", "k"], k];
+const LAYERS = [
+	{ id: "l-tr", type: "line", source: "fx", "source-layer": "l", filter: F("tr"), paint: { "line-color": "#ff0000", "line-width": 6, "line-translate": [0, 20] } },
+	{ id: "l-trv", type: "line", source: "fx", "source-layer": "l", filter: F("trv"), paint: { "line-color": "#ff0000", "line-width": 6, "line-translate": [30, 0], "line-translate-anchor": "viewport" } },
+	{ id: "l-blur", type: "line", source: "fx", "source-layer": "l", filter: F("blur"), paint: { "line-color": "#ff0000", "line-width": 20, "line-blur": 8 } },
+	{ id: "l-plain", type: "line", source: "fx", "source-layer": "l", filter: F("plain"), paint: { "line-color": "#ff0000", "line-width": 20 } },
+	{ id: "c-dot", type: "circle", source: "fx", "source-layer": "l", filter: F("dot"), paint: { "circle-color": "#ff0000", "circle-radius": 20, "circle-blur": 1, "circle-translate": [20, 0] } },
+	{ id: "f-sq", type: "fill", source: "fx", "source-layer": "l", filter: F("sq"), paint: { "fill-color": "#ff0000", "fill-translate": [0, 30] } },
+];
+const SRC = { type: "vector", tiles: ["fx://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };   // 画面全体が z12 のタイル 1 枚の中（t-linejoin と同じ）
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-linefx", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+try {
+	let map = await boot();
+	SHAPES = Object.entries(CASES).map(([k, [t, pts]]) => ({ k, t, ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const check = (tag, img, rot) => {
+		const W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		const red = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] < 90 && c[2] < 90; };
+		const white = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] > 200 && c[2] > 200; };
+		const pink = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] >= 90 && c[1] <= 215; };   // 半ば透けた赤
+		const P = (k, i = 0) => map.project(SHAPES.find(l => l.k === k).ll[i]);
+		const mid = (k, a = 0, b = 1) => { const p = P(k, a), q = P(k, b); return [(p.x + q.x) / 2, (p.y + q.y) / 2]; };
+		// 地面の南・東へ d 画素（真俯瞰の画面の px＝球は縦横とも 1px＝360/(256·2^z) 度の弧）＝画面での向き（方位で回る）
+		const arc = d => d * 360 / (256 * 2 ** map.getZoom()), cosl = () => Math.cos(map.getCenter().lat * Math.PI / 180);
+		const south = d => { const c = map.getCenter(), a = map.project([c.lng, c.lat]), b = map.project([c.lng, c.lat - arc(d)]); return [b.x - a.x, b.y - a.y]; };
+		const east = d => { const c = map.getCenter(), a = map.project([c.lng, c.lat]), b = map.project([c.lng + arc(d) / cosl(), c.lat]); return [b.x - a.x, b.y - a.y]; };
+		const add = (p, v, k = 1) => [p[0] + v[0] * k, p[1] + v[1] * k];
+		const bad = [];
+		const want = (name, f, p) => { if (!f(...p)) bad.push(`${name}=${px(...p).join(",")}@${p.map(Math.round)}`); };
+		// ① map：線の中ほど＋南 20px は赤・元の位置は白
+		const m1 = mid("tr"); want("tr.moved", red, add(m1, south(20))); want("tr.orig", white, m1);
+		// ② viewport：縦の線の中ほど＋画面の右 30px は赤・元の位置は白（方位があっても画面のまま）
+		const m2 = mid("trv"); want("trv.moved", red, [m2[0] + 30, m2[1]]); if (!rot) want("trv.orig", white, m2);   // 方位 90°では線が横＝元の位置も線の上
+		// ③ blur：芯は赤・芯から 7px は透けた赤（ぼかしの無い線は赤のまま）・12px は白
+		const m3 = mid("blur"), m4 = mid("plain"), nrm = (() => { const p = P("blur"), q = P("blur", 1), L = Math.hypot(q.x - p.x, q.y - p.y); return [-(q.y - p.y) / L, (q.x - p.x) / L]; })();
+		want("blur.core", red, m3); want("blur.edge", pink, add(m3, nrm, 7)); want("blur.out", white, add(m3, nrm, 12)); want("plain.edge", red, add(m4, nrm, 7));
+		// ④ circle：中心＋東 20px は赤・半径の半ばは透けた赤・元の中心は透けた赤より薄い（中心から 20px＝縁）
+		const c0 = P("dot"), cc = add([c0.x, c0.y], east(20));
+		want("dot.core", red, cc); want("dot.half", pink, add(cc, nrm, 10)); want("dot.out", white, add(cc, nrm, 24));
+		// ⑤ fill：四角の中ほど＋南 30px の帯（元の下の辺より下）は赤・元の上の辺の内は白
+		const s0 = P("sq", 0), s3 = P("sq", 3), sTop = add([(s0.x + P("sq", 1).x) / 2, (s0.y + P("sq", 1).y) / 2], south(10)), sBot = add([(s3.x + P("sq", 2).x) / 2, (s3.y + P("sq", 2).y) / 2], south(20));
+		want("sq.moved", red, sBot); want("sq.orig", white, sTop);
+		ok(tag, !bad.length, bad.join(" "));
+	};
+	const run = async tag => {
+		await sleep(6000);
+		check(tag, await grab());
+		map.jumpTo({ bearing: 90 }); await sleep(2500);   // 方位：map のずれは地図と一緒に回る・viewport は画面のまま
+		check(tag + "@b90", await grab(), true);
+		map.jumpTo({ center: VIEW, zoom: 15, bearing: 0 }); await sleep(1500);
+	};
+	// ① 基図（setStyle の層）
+	await map.setStyle({ version: 8, name: "t-linefx", sources: { fx: SRC }, layers: [BG, ...LAYERS] });
+	await run("base");
+	// ② 利用者の vector の層（addLayer＝vtdraw）＝地図を作り直す（t-linejoin と同じ）
+	map.destroy();
+	map = await boot();
+	map.addSource("fx", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await run("user");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

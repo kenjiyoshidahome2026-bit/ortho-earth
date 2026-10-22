@@ -217,7 +217,6 @@ export function splitMapLibreStyle(style: MLStyle, { zoomOffset = 1 }: { zoomOff
 		if (L.source !== vectorSource) { skipped.push({ id: L.id, type: L.type, why: sp ? `source "${L.source}" (${sp.type}) is not the basemap` : `source "${L.source}" missing` }); continue; }
 		if (!BASE_TYPES.has(L.type)) { skipped.push({ id: L.id, type: L.type, why: "not drawn in the basemap" }); continue; }
 		// 線に沿う注記（symbol-placement line/line-center）も基図へ（段 4・旧＝"line labels" として描かない層）
-		if (L.type === "fill" && L.paint?.["fill-pattern"] != null) { skipped.push({ id: L.id, type: L.type, why: "fill-pattern" }); continue; }
 		base.push(L);
 	}
 	return { vectorSource, base, raster, geojson, skipped };

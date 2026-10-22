@@ -114,7 +114,7 @@ function build(m: VtMsg) {
 			features += fs.length;
 			if (P["fill-outline-color"] != null) {   // 明示された輪郭（MapLibre の fill の 1px の縁）＝面の輪を線として（枠の上の辺は落とす）
 				const os: object[] = []; for (const f of fs) { const g = clipLineGeom(f.geom!, E, { skipBoundary: true }); if (g) os.push({ ...f, type: "LineString", geom: g }); }
-				run({ ...L, type: "line", paint: { "line-color": P["fill-outline-color"], "line-width": 1, "line-opacity": P["fill-opacity"] ?? 1 }, layout: {} }, os, 1);
+				run({ ...L, type: "line", paint: { "line-color": P["fill-outline-color"], "line-width": 1, "line-opacity": P["fill-opacity"] ?? 1, "line-translate": P["fill-translate"], "line-translate-anchor": P["fill-translate-anchor"] }, layout: {} }, os, 1);   // 縁も面と一緒にずらす（S-P1-4/5）
 			}
 		} else if (L.type === "line") {
 			if (L.paint["line-dasharray"] != null && pz !== z) {   // CPU で刻む破線（ずらす層・模様 9 個以上）はタイルの縮尺で刻まれる（core build）＝表示の z との差の分だけ縮める。シェーダの破線（core S-P1-3）は表示の z の尺で描く＝そのまま
@@ -146,9 +146,11 @@ function build(m: VtMsg) {
 				for (let i = 0; i < v.length; i += 2) rings.push({ ...f, type: "LineString", geom: ringGeom(v[i], v[i + 1], rr) });
 			}
 			const base = { ...L, type: "line", layout: { "line-cap": "round", "line-join": "round", ...(L.layout["circle-sort-key"] != null ? { "line-sort-key": L.layout["circle-sort-key"] } : {}) } };   // 丸点＝丸い端（MapLibre の層の既定 butt では長さ 0 の線が消える・S-P1-1）
-			if (rimDots.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": ["*", 2, ["+", r, sw]], "line-opacity": P["circle-stroke-opacity"] ?? 1 } }, rimDots, 1);
-			if (rings.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": sw, "line-opacity": P["circle-stroke-opacity"] ?? 1 } }, rings, 1);
-			run({ ...base, paint: { "line-color": P["circle-color"] ?? "#000000", "line-width": ["*", 2, r], "line-opacity": P["circle-opacity"] ?? 1 } }, dots, 2);
+			// circle-translate・circle-blur（S-P1-4/5）＝線の層の画面効果へ（blur は半径の割合のまま＝build.ts の layerFx が circle-blur を読む）。透ける円の縁の輪はぼかさない（近似）
+			const tr = { "line-translate": P["circle-translate"], "line-translate-anchor": P["circle-translate-anchor"] }, fx = { ...tr, "circle-blur": P["circle-blur"] };
+			if (rimDots.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": ["*", 2, ["+", r, sw]], "line-opacity": P["circle-stroke-opacity"] ?? 1, ...fx } }, rimDots, 1);
+			if (rings.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": sw, "line-opacity": P["circle-stroke-opacity"] ?? 1, ...tr } }, rings, 1);
+			run({ ...base, paint: { "line-color": P["circle-color"] ?? "#000000", "line-width": ["*", 2, r], "line-opacity": P["circle-opacity"] ?? 1, ...fx } }, dots, 2);
 			features += dots.length;
 		} else if (L.type === "heatmap") {
 			// ヒートマップ（C1・2026-10-12）＝描くのは main の heatmap-gl（画面単位の密度＝MapLibre と同じ 2 パス）。ここは地物の頂点（MapLibre の CircleBucket と同じ＝点・線・面の頂点）の経緯度と
