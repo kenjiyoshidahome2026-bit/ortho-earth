@@ -13,6 +13,9 @@
 //   タイル）を持つセットも焼き直し対象にする（回線が空いた後の仕上げ用）
 //   --upload    焼いたセットを直後に R2 へ put（要 API_KEY 環境変数＝native-bucket の書込キー）。--upload-only＝焼かず既存出力を押す
 //   球（既定 ?ell 無し）と楕円体（?ell=1）は座標が違う＝別焼き。同じバッチの b3dm はプロセス内キャッシュで 1 回しか取らない。
+//   --region=nl オランダ（3DBAG）の街（packages/nl の NL_REGION.buildings.sets＝8 都市・2026-10-22）を焼く。全国 1 枚の tileset を
+//               街の矩形（clip）で切る走査はブラウザと同じ。置き先＝地域の申告 bakeBase（GIS/3dbag/）・既定の出力＝3dbag-bake-out/。
+//               焼きがあればブラウザは 3DBAG の tileset を辿らず R2 から取る＝3DBAG の配信が止まっていても建物が立つ
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,20 +23,25 @@ import { setLoaderOptions } from "@loaders.gl/core";
 import draco3d from "draco3d";
 import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "@ortho-earth/globe/meshdecode.js";
 import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "@ortho-earth/globe/meshq.js";
+import { NL_REGION } from "@ortho-earth/nl";
 
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
-const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
+const REGION = arg("region", "jp");
+if (REGION !== "jp" && REGION !== "nl") { console.error(`--region は jp か nl（${REGION}）`); process.exit(2); }
+const ONLY = arg("only"), OUT = arg("out", join(APP, REGION === "nl" ? "3dbag-bake-out" : "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
 const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REPACK = !!arg("repack") || !!arg("reweld"), STATS = !!arg("stats"), VERIFY_UPLOAD = !!arg("verify-upload"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
 const API_KEY = process.env.API_KEY;
+// R2 の置き場（bucket 内の鍵の頭）＝地域の申告 bakeBase の API_BASE/bucket/ より後ろ（オランダ）。日本は従来どおり GIS/plateau/
+const BUCKET_DIR = REGION === "nl" ? NL_REGION.buildings.bakeBase.replace(/^https?:\/\/[^/]+\/bucket\//, "") : "GIS/plateau/";
 if (UPLOAD && !VERIFY_UPLOAD && !API_KEY) { console.error("--upload には API_KEY 環境変数（native-bucket の書込キー）が要ります"); process.exit(2); }
 
 // Draco＝draco3d（npm）を loaders.gl に注入（Node は CDN/ローカル lib の自動解決が効かない＝これが唯一の道）
 setLoaderOptions({ modules: { draco3d } });
-setDecodeEnv({ tileConcurrency: 8, exclude: existsSync(join(APP, "public/plateau-exclude.json")) ? JSON.parse(readFileSync(join(APP, "public/plateau-exclude.json"), "utf8")) : null });   // 捨てる地物（精査裁定）
+setDecodeEnv({ tileConcurrency: 8, exclude: REGION === "jp" && existsSync(join(APP, "public/plateau-exclude.json")) ? JSON.parse(readFileSync(join(APP, "public/plateau-exclude.json"), "utf8")) : null });   // 捨てる地物（精査裁定）
 
 // b3dm はバッチ単位で「先に全部取ってから」デコードする（プロセス内キャッシュ・バッチ完了で捨てる）：
 // ①球/楕円体の 2 回目デコードで取り直さない ②取れなかったタイルは両モードから同じように外して unbaked に記す
@@ -67,12 +75,12 @@ async function prefetchTiles(uris) {   // 成功した URI を cache に積み�
 	return failed;
 }
 
-const sets = JSON.parse(readFileSync(join(APP, "public/plateau-sets.json"), "utf8"));
+const sets = REGION === "nl" ? NL_REGION.buildings.sets : JSON.parse(readFileSync(join(APP, "public/plateau-sets.json"), "utf8"));
 let targets = sets.filter((s, i) => i % SHARD_N === SHARD_I);
 if (ONLY) targets = targets.filter(s => s.name.includes(ONLY) || s.base.includes(ONLY));
 if (REVERSE) targets.reverse();   // 別マシンと両端から挟む用（完了済みは manifest でスキップ＝出会った所で自然に終わる）
 if (LIMIT) targets = targets.slice(0, LIMIT);
-console.log(`対象 ${targets.length} セット（shard ${SHARD_I}/${SHARD_N}${ONLY ? `・only=${ONLY}` : ""}）→ ${OUT}${UPLOAD ? " → R2" : ""}`);
+console.log(`対象 ${targets.length} セット（${REGION}・shard ${SHARD_I}/${SHARD_N}${ONLY ? `・only=${ONLY}` : ""}）→ ${OUT}${UPLOAD ? ` → R2 ${BUCKET_DIR}` : ""}`);
 
 const fmt = n => (n / 1e6).toFixed(1) + "MB";
 const commonPrefix = arr => { if (!arr.length) return ""; let p = arr[0]; for (const s of arr) { while (!s.startsWith(p)) p = p.slice(0, -1); } return p.slice(0, p.lastIndexOf("/") + 1); };
@@ -87,7 +95,7 @@ async function bakeSet(set) {
 	const t0 = performance.now();
 	let leaves = null;   // 走査（tileset の直列往復）は回線飽和時に "fetch failed" で丸ごと落ちる（hpc 実測 24 件/バースト）＝3 回まで待って再試行
 	for (let a = 0; a < 3 && !leaves; a++) {
-		try { leaves = await collectLeafTiles(base + "tileset.json"); }
+		try { leaves = await collectLeafTiles(set.tilesetUrl || base + "tileset.json", 0, null, null, set.clip || null); }   // tilesetUrl/clip＝3DBAG（全国 1 枚を街の矩形で切る＝meshworker と同じ走査）
 		catch (e) { if (a === 2) throw e; console.warn(`  ${set.name}: 走査失敗（${e?.message ?? e}）→ ${15 * (a + 1)}s 後に再試行`); await new Promise(r => setTimeout(r, 15000 * (a + 1))); }
 	}
 	if (!leaves.length) { console.warn(`  ${set.name}: 葉 0 枚＝空（廃止区の残骸？）`); return "empty"; }
@@ -153,14 +161,14 @@ async function uploadSet(set) {
 	for (const ell of MODES) {
 		const rel = bakeDir(set.base, DECODE_VER, ell), dir = join(OUT, rel);
 		if (!existsSync(join(dir, "manifest.json"))) continue;
-		if (!FORCE && await remoteHas("GIS/plateau/" + rel + "manifest.json")) { skipped++; continue; }   // --force＝R2 にあっても押し直す（再焼き後の差し替え）
+		if (!FORCE && await remoteHas(BUCKET_DIR + rel + "manifest.json")) { skipped++; continue; }   // --force＝R2 にあっても押し直す（再焼き後の差し替え）
 		const files = readdirSync(dir).filter(f => f.endsWith(".plq"));
 		let i = 0;
 		await Promise.all(Array.from({ length: UPLOAD_PAR }, async () => {
-			while (i < files.length) { const f = files[i++]; const u8 = readFileSync(join(dir, f)); const g = await putObject("GIS/plateau/" + rel + f, u8, "application/octet-stream"); gzBytes += g; n++; bytes += u8.length; }   // `x += await …` は await 前に x を読む＝並行で加算が消える（横浜中区 23.8MB→"gzip 1.8MB" の実測）
+			while (i < files.length) { const f = files[i++]; const u8 = readFileSync(join(dir, f)); const g = await putObject(BUCKET_DIR + rel + f, u8, "application/octet-stream"); gzBytes += g; n++; bytes += u8.length; }   // `x += await …` は await 前に x を読む＝並行で加算が消える（横浜中区 23.8MB→"gzip 1.8MB" の実測）
 		}));
 		const mf = readFileSync(join(dir, "manifest.json"));   // 最後＝マニフェストが見えた時には本体が揃っている（クライアントの 404 → 生経路の判定に矛盾を作らない）
-		gzBytes += await putObject("GIS/plateau/" + rel + "manifest.json", mf, "application/json"); n++; bytes += mf.length;
+		gzBytes += await putObject(BUCKET_DIR + rel + "manifest.json", mf, "application/json"); n++; bytes += mf.length;
 	}
 	if (n) console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}${skipped ? ` (${skipped} mode skipped: already on R2)` : ""}`);
 	else console.log(`  = ${set.name}: already on R2`);
@@ -214,7 +222,7 @@ async function verifySet(set) {
 			while (i < files.length) {
 				const f = files[i++];
 				let meta = null;
-				for (let a = 0; a < 3; a++) { try { const r = await fetch(`${API}/bucket/GIS/plateau/${rel}${f}?meta=1`); if (r.ok) { meta = (await r.json()).data; break; } } catch { } }
+				for (let a = 0; a < 3; a++) { try { const r = await fetch(`${API}/bucket/${BUCKET_DIR}${rel}${f}?meta=1`); if (r.ok) { meta = (await r.json()).data; break; } } catch { } }
 				const want = gzLen(readFileSync(join(dir, f)), { level: 6 }).length;
 				if (!meta) miss.push(`${ell ? "ell/" : ""}${f} missing`);
 				else if (meta.Size !== want) miss.push(`${ell ? "ell/" : ""}${f} size ${meta.Size}≠${want}`);

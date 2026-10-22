@@ -2,6 +2,7 @@ dem10b-out/
 plateau-names-out/
 *.tmp.png
 plateau-bake-out/
+3dbag-bake-out/
 
 # 開発専用の登記所地図ローカルデータ（123 MB・6 ファイル）＝git 管理外（2026-09-14）。
 # 使うのは jp の moj-dbg.js の __sapporo/__arakawaFit だけ＝利用者には配らない（deploy でも除外済み）。
