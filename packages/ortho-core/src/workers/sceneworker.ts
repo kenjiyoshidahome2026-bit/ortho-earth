@@ -32,7 +32,7 @@ interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash
 const geom = new Map<string, TileGeom>();   // key → { ops, buildings }
 const geomOf = (k: string): TileGeom | null => geom.get(k) || null;
 let renderPort: MessagePort | null = null;    // render worker への直結ポート（MessageChannel の片端）
-let mdDash = false;       // renderer が md の破線を読める（S-P1-3・GL2）。WebGPU の md は読めない＝常駐の前に CPU で刻む
+let mdDash = false;       // renderer が md の破線を読める（S-P1-3・GL2・WebGPU は 2026-10-22 から）。読めない描き手（?nolx=1）＝常駐の前に CPU で刻む
 let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知に相乗り）
 let relayCtlN = 0;   // iOS診断：page からの relayCtl 受信数
 let failNext = false;
