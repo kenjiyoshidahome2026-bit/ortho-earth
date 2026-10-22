@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- 実描画の検分：map.gadget.cluster（点の集約のガジェット・2026-10-22〜 集約の source と層＝丸は gint・件数は注記層。旧＝cluster-2d の canvas2D のオーバーレイ）。
+     見るもの：①戻り値（点の数・段ごとの数）②層と source が足される（gadget-cluster-clusters／-unclustered／-count）③丸の当たり（point_count・expansionZoom）
+     ④丸の色（既定＝100 以上は黄 #f1f075）と件数の字（濃い #222）が画面に出る ⑤丸のクリック＝ばらける段へ寄る ⑥slot と自前の paint ⑦null で外す。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-cluster</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const P = (lon, lat, props = {}) => ({ type: "Feature", properties: props, geometry: { type: "Point", coordinates: [lon, lat] } });
+const A = [139.0, 36.0], B = [136.0, 35.0];   // 200 点の塊・3 点の塊（4 度離す＝z5 で別の丸）
+const fc = { type: "FeatureCollection", features: [
+	...Array.from({ length: 200 }, (_, i) => P(A[0] + (i % 20) * 0.002, A[1] + Math.floor(i / 20) * 0.002, { k: i })),
+	P(B[0], B[1]), P(B[0] + 0.002, B[1]), P(B[0], B[1] + 0.002),
+] };
+const BG = { id: "bg", type: "background", paint: { "background-color": "#0000ff" } };   // 青＝丸の色と見分ける
+try {
+	const map = await createGlobe({ target: "#map", view: `#5/${A[1]}/${A[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-cluster", sources: {}, layers: [BG] } });
+	await sleep(2000);
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	// 中心 (x,y) の半径 r の内で、色の条件に合う画素の数
+	const count = (img, x, y, r, f) => { const W = document.getElementById("map").clientWidth, s = img.width / W; let n = 0;
+		for (let j = Math.round((y - r) * s); j <= Math.round((y + r) * s); j++) for (let i = Math.round((x - r) * s); i <= Math.round((x + r) * s); i++) {
+			if (i < 0 || j < 0 || i >= img.width || j >= img.height) continue;
+			const k = (j * img.width + i) * 4; if (f(img.data[k], img.data[k + 1], img.data[k + 2])) n++;
+		} return n; };
+	const yellow = (r, g, b) => r > 200 && g > 200 && b < 160, dark = (r, g, b) => r < 90 && g < 90 && b < 90, cyan = (r, g, b) => r < 120 && g > 140 && b > 160;
+
+	const r = await map.gadget.cluster(fc);
+	ok("戻り値", r?.points === 203 && Array.isArray(r.clusters) && r.clusters.length > 3 && r.clusters[r.clusters.length - 1] === 203, JSON.stringify(r && { points: r.points, n: r.clusters.length, last: r.clusters.at(-1) }));
+	ok("層と source", ["gadget-cluster-clusters", "gadget-cluster-unclustered", "gadget-cluster-count"].every(id => map.getLayer(id)) && !!map.getSource("gadget-cluster"));
+	await sleep(2500);
+	const [ax, ay] = map.projectLL(A[0] + 0.019, A[1] + 0.009);
+	const hit = (await map.queryRenderedFeatures([ax, ay], { layers: ["gadget-cluster-clusters"], tolerance: 10 }))[0];
+	ok("丸の当たり", hit?.properties?.point_count === 200 && hit.properties.cluster === true && typeof hit.expansionZoom === "number", JSON.stringify(hit && { n: hit.properties.point_count, ez: hit.expansionZoom, src: hit.source }));
+	const img = await grab();
+	const ny = count(img, ax, ay, 24, yellow), nd = count(img, ax, ay, 10, dark);
+	ok("丸の色（100 以上＝黄）", ny > 600, ny);
+	ok("件数の字（丸の中の濃い画素）", nd > 8, nd);
+	const [bx, by] = map.projectLL(B[0] + 0.001, B[1] + 0.001), nb = count(img, bx, by, 16, (r, g, b) => r < 120 && g > 150 && b > 180);
+	ok("小さな集約（100 未満＝青 #51bbd6）", nb > 200, nb);
+
+	// 丸のクリック＝ばらける段へ寄る（MapLibre の getClusterExpansionZoom の定番）
+	const z0 = map.getZoom(), cv = map.getCanvas?.() ?? document.querySelector("#map canvas"), rc = cv.getBoundingClientRect();
+	cv.dispatchEvent(new PointerEvent("pointerdown", { clientX: rc.left + ax, clientY: rc.top + ay, bubbles: true, pointerType: "mouse" }));
+	cv.dispatchEvent(new PointerEvent("pointerup", { clientX: rc.left + ax, clientY: rc.top + ay, bubbles: true, pointerType: "mouse" }));
+	cv.dispatchEvent(new MouseEvent("click", { clientX: rc.left + ax, clientY: rc.top + ay, bubbles: true }));
+	await sleep(4000);
+	ok("クリックで寄る", map.getZoom() >= Math.min(20, Math.max(hit?.expansionZoom ?? 99, z0 + 1)) - 0.05, `${z0.toFixed(2)}→${map.getZoom().toFixed(2)} ez=${hit?.expansionZoom}`);
+
+	// 寄った先（最も細かい段の先）＝単点（既定 #11b4da）
+	map.jumpTo({ center: A, zoom: 17 }); await sleep(3000);
+	const [ux, uy] = map.projectLL(A[0], A[1]), u = (await map.queryRenderedFeatures([ux, uy], { layers: ["gadget-cluster-unclustered"], tolerance: 6 }))[0];
+	ok("単点の当たり（元の属性）", u?.properties?.k === 0 && !u.properties.cluster, JSON.stringify(u?.properties));
+	const imgU = await grab(), nu = count(imgU, ux, uy, 6, cyan);
+	ok("単点の色", nu > 10, `${nu} at ${ux.toFixed(0)},${uy.toFixed(0)} px=${[...imgU.data.slice((Math.round(uy) * imgU.width + Math.round(ux)) * 4, (Math.round(uy) * imgU.width + Math.round(ux)) * 4 + 3)]}`);
+
+	// slot と自前の paint・text
+	await map.gadget.cluster(fc, { slot: "b", paint: { "circle-color": "#ff0000", "circle-radius": 26 }, text: { color: "#ffffff", size: 14 } });
+	ok("slot の層", !!map.getLayer("gadget-cluster:b-clusters") && !!map.getSource("gadget-cluster:b") && !!map.getLayer("gadget-cluster-clusters"));
+	map.jumpTo({ center: A, zoom: 5 }); await sleep(3000);
+	const img2 = await grab(), [cx, cy] = map.projectLL(A[0] + 0.019, A[1] + 0.009);
+	ok("自前の paint（赤・上に重なる）", count(img2, cx, cy, 24, (r, g, b) => r > 200 && g < 60 && b < 60) > 600);
+
+	// null＝外す（slot ごと）
+	await map.gadget.cluster(null);
+	ok("外す（既定の slot）", !map.getLayer("gadget-cluster-clusters") && !map.getSource("gadget-cluster") && !!map.getLayer("gadget-cluster:b-clusters"));
+	await map.gadget.cluster(null, { slot: "b" });
+	await sleep(1500);
+	ok("外す（slot b）・画面から消える", !map.getLayer("gadget-cluster:b-clusters") && count(await grab(), cx, cy, 24, (r, g, b) => r > 200 && g < 60 && b < 60) === 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

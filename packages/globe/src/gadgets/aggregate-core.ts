@@ -14,11 +14,6 @@ export interface AggPoint { lon: number; lat: number; props: Props; id?: string 
 export interface ClusterItem { x: number; y: number; n: number; i?: number; ez: number; agg: Props | null; cid?: number }
 /** 段ごとの集約（levels[z - minLevel]） */
 export interface Clusters { levels: ClusterItem[][]; minLevel: number; maxLevel: number }
-/** 描く丸 1 つ（clusterDraw の戻り・i＝単点の添字（集約は -1）） */
-export interface ClusterDot {
-	lon: number; lat: number; n: number; ez: number; i: number; cid: number | undefined; agg: Props | null; r: number; fill: string; stroke: string; sw: number; op: number;
-	text: string; tc: string; ts: number;
-}
 /** heatStyle の戻り（radius・intensity＝zStep 刻みのズームの表・ramp＝heatmap-color の 256 段 RGBA） */
 export interface HeatStyle { radius: number[]; intensity: number[]; zStep: number; opacity: number; ramp: Uint8Array }
 
@@ -96,11 +91,11 @@ export function buildClusters(pts: AggPoint[], { clusterRadius = 50, clusterMaxZ
 	}
 	return { levels, minLevel: minZoom, maxLevel: top };
 }
-/** clusterFeatures の戻り（fc＝全段の丸と単点・byCid＝cluster_id → ばらける段） */
-export interface ClusterSource { fc: { type: "FeatureCollection"; features: Array<{ type: "Feature"; id?: string | number; properties: Props; geometry: { type: "Point"; coordinates: number[] } }> }; byCid: Map<number, number> }
+/** clusterFeatures の戻り（points＝点の数・counts＝段ごとの丸と単点の数・fc＝全段の丸と単点・byCid＝cluster_id → ばらける段） */
+export interface ClusterSource { points: number; counts: number[]; fc: { type: "FeatureCollection"; features: Array<{ type: "Feature"; id?: string | number; properties: Props; geometry: { type: "Point"; coordinates: number[] } }> }; byCid: Map<number, number> }
 // 集約を source の地物へ（cluster as data・2026-10-22）＝全段の丸と単点を 1 つの FeatureCollection に。段をまたいで変わらない項は 1 地物
 //（buildClusters は束ねなかった項を同じ物のまま次の段へ渡す）。居る段は隠しの属性 [ML_CZ0_KEY, ML_CZ1_KEY)＝エンジンの z（端の段はその先も）。
-// 段の選び方は cluster-2d と同じ floor(zoom)。描く側は層の filter に段の条件を足すだけ＝MapLibre の circle／symbol の層がそのまま効く（丸は gint・件数は注記層）
+// 段の選び方は floor(zoom)（MapLibre と同じ）。描く側は層の filter に段の条件を足すだけ＝MapLibre の circle／symbol の層がそのまま効く（丸は gint・件数は注記層）
 export function clusterFeatures(pts: AggPoint[], cl: Clusters): ClusterSource {
 	const span = new Map<ClusterItem, [number, number]>(), last = cl.levels.length - 1, BIG = 1e9;
 	cl.levels.forEach((L, li) => { for (const it of L || []) { const s = span.get(it); if (s) s[1] = li; else span.set(it, [li, li]); } });
@@ -112,31 +107,12 @@ export function clusterFeatures(pts: AggPoint[], cl: Clusters): ClusterSource {
 		features.push({ type: "Feature", id: it.cid, properties: { cluster: true, cluster_id: it.cid, point_count: it.n, point_count_abbreviated: abbr(it.n), ...(it.agg || {}), ...z, [ML_CEZ_KEY]: it.ez },
 			geometry: { type: "Point", coordinates: [it.x * 360 - 180, unMercY(it.y)] } });
 	}
-	return { fc: { type: "FeatureCollection", features }, byCid };
+	return { points: pts.length, counts: cl.levels.map(L => L.length), fc: { type: "FeatureCollection", features }, byCid };
 }
 export const abbr = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
-const CLUSTER_DEFAULT = {
+// 集約の既定（MapLibre の公式例の配色・map.gadget.cluster の層の paint の下敷き）
+export const CLUSTER_DEFAULT = {
 	paint: { "circle-color": ["step", ["get", "point_count"], "#51bbd6", 100, "#f1f075", 750, "#f28cb1"], "circle-radius": ["step", ["get", "point_count"], 20, 100, 30, 750, 40], "circle-stroke-width": 0, "circle-stroke-color": "#fff", "circle-opacity": 0.9 },
 	unclustered: { paint: { "circle-color": "#11b4da", "circle-radius": 4, "circle-stroke-width": 1, "circle-stroke-color": "#fff" } },
 	text: { color: "#222", size: 12 },
 };
-const css = (q: number[]) => `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${q[3] ?? 1})`;   // q＝evalColor の [r,g,b（0-255）, a（0-1）]
-/** clusterDraw のオプション（集約の丸の paint・単点の paint・文字・global-state）＝層の metadata（出自）も読む */
-export interface ClusterDrawOpts { paint?: Props; unclustered?: { paint?: Props } | null; text?: { color?: string; size?: number }; gs?: GlobalState; metadata?: Record<string, unknown> | null; [k: string]: unknown }
-// 段ごとの丸（描画用）＝式をその段のズームで評価
-export function clusterDraw(pts: AggPoint[], cl: Clusters, opts: ClusterDrawOpts = {}): ClusterDot[][] {
-	const origin = originOfLayer(opts);
-	const cp: Props = { ...CLUSTER_DEFAULT.paint, ...(opts.paint || {}) }, up: Props = { ...CLUSTER_DEFAULT.unclustered.paint, ...(opts.unclustered?.paint || {}) }, tx = { ...CLUSTER_DEFAULT.text, ...(opts.text || {}) };
-	return cl.levels.map((items, li) => {
-		const z = cl.minLevel + li;
-		return items.map(it => {
-			const lon = it.x * 360 - 180, lat = unMercY(it.y);
-			const single = it.n === 1, props: Props = single ? pts[it.i!].props : { cluster: true, cluster_id: it.cid, point_count: it.n, point_count_abbreviated: abbr(it.n), ...(it.agg || {}) };
-			const P = single ? up : cp, c = ctxOf(z, props, origin, opts.gs);
-			const e = (k: string, d: number) => evalExpr(P[k] ?? d, c) as number;
-			return { lon, lat, n: it.n, ez: it.ez, i: single ? it.i! : -1, cid: it.cid, agg: it.agg, r: +e("circle-radius", 5), fill: css(evalColor(P["circle-color"] ?? "#000", c) || [0, 0, 0, 1]),
-				stroke: css(evalColor(P["circle-stroke-color"] ?? "#000", c) || [0, 0, 0, 1]), sw: +e("circle-stroke-width", 0), op: +e("circle-opacity", 1),
-				text: single ? "" : props.point_count_abbreviated as string, tc: tx.color, ts: tx.size };
-		});
-	});
-}

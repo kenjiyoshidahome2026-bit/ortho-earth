@@ -634,6 +634,7 @@ export interface GlobeLive {
 	measureBody: ToolBody | null; profileBody: ToolBody | null;
 	mapLoaded: boolean;
 	addSourceAt: StyleReturn["addSourceAt"]; addLayerAt: StyleReturn["addLayerAt"];
+	clusterOf: GlobeScope["clusterOf"];
 	poiReal: PoiLedger | null;
 	/** POI 台帳編集の armed 中だけ（クリックの横取り） */
 	poiClick: ((x: number, y: number) => unknown) | null;

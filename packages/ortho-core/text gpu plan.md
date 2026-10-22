@@ -20,7 +20,7 @@
 | 注記の抽出 | `ortho-core/src/labels.ts` | tile worker で式を評価し `Label` を焼く（描画とは独立） |
 | 書体 | `ortho-core/src/fontstack.ts` | `text-font` を CSS の family／weight／style に写す |
 | geojson の symbol | `globe/src/symbols-2d.ts` | 別の 2D オーバーレイ（箱・候補の式を二重に持つ）＝§4g・§4i で注記層へ移し、今は描く層が無い（オーバーレイも作らない） |
-| 集約の件数 | `globe/src/cluster-2d.ts` | 別の 2D オーバーレイ（MapLibre の集約の source は §4h で注記層へ・残るのは `map.gadget.cluster` の口だけ） |
+| 集約の件数 | （旧 `globe/src/cluster-2d.ts`） | 別の 2D オーバーレイだった＝MapLibre の集約の source は §4h・`map.gadget.cluster` は §4j で注記層へ移し、ファイルごと消した |
 | 道路標識 | `globe/src/shields.ts` | Path2D を注記 canvas に直接 |
 | 星空・月 | labels2d の `setSky`／`setMoon` | `fillText` と図形 |
 
@@ -194,7 +194,7 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
   gjlabels は段を floor で先に選んでから焼く（quantZoom の 0.25 刻みで境の手前に次の段の字が出ない）。
 - 集約は source ごとに 1 回（data・半径・最大段・clusterProperties が同じ間は使い回す＝`clusterOf`）。旧＝層を足すたびに組み直し。
 - 問い合わせ：`queryRenderedFeatures` の丸は gint／記号の当たり（`expansionZoom` も添える）・`querySourceFeatures` は今の段の地物（画面＋余白 1/4）・`getClusterExpansionZoom` は `byCid`。隠しの属性は `stripMl` が外す。
-- **残す**：`map.gadget.cluster`（ネイティブの口）は cluster-2d のまま。
+- `map.gadget.cluster`（ネイティブの口）も §4j で同じ道へ（cluster-2d は消した）。
 - 字の外で残る毎フレームの Canvas2D のうち、MapLibre の層を受ける pattern-2d（fill-pattern・line-pattern・line-offset・line-gradient の geojson 層）は `geojson vt plan.md` で vtdraw へ移す。
 
 門：t-mlcompat の cluster-layer-zoom-range・cluster-properties-and-id・query-source-features（layers）・cluster-without-circle-layer（live）・t-mlzoom の expansionZoom・`tests/t-aggregate.mjs` ⑤（どの段も件数の和＝点の数・段ごとの地物＝buildClusters の段）。
@@ -206,6 +206,16 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 - `horizon`（MapLibre に無い拡張・球の縁の近くは出さない）は `Label.hz` に写し、labels2d の衝突判定で symbols-2d と同じ式（余弦＝front／|E−u|）で外す。
 - 記号の gadget は symbols-2d のオーバーレイを描く層がある時だけ作る（作った時に記号帳を写し直す）＝今は作らない。
 - 試し：格子 216 点を z2.2／z4.5 で描いて目で見た（記号と字が注記層・horizon 0.35 で縁の 12 件が消える）。worldcontent の実物は bucket を引くので本人の端末で見る。
+
+## 4j. 残る重ね描きの 1 本目＝`map.gadget.cluster` を集約の source と層へ（**実装済**・2026-10-22）
+
+- 毎フレームの Canvas2D の重ね描きのうち、`map.gadget.cluster`（cluster-2d）を §4h と同じ道へ。ガジェットは中で集約の source（`cluster: true`）と 3 枚の層を足す
+  （`addSourceAt`／`addLayerAt`・公開の口の目盛り）：丸＝circle（filter `has point_count`・paint は MapLibre の公式例の既定の上に `opts.paint`）、
+  単点＝circle（`opts.unclustered`）、件数＝symbol（`point_count_abbreviated`・`text-allow-overlap`＝旧と同じく必ず出す・`opts.text` の色と大きさ）。
+- id は `gadget-cluster`（slot 付きは `gadget-cluster:<slot>`）と `-clusters`／`-unclustered`／`-count`＝MapLibre の層なので `getStyle`・`queryRenderedFeatures`・`querySourceFeatures` にそのまま出る
+  （旧＝`clusters`／`unclustered-point` と source `cluster`）。丸のクリック＝ばらける段へ寄る（`map.on("click", 層)`）。
+- 戻り値 `{ points, clusters }` は `clusterFeatures` の `points`・`counts`（集約は 1 回＝`clusterOf` を使い回す）。`createAggregate` はヒートマップだけになった。
+- 門：`tests/t-cluster.html`（GL2・WebGPU の両方＝戻り値・層と source・当たり・丸の色と件数の字の画素・クリックで寄る・単点・slot と自前の paint・null で外す）。
 
 ## 5. ベースライン記録欄（実機で埋める）
 
