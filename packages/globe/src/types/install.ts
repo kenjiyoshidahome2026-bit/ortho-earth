@@ -12,7 +12,7 @@ import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, InlineSourceLayer, Mode
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer, queryTiles } from "@ortho-earth/core";
 import type { CameraState } from "@ortho-earth/core/camera";
-import type { Aggregate, ClusterOpts } from "../gadgets/aggregate.ts";
+import type { Aggregate } from "../gadgets/aggregate.ts";
 import type { GJLabels } from "../gadgets/gjlabels.ts";
 import type { Symbols } from "../gadgets/symbols.ts";
 import type { FeatureCollection, GeoPBF } from "geopbf";
@@ -124,7 +124,7 @@ export interface DataReturn {
 	/** 列チャンク層で見せる（probe が断れば null＝呼び手が gint の道へ） */
 	columnarView(src: string | File | Blob | ArrayBuffer | GeoPBF, name: string, o?: ColumnarLayerOptions): Promise<{ length: number; columnar: ColumnarLayerHandle } | null>;
 }
-export type ImagesLive = LiveOf<"imageIds" | "imageQuads" | "aggCtl" | "gjCtl" | "symCtl", "modelCtl" | "assertMLLayer" | "dpr" | "MAP_GS">;
+export type ImagesLive = LiveOf<"imageIds" | "imageQuads" | "aggCtl" | "gjCtl" | "symCtl", "modelCtl" | "assertMLLayer" | "dpr" | "MAP_GS" | "addSourceAt" | "addLayerAt" | "clusterOf">;
 export type ImagesDeps = Pick<GlobeScope, "registerGadget" | "IMAGE_KEY" | "LOW_MEM" | "PUBLIC_DZ" | "ac" | "cam" | "imageAttrs" | "mapOn" | "modelCtlGet" | "ownDestroy" | "rasterChanged" | "readGeoData" | "requestDraw" | "size" | "wPost">;
 export interface ImagesReturn {
 	/** 四隅で貼った画像（@image つき 4 頂点の面）を画像の覆いへ・残りの図形を返す（無ければ null） */
@@ -137,8 +137,6 @@ export interface ImagesReturn {
 	symGet(): Promise<Symbols>;
 	/** 点の読み口（GeoJSON/GeoPBF/File/URL） */
 	readPoints(src: unknown): Promise<unknown>;
-	/** 中身（native）＝層は正規化済み（エンジンの目盛り） */
-	clusterNative(src: unknown, opts: ClusterOpts, slot: string): Promise<{ points: number; clusters: number[] }>;
 	aggGet(): Promise<Aggregate>;
 	/** 足している途中の画像（層を載せる前に待つ） */
 	pendingImages: Set<Promise<unknown>>;
@@ -203,7 +201,7 @@ export interface StyleReturn {
 	/** addLayer の中身（dz を明示）。層＝addLayer の層か style.json の層（source に object も＝その id で source を足す） */
 	addLayerAt(layer: MLLayer | InlineSourceLayer, beforeId: string | null | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
 }
-export type QueryLive = LiveOf<never, "MAP_GS" | "aggCtl" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
+export type QueryLive = LiveOf<never, "MAP_GS" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
 export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "TERR_EXAG" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"
 	| "clipCutXY" | "clipFor" | "drawLayerOf" | "evXY" | "gint" | "hiddenAll" | "inZoomML" | "input" | "isOv" | "mlIdOf" | "mlLayers" | "mlPasses" | "mlVisible" | "noMixedR01" | "overlayFeature"
 	| "patItems" | "requester" | "size" | "srcId" | "stripMl" | "unprojectXY" | "vtdDesc" | "vtdOrder" | "vtxGround" | "vtxStateOf">;
