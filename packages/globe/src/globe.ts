@@ -770,6 +770,7 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
 const terrLazy: GlobeScope["terrLazy"] = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
 let noTerr: GlobeLive["noTerr"] = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+const LINESUB = /[?&]linesub=1/.test(location.search);   // vt perf plan §3.2 の逃げ道＝地形の無い地図でも線を 700m ごとに細分する（旧挙動）
 // 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
 let centerElevMode: GlobeLive["centerElevMode"] = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
@@ -1321,9 +1322,11 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 let vtdAnchorsOn = false;   // #123：vtdraw が作られてから差し込む位置を配る（それまで＝起動の途中のテーマ・生成層の再ビルドから呼ばれても何もしない＝後で宣言する束縛に触れない）
-const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, destroy: destroyPipeline } = createPipeline({
+const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, setDrape: setPipelineDrape, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y) as string, requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
+	tileQueue: !/[?&]tileq=0/.test(location.search),   // 優先付き共有キュー（vt perf plan §3.1）＝?tileq=0 で旧の round-robin（A/B・計器 e で比べる）
+	drape: LINESUB || (() => !noTerr),   // 線の細分（vt perf plan §3.2）＝地形を描かない地図（terrain:false・?noterr=1）は細分しない。?linesub=1 で従来どおり常に細分（A/B）。setTerrain で地形が入ったら setPipelineDrape（api/terrain.ts）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -2823,7 +2826,7 @@ installTerrain(map, {
 	get geBusy() { return geBusy; }, set geBusy(v) { geBusy = v; },
 	get geKey() { return geKey; }, set geKey(v) { geKey = v; },
 	get elevGen() { return elevGen; }, set elevGen(v) { elevGen = v; },
-	get noTerr() { return noTerr; }, set noTerr(v) { noTerr = v; },
+	get noTerr() { return noTerr; }, set noTerr(v) { if (v !== noTerr) { noTerr = v; setPipelineDrape(); } },   // 地形の有無が替わる（setTerrain）＝線の細分（drape）を読み直し全タイルを再ビルド（§3.2・setStyle と同じ道）
 	get style() { return style; },
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
