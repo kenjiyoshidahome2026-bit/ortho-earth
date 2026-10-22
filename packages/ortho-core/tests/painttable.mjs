@@ -2,10 +2,11 @@
 // 守るもの：①(b) の判定＝外来の塗りと線で、色か不透明度が地物に依り（kind data）、zoom・feature-state・global-state を読まず、属性を名前で読むだけ（鍵＝読む属性の名）
 // ②tile worker の op：rows（鍵の組・重なりなし）・cols（行の焼いた色）・rid（頂点／線分ごとの行）。どの頂点／線分も焼いた色の語＝その行の cols（端と継ぎ・CPU の破線・隙間つきの道筋でも）
 // ③行の組を属性に戻して評価した色（ptRowColor・段 2 の書き換えの口）＝焼いた色 ④図郭外の水域は持たない ⑤シェーダは md の変種だけが表を読む
+// ⑥段 2：setPaintProperty の (b) 類（paintTableFast）＝前も後も (b) 類で、後の式が読む属性が前の鍵に含まれる時だけ組み直さない
 import assert from "node:assert/strict";
 import { buildTileDrawList } from "../src/build.ts";
 import { normalizeMLLayer } from "../src/mlstyle.ts";
-import { layerPaintTable, ptRowColor, PT_GEOM } from "../src/painttable.ts";
+import { layerPaintTable, paintTableFast, ptRowColor, PT_GEOM } from "../src/painttable.ts";
 import { FILL_VS, FILL_MD_VS, LINE_VS, LINE_MD_VS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS } from "../src/gl/glsl.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
@@ -81,5 +82,17 @@ t("シェーダ：md の変種（塗り・線・地面アトラス）だけが�
 	for (const s of [FILL_VS, LINE_VS, ATLAS_FILL_VS]) assert.ok(!s.includes("u_pt;"), "classic");
 	assert.ok(LINE_MD_VS.includes("ptColor(int(B.x & 65535u))"));
 	assert.ok(FILL_MD_VS.includes("ptColor(ptRowOf(a_color))"));
+});
+t("段 2：paintTableFast＝前も後も (b) 類・後の鍵 ⊆ 前の鍵・色と不透明度だけ", () => {
+	const prev = { "line-color": M, "line-opacity": ["case", ["has", "z"], 0.5, 1] };
+	const M2 = ["match", ["get", "class"], "a", "#000000", "#ffffff"];
+	assert.deepEqual(paintTableFast("line", prev, { ...prev, "line-color": M2 }, "line-color", "ml").keys, ["class", "z"]);
+	assert.deepEqual(paintTableFast("line", prev, { ...prev, "line-opacity": 0.3 }, "line-opacity", "ml").keys, ["class"]);
+	assert.equal(paintTableFast("line", prev, { ...prev, "line-color": ["get", "other"] }, "line-color", "ml"), null);   // 前の鍵に無い属性
+	assert.equal(paintTableFast("line", { "line-color": "#f00" }, { "line-color": M }, "line-color", "ml"), null);   // 前が (b) でない＝作ったタイルは行を持たない
+	assert.equal(paintTableFast("line", prev, { ...prev, "line-color": "#00f", "line-opacity": 1 }, "line-color", "ml"), null);   // 後が (b) でない（地物に依らない値は paintFast）
+	assert.equal(paintTableFast("line", prev, { ...prev, "line-width": ["get", "class"] }, "line-width", "ml"), null);   // 線幅は段 2 の後半
+	assert.equal(paintTableFast("fill", prev, prev, "line-color", "ml"), null);
+	assert.equal(paintTableFast("line", prev, { ...prev, "line-color": M2 }, "line-color", undefined), null);   // 内蔵の層
 });
 console.log(`painttable: ${n} tests passed`);

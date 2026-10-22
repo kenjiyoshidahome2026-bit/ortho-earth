@@ -2,13 +2,13 @@
 // feature state・global state・addFontFace・getLayers／getStyle／setStyle・基図の層を実行時に触る口・querySourceFeatures）と、それを支える
 // 内部の入口（addSourceAt／addLayerAt・remountSource・remergeBase）＝createGlobe から切り出した（globe.js の分割 ⑫・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { DZ_KEY, evalExpr, layerDzOf, layerPaintZoom, normalizeMLLayer, paintFast, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
+import { DZ_KEY, evalExpr, layerDzOf, layerPaintTable, layerPaintZoom, normalizeMLLayer, paintFast, paintTableFast, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
 import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.ts";
 import { normLight } from "../light.ts";
 import { normSky } from "../sky-spec.ts";
 import { copyFontBytes, normSprite, spriteEcho } from "../mlsmall.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
-import type { MLLayer, PaintZoom } from "@ortho-earth/core";
+import type { MLLayer, PaintZoom, PtLayer } from "@ortho-earth/core";
 import type { Bbox, LonLat, MapLibreLayer, QuantizedMeshSource, RasterDemSource, RenderedFeature, StyleExpression } from "../../globe.d.ts";
 import type { ExtExtras, Installing, StyleDeps, StyleLive, StyleOrderEntry, StyleReturn } from "../types/install.ts";
 import type { StyleApi } from "../types/map.ts";
@@ -493,17 +493,33 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		for (const id of [...pzFast]) if (!seen.has(id)) pzFast.delete(id);
 		renderer.set("pzOver", list);
 	};
+	// 地物の属性を読む色・不透明度（paint 表の (b) 類の段 2・GL2 の md＝live.paintTable）：前も後も (b) 類で、後の式が読む属性が前の鍵に含まれる（core painttable.ts の paintTableFast）なら
+	// 組み直さない＝描き手が表の行を後の式で評価し直す（renderer.set("ptOver", [[層 id, 式]…])）。覚え方と配り直しは pzFast と同じ（層 id で覚え、今の paint から作り直す）
+	const ptFast = new Set<string>();
+	const sendPtOver = () => {
+		if (!live.paintTable) return;
+		const list: [string, PtLayer][] = [];
+		for (const L of live.style.layers) {
+			if (!ptFast.has(L.id)) continue;
+			const T = layerPaintTable(L.type, L.paint as Record<string, unknown> | undefined, "ml");
+			if (T) list.push([L.id, T]);
+		}
+		for (const id of [...ptFast]) if (!list.some(e => e[0] === id)) ptFast.delete(id);
+		renderer.set("ptOver", list);
+	};
 	const fastBasePaint = (id: string, name: string, value: unknown): boolean => {
 		if (!live.EXT || live.renderBackend !== "webgl2") return false;
 		const L = live.style.layers.find(x => x.id === id); if (!L) return false;
 		const nv = baseValueIn(name, value), prev = L.paint as Record<string, unknown> | undefined, next = { ...(prev || {}) };
 		if (nv === undefined) delete next[name]; else next[name] = nv;
-		if (!paintFast(L.type, prev, next, name, "ml")) return false;
+		const pz = paintFast(L.type, prev, next, name, "ml"), pt = pz || !live.paintTable ? null : paintTableFast(L.type, prev, next, name, "ml");
+		if (!pz && !pt) return false;
 		const o = baseOverrides.get(id) || {}; o.paint = { ...(o.paint || {}), [name]: nv }; baseOverrides.set(id, o);
 		live.style = withBaseOverrides(baseRawStyle());
 		live.style.globalState = { ...live.MAP_GS };
 		setPipelineStyle(live.style, true);
-		pzFast.add(id); sendPzOver(); requestDraw(); styleStats.paintFast++;
+		if (pt) { ptFast.add(id); sendPtOver(); } else pzFast.add(id);
+		sendPzOver(); requestDraw(); styleStats.paintFast++;
 		return true;
 	};
 	function restyleBase() {
@@ -517,6 +533,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		live.themes = mkThemes(live.style);
 		setPipelineStyle(live.style);
 		if (pzFast.size) sendPzOver();   // 層の出し入れで添字が動く・組み直しの間の古いタイルも今の値
+		if (ptFast.size) sendPtOver();
 		live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; requestDraw(); onMove();
 	}
 	const remergeBase = () => { live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; requestDraw(); onMove(); };   // 出し入れ＝結合し直すだけ
@@ -556,6 +573,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";
 		} else live.style = ns;
 		if (pzFast.size) sendPzOver();   // setPaintProperty の速い道の上書き＝新しい層の paint から（添字も）
+		if (ptFast.size) sendPtOver();
 		// style 由来の利用者の層＝変わった層（と source の変わった層）を外して載せ直す
 		const oldL = new Map<string, MLLayer>(old.split.geojson.map(L => [L.id, L])), newL = new Map<string, MLLayer>(nx.split.geojson.map(L => [L.id, L]));
 		const srcChanged = (sid: string) => J(old.ms.sources?.[sid]) !== J(ms.sources?.[sid]);
@@ -597,6 +615,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		live.themes = mkThemes(live.style);
 		setPipelineStyle(live.style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
 		if (pzFast.size) { pzFast.clear(); sendPzOver(); }   // setPaintProperty の速い道の上書きを捨てる（別の style の層の添字）
+		if (ptFast.size) { ptFast.clear(); sendPtOver(); }
 		live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）
 		live.attrZone = null; requestDraw(); onMove();
 		for (const [id, v] of [...mlLayers]) if ((v.kind === "vtextrude" || v.kind === "vtdraw") && v.src?.[BASE_SRC] && srcId(v.layer) === oldBaseSid) {   // 利用者が基図の source に載せた押し出し・描く層（段 8①・8⑤）
