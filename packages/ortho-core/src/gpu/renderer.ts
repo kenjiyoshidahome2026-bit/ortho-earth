@@ -23,7 +23,8 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.ts";
-import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl } from "./wgsl.ts";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
+import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl } from "./wgsl.ts";
+import { mdFillWgsl, mdLineWgsl, mdBldWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
@@ -51,6 +52,7 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 /** createRendererGPU の起動の旗（renderworker が渡す） */
 export interface RendererGPUOptions {
 	powerPreference?: GPUPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
+	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
 }
 /** 描画の質の旗（#46） */
@@ -165,10 +167,19 @@ interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffe
 interface LineDraw { kind: "line"; li: number; bufs: GPUBuffer[]; bP1: GPUBuffer; bP2: GPUBuffer; bCol: GPUBuffer; bHalf: GPUBuffer; bOff: GPUBuffer | null; count: number }
 type SceneDraw = FillDraw | LineDraw;
 interface SceneBld { bufs: GPUBuffer[]; bPos: GPUBuffer; bSh: GPUBuffer; bAnc: GPUBuffer; count: number }
-interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number }
+interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number; md?: MDScene | null }
+/** タイル GPU 常駐プールのシーン（scene worker の dl＝プール内レンジの列・vt perf plan §4）。orgOff＝origins（タイル原点−シーン原点）の頂点バッファ内 byte 位置 */
+interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number }
+interface MDBldRun { counts: Int32Array; firsts: Int32Array; orgOff: number }
+interface MDScene { layers: MDLayer[]; bld: MDBldRun[] | null; orgBuf: GPUBuffer }
+interface MDPool { buf: GPUBuffer | null; bytes: number }
+interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
+interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
+interface MDPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline }
+type DrawSrc = SceneDraw[] | MDScene;
 /** set("scene") の入力（classic merge のシーン） */
 export interface SceneData { origin: number[]; layers?: (DrawOp | null)[] | null; buildings?: BuildingsGeom | null; noFade?: boolean }
-interface AtlasFill { slot: string; gate: number; at: number; user: boolean; lo?: number; hi?: number; pick?: ((d: SceneDraw) => boolean) | null }
+interface AtlasFill { slot: string; gate: number; at: number; user: boolean; lo?: number; hi?: number; pick?: ((d: { li: number }) => boolean) | null }
 interface RenderTargets { tex: GPUTexture | null; depth: GPUTexture; view: GPUTextureView | null; depthView: GPUTextureView; w: number; h: number }
 interface ParamsIn { cityLift: number; land: number[]; bldColor: number[]; contour: { color: number[]; interval: number; major: number; alpha: number }; liftBounds?: number[] | null; fadeK?: number; worldHypsoK?: number; hasClim?: number }
 interface DrawDbg {
@@ -1504,7 +1515,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// FS が gndMix0 で画素標本化する（gl/renderer.js と対）。合成は鍵（窓・ラスタ rev・シーン rev・ゲート）が変わった時だけ＝別エンコーダで
 	// main パスより先に submit → mips。raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）
 	let rasterDraws: RasterDraws | null = null, memRaster = 0, sceneRev = 0;
-	let rasAtlasPipe: GPURenderPipeline | null = null, atlasFillPipe: GPURenderPipeline | null = null;
+	let rasAtlasPipe: GPURenderPipeline | null = null, atlasFillPipe: GPURenderPipeline | null = null, atlasFillPipeMD: GPURenderPipeline | null = null;   // MD＝md シーンの塗り（頂点はプール＋origins）
 	const atlBuf = device.createBuffer({ size: RAS_SLOT * 24, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 4×スロット 3（base/main/user）×ゲート 2＝24 枠
 	const atlBG = device.createBindGroup({ layout: bglRasP, entries: [{ binding: 0, resource: { buffer: atlBuf, offset: 0, size: 32 } }] });
 	const atlCPU = new Float32Array(RAS_SLOT / 4 * 24);
@@ -1587,6 +1598,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			vertex: { module: atlasFillMod, entryPoint: "vs", buffers: FILL_BUFS },
 			fragment: { module: atlasFillMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
 			primitive: { topology: "triangle-list" } });
+		if (md && !atlasFillPipeMD) {   // md シーンの塗りを地面アトラスへ（GL の ATLAS_FILL_MD_VS と対）
+			const mod = mkMod(mdFillWgsl(ATLAS_FILL_WGSL, "AFOut", "ATLAS_FILL_MD"), "atlasFillMd");
+			atlasFillPipeMD = device.createRenderPipeline({ layout: atlasFillLayout, vertex: { module: mod, entryPoint: "vs", buffers: MD_FILL_BUFS },
+				fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] }, primitive: { topology: "triangle-list" } });
+		}
 		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
 		let n = 0, m = 0;
 		const jobs: { a: GndWin; tiles: { d: RasterDraw; slot: number; order: string; nearest: boolean }[]; fills: AtlasFill[]; index: number }[] = [];
@@ -1609,7 +1625,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const fills: AtlasFill[] = [], atOf: Record<string, number[]> = {};   // atOf[slot][gate]＝その窓の uniform の置き場（範囲で分けても同じ置き場を使う）
 			const fillSlots = [...(wantFills ? baseSlots : []), ...(userIn ? ["user"] : [])];
 			for (const slot of fillSlots) {
-				const scene = scenes[slot]; if (!scene.draws.length) continue;
+				const scene = scenes[slot]; if (!sceneHas(scene)) continue;
 				const user = slot === "user";
 				atOf[slot] = [];
 				for (const gate of user ? [0] : [0, 1]) {   // user の li は図郭外の水域の帯に掛からない＝ゲート 0 だけ
@@ -1654,6 +1670,21 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const scene = scenes[slot];
 					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
 					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
+					if (scene.md) {   // md シーン＝プールのレンジ列をタイルごとに（ゲートは classic と同一）
+						pass.setPipeline(atlasFillPipeMD!);
+						pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
+						for (const e of scene.md.layers) {
+							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi)) continue;
+							const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
+							if ((seaFB ? 1 : 0) !== gate) continue;
+							if (!user && (seaFB || waterC) && seaOff) continue;
+							if (bldFill.li >= 0 && e.li === bldFill.li) continue;
+							pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
+							for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
+						}
+						pass.setPipeline(atlasFillPipe);
+						continue;
+					}
 					for (const d of scene.draws) {
 						if (d.kind !== "fill" || !(pick ? pick(d) : d.li >= lo && d.li < hi)) continue;   // 範囲・利用者の群（#123）
 						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
@@ -1834,7 +1865,120 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		disposeFadePrev(slot);
 		for (const d of scenes[slot].draws) for (const b of d.bufs) b.destroy();
 		if (scenes[slot].bld) for (const b of scenes[slot].bld.bufs) b.destroy();
+		if (scenes[slot].md) scenes[slot].md!.orgBuf.destroy();   // md シーン＝origins だけが自前（プールは常駐）
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
+	}
+
+	// --- タイル GPU 常駐プール（vt perf plan §4 step A・2026-10-22）＝gl/renderer.ts の multi_draw と同じ分業 ---
+	// 配置（アロケータ）の権限は scene worker。ここは mdGrow（プール成長＝GPU 内コピー）／mdUp（タイルブロックの writeBuffer）／
+	// mdScene（draw list 差し替え＝origins を instance step の頂点バッファ 1 本に詰める）を言われた通り実行するだけ。
+	// 発行は WEBGL_multi_draw の代わりに「タイルごとの draw(count, 1, first, firstInstance=j)」（素朴なループ・render bundle は step B）。
+	// 線は頂点属性なし＝線分レコード（8×u32＝scene worker の ensureUploaded）を storage で vertex_index/6 から引く（GL の RGBA32UI テクスチャの代わり）。
+	// 切る条件は renderworker 側（?nomd=1・LOW_MEM は classic のまま＝裁定）。fade は無い（タイル単位の差し替え＝粒が小さい＝裁定）
+	const MD_MAX_DRAWS = 4096;   // dl 1 束の最大 draw 数（GL の u_tileOff[] と違い上限は要らないが束は細かく＝scene worker のチャンク分割）
+	const sceneHas = (s: SceneSlot): boolean => s.draws.length > 0 || !!(s.md && s.md.layers.length);
+	const md = rOpts.noMD ? null : {
+		fillV: { buf: null, bytes: 0 } as MDPool,   // 頂点 12B: pos f32×2 + col u8×4（interleave）
+		fillI: { buf: null, bytes: 0 } as MDPool,   // index u32（値はプール絶対頂点番号＝upload 時に再ベース済み）
+		bldV: { buf: null, bytes: 0 } as MDPool,    // 建物頂点 24B: pos f32×3 + shade f32 + anchor f32×2
+		line: { buf: null, bytes: 0 } as MDPool,    // 線分 32B＝8×u32（storage）
+		lineBG: null as GPUBindGroup | null, lineOver: false,
+	};
+	let memPool = 0, mdSceneRev = 0;   // プール 4 本の確保量（?hud=1 の台帳）・dl の版（影を落とす側の鍵）
+	const bglSeg = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }] });
+	const bglEmpty = device.createBindGroupLayout({ entries: [] });   // 線の MD 派生＝group(3) に線分プール・素の派生では group(2) が空
+	const emptyBG = device.createBindGroup({ layout: bglEmpty, entries: [] });
+	const MD_FILL_BUFS: GPUVertexBufferLayout[] = [
+		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }, { shaderLocation: 1, offset: 8, format: "unorm8x4" }] },   // fillV（12B interleave）
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },   // a_tile＝origins[j]（firstInstance=j）
+	];
+	const MD_LINE_BUFS: GPUVertexBufferLayout[] = [{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }];
+	const MD_BLD_BUFS: GPUVertexBufferLayout[] = [
+		{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }, { shaderLocation: 1, offset: 12, format: "float32" }, { shaderLocation: 2, offset: 16, format: "float32x2" }] },   // bldV（24B interleave）
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 3, offset: 0, format: "float32x2" }] },
+	];
+	const MD_STRIDE: Record<string, number> = { fillV: 12, fillI: 4, bldV: 24, line: 32 };
+	const MD_USAGE: Record<string, number> = { fillV: GPUBufferUsage.VERTEX, fillI: GPUBufferUsage.INDEX, bldV: GPUBufferUsage.VERTEX, line: GPUBufferUsage.STORAGE };
+	function mdLineBG(): void {   // 線分プールの束縛（成長で作り直す）。binding 上限（既定 128MB＝4M 線分）を超える分は描けない＝警告だけ（テクスチャ退避は後段）
+		const lim = device.limits.maxStorageBufferBindingSize, p = md!.line;
+		if (p.bytes > lim && !md!.lineOver) { md!.lineOver = true; console.warn(`[gpu] md line pool ${p.bytes >> 20}MB exceeds maxStorageBufferBindingSize ${lim >> 20}MB = segments beyond the limit are not drawn`); }
+		md!.lineBG = device.createBindGroup({ layout: bglSeg, entries: [{ binding: 0, resource: { buffer: p.buf!, offset: 0, size: Math.min(p.bytes, lim) } }] });
+	}
+	function mdGrow(pool: string, units: number): void {   // 新バッファ確保＋GPU 内コピー（CPU の再アップロード無し）。copy と後続の up は同じ queue 順＝up が成長を追い越さない
+		const p = (md as unknown as Record<string, MDPool | undefined>)[pool]; if (!p || !MD_STRIDE[pool]) return;
+		const bytes = units * MD_STRIDE[pool];
+		if (bytes <= p.bytes) return;
+		const nb = device.createBuffer({ size: bytes, usage: MD_USAGE[pool] | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+		if (p.buf) {
+			const enc = device.createCommandEncoder();
+			enc.copyBufferToBuffer(p.buf, 0, nb, 0, p.bytes);
+			device.queue.submit([enc.finish()]);
+			p.buf.destroy();   // submit 済み＝GPU 側は完了まで生きる
+		}
+		memPool += bytes - p.bytes;
+		p.buf = nb; p.bytes = bytes;
+		if (pool === "line") mdLineBG();
+	}
+	function mdUpload(u: MDUpload): void {   // タイル 1 枚分のブロック転送＝writeBuffer（queue 順）。base は要素単位
+		if (u.fill && md!.fillV.buf) device.queue.writeBuffer(md!.fillV.buf, u.fill.base * 12, u.fill.buf);
+		if (u.idx && md!.fillI.buf) device.queue.writeBuffer(md!.fillI.buf, u.idx.base * 4, u.idx.arr);
+		if (u.line && md!.line.buf) device.queue.writeBuffer(md!.line.buf, u.line.base * 32, u.line.arr);
+		if (u.bld && md!.bldV.buf) device.queue.writeBuffer(md!.bldV.buf, u.bld.base * 24, u.bld.arr);
+	}
+	function mdScene(m: MDSceneMsg): void {   // draw list 差し替え＝GPU 転送は origins（8B×draw 数）だけ。layers は li 昇順＝painter 順
+		if (!scenes[m.slot]) return;
+		const pT0 = (self as PerfSelf).__perfScene ? performance.now() : 0;   // 計器 b＝classic の setScene と同じ行（md では µs 級が期待）
+		sceneRev++; mdSceneRev++;
+		disposeSlot(m.slot);
+		let n = 0;
+		for (const L of m.layers) n += L.counts.length;
+		if (m.bld) for (const e of m.bld) n += e.counts.length;
+		const org = new Float32Array(Math.max(2, n * 2));
+		let at = 0;
+		const put = (o: Float32Array): number => { const off = at * 8; org.set(o, at * 2); at += o.length >> 1; return off; };
+		const layers: MDLayer[] = m.layers.map(L => ({ kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins) }));
+		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
+		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+		device.queue.writeBuffer(orgBuf, 0, org);
+		scenes[m.slot] = { origin: m.origin, draws: [], bld: null, md: { layers, bld, orgBuf } };
+		if (pT0) {
+			const ms = performance.now() - pT0;
+			if (ms > 4) ((self as PerfSelf).__perfHitch ||= { elev: 0, scene: 0 }).scene++;
+			console.log(`[scene] apply ${m.slot} ${ms.toFixed(1)}ms ${(org.byteLength / 1024) | 0}KB layers=${layers.length} md=1 draws=${n}`);
+		}
+	}
+	// MD の派生パイプライン（素／影／面／影＋面 × sampleCount・遅延）＝本体と同じモジュール文字列に mdize を掛けて頂点レイアウトだけ替える。
+	// 線は group(3) に線分プール（素の派生は group(2) が空のレイアウト）。建物は origins を属性で受ける＝bind group は本体と同じ。
+	// label は本体と同じ名（fragDepthWgsl の対象判定＝building 系だけ）
+	const mdPipeCache = new Map<string, MDPipes>(), mdModCache = new Map<string, GPUShaderModule>();
+	const mdMod = (key: string, src: string, label: string): GPUShaderModule => { let m = mdModCache.get(key); if (!m) mdModCache.set(key, m = mkMod(src, label)); return m; };
+	function mdPipeSet(variant: "p" | "r" | "c" | "cr", sc: number): MDPipes {
+		const key = `${variant}:${sc}`;
+		let p = mdPipeCache.get(key); if (p) return p;
+		const src = variant === "p" ? { fill: FILL_WGSL, line: LINE_WGSL, bld: BUILDING_WGSL, lbl: "" } : variant === "r" ? { fill: FILL_SH_WGSL, line: LINE_SH_WGSL, bld: BUILDING_SH_WGSL, lbl: "Sh" }
+			: variant === "c" ? { fill: FILL_CLIP_WGSL, line: LINE_CLIP_WGSL, bld: BUILDING_CLIP_WGSL, lbl: "Clip" } : { fill: FILL_SH_CLIP_WGSL, line: LINE_SH_CLIP_WGSL, bld: BUILDING_SH_CLIP_WGSL, lbl: "ShClip" };
+		const g2 = variant === "p" ? bglEmpty : variant === "r" ? sh!.bgl : variant === "c" ? cl!.bgl : cl!.bglShCl;   // その派生が group(2) に張る物
+		const layFill = variant === "p" ? layout : variant === "r" ? sh!.lay.fill : variant === "c" ? cl!.lay.fill : cl!.laySh.fill;
+		const layBld = variant === "p" ? bldLayout : variant === "r" ? sh!.lay.bld : variant === "c" ? cl!.lay.bld : cl!.laySh.bld;
+		const layLine = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, g2, bglSeg] });
+		const mf = mdMod(`fill${src.lbl}`, mdFillWgsl(src.fill, "FillOut", `FILL_MD${src.lbl}`), `fill${src.lbl}`);
+		const ml = mdMod(`line${src.lbl}`, mdLineWgsl(src.line, `LINE_MD${src.lbl}`), `line${src.lbl}`);
+		const mb = mdMod(`bld${src.lbl}`, mdBldWgsl(src.bld, `BUILDING_MD${src.lbl}`), `building${src.lbl}`);
+		const ms = { count: sc };
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		p = { fillOff: pipe(mf, MD_FILL_BUFS, dsOff, layFill), fillTest: pipe(mf, MD_FILL_BUFS, dsTest, layFill), lineOff: pipe(ml, MD_LINE_BUFS, dsOff, layLine), lineTest: pipe(ml, MD_LINE_BUFS, dsTest, layLine), bld: pipe(mb, MD_BLD_BUFS, dsWriteBld, layBld) };
+		mdPipeCache.set(key, p);
+		return p;
+	}
+	let mdCastPipe: GPURenderPipeline | null = null, mdCastClipPipe: GPURenderPipeline | null = null;   // 影を落とす側（建物・深度だけ・#112）＝md シーンの建物も影を落とす
+	function mdCast(clip: boolean): GPURenderPipeline {
+		const have = clip ? mdCastClipPipe : mdCastPipe; if (have) return have;
+		const mod = mkMod(mdBldWgsl(clip ? BUILDING_CAST_CLIP_WGSL : BUILDING_CAST_WGSL, clip ? "BUILDING_CAST_CLIP_MD" : "BUILDING_CAST_MD"), clip ? "buildingCastClip" : "buildingCast");
+		const pipe = device.createRenderPipeline({ layout: clip ? cl!.layCast.bld : bldLayout, vertex: { module: mod, entryPoint: "vs", buffers: MD_BLD_BUFS },
+			fragment: { module: mod, entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less", depthBiasSlopeScale: 1.5 } });
+		if (clip) mdCastClipPipe = pipe; else mdCastPipe = pipe;
+		return pipe;
 	}
 	function setScene(s: SceneData, slot = "main") {
 		if (!scenes[slot]) return;   // overlay 等の未知スロットは対象外
@@ -2004,7 +2148,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function encodeShadowCasters(enc: GPUCommandEncoder, win: ShadowWindow, cam: CameraPose, opts: RenderDrawOptions | null | undefined, terrOn: boolean, clipPl: Record<string, ClipPlane[]> | null) {   // terrOn＝地形も落とす（#112 段 2・地形が描かれているフレームだけ＝真俯瞰は平ら）・clipPl＝断面の面（#111 段 2＝切った形で落とす・null＝切らない）
 		const bld0 = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		// 窓（行列）・中身の版・標高リフト・マスク・建物シーンが前回と同じ＝深度テクスチャはそのまま使える（静止中は影のコストほぼ 0）
-		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? JSON.stringify(clipPl) : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}`;   // 面が変われば描き直す（面の K は main 原点に依る）
+		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? JSON.stringify(clipPl) : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}|${mdSceneRev}`;   // 面が変われば描き直す（面の K は main 原点に依る）・mdSceneRev＝md シーンの建物の版
 		const KC = clipPl ? clipCastPipes() : null, KX = clipPl ? clipShBG() : null;   // 切った形で落とす（#111 段 2）・clipPl＝対象ごとの面（段 4）
 		if (sh!.castKey === key && sh!.castBld === bld0) { shStat.skipped++; return; }
 		sh!.castKey = key; sh!.castBld = bld0;
@@ -2043,6 +2187,19 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			sp.setVertexBuffer(0, bld.bPos); sp.setVertexBuffer(1, bld.bSh); sp.setVertexBuffer(2, bld.bAnc);
 			sp.draw(bld.count);
 			cnt.bldTris = bld.count / 3;
+		}
+		const bldM = !(opts && opts.skipMain) && !(opts && opts.noBld) && scenes.main.md ? scenes.main.md.bld : null;   // md シーンの建物も落とす（タイルごとの draw）
+		if (bldM && bldM.length) {
+			const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
+			const mdist = (m: MeshMask) => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
+			const act = [...meshMasks.entries()].filter(([w]) => !meshHidden.has(w)).map(([, m]) => m).sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_MESH_MASKS);
+			sp.setPipeline(mdCast(!!KC));
+			sp.setBindGroup(0, bg0s);
+			sp.setBindGroup(1, paramBG[ROLE.bld]);
+			sp.setBindGroup(2, buildMaskBG(act, scenes.main.origin || [0, 0]));
+			if (KC) sp.setBindGroup(3, cl!.bg.buildings);
+			sp.setVertexBuffer(0, md!.bldV.buf!);
+			for (const e of bldM) { sp.setVertexBuffer(1, scenes.main.md!.orgBuf, e.orgOff); for (let j = 0; j < e.counts.length; j++) { sp.draw(e.counts[j], 1, e.firsts[j], j); cnt.bldTris += e.counts[j] / 3; } }
 		}
 		if (meshes.size) {
 			const list: { p: MeshBatch; slot: number; mask: boolean }[] = [];
@@ -2381,7 +2538,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		dbg.shadow = shWin ? +(shWin.alt * 180 / Math.PI).toFixed(1) : 0;   // ?drawhud=1：影の窓が立ったか（太陽高度°・0＝影なしのフレーム）
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		if (userOn) slots.push("user");   // 利用者の vector の層（段 8⑤）＝基図の塗りと線の後
-		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
+		const mainLinesOn = slots.indexOf("main") >= 0 && sceneHas(scenes.main);
 		const fillPipe = terrainDepth ? PX.fillTest : PX.fillOff;   // 断面の間は断面の派生（#111 段 1〜2・影と重ねる時は影＋面）
 		const linePipe = terrainDepth ? PX.lineTest : PX.lineOff;
 		// 塗りの直描きを伏せる条件：3D（地形あり）＝塗りは地面アトラスへ焼いてある（RTT ドレープ）／ラスタ基図（under・hideFills）＝裁定（線と注記は残す）
@@ -2421,20 +2578,56 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (slot === "base") dbg!.baseLine++; else dbg!.mainLine++;
 			}
 		};
-		const runSlot = (slot: string, list: SceneDraw[], useFade: boolean, lo: number, hi: number, pick: ((d: SceneDraw) => boolean) | null = null) => { for (const d of list) if (pick ? pick(d) : d.li >= lo && d.li < hi) drawOne(slot, d, useFade); };
+		// MD シーン（タイル GPU 常駐プール）の 1 束＝li ごと・タイルごとに draw(count, 1, first, firstInstance=j)。ゲートは drawOne と同一（分岐ロジックを揃える）
+		const MDX = md ? mdPipeSet(CR ? "cr" : C ? "c" : R ? "r" : "p", S) : null;
+		const drawMDLayer = (slot: string, e: MDLayer, orgBuf: GPUBuffer) => {
+			if (e.kind === "fill") {
+				if (rasterHide) return;   // ラスタ基図＝塗りを伏せる
+				const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
+				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
+				if (hideBldFill && e.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
+				const roof = R && !C && e.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根（classic と同じ＝素の派生）
+				const PM = roof ? mdPipeSet("p", S) : MDX!;
+				pass.setPipeline(terrainDepth ? PM.fillTest : PM.fillOff);
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal]);
+				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setVertexBuffer(0, md!.fillV.buf!); pass.setVertexBuffer(1, orgBuf, e.orgOff);
+				pass.setIndexBuffer(md!.fillI.buf!, "uint32");
+				const c = e.counts, o = e.offsets!;
+				for (let j = 0; j < c.length; j++) pass.drawIndexed(c[j], 1, o[j] >> 2, 0, j);   // offsets＝byte（scene worker）→ firstIndex・index 値はプール絶対＝baseVertex 0
+				if (slot === "base") dbg!.baseFill += c.length; else dbg!.mainFill += c.length;
+			} else {
+				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
+				if (!md!.lineBG) return;
+				pass.setPipeline(terrainDepth ? MDX!.lineTest : MDX!.lineOff);
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[ROLE.normal]);
+				pass.setBindGroup(2, grp(slot) || emptyBG);
+				pass.setBindGroup(3, md!.lineBG);
+				pass.setVertexBuffer(0, orgBuf, e.orgOff);
+				const c = e.counts, f = e.firsts!;
+				for (let j = 0; j < c.length; j++) pass.draw(c[j], 1, f[j], j);   // firsts＝先頭頂点番号（6 頂点/線分）
+				if (slot === "base") dbg!.baseLine += c.length; else dbg!.mainLine += c.length;
+			}
+		};
+		const runSlot = (slot: string, list: DrawSrc, useFade: boolean, lo: number, hi: number, pick: ((d: { li: number }) => boolean) | null = null) => {
+			if (Array.isArray(list)) { for (const d of list) if (pick ? pick(d) : d.li >= lo && d.li < hi) drawOne(slot, d, useFade); return; }
+			for (const e of list.layers) if (pick ? pick(e) : e.li >= lo && e.li < hi) drawMDLayer(slot, e, list.orgBuf);   // md＝フェードなし
+		};
 		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の最後のパス（フェード中は新しいシーン）の li ≥ anchor の項の前に描く。
 		// 表に無い物・基図の枠が無い時は今どおり最後（旧シーンのパスは全部を先に敷く＝差し込んだ層の上の基図の層は旧シーンでも上）
-		const ua = userAnchorPlan(userOn ? [...slots].reverse().find(sl => sl !== "user" && scenes[sl].draws.length) : null);
+		const ua = userAnchorPlan(userOn ? [...slots].reverse().find(sl => sl !== "user" && sceneHas(scenes[sl])) : null);
 		let uaDone = false;
 		for (const slot of slots) {
 			if (slot === "user") { runSlot("user", scenes.user.draws, false, -Infinity, Infinity, uaDone ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
 			const scene = scenes[slot];
 			// フェード中の main＝旧シーン（通常ロール・α1）を先に敷き、新シーンを fade ロール（α=fadeK）で重ねる
-			const passes: [SceneDraw[], boolean][] = (slot === "main" && fading)
+			const passes: [DrawSrc, boolean][] = scene.md ? [[scene.md, false]] : (slot === "main" && fading)
 				? [[scene.fadePrev!.draws, false], [scene.draws, true]]
 				: [[scene.draws, false]];
 			passes.forEach(([drawList, useFade], pi) => {
-				if (!drawList.length) return;
+				if (Array.isArray(drawList) ? !drawList.length : !drawList.layers.length) return;
 				if (slot !== ua.host || pi !== passes.length - 1 || !ua.anchors.length) { runSlot(slot, drawList, useFade, -Infinity, Infinity); return; }
 				let lo = -Infinity;
 				for (const a of ua.anchors) { runSlot(slot, drawList, useFade, lo, a); runSlot("user", scenes.user.draws, false, 0, 0, d => ua.anchorOf(d.li) === a); lo = a; }
@@ -2485,6 +2678,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setVertexBuffer(1, bld.bSh);
 			pass.setVertexBuffer(2, bld.bAnc);
 			pass.draw(bld.count);
+		}
+		const bldMD = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) && scenes.main.md ? scenes.main.md.bld : null;   // md シーンの建物＝プールレンジ列（タイルごとの draw）
+		if (bldMD && bldMD.length) {
+			pass.setPipeline(MDX!.bld);
+			pass.setBindGroup(0, bg0.bld);
+			pass.setBindGroup(1, paramBG[ROLE.bld]);
+			pass.setBindGroup(2, bldMaskBG);
+			if (grp("buildings")) pass.setBindGroup(3, grp("buildings"));
+			pass.setVertexBuffer(0, md!.bldV.buf!);
+			for (const e of bldMD) { pass.setVertexBuffer(1, scenes.main.md!.orgBuf, e.orgOff); for (let j = 0; j < e.counts.length; j++) pass.draw(e.counts[j], 1, e.firsts[j], j); }
 		}
 		// gintBld（gint ユーザー層の地形沿い境界線/点＝moj筆ドレープ）：独自 origin・深度で地形/尾根に遮蔽・マスク無し。
 		// ★常時描画（show3d/skipMain ゲート無し＝GL 同等）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
@@ -2734,6 +2937,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "bldFill": bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: number[][] } | null)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）
 			case "scene":   setScene(data as SceneData, prop as string | undefined); break;
+			case "mdGrow":  if (md) mdGrow((data as { pool: string; units: number }).pool, (data as { pool: string; units: number }).units); break;   // multi_draw: プール成長（GPU 内コピー）
+			case "mdUp":    if (md) mdUpload(data as MDUpload); break;                 // multi_draw: タイルブロック転送
+			case "mdScene": if (md) mdScene(data as MDSceneMsg); break;               // multi_draw: draw list 差し替え（転送は origins だけ）
 			case "elevAtlas": setElevationAtlas(data as ElevAtlasMeta, prop as number); break;
 			case "elevCell": setElevationCell((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
 			case "elevAtlasStage": setElevationAtlasStage(data as ElevAtlasMeta, prop as number); break;
@@ -2791,7 +2997,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
@@ -2800,7 +3006,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0 }),
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）

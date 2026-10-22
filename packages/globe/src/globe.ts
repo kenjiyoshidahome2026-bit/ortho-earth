@@ -683,7 +683,7 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
-let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
+let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
@@ -2355,7 +2355,7 @@ let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝
 function hudSnapshot() {
 	const pl = meshMgr.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
 	const ts = tiles.stats();
-	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋画像タイル層のテクスチャ
+	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa + (memGpu.pool || 0) : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋タイル GPU 常駐プール（WebGPU md・vt perf plan §4）＋画像タイル層のテクスチャ
 	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
 	if (total > hudPeak) hudPeak = total;
 	const nc = (navigator as NavigatorPlus).connection || {};
