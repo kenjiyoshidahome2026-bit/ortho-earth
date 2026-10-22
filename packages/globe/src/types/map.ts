@@ -518,7 +518,7 @@ export interface StyleApi {
 	/** worker 経路の custom 層（addLayer({ type:"custom", url })）のオーバーレイの手綱（post＝層の onMessage へ・onmessage・remove）。main の canvas の経路（url 無し）や無い id は null */
 	getCustomLayerHandle(id: string): OverlayHandle | null;   // api/style.ts:52
 	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/video/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
-	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は canvas2D の口で描く（#49・gint の線は一色・ずらしなし＝地形の遮蔽は無い）。
+	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は geojson を切ったタイルで vtdraw の GPU の線として描く（2026-10-22〜・?gjvt=0 で canvas2D の口）。line-pattern は canvas2D の口。
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
 	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層へ詰める（1.3.0〜）・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
 	 *  fill/line/circle は MapLibre の意味（1.3.0〜）：層の型が描くジオメトリを選ぶ（fill＝面・line＝線と面の輪郭・circle＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・

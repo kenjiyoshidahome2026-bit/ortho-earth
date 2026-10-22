@@ -33,7 +33,7 @@ const NOTES = {
 	"line-translate-anchor": ["一部", "translate と同じ（viewport＝方位だけ回す）"],
 	"circle-translate-anchor": ["一部", "translate と同じ（viewport＝方位だけ回す）"],
 	"fill-extrusion-translate-anchor": ["未", "translate が未"],
-	"line-gradient": ["一部", "geojson の層だけ（canvas2D の線の飾り）。vector の層は未"],
+	"line-gradient": ["一部", "基図・vector・geojson の層（GL2・WebGPU・G-3・2026-10-22・色の見本は層で一度・line-opacity も層で一度）・基図と vector の進みは環ごとの長さの割合（MapLibre は lineMetrics の geojson だけ）・CPU で刻む破線とは並ばない"],
 	"line-blur": ["一部", "基図と vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・属性の式は層で一度）・geojson の層は読まない"],
 	"circle-blur": ["一部", "vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・層で一度・透ける円の縁の輪はぼかさない）・geojson の層は読まない"],
 	"circle-pitch-alignment": ["一部", "\"map\" は警告して画面に向いた円で描く"],

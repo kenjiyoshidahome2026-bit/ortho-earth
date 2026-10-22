@@ -14,6 +14,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 | line-offset ≠ 0・line-gradient | 同上（`offsetPolyline`・`gradStops`） | 同上 |
 
 問い合わせは `patItems`（画面の px で当てる）。vtdraw 側は fill-pattern・line-offset・破線・translate・blur を GPU で描く（line-pattern と line-gradient は未対応＝警告して色で描く）。
+※ 2026-10-22 追記：line-gradient は G-3 で vtdraw（基図・vector・geojson の層とも GPU）へ移した。残る pattern-2d＝line-pattern・既定の fill-pattern（`?gjvt=2` でない時）・属性で模様を変える層。
 
 ## 1. 設計
 
@@ -35,10 +36,15 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 - `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。例外＝後ろに基図の層がある geojson の fill／line／circle の層（基図の層の間に描く・S-P2・2026-10-22 Kenji 裁定）は vtdraw へ（`api/style.ts` の kindOfV）。
 - 問い合わせ：queryRenderedFeatures は vtdraw の当たり（vector の層と同じ）。querySourceFeatures は今どおり data を返す。feature-state は vtdraw の fs の口。
 
-### G-3 line-gradient（lineMetrics）
+### G-3 line-gradient（lineMetrics・**済**・2026-10-22）
 - MapLibre の line-gradient は geojson source の `lineMetrics: true` だけ。`["line-progress"]` は地物の線の頭からの長さの割合。
-- G-1 の切り分けで、線の各部分に「元の線の全長」と「部分の頭の進み」を属性で持たせ、build.ts が頂点の進みを焼く。
-- 色は進みの見本（64 段）を表に焼いて、シェーダが進みで引く（paint 表の (b) 類の行と同じ置き場が候補）。**線分レコード（8×u32）に語を足すかどうかは統合ロードマップと擦り合わせ**（§5 裁定待ち 2）。
+- 実装（線分レコードは 8×u32 のまま＝§5 裁定 2 の「語を足さない」）：
+  - geojsonvt.ts：線（MultiLineString は 1 本ずつ）の頂点ごとの進み（メルカトルの平面の長さ÷全長）を `geom.prog`（Float32Array）に書く。切った端は切った線分の上で補う＝タイルをまたいでも続く。lineMetrics の有無に依らず書く（旧 pattern-2d と同じく lineMetrics の無い geojson でも描く）。
+  - vtdraw-worker の枠の切り（vtops `clipLineGeom`）も `prog` を補って運ぶ。
+  - build.ts：外来の層が line-gradient を持つと、色の語（語 4）を**線分の始点・終点の進み（unorm16×2）**にする（`lgWord`）。細分の小片へは補う。`geom.prog` が無い線（基図・vector）は環の頭からの長さ÷環の全長（近似）。色の見本は `lineGradientOf`＝進み 0..1 を 256 段（`LG_N`）に評価した RGBA8＋層の line-opacity＝`LineOp.lt`（`{ key, lut }`）。この層は paint 表（(b) 類＝語 4 を行に使う）を持たない・CPU で刻む破線とは並ばない（色で描く）。シェーダの破線（語 6）とは並ぶ。
+  - 描き手：GL2（classic・md）＝`u_lt`／`u_ltTex`（unit 16＝塗りの模様と同じ unit・見本は鍵で覚える）。WebGPU（classic・md）＝group(1) の binding 1/2（塗りの模様と同じ口）・`patP.x`＝1。頂点で 4 バイト→進みの対、画素で線分の上の位置の進みを補って見本を引く。
+  - 計画の初案（語 6＋地物ごとの全長の表）は採らなかった：語 6 はシェーダの破線が使う（gradient の破線と並べる）・全長の表は行が地物の数になる（vtdraw-line-records の申し送り）。語 4 は gradient の層では色が要らない（見本から引く）ので空く。
+- 門：`tests/linegrad.mjs`（core）・`tests/geojsonvt.mjs` の進み 6 項・`tests/vtdraw.mjs` の切りの進み・t-linedeco（GL2 classic／md・頭＝赤・中＝紫・尻＝青・canvas2D の口に描かない）・t-linegrad（レンダラ直駆動・GL2 は画素、WebGPU は検証エラー 0＝クラウドの SwiftShader は読み戻しで device を失う・画素は Mac の verify:webgpu）・t-wgsl（線の派生 4 本）。
 
 ### G-4 line-pattern
 - vector の層でも未対応＝G-2 の後に、fill-pattern の記号帳（アトラス）を線方向に敷く形で両方まとめて。style 互換の線の側と一緒に設計する。
@@ -49,7 +55,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 |---|---|---|---|
 | G-1 | 切り分け（core）＝**済** | Node の検定（面積・枠・穴・日付変更線）`tests/geojsonvt.mjs` 12 項 | — |
 | G-2 | 手元のタイル＋line-offset を vtdraw へ（**済**・fill-pattern は `?gjvt=2`） | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
-| G-3 | line-gradient | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
+| G-3 | line-gradient（**済**） | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
 | G-4 | line-pattern（vector と geojson） | t-linedeco・公式例の line-pattern の場面 | `?gjvt=0` |
 
 見立て：G-1 1 日・G-2 2〜3 日・G-3 2 日（裁定次第）・G-4 2 日。G-2 だけでも fill-pattern と line-offset の geojson 層は Canvas2D を離れる。

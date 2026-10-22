@@ -73,7 +73,7 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	const gl = src("../src/gl/renderer.ts");
 	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz, cam\);/g).length, 4);
-	assert.match(gl, /gl\.uniform4f\(linePzLoc, 0, 0, 0, 0\); gl\.uniform2f\(linePzOLoc, 0, 0\); \};/);   // 境界線などの線は差し替えない
+	assert.match(gl, /gl\.uniform4f\(linePzLoc, 0, 0, 0, 0\); gl\.uniform2f\(linePzOLoc, 0, 0\);[^\n]*\};/);   // 境界線などの線は差し替えない
 	const gpu = src("../src/gpu/renderer.ts");
 	assert.equal(gpu.match(/\bpz\b/g).length, 3);   // WebGPU は色・線幅を読まない（破線でずらす md の列のずらしだけ＝⑥）
 });

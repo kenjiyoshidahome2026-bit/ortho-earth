@@ -4,7 +4,7 @@
        ＝z16 の fixture（皇居のお濠。z10 の河川は細すぎて ±8px では両岸が入り乱れる）。
        (a) 0 と +8px で赤の画素がほとんど重ならない（動いた）(b) 水の塗りを線の上に被せると、+8（右＝MVT の外周は時計回り＝内側）は
        塗りに隠れて −8（外側）より赤が少ない（向き）
-     ②geojson の line-gradient（canvas2D の口）：東向きの線の頭は赤・尻は青
+     ②geojson の line-gradient（切ったタイルの線の進みで vtdraw＝geojson vt plan G-3・?gjvt=0 は canvas2D の口）：東向きの線の頭は赤・中ほどは紫・尻は青・canvas2D の口には描かない
      ③geojson の line-offset（切ったタイルで vtdraw＝geojson vt plan G-2・?gjvt=0 は canvas2D の口）：東向きの線に +15px＝画面の下（右）へずれて描かれ、元の位置には無い・canvas2D の口には描かない
      ④四隅の動画（map.raster.add の { video }）：canvas の captureStream を貼る→四隅の中が動画の色・setCoordinates で動く・remove で消える
      ⑤MapLibre の video source（addSource／addLayer・urls）：MediaRecorder で焼いた webm を貼る・getSource().getVideo() が動画要素
@@ -63,24 +63,29 @@ try {
 	// ③ line-offset（geojson・東向き＋15＝画面の下）
 	map.addSource("o", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[139.62, 35.58], [140.08, 35.58]] } } });
 	await map.addLayer({ id: "off", type: "line", source: "o", paint: { "line-width": 4, "line-color": "#00ff00", "line-offset": 15 } });
-	const [gx0, gy0] = map.projectLL(139.63, 35.52);
-	const P = await until("pattern", v => at(v, gx0, gy0)[3] > 200);
-	ok("patternPixels", !!P, P ? `${P.w}x${P.h}` : "none");
 	const GJVT = !/[?&]gjvt=0/.test(location.search), green = c => c[3] > 200 && c[1] > 180 && c[0] < 90;
 	const [mx, my] = map.projectLL(139.85, 35.58);
-	if (P) {
-		const [x0, y0] = map.projectLL(139.63, 35.52), [x1, y1] = map.projectLL(140.07, 35.52);
-		const c0 = at(P, x0, y0), c1 = at(P, x1, y1);
-		ok("gradHead", c0[3] > 200 && c0[0] > 180 && c0[2] < 90, c0.join());
-		ok("gradTail", c1[3] > 200 && c1[2] > 180 && c1[0] < 90, c1.join());
-		if (!GJVT) ok("offsetMoved", near(P, mx, my + 15, green) && !near(P, mx, my, green), `at+15=${at(P, mx, my + 15).join()} at0=${at(P, mx, my).join()}`);
-		else ok("offsetNotOnCanvas2D", !near(P, mx, my + 15, green), at(P, mx, my + 15).join());
-	}
-	if (GJVT) {   // 描いた絵（合成）で見る＝層の位置で GPU が描く
+	const [x0, y0] = map.projectLL(139.63, 35.52), [xh, yh] = map.projectLL(139.85, 35.52), [x1, y1] = map.projectLL(140.07, 35.52);
+	// 頭＝赤・中ほど（経度の真ん中＝メルカトルの長さの半分）＝紫・尻＝青（#0000ff＝下地の水 #3060c0 と見分ける）
+	const red = c => c[3] > 200 && c[0] > 180 && c[1] < 60 && c[2] < 90, purple = c => c[3] > 200 && c[0] > 80 && c[0] < 175 && c[2] > 80 && c[2] < 175 && c[1] < 50, blue = c => c[3] > 200 && c[2] > 200 && c[0] < 90 && c[1] < 60;
+	if (!GJVT) {   // canvas2D の口（pattern-2d）
+		const P = await until("pattern", v => at(v, x0, y0)[3] > 200);
+		ok("patternPixels", !!P, P ? `${P.w}x${P.h}` : "none");
+		if (P) {
+			ok("gradHead", red(at(P, x0, y0)), at(P, x0, y0).join());
+			ok("gradTail", blue(at(P, x1, y1)), at(P, x1, y1).join());
+			ok("offsetMoved", near(P, mx, my + 15, green) && !near(P, mx, my, green), `at+15=${at(P, mx, my + 15).join()} at0=${at(P, mx, my).join()}`);
+		}
+	} else {   // 描いた絵（合成）で見る＝層の位置で GPU が描く（vtdraw）
 		const atI = (img, x, y) => { const s = img.width / W, i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]]; };
 		const nearI = (img, x, y, test, r = 2) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(atI(img, x + dx, y + dy))) return true; return false; };
-		let O = null; for (const t0 = performance.now(); performance.now() - t0 < 30000; await sleep(500)) { O = await grab(); if (nearI(O, mx, my + 15, green)) break; }
+		let O = null; for (const t0 = performance.now(); performance.now() - t0 < 30000; await sleep(500)) { O = await grab(); if (nearI(O, mx, my + 15, green) && nearI(O, x0, y0, red)) break; }
+		ok("gradHead", nearI(O, x0, y0, red), atI(O, x0, y0).join());
+		ok("gradMid", nearI(O, xh, yh, purple), atI(O, xh, yh).join());
+		ok("gradTail", nearI(O, x1, y1, blue), atI(O, x1, y1).join());
 		ok("offsetMoved", nearI(O, mx, my + 15, green) && !nearI(O, mx, my, green), `at+15=${atI(O, mx, my + 15).join()} at0=${atI(O, mx, my).join()}`);
+		const P = await probe("pattern");   // canvas2D の口は作られないか、作られても描かない
+		ok("notOnCanvas2D", !P || (!near(P, x0, y0, c => c[3] > 200) && !near(P, mx, my + 15, green)), P ? `${at(P, x0, y0).join()} / ${at(P, mx, my + 15).join()}` : "none");
 	}
 	// setPaintProperty で line-offset を外す＝gint の線へ戻り、canvas の口からは消える
 	map.setPaintProperty("off", "line-offset", undefined);
@@ -105,13 +110,11 @@ try {
 	let V = await until("videoquad", v => mag(at(v, qx, qy)));
 	ok("videoDrawn", !!V && mag(at(V, qx, qy)), V ? at(V, qx, qy).join() : "none");
 	h.setCoordinates(quad.map(([lo, la]) => [lo + 0.2, la]));
-	await sleep(800);
-	V = await probe("videoquad");
 	const [qx2, qy2] = map.projectLL(139.95, 35.435);
+	V = await until("videoquad", v => mag(at(v, qx2, qy2)) && !mag(at(v, qx, qy)), 10000);   // 決め打ちの待ちにしない（負荷で 800ms を越えた・2026-10-22）
 	ok("videoMoved", !!V && mag(at(V, qx2, qy2)) && !mag(at(V, qx, qy)), V ? `${at(V, qx2, qy2).join()} / ${at(V, qx, qy).join()}` : "none");
 	map.raster.remove("vid");
-	await sleep(500);
-	V = await probe("videoquad");
+	V = await until("videoquad", v => !mag(at(v, qx2, qy2)), 10000);
 	ok("videoRemoved", !!V && !mag(at(V, qx2, qy2)), V ? at(V, qx2, qy2).join() : "none");
 	clearInterval(ticker);
 
