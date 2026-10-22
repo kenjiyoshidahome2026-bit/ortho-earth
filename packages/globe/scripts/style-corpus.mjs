@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { splitMapLibreStyle, convertValue } from "../../ortho-core/src/mlstyle.ts";
 import { exprDeps } from "../../ortho-core/src/expr.ts";
+import { layerPaintZoom } from "../../ortho-core/src/paintzoom.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = path.join(ROOT, ".cache/style-corpus");
@@ -41,6 +42,13 @@ export const STYLES = [
 // ── 差の表（台帳 §4 の写し）：test(L, ctx) → 真ならその層は「同じ絵にならない」 ──
 const json = v => JSON.stringify(v ?? null);
 const usesZoom = v => /"zoom"|"stops"/.test(json(v));
+// 基図の paint のうち、今の z で差し替えられない（作ったタイルの z で焼くまま）ズームの式（V-Ph3＝S-P1-2・2026-10-22＝GL2）。
+// 差し替えるのは塗りと線の、地物に依らない色・不透明度・線幅（core paintzoom.ts の layerPaintZoom）
+const zoomBaked = L => {
+	const P = Object.fromEntries(Object.entries(L.paint || {}).map(([k, v]) => [k, convertValue(v)]));
+	const pz = L.type === "line" || L.type === "fill" ? layerPaintZoom(L.type, P, "ml") : null;
+	return Object.entries(L.paint || {}).some(([k, v]) => usesZoom(v) && !(pz && ((pz.c && /^(fill|line)-(color|opacity)$/.test(k)) || (pz.w && k === "line-width"))));
+};
 // 出力の数の最大（interpolate／step の出力・旧式の stops・数そのもの）
 function maxOut(v) {
 	if (typeof v === "number") return v;
@@ -54,7 +62,7 @@ function maxOut(v) {
 const DROPPED = /pattern|unknown expression operator/;
 const has = (L, k) => L.paint?.[k] != null || L.layout?.[k] != null;
 export const GAPS = [
-	{ key: "basemap-paint-zoom", why: "基図の paint はタイルの z で焼く（ズームに連続でない）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && Object.values(L.paint || {}).some(usesZoom) },
+	{ key: "basemap-paint-zoom", why: "基図の paint のうち地物を読む式（zoom×data）・ずらし・線の隙間などはタイルの z で焼く（ズームに連続でない）。地物に依らない色・不透明度・線幅は 2026-10-22 から GL2 で今の z（V-Ph3＝S-P1-2）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && zoomBaked(L) },
 	{ key: "after-symbol", why: "注記より後ろの塗り・線（注記は常に最上段）", test: (L, c) => c.afterSymbol.has(L.id) },
 	{ key: "dasharray-cpu", why: "ずらす層（line-offset・line-gap-width）と模様 9 個以上の破線は CPU でタイルの z の尺に刻む（他は 2026-10-22 から GL2・WebGPU とも MapLibre と同じ＝S-P1-3）", test: L => has(L, "line-dasharray") && (has(L, "line-offset") || has(L, "line-gap-width") || (Array.isArray(L.paint["line-dasharray"]) && L.paint["line-dasharray"].length > 8)) },
 	{ key: "pattern", why: "line-pattern・background-pattern・fill-extrusion-pattern は未（fill-pattern は 2026-10-22 から GL2・WebGPU＝S-P1-4/5・大きさは cos φ 倍）", test: L => ["line-pattern", "background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
