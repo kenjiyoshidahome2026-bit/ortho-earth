@@ -1,12 +1,12 @@
-// 注記の字を WebGPU で塗る（テキスト GPU 化 T-P1・`text gpu plan.md` §3）。今は線に沿う注記の字だけ＝点の注記・記号・標識は Canvas2D の受け口のまま。
+// 注記の字を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・`text gpu plan.md` §3）。線に沿う注記と点の注記の字＝記号・標識・format の記号の区間は Canvas2D の受け口のまま（T-P3）。
 // 字の版＝SDF（R8）の 1 枚。鍵は「基準の大きさに直した書体×字」だけ＝色・大きさ・縁・ぼかし・不透明度はインスタンスとシェーダ（旧の字の版は組ごとに焼き直していた）。
 // 元の絵は今と同じ Canvas2D（addFontFace の Web フォントも効く）＝白で 1 字焼いて EDT で SDF（sdf.ts）。
 // 描く先は注記の canvas の上に重ねた webgpu の canvas（足場＝T-P2 で地図の描画パスの中へ移す）。1 字 1 インスタンス（72B）・4 頂点の strip。
 // 版が尽きたら 2048→4096 に広げ、それも尽きたら次のフレームの頭で全部捨てて焼き直す（尽きたフレームはその字だけ出ない）
 import { SDF_BASE, SDF_PAD, SDF_R, SDF_CUTOFF, baseFont, sdfFromAlpha, shelfPacker } from "../sdf.ts";
-import { pxNumOf } from "../textsink.ts";
+import { pointGlyphs, pxNumOf } from "../textsink.ts";
 import type { Color, LabelShield, LineGlyph, LineIcon, Mat2, IconRect, TextLayout } from "../labels2d.ts";
-import type { SinkStats, TextPaint, TextSink } from "../textsink.ts";
+import type { PointGlyph, PointImg, SinkStats, TextPaint, TextSink } from "../textsink.ts";
 
 /** 版の中の字 1 つ（版の px）。ox, oy＝字の錨（中央・middle）から箱の左上（基準の大きさの px） */
 export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: number; oy: number }
@@ -115,6 +115,7 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		const up = Math.ceil(Math.max(0, mt.actualBoundingBoxAscent ?? SDF_BASE * 0.85)), dn = Math.ceil(Math.max(0, mt.actualBoundingBoxDescent ?? SDF_BASE * 0.85));
 		if (l + r <= 0 || up + dn <= 0) { glyphs.set(key, null); return null; }   // 形の無い字（空白・制御）
 		const w = l + r + 2 * SDF_PAD, h = up + dn + 2 * SDF_PAD;
+		if (w + 2 > MAXS || h + 2 > MAXS) { glyphs.set(key, null); return null; }   // 版の一辺より大きい（長い run sprite）＝焼けない（焼き直しても入らない＝needReset にしない）
 		if (rcv.width < w || rcv.height < h) { rcv.width = Math.max(rcv.width, w); rcv.height = Math.max(rcv.height, h); rctx.font = bf; rctx.textAlign = "center"; rctx.textBaseline = "middle"; }
 		const at = place(w, h);
 		if (!at) { needReset = true; return null; }   // 版が尽きた＝次のフレームの頭で焼き直す（覚えない＝次は焼く）
@@ -174,12 +175,25 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 const rgba8 = (c: Color | null | undefined, o: number) => !c ? 0 : ((Math.round(c[0] * 255) | Math.round(c[1] * 255) << 8 | Math.round(c[2] * 255) << 16 | Math.round(Math.max(0, Math.min(1, c[3] * o)) * 255) << 24) >>> 0);
 const ROT = { a: 1, b: 0, c: 0, d: 1 };
 
-/** 線に沿う注記の字だけを GPU へ回す受け口（T-P1 の足場）。他の命令は Canvas2D の受け口へそのまま。
+/** 注記の字を GPU へ回す受け口（線に沿う注記・点の注記の字）。記号・標識・format の記号の区間・星空は Canvas2D の受け口へそのまま（T-P3）。
  *  attach(gt)＝GPU を据える（null＝外す＝全部 Canvas2D）・canvasOnly＝一時的に全部 Canvas2D（撮影＝注記の canvas 1 枚で読む） */
-export interface GpuLineSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean }
-export function createGpuLineSink(base: TextSink): GpuLineSink {
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean }
+const R90 = (m: Mat2): Mat2 => ({ a: m.c, b: m.d, c: -m.a, d: -m.b });   // m·rotate(90°)＝縦書きの回す字（Canvas2D の rotate(π/2) と同じ向き）
+export function createGpuTextSink(base: TextSink): GpuTextSink {
 	let gt: GpuText | null = null, on = false, glyphsG = 0;
-	const s: GpuLineSink = {
+	// 字送りの寸法＝labels2d の寸法の口（canvasMetrics）と同じ measureText・字間（行の束はラベルごとに覚えてある＝割った字の列も行の束ごとに覚える）
+	const mcv = new OffscreenCanvas(8, 8), mctx = mcv.getContext("2d")!, hasLS = "letterSpacing" in mctx;
+	let mFont = "", mLs = -1;
+	const measure = (t: string) => mctx.measureText(t).width;
+	const measurer = (font: string, ls: number) => { if (font !== mFont) { mctx.font = mFont = font; } if (hasLS && ls !== mLs) { mctx.letterSpacing = `${ls}px`; mLs = ls; } return measure; };
+	let split = new WeakMap<TextLayout, Map<string, { g: PointGlyph[]; img: PointImg[] }>>();
+	const splitOf = (tl: TextLayout, font: string, just: string) => {
+		let m = split.get(tl); if (!m) split.set(tl, m = new Map());
+		const k = just + "\u0001" + font; let r = m.get(k);
+		if (!r) m.set(k, r = pointGlyphs(tl, font, just, measurer));
+		return r;
+	};
+	const s: GpuTextSink = {
 		get kind() { return gt ? "webgpu" as const : "2d" as const; },
 		get ctx2d() { return base.ctx2d; },
 		canvasOnly: false,
@@ -187,7 +201,7 @@ export function createGpuLineSink(base: TextSink): GpuLineSink {
 		begin(W, H, dpr) { base.begin(W, H, dpr); on = !!gt && !s.canvasOnly; glyphsG = 0; if (on) gt!.begin(W, H, dpr); },
 		end() { base.end(); if (on) gt!.end(); },
 		clear(W, H) { base.clear(W, H); gt?.clearCanvas(); },
-		fontsChanged() { base.fontsChanged(); gt?.reset(); },
+		fontsChanged() { base.fontsChanged(); gt?.reset(); split = new WeakMap(); mFont = ""; },
 		shield: (sh: LabelShield, sx: number, sy: number, o: number) => base.shield(sh, sx, sy, o),
 		lineIcon: (src: CanvasImageSource, ic: LineIcon, o: number) => base.lineIcon(src, ic, o),
 		lineText(gl: readonly LineGlyph[], font: string, L: TextPaint, o: number, dpr: number) {
@@ -204,7 +218,22 @@ export function createGpuLineSink(base: TextSink): GpuLineSink {
 			}
 		},
 		pointIcon: (src: CanvasImageSource, ib: IconRect, sx: number, sy: number, Ti: Mat2 | null, irot: number | undefined, o: number) => base.pointIcon(src, ib, sx, sy, Ti, irot, o),
-		pointText: (tl: TextLayout, font: string, T: Mat2 | null, sx: number, sy: number, x0: number, y0: number, just: string, p: TextPaint, o: number, img: (name: string) => CanvasImageSource | null) => base.pointText(tl, font, T, sx, sy, x0, y0, just, p, o, img),
+		// 点の注記＝行の束を字に割って（pointGlyphs）1 字 1 インスタンス。(x0, y0)＝箱の左上（T があれば錨 (sx, sy) を原点にした T の空間）。
+		// 縁は Canvas2D と同じく haloW の幅・ぼかし（shadowBlur）は縁が無くても縁の色で掛かる。format の記号の区間は Canvas2D の受け口の記号として
+		pointText(tl: TextLayout, font: string, T: Mat2 | null, sx: number, sy: number, x0: number, y0: number, just: string, L: TextPaint, o: number, img: (name: string) => CanvasImageSource | null) {
+			if (!on) { base.pointText(tl, font, T, sx, sy, x0, y0, just, L, o, img); return; }
+			const g0 = gt!, pg = splitOf(tl, font, just);
+			for (const q of pg.g) if (q.run && !g0.glyph(q.font, q.ch)) { base.pointText(tl, font, T, sx, sy, x0, y0, just, L, o, img); return; }   // 焼けない長い列＝この注記は丸ごと Canvas2D
+			const blur = L.blur! > 0 ? L.blur! : 0, halo = L.haloW > 0 || blur ? rgba8(L.halo, o) : 0, hw = L.haloW > 0 ? L.haloW : 0, fill0 = rgba8(L.color, o);
+			const M = T ?? ROT, MR = R90(M);
+			for (const q of pg.g) {
+				const sp = g0.glyph(q.font, q.ch); if (!sp) continue;
+				const lx = x0 + q.x, ly = y0 + q.y;
+				g0.push(T ? sx + T.a * lx + T.c * ly : lx, T ? sy + T.b * lx + T.d * ly : ly, q.rot ? MR : M, sp, g0.fontOf(q.font)[1] / SDF_BASE, q.col ? rgba8(q.col, o) : fill0, halo, hw, blur);
+				glyphsG++;
+			}
+			for (const im of pg.img) { const bm = img(im.name); if (bm) base.pointIcon(bm, T ? [x0 + im.x, y0 + im.y, im.w, im.h] : [x0 + im.x - sx, y0 + im.y - sy, im.w, im.h], sx, sy, T, undefined, o); }   // 記号帳の絵＝Canvas2D（T-P3 で記号の版へ）
+		},
 		stats: (): SinkStats => ({ glyphs: base.stats().glyphs + glyphsG }),
 	};
 	return s;

@@ -78,6 +78,69 @@ export function pxNumOf(s: string): string | undefined {
 	}
 	return undefined;
 }
+// ── 点の注記を字に割る（テキスト GPU 化 T-P2・`text gpu plan.md` §2）＝Canvas2D 版の pointText と同じ所に字を置く純関数（node で検定＝tests/pointglyphs.mjs）。
+// 字の x＝「行の頭からその字までの部分文字列の幅」＝字詰め（カーニング）と字間（letter-spacing）を Canvas2D の 1 行描きと同じに保つ。
+// 字に割れない文字（アラビア文字・デーヴァナーガリー等の繋げる字・結合記号・絵文字の合成）を含む列は割らずに列ごと 1 枚（run sprite）。
+// 座標は箱の左上（pointText の x0, y0）を原点・字の錨は字の中央（textAlign center・textBaseline middle＝字の版の錨と同じ）
+const SHAPED = /\p{M}|[\u0590-\u08FF\u0900-\u0DFF\u0E00-\u0FFF\u1000-\u109F\u1780-\u17FF\u200C-\u200F\uFB1D-\uFDFF\uFE70-\uFEFF]|\p{Extended_Pictographic}/u;
+/** 字に割ると形が壊れる列か（繋げる字・右から左・結合記号・絵文字） */
+export const needsShaping = (s: string): boolean => SHAPED.test(s);
+/** 字 1 つ（run＝ch は列まるごと 1 枚）。rot＝縦書きで 90° 回す字 */
+export interface PointGlyph { ch: string; font: string; x: number; y: number; rot: boolean; col: Color | null; run: boolean }
+/** format の記号の区間（箱の左上が原点） */
+export interface PointImg { name: string; x: number; y: number; w: number; h: number }
+type Measurer = GlyphMetrics["measurer"];
+// 横の列 1 本（x＝列の左端・y＝行の中央）。字の右端＝頭からその字までの部分文字列の幅（字詰めは前の字の送りに入る＝字の箱は右端から字の送りだけ戻った所）。
+// 字間 lsPx は Canvas2D と同じく字ごとの後ろに付く（幅に含む）＝字の中央＝右端 − 字間 − 字の送りの半分
+function rowGlyphs(out: PointGlyph[], t: string, font: string, lsPx: number, x: number, y: number, col: Color | null, measurer: Measurer) {
+	if (!t) return;
+	if (needsShaping(t)) { out.push({ ch: t, font, x: x + measurer(font, lsPx)(t) / 2, y, rot: false, col, run: true }); return; }   // 列の箱の中央（字間は焼かない＝MapLibre も繋げる字には字間を掛けない）
+	const m = measurer(font, lsPx);
+	let pre = "", pw = 0;
+	for (const ch of t) {
+		const nw = m(pre + ch);
+		if (ch.trim()) out.push({ ch, font, x: x + nw - (m(ch) + lsPx) / 2, y, rot: false, col, run: false });
+		pre += ch; pw = nw;
+	}
+}
+/** 点の注記の行の束を字の列へ（Canvas2D 版 pointText の 3 つの分岐＝縦書き・format の run・素の行と同じ置き方） */
+export function pointGlyphs(tl: TextLayout, font: string, just: string, measurer: Measurer): { g: PointGlyph[]; img: PointImg[] } {
+	const g: PointGlyph[] = [], img: PointImg[] = [];
+	if (tl.vcols) {   // 縦書き＝列は右から左・字は上から下。Canvas2D は行頭で据えた字間（tl.ls×size）のまま 1 字ずつ中央揃えで描く＝字は字間の半分だけ字の前へずれる（回す字は下へ）
+		const lsPx = tl.ls * tl.size;
+		let cx = tl.w;
+		for (let i = 0; i < tl.vcols.length; i++) {
+			cx -= tl.ws[i]; const x = cx + tl.ws[i] / 2; let y = 0;
+			for (const v of tl.vcols[i]) {
+				const gy = y + v.adv / 2;
+				if (v.ch.trim()) g.push(v.rot ? { ch: v.ch, font: v.font, x, y: gy - lsPx / 2, rot: true, col: v.col, run: needsShaping(v.ch) } : { ch: v.ch, font: v.font, x: x - lsPx / 2, y: gy, rot: false, col: v.col, run: needsShaping(v.ch) });
+				y += v.adv;
+			}
+		}
+	} else if (tl.runs) {   // format＝run ごとに書体・大きさ・色。左から詰める（寄せは行の幅で）・縦の揃え（vertical-align）も Canvas2D 版と同じ式
+		let ly = 0;
+		for (let i = 0; i < tl.runs.length; i++) {
+			const lhI = tl.lhs![i];
+			let x = just === "left" ? 0 : just === "right" ? tl.w - tl.ws[i] : (tl.w - tl.ws[i]) / 2;
+			for (const r of tl.runs[i]) {
+				const rh = r.img ? r.h : tl.size * r.fs, cy = r.va === "top" ? ly + rh / 2 : r.va === "bottom" ? ly + lhI - rh / 2 : ly + lhI / 2;
+				if (r.img) { if (r.w > 0) img.push({ name: r.img, x, y: cy - r.h / 2, w: r.w, h: r.h }); x += r.w; continue; }
+				rowGlyphs(g, r.t, r.font, tl.ls * tl.size * r.fs, x, cy, r.col, measurer);
+				x += r.w;
+			}
+			ly += lhI;
+		}
+	} else {   // 素の行＝寄せ（左・右・中央）は Canvas2D の textAlign と同じく、その行を字間込みで測った幅で
+		const lsPx = tl.ls * tl.size;
+		for (let i = 0; i < tl.lines.length; i++) {
+			const t = tl.lines[i], lw = measurer(font, lsPx)(t);
+			const x = just === "left" ? 0 : just === "right" ? tl.w - lw : (tl.w - lw) / 2;
+			rowGlyphs(g, t, font, lsPx, x, (i + 0.5) * tl.lh * tl.size, null, measurer);
+		}
+	}
+	return { g, img };
+}
+
 function drawStretched(g: Ctx2D, src: CanvasImageSource, f: StretchFitResult, ox = 0, oy = 0) { const x0 = f.box[0] + ox, y0 = f.box[1] + oy; for (const [ax, aw, dx, dw] of f.X.segs) for (const [ay, ah, dy, dh] of f.Y.segs) if (aw > 0 && ah > 0 && dw > 0 && dh > 0) g.drawImage(src, ax, ay, aw, ah, x0 + dx * f.s, y0 + dy * f.s, dw * f.s, dh * f.s); }
 
 /** 字の版の頁・字の組・字 1 つ（glyph atlas） */
