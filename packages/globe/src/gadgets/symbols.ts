@@ -51,13 +51,15 @@ export function createSymbols(map: GlobeMap, { signal, onImage = null, onImageRe
 	const images = new Map<string, SymbolImage>();   // name → { bitmap, pixelRatio, sdf }
 	const layers = new Map<string, SymLayer>();   // id → { src, layer, items, zoomDep }
 	let ov: OverlayHandle | null = null, order = 0;
-	const overlay = () => ov ??= map.overlay({ builtin: "symbols" }, { name: "symbols" });
+	// symbols-2d のオーバーレイは描く層（draw）がある時だけ作る（2026-10-22 から点の記号は注記層＝評価だけの層しか無いのが普通）。作った時に記号帳を写し直す
+	const overlay = () => { if (ov) return ov; ov = map.overlay({ builtin: "symbols" }, { name: "symbols" }); for (const [n, e] of images) post(n, e); return ov; };
+	const post = (name: string, e: SymbolImage) => createImageBitmap(e.bitmap).then(bm => ov?.post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null }, [bm]));   // stretchX/Y・content＝伸びる記号
 	const toBitmap = async (src: SymbolImageSource) => {
 		if (typeof src === "string") { const r = await (map.fetchResource ? map.fetchResource(src, "Image") : fetch(src, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); src = await r.blob(); }
 		if (src && !(src instanceof Blob) && (src as { data?: unknown }).data && src.width) src = new ImageData(new Uint8ClampedArray((src as { data: Uint8Array | Uint8ClampedArray }).data), src.width, src.height);   // { width, height, data }（MapLibre の addImage と同じ形）
 		return createImageBitmap(src as ImageBitmapSource);
 	};
-	const send = (name: string, e: SymbolImage) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null }, [bm])); };   // stretchX/Y・content＝伸びる記号
+	const send = async (name: string, e: SymbolImage) => { onImage?.(name, e); if (ov) await post(name, e); };
 	const push = (id: string) => { const L = layers.get(id); if (!L?.draw) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
 	const evalLayer = (id: string) => { const L = layers.get(id); if (!L) return; const miss = new Set<string>(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss, map.getGlobalState?.()); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };

@@ -19,7 +19,7 @@
 | 基図／vector／gint の注記 | `ortho-core/src/labels2d.ts` | 点の注記は行ごとに `strokeText`＋`fillText`、線沿いは字形アトラス（Canvas2D で焼いた 1024² の頁×最大 6・`drawImage`） |
 | 注記の抽出 | `ortho-core/src/labels.ts` | tile worker で式を評価し `Label` を焼く（描画とは独立） |
 | 書体 | `ortho-core/src/fontstack.ts` | `text-font` を CSS の family／weight／style に写す |
-| geojson の symbol | `globe/src/symbols-2d.ts` | 別の 2D オーバーレイ（箱・候補の式を二重に持つ） |
+| geojson の symbol | `globe/src/symbols-2d.ts` | 別の 2D オーバーレイ（箱・候補の式を二重に持つ）＝§4g・§4i で注記層へ移し、今は描く層が無い（オーバーレイも作らない） |
 | 集約の件数 | `globe/src/cluster-2d.ts` | 別の 2D オーバーレイ（MapLibre の集約の source は §4h で注記層へ・残るのは `map.gadget.cluster` の口だけ） |
 | 道路標識 | `globe/src/shields.ts` | Path2D を注記 canvas に直接 |
 | 星空・月 | labels2d の `setSky`／`setMoon` | `fillText` と図形 |
@@ -49,7 +49,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c・**2 本目＝層の位置は実装済**＝§4d） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
-| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f・**3 本目＝geojson の点の symbol 層は実装済**＝§4g・**4 本目＝集約の source は実装済**＝§4h） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
+| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f・**3 本目＝geojson の点の symbol 層は実装済**＝§4g・**4 本目＝集約の source は実装済**＝§4h・**5 本目＝ネイティブの記号の口は実装済**＝§4i） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
 | **P6** WebGL2 版（中） | 同じアトラス・同じ式を GLSL で。これが無い間は WebGL2 だけ注記が最前面＝層順が MapLibre と違う（記録） | GL2 で P2 と同じ層順の絵 | `?text=2d` |
@@ -197,6 +197,14 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 - **残す**：`map.gadget.cluster`（ネイティブの口）は cluster-2d のまま。
 
 門：t-mlcompat の cluster-layer-zoom-range・cluster-properties-and-id・query-source-features（layers）・cluster-without-circle-layer（live）・t-mlzoom の expansionZoom・`tests/t-aggregate.mjs` ⑤（どの段も件数の和＝点の数・段ごとの地物＝buildClusters の段）。
+
+## 4i. P3 の 5 本目＝ネイティブの記号の口（`map.gadget.symbols`・worldcontent）を注記層へ（**実装済**・2026-10-22）
+
+- `symbolsNative`（`map.gadget.symbols` と世界帯の中身＝国名・首都／都市・空港）も §4g と同じく gjlabels の点置きへ。記号の gadget は評価だけ（`queryRenderedFeatures`・`styleimagemissing`）。
+  注記層の組は `"n:<id>"`（MapLibre の層の id と分ける）・順の鍵は −1（利用者の MapLibre の層の後・基図の前）。型の無い層（worldcontent）は symbol として焼く。
+- `horizon`（MapLibre に無い拡張・球の縁の近くは出さない）は `Label.hz` に写し、labels2d の衝突判定で symbols-2d と同じ式（余弦＝front／|E−u|）で外す。
+- 記号の gadget は symbols-2d のオーバーレイを描く層がある時だけ作る（作った時に記号帳を写し直す）＝今は作らない。
+- 試し：格子 216 点を z2.2／z4.5 で描いて目で見た（記号と字が注記層・horizon 0.35 で縁の 12 件が消える）。worldcontent の実物は bucket を引くので本人の端末で見る。
 
 ## 5. ベースライン記録欄（実機で埋める）
 
