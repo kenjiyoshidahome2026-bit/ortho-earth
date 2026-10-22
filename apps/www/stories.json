@@ -2,6 +2,20 @@
 	"_note": "Stories タブ（Technologies の後）のカード。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "release-2-0",
+			"date": "2026-10-17",
+			"ja": {
+				"title": "Ortho Earth 2.0 を公開しました",
+				"desc": "見た目はほとんど変えず、TypeScript で建て直して古い呼び名を捨てた版。出したあと、他のエンジンと並べて測って見つかったことも。",
+				"href": "/docs/release-2-0-jp.html"
+			},
+			"en": {
+				"title": "Ortho Earth 2.0 is out",
+				"desc": "Rebuilt in TypeScript with the old aliases dropped, while the globe looks the same. Plus what turned up after release, measuring it side by side with other engines.",
+				"href": "/docs/release-2-0.html"
+			}
+		},
+		{
 			"id": "hitori-chiriin",
 			"date": "2026-10-18",
 			"ja": {
