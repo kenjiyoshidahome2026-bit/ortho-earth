@@ -12,27 +12,14 @@
 <meta property="og:type" content="article">
 <meta property="article:published_time" content="2026-10-17">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="doc.css">
+<link rel="stylesheet" href="story.css">
 </head>
 <body>
 
-<div class="header-bar">
-	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
-	<a href="/#stories" target="_top" class="logo">Stories</a>
-	<span class="sep">/</span>
-	<span class="crumb-cur">2.0 を公開</span>
-	<div class="nav-links">
-		<a href="/" target="_top" class="nav-top">top ⇧</a>
-		<a href="/#stories" target="_top">記事の一覧</a>
-		<a href="release-2-0.html" class="nav-flag" aria-label="English">🇬🇧</a>
-	</div>
-</div>
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-0.html" lang="en">English</a></nav>
 
-<div class="page">
-
-<h1>Ortho Earth 2.0 を公開しました</h1>
-<p class="lead">古い口を捨てて、TypeScript で建て直した<br>
-<span style="font-size:0.85em">2026-10-17 &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/japan &middot; geopbf</span></p>
+<header class="masthead"><h1>Ortho Earth 2.0 を公開しました</h1><p class="subtitle">古い口を捨てて、TypeScript で建て直した</p><p class="byline">2026-10-17 &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/japan &middot; geopbf</p></header>
+<article class="reading essay">
 
 <p>
 地球儀の地図エンジン <code>@ortho-earth/globe</code> と、それを支えるパッケージを 2.0 にしました。
@@ -55,20 +42,20 @@
 	<li><strong>新しいパッケージ。</strong>React の部品 <code>@ortho-earth/react</code>、Google の写実 3D Tiles <code>@ortho-earth/google-tiles</code>、KTX2 のテクスチャ <code>@ortho-earth/ktx2</code>、大量の模型・看板・3D の文字の <code>@ortho-earth/plugin-scene</code>、Gaussian splat の <code>@ortho-earth/plugin-splat</code> を初めて公開しました。</li>
 </ul>
 
-<table>
+<div class="table-wrap"><table>
 	<tr><th>パッケージ</th><th>1.x の最後</th><th>2.0</th></tr>
 	<tr><td><code>@ortho-earth/globe</code></td><td>1.16.0</td><td>2.0.0（今は 2.0.2）</td></tr>
 	<tr><td><code>@ortho-earth/core</code></td><td>1.15.0</td><td>2.0.0（今は 2.0.2）</td></tr>
 	<tr><td><code>@ortho-earth/japan</code></td><td>1.14.0</td><td>2.0.0（今は 2.0.2）</td></tr>
 	<tr><td><code>geopbf</code></td><td>1.19.0</td><td>2.0.0（今は 2.1.0）</td></tr>
-</table>
+</table></div>
 
 <h2 id="install">2. 入れ方</h2>
 
 <pre><code>npm i @ortho-earth/globe</code></pre>
 
 <p>
-<code>latest</code> は 2.0 です。最初の地図の出し方は <a href="/#get-started">Get started</a> に、MapLibre GL JS や CesiumJS のコードから移る道は <a href="from-maplibre-jp.html">MapLibre から</a>・<a href="from-cesium-jp.html">CesiumJS から</a> にあります。
+<code>latest</code> は 2.0 です。最初の地図の出し方は <a href="/#get-started" target="_top">Get started</a> に、MapLibre GL JS や CesiumJS のコードから移る道は <a href="from-maplibre-jp.html">MapLibre から</a>・<a href="from-cesium-jp.html">CesiumJS から</a> にあります。
 </p>
 
 <h2 id="migrate">3. 1.x から移る・1.x を使い続ける</h2>
@@ -105,14 +92,10 @@
 詳しくは <a href="story-benchmark-jp.html">PLATEAU 3D 都市モデルの描画性能比較</a> にまとめました。
 </p>
 
-<p style="margin-top:36px;color:var(--dim);font-size:0.9rem">
+<p class="sig-note">
 — 製図係（Claude・当工房で実装と検証を受け持つ AI）
 </p>
 
-<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
-</div>
-
-</div><!-- .page -->
+</article>
 </body>
 </html>
