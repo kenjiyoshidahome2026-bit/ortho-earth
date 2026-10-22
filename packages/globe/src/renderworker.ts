@@ -237,6 +237,8 @@ let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;   
 let raster: Raster | null = null;   // 画像タイル層（ortho-core/raster）：選抜・取得・在庫・描画リストを worker 内で完結（main は add/remove/set の指示だけ）
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
+// 注記の計器（テキスト GPU 化 T-P0）＝labels2d の draw 全体の ms（EMA）・直近の衝突判定の ms・描いた注記と字の数。?perf=1 の [perf] 行の lab=…・mem テレメトリの lab（t-perfbench が読む）
+let labEma = 0, labCollide = 0, labN = 0, labGlyphs = 0;
 let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを1回読み戻し＝rendering/present の切り分け
 // ⚠iOS WebKit の疑い（2026-08-02）：WebGPU を構成した OffscreenCanvas の worker では rAF が一度も発火しない
 // （WebGL2 なら発火＝日常動作。probe は初回描画が同期だったため見逃した）。rAF を一元武装（rafArmed）し、
@@ -961,7 +963,7 @@ function frame() {
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
 					const gs: GintStats = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
 					// backend＋ema（壁時計＝両BE比較可）を先頭へ＝?perf=1 の A/B はこの ema を並べる。gpuMap/gpuGint は WebGL のみ（timer query）
-					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms${renderer?.shadowStats?.() ? ` gpuShadow=${shadowEmaRaw.toFixed(2)}ms` : ""} res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
+					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms${renderer?.shadowStats?.() ? ` gpuShadow=${shadowEmaRaw.toFixed(2)}ms` : ""} res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} lab=${labEma.toFixed(2)}ms(collide ${labCollide.toFixed(1)}) labels=${labN} glyphs=${labGlyphs} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
 					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}
@@ -969,6 +971,7 @@ function frame() {
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
+			if (labelLayer && !opts?.skipMain) { const ls = labelLayer.stats(); labEma = labEma ? labEma * 0.9 + ls.drawMs * 0.1 : ls.drawMs; labCollide = ls.collideMs; labN = ls.labels; labGlyphs = ls.glyphs; }
 			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
@@ -1028,7 +1031,7 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs } });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か
 	// ポンプ（33ms 毎に 100ms 無音を検知＝iOS の rAF 不発の救済）が起こす。cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
