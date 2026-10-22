@@ -498,7 +498,6 @@ export interface GlobeScope {
 	/** 画像タイル層の未着（層 id → 枚数） */
 	rasterPend: Map<string, number>;
 	rasterSampling(P: Record<string, unknown> | undefined): "nearest" | "linear" | undefined;
-	rebuildCluster(sid: string): Promise<unknown>;
 	rebuildGint(sidChanged?: string | null, opts?: { dataChanged?: boolean }): Promise<unknown>;
 	reliefOpacity(L: MLLayer): number;
 	/** 登録順を各描き方の重ね順へ */
@@ -557,6 +556,10 @@ export interface GlobeScope {
 	patItems: Map<string, PatItem>;
 	/** gint の内部の鍵を外した properties */
 	stripMl(p: Record<string, unknown> | null | undefined): Record<string, unknown>;
+	/** 集約の source の地物（全段の丸と単点・cluster_id → ばらける段）＝集約でない source は null */
+	clusterOf(sid: string): Promise<import("../gadgets/aggregate-core.ts").ClusterSource> | null;
+	/** clusterOf の組み終えた物（同期・まだなら null） */
+	clusterNow(sid: string): import("../gadgets/aggregate-core.ts").ClusterSource | null;
 	/** 地面の半径（単位球＝1・地形の持ち上げ込み） */
 	vtxGround(lon: number, lat: number): number;
 }

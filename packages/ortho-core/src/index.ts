@@ -3,7 +3,7 @@
 // TS 化 段 3（batch G2）：根の口そのもの（旧 types/index.d.ts を畳んだ）。段 4 で renderer（gl/**・gpu/**）と 2D 注記（labels2d）も .ts になった。
 export { evalExpr, truthy, originOfLayer, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState, exprDeps, exprKind } from "./expr.ts";
 export type { Expression, ExprContext, FormatSection, ExprKind, ExprDeps } from "./expr.ts";
-export { packMLLayers, buildMLTable, zoomSensitivity, ML_ID_KEY, ML_IX_KEY } from "./mltables.ts";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
+export { packMLLayers, buildMLTable, zoomSensitivity, ML_ID_KEY, ML_IX_KEY, ML_CZ0_KEY, ML_CZ1_KEY, ML_CEZ_KEY } from "./mltables.ts";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
 export { parseRGBA, isColor } from "./color.ts";
 export type { RGBA } from "./color.ts";
 export { fetchMVT, decodeTile, loadTileFormat, registerTileFormat } from "./decode.ts";   // タイル形式の登録簿（MVT 既定・MLT は @ortho-earth/tile-formats・#88）

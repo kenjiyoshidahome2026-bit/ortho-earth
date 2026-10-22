@@ -27,6 +27,8 @@ export interface MLTable { u32: Uint32Array; count: number; drawn: Record<string
 
 // MapLibre の feature の id を焼く前に地物へ写す隠しの属性（globe の ML アダプタ・段 6）：ML_ID＝id（Feature.id／promoteId／並び順）・ML_IX＝元の並び（同じ属性の地物を 1 つの fid に束ねさせない）
 export const ML_ID_KEY = "ortho:mlid", ML_IX_KEY = "ortho:mlix";
+// 集約の source の地物（cluster as data・2026-10-22）の隠しの属性：Z0／Z1＝その丸・単点が居る段（エンジンの z・[Z0, Z1)）・EZ＝集約がばらける段
+export const ML_CZ0_KEY = "ortho:cz0", ML_CZ1_KEY = "ortho:cz1", ML_CEZ_KEY = "ortho:cez";
 export const ML_DEFAULTS: Record<string, string | number> = {
 	"fill-color": "#000000", "fill-opacity": 1,
 	"line-color": "#000000", "line-width": 1, "line-opacity": 1,
