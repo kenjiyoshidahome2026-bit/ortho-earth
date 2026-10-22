@@ -21,6 +21,8 @@ export interface ShotHandle { composite(snap?: Snapshot | null): Promise<Blob>; 
 // 出典の文面（#attr があればその文面／無ければホストが渡す今の圏の出典＝地域の申告から組んだ物）。globe は地域の出典を持たない
 export function attrLines(mapEl: HTMLElement, fallback: (() => string[]) | null = null): string[] {
 	const el = mapEl.querySelector<HTMLElement>("#attr");
+	const body = el?.querySelector<HTMLElement>(".attr-body");   // 出典の全文＝「データ一覧」の札（閉じていても読む＝innerText は隠れた物を行に割らない＝<br>で割る）
+	if (body) { const d = document.createElement("div"); d.innerHTML = body.innerHTML.replace(/<br\s*\/?>/gi, "\n").replace(/<\/div>/gi, "\n"); const lines = (d.textContent || "").split("\n").map(s => s.trim()).filter(Boolean); if (lines.length) return lines; }
 	if (el && el.innerText.trim()) return el.innerText.split(/\n/).map(s => s.trim()).filter(Boolean);
 	return fallback ? fallback() : [];
 }

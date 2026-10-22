@@ -2,10 +2,13 @@
 #   Actions タブ →「deploy」→ Run workflow（スマホの GitHub アプリからも押せる）。押せるのは main だけ（下の if）。
 #   target：engine-and-apps＝エンジン → それを使う全アプリ（apps に名前を書けばそのアプリだけ・空白区切り）
 #           engine-only＝エンジンだけ ／ native-bucket・quakes-mirror・sats-mirror＝それぞれの Worker だけ
+#           gate-only＝門だけ（ortho-globe の verify:prod と各アプリの Chrome の門・何も配らない・鍵が要らない・2026-10-21）
 #   gishub-jp・geopbf-demo・www は今まで通り Cloudflare Pages が main の push で自動で組む＝ここでは配らない。
-# 要る物（Settings → Environments → production）：secret CLOUDFLARE_API_TOKEN（Workers を編集できる token）・CLOUDFLARE_ACCOUNT_ID。
-# 検定（verify-prod 等）は Chrome for Testing＋swiftshader の headless＝runner でも同じ門を通ってから配る。門は緩めない。
-# ortho-japan の deploy は前回の配布 tag（japan-deployed＝手元だけの tag）が無い＝エディタ関門は毎回「全部」になる（遅いが安全側）。
+# 走る場所＝本人の Mac（self-hosted runner・label ortho-deploy・2026-10-21 本人の裁定）。GitHub の runner には GPU が無い＝
+#   ortho-japan の門（globe の WebGPU の画素検定 約 70 頁）が通らない（run 39636724562：5/6 PASS・ortho-japan だけ FAIL）。
+#   Mac なら手元の deploy:engine と同じ門（実 GPU）をそのまま通る。Cloudflare へは Mac の wrangler のログイン（wrangler login 済み）で出す＝鍵は置かない。
+#   Mac が眠っている・runner が止まっている時は job が「Waiting for a runner」のまま待つ（Mac を起こせば走り出す）。
+# ortho-japan のエディタ関門の範囲＝tag japan-deployed からの差分。配り終えたらこの workflow が tag を push する。
 name: deploy
 on:
   workflow_dispatch:
@@ -14,64 +17,58 @@ on:
         description: 配る物
         type: choice
         default: engine-and-apps
-        options: [engine-and-apps, engine-only, native-bucket, quakes-mirror, sats-mirror]
+        options: [engine-and-apps, engine-only, gate-only, native-bucket, quakes-mirror, sats-mirror]
       apps:
-        description: engine-and-apps の時だけ・配るアプリ（空白区切り・空＝全部）例「census2020 world」
+        description: engine-and-apps・gate-only の時だけ・配るアプリ（空白区切り・空＝全部）例「census2020 world」
         type: string
         default: ""
 concurrency:
   group: deploy-production   # 配布は 1 本ずつ（2 本目は前が終わるまで待つ）
   cancel-in-progress: false
 permissions:
-  contents: read
+  contents: write   # 配り終えた後に tag japan-deployed を push する（ortho-japan のエディタ関門の範囲＝前回の配布からの差分）
 jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: production
+    runs-on: [self-hosted, macOS, ortho-deploy]
+    timeout-minutes: 120
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TARGET: ${{ inputs.target }}
       APPS: ${{ inputs.apps }}
     steps:
-      - name: secrets の有無（検定の前に止める）
-        run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "✗ Environment production に secret CLOUDFLARE_API_TOKEN が無い（Settings → Environments → production）"; exit 1; }
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める
+          fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める（tag japan-deployed も一緒に来る）
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-      - name: Chrome for Testing のキャッシュ
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ortho-earth/chrome-for-testing
-          key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
+          node-version: 22   # engines ≥ 22.18（Mac の /usr/local/bin/node が古くても runner はこちらを使う）
+          # cache: npm は付けない＝Mac の ~/.npm がそのまま効く。付けると毎回 1.3GB を GitHub のキャッシュへ上げ直す（run 39651871635 で 2.5 分）
       - run: npm ci --no-audit --no-fund
-      - name: 検定用の Chrome を入れる
-        if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only'
-        run: |
-          # Ubuntu 24.04 の runner は AppArmor が非特権の user namespace を塞ぐ＝Chrome for Testing（AppArmor の profile が無い）は
-          # sandbox を立てられず即落ちる（2026-10-17 run 39073272182：verify-prod の CDP が ECONNREFUSED）。使い捨ての runner の中だけ緩める（本人の裁定 2026-10-17）
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          node packages/globe/scripts/lib/chrome.mjs --install
+      - name: wrangler のログイン（検定の前に止める）
+        if: inputs.target != 'gate-only'
+        run: npx wrangler whoami --json > /dev/null || { echo "✗ Mac の wrangler がログインしていない＝Mac で npx wrangler login"; exit 1; }
+      - name: 検定用の Chrome（Mac の ~/.cache を手元の検定と共有＝入っていれば何もしない）
+        if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only' || inputs.target == 'gate-only'
+        run: node packages/globe/scripts/lib/chrome.mjs --install
       - name: 配る
         run: |
           set -eu
+          # APPS は自由記入＝名前の形だけ通す（deploy-engine.mjs が知らない名前を弾く）
+          for a in $APPS; do case "$a" in *[!a-z0-9-]*) echo "✗ アプリ名の形でない：$a"; exit 1;; esac; done
           case "$TARGET" in
-            engine-and-apps)
-              # APPS は自由記入＝名前の形だけ通す（deploy-engine.mjs が知らない名前を弾く）
-              for a in $APPS; do case "$a" in *[!a-z0-9-]*) echo "✗ アプリ名の形でない：$a"; exit 1;; esac; done
-              node scripts/deploy-engine.mjs $APPS ;;
+            engine-and-apps) node scripts/deploy-engine.mjs $APPS ;;
+            gate-only)     node scripts/deploy-engine.mjs --gate-only $APPS ;;
             engine-only)   node scripts/deploy-engine.mjs --engine-only ;;
             native-bucket) npm run deploy -w native-bucket ;;
             quakes-mirror) cd apps/quakes-mirror && npx wrangler deploy ;;
             sats-mirror)   cd apps/sats-mirror && npx wrangler deploy ;;
           esac
+      - name: tag japan-deployed を push（次回のエディタ関門を差分だけに）
+        if: always() && inputs.target == 'engine-and-apps'
+        run: |
+          # ortho-japan の deploy.mjs は配り終えた時だけ手元で tag -f する＝動いていなければ何もしない
+          [ "$(git rev-parse -q --verify 'japan-deployed^{commit}' || true)" = "$GITHUB_SHA" ] || exit 0
+          git push -f origin refs/tags/japan-deployed
       - name: まとめ
         if: always()
         run: echo "### deploy：$TARGET ${APPS:-（全部）}（main ${GITHUB_SHA::7}）— ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

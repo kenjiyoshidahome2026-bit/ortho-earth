@@ -57,3 +57,15 @@ export function optionalKeys({ demos }) {
 	if (demos.some(d => d.lang === "ja")) k.add("Japanese only");
 	return [...k];
 }
+
+// Stories タブ（本人 2026-10-22「Technologies の後に Stories・各記事はリンク頁を表示」）＝stories.json から静的 HTML に焼く（<!--STORIES-->）。
+// 記事は書いた言語のまま＝UI の訳は使わない（translate="no"・verify-i18n の対象外）。ja と en があれば両方を焼き、頁の言語で片方を出す（main.scss の :lang(ja)）
+const storyCard = (s, l, only) => {
+	const v = s[l];
+	return `<a class="card story" href="${esc(v.href)}" lang="${l}" translate="no"${only ? "" : ` data-l="${l}"`}>` +
+		`<span class="card-eyebrow">${esc(s.date)}</span><span class="card-title">${esc(v.title)}</span>` +
+		`<span class="card-desc">${esc(v.desc)}</span><span class="card-cta" aria-hidden="true">→</span></a>`;
+};
+export function renderStories({ stories }) {
+	return stories.map(s => s.ja && s.en ? storyCard(s, "ja") + storyCard(s, "en") : storyCard(s, s.ja ? "ja" : "en", true)).join("");
+}

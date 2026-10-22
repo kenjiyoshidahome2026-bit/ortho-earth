@@ -146,7 +146,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	// fill/line/circle の層の data（gintDataOf）：サービスで件数が多い＝視野追従（動いて止まったら足りない枡を読み、source を組み直す）
 	const sourceData = async (sid: string, d: unknown, sp?: UserSource) => {
 		const svc = typeof d === "string" ? await openSvc(d) : null;
-		if (!svc) { dropFollow(sid); setSrcAttr(sid, null); return readGeoData(d); }   // サービスでない＝従来どおり（出典の欄も触らない）
+		if (!svc) { dropFollow(sid); setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : null); return readGeoData(d); }   // サービスでない＝attribution（MapLibre の宣言）だけ出典の欄へ（2026-10-21・それまでは無視していた）
 		let e: FsFollowEntry | null | undefined = fsFollow.get(sid);
 		if (e && e.url !== d) { dropFollow(sid); e = null; }
 		if (!e) { e = { url: d as string, fc: null, follow: null }; fsFollow.set(sid, e); }
@@ -247,7 +247,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 					const line = document.createElement("div");
 					line.className = "g-src";
 					line.textContent = tr()("Map data: $1", u.host);
-					attr.append(line);
+					(attr.querySelector(".attr-body") ?? attr).append(line);   // 出典の全文は「データ一覧」の札の中
 				}
 				console.info("[g] loaded", u.href, `${pbf.length ?? "?"} features`);
 			} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
@@ -297,7 +297,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 		const { kind = "points", id, before, above = false, paint, ...acc } = o;
 		if (!BUILTIN_DATA_KINDS.includes(kind)) {   // plugin の kind（registry.dataKinds・PR-F0）＝{ create(map, data, opts) → 手綱 }。知らない kind は投げる（黙って points にしない）
 			const ext = pluginHost.registry.dataKinds.get(kind);
-			if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
+			if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz/.ksplat/.sog の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
 				data = normSplat(data);
 				if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "splat" is a reserved contract (capabilities()["data.splat"] is "spec"); install a plugin that registers map.registry.dataKinds "splat" (see PLUGINS.md)`);
 			}

@@ -24,6 +24,7 @@ run(); async function run() { try {
 		ok("meta.handle", h.schema?.id === "implicitFixture" && h.tilesetMetadata?.properties.scaled === 20 && h.tilesetMetadata?.properties.missing === "dflt" && h.groups[0]?.properties.name === "boxes", JSON.stringify({ s: h.schema?.id, m: h.tilesetMetadata, g: h.groups }));
 		let hit = null;
 		for (let y = 10; y < 600 && !hit; y += 10) for (let x = 10; x < 960; x += 10) { const p = h.pick(x, y); if (p?.tileMetadata?.properties.label === "1/0/1") { hit = p; break; } }
+		ok("mainMB", typeof h.stats.mainMB === "number", JSON.stringify(h.stats));   // 当たりの写しは予算に数える（stats.mainMB・2026-10-20・試料は小さく 0.0 MB）
 		ok("meta.pick", hit && hit.contentMetadata?.properties.colorName === "yellow" && hit.contentMetadata?.properties.triangles === 12 && hit.groupMetadata?.properties.priority === 3, JSON.stringify(hit && { t: hit.tileMetadata, c: hit.contentMetadata, g: hit.groupMetadata }));
 	} else ok("meta.none", h.schema === null && h.tilesetMetadata === null, JSON.stringify(h.schema));
 	await sleep(1500);
@@ -70,7 +71,7 @@ run(); async function run() { try {
 	ok("coarse", coarse, JSON.stringify(h.stats));
 	h.remove();
 	await sleep(300);
-	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0 && h.stats.mainMB === 0, JSON.stringify(h.stats));
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
 </script>

@@ -22,7 +22,7 @@ import type { FStateStore, RawTiles, SrcTile, VTExtrudeEnv, VtDesc } from "./vte
 
 /** worker が組んだ op（core の scene.ts の FillOp／LineOp と同じ形・配列は transfer できる ArrayBuffer の上） */
 interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; idx: Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer> }
-interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array<ArrayBuffer>; P2: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; half: Float32Array<ArrayBuffer>; off?: Float32Array<ArrayBuffer> | null }
+interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array<ArrayBuffer>; P2: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; half: Float32Array<ArrayBuffer>; off?: Float32Array<ArrayBuffer> | null; jf?: Uint8Array<ArrayBuffer> | null; cj?: number }
 type DrawOp = FillOp | LineOp;
 /** 結合役（core の scene worker）が返す scene（core の MergedScene） */
 export interface VtdScene { origin: ArrayLike<number>; layers: DrawOp[]; buildings: unknown }
@@ -61,8 +61,8 @@ const R2D = 180 / Math.PI;
 const tileBbox = (z: number, x: number, y: number) => { const n = 2 ** z, lat = (v: number) => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 const hits = (a: ArrayLike<number>, b: ArrayLike<number>) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 const inZoom = (L: MLLayer, z: number) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
-const sceneBuffers = (s: VtdScene) => { const b: ArrayBuffer[] = []; for (const L of s.layers) { if (L.kind === "fill") b.push(L.pos.buffer, L.col.buffer, L.idx.buffer); else { b.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer); if (L.off) b.push(L.off.buffer); } } return b; };
-const opsBuffers = (ops: DrawOp[]) => { const b: ArrayBuffer[] = []; for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off]) if (a) b.push(a.buffer); return b; };
+const sceneBuffers = (s: VtdScene) => { const b: ArrayBuffer[] = []; for (const L of s.layers) { if (L.kind === "fill") b.push(L.pos.buffer, L.col.buffer, L.idx.buffer); else { b.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer); if (L.off) b.push(L.off.buffer); if (L.jf) b.push(L.jf.buffer); } } return b; };
+const opsBuffers = (ops: DrawOp[]) => { const b: ArrayBuffer[] = []; for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off, op.jf]) if (a) b.push(a.buffer); return b; };
 const SUBS = [0, 1, 2];
 export const usesFS = (L: { paint?: unknown } | null | undefined) => JSON.stringify(L?.paint ?? null).includes('"feature-state"');   // paint が feature-state を読むか（layout・filter は読まない＝MapLibre と同じ）
 

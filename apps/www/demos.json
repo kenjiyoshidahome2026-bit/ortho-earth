@@ -167,6 +167,20 @@
 			}
 		},
 		{
+			"id": "splat",
+			"href": "/globe/splat",
+			"group": "earth",
+			"icon": "✨",
+			"title": "Gaussian splats on the globe",
+			"lang": "26",
+			"desc": "Two photoreal 3D scans drawn as Gaussian splats on a real place on the globe: streamed as 3D Tiles (KHR_gaussian_splatting, SPZ) or read from one .spz file, WebGPU with spherical harmonics. Drop your own .ply / .splat / .spz / .ksplat / .sog.",
+			"img": "/thumbs/splat.webp",
+			"shot": {
+				"url": "/globe/splat?lang=en",
+				"wait": 30
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes/",
 			"group": "earth",

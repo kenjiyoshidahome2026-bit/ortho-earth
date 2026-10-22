@@ -542,7 +542,7 @@ export interface Gadgets {
 	/** GeoPBF のトポロジカル編集（geoedit・npm・遅延 chunk）を部品として搭載＝公開面だけで動く。data＝編集する図形（GeoPBF の ArrayBuffer・null＝空）・adopt＝表示中のユーザーデータ（ドロップ／?g=）を取り込む（既定 true）・
 	 *  persist＝自動保存（既定 true）・onClose＝ツールバー右端の ×（持ち主が editor.result() で結果を受け取る）。搭載中はドロップをエディタが所有（dropFile は譲る）。戻り値＝Promise<editor>（geoedit の initEditor の戻り） */
 	geoedit(opts?: { data?: ArrayBuffer | null; adopt?: boolean; persist?: boolean; onClose?: () => void; [k: string]: unknown }): Promise<unknown>;
-	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
+	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る（全球が画面に収まる時は隠す）。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
 	globe(opts?: { size?: number; maxZoom?: number; land?: string; sea?: string; line?: string }): unknown;
 	/** 計測器 HUD（メモリ・タイル・GPU・階層の状態表＝右下）。URL の ?hud=1|0 で起動した地図にだけ登録される（本体は遅延 chunk・起動時に自動で搭載＝1 は開いて・0 は畳んで）。それ以外の地図では undefined */
 	hud?(opts?: { open?: boolean }): void;
@@ -804,11 +804,11 @@ export type MapLibreSource =
 	 *  公開のフィーチャーサービス（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）も data に渡せる（1.14.0〜・#176）：件数が 5 万以下は丸ごと・
 	 *  超えたら fill/line/circle の層は視野の枡だけ読む（動いて止まったら足す・引きすぎの間は読まない）。サービスの取得は transformRequest を通る。
 	 *  一度読んだ分は IndexedDB に GeoPBF で控える（30 日・2,000 件・256MB を超えた分は掃除・map.clearFeatureServiceCache()）。
-	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る）。
+	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る・サービスでない data でも attribution は出る＝2026-10-21〜）。
 	 *  cacheKey（この地図の拡張・data が object の時だけ）＝fill/line/circle の層のために焼いた結果（GeoPBF＋GintBUF）を、この鍵で IndexedDB に控える。
 	 *  次に同じ鍵の source を足すと焼かずに戻す（大きな data の焼きは秒の桁）。**中身は見比べない**＝data が変わったら鍵も変える（data の要約や版を鍵に入れる）。
 	 *  控えるのは足した時の data だけ（setData／updateData で入れ替えると鍵は外れる）。30 日・200 件・256MB を超えた分は掃除 */
-	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean; cacheKey?: string }
+	| { type: "geojson"; data: GeoJSONFeatureCollection | string; /** 出典（HTML・消毒して #attr に出す・URL でない data でも＝2026-10-21〜） */ attribution?: string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean; cacheKey?: string }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
 	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
@@ -872,8 +872,10 @@ export interface ClipOptions {
 /** 3D Tiles の取得の前の手入れ（F5・2026-10-12）＝この tileset の全ての要求（tileset.json・外部 tileset＝type "Source"、タイルの本体＝"Tile"）に、地図の transformRequest の後で掛かる。
  *  戻り＝{ url?, headers?, credentials? }（null＝そのまま）。鍵・session の付与（Google Photorealistic 3D Tiles 等）や署名つき URL への差し替えは呼び手の closure で（鍵を repo に置かない） */
 export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
-/** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
-export interface Tiles3DOptions { id?: string; maxSSE?: number;
+/** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。
+ *  低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）の "auto" は頂点・index の写しを持たない（2026-10-20）＝pick と queryRenderedFeatures は当たらないが feature state の色とスタイルは効く。要るなら true で明示。
+ *  写しの量は stats.mainMB に出て、gpuMB との和が予算（低メモリ 160 MB・他 512 MB）に数えられる。featureIdSet＝何組目の番号で当てるか（既定 0） */
+export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限（px・既定 16・低メモリ端末 24）。予算（gpuMB + mainMB）を越えると stats.sseScale 倍に引き上げられる */ maxSSE?: number;
 	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
 	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/plugin-splat の SplatOptions）。
@@ -888,7 +890,7 @@ export interface Tiles3DOptions { id?: string; maxSSE?: number;
  *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
 export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; bytes: number; gpuMB: number; inflight: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; bytes: number; gpuMB: number; /** main のヒープに残る写し（当たりの頂点・index・元の頂点色・地物の番号）の MB。gpuMB との和が予算に数えられる */ mainMB: number; inflight: number; /** 予算を越えた時の maxSSE の倍率（1＝そのまま・最大 16）。gpuMB + mainMB が予算を越えると 1.25 倍ずつ上がって粗い段で止め、動いた時に 1 s に 1 段ずつ 0.9 倍で戻る（2026-10-21） */ sseScale: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
@@ -942,7 +944,7 @@ export interface PluginRegistry<T> {
 	ownerOf(name: string): string | null;
 	names(): string[];
 }
-/** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz）も受ける＝読み手は plugin */
+/** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz/.ksplat/.sog）も受ける＝読み手は plugin */
 export interface SplatData {
 	/** 個数（省略なら positions.length / 3） */ n?: number;
 	/** 位置＝crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交 m、"local" なら transform で ECEF へ写す座標 m（n*3） */ positions: Float32Array;

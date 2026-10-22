@@ -25,6 +25,7 @@
 //   sets / progress           … 登録簿（読み取り）／読込進捗 Map（読み取り）
 //   isActive(name) / isDead(name) / visibleLoading() / memStats() … 上映の待ち判定と HUD の物差し
 //   openDb()                  … データ管理モーダル
+//   setVisible(on) / visible  … 建物 3D を出す／伏せる（map.setMeshVisible・2026-10-21）。伏せている間は表示しない・新しく読み始めない（常駐は保つ＝戻すとタダ）
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.ts";
 import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
@@ -82,6 +83,8 @@ export interface MeshManager {
 	visibleLoading(): string[];
 	memStats(): { bytes: number; regions: number; transient: { cache: number; live: number; bytes: number }; tier: { active: number; residentGB: number; workers: number } | null };
 	openDb(): void;
+	setVisible(on: boolean): void;
+	readonly visible: boolean;
 }
 
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）
@@ -578,8 +581,18 @@ function showResidentInFlight() {
 		meshRetain(name, s); renderer.set("meshVis", true, name); meshActive.set(name, s); requestDraw();   // 常駐＝転送ゼロの点灯（ロードでない）
 	}
 }
+// 頁が伏せた（map.setMeshVisible(false)＝例：引いた縮尺では建物を全部出さない・横浜 2026-10-21）＝表示中・遠景箱を消し、新しく読み始めない。
+// 読み込み中の区は完走させる（完了時に伏せる＝下の stale 判定）。常駐は保つ＝戻すと常駐ヒットで即
+let meshShown = true;
+function hideAllMesh() {
+	for (const name of meshActive.keys()) meshHide(name);
+	if (meshActive.size) requestDraw();
+	meshActive.clear();
+	if (farLit) { for (const n of farShown) renderer.set("meshVis", false, n + "#far"); farLit = false; requestDraw(); }
+}
 function autoMesh(settled = false) {
 	if (!meshOn) return;   // 機能ごと停止（opts.mesh=false）
+	if (!meshShown) { hideAllMesh(); return; }
 	if (env.flying) { showResidentInFlight(); return; }   // フライト中は新規ロード/解放はしない（原spec＝ジッタ対策）が、既に常駐する区の点灯（=ロードでない）だけは通す＝グライドのリビールで基図の箱を出さない
 	if (env.printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
 	if (env.cam.zoom >= MESH_AUTO_Z - 2 && (env.cam.pitch || 0) >= 0.02) spawnMeshWorkers();   // 暖機＝街に寄り始めたら先に worker を起こす（初回ロードの待ちを短く）
@@ -712,7 +725,7 @@ function autoMesh(settled = false) {
 					meshRetain(h.name, h);
 					// 視界内で完走した在庫（fast枠ローテーション中の区など）＝そのまま点灯。従来の一律非表示だと
 					// 目の前に立っていた既送出バッチごと消える。視界外だけ従来どおり非表示常駐（再訪は常駐ヒットで即）。
-					if (env.cam.zoom >= MESH_HIDE_Z && (env.cam.pitch || 0) >= 0.02 && bboxIntersects(h.bbox, viewBbox(env.cam))) {
+					if (meshShown && env.cam.zoom >= MESH_HIDE_Z && (env.cam.pitch || 0) >= 0.02 && bboxIntersects(h.bbox, viewBbox(env.cam))) {
 						renderer.set("meshVis", true, h.name);
 						meshActive.set(h.name, h);
 						requestDraw();
@@ -727,7 +740,7 @@ function autoMesh(settled = false) {
 				meshActive.set(h.name, h);
 				meshRetain(h.name, h);
 				// ★完了時に既に低ズーム/視野外なら stale＝即非表示（ロード中にズームアウトすると3Dが居残る件を断つ。常駐には残る＝戻ればタダ）。
-				if (env.cam.zoom < MESH_HIDE_Z || !bboxIntersects(h.bbox, viewBbox(env.cam))) {
+				if (!meshShown || env.cam.zoom < MESH_HIDE_Z || !bboxIntersects(h.bbox, viewBbox(env.cam))) {
 					meshActive.delete(h.name); meshHide(h.name); requestDraw();
 					console.log("[mesh] out of view at load completion -> hidden", h.name);
 				}
@@ -773,14 +786,14 @@ const pokeT = setTimeout(() => { if (!env.moving && !env.flying) autoMesh(true);
 // ロードして常駐＋表示。ロードのジッタ対策の外＝停止中の積み込み（waitLoading のリビール準備）と手打ちデモ(__mesh)で共用。
 // onMove→autoMesh との二重ロードは meshLoading ガードで防ぐ。返り＝立ったか(bool)の Promise。
 function standUpWard(set: MeshSet, tiles?: string[]) {
-	if (meshActive.has(set.name) || meshLoading.has(set.name)) return Promise.resolve(false);
+	if (!meshShown || meshActive.has(set.name) || meshLoading.has(set.name)) return Promise.resolve(false);   // 伏せている間は立てない
 	if (meshResident.has(set.name)) {   // 常駐ヒット＝表示フラグを戻すだけ（autoMesh と同じ経路）
 		meshRetain(set.name, set); renderer.set("meshVis", true, set.name); meshActive.set(set.name, set); requestDraw();
 		return Promise.resolve(true);
 	}
 	meshLoading.add(set.name);
 	return loadMesh(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask, set)
-		.then(ok => { if (ok === true) { meshActive.set(set.name, set); meshRetain(set.name, set); } return ok === true; })   // "cancelled"（自動ロード合流の端ケース）は活性化しない
+		.then(ok => { if (ok === true) { meshActive.set(set.name, set); meshRetain(set.name, set); if (!meshShown) { meshActive.delete(set.name); meshHide(set.name); requestDraw(); } } return ok === true; })   // 読んでいる間に伏せた＝常駐だけ   // "cancelled"（自動ロード合流の端ケース）は活性化しない
 		.finally(() => meshLoading.delete(set.name));
 }
 
@@ -835,5 +848,7 @@ return {
 	isActive: name => meshActive.has(name), isDead: meshDead,
 	visibleLoading: () => [...meshAutoLoading.keys()].filter(n => !meshCancelling.has(n)),   // 「これから見える区」＝cancel 中は載せない（旧 slow レーン在庫化＝demote は待ち行列制 9/8 で廃止）
 	memStats, openDb: meshDb.open,
+	setVisible: on => { if (meshShown === !!on) return; meshShown = !!on; autoMesh(true); requestDraw(); },
+	get visible() { return meshShown; },
 };
 }

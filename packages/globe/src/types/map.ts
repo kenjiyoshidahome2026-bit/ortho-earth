@@ -221,6 +221,14 @@ export interface GlobeCoreApi {
 	/** 動きを減らす（C10）＝true/false・null＝OS の prefers-reduced-motion を追う */
 	setReduceMotion(v: boolean | null): GlobeMap;   // globe.js:2652
 	getReduceMotion(): boolean;   // globe.js:2653
+	/** 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21）。伏せている間は描かず新しく読み込まない（読んだ物は保つ＝戻すと即）。opts.mesh=false の地図では効かない */
+	setMeshVisible(on: boolean): GlobeMap;
+	/** 建物 3D を出しているか（opts.mesh=false の地図は false） */
+	getMeshVisible(): boolean;
+	/** 基図の表示項目を点ける／消す（2026-10-21）。キーは opts.layers と同じ（place/terrain/rail/road/facility）。チップ・共有 URL も一緒に変わる。opts.layers で固定したキーは変わらない */
+	setBaseLayers(layers: Partial<Record<"place" | "terrain" | "rail" | "road" | "facility", boolean>>): GlobeMap;
+	/** 基図の表示項目の今の状態 */
+	getBaseLayers(): Record<"place" | "terrain" | "rail" | "road" | "facility", boolean>;
 	// ── bounds / frames / gint glue
 	/** 見えている範囲の概算 [w,s,e,n]（画面の四隅と辺の中点の逆投影）。球の縁が画面に入る時は null */
 	getBounds(): Bbox | null;   // globe.js:2655

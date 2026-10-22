@@ -1,7 +1,7 @@
 // アプリの vite.config が揃って持つ決まり事（2026-10-03・アプリ横断の最適化で 1 本に）。ここは「同じ理由で同じ値を持つ物」だけ＝
 // 各アプリの base・outDir・proxy は各アプリに残す。lib×ES の資産まわりは vite-lib-plugins.mjs、共有エンジンは shared-engine.mjs。
-import { resolve } from "node:path";
-import { rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 // COOP/COEP を middleware で「全リクエスト」に刻む（dev と preview の両方）。server.headers だと worker のサブ import の転送レスポンスに
 // 届かず worker 全滅→黒画面＝middleware が標準解（japan 2026-09）。crossOriginIsolated＝gint の SharedArrayBuffer（ゼロコピー）の点火条件で、
@@ -79,3 +79,33 @@ export const engineAliases = root => [
 	{ find: "#tile-formats", replacement: resolve(root, "packages/ortho-core/src/tileformats-mlt.ts") },
 	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.ts") },
 ];
+
+// SDK の plugin（sdk/plugin-splat・plugin-scene・ktx2）が描き手（レンダーワーカーが URL で import() する同一フレームのモジュール）を
+// `new URL("./splat-draw.js", import.meta.url)` で指す書き方を、アプリの束で「実体の JS チャンク」にする（2026-10-21・verify-prod の splat 頁）。
+// 字面は .js のまま（npm の dist では実体・repo の中では .ts）＝vite の既定（vite:asset-import-meta-url）はこれを「資産」と見て生の .ts をそのまま
+// assets/ に写す＝ worker の import() が .ts を読めず「Failed to fetch dynamically imported module …splat-draw-xxxx.ts」。ここで先回り（enforce: pre）
+// して rollup の chunk として emit し、参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝TS を通した ES モジュールが assets/ に出る。
+// 描き手が兄弟（splat-gpu.js／splat-gl.js）を同じ書き方で指す分も、その chunk が transform を通る時に同じ手で拾う（連鎖）。
+// 対象＝相対パス（./ ../）の .js で、実体（.js か .ts）が repo の中に在る物だけ。/* @vite-ignore */ の付いた物・テンプレート文字列は触らない。dev は vite の
+// 解決（.js → .ts の読み替え）がそのまま効くので build 限定。
+export const moduleUrlAsChunk = {
+	name: "module-url-as-chunk",
+	enforce: "pre",
+	apply: "build",
+	async transform(code, id) {
+		if (!code.includes("import.meta.url") || !code.includes(".js\"") && !code.includes(".js'")) return;
+		const re = /new\s+URL\s*\(\s*(["'])(\.{1,2}\/[^"'`\n]+\.js)\1\s*,\s*import\.meta\.url\s*\)/g;
+		let out = code, hit = false;
+		for (const m of code.matchAll(re)) {
+			if (/\/\*\s*@vite-ignore\s*\*\/\s*$/.test(code.slice(0, m.index))) continue;
+			const want = resolve(dirname(id.split("?")[0]), m[2]);
+			const file = [want, want.replace(/\.js$/, ".ts")].find(f => existsSync(f));
+			if (!file) continue;
+			// preserveSignature＝strict：誰も静的 import しない入口＝既定のままだと rolldown が export を全部木から落として空のチャンクになる（実測 0 kB・2026-10-21）
+			const ref = this.emitFile({ type: "chunk", id: file, name: file.split("/").pop().replace(/\.(js|ts)$/, ""), preserveSignature: "strict" });
+			// 第 2 引数に import.meta.url：vite は ROLLUP_FILE_URL_ を base 付きの絶対パス（/globe/assets/…）に解くので、そのままでは new URL が Invalid URL になる
+			out = out.replace(m[0], `new URL(import.meta.ROLLUP_FILE_URL_${ref}, import.meta.url)`); hit = true;
+		}
+		return hit ? { code: out, map: null } : undefined;
+	},
+};

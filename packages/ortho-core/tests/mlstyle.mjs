@@ -1,7 +1,7 @@
 // 外来の MapLibre style の読み替え（src/mlstyle.js・#33）と評価器の追加分（色の補間・常用の演算子・色名/HSL）の検定。
 // node packages/ortho-core/tests/mlstyle.mjs
 import assert from "node:assert/strict";
-import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter } from "../src/mlstyle.ts";
+import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter, validateMLStyle } from "../src/mlstyle.ts";
 import { evalExpr, truthy } from "../src/expr.ts";
 import { parseRGBA } from "../src/color.ts";
 let n = 0;
@@ -30,6 +30,32 @@ t("旧式の関数（exponential・interval・categorical・identity）", () => 
 	assert.equal(evalExpr(cat, ctx({ class: "b" })), "blue");
 	assert.equal(evalExpr(cat, ctx({ class: "z" })), "gray");
 	assert.equal(evalExpr(convertValue({ type: "identity", property: "h" }, "fill-extrusion-height"), ctx({ h: 7 })), 7);
+});
+t("text-writing-mode の向きの並びはリテラル（式と読み違えて層を落とさない）", () => {
+	assert.deepEqual(evalExpr(convertValue(["vertical", "horizontal"], "text-writing-mode"), ctx({}, "Point")), ["vertical", "horizontal"]);
+	const st = { sources: { v: { type: "vector", tiles: ["https://x/{z}/{x}/{y}"] } }, layers: [{ id: "lab", type: "symbol", source: "v", "source-layer": "a", layout: { "text-field": "x", "text-writing-mode": ["horizontal"] } }] };
+	const sp = splitMapLibreStyle(st);
+	assert.equal(sp.skipped.length, 0);
+	assert.deepEqual(sp.base[0].layout["text-writing-mode"], ["literal", ["horizontal"]]);
+});
+t("入口の検査（validateMLStyle）＝spec の外の名前・置き場の取り違え・重複・source", () => {
+	const st = { version: 8, id: "legacy-root-key-is-fine", sources: { v: { type: "vector" }, c: { type: "canvas" }, x: { type: "nope" } }, layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#fff" } },
+		{ id: "a", type: "line", source: "v", layout: { "line-color": "red", "line-cap": "butt" }, paint: { "line-widht": 2 } },
+		{ id: "a", type: "fill", source: "missing" },
+		{ id: "b", type: "polygon", source: "v" },
+		{ id: "c", type: "circle", source: "v", paint: {}, extra: 1 },
+	] };
+	const msg = validateMLStyle(st).map(i => (i.layer ? i.layer + ": " : "") + i.message);
+	assert.deepEqual(msg, [
+		'source "x": unknown type "nope"',
+		'a: "line-color" is a paint property, not layout',
+		'a: unknown paint property "line-widht" for line',
+		"a: duplicate layer id",
+		'a: source "missing" not found',
+		'b: unknown layer type "polygon"',
+		'c: unknown layer property "extra"',
+	]);
 });
 t("差し込み記法（段の値の中も）", () => {
 	assert.equal(evalExpr(convertValue("{name:latin} ({ref})", "text-field"), ctx({ "name:latin": "Tokyo", ref: 1 }, "Point")), "Tokyo (1)");

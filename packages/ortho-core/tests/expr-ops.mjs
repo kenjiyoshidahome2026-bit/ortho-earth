@@ -1,6 +1,6 @@
 // 式の残り（C2・2026-10-12）＝within・distance・config・semiliteral・number-format の unit/currency・collator・interpolate-hcl/lab・pitch・distance-from-center。
 // 期待値は MapLibre の意味（文書・color_spaces.ts）から。semiliteral は推定の意味（compat.md §4）
-import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS } from "../src/expr.ts";
+import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS, exprDeps, exprKind } from "../src/expr.ts";
 import { featureGeomLL } from "../src/expr-geo.ts";
 
 let fails = 0;
@@ -87,6 +87,18 @@ ok("distance-from-center from ctx", E(["distance-from-center"], { ...ML, dfc: -0
 // ── unknownOps：GeoJSON・semiliteral の中身は式でない ──
 ok("unknownOps skips within/distance/semiliteral payload", unknownOps(["all", ["within", { type: "Polygon", coordinates: [[["frob", 1]]] }], ["<", ["distance", { type: "Point", coordinates: [0, 0] }], 5], ["semiliteral", [["frob", 1]]]]).size === 0);
 ok("KNOWN_OPS has the C2 ops", ["within", "distance", "config", "semiliteral", "pitch", "distance-from-center"].every(o => KNOWN_OPS.has(o)));
+
+// ── 式の分類（exprDeps・波 1 の 3）＝本物との照合は tests/ml-expression.mjs、ここは旗と式でない位置 ──
+ok("kind constant", exprKind(["+", 1, 2]) === "constant" && exprKind("red") === "constant");
+ok("kind zoom", exprKind(["interpolate", ["linear"], ["zoom"], 5, 1, 10, 4]) === "zoom");
+ok("kind data", exprKind(["match", ["get", "class"], "a", 1, 2]) === "data" && exprKind(["==", ["geometry-type"], "Point"]) === "data");
+ok("kind zoom×data", exprKind(["interpolate", ["linear"], ["zoom"], 5, ["get", "w"], 10, 4]) === "zoom×data");
+ok("kind: 2 引数の get は地物に依らない", exprKind(["get", "k", ["literal", { k: 1 }]]) === "constant");
+ok("kind: literal と match のラベルは式でない", exprKind(["literal", ["get", "x"]]) === "constant" && exprKind(["match", 1, ["zoom"], 1, 2]) === "constant");
+ok("kind: format の設定の中の式", exprKind(["format", "a", { "text-color": ["get", "c"] }]) === "data");
+ok("kind: semiliteral の要素", exprKind(["semiliteral", [["get", "x"], 2]]) === "data");
+const fl = exprDeps(["case", ["boolean", ["feature-state", "hover"], false], ["global-state", "c"], ["*", ["pitch"], ["line-progress"]]]);
+ok("deps の旗（state・global・camera・vertex）", fl.kind === "data" && fl.state && fl.global && fl.camera && fl.vertex, JSON.stringify(fl));
 
 if (fails) { console.error(`✗ expr-ops ${fails} 件 FAIL`); process.exit(1); }
 console.log("✓ expr-ops 全 PASS");

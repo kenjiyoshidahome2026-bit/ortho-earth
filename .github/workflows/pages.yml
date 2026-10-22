@@ -1,0 +1,41 @@
+# ortho-data（GitHub Pages）の japan/・us/ を main の push で自動で置く（2026-10-21）＝手元の `npm run publish:pages -w world-data -- --scope=japan --write` と同じ。
+#   repo の根の ortho-data/japan/・ortho-data/us/（git で追う正本）が変わった push の時だけ走る。Actions タブ →「pages」→ Run workflow でも回せる。
+#   globe/（packages/world/out/＝手元で焼く物）は今まで通り手元から（ここでは置かない）。
+# 要る物（Settings → Environments → mirror）：secret MIRROR_TOKEN（mirror.yml と同じ fine-grained PAT）の対象 repo に ortho-data を足す（Contents: Read and write）。
+#   この repo の GITHUB_TOKEN は他の repo（ortho-data）へ押せない。
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: ["ortho-data/japan/**", "ortho-data/us/**"]
+  workflow_dispatch:
+concurrency:
+  group: pages
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  pages:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: mirror
+    env:
+      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+    steps:
+      - name: secrets の有無
+        run: '[ -n "$MIRROR_TOKEN" ] || { echo "✗ Environment mirror に secret MIRROR_TOKEN が無い（ortho-data に Contents: Read and write を持つ PAT）"; exit 1; }'
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 置く（japan・us＝変わった物だけ commit して push・同じなら何もしない）
+        run: |
+          set -eu
+          git config --global url."https://x-access-token:${MIRROR_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "pages"
+          git config --global user.email "kenji.yoshida.home.2026@gmail.com"
+          for s in japan us; do echo "=== $s"; node packages/world/scripts/publish-pages.mjs --scope=$s --write; done
+          echo "### pages：japan・us（main ${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"

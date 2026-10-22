@@ -26,6 +26,9 @@
 			"arcs.ts",
 			"arcs-mini.ts",
 			"arcs-data.ts"
+		],
+		"splat": [
+			"splat.ts"
 		]
 	}
 }
