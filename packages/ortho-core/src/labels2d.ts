@@ -770,7 +770,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const dop = op * distOp(L.anchor[0], L.anchor[1]), o = dop * (L.op ?? 1);   // dop＝フェード×距離（文字と記号で共有＝lonlatTo3D を 1 回だけ）
 			if (o <= 0.01) return;
 			nDrawn++;
-			sink.layer?.(L.li ?? null, L.k != null || !!L.icon || !!L.sec?.some(q => q.img));   // 層の位置に描くか（T-P2）＝記号は Canvas2D の最前面に残る（T-P3）＝記号つきと利用者の層は字も最前面
+			sink.layer?.(L.li ?? null, L.k != null);   // 層の位置に描くか（T-P2）＝字も記号も標識も同じ列（T-P3）・利用者の層は最前面のまま
 			const tr = L.tt && !L.lp ? translateOf(L.tt, L.tta, cam.bearing || 0) : TR0;   // text-translate（衝突判定と同じ値）
 			const sx = (still ? Math.round(dx / dpr) : dx / dpr) + tr[0], sy = (still ? Math.round(dy / dpr) : dy / dpr) + tr[1];
 			const shield = shieldFor && shieldFor(L);
@@ -814,7 +814,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
 	// 出現タイミング・フェードも星座線と同一（z<5・z5→4.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
 	function drawSky(st: CameraState, cam: CameraPose, Wc: number, Hc: number, dpr: number) {
-		const ctx = sink.ctx2d;   // 星空の注記・月は 2D の受け口だけ（T-P3 で移す）
+		const ctx = sink.ctx2d;   // 星空の注記・月は 2D の受け口だけ（T-P3 の 2 本目以降で移す）
 		if ((!sky && !moon) || cam.zoom >= 5 || !ctx) return;
 		const fade = Math.min(1, (5 - cam.zoom) / 0.5);
 		const gmst = gmstAt(clockNow(clock));   // 星（renderer＝gmstAt(clockNow(view.clock))）と同じ時刻・同じ式（旧＝実時刻の近似式＝時計を早送りすると星座名が星からずれた）
