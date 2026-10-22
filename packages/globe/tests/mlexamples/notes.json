@@ -57,8 +57,8 @@
 		"en": "Flaky: the example jumps to another city two seconds after load, so the result depends on capture timing (same picture when run alone)."
 	},
 	"display-performance-metrics": {
-		"ja": "揺れ：静止の判定（stable／moving）が回ごとに変わる。",
-		"en": "Flaky: the settled/moving detection varies from run to run."
+		"ja": "揺れ：静止の判定（stable／moving）が回ごとに変わる。 o1012 から段 3→2：上の display-a-map と同じ「Equator」の線沿い文字の変化（known.json は o1014 に揃えた・2026-10-22）。",
+		"en": "Flaky: the settled/moving detection varies from run to run. From o1012 it is level 2: the same \"Equator\" along-line label change as display-a-map (known.json aligned to o1014 on 2026-10-22)."
 	},
 	"display-a-popup-on-click": {
 		"ja": "色は完全に一致（背景・水・道路）。76% で 8 割に届かないのは 1〜2px の道路の縁に落ちた標本（片側は道路・片側は地）。",
@@ -81,8 +81,8 @@
 		"en": "At low zoom a globe and a Mercator map look different by design (MapLibre fills the screen with Mercator; ortho-earth shows a small globe). The ground color is white on both."
 	},
 	"render-world-copies": {
-		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。",
-		"en": "A globe has no world copies — a documented difference. Low-zoom fills are now subdivided on the sphere, so the picture matches."
+		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。 o1012 から段 3→2：z0.01 の球の縁で海の塗りが上下に欠ける（基図 41/56・known.json は o1014 に揃えた・2026-10-22・原因は未追跡）。",
+		"en": "A globe has no world copies — a documented difference. Low-zoom fills are now subdivided on the sphere, so the picture matches. From o1012 it is level 2: at z0.01 the ocean fill is clipped at the top and bottom of the globe's limb (basemap 41/56; known.json aligned to o1014 on 2026-10-22; root cause not yet traced)."
 	},
 	"display-line-that-crosses-180th-meridian": {
 		"ja": "同上（球）。",
@@ -127,5 +127,21 @@
 	"add-a-cog-raster-source": {
 		"ja": "maplibre-cog-protocol の tile は addLayer の型紙の形と合わない（Request failed）＝COG はこちらの geopbf の cog で読む道が別にある。",
 		"en": "Tiles from maplibre-cog-protocol do not fit ortho-earth's addLayer URL templates (Request failed). ortho-earth reads COGs through its own geopbf cog reader instead."
+	},
+	"display-a-map": {
+		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。z1 の世界図の球の縁の線沿い文字「Equator」が、9/30 の小さな鏡像から大きな斜体太字に変わった＝線沿いの注記の第 1 波（C9）か 10/07 の錨の見直しの副作用の疑い（原因のコードは未追跡）。",
+		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The along-line label \"Equator\" at the globe's limb in the z1 world view changed from a small mirrored label to a large bold italic one — suspected side effect of the line-label work (C9) or the 2026-10-07 anchor rework; root cause not yet traced."
+	},
+	"display-a-map-with-mlt": {
+		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。z1 の世界図の球の縁の線沿い文字「Equator」が、9/30 の小さな鏡像から大きな斜体太字に変わった＝線沿いの注記の第 1 波（C9）か 10/07 の錨の見直しの副作用の疑い（原因のコードは未追跡）。",
+		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The along-line label \"Equator\" at the globe's limb in the z1 world view changed from a small mirrored label to a large bold italic one — suspected side effect of the line-label work (C9) or the 2026-10-07 anchor rework; root cause not yet traced."
+	},
+	"add-a-geojson-line": {
+		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。基図の道路名「Conzelman Road」が例の足した太線の真上に乗る（足した層の標本 4/6）。原因のコードは未追跡。",
+		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The basemap road label \"Conzelman Road\" now sits on top of the example's thick added line (added-layer probes 4/6). Root cause not yet traced."
+	},
+	"measure-distances": {
+		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。基図の標本 124/160・目視ではほぼ同じ。原因のコードは未追跡。",
+		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). Basemap probes 124/160; visually almost identical. Root cause not yet traced."
 	}
 }
