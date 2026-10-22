@@ -6,6 +6,9 @@
 //   base       … 識別キー（worker 振り分け・キャッシュ・OPFS のファイル名）＝同じ tileset を街ごとに
 //                別枠で持つため、実 URL は tilesetUrl で別に渡す
 //   tilesetUrl … 3D Tiles 1.1 の glb＝頂点が int16 量子化（meshworker が解除）
+//   bakeBase   … R2 焼き（PLQ）の置き場＝日本と同じ第三の入口（2026-10-22）。焼きのある街は 3DBAG の tileset を辿らず・glb を
+//                解かずに R2 から取って立てる（3DBAG の配信が止まっていても出る）。焼きの無い街は 404 → 黙って生経路（上の tilesetUrl）。
+//                焼く＝apps/ortho-japan/scripts/bake-plateau.mjs --region=nl --upload（3DBAG に届く所で・書込キーが要る）
 //
 // 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立 URL）と ?nl=1（開発・日本に重ねて
 // 確認する時）。どちらも**日本の台帳に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る（2026-09-17 の
@@ -60,12 +63,14 @@ export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles
 
 /** 建物の 1 枠（3D Tiles の tileset を街の矩形で切った物） */
 export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox }
+/** R2 焼きの置き場（bake-plateau.mjs --region=nl の置き先もここから決まる） */
+export const NL_BAKE_BASE = "https://api.ortho-earth.com/bucket/GIS/3dbag/";
 /** 出典の 1 片（key＝辞書の鍵・text＝そのままの文） */
 export interface NlAttributionItem { href?: string; key?: string; text?: string }
 export interface NlRegion {
 	code: string;
 	dtm: null;
-	buildings: { sets: NlBuildingSet[] };
+	buildings: { sets: NlBuildingSet[]; bakeBase: string };
 	basemap: null;
 	attribution: { lines: NlAttributionItem[][]; note: string };
 	view: string;
@@ -76,6 +81,7 @@ export const NL_REGION: NlRegion = {
 	dtm: null,                    // AHN の焼き直しは持っていない＝標高は外来の標高タイル（上の NL_TERRAIN）を入口が渡す
 	buildings: {
 		sets: NL_PLACES.map(s => ({ name: `${s.name} (3DBAG)`, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox })),
+		bakeBase: NL_BAKE_BASE,   // globe が各 set へ刻む（stampBake）
 	},
 	// 自前のベクタ基図は持たない＝地域の基図の口（basemap）は空のまま。/nl/ の入口は外来 style（上の nlStyle）で描く。
 	// style が取れなかった時・?nl=1（日本に重ねる）の時はこの宣言どおり＝タイルを要求せず図郭外と同じ扱い。
