@@ -120,6 +120,8 @@ export function convertValue(v: unknown, prop = ""): unknown {
 	// 文字列の配列リテラル（フォント名・アンカー名）は式と見分けがつかない＝literal に包む。line-dasharray は数の配列＝そのままで
 	// リテラル、先頭が文字列なら式（step/interpolate/literal）＝包むと式が「中身の配列」として読まれ線ごと消えた（2026-09-25）
 	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
+	// text-writing-mode のリテラル＝["horizontal"]・["vertical", "horizontal"]（向きの名前の並び）。式と読み違えて「知らない演算子 horizontal」で層を落としていた（地理院 optimal_bvmap の注記 7 層・実在 style の集計 2026-10-22）
+	if (prop === "text-writing-mode" && Array.isArray(v) && v.length && v.every(x => x === "horizontal" || x === "vertical")) return ["literal", v];
 	// text-variable-anchor-offset のリテラル＝["top", [0, 1], "bottom", [0, -1]]（アンカー名と 2 数の組の並び）。式（match/step…）と読み違えて「知らない演算子 top」で層を落としていた（公式例の門 2 巡目）
 	if (prop === "text-variable-anchor-offset" && isAnchorOffsets(v)) return ["literal", v];
 	// hillshade の multidirectional＝色・向きの配列（["#FF4000", "#FFFF00", …]・[270, 315, 0, 45]）＝式ではない（先頭が色の文字列＝「知らない演算子 #FF4000」で層を落としていた）

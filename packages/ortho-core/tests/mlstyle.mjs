@@ -31,6 +31,13 @@ t("旧式の関数（exponential・interval・categorical・identity）", () => 
 	assert.equal(evalExpr(cat, ctx({ class: "z" })), "gray");
 	assert.equal(evalExpr(convertValue({ type: "identity", property: "h" }, "fill-extrusion-height"), ctx({ h: 7 })), 7);
 });
+t("text-writing-mode の向きの並びはリテラル（式と読み違えて層を落とさない）", () => {
+	assert.deepEqual(evalExpr(convertValue(["vertical", "horizontal"], "text-writing-mode"), ctx({}, "Point")), ["vertical", "horizontal"]);
+	const st = { sources: { v: { type: "vector", tiles: ["https://x/{z}/{x}/{y}"] } }, layers: [{ id: "lab", type: "symbol", source: "v", "source-layer": "a", layout: { "text-field": "x", "text-writing-mode": ["horizontal"] } }] };
+	const sp = splitMapLibreStyle(st);
+	assert.equal(sp.skipped.length, 0);
+	assert.deepEqual(sp.base[0].layout["text-writing-mode"], ["literal", ["horizontal"]]);
+});
 t("差し込み記法（段の値の中も）", () => {
 	assert.equal(evalExpr(convertValue("{name:latin} ({ref})", "text-field"), ctx({ "name:latin": "Tokyo", ref: 1 }, "Point")), "Tokyo (1)");
 	const v = convertValue({ stops: [[2, "{ABBREV}"], [4, "{NAME}"]] }, "text-field");

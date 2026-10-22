@@ -83,7 +83,8 @@
 		"verify:net": "node scripts/verify-net.mjs",
 		"verify:regionless": "node scripts/verify-regionless.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
-		"verify:examples": "node scripts/verify-examples.mjs"
+		"verify:examples": "node scripts/verify-examples.mjs",
+		"style-corpus": "node scripts/style-corpus.mjs"
 	},
 	"keywords": [
 		"globe",
