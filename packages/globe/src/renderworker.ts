@@ -111,7 +111,7 @@ interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; _
 type PerfMem = { memory?: { usedJSHeapSize: number } };
 
 let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
-// ?text=gpu（T-P1 の足場）＝線に沿う注記の字は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
+// ?text=gpu（T-P1・T-P2 の足場）＝注記の字（線に沿う・点）は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
 let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null;
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
