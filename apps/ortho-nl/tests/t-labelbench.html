@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- 注記の計測場面（テキスト GPU 化 T-P0）＝傾けた街の線に沿う注記の本命（デルフト z17.6 55°・道の名 100 本余・字 600 個＝2026-10-13 に 60→20fps を字の版で直した場面）。
+     回帰検定ではない＝verify には載せない。ortho-japan の scripts/bench-perf.mjs --app nl が実 GPU・実時間で回す（回し方は packages/globe/tests/perfbench-run.js）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}</style><title>t-labelbench</title></head>
+<body>
+<script>
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "@ortho-earth/regions/app";
+import { runBench } from "../../../packages/globe/tests/perfbench-run.js";
+await runBench(() => orthoJapan(), [
+	{ name: "labels-delft-z17.6-55t", center: [4.3571, 52.0116], zoom: 17.6, pitch: 55, bearing: 0, spin: true },
+	{ name: "labels-delft-z15", center: [4.3571, 52.0116], zoom: 15, pitch: 0, bearing: 0, spin: false },
+]);
+</script>
+</body></html>
