@@ -95,13 +95,13 @@ export function ptRowColor(L: PtLayer, keys: readonly string[], t: readonly unkn
 	out[o] = b255(c[0]) / 255; out[o + 1] = b255(c[1]) / 255; out[o + 2] = b255(c[2]) / 255; out[o + 3] = b255(a) / 255;
 }
 
-/** 行の線の半幅（px・焼いた半幅と同じ＝数でない・0 以下は 1 の半分・f32）。L.w がある層だけ */
+/** 行の線の半幅（px・焼いた半幅と同じ＝数でないは 1 の半分・0 以下は 0＝描かない・f32）。L.w がある層だけ（外来の層） */
 export function ptRowHalf(L: PtLayer, keys: readonly string[], t: readonly unknown[]): number {
 	const props: Record<string, unknown> = {};
 	let geom: unknown = null;
 	for (let i = 0; i < keys.length; i++) { if (keys[i] === PT_GEOM) geom = t[i]; else if (t[i] != null) props[keys[i]] = t[i]; }
 	const w = evalExpr(L.w, { zoom: 0, props, geom: geom as ExprContext["geom"], vars: {}, origin: L.o });
-	return Math.fround((typeof w !== "number" || isNaN(w) || w <= 0 ? 1 : w) * 0.5);   // build.ts の線と同じ
+	return Math.fround((typeof w !== "number" || isNaN(w) ? 1 : w <= 0 ? 0 : w) * 0.5);   // build.ts の線と同じ
 }
 
 // setPaintProperty の (b) 類（段 2・2026-10-22・GL2 の md）：変えた性質が塗りと線の色・不透明度で、前も後も (b) 類、後の式が読む属性が前の鍵に含まれる

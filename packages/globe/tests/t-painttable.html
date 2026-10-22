@@ -5,7 +5,7 @@
      段 2（setPaintProperty の (b) 類）：⑤同じ属性を読む新しい色・不透明度＝表を読む時は組み直さない（__styleStats.paintFast が増え、タイルの取り寄せが増えない）・読まない時は組み直す。絵はどちらも新しい値
      ⑥前の鍵に無い属性を読む式＝組み直す。
      段 2b（地物に依る線幅も表）：⑦定数の線幅 → 属性を読む線幅＝組み直す（前の列は半幅を表から読まない）・その後の描く列は半幅も表から（d.ptw＞0）
-     ⑧属性を読む線幅 → 同じ属性を読む別の線幅＝表を読む時は組み直さない。実時間。 -->
+     ⑧属性を読む線幅 → 同じ属性を読む別の線幅＝表を読む時は組み直さない。⑨線幅 0 の地物は描かない（MapLibre と同じ）。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-painttable</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -110,6 +110,7 @@ try {
 	for (let i = 0; i < 12; i++) { map.triggerRepaint?.(); await sleep(400); d = window.__drawHud?.d; if (!PT || d?.ptw > 0) break; }
 	ok("widthTableUsed", d && (PT ? d.ptw > 0 : !d.ptw), `ptw ${d?.ptw} want ${PT ? ">0" : "0"}`);
 	await set("fastLineWidth", "l", "line-width", ["match", ["get", "k"], "la", 20, 4], PT, [["laWide", 480, 348, [0, 255, 0]], ["lbThin", 480, 428, [255, 255, 255]], ["laCore", 480, 340, [0, 255, 0]]]);
+	await set("zeroWidth", "l", "line-width", ["match", ["get", "k"], "la", 0, 4], PT, [["laGone", 480, 340, [255, 255, 255]], ["lbCore", 480, 420, [255, 255, 0]]]);   // 線幅 0＝描かない（MapLibre）
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
 </script>
