@@ -7,12 +7,6 @@
 				"why": "互換：型の名 OrthoJapanMap（SDK 以来の公開の型名＝GlobeMap の別名・2.0 まで）"
 			}
 		},
-		"packages/globe/src/cluster-2d.ts": {
-			"jp": {
-				"n": 1,
-				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
-			}
-		},
 		"packages/globe/src/columnar/view.ts": {
 			"cos35°": {
 				"n": 1,

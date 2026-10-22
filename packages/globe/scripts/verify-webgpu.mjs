@@ -21,6 +21,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-spotlight", "t-linedeco", "t-mdparity", "t-shotov",
 	"t-linejoin?md=1", "t-linejoin?nomd=1", "t-linedash?md=1", "t-linedash?nomd=1", "t-linefx?md=1", "t-linefx?nomd=1", "t-fillpattern?md=1", "t-fillpattern?nomd=1",   // S-P1-1/3/4/5 の WebGPU 版（2026-10-22）＝線の端と継ぎ・破線・translate/blur・塗りの模様を md／classic の両経路で読み戻す   // t-linedeco＝基図の line-offset を WGSL でも（#49）・t-mdparity＝タイル GPU 常駐プール（md）と classic の絵一致（vt perf plan §4 step A）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
+	"t-cluster",   // map.gadget.cluster＝集約の source と層（丸は gint・件数は注記層の GPU の字・2026-10-22）
 	"t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
 	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt", "t-mlcompat?g=cover", "t-container?v=abs", "t-container?v=zero", "t-container?v=novec", "t-container?v=ug", "t-qm", "t-multimap", "t-multimap?v=default", "t-multimap?v=lowmem", "t-multimap?v=gs", "t-multimap?v=sync", "t-compare", "t-compare?v=h", "t-compare?v=ml", "t-inspect", "t-inspect?v=world", "t-inspect?v=ml",   // t-inspect＝検査表示（#174）

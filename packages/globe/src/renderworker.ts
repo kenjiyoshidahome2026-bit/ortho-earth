@@ -146,7 +146,7 @@ let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts").then(m => m.create()),
 	// 旧＝URL で読ませたオーバーレイ（vite の ?url は変換せずに置く＝型を剥いだ .js を src に併置していた）を、この worker の遅延チャンクとして読む（2026-10-17）。
 	// モジュールの中身は create() の閉包＝呼ぶたびに別の実体（旧＝URL に ?ov= を足して overlay ごとに別のモジュール実体にしていたのと同じ分け方）
-	heatmap: () => import("./heatmap-gl.ts").then(m => m.create()), cluster: () => import("./cluster-2d.ts").then(m => m.create()), pattern: () => import("./pattern-2d.ts").then(m => m.create()), symbols: () => import("./symbols-2d.ts").then(m => m.create()),
+	heatmap: () => import("./heatmap-gl.ts").then(m => m.create()), pattern: () => import("./pattern-2d.ts").then(m => m.create()), symbols: () => import("./symbols-2d.ts").then(m => m.create()),
 	columnar: () => import("./columnar/draw-gl.ts").then(m => m.create()), arcs: () => import("./gadgets/arcs-gl.ts").then(m => m.create()), copc: () => import("./gadgets/copc-gl.ts").then(m => m.create()), customgl: () => import("./gadgets/customgl-draw.ts").then(m => m.create()),
 	points: () => import("./gadgets/points-gl.ts").then(m => m.create()), screengrid: () => import("./gadgets/screengrid-draw.ts").then(m => m.create()), trips: () => import("./gadgets/trips-gl.ts").then(m => m.create()) };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m: RwMsg) {
@@ -572,7 +572,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "terrStats": postMessage({ type: "terrStats", data: terrain?.debug?.() ?? null }); break;   // __terr()＝標高アトラス内部状態の遠隔診断（dev実地用）
 		case "rasterStats": postMessage({ type: "rasterStats", id: m.id, data: raster?.stats() ?? null }); break;
-		case "labelsPlaced": postMessage({ type: "labelsPlaced", id: m.id, data: { labels: labelLayer?.placed?.() ?? [], symbols: [...overlays.values()].flatMap(o => o.mod?.placed?.() ?? []), debug: labelLayer?.placedDebug?.() ?? null } }); break;   // 置いたラベル/記号（labels2d＋placed() を持つ重ね描き＝symbols・cluster）＝公式例の門 段 0・debugGlobals の __placed   // 置いたラベル/記号（公式例の門 段 0＝文字を測る・debugGlobals の __placed）
+		case "labelsPlaced": postMessage({ type: "labelsPlaced", id: m.id, data: { labels: labelLayer?.placed?.() ?? [], symbols: [...overlays.values()].flatMap(o => o.mod?.placed?.() ?? []), debug: labelLayer?.placedDebug?.() ?? null } }); break;   // 置いたラベル/記号（labels2d＋placed() を持つ重ね描き＝symbols）＝公式例の門 段 0・debugGlobals の __placed   // 置いたラベル/記号（公式例の門 段 0＝文字を測る・debugGlobals の __placed）
 		case "elevGrid": (async () => {   // 標高の升目（可視域・見通し線＝#44）。範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北
 			const [w, s, e, n] = m.bbox!, N = m.N!, out = new Float32Array(N * N);
 			if (terrain) { const cs = []; for (let y = Math.floor(s); y <= Math.floor(n); y++) for (let x = Math.floor(w); x <= Math.floor(e); x++) cs.push(terrain.prefetch(x, y, 1).catch(() => null)); await Promise.all(cs); }
