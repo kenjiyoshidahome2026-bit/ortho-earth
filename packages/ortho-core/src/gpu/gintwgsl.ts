@@ -489,7 +489,7 @@ struct LineOut {
 		let rec = textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0);
 		if (rec.a != 0u) { fidDash = vec2f(f32(rec.a >> 16u), f32(rec.a & 0xFFFFu)) * 0.125 * select(1.0, bitcast<f32>(P.b.z), P.b.z != 0); }
 		if ((rec.b & 1u) == 0u) { return o; }
-		let w8 = (rec.b >> 24u) & 255u;
+		let w8 = (rec.b >> 24u) | (((rec.b >> 16u) & 255u) << 8u);   // 線幅 u16（1/8px・下位は bit 24〜・上位は bit 16〜＝2026-10-22 から）
 		if (w8 == 0u) { return o; }
 		lw = f32(w8) * 0.125 * select(1.0, bitcast<f32>(P.b.z), P.b.z != 0) + P.a.y;   // 表は 1/8 CSS px → device px（×dpr・GL の u_fid_wscale と対・U1）
 		let lc = rec.g;
@@ -873,7 +873,7 @@ fn fidPointStyle(featId: i32, r0: f32) -> PtStyle {
 	let lc = rec.g;
 	if ((rec.b & 2u) != 0u) { s.col = vec4f(0.0); s.hasCol = true; }
 	else if ((lc & 255u) != 0u) { s.col = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0; s.hasCol = true; }
-	let w8 = (rec.b >> 24u) & 255u;
+	let w8 = (rec.b >> 24u) | (((rec.b >> 16u) & 255u) << 8u);   // 線幅 u16（1/8px・下位は bit 24〜・上位は bit 16〜＝2026-10-22 から）
 	if (rec.a != 0u && w8 != 0u) { s.scol = vec4f(f32(rec.a >> 24u), f32((rec.a >> 16u) & 255u), f32((rec.a >> 8u) & 255u), f32(rec.a & 255u)) / 255.0; s.sw = f32(w8) * 0.125 * P.a.w; }
 	return s;
 }

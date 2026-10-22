@@ -71,7 +71,7 @@ t("③ 式→WGSL の形（主な演算子・列の添字・状態の鍵・旗�
 	assert.equal(r.usesZoom, true); assert.equal(r.usesState, true); assert.equal(r.filterUsesState, true); assert.equal(r.filterUsesZoom, true); assert.equal(r.usesGeom, true);
 	assert.equal(r.slots, 1);   // 入れ子の interpolate（evalExpr 経由）だけが slot を持つ（根の色の補間は丸め無しの直の lerp）
 	const w = r.wgsl;
-	for (const need of ["@compute @workgroup_size(64)", "var<private> cols: array<vec4f, 1>", "P(2u, fid)", "P(0u, fid)", "S(0u, fid)", "S(1u, fid)", "U.zoom", "lerpV(", "lerpT(", "packColor(", "u8(", "if (!vtruthy(", "flags = 0u", "outR[fid] = vec4u(fill, line, (w8 << 24u) | (r8 << 8u) | flags, 0u);", "let isPt = geom[fid] == ", "npow(", "nmod(", "ndiv(", "nadd(", "nmul(", "nsub(", "nabs("])
+	for (const need of ["@compute @workgroup_size(64)", "var<private> cols: array<vec4f, 1>", "P(2u, fid)", "P(0u, fid)", "S(0u, fid)", "S(1u, fid)", "U.zoom", "lerpV(", "lerpT(", "packColor(", "u8(", "if (!vtruthy(", "flags = 0u", "outR[fid] = vec4u(fill, line, ((w8 & 255u) << 24u) | ((w8 >> 8u) << 16u) | (r8 << 8u) | flags, 0u);", "let isPt = geom[fid] == ", "npow(", "nmod(", "ndiv(", "nadd(", "nmul(", "nsub(", "nabs("])
 		assert.ok(w.includes(need), "wgsl lacks " + need);
 	assert.ok(!w.split("\n").some(l => /undefined|NaN|\[object/.test(l.replace(/\/\/.*$/, ""))), "wgsl has a JS leak");   // 注釈を除いた文に JS の値が漏れていない
 	assert.ok(dict.map.has("#ff0000") && dict.map.has("Point") && dict.map.has("MultiPoint"), "literals and geometry names interned");
