@@ -54,7 +54,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.ts";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, ML_CZ0_KEY, ML_CZ1_KEY, ML_CEZ_KEY, setGlobalState, mlTileZoomOf, validateMLStyle } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, ML_CZ0_KEY, ML_CZ1_KEY, ML_CEZ_KEY, setGlobalState, mlTileZoomOf, validateMLStyle, layerPaintTable } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
 import { createFacade } from "./mlfacade.ts";
 export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
@@ -1353,7 +1353,15 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot as string, sig as string),
 });
-const setPipelineStyle: GlobeScope["setPipelineStyle"] = (st, keep) => { setPipelineStyle0(st, keep); if (!keep) sendUserAnchors(); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
+const setPipelineStyle: GlobeScope["setPipelineStyle"] = (st, keep) => { setPipelineStyle0(st, keep); if (!keep) sendUserAnchors(); sendPtFsLayers(st); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
+// 基図の feature-state を読む層（paint 表の (b) 類の段 3・GL2 の md）＝描き手が状態の置かれた地物の行を評価し直す（状態は api/style.ts の setFeatureState が "ptFs" で送る）。
+// style が変わるたびに全部を置き換える（表を読まない描き手＝WebGPU は知らない命令として捨てる）
+const sendPtFsLayers = (st: Parameters<GlobeScope["setPipelineStyle"]>[0]): void => {
+	const list: [string, string, ReturnType<typeof layerPaintTable> & object][] = [];
+	for (const L of st.layers) { const sl = L["source-layer"], eo = originOfLayer(L), T = sl && eo ? layerPaintTable(L.type, L.paint as Record<string, unknown> | undefined, eo) : null; if (T?.fs) list.push([L.id, sl!, T]); }
+	renderer.set("ptFsLayers", list);
+};
+sendPtFsLayers(style);   // 起動の style（以後は setPipelineStyle ごと）
 if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOS relay path active (page -> scene worker -> render worker); flushed", pend.length, "queued messages"); }
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
