@@ -1069,6 +1069,11 @@ void main() {
 
 // 塗りの直描き＝2D（地形なし）だけ。3D（地形あり）の塗りは地面アトラスへ焼いて FS が画素標本化する（ATLAS_FILL_VS/FS・
 // 2026-09-21）＝かつての標高ドレープ・水面リフト(+30/+10m)・水域の厳密対数深度（v_w/gl_FragDepth）は塗りには不要となり撤去。
+// 層の *-translate（S-P1-4/5）：地面の上でずらす（MapLibre の translatePosMatrix と同じく傾けた画面では縮む）。
+// u_tr＝(東 px, 南 px, 今の zoom の 1px の弧（度・256px の世界の赤道）, 0)。z＝0 でずらさない。球は縦横とも同じ尺＝経度だけ cos φ で割る
+const FX_TR = /* glsl */`
+uniform vec4 u_tr;
+vec2 trLL(vec2 ll) { return vec2(u_tr.x / max(cos(ll.y * 0.017453293), 1e-3), -u_tr.y) * u_tr.z; }`;
 export const FILL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
@@ -1078,6 +1083,9 @@ out vec4 v_color;
 out float v_front;
 out float v_fog;
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
+${FX_TR}
+uniform float u_patK;   // fill-pattern（S-P1-4/5）＝floor(z) の世界（256px）の 1 度の px（経度）。0＝模様なし
+out vec2 v_pat;         // 模様の px（原点からの差＝メルカトルの px・縦は中ほどの緯度の cos で割る）
 uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
 out vec2 v_cuv;
 uniform vec4 u_gndOffInv0;  // 地面アトラス（前景/近/中/遠）＝同じ変換
@@ -1090,6 +1098,8 @@ out vec2 v_guv2;
 out vec2 v_guv3;
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
+	dLL += trLL(u_origin + dLL);              // fill-translate（S-P1-4/5）
+	v_pat = vec2(dLL.x, -dLL.y / cos((u_origin.y + dLL.y * 0.5) * 0.017453293)) * u_patK;
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
 	v_ll = ll;
 	v_cuv = u_cogOffInv.xy + dLL * u_cogOffInv.zw;
@@ -1124,6 +1134,9 @@ in vec4 v_color;
 in float v_front;
 in float v_fog;
 in vec2 v_ll;
+in vec2 v_pat;
+uniform sampler2D u_patTex;   // fill-pattern（S-P1-4/5）＝記号帳の画像 1 枚（REPEAT）
+uniform vec4 u_patP;          // (原点の模様の位相 x, y（px）, 1/幅, 1/高さ（px＝画像の px÷pixelRatio）)。z＝0 で模様なし
 out vec4 fragColor;
 void main() {
 	if (v_front < -0.0015) discard;         // 裏半球は描かない（接線に標高許容＝地平線に頭を出す山上の塗りも描く）
@@ -1131,8 +1144,13 @@ void main() {
 	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く。
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
+	vec3 rgb = v_color.rgb;
+	if (u_patP.z > 0.0) {   // 模様＝画像の色と α（MapLibre と同じく fill-color は読まない・fill-opacity は掛ける）。画像は前乗算で届く
+		vec4 t = texture(u_patTex, fract((u_patP.xy + v_pat) * u_patP.zw));
+		af *= t.a; rgb = t.a > 0.0 ? t.rgb / t.a : vec3(0.0);
+	}
 	if (af <= 0.003) discard;
-	fragColor = vec4(mix(gndMix(cogTexMix(v_color.rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
+	fragColor = vec4(mix(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
@@ -1142,7 +1160,8 @@ void main() {
 // p0/p3(端と継ぎ＝前の線分の始点・次の線分の終点・原点相対＝並びのすぐ前後の線分から読む・S-P1-1), jf0(旗＝build.ts の JF_*)、
 // dist0(破線＝始点までの線に沿う距離・z24 の px・S-P1-3)。
 // 破線の uniform（u_dashP・u_dashI）は FS と共用＝LINE_DASH
-const LINE_DASH = /* glsl */`
+const LINE_DASH = /* glsl */`${FX_TR}
+uniform vec2 u_blur;      // line-blur（画素）・circle-blur（y＝1：半径の割合）＝縁から内へ薄める（S-P1-4/5）。x＝0 でぼかさない
 uniform vec4 u_dashP;     // 破線（S-P1-3）＝(周期 P, 線の区間の数（0＝破線でない）, 丸い端 1／0, floor(zoom) の px ÷ z24 の px)
 uniform vec4 u_dashI[2];  // 線の区間 [a, b]×4（線幅の倍数・scene.ts の dashIntervals）`;
 const LINE_VARY = /* glsl */`${LINE_DASH}
@@ -1196,6 +1215,7 @@ float lineEnd(vec2 o, vec2 x, vec2 jt, vec2 y, float h, float hp, bool start, fl
 	return 4.0;
 }`;
 const LINE_MAIN = /* glsl */`
+	if (u_tr.z != 0.0) { vec2 tr = trLL(o + p1); p0 += tr; p1 += tr; p2 += tr; p3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
 	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
 	vec3 da = u_originPt + rela, db = u_originPt + relb; // 絶対単位球点（front/fog/df 用＝粗くて可）
@@ -1416,7 +1436,10 @@ void main() {
 	// さらにフェザー自体を±0.25pxへ半減（×2.0）＝エッジの立ち上がりを締める。Retina(dpr2)ではCSS 0.125px相当。
 	// 結果は「常にカリッと・細いほど薄く」＝シャープで主張しない線。
 	float hw = max(v_half, 0.5);
-	float alpha = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0) * cov * min(v_half * 2.0, 1.0);
+	float edge = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0);
+	// ぼかし（S-P1-4/5）：line-blur＝縁（＋半画素）から内へ blur＋1 画素で線形（MapLibre の blur2）・circle-blur＝半径の (1−blur) から縁へ smoothstep（MapLibre の circle）
+	if (u_blur.x > 0.0) edge = u_blur.y > 0.5 ? 1.0 - smoothstep(hw * (1.0 - u_blur.x), hw, dist) : clamp((hw + 0.5 - dist) / (u_blur.x + 1.0), 0.0, 1.0);
+	float alpha = edge * cov * min(v_half * 2.0, 1.0);
 	if (alpha <= 0.0) discard;
 	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）。
 	// 1.2倍＝霧83%で完全消滅：地形の霞の帯より先に消え、暗い空に線の尻尾（残影）が残らない

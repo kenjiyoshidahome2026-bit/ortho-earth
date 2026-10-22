@@ -3,7 +3,7 @@
 `scripts/ml-coverage.mjs` が style-spec 26.4.4 の写し（core `src/mlspec.ts`）から作る。手で書き換えない＝状態を変えるときはスクリプトの `NOTES`（台帳 `maplibre-compat.md` の §3・§4 の写し）を直して書き出し直す。
 「読む」は性質の名前を読む所がエンジンにあることだけを言う。絵が MapLibre と同じかは公式例の門（台帳 §8）と互換の爪車（§6）が見る。
 
-計 136：読む 106・近似 5・未 16・一部 9
+計 136：読む 106・近似 5・一部 17・未 8
 
 | 層 | 置き場 | 性質 | 状態 | 中身 |
 |---|---|---|---|---|
@@ -13,9 +13,9 @@
 | fill | paint | `fill-layer-opacity` | 近似 | vector の層だけ・地物の opacity に掛け合わせる（§4） |
 | fill | paint | `fill-color` | 読む |  |
 | fill | paint | `fill-outline-color` | 読む |  |
-| fill | paint | `fill-translate` | 未 | vector の層は警告して描く・基図も読まない |
-| fill | paint | `fill-translate-anchor` | 未 | translate が未 |
-| fill | paint | `fill-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図は層を飛ばす・vector の層は未 |
+| fill | paint | `fill-translate` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22・層で一度＝zoom の式はタイルの z）・3D（地形あり）の塗り・WebGPU・geojson の層は読まない |
+| fill | paint | `fill-translate-anchor` | 一部 | translate と同じ（viewport＝方位だけ回す） |
+| fill | paint | `fill-pattern` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22・名前は層で一度・模様の大きさは cos φ 倍・3D の塗りと WebGPU は描かない）・geojson の層は canvas2D の模様 |
 | line | layout | `line-cap` | 一部 | GL2 は MapLibre と同じ（S-P1-1・2026-10-22）・WebGPU と geojson の層は丸 |
 | line | layout | `line-join` | 一部 | GL2 は MapLibre と同じ（属性の式は層で一度）・WebGPU と geojson の層は丸 |
 | line | layout | `line-miter-limit` | 一部 | GL2 だけ（zoom の式も読む） |
@@ -24,12 +24,12 @@
 | line | paint | `line-opacity` | 読む |  |
 | line | paint | `line-layer-opacity` | 近似 | vector の層だけ・地物の opacity に掛け合わせる（§4） |
 | line | paint | `line-color` | 読む |  |
-| line | paint | `line-translate` | 未 | vector の層は警告して描く・基図も読まない |
-| line | paint | `line-translate-anchor` | 未 | translate が未 |
+| line | paint | `line-translate` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22）・WebGPU・geojson の層は読まない |
+| line | paint | `line-translate-anchor` | 一部 | translate と同じ（viewport＝方位だけ回す） |
 | line | paint | `line-width` | 近似 | 基図と vector の層は約 32px で頭打ち（表の u8・§4） |
 | line | paint | `line-gap-width` | 読む | 基図・vector・geojson（2026-10-03） |
 | line | paint | `line-offset` | 読む |  |
-| line | paint | `line-blur` | 未 | vector の層は警告して描く |
+| line | paint | `line-blur` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22・属性の式は層で一度）・WebGPU・geojson の層は読まない |
 | line | paint | `line-dasharray` | 一部 | GL2 の基図と vector の層は MapLibre と同じ（S-P1-3・2026-10-22）・WebGPU・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ |
 | line | paint | `line-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図・vector の層は未 |
 | line | paint | `line-gradient` | 一部 | geojson の層だけ（canvas2D の線の飾り）。vector の層は未 |
@@ -96,10 +96,10 @@
 | circle | layout | `circle-sort-key` | 読む |  |
 | circle | paint | `circle-radius` | 読む |  |
 | circle | paint | `circle-color` | 読む |  |
-| circle | paint | `circle-blur` | 未 | vector の層は警告して描く |
+| circle | paint | `circle-blur` | 一部 | GL2 の vector の層（S-P1-4/5・2026-10-22・層で一度・透ける円の縁の輪はぼかさない）・WebGPU・geojson の層は読まない |
 | circle | paint | `circle-opacity` | 読む |  |
-| circle | paint | `circle-translate` | 未 | vector の層は警告して描く |
-| circle | paint | `circle-translate-anchor` | 未 | translate が未 |
+| circle | paint | `circle-translate` | 一部 | GL2 の vector の層（S-P1-4/5・2026-10-22）・WebGPU・geojson の層は読まない |
+| circle | paint | `circle-translate-anchor` | 一部 | translate と同じ（viewport＝方位だけ回す） |
 | circle | paint | `circle-pitch-scale` | 未 | 遠近の縮みは無い（§4） |
 | circle | paint | `circle-pitch-alignment` | 一部 | "map" は警告して画面に向いた円で描く |
 | circle | paint | `circle-stroke-width` | 読む |  |

@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- 実描画の検分：fill-pattern（MapLibre の塗りの模様・互換の計画 S-P1-4/5・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw／?nomd=1＝classic）。
+     形は頁の中で作った MVT（addProtocol の fp://）の四角。模様は addImage の 32px の市松（左上と右下の 16px が赤・他は白・pixelRatio 1）。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）の 2 回。
+     見るもの：①市松の 1 升＝floor(z) の世界のメルカトルの 16px（画面では 2^小数部×cos φ 倍）②赤と白が半々 ③地面に付く（中心をずらしても同じ地点は同じ色）④fill-opacity 0.5 で半ば透ける ⑤四角の外は塗らない。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-fillpattern</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {   // feats＝[{ k, t（1 点・2 線・3 面）, pts: [[x, y], …]（タイル座標） }]
+	const keys = ["k"], vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);   // version＝2
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.t);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		if (f.pts.length > 1) {
+			g.push((2 & 7) | ((f.pts.length - 1) << 3));
+			for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		}
+		if (f.t === 3) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, keys[0].split("").map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let SHAPES = [];
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("fp", async ({ url }) => {
+	const [z, x, y] = url.replace("fp://", "").split("/").map(Number);
+	return { data: mvt(SHAPES.map(l => ({ k: l.k, t: l.t, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+const CASES = { sq: [3, [[200, 120], [760, 120], [760, 330], [200, 330]]], half: [3, [[200, 380], [760, 380], [760, 520], [200, 520]]] };
+const F = k => ["==", ["get", "k"], k];
+const LAYERS = [
+	{ id: "f-sq", type: "fill", source: "fp", "source-layer": "l", filter: F("sq"), paint: { "fill-pattern": "chk" } },
+	{ id: "f-half", type: "fill", source: "fp", "source-layer": "l", filter: F("half"), paint: { "fill-pattern": "chk", "fill-opacity": 0.5 } },
+];
+const N = 32, CHK = (() => { const d = new Uint8Array(N * N * 4); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const r = (x < N / 2) === (y < N / 2), i = (y * N + x) * 4; d[i] = 255; d[i + 1] = r ? 0 : 255; d[i + 2] = r ? 0 : 255; d[i + 3] = 255; } return { width: N, height: N, data: d }; })();
+const SRC = { type: "vector", tiles: ["fp://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const BG = { id: "bg", type: "background", paint: { "background-color": "#0000ff" } };   // 青＝塗り残しと白を見分ける
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-fillpattern", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+try {
+	let map = await boot();
+	SHAPES = Object.entries(CASES).map(([k, [t, pts]]) => ({ k, t, ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const check = async tag => {
+		const img = await grab(), W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		const kind = c => c[2] > 200 && c[0] < 60 ? "B" : c[0] > 200 && c[1] < 70 && c[2] < 70 ? "R" : c[0] > 200 && c[1] > 200 && c[2] > 200 ? "W" : "?";
+		// 模様の 1px（floor(z) の世界のメルカトルの px）が画面の何 px か
+		const c = map.getCenter(), fz = Math.floor(map.getZoom() - 1) + 1, a = map.project([c.lng, c.lat]), b = map.project([c.lng + 360 / (256 * 2 ** fz), c.lat]), unit = Math.hypot(b.x - a.x, b.y - a.y);
+		const bad = [];
+		// ① ② 四角の中の横の 1 行：赤と白だけ・半々・同じ色の続きの長さの平均＝16 単位
+		const y0 = 225, row = []; for (let x = 260; x < 700; x += 0.5) row.push(kind(px(x, y0)));
+		const nR = row.filter(k => k === "R").length, nW = row.filter(k => k === "W").length, other = row.length - nR - nW;
+		const runs = []; let run = 1; for (let i = 1; i < row.length; i++) { if (row[i] === row[i - 1] || row[i] === "?") run++; else { runs.push(run * 0.5); run = 1; } }   // 縁の混ざり（?）は前の色の続きに数える
+		const inner = runs.slice(1, -1), mean = inner.reduce((p, q) => p + q, 0) / Math.max(1, inner.length);
+		if (!(nR > row.length * 0.35 && nW > row.length * 0.35 && other < row.length * 0.15)) bad.push(`share R${nR} W${nW} ?${other}`);
+		if (!(Math.abs(mean - N / 2 * unit) < Math.max(1.5, 0.12 * N / 2 * unit))) bad.push(`run ${mean.toFixed(2)}≠${(N / 2 * unit).toFixed(2)}`);
+		// ⑤ 四角の外は塗らない（背景の青）
+		if (kind(px(30, 225)) !== "B") bad.push(`out=${px(30, 225)}`);
+		// ④ 半ば透ける＝赤い升は赤と青の間（紫）・白い升は白と青の間
+		const hv = []; for (let x = 260; x < 700; x += 3) hv.push(px(x, 450));
+		if (!hv.some(q => q[0] > 100 && q[0] < 160 && q[1] < 40 && q[2] > 100 && q[2] < 160)) bad.push("half:no-purple");
+		ok(tag, !bad.length, `unit=${unit.toFixed(3)} ` + bad.join(" "));
+		return { img, px, kind };
+	};
+	const run = async tag => {
+		await sleep(6000);
+		await check(tag);
+		// ③ 地面に付く：地点 P の色を覚え、中心を 37px ずらして同じ地点を見る
+		const g0 = await grab(), s = g0.width / document.getElementById("map").clientWidth, at = (g, x, y) => { const i = (Math.round(y * s) * g.width + Math.round(x * s)) * 4; return [g.data[i], g.data[i + 1], g.data[i + 2]].join(); };
+		const pts = [[301.3, 201.7], [402.6, 251.2], [503.9, 171.1], [604.2, 281.4]].map(([x, y]) => ({ ll: map.unproject([x, y]), c: at(g0, x, y) }));
+		const c0 = map.getCenter(); map.jumpTo({ center: map.unproject([480 + 37, 300 + 23]) }); await sleep(2500);
+		const g1 = await grab(), moved = pts.filter(p => { const q = map.project(p.ll); return at(g1, q.x, q.y) !== p.c; });
+		ok(tag + ":anchored", moved.length <= 1, moved.map(p => p.c).join("/"));   // 升の縁に当たった 1 点は許す
+		map.jumpTo({ center: c0 }); await sleep(1500);
+		map.jumpTo({ zoom: 15.5 }); await sleep(2500);   // 同じ floor＝地面について伸びる
+		await check(tag + "@15.5");
+		map.jumpTo({ zoom: 15 }); await sleep(1500);
+	};
+	await map.setStyle({ version: 8, name: "t-fillpattern", sources: { fp: SRC }, layers: [BG, ...LAYERS] });
+	await map.addImage("chk", CHK);
+	await run("base");
+	map.destroy();
+	map = await boot();
+	await map.addImage("chk", CHK);
+	map.addSource("fp", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await run("user");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>
