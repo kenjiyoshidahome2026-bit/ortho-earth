@@ -2,6 +2,8 @@
 // 守るもの：①地物に依らない式（kind constant／zoom）で zoom を読む色・不透明度・線幅だけが差し替えの式（pz）を持つ（data・zoom×data・global-state・line-gap-width の層は焼くまま）
 // ②外来の層だけ（内蔵の層は持たない）③今の z で評価した値＝同じ z で作ったタイルの焼いた値（色の量子化の内）・評価エラーの既定も build.ts と同じ
 // ④結合（mergeTiles）と WebGPU の逃げ道（chopDash）が pz を写す ⑤シェーダ（GL classic・multi_draw の線と塗り）が u_pz・u_pzC を読み、描き手が 4 か所で置く
+// ⑥line-offset（波 4 の 14 の続き）：地物に依らないずらし（定数も・0 と隙間つきは除く）は pz.of＝u_pzO で置く・今の z で 0 でも角の継ぎを持つ・シェーダの破線と並ぶ
+//   （md の線分プールは語 6＝距離・語 7＝tS/tE）・chopDash はずらしを写す・WebGPU は md の破線の列だけ tr.w で読む
 import assert from "node:assert/strict";
 import { buildTileDrawList } from "../src/build.ts";
 import { mergeTiles, chopDash } from "../src/scene.ts";
@@ -70,7 +72,44 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	const gl = src("../src/gl/renderer.ts");
 	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, (e|d)\.pz, cam\);/g).length, 4);
-	assert.match(gl, /gl\.uniform4f\(linePzLoc, 0, 0, 0, 0\); \};/);   // 境界線などの線は差し替えない
-	assert.doesNotMatch(src("../src/gpu/renderer.ts"), /\bpz\b/);
+	assert.match(gl, /gl\.uniform4f\(linePzLoc, 0, 0, 0, 0\); gl\.uniform2f\(linePzOLoc, 0, 0\); \};/);   // 境界線などの線は差し替えない
+	const gpu = src("../src/gpu/renderer.ts");
+	assert.equal(gpu.match(/\bpz\b/g).length, 3);   // WebGPU は色・線幅を読まない（破線でずらす md の列のずらしだけ＝⑥）
+});
+const ZO = ["interpolate", ["linear"], ["zoom"], 12, 0, 16, 8];
+t("ずらし：地物に依らない式（定数も）は pz.of・0・地物を読む式・隙間つきは持たない", () => {
+	assert.deepEqual(layerPaintZoom("line", { "line-offset": ZO }, "ml"), { o: "ml", of: ZO });
+	assert.deepEqual(layerPaintZoom("line", { "line-offset": -3 }, "ml"), { o: "ml", of: -3 });   // 定数も＝線分プールの語 6 を空ける
+	assert.equal(layerPaintZoom("line", { "line-offset": 0 }, "ml"), null);
+	assert.equal(layerPaintZoom("line", { "line-offset": ["get", "o"] }, "ml"), null);
+	assert.equal(layerPaintZoom("line", { "line-offset": 2, "line-gap-width": 1 }, "ml"), null);
+	assert.equal(evalPaintZoom({ o: "ml", of: ZO }, 14).off, 4);
+	assert.equal(evalPaintZoom({ o: "ml", of: ["get", "o"] }, 14).off, 0);   // 不正値＝0（build.ts と同じ）
+	assert.equal(evalPaintZoom({ o: "ml", w: ZW }, 14).off, null);
+});
+t("ずらし：今の z で 0 の層も [off, tS, tE] を持つ（角の継ぎ）・破線はシェーダ（dist）と並ぶ・0 の層はずらさない層（端と継ぎ）", () => {
+	const L3 = [line([100, 100, 1000, 100, 1000, 900])];
+	const a = opsOf(L3, { type: "line", paint: { "line-offset": ZO } }, { z: 12 })[0];
+	assert.ok(a.off && a.pz.of); assert.equal(a.off[0], 0);
+	assert.deepEqual([...a.off].filter((v, i) => i % 3 && v).map(Math.abs), [1, 1]);   // 直角の角＝t＝±1（今の z で 0 でも・細分の途中は 0）
+	const d = opsOf(L3, { type: "line", paint: { "line-offset": 3, "line-dasharray": [2, 1] } })[0];
+	assert.ok(d.dist && d.off && d.dash); assert.equal(d.half.length, 2);   // 刻まない
+	const c = chopDash(d, [0, 0]);
+	assert.equal(c.off.length, c.half.length * 3); assert.equal(c.off[0], 3); assert.equal(c.off[1], 0);   // 片の頭は線の端＝0
+	const last = c.half.length - 1; assert.equal(c.off[last * 3 + 2], 0);
+	const z = opsOf(L3, { type: "line", paint: { "line-offset": 0 } })[0];
+	assert.equal(z.off, undefined); assert.ok(z.jf);   // 0＝ずらさない層＝端と継ぎ
+	assert.equal(opsOf(L3, { type: "line", paint: { "line-offset": ["get", "o"], "line-dasharray": [2, 1] } })[0].dist, undefined);   // 地物ごと＝CPU で刻む
+});
+t("ずらし：シェーダは u_pzO・md の破線の列は語 7 の角の継ぎを残す・scene worker は語 6＝距離・語 7＝tS/tE・WebGPU md は tr.w", () => {
+	for (const s of [LINE_VS, LINE_MD_VS]) assert.match(s, /if \(u_pzO\.x > 0\.5\) off0\.x = u_pzO\.y;/);
+	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);
+	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
+	assert.match(src("../src/gl/renderer.ts"), /if \(oL\) gl\.uniform2f\(oL, m\.off != null \? 1 : 0, m\.off \?\? 0\);/);
+	const sw = src("../src/workers/sceneworker.ts");
+	assert.match(sw, /if \(d32\) seg\[o \+ 6\] = d32\[i\]; else if \(f32\) seg\[o \+ 6\] = f32\[i \* 3\];/);
+	assert.match(sw, /if \(f32\) seg\[o \+ 7\] = /);
+	assert.match(src("../src/gpu/wgsl.ts"), /dist0 = bitcast<f32>\(B\.z\); off0\.x = P\.tr\.w;/);
+	assert.match(src("../src/gpu/renderer.ts"), /dOff: dash && L\.pz\?\.of != null \? L\.pz : null/);
 });
 console.log(`paintzoom: ${n} PASS`);

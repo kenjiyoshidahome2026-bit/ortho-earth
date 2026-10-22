@@ -164,11 +164,11 @@ export function segLen24(o: ArrayLike<number>, x1: number, y1: number, x2: numbe
 	return Math.hypot(dx, dy) * W24;
 }
 // mdDash を名乗らない描き手（2026-10-22 より前の WebGPU・今は ?nolx=1）の逃げ道：dist を持つ線の層を CPU で刻む（classic＝renderer・md＝scene worker が常駐の前に）。尺は作ったタイルの z（dz）の px＝従来の CPU の破線と同じ。
-// 片の端は丸（WebGPU の線は capsule）・長さ 0 の片（点）は丸い端の層だけ
+// 片の端は丸（WebGPU の線は capsule）・長さ 0 の片（点）は丸い端の層だけ。ずらす層（off＝層で 1 つの値・paintzoom.ts）は片ごとに [off, tS, tE]＝角の継ぎは線分の頭と尻に届いた片だけ
 export function chopDash(L: LineOp, o: ArrayLike<number>): LineOp {
 	if (!L.dist || !L.dash) return L;
 	const { P, iv } = dashIntervals(L.dash, !((L.jf ? L.cj ?? 0 : 0) & 3)), s = 2 ** ((L.dz ?? 24) - 24), n = L.half.length;
-	const P1: number[] = [], P2: number[] = [], col: number[] = [], half: number[] = [];
+	const P1: number[] = [], P2: number[] = [], col: number[] = [], half: number[] = [], off: number[] | null = L.off ? [] : null;
 	for (let i = 0; i < n; i++) {
 		const w = 2 * L.half[i]; if (!(w > 0)) continue;
 		const x1 = L.P1[i * 2], y1 = L.P1[i * 2 + 1], x2 = L.P2[i * 2], y2 = L.P2[i * 2 + 1];
@@ -180,7 +180,8 @@ export function chopDash(L: LineOp, o: ArrayLike<number>): LineOp {
 			const ta = len > 0 ? (a - d0) / len : 0, tb = len > 0 ? (b - d0) / len : 0;
 			P1.push(x1 + (x2 - x1) * ta, y1 + (y2 - y1) * ta); P2.push(x1 + (x2 - x1) * tb, y1 + (y2 - y1) * tb);
 			col.push(L.col[i * 4], L.col[i * 4 + 1], L.col[i * 4 + 2], L.col[i * 4 + 3]); half.push(L.half[i]);
+			if (off) off.push(L.off![i * 3], a <= d0 ? L.off![i * 3 + 1] : 0, b >= d0 + len ? L.off![i * 3 + 2] : 0);
 		}
 	}
-	return { kind: "line", li: L.li, ...(L.id ? { id: L.id } : {}), P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half), ...(L.fx ? { fx: L.fx } : {}), ...(L.pz ? { pz: L.pz } : {}) };
+	return { kind: "line", li: L.li, ...(L.id ? { id: L.id } : {}), P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half), ...(off ? { off: new Float32Array(off) } : {}), ...(L.fx ? { fx: L.fx } : {}), ...(L.pz ? { pz: L.pz } : {}) };
 }

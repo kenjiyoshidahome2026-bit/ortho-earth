@@ -151,8 +151,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const lineCjLoc = gl.getUniformLocation(lineProg, "u_cj");
 	const lineDashPLoc = gl.getUniformLocation(lineProg, "u_dashP"), lineDashILoc = gl.getUniformLocation(lineProg, "u_dashI");
 	const lineTrLoc = gl.getUniformLocation(lineProg, "u_tr"), lineBlurLoc = gl.getUniformLocation(lineProg, "u_blur"), fillTrLoc = gl.getUniformLocation(fillProg, "u_tr");
-	const linePzLoc = gl.getUniformLocation(lineProg, "u_pz"), fillPzLoc = gl.getUniformLocation(fillProg, "u_pz");
-	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); gl.uniform4f(lineTrLoc, 0, 0, 0, 0); gl.uniform2f(lineBlurLoc, 0, 0); gl.uniform4f(linePzLoc, 0, 0, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）・ずらさない・ぼかさない（S-P1-4/5）
+	const linePzLoc = gl.getUniformLocation(lineProg, "u_pz"), linePzOLoc = gl.getUniformLocation(lineProg, "u_pzO"), fillPzLoc = gl.getUniformLocation(fillProg, "u_pz");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); gl.uniform4f(lineTrLoc, 0, 0, 0, 0); gl.uniform2f(lineBlurLoc, 0, 0); gl.uniform4f(linePzLoc, 0, 0, 0, 0); gl.uniform2f(linePzOLoc, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）・ずらさない・ぼかさない（S-P1-4/5）
 	// 層の画面効果（S-P1-4/5・build.ts の layerFx＝[tx, ty, anchor, blur, rel]）：translate は今の zoom の 1px の経度（256px の世界）で地面へ。
 	// anchor "viewport"＝画面に揃える＝方位だけ回して地面の東・南へ（MapLibre の translatePosMatrix と同じ）。line-blur は CSS px→画素
 	const setFx = (trLoc: WebGLUniformLocation | null, blurLoc: WebGLUniformLocation | null, fx: readonly number[] | null | undefined, cam: { zoom?: number; bearing?: number; dpr?: number }): void => {
@@ -165,20 +165,22 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	};
 	// ズーム連続（V-Ph3＝S-P1-2・paintzoom.ts）：地物に依らない色・線幅は今の z で評価して頂点の値に差し替える。
 	// 式はエンジンの z の目盛り（外来の style は splitMapLibreStyle が ["-", ["zoom"], dz] に書き換え済み＝build.ts もタイルの z をそのまま入れる）＝cam.zoom で評価。
-	// 破線の尺の線幅は floor(外来の z) の値（MapLibre の floorwidth＝dashDz の段）。u_pz＝[色を差し替える, 線幅を差し替える, 半幅, 破線の尺の半幅]・u_pzC＝色。
+	// 破線の尺の線幅は floor(外来の z) の値（MapLibre の floorwidth＝dashDz の段）。u_pz＝[色を差し替える, 線幅を差し替える, 半幅, 破線の尺の半幅]・u_pzC＝色・u_pzO＝[ずらしを差し替える, ずらし]（線だけ）。
 	// 層の値は z が変わった時だけ評価し直す
-	const pzMemo = new WeakMap<PaintZoom, { z: number; c: number[] | null; hw: number | null; hwF: number }>();
+	const pzMemo = new WeakMap<PaintZoom, { z: number; c: number[] | null; hw: number | null; hwF: number; off: number | null }>();
 	const setPz = (prog: WebGLProgram, pz: PaintZoom | null | undefined, cam: { zoom?: number }): void => {
-		if (!pz) { gl.uniform4f(loc(gl, prog, "u_pz"), 0, 0, 0, 0); return; }
+		const oL = loc(gl, prog, "u_pzO");   // 塗りは持たない（null）
+		if (!pz) { gl.uniform4f(loc(gl, prog, "u_pz"), 0, 0, 0, 0); if (oL) gl.uniform2f(oL, 0, 0); return; }
 		const z = cam.zoom || 0;
 		let m = pzMemo.get(pz);
 		if (!m || m.z !== z) {
 			const v = evalPaintZoom(pz, z), dz = view.dashDz ?? 1;
-			m = { z, c: v.c, hw: v.hw, hwF: v.hw == null ? 0 : evalPaintZoom({ o: pz.o, w: pz.w }, Math.floor(z - dz) + dz).hw! };
+			m = { z, c: v.c, hw: v.hw, hwF: v.hw == null ? 0 : evalPaintZoom({ o: pz.o, w: pz.w }, Math.floor(z - dz) + dz).hw!, off: v.off };
 			pzMemo.set(pz, m);
 		}
 		gl.uniform4f(loc(gl, prog, "u_pz"), m.c ? 1 : 0, m.hw != null ? 1 : 0, m.hw ?? 0, m.hwF);
 		if (m.c) gl.uniform4f(loc(gl, prog, "u_pzC"), m.c[0], m.c[1], m.c[2], m.c[3]);
+		if (oL) gl.uniform2f(oL, m.off != null ? 1 : 0, m.off ?? 0);
 	};
 	// fill-pattern（S-P1-4/5）：記号帳の写し（render worker が注記層と同じ labelImage を回す）＝名前 → 画像（テクスチャは初めて描く時に作る）。
 	// 模様の px＝floor(外来の z) の世界（MapLibre の tileZoom と同じ段）のメルカトルの px・位相はシーン原点で f64 に畳む（大きい世界の px を f32 に載せない）
