@@ -617,6 +617,8 @@ export interface GlobeLive {
 	clipByT: Record<string, ClipPlane[] | null> | null; clipSpec: ClipOptions | ClipOptions[] | null; clipMain: ClipPlane[] | null;
 	/** 初描画で確定（"webgpu"／"webgl2"） */
 	renderBackend: "webgpu" | "webgl2" | null;
+	/** 描き手が paint 表の (b) 類を読む（GL2 の md・frame1 で確定）＝setPaintProperty の地物を読む値の速い道 */
+	paintTable: boolean;
 	/** 計測・断面図の経路指定の間だけ＝クリックの横取り（null＝していない） */
 	measureClick: ((x: number, y: number) => unknown) | null; profileClick: ((x: number, y: number) => unknown) | null;
 	/** 計測・断面図の本体（遅延 chunk・着いたら）＝_update を描画ごとに */
