@@ -1,16 +1,17 @@
 import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
-import { renderDemos } from './cards.js';
+import { renderDemos, renderStories } from './cards.js';
 import { buildSitemap } from './sitemap.js';
 import { crossOriginIsolation, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
 const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
+const readStories = () => JSON.parse(readFileSync(new URL('./stories.json', import.meta.url), 'utf8'));   // Stories タブ（<!--STORIES-->）
 const demosHtml = () => ({
 	name: 'www-demos',
 	transformIndexHtml(html) {
 		const langs = JSON.parse(readFileSync(new URL('../../packages/world/i18n/langs.json', import.meta.url), 'utf8'));
-		return html.replace('<!--DEMOS-->', renderDemos(readDemos()))
+		return html.replace('<!--DEMOS-->', renderDemos(readDemos())).replace('<!--STORIES-->', renderStories(readStories()))
 			.replace('__LANG_CODES__', langs.map(l => l.code).join(' ')).replace('__RTL_CODES__', langs.filter(l => l.rtl).map(l => l.code).join(' '));
 	},
 	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）。sitemap.xml も同じ所で（sitemap.js・Issue #308）
