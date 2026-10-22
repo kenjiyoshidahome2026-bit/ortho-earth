@@ -1,0 +1,108 @@
+<!doctype html>
+<!-- 実描画の検分：setPaintProperty の速い道（paint 表の (b) 類の前段・2026-10-22・GL2 の 2 経路＝?md=1／?nomd=1）。
+     外来 style の基図の塗りと線の色・不透明度・線幅・ずらしは、新しい値が地物に依らなければタイルを作り直さず、描き手が層の差し替えの式（u_pz・u_pzC・u_pzO）で焼いた値を上書きする。
+     ①線の色 ②塗りの色（zoom の式）③線幅 ④ずらし＝どれも __styleStats.paintFast が 1 つ増え、タイルの取り寄せ（pf://）が増えず、絵が新しい値
+     ⑤地物を読む色（match）＝従来どおり組み直す（paintFast は増えない）・絵は新しい値 ⑥getPaintProperty は set した値。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-paintfast</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString と Polygon（poly＝true）・文字列の属性 k）＝t-linedash に面を足した物
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.poly ? 3 : 2);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		if (f.poly) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let FEATS = [], FETCH = 0;   // [{ k, poly?, ll: [[lon, lat], …] }]・FETCH＝タイルの取り寄せの回数
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("pf", async ({ url }) => {
+	FETCH++;
+	const [z, x, y] = url.replace("pf://", "").split("/").map(Number);
+	return { data: mvt(FEATS.map(l => ({ k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+// 置き場（画面の CSS px・z15 で unproject）：線幅の線＝y150・ずらしの線＝y220・色の線＝y300・塗り＝下の帯
+const SHAPES = { w: [[60, 150], [900, 150]], o: [[60, 220], [900, 220]], c: [[60, 300], [900, 300]], f: [[60, 380], [900, 380], [900, 580], [60, 580]] };
+const SRC = { type: "vector", tiles: ["pf://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const flt = k => ["==", ["get", "k"], k];
+const LAYERS = [
+	{ id: "f", type: "fill", source: "pf", "source-layer": "l", filter: flt("f"), paint: { "fill-color": "#00ff00" } },
+	{ id: "w", type: "line", source: "pf", "source-layer": "l", filter: flt("w"), layout: { "line-cap": "butt" }, paint: { "line-color": "#ff0000", "line-width": 8 } },
+	{ id: "o", type: "line", source: "pf", "source-layer": "l", filter: flt("o"), layout: { "line-cap": "butt" }, paint: { "line-color": "#00ff00", "line-width": 4, "line-offset": 10 } },
+	{ id: "c", type: "line", source: "pf", "source-layer": "l", filter: flt("c"), layout: { "line-cap": "butt" }, paint: { "line-color": "#0000ff", "line-width": 12 } },
+];
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+try {
+	const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-paintfast", sources: {}, layers: [BG] } });
+	await sleep(3000);
+	FEATS = Object.entries(SHAPES).map(([k, pts]) => ({ k, poly: k === "f", ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	await map.setStyle({ version: 8, name: "t-paintfast", sources: { pf: SRC }, layers: [BG, ...LAYERS] });
+	await sleep(6000);
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const W = document.getElementById("map").clientWidth;
+	const px = (img, x, y) => { const s = img.width / W, i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+	const near = (c, w, e = 14) => c.every((v, i) => Math.abs(v - w[i]) <= e);
+	// x480 の縦の列で y0..y1 の pred の厚みと重心（CSS px）
+	const band = (img, y0, y1, pred) => { const s = img.width / W; let n = 0, sum = 0; for (let y = Math.round(y0 * s); y < Math.round(y1 * s); y++) { if (pred(px(img, 480, y / s))) { n++; sum += y / s; } } return { h: n / s, c: n ? sum / n : NaN }; };
+	const red = c => c[0] > 200 && c[1] < 120 && c[2] < 120, green = c => c[1] > 200 && c[0] < 120 && c[2] < 120;
+	const st = () => ({ ...window.__styleStats });
+	let img = await grab();
+	ok("before", near(px(img, 480, 300), [0, 0, 255]) && near(px(img, 480, 480), [0, 255, 0]) && Math.abs(band(img, 120, 190, red).h - 8) <= 1.5, `${px(img, 480, 300)} / ${px(img, 480, 480)} / w ${band(img, 120, 190, red).h}`);
+	// 速い道：作り直さない＝取り寄せが増えない・paintFast が増える
+	const fast = async (tag, id, key, val, check) => {
+		const a = st(), f0 = FETCH;
+		map.setPaintProperty(id, key, val);
+		await sleep(600);
+		const im = await grab(), b = st(), [good, note] = check(im);
+		ok(tag, good && b.paintFast === a.paintFast + 1 && FETCH === f0, `${note} fast ${a.paintFast}→${b.paintFast} fetch +${FETCH - f0}`);
+	};
+	await fast("lineColor", "c", "line-color", "#ff00ff", im => { const c = px(im, 480, 300); return [near(c, [255, 0, 255]), String(c)]; });
+	await fast("fillZoom", "f", "fill-color", ["interpolate", ["linear"], ["zoom"], 10, "#000000", 18, "#ffffff"], im => { const c = px(im, 480, 480), v = 255 * (15 - 10) / 8; return [near(c, [v, v, v]), `${c} want ${v}`]; });   // setPaintProperty の式＝公開の目盛り（地図の z・PUBLIC_DZ）
+	await fast("lineWidth", "w", "line-width", 20, im => { const b = band(im, 110, 200, red); return [Math.abs(b.h - 20) <= 1.5, `w ${b.h.toFixed(1)}`]; });
+	const y0 = map.projectLL(...FEATS.find(f => f.k === "o").ll[0])[1];
+	await fast("lineOffset", "o", "line-offset", 25, im => { const b = band(im, y0 - 10, y0 + 45, green); return [Math.abs(b.c - y0 - 25) <= 1.5, `y ${b.c.toFixed(1)} want ${(y0 + 25).toFixed(1)}`]; });
+	// 地物を読む色＝組み直す（速い道にしない）
+	{
+		const a = st(), f0 = FETCH;
+		map.setPaintProperty("c", "line-color", ["match", ["get", "k"], "c", "#00ffff", "#000000"]);
+		await sleep(4000);
+		const im = await grab(), b = st(), c = px(im, 480, 300);
+		ok("dataColorRebuilds", b.paintFast === a.paintFast && near(c, [0, 255, 255]), `${c} fast ${a.paintFast}→${b.paintFast} fetch +${FETCH - f0}`);
+		const w = band(im, 110, 200, red), f = px(im, 480, 480);
+		ok("fastKeptAfterRebuild", Math.abs(w.h - 20) <= 1.5 && near(f, [159, 159, 159]), `w ${w.h.toFixed(1)} fill ${f}`);   // 組み直しの後も速い道で変えた値
+	}
+	ok("getPaint", map.getPaintProperty("w", "line-width") === 20 && map.getPaintProperty("c", "line-color")?.[0] === "match", `${map.getPaintProperty("w", "line-width")} ${JSON.stringify(map.getPaintProperty("c", "line-color"))}`);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

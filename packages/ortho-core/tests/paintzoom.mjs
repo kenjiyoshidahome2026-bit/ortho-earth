@@ -2,10 +2,11 @@
 // 守るもの：①地物に依らない式（kind constant／zoom）で zoom を読む色・不透明度・線幅だけが差し替えの式（pz）を持つ（data・zoom×data・global-state・line-gap-width の層は焼くまま）
 // ②外来の層だけ（内蔵の層は持たない）③今の z で評価した値＝同じ z で作ったタイルの焼いた値（色の量子化の内）・評価エラーの既定も build.ts と同じ
 // ④結合（mergeTiles）と WebGPU の逃げ道（chopDash）が pz を写す ⑤シェーダ（GL classic・multi_draw の線と塗り）が u_pz・u_pzC を読み、描き手が 4 か所で置く
+// ⑦setPaintProperty の速い道（paintFast）：新しい値が地物に依らない色・不透明度・線幅・ずらしだけ（線幅は CPU で刻む破線・隙間つきを除く・ずらしは前の層が角の継ぎを持つ時）
 // ⑥line-offset（波 4 の 14 の続き）：地物に依らないずらし（定数も・0 と隙間つきは除く）は pz.of＝u_pzO で置く・今の z で 0 でも角の継ぎを持つ・シェーダの破線と並ぶ
 //   （md の線分プールは語 6＝距離・語 7＝tS/tE）・chopDash はずらしを写す・WebGPU は md の破線の列だけ tr.w で読む
 import assert from "node:assert/strict";
-import { buildTileDrawList } from "../src/build.ts";
+import { buildTileDrawList, paintFast } from "../src/build.ts";
 import { mergeTiles, chopDash } from "../src/scene.ts";
 import { normalizeMLLayer } from "../src/mlstyle.ts";
 import { layerPaintZoom, evalPaintZoom } from "../src/paintzoom.ts";
@@ -71,7 +72,7 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 	for (const s of [FILL_VS, FILL_MD_VS]) assert.match(s, /v_color = u_pz\.x > 0\.5 \? u_pzC : a_color;/);
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	const gl = src("../src/gl/renderer.ts");
-	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, (e|d)\.pz, cam\);/g).length, 4);
+	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz, cam\);/g).length, 4);
 	assert.match(gl, /gl\.uniform4f\(linePzLoc, 0, 0, 0, 0\); gl\.uniform2f\(linePzOLoc, 0, 0\); \};/);   // 境界線などの線は差し替えない
 	const gpu = src("../src/gpu/renderer.ts");
 	assert.equal(gpu.match(/\bpz\b/g).length, 3);   // WebGPU は色・線幅を読まない（破線でずらす md の列のずらしだけ＝⑥）
@@ -111,5 +112,25 @@ t("ずらし：シェーダは u_pzO・md の破線の列は語 7 の角の継�
 	assert.match(sw, /if \(f32\) seg\[o \+ 7\] = /);
 	assert.match(src("../src/gpu/wgsl.ts"), /dist0 = bitcast<f32>\(B\.z\); off0\.x = P\.tr\.w;/);
 	assert.match(src("../src/gpu/renderer.ts"), /dOff: dash && L\.pz\?\.of != null \? L\.pz : null/);
+});
+t("setPaintProperty の速い道：地物に依らない新しい値だけ・形を焼く性質は作り直す", () => {
+	const F = (type, prev, next, key) => paintFast(type, prev, next, key, "ml");
+	assert.equal(F("line", { "line-color": ["get", "c"] }, { "line-color": "#f00" }, "line-color").c, "#f00");   // 前が地物ごとでも＝層の値で上書き
+	assert.equal(F("fill", { "fill-color": "#0f0" }, { "fill-color": "#0f0", "fill-opacity": 0.5 }, "fill-opacity").a, 0.5);
+	assert.equal(F("line", {}, { "line-color": ["get", "c"] }, "line-color"), null);   // 地物を読む＝作り直す
+	assert.equal(F("line", {}, { "line-color": ["global-state", "k"] }, "line-color"), null);
+	assert.equal(F("line", { "line-width": 2 }, { "line-width": 6 }, "line-width").w, 6);   // 色の式が無い層も #000 で上書き（焼いた値と同じ）
+	assert.ok(F("line", {}, { "line-width": 6, "line-dasharray": [2, 1] }, "line-width"));   // シェーダの破線＝片の長さを焼いていない
+	assert.equal(F("line", {}, { "line-width": 6, "line-dasharray": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }, "line-width"), null);   // CPU で刻む破線
+	assert.equal(F("line", {}, { "line-width": 6, "line-dasharray": [2, 1], "line-offset": ["get", "o"] }, "line-width"), null);
+	assert.equal(F("line", {}, { "line-width": 6, "line-gap-width": 2 }, "line-width"), null);   // 両脇のずらしは線幅から焼く
+	assert.equal(F("line", { "line-offset": 3 }, { "line-offset": 9 }, "line-offset").of, 9);
+	assert.equal(F("line", {}, { "line-offset": 9 }, "line-offset"), null);   // 前の線分は角の継ぎを持たない
+	assert.equal(F("line", { "line-offset": 3 }, { "line-offset": 0 }, "line-offset"), null);   // 0＝ずらさない層（端と継ぎ）＝作り直す
+	assert.equal(F("line", {}, { "line-blur": 2 }, "line-blur"), null);
+	assert.equal(F("line", {}, { "fill-color": "#f00" }, "fill-color"), null);
+	assert.equal(F("symbol", {}, { "text-color": "#f00" }, "text-color"), null);
+	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
+	assert.equal(src("../src/gl/renderer.ts").match(/setPz\((md!\.)?(fill|line)Prog, pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz, cam\);/g).length, 4);   // 層の上書きを先に読む
 });
 console.log(`paintzoom: ${n} PASS`);

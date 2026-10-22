@@ -512,7 +512,7 @@ export interface GlobeScope {
 	setDataLive(id: string): Promise<void>;
 	setDataQ: Map<string, unknown>;
 	setMapGS(obj: Record<string, unknown>): void;
-	setPipelineStyle(st: BaseStyle): void;
+	setPipelineStyle(st: BaseStyle, keep?: boolean): void;   // keep＝タイルを作り直さない（setPaintProperty の速い道）
 	setSrcAttr: DataReturn["setSrcAttr"];
 	spriteDrop(id: string): void;
 	spriteLoad(id: string, url: string): Promise<unknown>;

@@ -1353,7 +1353,7 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot as string, sig as string),
 });
-const setPipelineStyle: GlobeScope["setPipelineStyle"] = st => { setPipelineStyle0(st); sendUserAnchors(); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
+const setPipelineStyle: GlobeScope["setPipelineStyle"] = (st, keep) => { setPipelineStyle0(st, keep); if (!keep) sendUserAnchors(); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
 if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOS relay path active (page -> scene worker -> render worker); flushed", pend.length, "queued messages"); }
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
@@ -3692,6 +3692,7 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 	get baseSig() { return baseSig; }, set baseSig(v) { baseSig = v; },
 	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
 	get dpr() { return dpr; },
+	get renderBackend() { return renderBackend; },
 }, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, rebuildCluster, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
 // 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {

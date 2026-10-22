@@ -23,17 +23,18 @@ const free = (e: unknown): boolean => {
 };
 const zoomy = (e: unknown): boolean => e != null && exprDeps(e).kind === "zoom";
 
-/** 層 → 差し替えの式（無ければ null）。type＝"fill"｜"line"・paint＝層の paint・eo＝式の出自 */
-export function layerPaintZoom(type: "fill" | "line", paint: Record<string, unknown> | null | undefined, eo: ExprOrigin): PaintZoom | null {
+/** 層 → 差し替えの式（無ければ null）。type＝"fill"｜"line"・paint＝層の paint・eo＝式の出自。
+ *  all＝定数の色・線幅も持つ（setPaintProperty の速い道＝build.ts の paintFast・作ったタイルの焼いた値を上書きする） */
+export function layerPaintZoom(type: "fill" | "line", paint: Record<string, unknown> | null | undefined, eo: ExprOrigin, all = false): PaintZoom | null {
 	const P = paint || {}, cK = type === "fill" ? "fill-color" : "line-color", aK = type === "fill" ? "fill-opacity" : "line-opacity";
 	const out: PaintZoom = { o: eo };
 	let any = false;
-	if ((zoomy(P[cK]) || zoomy(P[aK])) && free(P[cK]) && free(P[aK])) {
+	if ((all || zoomy(P[cK]) || zoomy(P[aK])) && free(P[cK]) && free(P[aK])) {
 		out.c = P[cK] ?? "#000";
 		if (P[aK] != null) out.a = P[aK];
 		any = true;
 	}
-	if (type === "line" && zoomy(P["line-width"]) && free(P["line-width"]) && P["line-gap-width"] == null) { out.w = P["line-width"]; any = true; }
+	if (type === "line" && P["line-width"] != null && (all || zoomy(P["line-width"])) && free(P["line-width"]) && P["line-gap-width"] == null) { out.w = P["line-width"]; any = true; }
 	if (type === "line" && P["line-offset"] != null && P["line-offset"] !== 0 && free(P["line-offset"]) && P["line-gap-width"] == null) { out.of = P["line-offset"]; any = true; }
 	return any ? out : null;
 }
