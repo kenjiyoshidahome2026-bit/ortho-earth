@@ -54,8 +54,8 @@ function maxOut(v) {
 const DROPPED = /pattern|unknown expression operator/;
 const has = (L, k) => L.paint?.[k] != null || L.layout?.[k] != null;
 export const GAPS = [
-	{ key: "line-cap", why: "線の端は常に丸（butt・square を描かない）", test: L => L.type === "line" && (L.layout?.["line-cap"] ?? "butt") !== "round" },
-	{ key: "line-join", why: "線の継ぎは常に丸（miter・bevel を描かない）", test: L => L.type === "line" && (L.layout?.["line-join"] ?? "miter") !== "round" },
+	{ key: "line-cap", why: "線の端は WebGPU で常に丸（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-1）", test: L => L.type === "line" && (L.layout?.["line-cap"] ?? "butt") !== "round" },
+	{ key: "line-join", why: "線の継ぎは WebGPU で常に丸（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-1）", test: L => L.type === "line" && (L.layout?.["line-join"] ?? "miter") !== "round" },
 	{ key: "basemap-paint-zoom", why: "基図の paint はタイルの z で焼く（ズームに連続でない）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && Object.values(L.paint || {}).some(usesZoom) },
 	{ key: "after-symbol", why: "注記より後ろの塗り・線（注記は常に最上段）", test: (L, c) => c.afterSymbol.has(L.id) },
 	{ key: "line-width-32", why: "線幅の上限 約 32px（表の u8）", test: L => L.type === "line" && maxOut(L.paint?.["line-width"]) + Math.max(0, maxOut(L.paint?.["line-gap-width"])) * 2 > 32 },

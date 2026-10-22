@@ -72,11 +72,11 @@ type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLay
 /** 地面アトラスの 1 窓 */
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
 interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[] }
-interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
+interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number }
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -137,7 +137,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// line-offset（#49）の属性を持たない VAO は既定値で描く＝既定値は位置ごとの大域状態（他の頂点属性の vertexAttrib4f と位置を
 	// 共有し得る）＝線を描く直前に 0 を置き直す
 	const lineOffLoc = gl.getAttribLocation(lineProg, "a_off");
-	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); };
+	const lineCjLoc = gl.getUniformLocation(lineProg, "u_cj");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const wdCoverProg = program(gl, GLOBE_VS, WDEPR_FS);   // 海面下の陸地の cover＝landK=1 強制のハイプソ本体（フルスクリーン・stencil≠0 のみ）
 	const gratProg = program(gl, GLOBE_VS, GRAT_FS);       // 10度レチクル（v1 geoGraticule10 移植・フルスクリーン計算）
@@ -710,16 +711,25 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray()!;
-				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half), bOff = L.off ? buffer(gl, L.off) : null;
+				// 端と継ぎ（S-P1-1）を持つ層は P1 の前・P2 の後ろに 1 線分ぶんの余白を置き、同じバッファを 1 線分ずらして前の始点（a_p0）・次の終点（a_p3）としても読む
+				const J = L.jf, pad = (a: Float32Array, head: boolean): Float32Array => { const b = new Float32Array(a.length + 2); b.set(a, head ? 2 : 0); return b; };
+				const bP1 = buffer(gl, J ? pad(L.P1, true) : L.P1), bP2 = buffer(gl, J ? pad(L.P2, false) : L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half), bOff = L.off ? buffer(gl, L.off) : null;
 				gl.bindVertexArray(vao);
 				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0); if (lineIdxBuf) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf);   // P3：4 隅＋6 index（VAO 状態）
-				attrib(gl, lineProg, "a_p1", bP1, 2, 1);
+				attrib(gl, lineProg, "a_p1", bP1, 2, 1, false, J ? 8 : 0);
 				attrib(gl, lineProg, "a_p2", bP2, 2, 1);
 				attrib(gl, lineProg, "a_color", bCol, 4, 1, L.col instanceof Uint8Array);
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				if (bOff) attrib(gl, lineProg, "a_off", bOff, 3, 1);   // line-offset を持つ層だけ＝[off, tS, tE]（無い層は既定値 0）
+				const bJf = J ? buffer(gl, J) : null;
+				if (bJf) {   // 端と継ぎ（S-P1-1）を持つ層だけ＝旗（u8・正規化しない）と前後の線分の端点
+					attrib(gl, lineProg, "a_p0", bP1, 2, 1);
+					attrib(gl, lineProg, "a_p3", bP2, 2, 1, false, 8);
+					const l = gl.getAttribLocation(lineProg, "a_jf");
+					if (l >= 0) { gl.bindBuffer(gl.ARRAY_BUFFER, bJf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.UNSIGNED_BYTE, false, 0, 0); gl.vertexAttribDivisor(l, 1); }
+				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });   // li＝差し込みの境で枠を分ける（#123）
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : [])], cj: bJf ? L.cj ?? 0 : 0 });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld: GLBld | null = null;
@@ -1626,6 +1636,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 						if (curProgM !== md!.lineProg) { gl.useProgram(md!.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md!.lineProg; }
 						gl.uniform2fv(loc(gl, md!.lineProg, "u_tileOff"), e.origins);
+						gl.uniform1f(loc(gl, md!.lineProg, "u_cj"), e.cj || 0);   // 端と継ぎ（S-P1-1）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 					}
@@ -1664,6 +1675,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				} else {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
+					gl.uniform1f(lineCjLoc, d.cj);   // 端と継ぎ（S-P1-1）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;
@@ -1972,11 +1984,11 @@ function loc(gl: WebGL2RenderingContext, prog: WebGLProgram, name: string): WebG
 	return m.get(name) as WebGLUniformLocation | null;
 }
 // u8=true で UNSIGNED_BYTE 正規化（頂点色は Uint8×4＝float32×4 の1/4。シェーダは同じ 0..1 を受ける）
-function attrib(gl: WebGL2RenderingContext, prog: WebGLProgram, name: string, buf: WebGLBuffer, size: number, divisor?: number | null, u8?: boolean): void {
+function attrib(gl: WebGL2RenderingContext, prog: WebGLProgram, name: string, buf: WebGLBuffer, size: number, divisor?: number | null, u8?: boolean, offset = 0): void {
 	const l = gl.getAttribLocation(prog, name);
 	if (l < 0) return;
 	gl.bindBuffer(gl.ARRAY_BUFFER, buf);
 	gl.enableVertexAttribArray(l);
-	gl.vertexAttribPointer(l, size, u8 ? gl.UNSIGNED_BYTE : gl.FLOAT, !!u8, 0, 0);
+	gl.vertexAttribPointer(l, size, u8 ? gl.UNSIGNED_BYTE : gl.FLOAT, !!u8, 0, offset);
 	if (divisor != null) gl.vertexAttribDivisor(l, divisor);
 }

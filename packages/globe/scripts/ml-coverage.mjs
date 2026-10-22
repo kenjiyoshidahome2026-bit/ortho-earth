@@ -14,10 +14,10 @@ const SKIP = new Set(["mlspec.ts", "transition.ts"]);
 
 // 台帳の写し＝{ 性質: [状態, 中身] }。段で直したらここを直す（--check が表の古さを見張る）
 const NOTES = {
-	"line-cap": ["未", "常に丸（§4）＝波 2 の S-P1-1"],
-	"line-join": ["未", "常に丸（§4）＝波 2 の S-P1-1"],
-	"line-miter-limit": ["未", "継ぎは常に丸"],
-	"line-round-limit": ["未", "継ぎは常に丸"],
+	"line-cap": ["一部", "GL2 は MapLibre と同じ（S-P1-1・2026-10-22）・WebGPU と geojson の層は丸"],
+	"line-join": ["一部", "GL2 は MapLibre と同じ（属性の式は層で一度）・WebGPU と geojson の層は丸"],
+	"line-miter-limit": ["一部", "GL2 だけ（zoom の式も読む）"],
+	"line-round-limit": ["近似", "読まない＝丸い継ぎのまま（浅い角の見分けは付かない）"],
 	"line-dasharray": ["近似", "先頭の [線, 間] の対だけ（§4）＝波 2 の S-P1-3"],
 	"line-width": ["近似", "基図と vector の層は約 32px で頭打ち（表の u8・§4）"],
 	"line-gap-width": ["読む", "基図・vector・geojson（2026-10-03）"],
