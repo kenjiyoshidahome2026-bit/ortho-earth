@@ -49,7 +49,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c・**2 本目＝層の位置は実装済**＝§4d） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
-| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
+| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
 | **P6** WebGL2 版（中） | 同じアトラス・同じ式を GLSL で。これが無い間は WebGL2 だけ注記が最前面＝層順が MapLibre と違う（記録） | GL2 で P2 と同じ層順の絵 | `?text=2d` |
@@ -156,6 +156,16 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 不透明度 0.6 の α が Canvas2D と同じ（153）・記号つきの注記が層の位置の列に入り最前面は空。`t-textpass` も同じ答え。GPU の検証エラー 0。
 
 実機の門（本人・P1／P2 とまとめて）：§4d の 1〜4 に加えて、記号の多い style（OpenMapTiles 系の POI・国道の標識）で記号の滲み（dpr 2／1）を Canvas2D と並べる。
+
+## 4f. P3 の 2 本目＝星空の注記と月を受け口へ（**実装済**・2026-10-22）
+
+- GPU の受け口（kind "webgpu"）の時だけ、星座名・惑星名・メシエの名は `pointText`（SDF の字）、メシエの記号 4 種と月の満ち欠け（64 段）は焼いた絵（倍率 3）を `pointIcon` で貼る（月は太陽の向きへ箱の中心で回す）。
+  Canvas2D の受け口は今までどおり `ctx2d` に直描き＝既定の絵は変えない。
+- 星空は最前面（`layer(null, true)`）。描くのは `sink.end()` の前へ移した（GPU の受け口は end で列を送る）。
+- これで `?text=gpu` の注記層が Canvas2D で描くのは、記号の版が尽きたフレームの記号と、焼けない長い run の注記だけ。残る Canvas2D は symbols-2d（geojson の点の symbol 層）と cluster-2d＝P3 の 3 本目。
+
+門：`tests/labels2d.mjs` 17（GPU の受け口へは字と記号の命令・2D の文脈には描かない・メシエの記号は 4 種だけ焼く・Canvas2D の受け口は直描きのまま）・
+`t-textgpu` の星空の場面（本物の labels2d に GPU の受け口を据えて z1.5＝GPU の列に 364 件・注記の canvas は空）。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

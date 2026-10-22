@@ -9,6 +9,7 @@
 <script type="module">
 import { canvas2d, createCanvasSink } from "@ortho-earth/core/src/textsink.ts";
 import { createGpuText, createGpuTextSink } from "@ortho-earth/core/src/gpu/text.ts";
+import { createLabelLayer } from "@ortho-earth/core/src/labels2d.ts";
 const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 const W = 480, H = 200;
@@ -153,6 +154,18 @@ try {
 			sm.canvasOnly = true; sm.begin(cw, ch, dpr); sm.layer(7, false); sm.pointText(...A); sm.layer(12, false); sm.pointText(...C); sm.end(); sm.canvasOnly = false;   // 撮影＝層の位置の字は地図の絵の側＝注記の canvas には描かない
 			ok(`mid-canvasOnly(2d glyphs=${sm.stats().glyphs})`, sm.stats().glyphs === "Top twelve".length);   // Canvas2D 版は行の字数（空白込み）を数える
 			msaa.destroy(); res.destroy(); dep.destroy(); gm.destroy();
+		}
+		{   // 星空の注記（T-P3）＝本物の注記層（labels2d）に GPU の受け口を据えて z1.5 を描く＝字と記号（メシエ・月）が GPU の列に積まれ、注記の canvas には描かない
+			const cw = W, ch = H, gs = createGpuText(device, null), lc = new OffscreenCanvas(cw, ch), base = createCanvasSink(canvas2d(lc.getContext("2d", { willReadFrequently: true }))), ss = createGpuTextSink(base); ss.attach(gs);
+			const dirs = []; for (let i = 0; i < 24; i++) for (let j = 1; j < 12; j++) { const lo = i / 24 * 2 * Math.PI, la = (j / 12 - 0.5) * Math.PI; dirs.push([Math.cos(la) * Math.cos(lo), Math.sin(la), Math.cos(la) * Math.sin(lo)]); }
+			const layer = createLabelLayer(lc, { sink: ss });
+			layer.setSky({ constellations: dirs.map((cel, i) => ({ cel, name: "Orion" + i })), messier: dirs.filter((_, i) => i % 3 === 1).map((cel, i) => ({ cel, name: "M" + i, type: ["gc", "s", "oc", "pn"][i % 4] })) });
+			layer.setMoon({ cel: dirs[60], sunCel: dirs[66], k: 0.3 });
+			layer.draw({ center: [139.7, 35.68], zoom: 1.5, pitch: 0, bearing: 0, dpr: 1 });
+			let ink = 0; const gp = await gs.readPixels(); for (let i = 3; i < gp.length; i += 4) if (gp[i] > 60) ink++;
+			let ink2 = 0; const lp = lc.getContext("2d").getImageData(0, 0, cw, ch).data; for (let i = 3; i < lp.length; i += 4) if (lp[i]) ink2++;
+			ok(`sky-gpu(count=${gs.count} ink=${ink} canvas2d=${ink2})`, gs.count > 50 && ink > 200 && ink2 === 0);
+			gs.destroy();
 		}
 		ok(`gpu-errors(${errs.length}${errs.length ? ":" + errs[0].slice(0, 120) : ""})`, errs.length === 0);
 		device.destroy();
