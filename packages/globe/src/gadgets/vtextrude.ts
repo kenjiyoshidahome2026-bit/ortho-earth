@@ -21,7 +21,7 @@ import type { GlobeCam, VtxDesc } from "../types/scope.ts";
 import type { TileXYZ } from "../vtmesh.ts";
 
 /** source の記述子（globe の vtxDescOf）＝coverage＝地域の基図の配信圏 [w,s,e,n]・tag＝同じ source かの印・tileSize＝MapLibre の目盛りの z の尺・attribution＝出典の宣言 */
-export type VtDesc = Omit<VtxDesc, "coverage"> & { coverage?: number[] | null; tag?: string; tileSize?: number; attribution?: string | null };
+export type VtDesc = Omit<VtxDesc, "coverage"> & { coverage?: number[] | null; tag?: string; tileSize?: number; attribution?: string | null; local?: unknown };   // local＝手元の geojson（vtdraw が worker で切る・geojson vt plan G-2）
 /** 生のタイルの写し（vtraw.js の createRawStore）＝入れる・捨てる口（owner＝"vtextrude"｜"vtdraw"） */
 export interface RawTiles {
 	put(owner: string, sid: string, key: string, ab: ArrayBuffer, enc?: string): void;

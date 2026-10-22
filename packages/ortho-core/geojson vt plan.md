@@ -25,7 +25,11 @@ geojson の層（gint）はその描き方を持たないので、該当する�
   - 簡略化はしない（初版）。maxzoom 既定＝MapLibre の geojson source の 18（エンジンの z へ換算・G-2 で記述子に）。それより上は過拡大（vtdraw の既存の扱い）。
 - 検定：`tests/geojsonvt.mjs`（ortho-core の npm test）＝面積の保存・枠の外に出ない・穴と向き・日付変更線・タイルをまたぐ線の本数と切れ目・覆う面＝タイルの四角。
 
-### G-2 vtdraw に「手元のタイル」の source
+### G-2 vtdraw に「手元のタイル」の source（**済**・2026-10-22）
+- 実装：記述子の `local`（data そのもの）＝取得の段が無い。main は data を版つきで組み役の worker へ 1 回ずつ送り（`gj`・build より先に postMessage の順で届く）、worker は `createGeojsonIndex` を預かって build で `index.tile(z,x,y)` を読む。層は `source-layer`＝`GEOJSON_LAYER` の vector の層として組む。setData は版を上げて送り直す（出しているタイルは組み直すまで残す）。
+- 問い合わせは今までの模様の口（patItems＝画面の px）を使い続ける（隠した層・zoom 域の外は当てない）。
+- **線のずらし（line-offset）は既定で vtdraw**。**面の模様（fill-pattern）は `?gjvt=2` の時だけ**（名前が定数の層）：core の模様の塗りは地形ありの 3D で地面アトラスに焼かない（vector の層も同じ穴・互換の台帳 §6「塗りの模様」の「次の段」）＝既定で移すと地形のある地図で模様の面が消える。名前は層で一度＝属性で模様を変える層も canvas2D のまま。地面アトラスの模様が入ったら既定に替える（1 行）。
+- 門の実績：t-fillpattern（`?gjvt=2` で geojson の 3 場面＋pattern-2d を作らない・既定と両方で問い合わせ・隠す・setData）・t-linedeco ③（合成の絵で +15px）・t-linedeco?gjvt=0・t-mlcompat?g=layers（pattern-minzoom-and-query）。公式例の比べ（add-a-pattern-to-a-polygon）は外の取得が要る＝クラウドでは回していない。
 - main：geojson source を vtdraw の記述子に `local: true` で登録（タイルの選び方・LRU・層の順の鍵は vector source と同じ）。取得の段で fetch せず、worker に「切って」と頼む。
 - vtdraw-worker：`putGeojson(sid, fc, opts)` で index を作って預かる（setData＝作り直し・updateData＝差分で作り直し）。`build` の入口で生バイトの代わりに `index.tile(z,x,y)` を読む。以降の filter・buildTileDrawList・labels は vector と同じ。
 - `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。
@@ -44,7 +48,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 | 段 | 中身 | 門 | 逃げ道 |
 |---|---|---|---|
 | G-1 | 切り分け（core）＝**済** | Node の検定（面積・枠・穴・日付変更線）`tests/geojsonvt.mjs` 12 項 | — |
-| G-2 | 手元のタイル＋fill-pattern・line-offset を vtdraw へ | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
+| G-2 | 手元のタイル＋line-offset を vtdraw へ（**済**・fill-pattern は `?gjvt=2`） | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
 | G-3 | line-gradient | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
 | G-4 | line-pattern（vector と geojson） | t-linedeco・公式例の line-pattern の場面 | `?gjvt=0` |
 
