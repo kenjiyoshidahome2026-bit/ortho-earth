@@ -8,13 +8,14 @@
 // - fallback（WEBGL_multi_draw 非対応 or ?nomd=1）：従来どおり mergeTiles で結合した scene を送る。
 import { mergeTiles, coveredTiles, seaFbReal, opBuffers, chopDash } from "../scene.ts";   // index直引きはworker循環になる（tileworker側コメント参照）
 import type { MergedScene, TileGeom } from "../scene.ts";
+import type { PaintZoom } from "../paintzoom.ts";
 import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, ScenePortMessage, SceneRequest, SceneResponse } from "../worker-msg.ts";
 
 /** プール内ブロック（要素数の範囲） */
 interface Block { off: number; n: number }
 interface Pool { name: ScenePoolName; cap: number; used: number; free: Block[] }
 /** li 毎の描画レンジ（fill＝index のレンジ・line＝線分のレンジ） */
-type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[] };
+type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom };
 /** GPU 常駐タイルのレコード */
 interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[] }
 interface MD { maxDraws: number; pools: Record<ScenePoolName, Pool>; res: Map<string, Rec>; lastRef: Record<string, Set<Rec>>; pendingFree: Rec[] }
@@ -23,7 +24,7 @@ type UpMessage = Extract<ScenePortMessage, { type: "up" }>;
 /** 計器 b の量の数え（op の typed array を名で引く） */
 type OpArrays = Partial<Record<"pos" | "col" | "idx" | "P1" | "P2" | "half" | "off" | "jf" | "dist", ArrayBufferView | null>>;
 /** pack の 1 束（fill/line＝li 付き・bld＝li 無し） */
-interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -134,7 +135,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 			for (let i = 0, o = vc * 3; i < n; i++, o += 3) { w32[o] = p32[i * 2]; w32[o + 1] = p32[i * 2 + 1]; w32[o + 2] = c32[i]; }
 			const base = rec.fv.off + vc;   // index はプール絶対頂点番号へ（WEBGL_multi_draw に baseVertex は無い）
 			for (let i = 0; i < op.idx.length; i++) idx[ic + i] = op.idx[i] + base;
-			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}) });
+			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}), ...(op.pz ? { pz: op.pz } : {}) });
 			vc += n; ic += op.idx.length;
 		}
 		up.fill = { base: rec.fv.off, buf: ab };
@@ -158,7 +159,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 					seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
 				} else if (d32) seg[o + 6] = d32[i];   // 破線（S-P1-3）＝ずらさない層だけ語 6 に始点までの線に沿う距離（bits(f32)・z24 の px）＝描く列の dash が読み方を決める（統合ロードマップの 8 語）
 			}
-			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}) });
+			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}) });
 			sc += n;
 		}
 		up.line = { base: rec.ls.off, arr: seg };
@@ -192,7 +193,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 	const origin = m.origin || (m.order.length ? m.order[0].origin : [0, 0]);
 	const hidden = m.hidden ? new Set(m.hidden) : null;
 	const lineOff = coveredTiles(m.order);   // 下敷きタイル（blanket/祖先fallback）＝線を伏せる（mergeTiles と同じゲート）
-	const byLi = new Map<number, { kind: "fill" | "line"; items: number[][]; cj?: number; dash?: number[]; fx?: number[]; pat?: string }>(), bldItems: number[][] = [], refs = new Set<Rec>();
+	const byLi = new Map<number, { kind: "fill" | "line"; items: number[][]; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom }>(), bldItems: number[][] = [], refs = new Set<Rec>();
 	for (const o of m.order) {
 		const rec = ensureUploaded(o.key, o.origin);
 		if (!rec) continue;
@@ -206,23 +207,24 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 			if (s.kind === "line" && s.cj) e.cj ??= s.cj;   // 端と継ぎ（S-P1-1）＝層の種類（最初に持つタイルの値・mergeTiles と同じ）
 			if (s.kind === "line" && s.dash) e.dash ??= s.dash;   // 破線（S-P1-3）の模様（同上）
 			if (s.fx) e.fx ??= s.fx;   // 層の画面効果（S-P1-4/5・同上）
+			if (s.pz) e.pz ??= s.pz;   // ズーム連続の式（V-Ph3＝S-P1-2・同上）
 			if (s.kind === "fill" && s.pat) e.pat ??= s.pat;   // fill-pattern の名前（同上）
 			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy] : [s.segOff * 6, s.segN * 6, ox, oy]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)
 		}
 		if (rec.bv.n) bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);
 	}
-	const pack = (items: number[][], kind: Packed["kind"], li?: number, cj?: number, dash?: number[], fx?: number[], pat?: string): Packed[] => {
+	const pack = (items: number[][], kind: Packed["kind"], li?: number, cj?: number, dash?: number[], fx?: number[], pat?: string, pz?: PaintZoom): Packed[] => {
 		const out: Packed[] = [];
 		for (let c = 0; c < items.length; c += md!.maxDraws) {   // u_tileOff[] の配列長でチャンク分割
 			const n = Math.min(md!.maxDraws, items.length - c);
 			const counts = new Int32Array(n), offs = new Int32Array(n), origins = new Float32Array(n * 2);
 			for (let j = 0; j < n; j++) { const it = items[c + j]; offs[j] = it[0]; counts[j] = it[1]; origins[j * 2] = it[2]; origins[j * 2 + 1] = it[3]; }
-			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}), ...(dash ? { dash } : {}), ...(fx ? { fx } : {}) } : { kind, li, offsets: offs, counts, origins, ...(fx ? { fx } : {}), ...(pat ? { pat } : {}) });
+			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}), ...(dash ? { dash } : {}), ...(fx ? { fx } : {}), ...(pz ? { pz } : {}) } : { kind, li, offsets: offs, counts, origins, ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}) });
 		}
 		return out;
 	};
 	const layers: SceneDrawLayer[] = [];
-	for (const li of [...byLi.keys()].sort((a, b) => a - b)) { const e = byLi.get(li)!; layers.push(...pack(e.items, e.kind, li, e.cj, e.dash, e.fx, e.pat) as SceneDrawLayer[]); }
+	for (const li of [...byLi.keys()].sort((a, b) => a - b)) { const e = byLi.get(li)!; layers.push(...pack(e.items, e.kind, li, e.cj, e.dash, e.fx, e.pat, e.pz) as SceneDrawLayer[]); }
 	const bld = bldItems.length ? pack(bldItems, "bld").map(({ firsts, offsets, counts, origins }) => ({ firsts: (firsts || offsets)!, counts, origins })) : null;
 	return { origin, layers, bld, refs };
 }
