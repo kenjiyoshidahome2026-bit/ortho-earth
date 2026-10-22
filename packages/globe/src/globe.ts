@@ -3589,8 +3589,9 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 	if (kind === "cluster") return rebuildCluster(sid);
 	if (kind === "symbol") {
 		if (gjIsLine(layer)) { symCtl?.removeLayer(layer.id); const c = await gjGet(); return c.set(layer.id, layer, await readPoints(data), order); }   // 線に沿う配置（C9）＝線の地物だけ・点と面は MapLibre と同じく置かない
-		gjCtl?.remove(layer.id);
-		const c = await symGet(); const r = await c.addLayer(layer.id, await readPoints(data), layer); c.setOrder(layer.id, order); return r;
+		// 点置き＝記号と字は注記層（gjlabels の点置き＝基図と同じ衝突・層の位置・テキスト GPU 化 T-P3）。記号の gadget は評価だけ（queryRenderedFeatures・styleimagemissing）
+		const pts = await readPoints(data), c = await symGet(); const r = c.addLayer(layer.id, pts, layer, false); c.setOrder(layer.id, order);
+		(await gjGet()).set(layer.id, layer, pts, order, true); return r;
 	}
 	if (kind === "pattern") return addPattern(layer, data, order);
 	if (kind === "gint") return rebuildGint(sid);
