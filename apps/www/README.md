@@ -11,6 +11,12 @@
 
 カードはビルド時に静的 HTML へ焼かれる（`cards.js`・`vite.config.js` の transformIndexHtml）＝JS なしでも実リンク。`llms.txt` の Apps 節も同じ一覧から生成される。
 
+## Stories（記事）を足す
+
+1. 記事の頁を `apps/docs/` に置く（build:all が `/docs/` へ写す）
+2. `stories.json` の `stories` の先頭に 1 件足す（`id`・`date`・`ja` と `en` の `title`・`desc`・`href`。片方の言語だけでも可）
+3. カードはビルド時に `<!--STORIES-->` へ焼かれ、押すとデモと同じくナビの下の iframe で開く。記事の文言は訳さない（日本語の頁では `ja`、他の言語では `en` を出す）
+
 ## 言語
 
 英語キー・26 言語（`packages/world/i18n/langs.json`）。頁の文言は `index.html` の `data-t` / `data-t-<attr>`、正本は `i18n/ui.json`→`i18n/lang/*.json`（言語ごとに遅延 import）。頁の UI の訳が欠けると `npm run build -w www` の門（`verify:i18n`）が落ちる。選んだ言語（`?lang=` か右上）はデモへのリンクへ `?lang=` で伝搬する。
