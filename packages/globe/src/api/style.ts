@@ -2,13 +2,13 @@
 // feature state・global state・addFontFace・getLayers／getStyle／setStyle・基図の層を実行時に触る口・querySourceFeatures）と、それを支える
 // 内部の入口（addSourceAt／addLayerAt・remountSource・remergeBase）＝createGlobe から切り出した（globe.js の分割 ⑫・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { DZ_KEY, evalExpr, layerDzOf, normalizeMLLayer, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
+import { DZ_KEY, evalExpr, layerDzOf, layerPaintZoom, normalizeMLLayer, paintFast, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
 import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.ts";
 import { normLight } from "../light.ts";
 import { normSky } from "../sky-spec.ts";
 import { copyFontBytes, normSprite, spriteEcho } from "../mlsmall.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
-import type { MLLayer } from "@ortho-earth/core";
+import type { MLLayer, PaintZoom } from "@ortho-earth/core";
 import type { Bbox, LonLat, MapLibreLayer, QuantizedMeshSource, RasterDemSource, RenderedFeature, StyleExpression } from "../../globe.d.ts";
 import type { ExtExtras, Installing, StyleDeps, StyleLive, StyleOrderEntry, StyleReturn } from "../types/install.ts";
 import type { StyleApi } from "../types/map.ts";
@@ -241,7 +241,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			if (isExtImage(id) && (name === "raster-resampling" || name === "resampling" || name === "raster-fade-duration")) map.raster.set(id, rasterPaintOpts({ [name]: value }));
 			return map;
 		}
-		if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
+		if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); if (!fastBasePaint(id, name, value)) overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
 		if (value === undefined) delete v.layer.paint![name]; else v.layer.paint![name] = raw ? value : rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 		if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: (value ?? 1) as number }); return map; }
 		if ((v.kind === "raster" || v.kind === "hillshade" || v.kind === "colorrelief") && (name === "raster-resampling" || name === "resampling")) {   // C4＝標本化はタイルを作り直さない。今触った鍵を優先（別名 resampling と raster-resampling の両方が有っても）
@@ -478,6 +478,34 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	const isExtImage = (id: string) => extExtras.raster.includes(id);
 	const echoOther = (L: MLLayer): MLLayer => ({ ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: L.metadata?.[DZ_KEY] ?? STYLE_DZ, ...(isExtImage(L.id) ? {} : { "ortho:drawn": false }) } });
 	const noteOther = (id: string, fn: (n: NoteLayer) => void) => { const L = extOtherOf(id)!; const n = { ...L, paint: { ...(L.paint || {}) }, layout: { ...(L.layout || {}) } }; fn(n); extNotes.set(id, n); return n; };
+	// setPaintProperty の速い道（paint 表の (b) 類の前段・2026-10-22・GL2）：外来 style の基図の塗りと線の色・不透明度・線幅・ずらしで、新しい値が地物に依らない
+	// （core build.ts paintFast）なら組み直さない＝tile worker には新しい style を配る（次に作るタイルから）が、作ったタイルは捨てず、描き手が層の差し替えの式で焼いた値を上書きする。
+	// 上書きは層の id で覚え、style が変わるたび（restyleBase・setStyle の差分）に今の層の paint から作り直して添字（li）ごとに配る。WebGPU は読まない＝組み直し
+	const pzFast = new Set<string>();
+	const sendPzOver = () => {
+		if (live.renderBackend !== "webgl2") return;
+		const list: [number, PaintZoom][] = [], seen = new Set<string>();
+		live.style.layers.forEach((L, li) => {
+			if (!pzFast.has(L.id)) return;
+			const pz = L.type === "fill" || L.type === "line" ? layerPaintZoom(L.type, L.paint as Record<string, unknown> | undefined, "ml", true) : null;
+			if (pz) { list.push([li, pz]); seen.add(L.id); }
+		});
+		for (const id of [...pzFast]) if (!seen.has(id)) pzFast.delete(id);
+		renderer.set("pzOver", list);
+	};
+	const fastBasePaint = (id: string, name: string, value: unknown): boolean => {
+		if (!live.EXT || live.renderBackend !== "webgl2") return false;
+		const L = live.style.layers.find(x => x.id === id); if (!L) return false;
+		const nv = baseValueIn(name, value), prev = L.paint as Record<string, unknown> | undefined, next = { ...(prev || {}) };
+		if (nv === undefined) delete next[name]; else next[name] = nv;
+		if (!paintFast(L.type, prev, next, name, "ml")) return false;
+		const o = baseOverrides.get(id) || {}; o.paint = { ...(o.paint || {}), [name]: nv }; baseOverrides.set(id, o);
+		live.style = withBaseOverrides(baseRawStyle());
+		live.style.globalState = { ...live.MAP_GS };
+		setPipelineStyle(live.style, true);
+		pzFast.add(id); sendPzOver(); requestDraw(); styleStats.paintFast++;
+		return true;
+	};
 	function restyleBase() {
 		live.style = withBaseOverrides(baseRawStyle());
 		if (live.EXT) live.style.globalState = { ...live.MAP_GS };   // tile worker の global-state（基図の層の filter/layout）
@@ -488,6 +516,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		if (!live.EXT) { renderer.set("sea", { li: seaLi(live.style, "water"), li2: seaLi(live.style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(live.style) }); }   // 層の添字（削除で動く）
 		live.themes = mkThemes(live.style);
 		setPipelineStyle(live.style);
+		if (pzFast.size) sendPzOver();   // 層の出し入れで添字が動く・組み直しの間の古いタイルも今の値
 		live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; requestDraw(); onMove();
 	}
 	const remergeBase = () => { live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; requestDraw(); onMove(); };   // 出し入れ＝結合し直すだけ
@@ -500,7 +529,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	// 畳めない差（基図の source の tiles が変わる・層の type が変わる等）は従来の建て直し（unmount→mount）。style-spec の diff() は使わない（依存ゼロ）。
 	// 基図の層の差（paint/layout/filter/zoom/順/add/remove）＝有効な style を組み直す 1 回（setPaintProperty の上書きと同じ重さ・タイルの生バイトは温間キャッシュ）。
 	// style 由来の利用者の層＝id ごとに JSON で比べ、変わった層（と source が変わった層）だけ外して載せ直し、順を style の順に戻す。上書きの台帳（baseOverrides・baseVis・extNotes）は捨てる（新しい style が正）
-	const styleStats = dbgHost.__styleStats = { full: 0, diff: 0, rebuilds: 0 };   // 検定の窓（debugGlobals）
+	const styleStats = dbgHost.__styleStats = { full: 0, diff: 0, rebuilds: 0, paintFast: 0 };   // paintFast＝setPaintProperty の速い道（組み直さなかった回数）   // 検定の窓（debugGlobals）
 	const styleFoldable = (a: ExtStyle, b: ExtStyle) => {   // a＝今の EXT・b＝次。畳めない理由の文字列｜null（畳める）
 		const J = (x: unknown) => JSON.stringify(x ?? null);
 		if (!a.split.vectorSource || a.split.vectorSource !== b.split.vectorSource) return "basemap source id";
@@ -526,6 +555,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			live.themes = mkThemes(live.style); setPipelineStyle(live.style); styleStats.rebuilds++;
 			live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";
 		} else live.style = ns;
+		if (pzFast.size) sendPzOver();   // setPaintProperty の速い道の上書き＝新しい層の paint から（添字も）
 		// style 由来の利用者の層＝変わった層（と source の変わった層）を外して載せ直す
 		const oldL = new Map<string, MLLayer>(old.split.geojson.map(L => [L.id, L])), newL = new Map<string, MLLayer>(nx.split.geojson.map(L => [L.id, L]));
 		const srcChanged = (sid: string) => J(old.ms.sources?.[sid]) !== J(ms.sources?.[sid]);
@@ -566,6 +596,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		live.inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 		live.themes = mkThemes(live.style);
 		setPipelineStyle(live.style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
+		if (pzFast.size) { pzFast.clear(); sendPzOver(); }   // setPaintProperty の速い道の上書きを捨てる（別の style の層の添字）
 		live.readySig = ""; live.baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）
 		live.attrZone = null; requestDraw(); onMove();
 		for (const [id, v] of [...mlLayers]) if ((v.kind === "vtextrude" || v.kind === "vtdraw") && v.src?.[BASE_SRC] && srcId(v.layer) === oldBaseSid) {   // 利用者が基図の source に載せた押し出し・描く層（段 8①・8⑤）

@@ -178,7 +178,7 @@ export type ToolsDeps = Pick<GlobeScope, "registerGadget" | "BASEMAP_MINZOOM" | 
 	| "remergeBase" | "renderer" | "requestDraw" | "requester" | "scenes" | "setAutoBld" | "size" | "t" | "unprojectAt" | "vtxDescOf">;
 
 export type StyleLive = LiveOf<"customHost" | "EXT" | "style" | "autoBldRemoved" | "bg" | "land" | "spriteList" | "mlGlyphs" | "mlLight" | "mlSky" | "themes" | "readySig" | "baseSig" | "attrZone",
-	"customCtl" | "videoCtl" | "aggCtl" | "vtdQueryCache" | "MAP_GS" | "vtxCtl" | "vtdCtl" | "autoBldHidden" | "theme" | "inspectReapply" | "dpr">;
+	"customCtl" | "videoCtl" | "aggCtl" | "vtdQueryCache" | "MAP_GS" | "vtxCtl" | "vtdCtl" | "autoBldHidden" | "theme" | "inspectReapply" | "dpr" | "renderBackend">;
 export type StyleDeps = Pick<GlobeScope, "AUTO_BLD" | "BASE_SOURCE" | "BASE_SRC" | "DEBUG_GLOBALS" | "NO_BG_WHITE" | "PUBLIC_DZ" | "R2D" | "STYLE_DZ" | "animNow" | "assertMLLayer" | "autoBldLayer" | "autoBldOn"
 	| "autoBldReadOnly" | "baseOverrides" | "baseSidNow" | "baseSrcSpec" | "baseVis" | "bgOf" | "bldFillLi" | "cam" | "dbgHost" | "drawLayerOf" | "dropFollow" | "emitSourceData" | "extBaseStyle"
 	| "extSourceFields" | "isVecSrc" | "kindOf" | "landDefault" | "landOf" | "loadExtStyle" | "mergeReq" | "mkThemes" | "mlFeatureState" | "mlGintData" | "mlIdOf" | "mlLayers" | "mlPasses"

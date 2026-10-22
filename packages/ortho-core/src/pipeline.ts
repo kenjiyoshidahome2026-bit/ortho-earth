@@ -28,7 +28,7 @@ export interface Pipeline {
 	relayCtl: (msg: unknown, transfer?: Transferable[] | null) => void;
 	tiles: TileManager;
 	requestMerge: ((slot: unknown, order: readonly OrderItem[], origin: unknown, hidden: Set<number> | null | undefined, sig: unknown) => void) & { debugFail: () => void; stats: () => void };
-	setStyle: (newStyle: Style) => void;
+	setStyle: (newStyle: Style, keep?: boolean) => void;
 	/** 地形の有無が替わった（setTerrain）＝drape を読み直し、変わっていれば全タイルを再ビルド（setStyle と同じ道・稀） */
 	setDrape: () => void;
 	destroy: () => void;
@@ -130,11 +130,12 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	// 色は dl.ops に焼き込まれるため、次の update() 群で可視タイルが新styleで再ビルドされる（生バイトは
 	// fetchMVT のIDB/HTTP温間キャッシュ命中で速い）。scene worker の geom/GPU常駐は tiles.reset の onEvict で
 	// 同時解放＝ピーク約1倍（次テーマの先組みはしない＝GPUメモリ2倍を避ける）。
-	function setStyle(newStyle: Style): void {
+	// keep＝既存のタイルを捨てない（setPaintProperty の速い道＝描き手が層の差し替えの式で焼いた値を上書きする・core build.ts paintFast）。次に作るタイルから新しい style
+	function setStyle(newStyle: Style, keep = false): void {
 		curStyle = newStyle; lastDrape = drapeNow();
 		const enc = encodingNow();   // 外来 style の差し替え（map.setStyle）で基図の置き場と形式が一緒に替わる
 		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle, encoding: enc, drape: lastDrape } satisfies TileRequest);
-		tiles.reset();
+		if (!keep) tiles.reset();
 	}
 	let lastDrape = drapeNow();
 	function setDrape(): void {

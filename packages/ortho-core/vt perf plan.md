@@ -105,7 +105,7 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 - 表の書き換え＝`writeBuffer` 数 KB＝テーマ切替・setPaintProperty が **1 フレーム**に。
 - GL2 は同じ表を RGBA32F テクスチャで（1:1）。
 **MapLibre 互換スレッドとの境界**：**式の分類（a/b/c）と「どの paint が表に載るか」は先方の領分**（`mlstyle.ts`・`expr.ts` の compile に `kind` を足す形が自然）。本計画は「表に載る形」（頂点 u16＋storage 表＋WGSL の読み）を提供する。先方の `setPaintProperty` 差分適用（`restyleBase`＝今は組み直し 1 回）は、この表が入ると自動で軽くなる＝**先方の仕様が固まるまで着手しない**。
-**進み（2026-10-22・互換のスレッド）**：(a) 類を先に GL2 で＝頂点の slot は足さず、層ごとの値を uniform（`u_pz`・`u_pzC`）で頂点の値に差し替える（表の行 0 だけ＝線分レコードは 8 語のまま）。分類と評価は core `paintzoom.ts`（`layerPaintZoom`／`evalPaintZoom`）。(b) 類の行と WebGPU の storage 表は次の段。
+**進み（2026-10-22・互換のスレッド）**：(a) 類を先に GL2 で＝頂点の slot は足さず、層ごとの値を uniform（`u_pz`・`u_pzC`）で頂点の値に差し替える（表の行 0 だけ＝線分レコードは 8 語のまま）。分類と評価は core `paintzoom.ts`（`layerPaintZoom`／`evalPaintZoom`）。(b) 類の行と WebGPU の storage 表は次の段。同日、ずらし（line-offset）も (a) 類に入れ（`u_pzO`）、setPaintProperty の速い道を足した：基図の塗りと線の色・不透明度・線幅・ずらしで新しい値が地物に依らなければ組み直さない（層の差し替えの式で焼いた値を上書き・tile worker には新しい style＝`setStyle(style, keep)`）。地物ごとの値（(b) 類の行）は今も組み直し。
 **門**：t-palette-live（添字ズレ）・テーマ切替の絵一致（表の行を焼いた値と bit 同値・`--hash` を paint 抜きの geometry 指紋に）・ズーム連続の線幅が MapLibre の例（`maplibre-compat.md` の線幅の例）と一致。逃げ道 `?paintbake=1`（従来の焼き込み）。
 **期待**：テーマ切替 数百 ms → 1 フレーム・頂点バイト −10〜25%・ズーム中の線幅の段が消える。
 

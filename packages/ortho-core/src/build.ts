@@ -155,6 +155,7 @@ export function subdivideTris(flat: ArrayLike<number>, tris: ArrayLike<number>, 
 import { evalExpr, truthy, originOfLayer } from "./expr.ts";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.ts";
 import { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝地物に依らない色・線幅の式を op に添える
+import type { PaintZoom } from "./paintzoom.ts";
 import { tileLocalToLonLat } from "./tile.ts";
 import { polygons, signedArea } from "./decode.ts";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
 import { SEA_FB_BASE } from "./scene.ts";
@@ -234,6 +235,23 @@ export function dashPattern(v: unknown, ml = false): number[] | null {
 // 距離の単位＝z24 の px（256 px 世界＝このエンジンの z）＝世界の幅の 2^32 分の 1。タイルの中で環（線）の始点から数える（MVT はタイルで切られて来る＝MapLibre と同じ）。
 // シェーダは floor(zoom) の px に直して模様（線幅の倍数）を当てる＝MapLibre の tileZoom と同じ（このエンジンの z は MapLibre の z＋1）
 export const DASH_GPU_MAX = 8;
+// setPaintProperty の速い道（paint 表の (b) 類の前段・2026-10-22）：基図の層の色・不透明度・線幅・ずらしの変更で、新しい値が地物に依らない（paintzoom.ts）なら
+// タイルを作り直さず、描き手が層の差し替えの式（定数も＝layerPaintZoom の all）で作ったタイルの焼いた値を上書きする（GL2 の u_pz・u_pzC・u_pzO）。
+// 焼いた値が絵の形を決める性質は作り直す：線幅は CPU で刻む破線（片の長さ＝線幅の倍数）と line-gap-width（両脇のずらし）・ずらしは前の層が角の継ぎを持たない時（層で 1 つの値でなかった）。
+// 戻り＝層の差し替えの式（速い道で足りる）｜null（作り直す）。type＝層の type・prev／next＝変更の前と後の paint・key＝変えた性質
+const PZ_KEYS: Record<string, "c" | "w" | "of"> = { "fill-color": "c", "fill-opacity": "c", "line-color": "c", "line-opacity": "c", "line-width": "w", "line-offset": "of" };
+export function paintFast(type: string, prev: Record<string, unknown> | null | undefined, next: Record<string, unknown> | null | undefined, key: string, eo: ExprOrigin): PaintZoom | null {
+	const k = PZ_KEYS[key];
+	if (!k || (type !== "fill" && type !== "line") || !key.startsWith(type + "-")) return null;
+	const pz = layerPaintZoom(type, next, eo, true);
+	if (!pz || pz[k] == null) return null;
+	if (k === "w" && next?.["line-dasharray"] != null) {   // 破線の模様が全ての z でシェーダ（DASH_GPU_MAX 個まで・ずらしと並ぶ）＝片の長さを焼いていない
+		if (!dashOffsetOk(next, eo)) return null;
+		for (let z = 0; z <= 24; z++) { const d = dashPattern(evalExpr(next["line-dasharray"], { zoom: z, props: {}, geom: null, vars: {}, origin: eo }), true); if (d && d.length > DASH_GPU_MAX) return null; }
+	}
+	if (k === "of" && layerPaintZoom("line", prev, eo)?.of == null) return null;   // 前の層の線分は角の継ぎ（tS/tE）を持たない
+	return pz;
+}
 /** シェーダの破線と並ぶずらし（無い・0・層で 1 つの値＝paintzoom.ts の of）。line-gap-width を持つ層は並ばない（CPU で刻む）。vtdraw-worker が CPU の破線の尺を直すかの判定に使う */
 export const dashOffsetOk = (paint: Record<string, unknown> | null | undefined, eo: ExprOrigin): boolean =>
 	paint?.["line-gap-width"] == null && (paint?.["line-offset"] == null || paint["line-offset"] === 0 || layerPaintZoom("line", paint, eo)?.of != null);
