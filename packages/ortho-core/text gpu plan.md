@@ -195,6 +195,7 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 - 集約は source ごとに 1 回（data・半径・最大段・clusterProperties が同じ間は使い回す＝`clusterOf`）。旧＝層を足すたびに組み直し。
 - 問い合わせ：`queryRenderedFeatures` の丸は gint／記号の当たり（`expansionZoom` も添える）・`querySourceFeatures` は今の段の地物（画面＋余白 1/4）・`getClusterExpansionZoom` は `byCid`。隠しの属性は `stripMl` が外す。
 - **残す**：`map.gadget.cluster`（ネイティブの口）は cluster-2d のまま。
+- 字の外で残る毎フレームの Canvas2D のうち、MapLibre の層を受ける pattern-2d（fill-pattern・line-pattern・line-offset・line-gradient の geojson 層）は `geojson vt plan.md` で vtdraw へ移す。
 
 門：t-mlcompat の cluster-layer-zoom-range・cluster-properties-and-id・query-source-features（layers）・cluster-without-circle-layer（live）・t-mlzoom の expansionZoom・`tests/t-aggregate.mjs` ⑤（どの段も件数の和＝点の数・段ごとの地物＝buildClusters の段）。
 
