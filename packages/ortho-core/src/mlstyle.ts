@@ -10,6 +10,7 @@
 // それらは基図に入れず、呼び手（globe）が「画像層」「利用者の層」へ振り分けるか、捨てて数える（splitMapLibreStyle の戻り値）。
 
 import { ORIGIN_KEY, unknownOps } from "./expr.ts";
+import { ML_LAYER_PROPS, ML_SOURCE_TYPES, ML_LAYER_KEYS } from "./mlspec.ts";
 
 /** MapLibre 形の層（読み替えの入出力・他の欄は素通り） */
 export interface MLLayer { id: string; type: string; source?: string; "source-layer"?: string; filter?: unknown; layout?: Record<string, unknown>; paint?: Record<string, unknown>; minzoom?: number; maxzoom?: number; metadata?: Record<string, unknown>; dashInLineWidths?: boolean; [k: string]: unknown }
@@ -120,6 +121,8 @@ export function convertValue(v: unknown, prop = ""): unknown {
 	// 文字列の配列リテラル（フォント名・アンカー名）は式と見分けがつかない＝literal に包む。line-dasharray は数の配列＝そのままで
 	// リテラル、先頭が文字列なら式（step/interpolate/literal）＝包むと式が「中身の配列」として読まれ線ごと消えた（2026-09-25）
 	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
+	// text-writing-mode のリテラル＝["horizontal"]・["vertical", "horizontal"]（向きの名前の並び）。式と読み違えて「知らない演算子 horizontal」で層を落としていた（地理院 optimal_bvmap の注記 7 層・実在 style の集計 2026-10-22）
+	if (prop === "text-writing-mode" && Array.isArray(v) && v.length && v.every(x => x === "horizontal" || x === "vertical")) return ["literal", v];
 	// text-variable-anchor-offset のリテラル＝["top", [0, 1], "bottom", [0, -1]]（アンカー名と 2 数の組の並び）。式（match/step…）と読み違えて「知らない演算子 top」で層を落としていた（公式例の門 2 巡目）
 	if (prop === "text-variable-anchor-offset" && isAnchorOffsets(v)) return ["literal", v];
 	// hillshade の multidirectional＝色・向きの配列（["#FF4000", "#FFFF00", …]・[270, 315, 0, 45]）＝式ではない（先頭が色の文字列＝「知らない演算子 #FF4000」で層を落としていた）
@@ -218,6 +221,32 @@ export function splitMapLibreStyle(style: MLStyle, { zoomOffset = 1 }: { zoomOff
 		base.push(L);
 	}
 	return { vectorSource, base, raster, geojson, skipped };
+}
+
+// ── 入口の検査（互換の計画 P0-5・2026-10-22）────────────────────────────
+// MapLibre は style の検査で誤りを error 事象にして style を読まない。ここは読んだ上で「何が spec の外か」を返すだけ（呼び手が警告に出す）。
+// 見る物＝source の型・層の id の重複・層の型・source の有無・layout／paint の名前（型ごと・置き場の取り違え）・層の鍵。
+// root の知らない鍵は見ない（MapLibre の検査も root は '*' で通す）。名前の表は spec の写し（mlspec.ts・scripts/mlspec-gen.mjs）。canvas source は JS の口だけの型（spec の外だが MapLibre が受ける）
+export interface StyleIssue { layer?: string; message: string }
+export function validateMLStyle(style: MLStyle): StyleIssue[] {
+	const out: StyleIssue[] = [], sources = style.sources || {}, seen = new Set<string>();
+	for (const [id, sp] of Object.entries(sources)) if (!sp || (!ML_SOURCE_TYPES.includes(sp.type as string) && sp.type !== "canvas")) out.push({ message: `source "${id}": unknown type "${sp?.type}"` });
+	for (const L of style.layers || []) {
+		const id = L?.id, spec = ML_LAYER_PROPS[L?.type];
+		if (typeof id !== "string") { out.push({ message: "layer without an id" }); continue; }
+		if (seen.has(id)) out.push({ layer: id, message: "duplicate layer id" });
+		seen.add(id);
+		if (!spec) { out.push({ layer: id, message: `unknown layer type "${L.type}"` }); continue; }
+		if (L.type !== "background" && !L.source) out.push({ layer: id, message: "missing source" });
+		else if (L.source && !(L.source in sources)) out.push({ layer: id, message: `source "${L.source}" not found` });
+		for (const k of Object.keys(L)) if (!ML_LAYER_KEYS.includes(k)) out.push({ layer: id, message: `unknown layer property "${k}"` });
+		for (const part of ["layout", "paint"] as const) for (const k of Object.keys(L[part] || {})) {
+			if (spec[part].includes(k)) continue;
+			const other = part === "layout" ? "paint" : "layout";
+			out.push({ layer: id, message: spec[other].includes(k) ? `"${k}" is a ${other} property, not ${part}` : `unknown ${part} property "${k}" for ${L.type}` });
+		}
+	}
+	return out;
 }
 
 // ── 取得 ─────────────────────────────────────────────────────────

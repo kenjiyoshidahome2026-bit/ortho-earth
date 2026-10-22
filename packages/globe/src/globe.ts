@@ -54,7 +54,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.ts";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf, validateMLStyle } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
 import { createFacade } from "./mlfacade.ts";
 export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
@@ -399,6 +399,9 @@ const loadExtStyle: GlobeScope["loadExtStyle"] = async (spec, transformStyle = n
 	if (ms.sources == null) ms = { ...ms, sources: {} };
 	// style の root の state（MapLibre v5：{ 鍵: { default } }）＝global-state の既定値。新しい style は状態を入れ替える（MapLibre の setStyle と同じ）
 	if (ms.state && typeof ms.state === "object") setMapGS(Object.fromEntries(Object.entries(ms.state).map(([k, d]) => [k, d && typeof d === "object" && "default" in d ? d.default : null])));
+	// spec の外の名前・置き場の取り違え（MapLibre は error 事象にして style を読まない＝ここは読んだ上で 1 回だけ警告・互換の計画 P0-5）
+	const issues = validateMLStyle(ms);
+	if (issues.length) console.warn(`[style] ${ms.name || spec}: ${issues.length} problem(s) against the MapLibre style spec —`, issues.slice(0, 10).map(i => (i.layer ? `"${i.layer}": ` : "") + i.message).join("; ") + (issues.length > 10 ? "; …" : ""));
 	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources![split.vectorSource], baseUrl, { fetchFn: ((u: string, init?: RequestInit) => requester.fetch(u, "Source", init)) as typeof fetch }) : null;
 	const isVtx = (k: { id: string }) => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
