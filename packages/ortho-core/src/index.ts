@@ -12,7 +12,9 @@ export { queryTiles, sourceFeatures } from "./query.ts";   // 描画結果への
 export type { QueryFeature, QueryOptions, SourceFeaturesOptions } from "./query.ts";
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.ts";
 export type { TileXYZ } from "./tile.ts";
-export { buildTileDrawList } from "./build.ts";
+export { buildTileDrawList, paintFast } from "./build.ts";
+export { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続と setPaintProperty の速い道（main の api/style.ts）
+export type { PaintZoom } from "./paintzoom.ts";
 export { createRenderer } from "./gl/renderer.ts";
 export type { Renderer } from "./gl/renderer.ts";
 export { createGintLayer } from "./gl/gint/embed.ts";
