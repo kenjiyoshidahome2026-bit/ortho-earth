@@ -50,6 +50,8 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
 	lost?: Promise<{ message?: string } | null | undefined>;
 	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown;
+	/** 層の位置に描く注記の境（T-P2・WebGPU）＝この層の添字より前の注記は地図のパスの中 */
+	textSplit?(): number;
 }
 /** WebGPU の描き手（検証スコープ・診断の口つき） */
 interface RenderBackendGPU extends RenderBackend {
@@ -112,7 +114,7 @@ type PerfMem = { memory?: { usedJSHeapSize: number } };
 
 let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
 // ?text=gpu（T-P1・T-P2 の足場）＝注記の字（線に沿う・点）は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
-let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null;
+let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null, textInPass = false;   // textInPass＝注記を地図より先に描き、層の位置の字を地図のパスへ渡す（T-P2）
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
 // ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
@@ -460,7 +462,7 @@ const dispatch = (e: { data: RwMsg }) => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						if (textSink && labelGpuCanvas) try { textSink.attach(createGpuText(r.device as unknown as GPUDevice, labelGpuCanvas)); console.log("[render] text=gpu (label glyphs on WebGPU)"); } catch (e) { console.warn("[render] text=gpu init failed = Canvas2D:", (e as Error)?.message || e); }
+						if (textSink && labelGpuCanvas) try { const gt = createGpuText(r.device as unknown as GPUDevice, labelGpuCanvas); textSink.attach(gt); r.set("text", gt); textInPass = !!r.textSplit; console.log("[render] text=gpu (label glyphs on WebGPU" + (textInPass ? ", in the map pass at style layer positions)" : ")")); } catch (e) { console.warn("[render] text=gpu init failed = Canvas2D:", (e as Error)?.message || e); }   // 層の位置（T-P2）＝後ろに塗りか線がある層の注記の字は地図のパスの中
 						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; kick(); }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
@@ -607,6 +609,15 @@ self.onmessage = dispatch;   // 実イベントも同じディスパッチャ（
 self.addEventListener("error", (e: ErrorEvent) => { try { postMessage({ type: "drawErr", msg: "worker error: " + (e.message || e), stack: String(e.filename || "") + ":" + (e.lineno || 0) }); } catch {} });   // 見えない例外の可視化（iOS診断で手動dispatchの silent throw を見逃した反省）
 self.addEventListener("unhandledrejection", e => { try { postMessage({ type: "drawErr", msg: "worker rejection: " + (e.reason && (e.reason as Error).message || e.reason) }); } catch {} });
 
+// 注記を描く（地図と同じ cam＝完全同期）。skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear() でフェード状態ごと流す（新しい段の merge で戻る時はフェードインから＝可逆な退場）。
+// 層の位置（T-P2）：真俯瞰（傾き 0.02 未満）の間だけ、基図の最後の塗り・線より前の層の注記の字を地図のパスの中へ。傾けた絵は今までどおり全部最前面（建物の陰の道の名を隠さない・2026-10-13 裁定）
+function drawLabels(): boolean {
+	if (!labelLayer || !cam) return false;
+	if (textSink) { const sp = textInPass && (cam.pitch || 0) < 0.02 ? renderer?.textSplit?.() ?? -1 : -1; textSink.mid = sp >= 0 ? (li => li < sp) : null; }
+	const animating = opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam);
+	if (!opts?.skipMain) { const ls = labelLayer.stats(); labEma = labEma ? labEma * 0.9 + ls.drawMs * 0.1 : ls.drawMs; labCollide = ls.collideMs; labN = ls.labels; labGlyphs = ls.glyphs; }
+	return animating;
+}
 // shot 用：WebGL は preserveDrawingBuffer 無し＝別タスクでは読めない。同一タスクで「描画直後に createImageBitmap」
 // （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
 function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま（両バックエンド共通）
@@ -961,6 +972,9 @@ function frame() {
 			}
 			let dBegun = false;
 			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+			// 注記（T-P2）＝層の位置に描く字がある時は地図より先に描く（地図のパスがその字を層の間で draw する）・無ければ今までどおり地図の後
+			let animating: boolean | null = null;
+			if (textInPass) animating = drawLabels();
 			tqSpan("map", () => { fogAnim = renderer!.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer!.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
@@ -982,10 +996,7 @@ function frame() {
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}
 			}
-			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
-			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
-			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
-			if (labelLayer && !opts?.skipMain) { const ls = labelLayer.stats(); labEma = labEma ? labEma * 0.9 + ls.drawMs * 0.1 : ls.drawMs; labCollide = ls.collideMs; labN = ls.labels; labGlyphs = ls.glyphs; }
+			if (!textInPass) animating = drawLabels();   // 注記（層の位置に描かない時）＝地図の後
 			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）

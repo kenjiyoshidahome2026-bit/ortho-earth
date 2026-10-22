@@ -96,6 +96,34 @@ try {
 			ok(`dpr${dpr}:canvasOnly(2d glyphs=${base.stats().glyphs})`, base.stats().glyphs === SCENES[0].g.length);
 			gt.destroy();
 		}
+		// 層の位置（T-P2）＝mid の層の注記の字は地図のパスの中（MSAA 4・深度つきの的）へ層の順に、それ以外（後ろに層の無い注記・pinTop）は最前面の canvas へ
+		{
+			const cw = W, ch = H, dpr = 1, gm = createGpuText(device, null), sm = createGpuTextSink(createCanvasSink(canvas2d(new OffscreenCanvas(cw, ch).getContext("2d")))); sm.attach(gm); sm.mid = li => li < 10;
+			const lab = (name, x, y) => { const tl = plainTL([name], P16, 16); return [tl, P16, null, x, y, x - tl.w / 2, y - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1 }, 1, () => null]; };
+			const A = lab("Layer seven", 120, 50), B = lab("Layer three", 120, 110), C = lab("Top twelve", 360, 50), D = lab("Pinned three", 360, 110);
+			sm.begin(cw, ch, dpr); sm.layer(7, false); sm.pointText(...A); sm.layer(3, false); sm.pointText(...B); sm.layer(12, false); sm.pointText(...C); sm.layer(3, true); sm.pointText(...D); sm.end();
+			ok(`mid-anchors(${gm.midAnchors().join(",")})`, gm.midAnchors().join(",") === "3,7");
+			const ref = async (...labs) => { const c = new OffscreenCanvas(cw, ch), x = c.getContext("2d", { willReadFrequently: true }), s = createCanvasSink(canvas2d(x)); s.begin(cw, ch, dpr); for (const L of labs) s.pointText(...L); s.end(); return stats(x.getImageData(0, 0, cw, ch).data, cw, ch); };
+			const same = async (name, px, ...labs) => { const R = await ref(...labs), G = stats(px, cw, ch), io = iou(R.m, G.m); ok(`${name}(iou=${io.toFixed(3)} ink=${(G.n / Math.max(1, R.n)).toFixed(2)})`, R.n > 50 && io > 0.8); };
+			await same("mid-top-canvas", await gm.readPixels(), C, D);   // 最前面＝層の無い注記と pinTop だけ
+			const msaa = device.createTexture({ size: [cw, ch], sampleCount: 4, format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT }), res = device.createTexture({ size: [cw, ch], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+			const dep = device.createTexture({ size: [cw, ch], sampleCount: 4, format: "depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+			const at = { format: "rgba8unorm", samples: 4, depth: "depth24plus-stencil8", W: cw, H: ch, dpr };
+			const passDraw = async (lo, hi) => {   // 地図のパスと同じ形の的（MSAA＋深度ステンシル）に li ∈ [lo, hi) の字だけ
+				const enc = device.createCommandEncoder(), rp = enc.beginRenderPass({ colorAttachments: [{ view: msaa.createView(), resolveTarget: res.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "discard" }], depthStencilAttachment: { view: dep.createView(), depthLoadOp: "clear", depthClearValue: 1, depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "store" } });
+				const k = gm.drawMid(rp, lo, hi, at); rp.end();
+				const bpr = Math.ceil(cw * 4 / 256) * 256, buf = device.createBuffer({ size: bpr * ch, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+				enc.copyTextureToBuffer({ texture: res }, { buffer: buf, bytesPerRow: bpr }, [cw, ch]); device.queue.submit([enc.finish()]);
+				await buf.mapAsync(GPUMapMode.READ); const a = new Uint8Array(buf.getMappedRange()), out = new Uint8Array(cw * ch * 4);
+				for (let y = 0; y < ch; y++) out.set(a.subarray(y * bpr, y * bpr + cw * 4), y * cw * 4); buf.unmap(); buf.destroy();
+				return [k, out];
+			};
+			const [k3, p3] = await passDraw(-Infinity, 5); ok(`mid-draw-li<5(${k3} glyphs)`, k3 === [..."Layerthree"].length); await same("mid-pass-li3", p3, B);
+			const [k7, p7] = await passDraw(5, Infinity); ok(`mid-draw-li>=5(${k7} glyphs)`, k7 === [..."Layerseven"].length); await same("mid-pass-li7", p7, A);
+			sm.canvasOnly = true; sm.begin(cw, ch, dpr); sm.layer(7, false); sm.pointText(...A); sm.layer(12, false); sm.pointText(...C); sm.end(); sm.canvasOnly = false;   // 撮影＝層の位置の字は地図の絵の側＝注記の canvas には描かない
+			ok(`mid-canvasOnly(2d glyphs=${sm.stats().glyphs})`, sm.stats().glyphs === "Top twelve".length);   // Canvas2D 版は行の字数（空白込み）を数える
+			msaa.destroy(); res.destroy(); dep.destroy(); gm.destroy();
+		}
 		ok(`gpu-errors(${errs.length}${errs.length ? ":" + errs[0].slice(0, 120) : ""})`, errs.length === 0);
 		device.destroy();
 		fin();

@@ -46,6 +46,7 @@ import type { TerrainChunk, ChunkStats } from "../terrainlod.ts";
 import type { ShadowWindow } from "../shadow.ts";
 import type { ClipNorm, ClipPlane } from "../clip.ts";
 import type { BuildingsGeom, DrawOp } from "../scene.ts";
+import type { GpuText, MidTarget } from "./text.ts";   // 層の位置に描く注記の字（T-P2）＝型だけ（字の GPU は render worker の受け口が作って set("text") で渡す）
 import type { DepthOutFrame, DepthOutGPU } from "./depthout.ts";
 import type { AoGPU } from "./ao.ts";
 import type { PostFrameOptions, PostGPU } from "./postfx.ts";
@@ -197,7 +198,7 @@ interface AtlasFill { slot: string; gate: number; at: number; user: boolean; lo?
 interface RenderTargets { tex: GPUTexture | null; depth: GPUTexture; view: GPUTextureView | null; depthView: GPUTextureView; w: number; h: number }
 interface ParamsIn { cityLift: number; land: number[]; bldColor: number[]; contour: { color: number[]; interval: number; major: number; alpha: number }; liftBounds?: number[] | null; fadeK?: number; worldHypsoK?: number; hasClim?: number }
 interface DrawDbg {
-	baseFill: number; baseLine: number; mainFill: number; mainLine: number; skipMain: boolean; skipBase: boolean; fadeK: number; terrainDepth: boolean; zoom: number; aa: number;
+	baseFill: number; baseLine: number; mainFill: number; mainLine: number; textMid: number; skipMain: boolean; skipBase: boolean; fadeK: number; terrainDepth: boolean; zoom: number; aa: number;
 	readonly raster: number; readonly fillsIn: boolean; readonly gndFaces: number; shadow?: number; pl?: number;
 }
 interface PerfSelf { __perfElev?: boolean; __perfElevLast?: { f16: number; write: number; gpu?: number; raw?: number }; __perfScene?: boolean; __perfHitch?: { elev: number; scene: number } }
@@ -1293,6 +1294,17 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
 		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
 	};
+	// 層の位置に描く注記の字（テキスト GPU 化 T-P2・set("text", GpuText)）＝render worker の字の受け口が積んだ「層 → 字の範囲」を、層を描く途中で draw する口
+	let textMid: Pick<GpuText, "midAnchors" | "drawMid"> | null = null;
+	// 注記を層の位置に描く意味がある層の境＝基図（base／main）の塗りと線の最大の層の添字（それより前の層の注記は後ろに塗りか線がある）。シーンの版ごとに数え直す
+	let splitRev = -1, splitLi = -1;
+	function textSplit(): number {
+		if (splitRev === sceneRev) return splitLi;
+		let m = -1;
+		for (const sl of ["base", "main"]) { const sc = scenes[sl]; for (const d of sc.draws) if (d.li > m) m = d.li; if (sc.md) for (const e of sc.md.layers) if (e.li > m) m = e.li; }
+		splitRev = sceneRev; splitLi = m;
+		return m;
+	}
 	let bldFill: { li: number } = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
@@ -2677,7 +2689,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
 		// （Android 実機の反転 2026-08-03。数え上げは加算だけ＝常時オンでも実害なし）。
-		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
+		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, textMid: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
 		dbg.shadow = shWin ? +(shWin.alt * 180 / Math.PI).toFixed(1) : 0;   // ?drawhud=1：影の窓が立ったか（太陽高度°・0＝影なしのフレーム）
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		if (userOn) slots.push("user");   // 利用者の vector の層（段 8⑤）＝基図の塗りと線の後
@@ -2770,6 +2782,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の最後のパス（フェード中は新しいシーン）の li ≥ anchor の項の前に描く。
 		// 表に無い物・基図の枠が無い時は今どおり最後（旧シーンのパスは全部を先に敷く＝差し込んだ層の上の基図の層は旧シーンでも上）
 		const ua = userAnchorPlan(userOn ? [...slots].reverse().find(sl => sl !== "user" && sceneHas(scenes[sl])) : null);
+		// 層の位置に描く注記の字（テキスト GPU 化 T-P2）＝最後に描く基図の枠の最後のパスで、その注記の層 a より前の層を描いた後・後ろの層の前に（差し込み #123 と同じ割り方）
+		const tAnch = textMid ? textMid.midAnchors() : [], tHost = tAnch.length ? [...slots].reverse().find(sl => sl !== "user" && sceneHas(scenes[sl])) ?? null : null;
+		const tAt: MidTarget = { format, samples: S, depth: DEPTH, W, H, dpr };
 		let uaDone = false;
 		for (const slot of slots) {
 			if (slot === "user") { runSlot("user", scenes.user.draws, false, -Infinity, Infinity, uaDone ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
@@ -2780,13 +2795,21 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				: [[scene.draws, false]];
 			passes.forEach(([drawList, useFade], pi) => {
 				if (Array.isArray(drawList) ? !drawList.length : !drawList.layers.length) return;
-				if (slot !== ua.host || pi !== passes.length - 1 || !ua.anchors.length) { runSlot(slot, drawList, useFade, -Infinity, Infinity); return; }
+				const last = pi === passes.length - 1, uaHere = slot === ua.host && last && ua.anchors.length > 0, txHere = slot === tHost && last;
+				if (!uaHere && !txHere) { runSlot(slot, drawList, useFade, -Infinity, Infinity); return; }
+				const cuts = [...new Set([...(uaHere ? ua.anchors : []), ...(txHere ? tAnch : [])])].sort((x, y) => x - y);
 				let lo = -Infinity;
-				for (const a of ua.anchors) { runSlot(slot, drawList, useFade, lo, a); runSlot("user", scenes.user.draws, false, 0, 0, d => ua.anchorOf(d.li) === a); lo = a; }
+				for (const a of cuts) {
+					runSlot(slot, drawList, useFade, lo, a);
+					if (uaHere && ua.anchors.includes(a)) runSlot("user", scenes.user.draws, false, 0, 0, d => ua.anchorOf(d.li) === a);   // 利用者の層（層 a の前へ差し込む）→ 層 a の注記の字
+					if (txHere) dbg!.textMid += textMid!.drawMid(pass, a, a + 1, tAt);
+					lo = a;
+				}
 				runSlot(slot, drawList, useFade, lo, Infinity);
-				uaDone = true;
+				if (uaHere) uaDone = true;
 			});
 		}
+		if (tAnch.length && !tHost) dbg!.textMid += textMid!.drawMid(pass, -Infinity, Infinity, tAt);   // 基図の枠が無い（読み込み前）＝最後に
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr), cam.zoom || 0);
 		// 10度レチクル（v1「地図の上に重ねる」と同じ最前面・ラベルの下）。出現度は globe UBO の seaC.w に書き込み済み
@@ -3087,6 +3110,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "clip":    clip = normClip(data as Parameters<typeof normClip>[0]); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
 			case "post":    post = (data as PostFrameOptions | null) || null; break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1・normPost 済みの形）＝flush の終端で掛ける
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
+			case "text": textMid = (data as typeof textMid) || null; break;   // 注記の字の GPU（T-P2）＝null で外す
 			case "bldFill": bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: number[][] } | null)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）
 			case "scene":   setScene(data as SceneData, prop as string | undefined); break;
@@ -3162,5 +3186,6 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
+		textSplit,   // 層の位置に描く注記の境（T-P2）＝この層の添字より前の注記は地図のパスの中へ
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
