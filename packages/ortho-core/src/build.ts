@@ -216,6 +216,13 @@ export function layerFx(L: { type: string; paint?: Record<string, unknown> | nul
 	const rel = cb > 0 ? 1 : 0, blur = rel ? Math.min(cb, 1) : lb > 0 ? lb : 0;
 	return tr[0] || tr[1] || blur ? [tr[0], tr[1], anc, blur, rel] : null;
 }
+// fill-pattern（S-P1-4/5）の画像の名前＝作ったタイルの z で層に一度（MapLibre は属性も読めるが層で一度＝近似）。名前でない値は null（模様なし）
+export function fillPatternOf(L: { paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined): string | null {
+	const e = L.paint?.["fill-pattern"]; if (e == null) return null;
+	const v = evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
+	const n = v && typeof v === "object" && "name" in (v as object) ? (v as { name: unknown }).name : v;   // ResolvedImage 風の値も名前へ
+	return typeof n === "string" && n ? n : null;
+}
 export function dashPattern(v: unknown, ml = false): number[] | null {
 	if (!Array.isArray(v) || !v.length || v.some(x => typeof x !== "number" || !(x >= 0) || !isFinite(x))) return null;
 	if (ml) return v.length > 1 && v.reduce((a, b) => a + b, 0) > 0 ? v : null;   // MapLibre＝奇数個は 2 回でなく「最後と最初の線がつながる」（LineAtlas.getDashRanges）・1 個は実線
@@ -440,7 +447,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// index はタイル単体なら大抵 Uint16 で足りる（65536頂点超の層だけ Uint32）＝transfer/常駐がさらに半減。
 			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
 			const fx = eo ? layerFx(L, z, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
-			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}) });
+			const pat = eo ? fillPatternOf(L, z, eo) : null;   // fill-pattern（S-P1-4/5）＝記号帳の画像の名前（層で一度）
+			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}) });
 		} else { // line
 			const P1 = B.P1, P2 = B.P2, col = B.col, half = B.half; P1.n = P2.n = col.n = half.n = 0;
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。

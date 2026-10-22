@@ -21,7 +21,7 @@ import type { TileXYZ } from "../vtmesh.ts";
 import type { FStateStore, RawTiles, SrcTile, VTExtrudeEnv, VtDesc } from "./vtextrude.ts";
 
 /** worker が組んだ op（core の scene.ts の FillOp／LineOp と同じ形・配列は transfer できる ArrayBuffer の上） */
-interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; idx: Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>; fx?: number[] }
+interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; idx: Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>; fx?: number[]; pat?: string }
 interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array<ArrayBuffer>; P2: Float32Array<ArrayBuffer>; col: Uint8Array<ArrayBuffer>; half: Float32Array<ArrayBuffer>; off?: Float32Array<ArrayBuffer> | null; jf?: Uint8Array<ArrayBuffer> | null; cj?: number; dist?: Float32Array<ArrayBuffer> | null; dash?: number[]; dz?: number; fx?: number[] }
 type DrawOp = FillOp | LineOp;
 /** 結合役（core の scene worker）が返す scene（core の MergedScene） */

@@ -15,7 +15,7 @@
 | fill | paint | `fill-outline-color` | 読む |  |
 | fill | paint | `fill-translate` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22・層で一度＝zoom の式はタイルの z）・3D（地形あり）の塗り・WebGPU・geojson の層は読まない |
 | fill | paint | `fill-translate-anchor` | 一部 | translate と同じ（viewport＝方位だけ回す） |
-| fill | paint | `fill-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図は層を飛ばす・vector の層は未 |
+| fill | paint | `fill-pattern` | 一部 | GL2 の基図と vector の層（S-P1-4/5・2026-10-22・名前は層で一度・模様の大きさは cos φ 倍・3D の塗りと WebGPU は描かない）・geojson の層は canvas2D の模様 |
 | line | layout | `line-cap` | 一部 | GL2 は MapLibre と同じ（S-P1-1・2026-10-22）・WebGPU と geojson の層は丸 |
 | line | layout | `line-join` | 一部 | GL2 は MapLibre と同じ（属性の式は層で一度）・WebGPU と geojson の層は丸 |
 | line | layout | `line-miter-limit` | 一部 | GL2 だけ（zoom の式も読む） |
