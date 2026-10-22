@@ -1,13 +1,14 @@
 // paint 表の (b) 類の検定（vt perf plan §5「(b) 類の段取り」の 1・2026-10-22）。node packages/ortho-core/tests/painttable.mjs
-// 守るもの：①(b) の判定＝外来の塗りと線で、色か不透明度が地物に依り（kind data）、zoom・feature-state・global-state を読まず、属性を名前で読むだけ（鍵＝読む属性の名）
+// 守るもの：①(b) の判定＝外来の塗りと線で、色か不透明度が地物に依り（kind data）、zoom・global-state を読まず、属性を名前で読むだけ（鍵＝読む属性の名・feature-state は段 3）
 // ②tile worker の op：rows（鍵の組・重なりなし）・cols（行の焼いた色）・rid（頂点／線分ごとの行）。どの頂点／線分も焼いた色の語＝その行の cols（端と継ぎ・CPU の破線・隙間つきの道筋でも）
 // ③行の組を属性に戻して評価した色（ptRowColor・段 2 の書き換えの口）＝焼いた色 ④図郭外の水域は持たない ⑤シェーダは md の変種だけが表を読む
 // ⑥段 2：setPaintProperty の (b) 類（paintTableFast）＝前も後も (b) 類で、後の式が読む属性が前の鍵に含まれる時だけ組み直さない
 // ⑦段 2b：地物に依る線幅も表（行の半幅 hw＝焼いた半幅・ptRowHalf）。両脇のずらし（line-gap-width）・CPU で刻む破線の層は焼くまま
+// ⑧段 3：feature-state を読む層＝鍵に地物の id（PT_ID）＝地物ごとの行・焼いた色は既定の状態・ptRowColor／ptRowHalf に状態を渡すと状態つきの値。状態を焼く呼び手（利用者の層＝stateOf）は表にしない
 import assert from "node:assert/strict";
 import { buildTileDrawList } from "../src/build.ts";
 import { normalizeMLLayer } from "../src/mlstyle.ts";
-import { layerPaintTable, paintTableFast, ptRowColor, ptRowHalf, PT_GEOM } from "../src/painttable.ts";
+import { layerPaintTable, paintTableFast, ptRowColor, ptRowHalf, ptTuple, PT_GEOM, PT_ID } from "../src/painttable.ts";
 import { FILL_VS, FILL_MD_VS, LINE_VS, LINE_MD_VS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS } from "../src/gl/glsl.ts";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
@@ -28,7 +29,6 @@ t("(b) の判定：地物を名前で読む色・不透明度だけ（鍵＝読�
 	assert.equal(layerPaintTable("line", { "line-color": ["interpolate", ["linear"], ["zoom"], 10, "#000", 12, "#fff"] }, "ml"), null);   // zoom だけ＝pz（(a) 類）
 	assert.equal(layerPaintTable("line", { "line-color": ["interpolate", ["linear"], ["zoom"], 10, ["get", "c"], 12, "#fff"] }, "ml"), null);   // zoom×data＝焼くまま
 	assert.equal(layerPaintTable("line", { "line-color": M, "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0, 12, 1] }, "ml"), null);   // 不透明度が zoom
-	assert.equal(layerPaintTable("line", { "line-color": ["case", ["boolean", ["feature-state", "h"], false], "#f00", ["get", "c"]] }, "ml"), null);   // feature-state（段 3）
 	assert.equal(layerPaintTable("line", { "line-color": ["case", ["global-state", "g"], "#f00", ["get", "c"]] }, "ml"), null);
 	assert.equal(layerPaintTable("line", { "line-color": ["get", ["concat", "c", "1"]] }, "ml"), null);   // 名前が式
 	assert.equal(layerPaintTable("line", { "line-color": ["case", ["==", ["id"], 1], "#f00", "#000"] }, "ml"), null);   // id＝行が地物の数
@@ -106,7 +106,6 @@ t("段 2b：線幅の判定（地物に依る・名前で読む・形を決め�
 	assert.equal(layerPaintTable("line", { "line-color": M, "line-width": W, "line-dasharray": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }, "ml").w, undefined);   // CPU で刻む破線
 	assert.equal(layerPaintTable("line", { "line-color": M, "line-width": W, "line-dasharray": [2, 1], "line-offset": 3 }, "ml").w, undefined);
 	assert.equal(layerPaintTable("line", { "line-color": M, "line-width": ["interpolate", ["linear"], ["zoom"], 10, ["get", "w"], 12, 4] }, "ml").w, undefined);   // zoom×data＝焼くまま
-	assert.equal(layerPaintTable("line", { "line-color": M, "line-width": ["case", ["boolean", ["feature-state", "h"], false], 4, 2] }, "ml").w, undefined);
 	assert.equal(layerPaintTable("line", { "line-color": "#f00", "line-width": ["get", "w", ["properties"]] }, "ml"), null);
 	assert.equal(layerPaintTable("fill", { "fill-color": "#f00", "line-width": W }, "ml"), null);
 });
@@ -130,5 +129,33 @@ t("段 2b：paintTableFast の線幅＝前も後も表に置ける時だけ", ()
 	assert.equal(paintTableFast("line", { "line-color": M }, { "line-color": M, "line-width": W }, "line-width", "ml"), null);   // 前の列は半幅を表から読まない
 	assert.equal(paintTableFast("line", prev, { "line-color": M }, "line-width", "ml"), null);   // 後の線幅は定数＝paintFast（pz）
 	assert.equal(paintTableFast("line", { ...prev, "line-gap-width": 2 }, { ...prev, "line-gap-width": 2, "line-width": ["get", "class"] }, "line-width", "ml"), null);
+});
+const HC = ["case", ["boolean", ["feature-state", "h"], false], "#ff0000", ["get", "class"]];
+t("段 3：feature-state の判定＝鍵に PT_ID・fs（色・不透明度・線幅）", () => {
+	const L = layerPaintTable("line", { "line-color": ["case", ["boolean", ["feature-state", "h"], false], "#f00", ["get", "c"]] }, "ml");
+	assert.deepEqual(L.keys, [PT_ID, "c"]); assert.equal(L.fs, true);
+	assert.deepEqual(layerPaintTable("fill", { "fill-color": "#f00", "fill-opacity": ["case", ["boolean", ["feature-state", "h"], false], 1, 0.5] }, "ml").keys, [PT_ID]);
+	const W2 = layerPaintTable("line", { "line-color": M, "line-width": ["case", ["boolean", ["feature-state", "h"], false], 4, 2] }, "ml");
+	assert.deepEqual(W2.keys, [PT_ID, "class"]); assert.ok(W2.w && W2.fs);
+	assert.equal(layerPaintTable("line", { "line-color": M }, "ml").fs, undefined);
+	assert.equal(layerPaintTable("line", { "line-color": ["interpolate", ["linear"], ["zoom"], 1, ["case", ["boolean", ["feature-state", "h"], false], "#f00", "#00f"], 5, "#000"] }, "ml"), null);   // zoom×data＝焼くまま
+	assert.deepEqual(ptTuple([PT_ID, "class"], { class: "a" }, "LineString", 7), [7, "a"]);
+	assert.deepEqual(ptTuple([PT_ID], {}, "LineString", undefined), [null]);
+});
+t("段 3：地物ごとの行（id）・焼いた色＝既定の状態・状態つきの評価・stateOf の呼び手は表にしない", () => {
+	const feats = LINES.map((f, i) => ({ ...f, id: i < 4 ? 10 + i : undefined }));   // 最後の線は id なし
+	const paint = { "line-color": HC, "line-width": ["case", ["boolean", ["feature-state", "h"], false], 8, 2] };
+	const op = opsOf(feats, { type: "line", paint })[0], pt = check(op, "線分");
+	assert.deepEqual(pt.keys, [PT_ID, "class"]);
+	assert.deepEqual(pt.rows, [[10, "a"], [11, "b"], [12, "a"], [13, "c"], [null, null]]);   // a の 2 本も別の行（地物ごと）
+	const L = layerPaintTable("line", normalizeMLLayer({ id: "x", type: "line", paint }).paint, "ml"), v = new Float32Array(4);
+	ptRowColor(L, pt.keys, pt.rows[0], v);
+	assert.deepEqual([...v].map(x => Math.round(x * 255)), [255, 0, 0, 255].map((x, i) => [pt.cols[0] & 255, pt.cols[0] >>> 8 & 255, pt.cols[0] >>> 16 & 255, pt.cols[0] >>> 24][i]));   // 既定の状態＝焼いた色
+	ptRowColor(L, pt.keys, pt.rows[1], v, 0, { h: true });
+	assert.deepEqual([...v], [1, 0, 0, 1]);   // 状態つき＝赤
+	assert.equal(ptRowHalf(L, pt.keys, pt.rows[1]), pt.hw[1]);
+	assert.equal(ptRowHalf(L, pt.keys, pt.rows[1], { h: true }), 4);
+	const withState = buildTileDrawList({ ...tileOf(feats), stateOf: () => ({ h: true }) }, { layers: [normalizeMLLayer({ id: "r", "source-layer": "road", type: "line", paint })] }, [0, 0]).ops[0];
+	assert.equal(withState.pt, undefined);   // 状態を焼いた op は表にしない（利用者の層は状態ごとに組み直す）
 });
 console.log(`painttable: ${n} tests passed`);
