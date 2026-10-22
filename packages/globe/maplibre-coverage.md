@@ -30,7 +30,7 @@
 | line | paint | `line-gap-width` | 読む | 基図・vector・geojson（2026-10-03） |
 | line | paint | `line-offset` | 読む |  |
 | line | paint | `line-blur` | 一部 | 基図と vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・属性の式は層で一度）・geojson の層は読まない |
-| line | paint | `line-dasharray` | 一部 | 基図と vector の層は GL2・WebGPU とも MapLibre と同じ（S-P1-3・2026-10-22）・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ |
+| line | paint | `line-dasharray` | 一部 | 基図と vector の層は GL2・WebGPU とも MapLibre と同じ（S-P1-3・2026-10-22）・地物ごとにずらす層（line-gap-width も）・9 個以上はタイルの z の尺で刻む（層で 1 つの値のずらしはシェーダ＝2026-10-22）・geojson の層は先頭の対だけ |
 | line | paint | `line-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図・vector の層は未 |
 | line | paint | `line-gradient` | 一部 | geojson の層だけ（canvas2D の線の飾り）。vector の層は未 |
 | symbol | layout | `symbol-placement` | 読む |  |

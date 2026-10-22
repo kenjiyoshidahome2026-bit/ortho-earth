@@ -122,7 +122,7 @@ fn gndEdge(uv: vec2f) -> f32 {   // 窓内 1・縁 4% で 0 へ・外 0
 //   building … p0 = (bldColor.rgb, 0)
 //   contour  … p0 = (cColor.rgb, 主曲線間隔m)  p1 = (計曲線間隔m, 濃さ, 0, 0)
 //   fill/line の層の画面効果（style 互換 S-P1-1/3/4/5・2026-10-22・gl の u_tr/u_blur/u_cj/u_dashP/u_dashI/u_patP/u_patK と同じ意味）＝
-//   tr = (東 px, 南 px, 今の zoom の 1px の弧（度）, 0)  lx = (blur（px か半径の割合）, blur の種類 0 線/1 円, cj＝cap|join<<2|round(ml×8)<<4, patK＝模様の 1 度の px)
+//   tr = (東 px, 南 px, 今の zoom の 1px の弧（度）, 破線でずらす md の列のずらし（CSS px・線分プールの語 6 が距離＝paintzoom.ts の層で 1 つの値）)  lx = (blur（px か半径の割合）, blur の種類 0 線/1 円, cj＝cap|join<<2|round(ml×8)<<4, patK＝模様の 1 度の px)
 //   dashP = (周期 P, 線の区間の数（0＝破線でない）, 丸い端 1/0, floor(zoom) の px ÷ z24 の px)  dashI0/1 = 区間 [a,b]×4  patP = (原点の位相 x, y, 1/幅, 1/高さ・z＝0 で模様なし)
 //   役割だけのスロット（paramBG）は全部 0＝今までの絵。層ごとの値は renderer の lxBind が別のスロットに詰める
 struct DrawP { p0: vec4f, p1: vec4f, p2: vec4f, tr: vec4f, lx: vec4f, dashP: vec4f, dashI0: vec4f, dashI1: vec4f, patP: vec4f };
@@ -1781,7 +1781,7 @@ export const mdLineWgsl = (src: string, label: string): string => deriveWgsl(src
 	["@vertex fn vs(\n\t@location(0) corner: vec2f,\n\t@location(1) p1: vec2f, @location(2) p2: vec2f,\n\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
 	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
 	[LINEX_ANCHOR,
-	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5) { dist0 = bitcast<f32>(B.z); off0 = vec3f(0.0); }   // 破線の列（S-P1-3）＝ずらさない＝語 6 は始点までの線に沿う距離\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
+	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5) { dist0 = bitcast<f32>(B.z); off0.x = P.tr.w; }   // 破線の列（S-P1-3）＝語 6 は始点までの線に沿う距離・ずらしは層で 1 つの値（P.tr.w・語 7＝角の継ぎ）\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
 ], label);
 // 基図の classic の線＝前後の点（@location 6/7＝renderer が P1／P2 のバッファを 1 線分ずらして同じバッファを 2 つの slot で読ませる）と旗・破線の距離（@location 8＝[jf, dist]）を属性で
 export const lineXWgsl = (src: string, label: string): string => deriveWgsl(src, [
