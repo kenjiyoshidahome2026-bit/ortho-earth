@@ -167,6 +167,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// 式はエンジンの z の目盛り（外来の style は splitMapLibreStyle が ["-", ["zoom"], dz] に書き換え済み＝build.ts もタイルの z をそのまま入れる）＝cam.zoom で評価。
 	// 破線の尺の線幅は floor(外来の z) の値（MapLibre の floorwidth＝dashDz の段）。u_pz＝[色を差し替える, 線幅を差し替える, 半幅, 破線の尺の半幅]・u_pzC＝色・u_pzO＝[ずらしを差し替える, ずらし]（線だけ）。
 	// 層の値は z が変わった時だけ評価し直す
+	// setPaintProperty の速い道（build.ts paintFast・main の applyPaintNow）：基図の層の添字 → 差し替えの式（定数も）。作ったタイルの pz より先に読む＝作り直さずに今の値
+	let pzOver = new Map<number, PaintZoom>();
 	const pzMemo = new WeakMap<PaintZoom, { z: number; c: number[] | null; hw: number | null; hwF: number; off: number | null }>();
 	const setPz = (prog: WebGLProgram, pz: PaintZoom | null | undefined, cam: { zoom?: number }): void => {
 		const oL = loc(gl, prog, "u_pzO");   // 塗りは持たない（null）
@@ -1715,7 +1717,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						gl.uniform1f(loc(gl, md!.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
 						gl.uniform2fv(loc(gl, md!.fillProg, "u_tileOff"), e.origins);
 						setFx(loc(gl, md!.fillProg, "u_tr"), null, e.fx, cam);   // fill-translate（S-P1-4/5）
-						setPz(md!.fillProg, e.pz, cam);   // ズーム連続の色（V-Ph3＝S-P1-2）
+						setPz(md!.fillProg, pzOver.get(e.li) ?? e.pz, cam);   // ズーム連続の色（V-Ph3＝S-P1-2）
 						if (!setPat(md!.fillProg, e.pat, scene.origin, cam)) continue;   // fill-pattern（S-P1-4/5）＝画像がまだ無い層は描かない
 						md!.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseFill += e.counts.length; else dbgC!.mainFill += e.counts.length;
@@ -1727,7 +1729,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						if (e.dashU === undefined) e.dashU = dashU(e.dash, e.cj || 0);
 						setDash(loc(gl, md!.lineProg, "u_dashP"), loc(gl, md!.lineProg, "u_dashI"), e.dashU, cam);   // 破線（S-P1-3）
 						setFx(loc(gl, md!.lineProg, "u_tr"), loc(gl, md!.lineProg, "u_blur"), e.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
-						setPz(md!.lineProg, e.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
+						setPz(md!.lineProg, pzOver.get(e.li) ?? e.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 					}
@@ -1760,7 +1762,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					gl.uniform1f(loc(gl, fillProg, "u_seaGate"), seaFBC ? 1 : 0);
 					setFx(fillTrLoc, null, d.fx, cam);   // fill-translate（S-P1-4/5）
-					setPz(fillProg, d.pz, cam);   // ズーム連続の色（V-Ph3＝S-P1-2）
+					setPz(fillProg, pzOver.get(d.li) ?? d.pz, cam);   // ズーム連続の色（V-Ph3＝S-P1-2）
 					if (!setPat(fillProg, d.pat, scene.origin, cam)) continue;   // fill-pattern（S-P1-4/5）＝画像がまだ無い層は描かない
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
@@ -1772,7 +1774,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					gl.uniform1f(lineCjLoc, d.cj);   // 端と継ぎ（S-P1-1）
 					setDash(lineDashPLoc, lineDashILoc, d.dash, cam);   // 破線（S-P1-3）
 					setFx(lineTrLoc, lineBlurLoc, d.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
-					setPz(lineProg, d.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
+					setPz(lineProg, pzOver.get(d.li) ?? d.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;
@@ -1988,6 +1990,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "sky":       sky = data && Array.isArray((data as GLSky).sky) ? data as GLSky : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...(data as Partial<typeof sea>) }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
+			case "pzOver":    pzOver = new Map(data as [number, PaintZoom][] | null ?? []); break;                       // setPaintProperty の速い道（build.ts paintFast）＝基図の層の添字 → 差し替えの式（全部を置き換える）
 			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: unknown } | null | undefined)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "gintBld":   setGintBld(data as GintBldData | null); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
 			case "scene":     setScene(data as MergedScene, prop as string | undefined); break;                                      // prop=slot("base"|"main")
