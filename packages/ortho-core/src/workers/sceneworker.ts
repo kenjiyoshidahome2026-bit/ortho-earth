@@ -7,7 +7,8 @@
 //   renderer には grow（成長）/ up（タイルブロック転送）/ dl（draw list）を順に流すだけ（FIFO＝dl が up を追い越さない）。
 // - fallback（WEBGL_multi_draw 非対応 or ?nomd=1）：従来どおり mergeTiles で結合した scene を送る。
 import { mergeTiles, coveredTiles, seaFbReal, opBuffers, chopDash } from "../scene.ts";   // index直引きはworker循環になる（tileworker側コメント参照）
-import type { MergedScene, TileGeom } from "../scene.ts";
+import { PT_MAX_ROWS } from "../painttable.ts";
+import type { MergedScene, PtOp, TileGeom } from "../scene.ts";
 import type { PaintZoom } from "../paintzoom.ts";
 import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, ScenePortMessage, SceneRequest, SceneResponse } from "../worker-msg.ts";
 
@@ -15,7 +16,7 @@ import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, Sc
 interface Block { off: number; n: number }
 interface Pool { name: ScenePoolName; cap: number; used: number; free: Block[] }
 /** li 毎の描画レンジ（fill＝index のレンジ・line＝線分のレンジ） */
-type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom };
+type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; pt?: boolean };
 /** GPU 常駐タイルのレコード */
 interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[] }
 interface MD { maxDraws: number; pools: Record<ScenePoolName, Pool>; res: Map<string, Rec>; lastRef: Record<string, Set<Rec>>; pendingFree: Rec[] }
@@ -24,7 +25,7 @@ type UpMessage = Extract<ScenePortMessage, { type: "up" }>;
 /** 計器 b の量の数え（op の typed array を名で引く） */
 type OpArrays = Partial<Record<"pos" | "col" | "idx" | "P1" | "P2" | "half" | "off" | "jf" | "dist", ArrayBufferView | null>>;
 /** pack の 1 束（fill/line＝li 付き・bld＝li 無し） */
-interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -35,6 +36,31 @@ const geomOf = (k: string): TileGeom | null => geom.get(k) || null;
 let renderPort: MessagePort | null = null;    // render worker への直結ポート（MessageChannel の片端）
 let mdDash = false;       // renderer が md の破線を読める（S-P1-3・GL2・WebGPU は 2026-10-22 から）。読めない描き手（?nolx=1）＝常駐の前に CPU で刻む
 let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知に相乗り）
+// paint 表の (b) 類（painttable.ts・vt perf plan §5）：描き手が表を読める（GL2 の md）時だけ、op の行（タイルの中）を通しの行に付け替えて色の語に書く。
+// 鍵＝層 id＋鍵の名＋組（評価した値でなく入力）。行は全層で 1 枚の表の通し番号（捨てない）。行の値＝tile worker が焼いた色（段 1）：
+// 同じ鍵の色は style が同じなら同じ＝新しい行と、色が変わった行（style を組み直した後のタイル）だけを描き手へ送る（古いタイルも今の色）。
+// 行が PT_MAX_ROWS を超える op は焼いた色のまま常駐（描く列を pt の切り替わりで分ける）
+let ptOn = false;
+const ptRow = new Map<string, number>(), ptCol = new Uint32Array(PT_MAX_ROWS);
+let ptN = 0;
+type PtRowMsg = [number, string, string[], unknown[], number];   // [通しの行, 層 id, 鍵の名, 組, 色の語]
+// op の行 → 通しの行（足りなければ null）。新しい行・色が変わった行は rows（描き手へ）に積む
+function ptGlobal(id: string, pt: PtOp, rows: PtRowMsg[]): Uint32Array | null {
+	const pre = id + "\u0001" + pt.keys.join("\u0002") + "\u0001", g = new Uint32Array(pt.rows.length), fresh: string[] = [];
+	let n = ptN;
+	for (let i = 0; i < pt.rows.length; i++) {
+		const k = pre + JSON.stringify(pt.rows[i]);
+		let r = ptRow.get(k);
+		if (r === undefined) { if (n >= PT_MAX_ROWS) { for (const fk of fresh) ptRow.delete(fk); return null; } r = n++; fresh.push(k); ptRow.set(k, r); }
+		g[i] = r;
+	}
+	ptN = n;
+	for (let i = 0; i < g.length; i++) {
+		const r = g[i], c = pt.cols[i];
+		if (r >= n - fresh.length || ptCol[r] !== c) { ptCol[r] = c; rows.push([r, id, pt.keys, pt.rows[i], c]); }
+	}
+	return g;
+}
 let relayCtlN = 0;   // iOS診断：page からの relayCtl 受信数
 let failNext = false;
 
@@ -125,17 +151,19 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 	const bv = g.buildings ? g.buildings.pos.length / 3 : 0;
 	rec = { key, fv: alloc2(md_.pools.fillV, fv), fi: alloc2(md_.pools.fillI, fi), ls: alloc2(md_.pools.line, ls), bv: alloc2(md_.pools.bldV, bv), subs: [] };
 	const up: UpMessage = { type: "up", key }, transfer: Transferable[] = [];   // key は診断用（renderer は使わない）
+	const rows: PtRowMsg[] = [];   // 新しい表の行・色が変わった行（paint 表の (b) 類）
+	const ptOf = (op: { id?: string; pt?: PtOp }): Uint32Array | null => ptOn && op.pt && op.id ? ptGlobal(op.id, op.pt, rows) : null;
 	if (fv) {
 		const ab = new ArrayBuffer(fv * 12), w32 = new Uint32Array(ab);   // 12B＝[x, y（float の bit）, RGBA8]＝語ごとに写す（旧＝色をバイトずつ）
 		const idx = new Uint32Array(fi);
 		let vc = 0, ic = 0;
 		for (const op of g.ops) {
 			if (op.kind !== "fill") continue;
-			const n = op.pos.length >> 1, p32 = u32of(op.pos), c32 = u32of(op.col);
-			for (let i = 0, o = vc * 3; i < n; i++, o += 3) { w32[o] = p32[i * 2]; w32[o + 1] = p32[i * 2 + 1]; w32[o + 2] = c32[i]; }
+			const n = op.pos.length >> 1, p32 = u32of(op.pos), c32 = u32of(op.col), gr = ptOf(op), rid = op.pt?.rid;
+			for (let i = 0, o = vc * 3; i < n; i++, o += 3) { w32[o] = p32[i * 2]; w32[o + 1] = p32[i * 2 + 1]; w32[o + 2] = gr ? gr[rid![i]] : c32[i]; }   // 表を読む列＝色の語が通しの行
 			const base = rec.fv.off + vc;   // index はプール絶対頂点番号へ（WEBGL_multi_draw に baseVertex は無い）
 			for (let i = 0; i < op.idx.length; i++) idx[ic + i] = op.idx[i] + base;
-			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}), ...(op.pz ? { pz: op.pz } : {}) });
+			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: true } : {}) });
 			vc += n; ic += op.idx.length;
 		}
 		up.fill = { base: rec.fv.off, buf: ab };
@@ -148,11 +176,12 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 		for (const op of g.ops) {
 			if (op.kind !== "line") continue;
 			const n = op.half.length, a1 = u32of(op.P1), a2 = u32of(op.P2), c32 = u32of(op.col), h32 = u32of(op.half), f32 = op.off ? u32of(op.off) : null, jf = op.jf, d32 = op.dist ? u32of(op.dist) : null;   // float は bit のまま語で写す（旧＝1 値ずつ F1 経由）
+			const gr = ptOf(op), rid = op.pt?.rid;   // 通しの行（paint 表の (b) 類）
 			for (let i = 0; i < n; i++) {
 				const o = (sc + i) * 8;
 				seg[o] = a1[i * 2]; seg[o + 1] = a1[i * 2 + 1];
 				seg[o + 2] = a2[i * 2]; seg[o + 3] = a2[i * 2 + 1];
-				seg[o + 4] = c32[i];   // RGBA8（リトルエンディアン＝旧の r | g<<8 | b<<16 | a<<24 と同じ語）
+				seg[o + 4] = gr ? gr[rid![i]] : c32[i];   // RGBA8（リトルエンディアン＝旧の r | g<<8 | b<<16 | a<<24 と同じ語）・表を読む列は通しの行（paint 表の (b) 類）
 				seg[o + 5] = jf ? (h32[i] & ~15 | jf[i]) >>> 0 : h32[i];   // 端と継ぎ（S-P1-1）の旗は半幅の下位 4 bit（相対 2e-6＝見分けられない・シェーダが外す）
 				// line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
 				// 破線（S-P1-3）＝語 6 に始点までの線に沿う距離（bits(f32)・z24 の px）＝描く列の dash が読み方を決める（統合ロードマップの 8 語）。
@@ -160,7 +189,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 				if (d32) seg[o + 6] = d32[i]; else if (f32) seg[o + 6] = f32[i * 3];
 				if (f32) seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
 			}
-			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}) });
+			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: true } : {}) });
 			sc += n;
 		}
 		up.line = { base: rec.ls.off, arr: seg };
@@ -177,6 +206,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 		up.bld = { base: rec.bv.off, arr };
 		transfer.push(arr.buffer);
 	}
+	if (rows.length) up.rows = rows;   // 同じ荷＝表の行は塊より先に描き手へ（FIFO）
 	if (transfer.length) renderPort!.postMessage(up satisfies ScenePortMessage, transfer);
 	md_.res.set(key, rec);
 	// GPU常駐が確定したらCPU側の元geometryは捨てる＝mainのタイル予算(24-96MB)を CPU と GPU で二重に
@@ -210,17 +240,19 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 			if (s.fx) e.fx ??= s.fx;   // 層の画面効果（S-P1-4/5・同上）
 			if (s.pz) e.pz ??= s.pz;   // ズーム連続の式（V-Ph3＝S-P1-2・同上）
 			if (s.kind === "fill" && s.pat) e.pat ??= s.pat;   // fill-pattern の名前（同上）
-			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy] : [s.segOff * 6, s.segN * 6, ox, oy]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)
+			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy, s.pt ? 1 : 0] : [s.segOff * 6, s.segN * 6, ox, oy, s.pt ? 1 : 0]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)・5 つ目＝表を読む（paint 表の (b) 類）
 		}
 		if (rec.bv.n) bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);
 	}
 	const pack = (items: number[][], kind: Packed["kind"], li?: number, cj?: number, dash?: number[], fx?: number[], pat?: string, pz?: PaintZoom): Packed[] => {
 		const out: Packed[] = [];
-		for (let c = 0; c < items.length; c += md!.maxDraws) {   // u_tileOff[] の配列長でチャンク分割
-			const n = Math.min(md!.maxDraws, items.length - c);
+		for (let c = 0, n = 0; c < items.length; c += n) {   // u_tileOff[] の配列長でチャンク分割・表を読む／読まないの切り替わりでも分ける（順は変えない）
+			n = 1;
+			while (n < md!.maxDraws && c + n < items.length && items[c + n][4] === items[c][4]) n++;
+			const pt = items[c][4] === 1;
 			const counts = new Int32Array(n), offs = new Int32Array(n), origins = new Float32Array(n * 2);
 			for (let j = 0; j < n; j++) { const it = items[c + j]; offs[j] = it[0]; counts[j] = it[1]; origins[j * 2] = it[2]; origins[j * 2 + 1] = it[3]; }
-			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}), ...(dash ? { dash } : {}), ...(fx ? { fx } : {}), ...(pz ? { pz } : {}) } : { kind, li, offsets: offs, counts, origins, ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}) });
+			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}), ...(dash ? { dash } : {}), ...(fx ? { fx } : {}), ...(pz ? { pz } : {}), ...(pt ? { pt } : {}) } : { kind, li, offsets: offs, counts, origins, ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}), ...(pt ? { pt } : {}) });
 		}
 		return out;
 	};
@@ -252,7 +284,7 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 			const d = ev.data;
 			if (d.type === "mode") {
 				perfOn = !!d.perf;   // 計器 b（perf plan §1）＝merge の時間と量を console へ（renderworker の ?perf=1 に相乗り）
-				md = d.md ? createMD(d.maxDraws || 128) : null; mdDash = !!d.mdDash;
+				md = d.md ? createMD(d.maxDraws || 128) : null; mdDash = !!d.mdDash; ptOn = !!(d.md && d.pt); ptRow.clear(); ptN = 0;   // 描き手が新しい＝表も新しい
 				console.log(`[scene] multi_draw ${md ? `enabled (tiles resident on GPU, max ${md.maxDraws} draw/call)` : "none (CPU merge fallback)"}`);
 			}
 		};
