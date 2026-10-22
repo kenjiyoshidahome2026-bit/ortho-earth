@@ -123,7 +123,7 @@
   text-size-adjust: 100%; /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
   touch-action: manipulation; /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
 } /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
-#c, #gint, #labels {
+#c, #gint, #labels, #labelsgpu {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -138,7 +138,7 @@
   cursor: grabbing;
 }
 
-#gint, #labels {
+#gint, #labels, #labelsgpu {
   pointer-events: none;
 } /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
 /* --- 34px規格（角ボタンの共通骨格 2026-09-03 統合）：寸法・骨格・svg はここ1か所。
