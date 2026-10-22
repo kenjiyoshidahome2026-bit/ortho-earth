@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- タイル GPU 常駐プール（md）と CPU merge（classic＝?nomd=1）の絵一致（vt perf plan §4 の門・2026-10-22）。GL2（WEBGL_multi_draw）と WebGPU の両方で回す。
+     同じ fixture（optbv z16 皇居周辺）を同じ style で、子頁（t-mdparity-view）を ?nomd=1 と ?md=1 で順に起こし、shot.composite() の画素を比べる。
+     2 景＝2d（z16.2 真俯瞰：水域と建物の塗り・道路と岸の線＝line-offset 込み）／3d（z16 55° 方位 30：押し出しの建物も）。
+     判定＝どこかの成分が 8 を超えて違う画素が全体の 0.3% 未満（AA の端の揺れを許す・md は fade を持たない＝着地後の静止画を比べる）。実時間。
+     ※注記は比較の対象外（Canvas2D の置き時刻で揺れる）。地形あり（地面アトラスの塗り）はこの頁では見ない＝実機の 8 ビュー（webgpu port.md）で -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}iframe{width:960px;height:600px;border:0;display:block}</style><title>t-mdparity</title></head>
+<body>
+<script type="module">
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const q = new URLSearchParams(location.search); q.delete("md"); q.delete("nomd"); q.delete("v");
+// 子を 1 枚ずつ起こす（GPU と worker を 2 本同時に立てない＝SwiftShader の負荷）。画素は postMessage（transfer）で受ける
+const shoot = (v, md) => new Promise((res, rej) => {
+	const f = document.createElement("iframe");
+	const url = `./t-mdparity-view.html?${q.toString()}&v=${v}&${md ? "md=1" : "nomd=1"}`;
+	const timer = setTimeout(() => { cleanup(); rej(new Error(`timeout ${v} ${md ? "md" : "nomd"}`)); }, 120000);
+	const onMsg = ev => { if (ev.source !== f.contentWindow || !ev.data || ev.data.type !== "mdparity") return; cleanup(); ev.data.error ? rej(new Error(`${v} ${md ? "md" : "nomd"}: ${ev.data.error}`)) : res(ev.data); };
+	const cleanup = () => { clearTimeout(timer); window.removeEventListener("message", onMsg); f.remove(); };
+	window.addEventListener("message", onMsg);
+	f.src = url; document.body.appendChild(f);
+});
+const compare = (a, b) => {
+	const A = new Uint8ClampedArray(a.data), B = new Uint8ClampedArray(b.data);
+	if (a.w !== b.w || a.h !== b.h) return { diff: 1, n: -1, note: `size ${a.w}x${a.h} vs ${b.w}x${b.h}` };
+	let n = 0, ink = 0; const bg = [A[0], A[1], A[2]]; let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, dmax = 0;   // 違う画素の囲い（どこが違うかの手掛かり）
+	for (let i = 0; i < A.length; i += 4) {
+		const d = Math.max(Math.abs(A[i] - B[i]), Math.abs(A[i + 1] - B[i + 1]), Math.abs(A[i + 2] - B[i + 2]));
+		if (d > 8) { n++; const px = (i >> 2) % a.w, py = (i >> 2) / a.w | 0; x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py); dmax = Math.max(dmax, d); }
+		if (Math.abs(A[i] - bg[0]) + Math.abs(A[i + 1] - bg[1]) + Math.abs(A[i + 2] - bg[2]) > 24) ink++;   // 背景でない画素（絵が出ているか）
+	}
+	return { diff: n / (A.length / 4), n, ink, note: n ? `bbox ${x0},${y0}-${x1},${y1} dmax ${dmax}` : "" };
+};
+try {
+	const only = new URLSearchParams(location.search).get("only");   // 1 景だけ（調査用）
+	for (const v of only ? [only] : ["2d", "3d"]) {
+		const classic = await shoot(v, false), md = await shoot(v, true);
+		const c = compare(classic, md);
+		ok(`${v}-drawn`, c.ink > classic.w * classic.h * 0.05, `ink ${c.ink} settled=${classic.settled ? 1 : 0}/${md.settled ? 1 : 0}`);   // 絵が出ている（背景だけの一致を「一致」と数えない）
+		ok(`${v}-match`, c.diff < 0.003, `${c.n} px differ (${(c.diff * 100).toFixed(2)}%)${c.note ? " " + c.note : ""}`);
+	}
+	document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.message || e) + " " + t.join(" "); }
+</script>
+</body></html>

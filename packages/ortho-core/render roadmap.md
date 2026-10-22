@@ -72,7 +72,7 @@
 | 順 | 項目 | 中身 | 出口の門 |
 |---|---|---|---|
 | 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致・`[scene] apply` 4ms 超が 3 シーンでゼロ・`?nomd=1` |
-| 12 | **T-P1** 線沿いの注記を GPU へ | SDF アトラス（Canvas2D→EDT）・字のパイプライン。足場の最前面 webgpu canvas | デルフト 60fps・注記 CPU 1ms 未満・字の質を実機で目視 |
+| 12 | **T-P1** 線沿いの注記を GPU へ（実装済・`?text=gpu`・実機の門待ち） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。足場の最前面 webgpu canvas | デルフト 60fps・注記 CPU 1ms 未満・字の質を実機で目視 |
 | 13 | S-P1-4・5 | 模様（fill/line/background-pattern）・`*-translate`・line-blur・circle-blur（GL2 先） | 互換の爪車・basemap looks different の減少 |
 
 V-Ph2 への追加の求め（T-P2 のため）：**render bundle は層の添字 `li` の境で割れる単位で記録**する（`executeBundles` に層ごとの bundle 列を渡し、その間に注記の draw を挟めるように）。プールのアロケータは名前付きで汎用にしておく（V 計画 §7）が、注記は毎フレームの `writeBuffer`（5,000 字で 240KB）なので、**glyph をプールに載せるのは必要が出てから**でよい（T-P5 で経緯度を常駐させる時が候補）。

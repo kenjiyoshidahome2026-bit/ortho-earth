@@ -1,0 +1,86 @@
+<!doctype html>
+<!-- 線に沿う注記の字を WebGPU（SDF の版）で塗った絵が Canvas2D の受け口（字形アトラス）と同じ所に同じ形で出るか（テキスト GPU 化 T-P1・2026-10-22）。
+     同じ字の列（直線・曲がった道・傾けた行列・縁・ぼかし・format の色と書体・CJK）を両方の受け口で描き、不透明度の面（α>0.5）の重なり（IoU）と
+     インクの重心のずれ・本体の色を比べる。dpr 1 と 2。字の質（画数の多い字の潰れ）は実機で本人が見る＝ここは位置と形の門。
+     ⚠実時間専用（verify-webgpu.mjs）。WebGPU の無い環境はスキップ扱いの PASS。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-textgpu</title></head>
+<body style="margin:0;background:#fff">
+<script type="module">
+import { canvas2d, createCanvasSink } from "@ortho-earth/core/src/textsink.ts";
+import { createGpuText, createGpuLineSink } from "@ortho-earth/core/src/gpu/text.ts";
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const W = 480, H = 200;
+setTimeout(() => { ok("timeout(60s)", false); fin(); }, 60000);   // 読み戻しが返らない等＝詰まった所までを名乗って落ちる
+// 字の列＝線に沿う注記の lineLayout が出す形（錨・角度・行列）
+function along(text, x0, y0, ang, step, bend = 0, t2 = null) {
+	const g = []; let x = x0, y = y0, a = ang;
+	for (const ch of text) { g.push({ ch, x, y, a, w: step, ...(t2 ? { t: t2(a) } : {}) }); x += Math.cos(a) * step; y += Math.sin(a) * step; a += bend; }
+	return g;
+}
+const BLACK = [0.1, 0.1, 0.1, 1], WHITE = [1, 1, 1, 1], RED = [0.85, 0.1, 0.1, 1];
+const FONT = '13px "Noto Sans", "Noto Sans JP", sans-serif', BOLD = 'bold 15px "Noto Sans", "Noto Sans JP", sans-serif';
+const pitch = a => ({ a: Math.cos(a), b: Math.sin(a) * 0.55, c: -Math.sin(a), d: Math.cos(a) * 0.55 });   // 傾けた地面へ潰す（map の pitch-alignment）
+const SCENES = [
+	{ name: "straight", g: along("Oude Langendijk", 40, 50, 0, 9), font: FONT, p: { color: BLACK, halo: null, haloW: 0 } },
+	{ name: "curve-halo", g: along("Wijnhaven", 60, 140, -0.5, 10, 0.12), font: FONT, p: { color: BLACK, halo: WHITE, haloW: 1.5 } },
+	{ name: "pitch", g: along("Markt Delft", 250, 60, 0.2, 9, 0, pitch), font: BOLD, p: { color: BLACK, halo: WHITE, haloW: 1 } },
+	{ name: "blur", g: along("Koornmarkt", 250, 150, 0, 10), font: FONT, p: { color: BLACK, halo: WHITE, haloW: 1.2, blur: 1 } },
+	{ name: "format", g: along("ABCdef", 40, 100, 0.05, 11).map((g, i) => i < 3 ? { ...g, col: RED, f: BOLD } : g), font: FONT, p: { color: BLACK, halo: null, haloW: 0 } },
+	{ name: "cjk", g: along("東京駅前通り", 300, 110, -0.1, 14), font: '14px "Noto Sans JP", sans-serif', p: { color: BLACK, halo: WHITE, haloW: 1 } },
+];
+// 画素の面（α＞0.5 の 2 値）・外接の箱。重心は使わない（細い字は SDF の方がわずかに太い＝字の重さの偏りで重心が動く）
+function stats(px, w, h) {
+	let n = 0, x0 = w, y0 = h, x1 = -1, y1 = -1; const m = new Uint8Array(w * h);
+	for (let i = 0; i < w * h; i++) if (px[i * 4 + 3] > 127) { m[i] = 1; n++; const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+	return { m, n, box: [x0, y0, x1, y1] };
+}
+const iou = (a, b) => { let i = 0, u = 0; for (let k = 0; k < a.length; k++) { i += a[k] & b[k]; u += a[k] | b[k]; } return u ? i / u : 1; };
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+		const adapter = await navigator.gpu.requestAdapter(), device = await adapter.requestDevice();
+		const errs = []; device.addEventListener("uncapturederror", e => errs.push(e.error.message));
+		ok("device", true);
+		for (const dpr of [1, 2]) {
+			const cw = W * dpr, ch = H * dpr;
+			const c2 = new OffscreenCanvas(cw, ch), x2 = c2.getContext("2d", { willReadFrequently: true }), s2 = createCanvasSink(canvas2d(x2));
+			const gt = createGpuText(device, null), base = createCanvasSink(canvas2d(new OffscreenCanvas(cw, ch).getContext("2d"))), sg = createGpuLineSink(base); sg.attach(gt);   // GPU はテクスチャに描く（ソフトウェア WebGPU は canvas の present で device が落ちる＝読み戻しはテクスチャから）
+			ok(`dpr${dpr}:kind=${sg.kind}`, sg.kind === "webgpu");
+			for (const sc of SCENES) {
+				for (let pass = 0; pass < 2; pass++) {   // 2 回目＝字形アトラスの写し（ImageBitmap）が出来た後の Canvas2D と、版を引くだけの GPU
+					s2.begin(cw, ch, dpr); s2.lineText(sc.g, sc.font, sc.p, 1, dpr); s2.end();
+					sg.begin(cw, ch, dpr); sg.lineText(sc.g, sc.font, sc.p, 1, dpr); sg.end();
+					if (pass === 0) await new Promise(r => setTimeout(r, 50));
+				}
+				const gp = await gt.readPixels();
+				const A = stats(x2.getImageData(0, 0, cw, ch).data, cw, ch), B = stats(gp, cw, ch);
+				const io = iou(A.m, B.m), db = Math.max(...A.box.map((v, i) => Math.abs(v - B.box[i]))) / dpr, wr = B.n / Math.max(1, A.n);
+				ok(`dpr${dpr}:${sc.name}(iou=${io.toFixed(3)} box±${db.toFixed(1)}px ink=${wr.toFixed(2)})`, A.n > 50 && io > 0.8 && db <= 1.5 && wr > 0.85 && wr < 1.25);   // 同じ所（箱のずれ 1.5px 以内）・同じ形（IoU）・同じ重さ（インクの比）
+				if (sc.name === "format") {   // 区間の色＝前の 3 字は赤・後ろは黒（GPU の本体の色）
+					let red = 0, blk = 0; for (let i = 0; i < cw * ch; i++) if (gp[i * 4 + 3] > 180) { if (gp[i * 4] > 150 && gp[i * 4 + 1] < 80) red++; else if (gp[i * 4] < 60) blk++; }
+					ok(`dpr${dpr}:format-color(red=${red} black=${blk})`, red > 20 && blk > 20);
+				}
+			}
+			ok(`dpr${dpr}:glyphs=${sg.stats().glyphs}`, sg.stats().glyphs > 0);
+			if (dpr === 1) {   // 版を広げる（2048²→4096²）＝漢字を詰めて溢れさせ、前からある字が同じ絵のまま出るか
+				const s0 = gt.atlasSize; let i = 0; while (gt.atlasSize === s0 && i < 6000) gt.glyph('20px "Noto Sans JP", sans-serif', String.fromCharCode(0x4e00 + i++));
+				const sc = SCENES[0]; s2.begin(cw, ch, dpr); s2.lineText(sc.g, sc.font, sc.p, 1, dpr); s2.end(); sg.begin(cw, ch, dpr); sg.lineText(sc.g, sc.font, sc.p, 1, dpr); sg.end();
+				const A = stats(x2.getImageData(0, 0, cw, ch).data, cw, ch), B = stats(await gt.readPixels(), cw, ch), io = iou(A.m, B.m);
+				ok(`grow(${s0}→${gt.atlasSize} after ${i} glyphs iou=${io.toFixed(3)})`, gt.atlasSize > s0 && io > 0.8);
+			}
+			sg.clear(cw, ch);
+			let ink = 0; const cp = await gt.readPixels(); for (let i = 3; i < cp.length; i += 4) if (cp[i]) ink++;
+			ok(`dpr${dpr}:clear(ink=${ink})`, ink === 0);
+			// 撮影の時＝canvasOnly で線の字も Canvas2D へ（GPU の canvas は触らない）
+			sg.canvasOnly = true; sg.begin(cw, ch, dpr); sg.lineText(SCENES[0].g, SCENES[0].font, SCENES[0].p, 1, dpr); sg.end(); sg.canvasOnly = false;
+			ok(`dpr${dpr}:canvasOnly(2d glyphs=${base.stats().glyphs})`, base.stats().glyphs === SCENES[0].g.length);
+			gt.destroy();
+		}
+		ok(`gpu-errors(${errs.length}${errs.length ? ":" + errs[0].slice(0, 120) : ""})`, errs.length === 0);
+		device.destroy();
+		fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
