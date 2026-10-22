@@ -897,7 +897,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
-		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
+		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
 		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
@@ -1001,7 +1001,7 @@ let needsDraw = true, readySig: GlobeLive["readySig"] = "", lastLabels: HostLabe
 const requestDraw: GlobeScope["requestDraw"] = () => { needsDraw = true; };   // 次のフレームで描き直す（needsDraw を立てる口はこれ 1 本＝切り出したファイルにも渡せる）
 let coverOk = true;   // 最後の render で「基図が視野を隙間なく覆い、その枠がそのまま載っている」（idle の材料・公式例の門 段 2）
 const rasterPend: GlobeScope["rasterPend"] = new Map(); let rasterPendTotal = 0, rasterFading = false;   // rasterFading＝到着フェード（raster-fade-duration・C4）の最中＝idle はこれも待つ（MapLibre の hasTransition）   // 画像タイル層（raster/hillshade/image/video）の未着＝raster.js の rasterPending（開く途中・見えている選抜の queued/loading）。idle は合計 0 を待ち、isSourceLoaded は source を使う層の分を見る（2026-09-28・門では hillshade の例が 10 秒の timeout で撮られていた）
-let renderBackend: GlobeLive["renderBackend"] = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
+let renderBackend: GlobeLive["renderBackend"] = null, paintTable = false;   // paintTable＝描き手が paint 表の (b) 類を読む（frame1 で確定）   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
 let mainDesired: GlobeLive["mainDesired"] = "";
@@ -3699,6 +3699,7 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 	get attrZone() { return attrZone; }, set attrZone(v) { attrZone = v; },
 	get dpr() { return dpr; },
 	get renderBackend() { return renderBackend; },
+	get paintTable() { return paintTable; },
 }, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, rebuildCluster, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
 // 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {

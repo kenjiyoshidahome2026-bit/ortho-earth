@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- 実描画の検分：paint 表の (b) 類（vt perf plan §5 の段 1・2026-10-22・GL2）。外来 style の基図の塗りと線で、色・不透明度が地物の属性を読む層（match）は、
      md（?md=1）では色の語が表の行＝描き手が表（RGBA32F）から色を読む（__drawHud の d.pt＞0）。?pt=0・?nomd=1 は焼いた色（d.pt＝0）。どれも同じ絵：
-     ①塗りの色 2 種 ②不透明度が属性で変わる塗り ③線の色 2 種 ④どれにも当たらない線＝既定の色。?drawhud=1 で回す（d.pt を読む）。実時間。 -->
+     ①塗りの色 2 種 ②不透明度が属性で変わる塗り ③線の色 2 種 ④どれにも当たらない線＝既定の色。?drawhud=1 で回す（d.pt を読む）。
+     段 2（setPaintProperty の (b) 類）：⑤同じ属性を読む新しい色・不透明度＝表を読む時は組み直さない（__styleStats.paintFast が増え、タイルの取り寄せが増えない）・読まない時は組み直す。絵はどちらも新しい値
+     ⑥前の鍵に無い属性を読む式＝組み直す。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-painttable</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -73,7 +75,8 @@ try {
 	FEATS = SHAPES.map(s => ({ k: s.k, poly: s.poly, ll: s.px.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
 	await map.setStyle({ version: 8, name: "t-painttable", sources: { pf: SRC }, layers: [BG, ...LAYERS] });
 	await sleep(6000);
-	const c = composeLayersToCanvas(await map.requestSnapshot()), img = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	let img = await grab();
 	const W = document.getElementById("map").clientWidth;
 	const px = (x, y) => { const s = img.width / W, i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
 	const near = (c, w, e = 14) => c.every((v, i) => Math.abs(v - w[i]) <= e);
@@ -84,9 +87,22 @@ try {
 	want("lineA", 480, 340, [0, 0, 255]);
 	want("lineB", 480, 420, [255, 0, 255]);
 	want("lineDefault", 480, 500, [255, 128, 0]);
-	await sleep(500);
-	const d = window.__drawHud?.d;
+	let d = null;   // 直近に描いた枠の実績（?drawhud=1・約 3 Hz）＝描き直しを促して待つ
+	for (let i = 0; i < 12; i++) { map.triggerRepaint?.(); await sleep(400); d = window.__drawHud?.d; if (!PT || d?.pt > 0) break; }
 	ok("tableUsed", d && (PT ? d.pt > 0 : !d.pt), `pt ${d?.pt} want ${PT ? ">0" : "0"}`);
+	// 段 2：setPaintProperty の (b) 類
+	const st = () => ({ ...window.__styleStats });
+	const set = async (tag, id, key, val, fast, checks) => {
+		const a = st(), f0 = FETCH;
+		map.setPaintProperty(id, key, val);
+		await sleep(fast ? 800 : 5000);
+		img = await grab();
+		const b = st(), bad = checks.filter(([, x, y, w]) => !near(px(x, y), w));
+		ok(tag, !bad.length && (b.paintFast === a.paintFast + 1) === fast && (!fast || FETCH === f0), `${bad.map(([n, x, y, w]) => `${n} ${px(x, y)} want ${w}`).join(" ")} fast ${a.paintFast}→${b.paintFast} fetch +${FETCH - f0}`);
+	};
+	await set("fastLineColor", "l", "line-color", ["match", ["get", "k"], "la", "#00ff00", "lb", "#ffff00", "#000000"], PT, [["lineA", 480, 340, [0, 255, 0]], ["lineB", 480, 420, [255, 255, 0]], ["lineDefault", 480, 500, [0, 0, 0]]]);
+	await set("fastFillOpacity", "f", "fill-opacity", ["match", ["get", "k"], "fa", 0.5, 1], PT, [["fillA", 180, 160, [255, 128, 128]], ["fillB", 480, 160, [0, 255, 0]], ["fillC", 780, 160, [0, 0, 255]]]);
+	await set("otherKeyRebuilds", "f", "fill-color", ["case", ["has", "zz"], "#000000", ["match", ["get", "k"], "fb", "#ff00ff", "#00ffff"]], false, [["fillA", 180, 160, [128, 255, 255]], ["fillB", 480, 160, [255, 0, 255]]]);   // zz は前の鍵に無い
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
 </script>
