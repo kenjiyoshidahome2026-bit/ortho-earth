@@ -102,7 +102,7 @@ export interface LabelLayerOptions {
 	sink?: TextSink | null;
 	/** 字の寸法の口（既定＝measureText）。 */
 	metrics?: GlyphMetrics | null;
-	/** Canvas2D の受け口を包む（T-P1＝線に沿う字だけ GPU へ回す受け口・createGpuLineSink）。sink を渡した時は使わない */
+	/** Canvas2D の受け口を包む（T-P1・T-P2＝字を GPU へ回す受け口・createGpuTextSink）。sink を渡した時は使わない */
 	sinkWrap?: ((base: TextSink) => TextSink) | null;
 	/** 線注記を平らに置く幅［px］の [下限, 上限]（既定 [4.5, 5.5]）。null＝潰れても出す。 */
 	lineFlatPx?: [number, number] | null;
