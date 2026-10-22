@@ -50,6 +50,11 @@
 				"title": "独り地理院",
 				"desc": "横浜の退職エンジニアが、誰にも頼まれず独りで、地図を丸い地球に描き直している。その始まりと、AI の製図係との協業の話。",
 				"href": "/docs/introduction.html"
+			},
+			"en": {
+				"title": "独り地理院 (Japanese)",
+				"desc": "A retired engineer in Yokohama, asked by no one, redrawing the map on a round Earth alone. How it began, and working with an AI draughtsman. In Japanese.",
+				"href": "/docs/introduction.html"
 			}
 		}
 	]
