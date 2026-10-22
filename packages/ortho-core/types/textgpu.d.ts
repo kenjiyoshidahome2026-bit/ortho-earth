@@ -9,6 +9,8 @@ export interface GpuText {
 	glyph(font: string, ch: string): SdfGlyph | null;
 	fontOf(font: string): [string, number];
 	begin(W: number, H: number, dpr: number): void;
+	/** 次の push の行き先：null＝最前面の canvas・数＝地図のパスの中の層の添字 li の位置（T-P2） */
+	target(li: number | null): void;
 	push(x: number, y: number, m: Mat2, sp: SdfGlyph, k: number, fill: number, halo: number, hw: number, blur: number): void;
 	end(): void;
 	clearCanvas(): void;
@@ -16,10 +18,16 @@ export interface GpuText {
 	reset(): void;
 	readonly count: number;
 	readonly atlasSize: number;
+	/** 地図のパスの中に描く字のある層の添字（昇順）＝直近の end() の分 */
+	midAnchors(): readonly number[];
+	/** 地図のパスの中で li が [lo, hi) の層の字を描く */
+	drawMid(pass: GPURenderPassEncoder, lo: number, hi: number, at: MidTarget): number;
 	destroy(): void;
 }
+/** 地図の描画パスの的（drawMid） */
+export interface MidTarget { format: GPUTextureFormat; samples: number; depth: GPUTextureFormat | null; W: number; H: number; dpr: number }
 /** canvas＝描く先の webgpu canvas。null＝画面に出さずテクスチャに描く（検定） */
 export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format?: GPUTextureFormat): GpuText;
 /** 注記の字（線に沿う・点）を GPU へ回す受け口。attach(gt)＝GPU を据える・canvasOnly＝一時的に全部 Canvas2D（撮影） */
-export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean }
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; /** 地図のパスの中へ回す層（T-P2）・null＝全部最前面 */ mid: ((li: number) => boolean) | null }
 export function createGpuTextSink(base: TextSink): GpuTextSink;
