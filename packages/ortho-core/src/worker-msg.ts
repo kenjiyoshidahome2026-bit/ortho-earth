@@ -46,12 +46,12 @@ export type SceneResponse =
 /** プールの名（単位は要素数＝renderer 側が unit→byte/texel を知る） */
 export type ScenePoolName = "fillV" | "fillI" | "line" | "bldV";
 /** multi_draw の draw list の 1 束（fill＝offsets・line＝firsts） */
-export interface SceneDrawLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+export interface SceneDrawLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 export interface SceneDrawBld { firsts: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 /** scene worker → render worker（直結ポート・FIFO＝grow → up → dl の順が崩れない） */
 export type ScenePortMessage =
 	| { type: "grow"; pool: ScenePoolName; units: number }
-	| { type: "up"; key: string; fill?: { base: number; buf: ArrayBuffer }; idx?: { base: number; arr: Uint32Array<ArrayBuffer> }; line?: { base: number; arr: Uint32Array<ArrayBuffer> }; bld?: { base: number; arr: Float32Array<ArrayBuffer> }; rows?: [number, string, string[], unknown[], number][] }   // rows＝新しい表の行・色が変わった行 [通しの行, 層 id, 鍵の名, 組, 焼いた色（RGBA8 の語）]（paint 表の (b) 類）
+	| { type: "up"; key: string; fill?: { base: number; buf: ArrayBuffer }; idx?: { base: number; arr: Uint32Array<ArrayBuffer> }; line?: { base: number; arr: Uint32Array<ArrayBuffer> }; bld?: { base: number; arr: Float32Array<ArrayBuffer> }; rows?: [number, string, string[], unknown[], number, number?][] }   // rows＝新しい表の行・色か半幅が変わった行 [通しの行, 層 id, 鍵の名, 組, 焼いた色（RGBA8 の語）, 焼いた線の半幅（表に置ける線幅の層＝段 2b）]（paint 表の (b) 類）
 	| { type: "dl"; slot: string; sig: unknown; origin: number[]; layers: SceneDrawLayer[]; bld: SceneDrawBld[] | null }
 	| { type: "scene"; slot: string; scene: MergedScene }
 	| { type: "relayCtl"; msg: unknown };

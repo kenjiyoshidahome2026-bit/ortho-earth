@@ -9,8 +9,9 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
 import { evalPaintZoom } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
-import { ptCovers, ptRowColor } from "../painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値で行を評価し直す
+import { ptCovers, ptRowColor, ptRowHalf } from "../painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値で行を評価し直す
 import type { PtLayer } from "../painttable.ts";
+type PtRow = [number, string, string[], unknown[], number, number?];   // 表の行（worker-msg.ts の up.rows）
 import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
@@ -89,7 +90,7 @@ function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -127,7 +128,7 @@ interface OverlaySlot {
 }
 /** overlayHi の prop＝配列は面塗り／{mask,color} は周辺マスク */
 type HiFill = number[] | { mask?: boolean; color?: number[] | null };
-interface DbgCounters { baseFill: number; baseLine: number; mainFill: number; mainLine: number; pt: number; skipMain: boolean; skipBase: boolean; zoom: number; terrainDepth: boolean }
+interface DbgCounters { baseFill: number; baseLine: number; mainFill: number; mainLine: number; pt: number; ptw: number; skipMain: boolean; skipBase: boolean; zoom: number; terrainDepth: boolean }
 interface UserAnchorPlan { host: string | null; anchors: number[]; anchorOf: (li: number) => number }
 type LiPick = ((x: { li: number }) => boolean) | null;
 /** ?perf=1 の計器（worker の大域） */
@@ -666,22 +667,22 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		lineTex: null, lineTexH: 0,       // RGBA32UI・2texel/線分
 		fillVAO: null, bldVAO: null,
 	} : null;
-	// paint 表の (b) 類（painttable.ts・vt perf plan §5）：RGBA32F・行ごとに 2 texel（0＝色・1＝予約）・幅 PT_TEXW。行は scene worker が常駐の荷（mdUp の rows）に添える＝塊より先に着く。
+	// paint 表の (b) 類（painttable.ts・vt perf plan §5）：RGBA32F・行ごとに 2 texel（0＝色・1＝線の半幅（x）＝表に置ける線幅の層・段 2b）・幅 PT_TEXW。行は scene worker が常駐の荷（mdUp の rows）に添える＝塊より先に着く。
 	// 値＝tile worker が焼いた色（段 1＝絵は bit 同値）。setPaintProperty の (b) 類（段 2・painttable.ts の paintTableFast）は層 id → 後の式（ptOver）＝行の組を属性に戻して評価し直す
 	// （後の式が読む属性を行の鍵が持つ行だけ・持たない行と上書きの無い層は焼いた色）。書き換えは描く前に一度（汚れた行の範囲）・高さが足りなければ作り直して全部
 	const PT_UNIT = 17, PT_TEXW = 1024;
-	const pt = { tex: null as WebGLTexture | null, h: 0, data: new Float32Array(0), lo: Infinity, hi: -1, n: 0, rows: [] as [number, string, string[], unknown[], number][] };
+	const pt = { tex: null as WebGLTexture | null, h: 0, data: new Float32Array(0), lo: Infinity, hi: -1, n: 0, rows: [] as PtRow[] };
 	let ptOver = new Map<string, PtLayer>();
 	const ptProg = (prog: WebGLProgram): WebGLProgram => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ptTex"), PT_UNIT); return prog; };   // 既定の 0 番は他の型の標本器と当たる
 	if (md) { ptProg(md.fillProg); ptProg(md.lineProg); gl.useProgram(null); }
-	function ptPut(row: [number, string, string[], unknown[], number]): void {
-		const [r, id, keys, t, c] = row, o = r * 8, L = ptOver.get(id);
-		if (L && ptCovers(L, keys)) ptRowColor(L, keys, t, pt.data, o);
-		else { pt.data[o] = (c & 255) / 255; pt.data[o + 1] = (c >>> 8 & 255) / 255; pt.data[o + 2] = (c >>> 16 & 255) / 255; pt.data[o + 3] = (c >>> 24) / 255; }
+	function ptPut(row: PtRow): void {
+		const [r, id, keys, t, c, hw] = row, o = r * 8, L = ptOver.get(id);
+		if (L && ptCovers(L, keys)) { ptRowColor(L, keys, t, pt.data, o); if (L.w != null) pt.data[o + 4] = ptRowHalf(L, keys, t); else if (hw !== undefined) pt.data[o + 4] = hw; }
+		else { pt.data[o] = (c & 255) / 255; pt.data[o + 1] = (c >>> 8 & 255) / 255; pt.data[o + 2] = (c >>> 16 & 255) / 255; pt.data[o + 3] = (c >>> 24) / 255; if (hw !== undefined) pt.data[o + 4] = hw; }
 		if (r < pt.lo) pt.lo = r;
 		if (r > pt.hi) pt.hi = r;
 	}
-	function ptRows(rows: [number, string, string[], unknown[], number][]): void {
+	function ptRows(rows: PtRow[]): void {
 		for (const row of rows) {
 			const r = row[0], need = (((r * 2 + 1) / PT_TEXW) | 0) + 1;
 			if (need * PT_TEXW * 4 > pt.data.length) { const d = new Float32Array(Math.max(need, pt.data.length / (PT_TEXW * 4) * 2) * PT_TEXW * 4); d.set(pt.data); pt.data = d; }
@@ -1421,7 +1422,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 
 	function draw(cam: CameraPose, opts?: GLDrawOptions | null): boolean {
 		gl.viewport(0, 0, canvas.width, canvas.height);
-		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
+		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, ptw: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height) as GLCamState;
 		st.mvp32 = Float32Array.from(st.mvp);
 		lastLogCoef = logCoefOf(st);   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
@@ -1784,10 +1785,11 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						setDash(loc(gl, md!.lineProg, "u_dashP"), loc(gl, md!.lineProg, "u_dashI"), e.dashU, cam);   // 破線（S-P1-3）
 						setFx(loc(gl, md!.lineProg, "u_tr"), loc(gl, md!.lineProg, "u_blur"), e.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 						setPz(md!.lineProg, pzOver.get(e.li) ?? e.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
-						gl.uniform1f(loc(gl, md!.lineProg, "u_pt"), e.pt ? 1 : 0);   // paint 表の (b) 類
+						gl.uniform1f(loc(gl, md!.lineProg, "u_pt"), e.pt ?? 0);   // paint 表の (b) 類（2＝線の半幅も表・段 2b）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 						if (e.pt) dbgC!.pt += e.counts.length;
+						if (e.pt === 2) dbgC!.ptw += e.counts.length;   // 線の半幅も表から（段 2b）
 					}
 				}
 				gl.bindVertexArray(null);

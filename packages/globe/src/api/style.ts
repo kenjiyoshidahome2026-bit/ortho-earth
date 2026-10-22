@@ -493,7 +493,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		for (const id of [...pzFast]) if (!seen.has(id)) pzFast.delete(id);
 		renderer.set("pzOver", list);
 	};
-	// 地物の属性を読む色・不透明度（paint 表の (b) 類の段 2・GL2 の md＝live.paintTable）：前も後も (b) 類で、後の式が読む属性が前の鍵に含まれる（core painttable.ts の paintTableFast）なら
+	// 地物の属性を読む色・不透明度・線幅（paint 表の (b) 類の段 2・線幅は 2b・GL2 の md＝live.paintTable）：前も後も (b) 類で、後の式が読む属性が前の鍵に含まれる（core painttable.ts の paintTableFast）なら
 	// 組み直さない＝描き手が表の行を後の式で評価し直す（renderer.set("ptOver", [[層 id, 式]…])）。覚え方と配り直しは pzFast と同じ（層 id で覚え、今の paint から作り直す）
 	const ptFast = new Set<string>();
 	const sendPtOver = () => {
