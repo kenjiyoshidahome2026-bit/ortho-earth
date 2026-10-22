@@ -55,6 +55,12 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	const edges = clipLineGeom(ring, E, { skipBoundary: true });
 	let onEdge = 0; for (let s = 0, k = 0; k < edges.ends.length; s = edges.ends[k++]) for (let i = s; i + 3 < edges.ends[k]; i += 2) if (edges.coords[i] === E && edges.coords[i + 2] === E) onEdge++;
 	ok("outline-skip-boundary", edges && onEdge === 0, `onEdge=${onEdge}`);
+	// 線の進み（line-gradient・G-3）＝切った端は線分の上で補う・外へ出て戻る線は 2 本とも元の値のまま
+	const pg = clipLineGeom({ ...lineOf([[-50, 100], [2000, 100], [4200, 100]]), prog: [0, 0.5, 1] }, E);
+	ok("line-clip-prog", pg?.prog instanceof Float32Array && pg.prog.length === 3 && near(pg.prog[0], 0.5 * 50 / 2050, 1e-6) && pg.prog[1] === 0.5 && near(pg.prog[2], 0.5 + 0.5 * 2096 / 2200, 1e-6), pg && JSON.stringify(Array.from(pg.prog)));
+	const ps = clipLineGeom({ ...lineOf([[100, 100], [100, -200], [300, -200], [300, 100]]), prog: [0, 0.3, 0.6, 1] }, E);
+	ok("line-clip-prog-split", ps?.prog.length === 4 && ps.prog[0] === 0 && near(ps.prog[1], 0.3 * 100 / 300, 1e-6) && near(ps.prog[2], 0.6 + 0.4 * 200 / 300, 1e-6) && ps.prog[3] === 1, ps && JSON.stringify(Array.from(ps.prog)));
+	ok("line-clip-no-prog", clipLineGeom(lineOf([[-50, 100], [2000, 100]]), E).prog === undefined);
 }
 // ── 円＝頂点（タイルの中だけ）→ 長さ 0 の線＝core の線の経路で丸点（半幅＝半径） ──
 {

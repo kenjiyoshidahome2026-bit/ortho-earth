@@ -13,8 +13,8 @@
 // 登録簿は realm（main／各 worker）ごと＝関数は postMessage で渡らない。decode.js が #tile-formats を import するので、
 // decode.js を読む realm では必ず登録が済んでいる。
 
-/** 地物のフラット表現＝coords [x,y,x,y,…]・ends＝各リング/線の終端 coord 添字 */
-export interface DecodedGeom { coords: Int32Array; ends: number[] }
+/** 地物のフラット表現＝coords [x,y,x,y,…]・ends＝各リング/線の終端 coord 添字・prog＝頂点ごとの線の進み 0..1（geojson の線＝MapLibre の lineMetrics・line-gradient の ["line-progress"]・geojsonvt.ts が書く） */
+export interface DecodedGeom { coords: Int32Array; ends: number[]; prog?: Float32Array }
 export type DecodedGeomType = "Point" | "LineString" | "Polygon";
 /** 解読済みの地物（type＝未知の型は undefined・geom＝無ければ null） */
 export interface DecodedFeature { type: DecodedGeomType | undefined; props: Record<string, unknown>; geom: DecodedGeom | null; id: number | undefined; /** 式の ["geometry-type"]（元の型）＝geojson の点置きで面や線を錨の点にして渡す時（注記・gjlabels） */ gt?: string }

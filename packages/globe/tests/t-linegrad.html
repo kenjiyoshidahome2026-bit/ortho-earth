@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- 実描画の検分：line-gradient（geojson vt plan G-3・2026-10-22）＝線分の色の語が始点・終点の進み（unorm16×2）で、色は見本（LineOp.lt.lut）を画素の進みで引く。
+     レンダラを直駆動（t-globefloor と同じ作法・地球儀は起こさない）。?gl2=1＝GL2（createRenderer の classic）・無印＝WebGPU（createRendererGPU の classic）。
+     東向きの 2 線分（進み 0→0.5・0.5→1）に赤→青の見本＝頭は赤・真ん中は紫・尻は青・4 分の 1 は赤寄り。見本を持たない同じ線（色の語が色）は従来どおり一色。
+     画素は GL2＝同じタスクの drawImage・WebGPU＝renderer.readback（実 GPU）。WebGPU は検証エラー 0 も。?nopx=1＝画素を読まない（クラウドの SwiftShader は読み戻しで device を失う）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0}</style><title>t-linegrad</title></head>
+<body><canvas id="g" width="256" height="64"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const GL2 = /[?&]gl2=1/.test(location.search), NOPX = /[?&]nopx=1/.test(location.search);   // nopx＝画素を読まない（クラウドの SwiftShader は canvas の読み戻しで device を失う＝配線と検証エラーだけ見る）
+try {
+	if (!GL2 && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const canvas = document.getElementById("g"), W = canvas.width, H = canvas.height;
+	const r = GL2 ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, D = 0.002, Z = 16, K = 256 * 2 ** Z / 360;   // K＝1 度の px（経度）
+	r.set("view", { clear: [1, 1, 1, 1], land: [1, 1, 1, 1] });
+	const lut = new Uint8Array(256 * 4);
+	for (let j = 0; j < 256; j++) { lut[j * 4] = Math.round(255 * (1 - j / 255)); lut[j * 4 + 2] = Math.round(255 * j / 255); lut[j * 4 + 3] = 255; }
+	const u16 = v => Math.round(v * 65535), word = (a, b) => [u16(a) & 255, u16(a) >> 8, u16(b) & 255, u16(b) >> 8];
+	const line = (li, y, lt) => ({ kind: "line", li, P1: new Float32Array([-D, y, 0, y]), P2: new Float32Array([0, y, D, y]), half: new Float32Array([6, 6]),
+		col: new Uint8Array(lt ? [...word(0, 0.5), ...word(0.5, 1)] : [0, 160, 0, 255, 0, 160, 0, 255]), ...(lt ? { lt } : {}) });
+	const dy = 16 / K;   // 2 本目＝画面で 16 px 下（緯度は小さい差なので経度と同じ尺の近似で足りる）
+	r.set("scene", { origin: [LON, LAT], layers: [line(1, 0, { key: "g|red-blue", lut }), line(2, -dy * 1.23, null)] }, "main");
+	const cam = { center: [LON, LAT], zoom: Z, pitch: 0, bearing: 0, dpr: 1 };
+	let px = null;
+	if (GL2) {
+		const rd = Object.assign(document.createElement("canvas"), { width: W, height: H }), rc = rd.getContext("2d", { willReadFrequently: true });
+		r.draw(cam, {}); if (r.flush) r.flush();
+		rc.drawImage(canvas, 0, 0); px = rc.getImageData(0, 0, W, H).data;
+	} else {
+		r.draw(cam, {}); r.flush();
+		if (!NOPX) { const rb = await r.readback(); px = new Uint8Array(rb.base); }
+	}
+	if (!px) ok("画素は見ない（?nopx=1）", true);
+	else {
+	const at = (x, y) => { const i = (Math.round(y) * W + Math.round(x)) * 4; return [px[i], px[i + 1], px[i + 2], px[i + 3]]; };
+	// 線の芯の行（真ん中の列で一番濃い行）と端（丸い端の外＝白くない画素の左右の端から半幅＋1 内へ）を絵から探す＝投影の尺を当てにしない
+	let yc = H / 2, best = 999; for (let y = 0; y < H; y++) { const c = at(W / 2, y), s = c[1] + (255 - Math.max(c[0], c[2])); if (c[1] < 60 && s < best) { best = s; yc = y; } }
+	const ink = x => { const c = at(x, yc); return c[0] + c[1] + c[2] < 700; };
+	let xa = 0, xb = W - 1; while (xa < W && !ink(xa)) xa++; while (xb > 0 && !ink(xb)) xb--;
+	xa += 7; xb -= 7;
+	const X = f => xa + f * (xb - xa);
+	const c0 = at(X(0.04), yc), cq = at(X(0.25), yc), cm = at(X(0.5), yc), c1 = at(X(0.96), yc);
+	ok(`頭は赤（${c0.join()}）`, c0[0] > 200 && c0[2] < 50 && c0[1] < 40);
+	ok(`4 分の 1 は赤寄り（${cq.join()}）`, cq[0] > 160 && cq[0] < 220 && cq[2] > 35 && cq[2] < 95 && cq[1] < 40);
+	ok(`真ん中は紫（${cm.join()}）`, Math.abs(cm[0] - 128) < 30 && Math.abs(cm[2] - 128) < 30 && cm[1] < 40);
+	ok(`尻は青（${c1.join()}）`, c1[2] > 200 && c1[0] < 50 && c1[1] < 40);
+	let green = 0; for (let y = 0; y < H; y++) { const c = at(W / 2, y); if (c[1] > 120 && c[0] < 60 && c[2] < 60) green++; }
+	ok(`見本の無い線は色の語が色（緑 ${green} 行）`, green >= 8);
+	}
+	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? ":" + r.gpuErrors.slice(0, 2).join("|") : ""}）`, r.gpuErrors.length === 0); }
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script></body></html>
