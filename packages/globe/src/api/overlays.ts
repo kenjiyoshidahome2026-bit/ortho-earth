@@ -40,7 +40,7 @@ export function installOverlays(map: Installing<OverlaysApi>, { mapEl, labelCanv
 		cv.className = "overlay-gl"; cv.dataset.overlay = name;
 		cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
 		cv.width = size.w; cv.height = size.h;
-		if (above) labelCanvas.after(cv); else mapEl.insertBefore(cv, labelCanvas);   // 既定＝注記の下（地震・衛星など）／above＝注記の上（UI 家具は後ろの DOM＝さらに上のまま）
+		if (above) (mapEl.querySelector("#labelsgpu") ?? labelCanvas).after(cv); else mapEl.insertBefore(cv, labelCanvas);   // ?text=gpu の線の字の canvas（#labelsgpu）は注記の一部＝その上へ   // 既定＝注記の下（地震・衛星など）／above＝注記の上（UI 家具は後ろの DOM＝さらに上のまま）
 		const off = cv.transferControlToOffscreen();
 		wPost({ type: "overlayAdd", name, ...(typeof src === "string" ? { url: new URL(src, location.href).href } : { builtin: src?.builtin }), canvas: off, opts }, [off]);
 		const h: OverlayHandle = {
