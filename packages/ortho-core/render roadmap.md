@@ -71,7 +71,7 @@
 
 | 順 | 項目 | 中身 | 出口の門 |
 |---|---|---|---|
-| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致・`[scene] apply` 4ms 超が 3 シーンでゼロ・`?nomd=1` |
+| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw＝**2026-10-22 実装**（step A・C＝PR #533・D は追加なし・**B は棚**＝Mac の bench で 3 場面 60fps・hitch 0・draw 200〜300 本/フレーム＝`vt perf plan.md` §4・§8） | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致（GL2 t-mdparity 0 px・WebGPU は Mac の verify:webgpu 待ち）・`[scene] apply` 4ms 超が 3 シーンでゼロ（**達成**）・`?nomd=1` |
 | 12 | **T-P1** 線沿いの注記を GPU へ（実装済・`?text=gpu`・実機の門待ち） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。足場の最前面 webgpu canvas | デルフト 60fps・注記 CPU 1ms 未満・字の質を実機で目視 |
 | 13 | S-P1-4・5 | 模様（fill/line/background-pattern）・`*-translate`・line-blur・circle-blur（GL2 先） | 互換の爪車・basemap looks different の減少 |
 

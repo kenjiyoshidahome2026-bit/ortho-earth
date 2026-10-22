@@ -88,7 +88,7 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
   `renderer.md=true, mdMax` を返し、`renderworker` の mode 通知で scene worker が md へ（`drainMD` の 3MB/フレーム予算・dlApplied ack は GL と同じ道＝**既にある**）。
   **step A の実装の形**：プールは GPUBuffer 4 本（fillV 12B・fillI u32・bldV 24B・line＝storage 32B/線分）。`mdGrow`＝新 buffer＋`copyBufferToBuffer`（queue 順＝後続の `mdUp`＝`writeBuffer` が成長を追い越さない）。origins は **instance step の頂点属性 `a_tile`**（dl 1 束を頂点バッファ 1 本に詰め・`drawIndexed(count, 1, firstIndex, 0, firstInstance=j)` で `origins[j]`）＝storage の添字も bind group も要らない（GL の `u_tileOff[gl_DrawID]` と同順で**先に**足す）。線は属性なし＝`@builtin(vertex_index)/6` で線分レコードを storage（group(3)・`maxStorageBufferBindingSize` 超は警告＝退避は後段）から引く。派生は `wgsl.ts` の `mdFillWgsl`／`mdLineWgsl`／`mdBldWgsl`（vs の署名行だけを anchor＝影・面・影＋面・cast・ATLAS_FILL の全部に掛かる＝15 変種が compile 通過）。パイプラインは派生（素／影／面／影＋面）× sampleCount で遅延生成。地面アトラスの塗り（3D）と影を落とす側（建物）も md 版。fade は md では無い（`mdScene` は即差し替え）。`memEstimate().pool`＝プールの確保量。
   **門の実装**：`packages/globe/tests/t-mdparity.html`＝同じ fixture（optbv z16）を子頁で `?nomd=1`／`?md=1` と順に起こして `shot.composite()` の画素を比べる（2d＝塗り・線（line-offset 込み）／3d＝55° で押し出しの建物も）。GL2（WEBGL_multi_draw）は **0 px 差**（verify:ui・2026-10-22）。WebGPU は verify:webgpu に載せた＝**本人の Mac の実 GPU で**（クラウドの SwiftShader は WebGPU の絵を読み戻せない＝t-shadow/t-clip も素の main で同じ 0/0/0）。
-- **step B（2〜3 日）render bundle**（**計測待ち**＝step A の素朴なループの CPU 発行時間を Mac の `?perf=1`／bench-perf で見てから。1,000〜2,500 draw/フレームで 1〜3ms 級なら着手・1ms 未満なら棚）：dl 差し替えと鍵（slot・sampleCount・terrainDepth・ゲート署名）の変化で再記録・main パスは `executeBundles`。bundle 内は `setStencilReference`／viewport 不可＝fill/line は不要（建物は現行どおり外）。
+- **step B（2〜3 日）render bundle**＝**2026-10-22 棚**（Mac Apple Metal の bench-perf・md 既定・`&perf=1`・3 回：3 場面とも 60fps、4ms 超の引っ掛かりは load 0／move 0〜1 回、gpuMap 0.4／3.2／6.3ms。md の draw 数はタイル 22〜31 枚 × 層 9 前後＝200〜300 本/フレーム＝下の着手の目安 1,000 本に遠く、発行の CPU はフレームに現れていない）。再開の条件＝タイル数か層数が増えて 1,000 draw/フレームを超える場面が出た時（T-P2 の層ごとの bundle 列の求めはその時に一緒に）。元の目安：dl 差し替えと鍵（slot・sampleCount・terrainDepth・ゲート署名）の変化で再記録・main パスは `executeBundles`。bundle 内は `setStencilReference`／viewport 不可＝fill/line は不要（建物は現行どおり外）。
 - **step C（1〜2 日）フェードと LOW_MEM**（**2026-10-22 実装**＝md は fade を持たない・LOW_MEM は globe の `noMultiDraw` が classic のまま・`?hud=1` の GPU resident に tile pool の行）：fade は落とす（タイル単位の差し替えは粒が小さい・`perf plan.md` 裁定 #3）。LOW_MEM は classic のまま（裁定 #2）＝`md` は `tier !== LOW_MEM` の時だけ。`?mem=1` にプール行（capMB/usedMB/frag）。
 - **step D（半日）結合側の後始末**（md の `geom` 解放は scene worker の `ensureUploaded` が既にしている＝追加なし）：md では `mergeTiles` が走らない＝scene worker の `geom` は常駐確定で解放（既存 `ensureUploaded`）。main の `MAIN_REQ_GAP_MS`／`MOVE_SWAP_MS` は Phase 4 で見直す。
 
@@ -124,11 +124,13 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 
 ## 8. ベースライン記録欄（Phase 0 で埋める）
 
+2026-10-22 の行は Phase 1 と Phase 2 step A が入った後の計り（`apps/ortho-japan/scripts/bench-perf.mjs --flags "&perf=1" --runs 3`・backend=webgpu）。Phase 0 時点の素の値は取らずに進んだ＝比較は `perf plan.md` §8 の既知の値（東京駅 apply 4ms 超 9〜11 回）と、`?tileq=0`／`?nomd=1` の A/B で取る。
+
 | 端末 | シーン | 主層 要求→画面 中央値／p90（ms） | `[scene] apply` 4ms 超／9 秒 | merge 回数／9 秒・変化枚数の平均 | gpuMap 移動中（ms） | 備考 |
 |---|---|---|---|---|---|---|
-| Mac | 2D 東京 z13 パン | | | | | |
-| Mac | 富士 z13 60° パン | | | | | |
-| Mac | 東京駅 z16.5 55° パン | | | | | 既知＝apply 4ms 超 9〜11 回（perf plan §8） |
+| Mac（Apple Metal・2026-10-22・md 既定＝Phase 1＋2 step A 後） | 2D 東京 z13 パン | 0／0（見本は常駐済み） | 0 | 0 | 0.39 | load/move とも hitch 0 |
+| Mac（同） | 富士 z13 60° パン | load 183／229・move 150／184（wait 0〜1・fetch 48〜74・build 1〜3） | 0 | load 7（8.3/22 枚）・move 54（7.1/31 枚） | 3.15 | move の hitch 1 回。要求→画面の中身＝fetch 以外に約 100ms（scene worker の常駐＋dl の往復＋フレーム）＝Phase 4 の種 |
+| Mac（同） | 東京駅 z16.5 55° パン | load 233／235・move 133／200（wait 0〜1・fetch 48〜77・build 1.7〜1.8） | 0 | load 6（12.8/13 枚）・move 42（5.2/22 枚） | 6.31 | 旧＝apply 4ms 超 9〜11 回（perf plan §8）→ 0 |
 | iPhone（LOW_MEM） | （同 3 行） | | | | | md は classic のまま＝Phase 1 の効きだけ |
 
 ## 9. やらない事・棚
