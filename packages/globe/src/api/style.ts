@@ -40,7 +40,7 @@ type NoteLayer = MLLayer & { paint: Record<string, unknown>; layout: Record<stri
 
 export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn,
-	autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle,
+	autoBldReadOnly, baseOverrides, baseMoves, moveBefore, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle,
 	extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses,
 	mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow,
 	rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld,
@@ -187,7 +187,15 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	};
 	map.moveLayer = (id, beforeId) => {
 		const v = mlLayers.get(id);
-		if (!v) { if (baseLayerOf(id) || (id === AUTO_BLD && autoBldOn())) console.info(`[moveLayer] "${id}" is a basemap layer — basemap layer order is fixed (draw stages: basemap → images → your layers → labels)`); return map; }
+		if (!v && baseLayerOf(id)) {   // 基図の層（S-P2-2・2026-10-22）＝基図の層の順を並べ替えて組み直す（描く順＝li・注記の順・#123 の差し込みの位置も追随）。
+			// beforeId が利用者の層・その他の層＝今の style の順でその後ろにある最初の基図の層の前（利用者の層は基図の層に差し込む＝#123）
+			if (beforeId === id) return map;
+			const list = styleOrder().filter(e => e.id !== id), i = beforeId == null ? -1 : list.findIndex(e => e.id === beforeId);
+			baseMoves.push([id, beforeId ?? null, i < 0 ? null : list.slice(i).find(e => e.base)?.id ?? null]);
+			restyleBase();
+			return map;
+		}
+		if (!v) { if (id === AUTO_BLD && autoBldOn()) console.info(`[moveLayer] "${id}" is the regional auto-buildings layer — its order is fixed`); return map; }
 		mlLayers.delete(id);
 		if (beforeId != null && mlLayers.has(beforeId)) {
 			const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
@@ -360,7 +368,9 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		if (live.EXT) {
 			const byId = new Map<string, MLLayer>(live.style.layers.map(L => [L.id, L]));
 			list = [];
-			for (const L0 of live.EXT.ms.layers) {
+			const ext = [...live.EXT.ms.layers];
+			for (const [id, raw, bb] of baseMoves) moveBefore(ext, id, raw != null && ext.some(L => L.id === raw) ? raw : bb, (L: MLLayer) => L.id);   // 基図の moveLayer（S-P2-2）
+			for (const L0 of ext) {
 				const v = mlLayers.get(L0.id);
 				if (v && extraIds.has(L0.id)) { list.push({ id: L0.id, v }); continue; }
 				const B = byId.get(L0.id); if (B) { list.push({ id: B.id, base: B }); byId.delete(L0.id); continue; }
@@ -563,7 +573,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	};
 	const applyStyleDiff = async (nx: ExtStyle) => {
 		const old = live.EXT!, ms = nx.ms, J = (x: unknown) => JSON.stringify(x ?? null);
-		baseOverrides.clear(); baseVis.clear(); extNotes.clear(); userBg.length = 0;
+		baseOverrides.clear(); baseMoves.length = 0; baseVis.clear(); extNotes.clear(); userBg.length = 0;
 		live.EXT = nx;
 		if (J(old.ms.light) !== J(ms.light)) { live.mlLight = ms.light ? normLight(ms.light) : null; sendLight(); }   // 根の light（B3）
 		if (J(old.ms.sky) !== J(ms.sky)) { live.mlSky = ms.sky ? normSky(ms.sky) : null; sendSky(); }   // 根の sky（B4）
@@ -600,7 +610,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		styleStats.full++; styleStats.rebuilds++;
 		unmountExtExtras();
 		const oldBaseSid = baseSidNow();
-		baseOverrides.clear(); baseVis.clear(); extNotes.clear(); userBg.length = 0;   // 新しい style＝基図の層の上書き（その他の層の記録も・実行時の background 層も）は捨てる（MapLibre の setStyle と同じ）
+		baseOverrides.clear(); baseMoves.length = 0; baseVis.clear(); extNotes.clear(); userBg.length = 0;   // 新しい style＝基図の層の上書き（その他の層の記録も・実行時の background 層も）は捨てる（MapLibre の setStyle と同じ）
 		live.EXT = nx;
 		live.mlLight = nx.ms.light ? normLight(nx.ms.light) : null; sendLight();   // 新しい style の根の light（B3）
 		live.mlSky = nx.ms.sky ? normSky(nx.ms.sky) : null; sendSky();   // 新しい style の根の sky（B4）

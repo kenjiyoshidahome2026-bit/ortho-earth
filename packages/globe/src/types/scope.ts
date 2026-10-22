@@ -456,6 +456,10 @@ export interface GlobeScope {
 	autoBldReadOnly(what: string): never;
 	/** 基図の層の上書き（id → 上書き）・出し入れ（id → "none"） */
 	baseOverrides: Map<string, BaseOverride>; baseVis: Map<string, string>;
+	/** 基図の層の moveLayer（S-P2-2）＝[動かす層, beforeId（style の順＝getStyle）, 前に置く基図の層（描く順）｜null＝最後] を順に当てる。setStyle で捨てる */
+	baseMoves: [string, string | null, string | null][];
+	/** 並びの中の id の物を before の物の前へ（before が無い・null＝最後） */
+	moveBefore<T>(arr: T[], id: string, before: string | null, idOf: (x: T) => string): void;
 	/** 床の色を決める background 層（無ければ null） */
 	bgOf(st: BaseStyle): MLLayer | null;
 	/** 建物の塗りの層の添字（伏せている間は -1） */
