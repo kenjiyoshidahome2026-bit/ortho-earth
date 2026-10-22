@@ -38,7 +38,7 @@
 <h2>ベクトルタイルと注記</h2>
 <p>2D の地図の表現は MapLibre が本家で、他は皆これにどれだけ寄せるかで測られます。MVT と MLT、式（expression）、SDF の文字、衝突回避、線に沿う注記、右から左へ書く文字の plugin まで揃っています。</p>
 <p>ここは五つの差が最も大きいところでもあります。Cesium の MVT は 3D Tiles への変換で、スタイルは MapLibre の style ではなく Cesium3DTileStyle で書きます。注記の LabelCollection には地図のような衝突回避が無く、重なりは EntityCluster でまとめる形です。Terria の MVT は protomaps で画像に焼いて貼るので、文字は地面に描かれた絵になり、傾けると寝ます。Navara は MapLibre style の plugin を持ちますが一部の対応で、glyph PBF を読まず Web フォントで文字を描きます。</p>
-<p>ortho-earth は MapLibre の公式の例 139 本で照合していて、同じ絵 70・同じ答え 42・動く 25・動かない 0 です。注記は GL の SDF ではなく Canvas2D の重ね描きで、衝突の判定は間引いて当選を安定させ、位置は毎フレーム投影し直しています。縦書きと 26 言語まで持つのは、日本語の地図から始まったエンジンらしいところだと思います。</p>
+<p>ortho-earth は MapLibre の公式の例 139 本で照合していて、同じ絵 66・同じ答え 50・動く 21・動かない 0 です。注記は GL の SDF ではなく Canvas2D の重ね描きで、衝突の判定は間引いて当選を安定させ、位置は毎フレーム投影し直しています。縦書きと 26 言語まで持つのは、日本語の地図から始まったエンジンらしいところだと思います。</p>
 <h2>時間</h2>
 <p>時間を第一級に扱うのは Cesium の伝統で、Clock と Timeline、CZML の補間付きの位置、時間で変わる画像まであります。Terria はこれを利用者向けの時間軸にしていて、WMS の時間次元や CSV の時系列をそのまま再生できます。MapLibre には時計が無く、時間はアプリが style を書き換えて表します（deck.gl の TripsLayer は currentTime を持ちます）。Navara の時間は太陽の位置と glTF のアニメーションまでで、データの時計はありません。</p>
 <p>ortho-earth は map.clock 一つで、夜の側、星、人工衛星（SGP4）、CZML の補間付きの位置、trips を同じ時刻で動かします。Cesium から来た方に向けた頁でも、Clock と CZML は書き方の対応表に入れてあります。</p>
@@ -50,7 +50,7 @@
 <p>組み込む側にとって無視できない違いとして、ortho-earth だけが GPL-3.0 で、他の四つは BSD・Apache・MIT のいずれかです。ortho-earth を組み込んだ頁を配る場合は、その頁のコードも GPL の条件に入ります。比べるなら、ここは一行添えておくのが公平だと思います。</p>
 <h2>ortho-earth の立ち位置</h2>
 <p>機能の幅だけを見ると、ortho-earth は MapLibre の 2D の書き方（style、式、queryRenderedFeatures、注記）と、Cesium の 3D と時間（3D Tiles、I3S、quantized-mesh、CZML、時計）の両方に手を伸ばしている点で、五つの中で一番範囲が広いと思います。そこに日影時間・可視域・見通しといった解析も本体に入っています。</p>
-<p>ただし、それぞれの本家と比べると、深さはまだ追いかける側です。MapLibre の例は 139 本中 25 本が「動くが絵か答えが違う」で、Cesium の voxel や 3D Tiles のスタイル言語、Terria のカタログのような長年の蓄積はまだありません。worker で描くことによる deck.gl の interleaved の制約と、GPL という許諾も、選ぶ側にとっての条件になります。</p>
+<p>ただし、それぞれの本家と比べると、深さはまだ追いかける側です。MapLibre の例は 139 本中 21 本が「動くが絵か答えが違う」で、Cesium の voxel や 3D Tiles のスタイル言語、Terria のカタログのような長年の蓄積はまだありません。worker で描くことによる deck.gl の interleaved の制約と、GPL という許諾も、選ぶ側にとっての条件になります。</p>
 <p>性能では Cesium と同じ帯にいて、機能では MapLibre と Cesium の交わりを一つの球の上で取っている。今の ortho-earth を公平に書くと、そうなると思います。</p>
 </article>
 </body>

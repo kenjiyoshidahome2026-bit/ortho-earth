@@ -20,7 +20,7 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 This map has no flat Mercator mode. Orthographic and perspective are one continuum on the sphere, so MapLibre's
 `projection` is read as "globe" whatever it says, `renderWorldCopies` has nothing to copy, and the same scene carries
 from the whole Earth to street level. The MapLibre face (`@ortho-earth/globe/maplibre`) is graded against MapLibre's own
-139 examples: 70 same picture · 42 same answer · 25 run · 0 fail to run (`npm run verify:examples`; ledger in
+139 examples: 66 same picture · 50 same answer · 21 run · 0 fail to run (`npm run verify:examples`; ledger in
 [`maplibre-compat.md`](maplibre-compat.md)).
 
 ## Guides
