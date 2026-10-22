@@ -16,7 +16,7 @@ import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, Sc
 interface Block { off: number; n: number }
 interface Pool { name: ScenePoolName; cap: number; used: number; free: Block[] }
 /** li 毎の描画レンジ（fill＝index のレンジ・line＝線分のレンジ） */
-type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; pt?: boolean };
+type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; pt?: number };   // pt＝表を読む（1＝色・2＝色と線の半幅＝段 2b）
 /** GPU 常駐タイルのレコード */
 interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[] }
 interface MD { maxDraws: number; pools: Record<ScenePoolName, Pool>; res: Map<string, Rec>; lastRef: Record<string, Set<Rec>>; pendingFree: Rec[] }
@@ -25,7 +25,7 @@ type UpMessage = Extract<ScenePortMessage, { type: "up" }>;
 /** 計器 b の量の数え（op の typed array を名で引く） */
 type OpArrays = Partial<Record<"pos" | "col" | "idx" | "P1" | "P2" | "half" | "off" | "jf" | "dist", ArrayBufferView | null>>;
 /** pack の 1 束（fill/line＝li 付き・bld＝li 無し） */
-interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: boolean; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -41,9 +41,9 @@ let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知�
 // 同じ鍵の色は style が同じなら同じ＝新しい行と、色が変わった行（style を組み直した後のタイル）だけを描き手へ送る（古いタイルも今の色）。
 // 行が PT_MAX_ROWS を超える op は焼いた色のまま常駐（描く列を pt の切り替わりで分ける）
 let ptOn = false;
-const ptRow = new Map<string, number>(), ptCol = new Uint32Array(PT_MAX_ROWS);
+const ptRow = new Map<string, number>(), ptCol = new Uint32Array(PT_MAX_ROWS), ptHw = new Float32Array(PT_MAX_ROWS);
 let ptN = 0;
-type PtRowMsg = [number, string, string[], unknown[], number];   // [通しの行, 層 id, 鍵の名, 組, 色の語]
+type PtRowMsg = [number, string, string[], unknown[], number, number?];   // [通しの行, 層 id, 鍵の名, 組, 色の語, 線の半幅（表に置ける線幅の層＝段 2b）]
 // op の行 → 通しの行（足りなければ null）。新しい行・色が変わった行は rows（描き手へ）に積む
 function ptGlobal(id: string, pt: PtOp, rows: PtRowMsg[]): Uint32Array | null {
 	const pre = id + "\u0001" + pt.keys.join("\u0002") + "\u0001", g = new Uint32Array(pt.rows.length), fresh: string[] = [];
@@ -56,8 +56,8 @@ function ptGlobal(id: string, pt: PtOp, rows: PtRowMsg[]): Uint32Array | null {
 	}
 	ptN = n;
 	for (let i = 0; i < g.length; i++) {
-		const r = g[i], c = pt.cols[i];
-		if (r >= n - fresh.length || ptCol[r] !== c) { ptCol[r] = c; rows.push([r, id, pt.keys, pt.rows[i], c]); }
+		const r = g[i], c = pt.cols[i], hw = pt.hw?.[i];
+		if (r >= n - fresh.length || ptCol[r] !== c || (hw !== undefined && ptHw[r] !== hw)) { ptCol[r] = c; if (hw !== undefined) ptHw[r] = hw; rows.push(hw !== undefined ? [r, id, pt.keys, pt.rows[i], c, hw] : [r, id, pt.keys, pt.rows[i], c]); }
 	}
 	return g;
 }
@@ -163,7 +163,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 			for (let i = 0, o = vc * 3; i < n; i++, o += 3) { w32[o] = p32[i * 2]; w32[o + 1] = p32[i * 2 + 1]; w32[o + 2] = gr ? gr[rid![i]] : c32[i]; }   // 表を読む列＝色の語が通しの行
 			const base = rec.fv.off + vc;   // index はプール絶対頂点番号へ（WEBGL_multi_draw に baseVertex は無い）
 			for (let i = 0; i < op.idx.length; i++) idx[ic + i] = op.idx[i] + base;
-			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: true } : {}) });
+			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length, ...(op.fx ? { fx: op.fx } : {}), ...(op.pat ? { pat: op.pat } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: 1 } : {}) });
 			vc += n; ic += op.idx.length;
 		}
 		up.fill = { base: rec.fv.off, buf: ab };
@@ -189,7 +189,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 				if (d32) seg[o + 6] = d32[i]; else if (f32) seg[o + 6] = f32[i * 3];
 				if (f32) seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
 			}
-			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: true } : {}) });
+			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}), ...(gr ? { pt: op.pt!.hw ? 2 : 1 } : {}) });
 			sc += n;
 		}
 		up.line = { base: rec.ls.off, arr: seg };
@@ -240,7 +240,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 			if (s.fx) e.fx ??= s.fx;   // 層の画面効果（S-P1-4/5・同上）
 			if (s.pz) e.pz ??= s.pz;   // ズーム連続の式（V-Ph3＝S-P1-2・同上）
 			if (s.kind === "fill" && s.pat) e.pat ??= s.pat;   // fill-pattern の名前（同上）
-			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy, s.pt ? 1 : 0] : [s.segOff * 6, s.segN * 6, ox, oy, s.pt ? 1 : 0]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)・5 つ目＝表を読む（paint 表の (b) 類）
+			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy, s.pt ?? 0] : [s.segOff * 6, s.segN * 6, ox, oy, s.pt ?? 0]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)・5 つ目＝表を読む（paint 表の (b) 類・1＝色・2＝色と線の半幅）
 		}
 		if (rec.bv.n) bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);
 	}
@@ -249,7 +249,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 		for (let c = 0, n = 0; c < items.length; c += n) {   // u_tileOff[] の配列長でチャンク分割・表を読む／読まないの切り替わりでも分ける（順は変えない）
 			n = 1;
 			while (n < md!.maxDraws && c + n < items.length && items[c + n][4] === items[c][4]) n++;
-			const pt = items[c][4] === 1;
+			const pt = items[c][4];
 			const counts = new Int32Array(n), offs = new Int32Array(n), origins = new Float32Array(n * 2);
 			for (let j = 0; j < n; j++) { const it = items[c + j]; offs[j] = it[0]; counts[j] = it[1]; origins[j * 2] = it[2]; origins[j * 2 + 1] = it[3]; }
 			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}), ...(dash ? { dash } : {}), ...(fx ? { fx } : {}), ...(pz ? { pz } : {}), ...(pt ? { pt } : {}) } : { kind, li, offsets: offs, counts, origins, ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}), ...(pt ? { pt } : {}) });

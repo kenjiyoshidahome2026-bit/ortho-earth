@@ -9,7 +9,7 @@ import type { PaintZoom } from "./paintzoom.ts";
 // pat＝fill-pattern の画像の名前（S-P1-4/5・build.ts の fillPatternOf）・持つ層だけ
 // pz＝ズーム連続の差し替えの式（V-Ph3＝S-P1-2・paintzoom.ts の layerPaintZoom）・持つ層だけ
 /** paint 表の (b) 類（painttable.ts）＝keys＝鍵の名・rows＝タイルの中の行の組・cols＝行の焼いた色（RGBA8 の語）・rid＝頂点（塗り）／線分（線）ごとの行 */
-export interface PtOp { keys: string[]; rows: unknown[][]; cols: Uint32Array; rid: Uint16Array }
+export interface PtOp { keys: string[]; rows: unknown[][]; cols: Uint32Array; hw?: Float32Array; rid: Uint16Array }   // hw＝行の線の半幅（表に置ける線幅の層＝段 2b）
 export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: PtOp }
 /** 線の op（off＝line-offset の [off, tS, tE]×線分・持つ層だけ） */
 // jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
@@ -131,7 +131,7 @@ export function opBuffers(ops: readonly DrawOp[], buildings?: BuildingsGeom | nu
 	for (const op of ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
 		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); if (op.jf) bufs.push(op.jf.buffer); if (op.dist) bufs.push(op.dist.buffer); }
-		if (op.pt) bufs.push(op.pt.rid.buffer, op.pt.cols.buffer);
+		if (op.pt) { bufs.push(op.pt.rid.buffer, op.pt.cols.buffer); if (op.pt.hw) bufs.push(op.pt.hw.buffer); }
 	}
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;

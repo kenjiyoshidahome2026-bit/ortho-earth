@@ -1082,6 +1082,7 @@ const PT = /* glsl */`
 uniform float u_pt;
 uniform highp sampler2D u_ptTex;
 vec4 ptColor(int r) { int w = textureSize(u_ptTex, 0).x, t = r * 2; return texelFetch(u_ptTex, ivec2(t % w, t / w), 0); }
+float ptHalf(int r) { int w = textureSize(u_ptTex, 0).x, t = r * 2 + 1; return texelFetch(u_ptTex, ivec2(t % w, t / w), 0).x; }   // 線の半幅（u_pt＝2 の列・段 2b）
 int ptRowOf(vec4 c) { return int(c.r * 255.0 + 0.5) + int(c.g * 255.0 + 0.5) * 256; }`;
 export const FILL_VS = `#version 300 es
 precision highp float;
@@ -1372,6 +1373,7 @@ void main() {
 		if ((B.y & 1u) != 0u) { int tp = t0 - 2; uvec4 P = texelFetch(u_segTex, ivec2(tp % tw, tp / tw), 0); p0 = vec2(uintBitsToFloat(P.x), uintBitsToFloat(P.y)) + off; }
 		if ((B.y & 2u) != 0u) { int tn = t0 + 2; uvec4 N = texelFetch(u_segTex, ivec2(tn % tw, tn / tw), 0); p3 = vec2(uintBitsToFloat(N.z), uintBitsToFloat(N.w)) + off; }
 	}
+	if (u_pt > 1.5) { hw0 = ptHalf(int(B.x & 65535u)); if (u_cj > 0.5) hw0 = uintBitsToFloat(floatBitsToUint(hw0) & ~15u); }   // 線幅も表（段 2b）＝語 5 と同じく旗の 4 bit を落とす（焼いた半幅と bit 同値）
 	vec2 o = u_origin;
 ${LINE_MAIN}
 }`;
