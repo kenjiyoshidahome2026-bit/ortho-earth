@@ -166,7 +166,16 @@ const imagesReady = async () => {
 };
 
 // ── ② 実走 ───────────────────────────────────────────────────────────────
-if (!await goto()) { bye(); fail("実走: カードが出ない＝起動失敗"); }
+// 起動失敗は理由を添えて落とす＝頁の文言（world は失敗を "Failed to load: …" と画面に出す）・例外・200 以外の要求（2026-10-22・理由なしで止まって診断に RC が要った）
+const why = async () => [`頁: ${String(await ev("document.body.innerText.trim().slice(0, 300)") || "（空）").replace(/\s+/g, " ")}`,
+	...errs.slice(0, 10).map(e => `  ${e.split("\n")[0]}`), ...requests.filter(r => !r.startsWith("200 ")).slice(0, 10).map(r => `  ${r}`)].join("\n");
+// 1 回だけ読み直す＝データは GitHub Pages（ortho-data）から取る＝その一瞬の取り損ないで deploy:engine 全体が止まった（2026-10-22・直後の再実行は全 PASS）。
+// 2 回とも出ない＝本物の起動失敗
+if (!await goto()) {
+	console.log(`… 起動せず＝1 回だけ読み直す\n${await why()}`);
+	errs = []; requests.length = 0;
+	if (!await goto()) { const w = await why(); bye(); fail(`実走: カードが出ない＝起動失敗（2 回とも）\n${w}`); }
+}
 const cards = await ev("document.querySelectorAll('div.nation').length");
 if (cards < 200) { bye(); fail(`実走: カードが ${cards} 枚しかない（DB 欠損の疑い・期待 200+）`); }
 const shown = await imagesReady();
