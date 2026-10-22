@@ -170,7 +170,7 @@ function build(m: VtMsg) {
 			else for (const f of feats) for (const [px, py] of labelPointsOf(f as TileFeature, E)) pts.push({ type: "Point", id: f.id, props: f.props, geom: { coords: [px, py], ends: [2] } });
 			if (!pts.length) continue;
 			const { labels: ls } = buildLabels({ layers: { [sl!]: { extent: E, features: pts as DecodedFeature[] } }, z, x, y, stateOf }, { layers: [L], schema: null });
-			for (const lb of ls) { lb.sort = -1e6 - okey * 1e3 + (lb.sort || 0); delete (lb as Partial<Label>).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（MapLibre と同じ）
+			for (const lb of ls) { lb.usk = lb.sort || 0; lb.sort = -1e6 - okey * 1e3 + lb.usk; delete (lb as Partial<Label>).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（MapLibre と同じ）
 			if (ls.length) labels[id] = ls;
 			features += pts.length;
 		}

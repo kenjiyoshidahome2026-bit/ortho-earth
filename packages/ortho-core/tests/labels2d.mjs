@@ -377,4 +377,20 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.ok(c2.log.some(e => e.op === "fill" && /^C/.test(e.s)), "Canvas2D の受け口は星座名を fillText で");
 }
 
+// ── 18. 利用者の組の順（setUserOrder・T-P3）＝別々の鍵で sort を焼いた 2 組（vector の描く層＝鍵 50・geojson の層＝鍵 3）が同じ点を取り合う時、
+// 焼いた sort（鍵の大きい方が先）でなく、MapLibre の層の順（後の層が先に置く）で比べる。順を入れ替えれば勝ちも替わる
+{
+	const { layer } = mkLayer();
+	const at = [139.7, 35.68];
+	layer.setUserLabels("vt:vec", [{ anchor: at, text: "Vector", sort: -1e6 - 50 * 1e3, usk: 0, size: 16 }]);
+	layer.setUserLabels("vt:gj", [{ anchor: at, text: "Geojson", sort: -1e6 - 3 * 1e3, usk: 0, size: 16 }]);
+	const won = () => layer.placed().map(q => q.text).join();
+	layer.draw(cam);
+	assert.equal(won(), "Vector", "順が無い間は焼いた sort（鍵の大きい vector が先）");
+	layer.setUserOrder(["vt:vec", "vt:gj"]); layer.draw(cam);
+	assert.equal(won(), "Geojson", "層の順で geojson が上＝geojson が先に置く");
+	layer.setUserOrder(["vt:gj", "vt:vec"]); layer.draw(cam);
+	assert.equal(won(), "Vector", "moveLayer で入れ替えれば vector が先");
+}
+
 console.log("labels2d: ok");

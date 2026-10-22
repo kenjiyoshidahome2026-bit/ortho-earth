@@ -176,12 +176,12 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
   利用者の層は最前面のまま（`L.k`＝§4d）。
 - 記号の gadget（symbols.ts）は `addLayer(…, draw=false)` で評価だけ続ける＝`queryRenderedFeatures` の当たり（symbolsAt）と `styleimagemissing` は今までどおり。記号帳の絵は前から labels2d にも届いている（`labelImage`）。
 - **残す**：`map.gadget.symbols`／worldcontent（ネイティブの記号の口）と cluster-2d は、まだ symbols-2d／自前の canvas のまま（MapLibre の層ではない＝層の位置の約束が無い）。必要になったら同じ口へ。
-- **既知の差**：geojson の層と vector の描く層（vtdraw）が同じ点を取り合う時の勝ち負け。vtdraw の注記の順の鍵は自前の目盛り（`vtdraw.ts` の setOrder＝組み直さない鍵）、geojson の層は MapLibre の層の順の添字＝目盛りが違う。今は vector が先に置く（MapLibre は後の層が先）。線に沿う geojson の層（C9）も前から同じ。
-  直すなら、labels2d の利用者の組ごとの順位を main から別に送る（焼いた sort を作り直さない）。
+- **層の順**：geojson の層と vector の描く層（vtdraw）が同じ点を取り合う時の勝ち負け。vtdraw の注記の順の鍵は自前の目盛り（`vtdraw.ts` の setOrder＝組み直さない鍵）、geojson の層は MapLibre の層の順の添字＝目盛りが違い、初めは常に vector が先に置いた。
+  → main が利用者の組（"vt:<id>"）の順を MapLibre の層の順で別に送り（`vtLabelOrder`・層を載せた時と `reorderLayers`）、labels2d の `setUserOrder` が焼いた sort の代わりに −1e6 − 順位×1e3 + `usk`（焼く前の symbol-sort-key）で比べる＝後の層が先（MapLibre と同じ）。焼いた sort は作り直さない（vtdraw は組み直さない）。順の無い組は今までどおり焼いた sort。
 - 待ち方：注記層は render worker の衝突の間引きで置く＝`global-state-filter` の場面は、届くまで待つ形にした（vector の `global-state-vector` と同じ）。
 
 門：t-mlcompat の layers／style／vector がすべて通る（geojson の記号の場面＝stretch-fit・改行と折り返し・styleimagemissing・global-state-filter・symbol-minzoom）。
-新しい場面 `symbol-geojson-shares-collision`：同じ点の vector の注記と geojson の注記は片方だけ（旧＝両方）・離せば両方。
+新しい場面 `symbol-geojson-shares-collision`：同じ点の vector の注記と geojson の注記は片方だけ（旧＝両方）・後から足した geojson が勝つ・moveLayer で下へ回すと vector が勝つ。`tests/labels2d.mjs` 18（setUserOrder）。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

@@ -13,9 +13,9 @@
 //   タイル）を持つセットも焼き直し対象にする（回線が空いた後の仕上げ用）
 //   --upload    焼いたセットを直後に R2 へ put（要 API_KEY 環境変数＝native-bucket の書込キー）。--upload-only＝焼かず既存出力を押す
 //   球（既定 ?ell 無し）と楕円体（?ell=1）は座標が違う＝別焼き。同じバッチの b3dm はプロセス内キャッシュで 1 回しか取らない。
-//   --region=nl オランダ（3DBAG）の街（packages/nl の NL_REGION.buildings.sets＝8 都市・2026-10-22）を焼く。全国 1 枚の tileset を
+//   --region=nl オランダ（PDOK の 3D Basisvoorziening・2026-10-22 に 3DBAG から移した）の街（packages/nl の NL_REGION.buildings.sets＝8 都市・2026-10-22）を焼く。全国 1 枚の tileset を
 //               街の矩形（clip）で切る走査はブラウザと同じ。置き先＝地域の申告 bakeBase（GIS/3dbag/）・既定の出力＝3dbag-bake-out/。
-//               焼きがあればブラウザは 3DBAG の tileset を辿らず R2 から取る＝3DBAG の配信が止まっていても建物が立つ
+//               焼きがあればブラウザは PDOK の tileset を辿らず R2 から取る＝配信元が止まっていても建物が立つ
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,7 +95,7 @@ async function bakeSet(set) {
 	const t0 = performance.now();
 	let leaves = null;   // 走査（tileset の直列往復）は回線飽和時に "fetch failed" で丸ごと落ちる（hpc 実測 24 件/バースト）＝3 回まで待って再試行
 	for (let a = 0; a < 3 && !leaves; a++) {
-		try { leaves = await collectLeafTiles(set.tilesetUrl || base + "tileset.json", 0, null, null, set.clip || null); }   // tilesetUrl/clip＝3DBAG（全国 1 枚を街の矩形で切る＝meshworker と同じ走査）
+		try { leaves = await collectLeafTiles(set.tilesetUrl || base + "tileset.json", 0, null, null, set.clip || null); }   // tilesetUrl/clip＝オランダ（全国 1 枚を街の矩形で切る＝meshworker と同じ走査）
 		catch (e) { if (a === 2) throw e; console.warn(`  ${set.name}: 走査失敗（${e?.message ?? e}）→ ${15 * (a + 1)}s 後に再試行`); await new Promise(r => setTimeout(r, 15000 * (a + 1))); }
 	}
 	if (!leaves.length) { console.warn(`  ${set.name}: 葉 0 枚＝空（廃止区の残骸？）`); return "empty"; }
