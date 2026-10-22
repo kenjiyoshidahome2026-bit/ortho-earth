@@ -67,7 +67,7 @@ export const GAPS = [
 	{ key: "basemap-paint-zoom", why: "基図の paint のうち地物を読む式（zoom×data）・線の隙間などはタイルの z で焼く（ズームに連続でない）。地物に依らない色・不透明度・線幅・ずらしは 2026-10-22 から GL2 で今の z（V-Ph3＝S-P1-2）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && zoomBaked(L) },
 	{ key: "after-symbol", why: "注記より後ろの塗り・線（注記は常に最上段）", test: (L, c) => c.afterSymbol.has(L.id) },
 	{ key: "dasharray-cpu", why: "地物ごとにずらす層（line-offset が地物を読む・line-gap-width）と模様 9 個以上の破線は CPU でタイルの z の尺に刻む（他は 2026-10-22 から GL2・WebGPU とも MapLibre と同じ＝S-P1-3・層で 1 つの値のずらしも同じ日から）", test: L => has(L, "line-dasharray") && (!dashOffsetOk(convPaint(L), "ml") || (Array.isArray(L.paint["line-dasharray"]) && L.paint["line-dasharray"].length > 8)) },
-	{ key: "pattern", why: "line-pattern・background-pattern・fill-extrusion-pattern は未（fill-pattern は 2026-10-22 から GL2・WebGPU＝S-P1-4/5・大きさは cos φ 倍）", test: L => ["line-pattern", "background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
+	{ key: "pattern", why: "background-pattern・fill-extrusion-pattern は未（fill-pattern は 2026-10-22 から GL2・WebGPU＝S-P1-4/5・大きさは cos φ 倍・line-pattern も同じ日に＝G-4）", test: L => ["background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
 	{ key: "translate", why: "fill-extrusion-translate は読まない（塗り・線・円の translate は 2026-10-22 から GL2・WebGPU＝S-P1-4/5）", test: L => has(L, "fill-extrusion-translate") },
 	{ key: "line-gradient", why: "line-gradient", test: L => has(L, "line-gradient") },
 	{ key: "circle-pitch", why: "circle-pitch-scale・circle-pitch-alignment map", test: L => has(L, "circle-pitch-scale") || L.paint?.["circle-pitch-alignment"] === "map" },

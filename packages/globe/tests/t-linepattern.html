@@ -1,0 +1,130 @@
+<!doctype html>
+<!-- 実描画の検分：line-pattern（MapLibre の線の模様・geojson vt plan G-4・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw／?nomd=1＝classic）・WebGPU は verify-webgpu。
+     形は頁の中で作った MVT（addProtocol の lp://）の東向きの線 2 本。模様は addImage の 32×16px（左半分＝上が赤・下が緑、右半分＝白・pixelRatio 1）。線幅 16px。
+     基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）と geojson の層（既定＝切ったタイルで vtdraw・?gjvt=0＝canvas2D の口）の 3 回。
+     見るもの：①画像の高さ＝線の幅（線の上半分は赤と白・下半分は緑と白＝東向きの線の右（下）が画像の下）②横の 1 周期＝floor(z) の線幅×画像の幅÷高さ（画面では 2^小数部 倍＝MapLibre の line_pattern）
+     ③地面に付く（中心をずらしても同じ地点は同じ色）④line-opacity 0.5 で半ば透ける ⑤線の外は塗らない ⑥geojson の層は canvas2D の口を作らない・問い合わせが当たる。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linepattern</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）＝t-fillpattern と同じ
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, 2);
+		let cx = 0, cy = 0;
+		g.push(1 | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push(2 | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let SHAPES = [];
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("lp", async ({ url }) => {
+	const [z, x, y] = url.replace("lp://", "").split("/").map(Number);
+	return { data: mvt(SHAPES.map(l => ({ k: l.k, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+const Y1 = 220, Y2 = 440;   // 2 本の線の画面の高さ（東向き＝左から右）
+const CASES = { full: [[120, Y1], [840, Y1]], half: [[120, Y2], [840, Y2]] };
+const F = k => ["==", ["get", "k"], k];
+const LAYERS = [
+	{ id: "l-full", type: "line", source: "lp", "source-layer": "l", filter: F("full"), layout: { "line-cap": "butt" }, paint: { "line-pattern": "arw", "line-width": 16 } },
+	{ id: "l-half", type: "line", source: "lp", "source-layer": "l", filter: F("half"), layout: { "line-cap": "butt" }, paint: { "line-pattern": "arw", "line-width": 16, "line-opacity": 0.5 } },
+];
+const IW = 32, IH = 16, IMG = (() => { const d = new Uint8Array(IW * IH * 4); for (let y = 0; y < IH; y++) for (let x = 0; x < IW; x++) { const i = (y * IW + x) * 4, L = x < IW / 2, top = y < IH / 2; d[i] = L ? (top ? 255 : 0) : 255; d[i + 1] = L ? (top ? 0 : 255) : 255; d[i + 2] = L ? 0 : 255; d[i + 3] = 255; } return { width: IW, height: IH, data: d }; })();
+const SRC = { type: "vector", tiles: ["lp://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const BG = { id: "bg", type: "background", paint: { "background-color": "#0000ff" } };   // 青＝塗り残しと白を見分ける
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-linepattern", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+const median = a => { const s = [...a].sort((p, q) => p - q); return s.length ? s[s.length >> 1] : NaN; };
+try {
+	let map = await boot();
+	SHAPES = Object.entries(CASES).map(([k, pts]) => ({ k, ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const check = async tag => {
+		const img = await grab(), W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		const kind = c => c[2] > 200 && c[0] < 60 && c[1] < 60 ? "B" : c[0] > 200 && c[1] < 70 && c[2] < 70 ? "R" : c[1] > 200 && c[0] < 70 && c[2] < 70 ? "G" : c[0] > 200 && c[1] > 200 && c[2] > 200 ? "W" : "?";
+		const fz = Math.floor(map.getZoom() - 1) + 1, per = IW / IH * 16 * 2 ** (map.getZoom() - fz);   // 1 周期の画面の px＝線幅×幅÷高さ×2^小数部
+		const bad = [], yOf = k => map.project(SHAPES.find(l => l.k === k).ll[0]).y, Y1 = yOf("full"), Y2 = yOf("half");   // ズームで線の高さが動く
+		const rowOf = y => { const r = []; for (let x = 180; x < 780; x += 0.5) r.push(kind(px(x, y))); return r; };
+		const top = rowOf(Y1 - 4), bot = rowOf(Y1 + 4);
+		const cnt = (r, k) => r.filter(q => q === k).length;
+		// ① 上半分は赤と白・下半分は緑と白（縦は線の幅）・同じ列で赤の下は緑
+		if (!(cnt(top, "R") > top.length * 0.35 && cnt(top, "W") > top.length * 0.35 && cnt(top, "G") < top.length * 0.03)) bad.push(`top R${cnt(top, "R")} W${cnt(top, "W")} G${cnt(top, "G")}`);
+		if (!(cnt(bot, "G") > bot.length * 0.35 && cnt(bot, "W") > bot.length * 0.35 && cnt(bot, "R") < bot.length * 0.03)) bad.push(`bot G${cnt(bot, "G")} W${cnt(bot, "W")} R${cnt(bot, "R")}`);
+		let same = 0, both = 0; for (let i = 0; i < top.length; i++) if (top[i] === "R" || bot[i] === "G") { both++; if (top[i] === "R" && bot[i] === "G") same++; }
+		if (!(same > both * 0.9)) bad.push(`col ${same}/${both}`);
+		// ② 色の続きの長さ（真ん中の値）＝半周期
+		const runs = []; let run = 1; for (let i = 1; i < top.length; i++) { if (top[i] === top[i - 1] || top[i] === "?") run++; else { runs.push(run * 0.5); run = 1; } }
+		const med = median(runs.slice(1, -1));
+		if (!(Math.abs(med - per / 2) < Math.max(1.5, 0.12 * per / 2))) bad.push(`run ${med}≠${(per / 2).toFixed(2)}`);
+		// ⑤ 線の外は塗らない
+		for (const y of [Y1 - 13, Y1 + 13]) if (kind(px(480, y)) !== "B") bad.push(`out${y}=${px(480, y)}`);
+		// ④ 半ば透ける＝赤は紫・白は薄い青
+		const hv = []; for (let x = 180; x < 780; x += 3) hv.push(px(x, Y2 - 4));
+		if (!hv.some(q => q[0] > 100 && q[0] < 160 && q[1] < 40 && q[2] > 100 && q[2] < 160)) bad.push("half:no-purple");
+		ok(tag, !bad.length, `per=${per.toFixed(2)} ` + bad.join(" "));
+	};
+	const run = async tag => {
+		await sleep(6000);
+		await check(tag);
+		// ③ 地面に付く：線の上の地点の色を覚え、中心を斜めにずらして同じ地点を見る
+		const g0 = await grab(), s = g0.width / document.getElementById("map").clientWidth, at = (g, x, y) => { const i = (Math.round(y * s) * g.width + Math.round(x * s)) * 4; return [g.data[i], g.data[i + 1], g.data[i + 2]].join(); };
+		const pts = [[301.3, Y1 - 4], [402.6, Y1 + 4], [503.9, Y1 - 4], [604.2, Y1 + 4]].map(([x, y]) => ({ ll: map.unproject([x, y]), c: at(g0, x, y) }));
+		const c0 = map.getCenter(); map.jumpTo({ center: map.unproject([480 + 37, 300 + 23]) }); await sleep(2500);
+		const g1 = await grab(), moved = pts.filter(p => { const q = map.project(p.ll); return at(g1, q.x, q.y) !== p.c; });
+		ok(tag + ":anchored", moved.length <= 1, moved.map(p => p.c).join("/"));   // 升の縁に当たった 1 点は許す
+		map.jumpTo({ center: c0 }); await sleep(1500);
+		map.jumpTo({ zoom: 15.5 }); await sleep(2500);   // 同じ floor＝周期が 2^0.5 倍に伸びる
+		await check(tag + "@15.5");
+		map.jumpTo({ zoom: 15 }); await sleep(1500);
+	};
+	await map.setStyle({ version: 8, name: "t-linepattern", sources: { lp: SRC }, layers: [BG, ...LAYERS] });
+	await map.addImage("arw", IMG);
+	await run("base");
+	map.destroy();
+	map = await boot();
+	await map.addImage("arw", IMG);
+	map.addSource("lp", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await run("user");
+	map.destroy();
+	map = await boot();
+	await map.addImage("arw", IMG);
+	map.addSource("lg", { type: "geojson", data: { type: "FeatureCollection", features: SHAPES.map(l => ({ type: "Feature", properties: { k: l.k }, geometry: { type: "LineString", coordinates: l.ll } })) } });
+	for (const L of LAYERS) { const { "source-layer": _sl, ...g } = L; await map.addLayer({ ...g, source: "lg" }); }
+	const GJVT = !/[?&]gjvt=0/.test(location.search);
+	if (GJVT) { await run("geojson"); ok("geojson:noCanvas2D", (await window.__ovPixels("pattern")) === null); }
+	else { await sleep(6000); const p = await window.__ovPixels("pattern"); ok("geojson:canvas2D", !!p && !p.error, p ? `${p.w}x${p.h}` : "none"); }
+	const q = await map.queryRenderedFeatures([480, Y1], { layers: ["l-full", "l-half"] });
+	ok("geojson:query", q.length === 1 && q[0].layer.id === "l-full" && q[0].properties.k === "full", q.map(f => f.layer.id).join());
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>
