@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -16,6 +16,14 @@ t("ハザード：URL は {z}/{x}/{y} の型紙（https）・凡例あり", HAZA
 t("地下鉄：ブルー 32 駅・グリーン 10 駅・駅名の重複なし", SUBWAY[0].stations.length === 32 && SUBWAY[1].stations.length === 10 && SUBWAY.every(l => new Set(l.stations).size === l.stations.length));
 t("地下鉄：駅番号（横浜＝B20・日吉＝G10・センター南＝B29 と G04）", subwayCodes("横浜")[0]?.code === "B20" && subwayCodes("日吉駅")[0]?.code === "G10" && subwayCodes("センター南").map(c => c.code).join() === "B29,G04" && subwayCodes("渋谷").length === 0);
 t("公共施設：区分は 7・色は #rrggbb", FACILITY_CATS.length === 7 && FACILITY_CATS.every(c => /^#[0-9a-f]{6}$/.test(c.color)));
+t("表記の揺れ：保土ｹ谷・保土ヶ谷・全角数字も同じ区／同じ文字に", wardOfAddress("横浜市保土ｹ谷区岩間町1-7-15")?.code === "14106" && wardOfAddress("横浜市保土ヶ谷区川辺町2-9")?.code === "14106" && normJa("１－２") === "1-2");
+{
+	const fr = [[139.6, 35.4, "中図書館", 3, "横浜市中区本町1", "図書館"], [139.6, 35.4, "港南図書館", 3, "横浜市港南区港南1", "図書館"], [139.6, 35.4, "南小学校", 2, "横浜市南区南太田1", "小学校"], [139.6, 35.4, "保土ケ谷図書館", 3, "横浜市保土ｹ谷区天王町1", "図書館"]];
+	const all = new Set(FACILITY_SUBS.map((_, i) => i)), lib = new Set([subOf(3, "図書館")]);
+	t("施設の検索：全市・全種別＝全部（台帳の並び）", facilityIndex(fr, "", all).join() === "0,1,2,3");
+	t("施設の検索：南区は港南区を含めない・保土ケ谷は半角表記でも拾う", facilityIndex(fr, "14105", all).join() === "2" && facilityIndex(fr, "14106", all).join() === "3");
+	t("施設の検索：種別のチップで絞る", facilityIndex(fr, "", lib).join() === "0,1,3" && facilityIndex(fr, "", new Set()).length === 0);
+}
 
 const rows = [[139.63, 35.45, "みなとみらい本町小学校", "神奈川県横浜市西区みなとみらい4-3-1", 0b11001], [139.70, 35.53, "川崎の公園", "神奈川県川崎市川崎区", 1], [NaN, 35.4, "壊れ", "横浜市中区", 1], [139.6, 35.4, "住所なし", null, 1]];
 const ys = yokohamaShelters(rows);

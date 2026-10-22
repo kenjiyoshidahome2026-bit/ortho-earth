@@ -10,9 +10,10 @@
 // 状態は URL の search（?tab=&hz=&ward=&spot=&tr=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
+import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝読むのは yokohama だけ＝束に焼く・「地域」の面を開いた時に遅延 import（2 つ目のアプリが読む時に engine の入口へ）
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -98,6 +99,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
 					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				<h2>${esc(t("Search facilities"))}</h2>
+				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
+				<div class="fbt"></div>
+				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
+				<p class="sub flat">${esc(t("Lists the facilities in the chosen district whose types are switched on above. Tap a row to fly there."))}</p>
 				<h2>${esc(t("Zones and districts"))}</h2>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
 				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
@@ -155,6 +161,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		st.tab = k; save(); closePop();
 		$$<HTMLButtonElement>("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === k)));
 		$$<HTMLElement>("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== k; });
+		if (k === "area") facTable();
 	}
 	$$<HTMLButtonElement>("[data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab as Tab));
 
@@ -202,7 +209,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 	};
 	async function setWard(code: string) {
-		st.ward = code; save(); wardSel.value = code; closePop();
+		st.ward = code; save(); wardSel.value = code; closePop(); facTable();
 		const w = WARDS.find(x => x.code === code);
 		const fc = await loadWards();
 		if (st.ward !== code) return;   // 読んでいる間に選び直した
@@ -254,13 +261,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
 		map.on("mousemove", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(r[2])}</b>` : null); });
 		map.on("mouseleave", "yk-fac", () => tip(null));
-		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null);
-			const c = FACILITY_CATS[r[3]];
-			openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(lang === "ja" ? r[5] : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || ""))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); });
+		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null); facPop(r); });
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
 		$$<HTMLButtonElement>("[data-sub]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => subOf(r[3], r[5]) === +b.dataset.sub!).length); });
 		countFac();
+		facTable();
 	})();
+	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
+	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); };
 	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length)); };
 	async function setFac(on: boolean) {
 		facOn = on; $(".fac").checked = on;
@@ -274,13 +283,45 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), n = js.filter(j => subOn.has(j)).length;
 			b.classList.toggle("on", n === js.length); b.classList.toggle("part", n > 0 && n < js.length); });
 	};
-	const applyFac = () => { paintChips(); if (fac) map.setFilter("yk-fac", facFilter()); countFac(); if (!facOn) setFac(true); };
+	const applyFac = () => { paintChips(); if (fac) map.setFilter("yk-fac", facFilter()); countFac(); facTable(); if (!facOn) setFac(true); };
 	$$<HTMLButtonElement>("[data-cat]").forEach(b => b.onclick = () => {   // 区分＝中の種別が 1 つでも出ていれば全部消す・全部消えていれば全部出す
 		const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), any = js.some(j => subOn.has(j));
 		for (const j of js) any ? subOn.delete(j) : subOn.add(j);
 		applyFac();
 	});
 	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
+
+	// ── 地域：施設の検索（common/bigtable の表・本人 2026-10-22）──
+	// 行＝選んだ地区（区・全市）× 出している種別（上のチップ）の施設。窓の文字＝名称・種別・区・住所の部分一致（表記の揺れは normJa で揃える）。
+	// 行を押す＝その施設へ飛んで吹き出し。表は「地域」の面を開いている時だけ組み直す（開くまで common/bigtable も読まない）
+	const fq = $(".fq"), fqN = $<HTMLElement>(".fq-n");
+	let tableReady: Promise<BigTable> | null = null;
+	const facTableOf = () => tableReady ??= import("common/bigtable").then(({ BigTable }) => new BigTable($<HTMLElement>(".fbt"), {
+		columns: [{ index: 0, label: t("Facility name"), width: 168 }, { index: 1, label: t("Type"), width: 104 }, { index: 2, label: t("Ward"), width: 84 }, { index: 3, label: t("Address"), width: 220 }],
+		rowNumbers: false, theme: "dark", rowHeight: 26,
+		onRowClick: (row, k) => { const r = fac?.[(row as unknown[])[4] as number]; if (!r) return; table?.select(k, { scroll: false }); goFac(r); },
+		onCountChange: c => { fqN.textContent = t("$1 of $2 places", num(c.shown), num(c.total)); },
+	}));
+	let table: BigTable | null = null;
+	async function facTable() {
+		if (!fac || st.tab !== "area") return;
+		const tb = table = await facTableOf();
+		tb.setQuery(normJa(fq.value));
+		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(r[2]), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(r[4]), i]; }));
+	}
+	fq.oninput = () => { table?.setQuery(normJa(fq.value)); };
+	async function goFac(r: FacilityRow) {
+		if (!facOn) await setFac(true);
+		facPop(r);
+		await map.flyTo({ center: [r[0], r[1]], zoom: Math.max(map.getZoom(), 16.5) });   // 点が見える z（minzoom 12.5）の上・建物も立つ（BUILDINGS_MIN_ZOOM）
+	}
+	$(".fcsv").onclick = async () => {
+		if (!fac) return;
+		const tb = await facTableOf(), a = document.createElement("a");
+		a.href = URL.createObjectURL(new Blob([tb.toCSV()], { type: "text/csv;charset=utf-8" }));
+		a.download = `yokohama-facilities${st.ward ? "-" + st.ward : ""}.csv`;
+		a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+	};
 
 	// ── 観光：平面の地区地図に重ねる区域（用途地域・小／中学校区・警察署／消防署の管轄）＝淡色の平面の時だけ出す（本人 2026-10-21）──
 	const areaOn = new Set<AreaId>(), areaReady = new Map<AreaId, Promise<boolean>>();
@@ -809,6 +850,14 @@ const CSS = `
 .yk-panel .sub{margin:0 0 4px 24px;color:var(--qm-text-dim);font-size:12px}
 .yk-panel .sub.flat{margin:6px 0 4px}
 .yk-panel [hidden]{display:none!important}
+.yk-panel input.fq{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:6px 8px;margin:2px 0 6px}
+.yk-panel .fbt{height:232px;border-radius:var(--qm-r-m);overflow:hidden}
+.yk-panel .fbt.oe-bt{--oe-bt-font:12px/1.4 var(--qm-font);--oe-bt-bg:#15181d;--oe-bt-odd:#1b1f26;--oe-bt-line:rgba(255,255,255,.08);--oe-bt-head:#22262e}
+.yk-panel .fbt .oe-bt-row{cursor:pointer}
+.yk-panel .fbar{display:flex;align-items:center;gap:8px;margin-top:4px}
+.yk-panel .fbar small{color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
+.yk-panel .fcsv{margin-left:auto;font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+@media (max-width:640px){ .yk-panel .fbt{height:180px} }
 .yk-panel .lines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 24px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel .sw{display:inline-block;font-style:normal;font-weight:700;font-size:10px;color:#fff;border-radius:3px;padding:0 4px;margin-right:5px}
 .yk-panel .legend{margin-top:8px}
