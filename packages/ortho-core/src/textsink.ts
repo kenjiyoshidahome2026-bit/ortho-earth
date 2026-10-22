@@ -44,6 +44,9 @@ export interface TextSink {
 	begin(W: number, H: number, dpr: number): void;
 	end(): void;
 	clear(W: number, H: number): void;
+	/** 次に描く注記の層（T-P2）。li＝style の層の添字（基図）・pinTop＝層の位置に描けない注記（利用者の層・記号つき・format の記号）＝最前面のまま。
+	 *  地図のパスの中に字を描ける受け口だけが使う（Canvas2D 版は持たない） */
+	layer?(li: number | null, pinTop: boolean): void;
 	/** 書体が載った（addFontFace）＝焼いた字を捨てる */
 	fontsChanged(): void;
 	shield(sh: LabelShield, sx: number, sy: number, o: number): void;

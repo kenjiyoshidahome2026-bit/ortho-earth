@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- 層の位置に描く注記の字（テキスト GPU 化 T-P2・2026-10-22）＝本物の renderer（createRendererGPU）の描画パスが、注記の字の層で切れて drawMid を呼ぶか。
+     基図＝塗り（層 5）と線（層 9）＝textSplit は 9。注記 1 つを層 7（塗りと線の間）・層 2（全部の前）・層 12（後ろに何も無い＝最前面の canvas）に置き替えて、
+     地図のパスの中で描いた字の数（dbg().textMid）と字の表（midAnchors）を見る。字の pipeline が本物のパスの形（色の形式・MSAA・深度ステンシル）と合うか＝GPU の検証エラー 0。
+     絵の比べは t-textgpu（MSAA＋深度の的）＝この頁は配線の門（クラウドの SwiftShader は canvas の絵を読めない＝画素は見ない）。⚠実時間専用（verify-webgpu.mjs が回す） -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-textpass</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+import { canvas2d, createCanvasSink } from "@ortho-earth/core/src/textsink.ts";
+import { createGpuText, createGpuTextSink } from "@ortho-earth/core/src/gpu/text.ts";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
+	const canvas = document.getElementById("g"), r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7;
+	r.set("view", { clear: [1, 1, 1, 1], land: [0.6, 0.6, 0.6, 1] });
+	const q = [[-0.001, -0.001], [0.001, -0.001], [0.001, 0.001], [-0.001, 0.001]], fpos = [], fcol = [];
+	for (const i of [0, 1, 2, 0, 2, 3]) { fpos.push(...q[i]); fcol.push(1, 0, 0, 1); }
+	r.set("scene", { origin: [LON, LAT], layers: [
+		{ kind: "fill", li: 5, pos: new Float32Array(fpos), col: new Float32Array(fcol) },
+		{ kind: "line", li: 9, P1: new Float32Array([-0.002, 0]), P2: new Float32Array([0.002, 0]), col: new Float32Array([0, 0, 1, 1]), half: new Float32Array([3]) },
+	] }, "main");
+	ok(`split=${r.textSplit()}`, r.textSplit() === 9);
+	const gt = createGpuText(r.device, null), sink = createGpuTextSink(createCanvasSink(canvas2d(new OffscreenCanvas(256, 256).getContext("2d"))));
+	sink.attach(gt); r.set("text", gt); sink.mid = li => li < r.textSplit();
+	const F = 'bold 16px sans-serif', c = new OffscreenCanvas(8, 8).getContext("2d"); c.font = F;
+	const tl = { lines: ["Under"], ws: [c.measureText("Under").width], w: c.measureText("Under").width, h: 19.2, size: 16, ls: 0, lh: 1.2, font: F };
+	const L = [tl, F, null, 128, 128, 128 - tl.w / 2, 128 - tl.h / 2, "center", { color: [0, 0, 0, 1], halo: [1, 1, 1, 1], haloW: 1 }, 1, () => null];
+	const cam = { center: [LON, LAT], zoom: 16, pitch: 0, bearing: 0, dpr: 1 };
+	for (const [name, li] of [["between", 7], ["first", 2], ["after", 12]]) {
+		sink.begin(256, 256, 1); sink.layer(li, false); sink.pointText(...L); sink.end();
+		r.draw(cam, {}); r.flush();
+		const d = r.dbg();
+		ok(`${name}(li=${li} anchors=${gt.midAnchors().join(",")} textMid=${d.textMid})`, li < 9 ? d.textMid === 5 : d.textMid === 0);
+	}
+	r.set("text", null); r.draw(cam, {}); r.flush(); ok(`detached(${r.dbg().textMid})`, r.dbg().textMid === 0);
+	await new Promise(res => setTimeout(res, 500));
+	ok(`gpuErrors(${r.gpuErrors.length}${r.gpuErrors.length ? ":" + r.gpuErrors.slice(0, 2).join("|") : ""})`, r.gpuErrors.length === 0);
+} catch (e) { ok("threw:" + (e && e.message || e), false); }
+document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+</script></body></html>

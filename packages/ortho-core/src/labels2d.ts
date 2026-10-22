@@ -770,6 +770,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const dop = op * distOp(L.anchor[0], L.anchor[1]), o = dop * (L.op ?? 1);   // dop＝フェード×距離（文字と記号で共有＝lonlatTo3D を 1 回だけ）
 			if (o <= 0.01) return;
 			nDrawn++;
+			sink.layer?.(L.li ?? null, L.k != null || !!L.icon || !!L.sec?.some(q => q.img));   // 層の位置に描くか（T-P2）＝記号は Canvas2D の最前面に残る（T-P3）＝記号つきと利用者の層は字も最前面
 			const tr = L.tt && !L.lp ? translateOf(L.tt, L.tta, cam.bearing || 0) : TR0;   // text-translate（衝突判定と同じ値）
 			const sx = (still ? Math.round(dx / dpr) : dx / dpr) + tr[0], sy = (still ? Math.round(dy / dpr) : dy / dpr) + tr[1];
 			const shield = shieldFor && shieldFor(L);
