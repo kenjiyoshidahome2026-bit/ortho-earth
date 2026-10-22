@@ -8,6 +8,7 @@ import { normLight } from "../light.ts";
 import { normSky } from "../sky-spec.ts";
 import { copyFontBytes, normSprite, spriteEcho } from "../mlsmall.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
+import { GEOJSON_LAYER } from "@ortho-earth/core/geojsonvt";
 import type { MLLayer, PaintZoom, PtLayer } from "@ortho-earth/core";
 import type { Bbox, LonLat, MapLibreLayer, QuantizedMeshSource, RasterDemSource, RenderedFeature, StyleExpression } from "../../globe.d.ts";
 import type { ExtExtras, Installing, StyleDeps, StyleLive, StyleOrderEntry, StyleReturn } from "../types/install.ts";
@@ -39,7 +40,7 @@ type SourceSelf = UserSource & {
 type NoteLayer = MLLayer & { paint: Record<string, unknown>; layout: Record<string, unknown> };
 
 export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
-	AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn,
+	AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, GJVT, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn,
 	autoBldReadOnly, baseOverrides, baseMoves, moveBefore, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle,
 	extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses,
 	mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow,
@@ -159,13 +160,14 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		if (layer?.type === "custom" && typeof layer.render !== "function" && typeof layer.url !== "string") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method (or url of a layer module for the worker route)`);
 		assertMLLayer(layer as MLLayer, "addLayer");
 		const v: UserLayerRec = { layer: layer?.type === "custom" ? layer as MLLayer : { ...layer as MLLayer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer as MLLayer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
-		v.kind = kindOf(drawLayerOf(v), sp);
+		v.kind = kindOf(drawLayerOf(v), sp);   // 先に引く＝描けない層はここで投げる（登録簿を触る前）
 		if (mlLayers.has(layer.id)) { const old = mlLayers.get(layer.id)!; mlLayers.delete(layer.id); await unmountLayer(old); }
 		if (beforeId != null && mlLayers.has(beforeId)) {
 			const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
 			ents.splice(i, 0, [layer.id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
 		} else mlLayers.set(layer.id, v);
 		if (beforeId != null && beforeId !== layer.id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId))) v.before = beforeId;   // getStyle の順（§8 A4）＝どの層の前か。vector の描く層は描く順も（#123＝sendUserAnchors）・他の描き方は描画の段のまま（§4）
+		v.kind = kindOfV(v);   // 置いた所で決まる描き方（基図の層の間の geojson の層＝vtdraw）
 		const r = mlVisible(v) ? await mountLayer(v) : null;
 		if (beforeId != null) reorderLayers();
 		return r;
@@ -181,7 +183,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			return map;
 		}   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
 		mlLayers.delete(id); transitions.cancelPrefix(TR_KEY(id, ""));
-		unmountLayer(v);
+		unmountLayer(v); rekindAll();   // この層の前に置いた層の行き先が変わり得る（S-P2）
 		if (extExtras.layers.includes(id)) extNotes.set(id, { removed: true });   // style 由来の層を外した＝getStyle の「その他の層」として復活させない（§8 A）
 		return map;
 	};
@@ -192,7 +194,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			if (beforeId === id) return map;
 			const list = styleOrder().filter(e => e.id !== id), i = beforeId == null ? -1 : list.findIndex(e => e.id === beforeId);
 			baseMoves.push([id, beforeId ?? null, i < 0 ? null : list.slice(i).find(e => e.base)?.id ?? null]);
-			restyleBase();
+			restyleBase(); rekindAll();
 			return map;
 		}
 		if (!v) { if (id === AUTO_BLD && autoBldOn()) console.info(`[moveLayer] "${id}" is the regional auto-buildings layer — its order is fixed`); return map; }
@@ -202,10 +204,22 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			ents.splice(i, 0, [id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
 		} else mlLayers.set(id, v);
 		v.before = beforeId != null && beforeId !== id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId)) ? beforeId : null;   // getStyle の順（§8 A4）
-		if (v.kind === "vtdraw") live.vtdCtl?.setOrder(vtdOrder(), id);   // 動いた層だけ鍵を振り直す（その source を組み直す）
+		const re = rekind(v); rekindAll();   // 描き方が変わった層は載せ直す（鎖でこの層の前に置いた層も）
+		if (!re && v.kind === "vtdraw") live.vtdCtl?.setOrder(vtdOrder(), id);   // 動いた層だけ鍵を振り直す（その source を組み直す）
 		reorderLayers();
 		return map;
 	};
+	// geojson の層を基図の層の間に（S-P2・2026-10-22 Kenji 裁定）：style の順でその後ろに基図の層がある geojson の fill／line／circle の層は vtdraw（geojson vt plan の G-2＝手元のタイル）で描く
+	//＝#123 の差し込み（sendUserAnchors）で基図の層の間へ。後ろに基図の層が無い層（基図の上）は gint のまま（大きな面の stencil・地物ごとの表の書き換えが速い）。集約の source は gint のまま
+	const baseAfter = (id: string) => { const o = styleOrder(), i = o.findIndex(e => e.id === id); return i >= 0 && o.slice(i + 1).some(e => e.base); };
+	const kindOfV = (v: UserLayerRec) => { const k = kindOf(drawLayerOf(v), v.src); return k === "gint" && v.src?.type === "geojson" && !v.src.cluster && GJVT && baseAfter(v.layer.id) ? "vtdraw" : k; };
+	// 描き方が変わった層を外して載せ直す（true＝変わった）
+	const rekind = (v: UserLayerRec) => {
+		const k = kindOfV(v); if (k === v.kind) return false;
+		if (mlVisible(v)) { const old = { ...v }, id = v.layer.id; v.kind = k; Promise.resolve(unmountLayer(old)).then(() => mlLayers.get(id) === v && mlVisible(v) && mountLayer(v)); } else v.kind = k;
+		return true;
+	};
+	const rekindAll = () => { for (const v of [...mlLayers.values()]) if (v.src?.type === "geojson") rekind(v); };   // 基図の層が動いた＝後ろに基図の層があるかが変わり得る
 	// 性質の変更＝登録簿の層を書き換えて描き直す（gint は fid 表の書き換えだけ＝安い・画像の不透明度は map.raster.set）
 	const relayer = (v: UserLayerRec) => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)) : null;
 	// paint の transition（B1・2026-10-12・MapLibre の `*-transition`・style の根の `transition`・既定 300ms）：利用者の層（mlLayers）だけ。数・色・数の配列を rAF ごとに補間して描き直す
@@ -258,8 +272,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		}
 		if (v.kind === "raster" && name === "raster-fade-duration") { map.raster.set(id, { fadeDuration: rasterFade(v.layer.paint) ?? 300 }); return map; }
 		if (v.kind === "colorrelief" && name === "color-relief-opacity") { map.raster.set(id, { opacity: reliefOpacity(v.layer) }); return map; }   // 不透明度はタイルを作り直さない（#114）
-		const k = kindOf(drawLayerOf(v), v.src);   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
-		if (k !== v.kind) { if (mlVisible(v)) { const old = { ...v }; v.kind = k; Promise.resolve(unmountLayer(old)).then(() => mlLayers.get(id) === v && mlVisible(v) && mountLayer(v)); } else v.kind = k; return map; }
+		if (rekind(v)) return map;   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
 		relayer(v); return map;
 	};
 	const echoProp = (v: UserLayerRec | undefined, x: unknown) => (v && x !== undefined ? rescaleZoomExpr(x, v.dz, PUBLIC_DZ) : x) as StyleExpression | undefined;   // 層の目盛り→呼び手の目盛り（set したものが get で戻る）
@@ -311,6 +324,15 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	// vector source（sourceLayer 必須）＝押し出し（vtextrude・段 8①b）と描く層（vtdraw・#109）がその地物を含むタイルだけ組み直す（置き場は vtxFS）
 	// feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
 	const fidOfMl = (source: string, id: number | string) => { const m = mlGintData.get(source)?.idToFid; return m ? (m.get(id) ?? m.get(typeof id === "string" && id !== "" && !isNaN(+id) ? +id : String(id))) : undefined; };
+	// geojson の source の feature-state を切ったタイルの層（vtdraw・G-2／S-P2）へも＝vector と同じ置き場（vtxFS・source-layer＝GEOJSON_LAYER）に写してその地物のタイルを組み直す。
+	// id＝null は全部を消す。gint の層は今どおり mlFeatureState（fid の表）
+	const gjvtFS = (source: string, id: string | number | null | undefined, state: Record<string, unknown> | null) => {
+		let w = vtxFS.get(source);
+		if (id == null) { if (w) for (const k of [...w.keys()]) if (k.startsWith(GEOJSON_LAYER + "\u0000")) w.delete(k); live.vtdCtl?.touchFS(source, GEOJSON_LAYER, undefined); return; }
+		const k = vtxFSKey(GEOJSON_LAYER, id);
+		if (state) { if (!w) vtxFS.set(source, w = new Map()); w.set(k, { id, state }); } else w?.delete(k);
+		live.vtdCtl?.touchFS(source, GEOJSON_LAYER, id);
+	};
 	map.setFeatureState = ({ source, sourceLayer, id }, state) => {
 		if (id == null) return map;
 		if (isVecSrc(source)) {   // vector source（押し出し・段 8①b）＝MapLibre と同じく sourceLayer が要る
@@ -323,6 +345,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		}
 		let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
 		m.set(id, { ...m.get(id), ...state });
+		gjvtFS(source, id, m.get(id)!);
 		const fid = fidOfMl(source, id);
 		if (fid != null) for (const e of mlPasses.values()) if (e.sid === source) e.h.setFeatureState(fid, state);
 		return map;
@@ -340,6 +363,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		}
 		const m = mlFeatureState.get(source);
 		if (m) { if (id == null) m.clear(); else if (key != null) { const st = { ...m.get(id) }; delete st[key]; m.set(id, st); } else m.delete(id); }
+		gjvtFS(source, id, id == null ? null : m?.get(id) ?? null);
 		const fid = id == null ? null : fidOfMl(source, id);
 		if (id != null && fid == null) return map;
 		for (const e of mlPasses.values()) if (e.sid !== source) continue; else if (key != null && id != null) e.h.setFeatureState(fid, { [key]: undefined }); else e.h.removeFeatureState(fid);
@@ -459,10 +483,11 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			} catch (err) { console.warn("[style] layer", L.id, err); }
 		}
 		for (const L of ext.split.geojson) {
+			extExtras.layers.push(L.id);   // 先に控える＝足す時に style の順が分かる（基図の層の間の geojson の層＝vtdraw・S-P2）
 			try {
 				ensureExtSource(ext, L.source!);
-				await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
-			} catch (err) { console.warn("[style] layer", L.id, err); }
+				await addLayerAt(L, undefined, STYLE_DZ);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
+			} catch (err) { extExtras.layers.splice(extExtras.layers.indexOf(L.id), 1); console.warn("[style] layer", L.id, err); }
 		}
 		sendUserAnchors();   // style の層は style の順（#123）＝extExtras.layers が揃ってから差し込む位置を配る（層を足す時はまだ style 由来と分からない）
 	};
@@ -594,7 +619,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		for (const [id, L] of newL) { const p = oldL.get(id); if (!p || J(p) !== J(L) || srcChanged(L.source!) || !mlLayers.has(id)) touched.push(id); }
 		for (const id of oldL.keys()) if (!newL.has(id) || touched.includes(id)) { if (mlLayers.has(id)) map.removeLayer(id); extExtras.layers = extExtras.layers.filter(x => x !== id); }
 		for (const sid of [...extExtras.sources]) if ((!ms.sources?.[sid] || srcChanged(sid)) && mlSources.has(sid) && ![...mlLayers.values()].some(v => srcId(v.layer) === sid)) { try { map.removeSource(sid); } catch { /* 利用者の層が使っている＝残す */ } extExtras.sources = extExtras.sources.filter(x => x !== sid); }
-		for (const id of touched) { const L = newL.get(id)!; try { ensureExtSource(nx, L.source!); await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(id); } catch (err) { console.warn("[style] layer", id, err); } }
+		for (const id of touched) { const L = newL.get(id)!; extExtras.layers.push(id); try { ensureExtSource(nx, L.source!); await addLayerAt(L, undefined, STYLE_DZ); } catch (err) { extExtras.layers.splice(extExtras.layers.indexOf(id), 1); console.warn("[style] layer", id, err); } }   // 先に控える（mountExtExtrasRaw と同じ・S-P2）
 		const order = nx.split.geojson.map(L => L.id);   // 順＝style の順（載せ直した層は末尾に居る＝次の「触っていない」層の前へ）
 		for (const id of touched) { const i = order.indexOf(id), anchor = order.slice(i + 1).find(x => mlLayers.has(x) && !touched.includes(x)); if (anchor && mlLayers.has(id)) map.moveLayer(id, anchor); }
 		sendUserAnchors();
