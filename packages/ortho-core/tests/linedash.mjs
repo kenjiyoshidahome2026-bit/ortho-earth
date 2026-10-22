@@ -95,10 +95,10 @@ t("シェーダ：classic は a_dist・multi_draw は破線の列だけ語 6 を
 	for (const s of [LINE_VS, LINE_MD_VS, LINE_FS]) { assert.match(s, /uniform vec4 u_dashP;/); assert.match(s, /uniform vec4 u_dashI\[2\];/); }
 	assert.match(LINE_FS, /flat in vec2 v_dd;/);
 });
-t("md の能力表明：GL2 は語 6 の距離を読む（mdDash）・WebGPU の md は読まない＝scene worker が常駐の前に刻む", () => {
+t("md の能力表明：GL2 と WebGPU は語 6 の距離を読む（mdDash）・読まない描き手（WebGPU の ?nolx=1）＝scene worker が常駐の前に刻む", () => {
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	assert.match(src("../src/gl/renderer.ts"), /md: !!md, mdMax: MD_MAX_DRAWS, mdDash: true,/);
-	assert.doesNotMatch(src("../src/gpu/renderer.ts"), /mdDash/);
+	assert.match(src("../src/gpu/renderer.ts"), /mdDash: !NO_LX,/);   // 2026-10-22＝WebGPU もシェーダの破線（?nolx=1 の時だけ名乗らない＝旧の刻む道）
 	const sw = src("../src/workers/sceneworker.ts");
 	assert.match(sw, /mdDash = !!d\.mdDash;/);
 	assert.match(sw, /if \(!mdDash && g\.ops\.some\(op => op\.kind === "line" && op\.dist\)\) g\.ops = g\.ops\.map\(op => op\.kind === "line" \? chopDash\(op, origin\) : op\);/);

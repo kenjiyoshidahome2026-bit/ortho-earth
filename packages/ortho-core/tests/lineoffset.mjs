@@ -73,7 +73,7 @@ t("組み立て：line-offset の層は線分ごとに角の継ぎ（t）を添�
 t("シェーダ：GL classic は a_off（vec3）・multi_draw は線分プールの 3・4 語目・WGSL は location 5（影の派生も）", () => {
 	assert.match(LINE_VS, /in vec3 a_off;/); assert.match(LINE_VS, /vec3 off0 = a_off/);
 	assert.match(LINE_MD_VS, /vec3 off0 = vec3\(uintBitsToFloat\(B\.z\), unpackSnorm2x16\(B\.w\) \* 2\.0\)/);
-	for (const w of [LINE_WGSL, LINE_SH_WGSL]) { assert.match(w, /@location\(5\) offT: vec3f/); assert.match(w, /sa \+= \(perp \+ dirS \* offT\.y\) \* offPx/); }
+	for (const w of [LINE_WGSL, LINE_SH_WGSL]) { assert.match(w, /@location\(5\) offT: vec3f/); assert.match(w, /sa \+= \(perp \+ dirS \* off0\.y\) \* offPx/); }   // off0＝offT の写し（md の破線の列は 0 にする・S-P1-3）
 	assert.match(LINE_VS, /sa \+= \(perp \+ dir \* off0\.y\) \* offPx/);
 });
 
