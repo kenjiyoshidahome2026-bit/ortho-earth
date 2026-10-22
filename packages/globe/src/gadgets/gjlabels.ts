@@ -128,7 +128,8 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 		}
 		if (!feats.length) return [];
 		const { labels } = buildLabels({ layers: { g: { extent: PE, features: feats } }, z: 0, x: 0, y: 0 } as unknown as LabelsTile, { layers: [layerAt(s.layer, pz)] });
-		for (const lb of labels) { lb.usk = lb.sort || 0; lb.sort = -1e6 - s.key * 1e3 + lb.usk; delete (lb as { li?: number }).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（線と同じ）
+		const hz = +((s.layer as { horizon?: unknown }).horizon as number) || 0;   // ネイティブの記号の層の horizon（球の縁の近くは出さない・worldcontent）
+		for (const lb of labels) { lb.usk = lb.sort || 0; lb.sort = -1e6 - s.key * 1e3 + lb.usk; delete (lb as { li?: number }).li; if (hz) lb.hz = hz; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（線と同じ）
 		return labels;
 	};
 	const refresh = (force = false) => {

@@ -35,6 +35,8 @@ export interface Label extends Partial<LabelLayout>, Partial<LabelIcon>, LabelLi
 	key?: string; szn?: [number, number]; sec?: LabelSection[]; icon?: string;
 	/** 利用者の層の注記：層の順を焼く前の sort（symbol-sort-key）＝labels2d の setUserOrder が層の順を後から当てる材料 */
 	usk?: number;
+	/** 球の縁の近くは出さない（視線と地面のなす角の余弦の下限・ネイティブの記号の層の horizon＝MapLibre に無い拡張・0／無し＝全部） */
+	hz?: number;
 }
 export interface LabelsTile extends TileXYZ { layers: TileData; stateOf?: StateOf | null }
 export interface LabelsResult { labels: Label[]; codepoints: Set<number>; font: string }
