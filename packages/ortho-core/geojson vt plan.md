@@ -60,7 +60,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 - geojson の層が vector の層と同じ部品に乗る＝style 互換で足した描き方（cap/join・破線・translate・blur）が geojson の飾りの層にも自動で効く。
 
 ## 4. 残る Canvas2D（この計画の外）
-czml-draw・anno-draw・imagequad-draw（MapLibre の層ではない自前の口）。どれも層の位置の約束が無い＝必要が出たら個別に。`map.gadget.cluster`（cluster-2d）は集約の source と層へ（#572・text gpu plan §4j）、画面格子は WebGL2 の screengrid-gl へ（2026-10-22）。
+anno-draw・imagequad-draw（MapLibre の層ではない自前の口・geoedit と描く道具を共有）。`map.gadget.cluster`（cluster-2d）は集約の source と層へ（#572・text gpu plan §4j）、画面格子は WebGL2 の screengrid-gl へ（#573）、CZML・GPX の czml-draw も WebGL2 へ（2026-10-22）。
 
 ## 5. 裁定（2026-10-22 Kenji＝3 つとも推奨通り）
 1. **対象**：G-2 は pattern の層だけを vtdraw へ（推奨・gint の速さを保つ）か、geojson の層を全部 vtdraw へ（描き方が 1 本になるが、大きな面の stencil の速さを失う）。
