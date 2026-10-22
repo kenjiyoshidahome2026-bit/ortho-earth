@@ -903,20 +903,18 @@ try {
 				const c = await one("wr0", { "text-field": "a rather long label that wraps", "text-max-width": 0 });
 				return [!!a && Math.abs(a.h - 3 * 1.2 * 16) < 1 && !!b && b.h >= 2 * 1.2 * 16 - 1 && b.w <= 10 * 16 + 1 && !!c && Math.abs(c.h - 1.2 * 16) < 1 && c.w > b.w, `newline=${a ? `${a.w.toFixed(0)}x${a.h.toFixed(1)}` : "none"} wrap=${b ? `${b.w.toFixed(0)}x${b.h.toFixed(1)}` : "none"} nowrap=${c ? `${c.w.toFixed(0)}x${c.h.toFixed(1)}` : "none"}`];
 			});
-			await vscene("symbol-geojson-shares-collision", async () => {   // geojson の点の記号は vector／基図の注記と同じ衝突（labels2d・テキスト GPU 化 T-P3）＝同じ点の 2 つは片方だけ（shop は残る）。旧＝symbols-2d の別の衝突で両方出て重なった。
-				// どちらが勝つかは未だ MapLibre と違う（vector の描く層の鍵と geojson の層の順は別の目盛り＝今は vector が先に置く・text gpu plan §4g）＝ここでは「重ならない」だけを見る
+			await vscene("symbol-geojson-shares-collision", async () => {   // geojson の点の記号は vector／基図の注記と同じ衝突（labels2d・テキスト GPU 化 T-P3）＝同じ点の 2 つは片方だけ・後の層が先に置く（MapLibre）。旧＝symbols-2d の別の衝突で両方出て重なった
+				// 勝ち負けは層の順（setUserOrder）＝vector の描く層の鍵と geojson の層の順は別の目盛りでも、MapLibre の層の順で比べる。moveLayer で下へ回すと vector が勝つ
 				await sym("cv", {});
 				const v0 = await untilN("cv", n => n >= 2);
 				gjAt("gcg", { name: "Overlap" }); await map.addLayer({ id: "cg", type: "symbol", source: "gcg", layout: { "text-field": ["get", "name"], "text-size": 16 }, paint: { "text-color": "#000" } });
-				const cafeOf = async () => [...(await placedOf("cv")).filter(q => q.text === "Cafe"), ...await placedOf("cg")];
-				let both = []; for (let k = 0; k < 10; k++) { await sleep(300); both = await cafeOf(); if (both.length === 1) break; }
+				const cafeOf = async () => [...(await placedOf("cv")).filter(q => q.text === "Cafe"), ...await placedOf("cg")].map(q => q.layer + ":" + q.text).join();
+				const until = async want => { let r = ""; for (let k = 0; k < 20; k++) { await sleep(300); r = await cafeOf(); if (r === want) break; } return r; };
+				const top = await until("cg:Overlap");
+				map.moveLayer("cg", "cv"); const below = await until("cv:Cafe");
 				const shop = (await placedOf("cv")).filter(q => q.text === "Shop");
 				await drop("cg", "cv"); map.removeSource("gcg");
-				// cg を cafe から離す（dy）と両方出る＝落ちたのは衝突のせい（geojson の層が出ていない、ではない）
-				gjAt("gcg2", { name: "Overlap" }, 0.003); await sym("cv2", {}); await map.addLayer({ id: "cg2", type: "symbol", source: "gcg2", layout: { "text-field": ["get", "name"], "text-size": 16 }, paint: { "text-color": "#000" } });
-				const far = await untilN("cg2", n => n > 0), v2 = await untilN("cv2", n => n >= 2);
-				await drop("cg2", "cv2"); map.removeSource("gcg2");
-				return [v0.length === 2 && both.length === 1 && shop.length === 1 && far.length === 1 && v2.length === 2, `vector=${v0.map(q => q.text)} at cafe=${both.map(q => q.layer + ":" + q.text)} shop=${shop.length} · apart geojson=${far.length} vector=${v2.length}`];
+				return [v0.length === 2 && top === "cg:Overlap" && below === "cv:Cafe" && shop.length === 1, `vector=${v0.map(q => q.text)} at cafe: geojson on top=${top} · moved below=${below} · shop=${shop.length}`];
 			});
 			await vscene("symbol-geojson-line-placement", async () => {   // geojson の symbol の線沿い（C9）＝symbol-placement line は線の上に（y≒線の y・line:true）・点の地物は置かない・line-center は 1 つ（中心）
 				const [lx, ly] = map.projectLL(D.cafe[0], D.cafe[1]);

@@ -33,6 +33,8 @@ export interface LabelLine { lp?: 1 | 2; path?: Float64Array; ai?: number; cum?:
 export interface Label extends Partial<LabelLayout>, Partial<LabelIcon>, LabelLine {
 	anchor: [number, number]; text: string; size: number; font: string; color: RGBA; halo: RGBA; haloW: number; sort: number; code: number; li: number; minZ: number | null; maxZ: number | null;
 	key?: string; szn?: [number, number]; sec?: LabelSection[]; icon?: string;
+	/** 利用者の層の注記：層の順を焼く前の sort（symbol-sort-key）＝labels2d の setUserOrder が層の順を後から当てる材料 */
+	usk?: number;
 }
 export interface LabelsTile extends TileXYZ { layers: TileData; stateOf?: StateOf | null }
 export interface LabelsResult { labels: Label[]; codepoints: Set<number>; font: string }
