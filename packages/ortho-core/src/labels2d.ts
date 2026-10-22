@@ -102,6 +102,8 @@ export interface LabelLayerOptions {
 	sink?: TextSink | null;
 	/** 字の寸法の口（既定＝measureText）。 */
 	metrics?: GlyphMetrics | null;
+	/** Canvas2D の受け口を包む（T-P1＝線に沿う字だけ GPU へ回す受け口・createGpuLineSink）。sink を渡した時は使わない */
+	sinkWrap?: ((base: TextSink) => TextSink) | null;
 	/** 線注記を平らに置く幅［px］の [下限, 上限]（既定 [4.5, 5.5]）。null＝潰れても出す。 */
 	lineFlatPx?: [number, number] | null;
 }
@@ -198,7 +200,7 @@ export function boxGrid(): BoxGrid {
 // 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
 // glyphAtlas＝線に沿う注記の字を版（字を 1 回だけ焼いた画像）から貼る（既定）。false＝字ごとに strokeText／fillText（検定・切り分け）
 // lineFlatPx＝[消える, 全部出る]（CSS px）＝地面に寝た線の注記の字が、傾きで潰れた向きにこの高さ（書体の大きさ×潰れ）を下回ると薄くなり、消える（読めない字はノイズ）。null＝潰れても出す（MapLibre と同じ）
-export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0, glyphAtlas = true, lineFlatPx = [4.5, 5.5], sink: sink0 = null, metrics: metrics0 = null }: LabelLayerOptions = {}): LabelLayer {
+export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0, glyphAtlas = true, lineFlatPx = [4.5, 5.5], sink: sink0 = null, metrics: metrics0 = null, sinkWrap = null }: LabelLayerOptions = {}): LabelLayer {
 	// pitch ゲート（renderer の elevScaleEff=elev.scale×pf と同式）。真俯瞰0→11.5°で全開。
 	// 旧 cityFlat 項（z13.5→16でラベル標高を畳む）は撤去＝地形側の cityFlat 撤去（renderer 2026-07-26・
 	// DEM10B=DTM化）に追随。残すと都市ズームのチルトで地形は起伏のまま・ラベルだけ楕円体へ沈み位置がズレる。
@@ -220,7 +222,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// 描画命令の受け口（T-P0）と字の寸法の口。既定＝canvas の 2D 文脈（両方が同じ文脈・同じ書体の覚えを共有＝切り出す前と同じ呼び出しの列）。
 	// 受け口だけ差された（WebGPU）時の寸法は 1×1 の OffscreenCanvas の 2D で測る
 	const c2 = sink0 ? null : canvas2d(canvas.getContext("2d") as Ctx2D);
-	const sink: TextSink = sink0 ?? createCanvasSink(c2!, { glyphAtlas });
+	const sink: TextSink = sink0 ?? (sinkWrap ?? (b => b))(createCanvasSink(c2!, { glyphAtlas }));
 	const metrics: GlyphMetrics = metrics0 ?? canvasMetrics(c2 ?? canvas2d(new OffscreenCanvas(1, 1).getContext("2d")!));
 	const fontOf = (L: Label2D, size: number) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
 	// format の区間（L.sec＝[{ t, fs?, col?, fnt? }]・2026-10-03）＝区間ごとの書体（font-scale・text-font）と色。無ければ 1 つ（ラベルの書体）

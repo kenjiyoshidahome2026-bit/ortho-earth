@@ -47,7 +47,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | 段 | 中身 | 門 | 逃げ道 |
 |---|---|---|---|
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
-| **P1** 線沿いの注記を GPU へ（中） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
+| **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
 | **P3** 記号・標識・geojson の symbol・星空（中） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
@@ -77,6 +77,24 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 - `packages/ortho-core` の `npm test`（`labels2d.mjs` 含む）全通過・root の `typecheck` 51 package 全 OK。
 - t-mlcompat：`?g=vector`（symbol-* 40 余件＝点・線沿い・記号・icon-text-fit・format の画像・縦の揃え・halo）全 PASS。`?g=layers` は global-state-filter・hillshade-layer の 2 件が落ちるが、**main でも同じ 2 件が落ちる**（クラウドの SwiftShader・注記と無関係）。`packages/globe` の `npm test` 全通過。
 - 計測の場面はクラウドの SwiftShader で動作だけ確認（タイルが来ないので labels 0）。**実数は実機で取る**＝§5 に記録。
+
+## 4b. P1 線に沿う注記の字を GPU へ（**実装済・実機の門待ち**・2026-10-22）
+
+- **逃げ道と既定**：`?text=gpu` の時だけ（既定は今までの Canvas2D＝既定を GPU にするのは P2 の門の後・§3）。WebGPU で起動できなかった時（GL2 へ落ちた・`createGpuText` が投げた）も Canvas2D のまま。
+- **SDF**（`src/sdf.ts`・純関数）：基準 32px・余白 6px・R 8・CUTOFF 0.25（TinySDF と同じ符号化）。Doc の案（余白 4）から余白を 6 に＝縁の上限が 6 版 px（12px の字で 2.25px）。棚詰め・書体の大きさの基準化も同じファイル。
+- **字の版と描画**（`src/gpu/text.ts`）：R8 の 2048²（尽きたら 4096² へ広げ、それも尽きたら次のフレームの頭で焼き直し）・CPU の写しを持ち書いた行だけ `writeTexture`。焼き場は `willReadFrequently` の 2D（getImageData が GPU から読み戻さない）。1 字 1 インスタンス 72B（位置・2×2・箱・UV・縁の幅とぼかし・本体と縁の色 unorm8x4＝不透明度込み）・4 頂点の strip・premultiplied。縁は SDF のしきい値 2 つ、`text-halo-blur` は縁の幅を広げる。焼く字の数の上限は置いていない（今の字形アトラスと同じ＝初めて出た字はそのフレームで焼く）。
+- **受け口**：`createGpuLineSink(Canvas2D 版)`＝`lineText` だけ GPU、他は Canvas2D 版へそのまま。`createLabelLayer({ sinkWrap })` で包む（書体の覚えと寸法の口は Canvas2D 版と共有のまま）。
+- **足場の canvas**：main が `#labelsgpu` を `#labels` の直後に作り worker へ渡す（同じ GPUDevice・フル解像度・注記と同じ大きさ）。線の記号（盾）は 2D の下・字は上＝記号の上に字が乗る。`above` のオーバーレイと debug の canvas は `#labelsgpu` のさらに上。
+- **撮影**：`canvasOnly` で線の字も Canvas2D へ描いて注記の 1 枚で読み、読んだら GPU の字へ戻して描き直す（`labelsForShot`）＝撮影の絵は今までと同じ。GPU の `readPixels` は検定用（テクスチャ→buffer）。
+- **デバイス喪失**：今までどおり main が立て直す（worker ごと）＝字の版も作り直し。
+
+門の結果（クラウド）：
+- `tests/sdf.mjs`＝円の SDF の距離の誤差 0.75px 未満・縁の位置 0.25px 以内・棚詰め・書体の基準化。
+- **`packages/globe/tests/t-textgpu.html`（verify:webgpu に追加）**＝同じ字の列を Canvas2D の受け口（字形アトラス）と GPU で描いて比べる。直線・曲線＋縁・傾き（潰した行列）・ぼかし・format（色と書体）・CJK を dpr 1／2 で **IoU 0.87〜0.96・外接の箱のずれ 0.5px 以内・インクの比 0.92〜1.08**（SDF の方がわずかに太い）。format の色・消去・`canvasOnly`・版を 2048²→4096² へ広げた後も同じ絵（漢字 2,030 字で溢れる）・GPU の検証エラー 0。
+- クラウドの Chromium でも `--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader`（localhost の頁）で WebGPU が動く＝WGSL と絵はここで見られる。**ただし canvas への表示（present）で device が落ちる**＝検定はテクスチャに描いて読む（`createGpuText(device, null)`）。地図ごと `?gpu=1&text=gpu` で走らせる確認は実機で。
+- `?text=gpu` を付けた GL2 の起動（デルフトの計測頁）で例外なし（GPU は据わらず Canvas2D）。
+
+実機の門（本人）：デルフト z17.6・55° を `?gpu=1&text=gpu&perf=1` で 60fps・`lab=` 1ms 未満、字の質を Mac の dpr 2 と外部モニタの dpr 1 で（「鬱・龍・護」など画数の多い字を `?text=2d` と並べて）。潰れる時は基準を 48px へ上げるか小さい字だけ SDF でない絵に（§2）。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

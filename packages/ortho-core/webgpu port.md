@@ -48,8 +48,9 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 ※gintBld の点は line-list でなく **point-list（1px）**＝GL の gl_PointSize=7 より小さい（線が主・点は副＝許容）。
 
 **B. 性能パスの差**
-- タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
-  （z14+ 都心）で merge のアップロードが WebGL の multi_draw 経路より重い可能性（未計測）。
+- ~~タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない~~ → **2026-10-22 タイル GPU 常駐プール（md=true）を実装**
+  （`vt perf plan.md` §4 step A）：GL の md プロトコル（grow/up/dl）をそのまま受け、origins は instance step の頂点属性・タイルごとの
+  `draw(count, 1, first, firstInstance=j)`・線は storage の線分レコードを `vertex_index/6` で引く。`?nomd=1`＝classic（LOW_MEM は classic のまま）。
 - ~~MSAA 4x が全パスで store/load→終端 resolve~~ → **遷移時AA で解消（2026-08-19）**：本人 ?perf=1 実測で
   「msaa が最も効き、msaa=0 なら動的解像度も落ちない」と確定＝カメラ遷移・アニメ継続中は 1x 直描き、
   静止 500ms（RES_SETTLE_MS 同時計）で 4x 品質フレームを1枚（静止時詳細化と同じ思想）。パイプラインは
@@ -174,7 +175,7 @@ ema＝壁時計フレーム時間＝両バックエンド共通の物差し（We
 
 1. **性能パス B（計測で速いと出たら）**：タイルの multi_draw 後継（render bundle / drawIndexed baseVertex）＋
    timestamp-query（動的解像度・GPU格付けの物差しを WebGPU でも回復）。計測前は着手しない（measure-first）。
-3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
+3. **multi_draw の後継**（→ **2026-10-22 実装＝`vt perf plan.md` §4 step A**・render bundle は step B）：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を
    タイルプール常駐のまま置換できる。md プロトコル（grow/up/dl）は流用可能な見立て。

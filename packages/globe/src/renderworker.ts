@@ -6,6 +6,7 @@
 // index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
+import { createGpuLineSink, createGpuText } from "@ortho-earth/core/textgpu";   // 線に沿う注記の字を WebGPU で（テキスト GPU 化 T-P1・?text=gpu の時だけ据える）
 import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
@@ -25,6 +26,7 @@ import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { DepthApi, DepthFrame } from "@ortho-earth/core/depthout";
 import type { ClockAnchor } from "@ortho-earth/ephem/clock";
 import type { Label2D, LabelImageInput, LabelLayer, SkyLabels, SkyMoon, UserLabel } from "@ortho-earth/core/labels";
+import type { GpuLineSink } from "@ortho-earth/core/textgpu";
 import type { Terrain, TerrainOptions, TerrainRenderer } from "@ortho-earth/core/terrain";
 import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
 import type { ScenePortMessage, MergedScene } from "@ortho-earth/core/worker-msg";
@@ -84,7 +86,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 /** main → render worker の 1 通（type ごとに使う欄だけ・set の data は cmd ごとに形が違う＝使う所で読む） */
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
-	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
+	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
 	perf?: boolean; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean;
 	noTQ?: boolean; noFade?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; gmax?: number;
@@ -109,6 +111,8 @@ interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; _
 type PerfMem = { memory?: { usedJSHeapSize: number } };
 
 let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
+// ?text=gpu（T-P1 の足場）＝線に沿う注記の字は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
+let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuLineSink | null = null;
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
 // ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
@@ -421,7 +425,8 @@ const dispatch = (e: { data: RwMsg }) => {
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas!;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
-			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
+			labelGpuCanvas = m.labelGpuCanvas ?? null;
+			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuLineSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
@@ -445,7 +450,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -455,6 +460,7 @@ const dispatch = (e: { data: RwMsg }) => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
+						if (textSink && labelGpuCanvas) try { textSink.attach(createGpuText(r.device as unknown as GPUDevice, labelGpuCanvas)); console.log("[render] text=gpu (line labels on WebGPU)"); } catch (e) { console.warn("[render] text=gpu init failed = Canvas2D:", (e as Error)?.message || e); }
 						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; kick(); }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
@@ -608,6 +614,14 @@ function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま�
 	const lw = labelCanvas.width, lh = labelCanvas.height;
 	return { labels: new Uint8Array(labelCanvas.getContext("2d")!.getImageData(0, 0, lw, lh).data.buffer), lw, lh };
 }
+// 撮影の注記（WebGPU）＝?text=gpu の線に沿う字も Canvas2D へ描いて注記の 1 枚で読む（GPU の字は別の canvas）。読んだら GPU の字へ戻して描き直す
+function labelsForShot() {
+	if (!labelLayer || !cam) return readLabels();
+	if (!textSink) { labelLayer.draw(cam); return readLabels(); }
+	textSink.canvasOnly = true;
+	try { labelLayer.draw(cam); return readLabels(); }
+	finally { textSink.canvasOnly = false; labelLayer.draw(cam); }
+}
 // 同一フレームのオーバーレイも撮る（shot/print/サムネが画面と一致）：モジュール契約（init/message/frame/destroy）は無傷のまま、
 // worker が各 canvas を読む。GL 系（webgl2）は preserveDrawingBuffer 無し＝直前の overlayFrame と同一タスクで readPixels
 //（createImageBitmap/transferToImageBitmap は headless GL で詰まる＝基図と同じ手）。premultipliedAlpha の画素は ImageData
@@ -696,10 +710,9 @@ async function snapshotGPU(id: number) {   // 呼び手（snapshot）が rendere
 		renderer!.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 画面と同じ（building-extrusion を伏せている時）
 		if (gint) gint.draw(glCam, renderer!.gintCtx());
 		renderer!.flush!();
-		labelLayer && labelLayer.draw(cam!);
+		const { labels, lw, lh } = labelsForShot();   // await の前に読む（待つ間に次のフレームが注記を描き直す）
 		const ov = snapOverlays();   // await の前＝GL オーバーレイの描画バッファが生きているタスク内で読む
 		const rb = await renderer!.readback!();   // { base:ArrayBuffer(RGBA), w, h }
-		const { labels, lw, lh } = readLabels();
 		const transfer: ArrayBuffer[] = [...ov.transfer]; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
 		postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false, overlays: ov.overlays }, transfer);
 	} catch (e) { console.error("[render] snapshotGPU exception", (e as Error)?.message, (e as Error)?.stack); snapNull(id); }
@@ -850,7 +863,8 @@ function applyRes() {
 	if (!canvas || !baseW) return;
 	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
 	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
-	if (labelCanvas && (labelCanvas.width !== baseW || labelCanvas.height !== baseH)) { labelCanvas.width = baseW; labelCanvas.height = baseH; }   // ラベル(文字)は常にフル解像度
+	if (labelCanvas && (labelCanvas.width !== baseW || labelCanvas.height !== baseH)) { labelCanvas.width = baseW; labelCanvas.height = baseH; }
+	if (labelGpuCanvas && (labelGpuCanvas.width !== baseW || labelGpuCanvas.height !== baseH)) { labelGpuCanvas.width = baseW; labelGpuCanvas.height = baseH; }   // 線の字の webgpu canvas も注記と同じフル解像度   // ラベル(文字)は常にフル解像度
 	for (const o of overlays.values()) if (o.canvas.width !== baseW || o.canvas.height !== baseH) { o.canvas.width = baseW; o.canvas.height = baseH; }   // オーバーレイも注記と同じフル解像度
 }
 function tuneRes(drew: boolean) {
