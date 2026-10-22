@@ -41,7 +41,8 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
 	let tx = fwidth(i.uv * vec2f(textureDimensions(atlas)));
 	let w = max(0.5 * (tx.x + tx.y), 1e-3);                          // 画面の 1px が版の何 px か
 	let fa = clamp(0.5 - d / w, 0.0, 1.0);
-	let ha = clamp(0.5 - (d - i.hp.x) / (w + i.hp.y), 0.0, 1.0);    // 縁（strokeText の幅の半分）・ぼかしは幅を広げる
+	let hr = min(i.hp.x, ${((1 - SDF_CUTOFF) * SDF_R).toFixed(1)} - 0.5 * (w + i.hp.y));   // 外の縁の滑らかな帯は SDF の届く距離（v が 0 に張り付く所）の内で 0 まで落とす（旧＝小さな字・dpr 1・縁 2px で帯が届く距離を越え、張り付いた所に薄い縁が残って字の箱ごと霞んだ＝Mac の門 2026-10-22 の世界 z3 の国名）
+	let ha = clamp(0.5 - (d - hr) / (w + i.hp.y), 0.0, 1.0);    // 縁（strokeText の幅の半分）・ぼかしは幅を広げる
 	let f = vec4f(i.fill.rgb * i.fill.a, i.fill.a) * fa;
 	let h = vec4f(i.halo.rgb * i.halo.a, i.halo.a) * ha;
 	let ic = textureSample(icons, samp, i.uv) * i.fill.a;            // 記号（premultiplied の絵×不透明度）＝標本は分岐の外（一様な制御の流れ）
