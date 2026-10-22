@@ -39,12 +39,12 @@ export interface SinkStats { glyphs: number }
 /** 注記の描画命令の受け口。座標は CSS px（dpr は受け口が掛ける）。o＝不透明度（フェード×距離×text-opacity） */
 export interface TextSink {
 	readonly kind: "2d" | "webgpu";
-	/** 2D でしか描けない物（星空劇場の注記・月）の文脈。無い受け口は null＝描かない（T-P3 で移す） */
+	/** 2D でしか描けない物（星空劇場の注記・月）の文脈。無い受け口は null＝描かない（T-P3 の 2 本目以降で移す） */
 	readonly ctx2d: Ctx2D | null;
 	begin(W: number, H: number, dpr: number): void;
 	end(): void;
 	clear(W: number, H: number): void;
-	/** 次に描く注記の層（T-P2）。li＝style の層の添字（基図）・pinTop＝層の位置に描けない注記（利用者の層・記号つき・format の記号）＝最前面のまま。
+	/** 次に描く注記の層（T-P2）。li＝style の層の添字（基図）・pinTop＝層の位置に描かない注記（利用者の層）＝最前面のまま。
 	 *  地図のパスの中に字を描ける受け口だけが使う（Canvas2D 版は持たない） */
 	layer?(li: number | null, pinTop: boolean): void;
 	/** 書体が載った（addFontFace）＝焼いた字を捨てる */
