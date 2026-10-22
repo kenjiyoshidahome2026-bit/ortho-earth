@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // 点の注記を字に割る（textsink.ts の pointGlyphs・テキスト GPU 化 T-P2）の検定（Node）。
 // 偽の寸法の口＝字の幅の表＋字詰めの対（"AV" は −2）＋字間（字ごとの後ろ）。Canvas2D 版 pointText の置き方（寄せ・行の中央・format・縦書き）と同じ所に字が来るか
-import { pointGlyphs, needsShaping } from "../src/textsink.ts";
+import { pointGlyphs, needsShaping, pxNumOf } from "../src/textsink.ts";
 let fails = 0;
 const ok = (cond, label) => { if (cond) return; fails++; console.error(`  ✗ ${label}`); };
 const near = (a, b, label, e = 1e-9) => ok(Math.abs(a - b) <= e, `${label}: ${a} ≠ ${b}`);
 
 const W = { A: 8, V: 8, i: 3, W: 12, " ": 4, 東: 16, 京: 16 };
 const KERN = { AV: -2 };
-const scaleOf = font => parseFloat(/(\d+(?:\.\d+)?)px/.exec(font)[1]) / 16;
+const scaleOf = font => parseFloat(pxNumOf(font)) / 16;   // 書体の px＝textsink の pxNumOf（数の並びの正規表現は多項式の後戻り＝CodeQL）
 const calls = [];
 const measurer = (font, ls) => { calls.push([font, ls]); const k = scaleOf(font); return t => { const cs = [...t]; let w = 0; for (let i = 0; i < cs.length; i++) { w += (W[cs[i]] ?? 8) * k + ls; if (i && KERN[cs[i - 1] + cs[i]]) w += KERN[cs[i - 1] + cs[i]] * k; } return w; }; };
 const F = "16px Noto Sans", F24 = "24px Noto Sans";
