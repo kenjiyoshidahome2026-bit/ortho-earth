@@ -382,8 +382,12 @@ struct LineOut {
 	@location(11) @interpolate(flat) jb: vec4f,   // 端 B の同じ物
 	@location(12) @interpolate(flat) jk: vec4f,   // 端の形 x＝A・y＝B（0 丸＝capsule・1 butt・2 square・3 miter・4 bevel・5 丸い継ぎ）・zw＝bevel の切り線の距離（符号＝外側の向き）
 	@location(13) @interpolate(flat) dd: vec2f,   // 破線（S-P1-3）：始点の位相・線分の長さ（線幅の倍数）
+	@location(14) @interpolate(flat) gp: vec2f,   // line-gradient（G-3）：始点・終点の進み（0..1）
 	@location(6) fog: f32,
 };
+// 線の色の見本（G-3＝line-gradient の 256 段・RGBA8・前乗算しない）＝塗りの模様と同じ group(1) の binding 1/2（P.patP.x＝1 の層だけ読む・他は 1×1 の透明）
+@group(1) @binding(1) var ltTex: texture_2d<f32>;
+@group(1) @binding(2) var ltSamp: sampler;
 fn toScreen(c: vec4f) -> vec2f {
 	let ndc = c.xy / c.w;
 	return vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y);
@@ -431,6 +435,7 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 ) -> LineOut {
 	var o: LineOut;
 	var hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;
+	o.gp = select(vec2f(0.0), vec2f(col.x + col.y * 256.0, col.z + col.w * 256.0) * (255.0 / 65535.0), P.patP.x > 0.5);   // line-gradient（G-3）＝色の語の 4 バイト → unorm16×2（gl LINE_MAIN と同式）
 	var q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）
 	if (P.tr.z != 0.0) { let tr = trLL(F.origin + q1); q0 += tr; q1 += tr; q2 += tr; q3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	let la1 = F.origin + q1; let la2 = F.origin + q2;   // elev 参照用の絶対（粗くて可）
@@ -550,10 +555,13 @@ fn lineTail(k: f32, e: f32, q: vec2f, j: vec4f, bev: f32, hw: f32, dist: ptr<fun
 	if (P.lx.x > 0.0) { edge = select(clamp((hw + 0.5 - dist) / (P.lx.x + 1.0), 0.0, 1.0), 1.0 - smoothstep(hw * (1.0 - P.lx.x), hw, dist), P.lx.y > 0.5); }
 	let alpha = edge * cov * min(in.halfw * 2.0, 1.0);
 	if (alpha <= 0.0) { discard; }
-	let a = in.color.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;   // p0.w＝クロスフェード×基図の濃さ
+	// line-gradient（G-3・gl LINE_FS と同式）：画素の進み＝線分の上の位置で始点・終点の進みを補う → 見本の 256 段の真ん中を引く（Level＝一様な流れを要さない）
+	var lc = in.color;
+	if (P.patP.x > 0.5) { lc = textureSampleLevel(ltTex, ltSamp, vec2f(mix(in.gp.x, in.gp.y, clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0)) * (255.0 / 256.0) + 0.5 / 256.0, 0.5), 0.0); }
+	let a = lc.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;   // p0.w＝クロスフェード×基図の濃さ
 	if (a <= 0.003) { discard; }
 	let ga = a * P.p0.w;   // ×グローバルα（クロスフェード用・通常1）
-	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * ga, ga);
+	return vec4f(mix(lc.rgb, F.fogColor, in.fog) * ga, ga);
 }
 `;
 
@@ -1413,7 +1421,7 @@ export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 export const LINE_SH_WGSL = deriveWgsl(LINE_WGSL, [
 	["\t@location(6) fog: f32,\n};", "\t@location(6) fog: f32,\n\t@location(7) sc: vec4f,\n};"],
 	["\to.fog = fogOf((wa + wb) * 0.5);\n", "\to.fog = fogOf((wa + wb) * 0.5);\n\to.sc = shClip(select(relWb, relWa, corner.x < 0.5) + (F.originPt - SH.anchor.xyz));\n"],
-	["\treturn vec4f(mix(in.color.rgb, F.fogColor, in.fog) * ga, ga);", "\treturn vec4f(mix(shShade(in.color.rgb, in.sc), F.fogColor, in.fog) * ga, ga);"],
+	["\treturn vec4f(mix(lc.rgb, F.fogColor, in.fog) * ga, ga);", "\treturn vec4f(mix(shShade(lc.rgb, in.sc), F.fogColor, in.fog) * ga, ga);"],
 ], "LINE_SH_WGSL") + SHADOW_WGSL(2);
 export const BUILDING_SH_WGSL = deriveWgsl(BUILDING_WGSL, [
 	["\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n};", "\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n\t@location(4) sc: vec4f,\n};"],

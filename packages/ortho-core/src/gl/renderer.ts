@@ -21,7 +21,7 @@ import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と�
 import { FAR_PIVOT } from "./gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 import type { Renderer } from "../../types/gpu.js";
 import type { CameraPose, CameraState, SphereRayUniforms } from "../camera.ts";
-import type { BuildingsGeom, MergedScene } from "../scene.ts";
+import type { BuildingsGeom, LineTex, MergedScene } from "../scene.ts";
 import type { PaintZoom } from "../paintzoom.ts";
 import type { RasterDraw, RasterDrawLayer, RasterDraws, TileMesh } from "../raster.ts";
 import type { CellPayload } from "../terrain.ts";
@@ -78,7 +78,7 @@ type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLay
 /** 地面アトラスの 1 窓 */
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
 interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[]; fx: number[] | null; pat: string | null; pz: PaintZoom | null }
-interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null; fx: number[] | null; pz: PaintZoom | null }
+interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null; fx: number[] | null; pz: PaintZoom | null; lt: LineTex | null }
 // 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（scene.ts の dashIntervals）
 interface DashU { P: number; n: number; round: number; iv: Float32Array }
 function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
@@ -90,7 +90,7 @@ function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number; lt?: LineTex; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -155,7 +155,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const lineDashPLoc = gl.getUniformLocation(lineProg, "u_dashP"), lineDashILoc = gl.getUniformLocation(lineProg, "u_dashI");
 	const lineTrLoc = gl.getUniformLocation(lineProg, "u_tr"), lineBlurLoc = gl.getUniformLocation(lineProg, "u_blur"), fillTrLoc = gl.getUniformLocation(fillProg, "u_tr");
 	const linePzLoc = gl.getUniformLocation(lineProg, "u_pz"), linePzOLoc = gl.getUniformLocation(lineProg, "u_pzO"), fillPzLoc = gl.getUniformLocation(fillProg, "u_pz");
-	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); gl.uniform4f(lineTrLoc, 0, 0, 0, 0); gl.uniform2f(lineBlurLoc, 0, 0); gl.uniform4f(linePzLoc, 0, 0, 0, 0); gl.uniform2f(linePzOLoc, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）・ずらさない・ぼかさない（S-P1-4/5）
+	const lineLtLoc = gl.getUniformLocation(lineProg, "u_lt");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); gl.uniform4f(lineTrLoc, 0, 0, 0, 0); gl.uniform2f(lineBlurLoc, 0, 0); gl.uniform4f(linePzLoc, 0, 0, 0, 0); gl.uniform2f(linePzOLoc, 0, 0); gl.uniform4f(lineLtLoc, 0, 0, 0, 0); };   // 色の語は色（G-3）   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）・ずらさない・ぼかさない（S-P1-4/5）
 	// 層の画面効果（S-P1-4/5・build.ts の layerFx＝[tx, ty, anchor, blur, rel]）：translate は今の zoom の 1px の経度（256px の世界）で地面へ。
 	// anchor "viewport"＝画面に揃える＝方位だけ回して地面の東・南へ（MapLibre の translatePosMatrix と同じ）。line-blur は CSS px→画素
 	const setFx = (trLoc: WebGLUniformLocation | null, blurLoc: WebGLUniformLocation | null, fx: readonly number[] | null | undefined, cam: { zoom?: number; bearing?: number; dpr?: number }): void => {
@@ -194,6 +195,26 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// 模様を使わない塗りでも u_patTex は FS の能動の標本器＝既定の unit 0 に整数テクスチャ（md の線分プール等）が残ると型の不一致で描画ごと無効になる
 	// ＝unit 16 を常に指させ、1×1 の透明な絵を置いておく（初めの模様が来るまで）
 	{ const t = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.activeTexture(gl.TEXTURE0); }
+	// 線の色の見本（G-3＝line-gradient）：見本（RGBA8×LG_N）→ テクスチャ（鍵＝lt.key で覚える・古い順に捨てる）。描く直前に PAT_UNIT へ（塗りの模様と同じ unit＝塗りは自分の模様を置き直す）。
+	// u_ltTex は線のプログラムを作った時に PAT_UNIT を指させる（既定の 0 番は md の線分プール＝整数の標本器と当たる）
+	const ltTexs = new Map<string, WebGLTexture>();
+	const ltProg = (prog: WebGLProgram): void => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ltTex"), PAT_UNIT); gl.uniform4f(loc(gl, prog, "u_lt"), 0, 0, 0, 0); };
+	ltProg(lineProg);
+	const setLt = (prog: WebGLProgram, lt: LineTex | null | undefined): void => {
+		const L = loc(gl, prog, "u_lt");
+		if (!lt?.lut) { gl.uniform4f(L, 0, 0, 0, 0); return; }
+		let t = ltTexs.get(lt.key);
+		if (!t) {
+			if (ltTexs.size >= 64) { const k0 = ltTexs.keys().next().value!; gl.deleteTexture(ltTexs.get(k0)!); ltTexs.delete(k0); }
+			t = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lt.lut.length >> 2, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lt.lut);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			ltTexs.set(lt.key, t);
+		} else { gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t); }
+		gl.activeTexture(gl.TEXTURE0);
+		gl.uniform4f(L, 1, 0, 0, 0);
+	};
 	const setPatImage = (d: { name: string; bitmap: ImageBitmap | null; pixelRatio?: number } | null): void => {
 		if (!d?.name) return;
 		const old = pats.get(d.name); if (old?.tex) gl.deleteTexture(old.tex);
@@ -678,7 +699,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	let ptFsL = new Map<string, { sl: string; L: PtLayer }>();
 	const ptFsS = new Map<string, Map<string, Record<string, unknown>>>(), ptById = new Map<string, Set<number>>(), ptRowId: (string | undefined)[] = [];
 	const ptProg = (prog: WebGLProgram): WebGLProgram => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ptTex"), PT_UNIT); return prog; };   // 既定の 0 番は他の型の標本器と当たる
-	if (md) { ptProg(md.fillProg); ptProg(md.lineProg); gl.useProgram(null); }
+	if (md) { ptProg(md.fillProg); ptProg(md.lineProg); ltProg(md.lineProg); gl.useProgram(null); }
 	function ptPut(row: PtRow): void {
 		const [r, id, keys, t, c, hw] = row, o = r * 8, F = ptFsL.get(id), st = F && ptRowId[r] !== undefined ? ptFsS.get(F.sl)?.get(ptRowId[r]!) : undefined;
 		const Lo = ptOver.get(id), L = Lo && ptCovers(Lo, keys) ? Lo : st && ptCovers(F!.L, keys) ? F!.L : null;
@@ -894,7 +915,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (l >= 0) { gl.bindBuffer(gl.ARRAY_BUFFER, bJf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.UNSIGNED_BYTE, false, 0, 0); gl.vertexAttribDivisor(l, 1); }
 				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : []), ...(bDist ? [bDist] : [])], cj: bJf ? L.cj ?? 0 : 0, dash: bDist ? dashU(L.dash, bJf ? L.cj ?? 0 : 0) : null, fx: L.fx || null, pz: L.pz || null });   // li＝差し込みの境で枠を分ける（#123）
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : []), ...(bDist ? [bDist] : [])], cj: bJf ? L.cj ?? 0 : 0, dash: bDist ? dashU(L.dash, bJf ? L.cj ?? 0 : 0) : null, fx: L.fx || null, pz: L.pz || null, lt: L.lt || null });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld: GLBld | null = null;
@@ -1813,6 +1834,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						setFx(loc(gl, md!.lineProg, "u_tr"), loc(gl, md!.lineProg, "u_blur"), e.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 						setPz(md!.lineProg, pzOver.get(e.li) ?? e.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
 						gl.uniform1f(loc(gl, md!.lineProg, "u_pt"), e.pt ?? 0);   // paint 表の (b) 類（2＝線の半幅も表・段 2b）
+						setLt(md!.lineProg, e.lt);   // line-gradient（G-3）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 						if (e.pt) dbgC!.pt += e.counts.length;
@@ -1860,6 +1882,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					setDash(lineDashPLoc, lineDashILoc, d.dash, cam);   // 破線（S-P1-3）
 					setFx(lineTrLoc, lineBlurLoc, d.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 					setPz(lineProg, pzOver.get(d.li) ?? d.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
+					setLt(lineProg, d.lt);   // line-gradient（G-3）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;

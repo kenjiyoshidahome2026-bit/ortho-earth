@@ -3232,7 +3232,8 @@ const kindOf: GlobeScope["kindOf"] = (layer, sp) => {
 	if (sp!.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported — vector sources feed fill / line / circle / symbol / heatmap / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
 	if (layer.type === "symbol") return "symbol";
-	if (layer.type === "line" && (layer.paint?.["line-pattern"] != null || layer.paint?.["line-gradient"] != null)) return "pattern";   // 線の模様・色の進み＝vtdraw も未対応（G-3／G-4）＝canvas2D の口
+	if (layer.type === "line" && layer.paint?.["line-pattern"] != null) return "pattern";   // 線の模様＝vtdraw も未対応（G-4）＝canvas2D の口
+	if (layer.type === "line" && layer.paint?.["line-gradient"] != null) return GJVT && !sp?.cluster ? "vtdraw" : "pattern";   // 色の進み（G-3）＝切ったタイルの線の進み（geojsonvt の prog）を vtdraw のシェーダで
 	if (layer.type === "fill" && layer.paint?.["fill-pattern"] != null) return GJVT_FILL && !sp?.cluster && !PER_FEATURE.test(JSON.stringify(layer.paint["fill-pattern"])) ? "vtdraw" : "pattern";   // 面の模様（上の GJVT_FILL）
 	if (layer.type === "line" && (layer.paint?.["line-offset"] ?? 0) !== 0) return GJVT && !sp?.cluster ? "vtdraw" : "pattern";   // 線のずらし（#49・数の 0 は gint のまま）＝切ったタイルで vtdraw（G-2）
 	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") return "gint";
@@ -3530,7 +3531,7 @@ const vtdGet = async () => {
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED: Record<string, string[]> = { fill: [], line: ["line-pattern", "line-gradient"], circle: [], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
+const VTD_UNSUPPORTED: Record<string, string[]> = { fill: [], line: ["line-pattern"], circle: [], symbol: [], heatmap: [] };   // line-gradient（G-3）は描く（vector の線の進みは環ごとの近似）   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer);
 	if (v.src?.type === "geojson") return gjvtMount(v, layer, sid);

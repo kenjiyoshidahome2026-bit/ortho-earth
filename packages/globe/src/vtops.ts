@@ -6,10 +6,10 @@ import type { FlatRing as RingCoords } from "./vtmesh.ts";
 
 /** タイル単位の幾何（平坦な座標列＋各部の終わり）＝core の解読（Int32Array）か枠で切った後（Float64Array） */
 export interface TileGeom { coords: RingCoords; ends: number[] }
-/** 線の幾何（座標は数の並びなら何でも） */
-export interface LineGeom { coords: ArrayLike<number>; ends: number[] }
-/** 枠で切った後の幾何 */
-export interface ClippedGeom { coords: Float64Array; ends: number[] }
+/** 線の幾何（座標は数の並びなら何でも）・prog＝頂点ごとの線の進み（geojson の線・core の geojsonvt） */
+export interface LineGeom { coords: ArrayLike<number>; ends: number[]; prog?: ArrayLike<number> }
+/** 枠で切った後の幾何（prog＝線の進みを持つ線を切った時だけ・切った端は線分の上で補う） */
+export interface ClippedGeom { coords: Float64Array; ends: number[]; prog?: Float32Array }
 /** 地物（core の解読の形＝type と geom） */
 export interface TileFeature { type?: string; geom: TileGeom }
 
@@ -51,21 +51,21 @@ function push(out: number[], ends: number[], r: ArrayLike<number>, positive: boo
 // 線をタイルの枠で切る（線分ごとに Liang–Barsky・枠の中の連なりを 1 本に）。closedRuns＝面の輪を線として描く時（line 層・fill の輪郭）＝
 // 枠の上を走る辺（切った後の継ぎ目）は落とす＝隣のタイルとの境に偽の線を出さない
 export function clipLineGeom(geom: LineGeom, E: number, { skipBoundary = false }: { skipBoundary?: boolean } = {}): ClippedGeom | null {
-	const { coords: c, ends } = geom, out: number[] = [], oEnds: number[] = [];
-	let cur: number[] = [];
-	const flush = () => { if (cur.length >= 4) { for (const v of cur) out.push(v); oEnds.push(out.length); } cur = []; };
+	const { coords: c, ends, prog: pr } = geom, out: number[] = [], oEnds: number[] = [], oProg: number[] = [];
+	let cur: number[] = [], cp: number[] = [];
+	const flush = () => { if (cur.length >= 4) { for (const v of cur) out.push(v); for (const v of cp) oProg.push(v); oEnds.push(out.length); } cur = []; cp = []; };
 	let s = 0;
 	for (const e of ends) {
 		for (let i = s; i + 3 < e; i += 2) {
 			const seg = clipSeg(c[i], c[i + 1], c[i + 2], c[i + 3], E);
 			if (!seg || (skipBoundary && onEdge(seg, E))) { flush(); continue; }
-			const [ax, ay, bx, by] = seg, k = cur.length;
-			if (!k || cur[k - 2] !== ax || cur[k - 1] !== ay) { flush(); cur.push(ax, ay); }
-			cur.push(bx, by);
+			const [ax, ay, bx, by, t0, t1] = seg, k = cur.length, p0 = pr ? pr[i >> 1] : 0, dp = pr ? pr[(i >> 1) + 1] - p0 : 0;
+			if (!k || cur[k - 2] !== ax || cur[k - 1] !== ay) { flush(); cur.push(ax, ay); if (pr) cp.push(p0 + dp * t0); }
+			cur.push(bx, by); if (pr) cp.push(p0 + dp * t1);
 		}
 		flush(); s = e;
 	}
-	return oEnds.length ? { coords: Float64Array.from(out), ends: oEnds } : null;
+	return oEnds.length ? { coords: Float64Array.from(out), ends: oEnds, ...(pr ? { prog: Float32Array.from(oProg) } : {}) } : null;
 }
 const onEdge = ([ax, ay, bx, by]: number[], E: number) => (ax === bx && (ax <= 0 || ax >= E)) || (ay === by && (ay <= 0 || ay >= E));
 function clipSeg(ax: number, ay: number, bx: number, by: number, E: number): number[] | null {
@@ -77,7 +77,7 @@ function clipSeg(ax: number, ay: number, bx: number, by: number, E: number): num
 		if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
 	}
 	const snap = (v: number) => v < 0 ? 0 : v > E ? E : v;   // 交点は枠の値ちょうど（丸めの誤差で枠の外へ出さない）
-	return [snap(ax + t0 * dx), snap(ay + t0 * dy), snap(ax + t1 * dx), snap(ay + t1 * dy)];
+	return [snap(ax + t0 * dx), snap(ay + t0 * dy), snap(ax + t1 * dx), snap(ay + t1 * dy), t0, t1];   // t＝元の線分の上の位置（線の進みを補う）
 }
 
 // 点がタイルの中（バッファを除く・右と下は含まない＝隣のタイルと二重にならない）

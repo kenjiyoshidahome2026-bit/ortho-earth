@@ -6,6 +6,8 @@
 //   日付変更線＝MapLibre（geojson-vt）と同じく座標をそのまま読む（170→−170 は世界を西へ回る）。±180 を越えた座標（190 など）で書いた地物は、
 //   外接矩形が世界の外へはみ出す分を ±1 周ずらして同じタイルに切る（またぐ線・面はこの書き方で渡す）。
 //   id＝Feature.id が数の時だけ（MVT と同じ）・promoteId は下流（vtdraw）が属性から引く。gt＝元の型（式の ["geometry-type"]・labels の §4g と同じ）。
+//   線の進み（G-3・line-gradient の ["line-progress"]・MapLibre の lineMetrics）＝線（MultiLineString は 1 本ずつ）の頭からの長さの割合を頂点ごとに geom.prog へ。
+//   長さはメルカトルの平面で測る（geojson-vt の lineMetrics と同じ尺）。切った端の点は切った線分の上で割合を補う＝タイルをまたいでも続く。
 // 簡略化はしない（初版）。索引は外接矩形の素朴な走査＝模様・飾りの層（数千地物まで）向け。大きい source を流す時は格子を足す。
 import type { DecodedFeature, DecodedGeomType, DecodedTile } from "./tileformat.ts";
 
@@ -14,7 +16,7 @@ export const GEOJSON_LAYER = "_geojson";
 export interface GeojsonVtOptions { extent?: number; buffer?: number; layer?: string }
 type Props = Record<string, unknown>;
 /** 下ごしらえ済みの地物（座標＝メルカトルの [0,1]・x は世界の外へはみ出してよい） */
-interface Prep { type: DecodedGeomType; gt: string; props: Props; id: number | undefined; parts: Float64Array[][]; bbox: [number, number, number, number] }
+interface Prep { type: DecodedGeomType; gt: string; props: Props; id: number | undefined; parts: Float64Array[][]; bbox: [number, number, number, number]; prog?: Float64Array[] }
 export interface GeojsonIndex { readonly count: number; tile(z: number, x: number, y: number): DecodedTile }
 
 const MAXLAT = 85.05112878;
@@ -43,10 +45,17 @@ function prepGeom(g: Geom, props: Props, id: number | undefined, out: Prep[]): v
 	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
 	for (const p of parts) for (const a of p) for (let i = 0; i < a.length; i += 2) { const x = a[i], y = a[i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
 	if (!(x0 <= x1)) return;
-	out.push({ type, gt: g.type, props, id, parts, bbox: [x0, y0, x1, y1] });
+	out.push({ type, gt: g.type, props, id, parts, bbox: [x0, y0, x1, y1], ...(type === "LineString" ? { prog: parts[0].map(lineProg) } : {}) });
 }
 
-// 線分を [lo, hi]² に切る（Liang–Barsky）＝[ax, ay, bx, by] か null
+// 線の頂点ごとの進み（頭からの長さ÷全長・メルカトルの平面）。長さ 0 の線は全部 0
+function lineProg(a: Float64Array): Float64Array {
+	const n = a.length >> 1, p = new Float64Array(n);
+	for (let i = 1; i < n; i++) p[i] = p[i - 1] + Math.hypot(a[i * 2] - a[i * 2 - 2], a[i * 2 + 1] - a[i * 2 - 1]);
+	const L = p[n - 1]; if (L > 0) for (let i = 1; i < n; i++) p[i] /= L;
+	return p;
+}
+// 線分を [lo, hi]² に切る（Liang–Barsky）＝[ax, ay, bx, by, t0, t1]（t＝元の線分の上の位置）か null
 function clipSeg(ax: number, ay: number, bx: number, by: number, lo: number, hi: number): number[] | null {
 	const dx = bx - ax, dy = by - ay;
 	let t0 = 0, t1 = 1;
@@ -55,7 +64,7 @@ function clipSeg(ax: number, ay: number, bx: number, by: number, lo: number, hi:
 		const r = q / p;
 		if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
 	}
-	return [ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy];
+	return [ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy, t0, t1];
 }
 // 輪を [lo, hi]² に切る（Sutherland–Hodgman・4 辺）＝閉じていない平たい列
 function clipRing(r: number[], lo: number, hi: number): number[] {
@@ -93,22 +102,23 @@ export function createGeojsonIndex(data: unknown, { extent = 4096, buffer = 64, 
 				for (const k of [0, -1, 1]) {   // 世界をずらした写し（日付変更線をまたぐ地物・タイルの x は [0, n)）
 					if (p.bbox[0] + k > bx1 || p.bbox[2] + k < bx0) continue;
 					const tx = (v: number) => ((v + k) - X0) * n * extent, ty = (v: number) => (v - Y0) * n * extent;
-					const out: number[] = [], ends: number[] = [];
+					const out: number[] = [], ends: number[] = [], prog: number[] = [];
 					if (p.type === "Point") {
 						for (const a of p.parts[0]) for (let i = 0; i < a.length; i += 2) { const px = tx(a[i]), py = ty(a[i + 1]); if (px >= lo && px <= hi && py >= lo && py <= hi) { out.push(Math.round(px), Math.round(py)); ends.push(out.length); } }
 					} else if (p.type === "LineString") {
-						for (const a of p.parts[0]) {
-							let cur: number[] = [];
-							const flush = () => { if (cur.length >= 4) { for (const v of cur) out.push(Math.round(v)); ends.push(out.length); } cur = []; };
+						p.parts[0].forEach((a, li) => {
+							const pr = p.prog![li];
+							let cur: number[] = [], cp: number[] = [];
+							const flush = () => { if (cur.length >= 4) { for (const v of cur) out.push(Math.round(v)); for (const v of cp) prog.push(v); ends.push(out.length); } cur = []; cp = []; };
 							for (let i = 0; i + 3 < a.length; i += 2) {
 								const s = clipSeg(tx(a[i]), ty(a[i + 1]), tx(a[i + 2]), ty(a[i + 3]), lo, hi);
 								if (!s) { flush(); continue; }
-								const m = cur.length;
-								if (!m || cur[m - 2] !== s[0] || cur[m - 1] !== s[1]) { flush(); cur.push(s[0], s[1]); }
-								cur.push(s[2], s[3]);
+								const m = cur.length, p0 = pr[i >> 1], dp = pr[(i >> 1) + 1] - p0;
+								if (!m || cur[m - 2] !== s[0] || cur[m - 1] !== s[1]) { flush(); cur.push(s[0], s[1]); cp.push(p0 + dp * s[4]); }
+								cur.push(s[2], s[3]); cp.push(p0 + dp * s[5]);
 							}
 							flush();
-						}
+						});
 					} else {
 						for (const poly of p.parts) {
 							let first = true, start = out.length, startEnds = ends.length;
@@ -126,7 +136,7 @@ export function createGeojsonIndex(data: unknown, { extent = 4096, buffer = 64, 
 							if (first) { out.length = start; ends.length = startEnds; }
 						}
 					}
-					if (ends.length) features.push({ type: p.type, props: p.props, geom: { coords: Int32Array.from(out), ends }, id: p.id, gt: p.gt });
+					if (ends.length) features.push({ type: p.type, props: p.props, geom: { coords: Int32Array.from(out), ends, ...(prog.length ? { prog: Float32Array.from(prog) } : {}) }, id: p.id, gt: p.gt });
 				}
 			}
 			return features.length ? { [layer]: { extent, features } } : {};
