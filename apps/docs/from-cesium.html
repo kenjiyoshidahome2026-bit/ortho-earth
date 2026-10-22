@@ -48,7 +48,7 @@ from <code>npm i @ortho-earth/globe</code>.
 
 <table>
 	<tr><th>Topic</th><th>CesiumJS</th><th>Ortho Earth</th><th>See it</th></tr>
-	<tr><td>3D Tiles</td><td><code>await Cesium3DTileset.fromUrl(url)</code> + <code>scene.primitives.add(tileset)</code></td><td><code>await map.add3DTiles(url)</code></td><td><a href="/nl/">The Netherlands in 3D</a> (3DBAG tileset)</td></tr>
+	<tr><td>3D Tiles</td><td><code>await Cesium3DTileset.fromUrl(url)</code> + <code>scene.primitives.add(tileset)</code></td><td><code>await map.add3DTiles(url)</code></td><td><a href="/nl/">The Netherlands in 3D</a> (PDOK 3D Basisvoorziening tileset)</td></tr>
 	<tr><td>I3S scene layers</td><td><code>I3SDataProvider.fromUrl(url)</code></td><td><code>await map.addI3S(url)</code></td><td>—</td></tr>
 	<tr><td>quantized-mesh terrain</td><td><code>CesiumTerrainProvider.fromUrl(url)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", url: ".../layer.json" } })</code></td><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">quantized-mesh example</a></td></tr>
 	<tr><td>Cesium ion terrain</td><td><code>CesiumTerrainProvider.fromIonAssetId(id)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", ion: { assetId, accessToken } } })</code></td><td>—</td></tr>
