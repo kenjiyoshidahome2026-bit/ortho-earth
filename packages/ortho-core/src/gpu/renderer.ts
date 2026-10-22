@@ -13,7 +13,7 @@
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";
-import { seaFbReal } from "../scene.ts";
+import { seaFbReal, chopDash } from "../scene.ts";   // chopDash＝破線（S-P1-3）の WebGPU の逃げ道（シェーダの破線は次の段）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
@@ -1998,7 +1998,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		disposeSlot(slot);
 		const draws: SceneDraw[] = [];
-		for (const L of s.layers || []) {
+		for (let L of s.layers || []) {
 			if (!L) continue;
 			if (L.kind === "fill") {
 				if (!L.pos.length) continue;
@@ -2007,6 +2007,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const bIdx = hasIdx ? makeBuf(L.idx instanceof Uint32Array ? L.idx : Uint32Array.from(L.idx), GPUBufferUsage.INDEX) : null;
 				draws.push({ kind: "fill", li: L.li, bufs: bIdx ? [bPos, bCol, bIdx] : [bPos, bCol], bPos, bCol, bIdx, count: hasIdx ? L.idx.length : L.pos.length / 2 });
 			} else {
+				if (L.dist) L = chopDash(L, s.origin);   // 破線（S-P1-3）：GL2 はシェーダで描く・ここは作ったタイルの z の尺で刻む（従来の CPU の破線と同じ絵）
 				if (!L.half.length) continue;
 				const bP1 = makeBuf(L.P1, GPUBufferUsage.VERTEX), bP2 = makeBuf(L.P2, GPUBufferUsage.VERTEX);
 				const bCol = makeBuf(u8col(L.col), GPUBufferUsage.VERTEX), bHalf = makeBuf(L.half, GPUBufferUsage.VERTEX);

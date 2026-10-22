@@ -1139,8 +1139,13 @@ void main() {
 // 本体は classic（インスタンス属性）と multi_draw（テクスチャpull）で共用＝式の乖離を構造的に防ぐ。
 // 変種側が用意するローカル: o(シーン原点+タイル原点差 deg), p1/p2(原点相対 lon/lat), corner(end 0/1, side ±1),
 // hw0(半幅 CSS px), off0(line-offset＝x:CSS px・右が正, y/z:始点/終点を線分の向きへ x×t 滑らせる＝角の継ぎ), col0(rgba),
-// p0/p3(端と継ぎ＝前の線分の始点・次の線分の終点・原点相対＝並びのすぐ前後の線分から読む・S-P1-1), jf0(旗＝build.ts の JF_*)。
-const LINE_VARY = /* glsl */`
+// p0/p3(端と継ぎ＝前の線分の始点・次の線分の終点・原点相対＝並びのすぐ前後の線分から読む・S-P1-1), jf0(旗＝build.ts の JF_*)、
+// dist0(破線＝始点までの線に沿う距離・z24 の px・S-P1-3)。
+// 破線の uniform（u_dashP・u_dashI）は FS と共用＝LINE_DASH
+const LINE_DASH = /* glsl */`
+uniform vec4 u_dashP;     // 破線（S-P1-3）＝(周期 P, 線の区間の数（0＝破線でない）, 丸い端 1／0, floor(zoom) の px ÷ z24 の px)
+uniform vec4 u_dashI[2];  // 線の区間 [a, b]×4（線幅の倍数・scene.ts の dashIntervals）`;
+const LINE_VARY = /* glsl */`${LINE_DASH}
 uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
 uniform float u_cj;     // 端と継ぎ（S-P1-1）＝cap | join<<2 | round(miter-limit×8)<<4（build.ts の lineCapJoin）。0＝丸い端と丸い継ぎ＝p0/p3/jf0 を読まない（従来の capsule）
 flat out vec2 v_a;
@@ -1149,6 +1154,7 @@ flat out float v_half;
 flat out vec4 v_ja;     // 端 A の継ぎの切り口（二等分線）：点 xy・線分の側を向く法線 zw
 flat out vec4 v_jb;     // 端 B の同じ物
 flat out vec4 v_jk;     // 端の形 x＝A・y＝B（0 丸＝capsule・1 butt・2 square・3 miter・4 bevel・5 丸い継ぎ）・zw＝bevel の切り線の距離（符号＝外側の向き）
+flat out vec2 v_dd;     // 破線：始点の位相・線分の長さ（線幅の倍数）
 out vec2 v_pos;
 out vec4 v_color;
 out float v_front;
@@ -1225,6 +1231,13 @@ const LINE_MAIN = /* glsl */`
 		v_jk.y = lineEnd(o, p1, p2, p3, hb, hp, false, lB, v_jb, bB, eB);
 		v_jk.zw = vec2(bA, bB);
 	}
+	// 破線（S-P1-3）：模様の位相は地面の長さ（z24 の px）を floor(zoom) の px にして線幅で割る＝MapLibre の tileRatio／floorwidth と同じ。
+	// 線分の長さは経緯度から（縦は中点の緯度のメルカトル＝scene.ts の segLen24 と同式）
+	v_dd = vec2(0.0);
+	if (u_dashP.y > 0.5) {
+		float my = (p2.y - p1.y) * 0.017453293 / cos((o.y + (p1.y + p2.y) * 0.5) * 0.017453293) / 6.2831853;
+		v_dd = vec2(dist0, length(vec2((p2.x - p1.x) / 360.0, my)) * 4294967296.0) * (u_dashP.w / max(2.0 * hw0, 1e-3));
+	}
 	vec2 base = corner.x < 0.5 ? sa : sb;
 	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
 	vec2 pos = base + perp * (hw * corner.y) + dir * (capSign * (corner.x < 0.5 ? eA : eB));
@@ -1247,6 +1260,7 @@ in vec3 a_off;      // line-offset（#49）[CSS px, tS, tE]・持たない層は
 in vec2 a_p0;       // 端と継ぎ（S-P1-1）：前の線分の始点・次の線分の終点（renderer が P1／P2 のバッファを 1 線分ずらして読ませる）・旗（JF_*）
 in vec2 a_p3;
 in float a_jf;      // 持たない層は属性を切る（u_cj＝0 で読まない）
+in float a_dist;    // 破線（S-P1-3）の始点までの線に沿う距離（z24 の px）・持たない層は属性を切る（u_dashP.y＝0 で読まない）
 in vec4 a_color;
 uniform float u_dpr;
 ${PROJECT}
@@ -1255,7 +1269,7 @@ ${LINE_VARY}
 void main() {
 	vec2 o = u_origin;
 	vec2 p1 = a_p1, p2 = a_p2, corner = a_corner;
-	float hw0 = a_half; vec3 off0 = a_off; vec4 col0 = a_color; vec2 p0 = a_p0, p3 = a_p3; float jf0 = a_jf;
+	float hw0 = a_half; vec3 off0 = a_off; vec4 col0 = a_color; vec2 p0 = a_p0, p3 = a_p3; float jf0 = a_jf, dist0 = a_dist;
 ${LINE_MAIN}
 }`;
 
@@ -1292,6 +1306,7 @@ export const LINE_MD_VS = `#version 300 es
 precision highp float;
 precision highp usampler2D;
 // 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half)（下位 4 bit＝端と継ぎの旗・S-P1-1）, bits(off), snorm16×2(tS/2,tE/2)]
+// 破線の列（u_dashP.y＞0・S-P1-3）は ずらさない＝語 6 が bits(始点までの線に沿う距離)・語 7 は 0
 uniform usampler2D u_segTex;
 uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
 uniform float u_dpr;
@@ -1313,6 +1328,8 @@ void main() {
 	vec4 col0 = vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;
 	float hw0 = uintBitsToFloat(B.y);
 	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
+	float dist0 = 0.0;
+	if (u_dashP.y > 0.5) { dist0 = uintBitsToFloat(B.z); off0 = vec3(0.0); }
 	// 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit。継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値
 	vec2 p0 = p1, p3 = p2; float jf0 = 0.0;
 	if (u_cj > 0.5) {
@@ -1335,6 +1352,8 @@ flat in float v_half;
 flat in vec4 v_ja;
 flat in vec4 v_jb;
 flat in vec4 v_jk;
+flat in vec2 v_dd;
+${LINE_DASH}
 in vec2 v_pos;
 in vec4 v_color;
 in float v_front;
@@ -1370,6 +1389,27 @@ void main() {
 		// 端の先の位置は、継ぎなら切り口の点から（両隣で同じ点）・端なら自分の端点から
 		if (u < 0.0) cov = lineTail(v_jk.x, -u, v_pos - (v_jk.x >= 3.0 ? v_ja.xy : v_a), v_ja, v_jk.z, hw0, dist);
 		else if (u > L) cov = lineTail(v_jk.y, u - L, v_pos - (v_jk.y >= 3.0 ? v_jb.xy : v_b), v_jb, v_jk.w, hw0, dist);
+	}
+	// 破線（S-P1-3）：画素の線に沿う位相 x を模様の周期に畳み、線の区間までの距離で切る。butt・square＝区間の端で切る（MapLibre の addRegularDash）・
+	// round＝区間の芯からの距離を半幅で丸く切る（長さ 0 の線＝点・MapLibre の addRoundDash）。線分の外（端と継ぎ）は端点の位相のまま
+	if (u_dashP.y > 0.5) {
+		float Ls = length(ba), k = Ls > 1e-3 ? v_dd.y / Ls : 0.0;   // 線幅の倍数／画素（地面の尺＝傾いた画面では縮む＝MapLibre と同じ）
+		if (k > 1e-7) {
+			float x = v_dd.x + clamp(dot(pa, ba / Ls), 0.0, Ls) * k;
+			x -= u_dashP.x * floor(x / u_dashP.x);
+			float s = -1e9;   // 線の区間までの符号つき距離（画素・内が正）
+			for (int i = 0; i < 4; i++) {
+				if (float(i) >= u_dashP.y) break;
+				vec2 ab = i == 0 ? u_dashI[0].xy : i == 1 ? u_dashI[0].zw : i == 2 ? u_dashI[1].xy : u_dashI[1].zw;
+				for (int m = -1; m <= 1; m++) {
+					float xm = x + float(m) * u_dashP.x;
+					if (u_dashP.z > 0.5) s = max(s, -length(vec2(max(max(ab.x - xm, xm - ab.y), 0.0) / k, dist)));
+					else s = max(s, min(xm - ab.x, ab.y - xm) / k);
+				}
+			}
+			if (u_dashP.z > 0.5) dist = -s;
+			else cov *= clamp(s * 2.0 + 0.5, 0.0, 1.0);
+		}
 	}
 	// 細線のシャープ化（製図の定石）：幾何幅は最低±0.5px を保証し、それ未満の細さは透明度（カバレッジ）で表現。
 	// サブピクセル幅をそのまま描くと±0.5pxのAAフェザーが本体より太くなり「淡くボケた2pxの線」＝低ズームの滲みになる。
