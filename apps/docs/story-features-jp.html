@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>五つの Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</title>
+<meta name="description" content="描画性能の比較の対になる話です。同じ「地図エンジン」でも、2D の地図、3D の地球、完成品のアプリ、写実的な絵作り、球の地球儀と、出発点がそれぞれ違いました。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-features-jp">
+<meta property="og:title" content="五つの Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth">
+<meta property="og:description" content="描画性能の比較の対になる話です。同じ「地図エンジン」でも、2D の地図、3D の地球、完成品のアプリ、写実的な絵作り、球の地球儀と、出発点がそれぞれ違いました。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-features-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-21">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。体裁は独り地理院（introduction.html）の生成りの紙に合わせた共通の story.css -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-features.html" lang="en">English</a></nav>
+<header class="masthead"><h1>五つの Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</h1><p class="byline">2026-10-21 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<h2>はじめに</h2>
+<p><a href="story-benchmark-jp.html">先の記事</a>では、PLATEAU の建物を五つのエンジンで描いて速さを比べました。今回はその対として、何ができるかを比べます。ベンチで使った版の資料とソースを読んで確かめました。MapLibre GL JS 6.15.0（と deck.gl 9.4）、CesiumJS 1.146、TerriaJS 8.13.0（中の Cesium は 1.142 相当）、Navara（@navaramap/three 0.2.1）、ortho-earth（@ortho-earth/globe 2.0.2）です。</p>
+<p>今回も先に断っておくと、私は ortho-earth の開発者です。他のエンジンの強いところは強いと、ortho-earth の足りないところは足りないと書くようにしました。</p>
+<h2>結論：出発点が違う</h2>
+<p>五つは同じ「地図エンジン」と呼ばれても、出発点が違います。MapLibre は 2D の地図表現（ベクトルタイルと注記）から、Cesium は 3D の地球と時間から生まれました。Terria は Cesium の上に作ったデータ閲覧の完成品、Navara は Rust の GIS の中核と three.js の写実的な描画の組み合わせ、ortho-earth は「いつも球」の地球儀に MapLibre の API を載せたものです。</p>
+<p>だから機能の多い少ないで一列には並びません。2D の地図の表現力なら MapLibre、3D Tiles と時間で変わるデータの厚みなら Cesium、データを集めて見せる道具一式なら Terria、写実的な絵作りなら Navara が一番強いと思います。ortho-earth は、MapLibre の書き方と Cesium の 3D・時計を一つの球の上にそろえ、描画を worker に出している、という組み合わせが他に無いところです。</p>
+<div class="table-wrap wide"><table><thead><tr><th>項目</th><th>MapLibre（＋deck.gl）</th><th>Cesium</th><th>Terria</th><th>Navara</th><th>ortho-earth</th></tr></thead><tbody><tr><td>何者か</td><td>2D 地図ライブラリ</td><td>3D 地球のライブラリ</td><td>データ閲覧の完成品（Cesium＋Leaflet）</td><td>3D 地図ライブラリ（Rust/WASM＋three.js）</td><td>3D 地球儀ライブラリ</td></tr><tr><td>図法</td><td>Mercator が基本。globe は低ズームだけ球で、寄ると Mercator へ移る</td><td>WGS84 楕円体。2D・Columbus view へ変形できる</td><td>3D は Cesium、2D は Leaflet（Web Mercator）</td><td>球（楕円体）だけ</td><td>球だけ（楕円体は選べる）。平らな図は Equal Earth</td></tr><tr><td>GPU</td><td>WebGL2（deck.gl は WebGPU を試験中）</td><td>WebGL2</td><td>WebGL2</td><td>WebGL2（three.js）</td><td>WebGPU、無ければ WebGL2</td></tr><tr><td>描くスレッド</td><td>メイン（タイルの解読は worker）</td><td>メイン（解読・幾何は worker）</td><td>メイン（UI の React も同じ）</td><td>メイン（重い処理は worker）</td><td>描画 worker（OffscreenCanvas）</td></tr><tr><td>3D Tiles</td><td>本体に無く deck.gl で重ねる</td><td>1.0／1.1 のほぼ全部、I3S、点群、splat、voxel</td><td>Cesium と同じ（I3S も）</td><td>b3dm・pnts・glb（i3dm・cmpt は未対応）、splat</td><td>b3dm・i3dm・pnts・cmpt・glb、I3S、COPC、splat（plugin）</td></tr><tr><td>地形</td><td>raster-dem（陰影・段彩）</td><td>quantized-mesh、Google・ion</td><td>Cesium と同じ</td><td>raster-dem、quantized-mesh</td><td>raster-dem、quantized-mesh</td></tr><tr><td>ベクトルタイル</td><td>MVT・MLT、スタイル仕様の本家</td><td>MVT を 3D Tiles に変換して描く（1.142〜）</td><td>MVT を画像に焼いて貼る（protomaps）</td><td>MVT・PMTiles、MapLibre スタイルを一部</td><td>MVT・MLT・PMTiles、MapLibre スタイル</td></tr><tr><td>注記</td><td>SDF 文字、衝突回避、線沿い、縦書き</td><td>LabelCollection。衝突回避は無く、まとめは EntityCluster</td><td>Cesium と同じ</td><td>SDF 文字、線沿い、Web フォント（glyph PBF は不可）</td><td>Canvas2D で描く。衝突回避、線沿い、記号、縦書き、26 言語</td></tr><tr><td>時間</td><td>時計は無い（deck.gl の Trips は currentTime）</td><td>Clock・Timeline・CZML の補間</td><td>時系列の時間軸（WMS の時間次元、CSV、CZML）</td><td>太陽の日時、glTF のアニメ</td><td>map.clock（CZML、衛星、星、夜の側、trips）</td></tr><tr><td>選択（picking）</td><td>queryRenderedFeatures、feature-state</td><td>pick・drillPick・pickPosition、タイルの属性</td><td>地物情報パネル（テンプレート）</td><td>GPU で click・hover、地形・深度の位置</td><td>queryRenderedFeatures、GPU の id、重ね描きも</td></tr><tr><td>解析</td><td>無し（Turf などを足す）</td><td>切断面、影、sampleTerrain</td><td>画面分割の比較、計測、ストーリー</td><td>影、測地線の計測、地形の標高</td><td>日影・日影時間、可視域、見通し、断面、計測</td></tr><tr><td>絵作り</td><td>空・霧・光（2D の範囲）</td><td>大気、影、PBR、点群の EDL</td><td>Cesium と同じ（既定は 30 fps 上限と影）</td><td>大気、雲、影、SSR、SSAO、被写界深度、bloom</td><td>大気散乱、影、AO（WebGPU）、bloom、雲</td></tr><tr><td>拡張の口</td><td>custom layer、addProtocol</td><td>Primitive、CustomShader、後処理</td><td>カタログの型を足す、init の JSON</td><td>四段の API、plugin、独自の Descriptor</td><td>definePlugin、worker の custom layer、three.js</td></tr><tr><td>端末への配慮</td><td>ネイティブは別の MapLibre Native</td><td>特に無し</td><td>スマホ用の UI</td><td>モバイルは LOD を 8 倍粗く、画素比を 2 まで</td><td>タッチ端末は同時取得 3 本・GPU 160 MB</td></tr><tr><td>使用許諾</td><td>BSD-3</td><td>Apache-2.0</td><td>Apache-2.0</td><td>MIT か Apache-2.0</td><td>GPL-3.0</td></tr></tbody></table></div>
+<h2>図法：どこまでが球か</h2>
+<p>いちばん根の深い違いは図法にあります。MapLibre の globe は、style の projection を "globe" にすると、低いズームでは球で描き、寄るにつれて Mercator へ移っていく作りです。中身は Mercator の地図で、球は遠くから見たときの見え方として後から足された、という順序が読み取れます。逆に Cesium は最初から WGS84 楕円体の 3D で、2D と Columbus view は 3D の場面を変形して作ります。Terria は 3D を Cesium、2D を Leaflet と、別のエンジンを切り替えて持っています。</p>
+<p>Navara と ortho-earth は球しか持ちません。ortho-earth は「Mercator の画面に切り替えられない」ことを意図して書いていて、MapLibre の projection も何を書いても globe として読みます。平らな世界図が要るときは Equal Earth（正積）を別に持ち、地球儀から開く変形でつないでいます。Web Mercator の平面を一度も通らないのは、五つの中で ortho-earth だけです。</p>
+<h2>スレッド：どこで描くか</h2>
+<p>性能の比較で見えた「空いたメインスレッド」は、ここの違いから来ています。MapLibre と Cesium はタイルの解読や幾何の生成を worker に出しますが、描画そのものはメインスレッドで行います。Terria はその上に React の UI が同じスレッドで走ります。Navara は Rust の中核（Bevy ECS）を WebAssembly で動かし、地形のメッシュ作りなど重い処理を worker に出しますが、毎フレームの ECS の更新と three.js の描画はメインスレッドにあります。</p>
+<p>ortho-earth は地図を描画 worker の OffscreenCanvas に描きます。メインスレッドに残るのは入力と UI と注記の重ね描きくらいです。そのかわり、deck.gl の interleaved（同じ GL の文脈を分け合う重ね方）は使えず、overlaid に落ちます。three.js や custom layer は URL で渡すと worker の中で同じカメラ・同じ深度で描けますが、オブジェクトを直接渡すとメインスレッドの別の canvas になり、深度を分け合えません。worker で描く利点と引き換えの制約として、正直に書いておきます。</p>
+<h2>3D データ</h2>
+<p>3D Tiles の扱いの厚みは Cesium が群を抜いています。1.0 と 1.1 の形式、I3S、点群、Gaussian splat、voxel まで本体で読み、Cesium3DTileStyle と CustomShader で地物ごとに見た目を変えられます。1.142 からは MVT も 3D Tiles に変換して読めるようになり、1.146 では地形や 3D Tiles の上に貼り付けて描けるようになりました。Terria は中身が Cesium なので、この厚みをそのまま受け継いでいます。</p>
+<p>MapLibre は本体に 3D Tiles を持たず、ベンチでも deck.gl の Tile3DLayer を重ねました。読めるのは loaders.gl の範囲で、MapLibre の style からは扱えません。Navara は b3dm・pnts・glb を読みますが、i3dm と cmpt はまだ未対応です（ソースに TODO があります）。ortho-earth は b3dm・i3dm・pnts・cmpt・glb と I3S、COPC の点群まで読み、splat は plugin で足します。</p>
+<h2>ベクトルタイルと注記</h2>
+<p>2D の地図の表現は MapLibre が本家で、他は皆これにどれだけ寄せるかで測られます。MVT と MLT、式（expression）、SDF の文字、衝突回避、線に沿う注記、右から左へ書く文字の plugin まで揃っています。</p>
+<p>ここは五つの差が最も大きいところでもあります。Cesium の MVT は 3D Tiles への変換で、スタイルは MapLibre の style ではなく Cesium3DTileStyle で書きます。注記の LabelCollection には地図のような衝突回避が無く、重なりは EntityCluster でまとめる形です。Terria の MVT は protomaps で画像に焼いて貼るので、文字は地面に描かれた絵になり、傾けると寝ます。Navara は MapLibre style の plugin を持ちますが一部の対応で、glyph PBF を読まず Web フォントで文字を描きます。</p>
+<p>ortho-earth は MapLibre の公式の例 139 本で照合していて、同じ絵 70・同じ答え 42・動く 25・動かない 0 です。注記は GL の SDF ではなく Canvas2D の重ね描きで、衝突の判定は間引いて当選を安定させ、位置は毎フレーム投影し直しています。縦書きと 26 言語まで持つのは、日本語の地図から始まったエンジンらしいところだと思います。</p>
+<h2>時間</h2>
+<p>時間を第一級に扱うのは Cesium の伝統で、Clock と Timeline、CZML の補間付きの位置、時間で変わる画像まであります。Terria はこれを利用者向けの時間軸にしていて、WMS の時間次元や CSV の時系列をそのまま再生できます。MapLibre には時計が無く、時間はアプリが style を書き換えて表します（deck.gl の TripsLayer は currentTime を持ちます）。Navara の時間は太陽の位置と glTF のアニメーションまでで、データの時計はありません。</p>
+<p>ortho-earth は map.clock 一つで、夜の側、星、人工衛星（SGP4）、CZML の補間付きの位置、trips を同じ時刻で動かします。Cesium から来た方に向けた頁でも、Clock と CZML は書き方の対応表に入れてあります。</p>
+<h2>絵作り</h2>
+<p>写実的な絵では Navara が一番先へ行っています。大気、雲、カスケード影、SSR（水面の映り込み）、SSAO、被写界深度、bloom、色の LUT まで、three.js の後処理を地球の上で使えます。Cesium は大気・影・PBR・点群の EDL と堅実です。ortho-earth は WebGPU で影・AO・切断面・大気散乱を描き、WebGL2 ではそれを省いた同じ地図になります。MapLibre は 2D の地図の範囲の空・霧・光にとどまります。</p>
+<h2>完成品か部品か</h2>
+<p>Terria だけは部品ではなく完成品です。カタログ（WMS・ArcGIS・CKAN・SDMX など 40 種類近い読み口）、作業台、地物情報のテンプレート、画面分割の比較、ストーリー、共有リンク、スマホ用の UI まで最初から揃っています。性能の比較で JS ヒープが Cesium より多かったのはこの上乗せ分で、データを見せる道具として使うなら、その重さに見合う中身があります。Cesium も Viewer に時間軸や地名検索の部品を同梱していますが、他の三つは地図そのものを渡す部品で、UI はアプリが作ります。</p>
+<h2>使用許諾</h2>
+<p>組み込む側にとって無視できない違いとして、ortho-earth だけが GPL-3.0 で、他の四つは BSD・Apache・MIT のいずれかです。ortho-earth を組み込んだ頁を配る場合は、その頁のコードも GPL の条件に入ります。比べるなら、ここは一行添えておくのが公平だと思います。</p>
+<h2>ortho-earth の立ち位置</h2>
+<p>機能の幅だけを見ると、ortho-earth は MapLibre の 2D の書き方（style、式、queryRenderedFeatures、注記）と、Cesium の 3D と時間（3D Tiles、I3S、quantized-mesh、CZML、時計）の両方に手を伸ばしている点で、五つの中で一番範囲が広いと思います。そこに日影時間・可視域・見通しといった解析も本体に入っています。</p>
+<p>ただし、それぞれの本家と比べると、深さはまだ追いかける側です。MapLibre の例は 139 本中 25 本が「動くが絵か答えが違う」で、Cesium の voxel や 3D Tiles のスタイル言語、Terria のカタログのような長年の蓄積はまだありません。worker で描くことによる deck.gl の interleaved の制約と、GPL という許諾も、選ぶ側にとっての条件になります。</p>
+<p>性能では Cesium と同じ帯にいて、機能では MapLibre と Cesium の交わりを一つの球の上で取っている。今の ortho-earth を公平に書くと、そうなると思います。</p>
+</article>
+</body>
+</html>
