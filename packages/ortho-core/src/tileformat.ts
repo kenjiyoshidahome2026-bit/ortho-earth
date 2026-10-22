@@ -17,7 +17,7 @@
 export interface DecodedGeom { coords: Int32Array; ends: number[] }
 export type DecodedGeomType = "Point" | "LineString" | "Polygon";
 /** 解読済みの地物（type＝未知の型は undefined・geom＝無ければ null） */
-export interface DecodedFeature { type: DecodedGeomType | undefined; props: Record<string, unknown>; geom: DecodedGeom | null; id: number | undefined }
+export interface DecodedFeature { type: DecodedGeomType | undefined; props: Record<string, unknown>; geom: DecodedGeom | null; id: number | undefined; /** 式の ["geometry-type"]（元の型）＝geojson の点置きで面や線を錨の点にして渡す時（注記・gjlabels） */ gt?: string }
 export interface DecodedLayer { extent: number; features: DecodedFeature[] }
 /** source-layer 名 → 層 */
 export type DecodedTile = Record<string, DecodedLayer>;

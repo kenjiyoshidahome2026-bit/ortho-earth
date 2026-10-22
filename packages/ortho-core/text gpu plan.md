@@ -49,7 +49,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c・**2 本目＝層の位置は実装済**＝§4d） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
-| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
+| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f・**3 本目＝geojson の点の symbol 層は実装済**＝§4g） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
 | **P6** WebGL2 版（中） | 同じアトラス・同じ式を GLSL で。これが無い間は WebGL2 だけ注記が最前面＝層順が MapLibre と違う（記録） | GL2 で P2 と同じ層順の絵 | `?text=2d` |
@@ -162,10 +162,26 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 - GPU の受け口（kind "webgpu"）の時だけ、星座名・惑星名・メシエの名は `pointText`（SDF の字）、メシエの記号 4 種と月の満ち欠け（64 段）は焼いた絵（倍率 3）を `pointIcon` で貼る（月は太陽の向きへ箱の中心で回す）。
   Canvas2D の受け口は今までどおり `ctx2d` に直描き＝既定の絵は変えない。
 - 星空は最前面（`layer(null, true)`）。描くのは `sink.end()` の前へ移した（GPU の受け口は end で列を送る）。
-- これで `?text=gpu` の注記層が Canvas2D で描くのは、記号の版が尽きたフレームの記号と、焼けない長い run の注記だけ。残る Canvas2D は symbols-2d（geojson の点の symbol 層）と cluster-2d＝P3 の 3 本目。
+- これで `?text=gpu` の注記層が Canvas2D で描くのは、記号の版が尽きたフレームの記号と、焼けない長い run の注記だけ。残る Canvas2D は symbols-2d（geojson の点の symbol 層）と cluster-2d＝P3 の 3 本目（§4g＝geojson の層は済み）。
 
 門：`tests/labels2d.mjs` 17（GPU の受け口へは字と記号の命令・2D の文脈には描かない・メシエの記号は 4 種だけ焼く・Canvas2D の受け口は直描きのまま）・
 `t-textgpu` の星空の場面（本物の labels2d に GPU の受け口を据えて z1.5＝GPU の列に 364 件・注記の canvas は空）。
+
+## 4g. P3 の 3 本目＝geojson の点の symbol 層を注記層へ（**実装済**・2026-10-22）
+
+- MapLibre の書き方の geojson の symbol 層（点置き＝`symbol-placement` が point）は、symbols-2d（別の canvas・別の衝突）をやめ、線に沿う層（C9）と同じ `gadgets/gjlabels.ts` から注記層（labels2d）へ流す。
+  錨は symbols-core と同じ（点・多点の各点・線の各部分の最初の頂点・面の到達不能極）。世界 1 枚の仮のタイル（z0・extent 2^28≒15cm）の点にして `buildLabels` で焼く。
+  式の `["geometry-type"]` は元の型（`DecodedFeature.gt`）、`["zoom"]` は表示の z（`quantZoom`）を filter／layout／paint に差し込む（線と同じ近似）。["zoom"] を読む層だけ、止まるたびに z で焼き直す。
+- これで基図・vector source の注記と**同じ衝突**になり（旧＝重なって描けた）、`?text=gpu` では字も記号も GPU の版へ行く。
+  利用者の層は最前面のまま（`L.k`＝§4d）。
+- 記号の gadget（symbols.ts）は `addLayer(…, draw=false)` で評価だけ続ける＝`queryRenderedFeatures` の当たり（symbolsAt）と `styleimagemissing` は今までどおり。記号帳の絵は前から labels2d にも届いている（`labelImage`）。
+- **残す**：`map.gadget.symbols`／worldcontent（ネイティブの記号の口）と cluster-2d は、まだ symbols-2d／自前の canvas のまま（MapLibre の層ではない＝層の位置の約束が無い）。必要になったら同じ口へ。
+- **既知の差**：geojson の層と vector の描く層（vtdraw）が同じ点を取り合う時の勝ち負け。vtdraw の注記の順の鍵は自前の目盛り（`vtdraw.ts` の setOrder＝組み直さない鍵）、geojson の層は MapLibre の層の順の添字＝目盛りが違う。今は vector が先に置く（MapLibre は後の層が先）。線に沿う geojson の層（C9）も前から同じ。
+  直すなら、labels2d の利用者の組ごとの順位を main から別に送る（焼いた sort を作り直さない）。
+- 待ち方：注記層は render worker の衝突の間引きで置く＝`global-state-filter` の場面は、届くまで待つ形にした（vector の `global-state-vector` と同じ）。
+
+門：t-mlcompat の layers／style／vector がすべて通る（geojson の記号の場面＝stretch-fit・改行と折り返し・styleimagemissing・global-state-filter・symbol-minzoom）。
+新しい場面 `symbol-geojson-shares-collision`：同じ点の vector の注記と geojson の注記は片方だけ（旧＝両方）・離せば両方。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

@@ -30,15 +30,16 @@ export interface Symbols {
 	listImages(): string[];
 	/** MapLibre の sprite（base.json＋base.png・@2x）。prefix＝複数の sprite の id。戻り値＝足した名前の数 */
 	loadSprite(base: string, prefix?: string): Promise<number>;
-	addLayer(id: string, src: unknown, layer: Partial<MLLayer>): { features: number };
+	/** draw＝false：評価だけ（問い合わせ・記号帳に無い名前の知らせ）＝描くのは注記層（gjlabels の点置き・テキスト GPU 化 T-P3） */
+	addLayer(id: string, src: unknown, layer: Partial<MLLayer>, draw?: boolean): { features: number };
 	removeLayer(id: string): void;
 	setOrder(id: string, n: number): void;
 	readonly layerIds: string[];
 	symbolsAt(x: number, y: number): SymbolFeature[];
 	destroy(): void;
 }
-/** 記号の層の 1 枚（src＝GeoJSON・items＝評価済みの記号・zoomDep＝止まるたびに評価し直す・missing＝記号帳に無かった名前） */
-interface SymLayer { src: unknown; layer: Partial<MLLayer>; items: SymbolItem[]; zoomDep: boolean; order: number; missing?: Set<string> }
+/** 記号の層の 1 枚（src＝GeoJSON・items＝評価済みの記号・zoomDep＝止まるたびに評価し直す・missing＝記号帳に無かった名前・draw＝symbols-2d に描く） */
+interface SymLayer { src: unknown; layer: Partial<MLLayer>; items: SymbolItem[]; zoomDep: boolean; order: number; missing?: Set<string>; draw: boolean }
 /** sprite の JSON の 1 項 */
 interface SpriteEntry { x: number; y: number; width: number; height: number; pixelRatio?: number; sdf?: boolean; stretchX?: Array<[number, number]>; stretchY?: Array<[number, number]>; content?: [number, number, number, number] }
 
@@ -57,7 +58,7 @@ export function createSymbols(map: GlobeMap, { signal, onImage = null, onImageRe
 		return createImageBitmap(src as ImageBitmapSource);
 	};
 	const send = (name: string, e: SymbolImage) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null }, [bm])); };   // stretchX/Y・content＝伸びる記号
-	const push = (id: string) => { const L = layers.get(id); if (!L) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
+	const push = (id: string) => { const L = layers.get(id); if (!L?.draw) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
 	const evalLayer = (id: string) => { const L = layers.get(id); if (!L) return; const miss = new Set<string>(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss, map.getGlobalState?.()); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };
 	map.on("settle", onSettle);   // ["zoom"] を含む層は止まるたびに評価し直す（map.on は map を返す＝解除は map.off）
@@ -97,9 +98,10 @@ export function createSymbols(map: GlobeMap, { signal, onImage = null, onImageRe
 			return names.length;
 		},
 		// 記号の層（src＝GeoJSON・layer＝{ id, layout, paint, filter, minzoom, maxzoom }）。同じ id は置き換え
-		addLayer(id, src, layer) {
+		addLayer(id, src, layer, draw = true) {
+			if (!draw && layers.get(id)?.draw) ov?.post({ type: "removeLayer", id });   // 描いていた層を評価だけに替える
 			const zoomDep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter])) || layer.minzoom != null || layer.maxzoom != null;   // 出しズームだけの層も止まるたびに当て直す（段 5・台帳 R17）
-			layers.set(id, { src, layer, items: [], zoomDep, order: layers.get(id)?.order ?? order++ });
+			layers.set(id, { src, layer, items: [], zoomDep, order: layers.get(id)?.order ?? order++, draw });
 			evalLayer(id);
 			return { features: layers.get(id)!.items.length };
 		},
