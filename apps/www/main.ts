@@ -44,15 +44,15 @@ const propagate = () => document.querySelectorAll('a[href^="/"]:not([href^="/doc
 		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
 }
-// Section tabs (Gallery / Get started / Technologies・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
+// Section tabs (Gallery / Get started / Technologies / Stories・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
-const HASH: Record<string, string> = { start: "#get-started", tech: "#technologies" };
+const HASH: Record<string, string> = { start: "#get-started", tech: "#technologies", stories: "#stories" };
 function selectTab(name: string | undefined) {
 	d3.selectAll<HTMLElement, unknown>('.tab').each(function () {
 		const on = this.dataset.tab === name;
 		d3.select(this).classed('is-active', on).attr('aria-selected', on ? 'true' : 'false');
 	});
-	for (const p of ["demos", "start", "tech"]) d3.select(`#panel-${p}`).attr('hidden', p === name ? null : 'hidden');
+	for (const p of ["demos", "start", "tech", "stories"]) d3.select(`#panel-${p}`).attr('hidden', p === name ? null : 'hidden');
 }
 d3.selectAll<HTMLElement, unknown>('.tab').on('click', function () {
 	const name = this.dataset.tab;
@@ -111,7 +111,7 @@ function hideDemo() {
 }
 const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + qs(q) : location.pathname) + location.hash; };
 document.addEventListener("click", e => {
-	const a = (e.target as Element).closest?.<HTMLAnchorElement>("#panel-demos a.card");
+	const a = (e.target as Element).closest?.<HTMLAnchorElement>("#panel-demos a.card, #panel-stories a.card");   // Stories の記事も同じ形で開く（2026-10-22）
 	if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 	if (a.dataset.frame === "0") return;   // iframe に入れないデモ（中の頁が COEP を送らない）＝普通に開く
 	const path = demoPath(a.getAttribute("href")!); if (!path) return;
