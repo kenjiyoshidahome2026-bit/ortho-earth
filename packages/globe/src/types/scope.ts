@@ -446,6 +446,8 @@ export interface GlobeScope {
 	DEBUG_GLOBALS: boolean;
 	/** MapLibre の口（背景を白に畳まない＝透明） */
 	NO_BG_WHITE: boolean;
+	/** geojson の層を切ったタイルで vtdraw へ（?gjvt=0＝無し・geojson vt plan G-2） */
+	GJVT: boolean;
 	/** style.json の層と source の目盛り */
 	STYLE_DZ: number;
 	assertMLLayer: GlobeLive["assertMLLayer"];

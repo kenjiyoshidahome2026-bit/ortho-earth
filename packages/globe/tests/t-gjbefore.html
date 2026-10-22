@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- 実描画の検分：geojson の層を基図の層の間に（S-P2・2026-10-22）。後ろに基図の層がある geojson の層は vtdraw（手元のタイル）で描く＝#123 の差し込み。
+     ①addLayer(g, "l")＝geojson の塗りが基図の塗り f の上・基図の線 l の下 ②moveLayer("g")＝最上（gint）＝線を隠す ③moveLayer("g", "l")＝また線の下
+     ④style.json の geojson の層（f と l の間）＝線の下 ⑤geojson の線を基図の線の下へ（線どうし） ⑥feature-state。md と ?nomd=1 で回す。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-gjbefore</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString と Polygon（poly＝true）・文字列の属性 k）＝t-linedash に面を足した物
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		if (f.id != null) { fld(F, 1, 0); varint(F, f.id); }   // Feature.id（feature-state の id）
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.poly ? 3 : 2);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		if (f.poly) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let FEATS = [], FETCH = 0;   // [{ k, poly?, ll: [[lon, lat], …] }]・FETCH＝タイルの取り寄せの回数
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("pf", async ({ url }) => {
+	FETCH++;
+	const [z, x, y] = url.replace("pf://", "").split("/").map(Number);
+	return { data: mvt(FEATS.map((l, i) => ({ id: i + 1, k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };   // id＝SHAPES の並び＋1
+});
+// 置き場（画面の CSS px・z15 で unproject）：塗り 1 枚（中央）・線 1 本（塗りを横切る）
+const SHAPES = [
+	{ k: "fa", poly: true, px: [[200, 150], [760, 150], [760, 450], [200, 450]] },
+	{ k: "la", px: [[60, 300], [900, 300]] },
+];
+const SRC = { type: "vector", tiles: ["pf://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const LAYERS = [
+	BG,
+	{ id: "f", type: "fill", source: "pf", "source-layer": "l", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#ff0000" } },
+	{ id: "l", type: "line", source: "pf", "source-layer": "l", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": "#0000ff", "line-width": 16 } },
+	{ id: "top", type: "fill", source: "pf", "source-layer": "l", filter: ["==", ["get", "k"], "none"], paint: { "fill-color": "#000000" } },   // 何も描かない最上の層（④の差し込み先）
+];
+const VIEW = [139.79004, 35.71084];
+// geojson の地物（画面の CSS px）：塗り（中央の小さい箱＝基図の線を横切る）・線（縦＝基図の線と交わる）
+const GJ = [
+	{ poly: true, px: [[300, 220], [660, 220], [660, 380], [300, 380]] },
+	{ px: [[820, 120], [820, 480]] },
+];
+try {
+	const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-gjbefore", sources: {}, layers: [BG] } });
+	await sleep(3000);
+	const ll = ([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; };
+	FEATS = SHAPES.map(s => ({ k: s.k, poly: s.poly, ll: s.px.map(ll) }));
+	const fc = { type: "FeatureCollection", features: [
+		{ type: "Feature", id: 1, properties: {}, geometry: { type: "Polygon", coordinates: [[...GJ[0].px.map(ll), ll(GJ[0].px[0])]] } },
+		{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: GJ[1].px.map(ll) } },
+	] };
+	const STYLE = { version: 8, name: "t-gjbefore", sources: { pf: SRC }, layers: LAYERS };
+	await map.setStyle(STYLE);
+	await sleep(6000);
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	let img;
+	const W = document.getElementById("map").clientWidth;
+	const px = (x, y) => { const s = img.width / W, i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+	const near = (c, w, e = 14) => c.every((v, i) => Math.abs(v - w[i]) <= e);
+	const order = () => map.getStyle().layers.map(L => L.id).join(",");
+	const RED = [255, 0, 0], BLUE = [0, 0, 255], GREEN = [0, 255, 0];
+	// cross＝箱と基図の線の交わり・box＝箱の中（基図の塗りの上）・line＝箱の外の基図の線
+	const check = async (tag, wantCross, wantOrder) => { await sleep(5000); img = await grab(); const v = px(480, 300), b = px(480, 250), o = order(); ok(tag, near(v, wantCross) && near(b, GREEN) && near(px(100, 300), BLUE) && near(px(240, 200), RED) && (!wantOrder || o === wantOrder), `cross ${v} want ${wantCross} box ${b} order ${o}`); };
+	map.addSource("g", { type: "geojson", data: fc });
+	map.addLayer({ id: "g", type: "fill", source: "g", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#00ff00" } }, "l");
+	await check("underBaseLine", BLUE, "bg,f,g,l,top");
+	map.moveLayer("g");
+	await check("onTop", GREEN, "bg,f,l,top,g");
+	map.moveLayer("g", "l");
+	await check("backUnder", BLUE, "bg,f,g,l,top");
+	// ⑥feature-state（切ったタイルの層へも届く）＝箱が黄・交わりは基図の線のまま
+	map.setPaintProperty("g", "fill-color", ["case", ["boolean", ["feature-state", "hi"], false], "#ffff00", "#00ff00"]);
+	map.setFeatureState({ source: "g", id: 1 }, { hi: true });
+	await sleep(5000); img = await grab();
+	ok("featureState", near(px(480, 250), [255, 255, 0]) && near(px(480, 300), BLUE), `box ${px(480, 250)} cross ${px(480, 300)}`);
+	map.removeFeatureState({ source: "g", id: 1 });
+	await sleep(5000); img = await grab();
+	ok("featureStateOff", near(px(480, 250), GREEN), `box ${px(480, 250)}`);
+	// ⑤geojson の線（縦・緑・太さ 16）を基図の線の下へ＝交わり（820, 300）は基図の線の青・上では緑
+	map.addLayer({ id: "gl", type: "line", source: "g", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": "#00ff00", "line-width": 16 } }, "l");
+	await sleep(5000); img = await grab();
+	ok("lineUnderBaseLine", near(px(820, 300), BLUE) && near(px(820, 200), GREEN), `x ${px(820, 300)} up ${px(820, 200)}`);
+	map.moveLayer("gl");
+	await sleep(5000); img = await grab();
+	ok("lineOnTop", near(px(820, 300), GREEN), `x ${px(820, 300)}`);
+	map.removeLayer("gl"); map.removeLayer("g"); map.removeSource("g");
+	// ④style.json の geojson の層（f と l の間）
+	await map.setStyle({ ...STYLE, sources: { ...STYLE.sources, g: { type: "geojson", data: fc } }, layers: [BG, LAYERS[1], { id: "g", type: "fill", source: "g", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#00ff00" } }, LAYERS[2], LAYERS[3]] });
+	await check("styleGeojson", BLUE, "bg,f,g,l,top");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

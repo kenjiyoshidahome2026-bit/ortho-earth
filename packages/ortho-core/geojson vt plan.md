@@ -32,7 +32,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 - 門の実績：t-fillpattern（`?gjvt=2` で geojson の 3 場面＋pattern-2d を作らない・既定と両方で問い合わせ・隠す・setData）・t-linedeco ③（合成の絵で +15px）・t-linedeco?gjvt=0・t-mlcompat?g=layers（pattern-minzoom-and-query）。公式例の比べ（add-a-pattern-to-a-polygon）は外の取得が要る＝クラウドでは回していない。
 - main：geojson source を vtdraw の記述子に `local: true` で登録（タイルの選び方・LRU・層の順の鍵は vector source と同じ）。取得の段で fetch せず、worker に「切って」と頼む。
 - vtdraw-worker：`putGeojson(sid, fc, opts)` で index を作って預かる（setData＝作り直し・updateData＝差分で作り直し）。`build` の入口で生バイトの代わりに `index.tile(z,x,y)` を読む。以降の filter・buildTileDrawList・labels は vector と同じ。
-- `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。
+- `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。例外＝後ろに基図の層がある geojson の fill／line／circle の層（基図の層の間に描く・S-P2・2026-10-22 Kenji 裁定）は vtdraw へ（`api/style.ts` の kindOfV）。
 - 問い合わせ：queryRenderedFeatures は vtdraw の当たり（vector の層と同じ）。querySourceFeatures は今どおり data を返す。feature-state は vtdraw の fs の口。
 
 ### G-3 line-gradient（lineMetrics）
