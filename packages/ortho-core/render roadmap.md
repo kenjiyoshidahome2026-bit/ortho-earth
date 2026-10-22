@@ -71,7 +71,7 @@
 
 | 順 | 項目 | 中身 | 出口の門 |
 |---|---|---|---|
-| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw＝**2026-10-22 実装**（step A・C＝PR #533・D は追加なし・**B は棚**＝Mac の bench で 3 場面 60fps・hitch 0・draw 200〜300 本/フレーム＝`vt perf plan.md` §4・§8） | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致（GL2 t-mdparity 0 px・WebGPU は Mac の verify:webgpu 待ち）・`[scene] apply` 4ms 超が 3 シーンでゼロ（**達成**）・`?nomd=1` |
+| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw＝**2026-10-22 実装**（step A・C＝PR #533・D は追加なし・**B は棚**＝Mac の bench で 3 場面 60fps・hitch 0・draw 200〜300 本/フレーム＝`vt perf plan.md` §4・§8） | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致（**達成**＝GL2 t-mdparity 0 px・WebGPU は Mac Apple Metal の verify:webgpu で 2D/3D とも 12 px・0.00%・dmax 13＝2026-10-22）・`[scene] apply` 4ms 超が 3 シーンでゼロ（**達成**）・`?nomd=1` |
 | 12 | **T-P1** 線沿いの注記を GPU へ（実装済・`?text=gpu`・実機の門待ち） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。足場の最前面 webgpu canvas | デルフト 60fps・注記 CPU 1ms 未満・字の質を実機で目視 |
 | 13 | S-P1-4・5 | 模様（fill/line/background-pattern）・`*-translate`・line-blur・circle-blur（GL2 先） | 互換の爪車・basemap looks different の減少 |
 
@@ -130,7 +130,7 @@ WebGPU の絵はクラウドの器（SwiftShader の GL だけ）で検定でき
 | 実機日 | 見る物 | 物差し |
 |---|---|---|
 | ① 波 2 の後 | S-P1-1 cap/join・S-P1-3 破線の WebGPU 版・V-Ph1 の効き | verify:examples・`bench-perf.mjs` 3 シーン（計器 e） |
-| ② 波 3 前半 | V-Ph2 step A の classic と md の絵一致 | `webgpu port.md` の標準 8 ビュー＋東京駅 PLATEAU の readback |
+| ② 波 3 前半＝**2026-10-22 済み** | V-Ph2 step A の classic と md の絵一致（t-mdparity PASS・bench-perf 3 場面 60fps） | `webgpu port.md` の標準 8 ビュー＋東京駅 PLATEAU の readback |
 | ③ 波 3 後半 | V-Ph2 step B・T-P1 の字の質（dpr 2 と dpr 1） | `[scene] apply` 4ms 超・gpuMap・デルフト 60fps |
 | ④ 波 4 の後 | V-Ph3 の線幅の連続・T-P2 の層順の場面・既定を GPU に切り替えてよいか | 地理院標準・liberty を MapLibre と並べる |
 | ⑤ 波 5 の後 | S-P2 の重なり順の違い 0・PBF の字形・iPhone（LOW_MEM） | 同上＋iPhone の 3 行 |
