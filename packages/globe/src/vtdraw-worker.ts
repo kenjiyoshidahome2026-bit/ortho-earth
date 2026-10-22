@@ -11,7 +11,7 @@
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
-import { buildTileDrawList } from "@ortho-earth/core/build";
+import { buildTileDrawList, DASH_GPU_MAX } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.ts";
 import type { DecodedFeature, DecodedLayer } from "@ortho-earth/core/decode";
@@ -117,9 +117,10 @@ function build(m: VtMsg) {
 				run({ ...L, type: "line", paint: { "line-color": P["fill-outline-color"], "line-width": 1, "line-opacity": P["fill-opacity"] ?? 1 }, layout: {} }, os, 1);
 			}
 		} else if (L.type === "line") {
-			if (L.paint["line-dasharray"] != null && pz !== z) {   // 破線の模様はタイルの縮尺で刻まれる（build.js）＝表示の z との差の分だけ縮める
+			if (L.paint["line-dasharray"] != null && pz !== z) {   // CPU で刻む破線（ずらす層・模様 9 個以上）はタイルの縮尺で刻まれる（core build）＝表示の z との差の分だけ縮める。シェーダの破線（core S-P1-3）は表示の z の尺で描く＝そのまま
 				const d = evalExpr(L.paint["line-dasharray"], pctx);
-				if (Array.isArray(d)) L.paint = { ...L.paint, "line-dasharray": ["literal", d.map((v: number) => v * 2 ** (z - pz))] };
+				const gpu = Array.isArray(d) && d.length <= DASH_GPU_MAX && L.paint["line-offset"] == null && L.paint["line-gap-width"] == null;
+				if (Array.isArray(d) && !gpu) L.paint = { ...L.paint, "line-dasharray": ["literal", d.map((v: number) => v * 2 ** (z - pz))] };
 			}
 			const fs: object[] = [];
 			for (const f of feats) {
@@ -174,7 +175,7 @@ function build(m: VtMsg) {
 	}
 	const transfer: ArrayBuffer[] = [];
 	let bytes = 0;
-	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off, op.jf]) if (a) { transfer.push(a.buffer as ArrayBuffer); bytes += a.byteLength; }
+	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off, op.jf, op.dist]) if (a) { transfer.push(a.buffer as ArrayBuffer); bytes += a.byteLength; }
 	for (const h of Object.values(heat)) { transfer.push(h.ll.buffer, h.w.buffer); bytes += h.ll.byteLength + h.w.byteLength; }
 	const idl = Object.keys(ids).length ? Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, [...v]])) : null;
 	self.postMessage({ id: m.id, origin, ops, labels, heat, bytes, stats: { features, ops: ops.length, decodeMs: t1 - t0, buildMs: performance.now() - t1 }, warn, ids: idl }, transfer);

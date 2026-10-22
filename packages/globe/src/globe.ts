@@ -1529,6 +1529,7 @@ function switchTheme(name: string) {
 renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),
+	dashDz: STYLE_DZ,   // 破線（core S-P1-3）の段＝外来 style の floor(z)（MapLibre の tileZoom）
 	gintFarPivot: !/[?&]nofarpivot=1/.test(location.search),   // ?nofarpivot=1＝塗り扇の遠方の要（画面カリング）を切る＝旧挙動との見比べ用   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),

@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- 実描画の検分：破線をシェーダで描く（MapLibre の line-dasharray・互換の計画 S-P1-3・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw の線分プール／?nomd=1＝classic の属性）。
+     線は頁の中で作った MVT（addProtocol の ld://）＝画面の点を unproject した経緯度の線。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）の 2 回見る。
+     源の maxzoom 12・眺め z15＝過ズーム 3 段（旧の CPU の破線はタイルの z の尺＝8 倍に伸びていた）。模様は floor(zoom) の px（MapLibre の tileZoom）＝線幅 10px の [2,1] は線 20px・間 10px。
+     ①butt [2,1]：線・間・線を線の頭から測る ②round [0,2]：20px ごとの丸い点（点と点の中ほどは無い） ③奇数 [2,1,3]：最後と最初がつながる＝線 50・間 10（MapLibre）
+     ④折れ線の角を跨いでも模様が続く ⑤z15.5 は同じ模様が地面について 2^0.5 倍・z16 は floor が変わって元の px（MapLibre と同じ段）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linedash</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {   // feats＝[{ k, pts: [[x, y], …]（タイル座標） }]
+	const keys = ["k"], vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);   // version＝2
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, 2);   // LINESTRING
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, keys[0].split("").map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let LINES = [];   // [{ k, ll: [[lon, lat], …] }]
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("ld", async ({ url }) => {
+	const [z, x, y] = url.replace("ld://", "").split("/").map(Number);
+	return { data: mvt(LINES.map(l => ({ k: l.k, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+
+// 線の置き場（画面の CSS px・z15 で unproject）
+const CASES = {
+	butt: [[100, 240], [700, 240]], dots: [[100, 270], [700, 270]], odd: [[100, 300], [700, 300]],
+	corner: [[100, 340], [190, 340], [190, 560]],
+};
+const lay = (k, layout, paint) => ({ id: "l-" + k, type: "line", source: "ld", "source-layer": "l", filter: ["==", ["get", "k"], k], layout, paint: { "line-color": "#ff0000", "line-width": 10, ...paint } });
+const LAYERS = [
+	lay("butt", {}, { "line-dasharray": [2, 1] }),
+	lay("dots", { "line-cap": "round" }, { "line-dasharray": [0, 2] }),
+	lay("odd", {}, { "line-dasharray": [2, 1, 3] }),
+	lay("corner", {}, { "line-dasharray": [2, 1] }),
+];
+const SRC = { type: "vector", tiles: ["ld://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };   // 画面全体が z12 のタイル 1 枚の中（t-linejoin と同じ）
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-linedash", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+try {
+	let map = await boot();
+	LINES = Object.entries(CASES).map(([k, pts]) => ({ k, ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const ZC = (p => [p.lng, p.lat])(map.unproject([110, 300]));   // 寄る時の中心＝線の頭の近く（画面から出さない）
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };   // 何度でも撮れる（shot の部品は 1 度きり）
+	// 模様の 1px が画面の何 px か＝MapLibre の z（エンジンの z−1・旗なしの目盛り）の小数部だけ伸びる（tileZoom＝floor の px）
+	const scaleAt = z => 2 ** ((z - 1) - Math.floor(z - 1));
+	const check = (tag, img, z) => {
+		const W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		const red = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] < 120 && c[2] < 120; };
+		const white = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] > 200 && c[2] > 200; };
+		const r = scaleAt(z);   // floor(z) の px 1 つが画面の何 px か
+		// 線 k の頭（画面）と向き。u＝頭から floor(z) の px で測った位置
+		const at = (k, u) => { const ll = LINES.find(l => l.k === k).ll, a = map.project(ll[0]), b = map.project(ll[1]), L = Math.hypot(b.x - a.x, b.y - a.y); return [a.x + (b.x - a.x) / L * u * r, a.y + (b.y - a.y) / L * u * r]; };
+		const pat = (k, on, off) => { const bad = []; for (const u of on) if (!red(...at(k, u))) bad.push(`on${u}=${px(...at(k, u))}`); for (const u of off) if (!white(...at(k, u))) bad.push(`off${u}=${px(...at(k, u))}`); return bad; };
+		let b;
+		b = pat("butt", [3, 10, 17, 33, 40, 47, 63], [23, 27, 53, 57]); ok(tag + ":butt", !b.length, `r=${r.toFixed(3)} ` + b.join(" "));
+		b = pat("dots", [0, 20, 40, 60], [10, 30, 50]); ok(tag + ":dots", !b.length, b.join(" "));
+		b = pat("odd", [5, 15, 35, 55, 75, 95, 115], [23, 27, 83, 87]); ok(tag + ":odd", !b.length, b.join(" "));
+		// 角（頭から 90 単位で直角に下へ）：線 0–20・30–50・60–80 を横に、90 から下へ 0–20（＝累積 90–110 は線 90–110）・間 110–120・線 120–140
+		const cl = LINES.find(l => l.k === "corner").ll, c1 = map.project(cl[1]), c2 = map.project(cl[2]), Ld = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+		const down = u => [c1.x + (c2.x - c1.x) / Ld * (u - 90) * r, c1.y + (c2.y - c1.y) / Ld * (u - 90) * r];
+		const cb = [];
+		for (const u of [95, 105, 125, 135]) if (!red(...down(u))) cb.push(`on${u}=${px(...down(u))}`);
+		for (const u of [113, 117, 143, 147]) if (!white(...down(u))) cb.push(`off${u}=${px(...down(u))}`);
+		ok(tag + ":corner", !cb.length, cb.join(" "));
+	};
+	const run = async tag => {
+		await sleep(6000);
+		check(tag, await grab(), 15);
+		map.jumpTo({ center: ZC, zoom: 15.5 }); await sleep(2500);   // 同じ floor＝地面について伸びる
+		check(tag + "@15.5", await grab(), 15.5);
+		map.jumpTo({ center: ZC, zoom: 16 }); await sleep(2500);   // floor が変わる＝元の px へ戻る
+		check(tag + "@16", await grab(), 16);
+		map.jumpTo({ center: VIEW, zoom: 15 }); await sleep(1500);
+	};
+	// ① 基図（setStyle の層）
+	await map.setStyle({ version: 8, name: "t-linedash", sources: { ld: SRC }, layers: [BG, ...LAYERS] });
+	await run("base");
+	// ② 利用者の vector の層（addLayer＝vtdraw）＝地図を作り直す（t-linejoin と同じ）
+	map.destroy();
+	map = await boot();
+	map.addSource("ld", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await run("user");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

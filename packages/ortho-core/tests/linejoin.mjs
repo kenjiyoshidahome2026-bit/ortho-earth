@@ -46,9 +46,9 @@ t("別の線（MultiLineString の 2 本）はつながない", () => {
 	const op = opOf([line([100, 100, 1000, 100, 1000, 100, 1000, 900], [4, 8])], {});
 	assert.deepEqual([...op.jf], [0, 0]);
 });
-t("破線：頂点を跨ぐ片だけが継ぐ・片の頭と尻は端", () => {
+t("CPU で刻む破線：頂点を跨ぐ片だけが継ぐ・片の頭と尻は端（内蔵の層の px の模様・外来の層はシェーダの破線＝linedash.mjs）", () => {
 	// 線 400 タイル単位＝模様 [4, 4]×(4096/256)＝64 単位の線と間。頂点 (1000,100) は 900 単位目＝線の片の途中（896〜960）
-	const op = opOf(L3, { paint: { "line-width": 1, "line-dasharray": [4, 4] } });
+	const op = opOf(L3, { layout: { "line-cap": "butt" }, paint: { "line-width": 1, "line-dasharray": [4, 4] } }, false);
 	const i = op.jf.indexOf(JF_PREV);
 	assert.equal(op.jf.filter(f => f).length, 2); assert.equal(op.jf[i - 1], JF_NEXT);
 	assert.deepEqual(pt(op.P2, i - 1), pt(op.P1, i));

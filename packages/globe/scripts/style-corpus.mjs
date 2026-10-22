@@ -59,7 +59,7 @@ export const GAPS = [
 	{ key: "basemap-paint-zoom", why: "基図の paint はタイルの z で焼く（ズームに連続でない）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && Object.values(L.paint || {}).some(usesZoom) },
 	{ key: "after-symbol", why: "注記より後ろの塗り・線（注記は常に最上段）", test: (L, c) => c.afterSymbol.has(L.id) },
 	{ key: "line-width-32", why: "線幅の上限 約 32px（表の u8）", test: L => L.type === "line" && maxOut(L.paint?.["line-width"]) + Math.max(0, maxOut(L.paint?.["line-gap-width"])) * 2 > 32 },
-	{ key: "dasharray-3+", why: "破線は先頭の [線, 間] の対だけ", test: L => { const d = L.paint?.["line-dasharray"]; return Array.isArray(d) && typeof d[0] === "number" ? d.length > 2 : d != null && /\[(\s*-?[\d.]+\s*,){2,}/.test(json(d)); } },
+	{ key: "dasharray-3+", why: "WebGPU は破線をタイルの z の尺で刻む（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-3）", test: L => { const d = L.paint?.["line-dasharray"]; return Array.isArray(d) && typeof d[0] === "number" ? d.length > 2 : d != null && /\[(\s*-?[\d.]+\s*,){2,}/.test(json(d)); } },
 	{ key: "pattern", why: "fill-pattern・line-pattern・background-pattern・fill-extrusion-pattern（基図は層ごと飛ばす）", test: L => ["fill-pattern", "line-pattern", "background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
 	{ key: "translate", why: "*-translate（-anchor）", test: L => ["fill-translate", "line-translate", "circle-translate", "fill-extrusion-translate"].some(k => has(L, k)) },
 	{ key: "blur", why: "line-blur・circle-blur", test: L => (has(L, "line-blur") && maxOut(L.paint["line-blur"]) > 0) || (has(L, "circle-blur") && maxOut(L.paint["circle-blur"]) > 0) },

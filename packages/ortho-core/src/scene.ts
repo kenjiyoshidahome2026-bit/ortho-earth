@@ -8,7 +8,8 @@ export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Arr
 // jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
 // 継ぐ相手は並びのすぐ前後の線分＝線分レコード（P1・P2）から読む（隣の点を別に持たない）。cj＝層の端と継ぎの種類（build.ts の lineCapJoin）。
 // 0（丸い端・丸い継ぎ）の層は jf を持たない＝従来の capsule
-export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number }
+// dist＝シェーダで描く破線（S-P1-3・2026-10-22）の始点までの線に沿う距離（z24 の px・build.ts の DASH_GPU_MAX の所）・dash＝模様（線幅の倍数・MapLibre の並びのまま）・dz＝作ったタイルの z
+export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number; dist?: Float32Array | null; dash?: number[]; dz?: number }
 export type DrawOp = FillOp | LineOp;
 /** 建物の押し出し（buildings.ts）＝xyz（z＝高さ m）・面の陰影・足元の xy */
 export interface BuildingsGeom { pos: Float32Array; shade: Float32Array; anchor: Float32Array }
@@ -39,9 +40,9 @@ export function coveredTiles(order: readonly { key: string }[]): Set<string> {
 	return covered;
 }
 
-interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number }
+interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number; dash?: number[]; dz?: number }
 interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; pi: number; ci: number; ii: number }
-interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; jf: Uint8Array | null; cj: number; pi: number; ci: number; hi: number }
+interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; jf: Uint8Array | null; cj: number; dist: Float32Array | null; dash?: number[]; dz?: number; pi: number; ci: number; hi: number }
 
 export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: string) => TileGeom | null | undefined, opts: MergeOptions = {}): MergedScene {
 	if (!order.length) return { origin: [0, 0], layers: [], buildings: null };
@@ -57,7 +58,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 			if (hidden.has(seaFbReal(op.li) ?? op.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (op.kind === "line" && lineOff.has(key)) continue;
 			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
-			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } }
+			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } if (op.dist && !e.dash) { e.dash = op.dash; e.dz = op.dz; } }
 		}
 	}
 	const buf = new Map<number, FillAcc | LineAcc>();
@@ -65,7 +66,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
 			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), pi: 0, ci: 0, ii: 0 }
-			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）
+			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, dist: e.dash ? new Float32Array(e.lineN) : null, dash: e.dash, dz: e.dz, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）。dist＝破線（S-P1-3）の距離・持たないタイルの分は 0・模様は最初に持つタイルの値
 	}
 	for (const { ox, oy, ops, noLine } of tileOps) {
 		for (const op of ops) {
@@ -84,13 +85,14 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 				m.col.set(op.col, m.ci); m.ci += op.col.length;
 				if (m.off && op.off) m.off.set(op.off, m.hi * 3);
 				if (m.jf && op.jf) m.jf.set(op.jf, m.hi);   // 旗はタイルの中で閉じる（タイルの境を跨いで継がない）＝そのまま写す
+				if (m.dist && op.dist) m.dist.set(op.dist, m.hi);
 				m.half.set(op.half, m.hi); m.hi += op.half.length;
 			}
 		}
 	}
 	const layers: DrawOp[] = [...buf.values()].sort((a, b) => a.li - b.li).map((m): DrawOp => m.kind === "fill"
 		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx }
-		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}) });
+		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}), ...(m.dist ? { dist: m.dist, dash: m.dash, dz: m.dz } : {}) });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;
@@ -113,13 +115,64 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 const EMPTY = new Set<number>();
 
 // op 列（＋建物）の型付き配列のバッファ＝transfer の対象・実バイトの数え上げ（tile worker・pipeline・tilemanager・scene worker で共用）。
-// op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off?, jf? }・シーン（結合後の layers）も同じ形
+// op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off?, jf?, dist? }・シーン（結合後の layers）も同じ形
 export function opBuffers(ops: readonly DrawOp[], buildings?: BuildingsGeom | null): ArrayBufferLike[] {
 	const bufs: ArrayBufferLike[] = [];
 	for (const op of ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
-		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); if (op.jf) bufs.push(op.jf.buffer); }
+		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); if (op.jf) bufs.push(op.jf.buffer); if (op.dist) bufs.push(op.dist.buffer); }
 	}
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;
+}
+
+// 破線（S-P1-3・2026-10-22）の模様（線幅の倍数・MapLibre の並び）→ 線の区間 [a, b, a, b, …]（周期 P の中・最大 DASH_IV 個）。
+// 奇数個は最後と最初の線がつながる（MapLibre の LineAtlas.getDashRanges）＝区間が P を越える。
+// round＝丸い端：長さ 0 の線（点）を残す。それ以外（butt・square）は長さ 0 の線を捨て、接する線をつなぐ（MapLibre の addRegularDash）。
+// 全部が線（間が 0）＝実線＝[−P, 2P]
+export const DASH_IV = 4;
+export function dashIntervals(p: readonly number[], round: boolean): { P: number; iv: number[] } {
+	let iv: number[] = [], c = 0;
+	for (let i = 0; i < p.length; i++) { if (!(i & 1)) iv.push(c, c + p[i]); c += p[i]; }
+	const P = c;
+	if (p.length & 1 && iv.length > 2) { const b = iv[1]; iv = iv.slice(2); iv[iv.length - 1] = P + b; }
+	if (!round) {
+		const out: number[] = [];
+		for (let i = 0; i < iv.length; i += 2) {
+			if (iv[i + 1] <= iv[i]) continue;
+			if (out.length && out[out.length - 1] >= iv[i]) out[out.length - 1] = Math.max(out[out.length - 1], iv[i + 1]);
+			else out.push(iv[i], iv[i + 1]);
+		}
+		if (out.length > 2 && out[out.length - 1] >= out[0] + P) { out[out.length - 1] = Math.max(out[out.length - 1], out[1] + P); out.splice(0, 2); }
+		iv = out;
+	}
+	for (let i = 0; i < iv.length; i += 2) if (iv[i + 1] - iv[i] >= P) return { P, iv: [-P, 2 * P] };
+	return { P, iv };
+}
+// 線分の長さ（z24 の px＝256 px 世界の 2^24 倍）：経緯度（原点 o に足す）から＝メルカトルの縦は中点の緯度で近似（細分した短い線分・シェーダの LINE_MAIN と同式）
+const W24 = 2 ** 32, D2R = Math.PI / 180;
+export function segLen24(o: ArrayLike<number>, x1: number, y1: number, x2: number, y2: number): number {
+	const dx = (x2 - x1) / 360, dy = (y2 - y1) * D2R / Math.cos((o[1] + (y1 + y2) * 0.5) * D2R) / (2 * Math.PI);
+	return Math.hypot(dx, dy) * W24;
+}
+// WebGPU（シェーダの破線は次の段）の逃げ道：dist を持つ線の層を CPU で刻む（classic＝renderer・md＝scene worker が常駐の前に）。尺は作ったタイルの z（dz）の px＝従来の CPU の破線と同じ。
+// 片の端は丸（WebGPU の線は capsule）・長さ 0 の片（点）は丸い端の層だけ
+export function chopDash(L: LineOp, o: ArrayLike<number>): LineOp {
+	if (!L.dist || !L.dash) return L;
+	const { P, iv } = dashIntervals(L.dash, !((L.jf ? L.cj ?? 0 : 0) & 3)), s = 2 ** ((L.dz ?? 24) - 24), n = L.half.length;
+	const P1: number[] = [], P2: number[] = [], col: number[] = [], half: number[] = [];
+	for (let i = 0; i < n; i++) {
+		const w = 2 * L.half[i]; if (!(w > 0)) continue;
+		const x1 = L.P1[i * 2], y1 = L.P1[i * 2 + 1], x2 = L.P2[i * 2], y2 = L.P2[i * 2 + 1];
+		const d0 = L.dist[i] * s / w, len = segLen24(o, x1, y1, x2, y2) * s / w;
+		for (let k = Math.floor(d0 / P) - 1; k * P < d0 + len + P; k++) for (let j = 0; j < iv.length; j += 2) {
+			const a0 = iv[j] + k * P, b0 = iv[j + 1] + k * P;
+			if (b0 === a0 ? a0 < d0 || a0 >= d0 + len : b0 <= d0 || a0 >= d0 + len) continue;   // 点（長さ 0）は線分の頭に含め尻に含めない＝次の線分と重ねない
+			const a = Math.max(a0, d0), b = Math.min(b0, d0 + len);
+			const ta = len > 0 ? (a - d0) / len : 0, tb = len > 0 ? (b - d0) / len : 0;
+			P1.push(x1 + (x2 - x1) * ta, y1 + (y2 - y1) * ta); P2.push(x1 + (x2 - x1) * tb, y1 + (y2 - y1) * tb);
+			col.push(L.col[i * 4], L.col[i * 4 + 1], L.col[i * 4 + 2], L.col[i * 4 + 3]); half.push(L.half[i]);
+		}
+	}
+	return { kind: "line", li: L.li, ...(L.id ? { id: L.id } : {}), P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) };
 }
