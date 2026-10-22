@@ -385,7 +385,8 @@ struct LineOut {
 	@location(14) @interpolate(flat) gp: vec2f,   // line-gradient（G-3）：始点・終点の進み（0..1）
 	@location(6) fog: f32,
 };
-// 線の色の見本（G-3＝line-gradient の 256 段・RGBA8・前乗算しない）＝塗りの模様と同じ group(1) の binding 1/2（P.patP.x＝1 の層だけ読む・他は 1×1 の透明）
+// 線の色の見本（G-3＝line-gradient の 256 段・RGBA8・前乗算しない）＝塗りの模様と同じ group(1) の binding 1/2（P.patP.x＝1 の層だけ読む・他は 1×1 の透明）。
+// P.patP.x＝2 は line-pattern（G-4）＝模様の画像（塗りの模様と同じテクスチャ）・patP.y＝破線と同じ尺・patP.z＝層の line-opacity
 @group(1) @binding(1) var ltTex: texture_2d<f32>;
 @group(1) @binding(2) var ltSamp: sampler;
 fn toScreen(c: vec4f) -> vec2f {
@@ -435,7 +436,7 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 ) -> LineOut {
 	var o: LineOut;
 	var hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;
-	o.gp = select(vec2f(0.0), vec2f(col.x + col.y * 256.0, col.z + col.w * 256.0) * (255.0 / 65535.0), P.patP.x > 0.5);   // line-gradient（G-3）＝色の語の 4 バイト → unorm16×2（gl LINE_MAIN と同式）
+	o.gp = select(vec2f(0.0), vec2f(col.x + col.y * 256.0, col.z + col.w * 256.0) * (255.0 / 65535.0), P.patP.x > 0.5 && P.patP.x < 1.5);   // line-gradient（G-3）＝色の語の 4 バイト → unorm16×2（gl LINE_MAIN と同式）
 	var q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）
 	if (P.tr.z != 0.0) { let tr = trLL(F.origin + q1); q0 += tr; q1 += tr; q2 += tr; q3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	let la1 = F.origin + q1; let la2 = F.origin + q2;   // elev 参照用の絶対（粗くて可）
@@ -477,9 +478,9 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 破線（S-P1-3）：模様の位相は地面の長さ（z24 の px）を floor(zoom) の px にして線幅で割る＝MapLibre の tileRatio／floorwidth と同じ。
 	// 線分の長さは経緯度から（縦は中点の緯度のメルカトル＝scene.ts の segLen24 と同式）
 	o.dd = vec2f(0.0);
-	if (P.dashP.y > 0.5) {
+	if (P.dashP.y > 0.5 || P.patP.x > 1.5) {   // line-pattern（G-4）の横の位相も同じ（尺は P.patP.y）
 		let my = (q2.y - q1.y) * D2R / cos((F.origin.y + (q1.y + q2.y) * 0.5) * D2R) / 6.2831853;
-		o.dd = vec2f(dist0, length(vec2f((q2.x - q1.x) / 360.0, my)) * 4294967296.0) * (P.dashP.w / max(2.0 * hw0, 1e-3));
+		o.dd = vec2f(dist0, length(vec2f((q2.x - q1.x) / 360.0, my)) * 4294967296.0) * (select(P.patP.y, P.dashP.w, P.dashP.y > 0.5) / max(2.0 * hw0, 1e-3));
 	}
 	var base = sb; var capSign = 1.0; var ext = eB;
 	if (corner.x < 0.5) { base = sa; capSign = -1.0; ext = eA; }
@@ -557,7 +558,16 @@ fn lineTail(k: f32, e: f32, q: vec2f, j: vec4f, bev: f32, hw: f32, dist: ptr<fun
 	if (alpha <= 0.0) { discard; }
 	// line-gradient（G-3・gl LINE_FS と同式）：画素の進み＝線分の上の位置で始点・終点の進みを補う → 見本の 256 段の真ん中を引く（Level＝一様な流れを要さない）
 	var lc = in.color;
-	if (P.patP.x > 0.5) { lc = textureSampleLevel(ltTex, ltSamp, vec2f(mix(in.gp.x, in.gp.y, clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0)) * (255.0 / 256.0) + 0.5 / 256.0, 0.5), 0.0); }
+	if (P.patP.x > 1.5) {   // line-pattern（G-4・gl LINE_FS と同式）：横＝線に沿う位相（floor(zoom) の線幅の倍数）×画像の高さ÷幅、縦＝線の幅（右が下）。線分の外（端と継ぎ）は位相を延ばす＝隣の線分と続く。line-color は読まない
+		let Ls = length(ba);
+		var k = 0.0;
+		if (Ls > 1e-3) { k = in.dd.y / Ls; }
+		let ts = vec2f(textureDimensions(ltTex, 0));
+		let x = in.dd.x + dot(pa, ba) / max(Ls, 1e-6) * k;
+		let sd = select(0.0, dot(pa, vec2f(-ba.y, ba.x)) / max(Ls, 1e-6), Ls > 1e-6);
+		let t = textureSampleLevel(ltTex, ltSamp, vec2f(fract(x * ts.y / ts.x), clamp(0.5 + sd / (2.0 * max(in.halfw, 0.5)), 0.5 / ts.y, 1.0 - 0.5 / ts.y)), 0.0);
+		lc = vec4f(select(vec3f(0.0), t.rgb / max(t.a, 1e-6), t.a > 0.0), t.a * P.patP.z);
+	} else if (P.patP.x > 0.5) { lc = textureSampleLevel(ltTex, ltSamp, vec2f(mix(in.gp.x, in.gp.y, clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0)) * (255.0 / 256.0) + 0.5 / 256.0, 0.5), 0.0); }
 	let a = lc.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;   // p0.w＝クロスフェード×基図の濃さ
 	if (a <= 0.003) { discard; }
 	let ga = a * P.p0.w;   // ×グローバルα（クロスフェード用・通常1）
@@ -1789,7 +1799,7 @@ export const mdLineWgsl = (src: string, label: string): string => deriveWgsl(src
 	["@vertex fn vs(\n\t@location(0) corner: vec2f,\n\t@location(1) p1: vec2f, @location(2) p2: vec2f,\n\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
 	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
 	[LINEX_ANCHOR,
-	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5) { dist0 = bitcast<f32>(B.z); off0.x = P.tr.w; }   // 破線の列（S-P1-3）＝語 6 は始点までの線に沿う距離・ずらしは層で 1 つの値（P.tr.w・語 7＝角の継ぎ）\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
+	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5 || P.patP.x > 1.5) { dist0 = bitcast<f32>(B.z); off0.x = P.tr.w; }   // 破線の列（S-P1-3）・線の模様（G-4）＝語 6 は始点までの線に沿う距離・ずらしは層で 1 つの値（P.tr.w・語 7＝角の継ぎ）\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
 ], label);
 // 基図の classic の線＝前後の点（@location 6/7＝renderer が P1／P2 のバッファを 1 線分ずらして同じバッファを 2 つの slot で読ませる）と旗・破線の距離（@location 8＝[jf, dist]）を属性で
 export const lineXWgsl = (src: string, label: string): string => deriveWgsl(src, [

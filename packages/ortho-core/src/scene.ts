@@ -15,9 +15,10 @@ export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Arr
 // jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
 // 継ぐ相手は並びのすぐ前後の線分＝線分レコード（P1・P2）から読む（隣の点を別に持たない）。cj＝層の端と継ぎの種類（build.ts の lineCapJoin）。
 // 0（丸い端・丸い継ぎ）の層は jf を持たない＝従来の capsule
-// dist＝シェーダで描く破線（S-P1-3・2026-10-22）の始点までの線に沿う距離（z24 の px・build.ts の DASH_GPU_MAX の所）・dash＝模様（線幅の倍数・MapLibre の並びのまま）・dz＝作ったタイルの z
+// dist＝シェーダで描く破線（S-P1-3・2026-10-22）と線の模様（G-4）の始点までの線に沿う距離（z24 の px・build.ts の DASH_GPU_MAX の所）・dash＝模様（線幅の倍数・MapLibre の並びのまま）・dz＝作ったタイルの z
 // lt＝線の色を画素で引く見本（G-3 line-gradient・2026-10-22）＝lut（RGBA8×build.ts の LG_N 段・進み 0..1）。持つ層の col は色でなく線分の始点・終点の進み（unorm16×2）。key＝描き手のテクスチャの覚えの鍵
-export interface LineTex { key: string; lut?: Uint8Array }
+// lt.pat＝line-pattern（G-4・2026-10-22）の画像の名前（層で一度）・o＝層の line-opacity。col は色のまま（模様を描けない道＝色の線）。線に沿う位相は dist（破線と同じ語・dash を持たない）
+export interface LineTex { key: string; lut?: Uint8Array; pat?: string; o?: number }
 export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number; dist?: Float32Array | null; dash?: number[]; dz?: number; fx?: number[]; pz?: PaintZoom; pt?: PtOp; lt?: LineTex }
 export type DrawOp = FillOp | LineOp;
 /** 建物の押し出し（buildings.ts）＝xyz（z＝高さ m）・面の陰影・足元の xy */
@@ -49,7 +50,7 @@ export function coveredTiles(order: readonly { key: string }[]): Set<string> {
 	return covered;
 }
 
-interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number; dash?: number[]; dz?: number; fx?: number[]; pat?: string; pz?: PaintZoom; lt?: LineTex }
+interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number; ds?: boolean; dash?: number[]; dz?: number; fx?: number[]; pat?: string; pz?: PaintZoom; lt?: LineTex }
 interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; fx?: number[]; pat?: string; pz?: PaintZoom; pi: number; ci: number; ii: number }
 interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; jf: Uint8Array | null; cj: number; dist: Float32Array | null; dash?: number[]; dz?: number; fx?: number[]; pz?: PaintZoom; lt?: LineTex; pi: number; ci: number; hi: number }
 
@@ -71,7 +72,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 			if (op.pz) e.pz ??= op.pz;   // ズーム連続の式（V-Ph3＝S-P1-2）＝層で同じ
 			if (op.kind === "fill" && op.pat) e.pat ??= op.pat;   // 模様の名前（同上）
 			if (op.kind === "line" && op.lt) e.lt ??= op.lt;   // line-gradient の見本（G-3・同上）
-			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } if (op.dist && !e.dash) { e.dash = op.dash; e.dz = op.dz; } }
+			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } if (op.dist) { e.ds = true; if (!e.dash && op.dash) { e.dash = op.dash; e.dz = op.dz; } } }
 		}
 	}
 	const buf = new Map<number, FillAcc | LineAcc>();
@@ -79,7 +80,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
 			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), fx: e.fx, pat: e.pat, pz: e.pz, pi: 0, ci: 0, ii: 0 }
-			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, dist: e.dash ? new Float32Array(e.lineN) : null, dash: e.dash, dz: e.dz, fx: e.fx, pz: e.pz, lt: e.lt, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）。dist＝破線（S-P1-3）の距離・持たないタイルの分は 0・模様は最初に持つタイルの値
+			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, dist: e.ds ? new Float32Array(e.lineN) : null, dash: e.dash, dz: e.dz, fx: e.fx, pz: e.pz, lt: e.lt, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）。dist＝破線（S-P1-3）の距離・持たないタイルの分は 0・模様は最初に持つタイルの値
 	}
 	for (const { ox, oy, ops, noLine } of tileOps) {
 		for (const op of ops) {
@@ -105,7 +106,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 	}
 	const layers: DrawOp[] = [...buf.values()].sort((a, b) => a.li - b.li).map((m): DrawOp => m.kind === "fill"
 		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx, ...(m.fx ? { fx: m.fx } : {}), ...(m.pat ? { pat: m.pat } : {}), ...(m.pz ? { pz: m.pz } : {}) }
-		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}), ...(m.dist ? { dist: m.dist, dash: m.dash, dz: m.dz } : {}), ...(m.fx ? { fx: m.fx } : {}), ...(m.pz ? { pz: m.pz } : {}), ...(m.lt ? { lt: m.lt } : {}) });
+		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}), ...(m.dist ? { dist: m.dist, ...(m.dash ? { dash: m.dash, dz: m.dz } : {}) } : {}), ...(m.fx ? { fx: m.fx } : {}), ...(m.pz ? { pz: m.pz } : {}), ...(m.lt ? { lt: m.lt } : {}) });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;

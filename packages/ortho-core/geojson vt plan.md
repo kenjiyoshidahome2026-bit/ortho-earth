@@ -15,6 +15,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 
 問い合わせは `patItems`（画面の px で当てる）。vtdraw 側は fill-pattern・line-offset・破線・translate・blur を GPU で描く（line-pattern と line-gradient は未対応＝警告して色で描く）。
 ※ 2026-10-22 追記：line-gradient は G-3 で vtdraw（基図・vector・geojson の層とも GPU）へ移した。残る pattern-2d＝line-pattern・既定の fill-pattern（`?gjvt=2` でない時）・属性で模様を変える層。
+※ 同日：line-pattern は G-4 で vtdraw（基図・vector・geojson の層とも GPU）へ移した。残る pattern-2d＝既定の fill-pattern（`?gjvt=2` でない時）・属性で模様を変える層・cluster の source の飾りの層。
 
 ## 1. 設計
 
@@ -46,8 +47,15 @@ geojson の層（gint）はその描き方を持たないので、該当する�
   - 計画の初案（語 6＋地物ごとの全長の表）は採らなかった：語 6 はシェーダの破線が使う（gradient の破線と並べる）・全長の表は行が地物の数になる（vtdraw-line-records の申し送り）。語 4 は gradient の層では色が要らない（見本から引く）ので空く。
 - 門：`tests/linegrad.mjs`（core）・`tests/geojsonvt.mjs` の進み 6 項・`tests/vtdraw.mjs` の切りの進み・t-linedeco（GL2 classic／md・頭＝赤・中＝紫・尻＝青・canvas2D の口に描かない）・t-linegrad（レンダラ直駆動・GL2 は画素、WebGPU は検証エラー 0＝クラウドの SwiftShader は読み戻しで device を失う・画素は Mac の verify:webgpu）・t-wgsl（線の派生 4 本）。
 
-### G-4 line-pattern
-- vector の層でも未対応＝G-2 の後に、fill-pattern の記号帳（アトラス）を線方向に敷く形で両方まとめて。style 互換の線の側と一緒に設計する。
+### G-4 line-pattern（**済**・2026-10-22）
+- 実装（線分レコードは 8×u32 のまま・語も足さない）：
+  - build.ts：`linePatternOf`＝画像の名前と層の line-opacity（どちらも層で一度＝fill-pattern と同じ近似）を `LineOp.lt`（`{ key, pat, o }`）に。線に沿う位相は**シェーダの破線と同じ語 6**（始点までの線に沿う距離＝`op.dist`・dash は持たない）。色の語は色のまま（模様を描けない道＝`?nolx=1` 等は色の線）・paint 表も今のまま。
+  - MapLibre の spec どおり line-pattern は line-dasharray と line-gradient を無効にする。ずらしが地物ごとの層（line-gap-width も）は語 6 が空かない＝色の線（破線と同じ制約・実在 0 層）。
+  - 描き手：GL2（classic・md）＝`u_lt`＝(2, 破線と同じ尺, line-opacity)・画像は塗りの模様と同じテクスチャを PAT_UNIT へ。WebGPU（classic・md）＝`patP`＝(2, 尺, line-opacity)・binding 1/2 に画像。画像がまだ無い層は描かない（塗りの模様と同じ）。
+  - 絵＝MapLibre の line_pattern：横＝floor(z) の線幅の倍数の位相×画像の高さ÷幅（1 周期＝線幅×幅÷高さ）・縦＝線の幅（東向きの線の右＝画像の下）・line-color は読まない。線分の外（端と継ぎ）は位相を延ばす＝隣の線分と続く。
+  - 近似：位相はタイルの中で線（環）の頭から（MVT も geojson の切ったタイルも）＝タイルの境で位相が飛ぶことがある（MapLibre も同じ）・段の切り替えは重ね合わせ（crossfade）なし。
+  - globe：geojson の line-pattern 層（名前が層で一度の物・cluster でない）は `kindOf` で vtdraw へ（`?gjvt=0` で canvas2D の口）。vector の層の警告を外した。
+- 門：`tests/linepat.mjs`（core 7 項）・頁 `t-linepattern?md=1`／`?nomd=1`（基図・利用者の vector・geojson の 3 回×1 周期の長さ・上下の色・地面に付く・line-opacity・z15.5）・`?gjvt=0`（canvas2D の口）・`t-linegrad`（レンダラ直駆動の模様の線＝12px ずつ・継ぎ目でも続く・WebGPU は検証エラー 0）・t-wgsl。WebGPU の画素は Mac の verify:webgpu（t-linepattern を足した）。
 
 ## 2. 順番と門
 
@@ -56,7 +64,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 | G-1 | 切り分け（core）＝**済** | Node の検定（面積・枠・穴・日付変更線）`tests/geojsonvt.mjs` 12 項 | — |
 | G-2 | 手元のタイル＋line-offset を vtdraw へ（**済**・fill-pattern は `?gjvt=2`） | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
 | G-3 | line-gradient（**済**） | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
-| G-4 | line-pattern（vector と geojson） | t-linedeco・公式例の line-pattern の場面 | `?gjvt=0` |
+| G-4 | line-pattern（vector と geojson・**済**） | t-linepattern（GL2 md／classic・`?gjvt=0`）・t-linegrad の模様の線・verify:webgpu | `?gjvt=0` |
 
 見立て：G-1 1 日・G-2 2〜3 日・G-3 2 日（裁定次第）・G-4 2 日。G-2 だけでも fill-pattern と line-offset の geojson 層は Canvas2D を離れる。
 

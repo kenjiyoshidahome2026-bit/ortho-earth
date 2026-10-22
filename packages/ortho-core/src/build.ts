@@ -244,11 +244,18 @@ export function layerFx(L: { type: string; paint?: Record<string, unknown> | nul
 	return tr[0] || tr[1] || blur ? [tr[0], tr[1], anc, blur, rel] : null;
 }
 // fill-pattern（S-P1-4/5）の画像の名前＝作ったタイルの z で層に一度（MapLibre は属性も読めるが層で一度＝近似）。名前でない値は null（模様なし）
-export function fillPatternOf(L: { paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined): string | null {
-	const e = L.paint?.["fill-pattern"]; if (e == null) return null;
+export function fillPatternOf(L: { paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined, key = "fill-pattern"): string | null {
+	const e = L.paint?.[key]; if (e == null) return null;
 	const v = evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
 	const n = v && typeof v === "object" && "name" in (v as object) ? (v as { name: unknown }).name : v;   // ResolvedImage 風の値も名前へ
 	return typeof n === "string" && n ? n : null;
+}
+// line-pattern（G-4・2026-10-22）：画像の名前と層の line-opacity（どちらも層で一度＝fill-pattern と同じ近似）。線分の色の語は色のまま（模様を描けない道は色の線）。
+// 線に沿う位相はシェーダの破線と同じ語 6（始点までの線に沿う距離）＝描き手が floor(z) の線幅の倍数×画像の高さ÷幅で横を、線の幅で縦を当てる（MapLibre の line_pattern）
+export function linePatternOf(L: { paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined): LineTex | null {
+	const n = fillPatternOf(L, z, eo, "line-pattern"); if (!n) return null;
+	const ov = L.paint?.["line-opacity"] != null ? +(evalExpr(L.paint["line-opacity"], { zoom: z, props: {}, geom: null, vars: {}, origin: eo }) as number) : 1, o = isFinite(ov) ? Math.max(0, Math.min(1, ov)) : 1;
+	return { key: `p|${n}|${o}`, pat: n, o };
 }
 // line-gradient（G-3・2026-10-22）：色の見本＝["line-progress"] を 0..1 で LG_N 段に評価した RGBA8（前乗算しない）＋層の line-opacity（層で一度＝近似）。
 // 線分の色の語（語 4）は始点・終点の進み（unorm16×2）になり、シェーダが画素の進みで見本を引く＝線分レコードに語を足さない（geojson vt plan §5 裁定 2）。
@@ -545,16 +552,18 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
 			const dashV = evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
-			const ml = !!(eo && L.dashInLineWidths), dashRaw = dashPattern(dashV, ml);
+			// line-pattern（G-4）＝破線と line-gradient を無効にする（MapLibre の spec）。位相は語 6＝ずらしは層で 1 つの値の時だけ（破線と同じ・他は色の線）
+			const lp = eo && (!off || uOff) ? linePatternOf(L, z, eo) : null;
+			const ml = !!(eo && L.dashInLineWidths), dashRaw = lp ? null : dashPattern(dashV, ml);
 			const gpuDash = ml && dashRaw && (!off || uOff) && dashRaw.length <= DASH_GPU_MAX ? dashRaw : null;   // シェーダで描く（S-P1-3）＝刻まない。ずらす層は層で 1 つの値の時だけ
-			const dist = gpuDash ? B.dist : null; if (dist) dist.n = 0;
+			const dist = gpuDash || lp ? B.dist : null; if (dist) dist.n = 0;
 			const dK = 2 ** (32 - z) / extent;   // タイル単位 → z24 の px
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
 			// line-gradient（G-3）＝色の語は線分の始点・終点の進み（unorm16×2）・色は描き手が見本（lt.lut）から引く。CPU で刻む破線とは並ばない（色で描く）
-			const lt = eo && !dashPat ? lineGradientOf(L, z, eo, pale) : null;
+			const lg = eo && !dashPat && !lp ? lineGradientOf(L, z, eo, pale) : null, lt = lp ?? lg;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
-			const ptL = eo && !lt ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）・色の語を進みに使う層は持たない
+			const ptL = eo && !lg ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）・色の語を進みに使う層は持たない
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
@@ -593,7 +602,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const { coords, ends } = f.geom!;
 				if (dashPat && L.dashInLineWidths && !w) continue;   // 幅 0 の CPU で刻む破線＝片の長さ 0（刻めない・描いても見えない）
 				if (!dashPat) {   // 破線でない線（とシェーダで描く破線）＝地物ごとに一度だけ作った線分列（lineSegs）を写す＝ケーシングと本線など同じ地物を描く層の数だけ経緯度化・細分をやり直さない
-					const g = lineSegs(f.geom!, extent, !!lt), n = g.n;
+					const g = lineSegs(f.geom!, extent, !!lg), n = g.n;
 					if (!n) continue;
 					if (jf) {   // 端と継ぎ（S-P1-1）：長さ 0 の線分は書かない（MapLibre も重なった点を捨てる）＝継ぐ相手が並びのすぐ前後になる
 						linkSegs(g);
@@ -602,7 +611,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 							if (g.p1[j * 2] === g.p2[j * 2] && g.p1[j * 2 + 1] === g.p2[j * 2 + 1]) continue;
 							const k = half.n, a1 = P1.reserve(2), a2 = P2.reserve(2), c4 = col.reserve(4), o = jf.reserve(1);
 							a1[k * 2] = g.p1[j * 2]; a1[k * 2 + 1] = g.p1[j * 2 + 1]; a2[k * 2] = g.p2[j * 2]; a2[k * 2 + 1] = g.p2[j * 2 + 1];
-							if (lt) lgWord(c4, k, g.pg!, j); else { c4[k * 4] = cr; c4[k * 4 + 1] = cg; c4[k * 4 + 2] = cb; c4[k * 4 + 3] = ca; }
+							if (lg) lgWord(c4, k, g.pg!, j); else { c4[k * 4] = cr; c4[k * 4 + 1] = cg; c4[k * 4 + 2] = cb; c4[k * 4 + 3] = ca; }
 							half.reserve(1)[k] = hw;
 							o[k] = (pv[j] < 0 ? 0 : pv[j] < j ? JF_PREV : JF_RING_START) | (nx[j] < 0 ? 0 : nx[j] > j ? JF_NEXT : JF_RING_END);   // 継ぐ相手は長さ 0 を飛ばしたすぐ前後＝書いた並びでも隣
 							if (dist) dist.reserve(1)[dist.n++] = g.d[j] * dK;
@@ -613,7 +622,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 					if (dist) { const a = dist.reserve(n); for (let j = 0, dn = dist.n; j < n; j++) a[dn++] = g.d[j] * dK; dist.n += n; }
 					P1.reserve(n * 2).set(g.p1, P1.n); P2.reserve(n * 2).set(g.p2, P2.n);
 					const c4 = col.reserve(n * 4), hf = half.reserve(n);
-					if (lt) for (let j = 0, k = col.n >> 2; j < n; j++) lgWord(c4, k + j, g.pg!, j);
+					if (lg) for (let j = 0, k = col.n >> 2; j < n; j++) lgWord(c4, k + j, g.pg!, j);
 					else for (let j = 0, cn = col.n; j < n; j++) { c4[cn++] = cr; c4[cn++] = cg; c4[cn++] = cb; c4[cn++] = ca; }
 					for (let j = 0, hn = half.n; j < n; j++) hf[hn++] = hw;
 					P1.n += n * 2; P2.n += n * 2; col.n += n * 4; half.n += n;
@@ -661,7 +670,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const op: LineOp = { kind: "line", li, id: L.id, P1: P1.out(), P2: P2.out(), col: col.out(), half: half.out() };
 				if (off) { let any = uOff; for (let i = 0; !any && i < off.n; i += 3) if (off.a[i]) any = true; if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない（層で 1 つの値の層は持つ＝他の z で 0 でない）
 				if (jf) { op.jf = jf.out(); op.cj = cj; }
-				if (dist) { op.dist = dist.out(); op.dash = gpuDash!; op.dz = z; }
+				if (dist) { op.dist = dist.out(); if (gpuDash) { op.dash = gpuDash; op.dz = z; } }   // line-pattern（G-4）は距離だけ
 				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
 				if (pzL) op.pz = pzL;
 				const ptO = pt ? pt.out(half.n) : null; if (ptO) op.pt = ptO;

@@ -1175,7 +1175,8 @@ uniform vec2 u_blur;      // line-blur（画素）・circle-blur（y＝1：半�
 uniform vec4 u_dashP;     // 破線（S-P1-3）＝(周期 P, 線の区間の数（0＝破線でない）, 丸い端 1／0, floor(zoom) の px ÷ z24 の px)
 uniform vec4 u_dashI[2];  // 線の区間 [a, b]×4（線幅の倍数・scene.ts の dashIntervals）
 uniform vec2 u_pzO;       // ズーム連続のずらし（paintzoom.ts）＝x 差し替える（1）・y 今の z のずらし（CSS px）。0＝頂点の値
-uniform vec4 u_lt;        // 線の色の見本（G-3）＝x 1＝line-gradient（色の語は線分の始点・終点の進み unorm16×2・色は u_ltTex を画素の進みで引く）。0＝色の語が色`;
+uniform vec4 u_lt;        // 線の色の見本（G-3）＝x 1＝line-gradient（色の語は線分の始点・終点の進み unorm16×2・色は u_ltTex を画素の進みで引く）。0＝色の語が色
+                          // x 2＝line-pattern（G-4）＝u_ltTex は模様の画像（前乗算）・y＝破線と同じ尺（floor(zoom) の px ÷ z24 の px）・z＝層の line-opacity`;
 const LINE_VARY = /* glsl */`${LINE_DASH}
 uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
 uniform float u_cj;     // 端と継ぎ（S-P1-1）＝cap | join<<2 | round(miter-limit×8)<<4（build.ts の lineCapJoin）。0＝丸い端と丸い継ぎ＝p0/p3/jf0 を読まない（従来の capsule）
@@ -1228,7 +1229,7 @@ float lineEnd(vec2 o, vec2 x, vec2 jt, vec2 y, float h, float hp, bool start, fl
 	return 4.0;
 }`;
 const LINE_MAIN = /* glsl */`
-	v_gp = u_lt.x > 0.5 ? vec2(col0.x + col0.y * 256.0, col0.z + col0.w * 256.0) * (255.0 / 65535.0) : vec2(0.0);   // line-gradient（G-3）＝色の語の 4 バイト（/255）→ unorm16×2
+	v_gp = u_lt.x > 0.5 && u_lt.x < 1.5 ? vec2(col0.x + col0.y * 256.0, col0.z + col0.w * 256.0) * (255.0 / 65535.0) : vec2(0.0);   // line-gradient（G-3）＝色の語の 4 バイト（/255）→ unorm16×2
 	float hwD = u_pz.y > 0.5 ? u_pz.w : hw0;   // 破線の尺の線幅＝floor(z) の線幅（MapLibre の floorwidth）・差し替えない層は作ったタイルの z の値
 	if (u_pz.y > 0.5) hw0 = u_pz.z;   // ズーム連続（V-Ph3＝S-P1-2）＝今の z の線幅と色
 	if (u_pz.x > 0.5) col0 = u_pzC;
@@ -1270,11 +1271,11 @@ const LINE_MAIN = /* glsl */`
 		v_jk.zw = vec2(bA, bB);
 	}
 	// 破線（S-P1-3）：模様の位相は地面の長さ（z24 の px）を floor(zoom) の px にして線幅で割る＝MapLibre の tileRatio／floorwidth と同じ。
-	// 線分の長さは経緯度から（縦は中点の緯度のメルカトル＝scene.ts の segLen24 と同式）
+	// 線分の長さは経緯度から（縦は中点の緯度のメルカトル＝scene.ts の segLen24 と同式）。line-pattern（G-4）の横の位相も同じ（尺は u_lt.y）
 	v_dd = vec2(0.0);
-	if (u_dashP.y > 0.5) {
+	if (u_dashP.y > 0.5 || u_lt.x > 1.5) {
 		float my = (p2.y - p1.y) * 0.017453293 / cos((o.y + (p1.y + p2.y) * 0.5) * 0.017453293) / 6.2831853;
-		v_dd = vec2(dist0, length(vec2((p2.x - p1.x) / 360.0, my)) * 4294967296.0) * (u_dashP.w / max(2.0 * hwD, 1e-3));
+		v_dd = vec2(dist0, length(vec2((p2.x - p1.x) / 360.0, my)) * 4294967296.0) * ((u_dashP.y > 0.5 ? u_dashP.w : u_lt.y) / max(2.0 * hwD, 1e-3));
 	}
 	vec2 base = corner.x < 0.5 ? sa : sb;
 	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
@@ -1368,7 +1369,7 @@ void main() {
 	float hw0 = uintBitsToFloat(B.y);
 	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
 	float dist0 = 0.0;
-	if (u_dashP.y > 0.5) { dist0 = uintBitsToFloat(B.z); off0.x = 0.0; }
+	if (u_dashP.y > 0.5 || u_lt.x > 1.5) { dist0 = uintBitsToFloat(B.z); off0.x = 0.0; }   // 線の模様（G-4）も語 6 が距離
 	// 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit。継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値
 	vec2 p0 = p1, p3 = p2; float jf0 = 0.0;
 	if (u_cj > 0.5) {
@@ -1394,7 +1395,7 @@ flat in vec4 v_jb;
 flat in vec4 v_jk;
 flat in vec2 v_dd;
 flat in vec2 v_gp;
-uniform sampler2D u_ltTex;   // 線の色の見本（G-3＝line-gradient の 256 段・RGBA8・前乗算しない）。使わない層も unit 16（PAT_UNIT）を指す＝型の合う標本器
+uniform sampler2D u_ltTex;   // 線の色の見本（G-3＝line-gradient の 256 段・RGBA8・前乗算しない）・線の模様（G-4＝画像・前乗算）。使わない層も unit 16（PAT_UNIT）を指す＝型の合う標本器
 ${LINE_DASH}
 in vec2 v_pos;
 in vec4 v_color;
@@ -1467,7 +1468,13 @@ void main() {
 	// 1.2倍＝霧83%で完全消滅：地形の霞の帯より先に消え、暗い空に線の尻尾（残影）が残らない
 	// line-gradient（G-3）：画素の進み＝線分の上の位置で始点・終点の進みを補う（線分の外＝端と継ぎは端点の値）→ 見本の 256 段の真ん中を引く
 	vec4 lc = v_color;
-	if (u_lt.x > 0.5) lc = texture(u_ltTex, vec2(mix(v_gp.x, v_gp.y, clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0)) * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
+	if (u_lt.x > 1.5) {   // line-pattern（G-4）＝MapLibre の line_pattern：横＝線に沿う位相（floor(zoom) の線幅の倍数）×画像の高さ÷幅、縦＝線の幅（右が下）。線分の外（端と継ぎ）は位相を延ばす＝隣の線分と続く。line-color は読まない
+		float Ls = length(ba), k = Ls > 1e-3 ? v_dd.y / Ls : 0.0;
+		vec2 ts = vec2(textureSize(u_ltTex, 0));
+		float x = v_dd.x + dot(pa, ba) / max(Ls, 1e-6) * k, sd = Ls > 1e-6 ? dot(pa, vec2(-ba.y, ba.x)) / Ls : 0.0;
+		vec4 t = texture(u_ltTex, vec2(fract(x * ts.y / ts.x), clamp(0.5 + sd / (2.0 * max(v_half, 0.5)), 0.5 / ts.y, 1.0 - 0.5 / ts.y)));
+		lc = vec4(t.a > 0.0 ? t.rgb / t.a : vec3(0.0), t.a * u_lt.z);
+	} else if (u_lt.x > 0.5) lc = texture(u_ltTex, vec2(mix(v_gp.x, v_gp.y, clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0)) * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
 	float a = lc.a * alpha * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (a <= 0.003) discard;
 	vec3 rgb = mix(lc.rgb, u_fogColor, v_fog);

@@ -67,7 +67,7 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 	for (const s of [LINE_VS, LINE_MD_VS]) {
 		assert.match(s, /if \(u_pz\.y > 0\.5\) hw0 = u_pz\.z;/);
 		assert.match(s, /if \(u_pz\.x > 0\.5\) col0 = u_pzC;/);
-		assert.match(s, /\(u_dashP\.w \/ max\(2\.0 \* hwD, 1e-3\)\)/);
+		assert.match(s, /\(\(u_dashP\.y > 0\.5 \? u_dashP\.w : u_lt\.y\) \/ max\(2\.0 \* hwD, 1e-3\)\)/);   // 線の模様（G-4）は尺が u_lt.y
 	}
 	for (const s of [FILL_VS, FILL_MD_VS]) assert.match(s, /v_color = u_pz\.x > 0\.5 \? u_pzC : /);   // md は表の色（paint 表の (b) 類）を挟む
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
@@ -104,14 +104,14 @@ t("ずらし：今の z で 0 の層も [off, tS, tE] を持つ（角の継ぎ�
 });
 t("ずらし：シェーダは u_pzO・md の破線の列は語 7 の角の継ぎを残す・scene worker は語 6＝距離・語 7＝tS/tE・WebGPU md は tr.w", () => {
 	for (const s of [LINE_VS, LINE_MD_VS]) assert.match(s, /if \(u_pzO\.x > 0\.5\) off0\.x = u_pzO\.y;/);
-	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);
+	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5 \|\| u_lt\.x > 1\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	assert.match(src("../src/gl/renderer.ts"), /if \(oL\) gl\.uniform2f\(oL, m\.off != null \? 1 : 0, m\.off \?\? 0\);/);
 	const sw = src("../src/workers/sceneworker.ts");
 	assert.match(sw, /if \(d32\) seg\[o \+ 6\] = d32\[i\]; else if \(f32\) seg\[o \+ 6\] = f32\[i \* 3\];/);
 	assert.match(sw, /if \(f32\) seg\[o \+ 7\] = /);
 	assert.match(src("../src/gpu/wgsl.ts"), /dist0 = bitcast<f32>\(B\.z\); off0\.x = P\.tr\.w;/);
-	assert.match(src("../src/gpu/renderer.ts"), /dOff: dash && L\.pz\?\.of != null \? L\.pz : null/);
+	assert.match(src("../src/gpu/renderer.ts"), /dOff: \(dash \|\| L\.lt\?\.pat\) && L\.pz\?\.of != null \? L\.pz : null/);   // 線の模様（G-4）も語 6 が距離
 });
 t("setPaintProperty の速い道：地物に依らない新しい値だけ・形を焼く性質は作り直す", () => {
 	const F = (type, prev, next, key) => paintFast(type, prev, next, key, "ml");
