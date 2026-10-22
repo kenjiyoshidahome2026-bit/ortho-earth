@@ -49,7 +49,7 @@
 | vector source の fill-extrusion（MVT の 3D 建物・addLayer・style.json） | 不可（style.json は飛ばす・addSource vector は黙って壊れる） | 8① | **済**（gadgets/vtextrude.js・既存の経路は無改修） |
 | vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | **済**（2026-09-27・本人裁定「別の流れ・基図の上」＝gadgets/vtdraw.js・renderer の "user" の枠・基図の配管は無改修） |
 | vector の描く層の feature-state | 無い（状態は置き場に残るが絵は既定） | 8⑤b（#109） | **済**（2026-09-29・paint だけが読む・変わった地物を含むタイルだけ組み直す・問い合わせに state・core の組み立てに省略できる stateOf＝基図は渡さない） |
-| vector の描く層を基図の層の間へ差し込む（beforeId が基図の層を指す・style の 2 本目の source の層の順） | 基図の上（近似） | #123 | **済**（2026-09-29・描く時のアンカー表＝タイルは組み直さない・任意の層の間・3D の塗りは基図の線より下・geojson の層は基図の上のまま） |
+| vector の描く層を基図の層の間へ差し込む（beforeId が基図の層を指す・style の 2 本目の source の層の順） | 基図の上（近似） | #123 | **済**（2026-09-29・描く時のアンカー表＝タイルは組み直さない・任意の層の間・3D の塗りは基図の線より下）。geojson の層も 2026-10-22 から（後ろに基図の層がある層だけ切ったタイルで vtdraw へ＝S-P2） |
 | vector の押し出しの feature-state | 無い | 8①b | **済**（2026-09-27・sourceLayer 必須・getFeatureState・変わった地物のタイルだけ組み直す・問い合わせに state） |
 | MLT（MapLibre Tile）の vector source（`"encoding":"mlt"`・PMTiles tileType 6） | 未対応（unknown＝空） | #88 | **済**（2026-09-27・core の登録簿 `tileformat.js`＝MVT も同じ差し込み口・プラグイン `@ortho-earth/tile-formats`＝`#tile-formats` の alias・解読器は最初の MLT タイルで動的 import・爪車 `t-mlcompat?g=mlt`＝MVT と同じ絵と答え） |
 | geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
@@ -114,7 +114,8 @@
 - 基図の paint は作ったタイルの z で焼く＝ズームに連続でない（MapLibre は連続）。ただし 2026-10-22 から **GL2 では**、地物に依らない色・不透明度・線幅・ずらし（塗りと線）を毎フレーム今の z で評価する（§6 の「ズーム連続」「ずらしの連続と破線」）。残るのは地物を読む式（zoom×data＝実在 14 本では地理院 optimal_bvmap だけ）・line-gap-width を持つ層の線幅とずらし・translate・ぼかし・3D（地形あり）の塗り・WebGPU（実機の日に）。
 - geojson の層（gint）の点の半径の上限（地物の表の u8：約 64px）。線幅に上限は無い（基図と vector の層は半幅を f32・geojson の層は 2026-10-22 から表の u16＝8191px まで・旧は u8 で約 32px の頭打ち＝下の §6 の「線幅の上限」）。
 - 破線：基図と利用者の vector の層は 2026-10-22 から **GL2 で** MapLibre と同じ（模様 8 個まで・奇数個・丸い点・ズームの段＝下の §6 の「破線」）。2026-10-22 の内に **WebGPU も**同じ（§6 の「WebGPU 版」）。地物ごとにずらす層（line-offset が地物を読む・line-gap-width）・模様 9 個以上は CPU で刻む（作ったタイルの z の尺＝過ズームで伸びる）。層で 1 つの値のずらし（定数・zoom だけ）は 2026-10-22 からシェーダで描く（§6 の「ずらしの連続と破線」）。geojson の層（gint）は先頭の [線, 間] の対だけ。
-- 基図の層の moveLayer（S-P2-2・2026-10-22）＝基図の層の順を並べ替えて組み直す（描く順・注記の順・getStyle の順・#123 の差し込みの位置が追随・beforeId が利用者の層やその他の層ならその後ろの最初の基図の層の前・setStyle で捨てる・検定＝頁 `t-basemove?md=1`／`?nomd=1`）。地域の基図の自動の建物（building-extrusion）は固定。geojson の層（gint）は基図の上のまま（下の #123 の ③）。
+- 基図の層の moveLayer（S-P2-2・2026-10-22）＝基図の層の順を並べ替えて組み直す（描く順・注記の順・getStyle の順・#123 の差し込みの位置が追随・beforeId が利用者の層やその他の層ならその後ろの最初の基図の層の前・setStyle で捨てる・検定＝頁 `t-basemove?md=1`／`?nomd=1`）。地域の基図の自動の建物（building-extrusion）は固定。
+- geojson の層を基図の層の間に（S-P2・2026-10-22・Kenji 裁定）＝style の順でその後ろに基図の層がある geojson の fill／line／circle の層は、geojson を切ったタイル（geojson vt plan の G-2）で vtdraw に描く＝#123 の差し込みで基図の層の間へ（GL2・WebGPU とも）。後ろに基図の層が無い層（基図の上）は今どおり gint（大きな面の stencil・地物ごとの表の書き換えが速い）。addLayer・moveLayer（基図の層の moveLayer も）・removeLayer・paint・style.json の層・setStyle の差分で描き方を決め直して載せ直す。feature-state は切ったタイルの層にも届く。集約の source と `?gjvt=0` は gint のまま。検定＝頁 `t-gjbefore?md=1`／`?nomd=1`。
 - 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→記号→模様）。集約の source の丸は gint、件数は注記層（2026-10-22・cluster as data＝text gpu plan §4h）。
 - vector の押し出し（段 8①）：
   - ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）＝止まった絵は同じ。
@@ -131,7 +132,7 @@
   - source の出典（TileJSON の attribution・無ければホスト名）は押し出しの層がある間だけ出典の欄に出る（基図の出典と同じ文は重ねない）。
 - vector の描く層（fill／line／circle／symbol・段 8⑤）：
   - 描く場所：beforeId（の鎖の先）が基図の層を指せばその層の直前（#123・MapLibre と同じ）・指さなければ基図の塗りと線の上。注記は常に一番上（注記は別の canvas）。style の 2 本目以降の source の層は style の順。利用者の層どうしの順は正確（source をまたいでも）。
-  - 差し込みの違い（#123）：①3D（地形あり）では塗りが地面へ焼かれる＝利用者の塗りは基図の塗りの間には入るが、基図の線より常に下（基図自身と同じ規則）。線どうしは正確 ②差し込むのは最後に描く基図の枠（main）＝ズーム中に出る粗い下地（base）の上の層の下には入らない（下地が見える間だけ・下地の上に載る）③geojson の層（gint）は基図の上のまま（別のパス）④基図の層どうしの順は固定（moveLayer は効かない）。
+  - 差し込みの違い（#123）：①3D（地形あり）では塗りが地面へ焼かれる＝利用者の塗りは基図の塗りの間には入るが、基図の線より常に下（基図自身と同じ規則）。線どうしは正確 ②差し込むのは最後に描く基図の枠（main）＝ズーム中に出る粗い下地（base）の上の層の下には入らない（下地が見える間だけ・下地の上に載る）③geojson の層は 2026-10-22 から切ったタイルで同じ差し込み（S-P2・上の「geojson の層を基図の層の間に」）④基図の層どうしの順は 2026-10-22 から moveLayer で並べ替えられる（S-P2-2）。
   - 3D（地形あり）では塗りを地面に焼く（アトラス）＝基図の線の下・2D では上（基図自身も 3D では「塗りは全部線の下」）。gint（geojson の層）より下。
   - paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻みの z で組む＝隣り合うタイルの線幅は揃う）。filter の ["zoom"] はタイルの（過拡大の）z。
   - circle：画面に向いた円（MapLibre の既定 circle-pitch-scale "map" の遠近の縮みは無い）・circle-pitch-alignment "map" は未対応。circle-blur・circle-translate は 2026-10-22 から **GL2 で**（§6 の「層の画面効果」）。塗りの透ける円の縁は止まった所のズームで合わせた輪（動いている間は地図と一緒に伸び縮みする）。
