@@ -18,7 +18,7 @@ const NOTES = {
 	"line-join": ["一部", "GL2 は MapLibre と同じ（属性の式は層で一度）・WebGPU と geojson の層は丸"],
 	"line-miter-limit": ["一部", "GL2 だけ（zoom の式も読む）"],
 	"line-round-limit": ["近似", "読まない＝丸い継ぎのまま（浅い角の見分けは付かない）"],
-	"line-dasharray": ["近似", "先頭の [線, 間] の対だけ（§4）＝波 2 の S-P1-3"],
+	"line-dasharray": ["一部", "GL2 の基図と vector の層は MapLibre と同じ（S-P1-3・2026-10-22）・WebGPU・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ"],
 	"line-width": ["近似", "基図と vector の層は約 32px で頭打ち（表の u8・§4）"],
 	"line-gap-width": ["読む", "基図・vector・geojson（2026-10-03）"],
 	"fill-pattern": ["一部", "geojson の層だけ（canvas2D の模様）。基図は層を飛ばす・vector の層は未"],
