@@ -141,6 +141,12 @@ export function subOf(cat: number, kind: string): number {
 }
 /** 施設の 1 行＝[経度, 緯度, 名称, 区分の番号, 住所, 種別] */
 export type FacilityRow = [number, number, string, number, string, string];
+/** 施設の検索（common/bigtable の表・本人 2026-10-22）に載せる行＝区（ward・空＝全市）と出している種別（subs）で絞った台帳の行番号。並びは台帳のまま */
+export function facilityIndex(rows: readonly FacilityRow[], ward: string, subs: ReadonlySet<number>): number[] {
+	const w = WARDS.find(x => x.code === ward), out: number[] = [];
+	rows.forEach((r, i) => { if (subs.has(subOf(r[3], r[5])) && (!w || wardOfAddress(r[4])?.code === w.code)) out.push(i); });
+	return out;
+}
 /** 鉄道の駅の 1 行＝[経度, 緯度, 駅名, "事業者 路線・…", 地下鉄なら 1] */
 export type StationRow = [number, number, string, string, number];
 /** 市営バスの停留所の 1 行＝[経度, 緯度, 停留所名, "系統・…"] */
@@ -210,9 +216,11 @@ export function yokohamaShelters(rows: HinanRow[]): HinanRow[] {
 	for (const r of rows) if (Array.isArray(r) && typeof r[3] === "string" && r[3].includes("横浜市") && Number.isFinite(r[0]) && Number.isFinite(r[1])) out.push(r);
 	return out;
 }
+/** 表記の揺れを揃える（半角カナ・全角英数＝NFKC、「ヶ」「ケ」の小書き＝ケ）＝住所の照合と施設の検索に使う。保土ケ谷区は台帳に「保土ｹ谷区」「保土ヶ谷区」も混ざる */
+export const normJa = (s: string) => String(s ?? "").normalize("NFKC").replace(/[ヶヵ]/g, m => m === "ヶ" ? "ケ" : "カ");
 /** 住所の「横浜市◯◯区」から区を引く */
 export function wardOfAddress(addr: string): Ward | null {
-	const m = /横浜市(.+?区)/.exec(addr || "");
+	const m = /横浜市(.+?区)/.exec(normJa(addr));
 	return m ? WARDS.find(w => w.name === m[1]) ?? null : null;
 }
 export const flagsOf = (bits: number) => HINAN_FLAGS.filter((_, i) => bits & (1 << i));
