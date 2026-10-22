@@ -1138,16 +1138,57 @@ void main() {
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
 // 本体は classic（インスタンス属性）と multi_draw（テクスチャpull）で共用＝式の乖離を構造的に防ぐ。
 // 変種側が用意するローカル: o(シーン原点+タイル原点差 deg), p1/p2(原点相対 lon/lat), corner(end 0/1, side ±1),
-// hw0(半幅 CSS px), off0(line-offset＝x:CSS px・右が正, y/z:始点/終点を線分の向きへ x×t 滑らせる＝角の継ぎ), col0(rgba)。
+// hw0(半幅 CSS px), off0(line-offset＝x:CSS px・右が正, y/z:始点/終点を線分の向きへ x×t 滑らせる＝角の継ぎ), col0(rgba),
+// p0/p3(端と継ぎ＝前の線分の始点・次の線分の終点・原点相対＝並びのすぐ前後の線分から読む・S-P1-1), jf0(旗＝build.ts の JF_*)。
 const LINE_VARY = /* glsl */`
 uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
+uniform float u_cj;     // 端と継ぎ（S-P1-1）＝cap | join<<2 | round(miter-limit×8)<<4（build.ts の lineCapJoin）。0＝丸い端と丸い継ぎ＝p0/p3/jf0 を読まない（従来の capsule）
 flat out vec2 v_a;
 flat out vec2 v_b;
 flat out float v_half;
+flat out vec4 v_ja;     // 端 A の継ぎの切り口（二等分線）：点 xy・線分の側を向く法線 zw
+flat out vec4 v_jb;     // 端 B の同じ物
+flat out vec4 v_jk;     // 端の形 x＝A・y＝B（0 丸＝capsule・1 butt・2 square・3 miter・4 bevel・5 丸い継ぎ）・zw＝bevel の切り線の距離（符号＝外側の向き）
 out vec2 v_pos;
 out vec4 v_color;
 out float v_front;
-out float v_fog;`;
+out float v_fog;
+// 継ぎの 3 点を画面へ（高さは継ぎ目の高さで揃える＝継ぎ目を共有する 2 本の線分が同じ値を得る）
+vec2 jScr(vec2 o, vec2 p, float h, inout float ok) {
+	vec3 rel = deltaToRel(p);
+	vec4 c = u_clipT + u_mvp * vec4(rel + h * liftDir(o + p, u_originPt + rel), 0.0);
+	if (c.w <= 0.0) ok = 0.0;
+	return toScreen(c);
+}
+// 端 1 つの形（MapLibre の LineBucket と同じ選び方）。x→jt→y＝前の点・この端・次の点（start＝始点の端）。
+// link＝0：端（line-cap）・1：隣と継ぐ・2：閉じた環の継ぎ目（隣が並びの前後に無い＝丸に倒す）。
+// 継ぎは二等分線で切る：j＝切り口（点・線分の側を向く法線）・bev＝bevel の切り線・ext＝四角形を端から伸ばす長さ
+float lineEnd(vec2 o, vec2 x, vec2 jt, vec2 y, float h, float hp, bool start, float link, out vec4 j, out float bev, out float ext) {
+	float capK = mod(u_cj, 4.0), joinK = mod(floor(u_cj / 4.0), 4.0), ml = floor(u_cj / 16.0) / 8.0;
+	j = vec4(0.0); bev = 0.0; ext = hp + 1.0;
+	if (link == 0.0) {   // 端
+		if (capK == 1.0) { ext = 1.0; return 1.0; }   // butt＝端で切る（AA の 1px だけ伸ばす）
+		return capK == 2.0 ? 2.0 : 0.0;
+	}
+	if (link == 2.0) return 0.0;
+	float ok = 1.0;
+	vec2 sx = jScr(o, x, h, ok), sj = jScr(o, jt, h, ok), sy = jScr(o, y, h, ok);
+	vec2 d0 = sj - sx, d1 = sy - sj;
+	float l0 = length(d0), l1 = length(d1);
+	if (ok < 0.5 || l0 < 1e-4 || l1 < 1e-4) return 0.0;   // カメラの背後・画面で長さ 0＝丸（capsule）に倒す
+	d0 /= l0; d1 /= l1;
+	vec2 s = d0 + d1; float ls = length(s);
+	if (ls < 1e-3) return 0.0;   // 折り返し（180°）＝丸に倒す
+	vec2 n = s / ls;             // 二等分線の法線（前→次の向き）
+	vec2 N = start ? n : -n;     // 線分の側を向く
+	j = vec4(sj, N);
+	if (joinK == 0.0) return 5.0;
+	float c = dot(n, d1), mlen = 1.0 / max(c, 1e-6);   // 曲がりの半角の cos・マイターの長さ（半幅の何倍）
+	bev = sign(dot(d0 - d1, vec2(-N.y, N.x))) * hp * c;   // 外の角どうしを結ぶ線＝二等分線の点から外へ hp·c
+	// miter は限界を超えたら bevel・bevel は限界未満なら miter（見分けられない＝MapLibre と同じ）
+	if (bev == 0.0 || (joinK == 1.0 ? mlen <= ml : mlen < ml)) { ext = hp * max(1.0, sqrt(max(mlen * mlen - 1.0, 0.0))) + 1.0; return 3.0; }
+	return 4.0;
+}`;
 const LINE_MAIN = /* glsl */`
 	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
 	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
@@ -1174,9 +1215,19 @@ const LINE_MAIN = /* glsl */`
 	float offPx = off0.x * u_dpr;
 	sa += (perp + dir * off0.y) * offPx; sb += (perp + dir * off0.z) * offPx;
 	float hw = hw0 * u_dpr + 1.0;        // +1px の AA/丸端余白
+	// 端と継ぎ（S-P1-1）：丸でない層（u_cj≠0）だけ端ごとに形を決め、四角形を端から伸ばす長さ（eA・eB）を変える
+	float eA = hw, eB = hw;
+	v_ja = vec4(0.0); v_jb = vec4(0.0); v_jk = vec4(0.0);
+	if (u_cj > 0.5) {
+		float hp = hw0 * u_dpr, bA, bB;
+		float fl = jf0, lA = mod(fl, 2.0) == 1.0 ? 1.0 : mod(floor(fl / 4.0), 2.0) == 1.0 ? 2.0 : 0.0, lB = mod(floor(fl / 2.0), 2.0) == 1.0 ? 1.0 : floor(fl / 8.0) == 1.0 ? 2.0 : 0.0;
+		v_jk.x = lineEnd(o, p0, p1, p2, ha, hp, true, lA, v_ja, bA, eA);
+		v_jk.y = lineEnd(o, p1, p2, p3, hb, hp, false, lB, v_jb, bB, eB);
+		v_jk.zw = vec2(bA, bB);
+	}
 	vec2 base = corner.x < 0.5 ? sa : sb;
 	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
-	vec2 pos = base + perp * (hw * corner.y) + dir * (capSign * hw);
+	vec2 pos = base + perp * (hw * corner.y) + dir * (capSign * (corner.x < 0.5 ? eA : eB));
 	v_a = sa; v_b = sb; v_half = hw0 * u_dpr; v_pos = pos;
 	v_color = col0; v_front = min(fa, fb);
 	v_fog = fogOf((wa + wb) * 0.5);
@@ -1193,6 +1244,9 @@ in vec2 a_p2;
 in vec2 a_corner;   // (end 0/1, side -1/+1)
 in float a_half;    // CSS px
 in vec3 a_off;      // line-offset（#49）[CSS px, tS, tE]・持たない層は属性を切る＝既定値 0
+in vec2 a_p0;       // 端と継ぎ（S-P1-1）：前の線分の始点・次の線分の終点（renderer が P1／P2 のバッファを 1 線分ずらして読ませる）・旗（JF_*）
+in vec2 a_p3;
+in float a_jf;      // 持たない層は属性を切る（u_cj＝0 で読まない）
 in vec4 a_color;
 uniform float u_dpr;
 ${PROJECT}
@@ -1201,7 +1255,7 @@ ${LINE_VARY}
 void main() {
 	vec2 o = u_origin;
 	vec2 p1 = a_p1, p2 = a_p2, corner = a_corner;
-	float hw0 = a_half; vec3 off0 = a_off; vec4 col0 = a_color;
+	float hw0 = a_half; vec3 off0 = a_off; vec4 col0 = a_color; vec2 p0 = a_p0, p3 = a_p3; float jf0 = a_jf;
 ${LINE_MAIN}
 }`;
 
@@ -1237,7 +1291,7 @@ export const LINE_MD_VS = `#version 300 es
 #extension GL_ANGLE_multi_draw : require
 precision highp float;
 precision highp usampler2D;
-// 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half), bits(off), snorm16×2(tS/2,tE/2)]
+// 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half)（下位 4 bit＝端と継ぎの旗・S-P1-1）, bits(off), snorm16×2(tS/2,tE/2)]
 uniform usampler2D u_segTex;
 uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
 uniform float u_dpr;
@@ -1259,6 +1313,13 @@ void main() {
 	vec4 col0 = vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;
 	float hw0 = uintBitsToFloat(B.y);
 	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
+	// 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit。継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値
+	vec2 p0 = p1, p3 = p2; float jf0 = 0.0;
+	if (u_cj > 0.5) {
+		jf0 = float(B.y & 15u); hw0 = uintBitsToFloat(B.y & ~15u);
+		if ((B.y & 1u) != 0u) { int tp = t0 - 2; uvec4 P = texelFetch(u_segTex, ivec2(tp % tw, tp / tw), 0); p0 = vec2(uintBitsToFloat(P.x), uintBitsToFloat(P.y)) + off; }
+		if ((B.y & 2u) != 0u) { int tn = t0 + 2; uvec4 N = texelFetch(u_segTex, ivec2(tn % tw, tn / tw), 0); p3 = vec2(uintBitsToFloat(N.z), uintBitsToFloat(N.w)) + off; }
+	}
 	vec2 o = u_origin;
 ${LINE_MAIN}
 }`;
@@ -1267,25 +1328,55 @@ export const LINE_FS = `#version 300 es
 precision highp float;
 uniform float u_baseAlpha;   // 基図の濃さ（fill と同じスライダー）
 uniform vec3 u_fogColor;
+uniform vec2 u_viewport;     // 継ぎの切り口は画素の中心（gl_FragCoord）で測る＝補間した v_pos の三角形ごとの丸めの差で継ぎ目に二度塗り・塗り残しを出さない
 flat in vec2 v_a;
 flat in vec2 v_b;
 flat in float v_half;
+flat in vec4 v_ja;
+flat in vec4 v_jb;
+flat in vec4 v_jk;
 in vec2 v_pos;
 in vec4 v_color;
 in float v_front;
 in float v_fog;
 out vec4 fragColor;
+// 端の先の覆い（S-P1-1）：k＝端の形（LINE_VARY の v_jk）・e＝端からの距離（先へ正）・q＝端からの位置・j＝切り口・bev＝bevel の切り線。
+// 丸い形の時だけ dist（芯からの距離）を端の点からの距離に替える
+float lineTail(float k, float e, vec2 q, vec4 j, float bev, float hw, inout float dist) {
+	if (k == 0.0 || k == 5.0) { dist = length(q); return 1.0; }   // 丸い端・丸い継ぎ
+	if (k == 1.0) return clamp(0.5 - e * 2.0, 0.0, 1.0);          // butt＝端で切る
+	if (k == 2.0) return clamp((hw - e) * 2.0 + 0.5, 0.0, 1.0);   // square＝半幅だけ出す
+	if (k == 4.0) return clamp((abs(bev) - sign(bev) * dot(q, vec2(-j.w, j.z))) * 2.0 + 0.5, 0.0, 1.0);   // bevel＝外の角どうしを結ぶ線で切る
+	return 1.0;   // miter＝切り口まで伸ばした帯そのもの
+}
 void main() {
 	if (v_front < -0.0015) discard;   // 接線に標高許容（地平線に頭を出す山上の線も描く。遮蔽は深度とフォグ）
 	vec2 pa = v_pos - v_a, ba = v_b - v_a;
-	float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
-	float dist = length(pa - ba * t);
+	float dist, cov = 1.0;
+	if (v_jk.x == 0.0 && v_jk.y == 0.0) {   // 丸い端・丸い継ぎ＝capsule（線分までの距離）
+		float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+		dist = length(pa - ba * t);
+	} else {   // 端と継ぎ（S-P1-1）：継ぎは二等分線の向こうを捨てる（隣の線分の受け持ち＝同じ線で切るので隙も重なりも無い）
+		// 線の上の画素（ちょうど 0）は始点の側（次の線分）が取る＝終点の側は 0 も捨てる
+		vec2 fp = vec2(gl_FragCoord.x, u_viewport.y - gl_FragCoord.y);
+		if (v_jk.x >= 3.0 && dot(fp - v_ja.xy, v_ja.zw) < 0.0) discard;
+		if (v_jk.y >= 3.0 && dot(fp - v_jb.xy, v_jb.zw) <= 0.0) discard;
+		float L = length(ba);
+		if (L < 1e-3 && (v_jk.x == 1.0 || v_jk.x == 2.0)) discard;   // 長さ 0 の線分の角い端＝描かない（MapLibre は重なった点を捨てる）
+		vec2 dir = L > 1e-6 ? ba / L : vec2(1.0, 0.0);
+		float u = dot(pa, dir);
+		dist = abs(dot(pa, vec2(-dir.y, dir.x)));
+		float hw0 = max(v_half, 0.5);
+		// 端の先の位置は、継ぎなら切り口の点から（両隣で同じ点）・端なら自分の端点から
+		if (u < 0.0) cov = lineTail(v_jk.x, -u, v_pos - (v_jk.x >= 3.0 ? v_ja.xy : v_a), v_ja, v_jk.z, hw0, dist);
+		else if (u > L) cov = lineTail(v_jk.y, u - L, v_pos - (v_jk.y >= 3.0 ? v_jb.xy : v_b), v_jb, v_jk.w, hw0, dist);
+	}
 	// 細線のシャープ化（製図の定石）：幾何幅は最低±0.5px を保証し、それ未満の細さは透明度（カバレッジ）で表現。
 	// サブピクセル幅をそのまま描くと±0.5pxのAAフェザーが本体より太くなり「淡くボケた2pxの線」＝低ズームの滲みになる。
 	// さらにフェザー自体を±0.25pxへ半減（×2.0）＝エッジの立ち上がりを締める。Retina(dpr2)ではCSS 0.125px相当。
 	// 結果は「常にカリッと・細いほど薄く」＝シャープで主張しない線。
 	float hw = max(v_half, 0.5);
-	float alpha = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0) * min(v_half * 2.0, 1.0);
+	float alpha = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0) * cov * min(v_half * 2.0, 1.0);
 	if (alpha <= 0.0) discard;
 	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）。
 	// 1.2倍＝霧83%で完全消滅：地形の霞の帯より先に消え、暗い空に線の尻尾（残影）が残らない

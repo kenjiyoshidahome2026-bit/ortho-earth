@@ -60,7 +60,7 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 {
 	ok("vertices-in-tile", JSON.stringify(verticesOf({ type: "Point", geom: { coords: [10, 10, -5, 10, 4096, 3, 4095, 4095], ends: [8] } }, E)) === "[10,10,4095,4095]");
 	ok("vertices-polygon-no-closing", verticesOf({ type: "Polygon", geom: geomOf([cw(10, 10, 20, 20)]) }, E).length === 8);
-	const L = normalizeMLLayer({ id: "c", type: "line", source: "s", "source-layer": "p", paint: { "line-color": "#00ff00", "line-width": ["*", 2, 7] } });
+	const L = normalizeMLLayer({ id: "c", type: "line", source: "s", "source-layer": "p", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#00ff00", "line-width": ["*", 2, 7] } });   // vtdraw-worker の円の層と同じ丸い端（MapLibre の既定 butt では長さ 0 の線は書かない・S-P1-1）
 	const dl = buildTileDrawList({ layers: { p: { extent: E, features: [{ type: "LineString", id: 1, props: {}, geom: dotsGeom([100, 200, 300, 400]) }] } }, z: 14, x: 14562, y: 6759 }, { layers: [L] }, [0, 0]);
 	const op = dl.ops[0];
 	ok("circle-dots", op?.kind === "line" && op.half.length === 2 && op.half[0] === 7 && op.P1[0] === op.P2[0] && op.P1[1] === op.P2[1], op && `half=${Array.from(op.half)}`);
