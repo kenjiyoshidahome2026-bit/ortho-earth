@@ -8,7 +8,7 @@ import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地�
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
-import { seaFbReal } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
+import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { createDepthOutGL } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
@@ -47,6 +47,7 @@ interface GLView {
 	clock?: ClockAnchor | null; showConst?: boolean; skySolar?: boolean; showRail?: boolean; showContour?: boolean; graticule?: boolean; night?: boolean;
 	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
 	gintFarPivot?: boolean; gintSub?: boolean;
+	dashDz?: number;   // 破線（S-P1-3）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1）
 }
 /** style の sky（B4） */
 interface GLSky { sky: number[]; horizon: number[]; fog: number[]; groundBlend: number; horizonFogBlend: number; skyHorizonBlend: number; atmosphereBlend: number }
@@ -72,11 +73,19 @@ type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLay
 /** 地面アトラスの 1 窓 */
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
 interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[] }
-interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number }
+interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null }
+// 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（scene.ts の dashIntervals）
+interface DashU { P: number; n: number; round: number; iv: Float32Array }
+function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
+	if (!dash) return null;
+	const round = !(cj & 3), { P, iv } = dashIntervals(dash, round), a = new Float32Array(8);
+	a.set(iv.length ? iv.slice(0, 8) : [-2 * P, -2 * P]);   // 線が無い（butt の [0, 2]）＝どの画素も届かない区間（区間の数 0 は「破線でない」＝実線になる）
+	return { P, n: Math.max(1, Math.min(4, iv.length >> 1)), round: round ? 1 : 0, iv: a };
+}
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -138,7 +147,15 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// 共有し得る）＝線を描く直前に 0 を置き直す
 	const lineOffLoc = gl.getAttribLocation(lineProg, "a_off");
 	const lineCjLoc = gl.getUniformLocation(lineProg, "u_cj");
-	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）
+	const lineDashPLoc = gl.getUniformLocation(lineProg, "u_dashP"), lineDashILoc = gl.getUniformLocation(lineProg, "u_dashI");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）
+	// 破線（S-P1-3）の uniform：尺 K＝模様の px（MapLibre の tileZoom＝floor(外来の z) の px）÷ z24 の px（地面・メルカトル）。
+	// 画面の中心で z24 の px 1 つ＝2^(z−24)·cos φ 画素（球＝地面の実長）。外来の z の小数部だけ地面について伸びる＝MapLibre と同じ（段で元の px へ戻る）
+	const setDash = (pLoc: WebGLUniformLocation | null, iLoc: WebGLUniformLocation | null, d: DashU | null, cam: { zoom?: number; center?: ArrayLike<number> }): void => {
+		if (!d) { gl.uniform4f(pLoc, 0, 0, 0, 0); return; }
+		const z = cam.zoom || 0, zs = z - (view.dashDz ?? 1);
+		gl.uniform4f(pLoc, d.P, d.n, d.round, 2 ** (z - 24 - (zs - Math.floor(zs))) * Math.cos((cam.center?.[1] || 0) * Math.PI / 180)); gl.uniform4fv(iLoc, d.iv);
+	};
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const wdCoverProg = program(gl, GLOBE_VS, WDEPR_FS);   // 海面下の陸地の cover＝landK=1 強制のハイプソ本体（フルスクリーン・stencil≠0 のみ）
 	const gratProg = program(gl, GLOBE_VS, GRAT_FS);       // 10度レチクル（v1 geoGraticule10 移植・フルスクリーン計算）
@@ -721,6 +738,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				attrib(gl, lineProg, "a_color", bCol, 4, 1, L.col instanceof Uint8Array);
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				if (bOff) attrib(gl, lineProg, "a_off", bOff, 3, 1);   // line-offset を持つ層だけ＝[off, tS, tE]（無い層は既定値 0）
+				const bDist = L.dist ? buffer(gl, L.dist) : null;
+				if (bDist) attrib(gl, lineProg, "a_dist", bDist, 1, 1);   // 破線（S-P1-3）を持つ層だけ＝始点までの線に沿う距離
 				const bJf = J ? buffer(gl, J) : null;
 				if (bJf) {   // 端と継ぎ（S-P1-1）を持つ層だけ＝旗（u8・正規化しない）と前後の線分の端点
 					attrib(gl, lineProg, "a_p0", bP1, 2, 1);
@@ -729,7 +748,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (l >= 0) { gl.bindBuffer(gl.ARRAY_BUFFER, bJf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.UNSIGNED_BYTE, false, 0, 0); gl.vertexAttribDivisor(l, 1); }
 				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : [])], cj: bJf ? L.cj ?? 0 : 0 });   // li＝差し込みの境で枠を分ける（#123）
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : []), ...(bDist ? [bDist] : [])], cj: bJf ? L.cj ?? 0 : 0, dash: bDist ? dashU(L.dash, bJf ? L.cj ?? 0 : 0) : null });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld: GLBld | null = null;
@@ -1637,6 +1656,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						if (curProgM !== md!.lineProg) { gl.useProgram(md!.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md!.lineProg; }
 						gl.uniform2fv(loc(gl, md!.lineProg, "u_tileOff"), e.origins);
 						gl.uniform1f(loc(gl, md!.lineProg, "u_cj"), e.cj || 0);   // 端と継ぎ（S-P1-1）
+						if (e.dashU === undefined) e.dashU = dashU(e.dash, e.cj || 0);
+						setDash(loc(gl, md!.lineProg, "u_dashP"), loc(gl, md!.lineProg, "u_dashI"), e.dashU, cam);   // 破線（S-P1-3）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 					}
@@ -1676,6 +1697,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.uniform1f(lineCjLoc, d.cj);   // 端と継ぎ（S-P1-1）
+					setDash(lineDashPLoc, lineDashILoc, d.dash, cam);   // 破線（S-P1-3）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;
@@ -1927,7 +1949,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}
-	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
+	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明。mdDash＝線分プールの語 6 を破線の距離として読める（S-P1-3）
 	// gintCtx＝直近 draw の gint 深度統合コンテキスト（renderworker が gint パスへ渡す）
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）。msaa=0＝canvas antialias:true はブラウザ暗黙確保（HUD 注記）
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
@@ -1940,7 +1962,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		const d = dOut;
 		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
 	}
-	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, mdDash: true, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（P1 step 1）：terrain.js が記述子を渡す合図（EXT_color_buffer_float が無ければ false＝従来）／検定の読み戻し
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook, dbg: () => (dbgC ? { ...dbgC, raster: gnd.rasterOn ? gnd.tiles : 0, fillsIn: gnd.fillsIn, gndFaces: gnd.fillsIn ? gnd.faces : 0 } : null) };   // raster＝直近合成でアトラスへ描いたタイル数・fillsIn＝塗りがアトラス側   // 画像タイル層（raster.js の renderer 契約）

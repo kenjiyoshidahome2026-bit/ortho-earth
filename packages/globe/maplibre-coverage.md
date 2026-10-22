@@ -3,7 +3,7 @@
 `scripts/ml-coverage.mjs` が style-spec 26.4.4 の写し（core `src/mlspec.ts`）から作る。手で書き換えない＝状態を変えるときはスクリプトの `NOTES`（台帳 `maplibre-compat.md` の §3・§4 の写し）を直して書き出し直す。
 「読む」は性質の名前を読む所がエンジンにあることだけを言う。絵が MapLibre と同じかは公式例の門（台帳 §8）と互換の爪車（§6）が見る。
 
-計 136：読む 106・近似 6・未 16・一部 8
+計 136：読む 106・近似 5・未 16・一部 9
 
 | 層 | 置き場 | 性質 | 状態 | 中身 |
 |---|---|---|---|---|
@@ -30,7 +30,7 @@
 | line | paint | `line-gap-width` | 読む | 基図・vector・geojson（2026-10-03） |
 | line | paint | `line-offset` | 読む |  |
 | line | paint | `line-blur` | 未 | vector の層は警告して描く |
-| line | paint | `line-dasharray` | 近似 | 先頭の [線, 間] の対だけ（§4）＝波 2 の S-P1-3 |
+| line | paint | `line-dasharray` | 一部 | GL2 の基図と vector の層は MapLibre と同じ（S-P1-3・2026-10-22）・WebGPU・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ |
 | line | paint | `line-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図・vector の層は未 |
 | line | paint | `line-gradient` | 一部 | geojson の層だけ（canvas2D の線の飾り）。vector の層は未 |
 | symbol | layout | `symbol-placement` | 読む |  |

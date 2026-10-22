@@ -42,7 +42,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	/** true＝フォグ追従が収束中 */
 	draw(cam: CameraPose, opts?: unknown): boolean;
 	dispose?(): void; flush?(): void;
-	md?: boolean; mdMax?: number; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
+	md?: boolean; mdMax?: number; mdDash?: boolean; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
 	tqTake?(): { tag: string; ms: number }[] | null;
 	depthOut?(on: boolean): DepthOutH | null;
 	gintCtx(): unknown;
@@ -405,7 +405,7 @@ function finishInit(m: RwMsg) {
 			dirty = true; kick();
 		};
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
-		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
+		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, mdDash: !!renderer!.mdDash, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
 	}
 	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
 }
