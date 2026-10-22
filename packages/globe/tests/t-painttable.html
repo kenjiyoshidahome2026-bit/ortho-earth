@@ -5,7 +5,9 @@
      段 2（setPaintProperty の (b) 類）：⑤同じ属性を読む新しい色・不透明度＝表を読む時は組み直さない（__styleStats.paintFast が増え、タイルの取り寄せが増えない）・読まない時は組み直す。絵はどちらも新しい値
      ⑥前の鍵に無い属性を読む式＝組み直す。
      段 2b（地物に依る線幅も表）：⑦定数の線幅 → 属性を読む線幅＝組み直す（前の列は半幅を表から読まない）・その後の描く列は半幅も表から（d.ptw＞0）
-     ⑧属性を読む線幅 → 同じ属性を読む別の線幅＝表を読む時は組み直さない。⑨線幅 0 の地物は描かない（MapLibre と同じ）。実時間。 -->
+     ⑧属性を読む線幅 → 同じ属性を読む別の線幅＝表を読む時は組み直さない。⑨線幅 0 の地物は描かない（MapLibre と同じ）。
+     段 3（基図の feature-state）：⑩feature-state を読む色に変える（鍵に地物の id が増える＝組み直す）⑪基図の source の setFeatureState＝表を読む時は組み直さずにその地物だけ色が変わる
+     （読まない時＝WebGPU・?nomd=1・?pt=0 は効かない＝既定の色のまま）⑫removeFeatureState で戻る。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-painttable</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -28,6 +30,7 @@ function mvt(feats) {
 	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
 	for (const f of feats) {
 		const F = [], g = [];
+		if (f.id != null) { fld(F, 1, 0); varint(F, f.id); }   // Feature.id（feature-state の id）
 		packed(F, 2, [0, vals.indexOf(f.k)]);
 		fld(F, 3, 0); varint(F, f.poly ? 3 : 2);
 		let cx = 0, cy = 0;
@@ -52,7 +55,7 @@ const toTile = (lon, lat, z, x, y) => {
 addProtocol("pf", async ({ url }) => {
 	FETCH++;
 	const [z, x, y] = url.replace("pf://", "").split("/").map(Number);
-	return { data: mvt(FEATS.map(l => ({ k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+	return { data: mvt(FEATS.map((l, i) => ({ id: i + 1, k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };   // id＝SHAPES の並び＋1
 });
 // 置き場（画面の CSS px・z15 で unproject）：塗り 3 枚（上の帯）・線 3 本（下）
 const SHAPES = [
@@ -111,6 +114,21 @@ try {
 	ok("widthTableUsed", d && (PT ? d.ptw > 0 : !d.ptw), `ptw ${d?.ptw} want ${PT ? ">0" : "0"}`);
 	await set("fastLineWidth", "l", "line-width", ["match", ["get", "k"], "la", 20, 4], PT, [["laWide", 480, 348, [0, 255, 0]], ["lbThin", 480, 428, [255, 255, 255]], ["laCore", 480, 340, [0, 255, 0]]]);
 	await set("zeroWidth", "l", "line-width", ["match", ["get", "k"], "la", 0, 4], PT, [["laGone", 480, 340, [255, 255, 255]], ["lbCore", 480, 420, [255, 255, 0]]]);   // 線幅 0＝描かない（MapLibre）
+	// 段 3：feature-state（lb＝SHAPES の 5 番目＝id 5・線幅 4・芯 y 420）
+	await set("stateColorRebuilds", "l", "line-color", ["case", ["boolean", ["feature-state", "h"], false], "#ff0000", ["match", ["get", "k"], "la", "#00ff00", "lb", "#ffff00", "#000000"]], false, [["lbYellow", 480, 420, [255, 255, 0]], ["defBlack", 480, 500, [0, 0, 0]]]);
+	const fsStep = async (tag, fn, want) => {
+		const f0 = FETCH;
+		fn();
+		await sleep(800);
+		img = await grab();
+		const v = px(480, 420), w2 = PT ? want : [255, 255, 0];   // 表を読まない描き手は基図の状態が効かない（既定の色）
+		ok(tag, near(v, w2) && FETCH === f0 && near(px(480, 500), [0, 0, 0]), `${v} want ${w2} fetch +${FETCH - f0} def ${px(480, 500)}`);
+	};
+	await fsStep("setFeatureState", () => map.setFeatureState({ source: "pf", sourceLayer: "l", id: 5 }, { h: true }), [255, 0, 0]);
+	ok("getFeatureState", map.getFeatureState({ source: "pf", sourceLayer: "l", id: 5 }).h === true);
+	await fsStep("removeFeatureState", () => map.removeFeatureState({ source: "pf", sourceLayer: "l", id: 5 }), [255, 255, 0]);
+	await fsStep("setFeatureStateAgain", () => map.setFeatureState({ source: "pf", sourceLayer: "l", id: 5 }, { h: true }), [255, 0, 0]);
+	await fsStep("removeAll", () => map.removeFeatureState({ source: "pf", sourceLayer: "l" }), [255, 255, 0]);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
 </script>

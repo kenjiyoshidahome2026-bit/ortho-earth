@@ -186,7 +186,7 @@ class PtRows {
 	constructor(L: PtLayer, rid: Grow<Uint16Array>) { this.L = L; this.rid = rid; rid.n = 0; }
 	feat(f: DecodedFeature, n: number): void {
 		this.fill(n);
-		const t = ptTuple(this.L.keys, f.props, f.type), k = ptKeyOf(t);
+		const t = ptTuple(this.L.keys, f.props, f.type, f.id), k = ptKeyOf(t);
 		let r = this.map.get(k);
 		if (r === undefined) { r = this.rows.length; if (r >= PT_MAX_ROWS) { this.over = true; r = 0; } else { this.map.set(k, r); this.rows.push(t); } }
 		this.row = r;
@@ -469,7 +469,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
-			const ptL = eo ? layerPaintTable("fill", L.paint, eo) : null, pt = ptL ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝頂点ごとの行
+			const ptL = eo ? layerPaintTable("fill", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝頂点ごとの行（状態を焼く呼び手＝利用者の層は feature-state の層を表にしない＝段 3）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
@@ -522,7 +522,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
-			const ptL = eo ? layerPaintTable("line", L.paint, eo) : null, pt = ptL ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行
+			const ptL = eo ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む

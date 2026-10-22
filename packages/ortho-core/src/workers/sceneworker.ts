@@ -18,7 +18,7 @@ interface Pool { name: ScenePoolName; cap: number; used: number; free: Block[] }
 /** li 毎の描画レンジ（fill＝index のレンジ・line＝線分のレンジ） */
 type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: number } | { li: number; kind: "line"; segOff: number; segN: number; cj: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; pt?: number };   // pt＝表を読む（1＝色・2＝色と線の半幅＝段 2b）
 /** GPU 常駐タイルのレコード */
-interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[] }
+interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[]; rows?: Uint32Array[] }   // rows＝参照する表の通しの行（paint 表の (b) 類・解放で数を減らす）
 interface MD { maxDraws: number; pools: Record<ScenePoolName, Pool>; res: Map<string, Rec>; lastRef: Record<string, Set<Rec>>; pendingFree: Rec[] }
 type MergeRequest = Extract<SceneRequest, { type: "merge" }>;
 type UpMessage = Extract<ScenePortMessage, { type: "up" }>;
@@ -39,25 +39,33 @@ let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知�
 // paint 表の (b) 類（painttable.ts・vt perf plan §5）：描き手が表を読める（GL2 の md）時だけ、op の行（タイルの中）を通しの行に付け替えて色の語に書く。
 // 鍵＝層 id＋鍵の名＋組（評価した値でなく入力）。行は全層で 1 枚の表の通し番号（捨てない）。行の値＝tile worker が焼いた色（段 1）：
 // 同じ鍵の色は style が同じなら同じ＝新しい行と、色が変わった行（style を組み直した後のタイル）だけを描き手へ送る（古いタイルも今の色）。
-// 行が PT_MAX_ROWS を超える op は焼いた色のまま常駐（描く列を pt の切り替わりで分ける）
+// 行が PT_MAX_ROWS を超える op は焼いた色のまま常駐（描く列を pt の切り替わりで分ける）。
+// 行は常駐するタイルが参照する数を数え（ptRef）、0 になった行（タイルの解放＝描く列が参照しなくなった後）は鍵を外して使い回す（ptFree）＝
+// feature-state の層（段 3・地物ごとの行）を見て回っても表が溢れない。使い回した行は新しい行として描き手へ送る（描き手は上書きする）
 let ptOn = false;
-const ptRow = new Map<string, number>(), ptCol = new Uint32Array(PT_MAX_ROWS), ptHw = new Float32Array(PT_MAX_ROWS);
+const ptRow = new Map<string, number>(), ptCol = new Uint32Array(PT_MAX_ROWS), ptHw = new Float32Array(PT_MAX_ROWS), ptRef = new Uint32Array(PT_MAX_ROWS), ptKey: string[] = [], ptFree: number[] = [];
 let ptN = 0;
+function ptRelease(rec: Rec): void {
+	for (const g of rec.rows ?? []) for (const r of g) if (--ptRef[r] === 0) { ptRow.delete(ptKey[r]); ptFree.push(r); }
+	rec.rows = undefined;
+}
 type PtRowMsg = [number, string, string[], unknown[], number, number?];   // [通しの行, 層 id, 鍵の名, 組, 色の語, 線の半幅（表に置ける線幅の層＝段 2b）]
 // op の行 → 通しの行（足りなければ null）。新しい行・色が変わった行は rows（描き手へ）に積む
 function ptGlobal(id: string, pt: PtOp, rows: PtRowMsg[]): Uint32Array | null {
-	const pre = id + "\u0001" + pt.keys.join("\u0002") + "\u0001", g = new Uint32Array(pt.rows.length), fresh: string[] = [];
-	let n = ptN;
+	const pre = id + "\u0001" + pt.keys.join("\u0002") + "\u0001", g = new Uint32Array(pt.rows.length), fresh = new Set<number>();
 	for (let i = 0; i < pt.rows.length; i++) {
 		const k = pre + JSON.stringify(pt.rows[i]);
 		let r = ptRow.get(k);
-		if (r === undefined) { if (n >= PT_MAX_ROWS) { for (const fk of fresh) ptRow.delete(fk); return null; } r = n++; fresh.push(k); ptRow.set(k, r); }
+		if (r === undefined) {
+			if (!ptFree.length && ptN >= PT_MAX_ROWS) { for (const f of fresh) { ptRow.delete(ptKey[f]); ptFree.push(f); } return null; }   // 溢れた＝この op は焼いた色（足した行は空きへ戻す）
+			r = ptFree.length ? ptFree.pop()! : ptN++; fresh.add(r); ptRow.set(k, r); ptKey[r] = k;
+		}
 		g[i] = r;
 	}
-	ptN = n;
 	for (let i = 0; i < g.length; i++) {
 		const r = g[i], c = pt.cols[i], hw = pt.hw?.[i];
-		if (r >= n - fresh.length || ptCol[r] !== c || (hw !== undefined && ptHw[r] !== hw)) { ptCol[r] = c; if (hw !== undefined) ptHw[r] = hw; rows.push(hw !== undefined ? [r, id, pt.keys, pt.rows[i], c, hw] : [r, id, pt.keys, pt.rows[i], c]); }
+		ptRef[r]++;
+		if (fresh.has(r) || ptCol[r] !== c || (hw !== undefined && ptHw[r] !== hw)) { ptCol[r] = c; if (hw !== undefined) ptHw[r] = hw; rows.push(hw !== undefined ? [r, id, pt.keys, pt.rows[i], c, hw] : [r, id, pt.keys, pt.rows[i], c]); }
 	}
 	return g;
 }
@@ -117,6 +125,7 @@ function alloc2(p: Pool, n: number): Block {
 }
 function freeRec(rec: Rec): void {
 	const md_ = md!;
+	ptRelease(rec);
 	prelease(md_.pools.fillV, rec.fv.off, rec.fv.n);
 	prelease(md_.pools.fillI, rec.fi.off, rec.fi.n);
 	prelease(md_.pools.line, rec.ls.off, rec.ls.n);
@@ -152,7 +161,7 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 	rec = { key, fv: alloc2(md_.pools.fillV, fv), fi: alloc2(md_.pools.fillI, fi), ls: alloc2(md_.pools.line, ls), bv: alloc2(md_.pools.bldV, bv), subs: [] };
 	const up: UpMessage = { type: "up", key }, transfer: Transferable[] = [];   // key は診断用（renderer は使わない）
 	const rows: PtRowMsg[] = [];   // 新しい表の行・色が変わった行（paint 表の (b) 類）
-	const ptOf = (op: { id?: string; pt?: PtOp }): Uint32Array | null => ptOn && op.pt && op.id ? ptGlobal(op.id, op.pt, rows) : null;
+	const ptOf = (op: { id?: string; pt?: PtOp }): Uint32Array | null => { const gr = ptOn && op.pt && op.id ? ptGlobal(op.id, op.pt, rows) : null; if (gr) (rec!.rows ??= []).push(gr); return gr; };   // 参照する行を数える（解放で減らす）
 	if (fv) {
 		const ab = new ArrayBuffer(fv * 12), w32 = new Uint32Array(ab);   // 12B＝[x, y（float の bit）, RGBA8]＝語ごとに写す（旧＝色をバイトずつ）
 		const idx = new Uint32Array(fi);
@@ -284,7 +293,7 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 			const d = ev.data;
 			if (d.type === "mode") {
 				perfOn = !!d.perf;   // 計器 b（perf plan §1）＝merge の時間と量を console へ（renderworker の ?perf=1 に相乗り）
-				md = d.md ? createMD(d.maxDraws || 128) : null; mdDash = !!d.mdDash; ptOn = !!(d.md && d.pt); ptRow.clear(); ptN = 0;   // 描き手が新しい＝表も新しい
+				md = d.md ? createMD(d.maxDraws || 128) : null; mdDash = !!d.mdDash; ptOn = !!(d.md && d.pt); ptRow.clear(); ptN = 0; ptRef.fill(0); ptFree.length = 0; ptKey.length = 0;   // 描き手が新しい＝表も新しい
 				console.log(`[scene] multi_draw ${md ? `enabled (tiles resident on GPU, max ${md.maxDraws} draw/call)` : "none (CPU merge fallback)"}`);
 			}
 		};

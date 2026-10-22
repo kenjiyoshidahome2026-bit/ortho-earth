@@ -298,7 +298,8 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); if (!B) { const X = extOtherOf(id); return X?.filter == null ? undefined : rescaleZoomExpr(X.filter as StyleExpression, STYLE_DZ, PUBLIC_DZ); } return B.filter == null ? undefined : rescaleZoomExpr(B.filter as StyleExpression, 0, PUBLIC_DZ); };
 	map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); else if (extOtherOf(id)) noteOther(id, n => { n.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, STYLE_DZ)!; n.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, STYLE_DZ)!; }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz)!; v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz)!; relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 	// feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
-	// 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）。
+	// 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物は塗りと線の色・不透明度・線幅（paint 表の (b) 類の段 3・GL2 の md＝表の行を描き手が評価し直す・
+	// 地物の id＝MVT の Feature.id・基図の source の promoteId は未対応）。WebGPU・?nomd=1・?pt=0 の基図は効かない（焼いた既定の状態）。
 	// vector source（sourceLayer 必須）＝押し出し（vtextrude・段 8①b）と描く層（vtdraw・#109）がその地物を含むタイルだけ組み直す（置き場は vtxFS）
 	// feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
 	const fidOfMl = (source: string, id: number | string) => { const m = mlGintData.get(source)?.idToFid; return m ? (m.get(id) ?? m.get(typeof id === "string" && id !== "" && !isNaN(+id) ? +id : String(id))) : undefined; };
@@ -309,6 +310,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			let m = vtxFS.get(source); if (!m) vtxFS.set(source, m = new Map());
 			const k = vtxFSKey(sourceLayer, id); m.set(k, { id, state: { ...(m.get(k)?.state || {}), ...state } });
 			live.vtxCtl?.touchFS(source, sourceLayer, id); live.vtdCtl?.touchFS(source, sourceLayer, id);   // 押し出し（8①b）と描く層（#109）＝その地物を含むタイルだけ組み直す
+			if (baseSrcSpec(source)) renderer.set("ptFs", [[sourceLayer, String(id), m.get(k)!.state]]);   // 基図の層（paint 表の (b) 類の段 3・GL2 の md）＝描き手がその地物の行を評価し直す
 			return map;
 		}
 		let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
@@ -320,11 +322,12 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	map.removeFeatureState = ({ source, sourceLayer, id } = {} as Parameters<StyleApi["removeFeatureState"]>[0], key) => {
 		if (isVecSrc(source)) {   // vector source：id 無し＝その source（sourceLayer があればその層）を全部
 			const m = vtxFS.get(source); if (!m) return map;
-			if (id == null) { for (const k of [...m.keys()]) if (sourceLayer == null || k.startsWith(sourceLayer + "\u0000")) m.delete(k); live.vtxCtl?.touchFS(source, sourceLayer ?? null, undefined); live.vtdCtl?.touchFS(source, sourceLayer ?? null, undefined); return map; }
+			if (id == null) { for (const k of [...m.keys()]) if (sourceLayer == null || k.startsWith(sourceLayer + "\u0000")) m.delete(k); live.vtxCtl?.touchFS(source, sourceLayer ?? null, undefined); live.vtdCtl?.touchFS(source, sourceLayer ?? null, undefined); if (baseSrcSpec(source)) renderer.set("ptFs", [[sourceLayer ?? null, null, null]]); return map; }
 			if (sourceLayer == null) throw new Error(`removeFeatureState: sourceLayer is required for vector source "${source}"`);
 			const k = vtxFSKey(sourceLayer, id), cur = m.get(k); if (!cur) return map;
 			if (key != null) { const st = { ...cur.state }; delete st[key]; m.set(k, { id, state: st }); } else m.delete(k);
 			live.vtxCtl?.touchFS(source, sourceLayer, id); live.vtdCtl?.touchFS(source, sourceLayer, id);
+			if (baseSrcSpec(source)) renderer.set("ptFs", [[sourceLayer, String(id), m.get(k)?.state ?? null]]);
 			return map;
 		}
 		const m = mlFeatureState.get(source);
