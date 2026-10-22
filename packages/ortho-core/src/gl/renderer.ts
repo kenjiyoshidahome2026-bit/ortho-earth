@@ -72,8 +72,8 @@ type GLRasterDraw = Omit<RasterDraw, "tex" | "mesh"> & { tex: GLRasterTex; mesh:
 type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLayer, "draws"> & { draws: GLRasterDraw[] })[] };
 /** 地面アトラスの 1 窓 */
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
-interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[] }
-interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null }
+interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[]; fx: number[] | null }
+interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null; fx: number[] | null }
 // 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（scene.ts の dashIntervals）
 interface DashU { P: number; n: number; round: number; iv: Float32Array }
 function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
@@ -85,7 +85,7 @@ function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -148,7 +148,18 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const lineOffLoc = gl.getAttribLocation(lineProg, "a_off");
 	const lineCjLoc = gl.getUniformLocation(lineProg, "u_cj");
 	const lineDashPLoc = gl.getUniformLocation(lineProg, "u_dashP"), lineDashILoc = gl.getUniformLocation(lineProg, "u_dashI");
-	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）
+	const lineTrLoc = gl.getUniformLocation(lineProg, "u_tr"), lineBlurLoc = gl.getUniformLocation(lineProg, "u_blur"), fillTrLoc = gl.getUniformLocation(fillProg, "u_tr");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); gl.uniform1f(lineCjLoc, 0); gl.uniform4f(lineDashPLoc, 0, 0, 0, 0); gl.uniform4f(lineTrLoc, 0, 0, 0, 0); gl.uniform2f(lineBlurLoc, 0, 0); };   // 丸い端・丸い継ぎ（S-P1-1 の u_cj＝0＝a_jf・a_p0・a_p3 を読まない）・破線でない（S-P1-3）・ずらさない・ぼかさない（S-P1-4/5）
+	// 層の画面効果（S-P1-4/5・build.ts の layerFx＝[tx, ty, anchor, blur, rel]）：translate は今の zoom の 1px の経度（256px の世界）で地面へ。
+	// anchor "viewport"＝画面に揃える＝方位だけ回して地面の東・南へ（MapLibre の translatePosMatrix と同じ）。line-blur は CSS px→画素
+	const setFx = (trLoc: WebGLUniformLocation | null, blurLoc: WebGLUniformLocation | null, fx: readonly number[] | null | undefined, cam: { zoom?: number; bearing?: number; dpr?: number }): void => {
+		if (!fx || !(fx[0] || fx[1])) gl.uniform4f(trLoc, 0, 0, 0, 0);
+		else {
+			const b = fx[2] ? cam.bearing || 0 : 0, c = Math.cos(b), s = Math.sin(b);
+			gl.uniform4f(trLoc, fx[0] * c - fx[1] * s, fx[0] * s + fx[1] * c, 360 / (256 * 2 ** (cam.zoom || 0)), 0);
+		}
+		if (blurLoc) gl.uniform2f(blurLoc, fx ? fx[4] ? fx[3] : fx[3] * (cam.dpr || 1) : 0, fx ? fx[4] : 0);
+	};
 	// 破線（S-P1-3）の uniform：尺 K＝模様の px（MapLibre の tileZoom＝floor(外来の z) の px）÷ z24 の px（地面・メルカトル）。
 	// 画面の中心で z24 の px 1 つ＝2^(z−24)·cos φ 画素（球＝地面の実長）。外来の z の小数部だけ地面について伸びる＝MapLibre と同じ（段で元の px へ戻る）
 	const setDash = (pLoc: WebGLUniformLocation | null, iLoc: WebGLUniformLocation | null, d: DashU | null, cam: { zoom?: number; center?: ArrayLike<number> }): void => {
@@ -724,7 +735,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					idxT = L.idx instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;   // merge後は常にUint32だが型は実物から
 				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs });
+				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs, fx: L.fx || null });
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray()!;
@@ -748,7 +759,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (l >= 0) { gl.bindBuffer(gl.ARRAY_BUFFER, bJf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.UNSIGNED_BYTE, false, 0, 0); gl.vertexAttribDivisor(l, 1); }
 				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : []), ...(bDist ? [bDist] : [])], cj: bJf ? L.cj ?? 0 : 0, dash: bDist ? dashU(L.dash, bJf ? L.cj ?? 0 : 0) : null });   // li＝差し込みの境で枠を分ける（#123）
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf, ...(bOff ? [bOff] : []), ...(bJf ? [bJf] : []), ...(bDist ? [bDist] : [])], cj: bJf ? L.cj ?? 0 : 0, dash: bDist ? dashU(L.dash, bJf ? L.cj ?? 0 : 0) : null, fx: L.fx || null });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld: GLBld | null = null;
@@ -1649,6 +1660,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						if (curProgM !== md!.fillProg) { gl.useProgram(md!.fillProg); gl.bindVertexArray(md!.fillVAO); curProgM = md!.fillProg; }
 						gl.uniform1f(loc(gl, md!.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
 						gl.uniform2fv(loc(gl, md!.fillProg, "u_tileOff"), e.origins);
+						setFx(loc(gl, md!.fillProg, "u_tr"), null, e.fx, cam);   // fill-translate（S-P1-4/5）
 						md!.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseFill += e.counts.length; else dbgC!.mainFill += e.counts.length;
 					} else {
@@ -1658,6 +1670,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						gl.uniform1f(loc(gl, md!.lineProg, "u_cj"), e.cj || 0);   // 端と継ぎ（S-P1-1）
 						if (e.dashU === undefined) e.dashU = dashU(e.dash, e.cj || 0);
 						setDash(loc(gl, md!.lineProg, "u_dashP"), loc(gl, md!.lineProg, "u_dashI"), e.dashU, cam);   // 破線（S-P1-3）
+						setFx(loc(gl, md!.lineProg, "u_tr"), loc(gl, md!.lineProg, "u_blur"), e.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 					}
@@ -1689,6 +1702,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					gl.uniform1f(loc(gl, fillProg, "u_seaGate"), seaFBC ? 1 : 0);
+					setFx(fillTrLoc, null, d.fx, cam);   // fill-translate（S-P1-4/5）
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
@@ -1698,6 +1712,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.uniform1f(lineCjLoc, d.cj);   // 端と継ぎ（S-P1-1）
 					setDash(lineDashPLoc, lineDashILoc, d.dash, cam);   // 破線（S-P1-3）
+					setFx(lineTrLoc, lineBlurLoc, d.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;

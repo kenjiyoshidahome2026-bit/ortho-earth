@@ -45,7 +45,7 @@ export type SceneResponse =
 /** プールの名（単位は要素数＝renderer 側が unit→byte/texel を知る） */
 export type ScenePoolName = "fillV" | "fillI" | "line" | "bldV";
 /** multi_draw の draw list の 1 束（fill＝offsets・line＝firsts） */
-export interface SceneDrawLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+export interface SceneDrawLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 export interface SceneDrawBld { firsts: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 /** scene worker → render worker（直結ポート・FIFO＝grow → up → dl の順が崩れない） */
 export type ScenePortMessage =

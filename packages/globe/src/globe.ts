@@ -3494,7 +3494,8 @@ const vtdGet = async () => {
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED: Record<string, string[]> = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
+const VTD_UNSUPPORTED: Record<string, string[]> = { fill: ["fill-pattern"], line: ["line-pattern", "line-gradient"], circle: [], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
+const VTD_GL2_ONLY: Record<string, string[]> = { fill: ["fill-translate"], line: ["line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"] };   // S-P1-4/5＝WebGPU は次の段（読まずに描く）
 const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
@@ -3502,7 +3503,7 @@ const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	try { desc = await vtxDescOf(sid, v.src); } finally { const n = (vtdMounting.get(sid) || 1) - 1; if (n) vtdMounting.set(sid, n); else vtdMounting.delete(sid); }
 	if (mlLayers.get(layer.id) !== v) return null;   // 待っている間に外された・置き換えられた
 	if (!desc) { console.warn(`[layers] "${layer.id}": source "${sid}" has no vector tiles here — nothing to draw`); return null; }
-	for (const k of VTD_UNSUPPORTED[layer.type] || []) if ((layer.paint?.[k] ?? layer.layout?.[k]) != null && !vtxWarned.has(layer.id + k)) { vtxWarned.add(layer.id + k); console.warn(`[layers] "${layer.id}": ${k} is not supported yet on vector sources — drawn without it`); }
+	for (const k of [...VTD_UNSUPPORTED[layer.type] || [], ...renderBackend === "webgpu" ? VTD_GL2_ONLY[layer.type] || [] : []]) if ((layer.paint?.[k] ?? layer.layout?.[k]) != null && !vtxWarned.has(layer.id + k)) { vtxWarned.add(layer.id + k); console.warn(`[layers] "${layer.id}": ${k} is not supported yet on vector sources — drawn without it`); }
 	if (layer.type === "circle" && layer.paint?.["circle-pitch-alignment"] === "map" && !vtxWarned.has(layer.id + "cpa")) { vtxWarned.add(layer.id + "cpa"); console.warn(`[layers] "${layer.id}": circle-pitch-alignment "map" is not supported yet — circles face the viewer`); }
 	vtdDesc.set(sid, desc);
 	const c = await vtdGet();

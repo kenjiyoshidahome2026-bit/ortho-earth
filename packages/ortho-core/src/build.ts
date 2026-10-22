@@ -202,6 +202,20 @@ export function lineCapJoin(layout: Record<string, unknown> | null | undefined, 
 	const ml = +(v("line-miter-limit", 2) as number);
 	return cap | join << 2 | Math.max(0, Math.min(255, Math.round((isFinite(ml) ? ml : 2) * 8))) << 4;
 }
+// 層の画面効果（S-P1-4/5・2026-10-22）＝[tx, ty, anchor（1＝viewport）, blur, rel（1＝blur は半幅の割合）]。何も無い層は null。
+// *-translate（MapLibre では zoom だけに依る）と line-blur（属性も読めるが層で一度＝近似）は作ったタイルの z で評価する（cj と同じ）。
+// circle-blur＝vtdraw の円（長さ 0 の線）が持ち込む「半径の割合」（MapLibre の circle の antialiasblur）
+export function layerFx(L: { type: string; paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined): number[] | null {
+	const p = L.paint, pre = L.type === "fill" ? "fill" : "line";
+	if (!p) return null;
+	const ctx: ExprContext = { zoom: z, props: {}, geom: null, vars: {}, origin: eo };
+	const v = (k: string): unknown => { const e = p[k]; return e == null ? undefined : evalExpr(e, ctx); };
+	const t = v(pre + "-translate"), tr = Array.isArray(t) && t.length >= 2 ? [+t[0] || 0, +t[1] || 0] : [0, 0];
+	const anc = v(pre + "-translate-anchor") === "viewport" ? 1 : 0;
+	const cb = pre === "line" ? +(v("circle-blur") as number) : NaN, lb = pre === "line" ? +(v("line-blur") as number) : NaN;
+	const rel = cb > 0 ? 1 : 0, blur = rel ? Math.min(cb, 1) : lb > 0 ? lb : 0;
+	return tr[0] || tr[1] || blur ? [tr[0], tr[1], anc, blur, rel] : null;
+}
 export function dashPattern(v: unknown, ml = false): number[] | null {
 	if (!Array.isArray(v) || !v.length || v.some(x => typeof x !== "number" || !(x >= 0) || !isFinite(x))) return null;
 	if (ml) return v.length > 1 && v.reduce((a, b) => a + b, 0) > 0 ? v : null;   // MapLibre＝奇数個は 2 回でなく「最後と最初の線がつながる」（LineAtlas.getDashRanges）・1 個は実線
@@ -425,7 +439,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			}
 			// index はタイル単体なら大抵 Uint16 で足りる（65536頂点超の層だけ Uint32）＝transfer/常駐がさらに半減。
 			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
-			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array) });
+			const fx = eo ? layerFx(L, z, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
+			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}) });
 		} else { // line
 			const P1 = B.P1, P2 = B.P2, col = B.col, half = B.half; P1.n = P2.n = col.n = half.n = 0;
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
@@ -548,6 +563,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				if (off) { let any = false; for (let i = 0; i < off.n; i += 3) if (off.a[i]) { any = true; break; } if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない
 				if (jf) { op.jf = jf.out(); op.cj = cj; }
 				if (dist) { op.dist = dist.out(); op.dash = gpuDash!; op.dz = z; }
+				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
 				ops.push(op);
 			}
 		}
