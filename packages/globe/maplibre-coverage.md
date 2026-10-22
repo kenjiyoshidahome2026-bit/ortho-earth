@@ -3,7 +3,7 @@
 `scripts/ml-coverage.mjs` が style-spec 26.4.4 の写し（core `src/mlspec.ts`）から作る。手で書き換えない＝状態を変えるときはスクリプトの `NOTES`（台帳 `maplibre-compat.md` の §3・§4 の写し）を直して書き出し直す。
 「読む」は性質の名前を読む所がエンジンにあることだけを言う。絵が MapLibre と同じかは公式例の門（台帳 §8）と互換の爪車（§6）が見る。
 
-計 136：読む 106・近似 5・未 20・一部 5
+計 136：読む 106・近似 6・未 16・一部 8
 
 | 層 | 置き場 | 性質 | 状態 | 中身 |
 |---|---|---|---|---|
@@ -16,10 +16,10 @@
 | fill | paint | `fill-translate` | 未 | vector の層は警告して描く・基図も読まない |
 | fill | paint | `fill-translate-anchor` | 未 | translate が未 |
 | fill | paint | `fill-pattern` | 一部 | geojson の層だけ（canvas2D の模様）。基図は層を飛ばす・vector の層は未 |
-| line | layout | `line-cap` | 未 | 常に丸（§4）＝波 2 の S-P1-1 |
-| line | layout | `line-join` | 未 | 常に丸（§4）＝波 2 の S-P1-1 |
-| line | layout | `line-miter-limit` | 未 | 継ぎは常に丸 |
-| line | layout | `line-round-limit` | 未 | 継ぎは常に丸 |
+| line | layout | `line-cap` | 一部 | GL2 は MapLibre と同じ（S-P1-1・2026-10-22）・WebGPU と geojson の層は丸 |
+| line | layout | `line-join` | 一部 | GL2 は MapLibre と同じ（属性の式は層で一度）・WebGPU と geojson の層は丸 |
+| line | layout | `line-miter-limit` | 一部 | GL2 だけ（zoom の式も読む） |
+| line | layout | `line-round-limit` | 近似 | 読まない＝丸い継ぎのまま（浅い角の見分けは付かない） |
 | line | layout | `line-sort-key` | 読む |  |
 | line | paint | `line-opacity` | 読む |  |
 | line | paint | `line-layer-opacity` | 近似 | vector の層だけ・地物の opacity に掛け合わせる（§4） |

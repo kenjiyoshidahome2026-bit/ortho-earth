@@ -1,0 +1,123 @@
+<!doctype html>
+<!-- 実描画の検分：線の端と継ぎ（MapLibre の line-cap／line-join・互換の計画 S-P1-1・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw の線分プール／?nomd=1＝classic の属性）。
+     線は頁の中で作った MVT（addProtocol の lj://）＝画面の点を unproject した経緯度の折れ線。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）の 2 回見る。
+     ①端：butt は端の先 5px に色が無い・round と square は有る・square も 15px 先には無い
+     ②継ぎ（直角・幅 20px＝半幅 10）：外の角から対角へ 8px と 12px。miter（先は 14.1px）＝両方有る・round（半径 10）＝8 だけ・bevel（切り線は 7.1px）＝両方無い。
+       直角のマイターの長さは 1.41＝miter-limit 1 の miter は bevel に・既定（2）の bevel は miter になる（MapLibre の LineBucket と同じ）
+     ③半透明の miter の継ぎ目は胴と同じ色（両隣が二等分線で切り合う＝重ならない。旧の capsule は継ぎ目が二度塗りで濃い）
+     ④閉じた環：継ぎ目（環の始まり・左上）は丸に倒す（継ぐ相手が線分の並びの隣に無い＝線分レコードを増やさない取り決め）・他の角は miter・辺に隙が無い
+     ⑤内蔵の style と同じ「丸い端・丸い継ぎ」の層は従来どおり（端の先 5px に色が有る）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linejoin</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {   // feats＝[{ k, pts: [[x, y], …]（タイル座標） }]
+	const keys = ["k"], vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);   // version＝2
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, 2);   // LINESTRING
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, keys[0].split("").map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let LINES = [];   // [{ k, ll: [[lon, lat], …] }]
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("lj", async ({ url }) => {
+	const [z, x, y] = url.replace("lj://", "").split("/").map(Number);
+	return { data: mvt(LINES.map(l => ({ k: l.k, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+
+// 線の置き場（画面の CSS px）
+const CASES = {
+	butt: [[100, 100], [300, 100]], round: [[100, 160], [300, 160]], square: [[100, 220], [300, 220]], legacy: [[100, 280], [300, 280]],
+	miter: [[500, 100], [650, 100], [650, 230]], bevel: [[700, 100], [850, 100], [850, 230]], rjoin: [[500, 330], [650, 330], [650, 460]], alpha: [[700, 330], [850, 330], [850, 460]],
+	ring: [[520, 500], [620, 500], [620, 580], [520, 580], [520, 500]],
+	mlim: [[100, 360], [250, 360], [250, 480]], blim: [[300, 360], [450, 360], [450, 480]],
+};
+const lay = (k, layout, paint = {}) => ({ id: "l-" + k, type: "line", source: "lj", "source-layer": "l", filter: ["==", ["get", "k"], k], layout, paint: { "line-color": "#ff0000", "line-width": 20, ...paint } });
+const LAYERS = [
+	lay("butt", { "line-cap": "butt" }), lay("round", { "line-cap": "round" }), lay("square", { "line-cap": "square" }),
+	lay("legacy", { "line-cap": "round", "line-join": "round" }),
+	lay("miter", { "line-join": "miter" }), lay("bevel", { "line-join": "bevel", "line-miter-limit": 1 }), lay("rjoin", { "line-join": "round" }),
+	lay("ring", {}, { "line-width": 12 }),
+	lay("mlim", { "line-join": "miter", "line-miter-limit": 1 }), lay("blim", { "line-join": "bevel" }),
+	lay("alpha", {}, { "line-color": "#0000ff", "line-opacity": 0.5 }),
+];
+const SRC = { type: "vector", tiles: ["lj://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };   // 画面全体が z12 のタイル 1 枚（3638/1612）の中＝タイルの境で線分を二度描く所（既存の現象）を検定に入れない
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const boot = async () => { const map = await createGlobe({ target: "#map", view: "#15/35.71084/139.79004", chips: false, debugGlobals: true, style: { version: 8, name: "t-linejoin", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+try {
+	let map = await boot();
+	LINES = Object.entries(CASES).map(([k, pts]) => ({ k, ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const grab = async () => {
+		const shot = map.gadget.shot();
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const check = (tag, img) => {
+		const W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		const red = (x, y) => { const c = px(x, y); return c[0] > 200 && c[1] < 120 && c[2] < 120; };
+		const pr = (x, y) => px(x, y).join(",");
+		ok(tag + ":body", red(200, 100) && red(200, 160) && red(200, 220), `${pr(200, 100)} ${pr(200, 160)}`);
+		ok(tag + ":butt", !red(305, 100), pr(305, 100));
+		ok(tag + ":round", red(305, 160), pr(305, 160));
+		ok(tag + ":square", red(305, 220) && !red(315, 220), `${pr(305, 220)} / ${pr(315, 220)}`);
+		ok(tag + ":legacy", red(305, 280), pr(305, 280));
+		const d8 = 8 / Math.SQRT2, d12 = 12 / Math.SQRT2;   // 外の角（右上）へ対角に 8px・12px
+		ok(tag + ":miter", red(650 + d8, 100 - d8) && red(650 + d12, 100 - d12), `${pr(650 + d8, 100 - d8)} / ${pr(650 + d12, 100 - d12)}`);
+		ok(tag + ":bevel", red(850 - 3, 100 + 3) && !red(850 + d8, 100 - d8) && !red(850 + d12, 100 - d12), `${pr(850 + d8, 100 - d8)} / ${pr(850 + d12, 100 - d12)}`);
+		const e5 = 5 / Math.SQRT2, e7 = 7 / Math.SQRT2;   // 幅 12（半幅 6）：miter の先は 8.5・丸は 6
+		ok(tag + ":ring", red(570, 500) && red(620, 540) && red(570, 580) && red(520, 540) && red(620 + e7, 500 - e7) && red(520 - e5, 500 - e5) && !red(520 - e7, 500 - e7),
+			`edges ${pr(570, 500)} ${pr(520, 540)} miter ${pr(620 + e7, 500 - e7)} seam ${pr(520 - e5, 500 - e5)}/${pr(520 - e7, 500 - e7)}`);
+		ok(tag + ":miterLimit", !red(250 + d8, 360 - d8), pr(250 + d8, 360 - d8));
+		ok(tag + ":bevelUnderLimit", red(450 + d12, 360 - d12), pr(450 + d12, 360 - d12));
+		ok(tag + ":roundJoin", red(650 + d8, 330 - d8) && !red(650 + d12, 330 - d12), `${pr(650 + d8, 330 - d8)} / ${pr(650 + d12, 330 - d12)}`);
+		// 胴と、継ぎ目の内（両隣の帯が重なり得る所・二等分線の上と両脇）・外の角
+		const body = px(775, 330), same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 6);
+		const probes = [[846, 334], [844, 336], [848, 332], [846, 336], [844, 334], [854, 326], [852, 328]], bad = probes.filter(([x, y]) => !same(body, px(x, y)));
+		ok(tag + ":alphaJoint", body[2] > 200 && body[0] > 90 && !bad.length, `body ${body.join(",")} ` + bad.map(([x, y]) => `${x},${y}=${pr(x, y)}`).join(" "));
+	};
+	// ① 基図（setStyle の層）
+	await map.setStyle({ version: 8, name: "t-linejoin", sources: { lj: SRC }, layers: [BG, ...LAYERS] });
+	await sleep(7000);
+	check("base", await grab());
+	// ② 利用者の vector の層（addLayer＝vtdraw）＝地図を作り直す（setStyle で vector の源を外しても前の基図の線が残る＝別件・2026-10-22）
+	map.destroy();
+	map = await boot();
+	map.addSource("lj", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await sleep(7000);
+	check("user", await grab());
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>
