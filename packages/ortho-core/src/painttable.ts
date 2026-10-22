@@ -5,12 +5,16 @@
 // scene worker＝md の常駐の時に層 id＋鍵の名＋組 → 通しの行（全層で 1 枚の表）に付け替える。描き手（GL2）＝行の組を属性に戻し、main から配られた層の式で評価して表に書く。
 // 対象：外来の層（eo）の塗りと線で、色か不透明度（か線の線幅＝段 2b）の式が地物に依り（kind が data）、色・不透明度は zoom・feature-state・global-state・カメラ・描く所の値を読まず、
 // 属性を名前で読むだけ（get／has の名前が文字列・geometry-type）。properties・id を読む式は行が地物の数になる＝焼くまま（zoom×data も焼くまま＝裁定）。
+// feature-state を読む層（段 3）＝鍵に地物の id（PT_ID）を足す＝地物ごとの行。tile worker は状態を知らずに焼き（既定の状態）、描き手が状態の置かれた地物の行だけ
+// 状態つきで評価し直す（main が基図の source の setFeatureState を描き手へ）。行は常駐するタイルが参照する間だけ（scene worker が数えて捨てた行を使い回す）。
 import { evalExpr, exprDeps } from "./expr.ts";
 import { parseRGBA } from "./color.ts";
 import type { ExprContext, ExprOrigin } from "./expr.ts";
 
 /** 鍵の中の geometry-type（属性の名と混ざらない名） */
 export const PT_GEOM = "\u0000type";
+/** 鍵の中の地物の id（feature-state を読む層＝段 3・MVT の Feature.id） */
+export const PT_ID = "\u0000id";
 /** 行の上限（色の語の下位 16bit） */
 export const PT_MAX_ROWS = 65536;
 /** 表の 1 行の texel 数（0＝RGBA・1＝線の半幅（x・段 2b）） */
@@ -25,7 +29,8 @@ function readKeys(e: unknown, out: Set<string>): boolean {
 	const op = e[0];
 	switch (op) {
 		case "literal": return true;
-		case "properties": case "id": case "feature-state": case "within": case "distance": return false;
+		case "properties": case "id": case "within": case "distance": return false;
+		case "feature-state": return true;   // 段 3＝鍵は地物の id（layerPaintTable が PT_ID を足す）・状態は描き手が当てる
 		case "geometry-type": out.add(PT_GEOM); return true;
 		case "get": case "has":
 			if (e.length === 2) { if (typeof e[1] !== "string") return false; out.add(e[1]); return true; }
@@ -35,10 +40,10 @@ function readKeys(e: unknown, out: Set<string>): boolean {
 	return true;
 }
 
-/** 表を読む層の式（鍵の名・色・不透明度・線幅＝w がある層は線の半幅も表から＝段 2b） */
-export interface PtLayer { keys: string[]; c: unknown; a?: unknown; w?: unknown; o: ExprOrigin }
+/** 表を読む層の式（鍵の名・色・不透明度・線幅＝w がある層は線の半幅も表から＝段 2b・fs＝feature-state を読む＝鍵に PT_ID＝段 3） */
+export interface PtLayer { keys: string[]; c: unknown; a?: unknown; w?: unknown; fs?: true; o: ExprOrigin }
 
-const plain = (d: ReturnType<typeof exprDeps>): boolean => !(d.state || d.global || d.camera || d.vertex);
+const plain = (d: ReturnType<typeof exprDeps>): boolean => !(d.global || d.camera || d.vertex);   // feature-state は読んでよい（段 3）
 // 線幅を表に置けるか（段 2b）：地物に依り（kind data）、属性を名前で読むだけで、焼いた線幅が絵の形を決めない（line-gap-width＝両脇のずらし・CPU で刻む破線の片の長さ）。
 // 破線はずらさない層で、どの z でも模様が DASH_GPU_MAX 個まで（build.ts の gpuDash＝シェーダが線幅で模様を当てる）
 function widthTable(P: Record<string, unknown>, eo: ExprOrigin, keys: Set<string>): boolean {
@@ -61,23 +66,26 @@ function widthTable(P: Record<string, unknown>, eo: ExprOrigin, keys: Set<string
 export function layerPaintTable(type: string, paint: Record<string, unknown> | null | undefined, eo: ExprOrigin): PtLayer | null {
 	if (!eo || (type !== "fill" && type !== "line")) return null;
 	const P = paint || {}, c = P[type === "fill" ? "fill-color" : "line-color"] ?? "#000", a = P[type === "fill" ? "fill-opacity" : "line-opacity"];
-	let data = false;
+	let data = false, fs = false;
 	for (const e of [c, a]) {
 		if (e == null) continue;
 		const d = exprDeps(e);
 		if (d.kind === "zoom" || d.kind === "zoom×data" || !plain(d)) return null;
 		if (d.kind === "data") data = true;
+		if (d.state) fs = true;
 	}
 	const keys = new Set<string>(), w = type === "line" && widthTable(P, eo, keys);
 	if (!data && !w) return null;
 	if (!readKeys(c, keys) || (a != null && !readKeys(a, keys))) return null;
-	return { keys: [...keys].sort(), c, ...(a != null ? { a } : {}), ...(w ? { w: P["line-width"] } : {}), o: eo };
+	if (w && exprDeps(P["line-width"]).state) fs = true;
+	if (fs) keys.add(PT_ID);
+	return { keys: [...keys].sort(), c, ...(a != null ? { a } : {}), ...(w ? { w: P["line-width"] } : {}), ...(fs ? { fs: true as const } : {}), o: eo };
 }
 
-/** 地物の鍵の組（無い属性は null・MVT の属性は null を持たない） */
-export function ptTuple(keys: readonly string[], props: Record<string, unknown> | null | undefined, geomType: unknown): unknown[] {
+/** 地物の鍵の組（無い属性は null・MVT の属性は null を持たない）。id＝地物の id（PT_ID の鍵・無ければ null＝MapLibre でも状態が効かない） */
+export function ptTuple(keys: readonly string[], props: Record<string, unknown> | null | undefined, geomType: unknown, id?: unknown): unknown[] {
 	const t = new Array(keys.length);
-	for (let i = 0; i < keys.length; i++) { const k = keys[i]; t[i] = k === PT_GEOM ? geomType : props?.[k] ?? null; }
+	for (let i = 0; i < keys.length; i++) { const k = keys[i]; t[i] = k === PT_GEOM ? geomType : k === PT_ID ? id ?? null : props?.[k] ?? null; }
 	return t;
 }
 
@@ -85,22 +93,23 @@ export function ptTuple(keys: readonly string[], props: Record<string, unknown> 
 export const ptKeyOf = (t: readonly unknown[]): unknown => t.length === 1 ? t[0] : JSON.stringify(t);
 
 const b255 = (v: number): number => v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0;   // build.ts と同じ量子化
-/** 行の色（RGBA 0〜1・焼いた色と同じ量子化＝絵は bit 同値）。keys・t＝行の鍵と組 */
-export function ptRowColor(L: PtLayer, keys: readonly string[], t: readonly unknown[], out: Float32Array | number[], o = 0): void {
+// 行の組 → 評価の文脈（state＝地物の feature-state・段 3）
+function rowCtx(L: PtLayer, keys: readonly string[], t: readonly unknown[], state?: Record<string, unknown> | null): ExprContext {
 	const props: Record<string, unknown> = {};
 	let geom: unknown = null;
-	for (let i = 0; i < keys.length; i++) { if (keys[i] === PT_GEOM) geom = t[i]; else if (t[i] != null) props[keys[i]] = t[i]; }
-	const ctx: ExprContext = { zoom: 0, props, geom: geom as ExprContext["geom"], vars: {}, origin: L.o };
+	for (let i = 0; i < keys.length; i++) { if (keys[i] === PT_GEOM) geom = t[i]; else if (keys[i] !== PT_ID && t[i] != null) props[keys[i]] = t[i]; }
+	return { zoom: 0, props, geom: geom as ExprContext["geom"], vars: {}, origin: L.o, state: state ?? undefined };
+}
+/** 行の色（RGBA 0〜1・焼いた色と同じ量子化＝絵は bit 同値）。keys・t＝行の鍵と組・state＝地物の feature-state（段 3） */
+export function ptRowColor(L: PtLayer, keys: readonly string[], t: readonly unknown[], out: Float32Array | number[], o = 0, state?: Record<string, unknown> | null): void {
+	const ctx = rowCtx(L, keys, t, state);
 	const c = parseRGBA(evalExpr(L.c, ctx)), ov = L.a != null ? evalExpr(L.a, ctx) : 1, a = c[3] * ((ov === undefined && L.o ? 1 : ov) as number);   // ML の評価エラー＝既定 1（build.ts と同じ）
 	out[o] = b255(c[0]) / 255; out[o + 1] = b255(c[1]) / 255; out[o + 2] = b255(c[2]) / 255; out[o + 3] = b255(a) / 255;
 }
 
 /** 行の線の半幅（px・焼いた半幅と同じ＝数でないは 1 の半分・0 以下は 0＝描かない・f32）。L.w がある層だけ（外来の層） */
-export function ptRowHalf(L: PtLayer, keys: readonly string[], t: readonly unknown[]): number {
-	const props: Record<string, unknown> = {};
-	let geom: unknown = null;
-	for (let i = 0; i < keys.length; i++) { if (keys[i] === PT_GEOM) geom = t[i]; else if (t[i] != null) props[keys[i]] = t[i]; }
-	const w = evalExpr(L.w, { zoom: 0, props, geom: geom as ExprContext["geom"], vars: {}, origin: L.o });
+export function ptRowHalf(L: PtLayer, keys: readonly string[], t: readonly unknown[], state?: Record<string, unknown> | null): number {
+	const w = evalExpr(L.w, rowCtx(L, keys, t, state));
 	return Math.fround((typeof w !== "number" || isNaN(w) ? 1 : w <= 0 ? 0 : w) * 0.5);   // build.ts の線と同じ
 }
 

@@ -9,7 +9,7 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
 import { evalPaintZoom } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
-import { ptCovers, ptRowColor, ptRowHalf } from "../painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値で行を評価し直す
+import { ptCovers, ptRowColor, ptRowHalf, PT_ID } from "../painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値で行を評価し直す
 import type { PtLayer } from "../painttable.ts";
 type PtRow = [number, string, string[], unknown[], number, number?];   // 表の行（worker-msg.ts の up.rows）
 import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
@@ -673,11 +673,16 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const PT_UNIT = 17, PT_TEXW = 1024;
 	const pt = { tex: null as WebGLTexture | null, h: 0, data: new Float32Array(0), lo: Infinity, hi: -1, n: 0, rows: [] as PtRow[] };
 	let ptOver = new Map<string, PtLayer>();
+	// feature-state（段 3）：基図の feature-state を読む層（層 id → source-layer と式＝main が style ごとに）・置かれた状態（source-layer → 地物の id（文字列）→ 状態）・
+	// 地物の id → その地物の行（鍵に PT_ID を持つ行）。状態の置かれた地物の行だけ状態つきで評価する（置かれていない行は焼いた既定の状態の色）
+	let ptFsL = new Map<string, { sl: string; L: PtLayer }>();
+	const ptFsS = new Map<string, Map<string, Record<string, unknown>>>(), ptById = new Map<string, Set<number>>(), ptRowId: (string | undefined)[] = [];
 	const ptProg = (prog: WebGLProgram): WebGLProgram => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ptTex"), PT_UNIT); return prog; };   // 既定の 0 番は他の型の標本器と当たる
 	if (md) { ptProg(md.fillProg); ptProg(md.lineProg); gl.useProgram(null); }
 	function ptPut(row: PtRow): void {
-		const [r, id, keys, t, c, hw] = row, o = r * 8, L = ptOver.get(id);
-		if (L && ptCovers(L, keys)) { ptRowColor(L, keys, t, pt.data, o); if (L.w != null) pt.data[o + 4] = ptRowHalf(L, keys, t); else if (hw !== undefined) pt.data[o + 4] = hw; }
+		const [r, id, keys, t, c, hw] = row, o = r * 8, F = ptFsL.get(id), st = F && ptRowId[r] !== undefined ? ptFsS.get(F.sl)?.get(ptRowId[r]!) : undefined;
+		const Lo = ptOver.get(id), L = Lo && ptCovers(Lo, keys) ? Lo : st && ptCovers(F!.L, keys) ? F!.L : null;
+		if (L) { ptRowColor(L, keys, t, pt.data, o, st); if (L.w != null) pt.data[o + 4] = ptRowHalf(L, keys, t, st); else if (hw !== undefined) pt.data[o + 4] = hw; }
 		else { pt.data[o] = (c & 255) / 255; pt.data[o + 1] = (c >>> 8 & 255) / 255; pt.data[o + 2] = (c >>> 16 & 255) / 255; pt.data[o + 3] = (c >>> 24) / 255; if (hw !== undefined) pt.data[o + 4] = hw; }
 		if (r < pt.lo) pt.lo = r;
 		if (r > pt.hi) pt.hi = r;
@@ -687,6 +692,10 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			const r = row[0], need = (((r * 2 + 1) / PT_TEXW) | 0) + 1;
 			if (need * PT_TEXW * 4 > pt.data.length) { const d = new Float32Array(Math.max(need, pt.data.length / (PT_TEXW * 4) * 2) * PT_TEXW * 4); d.set(pt.data); pt.data = d; }
 			pt.rows[r] = row; if (r >= pt.n) pt.n = r + 1;
+			const old = ptRowId[r], ki = row[2].indexOf(PT_ID), v = ki < 0 ? null : row[3][ki], nid = v == null ? undefined : String(v);   // 使い回された行＝前の地物の索引から外す
+			if (old !== undefined) ptById.get(old)?.delete(r);
+			ptRowId[r] = nid;
+			if (nid !== undefined) { let S = ptById.get(nid); if (!S) ptById.set(nid, S = new Set()); S.add(r); }
 			ptPut(row);
 		}
 	}
@@ -694,6 +703,24 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		const prev = ptOver;
 		ptOver = new Map(list ?? []);
 		for (let r = 0; r < pt.n; r++) { const row = pt.rows[r]; if (row && (prev.has(row[1]) || ptOver.has(row[1]))) ptPut(row); }
+	}
+	function setPtFsLayers(list: [string, string, PtLayer][] | null): void {   // style ごとに全部を置き換える
+		const prev = ptFsL;
+		ptFsL = new Map((list ?? []).map(([id, sl, L]) => [id, { sl, L }]));
+		for (let r = 0; r < pt.n; r++) { const row = pt.rows[r]; if (row && ptRowId[r] !== undefined && (prev.has(row[1]) || ptFsL.has(row[1]))) ptPut(row); }
+	}
+	function setPtFs(list: [string | null, string | null, Record<string, unknown> | null][]): void {   // [source-layer, 地物の id, 状態（null＝外す）]・id が null＝その source-layer（null＝全部）の状態を外す
+		const touch = new Set<number>();
+		for (const [sl, fid, st] of list) {
+			if (fid == null) {
+				for (const k of sl == null ? [...ptFsS.keys()] : [sl]) { const M = ptFsS.get(k); if (!M) continue; for (const i of M.keys()) for (const r of ptById.get(i) ?? []) touch.add(r); ptFsS.delete(k); }
+				continue;
+			}
+			let M = ptFsS.get(sl!); if (!M) ptFsS.set(sl!, M = new Map());
+			if (st && Object.keys(st).length) M.set(fid, st); else M.delete(fid);
+			for (const r of ptById.get(fid) ?? []) touch.add(r);
+		}
+		for (const r of touch) { const row = pt.rows[r]; if (row && ptFsL.has(row[1])) ptPut(row); }
 	}
 	function ptFlush(): void {
 		if (pt.hi < 0) return;
@@ -2048,7 +2075,9 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "sky":       sky = data && Array.isArray((data as GLSky).sky) ? data as GLSky : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...(data as Partial<typeof sea>) }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
-			case "ptOver":    setPtOver(data as [string, PtLayer][] | null); break;                                        // setPaintProperty の (b) 類（painttable.ts の paintTableFast）＝層 id → 後の式（全部を置き換える）
+			case "ptOver":    setPtOver(data as [string, PtLayer][] | null); break;
+			case "ptFsLayers": setPtFsLayers(data as [string, string, PtLayer][] | null); break;                               // feature-state を読む基図の層（段 3）＝層 id・source-layer・式
+			case "ptFs":      setPtFs(data as [string | null, string | null, Record<string, unknown> | null][]); break;        // 基図の source の setFeatureState／removeFeatureState（段 3）                                        // setPaintProperty の (b) 類（painttable.ts の paintTableFast）＝層 id → 後の式（全部を置き換える）
 			case "pzOver":    pzOver = new Map(data as [number, PaintZoom][] | null ?? []); break;                       // setPaintProperty の速い道（build.ts paintFast）＝基図の層の添字 → 差し替えの式（全部を置き換える）
 			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: unknown } | null | undefined)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "gintBld":   setGintBld(data as GintBldData | null); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
