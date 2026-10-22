@@ -18,7 +18,7 @@ const PORT = +process.env.VGW_PORT || 5246;
 const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
-	"t-spotlight", "t-linedeco", "t-mdparity", "t-shotov",
+	"t-spotlight", "t-linedeco", "t-linegrad", "t-mdparity", "t-shotov",
 	"t-linejoin?md=1", "t-linejoin?nomd=1", "t-linedash?md=1", "t-linedash?nomd=1", "t-linefx?md=1", "t-linefx?nomd=1", "t-fillpattern?md=1", "t-fillpattern?nomd=1",   // S-P1-1/3/4/5 の WebGPU 版（2026-10-22）＝線の端と継ぎ・破線・translate/blur・塗りの模様を md／classic の両経路で読み戻す   // t-linedeco＝基図の line-offset を WGSL でも（#49）・t-mdparity＝タイル GPU 常駐プール（md）と classic の絵一致（vt perf plan §4 step A）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-cluster",   // map.gadget.cluster＝集約の source と層（丸は gint・件数は注記層の GPU の字・2026-10-22）

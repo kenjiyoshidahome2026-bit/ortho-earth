@@ -3,7 +3,7 @@
 // 投影非依存の部分だけ担当：幾何を経緯度に戻し、シーン原点からの delta(float32) と地物ごとの色/線幅を確定。
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
-import type { DrawOp, LineOp, PtOp } from "./scene.ts";
+import type { DrawOp, LineOp, LineTex, PtOp } from "./scene.ts";
 import type { DecodedFeature, DecodedGeom, DecodedTile, EmptyTile, TileData } from "./tileformat.ts";
 import type { ExprContext, ExprOrigin } from "./expr.ts";
 import type { GeoCtxTile } from "./expr-geo.ts";
@@ -198,12 +198,17 @@ class PtRows {
 	out(n: number): PtOp | null { this.fill(n); return this.over ? null : { keys: this.L.keys, rows: this.rows, cols: Uint32Array.from(this.cols), ...(this.L.w != null ? { hw: Float32Array.from(this.hws) } : {}), rid: this.rid.out() }; }
 }
 let sharedBufs: Bufs | null = null, bufDepth = 0;
-const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array), d: new Grow(Float32Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
+const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array), d: new Grow(Float32Array), pg: new Grow(Float32Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
 const SD = { pts: new Float64Array(1 << 12), stk: new Uint32Array(1 << 12), out: new Grow(Uint32Array, 1 << 14) };   // subdivideTris の作業（同期・使い回す）
 const HB = new Float64Array(2), HU = new Uint32Array(HB.buffer);   // subdivideTris の交点の覚えのハッシュ（座標の bit 列）
 
 // line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
 const NO_SLIDES: [ArrayLike<number>, ArrayLike<number>] = [[], []];
+// line-gradient（G-3）の色の語＝線分 j の始点・終点の進み（pg）を unorm16×2（下位＝始点）で線分 k の 4 バイトへ（リトルエンディアン＝GLSL の unpackUnorm2x16 と同じ並び）
+function lgWord(c4: Uint8Array, k: number, pg: Float32Array, j: number): void {
+	const a = Math.round(Math.max(0, Math.min(1, pg[j * 2])) * 65535), b = Math.round(Math.max(0, Math.min(1, pg[j * 2 + 1])) * 65535);
+	c4[k * 4] = a & 255; c4[k * 4 + 1] = a >> 8; c4[k * 4 + 2] = b & 255; c4[k * 4 + 3] = b >> 8;
+}
 
 // line-cap／line-join（MapLibre 互換・S-P1-1・2026-10-22）の種類の番号＝LineOp.cj＝cap | join<<2 | round(miter-limit×8)<<4（シェーダの u_cj と同じ並び）。
 // 丸い端・丸い継ぎ（0）の層は今までどおり capsule（線分ごとの丸い棒の重ね）＝jf を持たない。それ以外は線分ごとに隣と継ぐかの旗（JF_*）を添え、
@@ -244,6 +249,24 @@ export function fillPatternOf(L: { paint?: Record<string, unknown> | null }, z: 
 	const v = evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
 	const n = v && typeof v === "object" && "name" in (v as object) ? (v as { name: unknown }).name : v;   // ResolvedImage 風の値も名前へ
 	return typeof n === "string" && n ? n : null;
+}
+// line-gradient（G-3・2026-10-22）：色の見本＝["line-progress"] を 0..1 で LG_N 段に評価した RGBA8（前乗算しない）＋層の line-opacity（層で一度＝近似）。
+// 線分の色の語（語 4）は始点・終点の進み（unorm16×2）になり、シェーダが画素の進みで見本を引く＝線分レコードに語を足さない（geojson vt plan §5 裁定 2）。
+// MapLibre の line-gradient は zoom も地物の属性も読めない＝層で一度。key＝見本の同一性（描き手のテクスチャの覚えの鍵）
+export const LG_N = 256;
+export function lineGradientOf(L: { paint?: Record<string, unknown> | null }, z: number, eo: "ml" | undefined, pale: (c: unknown) => unknown = c => c): LineTex | null {
+	const e = L.paint?.["line-gradient"]; if (e == null) return null;
+	const ctx: ExprContext = { zoom: z, props: {}, geom: null, vars: {}, origin: eo };
+	const ov = L.paint?.["line-opacity"] != null ? +(evalExpr(L.paint["line-opacity"], ctx) as number) : 1, o = isFinite(ov) ? Math.max(0, Math.min(1, ov)) : 1;
+	const lut = new Uint8Array(LG_N * 4), q = (v: number): number => v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0;
+	for (let j = 0; j < LG_N; j++) {
+		ctx.vars = { "line-progress": j / (LG_N - 1) };
+		const v = evalExpr(e, ctx);
+		if (v == null) continue;   // 評価の失敗＝透明（MapLibre）
+		const c = parseRGBA(pale(v));
+		lut[j * 4] = q(c[0]); lut[j * 4 + 1] = q(c[1]); lut[j * 4 + 2] = q(c[2]); lut[j * 4 + 3] = q(c[3] * o);
+	}
+	return { key: `g|${JSON.stringify(e)}|${o}`, lut };
 }
 export function dashPattern(v: unknown, ml = false): number[] | null {
 	if (!Array.isArray(v) || !v.length || v.some(x => typeof x !== "number" || !(x >= 0) || !isFinite(x))) return null;
@@ -325,7 +348,7 @@ export function buildTileDrawList(tile: BuildTile, style: Style, origin: readonl
 	try { return buildTileDrawList1(tile, style, origin, pale, B); } finally { bufDepth--; }
 }
 interface FillPart { ll: Float32Array; tris: ArrayLike<number> }
-interface LineSegs { n: number; p1: Float32Array; p2: Float32Array; r: Uint32Array; k: Uint32Array; fl: Uint8Array; d: Float32Array; rs: number[]; re: number[]; pv?: Int32Array; nx?: Int32Array }
+interface LineSegs { n: number; p1: Float32Array; p2: Float32Array; r: Uint32Array; k: Uint32Array; fl: Uint8Array; d: Float32Array; rs: number[]; re: number[]; pv?: Int32Array; nx?: Int32Array; pg?: Float32Array }
 // 線分の隣（S-P1-1）：同じ環で端点を共有する前・次の線分の添字（無ければ −1＝端）。閉じた環は一周つなぐ。
 // 長さ 0 の線分は飛ばしてつなぐ（自分は −1＝丸でない端なら描かれない）。余白で落とした線分の所は切れる＝端
 function linkSegs(g: LineSegs): void {
@@ -414,18 +437,23 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 	// 破線でない線の線分列（色・幅に依らない）＝地物ごとに一度だけ作る。細分点を含む頂点を一度だけ経緯度化し、連続ペアを線分に
 	// （隣接サブ線分＝隣接線分が端点を共有＝「サブ線分ごとに両端を変換」の重複なし）。余白だけを走る線分は描かない（outsideSameSide）。
 	// 戻り＝{ n, p1, p2（Float32・経緯度・原点相対）, r（環の番号）, k（環の中の元の線分の番号）, fl（1＝元の線分の最初の小片・2＝最後の小片）, rs/re（環の始終の添字） }
+	// wantPg＝線の進み（G-3・line-gradient）も＝pg（線分ごとの始点・終点の進み 0..1）。geom.prog（geojson の線）があれば頂点の値を細分の小片へ補い、
+	// 無ければ（vector の線）環の頭からの長さ÷環の全長（MapLibre は lineMetrics の geojson だけ＝それ以外の近似）。覚えに pg が無ければ作り直す（色の層が先に作った物）
 	const lineCache = new Map<DecodedGeom, LineSegs>();
-	const lineSegs = (geom: DecodedGeom, extent: number): LineSegs => {
+	const lineSegs = (geom: DecodedGeom, extent: number, wantPg = false): LineSegs => {
 		let g = lineCache.get(geom);
-		if (g) return g;
-		const { coords, ends } = geom, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, dd = LS.d, rs: number[] = [], re: number[] = [];
+		if (g && (!wantPg || g.pg)) return g;
+		const { coords, ends } = geom, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, dd = LS.d, pg = wantPg ? LS.pg : null, rs: number[] = [], re: number[] = [];
+		const gp = wantPg ? geom.prog : undefined;
 		const sl = isFinite(subLen) ? subLen : fillSub0 ? extent / Math.max(1, 128 >> z) : Infinity;   // ドレープ無し＝z≤6 だけ fill の格子で粗く（弦の沈み）・z≥7 は細分なし
-		p1.n = p2.n = rr.n = kk.n = fl.n = dd.n = 0;
+		p1.n = p2.n = rr.n = kk.n = fl.n = dd.n = 0; if (pg) pg.n = 0;
 		let ls = 0;
 		for (let r = 0; r < ends.length; r++) {
 			const le = ends[r];
 			rs.push(ls); re.push(le);
 			if (le - ls < 4) { ls = le; continue; }   // 2点未満
+			let tot = 0;   // 環の全長（線の進みの近似の分母）
+			if (pg && !gp) { for (let i = ls + 2; i < le; i += 2) tot += Math.hypot(coords[i] - coords[i - 2], coords[i + 1] - coords[i - 1]); tot = tot > 0 ? 1 / tot : 0; }
 			llInto(coords[ls], coords[ls + 1], extent, sc, 0);
 			let pLon = sc[0], pLat = sc[1], acc = 0;   // acc＝環の始点からの線に沿う距離（タイル単位・破線の位相＝S-P1-3）
 			for (let i = ls + 2; i < le; i += 2) {
@@ -434,6 +462,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				if (outsideSameSide(Ax, Ay, coords[i], coords[i + 1], extent)) { llInto(coords[i], coords[i + 1], extent, sc, 0); pLon = sc[0]; pLat = sc[1]; acc += len; continue; }   // 余白だけを走る線分＝描かない（下の outsideSameSide）・位相は進める
 				const steps = Math.min(24, Math.max(1, Math.ceil(len / sl)));  // 地形ドレープ用に細分（sl＝Infinity なら 1）
 				const k = (i - ls - 2) >> 1;
+				const q0 = gp ? gp[(i - 2) >> 1] : acc * tot, dq = (gp ? gp[i >> 1] : (acc + len) * tot) - q0;   // 線の進み（始点・増え）
 				for (let s = 1; s <= steps; s++) {
 					const t = s / steps;
 					llInto(Ax + dx * t, Ay + dy * t, extent, sc, 0);
@@ -441,13 +470,14 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 					a1[p1.n++] = pLon; a1[p1.n++] = pLat; a2[p2.n++] = sc[0]; a2[p2.n++] = sc[1];
 					rr.reserve(1)[rr.n++] = r; kk.reserve(1)[kk.n++] = k; fl.reserve(1)[fl.n++] = (s === 1 ? 1 : 0) | (s === steps ? 2 : 0);
 					dd.reserve(1)[dd.n++] = acc + len * (s - 1) / steps;
+					if (pg) { const a = pg.reserve(2); a[pg.n++] = q0 + dq * (s - 1) / steps; a[pg.n++] = q0 + dq * t; }
 					pLon = sc[0]; pLat = sc[1];
 				}
 				acc += len;
 			}
 			ls = le;
 		}
-		g = { n: rr.n, p1: p1.out(), p2: p2.out(), r: rr.out(), k: kk.out(), fl: fl.out(), d: dd.out(), rs, re };
+		g = { n: rr.n, p1: p1.out(), p2: p2.out(), r: rr.out(), k: kk.out(), fl: fl.out(), d: dd.out(), rs, re, ...(pg ? { pg: pg.out() } : {}) };
 		lineCache.set(geom, g);
 		return g;
 	};
@@ -521,8 +551,10 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			const dK = 2 ** (32 - z) / extent;   // タイル単位 → z24 の px
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
+			// line-gradient（G-3）＝色の語は線分の始点・終点の進み（unorm16×2）・色は描き手が見本（lt.lut）から引く。CPU で刻む破線とは並ばない（色で描く）
+			const lt = eo && !dashPat ? lineGradientOf(L, z, eo, pale) : null;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
-			const ptL = eo ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）
+			const ptL = eo && !lt ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）・色の語を進みに使う層は持たない
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
@@ -561,7 +593,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const { coords, ends } = f.geom!;
 				if (dashPat && L.dashInLineWidths && !w) continue;   // 幅 0 の CPU で刻む破線＝片の長さ 0（刻めない・描いても見えない）
 				if (!dashPat) {   // 破線でない線（とシェーダで描く破線）＝地物ごとに一度だけ作った線分列（lineSegs）を写す＝ケーシングと本線など同じ地物を描く層の数だけ経緯度化・細分をやり直さない
-					const g = lineSegs(f.geom!, extent), n = g.n;
+					const g = lineSegs(f.geom!, extent, !!lt), n = g.n;
 					if (!n) continue;
 					if (jf) {   // 端と継ぎ（S-P1-1）：長さ 0 の線分は書かない（MapLibre も重なった点を捨てる）＝継ぐ相手が並びのすぐ前後になる
 						linkSegs(g);
@@ -570,7 +602,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 							if (g.p1[j * 2] === g.p2[j * 2] && g.p1[j * 2 + 1] === g.p2[j * 2 + 1]) continue;
 							const k = half.n, a1 = P1.reserve(2), a2 = P2.reserve(2), c4 = col.reserve(4), o = jf.reserve(1);
 							a1[k * 2] = g.p1[j * 2]; a1[k * 2 + 1] = g.p1[j * 2 + 1]; a2[k * 2] = g.p2[j * 2]; a2[k * 2 + 1] = g.p2[j * 2 + 1];
-							c4[k * 4] = cr; c4[k * 4 + 1] = cg; c4[k * 4 + 2] = cb; c4[k * 4 + 3] = ca; half.reserve(1)[k] = hw;
+							if (lt) lgWord(c4, k, g.pg!, j); else { c4[k * 4] = cr; c4[k * 4 + 1] = cg; c4[k * 4 + 2] = cb; c4[k * 4 + 3] = ca; }
+							half.reserve(1)[k] = hw;
 							o[k] = (pv[j] < 0 ? 0 : pv[j] < j ? JF_PREV : JF_RING_START) | (nx[j] < 0 ? 0 : nx[j] > j ? JF_NEXT : JF_RING_END);   // 継ぐ相手は長さ 0 を飛ばしたすぐ前後＝書いた並びでも隣
 							if (dist) dist.reserve(1)[dist.n++] = g.d[j] * dK;
 							P1.n += 2; P2.n += 2; col.n += 4; half.n++; jf.n++;
@@ -580,7 +613,9 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 					if (dist) { const a = dist.reserve(n); for (let j = 0, dn = dist.n; j < n; j++) a[dn++] = g.d[j] * dK; dist.n += n; }
 					P1.reserve(n * 2).set(g.p1, P1.n); P2.reserve(n * 2).set(g.p2, P2.n);
 					const c4 = col.reserve(n * 4), hf = half.reserve(n);
-					for (let j = 0, cn = col.n, hn = half.n; j < n; j++) { c4[cn++] = cr; c4[cn++] = cg; c4[cn++] = cb; c4[cn++] = ca; hf[hn++] = hw; }
+					if (lt) for (let j = 0, k = col.n >> 2; j < n; j++) lgWord(c4, k + j, g.pg!, j);
+					else for (let j = 0, cn = col.n; j < n; j++) { c4[cn++] = cr; c4[cn++] = cg; c4[cn++] = cb; c4[cn++] = ca; }
+					for (let j = 0, hn = half.n; j < n; j++) hf[hn++] = hw;
 					P1.n += n * 2; P2.n += n * 2; col.n += n * 4; half.n += n;
 					if (off) {
 						const sl = ow || uOff ? g.rs.map((s0, r) => miterSlides(coords, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
@@ -630,6 +665,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
 				if (pzL) op.pz = pzL;
 				const ptO = pt ? pt.out(half.n) : null; if (ptO) op.pt = ptO;
+				if (lt) op.lt = lt;
 				ops.push(op);
 			}
 		}

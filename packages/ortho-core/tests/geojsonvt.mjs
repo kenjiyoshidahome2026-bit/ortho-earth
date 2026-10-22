@@ -57,5 +57,22 @@ const big = createGeojsonIndex(F({ type: "Polygon", coordinates: [[[-170, -80], 
 const bf = feats(big.tile(4, 8, 7))[0];
 t("覆う面＝タイルの四角（面積 E²）", !!bf && Math.abs(signedArea(bf.geom.coords, 0, bf.geom.ends[0]) - E * E) < 1, String(bf && signedArea(bf.geom.coords, 0, bf.geom.ends[0])));
 
+// ⑥ 線の進み（G-3・line-gradient の ["line-progress"]）＝頂点ごとに geom.prog・タイルの境（切った端）で両側の値が続く・頭 0 尻 1
+const gp = createGeojsonIndex(F({ type: "LineString", coordinates: [[-10, 10], [0, 10], [10, 10]] }));
+const g0 = feats(gp.tile(1, 0, 0))[0], g1 = feats(gp.tile(1, 1, 0))[0];
+const pr0 = g0?.geom.prog, pr1 = g1?.geom.prog;
+t("進み：頂点の数だけ（Float32Array）", pr0 instanceof Float32Array && pr0.length === g0.geom.coords.length / 2 && pr1?.length === g1.geom.coords.length / 2);
+t("進み：頭 0・尻 1", pr0?.[0] === 0 && Math.abs(pr1?.[pr1.length - 1] - 1) < 1e-6, `${pr0?.[0]} ${pr1?.[pr1.length - 1]}`);
+// 0 度（x＝E）の頂点＝真ん中＝0.5。左のタイルは buffer の端（x＝E+B）まで＝0.5 より少し先・右のタイルは −B から＝0.5 より少し前
+const xAt = (g, i) => g.geom.coords[i * 2];
+const mid0 = [...pr0].findIndex((_, i) => xAt(g0, i) === E), mid1 = [...pr1].findIndex((_, i) => xAt(g1, i) === 0);
+t("進み：0 度の頂点は両方のタイルで 0.5", Math.abs(pr0[mid0] - 0.5) < 1e-6 && Math.abs(pr1[mid1] - 0.5) < 1e-6, `${pr0[mid0]} ${pr1[mid1]}`);
+const bk = (B / E) * 180 / 20;   // buffer の幅（タイル 180° の B/E）÷線の全長 20°
+t("進み：切った端は線分の上で補う（buffer の端＝0.5±B の分）", Math.abs(pr0[pr0.length - 1] - (0.5 + bk)) < 1e-4 && Math.abs(pr1[0] - (0.5 - bk)) < 1e-4, `${pr0[pr0.length - 1]} ${pr1[0]}`);
+const ml = createGeojsonIndex(F({ type: "MultiLineString", coordinates: [[[10, 10], [20, 10]], [[30, 10], [60, 10]]] }));
+const mg = feats(ml.tile(0, 0, 0))[0];
+t("進み：MultiLineString は 1 本ずつ 0..1", mg?.geom.ends.length === 2 && mg.geom.prog[0] === 0 && Math.abs(mg.geom.prog[1] - 1) < 1e-6 && mg.geom.prog[2] === 0 && Math.abs(mg.geom.prog[3] - 1) < 1e-6, JSON.stringify([...(mg?.geom.prog ?? [])]));
+t("進み：面と点は持たない", one?.geom.prog === undefined && feats(pi.tile(1, 1, 0))[0]?.geom.prog === undefined);
+
 console.log(ng ? `\nFAIL  ${ng} / ${ok + ng}` : `\nPASS  ${ok}`);
 process.exit(ng ? 1 : 0);
