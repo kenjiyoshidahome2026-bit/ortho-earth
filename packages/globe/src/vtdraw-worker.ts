@@ -144,7 +144,7 @@ function build(m: VtMsg) {
 				const rr = (num(r, ctx, 5) + w / 2) * upx;
 				for (let i = 0; i < v.length; i += 2) rings.push({ ...f, type: "LineString", geom: ringGeom(v[i], v[i + 1], rr) });
 			}
-			const base = { ...L, type: "line", layout: L.layout["circle-sort-key"] != null ? { "line-sort-key": L.layout["circle-sort-key"] } : {} };
+			const base = { ...L, type: "line", layout: { "line-cap": "round", "line-join": "round", ...(L.layout["circle-sort-key"] != null ? { "line-sort-key": L.layout["circle-sort-key"] } : {}) } };   // 丸点＝丸い端（MapLibre の層の既定 butt では長さ 0 の線が消える・S-P1-1）
 			if (rimDots.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": ["*", 2, ["+", r, sw]], "line-opacity": P["circle-stroke-opacity"] ?? 1 } }, rimDots, 1);
 			if (rings.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": sw, "line-opacity": P["circle-stroke-opacity"] ?? 1 } }, rings, 1);
 			run({ ...base, paint: { "line-color": P["circle-color"] ?? "#000000", "line-width": ["*", 2, r], "line-opacity": P["circle-opacity"] ?? 1 } }, dots, 2);
@@ -174,7 +174,7 @@ function build(m: VtMsg) {
 	}
 	const transfer: ArrayBuffer[] = [];
 	let bytes = 0;
-	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off]) if (a) { transfer.push(a.buffer as ArrayBuffer); bytes += a.byteLength; }
+	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off, op.jf]) if (a) { transfer.push(a.buffer as ArrayBuffer); bytes += a.byteLength; }
 	for (const h of Object.values(heat)) { transfer.push(h.ll.buffer, h.w.buffer); bytes += h.ll.byteLength + h.w.byteLength; }
 	const idl = Object.keys(ids).length ? Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, [...v]])) : null;
 	self.postMessage({ id: m.id, origin, ops, labels, heat, bytes, stats: { features, ops: ops.length, decodeMs: t1 - t0, buildMs: performance.now() - t1 }, warn, ids: idl }, transfer);

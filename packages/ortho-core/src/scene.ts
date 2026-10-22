@@ -5,7 +5,10 @@
 /** 塗りの op（build.ts が作る・タイル単体は idx が Uint16・結合後は Uint32） */
 export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array }
 /** 線の op（off＝line-offset の [off, tS, tE]×線分・持つ層だけ） */
-export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null }
+// jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
+// 継ぐ相手は並びのすぐ前後の線分＝線分レコード（P1・P2）から読む（隣の点を別に持たない）。cj＝層の端と継ぎの種類（build.ts の lineCapJoin）。
+// 0（丸い端・丸い継ぎ）の層は jf を持たない＝従来の capsule
+export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number }
 export type DrawOp = FillOp | LineOp;
 /** 建物の押し出し（buildings.ts）＝xyz（z＝高さ m）・面の陰影・足元の xy */
 export interface BuildingsGeom { pos: Float32Array; shade: Float32Array; anchor: Float32Array }
@@ -36,9 +39,9 @@ export function coveredTiles(order: readonly { key: string }[]): Set<string> {
 	return covered;
 }
 
-interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean }
+interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number }
 interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; pi: number; ci: number; ii: number }
-interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; pi: number; ci: number; hi: number }
+interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; jf: Uint8Array | null; cj: number; pi: number; ci: number; hi: number }
 
 export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: string) => TileGeom | null | undefined, opts: MergeOptions = {}): MergedScene {
 	if (!order.length) return { origin: [0, 0], layers: [], buildings: null };
@@ -54,7 +57,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 			if (hidden.has(seaFbReal(op.li) ?? op.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (op.kind === "line" && lineOff.has(key)) continue;
 			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
-			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; }
+			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } }
 		}
 	}
 	const buf = new Map<number, FillAcc | LineAcc>();
@@ -62,7 +65,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
 			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), pi: 0, ci: 0, ii: 0 }
-			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0
+			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）
 	}
 	for (const { ox, oy, ops, noLine } of tileOps) {
 		for (const op of ops) {
@@ -80,13 +83,14 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 				for (let i = 0; i < P1.length; i += 2) { m.P1[pi] = P1[i] + ox; m.P1[pi + 1] = P1[i + 1] + oy; m.P2[pi] = P2[i] + ox; m.P2[pi + 1] = P2[i + 1] + oy; pi += 2; } m.pi = pi;
 				m.col.set(op.col, m.ci); m.ci += op.col.length;
 				if (m.off && op.off) m.off.set(op.off, m.hi * 3);
+				if (m.jf && op.jf) m.jf.set(op.jf, m.hi);   // 旗はタイルの中で閉じる（タイルの境を跨いで継がない）＝そのまま写す
 				m.half.set(op.half, m.hi); m.hi += op.half.length;
 			}
 		}
 	}
 	const layers: DrawOp[] = [...buf.values()].sort((a, b) => a.li - b.li).map((m): DrawOp => m.kind === "fill"
 		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx }
-		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}) });
+		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}) });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;
@@ -109,12 +113,12 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 const EMPTY = new Set<number>();
 
 // op 列（＋建物）の型付き配列のバッファ＝transfer の対象・実バイトの数え上げ（tile worker・pipeline・tilemanager・scene worker で共用）。
-// op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off? }・シーン（結合後の layers）も同じ形
+// op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off?, jf? }・シーン（結合後の layers）も同じ形
 export function opBuffers(ops: readonly DrawOp[], buildings?: BuildingsGeom | null): ArrayBufferLike[] {
 	const bufs: ArrayBufferLike[] = [];
 	for (const op of ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
-		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); }
+		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); if (op.jf) bufs.push(op.jf.buffer); }
 	}
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;
