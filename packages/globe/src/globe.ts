@@ -495,8 +495,14 @@ const baseOverrides: GlobeScope["baseOverrides"] = new Map(), baseVis: GlobeScop
 // 検査表示（#174）の間＝基図の全層を結合から外す（baseHiddenIdx・焼き直さない・注記も出さない）。利用者の基図の出し入れ（baseVis）はそのまま＝戻すと元の絵
 let inspectHide: GlobeLive["inspectHide"] = false;
 let inspectReapply: GlobeLive["inspectReapply"] = () => {};   // テーマ・基図の style を替えた後に検査表示の下地（陸の色・世界の帯）を掛け直す（inspectView が差す）
+const baseMoves: GlobeScope["baseMoves"] = [];
+const moveBefore: GlobeScope["moveBefore"] = (arr, id, before, idOf) => {
+	const i = arr.findIndex(x => idOf(x) === id); if (i < 0) return;
+	const [x] = arr.splice(i, 1), j = before == null ? -1 : arr.findIndex(y => idOf(y) === before);
+	arr.splice(j < 0 ? arr.length : j, 0, x);
+};
 const withBaseOverrides: GlobeScope["withBaseOverrides"] = st => {
-	if (!baseOverrides.size) return st;
+	if (!baseOverrides.size && !baseMoves.length) return st;
 	const layers = [];
 	for (const L of st.layers) {
 		const o = baseOverrides.get(L.id);
@@ -507,6 +513,7 @@ const withBaseOverrides: GlobeScope["withBaseOverrides"] = st => {
 		for (const k of ["filter", "minzoom", "maxzoom"] as const) if (k in o) { if (o[k] == null) delete L2[k]; else (L2 as Record<string, unknown>)[k] = o[k]; }
 		layers.push(L2);
 	}
+	for (const [id, , bb] of baseMoves) moveBefore(layers, id, bb, L => L.id);   // 基図の moveLayer（S-P2-2）＝描く順（li）も style の順も
 	return { ...st, layers };
 };
 // addLayer({type:"background"})（B5）＝実行時に足した background 層。基図の層の先頭に置く（beforeId は見ない）。setStyle で捨てる（MapLibre と同じ）
@@ -3718,7 +3725,7 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 	get dpr() { return dpr; },
 	get renderBackend() { return renderBackend; },
 	get paintTable() { return paintTable; },
-}, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, stripMl, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
+}, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseMoves, moveBefore, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, stripMl, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
 // 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get MAP_GS() { return MAP_GS; },
