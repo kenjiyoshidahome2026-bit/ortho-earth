@@ -113,6 +113,8 @@ export interface LabelLayer {
 	setLabels(list: readonly Label2D[]): void;
 	setUserLabels(id: string, list: readonly UserLabel[] | null | undefined, meta?: { minZoom?: number | null; maxZoom?: number | null }): void;
 	setUserVisible(id: string, v: unknown): void;
+	/** 利用者の注記の組の順（下から上・MapLibre の層の順）。載っている組は焼いた sort の代わりに −1e6 − 順位×1e3 + usk で置く（後の層が先） */
+	setUserOrder(ids: readonly string[] | null): void;
 	setElev(fn: (L: Label2D) => number): void;
 	setSky(data: SkyLabels | null): void;
 	setClip(planes: ClipPlane[] | null | undefined): void;
@@ -507,7 +509,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		for (const st of userSets.values()) if (st.visible) u.push(...st.list);
 		// 優先順＝MapLibre の層（ml）は「後の層が先に置く」（層の添字 li の降順）→ 層の中は symbol-sort-key 昇順。ネイティブの層は従来どおり sort だけ（この地図の注記の設計＝sort に焼いてある）。
 		// 利用者の層（vtdraw/gint）は sort に −1e6 − 層順×1e3 を焼いてある＝常に基図より先（MapLibre の「後から足した層が勝つ」と同じ）
-		const pri = (L: Label2D) => (L.sort ?? 0) - (L.mlp && L.li != null ? L.li * 1e3 : 0);
+		const pri = (L: Label2D) => { const r = L.k != null ? userRank.get(L.k) : undefined; return r != null ? -1e6 - r * 1e3 + (L.usk ?? 0) : (L.sort ?? 0) - (L.mlp && L.li != null ? L.li * 1e3 : 0); };   // 利用者の組の順（setUserOrder）＝別々の鍵で焼いた組（vector の描く層・geojson の層）も同じ目盛りで比べる
 		const all = [...u, ...labels].sort((a, b) => pri(a) - pri(b));
 		labelByKey = new Map(all.map(L => [keyOf(L), L]));
 		if (kidByKey.size) { const alive = new Set(all); for (const [k, kid] of kidByKey) if (!alive.has(kid.par!)) kidByKey.delete(k); }   // 親が集合から消えた子は捨てる
@@ -519,6 +521,12 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// symbol-z-order（C5）：zo＝"viewport-y"｜"source"（無指定＝auto）・sk＝sort-key あり。MapLibre の sortFeaturesByY＝(viewport-y か auto で sort-key 無し) かつ (allow-overlap か ignore-placement)
 	const zoY = (L: Label2D) => (L.zo === "viewport-y" || (L.zo !== "source" && !L.sk)) && !!(L.ov || L.ig || L.iov || L.iig);
 	let zoAny = false;
+	let userRank = new Map<string, number>();
+	function setUserOrder(ids: readonly string[] | null) {
+		const next = new Map((ids ?? []).map((id, i) => [id, i]));
+		if (next.size === userRank.size && [...next].every(([k, v]) => userRank.get(k) === v)) return;
+		userRank = next; rebuild();
+	}
 	function setUserLabels(id: string, list: readonly UserLabel[] | null | undefined, meta: { minZoom?: number | null; maxZoom?: number | null } = {}) {
 		if (!list?.length) userSets.delete(id);
 		else userSets.set(id, {
@@ -965,5 +973,5 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; dirty = true; sink.fontsChanged(); }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
 	const stats = (): LabelStats => ({ drawMs, collideMs, labels: nDrawn, ...sink.stats() });
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache, stats };
+	return { setLabels, setUserLabels, setUserVisible, setUserOrder, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache, stats };
 }

@@ -527,6 +527,7 @@ const dispatch = (e: { data: RwMsg }) => {
 					if (r === null) ack(null, "no-expr-job"); else if (r) Promise.resolve(r as Uint32Array | null | undefined).then(t => { ack(t ?? null, null); dirty = true; kick(); }, (e: Error) => ack(null, String(e?.message || e))); }
 			}
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
+			else if (m.cmd === "vtLabelOrder") labelLayer?.setUserOrder(m.data as string[] | null);   // 利用者の注記の組の順（vector の描く層と geojson の層を MapLibre の層の順で比べる・T-P3）
 			else if (m.cmd === "vtLabels") { const list = (m.data as UserLabelsMsg)?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer!, list, (m.data as UserLabelsMsg) ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
 			else if (m.cmd === "labels") { const r = labelReceiver(m.data as Parameters<typeof labelReceiver>[0]); pendingLabels = r.list; if (r.missing) postMessage({ type: "labelsResync" }); applyLabels(); }   // ラベル集合の更新（差分→集合。持たない番号＝main に全部送り直してもらう）（標高は cam が揃ってから付与）
 			else if (m.cmd === "labelImage") { renderer?.set("patImage", m.data); if ((m.data as LabelImageMsg)?.bitmap) labelLayer?.setImage((m.data as LabelImageMsg)!.name, m.data as LabelImageInput); else labelLayer?.removeImage((m.data as LabelImageMsg)?.name as string); }   // 記号帳の写し（addImage / sprite）＝基図と vector の symbol 層の icon-image（段 3）。bitmap null＝外す
