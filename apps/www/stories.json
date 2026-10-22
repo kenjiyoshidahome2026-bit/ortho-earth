@@ -16,6 +16,20 @@
 			}
 		},
 		{
+			"id": "engine-features",
+			"date": "2026-10-21",
+			"ja": {
+				"title": "五つの Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth",
+				"desc": "描画性能の比較の対になる話です。同じ「地図エンジン」でも、2D の地図、3D の地球、完成品のアプリ、写実的な絵作り、球の地球儀と、出発点がそれぞれ違いました。",
+				"href": "/docs/story-features-jp.html"
+			},
+			"en": {
+				"title": "Five web map engines, feature by feature: MapLibre, Cesium, TerriaJS, Navara and ortho-earth",
+				"desc": "The companion to the rendering benchmark. They are all called map engines, but they start from different places: a 2D map, a 3D Earth, a finished app, photorealistic rendering, and an always-round globe.",
+				"href": "/docs/story-features.html"
+			}
+		},
+		{
 			"id": "benchmark-plateau",
 			"date": "2026-10-20",
 			"ja": {

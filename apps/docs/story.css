@@ -43,6 +43,9 @@ a { color: var(--indigo); }
 .sig { margin: 40px 0 8px; text-align: right; font-size: 1.1rem; color: var(--ink); letter-spacing: 0.05em; }
 
 .table-wrap { overflow-x: auto; margin: 0 0 1.5em; }
+.table-wrap.wide { width: min(1080px, calc(100vw - 32px)); margin-left: 50%; transform: translateX(-50%); }
+.table-wrap.wide table { font-size: 0.82rem; }
+.table-wrap.wide td:first-child { white-space: normal; min-width: 5em; }
 table { border-collapse: collapse; width: 100%; font-size: 0.88rem; line-height: 1.6; color: var(--ink-soft); }
 th, td { padding: 6px 10px; border-bottom: 1px solid var(--rule); text-align: start; vertical-align: top; }
 th { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--ink-dim); white-space: nowrap; }
