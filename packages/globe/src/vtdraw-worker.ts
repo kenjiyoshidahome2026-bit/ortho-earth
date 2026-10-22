@@ -8,7 +8,9 @@
 // feature-state（#109）＝paint が ["feature-state"] を読む層だけ：main が添えた状態（fs＝{ source-layer: [[id, state], …] }）を core の組み立て（buildTileDrawList・buildLabels の stateOf）へ。
 //   そのタイルの地物の id を source-layer ごとに返す（main が「どのタイルを組み直すか」に使う）。
 // 解読は同期（build の中）なので、遅延読み込みの形式は put の時に loadTileFormat を済ませてから預かる（main は put の返事を待っている）。
+// 手元のタイル（geojson vt plan G-2）＝main が送った geojson（gj＝版つき）を core の geojsonvt で索引にして預かり、build（gjv＝版）は生バイトの解読の代わりに index.tile(z,x,y) を読む。以降は vector と同じ。
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
+import { createGeojsonIndex } from "@ortho-earth/core/geojsonvt";
 import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { buildTileDrawList, DASH_GPU_MAX, dashOffsetOk } from "@ortho-earth/core/build";
@@ -19,6 +21,7 @@ import type { ExprContext } from "@ortho-earth/core/expr";
 import type { StyleLayer } from "@ortho-earth/core/build";
 import type { Label } from "@ortho-earth/core/tilelabels";
 import type { TileFeature } from "./vtops.ts";
+import type { GeojsonIndex } from "@ortho-earth/core/geojsonvt";
 
 /** build の層の 1 つ（main が正規化した層・層の順の鍵・版） */
 interface BuildLayer { id: string; layer: StyleLayer; key: number; rev?: number | null }
@@ -27,10 +30,12 @@ interface VtMsg {
 	kind: string; id: number; sid: string; key: string; enc?: string; ab?: ArrayBuffer; gs?: Record<string, unknown> | null;
 	z: number; x: number; y: number; fz: number; pz: number; promoteId?: string | Record<string, string> | null;
 	fs?: Record<string, [unknown, Record<string, unknown>][]> | null; layers: BuildLayer[]; pitch?: number;
+	ver?: number; data?: unknown; gjv?: number | null;   // 手元のタイル（gj＝data と版・build＝gjv）
 }
 type DrawOps = ReturnType<typeof buildTileDrawList>["ops"];
 
 const raw = new Map<string, { buf: Uint8Array; enc: string }>();   // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
+const gj = new Map<string, { ver: number; index: GeojsonIndex }>();   // sid → 手元の geojson の索引（版つき）
 const R2D = 180 / Math.PI;
 const tileNW = (z: number, x: number, y: number) => { const n = 2 ** z; return [x / n * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)))]; };   // タイルの原点（core の tileworker と同じ＝北西の角）
 const idOf = (f: DecodedFeature, promoteId: VtMsg["promoteId"], sl: string | undefined): unknown => { const k = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sl!]; return k != null ? f.props?.[k] : f.id; };
@@ -57,6 +62,8 @@ self.onmessage = (e: MessageEvent) => {
 			return;
 		}
 		if (m.kind === "drop") { raw.delete(`${m.sid}|${m.key}`); return; }   // 生バイトを捨てる（main の LRU）
+		if (m.kind === "gj") { gj.set(m.sid, { ver: m.ver!, index: createGeojsonIndex(m.data) }); return; }   // 返事は無い（次の build が同じ順で来る）
+		if (m.kind === "gjDrop") { gj.delete(m.sid); return; }
 		if (m.kind === "build") { if (m.gs) setGlobalState(m.gs); build(m); return; }   // gs＝main の global-state（層の filter/layout の ["global-state", k]）
 		self.postMessage({ id: m.id, error: `unknown kind ${m.kind}` });
 	} catch (err) { self.postMessage({ id: m.id, error: (err as Error)?.message || String(err) }); }
@@ -76,11 +83,11 @@ function zoomSubst(id: string, rev: number | null | undefined, pz: number, L0: S
 function build(m: VtMsg) {
 	const { sid, key, z, x, y, fz, pz, promoteId } = m;
 	const fsm = m.fs ? new Map(Object.entries(m.fs).map(([sl, list]) => [sl, new Map(list)])) : null;   // source-layer → Map<id, state>
-	const R = raw.get(`${sid}|${key}`);
-	if (!R) { self.postMessage({ id: m.id, miss: true }); return; }
+	const G = m.gjv != null ? gj.get(sid) : null, R = m.gjv != null ? null : raw.get(`${sid}|${key}`);
+	if (m.gjv != null ? G?.ver !== m.gjv : !R) { self.postMessage({ id: m.id, miss: true }); return; }
 	const need = new Set(m.layers.map(l => l.layer["source-layer"]).filter(Boolean)) as Set<string>;
 	const t0 = performance.now();   // 計器（#109 段 4・?hud=1）＝解読と組み立ての時間を返す
-	const data = (R.buf.byteLength ? decodeTile(R.buf, need, R.enc) : {}) as Record<string, DecodedLayer | undefined>;
+	const data = (G ? G.index.tile(z, x, y) : R!.buf.byteLength ? decodeTile(R!.buf, need, R!.enc) : {}) as Record<string, DecodedLayer | undefined>;
 	const t1 = performance.now();
 	const origin = tileNW(z, x, y), ops: DrawOps = [], labels: Record<string, Label[]> = {}, heat: Record<string, { ll: Float64Array<ArrayBuffer>; w: Float32Array<ArrayBuffer> }> = {}, warn: string[] = [], ids: Record<string, Set<unknown>> = {};   // heat＝heatmap 層の点（C1）＝{ 層 id: { ll: Float64Array(lon,lat…), w: Float32Array } }   // ids＝{ source-layer: Set<id> }（feature-state を読む層の地物・読む層が無ければ null で返す）
 	// 線の細分＝基図と同じ 700m（地形に沿わせる）。低ズームのタイル（z2 で 1 枚 1 万 km）では 700m だと 1 本が 24 分割に膨れる＝タイルの幅の 1/64 より細かくしない

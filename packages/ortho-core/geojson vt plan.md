@@ -18,13 +18,18 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 ## 1. 設計
 
 ### G-1 geojson の切り分け（core・純関数）
-- `geojsonvt.ts`（新）：`createGeojsonIndex(fc, { maxzoom, buffer, promoteId })` → `tile(z, x, y)` が `DecodedTile`（source-layer は 1 つ）を返す。
-  - 地物の外接矩形の格子で候補を引き、タイルの枠（＋buffer）で切る：線＝既存の `clipLineGeom`、面＝Sutherland–Hodgman（輪ごと・穴も）。点はそのまま。
-  - 座標はタイルの extent（4096）に量子化。`id`＝Feature.id／promoteId（ML_ID と同じ決め方）。式の `["geometry-type"]` は元の型（`gt`＝§4g と同じ）。
-  - 簡略化はしない（初版）。maxzoom 既定＝MapLibre の geojson source の 18（エンジンの z へ換算）。それより上は過拡大（vtdraw の既存の扱い）。
-- 検定：Node（面積の保存・枠の外に出ない・穴・日付変更線・タイルをまたぐ線の本数）。
+- `geojsonvt.ts`（新・**済**）：`createGeojsonIndex(fc, { extent, buffer, layer })` → `tile(z, x, y)` が `DecodedTile`（source-layer は 1 つ＝`GEOJSON_LAYER`＝"_geojson"）を返す。
+  - 地物の外接矩形で候補を引き（初版は素朴な走査・大きい source が来たら格子）、タイルの枠（＋buffer 64）で切る：線＝線分ごとに Liang–Barsky でつなぐ、面＝Sutherland–Hodgman（輪ごと・穴も・外周 > 0／穴 < 0 に揃える）。点は枠の中だけ。
+  - 座標はタイルの extent（4096）に量子化。`id`＝数の Feature.id だけ（MVT と同じ・promoteId は G-2 で vtdraw が属性から引く）。式の `["geometry-type"]` は元の型（`gt`＝§4g と同じ）。
+  - 日付変更線＝geojson-vt と同じく座標をそのまま読む（170→−170 は西回り）。またぐ地物は ±180 を越えた経度（190 など）で書き、世界の外にはみ出す分を ±1 周ずらして切る。
+  - 簡略化はしない（初版）。maxzoom 既定＝MapLibre の geojson source の 18（エンジンの z へ換算・G-2 で記述子に）。それより上は過拡大（vtdraw の既存の扱い）。
+- 検定：`tests/geojsonvt.mjs`（ortho-core の npm test）＝面積の保存・枠の外に出ない・穴と向き・日付変更線・タイルをまたぐ線の本数と切れ目・覆う面＝タイルの四角。
 
-### G-2 vtdraw に「手元のタイル」の source
+### G-2 vtdraw に「手元のタイル」の source（**済**・2026-10-22）
+- 実装：記述子の `local`（data そのもの）＝取得の段が無い。main は data を版つきで組み役の worker へ 1 回ずつ送り（`gj`・build より先に postMessage の順で届く）、worker は `createGeojsonIndex` を預かって build で `index.tile(z,x,y)` を読む。層は `source-layer`＝`GEOJSON_LAYER` の vector の層として組む。setData は版を上げて送り直す（出しているタイルは組み直すまで残す）。
+- 問い合わせは今までの模様の口（patItems＝画面の px）を使い続ける（隠した層・zoom 域の外は当てない）。
+- **線のずらし（line-offset）は既定で vtdraw**。**面の模様（fill-pattern）は `?gjvt=2` の時だけ**（名前が定数の層）：core の模様の塗りは地形ありの 3D で地面アトラスに焼かない（vector の層も同じ穴・互換の台帳 §6「塗りの模様」の「次の段」）＝既定で移すと地形のある地図で模様の面が消える。名前は層で一度＝属性で模様を変える層も canvas2D のまま。地面アトラスの模様が入ったら既定に替える（1 行）。
+- 門の実績：t-fillpattern（`?gjvt=2` で geojson の 3 場面＋pattern-2d を作らない・既定と両方で問い合わせ・隠す・setData）・t-linedeco ③（合成の絵で +15px）・t-linedeco?gjvt=0・t-mlcompat?g=layers（pattern-minzoom-and-query）。公式例の比べ（add-a-pattern-to-a-polygon）は外の取得が要る＝クラウドでは回していない。
 - main：geojson source を vtdraw の記述子に `local: true` で登録（タイルの選び方・LRU・層の順の鍵は vector source と同じ）。取得の段で fetch せず、worker に「切って」と頼む。
 - vtdraw-worker：`putGeojson(sid, fc, opts)` で index を作って預かる（setData＝作り直し・updateData＝差分で作り直し）。`build` の入口で生バイトの代わりに `index.tile(z,x,y)` を読む。以降の filter・buildTileDrawList・labels は vector と同じ。
 - `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。
@@ -42,8 +47,8 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 
 | 段 | 中身 | 門 | 逃げ道 |
 |---|---|---|---|
-| G-1 | 切り分け（core） | Node の検定（面積・枠・穴・日付変更線） | — |
-| G-2 | 手元のタイル＋fill-pattern・line-offset を vtdraw へ | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
+| G-1 | 切り分け（core）＝**済** | Node の検定（面積・枠・穴・日付変更線）`tests/geojsonvt.mjs` 12 項 | — |
+| G-2 | 手元のタイル＋line-offset を vtdraw へ（**済**・fill-pattern は `?gjvt=2`） | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
 | G-3 | line-gradient | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
 | G-4 | line-pattern（vector と geojson） | t-linedeco・公式例の line-pattern の場面 | `?gjvt=0` |
 
@@ -57,7 +62,7 @@ geojson の層（gint）はその描き方を持たないので、該当する�
 ## 4. 残る Canvas2D（この計画の外）
 czml-draw・screengrid-draw・anno-draw・imagequad-draw（MapLibre の層ではない自前の口）と、`map.gadget.cluster`（cluster-2d）。どれも層の位置の約束が無い＝必要が出たら個別に。
 
-## 5. 裁定待ち
+## 5. 裁定（2026-10-22 Kenji＝3 つとも推奨通り）
 1. **対象**：G-2 は pattern の層だけを vtdraw へ（推奨・gint の速さを保つ）か、geojson の層を全部 vtdraw へ（描き方が 1 本になるが、大きな面の stencil の速さを失う）。
 2. **line-gradient の進み**：線分レコードに語を足すか（8×u32 の約束を変える）、既存の語 6（距離）と地物ごとの全長の表から割合を出すか（推奨・語を足さない）。統合ロードマップ thread と擦り合わせる。
 3. **geojson の maxzoom**：MapLibre の既定 18 に合わせるか（推奨）、層ごとに source の `maxzoom` を読むか（両方＝source に書いてあれば読む）。
