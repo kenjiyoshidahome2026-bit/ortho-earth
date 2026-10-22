@@ -3181,6 +3181,9 @@ const { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints,
 	get dpr() { return dpr; },
 	get MAP_GS() { return MAP_GS; },
 	get symCtl() { return symCtl; }, set symCtl(v) { symCtl = v; },
+	get addSourceAt() { return addSourceAt; },
+	get addLayerAt() { return addLayerAt; },
+	get clusterOf() { return clusterOf; },
 }, { IMAGE_KEY, LOW_MEM, PUBLIC_DZ, ac, cam, imageAttrs, mapOn, modelCtlGet, ownDestroy, rasterChanged, readGeoData, registerGadget, requestDraw, size, wPost });
 // ── MapLibre の addSource／addLayer をそのまま（2026-09-21・「形式で相乗り」の入口）────────────────────────────
 // 層の type ごとに今日の部品へ振り分ける：fill/line/circle（集約なし）＝利用者の図形（gint＋map.paint）・fill-extrusion＝押し出し・
@@ -3766,7 +3769,6 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 // 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get MAP_GS() { return MAP_GS; },
-	get aggCtl() { return aggCtl; },
 	get clipMain() { return clipMain; },
 	get demSpec() { return demSpec; },
 	get dpr() { return dpr; },

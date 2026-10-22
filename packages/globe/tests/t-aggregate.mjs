@@ -2,7 +2,7 @@
 // 点の集約とヒートマップの計算部分（gadgets/aggregate-core.js）の常設検定。描画（オーバーレイ）は CDP で別に見る。
 // 見るもの：①点の読み出し（Point/MultiPoint・他は落ちる）②集約＝全段で件数が保存・粗い段ほど少ない・ばらける段 ez
 // ③MapLibre の既定の配色（step）・point_count_abbreviated ④ヒートマップの表（ズームの半径・密度の色表・heatmap-density）。
-import { pointsOf, buildClusters, clusterDraw, clusterFeatures, heatStyle, abbr } from "../src/gadgets/aggregate-core.ts";
+import { pointsOf, buildClusters, clusterFeatures, heatStyle, abbr, CLUSTER_DEFAULT } from "../src/gadgets/aggregate-core.ts";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
@@ -22,13 +22,9 @@ t("全段で件数が保存される", cl.levels.every(L => sum(L) === 154), cl.
 t("最も細かい段＝ばらした点・段が粗いほど減る（増えない）", cl.levels[cl.levels.length - 1].length === 154 && cl.levels.every((L, i) => i === 0 || cl.levels[i - 1].length <= L.length) && cl.levels[0].length === 1, cl.levels.map(L => L.length).join(","));   // 東京 150 点は 100m 四方＝z14 でも半径 50px に収まる＝ばらけるのは最後の段だけ
 const tokyo = cl.levels[8].find(it => it.n === 150);
 t("z8 で東京 150 点が 1 つ・ばらける段 ez が z8 より上", !!tokyo && tokyo.ez > 8, JSON.stringify(tokyo && { n: tokyo.n, ez: tokyo.ez }));
-const draw = clusterDraw(pts, cl);
-const dT = draw[8].find(c => c.n === 150), dO = draw[8].find(c => c.n === 2), dS = draw[8].find(c => c.n === 1);
-t("既定の配色＝MapLibre の step（150→黄 #f1f075・2→青 #51bbd6）", dT?.fill === "rgba(241,240,117,1)" && dO?.fill === "rgba(81,187,214,1)", JSON.stringify([dT?.fill, dO?.fill]));
-t("既定の半径（100 以上＝30）・件数の略記", dT?.r === 30 && dT?.text === "150" && abbr(2921) === "2.9k" && abbr(15000) === "15k");
-t("ばらした点＝unclustered の既定（#11b4da・半径 4・白縁 1）", dS?.fill === "rgba(17,180,218,1)" && dS?.r === 4 && dS?.sw === 1 && dS?.text === "");
-const own = clusterDraw(pts, cl, { paint: { "circle-color": ["case", [">", ["get", "point_count"], 100], "#ff0000", "#00ff00"] } });
-t("MapLibre の式で配色（point_count）", own[8].find(c => c.n === 150)?.fill === "rgba(255,0,0,1)" && own[8].find(c => c.n === 2)?.fill === "rgba(0,255,0,1)");
+t("件数の略記（point_count_abbreviated）", abbr(150) === "150" && abbr(2921) === "2.9k" && abbr(15000) === "15k" && abbr(2.5e6) === "2.5M");
+t("既定の配色＝MapLibre の公式例（step：100 未満は青・750 未満は黄・半径 20/30/40）・単点は #11b4da 半径 4 白縁 1",
+	JSON.stringify(CLUSTER_DEFAULT.paint["circle-color"]) === JSON.stringify(["step", ["get", "point_count"], "#51bbd6", 100, "#f1f075", 750, "#f28cb1"]) && CLUSTER_DEFAULT.unclustered.paint["circle-color"] === "#11b4da" && CLUSTER_DEFAULT.unclustered.paint["circle-radius"] === 4);
 
 const hs = heatStyle({ "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 10, 30], "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "#000000", 1, "#ff0000"] });
 t("ヒートマップ：半径の表（z0＝2・z10＝30・0.5 刻み）", hs.radius[0] === 2 && hs.radius[20] === 30 && hs.zStep === 0.5);
@@ -40,6 +36,7 @@ t("ヒートマップ：heatmap-density の色表（0＝黒・1＝赤・中間�
 	const sumAt = z => at(z).reduce((a, f) => a + (f.properties.cluster ? f.properties.point_count : 1), 0);
 	const zs = [-1, 0, 3, 7.5, 14, 15, 22];
 	t("cluster as data：どの段も件数の和＝点の数", zs.every(z => sumAt(z) === pts.length), zs.map(z => `${z}:${sumAt(z)}`).join(" "));
+	t("cluster as data：点の数・段ごとの数（gadget.cluster の戻り）", cf.points === pts.length && cf.counts.join() === cl.levels.map(L => L.length).join());
 	t("cluster as data：段ごとの地物＝buildClusters の段", [0, 5, 10, 14, 15].every(z => at(z).length === cl.levels[Math.min(z, cl.levels.length - 1)].length));
 	const c0 = at(5).find(f => f.properties.cluster);
 	t("cluster as data：集約は id＝cluster_id・ez・byCid", !!c0 && c0.id === c0.properties.cluster_id && c0.properties[EZ] === cf.byCid.get(c0.id) && typeof c0.properties.point_count_abbreviated === "string");

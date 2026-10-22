@@ -1,21 +1,22 @@
 // 画像（四隅で貼る画像・ドロップの自動押し出し）・点の集約とヒートマップ・記号帳（map.addImage／removeImage／updateImage／hasImage／listImages／loadSprite）と
 // 記号の層＝createGlobe から切り出した（globe.js の分割 ⑦・2026-10-15）。中身は切り出す前と同じ。createGlobe の他の所が使う物は戻り値で返す。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { evalExpr, normalizeMLLayer, rescaleZoomNum } from "@ortho-earth/core";
+import { evalExpr, normalizeMLLayer } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 import { hasHeightKey } from "../extrude-keys.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import type { MLLayer } from "@ortho-earth/core";
 import type { Feature, GeoPBF } from "geopbf";
-import type { Gadgets, OverlayHandle } from "../../globe.d.ts";
-import type { ClusterOpts } from "../gadgets/aggregate.ts";
+import type { Gadgets, LayerMouseEvent, OverlayHandle, RenderedFeature } from "../../globe.d.ts";
 import type { ImagesDeps, ImagesLive, ImagesReturn, Installing } from "../types/install.ts";
 import type { GadgetFactory, GlobeMap, ImagesApi } from "../types/map.ts";
+import type { UserSource } from "../types/scope.ts";
 
 /** ML 形 gadget の層（slot＝addLayer の層 id） */
 // cluster・symbols の本体は正規化の前の層（MLLayer＝中の目盛り）で受ける＝公開の型（MapLibre の形・source は物も）とは別＝登録で GadgetFactory へ寄せる（assertMLLayer が中で検める）
 type LayerIn = Partial<MLLayer> & { slot?: string };
-type ClusterIn = ClusterOpts & { slot?: string };
+/** cluster の指定（公開の口の目盛り・paint は集約の丸・unclustered は単点の層・text は件数の字） */
+type ClusterIn = Partial<MLLayer> & { clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, unknown>; unclustered?: Partial<MLLayer>; text?: { color?: string; size?: number }; slot?: string };
 /** 層を丸ごと渡された時の src（{ type, source:{ data } }）／MapLibre の geojson source */
 type LayerSrc = { type?: unknown; source?: { data?: unknown } } | null | undefined;
 type SourceIn = { type?: unknown; data?: unknown; cluster?: unknown; [k: string]: unknown };
@@ -63,7 +64,7 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 		catch (err) { console.warn("[extrude] failed", err); return null; }
 	};
 	// ── 点の集約（クラスタ）とヒートマップ（MapLibre の cluster／heatmap 相当・gadgets/aggregate.js・遅延chunk・2026-09-21）──────────────
-	// 描画は同一フレームのオーバーレイ（heatmap-gl.js・cluster-2d.js）＝エンジン本体は触らない。src＝GeoJSON/GeoPBF/File/URL（押し出しと同じ読み口）。
+	// ヒートマップは同一フレームのオーバーレイ（heatmap-gl.js）。src＝GeoJSON/GeoPBF/File/URL（押し出しと同じ読み口）。
 	//   heatmap(src, { paint:{ "heatmap-*": 式 }, minzoom, maxzoom }) または層を丸ごと（{ type:"heatmap", source:{ type:"geojson", data }, paint }）
 	//   cluster(src, { clusterRadius, clusterMaxZoom, paint, unclustered:{ paint }, text }) または MapLibre の source（{ type:"geojson", data, cluster:true, … }）
 	//   null＝外す。ズームは ortho の z（MapLibre の z＋1 と同じ見た目の縮尺）。
@@ -71,20 +72,47 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 	const readPoints = async (src: unknown) => (typeof src === "string" || src instanceof Blob) ? await readGeoData(src) : (!(src as PointsIn)?.type && !Array.isArray(src) && (src as PointsIn)?.geojson) ? (src as PointsIn)!.geojson : src;
 	// 中身（native）＝層は正規化済み（エンジンの目盛り）で受ける。内部（addLayer の描き出し）はこちらを直に呼ぶ＝公開の入口を二度くぐらない（台帳 R4）
 	const heatmapNative = async (src: unknown, layer: Partial<MLLayer>, slot: string) => (await aggGet()).heatmap(await readPoints(src), layer, slot);
-	const clusterNative = async (src: unknown, opts: ClusterOpts, slot: string) => (await aggGet()).cluster(await readPoints(src), opts, slot);
 	registerGadget("heatmap", async (m, src: unknown, layer: LayerIn = {}) => {
 		if (src == null) { (await aggGet()).clear("heatmap", layer.slot ?? "default"); return null; }   // slot＝addLayer の層 id（#34）・既定 "default"＝ガジェット直呼びの 1 枠
 		if ((src as LayerSrc)?.type === "heatmap") { layer = { ...(src as LayerIn), ...layer }; src = (src as LayerSrc)!.source?.data ?? (src as LayerSrc)!.source; }
 		live.assertMLLayer(layer, "heatmap");
 		return heatmapNative(src, normalizeMLLayer(layer as MLLayer, PUBLIC_DZ), layer.slot ?? "default");
 	});
+	// 集約＝集約の source（cluster:true）と 3 枚の層（丸・単点・件数）を内部で足す（2026-10-22・旧＝cluster-2d の canvas2D のオーバーレイ）＝addLayer の集約と同じ道
+	//（丸は gint・件数は注記層の GPU の字・queryRenderedFeatures／querySourceFeatures もそのまま）。id＝gadget-cluster（slot 付きは gadget-cluster:<slot>）と -clusters／-unclustered／-count。
+	// 丸をクリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）
+	const clusterIds = (slot: string) => { const s = slot === "default" ? "gadget-cluster" : `gadget-cluster:${slot}`; return { s, c: s + "-clusters", u: s + "-unclustered", t: s + "-count" }; };
+	const clusterClicks = new Map<string, (e: LayerMouseEvent) => void>();   // slot → 丸のクリック
+	const clusterClear = (slot: string) => {
+		const k = clusterIds(slot), cb = clusterClicks.get(slot);
+		if (cb) { map.off("click", k.c, cb); clusterClicks.delete(slot); }
+		for (const id of [k.t, k.u, k.c]) if (map.getLayer(id)) map.removeLayer(id);
+		if (map.getSource(k.s)) map.removeSource(k.s);
+	};
 	registerGadget("cluster", (async (m: GlobeMap, src: unknown, opts: ClusterIn = {}) => {
-		if (src == null) { (await aggGet()).clear("cluster", opts.slot ?? "default"); return null; }
+		const slot = opts.slot ?? "default";
+		clusterClear(slot);
+		if (src == null) return null;
 		if ((src as SourceIn)?.type === "geojson" && "data" in (src as object)) { const { data, cluster, type, ...rest } = src as SourceIn; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
 		live.assertMLLayer(opts, "cluster"); if (opts.unclustered) live.assertMLLayer(opts.unclustered, "cluster");
-		const o: ClusterOpts = { ...normalizeMLLayer(opts as MLLayer, PUBLIC_DZ), clusterMaxZoom: rescaleZoomNum(opts.clusterMaxZoom ?? 14, PUBLIC_DZ, 0)! };   // clusterMaxZoom の既定 14 は公開の口の目盛り
-		if (opts.unclustered) o.unclustered = normalizeMLLayer(opts.unclustered as MLLayer, PUBLIC_DZ);
-		return clusterNative(src, o, opts.slot ?? "default");
+		const { CLUSTER_DEFAULT } = await import("../gadgets/aggregate-core.ts"), k = clusterIds(slot), tx = { ...CLUSTER_DEFAULT.text, ...(opts.text || {}) };
+		let data = await readPoints(src); if (Array.isArray(data)) data = { type: "FeatureCollection", features: data };
+		live.addSourceAt(k.s, { type: "geojson", data, cluster: true, clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, ...(opts.clusterProperties ? { clusterProperties: opts.clusterProperties } : {}) } as UserSource, PUBLIC_DZ);   // 公開の口の目盛り（clusterMaxZoom の既定 14 も）
+		const L = (id: string, layer: Partial<MLLayer>, filter: unknown) => live.addLayerAt({ ...layer, id, source: k.s, filter: layer.filter != null ? ["all", filter, layer.filter] : filter } as MLLayer, undefined, PUBLIC_DZ);
+		const zr: Partial<MLLayer> = {}; for (const key of ["minzoom", "maxzoom", "metadata"] as const) if (opts[key] != null) (zr as Record<string, unknown>)[key] = opts[key];   // 集約の丸と件数の出しズーム・出自
+		await L(k.c, { type: "circle", ...zr, paint: { ...CLUSTER_DEFAULT.paint, ...(opts.paint || {}) } }, ["has", "point_count"]);
+		await L(k.u, { type: "circle", ...(opts.unclustered || {}), paint: { ...CLUSTER_DEFAULT.unclustered.paint, ...(opts.unclustered?.paint || {}) } }, ["!", ["has", "point_count"]]);
+		await L(k.t, { type: "symbol", ...zr, layout: { "text-field": ["get", "point_count_abbreviated"], "text-font": ["Noto Sans Semibold"], "text-size": tx.size, "text-allow-overlap": true, "text-ignore-placement": true },
+			paint: { "text-color": tx.color } }, ["has", "point_count"]);   // 件数は必ず出す（旧 cluster-2d と同じ＝衝突で消さない）
+		const cb = (e: LayerMouseEvent) => {
+			const f = e.features?.[0] as (RenderedFeature & { expansionZoom?: number }) | undefined, ez = f?.expansionZoom;
+			if (ez == null || f!.geometry?.type !== "Point") return;
+			const [lon, lat] = f!.geometry.coordinates as number[];
+			map.flyTo(lon, lat, Math.min(20, Math.max(ez, map.getZoom() + 1)), (map.view.pitch || 0) * 180 / Math.PI, (map.view.bearing || 0) * 180 / Math.PI);
+		};
+		map.on("click", k.c, cb); clusterClicks.set(slot, cb);
+		const cs = await live.clusterOf(k.s);
+		return { points: cs?.points ?? 0, clusters: cs?.counts ?? [] };
 	}) as GadgetFactory<Gadgets["cluster"]>);
 	// ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 	// 線に沿う geojson の注記（C9・gadgets/gjlabels.js）＝symbol-placement line/line-center の geojson の symbol 層。vector の注記と同じ口（sendLabels "vt:"）へ
@@ -133,5 +161,5 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 		return symbolsNative(src, normalizeMLLayer(layer as MLLayer, PUBLIC_DZ));
 	}) as GadgetFactory<Gadgets["symbols"]>);
 
-	return { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints, clusterNative, aggGet, pendingImages, heatmapNative, gjIsLine, gjGet, symbolsNative };
+	return { imageMissing, symGet, placeImages, clearImages, autoExtrude, readPoints, aggGet, pendingImages, heatmapNative, gjIsLine, gjGet, symbolsNative };
 }

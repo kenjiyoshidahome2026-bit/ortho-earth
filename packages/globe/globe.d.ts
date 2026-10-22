@@ -488,8 +488,9 @@ export interface Gadgets {
 	/** ヒートマップ（MapLibre の heatmap 層相当・同一フレームのオーバーレイ＝WebGL2）。src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと（source つき）。
 	 *  paint の意味と既定値は MapLibre どおり（radius 30・weight 1・intensity 1・opacity 1・color は ["heatmap-density"] 0..1 の既定の青→赤）。null で外す */
 	heatmap(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | HeatmapLayer | null, layer?: Omit<HeatmapLayer, "type" | "source">): Promise<{ points: number } | null>;
-	/** 点の集約（MapLibre の cluster 相当・canvas2D のオーバーレイ）。src＝点のデータか MapLibre の source（{ type:"geojson", data, cluster:true, clusterRadius, clusterMaxZoom }）。
-	 *  集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。queryRenderedFeatures の点の問い合わせに "clusters"/"unclustered-point" で出る */
+	/** 点の集約（MapLibre の cluster 相当）。src＝点のデータか MapLibre の source（{ type:"geojson", data, cluster:true, clusterRadius, clusterMaxZoom }）。
+	 *  中で集約の source と 3 枚の層を足す（2026-10-22〜・丸は GPU・件数は注記層）＝source "gadget-cluster"・層 "gadget-cluster-clusters"／"-unclustered"／"-count"
+	 * （opts.slot を付けると "gadget-cluster:<slot>"…＝並べられる）。集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。null で外す */
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m／リアルタイムの影＝時刻スライダー・WebGPU のみ）＝map.sunShadow・map.setShadows の UI */
 	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): (() => void) & { open?(): HTMLElement; close?(): void };
@@ -796,7 +797,7 @@ export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "bas
 export interface HeatmapLayer { type: "heatmap"; id?: string; source?: { type: "geojson"; data: GeoJSONFeatureCollection | string } | GeoJSONFeatureCollection | string; "source-layer"?: string;   // source が文字列＝addSource した source（vector なら "source-layer" が要る＝C1） minzoom?: number; maxzoom?: number;
 	paint?: { "heatmap-radius"?: StyleExpression; "heatmap-weight"?: StyleExpression; "heatmap-intensity"?: StyleExpression; "heatmap-color"?: StyleExpression; "heatmap-opacity"?: number } }
 export interface CirclePaint { "circle-color"?: StyleExpression; "circle-radius"?: StyleExpression; "circle-stroke-color"?: StyleExpression; "circle-stroke-width"?: StyleExpression; "circle-opacity"?: StyleExpression }
-export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number } }
+export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number }; /** 並べる時の名前（既定 "default"＝置き換え） */ slot?: string }
 export type MapLibreSource =
 	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] }。
 	 *  URL に鍵の問い合わせ（token・key・apikey…）が付いている時だけ、transformRequest を通して直に取る（型は "Source"・proxy を通らない・1.14.0〜）。
