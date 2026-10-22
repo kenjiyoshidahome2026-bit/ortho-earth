@@ -335,12 +335,13 @@ mapEl.lang = getLang();
 mapEl.dir = isRTL() ? "rtl" : "ltr";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
-// ?text=gpu（テキスト GPU 化 T-P1 の足場）＝線に沿う注記の字を注記の上の webgpu canvas（#labelsgpu）へ。WebGPU で起動できた時だけ worker が使う（GL2 では空のまま）
+// 注記の字は既定で WebGPU（テキスト GPU 化・本人の Mac の門 2026-10-22 の後に既定化）＝注記の上の webgpu canvas（#labelsgpu）と地図のパスの中（層の位置）へ。
+// WebGPU で起動できた時だけ worker が使う（GL2 に落ちたら空のまま＝Canvas2D）。?text=2d＝今までの Canvas2D（逃げ道）・?text=gpu は既定と同じ
 // geojson の線のずらしの層＝geojson を worker でタイルに切って vtdraw へ（geojson vt plan G-2・2026-10-22）。?gjvt=0＝今までの pattern-2d（canvas2D の重ね描き）。
 // 面の模様は ?gjvt=2 の時だけ（名前が定数の層）＝core の模様の塗りは地形ありの 3D で地面アトラスに焼かない（描かれない）・名前は層で一度（属性を読まない）＝そこが埋まるまで既定は canvas2D
 const GJVT = !/[?&]gjvt=0(?:&|$)/.test(location.search), GJVT_FILL = /[?&]gjvt=2(?:&|$)/.test(location.search);
 const PER_FEATURE = /"(get|has|properties|feature-state|id|geometry-type)"/;   // 式が地物を読む（データ駆動）
-const TEXT_GPU = "gpu" in navigator && /[?&]text=gpu(?:&|$)/.test(location.search);
+const TEXT_GPU = "gpu" in navigator && !/[?&]text=2d(?:&|$)/.test(location.search);
 for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
 // canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。

@@ -6,7 +6,7 @@
 // index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
-import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・?text=gpu の時だけ据える）
+import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
 import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
@@ -113,7 +113,7 @@ interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; _
 type PerfMem = { memory?: { usedJSHeapSize: number } };
 
 let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
-// ?text=gpu（T-P1・T-P2 の足場）＝注記の字（線に沿う・点）は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
+// 注記の字（既定・?text=2d で Canvas2D・T-P1・T-P2）＝注記の字（線に沿う・点）は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
 let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null, textInPass = false;   // textInPass＝注記を地図より先に描き、層の位置の字を地図のパスへ渡す（T-P2）
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
@@ -628,7 +628,7 @@ function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま�
 	const lw = labelCanvas.width, lh = labelCanvas.height;
 	return { labels: new Uint8Array(labelCanvas.getContext("2d")!.getImageData(0, 0, lw, lh).data.buffer), lw, lh };
 }
-// 撮影の注記（WebGPU）＝?text=gpu の線に沿う字も Canvas2D へ描いて注記の 1 枚で読む（GPU の字は別の canvas）。読んだら GPU の字へ戻して描き直す
+// 撮影の注記（WebGPU）＝GPU の線に沿う字も Canvas2D へ描いて注記の 1 枚で読む（GPU の字は別の canvas）。読んだら GPU の字へ戻して描き直す
 function labelsForShot() {
 	if (!labelLayer || !cam) return readLabels();
 	if (!textSink) { labelLayer.draw(cam); return readLabels(); }
