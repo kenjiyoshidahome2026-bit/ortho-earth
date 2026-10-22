@@ -579,6 +579,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const dx = PJ[0], dy = PJ[1], front = PJ[2];
 			if (clipPl && clipDistanceM(clipPl, L.anchor[0], L.anchor[1], (rad - 1) * worldRadiusM()) < 0) continue;   // 断面で切られた側（#111 段 3）
 			if (front < 0) { if (!L.lp) ptDbg(L, "back", () => [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
+			if (L.hz && front / Math.sqrt(Math.max(1e-12, st.eye[0] * st.eye[0] + st.eye[1] * st.eye[1] + st.eye[2] * st.eye[2] - 2 * front - 1)) < L.hz) { ptDbg(L, "back"); continue; }   // 縁の近く（hz）：front＝dot(u,E)−1・|E−u|²＝|E|²−2·front−1 ⇒ 余弦＝front／|E−u|（symbols-2d と同じ式）
 			const tr = L.tt ? translateOf(L.tt, L.tta, bearing) : TR0, sx = dx / dpr + tr[0], sy = dy / dpr + tr[1];   // text-translate＝錨の画面位置に足す（線に沿う注記は読まない）
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
 				const dl = dbg.line!; dl.n++;
