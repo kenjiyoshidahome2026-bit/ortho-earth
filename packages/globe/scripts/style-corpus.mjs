@@ -12,7 +12,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { splitMapLibreStyle } from "../../ortho-core/src/mlstyle.ts";
+import { splitMapLibreStyle, convertValue } from "../../ortho-core/src/mlstyle.ts";
+import { exprDeps } from "../../ortho-core/src/expr.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CACHE = path.join(ROOT, ".cache/style-corpus");
@@ -97,7 +98,17 @@ export function analyze(style) {
 	const hits = Object.fromEntries(GAPS.map(g => [g.key, 0])), reasons = {};
 	for (const L of layers) for (const g of GAPS) if (g.test(L, ctx)) hits[g.key]++;
 	for (const why of ctx.skipped.values()) if (DROPPED.test(why)) { const k = why.replace(/"[^"]*"/g, "…"); reasons[k] = (reasons[k] || 0) + 1; }
-	return { layers: layers.length, hits, reasons };
+	// 式の分類（exprDeps の kind・描画の統合ロードマップ 波 1 の 3＝V-Ph3 の paint 表の設計材料）：paint／layout の値ごとに数える。
+	// (a) constant・zoom＝毎フレーム表を書けば連続 (b) data＝タイルで焼く行 (c) zoom×data＝z と z+1 を頂点に焼く受け皿
+	const kinds = { paint: {}, layout: {} }, mixed = {}, state = { paint: 0, layout: 0 };
+	for (const L of layers) for (const part of ["paint", "layout"]) for (const [p, v] of Object.entries(L[part] || {})) {
+		if (p === "visibility") continue;
+		const d = exprDeps(convertValue(v, p));
+		kinds[part][d.kind] = (kinds[part][d.kind] || 0) + 1;
+		if (d.state) state[part]++;
+		if (d.kind === "zoom×data") mixed[p] = (mixed[p] || 0) + 1;
+	}
+	return { layers: layers.length, hits, reasons, kinds, mixed, state };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -110,10 +121,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		.filter(r => r.layers > 0).sort((a, b) => b.styles - a.styles || b.layers - a.layers);
 	const reasons = {};
 	for (const n of names) for (const [k, v] of Object.entries(per[n].reasons)) reasons[k] = (reasons[k] || 0) + v;
-	if (asJson) { console.log(JSON.stringify({ styles: per, rows, reasons }, null, 2)); process.exit(0); }
+	const KINDS = ["constant", "zoom", "data", "zoom×data"], kinds = { paint: {}, layout: {} }, mixed = {};
+	for (const n of names) {
+		for (const part of ["paint", "layout"]) for (const [k, v] of Object.entries(per[n].kinds[part])) kinds[part][k] = (kinds[part][k] || 0) + v;
+		for (const [p, v] of Object.entries(per[n].mixed)) mixed[p] = (mixed[p] || 0) + v;
+	}
+	if (asJson) { console.log(JSON.stringify({ styles: per, rows, reasons, kinds, mixed }, null, 2)); process.exit(0); }
 	const total = names.reduce((a, n) => a + per[n].layers, 0);
 	console.log(`style ${names.length} 本・層 ${total}（${names.join(", ")}）\n`);
 	console.log("| 差 | style | 層 | 優先の 2 本 | 中身 |\n|---|---|---|---|---|");
 	for (const r of rows) console.log(`| ${r.key} | ${r.styles}/${names.length} | ${r.layers} | ${r.primary} | ${r.why} |`);
 	if (Object.keys(reasons).length) { console.log("\n描かない層の理由（splitMapLibreStyle）："); for (const [k, v] of Object.entries(reasons).sort((a, b) => b[1] - a[1])) console.log(`  ${v}  ${k}`); }
+	console.log("\n式の分類（paint／layout の値の数・exprDeps の kind）：\n\n| kind | paint | layout | style の本数（paint） |\n|---|---|---|---|");
+	for (const k of KINDS) console.log(`| ${k} | ${kinds.paint[k] || 0} | ${kinds.layout[k] || 0} | ${names.filter(n => per[n].kinds.paint[k]).length}/${names.length} |`);
+	const mixedTop = Object.entries(mixed).sort((a, b) => b[1] - a[1]);
+	if (mixedTop.length) console.log(`\nzoom×data の性質：${mixedTop.map(([p, v]) => `${p} ${v}`).join("・")}（style ごと：${names.filter(n => Object.keys(per[n].mixed).length).map(n => `${n} ${Object.values(per[n].mixed).reduce((a, b) => a + b, 0)}`).join("・")}）`);
 }

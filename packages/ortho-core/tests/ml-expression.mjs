@@ -4,7 +4,7 @@
 // 既知の失敗＝tests/ml-expression-known.json（名前 → 分類）。一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。
 // --update で一覧を今の結果に書き換える・--list で失敗の中身を出す
 import fs from "node:fs";
-import { evalExpr, formatSections } from "../src/expr.ts";
+import { evalExpr, formatSections, exprDeps } from "../src/expr.ts";
 import { convertValue } from "../src/mlstyle.ts";
 import { parseRGBA, isColor } from "../src/color.ts";
 
@@ -84,14 +84,23 @@ function judge(t) {
 	return cls;
 }
 
+// 式の分類（exprDeps の kind）を本物の isFeatureConstant／isZoomConstant と照合する（描画の統合ロードマップ 波 1 の 3）
+function kindOf(t) {
+	const c = t.expected.compiled;
+	if (c.result !== "success") return null;
+	const want = c.isZoomConstant ? (c.isFeatureConstant ? "constant" : "data") : (c.isFeatureConstant ? "zoom" : "zoom×data");
+	const got = exprDeps(convertValue(t.expression, propOf(t.propertySpec))).kind;
+	return got === want ? null : `kind ${got}（本物は ${want}）`;
+}
 const results = {}, detail = {};
 for (const [name, t] of Object.entries(tests)) {
 	try { results[name] = judge(t); } catch (err) { results[name] = "crash"; detail[name] = String(err?.message || err); }
+	const k = kindOf(t); if (k) results[name + "#kind"] = k;
 }
 const count = {};
-for (const c of Object.values(results)) count[c] = (count[c] || 0) + 1;
-const total = Object.keys(results).length;
-console.log(`MapLibre expression tests (${source.repo} ${source.version} ${source.commit.slice(0, 8)}): ${count.pass || 0}/${total} pass  ` + Object.entries(count).filter(([k]) => k !== "pass").map(([k, v]) => `${k} ${v}`).join("  "));
+for (const [name, c] of Object.entries(results)) if (!name.endsWith("#kind")) count[c] = (count[c] || 0) + 1;
+const total = Object.keys(tests).length, kindBad = Object.keys(results).filter(n => n.endsWith("#kind")).length;
+console.log(`MapLibre expression tests (${source.repo} ${source.version} ${source.commit.slice(0, 8)}): ${count.pass || 0}/${total} pass  ` + Object.entries(count).filter(([k]) => k !== "pass").map(([k, v]) => `${k} ${v}`).join("  ") + `  ｜式の分類が本物と違う ${kindBad}`);
 
 if (UPDATE) {
 	const out = Object.fromEntries(Object.entries(results).filter(([, c]) => c !== "pass").sort());
@@ -104,8 +113,12 @@ for (const [name, c] of Object.entries(results)) {
 	const k = known[name];
 	if (c === "pass" && k) { console.log(`FIXED  ${name}（一覧は ${k}）＝--update で外す`); fails++; }
 	else if (c !== "pass" && k !== c) { console.log(`FAIL   ${name}: ${c}${k ? `（一覧は ${k}）` : ""}${detail[name] ? "  " + detail[name] : ""}`); fails++; }
-	if (LIST && c !== "pass") { const t = tests[name]; console.log(`--- ${name} [${c}]\n  expr ${JSON.stringify(t.expression)}\n  want ${JSON.stringify(t.expected.outputs ?? t.expected.compiled.errors)}\n  got  ${t.expected.compiled.result === "error" ? "(accepted)" : JSON.stringify(evaluate(t).map(v => v === ERR ? { error: true } : v))}`); }
+	if (LIST && c !== "pass" && tests[name]) { const t = tests[name]; console.log(`--- ${name} [${c}]\n  expr ${JSON.stringify(t.expression)}\n  want ${JSON.stringify(t.expected.outputs ?? t.expected.compiled.errors)}\n  got  ${t.expected.compiled.result === "error" ? "(accepted)" : JSON.stringify(evaluate(t).map(v => v === ERR ? { error: true } : v))}`); }
 }
-for (const name of Object.keys(known)) if (!(name in results)) { console.log(`STALE  ${name}（取り置きに無い）`); fails++; }
+for (const name of Object.keys(known)) if (!(name in results)) {
+	if (name.endsWith("#kind") && name.slice(0, -5) in tests) console.log(`FIXED  ${name}（一覧は ${known[name]}）＝--update で外す`);
+	else console.log(`STALE  ${name}（取り置きに無い）`);
+	fails++;
+}
 if (fails) { console.log(`\n${fails} unexpected result(s)`); process.exit(1); }
 console.log("ml-expression: OK");
