@@ -56,6 +56,7 @@ export function packMLLayers(layers: readonly MLPassLayer[]): MLPass[] {
 const inZoom = (L: MLPassLayer, z: number): boolean => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);   // MapLibre＝minzoom 包含・maxzoom 排他
 const kindOf = (t: string): "pt" | "ln" | "pg" | null => t === "Point" || t === "MultiPoint" ? "pt" : t === "LineString" || t === "MultiLineString" ? "ln" : t === "Polygon" || t === "MultiPolygon" ? "pg" : null;
 const clampU8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+const clampU16 = (v: number): number => Math.max(0, Math.min(65535, Math.round(v)));   // 線幅（1/8px・2026-10-22 から u16＝旧の u8 は約 32px で頭打ち）
 function packColor(c: readonly number[], opacity: number): number {
 	const a = Math.round(Math.max(0, Math.min(1, (c[3] ?? 1) * opacity)) * 255);
 	if (a === 0) return 0;
@@ -96,7 +97,7 @@ export function buildMLTable(pass: MLPass, features: readonly (MLTableFeature | 
 		if (Ln && (k === "ln" || k === "pg") && pass_(Ln)) {
 			const c = packColor(color(Ln, "line-color", ctx), num(Ln, "line-opacity", ctx)), w = num(Ln, "line-width", ctx);
 			if (c && w > 0) {
-				line = c; w8 = Math.max(1, clampU8(w * 8)); drawn[Ln.id][fid] = 1;
+				line = c; w8 = Math.max(1, clampU16(w * 8)); drawn[Ln.id][fid] = 1;
 				// 破線（MapLibre＝線幅の倍数）。先頭の [線, 間] の対だけ＝3 要素以上は近似（台帳の文書）。間 0・線 0 は実線
 				const da = Ln.paint?.["line-dasharray"] != null ? evalExpr(Ln.paint["line-dasharray"], ctx) : null;
 				if (Array.isArray(da) && da.length >= 2 && da[0] > 0 && da[1] > 0) aw = ((Math.min(65535, Math.round(da[0] * w * 8)) << 16) | Math.min(65535, Math.round(da[1] * w * 8))) >>> 0;
@@ -108,12 +109,12 @@ export function buildMLTable(pass: MLPass, features: readonly (MLTableFeature | 
 			if (r > 0 && (c || sc)) {
 				r8 = Math.max(1, clampU8(r * 4)); drawn[C.id][fid] = 1;
 				if (c) line = c; else flags |= 2;   // 塗りが透明で縁だけ＝中空の円（色 α0 は既定色なので印で消す）
-				if (sc) { aw = sc; w8 = Math.max(1, clampU8(sw * 8)); }   // 縁（点では線幅の欄が縁の幅）
+				if (sc) { aw = sc; w8 = Math.max(1, clampU16(sw * 8)); }   // 縁（点では線幅の欄が縁の幅）
 			}
 		}
 		const vis = fill || w8 || r8 ? 1 : 0;   // 何も描かない地物は隠す（照会・ホバーにも出ない）
 		const j = fid * 4;
-		u32[j] = fill; u32[j + 1] = line; u32[j + 2] = ((w8 << 24) | (0 << 16) | (r8 << 8) | flags | vis) >>> 0; u32[j + 3] = aw;
+		u32[j] = fill; u32[j + 1] = line; u32[j + 2] = (((w8 & 255) << 24) | ((w8 >> 8) << 16) | (r8 << 8) | flags | vis) >>> 0; u32[j + 3] = aw;   // 線幅の上位は bit 16〜23（gint/style.ts の B 語）
 	}
 	return { u32, count, drawn, active: act.map(L => L.id) };
 }

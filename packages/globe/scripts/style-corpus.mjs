@@ -54,15 +54,11 @@ function maxOut(v) {
 const DROPPED = /pattern|unknown expression operator/;
 const has = (L, k) => L.paint?.[k] != null || L.layout?.[k] != null;
 export const GAPS = [
-	{ key: "line-cap", why: "線の端は WebGPU で常に丸（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-1）", test: L => L.type === "line" && (L.layout?.["line-cap"] ?? "butt") !== "round" },
-	{ key: "line-join", why: "線の継ぎは WebGPU で常に丸（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-1）", test: L => L.type === "line" && (L.layout?.["line-join"] ?? "miter") !== "round" },
 	{ key: "basemap-paint-zoom", why: "基図の paint はタイルの z で焼く（ズームに連続でない）", test: (L, c) => c.base.has(L.id) && L.type !== "symbol" && L.type !== "background" && Object.values(L.paint || {}).some(usesZoom) },
 	{ key: "after-symbol", why: "注記より後ろの塗り・線（注記は常に最上段）", test: (L, c) => c.afterSymbol.has(L.id) },
-	{ key: "line-width-32", why: "線幅の上限 約 32px（表の u8）", test: L => L.type === "line" && maxOut(L.paint?.["line-width"]) + Math.max(0, maxOut(L.paint?.["line-gap-width"])) * 2 > 32 },
-	{ key: "dasharray-3+", why: "WebGPU は破線をタイルの z の尺で刻む（GL2 は 2026-10-22 から MapLibre と同じ＝S-P1-3）", test: L => { const d = L.paint?.["line-dasharray"]; return Array.isArray(d) && typeof d[0] === "number" ? d.length > 2 : d != null && /\[(\s*-?[\d.]+\s*,){2,}/.test(json(d)); } },
-	{ key: "pattern", why: "fill-pattern は GL2 だけ（2026-10-22・S-P1-4/5・WebGPU と 3D の塗りは描かない・大きさは cos φ 倍）・line-pattern・background-pattern・fill-extrusion-pattern は未", test: L => ["fill-pattern", "line-pattern", "background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
-	{ key: "translate", why: "*-translate（-anchor）＝WebGPU・3D の塗り・押し出しは読まない（GL2 は 2026-10-22 から＝S-P1-4/5）", test: L => ["fill-translate", "line-translate", "circle-translate", "fill-extrusion-translate"].some(k => has(L, k)) },
-	{ key: "blur", why: "line-blur・circle-blur＝WebGPU は読まない（GL2 は 2026-10-22 から＝S-P1-4/5）", test: L => (has(L, "line-blur") && maxOut(L.paint["line-blur"]) > 0) || (has(L, "circle-blur") && maxOut(L.paint["circle-blur"]) > 0) },
+	{ key: "dasharray-cpu", why: "ずらす層（line-offset・line-gap-width）と模様 9 個以上の破線は CPU でタイルの z の尺に刻む（他は 2026-10-22 から GL2・WebGPU とも MapLibre と同じ＝S-P1-3）", test: L => has(L, "line-dasharray") && (has(L, "line-offset") || has(L, "line-gap-width") || (Array.isArray(L.paint["line-dasharray"]) && L.paint["line-dasharray"].length > 8)) },
+	{ key: "pattern", why: "line-pattern・background-pattern・fill-extrusion-pattern は未（fill-pattern は 2026-10-22 から GL2・WebGPU＝S-P1-4/5・大きさは cos φ 倍）", test: L => ["line-pattern", "background-pattern", "fill-extrusion-pattern"].some(k => has(L, k)) },
+	{ key: "translate", why: "fill-extrusion-translate は読まない（塗り・線・円の translate は 2026-10-22 から GL2・WebGPU＝S-P1-4/5）", test: L => has(L, "fill-extrusion-translate") },
 	{ key: "line-gradient", why: "line-gradient", test: L => has(L, "line-gradient") },
 	{ key: "circle-pitch", why: "circle-pitch-scale・circle-pitch-alignment map", test: L => has(L, "circle-pitch-scale") || L.paint?.["circle-pitch-alignment"] === "map" },
 	{ key: "symbol-misc", why: "symbol-avoid-edges・icon-keep-upright", test: L => L.layout?.["symbol-avoid-edges"] === true || L.layout?.["icon-keep-upright"] === true },

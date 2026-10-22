@@ -1,6 +1,6 @@
 // Gint の式の契約の検定（gint draw spec.md §5・§6.1・§6.2＝説明書 docs/gint §2.3・§4 が約束する範囲）。node packages/ortho-core/tests/gint-expr.mjs
 // 守るもの：①契約の演算子（globe.d.ts の一覧）がすべて fid 表まで届く ②評価規約（=== の比較・欠けた値・throw しない・入れ子の色の補間）
-// ③fid 表の詰め方（width 1/8・radius 1/4・visible ビット・点は circle-color・opacity の掛け方・dash-id は 0）
+// ③fid 表の詰め方（width 1/8・radius 1/4・visible ビット・点は circle-color・opacity の掛け方・線幅は u16）
 import assert from "node:assert/strict";
 import { buildFidStyle } from "../src/gint/style.ts";
 let n = 0;
@@ -13,7 +13,7 @@ const point = (properties = {}) => ({ properties, geometry: { type: "Point" } })
 // 1 地物の fid 表を読む
 const rec = (paint, f = poly(), opts = {}) => {
 	const { u32 } = buildFidStyle(paint, [f], opts);
-	return { fill: u32[0] >>> 0, line: u32[1] >>> 0, w8: u32[2] >>> 24, dash: (u32[2] >>> 16) & 255, r4: (u32[2] >>> 8) & 255, vis: u32[2] & 1 };
+	return { fill: u32[0] >>> 0, line: u32[1] >>> 0, w8: (u32[2] >>> 24) | (((u32[2] >>> 16) & 255) << 8), r4: (u32[2] >>> 8) & 255, vis: u32[2] & 1 };
 };
 const fill = (expr, props, opts) => rec({ "fill-color": expr }, poly(props), opts).fill;
 const width = (expr, props, opts) => rec({ "line-width": expr }, poly(props), opts).w8 / 8;
@@ -100,10 +100,10 @@ t("throw しない：未知の演算子・壊れた式はその欄を既定へ�
 });
 
 // ── fid 表の詰め方（§7.1）──
-t("既定（プロパティ無し）：塗り 0・線色 0・幅 1・半径 1.5・visible・dash-id 0", () =>
-	assert.deepEqual(rec({}), { fill: 0, line: 0, w8: 8, dash: 0, r4: 6, vis: 1 }));
-t("line-width は 1/8・最大 31.875／circle-radius は 1/4・最大 63.75", () => {
-	assert.equal(rec({ "line-width": 2.5 }).w8, 20); assert.equal(rec({ "line-width": 40 }).w8, 255);
+t("既定（プロパティ無し）：塗り 0・線色 0・幅 1・半径 1.5・visible", () =>
+	assert.deepEqual(rec({}), { fill: 0, line: 0, w8: 8, r4: 6, vis: 1 }));
+t("line-width は 1/8・最大 8191.875（u16・2026-10-22 から＝旧 u8 の 31.875 で頭打ちしない）／circle-radius は 1/4・最大 63.75", () => {
+	assert.equal(rec({ "line-width": 2.5 }).w8, 20); assert.equal(rec({ "line-width": 40 }).w8, 320); assert.equal(rec({ "line-width": 9000 }).w8, 65535);
 	assert.equal(rec({ "circle-radius": 4 }).r4, 16); assert.equal(rec({ "circle-radius": 100 }).r4, 255);
 	assert.equal(rec({ "line-width": 0 }).w8, 0);
 });

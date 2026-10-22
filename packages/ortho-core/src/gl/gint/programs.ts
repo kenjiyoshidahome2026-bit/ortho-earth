@@ -539,7 +539,7 @@ bool fidPointStyle(int feat_id, inout float r, inout vec4 col, inout vec4 scol, 
 	uint lc = rec.g;
 	if ((rec.b & 2u) != 0u) col = vec4(0.0);
 	else if ((lc & 255u) != 0u) col = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
-	uint w8 = (rec.b >> 24u) & 255u;
+	uint w8 = (rec.b >> 24u) | (((rec.b >> 16u) & 255u) << 8u);   // 線幅 u16（1/8px・下位は bit 24〜・上位は bit 16〜＝2026-10-22 から）
 	if (rec.a != 0u && w8 != 0u) { scol = vec4(float(rec.a >> 24u), float((rec.a >> 16u) & 255u), float((rec.a >> 8u) & 255u), float(rec.a & 255u)) / 255.0; sw = float(w8) * 0.125 * u_dpr; }
 	return true;
 }
@@ -752,7 +752,7 @@ void main() {
 		uvec4 rec = texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0);
 		if (rec.a != 0u) fidDash = vec2(float(rec.a >> 16u), float(rec.a & 0xFFFFu)) * 0.125 * u_fid_wscale;
 		if ((rec.b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-		uint w8 = (rec.b >> 24u) & 255u;
+		uint w8 = (rec.b >> 24u) | (((rec.b >> 16u) & 255u) << 8u);   // 線幅 u16（1/8px・下位は bit 24〜・上位は bit 16〜＝2026-10-22 から）
 		if (w8 == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 		lw = float(w8) * 0.125 * u_fid_wscale + u_width_add;
 		uint lc = rec.g;
