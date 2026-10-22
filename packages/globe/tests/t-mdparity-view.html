@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- t-mdparity の子（1 枚の絵を描いて親へ画素を返す）。?md=1／?nomd=1 と ?v=2d|3d を親が付ける。単体でも開ける（title に PASS/FAIL） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mdparity-view</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const Q = new URLSearchParams(location.search), v = Q.get("v") || "2d";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 塗り（水域・建物の足元）・線（道路の中心線）・押し出し（建物）＝fill/line/bld の 3 プール。注記は入れない（Canvas2D の置き時刻で絵が揺れる＝比較の対象外）
+const style = {
+	version: 8, name: "t-mdparity",
+	sources: { gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
+	layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+		{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": "#3060c0" } },
+		{ id: "bldfp", type: "fill", source: "gsi", "source-layer": "BldA", paint: { "fill-color": "#d8d2c4" } },
+		{ id: "road", type: "line", source: "gsi", "source-layer": "RdCL", paint: { "line-color": "#c03030", "line-width": 2.5 } },
+		{ id: "shore", type: "line", source: "gsi", "source-layer": "WA", paint: { "line-color": "#102060", "line-width": 1.5, "line-offset": 3 } },
+		...(v === "3d" ? [{ id: "bld3d", type: "fill-extrusion", source: "gsi", "source-layer": "BldA", paint: { "fill-extrusion-height": 18, "fill-extrusion-color": "#c8c0b0" } }] : []),
+	],
+};
+try {
+	const map = await createGlobe({ target: "#map", view: "#16.2/35.681/139.765", chips: false, debugGlobals: true, style });
+	if (v === "3d") map.jumpTo({ center: [139.765, 35.681], zoom: 16, pitch: 55, bearing: 30 });
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const same = (a, b) => { if (!a || a.width !== b.width || a.height !== b.height) return false; const A = a.data, B = b.data; for (let i = 0; i < A.length; i += 4) if (A[i] !== B[i] || A[i + 1] !== B[i + 1] || A[i + 2] !== B[i + 2]) return false; return true; };
+	// 着地待ち＝決め打ちの時間でなく「2 秒おきの 2 枚が bit 一致するまで」（SwiftShader の負荷で着地が遅れても静止画を比べる・上限 60 秒＝9 秒の決め打ちは並べて回すと 3d が 1% 違った 2026-10-22）
+	await sleep(4000);
+	let img = await grab(), prev = null;
+	for (const t0 = performance.now(); !same(prev, img) && performance.now() - t0 < 60000;) { prev = img; await sleep(2000); img = await grab(); }
+	const msg = { type: "mdparity", v, md: Q.get("nomd") === "1" ? 0 : 1, w: img.width, h: img.height, data: img.data.buffer, settled: same(prev, img) };
+	if (parent !== window) parent.postMessage(msg, "*", [img.data.buffer]);
+	document.title = `PASS ${v} ${img.width}x${img.height}`;
+} catch (e) {
+	if (parent !== window) parent.postMessage({ type: "mdparity", v, error: String(e && e.message || e) }, "*");
+	document.title = "FAIL " + (e && e.message || e);
+}
+</script>
+</body></html>

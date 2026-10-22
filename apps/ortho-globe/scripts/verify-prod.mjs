@@ -4,7 +4,7 @@
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
-//   ② 実走: 8 頁が起動する（/globe/・/globe/?start=equal・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs）＝地球儀が立ち、衛星・雲・地形・人口はデータが載る（世界の地震は 2026-10-15 に apps/quakes へ独立＝そちらの verify-prod）
+//   ② 実走: 9 頁が起動する（/globe/・/globe/?start=equal・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs・/globe/splat）＝地球儀が立ち、衛星・雲・地形・人口はデータが載る（世界の地震は 2026-10-15 に apps/quakes へ独立＝そちらの verify-prod）
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない・共有エンジンから読んだファイルに地域の物が無い（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -39,7 +39,12 @@ if (!fs.existsSync(path.join(SITE, "globe/index.html"))) fail("dist/site/globe �
 	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(js|html)$/.test(e.name)) { const hit = regionIn(p); if (hit) bad.push(`${path.relative(SITE, p)}: ${hit}`); } } };
 	walk(path.join(SITE, "globe"));
 	if (bad.length) fail(`static: 地域／japan の物が束に混ざっている\n  ${bad.join("\n  ")}`);
-	console.log("ok:static（japan の SDK・地域の申告なし）");
+	// 束の中に生の .ts が居ない（SDK の plugin の描き手 new URL("./splat-draw.js", import.meta.url) を vite が資産と見て .ts のまま写した事故＝worker の import() が
+	// 読めない・2026-10-21）。アプリの束で実体のチャンクにするのは vite-app.mjs の moduleUrlAsChunk
+	const raw = []; const walkTs = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walkTs(p); else if (/\.(ts|tsx|mts)$/.test(e.name)) raw.push(path.relative(SITE, p)); } };
+	walkTs(path.join(SITE, "globe"));
+	if (raw.length) fail(`static: 生の TypeScript が束に出ている（vite が資産扱い＝worker が import() できない）\n  ${raw.join("\n  ")}`);
+	console.log("ok:static（japan の SDK・地域の申告なし・生の .ts なし）");
 }
 
 // 配る（本番の deploy-worker と同じ規則）＋ /globe/ の外は本番へ中継
@@ -110,6 +115,8 @@ const PAGES = [
 	{ name: "clock", url: "/globe/clock", ready: `${BOOTED} && window.__clock && window.__clock.at([139.7, 35.7]).resolved.tz === "Asia/Tokyo" && window.__clock.at([32.85, 39.93]).resolved.tz === "Europe/Istanbul"`, ms: 90000 },
 	// 人口の六角形＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/（scripts/kontur-h3.mjs → publish-pages.mjs）。全景で解像度 3 の柱が 1 万本以上立つ
 	{ name: "hex", url: "/globe/hex", ready: `${BOOTED} && window.__hex && window.__hex.cells > 10000`, ms: 90000 },
+	// Gaussian splat＝GitHub Pages の ortho-data/globe/splat/（scripts/splat-tiles.mjs → publish-pages.mjs）。3D Tiles の根 2 枚（2 シーン）が読めて見えた（SPZ のタイルは plugin が解く＝stats.splats には乗らない・shown で見る）
+	{ name: "splat", url: "/globe/splat", ready: `${BOOTED} && window.__splat && window.__splat.ready && window.__splat.tiles.shown >= 2`, ms: 120000 },
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {
 	const p = await open(ORIGIN + pg.url), t0 = Date.now();

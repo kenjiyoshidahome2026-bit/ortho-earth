@@ -1631,3 +1631,24 @@ struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 }
 `;
 }
+
+// ── タイル GPU 常駐プール（vt perf plan §4 step A・2026-10-22）＝gl/glsl.ts の mdize と対。
+// 頂点はタイル原点相対のまま常駐し、タイル原点−シーン原点（origins）を instance step の頂点属性 a_tile で受けて**先に**足す
+// （小さい値同士を先に・大きい F.origin は本体の式で 1 回＝classic と丸め回数が同じ＝GL の u_tileOff[gl_DrawID] と同順）。
+// 発行＝タイルごとに draw(count, 1, first, firstInstance=j)＝a_tile は origins[j]（WEBGL_multi_draw の代わり・render bundle は step B）。
+// 本体（素／影／面／影＋面）の文字列に後から掛ける＝派生の掛け順は影・面の後。anchor は vs の署名行だけ＝影・面の派生が触らない行。
+export const mdFillWgsl = (src: string, out: "FillOut" | "AFOut", label: string): string => deriveWgsl(src, [
+	[`@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> ${out} {\n\tvar o: ${out};\n`,
+	 `@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_color: vec4f, @location(2) a_tile: vec2f) -> ${out} {\n\tvar o: ${out};\n\tlet a_delta = a_tile + a_delta0;   // タイル原点差（小）を先に足す＝原点相対 delta を確定\n`],
+], label);
+// 線は頂点属性を持たない（インスタンス属性の常駐プール化はタイルごとの firstInstance と両立しない）＝線分レコード（8×u32＝scene worker の
+// ensureUploaded・[bits(p1.xy), bits(p2.xy)] [RGBA8, bits(half), bits(off), snorm16×2(tS/2,tE/2)]）を storage で持ち @builtin(vertex_index)/6 から引く
+// （GL の LINE_MD_VS の u_segTex と同じ読み方・float は bit のまま＝bitcast）。6 頂点/線分の角は renderer の CORNERS と同順。group(3) は fill/line の派生で空いている
+export const mdLineWgsl = (src: string, label: string): string => deriveWgsl(src, [
+	["@vertex fn vs(\n\t@location(0) corner: vec2f,\n\t@location(1) p1: vec2f, @location(2) p2: vec2f,\n\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
+	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方。WebGPU は旗をまだ使わない＝丸）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
+], label);
+export const mdBldWgsl = (src: string, label: string): string => deriveWgsl(src, [
+	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_shade: f32, @location(2) a_anchor: vec2f) -> BldOut {\n\tvar o: BldOut;\n",
+	 "@vertex fn vs(@location(0) a_pos0: vec3f, @location(1) a_shade: f32, @location(2) a_anchor0: vec2f, @location(3) a_tile: vec2f) -> BldOut {\n\tvar o: BldOut;\n\tlet a_pos = vec3f(a_tile + a_pos0.xy, a_pos0.z); let a_anchor = a_tile + a_anchor0;   // タイル原点差（小）を先に足す\n"],
+], label);

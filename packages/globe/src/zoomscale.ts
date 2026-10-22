@@ -50,7 +50,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
 	getRoll: "none", setRoll: "none", getVerticalFieldOfView: "none", setVerticalFieldOfView: "none",   // A1（2026-10-12）＝角度・度。zoom は運ばない
 	setHandler: "none", handlerOn: "none", setZoomSnap: "none", getZoomSnap: "none",
-	setNow: "none", restoreNow: "none", getNow: "none", setReduceMotion: "none", getReduceMotion: "none",   // C10（2026-10-12）＝動きの時計と動きを減らす旗   // A2（2026-10-12）＝handler の旗・zoomSnap は目盛りの刻み（zoom の数ではない）
+	setNow: "none", restoreNow: "none", getNow: "none", setReduceMotion: "none", getReduceMotion: "none", setMeshVisible: "none", getMeshVisible: "none", setBaseLayers: "none", getBaseLayers: "none",   // C10（2026-10-12）＝動きの時計と動きを減らす旗   // A2（2026-10-12）＝handler の旗・zoomSnap は目盛りの刻み（zoom の数ではない）
 	fitScreenCoordinates: "in", setCenterClampedToGround: "none", getCenterClampedToGround: "none", setCenterElevation: "none", getCenterElevation: "none", getCameraTargetElevation: "none",   // A3（2026-10-12）
 	setConstrain: "engine",
 	lookAt: "in", follow: "in", setCamera: "in", getCamera: "none", isFollowing: "none",

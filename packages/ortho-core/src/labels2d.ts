@@ -6,6 +6,7 @@
 // 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
 import { cameraState, projectInto, unproject, distTo, worldRadiusM } from "./camera.ts";
 import { parseRGBA } from "./color.ts";
+import { canvas2d, canvasMetrics, createCanvasSink, css } from "./textsink.ts";   // 描画命令の受け口と字の寸法の口（テキスト GPU 化 T-P0）
 import { clipDistanceM } from "./clip.ts";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
 import { fontCss } from "./fontstack.ts";
 import { charRotated, verticalize } from "./vertical.ts";   // 縦書き（text-writing-mode・2026-10-03）
@@ -16,12 +17,12 @@ import type { CameraPose, CameraState } from "./camera.ts";
 import type { ClipPlane } from "./clip.ts";
 import type { Label, LabelSection } from "./labels.ts";
 import type { ClockAnchor } from "@ortho-earth/ephem/clock";
+import type { Ctx2D, GlyphMetrics, SinkStats, TextSink } from "./textsink.ts";
 
 /** 色＝[r, g, b, a]（0〜1）。css() は文字列・欠けも受ける（保険）。 */
-type Color = readonly number[];
+export type Color = readonly number[];
 /** 2×2 の変換（列＝東・南の向き）＝ctx.transform(a, b, c, d, 0, 0) */
-interface Mat2 { a: number; b: number; c: number; d: number }
-type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export interface Mat2 { a: number; b: number; c: number; d: number }
 /** 注記 1 件（labels.ts の Label＋利用者層・描く側の覚え）。描く側が足す鍵は __ で始まる（ラベルごとの覚え）。 */
 export interface Label2D extends Omit<Partial<Label>, "anchor" | "text" | "path" | "cum" | "sec"> {
 	anchor: [number, number];
@@ -64,30 +65,26 @@ export interface StretchFitResult { box: [number, number, number, number]; X: St
 /** 記号帳の 1 枚（sx/sy/ct＝伸びる記号）。 */
 interface IconImage extends StretchImage { bm: ImageBitmap; sdf: boolean }
 /** 記号の箱 [x0, y0, w, h]（錨からの相対）・i9＝伸びる記号の区間（描く側が区間ごとに） */
-type IconRect = number[] & { i9?: StretchFitResult };
+export type IconRect = number[] & { i9?: StretchFitResult };
 /** 標識（shieldFor の戻り）＝文字の代わりにその絵を描く（CSS px）。 */
 export interface LabelShield { w: number; h: number; draw(ctx: Ctx2D, x: number, y: number): void; [k: string]: unknown }
 /** 区間の書体（secStyles） */
 interface SecStyle { fs: number; font: string; col: Color | null; img: string | null; va: string | null }
 /** 横書きの run（区間つき・runLayout） */
-interface TextRun { t: string; si: number; img?: string | null; w: number; h: number; font: string; col: Color | null; fs: number; va: string | null }
+export interface TextRun { t: string; si: number; img?: string | null; w: number; h: number; font: string; col: Color | null; fs: number; va: string | null }
 /** 縦書きの字（vertLayout） */
 interface Unit { t: string; si: number; img?: boolean; w: number; h?: number }
-interface VGlyph { ch: string; rot: boolean; adv: number; font: string; col: Color | null; fs: number }
+export interface VGlyph { ch: string; rot: boolean; adv: number; font: string; col: Color | null; fs: number }
 /** 文字の行の束（textLayout） */
-interface TextLayout { lines: string[]; ws: number[]; w: number; h: number; size: number; ls: number; lh: number; font: string; runs?: TextRun[][]; lhs?: number[]; vcols?: VGlyph[][]; vhs?: number[]; vert?: boolean }
+export interface TextLayout { lines: string[]; ws: number[]; w: number; h: number; size: number; ls: number; lh: number; font: string; runs?: TextRun[][]; lhs?: number[]; vcols?: VGlyph[][]; vhs?: number[]; vert?: boolean }
 /** 線の字送りの覚え（advancesOf） */
 interface Advances { gen: number; font: string; adv: number[]; W: number; fonts: string[] | null; fss: number[] | null; cols: (Color | null)[] | null; hmax: number; vadv?: number[]; VW?: number }
 /** 線に沿う注記の字 1 つ（lineLayout） */
-interface LineGlyph { ch: string; x: number; y: number; a: number; w: number; f?: string; col?: Color | null; t?: Mat2 | null }
-interface LineIcon { x: number; y: number; a: number; w: number; h: number; bw: number; bh: number }
+export interface LineGlyph { ch: string; x: number; y: number; a: number; w: number; f?: string; col?: Color | null; t?: Mat2 | null }
+export interface LineIcon { x: number; y: number; a: number; w: number; h: number; bw: number; bh: number }
 interface LineLayout { g: LineGlyph[]; w: number; h: number; hl: number; sq: number; x: number; y: number; font: string; icon: LineIcon | null; vert: boolean }
 /** 当選ラベルの画面上の箱（winBox） */
 interface WinBox { sx: number; sy: number; tw: number; h: number; dx: number; dy: number; tl: TextLayout | null; an: string; txt: boolean; ib: IconRect | null; ln?: LineLayout; bb: number[] | null; T?: Mat2 | null; ibb?: number[] | null }
-/** 字の版の頁・字の組・字 1 つ（glyph atlas） */
-interface GlyphPage { cv: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D; bm: ImageBitmap | null; gen: number; bmGen: number; busy: boolean }
-interface GlyphSet { font: string; fill: string; halo: string | null; haloW: number; blur: number; px: number; m: Map<string, GlyphSprite>; epoch: number }
-interface GlyphSprite { pg: GlyphPage; gen: number; x: number; y: number; W: number; H: number; ox: number; oy: number; w: number; h: number }
 /** 診断の数え（placedDebug）＝落ちた理由ごとの数・見本（…Eg） */
 type DbgCount = Record<string, number>;
 export interface LabelDebug { zoom: number | null; outOfZoom: Record<string, { n: number; minZ?: number | null; maxZ?: number | null }>; total: number; line?: DbgCount; lineBy?: Record<string, DbgCount>; pt?: Record<string, DbgCount> }
@@ -99,8 +96,14 @@ export interface SkyLabels { constellations?: { cel: number[]; name: string }[];
 export interface SkyMoon { cel: number[]; sunCel: number[]; k: number }
 export interface LabelLayerOptions {
 	pad?: number; fadeMs?: number; recollideMs?: number; shieldFor?: ((L: Label2D) => LabelShield | null | undefined | false) | null; elevBase?: number;
-	/** 字形アトラスで描く（既定 true）。 */
+	/** 字形アトラスで描く（既定 true・Canvas2D の受け口）。 */
 	glyphAtlas?: boolean;
+	/** 描画命令の受け口（既定＝canvas の 2D 文脈に描く Canvas2D 版）。 */
+	sink?: TextSink | null;
+	/** 字の寸法の口（既定＝measureText）。 */
+	metrics?: GlyphMetrics | null;
+	/** Canvas2D の受け口を包む（T-P1＝線に沿う字だけ GPU へ回す受け口・createGpuLineSink）。sink を渡した時は使わない */
+	sinkWrap?: ((base: TextSink) => TextSink) | null;
 	/** 線注記を平らに置く幅［px］の [下限, 上限]（既定 [4.5, 5.5]）。null＝潰れても出す。 */
 	lineFlatPx?: [number, number] | null;
 }
@@ -124,42 +127,15 @@ export interface LabelLayer {
 	placed(): PlacedLabel[];
 	placedDebug(): LabelDebug;
 	clearFontCache(): void;
+	/** 直近の描画の数（?perf=1 の注記の行）：drawMs＝draw 全体・collideMs＝直近の衝突判定・labels＝描いた注記・glyphs＝描いた字 */
+	stats(): LabelStats;
 }
+export interface LabelStats extends SinkStats { drawMs: number; collideMs: number; labels: number }
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const ANCH: Record<string, readonly [number, number]> = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
-// 色の文字列＝色の配列ごとに直前の (不透明度, 文字列) を覚える（静止中は毎フレーム同じ＝文字列を組み直さない。フェード中だけ組む）
-const cssMemo = new WeakMap<object, { op: number; s: string }>();
-const css = (c: Color | string | null | undefined, op = 1): string => {
-	if (typeof c !== "object" || c === null) c = parseRGBA(c);   // 配列でない色（文字列・欠け）は WeakMap の鍵にならない＝描画の途中で落とさない（入口で直すのが本筋・ここは保険）
-	let m = cssMemo.get(c);
-	if (m !== undefined && m.op === op) return m.s;
-	const s = `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
-	if (m !== undefined) { m.op = op; m.s = s; } else cssMemo.set(c, { op, s });
-	return s;
-};
 const PJ = new Float64Array(3), PE = new Float64Array(3), PS = new Float64Array(3);   // projectInto の作業域（錨・東・南の投影＝衝突判定・毎フレームの描画）
 let prBuf = new Float64Array(3 * 64);   // lineLayout の頂点投影の作業域（[x, y, front] × 頂点）
-// 書体の文字列（"bold 12.5px …"）から最初の「数（小数可）px」の数の部分（旧＝font.match(/(\d+(?:\.\d+)?)px/)?.[1]）。
-// 正規表現は先頭が囲われていない \d+ ＝数の長い並びで多項式の後戻り（CodeQL の指摘）＝添字の走査に（答えは同じ＝無作為の入力で旧の正規表現と突き合わせた）。
-// 数の並びの途中から始めても終わりは同じ＝並びの頭だけ試せばよい。小数部（"." と数）があればそれを含めて px を探し、無ければ（か続かなければ）整数部の直後に px
-const isDigitAt = (s: string, i: number): boolean => { const c = s.charCodeAt(i); return c >= 48 && c <= 57; };
-function pxNumOf(s: string): string | undefined {
-	const n = s.length;
-	for (let i = 0; i < n;) {
-		if (!isDigitAt(s, i)) { i++; continue; }
-		let j = i + 1;
-		while (j < n && isDigitAt(s, j)) j++;
-		if (s.charCodeAt(j) === 46 && isDigitAt(s, j + 1)) {
-			let k = j + 2;
-			while (k < n && isDigitAt(s, k)) k++;
-			if (s.startsWith("px", k)) return s.slice(i, k);
-		}
-		if (s.startsWith("px", j)) return s.slice(i, j);
-		i = j;
-	}
-	return undefined;
-}
 const NO_CHARS: readonly string[] = Object.freeze([]);   // 文字の無いラベル（記号だけ）の字の並び
 const ICOL0 = [0, 0, 0, 1];   // icon-color の既定（黒）
 // k＝利用者層 id（層またぎのキー衝突防止）・icon＝記号だけのラベル（text ""）の区別・MapLibre 由来の層（mlp）は層の添字 li も＝同じ点・同じ文字の別の層を 1 つに畳まない（tilemanager.labels の重複排除と同じ区別・poi_transit／poi_r1 2026-09-28）。
@@ -187,7 +163,6 @@ export function stretchFit(im: StretchImage, size: number, fit: string | null | 
 	const y0 = fit === "width" ? (t[1] + t[3]) / 2 - Y.total * s / 2 : t[1] - p[0] - Y.map(c[1]) * s;
 	return { box: [x0, y0, x0 + X.total * s, y0 + Y.total * s], X, Y, s };
 }
-function drawStretched(g: Ctx2D, src: CanvasImageSource, f: StretchFitResult, ox = 0, oy = 0) { const x0 = f.box[0] + ox, y0 = f.box[1] + oy; for (const [ax, aw, dx, dw] of f.X.segs) for (const [ay, ah, dy, dh] of f.Y.segs) if (aw > 0 && ah > 0 && dw > 0 && dh > 0) g.drawImage(src, ax, ay, aw, ah, x0 + dx * f.s, y0 + dy * f.s, dw * f.s, dh * f.s); }
 export const isStretch = (im: StretchImage | null | undefined): boolean => !!(im && (im.sx?.length || im.sy?.length || im.ct));
 // 置いた箱の格子（衝突判定の索引）＝画面を CELL px の升に切り、箱は重なる升すべてに入れる。hit は升の中の箱だけを厳密な不等号で当てる
 // （旧＝置いた箱の全件を線形に当てる＝O(候補×当選)。結果は同じ＝升の添字は単調に丸めるので、重なる 2 箱は必ず同じ升を共有する）。
@@ -225,7 +200,7 @@ export function boxGrid(): BoxGrid {
 // 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
 // glyphAtlas＝線に沿う注記の字を版（字を 1 回だけ焼いた画像）から貼る（既定）。false＝字ごとに strokeText／fillText（検定・切り分け）
 // lineFlatPx＝[消える, 全部出る]（CSS px）＝地面に寝た線の注記の字が、傾きで潰れた向きにこの高さ（書体の大きさ×潰れ）を下回ると薄くなり、消える（読めない字はノイズ）。null＝潰れても出す（MapLibre と同じ）
-export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0, glyphAtlas = true, lineFlatPx = [4.5, 5.5] }: LabelLayerOptions = {}): LabelLayer {
+export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0, glyphAtlas = true, lineFlatPx = [4.5, 5.5], sink: sink0 = null, metrics: metrics0 = null, sinkWrap = null }: LabelLayerOptions = {}): LabelLayer {
 	// pitch ゲート（renderer の elevScaleEff=elev.scale×pf と同式）。真俯瞰0→11.5°で全開。
 	// 旧 cityFlat 項（z13.5→16でラベル標高を畳む）は撤去＝地形側の cityFlat 撤去（renderer 2026-07-26・
 	// DEM10B=DTM化）に追随。残すと都市ズームのチルトで地形は起伏のまま・ラベルだけ楕円体へ沈み位置がズレる。
@@ -244,10 +219,11 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		const t = Math.max(0, Math.min(1, (d - fogF * 0.8) / (fogF * 1.2)));
 		return 1 + e * eScale * (1 - t * t * (3 - 2 * t));
 	};
-	const ctx = canvas.getContext("2d") as Ctx2D;
-	const hasLS = "letterSpacing" in ctx;   // 字間（Chrome 99+・無い環境は 0 扱い）
-	let curFont = "";   // ctx.font の覚え（collide/draw/textLayout で共有＝設定は変わる時だけ）
-	const setFont = (f: string) => { if (f !== curFont) { ctx.font = curFont = f; } };
+	// 描画命令の受け口（T-P0）と字の寸法の口。既定＝canvas の 2D 文脈（両方が同じ文脈・同じ書体の覚えを共有＝切り出す前と同じ呼び出しの列）。
+	// 受け口だけ差された（WebGPU）時の寸法は 1×1 の OffscreenCanvas の 2D で測る
+	const c2 = sink0 ? null : canvas2d(canvas.getContext("2d") as Ctx2D);
+	const sink: TextSink = sink0 ?? (sinkWrap ?? (b => b))(createCanvasSink(c2!, { glyphAtlas }));
+	const metrics: GlyphMetrics = metrics0 ?? canvasMetrics(c2 ?? canvas2d(new OffscreenCanvas(1, 1).getContext("2d")!));
 	const fontOf = (L: Label2D, size: number) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
 	// format の区間（L.sec＝[{ t, fs?, col?, fnt? }]・2026-10-03）＝区間ごとの書体（font-scale・text-font）と色。無ければ 1 つ（ラベルの書体）
 	const secStyles = (L: Label2D, size: number): SecStyle[] => L.sec ? L.sec.map(q => ({ fs: q.fs || 1, font: fontCss(q.fnt || L.fnt, size * (q.fs || 1), FONT_STACK), col: q.col || null, img: q.img || null, va: q.va || null })) : [{ fs: 1, font: fontOf(L, size), col: null, img: null, va: null }];   // img＝記号の区間・va＝vertical-align（C5）
@@ -265,6 +241,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	}
 	function dropTinted(name: string) { for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); }
 	function removeImage(name: string) { images.get(name)?.bm?.close?.(); images.delete(name); dropTinted(name); dirty = true; if (imgSecNames.has(name)) { fontGen++; widthCache.clear(); } }
+	const imgBm = (name: string) => images.get(name)?.bm ?? null;   // format の記号の区間の絵（受け口が引く）
 	const imgSecNames = new Set<string>();   // format の image で参照される記号の名前（寸が変わったら行を組み直す）
 	// SDF の記号を塗る（icon-color）。halo＝{ col: css, w: 元の px, b: 元の px }（icon-halo-*・C5）＝縁（0.75）から w だけ外へ halo の色（MapLibre の SDF は 1px＝1/8）・blur は外側を b/8 だけ滑らかに
 	function sdfTint(name: string, im: IconImage, color: string, halo: { col: string; w: number; b: number } | null = null): OffscreenCanvas {
@@ -336,51 +313,8 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// null＝置けない（裏側・窓に収まらない・隣の字との角が text-max-angle を超える）。keep-upright＝並びが右から左になる時は逆から並べる（字は常に正立）。
 	// text-offset の y＝線と直角の向き（em）。字送りは measureText（font×字で覚える）＋letter-spacing。毎フレーム投影し直す（点の注記と同じくライブ）
 	const advCache = new Map<string, number>();
-	const advOf = (font: string, ch: string) => { const k = font + "\u0001" + ch; let v = advCache.get(k); if (v == null) { if (advCache.size > 8192) advCache.clear(); setFont(font); if (hasLS) ctx.letterSpacing = "0px"; v = ctx.measureText(ch).width; advCache.set(k, v); } return v; };
+	const advOf = (font: string, ch: string) => { const k = font + "\u0001" + ch; let v = advCache.get(k); if (v == null) { if (advCache.size > 8192) advCache.clear(); v = metrics.measurer(font, 0)(ch); advCache.set(k, v); } return v; };
 	// 記号（icon）は錨に置く＝線の向きに回す（icon-rotation-alignment auto/map＋icon-rotate）か正立（viewport）。文字が無い層（road_oneway の矢印）は記号だけ
-	// ── 字の版（線に沿う注記・2026-10-13）＝（書体・色・縁）ごとに字を 1 回だけ焼き、字ごとの描画は drawImage（字の変換つき）。
-	// 旧＝字ごとに変換を据えて strokeText＋fillText（縁のぼかしは shadowBlur）＝Canvas2D は変換の違う字を使い回せず毎フレーム字の形から塗り直す＝
-	// 傾けた街（道の名 100 本余・字 600 個）で描画が 60→20fps に落ちていた（JS は 3ms＝重いのは塗り）。版から貼れば同じ画面で 60fps。
-	// 版＝1024² の頁（字を足すたび棚に詰める）・倍率 ss（画面の 2 倍＝回しても縮めても字が痩せない）・頁が尽きたら全部捨てて焼き直す。
-	// 貼る元は頁の写し（ImageBitmap）＝字を足している最中の canvas を元にすると貼るたびに写しを取り直す＝足し終えたフレームの後で写しを作り、次から使う
-	const GA_PAGE = 1024, GA_MAX = 6, GA_ON = glyphAtlas && typeof OffscreenCanvas === "function";
-	const ga = { pages: [] as GlyphPage[], sets: new Map<string, GlyphSet>(), pi: 0, x: 1, y: 1, rowH: 0, ss: 0, epoch: 0 };
-	function gaReset(ss: number) { for (const pg of ga.pages) { pg.ctx.setTransform(1, 0, 0, 1, 0, 0); pg.ctx.clearRect(0, 0, GA_PAGE, GA_PAGE); pg.bm?.close?.(); pg.bm = null; pg.gen = 0; pg.bmGen = -1; } ga.sets.clear(); ga.pi = 0; ga.x = 1; ga.y = 1; ga.rowH = 0; ga.ss = ss; ga.epoch++; }
-	// 字の組（書体・塗り・縁の色と幅・ぼかし）＝字 → 版の中の位置。注記 1 本につき 1 回引く
-	function glyphSet(font: string, fill: string, halo: string | null, haloW: number, blur: number, dpr: number): GlyphSet {
-		const ss = dpr >= 1.5 ? 3 : 2; if (ss !== ga.ss) gaReset(ss);   // 動的解像度で dpr が細かく動いても焼き直さない（境は 1.5 だけ）
-		const key = font + "\u0001" + fill + "\u0001" + (halo || "") + "\u0001" + haloW + "\u0001" + blur;
-		let set = ga.sets.get(key); if (!set) ga.sets.set(key, set = { font, fill, halo, haloW, blur, px: parseFloat(pxNumOf(font) ?? 12 as unknown as string), m: new Map(), epoch: ga.epoch });
-		return set;
-	}
-	function glyphSprite(set: GlyphSet, ch: string): GlyphSprite {
-		let sp = set.m.get(ch); if (sp) return sp;
-		let pg = ga.pages[ga.pi] ??= ((cv: OffscreenCanvas): GlyphPage => ({ cv, ctx: cv.getContext("2d")!, bm: null, gen: 0, bmGen: -1, busy: false }))(new OffscreenCanvas(GA_PAGE, GA_PAGE)), c = pg.ctx;
-		const pad = (set.halo ? set.haloW : 0) + set.blur + 1, hw0 = set.px * 0.3;
-		c.setTransform(1, 0, 0, 1, 0, 0); c.font = set.font; c.textAlign = "center"; c.textBaseline = "middle";
-		const mt = c.measureText(ch), hw = (mt.width || 0) / 2 || hw0;   // 字の箱＝実際の字の形（斜体のはみ出し・上下の飾り）＋縁。測れない環境は字送りと書体の大きさから
-		const l = Math.max(mt.actualBoundingBoxLeft ?? hw, hw) + pad, r = Math.max(mt.actualBoundingBoxRight ?? hw, hw) + pad, up = (mt.actualBoundingBoxAscent ?? set.px * 0.85) + pad, dn = (mt.actualBoundingBoxDescent ?? set.px * 0.85) + pad;
-		const k = Math.min(ga.ss, (GA_PAGE - 2) / (l + r), (GA_PAGE - 2) / (up + dn)), W = Math.ceil((l + r) * k), H = Math.ceil((up + dn) * k);   // 頁に収まらない大きな字は倍率を落とす
-		if (ga.x + W + 1 > GA_PAGE) { ga.x = 1; ga.y += ga.rowH + 1; ga.rowH = 0; }
-		if (ga.y + H + 1 > GA_PAGE) {
-			if (ga.pi + 1 >= GA_MAX) { const ss = ga.ss; gaReset(ss); set.m = new Map(); set.epoch = ga.epoch; ga.sets.set(set.font + "\u0001" + set.fill + "\u0001" + (set.halo || "") + "\u0001" + set.haloW + "\u0001" + set.blur, set); }   // 尽きた＝全部捨てる（今引いている組は残して詰め直す）
-			else { ga.pi++; ga.x = 1; ga.y = 1; ga.rowH = 0; }
-			pg = ga.pages[ga.pi] ??= ((cv: OffscreenCanvas): GlyphPage => ({ cv, ctx: cv.getContext("2d")!, bm: null, gen: 0, bmGen: -1, busy: false }))(new OffscreenCanvas(GA_PAGE, GA_PAGE)); c = pg.ctx;
-			c.font = set.font; c.textAlign = "center"; c.textBaseline = "middle";
-		}
-		c.setTransform(k, 0, 0, k, ga.x + l * k, ga.y + up * k); c.lineJoin = "round"; c.miterLimit = 2;
-		if (set.blur > 0 && set.halo) { c.shadowColor = set.halo; c.shadowBlur = set.blur * k; } else c.shadowBlur = 0;   // 縁のぼかし（text-halo-blur）は焼き込む（shadowBlur は変換が掛からない＝倍率を掛ける）
-		if (set.halo) { c.strokeStyle = set.halo; c.lineWidth = set.haloW * 2; c.strokeText(ch, 0, 0); }
-		c.fillStyle = set.fill; c.fillText(ch, 0, 0); c.shadowBlur = 0;
-		sp = { pg, gen: ++pg.gen, x: ga.x, y: ga.y, W, H, ox: -l, oy: -up, w: W / k, h: H / k };
-		set.m.set(ch, sp); ga.x += W + 1; if (H > ga.rowH) ga.rowH = H;
-		return sp;
-	}
-	// 字を足した頁の写しを作る（描き終えた後）。写しが出来るまでは canvas から貼る（遅いが正しい）
-	function gaBake() {
-		if (typeof createImageBitmap !== "function") return;
-		for (const pg of ga.pages) if (pg.bmGen !== pg.gen && !pg.busy) { const g = pg.gen, e = ga.epoch; pg.busy = true; createImageBitmap(pg.cv).then(bm => { pg.busy = false; if (e !== ga.epoch) { bm.close?.(); return; } pg.bm?.close?.(); pg.bm = bm; pg.bmGen = g; }, () => { pg.busy = false; }); }   // 古い写しは閉じる（貼り終えたフレームの後＝描画には残らない）
-	}
 	// 潰れた線の注記の濃さ（0＝出さない〜1）＝lineFlatPx の間を滑らかに
 	const flatK = (sq: number) => { if (!lineFlatPx || sq >= lineFlatPx[1]) return 1; const t = (sq - lineFlatPx[0]) / ((lineFlatPx[1] - lineFlatPx[0]) || 1); return t <= 0 ? 0 : t * t * (3 - 2 * t); };
 	let nullWhy = "", fitDbg: unknown[] | null = null, angDbg: Record<string, unknown> | null = null;   // 診断＝lineLayout が null を返した理由（placedDebug の line）
@@ -586,7 +520,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	let clock: ClockAnchor | null = null;
 	function setClock(c: ClockAnchor | null | undefined) { clock = c || null; }
 	function clear() {
-		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+		sink.clear(canvas.width, canvas.height);
 		fades.clear(); winners.clear();
 	}
 
@@ -705,9 +639,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		let tl = widthCache.get(wk);
 		if (tl) return tl;
 		if (vert || sty) { tl = vert ? vertLayout(L, size, ls, lh, mw, sty || secStyles(L, size)) : runLayout(L, size, ls, lh, mw, sty!); widthCache.set(wk, tl); if (widthCache.size > 4096) widthCache.clear(); return tl; }
-		setFont(font);
-		if (hasLS) ctx.letterSpacing = ls ? `${ls * size}px` : "0px";
-		const measure = (t: string) => ctx.measureText(t).width;
+		const measure = metrics.measurer(font, ls * size);
 		const maxPx = mw > 0 ? mw * size : Infinity, lines: string[] = [];
 		for (const para of String(L.text).split("\n")) {
 			if (measure(para) <= maxPx || !para) { lines.push(para); continue; }
@@ -726,7 +658,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	const isWS = (t: string) => /^\s+$/.test(t);
 	// 区間つきの横書き（format・2026-10-03）＝語（空白で区切れる）／字（CJK）の単位に区間の添字を添えて折り返し、行は run（同じ区間の続き）の列。行の高さ＝line-height×size×行の中で最大の font-scale（MapLibre と同じ）
 	function runLayout(L: Label2D, size: number, ls: number, lh: number, mw: number, sty: SecStyle[]): TextLayout {
-		const measure = (t: string, si: number) => { setFont(sty[si].font); if (hasLS) ctx.letterSpacing = ls ? `${ls * size * sty[si].fs}px` : "0px"; return ctx.measureText(t).width; };
+		const measure = (t: string, si: number) => metrics.measurer(sty[si].font, ls * size * sty[si].fs)(t);
 		const maxPx = mw > 0 ? mw * size : Infinity;
 		const paras: { t: string; si: number; img?: boolean }[][] = [[]];
 		// 記号の区間（format の ["image"]・C5）＝1 単位（幅・高さ＝絵の px×size/24×font-scale＝MapLibre の shaping）。記号帳に無い名前＝幅 0（届いたら setImage が組み直す）
@@ -762,7 +694,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			if (c.ch === "\n") { cols.push([]); cur = 0; continue; }
 			const q = sty[c.si], v = verticalize(c.ch), rot = charRotated(c.ch);
 			let adv: number;
-			if (rot) { setFont(q.font); if (hasLS) ctx.letterSpacing = "0px"; adv = ctx.measureText(v).width; } else adv = size * q.fs;
+			if (rot) adv = metrics.measurer(q.font, 0)(v); else adv = size * q.fs;
 			adv += ls * size * q.fs;
 			if (cols[cols.length - 1].length && cur + adv > maxPx) { cols.push([]); cur = 0; }
 			cols[cols.length - 1].push({ ch: v, rot, adv, font: q.font, col: q.col, fs: q.fs });
@@ -788,8 +720,9 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	}
 
 	// 戻り値: フェード継続中か（true なら次フレーム継続）。
+	let drawMs = 0, collideMs = 0, nDrawn = 0;   // 直近の描画の数（stats・?perf=1）
 	function draw(cam: CameraPose): boolean {
-		const dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
+		const t0 = nowMs(), dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
 		const eScale = pitchScale(cam.pitch, cam.zoom);   // 標高→単位球（pitch連動＝renderer elevScaleEff と同式）
 		// フォグ終端（renderer の fogFarCap と同式・camDist近似）＝遠景平坦化 df の基準
@@ -804,16 +737,15 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		const zi = Math.floor(cam.zoom ?? 99); if (zi !== lastZi) { dirty = true; lastZi = zi; }   // 整数 z を跨いだら即再衝突判定＝丸ごとの線（lp 2）の錨を表示 z で置き直す
 		const fogF = Math.max(st.camDist * 5.0, 0.026 * pfFog);
 		projGen++;   // 折れ線の投影の覚え（lp 2）はこのフレームの間だけ
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99, cam.bearing || 0); lastCollide = now; dirty = false; }
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99, cam.bearing || 0); lastCollide = now; dirty = false; collideMs = nowMs() - now; }
 
-		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
-		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
-		curFont = "";   // 前のフレームの末尾（星空の注記・標識）が ctx.font を触っている＝覚えを捨てて据え直す
+		sink.begin(W, H, dpr);
 
 		const fNear = st.camDist * 2, fFar = st.camDist * 9, eye = st.eye;   // 距離フェード（フォグ連動）
 		const distOp = (lon: number, lat: number) => { const d = distTo(lon, lat, eye); return 1 - Math.min(1, Math.max(0, (d - fNear) / (fFar - fNear))); };
 
 		let animating = false;
+		nDrawn = 0;
 		// 描く順＝当選集合（優先順）→ フェードアウト中だけのもの（旧＝毎フレーム両方を Set に広げていた・順は同じ）
 		// 描く順＝当選の順（優先順）。symbol-z-order（C5）＝viewport-y（か auto で sort-key が無い）かつ重ねを許す層は、層の中を画面の y で並べ直す（下＝手前が上に描かれる＝MapLibre の sortFeaturesByY）
 		let order = [...winners.keys()];
@@ -824,7 +756,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		}
 		for (const k of order) drawOne(k);
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
-		if (GA_ON) gaBake();
+		sink.end();
 		function drawOne(k: string) {
 			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
 			if (!L) { fades.delete(k); return; }
@@ -837,14 +769,12 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			if (front < 0) return;
 			const dop = op * distOp(L.anchor[0], L.anchor[1]), o = dop * (L.op ?? 1);   // dop＝フェード×距離（文字と記号で共有＝lonlatTo3D を 1 回だけ）
 			if (o <= 0.01) return;
+			nDrawn++;
 			const tr = L.tt && !L.lp ? translateOf(L.tt, L.tta, cam.bearing || 0) : TR0;   // text-translate（衝突判定と同じ値）
 			const sx = (still ? Math.round(dx / dpr) : dx / dpr) + tr[0], sy = (still ? Math.round(dy / dpr) : dy / dpr) + tr[1];
 			const shield = shieldFor && shieldFor(L);
 			if (shield) {
-				ctx.globalAlpha = o;
-				shield.draw(ctx, sx, sy);   // ベクター直描き（DPRスケール済みctx上＝常にシャープ）
-				ctx.globalAlpha = 1;
-				curFont = "";   // 標識は ctx.font／textAlign を restore の外で触ることがある（空港＝名称）＝覚えを捨てる（旧＝次のラベルが標識の書体で描かれた）
+				sink.shield(shield, sx, sy, o);
 				return;
 			}
 			const b = winBox.get(k);
@@ -852,36 +782,11 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 				const ll = lineLayout(L, st, dpr, rad, cam.zoom); if (!ll) return;
 				if (ll.icon) {   // 線の記号＝錨で線の向きに回す（viewport なら正立）・SDF は icon-color
 					const im = iconImg(L), ic = ll.icon, oi = dop * (L.iop ?? 1);
-					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon!, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
+					if (im && oi > 0.01) sink.lineIcon(im.sdf ? sdfTint(L.icon!, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm, ic, oi);
 				}
 				if (!ll.g.length) return;
 				const oL = o * flatK(ll.sq); if (oL <= 0.003) return;   // 傾きで潰れた字は薄く（lineFlatPx）
-				if (GA_ON) {   // 字の版から貼る（色は版に焼いた不透明の色・フェードは globalAlpha）
-					const haloA = L.haloW! > 0 ? css(L.halo, 1) : null, fillA = css(L.color, 1), hW = haloA ? L.haloW! : 0, blur = haloA && L.blur! > 0 ? L.blur! : 0;
-					const set0 = glyphSet(ll.font, fillA, haloA, hW, blur, dpr);
-					ctx.shadowBlur = 0; ctx.globalAlpha = oL;
-					for (const c of ll.g) {
-						if (!c.ch.trim()) continue;   // 空白は貼らない
-						let set = c.f || c.col ? glyphSet(c.f || ll.font, c.col ? css(c.col, 1) : fillA, haloA, hW, blur, dpr) : set0; if (set.epoch !== ga.epoch) set = glyphSet(set.font, set.fill, set.halo, set.haloW, set.blur, dpr);   // 版を捨てた後の組は引き直す
-						const sp = glyphSprite(set, c.ch), src = sp.pg.bm && sp.gen <= sp.pg.bmGen ? sp.pg.bm : sp.pg.cv;
-						if (c.t) ctx.setTransform(dpr * c.t.a, dpr * c.t.b, dpr * c.t.c, dpr * c.t.d, dpr * c.x, dpr * c.y); else { const cs = Math.cos(c.a) * dpr, sn = Math.sin(c.a) * dpr; ctx.setTransform(cs, sn, -sn, cs, dpr * c.x, dpr * c.y); }
-						ctx.drawImage(src, sp.x, sp.y, sp.W, sp.H, sp.ox, sp.oy, sp.w, sp.h);
-					}
-					ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1;
-					return;
-				}
-				setFont(ll.font); if (hasLS) ctx.letterSpacing = "0px";
-				ctx.textAlign = "center"; ctx.textBaseline = "middle";
-				if (L.blur! > 0) { ctx.shadowColor = css(L.halo, oL); ctx.shadowBlur = L.blur!; } else ctx.shadowBlur = 0;
-				const halo = L.haloW > 0 ? css(L.halo, oL) : null, fill = css(L.color, oL);
-				for (const c of ll.g) {   // 字ごとに錨へ移して回す＝終わりは基底の変換（dpr の拡大）へ据え直す（旧＝save/restore＝字ごとに描画状態を丸ごと積み下ろし）
-					ctx.translate(c.x, c.y); if (c.t) ctx.transform(c.t.a, c.t.b, c.t.c, c.t.d, 0, 0); else ctx.rotate(c.a);
-					if (c.f) setFont(c.f);   // 区間（format）の書体
-					if (halo) { ctx.strokeStyle = halo!; ctx.lineWidth = L.haloW * 2; ctx.strokeText(c.ch, 0, 0); }
-					ctx.fillStyle = c.col ? css(c.col, oL) : fill; ctx.fillText(c.ch, 0, 0);
-					ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-				}
-				ctx.shadowBlur = 0;
+				sink.lineText(ll.g, ll.font, L, oL, dpr);
 				return;
 			}
 			// 記号（段 3）＝当選の箱（fit 済み）・フェードアウト中は自然な箱。SDF は icon-color で焼いた写し・icon-rotate は箱の中心で回す・icon-opacity
@@ -890,72 +795,26 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const T0 = textT(L, st, rad, sx, sy, dpr, cam.zoom), T = scaleT(T0, sizeK(L, cam.zoom)), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T0) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）・文字は大きさの倍率込み
 			if (im && ib) {
 				const src = im.sdf ? sdfTint(L.icon!, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm, oi = dop * (L.iop ?? 1);
-				if (oi > 0.01) {
-					ctx.globalAlpha = oi;
-					if (ib.i9) { if (Ti) { ctx.save(); ctx.translate(sx, sy); ctx.transform(Ti.a, Ti.b, Ti.c, Ti.d, 0, 0); drawStretched(ctx, src, ib.i9); ctx.restore(); } else drawStretched(ctx, src, ib.i9, sx, sy); }   // 伸びる記号＝区間ごと（9 分割）
-					else if (Ti) { ctx.save(); ctx.translate(sx, sy); ctx.transform(Ti.a, Ti.b, Ti.c, Ti.d, 0, 0); ctx.drawImage(src, ib[0], ib[1], ib[2], ib[3]); ctx.restore(); }   // 錨を原点に transform（map の向き・傾き）
-					else if (L.irot) { ctx.save(); ctx.translate(sx + ib[0] + ib[2] / 2, sy + ib[1] + ib[3] / 2); ctx.rotate(L.irot * Math.PI / 180); ctx.drawImage(src, -ib[2] / 2, -ib[3] / 2, ib[2], ib[3]); ctx.restore(); }
-					else ctx.drawImage(src, sx + ib[0], sy + ib[1], ib[2], ib[3]);
-					ctx.globalAlpha = 1;
-				}
+				sink.pointIcon(src, ib, sx, sy, Ti, L.irot, oi);
 			}
 			if (!(L.text && String(L.text).length) || (b && !b.txt)) return;   // 文字が無い・置かなかった（text-optional）
 			const tl = b?.tl ?? textLayout(L);
-			setFont(tl.font || fontOf(L, L.size!));   // textLayout が別の書体を据えた後でも、この行の描画は自分の書体で
-			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
 			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央。向きの transform があれば錨を原点に描く（段 5）
 			const ox = T ? 0 : sx, oy = T ? 0 : sy;
-			if (T) { ctx.save(); ctx.translate(sx, sy); ctx.transform(T.a, T.b, T.c, T.d, 0, 0); }
 			const x0 = b ? ox + b.dx : ox - tl.w / 2, y0 = b ? oy + b.dy : oy - tl.h / 2;
 			const just = L.just === "auto" ? ((b?.an || L.an || "center").includes("left") ? "left" : (b?.an || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
-			ctx.textAlign = just === "left" ? "left" : just === "right" ? "right" : "center"; ctx.textBaseline = "middle";
-			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
-			const halo = L.haloW > 0 || L.blur! > 0 ? css(L.halo, o) : null, fill = css(L.color, o);   // 色の文字列は行ごとでなくラベルごとに 1 回
-			if (L.blur! > 0) { ctx.shadowColor = halo!; ctx.shadowBlur = L.blur!; } else ctx.shadowBlur = 0;
-			if (tl.vcols) {   // 縦書き＝列は右から左・字は上から下（回す字は 90° 回して）
-				ctx.textAlign = "center";
-				let cx = x0 + tl.w;
-				for (let i = 0; i < tl.vcols.length; i++) {
-					cx -= tl.ws[i]; const x = cx + tl.ws[i] / 2; let y = y0;
-					for (const g of tl.vcols[i]) {
-						setFont(g.font); const gy = y + g.adv / 2, f = g.col ? css(g.col, o) : fill;
-						if (g.rot) { ctx.translate(x, gy); ctx.rotate(Math.PI / 2); if (L.haloW > 0) { ctx.strokeStyle = halo!; ctx.lineWidth = L.haloW * 2; ctx.strokeText(g.ch, 0, 0); } ctx.fillStyle = f; ctx.fillText(g.ch, 0, 0); ctx.rotate(-Math.PI / 2); ctx.translate(-x, -gy); }
-						else { if (L.haloW > 0) { ctx.strokeStyle = halo!; ctx.lineWidth = L.haloW * 2; ctx.strokeText(g.ch, x, gy); } ctx.fillStyle = f; ctx.fillText(g.ch, x, gy); }
-						y += g.adv;
-					}
-				}
-			} else if (tl.runs) {   // 区間つき（format）＝run ごとに書体・色を据えて左から詰める（寄せは行の幅で）
-				ctx.textAlign = "left";
-				let ly = y0;
-				for (let i = 0; i < tl.runs.length; i++) {
-					const lhI = tl.lhs![i]; let x = just === "left" ? x0 : just === "right" ? x0 + tl.w - tl.ws[i] : x0 + (tl.w - tl.ws[i]) / 2;
-					for (const r of tl.runs[i]) {
-						// vertical-align（C5）＝run の高さ（字＝size×font-scale・記号＝絵の高さ）を行の上／中央／下に揃える。無指定＝行の中央（従来）
-						const rh = r.img ? r.h : tl.size * r.fs, cy = r.va === "top" ? ly + rh / 2 : r.va === "bottom" ? ly + lhI - rh / 2 : ly + lhI / 2;
-						if (r.img) { const im = images.get(r.img); if (im && r.w > 0) { const ga = ctx.globalAlpha; ctx.globalAlpha = o; ctx.drawImage(im.bm, x, cy - r.h / 2, r.w, r.h); ctx.globalAlpha = ga; } x += r.w; continue; }   // 記号の区間（format の image）
-						setFont(r.font); if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size * r.fs}px` : "0px";
-						if (L.haloW > 0) { ctx.strokeStyle = halo!; ctx.lineWidth = L.haloW * 2; ctx.strokeText(r.t, x, cy); }
-						ctx.fillStyle = r.col ? css(r.col, o) : fill; ctx.fillText(r.t, x, cy);
-						x += r.w;
-					}
-					ly += tl.lhs![i];
-				}
-			} else for (let i = 0; i < tl.lines.length; i++) {
-				const ly = y0 + (i + 0.5) * tl.lh * tl.size;
-				if (L.haloW > 0) { ctx.strokeStyle = halo!; ctx.lineWidth = L.haloW * 2; ctx.strokeText(tl.lines[i], ax, ly); }
-				ctx.fillStyle = fill; ctx.fillText(tl.lines[i], ax, ly);
-			}
-			ctx.shadowBlur = 0;
-			if (T) ctx.restore();
+			sink.pointText(tl, tl.font || fontOf(L, L.size!), T, sx, sy, x0, y0, just, L, o, imgBm);
 		}
 		drawSky(st, cam, Wc, Hc, dpr);
+		drawMs = nowMs() - t0;
 		return animating;
 	}
 
 	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
 	// 出現タイミング・フェードも星座線と同一（z<5・z5→4.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
 	function drawSky(st: CameraState, cam: CameraPose, Wc: number, Hc: number, dpr: number) {
-		if ((!sky && !moon) || cam.zoom >= 5) return;
+		const ctx = sink.ctx2d;   // 星空の注記・月は 2D の受け口だけ（T-P3 で移す）
+		if ((!sky && !moon) || cam.zoom >= 5 || !ctx) return;
 		const fade = Math.min(1, (5 - cam.zoom) / 0.5);
 		const gmst = gmstAt(clockNow(clock));   // 星（renderer＝gmstAt(clockNow(view.clock))）と同じ時刻・同じ式（旧＝実時刻の近似式＝時計を早送りすると星座名が星からずれた）
 		const cg = Math.cos(gmst), sg = Math.sin(gmst);
@@ -1037,6 +896,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	}
 
 	function placedDebug() { return dbg; }
-	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; curFont = ""; dirty = true; if (ga.ss) gaReset(ga.ss); }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
+	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; dirty = true; sink.fontsChanged(); }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
+	const stats = (): LabelStats => ({ drawMs, collideMs, labels: nDrawn, ...sink.stats() });
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache, stats };
 }

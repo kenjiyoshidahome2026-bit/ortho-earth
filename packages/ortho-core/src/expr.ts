@@ -199,6 +199,44 @@ export function unknownOps(e: unknown, out: Set<string> = new Set()): Set<string
 	}
 }
 
+// 式の分類（2026-10-22・描画の統合ロードマップ 波 1 の 3＝V-Ph3 の paint 表が読む）。MapLibre の isFeatureConstant／isGlobalPropertyConstant(["zoom"]) と同じ見方：
+//   kind＝"constant"（何にも依らない）｜"zoom"（ズームだけ）｜"data"（地物だけ）｜"zoom×data"（両方）。
+//   data＝get／has（引数 1 つ）・properties・geometry-type・id・feature-state・within・distance。2 引数の get／has は与えた object を見るだけ＝地物に依らない。
+//   旗：state（feature-state を読む）・global（global-state／config を読む＝地物には依らず実行時に変わる）・camera（pitch・distance-from-center）・
+//   vertex（line-progress・heatmap-density・accumulated・elevation＝描く所で決まる値）。
+// 式の位置だけを見る（unknownOps と同じ）：literal の中・match のラベル・interpolate の補間型・step／interpolate の閾値は見ない。format／number-format／collator の設定の object の値は式。
+export type ExprKind = "constant" | "zoom" | "data" | "zoom×data";
+export interface ExprDeps { kind: ExprKind; state: boolean; global: boolean; camera: boolean; vertex: boolean }
+const FEATURE_OPS = new Set(["properties", "geometry-type", "id", "feature-state", "within", "distance"]);
+const VERTEX_OPS = new Set(["line-progress", "heatmap-density", "accumulated", "elevation"]);
+export function exprDeps(e: unknown): ExprDeps {
+	const d = { zoom: false, data: false, state: false, global: false, camera: false, vertex: false };
+	const walk = (v: unknown): void => {
+		if (v && typeof v === "object" && !Array.isArray(v)) { for (const x of Object.values(v)) walk(x); return; }   // format／number-format／collator の設定
+		if (!Array.isArray(v) || typeof v[0] !== "string") return;
+		const op = v[0];
+		if (op === "zoom") d.zoom = true;
+		else if (FEATURE_OPS.has(op) || ((op === "get" || op === "has") && v.length === 2)) d.data = true;
+		if (op === "feature-state") d.state = true;
+		if (op === "global-state" || op === "config") d.global = true;
+		if (op === "pitch" || op === "distance-from-center") d.camera = true;
+		if (VERTEX_OPS.has(op)) d.vertex = true;
+		switch (op) {
+			case "literal": case "within": case "distance": return;   // 中はデータ
+			case "semiliteral": { if (Array.isArray(v[1])) for (const x of v[1]) walk(x); return; }   // 要素のうち演算子で始まる配列だけが式（評価器と同じ）
+			case "match": { walk(v[1]); for (let i = 3; i < v.length - 1; i += 2) walk(v[i]); walk(v[v.length - 1]); return; }
+			case "interpolate": case "interpolate-hcl": case "interpolate-lab": { walk(v[2]); for (let i = 4; i < v.length; i += 2) walk(v[i]); return; }
+			case "step": { walk(v[1]); walk(v[2]); for (let i = 4; i < v.length; i += 2) walk(v[i]); return; }
+			case "let": { for (let i = 2; i < v.length - 1; i += 2) walk(v[i]); walk(v[v.length - 1]); return; }
+			default: for (let i = 1; i < v.length; i++) walk(v[i]);
+		}
+	};
+	walk(e);
+	const kind: ExprKind = d.zoom ? (d.data ? "zoom×data" : "zoom") : d.data ? "data" : "constant";
+	return { kind, state: d.state, global: d.global, camera: d.camera, vertex: d.vertex };
+}
+export const exprKind = (e: unknown): ExprKind => exprDeps(e).kind;
+
 // cubic-bezier の緩急（x1,y1,x2,y2）＝t（x）→ y。Newton＋二分で x を解く（CSS の cubic-bezier と同じ）
 function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number) => number {
 	const bx = (t: number): number => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3, by = (t: number): number => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;

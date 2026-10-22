@@ -123,7 +123,7 @@
   text-size-adjust: 100%; /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
   touch-action: manipulation; /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
 } /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
-#c, #gint, #labels {
+#c, #gint, #labels, #labelsgpu {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -138,7 +138,7 @@
   cursor: grabbing;
 }
 
-#gint, #labels {
+#gint, #labels, #labelsgpu {
   pointer-events: none;
 } /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
 /* --- 34px規格（角ボタンの共通骨格 2026-09-03 統合）：寸法・骨格・svg はここ1か所。
@@ -505,6 +505,61 @@
 }
 #attr a:hover {
   text-decoration: underline;
+}
+/* 1 行の銘「© 2026 [logo] ortho-earth　データ一覧」＋押すと開く出典の札（本人 2026-10-21・gadgets/instruments.ts の setAttrHTML） */
+#attr .attr-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+#attr .attr-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+#attr .attr-logo {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 7;
+}
+#attr .attr-more {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#attr .attr-full {
+  position: relative;
+  max-width: min(440px, calc(100vw - 32px));
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  margin-bottom: 6px;
+  padding: 2px 18px 6px 0;
+  border-bottom: 1px solid var(--qm-glass-border);
+}
+#attr .attr-full[hidden] {
+  display: none;
+}
+#attr .attr-close {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
 }
 
 /* --- 状態盤HUD（?hud=1／?hud=0・右下＝出典の上）：実機で「落ちる」の切り分け用の計器（Device / Render / Memory 台帳）。

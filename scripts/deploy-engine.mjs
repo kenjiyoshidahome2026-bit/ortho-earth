@@ -9,6 +9,8 @@
 //   1 つ落ちたら止める（後ろは配らない）。gishub-jp・geopbf-demo は www（Cloudflare Pages）が main の push で自動で組む＝ここでは配らない。
 //   node scripts/deploy-engine.mjs [アプリ名…]   （名前を渡すとそのアプリだけ・①② は常に先頭）
 //   node scripts/deploy-engine.mjs --engine-only （①② だけ＝apps/engine の npm run deploy）
+//   node scripts/deploy-engine.mjs --gate-only   （① と、各アプリの Chrome の門（GATES）だけ＝何も配らない・鍵が要らない・
+//      落ちても止めずに全部回して最後に一覧＝Actions の runner で門が通るかを、鍵を入れる前に確かめる・2026-10-21）
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
@@ -18,7 +20,14 @@ import { requireNode } from "./lib/node-version.mjs";
 requireNode();   // 古い node（.ts を読めない）は何も配る前に止める（2026-10-19・solar の ephem の検定で止まった）
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "yokohama", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
-const args = process.argv.slice(2), engineOnly = args.includes("--engine-only");
+const GATES = {   // --gate-only で回す各アプリの門（各 deploy から wrangler の手前までの重い物＝Chrome を使う物）
+	"quakes": "npm run build && npm run verify:prod",
+	"census2020": "npm run verify:prod",
+	"world": "npm run verify:prod",
+	"ortho-japan": "node scripts/deploy.mjs --gate-only",
+	"solar": "npm run verify:i18n && npm test -w @ortho-earth/ephem",
+};
+const args = process.argv.slice(2), engineOnly = args.includes("--engine-only"), gateOnly = args.includes("--gate-only");
 const pick = args.filter(a => !a.startsWith("--"));
 const bad = pick.filter(a => !APPS.includes(a));
 if (bad.length) { console.error(`✗ 知らないアプリ：${bad.join(" ")}（${APPS.join("・")}）`); process.exit(1); }
@@ -32,6 +41,19 @@ const steps = [
 	["engine", "engine", ["run", "deploy:built"], true],   // 出荷物の門 check.mjs → wrangler deploy
 	...apps.map(a => [a, a, ["run", a === "ortho-globe" ? "deploy:built" : "deploy"], true]),
 ];
+if (gateOnly) {   // 配らない＝順序の制約（engine が live）も無い・落ちても先へ進んで全部の結果を出す
+	const gates = [["ortho-globe", "npm run build && npm run verify:prod"], ...apps.filter(a => GATES[a]).map(a => [a, GATES[a]])];
+	const t0 = Date.now(), res = [];
+	for (const [name, cmd] of gates) {
+		console.log(`\n=== 門：${name}（${cmd}）`);
+		const r = spawnSync("sh", ["-c", cmd], { cwd: path.join(ROOT, "apps", name), stdio: "inherit" });
+		res.push([name, r.status === 0]);
+	}
+	const lines = res.map(([n, ok]) => `${ok ? "✓" : "✗"} ${n}`);
+	console.log(`\n門だけ（何も配っていない・${((Date.now() - t0) / 60000).toFixed(1)} 分）\n${lines.join("\n")}`);
+	if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `#### 門だけ\n${lines.map(l => `- ${l}`).join("\n")}\n`);
+	process.exit(res.every(([, ok]) => ok) ? 0 : 1);
+}
 const t0 = Date.now(), done = [];
 for (const [name, dir, cmd, fin] of steps) {
 	console.log(`\n=== ${name}（npm ${cmd.join(" ")}）`);

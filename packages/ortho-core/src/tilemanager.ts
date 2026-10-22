@@ -14,13 +14,20 @@ import type { DrawList, Style } from "./build.ts";
 import type { Label } from "./labels.ts";
 import type { BuildingsGeom, MergeOptions, MergedScene } from "./scene.ts";
 import type { TileZoomOf } from "./mlcover.ts";
+import type { TileTimings } from "./worker-msg.ts";
 
-/** タイル 1 枚の組み立ての結果（main の既定経路＝buildTilePayload・worker 経路＝メタ＋ラベルだけ） */
-export interface TileResult { origin: number[] | null; dl?: DrawList | null; labels: Label[]; buildings?: BuildingsGeom | null; z: number; bytes?: number }
-/** キャッシュの 1 件 */
-export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number }
-/** タイルの組み立て（worker 経路は abort を持つ） */
-export type BuildTileFn = ((t: TileXYZ) => Promise<TileResult>) & { abort?: (key: string) => void };
+/** タイル 1 枚の組み立ての結果（main の既定経路＝buildTilePayload・worker 経路＝メタ＋ラベルだけ）。t＝worker 内の時間（計器 e・worker 経路だけ） */
+export interface TileResult { origin: number[] | null; dl?: DrawList | null; labels: Label[]; buildings?: BuildingsGeom | null; z: number; bytes?: number; t?: TileTimings }
+/** タイルの役（update の ensure の順）＝0 主層・1 下地・2 毛布。計器 e は主層だけを数える */
+export type TileRole = 0 | 1 | 2;
+/** キャッシュの 1 件。needAt／readyAt／shownAt＝計器 e（`vt perf plan.md` §2）の時刻（performance.now・ms）＝選抜で必要になった→組み立てが届いた→main のシーンに載った */
+export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number; role?: TileRole; needAt?: number; readyAt?: number; shownAt?: number }
+/** 計器 e の 1 件（shown が返す）：total＝必要になった→画面・ready＝必要になった→組み立てが届いた・wait＝ready のうち worker の時間（t）を除いた待ち（キューと転送） */
+export interface TileLatency { key: string; z: number; total: number; ready: number; wait: number; t: TileTimings | null }
+/** 組み立ての急ぎ具合（vt perf plan §3.1 の優先付きキューの鍵）：role＝主層 0／下地 1／毛布 2・dist＝画面中心からの距離（度・大きいほど後） */
+export interface BuildHint { role: TileRole; dist: number }
+/** タイルの組み立て（worker 経路は abort・priority（待ちの優先度の付け直し）・stats を持つ） */
+export type BuildTileFn = ((t: TileXYZ, hint?: BuildHint) => Promise<TileResult>) & { abort?: (key: string) => void; priority?: (key: string, hint: BuildHint) => void; stats?: () => { queued: number; inflight: number } | null };
 export interface LodFloor { minViewZoom: number; z: number }
 export interface TileManagerOptions {
 	style: Style; tileUrl: (z: number, x: number, y: number) => string; onChange?: (() => void) | null; cap?: number; buildTile?: BuildTileFn | null; onEvict?: ((keys: string[]) => void) | null;
@@ -30,8 +37,8 @@ export interface TileManagerOptions {
 export interface OrderItem { key: string; origin: number[] | null; z: number }
 export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
-export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number }
-export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void }
+export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number; queue?: { queued: number; inflight: number } | null }
+export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void; shown(keys: Iterable<string>): TileLatency[] }
 interface LodMemo { key: unknown[]; selected: TileXYZ[]; coarse: TileXYZ[]; blanket: TileXYZ[]; keepKeys: string[] }
 
 const keyOf = (t: TileXYZ): string => `${t.z}/${t.x}/${t.y}`;
@@ -49,10 +56,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	const put = (k: string, v: TileEntry): void => { const o = cache.get(k); if (o) totalBytes -= o.bytes || 0; cache.set(k, v); totalBytes += v.bytes || 0; };
 	const drop = (k: string): void => { const o = cache.get(k); if (o) { totalBytes -= o.bytes || 0; cache.delete(k); } };
 
-	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
+	// tess済み geometry（＋注記の概算・2026-10-21）の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
 	// 同一に数えると枚数上限がメモリの代理にならない。予算は端末メモリで自動調整（navigator.deviceMemory=GB・
 	// 上限8で頭打ち／Safari・FF は未提供＝4GB相当とみなす）。呼び出し側 memBudgetMB で明示上書き可。
-	// geometry の実体は scene worker 側（main はメタのみ保持）＝この予算は onEvict 経由で鏡(scene worker)を縛る。
+	// geometry の実体は scene worker 側（main はメタと注記を保持）＝この予算は onEvict 経由で鏡(scene worker)を縛り、注記の分は main を縛る。
 	const dm = (typeof navigator !== "undefined" && (navigator as { deviceMemory?: number }).deviceMemory) || 4;
 	const autoMB = Math.max(24, Math.min(96, dm * 12));   // 自動＝端末メモリで [24,96]MB（16GB機≒96 / 4GBタブ≒48 / 2GB≒24）
 	const budgetBytes = (memBudgetMB || autoMB) * 1024 * 1024;   // memBudgetMB 明示時はそのまま（呼び出し側を信頼＝上限に丸めない）
@@ -70,16 +77,25 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	}
 	const build: BuildTileFn = buildTile || defaultBuildTile;
 
-	async function ensure(t: TileXYZ): Promise<void> {
+	// role＝この ensure を出した経路（0 主層・1 下地・2 毛布）。同じタイルが複数の役で要るなら最も近い役（小さい方）を残す＝計器 e は主層として要った瞬間から数える。
+	// dist＝画面中心（cam.center）からタイル中心までの距離（度）＝優先付きキュー（§3.1）の第 2 鍵。読込中の枠は update ごとに付け直す（build.priority）
+	const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+	const distOf = (t: TileXYZ, c: readonly number[]): number => { const n = 1 << t.z, lon = ((t.x + 0.5) / n) * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 0.5) / n))) * 180 / Math.PI; let dl = lon - c[0]; if (dl > 180) dl -= 360; else if (dl < -180) dl += 360; return Math.hypot(dl * Math.cos(c[1] * Math.PI / 180), lat - c[1]); };
+	async function ensure(t: TileXYZ, role: TileRole = 0, center: readonly number[] = [0, 0]): Promise<void> {
 		const k = keyOf(t);
 		const ex = cache.get(k);
-		if (ex && ex.status !== "error") return;   // loading/ready はそのまま
+		if (ex && ex.status !== "error") {   // loading/ready はそのまま（役だけ近い方へ・読込中に主層になったらそこから数える）。待っている物は優先度を付け直す
+			if (role < (ex.role ?? 2)) { ex.role = role; if (ex.status === "loading") ex.needAt = now(); }
+			if (ex.status === "loading" && build.priority) build.priority(k, { role: ex.role ?? role, dist: distOf(t, center) });
+			return;
+		}
 		const tries = ex ? (ex.tries || 0) : 0;
 		if (tries >= 3) return;                     // 3回失敗＝諦める（本当に無いタイル等での永久リトライ回避）
-		put(k, { status: "loading", tries });
+		put(k, { status: "loading", tries, role, needAt: now() });
 		try {
-			const r = await build(t);   // worker or main
-			put(k, { status: "ready", ...r });
+			const r = await build(t, { role, dist: distOf(t, center) });   // worker or main
+			const cur = cache.get(k);   // 読込中に役が近くなった分（ensure の先頭）を引き継ぐ
+			put(k, { status: "ready", ...r, role: cur?.role ?? role, needAt: cur?.needAt, readyAt: now() });
 			onChange && onChange();
 		} catch (e) {
 			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。
@@ -109,6 +125,28 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return c && c.status === "ready" ? [{ z, x, y }] : null;
 	}
 
+	// 未着の枠の代打（update の説明）。戻り＝描く枠の列（全部 ready なら drawSel そのもの＝covered の印）。代打の無い未着の枠は
+	// そのまま残る（ready() が落とす＝従来どおり下地が見える穴。パンの先端など、祖先も子孫も手元に無い所）
+	const FILL_UP = 2, FILL_DOWN = 2;
+	const isReady = (z: number, x: number, y: number): boolean => cache.get(`${z}/${x}/${y}`)?.status === "ready";
+	function fillGaps(sel: TileXYZ[]): TileXYZ[] {
+		if (sel.every(t => isReady(t.z, t.x, t.y))) return sel;
+		const out: TileXYZ[] = [], anc: TileXYZ[] = [];
+		for (const t of sel) {
+			if (isReady(t.z, t.x, t.y)) { out.push(t); continue; }
+			const kids = residentCover(t.z, t.x, t.y, FILL_DOWN);   // 自身は未着＝返るのは隙間なく覆う子孫だけ
+			if (kids) { out.push(...kids); continue; }
+			let z = t.z, x = t.x, y = t.y, a: TileXYZ | null = null;
+			for (let d = 0; d < FILL_UP && z > minZ; d++) { z--; x >>= 1; y >>= 1; if (isReady(z, x, y)) { a = { z, x, y }; break; } }
+			if (!a) { out.push(t); continue; }
+			if (!anc.some(b => b.z === a!.z && b.x === a!.x && b.y === a!.y)) anc.push(a);
+		}
+		if (!anc.length) return out;
+		// 祖先の下に入る物（ready な兄弟・他の祖先の子孫・子孫の代打）は祖先 1 枚に畳む
+		const under = (t: TileXYZ, b: TileXYZ) => t.z > b.z && (t.x >> (t.z - b.z)) === b.x && (t.y >> (t.z - b.z)) === b.y;
+		const top = anc.filter(a => !anc.some(b => under(a, b)));
+		return [...top, ...out.filter(t => !top.some(b => under(t, b)))];
+	}
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit: Set<number> | null = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
 	let selMaxZ = 0;          // 直近 update の「選択レベル」の最細 z（keepFine の子孫代打を除いた素の選抜）＝labels の近景窓の基準
@@ -155,6 +193,12 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 				if (cov) drawSel.push(...cov); else drawSel.push(t);
 			}
 		}
+		// 未着の枠の代打（2026-10-20・本人報告「止まった時の描き直しで一瞬の白抜き」）：選んだ枠が未着の間、その場所を
+		// 常駐の子孫（隙間なく覆える時）か、ready な祖先（FILL_UP 段まで）で埋める。旧＝ready な枠だけを main へ結合していた＝
+		// 選びが変わった瞬間（静止の手前詳細化で一段細かく割れる・ズーム・パンの先）に未着の区画が一度空になり、取得→展開→結合→
+		// 転送の後でやっと描かれた（下地の線は main に線がある間は伏せる＝紙色の白抜き）。祖先で埋める時は、その祖先の下の枠を
+		// ready な物も含めてまとめて祖先に替える＝兄弟がそろうまで親のまま（重ねて描かない・3D Tiles と同じ「塊で入れ替える」）
+		const fillSel = fillGaps(drawSel);
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
@@ -174,9 +218,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		lod = ck === null ? null : { key: ck, selected, coarse, blanket, keepKeys };
 		const keep = new Set(keepKeys);
 		if (drawSel !== selected) for (const t of drawSel) keep.add(keyOf(t));
-		for (const t of blanket) ensure(t);
-		for (const t of coarse) ensure(t);
-		for (const t of selected) ensure(t);
+		if (fillSel !== drawSel) for (const t of fillSel) keep.add(keyOf(t));   // 代打の祖先・子孫も LRU に食わせない
+		for (const t of blanket) ensure(t, 2, cam.center);
+		for (const t of coarse) ensure(t, 1, cam.center);
+		for (const t of selected) ensure(t, 0, cam.center);
 		// 視野から外れた読込中タイルは fetch ごと中断（高速パンで帯域とworker CPUを空ける）。
 		// エントリは ensure の catch("aborted") が消す＝パンで戻ってきたら普通に再取得される。
 		if (build.abort) {
@@ -226,8 +271,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// covered＝「この視野を覆うために描くべき枠（keepFine の子孫代打後）」が全部 ready＝主層に穴が無いことが
 		// 構造的に確定。app の render は これと merge 済み集合の一致で下地(base)の要否を厳密に判定する
 		// （「移動中かどうか」という代理指標に頼らない）。sel＝その枠数（診断用）。total は従来どおり素の選抜数。
-		const draw = ready(drawSel);
-		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: draw.length === drawSel.length };
+		const draw = ready(fillSel);
+		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: fillSel === drawSel };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
@@ -256,11 +301,26 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return out;
 	}
 
+	// 計器 e（`vt perf plan.md` §2）：main のシーンに載った鍵の列を受け、主層（role 0）として要ったタイルが初めて載った分の遅れを返す。
+	// 呼ぶのは main merge の ack（画面に載った瞬間）＝ここが「必要になった→画面」の終点。2 度目以降の ack に同じ鍵が居ても数えない（shownAt）。
+	// wait＝ready までの時間から worker 内の時間（fetch＋build）を引いた残り＝キュー待ち＋境界の転送（Phase 1 §3.1 の優先キューが縮める所）
+	function shown(keys: Iterable<string>): TileLatency[] {
+		const out: TileLatency[] = [], at = now();
+		for (const k of keys) {
+			const c = cache.get(k);
+			if (!c || c.status !== "ready" || c.shownAt != null || c.role !== 0 || c.needAt == null) continue;
+			c.shownAt = at;
+			const ready = (c.readyAt ?? at) - c.needAt, t = c.t ?? null;
+			out.push({ key: k, z: c.z!, total: at - c.needAt, ready, wait: Math.max(0, ready - (t ? t.fetch + t.build : 0)), t });
+		}
+		return out;
+	}
+
 	// 常駐 geometry の観測（メモリ確認用）：ready タイル枚数・実バイト・予算・端末メモリ推定。
 	function stats(): TileStats {
 		let tiles = 0, bytes = 0;
 		for (const c of cache.values()) if (c.status === "ready") { tiles++; bytes += c.bytes || 0; }
-		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size };
+		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size, queue: build.stats ? build.stats() : null };
 	}
 
 	// restyle（配色テーマの生き替え）：全タイルを捨てる＝scene worker の鏡(geom/GPU常駐)も onEvict で同時に空へ。
@@ -270,5 +330,5 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		if (cache.size && onEvict) onEvict([...cache.keys()]);
 		cache.clear(); totalBytes = 0; stickySplit = null; lod = null;
 	}
-	return { update, buildScene, labels, cache, stats, reset };
+	return { update, buildScene, labels, cache, stats, reset, shown };
 }

@@ -1,5 +1,5 @@
 // Gaussian splat の読み手と、描く前の下ごしらえ（純関数・main で動く・node で検定できる）。@ortho-earth/plugin-splat。
-//   読み手（.ply／.splat／.spz）は file の局所座標の SplatData（crs "local"・単位 m・軸は file の約束＝axes）を返す。
+//   読み手（.ply／.splat／.spz／.ksplat／.sog）は file の局所座標の SplatData（crs "local"・単位 m・軸は file の約束＝axes）を返す。
 //   下ごしらえ（toEnu）は SplatData（lnglat／ecef／local）を「錨（経度・緯度・高さ）＋東北上 m の中心＋東北上の共分散（6 個）＋RGBA」にする＝worker はこれだけ描く。
 // 四元数は x,y,z,w（契約＝globe の SplatData）。scales は楕円の各軸の σ（m・線形）。colors の A は不透明度。
 // sh＝DC より上の球面調和の係数（n × K×3・係数が先・色が後＝sh[i*K*3 + k*3 + c]・K＝3／8／15＝次数 1／2／3・.spz と同じ並び。.ply の f_rest_* は色が先なので読む時に並べ替える）。
@@ -13,7 +13,9 @@ const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v))
 // ---- 公開の型 ----
 export type SplatCrs = "lnglat" | "ecef" | "local";
 export type SplatAxes = "z" | "y" | "-y";
-export type SplatFormat = "ply" | "splat" | "spz";
+export type SplatFormat = "ply" | "splat" | "spz" | "ksplat" | "sog";
+/** readerFor／format の検めで使う一覧（globe の SPLAT_FORMATS と同じ） */
+export const SPLAT_FORMATS: readonly SplatFormat[] = Object.freeze(["ply", "splat", "spz", "ksplat", "sog"]);
 /** the SplatData contract of @ortho-earth/globe, plus crs "local" for file sources (meters, axes as in the file) */
 export interface SplatData {
 	n?: number;
@@ -154,7 +156,202 @@ export function decodeSpz(u8: Uint8Array): LocalSplatData {
 	if (sh) for (let i = 0; i < n * shN; i++, o++) sh[i] = (u8[o] - 128) / 128;
 	return { n, crs: "local", axes: "y", positions, scales, rotations, colors, ...(sh ? { sh } : {}) };
 }
-export const formatOf = (u: unknown): SplatFormat | null => { const m = String(u).match(/\.(ply|splat|spz)(\?|#|$)/i); return m ? m[1].toLowerCase() as SplatFormat : null; };
+// ---- .ksplat（GaussianSplats3D の SplatBuffer＝頭 4096 byte・節の頭 1024 byte ずつ・圧縮 0／1／2・節ごとのバケツ・SH 次数 0〜2）＝軸は .ply と同じ "-y" ----
+//   圧縮 0：中心 f32×3・尺 f32×3（線形）・回転 f32×4（w x y z）・RGBA・SH f32。圧縮 1：中心 u16×3（バケツの中心からの差＝(v−range)×(block/2/range)）・尺／回転／SH f16。圧縮 2：SH だけ u8（頭の min〜max に伸ばす）。
+//   SH の並びは帯ごとに色が先（帯 1＝R の k0..2・G・B／帯 2＝R の k3..7・G・B）→ 係数が先（sh[k*3+c]）に並べ替える（.ply と同じ目）。
+/** IEEE 半精度 → 数 */
+export const f16 = (h: number): number => { const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, m = h & 1023; return e === 0 ? s * m * 2 ** -24 : e === 31 ? (m ? NaN : s * Infinity) : s * (1 + m / 1024) * 2 ** (e - 15); };
+interface KsplatSection { n: number; bucketSize: number; bucketCount: number; sf: number; range: number; full: number; partial: number; deg: number; stride: number; base: number; buckets: number; data: number }
+export function parseKsplat(buf: BinSource): LocalSplatData {
+	const u8 = toU8(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+	if (u8.length < 4096 + 1024) throw new Error("plugin-splat: not a .ksplat file (too short)");
+	const major = u8[0], sections = dv.getUint32(4, true), level = dv.getUint16(20, true);
+	if (major !== 0 || level > 2) throw new Error(`plugin-splat: .ksplat version ${major}.${u8[1]} / compression level ${level} is not supported`);
+	if (sections < 1 || sections > 1024 || 4096 + sections * 1024 > u8.length) throw new Error("plugin-splat: .ksplat section count is out of range");
+	const shMin = dv.getFloat32(36, true) || -1.5, shMax = dv.getFloat32(40, true) || 1.5;
+	const secs: KsplatSection[] = []; let total = 0, at = 4096 + sections * 1024, maxDeg = 0;
+	for (let s = 0; s < sections; s++) {
+		const h = 4096 + s * 1024, n = dv.getUint32(h + 4, true), bucketSize = dv.getUint32(h + 8, true), bucketCount = dv.getUint32(h + 12, true), block = dv.getFloat32(h + 16, true);
+		const bucketBytes = dv.getUint16(h + 20, true) || (level ? 12 : 0), range = dv.getUint32(h + 24, true) || (level ? 32767 : 1), full = dv.getUint32(h + 32, true), partial = dv.getUint32(h + 36, true), deg = dv.getUint16(h + 40, true);
+		if (deg > 2) throw new Error(`plugin-splat: .ksplat sh degree ${deg} is not supported (0–2)`);
+		if (level && (!bucketSize || bucketBytes < 12)) throw new Error("plugin-splat: .ksplat section has no buckets");
+		const shComp = [0, 9, 24][deg], stride = level === 0 ? 44 + 4 * shComp : level === 1 ? 24 + 2 * shComp : 24 + shComp, metaBytes = partial * 4, bucketsBytes = bucketBytes * bucketCount + metaBytes;
+		secs.push({ n, bucketSize, bucketCount, sf: block / 2 / range, range, full, partial, deg, stride, base: at, buckets: at + metaBytes, data: at + bucketsBytes });
+		at += stride * n + bucketsBytes; total += n; maxDeg = Math.max(maxDeg, deg);
+	}
+	if (at > u8.length) throw new Error("plugin-splat: .ksplat is truncated");
+	const positions = new Float32Array(total * 3), scales = new Float32Array(total * 3), rotations = new Float32Array(total * 4), colors = new Uint8Array(total * 4);
+	const K = [0, 3, 8][maxDeg], sh = K ? new Float32Array(total * K * 3) : null;
+	let i = 0;
+	for (const sc of secs) {
+		const lens: number[] = []; for (let p = 0; p < sc.partial; p++) lens.push(dv.getUint32(sc.base + p * 4, true));
+		const fullEnd = sc.full * sc.bucketSize; let pStart = fullEnd, pIdx = 0;
+		const shComp = [0, 9, 24][sc.deg];
+		for (let j = 0; j < sc.n; j++, i++) {
+			const o = sc.data + j * sc.stride;
+			let w: number, x: number, y: number, z: number, shAt = 0;
+			if (level === 0) {
+				for (let k = 0; k < 3; k++) { positions[i * 3 + k] = dv.getFloat32(o + k * 4, true); scales[i * 3 + k] = dv.getFloat32(o + 12 + k * 4, true); }
+				w = dv.getFloat32(o + 24, true); x = dv.getFloat32(o + 28, true); y = dv.getFloat32(o + 32, true); z = dv.getFloat32(o + 36, true);
+				colors.set(u8.subarray(o + 40, o + 44), i * 4); shAt = o + 44;
+			} else {
+				let b: number;
+				if (j < fullEnd) b = Math.floor(j / sc.bucketSize);
+				else { while (pIdx < lens.length - 1 && j >= pStart + lens[pIdx]) pStart += lens[pIdx++]; b = sc.full + pIdx; }
+				if (b >= sc.bucketCount) throw new Error("plugin-splat: .ksplat bucket index is out of range");
+				const bb = sc.buckets + b * 12;
+				for (let k = 0; k < 3; k++) { positions[i * 3 + k] = (dv.getUint16(o + k * 2, true) - sc.range) * sc.sf + dv.getFloat32(bb + k * 4, true); scales[i * 3 + k] = f16(dv.getUint16(o + 6 + k * 2, true)); }
+				w = f16(dv.getUint16(o + 12, true)); x = f16(dv.getUint16(o + 14, true)); y = f16(dv.getUint16(o + 16, true)); z = f16(dv.getUint16(o + 18, true));
+				colors.set(u8.subarray(o + 20, o + 24), i * 4); shAt = o + 24;
+			}
+			const l = Math.hypot(x, y, z, w) || 1; rotations.set([x / l, y / l, z / l, w / l], i * 4);
+			if (sh && shComp) {
+				const base = i * K * 3;
+				for (let m = 0; m < shComp; m++) {
+					const v = level === 0 ? dv.getFloat32(shAt + m * 4, true) : level === 1 ? f16(dv.getUint16(shAt + m * 2, true)) : u8[shAt + m] / 255 * (shMax - shMin) + shMin;
+					const c = m < 9 ? Math.floor(m / 3) : Math.floor((m - 9) / 5), k = m < 9 ? m % 3 : 3 + (m - 9) % 5;
+					sh[base + k * 3 + c] = v;
+				}
+			}
+		}
+	}
+	return { n: total, crs: "local", axes: "-y", positions, scales, rotations, colors, ...(sh ? { sh } : {}) };
+}
+
+// ---- .sog（PlayCanvas の Spatially Ordered Gaussians v2＝zip の束・meta.json＋WebP の画・符号帳）＝軸は RUB（右・上・後）"y" ----
+//   画は 8 bit の生の値（means_l/means_u＝位置 16 bit を 2 枚・quats＝最小 3 成分＋mode・scales／sh0＝符号帳の添字・shN＝重心の palette＋添字）。
+//   画の解き手（WebP → RGBA）は差し替えられる（node の検定は PNG）。既定は createImageBitmap → WebGL2 の texture → readPixels（premultiply しない＝sh0 の A が小さくても RGB の添字が崩れない）。WebGL2 が無ければ 2D canvas（A の小さい画素の RGB が丸まる）。
+/** 画 → RGBA（width × height × 4・8 bit・上の行が先） */
+export interface RgbaImage { width: number; height: number; data: Uint8Array | Uint8ClampedArray }
+export type ImageDecoder = (bytes: Uint8Array, name: string) => Promise<RgbaImage>;
+export interface SogOptions { /** WebP の bytes → RGBA。既定は createImageBitmap（browser／worker） */ decodeImage?: ImageDecoder }
+interface ZipEntry { name: string; method: number; csize: number; off: number }
+/** zip の中央目録（末尾の EOCD から）→ 項目の一覧 */
+export function zipEntries(u8: Uint8Array): ZipEntry[] {
+	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+	let e = -1;
+	for (let p = u8.length - 22; p >= Math.max(0, u8.length - 22 - 65535); p--) if (dv.getUint32(p, true) === 0x06054b50) { e = p; break; }
+	if (e < 0) throw new Error("plugin-splat: .sog is not a zip file (no end of central directory)");
+	const count = dv.getUint16(e + 10, true), cd = dv.getUint32(e + 16, true);
+	if (count === 0xffff || cd === 0xffffffff) throw new Error("plugin-splat: zip64 .sog is not supported");
+	const out: ZipEntry[] = []; let p = cd;
+	for (let k = 0; k < count; k++) {
+		if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) throw new Error("plugin-splat: .sog central directory is broken");
+		const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+		out.push({ name: new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)), method, csize, off });
+		p += 46 + nl + xl + cl;
+	}
+	return out;
+}
+/** raw deflate を解く（素の DecompressionStream） */
+export async function inflateRaw(u8: Uint8Array): Promise<Uint8Array> {
+	if (typeof DecompressionStream === "undefined") throw new Error("plugin-splat: DecompressionStream is not available");
+	const s = new Blob([u8 as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+	return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function zipRead(u8: Uint8Array, e: ZipEntry): Promise<Uint8Array> {
+	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+	if (e.off + 30 > u8.length || dv.getUint32(e.off, true) !== 0x04034b50) throw new Error(`plugin-splat: .sog entry ${e.name} is broken`);
+	const start = e.off + 30 + dv.getUint16(e.off + 26, true) + dv.getUint16(e.off + 28, true);
+	if (start + e.csize > u8.length) throw new Error(`plugin-splat: .sog entry ${e.name} is truncated`);
+	const data = u8.subarray(start, start + e.csize);
+	if (e.method === 0) return data;
+	if (e.method === 8) return inflateRaw(data);
+	throw new Error(`plugin-splat: .sog entry ${e.name} uses zip method ${e.method} (only stored / deflate)`);
+}
+/** 既定の画の解き手（browser／worker）＝createImageBitmap → WebGL2 の readPixels（正確）か 2D canvas（A の小さい画素は丸まる） */
+export async function decodeImageDefault(bytes: Uint8Array, name: string): Promise<RgbaImage> {
+	if (typeof createImageBitmap === "undefined" || typeof OffscreenCanvas === "undefined") throw new Error(`plugin-splat: no image decoder for ${name} here; pass splatPlugin({ decoders: { sog } }) or parseSog(bytes, { decodeImage })`);
+	const bmp = await createImageBitmap(new Blob([bytes as Uint8Array<ArrayBuffer>]), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+	try {
+		const { width, height } = bmp, data = new Uint8Array(width * height * 4), cv = new OffscreenCanvas(width, height);
+		const gl = cv.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: false, antialias: false }) as WebGL2RenderingContext | null;
+		if (gl) {
+			const tex = gl.createTexture(), fb = gl.createFramebuffer();
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+			const okFb = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+			if (okFb) gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+			gl.deleteFramebuffer(fb); gl.deleteTexture(tex); gl.getExtension("WEBGL_lose_context")?.loseContext();
+			if (okFb) return { width, height, data };
+		}
+		const ctx = new OffscreenCanvas(width, height).getContext("2d", { willReadFrequently: true });
+		if (!ctx) throw new Error(`plugin-splat: cannot decode ${name} (no canvas)`);
+		ctx.drawImage(bmp, 0, 0);
+		return { width, height, data: ctx.getImageData(0, 0, width, height).data };
+	} finally { bmp.close(); }
+}
+interface SogMeta { version?: number; count?: number; means?: { mins?: number[]; maxs?: number[]; files?: string[] }; scales?: { codebook?: number[]; files?: string[] }; quats?: { files?: string[] }; sh0?: { codebook?: number[]; files?: string[] }; shN?: { count?: number; bands?: number; codebook?: number[]; files?: string[] } }
+export async function parseSog(buf: BinSource, { decodeImage = decodeImageDefault }: SogOptions = {}): Promise<LocalSplatData> {
+	const u8 = toU8(buf);
+	if (!(u8[0] === 0x50 && u8[1] === 0x4b)) throw new Error("plugin-splat: .sog must be the zip bundle (meta.json and the webp images inside)");
+	const byName = new Map<string, ZipEntry>();
+	for (const e of zipEntries(u8)) { if (!e.name.endsWith("/")) { byName.set(e.name, e); const base = e.name.slice(e.name.lastIndexOf("/") + 1); if (!byName.has(base)) byName.set(base, e); } }
+	const file = async (name: unknown, what: string): Promise<Uint8Array> => { const e = typeof name === "string" ? byName.get(name) ?? byName.get(name.slice(name.lastIndexOf("/") + 1)) : undefined; if (!e) throw new Error(`plugin-splat: .sog has no ${what} file ${JSON.stringify(name)}`); return zipRead(u8, e); };
+	const meta = JSON.parse(new TextDecoder().decode(await file("meta.json", "meta.json"))) as SogMeta;
+	if (meta.version !== 2) throw new Error(`plugin-splat: .sog version ${meta.version} is not supported (2 is)`);
+	const n = meta.count ?? 0;
+	if (!Number.isInteger(n) || n < 0) throw new Error("plugin-splat: .sog count");
+	const book = (b: unknown, what: string): number[] => { if (!Array.isArray(b) || b.length !== 256 || !b.every(Number.isFinite)) throw new Error(`plugin-splat: .sog ${what} codebook must have 256 numbers`); return b as number[]; };
+	const vec3 = (v: unknown, what: string): number[] => { if (!Array.isArray(v) || v.length !== 3 || !v.every(Number.isFinite)) throw new Error(`plugin-splat: .sog means.${what}`); return v as number[]; };
+	const mins = vec3(meta.means?.mins, "mins"), maxs = vec3(meta.means?.maxs, "maxs"), scaleBook = book(meta.scales?.codebook, "scales"), dcBook = book(meta.sh0?.codebook, "sh0");
+	const img = async (name: unknown, what: string, min: number): Promise<RgbaImage> => {
+		const im = await decodeImage(await file(name, what), String(name));
+		if (!im || im.data.length !== im.width * im.height * 4) throw new Error(`plugin-splat: .sog image ${what} decoded to the wrong size`);
+		if (im.width * im.height < min) throw new Error(`plugin-splat: .sog image ${what} holds ${im.width * im.height} pixels for ${min} gaussians`);
+		return im;
+	};
+	const [ml, mu, qu, sc, dc] = await Promise.all([img(meta.means?.files?.[0], "means_l", n), img(meta.means?.files?.[1], "means_u", n), img(meta.quats?.files?.[0], "quats", n), img(meta.scales?.files?.[0], "scales", n), img(meta.sh0?.files?.[0], "sh0", n)]);
+	const positions = new Float32Array(n * 3), scales = new Float32Array(n * 3), rotations = new Float32Array(n * 4), colors = new Uint8Array(n * 4);
+	const unlog = (v: number): number => Math.sign(v) * (Math.exp(Math.abs(v)) - 1), qc = (b: number): number => (b / 255 - 0.5) * 2 / Math.SQRT2;
+	for (let i = 0; i < n; i++) {
+		const p = i * 4;
+		for (let k = 0; k < 3; k++) { const q = ml.data[p + k] | (mu.data[p + k] << 8); positions[i * 3 + k] = unlog(mins[k] + (maxs[k] - mins[k]) * q / 65535); scales[i * 3 + k] = Math.exp(scaleBook[sc.data[p + k]]); }
+		const a = qc(qu.data[p]), b = qc(qu.data[p + 1]), c = qc(qu.data[p + 2]), mode = qu.data[p + 3] - 252, d = Math.sqrt(Math.max(0, 1 - a * a - b * b - c * c));
+		if (mode < 0 || mode > 3) throw new Error(`plugin-splat: .sog quaternion mode ${qu.data[p + 3]} (252–255 expected)`);
+		const q = mode === 0 ? [d, a, b, c] : mode === 1 ? [a, d, b, c] : mode === 2 ? [a, b, d, c] : [a, b, c, d];   // w x y z
+		const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1; rotations.set([q[1] / l, q[2] / l, q[3] / l, q[0] / l], i * 4);
+		for (let k = 0; k < 3; k++) colors[i * 4 + k] = clamp255((0.5 + SH_C0 * dcBook[dc.data[p + k]]) * 255);
+		colors[i * 4 + 3] = dc.data[p + 3];
+	}
+	let sh: Float32Array | null = null;
+	if (meta.shN) {
+		const bands = meta.shN.bands ?? 0, K = [0, 3, 8, 15][bands];
+		if (!K) throw new Error(`plugin-splat: .sog shN.bands ${bands} (1–3 expected)`);
+		const count = meta.shN.count ?? 0, acBook = book(meta.shN.codebook, "shN");
+		const [ce, la] = await Promise.all([img(meta.shN.files?.[0], "shN_centroids", 0), img(meta.shN.files?.[1], "shN_labels", n)]);
+		if (ce.width < 64 * K || ce.width * ce.height < count * K) throw new Error("plugin-splat: .sog shN_centroids is too small for shN.count");
+		sh = new Float32Array(n * K * 3);
+		for (let i = 0; i < n; i++) {
+			const label = la.data[i * 4] | (la.data[i * 4 + 1] << 8);
+			if (label >= count) throw new Error(`plugin-splat: .sog shN label ${label} ≥ count ${count}`);
+			const row = Math.floor(label / 64) * ce.width + (label % 64) * K, base = i * K * 3;
+			for (let k = 0; k < K; k++) { const px = (row + k) * 4; for (let ch = 0; ch < 3; ch++) sh[base + k * 3 + ch] = acBook[ce.data[px + ch]]; }
+		}
+	}
+	return { n, crs: "local", axes: "y", positions, scales, rotations, colors, ...(sh ? { sh } : {}) };
+}
+
+/** URL／ファイル名 → format（拡張子） */
+// ---- .spz の書き手（v2・SH つき）＝3D Tiles 化（apps/ortho-globe/scripts/splat-tiles.mjs）と検定の往復に。gzip は呼び手（node＝zlib・browser＝CompressionStream）----
+/** SplatData（局所・axes は .spz の約束＝RUB "y" で渡す）→ .spz v2 の中身（gzip 前）。frac＝位置の小数の bit 数（既定 12＝±2048 m・0.24 mm 刻み）。尺は 1/16 の log・色は 0.15 の目・回転は 3 byte（w≧0）・SH は 8 bit（×128） */
+export function encodeSpzRaw(d: SplatData & { n: number }, { frac = 12 }: { frac?: number } = {}): Uint8Array<ArrayBuffer> {
+	const n = d.n, perSplat = d.sh && n ? d.sh.length / n : 0, shDeg = shDegreeOf(perSplat), shN = [0, 9, 24, 45][shDeg];
+	if (frac < 0 || frac > 23) throw new RangeError("plugin-splat: encodeSpz frac must be 0–23");
+	const b = new Uint8Array(16 + n * (9 + 1 + 3 + 3 + 3 + shN)), dv = new DataView(b.buffer), f = 1 << frac, lim = 0x7fffff;
+	dv.setUint32(0, 0x5053474e, true); dv.setUint32(4, 2, true); dv.setUint32(8, n, true); b[12] = shDeg; b[13] = frac;
+	let o = 16;
+	for (let i = 0; i < n * 3; i++, o += 3) { const q = Math.max(-lim - 1, Math.min(lim, Math.round(d.positions[i] * f))) & 0xffffff; b[o] = q & 255; b[o + 1] = (q >> 8) & 255; b[o + 2] = (q >> 16) & 255; }
+	for (let i = 0; i < n; i++, o++) b[o] = d.colors[i * 4 + 3];
+	for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++, o++) b[o] = clamp255(((d.colors[i * 4 + k] / 255 - 0.5) / SH_C0 * 0.15 + 0.5) * 255);
+	for (let i = 0; i < n * 3; i++, o++) { const s = d.scales[i]; b[o] = s > 0 ? clamp255((Math.log(s) + 10) * 16) : 0; }
+	for (let i = 0; i < n; i++) { const neg = d.rotations[i * 4 + 3] < 0 ? -1 : 1; for (let k = 0; k < 3; k++, o++) b[o] = clamp255((neg * d.rotations[i * 4 + k] + 1) * 127.5); }
+	if (shN) for (let i = 0; i < n * shN; i++, o++) b[o] = clamp255(d.sh![i] * 128 + 128);
+	return b;
+}
+export const formatOf = (u: unknown): SplatFormat | null => { const m = String(u).match(/\.(ply|splat|spz|ksplat|sog)(\?|#|$)/i); return m ? m[1].toLowerCase() as SplatFormat : null; };
 
 // ---- 下ごしらえ ----
 const R_SPHERE = 6371000, WGS_A = 6378137, WGS_E2 = 6.69437999014e-3;
@@ -291,7 +488,9 @@ export function readerFor(format: SplatFormat): (bytes: Uint8Array) => LocalSpla
 		case "ply": return parsePly;
 		case "splat": return parseSplat;
 		case "spz": return parseSpz;
-		default: throw new Error(`plugin-splat: format must be ply | splat | spz (got ${JSON.stringify(format)})`);
+		case "ksplat": return parseKsplat;
+		case "sog": return (b: Uint8Array) => parseSog(b);
+		default: throw new Error(`plugin-splat: format must be ${SPLAT_FORMATS.join(" | ")} (got ${JSON.stringify(format)})`);
 	}
 }
 /** 下ごしらえの一式＝描き手に渡す物（index.ts の main 経路と splat-reader.ts の worker 経路で同じ） */

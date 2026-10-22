@@ -14,16 +14,16 @@ import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, Sc
 interface Block { off: number; n: number }
 interface Pool { name: ScenePoolName; cap: number; used: number; free: Block[] }
 /** li 毎の描画レンジ（fill＝index のレンジ・line＝線分のレンジ） */
-type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number } | { li: number; kind: "line"; segOff: number; segN: number };
+type Sub = { li: number; kind: "fill"; idxOff: number; idxN: number } | { li: number; kind: "line"; segOff: number; segN: number; cj: number };
 /** GPU 常駐タイルのレコード */
 interface Rec { key: string; fv: Block; fi: Block; ls: Block; bv: Block; subs: Sub[] }
 interface MD { maxDraws: number; pools: Record<ScenePoolName, Pool>; res: Map<string, Rec>; lastRef: Record<string, Set<Rec>>; pendingFree: Rec[] }
 type MergeRequest = Extract<SceneRequest, { type: "merge" }>;
 type UpMessage = Extract<ScenePortMessage, { type: "up" }>;
 /** 計器 b の量の数え（op の typed array を名で引く） */
-type OpArrays = Partial<Record<"pos" | "col" | "idx" | "P1" | "P2" | "half" | "off", ArrayBufferView | null>>;
+type OpArrays = Partial<Record<"pos" | "col" | "idx" | "P1" | "P2" | "half" | "off" | "jf", ArrayBufferView | null>>;
 /** pack の 1 束（fill/line＝li 付き・bld＝li 無し） */
-interface Packed { kind: "fill" | "line" | "bld"; li?: number; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
+interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; offsets?: Int32Array<ArrayBuffer>; firsts?: Int32Array<ArrayBuffer>; counts: Int32Array<ArrayBuffer>; origins: Float32Array<ArrayBuffer> }
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -144,19 +144,19 @@ function ensureUploaded(key: string): Rec | null {
 		let sc = 0;
 		for (const op of g.ops) {
 			if (op.kind !== "line") continue;
-			const n = op.half.length, a1 = u32of(op.P1), a2 = u32of(op.P2), c32 = u32of(op.col), h32 = u32of(op.half), f32 = op.off ? u32of(op.off) : null;   // float は bit のまま語で写す（旧＝1 値ずつ F1 経由）
+			const n = op.half.length, a1 = u32of(op.P1), a2 = u32of(op.P2), c32 = u32of(op.col), h32 = u32of(op.half), f32 = op.off ? u32of(op.off) : null, jf = op.jf;   // float は bit のまま語で写す（旧＝1 値ずつ F1 経由）
 			for (let i = 0; i < n; i++) {
 				const o = (sc + i) * 8;
 				seg[o] = a1[i * 2]; seg[o + 1] = a1[i * 2 + 1];
 				seg[o + 2] = a2[i * 2]; seg[o + 3] = a2[i * 2 + 1];
 				seg[o + 4] = c32[i];   // RGBA8（リトルエンディアン＝旧の r | g<<8 | b<<16 | a<<24 と同じ語）
-				seg[o + 5] = h32[i];
+				seg[o + 5] = jf ? (h32[i] & ~15 | jf[i]) >>> 0 : h32[i];   // 端と継ぎ（S-P1-1）の旗は半幅の下位 4 bit（相対 2e-6＝見分けられない・シェーダが外す）
 				if (f32) {   // line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
 					seg[o + 6] = f32[i * 3];
 					seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
 				}
 			}
-			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n });
+			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0 });
 			sc += n;
 		}
 		up.line = { base: rec.ls.off, arr: seg };
@@ -190,7 +190,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 	const origin = m.origin || (m.order.length ? m.order[0].origin : [0, 0]);
 	const hidden = m.hidden ? new Set(m.hidden) : null;
 	const lineOff = coveredTiles(m.order);   // 下敷きタイル（blanket/祖先fallback）＝線を伏せる（mergeTiles と同じゲート）
-	const byLi = new Map<number, { kind: "fill" | "line"; items: number[][] }>(), bldItems: number[][] = [], refs = new Set<Rec>();
+	const byLi = new Map<number, { kind: "fill" | "line"; items: number[][]; cj?: number }>(), bldItems: number[][] = [], refs = new Set<Rec>();
 	for (const o of m.order) {
 		const rec = ensureUploaded(o.key);
 		if (!rec) continue;
@@ -201,22 +201,23 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 			if (hidden && hidden.has(seaFbReal(s.li) ?? s.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (s.kind === "line" && noLine) continue;
 			let e = byLi.get(s.li); if (!e) byLi.set(s.li, e = { kind: s.kind, items: [] });
+			if (s.kind === "line" && s.cj) e.cj ??= s.cj;   // 端と継ぎ（S-P1-1）＝層の種類（最初に持つタイルの値・mergeTiles と同じ）
 			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy] : [s.segOff * 6, s.segN * 6, ox, oy]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)
 		}
 		if (rec.bv.n) bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);
 	}
-	const pack = (items: number[][], kind: Packed["kind"], li?: number): Packed[] => {
+	const pack = (items: number[][], kind: Packed["kind"], li?: number, cj?: number): Packed[] => {
 		const out: Packed[] = [];
 		for (let c = 0; c < items.length; c += md!.maxDraws) {   // u_tileOff[] の配列長でチャンク分割
 			const n = Math.min(md!.maxDraws, items.length - c);
 			const counts = new Int32Array(n), offs = new Int32Array(n), origins = new Float32Array(n * 2);
 			for (let j = 0; j < n; j++) { const it = items[c + j]; offs[j] = it[0]; counts[j] = it[1]; origins[j * 2] = it[2]; origins[j * 2 + 1] = it[3]; }
-			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins } : { kind, li, offsets: offs, counts, origins });
+			out.push(kind === "line" ? { kind, li, firsts: offs, counts, origins, ...(cj ? { cj } : {}) } : { kind, li, offsets: offs, counts, origins });
 		}
 		return out;
 	};
 	const layers: SceneDrawLayer[] = [];
-	for (const li of [...byLi.keys()].sort((a, b) => a - b)) { const e = byLi.get(li)!; layers.push(...pack(e.items, e.kind, li) as SceneDrawLayer[]); }
+	for (const li of [...byLi.keys()].sort((a, b) => a - b)) { const e = byLi.get(li)!; layers.push(...pack(e.items, e.kind, li, e.cj) as SceneDrawLayer[]); }
 	const bld = bldItems.length ? pack(bldItems, "bld").map(({ firsts, offsets, counts, origins }) => ({ firsts: (firsts || offsets)!, counts, origins })) : null;
 	return { origin, layers, bld, refs };
 }
@@ -288,7 +289,7 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 				const pT0 = perfOn ? performance.now() : 0;
 				const scene = mergeTiles(m.order, geomOf, { origin: m.origin, hidden: m.hidden ? new Set(m.hidden) : null });
 				if (pT0) {   // 計器 b：結合の CPU 時間（scene worker＝見えないが到着を遅らせる）と結果の量
-					let b = 0; for (const L of scene.layers) for (const k of ["pos", "col", "idx", "P1", "P2", "half", "off"] as const) if ((L as OpArrays)[k]) b += (L as OpArrays)[k]!.byteLength;
+					let b = 0; for (const L of scene.layers) for (const k of ["pos", "col", "idx", "P1", "P2", "half", "off", "jf"] as const) if ((L as OpArrays)[k]) b += (L as OpArrays)[k]!.byteLength;
 					if (scene.buildings) b += scene.buildings.pos.byteLength + scene.buildings.shade.byteLength + scene.buildings.anchor.byteLength;
 					console.log(`[scene] merge ${m.slot} ${(performance.now() - pT0).toFixed(1)}ms tiles=${m.order.length} layers=${scene.layers.length} ${(b / 1024) | 0}KB`);
 				}

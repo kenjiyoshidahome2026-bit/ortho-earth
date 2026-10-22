@@ -88,7 +88,7 @@ try {
 		// ⑤ 外す＝層が全部降りる（probe の層だけ残る）→ それも外すと canvas が外れる
 		stage = "remove";
 		h.remove(); await sleep(300);
-		ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+		ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0 && h.stats.mainMB === 0, JSON.stringify(h.stats));
 		const gone = await until(async () => { const d = await probe(); return d && count(d, orange) === 0 && count(d, red) === 0 ? d : null; }, W);
 		ok("removed.px", !!gone, gone ? "" : await diag());
 		ok("probeCanvas", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));

@@ -54,7 +54,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.ts";
 
 // planets.js と星座/メシエ名（Pages の sky/names）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, mlTileZoomOf, validateMLStyle } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.ts";
 import { createFacade } from "./mlfacade.ts";
 export { RAW } from "./zoomscale.ts";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）。mercatorDz は zoomscale.js の物＝root からは出さない（2.0.0・MapLibre の口は "../zoomscale.js" から読む）
@@ -71,7 +71,7 @@ import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.ts";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
-import { attributionHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
+import { attributionHTML, setAttrHTML, attrFullHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.ts";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { stac as stacGadget } from "./gadgets/stac-stub.ts";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { raster as rasterGadget } from "./gadgets/raster.ts";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
@@ -334,7 +334,9 @@ mapEl.lang = getLang();
 mapEl.dir = isRTL() ? "rtl" : "ltr";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
-for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+// ?text=gpu（テキスト GPU 化 T-P1 の足場）＝線に沿う注記の字を注記の上の webgpu canvas（#labelsgpu）へ。WebGPU で起動できた時だけ worker が使う（GL2 では空のまま）
+const TEXT_GPU = "gpu" in navigator && /[?&]text=gpu(?:&|$)/.test(location.search);
+for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
 // canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。
 const undergroundEl = mapEl.appendChild(document.createElement("div"));
@@ -399,6 +401,9 @@ const loadExtStyle: GlobeScope["loadExtStyle"] = async (spec, transformStyle = n
 	if (ms.sources == null) ms = { ...ms, sources: {} };
 	// style の root の state（MapLibre v5：{ 鍵: { default } }）＝global-state の既定値。新しい style は状態を入れ替える（MapLibre の setStyle と同じ）
 	if (ms.state && typeof ms.state === "object") setMapGS(Object.fromEntries(Object.entries(ms.state).map(([k, d]) => [k, d && typeof d === "object" && "default" in d ? d.default : null])));
+	// spec の外の名前・置き場の取り違え（MapLibre は error 事象にして style を読まない＝ここは読んだ上で 1 回だけ警告・互換の計画 P0-5）
+	const issues = validateMLStyle(ms);
+	if (issues.length) console.warn(`[style] ${ms.name || spec}: ${issues.length} problem(s) against the MapLibre style spec —`, issues.slice(0, 10).map(i => (i.layer ? `"${i.layer}": ` : "") + i.message).join("; ") + (issues.length > 10 ? "; …" : ""));
 	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources![split.vectorSource], baseUrl, { fetchFn: ((u: string, init?: RequestInit) => requester.fetch(u, "Source", init)) as typeof fetch }) : null;
 	const isVtx = (k: { id: string }) => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
@@ -519,6 +524,7 @@ mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLay
 const orDetached = (el: HTMLElement | null) => el || document.createElement("div");
 const canvas: GlobeScope["canvas"] = mapEl.querySelector<HTMLCanvasElement>("#c")!;
 const labelCanvas: GlobeScope["labelCanvas"] = mapEl.querySelector<HTMLCanvasElement>("#labels")!;
+const labelGpuCanvas = mapEl.querySelector<HTMLCanvasElement>("#labelsgpu");   // ?text=gpu の時だけ
 const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
@@ -640,7 +646,9 @@ const size: GlobeScope["size"] = { w: Math.max(1, Math.round(mapEl.clientWidth *
 canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
+if (labelGpuCanvas) { labelGpuCanvas.width = size.w; labelGpuCanvas.height = size.h; }
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
+const labelGpuOffscreen = labelGpuCanvas ? labelGpuCanvas.transferControlToOffscreen() : null;
 const renderWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
@@ -675,10 +683,25 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
-let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
+let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
+let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）
+// 計器 e／f（`vt perf plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
+// f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
+interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number }
+interface VtMergeRec { at: number; add: number; del: number; n: number }
+const vtLat: VtLatRec[] = [], vtMerge: VtMergeRec[] = [];
+const vtPush = <T,>(a: T[], v: T): void => { a.push(v); if (a.length > 512) a.shift(); };
+const vtSummary = (sinceMs = 10000) => {
+	const t0 = performance.now() - sinceMs, q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
+	const L = vtLat.filter(r => r.at >= t0), M = vtMerge.filter(r => r.at >= t0);
+	const tot = L.map(r => r.total);
+	return { lat: { n: L.length, med: q(tot, 0.5), p90: q(tot, 0.9), wait: q(L.map(r => r.wait), 0.5), fetch: q(L.map(r => r.fetch), 0.5), build: q(L.map(r => r.build), 0.5) },
+		merge: { n: M.length, changed: M.length ? M.reduce((s, r) => s + r.add + r.del, 0) / M.length : 0, tiles: M.length ? M.reduce((s, r) => s + r.n, 0) / M.length : 0 } };
+};
+dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
+dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, lab: memLab, vt: vtSummary() });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）。lab＝注記の計器（T-P0）。vt＝計器 e／f の直近 10 秒
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -756,6 +779,7 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
 const terrLazy: GlobeScope["terrLazy"] = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
 let noTerr: GlobeLive["noTerr"] = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+const LINESUB = /[?&]linesub=1/.test(location.search);   // vt perf plan §3.2 の逃げ道＝地形の無い地図でも線を 700m ごとに細分する（旧挙動）
 // 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
 let centerElevMode: GlobeLive["centerElevMode"] = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
@@ -790,7 +814,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 };
 // ?flat=消える,全部出る（CSS px）＝傾きで潰れた道の名（線に沿う注記）を薄くして消す高さの調整（注記層の lineFlatPx・既定 4.5,5.5）。?flat=0＝潰れても出す（MapLibre と同じ）
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -961,7 +985,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -1154,13 +1178,14 @@ const meshEnv = {
 	groupOf: REGIONS.map(r => r.buildings?.group).find(Boolean) ?? null,   // データ管理モーダルの見出し・並び（日本＝都道府県）＝地域の申告
 	bldLabels: REGION_BLD_LABELS,   // データ管理モーダルの題（地域の申告・無ければ汎用）
 };
-let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null;
+let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null, meshVisible = true;   // meshVisible＝map.setMeshVisible（起こす前に来ても覚えておく）
 const MESH_NO_PROGRESS: MeshManager["progress"] = new Map();
 const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
 	const catalog = loadMeshCatalog();
 	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）
 	if (meshTap) meshReal.setProgressTap(meshTap);
+	if (!meshVisible) meshReal.setVisible(false);
 	// 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。manager が起きている worker と後から起きる worker の両方へ配る
 	if (REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) meshReal?.setExcludeMap(map); }).catch(() => {});
 	await catalog?.catch(() => {});   // 登録簿が manager に入ってから解決（manager の受け取りは先に登録済み＝この後に走る）
@@ -1169,7 +1194,7 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 }).catch(e => { console.error("[mesh] manager load failed", e); return null; });
 // 代理の窓口の型＝本物（MeshManager）と同じ口。違いは standUp／openDb が本物を起こしてから呼ぶ（非同期・起こせなければ undefined）・
 // firstRevealSets は台本の視点（検めていない列）をそのまま受けて本物へ渡す・ready が増える
-const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets"> & {
+const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets" | "setVisible" | "visible"> & {
 	standUp(...a: Parameters<MeshManager["standUp"]>): Promise<boolean | undefined>; openDb(): Promise<void>;
 	firstRevealSets(views: unknown[]): ReturnType<MeshManager["firstRevealSets"]>; ready: typeof wakeMesh;
 } = {
@@ -1306,9 +1331,11 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 let vtdAnchorsOn = false;   // #123：vtdraw が作られてから差し込む位置を配る（それまで＝起動の途中のテーマ・生成層の再ビルドから呼ばれても何もしない＝後で宣言する束縛に触れない）
-const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, destroy: destroyPipeline } = createPipeline({
+const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, setDrape: setPipelineDrape, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y) as string, requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
+	tileQueue: !/[?&]tileq=0/.test(location.search),   // 優先付き共有キュー（vt perf plan §3.1）＝?tileq=0 で旧の round-robin（A/B・計器 e で比べる）
+	drape: LINESUB || (() => !noTerr),   // 線の細分（vt perf plan §3.2）＝地形を描かない地図（terrain:false・?noterr=1）は細分しない。?linesub=1 で従来どおり常に細分（A/B）。setTerrain で地形が入ったら setPipelineDrape（api/terrain.ts）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -1345,6 +1372,9 @@ function onSceneApplied(slot: string, sig: string) {
 		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
+		const lat = tiles.shown(readyKeys), at = performance.now();   // 計器 e＝この ack で初めて画面に載った主層タイルの「必要になった→画面」
+		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0 });
+		if (perfLog && lat.length) { const v = vtSummary(1e9).lat; console.log(`[vt] shown +${lat.length} tiles  need→screen med ${vtSummary().lat.med.toFixed(0)}ms p90 ${vtSummary().lat.p90.toFixed(0)}ms (10s)  all: med ${v.med.toFixed(0)} p90 ${v.p90.toFixed(0)}  wait ${v.wait.toFixed(0)} fetch ${v.fetch.toFixed(0)} build ${v.build.toFixed(1)}`); }
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
 		slog("main merge applied on screen (visible from here)");
@@ -1637,6 +1667,7 @@ function resize() {
 	wPost({ type: "resize", width: size.w, height: size.h });
 	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
+	if (labelGpuCanvas) { labelGpuCanvas.style.width = w + "px"; labelGpuCanvas.style.height = h + "px"; }
 	requestDraw();
 }
 const ro = new ResizeObserver(resize);   // destroy で disconnect するため手綱を持つ
@@ -1941,11 +1972,12 @@ function swapScene(order: TileOrder) {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
 		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
-		if (swapLog) {   // 集合の増減＝この merge が「何を書き直すか」。zの分布も出す（keepFine深さ切れの検出）
-			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
-			const cur = new Set(order.map(o => o.key));
-			const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
-			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
+		{   // 計器 f（vt perf plan §2）＝集合の増減＝この merge が「何を書き直すか」。classic は変わった枚数に関わらず全枚を結合し直す＝P2 が消す仕事の量
+			const prev = readyKeys ?? new Set<string>();
+			let add = 0; for (const o of order) if (!prev.has(o.key)) add++;
+			const cur = new Set(order.map(o => o.key)); let del = 0; for (const k of prev) if (!cur.has(k)) del++;
+			vtPush(vtMerge, { at: performance.now(), add, del, n: order.length });
+			if (swapLog) { const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1; slog(`main merge request: +${add} -${del} / ${cur.size} tiles`, "z dist", zHist); }   // z の分布も出す（keepFine 深さ切れの検出）
 		}
 		requestMerge("main", order, sceneOrigin, hiddenAll(), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
@@ -2240,8 +2272,8 @@ function render() {
 			attrZone = zone;
 			const attr = mapEl.querySelector("#attr");
 			if (attr) {
-				if (attrRegionHTML == null) attrRegionHTML = attr.innerHTML;   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
-				attr.innerHTML = attrHTMLOf(zone);
+				if (attrRegionHTML == null) attrRegionHTML = attrFullHTML(attr as HTMLElement);   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
+				setAttrHTML(attr as HTMLElement, attrHTMLOf(zone));   // 1 行の銘＋「データ一覧」の札（全文は札の中）
 			}
 		}
 	}
@@ -2323,7 +2355,7 @@ let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝
 function hudSnapshot() {
 	const pl = meshMgr.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
 	const ts = tiles.stats();
-	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋画像タイル層のテクスチャ
+	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa + (memGpu.pool || 0) : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋タイル GPU 常駐プール（WebGPU md・vt perf plan §4）＋画像タイル層のテクスチャ
 	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
 	if (total > hudPeak) hudPeak = total;
 	const nc = (navigator as NavigatorPlus).connection || {};
@@ -2711,7 +2743,7 @@ map.setRepaint = on => { repaintAlways = !!on; if (on) requestDraw(); return map
 map.getRepaint = () => repaintAlways;
 // debug の表示（MapLibre の showTileBoundaries・showPadding）＝main の canvas2D 1 枚（#labels の上・操作は通す）
 let dbgCanvas: HTMLCanvasElement | null = null;
-const dbgCtx = (): CanvasRenderingContext2D => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); labelCanvas.insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d")!; };
+const dbgCtx = (): CanvasRenderingContext2D => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); (labelGpuCanvas ?? labelCanvas).insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d")!; };
 function drawDebug() {
 	const g = dbgCtx(); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, size.w, size.h);
 	if (dbgState.tileBoundaries) {
@@ -2766,6 +2798,14 @@ map.restoreNow = () => { nowPin = null; clockLastT = performance.now(); requestD
 map.getNow = () => animNow();
 map.setReduceMotion = v => { reduceMotionOpt = typeof v === "boolean" ? v : null; return map; };
 map.getReduceMotion = () => reduceMotionOn();
+// 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21・横浜：引いた縮尺で区ごとに有る／無いを出さない）。
+// 伏せている間は表示も新しい読み込みもしない（常駐は保つ＝戻すと即）。opts.mesh=false の地図では何もしない（getMeshVisible は false）
+map.setMeshVisible = on => { meshVisible = !!on; meshReal?.setVisible(meshVisible); requestDraw(); return map; };
+map.getMeshVisible = () => meshOn && meshVisible;
+// 基図の表示項目（opts.layers と同じキー：place地名/terrain地形/rail鉄道/road道路/facility施設）を実行時に点ける／消す（2026-10-21・横浜：平面の地区図は全層）。
+// チップと同じ正規経路（setLayer＝見た目・副作用・共有URL）。opts.layers で固定したキーと未知のキーは黙って無視（埋め込み主の固定は破れない）
+map.setBaseLayers = o => { for (const [k, v] of Object.entries(o || {})) if (FREE_LAYER_KEYS.includes(k) && typeof v === "boolean") setLayer(k, v); return map; };
+map.getBaseLayers = () => ({ place: layerState.place, terrain: layerState.terrain, rail: layerState.rail, road: layerState.road, facility: layerState.facility });
 // 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
 map.getBounds = () => {
 	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）
@@ -2796,7 +2836,7 @@ installTerrain(map, {
 	get geBusy() { return geBusy; }, set geBusy(v) { geBusy = v; },
 	get geKey() { return geKey; }, set geKey(v) { geKey = v; },
 	get elevGen() { return elevGen; }, set elevGen(v) { elevGen = v; },
-	get noTerr() { return noTerr; }, set noTerr(v) { noTerr = v; },
+	get noTerr() { return noTerr; }, set noTerr(v) { if (v !== noTerr) { noTerr = v; setPipelineDrape(); } },   // 地形の有無が替わる（setTerrain）＝線の細分（drape）を読み直し全タイルを再ビルド（§3.2・setStyle と同じ道）
 	get style() { return style; },
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
@@ -3215,7 +3255,7 @@ const gintDataOf = async (sid: string, force: boolean, gen: number) => {
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
 	let d: unknown = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
-	else { dropFollow(sid); setSrcAttr(sid, null); }
+	else { dropFollow(sid); setSrcAttr(sid, (sp as { attribution?: unknown } | undefined)?.attribution ? sanitizeHTML(String((sp as { attribution?: unknown }).attribution)) : null); }   // data が object の geojson も attribution（MapLibre の宣言）を出典の欄へ（2026-10-21・横浜の台帳の出典と「非商用」が全部落ちていた＝URL の時だけ渡していた）
 	// 焼いた結果の控え（source の cacheKey・data が object の時だけ）＝鍵が同じなら IDB の GeoPBF＋GintBUF を戻して焼かない。
 	// 鍵は呼び手が決める＝中身が変われば鍵も変える約束（中身を見比べない）。setData／updateData は鍵を外す＝控えは足した時の data だけ。
 	// URL の data は geopbf／サービスの側が自分の控えを持つ

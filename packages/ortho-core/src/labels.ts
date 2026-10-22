@@ -248,3 +248,17 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 	}
 	return { labels: out, codepoints, font: M1_FONT };
 }
+
+// 注記が main のヒープに占める量の概算（2026-10-21・メモリ総点検の残件 5）。tilemanager の bytes 予算に geometry（scene worker 側）と一緒に数える。
+// 旧＝geometry の実バイトだけ数えた＝注記の物体（欄が多い・文字・線に沿う注記の path/cum の typed array）は main に残るのに予算の外だった。
+// 概算＝物体と小さな配列（anchor・off・color・halo・szn 等）で 1 件 400 B＋文字列は 2 B/文字＋typed array と配列は実バイト＋sec は 1 区間 80 B
+export function labelsBytes(labels: readonly Label[]): number {
+	let b = 0;
+	for (const L of labels) {
+		b += 400 + (L.text.length + L.font.length + (L.key?.length || 0) + (L.icon?.length || 0) + (L.lg?.length || 0)) * 2;
+		if (L.path) b += L.path.byteLength; if (L.cum) b += L.cum.byteLength;
+		if (L.tbx) b += 32 + L.tbx.length * 8; if (L.ifp) b += 32 + L.ifp.length * 8;
+		if (L.sec) for (const s of L.sec) b += 80 + s.t.length * 2;
+	}
+	return b;
+}

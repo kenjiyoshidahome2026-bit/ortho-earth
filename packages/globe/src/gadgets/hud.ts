@@ -14,7 +14,7 @@ export interface HudSnapshot {
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
 	vt?: { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
-	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number } | null; raster?: number | null;
+	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number; pool?: number } | null; raster?: number | null;
 	transient: { bytes: number; cache: number; live: number };
 	tier?: { active: number; residentGB: number; workers: number } | null;
 }
@@ -153,7 +153,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			row("terrain", mb(s.terrain)) +
 			row("CityGML", mb(s.mesh.bytes) + note(s.mesh.regions + " zones")) +   // PLATEAU＝汎用名（CityGML）で。数値の出所は snapshot.mesh
 			(s.heap ? row("JS heap", mb(s.heap)) : "") +
-			(s.gpuBytes ? row("GPU resident", mb(s.gpuBytes)) + (s.gpu ? det(`atlas ${mb(s.gpu.atlas)} · mesh ${mb(s.gpu.mesh)} · msaa ${mb(s.gpu.msaa)}${s.raster ? ` · raster ${mb(s.raster)}` : ""}`) : "") : "") +   // raster＝画像タイル層（テクスチャ＋格子メッシュ）
+			(s.gpuBytes ? row("GPU resident", mb(s.gpuBytes)) + (s.gpu ? det(`atlas ${mb(s.gpu.atlas)} · mesh ${mb(s.gpu.mesh)} · msaa ${mb(s.gpu.msaa)}${s.gpu.pool ? ` · tile pool ${mb(s.gpu.pool)}` : ""}${s.raster ? ` · raster ${mb(s.raster)}` : ""}`) : "") : "") +   // raster＝画像タイル層（テクスチャ＋格子メッシュ）
 			row("transient", mb(s.transient.bytes)) + det(`cache ${mb(s.transient.cache)} · loading ${mb(s.transient.live)}`) +
 			row("total", mb(s.total) + note(`peak ${mb(s.peak)} (+ Draco)`), tight ? "val warn" : "val") +   // (+ Draco)＝解凍中間バッファは台帳外＝実ピークはこれより上
 			(s.tier ? row("low-mem tier", `${s.tier.active} zones · ${s.tier.residentGB.toFixed(1)}GB · ${s.tier.workers}w`, "warn") : "") +
