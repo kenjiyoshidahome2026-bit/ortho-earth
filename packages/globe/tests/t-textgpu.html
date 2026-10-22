@@ -47,6 +47,20 @@ const POINTS = [   // pt＝(tl, font, T, sx, sy, x0, y0, just, paint)＝labels2d
 	{ name: "pt-arabic-run", pt: () => { const tl = plainTL(["القاهرة الجديدة"], AR, 15); return [tl, AR, null, 360, 160, 360 - tl.w / 2, 160 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
 	{ name: "pt-blur", pt: () => { const tl = plainTL(["Kanda"], P16, 16); return [tl, P16, null, 60, 170, 60 - tl.w / 2, 170 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1.5, blur: 1 }]; } },
 ];
+// 記号（T-P3）＝記号帳の絵・伸びる記号（9 分割）・線の記号・標識（ベクター）・format の記号の区間を両方の受け口で
+const ICON = (() => { const c = new OffscreenCanvas(24, 24), g = c.getContext("2d"); g.fillStyle = "#2060d0"; g.fillRect(2, 2, 20, 20); g.fillStyle = "#ffffff"; g.beginPath(); g.arc(12, 12, 6, 0, 6.2832); g.fill(); g.strokeStyle = "#102040"; g.lineWidth = 2; g.strokeRect(3, 3, 18, 18); return c; })();
+const I9 = Object.assign([-32, -12, 64, 24], { i9: { box: [-32, -12, 32, 12], X: { segs: [[0, 6, 0, 6], [6, 12, 6, 52], [18, 6, 58, 6]] }, Y: { segs: [[0, 24, 0, 24]] }, s: 1 } });
+const SHIELD = { w: 30, h: 18, draw(g, cx, cy) { g.save(); g.fillStyle = "#0a7a3e"; g.beginPath(); g.roundRect(cx - 15, cy - 9, 30, 18, 4); g.fill(); g.fillStyle = "#fff"; g.font = "bold 12px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("E1", cx, cy); g.restore(); } };
+const fmtImgTL = () => { const a = mw("Go ", P13), b = mw("Tower", P13), runs = [[{ t: "Go ", si: 0, w: a, h: 0, font: P13, col: null, fs: 1, va: null }, { t: "", si: 1, img: "ic", w: 16, h: 16, font: P13, col: null, fs: 1, va: null }, { t: "Tower", si: 2, w: b, h: 0, font: P13, col: null, fs: 1, va: null }]], lhs = [Math.max(1.2 * 13, 16)]; return { lines: ["Go Tower"], ws: [a + 16 + b], w: a + 16 + b, h: lhs[0], size: 13, ls: 0, lh: 1.2, font: P13, runs, lhs }; };
+const ICONS = [
+	{ name: "ic-plain", draw: s => s.pointIcon(ICON, [-12, -12, 24, 24], 60, 50, null, undefined, 1) },
+	{ name: "ic-Ti", draw: s => s.pointIcon(ICON, [-12, -30, 24, 24], 180, 90, { ...rotT(0.4), b: Math.sin(0.4) * 0.6, d: Math.cos(0.4) * 0.6 }, undefined, 1) },
+	{ name: "ic-irot", draw: s => s.pointIcon(ICON, [-12, -12, 24, 24], 300, 60, null, 30, 1) },
+	{ name: "ic-i9", draw: s => s.pointIcon(ICON, I9, 400, 150, null, undefined, 1) },
+	{ name: "ic-line", draw: s => s.lineIcon(ICON, { x: 100, y: 160, a: 0.5, w: 20, h: 20, bw: 20, bh: 20 }, 1) },
+	{ name: "ic-shield", draw: s => s.shield(SHIELD, 250, 150, 1) },
+	{ name: "ic-format-img", draw: s => { const tl = fmtImgTL(); s.pointText(tl, P13, null, 0, 0, 200, 30, "left", { color: BLACK, halo: WHITE, haloW: 1 }, 1, n => n === "ic" ? ICON : null); } },
+];
 // 画素の面（α＞0.5 の 2 値）・外接の箱。重心は使わない（細い字は SDF の方がわずかに太い＝字の重さの偏りで重心が動く）
 function stats(px, w, h) {
 	let n = 0, x0 = w, y0 = h, x1 = -1, y1 = -1; const m = new Uint8Array(w * h);
@@ -65,9 +79,9 @@ try {
 			const c2 = new OffscreenCanvas(cw, ch), x2 = c2.getContext("2d", { willReadFrequently: true }), s2 = createCanvasSink(canvas2d(x2));
 			const gt = createGpuText(device, null), base = createCanvasSink(canvas2d(new OffscreenCanvas(cw, ch).getContext("2d"))), sg = createGpuTextSink(base); sg.attach(gt);   // GPU はテクスチャに描く（ソフトウェア WebGPU は canvas の present で device が落ちる＝読み戻しはテクスチャから）
 			ok(`dpr${dpr}:kind=${sg.kind}`, sg.kind === "webgpu");
-			for (const sc of [...SCENES, ...POINTS]) {
+			for (const sc of [...SCENES, ...POINTS, ...ICONS]) {
 				const args = sc.pt?.(), noImg = () => null;
-				const drawIn = s => { s.begin(cw, ch, dpr); if (args) s.pointText(...args, 1, noImg); else s.lineText(sc.g, sc.font, sc.p, 1, dpr); s.end(); };
+				const drawIn = s => { s.begin(cw, ch, dpr); if (sc.draw) sc.draw(s); else if (args) s.pointText(...args, 1, noImg); else s.lineText(sc.g, sc.font, sc.p, 1, dpr); s.end(); };
 				for (let pass = 0; pass < 2; pass++) {   // 2 回目＝字形アトラスの写し（ImageBitmap）が出来た後の Canvas2D と、版を引くだけの GPU
 					drawIn(s2); drawIn(sg);
 					if (pass === 0) await new Promise(r => setTimeout(r, 50));
@@ -76,12 +90,23 @@ try {
 				const A = stats(x2.getImageData(0, 0, cw, ch).data, cw, ch), B = stats(gp, cw, ch);
 				const io = iou(A.m, B.m), db = Math.max(...A.box.map((v, i) => Math.abs(v - B.box[i]))) / dpr, wr = B.n / Math.max(1, A.n);
 				ok(`dpr${dpr}:${sc.name}(iou=${io.toFixed(3)} box±${db.toFixed(1)}px ink=${wr.toFixed(2)})`, A.n > 50 && io > 0.8 && db <= 1.5 && wr > 0.85 && wr < 1.25);   // 同じ所（箱のずれ 1.5px 以内）・同じ形（IoU）・同じ重さ（インクの比）
+				if (sc.draw && sc.name !== "ic-format-img") {   // 記号の色＝両方が不透明な画素の RGB の差（premultiplied・RGBA の並びの取り違えを拾う・字の混じる format は字の縁の AA が違う＝除く）
+					const cp = x2.getImageData(0, 0, cw, ch).data; let d = 0, m = 0;
+					for (let i = 0; i < cw * ch * 4; i += 4) if (gp[i + 3] > 240 && cp[i + 3] > 240) { d += Math.abs(gp[i] - cp[i]) + Math.abs(gp[i + 1] - cp[i + 1]) + Math.abs(gp[i + 2] - cp[i + 2]); m++; }
+					ok(`dpr${dpr}:${sc.name}-rgb(Δ=${(d / Math.max(1, m * 3)).toFixed(1)} n=${m})`, m > 50 && d / (m * 3) < 12);
+				}
 				if (sc.name === "format" || sc.name === "pt-format") {   // 区間の色＝前の 3 字は赤・後ろは黒（GPU の本体の色）
 					let red = 0, blk = 0; for (let i = 0; i < cw * ch; i++) if (gp[i * 4 + 3] > 180) { if (gp[i * 4] > 150 && gp[i * 4 + 1] < 80) red++; else if (gp[i * 4] < 60) blk++; }
 					ok(`dpr${dpr}:${sc.name}-color(red=${red} black=${blk})`, red > 20 && blk > 20);
 				}
 			}
 			ok(`dpr${dpr}:glyphs=${sg.stats().glyphs}`, sg.stats().glyphs > 0);
+			{   // 記号の不透明度（premultiplied の絵×o）＝Canvas2D の globalAlpha と同じ濃さ
+				const one = s => { s.begin(cw, ch, dpr); s.pointIcon(ICON, [-12, -12, 24, 24], 60, 50, null, undefined, 0.6); s.end(); };
+				one(s2); one(sg);
+				const gp = await gt.readPixels(), cp = x2.getImageData(0, 0, cw, ch).data, i = ((50 * dpr) * cw + 60 * dpr) * 4;
+				ok(`dpr${dpr}:ic-opacity(a=${gp[i + 3]} vs ${cp[i + 3]})`, Math.abs(gp[i + 3] - cp[i + 3]) <= 8 && gp[i + 3] > 120 && gp[i + 3] < 190);
+			}
 			if (dpr === 1) {   // 版を広げる（2048²→4096²）＝漢字を詰めて溢れさせ、前からある字が同じ絵のまま出るか
 				const s0 = gt.atlasSize; let i = 0; while (gt.atlasSize === s0 && i < 6000) gt.glyph('20px "Noto Sans JP", sans-serif', String.fromCharCode(0x4e00 + i++));
 				const sc = SCENES[0]; s2.begin(cw, ch, dpr); s2.lineText(sc.g, sc.font, sc.p, 1, dpr); s2.end(); sg.begin(cw, ch, dpr); sg.lineText(sc.g, sc.font, sc.p, 1, dpr); sg.end();
@@ -120,6 +145,11 @@ try {
 			};
 			const [k3, p3] = await passDraw(-Infinity, 5); ok(`mid-draw-li<5(${k3} glyphs)`, k3 === [..."Layerthree"].length); await same("mid-pass-li3", p3, B);
 			const [k7, p7] = await passDraw(5, Infinity); ok(`mid-draw-li>=5(${k7} glyphs)`, k7 === [..."Layerseven"].length); await same("mid-pass-li7", p7, A);
+			// 記号つきの注記も層の位置へ（T-P3＝記号は字と同じ列）＝記号の 1 枚が層 4 の範囲に入り、最前面は空
+			sm.begin(cw, ch, dpr); sm.layer(4, false); sm.pointIcon(ICON, [-12, -12, 24, 24], 120, 80, null, undefined, 1); sm.shield(SHIELD, 300, 80, 1); sm.end();
+			{ let ink = 0; const tp = await gm.readPixels(); for (let i = 3; i < tp.length; i += 4) if (tp[i]) ink++; ok(`mid-icon-top-empty(ink=${ink} anchors=${gm.midAnchors().join(",")})`, ink === 0 && gm.midAnchors().join(",") === "4"); }
+			const [k4, p4] = await passDraw(-Infinity, 5); ok(`mid-icon-draw(${k4})`, k4 === 2);
+			{ const c = new OffscreenCanvas(cw, ch), x = c.getContext("2d", { willReadFrequently: true }), s = createCanvasSink(canvas2d(x)); s.begin(cw, ch, dpr); s.pointIcon(ICON, [-12, -12, 24, 24], 120, 80, null, undefined, 1); s.shield(SHIELD, 300, 80, 1); s.end(); const R = stats(x.getImageData(0, 0, cw, ch).data, cw, ch), G = stats(p4, cw, ch), io = iou(R.m, G.m); ok(`mid-icon-pass(iou=${io.toFixed(3)})`, R.n > 50 && io > 0.85); }
 			sm.canvasOnly = true; sm.begin(cw, ch, dpr); sm.layer(7, false); sm.pointText(...A); sm.layer(12, false); sm.pointText(...C); sm.end(); sm.canvasOnly = false;   // 撮影＝層の位置の字は地図の絵の側＝注記の canvas には描かない
 			ok(`mid-canvasOnly(2d glyphs=${sm.stats().glyphs})`, sm.stats().glyphs === "Top twelve".length);   // Canvas2D 版は行の字数（空白込み）を数える
 			msaa.destroy(); res.destroy(); dep.destroy(); gm.destroy();

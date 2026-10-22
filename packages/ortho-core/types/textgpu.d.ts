@@ -1,10 +1,12 @@
-// @ortho-earth/core/textgpu — 注記の字（線に沿う・点）を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・render worker 内で使う）。
+// @ortho-earth/core/textgpu — 注記の字（線に沿う・点）と記号・標識を WebGPU で塗る（テキスト GPU 化 T-P1〜T-P3・render worker 内で使う）。
 // 源（src/gpu/text.ts）は WebGPU の定数（GPUTextureUsage 等）を使う＝それを宣言しない program（globe）からはこの宣言で読む（gpu.d.ts と同じ手）。
 import type { Mat2 } from "../src/labels2d.ts";
 import type { TextSink } from "../src/textsink.ts";
 
 /** 版の中の字 1 つ（版の px）。ox, oy＝字の錨（中央・middle）から箱の左上（基準の大きさの px） */
 export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: number; oy: number }
+/** 記号の版の中の絵 1 つ（版の px）。k＝版の px／元の絵の px */
+export interface GpuIcon { x: number; y: number; w: number; h: number; k: number }
 export interface GpuText {
 	glyph(font: string, ch: string): SdfGlyph | null;
 	fontOf(font: string): [string, number];
@@ -12,6 +14,10 @@ export interface GpuText {
 	/** 次の push の行き先：null＝最前面の canvas・数＝地図のパスの中の層の添字 li の位置（T-P2） */
 	target(li: number | null): void;
 	push(x: number, y: number, m: Mat2, sp: SdfGlyph, k: number, fill: number, halo: number, hw: number, blur: number): void;
+	/** 記号の絵を版から引く（無ければ載せる）・null＝載せられない */
+	icon(src: CanvasImageSource): GpuIcon | null;
+	/** 記号 1 つ（の区間）。(rx,ry,rw,rh)＝錨から見た箱（CSS px）・(u0,v0,u1,v1)＝記号の版の px */
+	pushIcon(x: number, y: number, m: Mat2, rx: number, ry: number, rw: number, rh: number, u0: number, v0: number, u1: number, v1: number, o: number): void;
 	end(): void;
 	clearCanvas(): void;
 	readPixels(): Promise<Uint8Array>;
