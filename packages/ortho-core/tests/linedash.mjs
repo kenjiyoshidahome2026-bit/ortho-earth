@@ -108,4 +108,11 @@ t("md の能力表明：GL2 と WebGPU は語 6 の距離を読む（mdDash）�
 	const c = chopDash(opOf(L3, D), [139.7, 35.7]);   // 刻んだ片は dist も dash も持たない＝プールの語 6 は 0（ずらし 0）・描く列に dash は付かない
 	assert.ok(c.half.length > 2 && !c.dist && !c.dash);
 });
+t("線幅 0（MapLibre は描かない）：外来の層は半幅 0（シェーダが透明に）・CPU で刻む破線は線分を作らない（片の長さ 0＝刻めない）・内蔵の層は従来どおり 1", () => {
+	assert.deepEqual([...opOf(L3, { paint: { "line-width": 0 } }).half], [0, 0]);
+	assert.deepEqual([...opOf(L3, { paint: { "line-width": -2, "line-dasharray": [2, 1] } }).half], [0, 0]);   // シェーダの破線＝線分は残す
+	assert.equal(opOf(L3, { paint: { "line-width": 0, "line-dasharray": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] } }), undefined);   // CPU で刻む破線
+	assert.deepEqual([...opOf(L3, { paint: { "line-width": 0 } }, { ml: false }).half], [0.5, 0.5]);
+	assert.ok(/min\(v_half \* 2\.0, 1\.0\)/.test(LINE_FS));   // 半幅 0＝不透明度 0
+});
 console.log(`linedash: ${n} PASS`);
