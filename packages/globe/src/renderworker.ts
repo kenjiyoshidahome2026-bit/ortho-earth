@@ -407,7 +407,8 @@ function finishInit(m: RwMsg) {
 			dirty = true; kick();
 		};
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
-		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, mdDash: !!renderer!.mdDash, pt: !!renderer!.pt && !m.noPt, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）・pt＝paint 表の (b) 類（?pt=0＝焼いた色）
+		ptActive = !!renderer!.pt && !m.noPt;
+		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, mdDash: !!renderer!.mdDash, pt: ptActive, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）・pt＝paint 表の (b) 類（?pt=0＝焼いた色）
 	}
 	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
 }
@@ -415,6 +416,7 @@ function finishInit(m: RwMsg) {
 let initQueue: RwMsg[] | null = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
 let bootStage = "pre-boot";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
 let backendName = "webgl2";
+let ptActive = false;   // 描き手が paint 表の (b) 類を読む（GL2 の md・?pt=0 でない）＝frame1 で main へ（setPaintProperty の地物を読む値の速い道）
 // ⚠iOS WebKit の轍（2026-08-02 実機確定）：module worker でグローバル onmessage を「読む」と関数が返らず、
 // onmessage({data}) の手動呼び出しが TypeError で silently 死ぬ（イベント経由の配達は正常・macOS は getter 正常）。
 // ＝自前の関数参照 dispatch を正とし、全ての合成配達（relay/BC/ctrlPort/再投入）は dispatch を呼ぶ。
@@ -1003,7 +1005,7 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive }); }
 			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;

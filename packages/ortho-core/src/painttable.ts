@@ -73,3 +73,15 @@ export function ptRowColor(L: PtLayer, keys: readonly string[], t: readonly unkn
 	const c = parseRGBA(evalExpr(L.c, ctx)), ov = L.a != null ? evalExpr(L.a, ctx) : 1, a = c[3] * ((ov === undefined && L.o ? 1 : ov) as number);   // ML の評価エラー＝既定 1（build.ts と同じ）
 	out[o] = b255(c[0]) / 255; out[o + 1] = b255(c[1]) / 255; out[o + 2] = b255(c[2]) / 255; out[o + 3] = b255(a) / 255;
 }
+
+// setPaintProperty の (b) 類（段 2・2026-10-22・GL2 の md）：変えた性質が塗りと線の色・不透明度で、前も後も (b) 類、後の式が読む属性が前の鍵に含まれる
+// （作ったタイルの行の組が後の式を評価するのに足りる）なら組み直さない＝描き手が行を後の式で評価し直す（main の api/style.ts・renderer の ptOver）。
+// 戻り＝後の層の式（速い道で足りる）｜null（組み直す）。行が PT_MAX_ROWS を超えて焼いた色で常駐したタイルの列は変わらない（実在の style では起きない数）
+const PT_KEYS = new Set(["fill-color", "fill-opacity", "line-color", "line-opacity"]);
+export function paintTableFast(type: string, prev: Record<string, unknown> | null | undefined, next: Record<string, unknown> | null | undefined, key: string, eo: ExprOrigin): PtLayer | null {
+	if (!PT_KEYS.has(key) || !key.startsWith(type + "-")) return null;
+	const a = layerPaintTable(type, prev, eo), b = layerPaintTable(type, next, eo);
+	return a && b && ptCovers(b, a.keys) ? b : null;
+}
+/** 行の鍵（keys）で後の式（L）を評価できる＝L が読む属性が全部ある */
+export const ptCovers = (L: PtLayer, keys: readonly string[]): boolean => L.keys.every(k => keys.includes(k));
