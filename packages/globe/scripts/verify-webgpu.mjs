@@ -20,7 +20,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco", "t-shotov",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
-	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
+	"t-wgsl", "t-textgpu", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
 	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt", "t-mlcompat?g=cover", "t-container?v=abs", "t-container?v=zero", "t-container?v=novec", "t-container?v=ug", "t-qm", "t-multimap", "t-multimap?v=default", "t-multimap?v=lowmem", "t-multimap?v=gs", "t-multimap?v=sync", "t-compare", "t-compare?v=h", "t-compare?v=ml", "t-inspect", "t-inspect?v=world", "t-inspect?v=ml",   // t-inspect＝検査表示（#174）
 	"t-columnar?g=same", "t-columnar?g=depth",

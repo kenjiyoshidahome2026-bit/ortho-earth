@@ -334,7 +334,9 @@ mapEl.lang = getLang();
 mapEl.dir = isRTL() ? "rtl" : "ltr";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
-for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+// ?text=gpu（テキスト GPU 化 T-P1 の足場）＝線に沿う注記の字を注記の上の webgpu canvas（#labelsgpu）へ。WebGPU で起動できた時だけ worker が使う（GL2 では空のまま）
+const TEXT_GPU = "gpu" in navigator && /[?&]text=gpu(?:&|$)/.test(location.search);
+for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
 // canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。
 const undergroundEl = mapEl.appendChild(document.createElement("div"));
@@ -522,6 +524,7 @@ mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLay
 const orDetached = (el: HTMLElement | null) => el || document.createElement("div");
 const canvas: GlobeScope["canvas"] = mapEl.querySelector<HTMLCanvasElement>("#c")!;
 const labelCanvas: GlobeScope["labelCanvas"] = mapEl.querySelector<HTMLCanvasElement>("#labels")!;
+const labelGpuCanvas = mapEl.querySelector<HTMLCanvasElement>("#labelsgpu");   // ?text=gpu の時だけ
 const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
@@ -643,7 +646,9 @@ const size: GlobeScope["size"] = { w: Math.max(1, Math.round(mapEl.clientWidth *
 canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
+if (labelGpuCanvas) { labelGpuCanvas.width = size.w; labelGpuCanvas.height = size.h; }
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
+const labelGpuOffscreen = labelGpuCanvas ? labelGpuCanvas.transferControlToOffscreen() : null;
 const renderWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
@@ -794,7 +799,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 };
 // ?flat=消える,全部出る（CSS px）＝傾きで潰れた道の名（線に沿う注記）を薄くして消す高さの調整（注記層の lineFlatPx・既定 4.5,5.5）。?flat=0＝潰れても出す（MapLibre と同じ）
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -1642,6 +1647,7 @@ function resize() {
 	wPost({ type: "resize", width: size.w, height: size.h });
 	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
+	if (labelGpuCanvas) { labelGpuCanvas.style.width = w + "px"; labelGpuCanvas.style.height = h + "px"; }
 	requestDraw();
 }
 const ro = new ResizeObserver(resize);   // destroy で disconnect するため手綱を持つ
@@ -2716,7 +2722,7 @@ map.setRepaint = on => { repaintAlways = !!on; if (on) requestDraw(); return map
 map.getRepaint = () => repaintAlways;
 // debug の表示（MapLibre の showTileBoundaries・showPadding）＝main の canvas2D 1 枚（#labels の上・操作は通す）
 let dbgCanvas: HTMLCanvasElement | null = null;
-const dbgCtx = (): CanvasRenderingContext2D => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); labelCanvas.insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d")!; };
+const dbgCtx = (): CanvasRenderingContext2D => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); (labelGpuCanvas ?? labelCanvas).insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d")!; };
 function drawDebug() {
 	const g = dbgCtx(); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, size.w, size.h);
 	if (dbgState.tileBoundaries) {
