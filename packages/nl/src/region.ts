@@ -1,19 +1,22 @@
-// オランダの地域宣言（3DBAG）。日本と同じ形＝建物の枠は国に依らないことの実証（packages/jp/src/region.ts を見よ）。
+// オランダの地域宣言（PDOK の 3D Basisvoorziening）。日本と同じ形＝建物の枠は国に依らないことの実証（packages/jp/src/region.ts を見よ）。
 //
-// TU Delft が BAG（建物登記）＋AHN（国土 LiDAR）から自動生成した全国 1000 万棟の LoD2.2・CC BY 4.0。
-// PLATEAU と違い「国土まるごと 1 枚のタイルセット」（外部 tileset 474 本）なので、街ごとの矩形（clip）で
+// Kadaster（オランダ国土地理院）が BAG（建物登記）＋AHN（国土 LiDAR）＋航空写真の標高から作る全国の 3D 建物・CC BY 4.0。
+// 国の配信基盤 PDOK（OGC API）が 3D Tiles 1.1 で出している。2026-10-22 に 3DBAG（TU Delft）の配信が止まり、同じ素性の
+// こちらへ移した（3DBAG の glb は node 行列に ECEF を直に持つ／PDOK は root の transform に ECEF を持つ＝meshdecode が両方を解く）。
+// PLATEAU と違い「国土まるごと 1 枚のタイルセット」（外部 tileset が多数）なので、街ごとの矩形（clip）で
 // 走査を枝刈りして「区」相当の粒度に切る。
 //   base       … 識別キー（worker 振り分け・キャッシュ・OPFS のファイル名）＝同じ tileset を街ごとに
 //                別枠で持つため、実 URL は tilesetUrl で別に渡す
 //   tilesetUrl … 3D Tiles 1.1 の glb＝頂点が int16 量子化（meshworker が解除）
-//   bakeBase   … R2 焼き（PLQ）の置き場＝日本と同じ第三の入口（2026-10-22）。焼きのある街は 3DBAG の tileset を辿らず・glb を
-//                解かずに R2 から取って立てる（3DBAG の配信が止まっていても出る）。焼きの無い街は 404 → 黙って生経路（上の tilesetUrl）。
-//                焼く＝apps/ortho-japan/scripts/bake-plateau.mjs --region=nl --upload（3DBAG に届く所で・書込キーが要る）
+//   bakeBase   … R2 焼き（PLQ）の置き場＝日本と同じ第三の入口（2026-10-22）。焼きのある街は PDOK の tileset を辿らず・glb を
+//                解かずに R2 から取って立てる（PDOK の配信が止まっていても出る）。焼きの無い街は 404 → 黙って生経路（上の tilesetUrl）。
+//                焼く＝apps/ortho-japan/scripts/bake-plateau.mjs --region=nl --upload（PDOK に届く所で・書込キーが要る）
+//                base と置き場（GIS/3dbag/）の名は 3DBAG 時代のまま＝識別キーで、中身の出所ではない
 //
 // 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立 URL）と ?nl=1（開発・日本に重ねて
 // 確認する時）。どちらも**日本の台帳に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る（2026-09-17 の
 // 移設でもこの振る舞いを変えていない）。
-const TILESET = "https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json";
+const TILESET = "https://api.pdok.nl/kadaster/3d-basisvoorziening/ogc/v1/collections/gebouwen/3dtiles/tileset.json";
 
 /** 矩形 [west, south, east, north]（度） */
 export type NlBBox = [number, number, number, number];
@@ -21,7 +24,7 @@ export type NlBBox = [number, number, number, number];
 export type NlView = [number, number, number, number, number];
 export interface NlPlace { key: string; name: string; bbox: NlBBox; view: NlView }
 
-// 街の一覧＝建物の枠（bbox で 3DBAG を切る）と、その街へ飛んだ時の視点 [経度, 緯度, ズーム, チルト°, 方位°]。
+// 街の一覧＝建物の枠（bbox で全国の tileset を切る）と、その街へ飛んだ時の視点 [経度, 緯度, ズーム, チルト°, 方位°]。
 // /nl/ の街のボタン（apps/ortho-nl/index.html）もこの表を読む＝街を足すのはここ 1 か所。名前は現地の綴り（26 言語の画面で共通）。
 export const NL_PLACES: NlPlace[] = [
 	{ key: "delft", name: "Delft", bbox: [4.336, 51.978, 4.393, 52.026], view: [4.3571, 52.0116, 16, 45, 0] },
@@ -41,13 +44,13 @@ export interface NlStyle { sources?: Record<string, NlStyleSource>; layers?: NlS
 
 // 基図＝OpenFreeMap（OpenMapTiles の形のベクタタイル・OSM）の style「liberty」を外来 style の口（opts.style）で描く（2026-10-01）。
 // 自前のベクタ基図は持たない国＝旧は basemap:null で白い地面に建物だけ＝貧相だった。鍵も登録も要らない配信を借りる。
-//   ・style 側の建物の押し出し（fill-extrusion）は外す＝3DBAG と二重になる（足元の fill は残す＝3DBAG を切っていない街でも街区が読める）
+//   ・style 側の建物の押し出し（fill-extrusion）は外す＝PDOK の建物と二重になる（足元の fill は残す＝建物を切っていない街でも街区が読める）
 //   ・塗りの下の画像（Natural Earth の陰影）は描けない層＝source ごと外す（無駄な取得を出さない）
 //   ・出典は source の attribution に**全部**書く＝外来 style で起動すると地域宣言の出典の行は出ない（エンジンは基図の出典だけを出す）。
-//     3DBAG は CC BY 4.0＝表示が義務・標高（Mapterhorn）も同じ欄へ
+//     3D Basisvoorziening は CC BY 4.0＝表示が義務・標高（Mapterhorn）も同じ欄へ
 const NL_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const NL_ATTR_HTML = `<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>`
-	+ `・<a href="https://3dbag.nl/" target="_blank">3DBAG (TU Delft), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank">© Mapterhorn</a>`;
+	+ `・<a href="https://api.pdok.nl/kadaster/3d-basisvoorziening/ogc/v1" target="_blank">3D Basisvoorziening (Kadaster/PDOK), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank">© Mapterhorn</a>`;
 // 取れなければ null＝基図なしの従来の絵で起動する（借り物の配信が落ちていても建物は出る）。8 秒で見切る＝起動を人質に取らせない。
 export async function nlStyle(): Promise<NlStyle | null> {
 	try {
@@ -80,17 +83,17 @@ export const NL_REGION: NlRegion = {
 	code: "nl",
 	dtm: null,                    // AHN の焼き直しは持っていない＝標高は外来の標高タイル（上の NL_TERRAIN）を入口が渡す
 	buildings: {
-		sets: NL_PLACES.map(s => ({ name: `${s.name} (3DBAG)`, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox })),
+		sets: NL_PLACES.map(s => ({ name: `${s.name} (PDOK)`, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox })),
 		bakeBase: NL_BAKE_BASE,   // globe が各 set へ刻む（stampBake）
 	},
 	// 自前のベクタ基図は持たない＝地域の基図の口（basemap）は空のまま。/nl/ の入口は外来 style（上の nlStyle）で描く。
 	// style が取れなかった時・?nl=1（日本に重ねる）の時はこの宣言どおり＝タイルを要求せず図郭外と同じ扱い。
 	basemap: null,
-	// 3DBAG は CC BY 4.0＝表示が義務。日本のデータを出していない画面に地理院・PLATEAU を並べるのは、
+	// 3D Basisvoorziening は CC BY 4.0＝表示が義務。日本のデータを出していない画面に地理院・PLATEAU を並べるのは、
 	// 義務以前に嘘になる（だから入口ごとに出典を差し替える）。外来 style で起動した時は NL_ATTR_HTML が出る＝ここは style が取れなかった時の文面。
 	attribution: {
 		lines: [
-			[{ href: "https://3dbag.nl/", key: "3DBAG (TU Delft), CC BY 4.0" }, { href: "https://mapterhorn.com/attribution", text: "© Mapterhorn" }],
+			[{ href: "https://api.pdok.nl/kadaster/3d-basisvoorziening/ogc/v1", text: "3D Basisvoorziening (Kadaster/PDOK), CC BY 4.0" }, { href: "https://mapterhorn.com/attribution", text: "© Mapterhorn" }],
 			[{ key: "Auto-generated from BAG (building registry) and AHN (national LiDAR)" }],
 		],
 		note: "(Created by processing the data)",

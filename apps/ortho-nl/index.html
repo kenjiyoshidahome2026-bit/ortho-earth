@@ -49,13 +49,13 @@
 	<link rel="canonical" href="https://www.ortho-earth.com/nl/">
 	<link rel="apple-touch-icon" href="/nl/apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-solar と同じ一枚＝球儀マーク -->
 	<meta name="apple-mobile-web-app-title" content="ortho-nl">
-	<title>ortho-nl — オランダ 3DBAG（同じエンジン・別の国）</title>
-	<meta name="description" content="オランダの3D建物モデル（3DBAG／TU Delft・CC BY 4.0）を、OpenStreetMap のベクトルタイルと標高の上に、ortho-japan と同じ自作エンジンで球面に直描き。デルフト・ロッテルダム・アムステルダムなど 8 都市。日本専用ではないことの実証。">
+	<title>ortho-nl — オランダの3D建物（同じエンジン・別の国）</title>
+	<meta name="description" content="オランダの3D建物モデル（3D Basisvoorziening／Kadaster・PDOK・CC BY 4.0）を、OpenStreetMap のベクトルタイルと標高の上に、ortho-japan と同じ自作エンジンで球面に直描き。デルフト・ロッテルダム・アムステルダムなど 8 都市。日本専用ではないことの実証。">
 	<!-- OGP：SNS共有カード。og:url / og:image は絶対URL必須＝デプロイ先確定時にこの2行を実URLへ。画像は public/ogp.png（1200×630） -->
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="ortho-earth">
-	<meta property="og:title" content="ortho-nl — オランダ 3DBAG">
-	<meta property="og:description" content="オランダ全土のLoD2建物（3DBAG）を同じエンジンで。国が変わってもエンジンは変わらない。">
+	<meta property="og:title" content="ortho-nl — オランダの3D建物">
+	<meta property="og:description" content="オランダ全土の3D建物（PDOK 3D Basisvoorziening）を同じエンジンで。国が変わってもエンジンは変わらない。">
 	<meta property="og:url" content="https://www.ortho-earth.com/nl/">
 	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/nl.webp">
 	<meta name="twitter:card" content="summary_large_image">
@@ -65,7 +65,7 @@
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。起動後に養子縁組され、エンジンが基図の出典（nl/region.js の NL_ATTR_HTML）で書き直す＝同じ並び -->
-	<div id="attr" data-boot>Source: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>・<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG (TU Delft), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a><br>
+	<div id="attr" data-boot>Source: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>・<a href="https://api.pdok.nl/kadaster/3d-basisvoorziening/ogc/v1" target="_blank" rel="noopener">3D Basisvoorziening (Kadaster/PDOK), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a><br>
 		(processed from each source)© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
 	<script type="module" src="./main.ts"></script>
 </body>

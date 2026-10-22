@@ -64,7 +64,7 @@ eq("建物はオランダの 8 件だけ", only.sets.length, 8);
 eq("裸地標高の申告は無い＝接地リフトしない", only.dtm, null);
 eq("基図を宣言しない＝タイルを要求しない（図郭外と同じ全面水域）", only.basemap, null);
 eq("出典はオランダのものだけ", only.attr.length, 1);
-yes("出典に 3DBAG と CC BY 4.0", only.attr[0].lines[0][0].key.includes("3DBAG") && only.attr[0].lines[0][0].key.includes("CC BY 4.0"));
+yes("出典に 3D Basisvoorziening（PDOK）と CC BY 4.0", only.attr[0].lines[0][0].text.includes("PDOK") && only.attr[0].lines[0][0].text.includes("CC BY 4.0"));
 yes("日本の出典は混ざらない", !JSON.stringify(only.attr).includes("GSI"));
 // /nl/ の基図と標高（2026-10-01）＝外来 style（OpenFreeMap）と外来の標高タイル（Mapterhorn）を入口が渡す。地域の基図の口は空のまま
 yes("街の視点は自分の建物の枠の中", NL_PLACES.every(p => p.view[0] > p.bbox[0] && p.view[0] < p.bbox[2] && p.view[1] > p.bbox[1] && p.view[1] < p.bbox[3]));

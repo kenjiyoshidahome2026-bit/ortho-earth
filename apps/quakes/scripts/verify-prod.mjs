@@ -3,7 +3,7 @@
 //   dist/site を素の静的サーバで配る（本番の deploy-worker と同じ COOP/COEP・/globe/quakes → /globe/quakes/）＝出荷物そのものを食う。
 //   /globe/quakes/ と共有エンジンの外（データのミラー /quakes/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
-//   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
+//   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG／PDOK）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
 //   ② 実走: /globe/quakes/ が起動する＝地球儀が立ち、地震が 1,000 件より多く載る
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない・共有エンジンから読んだファイルに地域の物が無い（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
@@ -27,7 +27,7 @@ let chrome = null, server = null;
 const bye = code => { try { chrome && process.kill(-chrome.pid); } catch { chrome?.kill(); } server?.close(); process.exit(code); };
 
 // ① 静的
-const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl"];
+const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl", "api.pdok.nl"];
 const regionIn = file => { const s = fs.readFileSync(file, "utf8"); return REGION.find(pat => s.includes(pat)); };
 // 共有エンジン＝独立のデプロイ単位 apps/engine（2026-10-15〜）＝この家の dist には無い＝/globe/engine/ はエンジンの手元の置き場を同じ住所で配る（本番と同じ形）
 import { ENGINE_DIR } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";
