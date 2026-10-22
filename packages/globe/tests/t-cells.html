@@ -55,6 +55,24 @@ try {
 	ok("sg.drawn", drawn > 100, `alpha px=${drawn}`);
 	const sh = await SG.pick(s0[0], s0[1]);
 	ok("sg.pick", sh[0]?.name === "sg" && sh[0]?.properties?.count >= 10, JSON.stringify(sh[0]?.properties));
+	// 格子は GPU で数える（2026-10-22〜 screengrid-gl）＝main の投影で数え直した数と同じ（拾ったセル・全体の最大）
+	{
+		const dpr = devicePixelRatio || 1, cell = 30 * dpr, cnt = new Map();
+		for (const p of pts) { const q = map.projectLL(p.lon, p.lat); if (!q || q[2] <= 0) continue; const k = Math.floor(q[1] * dpr / cell) + "," + Math.floor(q[0] * dpr / cell); cnt.set(k, (cnt.get(k) || 0) + 1); }
+		const P = sh[0]?.properties || {}, cpu = cnt.get(P.row + "," + P.col), cpuMax = Math.max(...cnt.values());
+		ok("sg.parity", Math.abs(cpu - P.count) <= 1 && Math.abs(cpuMax - P.max) <= 1, `cell cpu=${cpu} gpu=${P.count} max cpu=${cpuMax} gpu=${P.max}`);   // ±1＝格子の境に乗った点（投影の丸めの差）
+	}
+	// 重み（sum）と最大（max）＝R の混ぜ方だけ替える（件数は A に足し続ける）
+	{
+		const dpr = devicePixelRatio || 1, cell = 30 * dpr, sum = new Map(), mxv = new Map();
+		for (const p of pts) { const q = map.projectLL(p.lon, p.lat); if (!q || q[2] <= 0) continue; const k = Math.floor(q[1] * dpr / cell) + "," + Math.floor(q[0] * dpr / cell); sum.set(k, (sum.get(k) || 0) + p.props.v); mxv.set(k, Math.max(mxv.get(k) || 0, p.props.v)); }
+		const SW = await map.addScreenGrid(pts, { id: "sgw", cellPx: 30, weight: "v" });
+		const a = await until(async () => (await SW.pick(s0[0], s0[1]))[0]?.properties, WAIT) || {}, ka = a.row + "," + a.col;
+		SW.setStyle({ agg: "max" }); await sleep(800);
+		const b = (await SW.pick(s0[0], s0[1]))[0]?.properties || {};
+		ok("sg.weight", Math.abs(a.value - sum.get(ka)) <= 4 && b.value === mxv.get(ka) && b.count === a.count, `sum cpu=${sum.get(ka)} gpu=${a.value} max cpu=${mxv.get(ka)} gpu=${b.value} n=${a.count}/${b.count}`);
+		SW.remove();
+	}
 	SG.remove(); await sleep(300);
 	ok("sg.removed", (await map.pickOverlays(s0[0], s0[1])).every(h => h.name !== "sg"));
 	// ⑤ addAggregate → h3
