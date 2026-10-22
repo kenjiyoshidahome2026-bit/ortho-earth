@@ -65,3 +65,14 @@ td:first-child { white-space: nowrap; }
 	.bar-row { grid-template-columns: 8.5em 1fr; font-size: 0.76rem; }
 	td:first-child { white-space: normal; }
 }
+
+/* 2.0 公開の記事（release-2-0）が使う部品：副題・コード・注記の枠・製図係の署名 */
+.masthead .subtitle { margin-top: 12px; font-size: 1.0rem; color: var(--ink-soft); letter-spacing: 0.04em; }
+.essay code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.86em; background: rgba(120,100,60,0.10); padding: 1px 4px; border-radius: 3px; }
+.essay pre { margin: 0 0 1.4em; padding: 12px 16px; background: var(--paper2); border: 1px solid var(--rule); overflow-x: auto; line-height: 1.6; }
+.essay pre code { background: none; padding: 0; }
+.callout { margin: 0 0 1.6em; padding: 16px 20px; background: var(--paper2); border: 1px solid var(--rule); border-left: 3px solid var(--indigo); }
+.callout-head { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.callout p { margin: 0; font-size: 0.98rem; }
+.essay .sig-note { margin-top: 36px; text-align: right; color: var(--indigo); font-size: 0.95rem; }
+.essay li { text-align: start; }   /* 箇条書きは両端揃えにしない（コード片の前後で字間が開く） */
