@@ -7,7 +7,8 @@
 // レコード（1 texel / fid・仕様 §7.1）:
 //   R = fill 色 RGBA8（r<<24|g<<16|b<<8|a）
 //   G = line/circle 色 RGBA8
-//   B = line-width u8(1/8px) <<24 | dash-id u8 <<16 | circle-radius u8(1/4px) <<8 | flags u8
+//   B = line-width 下位 u8(1/8px) <<24 | line-width 上位 u8 <<16 | circle-radius u8(1/4px) <<8 | flags u8
+//       線幅は 2026-10-22 から u16（8191px まで・旧は u8＝約 32px で頭打ち）。上位は空いていた dash-id の欄（常に 0）＝32px 未満の表は旧と同じ語（アプリが自前で組む表もそのまま読める）
 //   A = 予備（0）
 //   flags bit0 = visible（filter の実体）
 // width はスタイル正味のみ（pick マージン等のパス増分は uniform 側＝仕様 §7.1）。
@@ -59,6 +60,7 @@ function packColor(c: readonly number[], opacity: number): number {
 }
 
 const clampU8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+const clampU16 = (v: number): number => Math.max(0, Math.min(65535, Math.round(v)));
 
 // paint/filter → fid スタイル表。
 //   paint:    { 'fill-color', 'fill-opacity', 'line-color', 'line-opacity', 'line-width',
@@ -89,13 +91,13 @@ export function buildFidStyle(paint: Record<string, unknown> = {}, features: rea
 			const isPt = ctx.geom === "Point" || ctx.geom === "MultiPoint";
 			const pC = isPt ? (pCircC ?? pLineC) : (pLineC ?? pCircC);
 			if (pC != null) { const c = evalColor(pC, ctx); if (c) line = packColor(c, pLineO != null ? num(pLineO, 1) : 1); }
-			if (pWidth  != null) { const v = +(evalExpr(pWidth, ctx) as number);  if (Number.isFinite(v)) w8 = clampU8(v * 8); }
+			if (pWidth  != null) { const v = +(evalExpr(pWidth, ctx) as number);  if (Number.isFinite(v)) w8 = clampU16(v * 8); }
 			if (pRadius != null) { const v = +(evalExpr(pRadius, ctx) as number); if (Number.isFinite(v)) r8 = clampU8(v * 4); }
 		} catch (e) { /* 既定値のまま（§6-4） */ }
 		const j = fid * 4;
 		u32[j]     = fill;
 		u32[j + 1] = line;
-		u32[j + 2] = ((w8 << 24) | (0 << 16) | (r8 << 8) | flags) >>> 0;   // dash-id は初期版 0（solid）
+		u32[j + 2] = (((w8 & 255) << 24) | ((w8 >> 8) << 16) | (r8 << 8) | flags) >>> 0;
 		u32[j + 3] = 0;
 	}
 	return { u32, count };

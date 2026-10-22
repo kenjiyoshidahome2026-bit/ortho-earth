@@ -6,7 +6,7 @@ import { packMLLayers, buildMLTable, zoomSensitivity } from "../src/mltables.ts"
 const F = (type, coordinates, properties = {}) => ({ type: "Feature", properties, geometry: { type, coordinates } });
 const PG = (p = {}) => F("Polygon", [[[0, 0], [1, 0], [1, 1], [0, 0]]], p), LN = (p = {}) => F("LineString", [[0, 0], [1, 1]], p), PT = (p = {}) => F("Point", [0, 0], p);
 const L = (id, type, extra = {}) => ({ id, type, source: "s", paint: {}, ...extra });
-const rec = (t, fid) => { const j = fid * 4, b = t.u32[j + 2]; return { fill: t.u32[j], line: t.u32[j + 1], w8: b >>> 24, r8: (b >>> 8) & 255, vis: b & 1 }; };
+const rec = (t, fid) => { const j = fid * 4, b = t.u32[j + 2]; return { fill: t.u32[j], line: t.u32[j + 1], w8: (b >>> 24) | (((b >>> 16) & 255) << 8), r8: (b >>> 8) & 255, vis: b & 1 }; };
 const types = ps => ps.map(p => p.layers.map(l => l.type + (p.outline && l.type === "fill" ? "+o" : "")).join(",")).join(" | ");
 
 test("詰め方（連続する層・型の順を崩さない）", () => {
@@ -64,8 +64,8 @@ test("feature-state と既定値へ落ちる評価エラー", () => {
 	const t = buildMLTable(p, [PG(), PG()], { zoom: 10, states: new Map([[1, { hover: true }]]) });
 	assert.equal(rec(t, 0).fill, 0x0000ffff); assert.equal(rec(t, 1).fill, 0xff0000ff);   // opacity は欠損＝null＝既定 1
 });
-test("線幅・半径の上限（表の u8）", () => {
-	const [p] = packMLLayers([L("l", "line", { paint: { "line-width": 50 } })]); assert.equal(rec(buildMLTable(p, [LN()], { zoom: 10 }), 0).w8, 255);
+test("線幅の上限（u16＝8191px・2026-10-22 から）・半径の上限（u8）", () => {
+	const [p] = packMLLayers([L("l", "line", { paint: { "line-width": 50 } })]); assert.equal(rec(buildMLTable(p, [LN()], { zoom: 10 }), 0).w8, 400);
 });
 test("隠した層（visibility none）は詰め方に残して表で効かせない", () => {
 	const ps = packMLLayers([L("f", "fill", { layout: { visibility: "none" } }), L("l", "line")]);
