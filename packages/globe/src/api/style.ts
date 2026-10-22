@@ -2,7 +2,7 @@
 // feature state・global state・addFontFace・getLayers／getStyle／setStyle・基図の層を実行時に触る口・querySourceFeatures）と、それを支える
 // 内部の入口（addSourceAt／addLayerAt・remountSource・remergeBase）＝createGlobe から切り出した（globe.js の分割 ⑫・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { DZ_KEY, evalExpr, layerDzOf, layerPaintTable, layerPaintZoom, normalizeMLLayer, paintFast, paintTableFast, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState } from "@ortho-earth/core";
+import { DZ_KEY, evalExpr, layerDzOf, layerPaintTable, layerPaintZoom, normalizeMLLayer, paintFast, paintTableFast, pmtilesInfo, rescaleZoomExpr, rescaleZoomNum, resolveVectorSource, sourceFeatures, truthy, usesGlobalState, ML_CZ0_KEY, ML_CZ1_KEY } from "@ortho-earth/core";
 import { PAINT_DEFAULTS, createTransitions, interpolable, transitionOf } from "../transition.ts";
 import { normLight } from "../light.ts";
 import { normSky } from "../sky-spec.ts";
@@ -42,9 +42,9 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn,
 	autoBldReadOnly, baseOverrides, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle,
 	extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses,
-	mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, rebuildCluster,
+	mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow,
 	rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld,
-	setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, unmountLayer, userBg, vtRaw,
+	setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, stripMl, unmountLayer, userBg, vtRaw,
 	vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg
 }: StyleDeps): StyleReturn {
 	map.setCustomLayerHost = h => { live.customHost = h; return map; };
@@ -68,7 +68,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			if (sp.type === "canvas") { face.getCanvas = () => h?.getCanvas?.() ?? (typeof sp.canvas === "string" ? document.getElementById(sp.canvas) : sp.canvas); face.play = () => { sp.animate = true; h?.play?.(); }; face.pause = () => { sp.animate = false; h?.pause?.(); }; }   // 層が無い間は記録だけ
 			return face as UserSource as SourceFace;
 		}
-		const extra = sp.cluster ? { getClusterExpansionZoom: async (cid: number) => { const ez = live.aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ)!; } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
+		const extra = sp.cluster ? { getClusterExpansionZoom: async (cid: number) => { const ez = (await clusterOf(id))?.byCid.get(cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ)!; } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
 		const remount = (dataChanged = true) => remountSource(id, dataChanged);   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
 		const self: SourceSelf = { ...sp, ...extra, setData: data => { sp.data = data; delete sp.cacheKey; return setDataLive(id); } };   // cacheKey＝足した時の data の鍵＝入れ替えたら外す（古い控えを掴まない）
 		// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
@@ -199,7 +199,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		return map;
 	};
 	// 性質の変更＝登録簿の層を書き換えて描き直す（gint は fid 表の書き換えだけ＝安い・画像の不透明度は map.raster.set）
-	const relayer = (v: UserLayerRec) => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : v.kind === "cluster" ? rebuildCluster(srcId(v.layer)) : mountLayer(v)) : null;
+	const relayer = (v: UserLayerRec) => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)) : null;
 	// paint の transition（B1・2026-10-12・MapLibre の `*-transition`・style の根の `transition`・既定 300ms）：利用者の層（mlLayers）だけ。数・色・数の配列を rAF ごとに補間して描き直す
 	// （gint＝fid 表の書き換え・他＝relayer）。式は補間しない（MapLibre も同じ）。基図の層（restyleBase＝組み直し）とその他の層（描かない）は即時。getPaintProperty は set した目標値を返す
 	const transitions = createTransitions({ now: animNow });   // 時計＝map.setNow で止められる（C10）
@@ -643,7 +643,10 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			}
 			return out;
 		}
-		if (sp!.cluster && live.aggCtl && [...mlLayers.values()].some(v => srcId(v.layer) === sid && v.kind === "cluster")) return qf(live.aggCtl.sourceFeatures(sid, size.w / live.dpr, size.h / live.dpr).map(f => ({ ...f, source: sid })));
+		const cl = sp!.cluster ? clusterNow(sid) : null;   // 集約の source＝今の段の丸と単点（cluster as data・段＝エンジンの z）
+		const W = size.w / live.dpr, H = size.h / live.dpr, mx = W / 4, my = H / 4;   // 画面の内側（余白 1/4）＝MapLibre の「読んであるタイル」の近似
+		const onScreen = (c: number[]) => { const p = map.projectLL(c[0], c[1]); return p[2] >= 0 && p[0] >= -mx && p[1] >= -my && p[0] <= W + mx && p[1] <= H + my; };
+		if (cl) return qf(cl.fc.features.filter(f => cam.zoom >= (f.properties[ML_CZ0_KEY] as number) && cam.zoom < (f.properties[ML_CZ1_KEY] as number) && onScreen(f.geometry.coordinates)).map(f => ({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: stripMl(f.properties), geometry: f.geometry, source: sid }))) as RenderedFeature[];
 		const d = sp!.data as DataLike | string | null | undefined; if (!d || typeof d !== "object") return [];
 		const fs = (d.type === "FeatureCollection" ? d.features : d.type === "Feature" ? [d] : []) as FeatureLike[];
 		return qf(fs.map((f, i) => ({ type: "Feature", id: f.id ?? mlIdOf(sid, i) ?? i, properties: f.properties || {}, geometry: f.geometry, source: sid }))) as RenderedFeature[];

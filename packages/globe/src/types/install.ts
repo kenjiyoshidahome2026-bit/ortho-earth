@@ -182,9 +182,9 @@ export type StyleLive = LiveOf<"customHost" | "EXT" | "style" | "autoBldRemoved"
 export type StyleDeps = Pick<GlobeScope, "AUTO_BLD" | "BASE_SOURCE" | "BASE_SRC" | "DEBUG_GLOBALS" | "NO_BG_WHITE" | "PUBLIC_DZ" | "R2D" | "STYLE_DZ" | "animNow" | "assertMLLayer" | "autoBldLayer" | "autoBldOn"
 	| "autoBldReadOnly" | "baseOverrides" | "baseSidNow" | "baseSrcSpec" | "baseVis" | "bgOf" | "bldFillLi" | "cam" | "dbgHost" | "drawLayerOf" | "dropFollow" | "emitSourceData" | "extBaseStyle"
 	| "extSourceFields" | "isVecSrc" | "kindOf" | "landDefault" | "landOf" | "loadExtStyle" | "mergeReq" | "mkThemes" | "mlFeatureState" | "mlGintData" | "mlIdOf" | "mlLayers" | "mlPasses"
-	| "mlSourceDz" | "mlSources" | "mlVisible" | "mountLayer" | "onMove" | "rasterAdjust" | "rasterFade" | "rasterPaintOpts" | "rasterPend" | "rasterSampling" | "rebuildCluster"
+	| "mlSourceDz" | "mlSources" | "mlVisible" | "mountLayer" | "onMove" | "rasterAdjust" | "rasterFade" | "rasterPaintOpts" | "rasterPend" | "rasterSampling" | "clusterOf" | "clusterNow"
 	| "rebuildGint" | "reliefOpacity" | "renderer" | "reorderLayers" | "requestDraw" | "requester" | "seaLi" | "seaOf" | "sendLight" | "sendSky" | "sendUserAnchors" | "setAutoBld"
-	| "setDataLive" | "setDataQ" | "setMapGS" | "setPipelineStyle" | "setSrcAttr" | "size" | "spriteDrop" | "spriteLoad" | "spriteNames" | "srcId" | "srcOf" | "unmountLayer" | "userBg" | "vtRaw"
+	| "setDataLive" | "setDataQ" | "setMapGS" | "setPipelineStyle" | "setSrcAttr" | "size" | "spriteDrop" | "spriteLoad" | "spriteNames" | "srcId" | "srcOf" | "stripMl" | "unmountLayer" | "userBg" | "vtRaw"
 	| "vtRouted" | "vtdDesc" | "vtdMounting" | "vtdOrder" | "vtxDescs" | "vtxFS" | "vtxFSKey" | "vtxStateOf" | "wPost" | "withBaseOverrides" | "withPM" | "withUserBg">;
 /** 外来 style の基図以外の層の控え（画像層・利用者の層・source・settle の購読の解除・振り分けの途中） */
 export interface ExtExtras { raster: string[]; layers: string[]; sources: string[]; offs: Array<() => void>; mounting: number }

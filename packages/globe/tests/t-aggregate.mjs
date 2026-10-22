@@ -2,7 +2,7 @@
 // 点の集約とヒートマップの計算部分（gadgets/aggregate-core.js）の常設検定。描画（オーバーレイ）は CDP で別に見る。
 // 見るもの：①点の読み出し（Point/MultiPoint・他は落ちる）②集約＝全段で件数が保存・粗い段ほど少ない・ばらける段 ez
 // ③MapLibre の既定の配色（step）・point_count_abbreviated ④ヒートマップの表（ズームの半径・密度の色表・heatmap-density）。
-import { pointsOf, buildClusters, clusterDraw, heatStyle, abbr } from "../src/gadgets/aggregate-core.ts";
+import { pointsOf, buildClusters, clusterDraw, clusterFeatures, heatStyle, abbr } from "../src/gadgets/aggregate-core.ts";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
@@ -33,6 +33,21 @@ t("MapLibre の式で配色（point_count）", own[8].find(c => c.n === 150)?.fi
 const hs = heatStyle({ "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 10, 30], "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "#000000", 1, "#ff0000"] });
 t("ヒートマップ：半径の表（z0＝2・z10＝30・0.5 刻み）", hs.radius[0] === 2 && hs.radius[20] === 30 && hs.zStep === 0.5);
 t("ヒートマップ：heatmap-density の色表（0＝黒・1＝赤・中間）", hs.ramp[0] === 0 && hs.ramp[255 * 4] === 255 && Math.abs(hs.ramp[128 * 4] - 128) <= 1, [hs.ramp[0], hs.ramp[128 * 4], hs.ramp[255 * 4]].join());
+// ⑤ cluster as data（clusterFeatures）＝どの段でも [cz0, cz1) に居る地物の件数の和＝点の数・段の端は先まで・集約は id＝cluster_id と ez
+{
+	const cf = clusterFeatures(pts, cl), Z0 = "ortho:cz0", Z1 = "ortho:cz1", EZ = "ortho:cez";
+	const at = z => cf.fc.features.filter(f => z >= f.properties[Z0] && z < f.properties[Z1]);
+	const sumAt = z => at(z).reduce((a, f) => a + (f.properties.cluster ? f.properties.point_count : 1), 0);
+	const zs = [-1, 0, 3, 7.5, 14, 15, 22];
+	t("cluster as data：どの段も件数の和＝点の数", zs.every(z => sumAt(z) === pts.length), zs.map(z => `${z}:${sumAt(z)}`).join(" "));
+	t("cluster as data：段ごとの地物＝buildClusters の段", [0, 5, 10, 14, 15].every(z => at(z).length === cl.levels[Math.min(z, cl.levels.length - 1)].length));
+	const c0 = at(5).find(f => f.properties.cluster);
+	t("cluster as data：集約は id＝cluster_id・ez・byCid", !!c0 && c0.id === c0.properties.cluster_id && c0.properties[EZ] === cf.byCid.get(c0.id) && typeof c0.properties.point_count_abbreviated === "string");
+	const raw = at(30);
+	t("cluster as data：最も細かい段の先＝元の点（属性はそのまま）", raw.length === pts.length && raw.every(f => !f.properties.cluster) && raw.some(f => f.properties.k === 7));
+	const idp = pointsOf({ type: "FeatureCollection", features: [{ type: "Feature", id: 42, properties: {}, geometry: { type: "Point", coordinates: [10, 10] } }] });
+	t("cluster as data：単点は元の id", clusterFeatures(idp, buildClusters(idp)).fc.features.every(f => f.id === 42));
+}
 const def = heatStyle({});
 t("ヒートマップ：既定（半径 30・強さ 1・不透明 1・密度 0 は透明）", def.radius[0] === 30 && def.intensity[0] === 1 && def.opacity === 1 && def.ramp[3] === 0);
 

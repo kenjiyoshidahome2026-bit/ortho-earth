@@ -20,7 +20,7 @@
 | 注記の抽出 | `ortho-core/src/labels.ts` | tile worker で式を評価し `Label` を焼く（描画とは独立） |
 | 書体 | `ortho-core/src/fontstack.ts` | `text-font` を CSS の family／weight／style に写す |
 | geojson の symbol | `globe/src/symbols-2d.ts` | 別の 2D オーバーレイ（箱・候補の式を二重に持つ） |
-| 集約の件数 | `globe/src/cluster-2d.ts` | 別の 2D オーバーレイ |
+| 集約の件数 | `globe/src/cluster-2d.ts` | 別の 2D オーバーレイ（MapLibre の集約の source は §4h で注記層へ・残るのは `map.gadget.cluster` の口だけ） |
 | 道路標識 | `globe/src/shields.ts` | Path2D を注記 canvas に直接 |
 | 星空・月 | labels2d の `setSky`／`setMoon` | `fillText` と図形 |
 
@@ -49,7 +49,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c・**2 本目＝層の位置は実装済**＝§4d） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
-| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f・**3 本目＝geojson の点の symbol 層は実装済**＝§4g） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
+| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e・**2 本目＝星空と月は実装済**＝§4f・**3 本目＝geojson の点の symbol 層は実装済**＝§4g・**4 本目＝集約の source は実装済**＝§4h） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
 | **P6** WebGL2 版（中） | 同じアトラス・同じ式を GLSL で。これが無い間は WebGL2 だけ注記が最前面＝層順が MapLibre と違う（記録） | GL2 で P2 と同じ層順の絵 | `?text=2d` |
@@ -182,6 +182,21 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 
 門：t-mlcompat の layers／style／vector がすべて通る（geojson の記号の場面＝stretch-fit・改行と折り返し・styleimagemissing・global-state-filter・symbol-minzoom）。
 新しい場面 `symbol-geojson-shares-collision`：同じ点の vector の注記と geojson の注記は片方だけ（旧＝両方）・後から足した geojson が勝つ・moveLayer で下へ回すと vector が勝つ。`tests/labels2d.mjs` 18（setUserOrder）。
+
+## 4h. P3 の 4 本目＝集約（cluster）をデータに（**実装済**・2026-10-22）
+
+- MapLibre の書き方の集約の source（`cluster: true`）は、cluster-2d（丸と件数を別の canvas に描く・paint は丸の色／半径／縁だけ）をやめ、**集約した結果を source の地物**にする。
+  `aggregate-core.ts` の `clusterFeatures` が `buildClusters` の全段の丸と単点を 1 つの FeatureCollection にする。
+  段をまたいで変わらない項は 1 地物で、居る段 [z0, z1)（エンジンの z・端の段はその先も）を隠しの属性（`ML_CZ0_KEY`／`ML_CZ1_KEY`）に持つ。
+  集約の地物は MapLibre と同じ属性（`cluster`・`cluster_id`・`point_count`・`point_count_abbreviated`・clusterProperties）と id＝cluster_id。単点は元の属性と id。
+- 層は普通の経路へ：circle の層は gint（丸は GPU・paint／filter／feature-state も MapLibre の意味）、symbol の層は §4g の点置き（件数の字は注記層＝衝突と層の順も同じ・`?text=gpu` で GPU）。
+  段は `drawLayerOf` が filter に `[z0 ≤ zoom < z1]` を足す。段の選び方は cluster-2d と同じ floor(zoom)：gint は zoomKey に floor を足して境で必ず表を作り直し、
+  gjlabels は段を floor で先に選んでから焼く（quantZoom の 0.25 刻みで境の手前に次の段の字が出ない）。
+- 集約は source ごとに 1 回（data・半径・最大段・clusterProperties が同じ間は使い回す＝`clusterOf`）。旧＝層を足すたびに組み直し。
+- 問い合わせ：`queryRenderedFeatures` の丸は gint／記号の当たり（`expansionZoom` も添える）・`querySourceFeatures` は今の段の地物（画面＋余白 1/4）・`getClusterExpansionZoom` は `byCid`。隠しの属性は `stripMl` が外す。
+- **残す**：`map.gadget.cluster`（ネイティブの口）は cluster-2d のまま。
+
+門：t-mlcompat の cluster-layer-zoom-range・cluster-properties-and-id・query-source-features（layers）・cluster-without-circle-layer（live）・t-mlzoom の expansionZoom・`tests/t-aggregate.mjs` ⑤（どの段も件数の和＝点の数・段ごとの地物＝buildClusters の段）。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

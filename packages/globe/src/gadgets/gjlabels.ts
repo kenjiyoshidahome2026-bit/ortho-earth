@@ -5,7 +5,7 @@
 // 視野のタイル（selectLOD＝描く側と同じ選び）ごとに線をタイル単位（extent 4096）へ写して枠で切り（clipLineGeom）、core の buildLabels で
 // 錨と折れ線（symbol-spacing・line-center・text-max-angle・keep-upright は描く側 labels2d が裁く）を焼き、sendLabels（"vt:" の層＝vector の注記と同じ口）で渡す。
 // 止まるたび（settle）にタイルの集合と ["zoom"] の値（quantZoom）が変わっていれば焼き直す。衝突は基図の注記と同じ土俵（利用者の層が勝つ＝sort を負の帯に）。
-import { selectLOD } from "@ortho-earth/core";
+import { selectLOD, ML_CZ0_KEY, ML_CZ1_KEY } from "@ortho-earth/core";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { clipLineGeom, substituteZoom, quantZoom } from "../vtops.ts";
 import { poleOf } from "./symbols-core.ts";
@@ -30,8 +30,8 @@ type Label = ReturnType<typeof buildLabels>["labels"][number];
 interface LineFeat { id: unknown; props: Record<string, unknown>; parts: Float64Array[]; bbox: number[] }
 /** 点置きの地物（pts＝錨の世界メルカトル [0,1] の平らな列・gt＝元の型） */
 interface PtFeat { id: unknown; props: Record<string, unknown>; gt: string; pts: number[] }
-/** 層の 1 枚（sig＝最後に焼いたタイルの集合と ["zoom"] の値・rev＝set の回数・pt＝点置き・zdep＝式が ["zoom"] を読む） */
-interface GJLayer { layer: MLLayer; feats: LineFeat[]; pfeats: PtFeat[]; pt: boolean; zdep: boolean; key: number; sig: string | null; rev: number }
+/** 層の 1 枚（sig＝最後に焼いたタイルの集合と ["zoom"] の値・rev＝set の回数・pt＝点置き・zdep＝式が ["zoom"] を読む・cl＝集約の source の地物＝段を持つ） */
+interface GJLayer { layer: MLLayer; feats: LineFeat[]; pfeats: PtFeat[]; pt: boolean; zdep: boolean; cl: boolean; key: number; sig: string | null; rev: number }
 /** gjLineFeatures が読む地物 */
 interface GJFeature { id?: unknown; properties?: Record<string, unknown> | null; geometry?: { type: string; coordinates: unknown } | null }
 type GJSrc = { type?: unknown; coordinates?: unknown; features?: Array<GJFeature | null | undefined> } | null | undefined;
@@ -119,7 +119,13 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 	// 点置き＝世界 1 枚の仮のタイルで 1 回（錨は視野に依らない＝画面の外は描く側が捨てる）
 	const buildPoints = (s: GJLayer, pz: number) => {
 		const feats: Array<{ type: "Point"; gt: string; id: unknown; props: Record<string, unknown>; geom: { coords: number[]; ends: number[] } }> = [];
-		for (const f of s.pfeats) for (let i = 0; i < f.pts.length; i += 2) feats.push({ type: "Point", gt: f.gt, id: f.id, props: f.props, geom: { coords: [f.pts[i] * PE, f.pts[i + 1] * PE], ends: [2] } });
+		// 集約の source（cluster as data）＝段は今のズームの floor で選ぶ（gint の丸と同じ段・quantZoom の 0.25 刻みで境の手前に次の段が出ない）。選んだ地物の段の条件は素通しにする
+		const lz = Math.floor(cam.zoom), BIG = 1e9;
+		for (const f of s.pfeats) {
+			let props = f.props;
+			if (s.cl && props[ML_CZ0_KEY] != null) { if (!(lz >= (props[ML_CZ0_KEY] as number) && lz < (props[ML_CZ1_KEY] as number))) continue; props = { ...props, [ML_CZ0_KEY]: -BIG, [ML_CZ1_KEY]: BIG }; }
+			for (let i = 0; i < f.pts.length; i += 2) feats.push({ type: "Point", gt: f.gt, id: f.id, props, geom: { coords: [f.pts[i] * PE, f.pts[i + 1] * PE], ends: [2] } });
+		}
 		if (!feats.length) return [];
 		const { labels } = buildLabels({ layers: { g: { extent: PE, features: feats } }, z: 0, x: 0, y: 0 } as unknown as LabelsTile, { layers: [layerAt(s.layer, pz)] });
 		for (const lb of labels) { lb.usk = lb.sort || 0; lb.sort = -1e6 - s.key * 1e3 + lb.usk; delete (lb as { li?: number }).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（線と同じ）
@@ -129,7 +135,7 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 		if (!layers.size) return;
 		const ts = [...layers.values()].some(s => !s.pt) ? tilesNow() : [], pz = quantZoom(cam.zoom), tsig = ts.map(t => `${t.z}/${t.x}/${t.y}`).join(",") + "@" + pz;
 		for (const [id, s] of layers) {
-			const sig = (s.pt ? (s.zdep ? "@" + pz : "") : tsig) + "#" + s.key + "#" + s.rev;   // 点置き＝タイルの集合に依らない（["zoom"] を読む層だけ z で焼き直す）
+			const sig = (s.pt ? (s.zdep ? "@" + pz : "") + (s.cl ? "|" + Math.floor(cam.zoom) : "") : tsig) + "#" + s.key + "#" + s.rev;   // 点置き＝タイルの集合に依らない（["zoom"] を読む層だけ z で焼き直す）
 			if (!force && s.sig === sig) continue;
 			s.sig = sig;
 			const list = s.pt ? buildPoints(s, pz) : build(s, ts, pz);
@@ -143,7 +149,8 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 		// 層を足す／置き換える（layer＝正規化済み＝エンジンの目盛り・src＝GeoJSON・key＝重ね順・point＝点置き）
 		set(id, layer, src, key = 0, point = false) {
 			const old = layers.get(id), zdep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter]));
-			layers.set(id, { layer, feats: point ? [] : gjLineFeatures(src), pfeats: point ? gjPointFeatures(src) : [], pt: point, zdep, key: old?.key ?? key, sig: null, rev: ++rev });
+			const pfeats = point ? gjPointFeatures(src) : [];
+			layers.set(id, { layer, feats: point ? [] : gjLineFeatures(src), pfeats, pt: point, zdep, cl: pfeats.some(f => f.props[ML_CZ0_KEY] != null), key: old?.key ?? key, sig: null, rev: ++rev });
 			refresh();
 			const s = layers.get(id)!;
 			return { features: s.pt ? s.pfeats.length : s.feats.length };
