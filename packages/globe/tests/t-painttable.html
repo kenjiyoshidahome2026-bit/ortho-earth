@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- 実描画の検分：paint 表の (b) 類（vt perf plan §5 の段 1・2026-10-22・GL2）。外来 style の基図の塗りと線で、色・不透明度が地物の属性を読む層（match）は、
+     md（?md=1）では色の語が表の行＝描き手が表（RGBA32F）から色を読む（__drawHud の d.pt＞0）。?pt=0・?nomd=1 は焼いた色（d.pt＝0）。どれも同じ絵：
+     ①塗りの色 2 種 ②不透明度が属性で変わる塗り ③線の色 2 種 ④どれにも当たらない線＝既定の色。?drawhud=1 で回す（d.pt を読む）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-painttable</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const Q = location.search, PT = /[?&]md=1/.test(Q) && !/[?&]pt=0/.test(Q);   // 表を読むはずか
+
+// 最小の MVT 書き手（層 1 枚・LineString と Polygon（poly＝true）・文字列の属性 k）＝t-linedash に面を足した物
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.poly ? 3 : 2);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		if (f.poly) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let FEATS = [], FETCH = 0;   // [{ k, poly?, ll: [[lon, lat], …] }]・FETCH＝タイルの取り寄せの回数
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("pf", async ({ url }) => {
+	FETCH++;
+	const [z, x, y] = url.replace("pf://", "").split("/").map(Number);
+	return { data: mvt(FEATS.map(l => ({ k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+// 置き場（画面の CSS px・z15 で unproject）：塗り 3 枚（上の帯）・線 3 本（下）
+const SHAPES = [
+	{ k: "fa", poly: true, px: [[60, 60], [300, 60], [300, 260], [60, 260]] },
+	{ k: "fb", poly: true, px: [[360, 60], [600, 60], [600, 260], [360, 260]] },
+	{ k: "fc", poly: true, px: [[660, 60], [900, 60], [900, 260], [660, 260]] },
+	{ k: "la", px: [[60, 340], [900, 340]] },
+	{ k: "lb", px: [[60, 420], [900, 420]] },
+	{ k: "", px: [[60, 500], [900, 500]] },
+];
+const SRC = { type: "vector", tiles: ["pf://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const LAYERS = [
+	{ id: "f", type: "fill", source: "pf", "source-layer": "l", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": ["match", ["get", "k"], "fa", "#ff0000", "fb", "#00ff00", "#0000ff"], "fill-opacity": ["match", ["get", "k"], "fc", 0.5, 1] } },
+	{ id: "l", type: "line", source: "pf", "source-layer": "l", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "butt" }, paint: { "line-color": ["match", ["get", "k"], "la", "#0000ff", "lb", "#ff00ff", "#ff8000"], "line-width": 12 } },
+];
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+try {
+	const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-painttable", sources: {}, layers: [BG] } });
+	await sleep(3000);
+	for (let i = 0; i < 40 && !window.__drawHud; i++) await sleep(500);   // 描き手が立った（mode を scene worker へ送った後）＝タイルが md で常駐する。遅い器で先にタイルが着くと CPU の結合（classic）で描かれたまま
+	FEATS = SHAPES.map(s => ({ k: s.k, poly: s.poly, ll: s.px.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	await map.setStyle({ version: 8, name: "t-painttable", sources: { pf: SRC }, layers: [BG, ...LAYERS] });
+	await sleep(6000);
+	const c = composeLayersToCanvas(await map.requestSnapshot()), img = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+	const W = document.getElementById("map").clientWidth;
+	const px = (x, y) => { const s = img.width / W, i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+	const near = (c, w, e = 14) => c.every((v, i) => Math.abs(v - w[i]) <= e);
+	const want = (name, x, y, w) => { const v = px(x, y); ok(name, near(v, w), `${v} want ${w}`); };
+	want("fillA", 180, 160, [255, 0, 0]);
+	want("fillB", 480, 160, [0, 255, 0]);
+	want("fillOpacity", 780, 160, [128, 128, 255]);   // 青×0.5 の上に白
+	want("lineA", 480, 340, [0, 0, 255]);
+	want("lineB", 480, 420, [255, 0, 255]);
+	want("lineDefault", 480, 500, [255, 128, 0]);
+	await sleep(500);
+	const d = window.__drawHud?.d;
+	ok("tableUsed", d && (PT ? d.pt > 0 : !d.pt), `pt ${d?.pt} want ${PT ? ">0" : "0"}`);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

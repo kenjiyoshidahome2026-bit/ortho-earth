@@ -42,7 +42,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	/** true＝フォグ追従が収束中 */
 	draw(cam: CameraPose, opts?: unknown): boolean;
 	dispose?(): void; flush?(): void;
-	md?: boolean; mdMax?: number; mdDash?: boolean; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
+	md?: boolean; mdMax?: number; mdDash?: boolean; pt?: boolean; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
 	tqTake?(): { tag: string; ms: number }[] | null;
 	depthOut?(on: boolean): DepthOutH | null;
 	gintCtx(): unknown;
@@ -88,7 +88,7 @@ interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
 	perf?: boolean; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean;
-	noTQ?: boolean; noFade?: boolean; noLx?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
+	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
@@ -405,7 +405,7 @@ function finishInit(m: RwMsg) {
 			dirty = true; kick();
 		};
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
-		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, mdDash: !!renderer!.mdDash, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
+		m.scenePort.postMessage({ type: "mode", md: renderer!.md, maxDraws: renderer!.mdMax, mdDash: !!renderer!.mdDash, pt: !!renderer!.pt && !m.noPt, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）・pt＝paint 表の (b) 類（?pt=0＝焼いた色）
 	}
 	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
 }

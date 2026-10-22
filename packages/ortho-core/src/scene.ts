@@ -8,13 +8,15 @@ import type { PaintZoom } from "./paintzoom.ts";
 // fx＝層の画面効果（S-P1-4/5・build.ts の layerFx）＝[tx, ty, anchor, blur, rel]・持つ層だけ
 // pat＝fill-pattern の画像の名前（S-P1-4/5・build.ts の fillPatternOf）・持つ層だけ
 // pz＝ズーム連続の差し替えの式（V-Ph3＝S-P1-2・paintzoom.ts の layerPaintZoom）・持つ層だけ
-export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array; fx?: number[]; pat?: string; pz?: PaintZoom }
+/** paint 表の (b) 類（painttable.ts）＝keys＝鍵の名・rows＝タイルの中の行の組・cols＝行の焼いた色（RGBA8 の語）・rid＝頂点（塗り）／線分（線）ごとの行 */
+export interface PtOp { keys: string[]; rows: unknown[][]; cols: Uint32Array; rid: Uint16Array }
+export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array; fx?: number[]; pat?: string; pz?: PaintZoom; pt?: PtOp }
 /** 線の op（off＝line-offset の [off, tS, tE]×線分・持つ層だけ） */
 // jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
 // 継ぐ相手は並びのすぐ前後の線分＝線分レコード（P1・P2）から読む（隣の点を別に持たない）。cj＝層の端と継ぎの種類（build.ts の lineCapJoin）。
 // 0（丸い端・丸い継ぎ）の層は jf を持たない＝従来の capsule
 // dist＝シェーダで描く破線（S-P1-3・2026-10-22）の始点までの線に沿う距離（z24 の px・build.ts の DASH_GPU_MAX の所）・dash＝模様（線幅の倍数・MapLibre の並びのまま）・dz＝作ったタイルの z
-export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number; dist?: Float32Array | null; dash?: number[]; dz?: number; fx?: number[]; pz?: PaintZoom }
+export interface LineOp { kind: "line"; li: number; id?: string; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off?: Float32Array | null; jf?: Uint8Array | null; cj?: number; dist?: Float32Array | null; dash?: number[]; dz?: number; fx?: number[]; pz?: PaintZoom; pt?: PtOp }
 export type DrawOp = FillOp | LineOp;
 /** 建物の押し出し（buildings.ts）＝xyz（z＝高さ m）・面の陰影・足元の xy */
 export interface BuildingsGeom { pos: Float32Array; shade: Float32Array; anchor: Float32Array }
@@ -129,6 +131,7 @@ export function opBuffers(ops: readonly DrawOp[], buildings?: BuildingsGeom | nu
 	for (const op of ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
 		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); if (op.jf) bufs.push(op.jf.buffer); if (op.dist) bufs.push(op.dist.buffer); }
+		if (op.pt) bufs.push(op.pt.rid.buffer, op.pt.cols.buffer);
 	}
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;
