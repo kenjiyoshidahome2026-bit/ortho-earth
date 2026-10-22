@@ -3530,7 +3530,14 @@ const setDataLive: GlobeScope["setDataLive"] = id => {
 	q.p = (async () => { try { do { q!.again = false; await remountSource(id); } while (q!.again); } finally { setDataQ.delete(id); } })();
 	return q.p!;
 };
-const mountLayer: GlobeScope["mountLayer"] = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
+const mountLayer: GlobeScope["mountLayer"] = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); sendLabelOrder(); } };
+// 利用者の注記の組（"vt:<id>"＝vector の描く層と geojson の symbol 層）の順＝MapLibre の層の順（下から）。注記層が焼いた sort の代わりにこの順位で比べる（後の層が先に置く・T-P3）
+let labelOrderSent = "";
+function sendLabelOrder() {
+	const ids = [...mlLayers.values()].filter(v => v.kind === "symbol" || v.kind === "vtdraw").map(v => "vt:" + v.layer.id), sig = ids.join("\n");
+	if (sig === labelOrderSent) return;
+	labelOrderSent = sig; wPost({ type: "set", cmd: "vtLabelOrder", data: ids }); requestDraw();
+}   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
 const mountLayerRaw = async (v: UserLayerRec) => {
 	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
@@ -3645,6 +3652,7 @@ const reorderLayers: GlobeScope["reorderLayers"] = () => {   // 登録順を各�
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
 	vtdCtl?.setOrder(vtdOrder());   // vector の描く層（段 8⑤）＝順の鍵（増えている間は組み直さない）
 	sendUserAnchors();              // 基図の層の間への差し込み（#123）＝順が変われば差し込む位置も変わる
+	sendLabelOrder();
 	for (const v of mlLayers.values()) if (v.kind === "custom") customCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 };
 // MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）

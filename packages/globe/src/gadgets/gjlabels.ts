@@ -112,7 +112,7 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 			}
 			if (!feats.length) continue;
 			const { labels } = buildLabels({ layers: { g: { extent: E, features: feats } }, z: t.z, x: t.x, y: t.y } as unknown as LabelsTile, { layers: [L] });   // 線はタイル単位の小数のまま（core は座標を ArrayLike で読む）
-			for (const lb of labels) { lb.sort = -1e6 - s.key * 1e3 + (lb.sort || 0); delete (lb as { li?: number }).li; out.push(lb); }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（vtdraw-worker と同じ）
+			for (const lb of labels) { lb.usk = lb.sort || 0; lb.sort = -1e6 - s.key * 1e3 + lb.usk; delete (lb as { li?: number }).li; out.push(lb); }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（vtdraw-worker と同じ）
 		}
 		return out;
 	};
@@ -122,7 +122,7 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 		for (const f of s.pfeats) for (let i = 0; i < f.pts.length; i += 2) feats.push({ type: "Point", gt: f.gt, id: f.id, props: f.props, geom: { coords: [f.pts[i] * PE, f.pts[i + 1] * PE], ends: [2] } });
 		if (!feats.length) return [];
 		const { labels } = buildLabels({ layers: { g: { extent: PE, features: feats } }, z: 0, x: 0, y: 0 } as unknown as LabelsTile, { layers: [layerAt(s.layer, pz)] });
-		for (const lb of labels) { lb.sort = -1e6 - s.key * 1e3 + (lb.sort || 0); delete (lb as { li?: number }).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（線と同じ）
+		for (const lb of labels) { lb.usk = lb.sort || 0; lb.sort = -1e6 - s.key * 1e3 + lb.usk; delete (lb as { li?: number }).li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（線と同じ）
 		return labels;
 	};
 	const refresh = (force = false) => {
