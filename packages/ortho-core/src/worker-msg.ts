@@ -19,8 +19,10 @@ export interface TileAbortRequest { type: "abort"; id: number }
 /** main → tile worker：タイル 1 枚の要求（type 無し）。init＝{headers,credentials}・bytes＝addProtocol が main で取った本体（#37） */
 export interface TileBuildRequest { type?: undefined; id: number; url: string; z: number; x: number; y: number; init?: FetchInit; bytes?: ArrayBuffer | null }
 export type TileRequest = TileInitRequest | TileSetStyleRequest | TileAbortRequest | TileBuildRequest;
-/** tile worker → main：成功＝描画の荷（op 列・建物の typed array は transfer） */
-export interface TileOkResponse extends TilePayload { id: number; ok: true; error?: undefined }
+/** タイル 1 枚の worker 内の時間（ms・計器 e＝`vt perf plan.md` §2）：fetch＝取得＋復号（fetchMVT）・build＝組み立て（buildTilePayload）。main が要求→応答の往復から待ち時間を引き算する */
+export interface TileTimings { fetch: number; build: number }
+/** tile worker → main：成功＝描画の荷（op 列・建物の typed array は transfer）。t＝worker 内の時間（計器 e） */
+export interface TileOkResponse extends TilePayload { id: number; ok: true; error?: undefined; t?: TileTimings }
 /** tile worker → main：失敗（abort を含む＝error に "abort" の文字） */
 export interface TileErrorResponse { id: number; ok: false; error: string }
 export type TileResponse = TileOkResponse | TileErrorResponse;
