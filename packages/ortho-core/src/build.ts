@@ -532,7 +532,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
 				if (pt) pt.color(cr, cg, cb, ca);
 				const w0 = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
-				const w = typeof w0 !== "number" || isNaN(w0) || w0 <= 0 ? 1 : w0;
+				// 0 以下＝外来の層は描かない（MapLibre・半幅 0＝シェーダが透明にする＝線分は残す＝ズーム連続や表で幅が付けば出る）・内蔵の style は従来どおり 1
+				const w = typeof w0 !== "number" || isNaN(w0) ? 1 : w0 <= 0 ? (eo ? 0 : 1) : w0;
 				const hw = w * 0.5;
 				if (pt) pt.half(hw);
 				let ow0 = 0;
@@ -558,6 +559,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				};
 				// フラットgeom：coords([x,y,…]) を ends の区切りで線/リング毎に走査（添字直読み＝Point中間なし）
 				const { coords, ends } = f.geom!;
+				if (dashPat && L.dashInLineWidths && !w) continue;   // 幅 0 の CPU で刻む破線＝片の長さ 0（刻めない・描いても見えない）
 				if (!dashPat) {   // 破線でない線（とシェーダで描く破線）＝地物ごとに一度だけ作った線分列（lineSegs）を写す＝ケーシングと本線など同じ地物を描く層の数だけ経緯度化・細分をやり直さない
 					const g = lineSegs(f.geom!, extent), n = g.n;
 					if (!n) continue;

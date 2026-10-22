@@ -95,7 +95,7 @@ t("段 2：paintTableFast＝前も後も (b) 類・後の鍵 ⊆ 前の鍵・色
 	assert.equal(paintTableFast("fill", prev, prev, "line-color", "ml"), null);
 	assert.equal(paintTableFast("line", prev, { ...prev, "line-color": M2 }, "line-color", undefined), null);   // 内蔵の層
 });
-const W = ["match", ["get", "class"], "a", 4, "b", 0, 2];   // 0＝焼いた線幅は 1（build.ts の線）
+const W = ["match", ["get", "class"], "a", 4, "b", 0, 2];   // 0＝描かない（半幅 0・build.ts の線）
 t("段 2b：線幅の判定（地物に依る・名前で読む・形を決めない層だけ w）", () => {
 	const L0 = layerPaintTable("line", { "line-color": "#f00", "line-width": W }, "ml");
 	assert.deepEqual(L0.keys, ["class"]); assert.deepEqual(L0.w, W);   // 色は定数でも線幅で (b)
@@ -119,7 +119,7 @@ t("段 2b：op の行の半幅（hw）＝線分の焼いた半幅・ptRowHalf �
 		const L = layerPaintTable("line", normalizeMLLayer({ id: "x", type: "line", paint }).paint, "ml");
 		for (let r = 0; r < pt.rows.length; r++) assert.equal(ptRowHalf(L, pt.keys, pt.rows[r]), pt.hw[r], "行 " + r);
 	}
-	assert.deepEqual([...opsOf(LINES, { type: "line", paint: { "line-color": M, "line-width": W } })[0].pt.hw], [2, 0.5, 1, 1]);   // a＝4・b＝0（→1）・c と無し＝2
+	assert.deepEqual([...opsOf(LINES, { type: "line", paint: { "line-color": M, "line-width": W } })[0].pt.hw], [2, 0, 1, 1]);   // a＝4・b＝0（描かない）・c と無し＝2
 	assert.equal(opsOf(LINES, { type: "line", paint: { "line-color": M } })[0].pt.hw, undefined);   // 線幅を表に置かない層は hw を持たない
 });
 t("段 2b：paintTableFast の線幅＝前も後も表に置ける時だけ", () => {
