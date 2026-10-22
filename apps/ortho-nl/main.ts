@@ -17,12 +17,12 @@ orthoJapan().then(map => {
 	map.gadget.measure();     // 距離・面積の計測
 	map.gadget.shot();        // 画面を画像で保存
 	map.gadget.qr();          // この視点をQRで共有
-	map.gadget.mesh();     // 建物3Dデータ管理（3DBAGの地区もここに並ぶ）
+	map.gadget.mesh();     // 建物3Dデータ管理（オランダの街もここに並ぶ）
 	map.gadget.contextmenu(); // 右クリックメニュー
 	map.gadget.dropFile();    // GISファイルのD&D取り込み
 	map.gadget.hint();        // 操作説明カード
 	// 配色テーマ切替（palette）は載せない＝基図が外来 style（OpenFreeMap）＝テーマは背景と建物色にしか効かない
-	// 街のボタン＝3DBAG を切ってある街へ飛ぶ。今いる街（画面中心が枠の中）を点す
+	// 街のボタン＝建物を切ってある街へ飛ぶ。今いる街（画面中心が枠の中）を点す
 	const nav = document.createElement("nav");
 	nav.id = "nl-places"; nav.setAttribute("aria-label", "Cities");
 	const inside = (p: NlPlace, c: { lng: number; lat: number }) => c.lng >= p.bbox[0] && c.lng <= p.bbox[2] && c.lat >= p.bbox[1] && c.lat <= p.bbox[3];

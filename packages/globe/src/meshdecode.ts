@@ -49,11 +49,11 @@ export interface GltfDoc {
 /** Tiles3DLoader のタイル（b3dm）＝読む欄だけ */
 export interface Tile3DContent { rtcCenter?: number[] | null; gltf?: GltfDoc | null; batchTableJson?: { gml_id?: string[] } | null }
 /** 葉タイル（collectLeafTiles の 1 件）＝center は [lon, lat]（度）| null */
-export interface LeafTile { uri: string; center: number[] | null }
+export interface LeafTile { uri: string; center: number[] | null; /** 根から積んだタイルの transform（列優先 4x4・Z-up→ECEF）。無ければ null＝PLATEAU・3DBAG */ xf?: number[] | null }
 /** tileset.json の境界体積 */
 interface BoundingVolume { region?: number[]; box?: number[]; sphere?: number[] }
 /** tileset.json のタイル（読む欄だけ） */
-interface TilesetTile { boundingVolume?: BoundingVolume; children?: TilesetTile[]; content?: { uri?: string } | null }
+interface TilesetTile { boundingVolume?: BoundingVolume; children?: TilesetTile[]; content?: { uri?: string } | null; transform?: number[] }
 /** 後段（finishMesh）の出力＝GPU に上げるメッシュ（uv・col は模型・押し出し・colSrgb は押し出しが足す） */
 export interface MeshOut {
 	pos: Float32Array; nrm: Int8Array; idx: Uint32Array; uv?: Float32Array; col?: Uint8Array;
@@ -182,11 +182,15 @@ export const resolveUrl = (base: string, uri: string): string => /^https?:\/\//.
 // boundingVolume → [west,south,east,north]（rad）。3D Tiles の3形式に対応。取れなければ null。
 // PLATEAU は region（経緯度そのもの）だけだが、3DBAG（オランダ）は box（ECEF中心＋3半軸）＝
 // 8隅を測地変換して外接矩形にする。日付変更線跨ぎは考慮しない（日本・欧州とも無縁）。
-function volRect(bv: BoundingVolume | undefined): number[] | null {
+// xf＝タイルの transform（列優先 4x4）＝box／sphere はその座標系（PDOK の 3D Basisvoorziening は根に ECEF の行列）。region は経緯度のまま
+function volRect(bv: BoundingVolume | undefined, xf: ArrayLike<number> | null = null): number[] | null {
 	if (!bv) return null;
 	if (bv.region) return [bv.region[0], bv.region[1], bv.region[2], bv.region[3]];
+	const P = (x: number, y: number, z: number): [number, number, number] => xf ? [xf[0] * x + xf[4] * y + xf[8] * z + xf[12], xf[1] * x + xf[5] * y + xf[9] * z + xf[13], xf[2] * x + xf[6] * y + xf[10] * z + xf[14]] : [x, y, z];
+	const V = (x: number, y: number, z: number): [number, number, number] => xf ? [xf[0] * x + xf[4] * y + xf[8] * z, xf[1] * x + xf[5] * y + xf[9] * z, xf[2] * x + xf[6] * y + xf[10] * z] : [x, y, z];
 	if (bv.box) {
-		const b = bv.box;
+		const b0 = bv.box, c = P(b0[0], b0[1], b0[2]), u = V(b0[3], b0[4], b0[5]), v = V(b0[6], b0[7], b0[8]), w0 = V(b0[9], b0[10], b0[11]);
+		const b = [...c, ...u, ...v, ...w0];
 		let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
 		for (let i = 0; i < 8; i++) {
 			const sx = (i & 1) ? 1 : -1, sy = (i & 2) ? 1 : -1, sz = (i & 4) ? 1 : -1;
@@ -198,7 +202,7 @@ function volRect(bv: BoundingVolume | undefined): number[] | null {
 		return [w, s, e, n];
 	}
 	if (bv.sphere) {
-		const g = ecef2geo(bv.sphere[0], bv.sphere[1], bv.sphere[2]);
+		const g = ecef2geo(...P(bv.sphere[0], bv.sphere[1], bv.sphere[2]));
 		const dLa = bv.sphere[3] / 6378137, dLo = dLa / Math.max(0.05, Math.cos(g[1]));
 		return [g[0] - dLo, g[1] - dLa, g[0] + dLo, g[1] + dLa];
 	}
@@ -212,26 +216,28 @@ function volRect(bv: BoundingVolume | undefined): number[] | null {
 // clip（[w,s,e,n]度・任意）＝この矩形と交わらない枝は丸ごと降りない。PLATEAU は区ごとに tileset が分かれて
 // いるので不要（既定 null＝従来どおり全走査）だが、3DBAG は国土まるごと1枚＝外部tileset 474本を全部開くと
 // 走査だけで数分かかる。街の矩形を渡せば数本で済む＝「区」相当の粒度に切って使える。
-export async function collectLeafTiles(tilesetUrl: string, depth = 0, onScan: (() => void) | null = null, stop: (() => boolean) | null = null, clip: ArrayLike<number> | null = null): Promise<LeafTile[]> {
+// タイルの transform（3D Tiles）は根から積む＝葉に xf として渡す（decodeBatch が頂点に掛ける）。外部 tileset へも親の行列を引き継ぐ。
+export async function collectLeafTiles(tilesetUrl: string, depth = 0, onScan: (() => void) | null = null, stop: (() => boolean) | null = null, clip: ArrayLike<number> | null = null, xf0: number[] | null = null): Promise<LeafTile[]> {
 	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
 	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
 	const ts = await fetchJSON(tilesetUrl) as { root?: TilesetTile };
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
 	const clipR = clip && [clip[0] / R2D, clip[1] / R2D, clip[2] / R2D, clip[3] / R2D];
-	const out: LeafTile[] = [], nested: string[] = [];
-	function walk(t: TilesetTile | undefined) {
+	const out: LeafTile[] = [], nested: Array<[string, number[] | null]> = [];
+	function walk(t: TilesetTile | undefined, xfP: number[] | null) {
 		if (!t) return;
-		const rect = volRect(t.boundingVolume);
+		const xf = t.transform?.length === 16 ? (xfP ? Array.from(m4mul(xfP, t.transform)) : t.transform.slice()) : xfP;
+		const rect = volRect(t.boundingVolume, xf);
 		if (clipR && rect && (rect[2] < clipR[0] || rect[0] > clipR[2] || rect[3] < clipR[1] || rect[1] > clipR[3])) return;   // 枝ごと落とす
 		const ch = t.children || [];
-		if (ch.length) { for (const c of ch) walk(c); return; }
+		if (ch.length) { for (const c of ch) walk(c, xf); return; }
 		const uri = t.content?.uri;
 		if (!uri) return;
 		const abs = resolveUrl(tsBase, uri);
-		if (abs.endsWith(".json") && depth < 4) nested.push(abs);
-		else out.push({ uri: abs, center: rect ? [(rect[0] + rect[2]) / 2 * R2D, (rect[1] + rect[3]) / 2 * R2D] : null });
+		if (abs.endsWith(".json") && depth < 4) nested.push([abs, xf]);
+		else out.push({ uri: abs, center: rect ? [(rect[0] + rect[2]) / 2 * R2D, (rect[1] + rect[3]) / 2 * R2D] : null, ...(xf ? { xf } : {}) });
 	}
-	walk(ts.root);
+	walk(ts.root, xf0);
 	// ネストtilesetは並行プールで潜る（旧・await直列＝1枚ごとに往復レイテンシが足し算。外部委譲が数百本の
 	// カタログ＝3DBAG級では走査だけで数分の実体）。葉の並びは後段のカメラ近傍ソートが決める＝順序不問。
 	// 1枚でも失敗したら従来どおり全体を投げる＝部分カタログを「完全」として下流（焼き・差分再開）に流さない。
@@ -239,7 +245,7 @@ export async function collectLeafTiles(tilesetUrl: string, depth = 0, onScan: ((
 		const subs: LeafTile[][] = new Array(nested.length);
 		let ni = 0;
 		await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, nested.length) }, async () => {
-			while (ni < nested.length) { const i = ni++; subs[i] = await collectLeafTiles(nested[i], depth + 1, onScan, stop, clip); }
+			while (ni < nested.length) { const i = ni++; subs[i] = await collectLeafTiles(nested[i][0], depth + 1, onScan, stop, clip, nested[i][1]); }
 		}));
 		for (const sub of subs) out.push(...sub);
 	}
@@ -345,7 +351,7 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 	let totalV = 0, totalI = 0, minH = Infinity;
 	const exSet = EXCLUDE?.get(base) || null;   // この base で捨てる gml_id（無ければ従来どおり）
 	let excludedTris = 0;
-	function mergeTile(tile: Tile3DContent) {
+	function mergeTile(tile: Tile3DContent, T: ArrayLike<number> | null = null) {   // T＝タイルの transform（葉の xf・列優先 4x4）＝軸入替と RTC の「後」に掛ける（仕様）
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
 		const gmlIds = exSet ? tile.batchTableJson?.gml_id : null;   // b3dm の batch table（loaders.gl が JSON で持つ）
 		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
@@ -371,7 +377,8 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 			const rtcE: number[] = tileRtc || [0, 0, 0];
 			// 保険：実効原点が地表から明らかに外れていたら(=CESIUM_RTCもnodeの変換も見つからなかった/壊れていた)
 			// そのmeshは丸ごと捨てる。ローカル座標をECEF原点近くに置いたまま混ぜるとbbox・接地・マスクまで壊すため。
-			const rtcR = Math.hypot(tr[0] + rtcE[0], -tr[2] + rtcE[1], tr[1] + rtcE[2]);
+			const o0 = tr[0] + rtcE[0], o1 = -tr[2] + rtcE[1], o2 = tr[1] + rtcE[2];
+			const rtcR = T ? Math.hypot(T[0] * o0 + T[4] * o1 + T[8] * o2 + T[12], T[1] * o0 + T[5] * o1 + T[9] * o2 + T[13], T[2] * o0 + T[6] * o1 + T[10] * o2 + T[14]) : Math.hypot(o0, o1, o2);
 			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[mesh] mesh dropped (bad rtc origin)", tr, rtcE); continue; }
 			// 法線は行列の余因子（=逆転置の定数倍。列ごとに c1×c2, c2×c0, c0×c1）で送る＝非等方スケールでも
 			// 面の向きが狂わない。長さは後段で正規化するので定数倍は無害。線形部なし（PLATEAU）なら素通し。
@@ -394,6 +401,10 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 				// simple＝PLATEAU 経路（メートルのfloat＋平行移動のみ）＝式は改修前と1文字も変わらない足し算3本。
 				// ox/oy/oz＝実効ECEFオフセット（node平行移動は軸入替を先に済ませ、CESIUM_RTC はそのまま足す）。
 				const simple = q === 1 && !lin;
+				const Tc = T && [   // T の線形部の余因子（法線用・列優先 3x3）
+					T[5] * T[10] - T[6] * T[9], T[6] * T[8] - T[4] * T[10], T[4] * T[9] - T[5] * T[8],
+					T[9] * T[2] - T[10] * T[1], T[10] * T[0] - T[8] * T[2], T[8] * T[1] - T[9] * T[0],
+					T[1] * T[6] - T[2] * T[5], T[2] * T[4] - T[0] * T[6], T[0] * T[5] - T[1] * T[4]];
 				const ox = tr[0] + rtcE[0], oy = -tr[2] + rtcE[1], oz = tr[1] + rtcE[2];
 				for (let i = 0; i < n; i++) {
 					// local(Y-up)→ECEF：量子化解除 → 変換行列（線形部＋平行移動）→ Yup→Zup(x,-z,y) → geodetic(lon,lat,h)
@@ -408,6 +419,7 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 						const gz = lin ? lin[2] * px + lin[5] * py + lin[8] * pz + tr[2] : pz + tr[2];
 						ex = gx + rtcE[0]; ey = -gz + rtcE[1]; ez = gy + rtcE[2];
 					}
+					if (T) { const a = ex, b = ey, c = ez; ex = T[0] * a + T[4] * b + T[8] * c + T[12]; ey = T[1] * a + T[5] * b + T[9] * c + T[13]; ez = T[2] * a + T[6] * b + T[10] * c + T[14]; }
 					const g = ecef2geo(ex, ey, ez);
 					if (g[2] < minH) minH = g[2];
 					geoSeg[i*3] = g[0]; geoSeg[i*3+1] = g[1]; geoSeg[i*3+2] = g[2];
@@ -417,6 +429,8 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 						let ax = NRM[i*3], ay = NRM[i*3+1], az = NRM[i*3+2];
 						if (cof) { const a = ax, b = ay, c = az;   // 余因子行列で局所→世界（非等方スケール対応。PLATEAUは cof=null＝素通り）
 							ax = cof[0] * a + cof[3] * b + cof[6] * c; ay = cof[1] * a + cof[4] * b + cof[7] * c; az = cof[2] * a + cof[5] * b + cof[8] * c; }
+						if (Tc) { const a = ax, b = -az, c = ay;   // タイルの transform＝ECEF 系（x,-z,y）で余因子を掛けて戻す
+							const e0 = Tc[0] * a + Tc[3] * b + Tc[6] * c, e1 = Tc[1] * a + Tc[4] * b + Tc[7] * c, e2 = Tc[2] * a + Tc[5] * b + Tc[8] * c; ax = e0; ay = e2; az = -e1; }
 						const nx = ax, ny = ay, nz = -az;
 						const s = 127 / (Math.hypot(nx, ny, nz) || 1);
 						nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s);
@@ -463,7 +477,7 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
 				const { loadParse, Tiles3DLoader } = await loaders();
 				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false } } });   // EXT_texture_avif: false＝loaders.gl 4.5 の AVIF 判定（getSupportedImageFormats）は worker に無い Image を new して倒れる＝外す
-				mergeTile(tile as Tile3DContent);
+				mergeTile(tile as Tile3DContent, t.xf ?? null);
 			} catch (e) { console.warn("[mesh] tile failed", t.uri, (e as Error).message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
 		}
