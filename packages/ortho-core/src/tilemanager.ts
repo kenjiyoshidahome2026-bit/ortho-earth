@@ -14,11 +14,16 @@ import type { DrawList, Style } from "./build.ts";
 import type { Label } from "./labels.ts";
 import type { BuildingsGeom, MergeOptions, MergedScene } from "./scene.ts";
 import type { TileZoomOf } from "./mlcover.ts";
+import type { TileTimings } from "./worker-msg.ts";
 
-/** タイル 1 枚の組み立ての結果（main の既定経路＝buildTilePayload・worker 経路＝メタ＋ラベルだけ） */
-export interface TileResult { origin: number[] | null; dl?: DrawList | null; labels: Label[]; buildings?: BuildingsGeom | null; z: number; bytes?: number }
-/** キャッシュの 1 件 */
-export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number }
+/** タイル 1 枚の組み立ての結果（main の既定経路＝buildTilePayload・worker 経路＝メタ＋ラベルだけ）。t＝worker 内の時間（計器 e・worker 経路だけ） */
+export interface TileResult { origin: number[] | null; dl?: DrawList | null; labels: Label[]; buildings?: BuildingsGeom | null; z: number; bytes?: number; t?: TileTimings }
+/** タイルの役（update の ensure の順）＝0 主層・1 下地・2 毛布。計器 e は主層だけを数える */
+export type TileRole = 0 | 1 | 2;
+/** キャッシュの 1 件。needAt／readyAt／shownAt＝計器 e（`vt perf plan.md` §2）の時刻（performance.now・ms）＝選抜で必要になった→組み立てが届いた→main のシーンに載った */
+export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number; role?: TileRole; needAt?: number; readyAt?: number; shownAt?: number }
+/** 計器 e の 1 件（shown が返す）：total＝必要になった→画面・ready＝必要になった→組み立てが届いた・wait＝ready のうち worker の時間（t）を除いた待ち（キューと転送） */
+export interface TileLatency { key: string; z: number; total: number; ready: number; wait: number; t: TileTimings | null }
 /** タイルの組み立て（worker 経路は abort を持つ） */
 export type BuildTileFn = ((t: TileXYZ) => Promise<TileResult>) & { abort?: (key: string) => void };
 export interface LodFloor { minViewZoom: number; z: number }
@@ -31,7 +36,7 @@ export interface OrderItem { key: string; origin: number[] | null; z: number }
 export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
 export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number }
-export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void }
+export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void; shown(keys: Iterable<string>): TileLatency[] }
 interface LodMemo { key: unknown[]; selected: TileXYZ[]; coarse: TileXYZ[]; blanket: TileXYZ[]; keepKeys: string[] }
 
 const keyOf = (t: TileXYZ): string => `${t.z}/${t.x}/${t.y}`;
@@ -70,16 +75,19 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	}
 	const build: BuildTileFn = buildTile || defaultBuildTile;
 
-	async function ensure(t: TileXYZ): Promise<void> {
+	// role＝この ensure を出した経路（0 主層・1 下地・2 毛布）。同じタイルが複数の役で要るなら最も近い役（小さい方）を残す＝計器 e は主層として要った瞬間から数える
+	const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+	async function ensure(t: TileXYZ, role: TileRole = 0): Promise<void> {
 		const k = keyOf(t);
 		const ex = cache.get(k);
-		if (ex && ex.status !== "error") return;   // loading/ready はそのまま
+		if (ex && ex.status !== "error") { if (role < (ex.role ?? 2)) { ex.role = role; if (ex.status === "loading") ex.needAt = now(); } return; }   // loading/ready はそのまま（役だけ近い方へ・読込中に主層になったらそこから数える）
 		const tries = ex ? (ex.tries || 0) : 0;
 		if (tries >= 3) return;                     // 3回失敗＝諦める（本当に無いタイル等での永久リトライ回避）
-		put(k, { status: "loading", tries });
+		put(k, { status: "loading", tries, role, needAt: now() });
 		try {
 			const r = await build(t);   // worker or main
-			put(k, { status: "ready", ...r });
+			const cur = cache.get(k);   // 読込中に役が近くなった分（ensure の先頭）を引き継ぐ
+			put(k, { status: "ready", ...r, role: cur?.role ?? role, needAt: cur?.needAt, readyAt: now() });
 			onChange && onChange();
 		} catch (e) {
 			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。
@@ -203,9 +211,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const keep = new Set(keepKeys);
 		if (drawSel !== selected) for (const t of drawSel) keep.add(keyOf(t));
 		if (fillSel !== drawSel) for (const t of fillSel) keep.add(keyOf(t));   // 代打の祖先・子孫も LRU に食わせない
-		for (const t of blanket) ensure(t);
-		for (const t of coarse) ensure(t);
-		for (const t of selected) ensure(t);
+		for (const t of blanket) ensure(t, 2);
+		for (const t of coarse) ensure(t, 1);
+		for (const t of selected) ensure(t, 0);
 		// 視野から外れた読込中タイルは fetch ごと中断（高速パンで帯域とworker CPUを空ける）。
 		// エントリは ensure の catch("aborted") が消す＝パンで戻ってきたら普通に再取得される。
 		if (build.abort) {
@@ -285,6 +293,21 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return out;
 	}
 
+	// 計器 e（`vt perf plan.md` §2）：main のシーンに載った鍵の列を受け、主層（role 0）として要ったタイルが初めて載った分の遅れを返す。
+	// 呼ぶのは main merge の ack（画面に載った瞬間）＝ここが「必要になった→画面」の終点。2 度目以降の ack に同じ鍵が居ても数えない（shownAt）。
+	// wait＝ready までの時間から worker 内の時間（fetch＋build）を引いた残り＝キュー待ち＋境界の転送（Phase 1 §3.1 の優先キューが縮める所）
+	function shown(keys: Iterable<string>): TileLatency[] {
+		const out: TileLatency[] = [], at = now();
+		for (const k of keys) {
+			const c = cache.get(k);
+			if (!c || c.status !== "ready" || c.shownAt != null || c.role !== 0 || c.needAt == null) continue;
+			c.shownAt = at;
+			const ready = (c.readyAt ?? at) - c.needAt, t = c.t ?? null;
+			out.push({ key: k, z: c.z!, total: at - c.needAt, ready, wait: Math.max(0, ready - (t ? t.fetch + t.build : 0)), t });
+		}
+		return out;
+	}
+
 	// 常駐 geometry の観測（メモリ確認用）：ready タイル枚数・実バイト・予算・端末メモリ推定。
 	function stats(): TileStats {
 		let tiles = 0, bytes = 0;
@@ -299,5 +322,5 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		if (cache.size && onEvict) onEvict([...cache.keys()]);
 		cache.clear(); totalBytes = 0; stickySplit = null; lod = null;
 	}
-	return { update, buildScene, labels, cache, stats, reset };
+	return { update, buildScene, labels, cache, stats, reset, shown };
 }

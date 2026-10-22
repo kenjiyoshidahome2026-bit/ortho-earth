@@ -678,7 +678,21 @@ const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）
+// 計器 e／f（`vt perf plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
+// f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
+interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number }
+interface VtMergeRec { at: number; add: number; del: number; n: number }
+const vtLat: VtLatRec[] = [], vtMerge: VtMergeRec[] = [];
+const vtPush = <T,>(a: T[], v: T): void => { a.push(v); if (a.length > 512) a.shift(); };
+const vtSummary = (sinceMs = 10000) => {
+	const t0 = performance.now() - sinceMs, q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
+	const L = vtLat.filter(r => r.at >= t0), M = vtMerge.filter(r => r.at >= t0);
+	const tot = L.map(r => r.total);
+	return { lat: { n: L.length, med: q(tot, 0.5), p90: q(tot, 0.9), wait: q(L.map(r => r.wait), 0.5), fetch: q(L.map(r => r.fetch), 0.5), build: q(L.map(r => r.build), 0.5) },
+		merge: { n: M.length, changed: M.length ? M.reduce((s, r) => s + r.add + r.del, 0) / M.length : 0, tiles: M.length ? M.reduce((s, r) => s + r.n, 0) / M.length : 0 } };
+};
+dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
+dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, vt: vtSummary() });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）。vt＝計器 e／f の直近 10 秒
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -1346,6 +1360,9 @@ function onSceneApplied(slot: string, sig: string) {
 		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
+		const lat = tiles.shown(readyKeys), at = performance.now();   // 計器 e＝この ack で初めて画面に載った主層タイルの「必要になった→画面」
+		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0 });
+		if (perfLog && lat.length) { const v = vtSummary(1e9).lat; console.log(`[vt] shown +${lat.length} tiles  need→screen med ${vtSummary().lat.med.toFixed(0)}ms p90 ${vtSummary().lat.p90.toFixed(0)}ms (10s)  all: med ${v.med.toFixed(0)} p90 ${v.p90.toFixed(0)}  wait ${v.wait.toFixed(0)} fetch ${v.fetch.toFixed(0)} build ${v.build.toFixed(1)}`); }
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
 		slog("main merge applied on screen (visible from here)");
@@ -1942,11 +1959,12 @@ function swapScene(order: TileOrder) {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
 		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
-		if (swapLog) {   // 集合の増減＝この merge が「何を書き直すか」。zの分布も出す（keepFine深さ切れの検出）
-			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
-			const cur = new Set(order.map(o => o.key));
-			const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
-			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
+		{   // 計器 f（vt perf plan §2）＝集合の増減＝この merge が「何を書き直すか」。classic は変わった枚数に関わらず全枚を結合し直す＝P2 が消す仕事の量
+			const prev = readyKeys ?? new Set<string>();
+			let add = 0; for (const o of order) if (!prev.has(o.key)) add++;
+			const cur = new Set(order.map(o => o.key)); let del = 0; for (const k of prev) if (!cur.has(k)) del++;
+			vtPush(vtMerge, { at: performance.now(), add, del, n: order.length });
+			if (swapLog) { const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1; slog(`main merge request: +${add} -${del} / ${cur.size} tiles`, "z dist", zHist); }   // z の分布も出す（keepFine 深さ切れの検出）
 		}
 		requestMerge("main", order, sceneOrigin, hiddenAll(), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行

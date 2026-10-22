@@ -64,7 +64,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			if (onTile && !p.noUrl && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings } satisfies SceneRequest, opBuffers(e.data.dl.ops, e.data.buildings));
-			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
+			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes, t: e.data.t });   // メタ＋ラベル＋geometry実バイト（退避予算用）＋worker 内の時間（計器 e）
 		};
 		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow() } satisfies TileRequest);   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式
 		tileWorkers.push(w);

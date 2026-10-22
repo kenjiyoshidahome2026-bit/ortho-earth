@@ -38,12 +38,13 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 
 ## 2. Phase 0 計器と見本
 
-- **計器 e（タイル 1 枚の道筋）**：tile worker が `TileOkResponse` に `t: { queued, fetch, decode, build }`（ms）を添える（`?perf=1` の時だけ）。main の `mergeLog`（要求→着地）と合わせ、**「選抜で必要になった → 画面に載った」の中央値／p90** を 3 シーンで出す（mem テレメトリに `vt.lat` 行）。
+- **計器 e（タイル 1 枚の道筋）**＝**2026-10-22 実装**：tile worker が `TileOkResponse` に `t: { fetch, build }`（ms・fetch＝取得＋復号）を常に添える。main の `tilemanager` が ensure の時刻（`needAt`・役＝主層 0／下地 1／毛布 2）と着地（`readyAt`）を持ち、main merge の ack（`onSceneApplied`）で `tiles.shown(readyKeys)` が**主層として要ったタイルが初めて画面に載った**分の遅れを返す（`total`＝必要になった→画面・`ready`＝→組み立てが届いた・`wait`＝ready−(fetch+build)＝キュー待ちと境界の転送）。
+  `?perf=1` で ack ごとに `[vt] shown …` の行・`__perf().vt` に直近 10 秒の要約・`__vtLog()` に直近 512 件の環（ベンチ台が窓切り）。検定＝`tests/tilemanager-latency.mjs`。
   これが本計画の**主物差し**＝gpuMap（1 フレームの GPU）と別物。パン中の「白抜き・ポン」はここの遅れ。
-- **計器 f（結合の量）**：scene worker の merge 行（既存・perfOn）に「変わった枚数／全枚数」を足す＝P2 で消える仕事の大きさを数字に。
-- **見本**：`globe/tests/fixtures/optbv` は WA/Anno だけ。`bake-optbv-fixture.mjs` で都心 z16（東京駅 3×3）と郊外 z13（富士）を足し、`bench-tile.mjs` の CASES に載せる（fixture は数百 KB・NOTICE に出典）。
+- **計器 f（結合の量）**＝**2026-10-22 実装**：main の merge 要求（`swapScene`）で「前の readyKeys との増減（add/del）／全枚数」を数え、同じ環（`__vtLog().merge`）と要約（`__perf().vt.merge`）に載せる（scene worker の行でなく main に置いた＝ベンチ台が読めて、md／classic のどちらでも同じ所で数える）＝P2 で消える仕事の大きさを数字に。
+- **見本**：`globe/tests/fixtures/optbv` は WA/Anno だけ。`scripts/bake-vt-fixture.mjs`（2026-10-22）が都心 z16（東京駅 3×3）と郊外 z13（富士 2×2）を gsi style の読む層だけ残して `tests/fixtures/vt/<名>/` に焼き、`bench-tile.mjs` が `vt:<名>×gsi` の CASE として拾う（無ければ飛ばす・NOTICE.md に出典）。⚠焼くのは配信元へ届く器（クラウドの器は外へ出られない）＝**本人の Mac で一度回して commit**。
   `--hash` 既存＝最適化の前後で ops の bit 同値を見る門。
-- **ベースライン**：`apps/ortho-japan/scripts/bench-perf.mjs` の 3 シーン（2D 東京 z13／富士 z13 60°／東京駅 z16.5 55°）に「パン 9 秒」の窓があるのでそのまま。採るのは計器 e の中央値・p90、`[scene] apply` の 4ms 超回数、merge 回数／9 秒。§8 の表へ。
+- **ベースライン**：`apps/ortho-japan/scripts/bench-perf.mjs` の 3 シーン（2D 東京 z13／富士 z13 60°／東京駅 z16.5 55°）に「パン 9 秒」の窓があるのでそのまま。2026-10-22 から t-perfbench が `vt: { load, move }`（計器 e の中央値・p90・wait/fetch/build の中央値、merge の回数と 1 回の変化枚数/全枚数）を着地窓と移動窓で返し、bench-perf が 2 つ目の表に出す。`[scene] apply` の 4ms 超は従来の hitch 列。§8 の表へ。
 
 ## 3. Phase 1 タイル worker の速攻 4 件
 
