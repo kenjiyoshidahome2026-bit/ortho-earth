@@ -116,11 +116,15 @@ export function installImages(map: Installing<ImagesApi>, live: ImagesLive, {
 	map.hasImage = name => !!live.symCtl?.hasImage(name);
 	map.listImages = () => live.symCtl?.listImages() ?? [];
 	map.loadSprite = async (base, prefix) => (await symGet()).loadSprite(base, prefix);                          // MapLibre の sprite（base.json＋base.png・@2x）
-	// 中身（native）＝層はエンジンの目盛り・ネイティブの意味で受ける（worldcontent の記号の層はここ＝MapLibre 形の入口を通らない・台帳 R8）
+	// 中身（native）＝層はエンジンの目盛り・ネイティブの意味で受ける（worldcontent の記号の層はここ＝MapLibre 形の入口を通らない・台帳 R8）。
+	// 記号と字は注記層（gjlabels の点置き＝基図と同じ衝突・テキスト GPU 化 T-P3 §4i）・gadget は評価だけ（queryRenderedFeatures・styleimagemissing）。
+	// 注記層の組は "n:<id>"（MapLibre の層の id と分ける）・順の鍵 -1＝利用者の MapLibre の層の後・基図の前
 	const symbolsNative = async (src: unknown, layer: Partial<MLLayer> = {}) => {
-		const c = await symGet();
-		if (src == null) { c.removeLayer(layer.id || "symbols"); return null; }
-		return c.addLayer(layer.id || "symbols", await readPoints(src), layer);
+		const id = layer.id || "symbols", c = await symGet(), gj = await gjGet();
+		if (src == null) { c.removeLayer(id); gj.remove("n:" + id); return null; }
+		const pts = await readPoints(src), r = c.addLayer(id, pts, layer, false);
+		gj.set("n:" + id, { type: "symbol", ...layer, id } as MLLayer, pts, -1, true);   // 型の無い層（worldcontent）も symbol として焼く
+		return r;
 	};
 	registerGadget("symbols", (async (m: GlobeMap, src: unknown, layer: LayerIn = {}) => {   // 記号の層（src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと）・null＋{id}＝外す
 		if (src == null) return symbolsNative(null, layer);
