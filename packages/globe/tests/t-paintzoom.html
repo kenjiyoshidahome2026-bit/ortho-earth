@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- 実描画の検分：ズーム連続の paint（描画の統合ロードマップ 波 4 の 14＝V-Ph3 の paint 表と S-P1-2 の一本化・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw の線分プール／?nomd=1＝classic の属性）。
+     基図の色・線幅は作ったタイルの z で頂点に焼く＝ズームの途中で段になり、過ズーム（源の maxzoom 12 を地図の z15 で見る）では作ったタイルの z の値のまま。
+     地物に依らない式（zoom だけ）は描き手が毎フレーム今の z で評価して差し替える＝MapLibre と同じ連続の値（style.json の z＝地図の z−1）。
+     ①線幅 ["interpolate",["linear"],["zoom"],10,4,18,40]（MapLibre の z14＝22px・14.5＝24.25px・13.25＝18.625px）を縦に切って厚みで読む
+     ②線の色 青(z10)→赤(z18)＝z14 で (128,0,128) ③塗りの色 緑(z10)→青(z18)＝z14 で (0,128,128)。
+     基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw＝止まるたびに今の z で組み直す・地図の z の目盛り）の 2 回見る。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-paintzoom</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString と Polygon（poly＝true）・文字列の属性 k）＝t-linedash に面を足した物
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, f.poly ? 3 : 2);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		if (f.poly) g.push((7 & 7) | (1 << 3));   // ClosePath
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let FEATS = [];   // [{ k, poly?, ll: [[lon, lat], …] }]
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("pz", async ({ url }) => {
+	const [z, x, y] = url.replace("pz://", "").split("/").map(Number);
+	return { data: mvt(FEATS.map(l => ({ k: l.k, poly: l.poly, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+
+// 置き場（画面の CSS px・z15 で unproject）：線幅の線＝y150・色の線＝中央 y300・塗り＝下の帯
+const SHAPES = { w: [[60, 150], [900, 150]], c: [[60, 300], [900, 300]], f: [[60, 380], [900, 380], [900, 580], [60, 580]] };
+const SRC = { type: "vector", tiles: ["pz://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const Z = v => ["interpolate", ["linear"], ["zoom"], 10, v[0], 18, v[1]];
+const LAYERS = [
+	{ id: "f", type: "fill", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "f"], paint: { "fill-color": Z(["#00ff00", "#0000ff"]) } },
+	{ id: "w", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "w"], layout: { "line-cap": "butt" }, paint: { "line-color": "#ff0000", "line-width": Z([4, 40]) } },
+	{ id: "c", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "c"], layout: { "line-cap": "butt" }, paint: { "line-color": Z(["#0000ff", "#ff0000"]), "line-width": 12 } },
+];
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-paintzoom", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+try {
+	let map = await boot();
+	FEATS = Object.entries(SHAPES).map(([k, pts]) => ({ k, poly: k === "f", ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const check = (tag, img, zs) => {
+		const W = document.getElementById("map").clientWidth, s = img.width / W;
+		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+		let n = 0;   // x480 の縦の列で y＜270 の赤の厚み（線幅の線だけ・色の線は中央）
+		for (let y = 0; y < Math.round(270 * s); y++) { const i = (y * img.width + Math.round(480 * s)) * 4; if (img.data[i] > 200 && img.data[i + 1] < 120 && img.data[i + 2] < 120) n++; }
+		const k = Math.min(1, Math.max(0, (zs - 10) / 8)), w = 4 + 36 * k;
+		ok(tag + ":width", Math.abs(n / s - w) <= 1.5, `${(n / s).toFixed(1)} want ${w.toFixed(2)}`);
+		const c = px(480, 300), cw = [255 * k, 0, 255 * (1 - k)];
+		ok(tag + ":lineColor", c.every((v, i) => Math.abs(v - cw[i]) <= 14), `${c} want ${cw.map(Math.round)}`);
+		const f = px(480, 445), fw = [0, 255 * (1 - k), 255 * k];
+		ok(tag + ":fillColor", f.every((v, i) => Math.abs(v - fw[i]) <= 14), `${f} want ${fw.map(Math.round)}`);
+	};
+	// dz＝式の z と地図の z の差（style.json の層＝MapLibre の z＝1・map.addLayer の層＝地図の z＝0）
+	const run = async (tag, dz) => {
+		await sleep(6000);
+		check(tag + "@15", await grab(), 15 - dz);
+		map.jumpTo({ center: VIEW, zoom: 15.5 }); await sleep(2500);
+		check(tag + "@15.5", await grab(), 15.5 - dz);
+		map.jumpTo({ center: VIEW, zoom: 14.25 }); await sleep(2500);
+		check(tag + "@14.25", await grab(), 14.25 - dz);
+		map.jumpTo({ center: VIEW, zoom: 15 }); await sleep(1500);
+	};
+	// ① 基図（setStyle の層）
+	await map.setStyle({ version: 8, name: "t-paintzoom", sources: { pz: SRC }, layers: [BG, ...LAYERS] });
+	await run("base", 1);
+	// ② 利用者の vector の層（addLayer＝vtdraw）＝地図を作り直す
+	map.destroy();
+	map = await boot();
+	map.addSource("pz", SRC);
+	for (const L of LAYERS) await map.addLayer(L);
+	await run("user", 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

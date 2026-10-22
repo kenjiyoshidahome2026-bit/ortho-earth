@@ -154,6 +154,7 @@ export function subdivideTris(flat: ArrayLike<number>, tris: ArrayLike<number>, 
 }
 import { evalExpr, truthy, originOfLayer } from "./expr.ts";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.ts";
+import { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝地物に依らない色・線幅の式を op に添える
 import { tileLocalToLonLat } from "./tile.ts";
 import { polygons, signedArea } from "./decode.ts";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
 import { SEA_FB_BASE } from "./scene.ts";
@@ -448,7 +449,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
 			const fx = eo ? layerFx(L, z, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
 			const pat = eo ? fillPatternOf(L, z, eo) : null;   // fill-pattern（S-P1-4/5）＝記号帳の画像の名前（層で一度）
-			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}) });
+			const pz = eo ? layerPaintZoom("fill", L.paint, eo) : null;   // ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色を差し替える
+			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}) });
 		} else { // line
 			const P1 = B.P1, P2 = B.P2, col = B.col, half = B.half; P1.n = P2.n = col.n = half.n = 0;
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
@@ -572,6 +574,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				if (jf) { op.jf = jf.out(); op.cj = cj; }
 				if (dist) { op.dist = dist.out(); op.dash = gpuDash!; op.dz = z; }
 				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
+				const pz = eo ? layerPaintZoom("line", L.paint, eo) : null; if (pz) op.pz = pz;   // ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色と線幅を差し替える
 				ops.push(op);
 			}
 		}

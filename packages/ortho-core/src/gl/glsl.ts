@@ -1073,7 +1073,9 @@ void main() {
 // u_tr＝(東 px, 南 px, 今の zoom の 1px の弧（度・256px の世界の赤道）, 0)。z＝0 でずらさない。球は縦横とも同じ尺＝経度だけ cos φ で割る
 const FX_TR = /* glsl */`
 uniform vec4 u_tr;
-vec2 trLL(vec2 ll) { return vec2(u_tr.x / max(cos(ll.y * 0.017453293), 1e-3), -u_tr.y) * u_tr.z; }`;
+vec2 trLL(vec2 ll) { return vec2(u_tr.x / max(cos(ll.y * 0.017453293), 1e-3), -u_tr.y) * u_tr.z; }
+uniform vec4 u_pz;    // ズーム連続（V-Ph3＝S-P1-2・paintzoom.ts）＝x 色を差し替える（1）・y 線幅を差し替える（1）・z 半幅（CSS px）・w floor(z) の半幅（破線の尺）。0＝頂点の値
+uniform vec4 u_pzC;   // 差し替える色（RGBA・不透明度を掛けた値）`;
 export const FILL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
@@ -1109,7 +1111,7 @@ void main() {
 	v_guv3 = u_gndOffInv3.xy + dLL * u_gndOffInv3.zw;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
-	v_color = a_color;
+	v_color = u_pz.x > 0.5 ? u_pzC : a_color;   // ズーム連続の色（V-Ph3＝S-P1-2）
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
 	v_fog = fogOf(dir);
 	gl_Position = u_clipT + u_mvp * vec4(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
@@ -1215,6 +1217,9 @@ float lineEnd(vec2 o, vec2 x, vec2 jt, vec2 y, float h, float hp, bool start, fl
 	return 4.0;
 }`;
 const LINE_MAIN = /* glsl */`
+	float hwD = u_pz.y > 0.5 ? u_pz.w : hw0;   // 破線の尺の線幅＝floor(z) の線幅（MapLibre の floorwidth）・差し替えない層は作ったタイルの z の値
+	if (u_pz.y > 0.5) hw0 = u_pz.z;   // ズーム連続（V-Ph3＝S-P1-2）＝今の z の線幅と色
+	if (u_pz.x > 0.5) col0 = u_pzC;
 	if (u_tr.z != 0.0) { vec2 tr = trLL(o + p1); p0 += tr; p1 += tr; p2 += tr; p3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
 	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
@@ -1256,7 +1261,7 @@ const LINE_MAIN = /* glsl */`
 	v_dd = vec2(0.0);
 	if (u_dashP.y > 0.5) {
 		float my = (p2.y - p1.y) * 0.017453293 / cos((o.y + (p1.y + p2.y) * 0.5) * 0.017453293) / 6.2831853;
-		v_dd = vec2(dist0, length(vec2((p2.x - p1.x) / 360.0, my)) * 4294967296.0) * (u_dashP.w / max(2.0 * hw0, 1e-3));
+		v_dd = vec2(dist0, length(vec2((p2.x - p1.x) / 360.0, my)) * 4294967296.0) * (u_dashP.w / max(2.0 * hwD, 1e-3));
 	}
 	vec2 base = corner.x < 0.5 ? sa : sb;
 	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
