@@ -65,7 +65,7 @@
 | — | **線レコードの確定** | 8・9・10 を通した後の線の頂点／レコードの形（端・継ぎの旗、破線の距離、幅の精度）を文書に固定 | V-Ph2 step A の入力が決まる |
 
 8〜10 の順の理由：3 つとも `build.ts` の線の吐き出しを触る。cap/join が一番レコードを変えるので先、細分停止は cap/join の継ぎ目の扱い（細分点は join 不要の「内側の点」）を前提に、破線はその上に乗る。
-実機日 ①：8 と 10 の WebGPU 版をまとめて Mac で確かめる。
+実機日 ①：8 と 10 の WebGPU 版をまとめて Mac で確かめる。→ 2026-10-22：S-P1-1／3／4／5 の WebGPU 版を一つの PR に（`maplibre-compat.md` §6「WebGPU 版」・逃げ道 `?nolx=1`）。門＝Mac の `verify:webgpu` で `t-linejoin`／`t-linedash`／`t-linefx`／`t-fillpattern` の `?md=1`／`?nomd=1`（8 頁）。クラウドでは WGSL の 24 変種のコンパイルと pipeline の口まで確かめた（SwiftShader は worker の描画が落ちる＝絵は Mac）。
 
 ### 波 3 本線の大物 2 本を並走（2〜3 週・実機日 2 回）
 
