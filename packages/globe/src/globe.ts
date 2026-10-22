@@ -682,7 +682,21 @@ let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: nu
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, lab: memLab });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）
+// 計器 e／f（`vt perf plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
+// f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
+interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number }
+interface VtMergeRec { at: number; add: number; del: number; n: number }
+const vtLat: VtLatRec[] = [], vtMerge: VtMergeRec[] = [];
+const vtPush = <T,>(a: T[], v: T): void => { a.push(v); if (a.length > 512) a.shift(); };
+const vtSummary = (sinceMs = 10000) => {
+	const t0 = performance.now() - sinceMs, q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
+	const L = vtLat.filter(r => r.at >= t0), M = vtMerge.filter(r => r.at >= t0);
+	const tot = L.map(r => r.total);
+	return { lat: { n: L.length, med: q(tot, 0.5), p90: q(tot, 0.9), wait: q(L.map(r => r.wait), 0.5), fetch: q(L.map(r => r.fetch), 0.5), build: q(L.map(r => r.build), 0.5) },
+		merge: { n: M.length, changed: M.length ? M.reduce((s, r) => s + r.add + r.del, 0) / M.length : 0, tiles: M.length ? M.reduce((s, r) => s + r.n, 0) / M.length : 0 } };
+};
+dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
+dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, lab: memLab, vt: vtSummary() });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）。lab＝注記の計器（T-P0）。vt＝計器 e／f の直近 10 秒
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -760,6 +774,7 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
 const terrLazy: GlobeScope["terrLazy"] = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
 let noTerr: GlobeLive["noTerr"] = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+const LINESUB = /[?&]linesub=1/.test(location.search);   // vt perf plan §3.2 の逃げ道＝地形の無い地図でも線を 700m ごとに細分する（旧挙動）
 // 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
 let centerElevMode: GlobeLive["centerElevMode"] = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
@@ -1311,9 +1326,11 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 let vtdAnchorsOn = false;   // #123：vtdraw が作られてから差し込む位置を配る（それまで＝起動の途中のテーマ・生成層の再ビルドから呼ばれても何もしない＝後で宣言する束縛に触れない）
-const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, destroy: destroyPipeline } = createPipeline({
+const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle0, setDrape: setPipelineDrape, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y) as string, requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
+	tileQueue: !/[?&]tileq=0/.test(location.search),   // 優先付き共有キュー（vt perf plan §3.1）＝?tileq=0 で旧の round-robin（A/B・計器 e で比べる）
+	drape: LINESUB || (() => !noTerr),   // 線の細分（vt perf plan §3.2）＝地形を描かない地図（terrain:false・?noterr=1）は細分しない。?linesub=1 で従来どおり常に細分（A/B）。setTerrain で地形が入ったら setPipelineDrape（api/terrain.ts）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -1350,6 +1367,9 @@ function onSceneApplied(slot: string, sig: string) {
 		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
+		const lat = tiles.shown(readyKeys), at = performance.now();   // 計器 e＝この ack で初めて画面に載った主層タイルの「必要になった→画面」
+		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0 });
+		if (perfLog && lat.length) { const v = vtSummary(1e9).lat; console.log(`[vt] shown +${lat.length} tiles  need→screen med ${vtSummary().lat.med.toFixed(0)}ms p90 ${vtSummary().lat.p90.toFixed(0)}ms (10s)  all: med ${v.med.toFixed(0)} p90 ${v.p90.toFixed(0)}  wait ${v.wait.toFixed(0)} fetch ${v.fetch.toFixed(0)} build ${v.build.toFixed(1)}`); }
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
 		slog("main merge applied on screen (visible from here)");
@@ -1946,11 +1966,12 @@ function swapScene(order: TileOrder) {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
 		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
-		if (swapLog) {   // 集合の増減＝この merge が「何を書き直すか」。zの分布も出す（keepFine深さ切れの検出）
-			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
-			const cur = new Set(order.map(o => o.key));
-			const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
-			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
+		{   // 計器 f（vt perf plan §2）＝集合の増減＝この merge が「何を書き直すか」。classic は変わった枚数に関わらず全枚を結合し直す＝P2 が消す仕事の量
+			const prev = readyKeys ?? new Set<string>();
+			let add = 0; for (const o of order) if (!prev.has(o.key)) add++;
+			const cur = new Set(order.map(o => o.key)); let del = 0; for (const k of prev) if (!cur.has(k)) del++;
+			vtPush(vtMerge, { at: performance.now(), add, del, n: order.length });
+			if (swapLog) { const zHist: Record<number, number> = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1; slog(`main merge request: +${add} -${del} / ${cur.size} tiles`, "z dist", zHist); }   // z の分布も出す（keepFine 深さ切れの検出）
 		}
 		requestMerge("main", order, sceneOrigin, hiddenAll(), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
@@ -2809,7 +2830,7 @@ installTerrain(map, {
 	get geBusy() { return geBusy; }, set geBusy(v) { geBusy = v; },
 	get geKey() { return geKey; }, set geKey(v) { geKey = v; },
 	get elevGen() { return elevGen; }, set elevGen(v) { elevGen = v; },
-	get noTerr() { return noTerr; }, set noTerr(v) { noTerr = v; },
+	get noTerr() { return noTerr; }, set noTerr(v) { if (v !== noTerr) { noTerr = v; setPipelineDrape(); } },   // 地形の有無が替わる（setTerrain）＝線の細分（drape）を読み直し全タイルを再ビルド（§3.2・setStyle と同じ道）
 	get style() { return style; },
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },

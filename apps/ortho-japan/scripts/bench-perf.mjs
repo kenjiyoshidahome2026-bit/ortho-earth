@@ -35,6 +35,15 @@ try {
 			const s = runs[runs.length - 1].scenes[i];
 			console.log(`${s.name.padEnd(21)} ${col("gpuMap").toFixed(2).padStart(6)}  ${col("gpuGint").toFixed(2).padStart(7)}  ${col("frameMs").toFixed(1).padStart(7)}  ${String(col("fps")).padStart(3)}  ${String(s.res).padStart(4)}  ${String(s.aa).padStart(2)}  ${String(s.hitchLoad.elev + "/" + s.hitchLoad.scene).padStart(15)}  ${String(s.hitchMove.elev + "/" + s.hitchMove.scene).padStart(15)}  ${String(cellCol("n")).padStart(5)}  ${(cellCol("avgMs").toFixed(2) + " (" + cellCol("avgResMs").toFixed(2) + "+" + cellCol("avgUpMs").toFixed(2) + ")").padStart(20)}  ${(cellCol("maxResMs").toFixed(1) + "/" + cellCol("maxUpMs").toFixed(1)).padStart(11)}  ${(s.terr ? `${s.terr.near.drawn}/${s.terr.near.of} ${s.terr.far.drawn}/${s.terr.far.of}` : "-").padStart(13)}`);
 		}
+		// 計器 e／f（vt perf plan §2・§8 の表の列）：基図のタイルの「必要になった→画面」（主層・中央値/p90・ms）と、その内訳の中央値（wait＝キューと転送／fetch＝取得＋復号／build）・main merge の回数と 1 回の変化枚数/全枚数。着地窓（load）と移動窓（move＝9 秒）
+		console.log("\nscene                 need→screen load med/p90  (wait fetch build)   merges  chg/tiles | move med/p90  (wait fetch build)   merges  chg/tiles");
+		for (let i = 0; i < runs[0].scenes.length; i++) {
+			const s = runs[runs.length - 1].scenes[i], v = s.vt; if (!v) continue;
+			const col = (k, f) => med(runs.map(r => +(r.scenes[i].vt?.[k]?.[f]) || 0));
+			const w = k => `${(col(k, "med") + "/" + col(k, "p90")).padStart(9)}  (${String(col(k, "wait")).padStart(4)} ${String(col(k, "fetch")).padStart(5)} ${col(k, "build").toFixed(1).padStart(5)})  ${String(col(k, "merges")).padStart(6)}  ${(col(k, "changed").toFixed(1) + "/" + col(k, "tiles")).padStart(9)}`;
+			console.log(`${s.name.padEnd(21)} ${w("load")} | ${w("move")}`);
+		}
+		console.log("(need→screen＝主層タイルが選抜で必要になってから main のシーンに載るまで・ms。merges＝main merge の要求回数・chg/tiles＝1 回あたりの変わった枚数／全枚数＝classic は全枚を結合し直す＝P2 が消す量)");
 		if (runs[0].scenes.some(s => s.lab)) {   // 注記の計器（テキスト GPU 化 T-P0）＝labels2d の draw（EMA）・衝突判定・描いた注記と字の数
 			console.log("scene                 labMs  collideMs  labels  glyphs");
 			for (let i = 0; i < runs[0].scenes.length; i++) {
