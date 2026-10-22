@@ -155,7 +155,7 @@ export function subdivideTris(flat: ArrayLike<number>, tris: ArrayLike<number>, 
 import { evalExpr, truthy, originOfLayer } from "./expr.ts";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.ts";
 import { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝地物に依らない色・線幅の式を op に添える
-import { layerPaintTable, ptTuple, ptKeyOf, PT_MAX_ROWS } from "./painttable.ts";   // paint 表の (b) 類＝地物ごとの行を op に添える
+import { layerPaintTable, ptTuple, ptKeyOf, PT_MAX_ROWS, DASH_GPU_MAX } from "./painttable.ts";   // paint 表の (b) 類＝地物ごとの行を op に添える
 import type { PtLayer } from "./painttable.ts";
 import type { PaintZoom } from "./paintzoom.ts";
 import { tileLocalToLonLat } from "./tile.ts";
@@ -191,9 +191,11 @@ class PtRows {
 		if (r === undefined) { r = this.rows.length; if (r >= PT_MAX_ROWS) { this.over = true; r = 0; } else { this.map.set(k, r); this.rows.push(t); } }
 		this.row = r;
 	}
+	hws: number[] = [];   // 行の半幅（L.w がある層＝段 2b）
 	color(r: number, g: number, b: number, a: number): void { this.cols[this.row] = (r | g << 8 | b << 16 | a << 24) >>> 0; }   // 色の語と同じ並び（リトルエンディアンの RGBA8）
+	half(hw: number): void { if (this.L.w != null) this.hws[this.row] = hw; }
 	fill(n: number): void { const k = n - this.rid.n; if (k > 0) { this.rid.reserve(k).fill(this.row, this.rid.n, n); this.rid.n = n; } }   // n＝今の頂点／線分の数
-	out(n: number): PtOp | null { this.fill(n); return this.over ? null : { keys: this.L.keys, rows: this.rows, cols: Uint32Array.from(this.cols), rid: this.rid.out() }; }
+	out(n: number): PtOp | null { this.fill(n); return this.over ? null : { keys: this.L.keys, rows: this.rows, cols: Uint32Array.from(this.cols), ...(this.L.w != null ? { hw: Float32Array.from(this.hws) } : {}), rid: this.rid.out() }; }
 }
 let sharedBufs: Bufs | null = null, bufDepth = 0;
 const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array), d: new Grow(Float32Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
@@ -252,7 +254,7 @@ export function dashPattern(v: unknown, ml = false): number[] | null {
 // 破線をシェーダで描く（S-P1-3・2026-10-22）：外来 MapLibre の層で、ずらさず、模様が 8 個まで＝線分は刻まず、始点までの線に沿う距離（LineOp.dist）を添える。
 // 距離の単位＝z24 の px（256 px 世界＝このエンジンの z）＝世界の幅の 2^32 分の 1。タイルの中で環（線）の始点から数える（MVT はタイルで切られて来る＝MapLibre と同じ）。
 // シェーダは floor(zoom) の px に直して模様（線幅の倍数）を当てる＝MapLibre の tileZoom と同じ（このエンジンの z は MapLibre の z＋1）
-export const DASH_GPU_MAX = 8;
+export { DASH_GPU_MAX };   // painttable.ts（表に置ける線幅の判定と同じ数）
 // setPaintProperty の速い道（paint 表の (b) 類の前段・2026-10-22）：基図の層の色・不透明度・線幅・ずらしの変更で、新しい値が地物に依らない（paintzoom.ts）なら
 // タイルを作り直さず、描き手が層の差し替えの式（定数も＝layerPaintZoom の all）で作ったタイルの焼いた値を上書きする（GL2 の u_pz・u_pzC・u_pzO）。
 // 焼いた値が絵の形を決める性質は作り直す：線幅は CPU で刻む破線（片の長さ＝線幅の倍数）と line-gap-width（両脇のずらし）・ずらしは前の層が角の継ぎを持たない時（層で 1 つの値でなかった）。
@@ -532,6 +534,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const w0 = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				const w = typeof w0 !== "number" || isNaN(w0) || w0 <= 0 ? 1 : w0;
 				const hw = w * 0.5;
+				if (pt) pt.half(hw);
 				let ow0 = 0;
 				if (offExpr != null) { ow0 = +(evalExpr(offExpr, ctx) as number); if (!isFinite(ow0)) ow0 = 0; }
 				let gw = 0;

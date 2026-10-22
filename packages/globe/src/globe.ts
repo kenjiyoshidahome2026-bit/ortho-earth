@@ -2335,7 +2335,7 @@ dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等�
 // **枚数が出ているのに黒**なら GPU 側（描いたのに画素にならない）。赤字＝塗り0＝異常の目印。
 // hoisted 関数＝renderWorker.onmessage（上方）から呼ばれる。
 let drawHudEl: HTMLDivElement | null = null;
-function showDrawHud(msg: { backend?: string; d?: { zoom?: number; baseFill?: number; mainFill?: number; baseLine?: number; mainLine?: number; pt?: number; skipMain?: boolean; skipBase?: boolean; fadeK?: number; pl?: number; terrainDepth?: boolean; aa?: number } | null }) {
+function showDrawHud(msg: { backend?: string; d?: { zoom?: number; baseFill?: number; mainFill?: number; baseLine?: number; mainLine?: number; pt?: number; ptw?: number; skipMain?: boolean; skipBase?: boolean; fadeK?: number; pl?: number; terrainDepth?: boolean; aa?: number } | null }) {
 	dbgHost.__drawHud = msg;   // 検証用の生値（t-aatrans＝遷移時AAの回帰が d.aa を読む）
 	if (!drawHud) return;
 	if (!drawHudEl) {
