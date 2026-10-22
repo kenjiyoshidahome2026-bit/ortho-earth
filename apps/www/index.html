@@ -46,7 +46,6 @@
 			</div>
 			<div class="links">
 				<a class="popout" href="/" target="_blank" rel="noopener" hidden title="Open in new window" data-t-title="Open in new window"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg> <span data-t="Open in new window">Open in new window</span></a>
-				<a href="/docs/introduction.html" translate="no">Story</a>
 				<select class="lang" translate="no" aria-label="Language" data-t-aria-label="Language"></select>
 				<a href="https://x.com/KenjiYoshida168" target="_blank" rel="noopener" aria-label="X (Twitter)">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
@@ -68,6 +67,7 @@
 				<button class="tab is-active" id="tab-demos" role="tab" aria-selected="true" aria-controls="panel-demos" data-tab="demos" translate="no">Gallery</button>
 				<button class="tab" id="tab-start" role="tab" aria-selected="false" aria-controls="panel-start" data-tab="start" translate="no">Get started</button>
 				<button class="tab" id="tab-tech" role="tab" aria-selected="false" aria-controls="panel-tech" data-tab="tech" translate="no">Technologies</button>
+				<button class="tab" id="tab-stories" role="tab" aria-selected="false" aria-controls="panel-stories" data-tab="stories" translate="no">Stories</button>
 			</div>
 			<div class="apps" id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
 				<!--DEMOS-->
@@ -303,6 +303,11 @@ name and population. Start the view looking at Asia.</code></pre>
 					</span>
 				</div>
 				<p class="tech-note"><span data-t="Since 2.0 the libraries are written in TypeScript (strict), and their types ship in each package.">Since 2.0 the libraries are written in TypeScript (strict), and their types ship in each package.</span> <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md" data-t="Upgrading from 1.x">Upgrading from 1.x</a></p>
+			</div>
+			<!-- Stories（本人 2026-10-22「Storiesを追加し、そこに記事を追加していく」「technologiesの後」「各記事はリンクページを表示」）＝stories.json から焼く（cards.js の renderStories）。
+			     押すとデモと同じくナビの下の iframe で記事の頁を開く（main.ts）。旧ヘッダーの「Story」（独り地理院）はここの最初の記事へ移した＝頁の URL（/docs/introduction.html）は不変（エンジンの帰属表示が指す） -->
+			<div class="apps stories" id="panel-stories" role="tabpanel" aria-labelledby="tab-stories" hidden>
+				<!--STORIES-->
 			</div>
 		</main>
 		<!-- デモ＝ページを離れずにナビの下で開く（本人 9/22「デモに行くと戻りづらい」）。main.ts がカードのクリックを受けて src を入れる -->
