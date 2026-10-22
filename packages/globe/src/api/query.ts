@@ -1,13 +1,16 @@
 // 描画結果への問い合わせ（map.queryRenderedFeatures）と層ごとのイベント（map.on/off/once の層 id 付き）＝createGlobe から切り出した（globe.js の分割 ②・2026-10-15）。
 // 中身は切り出す前と同じ。createGlobe の他の所が使う物（押し出し・模型・3D Tiles の当たりの環境・vector source の問い合わせの控え）は戻り値で返す。
 //   live＝createGlobe が後から差し替える変数（let）を読む口（getter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { WORLD_PX, cameraState, ellNormal3D, evalExpr, lonlatTo3D, normalizeMLLayer, queryTiles, truthy, unproject } from "@ortho-earth/core";
+import { ML_CEZ_KEY, WORLD_PX, cameraState, ellNormal3D, evalExpr, lonlatTo3D, normalizeMLLayer, queryTiles, truthy, unproject } from "@ortho-earth/core";
 import { hitExtrusion } from "../extrude-ml.ts";
 import type { MLLayer } from "@ortho-earth/core";
 import type { LayerMouseEvent, LayerPressEvent, LonLat, QueryOptions, RenderedFeature, StyleExpression } from "../../globe.d.ts";
 import type { ExtEnv, ExtViewNow, Installing, MeshPickEnv, QueryDeps, QueryLive, QueryReturn } from "../types/install.ts";
 import type { GlobeMap, QueryApi } from "../types/map.ts";
 import type { MeshHit, ModelCtl, QueryGeometry } from "../types/scope.ts";
+
+// 集約の丸の当たり＝ばらける段（エンジンの z・顔が公開の目盛りへ直す）を地物に添える（cluster as data の隠しの属性から）
+const ezOf = (p: Record<string, unknown> | null | undefined) => p?.[ML_CEZ_KEY] != null ? { expansionZoom: p[ML_CEZ_KEY] as number } : {};
 
 /** 問い合わせの形＝点 [x, y]（CSS px）か箱 [[x0, y0], [x1, y1]]。中では typeof g[0] で読み分ける（TS は組の要素の typeof で組の型を絞れない＝
  *  両方の読み方を許す形で持つ・公開の口から入る所で付け替える） */
@@ -214,7 +217,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			}
 		}
 		// 上から：集約の丸 → 画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
-		if (geometry && typeof geometry[0] === "number" && live.symCtl) for (const h of live.symCtl.symbolsAt(geometry[0], geometry[1])) if (take(h.layer.id)) out.push(h as HitFeature);
+		if (geometry && typeof geometry[0] === "number" && live.symCtl) for (const h of live.symCtl.symbolsAt(geometry[0], geometry[1])) if (take(h.layer.id)) out.push({ ...h, properties: stripMl(h.properties), ...ezOf(h.properties) } as HitFeature);
 		if (geometry && typeof geometry[0] === "number" && live.aggCtl) { const h = live.aggCtl.clusterAt(geometry[0], geometry[1]); if (h && take(h.layer.id)) out.push(h); }
 		for (const q of [...live.imageQuads].reverse()) {
 			if (!take(q.id)) continue;
@@ -248,7 +251,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			};
 			const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (ptR + tolPx + 1) * mPerPx, polyline: (lineHalf + tolPx) * mPerPx, ...(acc ? { accept: acc } : {}) })].filter((v): v is number => v != null && near(v)) : null;   // 点は 1px の余裕（gint の格子）→画面の距離で締める
 			const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)] as const) : e.pbf.features.map((f, i) => [i, f] as const).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
-			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
+			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 		}
 		const upbf = gint.userGint?.pbf;
 		if (upbf && take("user")) {

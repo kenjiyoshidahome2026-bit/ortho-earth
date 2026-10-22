@@ -115,7 +115,7 @@
 - geojson の層（gint）の点の半径の上限（地物の表の u8：約 64px）。線幅に上限は無い（基図と vector の層は半幅を f32・geojson の層は 2026-10-22 から表の u16＝8191px まで・旧は u8 で約 32px の頭打ち＝下の §6 の「線幅の上限」）。
 - 破線：基図と利用者の vector の層は 2026-10-22 から **GL2 で** MapLibre と同じ（模様 8 個まで・奇数個・丸い点・ズームの段＝下の §6 の「破線」）。2026-10-22 の内に **WebGPU も**同じ（§6 の「WebGPU 版」）。地物ごとにずらす層（line-offset が地物を読む・line-gap-width）・模様 9 個以上は CPU で刻む（作ったタイルの z の尺＝過ズームで伸びる）。層で 1 つの値のずらし（定数・zoom だけ）は 2026-10-22 からシェーダで描く（§6 の「ずらしの連続と破線」）。geojson の層（gint）は先頭の [線, 間] の対だけ。
 - 基図の層の重ね順は固定（moveLayer は効かない）・利用者の層は基図の層の間に差し込めない（beforeId に基図の層 id を渡してもよい＝描画の段で決まる）。
-- 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
+- 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→記号→模様）。集約の source の丸は gint、件数は注記層（2026-10-22・cluster as data＝text gpu plan §4h）。
 - vector の押し出し（段 8①）：
   - ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）＝止まった絵は同じ。
   - 光は読まない（style の light・MapLibre の光の式）＝この地図の建物メッシュの陰影。壁の縦の陰影（vertical-gradient）だけ MapLibre の式を頂点色に焼く。
@@ -403,7 +403,7 @@
   - 次の順位表（o5）：基図の色 23／足した層の色 15／線に余計 13／面・線の取りこぼし 12・12／面に余計 11／custom 層 10／カメラ 7。
 - **3 巡目（2026-09-27 本人「いいですね、もう一度」）**：
   - **hillshade の層**（`src/hillshade.js`）：この地図の陰影は傾けた時の地形面だけ（真俯瞰は平面）＝MapLibre の hillshade（真俯瞰でも陰影の画像）が無く、北緯 47° の地形の例（10 本）の基図が白かった。MapLibre の式（hillshade_prepare＋fragment・standard）を画素で写し、raster-dem のタイルから陰影の画像タイルを作る **port プロバイダ**（画像タイル層の契約）として載せる＝エンジンの描く経路は無改修。端の勾配は隣のタイル・緯度の縮み・色 3 種・exaggeration。addLayer と外来 style の両方（getStyle では描く層）。他の method（basic/combined/igor/multidirectional）は standard で描く（警告）。
-  - **querySourceFeatures**（同期・MapLibre 同名）：集約の source＝今の段の丸と単点（画面の内側＋余白 1/4）・geojson＝全部（上位互換）・vector＝[]（未対応・警告）。HTML の集約の例（Marker を丸の位置に置く）が動く。
+  - **querySourceFeatures**（同期・MapLibre 同名）：集約の source＝今の段の丸と単点（画面の内側＋余白 1/4・2026-10-22 から集約を source の地物にした物＝text gpu plan §4h）・geojson＝全部（上位互換）・vector＝[]（未対応・警告）。HTML の集約の例（Marker を丸の位置に置く）が動く。
   - 直し：removeLayer した style 由来の層を getStyle の「その他の層」として復活させない／型紙の `%7B` を読む（`new URL().href` で括弧が化ける）。
   - 門：t-mlcompat の layers 群に hillshade-layer（北西の斜面が明るく南東が暗い・外すと戻る）と query-source-features。GL2・WebGPU 全緑。
   - **3 巡目の結果（o7・下がった例なし）**：0 動かない 1／1 動く 45／2 同じ答え 43／3 同じ絵 48・絵だけ見れば同じ 65/121。4 巡の推移：同じ絵 0→45→48→48・同じ答え 1→33→41→43。hillshade の例は白から本物と同じ滑らかな陰影になったが、同じ z でこちらは緯度で粗いタイル（z9 対 z10）を使い exaggeration の式が変わる＝平均の明るさが 150 対 177＝「同じ絵」には届かない（z の定義の裁定待ちの側）。残る順位表は全部その緯度の差か、エンジンに無い機能（custom 層 10・動く画像 2・無い画像の後付け 2）。
