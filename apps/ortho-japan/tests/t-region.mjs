@@ -84,6 +84,7 @@ eq("日本の台帳は 336 件", jpSets.length, 336);
 eq("日本の台帳に形の崩れは無い", shapeBad(jpSets).map(s => s.name || s.base), []);
 eq("オランダの 3 件も同じ形", shapeBad(NL_REGION.buildings.sets).map(s => s.name || s.base), []);
 yes("オランダは外部 tileset と切り抜きを持つ", NL_REGION.buildings.sets.every(s => s.tilesetUrl && s.clip));
+yes("オランダの焼きの置き場は日本と別の棚（bucket の鍵が混ざらない）", /^https:\/\/api\.ortho-earth\.com\/bucket\/GIS\/3dbag\/$/.test(NL_REGION.buildings.bakeBase) && NL_REGION.buildings.bakeBase !== JP_REGION.buildings.bakeBase);
 eq("識別キーは国で衝突しない", NL_REGION.buildings.sets.filter(s => jpSets.some(j => j.base === s.base)).length, 0);
 
 // 識別キーは永続化の鍵（worker 振り分け・IDB・OPFS のファイル名）＝移設で変わっていないこと
