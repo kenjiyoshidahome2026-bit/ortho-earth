@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Six months to the second edition</title>
+<meta name="description" content="Six months from the first line in April 2026. Gint, PLATEAU, WebGPU, 26 languages and MapLibre compatibility, and then a second edition rewritten in TypeScript.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v2">
+<meta property="og:title" content="Six months to the second edition">
+<meta property="og:description" content="Six months from the first line in April 2026. Gint, PLATEAU, WebGPU, 26 languages and MapLibre compatibility, and then a second edition rewritten in TypeScript.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v2">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-22">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。体裁は独り地理院（introduction.html）の生成りの紙に合わせた共通の story.css -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v2-jp.html" lang="ja">日本語</a></nav>
+<header class="masthead"><h1>Six months to the second edition</h1><p class="byline">2026-10-22 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>On 15 April 2026 I made the first commit. Its message was "Workspace setup". Six months later there are nearly 3,500 commits, and on 17 October ortho-earth reached its second edition, 2.0. It feels like a good moment to look back at the road so far.</p>
+<h2>Spring: the invisible half first</h2>
+<p>April began with a first map, ortho-map, but what May and June went into was not the map itself. It was the layer underneath: GeoPBF, a container that carries geographic data as shapes, and Gint, which holds those shapes in a form the GPU can read directly. Nothing appeared on screen, so from the outside it looked as if I was doing nothing. Still, I was sure that if I skipped this part I would have to rebuild everything later.</p>
+<h2>Summer: putting Japan on the globe</h2>
+<p>In July the PLATEAU buildings went onto the globe. One district at first, then all 300 cities and wards in the dataset. For days I chased the seven districts whose buildings refused to appear, one at a time. I remember well the moment the streets of Tokyo rose up from a round Earth.</p>
+<p>On 1 August the drawing moved to WebGPU. Globe, terrain, buildings, Gint and the starry sky all went across in a single day. The next day I spent facing a white screen on an iPhone, building one tool after another to name the cause, until it finally ran on the real device. That same day I decided WebGPU would be the default. Older devices still get WebGL2.</p>
+<p>In the same month came ortho-solar, a true-scale Solar System, and a visualisation of Japan's 2020 census. A map does not have to stop at the surface of the Earth, and statistics do not have to stay in tables.</p>
+<h2>Autumn: to the world, and to compatibility</h2>
+<p>September was the month a map of Japan became a map of the world. The interface went into 26 languages, and you can now move back and forth between the round globe and Equal Earth, a flat map of the whole world. I rebuilt the top page of www and put these words at the top: "Equal to all, fair to the Earth." The Earth is round, and maps belong to everyone. I wanted to say that first.</p>
+<p>At the end of the month I cut the globe out as its own package, @ortho-earth/globe, and made it usable with the same code as MapLibre GL JS. The yardstick was MapLibre's own gallery of 139 official examples: each one runs side by side with the real MapLibre, and the picture and the answers are graded. At first not a single example drew the same picture. Today 66 draw the same picture, 50 give the same answers, and none fail to run. I did not want people to learn a new API. I wanted the code they already know to run, unchanged, on a round Earth. That was the thing I wanted most.</p>
+<h2>What 2.0 threw away</h2>
+<p>In a word, the second edition is a rewrite and a clean-up. Every library is now written in TypeScript (strict), and the old names and back doors that 1.x kept for compatibility are closed. It is a slightly unkind change for users, but the rule in this workshop is that when you move into a new form, you throw the old one away. What changed is set out in detail in "Ortho Earth 2.0 is out".</p>
+<h2>After 2.0</h2>
+<p>Right after the release I measured the engine against four others. Measuring turned up weaknesses I had not noticed myself: on iPhone it was holding back its downloads too much, the screen flashed white for an instant when the camera stopped, and its memory accounting was too loose. Within a few days they were fixed, in 2.0.2 and in the next release. That story is in "Rendering PLATEAU 3D city models: MapLibre, Cesium, TerriaJS, Navara and ortho-earth compared".</p>
+<h2>Milestones to the second edition</h2>
+<p>The main milestones up to the second edition, taken from the commit history.</p>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Milestone</th></tr></thead><tbody><tr><td>15 April</td><td>First commit. Work begins on the first map, ortho-map, and on a tool for storing data</td></tr><tr><td>22 April</td><td>Cataract surgery on my left eye</td></tr><tr><td>29 April</td><td>Cataract surgery on my right eye. I can see again</td></tr><tr><td>10 May</td><td>Work begins on GIS-HUB (today's GeoPBF demo)</td></tr><tr><td>26 May</td><td>Gint encoding: geographic data in a form the GPU reads directly</td></tr><tr><td>12 June</td><td>The container for geographic data takes shape as GeoPBF</td></tr><tr><td>13 June</td><td>The domain ortho-earth.com, and an account on Cloudflare. The draughtsman's name, Sonnet 4.6, first appears in a commit</td></tr><tr><td>18 June</td><td>Drawing rebuilt on WebGL2</td></tr><tr><td>1 July</td><td>Opus 4.8 joins the drafting table</td></tr><tr><td>4 July</td><td>Japan's official vector tiles drawn on the sphere; extruded buildings, and terrain raised from elevation</td></tr><tr><td>6 July</td><td>Drawing moves into a worker, the start of keeping the main thread free</td></tr><tr><td>8 July</td><td>PLATEAU LOD2 buildings on the globe, extended to all 300 cities and wards; Fable 5 joins the drafting table</td></tr><tr><td>10 July</td><td>The map of Japan, ortho-japan, goes public on www.ortho-earth.com</td></tr><tr><td>12 July</td><td>One line of code brings up Japan: the map becomes a part any page can embed</td></tr><tr><td>22 July</td><td>Japan's terrain moves to the 10 m digital elevation model</td></tr><tr><td>1 August</td><td>Drawing ported to WebGPU: globe, terrain, buildings, Gint and the sky in one day</td></tr><tr><td>2 August</td><td>WebGPU runs on a real iPhone; WebGPU becomes the default</td></tr><tr><td>5 August</td><td>Opus 5 joins the drafting table</td></tr><tr><td>6 August</td><td>A new MacBook Pro (M5 Pro, 64 GB)</td></tr><tr><td>10 August</td><td>ortho-solar, a true-scale Solar System</td></tr><tr><td>13 August</td><td>A visualisation of Japan's 2020 census</td></tr><tr><td>19 August</td><td>ortho-japan 1.0.0; the next day, the first package on npm</td></tr><tr><td>24 August</td><td>The first public demo of ortho-earth, at CNG Japan</td></tr><tr><td>31 August</td><td>A world base map grows beyond Japan</td></tr><tr><td>4 September</td><td>The draughtsman becomes Fable 5.1</td></tr><tr><td>5 September</td><td>Satellite imagery as COG, read directly with no server</td></tr><tr><td>10–19 September</td><td>The interface in 26 languages</td></tr><tr><td>18–20 September</td><td>Equal Earth, and moving between it and the globe</td></tr><tr><td>22 September</td><td>www rebuilt under "Equal to all, fair to the Earth"</td></tr><tr><td>23 September</td><td>The globe cut out as @ortho-earth/globe; I3S support; Opus 5.5 joins the drafting table</td></tr><tr><td>26–27 September</td><td>MapLibre GL JS compatibility, measured against the 139 official examples</td></tr><tr><td>2–11 October</td><td>Travelling abroad; development carried on from my phone, 35 commits</td></tr><tr><td>14 October</td><td>The last 1.x release (globe 1.16.0)</td></tr><tr><td>15 October</td><td>Every library moves to TypeScript (strict)</td></tr><tr><td>17 October</td><td>The second edition, 2.0, published on npm</td></tr></tbody></table></div>
+<h2>Looking back</h2>
+<p>Six months ago I did not imagine I would get this far. I have not written a single line of the code. What I did every day was look at the screen and say "that's wrong", and say "fix the root cause". Even so, pile up 3,500 small decisions and it really does become a map, and I am a little surprised by that.</p>
+<p>2.0 is not an ending. The foundations have only just set. From here on I intend to put on this Earth the things I truly want to draw.</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

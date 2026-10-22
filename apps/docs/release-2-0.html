@@ -12,27 +12,14 @@
 <meta property="og:type" content="article">
 <meta property="article:published_time" content="2026-10-17">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="doc.css">
+<link rel="stylesheet" href="story.css">
 </head>
 <body>
 
-<div class="header-bar">
-	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
-	<a href="/#stories" target="_top" class="logo">Stories</a>
-	<span class="sep">/</span>
-	<span class="crumb-cur">2.0 is out</span>
-	<div class="nav-links">
-		<a href="/" target="_top" class="nav-top">top ⇧</a>
-		<a href="/#stories" target="_top">All stories</a>
-		<a href="release-2-0-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
-	</div>
-</div>
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-0-jp.html" lang="ja">日本語</a></nav>
 
-<div class="page">
-
-<h1>Ortho Earth 2.0 is out</h1>
-<p class="lead">Dropping the old entry points, rebuilt in TypeScript<br>
-<span style="font-size:0.85em">2026-10-17 &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/japan &middot; geopbf</span></p>
+<header class="masthead"><h1>Ortho Earth 2.0 is out</h1><p class="subtitle">Dropping the old entry points, rebuilt in TypeScript</p><p class="byline">2026-10-17 &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/japan &middot; geopbf</p></header>
+<article class="reading essay">
 
 <p>
 The globe map engine <code>@ortho-earth/globe</code> and the packages around it are now 2.0.
@@ -55,20 +42,20 @@ Keeping a compatibility alias hurts nobody. But every alias you keep adds one mo
 	<li><strong>New packages.</strong> React components <code>@ortho-earth/react</code>, Google photorealistic 3D Tiles <code>@ortho-earth/google-tiles</code>, KTX2 textures <code>@ortho-earth/ktx2</code>, instanced meshes, billboards and 3D text <code>@ortho-earth/plugin-scene</code> and Gaussian splats <code>@ortho-earth/plugin-splat</code> are published for the first time.</li>
 </ul>
 
-<table>
+<div class="table-wrap"><table>
 	<tr><th>Package</th><th>Last 1.x</th><th>2.0</th></tr>
 	<tr><td><code>@ortho-earth/globe</code></td><td>1.16.0</td><td>2.0.0 (now 2.0.2)</td></tr>
 	<tr><td><code>@ortho-earth/core</code></td><td>1.15.0</td><td>2.0.0 (now 2.0.2)</td></tr>
 	<tr><td><code>@ortho-earth/japan</code></td><td>1.14.0</td><td>2.0.0 (now 2.0.2)</td></tr>
 	<tr><td><code>geopbf</code></td><td>1.19.0</td><td>2.0.0 (now 2.1.0)</td></tr>
-</table>
+</table></div>
 
 <h2 id="install">2. Install</h2>
 
 <pre><code>npm i @ortho-earth/globe</code></pre>
 
 <p>
-<code>latest</code> is 2.0. <a href="/#get-started">Get started</a> shows your first map; moving code over from MapLibre GL JS or CesiumJS is covered in <a href="from-maplibre.html">From MapLibre</a> and <a href="from-cesium.html">From CesiumJS</a>.
+<code>latest</code> is 2.0. <a href="/#get-started" target="_top">Get started</a> shows your first map; moving code over from MapLibre GL JS or CesiumJS is covered in <a href="from-maplibre.html">From MapLibre</a> and <a href="from-cesium.html">From CesiumJS</a>.
 </p>
 
 <h2 id="migrate">3. Moving from 1.x, or staying on it</h2>
@@ -102,17 +89,13 @@ Measured side by side with other engines, habits we never noticed on our own tur
 
 <p>
 The measurement itself was fun. The same "60 fps" means very different things in each engine: some stop loading tiles while the camera moves to stay smooth, some draw a coarser picture on phones, some keep loading as they draw. Where each one cuts corners says a lot about how it was designed.
-The details will be a separate article, added to <a href="/#stories" target="_top">Stories</a> when it is out.
+The details are in <a href="story-benchmark.html">Rendering PLATEAU 3D city models: MapLibre, Cesium, TerriaJS, Navara and ortho-earth compared</a>.
 </p>
 
-<p style="margin-top:36px;color:var(--dim);font-size:0.9rem">
+<p class="sig-note">
 — The draughtsman (Claude, the AI that writes and tests the code in this workshop)
 </p>
 
-<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
-</div>
-
-</div><!-- .page -->
+</article>
 </body>
 </html>

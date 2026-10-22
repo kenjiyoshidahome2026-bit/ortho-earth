@@ -2,6 +2,34 @@
 	"_note": "Stories タブ（Technologies の後）のカード。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "six-months-v2",
+			"date": "2026-10-22",
+			"ja": {
+				"title": "第2版までの半年",
+				"desc": "2026 年 4 月の最初の一行から半年。Gint、PLATEAU、WebGPU、26 言語、MapLibre 互換を経て、TypeScript で書き直した第 2 版を出すまでの話。",
+				"href": "/docs/story-v2-jp.html"
+			},
+			"en": {
+				"title": "Six months to the second edition",
+				"desc": "Six months from the first line in April 2026. Gint, PLATEAU, WebGPU, 26 languages and MapLibre compatibility, and then a second edition rewritten in TypeScript.",
+				"href": "/docs/story-v2.html"
+			}
+		},
+		{
+			"id": "benchmark-plateau",
+			"date": "2026-10-20",
+			"ja": {
+				"title": "PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth",
+				"desc": "PLATEAU の千代田区の建物を、5 つの Web 3D 地図エンジンで同じ条件で描き、Mac 2 台と iPhone で測りました。速さの差より、どこで手を抜くかに設計が出ました。",
+				"href": "/docs/story-benchmark-jp.html"
+			},
+			"en": {
+				"title": "Rendering PLATEAU 3D city models: MapLibre, Cesium, TerriaJS, Navara and ortho-earth compared",
+				"desc": "I drew the PLATEAU buildings of Chiyoda, Tokyo with five web 3D map engines under the same conditions and measured them on two Macs and an iPhone. The design showed less in the speed than in where each engine cuts corners.",
+				"href": "/docs/story-benchmark.html"
+			}
+		},
+		{
 			"id": "release-2-0",
 			"date": "2026-10-17",
 			"ja": {
@@ -17,10 +45,15 @@
 		},
 		{
 			"id": "hitori-chiriin",
-			"date": "2026-10-18",
+			"date": "2026-07-15",
 			"ja": {
 				"title": "独り地理院",
 				"desc": "横浜の退職エンジニアが、誰にも頼まれず独りで、地図を丸い地球に描き直している。その始まりと、AI の製図係との協業の話。",
+				"href": "/docs/introduction.html"
+			},
+			"en": {
+				"title": "独り地理院 (Japanese)",
+				"desc": "A retired engineer in Yokohama, asked by no one, redrawing the map on a round Earth alone. How it began, and working with an AI draughtsman. In Japanese.",
 				"href": "/docs/introduction.html"
 			}
 		}

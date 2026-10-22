@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</title>
+<meta name="description" content="PLATEAU の千代田区の建物を、5 つの Web 3D 地図エンジンで同じ条件で描き、Mac 2 台と iPhone で測りました。速さの差より、どこで手を抜くかに設計が出ました。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-benchmark-jp">
+<meta property="og:title" content="PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth">
+<meta property="og:description" content="PLATEAU の千代田区の建物を、5 つの Web 3D 地図エンジンで同じ条件で描き、Mac 2 台と iPhone で測りました。速さの差より、どこで手を抜くかに設計が出ました。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-benchmark-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-20">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。体裁は独り地理院（introduction.html）の生成りの紙に合わせた共通の story.css -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-benchmark.html" lang="en">English</a></nav>
+<header class="masthead"><h1>PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</h1><p class="byline">2026-10-20 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<h2>はじめに</h2>
+<p>PLATEAU の千代田区 LOD2 建物を、Web の 3D 地図エンジン 5 つで同じ条件で描き、私の MacBook Pro・M1 Mac mini・iPhone 16 Pro の 3 台で測りました。分かったことは 3 つです。</p>
+<ol><li>初回表示はどの機械でも上位が同着で、Mac では最も遅いエンジンとの差も 0.5 秒前後。ほとんどがタイルを落とす時間で、上位は同着です。iPhone では自分から控えるエンジンが遅れます。</li><li>動かしたときはどのエンジンも 60 fps に張り付きます。ただし MapLibre＋deck.gl だけは M1 と iPhone で 60 fps に届かず、止まってから描き終わるまで 1〜3 秒かかります。</li><li>同じ 60 fps でも中身は違います。Cesium は動いている間は読まず、Navara はスマホで絵を粗くし、ortho-earth と MapLibre は読みながら描いています。この「手の抜き方」に各エンジンの設計が出ます。</li></ol>
+<p>先に断っておくと、私は ortho-earth の開発者です。身内びいきにならないよう、各エンジンの既定の振る舞いをそろえた参考計測も載せ、他のエンジンの良いところも弱いところも、測った数字のとおりに書くことにしました。それでも開発者の目線が入っているかもしれません。コードと生データを公開しますので、読んだ方もご自分の目で確かめ、公正に評価していただければと思います。</p>
+<h2>5 つのエンジン</h2>
+<p>どれもブラウザで動くオープンソースの地図エンジンですが、生まれも得意なことも違います。</p>
+<p><strong>MapLibre GL JS</strong>：Web の 2D 地図で最も広く使われているライブラリの一つです。2020 年に Mapbox GL JS がオープンソースでなくなったとき、その直前の版から分かれ、有志が引き継ぎました。ベクトルタイルを WebGL で描くのが本業で、3D Tiles は読めません。そこで今回は、可視化ライブラリ deck.gl（Uber で生まれ、今は OpenJS Foundation）の Tile3DLayer を地図の上に重ねて描いています。ライセンスは BSD-3-Clause（deck.gl は MIT）です。</p>
+<p><strong>CesiumJS</strong>：3D の地球儀エンジンの定番です。3D Tiles という形式そのものが Cesium 社から生まれ、OGC の標準になりました。3D Tiles を読む仕組みでは最も長い歴史があり、今回の比較の物差しになります。ライセンスは Apache-2.0 です。</p>
+<p><strong>TerriaJS</strong>：オーストラリアの国立研究機関 CSIRO（Data61）が、国の地図サイト NationalMap のために作ったエンジンです。3D の描画には CesiumJS を使い、その上にデータの目録、凡例、共有といった地図アプリの部品を載せています。今回は見本のアプリ TerriaMap に PLATEAU を読ませました。PLATEAU VIEW の最初の版も TerriaJS で作られていました。ライセンスは Apache-2.0 です。</p>
+<p><strong>Navara</strong>：GitHub の MapLibre の組織で公開されている、新しい 3D 地図エンジンです（今回の版は 0.2.1）。データの解読や形の組み立てを Rust（WebAssembly）の層で行い、描画は Three.js に任せる作りです。設定を書くだけで使える手軽さから、シェーダーまで降りる深さまでを、段階的に選べることを売りにしています。ライセンスは MIT または Apache-2.0 です。</p>
+<p><strong>ortho-earth</strong>：私が作っているエンジンです。地図タイルは従来どおりのものを使い、画面には地球を球のまま描きます。WebGPU で描き、使えない端末では WebGL2 に切り替わります。描画は worker の中で行うので、主スレッドが空きます。API は MapLibre GL JS と同じ形にそろえてあります。ライセンスは GPL-3.0-or-later です。</p>
+<h2>比べ方</h2>
+<p>全エンジンに同じ tileset.json を同じオリジンから読ませ、建物だけを単色の背景に描かせました。</p>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>版</th><th>3D Tiles の読み方</th></tr></thead><tbody><tr><td>MapLibre GL JS</td><td>6.15.0 ＋ deck.gl 9.4.0</td><td>deck.gl の Tile3DLayer を重ね描き（MapLibre 単体は 3D Tiles を読めない）</td></tr><tr><td>CesiumJS</td><td>1.146.0</td><td>Cesium3DTileset</td></tr><tr><td>TerriaJS</td><td>TerriaMap、terriajs 8.13.0（Cesium 1.142 相当）</td><td>init ファイルの 3d-tiles 項目</td></tr><tr><td>Navara</td><td>@navaramap/three 0.2.1</td><td>3D Tiles ソース</td></tr><tr><td>ortho-earth</td><td>@ortho-earth/globe 2.0.2</td><td>map.add3DTiles</td></tr></tbody></table></div>
+<ul><li><strong>データ</strong>：PLATEAU 千代田区 建築物 LOD2（テクスチャなし）3D Tiles。</li><li><strong>シナリオ</strong>：初回表示（東京駅の上空 1,500 m・俯角 60°）、周回（高度 500 m・半径 1 km を 30 秒で 1 周）、ズーム（高度 10 km から 300 m まで 20 秒）。縦の視野角は 45° にそろえました。</li><li><strong>指標</strong>：初回表示までの時間（初期視点のタイルを読み終えた時刻）、fps とフレーム時間の p95、カメラを止めてから描き終わるまでの時間、メモリ、タイルの取得量。</li><li><strong>回数</strong>：各 5 回の中央値。キャッシュは無効で、シナリオごとにブラウザを開き直しました。各回の画面を撮って、建物が描かれていない回は捨てています。</li></ul>
+<div class="table-wrap"><table><thead><tr><th>機械</th><th>中身</th><th>ブラウザ・画面・回線</th></tr></thead><tbody><tr><td>MacBook Pro</td><td>M5 Pro・64 GB</td><td>Chrome、外付け 4K 60 Hz、Wi-Fi</td></tr><tr><td>Mac mini</td><td>M1・16 GB</td><td>Chrome、ディスプレイ 60 Hz、Wi-Fi</td></tr><tr><td>iPhone 16 Pro</td><td>iOS 18.7</td><td>Safari 26.6、Wi-Fi（Mac mini がページを配り、タイルを中継）</td></tr></tbody></table></div>
+<p>エンジンの機能差を混ぜないよう、次の条件をそろえました。</p>
+<ul><li>描画解像度は全エンジン 1x（CSS ピクセル）。iPhone の画面は 3x ですが、どれも 1/9 の画素数で描いています。</li><li>LOD の細かさ（screen space error）は全エンジン 16。</li><li>MSAA・影・地形・大気・背景地図はなし。Cesium と Terria の既定 4x MSAA を切り、Terria の既定の 30 fps 上限と影も外しました。</li><li>ortho-earth の動的解像度（重いとき 0.55 倍まで下げる）は固定しました。</li><li>光は太陽光 1 つにそろえ、Navara にも真昼の太陽光を足しています。</li></ul>
+<p>この比較では、全エンジンに PLATEAU の 3D Tiles をそのまま読ませています。ortho-earth はこの汎用の読み込みで測りました。ortho-earth の日本地図アプリには、PLATEAU の建物をあらかじめ軽い形式に変換して配信し、端末に保存して使い回す専用の経路があり、ここに示した数字よりさらに速く表示できます（この経路は今回の計測に含めていません）。</p>
+<h2>結果 1：初回表示</h2>
+<p>初回表示は 4.7〜8.2 秒で、同じ機械の中の差は Mac で 0.5 秒前後でした。iPhone では Navara と ortho-earth が遅れます。</p>
+<p class="chart-cap">初回表示（秒・5 回の中央値・vsync あり・各エンジンの既定のまま）</p>
+<figure class="chart">
+<div class="chart-group"><div class="chart-sub">MacBook Pro (M5 Pro)</div><div class="bars">
+<div class="bar-row"><span class="bar-label">ortho-earth</span><span class="bar-track"><span class="bar" style="width:51.1%"></span><span class="bar-val">5.90 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Cesium</span><span class="bar-track"><span class="bar" style="width:51.2%"></span><span class="bar-val">5.91 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Navara</span><span class="bar-track"><span class="bar" style="width:54.0%"></span><span class="bar-val">6.23 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">MapLibre + deck.gl</span><span class="bar-track"><span class="bar" style="width:54.7%"></span><span class="bar-val">6.31 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">TerriaJS</span><span class="bar-track"><span class="bar" style="width:55.3%"></span><span class="bar-val">6.38 秒</span></span></div>
+</div></div>
+<div class="chart-group"><div class="chart-sub">Mac mini (M1)</div><div class="bars">
+<div class="bar-row"><span class="bar-label">ortho-earth</span><span class="bar-track"><span class="bar" style="width:40.4%"></span><span class="bar-val">4.66 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Cesium</span><span class="bar-track"><span class="bar" style="width:40.9%"></span><span class="bar-val">4.72 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Navara</span><span class="bar-track"><span class="bar" style="width:44.2%"></span><span class="bar-val">5.10 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">MapLibre + deck.gl</span><span class="bar-track"><span class="bar" style="width:41.3%"></span><span class="bar-val">4.76 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">TerriaJS</span><span class="bar-track"><span class="bar" style="width:45.0%"></span><span class="bar-val">5.19 秒</span></span></div>
+</div></div>
+<div class="chart-group"><div class="chart-sub">iPhone 16 Pro</div><div class="bars">
+<div class="bar-row"><span class="bar-label">ortho-earth</span><span class="bar-track"><span class="bar" style="width:60.6%"></span><span class="bar-val">6.99 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Cesium</span><span class="bar-track"><span class="bar" style="width:54.8%"></span><span class="bar-val">6.32 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">Navara</span><span class="bar-track"><span class="bar" style="width:70.7%"></span><span class="bar-val">8.16 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">MapLibre + deck.gl</span><span class="bar-track"><span class="bar" style="width:50.8%"></span><span class="bar-val">5.86 秒</span></span></div>
+<div class="bar-row"><span class="bar-label">TerriaJS</span><span class="bar-track"><span class="bar" style="width:50.7%"></span><span class="bar-val">5.85 秒</span></span></div>
+</div></div>
+</figure>
+<p class="note-small">（私の計測、2026-10-19〜20。MacBook は 10/20 の再計測、Mac mini は 60 Hz、iPhone はスリープで乱れた回を除外。同じエンジンの 5 回の幅は ±0.3〜0.5 秒）</p>
+<p>初回表示のほとんどは、初期視点に要る約 70〜75 MB（約 110〜120 件）のタイルを落とす時間です。タイル 1 件の取得時間にはエンジンによる差がほとんどなく、差は読む順番と同時に投げる要求の数から来ます。上位 3 つの差は 0.1 秒前後で、同じエンジンを 5 回測ったばらつきより小さいので、順位ではなく同着と読んでください。</p>
+<p>iPhone では 2 つのエンジンが自分から控えめに動きます。ortho-earth はタッチ端末を一律に低メモリ扱いにして、タイルの同時取得を 6 本から 3 本に絞ります。Navara は近づいたときの LOD を 8 倍粗くしますが、この初期視点では影響がありません（「同じ 60 fps でも中身が違う」で詳しく）。</p>
+<h2>結果 2：動かしたとき</h2>
+<p>MapLibre＋deck.gl 以外の 4 つは、3 台とも周回とズームで 60 fps、フレーム時間の p95 は 18〜21 ms でした。カメラを止めてから描き終わるまでも 15 ms 以内です。</p>
+<p>周回（高度 500 m・半径 1 km）の fps / p95 / 止めてから描き終わるまで</p>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>MacBook Pro</th><th>Mac mini</th><th>iPhone 16 Pro</th></tr></thead><tbody><tr><td>ortho-earth</td><td>60 / 18.7 ms / 4 ms</td><td>60 / 19.0 ms / 4 ms</td><td>60 / 20 ms / 6 ms</td></tr><tr><td>Cesium</td><td>60 / 18.5 ms / 14 ms</td><td>60 / 18.4 ms / 8 ms</td><td>60 / 19 ms / 2 ms</td></tr><tr><td>Navara</td><td>60 / 18.3 ms / 14 ms</td><td>60 / 18.6 ms / 6 ms</td><td>59 / 19 ms / 10 ms</td></tr><tr><td>TerriaJS</td><td>60 / 18.3 ms / 12 ms</td><td>59 / 18.4 ms / 14 ms</td><td>60 / 19 ms / 7 ms</td></tr><tr><td>MapLibre + deck.gl</td><td>50 / 15.6 ms / 2.9 s</td><td>40 / 26.8 ms / 0.8 s</td><td>38 / 28 ms / 3.3 s</td></tr></tbody></table></div>
+<p>MapLibre＋deck.gl は、最速の MacBook でも周回中に 60 fps に届きません。カメラを止めたあとも 1〜3 秒かけて建物を描き足します。deck.gl は MapLibre の上に別のキャンバスを重ねて描くため、表示上の fps は実際の約 2 倍に出ます。表は画面が実際に更新された回数（主スレッドの fps）です。</p>
+<p>ズーム（高度 10 km から 300 m）でも形は同じで、MapLibre 以外は 60 fps、MapLibre は 47〜56 fps でした。ただし「60 fps を保った」中身はエンジンごとに違います。それは後の節で扱います。</p>
+<h2>結果 3：メモリ</h2>
+<p>JS ヒープは ortho-earth が 15 MB と桁違いに小さく、MapLibre＋deck.gl が約 0.9 GB と最大でした。16 GB の Mac mini でも、どのエンジンでもスワップは増えませんでした。</p>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>JS ヒープ</th><th>描画プロセス</th><th>GPU プロセス</th></tr></thead><tbody><tr><td>ortho-earth</td><td>15 MB</td><td>1.4 GB</td><td>0.20 GB</td></tr><tr><td>Cesium</td><td>0.18〜0.19 GB</td><td>1.4 GB</td><td>0.37〜0.38 GB</td></tr><tr><td>Navara</td><td>0.15〜0.16 GB</td><td>1.8〜1.9 GB</td><td>0.40〜0.42 GB</td></tr><tr><td>TerriaJS</td><td>0.24〜0.32 GB</td><td>1.5〜1.6 GB</td><td>0.40 GB</td></tr><tr><td>MapLibre + deck.gl</td><td>0.91〜0.94 GB</td><td>2.2〜2.3 GB</td><td>0.37〜0.40 GB</td></tr></tbody></table></div>
+<p>Chrome で測った 3 シナリオの最大で、幅は MacBook と Mac mini の違いです。ortho-earth はタイルの解読と描画をワーカーで行うので、JS ヒープ（主スレッド）が小さく出ます。その分は描画プロセスの量に入っていて、そちらでは Cesium と並びます。iPhone の Safari ではメモリを測れません。</p>
+<h2>同じ 60 fps でも中身が違う</h2>
+<p>どのエンジンも 60 fps を出しますが、そのためにどこで手を抜くかが違います。Cesium と TerriaJS は動いている間は読み控え、Navara はスマホで近づくと絵を粗くし、ortho-earth と MapLibre は読みながら描きます。</p>
+<p class="chart-cap">ズーム中に取得したタイル（M1 Mac mini、vsync あり、高度 10 km → 300 m、各 5 回の中央値）</p>
+<figure class="chart"><div class="bars">
+<div class="bar-row"><span class="bar-label">MapLibre + deck.gl</span><span class="bar-track"><span class="bar" style="width:78.0%"></span><span class="bar-val">463 件 · 171 MB</span></span></div>
+<div class="bar-row"><span class="bar-label">Navara</span><span class="bar-track"><span class="bar" style="width:64.4%"></span><span class="bar-val">382 件 · 137 MB</span></span></div>
+<div class="bar-row ref"><span class="bar-label">Cesium（間引きなし・参考）</span><span class="bar-track"><span class="bar" style="width:59.0%"></span><span class="bar-val">350 件 · 129 MB</span></span></div>
+<div class="bar-row"><span class="bar-label">ortho-earth</span><span class="bar-track"><span class="bar" style="width:57.6%"></span><span class="bar-val">342 件 · 127 MB</span></span></div>
+<div class="bar-row cull"><span class="bar-label">Cesium</span><span class="bar-track"><span class="bar" style="width:6.2%"></span><span class="bar-val">37 件 · 5 MB</span></span></div>
+<div class="bar-row cull"><span class="bar-label">TerriaJS</span><span class="bar-track"><span class="bar" style="width:5.7%"></span><span class="bar-val">34 件 · 5 MB</span></span></div>
+</div></figure>
+<p>どれも各エンジンの既定の振る舞いで、仕様どおりです。そこで既定のままの主表とは別に、その振る舞いを外した参考計測を 4 本行いました。</p>
+<div class="table-wrap"><table><thead><tr><th>参考</th><th>既定</th><th>そろえた条件</th><th>読み取れること</th></tr></thead><tbody><tr><td>Cesium の移動中の間引き（cullRequestsWhileMoving など 3 つ）、Mac mini</td><td>ズーム中 37 件・5 MB、60 fps</td><td>間引きなし 350 件・129 MB、60 fps、p95 18.2 ms</td><td>M1 では間引きがなくても滑らか。初回表示は 4.72 → 4.99 秒</td></tr><tr><td>iPhone の Navara の LOD 倍率（モバイルでは 8）</td><td>周回中 81 件・31 MB、描き終わり 10 ms</td><td>倍率 1：299 件・112 MB、描き終わり 2.08 秒</td><td>初回表示（8.16 → 8.46 秒）とズームは変わらず、近い視点だけ粗くしている</td></tr><tr><td>iPhone の ortho-earth の同時取得数（タッチ端末は 3 本）</td><td>初回表示 6.99 秒（幅 6.85〜8.72）</td><td>6 本：6.32 秒（幅 6.22〜6.70）</td><td>3 本の制限が律速。滑らかさは変わらず、Cesium と同着になる</td></tr><tr><td>vsync なし（描画の上限なし）の Cesium</td><td>初回表示 MacBook 7.31 秒、Mac mini 12.2 秒</td><td>vsync あり 5.91 秒、4.72 秒</td><td>上限なしの描画ループが主スレッドを占め、タイル要求が後回しになる</td></tr></tbody></table></div>
+<p>Cesium の間引きは、低い性能の端末でも滑らかさを保つための保険です。今回の 3 台では、切っても 60 fps は崩れませんでした。Navara と ortho-earth は「モバイルでは自分から控える」作りで、Navara は絵の細かさを、ortho-earth は読み込みの速さを差し出しています。ortho-earth はこの計測を受けて、同時取得数を add3DTiles の maxInflight で指定できるようにしました。</p>
+<h2>エンジンごとの長所と短所</h2>
+<p>数字を並べ終えて、エンジンごとの印象がはっきりしました。自分のエンジン以外から書きます。</p>
+<p><strong>Cesium</strong>：今回いちばん感心したのは Cesium です。M1 の Mac mini でもフレーム時間の p95 が 18.1〜18.4 ms と 5 つの中で最も揃っていて、止めてから描き終わるまでも 2〜14 ms で済みます。描画プロセスのメモリも 1.4 GB と、ortho-earth と並んで最も小さい側です。動いている間の間引きも、手抜きというより賢い既定値でした。ズーム中に読むのは 37 件と他の約 1/10 ですが、止まった瞬間に必要な分を読み、すぐ描き終わります。間引きを切って他と同じ 350 件を読ませても、M1 で 60 fps のままでした。間引きがなくても滑らかで、間引きは回線と電池のための余裕になっています。3D Tiles を生んだ会社が長年磨いてきた厚みが、そのまま数字に出ていると感じました。弱いのは描画の上限を外したときで、描画ループが主スレッドを占めてタイル要求が後回しになり、初回表示が M1 で 12.2 秒まで延びます。普通のブラウザには vsync があるので実害は小さいものの、主スレッドで描く作りの限界が最もはっきり見えた場面です。</p>
+<p><strong>TerriaJS</strong>：中身は Cesium 1.142 相当で、Cesium 本体の 1.146 とは 4 版しか離れていません。ですから Mac での Cesium との差は、Cesium 自体の進化よりも、目録や UI といったフレームワークの上乗せ分と読むのが正確だと思います。実際、Mac では最初のタイルが 1.0〜1.1 秒と遅れて始まり（Cesium は 0.5 秒前後）、JS ヒープも Cesium より 3〜7 割多めです。一方で iPhone では初回表示 5.85 秒で先頭と同着になり、Cesium 本体（6.32 秒）より速く出ました。既定の 30 fps 上限も、データを見せる完成品としては電池に優しい正しい判断です。</p>
+<p><strong>MapLibre＋deck.gl</strong>：最初のタイルが届くのは最も早く（0.3〜0.4 秒）、iPhone の初回表示も先頭と同着です。読む速さそのものは速いのです。ただ 3D は MapLibre が自分で描くのではなく、deck.gl を重ねて描いています。そのため M1 と iPhone では周回中に 40 fps 前後しか出ず、止めてから描き終わるまで最大 3.3 秒かかり、メモリも 5 つの中で最も多くなりました。これは MapLibre そのものの弱さというより、2D 地図に別のライブラリで 3D を重ねる組み合わせの重さです。2D 地図の表現の豊かさでは、今回の 5 つの中で MapLibre が一番だと思います。</p>
+<p><strong>Navara</strong>：まだ 0.2.1 と若いのに、描画は 3 台とも 60 fps で安定し、上限を外した M1 では周回 153 fps と最も余力がありました。Three.js に任せた描画は軽いです。弱いのはタイル 1 件の処理で、中央値 665〜911 ms と他の 2〜4 倍かかり、初回表示で一歩遅れます。iPhone で近づいたときに絵を粗くするのも、滑らかさを守るための割り切りです。これからの伸びが楽しみなエンジンです。</p>
+<h2>ortho-earth の立ち位置と残る課題</h2>
+<p>自分のエンジンについては、成熟した Cesium と同じ速さの帯に入りながら、主スレッドを空け、メモリを小さく保てている、というのが私の評価です。Mac の 2 台では初回表示が同着の先頭（5.90 秒・4.66 秒）、動かしても 60 fps、止めてから描き終わるまで 3〜10 ms でした。JS ヒープは 15 MB、GPU プロセスは約 0.2 GB でどちらも最小、タイル 1 件の処理も M1 で 149 ms と最速です。</p>
+<p>いちばんの特徴は、描画ごと worker に出していることです。今回の 5 つの中で、既定でそうしているのは ortho-earth だけです。主スレッドがほとんど空いているので、地図の上に重い UI を重ねても、描画に引きずられにくい作りにしてあります。ただし描画プロセス全体のメモリは 1.4 GB と Cesium とほぼ同じで、総量で圧倒的に軽いわけではありません。また今回のページは建物を描く以外に何もしていないので、主スレッドが空いている利点は、まだ数字としては示せていません。</p>
+<p>正直に書くと、計測の時点で残っていた課題は 4 つありました。1 つ目は、カメラを止めたときに一瞬白く抜けるちらつきです。まだ届いていないタイルの所を先に空にしてから描き直していたのが原因で、これは既に直しました。2 つ目は iPhone の初回表示 6.99 秒で、タッチ端末を一律に低メモリ扱いにして同時取得を 3 本に絞っているためです。6 本なら 6.32 秒で Cesium と同着になり、本数を指定できるようにしました。この 2 つは次の版で出します。3 つ目は、カメラが飛んだ後に霧が少しずつ追いつく間の余分な描き直し（起動直後に 60〜80 回）、4 つ目は雲を描くページで出る WebGL のエラーです。この計測で見つかった不具合のうち、b3dm を描けない問題や起動時の描き直しの多さは、既に 2.0.2 で直してあります。</p>
+<h2>測り方の落とし穴</h2>
+<p>測っている途中で、数字を大きく狂わせる落とし穴にいくつもはまりました。同じような比較をする人のために書いておきます。</p>
+<ul><li><strong>建物が描かれていなかった</strong>：Navara は Draco の wasm をワーカーから相対パスで読むため、Vite のビルドに写らず、建物が 1 つも描かれていませんでした。タイル要求は数えられるので、数字だけはそれらしく出ます。今は各回の画面を撮って、建物が描かれていない回を捨てています。</li><li><strong>vsync を切っても上限が外れないエンジンがある</strong>：Chrome の上限解除は主スレッドで描くページにしか効きません。ワーカーで描く ortho-earth は約 55 fps が測り方の天井です。そのため主表は vsync ありで比べました。</li><li><strong>vsync を切ると初回表示が遅くなるエンジンがある</strong>：Cesium は上限なしの描画ループが主スレッドを占め、タイル要求が後回しになります（M1 で初回表示 12.2 秒）。</li><li><strong>deck.gl の fps は 2 倍に出る</strong>：MapLibre の上に重ねたキャンバスの描画も数えるためです。画面が実際に更新された回数で比べました。</li><li><strong>ディスプレイが 2 台あると fps が頭打ちになる</strong>：Chrome は自分が載っている画面の更新に合わせて描きます。Mac mini では計測窓が 30 Hz の副ディスプレイに開き、全エンジンが 30 fps でした。窓の位置を固定して測り直しています。</li><li><strong>iPhone のスリープと他の端末</strong>：iPhone は配信元のページを開いた端末に順番を渡す仕組みで測りました。最初は Mac のブラウザの結果が混ざり、途中でスリープでも止まりました。結果に残るブラウザ名で端末を確かめ、乱れた回は除いています。</li><li><strong>回線</strong>：初回表示の大半はタイルのダウンロードなので、回線の状態で数百 ms 動きます。MacBook は他の作業を止めて測り直した値を載せています。</li></ul>
+<h2>まとめ</h2>
+<p>PLATEAU の建物を表示するだけなら、どのエンジンを選んでも初回表示と滑らかさに大きな差はありません。選ぶときに見るべきは、速さの数字より「どこで手を抜くか」と、何に使うかだと私は思います。</p>
+<p>弱い端末でも滑らかさを守りたいなら、動いている間の読み込みを間引く Cesium がいちばん確かです。データの目録や共有まで含めた地図アプリが必要なら TerriaJS がその上にあります。既に MapLibre の 2D 地図があるなら deck.gl で重ねるのが手軽ですが、M1 や iPhone では周回中に 60 fps を保てません。動かしている間も細部を読みながら描き、主スレッドとメモリを空けておきたいなら ortho-earth、描画の余力とこれからの伸びを取るなら Navara、というのが私の見立てです。</p>
+<p>振り返ると、今回の計測は少し軽すぎました。千代田区のテクスチャなしの建物だけでは、4 つのエンジンが 60 fps の天井に届いてしまい、地力の差が見えにくかったのです。地形や背景地図、Cesium の時間変化するデータ、MapLibre の 2D 表現のような、各エンジンが本当に得意とする部分も測っていません。次は範囲を都心の複数の区に広げ、テクスチャ付きの建物で、主スレッドにも仕事を載せて測ってみるつもりです。</p>
+<p>最後にもう一度。私は ortho-earth の開発者なので、どうしても自分のエンジンに甘くなっている所があるかもしれません。この記事の評価を鵜呑みにせず、公開するページとデータで確かめて、公正に評価していただければ嬉しいです。</p>
+<p>計測に使ったページとスクリプト、各回の生データと画面は <a href="https://github.com/kenjiyoshidahome2026-bit/plateau-bench">plateau-bench</a>（MIT）で公開しています。手順書どおりに動かせば、同じ測り方で自分の機械でも測れます。偏りや誤りに気づいたら、Issue で教えてください。</p>
+</article>
+</body>
+</html>
