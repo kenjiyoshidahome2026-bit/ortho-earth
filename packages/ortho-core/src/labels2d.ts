@@ -142,6 +142,35 @@ const ICOL0 = [0, 0, 0, 1];   // icon-color の既定（黒）
 // 鍵はラベルごとに一度だけ作って覚える（__k）＝衝突判定（150ms 毎）と rebuild のたびに toFixed を回さない。ラベルは届くたびに新しい物（structured clone）＝覚えは古くならない
 const keyOf = (L: Label2D): string => L.__k ??= (L.k ? L.k + "|" : "") + labelKey(L);   // 鍵の式は labelkey.js（tile worker が焼いた L.key があれば文字列を組まない）
 const GALAXY = new Set(["s", "e", "i", "gx", "gg"]);   // メシエの種別のうち銀河（星空の注記の記号＝楕円）
+// 星空の記号を絵に焼く（GPU の受け口＝記号として貼る・T-P3）。倍率 3・箱の中心が錨。メシエ 4 種（色は焼き込み・濃さは不透明度）と月の満ち欠け（+x＝太陽の側・回すのは貼る時）
+const SKY_SS = 3;
+function skySprite(w: number, h: number, draw: (g: OffscreenCanvasRenderingContext2D) => void): OffscreenCanvas {
+	const c = new OffscreenCanvas(w * SKY_SS, h * SKY_SS), g = c.getContext("2d")!;
+	g.scale(SKY_SS, SKY_SS); g.translate(w / 2, h / 2); draw(g);
+	return c;
+}
+const MESSIER_SZ = 5, MESSIER_BOX = 20, MOON_R = 8, MOON_BOX = 2 * MOON_R + 2;
+const messierKind = (t: string) => t === "gc" ? "gc" : GALAXY.has(t) ? "gal" : t === "oc" ? "oc" : "o";
+function messierSprite(kind: string): OffscreenCanvas {   // drawSky（Canvas2D）の記号と同じ形
+	const sz = MESSIER_SZ, P2 = Math.PI * 2;
+	return skySprite(MESSIER_BOX, MESSIER_BOX, g => {
+		g.lineWidth = 0.8; g.strokeStyle = "rgb(255,200,100)"; g.beginPath();
+		if (kind === "gc") { g.arc(0, 0, sz, 0, P2); g.moveTo(-sz, 0); g.lineTo(sz, 0); g.moveTo(0, -sz); g.lineTo(0, sz); g.stroke(); }
+		else if (kind === "gal") { g.ellipse(0, 0, sz * 1.5, sz * 0.6, 0.4, 0, P2); g.stroke(); }
+		else if (kind === "oc") { g.setLineDash([2, 2]); g.arc(0, 0, sz, 0, P2); g.stroke(); }
+		else { g.rect(-sz, -sz, sz * 2, sz * 2); g.stroke(); }
+	});
+}
+function moonSprite(k: number): OffscreenCanvas {   // drawSky（Canvas2D）の月と同じ構成（暗い側＝赤黒・輝面＝暖白・終端線＝半楕円）
+	const R = MOON_R;
+	return skySprite(MOON_BOX, MOON_BOX, g => {
+		g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fillStyle = "rgb(72,22,15)"; g.fill();
+		g.beginPath(); g.arc(0, 0, R, -Math.PI / 2, Math.PI / 2);
+		g.scale(Math.max(1e-3, Math.abs(2 * k - 1)) * Math.sign(2 * k - 1 || 1), 1);
+		g.arc(0, 0, R, Math.PI / 2, Math.PI * 1.5); g.fillStyle = "rgb(250,246,232)"; g.fill();
+	});
+}
+const SKY_CON: Color = [160 / 255, 200 / 255, 1, 1], SKY_PLA: Color = [1, 235 / 255, 200 / 255, 1], SKY_MES: Color = [1, 220 / 255, 150 / 255, 1];
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 // 伸びる記号（MapLibre の stretchX／stretchY／content）＝icon-text-fit の時、文字の箱 t＝[x0,y0,x1,y1] に余白 p＝[上,右,下,左] を足した箱へ content が重なるよう、伸びる区間だけを同じ倍率で伸ばす（伸びない区間は元の大きさ）。
 // 戻り＝{ box:[x0,y0,x1,y1], X, Y, s }（X/Y の segs＝[元の始点, 元の幅, 先の始点, 先の幅]（元 px）・s＝元 px→CSS px）。drawStretched が区間の組ごとに drawImage（9 分割の一般形）。symbols-2d と ortho-core/labels2d に同じ式（overlay は依存ゼロ）
@@ -756,6 +785,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		}
 		for (const k of order) drawOne(k);
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
+		drawSky(st, cam, Wc, Hc, dpr);   // 星空の注記も end の前（GPU の受け口は end で列を送る）
 		sink.end();
 		function drawOne(k: string) {
 			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
@@ -806,7 +836,6 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const just = L.just === "auto" ? ((b?.an || L.an || "center").includes("left") ? "left" : (b?.an || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
 			sink.pointText(tl, tl.font || fontOf(L, L.size!), T, sx, sy, x0, y0, just, L, o, imgBm);
 		}
-		drawSky(st, cam, Wc, Hc, dpr);
 		drawMs = nowMs() - t0;
 		return animating;
 	}
@@ -814,7 +843,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
 	// 出現タイミング・フェードも星座線と同一（z<5・z5→4.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
 	function drawSky(st: CameraState, cam: CameraPose, Wc: number, Hc: number, dpr: number) {
-		const ctx = sink.ctx2d;   // 星空の注記・月は 2D の受け口だけ（T-P3 の 2 本目以降で移す）
+		const ctx = sink.ctx2d;   // Canvas2D の受け口＝直描き・GPU の受け口＝skyViaSink（T-P3）
 		if ((!sky && !moon) || cam.zoom >= 5 || !ctx) return;
 		const fade = Math.min(1, (5 - cam.zoom) / 0.5);
 		const gmst = gmstAt(clockNow(clock));   // 星（renderer＝gmstAt(clockNow(view.clock))）と同じ時刻・同じ式（旧＝実時刻の近似式＝時計を早送りすると星座名が星からずれた）
@@ -830,6 +859,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			if (unproject(st, sx * dpr, sy * dpr)) return null;   // その画素は地球＝星は隠れる
 			return [sx, sy];
 		};
+		if (sink.kind === "webgpu") { skyViaSink(put, fade); return; }   // GPU の受け口＝字は SDF・記号と月は焼いた絵（T-P3）
 		// 月の円盤（満ち欠け）：暗い側は赤黒（地球照の佇まい）、輝面は暖白。輝面比 k と太陽の画面方位から
 		// 半円＋半楕円（x方向スケール 2k-1＝符号で三日月/十三夜を自動で描き分け）の古典構成。
 		if (moon) {
@@ -892,6 +922,42 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 				}
 				ctx.fillStyle = `rgba(255,220,150,${0.65 * fade})`;
 				ctx.fillText(Mo.name, px, py + sz + 6);
+			}
+		}
+	}
+
+	// 星空の注記を受け口へ（GPU の受け口だけ＝Canvas2D の受け口は drawSky の直描きのまま＝既定の絵を変えない）。最前面（層の位置に描かない）
+	const skyW = new Map<string, number>(), skyIc = new Map<string, OffscreenCanvas>(), NOIMG = () => null;
+	function skyText(name: string, x: number, y: number, size: number, color: Color, o: number) {
+		const font = `${size}px ${FONT_STACK}`, k = size + "\u0001" + name;
+		let w = skyW.get(k); if (w == null) { if (skyW.size > 2048) skyW.clear(); skyW.set(k, w = metrics.measurer(font, 0)(name)); }
+		const h = size * 1.2, tl: TextLayout = { lines: [name], ws: [w], w, h, size, ls: 0, lh: 1.2, font };
+		sink.pointText(tl, font, null, x, y, x - w / 2, y - h / 2, "center", { color, halo: null, haloW: 0 }, o, NOIMG);
+	}
+	const skyIcon = (key: string, mk: () => OffscreenCanvas) => { let c = skyIc.get(key); if (!c) skyIc.set(key, c = mk()); return c; };
+	function skyViaSink(put: (cel: readonly number[]) => [number, number] | null, fade: number) {
+		sink.layer?.(null, true);
+		if (moon) {
+			const p = put(moon.cel);
+			if (p) {
+				const mc = moon.cel, sc = moon.sunCel, dm = mc[0] * sc[0] + mc[1] * sc[1] + mc[2] * sc[2];   // 太陽の画面方位（drawSky と同じ）
+				const tx = sc[0] - mc[0] * dm, ty = sc[1] - mc[1] * dm, tz = sc[2] - mc[2] * dm, tl = Math.hypot(tx, ty, tz) || 1;
+				const p2 = put([mc[0] + tx / tl * 0.02, mc[1] + ty / tl * 0.02, mc[2] + tz / tl * 0.02]);
+				const th = p2 ? Math.atan2(p2[1] - p[1], p2[0] - p[0]) : 0, kq = Math.round(Math.max(0, Math.min(1, moon.k)) * 64);   // 満ち欠けは 64 段で焼く
+				const B = MOON_BOX;
+				sink.pointIcon(skyIcon("moon" + kq, () => moonSprite(kq / 64)), [-B / 2, -B / 2, B, B], p[0], p[1], null, th * 180 / Math.PI, fade);   // 箱の中心で回す
+			}
+		}
+		if (!sky) return;
+		if (sky.constellations) for (const L of sky.constellations) { const p = put(L.cel); if (p) skyText(L.name, p[0], p[1], 11, SKY_CON, 0.65 * fade); }
+		if (sky.planets) for (const L of sky.planets) { const p = put(L.cel); if (p) skyText(L.name, p[0], p[1] + 11, 10, SKY_PLA, 0.85 * fade); }
+		if (sky.messier) {
+			const B = MESSIER_BOX;
+			for (const Mo of sky.messier) {
+				const p = put(Mo.cel); if (!p) continue;
+				const kind = messierKind(Mo.type);
+				sink.pointIcon(skyIcon(kind, () => messierSprite(kind)), [-B / 2, -B / 2, B, B], p[0], p[1], null, undefined, 0.75 * fade);
+				skyText(Mo.name, p[0], p[1] + MESSIER_SZ + 6, 8, SKY_MES, 0.65 * fade);
 			}
 		}
 	}

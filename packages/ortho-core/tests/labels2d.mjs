@@ -350,4 +350,31 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.equal(fillOf("Arr"), "rgba(255,0,0,1)", "配列の色は従来どおり");
 }
 
+// ── 17. 星空の注記（z<5）＝GPU の受け口（kind "webgpu"）へは字は pointText・メシエの記号と月は焼いた絵の pointIcon（T-P3）・最前面（layer(null, true)）・
+// 2D の文脈には直に描かない。Canvas2D の受け口は今までどおり直描き（既定の絵は変えない）
+{
+	const dirs = []; for (let i = 0; i < 24; i++) for (let j = 1; j < 12; j++) { const lo = i / 24 * 2 * Math.PI, la = (j / 12 - 0.5) * Math.PI; dirs.push([Math.cos(la) * Math.cos(lo), Math.sin(la), Math.cos(la) * Math.sin(lo)]); }   // 天球を一回り（どれかは地球の外に見える）
+	const sky = { constellations: dirs.map((cel, i) => ({ cel, name: "C" + i })), planets: dirs.filter((_, i) => i % 6 === 0).map((cel, i) => ({ cel, name: "P" + i })), messier: dirs.filter((_, i) => i % 3 === 1).map((cel, i) => ({ cel, name: "M" + i, type: ["gc", "s", "oc", "pn"][i % 4] })) };
+	const z = { ...cam, zoom: 1.5 };
+	const calls = [], ctx2 = fakeCtx({ width: W, height: H });
+	const sink = { kind: "webgpu", ctx2d: ctx2, begin() {}, end() {}, clear() {}, fontsChanged() {}, layer: (li, pin) => calls.push(["layer", li, pin]), shield() {}, lineIcon() {}, lineText() {},
+		pointIcon: (src, ib, sx, sy, Ti, irot, o) => calls.push(["icon", src, ib, irot, o]), pointText: (tl, font, T, sx, sy, x0, y0, just, p, o) => calls.push(["text", tl.lines[0], font, p.color, o, x0 + tl.w / 2, sx]), stats: () => ({ glyphs: 0 }) };
+	const canvas = { width: W, height: H, getContext: () => ctx2 };
+	const layer = createLabelLayer(canvas, { sink });
+	layer.setSky(sky); layer.setMoon({ cel: dirs[60], sunCel: dirs[66], k: 0.3 });
+	layer.draw(z);
+	const tx = calls.filter(c => c[0] === "text"), ic = calls.filter(c => c[0] === "icon");
+	assert.ok(tx.some(c => /^C/.test(c[1])) && tx.some(c => /^P/.test(c[1])) && tx.some(c => /^M/.test(c[1])), `星座・惑星・メシエの名が受け口へ（${tx.length}）`);
+	assert.ok(tx.every(c => Math.abs(c[5] - c[6]) < 1e-9), "名は錨の真ん中（中央揃え）");
+	assert.ok(tx.filter(c => /^C/.test(c[1])).every(c => /^11px /.test(c[2]) && c[4] <= 0.65 + 1e-9), "星座名＝11px・不透明度 0.65×出現度");
+	assert.ok(ic.length > 0 && ic.every(c => c[1] && c[1].width > 0 && c[2][2] > 0), `メシエの記号は焼いた絵（${ic.length}）`);
+	assert.equal(new Set(ic.filter(c => c[2][2] === 20).map(c => c[1])).size <= 4, true, "メシエの記号は 4 種だけ焼く（同じ種は同じ絵）");
+	const L0 = calls.findIndex(c => c[0] === "layer"), first = calls.findIndex(c => c[0] === "text" || c[0] === "icon");
+	assert.ok(L0 >= 0 && L0 < first && calls[L0][1] === null && calls[L0][2] === true, "星空は最前面（層の位置に描かない）");
+	assert.equal(ctx2.log.filter(e => e.op === "fill").length, 0, "2D の文脈には直に描かない");
+	// Canvas2D の受け口（既定）＝今までどおり直描き
+	const { layer: l2, ctx: c2 } = mkLayer(); l2.setSky(sky); l2.draw(z);
+	assert.ok(c2.log.some(e => e.op === "fill" && /^C/.test(e.s)), "Canvas2D の受け口は星座名を fillText で");
+}
+
 console.log("labels2d: ok");
