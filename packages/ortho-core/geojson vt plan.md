@@ -1,0 +1,67 @@
+# geojson の層を vector の描き方へ（pattern-2d を GPU へ）・実施計画（2026-10-22 起案）
+
+位置づけ：テキスト GPU 化（`text gpu plan.md`）の後に残った「毎フレームの Canvas2D の重ね描き」のうち、MapLibre の層を受ける **pattern-2d** を GPU に移す計画。
+基図と利用者の vector の層（vtdraw）は、style 互換の波 1〜4 で fill-pattern・line-offset・破線・cap/join を GL2 と WebGPU の両方で描けるようになった（`globe/maplibre-compat.md` §6）。
+geojson の層（gint）はその描き方を持たないので、該当する層だけ別の canvas2D（pattern-2d）で描いている。ここを **geojson を vector のタイルに切って vtdraw に流す**（MapLibre の geojson-vt と同じ考え方）ことで埋める。
+掟は `perf plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③両バックエンド 1:1。並走との取り決めは §6。
+
+## 0. 現状（main 124539fd）
+
+| 層（geojson source） | 今の描き方 | 欠け |
+|---|---|---|
+| fill・line・circle（下以外） | gint（stencil-then-cover・カプセル線・地物ごとの表） | 無し |
+| fill-pattern・line-pattern | **pattern-2d**（`kindOf`＝"pattern"・`addPattern` が地物を評価して経緯度列を送る・毎フレーム投影して `ctx.fill`／`stroke`） | CPU で毎フレーム全頂点を投影・WebGPU でも Canvas2D・地形に乗らない・層の位置でなく最前面の手前 |
+| line-offset ≠ 0・line-gradient | 同上（`offsetPolyline`・`gradStops`） | 同上 |
+
+問い合わせは `patItems`（画面の px で当てる）。vtdraw 側は fill-pattern・line-offset・破線・translate・blur を GPU で描く（line-pattern と line-gradient は未対応＝警告して色で描く）。
+
+## 1. 設計
+
+### G-1 geojson の切り分け（core・純関数）
+- `geojsonvt.ts`（新）：`createGeojsonIndex(fc, { maxzoom, buffer, promoteId })` → `tile(z, x, y)` が `DecodedTile`（source-layer は 1 つ）を返す。
+  - 地物の外接矩形の格子で候補を引き、タイルの枠（＋buffer）で切る：線＝既存の `clipLineGeom`、面＝Sutherland–Hodgman（輪ごと・穴も）。点はそのまま。
+  - 座標はタイルの extent（4096）に量子化。`id`＝Feature.id／promoteId（ML_ID と同じ決め方）。式の `["geometry-type"]` は元の型（`gt`＝§4g と同じ）。
+  - 簡略化はしない（初版）。maxzoom 既定＝MapLibre の geojson source の 18（エンジンの z へ換算）。それより上は過拡大（vtdraw の既存の扱い）。
+- 検定：Node（面積の保存・枠の外に出ない・穴・日付変更線・タイルをまたぐ線の本数）。
+
+### G-2 vtdraw に「手元のタイル」の source
+- main：geojson source を vtdraw の記述子に `local: true` で登録（タイルの選び方・LRU・層の順の鍵は vector source と同じ）。取得の段で fetch せず、worker に「切って」と頼む。
+- vtdraw-worker：`putGeojson(sid, fc, opts)` で index を作って預かる（setData＝作り直し・updateData＝差分で作り直し）。`build` の入口で生バイトの代わりに `index.tile(z,x,y)` を読む。以降の filter・buildTileDrawList・labels は vector と同じ。
+- `kindOf`：geojson source の "pattern" の層を "vtdraw" へ（`?gjvt=0` で今の pattern-2d に戻す）。gint の層は**今のまま**（gint の方が速い所＝大きな面の stencil・地物ごとの表の書き換え）。
+- 問い合わせ：queryRenderedFeatures は vtdraw の当たり（vector の層と同じ）。querySourceFeatures は今どおり data を返す。feature-state は vtdraw の fs の口。
+
+### G-3 line-gradient（lineMetrics）
+- MapLibre の line-gradient は geojson source の `lineMetrics: true` だけ。`["line-progress"]` は地物の線の頭からの長さの割合。
+- G-1 の切り分けで、線の各部分に「元の線の全長」と「部分の頭の進み」を属性で持たせ、build.ts が頂点の進みを焼く。
+- 色は進みの見本（64 段）を表に焼いて、シェーダが進みで引く（paint 表の (b) 類の行と同じ置き場が候補）。**線分レコード（8×u32）に語を足すかどうかは統合ロードマップと擦り合わせ**（§5 裁定待ち 2）。
+
+### G-4 line-pattern
+- vector の層でも未対応＝G-2 の後に、fill-pattern の記号帳（アトラス）を線方向に敷く形で両方まとめて。style 互換の線の側と一緒に設計する。
+
+## 2. 順番と門
+
+| 段 | 中身 | 門 | 逃げ道 |
+|---|---|---|---|
+| G-1 | 切り分け（core） | Node の検定（面積・枠・穴・日付変更線） | — |
+| G-2 | 手元のタイル＋fill-pattern・line-offset を vtdraw へ | t-mlcompat `pattern-minzoom-and-query`・t-fillpattern・t-linedeco（offset の場面）・公式例 add-a-pattern-to-a-polygon が今と同じ以上・pattern-2d のオーバーレイが作られない | `?gjvt=0` |
+| G-3 | line-gradient | 公式例 create-a-gradient-line-using-an-expression・create-a-gradient-dashed-line-using-an-expression・t-linedeco（gradient） | `?gjvt=0` |
+| G-4 | line-pattern（vector と geojson） | t-linedeco・公式例の line-pattern の場面 | `?gjvt=0` |
+
+見立て：G-1 1 日・G-2 2〜3 日・G-3 2 日（裁定次第）・G-4 2 日。G-2 だけでも fill-pattern と line-offset の geojson 層は Canvas2D を離れる。
+
+## 3. 期待
+- pattern-2d の毎フレームの投影と塗りが消える（大きな面の模様・ずらした線の多い層で CPU が軽くなる）。
+- 模様と飾りの層が**層の位置**で描かれ、地形に乗る（今は最前面の手前の canvas）。WebGPU でも同じ絵。
+- geojson の層が vector の層と同じ部品に乗る＝style 互換で足した描き方（cap/join・破線・translate・blur）が geojson の飾りの層にも自動で効く。
+
+## 4. 残る Canvas2D（この計画の外）
+czml-draw・screengrid-draw・anno-draw・imagequad-draw（MapLibre の層ではない自前の口）と、`map.gadget.cluster`（cluster-2d）。どれも層の位置の約束が無い＝必要が出たら個別に。
+
+## 5. 裁定待ち
+1. **対象**：G-2 は pattern の層だけを vtdraw へ（推奨・gint の速さを保つ）か、geojson の層を全部 vtdraw へ（描き方が 1 本になるが、大きな面の stencil の速さを失う）。
+2. **line-gradient の進み**：線分レコードに語を足すか（8×u32 の約束を変える）、既存の語 6（距離）と地物ごとの全長の表から割合を出すか（推奨・語を足さない）。統合ロードマップ thread と擦り合わせる。
+3. **geojson の maxzoom**：MapLibre の既定 18 に合わせるか（推奨）、層ごとに source の `maxzoom` を読むか（両方＝source に書いてあれば読む）。
+
+## 6. 並走との取り決め
+- style 互換（paint 表 (b) 類・線の側）：G-2 は vtdraw-worker の入口と記述子だけを触り、build.ts は触らない。G-3／G-4 は build.ts と線分レコードに触る＝着手前に統合ロードマップ thread と擦り合わせる。
+- テキスト GPU 化：geojson の symbol 層は §4g の gjlabels のまま（この計画では動かさない）。
