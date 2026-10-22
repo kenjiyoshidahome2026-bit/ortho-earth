@@ -6,7 +6,7 @@
 | 略号 | 計画 | 所在 | 段 |
 |---|---|---|---|
 | **S** | MapLibre style 互換の向上 | Claude Doc「MapLibre スタイル互換性の向上計画」（台帳の正典は `packages/globe/maplibre-compat.md`） | P0 物差し／P1 基図の絵／P2 層順と文字／P3 細目 |
-| **T** | テキスト描画の WebGPU 化 | Claude Doc「テキスト描画のWebGPU化計画」 | P0 TextSink 切り出し／P1 線沿い GPU／P2 全文字 GPU・層の位置で描く／P3 記号・標識・symbols-2d／P4 glyph PBF／P5 投影 GPU／P6 WebGL2 |
+| **T** | テキスト描画の WebGPU 化 | `packages/ortho-core/text gpu plan.md`（本人向けは Claude Doc「テキスト描画のWebGPU化計画」）・**P0 実施済** | P0 TextSink 切り出し／P1 線沿い GPU／P2 全文字 GPU・層の位置で描く／P3 記号・標識・symbols-2d／P4 glyph PBF／P5 投影 GPU／P6 WebGL2 |
 | **V** | ベクタータイル描画の高速化 | `packages/ortho-core/vt perf plan.md`（PR #525） | Ph0 計器／Ph1 tile worker 速攻／Ph2 GPU 常駐プール（旧 perf plan P2）／Ph3 paint 表／Ph4 結合頻度 |
 
 以下、項目は「S-P1-2」（S の P1 の 2 番）・「T-P2」・「V-Ph2」のように指す。
@@ -48,7 +48,7 @@
 | 1 | **V-Ph0** | 計器 e（要求→画面の中央値／p90）・計器 f（結合の量）・bench-tile に都心 z16 と富士 z13 の見本 | `vt perf plan.md` §8 の表が Mac の 3 行埋まる |
 | 2 | **S-P0-1・2・4** | MapLibre expression-tests の node の門・v8.json の網羅表の自動生成・公式例の爪車を o1014 に揃える | 外の分母が npm test に乗る・known.json の未反映 11 件が解消 |
 | 3 | **S-P0 追加：式の分類** | `expr.ts` の compile に `kind`（constant／zoom／data／zoom×data）を足す。網羅表と同じ走査で実在 style 14 本の層を分類し件数を出す | expression-tests 緑・分類の件数表（V-Ph3 の設計材料） |
-| 4 | **T-P0** | labels2d の描画呼び出しを TextSink に、字の寸法を口に切り出す（Canvas2D 版で同じ絵）。計測場面（デルフト・東京 z15・世界 z3）と `?perf=1` の注記の行 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 |
+| 4 | **T-P0**（✓ 2026-10-22） | labels2d の描画呼び出しを TextSink に、字の寸法を口に切り出す（Canvas2D 版で同じ絵）。計測場面（デルフト・東京 z15・世界 z3）と `?perf=1` の注記の行 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 |
 | 5 | S-P0-3・5 | 実在 style コーパスの集計スクリプト・入口の validate 警告 | 「出現×未対応」の順位が毎回同じ式で出る |
 
 取り決め（T 計画から引き継ぎ）：T-P0 の間は labels2d.ts の描画部分が大きく動く＝S 側は labels.ts（焼き込み）と配置の関数だけを触る。
