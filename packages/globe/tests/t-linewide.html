@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- 実描画の検分：太い線（MapLibre の line-width・互換の計画の台帳の追いつき・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw の線分プール／?nomd=1＝classic の属性）。
+     線は頁の中で作った MVT（addProtocol の lw://）＝画面の点を unproject した経緯度の横線。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）は半幅を f32 で持つ＝上限は無い。
+     geojson の層（gint）は地物の表（u32 の B 語）の線幅＝旧は u8（1/8px）で約 32px の頭打ち → u16 に広げた（8191px まで）。
+     ①基図 line-width 80 ②利用者の vector の層 80 ③geojson の層 60 と 20（細い方は旧と同じ絵）＝縦に切って赤の厚みを読む。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linewide</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "@ortho-earth/globe";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 最小の MVT 書き手（層 1 枚・LineString・文字列の属性 k）＝t-linedash と同じ
+const varint = (a, v) => { while (v > 127) { a.push((v & 127) | 128); v = Math.floor(v / 128); } a.push(v); };
+const zz = n => (n << 1) ^ (n >> 31);
+const fld = (a, num, wt) => varint(a, (num << 3) | wt);
+const bytesOf = (a, num, b) => { fld(a, num, 2); varint(a, b.length); for (const x of b) a.push(x); };
+const packed = (a, num, vals) => { const b = []; for (const v of vals) varint(b, v); bytesOf(a, num, b); };
+function mvt(feats) {
+	const vals = [...new Set(feats.map(f => f.k))], L = [];
+	varint(L, (15 << 3) | 0); varint(L, 2);
+	bytesOf(L, 1, [..."l"].map(c => c.charCodeAt(0)));
+	for (const f of feats) {
+		const F = [], g = [];
+		packed(F, 2, [0, vals.indexOf(f.k)]);
+		fld(F, 3, 0); varint(F, 2);
+		let cx = 0, cy = 0;
+		g.push((1 & 7) | (1 << 3)); g.push(zz(f.pts[0][0] - cx), zz(f.pts[0][1] - cy)); [cx, cy] = f.pts[0];
+		g.push((2 & 7) | ((f.pts.length - 1) << 3));
+		for (const [x, y] of f.pts.slice(1)) { g.push(zz(x - cx), zz(y - cy)); cx = x; cy = y; }
+		packed(F, 4, g);
+		bytesOf(L, 2, F);
+	}
+	bytesOf(L, 3, [..."k"].map(c => c.charCodeAt(0)));
+	for (const v of vals) { const V = []; bytesOf(V, 1, [...v].map(c => c.charCodeAt(0))); bytesOf(L, 4, V); }
+	fld(L, 5, 0); varint(L, 4096);
+	const T = []; bytesOf(T, 3, L);
+	return new Uint8Array(T).buffer;
+}
+let LINES = [];
+const toTile = (lon, lat, z, x, y) => {
+	const n = 2 ** z, s = Math.sin(lat * Math.PI / 180);
+	return [Math.round(((lon + 180) / 360 * n - x) * 4096), Math.round(((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n - y) * 4096)];
+};
+addProtocol("lw", async ({ url }) => {
+	const [z, x, y] = url.replace("lw://", "").split("/").map(Number);
+	return { data: mvt(LINES.map(l => ({ k: l.k, pts: l.ll.map(([lo, la]) => toTile(lo, la, z, x, y)) }))) };
+});
+
+// 線の置き場（画面の CSS px・z15 で unproject）
+const VT = [[100, 200], [860, 200]], GJ = [[100, 380], [860, 380]], GJ2 = [[100, 500], [860, 500]];
+const SRC = { type: "vector", tiles: ["lw://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
+const LAYER = { id: "l-wide", type: "line", source: "lw", "source-layer": "l", layout: { "line-cap": "butt" }, paint: { "line-color": "#ff0000", "line-width": 80 } };
+const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
+const VIEW = [139.79004, 35.71084];
+const boot = async () => { const map = await createGlobe({ target: "#map", view: `#15/${VIEW[1]}/${VIEW[0]}`, chips: false, debugGlobals: true, style: { version: 8, name: "t-linewide", sources: {}, layers: [BG] } }); await sleep(3000); return map; };
+const llOf = (map, pts) => pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; });
+try {
+	let map = await boot();
+	LINES = [{ k: "a", ll: llOf(map, VT) }];
+	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	// x＝480 の縦の列で y0..y1 の赤の厚み（CSS px）
+	const thick = (img, y0, y1) => {
+		const W = document.getElementById("map").clientWidth, s = img.width / W, x = Math.round(480 * s);
+		let n = 0;
+		for (let y = Math.round(y0 * s); y < Math.round(y1 * s); y++) { const i = (y * img.width + x) * 4; if (img.data[i] > 200 && img.data[i + 1] < 120 && img.data[i + 2] < 120) n++; }
+		return n / s;
+	};
+	const near = (v, want) => Math.abs(v - want) <= 3;
+	// ① 基図
+	await map.setStyle({ version: 8, name: "t-linewide", sources: { lw: SRC }, layers: [BG, LAYER] });
+	await sleep(6000);
+	let w = thick(await grab(), 120, 290); ok("base:80", near(w, 80), w.toFixed(1));
+	// ② 利用者の vector の層（vtdraw）と ③ geojson の層（gint）＝地図を作り直す
+	map.destroy();
+	map = await boot();
+	map.addSource("lw", SRC);
+	await map.addLayer(LAYER);
+	const gj = pts => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: llOf(map, pts) } });
+	map.addSource("g", { type: "geojson", data: { type: "FeatureCollection", features: [gj(GJ)] } });
+	map.addSource("g2", { type: "geojson", data: { type: "FeatureCollection", features: [gj(GJ2)] } });
+	await map.addLayer({ id: "g-wide", type: "line", source: "g", paint: { "line-color": "#ff0000", "line-width": 60 } });
+	await map.addLayer({ id: "g-thin", type: "line", source: "g2", paint: { "line-color": "#ff0000", "line-width": 20 } });
+	await sleep(6000);
+	const img = await grab();
+	w = thick(img, 120, 290); ok("user:80", near(w, 80), w.toFixed(1));
+	w = thick(img, 300, 460); ok("geojson:60", near(w, 60), w.toFixed(1));
+	w = thick(img, 470, 560); ok("geojson:20", near(w, 20), w.toFixed(1));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

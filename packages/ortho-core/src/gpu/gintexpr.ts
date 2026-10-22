@@ -1,6 +1,6 @@
 // gint の paint/filter 式 → WGSL compute（geopbf 改良点 ⑦・2026-10-12）── fid 表（gint/style.js buildFidStyle）を GPU で組む。
 // 入力＝属性列（gint/attrcols.js：鍵ごとの vec2u 列・辞書・geometry-type 列）、出力＝fid ごとの vec4u レコード（R fill RGBA8・G line RGBA8・
-// B width<<24|radius<<8|flags・A 0）＝buildFidStyle と同じ並び。意味論はネイティブ出自（expr.js の寛容な JS 流儀）を写す：
+// B width 下位<<24|width 上位<<16|radius<<8|flags・A 0）＝buildFidStyle と同じ並び。意味論はネイティブ出自（expr.js の寛容な JS 流儀）を写す：
 //   値 V{t,p}: t 0 undefined・1 number（p＝f32 ビット）・2 string（p＝辞書 id）・3 boolean・4 null・5 NaN（number だが NaN）・6 補間で出来た色文字列（p＝slot）・7 NaN の色文字列
 //   数への強制（単項 +／比較／算術）＝JS の ToNumber：undefined→NaN・null→0・bool→0/1・string→Number(s)（辞書ごとに CPU で引いた表 dnum）
 //   色＝string→parseRGBA（辞書ごとに CPU で引いた表 dcol）・number/bool→黒・undefined/null→色なし（既定値のまま）
@@ -107,6 +107,7 @@ fn clamp01(x: f32) -> f32 { return clamp(x, 0.0, 1.0); }
 fn r255(x: f32) -> u32 { return u32(floor(clamp01(x) * 255.0 + 0.5)); }
 fn packColor(C_: C, op: f32) -> u32 { if (C_.nan) { return 0u; } let c = C_.c; let a = r255(c.w * op); if (a == 0u) { return 0u; } return (r255(c.x) << 24u) | (r255(c.y) << 16u) | (r255(c.z) << 8u) | a; }
 fn u8(x: f32) -> u32 { return u32(clamp(floor(x + 0.5), 0.0, 255.0)); }
+fn u16(x: f32) -> u32 { return u32(clamp(floor(x + 0.5), 0.0, 65535.0)); }
 fn lerpT(input: f32, x0: f32, x1: f32, base: f32) -> f32 { let t = (input - x0) / (x1 - x0); if (base != 1.0) { return (pow(base, input - x0) - 1.0) / (pow(base, x1 - x0) - 1.0); } return t; }
 fn lerpV(a: V, b: V, t: f32, tnan: bool, slot: u32) -> V {
 	let an = a.t == 1u || a.t == 5u; let bn = b.t == 1u || b.t == 5u;
@@ -313,14 +314,14 @@ export function compileFidStyleWGSL(paint: Record<string, unknown> = {}, filter:
 				paintG(pCircC, "isPt"); paintG(pLineC, "!isPt");
 			} else paintG(pLineC ?? pCircC, "true");
 		}
-		if (pWidth != null) { const n = fresh(); emit(`let ${n} = vnum(${gen(pWidth, env0)}); if (finite(${n})) { w8 = u8(${n}.x * 8.0); }`); }
+		if (pWidth != null) { const n = fresh(); emit(`let ${n} = vnum(${gen(pWidth, env0)}); if (finite(${n})) { w8 = u16(${n}.x * 8.0); }`); }
 		if (pRadius != null) { const n = fresh(); emit(`let ${n} = vnum(${gen(pRadius, env0)}); if (finite(${n})) { r8 = u8(${n}.x * 4.0); }`); }
 		const wgsl = `${HELPERS.replace("fn vcol(", `var<private> cols: array<vec4f, ${Math.max(1, slots)}>;\nfn vcol(`)}
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3u) {
 	let fid = g.x; if (fid >= U.count) { return; }
 	var fill = 0u; var line = 0u; var w8 = 8u; var r8 = 6u; var flags = 1u;
 ${st.join("\n")}
-	outR[fid] = vec4u(fill, line, (w8 << 24u) | (r8 << 8u) | flags, 0u);
+	outR[fid] = vec4u(fill, line, ((w8 & 255u) << 24u) | ((w8 >> 8u) << 16u) | (r8 << 8u) | flags, 0u);
 }
 `;
 		return { wgsl, slots, propKeys, stateKeys, usesZoom, usesState, filterUsesState, filterUsesZoom, usesGeom };

@@ -94,7 +94,7 @@ ${LIFT}
 out vec4 v_col; out vec3 v_rel; out float v_w;
 void main() {
 	uint f = a_feat & 0x7fffffffu;
-	uvec4 r = rec(f); vec4 col = unpack(r.g); float w = float((r.b >> 24u) & 255u) / 8.0 * u_dpr;
+	uvec4 r = rec(f); vec4 col = unpack(r.g); float w = float((r.b >> 24u) | (((r.b >> 16u) & 255u) << 8u)) / 8.0 * u_dpr;   // 線幅 u16（1/8px・下位は bit 24〜・上位は bit 16〜＝2026-10-22 から）
 	if ((a_feat & 0x80000000u) != 0u || (r.b & 1u) == 0u || col.a <= 0.0 || w <= 0.0) { gl_Position = ${OFF}; v_col = vec4(0.0); v_rel = vec3(0.0); v_w = 1.0; return; }
 	vec4 c0 = u_mvp * vec4(lifted(a_p0, a_e0), 1.0), c1 = u_mvp * vec4(lifted(a_p1, a_e1), 1.0);
 	if (c0.w <= 0.0 || c1.w <= 0.0) { gl_Position = ${OFF}; v_col = vec4(0.0); v_rel = vec3(0.0); v_w = 1.0; return; }
