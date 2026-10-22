@@ -1940,7 +1940,12 @@ let zoomAtBuild = -1, lastMainReqT = 0;   // lastMainReqT＝main merge 要求の
 // GPU全アップロードを毎秒~25回やり直していた（チルト75°・z8.46実測）。8Hzでも下地(base)が隙間を敷くので
 // 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
 let lastMoveSwapT = 0;
-const MOVE_SWAP_MS = 125, MOVE_SWAP_ZOOM_MS = 60, MAIN_REQ_GAP_MS = 60;   // MAIN_REQ_GAP_MS＝新 sig の merge 要求の最短間隔（旧 200＝届いたタイルが画面に出るまでの主因・merge 自体は数 ms・sig が同じなら要求しない）2026-09-30   // MOVE_SWAP_ZOOM_MS＝ズーム中（zoomStable でない間）の merge 要求の間隔＝新しい段のタイルは届き次第（止まるまで待たない・LOW_MEM は従来どおり止まってから）2026-09-30
+// V-Ph4 結合頻度（vt perf plan §6・描画の統合ロードマップの 16・2026-10-22）：md（タイルの GPU 常駐・multi_draw）では「新しいタイルが 1 枚増えた」＝up 1 件＋draw list の差し替え
+// ＝classic の全枚 merge と違って軽い＝移動中の要求の間引きを 1 フレーム（16ms）まで詰める＝届いたタイルが次のフレームで載る（MapLibre と同じ「届いた順に描く」）。
+// classic（?nomd=1・LOW_MEM の既定）は従来の 125／60／60 のまま。?mdgap=N＝md の 3 つの間隔を N ms に（A/B の逃げ道＝?mdgap=60 で旧のズーム・要求の間隔、?mdgap=0 で間引き無し）。
+// 追い越しは scene worker の dl の FIFO（dlApplied）が防ぐ＝sig が同じなら要求しない（swapScene）のも従来どおり。効きの物差し＝Mac の bench-perf（計器 e の move 中央値と hitch）。
+const MD_GAP_MS = noMultiDraw ? null : qNum(/[?&]mdgap=(\d+)/, 16);
+const MOVE_SWAP_MS = MD_GAP_MS ?? 125, MOVE_SWAP_ZOOM_MS = MD_GAP_MS ?? 60, MAIN_REQ_GAP_MS = MD_GAP_MS ?? 60;   // MAIN_REQ_GAP_MS＝新 sig の merge 要求の最短間隔（旧 200＝届いたタイルが画面に出るまでの主因・merge 自体は数 ms・sig が同じなら要求しない）2026-09-30   // MOVE_SWAP_ZOOM_MS＝ズーム中（zoomStable でない間）の merge 要求の間隔＝新しい段のタイルは届き次第（止まるまで待たない・LOW_MEM は従来どおり止まってから）2026-09-30
 // ラベルはGLシーンと別経路（render worker のテキスト描画）＝丁目(z15.5)/空港マーク(z13)のz門で GL バッファを
 // 全再結合する理由は無い（本人指摘 2026-08-04「テキストにmergeは要らない」）。両者を merge シグネチャから外し、
 // ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層

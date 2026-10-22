@@ -112,6 +112,7 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 ## 6. Phase 4 結合頻度と常駐（P2 の後）
 
 - `MAIN_REQ_GAP_MS`（60）／`MOVE_SWAP_MS`（125）／`MOVE_SWAP_ZOOM_MS`（60）は classic の重さに合わせた間引き。md では「新しいタイルが 1 枚増えた」＝up 1 件＋dl＝軽い＝**ズーム中は 1 フレーム 1 要求**まで詰める（dlApplied の FIFO が追い越しを防ぐ）。門＝引っ掛かり 0 のまま・パン中の白抜き時間（計器 e）が縮む。
+  - **実装（2026-10-22・描画の統合ロードマップの 16）**：`globe.ts` の `MD_GAP_MS`＝md（`noMultiDraw` でない）では 3 つの間隔を 16ms（1 フレーム）に。classic と LOW_MEM は従来の 125／60／60 のまま。逃げ道 `?mdgap=N`（`60`＝旧のズーム・要求の間隔・`0`＝間引き無し）。門（引っ掛かり 0・計器 e の move 中央値）は Mac の `bench-perf.mjs` で＝未計測（クラウドでは md の絵が出ない）。
 - 下地（base）の merge も md のプールで＝同じタイルが main と base の両方に載る時、常駐は 1 回（`md.res` が key で共有）＝今でもそう＝確認だけ。
 - LRU 予算＝tess 済みバイトで縛る現行のまま。md では geometry が GPU に居る＝**端末の GPU メモリ**（`deviceMemory` 代理）で天井を分ける（`fallback-ladder.md` のティア表に 1 行）。
 - 生バイトの IDB キャッシュ（オフライン・再訪の即出し）＝`offline-pack.ts` の領分＝本計画の外。
