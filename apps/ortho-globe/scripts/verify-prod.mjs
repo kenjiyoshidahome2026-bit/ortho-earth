@@ -27,7 +27,7 @@ let chrome = null, server = null;
 const bye = code => { try { chrome && process.kill(-chrome.pid); } catch { chrome?.kill(); } server?.close(); process.exit(code); };
 
 // ① 静的
-const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl"];
+const REGION = ["/japan/lib/", "ortho-japan.js", "cyberjapandata.gsi.go.jp", "3dbag.nl", "api.pdok.nl"];
 const regionIn = file => { const s = fs.readFileSync(file, "utf8"); return REGION.find(pat => s.includes(pat)); };
 // 共有エンジン＝独立のデプロイ単位 apps/engine（2026-10-15〜）＝この家の dist には無い＝/globe/engine/ はエンジンの手元の置き場を同じ住所で配る（本番と同じ形）
 import { ENGINE_DIR } from "@ortho-earth/globe/scripts/lib/shared-engine.mjs";
