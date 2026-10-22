@@ -21,7 +21,7 @@ const NOTES = {
 	"line-dasharray": ["一部", "GL2 の基図と vector の層は MapLibre と同じ（S-P1-3・2026-10-22）・WebGPU・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ"],
 	"line-width": ["近似", "基図と vector の層は約 32px で頭打ち（表の u8・§4）"],
 	"line-gap-width": ["読む", "基図・vector・geojson（2026-10-03）"],
-	"fill-pattern": ["一部", "geojson の層だけ（canvas2D の模様）。基図は層を飛ばす・vector の層は未"],
+	"fill-pattern": ["一部", "GL2 の基図と vector の層（S-P1-4/5・2026-10-22・名前は層で一度・模様の大きさは cos φ 倍・3D の塗りと WebGPU は描かない）・geojson の層は canvas2D の模様"],
 	"line-pattern": ["一部", "geojson の層だけ（canvas2D の模様）。基図・vector の層は未"],
 	"background-pattern": ["未", "§3 B5"],
 	"fill-extrusion-pattern": ["未", "警告して描く（§4）"],

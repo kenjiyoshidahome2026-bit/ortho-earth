@@ -169,12 +169,12 @@ type SceneDraw = FillDraw | LineDraw;
 interface SceneBld { bufs: GPUBuffer[]; bPos: GPUBuffer; bSh: GPUBuffer; bAnc: GPUBuffer; count: number }
 interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number; md?: MDScene | null }
 /** タイル GPU 常駐プールのシーン（scene worker の dl＝プール内レンジの列・vt perf plan §4）。orgOff＝origins（タイル原点−シーン原点）の頂点バッファ内 byte 位置 */
-interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number }
+interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string }
 interface MDBldRun { counts: Int32Array; firsts: Int32Array; orgOff: number }
 interface MDScene { layers: MDLayer[]; bld: MDBldRun[] | null; orgBuf: GPUBuffer }
 interface MDPool { buf: GPUBuffer | null; bytes: number }
 interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
-interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
+interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
 interface MDPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline }
 type DrawSrc = SceneDraw[] | MDScene;
 /** set("scene") の入力（classic merge のシーン） */
@@ -1674,7 +1674,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setPipeline(atlasFillPipeMD!);
 						pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
 						for (const e of scene.md.layers) {
-							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi)) continue;
+							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は GL2 だけ
 							const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
 							if ((seaFB ? 1 : 0) !== gate) continue;
 							if (!user && (seaFB || waterC) && seaOff) continue;
@@ -1936,7 +1936,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const org = new Float32Array(Math.max(2, n * 2));
 		let at = 0;
 		const put = (o: Float32Array): number => { const off = at * 8; org.set(o, at * 2); at += o.length >> 1; return off; };
-		const layers: MDLayer[] = m.layers.map(L => ({ kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins) }));
+		const layers: MDLayer[] = m.layers.map(L => ({ kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}) }));
 		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
 		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(orgBuf, 0, org);
@@ -2001,7 +2001,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (let L of s.layers || []) {
 			if (!L) continue;
 			if (L.kind === "fill") {
-				if (!L.pos.length) continue;
+				if (!L.pos.length || L.pat) continue;   // fill-pattern（S-P1-4/5）＝GL2 だけ（WebGPU は次の段）＝描かない（旧＝基図は層ごと飛ばした・黒で塗らない）
 				const bPos = makeBuf(L.pos, GPUBufferUsage.VERTEX), bCol = makeBuf(u8col(L.col), GPUBufferUsage.VERTEX);
 				const hasIdx = L.idx && L.idx.length;
 				const bIdx = hasIdx ? makeBuf(L.idx instanceof Uint32Array ? L.idx : Uint32Array.from(L.idx), GPUBufferUsage.INDEX) : null;
@@ -2583,7 +2583,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const MDX = md ? mdPipeSet(CR ? "cr" : C ? "c" : R ? "r" : "p", S) : null;
 		const drawMDLayer = (slot: string, e: MDLayer, orgBuf: GPUBuffer) => {
 			if (e.kind === "fill") {
-				if (rasterHide) return;   // ラスタ基図＝塗りを伏せる
+				if (rasterHide || e.pat) return;   // ラスタ基図＝塗りを伏せる・fill-pattern（S-P1-4/5）は GL2 だけ
 				const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
 				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
 				if (hideBldFill && e.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる

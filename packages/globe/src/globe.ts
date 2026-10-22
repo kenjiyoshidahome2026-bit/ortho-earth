@@ -3494,8 +3494,8 @@ const vtdGet = async () => {
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED: Record<string, string[]> = { fill: ["fill-pattern"], line: ["line-pattern", "line-gradient"], circle: [], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
-const VTD_GL2_ONLY: Record<string, string[]> = { fill: ["fill-translate"], line: ["line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"] };   // S-P1-4/5＝WebGPU は次の段（読まずに描く）
+const VTD_UNSUPPORTED: Record<string, string[]> = { fill: [], line: ["line-pattern", "line-gradient"], circle: [], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
+const VTD_GL2_ONLY: Record<string, string[]> = { fill: ["fill-translate", "fill-pattern"], line: ["line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"] };   // S-P1-4/5＝WebGPU は次の段（読まずに描く）
 const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);

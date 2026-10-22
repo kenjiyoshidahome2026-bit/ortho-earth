@@ -1084,6 +1084,8 @@ out float v_front;
 out float v_fog;
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
 ${FX_TR}
+uniform float u_patK;   // fill-pattern（S-P1-4/5）＝floor(z) の世界（256px）の 1 度の px（経度）。0＝模様なし
+out vec2 v_pat;         // 模様の px（原点からの差＝メルカトルの px・縦は中ほどの緯度の cos で割る）
 uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
 out vec2 v_cuv;
 uniform vec4 u_gndOffInv0;  // 地面アトラス（前景/近/中/遠）＝同じ変換
@@ -1097,6 +1099,7 @@ out vec2 v_guv3;
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	dLL += trLL(u_origin + dLL);              // fill-translate（S-P1-4/5）
+	v_pat = vec2(dLL.x, -dLL.y / cos((u_origin.y + dLL.y * 0.5) * 0.017453293)) * u_patK;
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
 	v_ll = ll;
 	v_cuv = u_cogOffInv.xy + dLL * u_cogOffInv.zw;
@@ -1131,6 +1134,9 @@ in vec4 v_color;
 in float v_front;
 in float v_fog;
 in vec2 v_ll;
+in vec2 v_pat;
+uniform sampler2D u_patTex;   // fill-pattern（S-P1-4/5）＝記号帳の画像 1 枚（REPEAT）
+uniform vec4 u_patP;          // (原点の模様の位相 x, y（px）, 1/幅, 1/高さ（px＝画像の px÷pixelRatio）)。z＝0 で模様なし
 out vec4 fragColor;
 void main() {
 	if (v_front < -0.0015) discard;         // 裏半球は描かない（接線に標高許容＝地平線に頭を出す山上の塗りも描く）
@@ -1138,8 +1144,13 @@ void main() {
 	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く。
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
+	vec3 rgb = v_color.rgb;
+	if (u_patP.z > 0.0) {   // 模様＝画像の色と α（MapLibre と同じく fill-color は読まない・fill-opacity は掛ける）。画像は前乗算で届く
+		vec4 t = texture(u_patTex, fract((u_patP.xy + v_pat) * u_patP.zw));
+		af *= t.a; rgb = t.a > 0.0 ? t.rgb / t.a : vec3(0.0);
+	}
 	if (af <= 0.003) discard;
-	fragColor = vec4(mix(gndMix(cogTexMix(v_color.rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
+	fragColor = vec4(mix(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。

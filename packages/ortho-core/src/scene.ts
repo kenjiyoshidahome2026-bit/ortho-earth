@@ -4,7 +4,8 @@
 
 /** 塗りの op（build.ts が作る・タイル単体は idx が Uint16・結合後は Uint32） */
 // fx＝層の画面効果（S-P1-4/5・build.ts の layerFx）＝[tx, ty, anchor, blur, rel]・持つ層だけ
-export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array; fx?: number[] }
+// pat＝fill-pattern の画像の名前（S-P1-4/5・build.ts の fillPatternOf）・持つ層だけ
+export interface FillOp { kind: "fill"; li: number; id?: string; pos: Float32Array; col: Uint8Array; idx: Uint16Array | Uint32Array; fx?: number[]; pat?: string }
 /** 線の op（off＝line-offset の [off, tS, tE]×線分・持つ層だけ） */
 // jf＝線の端と継ぎ（S-P1-1・2026-10-22）：線分ごとの旗（build.ts の JF_*＝始点を前の線分と継ぐ・終点を次の線分と継ぐ・閉じた環の継ぎ目）。
 // 継ぐ相手は並びのすぐ前後の線分＝線分レコード（P1・P2）から読む（隣の点を別に持たない）。cj＝層の端と継ぎの種類（build.ts の lineCapJoin）。
@@ -41,8 +42,8 @@ export function coveredTiles(order: readonly { key: string }[]): Set<string> {
 	return covered;
 }
 
-interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number; dash?: number[]; dz?: number; fx?: number[] }
-interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; fx?: number[]; pi: number; ci: number; ii: number }
+interface SizeEntry { kind: "fill" | "line"; fillN: number; idxN: number; lineN: number; off?: boolean; jf?: boolean; cj?: number; dash?: number[]; dz?: number; fx?: number[]; pat?: string }
+interface FillAcc { kind: "fill"; li: number; pos: Float32Array; col: Uint8Array; idx: Uint32Array; fx?: number[]; pat?: string; pi: number; ci: number; ii: number }
 interface LineAcc { kind: "line"; li: number; P1: Float32Array; P2: Float32Array; col: Uint8Array; half: Float32Array; off: Float32Array | null; jf: Uint8Array | null; cj: number; dist: Float32Array | null; dash?: number[]; dz?: number; fx?: number[]; pi: number; ci: number; hi: number }
 
 export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: string) => TileGeom | null | undefined, opts: MergeOptions = {}): MergedScene {
@@ -60,6 +61,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 			if (op.kind === "line" && lineOff.has(key)) continue;
 			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
 			if (op.fx) e.fx ??= op.fx;   // 層の画面効果（S-P1-4/5）＝最初に持つタイルの値（cj と同じ）
+			if (op.kind === "fill" && op.pat) e.pat ??= op.pat;   // 模様の名前（同上）
 			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; if (op.jf) { e.jf = true; e.cj ??= op.cj; } if (op.dist && !e.dash) { e.dash = op.dash; e.dz = op.dz; } }
 		}
 	}
@@ -67,7 +69,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 	for (const [li, e] of size) {
 		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
-			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), fx: e.fx, pi: 0, ci: 0, ii: 0 }
+			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), fx: e.fx, pat: e.pat, pi: 0, ci: 0, ii: 0 }
 			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, jf: e.jf ? new Uint8Array(e.lineN) : null, cj: e.cj ?? 0, dist: e.dash ? new Float32Array(e.lineN) : null, dash: e.dash, dz: e.dz, fx: e.fx, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0。jf＝端と継ぎ（S-P1-1）の旗・持たないタイルの分は 0（端）・cj は最初に持つタイルの値（層の種類＝タイルで変わるのは zoom の式だけ）。dist＝破線（S-P1-3）の距離・持たないタイルの分は 0・模様は最初に持つタイルの値
 	}
 	for (const { ox, oy, ops, noLine } of tileOps) {
@@ -93,7 +95,7 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 		}
 	}
 	const layers: DrawOp[] = [...buf.values()].sort((a, b) => a.li - b.li).map((m): DrawOp => m.kind === "fill"
-		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx, ...(m.fx ? { fx: m.fx } : {}) }
+		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx, ...(m.fx ? { fx: m.fx } : {}), ...(m.pat ? { pat: m.pat } : {}) }
 		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}), ...(m.jf ? { jf: m.jf, cj: m.cj } : {}), ...(m.dist ? { dist: m.dist, dash: m.dash, dz: m.dz } : {}), ...(m.fx ? { fx: m.fx } : {}) });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。

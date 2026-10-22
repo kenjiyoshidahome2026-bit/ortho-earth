@@ -72,7 +72,7 @@ type GLRasterDraw = Omit<RasterDraw, "tex" | "mesh"> & { tex: GLRasterTex; mesh:
 type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLayer, "draws"> & { draws: GLRasterDraw[] })[] };
 /** 地面アトラスの 1 窓 */
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
-interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[]; fx: number[] | null }
+interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[]; fx: number[] | null; pat: string | null }
 interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null; fx: number[] | null }
 // 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（scene.ts の dashIntervals）
 interface DashU { P: number; n: number; round: number; iv: Float32Array }
@@ -85,7 +85,7 @@ function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
-interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
+interface MDLayer { kind: "fill" | "line"; li: number; cj?: number; dash?: number[]; fx?: number[]; pat?: string; dashU?: DashU | null; origins: Float32List; counts: Int32List; offsets: Int32List; firsts: Int32List }
 interface MDBldRun { origins: Float32List; firsts: Int32List; counts: Int32List }
 interface GLScene { origin: ArrayLike<number>; draws: GLDraw[]; bld: GLBld | null; md?: { layers: MDLayer[]; bld: MDBldRun[] | null } | null }
 interface MDPool { buf: WebGLBuffer | null; bytes: number }
@@ -159,6 +159,38 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			gl.uniform4f(trLoc, fx[0] * c - fx[1] * s, fx[0] * s + fx[1] * c, 360 / (256 * 2 ** (cam.zoom || 0)), 0);
 		}
 		if (blurLoc) gl.uniform2f(blurLoc, fx ? fx[4] ? fx[3] : fx[3] * (cam.dpr || 1) : 0, fx ? fx[4] : 0);
+	};
+	// fill-pattern（S-P1-4/5）：記号帳の写し（render worker が注記層と同じ labelImage を回す）＝名前 → 画像（テクスチャは初めて描く時に作る）。
+	// 模様の px＝floor(外来の z) の世界（MapLibre の tileZoom と同じ段）のメルカトルの px・位相はシーン原点で f64 に畳む（大きい世界の px を f32 に載せない）
+	const pats = new Map<string, { bm: ImageBitmap; pr: number; tex: WebGLTexture | null }>();
+	const PAT_UNIT = 16;   // 0〜15 は埋まっている（1 elev・2-5 mask・6 md 線・7 gint・8 far・9 cog・10・11/13-15 gnd・12 clim）＝合成の上限（32 以上）の側
+	// 模様を使わない塗りでも u_patTex は FS の能動の標本器＝既定の unit 0 に整数テクスチャ（md の線分プール等）が残ると型の不一致で描画ごと無効になる
+	// ＝unit 16 を常に指させ、1×1 の透明な絵を置いておく（初めの模様が来るまで）
+	{ const t = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.activeTexture(gl.TEXTURE0); }
+	const setPatImage = (d: { name: string; bitmap: ImageBitmap | null; pixelRatio?: number } | null): void => {
+		if (!d?.name) return;
+		const old = pats.get(d.name); if (old?.tex) gl.deleteTexture(old.tex);
+		if (d.bitmap) pats.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, tex: null }); else pats.delete(d.name);
+	};
+	// 模様の uniform を置く。false＝画像がまだ無い（描かない＝MapLibre も画像が届くまで描かない）
+	const setPat = (prog: WebGLProgram, name: string | null | undefined, o: ArrayLike<number>, cam: { zoom?: number }): boolean => {
+		gl.uniform1i(loc(gl, prog, "u_patTex"), PAT_UNIT);
+		if (!name) { gl.uniform4f(loc(gl, prog, "u_patP"), 0, 0, 0, 0); return true; }
+		const p = pats.get(name); if (!p) return false;
+		if (!p.tex) {
+			try {
+				p.tex = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.tex);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, p.bm);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+			} catch { if (p.tex) gl.deleteTexture(p.tex); pats.delete(name); gl.activeTexture(gl.TEXTURE0); return false; }   // 閉じた画像（差し替えの最中）＝次の labelImage を待つ
+		}
+		const dz = view.dashDz ?? 1, fz = Math.floor((cam.zoom || 0) - dz) + dz, n = 256 * 2 ** fz, W = p.bm.width / p.pr, H = p.bm.height / p.pr;
+		const X = (o[0] + 180) / 360 * n, s = Math.sin(o[1] * Math.PI / 180), Y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
+		gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0);
+		gl.uniform4f(loc(gl, prog, "u_patP"), X - W * Math.floor(X / W), Y - H * Math.floor(Y / H), 1 / W, 1 / H);
+		gl.uniform1f(loc(gl, prog, "u_patK"), n / 360);
+		return true;
 	};
 	// 破線（S-P1-3）の uniform：尺 K＝模様の px（MapLibre の tileZoom＝floor(外来の z) の px）÷ z24 の px（地面・メルカトル）。
 	// 画面の中心で z24 の px 1 つ＝2^(z−24)·cos φ 画素（球＝地面の実長）。外来の z の小数部だけ地面について伸びる＝MapLibre と同じ（段で元の px へ戻る）
@@ -380,7 +412,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 				gl.bindVertexArray(md!.fillVAO);
 				for (const e of scene.md.layers) {
-					if (e.kind !== "fill" || !inRange(e)) continue;
+					if (e.kind !== "fill" || !inRange(e) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は地面アトラスに焼かない（3D は次の段）
 					const seaFBM = seaFbReal(e.li) != null, waterM = e.li === sea.li || e.li === sea.li2;
 					if ((seaFBM || waterM) && seaOff) continue;
 					if (bldFill.li >= 0 && e.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる（押し出しに委ねる）
@@ -398,7 +430,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			gl.uniform2f(loc(gl, prog, "u_atlInv"), 1 / a.win[2], 1 / a.win[3]);
 			gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 			for (const d of scene.draws) {
-				if (d.kind !== "fill" || !inRange(d)) continue;
+				if (d.kind !== "fill" || !inRange(d) || d.pat) continue;   // 模様の塗り（S-P1-4/5）は地面アトラスに焼かない
 				const seaFBC = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 				if ((seaFBC || waterC) && seaOff) continue;
 				if (bldFill.li >= 0 && d.li === bldFill.li) continue;
@@ -735,7 +767,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					idxT = L.idx instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;   // merge後は常にUint32だが型は実物から
 				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs, fx: L.fx || null });
+				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs, fx: L.fx || null, pat: L.pat || null });
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray()!;
@@ -1661,6 +1693,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						gl.uniform1f(loc(gl, md!.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
 						gl.uniform2fv(loc(gl, md!.fillProg, "u_tileOff"), e.origins);
 						setFx(loc(gl, md!.fillProg, "u_tr"), null, e.fx, cam);   // fill-translate（S-P1-4/5）
+						if (!setPat(md!.fillProg, e.pat, scene.origin, cam)) continue;   // fill-pattern（S-P1-4/5）＝画像がまだ無い層は描かない
 						md!.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseFill += e.counts.length; else dbgC!.mainFill += e.counts.length;
 					} else {
@@ -1703,6 +1736,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					gl.uniform1f(loc(gl, fillProg, "u_seaGate"), seaFBC ? 1 : 0);
 					setFx(fillTrLoc, null, d.fx, cam);   // fill-translate（S-P1-4/5）
+					if (!setPat(fillProg, d.pat, scene.origin, cam)) continue;   // fill-pattern（S-P1-4/5）＝画像がまだ無い層は描かない
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
@@ -1921,7 +1955,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
 	function set(cmd: string, data?: unknown, prop?: unknown): void {
 		switch (cmd) {
-			case "view":      setView(data as Partial<GLView>); break;                                            // data={clear,land,atmo,bldColor}
+			case "view":      setView(data as Partial<GLView>); break;
+			case "patImage":  setPatImage(data as Parameters<typeof setPatImage>[0]); break;                       // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）                                            // data={clear,land,atmo,bldColor}
 			case "light":     light = data && Array.isArray((data as GLLight).dir) ? data as GLLight : null; break;      // style の light（B3・MapLibre の setLight）
 			case "lights":    lights = data && (data as GLLocalLights).n > 0 && (data as GLLocalLights).data ? data as GLLocalLights : null; break;      // 局所の光源（W2・light.js localLightsPayload）
 			case "sky":       sky = data && Array.isArray((data as GLSky).sky) ? data as GLSky : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
