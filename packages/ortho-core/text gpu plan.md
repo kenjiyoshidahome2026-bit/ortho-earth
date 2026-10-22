@@ -49,7 +49,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
 | **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c・**2 本目＝層の位置は実装済**＝§4d） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
-| **P3** 記号・標識・geojson の symbol・星空（中） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
+| **P3** 記号・標識・geojson の symbol・星空（中・**1 本目＝記号と標識は実装済**＝§4e） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
 | **P6** WebGL2 版（中） | 同じアトラス・同じ式を GLSL で。これが無い間は WebGL2 だけ注記が最前面＝層順が MapLibre と違う（記録） | GL2 で P2 と同じ層順の絵 | `?text=2d` |
@@ -139,6 +139,23 @@ MSAA 4＋depth24plus-stencil8 の的に `drawMid(−∞, 5)` で層 3 だけ・`
 2. Delft z17.6 55° が 60fps を保つか。
 3. 層順の場面（注記の後に線や塗りが来る style・真俯瞰）が MapLibre と同じ前後か。
 4. `t-textgpu` が PASS（packages/globe で `npm run verify:webgpu`）。
+
+## 4e. P3 の 1 本目＝記号と標識を GPU へ（**実装済・実機の門待ち**・2026-10-22）
+
+P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳の絵・SDF の記号を色で焼いた写し・伸びる記号）・線の記号・標識・format の記号の区間を GPU へ**、
+2 本目以降＝symbols-2d（geojson の symbol）と cluster-2d を labels2d へ合流・星空の注記と月を受け口経由に。
+
+- **記号の版**：RGBA（premultiplied）の 2048² を 1 枚。鍵は絵の物（`WeakMap`）＝記号帳の ImageBitmap・`sdfTint` の写し（色ごとに覚えてある）・標識を焼いた canvas。
+  `copyExternalImageToTexture`（premultipliedAlpha）で 1 回だけ載せる。周りに透明の 1px。一辺 512 を超える絵は縮めて載せる。尽きたら次のフレームの頭で版を透明に戻して全部載せ直す（尽きたフレームの記号は Canvas2D の最前面）。
+- **同じ列**：記号は字と同じインスタンス（72B）・同じパイプラインに `hp.y < 0` の印で混ぜる＝注記の描く順（記号の上に字）が 1 本の draw の中で保たれる。シェーダは両方の版を標本して選ぶ（標本は一様な制御の流れの中）。
+- **標識**：ベクターの `draw` を倍率 3（dpr 1.5 以上）／2 で 1 回焼いて記号として貼る（標識の物は番号ごとに覚えてある＝焼きも物ごと）。周りに 4px の余白。
+- **伸びる記号**：`drawStretched` と同じ区間ごとの quad（錨を原点に Ti）。
+- **層の位置**：記号つきの注記・format の記号も層の位置へ（§4d の pinTop は利用者の層だけに）。
+
+門の結果（クラウド・SwiftShader の WebGPU）：`t-textgpu` に記号 7 場面（素・Ti で潰す・icon-rotate・9 分割・線の記号・標識・format の記号の区間）を足し、dpr 1／2 で **IoU 0.93〜1.00・不透明な画素の RGB の差 0.0〜9.5**（標識は焼いた倍率の分だけ字の縁が違う）・
+不透明度 0.6 の α が Canvas2D と同じ（153）・記号つきの注記が層の位置の列に入り最前面は空。`t-textpass` も同じ答え。GPU の検証エラー 0。
+
+実機の門（本人・P1／P2 とまとめて）：§4d の 1〜4 に加えて、記号の多い style（OpenMapTiles 系の POI・国道の標識）で記号の滲み（dpr 2／1）を Canvas2D と並べる。
 
 ## 5. ベースライン記録欄（実機で埋める）
 

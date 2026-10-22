@@ -1,9 +1,10 @@
-// 注記の字を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・`text gpu plan.md` §3）。線に沿う注記と点の注記の字＝記号・標識・format の記号の区間は Canvas2D の受け口のまま（T-P3）。
+// 注記の字と記号を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・T-P3・`text gpu plan.md` §3）。線に沿う注記と点の注記の字・記号・標識・format の記号の区間（星空と月は Canvas2D のまま）。
 // 字の版＝SDF（R8）の 1 枚。鍵は「基準の大きさに直した書体×字」だけ＝色・大きさ・縁・ぼかし・不透明度はインスタンスとシェーダ（旧の字の版は組ごとに焼き直していた）。
 // 元の絵は今と同じ Canvas2D（addFontFace の Web フォントも効く）＝白で 1 字焼いて EDT で SDF（sdf.ts）。
 // 描く先は 2 つ：注記の canvas の上に重ねた webgpu の canvas（最前面・既定）と、地図の描画パスの中の層の位置（T-P2・target(li) で指した注記＝
 // 後ろの層に線や塗りがある注記）。後者は字を層の添字の順に並べた 1 本の頂点列と「層 → [始点, 件数]」の表で持ち、renderer が層を描く途中で drawMid する。
-// 1 字 1 インスタンス（72B）・4 頂点の strip。
+// 記号の版＝RGBA（premultiplied）の 1 枚。鍵は絵の物（記号帳の ImageBitmap・SDF を色で焼いた写し・標識を焼いた canvas）＝同じ頂点列に字と混ぜて積む（注記の描く順＝記号の上に字）。
+// 1 字（記号）1 インスタンス（72B）・4 頂点の strip。記号は hp.y < 0 の印（字のぼかしは 0 以上）。
 // 版が尽きたら 2048→4096 に広げ、それも尽きたら次のフレームの頭で全部捨てて焼き直す（尽きたフレームはその字だけ出ない）
 import { SDF_BASE, SDF_PAD, SDF_R, SDF_CUTOFF, baseFont, sdfFromAlpha, shelfPacker } from "../sdf.ts";
 import { pointGlyphs, pxNumOf } from "../textsink.ts";
@@ -12,6 +13,8 @@ import type { PointGlyph, PointImg, SinkStats, TextPaint, TextSink } from "../te
 
 /** 版の中の字 1 つ（版の px）。ox, oy＝字の錨（中央・middle）から箱の左上（基準の大きさの px） */
 export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: number; oy: number }
+/** 記号の版の中の絵 1 つ（版の px）。k＝版の px／元の絵の px（大きすぎる絵は縮めて載せる） */
+export interface GpuIcon { x: number; y: number; w: number; h: number; k: number }
 
 const STRIDE = 18;   // float 16＋色 2（unorm8x4）＝72B
 const WGSL = /* wgsl */`
@@ -19,6 +22,7 @@ struct U { size: vec2f, dpr: f32, atlas: f32 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var icons: texture_2d<f32>;
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) hp: vec2f, @location(2) fill: vec4f, @location(3) halo: vec4f };
 @vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) p: vec2f, @location(1) m: vec4f, @location(2) r: vec4f, @location(3) t: vec4f,
               @location(4) hp: vec2f, @location(5) fill: vec4f, @location(6) halo: vec4f) -> VO {
@@ -27,7 +31,8 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
 	let s = (p + vec2f(m.x * l.x + m.z * l.y, m.y * l.x + m.w * l.y)) * u.dpr;   // Canvas2D の setTransform(a,b,c,d,e,f) と同じ向き
 	var o: VO;
 	o.pos = vec4f(s.x / u.size.x * 2.0 - 1.0, 1.0 - s.y / u.size.y * 2.0, 0.0, 1.0);
-	o.uv = mix(t.xy, t.zw, c) / u.atlas; o.hp = hp; o.fill = fill; o.halo = halo;   // UV は版の px で持つ＝フレームの途中で版を広げても前に積んだ字が狂わない
+	let ad = select(vec2f(u.atlas), vec2f(textureDimensions(icons)), hp.y < -0.5);   // 記号は記号の版の大きさで割る
+	o.uv = mix(t.xy, t.zw, c) / ad; o.hp = hp; o.fill = fill; o.halo = halo;   // UV は版の px で持つ＝フレームの途中で版を広げても前に積んだ字が狂わない
 	return o;
 }
 @fragment fn fs(i: VO) -> @location(0) vec4f {
@@ -39,7 +44,8 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
 	let ha = clamp(0.5 - (d - i.hp.x) / (w + i.hp.y), 0.0, 1.0);    // 縁（strokeText の幅の半分）・ぼかしは幅を広げる
 	let f = vec4f(i.fill.rgb * i.fill.a, i.fill.a) * fa;
 	let h = vec4f(i.halo.rgb * i.halo.a, i.halo.a) * ha;
-	return f + h * (1.0 - f.a);                                      // 縁の上に本体（premultiplied）
+	let ic = textureSample(icons, samp, i.uv) * i.fill.a;            // 記号（premultiplied の絵×不透明度）＝標本は分岐の外（一様な制御の流れ）
+	return select(f + h * (1.0 - f.a), ic, i.hp.y < -0.5);          // 字＝縁の上に本体（premultiplied）
 }`;
 
 export interface GpuText {
@@ -52,6 +58,10 @@ export interface GpuText {
 	target(li: number | null): void;
 	/** 字 1 つ。(x,y)＝錨（CSS px）・m＝字の向きと潰れ（2×2）・k＝px/基準・fill／halo＝RGBA8（不透明度込み）・hw／blur＝縁の幅とぼかし（CSS px） */
 	push(x: number, y: number, m: Mat2, sp: SdfGlyph, k: number, fill: number, halo: number, hw: number, blur: number): void;
+	/** 記号の絵を版から引く（無ければ載せる）。null＝載せられない（版が尽きた・読めない絵） */
+	icon(src: CanvasImageSource): GpuIcon | null;
+	/** 記号 1 つ（の区間）。(x,y)＝錨・m＝向き・(rx,ry,rw,rh)＝錨から見た箱（CSS px）・(u0,v0,u1,v1)＝記号の版の px・o＝不透明度 */
+	pushIcon(x: number, y: number, m: Mat2, rx: number, ry: number, rw: number, rh: number, u0: number, v0: number, u1: number, v1: number, o: number): void;
 	end(): void;
 	clearCanvas(): void;
 	reset(): void;
@@ -94,7 +104,8 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 	const bgl = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
+		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 	const mkPipe = (fmt: GPUTextureFormat, samples = 1, depth: GPUTextureFormat | null = null) => device.createRenderPipeline({
 		layout,
@@ -108,8 +119,13 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 	const ubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const mubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 地図のパスの中＝地図の canvas の大きさ（動的解像度で縮む）
 	const samp = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+	// 記号の版（RGBA・premultiplied）＝絵の物ごとに 1 回載せる（周りに透明の 1px）。尽きたら次のフレームの頭で全部捨てて載せ直す（尽きたフレームの記号は Canvas2D の最前面）
+	const ISZ = Math.min(2048, MAXS), ICON_MAX = 512;
+	const itex = device.createTexture({ size: [ISZ, ISZ], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+	const ishelf = shelfPacker(ISZ);
+	let icons = new WeakMap<object, GpuIcon | null>(), needIReset = false;
 	let bind = mkBind(ubuf), mbind = mkBind(mubuf);
-	function mkBind(u: GPUBuffer) { return device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: u } }, { binding: 1, resource: samp }, { binding: 2, resource: tex.createView() }] }); }
+	function mkBind(u: GPUBuffer) { return device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: u } }, { binding: 1, resource: samp }, { binding: 2, resource: tex.createView() }, { binding: 3, resource: itex.createView() }] }); }
 	const midPipes = new Map<string, GPURenderPipeline>();
 
 	let top = new Float32Array(STRIDE * 1024), topU = new Uint32Array(top.buffer), n = 0, vbuf: GPUBuffer | null = null, vcap = 0;
@@ -154,17 +170,51 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		glyphs.set(key, g);
 		return g;
 	}
-	function reset() { glyphs.clear(); cpu.fill(0); shelf.reset(size); dirty0 = 0; dirty1 = size; needReset = false; }
-	function begin(W0: number, H0: number, dpr0: number) { if (needReset) reset(); W = W0; H = H0; dpr = dpr0; n = 0; nm = 0; midLi.length = 0; cur = null; }
-	function push(x: number, y: number, m: Mat2, sp: SdfGlyph, k: number, fill: number, halo: number, hw: number, blur: number) {
-		let inst: Float32Array, instU: Uint32Array, o: number;
+	function icon(src: CanvasImageSource): GpuIcon | null {
+		const key = src as object;
+		let e = icons.get(key);
+		if (e !== undefined) return e;
+		const sw = (src as { width: number }).width, sh = (src as { height: number }).height;
+		if (!(sw > 0 && sh > 0)) { icons.set(key, null); return null; }
+		const k = Math.min(1, ICON_MAX / Math.max(sw, sh)), w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k));
+		const at = ishelf.add(w + 2, h + 2);
+		if (!at) { needIReset = true; return null; }   // 尽きた＝覚えない（次のフレームの頭で捨てて載せ直す）
+		const put = (source: GPUCopyExternalImageSource) => device.queue.copyExternalImageToTexture({ source }, { texture: itex, origin: [at[0] + 1, at[1] + 1], premultipliedAlpha: true }, [w, h]);
+		const viaCanvas = () => { const cv = new OffscreenCanvas(w, h); cv.getContext("2d")!.drawImage(src, 0, 0, w, h); put(cv); };   // 縮める・直には写せない絵（SVG の img 等）
+		try { if (k < 1) viaCanvas(); else try { put(src as GPUCopyExternalImageSource); } catch { viaCanvas(); } }
+		catch { icons.set(key, null); return null; }
+		e = { x: at[0] + 1, y: at[1] + 1, w, h, k };
+		icons.set(key, e);
+		return e;
+	}
+	function resetIcons() {   // 版を透明に戻す（周りの 1px が前の絵を拾わない）
+		icons = new WeakMap(); ishelf.reset(ISZ); needIReset = false;
+		const enc = device.createCommandEncoder();
+		enc.beginRenderPass({ colorAttachments: [{ view: itex.createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } }] }).end();
+		device.queue.submit([enc.finish()]);
+	}
+	function reset() { glyphs.clear(); cpu.fill(0); shelf.reset(size); dirty0 = 0; dirty1 = size; needReset = false; resetIcons(); }
+	function begin(W0: number, H0: number, dpr0: number) { if (needReset) reset(); else if (needIReset) resetIcons(); W = W0; H = H0; dpr = dpr0; n = 0; nm = 0; midLi.length = 0; cur = null; }
+	// 次のインスタンスの置き場（最前面の列か、地図のパスの中の列＝層の添字の印つき）
+	let inst = top, instU = topU;
+	function slot(): number {
 		if (cur === null) {
 			if ((n + 1) * STRIDE > top.length) { const a = new Float32Array(top.length * 2); a.set(top); top = a; topU = new Uint32Array(top.buffer); }
-			inst = top; instU = topU; o = n++ * STRIDE;
-		} else {
-			if ((nm + 1) * STRIDE > mid.length) { const a = new Float32Array(mid.length * 2); a.set(mid); mid = a; midU = new Uint32Array(mid.buffer); }
-			inst = mid; instU = midU; o = nm++ * STRIDE; midLi.push(cur);
+			inst = top; instU = topU; return n++ * STRIDE;
 		}
+		if ((nm + 1) * STRIDE > mid.length) { const a = new Float32Array(mid.length * 2); a.set(mid); mid = a; midU = new Uint32Array(mid.buffer); }
+		inst = mid; instU = midU; midLi.push(cur); return nm++ * STRIDE;
+	}
+	function pushIcon(x: number, y: number, m: Mat2, rx: number, ry: number, rw: number, rh: number, u0: number, v0: number, u1: number, v1: number, op: number) {
+		const o = slot();
+		inst[o] = x; inst[o + 1] = y; inst[o + 2] = m.a; inst[o + 3] = m.b; inst[o + 4] = m.c; inst[o + 5] = m.d;
+		inst[o + 6] = rx; inst[o + 7] = ry; inst[o + 8] = rw; inst[o + 9] = rh;
+		inst[o + 10] = u0; inst[o + 11] = v0; inst[o + 12] = u1; inst[o + 13] = v1;
+		inst[o + 14] = 0; inst[o + 15] = -1;   // 記号の印
+		instU[o + 16] = Math.round(Math.max(0, Math.min(1, op)) * 255) << 24 >>> 0; instU[o + 17] = 0;
+	}
+	function push(x: number, y: number, m: Mat2, sp: SdfGlyph, k: number, fill: number, halo: number, hw: number, blur: number) {
+		const o = slot();
 		const kb = 1 / k;   // kb＝版の px／CSS px
 		inst[o] = x; inst[o + 1] = y; inst[o + 2] = m.a; inst[o + 3] = m.b; inst[o + 4] = m.c; inst[o + 5] = m.d;
 		inst[o + 6] = sp.ox * k; inst[o + 7] = sp.oy * k; inst[o + 8] = sp.w * k; inst[o + 9] = sp.h * k;
@@ -228,20 +278,44 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		});
 	}
 	function clearCanvas() { n = 0; nm = 0; midLi.length = 0; ranges = []; anchors = []; if (drewLast) { pass(false); drewLast = false; } }
-	return { glyph, fontOf, begin, target(li) { cur = li; }, push, end, clearCanvas, readPixels, reset, midAnchors: () => anchors, drawMid, get count() { return n + nm; }, get atlasSize() { return size; },
-		destroy() { tex.destroy(); vbuf?.destroy(); mbuf?.destroy(); ubuf.destroy(); mubuf.destroy(); off?.destroy(); try { ctx?.unconfigure(); } catch { /* もう無い */ } } };
+	return { glyph, fontOf, begin, target(li) { cur = li; }, push, icon, pushIcon, end, clearCanvas, readPixels, reset, midAnchors: () => anchors, drawMid, get count() { return n + nm; }, get atlasSize() { return size; },
+		destroy() { tex.destroy(); itex.destroy(); vbuf?.destroy(); mbuf?.destroy(); ubuf.destroy(); mubuf.destroy(); off?.destroy(); try { ctx?.unconfigure(); } catch { /* もう無い */ } } };
 }
 
 const rgba8 = (c: Color | null | undefined, o: number) => !c ? 0 : ((Math.round(c[0] * 255) | Math.round(c[1] * 255) << 8 | Math.round(c[2] * 255) << 16 | Math.round(Math.max(0, Math.min(1, c[3] * o)) * 255) << 24) >>> 0);
 const ROT = { a: 1, b: 0, c: 0, d: 1 };
 
-/** 注記の字を GPU へ回す受け口（線に沿う注記・点の注記の字）。記号・標識・format の記号の区間・星空は Canvas2D の受け口へそのまま（T-P3）。
+/** 注記の字と記号を GPU へ回す受け口（線に沿う注記・点の注記の字・記号・標識・format の記号の区間）。星空と月は Canvas2D の受け口へそのまま（T-P3 の次）。
  *  attach(gt)＝GPU を据える（null＝外す＝全部 Canvas2D）・canvasOnly＝一時的に全部 Canvas2D（撮影＝注記の canvas 1 枚で読む。地図のパスの中に描いた字は地図の絵に写っている＝描かない）。
  *  mid＝その層の注記を地図のパスの中（層の位置）に描くか（renderer の textSplit・null＝全部最前面） */
 export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; mid: ((li: number) => boolean) | null }
 const R90 = (m: Mat2): Mat2 => ({ a: m.c, b: m.d, c: -m.a, d: -m.b });   // m·rotate(90°)＝縦書きの回す字（Canvas2D の rotate(π/2) と同じ向き）
 export function createGpuTextSink(base: TextSink): GpuTextSink {
-	let gt: GpuText | null = null, on = false, glyphsG = 0, cur: number | null = null;
+	let gt: GpuText | null = null, on = false, glyphsG = 0, cur: number | null = null, ss = 2;
+	// 標識（ベクターの draw）＝倍率 ss で 1 回焼いた canvas を記号として貼る（標識の物は番号ごとに覚えてある＝焼きも物ごと）
+	const SH_PAD = 4, shields = new WeakMap<object, { ss: number; cv: OffscreenCanvas }>();
+	const shieldCv = (sh: LabelShield) => {
+		let e = shields.get(sh);
+		if (!e || e.ss !== ss) {
+			const w = sh.w + 2 * SH_PAD, h = sh.h + 2 * SH_PAD, cv = new OffscreenCanvas(Math.ceil(w * ss), Math.ceil(h * ss)), g = cv.getContext("2d")!;
+			g.scale(ss, ss); sh.draw(g, w / 2, h / 2);
+			shields.set(sh, e = { ss, cv });
+		}
+		return e.cv;
+	};
+	// 記号 1 枚を GPU へ（伸びる記号は区間ごと）。載せられない＝false（呼ぶ側が Canvas2D へ）
+	function iconGpu(src: CanvasImageSource, ib: IconRect, sx: number, sy: number, Ti: Mat2 | null, irot: number | undefined, o: number): boolean {
+		const ic = gt!.icon(src); if (!ic) return false;
+		const k = ic.k;
+		if (ib.i9) {   // 9 分割（drawStretched と同じ区間）＝錨を原点に Ti（無ければ素の向き）
+			const f = ib.i9, M = Ti ?? ROT;
+			for (const [ax, aw, dx, dw] of f.X.segs) for (const [ay, ah, dy, dh] of f.Y.segs) if (aw > 0 && ah > 0 && dw > 0 && dh > 0)
+				gt!.pushIcon(sx, sy, M, f.box[0] + dx * f.s, f.box[1] + dy * f.s, dw * f.s, dh * f.s, ic.x + ax * k, ic.y + ay * k, ic.x + (ax + aw) * k, ic.y + (ay + ah) * k, o);
+		} else if (Ti) gt!.pushIcon(sx, sy, Ti, ib[0], ib[1], ib[2], ib[3], ic.x, ic.y, ic.x + ic.w, ic.y + ic.h, o);
+		else if (irot) { const a = irot * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a); gt!.pushIcon(sx + ib[0] + ib[2] / 2, sy + ib[1] + ib[3] / 2, { a: cs, b: sn, c: -sn, d: cs }, -ib[2] / 2, -ib[3] / 2, ib[2], ib[3], ic.x, ic.y, ic.x + ic.w, ic.y + ic.h, o); }   // 箱の中心で回す
+		else gt!.pushIcon(sx, sy, ROT, ib[0], ib[1], ib[2], ib[3], ic.x, ic.y, ic.x + ic.w, ic.y + ic.h, o);
+		return true;
+	}
 	// 字送りの寸法＝labels2d の寸法の口（canvasMetrics）と同じ measureText・字間（行の束はラベルごとに覚えてある＝割った字の列も行の束ごとに覚える）
 	const mcv = new OffscreenCanvas(8, 8), mctx = mcv.getContext("2d")!, hasLS = "letterSpacing" in mctx;
 	let mFont = "", mLs = -1;
@@ -260,13 +334,25 @@ export function createGpuTextSink(base: TextSink): GpuTextSink {
 		canvasOnly: false,
 		mid: null,
 		attach(g) { gt = g; },
-		begin(W, H, dpr) { base.begin(W, H, dpr); on = !!gt && !s.canvasOnly; glyphsG = 0; cur = null; if (on) gt!.begin(W, H, dpr); },
+		begin(W, H, dpr) { base.begin(W, H, dpr); on = !!gt && !s.canvasOnly; glyphsG = 0; cur = null; ss = dpr >= 1.5 ? 3 : 2; if (on) gt!.begin(W, H, dpr); },
 		layer(li, pinTop) { cur = gt && s.mid && li !== null && !pinTop && s.mid(li) ? li : null; if (on) gt!.target(cur); },
 		end() { base.end(); if (on) gt!.end(); },
 		clear(W, H) { base.clear(W, H); gt?.clearCanvas(); },
 		fontsChanged() { base.fontsChanged(); gt?.reset(); split = new WeakMap(); mFont = ""; },
-		shield: (sh: LabelShield, sx: number, sy: number, o: number) => base.shield(sh, sx, sy, o),
-		lineIcon: (src: CanvasImageSource, ic: LineIcon, o: number) => base.lineIcon(src, ic, o),
+		shield(sh: LabelShield, sx: number, sy: number, o: number) {
+			if (!on) { if (cur === null) base.shield(sh, sx, sy, o); return; }
+			const cv = shieldCv(sh), ic = gt!.icon(cv);
+			if (!ic) { base.shield(sh, sx, sy, o); return; }   // 記号の版が尽きた＝このフレームは Canvas2D（最前面）
+			const w = sh.w + 2 * SH_PAD, h = sh.h + 2 * SH_PAD;
+			gt!.pushIcon(sx, sy, ROT, -w / 2, -h / 2, w, h, ic.x, ic.y, ic.x + ic.w, ic.y + ic.h, o);
+		},
+		lineIcon(src: CanvasImageSource, ic: LineIcon, o: number) {
+			if (!on) { if (cur === null) base.lineIcon(src, ic, o); return; }
+			const e = gt!.icon(src);
+			if (!e) { base.lineIcon(src, ic, o); return; }
+			const cs = Math.cos(ic.a), sn = Math.sin(ic.a);
+			gt!.pushIcon(ic.x, ic.y, { a: cs, b: sn, c: -sn, d: cs }, -ic.w / 2, -ic.h / 2, ic.w, ic.h, e.x, e.y, e.x + e.w, e.y + e.h, o);
+		},
 		lineText(gl: readonly LineGlyph[], font: string, L: TextPaint, o: number, dpr: number) {
 			if (!on) { if (cur === null) base.lineText(gl, font, L, o, dpr); return; }   // 撮影（canvasOnly）＝層の位置に描いた字は地図の絵の側
 			const g0 = gt!, halo = L.haloW > 0 ? rgba8(L.halo, o) : 0, hw = halo ? L.haloW : 0, blur = halo && L.blur! > 0 ? L.blur! : 0, fill0 = rgba8(L.color, o);
@@ -280,7 +366,11 @@ export function createGpuTextSink(base: TextSink): GpuTextSink {
 				glyphsG++;
 			}
 		},
-		pointIcon: (src: CanvasImageSource, ib: IconRect, sx: number, sy: number, Ti: Mat2 | null, irot: number | undefined, o: number) => base.pointIcon(src, ib, sx, sy, Ti, irot, o),
+		pointIcon(src: CanvasImageSource, ib: IconRect, sx: number, sy: number, Ti: Mat2 | null, irot: number | undefined, o: number) {
+			if (!(o > 0.01)) return;
+			if (!on) { if (cur === null) base.pointIcon(src, ib, sx, sy, Ti, irot, o); return; }
+			if (!iconGpu(src, ib, sx, sy, Ti, irot, o)) base.pointIcon(src, ib, sx, sy, Ti, irot, o);
+		},
 		// 点の注記＝行の束を字に割って（pointGlyphs）1 字 1 インスタンス。(x0, y0)＝箱の左上（T があれば錨 (sx, sy) を原点にした T の空間）。
 		// 縁は Canvas2D と同じく haloW の幅・ぼかし（shadowBlur）は縁が無くても縁の色で掛かる。format の記号の区間は Canvas2D の受け口の記号として
 		pointText(tl: TextLayout, font: string, T: Mat2 | null, sx: number, sy: number, x0: number, y0: number, just: string, L: TextPaint, o: number, img: (name: string) => CanvasImageSource | null) {
@@ -295,7 +385,7 @@ export function createGpuTextSink(base: TextSink): GpuTextSink {
 				g0.push(T ? sx + T.a * lx + T.c * ly : lx, T ? sy + T.b * lx + T.d * ly : ly, q.rot ? MR : M, sp, g0.fontOf(q.font)[1] / SDF_BASE, q.col ? rgba8(q.col, o) : fill0, halo, hw, blur);
 				glyphsG++;
 			}
-			for (const im of pg.img) { const bm = img(im.name); if (bm) base.pointIcon(bm, T ? [x0 + im.x, y0 + im.y, im.w, im.h] : [x0 + im.x - sx, y0 + im.y - sy, im.w, im.h], sx, sy, T, undefined, o); }   // 記号帳の絵＝Canvas2D（T-P3 で記号の版へ）
+			for (const im of pg.img) { const bm = img(im.name); if (bm) s.pointIcon(bm, T ? [x0 + im.x, y0 + im.y, im.w, im.h] : [x0 + im.x - sx, y0 + im.y - sy, im.w, im.h], sx, sy, T, undefined, o); }   // format の記号の区間＝記号の版（字と同じ列）
 		},
 		stats: (): SinkStats => ({ glyphs: base.stats().glyphs + glyphsG }),
 	};
