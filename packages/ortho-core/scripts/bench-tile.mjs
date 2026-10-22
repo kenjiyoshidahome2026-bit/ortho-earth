@@ -1,6 +1,6 @@
 // タイル 1 枚の CPU 経路（decode→buildTilePayload→mergeTiles）の node の計り（実機の GPU は要らない）。
 // 使い方：node packages/ortho-core/scripts/bench-tile.mjs [--runs N] [--hash]
-//   見本＝globe/tests/fixtures/optbv（地理院 optbv・WA/Anno だけ）× 内蔵の gsi style、tile-formats の omt 0/0/0 × 汎用 PMTiles の規則（pm-mono）
+//   見本＝globe/tests/fixtures/optbv（地理院 optbv・WA/Anno だけ）× 内蔵の gsi style、tests/fixtures/vt/*（都心 z16・郊外 z13・全層＝bake-vt-fixture.mjs）× gsi、tile-formats の omt 0/0/0 × 汎用 PMTiles の規則（pm-mono）
 //   --hash＝出力（ops の typed array・labels）の FNV 指紋＝最適化の前後でビット同値を確かめる
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +26,17 @@ const CASES = [];
 	const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name.endsWith(".pbf")) tiles.push(p); } };
 	walk(root);
 	CASES.push({ name: "optbv×gsi", style: { layers: gsi.layers, schema: gsi.schema }, tiles: tiles.map(p => { const [y, x, z] = p.slice(0, -4).split("/").reverse().map(Number); return { z, x, y, buf: new Uint8Array(fs.readFileSync(p)) }; }) });
+}
+// vt perf plan §2 の見本（tests/fixtures/vt/<名>/z/x/y.pbf＝都心 z16・郊外 z13・全層）＝bake-vt-fixture.mjs で焼く。無ければ飛ばす（optbv だけで回る）
+{
+	const root = path.join(DIR, "../tests/fixtures/vt");
+	if (fs.existsSync(root)) for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+		if (!e.isDirectory()) continue;
+		const tiles = [];
+		const walk = d => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (f.name.endsWith(".pbf")) tiles.push(p); } };
+		walk(path.join(root, e.name));
+		if (tiles.length) CASES.push({ name: `vt:${e.name}×gsi`, style: { layers: gsi.layers, schema: gsi.schema }, tiles: tiles.map(p => { const [y, x, z] = p.slice(0, -4).split("/").reverse().map(Number); return { z, x, y, buf: new Uint8Array(fs.readFileSync(p)) }; }) });
+	}
 }
 {
 	const p = path.join(DIR, "../../tile-formats/tests/fixtures/omt/0_0_0.mvt");

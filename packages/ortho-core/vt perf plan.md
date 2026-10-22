@@ -2,7 +2,7 @@
 
 位置づけ：`perf plan.md`（2026-09-26・地形と線と標高セル＝P1/P3/P4/P6 実施済）の続き＝**ベクタータイルの道筋**（取得→復号→組み立て→結合→転送→描画→退避）に絞った計画。
 `perf survey.md` §2・§3.2 の「classic merge の費用は 3 段」を主戦場にし、残っていた **P2（WebGPU の GPU 常駐プール）** を本線に据える。
-並走する 2 本（MapLibre style 互換・注記の GPU 化）との重なりと依存は §7。実装は本計画の外＝**着手は本人裁定**。
+並走する 2 本（MapLibre style 互換・注記の GPU 化）との重なりと依存は §7。3 本を合わせた順番は `render roadmap.md`（本計画の Phase 0〜2 は波 1〜3）。実装は本計画の外＝**着手は本人裁定**。
 
 掟は `perf plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③物差しは timestamp-query と引っ掛かりログ（`ema` は見ない）④両バックエンド 1:1 を崩す時は理由を書く ⑤危険は成果より先に申告。
 
@@ -38,29 +38,33 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 
 ## 2. Phase 0 計器と見本
 
-- **計器 e（タイル 1 枚の道筋）**：tile worker が `TileOkResponse` に `t: { queued, fetch, decode, build }`（ms）を添える（`?perf=1` の時だけ）。main の `mergeLog`（要求→着地）と合わせ、**「選抜で必要になった → 画面に載った」の中央値／p90** を 3 シーンで出す（mem テレメトリに `vt.lat` 行）。
+- **計器 e（タイル 1 枚の道筋）**＝**2026-10-22 実装**：tile worker が `TileOkResponse` に `t: { fetch, build }`（ms・fetch＝取得＋復号）を常に添える。main の `tilemanager` が ensure の時刻（`needAt`・役＝主層 0／下地 1／毛布 2）と着地（`readyAt`）を持ち、main merge の ack（`onSceneApplied`）で `tiles.shown(readyKeys)` が**主層として要ったタイルが初めて画面に載った**分の遅れを返す（`total`＝必要になった→画面・`ready`＝→組み立てが届いた・`wait`＝ready−(fetch+build)＝キュー待ちと境界の転送）。
+  `?perf=1` で ack ごとに `[vt] shown …` の行・`__perf().vt` に直近 10 秒の要約・`__vtLog()` に直近 512 件の環（ベンチ台が窓切り）。検定＝`tests/tilemanager-latency.mjs`。
   これが本計画の**主物差し**＝gpuMap（1 フレームの GPU）と別物。パン中の「白抜き・ポン」はここの遅れ。
-- **計器 f（結合の量）**：scene worker の merge 行（既存・perfOn）に「変わった枚数／全枚数」を足す＝P2 で消える仕事の大きさを数字に。
-- **見本**：`globe/tests/fixtures/optbv` は WA/Anno だけ。`bake-optbv-fixture.mjs` で都心 z16（東京駅 3×3）と郊外 z13（富士）を足し、`bench-tile.mjs` の CASES に載せる（fixture は数百 KB・NOTICE に出典）。
+- **計器 f（結合の量）**＝**2026-10-22 実装**：main の merge 要求（`swapScene`）で「前の readyKeys との増減（add/del）／全枚数」を数え、同じ環（`__vtLog().merge`）と要約（`__perf().vt.merge`）に載せる（scene worker の行でなく main に置いた＝ベンチ台が読めて、md／classic のどちらでも同じ所で数える）＝P2 で消える仕事の大きさを数字に。
+- **見本**：`globe/tests/fixtures/optbv` は WA/Anno だけ。`scripts/bake-vt-fixture.mjs`（2026-10-22）が都心 z16（東京駅 3×3）と郊外 z13（富士 2×2）を gsi style の読む層だけ残して `tests/fixtures/vt/<名>/` に焼き、`bench-tile.mjs` が `vt:<名>×gsi` の CASE として拾う（無ければ飛ばす・NOTICE.md に出典）。⚠焼くのは配信元へ届く器（クラウドの器は外へ出られない）＝**本人の Mac で一度回して commit**。
   `--hash` 既存＝最適化の前後で ops の bit 同値を見る門。
-- **ベースライン**：`apps/ortho-japan/scripts/bench-perf.mjs` の 3 シーン（2D 東京 z13／富士 z13 60°／東京駅 z16.5 55°）に「パン 9 秒」の窓があるのでそのまま。採るのは計器 e の中央値・p90、`[scene] apply` の 4ms 超回数、merge 回数／9 秒。§8 の表へ。
+- **ベースライン**：`apps/ortho-japan/scripts/bench-perf.mjs` の 3 シーン（2D 東京 z13／富士 z13 60°／東京駅 z16.5 55°）に「パン 9 秒」の窓があるのでそのまま。2026-10-22 から t-perfbench が `vt: { load, move }`（計器 e の中央値・p90・wait/fetch/build の中央値、merge の回数と 1 回の変化枚数/全枚数）を着地窓と移動窓で返し、bench-perf が 2 つ目の表に出す。`[scene] apply` の 4ms 超は従来の hitch 列。§8 の表へ。
 
 ## 3. Phase 1 タイル worker の速攻 4 件
 
-### 3.1 優先付き共有キュー（順位 1・確度 高・半日〜1 日）
+### 3.1 優先付き共有キュー（順位 1・確度 高・半日〜1 日）＝**2026-10-22 実装**（`src/tilequeue.ts`＝純関数の器・`pipeline.ts` が配線・`tests/tilequeue.mjs`）
 **現状**：`pipeline.ts workerBuildTile` は `wIdx` の round-robin で worker に**即 post**＝worker 内の到着順。`tilemanager.update` の ensure 順は **毛布 → 下地 → 主層**＝画面中心の詳細タイルが、視野 3 倍の毛布や下地の後ろに並ぶ。abort は fetch を切るが、キューの順は変えられない。
 **設計**：main に 1 本の優先キュー（鍵＝`(役: 主層 0 / 下地 1 / 毛布 2, 画面中心からの距離)`）を置き、**worker が空いた時に先頭を渡す**（各 worker の同時実行 2〜3 本＝fetch の待ちを重ねる）。優先度は update ごとに付け直す（キュー内の未発送分だけ・発送済みは従来どおり abort で切る）。
 **門**：t-* の既存（タイルの絵は不変）・計器 e の「主層の要求→画面」中央値が下がる。逃げ道 `?tileq=0`（round-robin）。
+**実装の形**：main に 1 本の待ち列（鍵＝役 0/1/2・画面中心からの距離（度））。worker 1 本の同時実行は 3（`perSlot`）。tilemanager の ensure が役と距離を渡し、update ごとに読込中の枠の優先度を付け直す（`build.priority`）。待っている物の abort は列から外すだけ（worker は知らない）。`tiles.stats().queue` に待ち数・発送中。効き（計器 e の前後）は本人の Mac の bench-perf で採る＝§8。
 **期待**：パン中の主層の遅れ −30〜50%（回線が同じでも順が変わる）。**P2 と独立**＝先に取れる。
 
-### 3.2 2D（地形なし）では線の細分をしない（順位 2・確度 高・半日）
+### 3.2 2D（地形なし）では線の細分をしない（順位 2・確度 高・半日）＝**2026-10-22 実装**（`tests/line-subdiv.mjs`）
 **現状**：`build.ts lineSegs`／`emit` は全線分を **700m ごと最大 24 分割**（地形ドレープで尾根が折れないため）。2D（`terrain` 無し・平面の地図・z≤6.5 の世界帯）でも同じ＝線分数が数倍（z8 で 1 線分 ≈ 600m÷…＝z10 以下で顕著）。線分は 32B×4 VS＝プール（P2）の line も膨らむ。
 **設計**：`subLenM` を style／init で渡す（`TileInitRequest` に `drape: boolean`）。地形オフの地図（`createGlobe({ terrain: false })`・外来 style で terrain 無し）は `Infinity`＝細分なし。地形の有無が切り替わる時（`setTerrain`）は `setStyle` と同じ再ビルド（稀）。
 球の弦の沈み（細分の無い長い線が球に潜る）は fill と同じ閾（z≤6 は `128>>z` 格子）を線にも適用＝低 z だけ粗い細分を残す。
 **門**：t-linedeco・2D 東京 z13 の readback 一致（線の画素）・世界帯 z2 の海岸線で潜りが無い（新設 1 枚）。bench-tile の line 線分数が 2D 見本で減る。逃げ道 `?linesub=1`。
+**実装の形**：`TileInitRequest`／`TileSetStyleRequest` に `drape`、`buildTilePayload(…, { drape })`→`subLenM=Infinity`。build.ts は Infinity の時 z≥7 は細分なし・z≤6 は fill と同じ格子（extent/(128>>z)）で粗く刻む（弦の沈み）。globe は `drape: () => !noTerr`＝terrain:false／?noterr=1 の地図だけ効く（内蔵の地形あり地図は従来どおり）。setTerrain で地形が入る（`live.noTerr=false`）と `pipeline.setDrape()`＝setStyle と同じ全再ビルド（裁定 #5）。既定経路の `--hash` は不変（b57e291d）。
+⚠ 世界帯 z2 の海岸線の実機確認（球の潜り）はまだ＝実機日 ①。
 **期待**：2D の線の VS −50〜70%（z≤12）・タイルの実バイト −20〜40%（線が主の郊外）。
 
-### 3.3 fill の clip を「はみ出す地物だけ」に（順位 3・確度 高・半日）
+### 3.3 fill の clip を「はみ出す地物だけ」に（順位 3・確度 高・半日）＝**既に実装済みだった**（2026-10-22 確認：`clipToExtent` は全頂点が `0≤x,y≤extent` なら元の配列をそのまま返す＝コピー無し・`tests/fill-clip.mjs` の 1 件目）。残る prof の 4.4% は inside の走査と、はみ出す地物の本当の切り抜き＝ここでは触らない
 **現状**：`fillParts` は全ポリゴンに `clipToExtent`（4 辺の Sutherland–Hodgman・Float64 の作業配列）。都心の街区・建物は 9 割が extent 内＝切る物が無いのに走る（prof の ring＋clipToExtent 4.4%）。
 **設計**：リングの bbox を先に取り（`polygons()` の signedArea と同じ 1 走査で済む）、`0≤x,y≤extent` に収まるポリゴンは clip を飛ばす。
 **門**：`bench-tile --hash` の同値（clip が恒等な地物は bit 同値のはず・差が出たら clip の丸めが見える＝それも知見）。
