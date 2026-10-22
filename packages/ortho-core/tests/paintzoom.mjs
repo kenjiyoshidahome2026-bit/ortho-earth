@@ -69,7 +69,7 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 		assert.match(s, /if \(u_pz\.x > 0\.5\) col0 = u_pzC;/);
 		assert.match(s, /\(u_dashP\.w \/ max\(2\.0 \* hwD, 1e-3\)\)/);
 	}
-	for (const s of [FILL_VS, FILL_MD_VS]) assert.match(s, /v_color = u_pz\.x > 0\.5 \? u_pzC : a_color;/);
+	for (const s of [FILL_VS, FILL_MD_VS]) assert.match(s, /v_color = u_pz\.x > 0\.5 \? u_pzC : /);   // md は表の色（paint 表の (b) 類）を挟む
 	const src = f => readFileSync(new URL(f, import.meta.url), "utf8");
 	const gl = src("../src/gl/renderer.ts");
 	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz, cam\);/g).length, 4);

@@ -3,7 +3,7 @@
 // 投影非依存の部分だけ担当：幾何を経緯度に戻し、シーン原点からの delta(float32) と地物ごとの色/線幅を確定。
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
-import type { DrawOp, LineOp } from "./scene.ts";
+import type { DrawOp, LineOp, PtOp } from "./scene.ts";
 import type { DecodedFeature, DecodedGeom, DecodedTile, EmptyTile, TileData } from "./tileformat.ts";
 import type { ExprContext, ExprOrigin } from "./expr.ts";
 import type { GeoCtxTile } from "./expr-geo.ts";
@@ -155,6 +155,8 @@ export function subdivideTris(flat: ArrayLike<number>, tris: ArrayLike<number>, 
 import { evalExpr, truthy, originOfLayer } from "./expr.ts";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.ts";
 import { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝地物に依らない色・線幅の式を op に添える
+import { layerPaintTable, ptTuple, ptKeyOf, PT_MAX_ROWS } from "./painttable.ts";   // paint 表の (b) 類＝地物ごとの行を op に添える
+import type { PtLayer } from "./painttable.ts";
 import type { PaintZoom } from "./paintzoom.ts";
 import { tileLocalToLonLat } from "./tile.ts";
 import { polygons, signedArea } from "./decode.ts";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
@@ -175,8 +177,24 @@ class Grow<T extends TypedArray> {
 	out<U extends TypedArray>(T: TypedArrayCtor<U>): U;
 	out(T: TypedArrayCtor<TypedArray> = this.T): TypedArray { return T === this.T ? this.a.slice(0, this.n) : T.from(this.a.subarray(0, this.n)); }
 }
-interface Bufs { pos: Grow<Float32Array>; col: Grow<Uint8Array>; idx: Grow<Uint32Array>; P1: Grow<Float32Array>; P2: Grow<Float32Array>; half: Grow<Float32Array>; off: Grow<Float32Array>; jf: Grow<Uint8Array>; dist: Grow<Float32Array> }
-const newBufs = (): Bufs => ({ pos: new Grow(Float32Array), col: new Grow(Uint8Array), idx: new Grow(Uint32Array), P1: new Grow(Float32Array), P2: new Grow(Float32Array), half: new Grow(Float32Array), off: new Grow(Float32Array), jf: new Grow(Uint8Array), dist: new Grow(Float32Array) });
+interface Bufs { pos: Grow<Float32Array>; col: Grow<Uint8Array>; idx: Grow<Uint32Array>; P1: Grow<Float32Array>; P2: Grow<Float32Array>; half: Grow<Float32Array>; off: Grow<Float32Array>; jf: Grow<Uint8Array>; dist: Grow<Float32Array>; rid: Grow<Uint16Array> }
+const newBufs = (): Bufs => ({ pos: new Grow(Float32Array), col: new Grow(Uint8Array), idx: new Grow(Uint32Array), P1: new Grow(Float32Array), P2: new Grow(Float32Array), half: new Grow(Float32Array), off: new Grow(Float32Array), jf: new Grow(Uint8Array), dist: new Grow(Float32Array), rid: new Grow(Uint16Array) });
+// paint 表の (b) 類（painttable.ts）：タイルの中の行（鍵の組）と、その焼いた色（RGBA8 の語）と、頂点／線分ごとの行（rid）。地物の頭で前の地物の分を埋める（feat）＝書き手の道筋（continue）に触らない。
+// 行が PT_MAX_ROWS を超えたタイルの層は持たない（焼いた色で描く）
+class PtRows {
+	L: PtLayer; rid: Grow<Uint16Array>; rows: unknown[][] = []; cols: number[] = []; map = new Map<unknown, number>(); row = 0; over = false;
+	constructor(L: PtLayer, rid: Grow<Uint16Array>) { this.L = L; this.rid = rid; rid.n = 0; }
+	feat(f: DecodedFeature, n: number): void {
+		this.fill(n);
+		const t = ptTuple(this.L.keys, f.props, f.type), k = ptKeyOf(t);
+		let r = this.map.get(k);
+		if (r === undefined) { r = this.rows.length; if (r >= PT_MAX_ROWS) { this.over = true; r = 0; } else { this.map.set(k, r); this.rows.push(t); } }
+		this.row = r;
+	}
+	color(r: number, g: number, b: number, a: number): void { this.cols[this.row] = (r | g << 8 | b << 16 | a << 24) >>> 0; }   // 色の語と同じ並び（リトルエンディアンの RGBA8）
+	fill(n: number): void { const k = n - this.rid.n; if (k > 0) { this.rid.reserve(k).fill(this.row, this.rid.n, n); this.rid.n = n; } }   // n＝今の頂点／線分の数
+	out(n: number): PtOp | null { this.fill(n); return this.over ? null : { keys: this.L.keys, rows: this.rows, cols: Uint32Array.from(this.cols), rid: this.rid.out() }; }
+}
 let sharedBufs: Bufs | null = null, bufDepth = 0;
 const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array), d: new Grow(Float32Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
 const SD = { pts: new Float64Array(1 << 12), stk: new Uint32Array(1 << 12), out: new Grow(Uint32Array, 1 << 14) };   // subdivideTris の作業（同期・使い回す）
@@ -449,12 +467,15 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ptL = eo ? layerPaintTable("fill", L.paint, eo) : null, pt = ptL ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝頂点ごとの行
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
+				if (pt) pt.feat(f, pos.n >> 1);
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * ((ov === undefined && eo ? 1 : ov) as number);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
+				if (pt) pt.color(cr, cg, cb, ca);
 				for (const part of fillParts(f.geom!, extent)) {
 					const ll = part.ll, tris = part.tris, base = pos.n >> 1, nv = ll.length >> 1;
 					const pa = pos.reserve(nv * 2), ca4 = col.reserve(nv * 4);
@@ -471,7 +492,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			const fx = eo ? layerFx(L, z, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
 			const pat = eo ? fillPatternOf(L, z, eo) : null;   // fill-pattern（S-P1-4/5）＝記号帳の画像の名前（層で一度）
 			const pz = eo ? layerPaintZoom("fill", L.paint, eo) : null;   // ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色を差し替える
-			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}) });
+			const ptO = pt && pos.n ? pt.out(pos.n >> 1) : null;
+			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}), ...(ptO ? { pt: ptO } : {}) });
 		} else { // line
 			const P1 = B.P1, P2 = B.P2, col = B.col, half = B.half; P1.n = P2.n = col.n = half.n = 0;
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
@@ -498,12 +520,15 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
 			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ptL = eo ? layerPaintTable("line", L.paint, eo) : null, pt = ptL ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
+				if (pt) pt.feat(f, half.n);
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * ((ov === undefined && eo ? 1 : ov) as number);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
+				if (pt) pt.color(cr, cg, cb, ca);
 				const w0 = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				const w = typeof w0 !== "number" || isNaN(w0) || w0 <= 0 ? 1 : w0;
 				const hw = w * 0.5;
@@ -599,6 +624,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				if (dist) { op.dist = dist.out(); op.dash = gpuDash!; op.dz = z; }
 				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
 				if (pzL) op.pz = pzL;
+				const ptO = pt ? pt.out(half.n) : null; if (ptO) op.pt = ptO;
 				ops.push(op);
 			}
 		}
@@ -628,7 +654,7 @@ export function buildEmptySeaOps(layers: TileData, { z, x, y }: TileXYZ, style: 
 	const sq: DecodedTile = { [src]: { extent: 4096, features: [{ type: "Polygon", id: 0, props: (style.schema && style.schema.seaProps) || {},   // 申告された「海の名乗り」（色式が属性を見る style でも水色に転ぶ）
 		geom: { coords: new Int32Array([0, 0, 4096, 0, 4096, 4096, 0, 4096, 0, 0]), ends: [10] } }] } };
 	const dl = buildTileDrawList({ layers: sq, z, x, y }, { layers: idxs.map(i => style.layers[i]) }, origin);
-	for (const op of dl.ops) { op.li = SEA_FB_BASE + idxs[op.li]; op.id = "empty-sea:" + op.id; }   // sub-style の li(0..)→実li→擬似帯
+	for (const op of dl.ops) { op.li = SEA_FB_BASE + idxs[op.li]; op.id = "empty-sea:" + op.id; delete op.pt; }   // 表の行（paint 表の (b) 類）は持たない＝焼いた色   // sub-style の li(0..)→実li→擬似帯
 	return dl.ops.length ? dl.ops : null;
 }
 // 「WA しか無く、その WA が全面を覆っていない」＝図郭縁ダミーの判定（覆率 99.5% 未満）。穴は無い前提の |面積| 和。

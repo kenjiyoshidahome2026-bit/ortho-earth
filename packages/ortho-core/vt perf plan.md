@@ -106,6 +106,16 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 - GL2 は同じ表を RGBA32F テクスチャで（1:1）。
 **MapLibre 互換スレッドとの境界**：**式の分類（a/b/c）と「どの paint が表に載るか」は先方の領分**（`mlstyle.ts`・`expr.ts` の compile に `kind` を足す形が自然）。本計画は「表に載る形」（頂点 u16＋storage 表＋WGSL の読み）を提供する。先方の `setPaintProperty` 差分適用（`restyleBase`＝今は組み直し 1 回）は、この表が入ると自動で軽くなる＝**先方の仕様が固まるまで着手しない**。
 **進み（2026-10-22・互換のスレッド）**：(a) 類を先に GL2 で＝頂点の slot は足さず、層ごとの値を uniform（`u_pz`・`u_pzC`）で頂点の値に差し替える（表の行 0 だけ＝線分レコードは 8 語のまま）。分類と評価は core `paintzoom.ts`（`layerPaintZoom`／`evalPaintZoom`）。(b) 類の行と WebGPU の storage 表は次の段。同日、ずらし（line-offset）も (a) 類に入れ（`u_pzO`）、setPaintProperty の速い道を足した：基図の塗りと線の色・不透明度・線幅・ずらしで新しい値が地物に依らなければ組み直さない（層の差し替えの式で焼いた値を上書き・tile worker には新しい style＝`setStyle(style, keep)`）。地物ごとの値（(b) 類の行）は今も組み直し。
+**(b) 類の段取り（2026-10-22・互換のスレッド・Kenji「(b) 類の本体に進む」）**：GL2 を先に小さな PR で。WebGPU は実機の日。
+- **形**（統合ロードマップのスレッドと合意）：語は足さない。表を読む列では色の語（線＝語 4・塗り＝頂点の 3 語目）が行番号（下位 16bit・上位は予約）。描く列ごとに旗 `pt`（SceneDrawLayer・pz と同じ置き方）。語 5 の半幅は残す。表は GL2＝RGBA32F テクスチャ・WebGPU＝storage。
+- **行の鍵＝式が読む属性の組**（評価した値でなく入力）：同じ組の地物は同じ行。鍵が入力なので、同じ属性を読む新しい式（テーマ切替・setPaintProperty）は行を評価し直すだけで済む。値で鍵にすると、旧で同じ色の地物が新で別の色になる時に分けられない。
+- **(b) の判定**（core）：基図の外来の層（eo）の塗りと線で、色・不透明度の式が地物に依り（exprDeps の kind が data）、feature-state・global-state・カメラ・描く所の値を読まず、属性を名前で読むだけ（`get`／`has` の名前が文字列・`geometry-type`）。`properties`・`id` を読む式は行が地物の数になる＝焼くまま。zoom×data（(c) 類）は焼くまま（裁定）。
+- **行の割り当て**：tile worker（build.ts）はタイルの中の行（鍵の組の一覧 `rows`）とその焼いた色（`cols`）と地物ごとの行番号（`rid`・u16）を op に添え、焼いた色（`col`）も残す。scene worker は md の常駐の時に、辞書（層 id＋鍵の名＋組 → 通しの行）でタイルの行を通しの行に付け替え、色の語に書く。新しい行と色が変わった行（style を組み直した後のタイル）は描き手へ（常駐の荷 `up.rows`＝同じポートの FIFO で塊より先）。行は全層の通し番号（表は 1 枚）。65535 行を超えたタイルの列は焼いた色のまま常駐し、描く列を pt の切り替わりで分ける（順は変えない）。描き手が表を読めない時（WebGPU・md でない GL2・`?pt=0`）は焼いた色のまま。
+- **値**：段 1 は tile worker が焼いた色そのもの（絵は bit 同値）。段 2 から、描き手（render worker）が行の組を属性に戻して main から配られた新しい式で評価して書き換える（`painttable.ts` の `ptRowColor`＝焼いた色と同じ量子化 b255）。
+- **1**（PR 1）：上の判定・行・付け替え・GL2 の読み（色だけ）。絵は変わらない。＝**2026-10-22 実装**（core `painttable.ts`・`tests/painttable.mjs`・頁 `t-painttable?md=1&drawhud=1`（表を読む＝`__drawHud` の `d.pt`＞0）／`&pt=0`／`?nomd=1`（焼いた色）が同じ色・逃げ道 `?pt=0`）。表は RGBA32F（幅 1024 texel・行ごとに 2 texel）を unit 17 に。地面アトラス（3D の塗り）も表を読む。
+- **2**：setPaintProperty の (b) の値（新しい式の属性が鍵に含まれる）＝表の書き換え（paintFast の道を広げる）。線幅の (b) も表へ（行の 2 texel 目）。
+- **3**：feature-state（基図の地物は今は効かない）＝地物 id ごとの行。
+- **WebGPU 版**：実機の日。
 **門**：t-palette-live（添字ズレ）・テーマ切替の絵一致（表の行を焼いた値と bit 同値・`--hash` を paint 抜きの geometry 指紋に）・ズーム連続の線幅が MapLibre の例（`maplibre-compat.md` の線幅の例）と一致。逃げ道 `?paintbake=1`（従来の焼き込み）。
 **期待**：テーマ切替 数百 ms → 1 フレーム・頂点バイト −10〜25%・ズーム中の線幅の段が消える。
 

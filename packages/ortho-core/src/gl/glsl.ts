@@ -1076,6 +1076,13 @@ uniform vec4 u_tr;
 vec2 trLL(vec2 ll) { return vec2(u_tr.x / max(cos(ll.y * 0.017453293), 1e-3), -u_tr.y) * u_tr.z; }
 uniform vec4 u_pz;    // ズーム連続（V-Ph3＝S-P1-2・paintzoom.ts）＝x 色を差し替える（1）・y 線幅を差し替える（1）・z 半幅（CSS px）・w floor(z) の半幅（破線の尺）。0＝頂点の値
 uniform vec4 u_pzC;   // 差し替える色（RGBA・不透明度を掛けた値）`;
+// paint 表の (b) 類（painttable.ts・vt perf plan §5）：u_pt＝1 の描く列は色の語が表の行（下位 16bit）＝表（RGBA32F・行ごとに 2 texel・0＝色・1＝予約）から読む。
+// 塗りの頂点の色は正規化した RGBA8 の属性のまま読む＝行＝r＋g×256（バイトに戻す）。md の変種だけ（表を作るのは scene worker の常駐の時）
+const PT = /* glsl */`
+uniform float u_pt;
+uniform highp sampler2D u_ptTex;
+vec4 ptColor(int r) { int w = textureSize(u_ptTex, 0).x, t = r * 2; return texelFetch(u_ptTex, ivec2(t % w, t / w), 0); }
+int ptRowOf(vec4 c) { return int(c.r * 255.0 + 0.5) + int(c.g * 255.0 + 0.5) * 256; }`;
 export const FILL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
@@ -1317,7 +1324,8 @@ function mdize(src: string, subs: readonly (readonly [string, string])[]): strin
 // 加算順は classic（merge済み頂点）と厳密に揃える：小さい値同士（タイル原点差＋タイル相対頂点）を先に足し、
 // 大きい u_origin は最後に1回だけ＝大きい桁での丸めが classic と同じ1回で済む（外側から足すと z18+ で数px级の格子化が出る）。
 export const FILL_MD_VS = mdize(FILL_VS, [
-	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
+	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];${PT}`],
+	["v_color = u_pz.x > 0.5 ? u_pzC : a_color;", "v_color = u_pz.x > 0.5 ? u_pzC : u_pt > 0.5 ? ptColor(ptRowOf(a_color)) : a_color;"],   // paint 表の (b) 類
 	["vec2 dLL = a_delta;", "vec2 dLL = u_tileOff[gl_DrawID] + a_delta;"],   // タイル原点差（小）を先に足す＝原点相対 delta を確定
 ]);
 export const BUILDING_MD_VS = mdize(BUILDING_VS, [
@@ -1335,7 +1343,7 @@ precision highp usampler2D;
 // 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half)（下位 4 bit＝端と継ぎの旗・S-P1-1）, bits(off), snorm16×2(tS/2,tE/2)]
 // 破線の列（u_dashP.y＞0・S-P1-3）は 語 6 が bits(始点までの線に沿う距離)・語 7 は角の継ぎ（ずらしは層で 1 つの値＝u_pzO・ずらさない層は 0）
 uniform usampler2D u_segTex;
-uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
+uniform vec2 u_tileOff[${MD_MAX_DRAWS}];${PT}
 uniform float u_dpr;
 ${PROJECT}
 ${QELEV}
@@ -1352,7 +1360,7 @@ void main() {
 	// タイル原点差はここ（小さい値同士）で足す＝大きい u_origin の加算は LINE_MAIN 内で1回だけ（classic と同じ丸め回数）
 	vec2 p1 = vec2(uintBitsToFloat(A.x), uintBitsToFloat(A.y)) + off;
 	vec2 p2 = vec2(uintBitsToFloat(A.z), uintBitsToFloat(A.w)) + off;
-	vec4 col0 = vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;
+	vec4 col0 = u_pt > 0.5 ? ptColor(int(B.x & 65535u)) : vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;   // paint 表の (b) 類＝語 4 が行
 	float hw0 = uintBitsToFloat(B.y);
 	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
 	float dist0 = 0.0;
@@ -1505,7 +1513,8 @@ void main() {
 	v_ll = u_origin + dLL;
 }`;
 export const ATLAS_FILL_MD_VS = mdize(ATLAS_FILL_VS, [
-	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
+	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];${PT}`],
+	["v_color = a_color;", "v_color = u_pt > 0.5 ? ptColor(ptRowOf(a_color)) : a_color;"],   // paint 表の (b) 類
 	["vec2 dLL = a_delta;", "vec2 dLL = u_tileOff[gl_DrawID] + a_delta;"],
 ]);
 export const ATLAS_FILL_FS = `#version 300 es
