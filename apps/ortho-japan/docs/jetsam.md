@@ -98,6 +98,7 @@ peak(常駐) + 過渡(~0.3GB × 同時デコード数)  <  タブ予算(~900MB /
 | `?tbudget=N` | タイル tess 予算(MB)の上書き（`?tbudget=48`で戻す・`0`で auto） |
 | `?nomd=1` / `?md=1` | タイル GPU 常駐プール（GL2＝multi_draw・WebGPU＝タイルごとの draw・2026-10-22〜）の OFF/強制ON（OFF＝CPU merge の classic） |
 | `?tileq=0` | タイル worker の優先付き共有キュー（主層→下地→毛布・画面中心の近い順）を切り、旧の round-robin に戻す（vt perf plan §3.1） |
+| `?mdgap=N` | md の移動中の merge 要求の間隔（ms）＝既定 16（1 フレーム・vt perf plan §6 Phase 4）。`?mdgap=60` で旧のズーム・要求の間隔・`0` で間引き無し。classic（`?nomd=1`・LOW_MEM）は従来の 125／60／60 のまま |
 | `?linesub=1` | 地形を描かない地図でも線を 700m ごとに細分する（旧挙動・vt perf plan §3.2） |
 | `?nocov=1` | 圏外タイル抑制の無効化（旧挙動＝周縁404復活） |
 | `?nor01=1` | 混成R01近景の無効化（全面R10へ＝R01過渡で落ちる端末の逃げ道） |
