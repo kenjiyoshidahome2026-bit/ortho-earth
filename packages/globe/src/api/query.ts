@@ -204,7 +204,8 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		// 模様・線の飾り（canvas2D の口＝描画の段の一番上・段 5）＝点は画面の px で当てる（面＝内側・線＝線分からの距離 ≤ 幅/2＋|ずらし|＋許し）・箱は外接の重なり
 		const segDist = (x: number, y: number, a: ArrayLike<number>, b: ArrayLike<number>) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2)) : 0; return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
 		for (const [id, P] of [...patItems].reverse()) {
-			if (!take(id)) continue;
+			const pv = mlLayers.get(id);
+			if (!take(id) || (pv && (!mlVisible(pv) || !inZoomML(drawLayerOf(pv), cam.zoom)))) continue;   // vtdraw で描く模様の層（G-2）は隠しても・域の外でも地物が残る
 			for (const it of P.feats) {
 				let hit = false;
 				if (!area.ll) hit = touches(it.f.geometry);

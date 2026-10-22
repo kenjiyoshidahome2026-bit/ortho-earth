@@ -49,6 +49,7 @@ import { MAP_THEMES } from "./palettes.ts";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createLabelSender } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
+import { GEOJSON_LAYER } from "@ortho-earth/core/geojsonvt";   // geojson を切ったタイルの source-layer 名（geojson vt plan G-2）
 import { mergeChome } from "./chome.ts";   // 町丁名の二系統(210/800)の畳み込み
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.ts";
 import { createOverlay } from "./overlay.ts";
@@ -335,6 +336,10 @@ mapEl.dir = isRTL() ? "rtl" : "ltr";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
 // ?text=gpu（テキスト GPU 化 T-P1 の足場）＝線に沿う注記の字を注記の上の webgpu canvas（#labelsgpu）へ。WebGPU で起動できた時だけ worker が使う（GL2 では空のまま）
+// geojson の線のずらしの層＝geojson を worker でタイルに切って vtdraw へ（geojson vt plan G-2・2026-10-22）。?gjvt=0＝今までの pattern-2d（canvas2D の重ね描き）。
+// 面の模様は ?gjvt=2 の時だけ（名前が定数の層）＝core の模様の塗りは地形ありの 3D で地面アトラスに焼かない（描かれない）・名前は層で一度（属性を読まない）＝そこが埋まるまで既定は canvas2D
+const GJVT = !/[?&]gjvt=0(?:&|$)/.test(location.search), GJVT_FILL = /[?&]gjvt=2(?:&|$)/.test(location.search);
+const PER_FEATURE = /"(get|has|properties|feature-state|id|geometry-type)"/;   // 式が地物を読む（データ駆動）
 const TEXT_GPU = "gpu" in navigator && /[?&]text=gpu(?:&|$)/.test(location.search);
 for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
@@ -3223,8 +3228,9 @@ const kindOf: GlobeScope["kindOf"] = (layer, sp) => {
 	if (sp!.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported — vector sources feed fill / line / circle / symbol / heatmap / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
 	if (layer.type === "symbol") return "symbol";
-	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) return "pattern";
-	if (layer.type === "line" && (layer.paint?.["line-gradient"] != null || (layer.paint?.["line-offset"] ?? 0) !== 0)) return "pattern";   // 線の飾り（#49）＝同じ canvas2D の口（数の 0 は gint のまま）
+	if (layer.type === "line" && (layer.paint?.["line-pattern"] != null || layer.paint?.["line-gradient"] != null)) return "pattern";   // 線の模様・色の進み＝vtdraw も未対応（G-3／G-4）＝canvas2D の口
+	if (layer.type === "fill" && layer.paint?.["fill-pattern"] != null) return GJVT_FILL && !sp?.cluster && !PER_FEATURE.test(JSON.stringify(layer.paint["fill-pattern"])) ? "vtdraw" : "pattern";   // 面の模様（上の GJVT_FILL）
+	if (layer.type === "line" && (layer.paint?.["line-offset"] ?? 0) !== 0) return GJVT && !sp?.cluster ? "vtdraw" : "pattern";   // 線のずらし（#49・数の 0 は gint のまま）＝切ったタイルで vtdraw（G-2）
 	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") return "gint";
 	throw new Error(`addLayer: type "${layer.type}" is not supported`);
 };
@@ -3377,10 +3383,11 @@ const lineProgress = (r: Float64Array) => {
 	if (acc > 0) for (let i = 1; i < n; i++) pr[i] /= acc;
 	return pr;
 };
-const addPattern = async (layer: MLLayer, data: unknown, order?: number) => {
+// queryOnly＝描くのは vtdraw（G-2）＝問い合わせ用の地物（patItems）だけ作る（オーバーレイは作らない）
+const addPattern = async (layer: MLLayer, data: unknown, order?: number, queryOnly = false) => {
 	const pf: PatFeatOut[] = [];   // 問い合わせ用の地物（画面の px で当てる）
 	const P0 = layer.paint || {}, needSym = P0["fill-pattern"] != null || P0["line-pattern"] != null;
-	const c = needSym ? await symGet() : null; patOv ??= map.overlay({ builtin: "pattern" }, { name: "pattern" });
+	const c = needSym ? await symGet() : null; if (!queryOnly) patOv ??= map.overlay({ builtin: "pattern" }, { name: "pattern" });
 	let d = data as GjLike | string | Blob | undefined; if (typeof d === "string" || d instanceof Blob) d = await readGeoData(d) as GjLike | undefined;
 	const feats = (d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : [])) as Array<PatFeature | null>, P = layer.paint || {}, fill = layer.type === "fill", items: PatOut[] = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
 	for (const f of feats) {
@@ -3407,11 +3414,13 @@ const addPattern = async (layer: MLLayer, data: unknown, order?: number) => {
 			}
 		}
 		pf.push({ f, width: it0.width || 0, offset: it0.offset || 0, lines: fill ? [] : parts.map(rings => rings[0]) });
+		if (queryOnly) continue;
 		for (const rings of parts) {
 			const rr = rings.map(r => Float64Array.from(r.flat()));
 			items.push(it0.grad ? { ...it0, rings: rr, grad: { lut: it0.grad.lut, prog: rr.map(lineProgress) } } : { ...it0, rings: rr });
 		}
 	}
+	if (queryOnly || !patOv) { patItems.set(layer.id, { fill, sid: srcId(layer), feats: pf as PatItem["feats"] }); return { features: pf.length }; }
 	for (const name of new Set(items.map(i => i.pattern).filter(Boolean) as string[])) if (!patSent.has(name)) { const im = c!.getImage(name)!; const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
 	patItems.set(layer.id, { fill, sid: srcId(layer), feats: pf as PatItem["feats"] });
 	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
@@ -3520,6 +3529,7 @@ const vtdGet = async () => {
 const VTD_UNSUPPORTED: Record<string, string[]> = { fill: [], line: ["line-pattern", "line-gradient"], circle: [], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	const sid = srcId(layer);
+	if (v.src?.type === "geojson") return gjvtMount(v, layer, sid);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
 	let desc;
 	try { desc = await vtxDescOf(sid, v.src); } finally { const n = (vtdMounting.get(sid) || 1) - 1; if (n) vtdMounting.set(sid, n); else vtdMounting.delete(sid); }
@@ -3536,6 +3546,31 @@ const vtdMount = async (v: UserLayerRec, layer: MLLayer) => {
 	if (!v.src?.[BASE_SRC] && !vtxAttrs.has(sid)) { vtxAttrs.set(sid, vtxAttrOf(desc)); attrZone = null; requestDraw(); }   // 基図の source の出典は基図の欄が持つ
 	return null;
 };
+// geojson の層を vtdraw へ（geojson vt plan G-2）＝data を worker が切る（core geojsonvt）＝取得の段が無い手元のタイル（desc.local）。
+// 層は source-layer＝GEOJSON_LAYER の vector の層として組む（filter・buildTileDrawList・層の順・#123 の差し込みは vector と同じ）。
+// 問い合わせは今までの模様の口（patItems＝画面の px で当てる）・querySourceFeatures は data のまま（vtdDesc には載せない）
+const gjvtData = new Map<string, { k: unknown[]; p: Promise<unknown> }>();   // sid → 読んだ data（data の参照と setData の世代が同じ間は使い回す＝層ごとに worker へ送り直さない）
+const gjvtDataOf = (sid: string, sp: UserSource) => {
+	const k = [sp.data, mlGen.get("gjd:" + sid) || 0], c = gjvtData.get(sid);
+	if (c && c.k[0] === k[0] && c.k[1] === k[1]) return c.p;
+	const d = dataOf(sp), p = typeof d === "string" || d instanceof Blob ? readGeoData(d) : Promise.resolve(d);
+	gjvtData.set(sid, { k, p }); p.catch(() => gjvtData.get(sid)?.p === p && gjvtData.delete(sid));
+	return p;
+};
+const gjvtMount = async (v: UserLayerRec, layer: MLLayer, sid: string) => {
+	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
+	let data;
+	try { data = await gjvtDataOf(sid, v.src); } finally { const n = (vtdMounting.get(sid) || 1) - 1; if (n) vtdMounting.set(sid, n); else vtdMounting.delete(sid); }
+	if (mlLayers.get(layer.id) !== v) return null;
+	await addPattern(layer, data, undefined, true);   // 問い合わせ用の地物
+	const c = await vtdGet();
+	if (mlLayers.get(layer.id) !== v) return null;
+	const sp = v.src;
+	c.set(layer.id, { ...layer, "source-layer": GEOJSON_LAYER }, sid, { local: data ?? null, tileUrl: null, pmtiles: null, minzoom: 0, maxzoom: (sp.maxzoom as number | undefined) ?? 18, tileSize: 512, promoteId: sp.promoteId ?? null, tag: "geojson" });   // maxzoom＝MapLibre の geojson source の既定 18（裁定 3）
+	c.setOrder(vtdOrder());
+	sendUserAnchors();
+	return null;
+};
 const vecAttrDrop = (v: UserLayerRec, sid: string) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; requestDraw(); } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 // source の中身が載った合図（C8・MapLibre の sourcedata）＝setData／層が載った後に { sourceId }。通訳は data（isSourceLoaded:true）にも写す（例 display-html-clusters-with-custom-properties）
@@ -3543,6 +3578,7 @@ const emitSourceData: GlobeScope["emitSourceData"] = sourceId => { for (const cb
 // setData の畳み（C8）＝同じ source に連打された setData は走っている載せ直しの後に 1 回だけ（例 update-a-feature-in-realtime＝10ms ごと）。返す約束は最新の中身が載った時に解ける
 const setDataQ = new Map<string, { again: boolean; p: Promise<void> | null }>();
 const setDataLive: GlobeScope["setDataLive"] = id => {
+	bumpGen("gjd:" + id);   // 切ったタイルの data（gjvtDataOf）＝同じ物を書き換えて setData されても読み直す
 	let q = setDataQ.get(id); if (q) { q.again = true; return q.p!; }
 	q = { again: false, p: null }; setDataQ.set(id, q);
 	q.p = (async () => { try { do { q!.again = false; await remountSource(id); } while (q!.again); } finally { setDataQ.delete(id); } })();
@@ -3653,7 +3689,7 @@ const unmountLayer: GlobeScope["unmountLayer"] = v => {
 	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; demTilesDrop(id); }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
-	else if (kind === "vtdraw") { vtdCtl?.remove(id); if (layer.type === "heatmap") aggCtl?.clear("heatmap", id); vecAttrDrop(v, sid); sendUserAnchors(); }
+	else if (kind === "vtdraw") { vtdCtl?.remove(id); patItems.delete(id); if (layer.type === "heatmap") aggCtl?.clear("heatmap", id); vecAttrDrop(v, sid); sendUserAnchors(); }
 	else if (kind === "heatmap") aggCtl?.clear("heatmap", id);
 	else if (kind === "symbol") { symCtl?.removeLayer(id); gjCtl?.remove(id); }
 	else if (kind === "gint") return rebuildGint(sid);
