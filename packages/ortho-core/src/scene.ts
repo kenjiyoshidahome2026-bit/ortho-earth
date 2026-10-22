@@ -159,7 +159,7 @@ export function segLen24(o: ArrayLike<number>, x1: number, y1: number, x2: numbe
 	const dx = (x2 - x1) / 360, dy = (y2 - y1) * D2R / Math.cos((o[1] + (y1 + y2) * 0.5) * D2R) / (2 * Math.PI);
 	return Math.hypot(dx, dy) * W24;
 }
-// WebGPU（シェーダの破線は次の段）の逃げ道：dist を持つ線の層を CPU で刻む（classic＝renderer・md＝scene worker が常駐の前に）。尺は作ったタイルの z（dz）の px＝従来の CPU の破線と同じ。
+// mdDash を名乗らない描き手（2026-10-22 より前の WebGPU・今は ?nolx=1）の逃げ道：dist を持つ線の層を CPU で刻む（classic＝renderer・md＝scene worker が常駐の前に）。尺は作ったタイルの z（dz）の px＝従来の CPU の破線と同じ。
 // 片の端は丸（WebGPU の線は capsule）・長さ 0 の片（点）は丸い端の層だけ
 export function chopDash(L: LineOp, o: ArrayLike<number>): LineOp {
 	if (!L.dist || !L.dash) return L;

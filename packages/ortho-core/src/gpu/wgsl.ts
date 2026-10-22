@@ -121,9 +121,15 @@ fn gndEdge(uv: vec2f) -> f32 {   // 窓内 1・縁 4% で 0 へ・外 0
 //   terrain  … p0 = (land.rgb, 0)  p1 = (hypso.rgb, hypso量)  p2 = (1/hypso最大標高, 0, 0, 0)
 //   building … p0 = (bldColor.rgb, 0)
 //   contour  … p0 = (cColor.rgb, 主曲線間隔m)  p1 = (計曲線間隔m, 濃さ, 0, 0)
-struct DrawP { p0: vec4f, p1: vec4f, p2: vec4f };
+//   fill/line の層の画面効果（style 互換 S-P1-1/3/4/5・2026-10-22・gl の u_tr/u_blur/u_cj/u_dashP/u_dashI/u_patP/u_patK と同じ意味）＝
+//   tr = (東 px, 南 px, 今の zoom の 1px の弧（度）, 0)  lx = (blur（px か半径の割合）, blur の種類 0 線/1 円, cj＝cap|join<<2|round(ml×8)<<4, patK＝模様の 1 度の px)
+//   dashP = (周期 P, 線の区間の数（0＝破線でない）, 丸い端 1/0, floor(zoom) の px ÷ z24 の px)  dashI0/1 = 区間 [a,b]×4  patP = (原点の位相 x, y, 1/幅, 1/高さ・z＝0 で模様なし)
+//   役割だけのスロット（paramBG）は全部 0＝今までの絵。層ごとの値は renderer の lxBind が別のスロットに詰める
+struct DrawP { p0: vec4f, p1: vec4f, p2: vec4f, tr: vec4f, lx: vec4f, dashP: vec4f, dashI0: vec4f, dashI1: vec4f, patP: vec4f };
 @group(1) @binding(0) var<uniform> P: DrawP;
 const D2R: f32 = 0.017453292519943295;
+// 層の *-translate（S-P1-4/5）：地面の上でずらす（gl FX_TR の trLL と同式）＝経度だけ cos φ で割る。P.tr.z＝0 で 0
+fn trLL(ll: vec2f) -> vec2f { return vec2f(P.tr.x / max(cos(ll.y * D2R), 1e-3), -P.tr.y) * P.tr.z; }
 // GPU の sin() は微小角で信用できない（glsl.js sinP と同一のテイラー切替）
 fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
@@ -309,16 +315,21 @@ struct FillOut {
 	@location(1) front: f32,
 	@location(2) fog: f32,
 	@location(3) ll: vec2f,
+	@location(4) pat: vec2f,   // fill-pattern（S-P1-4/5）＝模様の px（原点からの差＝メルカトルの px・縦は中ほどの緯度の cos で割る）
 	@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）
 	@location(6) guv0: vec2f,  // 地面アトラス uv（前景/近/中/遠＝F.gnd0..3・同じ前計算）
 	@location(7) guv1: vec2f,
 	@location(8) guv2: vec2f,
 	@location(9) guv3: vec2f,
 };
+@group(1) @binding(1) var patTex: texture_2d<f32>;   // fill-pattern（S-P1-4/5）＝記号帳の画像 1 枚（repeat）・模様の無い層は 1×1 の透明
+@group(1) @binding(2) var patSamp: sampler;
 @vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {
 	var o: FillOut;
-	let ll = F.origin + a_delta;              // elev 参照用の絶対（粗くて可）
-	let rel = deltaToRel(a_delta);            // 頂点3D − 原点3D（小・正確）
+	let dLL = a_delta + trLL(F.origin + a_delta);   // fill-translate（S-P1-4/5）＝原点相対 delta をずらす（md は a_tile を足した後）
+	o.pat = vec2f(dLL.x, -dLL.y / cos((F.origin.y + dLL.y * 0.5) * D2R)) * P.lx.w;
+	let ll = F.origin + dLL;                  // elev 参照用の絶対（粗くて可）
+	let rel = deltaToRel(dLL);                // 頂点3D − 原点3D（小・正確）
 	let dir = F.originPt + rel;               // 絶対単位球点（front/fog 用＝粗くて可）
 	var p = F.clipT + F.mvp * vec4f(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
 	p.z = logDepthZ(p.w);
@@ -327,17 +338,21 @@ struct FillOut {
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(dir);
 	o.ll = ll;
-	o.cuv = F.cogP.xy + a_delta * F.cogP.zw;
-	o.guv0 = F.gnd0.xy + a_delta * F.gnd0.zw;
-	o.guv1 = F.gnd1.xy + a_delta * F.gnd1.zw;
-	o.guv2 = F.gnd2.xy + a_delta * F.gnd2.zw;
-	o.guv3 = F.gnd3.xy + a_delta * F.gnd3.zw;
+	o.cuv = F.cogP.xy + dLL * F.cogP.zw;
+	o.guv0 = F.gnd0.xy + dLL * F.gnd0.zw;
+	o.guv1 = F.gnd1.xy + dLL * F.gnd1.zw;
+	o.guv2 = F.gnd2.xy + dLL * F.gnd2.zw;
+	o.guv3 = F.gnd3.xy + dLL * F.gnd3.zw;
 	return o;
 }
-fn fillColor(in: FillOut) -> vec4f {
+fn fillColor(in0: FillOut) -> vec4f {
+	var in = in0;
 	// 霧はフェードアウト（透明化）＝地平線の先の塗りが空に浮かない（glsl.js FILL_FS と同式）
 	// ×P.p0.w＝グローバルα（シーン差し替えクロスフェード用。通常は1）
-	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
+	var af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
+	// 模様（S-P1-4/5）＝画像の色と α（MapLibre と同じく fill-color は読まない・fill-opacity は掛ける）。画像は前乗算で届く。P は uniform＝標本化は一様な分岐
+	let pt = textureSample(patTex, patSamp, fract((P.patP.xy + in.pat) * P.patP.zw));
+	if (P.patP.z > 0.0) { af *= pt.a; in.color = vec4f(select(vec3f(0.0), pt.rgb / max(pt.a, 1e-6), pt.a > 0.0), in.color.a); }
 	if (af <= 0.003) { discard; }
 	return vec4f(mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), F.fogColor, in.fog) * af, af);   // ユーザ COG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 }
@@ -350,6 +365,9 @@ fn fillColor(in: FillOut) -> vec4f {
 
 // 線（capsule SDF・インスタンス6頂点）。LINE_VS/LINE_FS の移植：標高ドレープ（端点毎 df）＋接地リフト(P.p0.y)。
 // corner=(end 0/1, side ±1) は頂点ステップ、p1/p2/color/half/off はインスタンスステップ。
+// 端と継ぎ（S-P1-1）・破線（S-P1-3）・translate とぼかし（S-P1-4/5）は 2026-10-22 に gl の LINE_VARY／LINE_MAIN／LINE_FS から 1:1 で写した
+// （層の値は P.lx/P.dashP/P.dashI/P.tr＝描く列の uniform）。基の署名は 6 属性（オーバーレイの線が使う）＝p0/p3/jf/dist は 0 の既定＝丸い端・丸い継ぎ・実線。
+// 基図の classic は lineXWgsl（属性 6〜8 で前後の点と旗・距離）・md は mdLineWgsl（線分プールの隣のレコード）が LINEX の行を差し替える。
 export const LINE_WGSL = /* wgsl */`
 ${FRAME}
 struct LineOut {
@@ -360,11 +378,51 @@ struct LineOut {
 	@location(3) sp: vec2f,
 	@location(4) color: vec4f,
 	@location(5) front: f32,
+	@location(10) @interpolate(flat) ja: vec4f,   // 端 A の継ぎの切り口（二等分線）：点 xy・線分の側を向く法線 zw（S-P1-1）
+	@location(11) @interpolate(flat) jb: vec4f,   // 端 B の同じ物
+	@location(12) @interpolate(flat) jk: vec4f,   // 端の形 x＝A・y＝B（0 丸＝capsule・1 butt・2 square・3 miter・4 bevel・5 丸い継ぎ）・zw＝bevel の切り線の距離（符号＝外側の向き）
+	@location(13) @interpolate(flat) dd: vec2f,   // 破線（S-P1-3）：始点の位相・線分の長さ（線幅の倍数）
 	@location(6) fog: f32,
 };
 fn toScreen(c: vec4f) -> vec2f {
 	let ndc = c.xy / c.w;
 	return vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y);
+}
+// 継ぎの 3 点を画面へ（高さは継ぎ目の高さで揃える＝継ぎ目を共有する 2 本の線分が同じ値を得る）。z＝1 なら有効（カメラの背後は 0）
+fn jScr(p: vec2f, h: f32) -> vec3f {
+	let rel = deltaToRel(p);
+	let c = F.clipT + F.mvp * vec4f(rel + h * liftDir(F.origin + p, F.originPt + rel), 0.0);
+	return vec3f(toScreen(c), select(1.0, 0.0, c.w <= 0.0));
+}
+struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };
+// 端 1 つの形（gl LINE_VARY の lineEnd と同式＝MapLibre の LineBucket と同じ選び方）。x→jt→y＝前の点・この端・次の点（start＝始点の端）。
+// link＝0：端（line-cap）・1：隣と継ぐ・2：閉じた環の継ぎ目（隣が並びの前後に無い＝丸に倒す）。
+// 継ぎは二等分線で切る：j＝切り口（点・線分の側を向く法線）・bev＝bevel の切り線・ext＝四角形を端から伸ばす長さ
+fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {
+	let cj = u32(P.lx.z);
+	let capK = cj & 3u; let joinK = (cj >> 2u) & 3u; let ml = f32(cj >> 4u) / 8.0;
+	var r: LineEnd; r.k = 0.0; r.j = vec4f(0.0); r.bev = 0.0; r.ext = hp + 1.0;
+	if (link == 0u) {   // 端
+		if (capK == 1u) { r.ext = 1.0; r.k = 1.0; return r; }   // butt＝端で切る（AA の 1px だけ伸ばす）
+		r.k = select(0.0, 2.0, capK == 2u); return r;
+	}
+	if (link == 2u) { return r; }
+	let sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);
+	var d0 = sj.xy - sx.xy; var d1 = sy.xy - sj.xy;
+	let l0 = length(d0); let l1 = length(d1);
+	if (sx.z * sj.z * sy.z < 0.5 || l0 < 1e-4 || l1 < 1e-4) { return r; }   // カメラの背後・画面で長さ 0＝丸（capsule）に倒す
+	d0 = d0 / l0; d1 = d1 / l1;
+	let sv = d0 + d1; let ls = length(sv);
+	if (ls < 1e-3) { return r; }   // 折り返し（180°）＝丸に倒す
+	let n = sv / ls;               // 二等分線の法線（前→次の向き）
+	let N = select(-n, n, start);  // 線分の側を向く
+	r.j = vec4f(sj.xy, N);
+	if (joinK == 0u) { r.k = 5.0; return r; }
+	let c = dot(n, d1); let mlen = 1.0 / max(c, 1e-6);   // 曲がりの半角の cos・マイターの長さ（半幅の何倍）
+	r.bev = sign(dot(d0 - d1, vec2f(-N.y, N.x))) * hp * c;   // 外の角どうしを結ぶ線＝二等分線の点から外へ hp·c
+	// miter は限界を超えたら bevel・bevel は限界未満なら miter（見分けられない＝MapLibre と同じ）
+	if (r.bev == 0.0 || select(mlen < ml, mlen <= ml, joinK == 1u)) { r.ext = hp * max(1.0, sqrt(max(mlen * mlen - 1.0, 0.0))) + 1.0; r.k = 3.0; return r; }
+	r.k = 4.0; return r;
 }
 @vertex fn vs(
 	@location(0) corner: vec2f,
@@ -372,8 +430,11 @@ fn toScreen(c: vec4f) -> vec2f {
 	@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,
 ) -> LineOut {
 	var o: LineOut;
-	let la1 = F.origin + p1; let la2 = F.origin + p2;   // elev 参照用の絶対（粗くて可）
-	let rela = deltaToRel(p1); let relb = deltaToRel(p2);
+	var hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;
+	var q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）
+	if (P.tr.z != 0.0) { let tr = trLL(F.origin + q1); q0 += tr; q1 += tr; q2 += tr; q3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
+	let la1 = F.origin + q1; let la2 = F.origin + q2;   // elev 参照用の絶対（粗くて可）
+	let rela = deltaToRel(q1); let relb = deltaToRel(q2);
 	let da = F.originPt + rela; let db = F.originPt + relb;
 	// 標高変位は地形と同じ距離フェード＝遠景の平ら化に追随（無いと地平線に「漂う点線の鎖」）
 	let dfa = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, da));
@@ -394,13 +455,31 @@ fn toScreen(c: vec4f) -> vec2f {
 	if (len > 1e-6) { dirS = d / len; }
 	let perp = vec2f(-dirS.y, dirS.x);   // 画面は y 下向き＝進行方向の右
 	// line-offset（#49・glsl.js LINE_MAIN と同式）：端点を perp＋dir×t だけ（t＝角の継ぎ）
-	let offPx = offT.x * F.params.w;
-	sa += (perp + dirS * offT.y) * offPx; sb += (perp + dirS * offT.z) * offPx;
-	let hw = halfPx * F.params.w + 1.0;      // +1px の AA/丸端余白
-	var base = sb; var capSign = 1.0;
-	if (corner.x < 0.5) { base = sa; capSign = -1.0; }
-	let posS = base + perp * (hw * corner.y) + dirS * (capSign * hw);
-	o.a = sa; o.b = sb; o.halfw = halfPx * F.params.w; o.sp = posS;
+	let offPx = off0.x * F.params.w;
+	sa += (perp + dirS * off0.y) * offPx; sb += (perp + dirS * off0.z) * offPx;
+	let hw = hw0 * F.params.w + 1.0;      // +1px の AA/丸端余白
+	// 端と継ぎ（S-P1-1）：丸でない層（P.lx.z≠0）だけ端ごとに形を決め、四角形を端から伸ばす長さ（eA・eB）を変える
+	var eA = hw; var eB = hw;
+	o.ja = vec4f(0.0); o.jb = vec4f(0.0); o.jk = vec4f(0.0);
+	if (P.lx.z > 0.5) {
+		let hp = hw0 * F.params.w;
+		let lA = select(select(0u, 2u, (jf0 & 4u) != 0u), 1u, (jf0 & 1u) != 0u);   // JF_PREV／JF_RING_PREV（build.ts）
+		let lB = select(select(0u, 2u, (jf0 & 8u) != 0u), 1u, (jf0 & 2u) != 0u);   // JF_NEXT／JF_RING_NEXT
+		let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);
+		let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);
+		o.ja = ra.j; o.jb = rb.j; o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev); eA = ra.ext; eB = rb.ext;
+	}
+	// 破線（S-P1-3）：模様の位相は地面の長さ（z24 の px）を floor(zoom) の px にして線幅で割る＝MapLibre の tileRatio／floorwidth と同じ。
+	// 線分の長さは経緯度から（縦は中点の緯度のメルカトル＝scene.ts の segLen24 と同式）
+	o.dd = vec2f(0.0);
+	if (P.dashP.y > 0.5) {
+		let my = (q2.y - q1.y) * D2R / cos((F.origin.y + (q1.y + q2.y) * 0.5) * D2R) / 6.2831853;
+		o.dd = vec2f(dist0, length(vec2f((q2.x - q1.x) / 360.0, my)) * 4294967296.0) * (P.dashP.w / max(2.0 * hw0, 1e-3));
+	}
+	var base = sb; var capSign = 1.0; var ext = eB;
+	if (corner.x < 0.5) { base = sa; capSign = -1.0; ext = eA; }
+	let posS = base + perp * (hw * corner.y) + dirS * (capSign * ext);
+	o.a = sa; o.b = sb; o.halfw = hw0 * F.params.w; o.sp = posS;
 	o.color = col; o.front = min(fa, fb);
 	o.fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
@@ -409,14 +488,67 @@ fn toScreen(c: vec4f) -> vec2f {
 	o.pos = vec4f(ndc, log2(max(1.0 + wz, 1e-6)) * F.params.z * 0.5, 1.0);
 	return o;
 }
+// 端の先の覆い（S-P1-1）：k＝端の形（jk）・e＝端からの距離（先へ正）・q＝端からの位置・j＝切り口・bev＝bevel の切り線。丸い形の時だけ dist（芯からの距離）を端の点からの距離に替える
+fn lineTail(k: f32, e: f32, q: vec2f, j: vec4f, bev: f32, hw: f32, dist: ptr<function, f32>) -> f32 {
+	if (k == 0.0 || k == 5.0) { *dist = length(q); return 1.0; }   // 丸い端・丸い継ぎ
+	if (k == 1.0) { return clamp(0.5 - e * 2.0, 0.0, 1.0); }          // butt＝端で切る
+	if (k == 2.0) { return clamp((hw - e) * 2.0 + 0.5, 0.0, 1.0); }   // square＝半幅だけ出す
+	if (k == 4.0) { return clamp((abs(bev) - sign(bev) * dot(q, vec2f(-j.w, j.z))) * 2.0 + 0.5, 0.0, 1.0); }   // bevel＝外の角どうしを結ぶ線で切る
+	return 1.0;   // miter＝切り口まで伸ばした帯そのもの
+}
 @fragment fn fs(in: LineOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }
 	let pa = in.sp - in.a; let ba = in.b - in.a;
-	let t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
-	let dist = length(pa - ba * t);
+	var dist = 0.0; var cov = 1.0;
+	if (in.jk.x == 0.0 && in.jk.y == 0.0) {   // 丸い端・丸い継ぎ＝capsule（線分までの距離）
+		let t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+		dist = length(pa - ba * t);
+	} else {   // 端と継ぎ（S-P1-1）：継ぎは二等分線の向こうを捨てる（隣の線分の受け持ち＝同じ線で切るので隙も重なりも無い）
+		// 切り口は画素の中心（framebuffer 座標＝左上原点・y 下向き＝toScreen と同じ向き）で測る＝補間した sp の三角形ごとの丸めの差で継ぎ目に二度塗り・塗り残しを出さない。
+		// 線の上の画素（ちょうど 0）は始点の側（次の線分）が取る＝終点の側は 0 も捨てる
+		let fp = in.pos.xy;
+		if (in.jk.x >= 3.0 && dot(fp - in.ja.xy, in.ja.zw) < 0.0) { discard; }
+		if (in.jk.y >= 3.0 && dot(fp - in.jb.xy, in.jb.zw) <= 0.0) { discard; }
+		let L = length(ba);
+		if (L < 1e-3 && (in.jk.x == 1.0 || in.jk.x == 2.0)) { discard; }   // 長さ 0 の線分の角い端＝描かない（MapLibre は重なった点を捨てる）
+		var dir = vec2f(1.0, 0.0);
+		if (L > 1e-6) { dir = ba / L; }
+		let u = dot(pa, dir);
+		dist = abs(dot(pa, vec2f(-dir.y, dir.x)));
+		let hw0 = max(in.halfw, 0.5);
+		// 端の先の位置は、継ぎなら切り口の点から（両隣で同じ点）・端なら自分の端点から
+		if (u < 0.0) { cov = lineTail(in.jk.x, -u, in.sp - select(in.a, in.ja.xy, in.jk.x >= 3.0), in.ja, in.jk.z, hw0, &dist); }
+		else if (u > L) { cov = lineTail(in.jk.y, u - L, in.sp - select(in.b, in.jb.xy, in.jk.y >= 3.0), in.jb, in.jk.w, hw0, &dist); }
+	}
+	// 破線（S-P1-3）：画素の線に沿う位相 x を模様の周期に畳み、線の区間までの距離で切る。butt・square＝区間の端で切る（MapLibre の addRegularDash）・
+	// round＝区間の芯からの距離を半幅で丸く切る（長さ 0 の線＝点・MapLibre の addRoundDash）。線分の外（端と継ぎ）は端点の位相のまま
+	if (P.dashP.y > 0.5) {
+		let Ls = length(ba);
+		var k = 0.0;
+		if (Ls > 1e-3) { k = in.dd.y / Ls; }   // 線幅の倍数／画素（地面の尺＝傾いた画面では縮む＝MapLibre と同じ）
+		if (k > 1e-7) {
+			var x = in.dd.x + clamp(dot(pa, ba / Ls), 0.0, Ls) * k;
+			x -= P.dashP.x * floor(x / P.dashP.x);
+			var s = -1e9;   // 線の区間までの符号つき距離（画素・内が正）
+			for (var i = 0; i < 4; i++) {
+				if (f32(i) >= P.dashP.y) { break; }
+				var ab = P.dashI1.zw;
+				if (i == 0) { ab = P.dashI0.xy; } else if (i == 1) { ab = P.dashI0.zw; } else if (i == 2) { ab = P.dashI1.xy; }
+				for (var m = -1; m <= 1; m++) {
+					let xm = x + f32(m) * P.dashP.x;
+					if (P.dashP.z > 0.5) { s = max(s, -length(vec2f(max(max(ab.x - xm, xm - ab.y), 0.0) / k, dist))); }
+					else { s = max(s, min(xm - ab.x, ab.y - xm) / k); }
+				}
+			}
+			if (P.dashP.z > 0.5) { dist = -s; } else { cov *= clamp(s * 2.0 + 0.5, 0.0, 1.0); }
+		}
+	}
 	// 細線のシャープ化（glsl.js LINE_FS と同式）：幾何幅±0.5px保証＋細さはカバレッジ・フェザー半減
 	let hw = max(in.halfw, 0.5);
-	let alpha = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0) * min(in.halfw * 2.0, 1.0);
+	var edge = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0);
+	// ぼかし（S-P1-4/5）：line-blur＝縁（＋半画素）から内へ blur＋1 画素で線形（MapLibre の blur2）・circle-blur＝半径の (1−blur) から縁へ smoothstep（MapLibre の circle）
+	if (P.lx.x > 0.0) { edge = select(clamp((hw + 0.5 - dist) / (P.lx.x + 1.0), 0.0, 1.0), 1.0 - smoothstep(hw * (1.0 - P.lx.x), hw, dist), P.lx.y > 0.5); }
+	let alpha = edge * cov * min(in.halfw * 2.0, 1.0);
 	if (alpha <= 0.0) { discard; }
 	let a = in.color.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;   // p0.w＝クロスフェード×基図の濃さ
 	if (a <= 0.003) { discard; }
@@ -1644,9 +1776,18 @@ export const mdFillWgsl = (src: string, out: "FillOut" | "AFOut", label: string)
 // 線は頂点属性を持たない（インスタンス属性の常駐プール化はタイルごとの firstInstance と両立しない）＝線分レコード（8×u32＝scene worker の
 // ensureUploaded・[bits(p1.xy), bits(p2.xy)] [RGBA8, bits(half), bits(off), snorm16×2(tS/2,tE/2)]）を storage で持ち @builtin(vertex_index)/6 から引く
 // （GL の LINE_MD_VS の u_segTex と同じ読み方・float は bit のまま＝bitcast）。6 頂点/線分の角は renderer の CORNERS と同順。group(3) は fill/line の派生で空いている
+export const LINEX_ANCHOR = "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）\n";
 export const mdLineWgsl = (src: string, label: string): string => deriveWgsl(src, [
 	["@vertex fn vs(\n\t@location(0) corner: vec2f,\n\t@location(1) p1: vec2f, @location(2) p2: vec2f,\n\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
-	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方。WebGPU は旗をまだ使わない＝丸）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
+	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
+	[LINEX_ANCHOR,
+	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5) { dist0 = bitcast<f32>(B.z); off0 = vec3f(0.0); }   // 破線の列（S-P1-3）＝ずらさない＝語 6 は始点までの線に沿う距離\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
+], label);
+// 基図の classic の線＝前後の点（@location 6/7＝renderer が P1／P2 のバッファを 1 線分ずらして同じバッファを 2 つの slot で読ませる）と旗・破線の距離（@location 8＝[jf, dist]）を属性で
+export const lineXWgsl = (src: string, label: string): string => deriveWgsl(src, [
+	["\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
+	 "\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n\t@location(6) p0: vec2f, @location(7) p3: vec2f, @location(8) jd: vec2f,\n) -> LineOut {\n\tvar o: LineOut;\n"],
+	[LINEX_ANCHOR, "\tvar q0 = p0; var q3 = p3; var jf0 = u32(jd.x); var dist0 = jd.y;   // 端と継ぎ（S-P1-1）・破線（S-P1-3）＝属性から\n"],
 ], label);
 export const mdBldWgsl = (src: string, label: string): string => deriveWgsl(src, [
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_shade: f32, @location(2) a_anchor: vec2f) -> BldOut {\n\tvar o: BldOut;\n",

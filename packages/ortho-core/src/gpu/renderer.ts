@@ -13,7 +13,7 @@
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";
-import { seaFbReal, chopDash } from "../scene.ts";   // chopDash＝破線（S-P1-3）の WebGPU の逃げ道（シェーダの破線は次の段）
+import { seaFbReal, dashIntervals, chopDash } from "../scene.ts";   // dashIntervals＝破線（S-P1-3）の区間（GL2 の dashU と同じ uniform を組む）・chopDash＝?nolx=1 の逃げ道（旧＝CPU で刻む）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
@@ -24,7 +24,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.ts";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl } from "./wgsl.ts";
-import { mdFillWgsl, mdLineWgsl, mdBldWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
+import { mdFillWgsl, mdLineWgsl, mdBldWgsl, lineXWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
@@ -53,6 +53,7 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 export interface RendererGPUOptions {
 	powerPreference?: GPUPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
+	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
 }
 /** 描画の質の旗（#46） */
@@ -66,6 +67,7 @@ export interface RenderView {
 	contourColor?: number[] | null; contourAlpha?: number; gintSub?: boolean; gintFarPivot?: boolean;
 	atmSun?: number; atmScale?: number; atmGround?: number; atmExposure?: number; pbrFill?: number;
 	aoStrength?: number; aoRadius?: number; aoBias?: number; aoPhase?: number;
+	dashDz?: number;   // 破線・模様（S-P1-3/4）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1・gl/renderer.ts と同じ）
 }
 /** draw の旗 */
 export interface RenderDrawOptions { aa?: boolean; skipMain?: boolean; skipBase?: boolean; noBld?: boolean; noTerrain?: boolean }
@@ -76,7 +78,7 @@ interface TqSpan { tag: string; i0: number }
 interface TqStaging { buf: GPUBuffer; busy: boolean; spans: TqSpan[] | null; n: number }
 interface TimerQuery { qs: GPUQuerySet; resolve: GPUBuffer; staging: TqStaging[]; idx: number; spans: TqSpan[]; ready: { tag: string; ms: number }[] }
 interface ShadowLayouts { terr: GPUPipelineLayout; fill: GPUPipelineLayout; bld: GPUPipelineLayout; mesh: GPUPipelineLayout; meshTex: GPUPipelineLayout; globe: GPUPipelineLayout }
-interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; bld: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; globe: GPUShaderModule;
+interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; globe: GPUShaderModule;
 	bldCast: GPUShaderModule; meshCast: GPUShaderModule; meshTexCast: GPUShaderModule; terrCast: GPUShaderModule }
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
 	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
@@ -89,7 +91,7 @@ interface ShadowRes {
 	pipes: Map<number, ShadowPipes>; bg0: GPUBindGroup | null; bg0Key: string; bg0T: GPUBindGroup | null; cpu: Float32Array; batchCPU: Float32Array;
 	castKey?: string; castBld?: SceneBld | null;
 }
-interface ClipModsBase { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; bld: GPUShaderModule; globe: GPUShaderModule; cap?: GPUShaderModule }
+interface ClipModsBase { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; globe: GPUShaderModule; cap?: GPUShaderModule }
 interface ClipMods extends ClipModsBase { cap: GPUShaderModule; ov?: GPUShaderModule; sh?: ClipModsBase; cast?: { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; bld: GPUShaderModule } }
 interface ClipLayouts { terr: GPUPipelineLayout; mesh: GPUPipelineLayout; meshTex: GPUPipelineLayout; fill: GPUPipelineLayout; bld: GPUPipelineLayout; globe: GPUPipelineLayout; cap?: GPUPipelineLayout }
 interface ClipPipeSet { terrain: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; fillOff: GPURenderPipeline; fillTest: GPURenderPipeline;
@@ -163,18 +165,28 @@ interface GndWin { tex: GPUTexture; view: GPUTextureView; view0: GPUTextureView;
 /** 地面アトラスの窓 1 枚へ gint の面を焼くフック（gint の bakeFaces） */
 export type GroundHook = (cam: CameraPose, target: { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number }) => number;
 interface GroundJob { wins: number[][]; rasterOn: boolean; wantFills: boolean; seaOff: boolean; baseA: number; cam: CameraPose; hook: GroundHook | null | false; userIn: boolean; baseSlots: string[] }
-interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffer; bCol: GPUBuffer; bIdx: GPUBuffer | null; count: number }
-interface LineDraw { kind: "line"; li: number; bufs: GPUBuffer[]; bP1: GPUBuffer; bP2: GPUBuffer; bCol: GPUBuffer; bHalf: GPUBuffer; bOff: GPUBuffer | null; count: number }
+// lxk＝層の画面効果の鍵（null＝無い＝役割の DrawP をそのまま）。fill：fx（translate）・pat（模様）。line：cj（端と継ぎ）・dash（破線）・fx（translate・ぼかし）＝S-P1-1/3/4/5（2026-10-22・WebGPU 版）
+interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffer; bCol: GPUBuffer; bIdx: GPUBuffer | null; count: number; fx: number[] | null; pat: string | null; lxk: string | null }
+// pad＝端と継ぎを持つ層＝P1 の前・P2 の後ろに 1 線分の余白（同じバッファを 8B ずらして前の始点 p0・次の終点 p3 として読む＝GL2 と同じ）。bCH＝色と半幅の interleave（頂点バッファ 8 本の上限に収める）・bJd＝[jf, dist]
+interface LineDraw { kind: "line"; li: number; bufs: GPUBuffer[]; bP1: GPUBuffer; bP2: GPUBuffer; bCH: GPUBuffer; bOff: GPUBuffer | null; bJd: GPUBuffer | null; pad: boolean; count: number; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null }
+/** 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（gl/renderer.ts の DashU と同じ） */
+interface DashU { P: number; n: number; round: number; iv: Float32Array }
+function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
+	if (!dash) return null;
+	const round = !(cj & 3), { P, iv } = dashIntervals(dash, round), a = new Float32Array(8);
+	a.set(iv.length ? iv.slice(0, 8) : [-2 * P, -2 * P]);   // 線が無い（butt の [0, 2]）＝どの画素も届かない区間
+	return { P, n: Math.max(1, Math.min(4, iv.length >> 1)), round: round ? 1 : 0, iv: a };
+}
 type SceneDraw = FillDraw | LineDraw;
 interface SceneBld { bufs: GPUBuffer[]; bPos: GPUBuffer; bSh: GPUBuffer; bAnc: GPUBuffer; count: number }
 interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number; md?: MDScene | null }
 /** タイル GPU 常駐プールのシーン（scene worker の dl＝プール内レンジの列・vt perf plan §4）。orgOff＝origins（タイル原点−シーン原点）の頂点バッファ内 byte 位置 */
-interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string }
+interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null }
 interface MDBldRun { counts: Int32Array; firsts: Int32Array; orgOff: number }
 interface MDScene { layers: MDLayer[]; bld: MDBldRun[] | null; orgBuf: GPUBuffer }
 interface MDPool { buf: GPUBuffer | null; bytes: number }
 interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
-interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
+interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string; cj?: number; dash?: number[]; fx?: number[] }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
 interface MDPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline }
 type DrawSrc = SceneDraw[] | MDScene;
 /** set("scene") の入力（classic merge のシーン） */
@@ -194,7 +206,8 @@ const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用480B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
 const FRAME_F32 = 120;     // 480B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
-const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
+const PARAM_SLOT = 256;    // DrawP のスロット境界
+const DRAWP_B = 144;       // DrawP（9×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP）の大きさ（wgsl.ts FRAME と対）
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
 const N_ROLES = 12;
@@ -381,7 +394,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目（前景あり時）
 	] });
-	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
+	// group(1)＝DrawP＋塗りの模様（S-P1-4/5・FILL_WGSL だけが binding 1/2 を宣言＝他のシェーダは余分な束縛を無視する）
+	const PAT_ENTRIES: GPUBindGroupLayoutEntry[] = [{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }];
+	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }, ...PAT_ENTRIES] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
 	// building group(2)＝メッシュ被覆マスク（count+bbox UBO＋4テクスチャ＋sampler）。メッシュ無しでも count=0 で素通し
 	const bglMask = device.createBindGroupLayout({ entries: [
@@ -403,7 +418,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const plTexLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, bglPlTex5] });
 
 	const fillMod = mkMod(FILL_WGSL, "fill");
-	const lineMod = mkMod(LINE_WGSL, "line");
+	const lineMod = mkMod(LINE_WGSL, "line");   // 基の 6 属性＝オーバーレイの線（丸い端・継ぎ）
+	const lineXMod = mkMod(lineXWgsl(LINE_WGSL, "LINE_X"), "line");   // 基図の classic の線＝前後の点と旗・破線の距離を属性で（S-P1-1/3）
 	const globeMod = mkMod(GLOBE_WGSL, "globe");
 	const terrMod = mkMod(TERRAIN_WGSL, "terrain");
 	const bldMod = mkMod(BUILDING_WGSL, "building");
@@ -442,6 +458,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // color
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 4, offset: 0, format: "float32" }] },     // half(CSS px)
 		{ arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 5, offset: 0, format: "float32x3" }] },  // line-offset #49＝[off CSS px, tS, tE]
+	];
+	// 基図の classic の線（lineXWgsl）＝8 本（maxVertexBuffers の既定）：色と半幅を interleave して p0/p3/[jf, dist] の 3 本を空ける
+	const LINE_X_BUFS: GPUVertexBufferLayout[] = [
+		LINE_BUFS[0], LINE_BUFS[1], LINE_BUFS[2],
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }, { shaderLocation: 4, offset: 4, format: "float32" }] },   // color＋half
+		LINE_BUFS[5],
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 6, offset: 0, format: "float32x2" }] },   // p0＝前の線分の始点（P1 を 1 線分ずらして読む）
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 7, offset: 0, format: "float32x2" }] },   // p3＝次の線分の終点（P2 を 1 線分ずらして読む）
+		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 8, offset: 0, format: "float32x2" }] },   // [jf, dist]＝端と継ぎの旗・破線の始点までの距離
 	];
 	// globe は Frame 非依存＝専用レイアウト。旧 "auto" は遷移時AAのセット複製で bind group を共有できない＝明示化
 	// binding1-3＝全球ハイプソ（標高R90全球窓＋気候場）。未使用時も dummy を張る（レイアウトは常に完全充足）
@@ -485,7 +510,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
 		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（LINE/BUILDING/OVERLAY モジュールの elev() が静的参照）
 	] });
-	const bglOvParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
+	const bglOvParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }, ...PAT_ENTRIES] });
 	const ovLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam] });
 	const dsOvStencil: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",   // fan→巻き数（FRONT+1/BACK-1）
 		stencilFront: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "increment-wrap" },
@@ -523,8 +548,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		return {
 			fillOff: pipe(fillMod, FILL_BUFS, dsOff),
 			fillTest: pipe(fillMod, FILL_BUFS, dsTest),
-			lineOff: pipe(lineMod, LINE_BUFS, dsOff),
-			lineTest: pipe(lineMod, LINE_BUFS, dsTest),
+			lineOff: pipe(lineXMod, LINE_X_BUFS, dsOff),
+			lineTest: pipe(lineXMod, LINE_X_BUFS, dsTest),
 			terrain: pipe(terrMod, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, "fs", terrLayout),   // group(2)=気候場（全球ハイプソ）
 			bld: pipe(bldMod, [
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
@@ -663,7 +688,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const batch = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		const samp = device.createSampler({ compare: "less-equal", magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 		const mods = sh0mods || (sh0mods = {
-			terr: mkMod(TERRAIN_SH_WGSL, "terrainSh"), fill: mkMod(FILL_SH_WGSL, "fillSh"), line: mkMod(LINE_SH_WGSL, "lineSh"),
+			terr: mkMod(TERRAIN_SH_WGSL, "terrainSh"), fill: mkMod(FILL_SH_WGSL, "fillSh"), line: mkMod(LINE_SH_WGSL, "lineSh"), lineX: mkMod(lineXWgsl(LINE_SH_WGSL, "LINE_SH_X"), "lineSh"),
 			bld: mkMod(BUILDING_SH_WGSL, "buildingSh"), mesh: mkMod(MESH_SH_WGSL, "meshSh"), meshTex: mkMod(MESH_TEX_SH_WGSL, "meshTexSh"), globe: mkMod(GLOBE_SH_WGSL, "globeSh"),
 			bldCast: mkMod(BUILDING_CAST_WGSL, "buildingCast"), meshCast: mkMod(MESH_CAST_WGSL, "meshCast"), meshTexCast: mkMod(MESH_TEX_CAST_WGSL, "meshTexCast"), terrCast: mkMod(TERRAIN_CAST_WGSL, "terrainCast"),
 		});
@@ -709,7 +734,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
 		p = {
 			fillOff: pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: pipe(m.fill, FILL_BUFS, dsTest, L.fill),
-			lineOff: pipe(m.line, LINE_BUFS, dsOff, L.fill), lineTest: pipe(m.line, LINE_BUFS, dsTest, L.fill),
+			lineOff: pipe(m.lineX, LINE_X_BUFS, dsOff, L.fill), lineTest: pipe(m.lineX, LINE_X_BUFS, dsTest, L.fill),
 			terrain: pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
 			bld: pipe(m.bld, SH_BLD_BUFS, dsWriteBld, L.bld),
 			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh),
@@ -753,7 +778,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const capBuf = device.createBuffer({ size: CAP_SLOT_B * 2, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		cl0mods ??= {
 			terr: mkMod(TERRAIN_CLIP_WGSL, "terrainClip"), mesh: mkMod(MESH_CLIP_WGSL, "meshClip"), meshTex: mkMod(MESH_TEX_CLIP_WGSL, "meshTexClip"),
-			fill: mkMod(FILL_CLIP_WGSL, "fillClip"), line: mkMod(LINE_CLIP_WGSL, "lineClip"), bld: mkMod(BUILDING_CLIP_WGSL, "buildingClip"), globe: mkMod(GLOBE_CLIP_WGSL, "globeClip"),
+			fill: mkMod(FILL_CLIP_WGSL, "fillClip"), line: mkMod(LINE_CLIP_WGSL, "lineClip"), lineX: mkMod(lineXWgsl(LINE_CLIP_WGSL, "LINE_CLIP_X"), "lineClip"), bld: mkMod(BUILDING_CLIP_WGSL, "buildingClip"), globe: mkMod(GLOBE_CLIP_WGSL, "globeClip"),
 			cap: mkMod(CLIP_CAP_WGSL, "clipCap"),
 		};
 		// 模型の group(2)＝バッチごとの PB（binding 0・dynamic offset）＋面（binding 1＝main）＝group(3) はテクスチャで埋まっている（影と同じ置き方）
@@ -810,7 +835,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			meshTex: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),
 			meshTexBlend: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),
 			fillOff: pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: pipe(m.fill, FILL_BUFS, dsTest, L.fill),
-			lineOff: pipe(m.line, LINE_BUFS, dsOff, L.fill), lineTest: pipe(m.line, LINE_BUFS, dsTest, L.fill),
+			lineOff: pipe(m.lineX, LINE_X_BUFS, dsOff, L.fill), lineTest: pipe(m.lineX, LINE_X_BUFS, dsTest, L.fill),
 			bld: pipe(m.bld, SH_BLD_BUFS, dsWriteBld, L.bld),
 			globe: device.createRenderPipeline({ layout: L.globe, vertex: { module: m.globe, entryPoint: "vs" },
 				fragment: { module: m.globe, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms }),
@@ -822,7 +847,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function clipShPipes(sc: number) {   // 影と重ねる受け手（影の束縛の後ろに面）
 		let p = cl!.pipesSh.get(sc); if (p) return p;
 		cl0mods!.sh ??= { terr: mkMod(TERRAIN_SH_CLIP_WGSL, "terrainShClip"), mesh: mkMod(MESH_SH_CLIP_WGSL, "meshShClip"), meshTex: mkMod(MESH_TEX_SH_CLIP_WGSL, "meshTexShClip"),
-			fill: mkMod(FILL_SH_CLIP_WGSL, "fillShClip"), line: mkMod(LINE_SH_CLIP_WGSL, "lineShClip"), bld: mkMod(BUILDING_SH_CLIP_WGSL, "buildingShClip"), globe: mkMod(GLOBE_SH_CLIP_WGSL, "globeShClip") };
+			fill: mkMod(FILL_SH_CLIP_WGSL, "fillShClip"), line: mkMod(LINE_SH_CLIP_WGSL, "lineShClip"), lineX: mkMod(lineXWgsl(LINE_SH_CLIP_WGSL, "LINE_SH_CLIP_X"), "lineShClip"), bld: mkMod(BUILDING_SH_CLIP_WGSL, "buildingShClip"), globe: mkMod(GLOBE_SH_CLIP_WGSL, "globeShClip") };
 		p = clipPipeSet(sc, cl0mods!.sh, cl!.laySh);
 		cl!.pipesSh.set(sc, p);
 		return p;
@@ -881,10 +906,108 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const globeBuf = device.createBuffer({ size: 384, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG: GPUBindGroup = null!;   // rebuildBG0()（初期化の内）が作る   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
+	// 塗りの模様（S-P1-4/5）の束縛の既定＝1×1 の透明な絵（模様を使わない塗りも group(1) の binding 1/2 を満たす）・サンプラは repeat・linear（GL2 と同じ）
+	const patDummy = device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+	const patDummyView = patDummy.createView();
+	const patSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "repeat", addressModeV: "repeat" });
+	const patEntries = (view: GPUTextureView): GPUBindGroupEntry[] => [{ binding: 1, resource: view }, { binding: 2, resource: patSampler }];
 	const paramBG: GPUBindGroup[] = [];   // 役割別（静的オフセット＝dynamic offset 不要）
 	for (let r = 0; r < N_ROLES; r++) paramBG.push(device.createBindGroup({
-		layout: bgl1, entries: [{ binding: 0, resource: { buffer: paramBuf, offset: r * PARAM_SLOT, size: 48 } }],
+		layout: bgl1, entries: [{ binding: 0, resource: { buffer: paramBuf, offset: r * PARAM_SLOT, size: DRAWP_B } }, ...patEntries(patDummyView)],
 	}));
+	// 層の画面効果（S-P1-1 端と継ぎ・S-P1-3 破線・S-P1-4/5 translate/ぼかし/模様・2026-10-22 WebGPU 版）＝GL2 は層ごとに uniform を打ち直す。
+	// WebGPU は役割の DrawP（p0〜p2）を写した上に tr/lx/dashP/dashI0/dashI1/patP を足した 1 スロット（256B）を lxBuf に置き、同じ中身の層は同じスロットを使う
+	//（鍵＝役割＋層の値。カメラ依存の値はフレーム毎に変わる＝鍵表はフレームの頭で空に）。bind group はスロット×模様の名で持ち越す。足りない時はこのフレームだけ役割の DrawP で描き次フレームで倍に
+	const LX_F32 = PARAM_SLOT / 4;
+	let lxBuf: GPUBuffer = device.createBuffer({ size: PARAM_SLOT * 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), lxCap = 64, lxCPU = new Float32Array(LX_F32 * 64);
+	const lxKey = new Map<string, number>(); let lxN = 0, lxOver = false;
+	const lxBG = new Map<string, GPUBindGroup>();
+	const lxCam = { zoom: 0, bearing: 0, dpr: 1, cosLat: 1 };
+	function lxFrame(cam: CameraPose) {
+		lxKey.clear(); lxN = 0;
+		lxCam.zoom = cam.zoom || 0; lxCam.bearing = cam.bearing || 0; lxCam.dpr = cam.dpr || 1; lxCam.cosLat = Math.cos((cam.center?.[1] || 0) * Math.PI / 180);
+		if (lxOver) {   // 前のフレームで溢れた＝倍に（bind group は作り直し）
+			lxOver = false; lxBuf.destroy(); lxBG.clear(); lxCap *= 2;
+			lxBuf = device.createBuffer({ size: PARAM_SLOT * lxCap, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); lxCPU = new Float32Array(LX_F32 * lxCap);
+		}
+	}
+	// スロットを引く（無ければ fill(o) に o＝f32 の先頭を渡して埋め・書く）。null＝溢れ。pat＝模様の名（bind group の鍵・無ければ ""）
+	function lxSlot(role: number, key: string, pat: string, patView: GPUTextureView, fill: (o: number) => void): GPUBindGroup | null {
+		const k = role + "|" + key;
+		let slot = lxKey.get(k);
+		if (slot === undefined) {
+			if (lxN >= lxCap) { lxOver = true; return null; }
+			slot = lxN++; lxKey.set(k, slot);
+			const o = slot * LX_F32;
+			lxCPU.fill(0, o, o + LX_F32);
+			lxCPU.set(paramF32.subarray(role * LX_F32, role * LX_F32 + 12), o);   // 役割の p0〜p2（濃さ・接地リフト・色）をそのまま
+			fill(o + 12);
+			device.queue.writeBuffer(lxBuf, slot * PARAM_SLOT, lxCPU.buffer, slot * PARAM_SLOT, PARAM_SLOT);
+		}
+		const bk = slot + "|" + pat;
+		let bg = lxBG.get(bk);
+		if (!bg) { bg = device.createBindGroup({ layout: bgl1, entries: [{ binding: 0, resource: { buffer: lxBuf, offset: slot * PARAM_SLOT, size: DRAWP_B } }, ...patEntries(patView)] }); lxBG.set(bk, bg); }
+		return bg;
+	}
+	// translate（fx[0..1]＝CSS px・fx[2]＝anchor viewport なら方位だけ回す）→ tr＝（東 px・南 px・今の z の 1px の経度・0）。ぼかし（fx[3]・fx[4]＝px の種類）→ lx.x/.y（gl/renderer.ts setFx と同式）
+	function lxFx(o: number, fx: number[] | null, blur: boolean) {
+		const f = lxCPU;
+		if (fx && (fx[0] || fx[1])) {
+			const b = fx[2] ? lxCam.bearing : 0, c = Math.cos(b), s = Math.sin(b);
+			f[o] = fx[0] * c - fx[1] * s; f[o + 1] = fx[0] * s + fx[1] * c; f[o + 2] = 360 / (256 * 2 ** lxCam.zoom); f[o + 3] = 0;
+		}
+		if (blur && fx) { f[o + 4] = fx[4] ? fx[3] : fx[3] * lxCam.dpr; f[o + 5] = fx[4]; }
+	}
+	// 鍵：fill＝fx（translate）と模様の名、line＝cj・破線の並び・fx。null＝効果が無い（役割の DrawP をそのまま＝従来の道）
+	const NO_LX = !!rOpts.noLx;   // ?nolx=1＝効果を全部切る（鍵は常に null＝役割の DrawP）
+	const fillLxk = (fx: number[] | null | undefined, pat: string | null | undefined): string | null => !NO_LX && ((fx && (fx[0] || fx[1])) || pat) ? `f|${fx ? fx.join(",") : ""}|${pat || ""}` : null;
+	const lineLxk = (cj: number, dash: readonly number[] | null | undefined, fx: number[] | null | undefined): string | null =>
+		!NO_LX && (cj || dash || (fx && (fx[0] || fx[1] || fx[3]))) ? `l|${cj}|${dash ? dash.join(",") : ""}|${fx ? fx.join(",") : ""}` : null;
+	// fill-pattern（S-P1-4/5）：記号帳の写し（render worker が注記層と同じ labelImage を回す）＝名前 → 画像（テクスチャは初めて描く時に作る）。
+	// 模様の px＝floor(外来の z) の世界（MapLibre の tileZoom と同じ段）のメルカトルの px・位相はシーン原点で f64 に畳む（gl/renderer.ts setPat と同式）
+	const pats = new Map<string, { bm: ImageBitmap; pr: number; view: GPUTextureView | null; tex: GPUTexture | null }>();
+	function setPatImage(d: { name: string; bitmap: ImageBitmap | null; pixelRatio?: number } | null): void {
+		if (!d?.name) return;
+		const old = pats.get(d.name); if (old?.tex) old.tex.destroy();
+		for (const k of [...lxBG.keys()]) if (k.endsWith("|" + d.name)) lxBG.delete(k);   // この模様を掴んでいた束縛は捨てる
+		if (d.bitmap) pats.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, view: null, tex: null }); else pats.delete(d.name);
+	}
+	// 塗りの bind group。null＝模様の画像がまだ無い（描かない＝MapLibre も画像が届くまで描かない）。溢れた時は役割の DrawP（効果なし）で描く
+	function lxFill(role: number, key: string, fx: number[] | null, pat: string | null, origin: ArrayLike<number>): GPUBindGroup | null {
+		let p: NonNullable<ReturnType<typeof pats.get>> | undefined;
+		if (pat) {
+			p = pats.get(pat); if (!p) return null;
+			if (!p.view) {
+				try {
+					p.tex = device.createTexture({ size: [p.bm.width, p.bm.height], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+					device.queue.copyExternalImageToTexture({ source: p.bm }, { texture: p.tex }, [p.bm.width, p.bm.height]);
+					p.view = p.tex.createView();
+				} catch { p.tex?.destroy(); pats.delete(pat); return null; }   // 閉じた画像（差し替えの最中）＝次の labelImage を待つ
+			}
+		}
+		const k = pat ? `${key}|${origin[0]},${origin[1]}` : key;   // 模様の位相はシーン原点に依る
+		return lxSlot(role, k, pat || "", p ? p.view! : patDummyView, o => {
+			lxFx(o, fx, false);
+			if (!p) return;
+			const dz = view.dashDz ?? 1, fz = Math.floor(lxCam.zoom - dz) + dz, n = 256 * 2 ** fz, W = p.bm.width / p.pr, H = p.bm.height / p.pr;
+			const X = (origin[0] + 180) / 360 * n, s = Math.sin(origin[1] * Math.PI / 180), Y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
+			lxCPU[o + 7] = n / 360;   // lx.w＝patK（度 → 模様の px）
+			lxCPU[o + 20] = X - W * Math.floor(X / W); lxCPU[o + 21] = Y - H * Math.floor(Y / H); lxCPU[o + 22] = 1 / W; lxCPU[o + 23] = 1 / H;   // patP
+		}) ?? paramBG[role];
+	}
+	// 線の bind group：cj → lx.z・破線 → dashP（P・区間の数・丸い端・尺）＋dashI0/1・fx → tr と lx.x/.y。
+	// 尺 K＝模様の px（MapLibre の tileZoom＝floor(外来の z) の px）÷ z24 の px（地面・メルカトル）＝gl/renderer.ts setDash と同式
+	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null): GPUBindGroup {
+		return lxSlot(role, key, "", patDummyView, o => {
+			lxFx(o, fx, true);
+			lxCPU[o + 6] = cj;
+			if (dash) {
+				const z = lxCam.zoom, zs = z - (view.dashDz ?? 1);
+				lxCPU[o + 8] = dash.P; lxCPU[o + 9] = dash.n; lxCPU[o + 10] = dash.round; lxCPU[o + 11] = 2 ** (z - 24 - (zs - Math.floor(zs))) * lxCam.cosLat;
+				lxCPU.set(dash.iv, o + 12);
+			}
+		}) ?? paramBG[role];
+	}
 	// mesh per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
 	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }] });   // PB＝meshOrigin+clipMesh+alpha+pbr0+emis+lp+sh[9]＝240B（#46 段 2）
@@ -929,7 +1052,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
 	let ovFrameBG: GPUBindGroup | null = null, ovFrameBGView: GPUTextureView | null = null, ovFrameBGFarView: GPUTextureView | null = null;   // drawOverlay が elevTexView/farTexView 変化時だけ作り直す（rebuildBG0 と独立）
-	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: 48 } }] });
+	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: DRAWP_B } }, ...patEntries(patDummyView)] });   // tr/lx/dashP は 0 のまま＝丸い端・実線・ずらさない
 	function ensureOvFrameBG() {
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView;
 		const fv = (far.has && farTexView) ? farTexView : dummyView;
@@ -1674,7 +1797,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setPipeline(atlasFillPipeMD!);
 						pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
 						for (const e of scene.md.layers) {
-							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は GL2 だけ
+							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は 3D の地面アトラスには焼かない（ATLAS_FILL_WGSL は模様を読まない＝残る差・GL2 は焼く）
 							const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
 							if ((seaFB ? 1 : 0) !== gate) continue;
 							if (!user && (seaFB || waterC) && seaOff) continue;
@@ -1936,7 +2059,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const org = new Float32Array(Math.max(2, n * 2));
 		let at = 0;
 		const put = (o: Float32Array): number => { const off = at * 8; org.set(o, at * 2); at += o.length >> 1; return off; };
-		const layers: MDLayer[] = m.layers.map(L => ({ kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}) }));
+		const layers: MDLayer[] = m.layers.map(L => {
+			const cj = L.cj || 0, dash = L.kind === "line" ? dashU(L.dash, cj) : null, fx = L.fx || null;
+			return { kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}), cj, dash, fx,
+				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx) };
+		});
 		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
 		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(orgBuf, 0, org);
@@ -2001,19 +2128,29 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (let L of s.layers || []) {
 			if (!L) continue;
 			if (L.kind === "fill") {
-				if (!L.pos.length || L.pat) continue;   // fill-pattern（S-P1-4/5）＝GL2 だけ（WebGPU は次の段）＝描かない（旧＝基図は層ごと飛ばした・黒で塗らない）
+				if (!L.pos.length || (NO_LX && L.pat)) continue;   // ?nolx=1＝模様の塗りは描かない（旧）
 				const bPos = makeBuf(L.pos, GPUBufferUsage.VERTEX), bCol = makeBuf(u8col(L.col), GPUBufferUsage.VERTEX);
 				const hasIdx = L.idx && L.idx.length;
 				const bIdx = hasIdx ? makeBuf(L.idx instanceof Uint32Array ? L.idx : Uint32Array.from(L.idx), GPUBufferUsage.INDEX) : null;
-				draws.push({ kind: "fill", li: L.li, bufs: bIdx ? [bPos, bCol, bIdx] : [bPos, bCol], bPos, bCol, bIdx, count: hasIdx ? L.idx.length : L.pos.length / 2 });
+				const fx = L.fx || null, pat = L.pat || null;
+				draws.push({ kind: "fill", li: L.li, bufs: bIdx ? [bPos, bCol, bIdx] : [bPos, bCol], bPos, bCol, bIdx, count: hasIdx ? L.idx.length : L.pos.length / 2, fx, pat, lxk: fillLxk(fx, pat) });
 			} else {
-				if (L.dist) L = chopDash(L, s.origin);   // 破線（S-P1-3）：GL2 はシェーダで描く・ここは作ったタイルの z の尺で刻む（従来の CPU の破線と同じ絵）
+				if (NO_LX && L.dist) L = chopDash(L, s.origin);   // ?nolx=1＝破線は CPU で刻む（旧＝作ったタイルの z の尺）
 				if (!L.half.length) continue;
-				const bP1 = makeBuf(L.P1, GPUBufferUsage.VERTEX), bP2 = makeBuf(L.P2, GPUBufferUsage.VERTEX);
-				const bCol = makeBuf(u8col(L.col), GPUBufferUsage.VERTEX), bHalf = makeBuf(L.half, GPUBufferUsage.VERTEX);
+				const n = L.half.length, J = NO_LX ? null : L.jf || null, pad = !!J;
+				// 端と継ぎ（S-P1-1）を持つ層は P1 の前・P2 の後ろに 1 線分ぶんの余白を置き、同じバッファを 1 線分（8B）ずらして前の始点 p0・次の終点 p3 としても読む（GL2 と同じ）
+				const padA = (a: Float32Array, head: boolean): Float32Array => { const b = new Float32Array(a.length + 2); b.set(a, head ? 2 : 0); return b; };
+				const bP1 = makeBuf(pad ? padA(L.P1, true) : L.P1, GPUBufferUsage.VERTEX), bP2 = makeBuf(pad ? padA(L.P2, false) : L.P2, GPUBufferUsage.VERTEX);
+				const ch = new ArrayBuffer(n * 8), chU8 = new Uint8Array(ch), chF = new Float32Array(ch), col = u8col(L.col);   // 色（RGBA8）＋半幅（f32）の interleave
+				for (let i = 0; i < n; i++) { chU8[i * 8] = col[i * 4]; chU8[i * 8 + 1] = col[i * 4 + 1]; chU8[i * 8 + 2] = col[i * 4 + 2]; chU8[i * 8 + 3] = col[i * 4 + 3]; chF[i * 2 + 1] = L.half[i]; }
+				const bCH = makeBuf(chF, GPUBufferUsage.VERTEX);
 				const bOff = L.off ? makeBuf(L.off, GPUBufferUsage.VERTEX) : null;   // line-offset を持つ層だけ（無い層は共有の 0 列）
-				if (!bOff) zeroOffFit(L.half.length);
-				draws.push({ kind: "line", li: L.li, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf], bP1, bP2, bCol, bHalf, bOff, count: L.half.length });
+				let bJd: GPUBuffer | null = null;   // [jf, dist]＝端と継ぎの旗（S-P1-1）・破線の始点までの距離（S-P1-3）を持つ層だけ（無い層は共有の 0 列）
+				if (J || L.dist) { const jd = new Float32Array(n * 2); for (let i = 0; i < n; i++) { jd[i * 2] = J ? J[i] : 0; jd[i * 2 + 1] = L.dist ? L.dist[i] : 0; } bJd = makeBuf(jd, GPUBufferUsage.VERTEX); }
+				if (!bOff || !bJd) zeroOffFit(n);
+				const cj = J ? L.cj ?? 0 : 0, dash = L.dist ? dashU(L.dash, cj) : null, fx = L.fx || null;
+				const bufs = [bP1, bP2, bCH]; if (bOff) bufs.push(bOff); if (bJd) bufs.push(bJd);
+				draws.push({ kind: "line", li: L.li, bufs, bP1, bP2, bCH, bOff, bJd, pad, count: n, cj, dash, fx, lxk: lineLxk(cj, dash ? L.dash : undefined, fx) });
 			}
 		}
 		let bld: SceneBld | null = null;
@@ -2365,6 +2502,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
 		if (worldHypsoK > 0) ensureClimTex(view.worldHypso!.clim);
 		worldPal();   // 世界パレット＝knob 参照変化時のみ worldPalBuf へ書込（バインドは常設）
+		lxFrame(cam);   // 層の画面効果の uniform（S-P1）＝このフレームの鍵表を空に（役割の DrawP は下で書く＝lxSlot が写す）
 		device.queue.writeBuffer(paramBuf, 0, packParams({
 			fadeK,
 			cityLift,
@@ -2554,9 +2692,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
 				if (hideBldFill && d.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
 				const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
+				const role = userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal);
+				const bg1 = d.lxk ? lxFill(role, d.lxk, d.fx, d.pat, scenes[slot].origin) : paramBG[role];
+				if (!bg1) return;   // 模様の画像がまだ無い層＝描かない（MapLibre・GL2 と同じ）
 				pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
+				pass.setBindGroup(1, bg1);
 				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
 				pass.setVertexBuffer(0, d.bPos);
 				pass.setVertexBuffer(1, d.bCol);
@@ -2565,16 +2706,19 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (slot === "base") dbg!.baseFill++; else dbg!.mainFill++;
 			} else {
 				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
+				const role = userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal;   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
 				pass.setPipeline(linePipe);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+				pass.setBindGroup(1, d.lxk ? lxLine(role, d.lxk, d.cj, d.dash, d.fx) : paramBG[role]);
 				if (grp(slot)) pass.setBindGroup(2, grp(slot));
 				pass.setVertexBuffer(0, cornerBuf);
-				pass.setVertexBuffer(1, d.bP1);
+				pass.setVertexBuffer(1, d.bP1, d.pad ? 8 : 0);
 				pass.setVertexBuffer(2, d.bP2);
-				pass.setVertexBuffer(3, d.bCol);
-				pass.setVertexBuffer(4, d.bHalf);
-				pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
+				pass.setVertexBuffer(3, d.bCH);
+				pass.setVertexBuffer(4, d.bOff || zeroOffBuf);
+				pass.setVertexBuffer(5, d.bP1);                    // p0＝1 線分前（余白が無い層は p1 と同じ＝旗 0 で読まれない）
+				pass.setVertexBuffer(6, d.bP2, d.pad ? 8 : 0);     // p3＝1 線分後
+				pass.setVertexBuffer(7, d.bJd || zeroOffBuf);     // [jf, dist]（0 列＝丸い端・実線）
 				drawLine(pass, d.count);
 				if (slot === "base") dbg!.baseLine++; else dbg!.mainLine++;
 			}
@@ -2583,15 +2727,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const MDX = md ? mdPipeSet(CR ? "cr" : C ? "c" : R ? "r" : "p", S) : null;
 		const drawMDLayer = (slot: string, e: MDLayer, orgBuf: GPUBuffer) => {
 			if (e.kind === "fill") {
-				if (rasterHide || e.pat) return;   // ラスタ基図＝塗りを伏せる・fill-pattern（S-P1-4/5）は GL2 だけ
+				if (rasterHide || (NO_LX && e.pat)) return;   // ラスタ基図＝塗りを伏せる・?nolx=1＝模様の塗りは描かない（旧）
 				const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
 				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
 				if (hideBldFill && e.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
 				const roof = R && !C && e.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根（classic と同じ＝素の派生）
 				const PM = roof ? mdPipeSet("p", S) : MDX!;
+				const role = seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal;
+				const bg1 = e.lxk ? lxFill(role, e.lxk, e.fx, e.pat || null, scenes[slot].origin) : paramBG[role];
+				if (!bg1) return;   // 模様の画像がまだ無い層＝描かない
 				pass.setPipeline(terrainDepth ? PM.fillTest : PM.fillOff);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, paramBG[seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal]);
+				pass.setBindGroup(1, bg1);
 				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
 				pass.setVertexBuffer(0, md!.fillV.buf!); pass.setVertexBuffer(1, orgBuf, e.orgOff);
 				pass.setIndexBuffer(md!.fillI.buf!, "uint32");
@@ -2603,7 +2750,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (!md!.lineBG) return;
 				pass.setPipeline(terrainDepth ? MDX!.lineTest : MDX!.lineOff);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, paramBG[ROLE.normal]);
+				pass.setBindGroup(1, e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx) : paramBG[ROLE.normal]);
 				pass.setBindGroup(2, grp(slot) || emptyBG);
 				pass.setBindGroup(3, md!.lineBG);
 				pass.setVertexBuffer(0, orgBuf, e.orgOff);
@@ -2927,6 +3074,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lakes":     setLakes(data as OverlayScene | null); break;             // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "gintBld":   setGintBld(data as GintBldData | null); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...(data as Partial<RenderView>) }; break;
+			case "patImage": setPatImage(data as Parameters<typeof setPatImage>[0]); break;   // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）
 			case "sky":     sky = data && Array.isArray((data as SkyStyle).sky) ? data as SkyStyle : null; break;   // style の sky（B4）＝WebGPU は霧の色・濃さだけ写す（空の絵は従来のリム光・#46 の散乱のまま＝簡易の空は GL2 だけ）
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
 			case "light":   light = data && Array.isArray((data as NonNullable<typeof light>).dir) ? data as NonNullable<typeof light> : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
@@ -2998,7 +3146,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
