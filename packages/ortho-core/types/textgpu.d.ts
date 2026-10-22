@@ -1,4 +1,4 @@
-// @ortho-earth/core/textgpu — 線に沿う注記の字を WebGPU で塗る（テキスト GPU 化 T-P1・render worker 内で使う）。
+// @ortho-earth/core/textgpu — 注記の字（線に沿う・点）を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・render worker 内で使う）。
 // 源（src/gpu/text.ts）は WebGPU の定数（GPUTextureUsage 等）を使う＝それを宣言しない program（globe）からはこの宣言で読む（gpu.d.ts と同じ手）。
 import type { Mat2 } from "../src/labels2d.ts";
 import type { TextSink } from "../src/textsink.ts";
@@ -20,6 +20,6 @@ export interface GpuText {
 }
 /** canvas＝描く先の webgpu canvas。null＝画面に出さずテクスチャに描く（検定） */
 export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format?: GPUTextureFormat): GpuText;
-/** 線に沿う注記の字だけを GPU へ回す受け口。attach(gt)＝GPU を据える・canvasOnly＝一時的に全部 Canvas2D（撮影） */
-export interface GpuLineSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean }
-export function createGpuLineSink(base: TextSink): GpuLineSink;
+/** 注記の字（線に沿う・点）を GPU へ回す受け口。attach(gt)＝GPU を据える・canvasOnly＝一時的に全部 Canvas2D（撮影） */
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean }
+export function createGpuTextSink(base: TextSink): GpuTextSink;

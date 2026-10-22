@@ -1,13 +1,14 @@
 <!doctype html>
-<!-- 線に沿う注記の字を WebGPU（SDF の版）で塗った絵が Canvas2D の受け口（字形アトラス）と同じ所に同じ形で出るか（テキスト GPU 化 T-P1・2026-10-22）。
-     同じ字の列（直線・曲がった道・傾けた行列・縁・ぼかし・format の色と書体・CJK）を両方の受け口で描き、不透明度の面（α>0.5）の重なり（IoU）と
+<!-- 注記の字を WebGPU（SDF の版）で塗った絵が Canvas2D の受け口と同じ所に同じ形で出るか（テキスト GPU 化 T-P1 線に沿う字・T-P2 点の注記・2026-10-22）。
+     同じ字の列（直線・曲がった道・傾けた行列・縁・ぼかし・format の色と書体・CJK）と点の注記（複数行と寄せ・字間・回した箱・format・縦書き・アラビア文字の run）を
+     両方の受け口で描き、不透明度の面（α>0.5）の重なり（IoU）と
      インクの重心のずれ・本体の色を比べる。dpr 1 と 2。字の質（画数の多い字の潰れ）は実機で本人が見る＝ここは位置と形の門。
      ⚠実時間専用（verify-webgpu.mjs）。WebGPU の無い環境はスキップ扱いの PASS。 -->
 <html lang="ja"><head><meta charset="utf-8"><title>t-textgpu</title></head>
 <body style="margin:0;background:#fff">
 <script type="module">
 import { canvas2d, createCanvasSink } from "@ortho-earth/core/src/textsink.ts";
-import { createGpuText, createGpuLineSink } from "@ortho-earth/core/src/gpu/text.ts";
+import { createGpuText, createGpuTextSink } from "@ortho-earth/core/src/gpu/text.ts";
 const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 const W = 480, H = 200;
@@ -29,6 +30,23 @@ const SCENES = [
 	{ name: "format", g: along("ABCdef", 40, 100, 0.05, 11).map((g, i) => i < 3 ? { ...g, col: RED, f: BOLD } : g), font: FONT, p: { color: BLACK, halo: null, haloW: 0 } },
 	{ name: "cjk", g: along("東京駅前通り", 300, 110, -0.1, 14), font: '14px "Noto Sans JP", sans-serif', p: { color: BLACK, halo: WHITE, haloW: 1 } },
 ];
+// 点の注記の行の束（labels2d の textLayout と同じ形を Canvas の measureText で組む）
+const mc = new OffscreenCanvas(8, 8).getContext("2d");
+const mw = (t, font, ls = 0) => { mc.font = font; mc.letterSpacing = ls + "px"; return mc.measureText(t).width; };
+const plainTL = (lines, font, size, ls = 0, lh = 1.2) => { const ws = lines.map(t => mw(t, font, ls * size)); return { lines, ws, w: Math.max(...ws), h: lines.length * lh * size, size, ls, lh, font }; };
+const runsTL = (parts, size, lh = 1.2) => { const runs = [parts.map((p, si) => ({ t: p.t, si, w: mw(p.t, p.font), h: 0, font: p.font, col: p.col ?? null, fs: p.fs ?? 1, va: null }))], ws = [runs[0].reduce((a, r) => a + r.w, 0)], lhs = [lh * size * Math.max(...parts.map(p => p.fs ?? 1))]; return { lines: [parts.map(p => p.t).join("")], ws, w: ws[0], h: lhs[0], size, ls: 0, lh, font: parts[0].font, runs, lhs }; };
+const vertTL = (text, font, size, lh = 1.2) => { const col = [...text].map(ch => { const rot = /[A-Za-z0-9]/.test(ch); return { ch, rot, adv: rot ? mw(ch, font) : size, font, col: null, fs: 1 }; }); const h = col.reduce((a, g) => a + g.adv, 0); return { lines: [text], ws: [lh * size], w: lh * size, h, size, ls: 0, lh, font, vcols: [col], vhs: [h], vert: true }; };
+const P13 = '13px "Noto Sans", "Noto Sans JP", sans-serif', P16 = 'bold 16px "Noto Sans", "Noto Sans JP", sans-serif', AR = '15px "Noto Sans Arabic", "Noto Naskh Arabic", sans-serif';
+const rotT = a => ({ a: Math.cos(a), b: Math.sin(a), c: -Math.sin(a), d: Math.cos(a) });
+const POINTS = [   // pt＝(tl, font, T, sx, sy, x0, y0, just, paint)＝labels2d の drawOne が pointText に渡す形
+	{ name: "pt-lines-center", pt: () => { const tl = plainTL(["Tokyo Station", "東京駅 Marunouchi"], P13, 13); return [tl, P13, null, 120, 60, 120 - tl.w / 2, 60 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1.5 }]; } },
+	{ name: "pt-right-ls", pt: () => { const tl = plainTL(["AVENUE", "Wa"], P16, 16, 0.15); return [tl, P16, null, 360, 50, 360 - tl.w, 50, "right", { color: BLACK, halo: null, haloW: 0 }]; } },
+	{ name: "pt-rot-pitch", pt: () => { const tl = plainTL(["Delft Centrum"], P16, 16), T = { ...rotT(0.35), b: Math.sin(0.35) * 0.6, d: Math.cos(0.35) * 0.6 }; return [tl, P16, T, 140, 150, -tl.w / 2, -tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
+	{ name: "pt-format", pt: () => { const tl = runsTL([{ t: "Oude ", font: P13 }, { t: "Kerk", font: P16, col: RED, fs: 1.3 }], 13); return [tl, P13, null, 0, 0, 260, 120, "left", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
+	{ name: "pt-vertical", pt: () => { const tl = vertTL("新宿3丁目", P16, 16); return [tl, P16, null, 0, 0, 440, 30, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
+	{ name: "pt-arabic-run", pt: () => { const tl = plainTL(["القاهرة الجديدة"], AR, 15); return [tl, AR, null, 360, 160, 360 - tl.w / 2, 160 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
+	{ name: "pt-blur", pt: () => { const tl = plainTL(["Kanda"], P16, 16); return [tl, P16, null, 60, 170, 60 - tl.w / 2, 170 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1.5, blur: 1 }]; } },
+];
 // 画素の面（α＞0.5 の 2 値）・外接の箱。重心は使わない（細い字は SDF の方がわずかに太い＝字の重さの偏りで重心が動く）
 function stats(px, w, h) {
 	let n = 0, x0 = w, y0 = h, x1 = -1, y1 = -1; const m = new Uint8Array(w * h);
@@ -45,21 +63,22 @@ try {
 		for (const dpr of [1, 2]) {
 			const cw = W * dpr, ch = H * dpr;
 			const c2 = new OffscreenCanvas(cw, ch), x2 = c2.getContext("2d", { willReadFrequently: true }), s2 = createCanvasSink(canvas2d(x2));
-			const gt = createGpuText(device, null), base = createCanvasSink(canvas2d(new OffscreenCanvas(cw, ch).getContext("2d"))), sg = createGpuLineSink(base); sg.attach(gt);   // GPU はテクスチャに描く（ソフトウェア WebGPU は canvas の present で device が落ちる＝読み戻しはテクスチャから）
+			const gt = createGpuText(device, null), base = createCanvasSink(canvas2d(new OffscreenCanvas(cw, ch).getContext("2d"))), sg = createGpuTextSink(base); sg.attach(gt);   // GPU はテクスチャに描く（ソフトウェア WebGPU は canvas の present で device が落ちる＝読み戻しはテクスチャから）
 			ok(`dpr${dpr}:kind=${sg.kind}`, sg.kind === "webgpu");
-			for (const sc of SCENES) {
+			for (const sc of [...SCENES, ...POINTS]) {
+				const args = sc.pt?.(), noImg = () => null;
+				const drawIn = s => { s.begin(cw, ch, dpr); if (args) s.pointText(...args, 1, noImg); else s.lineText(sc.g, sc.font, sc.p, 1, dpr); s.end(); };
 				for (let pass = 0; pass < 2; pass++) {   // 2 回目＝字形アトラスの写し（ImageBitmap）が出来た後の Canvas2D と、版を引くだけの GPU
-					s2.begin(cw, ch, dpr); s2.lineText(sc.g, sc.font, sc.p, 1, dpr); s2.end();
-					sg.begin(cw, ch, dpr); sg.lineText(sc.g, sc.font, sc.p, 1, dpr); sg.end();
+					drawIn(s2); drawIn(sg);
 					if (pass === 0) await new Promise(r => setTimeout(r, 50));
 				}
 				const gp = await gt.readPixels();
 				const A = stats(x2.getImageData(0, 0, cw, ch).data, cw, ch), B = stats(gp, cw, ch);
 				const io = iou(A.m, B.m), db = Math.max(...A.box.map((v, i) => Math.abs(v - B.box[i]))) / dpr, wr = B.n / Math.max(1, A.n);
 				ok(`dpr${dpr}:${sc.name}(iou=${io.toFixed(3)} box±${db.toFixed(1)}px ink=${wr.toFixed(2)})`, A.n > 50 && io > 0.8 && db <= 1.5 && wr > 0.85 && wr < 1.25);   // 同じ所（箱のずれ 1.5px 以内）・同じ形（IoU）・同じ重さ（インクの比）
-				if (sc.name === "format") {   // 区間の色＝前の 3 字は赤・後ろは黒（GPU の本体の色）
+				if (sc.name === "format" || sc.name === "pt-format") {   // 区間の色＝前の 3 字は赤・後ろは黒（GPU の本体の色）
 					let red = 0, blk = 0; for (let i = 0; i < cw * ch; i++) if (gp[i * 4 + 3] > 180) { if (gp[i * 4] > 150 && gp[i * 4 + 1] < 80) red++; else if (gp[i * 4] < 60) blk++; }
-					ok(`dpr${dpr}:format-color(red=${red} black=${blk})`, red > 20 && blk > 20);
+					ok(`dpr${dpr}:${sc.name}-color(red=${red} black=${blk})`, red > 20 && blk > 20);
 				}
 			}
 			ok(`dpr${dpr}:glyphs=${sg.stats().glyphs}`, sg.stats().glyphs > 0);

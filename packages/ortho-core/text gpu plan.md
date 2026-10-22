@@ -48,7 +48,7 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 |---|---|---|---|
 | **P0** 測る・切り出す（小） | §4 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 | 無し（絵が変わらない） |
 | **P1** 線沿いの注記を GPU へ（中・**実装済・実機の門待ち**＝§4b） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。今の字形アトラスの経路を置き換える。描く先は注記の OffscreenCanvas に同じ GPUDevice で据えた webgpu（最前面の足場） | デルフト 60fps・注記の CPU 1ms 未満・字の質を実機の **dpr 2（Mac）と dpr 1（外部モニタ等）** で本人が目視（「鬱・龍・護」を Canvas2D と並べる） | `?text=2d` |
-| **P2** すべての文字を GPU へ・層の位置で描く（大） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
+| **P2** すべての文字を GPU へ・層の位置で描く（大・**1 本目＝点の注記は実装済**＝§4c） | 点の注記・複数行・format・縦書き。部分文字列の幅で字の x・繋げる文字は run sprite。描く場所を地図のパスへ移し層ごとの範囲で draw。足場の canvas を外し既定を GPU に | t-mlcompat?g=vector の symbol-* が同じ答え・層順の場面（注記の後に線が来る style）が MapLibre と同じ絵・東京 z15 の Canvas2D との差分画像を本人が確認 | `?text=2d` |
 | **P3** 記号・標識・geojson の symbol・星空（中） | sprite を RGBA の記号アトラスへ・標識は番号ごとに焼いて同じアトラス・星空と月も TextSink 経由。symbols-2d を labels2d に合流（同じ衝突判定・層順）・cluster-2d も同じ口 | WebGPU で注記に Canvas2D を使う箇所が「字を焼く」だけ | `?text=2d` |
 | **P4** glyph PBF を字の出どころに足す（中・**裁定済み＝glyphs があれば既定**） | `style.glyphs` の SDF PBF（256 字ごと）を同じアトラスへ・配置は PBF の字送り（GlyphMetrics）。漢字・かな・ハングルは端末フォントで焼く。PBF が届くまでその字を含む注記は置かない | t-mlcompat の symbol-* が同じ答え・字送りが MapLibre と一致 | `?glyphs=css` |
 | **P5** 投影を GPU へ（中） | 点の注記はインスタンスに経緯度・標高を持たせ頂点シェーダで投影と距離フェード。線沿いと衝突判定は CPU のまま（compute の衝突判定は `placed()` の後戻りと実機でしか測れない危うさに見合わない） | パン中の注記の CPU と転送が下がる・`placed()` 不変 | `?text=2d` |
@@ -95,6 +95,25 @@ labels.ts（Label を焼く）→ labels2d.ts（配置・衝突・フェード�
 - `?text=gpu` を付けた GL2 の起動（デルフトの計測頁）で例外なし（GPU は据わらず Canvas2D）。
 
 実機の門（本人）：デルフト z17.6・55° を `?gpu=1&text=gpu&perf=1` で 60fps・`lab=` 1ms 未満、字の質を Mac の dpr 2 と外部モニタの dpr 1 で（「鬱・龍・護」など画数の多い字を `?text=2d` と並べて）。潰れる時は基準を 48px へ上げるか小さい字だけ SDF でない絵に（§2）。
+
+## 4c. P2 の 1 本目＝点の注記の字を GPU へ（**実装済・実機の門待ち**・2026-10-22）
+
+P2 は 2 本に割る：**1 本目＝点の注記を字に割って GPU で塗る（足場の canvas のまま）**、2 本目＝描く場所を地図のパスの中（層の位置）へ移し、足場を外して既定を GPU に。
+1 本目だけでも `?text=gpu` で字はすべて GPU（記号・標識・format の記号の区間・星空は Canvas2D＝P3）。
+
+- **字に割る**（`textsink.ts` の `pointGlyphs`・純関数＝`tests/pointglyphs.mjs`）：Canvas2D 版 `pointText` の 3 つの分岐（縦書き・format の run・素の行）と同じ置き方。
+  字の右端＝「行の頭からその字までの部分文字列の幅」（字詰めは前の字の送りに入る）、字の中央＝右端 − 字間 − その字の送りの半分。字間（letter-spacing）は Canvas2D と同じく字ごとの後ろ。
+  寄せは Canvas2D の textAlign と同じく行を字間込みで測った幅で。縦書きは Canvas2D が行頭で据えた字間のまま 1 字ずつ中央揃えで描く＝字間の半分だけ前へずれる所まで写した。
+- **繋げる字（P2 の run sprite）**：`needsShaping`（結合記号・アラビア／ヘブライ・インド系・タイ・ミャンマー・クメール・ZWJ・絵文字）を含む列は割らずに列ごと 1 枚の SDF（鍵は書体×列）。
+  列の箱の中央に置く。字間は焼かない（MapLibre も繋げる字には字間を掛けない）。版の一辺より長い列は焼けない＝その注記は丸ごと Canvas2D。
+- **受け口**：`createGpuTextSink`（旧 `createGpuLineSink`）＝`lineText` と `pointText` の字が GPU。割った字の列は行の束（`TextLayout`・labels2d がラベルごとに覚えている）ごとに `WeakMap` で覚える＝静止中の毎フレームは引くだけ。
+  寸法は受け口が自前の 2D 文脈で `measureText`（labels2d の寸法の口と同じ書体の文字列・字間）。縁は `haloW`、ぼかし（`shadowBlur`）は縁が無くても縁の色で掛かる（Canvas2D と同じ）。
+  format の記号の区間は Canvas2D の受け口の `pointIcon`（足場の間は記号が字の下）。
+
+門の結果（クラウド・SwiftShader の WebGPU）：`t-textgpu` に点の注記 7 場面（複数行の中央寄せ＋縁・右寄せ＋字間・回して潰した箱・format の色と大きさ・縦書きの回す字・アラビア文字の run・縁のぼかし）を足し、
+dpr 1／2 で **IoU 0.89〜0.97・箱のずれ 1px 以内・インクの比 0.94〜1.03**（線に沿う字の 7 場面も前と同じ）。`tests/pointglyphs.mjs`＝字詰め・寄せ・字間・format（記号・縦の揃え）・縦書き・割れない列の見分け。
+
+実機の門（本人・2 本目と一緒に）：`?gpu=1&text=gpu` で東京 z15・東京駅 z17.5 55° の点の注記の質（dpr 2／1）・`lab=` の ms。
 
 ## 5. ベースライン記録欄（実機で埋める）
 
