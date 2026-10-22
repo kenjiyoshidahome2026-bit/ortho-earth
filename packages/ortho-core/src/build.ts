@@ -243,7 +243,8 @@ export function miterSlides(coords: ArrayLike<number>, ls: number, le: number): 
 
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
-// subLenM＝線の細分の長さ（m・既定 700＝基図）。利用者の vector の層（段 8⑤）は低ズームのタイルで細分が膨れないよう長くして渡す
+// subLenM＝線の細分の長さ（m・既定 700＝基図）。利用者の vector の層（段 8⑤）は低ズームのタイルで細分が膨れないよう長くして渡す。
+// Infinity＝地形にドレープしない地図（terrain 無し・vt perf plan §3.2）＝細分しない。ただし z≤6 は fill と同じ格子（128>>z）で粗く刻む＝球の弦の沈み（長い線が球に潜る）を防ぐ
 // stateOf＝地物 → その feature-state（#109・省略可）。paint の ["feature-state", k] だけが読む（filter と sort-key は読まない＝MapLibre と同じ）。
 //   渡すのは利用者の vector の描く層（globe の vtdraw）だけ＝基図は渡さない＝今と同じ絵（黄金の写しは不変）・層の中の sort-key の順も崩れない
 export function buildTileDrawList(tile: BuildTile, style: Style, origin: readonly number[], pale: (c: unknown) => unknown = c => c): DrawList {
@@ -301,7 +302,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
 	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
 	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
-	const subLen = Math.max(1, subLenM / mPerUnit);   // 700m（既定）相当のタイル単位
+	const subLen = Math.max(1, subLenM / mPerUnit);   // 700m（既定）相当のタイル単位（Infinity＝細分なし・下の lineSegs で低 z だけ fill の格子に倒す）
 
 	// 塗りの地物の幾何（切り抜き→三角形分割→細分→極の扇→経緯度）は色に依らない＝地物ごとに一度だけ作って層を跨いで使い回す。
 	// 基図は同じ source-layer の地物を複数の fill 層（water／water-hi 等）が塗る＝旧は同じ地物を層の数だけ earcut していた（optbv の見本で全て 2 回）。
@@ -345,6 +346,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 		let g = lineCache.get(geom);
 		if (g) return g;
 		const { coords, ends } = geom, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, rs: number[] = [], re: number[] = [];
+		const sl = isFinite(subLen) ? subLen : fillSub0 ? extent / Math.max(1, 128 >> z) : Infinity;   // ドレープ無し＝z≤6 だけ fill の格子で粗く（弦の沈み）・z≥7 は細分なし
 		p1.n = p2.n = rr.n = kk.n = fl.n = 0;
 		let ls = 0;
 		for (let r = 0; r < ends.length; r++) {
@@ -357,7 +359,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				const Ax = coords[i - 2], Ay = coords[i - 1];
 				if (outsideSameSide(Ax, Ay, coords[i], coords[i + 1], extent)) { llInto(coords[i], coords[i + 1], extent, sc, 0); pLon = sc[0]; pLat = sc[1]; continue; }   // 余白だけを走る線分＝描かない（下の outsideSameSide）
 				const dx = coords[i] - Ax, dy = coords[i + 1] - Ay;
-				const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
+				const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / sl)));  // 地形ドレープ用に細分（sl＝Infinity なら 1）
 				const k = (i - ls - 2) >> 1;
 				for (let s = 1; s <= steps; s++) {
 					const t = s / steps;
