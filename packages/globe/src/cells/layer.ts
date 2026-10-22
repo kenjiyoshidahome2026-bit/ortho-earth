@@ -1,5 +1,5 @@
 // セル・等高線・画面格子の層（deck.gl 差分 PR-5・2026-10-12）＝globe が遅延 import する手綱。計算は core.js／contour.js（node の検定が読む）。
-// 多角形になる物（セル・等値帯）と線（等値線）は既存の層経路（addSource/addLayer＝fill／fill-extrusion／line）へ流す＝H3（@ortho-earth/h3）と同じ流儀。画面格子だけ overlay（gadgets/screengrid-draw.js）。
+// 多角形になる物（セル・等値帯）と線（等値線）は既存の層経路（addSource/addLayer＝fill／fill-extrusion／line）へ流す＝H3（@ortho-earth/h3）と同じ流儀。画面格子だけ overlay（gadgets/screengrid-gl.ts＝WebGL2）。
 //   map.addCells(cells | points, { kind:"grid"|"mesh"|"geohash"|"quadkey"|"s2", id, res|"auto", weight, paint, extrude, outline, props, before })＝extrude＝{ height, base, bottom }（bottom＝床の高さ m＝@ortho-earth/h3 と同じ） → { id, lineId, cells, geojson, res, setData, setPaint, setRes, remove }
 //   map.addContour(points, { id, cellSize（m か {dLon,dLat}）, thresholds|bands, weight, agg, smooth, paint, linePaint, before }) → { id, field, geojson, setData, setThresholds, remove }
 //   map.addScreenGrid(points, { id, cellPx, colorRange, weight, agg, opacity, above }) → { id, overlay, setData, setStyle, pick, remove }

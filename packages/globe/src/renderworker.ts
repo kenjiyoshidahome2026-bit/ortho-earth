@@ -148,7 +148,7 @@ const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequ
 	// モジュールの中身は create() の閉包＝呼ぶたびに別の実体（旧＝URL に ?ov= を足して overlay ごとに別のモジュール実体にしていたのと同じ分け方）
 	heatmap: () => import("./heatmap-gl.ts").then(m => m.create()), pattern: () => import("./pattern-2d.ts").then(m => m.create()), symbols: () => import("./symbols-2d.ts").then(m => m.create()),
 	columnar: () => import("./columnar/draw-gl.ts").then(m => m.create()), arcs: () => import("./gadgets/arcs-gl.ts").then(m => m.create()), copc: () => import("./gadgets/copc-gl.ts").then(m => m.create()), customgl: () => import("./gadgets/customgl-draw.ts").then(m => m.create()),
-	points: () => import("./gadgets/points-gl.ts").then(m => m.create()), screengrid: () => import("./gadgets/screengrid-draw.ts").then(m => m.create()), trips: () => import("./gadgets/trips-gl.ts").then(m => m.create()) };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
+	points: () => import("./gadgets/points-gl.ts").then(m => m.create()), screengrid: () => import("./gadgets/screengrid-gl.ts").then(m => m.create()), trips: () => import("./gadgets/trips-gl.ts").then(m => m.create()) };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m: RwMsg) {
 	const o: OverlayRec = { canvas: m.canvas!, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name!, o);
