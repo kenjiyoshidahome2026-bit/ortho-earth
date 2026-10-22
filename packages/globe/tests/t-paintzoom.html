@@ -4,6 +4,9 @@
      地物に依らない式（zoom だけ）は描き手が毎フレーム今の z で評価して差し替える＝MapLibre と同じ連続の値（style.json の z＝地図の z−1）。
      ①線幅 ["interpolate",["linear"],["zoom"],10,4,18,40]（MapLibre の z14＝22px・14.5＝24.25px・13.25＝18.625px）を縦に切って厚みで読む
      ②線の色 青(z10)→赤(z18)＝z14 で (128,0,128) ③塗りの色 緑(z10)→青(z18)＝z14 で (0,128,128)。
+     ④line-offset ["interpolate",["linear"],["zoom"],10,0,18,40]（z14＝18px・下へ）＝緑の線の芯の位置で読む（波 4 の 14 の続き・paintzoom.ts の of）
+     ⑤破線でずらす層（line-offset −15・line-dasharray [1,3]・丸い端）＝シェーダの破線（md は線分プールの語 6＝距離・ずらしは u_pzO）で上へずれて点線になる（線 4＋端 4・間 8＝半分）。
+       ずらす層の端と継ぎは今も丸（S-P1-1 の継ぎはずらさない層だけ）＝butt の破線は端の丸で間が埋まる＝丸い端で見る
      基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw＝止まるたびに今の z で組み直す・地図の z の目盛り）の 2 回見る。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-paintzoom</title></head>
 <body><div id="map"></div>
@@ -53,13 +56,15 @@ addProtocol("pz", async ({ url }) => {
 });
 
 // 置き場（画面の CSS px・z15 で unproject）：線幅の線＝y150・色の線＝中央 y300・塗り＝下の帯
-const SHAPES = { w: [[60, 150], [900, 150]], c: [[60, 300], [900, 300]], f: [[60, 380], [900, 380], [900, 580], [60, 580]] };
+const SHAPES = { w: [[60, 150], [900, 150]], o: [[60, 220], [900, 220]], c: [[60, 300], [900, 300]], d: [[60, 345], [900, 345]], f: [[60, 380], [900, 380], [900, 580], [60, 580]] };
 const SRC = { type: "vector", tiles: ["pz://{z}/{x}/{y}"], minzoom: 0, maxzoom: 12 };
 const Z = v => ["interpolate", ["linear"], ["zoom"], 10, v[0], 18, v[1]];
 const LAYERS = [
 	{ id: "f", type: "fill", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "f"], paint: { "fill-color": Z(["#00ff00", "#0000ff"]) } },
 	{ id: "w", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "w"], layout: { "line-cap": "butt" }, paint: { "line-color": "#ff0000", "line-width": Z([4, 40]) } },
 	{ id: "c", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "c"], layout: { "line-cap": "butt" }, paint: { "line-color": Z(["#0000ff", "#ff0000"]), "line-width": 12 } },
+	{ id: "o", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "o"], layout: { "line-cap": "butt" }, paint: { "line-color": "#00ff00", "line-width": 4, "line-offset": Z([0, 40]) } },
+	{ id: "d", type: "line", source: "pz", "source-layer": "l", filter: ["==", ["get", "k"], "d"], layout: { "line-cap": "round" }, paint: { "line-color": "#00ffff", "line-width": 4, "line-offset": -15, "line-dasharray": [1, 3] } },
 ];
 const BG = { id: "bg", type: "background", paint: { "background-color": "#ffffff" } };
 const VIEW = [139.79004, 35.71084];
@@ -68,6 +73,7 @@ try {
 	let map = await boot();
 	FEATS = Object.entries(SHAPES).map(([k, pts]) => ({ k, poly: k === "f", ll: pts.map(([x, y]) => { const p = map.unproject([x, y]); return [p.lng, p.lat]; }) }));
 	const grab = async () => { const c = composeLayersToCanvas(await map.requestSnapshot()); return c.getContext("2d").getImageData(0, 0, c.width, c.height); };
+	const yOf = k => map.projectLL(...FEATS.find(f => f.k === k).ll[0])[1];   // 線の芯の今の画面の y（ズームで中央から伸び縮みする）
 	const check = (tag, img, zs) => {
 		const W = document.getElementById("map").clientWidth, s = img.width / W;
 		const px = (x, y) => { const i = (Math.round(y * s) * img.width + Math.round(x * s)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
@@ -79,6 +85,19 @@ try {
 		ok(tag + ":lineColor", c.every((v, i) => Math.abs(v - cw[i]) <= 14), `${c} want ${cw.map(Math.round)}`);
 		const f = px(480, 445), fw = [0, 255 * (1 - k), 255 * k];
 		ok(tag + ":fillColor", f.every((v, i) => Math.abs(v - fw[i]) <= 14), `${f} want ${fw.map(Math.round)}`);
+		// ④ 緑の線の芯（x480 の縦の列・芯の上下 60px の緑の重心）＝芯＋ずらし
+		const y0 = yOf("o"), ow = 40 * k;
+		let gs = 0, gn = 0;
+		for (let y = Math.round((y0 - 10) * s); y < Math.round((y0 + 60) * s); y++) { const [r, g, b] = px(480, y / s); if (g > 200 && r < 120 && b < 120) { gs += y / s; gn++; } }
+		const gy = gn ? gs / gn : NaN;
+		ok(tag + ":offset", Math.abs(gy - y0 - ow) <= 1.5, `${gy.toFixed(1)} want ${(y0 + ow).toFixed(2)}`);
+		// ⑤ 破線でずらす層：芯−15 の行（±1px）は水色が点々（周期 16px の半分・z の端数で伸びる）・芯の行には無い
+		const cyan = (x, y) => { const [r, g, b] = px(x, y); return r < 120 && g > 200 && b > 200; };
+		const yd = yOf("d"), dl = FEATS.find(f => f.k === "d").ll, xa = Math.max(100, Math.ceil(map.projectLL(...dl[0])[0]) + 10), xb = Math.min(860, Math.floor(map.projectLL(...dl[1])[0]) - 10);   // 線の端の内（z が下がると線が縮む）
+		let on = 0, runs = 0, prev = false, at0 = 0;
+		for (let x = xa; x < xb; x++) { const c = cyan(x, yd - 16) || cyan(x, yd - 15) || cyan(x, yd - 14); if (c) on++; if (c && !prev) runs++; prev = c; if (cyan(x, yd)) at0++; }
+		const fr = on / (xb - xa), per = 16 * 2 ** (zs - Math.floor(zs));   // 周期＝(1＋3)×線幅 4 を floor(z) から今の z へ伸ばす（MapLibre）
+		ok(tag + ":dashOffset", fr > 0.35 && fr < 0.7 && Math.abs(runs - (xb - xa) / per) <= 3 && at0 === 0, `on ${fr.toFixed(2)} runs ${runs} want ${((xb - xa) / per).toFixed(1)} at0 ${at0}`);
 	};
 	// dz＝式の z と地図の z の差（style.json の層＝MapLibre の z＝1・map.addLayer の層＝地図の z＝0）
 	const run = async (tag, dz) => {

@@ -18,7 +18,7 @@ const NOTES = {
 	"line-join": ["一部", "基図と vector の層は GL2・WebGPU とも MapLibre と同じ（属性の式は層で一度）・geojson の層は丸"],
 	"line-miter-limit": ["一部", "GL2 だけ（zoom の式も読む）"],
 	"line-round-limit": ["近似", "読まない＝丸い継ぎのまま（浅い角の見分けは付かない）"],
-	"line-dasharray": ["一部", "基図と vector の層は GL2・WebGPU とも MapLibre と同じ（S-P1-3・2026-10-22）・ずらす層・9 個以上はタイルの z の尺で刻む・geojson の層は先頭の対だけ"],
+	"line-dasharray": ["一部", "基図と vector の層は GL2・WebGPU とも MapLibre と同じ（S-P1-3・2026-10-22）・地物ごとにずらす層（line-gap-width も）・9 個以上はタイルの z の尺で刻む（層で 1 つの値のずらしはシェーダ＝2026-10-22）・geojson の層は先頭の対だけ"],
 	"line-width": ["読む", "上限なし（基図と vector の層は f32・geojson の層は 2026-10-22 から u16＝8191px まで）・基図はタイルの z で焼く（ズームの段は §4）"],
 	"line-gap-width": ["読む", "基図・vector・geojson（2026-10-03）"],
 	"fill-pattern": ["一部", "基図と vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・名前は層で一度・模様の大きさは cos φ 倍・3D（地形あり）の塗りは描かない）・geojson の層は canvas2D の模様"],

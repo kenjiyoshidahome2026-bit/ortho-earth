@@ -154,10 +154,11 @@ function ensureUploaded(key: string, origin: ArrayLike<number>): Rec | null {
 				seg[o + 2] = a2[i * 2]; seg[o + 3] = a2[i * 2 + 1];
 				seg[o + 4] = c32[i];   // RGBA8（リトルエンディアン＝旧の r | g<<8 | b<<16 | a<<24 と同じ語）
 				seg[o + 5] = jf ? (h32[i] & ~15 | jf[i]) >>> 0 : h32[i];   // 端と継ぎ（S-P1-1）の旗は半幅の下位 4 bit（相対 2e-6＝見分けられない・シェーダが外す）
-				if (f32) {   // line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
-					seg[o + 6] = f32[i * 3];
-					seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
-				} else if (d32) seg[o + 6] = d32[i];   // 破線（S-P1-3）＝ずらさない層だけ語 6 に始点までの線に沿う距離（bits(f32)・z24 の px）＝描く列の dash が読み方を決める（統合ロードマップの 8 語）
+				// line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
+				// 破線（S-P1-3）＝語 6 に始点までの線に沿う距離（bits(f32)・z24 の px）＝描く列の dash が読み方を決める（統合ロードマップの 8 語）。
+				// 破線でずらす層（ずらしが層で 1 つの値＝paintzoom.ts・build.ts の uOff）は語 6＝距離・語 7＝tS/tE（ずらしの px は描き手の uniform）
+				if (d32) seg[o + 6] = d32[i]; else if (f32) seg[o + 6] = f32[i * 3];
+				if (f32) seg[o + 7] = (snorm16(op.off![i * 3 + 1] * 0.5) | (snorm16(op.off![i * 3 + 2] * 0.5) << 16)) >>> 0;
 			}
 			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n, cj: op.jf ? op.cj ?? 0 : 0, ...(op.dist ? { dash: op.dash } : {}), ...(op.fx ? { fx: op.fx } : {}), ...(op.pz ? { pz: op.pz } : {}) });
 			sc += n;

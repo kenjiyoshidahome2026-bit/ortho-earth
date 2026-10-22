@@ -1165,7 +1165,8 @@ void main() {
 const LINE_DASH = /* glsl */`${FX_TR}
 uniform vec2 u_blur;      // line-blur（画素）・circle-blur（y＝1：半径の割合）＝縁から内へ薄める（S-P1-4/5）。x＝0 でぼかさない
 uniform vec4 u_dashP;     // 破線（S-P1-3）＝(周期 P, 線の区間の数（0＝破線でない）, 丸い端 1／0, floor(zoom) の px ÷ z24 の px)
-uniform vec4 u_dashI[2];  // 線の区間 [a, b]×4（線幅の倍数・scene.ts の dashIntervals）`;
+uniform vec4 u_dashI[2];  // 線の区間 [a, b]×4（線幅の倍数・scene.ts の dashIntervals）
+uniform vec2 u_pzO;       // ズーム連続のずらし（paintzoom.ts）＝x 差し替える（1）・y 今の z のずらし（CSS px）。0＝頂点の値`;
 const LINE_VARY = /* glsl */`${LINE_DASH}
 uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
 uniform float u_cj;     // 端と継ぎ（S-P1-1）＝cap | join<<2 | round(miter-limit×8)<<4（build.ts の lineCapJoin）。0＝丸い端と丸い継ぎ＝p0/p3/jf0 を読まない（従来の capsule）
@@ -1220,6 +1221,7 @@ const LINE_MAIN = /* glsl */`
 	float hwD = u_pz.y > 0.5 ? u_pz.w : hw0;   // 破線の尺の線幅＝floor(z) の線幅（MapLibre の floorwidth）・差し替えない層は作ったタイルの z の値
 	if (u_pz.y > 0.5) hw0 = u_pz.z;   // ズーム連続（V-Ph3＝S-P1-2）＝今の z の線幅と色
 	if (u_pz.x > 0.5) col0 = u_pzC;
+	if (u_pzO.x > 0.5) off0.x = u_pzO.y;
 	if (u_tr.z != 0.0) { vec2 tr = trLL(o + p1); p0 += tr; p1 += tr; p2 += tr; p3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
 	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
@@ -1331,7 +1333,7 @@ export const LINE_MD_VS = `#version 300 es
 precision highp float;
 precision highp usampler2D;
 // 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half)（下位 4 bit＝端と継ぎの旗・S-P1-1）, bits(off), snorm16×2(tS/2,tE/2)]
-// 破線の列（u_dashP.y＞0・S-P1-3）は ずらさない＝語 6 が bits(始点までの線に沿う距離)・語 7 は 0
+// 破線の列（u_dashP.y＞0・S-P1-3）は 語 6 が bits(始点までの線に沿う距離)・語 7 は角の継ぎ（ずらしは層で 1 つの値＝u_pzO・ずらさない層は 0）
 uniform usampler2D u_segTex;
 uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
 uniform float u_dpr;
@@ -1354,7 +1356,7 @@ void main() {
 	float hw0 = uintBitsToFloat(B.y);
 	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
 	float dist0 = 0.0;
-	if (u_dashP.y > 0.5) { dist0 = uintBitsToFloat(B.z); off0 = vec3(0.0); }
+	if (u_dashP.y > 0.5) { dist0 = uintBitsToFloat(B.z); off0.x = 0.0; }
 	// 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit。継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値
 	vec2 p0 = p1, p3 = p2; float jf0 = 0.0;
 	if (u_cj > 0.5) {

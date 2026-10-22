@@ -1,7 +1,7 @@
 // 破線をシェーダで描く検定（互換の計画 S-P1-3・2026-10-22）。node packages/ortho-core/tests/linedash.mjs
 // 守るもの：①外来 MapLibre の層（ずらさない・模様 8 個まで）は刻まない＝線分に始点までの線に沿う距離（dist・z24 の px）と模様（dash）を添える
 // ②距離は環の始点から・余白で落とした線分の分も進む・細分の小片は按分＝隣の線分の頭と尻がつながる（segLen24 と一致）
-// ③ずらす層・模様 9 個以上・内蔵の層は従来どおり CPU で刻む（外来の奇数個は MapLibre と同じ「最後と最初がつながる」）
+// ③地物ごとにずらす層・模様 9 個以上・内蔵の層は従来どおり CPU で刻む（ずらしが層で 1 つの値の層はシェーダ＝lineoffset.mjs）（外来の奇数個は MapLibre と同じ「最後と最初がつながる」）
 // ④模様 → 線の区間（dashIntervals）＝MapLibre の LineAtlas と同じ（butt は長さ 0 を捨て接する線をつなぐ・round は点を残す・奇数個）
 // ⑤結合で dist を写す・WebGPU の逃げ道（chopDash＝classic は renderer・md は scene worker が常駐の前に）は区間どおりに刻む ⑥シェーダ（GL classic・multi_draw）が距離を読む＝線分レコードは 8 語のまま
 import assert from "node:assert/strict";
@@ -48,15 +48,17 @@ t("距離：細分の小片は按分・余白だけの線分の分も進む・�
 	const k = [...op.P1].findIndex((v, i) => !(i & 1) && i > 0 && !(op.P2[i - 2] === v && op.P2[i - 1] === op.P1[i + 1])) / 2;   // 2 本目の環の頭
 	assert.ok(near(end(k - 1), 3500 * dK, 2e-3)); assert.ok(near(op.dist[k], 400 * dK, 2e-3)); assert.ok(near(end(op.half.length - 1), 2700 * dK, 2e-3));
 });
-t("ずらす層・模様 9 個以上・内蔵の層は CPU で刻む（dist を持たない）", () => {
-	assert.equal(opOf(L3, { paint: { ...D.paint, "line-offset": 2 } }).dist, undefined);
+t("地物ごとにずらす層・模様 9 個以上・内蔵の層は CPU で刻む（dist を持たない）", () => {
+	assert.equal(opOf(L3, { paint: { ...D.paint, "line-offset": ["coalesce", ["get", "o"], 2] } }).dist, undefined);
+	assert.equal(opOf(L3, { paint: { ...D.paint, "line-offset": 2, "line-gap-width": 1 } }).dist, undefined);   // 隙間つき＝両脇の 2 本のずらしは線幅から焼く
+	assert.ok(opOf(L3, { paint: { ...D.paint, "line-offset": 2 } }).dist);   // 層で 1 つの値＝シェーダ
 	assert.equal(opOf(L3, { paint: { "line-width": 2, "line-dasharray": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] } }).dist, undefined);
 	const b = opOf(L3, { paint: { "line-width": 2, "line-dasharray": [2, 1] } }, { ml: false });
 	assert.equal(b.dist, undefined); assert.ok(b.half.length > 2);
 });
 t("外来の奇数個を CPU で刻む＝最後と最初がつながる（[2,1,3]＝線 5・間 1・刻み始めは線の残り 2）", () => {
-	// ずらす層＝CPU。線幅 2・z14＝模様の 1 単位 2×16＝32 タイル単位。線 0..900 の最初の片は 2 単位＝64
-	const op = opOf([line([0, 100, 900, 100])], { paint: { "line-width": 2, "line-dasharray": [2, 1, 3], "line-offset": 0.001 } });
+	// 地物ごとにずらす層＝CPU。線幅 2・z14＝模様の 1 単位 2×16＝32 タイル単位。線 0..900 の最初の片は 2 単位＝64
+	const op = opOf([line([0, 100, 900, 100])], { paint: { "line-width": 2, "line-dasharray": [2, 1, 3], "line-offset": ["coalesce", ["get", "o"], 0.001] } });
 	const xs = []; for (let i = 0; i < op.half.length; i++) xs.push([op.P1[i * 2], op.P2[i * 2]]);
 	const w = xs.map(([a, b]) => (b - a) / (xs[1][1] - xs[1][0]) * 5);   // 2 本目（線 5）を 5 とした長さ（経緯度は原点 0 の Float32＝数 % の誤差）
 	assert.ok(Math.abs(w[0] - 2) < 0.1, String(w[0])); assert.ok(Math.abs(w[2] - 5) < 0.1, String(w[2]));
@@ -89,9 +91,9 @@ t("chopDash（WebGPU の逃げ道）：区間どおりに刻む・丸い点は 1
 	const r = chopDash(opOf([line([0, 100, 900, 100])], { paint: { "line-width": 2, "line-dasharray": [0, 2] }, layout: { "line-cap": "round" } }), [0, 0]);
 	assert.equal(r.half.length, 15);   // 点は 4px ごと＝0, 4, …, 56（56.25 未満）
 });
-t("シェーダ：classic は a_dist・multi_draw は破線の列だけ語 6 を距離と読む（ずらしは 0）・FS は区間で切る", () => {
+t("シェーダ：classic は a_dist・multi_draw は破線の列だけ語 6 を距離と読む（ずらしの px は u_pzO・語 7 は角の継ぎ）・FS は区間で切る", () => {
 	assert.match(LINE_VS, /in float a_dist;/);
-	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0 = vec3\(0\.0\); \}/);
+	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);
 	for (const s of [LINE_VS, LINE_MD_VS, LINE_FS]) { assert.match(s, /uniform vec4 u_dashP;/); assert.match(s, /uniform vec4 u_dashI\[2\];/); }
 	assert.match(LINE_FS, /flat in vec2 v_dd;/);
 });
