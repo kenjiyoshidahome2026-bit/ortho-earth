@@ -581,7 +581,7 @@ export interface StyleApi {
 	getLayers(): MapLibreLayer[];   // api/style.ts:342
 	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"）の上に利用者の層。
 	 *  基図の層も 1.3.0〜 getLayer/setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange/removeLayer で触れる（visibility は結合で外すだけ＝軽い・色や filter は基図タイルの建て直し）。
-	 *  基図の層の重ね順は固定（moveLayer は基図の層に効かない・beforeId に基図の層 id を渡してもよい＝利用者の層は描画の段で決まる）。上書きはテーマの切り替えを越えて残り、setStyle で消える。
+	 *  基図の層も moveLayer で並べ替えられる（1.x〜・S-P2-2＝基図のタイルの建て直し・beforeId が利用者の層ならその層の差し込み先の基図の層の前）。beforeId に基図の層 id を渡してもよい（利用者の層は基図の層の間に差し込む）。上書きはテーマの切り替えを越えて残り、setStyle で消える。
 	 *  ズームの目盛りを申告して返す（1.3.0〜）：各層の metadata["ortho:dz"]（基図＝0＝この地図の z に直した物）・root の metadata["ortho:sourceDz"]（source ごと）＝setStyle(getStyle()) で二重にずれない */
 	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };   // api/style.ts:377
 	/** 基図の style を生き替える（外来 style で起動した地図だけ）。1.16.0〜 options.diff（既定 true）＝畳める差（基図の層の paint/filter/順・style 由来の geojson 層や source の差）は建て直さず当てる。
