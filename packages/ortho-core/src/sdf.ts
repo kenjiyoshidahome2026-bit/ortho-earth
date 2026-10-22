@@ -3,8 +3,8 @@
 // 符号化も TinySDF と同じ：v = 1 − (d / R + CUTOFF)（d＝縁からの距離・外が正・単位は版の px）＝縁は v = 1 − CUTOFF。
 // 外へ R·(1−CUTOFF)、内へ R·CUTOFF まで表せる＝縁（halo）の太さの上限は外の幅（MapLibre と同じ制約）
 
-/** 版の字の基準の大きさ（px）・字の周りの余白（px）・距離の幅 R・縁の位置 */
-export const SDF_BASE = 32, SDF_PAD = 6, SDF_R = 8, SDF_CUTOFF = 0.25;
+/** 版の字の基準の大きさ（px）・字の周りの余白（px）・距離の幅 R・縁の位置。外の幅 7.5（旧 6）＝縁 2px を 11px の字・dpr 1 でも滑らかな帯ごと表せる（旧は届く距離を越えて字の箱ごと霞んだ・Mac の門 2026-10-22） */
+export const SDF_BASE = 32, SDF_PAD = 8, SDF_R = 10, SDF_CUTOFF = 0.25;
 const INF = 1e20;
 
 // 1 次元の二乗距離変換（f の下側包絡＝放物線の列）。f・d は長さ n 以上・v・z は作業用
