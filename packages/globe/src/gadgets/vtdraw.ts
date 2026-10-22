@@ -9,6 +9,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
 //   feature-state（#109・押し出し 8①b と同じ作法）＝置き場は呼び手（globe の vtxFS）・ここは読むだけ。状態が変わった地物を含むタイルに印（touchFS）＝そのタイルだけ組み直す。
 //         paint に ["feature-state"] がある層だけが読む（filter は読まない＝MapLibre と同じ）。タイルごとに「含む地物の id」（ids）を worker から受け取って持つ。
+//   手元のタイル（desc.local＝geojson・geojson vt plan G-2）＝取得の段が無い。data は組み役の worker へ版つきで 1 回ずつ送り（組み立ての前に・postMessage の順で届く）、worker が core の geojsonvt で切る。
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
@@ -33,7 +34,7 @@ interface BuiltTile {
 	state: "none" | "ready" | "failed"; gen: number; zsig: string | null; fz: number | null; ops: boolean; bytes: number;
 	labels: Record<string, unknown[]>; heat: Record<string, HeatPart>; origin: number[] | null; z: number; ver: number; building: boolean; used: number; ids: Set<string> | null; fsDirty: boolean;
 }
-interface VtdSource { sid: string; desc: VtDesc; sig: string; gen: number; zsig: string; pz: number; tiles: Map<string, SrcTile>; built: Map<string, BuiltTile>; fetching: number; show: Set<string> }
+interface VtdSource { sid: string; desc: VtDesc; sig: string; gen: number; zsig: string; pz: number; tiles: Map<string, SrcTile>; built: Map<string, BuiltTile>; fetching: number; show: Set<string>; lver: number; lput: Set<number> }   // lver／lput＝手元の data の版・その版を持っている worker
 /** 層（key＝層の順の鍵・fs＝paint が feature-state を読む・rev＝層の中身の版） */
 interface VtdLayer { id: string; layer: MLLayer; sid: string; on: boolean; key: number | null; fs: boolean; rev: number }
 /** worker の build の答え（miss＝生バイトが無い） */
@@ -136,6 +137,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 
 	// ── 取得（段 8①と同じ）──
 	function fetchTile(src: VtdSource, t: TileXYZ, tries = 0) {
+		if (src.desc.local !== undefined) { src.tiles.set(tileKey(t), { state: "ready", bytes: 1024, used: clock, ac: new AbortController(), tries }); return; }   // 手元のタイル＝取らない（bytes は生バイトの LRU の目安）
 		const key = tileKey(t), T: SrcTile = { state: "loading", bytes: 0, used: clock, ac: new AbortController(), tries };
 		src.tiles.set(key, T); src.fetching++;
 		const { desc } = src, { w } = workerOf(`${src.sid}|${key}`);
@@ -185,8 +187,9 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 		B.building = true; building++;
 		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
-		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key, rev: s.rev }));
-		rpc<BuildReply>(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs, pitch: (cam.pitch || 0) * R2D }).then(r => {   // pitch＝["pitch"]（C2）
+		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key, rev: s.rev })), wk = workerOf(`${sid}|${key}`), local = src.desc.local !== undefined;
+		if (local && !src.lput.has(wk.i)) { wk.w.postMessage({ kind: "gj", sid, ver: src.lver, data: src.desc.local }); src.lput.add(wk.i); }   // 手元の data＝その worker に今の版が無ければ先に送る（build より前に届く）
+		rpc<BuildReply>(wk.w, { kind: "build", gjv: local ? src.lver : null, gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs, pitch: (cam.pitch || 0) * R2D }).then(r => {   // pitch＝["pitch"]（C2）
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;
@@ -331,11 +334,12 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); raw?.drop("vtdraw", sid, k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		}
 	}
-	const sigOf = (d: VtDesc) => JSON.stringify([d.tag ?? null, d.pmtiles ?? null, d.minzoom ?? null, d.maxzoom ?? null, d.bounds ?? null, d.coverage ?? null, d.promoteId ?? null]);
+	const sigOf = (d: VtDesc) => JSON.stringify([d.tag ?? null, d.pmtiles ?? null, d.minzoom ?? null, d.maxzoom ?? null, d.bounds ?? null, d.coverage ?? null, d.promoteId ?? null, d.local !== undefined]);   // 手元の data の中身は署名に入れない（set が版を上げる＝タイルの集合を捨てずに組み直す）
 	function dropSource(sid: string) {
 		const src = sources.get(sid); if (!src) return;
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		raw?.dropSource("vtdraw", sid);
+		for (const i of src.lput) pool.workers[i]?.postMessage({ kind: "gjDrop", sid });
 		const keys = [...src.built].filter(([, B]) => B.ops).map(([k]) => mkey(sid, k));
 		if (keys.length && merger) merger.w.postMessage({ type: "evict", keys });
 		sources.delete(sid);
@@ -359,7 +363,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 			let src: VtdSource | null | undefined = sources.get(sid);
 			if (src && src.sig !== sigOf(desc)) { for (const [lid, s] of [...layers]) if (s.sid === sid && lid !== id) ctl.remove(lid); dropSource(sid); src = null; }
 			if (!src) {
-				src = { sid, desc: { ...desc }, sig: sigOf(desc), gen: 0, zsig: "", pz: quantZoom(settledZoom), tiles: new Map(), built: new Map(), fetching: 0, show: new Set() };
+				src = { sid, desc: { ...desc }, sig: sigOf(desc), gen: 0, zsig: "", pz: quantZoom(settledZoom), tiles: new Map(), built: new Map(), fetching: 0, show: new Set(), lver: 0, lput: new Set() };
 				sources.set(sid, src);
 				const d = src.desc;
 				if (d.pmtiles) pmtilesInfo(d.pmtiles).then(info => {
@@ -367,6 +371,7 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 					d.minzoom ??= info.minZoom; d.maxzoom ??= info.maxZoom; d.bounds ??= info.bbox ?? null; schedule();
 				}).catch(err => console.warn(`[vtdraw] source "${sid}": cannot read PMTiles`, err?.message || err));
 			}
+			else if (desc.local !== undefined && desc.local !== src.desc.local) { src.desc.local = desc.local; src.lver++; src.lput.clear(); }   // setData＝新しい版を送り直す（出しているタイルは組み直すまで残す）
 			const old = layers.get(id);
 			if (old && old.sid !== sid) ctl.remove(id);
 			const s = layers.get(id) || { id, sid, on: true, key: null } as VtdLayer;   // 順の鍵は呼び手の setOrder が振る（同じ手番で呼ぶ＝組み立ては rAF の後）

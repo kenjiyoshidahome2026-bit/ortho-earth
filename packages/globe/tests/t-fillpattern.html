@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 実描画の検分：fill-pattern（MapLibre の塗りの模様・互換の計画 S-P1-4/5・2026-10-22）。GL2 の 2 経路（?md=1＝multi_draw／?nomd=1＝classic）。
-     形は頁の中で作った MVT（addProtocol の fp://）の四角。模様は addImage の 32px の市松（左上と右下の 16px が赤・他は白・pixelRatio 1）。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）の 2 回。
+     形は頁の中で作った MVT（addProtocol の fp://）の四角。模様は addImage の 32px の市松（左上と右下の 16px が赤・他は白・pixelRatio 1）。基図（setStyle の層）と利用者の vector の層（addLayer＝vtdraw）と geojson の層の 3 回。geojson の層は ?gjvt=2 の時だけ切ったタイルで vtdraw（geojson vt plan G-2・canvas2D の pattern-2d を作らない）・既定は canvas2D（升の検分はしない）・どちらも問い合わせ・隠す・setData を見る。
      見るもの：①市松の 1 升＝floor(z) の世界のメルカトルの 16px（画面では 2^小数部×cos φ 倍）②赤と白が半々 ③地面に付く（中心をずらしても同じ地点は同じ色）④fill-opacity 0.5 で半ば透ける ⑤四角の外は塗らない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-fillpattern</title></head>
 <body><div id="map"></div>
@@ -110,6 +110,21 @@ try {
 	map.addSource("fp", SRC);
 	for (const L of LAYERS) await map.addLayer(L);
 	await run("user");
+	map.destroy();
+	map = await boot();
+	await map.addImage("chk", CHK);
+	map.addSource("fg", { type: "geojson", data: { type: "FeatureCollection", features: SHAPES.map(l => ({ type: "Feature", properties: { k: l.k }, geometry: { type: "Polygon", coordinates: [[...l.ll, l.ll[0]]] } })) } });
+	for (const L of LAYERS) { const { "source-layer": _sl, ...g } = L; await map.addLayer({ ...g, source: "fg" }); }
+	const GJF = /[?&]gjvt=2/.test(location.search);
+	if (GJF) { await run("geojson"); ok("geojson:noCanvas2D", (await window.__ovPixels("pattern")) === null); } else await sleep(6000);
+	const q = await map.queryRenderedFeatures([480, 225], { layers: ["f-sq", "f-half"] });
+	ok("geojson:query", q.length === 1 && q[0].layer.id === "f-sq" && q[0].properties.k === "sq", q.map(f => f.layer.id).join());
+	map.setLayoutProperty("f-sq", "visibility", "none"); await sleep(1500);
+	const q2 = await map.queryRenderedFeatures([480, 225], { layers: ["f-sq"] }), g2 = await grab(), s2 = g2.width / document.getElementById("map").clientWidth, i2 = (Math.round(225 * s2) * g2.width + Math.round(480 * s2)) * 4;
+	ok("geojson:hidden", q2.length === 0 && g2.data[i2 + 2] > 200 && g2.data[i2] < 60, `${q2.length} ${g2.data[i2]},${g2.data[i2 + 1]},${g2.data[i2 + 2]}`);
+	map.setLayoutProperty("f-sq", "visibility", "visible"); await map.getSource("fg").setData({ type: "FeatureCollection", features: [] }); await sleep(2500);   // setData＝新しい版を worker へ送り直して組み直す
+	const g3 = await grab(), q3 = await map.queryRenderedFeatures([480, 225], { layers: ["f-sq"] });
+	ok("geojson:setData", q3.length === 0 && g3.data[i2 + 2] > 200 && g3.data[i2] < 60, `${q3.length} ${g3.data[i2]},${g3.data[i2 + 1]},${g3.data[i2 + 2]}`);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
 </script>
