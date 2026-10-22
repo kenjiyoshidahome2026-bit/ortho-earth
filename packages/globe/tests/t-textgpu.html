@@ -46,6 +46,7 @@ const POINTS = [   // pt＝(tl, font, T, sx, sy, x0, y0, just, paint)＝labels2d
 	{ name: "pt-format", pt: () => { const tl = runsTL([{ t: "Oude ", font: P13 }, { t: "Kerk", font: P16, col: RED, fs: 1.3 }], 13); return [tl, P13, null, 0, 0, 260, 120, "left", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
 	{ name: "pt-vertical", pt: () => { const tl = vertTL("新宿3丁目", P16, 16); return [tl, P16, null, 0, 0, 440, 30, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
 	{ name: "pt-arabic-run", pt: () => { const tl = plainTL(["القاهرة الجديدة"], AR, 15); return [tl, AR, null, 360, 160, 360 - tl.w / 2, 160 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1 }]; } },
+	{ name: "pt-small-halo", pt: () => { const f = '11px "Noto Sans", "Noto Sans JP", sans-serif', tl = plainTL(["JAPAN 東京"], f, 11); return [tl, f, null, 380, 100, 380 - tl.w / 2, 100 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 2 }]; } },   // 世界帯の国名の縁（2px・小さな字）＝SDF の届く距離の内に収まるか（Mac の門 2026-10-22）
 	{ name: "pt-blur", pt: () => { const tl = plainTL(["Kanda"], P16, 16); return [tl, P16, null, 60, 170, 60 - tl.w / 2, 170 - tl.h / 2, "center", { color: BLACK, halo: WHITE, haloW: 1.5, blur: 1 }]; } },
 ];
 // 記号（T-P3）＝記号帳の絵・伸びる記号（9 分割）・線の記号・標識（ベクター）・format の記号の区間を両方の受け口で
@@ -95,6 +96,10 @@ try {
 					const cp = x2.getImageData(0, 0, cw, ch).data; let d = 0, m = 0;
 					for (let i = 0; i < cw * ch * 4; i += 4) if (gp[i + 3] > 240 && cp[i + 3] > 240) { d += Math.abs(gp[i] - cp[i]) + Math.abs(gp[i + 1] - cp[i + 1]) + Math.abs(gp[i + 2] - cp[i + 2]); m++; }
 					ok(`dpr${dpr}:${sc.name}-rgb(Δ=${(d / Math.max(1, m * 3)).toFixed(1)} n=${m})`, m > 50 && d / (m * 3) < 12);
+				}
+				if (sc.name === "pt-small-halo") {   // 縁の外の薄い帯（α 0.05〜0.5）が Canvas2D の倍を越えない＝字の箱ごと霞まない
+					const soft = px => { let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 12 && px[i] <= 127) n++; return n; }, sa = soft(x2.getImageData(0, 0, cw, ch).data), sb = soft(gp);
+					ok(`dpr${dpr}:${sc.name}-fringe(${sb} vs ${sa})`, sb < sa * 2 + 20);
 				}
 				if (sc.name === "format" || sc.name === "pt-format") {   // 区間の色＝前の 3 字は赤・後ろは黒（GPU の本体の色）
 					let red = 0, blk = 0; for (let i = 0; i < cw * ch; i++) if (gp[i * 4 + 3] > 180) { if (gp[i * 4] > 150 && gp[i * 4 + 1] < 80) red++; else if (gp[i * 4] < 60) blk++; }
