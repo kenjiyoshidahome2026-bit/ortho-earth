@@ -960,7 +960,7 @@ export interface SplatData {
 export interface VoxelData {
 	/** 格子の置き方（box か region が在れば省略できる） */ shape?: "box" | "region";
 	/** 各軸のセル数 [nx, ny, nz]（x が最も速く変わる＝values[i + nx*(j + ny*k)]） */ dims: [number, number, number];
-	/** shape "box"＝局所の直方体（x 東・y 北・z 上・m）。origin＝[lng, lat, alt m] に置き size＝[m, m, m]・orientation＝[heading（北から時計回り）, pitch, roll] 度、か transform＝列優先 4×4（局所 m → ECEF m・3D Tiles の box と同じ使い方） */
+	/** shape "box"＝局所の直方体（x 東・y 北・z 上・m）。origin＝[lng, lat, alt m] に置き size＝[m, m, m]・orientation＝[heading（北から時計回り）, pitch, roll] 度、か transform＝列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m＝列の長さが各辺の m・3D Tiles のタイル変換×ノード行列と同じ使い方・絶対高さ） */
 	box?: { origin: [number, number, number]; size: [number, number, number]; orientation?: [number, number, number] } | { transform: ArrayLike<number> };
 	/** shape "region"＝[west, south, east, north（度）, h0, h1（m）]（3D Tiles の region と同じ並び・単位は度） */ region?: [number, number, number, number, number, number];
 	/** セルの値（nx*ny*nz*components） */ values: Float32Array | Uint16Array | Uint8Array;
