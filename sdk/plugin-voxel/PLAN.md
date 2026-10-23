@@ -62,4 +62,7 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
   未検証＝本番ビルド（`moduleUrlAsChunk` が voxel-draw.js／voxel-gl.js を拾うか・reader worker が sideEffects:false で消えないか）＝第 3 段で見本のアプリに載せる時に verify-prod で見る。
 - [x] 第 2 段（2026-10-23）＝`voxel-gpu.ts`（WGSL・device と深度の共有・r32uint の当たり）・`voxel-draw.ts` の選び・region（殻＝面ごとの外向きで winding を決める＝「中心から外」は丸みで corner が内向きになる轍）・iso（二分探索 6 回・勾配は A⁻ᵀ）・clip・`"style"` の軽い更新。verify:webgpu は WebGL2 と同じ画素値で PASS。
   決めた事＝region の既定は絶対高さ・blocks は 1/4 セル刻みの最近傍（DDA でない）・殻は球で作る（rAx は main に無い＝`?ell=1` の国規模 region は数 km ずれる＝第 3 段で rAx を worker へ渡す）・値は閾で切らない（iso は場の全体が要る＝閾は描き手が見る）。
-- [ ] 第 3 段（見本）＝rAx を prepare へ渡す件もここで
+- [x] 第 3 段（2026-10-23）＝見本の頁 `/globe/voxel`（apps/ortho-globe の voxel.html／voxel-page.ts／voxel.ts・`?v=cloud|torus|fuji|quakes`）。雲（ノイズ・volume）・トーラス（距離場・iso）・富士山（`map.sampleTerrain` を 333 m×48×48・100 m 刻みのブロック）・地震（`/quakes/archive.geopbf` 68 MB を日本の箱 0.25°×0.25°×20 km に数えて region の体積・5.4 万件）。つまみは全部 `setProps` の "style"。rAx を prepare へ（`map.ellipsoidOn()`）。verify-prod（static＝生の .ts なし・run・address・console）PASS＝本番ビルドの検札済み。og 画像は `scripts/og-shot.mjs voxel` で撮った。
+  踏んだ罠＝①`?scene=` は本体の scenes の口と衝突（JSON を取りに行く）＝`?v=` に。②場面の切り替えで remove → すぐ addData すると同じ名のオーバーレイの片付けと新しい登録が競い、新しい層が描かれない＝plugin の `release()` に猶予（`OVERLAY_LINGER_MS`＝250 ms・その間の acquire は続投）。③`flyTo` は離陸で秒単位＝場面の移動は `easeTo`。④`sampleTerrain` は 1 点 5 ms＝点数を 2304 に絞り 8 回に分けて進みを出す。
+  見送り＝PLATEAU の 2 m ブロック（globe の家は地域を持てない＝japan のアプリに置く時に）・www の一覧（demos.json）への登録＝本番に出てから `npm run thumbs -w www -- --only=voxel` でサムネを撮って足す。
+- [ ] 第 4 段（3D Tiles の voxel）

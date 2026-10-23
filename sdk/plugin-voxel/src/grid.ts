@@ -20,6 +20,8 @@ export interface PrepareOptions {
 	alphaRamp?: [number, number] | null;
 	/** これ未満の値のセルは空（データの単位・既定＝無し） */
 	threshold?: number | null;
+	/** 楕円体表示の b/a（region の殻を本体と同じ形で作る・既定 1＝球） */
+	rAx?: number;
 }
 /** region（経緯度×高さの格子）の描き手向けの欄 */
 export interface GeoGrid {
@@ -239,7 +241,7 @@ export function checkVoxelData(d: unknown): NormVoxel {
 /** 閾（データの単位）→ R8 の 0〜1 */
 export const thrOf = (threshold: number | null | undefined, range: [number, number]): number => threshold == null ? 0 : Math.min(1, Math.max(0, (threshold - range[0]) / (range[1] - range[0])));
 /** VoxelData → 描き手へ渡す物（worker で。配列は transfer できる物）。値は閾で切らない（閾は描き手が見る＝等値面は場の全体が要る） */
-export function prepare(data: unknown, o: PrepareOptions & { rAx?: number } = {}): Prepared {
+export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
 	const d = checkVoxelData(data), dims = d.dims, comps = d.components, n = dims[0] * dims[1] * dims[2];
 	let place: Placement, geo: GeoGrid | null = null;
 	if (d.shape === "box") { if (!d.box) throw new TypeError("plugin-voxel: shape \"box\" needs box"); place = placeBox(d.box, dims); }
