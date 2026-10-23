@@ -20,6 +20,17 @@
 	<meta name="twitter:title" content="Ortho Earth — Equal to all, fair to the Earth" />
 	<meta name="twitter:description" content="Equal to all, fair to the Earth. An open-source 3D globe map engine for the browser: WebGPU, MapLibre GL JS compatible API, 3D Tiles, terrain at true scale, Equal Earth world map. No server, no account." />
 	<meta name="twitter:image" content="https://www.ortho-earth.com/og-image.jpg" />
+	<!-- 構造化データ（Issue #308 の続き・2026-10-23）＝サイト・エンジン・作者を検索エンジンへ。見た目には出ない。門 tests/t-docs-head.mjs -->
+	<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+		{"@type":"WebSite","@id":"https://www.ortho-earth.com/#website","name":"Ortho Earth","url":"https://www.ortho-earth.com/","inLanguage":"en","publisher":{"@id":"https://www.ortho-earth.com/#author"}},
+		{"@type":"Person","@id":"https://www.ortho-earth.com/#author","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},
+		{"@type":"SoftwareApplication","@id":"https://www.ortho-earth.com/#software","name":"Ortho Earth","url":"https://www.ortho-earth.com/",
+		 "description":"An open-source 3D globe map engine for the browser: WebGPU, MapLibre GL JS compatible API, 3D Tiles, terrain at true scale, Equal Earth world map. No server, no account.",
+		 "applicationCategory":"DeveloperApplication","operatingSystem":"Web browser","image":"https://www.ortho-earth.com/og-image.jpg",
+		 "license":"https://www.gnu.org/licenses/gpl-3.0.html","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+		 "author":{"@id":"https://www.ortho-earth.com/#author"},
+		 "sameAs":["https://github.com/kenjiyoshidahome2026-bit/ortho-earth","https://www.npmjs.com/package/@ortho-earth/globe"]}
+	]}</script>
 	<!-- 言語を最初に決める（CLS 対策）：英語以外なら辞書 /i18n/<code>.json を HTML と並行に先読みし、貼り替えが済むまで本文を隠す
 	     （html.i18n-wait・最長 1.5 秒で必ず外す）。見えない要素のずれは CLS に数えない。言語コードはビルド時に world の一覧から差し込む -->
 	<script>(()=>{try{const L="__LANG_CODES__".split(" "),R="__RTL_CODES__".split(" "),q=new URLSearchParams(location.search).get("lang"),
