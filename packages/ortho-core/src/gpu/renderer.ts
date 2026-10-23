@@ -1342,6 +1342,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	let bldFill: { li: number } = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
+	let lastCamDist = 0;        // 前のフレームの camDist（カメラが飛んだかを見る）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
 
 	// --- 標高アトラス（r16float）＋地形メッシュ ---
@@ -2443,9 +2444,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		P = pipesFor(S); clipS = S;
 		const st = cameraState(cam, W, H) as FrameState;
 		// フォグ距離の臨界減衰追従（gl/renderer.js draw と同式・同閾値）
-		if (!fogDist) fogDist = st.camDist;
+		// 霧を焚かない時とカメラが飛んだ時は追わずに合わせる（gl/renderer.ts と同じ・2026-10-23）
+		if (!fogDist || fogK() >= 1e6 || st.camDist > lastCamDist * 2 || st.camDist * 2 < lastCamDist) fogDist = st.camDist;
 		else fogDist += (st.camDist - fogDist) * 0.18;
 		if (Math.abs(st.camDist - fogDist) < st.camDist * 0.002) fogDist = st.camDist;
+		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
 		const fogAnimating = fogDist !== st.camDist;
 		// 視程下限のチルト係数／真俯瞰では標高オフ・傾けるほどフェードイン（gl/renderer.js と同式）
