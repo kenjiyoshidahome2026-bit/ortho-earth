@@ -27,8 +27,9 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 .dn{margin:14px 18px 0;font-size:13.5px;line-height:1.55;background:color-mix(in srgb,var(--acc) 10%,var(--card));border-left:3px solid var(--acc);padding:10px 12px;border-radius:8px} .dn p{margin:0} .dn p+p{margin-top:6px} .dn .ja{color:var(--muted)}
 .hw{margin:12px 18px 0;font-size:13px;line-height:1.55;color:var(--muted)} .hw p{margin:0} .hw p+p{margin-top:4px} .hw code{font-size:12px;background:var(--code);padding:1px 5px;border-radius:4px} .hw a{color:inherit}
 pre{margin:12px 0 0;padding:16px 18px 20px;background:var(--code);font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;tab-size:4;white-space:pre}
+h1 .ver{font-size:.55em;font-weight:600;vertical-align:middle;margin-left:.35em;padding:2px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
 </style></head><body><main>
-<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a></p><h1>MapLibre GL JS examples, on ortho-earth</h1>
+<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a></p><h1>MapLibre GL JS examples, on ortho-earth <span class="ver">v2.1.0</span></h1>
 <p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho-earth globe engine through its MapLibre-compatible API. Each card shows ortho-earth's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Click a card for the example's source in its ortho-earth form — run it here, copy it, or download it.</p>
 <p><b>Sorry — Mercator cannot be displayed here.</b> ortho-earth always draws the globe (orthographic) and has no flat Mercator view, so examples that fill the screen with a world map at low zoom look different by design; the notes say so where it matters.</p></header>
 <nav><button data-f="all" class="on">All</button><button data-f="note">With notes</button><span class="count" id="count"></span><span class="sp"></span>
@@ -869,7 +870,7 @@ pre{margin:12px 0 0;padding:16px 18px 20px;background:var(--code);font:12.5px/1.
 </div></article></div>
 <footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho-earth is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see the attribution inside each example.<br>
 Match % = level-2 checks passed (unsupported ops, engine errors, layer list, query answers, markers, popups, camera) weighted 40%, plus sampled-pixel agreement with MapLibre weighted 60% when both sides settled (animated examples: checks only). Hover the number for the counts.<br>
-Pictures and match numbers: ortho-earth engine (@ortho-earth/globe 2.0.2) captured 2026-10-23 against MapLibre GL JS 6.11.2, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.</footer>
+Pictures and match numbers: ortho-earth engine (@ortho-earth/globe 2.1.0) captured 2026-10-23 against MapLibre GL JS 6.11.2, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.</footer>
 </main>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><button type="button" id="run" title="Run this example here">Run</button><button type="button" id="cp">Copy</button><button type="button" id="dl">Download</button><button type="button" id="cl">Close</button></div>
 <div class="fr" id="fr" hidden></div>
