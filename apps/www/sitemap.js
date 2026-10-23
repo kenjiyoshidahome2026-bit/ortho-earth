@@ -33,6 +33,15 @@ export const gitLastmod = (files) => {
 		return dates.map(([, d]) => d).sort().at(-1);
 	} catch { return null; }
 };
+// Cloudflare Pages の build は浅い clone（本番で lastmod が 0 件だった・2026-10-23）＝Pages の上でだけ履歴を取り寄せてから日付を読む。
+// 取れなければ従来どおり lastmod を書かない（build は止めない）。手元と CI（CF_PAGES 無し）は触らない
+export const unshallowOnPages = () => {
+	if (!process.env.CF_PAGES) return;
+	try {
+		const cwd = fileURLToPath(new URL('.', import.meta.url));
+		if (git(['rev-parse', '--is-shallow-repository'], cwd) === 'true') git(['fetch', '--quiet', '--unshallow'], cwd);
+	} catch { /* 取れない時は lastmod を書かないだけ */ }
+};
 const SOURCES = {
 	'/': ['./index.html', './demos.json', './stories.json'].map(f => new URL(f, import.meta.url)),
 	'/maplibre/': [new URL('./public/maplibre/', import.meta.url)],
@@ -50,6 +59,7 @@ export const sitemapXml = (urls, lastmod = () => null) => '<?xml version="1.0" e
 
 // vite.config.js と試験が同じ入口で作る
 export const buildSitemap = () => {
+	unshallowOnPages();
 	const demos = JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8')).demos;
 	return sitemapXml(sitemapUrls(demos, docsUrls(new URL('../docs/', import.meta.url))), u => { const f = sourcesOf(u); return f && gitLastmod(f); });
 };
