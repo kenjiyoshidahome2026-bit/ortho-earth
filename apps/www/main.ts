@@ -44,7 +44,7 @@ const propagate = () => document.querySelectorAll('a[href^="/"]:not([href^="/doc
 		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
 }
-// Section tabs (Gallery / Get started / Technologies / Stories・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
+// Section tabs (Gallery / Technologies / Get started / Stories・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
 const HASH: Record<string, string> = { start: "#get-started", tech: "#technologies", stories: "#stories" };
 function selectTab(name: string | undefined) {
@@ -111,14 +111,14 @@ function hideDemo() {
 }
 const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + qs(q) : location.pathname) + location.hash; };
 document.addEventListener("click", e => {
-	const a = (e.target as Element).closest?.<HTMLAnchorElement>("#panel-demos a.card, #panel-stories a.card");   // Stories の記事も同じ形で開く（2026-10-22）
+	const a = (e.target as Element).closest?.<HTMLAnchorElement>("#panel-demos a.card, #panel-stories a.story-link");   // Stories の記事（題のリンク）も同じ形で開く（2026-10-22）
 	if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 	if (a.dataset.frame === "0") return;   // iframe に入れないデモ（中の頁が COEP を送らない）＝普通に開く
 	const path = demoPath(a.getAttribute("href")!); if (!path) return;
 	e.preventDefault();
 	const q = new URLSearchParams(location.search); q.set("d", path);
 	history.pushState({ demo: path }, "", "?" + qs(q));
-	showDemo(path, a.querySelector(".card-title")?.textContent);
+	showDemo(path, (a.querySelector(".card-title") ?? a).textContent);
 });
 // 戻る＝ナビの「戻る」ボタンとロゴ（Ortho Earth）の両方（本人 2026-09-24「ロゴを押しても戻る」）。ロゴは一覧を見ている間は何もしない
 const backToList = () => { if (history.state?.demo) history.back(); else { history.replaceState(null, "", listUrl()); hideDemo(); } };

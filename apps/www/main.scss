@@ -257,8 +257,15 @@ body #demoOverlay main .apps.tech .tech-wide .tech-list li::before { content: ""
 /* Get started：lead の下の一文（絶えず速く・API は一貫＝同じ自動検査を通して出す）と、手順 6（MapLibre の片）の下の補足 */
 body #demoOverlay main .apps.start .start-note { margin: -.4rem 0 .2rem; font-size: .82rem; color: var(--text-secondary); text-align: center; }
 body #demoOverlay main .apps.start .steps .step-note { display: block; margin-top: .45rem; font-size: .82rem; color: var(--text-secondary); }
-/* Stories（2026-10-22）＝記事のカード。ja と en の両方がある記事は頁の言語で片方だけ（日本語の頁＝ja・他＝en） */
-body #demoOverlay main .apps.stories { grid-template-columns: 1fr; max-width: 720px; }   /* 1 列（本人 10/22「カードの高さが揃わないので段組をやめる」） */
-body #demoOverlay main .apps.stories .card.story .card-title { font-size: 1.5rem; }
-html:lang(ja) body #demoOverlay main .apps.stories .card.story[data-l="en"],
-html:not(:lang(ja)) body #demoOverlay main .apps.stories .card.story[data-l="ja"] { display: none; }
+/* Stories（2026-10-22）＝記事の一覧。ja と en の両方がある記事は頁の言語で片方だけ（日本語の頁＝ja・他＝en）
+   本人 10/23「今後増えるのでカード形式をやめて普通の文に・タイトルにリンク」＝枠なしの文章の並び（日付は一文の頭） */
+body #demoOverlay main .apps.stories { display: block; max-width: 720px; text-align: start; text-shadow: 0 1px 6px rgba(0,0,0,.85); }   /* 枠が無いので背景の地球の上でも読めるよう影 */
+body #demoOverlay main .apps.stories[hidden] { display: none; }
+body #demoOverlay main .apps.stories .story { padding: 1.1rem 0; border-bottom: 1px solid var(--glass-border); }
+body #demoOverlay main .apps.stories .story-title { margin: 0 0 .35rem; font-size: 1.15rem; font-weight: 700; line-height: 1.45; }
+body #demoOverlay main .apps.stories .story-link { color: var(--accent-color); text-decoration: none; }
+body #demoOverlay main .apps.stories .story-link:hover { text-decoration: underline; }
+body #demoOverlay main .apps.stories .story-desc { margin: 0; font-size: .92rem; line-height: 1.7; color: var(--text-secondary); }
+body #demoOverlay main .apps.stories .story-desc time { margin-inline-end: .8em; font-size: .8rem; color: var(--accent-2-bright); font-variant-numeric: tabular-nums; }
+html:lang(ja) body #demoOverlay main .apps.stories .story[data-l="en"],
+html:not(:lang(ja)) body #demoOverlay main .apps.stories .story[data-l="ja"] { display: none; }
