@@ -7,21 +7,25 @@
 
 ## 0. 先に読むこと
 
-### 版（予定）
+### 版
 
-公開の版は Kenji さんの決定（2.0 の判断 Q7）に従う予定です。公開はまだしていません。
+2.0 は 2026-10-17 に npm へ公開しました。その後 `geopbf` 2.1.0（10-19）、`@ortho-earth/globe`・`@ortho-earth/core` 2.1.0（10-23）が出ています。2.1 は 2.0 と同じ API で、2.0 向けのコードはそのまま動きます（下の「2.1 での名前の変更」を除く）。
 
-| package | 今の npm | 2.0 で |
+| package | 1.x の最後 | 2.0 で |
 |---|---|---|
 | `@ortho-earth/globe` | 1.16.0 | **2.0.0**（この文書の §1） |
 | `@ortho-earth/core` | 1.15.0 | **2.0.0**（§3） |
 | `geopbf` | 1.19.0 | **2.0.0**（§4） |
 | `@ortho-earth/japan` | 1.14.0 | **2.0.0**（§2） |
-| `altpbf`・`@ortho-earth/ephem`・`native-bucket`・`geoedit`・`@ortho-earth/h3`・`@ortho-earth/tile-formats`・`glbconv` | 1.1.2・1.2.0・1.0.2・0.3.3・0.1.0・0.1.0・0.1.0 | minor を上げる：1.2.0・1.3.0・1.1.0・0.4.0・0.2.0・0.2.0・0.2.0（口は同じ。出荷の形が TypeScript から作った JS と `.d.ts` になるだけ。tile-formats はリポジトリが先に 0.2.0 になっていた） |
+| `altpbf`・`@ortho-earth/ephem`・`native-bucket`・`geoedit`・`@ortho-earth/h3`・`@ortho-earth/tile-formats`・`glbconv` | 1.1.2・1.2.0・1.0.2・0.3.3・0.1.0・0.1.0・0.1.0 | minor を上げた：1.2.0・1.3.0・1.1.0・0.4.0・0.2.0・0.2.0・0.2.0（口は同じ。出荷の形が TypeScript から作った JS と `.d.ts` になるだけ。tile-formats はリポジトリが先に 0.2.0 になっていた） |
+| `@ortho-earth/react`・`google-tiles`・`ktx2`・`plugin-scene`・`plugin-splat` | 未公開 | 0.1.0 で初公開（`plugin-splat` はその後 0.5.0） |
 | `quiet-mono` | 1.0.1 | 変更なし（scss だけで、1.0.1 から中身が変わっていない） |
 
 依存の変更：`@ortho-earth/globe` 2.0 は `@ortho-earth/tile-formats`（^0.2.0）に依存します（点群の LAS/COPC の形を読む部分が tile-formats にあるため。LAZ の解読器は今までどおり `#pointcloud-formats` の差し替えで足す物で、既定では束ねられません）。`@ortho-earth/react` は `react-dom`（>=18）を peer に挙げました（`createPortal` を使っているため）。
-| `@ortho-earth/react`・`google-tiles`・`ktx2`・`plugin-scene`・`plugin-splat` | 未公開 | 0.1.0 で初公開 |
+
+### 2.1 での名前の変更
+
+`map.gadget.cluster` が MapLibre と同じく cluster の source と層を中で作るようになり、`queryRenderedFeatures` が返す層の名前が `clusters`／`unclustered-point` から `gadget-cluster-clusters`／`gadget-cluster-unclustered` に変わりました。直すのはこの層の名前で問い合わせていたコードだけです。MapLibre の書き方（`cluster: true` の `addSource` と `addLayer`）で作った cluster は、付けた層の名前のままです。
 
 ### 1.x を使い続けるには
 
