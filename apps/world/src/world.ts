@@ -422,13 +422,16 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 	}
 	////-------------------------------------------------------------------------------------------------------------
 	async function openFlag(q: Nation, target: CoverTarget) { await showFlag(q); modal.resumeShow(target, { fallback: () => scroll.hide() }); }
+	// 国歌を止める（閉じる・隣の国へ移る・地図から別の国を開く時）。LR を差し替えても外れた <audio> は鳴り続けるので、差し替える前に止める
+	function stopAnthem() { modal.selectAll("audio").each(function () { const a = this as HTMLAudioElement; a.pause(); a.currentTime = 0; }); }
 	function closeFlag() {
-		flagWave?.destroy(); flagWave = null;
+		stopAnthem(); flagWave?.destroy(); flagWave = null;
 		scroll.show();
 		modal.node()!.animate({ opacity: 0 }, { duration: 500 }).onfinish = () => { modal.hide(); modal.css({ opacity: 1 }); pendingUpdate && pendingUpdate(); };
 	}
 	async function showFlag(q: Nation) {
 		Sound("移動");
+		stopAnthem();
 		const sft = (i: number) => { const n = nationTub.indexOf(q) + i, len = nationTub.length; return nationTub[n < 0 ? n + len : n >= len ? n - len : n]; };
 		const close = () => { Sound("リスト"); closeFlag(); };
 		const flag = modal.flag.empty().append("img").attr("src", q.flagURL).attr("alt", q.Name);
@@ -451,7 +454,7 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 		function move(i: number) {
 			const r = sft(i), duration = 500;
 			const translate = (i: number) => `translate(${-50 + (110) * i}%,${-50}%)`;
-			flagWave?.destroy(); flagWave = null;   // 旗を替える＝今のたなびきは片付ける（次の showFlag が作り直す）
+			stopAnthem(); flagWave?.destroy(); flagWave = null;   // 旗を替える＝今のたなびきは片付ける（次の showFlag が作り直す）
 			const dmy = modal.flag.append("img").attr("src", r.flagURL);
 			dmy.node()!.animate({ transform: [translate(i), translate(0)] }, { duration });
 			flag.node()!.animate({ transform: [translate(0), translate(-i)] }, { duration })
@@ -494,6 +497,7 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 		list() { return nationTub.map(sign); },
 		/** 箱ごと片付ける。外に張った手も全部外す */
 		destroy() {
+			stopAnthem(); flagWave?.destroy(); flagWave = null;
 			offs.forEach(f => { try { f(); } catch { } });
 			Object.keys(listeners).forEach(k => delete listeners[k]);
 			root.html("");
