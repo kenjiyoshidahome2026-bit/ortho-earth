@@ -30,7 +30,7 @@ const c0 = map.capabilities();
 ok("cap.mercatorNever", c0["projection.mercator"].status === "never" && !map.supports("projection.mercator"));
 ok("cap.globe", map.supports("projection.globe"));
 ok("cap.webgl2", c0["render.webgl2"].status === "builtin" && c0["render.webgpu"].status === "no");
-ok("cap.dataBuiltin", map.supports("data.points") && map.supports("data.columns") && !map.supports("data.splat"));
+ok("cap.dataBuiltin", map.supports("data.points") && map.supports("data.columns") && !map.supports("data.splat") && !map.supports("data.voxel") && map.capabilities()["data.voxel"].status === "spec");
 ok("cap.gadgetLive", map.supports("gadget.compass"), JSON.stringify(c0["gadget.compass"]));
 ok("cap.tiles", map.supports("tiles.mvt") && !map.supports("tiles.ktx2"));
 ok("cap.postBuiltin", map.supports("post.bloom") && !map.supports("post.ssr") && c0["post.ssr"].status === "spec" && c0["post.chain"].status === "builtin");
