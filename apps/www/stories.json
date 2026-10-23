@@ -2,6 +2,20 @@
 	"_note": "Stories タブ（Technologies の後）のカード。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "release-2-1",
+			"date": "2026-10-23",
+			"ja": {
+				"title": "Ortho Earth 2.1 を公開しました",
+				"desc": "地図の文字を WebGPU に移し、MapLibre の公式例で同じ絵が 66 本から 79 本に。使い方は 2.0 のまま、下がった例は 0 本。大きく変えても壊れない版です。",
+				"href": "/docs/release-2-1-jp.html"
+			},
+			"en": {
+				"title": "Ortho Earth 2.1 is out",
+				"desc": "Map text moved to WebGPU, and the MapLibre official examples drawing the same picture went from 66 to 79. Same API as 2.0, zero regressions: a big change that broke nothing.",
+				"href": "/docs/release-2-1.html"
+			}
+		},
+		{
 			"id": "six-months-v2",
 			"date": "2026-10-22",
 			"ja": {

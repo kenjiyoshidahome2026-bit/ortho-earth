@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.1 is out — text on the GPU, closer to MapLibre, nothing broken</title>
+<meta name="description" content="@ortho-earth/globe and core are now 2.1. Map text is drawn with WebGPU, and the MapLibre official examples that render the same picture went from 66 to 79. The API is the same as 2.0, and not one example regressed.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-1">
+<meta property="og:title" content="Ortho Earth 2.1 is out">
+<meta property="og:description" content="Map text moved to WebGPU and MapLibre compatibility went up. Same API as 2.0, and zero regressions across 137 official MapLibre examples.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-1">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-23">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-1-jp.html" lang="ja">日本語</a></nav>
+
+<header class="masthead"><h1>Ortho Earth 2.1 is out</h1><p class="subtitle">Text moved to the GPU, pictures closer to MapLibre, and nothing broke</p><p class="byline">2026-10-23 &middot; Kenji Yoshida &middot; @ortho-earth/globe &middot; @ortho-earth/core</p></header>
+<article class="reading essay">
+
+<p>
+<code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> are now 2.1.
+With 2.0 the features I wanted were all in place, so this release does not add features. It polishes the ones that are there.
+Two things went into it. The way the map draws text, which had bothered me for a long time, moved to the GPU. And at the same time, compatibility with MapLibre GL JS went up another step.
+</p>
+
+<p>
+What I most want to say about this release, though, is not how much changed. It is that after replacing this much of the machinery, the API is the same as 2.0 and not a single thing broke.
+This engine has grown more robust than I expected.
+</p>
+
+<h2 id="text">1. Map text on the GPU</h2>
+
+<p>
+Place names, road names, icons, road shields: until now every piece of text on the map was drawn one glyph at a time with Canvas2D.
+The Earth and the buildings were drawn on the GPU, while the text was a 2D picture laid on top by the CPU. That also fixed the order as "the whole map first, then the text", so a MapLibre style that puts lines or fills above its labels could not be drawn as written. In a dense city, drawing the text alone made things heavy.
+For a long time this was the engine's biggest worry.
+</p>
+
+<p>
+In 2.1, text is baked into an SDF glyph atlas (each glyph stored as a distance from its edge) and drawn in one go with WebGPU.
+Colour, size and halo are decided in the shader, so each glyph is baked once per font. Point labels, labels along lines, icons and road shields, geojson symbol layers, cluster counts, and even the star names and the Moon all go through this one path.
+While the map is viewed from straight above, text is drawn at its style layer's position, so a style with lines above its labels stacks the same way it does in MapLibre.
+</p>
+
+<ul>
+	<li><strong>Faster.</strong> In the heaviest text scene (Delft in the Netherlands, zoom 17.6, tilted 55°) drawing the text went from 1.18 ms to 0.94 ms per frame, about 20% less. Every scene we measured runs at 60 fps.</li>
+	<li><strong>Looks the same.</strong> Compared pixel by pixel with the old Canvas2D picture, the difference is under 1%.</li>
+	<li><strong>Works without WebGPU.</strong> Where WebGPU is available, GPU text is the default. Where it is not (when the map runs on WebGL2), the engine falls back to the old Canvas2D drawing on its own. Add <code>?text=2d</code> to the URL to choose the old drawing even with WebGPU.</li>
+</ul>
+
+<p>
+Beyond text, the remaining things that were redrawn in 2D on top of the map every frame also moved to the GPU: cluster circles (<code>map.gadget.cluster</code>), the screen grid, CZML and GPX tracks, colour-graded lines (<code>line-gradient</code>) and patterned lines (<code>line-pattern</code>).
+Only two stay in 2D: annotations and pasted images, which share their drawing code with the editing tools.
+</p>
+
+<h2 id="maplibre">2. MapLibre compatibility</h2>
+
+<p>
+The yardstick is MapLibre's own 139 official examples. Each one runs the same code in real MapLibre and in ortho-earth, and the two are compared picture by picture and answer by answer (137 of them are scored). You can browse every result at <a href="/maplibre/" target="_top">/maplibre</a>.
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Level</th><th>Previous run (Oct 14)</th><th>2.1 (Oct 23)</th></tr>
+	<tr><td>3　Same picture</td><td>66</td><td><strong>79</strong></td></tr>
+	<tr><td>2　Same answers</td><td>50</td><td>47</td></tr>
+	<tr><td>1　Runs</td><td>21</td><td><strong>11</strong></td></tr>
+	<tr><td>0　Does not run</td><td>0</td><td>0</td></tr>
+</table></div>
+
+<p>
+Thirteen more examples now draw the same picture, and the ones that run but give different answers halved. Besides drawing text at its layer's position, these changes did the work:
+</p>
+
+<ul>
+	<li>Style colours, opacities and line widths now change smoothly while zooming (before, they stayed at the value for the zoom of the loaded tile).</li>
+	<li>Changing per-feature colours or widths with <code>setPaintProperty</code> or <code>feature-state</code> updates the picture at once, without rebuilding tiles.</li>
+	<li><code>moveLayer</code> for basemap layers, and inserting your own geojson layers between basemap layers ("a fill under the roads", for example).</li>
+	<li><code>queryRenderedFeatures</code> now answers for heatmap layers, and its tolerance for lines matches MapLibre. <code>getCanvas()</code> before load and plugin events also behave as in MapLibre.</li>
+</ul>
+
+<h2 id="same">3. Same API as 2.0</h2>
+
+<p>
+For all the changes inside, the public API is the same as 2.0. Code written for 2.0 runs on 2.1 as it is. Only the speed and the correctness of the picture went up.
+</p>
+
+<pre><code>npm i @ortho-earth/globe@2.1</code></pre>
+
+<div class="callout callout-note">
+	<div class="callout-head">One name that changed</div>
+	<p>
+		<code>map.gadget.cluster</code> now builds a cluster source and layers inside, the same way MapLibre does. As a result, the layer names that <code>queryRenderedFeatures</code> returns changed from <code>clusters</code> / <code>unclustered-point</code> to <code>gadget-cluster-clusters</code> / <code>gadget-cluster-unclustered</code>. Only code that queried by those layer names needs updating. Clusters made the MapLibre way (<code>addSource</code> with <code>cluster: true</code> and <code>addLayer</code>) keep the layer names you gave them.
+	</p>
+</div>
+
+<h2 id="robust">4. Changing without breaking</h2>
+
+<p>
+2.1 replaced several of the drawing paths deep inside the engine. Even so, across the 137 official examples not a single one scored lower than in the previous run.
+</p>
+
+<p>
+I don't think that was luck. It comes from how the work is done. In this workshop, a few rules hold whenever a drawing path is replaced:
+</p>
+
+<ul>
+	<li><strong>Keep the old path and build the new one beside it.</strong> GPU text first went in only behind <code>?text=gpu</code>, with the Canvas2D path left untouched. One URL switch takes you back at any time.</li>
+	<li><strong>Keep the gates green.</strong> Every change passes the existing tests and the MapLibre examples gate. If even one example drops, the change does not go in.</li>
+	<li><strong>Switch the default only after the real-hardware gate.</strong> Before making GPU text the default, I checked text quality and speed in Tokyo and Delft on the real GPU of my Mac. That check found country names on the world view with slightly thick, blurry halos. We fixed it first, then switched the default. The problem stopped at the gate, before release.</li>
+	<li><strong>Small steps, one at a time.</strong> Moving text to the GPU took a dozen or so changes, and about fifty with the compatibility work. Each was cut small enough to go in on its own without breaking anything, and went through the gates one by one.</li>
+</ul>
+
+<p>
+It seems that what six months built up was not only features. With this release I felt clearly, for the first time, that the engine can take a big change without breaking.
+</p>
+
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+
+</article>
+</body>
+</html>
