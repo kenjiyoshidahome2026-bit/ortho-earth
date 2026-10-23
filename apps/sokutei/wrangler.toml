@@ -1,0 +1,13 @@
+# sokutei（体長・体重の測定 PWA）本番配信：Cloudflare Workers 静的アセット（www.ortho-earth.com/sokutei/）。
+# world-quiz と同じ型（route + dist/site・Worker スクリプト無し）。地図エンジンは使わない＝COOP/COEP も要らない。
+# サービスワーカーは dist/site/sokutei/sw.js（vite.config.js の pwa プラグインがビルド時に書く）。
+name = "ortho-sokutei"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+routes = [
+	{ pattern = "www.ortho-earth.com/sokutei*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
