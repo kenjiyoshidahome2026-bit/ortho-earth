@@ -13,6 +13,8 @@ const readLocal = async (rel: string) => {
 	return res;
 };
 const gunzip = async (blob: Blob) => new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).blob();
+// dev server（sirv）は .gz に Content-Encoding: gzip を付けて返す＝ブラウザが解いて届く。頭が gzip の時だけ解く（二度解くと Failed to fetch）
+const ungz = async (blob: Blob) => { const h = new Uint8Array(await blob.slice(0, 2).arrayBuffer()); return h[0] === 0x1f && h[1] === 0x8b ? gunzip(blob) : blob; };
 
 // 標高タイル＝焼いた .gz を解いて生の altpbf として置く（GEBCO の作成と同じ形＝Bucket が gzip して Content-Encoding を付ける）
 export async function altTiles(q: screenLogger, { Bucket }: NativeBucket) {
@@ -24,7 +26,7 @@ export async function altTiles(q: screenLogger, { Bucket }: NativeBucket) {
 	if (!bucket) throw new Error("Bucket(GIS/alt) に到達できない");
 	for (const f of names) {
 		const name = f.replace(/\.gz$/, "");
-		const raw = await gunzip(await (await readLocal(`alt/${f}`)).blob());
+		const raw = await ungz(await (await readLocal(`alt/${f}`)).blob());
 		await bucket.put(new File([raw], name, { type: "application/x-altpbf" }));
 		q.success(`↑ GIS/alt/${name}（${(raw.size / 1e6).toFixed(1)}MB）`);
 	}
