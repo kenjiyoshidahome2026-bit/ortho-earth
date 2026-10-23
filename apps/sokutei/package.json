@@ -1,0 +1,19 @@
+{
+	"name": "sokutei",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "捕獲した鳥獣の写真から体長を測り体重を推定する PWA（基準物＝A4 の 4 隅か既知の長さの 2 点をタップ）。www の一覧には載せない単独の頁 /sokutei/",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"test": "node tests/t-sokutei.mjs",
+		"icons": "node scripts/icons.mjs",
+		"deploy": "vite build && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"devDependencies": {
+		"vite": "^8.3.1"
+	}
+}

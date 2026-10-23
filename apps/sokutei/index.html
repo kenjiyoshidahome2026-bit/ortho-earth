@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+	<meta name="color-scheme" content="dark">
+	<meta name="theme-color" content="#111">
+	<title>鳥獣の体長・体重 測定</title>
+	<meta name="description" content="捕獲した鳥獣の写真から体長を測り、体重を推定して記録する。基準物（A4 用紙など）を個体の横に置いて撮影し、鼻先と尾の付け根をタップする。">
+	<link rel="manifest" href="manifest.webmanifest">
+	<link rel="icon" href="icon.svg" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="apple-touch-icon.png">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<meta name="apple-mobile-web-app-title" content="測定">
+	<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+	<!-- 画面は 4 枚（home・measure・list・settings）。app.js が hidden を切り替える。UI は日本語のみ（日本の自治体の捕獲現場向け） -->
+
+	<section id="home" class="screen">
+		<header><h1>鳥獣の体長・体重 測定</h1></header>
+		<main class="col">
+			<p class="lead">個体の横に <b>A4 用紙</b>（基準物）を置いて、真横から撮ります。写真の上で用紙の 4 隅（長い辺の端から順に）と、鼻先・尾の付け根をタップすると体長が出ます。</p>
+			<label class="btn big primary">撮って測る<input type="file" accept="image/*" capture="environment" id="shoot" hidden></label>
+			<label class="btn big">写真を選んで測る<input type="file" accept="image/*" id="pick" hidden></label>
+			<button class="btn big" id="toList">記録 <span id="count" class="pill">0</span></button>
+			<button class="btn" id="toSettings">設定（換算の係数・基準物）</button>
+			<p class="note" id="installHint" hidden>ホーム画面に追加すると、電波の無い場所でもアプリとして開けます（Safari：共有 → ホーム画面に追加）。</p>
+			<p class="note">記録と写真はこの端末の中だけに保存されます（サーバーには送りません）。</p>
+		</main>
+	</section>
+
+	<section id="measure" class="screen" hidden>
+		<header class="bar">
+			<button class="btn sm" id="mBack">← 戻る</button>
+			<div id="step" class="step">写真を読み込み中…</div>
+			<button class="btn sm" id="undo" title="最後の点を消す">↶ 1 点戻す</button>
+		</header>
+		<div id="view" class="view">
+			<div id="stage" class="stage"><img id="photo" alt="" draggable="false"><svg id="marks" xmlns="http://www.w3.org/2000/svg"></svg></div>
+			<canvas id="loupe" width="140" height="140" hidden></canvas>
+			<div id="readout" class="readout"></div>
+		</div>
+		<form id="panel" class="panel" autocomplete="off">
+			<div class="row">
+				<label>獣種 <select name="species"></select></label>
+				<label>基準物 <select name="ref"></select></label>
+			</div>
+			<div class="row" id="customRef" hidden>
+				<label>横 mm <input name="refW" type="number" inputmode="decimal" min="1" step="any"></label>
+				<label>縦 mm <input name="refH" type="number" inputmode="decimal" min="1" step="any"></label>
+			</div>
+			<div class="row" id="lineRef" hidden>
+				<label>2 点の間の長さ mm <input name="refLen" type="number" inputmode="decimal" min="1" step="any"></label>
+			</div>
+			<details id="more">
+				<summary>胸囲・性別・成幼・実測体重・メモ（任意）</summary>
+				<div class="row">
+					<label>胸囲 cm <input name="girth" type="number" inputmode="decimal" min="1" step="any" placeholder="メジャーで測った値"></label>
+					<label>実測体重 kg <input name="actWeight" type="number" inputmode="decimal" min="0.1" step="any" placeholder="量った時だけ"></label>
+				</div>
+				<div class="row">
+					<label>性別 <select name="sex"><option value="">不明</option><option value="m">オス</option><option value="f">メス</option></select></label>
+					<label>成幼 <select name="age"><option value="">未区分</option><option value="adult">成獣</option><option value="young">幼獣</option></select></label>
+				</div>
+				<label>メモ <input name="note" type="text" placeholder="受付番号・場所など"></label>
+				<label class="chk"><input name="geo" type="checkbox" checked> 現在地（緯度経度）を記録に付ける</label>
+			</details>
+			<div class="row result">
+				<div>体長 <b id="outLen">—</b> cm</div>
+				<div>推定体重 <b id="outWt">—</b> kg <small id="outHow"></small></div>
+			</div>
+			<p class="warn" id="warn" hidden></p>
+			<div class="row">
+				<button type="button" class="btn" id="clearPts">点を全部消す</button>
+				<button type="submit" class="btn primary" id="save" disabled>保存</button>
+			</div>
+		</form>
+	</section>
+
+	<section id="list" class="screen" hidden>
+		<header class="bar">
+			<button class="btn sm" id="lBack">← 戻る</button>
+			<div class="step">記録</div>
+			<button class="btn sm" id="exportCsv">CSV 書き出し</button>
+		</header>
+		<main id="records" class="records"></main>
+	</section>
+
+	<section id="settings" class="screen" hidden>
+		<header class="bar">
+			<button class="btn sm" id="sBack">← 戻る</button>
+			<div class="step">設定</div>
+			<span></span>
+		</header>
+		<main class="col">
+			<h2>体重の換算式</h2>
+			<p class="note">体長だけ：W = k × L³ ／ 体長＋胸囲：W = L × G² ÷ c（L・G は cm、W は kg）。係数は暫定値です。実測体重を記録に入れていくと、ここで係数を出し直せます。</p>
+			<div id="coefs"></div>
+			<p class="note" id="fitInfo"></p>
+			<div class="row"><button class="btn" id="fitBtn">係数を実測から出し直す</button><button class="btn" id="resetCoef">既定値に戻す</button></div>
+			<h2>基準物</h2>
+			<p class="note">撮影の時に個体の横（同じ地面）に置く、縦横の分かっている物。斜めから撮っても 4 隅から遠近を補正します。</p>
+			<label>既定の基準物 <select id="defRef"></select></label>
+		</main>
+	</section>
+
+	<dialog id="detail"></dialog>
+	<script type="module" src="src/app.js"></script>
+</body>
+</html>
