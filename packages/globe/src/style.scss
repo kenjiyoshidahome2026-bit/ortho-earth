@@ -21,18 +21,6 @@
 /* デバッグログ（常時非表示・devtoolsから出す。左下ドックの縁＝表示すると計器の下に座る） */
 #log { font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
 
-/* 出典（#attr）の 1 行の銘「© 2026 [logo] ortho-earth　データ一覧」＋押すと開く出典の札（本人 2026-10-21・gadgets/instruments.ts の setAttrHTML）。
-   #attr の地（薄硝子・位置）は quiet-mono＝ここは globe の中身の形だけ */
-#attr {
-	.attr-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
-	.attr-brand { display: inline-flex; align-items: center; gap: 3px; }
-	.attr-logo { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 7; }
-	.attr-more { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-	.attr-full { position: relative; max-width: min(440px, calc(100vw - 32px)); max-height: min(50vh, 360px); overflow: auto; margin-bottom: 6px; padding: 2px 18px 6px 0; border-bottom: 1px solid var(--qm-glass-border);
-		&[hidden] { display: none; } }
-	.attr-close { position: absolute; top: 0; inset-inline-end: 0; font: inherit; font-size: 14px; line-height: 1; color: inherit; background: none; border: 0; padding: 0 2px; cursor: pointer; }
-}
-
 /* アイドル退場：マウスを止めると左上(#gadgets)・右上(#chips)のアイコンが静かに消え、動かすと戻る。
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
    トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り。

@@ -37,6 +37,7 @@
 		"./gadgets/compose.js": "./src/gadgets/compose.ts",
 		"./gadgets/dropfile.js": "./src/gadgets/dropfile.ts",
 		"./gadgets/footprint.js": "./src/gadgets/footprint.ts",
+		"./gadgets/instruments.js": "./src/gadgets/instruments.ts",
 		"./gadgets/searchbox.js": "./src/gadgets/searchbox.ts",
 		"./gadgets/tellus-api.js": "./src/gadgets/tellus-api.ts",
 		"./html-safe.js": "./src/html-safe.ts",
