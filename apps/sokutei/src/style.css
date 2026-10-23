@@ -2,7 +2,7 @@
 :root { --bg: #111; --fg: #fff; --mute: #aaa; --line: #333; --acc: #f5c542; --pri: #2e8b57; --warn: #ff8c69; color-scheme: dark; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }   /* .row{display:flex} 等が UA の [hidden] に勝たないように */
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.5 "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "IPAPGothic", "Yu Gothic", Meiryo, system-ui, sans-serif;   /* 日本語の字形を先に。system-ui を先頭にすると端末や検証環境によって中国語の字形（WenQuanYi 等）に落ちる（2026-10-23 本人の指摘） */ -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior: none; }
 .screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 .screen[hidden] { display: none; }
