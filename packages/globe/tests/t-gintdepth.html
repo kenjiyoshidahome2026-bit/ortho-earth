@@ -58,6 +58,9 @@ try {
 	// 対数深度係数＝renderer setCommonUniforms / gintCtx と同式（st.camDist は computeDrawData が s.cam に置く）
 	const logCoefOf = () => { const cd = s.cam.camDist, lb = Math.sqrt(Math.max((1 + cd) * (1 + cd) - 1, 1e-12));
 		return 2.0 / Math.log2(lb * 1.15 + cd + 1.0); };
+	// renderCleanScene は default framebuffer の色を消さない（地図が描いた上へ重ねる埋め込み経路だけ＝2.0 で worker 経路は廃止・35e3208c）＝
+	// 検定は描く前に自分で色を消す（消さないと前の描画の実線が次の読み出しに残る＝負け側も solid に見える）
+	const clearColor = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); };
 	const readAll = () => { const a = new Uint8Array(256 * 256 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 256, 256, gl.RGBA, gl.UNSIGNED_BYTE, a); return a; };
 	const stats = a => { let solid = 0, faint = 0, ySum = 0, yN = 0;
 		for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { const al = a[(y * 256 + x) * 4 + 3];
@@ -74,11 +77,13 @@ try {
 			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clearDepth(d); gl.clear(gl.DEPTH_BUFFER_BIT); gl.clearDepth(1);
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex: null, elevBounds: [0, 0, 1, 1], elevScale: 0, hasElev: 0, edgeFade: 0 };
-			renderCleanScene(s, data, null);   // worker モード＝色/stencil はクリアするが深度は触らない＝仕込みが生きる
+			clearColor();
+			renderCleanScene(s, data, null);   // 深度は触らない（stencil の winding ビットだけ消す）＝仕込みが生きる
 			return stats(readAll());
 		};
 		// コントロール：深度なし（段階A経路）＝実線が必ず出る
 		const data0 = computeDrawData(s, { cam, lineWidth: 4 });
+		clearColor();
 		renderCleanScene(s, data0, null);
 		const ctl = stats(readAll());
 		const win = drawWithDepth(1);   // 深度に勝つ＝実線
@@ -101,6 +106,7 @@ try {
 			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clear(gl.DEPTH_BUFFER_BIT);   // 全面 depth=1＝深度は常に勝つ（ドレープの幾何だけ見る）
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex, elevBounds: [C[0] - 2, C[1] - 2, 4, 4], elevScale: scale, hasElev: 1, edgeFade: 0 };
+			clearColor();
 			renderCleanScene(s, data, null);
 			return stats(readAll()).yc;
 		};
