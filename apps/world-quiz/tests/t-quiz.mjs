@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, reachOf, tapHits, TAP_SLOP, SET_SIZE } from "../src/quiz.ts";
+import { tierOf, terrainTier, TERRAIN_GROUP, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, reachOf, tapHits, TAP_SLOP, SET_SIZE } from "../src/quiz.ts";
 
 const csv = fs.readFileSync(path.resolve(import.meta.dirname, "../../../packages/world/seed/nations.csv"), "utf8").trim().split("\n").slice(1);
 let seed = 1; const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;   // 固定の列
@@ -80,4 +80,27 @@ assert.ok(tapHits({ inside: false, hitOther: false, px: TAP_SLOP, size: 500 }), 
 assert.ok(tapHits({ inside: false, hitOther: true, px: 10, size: 12 }), "小さい国の隣を押した＝近ければ正解");
 assert.ok(!tapHits({ inside: false, hitOther: true, px: 10, size: 300 }), "大きい国の隣の国は外れ");
 assert.ok(!tapHits({ inside: false, hitOther: false, px: TAP_SLOP + 1, size: 10 }), "遠ければ外れ");
+// 地形モード：TerrainDB の 1 件を同じ形に（src/terrains.ts の loadTerrains の写し・物理量は省く）
+assert.equal(terrainTier(0), 1); assert.equal(terrainTier(1), 1); assert.equal(terrainTier(3), 2); assert.equal(terrainTier(null), 2, "手で足した名所は Lv.2"); assert.equal(terrainTier(6), 3);
+assert.equal(TERRAIN_GROUP.river, "water"); assert.equal(TERRAIN_GROUP.plate, undefined, "プレートは出さない");
+const CATS = ["river", "lake", "range", "peak", "desert", "strait"];
+const terrains = Array.from({ length: 120 }, (_, i) => { const category = CATS[i % CATS.length];
+	return { key: "Q" + (1000 + i), iso2: "", name: `${category} ${i}`, nameEn: `${category} ${i}`, capital: "", capitalEn: "", region: String(1 + (i % 6)), population: 0, area: 0, un: null, territory: null, conflict: null, flagKey: null,
+		coord: [i - 60, (i % 50) - 25], category, group: TERRAIN_GROUP[category], tier: terrainTier([0, 1, 2, 3, 5, null][i % 7 % 6]) }; });
+const tp = pool(terrains, { mode: "terrain", level: 3 });
+assert.equal(tp.length, 120); assert.ok(pool(countries, { mode: "terrain", level: 3 }).length === 0, "国は地形モードに出ない");
+assert.equal(pool(terrains, { mode: "map", level: 3 }).length, 0, "地形は国の地図モードに出ない");
+assert.equal(pool(terrains, { mode: "capital", level: 3 }).length, 0);
+assert.ok(pool(terrains, { mode: "terrain", level: 1 }).every(c => c.tier === 1));
+for (const level of [1, 2, 3]) for (const a of tp.slice(0, 12)) {
+	const q = makeQuestion(a, tp, { mode: "terrain", level, rnd, all: terrains });
+	assert.equal(q.kind, "terrain"); assert.equal(q.choices.length, 4); assert.ok(q.choices.includes(a));
+	assert.ok(q.choices.every(c => c.category === a.category), "選択肢は同じ分類（川の問に砂漠を混ぜない）");
+	assert.equal(new Set(q.choices.map(c => c.name)).size, 4);
+}
+const tnarrow = pool(terrains, { mode: "terrain", level: 1, region: "2" });
+const tq = makeQuestion(tnarrow[0], tnarrow, { mode: "terrain", level: 1, rnd, all: terrains });
+assert.equal(tq.choices.length, 4, "範囲が狭くても外から 4 つ"); assert.ok(tq.choices.every(c => c.category === tnarrow[0].category), "外から足す時も同じ分類を先に");
+const tset = buildSet(terrains, { mode: "terrain", level: 3, region: "0" }, { rnd });
+assert.equal(tset.length, SET_SIZE); assert.ok(tset.every(q => q.kind === "terrain" && q.answer.category));
 console.log("t-quiz: ok");
