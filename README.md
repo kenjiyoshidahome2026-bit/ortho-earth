@@ -62,8 +62,8 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.0.2 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 2.0.2 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.1.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 2.1.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/h3`](packages/h3) | 0.2.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.2.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
