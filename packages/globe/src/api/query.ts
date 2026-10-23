@@ -251,7 +251,14 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			};
 			const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (ptR + tolPx + 1) * mPerPx, polyline: (lineHalf + tolPx) * mPerPx, ...(acc ? { accept: acc } : {}) })].filter((v): v is number => v != null && near(v)) : null;   // 点は 1px の余裕（gint の格子）→画面の距離で締める
 			const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)] as const) : e.pbf.features.map((f, i) => [i, f] as const).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
-			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
+			// 線の層は画面の距離で締め直す（identifyAt は面を内包で返す＝同じ pass の線の層まで面の中で当たっていた・半径は南北に 1/cos 広い）＝MapLibre と同じく線から 幅/2＋|ずらし|＋許し の内
+			const lineNear = (g: QueryGeometry, L: (typeof ls)[number]) => {
+				if (!area.ll || !geometry || typeof geometry[0] !== "number") return true;
+				const pp = L.paint || {}, lim = num(pp["line-width"], 1) / 2 + Math.abs(num(pp["line-offset"], 0)) + tolPx, [qx, qy] = geometry as number[];
+				const lines = (g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" || g.type === "Polygon" ? g.coordinates : g.type === "MultiPolygon" ? g.coordinates.flat() : []) as number[][][];
+				return lines.some(line => { let prev: ArrayLike<number> | null = null; for (const c of line) { const p = map.projectLL(c[0], c[1]); if (p[2] < 0) { prev = null; continue; } if (prev && segDist(qx, qy, prev, p) <= lim) return true; prev = p; } return false; });
+			};
+			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i] && (L.type !== "line" || (!!f.geometry && lineNear(f.geometry, L)))) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 		}
 		// geojson の heatmap 層＝点を heatmap-radius（px）の円で当てる（MapLibre 6 の HeatmapStyleLayer.queryIntersectsFeature と同じ・層ごとに上から）
 		for (const v of [...mlLayers.values()].reverse()) {

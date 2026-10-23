@@ -40,6 +40,7 @@ const style = { layers: [
 	{ id: "dot", type: "circle", "source-layer": "poi", paint: { "circle-radius": 10, "circle-stroke-width": 2 } },
 ] };
 const q = (area, o = {}) => queryTiles({ style, order: [{ key: KEY }], tileUrl: () => "https://example.invalid/t.mvt", zoom: Z, area, cache: new Map([[KEY, tile]]), ...o });
+const C = Math.cos(ll(2048, 2048)[1] * Math.PI / 180);   // タイルの緯度の cos（px→タイル単位の換算に掛かる）
 const ids = fs => fs.map(f => `${f.layer.id}:${f.id}`).join(",");
 
 // ── 点の当たり ──
@@ -48,16 +49,16 @@ const ids = fs => fs.map(f => `${f.layer.id}:${f.id}`).join(",");
 	ok("面の中＝当たる", ids(a) === "area:1", ids(a));
 	ok("穴の中＝当たらない", (await q({ ll: ll(1500, 1500) })).length === 0);
 	ok("面の外＝当たらない", (await q({ ll: ll(2500, 1200) })).length === 0);
-	// 1 単位＝256/4096 px＝1/16 px。線幅 4px＝半分 2px＋許容 3px＝5px＝80 単位
-	ok("線：幅の半分＋許容（80 単位）の内は当たる", ids(await q({ ll: ll(2000, 2500 + 75) })) === "road:10");
-	ok("線：その外は当たらない", (await q({ ll: ll(2000, 2500 + 90) })).length === 0);
+	// 1 単位＝256/4096 px×cos(緯度)（エンジンの z は m/px が緯度に依らない）。線幅 4px＝半分 2px＋許容 3px＝5px＝80/C 単位
+	ok("線：幅の半分＋許容（80/C 単位）の内は当たる", ids(await q({ ll: ll(2000, 2500 + 75 / C) })) === "road:10");
+	ok("線：その外は当たらない", (await q({ ll: ll(2000, 2500 + 90 / C) })).length === 0);
 	ok("線：幅 0 の層は許容 0 では当たらない", !ids(await q({ ll: ll(2000, 2500) }, { tolPx: 0 })).includes("road0"));
 	ok("線：幅 0 の層も許容があれば当たる", ids(await q({ ll: ll(2000, 2500) })).includes("road0:10"));
-	// 記号の点＝許容 3＋8＝11px＝176 単位・円＝3＋10＋2＝15px＝240 単位
-	const p = await q({ ll: ll(500 + 170, 500) });
+	// 記号の点＝許容 3＋8＝11px＝176/C 単位・円＝3＋10＋2＝15px＝240/C 単位
+	const p = await q({ ll: ll(500 + 170 / C, 500) });
 	ok("記号の点：+8px の内は当たる・円も当たる（上の層から）", ids(p) === "dot:20,poi:20", ids(p));
-	ok("円：半径＋縁の内だけ", ids(await q({ ll: ll(500 + 230, 500) })) === "dot:20");
-	ok("点も円も外", (await q({ ll: ll(500 + 250, 500) })).length === 0);
+	ok("円：半径＋縁の内だけ", ids(await q({ ll: ll(500 + 230 / C, 500) })) === "dot:20");
+	ok("点も円も外", (await q({ ll: ll(500 + 250 / C, 500) })).length === 0);
 	ok("MultiPoint のどれか", ids(await q({ ll: ll(2700, 700) }, { layers: ["poi"] })) === "poi:21");
 }
 

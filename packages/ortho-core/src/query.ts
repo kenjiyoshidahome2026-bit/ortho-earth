@@ -46,6 +46,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 		tiles.push({ z, x, y, key: o.key });
 	}
 	if (area.ll && tiles.length > 1) { tiles.sort((a, b) => b.z - a.z); tiles.length = 1; }   // 点＝その場所を覆う最細の 1 枚
+	const cosQ = Math.max(0.05, Math.cos((s + n) / 2 * Math.PI / 180));
 	const need = new Set(style.layers.filter(L => L["source-layer"]).map(L => L["source-layer"] as string));
 	const out: QueryFeature[] = [];
 	for (const t of tiles) {
@@ -68,7 +69,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 			if (want && !want.has(L.id)) continue;
 			if ((L.minzoom != null && zoom < L.minzoom) || (L.maxzoom != null && zoom >= L.maxzoom)) continue;
 			const src = (data as DecodedTile)[L["source-layer"]]; if (!src) continue;
-			const ext = src.extent || 4096, pxPerU = WORLD_PX * 2 ** (zoom - t.z) / ext;
+			const ext = src.extent || 4096, pxPerU = WORLD_PX * 2 ** (zoom - t.z) / ext * cosQ;   // ×cos(緯度)＝エンジンの z は m/px が緯度に依らない（メルカトルの単位は高緯度ほど画面で短い）・旧＝cos を掛けず許しの px がタイル単位で cos 倍に縮んだ（北緯 39° で 0.78＝線を取りこぼす・公式例の門 o1023b）
 			const toU = (lon: number, lat: number): [number, number] => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
 			const [ux0, uy1] = toU(w, s), [ux1, uy0] = toU(e, n);
 			for (const f of src.features) {
