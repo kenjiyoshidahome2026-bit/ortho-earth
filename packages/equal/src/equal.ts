@@ -38,7 +38,8 @@ import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";
 import { setSafeHTML } from "@ortho-earth/globe/html-safe.js";   // tip・pop の中身（わざと HTML）＝動く物だけ抜いて入れる（globe の吹き出しと同じ関門）   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import type { AnnoMap, PopOptions } from "@ortho-earth/globe/gadgets/anno.js";
 import type * as OverlayModule from "@ortho-earth/globe/gadgets/anno-draw.js";
-import { search as searchGadget } from "@ortho-earth/globe/gadgets/searchbox.js";   // 地名検索の窓（#175）＝japan と同じ窓・世界の既定（国・州・都市・地形・26 言語）
+import { search as searchGadget } from "@ortho-earth/globe/gadgets/searchbox.js";
+import { setAttrHTML } from "@ortho-earth/globe/gadgets/instruments.js";   // 出典＝globe と同じ 1 行の銘「© 2026 [logo] ortho-earth　データ一覧」＋開く札（全アプリ共通・#514）   // 地名検索の窓（#175）＝japan と同じ窓・世界の既定（国・州・都市・地形・26 言語）
 import { setLang as setSearchLang, t as searchT } from "@ortho-earth/globe/i18n.js";   // 窓の案内と地名の言語＝globe の i18n（equal の辞書とは別の口）を同じ言語に揃える
 import { kOfLat, yOfLat, latOfY } from "./equalearth.ts";
 import type { InstanceBuffer, Label, LabelPal, LineStyle, PointFeature, Preset, Props, VertexTexture, View, WorldPal } from "./types.ts";
@@ -494,7 +495,11 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	chips.append(layersBtn, panel);
 	gadgets.append(chips);
 	// 球 ⇄ 地図（変形の口）：地図なら「Globe」＝球へ畳む・球なら「Map」＝Equal Earth へ開く
-	const globeBtn = el("button", { class: "eq-host-btn eq-globe" });
+	// 見た目は文字ではなくアイコン（本人 2026-10-23「地球儀ボタンを地球アイコン＝favicon に」）：地図の間＝favicon の地球、球の間＝Equal Earth の輪郭（地図へ開く）。
+	// 34px 角の硝子ボタン＝隣の主題ボタンと同じ家具（.qm-panel-btn）。名前は data-tip／aria-label（言語切替で貼り替わる＝data-tt）
+	const globeBtn = el("button", { type: "button", class: "qm-panel-btn eq-globe" });
+	const GLOBE_ICON = `<svg viewBox="0 0 100 100" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="7" aria-hidden="true"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88M11 72H88M50 5V95M5 50H95"/></svg>`;
+	const MAP_ICON = `<svg viewBox="0 0 100 100" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="7" aria-hidden="true"><path d="M22 20H78Q98 50 78 80H22Q2 50 22 20Z"/><path d="M50 20V80M8 50H92M35 20Q24 50 35 80M65 20Q76 50 65 80"/></svg>`;
 	// 埋め込み（japan の iframe）では「地球儀」＝japan の地球儀へ戻る（球へ畳んで emit("closed")＝殻が親へ渡し、親が iframe を閉じる）。
 	// 単体では equal 自身の球に留まる（park）＝以前どおり。Esc も同じ（埋め込みのみ）
 	const embedded = q.get("embed") === "1";
@@ -506,7 +511,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	if (embedded) addEventListener("keydown", e => { if (e.key === "Escape" && !e.defaultPrevented) closeToHost(); }, { signal });
 	function syncGlobeBtn(): void {
 		const key = morph && (morph.phase === "park" || morph.dir < 0) ? "Map" : "Globe";
-		globeBtn.setAttribute("data-t", key); globeBtn.textContent = t(key); globeBtn.title = t(key);
+		if (globeBtn.dataset.tt !== key) globeBtn.innerHTML = key === "Map" ? MAP_ICON : GLOBE_ICON;
+		globeBtn.dataset.tt = key; globeBtn.dataset.tip = t(key); globeBtn.setAttribute("aria-label", t(key));
 		globeBtn.setAttribute("aria-pressed", String(key === "Map"));
 	}
 	syncGlobeBtn();
@@ -716,15 +722,16 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	}
 
 	// 出典（#attr）
-	const attr = el("div", { id: "attr" },
-		`${esc(t("Sources: "))}<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`);
+	// いつも出すのは 1 行の銘だけ・出典の全文は「データ一覧」の札の中（globe の setAttrHTML をそのまま使う＝形も CSS も quiet-mono で共通）
+	const attr = el("div", { id: "attr" });
 	mapEl.append(attr);
 	// 出典＝表示中の主題で変わる（コロプレス中は World DB の出所を足す）
-	let attrBase = attr.innerHTML;
+	let attrBase = `${esc(t("Sources: "))}<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`;
 	function updateAttr(): void {
 		const P = legendData?.preset;
-		attr.innerHTML = attrBase + (P && !P.csv ? `・<a href="https://www.ortho-earth.com/world/" target="_blank" rel="noopener">World DB</a> (${esc(P.ref || "Wikidata")})` : "");
+		setAttrHTML(attr, attrBase + (P && !P.csv ? `・<a href="https://www.ortho-earth.com/world/" target="_blank" rel="noopener">World DB</a> (${esc(P.ref || "Wikidata")})` : ""));
 	}
+	updateAttr();
 	// 縮尺（下辺中央・japan の #scale と同じ意匠）。正積図＝縮尺は方向で変わる＝画面中心の緯線に沿った東西の距離を出す
 	const scale = el("div", { id: "scale" }, `<span id="scale-txt"></span><div id="scale-bar"></div>`);
 	mapEl.append(scale);
@@ -904,6 +911,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		for (const n of mapEl.querySelectorAll<HTMLElement>("[data-t]")) n.textContent = t(n.dataset.t!);            // 文字を持つ家具
 		for (const n of mapEl.querySelectorAll<HTMLElement>("[data-tt]")) { n.dataset.tip = t(n.dataset.tt!); n.setAttribute("aria-label", t(n.dataset.tt!)); }   // ボタンの説明
 		attrBase = attrBase.replace(/^[^<]*/, esc(t("Sources: ")));
+		updateAttr();   // 銘の「データ一覧」・閉じる も貼り替える（globe の辞書＝setSearchLang 済み）
 		const si = mapEl.querySelector<HTMLInputElement>("#search-in"), sb = mapEl.querySelector<HTMLElement>("#search-btn"), ph = searchT("Search places");   // 検索窓の案内（globe の辞書）
 		if (si) { si.placeholder = ph; si.setAttribute("aria-label", ph); }
 		if (sb) { sb.dataset.tip = searchT("Search places (/)"); sb.setAttribute("aria-label", ph); }
