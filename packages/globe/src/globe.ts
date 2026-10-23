@@ -3335,6 +3335,7 @@ const rebuildGintNow = async (sidChanged: string | null = null, { dataChanged = 
 	const keep = new Set<string>();
 	for (let i = 0; i < plan.length; i++) {
 		const { sid, pass } = plan[i], order = ML_ORDER_BASE + i, { cur, changed } = data.get(sid)!;
+		if (!cur.pbf?.unPackGint) continue;   // 地物 0 件の source（terra-draw の空の FeatureCollection 等）＝焼いた pbf に gint が無い＝pass を作らない（前からあれば下で外す）・旧＝描くたびに addGint が invalid source を出した
 		// 出しズーム＝MapLibre の既定（minzoom 無し＝z0 から・maxzoom 無し＝上限なし）・pass の層の和。境の内側の出し入れは表（層の zoom 域）が決める
 		const minZ = Math.min(...pass.layers.map(L => Number.isFinite(L.minzoom) ? L.minzoom! : 0)), maxs = pass.layers.map(L => L.maxzoom), maxZ = maxs.every(Number.isFinite) ? Math.max(...maxs as number[]) : null;
 		const sig = `${sid}|${pass.layers.map(L => L.id).join(",")}|${minZ}|${maxZ}`;
