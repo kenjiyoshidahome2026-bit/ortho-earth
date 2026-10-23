@@ -5,6 +5,7 @@
 //   ・引数の旧実装（pako 同期）が手元にあれば同じ入力で出力バイト列が一致（scripts 用: MOJ_OLD=path）
 globalThis.ImageData ??= class ImageData { };
 import { deflateRawSync, crc32 } from "node:zlib";
+import { existsSync } from "node:fs";
 import { GeoPBFBase } from "../src/pbf-base.ts";
 
 let fails = 0;
@@ -92,10 +93,14 @@ ok(gj.features[2].properties["大字名"] === "馬場通り" && gj.features[2].g
 
 // ---- 都道府県→系番号の表＝正本（packages/jp/src/codes.ts）と一致（2026-10-03・旧表は 8 県が誤りだった）----
 {
-	const { PREF_SYS: canon } = await import("../../jp/src/codes.ts");
+	// 正本はモノレポにだけ在る＝公開ミラー（github/geopbf・単独 repo）では照合を見送る（群馬の実走は下でどちらでも走る）
+	const canonUrl = new URL("../../jp/src/codes.ts", import.meta.url);
 	const mod = await import(new URL("../src/decoder/moj.ts", import.meta.url).href + "?v=" + (++runSeq));
-	const diff = Object.keys(canon).filter(k => mod.PREF_SYS[k] !== canon[k]);
-	ok(diff.length === 0 && Object.keys(mod.PREF_SYS).length === Object.keys(canon).length, `PREF_SYS が正本（jp/codes.js）と一致${diff.length ? "（違い: " + diff.join(" ") + "）" : ""}`);
+	if (existsSync(canonUrl)) {
+		const { PREF_SYS: canon } = await import(canonUrl.href);
+		const diff = Object.keys(canon).filter(k => mod.PREF_SYS[k] !== canon[k]);
+		ok(diff.length === 0 && Object.keys(mod.PREF_SYS).length === Object.keys(canon).length, `PREF_SYS が正本（jp/codes.js）と一致${diff.length ? "（違い: " + diff.join(" ") + "）" : ""}`);
+	} else console.log("・ PREF_SYS の正本照合は見送り（packages/jp の無い単独 repo）");
 	// 任意座標系の XML＝ファイル名の都道府県から系を決める。群馬（10）＝9 系（旧表 8 系では約 1° 東へずれた）
 	const xmlG = mojXml({ cityCode: "10201", cityName: "前橋市", sys: 9, parcels: [{ xy: [1000, 2000, 1100, 2150], oaza: "001", oazaName: "大手町", chiban: "1-1" }] }).replace("<座標系>公共座標9系</座標系>", "<座標系>任意座標系</座標系>");
 	const zipG = makeZip([{ name: "10201-0001-2026.zip", data: makeZip([{ name: "10201-0001-2026.xml", data: enc.encode(xmlG), method: 8 }]), method: 8 }]);

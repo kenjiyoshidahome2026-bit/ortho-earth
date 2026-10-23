@@ -13,11 +13,6 @@
 		   意匠側は #map の外へ書かない＝任意の div へ埋め込んでもホストを壊さない、の掟。 */
 		html,body{margin:0;height:100%;overflow:hidden}
 		html{background:#0b1021}
-		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
-		#boot.gone{opacity:0;pointer-events:none}
-		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
-		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
-		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
 		/* 6:4 分割の骨格（詳細は panel.scss）。#shell.map-full でパネルが引っ込み地図が全幅＝canvas は ResizeObserver が追随 */
 		#shell{display:flex;height:100dvh}
 		#stage{flex:6;min-width:0;position:relative}
@@ -51,8 +46,7 @@
 	<meta name="twitter:image" content="https://www.ortho-earth.com/thumbs/census2020.webp">
 </head>
 <body>
-	<!-- 起動画面（球儀マーク）：外部CSS/JSに依存せずパース直後に描画。ready後に #boot.gone でフェード消去 -->
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<!-- ortho:boot --><!-- 起動画面＝正本 packages/globe/src/boot/screen.ts（vite の bootScreen が差し込む） -->
 	<div id="shell">
 		<div id="stage">
 			<div id="map"></div>

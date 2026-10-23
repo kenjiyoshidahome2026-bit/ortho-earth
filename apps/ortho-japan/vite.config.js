@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
-import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPublic, engineAliases, orthoData } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPublic, engineAliases, orthoData, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // worker は全て new Worker(..., { type: "module" }) で生成している＝ES module worker。
 // vite 既定の worker.format="iife" は code-splitting（worker 内で worker を割る/動的 import）を弾くため、
@@ -41,5 +41,5 @@ export default defineConfig(({ command }) => ({
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
 	// plateau-names.json（2.9MB）＝台帳づくりの中間（scripts/plateau-names-*.mjs が読む）で実行時は読まない＝出力から外す（deploy.mjs の rm と同じ・2026-09-30 に build 側へ）
-	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, dropUnusedPublic(OUT, ["plateau-names.json"])],
+	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, bootScreen, dropUnusedPublic(OUT, ["plateau-names.json"])],
 }));

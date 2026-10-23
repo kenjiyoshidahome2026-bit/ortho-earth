@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { rmSync } from "node:fs";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
-import { crossOriginIsolation, noChunkOptimization, engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, engineAliases, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-quakes＝世界の地震（/globe/quakes/）。2026-10-15 に ortho-globe から独立＝頁・読み込み worker・USGS の形（usgs.ts）・archive を焼く道具を一つの家に持つ。
 // エンジンは共有エンジン（/globe/engine/<版>/）を URL で読む＝build の時だけ（dev はソース直）。地域の申告は持たない（ortho-globe と同じ）。
@@ -21,5 +21,5 @@ export default defineConfig({
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝engineAliases（ortho-globe と同じ作法）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), dropDevData],
+	plugins: [crossOriginIsolation(), sharedEngine(), dropDevData, bootScreen],
 });

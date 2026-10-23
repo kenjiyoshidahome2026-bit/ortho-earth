@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
-import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData, moduleUrlAsChunk } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData, moduleUrlAsChunk, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-globe＝地球儀（@ortho-earth/globe）の家＝地域の申告を持たない頁だけを置く（LAYERS.md「globe の家」2026-09-24）。
 //   /globe/        … Globe ⇄ Equal Earth の往復（index.html）
@@ -35,5 +35,5 @@ export default defineConfig(({ command }) => ({
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), moduleUrlAsChunk],   // moduleUrlAsChunk＝plugin-splat の描き手（splat-draw／splat-gpu／splat-gl）を実体の JS チャンクに（2026-10-21）
+	plugins: [crossOriginIsolation(), sharedEngine(), moduleUrlAsChunk, bootScreen],   // moduleUrlAsChunk＝plugin-splat の描き手（splat-draw／splat-gpu／splat-gl）を実体の JS チャンクに（2026-10-21）
 }));
