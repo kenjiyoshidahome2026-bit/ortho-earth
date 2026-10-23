@@ -956,7 +956,19 @@ export interface SplatData {
 	crs?: "lnglat" | "ecef" | "local";
 	/** crs "local" に必須＝列優先 4×4（local m → ECEF m）。3D Tiles の glTF の splat（KHR_gaussian_splatting）＝タイル変換 × ノード変換 */ transform?: ArrayLike<number>;
 }
-/** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat" は契約が予約済み＝data は検めた SplatData か URL） */
+/** voxel（V0・予約された kind "voxel" の契約・2026-10-23）：map.addData(data, { kind: "voxel" }) の data。描く段は plugin（registry.dataKinds "voxel"＝@ortho-earth/plugin-voxel・体積／ブロック／等値面を光線で辿る）。URL（.nc/.zarr/.vox/.npy）と bytes も受ける＝読み手は plugin */
+export interface VoxelData {
+	/** 格子の置き方（box か region が在れば省略できる） */ shape?: "box" | "region";
+	/** 各軸のセル数 [nx, ny, nz]（x が最も速く変わる＝values[i + nx*(j + ny*k)]） */ dims: [number, number, number];
+	/** shape "box"＝局所の直方体（x 東・y 北・z 上・m）。origin＝[lng, lat, alt m] に置き size＝[m, m, m]・orientation＝[heading（北から時計回り）, pitch, roll] 度、か transform＝列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m＝列の長さが各辺の m・3D Tiles のタイル変換×ノード行列と同じ使い方・絶対高さ） */
+	box?: { origin: [number, number, number]; size: [number, number, number]; orientation?: [number, number, number] } | { transform: ArrayLike<number> };
+	/** shape "region"＝[west, south, east, north（度）, h0, h1（m）]（3D Tiles の region と同じ並び・単位は度） */ region?: [number, number, number, number, number, number];
+	/** セルの値（nx*ny*nz*components） */ values: Float32Array | Uint16Array | Uint8Array;
+	/** 1＝スカラー（色表で塗る・既定）・4＝RGBA 直 */ components?: 1 | 4;
+	/** この値のセルは空 */ noData?: number;
+	/** 色表に写す値の幅（省略＝データの min/max） */ range?: [number, number];
+}
+/** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat"／"voxel" は契約が予約済み＝data は検めた SplatData／VoxelData か URL） */
 export interface DataKindImpl { create(map: GlobeMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }
 /** タイル形式（core の registerTileFormat と同じ形・process-wide＝撤去できない） */
 export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: Uint8Array, need: unknown) => unknown; load?: () => Promise<(bytes: Uint8Array, need: unknown) => unknown> }

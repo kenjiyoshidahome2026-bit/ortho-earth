@@ -30,6 +30,24 @@ try {
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
+	if (V === "voxel") {   // ⑭ voxel の受け口（V0）：plugin が無ければ addData(kind "voxel") は契約を検めてから投げる（spec）・壊れた data は型の誤りで投げる・URL も受ける・plugin の "voxel" を入れると検めた data が渡り supports が true
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		const mk = (o = {}) => ({ dims: [2, 2, 2], box: { origin: [139.76, 35.68, 0], size: [100, 100, 100] }, values: new Float32Array(8).map((_, i) => i), ...o });
+		const th = f => { try { f(); return ""; } catch (e) { return e.message; } };
+		ok("v.spec", map.capabilities()["data.voxel"].status === "spec" && !map.supports("data.voxel"));
+		ok("v.noPlugin", /reserved contract/.test(th(() => map.addData(mk(), { kind: "voxel" }))));
+		ok("v.badData", /values/.test(th(() => map.addData(mk({ values: new Float32Array(7) }), { kind: "voxel" }))) && /shape/.test(th(() => map.addData({ dims: [1, 1, 1], values: new Uint8Array(1) }, { kind: "voxel" }))));
+		ok("v.url", /reserved contract/.test(th(() => map.addData("field.nc", { kind: "voxel" }))) && /VoxelData/.test(th(() => map.addData("field.glb", { kind: "voxel" }))));
+		let got = null;
+		map.use({ name: "dots-voxel", install(m) { m.registry.dataKinds.add("voxel", { create: (mm, data, o) => { got = data; const pts = []; for (let k = 0; k < data.dims[2]; k++) for (let j = 0; j < data.dims[1]; j++) for (let i = 0; i < data.dims[0]; i++) pts.push({ p: [data.box.origin[0] + i * 0.001, data.box.origin[1] + j * 0.001, k * 50] }); return mm.addData(pts, { kind: "points", id: o.id, getPosition: d => d.p, getRadius: () => 6, getColor: () => [80, 160, 255, 255] }); } }); } });
+		const h = map.addData(mk(), { kind: "voxel", id: "vx" });
+		await h.ready;
+		ok("v.plugin", got && got.shape === "box" && got.components === 1 && got.dims.join() === "2,2,2" && got.values instanceof Float32Array && h.n === 8 && map.supports("data.voxel") && map.capabilities()["data.voxel"].via === "dots-voxel");
+		h.remove(); map.unuse("dots-voxel");
+		ok("v.afterUnuse", map.capabilities()["data.voxel"].status === "spec" && !map.supports("data.voxel"));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "terrain") {   // ⑫ 地形の一括標本と歩行の口（F6）：sampleTerrain＝配列・object・GeoJSON を受け getHeight と同じ値・順番が保たれる。walk＝中身が無ければ spec を保つだけ・plugin の "walk" を入れると動く
 		const map = await createGlobe({ target: "#map", view: "#12/35.36/138.73", chips: false, persistView: false });   // 富士山
 		await map.once("load");
@@ -314,7 +332,7 @@ try {
 	ok("cap.spec", c["light.ibl"].status === "spec" && !map.supports("light.ibl"));   // point は W2 で builtin＝spec の代表は ibl
 	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
 	ok("cap.types", ["types.core", "types.globe", "types.shim", "react"].every(k => map.supports(k)));
-	ok("cap.specF", ["data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "tiles3d.attribution", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
+	ok("cap.specF", ["data.splat", "data.voxel"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "tiles3d.attribution", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec

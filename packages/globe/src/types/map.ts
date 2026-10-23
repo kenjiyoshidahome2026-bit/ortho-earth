@@ -466,7 +466,7 @@ export interface DataApi {
 	addH3(src: unknown, opts?: CellsLayerOptions): Promise<CellsLayerHandle>;   // api/data.ts:281
 	/** deck.gl の Layer（配列＋accessor）の相当（PR-4／PR-6・src/adddata.js）。kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）・"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth／getHeight 弦長比）・
 	 *  "trips"（getPath [[lon,lat,h?]…]／getTimestamps／currentTime／trailLength／fadeTrail／clock）は同一フレームの overlay（RTE・統一 picking）。"polygons"（getPolygon）・"paths"（getPath）・"columns"（getPosition＋getRadius m）＋ getFillColor／getLineColor／getLineWidth／getElevation m は
-	 *  GeoJSON の addSource／addLayer（fill／line／fill-extrusion）。builtin 以外の kind は plugin（registry.dataKinds・"splat" は予約された契約＝SplatData）。data＝配列・GeoJSON FeatureCollection・iterable。setData は差分でなく全焼き（deck.gl と同じ） */
+	 *  GeoJSON の addSource／addLayer（fill／line／fill-extrusion）。builtin 以外の kind は plugin（registry.dataKinds・"splat"／"voxel" は予約された契約＝SplatData／VoxelData）。data＝配列・GeoJSON FeatureCollection・iterable。setData は差分でなく全焼き（deck.gl と同じ） */
 	addData(data: unknown, opts?: DataLayerOptions): DataLayerHandle;   // api/data.ts:294
 	/** セル（deck.gl の GridLayer／GeohashLayer／QuadkeyLayer／S2Layer 相当・PR-5・src/cells/）。kind＝"grid"（m）・"mesh"（地域メッシュの段）・"geohash"・"quadkey"・"s2"（id の意味は reference library と同じ）。res＝セルの大きさ／段（"auto" も）。H3 と同じ手綱 */
 	addCells(src: unknown, opts?: CellsLayerOptions & { kind?: "grid" | "mesh" | "geohash" | "quadkey" | "s2" }): Promise<CellsLayerHandle>;   // api/data.ts:383

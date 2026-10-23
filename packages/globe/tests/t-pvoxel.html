@@ -1,0 +1,131 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/plugin-voxel（第 1 段・2026-10-23）＝予約された map.addData の kind "voxel"（同一フレームのオーバーレイ・WebGL2 の光線行進）。
+     試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-psplat と同じ）・北向きに 60° 傾けて南から見る。
+     ①plugin の形：map.use(voxelPlugin()) で capabilities の data.voxel が plugin・unuse で外れて "spec" の受け口に戻る
+     ②blocks（1 成分＋色表＝赤一色・4×4×4・80 m 角）＝棟の南 250 m・画面の箱の中心が赤。③blocks（RGBA 直・緑）＝棟の北 500 m＝棟に隠れる（本体の深度）
+     ④volume（Float32 の球状の場・青の色表・opacity 0.15）＝棟の東＝中心が青く半透明（α が 40〜240）
+     ⑤当たり（handle.pick＝cell と value・queryRenderedFeatures）⑥setVisible・remove（一つ外しても残りは描く・全部外すと canvas が外れる）・同じ id は投げる
+     ⑦読み手の worker（handle.reader＝"worker"）・backend＝verify:webgpu（gl2 無し）は "webgpu"・verify:ui（gl2=1・SwiftShader）は "webgl2"
+     第 2 段（2026-10-23）：⑧region（経緯度×高さの格子・volume・turbo）＝棟の北西の空に色が出る ⑨iso（球状の場の等値面・黄・opacity 1）＝棟の西＝中心が黄で不透明
+     ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る -->)
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const { voxelPlugin } = await import("@ortho-earth/plugin-voxel");
+const t = [];
+let stage = "boot";
+const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pvoxel @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
+const heart = setInterval(beat, 1000);
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); beat(); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(1000); } return null; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
+try {
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false });
+	await map.once("load");
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+	const sq = [ll(-50, -50), ll(50, -50), ll(50, 50), ll(-50, 50), ll(-50, -50)].map(p => p.slice(0, 2));
+	await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#888888", fit: false, mask: false });
+	await sleep(1500);
+	// ① plugin
+	map.use(voxelPlugin());
+	const cap = map.capabilities()["data.voxel"];
+	ok("caps", cap?.status === "plugin" && cap?.via === "plugin-voxel", JSON.stringify(cap));
+	const dpr = Math.min(2, devicePixelRatio || 1);
+	const probe = h => new Promise(res => { stage = "probe:" + h.id; const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
+		ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
+	const px = (img, x, y) => { const X = Math.round(x * dpr), Y = img.flipY ? img.h - 1 - Math.round(y * dpr) : Math.round(y * dpr), k = (Y * img.w + X) * 4; return [img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]]; };
+	const near = (img, x, y, f, r = 4) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (f(px(img, x + dx, y + dy))) return true; return false; };
+	const count = (img, f) => { let n = 0; for (let k = 0; k < img.data.length; k += 4) if (f([img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]])) n++; return n; };
+	const at = p => map.makeProjectorH()(p[0], p[1], p[2]);
+	const col = c => c[3] > 60 ? [c[0] * 255 / c[3], c[1] * 255 / c[3], c[2] * 255 / c[3]] : null;   // 前乗せの α を戻す
+	const red = c => { const v = col(c); return v && v[0] > 2 * v[1] + 30 && v[0] > 2 * v[2] + 30; }, green = c => { const v = col(c); return v && v[1] > 2 * v[0] + 30 && v[1] > 2 * v[2] + 30; };
+	const blue = c => { const v = col(c); return v && v[2] > 1.5 * v[0] + 20 && v[2] > 1.5 * v[1] + 20; };
+	// ② blocks（赤・色表）＝棟の南 250 m・80 m 角（4×4×4・全セル 1）
+	const N1 = 4, vals1 = new Float32Array(N1 * N1 * N1).fill(1);
+	const d1 = { dims: [N1, N1, N1], box: { origin: ll(-40, -290, 0), size: [80, 80, 80] }, values: vals1 };
+	const hb = map.addData(d1, { kind: "voxel", id: "red", render: "blocks", colormap: ["#e61e1e", "#e61e1e"], range: [0, 1], properties: { name: "test" } });
+	// ③ blocks（RGBA 直・緑）＝棟の北 500 m・60×60×30 m＝棟に隠れる
+	const N2 = 3, rgba2 = new Uint8Array(N2 * N2 * N2 * 4); for (let i = 0; i < N2 * N2 * N2; i++) rgba2.set([30, 220, 60, 255], i * 4);
+	const hg = map.addData({ dims: [N2, N2, N2], box: { origin: ll(-30, 470, 0), size: [60, 60, 30] }, values: rgba2, components: 4 }, { kind: "voxel", id: "green", render: "blocks" });
+	// ④ volume（球状の場・青）＝棟の東 250 m・120×120×80 m（16×16×8）
+	const NV = [16, 16, 8], valsV = new Float32Array(NV[0] * NV[1] * NV[2]);
+	for (let k = 0; k < NV[2]; k++) for (let j = 0; j < NV[1]; j++) for (let i = 0; i < NV[0]; i++) { const x = (i + 0.5) / NV[0] - 0.5, y = (j + 0.5) / NV[1] - 0.5, z = (k + 0.5) / NV[2] - 0.5, r = Math.hypot(x, y, z) * 2; valsV[i + NV[0] * (j + NV[1] * k)] = Math.max(0, 1 - r * r); }
+	const dV = { dims: NV, box: { origin: ll(190, -160, 0), size: [120, 120, 80] }, values: valsV, noData: 0 };
+	const hv = map.addData(dV, { kind: "voxel", id: "cloud", render: "volume", colormap: ["#2040ff", "#60a0ff"], range: [0, 1], opacity: 0.15, step: 0.5 });
+	// ⑧ region（volume）＝棟の北西（iso の箱の奥＝画面で重ならない）・経度 0.002°×緯度 0.0015°×高さ 60〜140 m（8×6×4）・値は上ほど大＝turbo
+	const NR = [8, 6, 4], valsR = new Float32Array(NR[0] * NR[1] * NR[2]);
+	for (let k = 0; k < NR[2]; k++) for (let j = 0; j < NR[1]; j++) for (let i = 0; i < NR[0]; i++) valsR[i + NR[0] * (j + NR[1] * k)] = 0.3 + 0.7 * (k + 0.5) / NR[2];
+	const RW = LON - 0.0040, RS = LAT + 0.0010, RE = RW + 0.0020, RN = RS + 0.0015;
+	const hr = map.addData({ dims: NR, region: [RW, RS, RE, RN, 60, 140], values: valsR }, { kind: "voxel", id: "region", render: "volume", colormap: "turbo", range: [0, 1], opacity: 0.6, step: 0.5 });
+	// ⑨ iso＝球状の場（中心 1 → 縁 0）の 0.5 の面・黄・棟の西 250 m・80 m 角（12³）
+	const NI = 12, valsI = new Float32Array(NI * NI * NI);
+	for (let k = 0; k < NI; k++) for (let j = 0; j < NI; j++) for (let i = 0; i < NI; i++) { const x = (i + 0.5) / NI - 0.5, y = (j + 0.5) / NI - 0.5, z = (k + 0.5) / NI - 0.5; valsI[i + NI * (j + NI * k)] = Math.max(0, 1 - Math.hypot(x, y, z) * 2); }
+	const hi = map.addData({ dims: [NI, NI, NI], box: { origin: ll(-290, -140, 0), size: [80, 80, 80] }, values: valsI, range: [0, 1] }, { kind: "voxel", id: "iso", render: "iso", threshold: 0.5, colormap: ["#f0d020", "#f0d020"], opacity: 1 });
+	await Promise.all([hb.ready, hg.ready, hv.ready, hr.ready, hi.ready]);
+	ok("n", hb.n === 64 && hg.n === 27 && hv.n === 2048 && hb.kind === "voxel" && hb.dims.join() === "4,4,4" && hb.range.join() === "0,1" && hr.shape === "region" && hr.n === 192 && hi.n === 1728, `${hb.n}/${hg.n}/${hv.n}/${hr.n}/${hi.n}`);
+	ok("reader", hb.reader === "worker" && hg.reader === "worker" && hv.reader === "worker", `${hb.reader}/${hg.reader}/${hv.reader}`);   // ⑦
+	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-voxel"]').length === 1 && hb.overlay === hv.overlay);
+	let dup = false; try { map.addData(d1, { kind: "voxel", id: "red" }); } catch { dup = true; }
+	ok("dupIdThrows", dup);
+	const RC = [(RW + RE) / 2, (RS + RN) / 2, 100], IC = ll(-250, -100, 40);
+	const Q = { get R() { return at(ll(0, -250, 40)); }, get G() { return at(ll(0, 500, 15)); }, get V() { return at(ll(250, -100, 40)); }, get Rg() { return at(RC); }, get I() { return at(IC); } };
+	const yellow = c => { const v = col(c); return v && v[0] > 150 && v[1] > 120 && v[2] < 110 && v[0] > v[2] + 60; };
+	const colored = c => { const v = col(c); return v && Math.max(v[0], v[1], v[2]) - Math.min(v[0], v[1], v[2]) > 60; };   // turbo＝どこかの色が強い
+	const W = 40000, seen = {};
+	await until(async () => { const d = await probe(hb); if (!d) return null;
+		if (!seen.r && near(d, Q.R[0], Q.R[1], red) && !near(d, Q.G[0], Q.G[1], green, 6)) seen.r = d;   // 本体の深度は数フレーム後に来る＝奥の緑が隠れるまで待つ
+		if (!seen.v && near(d, Q.V[0], Q.V[1], blue, 3)) seen.v = d;
+		if (!seen.rg && near(d, Q.Rg[0], Q.Rg[1], colored, 6)) seen.rg = d;
+		if (!seen.i && near(d, Q.I[0], Q.I[1], yellow, 3)) seen.i = d;
+		return seen.r && seen.v && seen.rg && seen.i; }, 2 * W);
+	const expectGpu = !new URLSearchParams(location.search).has("gl2");   // verify:webgpu（gl2 無し）＝WebGPU の描き手を期待・verify:ui（gl2=1・SwiftShader）＝WebGL2 でよい
+	ok("backend", hb.backend === "webgpu" || (!expectGpu && hb.backend === "webgl2"), String(hb.backend));
+	ok("noError", hb.error === null && hg.error === null && hv.error === null && hr.error === null && hi.error === null, `${hb.error}/${hg.error}/${hv.error}/${hr.error}/${hi.error}`);
+	const diag = async (f, c) => { const d = await probe(hb); if (!d) return "no probe"; return `${count(d, f)} px want ${c[0].toFixed(0)},${c[1].toFixed(0)} got ${JSON.stringify(px(d, c[0], c[1]))} layers=${JSON.stringify(d.layers)}`; };
+	ok("blocks.front", !!seen.r, seen.r ? "" : await diag(red, Q.R));
+	ok("blocks.opaque", !!seen.r && px(seen.r, Q.R[0], Q.R[1])[3] > 250, seen.r ? JSON.stringify(px(seen.r, Q.R[0], Q.R[1])) : "");
+	ok("blocks.shaded", !!seen.r && count(seen.r, c => red(c) && c[3] > 250) > 200 && (() => { const s = new Set(); for (let k = 0; k < seen.r.data.length; k += 4) { const c = [seen.r.data[k], seen.r.data[k + 1], seen.r.data[k + 2], seen.r.data[k + 3]]; if (red(c)) s.add(c[0] >> 3); } return s.size >= 2; })(), seen.r ? `${count(seen.r, red)} px` : "");   // 面ごとの明るさが違う＝赤の段が 2 つ以上
+	ok("behindHidden", !!seen.r && !near(seen.r, Q.G[0], Q.G[1], green, 6), seen.r ? JSON.stringify(px(seen.r, Q.G[0], Q.G[1])) : "");
+	ok("volume.blue", !!seen.v, seen.v ? "" : await diag(blue, Q.V));
+	ok("volume.translucent", !!seen.v && (() => { const a = px(seen.v, Q.V[0], Q.V[1])[3]; return a > 40 && a < 240; })(), seen.v ? JSON.stringify(px(seen.v, Q.V[0], Q.V[1])) : "");
+	ok("region.volume", !!seen.rg, seen.rg ? "" : await diag(colored, Q.Rg));   // ⑧
+	ok("iso.surface", !!seen.i && px(seen.i, Q.I[0], Q.I[1])[3] > 250, seen.i ? JSON.stringify(px(seen.i, Q.I[0], Q.I[1])) : await diag(yellow, Q.I));   // ⑨
+	// ⑩ 断面＝赤ブロックの x を 0〜0.5（西半分）に。東半分の画素から赤が消え、西半分は残る。格子は上げ直さない（"style"）
+	stage = "clip";
+	const posts0 = []; const origPost = hb.overlay.post; hb.overlay.post = (d, tr) => { posts0.push(d?.type); return origPost.call(hb.overlay, d, tr); };
+	await hb.setProps({ clip: [0, 0.5, 0, 1, 0, 1] });
+	hb.overlay.post = origPost;
+	ok("clip.style", posts0.length === 1 && posts0[0] === "style", posts0.join());
+	const QW = at(ll(-25, -250, 40)), QE = at(ll(25, -250, 40));
+	const dc = await until(async () => { const d = await probe(hb); return d && near(d, QW[0], QW[1], red, 2) && !near(d, QE[0], QE[1], red, 2) ? d : null; }, W);
+	ok("clip.halves", !!dc, dc ? "" : `W=${await diag(red, QW)} E=${await diag(red, QE)}`);
+	await hb.setProps({ clip: null });
+	// ⑤ 当たり
+	const again = f => until(async () => { const r = await f(); return r.length ? r : null; }, 30000).then(r => r ?? []);
+	stage = "pick";
+	const pk = await again(() => hb.pick(Q.R[0], Q.R[1]));
+	ok("pick", pk.length === 1 && pk[0].layer === "red" && Array.isArray(pk[0].cell) && pk[0].cell.length === 3 && pk[0].value === 1 && pk[0].properties?.name === "test" && pk[0].properties.cell.join() === pk[0].cell.join() && Math.abs(pk[0].lngLat[1] - LAT) < 0.01, JSON.stringify(pk.map(h => ({ i: h.index, c: h.cell, v: h.value, l: h.layer, p: h.properties }))));
+	const qf = await again(() => map.queryRenderedFeatures([Q.R[0], Q.R[1]], { layers: ["red"] }));
+	ok("query", qf.length === 1 && qf[0].layer?.id === "red", JSON.stringify(qf.map(f => ({ l: f.layer?.id, p: f.properties }))));
+	const pv = await again(() => hv.pick(Q.V[0], Q.V[1]));
+	ok("pick.volume", pv.length === 1 && pv[0].layer === "cloud" && pv[0].value > 0, JSON.stringify(pv.map(h => ({ c: h.cell, v: h.value }))));
+	// ⑥ 表示・撤去
+	stage = "vis";
+	hb.setVisible(false);
+	ok("hidden", !!await until(async () => { const d = await probe(hv); return d && !near(d, Q.R[0], Q.R[1], red) && near(d, Q.V[0], Q.V[1], blue, 3) ? d : null; }, W));
+	hb.remove(); hg.remove(); hr.remove(); hi.remove();
+	const cvs = () => [...map.mapEl.querySelectorAll("canvas.overlay-gl")].map(c => c.dataset.overlay).join("|");
+	const r1 = await until(async () => { const d = await probe(hv); return d && near(d, Q.V[0], Q.V[1], blue, 3) && !near(d, Q.R[0], Q.R[1], red) ? d : null; }, W);
+	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-voxel"]') && !!r1, `canvases=${cvs()} probe=${r1 ? "ok" : "none"}`);
+	hv.remove(); await sleep(300);
+	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'));
+	map.unuse("plugin-voxel");
+	ok("unuse", !map.supports("data.voxel") && map.capabilities()["data.voxel"]?.status === "spec");
+	let threw = false; try { map.addData(d1, { kind: "voxel" }); } catch { threw = true; }
+	ok("unuseThrows", threw);
+	clearInterval(heart);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>
