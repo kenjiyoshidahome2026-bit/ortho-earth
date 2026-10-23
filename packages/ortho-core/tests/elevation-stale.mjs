@@ -15,5 +15,12 @@ ok(staleDSM("R10N030E150", { source: "GEBCO 2026 + GSI DEM10B(JP)" }, dtm) === f
 ok(staleDSM("R10N040E000", { source: "GEBCO 2026" }, dtm) === false, "R10 域外＝触らない");
 ok(staleDSM("R90N000E090", { source: "GEBCO 2026" }, dtm) === false, "R90＝触らない");
 ok(staleDSM("R10N030E130", { source: "GEBCO 2026" }, null) === false, "申告なし＝触らない");
+// 個別の焼き直し（dtm.rebaked）：印の無い写しは銘があっても失効・印のある物は信用・載っていない名前は従来どおり（2026-10-23）
+const re = { ...dtm, rebaked: { R01N029E140: "@2026-10-23", R10N020E140: "@2026-10-23" } };
+ok(staleDSM("R01N029E140", { source: "GSI DEM10B" }, re) === true, "R01 焼き直し・印なしの旧い写し＝失効");
+ok(staleDSM("R01N029E140", { source: "GSI DEM10B @2026-10-23" }, re) === false, "R01 焼き直し・印あり＝信用");
+ok(staleDSM("R10N020E140", { source: "GEBCO 2026 + GSI DEM10B(JP)" }, re) === true, "R10 焼き直し・印なし＝失効");
+ok(staleDSM("R10N020E140", { source: "GEBCO 2026 + GSI DEM10B(JP) @2026-10-23" }, re) === false, "R10 焼き直し・印あり＝信用");
+ok(staleDSM("R01N038E139", { source: "GSI DEM10B" }, re) === false, "載っていない名前＝従来どおり信用");
 console.log(fails ? `FAIL ${fails}` : "PASS");
 process.exit(fails ? 1 : 0);

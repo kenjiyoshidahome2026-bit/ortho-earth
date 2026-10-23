@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 日本域の標高 R01 タイル（1°×1°・3600×3600・Int16）を DSM(ALOS AW3D30) から DTM(地理院 DEM10B) へ焼き直す。
 // 出典＝地理院標高タイル dem_png（DEM10B・z12）。水面(内水面)は DEM10B が欠測＝最寄り有効値で埋める
-//（湖面は岸の高さ＝水面平坦化）。海（縁に接する欠測域で岸の中央値≤10m）は 0。
+//（湖面は岸の高さ＝水面平坦化）。海（縁に接する欠測域で、岸の中央値≤10m かセルの 1/4 超）は 0。
 // 出力は packages/altpbf/src/format.ts encode() と同一フォーマット（pbf + deflateRaw）＋ gzip で bucket 形式。
 //
 // 使い方:
@@ -23,6 +23,9 @@ mkdirSync(OUT, { recursive: true });
 const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(readdirSync(OUT).filter(f => f.endsWith('.gz')).sort()) + '\n');
 const W = 3600, Z = 12, TZ = 256;            // 出力格子 1秒 / 地理院 dem_png z12（1.24秒/px＝格子と同オーダー）
 const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.ts が正本（複製禁止・実行時の申告と同じ数字）
+// 焼いた日の印＝source の末尾。個別に焼き直したタイルは packages/jp/src/dtm.ts の rebaked に「名前 → この印」を足す
+//（IDB の旧い写しを失効させる・2026-10-23）。銘（brand＝"GSI"）は先頭のまま＝staleDSM の信用判定は変わらない
+const STAMP = '@' + new Date().toISOString().slice(0, 10);
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;   // JAXA index / encodeName の緯度先行表記
 
@@ -165,13 +168,16 @@ async function bakeCell(lng0, lat0) {
 				else if (ring.length < 20000) ring.push(grid[j]);
 			}
 		}
-		if (touchesBorder && (ring.length === 0 || median(ring) <= 10)) for (const i of comp) filled[i] = 0;   // 海
+		// 岸の中央値だけでは、断崖の小島しか無い海のセル（孀婦岩＝R01N029E140）で岸が全部崖の上（中央値 >10m）＝海を湖と誤って
+		// セル全面を岸の高さで埋めていた（2026-10-23・日本地図デモの遠景で 1°四方の陸）。セルの 1/4 を超える欠測は湖でない
+		//（最大の琵琶湖でも 1°セルの 7% 足らず・しかも 136°E/35°N の線で割れる）＝岸の高さに関わらず海。
+		if (touchesBorder && (ring.length === 0 || median(ring) <= 10 || comp.length > W * W / 4)) for (const i of comp) filled[i] = 0;   // 海
 	}
 	const data = new Int16Array(W * W);
 	for (let i = 0; i < W * W; i++) data[i] = Math.max(-32767, Math.min(32767, Math.round(filled[i])));
 
 	const name = `R01${cellName(lng0, lat0)}`;
-	const bin = encodeAltpbf({ name, source: 'GSI DEM10B', lng: lng0, lat: lat0, range: 1, width: W, height: W, data });
+	const bin = encodeAltpbf({ name, source: `GSI DEM10B ${STAMP}`, lng: lng0, lat: lat0, range: 1, width: W, height: W, data });
 	writeFileSync(path.join(OUT, name + '.gz'), gzipSync(bin, { level: 9 }));
 	console.log(`${name}: valid=${(nValid / W / W * 100).toFixed(1)}% tiles=${fetched}(404:${missed}) ${(bin.length / 1e6).toFixed(1)}MB→gz ${(Date.now() - t0) / 1000 | 0}s`);
 	return { name, data };
