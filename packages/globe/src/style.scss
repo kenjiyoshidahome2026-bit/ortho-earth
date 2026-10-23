@@ -8,6 +8,9 @@
    ここを html,body へ戻すと「div に埋め込める」という README の約束がその瞬間に嘘になる（轍）。 */
 :is(.qm, #map) { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
 
+/* 注記の字の webgpu canvas（#labelsgpu＝?text=gpu・注記の上）は globe 固有＝quiet-mono の #c/#gint/#labels と同じ骨格（一杯に敷く・pointer は基図へ素通し） */
+#labelsgpu { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
 /* 地中フェード：カメラが地表(DTM)より下に潜った時、地図(#c)・ラベル(#labels)・gint を一枚のダークグレーで覆う
    （山頂×高チルトで山体の裏を見上げる不正な絵の代替＝旧・カメラ地形クランプ廃止の相方）。app.js の
    updateUnderground が eye 直下との高低差を smoothstep して opacity を駆動、transition が時間フェード（10Hz
@@ -17,6 +20,18 @@
 
 /* デバッグログ（常時非表示・devtoolsから出す。左下ドックの縁＝表示すると計器の下に座る） */
 #log { font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
+
+/* 出典（#attr）の 1 行の銘「© 2026 [logo] ortho-earth　データ一覧」＋押すと開く出典の札（本人 2026-10-21・gadgets/instruments.ts の setAttrHTML）。
+   #attr の地（薄硝子・位置）は quiet-mono＝ここは globe の中身の形だけ */
+#attr {
+	.attr-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
+	.attr-brand { display: inline-flex; align-items: center; gap: 3px; }
+	.attr-logo { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 7; }
+	.attr-more { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+	.attr-full { position: relative; max-width: min(440px, calc(100vw - 32px)); max-height: min(50vh, 360px); overflow: auto; margin-bottom: 6px; padding: 2px 18px 6px 0; border-bottom: 1px solid var(--qm-glass-border);
+		&[hidden] { display: none; } }
+	.attr-close { position: absolute; top: 0; inset-inline-end: 0; font: inherit; font-size: 14px; line-height: 1; color: inherit; background: none; border: 0; padding: 0 2px; cursor: pointer; }
+}
 
 /* アイドル退場：マウスを止めると左上(#gadgets)・右上(#chips)のアイコンが静かに消え、動かすと戻る。
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
