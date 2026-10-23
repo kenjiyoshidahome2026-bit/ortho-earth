@@ -79,7 +79,7 @@ try {
 ${code.join("\n")}
 // ---- ここまで ----
   await new Promise(r => setTimeout(r, 4000));   // worker 群（標高・gint の焼き・注記）が一巡する間
-  const ja = /出典/.test(document.body.innerText);   // ?lang=ja＝訳の表が束ねられて読めたか
+  const ja = /出典/.test(document.body.textContent);   // ?lang=ja＝訳の表が束ねられて読めたか（出典の全文は 2.1 から押すと開く札＝hidden＝innerText には出ない・DOM の textContent で読む）
   const c = map.getCenter?.();
   const p = map.project?.([139.77, 35.68]), q = p && map.unproject?.(p);   // 1.1.1〜 MapLibre と同じ座標変換（往復して元へ戻るか）
   const proj = !!q && Math.abs(q.lng - 139.77) < 0.01 && Math.abs(q.lat - 35.68) < 0.01;
