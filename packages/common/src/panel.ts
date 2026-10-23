@@ -9,8 +9,10 @@
 //   下端はどちらも出典（#attr）の上で止める（PC＝丈の頭打ち・スマホ＝シートの下端）。
 //   スマホ（≤640px）＝下端いっぱいのシート。出典（#attr）の高さを測って、その上に浮かす（出典が 2 行でも 4 行でも重ならない）。
 //                     最初は畳む（見出しだけ＝地図を先に見せる）。開いている間は操作方法カード（#hint）を隠す（重なるため）。
-//   配色＝theme "dark"（夜の地球儀の頁）／"light"（紙の地図の頁）。どちらも --qm-* の変数を枠の中で決める＝中身の CSS は
-//         var(--qm-text) 等で書けば両方の配色で読める。
+//   配色＝黒地・白文字の一つだけ（紙の地図の頁も同じ。旧 theme "light"＝physical・terrain・onsen の白地は 2026-10-23 本人「黒地のパネルに」で廃止）。
+//         --qm-* の変数を枠の中で夜値に決め直す＝中身の CSS は var(--qm-text) 等で書けば黒地で読める（紙の頁の #map が配る昼値に勝つ）。
+//         枠の外に浮かぶ頁の部品（断面図・グラフ等）も class "oe-dark" を付ければ同じ変数と地色（--oe-panel-bg）を受ける。
+//         地色の上の小物：--oe-field（入力・選択の地）・--oe-hover（行の hover）・--oe-on（選んだ行＝赤み）・--oe-inset（詳細の囲み）・--oe-halo（図の文字の縁取り）。
 // 文言は呼び手が渡す（common は i18n を持たない＝各頁の t() で訳した物）。
 // 二つ以上のアプリが使う＝共有エンジンの入口 common/panel（apps/engine/src/entries.mjs）＝各アプリの束に焼かない。
 
@@ -27,8 +29,6 @@ export interface PanelOpts {
 	sub?: string;
 	/** 頁の class（中身の CSS の錨。例 "sats-panel"） */
 	cls?: string;
-	/** 配色。既定 "dark" */
-	theme?: "dark" | "light";
 	/** PC での幅（px）。既定 320 */
 	width?: number;
 	/** スマホで最初に畳むか。既定 true */
@@ -57,9 +57,11 @@ const CSS = `
  max-height:calc(100% - 28px - var(--oe-attr-h,40px));overflow:auto;box-sizing:border-box;padding:12px 14px;border-radius:12px;
  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);font:13px/1.5 var(--qm-font,system-ui,sans-serif);scrollbar-width:thin;
  background:var(--oe-panel-bg);color:var(--qm-text);border:1px solid var(--qm-border-soft);box-shadow:var(--oe-panel-shadow)}
-.oe-panel.oe-dark{--qm-ink:#fff;--qm-text:#e7ecf5;--qm-text-dim:#9aa6bd;--qm-text-faint:#8793aa;--qm-border-soft:rgba(255,255,255,.16);
- --oe-panel-bg:rgba(12,17,32,.88);--oe-panel-shadow:0 8px 28px rgba(0,0,0,.35);color-scheme:dark}
-.oe-panel.oe-light{--oe-panel-bg:var(--qm-panel-solid,rgba(255,255,255,.96));--oe-panel-shadow:var(--qm-shadow-pop,0 4px 14px rgba(20,30,50,.12));color-scheme:light}
+.oe-panel,.oe-dark{--qm-ink:#fff;--qm-text:#e7ecf5;--qm-num:#cfd8e8;--qm-label:#9aa6bd;--qm-text-dim:#9aa6bd;--qm-text-faint:#8793aa;
+ --qm-border:rgba(255,255,255,.22);--qm-border-soft:rgba(255,255,255,.16);--qm-border-strong:rgba(255,255,255,.42);--qm-panel-solid:rgba(12,17,32,.96);
+ --qm-shadow-card:0 3px 10px rgba(0,0,0,.3);--qm-shadow-pop:0 8px 28px rgba(0,0,0,.35);
+ --oe-panel-bg:rgba(12,17,32,.88);--oe-panel-shadow:0 8px 28px rgba(0,0,0,.35);
+ --oe-field:rgba(255,255,255,.07);--oe-hover:rgba(255,255,255,.08);--oe-on:rgba(255,92,112,.2);--oe-inset:rgba(255,255,255,.05);--oe-halo:#0c1120;color-scheme:dark}
 @media (min-width:${PANEL_MOBILE + 1}px){.oe-panel-host:has(#sky-clock)>.oe-panel{top:calc(46px + env(safe-area-inset-top,0px));max-height:calc(100% - 62px - var(--oe-attr-h,40px))}}   /* 夜空の時計（右上・#sky-clock）の下へ＝重ねない（PC だけ・スマホは下端） */
 .oe-panel .oe-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .oe-panel .oe-panel-head h1{flex:1;min-width:0;font-size:15px;line-height:1.35;margin:0;font-weight:700;letter-spacing:.02em;color:var(--qm-ink)}
@@ -102,11 +104,11 @@ function watchAttr(host: HTMLElement, signal: AbortSignal): void {
 }
 
 /** 案内パネルを作って host に付ける。中身は戻りの body に入れる */
-export function createPanel({ host, title, sub = "", cls = "", theme = "dark", width = 320, foldMobile = true, labels = {}, onFold }: PanelOpts): Panel {
+export function createPanel({ host, title, sub = "", cls = "", width = 320, foldMobile = true, labels = {}, onFold }: PanelOpts): Panel {
 	injectCss();
 	const ac = new AbortController();
 	const el = document.createElement("section");
-	el.className = `oe-panel oe-${theme}${cls ? " " + cls : ""}`;
+	el.className = `oe-panel${cls ? " " + cls : ""}`;
 	if (width !== 320) el.style.setProperty("--oe-panel-w", `${width}px`);
 	el.innerHTML = `<div class="oe-panel-head"><h1></h1><button type="button" class="oe-panel-fold"></button></div><div class="oe-panel-sub"></div><div class="oe-panel-body"></div>`;
 	const head = el.querySelector<HTMLElement>(".oe-panel-head")!;
