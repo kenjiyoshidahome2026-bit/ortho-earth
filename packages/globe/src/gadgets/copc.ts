@@ -3,7 +3,8 @@
 //   普通の LAS/LAZ（COPC でない・点群計画 段 3-3）は worker が丸ごと読んでその場で八分木を作る＝ここから見ると節の並びは COPC と同じ（info.inMemory）。
 //   選び＝節の点の間隔を今の距離で画面の px に直し、density（既定 2px・LOW_MEM 3px）より粗ければ子へ降りる。COPC の節は足し算（ADD）＝親も子も描く。
 //   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。
-//   描き＝copc-gl.js（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
+//   描き＝copc-draw.ts が器で選ぶ：本体が WebGPU＝copc-gpu.ts（本体の device と深度を共有・2026-10-23）・他＝copc-gl.ts（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
+//     手綱の backend＝選ばれた描き手（null＝まだ）。?copcgl=1＝WebGPU でも WebGL2 で描く（比較・逃げ道）。
 //   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に 4 つまで（LOW_MEM 2）。
 //   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる
 //     （描きの lift＝読み直さずに効く・2026-10-18）。fitTerrain()＝節が持ってくる地面の見本（gs）と描いている地形（map.sampleTerrain）の差の中央値を heightOffset に。
@@ -28,7 +29,7 @@ type SetStats = Omit<COPCHandle["stats"], "inflight" | "budget"> & COPCMetrics;
 /** 1 つの点群（opts＝既定を補った物） */
 interface PcSet {
 	id: string; opts: COPCOptions & { density: number; heightOffset: number; color: NonNullable<COPCOptions["color"]>; pointSize: number; attenuation: boolean; depth: boolean; fit: boolean };
-	nodes: Map<string, PcNode>; pages: Map<string, PcPage>; ov: OverlayHandle | null; info: COPCInfo | null; hidden: boolean; stats: SetStats;
+	nodes: Map<string, PcNode>; pages: Map<string, PcPage>; ov: OverlayHandle | null; info: COPCInfo | null; hidden: boolean; stats: SetStats; backend: COPCHandle["backend"];
 }
 /** createCOPC の手綱（公開の COPCHandle＋計測の stats） */
 type COPCSetHandle = COPCHandle & { readonly stats: COPCHandle["stats"] & COPCMetrics };
@@ -67,7 +68,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	async function add(src: string | File | Blob, opts: COPCOptions = {}): Promise<COPCSetHandle> {
 		const id = opts.id || `copc${++seq}`;
 		if (sets.has(id)) remove(id);
-		const set: PcSet = { id, opts: { density: lowMem ? 3 : 2, heightOffset: 0, color: "auto", pointSize: 2, attenuation: true, depth: true, fit: true, ...opts }, nodes: new Map(), pages: new Map(), ov: null, info: null, hidden: false,
+		const set: PcSet = { id, opts: { density: lowMem ? 3 : 2, heightOffset: 0, color: "auto", pointSize: 2, attenuation: true, depth: true, fit: true, ...opts }, nodes: new Map(), pages: new Map(), ov: null, info: null, hidden: false, backend: null,
 			stats: { nodes: 0, shown: 0, points: 0, shownPoints: 0, failed: 0, requests: 0, affine: 0, bytes: 0, ms: { read: 0, decode: 0, proj: 0 }, firstAt: 0, t0: performance.now() } };   // bytes・ms・firstAt＝計測（点群計画 段 0）：読んだ量・worker の時間の合計・最初の節が出るまで
 		sets.set(id, set);
 		let url = src, headers: Record<string, string> | undefined;
@@ -81,7 +82,8 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 		for (const p of opened.root.pages) set.pages.set(keyStr(p.key), { ...p, state: "none" });
 		const host = typeof src === "string" ? (() => { try { return new URL(src, location.href).host; } catch { return null; } })() : null;
 		setAttr(id, set.opts.attribution || (host && host !== location.host ? host : null));   // 出典＝opts.attribution・無ければ他所の URL のホスト名（手元のファイル・同じオリジンは出さない）
-		set.ov = map.overlay({ builtin: "copc" }, { name: `copc:${id}`, opts: { depth: set.opts.depth !== false } });
+		set.ov = map.overlay({ builtin: "copc" }, { name: `copc:${id}`, opts: { depth: set.opts.depth !== false, gl: /[?&]copcgl=1/.test(location.search) } });
+		set.ov.onmessage = d => { const m = d as { type?: string; backend?: COPCHandle["backend"]; error?: string } | null; if (m?.type === "backend") { set.backend = m.backend ?? null; if (m.error) console.warn(`[copc] ${id}: overlay failed`, m.error); } };   // 描き手の答え（copc-draw.ts）
 		applyStyle(set);
 		if (set.opts.fit !== false) map.fitBounds(set.info.bbox, { padding: 40, maxZoom: 18 });
 		schedule();
@@ -168,6 +170,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 			id: set.id, info: set.info!,
 			get stats() { return { ...set.stats, ms: { ...set.stats.ms }, inflight, budget: BUDGET }; },
 			get bbox() { return set.info!.bbox; },
+			get backend() { return set.backend; },
 			setOptions(o = {}) { Object.assign(set.opts, o); applyStyle(set); if (o.density != null) schedule(); return this; },
 			setVisible(v: boolean) { set.hidden = !v; if (!v) for (const n of set.nodes.values()) if (n.state === "ready") setOn(set, n, false); schedule(); return this; },   // 出す時は次の選びが節を戻す
 			remove: () => remove(set.id),

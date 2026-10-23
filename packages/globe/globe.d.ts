@@ -1136,6 +1136,8 @@ export interface COPCHandle {
 	info: { count: number; format: number; hasRgb: boolean; bbox: Bbox; center: LonLat; zRange: [number, number]; crs: string; crsFrom?: "opts" | "wkt" | "geokeys"; vertical: string; spacing: number; size: number;
 		version?: string; copc?: boolean; inMemory?: boolean; nodeCount?: number; load?: { read: number; decode: number; build: number } };
 	readonly stats: { nodes: number; shown: number; points: number; shownPoints: number; failed: number; requests: number; inflight: number; budget: number };
+	/** 描き手（"webgpu"＝本体の GPUDevice と深度を共有・"webgl2"＝別の WebGL2 文脈・null＝まだ選んでいない）。?copcgl=1 で WebGL2 に固定 */
+	readonly backend: "webgpu" | "webgl2" | null;
 	readonly bbox: Bbox;
 	setOptions(o: Partial<COPCOptions>): COPCHandle;
 	setVisible(v: boolean): COPCHandle;

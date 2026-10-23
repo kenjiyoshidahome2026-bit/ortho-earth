@@ -10,14 +10,14 @@
 //           spacing＝この節の点の間隔（世界単位）／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }
 //           { type:"style", mode, size, attenuation, elevRange:[m, m], intensityRange:[lo, hi], opacity, lift（世界単位）, liftM（m） }／検定用 { type:"probe", id }
 //           lift＝高さの足し込み（heightOffset）＝点を鉛直（球の法線）に持ち上げる・段彩の値にも liftM を足す＝読み直さずに効く（2026-10-18）
-// render worker の組み込み（BUILTIN_OVERLAYS の "copc"・create() で実体を作る）。深度の GLSL は host.depthGLSL を貼る。
+// render worker の組み込み（BUILTIN_OVERLAYS の "copc"＝copc-draw.ts が器を見て選ぶ：本体が WebGPU＝copc-gpu.ts・他＝この WebGL2）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
 interface Layer { n: number; vao: WebGLVertexArrayObject | null; bufs: WebGLBuffer[]; origin: ArrayLike<number>; spacing: number; on: boolean }
-interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number; lift: number; liftM: number }
-/** message(d) の形 */
-type Msg =
+export interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number; lift: number; liftM: number }
+/** message(d) の形（copc-gpu.ts と共通） */
+export type Msg =
 	| { type: "probe"; id: unknown }
 	| { type: "layer"; q: string; n: number; pos: Float32Array; origin: ArrayLike<number>; rgb?: Uint8Array; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; spacing?: number }
 	| { type: "remove"; q: string } | { type: "vis"; q: string; on: unknown } | { type: "clear" }

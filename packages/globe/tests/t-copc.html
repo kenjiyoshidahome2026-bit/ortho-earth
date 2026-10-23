@@ -35,7 +35,8 @@ function makeLas12(n, epsg) {
 }
 const grab = async name => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels(name); if (p && !p.error) return p; await sleep(250); } return null; };
 // 描かれた画素（アルファ > 0）の数と、色の和（色の切り替えの見分け）
-const count = p => { let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < p.data.length; i += 4) if (p.data[i + 3] > 20) { n++; r += p.data[i]; g += p.data[i + 1]; b += p.data[i + 2]; } return { n, rgb: n ? [r / n, g / n, b / n].map(Math.round) : null }; };
+const count = p => { if (!p) return { n: -1, rgb: null };   // 画素が来ない（GPU の無い器で時間切れ）＝落ちずに NG で残す
+	let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < p.data.length; i += 4) if (p.data[i + 3] > 20) { n++; r += p.data[i]; g += p.data[i + 1]; b += p.data[i + 2]; } return { n, rgb: n ? [r / n, g / n, b / n].map(Math.round) : null }; };
 const landed = async map => until(() => !map.isMoving(), 20000, 200);
 const settled = async h => until(() => { const s = h.stats; return s.inflight === 0 && s.shown > 0 ? s : null; }, 30000, 300);
 
@@ -53,6 +54,8 @@ try {
 		await landed(map);
 		const s1 = await settled(h);
 		ok("root", s1 && s1.nodes >= 1 && s1.shownPoints >= 66272, JSON.stringify(s1));
+		const be = window.__perf?.()?.backend;   // 描き手＝本体に合わせる（WebGPU＝copc-gpu.ts・WebGL2＝copc-gl.ts・2026-10-23）
+		ok("backend", h.backend === (be === "webgpu" ? "webgpu" : "webgl2"), `map=${be} copc=${h.backend}`);
 		const p1 = count(await grab("copc:e"));
 		ok("drawn", p1.n > 500, JSON.stringify(p1));
 		// さらに寄る＝子の節（ADD＝親も子も描く）
