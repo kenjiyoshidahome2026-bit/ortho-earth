@@ -1,21 +1,23 @@
 // COPC の点群の描き方（#178・同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam）。
 // 本人裁定 2026-09-30「描き方の強化は COPC だけ」＝3D Tiles の点（points-gl.js）は触らない＝このファイルは points-gl の兄弟。points-gl に足した物：
 //   ・奥行き：シーンの深度（#47・core の depthout）で隠れる所を捨てる（地形・建物の裏で点が透けない）＝init の戻り { depth: true } で本体に申し出る
-//   ・大きさ：画素固定（size・px）か、距離で縮む（attenuation＝節の点の間隔 × 焦点距離 / 距離・1〜size×4 px）
+//   ・大きさ：画素固定（size・px）か、距離で縮む（attenuation＝節の点の間隔 × 焦点距離 / 距離・1〜size×2 px）。上限は size×4 → size×2（2026-10-23）＝ADD の親の節は粗い間隔の分だけ大きく描かれる
+//     ＝子が埋めた所を上から太い点で塗り重ねていた（級ごとに画面の足跡と同じ量の塗り＝4 級で 4 倍）。上限を半分にすると大きい点の塗りが 1/4 になる
+//   ・MSAA（canvas の antialias）は切る（2026-10-23）＝点の縁は FS の cov で既に滑らか・4x の標本は塗りの量だけ増やしていた（静岡の LAS が重い＝ベンチの基準 bench-baseline）
 //   ・色：rgb（点の RGB）／classification（ASPRS の分類の表）／intensity（強度の灰）／elevation（標高の段彩・elevRange）
 // 契約：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 //   message { type:"layer", q, n, pos: Float32Array(n*3), origin, rgb?: Uint8Array(n*3), intensity: Uint16Array(n), cls: Uint8Array(n), elev: Float32Array(n), spacing }
 //           spacing＝この節の点の間隔（世界単位）／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }
 //           { type:"style", mode, size, attenuation, elevRange:[m, m], intensityRange:[lo, hi], opacity, lift（世界単位）, liftM（m） }／検定用 { type:"probe", id }
 //           lift＝高さの足し込み（heightOffset）＝点を鉛直（球の法線）に持ち上げる・段彩の値にも liftM を足す＝読み直さずに効く（2026-10-18）
-// render worker の組み込み（BUILTIN_OVERLAYS の "copc"・create() で実体を作る）。深度の GLSL は host.depthGLSL を貼る。
+// render worker の組み込み（BUILTIN_OVERLAYS の "copc"＝copc-draw.ts が器を見て選ぶ：本体が WebGPU＝copc-gpu.ts・他＝この WebGL2）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
 interface Layer { n: number; vao: WebGLVertexArrayObject | null; bufs: WebGLBuffer[]; origin: ArrayLike<number>; spacing: number; on: boolean }
-interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number; lift: number; liftM: number }
-/** message(d) の形 */
-type Msg =
+export interface Style { mode: string; size: number; attenuation: boolean; elevRange: number[]; intensityRange: number[]; opacity: number; lift: number; liftM: number }
+/** message(d) の形（copc-gpu.ts と共通） */
+export type Msg =
 	| { type: "probe"; id: unknown }
 	| { type: "layer"; q: string; n: number; pos: Float32Array; origin: ArrayLike<number>; rgb?: Uint8Array; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; spacing?: number }
 	| { type: "remove"; q: string } | { type: "vis"; q: string; on: unknown } | { type: "clear" }
@@ -58,7 +60,7 @@ void main() {
 	if (disc > 0.0) { float s = sqrt(disc); float t0 = (-b - s) / a; if (t0 > 1e-4 && t0 < 1.0 - 1e-4) { gl_Position = off; gl_PointSize = 0.0; v_col = vec4(0.0); v_rad = 0.0; v_w = 1.0; return; } }
 	vec4 cpos = u_mvp * vec4(pos, 1.0);
 	if (cpos.w <= 0.0) { gl_Position = off; gl_PointSize = 0.0; v_col = vec4(0.0); v_rad = 0.0; v_w = 1.0; return; }
-	float rad = u_atten > 0.5 ? clamp(0.5 * u_spacing * u_focal / max(1e-9, sqrt(a)), 1.0, u_size * 4.0) : u_size;
+	float rad = u_atten > 0.5 ? clamp(0.5 * u_spacing * u_focal / max(1e-9, sqrt(a)), 1.0, u_size * 2.0) : u_size;
 	v_rad = min(rad, u_maxPt * 0.5 - 1.0);
 	vec3 col = u_mode == 0 ? a_rgb : u_mode == 1 ? clsColor(a_cls) : u_mode == 2 ? vec3(clamp((a_int - u_intRange.x) / max(1e-6, u_intRange.y - u_intRange.x), 0.0, 1.0)) : ramp((a_elev + u_liftM - u_elev.x) / max(1e-6, u_elev.y - u_elev.x));
 	v_col = vec4(col, u_opacity); v_w = cpos.w;
@@ -97,7 +99,7 @@ void main() {
 	}
 	function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
 		host = h;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext | null;   // antialias:false＝点の縁は FS の cov で滑らか（上の注）
 		if (!gl) throw new Error("WebGL2 is not available (COPC overlay)");
 		wantDepth = opts.depth !== false && !!h?.depthGLSL;
 		({ p: prog, u: uni } = compile(VS, FS(wantDepth ? h!.depthGLSL : DEPTH_STUB)));
