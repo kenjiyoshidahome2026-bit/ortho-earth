@@ -624,7 +624,8 @@ function readGeometry(self: GeoPBFBase, n: number, m?: number): Geometry | null 
 	function read(pos: number, type: GeometryTypeIndex): Geometry {
 		pbf.pos = pos;
 		var q: { type: GeometryType; coordinates?: unknown } = { type: geometryTypes[type] }, isPoly = type > 3, lens: number[] = [], end: number;
-		const funcs: (() => unknown) | undefined = [read0, read1, read1, read2, read2, read3][type];
+		// 型 → 読み手は分岐で選ぶ（旧＝表 [read0, …][type]＝CodeQL js/unvalidated-dynamic-method-call：type は URL で指した外のファイルのバイト由来・#593 で voxel の頁が ?src= を通して流れた）
+		const funcs: (() => unknown) | undefined = type === 0 ? read0 : type === 1 || type === 2 ? read1 : type === 3 || type === 4 ? read2 : type === 5 ? read3 : undefined;
 		return pbf.readMessage((tag, q) => {
 			if (tag === TAGS.LENGTH) pbf.readPackedVarint(lens);
 			else if (tag === TAGS.COORDS) {

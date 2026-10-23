@@ -87,19 +87,25 @@ export interface VoxelHandle {
 	remove(): void;
 }
 export interface VoxelPlugin extends OrthoPlugin { name: "plugin-voxel"; version: string; provides: string[]; install(map: GlobeMap): () => void }
-export type VoxelMap = Pick<GlobeMap, "overlay" | "pickOverlays">;
+export type VoxelMap = Pick<GlobeMap, "overlay" | "pickOverlays"> & { ellipsoidOn?: () => boolean };
+/** 楕円体表示の b/a（region の殻を本体と同じ形で作る） */
+const R_AX_ELL = 1 - 1 / 298.257223563;
+const rAxOf = (map: VoxelMap): number => { try { return map.ellipsoidOn?.() ? R_AX_ELL : 1; } catch { return 1; } };
 
 // ---- 一つの map に一つのオーバーレイ（render worker の WebGL 文脈は Chrome で 4 つまで） ----
-interface SharedSlot { ov: OverlayHandle; refs: number; backend: VoxelBackend | null; errors: Map<string, (e: string) => void> }
+interface SharedSlot { ov: OverlayHandle; refs: number; backend: VoxelBackend | null; errors: Map<string, (e: string) => void>; idle: ReturnType<typeof setTimeout> | null }
 interface SharedEntry { ids: Set<string>; below?: SharedSlot; above?: SharedSlot }
 const shared = new WeakMap<object, SharedEntry>();
+/** 手綱が全部外れてからオーバーレイを片付けるまでの猶予（ms）＝場面の切り替え（remove → すぐ addData）で同じ名のオーバーレイを壊して作り直さない（render worker の片付けと新しい登録が競う） */
+export const OVERLAY_LINGER_MS = 250;
 function acquire(map: VoxelMap, above: boolean, id: string, backend: VoxelBackend | "auto"): { ov: OverlayHandle; slot: SharedSlot; release(): void } {
 	let m = shared.get(map); if (!m) shared.set(map, (m = { ids: new Set() }));
 	if (m.ids.has(id)) throw new Error(`plugin-voxel: a layer with id "${id}" already exists`);
 	const k = above ? "above" : "below";
+	if (m[k]?.idle) { clearTimeout(m[k]!.idle!); m[k]!.idle = null; }   // 片付けの猶予の中＝そのまま使う
 	if (!m[k]) {
 		const ov = map.overlay(VOXEL_URL, { name: above ? "plugin-voxel:above" : "plugin-voxel", above, opts: { depth: true, backend } });
-		const slot: SharedSlot = { ov, refs: 0, backend: null, errors: new Map() };
+		const slot: SharedSlot = { ov, refs: 0, backend: null, errors: new Map(), idle: null };
 		ov.onmessage = (d: unknown) => {
 			const e = d as { type?: string; backend?: VoxelBackend | null; error?: string; q?: string } | null;
 			if (e?.type === "backend") { slot.backend = e.backend ?? null; if (e.error) console.error("[plugin-voxel] overlay failed:", e.error); }
@@ -108,7 +114,11 @@ function acquire(map: VoxelMap, above: boolean, id: string, backend: VoxelBacken
 		m[k] = slot;
 	}
 	m[k].refs++; m.ids.add(id);
-	return { ov: m[k].ov, slot: m[k], release() { m.ids.delete(id); if (--m[k]!.refs > 0) return; m[k]!.ov.remove(); delete m[k]; } };
+	return { ov: m[k].ov, slot: m[k], release() {
+		m.ids.delete(id);
+		const s = m[k]; if (!s || --s.refs > 0) return;
+		s.idle = setTimeout(() => { if (s.refs > 0 || m[k] !== s) return; s.ov.remove(); delete m[k]; }, OVERLAY_LINGER_MS);   // 猶予の後に片付ける（その間に acquire が来れば続投）
+	} };
 }
 
 // ---- 読み手の worker（一つ・怠けて立てる・手綱が全部外れたら少し待って片付ける） ----
@@ -133,10 +143,10 @@ function spawnReader(): Reader | null {
 const readerUsed = (): void => { liveHandles++; if (readerIdle) { clearTimeout(readerIdle); readerIdle = null; } };
 const readerFree = (): void => { if (--liveHandles > 0 || !reader) return; readerIdle = setTimeout(() => { readerIdle = null; if (liveHandles || !reader) return; reader.w.terminate(); reader = null; }, 5000); };
 const isFileSource = (src: VoxelSource): src is string | URL | ArrayBuffer | Uint8Array => typeof src === "string" || src instanceof URL || src instanceof ArrayBuffer || src instanceof Uint8Array;
-async function load(src: VoxelSource, o: VoxelOptions): Promise<Prepared & { reader: "worker" | "main" }> {
+async function load(src: VoxelSource, o: VoxelOptions, rAx: number): Promise<Prepared & { reader: "worker" | "main" }> {
 	if (isFileSource(src)) throw new Error("plugin-voxel: file sources (.nc / .zarr / .vox / .npy) are not read yet (stage 5); pass VoxelData");
 	const d = checkVoxelData(src);
-	const popts: PrepareOptions = { colormap: o.colormap, range: o.range ?? null, alphaRamp: o.alphaRamp ?? null, threshold: o.threshold ?? null };
+	const popts: PrepareOptions = { colormap: o.colormap, range: o.range ?? null, alphaRamp: o.alphaRamp ?? null, threshold: o.threshold ?? null, rAx };
 	const r = spawnReader();
 	if (r) {
 		try {
@@ -173,7 +183,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 	let cur: VoxelSource = data, props: VoxelOptions = { ...opts }, removed = false, seq = 0, visible = true, values: VoxelData["values"] | null = null, comps: 1 | 4 = 1, baked = false;
 	const run = async (src: VoxelSource, o: VoxelOptions): Promise<VoxelHandle> => {
 		const my = ++seq;
-		const p = await load(src, o);
+		const p = await load(src, o, rAxOf(map));
 		if (removed || my !== seq) return h;
 		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
 		const body = { type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, alt: o.altitude ?? (p.placed ? "absolute" : "relative"), A: p.A, radius: p.radius, geo: p.geo,

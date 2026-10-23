@@ -11,7 +11,7 @@ import { computeSunShadow, computeViewshed } from "./sunshadow.ts";   // 日影�
 import type { SunShadowOptions, ViewshedOptions } from "./sunshadow.ts";
 
 import type { ExtrudeInPoly } from "./extrude.ts";
-import type { MeshOut, TexOut } from "./meshdecode.ts";
+import type { MeshOut, TexOut, VoxelTileOpts } from "./meshdecode.ts";
 
 /** main からの仕事（kind 省略＝模型の glTF/GLB） */
 interface ModelJob {
@@ -19,7 +19,7 @@ interface ModelJob {
 	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
-	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean;
+	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts;
 }
 /** transfer を集める束（模型・3D Tiles・I3S・押し出しの batches） */
 type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tblV?: ArrayLike<number> | null } | null; tex?: TexOut | null; texMR?: TexOut | null; texN?: TexOut | null; texOcc?: TexOut | null; texEm?: TexOut | null };
@@ -82,12 +82,13 @@ async function work(e: MessageEvent<ModelJob>) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, splats: !!e.data.splats });
-			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, bytes: buf.byteLength } }); return; }
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, splats: !!e.data.splats, voxels: e.data.voxels ?? false });
+			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], voxels: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, voxels: 0, voxelsSkipped: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
 			for (const s of r.splats) { for (const a of [s.positions, s.scales, s.rotations, s.colors, s.sh, s.spz]) if (a && a.byteLength && !tr.includes(a.buffer as ArrayBuffer)) tr.push(a.buffer as ArrayBuffer); }   // splat の配列も transfer（spz＝bufferView の写し）
-			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, stats: r.stats }, tr);
+			for (const v of r.voxels) if (!tr.includes(v.values.buffer as ArrayBuffer)) tr.push(v.values.buffer as ArrayBuffer);   // voxel の値も transfer
+			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, stats: r.stats }, tr);
 			return;
 		}
 		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0 });
