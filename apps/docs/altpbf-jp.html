@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>altpbf Technical Overview</title>
+<title>altpbf 技術概要</title>
 <meta name="description" content="altpbf：Protocol Buffers ベースのバイナリ標高タイル形式。Int16 の標高グリッドをデルタ符号化し deflateRaw で圧縮、GEBCO と ALOS（日本は地理院 DEM10B も）の 3 段階のズーム、Worker でゼロコピーのデコード。">
 <link rel="canonical" href="https://www.ortho-earth.com/docs/altpbf-jp">
 <link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/altpbf">
 <link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/altpbf-jp">
 <link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/altpbf">
-<meta property="og:title" content="altpbf Technical Overview">
+<meta property="og:title" content="altpbf 技術概要">
 <meta property="og:description" content="altpbf：Protocol Buffers ベースのバイナリ標高タイル形式。Int16 の標高グリッドをデルタ符号化し deflateRaw で圧縮、GEBCO と ALOS（日本は地理院 DEM10B も）の 3 段階のズーム、Worker でゼロコピーのデコード。">
 <meta property="og:url" content="https://www.ortho-earth.com/docs/altpbf-jp">
 <meta property="og:type" content="article">
@@ -17,7 +17,7 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"altpbf Technical Overview","description":"altpbf：Protocol Buffers ベースのバイナリ標高タイル形式。Int16 の標高グリッドをデルタ符号化し deflateRaw で圧縮、GEBCO と ALOS（日本は地理院 DEM10B も）の 3 段階のズーム、Worker でゼロコピーのデコード。","url":"https://www.ortho-earth.com/docs/altpbf-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/altpbf-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"altpbf 技術概要","description":"altpbf：Protocol Buffers ベースのバイナリ標高タイル形式。Int16 の標高グリッドをデルタ符号化し deflateRaw で圧縮、GEBCO と ALOS（日本は地理院 DEM10B も）の 3 段階のズーム、Worker でゼロコピーのデコード。","url":"https://www.ortho-earth.com/docs/altpbf-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/altpbf-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="doc.css">
 <style>
@@ -443,7 +443,7 @@ Worker はエンジンの Worker 役割 <code>"ortho:height"</code> として起
 <p>
 GEBCO の生ソースは 90° 象限ごとに 21,600 × 21,600 ピクセルの GeoTIFF 群
 （8 象限、全球で 86,400 × 43,200）。
-uploader アプリの <code>GEBCO()</code> 関数（<code>apps/uploader/src/terrain/gebco.js</code>、altpbf パッケージには含まれない）が
+uploader アプリの <code>GEBCO()</code> 関数（<code>apps/uploader/src/terrain/gebco.ts</code>、altpbf パッケージには含まれない）が
 これをダウンロードして altpbf 形式にタイル化する：
 </p>
 
