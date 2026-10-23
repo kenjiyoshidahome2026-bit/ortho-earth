@@ -117,7 +117,7 @@ export const STATIC_CAPABILITIES: Readonly<Record<CapabilityKey, Capability>> = 
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
 	"h3": { status: "builtin", note: "@ortho-earth/h3" },
 	"data.splat": { status: "spec", note: "Gaussian splat: addData(data, { kind: \"splat\" }) accepts SplatData / .ply .splat .spz .ksplat .sog URLs and validates the contract (F8); sorting and drawing come from a plugin registered in registry.dataKinds as \"splat\"" },
-	"data.voxel": { status: "spec", note: "voxel grid: addData(data, { kind: \"voxel\" }) accepts VoxelData (box | region, dims, values) / .nc .zarr .vox .npy URLs and validates the contract (V0); ray marching (volume / blocks / iso) comes from a plugin registered in registry.dataKinds as \"voxel\" (@ortho-earth/plugin-voxel)" },
+	"data.voxel": { status: "spec", note: "voxel grid: addData(data, { kind: \"voxel\" }) accepts VoxelData (box | region, dims, values) / .nc .zarr .vox .npy URLs and validates the contract (V0); ray marching (volume / blocks / iso) comes from a plugin registered in registry.dataKinds as \"voxel\" (@ortho-earth/plugin-voxel); 3D Tiles whose glTF carries EXT_primitive_voxels (KHR_implicit_shapes box / EXT_implicit_ellipsoid_region, or the tileset's 3DTILES_content_voxels) become one layer per tile (add3DTiles opts.voxel)" },
 	"react": { status: "builtin", note: "@ortho-earth/react: <Globe> <Source> <Layer> <Data> <Marker>, useGlobe, useGlobeEvent (F9)" },
 	"types.core": { status: "builtin", note: "core d.ts (PR-0 #256)" },
 	"types.globe": { status: "builtin", note: "globe.d.ts" },

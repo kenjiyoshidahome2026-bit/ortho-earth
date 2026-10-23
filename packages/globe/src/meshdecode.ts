@@ -42,7 +42,7 @@ export interface GltfBufferView { buffer?: { arrayBuffer?: ArrayBuffer; byteOffs
 /** postProcessGLTF 後の glTF（json＝生の json） */
 export interface GltfDoc {
 	nodes?: GltfNode[]; meshes?: GltfMesh[]; scene?: { nodes?: GltfNode[] } | null; scenes?: Array<{ nodes?: GltfNode[] }>;
-	extensions?: { CESIUM_RTC?: { center?: number[] }; EXT_structural_metadata?: StructuralMetadata } | null;
+	extensions?: { CESIUM_RTC?: { center?: number[] }; EXT_structural_metadata?: StructuralMetadata; KHR_implicit_shapes?: { shapes?: ImplicitShape[] } } | null;
 	json?: RawGltf | null; bufferViews?: Array<GltfBufferView | undefined>; textures?: Array<GltfTexture | undefined>;
 	accessors?: GltfAccessor[]; animations?: Array<{ name?: unknown; channels?: Array<{ sampler: number; target?: { node?: number; path?: string } }>; samplers?: Array<{ input: number; output: number; interpolation?: string }> }>;
 }
@@ -73,18 +73,25 @@ export interface ModelPoints { geo: number[]; rgba: number[] }
  *  main（gadgets/tiles3d.ts）が plugin-splat の層（SplatData crs "local"）にする＝ECEF を float32 に通さない（0.5m のガタつき）。scales＝線形の σ（m）・rotations＝x,y,z,w・colors＝RGBA（sRGB・A＝不透明度）・
  *  sh＝DC より上の係数（n × K×3・係数が先・K＝3／8／15）。spz＝圧縮の拡張（KHR_gaussian_splatting_compression_spz_*）の本体＝plugin の読み手（parseSpz）が解く（その時 n＝0・配列は空） */
 export interface SplatPrimOut { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: 0 | 1 | 2 | 3; transform: number[]; spz: Uint8Array | null; colorSpace: string }
+/** KHR_implicit_shapes の形（box＝size・原点が中心。EXT_implicit_ellipsoid_region／EXT_implicit_cylinder_region は shape の extensions） */
+export interface ImplicitShape { type?: string; box?: { size?: number[] }; extensions?: Record<string, unknown> }
+/** 3D Tiles の glTF の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）＝plugin-voxel の VoxelData の形：box＝単位立方体 [0,1]³ → ECEF の transform（列優先 4×4・heightOffset 込み）・region＝[w,s,e,n（度）,h0,h1]。
+ *  values は padding を剥いだ物（x が最速）・components 1（スカラー）か 4（RGBA）・noData＝EXT_primitive_voxels.noData[属性]・property＝読んだ属性の名 */
+export interface VoxelPrimOut { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; noData?: number; property: string }
+/** tile.voxels の opts：property＝読む属性（class の性質名でも可・省略＝最初の独自属性）・declared＝tileset の 3DTILES_content_voxels（dimensions・padding）・volume＝タイルの境界体積（ECEF の box＝中心＋半軸 3 本 12 個・region＝rad）＝glTF に形が無い時 */
+export interface VoxelTileOpts { property?: string | null; declared?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null; volume?: { box?: number[]; region?: number[] } | null }
 /** decodeModel の stats */
 export interface ModelStats {
-	vertices: number; triangles: number; instances: number; mode: string; points?: number; splats?: number; splatPoints?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;   // splats＝splat の個数・splatPoints＝splat を点として描いた個数（plugin が無い時）
+	vertices: number; triangles: number; instances: number; mode: string; points?: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;   // splats＝splat の個数・splatPoints＝splat を点として描いた個数・voxels＝voxel の格子の数・voxelsSkipped＝plugin が無い／形が読めず飛ばした格子（plugin が無い時）
 	ktx2?: { textures: number; transcoded: number; failed: number }; features?: { primitives: number; texture: number; tables: number };
 }
 /** decodeModel の戻り */
 export interface ModelOut {
 	batches: ModelBatchOut[]; rig?: GltfRig | null; place?: GltfPlace | null; features?: { tables: PropertyTable[]; primitives: number; texture: number; warnings: string[] } | null;
-	mask: { bbox: number[]; n: number } | null; points: ModelPoints | null; splats?: SplatPrimOut[] | null; stats: ModelStats;
+	mask: { bbox: number[]; n: number } | null; points: ModelPoints | null; splats?: SplatPrimOut[] | null; voxels?: VoxelPrimOut[] | null; stats: ModelStats;
 }
-/** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く） */
-export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
+/** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く）・voxels（EXT_primitive_voxels を voxel として返す＝false なら飛ばす） */
+export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; voxels?: boolean | VoxelTileOpts; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
 export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number }
 /** 模型の束の断片（プリミティブ 1 つ分） */
@@ -824,6 +831,62 @@ function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 	if (shDegree) { const K = coefs.length; sh = new Float32Array(n * K * 3); for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) { const a = coefs[k]; sh[(i * K + k) * 3] = a[i * 3]; sh[(i * K + k) * 3 + 1] = a[i * 3 + 1]; sh[(i * K + k) * 3 + 2] = a[i * 3 + 2]; } }
 	return lifted({ n, positions, scales, rotations, colors, sh, shDegree, transform, spz: null, colorSpace }, n ? cx / n : 0, n ? cy / n : 0, n ? cz / n : 0);
 }
+// ---- voxel のプリミティブ（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）----
+//   mode 2147483647（か extensions.EXT_primitive_voxels）。属性＝独自の意味（_DENSITY など・EXT_structural_metadata の propertyAttributes が class の性質に結ぶ）・accessor の count＝Π(dimensions＋padding)・並びは x が最速。
+//   形＝KHR_implicit_shapes の shapes[ext.shape]：box（size・原点が中心）→ 単位立方体 → ECEF の transform、EXT_implicit_ellipsoid_region（rad）→ region。cylinder は未対応（飛ばす）。
+//   形が無い（tileset の 3DTILES_content_voxels の経路）＝タイルの境界体積（box・region）を使う。noData＝ext.noData[属性名]。padding は剥ぐ（隣のタイルとの補間用＝第 5 段）。
+const VOXEL_EXT = "EXT_primitive_voxels", VOXEL_MODE = 2147483647, STD_ATTR = /^(POSITION|NORMAL|TANGENT|TEXCOORD_\d+|COLOR_\d+|JOINTS_\d+|WEIGHTS_\d+|_BATCHID|_FEATURE_ID_\d+)$/, R2D_ = 180 / Math.PI;
+const liftXf = (T: number[], lift: number): number[] => {   // heightOffset＝箱の中心の地心の上向きに沿って持ち上げる
+	if (!lift) return T;
+	const cx = T[12] + 0.5 * (T[0] + T[4] + T[8]), cy = T[13] + 0.5 * (T[1] + T[5] + T[9]), cz = T[14] + 0.5 * (T[2] + T[6] + T[10]), l = Math.hypot(cx, cy, cz) || 1;
+	T[12] += lift * cx / l; T[13] += lift * cy / l; T[14] += lift * cz / l;
+	return T;
+};
+function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: ArrayLike<number>, lift: number, tv: VoxelTileOpts): VoxelPrimOut | null {
+	const ext = (pr.extensions?.[VOXEL_EXT] ?? {}) as { shape?: number; dimensions?: number[]; padding?: { before?: number[]; after?: number[] }; noData?: Record<string, number[]> };
+	const dimsAll = ext.dimensions ?? tv.declared?.dimensions, pad = ext.padding ?? tv.declared?.padding;
+	if (!dimsAll || dimsAll.length !== 3 || !dimsAll.every(n => Number.isInteger(n) && n > 0)) return null;
+	const pb = [0, 1, 2].map(i => pad?.before?.[i] ?? 0), pa = [0, 1, 2].map(i => pad?.after?.[i] ?? 0), full = [0, 1, 2].map(i => dimsAll[i] + pb[i] + pa[i]), dims: [number, number, number] = [dimsAll[0], dimsAll[1], dimsAll[2]];
+	// 属性＝指定の名（class の性質名なら propertyAttributes で属性名へ）か、最初の独自属性
+	const attrs = pr.attributes ?? {};
+	let name: string | null = tv.property ?? null;
+	if (name && !attrs[name]) { const pas = (gltf.extensions?.EXT_structural_metadata as { propertyAttributes?: Array<{ properties?: Record<string, { attribute?: string }> }> } | undefined)?.propertyAttributes; name = pas?.map(p => p.properties?.[name!]?.attribute).find(a => a && attrs[a]) ?? null; }
+	if (!name) name = Object.keys(attrs).find(k => !STD_ATTR.test(k) && attrs[k]?.value) ?? null;
+	const acc = name ? attrs[name] : undefined, V = acc?.value;
+	if (!name || !V) return null;
+	const total = full[0] * full[1] * full[2], comps = Math.round(V.length / total);
+	if (!(comps === 1 || comps === 3 || comps === 4) || comps * total !== V.length) return null;
+	// padding を剥ぎ、型を VoxelData の物に（1 成分＝Float32（Uint8／Uint16 はそのまま）・3〜4 成分＝RGBA（Uint8 はそのまま・他は 0〜1 の Float32））
+	const outC = comps === 1 ? 1 : 4, n = dims[0] * dims[1] * dims[2], keep8 = V instanceof Uint8Array, keep16 = comps === 1 && V instanceof Uint16Array;
+	const out = keep8 ? new Uint8Array(n * outC) : keep16 ? new Uint16Array(n * outC) : new Float32Array(n * outC), q = acc!.normalized && !keep8 && !keep16 ? dequant(V) : 1;
+	for (let k = 0; k < dims[2]; k++) for (let j = 0; j < dims[1]; j++) for (let i = 0; i < dims[0]; i++) {
+		const src = ((i + pb[0]) + full[0] * ((j + pb[1]) + full[1] * (k + pb[2]))) * comps, dst = (i + dims[0] * (j + dims[1] * k)) * outC;
+		if (comps === 1) out[dst] = V[src] * q;
+		else { for (let c = 0; c < 3; c++) out[dst + c] = V[src + c] * q; out[dst + 3] = comps === 4 ? V[src + 3] * q : keep8 ? 255 : 1; }
+	}
+	const nd = ext.noData?.[name]?.[0], base = { dims, components: outC as 1 | 4, values: out, property: name, ...(comps === 1 && typeof nd === "number" && Number.isFinite(nd) ? { noData: nd } : {}) };
+	const shape = Number.isInteger(ext.shape) ? gltf.extensions?.KHR_implicit_shapes?.shapes?.[ext.shape!] : undefined;
+	if (shape) {
+		const er = shape.extensions?.EXT_implicit_ellipsoid_region as { minLongitude?: number; maxLongitude?: number; minLatitude?: number; maxLatitude?: number; minHeight?: number; maxHeight?: number } | undefined;
+		if (er) return { ...base, shape: "region", region: [(er.minLongitude ?? -Math.PI) * R2D_, (er.minLatitude ?? -Math.PI / 2) * R2D_, (er.maxLongitude ?? Math.PI) * R2D_, (er.maxLatitude ?? Math.PI / 2) * R2D_, (er.minHeight ?? 0) + lift, (er.maxHeight ?? 0) + lift] };
+		if (shape.extensions?.EXT_implicit_cylinder_region || shape.type === "cylinder") return null;   // 未対応（第 5 段）
+		if (shape.type === "box" || shape.box) {   // 中心が原点＝単位立方体 u → (u − ½)·size → lin·p + o（lin は列優先）
+			const s = shape.box?.size ?? [1, 1, 1];
+			const T = [lin[0] * s[0], lin[1] * s[0], lin[2] * s[0], 0, lin[3] * s[1], lin[4] * s[1], lin[5] * s[1], 0, lin[6] * s[2], lin[7] * s[2], lin[8] * s[2], 0,
+				o[0] - 0.5 * (lin[0] * s[0] + lin[3] * s[1] + lin[6] * s[2]), o[1] - 0.5 * (lin[1] * s[0] + lin[4] * s[1] + lin[7] * s[2]), o[2] - 0.5 * (lin[2] * s[0] + lin[5] * s[1] + lin[8] * s[2]), 1];
+			return { ...base, shape: "box", transform: liftXf(T, lift) };
+		}
+		return null;
+	}
+	// 形が無い＝タイルの境界体積（tileset の 3DTILES_content_voxels の経路）
+	const vol = tv.volume;
+	if (vol?.box && vol.box.length === 12) {   // 中心＋半軸 3 本（ECEF）＝単位立方体 u → c + Σ(2u−1)·a
+		const b = vol.box, T = [2 * b[3], 2 * b[4], 2 * b[5], 0, 2 * b[6], 2 * b[7], 2 * b[8], 0, 2 * b[9], 2 * b[10], 2 * b[11], 0, b[0] - b[3] - b[6] - b[9], b[1] - b[4] - b[7] - b[10], b[2] - b[5] - b[8] - b[11], 1];
+		return { ...base, shape: "box", transform: liftXf(T, lift) };
+	}
+	if (vol?.region && vol.region.length === 6) { const r = vol.region; return { ...base, shape: "region", region: [r[0] * R2D_, r[1] * R2D_, r[2] * R2D_, r[3] * R2D_, r[4] + lift, r[5] + lift] }; }
+	return null;
+}
 // ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
 // mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
 // 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
@@ -887,6 +950,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
 	const splats: SplatPrimOut[] = []; let nSplat = 0, nSplatPts = 0;   // Gaussian splat（KHR_gaussian_splatting）＝tile.splats なら層として・でなければ点として（spec の fallback）
+	const voxels: VoxelPrimOut[] = []; let nVoxSkip = 0;   // voxel（EXT_primitive_voxels）＝tile.voxels なら層として・でなければ飛ばす（点にも三角形にもならない）
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
@@ -897,6 +961,12 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
 		for (const pr of (mesh.primitives || [])) {
 			const mode4 = pr.mode ?? 4;
+			if (pr.extensions?.[VOXEL_EXT] || mode4 === VOXEL_MODE) {   // voxel＝局所の形＋transform／region のまま main へ（plugin-voxel の層）。plugin が無い（tile.voxels 無し）＝飛ばす
+				const tv = tile?.voxels;
+				const v = tv ? voxelPrim(pr, gltf, lin, [ox, oy, oz], tile!.baseH != null ? -tile!.baseH : 0, tv === true ? {} : tv) : null;
+				if (v) voxels.push(v); else nVoxSkip++;
+				continue;
+			}
 			if (mode4 === 0 && pr.extensions?.[SPLAT_EXT] && tile?.splats) {   // Gaussian splat＝局所の座標＋transform のまま main へ（plugin-splat の層）
 				const sp = splatPrim(pr, gltf, lin, [ox, oy, oz], tile.baseH != null ? -tile.baseH : 0);
 				if (sp) { splats.push(sp); nSplat += sp.n; }
@@ -997,7 +1067,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		}
 	}
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
-	if (!nTri) return pts?.geo.length || splats.length ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
+	if (!nTri) return pts?.geo.length || splats.length || voxels.length || nVoxSkip ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map<GltfImage, TexOut | null>();
 	const batches: ModelBatchOut[] = [];
@@ -1044,5 +1114,5 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
 	})() : null;
 	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;
-	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
+	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
 }
