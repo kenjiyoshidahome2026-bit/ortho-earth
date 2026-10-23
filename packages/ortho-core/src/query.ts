@@ -21,7 +21,7 @@ export type RequestFn = (url: string, kind: string) => TileRequest | null | unde
 export interface QueryFeature { type: "Feature"; id: unknown; properties: Record<string, unknown>; geometry: GeoJSONGeometry; layer?: { id: string; type: string; "source-layer": string | undefined }; sourceLayer: string | undefined; source: string; tile: string | undefined }
 export interface QueryOptions {
 	style: Style; hidden?: Set<number> | null; order?: readonly { key: string }[]; tileUrl: (z: number, x: number, y: number) => string | null | undefined; zoom: number;
-	area: { ll?: number[]; bbox?: number[] | null }; tolPx?: number; layers?: readonly string[] | null; filter?: unknown; filterOrigin?: ExprOrigin; signal?: AbortSignal | null;
+	area: { ll?: number[]; bbox?: number[] | null }; tolPx?: number; pxScale?: number | null; layers?: readonly string[] | null; filter?: unknown; filterOrigin?: ExprOrigin; signal?: AbortSignal | null;
 	cache?: Map<string, TileData> | null; request?: RequestFn | null; source?: string; promoteId?: string | Record<string, string> | null; encoding?: string; gs?: Record<string, unknown> | null;
 }
 export interface SourceFeaturesOptions { sourceLayer: string; filter?: unknown; zoom?: number; gs?: Record<string, unknown> | null; promoteId?: string | Record<string, string> | null; source?: string; pitch?: number }
@@ -33,7 +33,7 @@ const WORLD_PX = 256;   // 256px 世界（ortho の z の定義）＝タイル z
 
 // area＝{ ll:[lon,lat] } か { bbox:[w,s,e,n] }。order＝描いているタイル [{ key:"z/x/y", z }]。
 // hidden＝隠している style.layers の添字（Set）。tolPx＝許容（既定 3px）。layers＝層 id の絞り込み。filter＝追加の式。
-export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null, encoding = "mvt", gs = undefined }: QueryOptions): Promise<QueryFeature[]> {   // gs＝地図の global-state（#173・頁に地図が複数）   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）   // encoding＝タイルの形式（mvt｜mlt・PMTiles はヘッダが決める・#88）
+export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, pxScale = null, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null, encoding = "mvt", gs = undefined }: QueryOptions): Promise<QueryFeature[]> {   // gs＝地図の global-state（#173・頁に地図が複数）   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）   // encoding＝タイルの形式（mvt｜mlt・PMTiles はヘッダが決める・#88）
 	const want = layers ? new Set(layers) : null;
 	const [w, s, e, n] = area.bbox || [area.ll![0], area.ll![1], area.ll![0], area.ll![1]];
 	// 領域に掛かるタイル（同じ場所は最も細かい z だけ＝下地の粗い段は重ねない）
@@ -46,6 +46,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 		tiles.push({ z, x, y, key: o.key });
 	}
 	if (area.ll && tiles.length > 1) { tiles.sort((a, b) => b.z - a.z); tiles.length = 1; }   // 点＝その場所を覆う最細の 1 枚
+	const cosQ = pxScale ?? Math.max(0.05, Math.cos((s + n) / 2 * Math.PI / 180));   // pxScale＝呼ぶ側の換算（MapLibre の目盛りの地図は ML と同じ一様な px＝2^(1−dz)・既定＝この地図の画面＝問い合わせ点の cos）
 	const need = new Set(style.layers.filter(L => L["source-layer"]).map(L => L["source-layer"] as string));
 	const out: QueryFeature[] = [];
 	for (const t of tiles) {
@@ -68,7 +69,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 			if (want && !want.has(L.id)) continue;
 			if ((L.minzoom != null && zoom < L.minzoom) || (L.maxzoom != null && zoom >= L.maxzoom)) continue;
 			const src = (data as DecodedTile)[L["source-layer"]]; if (!src) continue;
-			const ext = src.extent || 4096, pxPerU = WORLD_PX * 2 ** (zoom - t.z) / ext;
+			const ext = src.extent || 4096, pxPerU = WORLD_PX * 2 ** (zoom - t.z) / ext * cosQ;   // ×cos(緯度)＝エンジンの z は m/px が緯度に依らない（メルカトルの単位は高緯度ほど画面で短い）・旧＝cos を掛けず許しの px がタイル単位で cos 倍に縮んだ（北緯 39° で 0.78＝線を取りこぼす・公式例の門 o1023b）
 			const toU = (lon: number, lat: number): [number, number] => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
 			const [ux0, uy1] = toU(w, s), [ux1, uy0] = toU(e, n);
 			for (const f of src.features) {

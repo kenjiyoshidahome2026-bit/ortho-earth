@@ -71,6 +71,8 @@ export interface UserLayerRec {
 	trans?: Record<string, unknown>;
 	/** hillshade／color-relief の画像タイルの提供口（raster-dem から焼く） */
 	hs?: ReturnType<typeof createHillshadeProvider> | null; cr?: ReturnType<typeof createColorReliefProvider> | null;
+	/** geojson の heatmap 層が描いている点（queryRenderedFeatures が heatmap-radius で当てる） */
+	heatPts?: unknown;
 }
 /** vector source の読み口（vtxDescOf の戻り＝TileJSON／PMTiles を解いた物） */
 export interface VtxDesc {
