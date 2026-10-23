@@ -297,6 +297,7 @@ export function frame(cam, s, { w, h }, api) {
 	if (q) gl.beginQuery(tq.TIME_ELAPSED_EXT, q);
 	if (useVol) {                          // 小さく描いて → 引き伸ばして重ねる
 		target(lw, lh);
+		gl.bindTexture(gl.TEXTURE_2D, tex);   // target() は作り直す時に TEXTURE0 へ fboTex を結ぶ＝描き先を読む輪（Feedback loop）になる＝雲の升目を結び直す
 		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 		gl.viewport(0, 0, lw, lh); gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.disable(gl.BLEND);

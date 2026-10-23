@@ -256,6 +256,9 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 			if (!used[i] && el > SAT_GIVEUP_MS) { gaveUp[i] = true; console.warn("[clouds]", SATS[i].name, "gave up (no tile in", SAT_GIVEUP_MS / 1e3, "s)"); return true; }
 			return false;
 		};
+		// 衛星ごとの「何段下がれば読めるか」（2026-10-23・GOES-West の 22:30／22:20 が 404＝CORS エラーが同時 POOL 本ぶん並んだ）：
+		// その衛星の最初の 1 枚が段を下りて確かめる間、残りのタイルは待つ → 読めた段から始める（読めない時刻へ何枚も投げない・時刻も揃う）
+		const startK = SATS.map(() => 0), probe: (Promise<void> | null)[] = SATS.map(() => null);
 		const anySig = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;   // 外の中止＋1 本の打ち切り（無い環境は外の中止だけ）
 		let done = 0;
 		setStatus(w, 0, jobs.length);
@@ -264,21 +267,26 @@ export async function mountClouds(map: GlobeMap, { level, alt = 10000, vol = tru
 			// ・定時の欠測もある・EUMETView の最新は推定＝読めなければ衛星の刻みずつ前へ BACK 段まで下がる。実際に使った時刻は衛星ごとに一番古いものをパネルへ（正直さ）
 			const imgs = await Promise.all(who.map(async (i): Promise<TileT | null> => {
 				const sat = SATS[i];
-				for (let k = 0; k <= BACK; k++) {
-					if (quit(i)) return null;   // この回は諦めた衛星
-					const tm = isoOf(Date.parse(times[i]!) - k * sat.step), url = tileUrl(sat, L, row, col, tm);
-					try {
-						const r = await fetch(url, { signal: anySig ? anySig([sig, AbortSignal.timeout(FETCH_MS)]) : sig }); if (!r.ok) throw new Error(r.status as unknown as string);
-						if (!(r.headers.get("content-type") || "").startsWith("image/")) throw new Error("not an image");   // WMS の例外は XML で 200 が来る
-						const im = await decodePng(await r.blob());
-						const T = sat.src === "gibs" ? toPal(im.px, im.w, im.h) : decodeGray(im.px, im.w, im.h);
-						if (!used[i] || tm < used[i]!) used[i] = tm;
-						return { i, T, w: im.w, h: im.h };
-					} catch (e) {
-						if (sig.aborted) throw e;   // 外の中止だけ投げる（1 本の打ち切り＝TimeoutError は失敗の 1 回として次の段へ）
-						if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, (e as Error)?.message);
+				let release: (() => void) | null = null;
+				if (!probe[i]) probe[i] = new Promise<void>(r => { release = r; }); else await probe[i];
+				try {
+					for (let k = startK[i]; k <= BACK; k++) {
+						if (quit(i)) return null;   // この回は諦めた衛星
+						const tm = isoOf(Date.parse(times[i]!) - k * sat.step), url = tileUrl(sat, L, row, col, tm);
+						try {
+							const r = await fetch(url, { signal: anySig ? anySig([sig, AbortSignal.timeout(FETCH_MS)]) : sig }); if (!r.ok) throw new Error(r.status as unknown as string);
+							if (!(r.headers.get("content-type") || "").startsWith("image/")) throw new Error("not an image");   // WMS の例外は XML で 200 が来る
+							const im = await decodePng(await r.blob());
+							const T = sat.src === "gibs" ? toPal(im.px, im.w, im.h) : decodeGray(im.px, im.w, im.h);
+							if (!used[i] || tm < used[i]!) used[i] = tm;
+							startK[i] = Math.max(startK[i], k);
+							return { i, T, w: im.w, h: im.h };
+						} catch (e) {
+							if (sig.aborted) throw e;   // 外の中止だけ投げる（1 本の打ち切り＝TimeoutError は失敗の 1 回として次の段へ）
+							if (k === BACK) console.warn("[clouds] tile", sat.name, tm, row, col, (e as Error)?.message);
+						}
 					}
-				}
+				} finally { (release as (() => void) | null)?.(); }
 				if (!used[i] && ++failed[i] >= SAT_FAIL_TILES && !gaveUp[i]) { gaveUp[i] = true; console.warn("[clouds]", sat.name, "gave up (", failed[i], "tiles failed)"); }
 				return null;
 			}));
