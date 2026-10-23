@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found — Ortho Earth</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- 404 の頁（Issue #308 の続き・2026-10-23）＝Cloudflare Pages は一番上に 404.html があると、無い URL に 404 とこの頁を返す
+     （無いと SPA と見なしてトップを 200 で返す＝検索エンジンには中身の同じ頁が無限にある「ソフト 404」に見える）。
+     エンジンもスクリプトも読まない 1 枚。/japan/ など別の Worker が出す道はその Worker が自分で答える -->
+<style>
+html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd6e6; font: 16px/1.7 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif; }
+main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem 1rem; box-sizing: border-box; text-align: center; }
+svg { width: 72px; height: 72px; opacity: .8; }
+h1 { font-size: 1.5rem; font-weight: 600; margin: 1.25rem 0 .5rem; }
+p { margin: .25rem 0; }
+nav { margin-top: 1.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+a { color: #8fb8ff; }
+</style>
+</head>
+<body>
+<main>
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Ortho Earth"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>
+	<h1>Page not found</h1>
+	<p>The page you are looking for is not on this site.</p>
+	<p lang="ja">お探しのページは見つかりませんでした。</p>
+	<nav><a href="/">Ortho Earth</a><a href="/#stories">Stories</a><a href="/docs/introduction" lang="ja">はじめに</a></nav>
+</main>
+</body>
+</html>
