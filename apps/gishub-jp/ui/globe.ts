@@ -12,6 +12,7 @@ export interface GlobeDs { title?: string; attributes?: Record<string, string>; 
 export type PaintableLayer = GintLayer & { setPaint(paint: object): Promise<void> };   // view.show の層＝実体は addGint のハンドル（setPaint を持つ）
 export interface GlobeViewOpts { paint?: object; legend?: string; pop?: boolean; onReady?: (map: GlobeMap, layer: PaintableLayer, view: GintView) => (() => void) | void | null }
 
+import { dismissBoot } from '@ortho-earth/globe/boot/screen.js';   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 const engineP = import('@ortho-earth/regions/app');   // orthoJapan＝本番は共有エンジンの入口（regions/app.js・2026-10-14）
 
 // 地球の半径＝画面短辺の 1/4（旧 v1 と同じ構図）。待ち受けは日本の上空で自転
@@ -27,6 +28,7 @@ const _mapP = engineP.then(m => m.default({
     persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
     keyboard: () => _viewing,      // 矢印キーは地図に入っている間だけ（待ち受け中は一覧の ↑↓ 移動のもの）
 }));
+_mapP.then(dismissBoot, dismissBoot);   // 起動画面は地球儀が立ったら畳む（失敗でも畳む＝日本地図と同じ「地図が出るまで」の幕）
 const _viewP = _mapP.then(map => {
     map.mapEl.addEventListener('ortho:close', exitGlobeView);
     const view = createGintView(map as unknown as GintMap, { overviewZoom: _overviewZoom });

@@ -288,6 +288,7 @@ export class Map {
 			emit(self, "styledata", { dataType: "style" }); emit(self, "data", { dataType: "style" });
 			emit(self, "style.load");
 			emit(self, "load");
+			container.dispatchEvent(new CustomEvent("ortho:load", { bubbles: true }));   // 頁への DOM の合図＝起動画面を畳む（www/public/maplibre の例・boot/screen.ts の MAP_READY_EVENT・2026-10-23）
 			return eng;
 		}).catch(e => { fail(self, "Map", e); return null; });
 		return self;
