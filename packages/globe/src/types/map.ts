@@ -414,8 +414,10 @@ export type RegisterGadget = <K extends keyof Gadgets>(name: K, factory: GadgetF
 export interface ShadowsApi {
 	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
-	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
-	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;   // api/shadows.ts:47
+	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow()
+	 *  2026-10-24〜 WebGPU では既定で GPU 版＝描いている物（PLATEAU・3D Tiles・模型・基図の押し出し・地形）から render worker が測る（建物を読み直さない・測定面は地形＋planeH・影の縁の粗さ texelM≈範囲/1024〜2048）。
+	 *  gpu:false か tilesets で CPU 版（tileset を読んで三角形を投影＝縁は厳密・地形は平ら）。戻りの gpu＝どちらで測ったか・cell＝升目 m */
+	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; cell?: number; probe?: LonLat[]; gpu?: boolean }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[]; gpu: boolean; cell?: number; texelM?: number }>;   // api/shadows.ts:47
 	/** リアルタイムの影（1.2.1〜・1.7.0 で範囲を広げた＝#112）。描画の中で太陽から深度を描き（shadow map）、影を落とす。
 	 *  落とす物＝地形（1.7.0〜）・基図の押し出し・PLATEAU 等のメッシュ・glb の模型・3D Tiles・I3S・押し出し（map.gadget.extrude／fill-extrusion の層）。
 	 *  模型の MASK（葉などの切り抜き）は α で抜いて落とす。半透明（BLEND）の模型と、統計の柱（市区町村のような広い面の押し出し）は落とさない。
@@ -440,11 +442,13 @@ export interface ShadowsApi {
 	getClipping(): ClipOptions | ClipOptions[] | null;   // api/shadows.ts:90
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。
-	 *  結果は地面に画像として貼る（map.raster の "viewshed"＝見える所が緑）。probe＝指定地点が見えるか（1|0）。ボタンとパネルは map.gadget.viewshed() */
-	viewshed(opts?: { observer?: LonLat; eyeH?: number; targetH?: number; radius?: number; buildings?: boolean; tilesets?: string[]; cell?: number; probe?: LonLat[] }): Promise<{ cells: number; visibleRatio: number; triangles: number; eyeZ: number; cell: number; probes: number[] }>;   // api/shadows.ts:120
+	 *  結果は地面に画像として貼る（map.raster の "viewshed"＝見える所が緑）。probe＝指定地点が見えるか（1|0）。ボタンとパネルは map.gadget.viewshed()
+	 *  2026-10-24〜 WebGPU では既定で GPU 版＝描いている物の地表（地形＋屋根）を真上の深度で取り、光線歩きも compute（式は CPU 版と同じ）。gpu:false・tilesets・buildings:false で CPU 版。戻りの gpu＝どちらで測ったか */
+	viewshed(opts?: { observer?: LonLat; eyeH?: number; targetH?: number; radius?: number; buildings?: boolean; tilesets?: string[]; cell?: number; probe?: LonLat[]; gpu?: boolean }): Promise<{ cells: number; visibleRatio: number; triangles: number; eyeZ: number; cell: number; probes: number[]; gpu: boolean }>;   // api/shadows.ts:120
 	/** 見通し線（1.2.0〜・#44）。a（視点・高さ eyeH）から b（目標・高さ targetH）が見えるか。遮る最初の点 blockAt・距離（m）・断面 profile（[距離, 地表, 視線] m）。
-	 *  地図に線を引く（source/layer "los"＝見える区間が緑・遮られた先が赤） */
-	lineOfSight(a: LonLat, b: LonLat, opts?: { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number }): Promise<{ visible: boolean; blockAt: LonLat | null; distance: number; profile: [number, number, number][]; triangles: number }>;   // api/shadows.ts:128
+	 *  地図に線を引く（source/layer "los"＝見える区間が緑・遮られた先が赤）
+	 *  2026-10-24〜 WebGPU では既定で地表を GPU 版で取る（断面の式は CPU 版）。gpu:false・tilesets・buildings:false で CPU 版 */
+	lineOfSight(a: LonLat, b: LonLat, opts?: { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number; gpu?: boolean }): Promise<{ visible: boolean; blockAt: LonLat | null; distance: number; profile: [number, number, number][]; triangles: number; gpu: boolean }>;   // api/shadows.ts:128
 	/** 可視域の画像と見通し線を消す */
 	clearViewshed(): Promise<void>;   // api/shadows.ts:158
 }
