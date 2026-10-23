@@ -108,7 +108,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<h2>${t("Display")}</h2>
 		<div class="row"><label for="pc-size">${t("Point size")}</label><input type="range" id="pc-size" min="0.5" max="8" step="0.5" value="2"><output id="pc-size-v"></output></div>
 		<div class="row"><label for="pc-color">${t("Colour")}</label><select id="pc-color">${["auto", "rgb", "elevation", "intensity", "classification"].map(c => `<option value="${c}">${t({ auto: "Automatic", rgb: "True colour (RGB)", elevation: "Height", intensity: "Intensity", classification: "Classification" }[c]!)}</option>`).join("")}</select></div>
-		<div class="row"><label for="pc-density">${t("Detail")}</label><input type="range" id="pc-density" min="1" max="8" step="0.5" value="2"><output id="pc-density-v"></output></div>
+		<div class="row"><label for="pc-density">${t("Detail")}</label><input type="range" id="pc-density" min="1" max="8" step="0.5" value="3"><output id="pc-density-v"></output></div>
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
 		<label class="check"><input type="checkbox" id="pc-atten" checked>${t("Shrink points with distance")}</label>
 		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show map sheets")}</label>
