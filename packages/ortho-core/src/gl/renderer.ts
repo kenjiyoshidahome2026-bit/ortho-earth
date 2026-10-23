@@ -674,6 +674,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	function setEcliptic(data: Float32Array | null | undefined): void { ecliptic = setStarBuf(ecliptic, data, 3, lineSetup); }
 	function setCelEquator(data: Float32Array | null | undefined): void { celeq = setStarBuf(celeq, data, 3, lineSetup); }
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
+	let lastCamDist = 0;   // 前のフレームの camDist（カメラが飛んだかを見る）
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	let gintCtx: GintDepthCtx | null = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
@@ -1492,9 +1493,12 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
 		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
 		// 画面を覆ってから静止時にパッと晴れる（不自然）。ローパスなら両方向とも霞が滑らかに動く。
-		if (!fogDist) fogDist = st.camDist;
+		// 霧を焚かない時（fogK＝1e6＝近/遠が実質無限）と、カメラが飛んだ時（1 フレームで距離が 2 倍超・半分未満＝jumpTo・初期視点）は
+		// 追わずに合わせる：追っても見えない霧のために約 60 フレーム描き直していた（ベンチの起動直後の余分な描き直し・2026-10-23）
+		if (!fogDist || fogK() >= 1e6 || st.camDist > lastCamDist * 2 || st.camDist * 2 < lastCamDist) fogDist = st.camDist;
 		else fogDist += (st.camDist - fogDist) * 0.18;
 		if (Math.abs(st.camDist - fogDist) < st.camDist * 0.002) fogDist = st.camDist;
+		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
 		const fogAnimating = fogDist !== st.camDist;   // 収束まで追加フレームを要求（呼び出し側が dirty 継続）
 		// 視程下限のチルト係数（20°→46°）：真俯瞰0＝平面地図の縁を青く染めない／傾けるほど実距離の視程が効く

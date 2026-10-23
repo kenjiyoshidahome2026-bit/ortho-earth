@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 import { resolve } from 'node:path';
 import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';   // build の時だけ地球儀・geopbf・core・i18n は共有エンジン（/globe/engine/<版>/）を URL で読む（縮小計画 項目 9・2026-09-30）
-import { crossOriginIsolation, noChunkOptimization, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, CSS_TARGET, bootScreen } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // 地球儀＝@ortho-earth/globe（地域なしのホスト）＝dev はソース直・build は共有エンジン（/globe/engine/<版>/・2026-09-30 に A 裁定を改めた）。
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -14,6 +14,7 @@ export default defineConfig(({ command }) => ({
 		crossOriginIsolation(),   // COEP は japan/census2020 と同じ credentialless（crossOriginIsolated＝SharedArrayBuffer の点火条件。無くてもコピー経路で動く）＝dev と preview の全リクエスト（旧 server.headers＝dev だけ）
 		wasm(),
 		sharedEngine(),
+		bootScreen,
 	],
 	server: {
 		fs: { allow: [ROOT] },

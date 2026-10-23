@@ -8,7 +8,7 @@ import type { ElevTile } from "./worldatlas.ts";
 import type { HeightRequest, HeightResponse } from "../worker-msg.ts";
 
 /** 地域の申告＝どの域のどの段を裸地（DTM）へ焼き直したか */
-export interface DtmDecl { bbox: number[]; range: number; brand: string }
+export interface DtmDecl { bbox: number[]; range: number; brand: string; rebaked?: Record<string, string> }
 export interface TileLoaderOptions { dtm?: DtmDecl | null; apiUrl?: string }
 /** (lng0, lat0, range) → タイル｜null。byName＝名前直指定（WORLD_ATLAS 等） */
 export type TileLoader = ((lng0: number, lat0: number, range: number) => Promise<ElevTile | null>) & { byName: (name: string) => Promise<ElevTile | null> };
@@ -38,6 +38,10 @@ export function sampleCell(v: ElevGrid | null | undefined, x: number, y: number)
 
 export const staleDSM = (name: string, obj: { source?: unknown } | null | undefined, dtm: DtmDecl | null | undefined): boolean => {
 	if (!obj || !dtm) return false;
+	// 個別に焼き直したタイル（dtm.rebaked＝名前 → 新しい焼きの source が含む印）：印の無い IDB の写しは焼き直し前＝失効（2026-10-23・孀婦岩の 1° が陸だった件）。
+	// IDB はタイル名を鍵に永久に勝つ＝bucket を差し替えただけでは一度見た人に届かない
+	const mark = dtm.rebaked?.[name];
+	if (mark && !String(obj.source || "").includes(mark)) return true;
 	if (String(obj.source || "").startsWith(dtm.brand)) return false;   // 焼き直し済み＝信用
 	const [lng, lat, range] = decodeName(name);
 	// 粗い段（R10）も申告域の中は「brand の銘を含む」物だけ信用（2026-10-02）：日本の R10 は GEBCO ベースに DEM10B を転写して焼き直した

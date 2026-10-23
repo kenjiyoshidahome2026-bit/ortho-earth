@@ -9,8 +9,29 @@
 #   Mac なら手元の deploy:engine と同じ門（実 GPU）をそのまま通る。Cloudflare へは Mac の wrangler のログイン（wrangler login 済み）で出す＝鍵は置かない。
 #   Mac が眠っている・runner が止まっている時は job が「Waiting for a runner」のまま待つ（Mac を起こせば走り出す）。
 # ortho-japan のエディタ関門の範囲＝tag japan-deployed からの差分。配り終えたらこの workflow が tag を push する。
+# main への merge でも自動で engine-and-apps（2026-10-23・本人の裁定 2026-10-21「当面ボタン、後で自動」→ ボタンで 5 回緑：run 7・10〜13）。
+#   配る物（apps/・packages/・sdk/・lockfile・この台本）が変わった push だけ。www・docs・文章だけの merge は走らない（www は Cloudflare Pages が組む）。
+#   続けて merge しても待ちは 1 本だけ（concurrency：走っている 1 本の後に「最新の main」だけが残る）。Mac が閉じていれば開くまで待つ（24 時間で GitHub が捨てる）。
 name: deploy
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "sdk/**"
+      - "package-lock.json"
+      - "scripts/deploy-engine.mjs"
+      - ".github/workflows/deploy.yml"
+      - "!apps/www/**"
+      - "!apps/docs/**"
+      - "!apps/gishub-jp/**"     # この 2 つも www（Pages）が組む
+      - "!apps/geopbf-demo/**"
+      - "!apps/uploader/**"      # deploy-engine.mjs が配らない物（自前の配布・ボタンの target）
+      - "!apps/account/**"
+      - "!apps/quakes-mirror/**"
+      - "!apps/sats-mirror/**"
+      - "!**/*.md"
   workflow_dispatch:
     inputs:
       target:
@@ -33,7 +54,7 @@ jobs:
     runs-on: [self-hosted, macOS, ortho-deploy]
     timeout-minutes: 120
     env:
-      TARGET: ${{ inputs.target }}
+      TARGET: ${{ inputs.target || 'engine-and-apps' }}   # push の時は inputs が空＝engine-and-apps
       APPS: ${{ inputs.apps }}
     steps:
       - uses: actions/checkout@v4
@@ -45,10 +66,10 @@ jobs:
           # cache: npm は付けない＝Mac の ~/.npm がそのまま効く。付けると毎回 1.3GB を GitHub のキャッシュへ上げ直す（run 39651871635 で 2.5 分）
       - run: npm ci --no-audit --no-fund
       - name: wrangler のログイン（検定の前に止める）
-        if: inputs.target != 'gate-only'
+        if: env.TARGET != 'gate-only'
         run: npx wrangler whoami --json > /dev/null || { echo "✗ Mac の wrangler がログインしていない＝Mac で npx wrangler login"; exit 1; }
       - name: 検定用の Chrome（Mac の ~/.cache を手元の検定と共有＝入っていれば何もしない）
-        if: inputs.target == 'engine-and-apps' || inputs.target == 'engine-only' || inputs.target == 'gate-only'
+        if: env.TARGET == 'engine-and-apps' || env.TARGET == 'engine-only' || env.TARGET == 'gate-only'
         run: node packages/globe/scripts/lib/chrome.mjs --install
       - name: 配る
         run: |
@@ -64,7 +85,7 @@ jobs:
             sats-mirror)   cd apps/sats-mirror && npx wrangler deploy ;;
           esac
       - name: tag japan-deployed を push（次回のエディタ関門を差分だけに）
-        if: always() && inputs.target == 'engine-and-apps'
+        if: always() && env.TARGET == 'engine-and-apps'
         run: |
           # ortho-japan の deploy.mjs は配り終えた時だけ手元で tag -f する＝動いていなければ何もしない
           [ "$(git rev-parse -q --verify 'japan-deployed^{commit}' || true)" = "$GITHUB_SHA" ] || exit 0

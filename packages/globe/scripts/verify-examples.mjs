@@ -26,7 +26,8 @@ import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
 import { buildReport, buildGallery, runnableForm } from "../tests/mlexamples/report.mjs";
-import { ENGINE_DIR } from "./lib/shared-engine.mjs";   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
+import { ENGINE_DIR } from "./lib/shared-engine.mjs";
+import { withBootStatic } from "../src/boot/screen.ts";   // 起動画面（#boot）の正本＝www の全頁と同じ幕（2026-10-23）   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(CACHE, "..");   // <repo>/.cache/mlexamples
@@ -288,13 +289,13 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 	return (async () => {
 		const sharp = (await import("sharp")).default;
 		for (const r of pub) {
-			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), runnableForm(sources[r.name], engineUrl));
+			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), withBootStatic(runnableForm(sources[r.name], engineUrl), "map"));   // 例＝地図の load で畳む
 			const png = path.join(ROOT, "runs", orthoLabel, "ortho", `${r.name}.full.png`);
 			if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "thumbs", `${r.name}.webp`));
 		}
 		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version;   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版（2026-10-12）
-		fs.writeFileSync(path.join(out, "index.html"), buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine,
-			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }));
+		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine,
+			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
 		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
 		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
 	})();
