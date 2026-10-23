@@ -7,7 +7,7 @@ function getCorsHeaders(req: Request, env: Env) {
 	const method = req.method;
 	const headers: Record<string, string> = { // 許可するメソッドとヘッダーの定義
 		"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-Action, X-Metadata-Type, X-Upload-ID, X-Part-Number, X-API-Key",
+		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-Action, X-Metadata-Type, X-Content-Encoding, X-Upload-ID, X-Part-Number, X-API-Key",   // X-Content-Encoding＝Bucket.put が gzip して送る時の印（bucket.ts が読む）。抜けていた＝ブラウザの put が preflight で落ちて「Failed to fetch」（2026-10-23・uploader の標高タイル）
 		"Access-Control-Max-Age": "86400",
 	};
 	const isGetOptions = method === "OPTIONS" && req.headers.get("Access-Control-Request-Method") === "GET";
