@@ -54,8 +54,9 @@ try {
 		await landed(map);
 		const s1 = await settled(h);
 		ok("root", s1 && s1.nodes >= 1 && s1.shownPoints >= 66272, JSON.stringify(s1));
-		const be = window.__perf?.()?.backend;   // 描き手＝本体に合わせる（WebGPU＝copc-gpu.ts・WebGL2＝copc-gl.ts・2026-10-23）
-		ok("backend", h.backend === (be === "webgpu" ? "webgpu" : "webgl2"), `map=${be} copc=${h.backend}`);
+		const be = window.__backend;   // 本体の描き手（frame1 で埋まる・debugGlobals）。点群はそれに合わせる（WebGPU＝copc-gpu.ts・WebGL2＝copc-gl.ts・2026-10-23）。?copcgl=1＝WebGL2 に固定
+		const gl1 = /[?&]copcgl=1/.test(location.search);
+		ok("backend", !!be && h.backend === (be === "webgpu" && !gl1 ? "webgpu" : "webgl2"), `map=${be} copc=${h.backend}`);
 		const p1 = count(await grab("copc:e"));
 		ok("drawn", p1.n > 500, JSON.stringify(p1));
 		// さらに寄る＝子の節（ADD＝親も子も描く）
