@@ -5,8 +5,8 @@
 //   出力＝升目の RGBA（瞬間＝影の範囲／時間＝日影になる時間の段彩＋境目の線）と数値（最大の日影時間など）。
 import { decodeTile3D } from "./tiles3d-decode.ts";
 import { collectLeafTiles } from "./meshdecode.ts";
-
-const D2R = Math.PI / 180, R_EARTH = 6371000;
+import { D2R, R_EARTH, K_REFR, sunAt, sunTimes, paintSunShadow, paintViewshed, sunGrid } from "./sunshadow-core.ts";   // 太陽の式・時刻の列・色付け＝GPU 版（2026-10-24）と共有の純関数
+export { sunAt };
 
 /** 3D Tiles の境界体積（region＝ラジアン・box／sphere＝tileset の座標） */
 interface BoundingVolume { region?: number[]; box?: number[]; sphere?: number[] }
@@ -25,22 +25,8 @@ export interface SunShadowOptions extends BuildingSource {
 export interface ViewshedOptions extends BuildingSource {
 	N: number; ground: ArrayLike<number>; observer: number[]; eyeH?: number; targetH?: number; radius?: number; buildings?: boolean;
 	probe?: number[][] | null; los?: number[] | null;
-}
-
-// 太陽の高度・方位（北から時計回り）。solarHour＝真太陽時（12＝南中）。decl＝赤緯（度）
-export function sunAt(latDeg: number, decl: number, solarHour: number): { alt: number; az: number } {
-	const phi = latDeg * D2R, d = decl * D2R, H = (solarHour - 12) * 15 * D2R;
-	const sinA = Math.sin(phi) * Math.sin(d) + Math.cos(phi) * Math.cos(d) * Math.cos(H);
-	const alt = Math.asin(Math.max(-1, Math.min(1, sinA)));
-	const azS = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(d) * Math.cos(phi));   // 南から西回り
-	return { alt, az: azS + Math.PI };   // 北から時計回り
-}
-// 日付 → 赤緯（度）と均時差（時）。時計の時刻を真太陽時へ直すのに使う
-function declOf(date: Date): { decl: number; eot: number } {
-	const N = Math.floor((Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) - Date.UTC(date.getUTCFullYear(), 0, 0)) / 864e5);
-	const decl = 23.44 * Math.sin(2 * Math.PI * (284 + N) / 365);
-	const B = 2 * Math.PI * (N - 81) / 364, eot = (9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B)) / 60;
-	return { decl, eot };
+	/** 地表（地形＋建物の屋根・N×N m）を外から渡す＝建物を読まない（GPU が描いた物から取った地表で見通し線を引く・2026-10-24）。surfaceTris＝その三角形数（統計） */
+	surface?: ArrayLike<number> | null; surfaceTris?: number;
 }
 
 // 任意の tileset の葉（最も細かい段）を、変換行列を親から積みながら集める（範囲の外の枝は落とす）
@@ -105,20 +91,12 @@ async function gatherTriangles({ tilesets = [], sets = [], bbox, maxTris = 3e6 }
 export async function computeSunShadow(opts: SunShadowOptions) {
 	const { bbox, mode = "duration", planeH = 4, hours = [8, 16], step = 0.5 } = opts;
 	const g = await gatherTriangles(opts);
-	const [w, s, e, n] = bbox, spanX = (e - w) * D2R * g.kx, spanY = (n - s) * D2R * g.ky;
-	const maxCells = opts.maxCells ?? 1024 * 1024;
-	const cell = Math.max(opts.cell ?? 0.5, Math.sqrt(spanX * spanY / maxCells));
-	const W = Math.max(1, Math.ceil(spanX / cell)), H = Math.max(1, Math.ceil(spanY / cell));
+	const { W, H, cell, spanX, spanY } = sunGrid(bbox, opts.cell, opts.maxCells ?? 1024 * 1024);
 	const x0 = -spanX / 2, y1 = spanY / 2;   // 升目の左上（局所 m）
 	const cnt = new Uint16Array(W * H), stamp = new Uint16Array(W * H);
-	const date = opts.date ? new Date(opts.date) : new Date();
-	const { decl: declD, eot } = declOf(date);
-	const decl = opts.decl ?? (mode === "duration" ? -23.44 : declD);   // 日影図の既定＝冬至
+	// 時刻の列（真太陽時）と赤緯（日影図の既定＝冬至）。瞬間＝与えた時計の時刻を真太陽時へ（経度と均時差）
+	const { times, decl } = sunTimes({ mode, date: opts.date, decl: opts.decl, hours, step }, g.lon0 / D2R);
 	const latDeg = g.lat0 / D2R;
-	// 時刻の列（真太陽時）。瞬間＝与えた時計の時刻を真太陽時へ（経度と均時差）
-	const times: number[] = [];
-	if (mode === "instant") { const utcH = date.getUTCHours() + date.getUTCMinutes() / 60; times.push(((utcH + g.lon0 / D2R / 15 + eot) % 24 + 24) % 24); }
-	else for (let t = hours[0]; t <= hours[1] + 1e-9; t += step) times.push(t);
 	let used = 0;
 	for (let si = 0; si < times.length; si++) {
 		const sun = sunAt(latDeg, decl, times[si]);
@@ -133,22 +111,8 @@ export async function computeSunShadow(opts: SunShadowOptions) {
 			fillTri(px, py, W, H, stamp, cnt, sid);
 		}
 	}
-	// 色付け
-	const rgba = new Uint8ClampedArray(W * H * 4);
-	let maxH = 0;
-	if (mode === "instant") {
-		for (let i = 0; i < W * H; i++) if (cnt[i]) { rgba[i * 4] = 20; rgba[i * 4 + 1] = 24; rgba[i * 4 + 2] = 60; rgba[i * 4 + 3] = 150; }
-	} else {
-		// 日影時間の段彩（日影規制で使う 2・3・4・5 時間の境＝線も引く）
-		const band = (h: number): number => h >= 5 ? 5 : h >= 4 ? 4 : h >= 3 ? 3 : h >= 2 ? 2 : h >= 1 ? 1 : 0;
-		const PAL = [null, [120, 180, 255, 90], [80, 140, 240, 120], [60, 90, 220, 145], [120, 60, 200, 165], [200, 40, 120, 185]];
-		const hrs = new Float32Array(W * H);
-		for (let i = 0; i < W * H; i++) { hrs[i] = cnt[i] * step; if (hrs[i] > maxH) maxH = hrs[i]; const c = PAL[band(hrs[i])]; if (c) { rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = c[3]; } }
-		for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) {   // 段の境＝等時間線
-			const i = y * W + x, b = band(hrs[i]);
-			if (b >= 2 && (band(hrs[i + 1]) < b || band(hrs[i + W]) < b || band(hrs[i - 1] ?? 0) < b || band(hrs[i - W] ?? 0) < b)) { rgba[i * 4] = 30; rgba[i * 4 + 1] = 20; rgba[i * 4 + 2] = 60; rgba[i * 4 + 3] = 235; }
-		}
-	}
+	// 色付け（瞬間＝影の範囲／時間＝日影規制で使う 2・3・4・5 時間の段彩＋等時間線）＝sunshadow-core（GPU 版と同じ筆）
+	const { rgba, maxH } = paintSunShadow(cnt, W, H, step, mode);
 	// 指定地点の値（probe＝[[lon,lat]…]）＝日影時間（時）／瞬間は 0|1
 	const probes = (opts.probe || []).map(([lo, la]) => {
 		const x = Math.floor(((lo * D2R - g.lon0) * g.kx - x0) / cell), y = Math.floor((y1 - (la * D2R - g.lat0) * g.ky) / cell);
@@ -179,8 +143,7 @@ function fillTri(px: number[], py: number[], W: number, H: number, stamp: Uint16
 }
 
 // ── 可視域と見通し線（#44・2026-09-23）＝同じ worker。地表＝main が render worker の地形から升目で渡す（外来 DEM の上書き込み）・建物＝上と同じ読み方で高さの升目へ
-// 地球の丸みと大気の屈折（係数 0.13）で遠方は下がる。視点＝地表（建物の上ならその屋上）＋eyeH。
-const K_REFR = 0.13;
+// 地球の丸みと大気の屈折（係数 K_REFR＝0.13）で遠方は下がる。視点＝地表（建物の上ならその屋上）＋eyeH。
 function buildingGrid(g: { tris: Float32Array[] }, W: number, H: number, cell: number, x0: number, y1: number): Float32Array<ArrayBuffer> {   // 升目ごとの建物の高さ（足元から・屋根の最大）
 	const bh = new Float32Array(W * H);
 	for (const buf of g.tris) for (let t = 0; t < buf.length; t += 9) {
@@ -204,9 +167,10 @@ export async function computeViewshed(opts: ViewshedOptions) {
 	const { bbox, N, ground, observer, eyeH = 1.6, targetH = 0, radius = 1000 } = opts;
 	const [w, s, e, n] = bbox, lat0 = (s + n) / 2 * D2R, lon0 = (w + e) / 2 * D2R, kx = Math.cos(lat0) * R_EARTH, ky = R_EARTH;
 	const spanX = (e - w) * D2R * kx, spanY = (n - s) * D2R * ky, cellX = spanX / N, cellY = spanY / N, cell = (cellX + cellY) / 2;
-	const g = opts.buildings === false ? { tris: [], count: 0, tiles: 0 } : await gatherTriangles({ ...opts, bbox });
-	const bh = g.count ? buildingGrid({ tris: g.tris }, N, N, cell, -spanX / 2, spanY / 2) : new Float32Array(N * N);
-	const S = new Float32Array(N * N); for (let i = 0; i < N * N; i++) S[i] = (ground[i] || 0) + bh[i];
+	// 地表 S＝地形＋建物の屋根。surface を渡されたらそれ（GPU が描いた物から取った地表＝建物は読まない・2026-10-24）
+	const g = opts.surface || opts.buildings === false ? { tris: [], count: opts.surface ? (opts.surfaceTris ?? 0) : 0, tiles: 0 } : await gatherTriangles({ ...opts, bbox });
+	const bh = g.tris.length ? buildingGrid({ tris: g.tris }, N, N, cell, -spanX / 2, spanY / 2) : new Float32Array(N * N);
+	const S = new Float32Array(N * N); for (let i = 0; i < N * N; i++) S[i] = opts.surface ? (opts.surface[i] || 0) : (ground[i] || 0) + bh[i];
 	const toCell = ([lo, la]: number[]): number[] => [((lo - w) / (e - w)) * N, ((n - la) / (n - s)) * N];
 	const [ox, oy] = toCell(observer), oi = Math.min(N - 1, Math.max(0, oy | 0)) * N + Math.min(N - 1, Math.max(0, ox | 0));
 	const z0 = S[oi] + eyeH;
@@ -248,12 +212,7 @@ export async function computeViewshed(opts: ViewshedOptions) {
 		for (let y = 0; y < N; y++) { ray(0.5, y + 0.5); ray(N - 0.5, y + 0.5); }
 		vis[oi] = 1;
 	}
-	const rgba = new Uint8ClampedArray(N * N * 4);
-	let inR = 0, seen = 0;
-	if (!opts.los) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-		const i = y * N + x; if (Math.hypot(x + 0.5 - ox, y + 0.5 - oy) > rCells) continue;
-		inR++; if (vis[i]) { seen++; rgba[i * 4] = 40; rgba[i * 4 + 1] = 200; rgba[i * 4 + 2] = 110; rgba[i * 4 + 3] = 120; } else { rgba[i * 4] = 60; rgba[i * 4 + 1] = 40; rgba[i * 4 + 2] = 70; rgba[i * 4 + 3] = 90; }
-	}
+	const { rgba, inR, seen } = opts.los ? { rgba: new Uint8ClampedArray(N * N * 4), inR: 0, seen: 0 } : paintViewshed(vis, N, ox, oy, rCells);   // 色付け＝sunshadow-core（GPU 版と同じ筆）
 	const probes = (opts.probe || []).map(p => { const [x, y] = toCell(p); const ix = x | 0, iy = y | 0; return ix >= 0 && iy >= 0 && ix < N && iy < N ? vis[iy * N + ix] : 0; });
 	return { rgba, w: N, h: N, bbox, probes, los, stats: { cells: inR, visibleRatio: inR ? +(seen / inR).toFixed(3) : 0, triangles: g.count, eyeZ: +z0.toFixed(1), cell: +cell.toFixed(2) } };
 }

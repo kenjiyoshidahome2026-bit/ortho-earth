@@ -992,6 +992,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "rasterInfo") return onRasterInfo(d.id, d.info);       // 画像タイル層：ソースの自己申告が届いた（bbox/zoom 域/出典）
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "anaDone") { const f = anaWait.get(d.id); if (f) { anaWait.delete(d.id); d.error ? f.rej(new Error(d.error)) : f.res(d.data); } return; }   // 日影時間・可視域の GPU 版の答え（2026-10-24）
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsResync") { labelSender.reset(); renderer.set("labels", labelSender(lastLabels)); return; }   // worker が持たない番号を受けた（同期ずれ）＝全部送り直す
@@ -2889,7 +2890,7 @@ const { registerGadget } = installGadgets(map, {
 }, { REGION_BLD_ICON, REGION_BLD_LABELS, REGION_SEARCH, ZOOM_MAX, ac, cam, demFirst, flightCtl, frameHooks, getHeightP, makeProjector, meshMgr, meshOn, narrowMq, onMove, projectLL, requestDraw, requestSnapshot, saveView, size, switchTheme, themeFixed, toolClose, toolOpen, unprojectAt, unprojectXY });
 let clipSpec: GlobeLive["clipSpec"] = null, clipMain: GlobeLive["clipMain"] = null, clipByT: GlobeLive["clipByT"] = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
 // 日影・影・切断・可視域・gadget・POI 編集＝src/api/shadows.ts（live＝createGlobe の変数を読み書きする口）
-const { elevGridWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
+const { elevGridWait, anaWait, clipFor, clipCutXY, clipAllCut } = installShadows(map, {
 	get clipByT() { return clipByT; }, set clipByT(v) { clipByT = v; },
 	get renderBackend() { return renderBackend; },
 	get clipSpec() { return clipSpec; }, set clipSpec(v) { clipSpec = v; },
