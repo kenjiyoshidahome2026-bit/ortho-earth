@@ -20,11 +20,16 @@ export interface DtmDecl {
 	range: number;
 	/** 焼き直し済みタイルの source 接頭辞 */
 	brand: string;
+	/** 個別に焼き直したタイル＝名前 → 新しい焼きの source が含む印（焼いた日 "@YYYY-MM-DD"）。印の無い IDB の写しを失効させる */
+	rebaked?: Record<string, string>;
 }
 export const JP_DTM: DtmDecl = {
 	bbox: [122, 20, 154, 46],   // [西, 南, 東, 北]
 	range: 1,                   // 焼いてある段（R01）
 	brand: "GSI",               // 焼き直し済みタイルの source 接頭辞（"GSI DEM10B"）
+	// 焼き直した物（bucket を差し替えても IDB の旧い写しが名前を鍵に勝ち続ける＝ここに足して失効させる）。
+	// 2026-10-23：孀婦岩のセルの海が 0 にならず 1°四方が陸（bake-dem10b の海判定）＝R01 と、それを転写した R10
+	rebaked: { R01N029E140: "@2026-10-23", R10N020E140: "@2026-10-23" },
 };
 
 // 焼き script（bake-dem10b / bake-r10-jp）が使う形。bbox と同じ数字を二度書かないための派生。
