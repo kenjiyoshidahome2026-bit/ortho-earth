@@ -102,6 +102,32 @@ export function shadowCascades(base: ShadowWindow, ground: ArrayLike<number>[], 
 	return out;
 }
 
+// 点の集まりに合わせた窓（2026-10-24・日影時間と可視域の GPU 版）：受け手の点 pts（単位球ワールド）が全部入る正射影の窓を、
+// 太陽（任意の方向＝解析の時刻ごと・真上＝地表の高さ取り）の基底で切る。中心＝点の r/u の範囲の真ん中・半幅＝範囲の半分×1.02。
+// 奥行き＝点の f の範囲に、受け手の上 hMaxM までの落とす物（光に沿って hMaxM/sin(高度) 手前）を足す。up＝高度を測る鉛直（無指定＝点の重心の動径）。
+// 太陽が高度 0.5° より下なら null（CPU 版の日影が数えない門と同じ）。影の受け手と同じ xy に落とす物は正射影では必ず同じ xy＝窓は受け手だけ覆えば足りる
+export function shadowWindowFit(sun: ArrayLike<number>, pts: ArrayLike<number>[], N: number, hMaxM = SH_CAST_HMAX_M, up?: ArrayLike<number> | null): ShadowWindow | null {
+	if (!pts.length) return null;
+	const Re = worldRadiusM();
+	let C: number[] = [0, 0, 0];
+	for (const P of pts) { C[0] += P[0]; C[1] += P[1]; C[2] += P[2]; }
+	C = norm(C);
+	const U = up ? norm(up) : C;
+	const sinAlt = dot(sun, U);
+	if (sinAlt < Math.sin(0.5 * D2R)) return null;
+	const f = [-sun[0], -sun[1], -sun[2]];
+	let r = cross(f, [0, 1, 0]);
+	if (Math.hypot(r[0], r[1], r[2]) < 1e-6) r = cross(f, [1, 0, 0]);
+	r = norm(r);
+	const u = cross(r, f);
+	let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0m = Infinity, z1m = -Infinity;
+	for (const P of pts) { const x = dot(P, r), y = dot(P, u), z = dot(P, f); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); z0m = Math.min(z0m, z); z1m = Math.max(z1m, z); }
+	const R = Math.max(1e-9, Math.max(x1 - x0, y1 - y0) * 0.5 * 1.02 + (x1 - x0 + y1 - y0) / N), texel = 2 * R / N;
+	const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+	const z0 = z0m - hMaxM / Re / sinAlt - 2 / Re, Z = (z1m - z0) + 2 / Re;
+	return { mvp: windowMvp(r, u, f, cx, cy, R, z0, Z), alt: Math.asin(Math.min(1, sinAlt)), texelM: texel * Re, zRangeM: Z * Re, eye: [C[0] + sun[0], C[1] + sun[1], C[2] + sun[2]], r, u, f, cx, cy, R, z0, Z };
+}
+
 // 影の濃さ（2026-10-23）：影の中の明るさ＝日向の何倍か。利用者が darkness を渡せばそれ。既定は太陽の高さで決める＝
 // 高い太陽は直射が強く影がくっきり暗い（0.4）・低い太陽（夕方）は直射が弱く空の光が勝つので薄い（0.6）。旧＝高さに依らず 0.66（薄すぎた）
 export function shadowDarkness(altRad: number, user?: number | null): number {
