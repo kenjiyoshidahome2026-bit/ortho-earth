@@ -1,30 +1,36 @@
-// @ortho-earth/plugin-voxel — voxel grids for @ortho-earth/globe (stage 1: skeleton, box grids, WebGL2 renderer; 2026-10-23).
+// @ortho-earth/plugin-voxel — voxel grids for @ortho-earth/globe (stage 1 box grids + WebGL2, stage 2 WebGPU / region grids / iso surfaces / clipping; 2026-10-23).
 //   map.use(voxelPlugin()) fills the reserved map.addData kind "voxel" (contract: globe src/voxel.ts VoxelData; the globe validates it before create()).
-//   Drawn as a same-frame overlay (map.overlay): the grid's bounding box is rasterised (back faces) and the fragment shader marches a ray through the cells
-//   (voxel-gl.ts): "blocks" = DDA to the first solid cell, shaded by its face (Minecraft-like); "volume" = fixed steps, trilinear samples, colormap colour and alpha
-//   composited front to back. Hidden by terrain and buildings (scene depth), picked by the unified picking (handle.pick, map.on("click", id, …), queryRenderedFeatures({ layers: [id] })).
-//   Preparation (quantising values to R8 / RGBA8, the colormap, placement) runs in a worker (voxel-reader.ts); the main thread forwards the buffers (transfer).
-//   Stage 2 adds WebGPU, region grids, iso surfaces, clipping; stage 4 the 3D Tiles EXT_primitive_voxels; stage 5 bricks / LoD / file sources. Plan: ../PLAN.md.
+//   Drawn as a same-frame overlay (map.overlay): the grid's bounding box (or the curved shell of a region grid) is rasterised (back faces) and the fragment shader marches a ray
+//   through the cells (voxel-gl.ts / voxel-gpu.ts, chosen by voxel-draw.ts): "blocks" = DDA to the first solid cell, shaded by its face (Minecraft-like); "volume" = fixed steps,
+//   trilinear samples, colormap colour and alpha composited front to back; "iso" = the surface where the value crosses the threshold, shaded by the gradient. `clip` keeps a sub-box.
+//   Hidden by terrain and buildings (scene depth), picked by the unified picking (handle.pick, map.on("click", id, …), queryRenderedFeatures({ layers: [id] })).
+//   Preparation (quantising values to R8 / RGBA8, the colormap, placement, the region shell) runs in a worker (voxel-reader.ts); the main thread forwards the buffers (transfer).
+//   Stage 4 adds the 3D Tiles EXT_primitive_voxels; stage 5 bricks / LoD / file sources. Plan: ../PLAN.md.
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick, VoxelData } from "@ortho-earth/globe";
-import { prepare, transferables, checkVoxelData } from "./grid.ts";
-import type { PrepareOptions, Prepared, ColormapSpec, RenderMode } from "./grid.ts";
+import { prepare, transferables, checkVoxelData, checkClip, buildColormap, thrOf } from "./grid.ts";
+import type { PrepareOptions, Prepared, ColormapSpec, RenderMode, Clip } from "./grid.ts";
 import type { ReaderRequest, ReaderReply } from "./voxel-reader.ts";
-export { prepare, checkVoxelData, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES } from "./grid.ts";
-export type { PrepareOptions, Prepared, ColormapSpec, ColorStop, RenderMode, Hpr, Placement, RayHit, EnuBasis, Mat3 } from "./grid.ts";
-export type { VoxelMessage, VoxelLayerBody, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
+import type { VoxelStyle } from "./voxel-gl.ts";
+export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N } from "./grid.ts";
+export type { PrepareOptions, Prepared, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
+export type { VoxelMessage, VoxelLayerBody, VoxelStyle, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
 export type { VoxelBackend, VoxelDrawOpts } from "./voxel-draw.ts";
+export type { VoxelGpuModule } from "./voxel-gpu.ts";
 import type { VoxelBackend } from "./voxel-draw.ts";
 // 描き手（worker）の URL＝入口（voxel-draw.js が兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const VOXEL_URL = new URL("./voxel-draw.js", import.meta.url).href;
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 export type VoxelSource = VoxelData | string | URL | ArrayBuffer | Uint8Array;
 export interface VoxelOptions {
 	kind?: "voxel";
 	id?: string;
-	/** "volume" (default): trilinear samples composited front to back with the colormap's colour and alpha; "blocks": opaque cells, the first solid cell along the ray, shaded by its face */
+	/** "volume" (default): trilinear samples composited front to back with the colormap's colour and alpha; "blocks": opaque cells, the first solid cell along the ray, shaded by its face;
+	 *  "iso": the surface where the value crosses `threshold`, shaded by the field's gradient */
 	render?: RenderMode;
+	/** keep only this part of the grid: [x0, x1, y0, y1, z0, z1] fractions 0..1 of each axis (a slice is a thin range). Changes without re-uploading the grid */
+	clip?: Clip | null;
 	/** a name (viridis | magma | inferno | plasma | turbo | grey | heat | cool | blues | reds), a list of colours (evenly spaced) or [t, colour] stops. Colours "#rrggbb" / "#rrggbbaa" / [r, g, b, a?]. Scalar grids only */
 	colormap?: ColormapSpec;
 	/** values mapped to the colormap's 0..1 (default data.range, else the data's min / max) */
@@ -37,7 +43,7 @@ export interface VoxelOptions {
 	step?: number;
 	/** multiplies every cell's opacity (default 1) */
 	opacity?: number;
-	/** "relative": the box origin's alt is above the ground (default); "absolute": above the ellipsoid (default for transform boxes) */
+	/** "relative": the box origin's alt is above the ground (default for origin boxes); "absolute": above the ellipsoid (default for transform boxes and region grids) */
 	altitude?: "relative" | "absolute";
 	/** hidden by terrain and buildings (default true) */
 	depthTest?: boolean;
@@ -47,7 +53,7 @@ export interface VoxelOptions {
 	properties?: Record<string, unknown>;
 }
 export interface VoxelPluginOptions {
-	/** "auto" | "webgl2" (stage 1 draws with WebGL2 only) */
+	/** "auto" (default): WebGPU when the map draws with WebGPU (shared device and depth texture), else WebGL2. "webgpu": WebGPU (own device under a WebGL2 map) or fail. "webgl2": always WebGL2 */
 	backend?: VoxelBackend | "auto";
 }
 /** handle.pick の 1 件＝統一 picking の答え（layer＝手綱の id・index＝セルの番号・cell＝[i, j, k]・value＝セルの値） */
@@ -65,8 +71,10 @@ export interface VoxelHandle {
 	range: [number, number] | null;
 	/** the overlay handle (map.overlay) */
 	readonly overlay: OverlayHandle;
-	/** which renderer draws this map's voxels ("webgl2"), null until the overlay has loaded */
+	/** which renderer draws this map's voxels: "webgpu" | "webgl2", null until the overlay has chosen */
 	readonly backend: VoxelBackend | null;
+	/** "box" | "region" after the last bake */
+	shape: "box" | "region" | null;
 	/** where the last source was prepared: "worker" (voxel-reader.ts) or "main"; null before the first bake */
 	reader: "worker" | "main" | null;
 	/** the renderer refused the layer (e.g. dims beyond MAX_3D_TEXTURE_SIZE); null when it draws */
@@ -141,39 +149,59 @@ async function load(src: VoxelSource, o: VoxelOptions): Promise<Prepared & { rea
 }
 const isVoxelHit = (id: string) => (t: OverlayPick): t is VoxelHit => t.layer === id;
 const checkEnum = (v: unknown, allowed: readonly string[], name: string): void => { if (!allowed.includes(v as string)) throw new RangeError(`plugin-voxel: ${name} must be ${allowed.map(a => JSON.stringify(a)).join(" | ")}`); };
+const MODE: Record<RenderMode, 0 | 1 | 2> = { blocks: 0, volume: 1, iso: 2 };
+/** 格子を上げ直さずに変えられる opts（setProps はこれだけなら "style" を送る） */
+export const STYLE_KEYS: readonly (keyof VoxelOptions)[] = Object.freeze(["render", "opacity", "step", "threshold", "clip", "depthTest", "properties", "colormap", "alphaRamp"]);
+function checkOpts(opts: Partial<VoxelOptions>): void {
+	if (opts.render != null) checkEnum(opts.render, ["blocks", "volume", "iso"], "render");
+	if (opts.altitude != null) checkEnum(opts.altitude, ["relative", "absolute"], "altitude");
+	if (opts.step != null && !(typeof opts.step === "number" && opts.step > 0)) throw new RangeError("plugin-voxel: step must be a positive number (cells)");
+	if (opts.opacity != null && !(typeof opts.opacity === "number" && opts.opacity >= 0 && opts.opacity <= 1)) throw new RangeError("plugin-voxel: opacity must be 0..1");
+	if (opts.threshold != null && !Number.isFinite(opts.threshold)) throw new TypeError("plugin-voxel: threshold must be a finite number (data units)");
+	checkClip(opts.clip);
+}
 
 let anonSeq = 0;
 /** map.addData(data, { kind: "voxel", … }) の実体 */
 export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions = {}, { backend = "auto" }: VoxelPluginOptions = {}): VoxelHandle {
-	if (opts.render != null) checkEnum(opts.render, ["blocks", "volume"], "render");
-	if (opts.altitude != null) checkEnum(opts.altitude, ["relative", "absolute"], "altitude");
-	if (opts.step != null && !(typeof opts.step === "number" && opts.step > 0)) throw new RangeError("plugin-voxel: step must be a positive number (cells)");
-	if (opts.opacity != null && !(typeof opts.opacity === "number" && opts.opacity >= 0 && opts.opacity <= 1)) throw new RangeError("plugin-voxel: opacity must be 0..1");
+	checkOpts(opts);
 	if (!isFileSource(data)) checkVoxelData(data);   // 形の間違いは今・同期に投げる（worker へ送ってからでは遅い）
 	const id = opts.id ?? `voxel${++anonSeq}`;
 	const { ov, slot, release } = acquire(map, !!opts.above, id, backend);
 	try { ov.addLayerId?.(id); } catch (e) { release(); throw e; }
 	readerUsed();
-	let cur: VoxelSource = data, props: VoxelOptions = { ...opts }, removed = false, seq = 0, visible = true, values: VoxelData["values"] | null = null, comps: 1 | 4 = 1;
+	let cur: VoxelSource = data, props: VoxelOptions = { ...opts }, removed = false, seq = 0, visible = true, values: VoxelData["values"] | null = null, comps: 1 | 4 = 1, baked = false;
 	const run = async (src: VoxelSource, o: VoxelOptions): Promise<VoxelHandle> => {
 		const my = ++seq;
 		const p = await load(src, o);
 		if (removed || my !== seq) return h;
-		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; cur = src; values = (src as VoxelData).values; comps = p.comps;
-		const body = { type: "layer", q: id, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, alt: o.altitude ?? (p.placed ? "absolute" : "relative"), A: p.A, radius: p.radius,
-			mode: o.render === "blocks" ? 0 : 1, thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible };
+		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
+		const body = { type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, alt: o.altitude ?? (p.placed ? "absolute" : "relative"), A: p.A, radius: p.radius, geo: p.geo,
+			mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible };
 		slot.errors.set(id, e => { h.error = e; });   // 描き手の build の失敗（3D テクスチャの上限など）は非同期に届く＝warn と手綱の error（ready は解決する）
 		ov.post(body, transferables(p));
 		return h;
 	};
+	// 見た目だけの変更＝格子を上げ直さない（render・opacity・step・threshold・clip・depthTest・properties・colormap・alphaRamp）
+	const restyle = (p: Partial<VoxelOptions>): void => {
+		const s: VoxelStyle & { type: "style"; q: string } = { type: "style", q: id };
+		if ("render" in p) s.mode = MODE[props.render ?? "volume"]; if ("opacity" in p) s.opacity = props.opacity ?? 1; if ("step" in p) s.step = props.step ?? 0.5;
+		if ("threshold" in p) s.thr = comps === 4 || !h.range ? 0 : thrOf(props.threshold, h.range); if ("clip" in p) s.clip = checkClip(props.clip); if ("depthTest" in p) s.depthTest = props.depthTest !== false; if ("properties" in p) s.properties = props.properties ?? null;
+		if ("colormap" in p || "alphaRamp" in p) s.cmap = buildColormap(props.colormap, props.alphaRamp ?? null);
+		ov.post(s, s.cmap ? [s.cmap.buffer as ArrayBuffer] : []);
+	};
 	// 当たりの value＝main が持つ元の値（worker の答えは番号だけ）
 	const withValue = (t: VoxelHit): VoxelHit => { if (values && comps === 1 && t.index >= 0 && t.index < values.length) { const v = values[t.index]; t.value = v; t.properties = { ...t.properties, value: v }; } return t; };
 	const h: VoxelHandle = {
-		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null,
+		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null,
 		get backend() { return slot.backend; },
 		ready: undefined as unknown as Promise<VoxelHandle>,
 		setData: (d: VoxelSource) => { if (!isFileSource(d)) checkVoxelData(d); return (h.ready = run(d, props)); },
-		setProps: (p: Partial<VoxelOptions>) => { props = { ...props, ...p }; return (h.ready = run(cur, props)); },
+		setProps: (p: Partial<VoxelOptions>) => {
+			checkOpts(p); props = { ...props, ...p };
+			if (baked && !removed && Object.keys(p).every(k => (STYLE_KEYS as readonly string[]).includes(k))) { restyle(p); return h.ready; }
+			return (h.ready = run(cur, props));
+		},
 		setVisible: (on: boolean) => { visible = !!on; if (!removed) ov.post({ type: "vis", q: id, on: visible }); return h; },
 		pick: async (x: number, y: number, r = 4): Promise<VoxelHit[]> => (await map.pickOverlays(x, y, { radius: r, names: [ov.name] })).filter(isVoxelHit(id)).map(withValue),
 		remove: () => { if (removed) return; removed = true; ov.post({ type: "remove", q: id }); ov.removeLayerId?.(id); slot.errors.delete(id); release(); readerFree(); },
@@ -184,7 +212,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 
 /** map.use(voxelPlugin()) → map.addData(data, { kind: "voxel", render?, colormap?, range?, threshold?, alphaRamp?, step?, opacity?, altitude?, depthTest?, above?, properties? }) */
 export function voxelPlugin({ backend = "auto" }: VoxelPluginOptions = {}): VoxelPlugin {
-	checkEnum(backend, ["auto", "webgl2"], "backend");
+	checkEnum(backend, ["auto", "webgpu", "webgl2"], "backend");
 	return {
 		name: "plugin-voxel",
 		version: VERSION,
