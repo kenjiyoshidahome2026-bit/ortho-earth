@@ -2,11 +2,15 @@
 //   { key, iso2, name, nameEn, capital, capitalEn, region("1".."6"), population, area, un(加盟日|null), territory(key|null), conflict(key|null), flagKey, coord }
 // 難易度＝国の知名度（人口・面積・国連加盟）で 3 層に分ける。範囲＝世界か地域（World の REGIONS と同じ番号）。
 // 出題＝1 セット 10 問。間違えた国を優先して混ぜる（間隔反復）・最近出た国は避ける＝飽きずに全部を回る。
+// 地形モード（2026-10-23・Kenji「世界の地形を当てるクイズ」）＝World の TerrainDB（山・川・湖・砂漠…）を同じ形の 1 件にして同じ芯で回す
+//   （category＝分類・tier＝層・key＝QID。国の欄のうち首都・旗・人口は空）。
 
 /** 平らにした国の 1 件（data.ts の loadCountries が作る・検定は一部の欄だけ渡す） */
 export interface QuizCountry {
 	key: string; iso2: string; qid?: string; name: string; nameEn: string; capital: string; capitalEn: string; capitalCoord?: number[] | null;
 	region: string; population: number; area: number; un: unknown; territory: string | null; conflict: string | null; flagKey: string | null; coord: number[] | null; wiki?: string[] | null;
+	/** 地形だけ：分類（TerrainDB の category）・層（terrainTier）・系統（TERRAIN_GROUP）・物理量・近くの国の名前（地図が無い時の手がかり） */
+	category?: string; tier?: number; group?: string; elevation?: number | null; length?: number | null; near?: string[];
 }
 /** 間違いの台帳の 1 件（間隔反復） */
 export interface Mistake { wrong: number; streak: number; due: number; last: number }
@@ -20,10 +24,22 @@ export const CHOICES = 4;
 export const LEVELS = [1, 2, 3];
 export const REGIONS = ["0", "3", "1", "2", "4", "5", "6"];   // World の並び＝世界・アジア・ヨーロッパ・アフリカ・北米・南米・オセアニア
 export const REGION_EN: Record<string, string> = { "0": "Whole World", "3": "Asia", "1": "Europe", "2": "Africa", "4": "North America", "5": "South America", "6": "Oceania/Antarctica" };
-export const MODES = ["capital", "flag", "map"];   // 国名+国旗 → 首都／国旗 ⇄ 国名／地図 → 国名（Lv.3 は国名 → 地図を押す）
+export const MODES = ["capital", "flag", "map", "terrain"];   // 国名+国旗 → 首都／国旗 ⇄ 国名／地図 → 国名（Lv.3 は国名 → 地図を押す）／地図 → 地形の名前
+
+// 地形の分類 → 系統（/globe/physical の GROUPS と同じ分け方）。選択肢は同じ分類から・足りなければ同じ系統から（川の問に砂漠の名前を混ぜない）
+export const TERRAIN_GROUP: Record<string, string> = Object.fromEntries(Object.entries({
+	relief: ["range", "peak", "volcano", "pass", "plateau", "plain", "basin", "valley", "shield", "region", "trench", "ridge"],
+	water: ["river", "lake", "waterfall", "delta", "wetland", "canal"],
+	sea: ["ocean", "sea", "bay", "strait", "reef"],
+	dry: ["desert", "saltflat", "ice", "pole"],
+	land: ["continent", "island", "islands", "peninsula", "cape", "isthmus"],
+}).flatMap(([g, cats]) => cats.map(c => [c, g])));   // プレート・海流は出さない（形が線の模式図＝名前を当てる物ではない）
+// 地形の層＝NE の scalerank（地図帳での目立ち度）：Lv.1＝0〜1（大陸・大洋・大山脈・大河・五大湖…約 140）／Lv.2＝2〜3 と手で足した名所（富士山・マリアナ海溝・ジブラルタル海峡…）／Lv.3＝全部
+export const terrainTier = (rank: number | null | undefined): number => rank == null ? 2 : rank <= 1 ? 1 : rank <= 3 ? 2 : 3;
 
 // 層分け（知名度）：Lv.1＝国連加盟国のうち人口 1,500 万以上か面積 100 万 km² 以上（約 80）／Lv.2＝国連加盟国で人口 100 万以上（約 160）／Lv.3＝全部（領土・小国・係争地も）
 export function tierOf(c: QuizCountry): number {
+	if (c.tier) return c.tier;   // 地形（terrainTier）
 	const pop = c.population || 0, area = c.area || 0;
 	if (c.un && (pop >= 15e6 || area >= 1e6)) return 1;
 	if (c.un && pop >= 1e6) return 2;
@@ -36,8 +52,9 @@ export function eligible(c: QuizCountry | null | undefined, mode: string): boole
 	if (!c || !c.name) return false;
 	if (mode === "capital") return !!c.capital;
 	if (mode === "flag") return !!c.flagKey && c.flagKey === c.key;   // 領有国の旗で代替している領土は旗のクイズに出さない（同じ旗が 2 枚並ぶ）
-	if (mode === "map") return Array.isArray(c.coord) && c.coord.length >= 2;
-	return true;
+	if (mode === "map") return !c.category && Array.isArray(c.coord) && c.coord.length >= 2;
+	if (mode === "terrain") return !!c.category && Array.isArray(c.coord) && c.coord.length >= 2;
+	return !c.category;
 }
 
 export function pool(countries: QuizCountry[], { mode, level, region = "0" }: SetOpts): QuizCountry[] {
@@ -67,13 +84,20 @@ export function choicesFor(answer: QuizCountry, p: QuizCountry[], { level, mode,
 	const seen = new Set([label(answer)]), out = [answer];
 	const take = (list: QuizCountry[]): void => { for (const c of shuffle(list, rnd)) { if (out.length >= count) return; const l = label(c); if (!l || seen.has(l) || c.key === answer.key) continue; seen.add(l); out.push(c); } };
 	const others = p.filter(c => c.key !== answer.key);
-	if (level >= 2) take(others.filter(c => c.region === answer.region));
+	if (mode === "terrain") {   // 地形＝分類が見えている（「川」）＝同じ分類から。Lv.2 以上は同じ分類で同じ地域を先に
+		const cat = others.filter(c => c.category === answer.category);
+		if (level >= 2) take(cat.filter(c => c.region === answer.region));
+		take(cat);
+		take(all.filter(c => c.category === answer.category && c.key !== answer.key && eligible(c, mode) && inLevel(c, Math.max(level, 2))));   // 範囲の外でも同じ分類を先に（アジアの Lv.1 の山はエベレストだけ）・知名度は Lv.2 まで
+		take(others.filter(c => c.group === answer.group));
+	}
+	else if (level >= 2) take(others.filter(c => c.region === answer.region));
 	take(others);
 	if (out.length < count) take(all.filter(c => eligible(c, mode) && c.key !== answer.key && !out.includes(c)));   // 範囲が狭い（例：南米 Lv.1）時は外からも
 	return shuffle(out, rnd);
 }
 
-// 1 問の形。kind＝画面の見せ方（capital: 国名+旗 → 首都の文字／flag: 旗 → 国名の文字／name: 国名 → 旗の絵／map: 地図 → 国名の文字／tap: 国名 → 地図を押す）
+// 1 問の形。kind＝画面の見せ方（capital: 国名+旗 → 首都の文字／flag: 旗 → 国名の文字／name: 国名 → 旗の絵／map: 地図 → 国名の文字／tap: 国名 → 地図を押す／terrain: 地図 → 地形の名前）
 export function makeQuestion(answer: QuizCountry, p: QuizCountry[], { mode, level, rnd = Math.random, all = p, index = 0 }: { mode: string; level: number; rnd?: () => number; all?: QuizCountry[]; index?: number }): Question {
 	let kind = mode;
 	if (mode === "flag") kind = index % 2 ? "name" : "flag";           // 旗 → 国名と国名 → 旗を交互に
