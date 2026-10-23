@@ -2,12 +2,12 @@
 // 温泉郷は面・源泉が温泉地から離れている物（岳温泉など）は源泉まで破線で結ぶ。
 // このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、描画と案内板は ./onsen.js（遅延 chunk）。
 // データ＝GitHub Pages の ortho-data/japan/onsen.json（台帳・dev は手元の正本・vite.config の __DATA_JAPAN__）＝scripts/onsen-ledger が組む。
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 (async () => {
 	const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
 	await setLang();
 	document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
 	const engineP = import("./app.ts");
-	const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
 	try {
 		const [{ default: orthoJapan }, { mountOnsen }] = await Promise.all([engineP, import("./onsen.ts")]);
 		// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D・基図の施設・鉄道・道路は出さない（温泉の点が主役）

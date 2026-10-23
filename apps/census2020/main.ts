@@ -1,6 +1,7 @@
 // census2020 起動指揮者：エンジン（ortho-japan/app.js）と census ドリルパネルを結線する。
 // パネルは地図を待たない（即描画・初回は9MB自動取得）／地図は hash 共有ビュー優先で立ち上がる。
 // 各機能は独立モジュール＝bind(双方向)・choropleth(コロプレス)・bousai(防災)・moj(筆)・wiki(Wikipedia)。
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import "./panel.scss";
 import { createGeopbf } from "geopbf";
 import type { BucketProvider } from "geopbf";
@@ -47,11 +48,6 @@ const toggleBtn = document.getElementById("panel-toggle") as HTMLElement;
 const syncToggle = () => { toggleBtn.textContent = shell.classList.contains("map-full") ? "◀" : "▶"; };
 toggleBtn.addEventListener("click", () => { shell.classList.toggle("map-full"); syncToggle(); });
 syncToggle();
-
-const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-	const boot = document.getElementById("boot");
-	if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
-}));
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";

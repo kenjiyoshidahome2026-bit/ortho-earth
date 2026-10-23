@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-import { coepHeadersFile } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { coepHeadersFile, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // geopbf・native-bucket・ephem・globe の言語の芯は共有エンジン（/globe/engine/<版>/）から読む（2026-10-15・旧＝自分の束に焼いていた）
 // 本番の COOP/COEP＝coepHeadersFile が dist/site/_headers を書く（www のデモ一覧の iframe に載る頁＝www と同じ COEP credentialless が要る・2026-09-22・理由は vite-app.mjs）。
 
@@ -9,7 +9,7 @@ import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs
 // （wrangler.toml の directory = dist/site・route = /solar*。ortho-japan と同じ型）
 export default defineConfig({
 	base: "./",
-	plugins: [coepHeadersFile(resolve(import.meta.dirname, "dist/site")), sharedEngine()],
+	plugins: [coepHeadersFile(resolve(import.meta.dirname, "dist/site")), sharedEngine(), bootScreen],
 	server: { port: 5199 },   // ortho-japan の太陽系ガジェット（gadgets/solar.js）が開発時に叩く固定ポート＝素の 5173 だと japan と取り合う
 
 	// target es2022＝main.ts 冒頭の top-level await（訳を待ってから UI を組む）を素通しさせる。

@@ -1,13 +1,8 @@
 // 中身は ortho-japan と同じエンジン（app.js）＝1行で立ち上がる。違うのは入口URL(/nl/)と既定の視点だけ。
 // 日本固有のガジェット（地名検索・日本ボタン・デモ台本・太陽系への口）は載せない＝この画面はオランダ一本。
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import orthoJapan from "@ortho-earth/regions/app";   // 本番は共有エンジンの入口（regions/app.js・2026-10-14）
 import { NL_PLACES, type NlPlace } from "@ortho-earth/nl";   // 街の一覧（建物の枠と同じ表＝街を足すのは region.js だけ）
-const dismissBoot = () => {
-	requestAnimationFrame(() => requestAnimationFrame(() => {
-		const boot = document.getElementById("boot");
-		if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
-	}));
-};
 orthoJapan().then(map => {
 	dismissBoot();
 	map.gadget.zoom();        // ズーム＋/−

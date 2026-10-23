@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
-import { crossOriginIsolation, noChunkOptimization, asyncMainCss } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, asyncMainCss, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-nl＝オランダ（3DBAG）の独立した入口。中身は ortho-japan と同じエンジン（@ortho-earth/regions/app＝本番は共有エンジンの入口 regions/app.js）で、
 // 違うのは base(/nl/)・既定の視点・題字・出典・載せるガジェットだけ＝コードは二重化しない。
@@ -15,5 +15,5 @@ export default defineConfig({
 	server: { port: 5188, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（packages）を dev で読ませる
 	build: { outDir: OUT, emptyOutDir: true, rolldownOptions: noChunkOptimization },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss],
+	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, bootScreen],
 });

@@ -9,6 +9,7 @@
 // i18n は必ず "@ortho-earth/globe/i18n.js" の名で引く＝本番の build では共有エンジンの実体（/globe/engine/<版>/i18n.js）に外出しされる
 //（scripts/lib/shared-engine.mjs）。相対で引くと言語の状態が頁とエンジンで二つに割れる。
 import { setLang, getLang, isRTL, loadPage, tr } from "@ortho-earth/globe/i18n.js";
+import { dismissBoot } from "./boot/screen.ts";
 const t = tr();
 /** 頁の辞書の読み口（c => import(`./i18n/lang/<page>/${c}.json`)） */
 export type PageDictImporter = (code: string) => Promise<{ default: Record<string, string> }>;
@@ -23,13 +24,8 @@ async function preparePage({ page, lang }: { page?: PageDictImporter | null; lan
 	return code;
 }
 
-// ③ 起動画面（#boot）を畳む（地図の初回フレームが描かれてから＝空 canvas のちらつきを避ける 2 フレーム待ち）。無ければ何もしない
-export function dismissBoot(): void {
-	requestAnimationFrame(() => requestAnimationFrame(() => {
-		const b = document.getElementById("boot");
-		if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); }
-	}));
-}
+// ③ 起動画面（#boot）を畳む＝正本は boot/screen.ts（幕の形・CSS・畳み方を全頁で 1 つに・2026-10-23）。無ければ何もしない
+export { dismissBoot };
 
 // ④ 起動の失敗を画面に。エンジンの fatalOverlay（globe.css の #fatal）はエンジンが起きた後にしか使えない＝ここは外部 CSS に依らない自前の面。
 //   tag＝console の印（"[parks]"）。target＝置き場（既定＝#map か body）。戻り＝作った要素
