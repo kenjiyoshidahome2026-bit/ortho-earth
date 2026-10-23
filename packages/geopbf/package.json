@@ -146,7 +146,7 @@
 		"verify:pages": "node scripts/verify-pages.mjs",
 		"verify:examples": "node scripts/verify-examples.mjs",
 		"verify:all": "npm test && npm run verify:gpu && npm run verify:pages && npm run verify:npm",
-		"mirror": "git -C ../.. subtree split --prefix=packages/geopbf -b geopbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geopbf.git geopbf-mirror:main --force && git -C ../.. branch -D geopbf-mirror",
+		"mirror": "node scripts/mirror.mjs",
 		"build:wasm": "bash wasm/build.sh",
 		"check:wasm": "bash wasm/build.sh --check"
 	},
@@ -158,6 +158,7 @@
 		"maplibre-gl": "^6.15.0",
 		"ol": "^10.0.0",
 		"playwright": "^1.63.0",
+		"typescript": "^6.0.3",
 		"vite": "^8.3.1"
 	}
 }
