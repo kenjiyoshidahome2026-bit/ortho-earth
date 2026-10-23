@@ -976,18 +976,21 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if (d.bitmap) pats.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, view: null, tex: null }); else pats.delete(d.name);
 	}
 	// 塗りの bind group。null＝模様の画像がまだ無い（描かない＝MapLibre も画像が届くまで描かない）。溢れた時は役割の DrawP（効果なし）で描く
+	// 模様の画像のテクスチャ（初めて使う時に作る）。null＝画像がまだ無い・閉じた画像（差し替えの最中）＝次の labelImage を待つ
+	function patOf(pat: string): NonNullable<ReturnType<typeof pats.get>> | null {
+		const p = pats.get(pat); if (!p) return null;
+		if (!p.view) {
+			try {
+				p.tex = device.createTexture({ size: [p.bm.width, p.bm.height], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+				device.queue.copyExternalImageToTexture({ source: p.bm }, { texture: p.tex }, [p.bm.width, p.bm.height]);
+				p.view = p.tex.createView();
+			} catch { p.tex?.destroy(); pats.delete(pat); return null; }
+		}
+		return p;
+	}
 	function lxFill(role: number, key: string, fx: number[] | null, pat: string | null, origin: ArrayLike<number>): GPUBindGroup | null {
 		let p: NonNullable<ReturnType<typeof pats.get>> | undefined;
-		if (pat) {
-			p = pats.get(pat); if (!p) return null;
-			if (!p.view) {
-				try {
-					p.tex = device.createTexture({ size: [p.bm.width, p.bm.height], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
-					device.queue.copyExternalImageToTexture({ source: p.bm }, { texture: p.tex }, [p.bm.width, p.bm.height]);
-					p.view = p.tex.createView();
-				} catch { p.tex?.destroy(); pats.delete(pat); return null; }   // 閉じた画像（差し替えの最中）＝次の labelImage を待つ
-			}
-		}
+		if (pat) { p = patOf(pat) ?? undefined; if (!p) return null; }
 		const k = pat ? `${key}|${origin[0]},${origin[1]}` : key;   // 模様の位相はシーン原点に依る
 		return lxSlot(role, k, pat || "", p ? p.view! : patDummyView, o => {
 			lxFx(o, fx, false);
@@ -1013,10 +1016,13 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		}
 		return t.view;
 	}
-	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null, off = 0, lt: LineTex | null = null): GPUBindGroup {
-		const g = lt?.lut ? lt : null;
-		return lxSlot(role, off ? `${key}|${off}` : key, g ? "lt:" + g.key : "", g ? ltView(g) : patDummyView, o => {
+	// line-pattern（G-4）＝塗りの模様と同じ画像を binding 1 に・patP＝(2, 破線と同じ尺, 層の line-opacity)。null＝画像がまだ無い（描かない＝塗りの模様と同じ）
+	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null, off = 0, lt: LineTex | null = null): GPUBindGroup | null {
+		const g = lt?.lut ? lt : null, pp = lt?.pat ? patOf(lt.pat) : null;
+		if (lt?.pat && !pp) return null;
+		return lxSlot(role, off ? `${key}|${off}` : key, g ? "lt:" + g.key : pp ? lt!.pat! : "", g ? ltView(g) : pp ? pp.view! : patDummyView, o => {
 			if (g) lxCPU[o + 20] = 1;   // patP.x＝line-gradient
+			if (pp) { const zs = lxCam.zoom - (view.dashDz ?? 1); lxCPU[o + 20] = 2; lxCPU[o + 21] = 2 ** (lxCam.zoom - 24 - (zs - Math.floor(zs))) * lxCam.cosLat; lxCPU[o + 22] = lt!.o ?? 1; }   // patP＝line-pattern
 			lxFx(o, fx, true);
 			lxCPU[o + 3] = off;
 			lxCPU[o + 6] = cj;
@@ -2092,7 +2098,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const layers: MDLayer[] = m.layers.map(L => {
 			const cj = L.cj || 0, dash = L.kind === "line" ? dashU(L.dash, cj) : null, fx = L.fx || null;
 			return { kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}), cj, dash, fx,
-				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx, L.lt), dOff: dash && L.pz?.of != null ? L.pz : null, lt: L.lt || null };
+				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx, L.lt), dOff: (dash || L.lt?.pat) && L.pz?.of != null ? L.pz : null, lt: L.lt || null };
 		});
 		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
 		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -2737,9 +2743,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			} else {
 				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
 				const role = userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal;   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+				const bgL = d.lxk ? lxLine(role, d.lxk, d.cj, d.dash, d.fx, 0, d.lt) : paramBG[role];
+				if (!bgL) return;   // 線の模様の画像がまだ無い層＝描かない（G-4）
 				pass.setPipeline(linePipe);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, d.lxk ? lxLine(role, d.lxk, d.cj, d.dash, d.fx, 0, d.lt) : paramBG[role]);
+				pass.setBindGroup(1, bgL);
 				if (grp(slot)) pass.setBindGroup(2, grp(slot));
 				pass.setVertexBuffer(0, cornerBuf);
 				pass.setVertexBuffer(1, d.bP1, d.pad ? 8 : 0);
@@ -2778,9 +2786,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			} else {
 				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
 				if (!md!.lineBG) return;
+				const bgL = e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx, e.dOff ? evalPaintZoom(e.dOff, lxCam.zoom).off! : 0, e.lt) : paramBG[ROLE.normal];
+				if (!bgL) return;   // 線の模様の画像がまだ無い層＝描かない（G-4）
 				pass.setPipeline(terrainDepth ? MDX!.lineTest : MDX!.lineOff);
 				pass.setBindGroup(0, bg0[slot]);
-				pass.setBindGroup(1, e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx, e.dOff ? evalPaintZoom(e.dOff, lxCam.zoom).off! : 0, e.lt) : paramBG[ROLE.normal]);
+				pass.setBindGroup(1, bgL);
 				pass.setBindGroup(2, grp(slot) || emptyBG);
 				pass.setBindGroup(3, md!.lineBG);
 				pass.setVertexBuffer(0, orgBuf, e.orgOff);

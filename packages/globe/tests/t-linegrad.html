@@ -2,6 +2,7 @@
 <!-- 実描画の検分：line-gradient（geojson vt plan G-3・2026-10-22）＝線分の色の語が始点・終点の進み（unorm16×2）で、色は見本（LineOp.lt.lut）を画素の進みで引く。
      レンダラを直駆動（t-globefloor と同じ作法・地球儀は起こさない）。?gl2=1＝GL2（createRenderer の classic）・無印＝WebGPU（createRendererGPU の classic）。
      東向きの 2 線分（進み 0→0.5・0.5→1）に赤→青の見本＝頭は赤・真ん中は紫・尻は青・4 分の 1 は赤寄り。見本を持たない同じ線（色の語が色）は従来どおり一色。
+     line-pattern（G-4）：上の東向きの線（lt.pat＝8×4px の画像・左半分が赤・右半分が白・線幅 12px）＝赤と白が 12px ずつ（1 周期＝線幅×幅÷高さ）・語 6（dist）の位相が線分をまたいで続く。
      画素は GL2＝同じタスクの drawImage・WebGPU＝renderer.readback（実 GPU）。WebGPU は検証エラー 0 も。?nopx=1＝画素を読まない（クラウドの SwiftShader は読み戻しで device を失う）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0}</style><title>t-linegrad</title></head>
 <body><canvas id="g" width="256" height="64"></canvas>
@@ -22,7 +23,10 @@ try {
 	const line = (li, y, lt) => ({ kind: "line", li, P1: new Float32Array([-D, y, 0, y]), P2: new Float32Array([0, y, D, y]), half: new Float32Array([6, 6]),
 		col: new Uint8Array(lt ? [...word(0, 0.5), ...word(0.5, 1)] : [0, 160, 0, 255, 0, 160, 0, 255]), ...(lt ? { lt } : {}) });
 	const dy = 16 / K;   // 2 本目＝画面で 16 px 下（緯度は小さい差なので経度と同じ尺の近似で足りる）
-	r.set("scene", { origin: [LON, LAT], layers: [line(1, 0, { key: "g|red-blue", lut }), line(2, -dy * 1.23, null)] }, "main");
+	const IW = 8, IH = 4, im = new ImageData(IW, IH); for (let i = 0; i < IW * IH; i++) { const red = (i % IW) < IW / 2; im.data.set([255, red ? 0 : 255, red ? 0 : 255, 255], i * 4); }
+	r.set("patImage", { name: "chk", bitmap: await createImageBitmap(im), pixelRatio: 1 });
+	const pl = { ...line(3, dy * 1.23, null), dist: new Float32Array([0, D / 360 * 2 ** 32]), lt: { key: "p|chk|1", pat: "chk", o: 1 } };   // dist＝始点までの線に沿う距離（z24 の px）・3 本目＝上
+	r.set("scene", { origin: [LON, LAT], layers: [line(1, 0, { key: "g|red-blue", lut }), line(2, -dy * 1.23, null), pl] }, "main");
 	const cam = { center: [LON, LAT], zoom: Z, pitch: 0, bearing: 0, dpr: 1 };
 	let px = null;
 	if (GL2) {
@@ -37,7 +41,7 @@ try {
 	else {
 	const at = (x, y) => { const i = (Math.round(y) * W + Math.round(x)) * 4; return [px[i], px[i + 1], px[i + 2], px[i + 3]]; };
 	// 線の芯の行（真ん中の列で一番濃い行）と端（丸い端の外＝白くない画素の左右の端から半幅＋1 内へ）を絵から探す＝投影の尺を当てにしない
-	let yc = H / 2, best = 999; for (let y = 0; y < H; y++) { const c = at(W / 2, y), s = c[1] + (255 - Math.max(c[0], c[2])); if (c[1] < 60 && s < best) { best = s; yc = y; } }
+	let yc = H / 2, best = 999; for (let y = 24; y < H; y++) { const c = at(W / 2, y), s = c[1] + (255 - Math.max(c[0], c[2])); if (c[1] < 60 && s < best) { best = s; yc = y; } }   // 上の模様の線（赤）は外す（y ≥ 24）
 	const ink = x => { const c = at(x, yc); return c[0] + c[1] + c[2] < 700; };
 	let xa = 0, xb = W - 1; while (xa < W && !ink(xa)) xa++; while (xb > 0 && !ink(xb)) xb--;
 	xa += 7; xb -= 7;
@@ -49,6 +53,13 @@ try {
 	ok(`尻は青（${c1.join()}）`, c1[2] > 200 && c1[0] < 50 && c1[1] < 40);
 	let green = 0; for (let y = 0; y < H; y++) { const c = at(W / 2, y); if (c[1] > 120 && c[0] < 60 && c[2] < 60) green++; }
 	ok(`見本の無い線は色の語が色（緑 ${green} 行）`, green >= 8);
+	// line-pattern：赤の画素の一番多い行（上の 20 行）で赤と白の続きの長さ
+	let yp = 0, nb = -1; for (let y = 0; y < 20; y++) { let n = 0; for (let x = 0; x < W; x++) { const c = at(x, y); if (c[0] > 200 && c[1] < 60) n++; } if (n > nb) { nb = n; yp = y; } }
+	const kind = c => c[0] > 200 && c[1] < 70 && c[2] < 70 ? "R" : c[0] > 200 && c[1] > 200 && c[2] > 200 ? "W" : "?";
+	const row = []; for (let x = 0; x < W; x++) row.push(kind(at(x, yp)));
+	const runs = []; let run = 1; for (let i = 1; i < row.length; i++) { if (row[i] === row[i - 1] || row[i] === "?") run++; else { runs.push(run); run = 1; } }
+	const inner = runs.slice(1, -1);
+	ok(`線の模様＝赤と白が 12px ずつ（赤 ${nb}・続き ${inner.join(",")}）`, nb > 40 && inner.length >= 6 && inner.every(v => Math.abs(v - 12) <= 1.5));   // 継ぎ目（2 本の線分の境）でも位相が続く
 	}
 	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? ":" + r.gpuErrors.slice(0, 2).join("|") : ""}）`, r.gpuErrors.length === 0); }
 	r.dispose();

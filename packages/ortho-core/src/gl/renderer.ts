@@ -200,9 +200,17 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const ltTexs = new Map<string, WebGLTexture>();
 	const ltProg = (prog: WebGLProgram): void => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ltTex"), PAT_UNIT); gl.uniform4f(loc(gl, prog, "u_lt"), 0, 0, 0, 0); };
 	ltProg(lineProg);
-	const setLt = (prog: WebGLProgram, lt: LineTex | null | undefined): void => {
+	// line-pattern（G-4）＝塗りの模様と同じ画像のテクスチャを PAT_UNIT へ・u_lt＝(2, 破線と同じ尺, 層の line-opacity)。false＝画像がまだ無い（描かない＝塗りの模様と同じ）
+	const setLt = (prog: WebGLProgram, lt: LineTex | null | undefined, cam: { zoom?: number; center?: ArrayLike<number> }): boolean => {
 		const L = loc(gl, prog, "u_lt");
-		if (!lt?.lut) { gl.uniform4f(L, 0, 0, 0, 0); return; }
+		if (lt?.pat) {
+			const p = patTex(lt.pat); if (!p) return false;
+			gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0);
+			const z = cam.zoom || 0, zs = z - (view.dashDz ?? 1);
+			gl.uniform4f(L, 2, 2 ** (z - 24 - (zs - Math.floor(zs))) * Math.cos((cam.center?.[1] || 0) * Math.PI / 180), lt.o ?? 1, 0);
+			return true;
+		}
+		if (!lt?.lut) { gl.uniform4f(L, 0, 0, 0, 0); return true; }
 		let t = ltTexs.get(lt.key);
 		if (!t) {
 			if (ltTexs.size >= 64) { const k0 = ltTexs.keys().next().value!; gl.deleteTexture(ltTexs.get(k0)!); ltTexs.delete(k0); }
@@ -214,25 +222,32 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		} else { gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t); }
 		gl.activeTexture(gl.TEXTURE0);
 		gl.uniform4f(L, 1, 0, 0, 0);
+		return true;
 	};
 	const setPatImage = (d: { name: string; bitmap: ImageBitmap | null; pixelRatio?: number } | null): void => {
 		if (!d?.name) return;
 		const old = pats.get(d.name); if (old?.tex) gl.deleteTexture(old.tex);
 		if (d.bitmap) pats.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, tex: null }); else pats.delete(d.name);
 	};
-	// 模様の uniform を置く。false＝画像がまだ無い（描かない＝MapLibre も画像が届くまで描かない）
-	const setPat = (prog: WebGLProgram, name: string | null | undefined, o: ArrayLike<number>, cam: { zoom?: number }): boolean => {
-		gl.uniform1i(loc(gl, prog, "u_patTex"), PAT_UNIT);
-		if (!name) { gl.uniform4f(loc(gl, prog, "u_patP"), 0, 0, 0, 0); return true; }
-		const p = pats.get(name); if (!p) return false;
+	// 模様の画像のテクスチャ（初めて使う時に作る）。null＝画像がまだ無い・閉じた画像（差し替えの最中）＝次の labelImage を待つ
+	const patTex = (name: string): { bm: ImageBitmap; pr: number; tex: WebGLTexture } | null => {
+		const p = pats.get(name); if (!p) return null;
 		if (!p.tex) {
 			try {
 				p.tex = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.tex);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, p.bm);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-			} catch { if (p.tex) gl.deleteTexture(p.tex); pats.delete(name); gl.activeTexture(gl.TEXTURE0); return false; }   // 閉じた画像（差し替えの最中）＝次の labelImage を待つ
+			} catch { if (p.tex) gl.deleteTexture(p.tex); pats.delete(name); gl.activeTexture(gl.TEXTURE0); return null; }
+			gl.activeTexture(gl.TEXTURE0);
 		}
+		return p as { bm: ImageBitmap; pr: number; tex: WebGLTexture };
+	};
+	// 模様の uniform を置く。false＝画像がまだ無い（描かない＝MapLibre も画像が届くまで描かない）
+	const setPat = (prog: WebGLProgram, name: string | null | undefined, o: ArrayLike<number>, cam: { zoom?: number }): boolean => {
+		gl.uniform1i(loc(gl, prog, "u_patTex"), PAT_UNIT);
+		if (!name) { gl.uniform4f(loc(gl, prog, "u_patP"), 0, 0, 0, 0); return true; }
+		const p = patTex(name); if (!p) return false;
 		const dz = view.dashDz ?? 1, fz = Math.floor((cam.zoom || 0) - dz) + dz, n = 256 * 2 ** fz, W = p.bm.width / p.pr, H = p.bm.height / p.pr;
 		const X = (o[0] + 180) / 360 * n, s = Math.sin(o[1] * Math.PI / 180), Y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
 		gl.activeTexture(gl.TEXTURE0 + PAT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0);
@@ -1834,7 +1849,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 						setFx(loc(gl, md!.lineProg, "u_tr"), loc(gl, md!.lineProg, "u_blur"), e.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 						setPz(md!.lineProg, pzOver.get(e.li) ?? e.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
 						gl.uniform1f(loc(gl, md!.lineProg, "u_pt"), e.pt ?? 0);   // paint 表の (b) 類（2＝線の半幅も表・段 2b）
-						setLt(md!.lineProg, e.lt);   // line-gradient（G-3）
+						if (!setLt(md!.lineProg, e.lt, cam)) continue;   // line-gradient（G-3）・line-pattern（G-4＝画像がまだ無い層は描かない）
 						md!.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 						if (slot === "base") dbgC!.baseLine += e.counts.length; else dbgC!.mainLine += e.counts.length;
 						if (e.pt) dbgC!.pt += e.counts.length;
@@ -1882,7 +1897,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					setDash(lineDashPLoc, lineDashILoc, d.dash, cam);   // 破線（S-P1-3）
 					setFx(lineTrLoc, lineBlurLoc, d.fx, cam);   // line-translate・ぼかし（S-P1-4/5）
 					setPz(lineProg, pzOver.get(d.li) ?? d.pz, cam);   // ズーム連続の色・線幅（V-Ph3＝S-P1-2）
-					setLt(lineProg, d.lt);   // line-gradient（G-3）
+					if (!setLt(lineProg, d.lt, cam)) continue;   // line-gradient（G-3）・line-pattern（G-4＝画像がまだ無い層は描かない）
 					gl.bindVertexArray(d.vao);
 					drawLineInst(d.count);
 					if (slot === "base") dbgC!.baseLine++; else dbgC!.mainLine++;

@@ -93,7 +93,7 @@ t("chopDash（WebGPU の逃げ道）：区間どおりに刻む・丸い点は 1
 });
 t("シェーダ：classic は a_dist・multi_draw は破線の列だけ語 6 を距離と読む（ずらしの px は u_pzO・語 7 は角の継ぎ）・FS は区間で切る", () => {
 	assert.match(LINE_VS, /in float a_dist;/);
-	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);
+	assert.match(LINE_MD_VS, /if \(u_dashP\.y > 0\.5 \|\| u_lt\.x > 1\.5\) \{ dist0 = uintBitsToFloat\(B\.z\); off0\.x = 0\.0; \}/);   // 線の模様（G-4）も語 6 を読む
 	for (const s of [LINE_VS, LINE_MD_VS, LINE_FS]) { assert.match(s, /uniform vec4 u_dashP;/); assert.match(s, /uniform vec4 u_dashI\[2\];/); }
 	assert.match(LINE_FS, /flat in vec2 v_dd;/);
 });

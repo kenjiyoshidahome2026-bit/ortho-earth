@@ -22,7 +22,7 @@ const NOTES = {
 	"line-width": ["読む", "上限なし（基図と vector の層は f32・geojson の層は 2026-10-22 から u16＝8191px まで）・基図はタイルの z で焼く（ズームの段は §4）"],
 	"line-gap-width": ["読む", "基図・vector・geojson（2026-10-03）"],
 	"fill-pattern": ["一部", "基図と vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・名前は層で一度・模様の大きさは cos φ 倍・3D（地形あり）の塗りは描かない）・geojson の層は canvas2D の模様"],
-	"line-pattern": ["一部", "geojson の層だけ（canvas2D の模様）。基図・vector の層は未"],
+	"line-pattern": ["一部", "基図・vector・geojson の層（GL2・WebGPU・G-4・2026-10-22・名前と line-opacity は層で一度・破線と line-gradient は無効＝MapLibre・地物ごとのずらしと並べると色の線）・属性で模様を変える geojson の層は canvas2D の模様"],
 	"background-pattern": ["未", "§3 B5"],
 	"fill-extrusion-pattern": ["未", "警告して描く（§4）"],
 	"fill-translate": ["一部", "基図と vector の層（GL2・WebGPU・S-P1-4/5・2026-10-22・層で一度＝zoom の式はタイルの z）・3D（地形あり）の塗り・geojson の層は読まない"],
