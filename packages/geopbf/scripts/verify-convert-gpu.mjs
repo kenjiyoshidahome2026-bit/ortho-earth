@@ -23,12 +23,14 @@ const bi = process.argv.indexOf("--bench");
 const bench = bi > 0 ? { dir: path.resolve(process.argv[bi + 1]), name: process.argv[bi + 2], maxzoom: process.argv.includes("--maxzoom") ? process.argv[process.argv.indexOf("--maxzoom") + 1] : "8",
 	extra: (process.argv.includes("--nogzip") ? "&nogzip=1" : "") + (process.argv.includes("--workers") ? "&workers=" + process.argv[process.argv.indexOf("--workers") + 1] : "") } : null;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".ts": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json" };
+const SERVE_ROOT = path.resolve(root), DATA_ROOT = bench ? path.resolve(bench.dir) : SERVE_ROOT;
 const srv = http.createServer(async (q, s) => {
 	try {
 		const u = decodeURIComponent(q.url.split("?")[0]);
-		const base = path.resolve(bench && u.startsWith("/data/") ? bench.dir : root);
-		const p = path.resolve(base, "." + (bench && u.startsWith("/data/") ? u.slice(5) : u));
-		if (p !== base && !p.startsWith(base + path.sep)) throw new Error("outside");   // 配る根の外（../ 等）は 404
+		const isData = !!bench && u.startsWith("/data/");
+		const base = isData ? DATA_ROOT : SERVE_ROOT;
+		const p = path.resolve(base, "." + (isData ? u.slice(5) : u));
+		if (!p.startsWith(base + path.sep)) throw new Error("outside");   // 配る根の外（../ 等）は 404
 		const body = p.endsWith(".ts") ? stripTypeScriptTypes(await readFile(p, "utf8")) : await readFile(p);
 		s.setHeader("content-type", MIME[path.extname(p)] || "application/octet-stream");
 		s.end(body);
