@@ -12,6 +12,7 @@ import { qr as qrGadget } from "../gadgets/qr-stub.ts";
 import { shot as shotGadget } from "../gadgets/shot-stub.ts";
 import { sunShadow as sunShadowGadget } from "../gadgets/sunshadow.ts";
 import { viewshed as viewshedGadget } from "../gadgets/viewshed.ts";
+import { sunTimes, sunsOf, sunGrid } from "../sunshadow-core.ts";   // 日影時間の GPU 版（2026-10-24）＝時刻の列と升目は CPU 版と同じ式
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { TileLoader } from "@ortho-earth/core/elevation";
 import type { Bbox, GeoJSONFeature, GeoJSONFeatureCollection, LonLat } from "../../globe.d.ts";
@@ -25,7 +26,9 @@ type VisStats = Omit<Awaited<ReturnType<ShadowsApi["viewshed"]>>, "probes">;
 interface SunReply<S> { rgba: Uint8Array<ArrayBuffer>; w: number; h: number; bbox: Bbox; stats: S; probes: number[] }
 type VisReply = SunReply<VisStats> & { los: Omit<Awaited<ReturnType<ShadowsApi["lineOfSight"]>>, "triangles"> };
 type SunWait = { res: (d: unknown) => void; rej: (e: Error) => void };
-type VisOpts = { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number };
+type VisOpts = { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number; gpu?: boolean };
+/** 解析（GPU 版）の答え＝CPU 版の SunReply と同じ形（stats は種類ごと） */
+type AnaReply<S> = { rgba: Uint8Array<ArrayBuffer> | Uint8ClampedArray<ArrayBuffer>; w: number; h: number; bbox: Bbox; probes: number[]; stats: S };
 /** 画像タイルの一覧の spec（XYZ の URL の物だけ読む） */
 type RasterRow = { id: string; spec: { url?: string; minZoom?: number; minzoom?: number; maxZoom?: number; maxzoom?: number; subdomains?: string[] | string; tms?: boolean } };
 /** 入れ子の座標（clipAllCut が数える） */
@@ -42,18 +45,35 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	let sunWorker: Worker | null = null, sunSeq = 0;
 	const sunWaiting = new Map<number, SunWait>();
 	ownDestroy.push(() => { sunWorker?.terminate(); sunWorker = null; for (const p of sunWaiting.values()) p.rej(new Error("destroyed")); sunWaiting.clear(); });
+	// ── GPU 版（2026-10-24・WebGPU だけ）＝描いている物（PLATEAU・3D Tiles・模型・基図の押し出し・地形）から render worker が測る＝建物を読み直さない・その場で返る。
+	//   既定＝WebGPU なら GPU 版。gpu:false か tilesets（描いていない物を名指し）で CPU 版（model worker・tileset を読む）。GL2 は CPU 版だけ
+	const anaWait = new Map<number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let anaSeq = 0;
+	const anaCall = <R>(type: string, payload: object) => new Promise<R>((res, rej) => { const id = ++anaSeq; anaWait.set(id, { res: res as (d: unknown) => void, rej }); wPost({ type, id, ...payload }); });
+	const gpuPath = (o: { gpu?: boolean; tilesets?: string[] }) => live.renderBackend === "webgpu" && o.gpu !== false && !(o.tilesets && o.tilesets.length);
 	map.sunShadow = async (o = {}) => {
-		sunWorker ??= (() => { const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 		let bb = o.bbox || map.getBounds() || approxViewBbox(cam);
 		const c = [cam.center[0], cam.center[1]], half = 1500 / 111320, hx = half / Math.max(0.2, Math.cos(c[1] * D2R));
 		bb = [Math.max(bb[0], c[0] - hx), Math.max(bb[1], c[1] - half), Math.min(bb[2], c[0] + hx), Math.min(bb[3], c[1] + half)];   // 一辺 3km まで
+		const maxCells = LOW_MEM ? 512 * 512 : 1024 * 1024;
+		if (gpuPath(o)) try {   // GPU 版が立たない時（描く前・デバイス喪失）は CPU 版へ落ちる
+			const mode = o.mode || "duration", step = o.step ?? 0.5;
+			const { W, H, cell, lon0, lat0 } = sunGrid(bb, o.cell, maxCells);
+			const { times, decl } = sunTimes({ mode, date: o.date, decl: o.decl, hours: o.hours || [8, 16], step }, lon0 / D2R);
+			const suns = sunsOf(lat0 / D2R, decl, times);
+			const r = await anaCall<AnaReply<{ triangles: number; steps: number; maxHours: number; texelM: number }>>("anaSun", { bbox: bb, W, H, planeH: o.planeH ?? 4, suns: suns.map(x => ({ alt: x.alt, az: x.az })), step, mode, probe: o.probe || null });
+			const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
+			const [w, s, e, n] = r.bbox;
+			await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
+			return { ...r.stats, tiles: 0, decl: +decl.toFixed(2), planeH: o.planeH ?? 4, mode, cell: +cell.toFixed(2), probes: r.probes, gpu: true };
+		} catch (err) { console.warn("[sunShadow] GPU path failed, falling back to the CPU path:", (err as Error)?.message || err); }
+		sunWorker ??= (() => { const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 		const opts = { mode: o.mode || "duration", date: (o.date instanceof Date ? o.date : o.date ? new Date(o.date) : new Date()).toISOString(), planeH: o.planeH ?? 4, hours: o.hours || [8, 16], step: o.step ?? 0.5, decl: o.decl, bbox: bb,
-			tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), maxCells: LOW_MEM ? 512 * 512 : 1024 * 1024, probe: o.probe || null };
+			tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), maxCells, cell: o.cell, probe: o.probe || null };
 		const r = await new Promise<SunReply<SunStats>>((res, rej) => { const id = ++sunSeq; sunWaiting.set(id, { res: res as SunWait["res"], rej }); sunWorker!.postMessage({ id, kind: "sunshadow", opts }); });
 		const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
 		const [w, s, e, n] = r.bbox;
 		await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
-		return { ...r.stats, probes: r.probes };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
+		return { ...r.stats, probes: r.probes, gpu: false };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
 	};
 	// ── 建物の影（リアルタイム・2026-09-24）＝描画の中で太陽から建物の深度を描き、地面・建物に落とす（WebGPU 専用。
 	// GL2 はフォールバック＝影をかけない仕様（本人裁定 2026-09-24）＝GL レンダラは "shadow" を素通しする）。
@@ -107,31 +127,48 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 		sunWorker ??= (() => { const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 		const id = ++sunSeq; sunWaiting.set(id, { res: res as SunWait["res"], rej }); sunWorker.postMessage({ id, kind, opts });
 	});
-	const visArea = async (center: LonLat, radius: number, extra: object, o: VisOpts) => {
+	const visBox = (center: LonLat, radius: number, o: VisOpts) => {   // 範囲（半径の 1.02 倍の正方形）と升目の数（CPU/GPU 共通）
 		const R = Math.min(5000, Math.max(50, radius)), dLat = R * 1.02 / 111320, dLon = dLat / Math.max(0.2, Math.cos(center[1] * D2R));
 		const bbox: Bbox = [center[0] - dLon, center[1] - dLat, center[0] + dLon, center[1] + dLat];
-		const N = Math.max(64, Math.min(LOW_MEM ? 384 : 768, Math.round(2 * R / (o.cell ?? 2))));
+		return { R, bbox, N: Math.max(64, Math.min(LOW_MEM ? 384 : 768, Math.round(2 * R / (o.cell ?? 2)))) };
+	};
+	const visArea = async (center: LonLat, radius: number, extra: object, o: VisOpts) => {
+		const { R, bbox, N } = visBox(center, radius, o);
 		const ground = await elevGrid(bbox, N);
 		return sunCall<VisReply>("viewshed", { bbox, N, ground, eyeH: o.eyeH ?? 1.6, targetH: o.targetH ?? 0, radius: R, buildings: o.buildings !== false,
 			tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), ...extra });
 	};
 	map.viewshed = async (o = {}) => {
 		const obs: LonLat = o.observer ?? [cam.center[0], cam.center[1]];
-		const r = await visArea(obs, o.radius ?? 1000, { observer: obs, probe: o.probe || null }, o);
+		let gpu = gpuPath(o) && o.buildings !== false;   // 建物なし（地形だけ）は CPU 版（地形の升目だけで済む）
+		let r: AnaReply<VisStats> | null = null;
+		if (gpu) {
+			const { R, bbox, N } = visBox(obs, o.radius ?? 1000, o);
+			r = await anaCall<AnaReply<VisStats>>("anaVis", { bbox, N, observer: obs, eyeH: o.eyeH ?? 1.6, targetH: o.targetH ?? 0, radius: R, probe: o.probe || null }).catch(err => { console.warn("[viewshed] GPU path failed, falling back to the CPU path:", (err as Error)?.message || err); gpu = false; return null; });
+		}
+		r ??= await visArea(obs, o.radius ?? 1000, { observer: obs, probe: o.probe || null }, o);
 		const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
 		const [w, s, e, n] = r.bbox;
 		await map.raster.add("viewshed", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "viewshed" }, { order: "over", opacity: 1, hideFills: false });
-		return { ...r.stats, probes: r.probes };
+		return { ...r.stats, probes: r.probes, gpu };
 	};
 	map.lineOfSight = async (a, b, o = {}) => {
 		const mid: LonLat = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], half = Math.hypot((b[0] - a[0]) * 111320 * Math.cos(mid[1] * D2R), (b[1] - a[1]) * 111320) / 2;
-		const r = await visArea(mid, half + 60, { observer: a, los: b }, { ...o, cell: o.cell ?? Math.max(1, half / 300) });
+		const vo: VisOpts = { ...o, cell: o.cell ?? Math.max(1, half / 300) };
+		let gpu = gpuPath(o) && o.buildings !== false;
+		let extra: object = { observer: a, los: b };
+		if (gpu) {   // 地表（地形＋屋根）だけ GPU で取り、断面は CPU 版の式で引く（建物を読まない）
+			const { bbox, N } = visBox(mid, half + 60, vo);
+			const sf = await anaCall<{ S: Float32Array; tris: number }>("anaSurf", { bbox, N }).catch(err => { console.warn("[lineOfSight] GPU path failed, falling back to the CPU path:", (err as Error)?.message || err); gpu = false; return null; });
+			if (sf) extra = { observer: a, los: b, surface: sf.S, surfaceTris: sf.tris, buildings: false };
+		}
+		const r = await visArea(mid, half + 60, extra, vo);
 		const L = r.los, cut = L.blockAt;
 		const line = (c: string, from: LonLat, to: LonLat): GeoJSONFeature => ({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: [from, to] } });
 		const data: GeoJSONFeatureCollection = { type: "FeatureCollection", features: cut ? [line("ok", a, cut), line("ng", cut, b)] : [line("ok", a, b)] };
 		if (map.getSource("los")) await map.getSource("los")!.setData(data);
 		else { live.addSourceAt("los", { type: "geojson", data }, 0); await live.addLayerAt({ id: "los", type: "line", source: "los", paint: { "line-color": ["match", ["get", "c"], "ok", "#1faa55", "#d23c3c"], "line-width": 4 } }, undefined, 0); }   // 内部の層＝エンジンの目盛り（dz 0）を明示
-		return { ...L, triangles: r.stats.triangles };
+		return { ...L, triangles: r.stats.triangles, gpu };
 	};
 	// オフラインパック（#40）：地域の申告（基図・標高・建物・ラスタ）を読んだ結果だけを渡す＝gadget は地域を知らない。
 	// 標高は core のローダ（IDB GIS/alt）を要る時に一度だけ作る。建物は meshMgr（起こしてから台帳を読む）
@@ -196,5 +233,5 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 		});
 		map.gadget.poiedit!();
 	}).catch(e => console.error("[poiedit] load failed", e));
-	return { elevGridWait, clipFor, clipCutXY, clipAllCut };
+	return { elevGridWait, anaWait, clipFor, clipCutXY, clipAllCut };
 }

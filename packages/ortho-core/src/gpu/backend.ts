@@ -1,4 +1,5 @@
 // WebGPU バックエンドの入口。既定(WebGL2)経路のバンドルに紛れ込ませない＝renderworker が
 // gpu フラグ時のみ dynamic import する（ortho-core 本体の index.ts からは export しない）。
 export { createRendererGPU } from "./renderer.ts";
+export type { RendererAnalysis } from "./analysis.ts";   // 日影時間・可視域の GPU 版（2026-10-24）
 export { createGintLayerGPU } from "./gint.ts";
