@@ -1117,7 +1117,7 @@ export interface SearchOptions {
 export interface COPCOptions {
 	/** 手綱の id（既定＝自動） */ id?: string;
 	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation";
-	/** 点の半径（CSS px・既定 2）／attenuation＝距離で縮む（既定 true＝節の点の間隔 × 焦点距離 / 距離・1〜size×4 px）・false＝画素固定 */ pointSize?: number; attenuation?: boolean;
+	/** 点の半径（CSS px・既定 2）／attenuation＝距離で縮む（既定 true＝節の点の間隔 × 焦点距離 / 距離・1〜size×2 px）・false＝画素固定 */ pointSize?: number; attenuation?: boolean;
 	/** 細かさ（節の点の間隔の画面 px がこれより粗ければ子へ・既定 2・LOW_MEM 3） */ density?: number;
 	/** 地形・建物の裏で隠れる（シーンの深度・既定 true） */ depth?: boolean;
 	/** 高さの足し込み（m・setOptions で読み直さずに効く）。地形に合わせるなら手綱の fitTerrain() */ heightOffset?: number;
