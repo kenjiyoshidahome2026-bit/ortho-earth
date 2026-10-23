@@ -2,17 +2,19 @@
 
 Voxel grids for [`@ortho-earth/globe`](../../packages/globe). The plugin fills the reserved `map.addData` kind `"voxel"`. The globe already checks the contract (`VoxelData` in `src/voxel.ts`); this package draws it.
 
-- **Drawing** is a same-frame overlay with the globe's camera: the grid's bounding box is rasterised and the fragment shader **marches a ray through the cells**. `render: "blocks"` stops at the first solid cell (DDA, one step per cell) and shades it by its face, like a block world. `render: "volume"` takes fixed steps, samples the grid trilinearly and composites the colormap's colour and alpha front to back, like a weather or density field. Both come from the **same `VoxelData`**; only the option differs.
+- **Drawing** is a same-frame overlay with the globe's camera: the grid's bounding box (or the curved shell of a `region` grid) is rasterised and the fragment shader **marches a ray through the cells**. `render: "blocks"` stops at the first solid cell (DDA, one step per cell) and shades it by its face, like a block world. `render: "volume"` takes fixed steps, samples the grid trilinearly and composites the colormap's colour and alpha front to back, like a weather or density field. `render: "iso"` finds where the value crosses `threshold` (bisection) and shades that surface by the field's gradient. All three come from the **same `VoxelData`**; only the option differs.
+- **WebGPU first**: when the globe draws with WebGPU the overlay shares its `GPUDevice` and reads the scene depth texture directly (no copy); otherwise it draws with WebGL2 (every device, including Android where the globe itself is WebGL2). Same shader logic in WGSL and GLSL, same pixels.
 - Grids are **hidden by terrain and buildings** through the scene depth: the ray stops where the scene is.
-- They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the cell `index`, its `[i, j, k]` `cell`, the cell's `value` (scalar grids, via `handle.pick`) and your `properties`.
-- **Preparation** runs in a worker (`voxel-reader.ts`): values are quantised to 8 bits (`R8`, or `RGBA8` for `components: 4`), the colormap is baked and the box is placed; the main thread only forwards the buffers.
-- Stage 1 draws with **WebGL2** (every device, including Android where the globe itself is WebGL2). WebGPU, `region` grids (longitude × latitude × height), iso surfaces and clipping planes are stage 2; 3D Tiles `EXT_primitive_voxels` stage 4; bricks, level of detail and file readers (NetCDF, Zarr) stage 5. See [PLAN.md](./PLAN.md).
+- `clip` keeps a sub-box of the grid (a thin range is a **slice**); it changes without re-uploading the grid, as do `render`, `opacity`, `step`, `threshold`, `colormap`, `alphaRamp`, `depthTest` and `properties`.
+- They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the cell `index`, its `[i, j, k]` `cell`, the cell's `value` (scalar grids, via `handle.pick`) and your `properties`. Picking marches only the pixels under the cursor (scissor), so it stays cheap.
+- **Preparation** runs in a worker (`voxel-reader.ts`): values are quantised to 8 bits (`R8`, or `RGBA8` for `components: 4`), the colormap is baked, the box is placed or the region shell is tessellated; the main thread only forwards the buffers.
+- Stages 1–2 are done (box and region grids, blocks / volume / iso, clipping, WebGPU and WebGL2). 3D Tiles `EXT_primitive_voxels` is stage 4; bricks, level of detail and file readers (NetCDF, Zarr) stage 5. See [PLAN.md](./PLAN.md).
 
 ```js
 import { createGlobe } from "@ortho-earth/globe";
 import { voxelPlugin } from "@ortho-earth/plugin-voxel";
 
-const map = await createGlobe({ target: "#map", plugins: [voxelPlugin()] });   // or map.use(voxelPlugin())
+const map = await createGlobe({ target: "#map", plugins: [voxelPlugin()] });   // or map.use(voxelPlugin({ backend: "auto" | "webgpu" | "webgl2" }))
 map.supports("data.voxel");                                                    // true ("plugin", via "plugin-voxel")
 
 // a 64 × 64 × 32 density field, 2 km × 2 km × 1 km, its origin corner at Tokyo station
@@ -23,13 +25,17 @@ const field = map.addData({
 	noData: 0,
 }, { kind: "voxel", id: "field", render: "volume", colormap: "turbo", opacity: 0.3 });
 
-// the same grid as opaque blocks, cells below 0.5 empty
+// the same grid as opaque blocks, cells below 0.5 empty; then as the 0.5 surface; then sliced
 const blocks = map.addData(sameData, { kind: "voxel", id: "blocks", render: "blocks", threshold: 0.5, colormap: ["#3a6", "#fd4"] });
+blocks.setProps({ render: "iso" });                       // no re-upload
+blocks.setProps({ clip: [0, 1, 0, 1, 0.45, 0.55] });      // a horizontal slice
+
+// a weather field on a longitude × latitude × height grid (west, south, east, north in degrees; heights in meters)
+const wx = map.addData({ dims: [120, 80, 20], region: [128, 30, 146, 46, 0, 12000], values: temperature }, { kind: "voxel", id: "wx", colormap: "magma", opacity: 0.4 });
 
 await field.ready;
+field.backend;                                             // "webgpu" | "webgl2" (null until the overlay has chosen)
 map.on("click", "field", e => console.log(e.features[0].properties.cell));
-field.setProps({ opacity: 0.6 });
-blocks.remove();
 ```
 
 ## VoxelData
@@ -38,7 +44,7 @@ blocks.remove();
 |---|---|
 | `dims` | `[nx, ny, nz]` cells; `values[i + nx * (j + ny * k)]` |
 | `box` | `{ origin: [lng, lat, alt], size: [m, m, m], orientation?: [heading, pitch, roll] }` — the grid's x, y, z axes point east, north, up from the origin corner (heading rotates them clockwise from north); or `{ transform }`, a column-major 4×4 that takes the **unit cube `[0, 1]³`** to ECEF meters (the column lengths are the edges; the way a 3D Tiles tile transform × a glTF node matrix places a voxel primitive). A transform box is placed at its absolute height |
-| `region` | `[west, south, east, north, h0, h1]` degrees and meters — accepted by the contract, drawn in stage 2 |
+| `region` | `[west, south, east, north, h0, h1]` degrees and meters: cell x follows longitude, y latitude, z height. `east < west` crosses the antimeridian. Placed at its absolute height |
 | `values` | `Float32Array`, `Uint16Array` or `Uint8Array`, `nx·ny·nz·components` long |
 | `components` | `1` (scalar, coloured by the colormap; default) or `4` (RGBA, drawn as is; alpha 0 = empty) |
 | `noData` | cells with this value are empty |
@@ -49,25 +55,26 @@ blocks.remove();
 | option | meaning |
 |---|---|
 | `id` | layer id for picking and `map.on` |
-| `render` | `"volume"` (default) or `"blocks"` |
+| `render` | `"volume"` (default), `"blocks"` or `"iso"` |
 | `colormap` | a name (`viridis` `magma` `inferno` `plasma` `turbo` `grey` `heat` `cool` `blues` `reds`), a list of colours spread evenly, or `[t, colour]` stops. Colours `"#rrggbb"`, `"#rrggbbaa"` or `[r, g, b, a?]` |
 | `range` | overrides the data's `range` |
-| `threshold` | cells below this value (data units) are empty — the usual way to turn a density field into blocks |
+| `threshold` | blocks / volume: cells below this value (data units) are empty; iso: the value of the surface |
+| `clip` | `[x0, x1, y0, y1, z0, z1]` fractions 0..1 of each axis to keep (default everything) |
 | `alphaRamp` | volume: alpha over the colormap's 0..1 when the colours carry none (default `[0, 1]`) |
-| `step` | volume: distance between samples in cells (default 0.5; smaller is finer and slower) |
+| `step` | volume / iso: distance between samples in cells (default 0.5; smaller is finer and slower). Region blocks sample every quarter cell |
 | `opacity` | multiplies every cell's opacity (default 1) |
-| `altitude` | `"relative"` (the origin's alt is above the ground, default) or `"absolute"` (above the ellipsoid; default for transform boxes) |
+| `altitude` | `"relative"` (the origin's alt is above the ground, default for origin boxes) or `"absolute"` (above the ellipsoid; default for transform boxes and regions) |
 | `depthTest` | hidden by terrain and buildings (default true) |
 | `above` | draw above the labels (default false) |
 | `properties` | merged into every pick hit's `properties` |
 
 ## Handle
 
-`id`, `kind`, `dims`, `n` (cells), `anchor`, `range`, `backend` (`"webgl2"`, null until the overlay has loaded), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond `MAX_3D_TEXTURE_SIZE`), `ready`, `setData(data)`, `setProps(opts)`, `setVisible(on)`, `pick(x, y, r?)`, `remove()`.
+`id`, `kind`, `shape`, `dims`, `n` (cells), `anchor`, `range`, `backend` (`"webgpu"` | `"webgl2"`, null until the overlay has chosen), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond the 3D texture limit), `ready`, `setData(data)`, `setProps(opts)` (style-only changes do not re-upload the grid), `setVisible(on)`, `pick(x, y, r?)`, `remove()`.
 
 ## Notes
 
-- Scalar values are quantised to 8 bits for the GPU (`range` → 1..255, 0 = empty). The colormap resolves 256 steps; `handle.pick` reports the original value from the data kept on the main thread.
-- One grid axis may not exceed `MAX_3D_TEXTURE_SIZE` (at least 256 in WebGL2). Larger grids are refused with `handle.error` until stage 5 (bricks).
+- Scalar values are quantised to 8 bits for the GPU (`range` → 1..255, 0 = empty). The colormap resolves 256 steps and an iso threshold lands on one of them; `handle.pick` reports the original value from the data kept on the main thread.
+- One grid axis may not exceed the 3D texture limit (at least 256). Larger grids are refused with `handle.error` until stage 5 (bricks).
+- Region grids are marched in meters along a straight ray and each sample is converted back to longitude / latitude / height, so cell borders are the true meridians, parallels and height surfaces. Their blocks mode samples the nearest cell every quarter cell instead of a DDA (slightly soft edges). The shell is built on a sphere; under the ellipsoid display (`?ell=1`) a country-sized region can sit a few km off, which stage 3 will tighten. Very large regions (thousands of km) shade with the anchor's east / north / up.
 - All grids of one map share one overlay canvas (the render worker's WebGL contexts are limited); the overlay goes away with the last handle.
-- Picking marches the rays of the few pixels under the cursor only (scissor), so it stays cheap even on software GL.

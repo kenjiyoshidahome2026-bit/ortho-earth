@@ -60,4 +60,6 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
 - [x] 第 1 段（2026-10-23）＝`sdk/plugin-voxel`（grid.ts／voxel-reader.ts／voxel-draw.ts／voxel-gl.ts／index.ts・README）・`t-pvoxel`（REALTIME に登録＝worker の動的 import は仮想時計で解決しない）・node 検定。
   決めた事＝`transform` は単位立方体 [0,1]³ → ECEF（列の長さが辺）・値は R8 に詰める（0＝空・pick の value は main が持つ元の値）・当たりパスは scissor で読む画素だけ（SwiftShader の全画面パスは秒単位＝往復 3 秒を越えて [] になった轍）。
   未検証＝本番ビルド（`moduleUrlAsChunk` が voxel-draw.js／voxel-gl.js を拾うか・reader worker が sideEffects:false で消えないか）＝第 3 段で見本のアプリに載せる時に verify-prod で見る。
-- [ ] 第 2 段
+- [x] 第 2 段（2026-10-23）＝`voxel-gpu.ts`（WGSL・device と深度の共有・r32uint の当たり）・`voxel-draw.ts` の選び・region（殻＝面ごとの外向きで winding を決める＝「中心から外」は丸みで corner が内向きになる轍）・iso（二分探索 6 回・勾配は A⁻ᵀ）・clip・`"style"` の軽い更新。verify:webgpu は WebGL2 と同じ画素値で PASS。
+  決めた事＝region の既定は絶対高さ・blocks は 1/4 セル刻みの最近傍（DDA でない）・殻は球で作る（rAx は main に無い＝`?ell=1` の国規模 region は数 km ずれる＝第 3 段で rAx を worker へ渡す）・値は閾で切らない（iso は場の全体が要る＝閾は描き手が見る）。
+- [ ] 第 3 段（見本）＝rAx を prepare へ渡す件もここで

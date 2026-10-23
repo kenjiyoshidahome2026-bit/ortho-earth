@@ -6,7 +6,9 @@
 import type { VoxelData } from "@ortho-earth/globe";
 
 export type Hpr = [heading: number, pitch: number, roll: number];
-export type RenderMode = "blocks" | "volume";
+export type RenderMode = "blocks" | "volume" | "iso";
+/** 断面＝各軸の残す範囲（0〜1 の割合）[x0, x1, y0, y1, z0, z1] */
+export type Clip = [number, number, number, number, number, number];
 /** 色表の指定＝名前か、色の並び（等間隔）か、[位置 0〜1, 色] の並び。色＝"#rrggbb"／"#rrggbbaa"／[r, g, b, a?]（0〜255） */
 export type ColorStop = string | [number, number, number] | [number, number, number, number];
 export type ColormapSpec = string | ColorStop[] | Array<[number, ColorStop]>;
@@ -19,11 +21,21 @@ export interface PrepareOptions {
 	/** これ未満の値のセルは空（データの単位・既定＝無し） */
 	threshold?: number | null;
 }
+/** region（経緯度×高さの格子）の描き手向けの欄 */
+export interface GeoGrid {
+	/** 西・南（度）・経度の幅・緯度の幅（度・正） */ west: number; south: number; spanLon: number; spanLat: number;
+	/** 高さの範囲（m） */ h0: number; h1: number;
+	/** 殻（6 面を分割した三角形・錨からの東北上 m・外向き CCW）＝裏面を描く箱の代わり */ shell: Float32Array;
+	/** 殻を包む球（東北上 m・中心 xyz と半径）＝光線の入口の目安 */ bs: [number, number, number, number];
+	/** セルの大きさ（m・東・北・上）＝刻みと法線の尺 */ cellM: [number, number, number];
+}
 export interface Prepared {
+	shape: "box" | "region";
 	dims: [number, number, number]; comps: 1 | 4; n: number;
 	tex: Uint8Array; cmap: Uint8Array;
-	anchor: [number, number, number]; /** セルの座標（0〜dims）→ 錨からの東北上 m（行優先 3×3） */ A: Float64Array; /** 錨から箱の最遠点まで（m） */ radius: number;
+	anchor: [number, number, number]; /** セルの座標（0〜dims）→ 錨からの東北上 m（行優先 3×3・region は対角＝セルの大きさ） */ A: Float64Array; /** 錨から格子の最遠点まで（m） */ radius: number;
 	range: [number, number]; /** 空の判定の閾（R8 の 0〜1） */ thr: number; /** transform で置いた＝絶対高さ */ placed: boolean;
+	geo: GeoGrid | null;
 }
 const D2R = Math.PI / 180, R_SPHERE = 6371000, R_ELL = 6378137, WGS_A = 6378137, WGS_E2 = 6.69437999014e-3;
 export type Mat3 = number[];
@@ -166,6 +178,52 @@ export function placeBox(box: NonNullable<VoxelData["box"]>, dims: [number, numb
 	return { anchor, A: Float64Array.from(T), radius, placed };
 }
 
+/** 経緯度・高さ → 単位球（本体の単位球＝y が極・rAx＝楕円体の b/a で測地緯度を更成緯度に） */
+export const unitAt = (lon: number, lat: number, h: number, rAx = 1): number[] => { const u = unit(lon, lat, rAx), r = 1 + h / (rAx === 1 ? R_SPHERE : R_ELL); return [u[0] * r, u[1] * r, u[2] * r]; };
+export const SHELL_N = 16;
+/** VoxelData の region → 錨（中心の経緯度・h0）＋殻＋セルの大きさ。region＝[w, s, e, n（度）, h0, h1（m）]・e < w は日付変更線を跨ぐ */
+export function placeRegion(region: ArrayLike<number>, dims: [number, number, number], rAx = 1): Placement & { geo: GeoGrid } {
+	const [w, s, e, n, h0, h1] = Array.from(region, Number);
+	const spanLon = ((e - w) % 360 + 360) % 360 || 360, spanLat = n - s;
+	const lonC = w + spanLon / 2, latC = (s + n) / 2, R = rAx === 1 ? R_SPHERE : R_ELL;
+	const anchor: [number, number, number] = [((lonC + 180) % 360 + 360) % 360 - 180, latC, h0];
+	const B = enuBasis(anchor[0], anchor[1], rAx), o = unitAt(anchor[0], anchor[1], h0, rAx), k = 1 / R;
+	const Eu = B.E.map(v => v / k), Nu = B.N.map(v => v / k), Uu = B.U.map(v => v / k);   // 単位ベクトル
+	const enu = (lon: number, lat: number, h: number): number[] => { const p = unitAt(lon, lat, h, rAx), d = [p[0] - o[0], p[1] - o[1], p[2] - o[2]]; return [(d[0] * Eu[0] + d[1] * Eu[1] + d[2] * Eu[2]) * R, (d[0] * Nu[0] + d[1] * Nu[1] + d[2] * Nu[2]) * R, (d[0] * Uu[0] + d[1] * Uu[1] + d[2] * Uu[2]) * R]; };
+	// 6 面を SHELL_N×SHELL_N に分け、面ごとの外向き（錨の東北上で 下・上・南・北・西・東）に合う向きで三角形に（丸みで面が傾くので「中心から外」では決めない）
+	const out: number[] = [], N = SHELL_N;
+	const quad = (p: number[][], o: number[]): void => {   // p＝4 隅（周回順）・o＝外向き
+		const nx = (p[1][1] - p[0][1]) * (p[3][2] - p[0][2]) - (p[1][2] - p[0][2]) * (p[3][1] - p[0][1]), ny = (p[1][2] - p[0][2]) * (p[3][0] - p[0][0]) - (p[1][0] - p[0][0]) * (p[3][2] - p[0][2]), nz = (p[1][0] - p[0][0]) * (p[3][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[3][0] - p[0][0]);
+		const order = nx * o[0] + ny * o[1] + nz * o[2] >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+		for (const i of order) out.push(p[i][0], p[i][1], p[i][2]);
+	};
+	const face = (f: (a: number, b: number) => number[], o: number[]): void => { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) quad([f(i / N, j / N), f((i + 1) / N, j / N), f((i + 1) / N, (j + 1) / N), f(i / N, (j + 1) / N)], o); };
+	const lonAt = (a: number): number => w + spanLon * a, latAt = (b: number): number => s + spanLat * b, hAt = (c: number): number => h0 + (h1 - h0) * c;
+	face((a, b) => enu(lonAt(a), latAt(b), h0), [0, 0, -1]); face((a, b) => enu(lonAt(a), latAt(b), h1), [0, 0, 1]);   // 下・上
+	face((a, c) => enu(lonAt(a), s, hAt(c)), [0, -1, 0]); face((a, c) => enu(lonAt(a), n, hAt(c)), [0, 1, 0]);   // 南・北
+	face((b, c) => enu(w, latAt(b), hAt(c)), [-1, 0, 0]); face((b, c) => enu(w + spanLon, latAt(b), hAt(c)), [1, 0, 0]);   // 西・東
+	const shell = Float32Array.from(out);
+	let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+	for (let i = 0; i < out.length; i += 3) { x0 = Math.min(x0, out[i]); x1 = Math.max(x1, out[i]); y0 = Math.min(y0, out[i + 1]); y1 = Math.max(y1, out[i + 1]); z0 = Math.min(z0, out[i + 2]); z1 = Math.max(z1, out[i + 2]); }
+	const bc = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2]; let rb = 0;
+	for (let i = 0; i < out.length; i += 3) rb = Math.max(rb, Math.hypot(out[i] - bc[0], out[i + 1] - bc[1], out[i + 2] - bc[2]));
+	const cellM: [number, number, number] = [spanLon * D2R * R * Math.cos(latC * D2R) / dims[0], spanLat * D2R * R / dims[1], (h1 - h0) / dims[2]];
+	const A = Float64Array.from([cellM[0], 0, 0, 0, cellM[1], 0, 0, 0, cellM[2]]);
+	return { anchor, A, radius: Math.hypot(...bc) + rb, placed: true, geo: { west: w, south: s, spanLon, spanLat, h0, h1, shell, bs: [bc[0], bc[1], bc[2], rb], cellM } };
+}
+const nums = (v: unknown, name: string, len: number): number[] => {
+	const a = v != null && typeof v === "object" && typeof (v as ArrayLike<number>).length === "number" ? Array.from(v as ArrayLike<number>, Number) : null;
+	if (!a || a.length !== len || !a.every(Number.isFinite)) throw new TypeError(`plugin-voxel: ${name} must be ${len} finite numbers`);
+	return a;
+};
+/** 断面の指定を検める（各軸 [lo, hi]・0〜1・lo < hi） */
+export function checkClip(c: unknown): Clip | null {
+	if (c == null) return null;
+	const a = nums(c, "clip", 6) as Clip;
+	for (let i = 0; i < 3; i++) if (!(a[i * 2] >= 0 && a[i * 2 + 1] <= 1 && a[i * 2] < a[i * 2 + 1])) throw new RangeError("plugin-voxel: clip must be [x0, x1, y0, y1, z0, z1] fractions with 0 <= lo < hi <= 1");
+	return a;
+}
+
 // ---- 下ごしらえ ----
 type NormVoxel = VoxelData & { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4 };
 export function checkVoxelData(d: unknown): NormVoxel {
@@ -178,23 +236,27 @@ export function checkVoxelData(d: unknown): NormVoxel {
 	if (shape !== "box" && shape !== "region") throw new RangeError("plugin-voxel: shape must be box | region");
 	return { ...v, shape, components: comps };
 }
-/** VoxelData → 描き手へ渡す物（worker で。配列は transfer できる物） */
-export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
+/** 閾（データの単位）→ R8 の 0〜1 */
+export const thrOf = (threshold: number | null | undefined, range: [number, number]): number => threshold == null ? 0 : Math.min(1, Math.max(0, (threshold - range[0]) / (range[1] - range[0])));
+/** VoxelData → 描き手へ渡す物（worker で。配列は transfer できる物）。値は閾で切らない（閾は描き手が見る＝等値面は場の全体が要る） */
+export function prepare(data: unknown, o: PrepareOptions & { rAx?: number } = {}): Prepared {
 	const d = checkVoxelData(data), dims = d.dims, comps = d.components, n = dims[0] * dims[1] * dims[2];
-	if (d.shape !== "box" || !d.box) throw new Error("plugin-voxel: shape \"region\" is not drawn yet (stage 2); use a box");
-	const { anchor, A, radius, placed } = placeBox(d.box, dims);
+	let place: Placement, geo: GeoGrid | null = null;
+	if (d.shape === "box") { if (!d.box) throw new TypeError("plugin-voxel: shape \"box\" needs box"); place = placeBox(d.box, dims); }
+	else { if (!d.region) throw new TypeError("plugin-voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); place = r; geo = r.geo; }
+	const { anchor, A, radius, placed } = place;
 	let tex: Uint8Array, range: [number, number], thr = 0;
 	if (comps === 4) { tex = toRgba8(d.values, d.noData); range = [0, 1]; }
 	else {
 		range = o.range ?? d.range ?? valueRange(d.values, d.noData);
 		if (!(range[0] < range[1])) throw new RangeError("plugin-voxel: range must be [min, max] with min < max");
-		tex = quantize(d.values, range, d.noData, o.threshold);
-		if (o.threshold != null) thr = Math.min(1, Math.max(0, (o.threshold - range[0]) / (range[1] - range[0])));
+		tex = quantize(d.values, range, d.noData, null);
+		thr = thrOf(o.threshold, range);
 	}
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
-	return { dims: [dims[0], dims[1], dims[2]], comps, n, tex, cmap, anchor, A, radius, range, thr, placed };
+	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n, tex, cmap, anchor, A, radius, range, thr, placed, geo };
 }
-export const transferables = (p: Prepared): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer].filter((b, i, a) => a.indexOf(b) === i);
+export const transferables = (p: Prepared): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : [])].filter((b, i, a) => a.indexOf(b) === i);
 
 // ---- DDA（CPU 版＝GLSL と同じ手順・検定と当たりの参照）----
 export interface RayHit { cell: [number, number, number]; t: number; axis: 0 | 1 | 2 | -1; steps: number }

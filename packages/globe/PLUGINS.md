@@ -140,16 +140,18 @@ URL と bytes は `origin` が要る（file の原点を置く経緯度）か、
 
 ## voxel（@ortho-earth/plugin-voxel）
 
-`map.use(voxelPlugin())` で予約された kind "voxel" に中身が入る（第 1 段・2026-10-23）。下ごしらえ（R8／RGBA8 への詰め・色表・置き方）は plugin 自身の worker（`voxel-reader.ts`）、描き手は render worker のオーバーレイ＝WebGL2（`voxel-gl.ts`＝格子を包む箱の裏面を描き、FS で光線をセル空間に入れて辿る：`render: "blocks"`＝DDA で最初の空でないセル・面の法線で陰影、`"volume"`＝一定の刻みで三線形に引いて色表の色と α を前から重ねる。シーンの深度で光線を切る＝建物・地形に隠れる。当たり＝止まったセルの番号を焼く別パス・読む画素だけ scissor）。plugin-splat と同じく一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
+`map.use(voxelPlugin())` で予約された kind "voxel" に中身が入る（第 1 段・第 2 段＝2026-10-23）。下ごしらえ（R8／RGBA8 への詰め・色表・置き方・region の殻）は plugin 自身の worker（`voxel-reader.ts`）、描き手は render worker のオーバーレイ＝WebGPU（`voxel-gpu.ts`＝本体の device と深度テクスチャを共有）か WebGL2（`voxel-gl.ts`）を `voxel-draw.ts` が器で選ぶ（plugin-splat と同じ）。格子を包む箱（region は経緯度高の殻）の裏面を描き、FS で光線を辿る：`render: "blocks"`＝DDA で最初の空でないセル・面の法線で陰影、`"volume"`＝一定の刻みで三線形に引いて色表の色と α を前から重ねる、`"iso"`＝閾を跨いだ所を二分探索で詰め勾配を法線に。`clip`＝残す範囲（割合・薄くすれば断面）。シーンの深度で光線を切る＝建物・地形に隠れる。当たり＝止まったセルの番号を焼く別パス・読む画素だけ scissor。一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
 
 ```js
 import { voxelPlugin } from "@ortho-earth/plugin-voxel";
 map.use(voxelPlugin());
 map.addData({ dims: [64, 64, 32], box: { origin: [139.7671, 35.6812, 0], size: [2000, 2000, 1000] }, values, noData: 0 }, { kind: "voxel", id: "field", render: "volume", colormap: "turbo", opacity: 0.3 });
-map.addData(same, { kind: "voxel", id: "blocks", render: "blocks", threshold: 0.5 });   // 同じ格子をブロックで
+const b = map.addData(same, { kind: "voxel", id: "blocks", render: "blocks", threshold: 0.5 });   // 同じ格子をブロックで
+b.setProps({ render: "iso", clip: [0, 1, 0, 1, 0.45, 0.55] });   // 等値面を薄く切る（格子は上げ直さない）
+map.addData({ dims: [120, 80, 20], region: [128, 30, 146, 46, 0, 12000], values: temperature }, { kind: "voxel", id: "wx", colormap: "magma", opacity: 0.4 });   // 経緯度×高さの格子
 ```
 
-`box` の `transform`＝局所の**単位立方体 [0,1]³** → ECEF m（列の長さが各辺の m・3D Tiles のタイル変換×glTF のノード行列と同じ使い方）＝絶対高さ。`region`・WebGPU・等値面・断面は第 2 段、3D Tiles の `EXT_primitive_voxels` は第 4 段、ブリック／LoD／NetCDF・Zarr の読み手は第 5 段（`sdk/plugin-voxel/PLAN.md`）。検定＝`node sdk/plugin-voxel/tests/t-plugin-voxel.mjs`（色表・詰め・置き方・CPU の DDA・偽の map の手綱）・`t-pvoxel`（verify:ui・実時間＝worker の動的 import）。
+`box` の `transform`＝局所の**単位立方体 [0,1]³** → ECEF m（列の長さが各辺の m・3D Tiles のタイル変換×glTF のノード行列と同じ使い方）＝絶対高さ。`region`＝直線の光線を m で辿り標本ごとに経緯度・高さへ戻す（セルの境界は本物の経線・緯線・等高度面・blocks は 1/4 セル刻みの最近傍・殻は球で作る＝`?ell=1` の国規模の region は数 km ずれる）。3D Tiles の `EXT_primitive_voxels` は第 4 段、ブリック／LoD／NetCDF・Zarr の読み手は第 5 段（`sdk/plugin-voxel/PLAN.md`）。検定＝`node sdk/plugin-voxel/tests/t-plugin-voxel.mjs`（色表・詰め・置き方・殻の向き・CPU の DDA・偽の map の手綱と style）・`t-pvoxel`（verify:ui＝WebGL2・verify:webgpu＝WebGPU・実時間＝worker の動的 import）。
 
 ## 検定
 
