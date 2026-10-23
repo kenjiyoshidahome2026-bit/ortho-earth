@@ -88,7 +88,7 @@ const PUBLISH_DESC = "All 139 official MapLibre GL JS examples, run unchanged on
 const PUBLISH_TITLE = "MapLibre GL JS examples on a 3D globe — Ortho Earth";   // 公開の頁の title（Issue #308 段 2＝MapLibre の語で着く頁・見出しと本文は変えない）
 const PUBLISH_HEAD = `<meta name="description" content="${PUBLISH_DESC}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/maplibre/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${PUBLISH_TITLE}"><meta property="og:description" content="${PUBLISH_DESC}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/maplibre.webp"><meta property="og:url" content="https://www.ortho-earth.com/maplibre/"><meta name="twitter:card" content="summary_large_image">`;
 export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "" }) {
-	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
+	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。ただし絞り込みは note でなく段 1（動くだけ）を数える（2026-10-23 本人「noteではなく、段１を数えるようにした方がいい」）＝カードに data-level。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
 	const toOrtho = toOrthoForm;
 	const payload = {};
@@ -97,7 +97,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sou
 		const note = noteOf(notes, r.name), c = completeness(r.grade);
 		const img = publish ? publish.thumb(r.name) : `../../runs/${orthoLabel}/ortho/${r.name}.full.png`;
 		const pct = c == null ? `<span class="pct na" title="${esc(r.grade?.refWhy || "reference not available")}">(n/a)</span>` : `<span class="pct" title="${esc(c.detail)}" data-pct="${c.pct}">(${c.pct}%)</span>`;
-		return `<article class="card" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}" data-name="${esc(r.name)}" tabindex="0" role="button" aria-label="${esc(r.title || r.name)}">
+		return `<article class="card" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}" data-level="${r.grade?.level ?? "x"}" data-name="${esc(r.name)}" tabindex="0" role="button" aria-label="${esc(r.title || r.name)}">
 <div class="shot"><img loading="lazy" src="${esc(img)}" alt=""></div>
 <div class="body">
 <h2 title="${esc(r.title || r.name)}">${esc(r.title || r.name)}</h2>
@@ -138,10 +138,11 @@ h1 .ver{font-size:.55em;font-weight:600;vertical-align:middle;margin-left:.35em;
 <header class="top">${publish ? `<p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a></p>` : ""}<h1>MapLibre GL JS examples, on ortho-earth${publish && engine ? ` <span class="ver">v${esc(engine)}</span>` : ""}</h1>
 <p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho-earth globe engine through its MapLibre-compatible API. Each card shows ortho-earth's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Click a card for the example's source in its ortho-earth form — run it here, copy it, or download it.</p>
 <p><b>Sorry — Mercator cannot be displayed here.</b> ortho-earth always draws the globe (orthographic) and has no flat Mercator view, so examples that fill the screen with a world map at low zoom look different by design; the notes say so where it matters.</p></header>
-<nav><button data-f="all" class="on">All</button><button data-f="note">With notes</button><span class="count" id="count"></span><span class="sp"></span>
+<nav><button data-f="all" class="on">All</button><button data-f="l1" title="Level 1: the example runs, but some of its answers still differ from MapLibre">Runs only · ${rows.filter(r => r.grade?.level === 1).length}</button><span class="count" id="count"></span><span class="sp"></span>
 <select id="cat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
 <footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho-earth is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see the attribution inside each example.<br>
+“Runs only” = level 1: the example runs without breaking, but some of its answers (layers, queries, markers, popups, camera) do not yet match MapLibre.<br>
 Match % = level-2 checks passed (unsupported ops, engine errors, layer list, query answers, markers, popups, camera) weighted 40%, plus sampled-pixel agreement with MapLibre weighted 60% when both sides settled (animated examples: checks only). Hover the number for the counts.<br>
 ${publish ? `Pictures and match numbers: ortho-earth engine${engine ? ` (@ortho-earth/globe ${esc(engine)})` : ""} captured ${esc(when.slice(0, 10))} against MapLibre GL JS 6.11.2, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.` : `Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).`}</footer>
 </main>
@@ -154,7 +155,7 @@ ${publish ? `Pictures and match numbers: ortho-earth engine${engine ? ` (@ortho-
 <script type="application/json" id="payload">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>
 <script>
 let f = "all", cat = "";
-const apply = () => { let n = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || (f === "note" && c.dataset.note === "1")) && (!cat || c.dataset.cat === cat); c.hidden = !on; if (on) n++; } document.getElementById("count").textContent = n + " examples"; };
+const apply = () => { let n = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || (f === "l1" && c.dataset.level === "1")) && (!cat || c.dataset.cat === cat); c.hidden = !on; if (on) n++; } document.getElementById("count").textContent = n + " examples"; };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.cat ? "" : b.dataset.cat; document.getElementById("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };   // カードの分類＝押すと絞る（もう一度で解除）
