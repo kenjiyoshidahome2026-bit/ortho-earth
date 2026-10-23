@@ -251,7 +251,29 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			};
 			const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (ptR + tolPx + 1) * mPerPx, polyline: (lineHalf + tolPx) * mPerPx, ...(acc ? { accept: acc } : {}) })].filter((v): v is number => v != null && near(v)) : null;   // 点は 1px の余裕（gint の格子）→画面の距離で締める
 			const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)] as const) : e.pbf.features.map((f, i) => [i, f] as const).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
-			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
+			// 線の層は画面の距離で締め直す（identifyAt は面を内包で返す＝同じ pass の線の層まで面の中で当たっていた・半径は南北に 1/cos 広い）＝MapLibre と同じく線から 幅/2＋|ずらし|＋許し の内
+			const lineNear = (g: QueryGeometry, L: (typeof ls)[number]) => {
+				if (!area.ll || !geometry || typeof geometry[0] !== "number") return true;
+				const pp = L.paint || {}, lim = num(pp["line-width"], 1) / 2 + Math.abs(num(pp["line-offset"], 0)) + tolPx, [qx, qy] = geometry as number[];
+				const lines = (g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" || g.type === "Polygon" ? g.coordinates : g.type === "MultiPolygon" ? g.coordinates.flat() : []) as number[][][];
+				return lines.some(line => { let prev: ArrayLike<number> | null = null; for (const c of line) { const p = map.projectLL(c[0], c[1]); if (p[2] < 0) { prev = null; continue; } if (prev && segDist(qx, qy, prev, p) <= lim) return true; prev = p; } return false; });
+			};
+			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i] && (L.type !== "line" || (!!f.geometry && lineNear(f.geometry, L)))) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
+		}
+		// geojson の heatmap 層＝点を heatmap-radius（px）の円で当てる（MapLibre 6 の HeatmapStyleLayer.queryIntersectsFeature と同じ・層ごとに上から）
+		for (const v of [...mlLayers.values()].reverse()) {
+			if (v.kind !== "heatmap" || !take(v.layer.id) || !mlVisible(v) || !v.heatPts) continue;
+			const L = drawLayerOf(v); if (!inZoomML(L, cam.zoom)) continue;
+			const fs = Array.isArray(v.heatPts) ? v.heatPts : (v.heatPts as { features?: HitFeature[] }).features || [];
+			for (const f of fs as HitFeature[]) {
+				const g = f?.geometry; if (!g || (g.type !== "Point" && g.type !== "MultiPoint")) continue;
+				const r = +(evalExpr(L.paint?.["heatmap-radius"] ?? 30, { zoom: cam.zoom, props: f.properties || {}, geom: "Point", vars: {}, gs: live.MAP_GS, origin: "ml" }) ?? 30) + tolPx;
+				const hit = ((g.type === "Point" ? [g.coordinates] : g.coordinates) as number[][]).some(c => {
+					const [px, py, pf] = map.projectLL(c[0], c[1]); if (pf <= 0) return false;
+					return area.ll ? Math.hypot(px - geometry![0], py - geometry![1]) <= r : boxTouches({ type: "Point", coordinates: c } as QueryGeometry);
+				});
+				if (hit) out.push({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: f.properties || {}, geometry: g, layer: { id: v.layer.id, type: "heatmap" }, source: srcId(v.layer) });
+			}
 		}
 		const upbf = gint.userGint?.pbf;
 		if (upbf && take("user")) {
@@ -268,6 +290,9 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter } as MLLayer, PUBLIC_DZ).filter as StyleExpression };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
 		// 許し（公式例の門 §8 B・2026-09-27）＝既定 0（MapLibre と同じ・旧 3px は線に余計に当たっていた＝83 例）。単一スロットの user 層（内製・線幅を持たない）だけ従来の 3px
 		const W = size.w / live.dpr, H = size.h / live.dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
+		// 基図と vector source の許しの px→タイル単位＝MapLibre の目盛りの地図は ML と同じ一様なメルカトルの px（512×2^z_ML＝256×2^(z−dz+1)）。
+		// 問い合わせ点の cos を掛けると低ズームの地球の高緯度で ML より 1/cos 広い（o1023d：z0.9・緯度 60〜79° で海岸線を余計に拾った）。目盛りなし（dz 0）＝この地図の画面（core の既定）
+		const pxScale = PUBLIC_DZ ? 2 ** (1 - PUBLIC_DZ) : null;
 		const want = qo.layers ? new Set(qo.layers) : null, take = (id: string) => !want || want.has(id);
 		const qf = (fs: HitFeature[]) => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: live.MAP_GS, geojson: f.geometry as ExprCtx["geojson"], pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
 		const extHits = [...extrudeHits((geometry || [[0, 0], [W, H]]) as QGeom, take), ...meshHits(geometry as QGeom | undefined, take)];   // 模型・3D Tiles（W7）も立体の当たりの列へ   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
@@ -279,7 +304,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		if (live.vtdCtl) {   // vector source の描く層（段 8⑤）＝基図と同じ queryTiles を source ごとに（出しているタイルを取り直す）。上の層から＝層の順の鍵の大きい方から
 			const bySid = new Map<string, MLLayer[]>();
 			for (const v of mlLayers.values()) {
-				if (v.kind !== "vtdraw" || !mlVisible(v) || !live.vtdCtl.has(v.layer.id) || v.layer.type === "heatmap") continue;   // heatmap は問い合わせに出ない（MapLibre と同じ）。層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
+				if (v.kind !== "vtdraw" || !mlVisible(v) || !live.vtdCtl.has(v.layer.id) || v.layer.type === "heatmap") continue;   // vector の heatmap は問い合わせにまだ出さない（MapLibre 6 は返す＝geojson の heatmap だけ下の円で当てる）。層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
 				const L = drawLayerOf(v), sid = srcId(L); if (!inZoomML(L, cam.zoom)) continue;
 				if (!bySid.has(sid)) bySid.set(sid, []); bySid.get(sid)!.push(L);
 			}
@@ -289,7 +314,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 				const order = live.vtdCtl!.shownTiles(sid); if (!order.length) return;
 				const ck = sid + "|" + [...new Set(ls.map(L => L["source-layer"]))].sort().join(",");   // 解読した source-layer の組ごと（queryTiles は要る層だけ解いて覚える）
 				let cache = vtdQueryCache.get(ck); if (!cache) vtdQueryCache.set(ck, cache = new Map()); if (cache.size > 32) cache.clear();
-				const fs = await queryTiles({ gs: live.MAP_GS, style: { layers: ls }, order, tileUrl: d.pmtiles ? () => d.pmtiles : d.tileUrl!, zoom: cam.zoom, area: area!, tolPx, layers: qo.layers || null, filter: qo.filter || null, cache, request: requester.forTiles(), source: sid, promoteId: d.promoteId ?? null, encoding: d.encoding || "mvt" })
+				const fs = await queryTiles({ gs: live.MAP_GS, style: { layers: ls }, order, tileUrl: d.pmtiles ? () => d.pmtiles : d.tileUrl!, zoom: cam.zoom, area: area!, tolPx, pxScale, layers: qo.layers || null, filter: qo.filter || null, cache, request: requester.forTiles(), source: sid, promoteId: d.promoteId ?? null, encoding: d.encoding || "mvt" })
 					.catch(err => { console.warn("[query] vector source", sid, err); return []; });
 				const rank = new Map(vtdOrder().map((id, i) => [id, i]));
 				for (const f of fs as HitFeature[]) { f.state = vtxStateOf(sid, f.sourceLayer, f.id); hitsV.push([rank.get(f.layer.id) ?? 0, f]); }   // state＝押し出しと同じ置き場（#109 段 3）
@@ -299,7 +324,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		}
 		const baseIds = want && new Set((live.style.layers || []).map(L => L.id));
 		if (want && ![...want].some(id => baseIds!.has(id))) return qf(out);   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
-		const base = await queryTiles({ gs: live.MAP_GS, style: live.style, hidden: hiddenAll(), order: live.lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area: area!, tolPx,
+		const base = await queryTiles({ gs: live.MAP_GS, style: live.style, hidden: hiddenAll(), order: live.lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area: area!, tolPx, pxScale,
 			layers: qo.layers || null, filter: qo.filter || null, cache: baseQueryCache(), request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; }) as HitFeature[];   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
 		for (const f of base) f.state = vtxStateOf(f.source, f.sourceLayer, f.id);   // 基図の地物にも state（絵には効かない＝基図の配管は状態を読まない・MapLibre と同じ形の答え・#109 段 3）
 		return qf(out).concat(base);
