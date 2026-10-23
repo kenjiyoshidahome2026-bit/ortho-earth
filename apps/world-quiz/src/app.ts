@@ -3,6 +3,7 @@
 //   問題の面＝10 問。選ぶ→その場で○×→正解の国へ地球儀が寄る→ひとこと（首都・人口）→次へ。Lv.3 の地図モードは地球儀を押して答える。
 //   結果の面＝正答率・星・時間・最高記録・連続正解・バッジ・間違えた国（もう一度）。
 //   覚える工夫＝間違えた国を次のセットに優先して混ぜる（間隔反復）・最近出た国は避ける・図鑑（正解した国の数）・星とバッジは localStorage。
+//   地形モード（2026-10-23）＝地球儀が山・川・湖・砂漠…を指す → 名前を選ぶ。台帳は World の TerrainDB（src/terrains.ts・モードを選んだ時に読む）。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { loadCountries, flagURL } from "./data.ts";
 import { buildSet, makeQuestion, pool, eligible, stars, roundPopulation, tapHits, REGIONS, REGION_EN, LEVELS, MODES, SET_SIZE } from "./quiz.ts";
@@ -11,6 +12,7 @@ import { sfx } from "./sound.ts";
 import { confetti } from "./confetti.ts";
 import type { QuizCountry, Question } from "./quiz.ts";
 import type { MapView } from "./mapview.ts";
+import { loadTerrains, categoryName } from "./terrains.ts";
 
 type Kid = Node | string | null | undefined;
 /** 頁の状態（mountApp が返す）。mapView＝null は未起動・false は地図なし */
@@ -26,7 +28,10 @@ const el = (tag: string, attrs: Record<string, any> = {}, ...kids: (Kid | Kid[])
 	for (const k of kids.flat()) if (k != null) e.append(k);
 	return e;
 };
-const MODE_ICON: Record<string, string> = { capital: "🏛️", flag: "🚩", map: "🌍" };
+const MODE_ICON: Record<string, string> = { capital: "🏛️", flag: "🚩", map: "🌍", terrain: "⛰️" };
+const GROUP_ICON: Record<string, string> = { relief: "⛰️", water: "💧", sea: "🌊", dry: "🏜️", land: "🏝️" };   // 地形の系統（quiz.ts の TERRAIN_GROUP）
+const terrainIcon = (c: QuizCountry): string => c.category === "volcano" ? "🌋" : c.category === "ice" ? "🧊" : GROUP_ICON[c.group || ""] || MODE_ICON.terrain;
+const HIGH = new Set(["peak", "volcano", "pass", "range", "plateau"]), LONG = new Set(["river", "canal", "strait", "trench", "ridge"]);   // 答えのひとことに出す量
 const LEVEL_ICON: Record<number, string> = { 1: "🌱", 2: "🌿", 3: "🌳" };
 const BADGE_ICON: Record<string, string> = { "first-set": "🎒", perfect: "💯", "streak-10": "🔥", "sets-10": "🔟", "sets-50": "🏅", "all-modes": "🧭", "collector-50": "📗", "collector-100": "📘", "region-master": "👑" };
 const put = (node: Element, ...kids: (Kid | false | (Kid | false)[])[]): void => node.replaceChildren(...kids.flat().filter((k): k is Node | string => k != null && k !== false));   // replaceChildren(null) は "null" の文字を置く＝先に落とす
@@ -41,13 +46,20 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 	const fmtInt = (n: number): string => { try { return new Intl.NumberFormat(numLocale(lang), { numberingSystem: "latn", notation: "compact", maximumFractionDigits: 1 }).format(n); } catch { return String(n); } };
 	const { countries, regionName } = await loadCountries(lang);
 	const byKey = new Map(countries.map(c => [c.key, c]));
+	// 地形の台帳＝地形モードを選んだ時に初めて読む（TerrainDB 160KB＋名前 70KB）。読めるまで始めの面は「…」
+	let terrains: QuizCountry[] | null = null, terrainP: Promise<void> | null = null, terrainErr = false;
+	const terrainByKey = new Map<string, QuizCountry>();
+	const needTerrains = (): void => { terrainP ||= loadTerrains(lang, countries).then(list => { terrains = list; list.forEach(c => terrainByKey.set(c.key, c)); }, e => { console.warn("[quiz] terrains", e); terrainErr = true; terrainP = null; })
+		.then(() => { if (!home.hidden && S.mode === "terrain") showHome(); }); };
+	const items = (): QuizCountry[] => S.mode === "terrain" ? terrains || [] : countries;   // 今のモードの台帳
+	const itemOf = (k: string): QuizCountry | undefined => S.mode === "terrain" ? terrainByKey.get(k) : byKey.get(k);
 	const S: QuizState = {
 		mode: MODES.includes(q.get("mode") as string) ? q.get("mode") as string : "flag",
 		level: LEVELS.includes(+(q.get("level") as string)) ? +(q.get("level") as string) : 1,
 		region: REGIONS.includes(q.get("region") as string) ? q.get("region") as string : "0",
 		set: null, i: 0, correct: 0, t0: 0, wrong: [], answered: false, mapView: null, mapWanted: !q.has("nomap"),
 	};
-	const modeName = (m: string): string => m === "capital" ? t("Country & flag → capital") : m === "flag" ? t("Flag ⇄ country") : t("Map ⇄ country");
+	const modeName = (m: string): string => m === "capital" ? t("Country & flag → capital") : m === "flag" ? t("Flag ⇄ country") : m === "terrain" ? t("Landforms") : t("Map ⇄ country");
 	const levelName = (l: number): string => l === 1 ? t("Level 1 · Starter") : l === 2 ? t("Level 2 · Explorer") : t("Level 3 · Expert");
 	const badgeName = (b: string): string => ({ "first-set": t("First quiz"), perfect: t("Perfect 10"), "streak-10": t("10 in a row"), "sets-10": t("10 quizzes"), "sets-50": t("50 quizzes"), "all-modes": t("Tried every mode"), "collector-50": t("50 countries learned"), "collector-100": t("100 countries learned"), "region-master": t("Region master") } as Record<string, string>)[b] || b;
 	const nameOf = (c: QuizCountry): HTMLElement => el("span", { class: "q-name", text: c.name });   // 読み（World の yomi）は並べ替え用の鍵＝ルビには使わない（Kenji 2026-10-12）
@@ -74,28 +86,31 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		S.set = null; mapWrap.hidden = true; (S.mapView || null)?.clear();   // || null＝地図なし（false）も止める（?. は false を止めない・2026-10-17）
 		play_.hidden = result.hidden = true; home.hidden = false;
 		const seg = <T>(items: T[], cur: T, set: (v: T) => void, render: (v: T) => Kid | Kid[]): HTMLElement => el("div", { class: "q-seg", role: "radiogroup" }, items.map(v => el("button", { type: "button", role: "radio", "aria-checked": String(v === cur), class: v === cur ? "on" : "", onclick: () => { set(v); play("tap"); showHome(); } }, render(v))));
-		const poolN = pool(countries, { mode: S.mode, level: S.level, region: S.region }).length;
+		if (S.mode === "terrain" && !terrains) needTerrains();
+		const loading = S.mode === "terrain" && !terrains;
+		const poolN = pool(items(), { mode: S.mode, level: S.level, region: S.region }).length;
 		const best = P.bestFor(S.mode, S.level, S.region);
-		const due = P.mistakeKeys().filter(k => P.isDue(k) && byKey.has(k)).length;
+		const due = P.mistakeKeys().filter(k => P.isDue(k) && !!itemOf(k)).length;
 		put(home, 
 			el("section", { class: "q-card q-pick" },
 				el("h2", { text: t("What do you want to practice?") }),
 				el("div", { class: "q-modes" }, MODES.map(m => el("button", { type: "button", class: `q-mode ${m === S.mode ? "on" : ""}`, "aria-pressed": String(m === S.mode), onclick: () => { S.mode = m; play("tap"); showHome(); } },
 					el("span", { class: "q-mode-icon", text: MODE_ICON[m] }), el("span", { class: "q-mode-name", text: modeName(m) }),
-					el("small", { text: m === "capital" ? t("See a country and its flag, pick the capital.") : m === "flag" ? t("See a flag, pick the country — and the other way round.") : t("See a country lit up on the globe, pick its name. Level 3: find it on the globe yourself.") })))),
+					el("small", { text: m === "capital" ? t("See a country and its flag, pick the capital.") : m === "flag" ? t("See a flag, pick the country — and the other way round.") : m === "terrain" ? t("See a mountain, river, lake or desert lit up on the globe, pick its name.") : t("See a country lit up on the globe, pick its name. Level 3: find it on the globe yourself.") })))),
 				el("h3", { text: t("Level") }),
 				seg(LEVELS, S.level, v => S.level = v, v => [el("span", { text: LEVEL_ICON[v] + " " }), el("span", { text: levelName(v) })]),
-				el("p", { class: "q-muted", text: S.level === 1 ? t("Big, well-known countries. Choices come from anywhere.") : S.level === 2 ? t("Most countries. Choices come from the same region.") : t("Every country and territory, small ones too.") }),
+				el("p", { class: "q-muted", text: S.mode === "terrain" ? (S.level === 1 ? t("The biggest landforms: continents, oceans, great mountain ranges, rivers and lakes.") : S.level === 2 ? t("Well-known landforms. Choices come from the same region.") : t("Every landform, small ones too.")) : S.level === 1 ? t("Big, well-known countries. Choices come from anywhere.") : S.level === 2 ? t("Most countries. Choices come from the same region.") : t("Every country and territory, small ones too.") }),
 				el("h3", { text: t("Where?") }),
 				seg(REGIONS, S.region, v => S.region = v, v => el("span", { text: regionName(REGION_EN[v]) })),
-				el("p", { class: "q-muted", text: t("$1 countries in this set", poolN) }),
+				el("p", { class: "q-muted", text: loading ? (terrainErr ? t("Could not load the landforms. Check your connection.") : t("Loading…")) : S.mode === "terrain" ? t("$1 landforms in this set", poolN) : t("$1 countries in this set", poolN) }),
 				el("button", { type: "button", class: "q-start", disabled: poolN < 2, onclick: () => startSet(), text: t("Start! ($1 questions)", Math.min(SET_SIZE, poolN)) }),
-				due ? el("button", { type: "button", class: "q-start q-review", onclick: () => startSet({ review: true }), text: t("Review the $1 countries you missed", due) }) : null,
+				due ? el("button", { type: "button", class: "q-start q-review", onclick: () => startSet({ review: true }), text: S.mode === "terrain" ? t("Review the $1 landforms you missed", due) : t("Review the $1 countries you missed", due) }) : null,
 				best ? el("p", { class: "q-muted", text: t("Your best here: $1 / $2 in $3", best.correct, best.total, fmtMs(best.ms)) }) : null),
 			el("section", { class: "q-card q-stats" },
 				el("h2", { text: t("Your progress") }),
 				el("div", { class: "q-tiles" },
-					tile("📗", t("Countries learned"), `${Object.values(P.state.seen).filter(s => s.ok > 0).length} / ${countries.filter(c => c.name).length}`),
+					tile("📗", t("Countries learned"), `${Object.entries(P.state.seen).filter(([k, s]) => s.ok > 0 && byKey.has(k)).length} / ${countries.filter(c => c.name).length}`),
+					terrains ? tile("⛰️", t("Landforms learned"), `${Object.entries(P.state.seen).filter(([k, s]) => s.ok > 0 && terrainByKey.has(k)).length} / ${terrains.length}`) : null,
 					tile("🧩", t("Quizzes played"), String(P.state.sets)),
 					tile("🔥", t("Best streak"), String(P.state.bestStreak)),
 					tile("✅", t("Correct answers"), P.state.totalAnswered ? `${Math.round(100 * P.state.totalCorrect / P.state.totalAnswered)}%` : "–")),
@@ -114,11 +129,12 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		const opts = { mode: S.mode, level: S.level, region: S.region };
 		let set: Question[];
 		// 決まった国だけ出す（間違えた国のやり直し・期限の来た復習）：選択肢は Lv.2 以上の裁き（同じ地域から）・範囲は世界
-		const fixed = (list: string[]): Question[] => { const lv = Math.max(S.level, 2), p = pool(countries, { mode: S.mode, level: 3, region: "0" });
-			return (list.map(k => byKey.get(k)).filter(c => c && eligible(c, S.mode)) as QuizCountry[]).slice(0, SET_SIZE).map((c, i) => makeQuestion(c, p, { mode: S.mode, level: lv, all: countries, index: i })); };
+		const all = items();
+		const fixed = (list: string[]): Question[] => { const lv = Math.max(S.level, 2), p = pool(all, { mode: S.mode, level: 3, region: "0" });
+			return (list.map(itemOf).filter(c => c && eligible(c, S.mode)) as QuizCountry[]).slice(0, SET_SIZE).map((c, i) => makeQuestion(c, p, { mode: S.mode, level: lv, all, index: i })); };
 		if (keys) set = fixed(keys);
 		else if (review) set = fixed(P.mistakeKeys().filter(k => P.isDue(k)).sort((a, b) => (P.state.mistakes[b].wrong || 0) - (P.state.mistakes[a].wrong || 0)));
-		else set = buildSet(countries, opts, { mistakes: P.state.mistakes, recent: P.state.recent });
+		else set = buildSet(all, opts, { mistakes: P.state.mistakes, recent: P.state.recent });
 		if (!set.length) return;
 		Object.assign(S, { set, i: 0, correct: 0, wrong: [], t0: performance.now(), review });
 		home.hidden = result.hidden = true; play_.hidden = false;
@@ -148,6 +164,8 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		else if (Q.kind === "flag") prompt.append(flagImg(c, "big"), el("p", { class: "q-ask", text: t("Whose flag is this?") }));
 		else if (Q.kind === "name") prompt.append(el("h2", {}, nameOf(c)), el("p", { class: "q-ask", text: t("Which flag is this country's?") }));
 		else if (Q.kind === "map") prompt.append(el("p", { class: "q-ask q-ask-map", text: t("Which country is lit up on the globe?") }));
+		else if (Q.kind === "terrain") { prompt.append(el("p", { class: "q-cat", text: `${terrainIcon(c)} ${categoryName(c.category!, lang)}` }), el("p", { class: "q-ask q-ask-map", text: t("What is the name of the place lit up on the globe?") }));
+			if (S.mapView === false) prompt.append(nearHint(c)); }   // 地図が無い＝近くの国を手がかりに
 		else prompt.append(flagImg(c, "big"), el("h2", {}, nameOf(c)), el("p", { class: "q-ask", text: t("Tap this country on the globe.") }));
 		Q.choices.forEach((o, k) => choices.append(el("button", { type: "button", class: "q-choice", "data-key": o.key, onclick: () => answer(o), "aria-keyshortcuts": String(k + 1) },
 			el("kbd", { text: String(k + 1) }),
@@ -155,11 +173,11 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		const fact = el("div", { class: "q-fact", hidden: true });
 		const next = el("button", { type: "button", class: "q-next", hidden: true, onclick: () => nextQuestion(), text: S.i + 1 < S.set!.length ? t("Next →") : t("See the result") });
 		put(play_, head, prompt, choices, fact, next);
-		if (Q.kind === "map" || Q.kind === "tap") {
+		if (Q.kind === "map" || Q.kind === "tap" || Q.kind === "terrain") {
 			mapWrap.hidden = false;
 			ensureMap().then(async v => {
 				if (!v || S.set![S.i] !== Q) return;
-				if (Q.kind === "map") await v.focus(c, { pad: S.level === 1 ? 3 : 2 });   // Lv.1 は引いて見せる（周りの国で分かる）
+				if (Q.kind === "map" || Q.kind === "terrain") await v.focus(c, { pad: S.level === 1 ? 3 : 2 });   // Lv.1 は引いて見せる（周りの国で分かる）
 				else {
 					v.region(S.region === "0" ? regionOf(c) : S.region); hint.hidden = false; hint.textContent = t("Loading the map…");
 					const armed = await v.arm((key, ll) => tapAnswer(key, ll));
@@ -167,10 +185,12 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 					if (armed) hint.textContent = t("Tap the country"); else { hint.hidden = true; fallbackTap(Q); }   // 国の形が読めない＝選択肢の問に落とす
 				}
 			}).catch(() => { if (S.set![S.i] === Q && Q.kind === "tap") fallbackTap(Q); });
+			ensureMap().then(v => { if (!v && S.set![S.i] === Q && Q.kind === "terrain" && !prompt.querySelector(".q-near")) prompt.append(nearHint(c)); });   // 地図が起きなかった
 			if (S.mapView === false && Q.kind === "tap") fallbackTap(Q);
 		}
 	}
 	const regionOf = (c: QuizCountry): string => c.region;
+	const nearHint = (c: QuizCountry): HTMLElement => el("p", { class: "q-muted q-near", text: t("Near $1", (c.near || []).join(" · ") || regionName(REGION_EN["0"])) });
 	// 地図が無い環境で Lv.3 の地図モードに来た＝選択肢の問に落とす
 	function fallbackTap(Q: Question): void { Object.assign(Q, makeQuestion(Q.answer, pool(countries, { mode: "map", level: 3, region: S.region }), { mode: "map", level: 2, all: countries })); renderQuestion(); }
 	async function tapAnswer(key: string | null, lngLat: number[]): Promise<void> {
@@ -198,14 +218,24 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 		const fact = play_.querySelector<HTMLElement>(".q-fact")!, next = play_.querySelector<HTMLElement>(".q-next")!;
 		const verdict = el("div", { class: `q-verdict ${ok ? "ok" : "ng"}`, text: ok ? (streak >= 3 ? t("Correct! $1 in a row!", streak) : t("Correct!")) : t("Not quite. The answer is…") });
 		const pop = roundPopulation(c.population);
-		put(fact, verdict,
+		if (c.category) {   // 地形＝分類・地域・物理量（山は標高・川は長さ・他は面積。無ければ有る物）
+			const num = (v: number): string => { try { return new Intl.NumberFormat(numLocale(lang), { numberingSystem: "latn", maximumFractionDigits: 0 }).format(v); } catch { return String(Math.round(v)); } };
+			const elev = c.elevation != null && c.elevation > 0 ? t("Elevation: $1 m", num(c.elevation)) : null, len = c.length ? t("Length: $1 km", num(c.length)) : null, area = c.area ? t("Area: $1 km²", num(c.area)) : null;
+			const size = HIGH.has(c.category) ? elev || area : LONG.has(c.category) ? len || area : area || len || elev;
+			put(fact, verdict,
+				el("div", { class: "q-fact-card" }, el("span", { class: "q-fact-icon", text: terrainIcon(c) }), el("div", {},
+					el("strong", {}, nameOf(c)),
+					el("div", { class: "q-fact-row", text: [categoryName(c.category, lang), c.region ? regionName(REGION_EN[c.region] || "") : null].filter(Boolean).join(" · ") }),
+					size ? el("div", { class: "q-fact-row", text: size }) : null,
+					!ok && picked && picked.key !== c.key ? el("div", { class: "q-fact-row q-muted", text: t("You picked $1", picked.name) }) : null)));
+		} else put(fact, verdict,
 			el("div", { class: "q-fact-card" }, flagImg(c, "small"), el("div", {},
 				el("strong", {}, nameOf(c)),
 				el("div", { class: "q-fact-row", text: c.capital ? t("Capital: $1", c.capital) : "" }),
 				el("div", { class: "q-fact-row", text: [regionName(REGION_EN[c.region] || ""), pop ? t("Population: about $1", fmtInt(pop)) : null].filter(Boolean).join(" · ") }),
 				!ok && picked && picked.key !== c.key ? el("div", { class: "q-fact-row q-muted", text: Q.kind === "capital" ? t("$1 is the capital of $2", picked.capital, picked.name) : t("You picked $1", picked.name) }) : null)));
 		fact.hidden = false; next.hidden = false; next.focus({ preventScroll: true });   // focus の自動スクロールで次の問の頭が上の帯の下に潜らない
-		if (S.mapWanted && Q.kind !== "map") { mapWrap.hidden = false; ensureMap().then((v): unknown => v && S.set![S.i] === Q && v.focus(c, { pad: Q.kind === "tap" ? 2 : 1.8, keepMark: Q.kind === "tap" })); }   // 押した所の赤い印は残す＝正解と見比べる
+		if (S.mapWanted && Q.kind !== "map" && Q.kind !== "terrain") { mapWrap.hidden = false; ensureMap().then((v): unknown => v && S.set![S.i] === Q && v.focus(c, { pad: Q.kind === "tap" ? 2 : 1.8, keepMark: Q.kind === "tap" })); }   // 押した所の赤い印は残す＝正解と見比べる
 		if (ok && Q.kind !== "tap") advance = setTimeout(() => S.set![S.i] === Q && S.answered && nextQuestion(), 1600);   // 正解はテンポよく次へ（間違いは見て覚える＝押すまで待つ）
 	}
 	function nextQuestion() {
@@ -223,7 +253,7 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 	function showResult() {
 		clearInterval(timer);
 		const ms = performance.now() - S.t0, total = S.set!.length, n = S.correct, st = stars(n, total);
-		const p = pool(countries, { mode: S.mode, level: S.level, region: S.region });
+		const p = pool(items(), { mode: S.mode, level: S.level, region: S.region });
 		const r = S.review ? { got: [], best: null, isBest: false } : P.finish({ mode: S.mode, level: S.level, region: S.region, correct: n, total, ms, poolKeys: p.map(c => c.key) });
 		play(st === 3 ? "fanfare" : "correct"); if (r.got.length) setTimeout(() => play("badge"), 700);
 		play_.hidden = true; result.hidden = false; mapWrap.hidden = !S.mapWanted || S.mapView === false;
@@ -239,12 +269,13 @@ export async function mountApp(root: HTMLElement): Promise<QuizState> {
 					st === 3 ? null : el("button", { type: "button", class: "q-start", onclick: () => startSet(), text: t("Play again") }),   // 全問正解は「もう一度」を出さない＝花吹雪で締める（Kenji 2026-10-12）
 					S.wrong.length ? el("button", { type: "button", class: "q-start q-review", onclick: () => startSet({ keys: S.wrong.map(c => c.key) }), text: t("Retry the $1 you missed", S.wrong.length) }) : null,
 					el("button", { type: "button", class: "q-start q-home-btn", onclick: () => showHome(), text: t("Back to start") }))),
-			S.wrong.length ? el("section", { class: "q-card" }, el("h3", { text: t("Remember these") }), el("ul", { class: "q-missed" }, S.wrong.map(c => el("li", { onclick: () => (S.mapView || null)?.focus(c, { pad: 1.8 }) }, flagImg(c, "small"), el("span", {}, nameOf(c), c.capital ? el("small", { text: " · " + c.capital }) : null))))) : null,
-			el("section", { class: "q-card q-muted q-small", text: t("Country data: ortho-earth World database (Natural Earth, Wikidata, UN). Flags: Wikimedia Commons.") }));
+			S.wrong.length ? el("section", { class: "q-card" }, el("h3", { text: t("Remember these") }), el("ul", { class: "q-missed" }, S.wrong.map(c => el("li", { onclick: () => (S.mapView || null)?.focus(c, { pad: 1.8 }) }, c.category ? null : flagImg(c, "small"), el("span", {}, nameOf(c), c.capital ? el("small", { text: " · " + c.capital }) : c.category ? el("small", { text: " · " + categoryName(c.category, lang) }) : null))))) : null,
+			el("section", { class: "q-card q-muted q-small", text: S.mode === "terrain" ? t("Landform data: ortho-earth World database (Natural Earth, Wikidata).") : t("Country data: ortho-earth World database (Natural Earth, Wikidata, UN). Flags: Wikimedia Commons.") }));
 		if (S.wrong.length) (S.mapView || null)?.focus(S.wrong[0], { pad: 1.8 });
 		stopConfetti?.(); stopConfetti = st === 3 ? confetti() : null;
 	}
 
-	if (q.has("start")) startSet(); else showHome();
+	if (q.has("start") && S.mode === "terrain") { needTerrains(); await terrainP; }
+	if (q.has("start") && (S.mode !== "terrain" || terrains)) startSet(); else showHome();
 	return S;
 }

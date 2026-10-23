@@ -4,7 +4,7 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"description": "世界クイズ＝World の国名・国旗・首都・位置で遊ぶ教育用クイズ（www.ortho-earth.com/quiz/）。難易度 3 段・世界／地域・3 モード・間隔反復・星とバッジ",
+	"description": "世界クイズ＝World の国名・国旗・首都・位置と世界の地形で遊ぶ教育用クイズ（www.ortho-earth.com/quiz/）。難易度 3 段・世界／地域・4 モード・間隔反復・星とバッジ",
 	"scripts": {
 		"dev": "vite",
 		"build": "node scripts/verify-i18n.mjs && vite build",

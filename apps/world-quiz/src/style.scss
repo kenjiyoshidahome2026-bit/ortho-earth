@@ -80,6 +80,9 @@ img.q-flag.choice { height: 64px; max-width: 110px; margin: 0 auto; }
 .q-prompt h2 { margin: 6px 0; font-size: 30px; }
 .q-ask { margin: 8px 0 0; font-size: 20px; font-weight: 700; }
 .q-ask-map { font-size: 22px; padding: 20px 0; }
+.q-cat { display: inline-block; margin: 6px 0 0; padding: 4px 14px; border-radius: 999px; background: #fff3e8; border: 2px solid var(--accent); font-weight: 700; font-size: 17px; }   // 地形の分類（「⛰️ 川」）＝答えの種類を先に見せる
+.kind-terrain .q-ask-map { padding: 12px 0 8px; }
+.q-near { margin: 0 0 6px; }
 .q-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .q-choices.flags { grid-template-columns: 1fr 1fr; }
 @media (max-width: 480px) { .q-choices:not(.flags) { grid-template-columns: 1fr; } }
@@ -97,6 +100,7 @@ img.q-flag.choice { height: 64px; max-width: 110px; margin: 0 auto; }
 @keyframes q-pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .q-fact-card { display: flex; gap: 14px; align-items: center; margin-top: 10px; padding: 14px 16px; border-radius: 14px; background: var(--paper); box-shadow: var(--shadow); }
 .q-fact-card strong { font-size: 20px; }
+.q-fact-icon { font-size: 36px; line-height: 1; }
 .q-fact-row { font-size: 15px; }
 .q-next { display: block; width: 100%; margin-top: 12px; padding: 14px; border: 0; border-radius: 16px; background: var(--accent); color: #fff; font-size: 19px; font-weight: 800; box-shadow: 0 5px 0 #c96a2a; }
 .q-next:active { transform: translateY(3px); box-shadow: 0 2px 0 #c96a2a; }
