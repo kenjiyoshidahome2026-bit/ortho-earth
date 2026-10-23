@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-95 -23 190 258" height="100%" style="height:100%;margin:0 auto;display:block;">
+<style type="text/css">.hover:hover {fill:#a00; cursor:pointer; stroke:#000; stroke-width:0.2}</style>
+<rect x="-95" y="-23" width="190" height="258" fill="#eec"/>
+<g dominant-baseline="central" text-anchor="middle" font-family="游教科書体, YuKyokasho, 'Hiragino Mincho ProN', 'Yu Mincho', serif" font-weight="900" fill="#444">
+	<text x="0" y ="-10" dx="0 -43 -43 -43 -43 -43 -43" font-size="17">諸國温泉効能鑑</text>
+	<text x="0" y ="12" dx="0 -20 -20" dy="0 21 21" font-size="20">爲御覧</text>
+	<text x="0" y ="72" dx="0 -8" dy="0 8" font-size="8">行司</text>
+	<text x="7" y ="136" dx="0 -8 -8" dy="8 8 8" font-size="8">勧進元</text>
+	<text x="-7" y ="136" dx="0 -8 -8" dy="8 8 8" font-size="8">差添人</text>
+	<g class="hover" name="行司1">
+		<text x="10" y ="85" dx="0 -6" dy="7 7" font-size="6">紀刕</text>
+		<text x="10" y ="100" dx="0 -6.5 -6.5 -6.5" dy="8 8 8 8" font-size="6.5">龍神の湯</text>
+	</g>
+	<g class="hover" name="行司2">
+		<text x="3.3" y ="85" dx="0 -6" dy="7 7" font-size="6">伊豆</text>
+		<text x="3.3" y ="100" dx="0 -6.5 -6.5 -6.5" dy="8 8 8 8" font-size="6.5">熱海の湯</text>
+	</g>
+	<g class="hover" name="行司3">
+		<text x="-3.3" y ="85" dx="0 -6" dy="7 7" font-size="6">上刕</text>
+		<text x="-3.3" y ="100" dx="0 -6.5 -6.5 -6.5" dy="8 8 8 8" font-size="6.5">沢渡の湯</text>
+	</g>
+	<g class="hover" name="行司4">
+		<text x="-10" y ="85" dx="0 -6" dy="7 7" font-size="6">津軽</text>
+		<text x="-10" y ="100" dx="0 -6.5 -6.5 -6.5" dy="8 8 8 8" font-size="6.5">大鰐の湯</text>
+	</g>
+	<g class="hover" name="勧進元">
+		<text x="7" y ="166" dx="0 -6 -6 -6" dy="6 6 6 6" font-size="6">紀刕熊野</text>
+		<text x="7" y ="190" dx="0 -8 -8 -8" dy="9 9 9 9" font-size="8">本宮の湯</text>
+	</g>
+	<g class="hover" name="差添">
+		<text x="-7" y ="166" dx="0 -6 -6 -6" dy="6 6 6 6" font-size="6">紀刕熊野</text>
+		<text x="-7" y ="190" dx="0 -8 -8 -8" dy="9 9 9 9" font-size="8">新宮の湯</text>
+	</g>
+	<g name="E1" transform="translate(83.3,0)">
+		<text class="hover" name="東大関" x="3.85" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 7 7" font-size="7"><title>東大関 大関上刕草津ノ湯</title>大関上刕草津ノ湯</text>
+		<text class="hover" name="東関脇" x="-3.85" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>東関脇 関脇野刕那須湯</title>関脇野刕那須湯</text>
+		<text class="hover" name="東小結" x="-11.55" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>東小結 小結信刕諏訪湯</title>小結信刕諏訪湯</text>
+		<text class="hover" name="東前頭1" x="-19.25" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 9.3 9.3 9.4" font-size="7"><title>東前頭1 前頭豆刕湯河原湯</title>前頭豆刕湯河原湯</text>
+		<text class="hover" name="東前頭2" x="-26.95" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>東前頭2 前頭相刕足の湯</title>前頭相刕足の湯</text>
+		<text class="hover" name="東前頭3" x="-34.65" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>東前頭3 前頭陸奥嶽の湯</title>前頭陸奥嶽の湯</text>
+		<text class="hover" name="東前頭4" x="-42.35" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 7 7 7 7" font-size="7"><title>東前頭4 前頭上刕湯川尾ノ湯</title>前頭上刕湯川尾ノ湯</text>
+		<text class="hover" name="東前頭5" x="-50.05" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>東前頭5 前頭仙臺成子湯</title>前頭仙臺成子湯</text>
+		<text class="hover" name="東前頭6" x="-57.75" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 7 7" font-size="7"><title>東前頭6 前頭最上高湯ノ泉</title>前頭最上高湯ノ泉</text>
+		<text class="hover" name="東前頭7" x="-65.45" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 7 7 7 7" font-size="7"><title>東前頭7 前頭武刕小河内原湯</title>前頭武刕小河内原湯</text>
+	</g>
+	<g name="E2" transform="translate(84,72)">
+		<text class="hover" name="東前頭8" x="3.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭8 同津軽嶽の湯</title>同津軽嶽の湯</text>
+		<text class="hover" name="東前頭9" x="-3.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭9 同相刕湯元湯</title>同相刕湯元湯</text>
+		<text class="hover" name="東前頭10" x="-10.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭10 同豆刕小名湯</title>同豆刕小名湯</text>
+		<text class="hover" name="東前頭11" x="-17.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 11 6.5 6.5" font-size="6.5"><title>東前頭11 同信刕渋湯ノ湯</title>同信刕渋湯ノ湯</text>
+		<text class="hover" name="東前頭12" x="-24.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 8 8 8" font-size="6.5"><title>東前頭12 同會津天仁寺湯</title>同會津天仁寺湯</text>
+		<text class="hover" name="東前頭13" x="-31.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 6.5 6.5 11" font-size="6.5"><title>東前頭13 同越後松ノ山湯</title>同越後松ノ山湯</text>
+		<text class="hover" name="東前頭14" x="-38.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭14 同南部恐山湯</title>同南部恐山湯</text>
+		<text class="hover" name="東前頭15" x="-45.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭15 同庄内田川湯</title>同庄内田川湯</text>
+		<text class="hover" name="東前頭16" x="-52.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>東前頭16 同岩城湯元湯</title>同岩城湯元湯</text>
+		<text class="hover" name="東前頭17" x="-59.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 11 6.5 6.5" font-size="6.5"><title>東前頭17 同米澤赤湯ノ湯</title>同米澤赤湯ノ湯</text>
+		<text class="hover" name="東前頭18" x="-66.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 6 6 6 6" font-size="6.5"><title>東前頭18 同下野中禅寺梺湯</title>同下野中禅寺梺湯</text>
+	</g>
+	<g name="E3" transform="translate(84.6,132)">
+		<text class="hover" name="東前頭19" x="3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 11 6.5 6.5" font-size="6"><title>東前頭19 秋田大滝ノ湯</title>秋田大滝ノ湯</text>
+		<text class="hover" name="東前頭20" x="-3.208" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭20 陸奥飯坂湯</title>陸奥飯坂湯</text>
+		<text class="hover" name="東前頭21" x="-9.625" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭21 南部鹿角湯</title>南部鹿角湯</text>
+		<text class="hover" name="東前頭22" x="-16.042" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭22 相刕姥子湯</title>相刕姥子湯</text>
+		<text class="hover" name="東前頭23" x="-22.458" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>東前頭23 豆刕朱善寺湯</title>豆刕朱善寺湯</text>
+		<text class="hover" name="東前頭24" x="-28.875" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>東前頭24 仙台川たび湯</title>仙台川たび湯</text>
+		<text class="hover" name="東前頭25" x="-35.292" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭25 庄内温海湯</title>庄内温海湯</text>
+		<text class="hover" name="東前頭26" x="-41.708" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭26 津軽温湯泉</title>津軽温湯泉</text>
+		<text class="hover" name="東前頭27" x="-48.125" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭27 米沢湯澤湯</title>米沢湯澤湯</text>
+		<text class="hover" name="東前頭28" x="-54.542" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭28 豆刕権現湯</title>豆刕権現湯</text>
+		<text class="hover" name="東前頭29" x="-60.958" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭29 会津熱塩湯</title>会津熱塩湯</text>
+		<text class="hover" name="東前頭30" x="-67.375" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭30 相刕木賀湯</title>相刕木賀湯</text>
+	</g>
+	<g name="E4" transform="translate(84.6,182)">
+		<text class="hover" name="東前頭31" x="3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 11 6.5 6.5" font-size="6"><title>東前頭31 野刕塩原ノ湯</title>野刕塩原ノ湯</text>
+		<text class="hover" name="東前頭32" x="-3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 6.5 6.5 11" font-size="6"><title>東前頭32 庄内湯ノ浜湯</title>庄内湯ノ浜湯</text>
+		<text class="hover" name="東前頭33" x="-9.625" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭33 津軽板留湯</title>津軽板留湯</text>
+		<text class="hover" name="東前頭34" x="-16.042" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭34 信刕別所湯</title>信刕別所湯</text>
+		<text class="hover" name="東前頭35" x="-22.458" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 6.5 6.5 11" font-size="6"><title>東前頭35 越後関ノ山湯</title>越後関ノ山湯</text>
+		<text class="hover" name="東前頭36" x="-28.875" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭36 南部臺の湯</title>南部臺の湯</text>
+		<text class="hover" name="東前頭37" x="-35.292" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 6.5 6.5 11" font-size="6"><title>東前頭37 伊達湯ノ村湯</title>伊達湯ノ村湯</text>
+		<text class="hover" name="東前頭38" x="-41.708" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭38 最上銀山湯</title>最上銀山湯</text>
+		<text class="hover" name="東前頭39" x="-48.125" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭39 仙臺釜崎湯</title>仙臺釜崎湯</text>
+		<text class="hover" name="東前頭40" x="-54.542" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭40 会津滝の湯</title>会津滝の湯</text>
+		<text class="hover" name="東前頭41" x="-60.958" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>東前頭41 米沢谷沢湯</title>米沢谷沢湯</text>
+		<text class="hover" name="東前頭42" x="-67.375" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 11 6.5 6.5" font-size="6"><title>東前頭42 南部麻水ノ湯</title>南部麻水ノ湯</text>
+	</g>
+	<g name="W1" transform="translate(-21.7,0)">
+		<text class="hover" name="西大関" x="3.85" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 7 7" font-size="7"><title>西大関 大関摂刕有馬ノ湯</title>大関摂刕有馬ノ湯</text>
+		<text class="hover" name="西関脇" x="-3.85" y="0" dx="0 -7 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 7 7 14" font-size="7"><title>西関脇 関脇但馬城ノ崎湯</title>関脇但馬城ノ崎湯</text>
+		<text class="hover" name="西小結" x="-11.55" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西小結 小結豫刕道後湯</title>小結豫刕道後湯</text>
+		<text class="hover" name="西前頭1" x="-19.25" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭1 前頭加刕山中湯</title>前頭加刕山中湯</text>
+		<text class="hover" name="西前頭2" x="-26.95" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭2 前頭肥後阿蘇湯</title>前頭肥後阿蘇湯</text>
+		<text class="hover" name="西前頭3" x="-34.65" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭3 前頭豊後濱脇湯</title>前頭豊後濱脇湯</text>
+		<text class="hover" name="西前頭4" x="-42.35" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭4 前頭肥前温泉湯</title>前頭肥前温泉湯</text>
+		<text class="hover" name="西前頭5" x="-50.05" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭5 前頭薩摩霧島湯</title>前頭薩摩霧島湯</text>
+		<text class="hover" name="西前頭6" x="-57.75" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭6 前頭豊後別府湯</title>前頭豊後別府湯</text>
+		<text class="hover" name="西前頭7" x="-65.45" y="0" dx="0 -7 -7 -7 -7 -7 -7" dy="6 7 10 7 9 14 14" font-size="7"><title>西前頭7 前頭肥後山家湯</title>前頭肥後山家湯</text>
+	</g>
+	<g name="W2" transform="translate(-21,72)">
+		<text class="hover" name="西前頭8" x="3.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 11 6.5 6.5" font-size="6.5"><title>西前頭8 同濃刕下良ノ湯</title>同濃刕下良ノ湯</text>
+		<text class="hover" name="西前頭9" x="-3.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 8 8 8" font-size="6.5"><title>西前頭9 同肥後ひな久湯</title>同肥後ひな久湯</text>
+		<text class="hover" name="西前頭10" x="-10.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭10 同能刕底倉湯</title>同能刕底倉湯</text>
+		<text class="hover" name="西前頭11" x="-17.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭11 同備中長府湯</title>同備中長府湯</text>
+		<text class="hover" name="西前頭12" x="-24.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭12 同薩摩硫黄湯</title>同薩摩硫黄湯</text>
+		<text class="hover" name="西前頭13" x="-31.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭13 同紀刕田辺湯</title>同紀刕田辺湯</text>
+		<text class="hover" name="西前頭14" x="-38.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 8 8 8" font-size="6.5"><title>西前頭14 同但馬湯川原湯</title>同但馬湯川原湯</text>
+		<text class="hover" name="西前頭15" x="-45.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭15 同藝刕川治湯</title>同藝刕川治湯</text>
+		<text class="hover" name="西前頭16" x="-52.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 8 8 8" font-size="6.5"><title>西前頭16 同紀刕大ぜち湯</title>同紀刕大ぜち湯</text>
+		<text class="hover" name="西前頭17" x="-59.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭17 同加刕白山湯</title>同加刕白山湯</text>
+		<text class="hover" name="西前頭18" x="-66.5" y="0" dx="0 -6.5 -6.5 -6.5 -6.5 -6.5" dy="5 10 7 9 12 12" font-size="6.5"><title>西前頭18 同伯刕徒見湯</title>同伯刕徒見湯</text>
+	</g>
+	<g name="W3" transform="translate(-20.4,132)">
+		<text class="hover" name="西前頭19" x="3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 11 6.5 6.5" font-size="6"><title>西前頭19 薩摩桜島ノ湯</title>薩摩桜島ノ湯</text>
+		<text class="hover" name="西前頭20" x="-3.208" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭20 肥前竹尾湯</title>肥前竹尾湯</text>
+		<text class="hover" name="西前頭21" x="-9.625" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭21 石刕川村湯</title>石刕川村湯</text>
+		<text class="hover" name="西前頭22" x="-16.042" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭22 周防山口湯</title>周防山口湯</text>
+		<text class="hover" name="西前頭23" x="-22.458" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>西前頭23 肥前うるし湯</title>肥前うるし湯</text>
+		<text class="hover" name="西前頭24" x="-28.875" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭24 越中足倉湯</title>越中足倉湯</text>
+		<text class="hover" name="西前頭25" x="-35.292" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>西前頭25 越後塩沢の湯</title>越後塩沢の湯</text>
+		<text class="hover" name="西前頭26" x="-41.708" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 6.5 6.5 11" font-size="6"><title>西前頭26 相刕塔ノ沢湯</title>相刕塔ノ沢湯</text>
+		<text class="hover" name="西前頭27" x="-48.125" y="0" dx="0 -6 -6 -6 -6 -6 -6" dy="5 7 9 6 6 6 6" font-size="6"><title>西前頭27 秋田おやすノ湯</title>秋田おやすノ湯</text>
+		<text class="hover" name="西前頭28" x="-54.542" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭28 薩摩関外湯</title>薩摩関外湯</text>
+		<text class="hover" name="西前頭29" x="-60.958" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭29 相刕宮下湯</title>相刕宮下湯</text>
+		<text class="hover" name="西前頭30" x="-67.375" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭30 津軽矢立湯</title>津軽矢立湯</text>
+	</g>
+	<g name="W4" transform="translate(-20.4,182)">
+		<text class="hover" name="西前頭31" x="3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 11 6.5 6.5" font-size="6"><title>西前頭31 信刕湯瀬ノ湯</title>信刕湯瀬ノ湯</text>
+		<text class="hover" name="西前頭32" x="-3.208" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>西前頭32 相刕堂ヶ島湯</title>相刕堂ヶ島湯</text>
+		<text class="hover" name="西前頭33" x="-9.625" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭33 津軽浅虫湯</title>津軽浅虫湯</text>
+		<text class="hover" name="西前頭34" x="-16.042" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>西前頭34 仙臺あきう湯</title>仙臺あきう湯</text>
+		<text class="hover" name="西前頭35" x="-22.458" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭35 越後出湯泉</title>越後出湯泉</text>
+		<text class="hover" name="西前頭36" x="-28.875" y="0" dx="0 -6 -6 -6 -6 -6 -6" dy="5 7 9 6 6 6 6" font-size="6"><title>西前頭36 最上かみの山湯</title>最上かみの山湯</text>
+		<text class="hover" name="西前頭37" x="-35.292" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭37 信刕浅間湯</title>信刕浅間湯</text>
+		<text class="hover" name="西前頭38" x="-41.708" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭38 相刕底倉湯</title>相刕底倉湯</text>
+		<text class="hover" name="西前頭39" x="-48.125" y="0" dx="0 -6 -6 -6 -6 -6" dy="5 7 9 8 8 8" font-size="6"><title>西前頭39 上刕東老神湯</title>上刕東老神湯</text>
+		<text class="hover" name="西前頭40" x="-54.542" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭40 越後田上湯</title>越後田上湯</text>
+		<text class="hover" name="西前頭41" x="-60.958" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭41 津軽倉立湯</title>津軽倉立湯</text>
+		<text class="hover" name="西前頭42" x="-67.375" y="0" dx="0 -6 -6 -6 -6" dy="5 7 9 12 12" font-size="6"><title>西前頭42 能刕足の湯</title>能刕足の湯</text>
+	</g>
+</g>
+<path d="M-91-19h182v18h-182zM14 0V232zM14 72H92zM14 132H92zzM14 182H92zM-14 0V232zM-14 72H-92zM-14 132H-92zzM-14 182H-92zM-14 138h28zM-14 66h28z" fill="none" stroke="#aaa" stroke-width="0.2"/>
+<rect x="-92" y="-20" width="184" height="20" fill="none" stroke="#444" stroke-width="1"/>
+<rect x="-92" y="0" width="184" height="232" fill="none" stroke="#444" stroke-width="1"/>
+</svg>
