@@ -2,9 +2,10 @@
 // アプリとしての振る舞い（?lang= を読む・URL に書き戻す・window に作業用の手を生やす）は
 // target を渡さない＝「ページの持ち物」な使い方の既定でそのまま入る。
 import world from "./world.ts";
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import type { NationId } from "ortho-world";   // 型だけ＝npm に出す型定義（sdk/ortho-world.d.ts）＝合図の形の正本
 
-const w = await world();
+const w = await world().finally(dismissBoot);   // 一覧が立ったら起動画面を畳む（失敗でも畳む＝幕を残さない）
 
 // 埋め込み側の見本＝ここで起きる合図。地図の部品と繋ぐならこの3本を使う（README/型定義に同じものを載せる）
 // 地図＝この殻の持ち物（src/mappane.ts）。合図を受けてから初めてエンジンを import する＝一覧だけ見る人には 1 バイトも降ってこない。

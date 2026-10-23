@@ -2,13 +2,15 @@
 // ブラウザは要らない（静的）。見るのは「増えたデモが最初の一枚から揃っているか」＝head の共有カード・言語・起動画面の作法：
 //   ① <html lang>・<title>・description・viewport（width=device-width・ピンチ拡大を殺さない）・theme-color・canonical・favicon
 //   ② 共有カード＝og:title/description/image（絶対 URL・画像はこのリポジトリに実在）・twitter:card
-//   ③ 起動画面（#boot）がある頁＝aria-label は "Loading"（head と同じ英語）・prefers-reduced-motion で止まる
+//   ③ 起動画面（#boot）＝全頁が正本（packages/globe/src/boot/screen.ts）を配られている＝日本地図と同じ幕（2026-10-23 本人「すべて日本地図（デモ）に合わせて」）。
+//      頁ごとの #boot の CSS・マークの写しは置かない。正本は aria-label "Loading"（head と同じ英語）・prefers-reduced-motion で止まる
 // 頁を足したら demos.json にカードを足す＝この門が自動で見る。例外は EXEMPT に理由と共に書く。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { BOOT_SLOT, BOOT_HTML, BOOT_CSS } from "../../../packages/globe/src/boot/screen.ts";
 
 const WWW = path.dirname(path.dirname(fileURLToPath(import.meta.url))), APPS = path.dirname(WWW);
 const demos = JSON.parse(readFileSync(path.join(WWW, "demos.json"), "utf8")).demos;
@@ -80,11 +82,18 @@ for (const [entry, ds] of pages) {
 		assert.ok(existsSync(path.join(APPS, file)), `og:image file missing: apps/${file}`);
 		assert.ok(name(html, "twitter:card"), "twitter:card");
 	});
-	if (html.includes('id="boot"')) test(`${entry}（${ids}）：起動画面＝aria-label "Loading"・reduced-motion で止まる`, () => {
-		assert.ok(/id="boot"><svg[^>]*aria-label="Loading"/.test(html), 'boot aria-label="Loading" (not 起動中: the head is English)');
-		assert.ok(/prefers-reduced-motion:\s*reduce/.test(html), "prefers-reduced-motion rule for #boot");
-		// スマホのブラウザのバー（theme-color）＝起動画面の地色と同じ色（2026-10-18・紙色の頁が濃紺のバーのままだった＝yokohama・choju・onsen・terrain）
-		const bg = (html.match(/#boot\{[^}]*background:\s*(#[0-9a-fA-F]{3,8})/) || [])[1];
-		if (bg) assert.equal(name(html, "theme-color")?.toLowerCase(), bg.toLowerCase(), "theme-color should match the #boot background");
+	test(`${entry}（${ids}）：起動画面＝正本（boot/screen.ts）を配られている・頁の写しは無い`, () => {
+		const vite = !entry.startsWith("www/public/");   // vite の頁＝印を置き bootScreen が差し込む／静的な頁＝boot-sync.mjs の写し
+		if (vite) {
+			assert.ok(html.includes(BOOT_SLOT), `${BOOT_SLOT} missing (the boot screen is injected from packages/globe/src/boot/screen.ts)`);
+			const cfg = readFileSync(path.join(APPS, entry.split("/")[0], "vite.config.js"), "utf8");
+			assert.ok(/\bbootScreen\b/.test(cfg), "vite.config.js must use bootScreen (vite-app.mjs)");
+			assert.ok(!html.includes('id="boot"') && !/#boot\s*[{.]/.test(html), "no page-local #boot markup/CSS (edit packages/globe/src/boot/screen.ts instead)");
+		} else assert.ok(html.includes(BOOT_HTML) && html.includes(BOOT_CSS), "static page out of sync with boot/screen.ts — run node apps/www/scripts/boot-sync.mjs");
 	});
 }
+test("起動画面の正本＝aria-label \"Loading\"・reduced-motion で止まる・日本地図の濃紺", () => {
+	assert.ok(/id="boot"><svg[^>]*aria-label="Loading"/.test(BOOT_HTML), 'boot aria-label="Loading" (the head is English)');
+	assert.ok(/prefers-reduced-motion:\s*reduce/.test(BOOT_CSS), "prefers-reduced-motion rule for #boot");
+	assert.ok(/#boot\{[^}]*background:#0b1021/.test(BOOT_CSS), "the Japan map's night blue");
+});

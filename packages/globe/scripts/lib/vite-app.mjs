@@ -2,6 +2,7 @@
 // 各アプリの base・outDir・proxy は各アプリに残す。lib×ES の資産まわりは vite-lib-plugins.mjs、共有エンジンは shared-engine.mjs。
 import { resolve, dirname } from "node:path";
 import { rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { BOOT_SLOT, BOOT_CSS, BOOT_HTML } from "../../src/boot/screen.ts";
 
 // COOP/COEP を middleware で「全リクエスト」に刻む（dev と preview の両方）。server.headers だと worker のサブ import の転送レスポンスに
 // 届かず worker 全滅→黒画面＝middleware が標準解（japan 2026-09）。crossOriginIsolated＝gint の SharedArrayBuffer（ゼロコピー）の点火条件で、
@@ -54,6 +55,16 @@ export const asyncMainCss = {
 				`<link rel="stylesheet"${pre}href="${href}"${post} media="print" onload="this.media='all'">` +
 				`<noscript><link rel="stylesheet"${pre}href="${href}"${post}></noscript>`,
 		);
+	},
+};
+
+// 起動画面（#boot）を配る（2026-10-23・本人「修正元は１か所で、それを配る形に」）。正本＝packages/globe/src/boot/screen.ts。
+// HTML の <!-- ortho:boot --> を幕に差し替え、head に CSS を入れる（dev も build も）。印の無い頁は素通し。畳むのは各頁の dismissBoot（page.js）
+export const bootScreen = {
+	name: "boot-screen",
+	transformIndexHtml(html) {
+		if (!html.includes(BOOT_SLOT)) return html;
+		return html.replace(BOOT_SLOT, BOOT_HTML).replace("</head>", `\t<style id="boot-css">${BOOT_CSS}</style>\n</head>`);
 	},
 };
 

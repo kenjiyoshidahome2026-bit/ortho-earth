@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import { renderDemos, renderStories } from './cards.js';
 import { buildSitemap } from './sitemap.js';
-import { crossOriginIsolation, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, CSS_TARGET, bootScreen } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
 const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
@@ -24,7 +24,7 @@ const demosHtml = () => ({
 
 // 背景の地球は globe-lite.js（webp 1 枚＋WebGL）＝エンジンは載せない。prefetch.js が geopbf/altpbf で /japan/ の世界データを IDB へ先読みする。
 export default defineConfig({
-	plugins: [crossOriginIsolation(), demosHtml()],   // COOP/COEP credentialless＝dev と preview の全リクエスト（旧 server.headers＝dev だけ）。本番は deploy-worker.js が刻む
+	plugins: [crossOriginIsolation(), demosHtml(), bootScreen],   // COOP/COEP credentialless＝dev と preview の全リクエスト（旧 server.headers＝dev だけ）。本番は deploy-worker.js が刻む
 	optimizeDeps: {
 		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf', '@ortho-earth/core'],
 	},

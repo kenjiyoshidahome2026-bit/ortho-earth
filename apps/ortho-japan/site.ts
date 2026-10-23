@@ -3,16 +3,11 @@
 // 共有エンジン（/globe/engine/<版>/・ortho-globe の Worker が配る）から読む＝/globe/ や /world/ とブラウザのキャッシュを分かち合う
 // （2026-09-30・本人裁定「A」・LAYERS.md 掟 3）。旧＝本番だけ /japan/lib/ の SDK 配布物を実行時に食う二重構成。
 // SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import type { ContextMenuItems } from "@ortho-earth/globe";   // 型だけ（初回の contextmenu() の戻り＝項目の setter）
 const engineP = import("./app.ts");
 const failedP = import("@ortho-earth/globe/page.js");   // 起動失敗の表示（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 // 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.tsは触らない。
-const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
-	requestAnimationFrame(() => requestAnimationFrame(() => {
-		const boot = document.getElementById("boot");
-		if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
-	}));
-};
 // assetBase＝自分の配信ベース（dev/本番とも /japan/）。
 // top-level await は使わない＝既定ビルドターゲット(es2020)の掟。then連鎖で同じ流れ。
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）

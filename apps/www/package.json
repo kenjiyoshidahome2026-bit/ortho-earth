@@ -5,9 +5,9 @@
 	"license": "GPL-3.0-or-later",
 	"scripts": {
 		"dev": "vite",
-		"build": "node scripts/verify-i18n.mjs && node --test tests/t-start-sync.mjs tests/t-sitemap.mjs tests/t-docs-head.mjs && vite build",
+		"build": "node scripts/verify-i18n.mjs && node --test tests/t-start-sync.mjs tests/t-sitemap.mjs tests/t-docs-head.mjs tests/t-boot-sync.mjs && vite build",
 		"preview": "vite preview",
-		"test": "node --test tests/t-prefetch.mjs tests/t-demos-csv.mjs tests/t-start-sync.mjs tests/t-demo-pages.mjs tests/t-sitemap.mjs tests/t-docs-head.mjs",
+		"test": "node --test tests/t-prefetch.mjs tests/t-demos-csv.mjs tests/t-start-sync.mjs tests/t-demo-pages.mjs tests/t-sitemap.mjs tests/t-docs-head.mjs tests/t-boot-sync.mjs",
 		"verify:sitemap": "node scripts/verify-sitemap.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",

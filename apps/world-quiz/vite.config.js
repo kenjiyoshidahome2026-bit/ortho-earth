@@ -5,6 +5,7 @@ import wasm from 'vite-plugin-wasm';
 import path from 'path';
 import fs from 'fs';
 import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';
+import { bootScreen } from '../../packages/globe/scripts/lib/vite-app.mjs';   // 起動画面（#boot）の正本を配る（2026-10-23）
 const __dirname = import.meta.dirname;
 // www のデモ一覧は各デモをナビの下の iframe で開く＝www は COEP credentialless の頁＝中に入る頁も COEP が要る（world と同じ）
 const coepHeaders = () => ({
@@ -14,7 +15,7 @@ const coepHeaders = () => ({
 const noChunkOptimization = { experimental: { chunkOptimization: false } };   // world と同じ理由（mesh-loaders の合流を避ける）
 
 export default defineConfig(({ command }) => ({
-	plugins: [wasm(), coepHeaders(), sharedEngine()],
+	plugins: [wasm(), coepHeaders(), sharedEngine(), bootScreen],
 	base: '/quiz/',
 	optimizeDeps: { exclude: ['common', 'geopbf', 'native-bucket'] },
 	server: {

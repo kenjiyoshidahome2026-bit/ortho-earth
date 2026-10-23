@@ -15,6 +15,7 @@ import "./main.scss";
 import { t, setLang, norm, LANGUAGES, getLang, isRTL } from "./i18n.ts";
 import { READ, WRITE, ACCEPT, conversionSVG } from "./formats.ts";
 import { mapP, viewP, mountTools } from "./globe.ts";
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 
 const API_BASE = "https://api.ortho-earth.com";
 const params = new URLSearchParams(location.search);
@@ -22,7 +23,8 @@ await setLang(norm(params.get("lang")) || norm(navigator.language) || "en");
 createGeopbf(API_BASE, { bucket: nativeBucket as BucketProvider });
 // IDB の器の名前は旧名のまま（改名で既存の変換キャッシュを捨てさせない・利用者には見えない）
 const hubCache = await Cache("GISHUB").catch(() => null);
-// 地球儀（gint v2 エンジン）は裏で立ち上げる＝パネルは地図を待たない
+// 地球儀（gint v2 エンジン）は裏で立ち上げる＝パネルは地図を待たない。起動画面は地球儀が立ったら畳む（失敗でも畳む＝日本地図と同じ「地図が出るまで」の幕）
+mapP.then(dismissBoot, dismissBoot);
 mapP.then(map => {
 	map.mapEl.addEventListener("ortho:close", exitView);
 	map.on("settle", e => { if (app.classed("viewing")) history.replaceState(null, "", location.search + e.hash); });   // 地図の視点 ⇄ URL hash（共有リンク）
