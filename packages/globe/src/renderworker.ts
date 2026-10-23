@@ -14,7 +14,7 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip, worldRadiusM, lonlatTo3D, ellNormal3D } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectCss, projectClip, worldRadiusM, lonlatTo3D, ellNormal3D } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.ts（組み込みのオーバーレイ）へ渡す（2026-10-16）
@@ -200,9 +200,9 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
 				const lift = pf > 0 && terrain ? (lon: number, lat: number) => (terrain!.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon: number, lat: number, hM?: number) => {
-					const lz = lift(lon, lat), [x, y, f] = project(s!, lon, lat, 1 + lz + (hM || 0) * elevBase);
-					if (ovPl && clipDistanceM(ovPl, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) return [x / dpr, y / dpr, -1];   // 断面で切られた側＝見えない（front<0・#111 段 3・面はそのオーバーレイの対象）
-					return [x / dpr, y / dpr, f];
+					const lz = lift(lon, lat), r = projectCss(project(s!, lon, lat, 1 + lz + (hM || 0) * elevBase), dpr);
+					if (ovPl && clipDistanceM(ovPl, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) r[2] = -1;   // 断面で切られた側＝見えない（front<0・#111 段 3・面はそのオーバーレイの対象）
+					return r;   // 写らない点（カメラ後方）は同次座標も運ぶ＝anno の塗りが近平面で切る（左上への楔・2026-10-24）
 				};
 				const clipH = (lon: number, lat: number, hM?: number) => projectClip(s!, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
 				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
