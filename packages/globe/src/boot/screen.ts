@@ -5,7 +5,6 @@
 //   ・vite の頁＝HTML に <!-- ortho:boot --> を置く → vite-app.mjs の bootScreen が head に CSS・その場所に幕を差し込む（dev も build も）
 //   ・vite を通らない静的な頁（www/public/maplibre の一覧と例）＝bootStatic() の焼き物を写す（apps/www/scripts/boot-sync.mjs・検定 t-boot-sync.mjs が写しのずれを止める）
 //   ・畳む＝dismissBoot()（page.js の startPage も同じ物を呼ぶ）。幕が無ければ何もしない
-// 型の無い素の関数で書く＝bootStatic が dismissBoot をそのまま文字列にしてインラインの script へ焼く（node の型剥がしでも同じ字面）。
 
 /** HTML に置く印（vite の bootScreen がここを幕に差し替える） */
 export const BOOT_SLOT = "<!-- ortho:boot -->";
@@ -40,19 +39,29 @@ export const MAP_READY_EVENT = "ortho:load";
  *   "map"    … MapLibre の例＝地図の load（MAP_READY_EVENT）。合図を出さない古いエンジンでも幕が残り続けないよう上限 10 秒
  *   "images" … 一覧の頁＝最初に見えるサムネイル（.shot img）が読めたら。上限 3 秒
  */
+// 畳む script の字面＝dismissBoot と同じ手順（2 フレーム待って .gone → 250ms で消す）。関数の toString で焼かない＝字面が固定の文字列だけで組む
+const DISMISS_JS = `()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=document.getElementById("boot");if(b){b.classList.add("gone");setTimeout(()=>b.remove(),250)}}))`;
+const WAIT_JS = {
+	map: `addEventListener("ortho:load",d,{once:true});setTimeout(d,10000)`,   // "ortho:load"＝MAP_READY_EVENT
+	images: `addEventListener("DOMContentLoaded",()=>{const v=[...document.querySelectorAll(".shot img")].filter(i=>i.getBoundingClientRect().top<innerHeight).slice(0,8);Promise.all(v.map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(d)});setTimeout(d,3000)`,
+} as const;
 export function bootStatic(until: "map" | "images"): { head: string; body: string } {
-	const wait = until === "map"
-		? `addEventListener(${JSON.stringify(MAP_READY_EVENT)},d,{once:true});setTimeout(d,10000)`
-		: `addEventListener("DOMContentLoaded",()=>{const v=[...document.querySelectorAll(".shot img")].filter(i=>i.getBoundingClientRect().top<innerHeight).slice(0,8);Promise.all(v.map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(d)});setTimeout(d,3000)`;
 	return {
 		head: `<style id="boot-css">${BOOT_CSS}</style>`,
-		body: `<!--boot-->${BOOT_HTML}<script>(()=>{const d=${dismissBoot.toString().replace(/^function dismissBoot\(\)/, "()=>")};${wait}})()</script><!--/boot-->`,
+		body: `<!--boot-->${BOOT_HTML}<script>(()=>{const d=${DISMISS_JS};${WAIT_JS[until]}})()</script><!--/boot-->`,
 	};
 }
 
+// 区切り [open, close) を 1 つ外す（正規表現を使わない＝長い入力でも線形）
+const cut = (s: string, open: string, close: string): string => {
+	const i = s.indexOf(open); if (i < 0) return s;
+	const j = s.indexOf(close, i + open.length); return j < 0 ? s : s.slice(0, i) + s.slice(j + close.length);
+};
 /** 静的な頁の HTML に bootStatic を写す（前の写しは外してから入れ直す＝何度掛けても同じ結果）。head の終わりに style・body の頭に幕 */
 export function withBootStatic(html: string, until: "map" | "images"): string {
 	const { head, body } = bootStatic(until);
-	return html.replace(/<style id="boot-css">[\s\S]*?<\/style>/, "").replace(/<!--boot-->[\s\S]*?<!--\/boot-->/, "")
-		.replace(/<\/head>/i, `${head}</head>`).replace(/<body([^>]*)>/i, m => `${m}${body}`);
+	let s = cut(cut(html, `<style id="boot-css">`, "</style>"), "<!--boot-->", "<!--/boot-->");
+	const h = s.indexOf("</head>"); if (h >= 0) s = s.slice(0, h) + head + s.slice(h);
+	const b = s.indexOf("<body"), e = b < 0 ? -1 : s.indexOf(">", b); if (e >= 0) s = s.slice(0, e + 1) + body + s.slice(e + 1);
+	return s;
 }
