@@ -14,14 +14,16 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip, worldRadiusM } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip, worldRadiusM, lonlatTo3D, ellNormal3D } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.ts（組み込みのオーバーレイ）へ渡す（2026-10-16）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
-import { shieldFor } from "./shields.ts";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
+import { shieldFor } from "./shields.ts";
+import { sunDirAt, paintSunShadow, paintViewshed, D2R, R_EARTH, K_REFR } from "./sunshadow-core.ts";   // 日影時間・可視域の GPU 版（2026-10-24）＝太陽の向きと色付けは CPU 版と同じ純関数   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
+import type { RendererAnalysis } from "@ortho-earth/core/gpu";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { DepthApi, DepthFrame } from "@ortho-earth/core/depthout";
 import type { ClockAnchor } from "@ortho-earth/ephem/clock";
@@ -50,6 +52,8 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
 	lost?: Promise<{ message?: string } | null | undefined>;
 	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown;
+	/** 日影時間・可視域の GPU 版（WebGPU だけ・2026-10-24） */
+	analysis?: RendererAnalysis;
 	/** 層の位置に描く注記の境（T-P2・WebGPU）＝この層の添字より前の注記は地図のパスの中 */
 	textSplit?(): number;
 }
@@ -96,6 +100,9 @@ interface RwMsg {
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
 	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
 	port?: MessagePort; width?: number; height?: number; on?: boolean; bbox?: number[]; N?: number; cam?: CameraPose | null;
+	/** 解析（anaSun/anaVis/anaSurf） */
+	W?: number; H?: number; planeH?: number; suns?: Array<{ alt: number; az: number }>; step?: number; mode?: "instant" | "duration"; probe?: number[][] | null;
+	observer?: number[]; eyeH?: number; targetH?: number; radius?: number;
 }
 /** set の data（cmd ごと） */
 type UserLabelsMsg = { list?: UserLabel[] | null; minZoom?: number | null; maxZoom?: number | null } | null;
@@ -239,7 +246,14 @@ const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追�
 const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 (self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
-let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
+let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;
+// 標高の升目（可視域・見通し線・日影時間）＝範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北・本当の m（誇張なし）
+async function elevGridOf(bbox: number[], W: number, H: number): Promise<Float32Array<ArrayBuffer>> {
+	const [w, s, e, n] = bbox, out = new Float32Array(W * H);
+	if (terrain) { const cs = []; for (let y = Math.floor(s); y <= Math.floor(n); y++) for (let x = Math.floor(w); x <= Math.floor(e); x++) cs.push(terrain.prefetch(x, y, 1).catch(() => null)); await Promise.all(cs); }
+	for (let r = 0; r < H; r++) { const lat = n - (r + 0.5) / H * (n - s); for (let c = 0; c < W; c++) out[r * W + c] = terrain ? terrain.sampleElev(w + (c + 0.5) / W * (e - w), lat) : 0; }
+	return out;
+}   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 let raster: Raster | null = null;   // 画像タイル層（ortho-core/raster）：選抜・取得・在庫・描画リストを worker 内で完結（main は add/remove/set の指示だけ）
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
@@ -574,11 +588,38 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "rasterStats": postMessage({ type: "rasterStats", id: m.id, data: raster?.stats() ?? null }); break;
 		case "labelsPlaced": postMessage({ type: "labelsPlaced", id: m.id, data: { labels: labelLayer?.placed?.() ?? [], symbols: [...overlays.values()].flatMap(o => o.mod?.placed?.() ?? []), debug: labelLayer?.placedDebug?.() ?? null } }); break;   // 置いたラベル/記号（labels2d＋placed() を持つ重ね描き＝symbols）＝公式例の門 段 0・debugGlobals の __placed   // 置いたラベル/記号（公式例の門 段 0＝文字を測る・debugGlobals の __placed）
 		case "elevGrid": (async () => {   // 標高の升目（可視域・見通し線＝#44）。範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北
-			const [w, s, e, n] = m.bbox!, N = m.N!, out = new Float32Array(N * N);
-			if (terrain) { const cs = []; for (let y = Math.floor(s); y <= Math.floor(n); y++) for (let x = Math.floor(w); x <= Math.floor(e); x++) cs.push(terrain.prefetch(x, y, 1).catch(() => null)); await Promise.all(cs); }
-			for (let r = 0; r < N; r++) { const lat = n - (r + 0.5) / N * (n - s); for (let c = 0; c < N; c++) out[r * N + c] = terrain ? terrain.sampleElev(w + (c + 0.5) / N * (e - w), lat) : 0; }
+			const out = await elevGridOf(m.bbox!, m.N!, m.N!);
 			postMessage({ type: "elevGrid", id: m.id, data: out }, [out.buffer]);
 		})(); break;   // 画像タイル層の在庫/描画枚数（検定・診断）
+		case "anaSun": case "anaVis": case "anaSurf": (async () => {   // 日影時間・可視域・地表の GPU 版（2026-10-24）＝描いている物から測る。答えは CPU 版（model worker）と同じ形
+			try {
+				const an = renderer?.analysis; if (!an) throw new Error("analysis needs WebGPU");
+				const bbox = m.bbox!, [w, s, e, n] = bbox;
+				if (m.type === "anaSun") {
+					const W = m.W!, H = m.H!, ground = await elevGridOf(bbox, W, H), center = [(w + e) / 2, (s + n) / 2];
+					const o3 = lonlatTo3D(center[0], center[1]), d = ellipsoidOn() ? ellNormal3D(center[0], center[1]) : o3, l = Math.hypot(d[0], d[1], d[2]) || 1, up = [d[0] / l, d[1] / l, d[2] / l];
+					const r = await an.sunHours({ bbox, W, H, ground, planeH: m.planeH ?? 4, suns: (m.suns || []).map(x => sunDirAt(up, x.alt, x.az)) });
+					const step = m.step ?? 0.5, mode = m.mode ?? "duration", { rgba, maxH } = paintSunShadow(r.cnt, W, H, step, mode);
+					const probes = (m.probe || []).map(([lo, la]) => { const x = Math.floor((lo - w) / (e - w) * W), y = Math.floor((n - la) / (n - s) * H); const v = x >= 0 && y >= 0 && x < W && y < H ? r.cnt[y * W + x] : 0; return mode === "instant" ? (v ? 1 : 0) : +(v * step).toFixed(2); });
+					postMessage({ type: "anaDone", id: m.id, data: { rgba, w: W, h: H, bbox, probes, stats: { triangles: r.tris, steps: r.used, maxHours: +maxH.toFixed(2), texelM: +r.texelM.toFixed(2) } } }, [rgba.buffer]);
+				} else {
+					const N = m.N!, ground = await elevGridOf(bbox, N, N);
+					const lat0 = (s + n) / 2 * D2R, kx = Math.cos(lat0) * R_EARTH, spanX = (e - w) * D2R * kx, spanY = (n - s) * D2R * R_EARTH, cellX = spanX / N, cellY = spanY / N, cell = (cellX + cellY) / 2;
+					if (m.type === "anaSurf") {
+						const r = await an.surface({ bbox, N, ground });
+						postMessage({ type: "anaDone", id: m.id, data: { S: r.S, tris: r.tris, cell } }, [r.S.buffer]);   // 地表＝本当の m（誇張なし）＝CPU 版の断面に渡す
+						return;
+					}
+					const [olo, ola] = m.observer!, ox = (olo - w) / (e - w) * N, oy = (n - ola) / (n - s) * N, radius = m.radius ?? 1000, rCells = radius / cell;
+					const r = await an.viewshed({ bbox, N, ground, ox, oy, rCells, cellX, cellY, dropK: (1 - K_REFR) / (2 * R_EARTH), eyeH: m.eyeH ?? 1.6, targetH: m.targetH ?? 0 });
+					const oi = Math.min(N - 1, Math.max(0, oy | 0)) * N + Math.min(N - 1, Math.max(0, ox | 0));
+					r.vis[oi] = 1;
+					const { rgba, inR, seen } = paintViewshed(r.vis, N, ox, oy, rCells);
+					const probes = (m.probe || []).map(([lo, la]) => { const x = (lo - w) / (e - w) * N | 0, y = (n - la) / (n - s) * N | 0; return x >= 0 && y >= 0 && x < N && y < N ? r.vis[y * N + x] : 0; });
+					postMessage({ type: "anaDone", id: m.id, data: { rgba, w: N, h: N, bbox, probes, stats: { cells: inR, visibleRatio: inR ? +(seen / inR).toFixed(3) : 0, triangles: r.tris, eyeZ: +(r.S[oi] + (m.eyeH ?? 1.6)).toFixed(1), cell: +cell.toFixed(2) } } }, [rgba.buffer]);
+				}
+			} catch (err) { postMessage({ type: "anaDone", id: m.id, error: (err as Error)?.message || String(err) }); }
+		})(); break;
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
 			drawMsgN++;
 			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。

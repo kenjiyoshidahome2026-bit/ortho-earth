@@ -161,6 +161,8 @@ export type ShadowsDeps = Pick<GlobeScope, "registerGadget" | "BASE_SOURCE" | "D
 export interface ShadowsReturn {
 	/** 地形の升目の照会（elevGrid）の待ち＝render worker の答えで解く */
 	elevGridWait: Map<number, (grid: unknown) => void>;
+	/** 解析（日影時間・可視域・地表の GPU 版）の待ち＝render worker の anaDone で解く */
+	anaWait: Map<number, { res: (d: unknown) => void; rej: (e: Error) => void }>;
 	/** 対象ごとの切断の面（無ければ null） */
 	clipFor(t: string): ClipPlane[] | null;
 	/** 画素 (x, y)（CSS px）の地面が切られた側か */
