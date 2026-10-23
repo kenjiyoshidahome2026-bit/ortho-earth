@@ -331,7 +331,7 @@ export async function mountTerrain(map: GlobeMap, { geopbf, base = "./" }: { geo
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧・比較）──
 	// 枠（見出し・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（紙の地図＝light）。言語の切替は地図のボタン（gadget.lang）
-	const P = createPanel({ host: mapEl, title: t("Landforms of Japan"), cls: "tr-panel", theme: "light",
+	const P = createPanel({ host: mapEl, title: t("Landforms of Japan"), cls: "tr-panel",
 		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
 	const panel = P.el;
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
@@ -474,7 +474,7 @@ export async function mountTerrain(map: GlobeMap, { geopbf, base = "./" }: { geo
 // ── 比較図：高さ比べ（山＝三角の影絵）と長さ・広さ比べ（横棒・2 量は並べた 2 枚）＝physical.js と同じ ──
 function makeChart({ mapEl, items, byQ, nameOf, getSel, onPick }: { mapEl: HTMLElement; items: TerrainItem[]; byQ: Map<string, TerrainItem>; nameOf: (d: TerrainItem) => string; getSel: () => string | null; onPick: (q: string) => void }) {
 	const el = document.createElement("div");
-	el.className = "tr-chart"; el.hidden = true;
+	el.className = "tr-chart oe-dark"; el.hidden = true;   // oe-dark＝案内パネルと同じ黒地の変数・地色（common/panel）
 	el.innerHTML = `<div class="ch"><b class="tt"></b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div><div class="cv"></div><div class="ctip" hidden></div>`;
 	mapEl.appendChild(el);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) el.addEventListener(ev, e => e.stopPropagation());
@@ -552,18 +552,18 @@ const CSS = `
 .tr-panel .note{color:var(--qm-text-dim);font-size:12px;margin:8px 0 0}
 .tr-panel .src{color:var(--qm-text-faint);font-size:11px;margin:6px 0 0}
 .tr-panel .ctl{display:flex;gap:6px}
-.tr-panel select,.tr-panel .find{flex:1;min-width:0;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);padding:5px 6px}
+.tr-panel select,.tr-panel .find{flex:1;min-width:0;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:var(--oe-field);color:var(--qm-text);padding:5px 6px}
 .tr-panel .find{display:block;width:100%;box-sizing:border-box;margin-top:6px}
 .tr-panel .list{list-style:none;margin:6px 0 0;padding:0;max-height:46vh;overflow:auto}
 .tr-panel .list li{position:relative;display:flex;gap:6px;align-items:baseline;padding:4px 4px 6px;border-radius:6px;cursor:pointer}
-.tr-panel .list li:hover{background:rgba(43,59,87,.06)}
-.tr-panel .list li.on{background:rgba(215,38,61,.08)}
+.tr-panel .list li:hover{background:var(--oe-hover)}
+.tr-panel .list li.on{background:var(--oe-on)}
 .tr-panel .list .i{flex:none;width:22px;text-align:right;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .tr-panel .list .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tr-panel .list .n small{margin-left:6px;color:var(--qm-text-faint)}
 .tr-panel .list .v{flex:none;color:var(--qm-num);font-variant-numeric:tabular-nums;font-size:12px}
 .tr-panel .list .bar{position:absolute;left:32px;bottom:2px;height:2px;border-radius:2px;background:var(--qm-border-strong);opacity:.5;max-width:calc(100% - 36px)}
-.tr-panel .detail{margin:10px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(43,59,87,.04);border:1px solid var(--qm-border-soft)}
+.tr-panel .detail{margin:10px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:var(--oe-inset);border:1px solid var(--qm-border-soft)}
 .tr-panel .dh{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
 .tr-panel .dh .sw{margin-top:4px}
 .tr-panel .dh > div{flex:1;min-width:0}
@@ -583,7 +583,7 @@ const CSS = `
 .tr-wiki .nt,.tr-wiki .x{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer;text-decoration:none}
 .tr-wiki iframe{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .tr-chart{position:absolute;left:12px;right:344px;bottom:calc(40px + var(--qm-safe-b));z-index:29;height:300px;box-sizing:border-box;padding:8px 12px 10px;display:flex;flex-direction:column;
-	border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);color:var(--qm-text);font:12px/1.4 var(--qm-font)}
+	border-radius:var(--qm-r-l);background:var(--oe-panel-bg);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);color:var(--qm-text);font:12px/1.4 var(--qm-font)}
 .tr-chart[hidden]{display:none}
 .tr-chart .ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
 .tr-chart .ch b{color:var(--qm-ink);font-size:13px}
@@ -591,24 +591,24 @@ const CSS = `
 .tr-chart .cv{flex:1;min-height:0;overflow:hidden}
 .tr-chart .cv.scroll{overflow:auto}
 .tr-chart svg{display:block;font:11px var(--qm-font)}
-.tr-chart .gl{stroke:rgba(90,100,120,.16);stroke-width:1}
+.tr-chart .gl{stroke:var(--oe-hover);stroke-width:1}
 .tr-chart .base{stroke:var(--qm-text-dim);stroke-width:1}
-.tr-chart .ax{fill:var(--qm-text-dim);font-size:10px;paint-order:stroke;stroke:#fff;stroke-width:3px}
-.tr-chart .mtn{fill:#8f4a14;fill-opacity:.78;stroke:#fff;stroke-width:1}
-.tr-chart .vol{fill:#c2410c;fill-opacity:.78;stroke:#fff;stroke-width:1}
+.tr-chart .ax{fill:var(--qm-text-dim);font-size:10px;paint-order:stroke;stroke:var(--oe-halo);stroke-width:3px}
+.tr-chart .mtn{fill:#b8641f;fill-opacity:.85;stroke:var(--oe-halo);stroke-width:1}
+.tr-chart .vol{fill:#e2531b;fill-opacity:.85;stroke:var(--oe-halo);stroke-width:1}
 .tr-chart .val{fill:var(--qm-num);font-size:9.5px;text-anchor:middle;font-variant-numeric:tabular-nums}
 .tr-chart .lb{fill:var(--qm-text);font-size:10px;text-anchor:middle}
 .tr-chart .mh{fill:var(--qm-text-dim);font-weight:600}
 .tr-chart .nm{fill:var(--qm-text);text-anchor:end}
 .tr-chart .na{fill:var(--qm-text-faint)}
-.tr-chart .bar{fill:#2f78c4;fill-opacity:.85}
-.tr-chart .bar.b1{fill:#5a6472;fill-opacity:.7}
+.tr-chart .bar{fill:#4a90dc;fill-opacity:.85}
+.tr-chart .bar.b1{fill:#8793aa;fill-opacity:.7}
 .tr-chart .val2{fill:var(--qm-num);font-size:10.5px;font-variant-numeric:tabular-nums}
 .tr-chart .hit{fill:transparent;cursor:pointer}
 .tr-chart .mk:hover .mtn,.tr-chart .mk:hover .vol,.tr-chart .mk:hover .bar{fill-opacity:1}
-.tr-chart .mk.on .mtn,.tr-chart .mk.on .vol,.tr-chart .mk.on .bar{stroke:#d7263d;stroke-width:2;fill-opacity:1}
-.tr-chart .mk.on .nm,.tr-chart .mk.on .lb{fill:#d7263d;font-weight:700}
-.tr-chart .ctip{position:absolute;pointer-events:none;min-width:120px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.97);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-card);font-size:12px}
+.tr-chart .mk.on .mtn,.tr-chart .mk.on .vol,.tr-chart .mk.on .bar{stroke:#ff6b7d;stroke-width:2;fill-opacity:1}
+.tr-chart .mk.on .nm,.tr-chart .mk.on .lb{fill:#ff6b7d;font-weight:700}
+.tr-chart .ctip{position:absolute;pointer-events:none;min-width:120px;padding:6px 8px;border-radius:6px;background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-card);font-size:12px}
 .tr-chart .ctip[hidden]{display:none}
 @media (max-width:640px){
 	.tr-wiki{left:8px;right:8px;top:8px;width:auto}
