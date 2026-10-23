@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="6" y="8" width="52" height="50" rx="6" fill="#fff" stroke="#444" stroke-width="3"/><rect x="6" y="8" width="52" height="14" rx="6" fill="#a22"/><rect x="6" y="16" width="52" height="6" fill="#a22"/><text x="32" y="50" font-family="Arial, sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#333">8</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+ <style>ellipse,path {fill:none; stroke:#fff; stroke-width:6;}
+  @media (prefers-color-scheme: light) {ellipse,path {stroke:#000;}}
+</style>
+ <ellipse cx="50" cy="50" rx="45" ry="45"/>
+ <ellipse cx="50" cy="50" rx="25" ry="45"/>
+ <path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/>
+</svg>
