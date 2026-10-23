@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- 実描画の検分：日影時間と可視域の GPU 版（2026-10-24・WebGPU）。試料＝tests/fixtures/tiles3d（東京駅の ENU の根・青い箱 4 棟＝中心 (±150,±150)・一辺 100m・高さ 80〜160m）を
+     map.add3DTiles（ground:"terrain"＝1 棟ずつ接地・CPU 版の読み方と同じ）で描き、描いた物から GPU で測った答えを、同じ tileset を読む CPU 版（gpu:false・tilesets）と突き合わせる。
+     ①日影図（冬至 8〜16 時・測定面 0m）：高い箱（160m・SW）の北 40m は 2 時間以上・南 60m は 0・箱の中は一日じゅう。15×15 の点で CPU 版と比べ、半歩（0.5 時間）以内が 85% 以上
+     ②冬至の真昼：100m の箱（SE）の北面から 140m は影・180m は影でない（影の長さ 167m）
+     ③可視域（視点＝原点・半径 500m）：NE の箱の陰 (300,300) は見えない・東 (300,0) は見える。15×15 の点で CPU 版と一致が 85% 以上
+     ④見通し線：原点→(300,300) は箱の角（約 141m）で遮られる・原点→(300,0) は見える（地表は GPU・断面は CPU 版の式）
+     どれも戻りの gpu＝true（WebGPU の既定）。地形なし（terrain:false）＝CPU 版の平らな測定面と同じ土俵。⚠実時間・WebGPU だけ（verify-webgpu.mjs）。GL2 はスキップ扱いの PASS -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-sungpu</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 30000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (await f()) return true; await sleep(250); } return false; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];   // ENU（m）→ 経緯度（近似）
+const grid = (r, n) => { const out = []; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) out.push(ll(-r + 2 * r * i / (n - 1), -r + 2 * r * j / (n - 1))); return out; };
+const agree = (a, b, tol) => { let m = 0; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) <= tol) m++; return m / a.length; };
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671/40t", chips: false, terrain: false, night: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	if (map.backend !== "webgpu") { ok("webgpu-unavailable→スキップ扱いPASS", true); throw "skip"; }
+	const TS = ["./fixtures/tiles3d/tileset.json"], O = ll(0, 0);
+	const h = await map.add3DTiles(TS[0], { fit: false, ground: "terrain" });
+	ok("tiles", await until(() => h.stats.shown >= 7, 120000), JSON.stringify(h.stats));   // SwiftShader の worker は読みが遅い＝長めに待つ
+	const box = [...ll(-500, -500), ...ll(500, 500)], P = grid(450, 15);
+	// 「shown」は gadget が渡した数＝描き手のメッシュに載るまで一拍ある（SwiftShader では数秒）＝1 時刻だけの日影で落とす物が見えるまで待つ
+	ok("drawn", await until(async () => (await map.sunShadow({ bbox: box, hours: [12, 12], step: 1, planeH: 0 })).triangles > 0, 60000));
+	// ① 日影図
+	const probe = [ll(-150, -60), ll(-150, -260), ll(150, 150), ...P];
+	const t0 = performance.now();
+	const g = await map.sunShadow({ bbox: box, mode: "duration", planeH: 0, probe });
+	const tg = performance.now() - t0;
+	ok("gpu", g.gpu === true && g.steps === 17 && g.triangles > 0 && g.maxHours > 3, JSON.stringify({ ...g, probes: undefined, ms: Math.round(tg) }));
+	ok("north", g.probes[0] >= 2, `north40m=${g.probes[0]}h`);
+	ok("south", g.probes[1] === 0, `south60m=${g.probes[1]}h`);
+	ok("inside", g.probes[2] >= 7.5, `inside=${g.probes[2]}h`);
+	ok("image", map.raster.list().some(r => r.id === "sunshadow"));
+	const c = await map.sunShadow({ tilesets: TS, bbox: box, mode: "duration", planeH: 0, probe });
+	const aS = agree(g.probes.slice(3), c.probes.slice(3), 0.5);
+	ok("cpuAgree", c.gpu === false && aS >= 0.85, `agree=${(aS * 100).toFixed(1)}% cpuMax=${c.maxHours} gpuMax=${g.maxHours}`);
+	// ② 真昼の影の長さ
+	const n = await map.sunShadow({ bbox: box, mode: "duration", hours: [12, 12], step: 1, planeH: 0, probe: [ll(150, -100 + 140), ll(150, -100 + 180)] });
+	ok("noonLength", n.gpu && n.probes[0] === 1 && n.probes[1] === 0, `140m=${n.probes[0]} 180m=${n.probes[1]} texel=${n.texelM}m`);
+	// ③ 可視域
+	const vp = [ll(300, 300), ll(300, 0), ll(-300, -300), ...P];
+	const t1 = performance.now();
+	const v = await map.viewshed({ observer: O, radius: 500, cell: 2, probe: vp });
+	const tv = performance.now() - t1;
+	ok("viewshed", v.gpu === true && v.triangles > 0 && v.visibleRatio > 0.2 && v.visibleRatio < 0.95, JSON.stringify({ ...v, probes: undefined, ms: Math.round(tv) }));
+	ok("behindBox", v.probes[0] === 0 && v.probes[2] === 0, `NE=${v.probes[0]} SW=${v.probes[2]}`);
+	ok("open", v.probes[1] === 1, `E=${v.probes[1]}`);
+	const vc = await map.viewshed({ tilesets: TS, observer: O, radius: 500, cell: 2, probe: vp });
+	const aV = agree(v.probes.slice(3), vc.probes.slice(3), 0);
+	ok("cpuAgreeVis", vc.gpu === false && aV >= 0.85 && Math.abs(vc.visibleRatio - v.visibleRatio) < 0.1, `agree=${(aV * 100).toFixed(1)}% ratio cpu=${vc.visibleRatio} gpu=${v.visibleRatio}`);
+	ok("imageVis", map.raster.list().some(r => r.id === "viewshed"));
+	// ④ 見通し線
+	const L1 = await map.lineOfSight(O, ll(300, 300));
+	const k = Math.cos(LAT * Math.PI / 180) * K, dBlock = L1.blockAt ? Math.hypot((L1.blockAt[0] - O[0]) * k, (L1.blockAt[1] - O[1]) * K) : -1;
+	ok("losBlocked", L1.gpu === true && !L1.visible && dBlock > 125 && dBlock < 160, `d=${dBlock.toFixed(1)} dist=${L1.distance}`);
+	const L2 = await map.lineOfSight(O, ll(300, 0));
+	ok("losClear", L2.visible && Math.abs(L2.distance - 300) < 10 && L2.profile.length > 10, `dist=${L2.distance}`);
+	ok("line", !!map.getLayer("los"));
+	await map.clearViewshed();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = e === "skip" ? "PASS " + t.join(" ") : "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>
