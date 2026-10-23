@@ -1388,29 +1388,72 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 // 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。
 // SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
 // 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
-// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 縁のフェードが始まる半径（窓の半幅に対する比）)。
+// SH.p＝(影の明るさ, 未使用, 未使用, 縁のフェードが始まる半径（基の窓の半幅に対する比）)。
+// カスケード（2026-10-23）：深度は 2d-array（層 0＝基の窓・層 1〜＝カメラに近い地面だけの細かい窓）。受け手が渡す sc は基の窓のクリップ座標のまま＝
+// 段 i のクリップ xy＝xy_b·s＋o（同じ基底・同じ奥行きなので z は共通）＝頂点の派生は 1 行も変えずに FS だけで段を選ぶ。
+// SH.cs[i]＝(s, ox, oy, 層)・SH.cb[i]＝(深度の余白, 1texel(uv), 1texel(m), 面の傾きの上限（深度/uv）)・細かい順に並び最後が基の窓。SH.q＝(段の数, 奥行き(m), 半影の係数, 遮蔽物を探す半径(texel))。
+// 選び方＝窓に入る一番細かい段。段の縁の帯（4%）は次の段と混ぜる＝解像度の段差を線として見せない。基の窓は従来どおり縁を丸く日向へ溶かす。
+// 柔らかさ（PCSS）＝まず周り 16 点の深度を読んで遮る物までの距離を平均し、その距離×係数（太陽の視直径 0.53° と空の光）を半影の幅にして
+// 16 点の比較で平均する＝建物の足元は硬く、影の先ほど柔らかい。幅は 1〜8 texel に収める。
 const SHADOW_WGSL = (g: number, b0 = 0): string => /* wgsl */`
-struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
+struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f, cs: array<vec4f, 3>, cb: array<vec4f, 3>, q: vec4f };
 @group(${g}) @binding(${b0}) var<uniform> SH: ShadowP;
-@group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d;
+@group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d_array;
 @group(${g}) @binding(${b0 + 2}) var shSamp: sampler_comparison;
+var<private> SH_PD: array<vec2f, 16> = array<vec2f, 16>(
+	vec2f(-0.94201624, -0.39906216), vec2f(0.94558609, -0.76890725), vec2f(-0.09418410, -0.92938870), vec2f(0.34495938, 0.29387760),
+	vec2f(-0.91588581, 0.45771432), vec2f(-0.81544232, -0.87912464), vec2f(-0.38277543, 0.27676845), vec2f(0.97484398, 0.75648379),
+	vec2f(0.44323325, -0.97511554), vec2f(0.53742981, -0.47373420), vec2f(-0.26496911, -0.41893023), vec2f(0.79197514, 0.19090188),
+	vec2f(-0.24188840, 0.99706507), vec2f(-0.81409955, 0.91437590), vec2f(0.19984126, 0.78641367), vec2f(0.14383161, -0.14100790));
 fn shClip(relA: vec3f) -> vec4f { return SH.clipT + SH.mvp * vec4f(relA, 0.0); }
-fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外は日向・縁は中心からの距離で丸く日向へ溶かす）
-	if (sc.w <= 0.0) { return 1.0; }
-	let p = sc.xyz / sc.w;
-	let uv = vec2f(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
-	let e = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-	if (e <= 0.0 || p.z <= 0.0 || p.z >= 1.0) { return 1.0; }
-	let d = p.z - SH.p.y;
-	var s = 0.0;
-	for (var j = -1; j <= 1; j++) {
-		for (var i = -1; i <= 1; i++) {
-			s += textureSampleCompareLevel(shTex, shSamp, uv + vec2f(f32(i), f32(j)) * SH.p.z, d);
-		}
+// 点をずらした先では受け手自身の深さも変わる＝ずらした距離×面の傾きの上限（SH.cb[i].w＝cot(高度)・深度/uv）を足して比べる。
+// これが無いと、広い半影で平らな屋根や地面が自分の影を拾ってまだらになる（低い太陽では 1 texel 動くと深さが cot(高度) texel 変わる）。
+// 画面の微分（receiver plane）は使えない＝受け手の多くが分岐の中で影を読むので dpdx が一様な流れに置けない。足元は幅 1 texel＝足す量も小さい
+fn shPcss(uv: vec2f, layer: i32, d: f32, i: u32) -> f32 {
+	let g = SH.cb[i].w;
+	let tx = SH.cb[i].y;
+	let dim = vec2f(textureDimensions(shTex));
+	var zs = 0.0; var zn = 0.0;
+	for (var k = 0; k < 16; k++) {
+		let o = SH_PD[k] * (tx * SH.q.w);
+		let q = clamp(vec2i((uv + o) * dim), vec2i(0), vec2i(dim) - 1);
+		let z = textureLoad(shTex, q, layer, 0);
+		if (z < d + length(o) * g) { zs += z; zn += 1.0; }
 	}
-	// 縁のフェード（#112 段 3）＝窓の中心からの距離（[−1,1]² の半径）で SH.p.w から 1 へ丸く薄める＝矩形の縁の直線を出さない
-	//（旧＝縁から 6% の帯。傾けた遠景では帯が数 px に潰れ、影がまっすぐ途切れる線に見えた＝富士で確認）
-	return mix(1.0, s / 9.0, 1.0 - smoothstep(SH.p.w, 1.0, length(p.xy)));
+	if (zn < 0.5) { return 1.0; }   // 周りに遮る物が無い＝日向（比較の 16 点も省く）
+	let w = clamp((d - zs / zn) * SH.q.y * SH.q.z / SH.cb[i].z, 1.0, 8.0) * tx;   // 半影の幅（uv）＝遮る物までの距離(m)×係数 を texel に直して 1〜8
+	var s = 0.0;
+	for (var k = 0; k < 16; k++) { let o = SH_PD[k] * w; s += textureSampleCompareLevel(shTex, shSamp, uv + o, layer, d + length(o) * g); }
+	return s / 16.0;
+}
+// 段 i の日向の度合い（x）と、窓の縁までの距離（y・uv・≤0＝窓の外）
+fn shAt(pb: vec3f, i: u32) -> vec2f {
+	let c = SH.cs[i];
+	let xy = pb.xy * c.x + c.yz;
+	let uv = vec2f(xy.x * 0.5 + 0.5, 0.5 - xy.y * 0.5);
+	let e = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+	if (e <= 0.0) { return vec2f(1.0, e); }
+	var lit = shPcss(uv, i32(c.w), pb.z - SH.cb[i].x, i);
+	if (i + 1u >= u32(SH.q.x)) {   // 基の窓＝縁は中心からの距離で丸く日向へ溶かす（#112 段 3）
+		lit = mix(1.0, lit, 1.0 - smoothstep(SH.p.w, 1.0, length(xy)));
+	}
+	return vec2f(lit, e);
+}
+fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影
+	if (sc.w <= 0.0) { return 1.0; }
+	let pb = sc.xyz / sc.w;
+	if (pb.z <= 0.0 || pb.z >= 1.0) { return 1.0; }
+	let n = u32(SH.q.x);
+	for (var i = 0u; i < n; i++) {
+		let a = shAt(pb, i);
+		if (a.y <= 0.0) { continue; }
+		if (i + 1u < n && a.y < 0.04) {   // 段の縁の帯＝次の段と混ぜる（次の段の外なら混ぜない）
+			let b = shAt(pb, i + 1u);
+			if (b.y > 0.0) { return mix(b.x, a.x, a.y / 0.04); }
+		}
+		return a.x;
+	}
+	return 1.0;
 }
 fn shShade(col: vec3f, sc: vec4f) -> vec3f { return col * mix(SH.p.x, 1.0, shLit(sc)); }
 `;
