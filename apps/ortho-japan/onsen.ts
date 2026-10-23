@@ -170,7 +170,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧）──
 	const count = (i: number) => onsens.filter(d => i < 0 ? !d.qc?.length : d.qc?.includes(i)).length;
 	// 枠（見出し・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（紙の地図＝light）。言語の切替は地図のボタン（gadget.lang）
-	const P = createPanel({ host: mapEl, title: t("Hot springs of Japan"), cls: "on-panel", theme: "light",
+	const P = createPanel({ host: mapEl, title: t("Hot springs of Japan"), cls: "on-panel",
 		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
 	const panel = P.el;
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
@@ -298,19 +298,19 @@ const CSS = `
 .on-panel .note{color:var(--qm-text-dim);font-size:12px;margin:8px 0 0}
 .on-panel .src{color:var(--qm-text-faint);font-size:11px;margin:6px 0 0}
 .on-panel .ctl{display:flex;gap:6px}
-.on-panel select,.on-panel .find{flex:1;min-width:0;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);padding:5px 6px}
+.on-panel select,.on-panel .find{flex:1;min-width:0;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:var(--oe-field);color:var(--qm-text);padding:5px 6px}
 .on-panel .find{display:block;width:100%;box-sizing:border-box;margin-top:6px}
 .on-panel .cnt{margin:6px 0 0;font-size:11.5px;color:var(--qm-text-faint)}
 .on-panel .list{list-style:none;margin:4px 0 0;padding:0;max-height:46vh;overflow:auto}
 .on-panel .list li{display:flex;gap:7px;align-items:center;padding:4px;border-radius:6px;cursor:pointer}
-.on-panel .list li:hover{background:rgba(43,59,87,.06)}
-.on-panel .list li.on{background:rgba(215,38,61,.08)}
+.on-panel .list li:hover{background:var(--oe-hover)}
+.on-panel .list li.on{background:var(--oe-on)}
 .on-panel .list .dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--c)}
 .on-panel .list .dot.est{background:#fff;border:1.6px solid var(--c);box-sizing:border-box}
 .on-panel .list .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .on-panel .list small{flex:none;color:var(--qm-text-faint);font-size:11.5px}
 .on-panel .list .ih{flex:none;width:8px;height:8px;border-radius:2px;background:#a8402a}
-.on-panel .detail{margin:10px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(43,59,87,.04);border:1px solid var(--qm-border-soft)}
+.on-panel .detail{margin:10px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:var(--oe-inset);border:1px solid var(--qm-border-soft)}
 .on-panel .dh{display:flex;gap:8px;align-items:flex-start;margin-bottom:6px}
 .on-panel .dh .sw{margin-top:4px}
 .on-panel .dh > div{flex:1;min-width:0}
@@ -327,8 +327,8 @@ const CSS = `
 .on-panel .mem div{font-size:12.5px;line-height:1.6}
 .on-panel .inns ul{margin:2px 0 0;padding-left:16px}
 .on-panel .inns small{display:block;color:var(--qm-text-faint);font-size:11px}
-.on-panel .srcbox{margin-top:6px;padding:6px 8px;border-left:3px solid ${SRC};background:rgba(192,57,43,.05);border-radius:0 6px 6px 0;font-size:12.5px}
-.on-panel .srcbox b{color:${SRC};font-weight:600}
+.on-panel .srcbox{margin-top:6px;padding:6px 8px;border-left:3px solid ${SRC};background:rgba(231,76,60,.12);border-radius:0 6px 6px 0;font-size:12.5px}
+.on-panel .srcbox b{color:#ff8a7a;font-weight:600}
 .on-panel .srcbox small{color:var(--qm-text-dim)}
 .on-panel .srcbox q{display:block;margin-top:3px;color:var(--qm-text-dim);font-size:12px}
 .on-panel .srcbox .srcgo{display:inline-block;margin-top:3px}
