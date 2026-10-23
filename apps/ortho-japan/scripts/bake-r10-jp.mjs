@@ -35,14 +35,19 @@ const writeIndex = () => writeFileSync(path.join(OUT, 'index.json'), JSON.string
 
 const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.ts が正本（複製禁止・実行時の申告と同じ数字）
 const R10W = 2400, R01W = 3600, SUB = 240, BLK = 15;               // 240=2400/10（1°分）・15=3600/240
+const STAMP = '@' + new Date().toISOString().slice(0, 10);
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;
 
 // ── bucket タイルの取得と decode（altpbf.js encode()/decode() と同一フォーマット）──
 async function fetchTile(name) {
 	const cacheFile = path.join(SRC, name + '.bin');
+	// R01 は手元で焼いたばかりの物（bake-out/alt）を先に使う＝bake-dem10b で焼き直したセルを上げる前に R10 へ転写できる
+	//（旧＝bucket か r10-src の写しだけ＝焼き直し前の R01 を転写していた・2026-10-23）。R10 は焼いた物でなく bucket のベース
+	const local = name.startsWith('R01') ? path.join(OUT, name + '.gz') : null;
 	let buf;
-	if (existsSync(cacheFile)) buf = readFileSync(cacheFile);
+	if (local && existsSync(local)) buf = readFileSync(local);
+	else if (existsSync(cacheFile)) buf = readFileSync(cacheFile);
 	else {
 		const res = await fetch(`https://api.ortho-earth.com/bucket/GIS/alt/${name}`);
 		if (res.status === 404) return null;
@@ -115,7 +120,10 @@ async function bakeR10(lngT, latT) {
 						const off = (r0 + dy) * R01W + c0;
 						for (let dx = 0; dx < BLK; dx++) { const v = r01.data[off + dx]; sum += v; if (v !== 0) nonZero++; }
 					}
-					if (!nonZero) continue;
+					// 全ゼロ（DEM10B の海）は GEBCO を温存。ただし正の値は 0 へ寄せる＝海と言うブロックに陸の高さを残さない
+					//（2026-10-23：焼き直し前の R01N029E140 が海を 16〜52m で埋めていて、それを転写した R10 にも 1°四方の陸が残った。
+					// R01 を直しても R10 のベースはその焼き＝全ゼロの温存だけでは陸が消えない）
+					if (!nonZero) { const k = (rowOff + rr) * R10W + colOff + cc; if (grid[k] > 0) { grid[k] = 0; replaced++; } continue; }
 					grid[(rowOff + rr) * R10W + colOff + cc] = Math.max(-32767, Math.min(32767, Math.round(sum / (BLK * BLK))));
 					replaced++;
 				}
@@ -125,7 +133,7 @@ async function bakeR10(lngT, latT) {
 	// R01 サブセルが無い（海だけ・日本 bbox の縁のセル）も**同じ銘で焼き直す**（中身は GEBCO のまま）＝クライアントの失効判定（createGetHeight の staleDSM＝
 	// 日本 bbox 内の R10 で brand 銘が無い物は捨てて bucket を見直す・2026-10-02）が、海だけのセルを毎セッション取り直さないため。
 	if (!subs) console.log(`${name}: R01 サブセル無し＝中身は GEBCO のまま・銘だけ付け直す`);
-	const source = `GEBCO 2026 + GSI DEM10B(JP)`;
+	const source = `GEBCO 2026 + GSI DEM10B(JP) ${STAMP}`;   // 末尾＝焼いた日の印（bake-dem10b と同じ・個別の焼き直しは dtm.ts の rebaked へ）
 	const bin = encodeAltpbf({ name, source, lng: lngT, lat: latT, range: 10, width: R10W, height: R10W, data: grid });
 	writeFileSync(path.join(OUT, name + '.gz'), gzipSync(bin, { level: 9 }));
 	console.log(`${name}: R01×${subs}枚を転写 texel置換=${(replaced / (R10W * R10W) * 100).toFixed(1)}% ${(bin.length / 1e6).toFixed(1)}MB ${(Date.now() - t0) / 1000 | 0}s`);
