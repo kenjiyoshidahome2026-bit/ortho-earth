@@ -1,5 +1,5 @@
 // node の検定：色表・値の詰め（R8／RGBA8）・置き方（origin/size/orientation・transform）・DDA（CPU 版）・prepare・plugin の形と手綱（偽の map＝描き手へ届く message）。描画は t-pvoxel（verify:ui）
-import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, VERSION } from "../src/index.ts";
+import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION } from "../src/index.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -155,10 +155,18 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	const rb = posts[posts.length - 1][0];
 	ok("handle.region", hr.shape === "region" && rb.shape === "region" && rb.geo && rb.geo.shell instanceof Float32Array && rb.alt === "absolute" && near(rb.anchor[0], 139.5) && rb.mode === 0);
 	hr.remove();
-	ok("handle.fileSource", await (async () => { try { await createVoxel(fake, "a.nc", { id: "v5" }).ready; return false; } catch (e) { return /stage 5/.test(e.message); } })());
+	const h5 = createVoxel(fake, "a.nc", { id: "v5" });
+	ok("handle.fileSource", await (async () => { try { await h5.ready; return false; } catch (e) { return /stage 5/.test(e.message); } })());
+	h5.remove();   // 読めなくても手綱は生きている（setData で直せる）＝外すまでオーバーレイを持つ
 	ok("handle.badData", throws(() => createVoxel(fake, { dims: [1, 1, 1], values: new Uint8Array(2), box: {} }, { id: "v6" }), /length/));
 	h.remove(); ok("handle.remove", posts.some(([d]) => d?.type === "remove" && d.q === "v1") && !ids.has("v1"));
-	const h2 = createVoxel(fake, data, { id: "v1" }); await h2.ready; h2.remove();
-	ok("handle.readd", posts.filter(([d]) => d === "removed").length >= 0);
+	// 場面の切り替え＝remove の直後の addData は同じオーバーレイを続投させる（片付けは猶予の後）
+	const h2 = createVoxel(fake, data, { id: "v1" }); await h2.ready;
+	ok("handle.readd.keeps", posts.filter(([d]) => d === "removed").length === 0 && h2.overlay === h.overlay);
+	h2.remove();
+	await new Promise(r => setTimeout(r, OVERLAY_LINGER_MS + 50));
+	ok("handle.linger.removed", posts.filter(([d]) => d === "removed").length === 1);
+	const h3 = createVoxel(fake, data, { id: "v1" }); await h3.ready;
+	ok("handle.readd.new", h3.overlay !== h.overlay); h3.remove();
 }
 console.log(fails ? `plugin-voxel: ${fails} FAIL` : "plugin-voxel: all ok"); process.exit(fails ? 1 : 0);

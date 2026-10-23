@@ -27,6 +27,9 @@
 			"arcs-mini.ts",
 			"arcs-data.ts"
 		],
+		"voxel": [
+			"voxel.ts"
+		],
 		"splat": [
 			"splat.ts"
 		]
