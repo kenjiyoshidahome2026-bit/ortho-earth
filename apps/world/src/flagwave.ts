@@ -19,22 +19,43 @@ void main() {
 }`;
 const PAD = 0.07;   // 上下の余白比（canvas の中で旗が占める帯の外側＝波の逃げ場）
 
+/** SVG 文字列の縦横比（width/height 属性 → viewBox の順）。preserveAspectRatio="none" は箱いっぱいに伸びる＝null。読めなければ null */
+export function svgAspect(svg: string): number | null {
+	const root = /<svg\b[^>]*>/i.exec(svg)?.[0];
+	if (!root || /preserveAspectRatio\s*=\s*["']\s*none/i.test(root)) return null;
+	const attr = (k: string) => new RegExp(`\\s${k}\\s*=\\s*["']([^"']*)["']`, "i").exec(root)?.[1];
+	const w = parseFloat(attr("width") ?? ""), h = parseFloat(attr("height") ?? "");
+	if (w > 0 && h > 0 && !/%/.test(attr("width")! + attr("height")!)) return w / h;
+	const vb = (attr("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+	return vb.length == 4 && vb[2] > 0 && vb[3] > 0 ? vb[2] / vb[3] : null;
+}
+/** 箱 rect の中に縦横比 aspect の絵を中央寄せで収めた矩形（object-fit:contain／SVG meet と同じ）。aspect 無し＝箱そのもの */
+export function fitRect(rect: { left: number; top: number; width: number; height: number }, aspect: number | null) {
+	const { left, top, width, height } = rect;
+	if (!aspect || !width || !height) return { left, top, width, height };
+	if (width / height > aspect) { const w = height * aspect; return { left: left + (width - w) / 2, top, width: w, height }; }
+	const h = width / aspect; return { left, top: top + (height - h) / 2, width, height: h };
+}
+
 /** img（旗の <img>）に重ねる。戻り＝{ start(), stop(), destroy() } */
 export function createFlagWave(img: HTMLImageElement, { dpr = Math.min(2, devicePixelRatio || 1) } = {}) {
 	let canvas: HTMLCanvasElement | null = null, gl: WebGL2RenderingContext | null = null, tex: WebGLTexture | null = null, prog: WebGLProgram | null = null, raf = 0, amp = 0, target = 0, t0 = performance.now(), last = t0, alive = true, ready: Promise<void> | null = null;
 	const mount = async () => {
 		if (!img.complete) await new Promise<unknown>(r => { img.onload = r; img.onerror = r; });
-		const rect = img.getBoundingClientRect(), box = img.parentElement!.getBoundingClientRect();
-		if (!rect.width || !rect.height) throw new Error("flag box empty");
-		const padPx = rect.height * PAD / (1 - 2 * PAD);
-		canvas = document.createElement("canvas");
-		Object.assign(canvas.style, { position: "absolute", left: (rect.left - box.left) + "px", top: (rect.top - box.top - padPx) + "px", width: rect.width + "px", height: (rect.height + 2 * padPx) + "px", filter: getComputedStyle(img).filter, pointerEvents: "none" });
-		canvas.width = Math.round(rect.width * dpr); canvas.height = Math.round((rect.height + 2 * padPx) * dpr);
 		// テクスチャ＝SVG を表示寸法で 2D 描画（fetch → Blob → 同一オリジンの blob: URL＝汚染しない）
 		const blob = await fetch(img.src).then(r => r.blob());
+		const aspect = svgAspect(await blob.text().catch(() => ""));
 		const url = URL.createObjectURL(blob), im = new Image();
 		await new Promise((res, rej) => { im.onload = res; im.onerror = rej; im.src = url; });
-		const cv = document.createElement("canvas"); cv.width = Math.round(rect.width * dpr); cv.height = Math.round(rect.height * dpr);
+		// <img> の箱は CSS（width:84%; max-height:84%）で旗の縦横比とずれる。静止画の SVG は箱の中に縦横比を保って収まる（meet）ので、
+		// たなびきも「箱」ではなく「旗が実際に描かれている矩形」に合わせる（箱いっぱいに引き伸ばすと揺れた途端に縦横比が変わる 2026-10-23 Kenji）
+		const r = fitRect(img.getBoundingClientRect(), aspect ?? (im.naturalWidth && im.naturalHeight ? im.naturalWidth / im.naturalHeight : null)), box = img.parentElement!.getBoundingClientRect();
+		if (!r.width || !r.height) throw new Error("flag box empty");
+		const padPx = r.height * PAD / (1 - 2 * PAD);
+		canvas = document.createElement("canvas");
+		Object.assign(canvas.style, { position: "absolute", left: (r.left - box.left) + "px", top: (r.top - box.top - padPx) + "px", width: r.width + "px", height: (r.height + 2 * padPx) + "px", filter: getComputedStyle(img).filter, pointerEvents: "none" });
+		canvas.width = Math.round(r.width * dpr); canvas.height = Math.round((r.height + 2 * padPx) * dpr);
+		const cv = document.createElement("canvas"); cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
 		cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
 		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true });
 		if (!gl) throw new Error("no webgl2");
