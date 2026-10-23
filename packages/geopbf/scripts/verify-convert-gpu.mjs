@@ -26,7 +26,9 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".ts": "text/java
 const srv = http.createServer(async (q, s) => {
 	try {
 		const u = decodeURIComponent(q.url.split("?")[0]);
-		const p = bench && u.startsWith("/data/") ? path.join(bench.dir, u.slice(6)) : path.join(root, u);
+		const base = path.resolve(bench && u.startsWith("/data/") ? bench.dir : root);
+		const p = path.resolve(base, "." + (bench && u.startsWith("/data/") ? u.slice(5) : u));
+		if (p !== base && !p.startsWith(base + path.sep)) throw new Error("outside");   // 配る根の外（../ 等）は 404
 		const body = p.endsWith(".ts") ? stripTypeScriptTypes(await readFile(p, "utf8")) : await readFile(p);
 		s.setHeader("content-type", MIME[path.extname(p)] || "application/octet-stream");
 		s.end(body);
