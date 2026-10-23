@@ -1,6 +1,7 @@
 import * as d3 from "d3-selection";   // select／selectAll だけ＝d3 全体を名前空間で読むと d3-transition・d3-brush の副作用まで束に入る（index 49.7KB → 24.8KB・2026-09-30 実測）
 import './main.scss';
 import { liteGlobe } from "./globe-lite.ts";
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import { t, has, setLang, norm, LANGUAGES, getLang } from "./i18n.ts";
 //------------------------------------------------------
 // 言語：?lang= → ブラウザ → 英語（26 言語）。文言は data-t（キー）/ data-t-<attr> を持つ要素を貼り替えるだけ＝HTML は英語のまま焼いてある。
@@ -71,12 +72,14 @@ const whenIdle = (cb: () => void) => ((window as Partial<Window>).requestIdleCal
 const afterLoad = (cb: () => void) => document.readyState === "complete" ? cb() : addEventListener("load", cb, { once: true });
 const globe = liteGlobe(document.getElementById('mapContainer')!, {
 	src: "/earth-lite.webp",
-	onFirstFrame: () => afterLoad(() => whenIdle(async () => {
+	onFirstFrame: () => { dismissBoot(); afterLoad(() => whenIdle(async () => {
 		const { shouldPrefetch, prefetchWorldData } = await import("./prefetch.ts");
 		if (shouldPrefetch()) prefetchWorldData().catch(e => console.warn("[prefetch]", e));
 		else console.info("[prefetch] skipped (save-data or slow connection)");
-	})),
+	})); },
 });
+// 起動画面（日本地図と同じ幕）は地球の最初の 1 枚で畳む。WebGL が無い・地球の絵が読めない時も幕を残さない（地球が出なくても本文は読める）
+if (!globe) dismissBoot(); else setTimeout(dismissBoot, 6000);
 //------------------------------------------------------
 // デモ＝ページを離れずにナビの下の iframe で開く（本人 2026-09-22「デモに行くと戻りづらい・ナビを残して本文を iframe に・ナビに戻る」）。
 // ・カードのクリック（修飾キーなし＝新しいタブで開きたい操作は邪魔しない）を受けて iframe に入れ、履歴を一段積む（?d=<デモのパス>）

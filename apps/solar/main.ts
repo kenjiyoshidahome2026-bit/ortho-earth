@@ -2,6 +2,7 @@
 // 部品は受け取った div の中だけで生きる＝サンプル集・埋め込みも同じ口（sample.html）。
 import { createSolar } from "./solar.ts";
 import { tr, setLang, getLang, isRTL } from "./i18n.ts";
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 
 // 言語：?lang=xx で固定・無指定はブラウザ既定（japan のガジェットからの導線は ?lang=<今の UI 言語> つき）
 await setLang();
@@ -11,7 +12,7 @@ document.documentElement.dir = isRTL() ? "rtl" : "ltr";
 document.title = t("ortho-solar — the Solar System, heliocentric");
 
 // hash:true＝視点・時刻・速度・星座を URL のハッシュと往復（共有リンク・読み直しで同じ場面へ）
-const app = await createSolar({ target: "#app", hash: true });
+const app = await createSolar({ target: "#app", hash: true }).finally(dismissBoot);   // 太陽系が立ったら起動画面を畳む（失敗でも畳む）
 
 // 戻り口＝アプリ間の URL の約束（2026-09-19 本人裁定「単体なら要らない・統一的な考え方で」）：
 //   呼び出し元が ?back=<戻り先の URL（同一オリジン）> を付けて開いた時だけ「← 戻る」を出す。単体で開いたら出さない。
