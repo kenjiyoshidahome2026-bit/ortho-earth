@@ -1,7 +1,7 @@
 // 地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)。地域（基図・標高・台帳・語彙・起動後の拡張）は opts.region の申告で足す＝このファイルは地域名を知らない。
 // 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
 import "./globe.css";
-import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat } from "@ortho-earth/core";
+import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, projectCss, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { normLight, lightPayload, LIGHT_TYPES } from "./light.ts";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.ts";
@@ -2577,10 +2577,10 @@ const projectLL: GlobeScope["projectLL"] = (lon, lat) => { const st = cameraStat
 const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
-const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
+const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => projectCss(project(st, lon, lat, dispRadius(lon, lat)), dpr); };   // 写らない点は同次座標も運ぶ（geoedit の塗りが近平面で切る）
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
-const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => { const [sx, sy, f] = project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
+const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
 const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。

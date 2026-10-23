@@ -239,6 +239,8 @@ export function projectClip(state: CameraState, lon: number, lat: number, radius
 }
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
 export function project(state: CameraState, lon: number, lat: number, radius = 1): number[] { return projectInto(state, lon, lat, radius, new Array<number>(3)); }
+// project の結果を device px → CSS px へ（÷dpr）。写らない点の同次座標（r[3..5]）も運ぶ＝塗りの経路が近平面で切れる（hw は割らない＝比が画面座標）
+export function projectCss(r: ArrayLike<number>, dpr: number): [number, number, number] { return (r.length > 5 ? [r[0] / dpr, r[1] / dpr, r[2], r[3] / dpr, r[4] / dpr, r[5]] : [r[0] / dpr, r[1] / dpr, r[2]]) as [number, number, number]; }
 // project の割り当てなし版：out[0..2] に書いて out を返す（タイル選抜＝1 update で数千点＝旧 project は 1 点 5 配列）。
 // 見える点の経路は lonlatTo3D・liftedPos・mat.transform・mat.dot と同じ式・同じ順＝ビット同値。見えない点（稀）は従来の経路へ
 export function projectInto<T extends { [i: number]: number }>(state: CameraState, lon: number, lat: number, radius: number, out: T): T {
@@ -254,19 +256,28 @@ export function projectInto<T extends { [i: number]: number }>(state: CameraStat
 	const m = state.mvp, E = state.eye;
 	const c3 = m[3] * w0 + m[7] * w1 + m[11] * w2 + m[15] * 1;
 	const frontHemi = u0 * E[0] + u1 * E[1] + u2 * E[2] - 1;          // >0 手前半球（基準球方向で判定）
-	if (c3 <= 1e-6 || frontHemi < 0) { const r = projectClamped(state, lon, lat, radius); out[0] = r[0]; out[1] = r[1]; out[2] = r[2]; return out; }
+	if (c3 <= 1e-6 || frontHemi < 0) {
+		const r = projectClamped(state, lon, lat, radius); out[0] = r[0]; out[1] = r[1]; out[2] = r[2];
+		if (Array.isArray(out)) { if (r.length > 3) { out[3] = r[3]; out[4] = r[4]; out[5] = r[5]; } else out.length = 3; }   // 写らない点の同次座標（project の新しい配列だけが運ぶ＝作業域の型付き配列は 3 要素のまま）
+		return out;
+	}
 	const c0 = m[0] * w0 + m[4] * w1 + m[8] * w2 + m[12] * 1, c1 = m[1] * w0 + m[5] * w1 + m[9] * w2 + m[13] * 1;
 	out[0] = (c0 / c3 * 0.5 + 0.5) * state.W;
 	out[1] = (1 - (c1 / c3 * 0.5 + 0.5)) * state.H;
 	out[2] = frontHemi;
 	return out;
 }
-// 見えない点（地平線の向こう・カメラ後方）の射影クランプ＝project の遅い枝（呼び手は projectInto）
+// 見えない点（地平線の向こう・カメラ後方）の射影クランプ＝project の遅い枝（呼び手は projectInto）。
+// 画面に写らない点（カメラ後方＝clip w≦0）は [0, 0, front<0, hx, hy, hw]：x,y は意味なし（従来どおり 0）、hx/hy/hw は画面 px の同次座標
+//（screen＝(hx/hw, hy/hw)・clip から線形）。塗りの経路（geopbf/edit/draw makeTracer）はこれで近平面の手前で環を切る＝旧は (0,0)＝画面左上へ
+// 頂点を置いた＝チルトで面が画面下へ出てカメラ後方へ回った時、左上へ伸びる細い楔が塗られた（本人スクショ 2026-10-24 温泉郷）
+const homPx = (state: CameraState, c: ArrayLike<number>): number[] => [0, 0, -1, (c[0] + c[3]) * 0.5 * state.W, (c[3] - c[1]) * 0.5 * state.H, c[3]];
 function projectClamped(state: CameraState, lon: number, lat: number, radius: number): number[] {
 	const u = lonlatTo3D(lon, lat);
 	const w = liftedPos(u, lon, lat, radius);
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 	const frontHemi = mat.dot(u, state.eye) - 1;
+	if (frontHemi >= 0 && c[3] <= 1e-6) return homPx(state, c);   // 手前半球だがカメラ後方＝地平円へ寄せない（寄せ先は別の場所）＝写らない点
 	{
 		// 見えない点（地平線の向こう＝dot(u,E)<1・カメラ後方）は捨てずに、可視キャップの縁（地平円：中心 E/|E|²・半径 √(1−1/|E|²)）
 		// の少し内側へ射影クランプして写す＝符号は負のまま（呼び手は符号で可視判定＝従来どおり）、x,y は「地平線上の最寄り点」。
@@ -282,7 +293,7 @@ function projectClamped(state: CameraState, lon: number, lat: number, radius: nu
 		const ch = Math.cos(hor) / el, sh = Math.sin(hor);
 		const P = [E[0] * ch + t[0] * sh, E[1] * ch + t[1] * sh, E[2] * ch + t[2] * sh];
 		const c2 = mat.transform(state.mvp, [P[0], P[1], P[2], 1]);
-		if (c2[3] <= 1e-6) return [0, 0, -1];
+		if (c2[3] <= 1e-6) return homPx(state, c2);   // 地平円の寄せ先もカメラ後方＝写らない点
 		return [(c2[0] / c2[3] * 0.5 + 0.5) * state.W, (1 - (c2[1] / c2[3] * 0.5 + 0.5)) * state.H, Math.min(frontHemi, -1e-9)];
 	}
 	// TODO(ts): 上の block は常に return する＝ここから下は到達しない（従来のまま残す）
