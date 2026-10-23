@@ -44,7 +44,7 @@ const propagate = () => document.querySelectorAll('a[href^="/"]:not([href^="/doc
 		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
 }
-// Section tabs (Gallery / Get started / Technologies / Stories・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
+// Section tabs (Gallery / Technologies / Get started / Stories・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
 const HASH: Record<string, string> = { start: "#get-started", tech: "#technologies", stories: "#stories" };
 function selectTab(name: string | undefined) {
