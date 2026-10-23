@@ -1,6 +1,6 @@
 // voxel（3 次元格子）の受け口（第 4 波 V0・2026-10-23）＝契約だけ。描く段（箱の裏面から光線を入れて DDA で辿る・体積／ブロック／等値面・深度）は registry.dataKinds の "voxel" を plugin が足す
 //   map.addData(data, { kind: "voxel" })：data＝VoxelData（下）か、URL／bytes（読み手も plugin＝NetCDF／Zarr は後の段）
-//   VoxelData＝{ shape: "box"|"region", dims: [nx, ny, nz], box?: { origin:[lng,lat,alt], size:[m,m,m], orientation?:[h,p,r] } | { transform: 列優先 4×4（局所 m → ECEF m） }, region?: [w,s,e,n（度）, h0,h1（m）],
+//   VoxelData＝{ shape: "box"|"region", dims: [nx, ny, nz], box?: { origin:[lng,lat,alt], size:[m,m,m], orientation?:[h,p,r] } | { transform: 列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m） }, region?: [w,s,e,n（度）, h0,h1（m）],
 //               values: Float32Array|Uint16Array|Uint8Array（nx*ny*nz*components・x が最も速く変わる＝i + nx*(j + ny*k)）, components?: 1|4（1＝スカラー・4＝RGBA 直）, noData?, range?: [min,max] }
 //   shape は box か region のどちらかが在れば省略できる。plugin はこの形で受け取る＝normVoxel が検める。計画＝sdk/plugin-voxel/PLAN.md
 import type { VoxelData } from "../globe.d.ts";

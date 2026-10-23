@@ -57,4 +57,7 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
 ## 進み
 
 - [x] 第 0 段（2026-10-23）＝`packages/globe/src/voxel.ts`・`api/data.ts` の分岐・`plugin.ts` の `data.voxel`・`globe.d.ts` の `VoxelData`・PLUGINS.md／maplibre-compat.md §7・§9・検定 `tests/voxel.mjs`／`t-plugin?v=voxel`／`plugin.mjs`。llms.txt は japan SDK の物＝globe の plugin kind は載っていないので触らない
-- [ ] 第 1 段
+- [x] 第 1 段（2026-10-23）＝`sdk/plugin-voxel`（grid.ts／voxel-reader.ts／voxel-draw.ts／voxel-gl.ts／index.ts・README）・`t-pvoxel`（REALTIME に登録＝worker の動的 import は仮想時計で解決しない）・node 検定。
+  決めた事＝`transform` は単位立方体 [0,1]³ → ECEF（列の長さが辺）・値は R8 に詰める（0＝空・pick の value は main が持つ元の値）・当たりパスは scissor で読む画素だけ（SwiftShader の全画面パスは秒単位＝往復 3 秒を越えて [] になった轍）。
+  未検証＝本番ビルド（`moduleUrlAsChunk` が voxel-draw.js／voxel-gl.js を拾うか・reader worker が sideEffects:false で消えないか）＝第 3 段で見本のアプリに載せる時に verify-prod で見る。
+- [ ] 第 2 段
