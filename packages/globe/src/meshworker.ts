@@ -30,7 +30,7 @@ interface MeshMsg {
 	meshPort?: MessagePort; ell?: boolean; lowMem?: boolean; mid?: boolean; hi?: boolean; noOpfs?: boolean; farH?: number; noBake?: boolean; bakeUrl?: string; mem?: boolean; decPorts?: MessagePort[]; dec?: number;
 	map?: Record<string, string[]> | null; center?: number[] | null; ward: string;
 	id: number; base: string; tiles?: string[] | null; name: string; wardBbox: number[] | null; camCenter?: number[] | null; preload?: boolean; brid?: boolean;
-	clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null;
+	clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; doubleSided?: boolean;
 }
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
@@ -301,6 +301,9 @@ async function farBake(base: string, ward: string) {
 	} catch { self.postMessage({ farMiss: { name: ward, perm: true } }); }
 }
 
+// 裏面を捨てない区（台帳の set.doubleSided＝面の向きが揃っていない配信・オランダ PDOK）。焼き・端末の写し・生経路のどれから来ても
+// 送る時に印を付ける＝メッシュの中身（twoSided＝橋梁の両面＋間引きなし）とは別の欄＝建物の高さ間引きは効いたまま
+const doubleSidedWards = new Set<string>();
 // wardMask 引数は未使用（旧・全量スナップショット送出の名残＝呼び出し側の引数順を保つため残置）。
 // マスクは maskCells（このバッチの断片）だけを送る＝renderer 側が届いた分だけOR合成（隙間根治の本体）。
 async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8Array | null, wardBbox: number[] | null, own = false) {
@@ -309,7 +312,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 	// 同じ worker に集中＝港区/横浜中区/墨田区/新宿橋梁は全て worker 2）。送出前の準備は取得の外・postMessage 失敗は返却
 	const pos = own ? mesh.pos! : mesh.pos!.slice(), nrm = own ? mesh.nrm! : mesh.nrm!.slice(), idx = own ? mesh.idx! : mesh.idx!.slice();
 	const maskCells = maskCellsOf(mesh, wardBbox);
-	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } };
+	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } };
 	const transfers = [...new Set([pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer].filter(b => b && b.byteLength))] as Transferable[];   // 重複・切離し（byteLength 0）は転送リストに載せない
 	await takeCredit();
 	try { meshPort!.postMessage(payload, transfers); }
@@ -948,7 +951,8 @@ self.onmessage = async (e: MessageEvent<MeshMsg>) => {
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
 	}
-	const { id, base, tiles, name, wardBbox, camCenter, preload, brid, clip, tilesetUrl, bakeBase } = e.data;
+	const { id, base, tiles, name, wardBbox, camCenter, preload, brid, clip, tilesetUrl, bakeBase, doubleSided } = e.data;
+	if (doubleSided) doubleSidedWards.add(name); else doubleSidedWards.delete(name);
 	try {
 		cancelled.delete(base);   // 新規要求＝キャンセル旗を降ろす（再訪はゼロから正規に読み直す）
 		if (!preload) lane.set(base, "fast");   // 新規の表ロードは fast lane から

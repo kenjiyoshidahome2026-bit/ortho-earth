@@ -35,7 +35,7 @@ import type { GlobeCam } from "../types/scope.ts";
 import type { MeshDbCached, MeshDbOpts } from "../meshdb.ts";
 
 /** 登録簿の 1 区（地域宣言の catalog＋直書き）＝noMask＝橋梁等（被覆マスク不参加）・clip/tilesetUrl/bakeBase＝任意欄 */
-export interface MeshSet { name: string; base: string; bbox: number[]; noMask?: boolean; clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; [k: string]: unknown }
+export interface MeshSet { name: string; base: string; bbox: number[]; noMask?: boolean; clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; doubleSided?: boolean; [k: string]: unknown }
 /** 読込進捗の 1 区（scan＝カタログ走査中の枚数・done/total＝タイル・stall＝見張りの理由） */
 export interface MeshProgEntry { name: string; scan?: number; done?: number; total?: number; stall?: string }
 /** 読込進捗の中継口（setProgressTap・シーン再生の待ちパネル・null＝外す） */
@@ -46,7 +46,7 @@ type WorkerAck = boolean | "cancelled" | "demoted";
 type OnProg = (done: number, total: number, name: string | null) => void;
 type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
 /** ロードの任意欄（登録簿の set をそのまま渡す） */
-interface MeshLoadEx { clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null }
+interface MeshLoadEx { clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; doubleSided?: boolean }
 /** 区 worker（meshworker）からの便＝種類ごとに欄が違う（読む所でその種類の欄だけ読む） */
 interface MwReply {
 	type?: string; prog?: MeshProgEntry; name?: string; info?: string;
@@ -337,7 +337,8 @@ function workerLoadMesh(base: string, tiles: string[] | undefined, name: string,
 	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
 	// clip/tilesetUrl＝登録簿の任意欄（オランダ3DBAG等の「国土1枚もの」を街の矩形で切って使うため。PLATEAUは共に undefined）
 	// bakeBase＝R2 焼きの置き場（地域の申告 buildings.bakeBase を globe が set へ刻む・null＝焼きを持たない地域＝生経路のみ）
-	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null, bakeBase: ex.bakeBase || null });
+	// doubleSided＝裏面を捨てない（面の向きが揃っていない配信＝オランダ PDOK）。間引き・接地は建物のまま＝橋梁モードとは別
+	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null, bakeBase: ex.bakeBase || null, doubleSided: !!ex.doubleSided });
 	return new Promise<WorkerAck>((resolve, reject) => meshPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
@@ -501,7 +502,7 @@ function meshPreload(set: MeshSet): Promise<WorkerAck> {   // プレロード＝
 	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
 	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
-	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: meshSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null, bakeBase: set.bakeBase || null });
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: meshSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null, bakeBase: set.bakeBase || null, doubleSided: !!set.doubleSided });
 	return new Promise<WorkerAck>((resolve, reject) => meshPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => meshLoading.delete(set.name));
 }
