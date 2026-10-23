@@ -1,0 +1,28 @@
+// voxel の受け口（V0）＝契約の検め。描く段は plugin
+import { normVoxel, isVoxelUrl, VOXEL_SHAPES } from "../src/voxel.ts";
+let fail = 0; const ok = (k, c) => { console.log((c ? "ok  " : "FAIL ") + k); if (!c) fail++; };
+const th = f => { try { f(); return ""; } catch (e) { return e.message; } };
+const box = (o = {}) => ({ dims: [2, 3, 4], box: { origin: [139.76, 35.68, 0], size: [100, 150, 200] }, values: new Float32Array(24), ...o });
+ok("shapes", VOXEL_SHAPES.join() === "box,region");
+ok("url", isVoxelUrl("a/b.nc") && isVoxelUrl("x.ZARR?v=1") && isVoxelUrl("x.vox#f") && isVoxelUrl("x.npy") && !isVoxelUrl("x.glb") && !isVoxelUrl(42));
+ok("urlPass", normVoxel("field.nc") === "field.nc");
+const bytes = new Uint8Array([1, 2, 3]);
+ok("bytesPass", normVoxel(bytes) === bytes && normVoxel(bytes.buffer) === bytes.buffer);
+const b = normVoxel(box());
+ok("box", b.shape === "box" && b.components === 1 && b.dims.join() === "2,3,4" && b.box.origin[0] === 139.76 && b.box.size[2] === 200 && !("orientation" in b.box) && b.values.length === 24);
+ok("boxOrient", normVoxel(box({ box: { origin: [0, 0, 0], size: [1, 1, 1], orientation: [30, 0, 0] } })).box.orientation[0] === 30);
+const xf = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -3961000, 3349000, 3698000, 1];
+ok("boxXf", normVoxel(box({ box: { transform: new Float64Array(xf) } })).box.transform.length === 16);
+ok("boxBad", /box/.test(th(() => normVoxel(box({ box: null })))) && /box.size/.test(th(() => normVoxel(box({ box: { origin: [0, 0, 0], size: [1, 0, 1] } })))) && /box.transform/.test(th(() => normVoxel(box({ box: { transform: [1, 2] } })))));
+const r = normVoxel({ dims: [4, 2, 2], region: [139, 35, 140, 36, 0, 1000], values: new Uint8Array(16) });
+ok("region", r.shape === "region" && r.region.length === 6 && r.values instanceof Uint8Array);
+ok("regionBad", /south/.test(th(() => normVoxel({ dims: [1, 1, 1], region: [139, 36, 140, 35, 0, 1], values: new Uint8Array(1) }))) && /h0/.test(th(() => normVoxel({ dims: [1, 1, 1], region: [139, 35, 140, 36, 5, 5], values: new Uint8Array(1) }))));
+ok("shapeExplicit", normVoxel({ ...box(), shape: "box" }).shape === "box" && /shape/.test(th(() => normVoxel({ ...box(), shape: "cylinder" }))) && /shape/.test(th(() => normVoxel({ dims: [1, 1, 1], values: new Uint8Array(1) }))));
+ok("rgba", normVoxel(box({ components: 4, values: new Uint8Array(96) })).components === 4 && /components/.test(th(() => normVoxel(box({ components: 3 })))));
+ok("badDims", /dims/.test(th(() => normVoxel(box({ dims: [2, 3] })))) && /dims/.test(th(() => normVoxel(box({ dims: [2, 0, 4] })))) && /dims/.test(th(() => normVoxel(box({ dims: [2, 1.5, 4] })))));
+ok("badValues", /values length 23 != 24/.test(th(() => normVoxel(box({ values: new Float32Array(23) })))) && /Float32Array/.test(th(() => normVoxel(box({ values: [0] })))));
+ok("u16", normVoxel(box({ values: new Uint16Array(24) })).values instanceof Uint16Array);
+ok("noData", normVoxel(box({ noData: -9999 })).noData === -9999 && /noData/.test(th(() => normVoxel(box({ noData: "x" })))));
+ok("range", normVoxel(box({ range: [0, 10] })).range[1] === 10 && /range/.test(th(() => normVoxel(box({ range: [5, 5] })))));
+ok("notObj", /VoxelData/.test(th(() => normVoxel(null))) && /VoxelData/.test(th(() => normVoxel("x.glb"))));
+console.log(fail ? `voxel: ${fail} FAIL` : "voxel: all ok"); process.exit(fail ? 1 : 0);

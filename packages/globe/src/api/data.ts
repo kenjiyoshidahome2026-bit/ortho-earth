@@ -7,6 +7,7 @@ import { evalExpr } from "@ortho-earth/core";
 import { geopbf, geopbfCachePrune, geopbfCached } from "geopbf";
 import { gunzipText } from "../gadgets/dropfile.ts";
 import { normSplat } from "../splat.ts";
+import { normVoxel } from "../voxel.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import { tr } from "../i18n.ts";
 import type { Feature, FeatureCollection } from "geopbf";
@@ -300,6 +301,10 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 			if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz/.ksplat/.sog の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
 				data = normSplat(data);
 				if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "splat" is a reserved contract (capabilities()["data.splat"] is "spec"); install a plugin that registers map.registry.dataKinds "splat" (see PLUGINS.md)`);
+			}
+			if (kind === "voxel") {   // V0：予約された kind＝契約（src/voxel.ts の VoxelData か .nc/.zarr/.vox/.npy の URL・bytes）はここで検める。描く段（光線で格子を辿る・体積／ブロック／等値面・深度）は plugin の "voxel"
+				data = normVoxel(data);
+				if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "voxel" is a reserved contract (capabilities()["data.voxel"] is "spec"); install a plugin that registers map.registry.dataKinds "voxel" (see PLUGINS.md)`);
 			}
 			if (!ext || typeof ext.create !== "function") throw new Error(`addData: unknown kind "${kind}" (builtin: ${BUILTIN_DATA_KINDS.join("/")}; plugins register via map.registry.dataKinds)`);
 			return ext.create(map, data, { ...o, id: id ?? `data${++dataSeq}` } as Parameters<typeof ext.create>[2]) as DataLayerHandle;   // plugin の手綱（PLUGINS.md の契約＝addData の手綱の形）
