@@ -7,12 +7,12 @@
 			"ja": {
 				"title": "Ortho Earth 2.1 を公開しました",
 				"desc": "地図の文字を WebGPU に移し、MapLibre の公式例で同じ絵が 66 本から 79 本に。使い方は 2.0 のまま、下がった例は 0 本。大きく変えても壊れない版です。",
-				"href": "/docs/release-2-1-jp.html"
+				"href": "/docs/release-2-1-jp"
 			},
 			"en": {
 				"title": "Ortho Earth 2.1 is out",
 				"desc": "Map text moved to WebGPU, and the MapLibre official examples drawing the same picture went from 66 to 79. Same API as 2.0, zero regressions: a big change that broke nothing.",
-				"href": "/docs/release-2-1.html"
+				"href": "/docs/release-2-1"
 			}
 		},
 		{
@@ -21,12 +21,12 @@
 			"ja": {
 				"title": "第2版までの半年",
 				"desc": "2026 年 4 月の最初の一行から半年。Gint、PLATEAU、WebGPU、26 言語、MapLibre 互換を経て、TypeScript で書き直した第 2 版を出すまでの話。",
-				"href": "/docs/story-v2-jp.html"
+				"href": "/docs/story-v2-jp"
 			},
 			"en": {
 				"title": "Six months to the second edition",
 				"desc": "Six months from the first line in April 2026. Gint, PLATEAU, WebGPU, 26 languages and MapLibre compatibility, and then a second edition rewritten in TypeScript.",
-				"href": "/docs/story-v2.html"
+				"href": "/docs/story-v2"
 			}
 		},
 		{
@@ -35,12 +35,12 @@
 			"ja": {
 				"title": "Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth",
 				"desc": "描画性能の比較の対になる話です。同じ「地図エンジン」でも、2D の地図、3D の地球、完成品のアプリ、写実的な絵作り、球の地球儀と、出発点がそれぞれ違いました。",
-				"href": "/docs/story-features-jp.html"
+				"href": "/docs/story-features-jp"
 			},
 			"en": {
 				"title": "Web map engines, feature by feature: MapLibre, Cesium, TerriaJS, Navara and ortho-earth",
 				"desc": "The companion to the rendering benchmark. They are all called map engines, but they start from different places: a 2D map, a 3D Earth, a finished app, photorealistic rendering, and an always-round globe.",
-				"href": "/docs/story-features.html"
+				"href": "/docs/story-features"
 			}
 		},
 		{
@@ -49,12 +49,12 @@
 			"ja": {
 				"title": "PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth",
 				"desc": "PLATEAU の千代田区の建物を、5 つの Web 3D 地図エンジンで同じ条件で描き、Mac 2 台と iPhone で測りました。速さの差より、どこで手を抜くかに設計が出ました。",
-				"href": "/docs/story-benchmark-jp.html"
+				"href": "/docs/story-benchmark-jp"
 			},
 			"en": {
 				"title": "Rendering PLATEAU 3D city models: MapLibre, Cesium, TerriaJS, Navara and ortho-earth compared",
 				"desc": "I drew the PLATEAU buildings of Chiyoda, Tokyo with five web 3D map engines under the same conditions and measured them on two Macs and an iPhone. The design showed less in the speed than in where each engine cuts corners.",
-				"href": "/docs/story-benchmark.html"
+				"href": "/docs/story-benchmark"
 			}
 		},
 		{
@@ -63,12 +63,12 @@
 			"ja": {
 				"title": "Ortho Earth 2.0 を公開しました",
 				"desc": "見た目はほとんど変えず、TypeScript で建て直して古い呼び名を捨てた版。出したあと、他のエンジンと並べて測って見つかったことも。",
-				"href": "/docs/release-2-0-jp.html"
+				"href": "/docs/release-2-0-jp"
 			},
 			"en": {
 				"title": "Ortho Earth 2.0 is out",
 				"desc": "Rebuilt in TypeScript with the old aliases dropped, while the globe looks the same. Plus what turned up after release, measuring it side by side with other engines.",
-				"href": "/docs/release-2-0.html"
+				"href": "/docs/release-2-0"
 			}
 		},
 		{
@@ -77,12 +77,12 @@
 			"ja": {
 				"title": "独り地理院",
 				"desc": "横浜の退職エンジニアが、誰にも頼まれず独りで、地図を丸い地球に描き直している。その始まりと、AI の製図係との協業の話。",
-				"href": "/docs/introduction.html"
+				"href": "/docs/introduction"
 			},
 			"en": {
 				"title": "独り地理院 (Japanese)",
 				"desc": "A retired engineer in Yokohama, asked by no one, redrawing the map on a round Earth alone. How it began, and working with an AI draughtsman. In Japanese.",
-				"href": "/docs/introduction.html"
+				"href": "/docs/introduction"
 			}
 		}
 	]
