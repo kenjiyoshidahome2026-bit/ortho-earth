@@ -66,7 +66,10 @@ export async function nlStyle(): Promise<NlStyle | null> {
 export const NL_TERRAIN = { source: { type: "raster-dem", tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"], encoding: "terrarium" as const, tileSize: 512, maxzoom: 14, dtm: true } };
 
 /** 建物の 1 枠（3D Tiles の tileset を街の矩形で切った物） */
-export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox }
+// doubleSided＝裏面を捨てない（glTF の material.doubleSided:true と同じ意味）。PDOK の glb は建物ごとに面の向き（法線）が
+// 外向き・内向きばらばら（Delft の葉 1 枚の実測：符号付き体積で外 131・内 246 棟）＝片面描画だと内向きの棟は手前の壁が
+// 捨てられ、奥の壁の内側が見える（Kenji 報告 2026-10-24「壁が塞がっていない」）。描く時に両面にする＝焼き・端末の写しは作り直さない
+export interface NlBuildingSet { name: string; bbox: NlBBox; base: string; tilesetUrl: string; clip: NlBBox; doubleSided: true }
 /** R2 焼きの置き場（bake-plateau.mjs --region=nl の置き先もここから決まる） */
 export const NL_BAKE_BASE = "https://api.ortho-earth.com/bucket/GIS/3dbag/";
 /** 出典の 1 片（key＝辞書の鍵・text＝そのままの文） */
@@ -84,7 +87,7 @@ export const NL_REGION: NlRegion = {
 	code: "nl",
 	dtm: null,                    // AHN の焼き直しは持っていない＝標高は外来の標高タイル（上の NL_TERRAIN）を入口が渡す
 	buildings: {
-		sets: NL_PLACES.map(s => ({ name: `${s.name} (PDOK)`, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox })),
+		sets: NL_PLACES.map(s => ({ name: `${s.name} (PDOK)`, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox, doubleSided: true })),
 		bakeBase: NL_BAKE_BASE,   // globe が各 set へ刻む（stampBake）
 	},
 	// 自前のベクタ基図は持たない＝地域の基図の口（basemap）は空のまま。/nl/ の入口は外来 style（上の nlStyle）で描く。
