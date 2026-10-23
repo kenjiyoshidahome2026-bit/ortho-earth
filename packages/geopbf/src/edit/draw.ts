@@ -11,7 +11,7 @@ export interface PathContext {
 	arc(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean): void;
 	closePath(): void;
 }
-/** 投影：(lon, lat) → [x, y, visible]（visible<0＝裏半球・地平円へクランプ済み） */
+/** 投影：(lon, lat) → [x, y, visible]（visible<0＝裏半球・地平円へクランプ済み）。カメラ後方で写らない点は [x, y, visible<0, hx, hy, hw]（画面の同次座標）＝塗りが近平面で切る */
 export type Projector = (lon: number, lat: number) => ArrayLike<number>;
 /** 画面座標の点（[x, y] か [x, y, visible]） */
 export type ScreenPt = ArrayLike<number>;
@@ -50,6 +50,13 @@ export const BOTTOM_ANCHOR: Set<string> = new Set(["marker", "flag"]);   // 足�
 // slerp/toLL を通さず端点を直接投影＝経緯度の往復丸めもしない。walk は前辺の vb を次辺の va に使い回す（toVec は 1 頂点 1 回）。
 // tracePts(fill=true)＝見えない点（projector が地平円へクランプした位置）でも切らずに一本で結ぶ＝可視部＋地平線沿いの閉路（全点不可視は描かない）。
 // fill=false＝見えない区間で切る（地平線沿いに線を引かない）。projLine＝帯用の画面座標列（裏半球は落とす）。
+// 投影がカメラ後方の点に付ける同次座標（[x, y, front<0, hx, hy, hw]・screen＝(hx/hw, hy/hw)）＝ortho-core camera.ts projectClamped。無い投影（従来）は常に写る扱い
+const behind = (q: ScreenPt): boolean => q.length > 5;
+const FAR_PX = 1e5;   // 近平面で切った辺の行き先（画面から十分遠い・canvas の座標として安全な大きさ）
+const farOut = (a: ScreenPt, b: ScreenPt): number[] | null => {
+	const dx = b[3] - a[0] * b[5], dy = b[4] - a[1] * b[5], l = Math.hypot(dx, dy);
+	return l > 0 && Number.isFinite(l) ? [a[0] + dx / l * FAR_PX, a[1] + dy / l * FAR_PX] : null;
+};
 export function makeTracer(ctx: PathContext): Tracer {
 	const segEmit = (pr: Projector, a: ArrayLike<number>, b: ArrayLike<number>, va: ArrayLike<number>, vb: ArrayLike<number>, emit: (q: ScreenPt) => void): void => {
 		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));
@@ -68,7 +75,19 @@ export function makeTracer(ctx: PathContext): Tracer {
 			const pts: ScreenPt[] = []; let any = false;
 			walk(pr, coords, q => { if (q[2] >= 0) any = true; pts.push(q); });
 			if (!any) return;
-			for (let i = 0; i < pts.length; i++) i ? ctx.lineTo(pts[i][0], pts[i][1]) : ctx.moveTo(pts[i][0], pts[i][1]);
+			const s = pts.findIndex(q => !behind(q));
+			if (s < 0) return;
+			// カメラ後方の点（behind）は画面に写らない＝近平面で切る（GPU のクリップと同じ）。見える点 a から後方の点 b へ向かう辺の像は
+			// a から (b.h − a·b.w) の向きへ無限遠へ伸びる半直線（a の w に依らない）＝その向きの遠方の 1 点で置き換える。旧＝後方の点は
+			// 投影側が (0,0)＝画面左上を返し、塗りが左上へ細い楔を引いた（チルトで面が画面下へ抜けた時・本人スクショ 2026-10-24）
+			const n = pts.length;
+			ctx.moveTo(pts[s][0], pts[s][1]);
+			for (let k = 1; k <= n; k++) {
+				const p = pts[(s + k - 1) % n], q = pts[(s + k) % n], pb = behind(p), qb = behind(q);
+				if (!pb && qb) { const f = farOut(p, q); if (f) ctx.lineTo(f[0], f[1]); }
+				else if (pb && !qb) { const f = farOut(q, p); if (f) ctx.lineTo(f[0], f[1]); }
+				if (!qb && k < n) ctx.lineTo(q[0], q[1]);   // k＝n は始点へ戻る辺＝closePath が引く
+			}
 			return;
 		}
 		let started = false;

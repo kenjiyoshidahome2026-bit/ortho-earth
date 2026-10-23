@@ -36,6 +36,15 @@ ok(dLon(170, -170) === 20 && dLon(-170, 170) === -20 && Math.abs(dLon(0, 180)) =
 	ctx.ops.length = 0;
 	T.tracePts(pr, [[-10, 0], [-5, 0]], true);
 	ok(ctx.ops.length === 0, "tracePts(fill=true): 全点不可視は描かない");
+	// 写らない点（カメラ後方＝同次座標 [x,y,f<0,hx,hy,hw] つき）は近平面で切る：見える点から (h−a·w) の向きの遠方へ。(0,0) へは行かない（2026-10-24）
+	ctx.ops.length = 0;
+	const prB = (lon, lat) => lat < 0 ? [0, 0, -1, 500 * -1, (100 - lat * 10) * -1, -1] : [500 + lon, 100 - lat * 10, 1];   // 南＝カメラ後方（hw<0）
+	T.tracePts(prB, [[-10, 5], [10, 5], [10, -5], [-10, -5], [-10, 5]], true);
+	const ys = ctx.ops.map(o => o[2]);
+	ok(!ctx.ops.some(o => o[1] === 0 && o[2] === 0) && Math.max(...ys.map(Math.abs)) > 1e4 && ctx.ops[0][0] === "M", `tracePts(fill=true): カメラ後方の点は (0,0) でなく画面の遠方へ（最遠 |y| ${Math.max(...ys.map(Math.abs)).toFixed(0)}）`);
+	ctx.ops.length = 0;
+	T.tracePts(prB, [[-10, -5], [10, -5], [10, -6], [-10, -5]], true);
+	ok(ctx.ops.length === 0, "tracePts(fill=true): 全点がカメラ後方は描かない");
 	const pl = T.projLine(pr, [[-5, 0], [5, 0]]);
 	ok(pl.length === 11 && pl.every(p => p[2] >= 0) && pl[0][0] === 0, "projLine: 裏半球の点を落とす（-5..5 の 21 点のうち 0 以上の 11 点）");
 	ok(T.projLine(pr, [[1, 1]]).length === 0, "projLine: 1 点は空");
