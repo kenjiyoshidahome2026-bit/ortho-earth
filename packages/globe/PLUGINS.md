@@ -99,6 +99,8 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 - `dataKinds` の **`splat`**（Gaussian splat）：`map.addData(data, { kind: "splat" })`。data＝`{ n, positions: Float32Array(n*3)（[lng,lat,alt] か ECEF か局所＝crs lnglat|ecef|local）, scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数）, colors: Uint8Array(n*4), sh?: Float32Array, transform?: 列優先 4×4（local → ECEF・crs "local" に必須） }` か .ply/.splat/.spz/.ksplat/.sog の URL か bytes（`format` で名乗る・読み手は plugin）。3D Tiles の `KHR_gaussian_splatting` は gadget tiles3d がタイルごとに `{ crs: "local", transform }`（SPZ 圧縮は bytes＋`format: "spz"`＋`transform`）で `create` に渡す＝plugin は `transform` と `setVisible`／`remove` を受けること。
   plugin が無ければ `addData` は投げる（`capabilities()["data.splat"]` は "spec"）。描く段は同一フレームのオーバーレイ（深度つき・視線順のソート）＝`@ortho-earth/plugin-splat`（下の節）が実装している。
   `sh` の並び＝係数が先・色が後（`sh[i*K*3 + k*3 + c]`・K＝3／8／15＝次数 1／2／3・.spz と同じ）。WebGPU の描き手が視線の向きで色を変える（2026-10-18）。
+- `dataKinds` の **`voxel`**（3 次元格子・V0・2026-10-23）：`map.addData(data, { kind: "voxel" })`。data＝`{ shape?: "box"|"region", dims: [nx, ny, nz], box?: { origin: [lng, lat, alt], size: [m, m, m], orientation?: [h, p, r] } | { transform: 列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m） }, region?: [w, s, e, n（度）, h0, h1（m）], values: Float32Array|Uint16Array|Uint8Array（nx*ny*nz*components・x が最も速く変わる）, components?: 1|4, noData?, range? }` か .nc/.zarr/.vox/.npy の URL・bytes（読み手は plugin）。
+  plugin が無ければ `addData` は契約を検めてから投げる（`capabilities()["data.voxel"]` は "spec"）。描く段は同一フレームのオーバーレイ（箱の裏面から光線を入れて DDA で辿る＝`render: "volume"`（三線形・色表・前から重ねる）／`"blocks"`（最近傍・最初のセルで止まる）／`"iso"`（等値面）・深度・統一 picking）＝`@ortho-earth/plugin-voxel`（計画＝`sdk/plugin-voxel/PLAN.md`）。
 - `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import() する module（`export transcode(bytes: Uint8Array, { mimeType }) → { width, height, rgba: Uint8Array(width*height*4) }`・Promise でもよい）。模型（gadget model）と 3D Tiles の glb の KHR_texture_basisu の画像がこれを通って普通のテクスチャになる（第 3 波 W5）。登録が無ければ fallback の画像（texture.source）のまま＝`capabilities()["texture.ktx2"]` は "spec"、登録があれば "plugin"。`@ortho-earth/ktx2` が basis_universal の WASM（opt-in・既定は unpkg の @loaders.gl/textures の libs・`libraryPath` で自前配布）で実装している：`map.use(ktx2Plugin({ libraryPath }))`。
 
 ## 3D Tiles の要求と出典（requestTransform・attribution）
@@ -135,6 +137,21 @@ map.addData({ positions, scales, rotations, colors }, { kind: "splat", id: "mine
 URL と bytes は `origin` が要る（file の原点を置く経緯度）か、`transform`（列優先 4×4・局所 → ECEF m）で置く。`upAxis` の既定は .ply／.splat／.ksplat が "-y"（y 下・z 前）、.spz／.sog が "y"（y 上・z 後）。.ksplat（GaussianSplats3D の SplatBuffer・圧縮 0／1／2・SH 次数 0〜2）と .sog（PlayCanvas v2・zip の束＝meta.json＋WebP・SH の palette）は 2026-10-21。.sog の画は createImageBitmap → WebGL2 の readPixels（premultiply しない＝正確）・無ければ 2D canvas。色は WebGPU なら球面調和つき、WebGL2 は DC だけ。
 
 **3D Tiles の splat（2026-10-18・W10d）**＝`map.add3DTiles(url)` の glTF に `KHR_gaussian_splatting`（Release Candidate の属性名 `KHR_gaussian_splatting:SCALE`…・Cesium の草案 `_SCALE`（log の尺）／`_ROTATION`／`_OPACITY`・圧縮 `KHR_gaussian_splatting_compression_spz_2` の bytes）があれば、model worker（`meshdecode.ts` の `splatPrim`）が局所の座標＋タイルの transform（列優先 4×4・ECEF・heightOffset は重心の鉛直に）で返し、gadget tiles3d がタイルごとに `map.addData({ crs: "local", transform, … }, { kind: "splat", id: "tiles3d:<set>:<tile>:<k>", altitude: "absolute", properties: { tile } , ...opts.splat })` の層を立てる。タイルの出し入れ＝`setVisible`（層が立つ前に伏せても覚える）・unload＝`remove`。plugin が無ければ worker は splat を点として返し（仕様の fallback）一度だけ warn。手綱の `stats.splats`・`tiles[].splats`。
+
+## voxel（@ortho-earth/plugin-voxel）
+
+`map.use(voxelPlugin())` で予約された kind "voxel" に中身が入る（第 1 段・第 2 段＝2026-10-23）。下ごしらえ（R8／RGBA8 への詰め・色表・置き方・region の殻）は plugin 自身の worker（`voxel-reader.ts`）、描き手は render worker のオーバーレイ＝WebGPU（`voxel-gpu.ts`＝本体の device と深度テクスチャを共有）か WebGL2（`voxel-gl.ts`）を `voxel-draw.ts` が器で選ぶ（plugin-splat と同じ）。格子を包む箱（region は経緯度高の殻）の裏面を描き、FS で光線を辿る：`render: "blocks"`＝DDA で最初の空でないセル・面の法線で陰影、`"volume"`＝一定の刻みで三線形に引いて色表の色と α を前から重ねる、`"iso"`＝閾を跨いだ所を二分探索で詰め勾配を法線に。`clip`＝残す範囲（割合・薄くすれば断面）。シーンの深度で光線を切る＝建物・地形に隠れる。当たり＝止まったセルの番号を焼く別パス・読む画素だけ scissor。一つの map に一つのオーバーレイで、手綱の id を `addLayerId` で名乗る。
+
+```js
+import { voxelPlugin } from "@ortho-earth/plugin-voxel";
+map.use(voxelPlugin());
+map.addData({ dims: [64, 64, 32], box: { origin: [139.7671, 35.6812, 0], size: [2000, 2000, 1000] }, values, noData: 0 }, { kind: "voxel", id: "field", render: "volume", colormap: "turbo", opacity: 0.3 });
+const b = map.addData(same, { kind: "voxel", id: "blocks", render: "blocks", threshold: 0.5 });   // 同じ格子をブロックで
+b.setProps({ render: "iso", clip: [0, 1, 0, 1, 0.45, 0.55] });   // 等値面を薄く切る（格子は上げ直さない）
+map.addData({ dims: [120, 80, 20], region: [128, 30, 146, 46, 0, 12000], values: temperature }, { kind: "voxel", id: "wx", colormap: "magma", opacity: 0.4 });   // 経緯度×高さの格子
+```
+
+`box` の `transform`＝局所の**単位立方体 [0,1]³** → ECEF m（列の長さが各辺の m・3D Tiles のタイル変換×glTF のノード行列と同じ使い方）＝絶対高さ。`region`＝直線の光線を m で辿り標本ごとに経緯度・高さへ戻す（セルの境界は本物の経線・緯線・等高度面・blocks は 1/4 セル刻みの最近傍・殻は球で作る＝`?ell=1` の国規模の region は数 km ずれる）。3D Tiles の `EXT_primitive_voxels` は第 4 段、ブリック／LoD／NetCDF・Zarr の読み手は第 5 段（`sdk/plugin-voxel/PLAN.md`）。検定＝`node sdk/plugin-voxel/tests/t-plugin-voxel.mjs`（色表・詰め・置き方・殻の向き・CPU の DDA・偽の map の手綱と style）・`t-pvoxel`（verify:ui＝WebGL2・verify:webgpu＝WebGPU・実時間＝worker の動的 import）。
 
 ## 検定
 
