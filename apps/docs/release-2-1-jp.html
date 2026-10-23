@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.1 を公開しました — 文字を GPU へ、MapLibre の絵へ、壊さずに</title>
+<meta name="description" content="@ortho-earth/globe・core を 2.1 にしました。地図の文字の描き方を WebGPU に移し、MapLibre の公式例で「同じ絵」が 66 本から 79 本に増えました。使い方は 2.0 のまま、公式例で下がった例は 0 本です。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-1-jp">
+<meta property="og:title" content="Ortho Earth 2.1 を公開しました">
+<meta property="og:description" content="文字の描き方を WebGPU へ移し、MapLibre 互換を上げた版。使い方は 2.0 のまま、公式例 137 本の撮り比べで下がった例は 0。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-1-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-23">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-1.html" lang="en">English</a></nav>
+
+<header class="masthead"><h1>Ortho Earth 2.1 を公開しました</h1><p class="subtitle">文字を GPU へ移し、MapLibre の絵に近づけ、何も壊さなかった</p><p class="byline">2026-10-23 &middot; Kenji Yoshida &middot; @ortho-earth/globe &middot; @ortho-earth/core</p></header>
+<article class="reading essay">
+
+<p>
+<code>@ortho-earth/globe</code> と <code>@ortho-earth/core</code> を 2.1 にしました。
+2.0 で、やりたかった機能はひととおり揃いました。だからこの版は機能を足す版ではなく、今ある機能を磨く版です。
+中身は大きく二つあります。長年気になっていた地図の文字の描き方を GPU に移したこと。それと同時に、MapLibre GL JS との互換をもう一段上げたことです。
+</p>
+
+<p>
+ただ、この版でいちばん伝えたいのは、変えた量ではありません。これだけ下回りを入れ替えても、使い方は 2.0 のままで、壊れた所が一つも出なかったことです。
+この地図エンジンは、思っていた以上にロバストに育っていました。
+</p>
+
+<h2 id="text">1. 地図の文字を GPU へ</h2>
+
+<p>
+地名、道路の名前、記号、道路標識。地図の上の文字は、これまでずっと Canvas2D で一字ずつ描いていました。
+地球や建物は GPU で描いているのに、文字だけが CPU の 2D の絵を上から重ねている。描く順番も「地図を全部描いてから、最後に文字」と決まってしまうので、文字の上に線や塗りを重ねる MapLibre の style は、そのとおりの絵になりませんでした。文字の多い街では、文字を描くだけで重くもなります。
+長いあいだ、ここがこのエンジンのいちばんの懸念でした。
+</p>
+
+<p>
+2.1 では、文字を SDF（字の形を「縁からの距離」で持つ画像）の字形アトラスに焼き、WebGPU で一度に描くようにしました。
+色・大きさ・縁取りはシェーダで決めるので、字は書体と字の組で一度焼けば済みます。点の注記、線に沿う注記、記号と道路標識、geojson の点の symbol 層、集約（cluster）の件数、星空の星の名前と月まで、文字は全部この同じ道を通ります。
+真上から見ている間は、文字を style の層の位置に描くので、「文字の上に線」の style も MapLibre と同じ重なりになります。
+</p>
+
+<ul>
+	<li><strong>速くなった。</strong>文字のいちばん多い場面（オランダのデルフト、ズーム 17.6、55° 傾けた街並み）で、1 フレームあたりの文字の描画は 1.18 ms から 0.94 ms へ、約 2 割減りました。測った場面はすべて 60 fps です。</li>
+	<li><strong>見た目は同じ。</strong>今までの Canvas2D の絵と画素で比べて、差は 1% 未満です。</li>
+	<li><strong>WebGPU が無くても動く。</strong>WebGPU の環境では GPU の文字が既定です。WebGPU が使えない環境（WebGL2 で動いている時）では、自動で今までの Canvas2D の描き方に戻ります。URL に <code>?text=2d</code> を付ければ、WebGPU の環境でも元の描き方を選べます。</li>
+</ul>
+
+<p>
+文字だけでなく、毎フレーム 2D で上から重ね描きしていた残りの物も GPU へ移しました。集約の丸（<code>map.gadget.cluster</code>）、画面格子（screengrid）、CZML と GPX の軌跡、色が変わる線（<code>line-gradient</code>）、模様の線（<code>line-pattern</code>）です。
+2D のまま残したのは、編集の道具と描き方を分け合っている注釈と画像の貼り付けの二つだけです。
+</p>
+
+<h2 id="maplibre">2. MapLibre との互換</h2>
+
+<p>
+互換の物差しは、MapLibre 自身の公式例 139 本です。一本ずつ本物の MapLibre と ortho-earth で同じコードを走らせ、絵と答えが同じかを撮り比べて採点しています（採点の対象は 137 本）。結果は <a href="/maplibre/" target="_top">/maplibre</a> で一本ずつ見られます。
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>段</th><th>前回の撮り比べ（10 月 14 日）</th><th>2.1（10 月 23 日）</th></tr>
+	<tr><td>3　同じ絵</td><td>66</td><td><strong>79</strong></td></tr>
+	<tr><td>2　同じ答え</td><td>50</td><td>47</td></tr>
+	<tr><td>1　動く</td><td>21</td><td><strong>11</strong></td></tr>
+	<tr><td>0　動かない</td><td>0</td><td>0</td></tr>
+</table></div>
+
+<p>
+「同じ絵」が 13 本増え、「動くけれど答えが違う」が半分になりました。効いたのは、文字を層の位置で描けるようになったことのほかに、次のような直しです。
+</p>
+
+<ul>
+	<li>style の色・不透明度・線幅をズームの途中でも連続に変える（今までは読み込んだタイルのズームの値で止まっていた）。</li>
+	<li><code>setPaintProperty</code> や <code>feature-state</code> で地物ごとの色や線幅を変えても、タイルを組み直さずにすぐ絵が変わる。</li>
+	<li>基図の層の <code>moveLayer</code>、そして自分で足した geojson の層を基図の層の間に差し込む（「道の下に塗り」など）。</li>
+	<li><code>queryRenderedFeatures</code> が heatmap の層にも答え、線の当たりの許しも MapLibre と同じになった。起動前の <code>getCanvas()</code>、プラグインの事象も MapLibre どおりに。</li>
+</ul>
+
+<h2 id="same">3. 使い方は 2.0 のまま</h2>
+
+<p>
+これだけ中を入れ替えても、公開の口は 2.0 と同じです。2.0 で書いたコードは、そのまま 2.1 で動きます。速さと絵の正しさだけが上がりました。
+</p>
+
+<pre><code>npm i @ortho-earth/globe@2.1</code></pre>
+
+<div class="callout callout-note">
+	<div class="callout-head">一つだけ名前が変わった所</div>
+	<p>
+		<code>map.gadget.cluster</code> は、中で MapLibre と同じ集約の source と層を作るようになりました。そのため <code>queryRenderedFeatures</code> が返す層の名前が <code>clusters</code>／<code>unclustered-point</code> から <code>gadget-cluster-clusters</code>／<code>gadget-cluster-unclustered</code> に変わっています。この層名を指定して問い合わせていた場合だけ、書き換えてください。MapLibre と同じ書き方（<code>addSource</code> の <code>cluster: true</code> と <code>addLayer</code>）で作った集約は、自分で付けた層の名前のままです。
+	</p>
+</div>
+
+<h2 id="robust">4. 試せるように作る：Design For Test</h2>
+
+<p>
+2.1 は、エンジンのいちばん奥にある描画の道を何本も入れ替えた版です。それでも、公式例 137 本の撮り比べで、前回より下がった例は 1 本もありませんでした。
+</p>
+
+<p>
+これは運ではなく、設計の結果だと思っています。半導体の世界には DFT（Design For Test）という言葉があります。作ってから試し方を考えるのではなく、試せるように最初から設計に組み込んでおく、という考え方です。この工房のエンジンも、ずっとそうやって作ってきました。
+</p>
+
+<ul>
+	<li><strong>試す口を、エンジンの中に作り付けておく。</strong>公式例の撮り比べは、絵を見るだけではありません。エンジンが「どの文字をどこに置いたか」を答える検定の窓を持っていて、本物の MapLibre の置き方と一つずつ突き合わせます。文字を GPU へ移す時も、配置と衝突の判定はあえて CPU の同じ場所に残しました。描き方を丸ごと入れ替えても、同じ物差しがそのまま当たるようにするためです。</li>
+	<li><strong>GPU が無くても試せる形に切る。</strong>WebGPU の絵はクラウドの試験機では描けません。そこで、字を並べる・字の形を距離の画像にするといった中身は純粋な関数に切り出し、GPU の無い所でも検定できるようにしました。GPU が要るのは「描く」最後の一歩だけです。</li>
+	<li><strong>新しい道は、古い道の横に、切り替えの口つきで作る。</strong>GPU の文字は、まず <code>?text=gpu</code> を付けた時だけ動く形で入れ、Canvas2D の道はそのまま残しました。URL 一つで新旧を切り替えられるので、同じ場面を並べて画素で比べられます。出した後も、いつでも元に戻せます。</li>
+	<li><strong>関門は緑のまま通す。</strong>変更ごとに、既存の検定と公式例の門を通します。下がった例が一本でも出たら、その変更は入れません。文字の GPU 化だけで十数本、互換と合わせると 50 本ほどの変更を、それぞれ単独で入れても壊れない大きさに切って、一本ずつ通しました。</li>
+	<li><strong>最後は実機の門。</strong>既定を GPU に替える前に、私の Mac の実際の GPU で、東京とデルフトの字の質と速さを見ました。この時、世界全図の国名の縁取りが少し太く霞むのが見つかり、それを直してから既定を替えました。問題は、出す前の門で止まりました。</li>
+</ul>
+
+<p>
+半年かけて積み上げたのは、機能だけではなかったようです。試せるように作ってあるから、大きく変えても壊れない。その手応えを、この版で初めてはっきり感じました。
+</p>
+
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+
+</article>
+</body>
+</html>
