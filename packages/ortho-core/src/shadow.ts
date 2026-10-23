@@ -8,7 +8,13 @@ import { sunSubpoint } from "@ortho-earth/ephem/sun";
 const D2R = Math.PI / 180;
 
 /** 影の窓（shadowWindow の戻り） */
-export interface ShadowWindow { mvp: Float64Array; alt: number; texelM: number; zRangeM: number; eye: number[] }
+export interface ShadowWindow {
+	mvp: Float64Array; alt: number; texelM: number; zRangeM: number; eye: number[];
+	/** 窓の座標（カスケードが同じ基底・同じ奥行きで内側の窓を切る口）＝r/u/f＝太陽の基底・cx/cy＝中心（r/u 成分・単位球）・R＝半幅（単位球）・z0/Z＝奥行き */
+	r: number[]; u: number[]; f: number[]; cx: number; cy: number; R: number; z0: number; Z: number;
+}
+/** 内側の窓（カスケード）＝基の窓と同じ基底・同じ奥行き。s/ox/oy＝基の窓のクリップ xy からこの窓のクリップ xy への写し（xy_k＝xy_b·s＋o） */
+export interface ShadowCascade extends ShadowWindow { s: number; ox: number; oy: number }
 
 // 太陽の方向（単位ベクトル・ワールド）。t＝ms epoch
 export function sunVector(t: number): number[] {
@@ -40,13 +46,68 @@ export function shadowWindow(sun: ArrayLike<number>, center: ArrayLike<number>, 
 	// 旧＝±(R＋5km) 固定＝高度 10° では方位に沿って約 11km 先から深度が範囲を外れて「日向」になり、影がまっすぐ途切れた（富士で確認）
 	const cosAlt = Math.sqrt(Math.max(0, 1 - sinAlt * sinAlt));
 	const zh = R * Math.max(1, cosAlt / sinAlt) + 5000 / Re, z0 = dot(C, f) - zh, Z = 2 * zh;
+	return { mvp: windowMvp(r, u, f, cx, cy, R, z0, Z), alt: Math.asin(sinAlt), texelM: texel * Re, zRangeM: Z * Re, eye: [C[0] + sun[0], C[1] + sun[1], C[2] + sun[2]], r, u, f, cx, cy, R, z0, Z };
+}
+
+// 行0＝(dot(P,r)−cx)/R・行1＝(dot(P,u)−cy)/R・行2＝(dot(P,f)−z0)/Z・行3＝(0,0,0,1)（列優先）
+function windowMvp(r: number[], u: number[], f: number[], cx: number, cy: number, R: number, z0: number, Z: number): Float64Array {
 	const m = new Float64Array(16);
-	// 行0＝(dot(P,r)−cx)/R・行1＝(dot(P,u)−cy)/R・行2＝(dot(P,f)−z0)/Z・行3＝(0,0,0,1)
 	m[0] = r[0] / R; m[4] = r[1] / R; m[8] = r[2] / R; m[12] = -cx / R;
 	m[1] = u[0] / R; m[5] = u[1] / R; m[9] = u[2] / R; m[13] = -cy / R;
 	m[2] = f[0] / Z; m[6] = f[1] / Z; m[10] = f[2] / Z; m[14] = -z0 / Z;
 	m[15] = 1;
-	return { mvp: m, alt: Math.asin(sinAlt), texelM: texel * Re, zRangeM: Z * Re, eye: [C[0] + sun[0], C[1] + sun[1], C[2] + sun[2]] };
+	return m;
+}
+
+// 影のカスケード（2026-10-23）：基の窓（shadowWindow）の内側に、カメラに近い地面だけを覆う細かい窓を足す。
+//   傾けた視点では手前の地面ほど 1 画素が小さいのに、窓 1 枚では画面の中心と同じ粗さ（z16 で 1 texel≈2.5m）＝足元がにじむ。
+//   ground＝画面の格子を地面へ戻した点（単位球・β 空間）・eye＝カメラ（同じ空間）。基の窓の中に入る点だけを数え、目からの距離の
+//   min〜max を対数と等分の混ぜ（λ）で n 段に割り、段 k は「距離が d_k 以下の点」の外接正方形（太陽の基底で・余白 15%）。
+//   半幅は 1/4 段（2^0.25）に量子化して上へ丸め、中心は自分の texel の格子に吸着＝パンやズームで影の縁が揺れない。
+//   ほぼ真俯瞰（max/min が 1.6 未満）・点が足りない時は足さない（基の窓だけ＝従来と同じ絵）。基の窓の 0.7 倍より広い段も足さない（効かない）。
+//   戻り＝細かい順。奥行き（z0・Z）は基の窓と同じ＝深度の比較・余白の単位は全段で共通。
+export const SH_CASCADE_LAMBDA = 0.8;
+export function shadowCascades(base: ShadowWindow, ground: ArrayLike<number>[], eye: ArrayLike<number>, N: number, n = 2): ShadowCascade[] {
+	if (n <= 0) return [];
+	const Re = worldRadiusM();
+	const pts: { d: number; x: number; y: number }[] = [];
+	for (const P of ground) {
+		const x = dot(P, base.r), y = dot(P, base.u);
+		if (Math.abs(x - base.cx) > base.R || Math.abs(y - base.cy) > base.R) continue;   // 基の窓の外（遠景）は数えない
+		pts.push({ d: Math.hypot(P[0] - eye[0], P[1] - eye[1], P[2] - eye[2]), x, y });
+	}
+	if (pts.length < 4) return [];
+	let dmin = Infinity, dmax = 0;
+	for (const p of pts) { dmin = Math.min(dmin, p.d); dmax = Math.max(dmax, p.d); }
+	if (!(dmin > 0) || dmax / dmin < 1.6) return [];
+	const out: ShadowCascade[] = [];
+	let prevR = 0;
+	for (let k = 1; k <= n; k++) {
+		const t = k / (n + 1);
+		const dk = SH_CASCADE_LAMBDA * dmin * Math.pow(dmax / dmin, t) + (1 - SH_CASCADE_LAMBDA) * (dmin + (dmax - dmin) * t);
+		let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, cnt = 0;
+		for (const p of pts) if (p.d <= dk) { cnt++; x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+		if (!cnt) continue;
+		const halfM = Math.max(60, Math.max(x1 - x0, y1 - y0) * 0.5 * 1.15 * Re);
+		const R = Math.pow(2, Math.ceil(Math.log2(halfM) * 4) / 4) / Re;
+		if (R >= base.R * 0.7 || R < prevR * 1.5) continue;
+		prevR = R;
+		const texel = 2 * R / N;
+		const cx = Math.round((x0 + x1) / 2 / texel) * texel, cy = Math.round((y0 + y1) / 2 / texel) * texel;
+		out.push({
+			mvp: windowMvp(base.r, base.u, base.f, cx, cy, R, base.z0, base.Z), alt: base.alt, texelM: texel * Re, zRangeM: base.zRangeM, eye: base.eye,
+			r: base.r, u: base.u, f: base.f, cx, cy, R, z0: base.z0, Z: base.Z, s: base.R / R, ox: (base.cx - cx) / R, oy: (base.cy - cy) / R,
+		});
+	}
+	return out;
+}
+
+// 影の濃さ（2026-10-23）：影の中の明るさ＝日向の何倍か。利用者が darkness を渡せばそれ。既定は太陽の高さで決める＝
+// 高い太陽は直射が強く影がくっきり暗い（0.4）・低い太陽（夕方）は直射が弱く空の光が勝つので薄い（0.6）。旧＝高さに依らず 0.66（薄すぎた）
+export function shadowDarkness(altRad: number, user?: number | null): number {
+	if (user != null && Number.isFinite(user)) return Math.max(0, Math.min(1, user));
+	const a = altRad / D2R, t = Math.max(0, Math.min(1, (a - 5) / 30));
+	return 0.6 - 0.2 * t * t * (3 - 2 * t);
 }
 
 // 窓の半幅(m)＝画面が見ている地面の広さ。1/4 段（2^0.25）に量子化＝小さなズームで窓が伸縮して影の縁が揺れない
@@ -58,9 +119,10 @@ export function shadowHalfM(zoom: number, lat: number, W: number, H: number, dpr
 }
 
 // 深度の比較の余白（深度単位）：平らな屋根でも太陽が低いと 1 texel の中で深さが変わる＝その分を見込む
+// 段ごとに自分の texel で決める（2026-10-23）＝細かい段は余白も小さい＝足元で影が壁から浮かない。定数は 0.25m → 0.1m（細かい段で効く分）
 export function shadowBias(win: { alt: number; texelM: number; zRangeM: number }): number {
 	const slope = Math.min(1 / Math.tan(win.alt), 6);
-	return (0.25 + win.texelM * slope * 0.75) / win.zRangeM;
+	return (0.1 + win.texelM * slope * 1.0) / win.zRangeM;
 }
 
 // 落とす側の刈り（#112 段 3）：経緯度の箱 bbox＝[w,s,e,n] × 高さ [0, hMaxM] を窓の行列（shadowWindow の mvp・列優先 f64）で投げ、
