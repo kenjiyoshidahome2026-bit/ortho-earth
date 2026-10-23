@@ -16,7 +16,9 @@ const BASE = process.env.OG_BASE || "http://localhost:5186/globe";
 const PORT = 9494;
 // ready＝この式が真になったら撮れる（データが載った合図）。view＝撮る視点（URL ハッシュ）。wait＝ready の後に待つ ms（細かいタイルが置き換わるまで）
 const PAGES = {
-	splat: { url: "/splat", view: "", ready: "window.__splat && window.__splat.ready && window.__splat.tiles.shown >= 2", wait: 12000 },   // 東京駅前の 2 シーン（タイルの八分木が細かくなるまで待つ）
+	splat: { url: "/splat", view: "", ready: "window.__splat && window.__splat.ready && window.__splat.tiles.shown >= 2", wait: 12000 },
+	voxel: { url: "/voxel", view: "", ready: "window.__voxel && window.__voxel.ready && window.__voxel.n > 0 && !!window.__voxel.backend", wait: 8000 },   // 富士山の上の雲（volume）
+   // 東京駅前の 2 シーン（タイルの八分木が細かくなるまで待つ）
 };
 const HIDE = `for (const s of [".splat-panel",".splat-drop","#gadgets","#chips","#pos","#scale","#attr","#hint","#dock",".qm-attr"])
 	document.querySelectorAll(s).forEach(e => e.style.display = "none");

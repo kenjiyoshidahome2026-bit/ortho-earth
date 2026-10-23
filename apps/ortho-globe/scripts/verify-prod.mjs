@@ -4,7 +4,7 @@
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない（共有エンジン globe/engine/ は除く＝③ で読んだ物を見る）
-//   ② 実走: 9 頁が起動する（/globe/・/globe/?start=equal・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs・/globe/splat）＝地球儀が立ち、衛星・雲・地形・人口はデータが載る（世界の地震は 2026-10-15 に apps/quakes へ独立＝そちらの verify-prod）
+//   ② 実走: 11 頁が起動する（/globe/・/globe/?start=equal・/globe/sats・/globe/clouds・/globe/physical・/globe/clock・/globe/hex・/globe/arcs・/globe/splat・/globe/voxel・/globe/voxel?v=quakes）＝地球儀が立ち、衛星・雲・地形・人口はデータが載る（世界の地震は 2026-10-15 に apps/quakes へ独立＝そちらの verify-prod）
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない・共有エンジンから読んだファイルに地域の物が無い（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -117,6 +117,10 @@ const PAGES = [
 	{ name: "hex", url: "/globe/hex", ready: `${BOOTED} && window.__hex && window.__hex.cells > 10000`, ms: 90000 },
 	// Gaussian splat＝GitHub Pages の ortho-data/globe/splat/（scripts/splat-tiles.mjs → publish-pages.mjs）。3D Tiles の根 2 枚（2 シーン）が読めて見えた（SPZ のタイルは plugin が解く＝stats.splats には乗らない・shown で見る）
 	{ name: "splat", url: "/globe/splat", ready: `${BOOTED} && window.__splat && window.__splat.ready && window.__splat.tiles.shown >= 2`, ms: 120000 },
+	// voxel＝合成の雲（volume）が立ち、描き手が決まった（backend＝webgpu か webgl2）。地震の密度は /quakes/archive.geopbf（本番へ中継）＝?scene=quakes で別に見る
+	{ name: "voxel", url: "/globe/voxel", ready: `${BOOTED} && window.__voxel && window.__voxel.ready && window.__voxel.n > 0 && !!window.__voxel.backend`, ms: 90000 },
+	// 地震＝archive.geopbf（68 MB・本番へ中継）を読み、日本の箱（122–150E・24–50N）に落ちた事象＝約 5.4 万件（2026-10-23）
+	{ name: "voxel?v=quakes", url: "/globe/voxel?v=quakes", ready: `${BOOTED} && window.__voxel && window.__voxel.ready && window.__voxel.scene === "quakes" && window.__voxel.events > 20000`, ms: 240000 },
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {
 	const p = await open(ORIGIN + pg.url), t0 = Date.now();
