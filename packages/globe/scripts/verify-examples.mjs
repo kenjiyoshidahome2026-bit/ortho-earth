@@ -51,7 +51,16 @@ const HIDE = { ref: ".maplibregl-control-container,.maplibregl-marker,.maplibreg
 	ortho: "#map > :not(canvas){visibility:hidden!important}" };   // こちら＝容れ物（エンジンが id を map に揃える）の canvas は全部残す（#c・#labels・重ね描きの .overlay-gl＝記号・ヒートマップ・集約）。旧＝#c と #labels だけ残して重ね描きまで隠していた（2 巡目で発見）
 // 頁に差す関数（文字列を組み立てない＝値は Runtime.callFunctionOn の引数で渡す・CodeQL js/bad-code-sanitization）
 // 文字を消した写し（こちらだけ）＝注記の canvas と記号の重ね描きを隠す→本物の記号の錨の周りに「文字のインク」があるかを差分で見る（段 0＝文字を測る）
-const HIDE_TEXT = { ortho: `${HIDE.ortho}#labels,.overlay-gl[data-overlay="symbols"]{visibility:hidden!important}` };
+const HIDE_TEXT = { ortho: `${HIDE.ortho}#labels,#labelsgpu,.overlay-gl[data-overlay="symbols"]{visibility:hidden!important}` };
+// 文字が GPU になってから（#571・2026-10-22）、真俯瞰の注記は地図のパスの中（#c）で描かれる＝CSS では消えない（o1023 でインク 2068→32）。
+// 通訳の口で symbol 層を visibility none にして描き直させ、写した後に元の値へ戻す（MapLibre と同じ手＝エンジンの中を覗かない）
+const SYM_FN = `function (hide) { const m = window.__mlx?.maps?.[0]; if (!m) return 0;
+	if (hide) { const st = (() => { try { return m.getStyle(); } catch { return null; } })(); const ls = (st?.layers || []).filter(l => l.type === "symbol");
+		window.__mlxSym = ls.map(l => [l.id, l.layout?.visibility ?? "visible"]);
+		for (const [id] of window.__mlxSym) try { m.setLayoutProperty(id, "visibility", "none"); } catch {}
+		return ls.length; }
+	for (const [id, v] of window.__mlxSym || []) try { m.setLayoutProperty(id, "visibility", v); } catch {}
+	window.__mlxSym = null; return 0; }`;
 const HIDE_FN = `function (css) { let s = document.getElementById("__mlx_hide"); if (!s) { s = document.createElement("style"); s.id = "__mlx_hide"; document.head.appendChild(s); } s.textContent = css; }`;
 // 本物の答え：16×10 の格子（縁 48px を除く）→unproject（|lat|≤85.051・project で戻る点だけ ok）→問い合わせ。層・カメラ・範囲・Marker の位置
 const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.getContainer().getBoundingClientRect();
@@ -217,9 +226,12 @@ async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 				try { rec.colors = probeColors(decodePng(last), rec.probes || []); } catch (e) { rec.colorError = e.message; }
 				// 文字のインク（こちらだけ・止まって撮れた時）＝注記と記号を隠した写しとの差分が、本物の記号の錨の周りにあるか
 				if (side === "ortho" && HIDE_TEXT[side] && rec.end === "stable" && rec.refSym?.some(Boolean)) {
-					await callFn(HIDE_FN, [HIDE_TEXT[side]]); await sleep(150);
-					const noText = await shotOf(st.rect);
+					await callFn(HIDE_FN, [HIDE_TEXT[side]]);
+					const nSym = await callFn(SYM_FN, [true]); await sleep(nSym ? 600 : 150);
+					let noText = await shotOf(st.rect);
+					for (let k = 0; k < 8; k++) { await sleep(nSym ? 400 : 150); const s2 = await shotOf(st.rect); if (!nSym || (s2 && noText && s2.equals(noText))) { noText = s2 ?? noText; break; } noText = s2; }   // 描き直しが落ち着くまで（同じ写しが 2 回）
 					if (noText) { fs.writeFileSync(path.join(outDir, `${ex.name}.notext.png`), noText); try { rec.ink = inkHits(decodePng(last), decodePng(noText), rec.refSym.map(sy => sy?.ok ? [sy.x, sy.y] : null)); } catch (e) { rec.inkError = e.message; } }
+					if (nSym) { await callFn(SYM_FN, [false]); await sleep(400); }
 				}
 			}
 			await callFn(HIDE_FN, [""]);
