@@ -4,8 +4,8 @@
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("pointcloud", async () => {
 	const [{ default: orthoJapan }, { mountPointcloud, ATAMI_VIEW }] = await Promise.all([import("./app.ts"), import("./pointcloud.ts")]);
-	// 初期視点＝熱海の見本（共有 URL の hash があればそちら）
-	const map = await orthoJapan({ target: "#map", view: location.hash || ATAMI_VIEW, chips: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+	// 初期視点＝熱海の見本（共有 URL の hash があればそちら）。glOverlay＝点群は WebGL2 のオーバーレイ＝WebKit では本体を WebGL2 に（花火の頁と同じ・WebGPU 本体＋WebGL2 オーバーレイは合成されない）
+	const map = await orthoJapan({ target: "#map", view: location.hash || ATAMI_VIEW, chips: false, instruments: ["pos", "scale", "attr"], urlHash: true, glOverlay: true, assetBase: import.meta.env.BASE_URL });
 	dismissBoot();
 	if (map.lang === "ja") document.title = "静岡県の点群 — ortho-japan";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
 	window.__map = map;   // console 検証用
