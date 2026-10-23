@@ -209,6 +209,12 @@ once it has been still for about half a second, one 4× frame is drawn. <strong>
 resolution steps down, and line widths stay constant on screen (both backends).
 </p>
 
+<p>
+<strong>Text on the GPU</strong> (since 2.1): place names, road names, icons and road shields are baked into an SDF glyph atlas
+and drawn by WebGPU in the same frame as the map. Seen from straight above, text is drawn at its style layer's position, so a style that
+puts lines above its labels stacks as it does in MapLibre. On WebGL2 the engine falls back to Canvas2D text by itself; <code>?text=2d</code> chooses it on WebGPU too.
+</p>
+
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="camera">4. Camera, Projection and Zoom</h2>
 
@@ -349,7 +355,7 @@ map.flyTo({ center: [<span class="nm">139.767</span>, <span class="nm">35.681</s
 <p>
 The shape of the API follows MapLibre where it can, so existing styles and habits carry over.
 Everything above is covered by gates that boot pages through the published package itself — what is tested is what you install.
-Since 2.0 the libraries are written in strict TypeScript and ships its type definitions (compiled <code>.js</code> + <code>.d.ts</code> on npm); the 1.x compatibility layers are gone — see <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a>.
+Since 2.0 the libraries are written in strict TypeScript and ship their type definitions (compiled <code>.js</code> + <code>.d.ts</code> on npm); the 1.x compatibility layers are gone — see <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md">MIGRATION.md</a>.
 </p>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
