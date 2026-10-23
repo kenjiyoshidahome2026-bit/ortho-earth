@@ -97,25 +97,26 @@ For all the changes inside, the public API is the same as 2.0. Code written for 
 	</p>
 </div>
 
-<h2 id="robust">4. Changing without breaking</h2>
+<h2 id="robust">4. Built to be tested: Design For Test</h2>
 
 <p>
 2.1 replaced several of the drawing paths deep inside the engine. Even so, across the 137 official examples not a single one scored lower than in the previous run.
 </p>
 
 <p>
-I don't think that was luck. It comes from how the work is done. In this workshop, a few rules hold whenever a drawing path is replaced:
+I don't think that was luck. It comes from the design. In semiconductors there is a term, DFT (Design For Test): instead of working out how to test a chip after it is made, you build the means of testing into the design from the start. This engine has been built that way all along.
 </p>
 
 <ul>
-	<li><strong>Keep the old path and build the new one beside it.</strong> GPU text first went in only behind <code>?text=gpu</code>, with the Canvas2D path left untouched. One URL switch takes you back at any time.</li>
-	<li><strong>Keep the gates green.</strong> Every change passes the existing tests and the MapLibre examples gate. If even one example drops, the change does not go in.</li>
-	<li><strong>Switch the default only after the real-hardware gate.</strong> Before making GPU text the default, I checked text quality and speed in Tokyo and Delft on the real GPU of my Mac. That check found country names on the world view with slightly thick, blurry halos. We fixed it first, then switched the default. The problem stopped at the gate, before release.</li>
-	<li><strong>Small steps, one at a time.</strong> Moving text to the GPU took a dozen or so changes, and about fifty with the compatibility work. Each was cut small enough to go in on its own without breaking anything, and went through the gates one by one.</li>
+	<li><strong>Test ports built into the engine.</strong> The comparison with the official examples does not only look at pictures. The engine has a test window that answers "which text did you place, and where", and each placement is matched against real MapLibre. When text moved to the GPU, placement and collision were deliberately kept in the same place on the CPU, so the same yardstick would still apply after the drawing was replaced wholesale.</li>
+	<li><strong>Cut so it can be tested without a GPU.</strong> WebGPU pictures cannot be drawn on the cloud test machines. So the logic, such as laying out glyphs and turning glyph shapes into distance images, was cut into pure functions that can be tested with no GPU at all. Only the last step, the drawing itself, needs one.</li>
+	<li><strong>New paths beside the old, with a switch.</strong> GPU text first went in only behind <code>?text=gpu</code>, with the Canvas2D path left untouched. One URL switch flips between old and new, so the same scene can be compared pixel by pixel, and you can always go back after release.</li>
+	<li><strong>Keep the gates green.</strong> Every change passes the existing tests and the official examples gate. If even one example drops, the change does not go in. Moving text to the GPU took a dozen or so changes, and about fifty with the compatibility work. Each was cut small enough to go in on its own without breaking anything, and went through the gates one by one.</li>
+	<li><strong>Last, the real-hardware gate.</strong> Before making GPU text the default, I checked text quality and speed in Tokyo and Delft on the real GPU of my Mac. That check found country names on the world view with slightly thick, blurry halos. We fixed it first, then switched the default. The problem stopped at the gate, before release.</li>
 </ul>
 
 <p>
-It seems that what six months built up was not only features. With this release I felt clearly, for the first time, that the engine can take a big change without breaking.
+It seems that what six months built up was not only features. Because it is built to be tested, it can take a big change without breaking. With this release I felt that clearly for the first time.
 </p>
 
 <div class="sig">Kenji Yoshida @ Yokohama</div>
