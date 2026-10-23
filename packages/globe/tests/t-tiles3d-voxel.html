@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- 実描画の検分：3D Tiles の voxel（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）。試料＝tests/fixtures/tiles3d-voxel（make.mjs）＝東京駅の ENU の根：
+     tileset.json＝子 0（南西・box・Float32 の _DENSITY＝色表で塗る）・子 1（東・EXT_implicit_ellipsoid_region・Uint8 の赤の RGBA）。tileset-content.json＝root.content の 3DTILES_content_voxels（北西・黄の色表・property "density"）。
+     worker（tile3d）が voxel のプリミティブを transform／region のまま返し、main（gadgets/tiles3d.ts）がタイルごとに plugin-voxel の層にする。
+     ①寄ると子 2 枚がそろい stats.voxels＝2・各タイルが層 1 つ（tiles[].voxels）②画素（オーバーレイの probe）：東の region の中心に赤・南西の箱の中心に色（viridis）・北西の箱に黄
+     ③当たり（handle.pick＝layer "tiles3d:…:v0"・properties.tile・cell）④remove で層が全部降りる。
+     ?v=noplugin＝plugin 無し＝飛ばす（stats.voxels＝0・一度 warn・オーバーレイ無し）。実時間（worker の動的 import）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:520px}</style><title>t-tiles3d-voxel</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const V = new URLSearchParams(location.search), noPlugin = V.get("v") === "noplugin", expectGpu = !V.has("gl2");
+const t = [];
+let stage = "boot";
+const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-tiles3d-voxel @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
+const heart = setInterval(beat, 1000);
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); beat(); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(1000); } return null; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
+const warns = []; const warn0 = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(" ")); warn0(...a); };
+try {
+	const plugins = noPlugin ? [] : [(await import("@ortho-earth/plugin-voxel")).voxelPlugin()];
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false, debugGlobals: true, plugins });
+	await map.once("load");
+	map.jumpTo({ center: [LON, LAT], zoom: 16.8, pitch: 55, bearing: 0 });
+	await sleep(1500);
+	const h = await map.add3DTiles("./fixtures/tiles3d-voxel/tileset.json", { fit: false, voxel: { render: "blocks", opacity: 1 } });
+	const hc = await map.add3DTiles("./fixtures/tiles3d-voxel/tileset-content.json", { fit: false, voxel: { render: "blocks", property: "density", colormap: ["#f0d020", "#f0d020"], opacity: 1, depthTest: false } });
+	stage = "load";
+	const full = await until(() => h.stats.shown === 2 && hc.stats.shown === 1 ? [h.stats, hc.stats] : null, 40000);
+	ok("loaded", !!full && h.stats.failed === 0 && hc.stats.failed === 0, JSON.stringify([h.stats, hc.stats]));
+	if (noPlugin) {
+		ok("fallback.skip", h.stats.voxels === 0 && hc.stats.voxels === 0 && h.tiles.every(x => x.voxels === 0), JSON.stringify(h.stats));
+		ok("fallback.warn", warns.some(w => /EXT_primitive_voxels skipped/.test(w) && /voxelPlugin/.test(w)), warns.length + " warns");
+		ok("fallback.noLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'));
+		h.remove(); hc.remove(); await sleep(300);
+		ok("removed", h.stats.loaded === 0 && hc.stats.loaded === 0, JSON.stringify(h.stats));
+	} else {
+		ok("voxels", h.stats.voxels === 2 && hc.stats.voxels === 1 && h.tiles.filter(x => x.on).every(x => x.voxels === 1), JSON.stringify({ h: h.stats, hc: hc.stats, tiles: h.tiles.map(x => ({ on: x.on, v: x.voxels })) }));
+		ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-voxel"]').length === 1);
+		const ov = map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-voxel"]');
+		const dpr = Math.min(2, devicePixelRatio || 1);
+		// probe 用の層（同じ canvas）＝目に見えない 1 セルの格子を上空に（t-tiles3d-splat と同じ手）
+		const hp = map.addData({ dims: [1, 1, 1], box: { origin: ll(0, 0, 3000), size: [0.1, 0.1, 0.1] }, values: new Uint8Array([0, 0, 0, 0]), components: 4 }, { kind: "voxel", id: "probe", render: "blocks" });
+		await hp.ready;
+		const probe = () => new Promise(res => { stage = "probe"; const o = hp.overlay, prev = o.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { o.onmessage = prev; res(null); }, 8000);
+			o.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); o.onmessage = prev; res(d); } else prev?.(d); }; o.post({ type: "probe", id }); });
+		const px = (img, x, y) => { const X = Math.round(x * dpr), Y = img.flipY ? img.h - 1 - Math.round(y * dpr) : Math.round(y * dpr), k = (Y * img.w + X) * 4; return [img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]]; };
+		const near = (img, x, y, f, r = 4) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (f(px(img, x + dx, y + dy))) return true; return false; };
+		const col = c => c[3] > 60 ? [c[0] * 255 / c[3], c[1] * 255 / c[3], c[2] * 255 / c[3]] : null;
+		const red = c => { const v = col(c); return v && v[0] > 2 * v[1] + 30 && v[0] > 2 * v[2] + 30; }, yellow = c => { const v = col(c); return v && v[0] > 100 && v[1] > 85 && v[2] < 60 && v[0] > v[2] + 60; };   // 面の陰影（0.55 倍）でも黄と読む
+		const colored = c => { const v = col(c); return v && Math.max(...v) - Math.min(...v) > 40; };
+		const at = p => map.makeProjectorH()(p[0], p[1], p[2]);
+		const P0 = ll(-100, -100, 40), P1 = [LON + 0.002, LAT, 80], PC = ll(-100, 150, 70);
+		const seen = {};
+		const got = await until(async () => { const d = await probe(); if (!d) return null;
+			const q0 = at(P0), q1 = at(P1), qc = at(PC);
+			if (!seen.v && near(d, q0[0], q0[1], colored, 6)) seen.v = true; if (!seen.r && near(d, q1[0], q1[1], red, 6)) seen.r = true; if (!seen.y && near(d, qc[0], qc[1], yellow, 6)) seen.y = true;
+			return seen.v && seen.r && seen.y ? d : null; }, 40000);
+		ok("px.box", !!seen.v, seen.v ? "" : "no viridis at the south-west box");
+		ok("px.region", !!seen.r, seen.r ? "" : "no red at the east region");
+		ok("px.content", !!seen.y, seen.y ? "" : `no yellow at the north-west box (tileset route) tiles=${JSON.stringify(hc.tiles)} warns=${JSON.stringify(warns.filter(w => /voxel/.test(w)).slice(0, 3))} at=${at(PC).map(v => v.toFixed(0))}`);
+		void got;
+		// ③ 当たり（統一 picking＝層の id "tiles3d:<set>:<tile>:v0"・properties.tile と property）
+		stage = "pick";
+		const q1 = at(P1);
+		const pk = await until(async () => { const r = await map.pickOverlays(q1[0], q1[1], { radius: 6, names: ["plugin-voxel"] }); return r.length ? r : null; }, 30000) ?? [];
+		ok("pick", pk.length >= 1 && /^tiles3d:.*:v0$/.test(pk[0].layer) && typeof pk[0].properties?.tile === "number" && pk[0].properties?.property === "_COLOR" && Array.isArray(pk[0].cell), JSON.stringify(pk.map(x => ({ l: x.layer, c: x.cell, p: x.properties }))));
+		// ④ 撤去
+		stage = "remove";
+		window.__dbg = { map, h, hc, hp, at, P0, P1, PC }; if (V.has("hold")) { ok("hold", true); clearInterval(heart); document.title = "HOLD " + t.join(" "); await new Promise(() => {}); }
+		h.remove(); hc.remove(); hp.remove(); await sleep(800);
+		ok("removed", h.stats.loaded === 0 && hc.stats.loaded === 0 && !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'), JSON.stringify(h.stats));
+		ok("backend", hp.backend === "webgpu" || (!expectGpu && hp.backend === "webgl2"), `${hp.backend} ${ov?.dataset.overlay}`);
+	}
+	clearInterval(heart);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>
