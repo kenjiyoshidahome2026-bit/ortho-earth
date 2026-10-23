@@ -72,6 +72,7 @@ const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", 
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
 	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend", "boxzoomstart", "boxzoomend", "boxzoomcancel", "cooperativegestureprevented"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
+const PLUGIN_EVENT = /^[a-z][\w-]*\.[\w.-]+$/i;   // 「名前空間.事象」＝プラグインが map.fire で出す（mapbox-gl-draw の draw.create・terra-draw など）。style.load は ENGINE_EVENTS が先に拾う
 const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave", "mousedown", "mouseup", "touchstart", "touchend", "dblclick", "contextmenu"]);   // C8＝押し系も（エンジンの同期当たり・preventDefault でパン止め）   // エンジンが層ごとに持つ事象（#34）
 
 const S = new WeakMap<object, MlState>();   // 通訳の地図（と Proxy）→ 状態
@@ -90,7 +91,13 @@ function emit(self: object, type: string, props: object = {}): void {
 		try { fn.call(self, ev); } catch (e) { queueMicrotask(() => { throw e; }); }   // 聞き手の例外は MapLibre と同じく握りつぶさない（頁の未捕捉の例外になる）
 	}
 }
-const fail = (self: object, name: string, e: unknown): void => { console.error(`[mlshim] ${name}:`, (e as Error | null)?.message ?? e); emit(self, "error", { error: e instanceof Error ? e : new Error(String(e)) }); };
+// 無い層を style する＝MapLibre も投げずに error 事象（文言も同じ・聞き手が無ければ console.error）＝通訳の不具合として数えない
+const NO_LAYER = /^(setPaintProperty|setLayoutProperty|setFilter): layer "(.*)" not found$/;
+const fail = (self: object, name: string, e: unknown): void => {
+	const m = NO_LAYER.exec((e as Error | null)?.message ?? "");
+	if (m) { const err = new Error(m[1] === "setFilter" ? `The layer '${m[2]}' does not exist in the map's style and cannot be filtered.` : `Cannot style non-existing layer "${m[2]}".`); if (!S.get(self)?.ev.get("error")?.size) console.error(err); emit(self, "error", { error: err }); return; }
+	console.error(`[mlshim] ${name}:`, (e as Error | null)?.message ?? e); emit(self, "error", { error: e instanceof Error ? e : new Error(String(e)) });
+};
 
 // エンジンへ渡す。準備前は列に溜めて before を返す。Promise を返す口は待たずに this（失敗は error 事象）
 function ask<R = unknown>(self: object, name: string, args: unknown[], { before, conv, then }: { before?: R; conv?: (r: unknown) => R; then?: () => void } = {}): R {
@@ -294,7 +301,7 @@ export class Map {
 			st.ev.get(type)!.add(layerOrFn);
 			if (DOM_EVENTS.has(type)) bindDom(this, st, type);
 			else if (type === "render") this._render(st);
-			else if (!ENGINE_EVENTS.has(type)) unsupported(this, `on("${type}")`);
+			else if (!ENGINE_EVENTS.has(type) && !PLUGIN_EVENT.test(type)) unsupported(this, `on("${type}")`);   // プラグインの名前空間の事象（draw.create 等）は fire で届く＝記録しない
 			return this;
 		}
 		if (!LAYER_EVENTS.has(type)) { unsupported(this, `on("${type}", layerId)`); return this; }
@@ -617,8 +624,9 @@ export class Map {
 		if (cg) return cg;   // custom 層がある地図＝その WebGL2 canvas（three.js の new WebGLRenderer({ canvas: map.getCanvas(), context: gl }) が同じ canvas と文脈を受け取る）
 		const c = st.container.querySelector("canvas#c");
 		if (c) return c as HTMLCanvasElement;
-		unsupported(this, "getCanvas before the map is ready");
-		return (st.placeholder ??= document.createElement("canvas"));
+		if (st.engine || st.inert) { unsupported(this, "getCanvas before the map is ready"); return (st.placeholder ??= document.createElement("canvas")); }
+		const cv = st.container.appendChild(document.createElement("canvas")); cv.id = "c";   // 起動前＝エンジンが使う #c を先に置く（エンジンは容れ物の直下の #c を拾う）＝MapLibre と同じく構築直後から本物の canvas
+		return cv;
 	}
 	getPixelRatio() { return ask(this, "getPixelRatio", [], { before: window.devicePixelRatio || 1 }); }
 	triggerRepaint(): void { S.get(this)!.engine?.requestDraw?.(); }

@@ -342,7 +342,7 @@ mapEl.dir = isRTL() ? "rtl" : "ltr";
 const GJVT = !/[?&]gjvt=0(?:&|$)/.test(location.search), GJVT_FILL = /[?&]gjvt=2(?:&|$)/.test(location.search);
 const PER_FEATURE = /"(get|has|properties|feature-state|id|geometry-type)"/;   // 式が地物を読む（データ駆動）
 const TEXT_GPU = "gpu" in navigator && !/[?&]text=2d(?:&|$)/.test(location.search);
-for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = (cid === "c" && mapEl.querySelector<HTMLCanvasElement>(":scope > canvas#c")) || document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }   // #c は預かった容れ物に先に置かれていれば使う（MapLibre の口の getCanvas は起動前でも同じ canvas を返す＝terra-draw 等が構築時に掴む）
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
 // canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。
 const undergroundEl = mapEl.appendChild(document.createElement("div"));
@@ -3651,7 +3651,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 		return map.raster.add(layer.id, { port: v.hs.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 	}
 	if (kind === "extrude") return extrudeNative(await readPoints(data) as ExtrudeIn, { ...layer, fit: false, slot: layer.id });
-	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
+	if (kind === "heatmap") { v.heatPts = await readPoints(data); return heatmapNative(v.heatPts, layer, layer.id); }   // 点は問い合わせにも（MapLibre 6 は heatmap も返す＝半径の円で当てる）
 	if (kind === "symbol") {
 		const cl = clusterOf(sid);   // 集約の source＝全段の丸と単点（段は filter）
 		if (gjIsLine(layer)) { symCtl?.removeLayer(layer.id); const c = await gjGet(); return c.set(layer.id, layer, cl ? (await cl).fc : await readPoints(data), order); }   // 線に沿う配置（C9）＝線の地物だけ・点と面は MapLibre と同じく置かない

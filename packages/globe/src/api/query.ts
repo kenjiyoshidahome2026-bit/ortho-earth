@@ -253,6 +253,21 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)] as const) : e.pbf.features.map((f, i) => [i, f] as const).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
 			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 		}
+		// geojson の heatmap 層＝点を heatmap-radius（px）の円で当てる（MapLibre 6 の HeatmapStyleLayer.queryIntersectsFeature と同じ・層ごとに上から）
+		for (const v of [...mlLayers.values()].reverse()) {
+			if (v.kind !== "heatmap" || !take(v.layer.id) || !mlVisible(v) || !v.heatPts) continue;
+			const L = drawLayerOf(v); if (!inZoomML(L, cam.zoom)) continue;
+			const fs = Array.isArray(v.heatPts) ? v.heatPts : (v.heatPts as { features?: HitFeature[] }).features || [];
+			for (const f of fs as HitFeature[]) {
+				const g = f?.geometry; if (!g || (g.type !== "Point" && g.type !== "MultiPoint")) continue;
+				const r = +(evalExpr(L.paint?.["heatmap-radius"] ?? 30, { zoom: cam.zoom, props: f.properties || {}, geom: "Point", vars: {}, gs: live.MAP_GS, origin: "ml" }) ?? 30) + tolPx;
+				const hit = ((g.type === "Point" ? [g.coordinates] : g.coordinates) as number[][]).some(c => {
+					const [px, py, pf] = map.projectLL(c[0], c[1]); if (pf <= 0) return false;
+					return area.ll ? Math.hypot(px - geometry![0], py - geometry![1]) <= r : boxTouches({ type: "Point", coordinates: c } as QueryGeometry);
+				});
+				if (hit) out.push({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: f.properties || {}, geometry: g, layer: { id: v.layer.id, type: "heatmap" }, source: srcId(v.layer) });
+			}
+		}
 		const upbf = gint.userGint?.pbf;
 		if (upbf && take("user")) {
 			const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
@@ -279,7 +294,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		if (live.vtdCtl) {   // vector source の描く層（段 8⑤）＝基図と同じ queryTiles を source ごとに（出しているタイルを取り直す）。上の層から＝層の順の鍵の大きい方から
 			const bySid = new Map<string, MLLayer[]>();
 			for (const v of mlLayers.values()) {
-				if (v.kind !== "vtdraw" || !mlVisible(v) || !live.vtdCtl.has(v.layer.id) || v.layer.type === "heatmap") continue;   // heatmap は問い合わせに出ない（MapLibre と同じ）。層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
+				if (v.kind !== "vtdraw" || !mlVisible(v) || !live.vtdCtl.has(v.layer.id) || v.layer.type === "heatmap") continue;   // vector の heatmap は問い合わせにまだ出さない（MapLibre 6 は返す＝geojson の heatmap だけ下の円で当てる）。層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
 				const L = drawLayerOf(v), sid = srcId(L); if (!inZoomML(L, cam.zoom)) continue;
 				if (!bySid.has(sid)) bySid.set(sid, []); bySid.get(sid)!.push(L);
 			}
