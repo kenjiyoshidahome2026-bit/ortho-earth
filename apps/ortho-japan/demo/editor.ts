@@ -14,6 +14,7 @@ import { tr } from "@ortho-earth/globe/i18n.js";   // UI 多言語化（英語�
 import { pick, cardSecs, cardOf, LOOKS } from "@ortho-earth/globe/scenes/titles.js";   // 見た目の層（字幕の型・開幕/終幕カード・出典）の約束＝プレーヤーと同じ解き方
 import type { GlobeMap } from "@ortho-earth/globe";
 import type { SceneIssue } from "@ortho-earth/globe/demo/scene-adapter.js";
+import { TEMPLATES } from "./templates.ts";   // 雛形（第4便＝PLATEAU 巡りの見本）
 // 台本の行（scene-format.md）＝キーは data-k 直結で足し引きされる
 interface Row { dissolve?: boolean; time?: string; orbit?: number; rise?: number; push?: number; title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; look?: string; sub?: unknown; [k: string]: unknown }
 interface Doc { type: string; title?: string; frame: string; waitLoading?: boolean; scenes: Row[]; opening?: unknown; ending?: unknown; credit?: unknown; [k: string]: unknown }
@@ -205,6 +206,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		<div class="sc-foot">
 			<button id="sc-export">${t("Export .scenes")}</button>
 			<label>${t("Open")}<input id="sc-load" type="file" accept=".scenes,.gz,.json" hidden></label>
+			<select id="sc-tpl" title="${t("Start from a template (replaces the script; ⌘Z undoes)")}"><option value="">${t("Templates…")}</option>${TEMPLATES.map(x => `<option value="${x.id}">${esc(pick(x.name, map.lang))}</option>`).join("")}</select>
 			<button id="sc-cloud" title="${t("Cloud save / open (login required)")}">${t("☁ Cloud")}</button>
 			<button id="sc-clear" title="${t("Remove every row (⌘Z undoes)")}">${t("Clear all")}</button>
 		</div>`;
@@ -665,6 +667,11 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-export-video").addEventListener("click", exportVideoRun);
 	$("#sc-stop").addEventListener("click", stop);
 	$("#sc-export").addEventListener("click", download);
+	$<HTMLSelectElement>("#sc-tpl").addEventListener("change", e => {
+		const el = e.target as HTMLSelectElement, x = TEMPLATES.find(x => x.id === el.value);
+		el.value = "";
+		if (x && load(structuredClone(x.doc))) note(t("Template loaded: $1 (⌘Z undoes)", pick(x.name, map.lang)));
+	});
 	$("#sc-clear").addEventListener("click", () => { if (!doc.scenes.length) return; mark(); doc.scenes = []; sel = -1; save(); paint(); note(t("All rows removed (⌘Z undoes)")); });   // 確認ダイアログなし＝undo が安全網
 	$("#sc-undo").addEventListener("click", undo);
 	$("#sc-redo").addEventListener("click", redo);

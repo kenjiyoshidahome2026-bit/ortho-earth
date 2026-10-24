@@ -388,6 +388,24 @@ try {
 		ok("dissolveOn", ed.doc.scenes[1].dissolve === true && !!ed.doc.scenes[1].fade);
 	}
 
+	// 第4便：雛形＝選ぶと台本が置き換わる（⌘Z で戻る）・どの雛形も警告ゼロで読め、総尺 30〜120 秒・時刻つき
+	{
+		const { parseScenes } = await import("@ortho-earth/globe/demo/scene-adapter.js");
+		const before = JSON.stringify(ed.doc), sel = panelEl.querySelector("#sc-tpl");
+		const ids = [...sel.options].map(o => o.value).filter(Boolean);
+		let good = ids.length >= 2;
+		for (const id of ids) {
+			sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true }));
+			const iss = []; parseScenes(ed.doc, iss);
+			const tl = map.sceneTimeline(ed.doc);
+			good = good && sel.value === "" && iss.length === 0 && !!ed.doc.opening && !!ed.doc.credit && tl.dur > 30 && tl.dur < 120 && tl.rows.every(r => r.time != null);
+			if (!good) console.log("tpl", id, JSON.stringify(iss), tl && tl.dur);
+		}
+		ok("templates", good);
+		for (const _ of ids) ed.undo();
+		ok("templatesUndo", JSON.stringify(ed.doc) === before);
+	}
+
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）
 	{
 		panelEl.querySelector("#sc-cloud").click();
