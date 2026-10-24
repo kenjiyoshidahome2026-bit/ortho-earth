@@ -10,7 +10,8 @@
 const ENGINE = /^\/globe\/engine\/([0-9a-f]{10})\/(.+)$/;
 const ENTRY = /^(?!assets\/)[\w/-]+\.(js|css)$/;   // 入口＝assets/ の外の js・css（src/entries.mjs の一覧＋maplibre.js・globe.css）。チャンクと実行時データは assets/ の中（名前はハッシュか、版の中身）
 const CURRENT = "/globe/engine/current.json";
-const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
+const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless",
+	"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" };   // 後の 2 本＝型を推測させない・外部へ query を漏らさない（2026-10-24 監査）
 const toCurrent = async (env, url) => {
 	const m = url.pathname.match(ENGINE); if (!m) return null;
 	const cur = await env.ASSETS.fetch(new Request(url.origin + CURRENT)).then(r => r.ok ? r.json() : null).catch(() => null);

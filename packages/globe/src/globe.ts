@@ -1704,7 +1704,6 @@ resize();
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick: GlobeLive["measureClick"] = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 let profileClick: GlobeLive["profileClick"] = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
-let poiClick: GlobeLive["poiClick"] = null;       // POI台帳編集のarmed中だけ非null＝同上
 // 道具の排他（後から開いた方が勝つ）：計測・断面図・日影・可視域・操作方法カードは同時に一つだけ
 // ＝クリックの行き先が常に一意・左下のパネルが重ならない（計測⇄断面図 本人裁定2026-08-27 → 2026-09-24 に仲間を拡張）。
 // 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：開いた瞬間に toolOpen(名) → 他の全員の close を呼ぶ。
@@ -1734,7 +1733,6 @@ const input: GlobeScope["input"] = createInput({
 	onClick: dbgHost.__mapClickAt = (x: number, y: number) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
-		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
 		if (czmlCtl?.clickAt(x, y)) return;            // 時刻再生の点（CZML・GPX・#113）＝名前と説明の吹き出し（地面の識別はしない）
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
@@ -2901,7 +2899,6 @@ const { elevGridWait, anaWait, clipFor, clipCutXY, clipAllCut } = installShadows
 	get noTerr() { return noTerr; },
 	get EXT() { return EXT; },
 	get poiReal() { return poiReal; },
-	get poiClick() { return poiClick; }, set poiClick(v) { poiClick = v; },
 }, { BASE_SOURCE, D2R, LOW_MEM, REGION_DTM, REGION_HOME, REGION_PRINT_ATTR, TILE_MINZOOM, ac, approxViewBbox, attrTextNow, cam, dbgHost, makeProjector, mapOn, meshMgr, meshOn, onMove, ownDestroy, registerGadget, poi, printCapture, renderer, requestDraw, requestSnapshot, setLayer, t, toolClose, toolOpen, unprojectXY, viewHash, wPost, wakeMesh });
 let gFollow: GlobeLive["gFollow"] = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
 let columnarCtl: GlobeLive["columnarCtl"] = null;

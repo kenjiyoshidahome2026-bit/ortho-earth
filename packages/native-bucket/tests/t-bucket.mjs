@@ -65,6 +65,21 @@ await t("鍵が無ければ書けず、キャッシュも残る", async () => {
 	eq(await get("b/y.txt"), "keep", "中身");
 });
 
+await t("一覧はエッジに載り、書いた後は親の一覧も捨てる（2026-10-24）", async () => {
+	let listed = 0;
+	R2.list = async () => { listed++; return { objects: [{ key: "GIS/pbf/poi.json", size: 2, uploaded: new Date(0), httpEtag: '"e"' }], truncated: false }; };
+	const r1 = await bucket(new Request(BASE + "GIS/pbf/"), R2, ctx, ENV); await settle();
+	eq(r1.headers.get("Cache-Control"), "public, max-age=0, s-maxage=60", "一覧の Cache-Control");
+	eq(JSON.parse(await r1.text()).data.IsTruncated, false, "打ち切っていない");
+	await get("GIS/pbf/"); eq(listed, 1, "2 回目はキャッシュ");
+	eq(await post("GIS/pbf/poi.json", "put", "{}"), 200, "put");
+	await get("GIS/pbf/"); eq(listed, 2, "put の後は R2 を読み直す");
+	R2.list = async () => ({ objects: [], truncated: true, cursor: "c" });   // 終わらない一覧＝頁数の上限で打ち切る
+	const r2 = await bucket(new Request(BASE + "endless/"), R2, ctx, ENV); await settle();
+	eq(JSON.parse(await r2.text()).data.IsTruncated, true, "上限で打ち切り");
+	R2.list = async () => ({ objects: [], truncated: false });
+});
+
 const cc = async path => (await bucket(new Request(BASE + path), R2, ctx, ENV)).headers.get("Cache-Control");
 await t("中身のハッシュ入りの共有データは immutable、他は従来どおり（2026-09-30）", async () => {
 	objs.set("GIS/shared/census/2020-small.8d2ee2ae.csv", "a,b"); objs.set("GIS/shared/census/2020-small.csv", "a,b");

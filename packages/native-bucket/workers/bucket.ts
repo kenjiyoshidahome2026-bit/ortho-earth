@@ -4,6 +4,9 @@ import type { CfCacheStorage, Env, ExecutionContext, R2Bucket, R2Object, R2Objec
 // 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・uploader の「共有データ」ボタンが上げる）は
 // 中身が変わればキーが変わる＝ブラウザに 1 年持たせてよい（2026-09-30・縮小計画 項目6b。他のキーは従来どおり max-age=60）
 const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
+// 一覧（prefix/）は R2 の list を全頁なぞる＝誰でも叩けるので頁数に上限を置き、エッジに 60 秒持たせる（2026-10-24）
+const MAX_LIST_PAGES = 10;
+const LIST_CACHE = "public, max-age=0, s-maxage=60";
 
 export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionContext, env: Partial<Env> = {}) {
 	const url = new URL(request.url);
@@ -14,24 +17,27 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 	//   確実にするには s-maxage を縮めるか、GET で R2 の ETag を照合する（未決）。結果は tail で見える（[bucket] purge …）
 	// ⚠ Cache API はデータセンター単位＝消えるのは書き込みを受けた拠点の分だけ。他拠点は s-maxage（1 時間）で自然に切れる
 	//   （全拠点を即時に消すにはゾーンの purge API＝API トークンが要る）。?v= 等の query 付きの版も別の鍵＝消えない
-	const purge = () => ctx?.waitUntil?.(cache.delete(new Request(url.origin + url.pathname, { method: "GET" }))
-		.then(ok => console.log(`[bucket] purge ${url.pathname} ${ok ? "deleted" : "not-cached"}`), (e?: Error) => console.warn(`[bucket] purge ${url.pathname} failed`, e?.message)));
+	// 親の一覧（…/prefix/）も一緒に捨てる＝一覧をエッジに持たせた分（LIST_CACHE）が書いた直後に古く見えないように
+	const purgeOne = (pathname: string) => cache.delete(new Request(url.origin + pathname, { method: "GET" }))
+		.then(ok => console.log(`[bucket] purge ${pathname} ${ok ? "deleted" : "not-cached"}`), (e?: Error) => console.warn(`[bucket] purge ${pathname} failed`, e?.message));
+	const purge = () => ctx?.waitUntil?.(Promise.all([purgeOne(url.pathname), purgeOne(url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1))]));
 	if (request.method === "GET") {
 		const res = await cache.match(request); if (res) return res;
-	} 
+	}
 	try {
 		if (request.method === "GET") {
 			 if (path.endsWith('/') || path === "") {
 				let allObjects: R2Object[] = [];
 				let cursor: string | undefined = undefined;
-				let truncated = true;
-				while (truncated) {
+				let truncated = true, pages = 0;
+				while (truncated && pages < MAX_LIST_PAGES) {
 					const list = await bucket.list({ prefix: path || undefined, cursor: cursor, delimiter: '/' });
 					allObjects.push(...(list.objects || []));
 					truncated = list.truncated;
 					cursor = list.cursor;
+					pages++;
 				}
-				return new Response(JSON.stringify({
+				const response = new Response(JSON.stringify({
 					data: {
 						Contents: allObjects.map(o => ({
 							Key: o.key,
@@ -39,10 +45,12 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 							LastModified: o.uploaded,
 							ETag: (o.httpEtag || "").replace(/"/g, "")
 						})),
-						IsTruncated: false, // 全件取得済みのため
+						IsTruncated: truncated,   // 頁数の上限（MAX_LIST_PAGES）で打ち切った時だけ true
 						NextContinuationToken: null
 					}
-				}), { headers: { "Content-Type": "application/json" } });
+				}), { headers: { "Content-Type": "application/json", "Cache-Control": LIST_CACHE } });
+				ctx.waitUntil(cache.put(request, response.clone()));
+				return response;
 			}
 			const isMeta = url.searchParams.has("meta");
 			const obj = await (isMeta ? bucket.head(path) : bucket.get(path));

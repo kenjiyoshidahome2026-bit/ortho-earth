@@ -183,7 +183,7 @@ export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_O
 	return {
 		load: loadPOI, injectLabels, patchedAll: poiPatchedAll,
 		get ver() { return poiVer; },
-		// 編集ガジェット（gadgets/poiedit.js・§12）への口：手差分の読み書きと器の在り処
+		// 手差分の読み書きと器の在り処（§12・編集 UI は 2026-10-24 に撤去＝要る時に作り直す）
 		getOvr: () => poiOvr,
 		setOvr: o => { poiOvr = o; bump(); },
 		distM: poiOvrDist, apiBase: POI_API, ovrName: POI_OVR_NAME,

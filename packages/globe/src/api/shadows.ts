@@ -214,24 +214,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	registerGadget("close", (m, opts) => {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 		return closeGadget.call(m, { signal: ac.signal, ...opts });
 	});
-	// POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
-	// 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
-	// 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
-	if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("../gadgets/poiedit.ts")).then(({ poiedit }) => {
-		setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
-		registerGadget("poiedit", (m, opts) => {
-			const L = live.poiReal!;   // ?poiedit=1 は下で poi.ready() を待ってから搭載＝ここでは必ず本物
-			return poiedit.call(m, {
-				// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
-				// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
-				setClick: fn => { live.poiClick = fn; }, unprojectXY, makeProjector, distM: L.distM,
-				apiBase: L.apiBase, name: L.ovrName,
-				getPOI: () => L.patchedAll(), getOvr: L.getOvr,
-				setOvr: L.setOvr,
-				signal: ac.signal, ...opts,
-			});
-		});
-		map.gadget.poiedit!();
-	}).catch(e => console.error("[poiedit] load failed", e));
+	// POI 台帳の手差分編集ガジェット（?poiedit=1・gadgets/poiedit.ts）は 2026-10-24 に撤去＝全権の bucket 鍵をブラウザに置く作りだった
+	// （監査）。手差分（overrides.json）の読みと適用は jp の poi.ts に残る＝編集の仕組みは要る時に作り直す
 	return { elevGridWait, anaWait, clipFor, clipCutXY, clipAllCut };
 }
