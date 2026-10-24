@@ -202,7 +202,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 				<label class="grp"><input type="checkbox" data-ov="inn" checked><span class="sw inn"></span>${esc(t("Secluded hot spring inns"))}<small>${inns.length}</small></label>
 				<label class="grp"><input type="checkbox" data-ov="innOnly"><span class="sw none"></span>${esc(t("Only hot springs with such an inn"))}</label>
 				<p class="note">${esc(t("Filled dots have measured coordinates (hot spring list, Wikipedia, Wikidata); hollow rings were placed by searching place names and addresses. A red outer ring means the source is far from the town."))}</p>
-				<p class="src">${esc(t("Data: hot spring list, Japanese Wikipedia (CC BY-SA 4.0), Wikidata (CC0), © OpenStreetMap contributors (ODbL), GSI, Japan Secluded Hot Spring Association"))}</p>
+				<p class="src">${esc(t("Data: hot spring list (compiled from Wikipedia and years of visits on site), Japanese Wikipedia (CC BY-SA 4.0), Wikidata (CC0), © OpenStreetMap contributors (ODbL), GSI, Japan Secluded Hot Spring Association"))}</p>
 			</div>
 			<div class="pane" data-pane="list" hidden>
 				<div class="ctl"><select class="pref"><option value="">${esc(t("All prefectures"))}</option>${Object.keys(db.prefNames || {}).map(c => `<option value="${c}">${esc(db.prefNames![c][lang] || db.prefNames![c].en)}</option>`).join("")}</select>
