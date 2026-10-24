@@ -30,7 +30,7 @@ jobs:
     env:
       TARGETS: ${{ inputs.targets || inputs.published }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0              # subtree split は全履歴が要る
           persist-credentials: false  # GITHUB_TOKEN の認証ヘッダが MIRROR_TOKEN とぶつからないように
