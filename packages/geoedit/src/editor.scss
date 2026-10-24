@@ -1,6 +1,11 @@
 /* geoedit 編集UI — 地図側UIの意匠は quiet-mono（#map スコープ）＝ここでは触らない。
    z-index 不使用＝重なりは DOM 順（japan の掟）。ガジェット搭載時に controller が <style> として注入（CSS自給）。 */
-@use "quiet-mono/tokens.scss" as *;
+// 配色＝common/panel（全アプリの案内パネル）と同じ黒地・白文字（本人裁定 2026-10-23「黒地のパネルに」）。geoedit は common に依存しない npm 部品なので値を写す。
+// 旧＝紺の薄い半透明（.42〜.55）＝明るい下地で灰色に濁り字が薄かった。quiet-mono の tokens は使っていない＝@use をやめた（:root の変数一式 約3KB を焼き込んでいた）
+$bg: rgba(12, 17, 32, .88);        // common/panel --oe-panel-bg
+$bg-solid: rgba(12, 17, 32, .96);  // --qm-panel-solid（パネルの見出し行＝下を流れる本文を隠す）
+$text: #e7ecf5;                    // --qm-text
+$mobile: 640px;                    // common/panel PANEL_MOBILE
 
 /* ── 編集オーバレイ（ハンドル・ラバーバンド）：GLキャンバスの後段＝上に重なる。
       平時は pointer-events:none＝パン/クリックは素通し。頂点ドラッグは controller が
@@ -29,12 +34,12 @@
 	gap: 4px;
 	padding: 4px 6px;
 	border-radius: 10px;
-	background: rgba(16, 24, 44, .42);
+	background: $bg;
 	border: 1px solid rgba(255, 255, 255, .14);
 	backdrop-filter: blur(6px);
 	-webkit-backdrop-filter: blur(6px);
 	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
-	color: #cdd6e6;
+	color: $text;
 	user-select: none;
 }
 /* 部品の「×」＝ツールバーの右端（区切りで間を空けて最後に置く＝ツールと見間違えない） */
@@ -47,7 +52,7 @@
 	border-radius: 7px;
 	line-height: 1;
 	font-size: 14px;
-	color: #cdd6e6;
+	color: $text;
 }
 #ge-toolbar button:hover { background: rgba(255, 255, 255, .10); }
 #ge-toolbar button.on { background: rgba(120, 170, 255, .28); color: #fff; }
@@ -69,7 +74,7 @@
 	padding: 5px 6px;
 	border-radius: 7px;
 	font-size: 12px;
-	color: #cdd6e6;
+	color: $text;
 	background: rgba(255, 255, 255, .06);
 }
 
@@ -84,12 +89,12 @@
 	overflow: auto;
 	padding: 8px 12px 12px;
 	border-radius: 10px;
-	background: rgba(16, 24, 44, .55);
+	background: $bg;
 	border: 1px solid rgba(255, 255, 255, .14);
 	backdrop-filter: blur(6px);
 	-webkit-backdrop-filter: blur(6px);
 	font: 12px/1.6 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
-	color: #cdd6e6;
+	color: $text;
 }
 /* 書き出し／クラウド＝一時のダイアログ：右のスタイル/選択パネルと同じ座標に積まない＝ツールバー直下の中央へ。
    同時に開くのは1枚（.ge-dialog を開く側が前の1枚を外す） */
@@ -100,7 +105,7 @@
 	margin: 0 0 8px; padding-bottom: 6px;
 	border-bottom: 1px solid rgba(255, 255, 255, .12);
 	position: sticky; top: -8px; z-index: 1;
-	background: rgba(16, 24, 44, .85);
+	background: $bg-solid;
 }
 .ge-panel .ge-head h3 { margin: 0; flex: 1; font-size: 12px; font-weight: 600; opacity: .85; }
 .ge-panel .ge-icon-btn {
@@ -136,7 +141,7 @@
 	padding: 2px 5px;
 	border-radius: 5px;
 	background: rgba(255, 255, 255, .08);
-	color: #e8eef8;
+	color: $text;
 }
 .ge-panel button {
 	all: unset;
@@ -145,7 +150,7 @@
 	margin: 2px 4px 2px 0;
 	border-radius: 7px;
 	background: rgba(255, 255, 255, .08);
-	color: #cdd6e6;
+	color: $text;
 }
 .ge-panel button:hover { background: rgba(255, 255, 255, .16); }
 .ge-panel button.on { background: rgba(120, 170, 255, .28); color: #fff; }
@@ -245,11 +250,11 @@
 :is(.qm, #map) .ge-banner {
 	display: flex; align-items: center; gap: 8px;
 	padding: 5px 6px 5px 10px; border-radius: 8px;
-	background: rgba(16, 24, 44, .55);
+	background: $bg;
 	border: 1px solid rgba(255, 255, 255, .14);
 	backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
-	color: #e8eef8;
+	color: $text;
 	max-width: min(360px, calc(100vw - 20px));
 }
 :is(.qm, #map) .ge-banner button { all: unset; cursor: pointer; padding: 3px 9px; border-radius: 6px; background: rgba(120, 170, 255, .28); color: #fff; white-space: nowrap; }
@@ -267,7 +272,7 @@
 	gap: 6px;
 	padding: 4px 6px;
 	border-radius: 10px;
-	background: rgba(16, 24, 44, .55);
+	background: $bg;
 	border: 1px solid rgba(255, 255, 255, .14);
 	backdrop-filter: blur(6px);
 	-webkit-backdrop-filter: blur(6px);
@@ -275,7 +280,7 @@
 	user-select: none;
 }
 .ge-confirm[hidden] { display: none; }
-.ge-confirm button { all: unset; cursor: pointer; padding: 7px 14px; border-radius: 7px; color: #cdd6e6; background: rgba(255, 255, 255, .08); }
+.ge-confirm button { all: unset; cursor: pointer; padding: 7px 14px; border-radius: 7px; color: $text; background: rgba(255, 255, 255, .08); }
 .ge-confirm button:hover { background: rgba(255, 255, 255, .16); }
 .ge-confirm button.ge-ok { background: rgba(120, 170, 255, .28); color: #fff; }
 .ge-confirm button[hidden] { display: none; }
@@ -288,9 +293,9 @@
 	transform: translateX(-50%);
 	padding: 6px 12px;
 	border-radius: 8px;
-	background: rgba(16, 24, 44, .7);
+	background: $bg;
 	border: 1px solid rgba(255, 255, 255, .14);
-	color: #e8eef8;
+	color: $text;
 	font: 12px/1.4 "Noto Sans JP", sans-serif;
 	pointer-events: none;
 	transition: opacity .25s ease;
@@ -299,3 +304,22 @@
 
 // 編集中（#map.ge-on）＝星空劇場の日時計（右上 #sky-clock）は出さない（本人裁定 9/15「geoedit では右上の日付を表示しない」）
 :is(.qm, #map).ge-on #sky-clock { display: none; }
+
+/* ── スマホ（≤640px・common/panel と同じ切替幅）──
+   ツールバー＝1 段の横スクロール（旧＝2 段に折り返して左上の家具＝層・検索を覆った）。左の家具の列（幅 ~44px）の右から。
+   パネル＝下端のシート（出典の上・丈は半分まで）＝common/panel のスマホ形。書き出し/クラウドのダイアログはツールバーの下。
+   確定バーとトーストはシートと重ならないよう上へ。 */
+@media (max-width: $mobile) {
+	#ge-toolbar {
+		left: 54px; right: 8px; margin: 0; width: auto; max-width: none;
+		flex-wrap: nowrap; justify-content: flex-start;
+		overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+	}
+	#ge-toolbar::-webkit-scrollbar { display: none; }
+	#ge-toolbar > * { flex: none; }
+	#ge-toolbar [data-tip]::after { display: none; }   /* 横スクロールの箱の中＝吹き出しは切れる（タッチでは元々出ない） */
+	.ge-panel { top: auto; bottom: calc(var(--oe-attr-h, 40px) + 8px); left: 8px; right: 8px; width: auto; max-width: none; max-height: 50%; box-sizing: border-box; }
+	.ge-panel.ge-dialog { top: 56px; bottom: auto; left: 8px; right: 8px; transform: none; }
+	.ge-confirm { top: 56px; bottom: auto; }
+	.ge-toast { top: 100px; bottom: auto; max-width: calc(100% - 32px); }
+}

@@ -1,6 +1,6 @@
 // ガジェット：右クリックメニュー。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.contextmenu() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
-// 右クリック（タッチは長押しの contextmenu）で #map 上の指した地点にメニューを出す。
+// 右クリック（タッチは長押し）で #map 上の指した地点にメニューを出す。iOS Safari は長押しで contextmenu を出さない＝自前の長押し（下）で開く（2026-10-24）。
 // 項目は本体が差し替え可＝戻り値の setter に配列、または (ctx, 既定項目)→配列 の関数を渡す（各項目 {name, icon?, onClick(ctx)}）。
 // 未設定なら既定メニュー（この地点へ寄る／座標をコピー）＝搭載しただけで使える。
 // ctx＝{ lng, lat, x, y, map }。lng/lat は指した画面座標の逆投影（screen→world。裏半球や宇宙なら undefined）。
@@ -34,14 +34,33 @@ export function contextmenu(this: GlobeMap, { unprojectAt, signal, items }: Cont
 	// 後置＝#map 直下（DOM順で上に描く。z-index不使用の掟）。
 	mapEl.append(menu);
 	const hide = () => { menu.style.display = "none"; };
-	const ctx = (e: MouseEvent): MenuCtx => {
+	const ctx = (e: { clientX: number; clientY: number }): MenuCtx => {
 		const r = mapEl.getBoundingClientRect();
 		const ll = unprojectAt(e.clientX, e.clientY);   // 球に当たらなければ null
 		return { lng: ll?.[0], lat: ll?.[1], x: e.clientX - r.left, y: e.clientY - r.top, map };
 	};
+	// 長押し（タッチ・1 本指で LONG_MS 動かさない）＝右クリックと同じメニュー。Android は自前でも contextmenu を出す＝長押しで開いた直後の
+	// contextmenu は捨てる（二度開かない）。開いた指を離すまでの move/click は閉じる合図にしない（指の震え・離した時の click）
+	const LONG_MS = 550, SLOP = 10;
+	let lpTimer: ReturnType<typeof setTimeout> | 0 = 0, lpAt: [number, number] | null = null, lpOpen = false, touches = 0;
+	const lpCancel = () => { clearTimeout(lpTimer); lpTimer = 0; lpAt = null; };
+	mapEl.addEventListener("pointerdown", e => {
+		if (e.pointerType !== "touch") return;
+		touches = e.isPrimary ? 1 : touches + 1; lpOpen = false; lpCancel();   // isPrimary＝最初の指＝数え直し（取りこぼした pointerup で数がずれない）
+		if (touches > 1 || menu.contains(e.target as Node | null)) return;   // 2 本目（ピンチ・回転）・メニューの上＝長押しにしない
+		lpAt = [e.clientX, e.clientY];
+		lpTimer = setTimeout(() => { const at = lpAt; lpCancel(); if (!at) return; lpOpen = true; open(ctx({ clientX: at[0], clientY: at[1] })); }, LONG_MS);
+	}, { signal, passive: true, capture: true });   // capture＝canvas 側の掴み（setPointerCapture・stopPropagation）より先に見る
+	mapEl.addEventListener("pointermove", e => { if (lpAt && e.pointerType === "touch" && Math.hypot(e.clientX - lpAt[0], e.clientY - lpAt[1]) > SLOP) lpCancel(); }, { signal, passive: true, capture: true });
+	const lpUp = (e: PointerEvent) => { if (e.pointerType !== "touch") return; touches = Math.max(0, touches - 1); lpCancel(); };
+	mapEl.addEventListener("pointerup", lpUp, { signal, passive: true, capture: true });
+	mapEl.addEventListener("pointercancel", lpUp, { signal, passive: true, capture: true });
 	mapEl.addEventListener("contextmenu", e => {
 		e.preventDefault();
-		const c = ctx(e);
+		if (lpOpen) return;   // 長押しで開いた直後の Android 純正 contextmenu
+		open(ctx(e));
+	}, { signal });
+	function open(c: MenuCtx): void {
 		const arr = typeof list === "function" ? list(c, DEFAULT) : list;   // 関数＝(ctx, 既定項目) → 配列（既定に足すだけの搭載側が既定を写さずに済む）
 		if (!Array.isArray(arr) || !arr.length) return hide();
 		menu.replaceChildren();
@@ -61,11 +80,11 @@ export function contextmenu(this: GlobeMap, { unprojectAt, signal, items }: Cont
 		const m = menu.getBoundingClientRect();   // 実寸を測って端で見切れないよう内側へ寄せる
 		if (cx + m.width > r.width) menu.style.left = Math.max(0, r.width - m.width - 4) + "px";
 		if (cy + m.height > r.height) menu.style.top = Math.max(0, r.height - m.height - 4) + "px";
-	}, { signal });
+	}
 	// 閉じる：地図クリック・ドラッグ開始（押したまま動く＝パン/回転）・Esc（メニュー内クリックは項目ハンドラが閉じる）。
 	// 押下だけでは閉じない（メニューは瞬間に消えない）＝ボタンを押したまま動いた時に解除＝地図を掴んだ合図。
-	mapEl.addEventListener("click", hide, { signal });
-	mapEl.addEventListener("pointermove", e => { if (e.buttons !== 0 && !menu.contains(e.target as Node | null)) hide(); }, { signal, passive: true });
+	mapEl.addEventListener("click", e => { if (lpOpen && !menu.contains(e.target as Node | null)) { lpOpen = false; return; } hide(); }, { signal });   // 長押しの指を離した click では閉じない
+	mapEl.addEventListener("pointermove", e => { if (lpOpen && e.pointerType === "touch") return; if (e.buttons !== 0 && !menu.contains(e.target as Node | null)) hide(); }, { signal, passive: true });
 	window.addEventListener("keydown", e => { if (e.key === "Escape") hide(); }, { signal });
 	return (set: ContextMenuItems) => { list = set; };   // 呼び出し側の手綱（項目の差し替え。配列 or e→配列 の関数）
 }
