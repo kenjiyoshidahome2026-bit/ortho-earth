@@ -22,7 +22,7 @@
 	},
 	"devDependencies": {
 		"@ortho-earth/globe": "*",
-		"react": "^19.3.0",
+		"react": "^19.3.1",
 		"react-dom": "^19.3.0"
 	},
 	"keywords": ["react", "globe", "maplibre", "ortho-earth"],
