@@ -1,7 +1,7 @@
 import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import type { GeoPBF } from "geopbf";
 const t = tr();
-// 入出力：ドロップ取込（dropfile.js の depth-counter 作法）・8形式エクスポート（gishub と同じ *File() 群）・
+// 入出力：ドロップ取込（dropfile.js の depth-counter 作法）・10形式エクスポート（gishub と同じ *File() 群＋GeoParquet）・
 // IndexedDB セッション自動保存（コミット済み geopbf の ArrayBuffer を保存＝JSON化しない＝大規模対応）。
 
 export function initDrop(el: HTMLElement, onFile: (f: File) => unknown, signal: AbortSignal): void {
@@ -50,6 +50,13 @@ export function exportPanel(container: HTMLElement, getPbf: () => Promise<GeoPBF
 		["Shape", p => p.shapeFile({ encoding: "utf8" })],
 		["GML", p => p.gmlFile({ gz: false })],
 		["GPX", p => p.gpxFile({ gz: false })],
+		["CZML", p => p.czmlFile({ gz: false })],   // Cesium の時系列/3D 記述（2026-10-24）
+		["GeoParquet", async p => {   // 列指向（DuckDB/GeoPandas/BigQuery 向け・2026-10-24）。書き手は geopbf/geoparquet＝初回押下で遅延 import（gishub と同じ）
+			p.propertiesTable;   // 遅延復号の属性を全部起こしてから（toGeoParquet は pbf.props を直に読む）
+			const { toGeoParquet } = await import("geopbf/geoparquet");
+			const { buffer } = await toGeoParquet(p);
+			return new File([buffer as Uint8Array<ArrayBuffer>], `${p.name()}.parquet`, { type: "application/vnd.apache.parquet" });
+		}],
 	];
 	for (const [name, fn] of funcs) {
 		const b = document.createElement("button");
