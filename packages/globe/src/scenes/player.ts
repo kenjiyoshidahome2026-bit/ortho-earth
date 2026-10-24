@@ -8,9 +8,12 @@ import { parseViewHash } from "@ortho-earth/core";
 import { parseScenes } from "../demo/scene-adapter.ts";     // 共有シーン台本→プレーヤー受け渡しの純関数
 import { buildSceneTimeline } from "../demo/scene-timeline.ts";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.ts";
+import { sceneTitlesOf, cardOf, pick } from "./titles.ts";
+import { composeLayersToCanvas } from "../gadgets/compose.ts";   // 溶け替え（dissolve）の前の絵＝生スナップの合成   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
 import type { DemoHandle } from "../../globe.d.ts";
 import type { GlobeScope } from "../types/scope.ts";
 import type { SceneTimeline } from "../demo/scene-timeline.ts";
+import type { GlobeMap } from "../types/map.ts";
 const t = tr();
 
 /** demo ガジェットの手綱（demo-stub のファサード＝ready＝本体の到着） */
@@ -29,7 +32,7 @@ export interface ScenePlayer {
 	/** 上映中か（▶デモのバー点灯もシーン再生も） */
 	playingNow(): boolean;
 	/** 黒を挟む遷移 */
-	fadeViewRun(hash: string, secs?: number): Promise<void>;
+	fadeViewRun(hash: string, secs?: number, dissolve?: boolean): Promise<void>;
 	/** demo ガジェットの手綱（搭載時に預ける） */
 	demoHandle: SceneDemoHandle | null;
 	readonly fadeBusy: boolean;
@@ -37,6 +40,8 @@ export interface ScenePlayer {
 /** 配線（app の状態は getter・関数はラップ） */
 export interface ScenePlayerEnv extends Pick<GlobeScope, "LOW_MEM" | "meshOn" | "meshMgr" | "flightCtl" | "CAM_ZOOM_MIN" | "flyView" | "applyCamView" | "applyViewLayers" | "switchTheme"> {
 	mapEl: HTMLElement; gpuBackend: boolean; themeFixed: boolean; bldLabels?: Record<string, string>;
+	/** 光と時刻（台本 light・行 time）と溶け替えのスナップが使う地図の公開面（呼ぶのは上映中＝組み上がった後） */
+	readonly map?: Pick<GlobeMap, "requestSnapshot" | "setSun" | "getSun" | "setShadows" | "clock">;
 	readonly themeName: string; readonly elevBusy: boolean;
 	onMove(): void; viewHash(): string; saveView(): void;
 }
@@ -65,10 +70,45 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 	const returnView = env.viewHash();   // ★上映前の画面（l=/c= 込みの共有URL）＝終幕の戻り先 兼 失敗時の fallback（括弧構造）
 	// 終幕＝最終シーンの hold を終えたら、黒を挟んで上映前の画面へ帰る（映画の括弧＝始まった所で終わる）。上映ロックもここで解除。
 	// 帰還 jump は黒の中で行い、350ms 置いてから溶明＝戻った画面の再構築（タイル敷き直し）を黒の下で始めさせる
-	const returnToStart = async (): Promise<void> => { await sceneCover(true, { fade: true }); env.flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false; };
+	// 開幕/終幕カード（top-level opening/ending）と出典（credit）＝見た目の層（scenes/titles.ts）。quick（試写）はカードを出さない・出典は出す
+	const titles = sceneTitlesOf(mapEl), doc = obj as { opening?: unknown; ending?: unknown; credit?: unknown };
+	const opening = quick ? null : cardOf(doc.opening), ending = quick ? null : cardOf(doc.ending);
+	const creditText = pick(doc.credit, lang);
+	// 光と時刻（第2便）：台本 light＝上映中だけ太陽を時計に従わせ（setSun follow:"clock"）影を点ける（light.shadows:false で影なし・影は WebGPU）。
+	// 行 time＝遷移の間に時計をその時刻へ補間（保持中は止める）＝タイムラインと同じ時刻表（sceneTimeline.rows[i].time）。終演/停止で元へ戻す
+	const tlRows = (() => { try { return buildSceneTimeline(obj, { plan: flightCtl.plan, parseView: parseViewHash, portrait: mapEl.clientHeight > mapEl.clientWidth, zoomMin: CAM_ZOOM_MIN })?.rows ?? []; } catch { return []; } })();
+	const light = (obj as { light?: unknown }).light, M = env.map;
+	const restore = M && (light || tlRows.some(r => r.time != null)) ? { sun: M.getSun(), live: M.clock.isLive(), time: M.clock.time } : null;
+	let clockRaf = 0;
+	const clockTo = (i: number) => {
+		const r = tlRows[i]; if (!M || r?.time == null) return;
+		cancelAnimationFrame(clockRaf);
+		const from = M.clock.time, to = r.time, ms = Math.max(0, (r.tArrive - r.t0) * 1000), t0 = performance.now();
+		if (!(ms > 0) || from === to) { M.clock.setTime(to); return; }
+		const step = () => { const u = Math.min(1, (performance.now() - t0) / ms); M.clock.setTime(from + (to - from) * (u * u * (3 - 2 * u))); if (u < 1) clockRaf = requestAnimationFrame(step); };
+		clockRaf = requestAnimationFrame(step);
+	};
+	const lightOn = () => {
+		if (!M) return;
+		if (light) { M.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(true); }
+	};
+	const lightOff = () => {
+		cancelAnimationFrame(clockRaf);
+		if (!M || !restore) return;
+		if (light) { M.setSun(restore.sun ?? null); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(false); }
+		if (restore.live) M.clock.live(); else M.clock.setTime(restore.time);
+	};
+	const onSceneHook = (i: number, sc: object) => { clockTo(i); onScene?.(i, sc); };
+	const returnToStart = async (): Promise<void> => {
+		await sceneCover(true, { fade: true });
+		titles.caption(null);
+		if (ending && run === sceneRun) await titles.card(ending, lang);   // 黒の上に終幕カード（溶明→静止→溶暗）
+		titles.clear(); lightOff();
+		env.flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false;
+	};
 	// 終演フック（demo の exit から必ず1発）：フル上映の走破は finale=returnToStart が括弧を閉じて解除＝ここは素通し。
 	// それ以外（中断・quick の走破）はここで即解除＝ demoHandle.exit() 直叩きでもロックが残らない（旧バグの根治）
-	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); } onEnd?.(r); };
+	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); titles.clear(); lightOff(); } onEnd?.(r); };
 	if (!quick) sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（quick＝試写は儀式なし）
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後の保険。通常は解決済み＝即）
 		if (!quick && waitLoading && meshOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
@@ -106,12 +146,18 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 			if (run !== sceneRun) { sceneCover(false); return; }   // 準備中に stopScenes された＝静かに降りる（先読み済みは貯金）
 		}
 		if (run !== sceneRun) { sceneCover(false); return; }
+		if (opening) {   // 開幕カード＝黒幕の上（読み込み後＝カードの後ろで街は立ち切っている）。停止されたら静かに降りる
+			await titles.card(opening, lang);
+			if (run !== sceneRun) { sceneCover(false); return; }
+		}
+		titles.credit(creditText || null);
+		lightOn();
 		// ★上映：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝台本を渡す。
 		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。via の畳み込みは start 側（compileVias）。
-		demoHandle!.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
+		demoHandle!.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene: onSceneHook, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
-		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false;
+		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false; titles.clear(); lightOff();
 		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { env.flyView(returnView, { jump: true }); sceneCover(false); }
 	});
@@ -124,7 +170,7 @@ function stopScenes(): boolean {
 	if (!playingNow()) return false;
 	sceneRun++;   // 準備中の再生を降ろす（黒幕の下で待っている then 連鎖が run 不一致で静かに終わる）
 	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
-	sceneBusy = false; sceneLoading(false); sceneCover(false); meshMgr.setProgressTap(null);
+	sceneBusy = false; sceneLoading(false); sceneCover(false); meshMgr.setProgressTap(null); sceneTitlesOf(mapEl).clear();
 	return true;
 }
 // ★タイムライン・スクラブ（scene-player API・map.sceneTimeline）：台本→時刻評価＝再生せず任意秒の絵を出す（エディタのスクラブ用）。
@@ -146,6 +192,7 @@ function sceneTimeline(obj: object): SceneScrub | null {
 		}
 		flightCtl.cancel();   // 手綱＝走行中の飛行があれば降ろしてから直書き
 		env.applyCamView(f);      // クランプ（ZOOM/MAXPITCH/緯度）は共有URLの掟と同じ
+		if (f.time != null) env.map?.clock.setTime(f.time);   // 行 time（第2便）＝スクラブでもその時刻の光
 		scrubCover(f.cover);
 		env.onMove();
 		return true;
@@ -196,9 +243,24 @@ function sceneCover(on: boolean, { fade = false, secs }: { fade?: boolean; secs?
 // フェード遷移（fade: 行・demo が注入で呼ぶ）＝黒への溶暗→jump→溶明（sceneCover 流用）。secs＝溶暗/溶明それぞれの尺（既定1.2）。
 // fadeBusy＝demo の flightActive（着地待ち）に乗せる＝黒の間は hold の計時も字幕も走らない（フライトと同じ扱い）
 let fadeBusy = false;
-async function fadeViewRun(hash: string, secs?: number): Promise<void> {
+async function fadeViewRun(hash: string, secs?: number, dissolve = false): Promise<void> {
 	fadeBusy = true;
 	try {
+		if (dissolve && env.map?.requestSnapshot) {   // 溶け替え（第2便）：今の絵を一枚に止めて上に置き、下で切り替え、止めた絵を f 秒で溶かす（黒を挟まない）
+			const f = (Number.isFinite(secs) && secs! > 0) ? secs! : 1.2;
+			let still: HTMLCanvasElement | null = null;
+			try {
+				const off = composeLayersToCanvas(await env.map.requestSnapshot(), null) as unknown as CanvasImageSource & { width: number; height: number };
+				still = document.createElement("canvas"); still.width = off.width; still.height = off.height;
+				still.getContext("2d")!.drawImage(off, 0, 0);
+				Object.assign(still.style, { position: "absolute", inset: "0", width: "100%", height: "100%", zIndex: "4", pointerEvents: "none", opacity: "1", transition: `opacity ${f}s ease` });
+				mapEl.append(still);
+			} catch { still = null; }   // スナップが取れない＝ただのカット（止まりはしない）
+			env.flyView(hash, { jump: true });
+			await new Promise(r => setTimeout(r, 300));   // 切替後のタイル敷き直しを止めた絵の下で始めさせる
+			if (still) { const el = still; el.style.opacity = "0"; await new Promise(r => setTimeout(r, f * 1000 + 50)); el.remove(); }
+			return;
+		}
 		await sceneCover(true, { fade: true, secs });
 		env.flyView(hash, { jump: true });
 		await new Promise(r => setTimeout(r, 300));   // 切替後のタイル敷き直しを黒の下で始めさせる

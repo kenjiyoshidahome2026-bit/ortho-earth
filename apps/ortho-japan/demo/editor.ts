@@ -11,11 +11,14 @@ import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // クラウ
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
 import { parseViewHash } from "@ortho-earth/core/viewurl";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ。index.js 経由だとサイトビルドにエンジン一式（worker・WASM）が二重に出る（2026-09-14）
 import { tr } from "@ortho-earth/globe/i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { pick, cardSecs, cardOf, LOOKS } from "@ortho-earth/globe/scenes/titles.js";   // 見た目の層（字幕の型・開幕/終幕カード・出典）の約束＝プレーヤーと同じ解き方
 import type { GlobeMap } from "@ortho-earth/globe";
 import type { SceneIssue } from "@ortho-earth/globe/demo/scene-adapter.js";
 // 台本の行（scene-format.md）＝キーは data-k 直結で足し引きされる
-interface Row { title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; [k: string]: unknown }
-interface Doc { type: string; title?: string; frame: string; waitLoading?: boolean; scenes: Row[]; [k: string]: unknown }
+interface Row { dissolve?: boolean; time?: string; orbit?: number; rise?: number; push?: number; title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; look?: string; sub?: unknown; [k: string]: unknown }
+interface Doc { type: string; title?: string; frame: string; waitLoading?: boolean; scenes: Row[]; opening?: unknown; ending?: unknown; credit?: unknown; [k: string]: unknown }
+// 新しい台本の出典の既定（PLATEAU の 3D 都市モデルを使う作品の出典表示）＝言語つき（視聴者の言語で出る・欄の編集は今の字幕言語の値）
+const CREDIT_DEFAULT = { ja: "3D都市モデル：国土交通省 Project PLATEAU ／ 地図：ortho-earth", en: "3D city models: MLIT Project PLATEAU / Map: ortho-earth" };
 // map.sceneTimeline の中身（globe の型は rows: unknown[]＝ここで使う形だけ）
 interface TlRow { t0: number; tArrive: number; t1: number; knots?: number[] }
 interface Timeline { dur: number; rows: TlRow[]; at(t: number): { i: number }; seek(t: number): unknown; end(): void }
@@ -27,6 +30,8 @@ const t = tr();
 // 台本由来の文字列（title・視点ハッシュ）を innerHTML に入れる前の消毒＝読み込んだファイルは他人作かもしれない
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
+// 字幕の型（行キー look）の表示名
+const LOOK_LABEL: Record<string, string> = { top: t("Top caption"), lower: t("Lower third"), center: t("Center headline"), pin: t("Place pin") };
 const FRAMES: Record<string, number[]> = { "16:9": [16, 9], "9:16": [9, 16], "1:1": [1, 1], "4:3": [4, 3] };   // "free"＝舞台いっぱい（枠なし）
 const isVia = (r: Row | undefined) => r?.via != null && !r.view && !r.glide && !r.fade;
 const hashOf = (r: Row) => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
@@ -165,6 +170,15 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				</select></label>
 				<label title="${t("Load and stand up every city in the script before the curtain rises (the real-show ritual; key: waitLoading)")}"><input type="checkbox" id="sc-wait"> ${t("Preload PLATEAU files")}</label>
 			</div>
+			<details class="sc-more sc-dress"><summary>${t("Titles & credits")}</summary>
+				<div class="sc-f"><label>${t("Opening title")}</label><input type="text" data-d="opening.title" placeholder="${t("(none)")}"></div>
+				<div class="sc-f"><label>${t("Opening subtitle")}</label><input type="text" data-d="opening.sub"></div>
+				<div class="sc-f"><label>${t("Author")}</label><input type="text" data-d="opening.by"></div>
+				<div class="sc-f"><label>${t("Ending title")}</label><input type="text" data-d="ending.title" placeholder="${t("(none)")}"></div>
+				<div class="sc-f"><label>${t("Ending subtitle")}</label><input type="text" data-d="ending.sub"></div>
+				<div class="sc-f"><label>${t("Credit (burned in)")}</label><input type="text" data-d="credit"></div>
+				<div class="sc-f"><label title="${t("During the show the sun follows the clock and buildings cast shadows (shadows need WebGPU)")}"><input type="checkbox" id="sc-light"> ${t("Sun & shadows")}</label><label>${t("Date")}</label><input type="text" data-d="date" placeholder="YYYY-MM-DD"></div>
+			</details>
 			<div class="sc-tools">
 				<button id="sc-shoot" title="${t("Add the current view as a row (after the selected row)")}">${t("📷 Shoot")}</button>
 				<button id="sc-via" title="${t("Add the current view as a waypoint (dolly relay)")}">${t("◇ Waypoint")}</button>
@@ -175,6 +189,9 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<div class="sc-tools">
 				<button id="sc-play-here" title="${t("Quick preview (from the selected row, or the top; no curtain or load wait)")}">${t("▶ From here")}</button>
 				<button id="sc-dress" title="${t("Full show from the top (curtain, load wait, closing bracket)")}">${t("🎬 Show")}</button>
+				<button id="sc-export-video" title="${t("Render the show frame by frame to an MP4 file (no dropped frames; slower than real time)")}">${t("🎞 Export video")}</button>
+				<select id="sc-ev-res" title="${t("Video resolution")}"><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option></select>
+				<select id="sc-ev-fps" title="${t("Frames per second")}"><option value="30">30fps</option><option value="60">60fps</option></select>
 				<button id="sc-rec" title="${t("Record the show to a video file (MP4) for iMovie etc. Allow “share this tab” once")}">${t("🎥 Record")}</button>
 				<button id="sc-stop">${t("■ Stop")}</button>
 				<label title="${t("Captions")}">${t("Captions")} <select id="sc-lang"><option value="">${t("default")}</option><option value="en">en</option><option value="jp">jp</option><option value="ja">ja</option></select></label>
@@ -190,6 +207,13 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<button id="sc-clear" title="${t("Remove every row (⌘Z undoes)")}">${t("Clear all")}</button>
 		</div>`;
 	const $ = <E extends HTMLElement = HTMLElement>(id: string) => panelEl.querySelector(id) as E;
+	// 言語つきの欄（title の兄弟と同じ解き方＝scenes/titles.ts pick）：表示＝今の字幕言語の値／編集＝文字列ならそのまま置換・言語表ならその言語だけ書く
+	const edLang = () => $<HTMLSelectElement>("#sc-lang")?.value || map.lang || "ja";
+	const setLT = (o: Record<string, unknown>, k: string, v: string) => {
+		const cur = o[k];
+		if (cur && typeof cur === "object") { const m = { ...cur as Record<string, string> }; if (v) m[edLang()] = v; else delete m[edLang()]; if (Object.keys(m).length) o[k] = m; else delete o[k]; }
+		else if (v) o[k] = v; else delete o[k];
+	};
 	const rowsEl = $("#sc-rows"), titleEl = $<HTMLInputElement>("#sc-title"), waitEl = $<HTMLInputElement>("#sc-wait"), frameSel = $<HTMLSelectElement>("#sc-frame-sel"), noteEl = $("#sc-note"), undoBtn = $<HTMLButtonElement>("#sc-undo"), redoBtn = $<HTMLButtonElement>("#sc-redo");
 	// ── 一言の告知（alert/confirm の代わり・4秒で消える）──
 	let noteT = 0;
@@ -264,7 +288,13 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const paint = () => {
 		titleEl.value = doc.title ?? "";
 		waitEl.checked = !!doc.waitLoading;
+		$<HTMLInputElement>("#sc-light").checked = !!doc.light;
 		frameSel.value = FRAMES[doc.frame] ? doc.frame : "free";
+		panelEl.querySelectorAll<HTMLInputElement>("input[data-d]").forEach(el => {   // 開幕/終幕カード・出典の欄（入力中の欄は書き戻さない＝カーソルを保つ）
+			if (el === document.activeElement) return;
+			const [a, b] = el.dataset.d!.split(".");
+			el.value = pick(b ? (cardOf(doc[a]) as Record<string, unknown> | null)?.[b] : doc[a], edLang());
+		});
 		panelEl.classList.toggle("playing", playing);
 		const issues: SceneIssue[] = [], tr1 = {} as { rowIdx: number[] }, sub: SceneIssue[] = [];
 		const parsed = parseScenes(doc, issues, tr1);
@@ -275,7 +305,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		rowsEl.innerHTML = doc.scenes.length ? doc.scenes.map((r, i) => {
 			const via = isVia(r), err = errOf(i);
 			const hash = esc((hashOf(r) ?? "").split("/l=")[0]);
-			const trans = r.glide ? "glide" : r.fade ? "fade" : "view";
+			const trans = r.glide ? "glide" : r.fade ? (r.dissolve ? "dissolve" : "fade") : "view";
 			const afterVia = i > 0 && isVia(doc.scenes[i - 1]);   // via の着点＝地図遷移でも travel（最終区間の尺）が効く
 			const num = (v: unknown) => (Number.isFinite(v) ? String(Number(v)) : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）。String(Number(v))＝有限の数なら `${v}` と同じ字（CodeQL js/xss-through-dom に数へ通したと見せる）
 			const travelInput = (dis: boolean) => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("auto")}"${dis ? ` disabled title="${t("Map-transition duration is automatic (editable when this row ends a dolly)")}"` : ""}>`;
@@ -287,9 +317,13 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			const slideImg = r.slide && /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)|^(data:|https?:)/i.test(r.slide) ? `<img class="sc-slide-img" src="${esc(r.slide)}" alt="">` : "";
 			const more = via ? "" : `<details class="sc-more"${openMore.has(i) ? " open" : ""}><summary>${t("More")}</summary>
 					${strField("caption", t("Caption (if different from the title)"))}
+					<div class="sc-f"><label>${t("Caption style")}</label><select data-k="look">${LOOKS.map(k => `<option value="${k}"${(r.look ?? "top") === k ? " selected" : ""}>${LOOK_LABEL[k]}</option>`).join("")}</select></div>
+					<div class="sc-f"><label>${t("Subtitle line")}</label><input type="text" data-k="sub" value="${esc(pick(r.sub, edLang()))}"></div>
 					${strField("en", t("English (en:)"))}
 					${strField("slide", t("Slide (plain text or image URL)"))}${slideImg}
 					${strField("pre", t("Lead-in view hash (pre)"), "#…")}
+					<div class="sc-f"><label title="${t("Camera motion during the hold (degrees of orbit, degrees of tilt, zoom steps)")}">${t("Hold motion")}</label><input type="number" data-k="orbit" step="5" value="${num(r.orbit)}" placeholder="${t("orbit°")}"><input type="number" data-k="rise" step="5" value="${num(r.rise)}" placeholder="${t("tilt°")}"><input type="number" data-k="push" step="0.1" value="${num(r.push)}" placeholder="z"></div>
+					<div class="sc-f"><label title="${t("Clock time at arrival (HH:MM local, or an ISO date-time); the clock runs to it during the transition")}">${t("Time of day")}</label><input type="text" data-k="time" value="${esc(r.time)}" placeholder="18:30"></div>
 					<div class="sc-f"><label>${t("Portrait Δz")}</label><input type="number" data-k="mobile" step="0.1" value="${num(r.mobile)}" placeholder="0"></div>
 					<div class="sc-f"><button data-op="layersNow" title="${t("Write the current l=/c= into this row (camera unchanged)")}">${t("Copy current layers")}</button><button data-op="layersKeep" title="${t("Remove l=/c= = inherit whatever is on")}">${t("Keep current")}</button><button data-op="layersNone" title="${t("Write an empty l= = turn every layer off")}">${t("None")}</button></div>
 				</details>`;
@@ -311,6 +345,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 							<option value="view"${trans === "view" ? " selected" : ""}>${t("Map flight")}</option>
 							<option value="glide"${trans === "glide" ? " selected" : ""}>${t("Glide")}</option>
 							<option value="fade"${trans === "fade" ? " selected" : ""}>${t("Fade")}</option>
+							<option value="dissolve"${trans === "dissolve" ? " selected" : ""}>${t("Dissolve")}</option>
 						</select></label>
 						<label title="${t("Transition seconds (glide/fade, or the end of a dolly; blank = auto)")}">${travelInput(trans === "view" && !afterVia)}${t("s")}</label>
 					</div>`}
@@ -552,10 +587,41 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		recState = { rec, stream, timer: 0 };
 		recBtn.textContent = t("⏺ Recording…");
 		// 上映の儀式で再生：終演(finished)＝終幕の黒が完成した頃に停止（黒 out）／中断(stopped)＝間を置かず停止（素材は保存）
-		const okd = play({ onEnd: (r: string) => { if (recState) recState.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, r === "finished" ? 1700 : 300); } });
+		const okd = play({ onEnd: (r: string) => { if (recState) recState.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, r === "finished" ? 1700 + cardSecs(cardOf(doc.ending)) * 1000 : 300); } });   // 終幕カードがあれば黒の上のカードを撮り切ってから
 		if (okd !== true) { finalize(); return false; }
 		setTimeout(() => { if (recState && rec.state === "inactive") rec.start(1000); }, 150);   // 黒幕が乗った直後から＝頭は黒 in
 		return true;
+	};
+
+	// ── 🎞 動画の書き出し（第3便）＝1 コマずつ描いて H.264/MP4（demo/export-video.ts・画面収録の 🎥 とは別の道）。遅い端末でも絵は同じ ──
+	let evAbort: AbortController | null = null;
+	const exportVideoRun = async () => {
+		const btn = $<HTMLButtonElement>("#sc-export-video");
+		if (evAbort) { evAbort.abort(); return; }   // 書き出し中の再押下＝中止
+		if (!doc.scenes.length) return;
+		if (playing) stop();
+		const short = +$<HTMLSelectElement>("#sc-ev-res").value, fps = +$<HTMLSelectElement>("#sc-ev-fps").value;
+		const f = FRAMES[doc.frame] ?? [frameEl.clientWidth, frameEl.clientHeight];
+		const k = short / Math.min(f[0], f[1]), even = (n: number) => Math.round(n / 2) * 2;   // H.264 は偶数の画素
+		const W = even(f[0] * k), H = even(f[1] * k);
+		evAbort = new AbortController();
+		btn.textContent = t("■ Cancel export");
+		panelEl.classList.add("playing");
+		const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+		try {
+			const { exportVideo } = await import("./export-video.ts");   // 書き出しの時だけ読む（エディタの起動を太らせない）
+			const blob = await exportVideo({ map, frameEl, doc, width: W, height: H, fps, lang: $<HTMLSelectElement>("#sc-lang").value || null, signal: evAbort.signal,
+				onProgress: (d, n, eta) => { noteEl.textContent = t("Exporting $1 / $2 frames (about $3 left)", d, n, mmss(eta)); } });
+			const a = document.createElement("a");
+			a.href = URL.createObjectURL(blob);
+			a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}-${H}p${fps}.mp4`;
+			a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+			note(t("Video exported ($1 MB)", (blob.size / 1e6).toFixed(1)));
+		} catch (e) {
+			note((e as Error)?.name === "AbortError" ? t("Export cancelled") : t("Export failed: $1", String((e as Error)?.message ?? e)));
+		} finally {
+			evAbort = null; btn.textContent = t("🎞 Export video"); panelEl.classList.remove("playing"); fit();
+		}
 	};
 
 	// ── 出力／読み込み ──
@@ -570,13 +636,23 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 
 	// ── 配線 ──
 	titleEl.addEventListener("input", () => { doc.title = titleEl.value; save(); });
+	panelEl.querySelectorAll<HTMLInputElement>("input[data-d]").forEach(el => el.addEventListener("input", () => {   // 開幕/終幕カード・出典＝台本の top-level（空になったカードはキーごと消す）
+		const [a, b] = el.dataset.d!.split(".");
+		if (!b) { setLT(doc, a, el.value); save(); return; }
+		const c = { ...(cardOf(doc[a]) ?? {}) } as Record<string, unknown>;
+		setLT(c, b, el.value);
+		if (c.title || c.sub || c.by) doc[a] = c; else delete doc[a];
+		save();
+	}));
 	waitEl.addEventListener("change", () => { doc.waitLoading = waitEl.checked; save(); });
+	$<HTMLInputElement>("#sc-light").addEventListener("change", e => { if ((e.target as HTMLInputElement).checked) doc.light = true; else delete doc.light; save(); });
 	frameSel.addEventListener("change", () => { doc.frame = frameSel.value; save(); fit(); });
 	$("#sc-shoot").addEventListener("click", shoot);
 	$("#sc-via").addEventListener("click", addVia);
 	$("#sc-play-here").addEventListener("click", playFrom);   // 未選択＝先頭から（「最初から」は本番に統合＝ボタンは少なく）
 	$("#sc-dress").addEventListener("click", () => play({}));
 	$("#sc-rec").addEventListener("click", record);
+	$("#sc-export-video").addEventListener("click", exportVideoRun);
 	$("#sc-stop").addEventListener("click", stop);
 	$("#sc-export").addEventListener("click", download);
 	$("#sc-clear").addEventListener("click", () => { if (!doc.scenes.length) return; mark(); doc.scenes = []; sel = -1; save(); paint(); note(t("All rows removed (⌘Z undoes)")); });   // 確認ダイアログなし＝undo が安全網
@@ -643,7 +719,9 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const li = (e.target as HTMLInputElement).closest<HTMLElement>(".sc-row"); if (!li) return;
 		const r = doc.scenes[+li.dataset.i!], k = (e.target as HTMLInputElement).dataset.k;
 		if (!r || !k || k === "glide") return;
-		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre") { const v = (e.target as HTMLInputElement).value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
+		if (k === "sub") { setLT(r, "sub", (e.target as HTMLInputElement).value); save(); return; }   // 言語つきの小見出し
+		if (k === "look") { const v = (e.target as HTMLSelectElement).value; if (v === "top") delete r.look; else r.look = v; save(); return; }   // 字幕の型（top＝既定＝キーを書かない）
+		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre" || k === "time") { const v = (e.target as HTMLInputElement).value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
 		else { const v = parseFloat((e.target as HTMLInputElement).value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 数値キー（hold/travel/mobile）＝空欄＝キー削除（既定へ）
 		save();
 	});
@@ -651,8 +729,10 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const li = (e.target as HTMLSelectElement).closest<HTMLElement>(".sc-row"); if (!li || (e.target as HTMLSelectElement).dataset.k !== "trans") return;
 		const r = doc.scenes[+li.dataset.i!], h = r.view ?? r.glide ?? r.fade;
 		mark();
-		delete r.view; delete r.glide; delete r.fade;
-		r[(e.target as HTMLSelectElement).value] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
+		delete r.view; delete r.glide; delete r.fade; delete r.dissolve;
+		const v = (e.target as HTMLSelectElement).value;
+		if (v === "dissolve") { r.fade = h; r.dissolve = true; }   // 溶け替え＝fade 行の修飾（黒を挟まない）
+		else r[v] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
 		save(); paint();
 	});
 	rowsEl.addEventListener("click", e => {
@@ -727,7 +807,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			</div></div>`;
 		start.addEventListener("click", e => {
 			const b = (e.target as Element).closest<HTMLElement>("button[data-f]"); if (!b) return;
-			doc.frame = b.dataset.f!; save(); fit(); paint(); start.remove();
+			doc.frame = b.dataset.f!; doc.credit ??= { ...CREDIT_DEFAULT }; save(); fit(); paint(); start.remove();   // 新しい台本＝出典の既定を入れておく（消すのは自由）
 		});
 		stageEl.append(start);
 	}
@@ -786,7 +866,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (recPath) clearInterval(recPath.timer);
 		map.stopScenes?.(); headStop(); unsubCam(); camChip.remove(); styleEl.remove(); scrub.remove();
 	};
-	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
+	return { get doc() { return doc; }, exportVideoRun, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
 		get canUndo() { return undoStack.length > 0; },
 		select: (i: number) => { sel = i; paint(); } };
 }

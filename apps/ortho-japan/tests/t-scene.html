@@ -26,6 +26,7 @@ try {
 	start.querySelector('button[data-f="16:9"]').click();
 	const fr = document.getElementById("sc-frame");
 	ok("frame169", !document.getElementById("sc-start") && Math.abs(fr.clientWidth / fr.clientHeight - 16 / 9) < 0.03 && ed.doc.frame === "16:9");
+	ok("creditDefault", /PLATEAU/.test(ed.doc.credit?.ja) && /PLATEAU/.test(ed.doc.credit?.en));   // 新しい台本＝出典の既定（言語表）
 
 	// 撮影：撮る＝今の permalink がそのまま行に。カメラを動かして2枚目＝別ハッシュ
 	ed.shoot();
@@ -322,6 +323,69 @@ try {
 		ed.play({ quick: true }); await new Promise(r => setTimeout(r, 200));
 		ok("langDefault", document.getElementById("demo-title").textContent === "東京");
 		ed.stop();
+	}
+
+	// 見た目の層（2026-10-24）：字幕の型（look）・小見出し（sub）・出典（credit）・開幕カード（opening）
+	{
+		const until = async (f, ms = 4000) => { for (const t0 = performance.now(); performance.now() - t0 < ms; await new Promise(r => setTimeout(r, 100))) if (f()) return true; return false; };
+		ed.load({ type: "scenes", credit: { ja: "出典テスト", en: "Credit test" }, scenes: [{ title: "横浜", look: "lower", sub: { ja: "みなとみらい", en: "Minato Mirai" }, view: "#8/35/139", hold: 3 }] });
+		const row0 = () => panelEl.querySelector('.sc-row[data-i="0"]');
+		ok("lookField", row0().querySelector('select[data-k="look"]').value === "lower" && row0().querySelector('input[data-k="sub"]').value === "みなとみらい");
+		ok("lookPlay", ed.play({ quick: true }) === true);
+		ok("lookLower", await until(() => document.querySelector("#scene-titles .st-lower.show .st-t")?.textContent === "横浜" && document.querySelector("#scene-titles .st-lower .st-s")?.textContent === "みなとみらい"));
+		ok("lookNoTop", !document.getElementById("demo-caption").classList.contains("show"));   // look≠top＝従来の上部字幕は出さない
+		ok("creditBurn", document.querySelector("#scene-titles .st-credit")?.textContent === "出典テスト");
+		ed.stop();
+		ok("titlesCleared", !document.querySelector("#scene-titles .st-credit") && await until(() => !document.querySelector("#scene-titles .st-cap"), 1500));
+		// 行の欄：sub を書くと言語表のその言語だけ・look を top に戻すとキーごと消える
+		const subIn = row0().querySelector('input[data-k="sub"]');
+		subIn.value = "MM21"; subIn.dispatchEvent(new Event("input", { bubbles: true }));
+		const lookSel = row0().querySelector('select[data-k="look"]');
+		lookSel.value = "top"; lookSel.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("lookEdit", ed.doc.scenes[0].sub.ja === "MM21" && ed.doc.scenes[0].sub.en === "Minato Mirai" && !("look" in ed.doc.scenes[0]));
+		// 台本の欄（タイトルと出典）：開幕の題＝opening.title・空にするとカードごと消える
+		const opIn = panelEl.querySelector('input[data-d="opening.title"]');
+		opIn.value = "港の夜"; opIn.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("openingField", ed.doc.opening?.title === "港の夜");
+		opIn.value = ""; opIn.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("openingCleared", !("opening" in ed.doc));
+		// 開幕カード：本番上映（quick でない）は黒の上にカード→停止で残らない
+		ok("cardPlay", map.playScenes({ type: "scenes", opening: { title: "港の夜", sub: "YOKOHAMA", by: "Kenji", hold: 5 }, scenes: [{ title: "a", view: "#8/35/139", hold: 1 }] }) === true);
+		ok("cardShown", await until(() => document.querySelector("#scene-cards .st-card .st-ct")?.textContent === "港の夜" && document.querySelector("#scene-cards .st-card .st-cb")?.textContent === "Kenji"));
+		map.stopScenes();
+		ok("cardCleared", !document.querySelector("#scene-cards .st-card"));
+	}
+
+	// 第2便（2026-10-24）：保持中の動き（orbit/rise/push）・時刻（time）・溶け替え（dissolve）
+	{
+		const until = async (f, ms = 4000) => { for (const t0 = performance.now(); performance.now() - t0 < ms; await new Promise(r => setTimeout(r, 100))) if (f()) return true; return false; };
+		const R2D = 180 / Math.PI;
+		const doc2 = { type: "scenes", date: "2026-06-21", utcOffset: 9, scenes: [
+			{ title: "a", view: "#14/35.45/139.63/40t/0r", hold: 4, orbit: 90, rise: 10, time: "12:00" },
+			{ title: "b", fade: "#14/35.46/139.64", dissolve: true, travel: 1, hold: 2, time: "18:00" } ] };
+		const tl = map.sceneTimeline(doc2);
+		const mid = tl.at(tl.rows[0].tArrive + 2), end = tl.at(tl.rows[0].t1 - 0.001);
+		ok("tlOrbit", Math.abs(mid.bearing * R2D - 45) < 1 && Math.abs(end.bearing * R2D - 90) < 1 && Math.abs(end.pitch * R2D - 50) < 1);   // ease の中点＝半分・終わり＝全部
+		ok("tlTime", tl.rows[0].time === Date.UTC(2026, 5, 21, 3) && tl.rows[1].time === Date.UTC(2026, 5, 21, 9) && mid.time === tl.rows[0].time);
+		const half = tl.at(tl.rows[1].t0 + (tl.rows[1].tArrive - tl.rows[1].t0) / 2);
+		ok("tlTimeLerp", Math.abs(half.time - Date.UTC(2026, 5, 21, 6)) < 60e3 && half.cover === 0);   // 遷移の中点＝間の時刻・溶け替えは黒なし
+		ok("tlDissolveDur", Math.abs((tl.rows[1].tArrive - tl.rows[1].t0) - 1.3) < 0.01);
+		// 試写：保持の動きで方位が回る・行の時刻で時計が止まる
+		ed.load(doc2);
+		const b0 = map.getBearing();
+		ok("motionPlay", ed.play({ quick: true }) === true);
+		ok("motionOrbit", await until(() => Math.abs(map.getBearing() - b0) > 5, 6000));
+		ok("clockSet", Math.abs(map.clock.time - Date.UTC(2026, 5, 21, 3)) < 120e3);
+		ed.stop();
+		ok("clockRestored", map.clock.isLive());
+		// エディタ：遷移セレクタの「ディゾルブ」＝fade＋dissolve:true
+		const tsel = panelEl.querySelector('.sc-row[data-i="1"] select[data-k="trans"]');
+		ok("dissolveSel", tsel.value === "dissolve");
+		tsel.value = "fade"; tsel.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("dissolveOff", !!ed.doc.scenes[1].fade && !("dissolve" in ed.doc.scenes[1]));
+		const ts2 = panelEl.querySelector('.sc-row[data-i="1"] select[data-k="trans"]');
+		ts2.value = "dissolve"; ts2.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("dissolveOn", ed.doc.scenes[1].dissolve === true && !!ed.doc.scenes[1].fade);
 	}
 
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）

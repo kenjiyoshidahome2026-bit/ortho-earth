@@ -25,6 +25,7 @@
 		"./boot/tier.js": "./src/boot/tier.ts",
 		"./boot/screen.js": "./src/boot/screen.ts",
 		"./demo/scene-adapter.js": "./src/demo/scene-adapter.ts",
+		"./scenes/titles.js": "./src/scenes/titles.ts",
 		"./worker.js": "./src/worker.ts",
 		"./renderworker.js": "./src/renderworker.ts",
 		"./mesh-loaders.js": "./src/mesh-loaders.ts",

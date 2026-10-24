@@ -1238,6 +1238,239 @@
   }
 }
 
+/* 上部字幕の小見出し（行キー sub）＝見出しの下に一段小さく */
+#demo-caption small {
+  display: block;
+  font-size: 0.5em;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  opacity: 0.9;
+  margin-top: 0.1em;
+}
+
+/* シーン上映の見た目の層（scenes/titles.ts・2026-10-24）。字の大きさは画角の高さ（cqh）基準＝エディタの枠・全画面・録画で同じ比率。
+   #scene-titles＝字幕（look:lower/center/pin）と出典＝黒幕 #scene-cover(6) の下／#scene-cards＝開幕・終幕カード＝黒幕の上 */
+#scene-titles, #scene-cards {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  container-type: size;
+  overflow: hidden;
+}
+
+#scene-titles {
+  z-index: 5;
+}
+
+#scene-cards {
+  z-index: 8;
+}
+
+#scene-titles .st-cap {
+  position: absolute;
+  color: #fff;
+  font-family: var(--qm-font);
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6), 0 2px 18px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.5s ease, transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+#scene-titles .st-cap.show {
+  opacity: 1;
+  transform: none;
+}
+#scene-titles .st-cap .st-t {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+}
+#scene-titles .st-cap .st-s {
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  opacity: 0.92;
+  line-height: 1.35;
+}
+
+/* 下三分の一のテロップ：左に色の縦帯・下から薄い影の帯（字は帯の上・地図は透ける） */
+#scene-titles .st-lower {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 6cqw 7.5cqh;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.28) 55%, transparent);
+  transform: translateY(1.5cqh);
+}
+#scene-titles .st-lower .st-box {
+  border-left: 0.55cqh solid #4b90ff;
+  padding: 0.4cqh 0 0.4cqh 2.2cqh;
+  max-width: 70cqw;
+}
+#scene-titles .st-lower .st-t {
+  font-size: 5.4cqh;
+}
+#scene-titles .st-lower .st-s {
+  font-size: 2.7cqh;
+  margin-top: 0.6cqh;
+}
+
+/* 中央の大見出し：章の頭・作品の要所（字間を広げて静かに入る） */
+#scene-titles .st-center {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: radial-gradient(ellipse 40% 24% at center, rgba(0, 0, 0, 0.14), transparent);
+  transform: scale(0.985);
+}
+#scene-titles .st-center .st-box {
+  max-width: 84cqw;
+}
+#scene-titles .st-center .st-t {
+  font-size: 8.6cqh;
+  letter-spacing: 0.08em;
+}
+#scene-titles .st-center .st-s {
+  font-size: 3cqh;
+  margin-top: 1.4cqh;
+  letter-spacing: 0.14em;
+}
+
+/* 地名ピン：画面中央（視点の注視点）に点・上へ伸びる軸・札 */
+#scene-titles .st-pin {
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translateY(1cqh);
+}
+#scene-titles .st-pin .st-dot {
+  position: absolute;
+  left: -0.8cqh;
+  top: -0.8cqh;
+  width: 1.6cqh;
+  height: 1.6cqh;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.45cqh rgba(75, 144, 255, 0.85), 0 0 2cqh rgba(0, 0, 0, 0.5);
+}
+#scene-titles .st-pin .st-stem {
+  position: absolute;
+  left: -1px;
+  bottom: 0.8cqh;
+  width: 2px;
+  height: 13cqh;
+  background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.4));
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+}
+#scene-titles .st-pin .st-box {
+  position: absolute;
+  bottom: 13.8cqh;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-align: center;
+  background: rgba(16, 24, 36, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 1.2cqh;
+  padding: 1.1cqh 2.4cqh;
+  text-shadow: none;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+#scene-titles .st-pin .st-t {
+  font-size: 3.6cqh;
+}
+#scene-titles .st-pin .st-s {
+  font-size: 2.1cqh;
+  margin-top: 0.3cqh;
+}
+
+/* 出典の焼き込み（台本 credit）＝画角の左下・小さく常時 */
+#scene-titles .st-credit {
+  position: absolute;
+  left: 2.2cqh;
+  bottom: 1.8cqh;
+  max-width: 80cqw;
+  padding: 0.35cqh 1.1cqh;
+  border-radius: 0.7cqh;
+  background: rgba(10, 14, 22, 0.42);
+  font: 500 1.75cqh/1.3 var(--qm-font);
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 開幕・終幕カード（台本 opening / ending）＝黒の上に題・副題・作者（溶明→静止→溶暗＝titles.ts の CARD_FADE と同じ .8s） */
+#scene-cards .st-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #fff;
+  font-family: var(--qm-font);
+  background: radial-gradient(ellipse at 50% 46%, #101a2c, #000 70%);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+#scene-cards .st-card.show {
+  opacity: 1;
+}
+#scene-cards .st-card .st-logo {
+  width: 7cqh;
+  height: 7cqh;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 3.2cqh;
+}
+#scene-cards .st-card .st-logo svg {
+  width: 100%;
+  height: 100%;
+}
+#scene-cards .st-card .st-ct {
+  font-size: 8cqh;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  max-width: 86cqw;
+}
+#scene-cards .st-card .st-cs {
+  font-size: 3.2cqh;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  opacity: 0.82;
+  margin-top: 1.8cqh;
+  max-width: 86cqw;
+}
+#scene-cards .st-card .st-rule {
+  display: block;
+  width: 9cqh;
+  height: 2px;
+  background: #4b90ff;
+  margin: 3.6cqh auto 2.4cqh;
+}
+#scene-cards .st-card .st-cb {
+  font-size: 2.4cqh;
+  letter-spacing: 0.1em;
+  opacity: 0.75;
+}
+#scene-cards .st-card.show .st-ct, #scene-cards .st-card.show .st-cs {
+  animation: st-rise 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+#scene-cards .st-card.show .st-cs {
+  animation-delay: 0.18s;
+}
+
+@keyframes st-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.6cqh);
+    letter-spacing: 0.14em;
+  }
+}
 #demo-slide {
   position: absolute;
   inset: 0;
@@ -2129,6 +2362,13 @@
     order: -1;
   } /* 独りになったら最上段へ（他は opacity:0 で席だけ残るため） */
 }
+/* --- 上映の素モード（?scene= ・ドロップ・エディタの試写/上映/録画）：#map.scene-clean＝画面幅を問わず家具が退場＝録画に写るのは地図と字幕と出典だけ
+   （2026-10-24）。#attr は残す（出典）。読み込み中の小札（#plateau-toast・#elev-toast）も消す＝絵の上に UI を焼かない */
+:is(.qm, #map).scene-clean :is(#chips, #search-list, #hint, #log, #pos, #scale, #gadgets, #plateau-toast, #elev-toast) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：右上=日時計（1秒針）。
    出典は #attr 一枚に統合済（2026-09-03）＝文面だけアプリ側が星空版へ差し替える。
    舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */

@@ -42,6 +42,8 @@ import { gadgetStack } from "./stack.ts";
 import { isTypingTarget } from "./keys.ts";
 import { compileVias } from "../demo/scene-adapter.ts";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
 import { tr, getLang } from "../i18n.ts";
+import { sceneTitlesOf, pick, type CaptionLook } from "../scenes/titles.ts";
+import { holdMotion, easeInOut } from "../demo/scene-timeline.ts";   // 保持中のカメラの動き（orbit/rise/push）＝タイムラインと同じ式   // 字幕の型（look＝lower/center/pin）＝シーン上映の見た目の層
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
@@ -52,10 +54,12 @@ import type { GlobeMap } from "../types/map.ts";
 export interface DemoScene {
 	title?: string; view?: string; glide?: string; fade?: string; pre?: string; jump?: boolean; via?: unknown; travel?: number;
 	path?: Array<{ view: string; travel?: number }>; slide?: string; caption?: string; hold?: number; slideHold?: number; mobile?: number;
+	look?: CaptionLook; sub?: string | Record<string, string>;   // 字幕の型と小見出し（scene-format.md §2b）
+	orbit?: number; rise?: number; push?: number; dissolve?: boolean; time?: string;   // 保持中の動き・溶け替え・時刻（§2c）
 }
 /** 地図の内側から受け取る物（api/tools.ts が注入）＝飛び方・着地待ち・書き終わり・静穏窓・先読み・終演 */
 export interface DemoInner {
-	flyView?: (hash: string, opts?: { glide?: boolean; jump?: boolean }) => unknown; fadeView?: (hash: string, secs?: number) => unknown;
+	flyView?: (hash: string, opts?: { glide?: boolean; jump?: boolean }) => unknown; fadeView?: (hash: string, secs?: number, dissolve?: boolean) => unknown;
 	glidePath?: (entries: Array<{ view: string; travel?: number }>) => unknown; flightActive?: () => boolean; loadingActive?: () => string;
 	onQuiet?: (views: string[]) => unknown; prefetchViews?: (views: string[], names?: string[]) => unknown; finale?: (() => void) | null;
 	signal?: AbortSignal; zoomMin?: number;
@@ -98,7 +102,7 @@ const isImg = (s: string) => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) 
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（ホストが地域の home＝全体の画角を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
 export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, btn: opts_btn = null, player: playerOnly = false }: DemoBodyOpts = {}): DemoHandle | undefined {
-	const mapEl = this.mapEl;
+	const mapEl = this.mapEl, map = this;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
 	const hasBuiltin = Array.isArray(scenes) && scenes.length > 0;   // 組み込み台本の有無＝▶と builtin はこれがある時だけ
@@ -179,9 +183,32 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	let activeOnScene: DemoStartOpts["onScene"] | null = null, activeOnEnd: DemoStartOpts["onEnd"] | null = null;   // 観測面（scene-player API）：行の上映開始／終演（理由つき）＝台本スコープ（載せ替えでリセット）
 	let bareLive = false;        // ドロップ再生中＝素モード（バー無し・上映中ノーアクション）＝操作ハンドラを不活性化する鍵
 	const on = () => bar.classList.contains("on");
+	const titles = sceneTitlesOf(mapEl);
+	// 保持中のカメラの動き（行キー orbit＝方位°・rise＝チルト°・push＝z の増分）：保持の計時と同時に始め、保持の尺で ease in/out。
+	// 着地の絵からの増分を毎フレーム直書き（setBearing/setPitch/setZoom）＝scene-timeline の moved() と同じ式。シーン替え・停止で降ろす
+	let motionRaf = 0;
+	const motionStop = () => { if (motionRaf) cancelAnimationFrame(motionRaf); motionRaf = 0; };
+	const motionStart = (s: DemoScene | undefined, ms: number) => {
+		motionStop();
+		const m = s && !s.slide ? holdMotion(s as Record<string, unknown>) : null;
+		if (!m || !(ms > 0)) return;
+		const b0 = map.getBearing(), p0 = map.getPitch(), z0 = map.getZoom(), t0 = performance.now();
+		const step = () => {
+			const k = easeInOut((performance.now() - t0) / ms);
+			if (m.orbit) map.setBearing(b0 + m.orbit * k);
+			if (m.rise) map.setPitch(Math.max(0, Math.min(85, p0 + m.rise * k)));
+			if (m.push) map.setZoom(z0 + m.push * k);
+			motionRaf = k < 1 ? requestAnimationFrame(step) : 0;
+		};
+		motionRaf = requestAnimationFrame(step);
+	};
 	const caption = (show: boolean) => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
-		const text = show ? (scenes![idx]?.caption ?? T(scenes![idx])) : "";
-		if (text) cap.textContent = text;
+		const s = scenes![idx], text = show ? (s?.caption ?? T(s)) : "";
+		const look = s?.look && s.look !== "top" ? s.look : null;   // lower/center/pin＝見た目の層（#scene-titles）へ・top/無指定＝従来の上部字幕
+		const sub = text ? pick(s?.sub, lang) : "";
+		titles.caption(look && text ? { text, sub, look } : null);
+		if (look) { cap.classList.remove("show"); return; }
+		if (text) { cap.textContent = text; if (sub) { const sm = document.createElement("small"); sm.textContent = sub; cap.append(sm); } }
 		cap.classList.toggle("show", !!text);
 	};
 	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す
@@ -218,6 +245,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 				try { onQuiet(scenes!.slice(idx + 1).flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean) as string[]); } catch { /* 掃除は上演の従＝黙って続行 */ }
 			}
 			caption(!slide.classList.contains("open"));
+			if (!slide.classList.contains("open") && !(hasSlide(s) && s.view)) motionStart(s, ms);   // 保持の動き（幕の拍では動かさない）
 			timer = setTimeout(() => { if (on()) next(); }, ms);
 		};
 		arm();
@@ -229,6 +257,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	const hasSlide = (s: DemoScene | undefined) => !!(s && s.slide && slideOn);
 	function show(i: number, fly = true): void {   // fly=false＝飛ばずに即表示（もうその視点に居る等・現状は常に fly=true）
 		idx = i;
+		motionStop();
 		clearTimeout(preTimer);   // 前シーンの pre→view 予約は持ち越さない
 		const s = scenes![i];
 		// 配色の幕替わり：シーンの c=（配色テーマ）は flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
@@ -253,7 +282,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 		} else if (fly && s.path && glidePath) {
 			glidePath(s.path.map(p => ({ view: mobView(s, p.view)!, travel: p.travel })));   // ★ via 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）。travel＝各点への区間尺[秒]
 		} else if (fly && s.fade && fadeView) {
-			fadeView(tgt!, s.travel);   // フェード遷移＝黒への溶暗→切替→溶明（尺=travel・既定1.2秒）。道中の絵を見せないカット
+			fadeView(tgt!, s.travel, !!s.dissolve);   // フェード遷移＝黒への溶暗→切替→溶明（尺=travel・既定1.2秒）。道中の絵を見せないカット
 		} else if (fly && tgt) {
 			// pre＝入場の見せ玉：まず pre の画へ飛び、着地から1秒だけ見せて view を遷移なし（jump）で重ねる。
 			// pre と view は同座標が前提＝実際に動くのは l= だけ（素の地図が着いた後、レイヤが「点く」演出）
@@ -295,6 +324,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 		}
 		if (!scenes!.length) { console.warn("[demo] no script; start aborted (player mounts must pass opts.scenes)"); return; }   // 空のまま start＝無害に断る
 		bareLive = !!opts.bare;
+		mapEl.classList.toggle("scene-clean", bareLive);   // 素モード＝家具を退場（録画に UI を焼かない・quiet-mono .scene-clean）
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		if (!bareLive && btn) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }   // 素モードは▶を触らない（バー/ボタンを出さない）
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes!.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean) as string[], preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
@@ -302,7 +332,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
 	const pause = () => {
-		playing = false; clearTimeout(timer); caption(false); bar.classList.remove("playing");
+		playing = false; clearTimeout(timer); motionStop(); caption(false); bar.classList.remove("playing");
 		playBtn.textContent = "▷"; playBtn.setAttribute("aria-pressed", "false");
 		if (on() && btn) { btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }
 	};
@@ -315,7 +345,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	};
 	const exit = (reason: "finished" | "stopped" = "stopped") => {   // reason："finished"=走破（next が渡す）／"stopped"=Esc・▶・exit() 直叩き（API/テスト）
 		const wasOn = on();   // 実際に上映が立っていた時だけ終演イベント＝多重 exit は無音
-		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
+		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live", "scene-clean"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
 		if (btn) { btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo")); }
 		bareLive = false;   // 素モード解除（次の入り口が改めて設定）
