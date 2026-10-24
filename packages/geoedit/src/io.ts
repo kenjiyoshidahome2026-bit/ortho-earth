@@ -32,7 +32,15 @@ export function exportPanel(container: HTMLElement, getPbf: () => Promise<GeoPBF
 	container.querySelector(".ge-dialog")?.remove();   // 二重開き防止＝開き直し（クラウドと同じ一枠）
 	const panel = document.createElement("div");
 	panel.className = "ge-panel ge-dialog";
-	panel.innerHTML = `<h3>${t("Export")}</h3>`;
+	// 見出し行＝選択パネルと同じ形（.ge-head：見出し＋右上の ×）。旧＝素の <h3> と下端の「閉じる」ボタン
+	const head = document.createElement("div");
+	head.className = "ge-head";
+	const h3 = document.createElement("h3"); h3.textContent = t("Export");
+	const close = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' });
+	close.dataset.tip = t("Close"); close.setAttribute("aria-label", t("Close"));
+	close.onclick = () => panel.remove();
+	head.append(h3, close);
+	panel.append(head);
 	const funcs: [string, (p: GeoPBF) => Promise<File | Blob | null>][] = [
 		["GeoPBF", p => p.geopbfFile()],
 		["GeoJSON", p => p.geojsonFile({ gz: false })],
@@ -58,10 +66,6 @@ export function exportPanel(container: HTMLElement, getPbf: () => Promise<GeoPBF
 		};
 		panel.append(b);
 	}
-	const close = document.createElement("button");
-	close.textContent = t("Close");
-	close.onclick = () => panel.remove();
-	panel.append(document.createElement("hr"), close);
 	container.append(panel);
 	return panel;
 }
