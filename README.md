@@ -115,7 +115,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 | URL | App | What it shows |
 |---|---|---|
 | [/japan/](https://www.ortho-earth.com/japan/) | `apps/ortho-japan` | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
-| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
+| [/globe/](https://www.ortho-earth.com/globe/) | `apps/globe-map` (served by `apps/globe-host`) | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
 | [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` | The shared engine: one versioned build of `@ortho-earth/globe` and the modules two or more apps use, loaded by URL |
 | [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` | World earthquakes since 1967 at their true hypocenter depth (data: `apps/quakes-mirror` + USGS, fetched by the browser) |
 | [/world/](https://www.ortho-earth.com/world/) | `apps/world` | Nations of the world as cards |

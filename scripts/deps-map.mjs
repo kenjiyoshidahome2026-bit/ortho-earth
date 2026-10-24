@@ -164,7 +164,7 @@ const entryOf = href => {
 	const m = p.match(/^\/(japan|globe)\/(.*)$/);
 	const app = m[2] && SERVED.find(([d, at]) => at === `/${m[1]}/` && fs.existsSync(path.join(ROOT, `apps/${d}/${m[2]}.html`)))?.[0];
 	if (app) return `apps/${app}/${m[2]}.html`;   // 頁から独立したアプリ（apps/<置き場>/<頁>.html・package.json の servedAt・2026-10-24〜）
-	const dir = m[1] === "japan" ? "apps/ortho-japan" : "apps/ortho-globe";
+	const dir = m[1] === "japan" ? "apps/ortho-japan" : "apps/globe-map";
 	return `${dir}/${m[2] ? m[2] + ".html" : "index.html"}`;
 };
 
