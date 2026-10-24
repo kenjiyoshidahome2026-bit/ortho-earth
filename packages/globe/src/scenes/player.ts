@@ -8,6 +8,7 @@ import { parseViewHash } from "@ortho-earth/core";
 import { parseScenes } from "../demo/scene-adapter.ts";     // 共有シーン台本→プレーヤー受け渡しの純関数
 import { buildSceneTimeline } from "../demo/scene-timeline.ts";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.ts";
+import { sceneTitlesOf, cardOf, pick } from "./titles.ts";   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
 import type { DemoHandle } from "../../globe.d.ts";
 import type { GlobeScope } from "../types/scope.ts";
 import type { SceneTimeline } from "../demo/scene-timeline.ts";
@@ -65,10 +66,20 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 	const returnView = env.viewHash();   // ★上映前の画面（l=/c= 込みの共有URL）＝終幕の戻り先 兼 失敗時の fallback（括弧構造）
 	// 終幕＝最終シーンの hold を終えたら、黒を挟んで上映前の画面へ帰る（映画の括弧＝始まった所で終わる）。上映ロックもここで解除。
 	// 帰還 jump は黒の中で行い、350ms 置いてから溶明＝戻った画面の再構築（タイル敷き直し）を黒の下で始めさせる
-	const returnToStart = async (): Promise<void> => { await sceneCover(true, { fade: true }); env.flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false; };
+	// 開幕/終幕カード（top-level opening/ending）と出典（credit）＝見た目の層（scenes/titles.ts）。quick（試写）はカードを出さない・出典は出す
+	const titles = sceneTitlesOf(mapEl), doc = obj as { opening?: unknown; ending?: unknown; credit?: unknown };
+	const opening = quick ? null : cardOf(doc.opening), ending = quick ? null : cardOf(doc.ending);
+	const creditText = pick(doc.credit, lang);
+	const returnToStart = async (): Promise<void> => {
+		await sceneCover(true, { fade: true });
+		titles.caption(null);
+		if (ending && run === sceneRun) await titles.card(ending, lang);   // 黒の上に終幕カード（溶明→静止→溶暗）
+		titles.clear();
+		env.flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false;
+	};
 	// 終演フック（demo の exit から必ず1発）：フル上映の走破は finale=returnToStart が括弧を閉じて解除＝ここは素通し。
 	// それ以外（中断・quick の走破）はここで即解除＝ demoHandle.exit() 直叩きでもロックが残らない（旧バグの根治）
-	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); } onEnd?.(r); };
+	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); titles.clear(); } onEnd?.(r); };
 	if (!quick) sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（quick＝試写は儀式なし）
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後の保険。通常は解決済み＝即）
 		if (!quick && waitLoading && meshOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
@@ -106,12 +117,17 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 			if (run !== sceneRun) { sceneCover(false); return; }   // 準備中に stopScenes された＝静かに降りる（先読み済みは貯金）
 		}
 		if (run !== sceneRun) { sceneCover(false); return; }
+		if (opening) {   // 開幕カード＝黒幕の上（読み込み後＝カードの後ろで街は立ち切っている）。停止されたら静かに降りる
+			await titles.card(opening, lang);
+			if (run !== sceneRun) { sceneCover(false); return; }
+		}
+		titles.credit(creditText || null);
 		// ★上映：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝台本を渡す。
 		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。via の畳み込みは start 側（compileVias）。
 		demoHandle!.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
-		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false;
+		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false; titles.clear();
 		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { env.flyView(returnView, { jump: true }); sceneCover(false); }
 	});
@@ -124,7 +140,7 @@ function stopScenes(): boolean {
 	if (!playingNow()) return false;
 	sceneRun++;   // 準備中の再生を降ろす（黒幕の下で待っている then 連鎖が run 不一致で静かに終わる）
 	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
-	sceneBusy = false; sceneLoading(false); sceneCover(false); meshMgr.setProgressTap(null);
+	sceneBusy = false; sceneLoading(false); sceneCover(false); meshMgr.setProgressTap(null); sceneTitlesOf(mapEl).clear();
 	return true;
 }
 // ★タイムライン・スクラブ（scene-player API・map.sceneTimeline）：台本→時刻評価＝再生せず任意秒の絵を出す（エディタのスクラブ用）。

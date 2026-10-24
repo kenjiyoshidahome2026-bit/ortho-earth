@@ -26,6 +26,7 @@ try {
 	start.querySelector('button[data-f="16:9"]').click();
 	const fr = document.getElementById("sc-frame");
 	ok("frame169", !document.getElementById("sc-start") && Math.abs(fr.clientWidth / fr.clientHeight - 16 / 9) < 0.03 && ed.doc.frame === "16:9");
+	ok("creditDefault", /PLATEAU/.test(ed.doc.credit?.ja) && /PLATEAU/.test(ed.doc.credit?.en));   // 新しい台本＝出典の既定（言語表）
 
 	// 撮影：撮る＝今の permalink がそのまま行に。カメラを動かして2枚目＝別ハッシュ
 	ed.shoot();
@@ -322,6 +323,37 @@ try {
 		ed.play({ quick: true }); await new Promise(r => setTimeout(r, 200));
 		ok("langDefault", document.getElementById("demo-title").textContent === "東京");
 		ed.stop();
+	}
+
+	// 見た目の層（2026-10-24）：字幕の型（look）・小見出し（sub）・出典（credit）・開幕カード（opening）
+	{
+		const until = async (f, ms = 4000) => { for (const t0 = performance.now(); performance.now() - t0 < ms; await new Promise(r => setTimeout(r, 100))) if (f()) return true; return false; };
+		ed.load({ type: "scenes", credit: { ja: "出典テスト", en: "Credit test" }, scenes: [{ title: "横浜", look: "lower", sub: { ja: "みなとみらい", en: "Minato Mirai" }, view: "#8/35/139", hold: 3 }] });
+		const row0 = () => panelEl.querySelector('.sc-row[data-i="0"]');
+		ok("lookField", row0().querySelector('select[data-k="look"]').value === "lower" && row0().querySelector('input[data-k="sub"]').value === "みなとみらい");
+		ok("lookPlay", ed.play({ quick: true }) === true);
+		ok("lookLower", await until(() => document.querySelector("#scene-titles .st-lower.show .st-t")?.textContent === "横浜" && document.querySelector("#scene-titles .st-lower .st-s")?.textContent === "みなとみらい"));
+		ok("lookNoTop", !document.getElementById("demo-caption").classList.contains("show"));   // look≠top＝従来の上部字幕は出さない
+		ok("creditBurn", document.querySelector("#scene-titles .st-credit")?.textContent === "出典テスト");
+		ed.stop();
+		ok("titlesCleared", !document.querySelector("#scene-titles .st-credit") && await until(() => !document.querySelector("#scene-titles .st-cap"), 1500));
+		// 行の欄：sub を書くと言語表のその言語だけ・look を top に戻すとキーごと消える
+		const subIn = row0().querySelector('input[data-k="sub"]');
+		subIn.value = "MM21"; subIn.dispatchEvent(new Event("input", { bubbles: true }));
+		const lookSel = row0().querySelector('select[data-k="look"]');
+		lookSel.value = "top"; lookSel.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("lookEdit", ed.doc.scenes[0].sub.ja === "MM21" && ed.doc.scenes[0].sub.en === "Minato Mirai" && !("look" in ed.doc.scenes[0]));
+		// 台本の欄（タイトルと出典）：開幕の題＝opening.title・空にするとカードごと消える
+		const opIn = panelEl.querySelector('input[data-d="opening.title"]');
+		opIn.value = "港の夜"; opIn.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("openingField", ed.doc.opening?.title === "港の夜");
+		opIn.value = ""; opIn.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("openingCleared", !("opening" in ed.doc));
+		// 開幕カード：本番上映（quick でない）は黒の上にカード→停止で残らない
+		ok("cardPlay", map.playScenes({ type: "scenes", opening: { title: "港の夜", sub: "YOKOHAMA", by: "Kenji", hold: 5 }, scenes: [{ title: "a", view: "#8/35/139", hold: 1 }] }) === true);
+		ok("cardShown", await until(() => document.querySelector("#scene-cards .st-card .st-ct")?.textContent === "港の夜" && document.querySelector("#scene-cards .st-card .st-cb")?.textContent === "Kenji"));
+		map.stopScenes();
+		ok("cardCleared", !document.querySelector("#scene-cards .st-card"));
 	}
 
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）

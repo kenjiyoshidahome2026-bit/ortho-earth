@@ -449,6 +449,73 @@
 	   倍化はデスクトップ/発表画面だけ＝モバイルは従来サイズ・従来位置のまま（Kenji指定 2026-08-21） */
 	@media (max-width: 480px) { top: calc(42px + env(safe-area-inset-top, 0px)); font-size: clamp(15px, 2.4vw, 21px); max-width: 86vw; }
 }
+/* 上部字幕の小見出し（行キー sub）＝見出しの下に一段小さく */
+#demo-caption small { display: block; font-size: .5em; font-weight: 500; letter-spacing: .06em; opacity: .9; margin-top: .1em; }
+/* シーン上映の見た目の層（scenes/titles.ts・2026-10-24）。字の大きさは画角の高さ（cqh）基準＝エディタの枠・全画面・録画で同じ比率。
+   #scene-titles＝字幕（look:lower/center/pin）と出典＝黒幕 #scene-cover(6) の下／#scene-cards＝開幕・終幕カード＝黒幕の上 */
+#scene-titles, #scene-cards { position: absolute; inset: 0; pointer-events: none; container-type: size; overflow: hidden; }
+#scene-titles { z-index: 5; }
+#scene-cards { z-index: 8; }
+#scene-titles .st-cap {
+	position: absolute; color: #fff; font-family: var(--qm-font);
+	text-shadow: 0 0 2px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.6), 0 2px 18px rgba(0,0,0,.45);
+	opacity: 0; transition: opacity .5s ease, transform .6s cubic-bezier(.2,.7,.2,1);
+	&.show { opacity: 1; transform: none; }
+	.st-t { font-weight: 700; letter-spacing: .03em; line-height: 1.25; }
+	.st-s { font-weight: 500; letter-spacing: .05em; opacity: .92; line-height: 1.35; }
+}
+/* 下三分の一のテロップ：左に色の縦帯・下から薄い影の帯（字は帯の上・地図は透ける） */
+#scene-titles .st-lower {
+	left: 0; right: 0; bottom: 0; padding: 0 6cqw 7.5cqh;
+	background: linear-gradient(to top, rgba(0,0,0,.55), rgba(0,0,0,.28) 55%, transparent);
+	transform: translateY(1.5cqh);
+	.st-box { border-left: .55cqh solid #4b90ff; padding: .4cqh 0 .4cqh 2.2cqh; max-width: 70cqw; }
+	.st-t { font-size: 5.4cqh; }
+	.st-s { font-size: 2.7cqh; margin-top: .6cqh; }
+}
+/* 中央の大見出し：章の頭・作品の要所（字間を広げて静かに入る） */
+#scene-titles .st-center {
+	inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+	background: radial-gradient(ellipse at center, rgba(0,0,0,.32), transparent 62%);
+	transform: scale(.985);
+	.st-box { max-width: 84cqw; }
+	.st-t { font-size: 8.6cqh; letter-spacing: .08em; }
+	.st-s { font-size: 3cqh; margin-top: 1.4cqh; letter-spacing: .14em; }
+}
+/* 地名ピン：画面中央（視点の注視点）に点・上へ伸びる軸・札 */
+#scene-titles .st-pin {
+	left: 50%; top: 50%; width: 0; height: 0;
+	transform: translateY(1cqh);
+	.st-dot { position: absolute; left: -.8cqh; top: -.8cqh; width: 1.6cqh; height: 1.6cqh; border-radius: 50%; background: #fff; box-shadow: 0 0 0 .45cqh rgba(75,144,255,.85), 0 0 2cqh rgba(0,0,0,.5); }
+	.st-stem { position: absolute; left: -1px; bottom: .8cqh; width: 2px; height: 13cqh; background: linear-gradient(to top, #fff, rgba(255,255,255,.4)); box-shadow: 0 0 6px rgba(0,0,0,.5); }
+	.st-box { position: absolute; bottom: 13.8cqh; left: 0; transform: translateX(-50%); white-space: nowrap; text-align: center;
+		background: rgba(16,24,36,.78); border: 1px solid rgba(255,255,255,.22); border-radius: 1.2cqh; padding: 1.1cqh 2.4cqh; text-shadow: none;
+		-webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+	.st-t { font-size: 3.6cqh; }
+	.st-s { font-size: 2.1cqh; margin-top: .3cqh; }
+}
+/* 出典の焼き込み（台本 credit）＝画角の左下・小さく常時 */
+#scene-titles .st-credit {
+	position: absolute; left: 2.2cqh; bottom: 1.6cqh; max-width: 80cqw;
+	font: 500 1.75cqh/1.3 var(--qm-font); letter-spacing: .03em; color: rgba(255,255,255,.88);
+	text-shadow: 0 0 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 開幕・終幕カード（台本 opening / ending）＝黒の上に題・副題・作者（溶明→静止→溶暗＝titles.ts の CARD_FADE と同じ .8s） */
+#scene-cards .st-card {
+	position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+	color: #fff; font-family: var(--qm-font); background: radial-gradient(ellipse at 50% 46%, #101a2c, #000 70%);
+	opacity: 0; transition: opacity .8s ease;
+	&.show { opacity: 1; }
+	.st-logo { width: 7cqh; height: 7cqh; color: rgba(255,255,255,.85); margin-bottom: 3.2cqh; }
+	.st-logo svg { width: 100%; height: 100%; }
+	.st-ct { font-size: 8cqh; font-weight: 700; letter-spacing: .06em; line-height: 1.2; max-width: 86cqw; }
+	.st-cs { font-size: 3.2cqh; font-weight: 500; letter-spacing: .12em; opacity: .82; margin-top: 1.8cqh; max-width: 86cqw; }
+	.st-rule { display: block; width: 9cqh; height: 2px; background: #4b90ff; margin: 3.6cqh auto 2.4cqh; }
+	.st-cb { font-size: 2.4cqh; letter-spacing: .1em; opacity: .75; }
+	&.show .st-ct, &.show .st-cs { animation: st-rise 1.2s cubic-bezier(.2,.7,.2,1) both; }
+	&.show .st-cs { animation-delay: .18s; }
+}
+@keyframes st-rise { from { opacity: 0; transform: translateY(1.6cqh); letter-spacing: .14em; } }
 #demo-slide {
 	position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 	background: rgba(10, 16, 33, .55); padding: 24px; z-index: 0;   /* z-index は DOM順の裁きに委ねる */
