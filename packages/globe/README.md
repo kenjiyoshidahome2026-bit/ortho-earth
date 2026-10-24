@@ -4,6 +4,8 @@ A 3D globe for the browser: real terrain at true scale, vector basemaps (MVT, an
 rasters (XYZ · WMS · WMTS · PMTiles), labels, and a MapLibre-shaped API — with **no map server of your
 own**. It reads public data directly and keeps what it decoded in the browser.
 
+**Try it:** [www.ortho-earth.com](https://www.ortho-earth.com/) · [all 139 MapLibre examples running on the globe](https://www.ortho-earth.com/maplibre/)
+
 ```
 npm i @ortho-earth/globe
 ```
