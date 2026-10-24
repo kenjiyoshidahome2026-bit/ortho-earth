@@ -189,6 +189,9 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<div class="sc-tools">
 				<button id="sc-play-here" title="${t("Quick preview (from the selected row, or the top; no curtain or load wait)")}">${t("▶ From here")}</button>
 				<button id="sc-dress" title="${t("Full show from the top (curtain, load wait, closing bracket)")}">${t("🎬 Show")}</button>
+				<button id="sc-export-video" title="${t("Render the show frame by frame to an MP4 file (no dropped frames; slower than real time)")}">${t("🎞 Export video")}</button>
+				<select id="sc-ev-res" title="${t("Video resolution")}"><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option></select>
+				<select id="sc-ev-fps" title="${t("Frames per second")}"><option value="30">30fps</option><option value="60">60fps</option></select>
 				<button id="sc-rec" title="${t("Record the show to a video file (MP4) for iMovie etc. Allow “share this tab” once")}">${t("🎥 Record")}</button>
 				<button id="sc-stop">${t("■ Stop")}</button>
 				<label title="${t("Captions")}">${t("Captions")} <select id="sc-lang"><option value="">${t("default")}</option><option value="en">en</option><option value="jp">jp</option><option value="ja">ja</option></select></label>
@@ -590,6 +593,37 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		return true;
 	};
 
+	// ── 🎞 動画の書き出し（第3便）＝1 コマずつ描いて H.264/MP4（demo/export-video.ts・画面収録の 🎥 とは別の道）。遅い端末でも絵は同じ ──
+	let evAbort: AbortController | null = null;
+	const exportVideoRun = async () => {
+		const btn = $<HTMLButtonElement>("#sc-export-video");
+		if (evAbort) { evAbort.abort(); return; }   // 書き出し中の再押下＝中止
+		if (!doc.scenes.length) return;
+		if (playing) stop();
+		const short = +$<HTMLSelectElement>("#sc-ev-res").value, fps = +$<HTMLSelectElement>("#sc-ev-fps").value;
+		const f = FRAMES[doc.frame] ?? [frameEl.clientWidth, frameEl.clientHeight];
+		const k = short / Math.min(f[0], f[1]), even = (n: number) => Math.round(n / 2) * 2;   // H.264 は偶数の画素
+		const W = even(f[0] * k), H = even(f[1] * k);
+		evAbort = new AbortController();
+		btn.textContent = t("■ Cancel export");
+		panelEl.classList.add("playing");
+		const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+		try {
+			const { exportVideo } = await import("./export-video.ts");   // 書き出しの時だけ読む（エディタの起動を太らせない）
+			const blob = await exportVideo({ map, frameEl, doc, width: W, height: H, fps, lang: $<HTMLSelectElement>("#sc-lang").value || null, signal: evAbort.signal,
+				onProgress: (d, n, eta) => { noteEl.textContent = t("Exporting $1 / $2 frames (about $3 left)", d, n, mmss(eta)); } });
+			const a = document.createElement("a");
+			a.href = URL.createObjectURL(blob);
+			a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}-${H}p${fps}.mp4`;
+			a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+			note(t("Video exported ($1 MB)", (blob.size / 1e6).toFixed(1)));
+		} catch (e) {
+			note((e as Error)?.name === "AbortError" ? t("Export cancelled") : t("Export failed: $1", String((e as Error)?.message ?? e)));
+		} finally {
+			evAbort = null; btn.textContent = t("🎞 Export video"); panelEl.classList.remove("playing"); fit();
+		}
+	};
+
 	// ── 出力／読み込み ──
 	const exportText = () => JSON.stringify(doc, null, 2);
 	const download = () => {
@@ -618,6 +652,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-play-here").addEventListener("click", playFrom);   // 未選択＝先頭から（「最初から」は本番に統合＝ボタンは少なく）
 	$("#sc-dress").addEventListener("click", () => play({}));
 	$("#sc-rec").addEventListener("click", record);
+	$("#sc-export-video").addEventListener("click", exportVideoRun);
 	$("#sc-stop").addEventListener("click", stop);
 	$("#sc-export").addEventListener("click", download);
 	$("#sc-clear").addEventListener("click", () => { if (!doc.scenes.length) return; mark(); doc.scenes = []; sel = -1; save(); paint(); note(t("All rows removed (⌘Z undoes)")); });   // 確認ダイアログなし＝undo が安全網
@@ -831,7 +866,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (recPath) clearInterval(recPath.timer);
 		map.stopScenes?.(); headStop(); unsubCam(); camChip.remove(); styleEl.remove(); scrub.remove();
 	};
-	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
+	return { get doc() { return doc; }, exportVideoRun, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
 		get canUndo() { return undoStack.length > 0; },
 		select: (i: number) => { sel = i; paint(); } };
 }
