@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 実描画の検分：3D Tiles の Gaussian splat（glTF の KHR_gaussian_splatting・2026-10-18）。試料＝tests/fixtures/tiles3d-splat（make.mjs）＝東京駅の ENU の根：
      親＝橙の大きな splat（粗い・REPLACE）／子 4 棟＝赤（仕様の属性名・COLOR_0 の fallback つき）・緑（1 次の SH）・青（Cesium の草案の名・log の尺）・白（SPZ 圧縮）。
-     worker（tile3d）が splat のプリミティブを局所の座標＋transform のまま返し、main（gadgets/tiles3d.ts）がタイルごとに plugin-splat の層（crs "local"）にする。
+     worker（tile3d）が splat のプリミティブを局所の座標＋transform のまま返し、main（gadgets/tiles3d.ts）がタイルごとに splat の層（crs "local"）にする。
      ①寄ると子 4 枚がそろい（REPLACE）stats.splats＝3×1600＋親 200（SPZ の子は plugin が解く＝数えない）・各タイルが層 1 つ
      ②画素（オーバーレイの probe＝同じ canvas）：各象限の中心に赤・緑・青・白＝transform の置き方（Y-up・ENU・ECEF）が合っている ③当たり（pickOverlays＝layer "tiles3d:…"・properties.tile）＝WebGPU で検める（SwiftShader の WebGL2 は 3 秒で諦める＝既知）
      ④離れると親だけ（子の層は伏せる＝赤が消え橙が出る）⑤remove で層が全部降りる（probe 用の層を外すと canvas も外れる）
@@ -21,7 +21,7 @@ const until = async (f, ms = 20000) => { const t0 = performance.now(); while (pe
 const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
 const warns = []; const warn0 = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(" ")); warn0(...a); };
 try {
-	const plugins = noPlugin ? [] : [(await import("@ortho-earth/plugin-splat")).splatPlugin()];
+	const plugins = noPlugin ? [] : [(await import("@ortho-earth/splat")).splatPlugin()];
 	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false, debugGlobals: true, plugins });
 	await map.once("load");
 	map.jumpTo({ center: [LON, LAT], zoom: 17.2, pitch: 50, bearing: 0 });
@@ -34,7 +34,7 @@ try {
 		ok("fallback.points", h.stats.points === 3 * 1600 + 200 && h.stats.splats === 0, JSON.stringify(h.stats));   // 親（200）も読んである（伏せているだけ）
 		ok("fallback.warn", warns.some(w => /KHR_gaussian_splatting drawn as points/.test(w)), warns.length + " warns");
 		ok("fallback.overlay", !!await until(() => window.__overlay?.["tiles3d:" + h.id]?.stage === "ready"), JSON.stringify(window.__overlay?.["tiles3d:" + h.id] ?? null));
-		ok("fallback.noSplatLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]') && h.tiles.every(x => x.splats === 0));
+		ok("fallback.noSplatLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="splat"]') && h.tiles.every(x => x.splats === 0));
 		h.remove(); await sleep(300);
 		ok("removed", h.stats.loaded === 0, JSON.stringify(h.stats));
 	} else {
@@ -75,7 +75,7 @@ try {
 		// ③ 当たり＝統一 picking（layer＝"tiles3d:<set>:<tile>:<k>"・properties.tile）。SwiftShader の WebGL2 は往復が 3 秒で切れる（既知）＝WebGPU で検める
 		stage = "pick";
 		const r0 = Q.R();
-		const pk = (await until(async () => { const r = await map.pickOverlays(r0[0], r0[1], { radius: 6, names: ["plugin-splat"] }); return r.length ? r : null; }, expectGpu ? 30000 : 8000)) ?? [];
+		const pk = (await until(async () => { const r = await map.pickOverlays(r0[0], r0[1], { radius: 6, names: ["splat"] }); return r.length ? r : null; }, expectGpu ? 30000 : 8000)) ?? [];
 		const hit = pk.find(x => /^tiles3d:/.test(String(x.layer)));
 		ok("pick", hit ? Number.isInteger(hit.properties?.tile) && Number.isInteger(hit.index) && Math.abs(hit.lngLat[1] - ll(-50, -50)[1]) < 3e-4 : !expectGpu, hit ? `${hit.layer} tile=${hit.properties?.tile}` : `no hit (${pk.length})`);
 		// ④ 離れる＝親だけ（子の層は伏せる）
@@ -91,9 +91,9 @@ try {
 		ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0 && h.stats.mainMB === 0, JSON.stringify(h.stats));
 		const gone = await until(async () => { const d = await probe(); return d && count(d, orange) === 0 && count(d, red) === 0 ? d : null; }, W);
 		ok("removed.px", !!gone, gone ? "" : await diag());
-		ok("probeCanvas", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
+		ok("probeCanvas", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="splat"]'));
 		hp.remove(); await sleep(300);
-		ok("canvasGone", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
+		ok("canvasGone", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="splat"]'));
 		ok("noWarn", !warns.some(w => /\[tiles3d\] splat/.test(w)), warns.filter(w => /splat/.test(w)).join(" | ").slice(0, 200));
 	}
 	clearInterval(heart);

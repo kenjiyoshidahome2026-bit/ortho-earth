@@ -83,7 +83,7 @@ fn clsColor(k: u32) -> vec3f {   // ASPRS LAS 1.4 の分類
 	o.col = vec4f(col, U.opacity);
 	return o;
 }
-// 本体の深度（詰めた 24 bit の対数深度・行は下から＝GL）で隠れるか＝plugin-splat と同じ
+// 本体の深度（詰めた 24 bit の対数深度・行は下から＝GL）で隠れるか＝splat と同じ
 fn occluded(pos: vec2f, w: f32) -> bool {
 	if (U.depthOn == 0u) { return false; }
 	let uv = vec2f(pos.x / U.vp.x, 1.0 - pos.y / U.vp.y);

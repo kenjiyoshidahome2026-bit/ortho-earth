@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- 実描画の検分：@ortho-earth/plugin-scene（第 3 波 W9・2026-10-12）＝map.addData の kind "instanced" / "billboards" / "labels3d"（同一フレームのオーバーレイ）。
+<!-- 実描画の検分：@ortho-earth/scene（第 3 波 W9・2026-10-12）＝map.addData の kind "instanced" / "billboards" / "labels3d"（同一フレームのオーバーレイ）。
      試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-customgl と同じ）・北向きに 60° 傾けて南から見る。
      ①plugin の形：map.use(scenePlugin()) で capabilities の data.instanced/billboards/labels3d が plugin・unuse で外れる
      ②instanced：40m の赤い箱＝棟の南 250m（見える）と北 500m（棟に隠れる＝本体の深度）・当たり（handle.pick と queryRenderedFeatures）・setData で数が変わる・円柱と自前の mesh
@@ -10,7 +10,7 @@
 <body><div id="map"></div>
 <script type="module">
 const { createGlobe } = await import("@ortho-earth/globe");
-const { scenePlugin } = await import("@ortho-earth/plugin-scene");
+const { scenePlugin } = await import("@ortho-earth/scene");
 const t = [];
 let stage = "boot";
 const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pscene @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
@@ -30,7 +30,7 @@ try {
 	// ① plugin
 	map.use(scenePlugin());
 	const caps = map.capabilities();
-	ok("caps", ["instanced", "billboards", "labels3d"].every(k => caps[`data.${k}`]?.status === "plugin" && caps[`data.${k}`]?.via === "plugin-scene"), JSON.stringify(["instanced", "billboards", "labels3d"].map(k => caps[`data.${k}`])));
+	ok("caps", ["instanced", "billboards", "labels3d"].every(k => caps[`data.${k}`]?.status === "plugin" && caps[`data.${k}`]?.via === "scene"), JSON.stringify(["instanced", "billboards", "labels3d"].map(k => caps[`data.${k}`])));
 	const dpr = Math.min(2, devicePixelRatio || 1);
 	const probe = h => new Promise(res => { stage = "probe:" + h.id; const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
 		ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
@@ -53,7 +53,7 @@ try {
 	].map(async h => { pend.add(h.id); step(); await h.ready; pend.delete(h.id); step(); return h; }));
 	ok("i.n", hi.n === 2 && hi.kind === "instanced" && hb.n === 1 && hl.n === 1);
 	// 手綱が 4 つでもオーバーレイ（＝worker の WebGL 文脈）は一つ（文脈は 4 つまで＝層ごとに作ると地球が落ちた）。同じ id は投げる
-	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-scene"]').length === 1 && hi.overlay === hl.overlay);
+	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="scene"]').length === 1 && hi.overlay === hl.overlay);
 	let dup = false; try { map.addData([], { kind: "billboards", id: "boxes", getIcon: "sq", icons: { sq: cv } }); } catch { dup = true; }
 	ok("dupIdThrows", dup);
 	const Q = { get F() { return at(ll(0, -250, 20)); }, get B() { return at(ll(0, 500, 20)); }, get E() { return at(ll(250, 0, 60)); }, get L() { return at(ll(-250, 0, 60)); }, get Fl() { return at(ll(0, -120, 2)); }, get W() { return at(ll(-150, -250, 20)); } };
@@ -95,10 +95,10 @@ try {
 	const st = async () => { const d = await probe(hl); return d ? `y=${where(d, yellow)} g=${where(d, green)} r=${where(d, red)}` : "no probe"; };
 	ok("l.hidden", !!await until(async () => { const d = await probe(hl); return d && !near(d, Q.L[0], Q.L[1], yellow, 10) && near(d, Q.E[0], Q.E[1] - 16, green) ? d : null; }, W), await st());   // 文字だけ消え、billboard は残る
 	hl.remove(); hb.remove(); hf.remove();
-	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-scene"]') && !!await until(async () => { const d = await probe(hi); return d && !near(d, Q.E[0], Q.E[1] - 16, green) && near(d, Q.F[0], Q.F[1], red) ? d : null; }, W), await st());   // 残る手綱がある間はオーバーレイも残る
+	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="scene"]') && !!await until(async () => { const d = await probe(hi); return d && !near(d, Q.E[0], Q.E[1] - 16, green) && near(d, Q.F[0], Q.F[1], red) ? d : null; }, W), await st());   // 残る手綱がある間はオーバーレイも残る
 	hi.remove(); await sleep(300);
-	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-scene"]'));
-	map.unuse("plugin-scene");
+	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="scene"]'));
+	map.unuse("scene");
 	ok("unuse", !map.supports("data.instanced") && !map.supports("data.labels3d"));
 	let threw = false; try { map.addData([], { kind: "instanced" }); } catch { threw = true; }
 	ok("unuseThrows", threw);

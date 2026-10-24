@@ -27,7 +27,7 @@ Ortho Earth reads the open data of the Earth in your own browser — on a round 
 - `@ortho-earth/ephem`: planets, Moon and Sun 1800–2050, satellites (SGP4/SDP4) and the shared clock (GPL-3.0-or-later).
 - native-bucket: Cloudflare R2/Workers ↔ IndexedDB bridge and cache for heavy binary data (MIT).
 - `@ortho-earth/tile-formats`: lazily loaded decoders — MLT vector tiles and LAZ points for COPC (GPL-3.0-or-later).
-- Add-ons for the globe: `@ortho-earth/react`, `@ortho-earth/google-tiles`, `@ortho-earth/ktx2`, `@ortho-earth/plugin-splat`, `@ortho-earth/plugin-scene`, `@ortho-earth/h3` (GPL-3.0-or-later).
+- Add-ons for the globe: `@ortho-earth/react`, `@ortho-earth/google-tiles`, `@ortho-earth/ktx2`, `@ortho-earth/splat`, `@ortho-earth/scene`, `@ortho-earth/h3` (GPL-3.0-or-later).
 
 Since 2.0 the libraries are written in TypeScript (strict) and ship their types; upgrading from 1.x: [MIGRATION.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/MIGRATION.md).
 

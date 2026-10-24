@@ -20,5 +20,5 @@ export default defineConfig(({ command }) => ({
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), moduleUrlAsChunk, bootScreen],   // moduleUrlAsChunk＝plugin-splat の描き手（splat-draw／splat-gpu／splat-gl）を実体の JS チャンクに（2026-10-21）
+	plugins: [crossOriginIsolation(), sharedEngine(), moduleUrlAsChunk, bootScreen],   // moduleUrlAsChunk＝splat の描き手（splat-draw／splat-gpu／splat-gl）を実体の JS チャンクに（2026-10-21）
 }));
