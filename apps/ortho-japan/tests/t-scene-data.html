@@ -58,6 +58,9 @@ try {
 		ok("playRaster", await until(() => cur().base === "gsi-photo" && cur().overs.includes("flood-max"), 15000));
 		map.stopScenes();
 		ok("playRasterRestored", await until(() => cur().base === base0 && JSON.stringify(cur().overs) === overs0, 15000));
+		// 時刻の土地：utcOffset 無し＝最初の視点の経度/15 の丸め（横浜 139.6° → +9 時間）。"12:00" は 2026-06-21T03:00Z
+		const tlz = map.sceneTimeline({ type: "scenes", date: "2026-06-21", scenes: [{ title: "z", view: "#14/35.45/139.63", hold: 1, time: "12:00" }] });
+		ok("timeLocalOffset", tlz.rows[0].time === Date.UTC(2026, 5, 21, 3));
 		// 光の色（day-for-night）：昼＝掛けない・夕＝暖色・夜＝紺。light の上映中だけ #scene-grade・停止で外す
 		const { gradeOf } = await import("@ortho-earth/globe/scenes/titles.js");
 		const gd = gradeOf(-20), gw = gradeOf(4);
