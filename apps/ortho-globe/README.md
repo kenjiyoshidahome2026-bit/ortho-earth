@@ -2,7 +2,7 @@
 
 The globe's pages — pages that use `@ortho-earth/globe` with **no region declaration** — served at `www.ortho-earth.com/globe/` by this app's Worker.
 Since 2026-10-24 every page except the front page is its own app (`apps/<name>/`, with `"servedAt": "/globe/"` in its package.json);
-`npm run build` here builds the front page, then `scripts/gather-apps.mjs` builds each of those apps and adds its output, so the URLs stay the same.
+`npm run build` here builds the front page, then `packages/globe/scripts/lib/gather-apps.mjs` builds each of those apps and adds its output, so the URLs stay the same.
 
 | Page | URL | App | Data |
 |---|---|---|---|

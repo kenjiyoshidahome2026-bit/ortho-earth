@@ -1,0 +1,21 @@
+{
+	"name": "onsen",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Hot springs of Japan: about 5,300 onsen with their fame, names in 26 languages and the onsen rankings. Served at www.ortho-earth.com/japan/onsen through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node tests/t-onsen.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*",
+		"common": "*"
+	}
+}

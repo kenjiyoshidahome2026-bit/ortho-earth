@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["tellus-page.ts", "tellus.ts", "env.d.ts"]
+}

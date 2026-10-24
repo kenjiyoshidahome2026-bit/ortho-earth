@@ -25,6 +25,11 @@ export function scanAll(APP, ctx) {
 	const P = loadPages(APP);
 	const r = scanApp(APP, ctx, { exclude: P.pageFiles, literalRoots: P.literalRoots });
 	const rp = Object.fromEntries(Object.keys(P.pages).map(page => [page, scanApp(APP, ctx, { only: new Set(P.pages[page]) })]));
-	const alive = k => r.keys.has(k) || r.literals.has(k) || Object.values(rp).some(rr => rr.keys.has(k) || rr.literals.has(k));
+	// 配信口の下に独立した頁のアプリ（apps/<名前>/・package.json の servedAt・2026-10-24〜）も本体のキーを引く＝その参照でも生きている
+	//（数えないと、頁を外へ出しただけで本体のキーが死んで見え、i18n-extract が退役させる）
+	const ROOT = path.resolve(APP, "../.."), apps = path.join(ROOT, "apps");
+	const served = fs.readdirSync(apps).filter(d => { try { return !!JSON.parse(fs.readFileSync(path.join(apps, d, "package.json"), "utf8")).servedAt; } catch { return false; } })
+		.map(d => scanApp(path.join(apps, d), {}, { extraRoots: [], literalRoots: [] }));
+	const alive = k => r.keys.has(k) || r.literals.has(k) || [...Object.values(rp), ...served].some(rr => rr.keys.has(k) || rr.literals.has(k));
 	return { P, r, rp, alive };
 }

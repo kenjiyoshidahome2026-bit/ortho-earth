@@ -1,0 +1,22 @@
+{
+	"name": "terrain",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Landforms of Japan: about 1,500 mountains, rivers, lakes, plains and trenches. Served at www.ortho-earth.com/japan/terrain through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node tests/t-terrain.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*",
+		"common": "*",
+		"geopbf": "*"
+	}
+}
