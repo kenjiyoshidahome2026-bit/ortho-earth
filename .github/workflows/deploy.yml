@@ -57,7 +57,7 @@ jobs:
       TARGET: ${{ inputs.target || 'engine-and-apps' }}   # push の時は inputs が空＝engine-and-apps
       APPS: ${{ inputs.apps }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める（tag japan-deployed も一緒に来る）
       - uses: actions/setup-node@v7

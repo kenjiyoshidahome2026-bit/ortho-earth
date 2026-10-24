@@ -25,7 +25,7 @@ jobs:
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: '[ -n "$MIRROR_TOKEN" ] || { echo "✗ Environment mirror に secret MIRROR_TOKEN が無い（ortho-data に Contents: Read and write を持つ PAT）"; exit 1; }'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v7
