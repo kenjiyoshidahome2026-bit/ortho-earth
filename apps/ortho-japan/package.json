@@ -28,7 +28,7 @@
 		"verify:japan": "npm run verify:ui && npm run verify:webgpu",
 		"verify:prod": "node scripts/verify-prod.mjs",
 		"verify:cloud": "node scripts/verify-cloud.mjs",
-		"verify:editor": "node scripts/verify-editor.mjs t-editor t-zoomfill t-import",
+		"verify:editor": "node scripts/verify-editor.mjs t-editor t-editor-mobile t-zoomfill t-import",
 		"deploy": "node scripts/deploy.mjs",
 		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "npm --prefix ../../packages/globe run verify:nocoi",

@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- 対話回帰（geoedit のスマホ幅・2026-10-24）：verify-editor が *-mobile を 390×844 で開く。
+     ツールバー＝1 段の横スクロールで左の家具（層・検索の列）を覆わない／パネル＝下端のシート／書き出しダイアログ＝ツールバーの下／
+     長押し（タッチ 550ms・動かさない）で右クリックメニュー（iOS Safari は contextmenu を出さない＝globe の contextmenu ガジェットが自前で開く）。 -->
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>html,body{margin:0;background:#0b1021;height:100%}#map{width:100%;height:100dvh}</style><title>t-editor-mobile</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.ts";
+import { initEditor, setLang } from "geoedit";
+await setLang("ja");
+
+const t = [], ok = (n, c, d) => t.push((c ? "ok:" : "NG:") + n + (!c && d ? "(" + String(d).replace(/\s+/g, "_") + ")" : ""));
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const C = () => document.querySelector("#map canvas");
+const tev = (x, y, o = {}) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 21, button: 0, pointerType: "touch", isPrimary: true, ...o });
+const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+const FC = { type: "FeatureCollection", features: [
+	{ type: "Feature", properties: { n: "A" }, geometry: { type: "Polygon", coordinates: [sq(139.755, 35.68, 139.76, 35.69)] } },
+] };
+try {
+	ok("narrow", innerWidth <= 640, innerWidth);
+	const map = await orthoJapan({ view: "#14/35.685/139.7575", maxPitch: 0 });
+	map.gadget.search(); map.gadget.zoom();   // 左の家具の列（単独ページ geoedit と同じ）
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	await editor.loadFC(FC, { fly: false });
+	await sleep(200);
+
+	// ---- ツールバー＝1 段・左の家具の列の右から・はみ出しは横スクロール ----
+	const tb = document.getElementById("ge-toolbar"), tr = tb.getBoundingClientRect();
+	const btnH = tb.querySelector("button").getBoundingClientRect().height;
+	ok("toolbarOneRow", tr.height < btnH * 2, `${tr.height}/${btnH}`);
+	const stackRight = Math.max(0, ...[...document.querySelectorAll("#map button, #map .gadget")].filter(el => !tb.contains(el) && !el.closest("#ctxmenu, .ge-panel, #attr")).map(el => el.getBoundingClientRect()).filter(r => r.width && r.left < 60 && r.top < tr.bottom).map(r => r.right));
+	ok("toolbarClearsStack", tr.left >= stackRight, `${tr.left}<${stackRight}`);
+	ok("toolbarFits", tr.right <= innerWidth && tb.scrollWidth > tb.clientWidth, `${tr.right} ${tb.scrollWidth}/${tb.clientWidth}`);
+
+	// ---- 選択パネル＝下端のシート ----
+	const p = map.projectLL(139.7575, 35.685);
+	C().dispatchEvent(new PointerEvent("pointerdown", { ...tev(p[0], p[1]), pointerType: "mouse" })); C().dispatchEvent(new PointerEvent("pointerup", { ...tev(p[0], p[1]), pointerType: "mouse" }));
+	await sleep(200);
+	const pn = document.querySelector(".ge-panel:not(.ge-dialog)"), pr = pn?.getBoundingClientRect();
+	ok("panelOpen", editor.state.selection === 0 && !!pn);
+	ok("panelSheet", !!pr && pr.left <= 10 && pr.right >= innerWidth - 10 && pr.bottom > innerHeight * 0.8 && pr.height <= innerHeight * 0.5 + 1, pr && `${pr.left},${pr.top},${pr.right},${pr.bottom}`);
+	ok("panelBelowToolbar", !!pr && pr.top >= tr.bottom, pr && `${pr.top}<${tr.bottom}`);
+
+	// ---- 書き出しダイアログ＝ツールバーの下・画面内 ----
+	tb.querySelector('button[data-tip^="書き出し"]').click();
+	const dr = document.querySelector(".ge-dialog")?.getBoundingClientRect();
+	ok("dialogPlaced", !!dr && dr.top >= tr.bottom && dr.left >= 0 && dr.right <= innerWidth, dr && `${dr.left},${dr.top},${dr.right}`);
+	document.querySelector(".ge-dialog")?.remove();
+
+	// ---- 長押し＝右クリックメニュー（動かさない 550ms）・指を離した click では閉じない・動かすと出ない ----
+	const menuShown = () => { const m = document.getElementById("ctxmenu"); return !!m && m.style.display !== "none"; };
+	const q = map.projectLL(139.7575, 35.6855);
+	C().dispatchEvent(new PointerEvent("pointerdown", tev(q[0], q[1])));
+	await sleep(250);
+	ok("longPressNotYet", !menuShown());
+	await sleep(450);
+	ok("longPressMenu", menuShown() && document.getElementById("ctxmenu").textContent.includes("ここに点を置く"));
+	C().dispatchEvent(new PointerEvent("pointermove", tev(q[0] + 3, q[1] + 2)));
+	C().dispatchEvent(new PointerEvent("pointerup", tev(q[0] + 3, q[1] + 2)));
+	C().dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: q[0], clientY: q[1] }));
+	ok("longPressStays", menuShown());
+	C().dispatchEvent(new PointerEvent("pointerdown", tev(q[0], q[1])));
+	C().dispatchEvent(new PointerEvent("pointerup", tev(q[0], q[1])));
+	C().dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: q[0], clientY: q[1] }));
+	ok("tapCloses", !menuShown());
+	C().dispatchEvent(new PointerEvent("pointerdown", tev(q[0], q[1])));
+	C().dispatchEvent(new PointerEvent("pointermove", tev(q[0] + 30, q[1])));
+	await sleep(700);
+	C().dispatchEvent(new PointerEvent("pointerup", tev(q[0] + 30, q[1])));
+	ok("dragNoMenu", !menuShown());
+	C().dispatchEvent(new PointerEvent("pointerdown", tev(q[0], q[1])));
+	C().dispatchEvent(new PointerEvent("pointerdown", tev(q[0] + 80, q[1], { pointerId: 22, isPrimary: false })));
+	await sleep(700);
+	C().dispatchEvent(new PointerEvent("pointerup", tev(q[0] + 80, q[1], { pointerId: 22, isPrimary: false })));
+	C().dispatchEvent(new PointerEvent("pointerup", tev(q[0], q[1])));
+	ok("pinchNoMenu", !menuShown());
+
+	editor.destroy(); map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + String(e && e.stack || e).replace(/\s+/g, "_"), false); }
+document.title = t.some(s => s.startsWith("NG") || s.startsWith("ERR")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>
