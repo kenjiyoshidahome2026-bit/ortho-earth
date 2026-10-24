@@ -1,7 +1,7 @@
 // PLATEAU 全国 LOD2 建築物モデル＋橋梁モデル カタログを生成する。
 // datacatalog API から bldg/lod2/3D Tiles を市区町村ごとに1件へ重複排除し（texture無し版＝我々の loader はテクスチャ未使用なので半分軽い）、
 // 各 tileset.json の root.boundingVolume.region から自動ロード用 bbox(deg) を取って
-// apps/ortho-japan/public/plateau-sets.json に書き出す。
+// apps/japan-map/public/plateau-sets.json に書き出す。
 // 橋梁（brid）は独立エントリ「◯◯（橋梁）」として同じ一覧に足す（LOD 2>3>1 の順で1件）。
 // noMask:true＝基図建物を伏せる被覆マスクに参加しない・建物の同時4区枠も奪わない（app.js側の別枠選抜）。
 //
@@ -10,7 +10,7 @@
 import { writeFileSync } from 'fs';
 
 const CATALOG_URL = 'https://api.plateauview.mlit.go.jp/datacatalog/plateau-datasets';
-const OUT = 'apps/ortho-japan/public/plateau-sets.json';
+const OUT = 'apps/japan-map/public/plateau-sets.json';
 const CONCURRENCY = 16;
 
 console.log('カタログ取得中...', CATALOG_URL);

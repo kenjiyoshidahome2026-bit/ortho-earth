@@ -2,13 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "ortho-japan",
+      "name": "japan-map",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "ortho-japan",
+        "japan-map",
         "--",
         "--port",
         "5173",
@@ -74,13 +74,13 @@
       "cwd": "apps/equal"
     },
     {
-      "name": "ortho-japan-5174",
+      "name": "japan-map-5174",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "ortho-japan",
+        "japan-map",
         "--",
         "--port",
         "5174",
@@ -89,13 +89,13 @@
       "port": 5174
     },
     {
-      "name": "ortho-japan-5175",
+      "name": "japan-map-5175",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "ortho-japan",
+        "japan-map",
         "--",
         "--port",
         "5175",
@@ -104,13 +104,13 @@
       "port": 5175
     },
     {
-      "name": "ortho-japan-5176",
+      "name": "japan-map-5176",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "ortho-japan",
+        "japan-map",
         "--",
         "--port",
         "5176",
@@ -131,7 +131,7 @@
         "dist/site/japan"
       ],
       "port": 5296,
-      "cwd": "apps/ortho-japan"
+      "cwd": "apps/japan-map"
     },
     {
       "name": "geopbf-demo",
