@@ -29,15 +29,16 @@
 
 ### plugin の package の改名（2026-10）
 
-`plugin-` を外しました。旧名は npm で deprecate し、以後の版は新しい名前で出します。
+`plugin-` を外し、`google-tiles` は中身（Google の写実 3D Tiles）と `addGoogle3DTiles` に合わせて `google3d` にしました。旧名は npm で deprecate し、以後の版は新しい名前で出します。
 
 | 旧 | 新 |
 |---|---|
 | `@ortho-earth/plugin-scene` 0.1.0 | `@ortho-earth/scene` 0.2.0 |
 | `@ortho-earth/plugin-splat` 0.5.0 | `@ortho-earth/splat` 0.6.0 |
+| `@ortho-earth/google-tiles` 0.1.0 | `@ortho-earth/google3d` 0.2.0 |
 | （未公開） | `@ortho-earth/voxel` 0.4.0 |
 
-import の行を新しい名前に書き換えます。`map.use()` に登録される plugin の名前も同じく `"scene"`・`"splat"` になったので、`map.unuse("plugin-splat")` のように名前で外していたコードは `map.unuse("splat")` にします。`capabilities()` の `via` とオーバーレイの名前（`data-overlay`）も同じです。
+import の行を新しい名前に書き換えます。`map.use()` に登録される plugin の名前も同じく `"scene"`・`"splat"`・`"google3d"` になったので、`map.unuse("plugin-splat")` のように名前で外していたコードは `map.unuse("splat")` にします。`capabilities()` の `via` とオーバーレイの名前（`data-overlay`）も同じです。
 
 ### 1.x を使い続けるには
 

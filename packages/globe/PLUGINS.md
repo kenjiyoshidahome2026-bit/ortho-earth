@@ -107,7 +107,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 - `add3DTiles(url, { requestTransform(url, type) })`＝tileset.json・外部 tileset（type "Source"）とタイル（"Tile"）の全要求が通る。`{ url }` を返せば書き換え、null なら元のまま（F5）。
 - `add3DTiles(url, { attribution })`＝文字列か `(copyrights) => 文字列|null`。copyrights＝今見えているタイルの glTF `asset.copyright`（";" で分け・多い順）。出典の欄に出て、remove で消える。手綱の `copyrights` でも読める（第 3 波 W8・`capabilities()["tiles3d.attribution"]`＝builtin）。
-- `@ortho-earth/google-tiles` がこの二つで Google Photorealistic 3D Tiles を読む：鍵（key=…）は許した host への要求にだけ付け、子の tileset の URI にある session=… を覚えて後の要求に付け回す。出典は "Google; 提供元…"。`addGoogle3DTiles(map, { key })` か `map.use(googleTilesPlugin({ key }))` → `map.gadget.googleTiles()`。鍵はアプリが実行時に渡す（package にも repo にも置かない）。
+- `@ortho-earth/google3d` がこの二つで Google Photorealistic 3D Tiles を読む：鍵（key=…）は許した host への要求にだけ付け、子の tileset の URI にある session=… を覚えて後の要求に付け回す。出典は "Google; 提供元…"。`addGoogle3DTiles(map, { key })` か `map.use(googleTilesPlugin({ key }))` → `map.gadget.googleTiles()`。鍵はアプリが実行時に渡す（package にも repo にも置かない）。
 
 ## instanced・billboard・3D 文字（@ortho-earth/scene）
 
