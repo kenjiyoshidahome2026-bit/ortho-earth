@@ -13,15 +13,14 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VUI_PORT || 5237;
 
 const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene", "t-scene-data",
-	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world", "t-fireworks", "t-export"];   // t-print・t-offline は globe の gadget の検定＝packages/globe/scripts/verify-ui.mjs へ移した（段 5-7・2026-10-16）   // t-fireworks＝打ち上げ花火（シーンの深度 #47 の見本）＝overlay の import と粒子の進み
-const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model", "t-fireworks", "t-export"]);   // render worker 内の動的 import／実描画の到着に依る頁／t-export＝WebCodecs の符号器（実時間の callback）
-const LONG = { "t-fireworks": 240 };   // 玉が開くまで 8 秒＋ソフトウェア描画
+	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world", "t-export"];   // t-print・t-offline は globe の gadget の検定＝packages/globe/scripts/verify-ui.mjs へ移した（段 5-7・2026-10-16）   // t-fireworks（打ち上げ花火）は 2026-10-24 に頁ごと apps/fireworks へ（npm run verify:ui -w fireworks）
+const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model", "t-export"]);   // render worker 内の動的 import／実描画の到着に依る頁／t-export＝WebCodecs の符号器（実時間の callback）
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p)) : ALL_PAGES;
 
 const stop = await startVite({ cwd: APP, port: PORT, portEnv: "VUI_PORT", readyUrl: `http://localhost:${PORT}/japan/` });
-const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（globe の verify-ui と同じ・2026-10-03。旧＝1 本ずつ＝22 頁で 10 分超）・VG_JOBS=1 で直列
+const fail = await runPages({ pages: PAGES, realtime: REALTIME, jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（globe の verify-ui と同じ・2026-10-03。旧＝1 本ずつ＝22 頁で 10 分超）・VG_JOBS=1 で直列
 	urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);

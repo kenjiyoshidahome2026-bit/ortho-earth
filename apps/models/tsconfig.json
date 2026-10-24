@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["models-page.ts", "models.ts", "env.d.ts"]
+}

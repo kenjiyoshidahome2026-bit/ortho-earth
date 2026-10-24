@@ -13,7 +13,7 @@ const ROOT = resolve(import.meta.dirname, "../..");
 
 // 世界の地震（/globe/quakes/）は 2026-10-15 に独立のアプリ apps/quakes（Worker ortho-quakes・route がより specific）へ移った
 // 頁を 1 つずつ独立のアプリ（apps/<名前>/）へ（2026-10-24〜・計画 /mnt/project-files/apps-flat/plan-2026-10-24.md）＝出力は各アプリの dist/site/globe/、
-// この家の build の後で scripts/gather-apps.mjs が集めて同じ Worker（/globe/*）が配る＝URL は変わらない。（apps/hex・arcs・clock・clouds・parks-us・physical・sats・splat・voxel）
+// この家の build の後で packages/globe/scripts/lib/gather-apps.mjs が集めて同じ Worker（/globe/*）が配る＝URL は変わらない。（apps/hex・arcs・clock・clouds・parks-us・physical・sats・splat・voxel）
 
 export default defineConfig(({ command }) => ({
 	base: "/globe/",

@@ -60,7 +60,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 横浜市デジタルツインの台帳：`yokohama/`（`wards`・`rail`・`bus`・`facilities`・`photos`・平面の地図に重ねる面＝`zoning`・`school-e`・`school-j`・`police-areas`・`fire-areas`＝.json・2026-10-21） | `japan/`（git で追う・組む＝`apps/yokohama/scripts/bake-yokohama.mjs`） | /yokohama/。国土数値情報（N03・N02・P11・P05・P29・P27・P28・P17・P18・P04・用途地域 A29-19＝2019 年度・小学校区 A27-21／中学校区 A32-21＝2021 年度・警察署／消防署の管轄＝P18-12／P17-12 の面＝**2012 年度で古い・非商用**）・写真は Wikimedia Commons（作者と使用許諾を台帳に持つ）。A29・A27・A32 は横浜市が「オープンデータ公開・特記条件なし」（KSJ の市町村別の利用条件表）。P17・P18・P27・P28 は KSJ の使用許諾が「非商用」 |
 | 観測点：`jishin/seismic`・`jishin/fault`・`jma/amedas`（.geopbf） | `japan/` | gishub-jp |
 | 点群の見本：`pointcloud/atami-08NF2392.copc.laz`（熱海 951 万点・77 MB・JGD2011 平面直角 VIII 系＋標高・COPC＝**gzip しない**＝範囲読みするので生のまま）＋出典の `README.md` | `japan/`（**正本は git に入れない**＝大きすぎる。置く元は作業場所・`--scope=japan --from=<作業場所> --only=pointcloud`・2026-10-15・gh-pages 239ed08＝鉛直付き EPSG:6676+6695 で作り直し） | /japan/pointcloud の見本・t-copcbench（点群の計測・`packages/globe/scripts/copc-bench.mjs`）。VIRTUAL SHIZUOKA（静岡県）CC BY 4.0 |
-| 静岡県の点群（VIRTUAL SHIZUOKA・図郭ごとの `.zip` に `.las`・CC BY 4.0／ODbL） | **自前で持たない**＝静岡県の S3（`s3://virtual-shizuoka`・Open Data on AWS・CORS 可・範囲読み可）を頁が直に一覧して読む（2026-10-18） | /japan/pointcloud（apps/ortho-japan/pointcloud.ts）・エンジンの ZIP の口（packages/globe/src/pointcloud-zip.ts） |
+| 静岡県の点群（VIRTUAL SHIZUOKA・図郭ごとの `.zip` に `.las`・CC BY 4.0／ODbL） | **自前で持たない**＝静岡県の S3（`s3://virtual-shizuoka`・Open Data on AWS・CORS 可・範囲読み可）を頁が直に一覧して読む（2026-10-18） | /japan/pointcloud（apps/pointcloud/pointcloud.ts）・エンジンの ZIP の口（packages/globe/src/pointcloud-zip.ts） |
 | 見本 `showcase/*`（人口密度の 3D・江戸の古地図） | **japan の `public/` に残す**（下の 5） | www のデモ（`?g=showcase/…`・`?iiif=/japan/showcase/…`） |
 | エンジンの実行時アセット：`plateau-sets`・`airports`・`plateau-landmarks`・`plateau-exclude` | **japan の `public/` に残す**（npm の SDK に同梱＝`assetBase` の契約） | エンジン |
 | 形状 `ne-cultural-base`／`-detail`・`rivers.json` | **bucket GIS/world に残す** | 全アプリ |
@@ -106,7 +106,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 5. **`terrain.geopbf` の川の線**：国土数値情報 W05（河川）は「非商用」（複製物の再配布不可）と 10/13 に一次資料で確認 →
    同日 **OpenStreetMap の川の関係で組み直した**（本人裁定＝別の出所で組み直す・`scripts/terrain-ledger/shapes-osm.mjs`・
    関係の wikidata タグ＝台帳の qid で結ぶ・298 本中 297 本）。川の線は © OpenStreetMap contributors・**ODbL**＝頁の出典と
-   ortho-data の README に書いた。W05 で組んだ前の版は `apps/ortho-japan/scripts/terrain-ledger/keep/terrain.w05.geopbf` に
+   ortho-data の README に書いた。W05 で組んだ前の版は `apps/terrain/scripts/terrain-ledger/keep/terrain.w05.geopbf` に
    残してある（本人の指示・見比べと差し戻し用＝配らない）。**本番の japan は出し直すまで www の旧い写し（W05 の川）を読む**。
    未確認＝地震本部と環境省（nps_all）の利用規約の名前（README には出所だけ書いた）。気象庁は公共データ利用規約 1.0。湖（W09）は「商用可」。
    `showcase/` は japan の `public/` に残す（本人裁定 10/13＝www のデモの `?g=showcase/…` は公開済みの URL・移すと切れる）。

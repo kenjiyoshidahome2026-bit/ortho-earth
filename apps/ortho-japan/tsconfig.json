@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["site.ts", "pointcloud-sheets.ts", "fireworks-page.ts", "geoedit-page.ts", "models-page.ts", "onsen-page.ts", "parks-page.ts", "scene-page.ts", "tellus-page.ts", "terrain-page.ts", "pointcloud-page.ts", "app.ts", "demo/editor.ts", "demo/scenes.ts", "fireworks.ts", "models.ts", "onsen.ts", "onsen-banzuke.ts", "parks.ts", "tellus.ts", "terrain.ts", "env.d.ts"]
+	"include": ["site.ts", "geoedit-page.ts", "scene-page.ts", "app.ts", "demo/editor.ts", "demo/scenes.ts", "env.d.ts"]
 }
