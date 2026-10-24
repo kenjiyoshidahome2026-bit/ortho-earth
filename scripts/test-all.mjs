@@ -22,15 +22,15 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // root の関門。workspace 名＝package.json の name
 //   test＝旧 package.json の test の鎖と同じ並び（node の検定・regionless・app-imports＝アプリがアプリを読まない門・mirrors）
-//   i18n＝各アプリの verify:i18n（5 本・ブラウザ不要）＝`npm run verify:i18n`（root）
+//   i18n＝各アプリの verify:i18n（6 本・ブラウザ不要）＝`npm run verify:i18n`（root）
 const GATES = {
 	test: [
 		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/h3", "test"], ["@ortho-earth/react", "test"], ["@ortho-earth/ktx2", "test"], ["@ortho-earth/google-tiles", "test"], ["@ortho-earth/plugin-scene", "test"], ["@ortho-earth/plugin-splat", "test"], ["@ortho-earth/plugin-voxel", "test"], ["geopbf", "test"], ["altpbf", "test"],
 		["@ortho-earth/ephem", "test"], ["world-data", "test"], ["glbconv", "test"], ["ortho-japan", "test"], ["choju", "test"], ["yokohama", "test"], ["@ortho-earth/equal", "test"], ["solar", "test"], ["ortho-himekuri", "test"], ["world-quiz", "test"], ["sokutei", "test"],
 		["account", "test"], ["www", "test"], ["common", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"], ["native-bucket", "test:client"],
-		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], ["ortho-globe", "test"], ["ortho-quakes", "test"], ["ortho-engine", "test"], [".", "verify:app-imports"], [".", "test:mirrors"], [".", "typecheck"],
+		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], ["ortho-globe", "test"], ["hex", "test"], ["ortho-quakes", "test"], ["ortho-engine", "test"], [".", "verify:app-imports"], [".", "test:mirrors"], [".", "typecheck"],
 	],
-	i18n: [["ortho-japan", "verify:i18n"], ["ortho-globe", "verify:i18n"], ["www", "verify:i18n"], ["solar", "verify:i18n"], ["geopbf-demo", "verify:i18n"]],
+	i18n: [["ortho-japan", "verify:i18n"], ["ortho-globe", "verify:i18n"], ["hex", "verify:i18n"], ["www", "verify:i18n"], ["solar", "verify:i18n"], ["geopbf-demo", "verify:i18n"]],
 };
 
 // workspace 名 → ディレクトリ（root の workspaces の glob を歩く）

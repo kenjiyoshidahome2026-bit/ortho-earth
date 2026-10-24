@@ -2,8 +2,8 @@
 // Kontur Population（H3 のセルごとの人口・CC BY 4.0）→ /globe/hex が読む小さな二進（hex-pop.ts の H3P1）を焼く（issue #310・2026-10-14）。
 // 置き場＝GitHub Pages（リポ ortho-data の globe/h3/kontur-<版>/・本人裁定 10/14「uploader を使わずに github.io に置く」）。
 // 焼いた先＝packages/world/out/h3/（world の out/ と同じ＝作り直せる生成物・git に入らない）→ 置くのは world の publish-pages.mjs：
-//   node apps/ortho-globe/scripts/kontur-h3.mjs                                   … Kontur の S3 から gpkg.gz を取って焼く（r6 は 185MB）
-//   node apps/ortho-globe/scripts/kontur-h3.mjs --src=DIR                         … 手元の r4.gpkg[.gz]・r6.gpkg[.gz] から
+//   node apps/hex/scripts/kontur-h3.mjs                                   … Kontur の S3 から gpkg.gz を取って焼く（r6 は 185MB）
+//   node apps/hex/scripts/kontur-h3.mjs --src=DIR                         … 手元の r4.gpkg[.gz]・r6.gpkg[.gz] から
 //   npm run publish:pages -w world-data -- --only=h3            （予行）→ 同じに --write（commit して push）
 // 焼く物：
 //   r4.h3p.gz        … 解像度 4（一辺 約 26 km）の全球 1 本（7.1 万セル・約 200KB）。3 は頁が足し上げて作る

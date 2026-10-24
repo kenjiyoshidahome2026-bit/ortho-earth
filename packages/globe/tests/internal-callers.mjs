@@ -19,7 +19,7 @@ const RE = [
 const ALLOW = {
 	"packages/world/src/worldlayers.ts": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
 	"apps/ortho-globe/physical.ts": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
-	"apps/ortho-globe/hex.ts": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
+	"apps/hex/hex.ts": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
 	"apps/ortho-japan/terrain.ts": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/ortho-japan/onsen.ts": 14,   // 日本の温泉（2026-10-12・一覧の行の hover で点を光らせる setFilter 2 は common/bigtable の表に替えて無くなった 2026-10-24）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/ortho-japan/pointcloud.ts": 7,   // 静岡県の点群（2026-10-18）＝図郭の区画を addSource 2・addLayer 4・setLayoutProperty 1（visibility）＝onsen と同じく MapLibre の意味で良い
