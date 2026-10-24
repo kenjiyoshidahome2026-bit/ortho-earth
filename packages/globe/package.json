@@ -68,7 +68,7 @@
 		"@deck.gl/layers": "^9.4.0",
 		"@deck.gl/mapbox": "^9.4.0",
 		"quiet-mono": "^1.0.0",
-		"sass": "^1.93.0",
+		"sass": "^1.105.2",
 		"three": "^0.186.1"
 	},
 	"scripts": {
