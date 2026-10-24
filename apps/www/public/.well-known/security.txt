@@ -1,0 +1,5 @@
+# ortho-earth の脆弱性の連絡先（RFC 9116）。見つけた方は公開 issue ではなく下の非公開の報告口へ。
+Contact: https://github.com/kenjiyoshidahome2026-bit/ortho-earth/security/advisories/new
+Expires: 2027-10-24T00:00:00.000Z
+Preferred-Languages: ja, en
+Canonical: https://www.ortho-earth.com/.well-known/security.txt
