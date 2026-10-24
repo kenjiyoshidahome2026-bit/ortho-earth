@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["hex-page.ts", "hex.ts", "hex-pop.ts", "env.d.ts"]
+}

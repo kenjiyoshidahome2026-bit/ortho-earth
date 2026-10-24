@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["main.ts", "arcs-page.ts", "clock-page.ts", "clouds-page.ts", "hex-page.ts", "parks-page.ts", "physical-page.ts", "sats-page.ts", "splat-page.ts", "arcs.ts", "arcs-data.ts", "arcs-mini.ts", "clock.ts", "clock-zones.ts", "clouds.ts", "hex.ts", "hex-pop.ts", "parks.ts", "physical.ts", "sats.ts", "splat.ts", "env.d.ts"]
+	"include": ["main.ts", "arcs-page.ts", "clock-page.ts", "clouds-page.ts", "parks-page.ts", "physical-page.ts", "sats-page.ts", "splat-page.ts", "arcs.ts", "arcs-data.ts", "arcs-mini.ts", "clock.ts", "clock-zones.ts", "clouds.ts", "parks.ts", "physical.ts", "sats.ts", "splat.ts", "env.d.ts"]
 }

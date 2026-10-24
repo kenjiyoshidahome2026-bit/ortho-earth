@@ -161,6 +161,7 @@ const entryOf = href => {
 	const p = href.replace(/[?#].*$/, "");
 	if (ENTRY[p]) return ENTRY[p];
 	const m = p.match(/^\/(japan|globe)\/(.*)$/);
+	if (m[2] && fs.existsSync(path.join(ROOT, `apps/${m[2]}/${m[2]}.html`))) return `apps/${m[2]}/${m[2]}.html`;   // 頁から独立したアプリ（apps/<名前>/・2026-10-24〜）
 	const dir = m[1] === "japan" ? "apps/ortho-japan" : "apps/ortho-globe";
 	return `${dir}/${m[2] ? m[2] + ".html" : "index.html"}`;
 };

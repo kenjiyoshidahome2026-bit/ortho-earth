@@ -9,7 +9,6 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData, mo
 //   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
 //   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は GitHub Pages の ortho-data/globe/）
 //   /globe/clock    … 世界時計（issue #309・NE の時間帯の面＝S3 直読み＋admin0 の国 → IANA の名前 → ブラウザの Intl）
-//   /globe/hex      … 世界の人口を H3 の六角形の柱で（issue #310・データ＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/＝scripts/kontur-h3.mjs が焼く）
 //   /globe/arcs     … いちばん近い道は弧になる（弧＝map.addData の arcs・首都＝world の台帳・路線＝OpenFlights をブラウザが直読み・issue #311）
 //   /globe/splat    … Gaussian splat の見本（Niantic の .spz 2 シーン＝3D Tiles の KHR_gaussian_splatting と 1 本の .spz・データ＝GitHub Pages の ortho-data/globe/splat/＝scripts/splat-tiles.mjs が焼く・2026-10-21）
 //   /globe/voxel    … voxel の見本（@ortho-earth/plugin-voxel＝雲・トーラス・富士山のブロック・地震の密度の体積。合成と map.sampleTerrain と /quakes/archive.geopbf・2026-10-23）
@@ -20,6 +19,8 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases, orthoData, mo
 const ROOT = resolve(import.meta.dirname, "../..");
 
 // 世界の地震（/globe/quakes/）は 2026-10-15 に独立のアプリ apps/quakes（Worker ortho-quakes・route がより specific）へ移った
+// 頁を 1 つずつ独立のアプリ（apps/<名前>/）へ（2026-10-24〜・計画 /mnt/project-files/apps-flat/plan-2026-10-24.md）＝出力は各アプリの dist/site/globe/、
+// この家の build の後で scripts/gather-apps.mjs が集めて同じ Worker（/globe/*）が配る＝URL は変わらない。移った物：/globe/hex（apps/hex）
 
 export default defineConfig(({ command }) => ({
 	base: "/globe/",
@@ -29,7 +30,7 @@ export default defineConfig(({ command }) => ({
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), clock: resolve(import.meta.dirname, "clock.html"), hex: resolve(import.meta.dirname, "hex.html"), arcs: resolve(import.meta.dirname, "arcs.html"), splat: resolve(import.meta.dirname, "splat.html"), voxel: resolve(import.meta.dirname, "voxel.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html"), clock: resolve(import.meta.dirname, "clock.html"), arcs: resolve(import.meta.dirname, "arcs.html"), splat: resolve(import.meta.dirname, "splat.html"), voxel: resolve(import.meta.dirname, "voxel.html") },
 		...noChunkOptimization,   // rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker にも同じ物
 	} },
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法＝engineAliases）
