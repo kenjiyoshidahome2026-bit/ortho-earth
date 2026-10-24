@@ -17,6 +17,8 @@ const demos = JSON.parse(readFileSync(path.join(WWW, "demos.json"), "utf8")).dem
 
 // デモの URL → 入口 HTML（本番の Worker の規則＝/japan/<名前> は apps/ortho-japan/<名前>.html・拡張子なし）
 const ENTRY = [
+	// 頁から独立したアプリ（apps/<名前>/<名前>.html・ortho-globe／ortho-japan の Worker が集めて配る・2026-10-24〜）。無ければ下の規則へ
+	[/^\/(?:globe|japan)\/([\w-]+)(?=[#?]|$)/, (m) => existsSync(path.join(APPS, m[1], m[1] + ".html")) ? `${m[1]}/${m[1]}.html` : null],
 	[/^\/japan\/census2020\//, "census2020/index.html"],
 	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain|pointcloud)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
@@ -26,10 +28,11 @@ const ENTRY = [
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
 	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
 ];
-export const entryOf = href => { for (const [re, to] of ENTRY) { const m = href.match(re); if (m) return typeof to === "function" ? to(m) : to; } return null; };
+export const entryOf = href => { for (const [re, to] of ENTRY) { const m = href.match(re); if (!m) continue; const r = typeof to === "function" ? to(m) : to; if (r) return r; } return null; };
 
 // 共有カードの画像の URL → このリポジトリの実体（www の public は / 直下・各アプリの public はその配信ベース）
 const IMG = [
+	[/^https:\/\/www\.ortho-earth\.com\/(?:globe|japan)\/og\/(([\w-]+)\.\w+)$/, m => existsSync(path.join(APPS, m[2], "public/og", m[1])) ? `${m[2]}/public/og/${m[1]}` : null],   // 独立したアプリの共有カード
 	[/^https:\/\/www\.ortho-earth\.com\/thumbs\/(.+)$/, m => `www/public/thumbs/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/og\/(.+)$/, m => `ortho-japan/public/og/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/(ogp\.jpg)$/, m => `ortho-japan/public/${m[1]}`],
@@ -38,7 +41,7 @@ const IMG = [
 	[/^https:\/\/www\.ortho-earth\.com\/yokohama\/(og\.jpg)$/, m => `yokohama/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/solar\/(ogp\.jpg)$/, m => `solar/public/${m[1]}`],
 ];
-const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (m) return to(m); } return null; };
+const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (!m) continue; const r = to(m); if (r) return r; } return null; };
 
 const meta = (html, re) => { const m = html.match(re); return m ? m[1] : null; };
 const prop = (html, p) => meta(html, new RegExp(`<meta\\s+property="${p}"\\s+content="([^"]*)"`));

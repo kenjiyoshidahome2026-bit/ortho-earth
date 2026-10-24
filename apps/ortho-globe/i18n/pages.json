@@ -19,9 +19,6 @@
 			"clock.ts",
 			"clock-zones.ts"
 		],
-		"hex": [
-			"hex.ts"
-		],
 		"arcs": [
 			"arcs.ts",
 			"arcs-mini.ts",
