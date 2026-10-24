@@ -1,4 +1,4 @@
-// @ortho-earth/google-tiles（W8）＝key の付与・session の引き回し・よその host は触らない・出典・add3DTiles への受け渡し・plugin の形（DOM 無し）
+// @ortho-earth/google3d（W8）＝key の付与・session の引き回し・よその host は触らない・出典・add3DTiles への受け渡し・plugin の形（DOM 無し）
 import { googleRequestTransform, googleAttribution, addGoogle3DTiles, googleTilesPlugin, GOOGLE_3D_TILES_ROOT } from "../src/index.ts";
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const throws = f => { try { f(); return false; } catch { return true; } };
@@ -42,6 +42,6 @@ ok("attribution", googleAttribution(["Data SIO, NOAA", "Landsat / Copernicus", "
 	const p = googleTilesPlugin({ key: K, maxSSE: 12 });
 	p.install(map);
 	await added.get("googleTiles")(map, { fit: false });
-	ok("plugin", p.name === "google-tiles" && added.has("googleTiles") && calls[0].opts.maxSSE === 12 && calls[0].opts.fit === false && calls[0].url === GOOGLE_3D_TILES_ROOT);
+	ok("plugin", p.name === "google3d" && added.has("googleTiles") && calls[0].opts.maxSSE === 12 && calls[0].opts.fit === false && calls[0].url === GOOGLE_3D_TILES_ROOT);
 }
-if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS google-tiles");
+if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS google3d");
