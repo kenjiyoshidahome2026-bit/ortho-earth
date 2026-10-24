@@ -973,6 +973,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 				continue;
 			}
 			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
+				if (Object.keys(pr.extensions || {}).some(k => k.startsWith(`${SPLAT_EXT}_compression_spz`))) continue;   // SPZ＝属性の本体が無い（loaders.gl 4.5 は bufferView の無い accessor を 0 で埋める＝原点に点が並ぶ）＝点にしない
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
 				if (pr.extensions?.[SPLAT_EXT]) nSplatPts += P.length / 3;
 				const q = pr.attributes!.POSITION!.normalized ? dequant(P) : 1, n = P.length / 3;
