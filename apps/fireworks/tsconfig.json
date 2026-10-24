@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["fireworks-page.ts", "fireworks.ts", "env.d.ts"]
+}

@@ -1,6 +1,6 @@
 # parks-ledger — アメリカ合衆国の国立公園の台帳（ortho-data/us/parks-us.json・ortho-data/us/parks-us.geopbf・ortho-data/us/nps-units.geopbf）の作り方
 
-一回物の生成手順（2026-10-07）。/japan/parks の `apps/ortho-japan/scripts/parks-ledger` と同じ段取り＝ネットに出るのはここだけ。実行時の頁は台帳と Wikipedia/Commons の直読みだけ。
+一回物の生成手順（2026-10-07）。/japan/parks の `apps/parks/scripts/parks-ledger` と同じ段取り＝ネットに出るのはここだけ。実行時の頁は台帳と Wikipedia/Commons の直読みだけ。
 作業フォルダ（`work/`）はリポジトリに入れない。
 
 1. `curl -o work/list.wiki 'https://en.wikipedia.org/w/index.php?title=List_of_national_parks_of_the_United_States&action=raw'` — 一覧の wikitext（api.php は共有 IP で 429 が出るので action=raw）。

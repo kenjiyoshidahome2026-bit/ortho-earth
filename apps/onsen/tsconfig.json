@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["onsen-page.ts", "onsen.ts", "onsen-names.ts", "onsen-banzuke.ts", "env.d.ts"]
+}

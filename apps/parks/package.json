@@ -1,0 +1,21 @@
+{
+	"name": "parks",
+	"version": "0.0.1",
+	"private": true,
+	"description": "National Parks of Japan: the 35 parks with their boundaries, picked from a photo list. Served at www.ortho-earth.com/japan/parks through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*",
+		"common": "*",
+		"geopbf": "*"
+	}
+}
