@@ -1,5 +1,6 @@
 // node の検定：色表・値の詰め（R8／RGBA8）・置き方（origin/size/orientation・transform）・DDA（CPU 版）・prepare・plugin の形と手綱（偽の map＝描き手へ届く message）。描画は t-pvoxel（verify:ui）
-import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION } from "../src/index.ts";
+import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, BRICK, BRICK_LIMIT } from "../src/index.ts";
+import { drawBounds, isEmpty, centerDist, pickedCell, hitOf } from "../src/voxel-gl.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -118,6 +119,65 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	ok("prep.bad", throws(() => checkVoxelData({ dims: [1, 1], values: new Uint8Array(1) }), /VoxelData/) && throws(() => checkVoxelData({ dims: [1, 1, 1], values: new Uint8Array(2), box: {} }), /length/) && throws(() => prepare({ dims: [1, 1, 1], box: { origin: [0, 0, 0], size: [1, 1, 1] }, values: new Float32Array(1) }, { range: [1, 1] }), /range/));
 	ok("prep.rangeOpt", prepare({ ...d, range: undefined }, { range: [0, 100] }).tex[23] === 1 + Math.round(23 / 100 * 254));
 	ok("prep.autoRange", prepare({ ...d, range: undefined }).range.join() === "0,23");
+}
+// ---- ブリック（第 5 段） ----
+{
+	ok("brick.consts", BRICK === 126 && BRICK_LIMIT === 256 && needsBricks([257, 1, 1]) && !needsBricks([256, 256, 256]));
+	ok("brick.spans", JSON.stringify(brickSpans(300, 126)) === "[[0,126],[126,252],[252,300]]" && brickSpans(5, 126).length === 1);
+	const dims = [5, 4, 3], v = new Float32Array(60 * 2).map((_, i) => i);
+	const sub = extract(v, dims, 2, [1, 2, 1], [3, 2, 2]);
+	const want = []; for (let k = 1; k < 3; k++) for (let j = 2; j < 4; j++) for (let i = 1; i < 4; i++) { const g = (i + 5 * (j + 4 * k)) * 2; want.push(g, g + 1); }
+	ok("brick.extract", sub instanceof Float32Array && sub.join() === want.join());
+	ok("brick.maxOf", maxOf(new Uint8Array([3, 9, 2]), 1) === 9 && maxOf(new Uint8Array([200, 0, 0, 7, 250, 0, 0, 5]), 4) === 7);
+	ok("brick.parentIndex", JSON.stringify(parentIndex(1 + 3 * (1 + 2 * 1), [3, 2, 2], [1, 2, 1], dims)) === JSON.stringify({ index: 2 + 5 * (3 + 4 * 2), cell: [2, 3, 2] }));
+	// 300×10×4 の box＝x で 3 枚（糊代つき）・値は x＝セルの番号の i
+	const NX = 300, NY = 10, NZ = 4, val = new Float32Array(NX * NY * NZ);
+	for (let k = 0; k < NZ; k++) for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) val[i + NX * (j + NY * k)] = i < 260 ? i : 0;   // 260 以降は空（noData 0）
+	const g = prepareGrid({ dims: [NX, NY, NZ], box: { origin: [139.76, 35.68, 0], size: [300, 10, 4] }, values: val, noData: 0, range: [0, 299] }, { threshold: 100 });
+	const B = g.bricks;
+	ok("brick.split", B && B.length === 3 && g.tex.length === 0 && g.n === NX * NY * NZ && g.dims.join() === "300,10,4" && near(g.thr, 100 / 299), `${B?.length}`);
+	ok("brick.apron", B[0].off.join() === "0,0,0" && B[0].dims.join() === "127,10,4" && B[0].own.join() === "0,0,0,126,10,4"
+		&& B[1].off.join() === "125,0,0" && B[1].dims.join() === "128,10,4" && B[1].own.join() === "1,0,0,127,10,4"
+		&& B[2].off.join() === "251,0,0" && B[2].dims.join() === "49,10,4" && B[2].own.join() === "1,0,0,49,10,4", JSON.stringify(B.map(b => [b.off, b.dims, b.own])));
+	const q = x => 1 + Math.round(x / 299 * 254);
+	ok("brick.values", B[1].tex[0] === q(125) && B[1].tex[127] === q(252) && B[2].tex[0] === q(251) && B[2].tex[9] === 0 && B[0].A.join() === g.A.join() && B[1].anchor.join() === g.anchor.join(), `${B[1].tex[0]} ${B[1].tex[127]} ${B[2].tex[9]}`);
+	ok("brick.vmax", B[0].vmax === q(126) && B[2].vmax === q(259) && g.vmax === q(259));
+	ok("brick.empty", !isEmpty({ vmax: B[2].vmax, thr: g.thr, comps: 1 }) && isEmpty({ vmax: B[0].vmax, thr: (200 / 299), comps: 1 }) && isEmpty({ vmax: 0, thr: 0, comps: 4 }) && !isEmpty({ vmax: 1, thr: 0.9, comps: 4 }));
+	ok("brick.small", prepareGrid({ dims: [2, 2, 2], box: { origin: [0, 0, 0], size: [1, 1, 1] }, values: new Uint8Array(8).fill(3) }).bricks === null);
+	// 描く範囲＝持ち分と断面（親の割合）の交わり
+	const L1 = { dims: B[1].dims, off: B[1].off, own: B[1].own, full: g.dims, clip: null };
+	ok("brick.bounds", JSON.stringify(drawBounds(L1)) === JSON.stringify({ lo: [1, 0, 0], hi: [127, 10, 4] }));
+	ok("brick.bounds.clip", JSON.stringify(drawBounds({ ...L1, clip: [0, 0.5, 0, 1, 0, 0.5] })) === JSON.stringify({ lo: [1, 0, 0], hi: [25, 10, 2] }) && drawBounds({ ...L1, clip: [0.9, 1, 0, 1, 0, 1] }) === null);
+	ok("brick.bounds.single", JSON.stringify(drawBounds({ dims: [4, 4, 4], off: null, own: null, full: null, clip: [0, 0.5, 0, 1, 0, 1] })) === JSON.stringify({ lo: [0, 0, 0], hi: [2, 4, 4] }));
+	// 当たり＝親の番号と経緯度（ブリックの中心は親の同じセル）
+	const P1 = { q: "big#1", layer: "big", dims: B[1].dims, off: B[1].off, full: g.dims };
+	const pc = pickedCell("big#1", P1, 2 + 128 * (3 + 10 * 1));
+	ok("brick.pick", pc.layer === "big" && pc.cell.join() === "127,3,1" && pc.index === 127 + 300 * (3 + 10 * 1));
+	const hl = hitOf({ ...B[1], properties: null }, 2 + 128 * (3 + 10 * 1)), hp = hitOf({ dims: g.dims, A: g.A, anchor: g.anchor, geo: null, properties: null }, pc.index);
+	ok("brick.pick.lngLat", near(hl.lngLat[0], hp.lngLat[0], 1e-9) && near(hl.lngLat[1], hp.lngLat[1], 1e-9), `${hl.lngLat} ${hp.lngLat}`);
+	// 奥から描く順＝中心の遠い順（東の端から見る＝東のブリックが近い）
+	const eye = [400, 5, 2], dd = B.map(b => centerDist({ dims: b.dims, A: b.A, off: b.off, geo: null }, eye));
+	ok("brick.order", dd[0] > dd[1] && dd[1] > dd[2], dd.map(v => v.toFixed(1)).join());
+	// region＝経度で 3 枚・部分の region が隣と継ぎ目で揃う
+	const rg = prepareGrid({ dims: [260, 4, 2], region: [130, 30, 156, 32, 0, 2000], values: new Uint8Array(260 * 8).fill(5) });
+	const R = rg.bricks;
+	ok("brick.region", R.length === 3 && R.every(b => b.geo && b.geo.shell.length > 0) && near(R[0].geo.west, 130) && near(R[1].geo.west, 130 + 26 * 125 / 260, 1e-9) && near(R[2].geo.west + R[2].geo.spanLon, 156, 1e-9) && near(R[1].geo.spanLon, 26 * 128 / 260, 1e-9) && R[1].geo.h0 === 0 && R[1].geo.h1 === 2000, JSON.stringify(R.map(b => [b.geo.west, b.geo.spanLon])));
+	// 手綱＝ブリックごとに layer を送る・見た目は全部へ・撤去も全部
+	const posts = [], ids = new Set();
+	const fake = { overlay: (url, o) => ({ name: o.name, onmessage: null, post: (d, tr) => posts.push([d, tr]), remove: () => {}, addLayerId: id => ids.add(id), removeLayerId: id => ids.delete(id), el: null }), pickOverlays: async () => [{ layer: "big", index: 127 + 300 * 13, cell: [127, 3, 1], value: null, properties: { value: null }, distance: 0, lngLat: [0, 0], id: 9 }] };
+	const hb = createVoxel(fake, { dims: [NX, NY, NZ], box: { origin: [139.76, 35.68, 0], size: [300, 10, 4] }, values: val, noData: 0 }, { id: "big", render: "blocks" });
+	await hb.ready;
+	const lay = posts.filter(([d]) => d.type === "layer").map(([d]) => d);
+	ok("brick.handle", hb.bricks === 3 && hb.n === NX * NY * NZ && hb.dims.join() === "300,10,4" && lay.length === 3 && lay.map(d => d.q).join() === "big#0,big#1,big#2" && lay.every(d => d.layer === "big" && d.full.join() === "300,10,4" && d.mode === 0 && typeof d.vmax === "number") && lay[1].off.join() === "125,0,0" && lay[0].cmap !== lay[1].cmap, lay.map(d => d.q).join());
+	ok("brick.handle.value", (await hb.pick(1, 1))[0]?.value === 127);
+	posts.length = 0; await hb.setProps({ opacity: 0.3, colormap: "grey" });
+	ok("brick.style", posts.length === 3 && posts.every(([d]) => d.type === "style" && d.opacity === 0.3 && d.cmap.length === 1024) && posts[0][0].cmap !== posts[1][0].cmap);
+	posts.length = 0; hb.setVisible(false);
+	ok("brick.vis", posts.length === 3 && posts.every(([d]) => d.type === "vis" && d.on === false));
+	posts.length = 0; await hb.setData({ dims: [2, 2, 2], box: { origin: [139.76, 35.68, 0], size: [10, 10, 10] }, values: new Float32Array(8).fill(1) });
+	ok("brick.toSingle", hb.bricks === 0 && posts.filter(([d]) => d.type === "remove").map(([d]) => d.q).join() === "big#0,big#1,big#2" && posts.some(([d]) => d.type === "layer" && d.q === "big" && d.on === false));
+	posts.length = 0; hb.remove();
+	ok("brick.remove", posts.filter(([d]) => d.type === "remove").map(([d]) => d.q).join() === "big" && !ids.has("big"));
 }
 // ---- plugin の形と手綱（偽の map） ----
 {

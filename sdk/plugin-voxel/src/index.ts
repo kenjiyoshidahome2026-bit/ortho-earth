@@ -5,21 +5,22 @@
 //   trilinear samples, colormap colour and alpha composited front to back; "iso" = the surface where the value crosses the threshold, shaded by the gradient. `clip` keeps a sub-box.
 //   Hidden by terrain and buildings (scene depth), picked by the unified picking (handle.pick, map.on("click", id, …), queryRenderedFeatures({ layers: [id] })).
 //   Preparation (quantising values to R8 / RGBA8, the colormap, placement, the region shell) runs in a worker (voxel-reader.ts); the main thread forwards the buffers (transfer).
-//   Stage 4 adds the 3D Tiles EXT_primitive_voxels; stage 5 bricks / LoD / file sources. Plan: ../PLAN.md.
+//   Stage 4 adds the 3D Tiles EXT_primitive_voxels. Stage 5 (2026-10-24): a grid with an axis beyond BRICK_LIMIT (256) is split into bricks (BRICK = 126 cells + a 1-cell apron,
+//   one texture each, drawn far to near, empty bricks skipped); LoD / time / file sources follow. Plan: ../PLAN.md.
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick, VoxelData } from "@ortho-earth/globe";
-import { prepare, transferables, checkVoxelData, checkClip, buildColormap, thrOf } from "./grid.ts";
-import type { PrepareOptions, Prepared, ColormapSpec, RenderMode, Clip } from "./grid.ts";
+import { prepareGrid, transferables, checkVoxelData, checkClip, buildColormap, thrOf } from "./grid.ts";
+import type { PrepareOptions, PreparedGrid, ColormapSpec, RenderMode, Clip } from "./grid.ts";
 import type { ReaderRequest, ReaderReply } from "./voxel-reader.ts";
 import type { VoxelStyle } from "./voxel-gl.ts";
-export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N } from "./grid.ts";
-export type { PrepareOptions, Prepared, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
+export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, BRICK, BRICK_LIMIT } from "./grid.ts";
+export type { PrepareOptions, Prepared, PreparedGrid, Brick, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
 export type { VoxelMessage, VoxelLayerBody, VoxelStyle, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
 export type { VoxelBackend, VoxelDrawOpts } from "./voxel-draw.ts";
 export type { VoxelGpuModule } from "./voxel-gpu.ts";
 import type { VoxelBackend } from "./voxel-draw.ts";
 // 描き手（worker）の URL＝入口（voxel-draw.js が兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const VOXEL_URL = new URL("./voxel-draw.js", import.meta.url).href;
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 export type VoxelSource = VoxelData | string | URL | ArrayBuffer | Uint8Array;
@@ -79,6 +80,8 @@ export interface VoxelHandle {
 	reader: "worker" | "main" | null;
 	/** the renderer refused the layer (e.g. dims beyond MAX_3D_TEXTURE_SIZE); null when it draws */
 	error: string | null;
+	/** number of bricks the grid was split into (an axis beyond 256 cells); 0 = one texture */
+	bricks: number;
 	ready: Promise<VoxelHandle>;
 	setData(data: VoxelSource): Promise<VoxelHandle>;
 	setProps(p: Partial<VoxelOptions>): Promise<VoxelHandle>;
@@ -122,7 +125,7 @@ function acquire(map: VoxelMap, above: boolean, id: string, backend: VoxelBacken
 }
 
 // ---- 読み手の worker（一つ・怠けて立てる・手綱が全部外れたら少し待って片付ける） ----
-interface Reader { w: Worker; pending: Map<number, { res: (p: Prepared) => void; rej: (e: Error) => void }>; seq: number }
+interface Reader { w: Worker; pending: Map<number, { res: (p: PreparedGrid) => void; rej: (e: Error) => void }>; seq: number }
 let reader: Reader | null = null, readerBroken = false, liveHandles = 0, readerIdle: ReturnType<typeof setTimeout> | null = null;
 function spawnReader(): Reader | null {
 	if (reader) return reader;
@@ -143,7 +146,7 @@ function spawnReader(): Reader | null {
 const readerUsed = (): void => { liveHandles++; if (readerIdle) { clearTimeout(readerIdle); readerIdle = null; } };
 const readerFree = (): void => { if (--liveHandles > 0 || !reader) return; readerIdle = setTimeout(() => { readerIdle = null; if (liveHandles || !reader) return; reader.w.terminate(); reader = null; }, 5000); };
 const isFileSource = (src: VoxelSource): src is string | URL | ArrayBuffer | Uint8Array => typeof src === "string" || src instanceof URL || src instanceof ArrayBuffer || src instanceof Uint8Array;
-async function load(src: VoxelSource, o: VoxelOptions, rAx: number): Promise<Prepared & { reader: "worker" | "main" }> {
+async function load(src: VoxelSource, o: VoxelOptions, rAx: number): Promise<PreparedGrid & { reader: "worker" | "main" }> {
 	if (isFileSource(src)) throw new Error("plugin-voxel: file sources (.nc / .zarr / .vox / .npy) are not read yet (stage 5); pass VoxelData");
 	const d = checkVoxelData(src);
 	const popts: PrepareOptions = { colormap: o.colormap, range: o.range ?? null, alphaRamp: o.alphaRamp ?? null, threshold: o.threshold ?? null, rAx };
@@ -151,11 +154,11 @@ async function load(src: VoxelSource, o: VoxelOptions, rAx: number): Promise<Pre
 	if (r) {
 		try {
 			const seq = ++r.seq, req: ReaderRequest = { seq, data: d, opts: popts };
-			const p = await new Promise<Prepared>((res, rej) => { r.pending.set(seq, { res, rej }); r.w.postMessage(req); });   // data は写し＝渡した人の配列は手放さない
+			const p = await new Promise<PreparedGrid>((res, rej) => { r.pending.set(seq, { res, rej }); r.w.postMessage(req); });   // data は写し＝渡した人の配列は手放さない
 			return { ...p, reader: "worker" };
 		} catch (e) { if (!(e as { fallback?: boolean })?.fallback) throw e; }
 	}
-	return { ...prepare(d, popts), reader: "main" };
+	return { ...prepareGrid(d, popts), reader: "main" };
 }
 const isVoxelHit = (id: string) => (t: OverlayPick): t is VoxelHit => t.layer === id;
 const checkEnum = (v: unknown, allowed: readonly string[], name: string): void => { if (!allowed.includes(v as string)) throw new RangeError(`plugin-voxel: ${name} must be ${allowed.map(a => JSON.stringify(a)).join(" | ")}`); };
@@ -181,29 +184,34 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 	try { ov.addLayerId?.(id); } catch (e) { release(); throw e; }
 	readerUsed();
 	let cur: VoxelSource = data, props: VoxelOptions = { ...opts }, removed = false, seq = 0, visible = true, values: VoxelData["values"] | null = null, comps: 1 | 4 = 1, baked = false;
+	let qs: string[] = [];   // 描き手に送った層の名前（一枚＝id・ブリック＝id#0, id#1, …）
 	const run = async (src: VoxelSource, o: VoxelOptions): Promise<VoxelHandle> => {
 		const my = ++seq;
 		const p = await load(src, o, rAxOf(map));
 		if (removed || my !== seq) return h;
-		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
-		const body = { type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, alt: o.altitude ?? (p.placed ? "absolute" : "relative"), A: p.A, radius: p.radius, geo: p.geo,
-			mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible };
-		slot.errors.set(id, e => { h.error = e; });   // 描き手の build の失敗（3D テクスチャの上限など）は非同期に届く＝warn と手綱の error（ready は解決する）
-		ov.post(body, transferables(p));
+		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
+		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
+		const next = p.bricks ? p.bricks.map((_, b) => `${id}#${b}`) : [id];
+		for (const q of qs) if (!next.includes(q)) { ov.post({ type: "remove", q }); slot.errors.delete(q); }   // 前の形の層（一枚 ↔ ブリック・ブリックの数）を片付ける
+		qs = next;
+		for (const q of qs) slot.errors.set(q, e => { h.error = e; });   // 描き手の build の失敗（3D テクスチャの上限など）は非同期に届く＝warn と手綱の error（ready は解決する）
+		if (!p.bricks) ov.post({ type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, A: p.A, radius: p.radius, geo: p.geo, vmax: p.vmax, ...style }, transferables(p));
+		else p.bricks.forEach((b, i) => ov.post({ type: "layer", q: qs[i], layer: id, shape: p.shape, dims: b.dims, comps: p.comps, tex: b.tex, cmap: i ? p.cmap.slice() : p.cmap, anchor: b.anchor, A: b.A, radius: b.radius, geo: b.geo, vmax: b.vmax, off: b.off, own: b.own, full: p.dims, ...style },
+			[b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : [])]));
 		return h;
 	};
 	// 見た目だけの変更＝格子を上げ直さない（render・opacity・step・threshold・clip・depthTest・properties・colormap・alphaRamp）
 	const restyle = (p: Partial<VoxelOptions>): void => {
-		const s: VoxelStyle & { type: "style"; q: string } = { type: "style", q: id };
+		const s: VoxelStyle = {};
 		if ("render" in p) s.mode = MODE[props.render ?? "volume"]; if ("opacity" in p) s.opacity = props.opacity ?? 1; if ("step" in p) s.step = props.step ?? 0.5;
 		if ("threshold" in p) s.thr = comps === 4 || !h.range ? 0 : thrOf(props.threshold, h.range); if ("clip" in p) s.clip = checkClip(props.clip); if ("depthTest" in p) s.depthTest = props.depthTest !== false; if ("properties" in p) s.properties = props.properties ?? null;
-		if ("colormap" in p || "alphaRamp" in p) s.cmap = buildColormap(props.colormap, props.alphaRamp ?? null);
-		ov.post(s, s.cmap ? [s.cmap.buffer as ArrayBuffer] : []);
+		const cmap = "colormap" in p || "alphaRamp" in p ? buildColormap(props.colormap, props.alphaRamp ?? null) : null;
+		qs.forEach((q, i) => { const c = cmap && i < qs.length - 1 ? cmap.slice() : cmap; ov.post({ type: "style", q, ...s, ...(c ? { cmap: c } : {}) }, c ? [c.buffer as ArrayBuffer] : []); });
 	};
 	// 当たりの value＝main が持つ元の値（worker の答えは番号だけ）
 	const withValue = (t: VoxelHit): VoxelHit => { if (values && comps === 1 && t.index >= 0 && t.index < values.length) { const v = values[t.index]; t.value = v; t.properties = { ...t.properties, value: v }; } return t; };
 	const h: VoxelHandle = {
-		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null,
+		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null, bricks: 0,
 		get backend() { return slot.backend; },
 		ready: undefined as unknown as Promise<VoxelHandle>,
 		setData: (d: VoxelSource) => { if (!isFileSource(d)) checkVoxelData(d); return (h.ready = run(d, props)); },
@@ -212,9 +220,9 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 			if (baked && !removed && Object.keys(p).every(k => (STYLE_KEYS as readonly string[]).includes(k))) { restyle(p); return h.ready; }
 			return (h.ready = run(cur, props));
 		},
-		setVisible: (on: boolean) => { visible = !!on; if (!removed) ov.post({ type: "vis", q: id, on: visible }); return h; },
+		setVisible: (on: boolean) => { visible = !!on; if (!removed) for (const q of qs) ov.post({ type: "vis", q, on: visible }); return h; },
 		pick: async (x: number, y: number, r = 4): Promise<VoxelHit[]> => (await map.pickOverlays(x, y, { radius: r, names: [ov.name] })).filter(isVoxelHit(id)).map(withValue),
-		remove: () => { if (removed) return; removed = true; ov.post({ type: "remove", q: id }); ov.removeLayerId?.(id); slot.errors.delete(id); release(); readerFree(); },
+		remove: () => { if (removed) return; removed = true; for (const q of qs) { ov.post({ type: "remove", q }); slot.errors.delete(q); } ov.removeLayerId?.(id); release(); readerFree(); },
 	};
 	h.ready = run(data, props);
 	return h;
