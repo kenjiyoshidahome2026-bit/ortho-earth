@@ -192,6 +192,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				<button id="sc-export-video" title="${t("Render the show frame by frame to an MP4 file (no dropped frames; slower than real time)")}">${t("🎞 Export video")}</button>
 				<select id="sc-ev-res" title="${t("Video resolution")}"><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option></select>
 				<select id="sc-ev-fps" title="${t("Frames per second")}"><option value="30">30fps</option><option value="60">60fps</option></select>
+				<button id="sc-music" title="${t("Background music for the exported video (an audio file, trimmed and faded to the show’s length). Press again to remove")}">${t("♪ Music")}</button>
+				<input id="sc-music-file" type="file" accept="audio/*" hidden>
 				<button id="sc-rec" title="${t("Record the show to a video file (MP4) for iMovie etc. Allow “share this tab” once")}">${t("🎥 Record")}</button>
 				<button id="sc-stop">${t("■ Stop")}</button>
 				<label title="${t("Captions")}">${t("Captions")} <select id="sc-lang"><option value="">${t("default")}</option><option value="en">en</option><option value="jp">jp</option><option value="ja">ja</option></select></label>
@@ -595,6 +597,12 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 
 	// ── 🎞 動画の書き出し（第3便）＝1 コマずつ描いて H.264/MP4（demo/export-video.ts・画面収録の 🎥 とは別の道）。遅い端末でも絵は同じ ──
 	let evAbort: AbortController | null = null;
+	// BGM＝この画面だけで持つ（台本 JSON には入れない＝音源の権利は書き出す人の手元に残る）
+	let music: File | null = null;
+	const musicBtn = $<HTMLButtonElement>("#sc-music"), musicIn = $<HTMLInputElement>("#sc-music-file");
+	const paintMusic = () => { musicBtn.textContent = music ? `♪ ${music.name.length > 18 ? music.name.slice(0, 17) + "…" : music.name}` : t("♪ Music"); musicBtn.classList.toggle("on", !!music); };
+	musicBtn.addEventListener("click", () => { if (music) { music = null; paintMusic(); note(t("Music removed")); } else musicIn.click(); });
+	musicIn.addEventListener("change", () => { music = musicIn.files?.[0] ?? null; musicIn.value = ""; paintMusic(); });
 	const exportVideoRun = async () => {
 		const btn = $<HTMLButtonElement>("#sc-export-video");
 		if (evAbort) { evAbort.abort(); return; }   // 書き出し中の再押下＝中止
@@ -607,16 +615,18 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		evAbort = new AbortController();
 		btn.textContent = t("■ Cancel export");
 		panelEl.classList.add("playing");
+		let warn = "";
 		const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 		try {
 			const { exportVideo } = await import("./export-video.ts");   // 書き出しの時だけ読む（エディタの起動を太らせない）
-			const blob = await exportVideo({ map, frameEl, doc, width: W, height: H, fps, lang: $<HTMLSelectElement>("#sc-lang").value || null, signal: evAbort.signal,
+			const blob = await exportVideo({ map, frameEl, doc, width: W, height: H, fps, lang: $<HTMLSelectElement>("#sc-lang").value || null, signal: evAbort.signal, audio: music,
+				onNote: m => { warn = m === "no-aac" ? t("This browser cannot encode AAC audio, so the video has no music") : t("Could not read the music file, so the video has no music"); },
 				onProgress: (d, n, eta) => { noteEl.textContent = t("Exporting $1 / $2 frames (about $3 left)", d, n, mmss(eta)); } });
 			const a = document.createElement("a");
 			a.href = URL.createObjectURL(blob);
 			a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}-${H}p${fps}.mp4`;
 			a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-			note(t("Video exported ($1 MB)", (blob.size / 1e6).toFixed(1)));
+			note(t("Video exported ($1 MB)", (blob.size / 1e6).toFixed(1)) + (warn ? ` · ${warn}` : ""));
 		} catch (e) {
 			note((e as Error)?.name === "AbortError" ? t("Export cancelled") : t("Export failed: $1", String((e as Error)?.message ?? e)));
 		} finally {
@@ -866,7 +876,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (recPath) clearInterval(recPath.timer);
 		map.stopScenes?.(); headStop(); unsubCam(); camChip.remove(); styleEl.remove(); scrub.remove();
 	};
-	return { get doc() { return doc; }, exportVideoRun, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
+	return { get doc() { return doc; }, exportVideoRun, setMusic: (f: File | null) => { music = f; paintMusic(); }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
 		get canUndo() { return undoStack.length > 0; },
 		select: (i: number) => { sel = i; paint(); } };
 }
