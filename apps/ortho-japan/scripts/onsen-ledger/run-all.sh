@@ -11,3 +11,4 @@ node 05-geocode.mjs "$@"
 node 06-hitou.mjs "$@"
 node 04-build.mjs
 node ledger-build.mjs
+node ledger-list.mjs
