@@ -4,3 +4,4 @@ export { setWorkerFactory } from "./workerFactory.ts";   // worker の入口を�
 export { setLang, getLang, tr } from "./i18n.ts";
 export { idbClear, idbSave } from "./io.ts";   // 検定ページ（ortho-japan tests）と持ち主が使う
 export { createModelWorker } from "./worker-rpc.ts";   // 編集モデルの worker（検定ページが直接叩く・生成は worker-rpc の 1 箇所）
+export type { ListTableFactory, ListTable, ListColumn } from "./list.ts";   // 地物一覧の表の注入（initEditor({ table })・2026-10-24）

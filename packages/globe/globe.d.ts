@@ -530,7 +530,7 @@ export interface Gadgets {
 	demo(opts?: DemoOptions): DemoHandle | undefined;
 	/** 編集ボタン（左上スタック）。押すと map.gadget.geoedit() を部品として搭載／解除＝地図が持つ 1 つの図形（ドロップ／?g= で読んだ物）を編集し、× で結果を受け取って置き換える（次の起動へ持ち越す）。
 	 *  戻り値＝{ toggle, editor }（二重搭載は undefined） */
-	edit(opts?: { zoom?: [number, number]; narrow?: boolean }): { toggle(): Promise<unknown>; readonly editor: unknown } | undefined;
+	edit(opts?: { zoom?: [number, number]; narrow?: boolean; /** エディタ（map.gadget.geoedit）へそのまま渡す追加の注入（例 table＝地物一覧の表） */ editor?: Record<string, unknown> }): { toggle(): Promise<unknown>; readonly editor: unknown } | undefined;
 	/** Equal Earth（ortho-equal・平らな全球図）への口＝34px 規格のボタン。url＝equal の置き場（既定 /equal/・dev は :5198）・load＝部品の読み込み口（div 方式＝同じ頁に組む・省略＝iframe）。
 	 *  equalHere／equalStart も同じ load で開く。二重搭載は undefined */
 	equal(opts?: EqualOptions): HTMLButtonElement | undefined;
