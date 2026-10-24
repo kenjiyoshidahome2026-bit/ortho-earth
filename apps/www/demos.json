@@ -181,6 +181,20 @@
 			}
 		},
 		{
+			"id": "voxel",
+			"href": "/globe/voxel",
+			"group": "earth",
+			"icon": "🧊",
+			"title": "Voxels on the globe",
+			"lang": "26",
+			"desc": "One voxel grid drawn three ways on the real globe: as a volume (a cloud over Mt. Fuji, earthquake density under Japan), as blocks (Mt. Fuji from the terrain) or as an isosurface, with slicing and picking. WebGPU or WebGL2, and 3D Tiles voxels (EXT_primitive_voxels).",
+			"img": "/thumbs/voxel.webp",
+			"shot": {
+				"url": "/globe/voxel?lang=en&v=fuji",
+				"wait": 30
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes/",
 			"group": "earth",

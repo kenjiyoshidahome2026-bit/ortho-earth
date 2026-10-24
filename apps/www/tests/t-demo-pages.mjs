@@ -21,7 +21,7 @@ const ENTRY = [
 	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain|pointcloud)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
 	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
-	[/^\/globe\/(physical|sats|clouds|parks|clock|hex|splat)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
+	[/^\/globe\/(physical|sats|clouds|parks|clock|hex|splat|voxel)(?=[#?]|$)/, (m) => `ortho-globe/${m[1]}.html`],
 	[/^\/globe\//, "ortho-globe/index.html"],
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "world-quiz/index.html"],
 	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
@@ -47,8 +47,8 @@ const name = (html, n) => meta(html, new RegExp(`<meta\\s+name="${n}"\\s+content
 const pages = new Map();   // 入口 HTML → それを使うデモ（同じ頁を複数のカードが指す＝japan の 5 枚）
 for (const d of demos) { const e = entryOf(d.href); assert.ok(e, `demos.json: no entry page for ${d.id} (${d.href}) — add a rule to ENTRY`); (pages.get(e) ?? pages.set(e, []).get(e)).push(d); }
 
-test("demos.json の全カードが入口 HTML に辿り着く（33 枚・16 頁以上）", () => {
-	assert.equal(demos.length, 33);
+test("demos.json の全カードが入口 HTML に辿り着く（34 枚・16 頁以上）", () => {
+	assert.equal(demos.length, 34);
 	assert.ok(pages.size >= 16, `${pages.size} pages`);
 	for (const e of pages.keys()) assert.ok(existsSync(path.join(APPS, e)), `${e} missing`);
 });
