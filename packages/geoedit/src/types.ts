@@ -60,6 +60,7 @@ export interface EditorMap {
 	maxPitch?(): number; setMaxPitch?(deg: number | null): void;
 	zoomMin?(): number; setZoomMin?(z: number | null): void;
 	ellipsoidOn?(): boolean;
+	fitBounds?(bounds: [number, number, number, number], opts?: { padding?: number; maxZoom?: number }): unknown;   // 一覧の行から地物へ寄る（無いホスト＝寄らずに選ぶだけ）
 	view?: { center?: ArrayLike<number>; hash?: string; [k: string]: unknown };
 	gadget: {
 		contextmenu(opts?: { items?: MenuItems }): ContextMenuHandle;

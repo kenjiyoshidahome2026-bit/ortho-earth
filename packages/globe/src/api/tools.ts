@@ -138,6 +138,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 		// 専用の置き場（editdoc＝単独 geoedit の自動保存とは別）へ保存し、次に開いた時も続きから。編集＝geoedit に渡して部品として開き、
 		// 右端の「×」（かこのボタン）で結果を受け取り置き換える。?g= で開いた時は ?g= が勝つ（前回分は復元しない＝上書きされる）
 		let doc: { buf: ArrayBuffer; name: string } | null = null;   // { buf: GeoPBF の ArrayBuffer, name（.geopbf） }
+		const editorOpts = (opts as { editor?: Record<string, unknown> } | undefined)?.editor ?? {};   // エディタへ渡す持ち主の注入（例 table＝地物一覧の表・2026-10-24）
 		const asGeopbf = (name: string | undefined) => String(name || "edit").replace(/\.[^./]+$/, "") + ".geopbf";   // 中身は GeoPBF＝拡張子で変換を誤らせない
 		live.editDocHook = (pbf, name, persist) => {
 			if (!pbf) { doc = null; editDocClear(); return; }
@@ -151,7 +152,7 @@ export function installTools(map: Installing<ToolsApi>, live: ToolsLive, {
 			loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false, persist: "keep" });
 		});
 		return editGadget.call(m, {
-			mount: ({ onClose }) => { live.annoCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
+			mount: ({ onClose }) => { live.annoCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); return map.gadget.geoedit({ ...editorOpts, data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
 			onResult: async buf => {
 				if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false, persist: "save" });
 				else { live.annoCtl?.clear(); live.modelCtl?.clearExtrude(); clearImages(); gint.clearUserGint(); live.editDocHook!(null); }   // 全部消して戻った＝編集中の図形も空へ

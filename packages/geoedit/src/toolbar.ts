@@ -2,6 +2,7 @@
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
 import { styleForm } from "./styleform.ts";
+import { addFold } from "./fold.ts";
 import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import type { Toolbar } from "./types.ts";
 const t = tr();
@@ -25,6 +26,7 @@ const ICONS: Record<string, string> = {
 	exp: S('<path d="M12 3v11m0 0l-3.5-3.5M12 14l3.5-3.5"/><path d="M4 15v5h16v-5"/>'),   // 書出＝下向き矢印（受け皿へ落とす＝「そっちの方が感覚が合う」本人裁定 9/15）
 	cloud: S('<path d="M7 17a4 4 0 1 1 .7-7.95A5.5 5.5 0 0 1 18.5 10 3.5 3.5 0 0 1 18 17z"/><path d="M12 21v-7m0 0l-2.5 2.5M12 14l2.5 2.5"/>'),
 	close: S('<path d="M6 6l12 12M18 6L6 18"/>'),
+	list: S('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.3"/><circle cx="4.5" cy="12" r="1.3"/><circle cx="4.5" cy="18" r="1.3"/>'),   // 一覧＝箇条（2026-10-24）
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -37,6 +39,7 @@ export interface ToolbarApi {
 	importFile(file: File): unknown;
 	exportOpen(): unknown;
 	cloudOpen?: (() => unknown) | null;
+	listOpen?: (() => unknown) | null;
 	close?: (() => unknown) | null;
 	clearAll(): unknown;
 }
@@ -100,6 +103,7 @@ export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSigna
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files![0]) api.importFile(file.files![0]); file.value = ""; }, { signal });
 	el.append(file);
+	if (api.listOpen) btn("list", t("Feature list (search attributes)"), () => api.listOpen!());   // ホストが表（common/bigtable）を注入した時だけ
 	btn("exp", t("Export (10 formats)"), () => api.exportOpen());
 	if (api.cloudOpen) btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen!());   // ホストがクラウド保存パネルを注入した時だけ
 	btn("trash", t("Clear all (new session)"), () => api.clearAll());
@@ -108,6 +112,7 @@ export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSigna
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
 	let panel: HTMLDivElement | null = null;
+	const symFold = { min: true };   // 既定スタイルの畳み（ツールを替えても引き継ぐ・PC では効かない）
 	const GEOM: Record<string, string> = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", free: "LineString", rect: "Polygon", circle: "Polygon" };
 	const TITLE: Record<string, string> = { point: t("Point style (next point)"), text: t("Text (next label)"), line: t("Line style (next line)"), polygon: t("Polygon style (next polygon)"), free: t("Line style (freehand)"), rect: t("Polygon style (rectangle)"), circle: t("Polygon style (circle)") };
 	const symPanel = (t: string): void => {
@@ -115,7 +120,10 @@ export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSigna
 		if (!GEOM[t]) return;
 		panel = document.createElement("div");
 		panel.className = "ge-panel";
-		panel.innerHTML = `<h3>${TITLE[t]}</h3>`;
+		const head = Object.assign(document.createElement("div"), { className: "ge-head" });
+		head.append(Object.assign(document.createElement("h3"), { textContent: TITLE[t] }));
+		panel.append(head);
+		addFold(panel, head, symFold);   // スマホ＝最初は畳む（地図を先に見せる・common/panel と同じ）
 		styleForm(panel, {
 			geomType: GEOM[t],
 			variant: t === "text" ? "text" : t === "point" ? "symbol" : undefined,
