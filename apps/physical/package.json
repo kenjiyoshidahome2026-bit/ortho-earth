@@ -1,0 +1,22 @@
+{
+	"name": "physical",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Landforms of the World: mountains, rivers, lakes and more with their physical measures. Served at www.ortho-earth.com/globe/physical through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/globe": "*",
+		"common": "*",
+		"geopbf": "*",
+		"world-data": "*"
+	}
+}

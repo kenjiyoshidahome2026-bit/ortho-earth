@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["clock-page.ts", "clock.ts", "clock-zones.ts", "env.d.ts"]
+}

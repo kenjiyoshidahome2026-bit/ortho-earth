@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["splat-page.ts", "splat.ts", "env.d.ts"]
+}
