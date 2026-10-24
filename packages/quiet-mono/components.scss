@@ -476,7 +476,7 @@
 /* 中央の大見出し：章の頭・作品の要所（字間を広げて静かに入る） */
 #scene-titles .st-center {
 	inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
-	background: radial-gradient(ellipse at center, rgba(0,0,0,.32), transparent 62%);
+	background: radial-gradient(ellipse 40% 24% at center, rgba(0,0,0,.14), transparent);
 	transform: scale(.985);
 	.st-box { max-width: 84cqw; }
 	.st-t { font-size: 8.6cqh; letter-spacing: .08em; }
@@ -496,9 +496,9 @@
 }
 /* 出典の焼き込み（台本 credit）＝画角の左下・小さく常時 */
 #scene-titles .st-credit {
-	position: absolute; left: 2.2cqh; bottom: 1.6cqh; max-width: 80cqw;
-	font: 500 1.75cqh/1.3 var(--qm-font); letter-spacing: .03em; color: rgba(255,255,255,.88);
-	text-shadow: 0 0 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	position: absolute; left: 2.2cqh; bottom: 1.8cqh; max-width: 80cqw; padding: .35cqh 1.1cqh; border-radius: .7cqh;
+	background: rgba(10,14,22,.42); font: 500 1.75cqh/1.3 var(--qm-font); letter-spacing: .03em; color: rgba(255,255,255,.92);
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 開幕・終幕カード（台本 opening / ending）＝黒の上に題・副題・作者（溶明→静止→溶暗＝titles.ts の CARD_FADE と同じ .8s） */
 #scene-cards .st-card {
@@ -880,6 +880,11 @@
 	}
 	:is(.qm, #map).demo-live #demo-bar { display: none !important; }   /* .on/.playing より強く＝バーは一切出さない */
 	:is(.qm, #map).demo-live #demo-btn { order: -1; }   /* 独りになったら最上段へ（他は opacity:0 で席だけ残るため） */
+}
+/* --- 上映の素モード（?scene= ・ドロップ・エディタの試写/上映/録画）：#map.scene-clean＝画面幅を問わず家具が退場＝録画に写るのは地図と字幕と出典だけ
+   （2026-10-24）。#attr は残す（出典）。読み込み中の小札（#plateau-toast・#elev-toast）も消す＝絵の上に UI を焼かない */
+:is(.qm, #map).scene-clean :is(#chips, #search-list, #hint, #log, #pos, #scale, #gadgets, #plateau-toast, #elev-toast) {
+	opacity: 0 !important; pointer-events: none !important;
 }
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：右上=日時計（1秒針）。
    出典は #attr 一枚に統合済（2026-09-03）＝文面だけアプリ側が星空版へ差し替える。

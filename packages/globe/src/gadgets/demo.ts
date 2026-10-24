@@ -302,6 +302,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 		}
 		if (!scenes!.length) { console.warn("[demo] no script; start aborted (player mounts must pass opts.scenes)"); return; }   // 空のまま start＝無害に断る
 		bareLive = !!opts.bare;
+		mapEl.classList.toggle("scene-clean", bareLive);   // 素モード＝家具を退場（録画に UI を焼かない・quiet-mono .scene-clean）
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		if (!bareLive && btn) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }   // 素モードは▶を触らない（バー/ボタンを出さない）
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes!.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean) as string[], preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
@@ -322,7 +323,7 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	};
 	const exit = (reason: "finished" | "stopped" = "stopped") => {   // reason："finished"=走破（next が渡す）／"stopped"=Esc・▶・exit() 直叩き（API/テスト）
 		const wasOn = on();   // 実際に上映が立っていた時だけ終演イベント＝多重 exit は無音
-		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
+		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live", "scene-clean"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
 		if (btn) { btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo")); }
 		bareLive = false;   // 素モード解除（次の入り口が改めて設定）
