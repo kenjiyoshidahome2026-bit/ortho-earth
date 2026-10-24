@@ -1,6 +1,6 @@
 // node の検定：色表・値の詰め（R8／RGBA8）・置き方（origin/size/orientation・transform）・DDA（CPU 版）・prepare・plugin の形と手綱（偽の map＝描き手へ届く message）。描画は t-pvoxel（verify:ui）
-import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT } from "../src/index.ts";
-import { drawBounds, isEmpty, centerDist, pickedCell, hitOf } from "../src/voxel-gl.ts";
+import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, defaultBudgetMB } from "../src/index.ts";
+import { drawBounds, isEmpty, centerDist, pickedCell, hitOf, planLevels, cellOf } from "../src/voxel-gl.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -212,10 +212,48 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	ok("time.badOpt", throws(() => h.setProps({ time: "now" }), /time/));
 	h.remove(); ok("time.unsub", subs.tick.size === 0 && subs.change.size === 0);
 }
+// ---- LoD（GPU の予算・第 5 段 ③） ----
+{
+	ok("lod.dims", levelDims([5, 4, 1], 2).join() === "3,2,1" && levelDims([300, 8, 4], 4).join() === "75,2,1");
+	ok("lod.count", levelCount([300, 8, 4], 1, 5000) === 1 && levelCount([300, 8, 4], 1, 1e9) === 0 && levelCount([300, 8, 4], 1, null) === 0 && levelCount([8, 8, 8], 1, 100) === 2 && levelCount([512, 512, 512], 4, 1) === LOD_MAX);
+	const d3 = downsample(new Uint8Array([10, 0, 30]), [3, 1, 1], 1);
+	ok("lod.down.odd", d3.dims.join() === "2,1,1" && d3.tex.join() === "10,30", d3.tex.join());   // 空は平均に入れない・端の奇数は一つで
+	const c8 = new Uint8Array(8).fill(100); c8[0] = 0; c8[7] = 40;
+	ok("lod.down.mean", downsample(c8, [2, 2, 2], 1).tex.join() === String(Math.round((100 * 6 + 40) / 7)) && downsample(new Uint8Array(8), [2, 2, 2], 1).tex[0] === 0);
+	const rg = new Uint8Array(16); rg.set([200, 0, 0, 255, 0, 0, 0, 0, 0, 100, 0, 128, 0, 0, 0, 0]);
+	ok("lod.down.rgba", downsample(rg, [4, 1, 1], 4).tex.join() === "200,0,0,255,0,100,0,128");
+	ok("lod.pyramid", JSON.stringify(pyramid([new Uint8Array(64).fill(5)], [4, 4, 4], 1, 2).map(l => [l.s, l.dims, l.frames[0].length, l.frames[0][0]])) === JSON.stringify([[2, [2, 2, 2], 8, 5], [4, [1, 1, 1], 1, 5]]));
+	// 一枚の格子＝粗い段は own が元の格子の 1/s（奇数の端は半端）・box の A は s 倍
+	const g1 = prepareGrid({ dims: [5, 4, 4], box: { origin: [139.76, 35.68, 0], size: [5, 4, 4] }, values: new Float32Array(80).fill(1) }, { lodBytes: 40 });
+	const l1 = g1.lods?.[0];
+	ok("lod.single", g1.bricks === null && g1.lods?.length === 2 && l1.s === 2 && l1.dims.join() === "3,2,2" && l1.off.join() === "0,0,0" && l1.own.join() === "0,0,0,2.5,2,2" && near(l1.A[0], g1.A[0] * 2) && l1.anchor.join() === g1.anchor.join(), JSON.stringify(g1.lods?.map(l => [l.s, l.dims, l.own])));
+	ok("lod.none", prepareGrid({ dims: [5, 4, 4], box: { origin: [0, 0, 0], size: [1, 1, 1] }, values: new Float32Array(80) }).lods === null);
+	// ブリック＝ブリックごとの粗い段・継ぎ目は粗い段でも隙間なし
+	const NX = 300, val = new Float32Array(NX * 8 * 4); for (let i = 0; i < val.length; i++) val[i] = (i % NX) + 1;
+	const g = prepareGrid({ dims: [NX, 8, 4], box: { origin: [139.76, 35.68, 0], size: [300, 8, 4] }, values: val, range: [1, 300] }, { lodBytes: 5000 });
+	const L0 = g.bricks.map(b => b.lods?.[0]), q2 = v => 1 + Math.round((v - 1) / 299 * 254);
+	ok("lod.bricks", g.bricks.length === 3 && L0.every(l => l && l.s === 2) && L0[0].off.join() === "0,0,0" && L0[0].own.join() === "0,0,0,63,4,2" && L0[1].off.join() === "62,0,0" && L0[1].own.join() === "1,0,0,64,4,2" && L0[2].own.join() === "1,0,0,25,4,2", JSON.stringify(L0.map(l => [l.off, l.dims, l.own])));
+	ok("lod.seams", L0.every((l, i) => i === 0 || l.off[0] + l.own[0] === L0[i - 1].off[0] + L0[i - 1].own[3]));
+	const pz = pyramid([quantize(val, [1, 300], undefined, null)], [NX, 8, 4], 1, 1)[0].frames[0];   // 粗い段のブリック＝格子全体を縮めてから切った物
+	ok("lod.values", L0[1].tex[0] === pz[62] && L0[1].tex[1] === pz[63] && L0[1].tex[1 + 65] === pz[63 + 150] && pz[63] === Math.round((q2(127) + q2(128)) / 2), `${L0[1].tex[1]} ${pz[63]}`);
+	ok("lod.bricks.region", prepareGrid({ dims: [NX, 8, 4], region: [130, 30, 140, 31, 0, 1000], values: val }, { lodBytes: 5000 }).bricks.every(b => b.lods?.[0]?.geo?.shell instanceof Float32Array));
+	// 描く範囲・当たり（粗い段）
+	ok("lod.bounds", JSON.stringify(drawBounds({ dims: L0[1].dims, off: L0[1].off, own: L0[1].own, full: g.dims, clip: null, s: 2 })) === JSON.stringify({ lo: [1, 0, 0], hi: [64, 4, 2] })
+		&& JSON.stringify(drawBounds({ dims: L0[1].dims, off: L0[1].off, own: L0[1].own, full: g.dims, clip: [0, 0.5, 0, 1, 0, 1], s: 2 })) === JSON.stringify({ lo: [1, 0, 0], hi: [13, 4, 2] }));
+	const pc = pickedCell("big#1", { layer: "big", dims: L0[1].dims, off: L0[1].off, full: g.dims, s: 2 }, 1 + L0[1].dims[0] * (1 + 4 * 1));
+	ok("lod.pick", pc.layer === "big" && pc.cell.join() === "127,3,3" && pc.index === 127 + 300 * (3 + 8 * 3), JSON.stringify(pc));
+	ok("lod.cell", near(cellOf(g.A, null), 1, 1e-6) && near(cellOf(L0[0].A, null), 2, 1e-6));
+	// 割り振り＝予算の中で一番細かく・遠い方から粗く
+	const it = [{ dist: 10, cell: 1, bytes: [800, 100] }, { dist: 1000, cell: 1, bytes: [800, 100] }];
+	ok("lod.plan", planLevels(it, Infinity).join() === "0,0" && planLevels(it, 1000).join() === "0,1" && planLevels(it, 150).join() === "1,1" && planLevels([], 1).length === 0);
+	ok("lod.plan.cell", planLevels([{ dist: 100, cell: 10, bytes: [800, 100] }, { dist: 50, cell: 1, bytes: [800, 100] }], 1000).join() === "0,1");   // 近くても細かいセル（小さく見える）の方を粗く
+	ok("lod.plan.levels", planLevels([{ dist: 10, cell: 1, bytes: [800, 100, 10] }, { dist: 1e5, cell: 1, bytes: [800, 100, 10] }], 820).join() === "0,2");
+}
 // ---- plugin の形と手綱（偽の map） ----
 {
 	const p = voxelPlugin();
 	ok("plugin.shape", p.name === "voxel" && p.version === VERSION && p.provides.join() === "data.voxel" && typeof p.install === "function");
+	ok("plugin.badBudget", throws(() => voxelPlugin({ budget: 0 }), /budget/) && throws(() => voxelPlugin({ budget: "1" }), /budget/) && voxelPlugin({ budget: Infinity }).name === "voxel");
 	ok("plugin.badBackend", throws(() => voxelPlugin({ backend: "metal" }), /backend/) && voxelPlugin({ backend: "webgpu" }).name === "voxel");
 	const reg = new Map(), map = { registry: { dataKinds: { add: (k, v) => reg.set(k, v), remove: k => reg.delete(k) } } };
 	const un = p.install(map);
@@ -227,6 +265,7 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	const data = { dims: [2, 2, 2], box: { origin: [139.76, 35.68, 0], size: [10, 10, 10] }, values: new Float32Array([0, 1, 2, 3, 4, 5, 6, 7]) };
 	const h = createVoxel(fake, data, { id: "v1", render: "blocks", colormap: "grey", opacity: 0.5, properties: { name: "x" } });
 	await h.ready;
+	ok("handle.budget", posts[0][0].type === "budget" && posts[0][0].bytes === defaultBudgetMB() * 2 ** 20 && defaultBudgetMB() === 512, JSON.stringify(posts[0][0])); posts.shift();   // オーバーレイを立てた時に一度
 	const [body, tr] = posts[0];
 	ok("handle.ready", h.n === 8 && h.dims.join() === "2,2,2" && h.reader === "main" && h.range.join() === "0,7" && h.anchor[0] === 139.76 && h.kind === "voxel" && h.backend === null && h.error === null && h.shape === "box", `${h.n} ${h.reader} ${h.range}`);
 	ok("handle.post", body.type === "layer" && body.q === "v1" && body.shape === "box" && body.geo === null && body.mode === 0 && body.comps === 1 && body.tex.length === 8 && body.cmap.length === 1024 && body.opacity === 0.5 && body.alt === "relative" && body.depthTest === true && body.properties.name === "x" && body.on === true && body.clip === null && Array.isArray(tr) && tr.length >= 2, JSON.stringify({ ...body, tex: body.tex.length, cmap: body.cmap.length, A: Array.from(body.A).map(v => +v.toFixed(2)) }));

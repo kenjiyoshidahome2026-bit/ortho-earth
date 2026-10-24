@@ -5,7 +5,7 @@
 // 描き方＝voxel-gl.ts と同じ数式（箱／殻の裏面＋FS の光線行進・DDA／三線形合成／等値面・断面・シーンの深度で切る）。3D テクスチャ＝r8unorm か rgba8unorm（filterable）。
 // 当たり＝番号を r32uint に焼く別パス（scissor で読む画素だけ）→ buffer へ写して mapAsync（非同期＝pick は Promise）。
 import type { OverlayFrameApi } from "@ortho-earth/globe";
-import type { VoxelMessage, VoxelLayerBody, VoxelPickResult, VoxelAltitude, CamState, VoxelApi, PickContext, OverlayHost } from "./voxel-gl.ts";
+import type { VoxelMessage, VoxelLayerBody, LevelBody, VoxelPickResult, VoxelAltitude, CamState, VoxelApi, PickContext, OverlayHost } from "./voxel-gl.ts";
 import type { GeoGrid, Clip } from "./grid.ts";
 
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, VERTEX: 0x20, UNIFORM: 0x40, STORAGE: 0x80 } as const;
@@ -195,7 +195,11 @@ interface Layer {
 	tex: GPUTexture; cmap: GPUTexture; vb: GPUBuffer; nVerts: number; ub: GPUBuffer; bg: GPUBindGroup | null; bgDep: GPUTexture | null;
 	on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
-	/** こまごとのテクスチャ（一つなら [tex]）・見せているこま */ texs: GPUTexture[]; frame: number;
+	/** 見せているこま・段（voxel-gl.ts と同じ）＝GPU には描く段の見せるこまの一枚だけ */ frame: number; lv: number; s: number; levels: Lvl[]; cell: number; fullFine: [number, number, number];
+}
+interface Lvl {
+	s: number; dims: [number, number, number]; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; anchor: [number, number, number]; A: Float64Array; Ainv: Float64Array; radius: number;
+	nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null; vb: GPUBuffer; nVerts: number; frames: Uint8Array[]; tex: GPUTexture | null; up: number; bytes: number;
 }
 export interface VoxelGpuModule {
 	init(canvas: OffscreenCanvas, opts: { depth?: boolean }, host: OverlayHost | null): Promise<void>;
@@ -231,9 +235,9 @@ const stepsOf = (L: Layer): { step: number; maxSteps: number } => {
 };
 const align256 = (v: number): number => Math.ceil(v / 256) * 256;
 // ブリック（第 5 段）＝voxel-gl.ts の drawBounds／isEmpty／centerDist／pickedCell と同じ（依存ゼロ＝写し）
-type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null };
+type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; s?: number };
 function drawBounds(L: BrickLike): { lo: number[]; hi: number[] } | null {
-	const dims = L.full && L.off && L.own ? L.full : L.dims, c = { lo: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2] : 0) * dims[i]), hi: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2 + 1] : 1) * dims[i]) };
+	const s = L.s ?? 1, dims = L.full && L.off && L.own ? [L.full[0] / s, L.full[1] / s, L.full[2] / s] : L.dims, c = { lo: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2] : 0) * dims[i]), hi: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2 + 1] : 1) * dims[i]) };
 	if (!L.full || !L.off || !L.own) return c;
 	const lo = [0, 1, 2].map(i => Math.max(L.own![i], c.lo[i] - L.off![i])), hi = [0, 1, 2].map(i => Math.min(L.own![3 + i], c.hi[i] - L.off![i]));
 	return lo.every((v, i) => v < hi[i]) ? { lo, hi } : null;
@@ -245,16 +249,29 @@ function centerDist(L: { dims: [number, number, number]; A: ArrayLike<number>; o
 	else { const o = L.off ?? [0, 0, 0], m = [0, 1, 2].map(i => o[i] + L.dims[i] / 2), A = L.A; c = [0, 1, 2].map(r => A[r * 3] * m[0] + A[r * 3 + 1] * m[1] + A[r * 3 + 2] * m[2]); }
 	return Math.hypot(enu[0] - c[0], enu[1] - c[1], enu[2] - c[2]);
 }
-function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null }, index: number): { layer: string; index: number; cell: [number, number, number] } {
+function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null; s?: number }, index: number): { layer: string; index: number; cell: [number, number, number] } {
 	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny));
 	if (!L.off || !L.full) return { layer: L.layer ?? q, index, cell: [i, j, k] };
-	const cell: [number, number, number] = [i + L.off[0], j + L.off[1], k + L.off[2]];
+	const s = L.s ?? 1, f = (v: number, a: number): number => s === 1 ? v : Math.min(L.full![a] - 1, Math.floor((v + 0.5) * s));
+	const cell: [number, number, number] = [f(i + L.off[0], 0), f(j + L.off[1], 1), f(k + L.off[2], 2)];
 	return { layer: L.layer ?? q, index: cell[0] + L.full[0] * (cell[1] + L.full[1] * cell[2]), cell };
+}
+const cellOf = (A: ArrayLike<number>, geo: GeoGrid | null): number => geo ? Math.min(...geo.cellM) : Math.min(...[0, 1, 2].map(c => Math.hypot(A[c], A[3 + c], A[6 + c])));
+function planLevels(items: ReadonlyArray<{ dist: number; cell: number; bytes: readonly number[] }>, budget: number): number[] {   // voxel-gl.ts planLevels の写し
+	if (!items.length) return [];
+	const g = items.map(it => Math.log2(Math.max(1e-9, it.dist) / Math.max(1e-9, it.cell)));
+	const at = (x: number): number[] => items.map((it, i) => Math.min(it.bytes.length - 1, Math.max(0, Math.floor(x + g[i]))));
+	const total = (lv: number[]): number => lv.reduce((a, l, i) => a + items[i].bytes[l], 0);
+	let lo = -Math.max(...g) - 1, hi = -Math.min(...g) + 9;
+	const fine = at(lo); if (total(fine) <= budget) return fine;
+	const coarse = at(hi); if (total(coarse) > budget) return coarse;
+	for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (total(at(m)) <= budget) hi = m; else lo = m; }
+	return at(hi);
 }
 
 export function create(): VoxelGpuModule {
 	let device: GPUDevice | null = null, ctx: GPUCanvasContext | null = null, host: OverlayHost | null = null, format: GPUTextureFormat = "rgba8unorm";
-	let shared = false, wantDepth = false, dead = false;
+	let shared = false, wantDepth = false, dead = false, budget = Infinity;
 	let drawPipe: GPURenderPipeline | null = null, pickPipe: GPURenderPipeline | null = null, layout: GPUBindGroupLayout | null = null, sampler: GPUSampler | null = null, dummyDep: GPUTexture | null = null, boxVb: GPUBuffer | null = null;
 	let pickTex: GPUTexture | null = null, pickW = 0, pickH = 0;
 	const layers = new Map<string, Layer>(), probes: unknown[] = [];
@@ -310,29 +327,56 @@ export function create(): VoxelGpuModule {
 		ctx = c;
 	}
 	const upCmap = (t: GPUTexture, cmap: Uint8Array): void => { device!.queue.writeTexture({ texture: t }, cmap, { bytesPerRow: 1024 }, [256, 1]); };
-	function build(d: VoxelLayerBody, q: string): Layer {
-		const [nx, ny, nz] = d.dims, max3d = device!.limits.maxTextureDimension3D || 256;
-		if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`voxel: dims ${d.dims.join("×")} exceed maxTextureDimension3D ${max3d}`);
-		const mk = (data: Uint8Array, f: number): GPUTexture => {
-			const tex = device!.createTexture({ label: `voxel-${q}${f ? `@${f}` : ""}`, size: [nx, ny, nz], dimension: "3d", format: d.comps === 4 ? "rgba8unorm" : "r8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
-			device!.queue.writeTexture({ texture: tex }, data, { bytesPerRow: nx * d.comps, rowsPerImage: ny }, [nx, ny, nz]);
-			return tex;
-		};
-		const texs = (d.frames?.length ? d.frames : [d.tex]).map(mk), frame = Math.min(texs.length - 1, Math.max(0, d.frame ?? 0)), tex = texs[frame];
-		const cmap = device!.createTexture({ label: `voxel-cmap-${q}`, size: [256, 1], format: "rgba8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
-		upCmap(cmap, d.cmap);
-		const A = Float64Array.from(d.A as ArrayLike<number>), Ainv = inv3(A), nrm = new Float32Array(9), gradM = new Float32Array(9);
+	function mkLvl(b: LevelBody, q: string, region: boolean, single: boolean, comps: 1 | 4): Lvl {
+		const [nx, ny, nz] = b.dims, max3d = device!.limits.maxTextureDimension3D || 256;
+		if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`voxel: dims ${b.dims.join("×")} exceed maxTextureDimension3D ${max3d}`);
+		const A = Float64Array.from(b.A as ArrayLike<number>), Ainv = inv3(A), nrm = new Float32Array(9), gradM = new Float32Array(9);
 		for (let c = 0; c < 3; c++) { const l = Math.hypot(A[c], A[3 + c], A[6 + c]) || 1; nrm[c * 3] = A[c] / l; nrm[c * 3 + 1] = A[3 + c] / l; nrm[c * 3 + 2] = A[6 + c] / l; }
 		for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) gradM[c * 3 + r] = Ainv[c * 3 + r];
-		const geo = d.shape === "region" ? d.geo ?? null : null;
-		const vb = geo ? mkBuf(geo.shell, BUF.VERTEX, `voxel-shell-${q}`) : boxVb!, nVerts = geo ? geo.shell.length / 3 : 36;
-		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
-		return { q, shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, vb, nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255, texs, frame };
+		const geo = region ? b.geo ?? null : null;
+		const vb = geo ? mkBuf(geo.shell, BUF.VERTEX, `voxel-shell-${q}@${b.s}`) : boxVb!, nVerts = geo ? geo.shell.length / 3 : 36;
+		return { s: b.s, dims: [nx, ny, nz], off: single ? null : b.off, own: single ? null : b.own, anchor: b.anchor, A, Ainv, radius: b.radius || 0, nrm, gradM, geo, vb, nVerts, frames: b.frames?.length ? b.frames : [b.tex], tex: null, up: -1, bytes: nx * ny * nz * comps };
 	}
-	const drop = (L: Layer | undefined): void => { if (!L) return; for (const t of L.texs) t.destroy(); L.cmap.destroy(); L.ub.destroy(); if (L.vb !== boxVb) L.vb.destroy(); };
+	function useLevel(L: Layer, i: number): void {
+		const V = L.levels[i]; L.lv = i; L.s = V.s;
+		L.dims = V.dims; L.off = V.off; L.own = V.own; L.anchor = V.anchor; L.A = V.A; L.Ainv = V.Ainv; L.radius = V.radius; L.nrm = V.nrm; L.gradM = V.gradM; L.geo = V.geo; L.vb = V.vb; L.nVerts = V.nVerts;
+		L.full = V.off ? L.fullFine : null;
+	}
+	/** いまの段の見せるこまを GPU に（無ければ作る・こまが違えば上げ直す）。tex が変われば bind group を作り直す */
+	function ensure(L: Layer): void {
+		const V = L.levels[L.lv], f = Math.min(V.frames.length - 1, Math.max(0, L.frame)), [nx, ny, nz] = V.dims;
+		if (!V.tex) V.tex = device!.createTexture({ label: `voxel-${L.q}@${V.s}`, size: [nx, ny, nz], dimension: "3d", format: L.comps === 4 ? "rgba8unorm" : "r8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
+		if (V.up !== f) { device!.queue.writeTexture({ texture: V.tex }, V.frames[f], { bytesPerRow: nx * L.comps, rowsPerImage: ny }, [nx, ny, nz]); V.up = f; }
+		if (L.tex !== V.tex) { L.tex = V.tex; L.bg = null; }
+	}
+	const freeTex = (V: Lvl): void => { if (V.tex) { V.tex.destroy(); V.tex = null; V.up = -1; } };
+	function build(d: VoxelLayerBody, q: string): Layer {
+		const region = d.shape === "region", single = !d.off;
+		const levels = [mkLvl({ s: 1, off: d.off ?? [0, 0, 0], own: d.own ?? [0, 0, 0, ...d.dims], dims: d.dims, tex: d.tex, frames: d.frames ?? null, vmax: d.vmax ?? 255, anchor: d.anchor, A: d.A as Float64Array, radius: d.radius, geo: d.geo ?? null }, q, region, single, d.comps), ...(d.lods ?? []).map(b => mkLvl(b, q, region, false, d.comps))];
+		const cmap = device!.createTexture({ label: `voxel-cmap-${q}`, size: [256, 1], format: "rgba8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
+		upCmap(cmap, d.cmap);
+		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
+		const V = levels[0], fullFine = d.full ?? d.dims;
+		const L: Layer = { q, shape: region ? "region" : "box", dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+			tex: null as unknown as GPUTexture, cmap, vb: V.vb, nVerts: V.nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
+			frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
+		useLevel(L, 0);
+		return L;
+	}
+	const drop = (L: Layer | undefined): void => { if (!L) return; for (const V of L.levels) { freeTex(V); if (V.vb !== boxVb) V.vb.destroy(); } L.cmap.destroy(); L.ub.destroy(); };
+	/** 描く層の段を決めてテクスチャを揃え、予算を越えれば描かない層のテクスチャを捨てる（voxel-gl.ts settle と同じ） */
+	function settle(vis: Layer[]): void {
+		const lv = planLevels(vis.map(L => ({ dist: L.dist, cell: L.cell, bytes: L.levels.map(V => V.bytes) })), budget);
+		vis.forEach((L, i) => { if (L.lv !== lv[i]) useLevel(L, lv[i]); L.levels.forEach((V, k) => { if (k !== L.lv) freeTex(V); }); ensure(L); });
+		let used = 0; for (const L of layers.values()) for (const V of L.levels) if (V.tex) used += V.bytes;
+		if (used <= budget) return;
+		const on = new Set(vis);
+		for (const L of layers.values()) { if (on.has(L)) continue; for (const V of L.levels) if (V.tex) { used -= V.bytes; freeTex(V); } if (L.tex && !L.levels.some(V => V.tex === L.tex)) { L.tex = null as unknown as GPUTexture; L.bg = null; } if (used <= budget) return; }
+	}
 	function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 	function message(d: VoxelMessage): void {
 		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
+		if (d.type === "budget") { budget = d.bytes > 0 ? d.bytes : Infinity; host?.requestDraw?.(); return; }
 		if (!device) return;
 		if (d.type === "layer") {
 			drop(layers.get(d.q)); layers.delete(d.q);
@@ -341,7 +385,7 @@ export function create(): VoxelGpuModule {
 		}
 		else if (d.type === "style") {
 			const L = layers.get(d.q); if (!L) return;
-			if (d.frame != null && L.texs.length > 1) { L.frame = Math.min(L.texs.length - 1, Math.max(0, d.frame)); L.tex = L.texs[L.frame]; L.bg = null; }   // bind group は tex を抱える＝作り直す
+			if (d.frame != null) L.frame = Math.max(0, d.frame);   // 次に描く時に上げ直す（ensure）
 			if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
 			if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
 			if (d.cmap) upCmap(L.cmap, d.cmap);
@@ -418,7 +462,7 @@ export function create(): VoxelGpuModule {
 	}
 	function answerProbes(w: number, h: number): void {
 		if (!probes.length) return;
-		const ids = probes.splice(0), ls = [...layers].map(([q, L]) => ({ q, on: L.on, n: L.n, dims: L.dims, mode: L.mode, shape: L.shape, dist: +L.dist.toFixed(4), anchor: L.anchor, alt: L.alt }));
+		const ids = probes.splice(0), ls = [...layers].map(([q, L]) => ({ q, on: L.on, n: L.n, dims: L.dims, mode: L.mode, shape: L.shape, dist: +L.dist.toFixed(4), anchor: L.anchor, alt: L.alt, lv: L.lv, s: L.s, gpu: L.levels.reduce((a, V) => a + (V.tex ? V.bytes : 0), 0) }));
 		readCanvas(w, h).then(data => { for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: false, layers: ls, data: id === ids[ids.length - 1] ? data : data.slice() }); })
 			.catch(e => { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as { message?: string } | null)?.message || e) }); });
 	}
@@ -427,6 +471,7 @@ export function create(): VoxelGpuModule {
 		const d = api?.depth, dep = wantDepth && d ? { tex: d.gpuTexture(device), w: d.w, h: d.h, logCoef: d.logCoef } : null;
 		const vis: Layer[] = [];
 		for (const L of layers.values()) { if (!L.on || !L.n || isEmpty(L) || !drawBounds(L) || !place(L, s, api)) continue; vis.push(L); }
+		settle(vis);
 		vis.sort((a, b) => b.dist - a.dist);
 		const enc = device.createCommandEncoder({ label: "voxel-frame" });
 		const pass = enc.beginRenderPass({ label: "voxel-draw", colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
@@ -445,6 +490,7 @@ export function create(): VoxelGpuModule {
 		if (!(cx1 > cx0 && cy1 > cy0)) return null;
 		const vis: Layer[] = [];
 		for (const L of layers.values()) { if (!L.on || !L.n || isEmpty(L) || !drawBounds(L) || !place(L, ctx0.s, ctx0.api)) continue; vis.push(L); }
+		settle(vis);
 		vis.sort((a, b) => b.dist - a.dist);
 		const enc = device.createCommandEncoder({ label: "voxel-pick" });
 		const pass = enc.beginRenderPass({ colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
