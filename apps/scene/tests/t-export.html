@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- UI回帰：🎞 動画の書き出し（demo/export-video.ts・第3便 2026-10-24）。小さな台本を 320×180・5fps で 1 コマずつ焼き、
+<!-- UI回帰：🎞 動画の書き出し（export-video.ts・第3便 2026-10-24）。小さな台本を 320×180・5fps で 1 コマずつ焼き、
      MP4 の箱の並び（ftyp→mdat→moov）・標本数（＝総尺×fps）・avcC・進捗の呼び出しを見る。WebCodecs の符号器は実時間の callback＝realtime の頁。
      H.264 の符号器が無いブラウザでは ok:skipNoH264 だけ（素の Chromium 等）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}</style><title>t-export</title></head>
@@ -7,7 +7,7 @@
 <div id="sc-stage" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div id="sc-frame" style="position:relative;width:640px;height:360px"><div id="map"></div></div></div>
 <script>localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.ts";
+import orthoJapan from "@ortho-earth/regions/app";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	const map = await orthoJapan({ target: "#map", view: "#7/36/138" });
@@ -16,7 +16,7 @@ try {
 	const sup = typeof VideoEncoder !== "undefined" && (await VideoEncoder.isConfigSupported({ codec: "avc1.42001f", width: 320, height: 180, bitrate: 1e6, framerate: 5, avc: { format: "avc" } }).catch(() => ({}))).supported;
 	if (!sup) ok("skipNoH264", true);
 	else {
-		const { exportVideo } = await import("../demo/export-video.ts");
+		const { exportVideo } = await import("../export-video.ts");
 		const doc = { type: "scenes", opening: { title: "開幕", hold: 0.2 }, ending: "終", credit: "credit", scenes: [
 			{ title: "a", look: "lower", sub: "sub", view: "#8/35/139", hold: 0.6, orbit: 20 },
 			{ title: "b", fade: "#8/35.1/139.1", dissolve: true, travel: 0.4, hold: 0.4, look: "pin" } ] };

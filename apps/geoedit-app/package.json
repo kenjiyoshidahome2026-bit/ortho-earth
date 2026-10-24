@@ -1,0 +1,20 @@
+{
+	"name": "geoedit-app",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The geoedit page: a topological GeoPBF editor on the Japan map. Served at www.ortho-earth.com/japan/geoedit through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*",
+		"common": "*",
+		"geoedit": "*"
+	}
+}

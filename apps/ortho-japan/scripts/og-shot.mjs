@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SNS 共有カードの絵（1200×630）を実描画から撮る。生 CDP・実時間（headless の仮想時間は実 I/O と噛み合わない＝solar と同じ轍）。
-// 前提：撮る頁の dev サーバが動いていること（geoedit＝npm run dev・port 5188／独立のアプリ＝npm run dev -w <名前>・port は表）。使い方：node scripts/og-shot.mjs [ページ名…]
+// 前提：撮る頁の dev サーバが動いていること（npm run dev -w <名前>・port は表）。使い方：node scripts/og-shot.mjs [ページ名…]
 //   出力＝<頁の置き場>/public/og/<page>.jpg（head の og:image が指す先＝/japan/og/<page>.jpg・頁は 2026-10-24 から独立のアプリ apps/<名前>/）。トップ（index）は別撮りの public/ogp.jpg を使う
 // ⚠撮る前に UI（パネル・計器・ガジェット）を伏せる＝地球だけの一枚にする。ページごとの「待ち条件」は下の表。
 import { spawn } from "node:child_process";
@@ -12,7 +12,7 @@ import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BASE = port => process.env.OG_BASE || `http://localhost:${port}/japan`;
-const DIR = p => p === "geoedit" ? APP : path.join(APP, "..", p);   // 頁の置き場（geoedit はこの家・ほかは apps/<名前>/）
+const DIR = p => path.join(APP, "..", p === "geoedit" ? "geoedit-app" : p);   // 頁の置き場＝apps/<名前>/（geoedit は部品 packages/geoedit と名がぶつかる＝geoedit-app）
 const PORT = 9493;
 // ready＝この式が真になったら撮れる（データが載った合図）。view＝撮る視点（URL ハッシュ）
 const PAGES = {
@@ -22,7 +22,7 @@ const PAGES = {
 	terrain: { port: 5226, url: "/terrain.html",  view: "#5.2/36.5/138/30t/t=2026-10-13T03:00:00Z", ready: "window.__terrain && window.__terrain.items", wait: 25000 },   // 陸の塗り（Natural Earth）は 15〜30 秒で載る＝長めに待つ。z5.2＝陸の起伏と山の記号が出る寄り・t=＝日本の昼に固定（夜側だと灰色の球になる）
 	onsen:   { port: 5222, url: "/onsen.html",    view: "",                    ready: "window.__onsen && window.__onsen.items", wait: 12000 },
 	pointcloud: { port: 5224, url: "/pointcloud.html", view: "", ready: "window.__pointcloud && window.__pointcloud.handle", wait: 20000 },   // 熱海の見本（COPC）が出るまで
-	geoedit: { port: 5188, url: "/geoedit.html",  view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 12000 },
+	geoedit: { port: 5228, url: "/geoedit.html",  view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 12000 },
 };
 const HIDE = `for (const s of ["#sky-clock",".models-panel",".parks-panel",".tr-panel",".on-panel","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
 	document.querySelectorAll(s).forEach(e => e.style.display = "none");
