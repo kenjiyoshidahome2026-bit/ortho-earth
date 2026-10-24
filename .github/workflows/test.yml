@@ -22,3 +22,5 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      # i18n の門（各アプリの verify:i18n・1 秒）。2026-10-24：ortho-globe の build の頭のこの門が落ちたまま 4 回の deploy が止まった（hex の頁の辞書と globe の ui.json に同じキー）＝PR の時点で止める
+      - run: npm run verify:i18n
