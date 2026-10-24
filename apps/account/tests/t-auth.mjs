@@ -162,7 +162,9 @@ await t("有効 sid で /me は 200・でたらめ sid は 401", async () => {
 	const { sid } = await loginFlow(env);
 	eq((await call(env, "/me", { cookie: sid })).status, 200, "有効");
 	eq((await call(env, "/me", { cookie: "__Host-sid=garbage" })).status, 401, "でたらめ");
-	eq((await call(env, "/me")).status, 401, "Cookie 無し");
+	const anon = await call(env, "/me");
+	eq(anon.status, 401, "Cookie 無し");
+	eq(anon.headers.get("X-Content-Type-Options"), "nosniff", "全応答に nosniff（2026-10-24）");
 });
 await t("★期限切れセッションは 401", async () => {
 	const env = makeEnv();
