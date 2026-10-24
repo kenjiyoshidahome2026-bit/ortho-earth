@@ -10,7 +10,7 @@ localStorage.setItem("oj.hint", "closed");
 window.confirm = () => false;   // クラウド削除等の確認＝試験では常に「いいえ」（起動時の復元・全消去は confirm 廃止＝バナー）
 </script>
 <script type="module">
-import { createGeopbf } from "geopbf";
+import { createGeopbf, geopbf } from "geopbf";
 import { gcDistanceDeg, gcMidpoint } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.ts";
@@ -20,7 +20,7 @@ import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // japan の
 await setLang("ja");
 const initEditor = (m, o = {}) => initEditor0(m, { cloudPanel, ...o });
 
-const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const t = [], ok = (n, c, d) => t.push((c ? "ok:" : "NG:") + n + (!c && d ? "(" + String(d).replace(/\s+/g, "_") + ")" : ""));
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const C = () => document.getElementById("c");
@@ -488,6 +488,24 @@ try {
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();
 	ok("dialogDedupe", document.querySelectorAll(".ge-dialog").length === 1);
+	// ---- 書き出し 10 形式（2026-10-24 CZML・GeoParquet を追加）：各ボタンが空でないファイルを出す。GeoJSON/TopoJSON/CZML/GeoParquet は読み直して地物数が一致（TopoJSON は gint の無い pbf で無言の null だった＝geopbf encoder/topojson で修正）----
+	{
+		const files = [], orig = URL.createObjectURL;
+		URL.createObjectURL = b => { files.push(b); return orig.call(URL, b); };
+		const aClick = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () {};   // 実ダウンロードは止める（Blob の捕獲だけ）
+		const dlg = document.querySelector(".ge-dialog"), btns = [...dlg.querySelectorAll("button:not(.ge-icon-btn)")];
+		ok("exportFormats", btns.map(b => b.textContent).join() === "GeoPBF,GeoJSON,TopoJSON,FGB,KMZ,Shape,GML,GPX,CZML,GeoParquet", btns.map(b => b.textContent).join());
+		const got = {};
+		for (const b of btns) { const n = files.length; b.click(); for (let i = 0; i < 100 && files.length === n; i++) await sleep(50); got[b.textContent] = files[n]; }
+		URL.createObjectURL = orig; HTMLAnchorElement.prototype.click = aClick;
+		ok("exportAll", btns.every(b => got[b.textContent]?.size > 0), Object.entries(got).map(([k, f]) => `${k}=${f?.size}`).join());
+		const nf = m().feats.size;
+		for (const [k, ext] of [["GeoJSON", "geojson"], ["TopoJSON", "topojson"], ["CZML", "czml"], ["GeoParquet", "parquet"]]) {
+			const f = got[k];
+			let n = -1; try { const p = await geopbf(new File([f], "rt." + ext)); n = p?.length ?? -1; p?.destroy?.(); } catch (e) { console.error(e); }
+			ok("exportRoundtrip" + k, f?.name?.endsWith("." + ext) && n === nf, `${f?.name} ${n}/${nf}`);
+		}
+	}
 	document.querySelector(".ge-dialog")?.remove();
 
 	// ---- 全消去＝確認なしで即消去、左下バナー「元に戻す」で復帰 ----

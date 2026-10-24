@@ -100,7 +100,7 @@ export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSigna
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files![0]) api.importFile(file.files![0]); file.value = ""; }, { signal });
 	el.append(file);
-	btn("exp", t("Export (8 formats)"), () => api.exportOpen());
+	btn("exp", t("Export (10 formats)"), () => api.exportOpen());
 	if (api.cloudOpen) btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen!());   // ホストがクラウド保存パネルを注入した時だけ
 	btn("trash", t("Clear all (new session)"), () => api.clearAll());
 	// 部品として開かれた時だけ＝右端の「×」＝持ち主（japan）へ戻る（結果で持ち主の図形を置き換える）。単独起動は出さない
