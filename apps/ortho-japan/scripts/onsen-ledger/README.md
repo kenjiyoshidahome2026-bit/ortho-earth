@@ -34,7 +34,7 @@ node ledger-list.mjs               # 温泉一覧（source/onsen-list.csv）を�
 
 ## 出典とライセンス
 
-温泉一覧（source/onsen-list.csv・Kenji）・Wikipedia 日本語版（CC BY-SA 4.0）・Wikidata（CC0）・推定座標 © OpenStreetMap contributors（ODbL）／国土地理院 住所検索・会員宿 日本秘湯を守る会（https://www.hitou.or.jp/）。頁の案内板に同じ表記がある。
+温泉一覧（source/onsen-list.csv＝Wikipedia と、長年現地を巡った記録から編纂）・Wikipedia 日本語版（CC BY-SA 4.0）・Wikidata（CC0）・推定座標 © OpenStreetMap contributors（ODbL）／国土地理院 住所検索・会員宿 日本秘湯を守る会（https://www.hitou.or.jp/）。頁の案内板に同じ表記がある。
 
 ## 網の注意
 
