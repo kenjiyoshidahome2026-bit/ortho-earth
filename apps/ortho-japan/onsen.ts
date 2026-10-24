@@ -143,7 +143,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 		map.setFilter("on-sel", ["==", ["get", "id"], d?.k === "o" ? sel : ""]);
 		drawAnno();
 		const u = new URL(location.href); sel ? u.searchParams.set("o", sel) : u.searchParams.delete("o"); history.replaceState(null, "", u);
-		wikiFrame.close(); renderDetail(); list.mark();
+		wikiFrame.close(); renderDetail(); list.mark(); banzuke.mark();
 		if (!d || !fly) return;
 		const pts = d.k === "g" ? [...(d.poly || [d.c]), ...(membersOf.get(d.id) || []).map(m => byId.get(m)!.c)] : [d.c, ...(srcPos(d) ? [srcPos(d)!] : [])];
 		const bb = bboxOf(pts);
@@ -176,6 +176,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
 	P.body.innerHTML = `
 			<div class="detail" hidden></div>
+			<div class="bzb"><span>温泉番付</span><button type="button" data-bz="現代">現代</button><button type="button" data-bz="江戸">江戸</button></div>
 			<div class="tabs" role="tablist">
 				<button type="button" data-tab="layers" class="on">${esc(t("Layers"))}</button>
 				<button type="button" data-tab="list">${esc(t("List"))}</button>
@@ -267,21 +268,81 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	ol.onmouseover = e => { const li = (e.target as Element).closest("li"); map.setFilter("on-sel", ["match", ["get", "id"], [sel ?? "", li?.dataset.o ?? ""], true, false]); };
 	ol.onmouseleave = () => map.setFilter("on-sel", ["==", ["get", "id"], byId.get(sel!)?.k === "o" ? sel : ""]);
 
+	// ── 温泉番付（現代＝onsen-banzuke.ts で組む・江戸＝public/onsen-banzuke-edo.svg）。名を押すとその温泉を選ぶ＝地図・一覧と同じ select ──
+	// 番付の文言は日本語だけ（番付そのものが日本語の一枚もの＝26 言語の辞書に載せない・本人裁定 2026-10-24）
+	const prefCode = new Map(Object.entries(db.prefNames || {}).map(([c, v]) => [v.ja.replace(/[都府県]$/, ""), +c]));
+	const byPrefName = new Map(items.map(d => [`${d.p}:${d.n}`, d.id]));
+	const idOfRef = (r: string | null | undefined) => { if (!r) return null; const [p, n] = r.split(":"); return byPrefName.get(`${prefCode.get(p)}:${n}`) ?? null; };
+	const bzEl = document.createElement("div"); bzEl.className = "on-banzuke"; bzEl.hidden = true;
+	bzEl.innerHTML = `<style>${BZ_CSS}</style><div class="bh"><b></b><button type="button" class="x" aria-label="閉じる">×</button></div><div class="sv"></div>`;
+	mapEl.appendChild(bzEl);
+	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) bzEl.addEventListener(ev, e => e.stopPropagation());
+	const bzSv = bzEl.querySelector<HTMLElement>(".sv")!, bzSvg: Record<string, string> = {};
+	let bzMod: typeof import("./onsen-banzuke.ts") | null = null, bzKind: "現代" | "江戸" | null = null;
+	const narrow = () => matchMedia("(max-width:640px)").matches;
+	// 窓の大きさ＝地図の高さいっぱいに番付の縦横比で（PC は右の案内板の分を空ける）
+	const fitBanzuke = () => { if (bzEl.hidden) return; const H = mapEl.clientHeight - 12 - 40 - 34, W = mapEl.clientWidth - (narrow() ? 16 : 24 + 360);
+		bzEl.style.width = Math.max(160, Math.min(W, H * 190 / 258)) + "px"; };
+	const banzuke = {
+		async open(kind: "現代" | "江戸") {
+			if (bzKind === kind && !bzEl.hidden) return banzuke.close();
+			bzMod ||= await import("./onsen-banzuke.ts");
+			bzSvg[kind] ||= kind === "現代" ? bzMod.温泉番付()
+				: await fetch(import.meta.env.BASE_URL + "onsen-banzuke-edo.svg").then(r => { if (!r.ok) throw new Error("onsen-banzuke-edo.svg HTTP " + r.status); return r.text(); });
+			bzSv.innerHTML = bzSvg[kind].replace(/^<\?xml[^>]*>\s*/, "");
+			bzSv.querySelector("style")?.remove();   // SVG の .hover 規則は頁全体に効く＝窓の CSS（BZ_CSS）へ閉じ込める
+			bzSv.querySelectorAll(".hover").forEach(el => {
+				const id = idOfRef(bzMod!.番付の比定(kind, el.getAttribute("name") || ""));
+				if (id) { el.setAttribute("data-o", id); return; }
+				el.classList.add("nf"); const tt = el.querySelector("title"); if (tt) tt.textContent += "（地図上の温泉は不明）";
+			});
+			bzKind = kind; bzEl.querySelector("b")!.textContent = kind === "現代" ? "温泉番付（現代・日本温泉効能鑑）" : "温泉番付（江戸・諸國温泉効能鑑）";
+			bzEl.hidden = false; fitBanzuke(); banzuke.mark();
+		},
+		close() { bzEl.hidden = true; bzKind = null; banzuke.mark(); },
+		mark() {
+			panel.querySelectorAll<HTMLElement>("[data-bz]").forEach(b => b.classList.toggle("on", b.dataset.bz === bzKind));
+			bzSv.querySelectorAll("[data-o]").forEach(el => el.classList.toggle("on", el.getAttribute("data-o") === sel));
+		},
+	};
+	panel.querySelectorAll<HTMLElement>("[data-bz]").forEach(b => b.onclick = () => banzuke.open(b.dataset.bz as "現代" | "江戸").catch(e => console.warn("[onsen] banzuke", e)));
+	bzEl.querySelector<HTMLElement>(".x")!.onclick = () => banzuke.close();
+	bzSv.onclick = e => { const el = (e.target as Element).closest("[data-o]"); if (!el) return; select(el.getAttribute("data-o")!); if (narrow()) banzuke.close(); };   // スマホは窓が地図を覆う＝選んだら閉じて見せる
+	addEventListener("resize", fitBanzuke);
+	addEventListener("keydown", e => { if (e.key === "Escape" && !bzEl.hidden) banzuke.close(); });
+
 	apply();
 	// 共有 URL（?o=ID）の選択を復元
 	const o0 = new URLSearchParams(location.search).get("o");
 	if (o0 && byId.has(o0)) select(o0, { fly: !location.hash });
 
-	return { select, items, byId, inns, points, kyoFeats, srcFeats, get sel() { return sel; }, list };
+	return { select, items, byId, inns, points, kyoFeats, srcFeats, get sel() { return sel; }, list, banzuke };
 }
 
 function centerOf(ring: LonLat[]): LonLat { const bb = bboxOf(ring); return [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]; }
 const fmt = (v: number) => (+v).toLocaleString(getLang(), { maximumFractionDigits: v < 10 ? 1 : 0 });
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
+// 番付の窓：紙の色（#eec）の一枚を地図の左に。押せる名＝赤・不明の名＝薄く・選んだ温泉＝赤
+const BZ_CSS = `
+.on-banzuke{position:absolute;left:12px;top:12px;z-index:31;background:#eec;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.35);overflow:hidden;color:#444}
+.on-banzuke .bh{display:flex;align-items:center;gap:8px;height:34px;padding:0 6px 0 12px;box-sizing:border-box;border-bottom:1px solid rgba(0,0,0,.15)}
+.on-banzuke .bh b{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.on-banzuke .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(0,0,0,.2);background:transparent;color:#444;font-size:14px;line-height:1;cursor:pointer}
+.on-banzuke .sv svg{display:block;width:100%;height:auto}
+.on-banzuke [data-o]{cursor:pointer}
+.on-banzuke [data-o]:hover{fill:#a00;stroke:#000;stroke-width:.2}
+.on-banzuke .on{fill:#d7263d}
+.on-banzuke .nf{fill-opacity:.4;cursor:default}
+@media (max-width:640px){.on-banzuke{left:8px;top:8px}}`;
+
 // ── 意匠（quiet-mono のトークン＝#map の変数を使う＝terrain と同じ）──
 const CSS = `
 .on-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
+.on-panel .bzb{display:flex;align-items:center;gap:6px;margin:10px 0 0}
+.on-panel .bzb span{color:var(--qm-text-dim);font-size:12px;margin-right:auto}
+.on-panel .bzb button{font:inherit;font-size:12px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);border-radius:6px;padding:2px 12px;cursor:pointer}
+.on-panel .bzb button.on{background:var(--oe-on);color:var(--qm-ink);font-weight:700}
 .on-panel .tabs{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
 .on-panel .tabs button{flex:1;border:0;background:none;padding:6px 4px;font:inherit;color:var(--qm-text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .on-panel .tabs button.on{color:var(--qm-ink);font-weight:700;border-bottom-color:var(--qm-ink)}
