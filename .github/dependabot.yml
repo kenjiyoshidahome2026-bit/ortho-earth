@@ -19,3 +19,10 @@ updates:
     groups:
       dev-tooling:
         patterns: ["vite", "vite-*", "@vitejs/*", "wrangler", "miniflare", "typescript", "sass*"]
+      # react と react-dom は同じ版でないと react-dom が落ちる（#621・2026-10-24）＝一つの PR で上げる
+      react:
+        patterns: ["react", "react-dom"]
+    ignore:
+      # TypeScript 7（Go 版）は型検査の差（TS7022）と JS API（t-dts が使う ts.parseJsonConfigFileContent）の移行が要る＝別作業（#620・2026-10-24）
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
