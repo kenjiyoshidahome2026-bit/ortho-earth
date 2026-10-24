@@ -258,7 +258,79 @@ export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
 	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n, tex, cmap, anchor, A, radius, range, thr, placed, geo };
 }
-export const transferables = (p: Prepared): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : [])].filter((b, i, a) => a.indexOf(b) === i);
+export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : []),
+	...("bricks" in p && p.bricks ? p.bricks.flatMap(b => [b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : [])]) : [])].filter((b, i, a) => a.indexOf(b) === i);
+
+// ---- 大きな格子＝ブリック（第 5 段・2026-10-24）----
+//   一軸でも BRICK_LIMIT（WebGL2 の 3D テクスチャの最低保証）を越える格子は、持ち分 BRICK セル角のブリックに分けて別々のテクスチャにする。
+//   各ブリックのテクスチャは持ち分の前後に 1 セルずつ糊代（隣のセル）を足す＝三線形・等値面の勾配が継ぎ目で途切れない。描くのは持ち分（own）だけ＝体積が継ぎ目で二重に重ならない。
+//   box のブリック＝親と同じ錨と A（セル → 東北上 m）＋セルの位置ずれ off（描き手が A·off だけ動かす＝相対高さでも地形でブリックごとにずれない）。
+//   region のブリック＝経緯度高の部分の region（殻もそれぞれ）。当たり＝ブリックの番号 + off → 親の番号（描き手が full と off で戻す）。
+//   vmax＝ブリックの最大値（R8・RGBA は α）＝閾より下のブリックは描かない（空白飛ばしのブリック単位）。
+/** 一枚のテクスチャで描く格子の上限（各軸） */
+export const BRICK_LIMIT = 256;
+/** ブリックの持ち分（各軸のセル数）＝テクスチャは糊代を足して最大 BRICK + 2 */
+export const BRICK = 126;
+export interface Brick {
+	/** テクスチャの 0 番のセルの親の格子での位置 */ off: [number, number, number];
+	/** 描く範囲（テクスチャのセル座標）[x0, y0, z0, x1, y1, z1] */ own: [number, number, number, number, number, number];
+	dims: [number, number, number]; n: number; tex: Uint8Array; /** 最大値（R8 の 0〜255・RGBA は α） */ vmax: number;
+	anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
+}
+export interface PreparedGrid extends Prepared { /** 最大値（R8・RGBA は α） */ vmax: number; /** 分けた時のブリック（tex は空） */ bricks: Brick[] | null }
+/** 詰めた値の最大（R8 はそのまま・RGBA は α） */
+export function maxOf(tex: Uint8Array, comps: 1 | 4): number { let m = 0; for (let i = comps === 4 ? 3 : 0; i < tex.length; i += comps) if (tex[i] > m) { m = tex[i]; if (m === 255) break; } return m; }
+/** 分けるか（一軸でも上限を越える） */
+export const needsBricks = (dims: ArrayLike<number>, limit = BRICK_LIMIT): boolean => dims[0] > limit || dims[1] > limit || dims[2] > limit;
+/** 各軸の持ち分の区切り（[始め, 終わり) の並び） */
+export function brickSpans(n: number, brick = BRICK): Array<[number, number]> { const out: Array<[number, number]> = []; for (let a = 0; a < n; a += brick) out.push([a, Math.min(n, a + brick)]); return out; }
+/** 格子の部分（off から bd セル角）を写す（x が最速・成分は comps 個ずつ） */
+export function extract<T extends Float32Array | Uint16Array | Uint8Array>(values: T, dims: [number, number, number], comps: number, off: [number, number, number], bd: [number, number, number]): T {
+	const out = new (values.constructor as { new(n: number): T })(bd[0] * bd[1] * bd[2] * comps), row = bd[0] * comps;
+	for (let k = 0; k < bd[2]; k++) for (let j = 0; j < bd[1]; j++) {
+		const src = (off[0] + dims[0] * (off[1] + j + dims[1] * (off[2] + k))) * comps;
+		out.set(values.subarray(src, src + row), (bd[0] * (j + bd[1] * k)) * comps);
+	}
+	return out;
+}
+/** ブリックの番号（テクスチャの中）→ 親の格子の番号 */
+export function parentIndex(index: number, dims: ArrayLike<number>, off: ArrayLike<number>, full: ArrayLike<number>): { index: number; cell: [number, number, number] } {
+	const i = index % dims[0], j = Math.floor(index / dims[0]) % dims[1], k = Math.floor(index / (dims[0] * dims[1]));
+	const cell: [number, number, number] = [i + off[0], j + off[1], k + off[2]];
+	return { index: cell[0] + full[0] * (cell[1] + full[1] * cell[2]), cell };
+}
+/** prepare の大きな格子版＝上限を越えればブリックに分ける（越えなければ prepare と同じ＋vmax） */
+export function prepareGrid(data: unknown, o: PrepareOptions = {}, brick = BRICK, limit = BRICK_LIMIT): PreparedGrid {
+	const d = checkVoxelData(data), dims = d.dims;
+	if (!needsBricks(dims, limit)) { const p = prepare(d, o); return { ...p, vmax: maxOf(p.tex, p.comps), bricks: null }; }
+	const comps = d.components;
+	let range: [number, number] = [0, 1];
+	if (comps === 1) { range = o.range ?? d.range ?? valueRange(d.values, d.noData); if (!(range[0] < range[1])) throw new RangeError("plugin-voxel: range must be [min, max] with min < max"); }
+	// 親の置き方（錨・A・半径）＝box はブリックも同じ物を使う。region は部分の region を作り直す
+	let parent: Placement, pgeo: GeoGrid | null = null;
+	if (d.shape === "box") { if (!d.box) throw new TypeError("plugin-voxel: shape \"box\" needs box"); parent = placeBox(d.box, dims); }
+	else { if (!d.region) throw new TypeError("plugin-voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); parent = r; pgeo = r.geo; }
+	const sx = brickSpans(dims[0], brick), sy = brickSpans(dims[1], brick), sz = brickSpans(dims[2], brick), bricks: Brick[] = [];
+	let vmax = 0;
+	for (const [z0, z1] of sz) for (const [y0, y1] of sy) for (const [x0, x1] of sx) {
+		const lo = [x0, y0, z0], hi = [x1, y1, z1];
+		const off = [0, 1, 2].map(i => Math.max(0, lo[i] - 1)) as [number, number, number], end = [0, 1, 2].map(i => Math.min(dims[i], hi[i] + 1));
+		const bd = [0, 1, 2].map(i => end[i] - off[i]) as [number, number, number];
+		const sub = extract(d.values, dims, comps, off, bd);
+		const tex = comps === 4 ? toRgba8(sub, d.noData) : quantize(sub, range, d.noData, null);
+		const vm = maxOf(tex, comps); vmax = Math.max(vmax, vm);
+		const own: Brick["own"] = [lo[0] - off[0], lo[1] - off[1], lo[2] - off[2], hi[0] - off[0], hi[1] - off[1], hi[2] - off[2]];
+		let b: Brick;
+		if (pgeo) {
+			const g = pgeo, f = (i: number, v: number): number => v / dims[i];
+			const r = placeRegion([g.west + g.spanLon * f(0, off[0]), g.south + g.spanLat * f(1, off[1]), g.west + g.spanLon * f(0, end[0]), g.south + g.spanLat * f(1, end[1]), g.h0 + (g.h1 - g.h0) * f(2, off[2]), g.h0 + (g.h1 - g.h0) * f(2, end[2])], bd, o.rAx ?? 1);
+			b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, vmax: vm, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
+		} else b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, vmax: vm, anchor: parent.anchor, A: Float64Array.from(parent.A), radius: parent.radius, geo: null };
+		bricks.push(b);
+	}
+	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
+	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n: dims[0] * dims[1] * dims[2], tex: new Uint8Array(0), cmap, anchor: parent.anchor, A: parent.A, radius: parent.radius, range, thr: comps === 4 ? 0 : thrOf(o.threshold, range), placed: parent.placed, geo: null, vmax, bricks };
+}
 
 // ---- DDA（CPU 版＝GLSL と同じ手順・検定と当たりの参照）----
 export interface RayHit { cell: [number, number, number]; t: number; axis: 0 | 1 | 2 | -1; steps: number }

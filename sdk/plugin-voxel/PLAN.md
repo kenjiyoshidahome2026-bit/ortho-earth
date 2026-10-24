@@ -69,3 +69,9 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
   実装＝meshdecode `voxelPrim` → tiles3d-decode／model-worker → gadget tiles3d がタイルごとに `addData(kind "voxel")`（splat と同じ骨）。fixture 2 経路・node 15 件・`t-tiles3d-voxel`（verify:ui／verify:webgpu・noplugin）。
   踏んだ罠＝①`decodeTile3D` の「描く物なし＝null」の条件に voxels を足し忘れると層が立たない ②検定頁の配置（北東の箱が東の region の中に食い込んでいた）③面の陰影（0.55 倍）で色の判定が落ちる＝色相で判定。
 - [ ] 第 5 段（大きな格子＝ブリック・LoD・時間・NetCDF／Zarr）
+  - [x] ①ブリック（2026-10-24・0.3.0）＝一軸でも 256（WebGL2 の 3D テクスチャの最低保証）を越える格子は持ち分 126 セル角に分け、前後 1 セルの糊代つきで別々のテクスチャに（grid.ts `prepareGrid`）。
+    描き手には層 `id#0…` を送り（`layer`＝親の id・`off`＝テクスチャの 0 番の親での位置・`own`＝描く範囲・`full`＝親の dims・`vmax`）、box のブリックは親と同じ錨と A のまま A·off だけずらす（相対高さでもブリックごとに地形でずれない）。region は部分の region（殻もそれぞれ）。
+    奥から描く順＝中心の遠い順（目の距離は錨でなく中心から＝ブリックでも大きさの違う層でも重なりが正しい）。閾より下・空のブリックは描かない（ブリック単位の空白飛ばし）。断面は親の割合をブリックごとに持ち分と交わらせる。当たりは親の番号へ戻す。
+    直したこと＝全部外して（猶予の 250 ms も過ぎてから）同じ名前で立て直すと描き手が死んだまま（render worker は名前ごとにモジュールの実体を使い回す・voxel-draw.ts の dead が true のまま）＝init で状態を戻し世代で古い非同期を捨てる。第 3 段の罠②の本当の原因はこれ（猶予はそのまま残す）。
+    検定＝node（分け方・糊代・値・vmax・範囲・当たり・順・region の継ぎ目・手綱）・t-pvoxel ⑪（300×8×4＝3 枚・継ぎ目に隙間なし・当たり・断面・閾・立て直し）。
+  - [ ] ②LoD（GPU の予算を越える格子＝縮めた格子を遠くで・タッチ端末）・時間次元（`map.clock`）・NetCDF／Zarr の読み手
