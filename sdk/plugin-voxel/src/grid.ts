@@ -38,6 +38,8 @@ export interface Prepared {
 	anchor: [number, number, number]; /** セルの座標（0〜dims）→ 錨からの東北上 m（行優先 3×3・region は対角＝セルの大きさ） */ A: Float64Array; /** 錨から格子の最遠点まで（m） */ radius: number;
 	range: [number, number]; /** 空の判定の閾（R8 の 0〜1） */ thr: number; /** transform で置いた＝絶対高さ */ placed: boolean;
 	geo: GeoGrid | null;
+	/** 時間の次元（data.times）＝こまの時刻（ms）と、こまごとのテクスチャ（frames[0] は tex と同じ物）。こまが無ければ null */
+	times: number[] | null; frames: Uint8Array[] | null;
 }
 const D2R = Math.PI / 180, R_SPHERE = 6371000, R_ELL = 6378137, WGS_A = 6378137, WGS_E2 = 6.69437999014e-3;
 export type Mat3 = number[];
@@ -233,11 +235,17 @@ export function checkVoxelData(d: unknown): NormVoxel {
 	if (!v || typeof v !== "object" || !Array.isArray(v.dims) || v.dims.length !== 3 || !(v.values instanceof Float32Array || v.values instanceof Uint16Array || v.values instanceof Uint8Array)) throw new TypeError("plugin-voxel: data must be VoxelData (dims, values, box | region)");
 	const comps = (v.components ?? 1) as 1 | 4;
 	if (comps !== 1 && comps !== 4) throw new RangeError("plugin-voxel: components must be 1 | 4");
-	if (v.values.length !== v.dims[0] * v.dims[1] * v.dims[2] * comps) throw new RangeError(`plugin-voxel: values length ${v.values.length} != ${v.dims[0] * v.dims[1] * v.dims[2] * comps}`);
+	const T = v.times == null ? 1 : v.times.length;
+	if (v.times != null && (!(T >= 1) || !Array.from(v.times).every((x, i, a) => Number.isFinite(x) && (i === 0 || x > a[i - 1])))) throw new RangeError("plugin-voxel: times must be finite and strictly ascending (ms)");
+	if (v.values.length !== v.dims[0] * v.dims[1] * v.dims[2] * comps * T) throw new RangeError(`plugin-voxel: values length ${v.values.length} != ${v.dims[0] * v.dims[1] * v.dims[2] * comps * T}`);
 	const shape = v.shape ?? (v.box ? "box" : v.region ? "region" : undefined);
 	if (shape !== "box" && shape !== "region") throw new RangeError("plugin-voxel: shape must be box | region");
 	return { ...v, shape, components: comps };
 }
+/** こま t の値（times が無ければ全部）＝values の部分（写さない） */
+export function frameValues<T extends Float32Array | Uint16Array | Uint8Array>(values: T, n: number, comps: number, t: number): T { const k = n * comps; return values.subarray(t * k, (t + 1) * k) as T; }
+/** 時刻 ms → 見せるこま＝その時刻までで最後のこま（最初のこまより前は 0・最後より後は最後） */
+export function frameAt(times: ArrayLike<number>, ms: number): number { let lo = 0, hi = times.length - 1; if (!(ms >= times[0])) return 0; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= ms) lo = m; else hi = m - 1; } return lo; }
 /** 閾（データの単位）→ R8 の 0〜1 */
 export const thrOf = (threshold: number | null | undefined, range: [number, number]): number => threshold == null ? 0 : Math.min(1, Math.max(0, (threshold - range[0]) / (range[1] - range[0])));
 /** VoxelData → 描き手へ渡す物（worker で。配列は transfer できる物）。値は閾で切らない（閾は描き手が見る＝等値面は場の全体が要る） */
@@ -247,19 +255,19 @@ export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
 	if (d.shape === "box") { if (!d.box) throw new TypeError("plugin-voxel: shape \"box\" needs box"); place = placeBox(d.box, dims); }
 	else { if (!d.region) throw new TypeError("plugin-voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); place = r; geo = r.geo; }
 	const { anchor, A, radius, placed } = place;
-	let tex: Uint8Array, range: [number, number], thr = 0;
-	if (comps === 4) { tex = toRgba8(d.values, d.noData); range = [0, 1]; }
-	else {
+	let range: [number, number] = [0, 1], thr = 0;
+	if (comps === 1) {   // 色表の幅はこまを通して一つ（こまで色が変わらない）
 		range = o.range ?? d.range ?? valueRange(d.values, d.noData);
 		if (!(range[0] < range[1])) throw new RangeError("plugin-voxel: range must be [min, max] with min < max");
-		tex = quantize(d.values, range, d.noData, null);
 		thr = thrOf(o.threshold, range);
 	}
+	const T = d.times?.length ?? 1, frames: Uint8Array[] = [];
+	for (let t = 0; t < T; t++) { const v = T > 1 ? frameValues(d.values, n, comps, t) : d.values; frames.push(comps === 4 ? toRgba8(v, d.noData) : quantize(v, range, d.noData, null)); }
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
-	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n, tex, cmap, anchor, A, radius, range, thr, placed, geo };
+	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n, tex: frames[0], cmap, anchor, A, radius, range, thr, placed, geo, times: d.times ? Array.from(d.times) : null, frames: T > 1 ? frames : null };
 }
-export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : []),
-	...("bricks" in p && p.bricks ? p.bricks.flatMap(b => [b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : [])]) : [])].filter((b, i, a) => a.indexOf(b) === i);
+export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : []), ...(p.frames ?? []).map(f => f.buffer as ArrayBuffer),
+	...("bricks" in p && p.bricks ? p.bricks.flatMap(b => [b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : []), ...(b.frames ?? []).map(f => f.buffer as ArrayBuffer)]) : [])].filter((b, i, a) => a.indexOf(b) === i);
 
 // ---- 大きな格子＝ブリック（第 5 段・2026-10-24）----
 //   一軸でも BRICK_LIMIT（WebGL2 の 3D テクスチャの最低保証）を越える格子は、持ち分 BRICK セル角のブリックに分けて別々のテクスチャにする。
@@ -274,7 +282,7 @@ export const BRICK = 126;
 export interface Brick {
 	/** テクスチャの 0 番のセルの親の格子での位置 */ off: [number, number, number];
 	/** 描く範囲（テクスチャのセル座標）[x0, y0, z0, x1, y1, z1] */ own: [number, number, number, number, number, number];
-	dims: [number, number, number]; n: number; tex: Uint8Array; /** 最大値（R8 の 0〜255・RGBA は α） */ vmax: number;
+	dims: [number, number, number]; n: number; tex: Uint8Array; /** こまごとのテクスチャ（frames[0]＝tex）・こまが無ければ null */ frames: Uint8Array[] | null; /** 最大値（R8 の 0〜255・RGBA は α・こまを通して） */ vmax: number;
 	anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
 }
 export interface PreparedGrid extends Prepared { /** 最大値（R8・RGBA は α） */ vmax: number; /** 分けた時のブリック（tex は空） */ bricks: Brick[] | null }
@@ -302,7 +310,8 @@ export function parentIndex(index: number, dims: ArrayLike<number>, off: ArrayLi
 /** prepare の大きな格子版＝上限を越えればブリックに分ける（越えなければ prepare と同じ＋vmax） */
 export function prepareGrid(data: unknown, o: PrepareOptions = {}, brick = BRICK, limit = BRICK_LIMIT): PreparedGrid {
 	const d = checkVoxelData(data), dims = d.dims;
-	if (!needsBricks(dims, limit)) { const p = prepare(d, o); return { ...p, vmax: maxOf(p.tex, p.comps), bricks: null }; }
+	if (!needsBricks(dims, limit)) { const p = prepare(d, o); return { ...p, vmax: Math.max(...(p.frames ?? [p.tex]).map(f => maxOf(f, p.comps))), bricks: null }; }
+	const T = d.times?.length ?? 1, nAll = dims[0] * dims[1] * dims[2];
 	const comps = d.components;
 	let range: [number, number] = [0, 1];
 	if (comps === 1) { range = o.range ?? d.range ?? valueRange(d.values, d.noData); if (!(range[0] < range[1])) throw new RangeError("plugin-voxel: range must be [min, max] with min < max"); }
@@ -316,20 +325,21 @@ export function prepareGrid(data: unknown, o: PrepareOptions = {}, brick = BRICK
 		const lo = [x0, y0, z0], hi = [x1, y1, z1];
 		const off = [0, 1, 2].map(i => Math.max(0, lo[i] - 1)) as [number, number, number], end = [0, 1, 2].map(i => Math.min(dims[i], hi[i] + 1));
 		const bd = [0, 1, 2].map(i => end[i] - off[i]) as [number, number, number];
-		const sub = extract(d.values, dims, comps, off, bd);
-		const tex = comps === 4 ? toRgba8(sub, d.noData) : quantize(sub, range, d.noData, null);
-		const vm = maxOf(tex, comps); vmax = Math.max(vmax, vm);
+		const fr: Uint8Array[] = [];
+		for (let t = 0; t < T; t++) { const sub = extract(T > 1 ? frameValues(d.values, nAll, comps, t) : d.values, dims, comps, off, bd); fr.push(comps === 4 ? toRgba8(sub, d.noData) : quantize(sub, range, d.noData, null)); }
+		const tex = fr[0], frames = T > 1 ? fr : null;
+		const vm = Math.max(...fr.map(f => maxOf(f, comps))); vmax = Math.max(vmax, vm);
 		const own: Brick["own"] = [lo[0] - off[0], lo[1] - off[1], lo[2] - off[2], hi[0] - off[0], hi[1] - off[1], hi[2] - off[2]];
 		let b: Brick;
 		if (pgeo) {
 			const g = pgeo, f = (i: number, v: number): number => v / dims[i];
 			const r = placeRegion([g.west + g.spanLon * f(0, off[0]), g.south + g.spanLat * f(1, off[1]), g.west + g.spanLon * f(0, end[0]), g.south + g.spanLat * f(1, end[1]), g.h0 + (g.h1 - g.h0) * f(2, off[2]), g.h0 + (g.h1 - g.h0) * f(2, end[2])], bd, o.rAx ?? 1);
-			b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, vmax: vm, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
-		} else b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, vmax: vm, anchor: parent.anchor, A: Float64Array.from(parent.A), radius: parent.radius, geo: null };
+			b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, frames, vmax: vm, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
+		} else b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, frames, vmax: vm, anchor: parent.anchor, A: Float64Array.from(parent.A), radius: parent.radius, geo: null };
 		bricks.push(b);
 	}
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
-	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n: dims[0] * dims[1] * dims[2], tex: new Uint8Array(0), cmap, anchor: parent.anchor, A: parent.A, radius: parent.radius, range, thr: comps === 4 ? 0 : thrOf(o.threshold, range), placed: parent.placed, geo: null, vmax, bricks };
+	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n: dims[0] * dims[1] * dims[2], tex: new Uint8Array(0), cmap, anchor: parent.anchor, A: parent.A, radius: parent.radius, range, thr: comps === 4 ? 0 : thrOf(o.threshold, range), placed: parent.placed, geo: null, times: d.times ? Array.from(d.times) : null, frames: null, vmax, bricks };
 }
 
 // ---- DDA（CPU 版＝GLSL と同じ手順・検定と当たりの参照）----
