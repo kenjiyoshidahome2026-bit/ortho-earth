@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # ortho-japan の deploy が git diff で関門の範囲を決める（tag japan-deployed も一緒に来る）
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22   # engines ≥ 22.18（Mac の /usr/local/bin/node が古くても runner はこちらを使う）
           # cache: npm は付けない＝Mac の ~/.npm がそのまま効く。付けると毎回 1.3GB を GitHub のキャッシュへ上げ直す（run 39651871635 で 2.5 分）
