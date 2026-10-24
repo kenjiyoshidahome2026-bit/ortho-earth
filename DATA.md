@@ -53,7 +53,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 国旗 267・国の形 262・`sfx.zip`・ne-cities | `globe/` | world・world-quiz・世界帯 |
 | 地名検索の索引 `search/`（13,154 件） | `globe/` | エンジンの検索窓（10/13 まで本番は 404 だった） |
 | 宇宙：stars.6・星座線・メシエ・月の地名（.geopbf）と名前 | `globe/sky/` | solar・エンジンの星空・www の先読み |
-| 世界の人口（Kontur Population・H3 の r4 と r6・計 7.6MB）`h3/kontur-20231101/` | `globe/h3/`（10/14 に置いた・焼く＝`apps/ortho-globe/scripts/kontur-h3.mjs`→`--only=h3`） | /globe/hex |
+| 世界の人口（Kontur Population・H3 の r4 と r6・計 7.6MB）`h3/kontur-20231101/` | `globe/h3/`（10/14 に置いた・焼く＝`apps/hex/scripts/kontur-h3.mjs`→`--only=h3`） | /globe/hex |
 | Gaussian splat の見本（Niantic の .spz 2 シーン・MIT・3D Tiles の KHR_gaussian_splatting＋SPZ ＝ 52＋43 枚・掃除した 1 本ずつ・計 約 90MB・実物の 10 倍）`splat/<scene>/` | `globe/splat/`（焼く＝`apps/ortho-globe/scripts/splat-tiles.mjs`→`--only=splat`・2026-10-21） | /globe/splat |
 | アメリカの国立公園：`parks-us.json`・`parks-us.geopbf`・`nps-units.geopbf` | `us/` | /globe/parks |
 | 日本の頁の台帳：`parks.*`・`terrain.*`・`terrain.i18n/`・`onsen.json`（温泉一覧 4,566 行＋Wikipedia の温泉地＝約 5,200 件・1.6 MB）・`models.json` | `japan/` | /japan/parks・terrain・onsen・models（uploader も `models.json` を直読み） |
