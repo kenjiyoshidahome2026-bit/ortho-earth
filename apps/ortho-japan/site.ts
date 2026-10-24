@@ -5,6 +5,7 @@
 // SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
 import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";   // 起動画面を畳む＝正本（packages/globe/src/boot/screen.ts・全頁で 1 つ・2026-10-23）
 import type { ContextMenuItems } from "@ortho-earth/globe";   // 型だけ（初回の contextmenu() の戻り＝項目の setter）
+import { geoeditTable } from "./geoedit-table.ts";   // 編集の地物一覧の表（common/bigtable を一覧を開いた時に遅延 import）
 const engineP = import("./app.ts");
 const failedP = import("@ortho-earth/globe/page.js");   // 起動失敗の表示（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 // 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.tsは触らない。
@@ -39,7 +40,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.profile({ zoom: [6.5, 99] });
 	map.gadget.sunshadow({ zoom: [14, 99] });   // 日影（日影図＝冬至 8〜16 時の日影時間・その時刻の影）＝建物（PLATEAU）が立つ距離から（#44）
 	map.gadget.viewshed({ zoom: [14, 99] });    // 見える範囲（可視域・見通し線＝地形＋建物・地球の丸み込み）＝同上（#44）
-	map.gadget.edit({ zoom: [2.5, 99], narrow: false });   // GeoPBF 編集（ガジェット geoedit の入口）＝z>2.5 で出現・狭画面は出さない（PC の道具）   // 断面図（クリックで経路指定→標高プロファイル）＝同上（日本のDEMが前提）
+	map.gadget.edit({ zoom: [2.5, 99], editor: { table: geoeditTable } });   // GeoPBF 編集（ガジェット geoedit の入口）＝z>2.5 で出現。スマホでも出す（2026-10-24＝エディタがスマホ幅・長押しメニューに対応）。table＝地物一覧の表   // 断面図（クリックで経路指定→標高プロファイル）＝同上（日本のDEMが前提）
 	map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
 	map.gadget.print({ zoom: [6.5, 99] });     // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様）＝GSI基図が前提

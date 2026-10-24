@@ -13,7 +13,9 @@ localStorage.setItem("oj.hint", "closed");
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.ts";
-import { initEditor, setLang } from "geoedit";
+import { initEditor as initEditor0, setLang } from "geoedit";
+import { geoeditTable } from "../geoedit-table.ts";
+const initEditor = (m, o = {}) => initEditor0(m, { table: geoeditTable, ...o });
 await setLang("ja");
 
 const t = [], ok = (n, c, d) => t.push((c ? "ok:" : "NG:") + n + (!c && d ? "(" + String(d).replace(/\s+/g, "_") + ")" : ""));
@@ -51,6 +53,30 @@ try {
 	ok("panelOpen", editor.state.selection === 0 && !!pn);
 	ok("panelSheet", !!pr && pr.left <= 10 && pr.right >= innerWidth - 10 && pr.bottom > innerHeight * 0.8 && pr.height <= innerHeight * 0.5 + 1, pr && `${pr.left},${pr.top},${pr.right},${pr.bottom}`);
 	ok("panelBelowToolbar", !!pr && pr.top >= tr.bottom, pr && `${pr.top}<${tr.bottom}`);
+
+	// ---- 畳む（スマホだけ）：選択パネルは開いて出る→畳むと見出しだけ。作図ツールの既定スタイルは最初から畳んで出る ----
+	const fb = pn?.querySelector(".ge-fold");
+	ok("foldShown", !!fb && getComputedStyle(fb).display !== "none" && !pn.classList.contains("ge-min"));
+	fb?.click();
+	const ph = pn?.getBoundingClientRect().height ?? 999;
+	ok("foldMin", pn?.classList.contains("ge-min") && ph < 60, ph);
+	fb?.click();
+	ok("foldOpen", !pn?.classList.contains("ge-min") && pn.getBoundingClientRect().height > 100);
+	tb.querySelector('button[data-tip^="面を描く"]').click();
+	await sleep(100);
+	const sp = document.querySelector(".ge-panel:not(.ge-dialog)");
+	ok("symFolded", !!sp && sp.classList.contains("ge-min") && sp.getBoundingClientRect().height < 60 && sp.getBoundingClientRect().bottom > innerHeight * 0.8, sp && sp.getBoundingClientRect().height);
+	sp?.querySelector(".ge-fold")?.click();
+	ok("symUnfold", !!sp && !sp.classList.contains("ge-min") && sp.getBoundingClientRect().height > 100);
+	tb.querySelector('button[data-tip^="選択"]').click();
+	await sleep(100);
+
+	// ---- 地物一覧（スマホ）：ツールバーの下・幅いっぱい・行が出る ----
+	tb.querySelector('button[data-tip^="地物の一覧"]').click();
+	for (let i = 0; i < 50 && !document.querySelector(".ge-list .oe-bt-row"); i++) await sleep(100);
+	const lr = document.querySelector(".ge-list")?.getBoundingClientRect();
+	ok("listMobile", !!lr && lr.top >= tr.bottom && lr.left <= 10 && lr.right >= innerWidth - 10 && !!document.querySelector(".ge-list .oe-bt-row"), lr && `${lr.left},${lr.top},${lr.right}`);
+	document.querySelector(".ge-dialog")?.remove();
 
 	// ---- 書き出しダイアログ＝ツールバーの下・画面内 ----
 	tb.querySelector('button[data-tip^="書き出し"]').click();

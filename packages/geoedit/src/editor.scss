@@ -305,6 +305,14 @@ $mobile: 640px;                    // common/panel PANEL_MOBILE
 // 編集中（#map.ge-on）＝星空劇場の日時計（右上 #sky-clock）は出さない（本人裁定 9/15「geoedit では右上の日付を表示しない」）
 :is(.qm, #map).ge-on #sky-clock { display: none; }
 
+/* 地物一覧（2026-10-24）＝書き出しと同じ一枠のダイアログ・表はホストの仮想スクロール表（common/bigtable・theme dark） */
+.ge-panel.ge-list { width: 460px; }
+.ge-panel.ge-list input.ge-find { margin: 2px 0 4px; padding: 5px 8px; }
+.ge-panel.ge-list .ge-cnt { margin: 0 0 4px; }
+.ge-panel.ge-list .ge-table { height: min(360px, calc(100vh - 220px)); border-radius: 7px; overflow: hidden; }
+
+.ge-panel .ge-fold { display: none; }   /* 畳むボタン＝スマホだけ（fold.ts） */
+
 /* ── スマホ（≤640px・common/panel と同じ切替幅）──
    ツールバー＝1 段の横スクロール（旧＝2 段に折り返して左上の家具＝層・検索を覆った）。左の家具の列（幅 ~44px）の右から。
    パネル＝下端のシート（出典の上・丈は半分まで）＝common/panel のスマホ形。書き出し/クラウドのダイアログはツールバーの下。
@@ -320,6 +328,13 @@ $mobile: 640px;                    // common/panel PANEL_MOBILE
 	#ge-toolbar [data-tip]::after { display: none; }   /* 横スクロールの箱の中＝吹き出しは切れる（タッチでは元々出ない） */
 	.ge-panel { top: auto; bottom: calc(var(--oe-attr-h, 40px) + 8px); left: 8px; right: 8px; width: auto; max-width: none; max-height: 50%; box-sizing: border-box; }
 	.ge-panel.ge-dialog { top: 56px; bottom: auto; left: 8px; right: 8px; transform: none; }
+	.ge-panel .ge-fold { display: flex; margin-left: -5px; }
+	.ge-panel.ge-min > :not(.ge-head) { display: none; }
+	.ge-panel.ge-min .ge-head { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+	.ge-panel .ge-fold svg { transform: rotate(180deg); }   /* 開いている＝下向き（下へ畳む）・畳んだ＝上向き */
+	.ge-panel.ge-min .ge-fold svg { transform: none; }
+	.ge-panel.ge-list { width: auto; }
+	.ge-panel.ge-list .ge-table { height: 40vh; }
 	.ge-confirm { top: 56px; bottom: auto; }
 	.ge-toast { top: 100px; bottom: auto; max-width: calc(100% - 32px); }
 }
