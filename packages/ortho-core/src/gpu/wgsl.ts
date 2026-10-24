@@ -781,11 +781,12 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f };   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f };   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
 	@builtin(position) pos: vec4f,
+	@location(12) wl: vec3f,     // バッチ原点からの位置（m）＝街明かりの窓の格子（派生が使う 4〜8 と重ならない番号）
 	@location(0) n: vec3f,       // 実法線（巻き順非依存で表向きへ）
 	@location(1) toEye: vec3f,
 	@location(2) front: f32,
@@ -796,6 +797,7 @@ struct PlOut {
 	let ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま
 	let wp = B.meshOrigin.xyz + ap;                    // 絶対位置（陰影/フォグ/半球判定＝粗くて可）
 	let dir = normalize(wp);
+	o.wl = ap * 6371000.0;   // 原点相対＝f32 でも mm 級（絶対位置の f32 は 0.4m 刻み＝窓の格子が揺れる）
 	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
 	o.toEye = F.eye - wp;
 	o.front = dot(dir, F.eye) - 1.0;
@@ -832,7 +834,37 @@ fn localLights(n: vec3f, pos: vec3f) -> vec3f {
 	}
 	return acc;
 }
+// 夜の街明かり（2026-10-24）＝壁に窓の格子（幅 3.4m × 階 3.6m）を敷き、窓ごとに点く/点かない・色を hash で決める（建物の用途は PLQ に無い＝見た目の夜景）。
+// 強さ＝B.cs.y（素の建物メッシュのバッチだけ CPU が詰める）× 夜の度合い（1 − F.sun.w＝太陽高度 +6°→−6°）＝夕方に点き始めて夜に満ちる。
+// 窓が数画素を切る遠くは「点いた割合×窓の面積」の平均へ溶かす（ちらつかない）。wx/wy＝wl の画面微分（fs の頭＝一様制御フローで取る）。戻り＝(色, 混ぜる量)
+fn cwHash(c: vec3i) -> f32 {
+	var h = (bitcast<u32>(c.x) * 73856093u) ^ (bitcast<u32>(c.y) * 19349663u) ^ (bitcast<u32>(c.z) * 83492791u);
+	h = (h ^ (h >> 16u)) * 0x7feb352du; h = (h ^ (h >> 15u)) * 0x846ca68bu; h = h ^ (h >> 16u);
+	return f32(h >> 8u) / 16777216.0;
+}
+fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
+	let k = B.cs.y * (1.0 - F.sun.w);
+	if (k <= 0.0) { return vec4f(0.0); }
+	let up = normalize(B.meshOrigin.xyz);
+	if (abs(dot(n, up)) > 0.35) { return vec4f(0.0); }   // 壁だけ（屋根・床は点けない）
+	let t = normalize(cross(up, n));
+	let sz = vec2f(3.4, 3.6);
+	let uv = vec2f(dot(wl, t), dot(wl, up)) / sz;
+	let fw = max(vec2f(length(vec2f(dot(wx, t), dot(wy, t))), length(vec2f(dot(wx, up), dot(wy, up)))) / sz, vec2f(1e-4));
+	let cell = vec2i(floor(uv)); let f = fract(uv);
+	let face = i32(floor(dot(wl, n) * 0.5));   // 壁ごとに別の並び（壁の面の位置＝面内で一定）
+	let h0 = cwHash(vec3i(cell, face)); let h1 = cwHash(vec3i(cell.x + 7919, cell.y - 104729, face + 31));
+	let on = select(0.0, 1.0, h0 < 0.42);
+	let ex = smoothstep(0.18 - fw.x, 0.18 + fw.x, f.x) * (1.0 - smoothstep(0.82 - fw.x, 0.82 + fw.x, f.x));
+	let ey = smoothstep(0.25 - fw.y, 0.25 + fw.y, f.y) * (1.0 - smoothstep(0.80 - fw.y, 0.80 + fw.y, f.y));
+	let warm = vec3f(1.0, 0.74, 0.40); let cool = vec3f(0.90, 0.94, 1.0);
+	let col = mix(warm, cool, select(0.0, 1.0, h1 > 0.62)) * (0.72 + 0.28 * fract(h1 * 7.0));
+	let far = smoothstep(0.18, 0.5, max(fw.x, fw.y));   // 窓が 2〜5 画素を切る＝平均へ
+	let m = mix(on * ex * ey, 0.42 * 0.64 * 0.55, far);
+	return vec4f(mix(col, vec3f(1.0, 0.82, 0.58) * 0.86, far), clamp(m * k, 0.0, 1.0));
+}
 @fragment fn fs(in: PlOut) -> @location(0) vec4f {
+	let wlx = dpdx(in.wl); let wly = dpdy(in.wl);   // 街明かりの窓の画素幅（discard より前＝一様制御フロー）
 	// 面の幾何法線＝スクリーン微分（FS冒頭＝uniform control flow・discard より前＝fwidth の轍と同じ掟）。
 	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
 	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
@@ -867,8 +899,11 @@ fn localLights(n: vec3f, pos: vec3f) -> vec3f {
 		lit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));
 	}
 	if (B.ln.x > 0.5) { lit += ltBase * localLights(n, F.eye - in.toEye); }   // 局所の光源（W2）
+	let cwin = cityWin(select(n, normalize(gnRaw * sign(dot(gnRaw, n))), g2 > 1e-18), in.wl, wlx, wly);   // 夜の街明かり（cs.y＝0 のバッチ＝模型などは何もしない）・向きは面の幾何法線（面内で一定＝角で丸めた頂点法線でも壁は壁）
+	lit = mix(lit, cwin.rgb, cwin.w);
+	let wm = cwin.w * B.cs.z * (1.0 - in.fog);   // 窓の印＝canvas の α を 1−wm に（後処理の夜の色が窓だけ暗くしない・cs.z＝grade の間だけ）
 	let c = mix(lit, F.fogColor, in.fog);
-	return vec4f(c, 1.0);
+	return vec4f(c, 1.0 - wm);
 }
 `;
 
@@ -1332,7 +1367,7 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
 	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
 	 "\t\t// normal map via screen-space tangents (no TANGENT attribute; degenerate = plain normal). default 1x1 (128,128,255) = identity\n\t\tlet nmv = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);\n\t\tlet dp1 = -dpx; let dp2 = -dpy;\n\t\tlet dp2p = cross(dp2, n); let dp1p = cross(n, dp1);\n\t\tlet T = dp2p * dux.x + dp1p * duy.x; let Bt = dp2p * dux.y + dp1p * duy.y;\n\t\tlet mx = max(dot(T, T), dot(Bt, Bt));\n\t\tvar nn = n;\n\t\tif (mx > 1e-20) { let im = inverseSqrt(mx); nn = normalize(T * im * nmv.x + Bt * im * nmv.y + n * max(nmv.z, 0.05)); }\n\t\tvar pi: PbrIn; pi.base = tx.rgb; pi.n = nn; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); pi.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); pi.ao = mix(1.0, oc.r, B.pbr0.w); pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh) + B.emis.rgb * em.rgb, vec3f(1.0)));   // emissive (srgb view = linear) added as is\n"],
-	["\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
+	["\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
 
 

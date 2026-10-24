@@ -36,6 +36,8 @@ export const gradeOf = (alt: number): [number, number, number] | null => {
 	}
 	return GRADE_KEYS[GRADE_KEYS.length - 1][1];
 };
+/** 夜の灯りの滲み（bloom の強さ・map.setGrade の glow）＝太陽が −2° を切ってから −8° で 0.8（夜の街明かり map.setCityLights と一緒に・2026-10-24） */
+export const glowOf = (alt: number): number => (Number.isFinite(alt) ? Math.max(0, Math.min(1, (-2 - alt) / 6)) * 0.8 : 0);
 
 const LOGO = `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>`;
 

@@ -69,6 +69,7 @@ renders, what a plugin renders, and what is only accepted as a spec. Handbook: [
   `interleaved: true` falls back to overlaid (the map is drawn in a worker, so deck.gl cannot share its GL context). deck.gl is not a dependency; it is
   a devDependency for `tests/t-deckgl.html` only.
 - **Post-processing**: `map.setPostProcess({ bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.5, radius: 0.8, softness: 0.5 } })`
+- **Night look** (WebGPU): `map.setGrade([42, 52, 96], { glow: 0.8 })` multiplies the picture by a night color, and `map.setCityLights(true)` lights windows on building meshes (PLATEAU etc.) as the sun goes down. Lit windows are not darkened by the grade. Both return `false` on WebGL2 (no-op).
   (or `bloom: true` / `vignette: true` for the defaults, `null` to turn it off; `postProcess` in `createGlobe` options) applies a bloom (bright pass at
   half resolution, separable Gaussian blur, additive composite) and a vignette to the base scene. Labels and same-frame overlays are separate canvases and
   are not affected. WebGL2 runs it in the FBO copy stage shared with the scene-depth hand-off; WebGPU runs it at the end of `flush()`. `map.getPostProcess()`

@@ -30,7 +30,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-mlboot?v=default", "t-mlboot?v=ml",
 	"t-snapearly?v=default", "t-snapearly?v=style", "t-extrude-size", "t-czml-draw", "t-czml", "t-czml?g=url",   // t-czml-draw＝CZML の時刻再生の描画（#113 段 3）   // 起動直後の撮影＝旧 WebGPU は cam 未着の snapshot を黙って捨て promise が宙吊り
 	"t-ellparity?ell=0", "t-ellparity?ell=1", "t-ellparity?g=cache", "t-ellparity?g=scan&ell=1", "t-mlcompat?g=extrude&ell=1", "t-overlaydepth?ell=1",
-	"t-postfx", "t-lights", "t-clouds", "t-plugin?v=gltf",
+	"t-postfx", "t-citylights", "t-lights", "t-clouds", "t-plugin?v=gltf",   // t-citylights＝夜の街明かりと夜の色（map.setCityLights／setGrade・2026-10-24）
 	"t-three", "t-three?r=webgpu",   // three.js（map.addThree）＝本体 WebGPU の上で WebGLRenderer（深度は遅延の ImageBitmap）・WebGPURenderer（本体の device と深度テクスチャを共有・2026-10-18）
 	"t-pvoxel",   // voxel の WebGPU の描き手（@ortho-earth/voxel＝光線行進・本体の device と深度を共有・pick は非同期・2026-10-23）
 	"t-psplat",   // Gaussian splat の WebGPU の描き手（@ortho-earth/splat＝SH・GPU の並べ替え・本体の device と深度を共有・pick は非同期・2026-10-18）
