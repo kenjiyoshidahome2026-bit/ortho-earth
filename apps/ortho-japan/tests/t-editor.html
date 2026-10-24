@@ -18,7 +18,8 @@ import { GeoPBFBase } from "geopbf/pbf-base";
 import { initEditor as initEditor0, setLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示（この頁は日本語の UI 文字列で判定する）
 import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // japan のホスト契約＝クラウド保存パネルを注入（ボタン列の検定は japan に載った形で数える）
 await setLang("ja");
-const initEditor = (m, o = {}) => initEditor0(m, { cloudPanel, ...o });
+import { geoeditTable } from "../geoedit-table.ts";   // 地物一覧の表（common/bigtable）＝japan と同じ注入
+const initEditor = (m, o = {}) => initEditor0(m, { cloudPanel, table: geoeditTable, ...o });
 
 const t = [], ok = (n, c, d) => t.push((c ? "ok:" : "NG:") + n + (!c && d ? "(" + String(d).replace(/\s+/g, "_") + ")" : ""));
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
@@ -483,6 +484,36 @@ try {
 		ok("imgNoFill", !m().toGeoJSON().features.find(f => f.properties["@image"]).properties["@fill"]);
 		key("Escape");
 	}
+
+	// ---- 地物一覧（2026-10-24・common/bigtable）：全地物の行・属性の検索で絞る・行を押す＝選んで寄る・削除で行が減る ----
+	{
+		document.querySelector('#ge-toolbar button[data-tip^="地物の一覧"]').click();
+		const visRows = () => [...document.querySelectorAll(".ge-list .oe-bt-row")].filter(r => r.style.display !== "none"), rowsN = () => visRows().length;   // 表は行を使い回す＝隠した行は数えない
+		for (let i = 0; i < 50 && !rowsN(); i++) await sleep(100);
+		const nf = m().feats.size, cnt = () => document.querySelector(".ge-list .ge-cnt")?.textContent || "";
+		ok("listOpen", !!document.querySelector(".ge-dialog.ge-list") && rowsN() === nf && cnt().includes(String(nf)), `${rowsN()}/${nf} ${cnt()}`);
+		const target = [...m().feats.entries()].find(([, f]) => f.properties?.name === "old-map");   // ここまでの手順で残る 2 件＝面「nb」と四隅の画像「old-map」
+		const q = document.querySelector(".ge-list input.ge-find");
+		q.value = "OLD-map"; q.dispatchEvent(new Event("input"));   // 大文字小文字を区別しない
+		await sleep(150);
+		const rs = visRows();
+		ok("listSearch", !!target && rs.length === 1 && rs[0].firstElementChild?.textContent.trim() === String(target[0]) && cnt().includes("1"), `${rs.length}/${nf} ${cnt()}`);
+		const row = rs.find(r => r.firstElementChild?.textContent.trim() === String(target[0]));
+		row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		await sleep(400);
+		ok("listGo", editor.state.selection === target[0] && editor.state.tool === "select" && !!document.querySelector(".ge-list .oe-bt-selected"), `${editor.state.selection}`);
+		q.value = ""; q.dispatchEvent(new Event("input"));
+		const n0 = rowsN() && nf;
+		key("Delete");   // 選んだ画像を消す → 一覧も 1 行減る（200ms で組み直し）
+		await sleep(400);
+		ok("listRefresh", cnt().includes(String(n0 - 1)), cnt());
+		key("z", { metaKey: true });
+		await sleep(400);
+		ok("listUndo", cnt().includes(String(n0)), cnt());
+		document.querySelector(".ge-list .ge-head .ge-icon-btn:last-child").click();
+		ok("listClose", !document.querySelector(".ge-list"));
+	}
+	ok("foldHiddenPC", [...document.querySelectorAll(".ge-panel .ge-fold")].every(b => getComputedStyle(b).display === "none"));
 
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();

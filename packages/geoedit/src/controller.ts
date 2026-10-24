@@ -17,6 +17,8 @@ import { createPopLayer } from "./pop-layer.ts";
 import { initToolbar } from "./toolbar.ts";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.ts";
 import { cloudPanel } from "./cloud.ts";
+import { listPanel, featureBbox } from "./list.ts";
+import type { ListTableFactory } from "./list.ts";
 import type { SharedCloudPanel } from "./cloud.ts";
 import { createPropsPanel, mergeProps } from "./properties.ts";
 import { createLargeModel } from "geopbf/edit/large-model";
@@ -58,6 +60,8 @@ export interface InitEditorOptions {
 	onClose?: (() => unknown) | null;
 	dock?: ((mapEl: HTMLElement) => HTMLElement) | null;
 	cloudPanel?: SharedCloudPanel | null;
+	/** 地物一覧の表（ホストの仮想スクロール表＝ortho-earth では common/bigtable）。無ければ一覧ボタンを出さない */
+	table?: ListTableFactory | null;
 }
 /** initEditor の戻り */
 export interface Editor {
@@ -77,7 +81,7 @@ export interface Editor {
 export type FC = FeatureCollectionLike & { type?: string };
 const RAW_MAP = Symbol.for("ortho-earth.map.raw");
 
-export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null }: InitEditorOptions = {}): Editor {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null, table: hostTable = null }: InitEditorOptions = {}): Editor {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
 	map = (map as unknown as Record<symbol, EditorMap | undefined> | null)?.[RAW_MAP] ?? map;   // 旗つきの地図（外側の顔）でも素の map＝エンジンの z で計算する（getZoom の 256px 世界の算式・zoomMin/setZoomMin の保存と復帰）
 	// 部品として開く（2026-09-19 本人裁定）：持ち主（japan の編集ボタン）が data＝編集中の図形（GeoPBF の ArrayBuffer・空なら null）を渡し、
 	// onClose＝ツールバー右端の「×」。× が押されたら持ち主が editor.result() で結果を受け取り、自分の図形を置き換えて destroy する。
@@ -248,6 +252,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 		const stat = model.stats();
 		if (stat.features) toast(t("Loaded: $1 features, $2 arcs, $3 vertices", stat.features, stat.arcs, stat.vertices));
 		bar.syncHist(hist.canUndo, hist.canRedo);
+		if (list) scheduleListRefresh();   // 読み直し（取込・全消去・元に戻す）＝一覧も新しい顔ぶれへ
 	}
 	async function loadFC(fc: FC, { fly = true }: { fly?: boolean } = {}): Promise<void> {   // GeoJSON入口（試験・API互換。大規模の正規経路は loadBuffer）
 		try {
@@ -294,6 +299,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 			await layer.applyLarge(built, model.featsArr, { moveCamera: fly });
 			toast(t("Large mode: $1 features (attributes, style, vertex moves; add/delete and autosave not yet)", model.feats.size.toLocaleString()));
 			bar.syncHist(false, false);
+			if (list) scheduleListRefresh();
 		} catch (e) { console.error("[geoedit] large load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
@@ -366,6 +372,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 		scheduleCommit();
 		overlay.redraw();
 		popLayer.sync();   // @pop の生成/文言変化/除去・構造操作(add/del)を箱へ即反映
+		if (list && !GEOM_ONLY.has(cmd.op)) scheduleListRefresh();   // 一覧を開いている＝顔ぶれ・属性の変化を行へ（頂点移動では組み直さない）
 		return res;
 	};
 	const doCmd = (cmd: Cmd): boolean => {
@@ -422,7 +429,8 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 		st.selection = eid; st.sketch = null;
 		if (!keepMulti) st.multi = null;
 		if (st.model?.large) { st.focus = focusHood(eid); layer.focus(st.focus); }   // 編集近傍＝gint消灯・オーバレイ描画へ
-		eid != null && st.tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
+		eid != null && st.tool === "select" ? props.render(eid) : props.close();
+		list?.mark();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
 		overlay.redraw();
 	};
 	ed.select = select;
@@ -522,6 +530,20 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 	//（localStorage が使えない環境＝毎回出る＝従来と同じ）
 	if (map.ellipsoidOn?.()) { let seen = false; try { seen = localStorage.getItem("geoedit.sphereNote") === "1"; localStorage.setItem("geoedit.sphereNote", "1"); } catch { /* 使えない＝毎回 */ } if (!seen) toast(t("Editing uses a perfect sphere, so shapes can differ very slightly from the ellipsoid view")); }
 	const getPbf = (): Promise<Pbf> | null => st.model && (st.model.large ? st.model.toPbf() as Promise<Pbf> : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
+	// ---- 地物一覧（ホストが表を注入した時だけ・2026-10-24）：行を押す＝選択ツールで選び、その地物へ寄る ----
+	let list: ReturnType<typeof listPanel> | null = null, listTimer: ReturnType<typeof setTimeout> | 0 = 0;
+	const scheduleListRefresh = (): void => { clearTimeout(listTimer); listTimer = setTimeout(() => { listTimer = 0; if (list?.el.isConnected) list.refresh(); else list = null; }, 200); };
+	const openList = (): void => {
+		list = listPanel(mapEl, {
+			getModel: () => st.model, selection: () => st.selection, makeTable: hostTable!,
+			go: eid => {
+				if (!st.model?.feats.has(eid)) return;
+				setTool("select"); select(eid);
+				const bb = featureBbox(st.model, eid);
+				if (bb) map.fitBounds?.(bb, { padding: 80, maxZoom: 17 });
+			},
+		});
+	};
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo,
 		gridExp: () => gridExp,
@@ -535,6 +557,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
 		}, toast, hostCloud) : null,
+		listOpen: hostTable ? openList : null,
 		close: onClose,   // 部品＝右端の「×」（持ち主へ戻る）。単独起動は null＝出さない
 		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
 		clearAll: async () => {
@@ -608,7 +631,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 			return layer.saveBuffer ? layer.saveBuffer.slice(0) : (await getPbf())?.arrayBuffer?.slice(0) ?? null;   // 大規模モード＝書き出しの口から
 		},
 		destroy() {
-			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); clearTimeout(rebuildTimer); tip.hide(); rpc.terminate(); unsubConfirm();
+			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); clearTimeout(rebuildTimer); clearTimeout(listTimer); tip.hide(); rpc.terminate(); unsubConfirm();
 			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
 			map.setMaxPitch?.(prevMaxPitch ?? null); map.setZoomMin?.(prevZoomMin ?? null); setDropOwner?.(false); ctxRestore?.(); mapEl.classList.remove("ge-on");
 		},

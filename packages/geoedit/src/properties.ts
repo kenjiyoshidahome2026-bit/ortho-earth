@@ -4,6 +4,7 @@
 import { styleForm } from "./styleform.ts";
 import { sanitizeHTML } from "./overlay.ts";
 import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { addFold } from "./fold.ts";
 import type { Feature, PropsPanel } from "./types.ts";
 const t = tr();
 
@@ -25,6 +26,7 @@ export interface PropsApi {
 }
 
 export function createPropsPanel(container: HTMLElement, api: PropsApi, signal: AbortSignal): PropsPanel {   // api={getFeature(eid), applyProps(eid,next,{history,from}), toast}
+	const fold = { min: false };   // 選択パネルの畳み（スマホだけ効く）
 	let panel: HTMLDivElement | null = null, curEid: number | null = null, flushPreview: (() => void) | null = null;   // flushPreview＝input中（履歴なし）の値を閉じる時に履歴1件へ確定する
 
 	const close = (): void => {   // 状態を先に畳んでから flush＝applyR の「props.eid === cmd.eid なら再描画」が再入しない
@@ -53,6 +55,7 @@ export function createPropsPanel(container: HTMLElement, api: PropsApi, signal: 
 		delB.onclick = () => { const e = curEid; close(); api.onDelete?.(e); };
 		closeH.onclick = close;
 		head.append(h3, delB, closeH);
+		addFold(panel, head, fold);   // スマホ＝選んだ地物の属性は開いて出す（選んだ＝見たい）。畳みは次の選択へ引き継ぐ
 		panel.append(head);
 
 		// input中のプレビューを跨いで undo の戻り先を守る：最初のプレビューで元propsを控える
