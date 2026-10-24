@@ -57,6 +57,7 @@ try {
 				if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log(`[${PAGE} ${m.params.type}]`, m.params.args.map(a => a.value ?? a.description ?? "").join(" "));
 			} };
 		await send("Page.enable"); await send("Runtime.enable");
+		if (/-mobile\b/.test(PAGE)) await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });   // *-mobile＝スマホ幅（@media ≤640px を効かせる・2026-10-24）
 		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
 		const t0 = Date.now();
 		let title = "";
