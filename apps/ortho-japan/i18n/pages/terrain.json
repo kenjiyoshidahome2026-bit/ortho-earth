@@ -1,5 +1,5 @@
 {
-	"_": "terrain.html（日本の地形約 1,500 件）の辞書。英語キー→26 言語。world の physical（apps/ortho-globe/i18n/pages/physical.json）と同じ語はそこから写した。本体（packages/globe/src/i18n/ui.json）に既にある語（Close・Name・Overlays）はここに書かない。焼き先＝i18n/lang/terrain/<code>.json（npm run i18n:build）",
+	"_": "terrain.html（日本の地形約 1,500 件）の辞書。英語キー→26 言語。world の physical（apps/physical/i18n/pages/physical.json）と同じ語はそこから写した。本体（packages/globe/src/i18n/ui.json）に既にある語（Close・Name・Overlays）はここに書かない。焼き先＝i18n/lang/terrain/<code>.json（npm run i18n:build）",
 	"ui": {
 		"#$1 of $2": {
 			"ja": "$2件中 $1位",

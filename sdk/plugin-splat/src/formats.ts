@@ -335,7 +335,7 @@ export async function parseSog(buf: BinSource, { decodeImage = decodeImageDefaul
 }
 
 /** URL／ファイル名 → format（拡張子） */
-// ---- .spz の書き手（v2・SH つき）＝3D Tiles 化（apps/ortho-globe/scripts/splat-tiles.mjs）と検定の往復に。gzip は呼び手（node＝zlib・browser＝CompressionStream）----
+// ---- .spz の書き手（v2・SH つき）＝3D Tiles 化（apps/splat/scripts/splat-tiles.mjs）と検定の往復に。gzip は呼び手（node＝zlib・browser＝CompressionStream）----
 /** SplatData（局所・axes は .spz の約束＝RUB "y" で渡す）→ .spz v2 の中身（gzip 前）。frac＝位置の小数の bit 数（既定 12＝±2048 m・0.24 mm 刻み）。尺は 1/16 の log・色は 0.15 の目・回転は 3 byte（w≧0）・SH は 8 bit（×128） */
 export function encodeSpzRaw(d: SplatData & { n: number }, { frac = 12 }: { frac?: number } = {}): Uint8Array<ArrayBuffer> {
 	const n = d.n, perSplat = d.sh && n ? d.sh.length / n : 0, shDeg = shDegreeOf(perSplat), shN = [0, 9, 24, 45][shDeg];
