@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["site.ts", "geoedit-page.ts", "scene-page.ts", "app.ts", "demo/editor.ts", "demo/scenes.ts", "env.d.ts"]
+	"include": ["site.ts", "app.ts", "demo/scenes.ts", "env.d.ts"]
 }

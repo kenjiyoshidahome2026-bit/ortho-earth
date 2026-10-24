@@ -25,14 +25,14 @@ export default defineConfig(() => ({
 	server: { proxy: { "/auth": "http://localhost:8787", "/me": "http://localhost:8787" } },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
-	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。geoedit.html＝地物の編集（/japan/geoedit）。
+	// ここで組む頁は表紙（index.html）だけ。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
-	// fireworks・models・onsen・parks・pointcloud・tellus・terrain は 2026-10-24 にそれぞれ独立のアプリ（apps/<名前>/・package.json の servedAt＝"/japan/"）へ移った＝build の最後の gather-apps が出力を集めてこの Worker が配る（URL は変わらない）。
+	// fireworks・geoedit・models・onsen・parks・pointcloud・scene・tellus・terrain は 2026-10-24 にそれぞれ独立のアプリ（apps/<名前>/・package.json の servedAt＝"/japan/"）へ移った＝build の最後の gather-apps が出力を集めてこの Worker が配る（URL は変わらない）。
 	// エンジン（globe・i18n・core・geopbf）は sharedEngine() が /globe/engine/<版>/ へ外に出す（2026-09-30・旧＝本番だけ /japan/lib/ の SDK を実行時に食う二重構成）。
 	// SDK（sdk/japan の dist/lib）は外へ配る物＝build:prod が従来どおり /japan/lib/ に置く（SDK は 2026-10-15 に sdk/japan へ分けた）。
 	// noChunkOptimization＝rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。
 	build: { outDir: OUT, emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html") },
+		input: { main: resolve(import.meta.dirname, "index.html") },
 		...noChunkOptimization,
 	} },
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない（engineAliases）

@@ -12,9 +12,9 @@ import { startVite, runPages } from "@ortho-earth/globe/scripts/lib/ui-runner.mj
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VUI_PORT || 5237;
 
-const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene", "t-scene-data",
-	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world", "t-export"];   // t-print・t-offline は globe の gadget の検定＝packages/globe/scripts/verify-ui.mjs へ移した（段 5-7・2026-10-16）   // t-fireworks（打ち上げ花火）は 2026-10-24 に頁ごと apps/fireworks へ（npm run verify:ui -w fireworks）
-const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model", "t-export"]);   // render worker 内の動的 import／実描画の到着に依る頁／t-export＝WebCodecs の符号器（実時間の callback）
+const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo",
+	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world"];    // t-print・t-offline は globe の gadget の検定＝packages/globe/scripts/verify-ui.mjs へ移した（段 5-7・2026-10-16）   // t-fireworks（打ち上げ花火）は 2026-10-24 に頁ごと apps/fireworks へ（npm run verify:ui -w fireworks）
+const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model"]);   // render worker 内の動的 import／実描画の到着に依る頁（t-scene・t-scene-data・t-export は 2026-10-24 に apps/scene へ＝npm run verify:ui -w scene）
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p)) : ALL_PAGES;

@@ -92,7 +92,7 @@ for language / boot cover / visible startup failure, and the common gadgets `zoo
 | Hot springs of Japan | `/japan/onsen` (`?o=<id>`) | `onsen.html` + `onsen.js`, catalogue `ortho-data/japan/onsen.json` (built by `scripts/onsen-ledger`) | 26 (language `<select>` in the panel) |
 | Landmarks in GLB | `/japan/models` (`?m=<id>`) | `models.html` + `models.js`, catalogue `ortho-data/japan/models.json` | 26 |
 | Fireworks over Sumida | `/japan/fireworks` | `fireworks.html` + `fireworks.js` / `fireworks-gl.js` | 26 |
-| Scenes editor | `/japan/scene` | `scene.html` + `demo/editor.js` (desktop only) | 26 (UI), ja/en tab title |
+| Scenes editor | `/japan/scene` | `apps/scene` (`scene.html` + `editor.ts`) (desktop only) | 26 (UI), ja/en tab title |
 | geoedit | `/japan/geoedit` | `geoedit.html` → `map.gadget.geoedit()` (`packages/geoedit`) | 26 |
 | Tellus × ortho-earth | `/japan/tellus` | `tellus.html` + `tellus.js` | UI 26, guide text 26 (`i18n/pages/tellus.json`) |
 | census2020 | `/japan/census2020/` | `apps/census2020` (own app, same engine) | ja |

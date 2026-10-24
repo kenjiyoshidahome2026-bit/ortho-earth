@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["geoedit-page.ts", "env.d.ts"]
+}
