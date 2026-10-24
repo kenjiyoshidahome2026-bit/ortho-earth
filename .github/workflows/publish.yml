@@ -57,7 +57,7 @@ jobs:
           node scripts/publish-npm.mjs $PACKAGES $([ "$DRY_RUN" = true ] && echo --dry-run)
       - name: Chrome for Testing のキャッシュ
         if: steps.pub.outputs.published != ''
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ortho-earth/chrome-for-testing
           key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
