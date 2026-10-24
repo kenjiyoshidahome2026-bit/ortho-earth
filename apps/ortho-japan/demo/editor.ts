@@ -15,7 +15,7 @@ import { pick, cardSecs, cardOf, LOOKS } from "@ortho-earth/globe/scenes/titles.
 import type { GlobeMap } from "@ortho-earth/globe";
 import type { SceneIssue } from "@ortho-earth/globe/demo/scene-adapter.js";
 // 台本の行（scene-format.md）＝キーは data-k 直結で足し引きされる
-interface Row { title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; look?: string; sub?: unknown; [k: string]: unknown }
+interface Row { dissolve?: boolean; time?: string; orbit?: number; rise?: number; push?: number; title?: string; view?: string; glide?: string; fade?: string; via?: string; hold?: number; travel?: number; mobile?: number; caption?: string; en?: string; slide?: string; pre?: string; look?: string; sub?: unknown; [k: string]: unknown }
 interface Doc { type: string; title?: string; frame: string; waitLoading?: boolean; scenes: Row[]; opening?: unknown; ending?: unknown; credit?: unknown; [k: string]: unknown }
 // 新しい台本の出典の既定（PLATEAU の 3D 都市モデルを使う作品の出典表示）＝言語つき（視聴者の言語で出る・欄の編集は今の字幕言語の値）
 const CREDIT_DEFAULT = { ja: "3D都市モデル：国土交通省 Project PLATEAU ／ 地図：ortho-earth", en: "3D city models: MLIT Project PLATEAU / Map: ortho-earth" };
@@ -177,6 +177,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				<div class="sc-f"><label>${t("Ending title")}</label><input type="text" data-d="ending.title" placeholder="${t("(none)")}"></div>
 				<div class="sc-f"><label>${t("Ending subtitle")}</label><input type="text" data-d="ending.sub"></div>
 				<div class="sc-f"><label>${t("Credit (burned in)")}</label><input type="text" data-d="credit"></div>
+				<div class="sc-f"><label title="${t("During the show the sun follows the clock and buildings cast shadows (shadows need WebGPU)")}"><input type="checkbox" id="sc-light"> ${t("Sun & shadows")}</label><label>${t("Date")}</label><input type="text" data-d="date" placeholder="YYYY-MM-DD"></div>
 			</details>
 			<div class="sc-tools">
 				<button id="sc-shoot" title="${t("Add the current view as a row (after the selected row)")}">${t("📷 Shoot")}</button>
@@ -284,6 +285,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const paint = () => {
 		titleEl.value = doc.title ?? "";
 		waitEl.checked = !!doc.waitLoading;
+		$<HTMLInputElement>("#sc-light").checked = !!doc.light;
 		frameSel.value = FRAMES[doc.frame] ? doc.frame : "free";
 		panelEl.querySelectorAll<HTMLInputElement>("input[data-d]").forEach(el => {   // 開幕/終幕カード・出典の欄（入力中の欄は書き戻さない＝カーソルを保つ）
 			if (el === document.activeElement) return;
@@ -300,7 +302,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		rowsEl.innerHTML = doc.scenes.length ? doc.scenes.map((r, i) => {
 			const via = isVia(r), err = errOf(i);
 			const hash = esc((hashOf(r) ?? "").split("/l=")[0]);
-			const trans = r.glide ? "glide" : r.fade ? "fade" : "view";
+			const trans = r.glide ? "glide" : r.fade ? (r.dissolve ? "dissolve" : "fade") : "view";
 			const afterVia = i > 0 && isVia(doc.scenes[i - 1]);   // via の着点＝地図遷移でも travel（最終区間の尺）が効く
 			const num = (v: unknown) => (Number.isFinite(v) ? String(Number(v)) : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）。String(Number(v))＝有限の数なら `${v}` と同じ字（CodeQL js/xss-through-dom に数へ通したと見せる）
 			const travelInput = (dis: boolean) => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("auto")}"${dis ? ` disabled title="${t("Map-transition duration is automatic (editable when this row ends a dolly)")}"` : ""}>`;
@@ -317,6 +319,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 					${strField("en", t("English (en:)"))}
 					${strField("slide", t("Slide (plain text or image URL)"))}${slideImg}
 					${strField("pre", t("Lead-in view hash (pre)"), "#…")}
+					<div class="sc-f"><label title="${t("Camera motion during the hold (degrees of orbit, degrees of tilt, zoom steps)")}">${t("Hold motion")}</label><input type="number" data-k="orbit" step="5" value="${num(r.orbit)}" placeholder="${t("orbit°")}"><input type="number" data-k="rise" step="5" value="${num(r.rise)}" placeholder="${t("tilt°")}"><input type="number" data-k="push" step="0.1" value="${num(r.push)}" placeholder="z"></div>
+					<div class="sc-f"><label title="${t("Clock time at arrival (HH:MM local, or an ISO date-time); the clock runs to it during the transition")}">${t("Time of day")}</label><input type="text" data-k="time" value="${esc(r.time)}" placeholder="18:30"></div>
 					<div class="sc-f"><label>${t("Portrait Δz")}</label><input type="number" data-k="mobile" step="0.1" value="${num(r.mobile)}" placeholder="0"></div>
 					<div class="sc-f"><button data-op="layersNow" title="${t("Write the current l=/c= into this row (camera unchanged)")}">${t("Copy current layers")}</button><button data-op="layersKeep" title="${t("Remove l=/c= = inherit whatever is on")}">${t("Keep current")}</button><button data-op="layersNone" title="${t("Write an empty l= = turn every layer off")}">${t("None")}</button></div>
 				</details>`;
@@ -338,6 +342,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 							<option value="view"${trans === "view" ? " selected" : ""}>${t("Map flight")}</option>
 							<option value="glide"${trans === "glide" ? " selected" : ""}>${t("Glide")}</option>
 							<option value="fade"${trans === "fade" ? " selected" : ""}>${t("Fade")}</option>
+							<option value="dissolve"${trans === "dissolve" ? " selected" : ""}>${t("Dissolve")}</option>
 						</select></label>
 						<label title="${t("Transition seconds (glide/fade, or the end of a dolly; blank = auto)")}">${travelInput(trans === "view" && !afterVia)}${t("s")}</label>
 					</div>`}
@@ -606,6 +611,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		save();
 	}));
 	waitEl.addEventListener("change", () => { doc.waitLoading = waitEl.checked; save(); });
+	$<HTMLInputElement>("#sc-light").addEventListener("change", e => { if ((e.target as HTMLInputElement).checked) doc.light = true; else delete doc.light; save(); });
 	frameSel.addEventListener("change", () => { doc.frame = frameSel.value; save(); fit(); });
 	$("#sc-shoot").addEventListener("click", shoot);
 	$("#sc-via").addEventListener("click", addVia);
@@ -680,7 +686,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (!r || !k || k === "glide") return;
 		if (k === "sub") { setLT(r, "sub", (e.target as HTMLInputElement).value); save(); return; }   // 言語つきの小見出し
 		if (k === "look") { const v = (e.target as HTMLSelectElement).value; if (v === "top") delete r.look; else r.look = v; save(); return; }   // 字幕の型（top＝既定＝キーを書かない）
-		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre") { const v = (e.target as HTMLInputElement).value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
+		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre" || k === "time") { const v = (e.target as HTMLInputElement).value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
 		else { const v = parseFloat((e.target as HTMLInputElement).value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 数値キー（hold/travel/mobile）＝空欄＝キー削除（既定へ）
 		save();
 	});
@@ -688,8 +694,10 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const li = (e.target as HTMLSelectElement).closest<HTMLElement>(".sc-row"); if (!li || (e.target as HTMLSelectElement).dataset.k !== "trans") return;
 		const r = doc.scenes[+li.dataset.i!], h = r.view ?? r.glide ?? r.fade;
 		mark();
-		delete r.view; delete r.glide; delete r.fade;
-		r[(e.target as HTMLSelectElement).value] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
+		delete r.view; delete r.glide; delete r.fade; delete r.dissolve;
+		const v = (e.target as HTMLSelectElement).value;
+		if (v === "dissolve") { r.fade = h; r.dissolve = true; }   // 溶け替え＝fade 行の修飾（黒を挟まない）
+		else r[v] = h;   // "view"（地図遷移）| "glide"（移動）| "fade"（フェード＝黒挟み）
 		save(); paint();
 	});
 	rowsEl.addEventListener("click", e => {

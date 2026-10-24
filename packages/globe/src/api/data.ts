@@ -15,7 +15,7 @@ import type { FeatureService } from "geopbf/featureservice";
 import type { CellCache } from "../featureservice.ts";
 import type { Bbox, CellsLayerHandle, DataLayerHandle, MapLibreLayer, OverlayHandle } from "../../globe.d.ts";
 import type { DataDeps, DataLive, DataReturn, FsFollowEntry, Installing, IntakeCtx } from "../types/install.ts";
-import type { DataApi } from "../types/map.ts";
+import type { DataApi, GlobeMap } from "../types/map.ts";
 import type { UserSource } from "../types/scope.ts";
 
 /** map.addThree の three を省いた時の three.js（jsDelivr・globe の devDependency と同じ版・r180〜＝深度で隠れる） */
@@ -34,7 +34,7 @@ export function installData(map: Installing<DataApi>, live: DataLive, {
 	// demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 	// --- シーン再生＝scenes/player.js（上映・停止・タイムライン・黒幕・フェード・待ちパネル）。ここは配線だけ＝app の状態は getter、関数はラップ。
 	const scenes = createScenePlayer({ mapEl: live.mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed, bldLabels: REGION_BLD_LABELS,
-		get themeName() { return live.themeName; }, get elevBusy() { return live.elevBusy; },
+		get themeName() { return live.themeName; }, get elevBusy() { return live.elevBusy; }, get map() { return map as unknown as GlobeMap; },   // 光と時刻・溶け替えのスナップ（上映中＝組み上がった後に読む）
 		onMove: () => onMove(), flyView: (...args) => flyView(...args), applyCamView: v => applyCamView(v), applyViewLayers: v => applyViewLayers(v), switchTheme: n => switchTheme(n), viewHash: () => viewHash(), saveView: () => saveView() });
 	// ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
 	// gzip（.scenes.gz や gzip 中身）も可＝中身の印(1f 8b)で判定して解凍（サーバが Content-Encoding で解く場合は素通り）。
