@@ -20,7 +20,7 @@ const arg = k => { const a = process.argv.find(s => s === `--${k}` || s.startsWi
 const APPS = [
 	["japan-sdk", "@ortho-earth/japan", "build", "sdk/japan/dist/lib"],
 	["japan-site", "ortho-japan", "build", "apps/ortho-japan/dist/site"],
-	["globe", "ortho-globe", "build", "apps/ortho-globe/dist/site"],
+	["globe", "globe-host", "build", "apps/globe-host/dist/site"],
 	["quakes", "ortho-quakes", "build", "apps/quakes/dist/site"],
 	["world-lib", "ortho-world", "build:lib", "apps/world/dist/lib"],
 	["world", "ortho-world", "build", "apps/world/dist/site"],

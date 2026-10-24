@@ -141,6 +141,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 - **globe の家（2026-09-24・本人裁定「B」「/globe/」）**：地域の申告を持たない頁は `apps/ortho-globe`（`www.ortho-earth.com/globe/`・自前の Worker）に住む＝
   `/globe/`（Globe ⇄ Equal Earth の往復）・`/globe/sats`（人工衛星）。世界の地震 `/globe/quakes/` は 2026-10-15 に独立のアプリ `apps/quakes`（Worker ortho-quakes）へ。各頁は `@ortho-earth/globe` を自分の束に焼く（japan の SDK も app.js も読まない）。
   旧 `/japan/earth`・`/japan/quakes`・`/japan/sats` は japan の Worker が 301 で送る（query は運ぶ）。頁の辞書（quakes／sats）と OG 画像も一緒に移した。
+  2026-10-24：頁はそれぞれ独立のアプリ（`apps/<名前>/`・package.json の `servedAt: "/globe/"`）になり、表の頁は `apps/globe-map`、`apps/ortho-globe` は配信だけの `apps/globe-host` へ改名（Worker の名は ortho-globe のまま）＝`gather-apps.mjs` が各アプリの出力を集めて配る。
   この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
 - **残る結び目**：
   1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。`koppen-clim.png` の正本は `packages/globe/src/assets/`（npm の globe にも載る）＝japan・ortho-globe・equal の public はそこへのシンボリックリンク（2026-09-25・vite の build は実体を書き出し・dev も配る）。

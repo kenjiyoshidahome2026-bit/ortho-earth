@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // 共有エンジンを上げた時の一括デプロイ（エンジン配布の恒久対策 B・2026-10-14／エンジンの独立デプロイ 2026-10-15）。repo 直下で `npm run deploy:engine`。
-// 旧＝ortho-globe を配ったあと、エンジンを使う各アプリを手で 1 つずつ配り直す＝忘れたアプリが古い版を指したまま残った
+// 旧＝globe-host を配ったあと、エンジンを使う各アプリを手で 1 つずつ配り直す＝忘れたアプリが古い版を指したまま残った
 // （tellus・census2020・nl・quiz・2026-10-14）。ここは正しい順で全部を配る：
-//   ① 検定：ortho-globe を build（頭でエンジンを焼く）して verify-prod＝このエンジンで 8 頁が起きる（エンジンを出す前の門。
+//   ① 検定：globe-host を build（頭でエンジンを焼く）して verify-prod＝このエンジンで 8 頁が起きる（エンジンを出す前の門。
 //      エンジンの Worker は旧版の入口を今の版へ 302 する＝出した瞬間に全アプリが新しいエンジンで走る＝出す前に確かめる）
 //   ② エンジン（apps/engine・Worker ortho-engine・route /globe/engine/*）＝出荷物の門 check.mjs → wrangler deploy
-//   ③ ortho-globe（① で組んで確かめた dist をそのまま出す＝deploy:built）→ ④ エンジンを使う各アプリ（各 deploy の門 check-engine-live が ② の済みを確かめる）
+//   ③ globe-host（① で組んで確かめた dist をそのまま出す＝deploy:built）→ ④ エンジンを使う各アプリ（各 deploy の門 check-engine-live が ② の済みを確かめる）
 //   1 つ落ちたら止める（後ろは配らない）。gishub-jp・geopbf-demo は www（Cloudflare Pages）が main の push で自動で組む＝ここでは配らない。
 //   node scripts/deploy-engine.mjs [アプリ名…]   （名前を渡すとそのアプリだけ・①② は常に先頭）
 //   node scripts/deploy-engine.mjs --engine-only （①② だけ＝apps/engine の npm run deploy）
@@ -19,7 +19,7 @@ import { requireNode } from "./lib/node-version.mjs";
 
 requireNode();   // 古い node（.ts を読めない）は何も配る前に止める（2026-10-19・solar の ephem の検定で止まった）
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["quakes", "ortho-globe", "census2020", "ortho-nl", "world-quiz", "choju", "yokohama", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に ortho-globe から独立＝ortho-globe より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["quakes", "globe-host", "census2020", "ortho-nl", "world-quiz", "choju", "yokohama", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に globe-host から独立＝globe-host より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const GATES = {   // --gate-only で回す各アプリの門（各 deploy から wrangler の手前までの重い物＝Chrome を使う物）
 	"quakes": "npm run build && npm run verify:prod",
 	"census2020": "npm run verify:prod",
@@ -36,13 +36,13 @@ if (lost.length) { console.error(`✗ apps/ に無いアプリ：${lost.join(" "
 const apps = engineOnly ? [] : pick.length ? APPS.filter(a => pick.includes(a)) : APPS;
 // [名前, 場所, npm の引数, 配り終えた印]
 const steps = [
-	["検定：ortho-globe の build（頭でエンジンを焼く）", "ortho-globe", ["run", "build"]],
-	["検定：ortho-globe の verify-prod（このエンジンで 8 頁）", "ortho-globe", ["run", "verify:prod"]],
+	["検定：globe-host の build（頭でエンジンを焼く）", "globe-host", ["run", "build"]],
+	["検定：globe-host の verify-prod（このエンジンで 8 頁）", "globe-host", ["run", "verify:prod"]],
 	["engine", "engine", ["run", "deploy:built"], true],   // 出荷物の門 check.mjs → wrangler deploy
-	...apps.map(a => [a, a, ["run", a === "ortho-globe" ? "deploy:built" : "deploy"], true]),
+	...apps.map(a => [a, a, ["run", a === "globe-host" ? "deploy:built" : "deploy"], true]),
 ];
 if (gateOnly) {   // 配らない＝順序の制約（engine が live）も無い・落ちても先へ進んで全部の結果を出す
-	const gates = [["ortho-globe", "npm run build && npm run verify:prod"], ...apps.filter(a => GATES[a]).map(a => [a, GATES[a]])];
+	const gates = [["globe-host", "npm run build && npm run verify:prod"], ...apps.filter(a => GATES[a]).map(a => [a, GATES[a]])];
 	const t0 = Date.now(), res = [];
 	for (const [name, cmd] of gates) {
 		console.log(`\n=== 門：${name}（${cmd}）`);

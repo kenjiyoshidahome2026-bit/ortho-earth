@@ -4,7 +4,7 @@ import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs
 import { crossOriginIsolation, noChunkOptimization, engineAliases, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // hex＝世界の人口を H3 の六角形の柱で（/globe/hex・issue #310）。2026-10-24 に ortho-globe の頁から 1 つのアプリへ（本人「全アプリが横並びで生成される方が綺麗」→「それでやりますか！」）。
-// 自前の Worker は持たない＝出力 dist/site/globe/ を ortho-globe の build が集めて /globe/ の Worker が配る（URL は /globe/hex のまま）。
+// 自前の Worker は持たない＝出力 dist/site/globe/ を globe-host の build が集めて /globe/ の Worker が配る（URL は /globe/hex のまま）。
 // エンジンは共有エンジン（/globe/engine/<版>/）を URL で読む＝build の時だけ（dev はソース直）。地域の申告は持たない。
 const ROOT = resolve(import.meta.dirname, "../..");
 

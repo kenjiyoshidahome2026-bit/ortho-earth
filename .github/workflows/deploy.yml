@@ -2,7 +2,7 @@
 #   Actions タブ →「deploy」→ Run workflow（スマホの GitHub アプリからも押せる）。押せるのは main だけ（下の if）。
 #   target：engine-and-apps＝エンジン → それを使う全アプリ（apps に名前を書けばそのアプリだけ・空白区切り）
 #           engine-only＝エンジンだけ ／ native-bucket・quakes-mirror・sats-mirror＝それぞれの Worker だけ
-#           gate-only＝門だけ（ortho-globe の verify:prod と各アプリの Chrome の門・何も配らない・鍵が要らない・2026-10-21）
+#           gate-only＝門だけ（globe-host の verify:prod と各アプリの Chrome の門・何も配らない・鍵が要らない・2026-10-21）
 #   gishub-jp・geopbf-demo・www は今まで通り Cloudflare Pages が main の push で自動で組む＝ここでは配らない。
 # 走る場所＝本人の Mac（self-hosted runner・label ortho-deploy・2026-10-21 本人の裁定）。GitHub の runner には GPU が無い＝
 #   ortho-japan の門（globe の WebGPU の画素検定 約 70 頁）が通らない（run 39636724562：5/6 PASS・ortho-japan だけ FAIL）。
