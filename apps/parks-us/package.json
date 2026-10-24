@@ -1,0 +1,19 @@
+{
+	"name": "parks-us",
+	"version": "0.0.1",
+	"private": true,
+	"description": "National Parks of the United States: the 63 parks on the globe, picked from a photo list. Served at www.ortho-earth.com/globe/parks through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"common": "*"
+	}
+}

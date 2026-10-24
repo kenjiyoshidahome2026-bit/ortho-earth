@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["clouds-page.ts", "clouds.ts", "env.d.ts"]
+}

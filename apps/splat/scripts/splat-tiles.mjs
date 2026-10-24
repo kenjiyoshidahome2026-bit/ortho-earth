@@ -2,9 +2,9 @@
 // Gaussian splat の見本（Niantic の .spz・MIT）→ /globe/splat が読む 3D Tiles（glTF の KHR_gaussian_splatting＋SPZ 圧縮）と、掃除した 1 本の .spz を焼く（2026-10-21）。
 // 置き場＝GitHub Pages（リポ ortho-data の globe/splat/<scene>/・本人裁定 10/14「uploader を使わずに github.io に置く」）。
 // 焼いた先＝packages/world/out/splat/（world の out/ と同じ＝作り直せる生成物・git に入らない）→ 置くのは world の publish-pages.mjs：
-//   node apps/ortho-globe/scripts/splat-tiles.mjs                      … Niantic の GitHub から .spz を取って 2 シーンを焼く（取った物は out/ の隣の .src/ に残す）
-//   node apps/ortho-globe/scripts/splat-tiles.mjs --scene=hornedlizard  … 1 シーンだけ
-//   node apps/ortho-globe/scripts/splat-tiles.mjs --src=DIR             … 手元の <scene>.spz から
+//   node apps/splat/scripts/splat-tiles.mjs                      … Niantic の GitHub から .spz を取って 2 シーンを焼く（取った物は out/ の隣の .src/ に残す）
+//   node apps/splat/scripts/splat-tiles.mjs --scene=hornedlizard  … 1 シーンだけ
+//   node apps/splat/scripts/splat-tiles.mjs --src=DIR             … 手元の <scene>.spz から
 //   npm run publish:pages -w world-data -- --only=splat            （予行）→ 同じに --write（commit して push）
 // 焼く物（scene ごと）：
 //   tileset.json       … 八分木（refine REPLACE）。根と中の節＝部分木の「重い順」の見本（不透明度×大きさ）・葉＝その箱の全部。root.transform＝置き場の東北上（ECEF）

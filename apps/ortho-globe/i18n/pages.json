@@ -1,34 +1,4 @@
 {
-	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル。正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json。本体の訳（globe の ui.json）は @ortho-earth/globe が持つ＝ここでは足さない",
-	"pages": {
-		"sats": [
-			"sats.ts",
-			"sats-gl.js"
-		],
-		"clouds": [
-			"clouds.ts",
-			"clouds-gl.js"
-		],
-		"physical": [
-			"physical.ts"
-		],
-		"parks": [
-			"parks.ts"
-		],
-		"clock": [
-			"clock.ts",
-			"clock-zones.ts"
-		],
-		"arcs": [
-			"arcs.ts",
-			"arcs-mini.ts",
-			"arcs-data.ts"
-		],
-		"voxel": [
-			"voxel.ts"
-		],
-		"splat": [
-			"splat.ts"
-		]
-	}
+	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル。正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json。本体の訳（globe の ui.json）は @ortho-earth/globe が持つ＝ここでは足さない。頁は 2026-10-24 にそれぞれ独立のアプリ（apps/<名前>/）へ移り、各アプリが自分の i18n/ を持つ＝この家の index（main.ts）は本体の訳だけを使う",
+	"pages": {}
 }

@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["arcs-page.ts", "arcs.ts", "arcs-mini.ts", "arcs-data.ts", "env.d.ts"]
+}

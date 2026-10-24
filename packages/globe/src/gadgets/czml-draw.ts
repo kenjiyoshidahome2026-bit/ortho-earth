@@ -5,7 +5,7 @@
 //   billboard と札＝アトラス（2048² の前乗算 RGBA・棚詰め）に焼いた絵の四角。札の字は canvas2D で一度だけ焼く（字を焼くだけ＝テキスト GPU 化の §2 と同じ線引き）。main（gadgets/czml.js・段 4）は読み込み・軌跡の組み立て（czml-time.js の trackOf/styleOf）を持ち、
 // ここへは { type:"tracks", tracks:[{ id, name, t, p, degree, inertial, avail, style }] }（t/p は transfer）を渡すだけ。
 // 描く物＝path（尾・lead/trail/resolution）→ 点 / billboard（画像・data URI と http(s)＝取れなければ点）→ label。出ている区間の外・標本の範囲の外は描かない。
-// 置き方＝衛星（apps/ortho-globe/sats.js）と同じ：球＝測地の緯度・経度・高さ（単位球の地表点×(1＋h/R)）・楕円体＝ECEF を a で割り y を b/a で割る（β ワールド）。
+// 置き方＝衛星（apps/sats/sats.ts）と同じ：球＝測地の緯度・経度・高さ（単位球の地表点×(1＋h/R)）・楕円体＝ECEF を a で割り y を b/a で割る（β ワールド）。
 // 隠れ＝視線（eye→点）が地球（単位球）を通るか＝地平線の向こうでも高い衛星は地球の縁の外に見える（api.projectH の表裏は高さを見ない＝使わない）。
 // 断面（#111）で切られた側も描かない。時計が動いている間（実時間を含む）は描き続ける（frame が true）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()

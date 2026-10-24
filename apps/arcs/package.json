@@ -1,0 +1,22 @@
+{
+	"name": "arcs",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The shortest way is an arc: great-circle arcs to every capital and the world air routes on the globe. Served at www.ortho-earth.com/globe/arcs through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node --test tests/t-arcs-data.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/globe": "*",
+		"common": "*",
+		"geopbf": "*"
+	}
+}

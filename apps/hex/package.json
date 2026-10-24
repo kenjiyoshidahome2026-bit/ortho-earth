@@ -5,6 +5,7 @@
 	"description": "World population in hexagons: Kontur Population as H3 columns on the globe (map.addH3 / map.addCells). Served at www.ortho-earth.com/globe/hex through the ortho-globe Worker.",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
+	"servedAt": "/globe/",
 	"scripts": {
 		"dev": "vite",
 		"build": "node scripts/verify-i18n.mjs && vite build",
