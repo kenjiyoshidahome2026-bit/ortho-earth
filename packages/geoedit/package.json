@@ -45,7 +45,7 @@
 		"build": "tsc -p . && tsc -p tsconfig.worker.json",
 		"prepack": "node ../../scripts/pack-ts.mjs pre && npm run build:assets && npm run i18n:check",
 		"postpack": "node ../../scripts/pack-ts.mjs post",
-		"test": "npm run i18n:check && npm run -w ortho-japan verify:editor",
+		"test": "npm run i18n:check && npm run -w japan-map verify:editor",
 		"mirror": "git -C ../.. subtree split --prefix=packages/geoedit -b geoedit-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geoedit.git geoedit-mirror:main --force && git -C ../.. branch -D geoedit-mirror"
 	},
 	"dependencies": {

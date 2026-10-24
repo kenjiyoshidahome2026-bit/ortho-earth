@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// 配信口（apps/globe-host＝/globe/・apps/ortho-japan＝/japan/）の下に並ぶ独立のアプリ（apps/<名前>/）を集める（2026-10-24〜・計画 /mnt/project-files/apps-flat/plan-2026-10-24.md）。
+// 配信口（apps/globe-host＝/globe/・apps/japan-host＝/japan/）の下に並ぶ独立のアプリ（apps/<名前>/）を集める（2026-10-24〜・計画 /mnt/project-files/apps-flat/plan-2026-10-24.md）。
 // 各アプリを build し、出力 apps/<名前>/dist/site/<頭>/ を配信口の dist/site/<頭>/ へ重ねる＝同じ Worker が配る＝URL は変わらない。
 // 同じ名前のファイルは中身が同じ時だけ許す（ハッシュ付きのチャンクが同じ中身で重なるのは無害）。違えば止める＝上書きで頁を壊さない。
 // 配信口の cwd で走らせる（npm run build の最後）：
 //   node ../../packages/globe/scripts/lib/gather-apps.mjs /globe/            … build してから集める
 //   node ../../packages/globe/scripts/lib/gather-apps.mjs /globe/ --no-build … build 済みの dist を集めるだけ
-//   --clean … 配信口の dist/site/<頭>/ を空にしてから集める（自前の vite build を持たない配信口＝globe-host・2026-10-24）
+//   --clean … 配信口の dist/site/<頭>/ を空にしてから集める（自前の vite build を持たない配信口＝globe-host・japan-host・2026-10-24）
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";

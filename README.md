@@ -114,7 +114,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 | URL | App | What it shows |
 |---|---|---|
-| [/japan/](https://www.ortho-earth.com/japan/) | `apps/ortho-japan` | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
+| [/japan/](https://www.ortho-earth.com/japan/) | `apps/japan-map` (served by `apps/japan-host`) | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
 | [/globe/](https://www.ortho-earth.com/globe/) | `apps/globe-map` (served by `apps/globe-host`) | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
 | [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` | The shared engine: one versioned build of `@ortho-earth/globe` and the modules two or more apps use, loaded by URL |
 | [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` | World earthquakes since 1967 at their true hypocenter depth (data: `apps/quakes-mirror` + USGS, fetched by the browser) |
@@ -134,7 +134,7 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 Node 22.18 or newer (the tests import `.ts` sources directly, which needs Node's built-in type stripping) and npm. `npm install` at the root installs every workspace.
 
-- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w ortho-japan`, `-w ortho-globe`).
+- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w japan-map`, `-w globe-map`).
 - `npm run build:all` — builds www, geopbf-demo, gishub-jp and world and assembles `apps/www/dist` (docs, geopbf, gishub-jp, world, the shared engine).
 - Each package README documents its own API; [`packages/globe/README.md`](packages/globe/README.md) is the place to start for the engine, [`packages/geopbf/README.md`](packages/geopbf/README.md) for the data layer.
 
@@ -144,7 +144,7 @@ Node 22.18 or newer (the tests import `.ts` sources directly, which needs Node's
 workspace are unrolled to their test files, about 190 of them, and run in parallel, no browser or network needed;
 `npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
 `npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify:ui` / `verify:webgpu` / `verify:nocoi` / `verify:examples` in `packages/globe`,
-`npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/ortho-japan`, `npm run verify:pages` in `packages/geopbf`,
+`npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/japan-map` (`verify:prod` in `apps/japan-host`), `npm run verify:pages` in `packages/geopbf`,
 `npm run verify:gpu` in `apps/equal`. They drive a pinned headless Chrome for Testing (downloaded once, about 150 MB, to `~/.cache/ortho-earth/chrome-for-testing`;
 `npm run chrome:install` in `packages/globe` fetches it ahead of time, `CHROME=<path>` overrides it). It is a separate app from your everyday Google Chrome,
 so a running suite never blocks you from opening Chrome. The WebGPU suites need a real GPU.
@@ -153,8 +153,8 @@ so a running suite never blocks you from opening Chrome. The WebGPU suites need 
 
 There is no CI/CD workflow in this repository (only GitHub's CodeQL scan runs on push). Publishing is done from a machine with a logged-in `wrangler`:
 
-- **Shared engine** (`apps/engine`, Worker `ortho-engine`): `npm run deploy:engine` at the root. It first builds `ortho-globe` and runs its `verify:prod` against the new engine, then deploys the engine, then every app that loads it (`ortho-globe`, `census2020`, `ortho-nl`, `world-quiz`, `choju`, `yokohama`, `world`, `equal`, `ortho-japan`). Each app's own deploy refuses to go out if the engine version it was built against is not live yet.
-- **Workers** (`ortho-japan`, `ortho-globe`, `world`, `ortho-equal`, `census2020`, `ortho-solar`, `ortho-nl`, `ortho-himekuri`, `ortho-world-quiz`, …; one `wrangler.toml` per app): `npm run deploy -w <app>`. Each app's deploy script runs its own gates first (i18n tables, `verify:prod`, tests) and then `wrangler deploy`; `apps/ortho-japan` uses `scripts/deploy.mjs`.
+- **Shared engine** (`apps/engine`, Worker `ortho-engine`): `npm run deploy:engine` at the root. It first builds `globe-host` and runs its `verify:prod` against the new engine, then deploys the engine, then every app that loads it (`globe-host`, `census2020`, `ortho-nl`, `quiz`, `choju`, `yokohama`, `world`, `equal`, `japan-host`). Each app's own deploy refuses to go out if the engine version it was built against is not live yet.
+- **Workers** (`ortho-japan`, `ortho-globe`, `world`, `ortho-equal`, `census2020`, `ortho-solar`, `ortho-nl`, `ortho-himekuri`, `ortho-world-quiz`, …; one `wrangler.toml` per app): `npm run deploy -w <app>`. Each app's deploy script runs its own gates first (i18n tables, `verify:prod`, tests) and then `wrangler deploy`; `apps/japan-host` uses `scripts/deploy.mjs`.
 - **www** (`www.ortho-earth.com`, Cloudflare Pages): published automatically when `main` is merged, through the Pages Git integration. No manual `wrangler pages deploy` is needed.
 - **Order matters.** Because www goes live on merge, deploy the Workers first, and the shared engine before the apps that load it (its URL is a content hash of its build; older entry points are redirected to the current version by the `ortho-engine` Worker).
 - Bulk data (`world`, `space`, GeoPBF archives) lives in a Cloudflare R2 bucket and is uploaded with `apps/uploader`.

@@ -5,7 +5,7 @@
 import { fetchMVT, lonLatToTile, tileLocalToLonLat } from "@ortho-earth/core";   // 旧 "ortho-japan"（改名前のパッケージ名）で import が解決できなかった
 import { writeFileSync } from "fs";
 
-const OUT = "apps/ortho-japan/public/airports.json";
+const OUT = "apps/japan-map/public/airports.json";
 const CONCURRENCY = 16;
 const URL8 = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 

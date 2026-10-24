@@ -1,23 +1,23 @@
 {
-	"name": "ortho-japan",
+	"name": "japan-map",
 	"version": "1.14.0",
 	"private": true,
-	"description": "日本の 3D 地図のサイト（www.ortho-earth.com/japan/）。SDK（@ortho-earth/japan）は sdk/japan に分けた（2026-10-15）。",
+	"description": "日本の 3D 地図（www.ortho-earth.com/japan/ の表の頁）と、日本を試料に使うエンジンの検定・焼きの道具。自前の Worker は持たない＝出力 dist/site/japan/ を apps/japan-host（Worker ortho-japan）が集めて配る（2026-10-24 に apps/ortho-japan から改名）。SDK（@ortho-earth/japan）は sdk/japan。",
+	"servedAt": "/japan/",
 	"homepage": "https://www.ortho-earth.com/japan/",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
-		"directory": "apps/ortho-japan"
+		"directory": "apps/japan-map"
 	},
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs && node tests/t-pbrdecode.mjs && node tests/t-poioverrides.mjs && node tests/t-landmarks.mjs && node tests/t-meshq.mjs && node tests/t-deploy.mjs",
+		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs && node tests/t-pbrdecode.mjs && node tests/t-poioverrides.mjs && node tests/t-landmarks.mjs && node tests/t-meshq.mjs",
 		"test:net": "npm --prefix ../../packages/globe run test:net",
-		"build": "vite build && node ../../packages/globe/scripts/lib/gather-apps.mjs /japan/",
-		"build:prod": "npm run build -w @ortho-earth/japan && vite build && node ../../packages/globe/scripts/lib/gather-apps.mjs /japan/ && cp -R ../../sdk/japan/dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
+		"build": "vite build",
 		"i18n:extract": "node scripts/i18n-extract.mjs",
 		"i18n:import": "node scripts/i18n-import.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
@@ -26,11 +26,8 @@
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:globe": "npm --prefix ../../packages/globe run verify",
 		"verify:japan": "npm run verify:ui && npm run verify:webgpu",
-		"verify:prod": "node scripts/verify-prod.mjs",
 		"verify:cloud": "node scripts/verify-cloud.mjs",
 		"verify:editor": "node scripts/verify-editor.mjs t-editor t-editor-mobile t-zoomfill t-import",
-		"deploy": "node scripts/deploy.mjs",
-		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "npm --prefix ../../packages/globe run verify:nocoi",
 		"verify:elevburst": "node scripts/verify-elevburst.mjs",
 		"og": "node scripts/og-shot.mjs"
