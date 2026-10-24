@@ -70,12 +70,12 @@ export interface ModelBatchOut {
 /** 模型の点（経緯度 rad と RGBA） */
 export interface ModelPoints { geo: number[]; rgba: number[] }
 /** 3D Tiles の glTF の Gaussian splat（KHR_gaussian_splatting・2026-10-18）＝局所の座標のまま＋transform（列優先 4×4・局所 → ECEF＝タイル変換 × ノード変換・heightOffset 込み）。
- *  main（gadgets/tiles3d.ts）が plugin-splat の層（SplatData crs "local"）にする＝ECEF を float32 に通さない（0.5m のガタつき）。scales＝線形の σ（m）・rotations＝x,y,z,w・colors＝RGBA（sRGB・A＝不透明度）・
+ *  main（gadgets/tiles3d.ts）が splat の層（SplatData crs "local"）にする＝ECEF を float32 に通さない（0.5m のガタつき）。scales＝線形の σ（m）・rotations＝x,y,z,w・colors＝RGBA（sRGB・A＝不透明度）・
  *  sh＝DC より上の係数（n × K×3・係数が先・K＝3／8／15）。spz＝圧縮の拡張（KHR_gaussian_splatting_compression_spz_*）の本体＝plugin の読み手（parseSpz）が解く（その時 n＝0・配列は空） */
 export interface SplatPrimOut { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: 0 | 1 | 2 | 3; transform: number[]; spz: Uint8Array | null; colorSpace: string }
 /** KHR_implicit_shapes の形（box＝size・原点が中心。EXT_implicit_ellipsoid_region／EXT_implicit_cylinder_region は shape の extensions） */
 export interface ImplicitShape { type?: string; box?: { size?: number[] }; extensions?: Record<string, unknown> }
-/** 3D Tiles の glTF の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）＝plugin-voxel の VoxelData の形：box＝単位立方体 [0,1]³ → ECEF の transform（列優先 4×4・heightOffset 込み）・region＝[w,s,e,n（度）,h0,h1]。
+/** 3D Tiles の glTF の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）＝voxel の VoxelData の形：box＝単位立方体 [0,1]³ → ECEF の transform（列優先 4×4・heightOffset 込み）・region＝[w,s,e,n（度）,h0,h1]。
  *  values は padding を剥いだ物（x が最速）・components 1（スカラー）か 4（RGBA）・noData＝EXT_primitive_voxels.noData[属性]・property＝読んだ属性の名 */
 export interface VoxelPrimOut { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; noData?: number; property: string }
 /** tile.voxels の opts：property＝読む属性（class の性質名でも可・省略＝最初の独自属性）・declared＝tileset の 3DTILES_content_voxels（dimensions・padding）・volume＝タイルの境界体積（ECEF の box＝中心＋半軸 3 本 12 個・region＝rad）＝glTF に形が無い時 */
@@ -961,13 +961,13 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
 		for (const pr of (mesh.primitives || [])) {
 			const mode4 = pr.mode ?? 4;
-			if (pr.extensions?.[VOXEL_EXT] || mode4 === VOXEL_MODE) {   // voxel＝局所の形＋transform／region のまま main へ（plugin-voxel の層）。plugin が無い（tile.voxels 無し）＝飛ばす
+			if (pr.extensions?.[VOXEL_EXT] || mode4 === VOXEL_MODE) {   // voxel＝局所の形＋transform／region のまま main へ（voxel の層）。plugin が無い（tile.voxels 無し）＝飛ばす
 				const tv = tile?.voxels;
 				const v = tv ? voxelPrim(pr, gltf, lin, [ox, oy, oz], tile!.baseH != null ? -tile!.baseH : 0, tv === true ? {} : tv) : null;
 				if (v) voxels.push(v); else nVoxSkip++;
 				continue;
 			}
-			if (mode4 === 0 && pr.extensions?.[SPLAT_EXT] && tile?.splats) {   // Gaussian splat＝局所の座標＋transform のまま main へ（plugin-splat の層）
+			if (mode4 === 0 && pr.extensions?.[SPLAT_EXT] && tile?.splats) {   // Gaussian splat＝局所の座標＋transform のまま main へ（splat の層）
 				const sp = splatPrim(pr, gltf, lin, [ox, oy, oz], tile.baseH != null ? -tile.baseH : 0);
 				if (sp) { splats.push(sp); nSplat += sp.n; }
 				continue;

@@ -221,7 +221,7 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 }
 // 統一 picking（deck.gl 差分 PR-1・2026-10-11）：main の map.pickOverlays(x, y) → names の順（手前から）に各モジュールの pick(x, y, r, ctx) を問う。
 // x, y, r は CSS px で来る＝device px に直す。答え＝[{ name, id, distance（CSS px）, lngLat, properties, … }]（モジュールが返した物に name を足す）。pick の無いモジュールは飛ばす
-// pick は Promise を返してもよい（WebGPU の描き手＝番号の読み戻しは mapAsync・plugin-splat 2026-10-18）＝全部そろってから答える（順は names のまま・main は 3 秒で諦める）
+// pick は Promise を返してもよい（WebGPU の描き手＝番号の読み戻しは mapAsync・splat 2026-10-18）＝全部そろってから答える（順は names のまま・main は 3 秒で諦める）
 function overlayPick(m: RwMsg) {
 	type Res = OverlayHit | OverlayHit[] | null | undefined;
 	const parts: Promise<OverlayHit[]>[] = [];

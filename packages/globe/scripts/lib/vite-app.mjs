@@ -91,7 +91,7 @@ export const engineAliases = root => [
 	{ find: "#pointcloud-formats", replacement: resolve(root, "packages/tile-formats/src/pointcloud.ts") },
 ];
 
-// SDK の plugin（sdk/plugin-splat・plugin-scene・ktx2）が描き手（レンダーワーカーが URL で import() する同一フレームのモジュール）を
+// SDK の plugin（sdk/splat・scene・ktx2）が描き手（レンダーワーカーが URL で import() する同一フレームのモジュール）を
 // `new URL("./splat-draw.js", import.meta.url)` で指す書き方を、アプリの束で「実体の JS チャンク」にする（2026-10-21・verify-prod の splat 頁）。
 // 字面は .js のまま（npm の dist では実体・repo の中では .ts）＝vite の既定（vite:asset-import-meta-url）はこれを「資産」と見て生の .ts をそのまま
 // assets/ に写す＝ worker の import() が .ts を読めず「Failed to fetch dynamically imported module …splat-draw-xxxx.ts」。ここで先回り（enforce: pre）

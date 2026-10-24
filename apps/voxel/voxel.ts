@@ -1,5 +1,5 @@
 // voxel の見本（/globe/voxel・voxel.html から遅延 import・2026-10-23）。
-// @ortho-earth/plugin-voxel（予約された map.addData の kind "voxel"）を本物の場所で 4 つの場面に：
+// @ortho-earth/voxel（予約された map.addData の kind "voxel"）を本物の場所で 4 つの場面に：
 //   雲      … 富士山の上の 3D ノイズの場（64×64×24・24 km 角×5 km）＝体積（volume）
 //   トーラス … 距離場（48×48×24）＝閾を跨ぐ面（iso）
 //   富士山   … 地形（map.sampleTerrain＝既定の DTM）を 333 m ごとに標本して 100 m のブロックに（80×80×40）＝blocks
@@ -8,8 +8,8 @@
 //   描くのは全部エンジンの公開の口（map.use・addData・setProps・sampleTerrain・geopbf）だけ。
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { createPanel } from "common/panel";
-import { voxelPlugin, COLORMAP_NAMES } from "@ortho-earth/plugin-voxel";
-import type { VoxelHandle, VoxelOptions, RenderMode, ColormapSpec } from "@ortho-earth/plugin-voxel";
+import { voxelPlugin, COLORMAP_NAMES } from "@ortho-earth/voxel";
+import type { VoxelHandle, VoxelOptions, RenderMode, ColormapSpec } from "@ortho-earth/voxel";
 import type { GlobeMap, VoxelData } from "@ortho-earth/globe";
 import type { GeoPBF } from "geopbf";
 

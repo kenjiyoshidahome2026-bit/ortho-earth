@@ -1,4 +1,4 @@
-// voxel の見本（/globe/voxel・2026-10-23）＝@ortho-earth/plugin-voxel を地球儀の上で見せる頁（雲＝体積・トーラス＝等値面・富士山＝ブロック・地震の密度＝地下の体積）。
+// voxel の見本（/globe/voxel・2026-10-23）＝@ortho-earth/voxel を地球儀の上で見せる頁（雲＝体積・トーラス＝等値面・富士山＝ブロック・地震の密度＝地下の体積）。
 // このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域の申告なし）を自分の束に焼いてエンジンを起こし、格子と案内板は ./voxel.ts（遅延 chunk＝plugin もそこで束ねる）。
 // データ＝合成（ブラウザで作る）・富士山の地形（map.sampleTerrain＝既定の DTM）・地震＝/quakes/archive.geopbf（apps/quakes-mirror・dev は本番を直読み）。
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）

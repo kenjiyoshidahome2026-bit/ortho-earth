@@ -14,7 +14,7 @@
 	},
 	"dependencies": {
 		"@ortho-earth/globe": "*",
-		"@ortho-earth/plugin-splat": "*",
+		"@ortho-earth/splat": "*",
 		"common": "*"
 	}
 }

@@ -1,4 +1,4 @@
-// Gaussian splat の見本（/globe/splat・2026-10-21）＝@ortho-earth/plugin-splat を地球儀の上で見せる頁（3D Tiles の KHR_gaussian_splatting と 1 本の .spz・WebGPU の球面調和・自分のファイル）。
+// Gaussian splat の見本（/globe/splat・2026-10-21）＝@ortho-earth/splat を地球儀の上で見せる頁（3D Tiles の KHR_gaussian_splatting と 1 本の .spz・WebGPU の球面調和・自分のファイル）。
 // このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域の申告なし）を自分の束に焼いてエンジンを起こし、splat と案内板は ./splat.ts（遅延 chunk＝plugin もそこで束ねる）。
 // データ＝GitHub Pages の ortho-data/globe/splat/<scene>/（scripts/splat-tiles.mjs が Niantic の .spz から焼き、world の publish-pages.mjs が置く）。?data=URL で差し替え可。
 // 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）

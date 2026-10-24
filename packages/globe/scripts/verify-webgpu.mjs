@@ -32,10 +32,10 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-ellparity?ell=0", "t-ellparity?ell=1", "t-ellparity?g=cache", "t-ellparity?g=scan&ell=1", "t-mlcompat?g=extrude&ell=1", "t-overlaydepth?ell=1",
 	"t-postfx", "t-lights", "t-clouds", "t-plugin?v=gltf",
 	"t-three", "t-three?r=webgpu",   // three.js（map.addThree）＝本体 WebGPU の上で WebGLRenderer（深度は遅延の ImageBitmap）・WebGPURenderer（本体の device と深度テクスチャを共有・2026-10-18）
-	"t-pvoxel",   // voxel の WebGPU の描き手（@ortho-earth/plugin-voxel＝光線行進・本体の device と深度を共有・pick は非同期・2026-10-23）
-	"t-psplat",   // Gaussian splat の WebGPU の描き手（@ortho-earth/plugin-splat＝SH・GPU の並べ替え・本体の device と深度を共有・pick は非同期・2026-10-18）
-	"t-tiles3d-voxel",   // 3D Tiles の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・3DTILES_content_voxels）＝タイルごとの plugin-voxel の層・WebGPU で検める（2026-10-23）
-	"t-tiles3d-splat",   // 3D Tiles の Gaussian splat（KHR_gaussian_splatting）＝タイルごとの plugin-splat の層・当たりは WebGPU で検める（2026-10-18）
+	"t-pvoxel",   // voxel の WebGPU の描き手（@ortho-earth/voxel＝光線行進・本体の device と深度を共有・pick は非同期・2026-10-23）
+	"t-psplat",   // Gaussian splat の WebGPU の描き手（@ortho-earth/splat＝SH・GPU の並べ替え・本体の device と深度を共有・pick は非同期・2026-10-18）
+	"t-tiles3d-voxel",   // 3D Tiles の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・3DTILES_content_voxels）＝タイルごとの voxel の層・WebGPU で検める（2026-10-23）
+	"t-tiles3d-splat",   // 3D Tiles の Gaussian splat（KHR_gaussian_splatting）＝タイルごとの splat の層・当たりは WebGPU で検める（2026-10-18）
 	"t-sungpu",   // 日影時間・可視域の GPU 版（2026-10-24）＝描いた 3D Tiles から測り、同じ tileset を読む CPU 版と突き合わせる
 	"t-meshfs"];   // t-meshfs＝PLATEAU バッチの OPFS ストア（meshfs.ts）を dedicated worker で実往復（2026-10-16 に apps/ortho-japan から移した・段 5-7）   // t-lights＝局所の光源 point/spot/ambient/hemisphere（W2）   // 後処理 bloom・vignette（PR-8）＝flush の終端の WGSL パス   // 楕円体の測る台（#43 段 0）＝WebGPU の本体でも各機能の描いた位置が projectLL と合うか・既知の失敗は tests/ell-known.json   // 公式例の門 段 2＝idle・night/sky/terrain:false（既定は今と同じ）   // 列チャンク層（#90）＝オーバーレイは WebGL2 だが本体が WebGPU でも同じ絵   // MapLibre 互換の爪車（fill/line/circle の表・pass の重ね順）を WebGPU でも（台帳 R7）・g=mlt＝MVT と MLT で同じ絵（#88）   // t-atmo＝大気散乱（#46 段 1）・t-pbr＝PBR と環境光（段 2）・t-ao＝AO（段 3）   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
