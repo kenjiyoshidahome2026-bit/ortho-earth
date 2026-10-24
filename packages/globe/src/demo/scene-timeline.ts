@@ -89,7 +89,7 @@ export function buildSceneTimeline(doc: unknown, { plan, parseView, portrait = f
 	const recs: Rec[] = [];
 	let t = 0, cam: Cam | null = null, clockT: number | null = null;
 	const d0 = doc as { date?: unknown; utcOffset?: unknown } | null;
-	const lon0 = (() => { for (const s of rows) { const h = s.view ?? s.glide ?? s.fade; const v = typeof h === "string" ? parseView(h) : null; if (v) return v.lon * R2D; } return 0; })();
+	const lon0 = (() => { for (const s of rows) { const h = s.view ?? s.glide ?? s.fade; const v = typeof h === "string" ? parseView(h) : null; if (v) return v.lon; } return 0; })();   // parseViewHash の lon は度（pitch/bearing だけがラジアン）
 	const timeOpt = { date: d0?.date, utcOffset: d0?.utcOffset, lon: lon0 };
 	rows.forEach((s, i) => {
 		const hash = s.view ?? s.glide ?? s.fade;
