@@ -194,6 +194,7 @@ interface Layer {
 	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: GPUTexture; cmap: GPUTexture; vb: GPUBuffer; nVerts: number; ub: GPUBuffer; bg: GPUBindGroup | null; bgDep: GPUTexture | null;
 	on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null;
+	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
 }
 export interface VoxelGpuModule {
 	init(canvas: OffscreenCanvas, opts: { depth?: boolean }, host: OverlayHost | null): Promise<void>;
@@ -228,6 +229,27 @@ const stepsOf = (L: Layer): { step: number; maxSteps: number } => {
 	return { step: L.step, maxSteps: Math.min(4096, Math.ceil(Math.hypot(L.dims[0], L.dims[1], L.dims[2]) / L.step) + 2) };
 };
 const align256 = (v: number): number => Math.ceil(v / 256) * 256;
+// ブリック（第 5 段）＝voxel-gl.ts の drawBounds／isEmpty／centerDist／pickedCell と同じ（依存ゼロ＝写し）
+type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null };
+function drawBounds(L: BrickLike): { lo: number[]; hi: number[] } | null {
+	const dims = L.full && L.off && L.own ? L.full : L.dims, c = { lo: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2] : 0) * dims[i]), hi: [0, 1, 2].map(i => (L.clip ? L.clip[i * 2 + 1] : 1) * dims[i]) };
+	if (!L.full || !L.off || !L.own) return c;
+	const lo = [0, 1, 2].map(i => Math.max(L.own![i], c.lo[i] - L.off![i])), hi = [0, 1, 2].map(i => Math.min(L.own![3 + i], c.hi[i] - L.off![i]));
+	return lo.every((v, i) => v < hi[i]) ? { lo, hi } : null;
+}
+const isEmpty = (L: { vmax: number; thr: number; comps: 1 | 4 }): boolean => L.vmax === 0 || (L.comps === 1 && (L.vmax - 1) / 254 < L.thr);
+function centerDist(L: { dims: [number, number, number]; A: ArrayLike<number>; off: [number, number, number] | null; geo: GeoGrid | null }, enu: number[]): number {
+	let c: number[];
+	if (L.geo) c = [L.geo.bs[0], L.geo.bs[1], L.geo.bs[2]];
+	else { const o = L.off ?? [0, 0, 0], m = [0, 1, 2].map(i => o[i] + L.dims[i] / 2), A = L.A; c = [0, 1, 2].map(r => A[r * 3] * m[0] + A[r * 3 + 1] * m[1] + A[r * 3 + 2] * m[2]); }
+	return Math.hypot(enu[0] - c[0], enu[1] - c[1], enu[2] - c[2]);
+}
+function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null }, index: number): { layer: string; index: number; cell: [number, number, number] } {
+	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny));
+	if (!L.off || !L.full) return { layer: L.layer ?? q, index, cell: [i, j, k] };
+	const cell: [number, number, number] = [i + L.off[0], j + L.off[1], k + L.off[2]];
+	return { layer: L.layer ?? q, index: cell[0] + L.full[0] * (cell[1] + L.full[1] * cell[2]), cell };
+}
 
 export function create(): VoxelGpuModule {
 	let device: GPUDevice | null = null, ctx: GPUCanvasContext | null = null, host: OverlayHost | null = null, format: GPUTextureFormat = "rgba8unorm";
@@ -300,7 +322,7 @@ export function create(): VoxelGpuModule {
 		const geo = d.shape === "region" ? d.geo ?? null : null;
 		const vb = geo ? mkBuf(geo.shell, BUF.VERTEX, `voxel-shell-${q}`) : boxVb!, nVerts = geo ? geo.shell.length / 3 : 36;
 		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
-		return { q, shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, vb, nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo };
+		return { q, shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, vb, nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255 };
 	}
 	const drop = (L: Layer | undefined): void => { if (!L) return; L.tex.destroy(); L.cmap.destroy(); L.ub.destroy(); if (L.vb !== boxVb) L.vb.destroy(); };
 	function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
@@ -341,10 +363,12 @@ export function create(): VoxelGpuModule {
 			const A = L.A;
 			for (let c = 0; c < 3; c++) for (let row = 0; row < 4; row++) mvpC[c * 4 + row] = mvpL[row] * A[c] + mvpL[4 + row] * A[3 + c] + mvpL[8 + row] * A[6 + c];
 			for (let row = 0; row < 4; row++) mvpC[12 + row] = mvpL[12 + row];
-			const Ai = L.Ainv;
+			const Ai = L.Ainv, off = L.off;
 			for (let i = 0; i < 3; i++) eyeC[i] = Ai[i * 3] * enu[0] + Ai[i * 3 + 1] * enu[1] + Ai[i * 3 + 2] * enu[2];
+			if (off) for (let row = 0; row < 4; row++) mvpC[12 + row] += mvpC[row] * off[0] + mvpC[4 + row] * off[1] + mvpC[8 + row] * off[2];   // ブリック＝セルを off だけずらす（A·off）
+			if (off) for (let i = 0; i < 3; i++) eyeC[i] -= off[i];
 		}
-		L.dist = Math.hypot(d[0], d[1], d[2]);
+		L.dist = centerDist(L, enu);
 		const rr = L.radius * k;
 		const behind = o[0] * d[0] + o[1] * d[1] + o[2] * d[2] < -rr * Math.hypot(...o) - 1e-9;
 		return !behind;
@@ -355,7 +379,8 @@ export function create(): VoxelGpuModule {
 		for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) { uF[16 + c * 4 + r] = L.nrm[c * 3 + r]; uF[28 + c * 4 + r] = L.gradM[c * 3 + r]; }
 		uF[40] = eyeC[0]; uF[41] = eyeC[1]; uF[42] = eyeC[2]; uF[43] = geoU.R;
 		uF[44] = L.dims[0]; uF[45] = L.dims[1]; uF[46] = L.dims[2]; uF[47] = step;
-		for (let i = 0; i < 3; i++) { uF[48 + i] = (L.clip ? L.clip[i * 2] : 0) * L.dims[i]; uF[52 + i] = (L.clip ? L.clip[i * 2 + 1] : 1) * L.dims[i]; }
+		const bnd = drawBounds(L)!;
+		for (let i = 0; i < 3; i++) { uF[48 + i] = bnd.lo[i]; uF[52 + i] = bnd.hi[i]; }
 		uF[51] = L.thr; uF[55] = L.opacity;
 		for (let i = 0; i < 3; i++) { uF[56 + i] = geoU.o[i]; uF[60 + i] = geoU.E[i]; uF[64 + i] = geoU.N[i]; uF[68 + i] = geoU.U[i]; }
 		uF[59] = geoU.rAx; uF[63] = L.geo?.west ?? 0; uF[67] = L.geo?.south ?? 0; uF[71] = L.geo?.spanLon ?? 1;
@@ -395,7 +420,7 @@ export function create(): VoxelGpuModule {
 		if (!device || !ctx || !drawPipe) return false;
 		const d = api?.depth, dep = wantDepth && d ? { tex: d.gpuTexture(device), w: d.w, h: d.h, logCoef: d.logCoef } : null;
 		const vis: Layer[] = [];
-		for (const L of layers.values()) { if (!L.on || !L.n || !place(L, s, api)) continue; vis.push(L); }
+		for (const L of layers.values()) { if (!L.on || !L.n || isEmpty(L) || !drawBounds(L) || !place(L, s, api)) continue; vis.push(L); }
 		vis.sort((a, b) => b.dist - a.dist);
 		const enc = device.createCommandEncoder({ label: "voxel-frame" });
 		const pass = enc.beginRenderPass({ label: "voxel-draw", colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
@@ -413,7 +438,7 @@ export function create(): VoxelGpuModule {
 		const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
 		if (!(cx1 > cx0 && cy1 > cy0)) return null;
 		const vis: Layer[] = [];
-		for (const L of layers.values()) { if (!L.on || !L.n || !place(L, ctx0.s, ctx0.api)) continue; vis.push(L); }
+		for (const L of layers.values()) { if (!L.on || !L.n || isEmpty(L) || !drawBounds(L) || !place(L, ctx0.s, ctx0.api)) continue; vis.push(L); }
 		vis.sort((a, b) => b.dist - a.dist);
 		const enc = device.createCommandEncoder({ label: "voxel-pick" });
 		const pass = enc.beginRenderPass({ colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
@@ -431,11 +456,14 @@ export function create(): VoxelGpuModule {
 		buf.unmap(); buf.destroy();
 		if (!best) return null;
 		for (const [q, L] of layers) if (best.id >= L.base && best.id < L.base + L.n) {
-			const index = best.id - L.base, [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny)), cc = [i + 0.5, j + 0.5, k + 0.5], cell: [number, number, number] = [i, j, k];
+			const local = best.id - L.base, [nx, ny] = L.dims, i = local % nx, j = Math.floor(local / nx) % ny, k = Math.floor(local / (nx * ny)), cc = [i + 0.5, j + 0.5, k + 0.5];
+			const { layer, index, cell } = pickedCell(q, L, local);
 			let lngLat: [number, number];
 			if (L.geo) lngLat = [((L.geo.west + L.geo.spanLon * cc[0] / nx + 180) % 360 + 360) % 360 - 180, L.geo.south + L.geo.spanLat * cc[1] / ny];
-			else { const A = L.A, e = A[0] * cc[0] + A[1] * cc[1] + A[2] * cc[2], nn = A[3] * cc[0] + A[4] * cc[1] + A[5] * cc[2], a = L.anchor; lngLat = [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)]; }
-			return { id: best.id, q, layer: q, index, cell, value: null, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index, cell, value: null } };
+			else {
+				if (L.off) for (let a = 0; a < 3; a++) cc[a] += L.off[a];   // ブリック＝親のセル座標へ
+				const A = L.A, e = A[0] * cc[0] + A[1] * cc[1] + A[2] * cc[2], nn = A[3] * cc[0] + A[4] * cc[1] + A[5] * cc[2], a = L.anchor; lngLat = [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)]; }
+			return { id: best.id, q, layer, index, cell, value: null, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index, cell, value: null } };
 		}
 		return null;
 	}

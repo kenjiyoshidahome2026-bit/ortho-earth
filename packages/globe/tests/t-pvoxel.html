@@ -7,7 +7,8 @@
      ⑤当たり（handle.pick＝cell と value・queryRenderedFeatures）⑥setVisible・remove（一つ外しても残りは描く・全部外すと canvas が外れる）・同じ id は投げる
      ⑦読み手の worker（handle.reader＝"worker"）・backend＝verify:webgpu（gl2 無し）は "webgpu"・verify:ui（gl2=1・SwiftShader）は "webgl2"
      第 2 段（2026-10-23）：⑧region（経緯度×高さの格子・volume・turbo）＝棟の北西の空に色が出る ⑨iso（球状の場の等値面・黄・opacity 1）＝棟の西＝中心が黄で不透明
-     ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る -->)
+     ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る
+     第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く -->)
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -121,6 +122,28 @@ try {
 	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-voxel"]') && !!r1, `canvases=${cvs()} probe=${r1 ? "ok" : "none"}`);
 	hv.remove(); await sleep(300);
 	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'));
+	// ⑪ 大きな格子＝ブリック（第 5 段・2026-10-24）＝300×8×4（x が 256 を越える＝3 枚）・300×20×10 m（画面で小さく＝SwiftShader の 1 フレームを軽く）・値＝x の番号（西が赤・東が青）
+	stage = "brick";
+	// 全部外した後（猶予 OVERLAY_LINGER_MS も過ぎてオーバーレイが片付いた後）に同じ名前で立て直す＝render worker はモジュールの実体を使い回す（以前は描き手が死んだままで何も描かなかった）
+	const NB = [300, 8, 4], valsB = new Float32Array(NB[0] * NB[1] * NB[2]); for (let k = 0; k < NB[2]; k++) for (let j = 0; j < NB[1]; j++) for (let i = 0; i < NB[0]; i++) valsB[i + NB[0] * (j + NB[1] * k)] = i;
+	const hbig = map.addData({ dims: NB, box: { origin: ll(-150, -290, 0), size: [300, 20, 10] }, values: valsB, range: [0, 299] }, { kind: "voxel", id: "big", render: "blocks", colormap: ["#e61e1e", "#2040ff"] });
+	await hbig.ready;
+	ok("brick.n", hbig.bricks === 3 && hbig.n === 9600 && hbig.dims.join() === "300,8,4", `${hbig.bricks} ${hbig.n}`);
+	const BX = e => at(ll(e, -275, 10));   // 箱の上面の中ほど（南から見下ろす）・e＝東西 m（セル i＝e + 150）
+	const opaque = c => c[3] > 250;
+	const bluish = c => { const v = col(c); return v && v[2] > v[0] + 40; }, reddish = c => { const v = col(c); return v && v[0] > v[2] + 40; };
+	const db = await until(async () => { const d = await probe(hbig); return d && near(d, BX(-125)[0], BX(-125)[1], reddish, 2) && near(d, BX(125)[0], BX(125)[1], bluish, 2) ? d : null; }, W);
+	ok("brick.draw", !!db && hbig.error === null, db ? "" : `${hbig.error} W=${await diag(reddish, BX(-125))} E=${await diag(bluish, BX(125))}`);
+	ok("brick.seams", !!db && [-24, 102].every(e => { const c = BX(e); return opaque(px(db, c[0], c[1])) && opaque(px(db, c[0] - 3, c[1])) && opaque(px(db, c[0] + 3, c[1])); }), db ? JSON.stringify([-24, 102].map(e => px(db, BX(e)[0], BX(e)[1]))) : "");   // ブリックの継ぎ目（セル 126・252）に隙間が無い
+	const pb = await again(() => hbig.pick(BX(125)[0], BX(125)[1]));
+	ok("brick.pick", pb.length === 1 && pb[0].layer === "big" && Math.abs(pb[0].cell[0] - 275) <= 8 && pb[0].value === pb[0].cell[0] && pb[0].index === pb[0].cell[0] + 300 * (pb[0].cell[1] + 8 * pb[0].cell[2]), JSON.stringify(pb.map(h => ({ c: h.cell, i: h.index, v: h.value, l: h.layer }))));
+	await hbig.setProps({ clip: [0, 0.5, 0, 1, 0, 1] });   // 東半分（ブリック 2 は丸ごと・ブリック 1 は一部）が消える
+	const dcb = await until(async () => { const d = await probe(hbig); return d && near(d, BX(-75)[0], BX(-75)[1], opaque, 2) && !near(d, BX(75)[0], BX(75)[1], opaque, 2) && !near(d, BX(125)[0], BX(125)[1], opaque, 2) ? d : null; }, W);
+	ok("brick.clip", !!dcb);
+	await hbig.setProps({ clip: null, threshold: 200 });   // 西（セル 25＝ブリック 0 は丸ごと閾の下＝描かない）が消え、東は残る
+	const dtb = await until(async () => { const d = await probe(hbig); return d && !near(d, BX(-125)[0], BX(-125)[1], opaque, 2) && near(d, BX(125)[0], BX(125)[1], bluish, 2) ? d : null; }, W);
+	ok("brick.threshold", !!dtb);
+	hbig.remove();
 	map.unuse("plugin-voxel");
 	ok("unuse", !map.supports("data.voxel") && map.capabilities()["data.voxel"]?.status === "spec");
 	let threw = false; try { map.addData(d1, { kind: "voxel" }); } catch { threw = true; }
