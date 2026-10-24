@@ -19,12 +19,12 @@ import { requireNode } from "./lib/node-version.mjs";
 
 requireNode();   // 古い node（.ts を読めない）は何も配る前に止める（2026-10-19・solar の ephem の検定で止まった）
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const APPS = ["quakes", "globe-host", "census2020", "ortho-nl", "world-quiz", "choju", "yokohama", "world", "equal", "ortho-japan", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に globe-host から独立＝globe-host より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
+const APPS = ["quakes", "globe-host", "census2020", "ortho-nl", "quiz", "choju", "yokohama", "world", "equal", "japan-host", "solar", "himekuri"];   // 名前＝apps/ の下の置き場（cwd）   // solar・himekuri＝2026-10-15 に共有エンジンへ・quakes＝同日に globe-host から独立＝globe-host より先に配る（/globe/quakes を受ける Worker が先に立つ＝抜けが出ない）   // vite.config.js が sharedEngine() を使い、自前の deploy を持つアプリ
 const GATES = {   // --gate-only で回す各アプリの門（各 deploy から wrangler の手前までの重い物＝Chrome を使う物）
 	"quakes": "npm run build && npm run verify:prod",
 	"census2020": "npm run verify:prod",
 	"world": "npm run verify:prod",
-	"ortho-japan": "node scripts/deploy.mjs --gate-only",
+	"japan-host": "node scripts/deploy.mjs --gate-only",
 	"solar": "npm run verify:i18n && npm test -w @ortho-earth/ephem",
 };
 const args = process.argv.slice(2), engineOnly = args.includes("--engine-only"), gateOnly = args.includes("--gate-only");

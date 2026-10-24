@@ -9,11 +9,12 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { failedPages } from "./deploy-lib.mjs";
-const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const ROOT = path.resolve(APP, "..", "..");   // 変更検知の git は repo 直下で（WATCH の pathspec は repo 相対。apps/ortho-japan を cwd にすると 1 件も当たらず常に「速い版」になっていた・2026-09-27）
+const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));   // apps/japan-host＝配信口（build:prod・verify:prod・wrangler・verify-live）
+const ROOT = path.resolve(APP, "..", "..");   // 変更検知の git は repo 直下で（WATCH の pathspec は repo 相対。アプリの置き場を cwd にすると 1 件も当たらず常に「速い版」になっていた・2026-09-27）
+const MAP = path.join(ROOT, "apps/japan-map");   // 表の頁のアプリ＝訳の門とエディタ関門（tests/ の頁）はこちらで回す（2026-10-24 に配信口と分けた）
 const t0 = Date.now(), el = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
-const run = (cmd, args, tag, { lines = null, env = null } = {}) => new Promise(res => {   // lines＝stdout の行を溜める器（globe の落ちた頁を拾う）・env＝子に足す環境変数
-	const c = spawn(cmd, args, { cwd: APP, stdio: ["ignore", "pipe", "pipe"], shell: false, ...(env ? { env: { ...process.env, ...env } } : {}) });
+const run = (cmd, args, tag, { lines = null, env = null, cwd = APP } = {}) => new Promise(res => {   // lines＝stdout の行を溜める器（globe の落ちた頁を拾う）・env＝子に足す環境変数・cwd＝既定は配信口
+	const c = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: false, ...(env ? { env: { ...process.env, ...env } } : {}) });
 	let buf = "";
 	const pipe = (st, w, keep) => st.on("data", d => { buf += String(d); const parts = buf.split("\n"); buf = parts.pop(); for (const line of parts) { if (keep && lines) lines.push(line); if (line.trim()) w(`[${tag} ${el()}] ${line}`); } });
 	pipe(c.stdout, l => console.log(l), true); pipe(c.stderr, l => console.error(l), false);
@@ -21,13 +22,13 @@ const run = (cmd, args, tag, { lines = null, env = null } = {}) => new Promise(r
 });
 // 先に訳の門（数秒）＝キーの欠け・プレースホルダ・実行時の表の焼き忘れ（⑥）。落ちたら重い関門を回さず止める
 // （2026-09-23：i18n:build の焼き忘れで本番の日本語 UI が英語で出た＝この門が deploy の経路に無かった）
-if (await run("npm", ["run", "-s", "verify:i18n"], "i18n") !== 0) { console.error(`✗ 訳の門 FAIL＝deploy しない（焼き忘れなら npm run i18n:build して commit） ${el()}`); process.exit(1); }
+if (await run("npm", ["run", "-s", "verify:i18n"], "i18n", { cwd: MAP }) !== 0) { console.error(`✗ 訳の門 FAIL＝deploy しない（焼き忘れなら npm run i18n:build して commit） ${el()}`); process.exit(1); }
 // 硬い層（globe・core）の地域の語の爪車（数秒・LAYERS.md 掟 1）＝地域の知識が硬い層に増えていたら重い関門を回さず止める
 if (await run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:regionless"], "regionless") !== 0) { console.error(`✗ 地域の語の門 FAIL＝deploy しない（硬い層に地域を書かない・減ったなら packages/globe で --ratchet） ${el()}`); process.exit(1); }
 // エディタ関門の範囲＝前回 deploy（git tag japan-deployed）から、エディタや gint の実装が動いていれば**全部**（t-editor 61 s・t-zoomfill 60 s 込み）、
 // 動いていなければ速い 4 ページ（t-backfill/t-rectlook×2/t-import ≈ 16 s）だけ。geoedit は packages/geoedit（2026-09-20 分離）＝
 // japan の deploy でその実装が変わっていないなら、長い対話回帰を毎回回す理由がない。tag が無い（初回）＝全部。
-const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-core/src", "packages/globe/src", "packages/jp/src", "apps/ortho-japan/tests"];
+const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-core/src", "packages/globe/src", "packages/jp/src", "apps/japan-map/tests"];
 const changed = await new Promise(res => { const c = spawn("git", ["diff", "--name-only", "japan-deployed", "HEAD", "--", ...WATCH], { cwd: ROOT }); let out = "", bad = false; c.stdout.on("data", d => out += d); c.on("error", () => res(null)); c.on("close", code => res(code === 0 ? out.split("\n").filter(Boolean) : null)); });
 const dirty = await new Promise(res => { const c = spawn("git", ["status", "--porcelain", "--", ...WATCH], { cwd: ROOT }); let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => res(out.split("\n").filter(Boolean))); });
 const full = changed === null || changed.length > 0 || dirty.length > 0;
@@ -38,7 +39,7 @@ const QUICK_GLOBE = ["t-backfill", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,
 console.log(`… 関門を並行で（verify:editor${full ? "（全部＝エディタ/gint に変更あり" + (changed === null ? "・tag なし" : `・${changed.length + dirty.length} ファイル`) + "）" : "（速い版＝エディタ/gint に変更なし）"} ‖ globe の門 ‖ verify:prod）`);
 const globeLines = [], editorLines = [];
 let [ed, gl, pr] = await Promise.all([
-	full ? run("npm", ["run", "-s", "verify:editor"], "editor", { lines: editorLines }) : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor", { lines: editorLines }),
+	full ? run("npm", ["run", "-s", "verify:editor"], "editor", { lines: editorLines, cwd: MAP }) : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor", { lines: editorLines, cwd: MAP }),
 	full ? run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu"], "globe", { lines: globeLines }) : run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...QUICK_GLOBE], "globe", { lines: globeLines }),
 	run("npm", ["run", "-s", "verify:prod"], "prod"),
 ]);
@@ -55,7 +56,7 @@ const rerun = async (name, lines, cmd, args, opts = {}) => {
 };
 if (pr === 0 && (gl !== 0 || ed !== 0)) {
 	if (gl !== 0) gl = await rerun("globe", globeLines, "npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--"], { env: { VG_JOBS: "1" } });
-	if (ed !== 0 && gl === 0) ed = await rerun("editor", editorLines, "node", ["scripts/verify-editor.mjs"]);
+	if (ed !== 0 && gl === 0) ed = await rerun("editor", editorLines, "node", ["scripts/verify-editor.mjs"], { cwd: MAP });
 }
 if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} globe=${gl} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
 console.log(`✓ 関門 PASS ${el()}`);
@@ -63,7 +64,7 @@ if (process.argv.includes("--gate-only")) process.exit(0);   // 門だけ（scri
 // 配布物の掃除（dev 専用・重い置き土産）→ deploy → 実配信の検定
 const sh = (cmd) => run("sh", ["-c", cmd], "deploy");
 if (await sh("rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete") !== 0) process.exit(1);
-// 共有エンジンの順番の門（恒久対策 B・2026-10-14）＝焼き込んだエンジンの版が本番に無い＝ortho-globe を先に配っていない＝出さない
+// 共有エンジンの順番の門（恒久対策 B・2026-10-14）＝焼き込んだエンジンの版が本番に無い＝エンジン（apps/engine）を先に配っていない＝出さない
 if (await run("node", ["../../packages/globe/scripts/check-engine-live.mjs"], "engine") !== 0) process.exit(1);
 if (await run("npx", ["wrangler", "deploy"], "wrangler") !== 0) { console.error("✗ wrangler deploy FAIL"); process.exit(1); }
 // verify-live＝アップロード直後は一過性の fetch 失敗が出ることがある（3 回中 2 回・2026-09-19）＝一度だけ待って再試行

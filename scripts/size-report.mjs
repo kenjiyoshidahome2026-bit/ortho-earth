@@ -19,7 +19,7 @@ const arg = k => { const a = process.argv.find(s => s === `--${k}` || s.startsWi
 // 配布の単位＝[名前, ワークスペース, ビルドの script, 計る dist]
 const APPS = [
 	["japan-sdk", "@ortho-earth/japan", "build", "sdk/japan/dist/lib"],
-	["japan-site", "ortho-japan", "build", "apps/ortho-japan/dist/site"],
+	["japan-site", "japan-host", "build", "apps/japan-host/dist/site"],
 	["globe", "globe-host", "build", "apps/globe-host/dist/site"],
 	["quakes", "ortho-quakes", "build", "apps/quakes/dist/site"],
 	["world-lib", "ortho-world", "build:lib", "apps/world/dist/lib"],

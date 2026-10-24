@@ -27,9 +27,10 @@ export default defineConfig(() => ({
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// ここで組む頁は表紙（index.html）だけ。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
-	// fireworks・geoedit・models・onsen・parks・pointcloud・scene・tellus・terrain は 2026-10-24 にそれぞれ独立のアプリ（apps/<名前>/・package.json の servedAt＝"/japan/"）へ移った＝build の最後の gather-apps が出力を集めてこの Worker が配る（URL は変わらない）。
+	// fireworks・geoedit・models・onsen・parks・pointcloud・scene・tellus・terrain は 2026-10-24 にそれぞれ独立のアプリ（apps/<名前>/・package.json の servedAt＝"/japan/"）へ移った。
+	// この頁（japan-map・旧 apps/ortho-japan）も同じ servedAt＝自前の Worker は持たない＝apps/japan-host の build（gather-apps）が全部を集めて /japan/ の Worker（名前は ortho-japan のまま）が配る（URL は変わらない）。
 	// エンジン（globe・i18n・core・geopbf）は sharedEngine() が /globe/engine/<版>/ へ外に出す（2026-09-30・旧＝本番だけ /japan/lib/ の SDK を実行時に食う二重構成）。
-	// SDK（sdk/japan の dist/lib）は外へ配る物＝build:prod が従来どおり /japan/lib/ に置く（SDK は 2026-10-15 に sdk/japan へ分けた）。
+	// SDK（sdk/japan の dist/lib）は外へ配る物＝japan-host の build:prod が従来どおり /japan/lib/ に置く（SDK は 2026-10-15 に sdk/japan へ分けた）。
 	// noChunkOptimization＝rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。
 	build: { outDir: OUT, emptyOutDir: true, rollupOptions: {
 		input: { main: resolve(import.meta.dirname, "index.html") },
@@ -38,6 +39,6 @@ export default defineConfig(() => ({
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない（engineAliases）
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	// plateau-names.json（2.9MB）＝台帳づくりの中間（scripts/plateau-names-*.mjs が読む）で実行時は読まない＝出力から外す（deploy.mjs の rm と同じ・2026-09-30 に build 側へ）
+	// plateau-names.json（2.9MB）＝台帳づくりの中間（scripts/plateau-names-*.mjs が読む）で実行時は読まない＝出力から外す（japan-host の deploy.mjs の rm と同じ・2026-09-30 に build 側へ）
 	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, bootScreen, dropUnusedPublic(OUT, ["plateau-names.json"])],
 }));
