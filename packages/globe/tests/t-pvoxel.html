@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- 実描画の検分：@ortho-earth/plugin-voxel（第 1 段・2026-10-23）＝予約された map.addData の kind "voxel"（同一フレームのオーバーレイ・WebGL2 の光線行進）。
+<!-- 実描画の検分：@ortho-earth/voxel（第 1 段・2026-10-23）＝予約された map.addData の kind "voxel"（同一フレームのオーバーレイ・WebGL2 の光線行進）。
      試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-psplat と同じ）・北向きに 60° 傾けて南から見る。
      ①plugin の形：map.use(voxelPlugin()) で capabilities の data.voxel が plugin・unuse で外れて "spec" の受け口に戻る
      ②blocks（1 成分＋色表＝赤一色・4×4×4・80 m 角）＝棟の南 250 m・画面の箱の中心が赤。③blocks（RGBA 直・緑）＝棟の北 500 m＝棟に隠れる（本体の深度）
@@ -14,7 +14,7 @@
 <body><div id="map"></div>
 <script type="module">
 const { createGlobe } = await import("@ortho-earth/globe");
-const { voxelPlugin } = await import("@ortho-earth/plugin-voxel");
+const { voxelPlugin } = await import("@ortho-earth/voxel");
 const t = [];
 let stage = "boot";
 const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pvoxel @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
@@ -33,7 +33,7 @@ try {
 	// ① plugin
 	map.use(voxelPlugin());
 	const cap = map.capabilities()["data.voxel"];
-	ok("caps", cap?.status === "plugin" && cap?.via === "plugin-voxel", JSON.stringify(cap));
+	ok("caps", cap?.status === "plugin" && cap?.via === "voxel", JSON.stringify(cap));
 	const dpr = Math.min(2, devicePixelRatio || 1);
 	const probe = h => new Promise(res => { stage = "probe:" + h.id; const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
 		ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
@@ -68,7 +68,7 @@ try {
 	await Promise.all([hb.ready, hg.ready, hv.ready, hr.ready, hi.ready]);
 	ok("n", hb.n === 64 && hg.n === 27 && hv.n === 2048 && hb.kind === "voxel" && hb.dims.join() === "4,4,4" && hb.range.join() === "0,1" && hr.shape === "region" && hr.n === 192 && hi.n === 1728, `${hb.n}/${hg.n}/${hv.n}/${hr.n}/${hi.n}`);
 	ok("reader", hb.reader === "worker" && hg.reader === "worker" && hv.reader === "worker", `${hb.reader}/${hg.reader}/${hv.reader}`);   // ⑦
-	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-voxel"]').length === 1 && hb.overlay === hv.overlay);
+	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="voxel"]').length === 1 && hb.overlay === hv.overlay);
 	let dup = false; try { map.addData(d1, { kind: "voxel", id: "red" }); } catch { dup = true; }
 	ok("dupIdThrows", dup);
 	const RC = [(RW + RE) / 2, (RS + RN) / 2, 100], IC = ll(-250, -100, 40);
@@ -120,9 +120,9 @@ try {
 	hb.remove(); hg.remove(); hr.remove(); hi.remove();
 	const cvs = () => [...map.mapEl.querySelectorAll("canvas.overlay-gl")].map(c => c.dataset.overlay).join("|");
 	const r1 = await until(async () => { const d = await probe(hv); return d && near(d, Q.V[0], Q.V[1], blue, 3) && !near(d, Q.R[0], Q.R[1], red) ? d : null; }, W);
-	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-voxel"]') && !!r1, `canvases=${cvs()} probe=${r1 ? "ok" : "none"}`);
+	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="voxel"]') && !!r1, `canvases=${cvs()} probe=${r1 ? "ok" : "none"}`);
 	hv.remove(); await sleep(300);
-	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'));
+	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="voxel"]'));
 	// ⑪ 大きな格子＝ブリック（第 5 段・2026-10-24）＝300×8×4（x が 256 を越える＝3 枚）・300×20×10 m（画面で小さく＝SwiftShader の 1 フレームを軽く）・値＝x の番号（西が赤・東が青）
 	stage = "brick";
 	// 全部外した後（猶予 OVERLAY_LINGER_MS も過ぎてオーバーレイが片付いた後）に同じ名前で立て直す＝render worker はモジュールの実体を使い回す（以前は描き手が死んだままで何も描かなかった）
@@ -164,7 +164,7 @@ try {
 	const tPin = await until(async () => { const d = await probe(ht); return ht.frame === 0 && d && near(d, QT()[0], QT()[1], red, 3) ? d : null; }, W);
 	ok("time.pin", !!tPin, `frame=${ht.frame}`);
 	ht.remove(); map.clock.live();
-	map.unuse("plugin-voxel");
+	map.unuse("voxel");
 	ok("unuse", !map.supports("data.voxel") && map.capabilities()["data.voxel"]?.status === "spec");
 	let threw = false; try { map.addData(d1, { kind: "voxel" }); } catch { threw = true; }
 	ok("unuseThrows", threw);

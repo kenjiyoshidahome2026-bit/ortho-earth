@@ -3,7 +3,7 @@
 //   VoxelData＝{ shape: "box"|"region", dims: [nx, ny, nz], box?: { origin:[lng,lat,alt], size:[m,m,m], orientation?:[h,p,r] } | { transform: 列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m） }, region?: [w,s,e,n（度）, h0,h1（m）],
 //               values: Float32Array|Uint16Array|Uint8Array（nx*ny*nz*components・x が最も速く変わる＝i + nx*(j + ny*k)）, components?: 1|4（1＝スカラー・4＝RGBA 直）, noData?, range?: [min,max],
 //               times?: number[]（時間の次元＝こまの時刻 ms・昇順。values はこまを順に並べて ×こま数）}
-//   shape は box か region のどちらかが在れば省略できる。plugin はこの形で受け取る＝normVoxel が検める。計画＝sdk/plugin-voxel/PLAN.md
+//   shape は box か region のどちらかが在れば省略できる。plugin はこの形で受け取る＝normVoxel が検める。計画＝sdk/voxel/PLAN.md
 import type { VoxelData } from "../globe.d.ts";
 
 /** normVoxel が検める前の形（欄は何が来てもよい） */
@@ -47,7 +47,7 @@ export const normVoxel = (data: unknown): string | ArrayBuffer | Uint8Array | No
 		if (!(r[4] < r[5])) throw new RangeError("voxel: region h0 must be < h1");
 		out.region = r;
 	}
-	// times＝時間の次元（2026-10-24・plugin-voxel 第 5 段）＝各こまの時刻（ms・昇順）。values はこまを順に並べた物（こま t は t*nx*ny*nz*components から）
+	// times＝時間の次元（2026-10-24・voxel 第 5 段）＝各こまの時刻（ms・昇順）。values はこまを順に並べた物（こま t は t*nx*ny*nz*components から）
 	let frames = 1;
 	if (d.times != null) {
 		const t = d.times as ArrayLike<number>;

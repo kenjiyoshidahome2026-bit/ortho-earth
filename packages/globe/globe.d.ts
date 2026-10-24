@@ -752,7 +752,7 @@ export interface OverlayFrameApi {
 	/** 楕円体表示の b/a（#43）。球＝1・楕円体＝1−1/298.257223563。自前で経緯度から位置を組むオーバーレイは、測地緯度 φ を
 	 *  β（tanβ＝rAx·tanφ）に直した単位球の点に置く（camState.mvp が S＝diag(1, rAx, 1) を畳む）。project／projectH を使う物は気にしなくてよい */
 	rAx: number;
-	/** 生の標高（m・地形から同期・地形が無ければ 0）。自前で頂点を組むオーバーレイ（plugin-scene・plugin-splat・列チャンク層のドレープ）が持ち上げに使う（src/renderworker.js） */
+	/** 生の標高（m・地形から同期・地形が無ければ 0）。自前で頂点を組むオーバーレイ（scene・splat・列チャンク層のドレープ）が持ち上げに使う（src/renderworker.js） */
 	elevM(lon: number, lat: number): number;
 	/** 1m あたりの持ち上げ（pitch のフェード込み＝本体の lift と同式）。高さ r＝1＋elevM×liftScale＋hM×(1/R) */
 	liftScale: number;
@@ -877,11 +877,11 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
 export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限（px・既定 16・低メモリ端末 24）。予算（gpuMB + mainMB）を越えると stats.sseScale 倍に引き上げられる */ maxSSE?: number;
 	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
 	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
-	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/plugin-splat の SplatOptions）。
-	 *  描き手＝plugin-splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
+	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
+	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;
-	/** voxel のタイル（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）＝タイルごとに map.addData(…, { kind: "voxel" }) の層にする時の opts（render・colormap・threshold・opacity・clip・@ortho-earth/plugin-voxel の VoxelOptions）
-	 *  ＋ property（読む属性の名・class の性質名でも可・省略＝最初の独自属性）。描き手＝plugin-voxel（map.use(voxelPlugin())）。無ければ飛ばす（tileset ごとに一度 warn）。box（単位立方体 → transform）と EXT_implicit_ellipsoid_region（region）・cylinder は未対応 */
+	/** voxel のタイル（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）＝タイルごとに map.addData(…, { kind: "voxel" }) の層にする時の opts（render・colormap・threshold・opacity・clip・@ortho-earth/voxel の VoxelOptions）
+	 *  ＋ property（読む属性の名・class の性質名でも可・省略＝最初の独自属性）。描き手＝voxel（map.use(voxelPlugin())）。無ければ飛ばす（tileset ごとに一度 warn）。box（単位立方体 → transform）と EXT_implicit_ellipsoid_region（region）・cylinder は未対応 */
 	voxel?: Record<string, unknown> | null;
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
 	attribution?: string | ((copyrights: string[]) => string | null);
@@ -892,7 +892,7 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
  *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
 export interface Tiles3DStyle { color?: unknown; show?: unknown; defines?: Record<string, string> }
 export interface Tiles3DHandle {
-	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・plugin-splat が描く物） */ splats: number; /** voxel の格子の数（EXT_primitive_voxels・plugin-voxel が描く物） */ voxels: number; bytes: number; gpuMB: number; /** main のヒープに残る写し（当たりの頂点・index・元の頂点色・地物の番号）の MB。gpuMB との和が予算に数えられる */ mainMB: number; inflight: number; /** 予算を越えた時の maxSSE の倍率（1＝そのまま・最大 16）。gpuMB + mainMB が予算を越えると 1.25 倍ずつ上がって粗い段で止め、動いた時に 1 s に 1 段ずつ 0.9 倍で戻る（2026-10-21） */ sseScale: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; /** Gaussian splat の個数（KHR_gaussian_splatting・splat が描く物） */ splats: number; /** voxel の格子の数（EXT_primitive_voxels・voxel が描く物） */ voxels: number; bytes: number; gpuMB: number; /** main のヒープに残る写し（当たりの頂点・index・元の頂点色・地物の番号）の MB。gpuMB との和が予算に数えられる */ mainMB: number; inflight: number; /** 予算を越えた時の maxSSE の倍率（1＝そのまま・最大 16）。gpuMB + mainMB が予算を越えると 1.25 倍ずつ上がって粗い段で止め、動いた時に 1 s に 1 段ずつ 0.9 倍で戻る（2026-10-21） */ sseScale: number; /** 読んで持っている subtree の数（implicit tiling・3D Tiles 1.1） */ subtrees: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	/** 3D Tiles 1.1 の metadata：schema（直書きか schemaUri を読んだ物）・tileset の metadata を schema で読んだ物・groups（content の group の実体） */
@@ -957,7 +957,7 @@ export interface SplatData {
 	crs?: "lnglat" | "ecef" | "local";
 	/** crs "local" に必須＝列優先 4×4（local m → ECEF m）。3D Tiles の glTF の splat（KHR_gaussian_splatting）＝タイル変換 × ノード変換 */ transform?: ArrayLike<number>;
 }
-/** voxel（V0・予約された kind "voxel" の契約・2026-10-23）：map.addData(data, { kind: "voxel" }) の data。描く段は plugin（registry.dataKinds "voxel"＝@ortho-earth/plugin-voxel・体積／ブロック／等値面を光線で辿る）。URL（.nc/.zarr/.vox/.npy）と bytes も受ける＝読み手は plugin */
+/** voxel（V0・予約された kind "voxel" の契約・2026-10-23）：map.addData(data, { kind: "voxel" }) の data。描く段は plugin（registry.dataKinds "voxel"＝@ortho-earth/voxel・体積／ブロック／等値面を光線で辿る）。URL（.nc/.zarr/.vox/.npy）と bytes も受ける＝読み手は plugin */
 export interface VoxelData {
 	/** 格子の置き方（box か region が在れば省略できる） */ shape?: "box" | "region";
 	/** 各軸のセル数 [nx, ny, nz]（x が最も速く変わる＝values[i + nx*(j + ny*k)]） */ dims: [number, number, number];

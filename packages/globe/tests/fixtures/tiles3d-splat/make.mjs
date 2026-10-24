@@ -53,7 +53,7 @@ function draftGlb(S) {
 		meshes: [{ primitives: [{ attributes: { POSITION: 0, _SCALE: 1, _ROTATION: 2, _OPACITY: 3, COLOR_0: 4 }, mode: 0, extensions: { KHR_gaussian_splatting: { kernel: "ellipse", colorSpace: "srgb_rec709_display" } } }] }],
 		accessors: [{ bufferView: 0, componentType: 5126, count: n, type: "VEC3", ...minmax(pos, 3) }, { bufferView: 1, componentType: 5126, count: n, type: "VEC3" }, { bufferView: 2, componentType: 5122, normalized: true, count: n, type: "VEC4" }, { bufferView: 3, componentType: 5126, count: n, type: "SCALAR" }, { bufferView: 4, componentType: 5126, count: n, type: "VEC4" }] }, parts);
 }
-// .spz v2 の本体（sdk/plugin-splat/tests の makeSpz と同じ目）＝位置 24 bit 固定小数・α・DC（0.15 の目）・log の尺（1/16）・回転 3 byte
+// .spz v2 の本体（sdk/splat/tests の makeSpz と同じ目）＝位置 24 bit 固定小数・α・DC（0.15 の目）・log の尺（1/16）・回転 3 byte
 function spz(S) {
 	const n = S.length, frac = 12, b = new Uint8Array(16 + n * (9 + 1 + 3 + 3 + 3)), dv = new DataView(b.buffer);
 	dv.setUint32(0, 0x5053474e, true); dv.setUint32(4, 2, true); dv.setUint32(8, n, true); b[12] = 0; b[13] = frac;

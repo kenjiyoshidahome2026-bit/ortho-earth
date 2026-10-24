@@ -1,5 +1,5 @@
 // 3D Tiles の voxel（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）の node 検定（網なし・fixtures/tiles3d-voxel＝make.mjs）。
-// worker の解き（decodeTile3D → decodeModel）が voxel のプリミティブを plugin-voxel の VoxelData の形（box＝単位立方体 → ECEF の transform・region＝経緯度高）で返すか：
+// worker の解き（decodeTile3D → decodeModel）が voxel のプリミティブを voxel の VoxelData の形（box＝単位立方体 → ECEF の transform・region＝経緯度高）で返すか：
 //   padding を剥ぐ・noData・属性の名（class の性質名 → propertyAttributes → 属性）・Uint8 の RGBA・heightOffset の持ち上げ・形が無い時は境界体積・plugin が無い（voxels:false）＝飛ばして数える。
 import { readFileSync } from "node:fs";
 import { decodeTile3D } from "../src/tiles3d-decode.ts";

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- 実描画の検分：@ortho-earth/plugin-splat（第 3 波 W10・2026-10-12・WebGPU の描き手 2026-10-18）＝予約された map.addData の kind "splat"（同一フレームのオーバーレイ）。
+<!-- 実描画の検分：@ortho-earth/splat（第 3 波 W10・2026-10-12・WebGPU の描き手 2026-10-18）＝予約された map.addData の kind "splat"（同一フレームのオーバーレイ）。
      描き手は器で選ぶ＝WebGPU（SH・GPU の並べ替え・本体の device と深度を共有）→ 無ければ WebGL2。verify:ui（gl2=1・SwiftShader）＝WebGL2、verify:webgpu＝WebGPU（backend を検める）。
      ⑥SH：赤の DC に 1 次の z の係数（4,-4,0）＝上から見る（視線の z≈−0.5）と緑に変わる＝WebGPU だけ（WebGL2 は DC のまま赤）。
      試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-pscene と同じ）・北向きに 60° 傾けて南から見る。
@@ -13,7 +13,7 @@
 <body><div id="map"></div>
 <script type="module">
 const { createGlobe } = await import("@ortho-earth/globe");
-const { splatPlugin } = await import("@ortho-earth/plugin-splat");
+const { splatPlugin } = await import("@ortho-earth/splat");
 const t = [];
 let stage = "boot";
 const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-psplat @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
@@ -33,7 +33,7 @@ try {
 	// ① plugin
 	map.use(splatPlugin());
 	const cap = map.capabilities()["data.splat"];
-	ok("caps", cap?.status === "plugin" && cap?.via === "plugin-splat", JSON.stringify(cap));
+	ok("caps", cap?.status === "plugin" && cap?.via === "splat", JSON.stringify(cap));
 	const dpr = Math.min(2, devicePixelRatio || 1);
 	const probe = h => new Promise(res => { stage = "probe:" + h.id; const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
 		ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
@@ -64,7 +64,7 @@ try {
 	await Promise.all([hs.ready, hy.ready, hw.ready, hsh.ready, hl.ready]);
 	ok("n", hs.n === 5 && hy.n === 1 && hw.n === 1 && hs.kind === "splat", `${hs.n}/${hy.n}/${hw.n}`);
 	ok("reader", hs.reader === "worker" && hy.reader === "worker" && hw.reader === "worker" && hl.reader === "worker", `${hs.reader}/${hy.reader}/${hw.reader}/${hl.reader}`);   // ⑦ 読み手は worker
-	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-splat"]').length === 1 && hs.overlay === hy.overlay);
+	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="splat"]').length === 1 && hs.overlay === hy.overlay);
 	let dup = false; try { map.addData(data, { kind: "splat", id: "scene" }); } catch { dup = true; }
 	ok("dupIdThrows", dup);
 	const Q = { get R() { return at(P[0]); }, get G() { return at(P[1]); }, get B() { return at(P[2]); }, get M() { return at(P[3]); }, get Y() { return at(ll(150, -300, 30)); }, get Wh() { return at(ll(-120, -380, 30)); }, get S() { return at(PS); } };
@@ -113,10 +113,10 @@ try {
 	hs.setVisible(false);
 	ok("hidden", !!await until(async () => { const d = await probe(hy); return d && !near(d, Q.R[0], Q.R[1], red) && near(d, Q.Y[0], Q.Y[1], yellow) ? d : null; }, W));
 	hs.remove(); hw.remove(); hsh.remove();
-	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-splat"]') && !!await until(async () => { const d = await probe(hy); return d && near(d, Q.Y[0], Q.Y[1], yellow) && !near(d, Q.Wh[0], Q.Wh[1], white) ? d : null; }, W));
+	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="splat"]') && !!await until(async () => { const d = await probe(hy); return d && near(d, Q.Y[0], Q.Y[1], yellow) && !near(d, Q.Wh[0], Q.Wh[1], white) ? d : null; }, W));
 	hy.remove(); await sleep(300);
-	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-splat"]'));
-	map.unuse("plugin-splat");
+	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="splat"]'));
+	map.unuse("splat");
 	ok("unuse", !map.supports("data.splat") && map.capabilities()["data.splat"]?.status === "spec");
 	let threw = false; try { map.addData(data, { kind: "splat" }); } catch { threw = true; }
 	ok("unuseThrows", threw);

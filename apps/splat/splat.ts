@@ -1,5 +1,5 @@
 // Gaussian splat の見本（/globe/splat・splat.html から遅延 import・2026-10-21）。
-// @ortho-earth/plugin-splat（予約された map.addData の kind "splat"）を、本物の場所＝東京駅 丸の内駅前広場に 2 つの写実の 3D スキャン（Niantic の .spz の見本・MIT）を置いて見せる。
+// @ortho-earth/splat（予約された map.addData の kind "splat"）を、本物の場所＝東京駅 丸の内駅前広場に 2 つの写実の 3D スキャン（Niantic の .spz の見本・MIT）を置いて見せる。
 //   読み方 2 つ … 「3D Tiles」＝scripts/splat-tiles.mjs が焼いた八分木（glTF の KHR_gaussian_splatting＋SPZ 圧縮・refine REPLACE）を map.add3DTiles で流す（寄った所だけ細かく・遠くは見本）
 //                 「1 本の .spz」＝掃除した .spz を map.addData(url, { kind: "splat", origin }) で丸ごと読む（WebGPU なら LoD＝画面で小さい時は重い順の先頭だけ）
 //   つまみ      … 建物・地形で隠す（depthTest）・球面調和の次数（WebGPU）・LoD・不透明度
@@ -7,8 +7,8 @@
 //   描くのは全部エンジンの公開の口（map.use・add3DTiles・addData・setOptions・setProps）だけ。
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { createPanel } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
-import { splatPlugin } from "@ortho-earth/plugin-splat";
-import type { SplatHandle, SplatFormat, SplatOptions } from "@ortho-earth/plugin-splat";
+import { splatPlugin } from "@ortho-earth/splat";
+import type { SplatHandle, SplatFormat, SplatOptions } from "@ortho-earth/splat";
 import type { GlobeMap, Tiles3DHandle } from "@ortho-earth/globe";
 
 const t = tr();
