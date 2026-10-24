@@ -398,7 +398,7 @@ try {
 			sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true }));
 			const iss = []; parseScenes(ed.doc, iss);
 			const tl = map.sceneTimeline(ed.doc);
-			good = good && sel.value === "" && iss.length === 0 && !!ed.doc.opening && !!ed.doc.credit && tl.dur > 30 && tl.dur < 120 && tl.rows.every(r => r.time != null);
+			good = good && sel.value === "" && iss.length === 0 && !!ed.doc.opening && !!ed.doc.credit && tl.dur > 30 && tl.dur < 120 && (ed.doc.light ? tl.rows.every(r => r.time != null) : tl.rows.some(r => r.raster && r.raster.length));
 			if (!good) console.log("tpl", id, JSON.stringify(iss), tl && tl.dur);
 		}
 		ok("templates", good);

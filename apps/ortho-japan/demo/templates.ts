@@ -41,4 +41,21 @@ export const TEMPLATES: SceneTemplate[] = [
 			],
 		},
 	},
+	{
+		id: "flood-east-tokyo", name: { ja: "防災 ― 東京の東、川にはさまれた街（洪水浸水想定）", en: "Disaster risk ― east Tokyo between two rivers (flood map)" },
+		doc: {
+			type: "scenes", frame: "16:9", waitLoading: true,
+			credit: { ja: "3D都市モデル：国土交通省 Project PLATEAU（CC BY 4.0）／洪水浸水想定区域：ハザードマップポータルサイト（国土交通省）", en: "3D city model: MLIT Project PLATEAU (CC BY 4.0) / Flood inundation: Hazard Map Portal Site (MLIT)" },
+			title: "防災 ― 川にはさまれた街",
+			opening: { title: { ja: "川にはさまれた街", en: "A City Between Two Rivers" }, sub: { ja: "3D 都市モデルと洪水浸水想定で見る", en: "Seen through 3D city models and flood maps" }, by: BY },
+			ending: { title: "ortho-earth", sub: { ja: "地図を、自分ごとに", en: "Make the map your own" } },
+			scenes: [
+				{ title: "東京の東", en: "East Tokyo", sub: { ja: "荒川と江戸川のあいだ", en: "Between the Arakawa and Edogawa rivers" }, look: "center", view: "#13.6/35.700/139.850/45t/-15r/l=", hold: 3.5, raster: [], orbit: 10 },
+				{ title: "低い土地に広がる住宅地", en: "Homes on low-lying land", look: "lower", glide: "#15.2/35.690/139.862/62t/30r/l=", travel: 6, hold: 3 },
+				{ title: "想定最大規模の洪水", en: "The largest flood assumed", sub: { ja: "洪水浸水想定区域", en: "Flood inundation area" }, look: "lower", glide: "#15.2/35.690/139.862/62t/60r/l=", travel: 3, hold: 5, raster: ["flood-max"], orbit: 25 },
+				{ title: "船堀駅のあたり", en: "Around Funabori Station", look: "pin", glide: "#16.6/35.6836/139.8643/68t/100r/l=", travel: 6, hold: 4, rise: 6 },
+				{ title: "地図を、自分ごとに", en: "Make the map your own", look: "center", glide: "#13.4/35.700/139.830/40t/-20r/l=", travel: 7, hold: 4, raster: [] },
+			],
+		},
+	},
 ];

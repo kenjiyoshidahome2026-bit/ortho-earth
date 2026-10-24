@@ -31,6 +31,13 @@ export const holdMotion = (s: Record<string, unknown>): { orbit: number; rise: n
 	return m.orbit || m.rise || m.push ? m : null;
 };
 /** ease in/out（保持の動き・時刻の補間の共通の曲線＝プレーヤーも同じ式） */
+/** 行キー raster（第5便）＝その行から点ける地域カタログの画像 id の並び（基図 under は 1 枚・重ね over は何枚でも）。
+ *  文字列 1 つも可・[]／""＝全部外す・無し＝現状維持（null）＝l= と同じ意味論 */
+export const rasterOf = (s: Record<string, unknown> | null | undefined): string[] | null => {
+	const v = s?.raster;
+	if (typeof v === "string") return v ? [v] : [];
+	return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x) : null;
+};
 export const easeInOut = (u: number): number => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
 /** 行キー time を ms（UTC）へ。"HH:MM[:SS]"＝date（"YYYY-MM-DD"・既定＝今日）と utcOffset（時・既定＝経度/15 の丸め）の土地の時刻／日付つき＝ISO（オフセット無しは utcOffset の土地の時刻） */
 export const resolveSceneTime = (v: unknown, { date, utcOffset, lon = 0 }: { date?: unknown; utcOffset?: unknown; lon?: number } = {}): number | null => {
@@ -53,11 +60,11 @@ export const resolveSceneTime = (v: unknown, { date, utcOffset, lon = 0 }: { dat
 	return Number.isFinite(t) ? t : null;
 };
 /** 行の記録（t0＝始まり・tArrive＝着地・t1＝保持の終わり・knots＝通過点の到達・秒） */
-interface Rec { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined; evalT: ((sec: number) => Pose) | null; pose: Cam | null; motion: { orbit: number; rise: number; push: number } | null; time0: number | null; time1: number | null }
+interface Rec { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined; evalT: ((sec: number) => Pose) | null; pose: Cam | null; motion: { orbit: number; rise: number; push: number } | null; time0: number | null; time1: number | null; raster: string[] | null }
 /** buildSceneTimeline の deps（plan＝flightCtl.plan・parseView＝parseViewHash） */
 export interface SceneTimelineDeps { plan?: Plan | null; parseView?: ((hash: string) => ParsedView | null) | null; portrait?: boolean; zoomMin?: number }
 /** 総タイムラインの 1 行 */
-export interface SceneTimelineRow { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined; time: number | null }
+export interface SceneTimelineRow { i: number; t0: number; tArrive: number; t1: number; knots: number[]; hash: string | undefined; time: number | null; raster: string[] | null }
 /** 総タイムライン（dur＝総尺 秒・at(秒)＝その時刻の絵） */
 export interface SceneTimeline { dur: number; rows: SceneTimelineRow[]; at(sec: number): Pose & { cover: number; i: number; hash: string | undefined } }
 /** 保持の動きの絵（着地の絵＋増分×曲線）＝プレーヤーの保持アニメと同じ式 */
@@ -122,7 +129,7 @@ export function buildSceneTimeline(doc: unknown, { plan, parseView, portrait = f
 		const t0 = t, tArrive = t0 + trans;
 		const motion = s.slide ? null : holdMotion(s), pose = tgt ?? from;
 		const time1 = resolveSceneTime(s.time, timeOpt) ?? clockT;
-		recs.push({ i, t0, tArrive, t1: tArrive + dwell, knots, hash, evalT, pose, motion, time0: clockT ?? time1, time1 });
+		recs.push({ i, t0, tArrive, t1: tArrive + dwell, knots, hash, evalT, pose, motion, time0: clockT ?? time1, time1, raster: rasterOf(s as unknown as Record<string, unknown>) });
 		clockT = time1;
 		cam = pose ? moved(pose, motion, 1) : cam;   // 次の行の出発点＝保持の動きの後
 		t = tArrive + dwell;
@@ -138,5 +145,5 @@ export function buildSceneTimeline(doc: unknown, { plan, parseView, portrait = f
 		const time = r.time1 == null ? undefined : r.time0 == null || trans <= 0 || local >= trans ? r.time1 : r.time0 + (r.time1 - r.time0) * easeInOut(local / trans);
 		return { lon: f.lon, lat: f.lat, zoom: f.zoom, pitch: f.pitch || 0, bearing: f.bearing || 0, cover: f.cover || 0, time, i: r.i, hash: r.hash };
 	};
-	return { dur, rows: recs.map(({ i, t0, tArrive, t1, knots, hash, time1 }) => ({ i, t0, tArrive, t1, knots, hash, time: time1 })), at };
+	return { dur, rows: recs.map(({ i, t0, tArrive, t1, knots, hash, time1, raster }) => ({ i, t0, tArrive, t1, knots, hash, time: time1, raster })), at };
 }

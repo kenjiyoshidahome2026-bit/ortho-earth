@@ -455,6 +455,8 @@
    #scene-titles＝字幕（look:lower/center/pin）と出典＝黒幕 #scene-cover(6) の下／#scene-cards＝開幕・終幕カード＝黒幕の上 */
 #scene-titles, #scene-cards { position: absolute; inset: 0; pointer-events: none; container-type: size; overflow: hidden; }
 #scene-titles { z-index: 5; }
+/* 光の色（第5便）＝太陽の高度から夕景・夜の色を乗算で掛ける（day-for-night）。字幕・出典(5)の下・地図の上 */
+#scene-grade { position: absolute; inset: 0; pointer-events: none; z-index: 4; mix-blend-mode: multiply; }
 #scene-cards { z-index: 8; }
 #scene-titles .st-cap {
 	position: absolute; color: #fff; font-family: var(--qm-font);
