@@ -35,7 +35,7 @@ export const ENTRIES = [
 		"geopbf/gzip", "geopbf/decodeZIP", "geopbf/pbf", "geopbf/pbf-base", "geopbf/geoparquet", "geopbf/cog/core", "geopbf/edit/sphere", "geopbf/pmtiles",
 		"@ortho-earth/core/worldcontent", "@ortho-earth/core/worldpal", "@ortho-earth/core/worldstyle", "@ortho-earth/core/viewurl",
 		"@ortho-earth/ephem", "@ortho-earth/ephem/sgp4", "@ortho-earth/ephem/sun", "@ortho-earth/ephem/clock",
-		"@ortho-earth/globe/i18n/core.js", "@ortho-earth/globe/i18n/langs.js", "@ortho-earth/globe/demo/scene-adapter.js",
+		"@ortho-earth/globe/i18n/core.js", "@ortho-earth/globe/i18n/langs.js", "@ortho-earth/globe/demo/scene-adapter.js", "@ortho-earth/globe/scenes/titles.js",
 		"@ortho-earth/globe/gadgets/cloud.js", "@ortho-earth/globe/gadgets/compose.js", "@ortho-earth/globe/gadgets/dropfile.js",
 		"@ortho-earth/globe/gadgets/footprint.js", "@ortho-earth/globe/gadgets/tellus-api.js",
 		"world-data/i18n/ui-table",

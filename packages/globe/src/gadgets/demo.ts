@@ -42,6 +42,7 @@ import { gadgetStack } from "./stack.ts";
 import { isTypingTarget } from "./keys.ts";
 import { compileVias } from "../demo/scene-adapter.ts";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
 import { tr, getLang } from "../i18n.ts";
+import { sceneTitlesOf, pick, type CaptionLook } from "../scenes/titles.ts";   // 字幕の型（look＝lower/center/pin）＝シーン上映の見た目の層
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
@@ -52,6 +53,7 @@ import type { GlobeMap } from "../types/map.ts";
 export interface DemoScene {
 	title?: string; view?: string; glide?: string; fade?: string; pre?: string; jump?: boolean; via?: unknown; travel?: number;
 	path?: Array<{ view: string; travel?: number }>; slide?: string; caption?: string; hold?: number; slideHold?: number; mobile?: number;
+	look?: CaptionLook; sub?: string | Record<string, string>;   // 字幕の型と小見出し（scene-format.md §2b）
 }
 /** 地図の内側から受け取る物（api/tools.ts が注入）＝飛び方・着地待ち・書き終わり・静穏窓・先読み・終演 */
 export interface DemoInner {
@@ -179,9 +181,14 @@ export function demo(this: GlobeMap, { scenes, slide: slideOn = true, hold = 5.5
 	let activeOnScene: DemoStartOpts["onScene"] | null = null, activeOnEnd: DemoStartOpts["onEnd"] | null = null;   // 観測面（scene-player API）：行の上映開始／終演（理由つき）＝台本スコープ（載せ替えでリセット）
 	let bareLive = false;        // ドロップ再生中＝素モード（バー無し・上映中ノーアクション）＝操作ハンドラを不活性化する鍵
 	const on = () => bar.classList.contains("on");
+	const titles = sceneTitlesOf(mapEl);
 	const caption = (show: boolean) => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
-		const text = show ? (scenes![idx]?.caption ?? T(scenes![idx])) : "";
-		if (text) cap.textContent = text;
+		const s = scenes![idx], text = show ? (s?.caption ?? T(s)) : "";
+		const look = s?.look && s.look !== "top" ? s.look : null;   // lower/center/pin＝見た目の層（#scene-titles）へ・top/無指定＝従来の上部字幕
+		const sub = text ? pick(s?.sub, lang) : "";
+		titles.caption(look && text ? { text, sub, look } : null);
+		if (look) { cap.classList.remove("show"); return; }
+		if (text) { cap.textContent = text; if (sub) { const sm = document.createElement("small"); sm.textContent = sub; cap.append(sm); } }
 		cap.classList.toggle("show", !!text);
 	};
 	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す
