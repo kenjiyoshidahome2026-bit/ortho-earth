@@ -27,6 +27,18 @@
 
 `map.gadget.cluster` が MapLibre と同じく cluster の source と層を中で作るようになり、`queryRenderedFeatures` が返す層の名前が `clusters`／`unclustered-point` から `gadget-cluster-clusters`／`gadget-cluster-unclustered` に変わりました。直すのはこの層の名前で問い合わせていたコードだけです。MapLibre の書き方（`cluster: true` の `addSource` と `addLayer`）で作った cluster は、付けた層の名前のままです。
 
+### plugin の package の改名（2026-10）
+
+`plugin-` を外しました。旧名は npm で deprecate し、以後の版は新しい名前で出します。
+
+| 旧 | 新 |
+|---|---|
+| `@ortho-earth/plugin-scene` 0.1.0 | `@ortho-earth/scene` 0.2.0 |
+| `@ortho-earth/plugin-splat` 0.5.0 | `@ortho-earth/splat` 0.6.0 |
+| （未公開） | `@ortho-earth/voxel` 0.4.0 |
+
+import の行を新しい名前に書き換えます。`map.use()` に登録される plugin の名前も同じく `"scene"`・`"splat"` になったので、`map.unuse("plugin-splat")` のように名前で外していたコードは `map.unuse("splat")` にします。`capabilities()` の `via` とオーバーレイの名前（`data-overlay`）も同じです。
+
 ### 1.x を使い続けるには
 
 - npm：`latest` は 2.0 です。1.x は版の範囲で指定します（`npm i geopbf@1`・`npm i @ortho-earth/globe@1`。`@v1` と書いても semver の範囲 `>=1.0.0 <2.0.0` として同じ物が入る）。1.x の最後の版は geopbf 1.19.0・@ortho-earth/globe 1.16.0・@ortho-earth/core 1.15.0・@ortho-earth/japan 1.14.0。dist-tag `v1` は npm が「semver の範囲と同じ名前」として受け付けないので付けていません。

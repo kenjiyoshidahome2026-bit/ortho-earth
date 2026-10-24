@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 実描画の検分：3D Tiles の voxel（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）。試料＝tests/fixtures/tiles3d-voxel（make.mjs）＝東京駅の ENU の根：
      tileset.json＝子 0（南西・box・Float32 の _DENSITY＝色表で塗る）・子 1（東・EXT_implicit_ellipsoid_region・Uint8 の赤の RGBA）。tileset-content.json＝root.content の 3DTILES_content_voxels（北西・黄の色表・property "density"）。
-     worker（tile3d）が voxel のプリミティブを transform／region のまま返し、main（gadgets/tiles3d.ts）がタイルごとに plugin-voxel の層にする。
+     worker（tile3d）が voxel のプリミティブを transform／region のまま返し、main（gadgets/tiles3d.ts）がタイルごとに voxel の層にする。
      ①寄ると子 2 枚がそろい stats.voxels＝2・各タイルが層 1 つ（tiles[].voxels）②画素（オーバーレイの probe）：東の region の中心に赤・南西の箱の中心に色（viridis）・北西の箱に黄
      ③当たり（handle.pick＝layer "tiles3d:…:v0"・properties.tile・cell）④remove で層が全部降りる。
      ?v=noplugin＝plugin 無し＝飛ばす（stats.voxels＝0・一度 warn・オーバーレイ無し）。実時間（worker の動的 import）。 -->
@@ -20,7 +20,7 @@ const until = async (f, ms = 20000) => { const t0 = performance.now(); while (pe
 const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
 const warns = []; const warn0 = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(" ")); warn0(...a); };
 try {
-	const plugins = noPlugin ? [] : [(await import("@ortho-earth/plugin-voxel")).voxelPlugin()];
+	const plugins = noPlugin ? [] : [(await import("@ortho-earth/voxel")).voxelPlugin()];
 	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false, debugGlobals: true, plugins });
 	await map.once("load");
 	map.jumpTo({ center: [LON, LAT], zoom: 16.8, pitch: 55, bearing: 0 });
@@ -33,13 +33,13 @@ try {
 	if (noPlugin) {
 		ok("fallback.skip", h.stats.voxels === 0 && hc.stats.voxels === 0 && h.tiles.every(x => x.voxels === 0), JSON.stringify(h.stats));
 		ok("fallback.warn", warns.some(w => /EXT_primitive_voxels skipped/.test(w) && /voxelPlugin/.test(w)), warns.length + " warns");
-		ok("fallback.noLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'));
+		ok("fallback.noLayer", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="voxel"]'));
 		h.remove(); hc.remove(); await sleep(300);
 		ok("removed", h.stats.loaded === 0 && hc.stats.loaded === 0, JSON.stringify(h.stats));
 	} else {
 		ok("voxels", h.stats.voxels === 2 && hc.stats.voxels === 1 && h.tiles.filter(x => x.on).every(x => x.voxels === 1), JSON.stringify({ h: h.stats, hc: hc.stats, tiles: h.tiles.map(x => ({ on: x.on, v: x.voxels })) }));
-		ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-voxel"]').length === 1);
-		const ov = map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-voxel"]');
+		ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="voxel"]').length === 1);
+		const ov = map.mapEl.querySelector('canvas.overlay-gl[data-overlay="voxel"]');
 		const dpr = Math.min(2, devicePixelRatio || 1);
 		// probe 用の層（同じ canvas）＝目に見えない 1 セルの格子を上空に（t-tiles3d-splat と同じ手）
 		const hp = map.addData({ dims: [1, 1, 1], box: { origin: ll(0, 0, 3000), size: [0.1, 0.1, 0.1] }, values: new Uint8Array([0, 0, 0, 0]), components: 4 }, { kind: "voxel", id: "probe", render: "blocks" });
@@ -65,13 +65,13 @@ try {
 		// ③ 当たり（統一 picking＝層の id "tiles3d:<set>:<tile>:v0"・properties.tile と property）
 		stage = "pick";
 		const q1 = at(P1);
-		const pk = await until(async () => { const r = await map.pickOverlays(q1[0], q1[1], { radius: 6, names: ["plugin-voxel"] }); return r.length ? r : null; }, 30000) ?? [];
+		const pk = await until(async () => { const r = await map.pickOverlays(q1[0], q1[1], { radius: 6, names: ["voxel"] }); return r.length ? r : null; }, 30000) ?? [];
 		ok("pick", pk.length >= 1 && /^tiles3d:.*:v0$/.test(pk[0].layer) && typeof pk[0].properties?.tile === "number" && pk[0].properties?.property === "_COLOR" && Array.isArray(pk[0].cell), JSON.stringify(pk.map(x => ({ l: x.layer, c: x.cell, p: x.properties }))));
 		// ④ 撤去
 		stage = "remove";
 		window.__dbg = { map, h, hc, hp, at, P0, P1, PC }; if (V.has("hold")) { ok("hold", true); clearInterval(heart); document.title = "HOLD " + t.join(" "); await new Promise(() => {}); }
 		h.remove(); hc.remove(); hp.remove(); await sleep(800);
-		ok("removed", h.stats.loaded === 0 && hc.stats.loaded === 0 && !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-voxel"]'), JSON.stringify(h.stats));
+		ok("removed", h.stats.loaded === 0 && hc.stats.loaded === 0 && !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="voxel"]'), JSON.stringify(h.stats));
 		ok("backend", hp.backend === "webgpu" || (!expectGpu && hp.backend === "webgl2"), `${hp.backend} ${ov?.dataset.overlay}`);
 	}
 	clearInterval(heart);

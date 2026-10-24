@@ -49,7 +49,7 @@
 6. **アプリはアプリを読まない**（本人 2026-10-14「アプリがアプリを読んでいるのが基本的な問題。2 つ以上で使うならモジュールにして共に参照」）。
    2 つ以上で使う物は `packages/*` に置き、実行時は各アプリに焼かず `/globe/engine/<版>/` の入口として共に読む（「各アプリに焼くのは問題」本人同日）。
    例外は **www だけ**（他のアプリの dist と docs を束ねて載せる集約役・本人同日「やっていいのは、www だけ」）。
-   外の利用者へ配る SDK と単体の道具は `sdk/*` に分ける（本人 2026-10-15）＝google-tiles・ktx2・plugin-scene・plugin-splat・react・japan（npm `@ortho-earth/japan`＝日本のサイト apps/ortho-japan から分けた）・glbconv。
+   外の利用者へ配る SDK と単体の道具は `sdk/*` に分ける（本人 2026-10-15）＝google-tiles・ktx2・scene・splat・react・japan（npm `@ortho-earth/japan`＝日本のサイト apps/ortho-japan から分けた）・glbconv。
    1 つのアプリだけが読む物はそのアプリが持つ＝quakes（usgs.js は apps/quakes）・himekuri（npm `himekuri` は apps/himekuri/lib＝npm と単独リポジトリへは出すが SDK ではない・本人 2026-10-15）。
    `packages/*` はエンジンとアプリの部品（h3 のように地球儀本体が読む物はこちら）。
    **機械の門**：root の `npm run verify:app-imports`（`scripts/check-app-imports.mjs`）＝apps/A から apps/B への参照（相対の道・アプリの workspace 名の import・

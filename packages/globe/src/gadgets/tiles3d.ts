@@ -20,7 +20,7 @@
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
 // Gaussian splat（KHR_gaussian_splatting・2026-10-18）＝glTF の splat のプリミティブは worker が局所の座標＋transform（列優先 4×4・ECEF）のまま返し、
-//   main がタイルごとに map.addData({ crs: "local", transform, … }, { kind: "splat" }) の層にする（描き手＝@ortho-earth/plugin-splat・タイルの出し入れ＝setVisible／remove）。
+//   main がタイルごとに map.addData({ crs: "local", transform, … }, { kind: "splat" }) の層にする（描き手＝@ortho-earth/splat・タイルの出し入れ＝setVisible／remove）。
 //   plugin が無い（registry.dataKinds に "splat" が無い）時は worker に splats:false を渡す＝仕様の fallback どおり点として描き、tileset ごとに一度だけ warn。opts.splat＝層に渡す opts（lod・shDegree・opacity…）
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
 import { featureProperties } from "../mesh-features.ts";
@@ -72,11 +72,11 @@ interface TileReply {
 	voxels?: TileVoxel[];
 	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null };
 }
-/** worker が返す voxel（meshdecode の VoxelPrimOut）＝box は単位立方体 → ECEF の transform・region は経緯度高（plugin-voxel の VoxelData にそのまま） */
+/** worker が返す voxel（meshdecode の VoxelPrimOut）＝box は単位立方体 → ECEF の transform・region は経緯度高（voxel の VoxelData にそのまま） */
 interface TileVoxel { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; noData?: number; property: string }
 /** worker が返す Gaussian splat（meshdecode の SplatPrimOut）＝局所の座標＋transform（ECEF）・spz＝圧縮の本体（plugin が解く） */
 interface TileSplat { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: number; transform: number[]; spz: Uint8Array | null; colorSpace: string }
-/** plugin-splat の手綱（使う口だけ） */
+/** splat の手綱（使う口だけ） */
 interface SplatLayer { ready?: Promise<unknown>; setVisible(on: boolean): unknown; remove(): void }
 /** worker（i3sOpen）の答え */
 interface I3SInfo { name: string | null; copyright: string | null; root: I3SNodeMsg }
@@ -216,9 +216,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	let seq = 0, tileSeq = 0;
 	// worker（model 役）を 2 本＝取りに行く・解くを並列に（順繰り）。1 本あたり同時 3 件まで
 	const pool = workerPool(() => new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "model" }), { size: 2, tag: "tiles3d" });
-	// Gaussian splat の描き手が居るか＝registry.dataKinds の "splat"（@ortho-earth/plugin-splat）。無ければ worker は splat を点として返す（仕様の fallback）
+	// Gaussian splat の描き手が居るか＝registry.dataKinds の "splat"（@ortho-earth/splat）。無ければ worker は splat を点として返す（仕様の fallback）
 	const hasSplat = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("splat") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
-	// voxel の描き手が居るか＝registry.dataKinds の "voxel"（@ortho-earth/plugin-voxel）。無ければ worker は EXT_primitive_voxels を飛ばす（tileset ごとに一度 warn）
+	// voxel の描き手が居るか＝registry.dataKinds の "voxel"（@ortho-earth/voxel）。無ければ worker は EXT_primitive_voxels を飛ばす（tileset ごとに一度 warn）
 	const hasVoxel = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("voxel") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
 	// タイルの境界体積（ECEF の box＝中心＋半軸 3 本・region＝rad）＝glTF に形（KHR_implicit_shapes）が無い voxel（tileset の 3DTILES_content_voxels の経路）の置き場
 	const voxVolume = (n: T3dNode): { box?: number[]; region?: number[] } | null => {
@@ -394,7 +394,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1] });
 				n.pts = r.points.map((p, k) => { const q = `${n.id}:${k}`; n.bytes += p.pos.byteLength + p.rgba.byteLength; set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba: p.rgba, origin: p.origin }, [p.pos.buffer, p.rgba.buffer]); return q; });
 			}
-			if (r.splats?.length) {   // Gaussian splat＝タイルごとに plugin-splat の層（crs "local"＋transform・絶対高さ）。spz＝bytes＋format で読み手へ
+			if (r.splats?.length) {   // Gaussian splat＝タイルごとに splat の層（crs "local"＋transform・絶対高さ）。spz＝bytes＋format で読み手へ
 				n.splat = [];
 				r.splats.forEach((s, k) => {
 					const q = `tiles3d:${set.id}:${n.id}:${k}`, bytes = s.spz ? s.spz.byteLength : s.positions.byteLength + s.scales.byteLength + s.rotations.byteLength + s.colors.byteLength + (s.sh?.byteLength || 0);
@@ -406,8 +406,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 					} catch (err) { console.warn("[tiles3d] splat", n.uri, (err as Error)?.message || err); }
 				});
 			}
-			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/plugin-splat to draw Gaussian splats`); }
-			if (r.voxels?.length) {   // voxel（EXT_primitive_voxels）＝タイルごとに plugin-voxel の層（box＝transform・region＝経緯度高・絶対高さ）
+			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/splat to draw Gaussian splats`); }
+			if (r.voxels?.length) {   // voxel（EXT_primitive_voxels）＝タイルごとに voxel の層（box＝transform・region＝経緯度高・絶対高さ）
 				n.voxel = [];
 				r.voxels.forEach((v, k) => {
 					const q = `tiles3d:${set.id}:${n.id}:v${k}`;
@@ -420,7 +420,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 					} catch (err) { console.warn("[tiles3d] voxel", n.uri, (err as Error)?.message || err); }
 				});
 			}
-			if (r.stats.voxelsSkipped && !set.voxelWarned) { set.voxelWarned = true; console.warn(`[tiles3d] ${set.id}: EXT_primitive_voxels skipped (${r.stats.voxelsSkipped}+ grids)${hasVoxel() ? " (unsupported shape or attribute)" : "; map.use(voxelPlugin()) from @ortho-earth/plugin-voxel to draw voxels"}`); }
+			if (r.stats.voxelsSkipped && !set.voxelWarned) { set.voxelWarned = true; console.warn(`[tiles3d] ${set.id}: EXT_primitive_voxels skipped (${r.stats.voxelsSkipped}+ grids)${hasVoxel() ? " (unsupported shape or attribute)" : "; map.use(voxelPlugin()) from @ortho-earth/voxel to draw voxels"}`); }
 			gpuBytes += n.bytes; mainBytes += n.mainBytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.voxels += r.stats.voxels || 0; set.stats.bytes += r.stats.bytes || 0;
 			// 上げた直後は伏せておく（次の update が出す物だけ出す）。旧＝上げた直後は見えていて次の update で消した＝兄弟が揃う前の子が
 			// 1 枚ずつ現れては消える（描いては消す・2026-10-19）。メッシュは上で転送の前に伏せた。点と splat はここで伏せる

@@ -1,6 +1,6 @@
 // COPC の点群のオーバーレイの入口（render worker の BUILTIN_OVERLAYS "copc"・2026-10-23）＝器を見て描き手を選ぶ。
 //   本体が WebGPU で描いている（host.gpuDevice() がある）＝copc-gpu.ts（本体の device と深度を共有＝API 跨ぎの写しなし）。
-//   本体が WebGL2・WebGPU の準備に失敗＝copc-gl.ts（従来）。plugin-splat の splat-draw.ts と同じ形。
+//   本体が WebGL2・WebGPU の準備に失敗＝copc-gl.ts（従来）。splat の splat-draw.ts と同じ形。
 //   選び終わるまで message は溜め、frame は何も描かない。選んだら host.post({ type:"backend", backend }) で main（gadgets/copc.ts の手綱 backend）へ。
 //   ?copcgl=1（頁の URL）＝WebGPU でも WebGL2 で描く（比較・逃げ道）＝render worker には location が無いので main が opts.gl で渡す。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize, OverlayModule } from "../types/overlay.ts";

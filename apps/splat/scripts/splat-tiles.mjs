@@ -13,7 +13,7 @@
 //   meta.json          … 出典・ライセンス・個数・箱・節の数・bytes
 // 座標＝.spz の約束（RUB・y 上）＝glTF と同じ向きのまま置く（タイルは y-up→z-up を 3D Tiles の決まりで受ける）。置き場の向きは root.transform の方位で回す（SH は plugin が視線を元の軸へ戻して評価する＝回さなくてよい）。
 import fs from "node:fs"; import path from "node:path"; import { gzipSync } from "node:zlib"; import { fileURLToPath } from "node:url";
-import { parseSpz, encodeSpzRaw } from "@ortho-earth/plugin-splat";
+import { parseSpz, encodeSpzRaw } from "@ortho-earth/splat";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const arg = n => (process.argv.find(a => a.startsWith(`--${n}=`)) ?? "").slice(n.length + 3);
