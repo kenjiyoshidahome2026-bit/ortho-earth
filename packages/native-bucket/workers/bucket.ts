@@ -1,19 +1,12 @@
-import { keyMatches, sameKey } from './proxy.ts';
+import { keyMatches } from './proxy.ts';
 import type { CfCacheStorage, Env, ExecutionContext, R2Bucket, R2Object, R2ObjectBody, R2UploadedPart } from './types.ts';
 
 // 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・uploader の「共有データ」ボタンが上げる）は
 // 中身が変わればキーが変わる＝ブラウザに 1 年持たせてよい（2026-09-30・縮小計画 項目6b。他のキーは従来どおり max-age=60）
 const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
-// 範囲付きの鍵（API_KEY_POI）が書けるのはここの下だけ＝poiedit（packages/globe/src/gadgets/poiedit.ts）の手差分。
-// 全権の鍵（API_KEY）をブラウザに置かないため（2026-10-24 の監査＝www の localStorage に全権の鍵が居た）
-const POI_PREFIX = "GIS/pbf/";
 // 一覧（prefix/）は R2 の list を全頁なぞる＝誰でも叩けるので頁数に上限を置き、エッジに 60 秒持たせる（2026-10-24）
 const MAX_LIST_PAGES = 10;
 const LIST_CACHE = "public, max-age=0, s-maxage=60";
-
-// 書き込みの門：全権の鍵＝どこでも、範囲付きの鍵＝POI_PREFIX の下だけ（鍵が未設定なら誰も書けない）
-export const canWrite = (req: Request, env: Partial<Env>, path: string) =>
-	keyMatches(req, env) || (path.startsWith(POI_PREFIX) && sameKey(env.API_KEY_POI, req.headers.get("X-API-Key") || ""));
 
 export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionContext, env: Partial<Env> = {}) {
 	const url = new URL(request.url);
@@ -81,7 +74,7 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 			return response;
 		}
 		 if (request.method === "POST") {
-			if (!canWrite(request, env, path)) {   // 全権の鍵か、範囲内なら範囲付きの鍵（定数時間で比べる・鍵が未設定なら誰も書けない）
+			if (!keyMatches(request, env)) {   // 定数時間で比べる（API_KEY 未設定なら誰も書けない）
 				return new Response(JSON.stringify({ error: "Unauthorized" }), { 
 					status: 401, headers: { "Content-Type": "application/json" }
 				});
