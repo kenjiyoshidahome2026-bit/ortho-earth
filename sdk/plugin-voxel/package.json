@@ -16,7 +16,7 @@
 		"test": "node tests/t-plugin-voxel.mjs"
 	},
 	"peerDependencies": {
-		"@ortho-earth/globe": "^2.1.0"
+		"@ortho-earth/globe": "^2.2.0"
 	},
 	"keywords": ["voxel", "volume-rendering", "ray-marching", "isosurface", "3d-grid", "webgpu", "webgl2", "globe", "ortho-earth"],
 	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "sdk/plugin-voxel" },

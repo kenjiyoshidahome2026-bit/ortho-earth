@@ -77,8 +77,8 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.1.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 2.1.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.2.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 2.2.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/h3`](packages/h3) | 0.2.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.2.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
@@ -105,6 +105,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/plugin-scene`](sdk/plugin-scene) | 0.1.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/plugin-splat`](sdk/plugin-splat) | 0.5.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz` / `.ksplat` / `.sog`, and 3D Tiles with `KHR_gaussian_splatting`) as a `map.addData` kind: WebGPU renderer with spherical harmonics, GPU sort and LoD, files read in a worker, WebGL2 fallback |
+| [`@ortho-earth/plugin-voxel`](sdk/plugin-voxel) | 0.2.0 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
 | [`glbconv`](sdk/glbconv) | 0.2.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps
