@@ -1,0 +1,20 @@
+{
+	"name": "tellus",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Tellus satellite data viewer on the Japan map. Served at www.ortho-earth.com/japan/tellus through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*",
+		"geopbf": "*"
+	}
+}

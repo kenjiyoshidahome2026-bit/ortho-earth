@@ -23,7 +23,7 @@ const ENTRY = [
 	// 頁から独立したアプリ（apps/<置き場>/<頁>.html・ortho-globe／ortho-japan の Worker が集めて配る・2026-10-24〜）。無ければ下の規則へ
 	[/^\/(globe|japan)\/([\w-]+)(?=[#?]|$)/, (m) => { const a = appOf(`/${m[1]}/`, m[2]); return a ? `${a}/${m[2]}.html` : null; }],
 	[/^\/japan\/census2020\//, "census2020/index.html"],
-	[/^\/japan\/(geoedit|scene|tellus|parks|models|fireworks|onsen|terrain|pointcloud)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
+	[/^\/japan\/(geoedit|scene)(?=[#?]|$)/, (m) => `ortho-japan/${m[1]}.html`],
 	[/^\/japan\//, "ortho-japan/index.html"],
 	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
 	[/^\/globe\//, "ortho-globe/index.html"],

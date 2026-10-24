@@ -1,5 +1,5 @@
 {
-	"_": "parks（/globe/parks）の頁の辞書＝英語キー → 25 言語。japan の parks と同じキーは同じ訳（apps/ortho-japan/i18n/pages/parks.json から写した）",
+	"_": "parks（/globe/parks）の頁の辞書＝英語キー → 25 言語。japan の parks と同じキーは同じ訳（apps/parks/i18n/pages/parks.json から写した）",
 	"ui": {
 		"Search parks…": {
 			"ja": "公園を検索…",

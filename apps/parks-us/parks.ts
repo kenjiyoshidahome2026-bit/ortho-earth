@@ -1,4 +1,4 @@
-// アメリカ合衆国の国立公園 63 の showcase（parks.html から遅延 import）＝/japan/parks（apps/ortho-japan/parks.js）と同型の器を世界側に。
+// アメリカ合衆国の国立公園 63 の showcase（parks.html から遅延 import）＝/japan/parks（apps/parks/parks.ts）と同型の器を世界側に。
 // 骨格：器＝parks.html／一覧・飛行・配線＝ここ／描画＝エンジンの addGint（外周）＋ spotlight（選択）＋ outline（ホバー）。
 //
 // 台帳＝ortho-data/us/parks-us.json（scripts/parks-ledger で組む・名前 26 言語＝Wikidata／写真＝Wikimedia Commons／指定日・面積・来訪者・州＝NPS（英語版 Wikipedia の一覧経由））。
