@@ -1262,6 +1262,15 @@
   z-index: 5;
 }
 
+/* 光の色（第5便）＝太陽の高度から夕景・夜の色を乗算で掛ける（day-for-night）。字幕・出典(5)の下・地図の上 */
+#scene-grade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  mix-blend-mode: multiply;
+}
+
 #scene-cards {
   z-index: 8;
 }

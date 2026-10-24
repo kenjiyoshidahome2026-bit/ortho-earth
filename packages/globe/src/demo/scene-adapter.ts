@@ -72,3 +72,4 @@ export function parseScenes(obj: unknown, issues?: SceneIssue[] | null, trace?: 
 		waitLoading: !!(obj as SceneDoc | null | undefined)?.waitLoading,
 	};
 }
+export { rasterOf } from "./scene-timeline.ts";   // 行キー raster の読み（第5便）＝エディタも同じ解き方

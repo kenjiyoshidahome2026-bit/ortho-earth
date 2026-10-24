@@ -25,6 +25,18 @@ export const cardOf = (v: unknown): CardSpec | null => typeof v === "string" ? (
 export const CARD_FADE = 0.8;
 export const cardSecs = (c: CardSpec | null): number => c ? CARD_FADE * 2 + (Number.isFinite(c.hold) && c.hold! >= 0 ? c.hold! : 3.5) : 0;
 
+/** 光の色（第5便・day-for-night）：太陽の高度（度）→ 乗算の色 [r,g,b]（0..255）。null＝昼（掛けない）。
+ *  8° から下＝夕陽の暖色へ・0°（日没）から下＝青へ・−12°（航海薄明の終わり）で夜の紺。映画の「昼に撮って夜に見せる」の色の作法＝絵全体に乗算 */
+const GRADE_KEYS: Array<[number, [number, number, number]]> = [[8, [255, 255, 255]], [2, [255, 205, 160]], [-2, [190, 150, 165]], [-6, [92, 100, 150]], [-12, [42, 52, 96]]];
+export const gradeOf = (alt: number): [number, number, number] | null => {
+	if (!Number.isFinite(alt) || alt >= GRADE_KEYS[0][0]) return null;
+	for (let k = 1; k < GRADE_KEYS.length; k++) {
+		const [a1, c1] = GRADE_KEYS[k], [a0, c0] = GRADE_KEYS[k - 1];
+		if (alt >= a1) { const u = (a0 - alt) / (a0 - a1); return c0.map((v, j) => Math.round(v + (c1[j] - v) * u)) as [number, number, number]; }
+	}
+	return GRADE_KEYS[GRADE_KEYS.length - 1][1];
+};
+
 const LOGO = `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>`;
 
 export interface SceneTitles {
@@ -34,6 +46,8 @@ export interface SceneTitles {
 	card(c: CardSpec, lang?: string | null): Promise<void>;
 	/** 出典の焼き込み（画角内の左下）。null/空＝外す */
 	credit(text: string | null): void;
+	/** 光の色（gradeOf の色・null＝外す） */
+	grade(rgb: [number, number, number] | null): void;
 	/** 全部外す（停止・終演） */
 	clear(): void;
 }
@@ -91,11 +105,18 @@ export function createSceneTitles(mapEl: HTMLElement): SceneTitles {
 		creditEl.textContent = text;
 		host().append(creditEl);
 	};
+	let gradeEl: HTMLDivElement | null = null;
+	const grade: SceneTitles["grade"] = rgb => {
+		if (!rgb) { gradeEl?.remove(); gradeEl = null; return; }
+		if (!gradeEl) gradeEl = Object.assign(document.createElement("div"), { id: "scene-grade" });
+		if (gradeEl.parentElement !== mapEl) mapEl.append(gradeEl);
+		gradeEl.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+	};
 	const clear = () => {
-		caption(null); credit(null);
+		caption(null); credit(null); grade(null);
 		clearTimeout(cardT); cardEl?.remove(); cardEl = null; cardDone?.();
 	};
-	return { caption, card, credit, clear };
+	return { caption, card, credit, grade, clear };
 }
 // 1 地図に 1 層（demo ガジェットの字幕と player のカード・出典が同じ器を使う）
 const byMap = new WeakMap<HTMLElement, SceneTitles>();
