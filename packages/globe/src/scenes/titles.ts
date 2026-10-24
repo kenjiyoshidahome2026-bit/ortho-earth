@@ -4,7 +4,7 @@
 // 文字は全部 textContent＝台本は他人作かもしれない（innerHTML に入れない）。
 import { getLang } from "../i18n.ts";
 
-/** 言語つきの文字列＝素の文字列か { ja:"…", en:"…" }（title の兄弟と同じ解き方＝視聴者の言語 → ja の旧綴り jp → en → 最初の値） */
+/** 言語つきの文字列＝素の文字列か { ja:"…", en:"…" }（視聴者の言語 → en → 最初の値） */
 export type LangText = string | Record<string, string>;
 /** 開幕/終幕カード（台本の top-level `opening` / `ending`）。文字列だけ＝題だけのカード */
 export interface CardSpec { title?: LangText; sub?: LangText; by?: LangText; hold?: number }
@@ -16,7 +16,7 @@ export const pick = (v: unknown, lang?: string | null): string => {
 	if (typeof v === "string") return v;
 	if (!v || typeof v !== "object") return "";
 	const o = v as Record<string, unknown>, l = lang || getLang();
-	const s = o[l] ?? (l === "ja" ? o.jp : undefined) ?? o.en ?? Object.values(o).find(x => typeof x === "string");
+	const s = o[l] ?? o.en ?? Object.values(o).find(x => typeof x === "string");
 	return typeof s === "string" ? s : "";
 };
 /** 台本の opening/ending を CardSpec へ（文字列＝題だけ・不正＝null） */
