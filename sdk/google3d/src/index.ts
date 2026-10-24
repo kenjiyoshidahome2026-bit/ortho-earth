@@ -1,4 +1,4 @@
-// @ortho-earth/google-tiles — Google Photorealistic 3D Tiles for @ortho-earth/globe.
+// @ortho-earth/google3d — Google Photorealistic 3D Tiles for @ortho-earth/globe.
 //   The globe's add3DTiles already streams any 3D Tiles tileset and lets each tileset rewrite its requests (requestTransform, F5).
 //   This package is the Google-specific part on top of that extension point:
 //     - every request to tile.googleapis.com carries your API key (key=…); requests to any other host are left untouched (the key never leaks);
@@ -39,7 +39,7 @@ export interface GoogleTilesOptions extends Omit<Tiles3DOptions, "id" | "request
 	[k: string]: unknown;
 }
 export interface GoogleTilesPluginOptions extends GoogleTilesOptions { gadget?: string }
-export interface GoogleTilesPlugin extends OrthoPlugin { name: "google-tiles"; version: string; install(map: GlobeMap): void }
+export interface GoogleTilesPlugin extends OrthoPlugin { name: "google3d"; version: string; install(map: GlobeMap): void }
 /** add3DTiles を持つ map（@ortho-earth/globe の map・検定では偽の map） */
 export type GoogleTilesMap = Pick<GlobeMap, "add3DTiles">;
 
@@ -85,8 +85,8 @@ export function googleTilesPlugin(opts: GoogleTilesPluginOptions): GoogleTilesPl
 	const { key = "", gadget = "googleTiles", ...defaults } = optsOf(opts);
 	if (!key) throw new Error("googleTilesPlugin: an API key is required ({ key })");
 	return {
-		name: "google-tiles",
-		version: "0.1.0",
+		name: "google3d",
+		version: "0.2.0",
 		install(map: GlobeMap): void {
 			map.registry.gadgets.add(gadget, (m: GlobeMap, o: Partial<GoogleTilesOptions> = {}) => addGoogle3DTiles(m, { key, ...defaults, ...o }));   // gadget の本体＝map が第 1 引数（registerGadget と同じ形・2.0）
 		},
