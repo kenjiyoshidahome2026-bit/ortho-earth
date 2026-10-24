@@ -34,7 +34,7 @@ import type { LonLat } from "geopbf/edit/sphere";
 // 左下ドック＝ホストが initEditor({ dock }) で注入（ortho-japan の gadgets/stack.js）。無ければ map.mapEl の #dock を見つけるか作る（同じ約束）
 const defaultDock = (mapEl: HTMLElement): HTMLElement => { let d = mapEl.querySelector<HTMLElement>("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
 import css from "./editor.css.ts";    // CSS自給（ガジェット三戒）＝scss を焼き込んだ文字列（npm run build:css）＝遅延chunkに同乗・初回搭載で <style> を1枚
-import { tr } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { tr, getLang } from "./i18n.ts";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { IMAGE_KEY, placeCorners, quadPolygon } from "geopbf/edit/imagequad";   // 四隅で貼る画像（2026-09-21）
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
 const t = tr();
@@ -596,8 +596,8 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 		gridExp = rec.gridExp ?? 6;
 		if (rec.view) location.hash = rec.view;
 		await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
-		const when = rec.t ? new Date(rec.t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-		banner(t("Previous session restored") + (when ? `（${when}）` : ""), t("Start fresh"), async () => { if (persist) await idbClear(); startEmpty(); });
+		const when = rec.t ? new Date(rec.t).toLocaleString(getLang(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";   // 日時の書式＝エディタの言語（ブラウザの言語ではない）
+		banner(when ? t("Previous session restored ($1)", when) : t("Previous session restored"), t("Start fresh"), async () => { if (persist) await idbClear(); startEmpty(); });
 	})();
 
 	return {

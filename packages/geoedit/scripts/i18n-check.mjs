@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ui = JSON.parse(fs.readFileSync(path.join(PKG, "i18n/ui.json"), "utf8")).ui ?? {};
 const used = new Map();
-for (const f of fs.readdirSync(path.join(PKG, "src")).filter(f => f.endsWith(".js"))) {
+// TS 化（2026-09）後は .ts が正本＝.js だけ見ると「0 keys used」で常に PASS（空回り）していた
+for (const f of fs.readdirSync(path.join(PKG, "src")).filter(f => /\.(js|ts)$/.test(f) && !f.endsWith(".d.ts"))) {
 	const src = fs.readFileSync(path.join(PKG, "src", f), "utf8");
 	for (const m of src.matchAll(/(?<![\w$.])t\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)) used.set(m[2], f);   // 第一引数がリテラルの t(…) だけ（式は対象外）
 }
