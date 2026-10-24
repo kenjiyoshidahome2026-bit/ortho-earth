@@ -264,6 +264,13 @@ for (const [name, ext] of [["geojson", "two.geojson"], ["topojson", "two.topojso
 	ok(f !== "TIMEOUT" && f instanceof File && f.size > 0 && f.name === ext, `${name} encoder: settle＋File（${f && f.name} ${f && f.size} B）`);
 }
 
+// ---- topojson：gintbuf 無し（gint() を通していない pbf＝geoedit の書き出し）でも worker 内で位相を組んで File を返す（旧＝null・2026-10-24）----
+{
+	const f = await runWorker(new URL("../src/encoder/topojson.ts", import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts: {} });
+	const topo = f instanceof File ? JSON.parse(await f.text()) : null;
+	ok(f instanceof File && f.name === "two.topojson" && topo?.type === "Topology" && Object.values(topo.objects ?? {}).some(o => o.geometries?.length > 0), `topojson encoder: gintbuf 無しでも File（${f === "TIMEOUT" ? "TIMEOUT" : f && f.size + " B"}）`);
+}
+
 // ---- 失敗経路：壊れた buf でも必ず settle（空データセットの File か、明示の null）----
 for (const name of ["fgb", "shape"]) {
 	const r = await runWorker(new URL(`../src/encoder/${name}.ts`, import.meta.url).href, { buf: new Uint8Array([1, 2, 3]).buffer, name: "broken", opts: {} });
