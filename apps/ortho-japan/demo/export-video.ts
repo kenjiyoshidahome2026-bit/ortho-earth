@@ -3,7 +3,9 @@
 //   字幕・カード・出典・黒幕・溶け替えを 2D で重ねる（見た目は quiet-mono #scene-titles と同じ比率＝cqh＝画角の高さの 1/100）→
 //   WebCodecs VideoEncoder（H.264）→ 自前の箱詰め（demo/mp4mux.ts）。
 // 遅い端末でも絵は同じ＝コマ落ち・ポップイン無し・画面より大きい解像度（4K）も可（枠を目標の画素へ広げ、見た目だけ縮めて置く）。
-// 上映の儀式（開幕カード→黒からの溶明→…→終幕の溶暗→終幕カード）も同じ順で焼く。音は第4便。
+// 上映の儀式（開幕カード→黒からの溶明→…→終幕の溶暗→終幕カード）も同じ順で焼く。
+// 音（第4便）＝opts.audio（BGM の音声ファイル）を総尺に合わせて切り（頭 0.5 秒の溶明・尻 2.5 秒の溶暗）、AudioEncoder の AAC で同じ MP4 へ。
+//   AAC の符号器が無いブラウザは音なしで焼き、onNote で知らせる。
 import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
 import { pick, cardOf, cardSecs, CARD_FADE, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
@@ -16,6 +18,8 @@ export interface ExportVideoOpts {
 	map: GlobeMap; frameEl: HTMLElement; doc: Record<string, unknown>;
 	width: number; height: number; fps: number; lang?: string | null; waitMs?: number;
 	signal?: AbortSignal; onProgress?: (done: number, total: number, etaSec: number) => void;
+	/** BGM（音声ファイル）。総尺に合わせて切り・溶明/溶暗して AAC で入れる */
+	audio?: Blob | null; onNote?: (msg: "no-aac" | "audio-decode-failed") => void;
 }
 type Row = Record<string, unknown> & { title?: string; caption?: string; look?: string; sub?: unknown; slide?: string; view?: string; path?: unknown[]; hold?: number; slideHold?: number; fade?: string; dissolve?: boolean; travel?: number };
 interface TlRow { i: number; t0: number; tArrive: number; t1: number }
@@ -152,7 +156,37 @@ class Painter {
 	}
 }
 
-export async function exportVideo({ map, frameEl, doc, width, height, fps, lang, waitMs = 12000, signal, onProgress }: ExportVideoOpts): Promise<Blob> {
+/** BGM を総尺の PCM（48kHz・ステレオ）へ：切る・頭 0.5 秒の溶明・尻 2.5 秒の溶暗（OfflineAudioContext＝再標本化もここで） */
+async function bgmPcm(file: Blob, seconds: number): Promise<AudioBuffer> {
+	const rate = 48000, frames = Math.ceil(seconds * rate);
+	const src = await new OfflineAudioContext(2, 1, rate).decodeAudioData(await file.arrayBuffer());
+	const ctx = new OfflineAudioContext(2, frames, rate);
+	const node = ctx.createBufferSource(); node.buffer = src; node.loop = src.duration < seconds;   // 短い曲は繰り返す
+	const g = ctx.createGain();
+	g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, Math.min(0.5, seconds / 4));
+	const outAt = Math.max(0.6, seconds - 2.5);
+	g.gain.setValueAtTime(1, outAt); g.gain.linearRampToValueAtTime(0, seconds);
+	node.connect(g).connect(ctx.destination); node.start(0);
+	return ctx.startRendering();
+}
+/** AAC の符号化（1024 標本ずつ AudioData に切って渡す） */
+async function encodeAac(pcm: AudioBuffer, mux: Mp4Muxer): Promise<void> {
+	let err: unknown = null;
+	const ae = new AudioEncoder({ output: (ch, meta) => mux.addAudio(ch, meta), error: e => { err = e; } });
+	ae.configure({ codec: "mp4a.40.2", sampleRate: pcm.sampleRate, numberOfChannels: 2, bitrate: 192000 });
+	const L = pcm.getChannelData(0), R = pcm.numberOfChannels > 1 ? pcm.getChannelData(1) : L, step = 1024;
+	for (let o = 0; o < pcm.length; o += step) {
+		const n = Math.min(step, pcm.length - o), buf = new Float32Array(n * 2);
+		buf.set(L.subarray(o, o + n), 0); buf.set(R.subarray(o, o + n), n);   // f32-planar＝左の n 標本→右の n 標本
+		const ad = new AudioData({ format: "f32-planar", sampleRate: pcm.sampleRate, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(o * 1e6 / pcm.sampleRate), data: buf });
+		ae.encode(ad); ad.close();
+		if (err) throw err;
+	}
+	await ae.flush(); ae.close();
+	if (err) throw err;
+}
+
+export async function exportVideo({ map, frameEl, doc, width, height, fps, lang, waitMs = 12000, signal, onProgress, audio, onNote }: ExportVideoOpts): Promise<Blob> {
 	if (typeof VideoEncoder === "undefined") throw new Error("WebCodecs (VideoEncoder) is not available in this browser");
 	const L = lang || getLang();
 	const tl = map.sceneTimeline(doc) as unknown as Tl | null;
@@ -196,7 +230,14 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 
 	const bitrate = Math.round(width * height * fps * 0.12);
 	const cfg = await pickCodec(width, height, fps, Math.max(8e6, bitrate));
-	const mux = new Mp4Muxer({ width, height, fps });
+	// BGM：AAC が焼けるか先に確かめる（焼けない／読めない＝音なしで続ける）
+	let pcm: AudioBuffer | null = null;
+	if (audio) {
+		const aacOk = typeof AudioEncoder !== "undefined" && await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 }).then(r => !!r.supported, () => false);
+		if (!aacOk) onNote?.("no-aac");
+		else { try { pcm = await bgmPcm(audio, N / fps); } catch { onNote?.("audio-decode-failed"); } }
+	}
+	const mux = new Mp4Muxer({ width, height, fps }, pcm ? { sampleRate: pcm.sampleRate, channels: 2 } : null);
 	let encErr: unknown = null;
 	const encoder = new VideoEncoder({ output: (ch, meta) => mux.addVideo(ch, meta), error: e => { encErr = e; } });
 	encoder.configure(cfg);
@@ -261,6 +302,7 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 		}
 		await encoder.flush();
 		if (encErr) throw encErr;
+		if (pcm) await encodeAac(pcm, mux);   // 音は映像の後に一気に（標本は mdat の後ろへ並ぶ＝箱詰めは標本ごとの位置を持つので混ざってよい）
 		return mux.finalize();
 	} finally {
 		try { encoder.close(); } catch { /* 閉じ済み */ }
