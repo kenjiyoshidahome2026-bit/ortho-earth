@@ -34,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0              # subtree split は全履歴が要る
           persist-credentials: false  # GITHUB_TOKEN の認証ヘッダが MIRROR_TOKEN とぶつからないように
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
