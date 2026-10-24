@@ -18,7 +18,7 @@ build/
 stats.html
 # 焼きスクリプトの出力（uploader のボタンが dev の /@fs で読んで R2 へ上げる＝bake-out/alt・bake-out/catalog・2026-10-15）
 /bake-out/
-apps/ortho-japan/r10-src/
+apps/japan-map/r10-src/
 # 環境変数
 .env
 .env.local

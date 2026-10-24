@@ -153,7 +153,7 @@ function htmlRoots(html, appDir) {
 }
 
 const ENTRY = {
-	"/": "apps/www/index.html", "/quiz/": "apps/world-quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
+	"/": "apps/www/index.html", "/quiz/": "apps/quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
 	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.ts")) ? "apps/engine/src/maplibre.ts" : "apps/ortho-globe/engine/maplibre.js",
 	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html", "/yokohama/": "apps/yokohama/index.html",
 };
@@ -164,7 +164,7 @@ const entryOf = href => {
 	const m = p.match(/^\/(japan|globe)\/(.*)$/);
 	const app = m[2] && SERVED.find(([d, at]) => at === `/${m[1]}/` && fs.existsSync(path.join(ROOT, `apps/${d}/${m[2]}.html`)))?.[0];
 	if (app) return `apps/${app}/${m[2]}.html`;   // 頁から独立したアプリ（apps/<置き場>/<頁>.html・package.json の servedAt・2026-10-24〜）
-	const dir = m[1] === "japan" ? "apps/ortho-japan" : "apps/globe-map";
+	const dir = m[1] === "japan" ? "apps/japan-map" : "apps/globe-map";
 	return `${dir}/${m[2] ? m[2] + ".html" : "index.html"}`;
 };
 

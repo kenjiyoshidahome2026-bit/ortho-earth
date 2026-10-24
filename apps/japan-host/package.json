@@ -1,0 +1,16 @@
+{
+	"name": "japan-host",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The /japan/ Worker (named ortho-japan on Cloudflare). It serves only: every app with package.json servedAt \"/japan/\" (japan-map = the front page, onsen, scene, …) is built and gathered into dist/site/japan by packages/globe/scripts/lib/gather-apps.mjs, and build:prod adds the SDK (sdk/japan) at /japan/lib/.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"scripts": {
+		"build": "node ../../packages/globe/scripts/lib/gather-apps.mjs /japan/ --clean",
+		"build:prod": "npm run build -w @ortho-earth/japan && node ../../packages/globe/scripts/lib/gather-apps.mjs /japan/ --clean && cp -R ../../sdk/japan/dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
+		"test": "node tests/t-deploy.mjs",
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "node scripts/deploy.mjs",
+		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev"
+	}
+}
