@@ -19,8 +19,7 @@ ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.
 # TELLUS_TOKEN も secret（2026-09-16・`wrangler secret put TELLUS_TOKEN`）＝/tellus 代理口（workers/tellus.ts）が
 # Tellus Traveler API へ付ける Bearer。未設定なら /tellus は 503。ローカルは .dev.vars。
 # API_KEY は Cloudflare の secret（2026-07-19 移設・`wrangler secret list` で確認可）。2026-10-24 の監査＝旧い値が git 履歴に残っていたため差し替え。
-# API_KEY_POI も secret（2026-10-24・`wrangler secret put API_KEY_POI`）＝GIS/pbf/ の下だけ書ける範囲付きの鍵（poiedit がブラウザに置く分）。
-#   全権の鍵はブラウザに置かない。未設定なら poiedit は書けない（他は従来どおり）。
+#   鍵はブラウザに置かない（旧 poiedit ガジェットが www の localStorage に置いていた＝同日に撤去）。
 # ここに書き戻すと次の deploy で secret と衝突する。ローカル開発は .dev.vars、値の控えはパスワードアプリ。
 
 # /proxy の転送先ホワイトリスト（2026-08-19 追加）。ここに載る先だけが「誰でも GET/HEAD」で通る。

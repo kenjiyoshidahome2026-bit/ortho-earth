@@ -154,7 +154,7 @@ export interface GadgetsReturn {
 	/** gadget の登録口（registerGadget(name, (map, ...args) => handle)）＝後の installer（shadows・images・tools）と globe.js が使う */
 	registerGadget: RegisterGadget;
 }
-export type ShadowsLive = LiveOf<"clipByT" | "clipSpec" | "clipMain" | "poiClick", "renderBackend" | "mapLoaded" | "addSourceAt" | "addLayerAt" | "noTerr" | "EXT" | "poiReal">;
+export type ShadowsLive = LiveOf<"clipByT" | "clipSpec" | "clipMain", "renderBackend" | "mapLoaded" | "addSourceAt" | "addLayerAt" | "noTerr" | "EXT" | "poiReal">;
 export type ShadowsDeps = Pick<GlobeScope, "registerGadget" | "BASE_SOURCE" | "D2R" | "LOW_MEM" | "REGION_DTM" | "REGION_HOME" | "REGION_PRINT_ATTR" | "TILE_MINZOOM" | "ac" | "approxViewBbox" | "attrTextNow" | "cam"
 	| "dbgHost" | "makeProjector" | "mapOn" | "meshMgr" | "meshOn" | "onMove" | "ownDestroy" | "poi" | "printCapture" | "renderer" | "requestDraw" | "requestSnapshot" | "setLayer" | "t"
 	| "toolClose" | "toolOpen" | "unprojectXY" | "viewHash" | "wPost" | "wakeMesh">;

@@ -275,7 +275,7 @@ export interface PoiPoint { anchor: [number, number]; n: string; r: number; s: n
 export interface PoiOvrRec { id: number; op: "add" | "move" | "rename" | "del"; n: string; ll: [number, number]; to?: [number, number] | string; t?: number; r?: number; d?: string }
 /** 手差分の器（サーバーの overrides.json）＝jp の PoiOverrides と同じ形 */
 export interface PoiOverrides { v: number; seq?: number; recs: PoiOvrRec[] }
-/** POI 台帳の本物（poiedit が読む分） */
+/** POI 台帳の本物（手差分の読み書きの口＝jp の poi.ts が返す物） */
 export interface PoiLedger {
 	distM(a: number[], b: number[]): number; apiBase: string; ovrName: string; patchedAll(): PoiPoint[];
 	getOvr(): PoiOverrides | null; setOvr(o: PoiOverrides): void;
@@ -638,8 +638,6 @@ export interface GlobeLive {
 	addSourceAt: StyleReturn["addSourceAt"]; addLayerAt: StyleReturn["addLayerAt"];
 	clusterOf: GlobeScope["clusterOf"];
 	poiReal: PoiLedger | null;
-	/** POI 台帳編集の armed 中だけ（クリックの横取り） */
-	poiClick: ((x: number, y: number) => unknown) | null;
 	/** 直近フレームで描いた基図タイル */
 	lastTileOrder: Array<{ key: string; z: number }>;
 	vtdCtl: VtdCtl | null;
