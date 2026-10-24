@@ -5,7 +5,7 @@
 // ガジェット三戒に従い DOM 自給。依存は map の公開面だけ＝map.view（撮る）・map.playScenes/stopScenes（試写・scene-format.md §7）・
 //   location.hash（行ジャンプ＝URL⇄描画状態の一元化に乗る）・純関数 parseScenes/compileVias（診断）。
 // フレームは .scenes の top-level `frame:"16:9"`（任意・プレーヤーは無視＝エディタ用メタ）として保存・復元。
-import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
+import { parseScenes, compileVias, rasterOf } from "@ortho-earth/globe/demo/scene-adapter.js";
 import { sniffScene } from "@ortho-earth/globe/gadgets/dropfile.js";
 import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
@@ -328,6 +328,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 					${strField("pre", t("Lead-in view hash (pre)"), "#…")}
 					<div class="sc-f"><label title="${t("Camera motion during the hold (degrees of orbit, degrees of tilt, zoom steps)")}">${t("Hold motion")}</label><input type="number" data-k="orbit" step="5" value="${num(r.orbit)}" placeholder="${t("orbit°")}"><input type="number" data-k="rise" step="5" value="${num(r.rise)}" placeholder="${t("tilt°")}"><input type="number" data-k="push" step="0.1" value="${num(r.push)}" placeholder="z"></div>
 					<div class="sc-f"><label title="${t("Clock time at arrival (HH:MM local, or an ISO date-time); the clock runs to it during the transition")}">${t("Time of day")}</label><input type="text" data-k="time" value="${esc(r.time)}" placeholder="18:30"></div>
+					<div class="sc-f"><label title="${t("Image tiles from this row on (aerial photo, flood map…); overlays fade in during the transition")}">${t("Image layers")}</label><span class="sc-ras">${rasterLabel(r)}</span><button data-op="rasterNow" title="${t("Write the image tiles shown now into this row")}">${t("Copy current")}</button><button data-op="rasterKeep" title="${t("Remove the key = inherit whatever is on")}">${t("Keep current")}</button><button data-op="rasterNone" title="${t("Turn every image tile off from this row")}">${t("None")}</button></div>
 					<div class="sc-f"><label>${t("Portrait Δz")}</label><input type="number" data-k="mobile" step="0.1" value="${num(r.mobile)}" placeholder="0"></div>
 					<div class="sc-f"><button data-op="layersNow" title="${t("Write the current l=/c= into this row (camera unchanged)")}">${t("Copy current layers")}</button><button data-op="layersKeep" title="${t("Remove l=/c= = inherit whatever is on")}">${t("Keep current")}</button><button data-op="layersNone" title="${t("Write an empty l= = turn every layer off")}">${t("None")}</button></div>
 				</details>`;
@@ -368,6 +369,14 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	};
 
 	// ── 撮影 ──
+	// 画像タイル（第5便）：今の選択＝[基図?, ...重ね]（map.raster.selected）。行の表示名＝カタログの訳名
+	const rasterNow = () => { const c = map.raster.selected(); return [...(c.base ? [c.base] : []), ...c.overs]; };
+	const rasterLabel = (r: Row) => {
+		const v = rasterOf(r as unknown as Record<string, unknown>);
+		if (v == null) return esc(t("(keep)"));
+		if (!v.length) return esc(t("(none)"));
+		return v.map(id => { const c = map.raster.catalog.find(x => x.id === id); return esc(c?.key ? t(c.key) : c?.name ?? id); }).join(" + ");
+	};
 	const insertAt = () => (sel >= 0 && sel < doc.scenes.length ? sel + 1 : doc.scenes.length);
 	const shoot = () => { mark(); const r = { title: "", view: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.view)); return r; };
 	const addVia = () => { mark(); const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.via)); return r; };
@@ -757,6 +766,11 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const i = +li.dataset.i!, r = doc.scenes[i], op = (e.target as HTMLElement).dataset.op;
 		if (op === "del") { mark(); doc.scenes.splice(i, 1); if (sel >= doc.scenes.length) sel = doc.scenes.length - 1; save(); paint(); return; }
 		if (op === "reshoot") { mark(); setHash(r, map.view.hash); save(); paint(); captureThumb(camKey(hashOf(r))); return; }
+		if (op === "rasterNow" || op === "rasterKeep" || op === "rasterNone") {   // 画像タイル（第5便・行キー raster）＝今の選択を写す／キーを消す（現状維持）／[]（全部外す）
+			mark();
+			if (op === "rasterKeep") delete r.raster; else r.raster = op === "rasterNone" ? [] : rasterNow();
+			openMore.add(i); save(); paint(); return;
+		}
 		if (op === "layersNow" || op === "layersKeep" || op === "layersNone") {   // レイヤーチップの3操作＝カメラは動かさず l=/c= だけ書き換える
 			mark();
 			const cur = splitHash(hashOf(r)), now = splitHash(map.view.hash);

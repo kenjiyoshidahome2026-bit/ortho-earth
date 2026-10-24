@@ -8,7 +8,7 @@
 //   AAC の符号器が無いブラウザは音なしで焼き、onNote で知らせる。
 import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
-import { pick, cardOf, cardSecs, CARD_FADE, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
+import { pick, cardOf, cardSecs, CARD_FADE, gradeOf, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
 import { getLang } from "@ortho-earth/globe/i18n.js";
 import { Mp4Muxer } from "./mp4mux.ts";
 import type { GlobeMap } from "@ortho-earth/globe";
@@ -211,6 +211,7 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 	frameEl.style.width = cssW + "px"; frameEl.style.height = cssH + "px"; frameEl.style.transform = k < 1 ? `scale(${k})` : "";
 	map.pinRes?.(true);
 	const light = doc.light, sunBefore = map.getSun(), liveBefore = map.clock.isLive(), timeBefore = map.clock.time;
+	const rasterBefore = map.raster.selected();   // 行 raster（第5便）はシークが切り替える＝終わったら書き出し前の画像へ戻す
 	if (light) { map.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(true); }
 	map.mapEl.classList.add("scene-clean");
 
@@ -265,6 +266,8 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 					await settle(ri !== lastRow ? waitMs : Math.min(waitMs, 4000));
 					const snap = composeLayersToCanvas(await map.requestSnapshot(), null);
 					bctx.clearRect(0, 0, width, height); bctx.drawImage(snap, 0, 0, width, height);
+					const g = light && (light as { grade?: unknown }).grade !== false ? gradeOf(map.getSunPosition().altitude) : null;   // 光の色（第5便）＝上映と同じ乗算
+					if (g) { bctx.globalCompositeOperation = "multiply"; bctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`; bctx.fillRect(0, 0, width, height); bctx.globalCompositeOperation = "source-over"; }
 					lastKey = key; lastRow = ri;
 				}
 				ctx.drawImage(base, 0, 0);
@@ -311,6 +314,9 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 		if (light) { map.setSun(sunBefore ?? null); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(false); }
 		if (liveBefore) map.clock.live(); else map.clock.setTime(timeBefore);
 		map.pinRes?.(false);
+		if (rasterBefore.base !== map.raster.selected().base) void map.raster.select(rasterBefore.base).catch(() => null);
+		for (const id of map.raster.selected().overs) if (!rasterBefore.overs.includes(id)) void map.raster.toggle(id, false).catch(() => null);
+		for (const id of rasterBefore.overs) void map.raster.toggle(id, true).catch(() => null);
 		frameEl.style.width = old.w; frameEl.style.height = old.h; frameEl.style.transform = old.t;
 		imgs.forEach(b => b?.close());
 	}
