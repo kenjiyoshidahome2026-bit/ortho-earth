@@ -8,7 +8,8 @@ Voxel grids for [`@ortho-earth/globe`](../../packages/globe). The plugin fills t
 - `clip` keeps a sub-box of the grid (a thin range is a **slice**); it changes without re-uploading the grid, as do `render`, `opacity`, `step`, `threshold`, `colormap`, `alphaRamp`, `depthTest` and `properties`.
 - They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the cell `index`, its `[i, j, k]` `cell`, the cell's `value` (scalar grids, via `handle.pick`) and your `properties`. Picking marches only the pixels under the cursor (scissor), so it stays cheap.
 - **Preparation** runs in a worker (`voxel-reader.ts`): values are quantised to 8 bits (`R8`, or `RGBA8` for `components: 4`), the colormap is baked, the box is placed or the region shell is tessellated; the main thread only forwards the buffers.
-- Stages 1–2 are done (box and region grids, blocks / volume / iso, clipping, WebGPU and WebGL2). 3D Tiles `EXT_primitive_voxels` is stage 4; bricks, level of detail and file readers (NetCDF, Zarr) stage 5. See [PLAN.md](./PLAN.md).
+- **Large grids** are split into **bricks**: a grid with an axis beyond 256 cells (the 3D texture size every WebGL2 device guarantees) becomes bricks of 126 cells per axis, one texture each with a 1-cell apron so trilinear sampling and iso gradients run across the seams. Bricks are drawn far to near, a brick whose cells are all below `threshold` (or empty) is skipped, and `clip`, `threshold`, picking (`index` / `cell` of the whole grid) and every style change work across them. `handle.bricks` says how many.
+- Stages 1–4 are done (box and region grids, blocks / volume / iso, clipping, WebGPU and WebGL2, 3D Tiles `EXT_primitive_voxels`); stage 5 has bricks, while level of detail, time and file readers (NetCDF, Zarr) follow. See [PLAN.md](./PLAN.md).
 
 ```js
 import { createGlobe } from "@ortho-earth/globe";
@@ -70,12 +71,12 @@ map.on("click", "field", e => console.log(e.features[0].properties.cell));
 
 ## Handle
 
-`id`, `kind`, `shape`, `dims`, `n` (cells), `anchor`, `range`, `backend` (`"webgpu"` | `"webgl2"`, null until the overlay has chosen), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond the 3D texture limit), `ready`, `setData(data)`, `setProps(opts)` (style-only changes do not re-upload the grid), `setVisible(on)`, `pick(x, y, r?)`, `remove()`.
+`id`, `kind`, `shape`, `dims`, `n` (cells), `bricks` (0 = one texture), `anchor`, `range`, `backend` (`"webgpu"` | `"webgl2"`, null until the overlay has chosen), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond the 3D texture limit), `ready`, `setData(data)`, `setProps(opts)` (style-only changes do not re-upload the grid), `setVisible(on)`, `pick(x, y, r?)`, `remove()`.
 
 ## Notes
 
 - Scalar values are quantised to 8 bits for the GPU (`range` → 1..255, 0 = empty). The colormap resolves 256 steps and an iso threshold lands on one of them; `handle.pick` reports the original value from the data kept on the main thread.
-- One grid axis may not exceed the 3D texture limit (at least 256). Larger grids are refused with `handle.error` until stage 5 (bricks).
+- A grid with every axis within 256 cells is one texture; a larger one is split into bricks (above). The bricks are kept in GPU memory as a whole (1 byte per cell, 4 for RGBA): a 1024 × 1024 × 128 grid needs 128 MB, so very large grids need level of detail (still to come) on phones.
 - Region grids are marched in meters along a straight ray and each sample is converted back to longitude / latitude / height, so cell borders are the true meridians, parallels and height surfaces. Their blocks mode samples the nearest cell every quarter cell instead of a DDA (slightly soft edges). The shell is built on a sphere; under the ellipsoid display (`?ell=1`) a country-sized region can sit a few km off, which stage 3 will tighten. Very large regions (thousands of km) shade with the anchor's east / north / up.
 - All grids of one map share one overlay canvas (the render worker's WebGL contexts are limited); the overlay goes away a moment (`OVERLAY_LINGER_MS`, 250 ms) after the last handle is removed, so `remove()` followed at once by `addData()` (switching scenes) keeps the same overlay instead of tearing it down and racing a new one with the same name.
 - **3D Tiles**: a tileset whose glTF content carries `EXT_primitive_voxels` (with `KHR_implicit_shapes` boxes or `EXT_implicit_ellipsoid_region` regions), or whose `root.content` declares `3DTILES_content_voxels` (the grid fills the tile's bounding volume), becomes one layer per tile through `map.add3DTiles(url, { voxel: { render, colormap, threshold, property, … } })`; `property` picks the attribute (a class property name works too). Cylinders are not drawn yet; without this plugin the globe skips the grids and warns once.

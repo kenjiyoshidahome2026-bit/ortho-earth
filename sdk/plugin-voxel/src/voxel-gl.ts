@@ -22,7 +22,7 @@ export type VoxelApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { 
 export interface PickContext { s: CamState; api: VoxelApi; size: { w: number; h: number } }
 export type VoxelAltitude = "relative" | "absolute";
 export interface VoxelStyle { mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
-export interface VoxelLayerBody extends VoxelStyle { shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
+export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
 export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
 export interface VoxelPickResult { id: number; q: string; layer: string; index: number; cell: [number, number, number]; value: number | null; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number; cell: [number, number, number]; value: number | null } }
 export interface EnuBasis { E: number[]; N: number[]; U: number[]; u: number[] }
@@ -176,6 +176,7 @@ interface Layer {
 	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: WebGLTexture; cmap: WebGLTexture; on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array;
 	geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number;
+	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
 }
 let glc: GL | null = null, host: OverlayHost | null = null, prog: Program | null = null, pickProg: Program | null = null, boxVao: WebGLVertexArrayObject | null = null, wantDepth = false, dummyTex: WebGLTexture | null = null, max3d = 256;
 let pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
@@ -200,6 +201,7 @@ export const BOX = ((): Float32Array => {
 })();
 export function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null): { depth: true } | undefined {
 	host = h;
+	layers.clear(); probes.length = 0; pickFbo = null; pickTex = null; pickW = 0; pickH = 0; dummyTex = null;   // 同じ名前で立て直したオーバーレイ＝モジュールの実体は使い回し（前の文脈の物は捨てる）
 	const gl = glc = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (plugin-voxel overlay)");
 	wantDepth = opts.depth !== false && !!h?.depthGLSL;
@@ -255,7 +257,7 @@ function build(d: VoxelLayerBody): Layer {
 		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 		gl.bindVertexArray(null); nVerts = geo.shell.length / 3;
 	}
-	return { shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, vao, vb, nVerts };
+	return { shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, vao, vb, nVerts, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255 };
 }
 const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; gl.deleteTexture(L.tex); gl.deleteTexture(L.cmap); if (L.vb) gl.deleteBuffer(L.vb); if (L.vao) gl.deleteVertexArray(L.vao); };
 function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
@@ -298,10 +300,12 @@ function place(L: Layer, s: CamState, api: VoxelApi | null | undefined): boolean
 		const A = L.A;
 		for (let c = 0; c < 3; c++) for (let row = 0; row < 4; row++) mvpC[c * 4 + row] = mvpL[row] * A[c] + mvpL[4 + row] * A[3 + c] + mvpL[8 + row] * A[6 + c];
 		for (let row = 0; row < 4; row++) mvpC[12 + row] = mvpL[12 + row];
-		const Ai = L.Ainv;
+		const Ai = L.Ainv, off = L.off;
 		for (let i = 0; i < 3; i++) eyeC[i] = Ai[i * 3] * enu[0] + Ai[i * 3 + 1] * enu[1] + Ai[i * 3 + 2] * enu[2];
+		if (off) for (let row = 0; row < 4; row++) mvpC[12 + row] += mvpC[row] * off[0] + mvpC[4 + row] * off[1] + mvpC[8 + row] * off[2];   // ブリック＝セルを off だけずらす（A·off）
+		if (off) for (let i = 0; i < 3; i++) eyeC[i] -= off[i];
 	}
-	L.dist = Math.hypot(d[0], d[1], d[2]);
+	L.dist = centerDist(L, enu);
 	const rr = L.radius * k;   // 地平線の向こう（錨の半径ぶんの余裕）
 	const behind = o[0] * d[0] + o[1] * d[1] + o[2] * d[2] < -rr * Math.hypot(...o) - 1e-9;
 	return !behind;
@@ -321,6 +325,29 @@ export function stepsOf(L: { shape: "box" | "region"; dims: [number, number, num
 }
 /** 断面 → セル空間の範囲 */
 export const clipBounds = (dims: [number, number, number], clip: Clip | null): { lo: number[]; hi: number[] } => ({ lo: [0, 1, 2].map(i => (clip ? clip[i * 2] : 0) * dims[i]), hi: [0, 1, 2].map(i => (clip ? clip[i * 2 + 1] : 1) * dims[i]) });
+type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null };
+/** 描く範囲（テクスチャのセル座標）＝断面（親の割合）と持ち分の交わり。空なら null（そのブリックは描かない） */
+export function drawBounds(L: BrickLike): { lo: number[]; hi: number[] } | null {
+	if (!L.full || !L.off || !L.own) return clipBounds(L.dims, L.clip);
+	const c = clipBounds(L.full, L.clip), lo = [0, 1, 2].map(i => Math.max(L.own![i], c.lo[i] - L.off![i])), hi = [0, 1, 2].map(i => Math.min(L.own![3 + i], c.hi[i] - L.off![i]));
+	return lo.every((v, i) => v < hi[i]) ? { lo, hi } : null;
+}
+/** 閾より下しか無い層（ブリック）＝描かない（vmax＝R8 の 0〜255。RGBA は α 0 の時だけ） */
+export const isEmpty = (L: { vmax: number; thr: number; comps: 1 | 4 }): boolean => L.vmax === 0 || (L.comps === 1 && (L.vmax - 1) / 254 < L.thr);
+/** 目（東北上 m）から層の中心まで＝奥から描く順（同じ大きさの箱が並ぶブリックは中心の遠い順で正しく重なる） */
+export function centerDist(L: { dims: [number, number, number]; A: ArrayLike<number>; off: [number, number, number] | null; geo: GeoGrid | null }, enu: number[]): number {
+	let c: number[];
+	if (L.geo) c = [L.geo.bs[0], L.geo.bs[1], L.geo.bs[2]];
+	else { const o = L.off ?? [0, 0, 0], m = [0, 1, 2].map(i => o[i] + L.dims[i] / 2), A = L.A; c = [0, 1, 2].map(r => A[r * 3] * m[0] + A[r * 3 + 1] * m[1] + A[r * 3 + 2] * m[2]); }
+	return Math.hypot(enu[0] - c[0], enu[1] - c[1], enu[2] - c[2]);
+}
+/** 当たり（層の中の番号）→ 親の層の id・番号・セル（ブリックは off と full で戻す） */
+export function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null }, index: number): { layer: string; index: number; cell: [number, number, number] } {
+	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny));
+	if (!L.off || !L.full) return { layer: L.layer ?? q, index, cell: [i, j, k] };
+	const cell: [number, number, number] = [i + L.off[0], j + L.off[1], k + L.off[2]];
+	return { layer: L.layer ?? q, index: cell[0] + L.full[0] * (cell[1] + L.full[1] * cell[2]), cell };
+}
 function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w: number, h: number): void {
 	const gl = glc!;
 	const P = (pick ? pickProg : prog)!;
@@ -329,11 +356,11 @@ function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w
 	gl.useProgram(P.p); bindDepth(P, api);
 	gl.uniform2f(P.u.u_vp, w, h); gl.uniform1i(P.u.u_vol, 0); gl.uniform1i(P.u.u_cmap, 1); gl.uniform3f(P.u.u_light, LIGHT[0], LIGHT[1], LIGHT[2]);
 	const vis: Layer[] = [];
-	for (const L of layers.values()) if (L.on && L.n && place(L, s, api)) vis.push(L);
+	for (const L of layers.values()) if (L.on && L.n && !isEmpty(L) && drawBounds(L) && place(L, s, api)) vis.push(L);
 	vis.sort((a, b) => b.dist - a.dist);   // 層は奥から
 	for (const L of vis) {
 		place(L, s, api);
-		const { step, maxSteps } = stepsOf(L), { lo, hi } = clipBounds(L.dims, L.clip);
+		const { step, maxSteps } = stepsOf(L), { lo, hi } = drawBounds(L)!;
 		gl.uniformMatrix4fv(P.u.u_mvp, false, mvpC); gl.uniform3f(P.u.u_dims, L.dims[0], L.dims[1], L.dims[2]); gl.uniform3fv(P.u.u_eye, eyeC);
 		gl.uniformMatrix3fv(P.u.u_nrm, false, L.nrm); gl.uniformMatrix3fv(P.u.u_gradM, false, L.gradM);
 		gl.uniform1i(P.u.u_mode, L.mode); gl.uniform1i(P.u.u_comps, L.comps); gl.uniform1i(P.u.u_geo, L.geo ? 1 : 0); gl.uniform1i(P.u.u_maxSteps, maxSteps);
@@ -370,9 +397,10 @@ export function frame(cam: unknown, s: CamState, { w, h }: { w: number; h: numbe
 }
 const decodeId = (r: number, g: number, b: number, a: number): number => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
 /** 当たりの番号 → セル・経緯度（セルの中心＝box は A で・region は経緯度の枠で） */
-export function hitOf(L: { dims: [number, number, number]; A: Float64Array; anchor: [number, number, number]; geo: GeoGrid | null; properties: Record<string, unknown> | null }, index: number): { cell: [number, number, number]; lngLat: [number, number] } {
+export function hitOf(L: { dims: [number, number, number]; A: Float64Array; anchor: [number, number, number]; geo: GeoGrid | null; properties: Record<string, unknown> | null; off?: [number, number, number] | null }, index: number): { cell: [number, number, number]; lngLat: [number, number] } {
 	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny)), cc = [i + 0.5, j + 0.5, k + 0.5];
 	if (L.geo) return { cell: [i, j, k], lngLat: [((L.geo.west + L.geo.spanLon * cc[0] / nx + 180) % 360 + 360) % 360 - 180, L.geo.south + L.geo.spanLat * cc[1] / ny] };
+	if (L.off) for (let a = 0; a < 3; a++) cc[a] += L.off[a];   // ブリック＝親のセル座標へ
 	const A = L.A, e = A[0] * cc[0] + A[1] * cc[1] + A[2] * cc[2], nn = A[3] * cc[0] + A[4] * cc[1] + A[5] * cc[2], a = L.anchor;
 	return { cell: [i, j, k], lngLat: [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)] };
 }
@@ -407,8 +435,8 @@ export function pick(x: number, y: number, r: number, ctx: PickContext | null | 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	if (!best) return null;
 	for (const [q, L] of layers) if (best.id >= L.base && best.id < L.base + L.n) {
-		const index = best.id - L.base, { cell, lngLat } = hitOf(L, index);
-		return { id: best.id, q, layer: q, index, cell, value: null, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index, cell, value: null } };
+		const { lngLat } = hitOf(L, best.id - L.base), { layer, index, cell } = pickedCell(q, L, best.id - L.base);
+		return { id: best.id, q, layer, index, cell, value: null, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index, cell, value: null } };
 	}
 	return null;
 }
