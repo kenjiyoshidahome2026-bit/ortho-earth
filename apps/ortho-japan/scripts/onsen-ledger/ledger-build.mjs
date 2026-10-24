@@ -84,6 +84,11 @@ for (let p = 1; p <= 47; p++) { const pts = items.filter(d => d.p === p && d.a =
 let moved = 0, unlinked = 0, relinked = 0;
 for (const d of items) if (d.e === "region" && prefCenter.has(d.p)) { d.c = prefCenter.get(d.p); d.a = Math.max(d.a, 30000); moved++; }
 const byId = new Map(items.map(d => [d.id, d]));
+// 郷に入れない温泉（本人の裁定）。Wikidata の「一部」は広く付き過ぎることがある
+const NO_KYO = new Set([
+	"西那須野温泉",   // 塩原温泉郷・那須温泉郷のどちらでもない（本人 2026-10-24）
+]);
+for (const d of items) if (NO_KYO.has(d.n)) delete d.par;
 for (const d of items) {
 	if (!d.par) continue;
 	d.par = d.par.filter(g => {

@@ -117,7 +117,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 
 	// 表示の切り替え（泉質・重ね）＝点の層の filter を組み直す
 	const shownCls = new Set([...CLASS_COLORS.keys(), -1]);
-	const ov: Record<string, boolean> = { kyo: true, src: true, est: true, inn: true, innOnly: false };
+	const ov: Record<string, boolean> = { kyo: false, src: false, est: false, inn: false, innOnly: false };   // 重ねは全部 OFF で始める（本人 2026-10-24）
 	const ptFilter = () => {
 		const any = [...shownCls].map(i => ["==", ["get", i < 0 ? "qx" : "q" + i], 1]);
 		return ["all", [">=", ["zoom"], ["get", "mz"]], any.length ? ["any", ...any] : false, ...(ov.est ? [] : [["==", ["get", "est"], 0]]), ...(ov.innOnly ? [["==", ["get", "inn"], 1]] : [])];
@@ -186,7 +186,7 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
 	P.body.innerHTML = `
 			<div class="detail" hidden></div>
-			<div class="bzb"><span>温泉番付</span><button type="button" data-bz="現代">現代</button><button type="button" data-bz="江戸">江戸</button></div>
+			<div class="bzb"><span>${t("Hot spring rankings")}</span><button type="button" data-bz="現代">${t("Modern")}</button><button type="button" data-bz="江戸">${t("Edo period")}</button></div>
 			<div class="tabs" role="tablist">
 				<button type="button" data-tab="layers" class="on">${esc(t("Layers"))}</button>
 				<button type="button" data-tab="list">${esc(t("List"))}</button>
@@ -196,13 +196,13 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 				${[...CLASS_COLORS.keys(), -1].map(i => `<label class="grp"><input type="checkbox" data-c="${i}" checked><span class="sw" style="background:${i < 0 ? UNKNOWN : CLASS_COLORS[i]}"></span>${esc(className(i))}<small>${count(i)}</small></label>`).join("")}
 				<div class="all"><button type="button" data-all="1">${esc(t("All"))}</button><button type="button" data-all="0">${esc(t("None"))}</button></div>
 				<h2>${esc(t("Overlays"))}</h2>
-				<label class="grp"><input type="checkbox" data-ov="kyo" checked><span class="sw" style="background:${KYO_FILL};border:1px solid ${KYO_EDGE}"></span>${esc(t("Onsen districts"))}<small>${kyos.length}</small></label>
-				<label class="grp"><input type="checkbox" data-ov="src" checked><span class="sw ln" style="background:repeating-linear-gradient(90deg,${SRC} 0 4px,transparent 4px 7px)"></span>${esc(t("Sources away from the town"))}<small>${items.filter(d => d.s).length}</small></label>
-				<label class="grp"><input type="checkbox" data-ov="est" checked><span class="sw ring"></span>${esc(t("Estimated positions"))}<small>${onsens.filter(d => d.a > 0).length}</small></label>
-				<label class="grp"><input type="checkbox" data-ov="inn" checked><span class="sw inn"></span>${esc(t("Secluded hot spring inns"))}<small>${inns.length}</small></label>
+				<label class="grp"><input type="checkbox" data-ov="kyo"><span class="sw" style="background:${KYO_FILL};border:1px solid ${KYO_EDGE}"></span>${esc(t("Onsen districts"))}<small>${kyos.length}</small></label>
+				<label class="grp"><input type="checkbox" data-ov="src"><span class="sw ln" style="background:repeating-linear-gradient(90deg,${SRC} 0 4px,transparent 4px 7px)"></span>${esc(t("Sources away from the town"))}<small>${items.filter(d => d.s).length}</small></label>
+				<label class="grp"><input type="checkbox" data-ov="est"><span class="sw ring"></span>${esc(t("Estimated positions"))}<small>${onsens.filter(d => d.a > 0).length}</small></label>
+				<label class="grp"><input type="checkbox" data-ov="inn"><span class="sw inn"></span>${esc(t("Secluded hot spring inns"))}<small>${inns.length}</small></label>
 				<label class="grp"><input type="checkbox" data-ov="innOnly"><span class="sw none"></span>${esc(t("Only hot springs with such an inn"))}</label>
 				<p class="note">${esc(t("Filled dots have measured coordinates (hot spring list, Wikipedia, Wikidata); hollow rings were placed by searching place names and addresses. A red outer ring means the source is far from the town."))}</p>
-				<p class="src">${esc(t("Data: hot spring list, Japanese Wikipedia (CC BY-SA 4.0), Wikidata (CC0), © OpenStreetMap contributors (ODbL), GSI, Japan Secluded Hot Spring Association"))}</p>
+				<p class="src">${esc(t("Data: hot spring list (compiled from Wikipedia and years of visits on site), Japanese Wikipedia (CC BY-SA 4.0), Wikidata (CC0), © OpenStreetMap contributors (ODbL), GSI, Japan Secluded Hot Spring Association"))}</p>
 			</div>
 			<div class="pane" data-pane="list" hidden>
 				<div class="ctl"><select class="pref"><option value="">${esc(t("All prefectures"))}</option>${Object.keys(db.prefNames || {}).map(c => `<option value="${c}">${esc(db.prefNames![c][lang] || db.prefNames![c].en)}</option>`).join("")}</select>
@@ -294,13 +294,13 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 	find.oninput = () => list.render();
 
 	// ── 温泉番付（現代＝onsen-banzuke.ts で組む・江戸＝public/onsen-banzuke-edo.svg）。名を押すとその温泉を選ぶ＝地図・一覧と同じ select ──
-	// 番付の文言は日本語だけ（番付そのものが日本語の一枚もの＝26 言語の辞書に載せない・本人裁定 2026-10-24）
+	// 番付の絵は日本語の一枚もの。案内板の「温泉番付・現代・江戸」と窓の見出しは 26 言語（本人 2026-10-24）
 	const prefCode = new Map(Object.entries(db.prefNames || {}).map(([c, v]) => [v.ja.replace(/[都府県]$/, ""), +c]));
 	const byPrefName = new Map(items.map(d => [`${d.p}:${d.n}`, d.id]));
 	const byEdo = new Map(items.flatMap(d => (d.bz || []).map(r => [r, d.id] as const)));   // 江戸の位 → 温泉（温泉一覧の番付の列＝本人の比定）。無い位は onsen-banzuke.ts の表
 	const idOfRef = (r: string | null | undefined) => { if (!r) return null; const [p, n] = r.split(":"); return byPrefName.get(`${prefCode.get(p)}:${n}`) ?? null; };
 	const bzEl = document.createElement("div"); bzEl.className = "on-banzuke"; bzEl.hidden = true;
-	bzEl.innerHTML = `<style>${BZ_CSS}</style><div class="bh"><b></b><button type="button" class="x" aria-label="閉じる">×</button></div><div class="sv"></div>`;
+	bzEl.innerHTML = `<style>${BZ_CSS}</style><div class="bh"><b></b><button type="button" class="x" aria-label="${t("Close")}">×</button></div><div class="sv"></div>`;
 	mapEl.appendChild(bzEl);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) bzEl.addEventListener(ev, e => e.stopPropagation());
 	const bzSv = bzEl.querySelector<HTMLElement>(".sv")!, bzSvg: Record<string, string> = {};
@@ -320,9 +320,9 @@ export async function mountOnsen(map: GlobeMap, { base = "./" } = {}) {
 			bzSv.querySelectorAll(".hover").forEach(el => {
 				const nm = el.getAttribute("name") || "", id = (kind === "江戸" && byEdo.get(nm)) || idOfRef(bzMod!.番付の比定(kind, nm));
 				if (id) { el.setAttribute("data-o", id); return; }
-				el.classList.add("nf"); const tt = el.querySelector("title"); if (tt) tt.textContent += "（地図上の温泉は不明）";
+				el.classList.add("nf"); const tt = el.querySelector("title"); if (tt) tt.textContent += lang === "ja" ? "（地図上の温泉は不明）" : ` (${t("not found on the map")})`;
 			});
-			bzKind = kind; bzEl.querySelector("b")!.textContent = kind === "現代" ? "温泉番付（現代・日本温泉効能鑑）" : "温泉番付（江戸・諸國温泉効能鑑）";
+			bzKind = kind; bzEl.querySelector("b")!.textContent = kind === "現代" ? t("Hot spring rankings (modern)") : t("Hot spring rankings (Edo period)");   // 日本語は出典の書名入り
 			bzEl.hidden = false; fitBanzuke(); banzuke.mark();
 		},
 		close() { bzEl.hidden = true; bzKind = null; banzuke.mark(); },
