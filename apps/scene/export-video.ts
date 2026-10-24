@@ -8,7 +8,7 @@
 //   AAC の符号器が無いブラウザは音なしで焼き、onNote で知らせる。
 import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
 import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
-import { pick, cardOf, cardSecs, CARD_FADE, gradeOf, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
+import { pick, cardOf, cardSecs, CARD_FADE, gradeOf, glowOf, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
 import { getLang } from "@ortho-earth/globe/i18n.js";
 import { Mp4Muxer } from "./mp4mux.ts";
 import type { GlobeMap } from "@ortho-earth/globe";
@@ -212,7 +212,8 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 	map.pinRes?.(true);
 	const light = doc.light, sunBefore = map.getSun(), liveBefore = map.clock.isLive(), timeBefore = map.clock.time;
 	const rasterBefore = map.raster.selected();   // 行 raster（第5便）はシークが切り替える＝終わったら書き出し前の画像へ戻す
-	if (light) { map.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(true); }
+	const gradeOn = !!light && (light as { grade?: unknown }).grade !== false, lightsOn = !!light && (light as { cityLights?: unknown }).cityLights !== false;   // 夜の街明かり（2026-10-24）＝上映と同じ
+	if (light) { map.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(true); if (lightsOn) map.setCityLights(true); }
 	map.mapEl.classList.add("scene-clean");
 
 	const settle = (ms: number) => new Promise<void>(res => {
@@ -263,10 +264,12 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 				if (key !== lastKey || f === 0) {   // 絵が動いた時だけ描き直す（保持で止まっている間・溶暗の間は前のコマ）
 					if (ri !== lastRow && r?.fade && r.dissolve && stillRow !== ri) { sctx.clearRect(0, 0, width, height); sctx.drawImage(base, 0, 0); stillRow = ri; }   // 溶け替え＝切り替わる直前の絵を止めて持つ
 					tl.seek(ts);
+					// 光の色（第5便）＝上映と同じ乗算。WebGPU はエンジンが掛ける（窓の明かりは暗くしない・撮影に入る）＝下の色板は WebGL2 の時だけ
+					const alt = map.getSunPosition().altitude, g0 = gradeOn ? gradeOf(alt) : null;
+					const g = map.setGrade(g0, { glow: lightsOn && g0 ? glowOf(alt) : 0 }) ? null : g0;
 					await settle(ri !== lastRow ? waitMs : Math.min(waitMs, 4000));
 					const snap = composeLayersToCanvas(await map.requestSnapshot(), null);
 					bctx.clearRect(0, 0, width, height); bctx.drawImage(snap, 0, 0, width, height);
-					const g = light && (light as { grade?: unknown }).grade !== false ? gradeOf(map.getSunPosition().altitude) : null;   // 光の色（第5便）＝上映と同じ乗算
 					if (g) { bctx.globalCompositeOperation = "multiply"; bctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`; bctx.fillRect(0, 0, width, height); bctx.globalCompositeOperation = "source-over"; }
 					lastKey = key; lastRow = ri;
 				}
@@ -311,7 +314,7 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 		try { encoder.close(); } catch { /* 閉じ済み */ }
 		tl.end();
 		map.mapEl.classList.remove("scene-clean");
-		if (light) { map.setSun(sunBefore ?? null); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(false); }
+		if (light) { map.setSun(sunBefore ?? null); if ((light as { shadows?: unknown }).shadows !== false) map.setShadows(false); map.setGrade(null); if (lightsOn) map.setCityLights(false); }
 		if (liveBefore) map.clock.live(); else map.clock.setTime(timeBefore);
 		map.pinRes?.(false);
 		if (rasterBefore.base !== map.raster.selected().base) void map.raster.select(rasterBefore.base).catch(() => null);

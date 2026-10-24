@@ -2152,7 +2152,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "ecliptic":  setEcliptic(data as Float32Array | null); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data as Float32Array | null); break;                                     // data=同上（天の赤道の大円）
 			case "cogTex":    setCogTex(data as CogInput | null); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
-			case "post":   post = (data as PostProcessNormalized | null) || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
+			case "post":   post = (data as PostProcessNormalized | null) || null; dOut?.setPost(post); break;
+			case "cityLights": break;   // 夜の街明かり（2026-10-24）＝WebGPU だけ（map.setCityLights は GL2 では送らない・念のため黙って受ける）   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
 			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
