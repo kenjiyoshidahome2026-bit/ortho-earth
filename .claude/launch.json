@@ -209,13 +209,13 @@
       "port": 5299
     },
     {
-      "name": "ortho-globe",
+      "name": "globe-map",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "ortho-globe",
+        "globe-map",
         "--",
         "--port",
         "5186",

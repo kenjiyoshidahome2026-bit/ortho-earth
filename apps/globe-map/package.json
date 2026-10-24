@@ -1,0 +1,20 @@
+{
+	"name": "globe-map",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The globe's front page (Globe ⇄ Equal Earth). Served at www.ortho-earth.com/globe/ through the ortho-globe Worker (apps/globe-host).",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"preview": "vite preview",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/equal": "*",
+		"@ortho-earth/globe": "*"
+	}
+}
