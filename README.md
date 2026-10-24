@@ -1,10 +1,25 @@
 <h1><img src="apps/www/public/favicon.svg" width="28" height="28" alt="Ortho Earth logo"> Ortho Earth</h1>
 
+**maplibre + cesium - mercator = ortho-earth.** The MapLibre GL JS API you already know, on a 3D globe with terrain and 3D Tiles, and no flat Mercator anywhere: the flat world map is Equal Earth.
+
 A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from scratch — zero runtime dependencies, no tile servers. Runs entirely in the browser.
 
 <img src="assets/hero.png" width="720" alt="The top page of www.ortho-earth.com: the globe behind &quot;Equal to all, fair to the Earth&quot; and the demo gallery">
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com) · **ortho-japan (flagship 3D map):** [/japan/](https://www.ortho-earth.com/japan/) · **world globe:** [/globe/](https://www.ortho-earth.com/globe/) · **GIS-HUB (apps):** [/gishub/](https://www.ortho-earth.com/gishub/) · **MapLibre examples:** [/maplibre/](https://www.ortho-earth.com/maplibre/) · **technical documents:** [/#technologies](https://www.ortho-earth.com/#technologies)
+
+**Demos:**
+
+<table>
+<tr>
+<td><a href="https://www.ortho-earth.com/japan/#16/35.6812/139.7671/60t/30r"><img src="assets/demos/tokyo.jpg" width="360" alt="Tokyo Station and Marunouchi in 3D: PLATEAU buildings on the globe"></a><br>Tokyo in 3D (PLATEAU buildings)</td>
+<td><a href="https://www.ortho-earth.com/globe/quakes/"><img src="assets/demos/quakes.jpg" width="360" alt="1.5 million earthquakes since 1967 on the globe, sized by energy and colored by depth"></a><br>World earthquakes, 1967 to now</td>
+</tr>
+<tr>
+<td><a href="https://www.ortho-earth.com/globe/sats"><img src="assets/demos/sats.jpg" width="360" alt="16,000 satellites around the Earth, with the ISS orbit drawn"></a><br>Satellites in orbit now</td>
+<td><a href="https://www.ortho-earth.com/equal/"><img src="assets/demos/equal.jpg" width="360" alt="Equal Earth world map with relief and country names"></a><br>Equal Earth world map</td>
+</tr>
+</table>
 
 **Guides:** [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre) · [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium) · [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth)
 
