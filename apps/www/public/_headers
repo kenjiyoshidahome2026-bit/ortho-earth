@@ -3,6 +3,11 @@
   Cross-Origin-Embedder-Policy: credentialless
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'
+
+# 他サイトの iframe に入れさせない（2026-10-24 再監査・クリックジャッキング対策）。www 自身の iframe（docs・デモの表示枠）は同一オリジン＝影響なし。
+#   埋め込みは SDK（script）で行う設計＝iframe 埋め込みは提供していない。/japan/ 等の Worker 配下のアプリはこの _headers の対象外。
 
 # GeoPBF デモ（/geopbf/）・GIS-HUB-jp は地球儀を ortho-japan エンジン（gint v2）で描く＝エンジンは各アプリの束に同梱（A 裁定 2026-09-23・/japan/lib は実行時に食わない）
 # ＝japan/census2020 と同じ credentialless（require-corp だと SDK が読む CORP 無しの越境資源が落ちて国境等が欠ける＝2026-09-21 実測）。

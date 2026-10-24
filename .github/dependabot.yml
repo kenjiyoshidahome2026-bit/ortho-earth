@@ -1,14 +1,20 @@
 # 依存の更新と脆弱性の知らせ（2026-10-24 監査）。actions のタグ更新もここが PR にする。
+# cooldown＝出てから 7 日たった版だけを PR にする（2026-10-24 再監査）。乗っ取られた版は数日で取り下げられることが多い＝
+#   main に入れると Mac の runner で npm ci→deploy まで自動で走るので、出たての版は待つ。脆弱性の修正（security update）は待たずに来る。
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       dev-tooling:
