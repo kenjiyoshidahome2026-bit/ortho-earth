@@ -10,7 +10,7 @@ const __dirname = import.meta.dirname;
 // www のデモ一覧は各デモをナビの下の iframe で開く＝www は COEP credentialless の頁＝中に入る頁も COEP が要る（world と同じ）
 const coepHeaders = () => ({
 	name: "coep-headers",
-	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
+	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n"); },
 });
 const noChunkOptimization = { experimental: { chunkOptimization: false } };   // world と同じ理由（mesh-loaders の合流を避ける）
 

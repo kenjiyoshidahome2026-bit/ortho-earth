@@ -28,7 +28,7 @@ export const crossOriginIsolation = ({ coep = "credentialless", corp = false, no
 export const coepHeadersFile = dir => ({
 	name: "coep-headers",
 	apply: "build",
-	closeBundle() { mkdirSync(dir, { recursive: true }); writeFileSync(resolve(dir, "_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
+	closeBundle() { mkdirSync(dir, { recursive: true }); writeFileSync(resolve(dir, "_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n"); },
 });
 
 // rolldown（vite 8）のチャンク最適化を切る（2026-09-25・globe を束ねる vite 8 アプリの決まり）。既定 on だと実行時ヘルパ __exportAll の

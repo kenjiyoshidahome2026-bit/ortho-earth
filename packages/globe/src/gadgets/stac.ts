@@ -9,6 +9,7 @@
 // シーン切替は fit:false＝カメラ据え置き（同じ場所の別日・別センサを見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
 import { tr } from "../i18n.ts";
+import { escHtml as esc } from "../html-safe.ts";   // 外部 API の文字列を innerHTML へ入れる前に逃がす（2026-10-24）
 import { DATASETS, defaultRange, searchScenes, cogUrl, cogOpts, renewingFetch, orbitLabel, type Dataset } from "./tellus-api.ts";   // Tellus の読み口（tellus.html と共用）
 import { createFootprint } from "./footprint.ts";   // フットプリント描画（tellus.html と共用・辺は大円）
 import type { CogOptions } from "../../globe.d.ts";
@@ -149,7 +150,7 @@ export function stac(this: GlobeMap, { btn, loadCog, clearCog, signal }: StacOpt
 				const cloud = Math.round(it.cloud);
 				const row = document.createElement("button");
 				row.className = "stac-row"; row.dataset.id = it.id;
-				row.innerHTML = `<img loading="lazy" alt=""><span><span class="d">${it.date}</span> <span class="c">${it.sub}</span><br><span class="c">${src.cloud ? `${t("cloud")} ${cloud >= 0 ? cloud + "%" : "?"}` : src.label}</span></span>`;
+				row.innerHTML = `<img loading="lazy" alt=""><span><span class="d">${esc(it.date)}</span> <span class="c">${esc(it.sub)}</span><br><span class="c">${src.cloud ? `${t("cloud")} ${cloud >= 0 ? cloud + "%" : "?"}` : esc(src.label)}</span></span>`;   // date・sub は STAC/Tellus の応答＝innerHTML へ入れる前に逃がす（2026-10-24）
 				if (it.thumb) row.querySelector("img")!.src = it.thumb;
 				const ring = ringOf(it.geometry as FootprintGeometry);
 				row.addEventListener("mouseenter", () => setHover(ring), { signal });

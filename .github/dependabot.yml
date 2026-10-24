@@ -1,0 +1,15 @@
+# 依存の更新と脆弱性の知らせ（2026-10-24 監査）。actions のタグ更新もここが PR にする。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns: ["vite", "vite-*", "@vitejs/*", "wrangler", "miniflare", "typescript", "sass*"]

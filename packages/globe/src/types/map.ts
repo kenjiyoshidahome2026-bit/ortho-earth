@@ -398,7 +398,7 @@ export interface GadgetGate { zoom?: [min: number, max: number]; narrow?: boolea
 /** 第 1 引数が opts の gadget（門の鍵をそこで受ける）。残りはデータが先（src・pbf・url） */
 export type GatedGadgetName = "search" | "zoom" | "compass" | "full" | "shot" | "measure" | "profile" | "contextmenu" | "legend" | "palette"
 	| "hint" | "home" | "qr" | "print" | "cpos" | "mesh" | "dropFile" | "sunshadow" | "offline" | "viewshed" | "clock" | "tip" | "pop"
-	| "inspect" | "close" | "demo" | "edit" | "equal" | "explain" | "geoedit" | "globe" | "hud" | "lang" | "poiedit" | "raster" | "solar" | "stac";
+	| "inspect" | "close" | "demo" | "edit" | "equal" | "explain" | "geoedit" | "globe" | "hud" | "lang" | "raster" | "solar" | "stac";
 /** opts に門の鍵を足す（opts が同じ名の鍵を持つ時は opts の方＝search の zoom は数か門の配列） */
 type WithGate<F> = F extends (opts?: infer O) => infer R ? (opts?: (unknown extends O ? {} : NonNullable<O>) & Omit<GadgetGate, keyof NonNullable<O>>) => R : F;
 /** map.gadget：登録された名前だけ・名前ごとの引数（Gadgets）＋表示の門 */
@@ -410,7 +410,7 @@ export type GadgetFactory<F> = F extends (...args: infer A) => infer R ? (map: G
 export type RegisterGadget = <K extends keyof Gadgets>(name: K, factory: GadgetFactory<NonNullable<GadgetCallers[K]>>) => void;
 
 /** installShadows (api/shadows.ts:36), called at globe.js:2710.
- *  Registers gadgets: offline@141 sunshadow@153 clock@159 viewshed@160 shot@165 qr@168 home@172 print@177 close@180 poiedit@188 */
+ *  Registers gadgets: offline@141 sunshadow@153 clock@159 viewshed@160 shot@165 qr@168 home@172 print@177 close@180 */
 export interface ShadowsApi {
 	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。

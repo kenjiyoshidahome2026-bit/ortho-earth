@@ -28,8 +28,13 @@ export default {
 		const h = new Headers(res.headers);
 		h.set("Cross-Origin-Opener-Policy", "same-origin");
 		h.set("Cross-Origin-Embedder-Policy", "credentialless");
+		h.set("X-Content-Type-Options", "nosniff");   // 配信物の型を推測させない（2026-10-24 監査）
+		h.set("Referrer-Policy", "strict-origin-when-cross-origin");   // 外部のタイル鯖等へ URL の query（?g= 等）を漏らさない
 		// lib/ortho-japan.d.ts＝拡張子 .ts をアセット配信が video/mp2t（MPEG-TS）と推定する＝型定義は text/plain で返す（2026-09-10・CDN 配信開始時に実測）
 		if (url.pathname.endsWith(".d.ts")) h.set("Content-Type", "text/plain; charset=utf-8");
+		// エディタ（ログイン・公開台帳・自分のファイルの操作がある頁）は他サイトの iframe に載せない＝クリックジャッキング封じ（2026-10-24 監査）。
+		// /japan/ 本体は他サイトが iframe で埋め込む使い方（公開台帳の地図の共有）を残すため付けない
+		if (url.pathname.startsWith("/japan/geoedit")) h.set("Content-Security-Policy", "frame-ancestors 'self'");
 		return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 	},
 };

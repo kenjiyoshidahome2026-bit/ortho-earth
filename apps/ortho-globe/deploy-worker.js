@@ -2,7 +2,8 @@
 // ①全レスポンスに COOP/COEP（credentialless）を刻む＝dev の vite と同条件（gint の SharedArrayBuffer の点火条件。無くてもコピー経路で動く）
 // ②/globe（末尾スラッシュなし）→ /globe/
 // 共有エンジン（/globe/engine/*）はここを通らない＝独立の Worker ortho-engine（apps/engine・route がより specific・2026-10-15〜）。
-const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
+const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless",
+	"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" };   // 後の 2 本＝型を推測させない・外部へ query を漏らさない（2026-10-24 監査）
 export default {
 	async fetch(req, env) {
 		const url = new URL(req.url);
