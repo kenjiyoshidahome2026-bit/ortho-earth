@@ -1,0 +1,3 @@
+// 頁の入口（parks-page.ts）の型の補い。window.__map 等＝console 検証用の窓の手すり
+declare const __DATA_US__: string;   // vite.config の define（データの置き場の URL の頭）
+interface Window { __map?: unknown; __parks?: unknown }

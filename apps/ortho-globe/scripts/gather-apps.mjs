@@ -8,9 +8,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-export const APPS = ["hex"];   // apps/ の下の置き場＝ワークスペース名
 const HERE = path.dirname(path.dirname(new URL(import.meta.url).pathname));
 const ROOT = path.resolve(HERE, "../..");
+// 集める物＝apps/<置き場>/package.json に "servedAt": "/globe/" を持つアプリ（置き場＝ワークスペース名・一覧を手で持たない）
+export const APPS = fs.readdirSync(path.join(ROOT, "apps")).filter(d => {
+	try { return JSON.parse(fs.readFileSync(path.join(ROOT, "apps", d, "package.json"), "utf8")).servedAt === "/globe/"; } catch { return false; }
+}).sort();
 const DEST = path.join(HERE, "dist/site/globe");
 
 const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);

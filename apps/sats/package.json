@@ -1,0 +1,22 @@
+{
+	"name": "sats",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Satellites: every active satellite on its orbit around the globe. Served at www.ortho-earth.com/globe/sats through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/ephem": "*",
+		"@ortho-earth/globe": "*",
+		"common": "*",
+		"geopbf": "*"
+	}
+}

@@ -1,0 +1,20 @@
+{
+	"name": "splat",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Gaussian splats on the globe (3D Tiles KHR_gaussian_splatting and a single .spz). Served at www.ortho-earth.com/globe/splat through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/plugin-splat": "*",
+		"common": "*"
+	}
+}

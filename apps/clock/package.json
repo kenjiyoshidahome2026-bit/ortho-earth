@@ -1,0 +1,21 @@
+{
+	"name": "clock",
+	"version": "0.0.1",
+	"private": true,
+	"description": "World clock: time zones on the globe (Natural Earth zones, admin0 countries to IANA names, the browser Intl). Served at www.ortho-earth.com/globe/clock through the ortho-globe Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/globe/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node --test tests/t-clock.mjs",
+		"clock:zones": "node scripts/clock-zones-build.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/globe": "*",
+		"common": "*"
+	}
+}

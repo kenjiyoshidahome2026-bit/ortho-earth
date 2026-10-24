@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["sats-page.ts", "sats.ts", "env.d.ts"]
+}
