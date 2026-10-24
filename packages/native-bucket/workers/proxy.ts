@@ -53,14 +53,16 @@ export const originAllowed = (req: Request, env: Partial<Env> = {}) => {
 	} catch { return false; }   // Origin: null 等
 };
 
-// X-API-Key が env.API_KEY と一致するか（定数時間で比べる）。書き込み・非 GET の中継はこれだけが鍵（2026-09-25）。
-export const keyMatches = (req: Request, env: Partial<Env> = {}) => {
-	const want = env.API_KEY || "", got = req.headers.get("X-API-Key") || "";
+// 鍵の一致（定数時間で比べる）。want が空＝その鍵は未設定＝誰も通らない
+export const sameKey = (want: string | undefined, got: string) => {
 	if (!want || got.length !== want.length) return false;
 	let d = 0;
 	for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
 	return d === 0;
 };
+// X-API-Key が env.API_KEY（全権の鍵）と一致するか。書き込み・非 GET の中継はこれだけが鍵（2026-09-25）。
+// 範囲付きの鍵（API_KEY_POI・bucket.ts）はここでは通さない＝proxy・tellus の門にはならない
+export const keyMatches = (req: Request, env: Partial<Env> = {}) => sameKey(env.API_KEY, req.headers.get("X-API-Key") || "");
 
 // 回数上限（案 1・2026-09-25）＝Origin だけを根拠に通す分（/proxy の許可表外ホスト・/tellus）を IP ごとに数える。
 // Origin は偽れる＝ここが実質の歯止め。鍵持ちと許可表のホストは数えない。limiter（Workers Rate Limiting の binding）が

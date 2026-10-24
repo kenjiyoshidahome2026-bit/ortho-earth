@@ -43,6 +43,7 @@ export interface Env {
 	ALLOWED_DOMAINS?: string;
 	PROXY_ALLOWED_HOSTS?: string;
 	API_KEY?: string;
+	API_KEY_POI?: string;   // 範囲付きの鍵＝GIS/pbf/ の下だけ書ける（poiedit 用・bucket.ts）。proxy・tellus には効かない
 	TELLUS_TOKEN?: string;
 	PROXY_RL?: RateLimiter;
 	TELLUS_RL?: RateLimiter;

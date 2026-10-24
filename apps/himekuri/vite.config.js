@@ -8,7 +8,7 @@ const __dirname = import.meta.dirname;
 // Workers の静的アセットは配信ディレクトリ直下の _headers を読む＝ビルドの最後に dist/site/_headers を書く。
 const coepHeaders = () => ({
 	name: "coep-headers",
-	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
+	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n"); },
 });
 // base './'＝どのパス（/himekuri/ でもプレビューでも）にマウントしても動く相対参照。出力は dist/site/himekuri/（wrangler.toml の directory = dist/site・route = /himekuri*＝solar と同じ型）
 export default defineConfig({

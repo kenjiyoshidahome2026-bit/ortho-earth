@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: mirror
-    env:
-      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
     steps:
       - name: secrets の有無
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: '[ -n "$MIRROR_TOKEN" ] || { echo "✗ Environment mirror に secret MIRROR_TOKEN が無い（ortho-data に Contents: Read and write を持つ PAT）"; exit 1; }'
       - uses: actions/checkout@v4
         with:
@@ -32,6 +32,8 @@ jobs:
         with:
           node-version: 22
       - name: 置く（japan・us＝変わった物だけ commit して push・同じなら何もしない）
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}   # 使うステップだけに渡す（2026-10-24 監査）
         run: |
           set -eu
           git config --global url."https://x-access-token:${MIRROR_TOKEN}@github.com/".insteadOf "https://github.com/"

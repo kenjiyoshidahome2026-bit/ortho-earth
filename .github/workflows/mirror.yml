@@ -29,7 +29,6 @@ jobs:
     environment: mirror
     env:
       TARGETS: ${{ inputs.targets || inputs.published }}
-      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,8 +38,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund --ignore-scripts   # subtree split に依存の install スクリプトは要らない
       - name: 写す
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}   # このステップだけ＝npm ci（依存の install スクリプト）に見せない（2026-10-24 監査）
         run: |
           set -eu
           [ -n "$MIRROR_TOKEN" ] || { echo "✗ secret MIRROR_TOKEN が無い"; exit 1; }
