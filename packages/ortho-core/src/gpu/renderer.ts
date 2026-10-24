@@ -3352,6 +3352,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "ecliptic":    ecliptic = setStarBuf(ecliptic, data as ArrayLike<number> | null, 3); break;   // 黄道の大円
 			case "celequator":  celeq = setStarBuf(celeq, data as ArrayLike<number> | null, 3); break;         // 天の赤道の大円
 			case "cogTex":      setCogTex(data as CogTexData | null); break;                             // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
+			case "ptOver": case "ptFsLayers": case "ptFs": case "pzOver": break;   // paint 表の (b) 類・paintFast（GL2 の md 専用）＝WebGPU は表を読まず組み直しで描く＝素通し・警告しない（GL2 の shadow／clip の裏返し）
 			default:
 				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") not implemented = ignored (next phase of WebGPU port)`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
