@@ -5,8 +5,8 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed"); localStorage.removeItem("t.sceneDraft5");</script>
 <script type="module">
-import orthoJapan from "../app.ts";
-import { mountSceneEditor } from "../demo/editor.ts";
+import orthoJapan from "@ortho-earth/regions/app";
+import { mountSceneEditor } from "../editor.ts";
 const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); document.title = "at " + t.join(" "); };
 try {
 	document.body.insertAdjacentHTML("beforeend",

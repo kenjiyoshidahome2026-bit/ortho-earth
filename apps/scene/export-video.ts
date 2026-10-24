@@ -1,7 +1,7 @@
 // 動画の書き出し（🎞・PLATEAU AWARD 向け 第3便・2026-10-24）＝実時間の画面収録ではなく、1 コマずつ描いて符号化する。
 // 1 コマ＝タイムラインの時刻（map.sceneTimeline.seek）→ 読み込みが静まるのを待つ（map.on("idle")）→ 生スナップ（requestSnapshot）→
 //   字幕・カード・出典・黒幕・溶け替えを 2D で重ねる（見た目は quiet-mono #scene-titles と同じ比率＝cqh＝画角の高さの 1/100）→
-//   WebCodecs VideoEncoder（H.264）→ 自前の箱詰め（demo/mp4mux.ts）。
+//   WebCodecs VideoEncoder（H.264）→ 自前の箱詰め（mp4mux.ts）。
 // 遅い端末でも絵は同じ＝コマ落ち・ポップイン無し・画面より大きい解像度（4K）も可（枠を目標の画素へ広げ、見た目だけ縮めて置く）。
 // 上映の儀式（開幕カード→黒からの溶明→…→終幕の溶暗→終幕カード）も同じ順で焼く。
 // 音（第4便）＝opts.audio（BGM の音声ファイル）を総尺に合わせて切り（頭 0.5 秒の溶明・尻 2.5 秒の溶暗）、AudioEncoder の AAC で同じ MP4 へ。

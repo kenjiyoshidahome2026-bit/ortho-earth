@@ -1,4 +1,4 @@
-// 最小の MP4 箱詰め（WebCodecs の EncodedVideoChunk／EncodedAudioChunk → 1 本の .mp4）＝動画の書き出し（demo/export-video.ts）専用。
+// 最小の MP4 箱詰め（WebCodecs の EncodedVideoChunk／EncodedAudioChunk → 1 本の .mp4）＝動画の書き出し（export-video.ts）専用。
 // 依存ゼロ（ISO/IEC 14496-12・14496-15 の要るだけ）：映像 H.264（avc1＋avcC）・音声 AAC（mp4a＋esds）・非断片（moov を最後に置く）・
 // 標本ごとに 1 チャンク（stsc 1 行・co64）・mdat は 64 bit 長＝4GB 超えも可。B フレーム（表示順≠復号順）が来たら ctts と elst で直す。
 // 返り値は Blob（部品の Blob を並べるだけ＝大きな動画もメモリに一枚で持たない・ブラウザが退避する）。

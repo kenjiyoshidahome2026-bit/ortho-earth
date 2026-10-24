@@ -1,0 +1,20 @@
+{
+	"name": "scene",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The scenes editor: write a camera script on the Japan map, play it and export it as an MP4 video. Served at www.ortho-earth.com/japan/scene through the ortho-japan Worker.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"servedAt": "/japan/",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"verify:ui": "node scripts/verify-ui.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/globe": "*",
+		"@ortho-earth/regions": "*"
+	}
+}

@@ -1,0 +1,4 @@
+{
+	"extends": "../../tsconfig.app.json",
+	"include": ["scene-page.ts", "editor.ts", "export-video.ts", "mp4mux.ts", "templates.ts", "env.d.ts"]
+}

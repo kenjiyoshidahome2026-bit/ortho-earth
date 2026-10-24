@@ -1,4 +1,4 @@
-// scenes エディタの芯（器は apps/ortho-japan/scene.html・回帰は tests/t-scene.html）。
+// scenes エディタの芯（器は scene.html・回帰は tests/t-scene.html）。
 // 流れ＝「定義（画面フレーム）→ 撮影（撮る/通過点・並べ替え）→ 編集（hold/travel/glide・字幕）→ 出力（.scenes）」。
 // 肝＝z と画面サイズが独立（正射の掟・[[ortho-z-definition]]）：最初に選ぶフレーム（16:9 等）そのものが作品の画角で、
 //   枠(#sc-frame)を舞台に内接させ #map（quiet-mono の 100%/100%）がそれに従う＝構図した通りが再生・録画される。
@@ -606,7 +606,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		return true;
 	};
 
-	// ── 🎞 動画の書き出し（第3便）＝1 コマずつ描いて H.264/MP4（demo/export-video.ts・画面収録の 🎥 とは別の道）。遅い端末でも絵は同じ ──
+	// ── 🎞 動画の書き出し（第3便）＝1 コマずつ描いて H.264/MP4（export-video.ts・画面収録の 🎥 とは別の道）。遅い端末でも絵は同じ ──
 	let evAbort: AbortController | null = null;
 	// BGM＝この画面だけで持つ（台本 JSON には入れない＝音源の権利は書き出す人の手元に残る）
 	let music: File | null = null;
