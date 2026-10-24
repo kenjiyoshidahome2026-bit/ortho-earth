@@ -180,7 +180,7 @@ for (const d of items) {
 }
 
 // ── 出す ──
-db._ = db._.replace(/）$/, "／温泉一覧（source/onsen-list.csv）") + "）";
+db._ = db._.replace(/）$/, "／温泉一覧（Wikipedia と、長年現地を巡った記録から編纂・source/onsen-list.csv）") + "）";
 db.generated = new Date().toISOString().slice(0, 10);
 fs.writeFileSync(OUT, JSON.stringify(db));
 const cnt = f => items.filter(f).length;
