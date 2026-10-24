@@ -24,5 +24,8 @@ ok("badValues", /values length 23 != 24/.test(th(() => normVoxel(box({ values: n
 ok("u16", normVoxel(box({ values: new Uint16Array(24) })).values instanceof Uint16Array);
 ok("noData", normVoxel(box({ noData: -9999 })).noData === -9999 && /noData/.test(th(() => normVoxel(box({ noData: "x" })))));
 ok("range", normVoxel(box({ range: [0, 10] })).range[1] === 10 && /range/.test(th(() => normVoxel(box({ range: [5, 5] })))));
+const tv = normVoxel(box({ times: [1000, 2000, 3000], values: new Float32Array(72) }));
+ok("times", tv.times.join() === "1000,2000,3000" && tv.values.length === 72 && !("times" in normVoxel(box())));
+ok("timesBad", /values length 24 != 72/.test(th(() => normVoxel(box({ times: [1, 2, 3] })))) && /ascending/.test(th(() => normVoxel(box({ times: [2, 1], values: new Float32Array(48) })))) && /non-empty/.test(th(() => normVoxel(box({ times: [] })))) && /ascending/.test(th(() => normVoxel(box({ times: [1, NaN], values: new Float32Array(48) })))));
 ok("notObj", /VoxelData/.test(th(() => normVoxel(null))) && /VoxelData/.test(th(() => normVoxel("x.glb"))));
 console.log(fail ? `voxel: ${fail} FAIL` : "voxel: all ok"); process.exit(fail ? 1 : 0);

@@ -8,7 +8,8 @@
      ⑦読み手の worker（handle.reader＝"worker"）・backend＝verify:webgpu（gl2 無し）は "webgpu"・verify:ui（gl2=1・SwiftShader）は "webgl2"
      第 2 段（2026-10-23）：⑧region（経緯度×高さの格子・volume・turbo）＝棟の北西の空に色が出る ⑨iso（球状の場の等値面・黄・opacity 1）＝棟の西＝中心が黄で不透明
      ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る
-     第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く -->)
+     第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く
+     ⑫時間の次元（times＝2 こま）＝map.clock の時刻でこまが替わる（赤 → 青）・time で固定 -->)
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -144,6 +145,25 @@ try {
 	const dtb = await until(async () => { const d = await probe(hbig); return d && !near(d, BX(-125)[0], BX(-125)[1], opaque, 2) && near(d, BX(125)[0], BX(125)[1], bluish, 2) ? d : null; }, W);
 	ok("brick.threshold", !!dtb);
 	hbig.remove();
+	// ⑫ 時間の次元（第 5 段 ②・2026-10-24）＝2 こまの RGBA（こま 0＝赤・こま 1＝青）・map.clock の時刻でこまが替わる・time で固定
+	stage = "time";
+	const T0 = Date.UTC(2020, 0, 1), T1 = Date.UTC(2020, 0, 2), NT = 4, nt = NT * NT * NT, rgbaT = new Uint8Array(nt * 4 * 2);
+	for (let i = 0; i < nt; i++) { rgbaT.set([230, 30, 30, 255], i * 4); rgbaT.set([32, 64, 255, 255], (nt + i) * 4); }
+	if (map.clock.playing) map.clock.toggle();   // 止めた時計（進む時計は毎フレーム太陽と影を描き直す＝SwiftShader では probe が間に合わない）
+	map.clock.setTime(T0 + 3600e3);
+	const ht = map.addData({ dims: [NT, NT, NT], box: { origin: ll(-40, -290, 0), size: [80, 80, 80] }, values: rgbaT, components: 4, times: [T0, T1] }, { kind: "voxel", id: "timed", render: "blocks" });
+	await ht.ready;
+	ok("time.handle", ht.times?.length === 2 && ht.frame === 0, `${ht.times} ${ht.frame}`);
+	const QT = () => Q.R;
+	const tRed = await until(async () => { const d = await probe(ht); return d && near(d, QT()[0], QT()[1], red, 3) ? d : null; }, W);
+	ok("time.frame0", !!tRed, tRed ? "" : await (async () => { const d = await probe(ht); return d ? JSON.stringify(px(d, QT()[0], QT()[1])) : "no probe"; })());
+	map.clock.setTime(T1 + 3600e3);
+	const tBlue = await until(async () => { const d = await probe(ht); return ht.frame === 1 && d && near(d, QT()[0], QT()[1], blue, 3) ? d : null; }, W);
+	ok("time.follow", !!tBlue, `frame=${ht.frame}`);
+	await ht.setProps({ time: T0 });
+	const tPin = await until(async () => { const d = await probe(ht); return ht.frame === 0 && d && near(d, QT()[0], QT()[1], red, 3) ? d : null; }, W);
+	ok("time.pin", !!tPin, `frame=${ht.frame}`);
+	ht.remove(); map.clock.live();
 	map.unuse("plugin-voxel");
 	ok("unuse", !map.supports("data.voxel") && map.capabilities()["data.voxel"]?.status === "spec");
 	let threw = false; try { map.addData(d1, { kind: "voxel" }); } catch { threw = true; }

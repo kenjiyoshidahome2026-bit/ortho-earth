@@ -8,11 +8,11 @@
 //   Stage 4 adds the 3D Tiles EXT_primitive_voxels. Stage 5 (2026-10-24): a grid with an axis beyond BRICK_LIMIT (256) is split into bricks (BRICK = 126 cells + a 1-cell apron,
 //   one texture each, drawn far to near, empty bricks skipped); LoD / time / file sources follow. Plan: ../PLAN.md.
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick, VoxelData } from "@ortho-earth/globe";
-import { prepareGrid, transferables, checkVoxelData, checkClip, buildColormap, thrOf } from "./grid.ts";
+import { prepareGrid, transferables, checkVoxelData, checkClip, buildColormap, thrOf, frameAt } from "./grid.ts";
 import type { PrepareOptions, PreparedGrid, ColormapSpec, RenderMode, Clip } from "./grid.ts";
 import type { ReaderRequest, ReaderReply } from "./voxel-reader.ts";
 import type { VoxelStyle } from "./voxel-gl.ts";
-export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, BRICK, BRICK_LIMIT } from "./grid.ts";
+export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT } from "./grid.ts";
 export type { PrepareOptions, Prepared, PreparedGrid, Brick, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
 export type { VoxelMessage, VoxelLayerBody, VoxelStyle, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
 export type { VoxelBackend, VoxelDrawOpts } from "./voxel-draw.ts";
@@ -20,7 +20,7 @@ export type { VoxelGpuModule } from "./voxel-gpu.ts";
 import type { VoxelBackend } from "./voxel-draw.ts";
 // 描き手（worker）の URL＝入口（voxel-draw.js が兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const VOXEL_URL = new URL("./voxel-draw.js", import.meta.url).href;
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 export type VoxelSource = VoxelData | string | URL | ArrayBuffer | Uint8Array;
@@ -52,6 +52,9 @@ export interface VoxelOptions {
 	above?: boolean;
 	/** merged into every pick hit's properties (with index, cell, value) */
 	properties?: Record<string, unknown>;
+	/** grids with `times` (a time dimension): "clock" (default) shows the frame of the map's clock (map.clock: the last frame at or before its time) and follows it as it plays;
+	 *  a number (ms) pins that time. Changes without re-uploading the grid */
+	time?: number | "clock";
 }
 export interface VoxelPluginOptions {
 	/** "auto" (default): WebGPU when the map draws with WebGPU (shared device and depth texture), else WebGL2. "webgpu": WebGPU (own device under a WebGL2 map) or fail. "webgl2": always WebGL2 */
@@ -82,6 +85,10 @@ export interface VoxelHandle {
 	error: string | null;
 	/** number of bricks the grid was split into (an axis beyond 256 cells); 0 = one texture */
 	bricks: number;
+	/** the frame times (ms) of a grid with a time dimension, null otherwise */
+	times: number[] | null;
+	/** the frame shown (0 without a time dimension) */
+	frame: number;
 	ready: Promise<VoxelHandle>;
 	setData(data: VoxelSource): Promise<VoxelHandle>;
 	setProps(p: Partial<VoxelOptions>): Promise<VoxelHandle>;
@@ -90,7 +97,7 @@ export interface VoxelHandle {
 	remove(): void;
 }
 export interface VoxelPlugin extends OrthoPlugin { name: "plugin-voxel"; version: string; provides: string[]; install(map: GlobeMap): () => void }
-export type VoxelMap = Pick<GlobeMap, "overlay" | "pickOverlays"> & { ellipsoidOn?: () => boolean };
+export type VoxelMap = Pick<GlobeMap, "overlay" | "pickOverlays"> & { ellipsoidOn?: () => boolean; clock?: Pick<GlobeMap["clock"], "time" | "on" | "off"> };
 /** 楕円体表示の b/a（region の殻を本体と同じ形で作る） */
 const R_AX_ELL = 1 - 1 / 298.257223563;
 const rAxOf = (map: VoxelMap): number => { try { return map.ellipsoidOn?.() ? R_AX_ELL : 1; } catch { return 1; } };
@@ -164,7 +171,7 @@ const isVoxelHit = (id: string) => (t: OverlayPick): t is VoxelHit => t.layer ==
 const checkEnum = (v: unknown, allowed: readonly string[], name: string): void => { if (!allowed.includes(v as string)) throw new RangeError(`plugin-voxel: ${name} must be ${allowed.map(a => JSON.stringify(a)).join(" | ")}`); };
 const MODE: Record<RenderMode, 0 | 1 | 2> = { blocks: 0, volume: 1, iso: 2 };
 /** 格子を上げ直さずに変えられる opts（setProps はこれだけなら "style" を送る） */
-export const STYLE_KEYS: readonly (keyof VoxelOptions)[] = Object.freeze(["render", "opacity", "step", "threshold", "clip", "depthTest", "properties", "colormap", "alphaRamp"]);
+export const STYLE_KEYS: readonly (keyof VoxelOptions)[] = Object.freeze(["render", "opacity", "step", "threshold", "clip", "depthTest", "properties", "colormap", "alphaRamp", "time"]);
 function checkOpts(opts: Partial<VoxelOptions>): void {
 	if (opts.render != null) checkEnum(opts.render, ["blocks", "volume", "iso"], "render");
 	if (opts.altitude != null) checkEnum(opts.altitude, ["relative", "absolute"], "altitude");
@@ -172,6 +179,7 @@ function checkOpts(opts: Partial<VoxelOptions>): void {
 	if (opts.opacity != null && !(typeof opts.opacity === "number" && opts.opacity >= 0 && opts.opacity <= 1)) throw new RangeError("plugin-voxel: opacity must be 0..1");
 	if (opts.threshold != null && !Number.isFinite(opts.threshold)) throw new TypeError("plugin-voxel: threshold must be a finite number (data units)");
 	checkClip(opts.clip);
+	if (opts.time != null && opts.time !== "clock" && !(typeof opts.time === "number" && Number.isFinite(opts.time))) throw new TypeError("plugin-voxel: time must be \"clock\" or a time in ms");
 }
 
 let anonSeq = 0;
@@ -185,19 +193,25 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 	readerUsed();
 	let cur: VoxelSource = data, props: VoxelOptions = { ...opts }, removed = false, seq = 0, visible = true, values: VoxelData["values"] | null = null, comps: 1 | 4 = 1, baked = false;
 	let qs: string[] = [];   // 描き手に送った層の名前（一枚＝id・ブリック＝id#0, id#1, …）
+	// 時間の次元＝見せるこま（opts.time＝"clock"（既定）は map.clock に付いて行く・数は固定）。こまの切り替えは "style" の frame だけ（上げ直さない）
+	let times: number[] | null = null, following = false;
+	const frameNow = (): number => { if (!times) return 0; const t = props.time ?? "clock"; return frameAt(times, t === "clock" ? (map.clock?.time ?? Date.now()) : t); };
+	const showFrame = (): void => { const f = frameNow(); if (f === h.frame || removed) return; h.frame = f; for (const q of qs) ov.post({ type: "style", q, frame: f }); };
+	const onClock = (): void => showFrame();
+	const follow = (on: boolean): void => { if (on === following || !map.clock) return; following = on; if (on) map.clock.on("tick", onClock).on("change", onClock); else map.clock.off("tick", onClock).off("change", onClock); };
 	const run = async (src: VoxelSource, o: VoxelOptions): Promise<VoxelHandle> => {
 		const my = ++seq;
 		const p = await load(src, o, rAxOf(map));
 		if (removed || my !== seq) return h;
-		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
-		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
+		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; times = h.times = p.times; h.frame = frameNow(); follow(!!times && (o.time ?? "clock") === "clock"); cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
+		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible, frame: h.frame, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
 		const next = p.bricks ? p.bricks.map((_, b) => `${id}#${b}`) : [id];
 		for (const q of qs) if (!next.includes(q)) { ov.post({ type: "remove", q }); slot.errors.delete(q); }   // 前の形の層（一枚 ↔ ブリック・ブリックの数）を片付ける
 		qs = next;
 		for (const q of qs) slot.errors.set(q, e => { h.error = e; });   // 描き手の build の失敗（3D テクスチャの上限など）は非同期に届く＝warn と手綱の error（ready は解決する）
-		if (!p.bricks) ov.post({ type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, cmap: p.cmap, anchor: p.anchor, A: p.A, radius: p.radius, geo: p.geo, vmax: p.vmax, ...style }, transferables(p));
-		else p.bricks.forEach((b, i) => ov.post({ type: "layer", q: qs[i], layer: id, shape: p.shape, dims: b.dims, comps: p.comps, tex: b.tex, cmap: i ? p.cmap.slice() : p.cmap, anchor: b.anchor, A: b.A, radius: b.radius, geo: b.geo, vmax: b.vmax, off: b.off, own: b.own, full: p.dims, ...style },
-			[b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : [])]));
+		if (!p.bricks) ov.post({ type: "layer", q: id, shape: p.shape, dims: p.dims, comps: p.comps, tex: p.tex, frames: p.frames, cmap: p.cmap, anchor: p.anchor, A: p.A, radius: p.radius, geo: p.geo, vmax: p.vmax, ...style }, transferables(p));
+		else p.bricks.forEach((b, i) => ov.post({ type: "layer", q: qs[i], layer: id, shape: p.shape, dims: b.dims, comps: p.comps, tex: b.tex, frames: b.frames, cmap: i ? p.cmap.slice() : p.cmap, anchor: b.anchor, A: b.A, radius: b.radius, geo: b.geo, vmax: b.vmax, off: b.off, own: b.own, full: p.dims, ...style },
+			[b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : []), ...(b.frames ?? []).map(f => f.buffer as ArrayBuffer)].filter((x, k, a) => a.indexOf(x) === k)));
 		return h;
 	};
 	// 見た目だけの変更＝格子を上げ直さない（render・opacity・step・threshold・clip・depthTest・properties・colormap・alphaRamp）
@@ -205,13 +219,15 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 		const s: VoxelStyle = {};
 		if ("render" in p) s.mode = MODE[props.render ?? "volume"]; if ("opacity" in p) s.opacity = props.opacity ?? 1; if ("step" in p) s.step = props.step ?? 0.5;
 		if ("threshold" in p) s.thr = comps === 4 || !h.range ? 0 : thrOf(props.threshold, h.range); if ("clip" in p) s.clip = checkClip(props.clip); if ("depthTest" in p) s.depthTest = props.depthTest !== false; if ("properties" in p) s.properties = props.properties ?? null;
+		if ("time" in p && times) { follow((props.time ?? "clock") === "clock"); const f = frameNow(); if (f !== h.frame) { h.frame = f; s.frame = f; } }
 		const cmap = "colormap" in p || "alphaRamp" in p ? buildColormap(props.colormap, props.alphaRamp ?? null) : null;
+		if (!Object.keys(s).length && !cmap) return;
 		qs.forEach((q, i) => { const c = cmap && i < qs.length - 1 ? cmap.slice() : cmap; ov.post({ type: "style", q, ...s, ...(c ? { cmap: c } : {}) }, c ? [c.buffer as ArrayBuffer] : []); });
 	};
 	// 当たりの value＝main が持つ元の値（worker の答えは番号だけ）
-	const withValue = (t: VoxelHit): VoxelHit => { if (values && comps === 1 && t.index >= 0 && t.index < values.length) { const v = values[t.index]; t.value = v; t.properties = { ...t.properties, value: v }; } return t; };
+	const withValue = (t: VoxelHit): VoxelHit => { const k = t.index + (h.frame || 0) * (h.n || 0); if (values && comps === 1 && t.index >= 0 && k < values.length) { const v = values[k]; t.value = v; t.properties = { ...t.properties, value: v }; } return t; };
 	const h: VoxelHandle = {
-		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null, bricks: 0,
+		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null, bricks: 0, times: null, frame: 0,
 		get backend() { return slot.backend; },
 		ready: undefined as unknown as Promise<VoxelHandle>,
 		setData: (d: VoxelSource) => { if (!isFileSource(d)) checkVoxelData(d); return (h.ready = run(d, props)); },
@@ -222,7 +238,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 		},
 		setVisible: (on: boolean) => { visible = !!on; if (!removed) for (const q of qs) ov.post({ type: "vis", q, on: visible }); return h; },
 		pick: async (x: number, y: number, r = 4): Promise<VoxelHit[]> => (await map.pickOverlays(x, y, { radius: r, names: [ov.name] })).filter(isVoxelHit(id)).map(withValue),
-		remove: () => { if (removed) return; removed = true; for (const q of qs) { ov.post({ type: "remove", q }); slot.errors.delete(q); } ov.removeLayerId?.(id); release(); readerFree(); },
+		remove: () => { if (removed) return; removed = true; follow(false); for (const q of qs) { ov.post({ type: "remove", q }); slot.errors.delete(q); } ov.removeLayerId?.(id); release(); readerFree(); },
 	};
 	h.ready = run(data, props);
 	return h;
