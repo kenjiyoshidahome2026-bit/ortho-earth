@@ -1,10 +1,10 @@
 // geoedit＝GeoPBF トポロジカルエディタ（旧 apps/geoedit＝独立アプリ → ortho-japan のガジェット gadgets/geoedit（9/4）→ packages/geoedit＝geoedit（npm）（MIT・9/20））。
-// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
+// このページは器だけ：@ortho-earth/regions/app（地域の殻 orthoJapan・本番は共有エンジンの regions/app.js）でエンジンを起こし、
 // 編集に要る最小限のガジェット＋ map.gadget.geoedit()（遅延chunk）を載せる。
 // 言語（26 言語・<html lang/dir>）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。head は英語（共有カード・検索）＝起動後に読む人の言語へ
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("geoedit", async () => {
-	const orthoJapan = (await import("./app.ts")).default;   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
+	const orthoJapan = (await import("@ortho-earth/regions/app")).default;   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
 	// hash（共有ビュー）優先、無ければ列島俯瞰。エディタはチルトなし（maxPitch:0）＝真上からの編集専用（ガジェットも搭載時に真上へ固定する）
 	const map = await orthoJapan({ target: "#map", view: location.hash || "#5.1/38.2/136.9", maxPitch: 0, assetBase: import.meta.env.BASE_URL });
 	dismissBoot();
