@@ -9,12 +9,13 @@
      第 2 段（2026-10-23）：⑧region（経緯度×高さの格子・volume・turbo）＝棟の北西の空に色が出る ⑨iso（球状の場の等値面・黄・opacity 1）＝棟の西＝中心が黄で不透明
      ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る
      第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く
-     ⑫時間の次元（times＝2 こま）＝map.clock の時刻でこまが替わる（赤 → 青）・time で固定 -->)
+     ⑫時間の次元（times＝2 こま）＝map.clock の時刻でこまが替わる（赤 → 青）・time で固定
+     第 5 段 ③（2026-10-25）：⑬GPU の予算（voxelPlugin({ budget }) を小さく）＝⑪の格子に粗い段ができ、遠いブリックは粗い段で描かれ GPU の合計は予算の中・色はそのまま -->)
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
 <body><div id="map"></div>
 <script type="module">
 const { createGlobe } = await import("@ortho-earth/globe");
-const { voxelPlugin } = await import("@ortho-earth/voxel");
+const { voxelPlugin, OVERLAY_LINGER_MS } = await import("@ortho-earth/voxel");
 const t = [];
 let stage = "boot";
 const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pvoxel @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
@@ -168,6 +169,19 @@ try {
 	ok("unuse", !map.supports("data.voxel") && map.capabilities()["data.voxel"]?.status === "spec");
 	let threw = false; try { map.addData(d1, { kind: "voxel" }); } catch { threw = true; }
 	ok("unuseThrows", threw);
+	// ⑬ GPU の予算（第 5 段 ③・2026-10-25）＝予算 6 KB（⑪の格子は細かい段で 9.7 KB）・予算はオーバーレイを立てる時に届く＝前のオーバーレイが片付く（猶予）のを待つ
+	stage = "lod";
+	await sleep(OVERLAY_LINGER_MS + 300);
+	const BUDGET = 0.006;
+	map.use(voxelPlugin({ budget: BUDGET }));
+	const hl = map.addData({ dims: NB, box: { origin: ll(-150, -290, 0), size: [300, 20, 10] }, values: valsB, range: [0, 299] }, { kind: "voxel", id: "lod", render: "blocks", colormap: ["#e61e1e", "#2040ff"] });
+	await hl.ready;
+	ok("lod.levels", hl.levels === 2 && hl.bricks === 3, `${hl.levels} ${hl.bricks}`);
+	const dl = await until(async () => { const d = await probe(hl); return d && d.layers?.some(l => l.lv > 0) && near(d, BX(-125)[0], BX(-125)[1], reddish, 2) && near(d, BX(125)[0], BX(125)[1], bluish, 2) ? d : null; }, W);
+	const gpu = dl ? dl.layers.reduce((a, l) => a + l.gpu, 0) : -1;
+	ok("lod.draw", !!dl && gpu > 0 && gpu <= BUDGET * 2 ** 20, dl ? `lv=${dl.layers.map(l => l.lv).join("/")} gpu=${gpu}` : await (async () => { const d = await probe(hl); return d ? `lv=${d.layers?.map(l => l.lv).join("/")} W=${JSON.stringify(px(d, BX(-125)[0], BX(-125)[1]))} E=${JSON.stringify(px(d, BX(125)[0], BX(125)[1]))}` : "no probe"; })());
+	hl.remove();
+	map.unuse("voxel");
 	clearInterval(heart);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }

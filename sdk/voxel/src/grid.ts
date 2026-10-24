@@ -22,6 +22,8 @@ export interface PrepareOptions {
 	threshold?: number | null;
 	/** 楕円体表示の b/a（region の殻を本体と同じ形で作る・既定 1＝球） */
 	rAx?: number;
+	/** LoD＝一こまの GPU の大きさ（bytes）がこれを越える格子は粗い段（各軸 1/2・1/4…）も作る（既定＝作らない） */
+	lodBytes?: number | null;
 }
 /** region（経緯度×高さの格子）の描き手向けの欄 */
 export interface GeoGrid {
@@ -266,8 +268,12 @@ export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
 	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n, tex: frames[0], cmap, anchor, A, radius, range, thr, placed, geo, times: d.times ? Array.from(d.times) : null, frames: T > 1 ? frames : null };
 }
-export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => [p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : []), ...(p.frames ?? []).map(f => f.buffer as ArrayBuffer),
-	...("bricks" in p && p.bricks ? p.bricks.flatMap(b => [b.tex.buffer as ArrayBuffer, b.A.buffer as ArrayBuffer, ...(b.geo ? [b.geo.shell.buffer as ArrayBuffer] : []), ...(b.frames ?? []).map(f => f.buffer as ArrayBuffer)]) : [])].filter((b, i, a) => a.indexOf(b) === i);
+/** 段（ブリック・粗い段）の配列＝transfer する物 */
+export const levelBuffers = (l: Level): ArrayBuffer[] => [l.tex.buffer as ArrayBuffer, l.A.buffer as ArrayBuffer, ...(l.geo ? [l.geo.shell.buffer as ArrayBuffer] : []), ...(l.frames ?? []).map(f => f.buffer as ArrayBuffer)];
+const uniq = (a: ArrayBuffer[]): ArrayBuffer[] => a.filter((b, i) => a.indexOf(b) === i);
+export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => uniq([p.tex.buffer as ArrayBuffer, p.cmap.buffer as ArrayBuffer, p.A.buffer as ArrayBuffer, ...(p.geo ? [p.geo.shell.buffer as ArrayBuffer] : []), ...(p.frames ?? []).map(f => f.buffer as ArrayBuffer),
+	...("lods" in p && p.lods ? p.lods.flatMap(levelBuffers) : []),
+	...("bricks" in p && p.bricks ? p.bricks.flatMap(b => [...levelBuffers(b), ...(b.lods ?? []).flatMap(levelBuffers)]) : [])]);
 
 // ---- 大きな格子＝ブリック（第 5 段・2026-10-24）----
 //   一軸でも BRICK_LIMIT（WebGL2 の 3D テクスチャの最低保証）を越える格子は、持ち分 BRICK セル角のブリックに分けて別々のテクスチャにする。
@@ -279,13 +285,16 @@ export const transferables = (p: Prepared | PreparedGrid): ArrayBuffer[] => [p.t
 export const BRICK_LIMIT = 256;
 /** ブリックの持ち分（各軸のセル数）＝テクスチャは糊代を足して最大 BRICK + 2 */
 export const BRICK = 126;
-export interface Brick {
-	/** テクスチャの 0 番のセルの親の格子での位置 */ off: [number, number, number];
-	/** 描く範囲（テクスチャのセル座標）[x0, y0, z0, x1, y1, z1] */ own: [number, number, number, number, number, number];
-	dims: [number, number, number]; n: number; tex: Uint8Array; /** こまごとのテクスチャ（frames[0]＝tex）・こまが無ければ null */ frames: Uint8Array[] | null; /** 最大値（R8 の 0〜255・RGBA は α・こまを通して） */ vmax: number;
-	anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
+/** 一つの段＝ブリック（s＝1）か、その粗い段（s＝2, 4…＝セル 1 個が元の s 個ぶん）。座標はその段のセル */
+export interface Level {
+	/** 縮めた倍率（1＝元の格子） */ s: number;
+	/** テクスチャの 0 番のセルの、その段の親の格子での位置 */ off: [number, number, number];
+	/** 描く範囲（テクスチャのセル座標・粗い段は端数あり）[x0, y0, z0, x1, y1, z1] */ own: [number, number, number, number, number, number];
+	dims: [number, number, number]; tex: Uint8Array; /** こまごとのテクスチャ（frames[0]＝tex）・こまが無ければ null */ frames: Uint8Array[] | null; /** 最大値（R8 の 0〜255・RGBA は α・こまを通して） */ vmax: number;
+	/** box＝親の錨と A×s（セル 1 個ぶん）・region＝部分の region */ anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
 }
-export interface PreparedGrid extends Prepared { /** 最大値（R8・RGBA は α） */ vmax: number; /** 分けた時のブリック（tex は空） */ bricks: Brick[] | null }
+export interface Brick extends Level { n: number; /** 粗い段（s＝2, 4…）・作らなければ null */ lods: Level[] | null }
+export interface PreparedGrid extends Prepared { /** 最大値（R8・RGBA は α） */ vmax: number; /** 分けた時のブリック（tex は空） */ bricks: Brick[] | null; /** 一枚の格子の粗い段（ブリックは各ブリックの lods）・作らなければ null */ lods: Level[] | null }
 /** 詰めた値の最大（R8 はそのまま・RGBA は α） */
 export function maxOf(tex: Uint8Array, comps: 1 | 4): number { let m = 0; for (let i = comps === 4 ? 3 : 0; i < tex.length; i += comps) if (tex[i] > m) { m = tex[i]; if (m === 255) break; } return m; }
 /** 分けるか（一軸でも上限を越える） */
@@ -307,39 +316,90 @@ export function parentIndex(index: number, dims: ArrayLike<number>, off: ArrayLi
 	const cell: [number, number, number] = [i + off[0], j + off[1], k + off[2]];
 	return { index: cell[0] + full[0] * (cell[1] + full[1] * cell[2]), cell };
 }
-/** prepare の大きな格子版＝上限を越えればブリックに分ける（越えなければ prepare と同じ＋vmax） */
+// ---- LoD（第 5 段 ③・2026-10-25）----
+//   GPU の予算（plugin の budget）を越えそうな格子は、各軸 1/2・1/4…に縮めた段も作る（ブリックはブリックごと・こまもこまごと）。どの段を GPU に置くかは描き手が決める（voxel-gl.ts planLevels＝遠い層から粗く）。
+//   縮め方＝子の 2×2×2 のうち空でないセルの平均（全部空なら空）＝薄い壁や疎な点も消えない。粗い段の箱は元の格子の s 倍のセル＝端の奇数は半端な描く範囲（own の端数）で切る。
+/** 粗い段の数の上限（1/16 まで） */
+export const LOD_MAX = 4;
+/** 段 s の格子の大きさ（各軸 ceil(d/s)） */
+export const levelDims = (dims: ArrayLike<number>, s: number): [number, number, number] => [Math.ceil(dims[0] / s), Math.ceil(dims[1] / s), Math.ceil(dims[2] / s)];
+/** 作る粗い段の数＝一こまが lodBytes を越えれば、一番粗い段が lodBytes/4 以下になるまで（LOD_MAX まで）。越えなければ 0 */
+export function levelCount(dims: ArrayLike<number>, comps: number, lodBytes: number | null | undefined): number {
+	const bytes = (s: number): number => { const d = levelDims(dims, s); return d[0] * d[1] * d[2] * comps; };
+	if (lodBytes == null || !(bytes(1) > lodBytes)) return 0;
+	let L = 1; while (L < LOD_MAX && bytes(2 ** L) > lodBytes / 4) L++;
+	return L;
+}
+/** 各軸 1/2 に縮める（R8＝空でない子の平均・RGBA＝α > 0 の子の平均・全部空なら空） */
+export function downsample(tex: Uint8Array, dims: [number, number, number], comps: 1 | 4): { tex: Uint8Array; dims: [number, number, number] } {
+	const D = levelDims(dims, 2), out = new Uint8Array(D[0] * D[1] * D[2] * comps), acc = [0, 0, 0, 0];
+	for (let k = 0; k < D[2]; k++) for (let j = 0; j < D[1]; j++) for (let i = 0; i < D[0]; i++) {
+		let cnt = 0; acc[0] = acc[1] = acc[2] = acc[3] = 0;
+		for (let dz = 0; dz < 2; dz++) { const z = 2 * k + dz; if (z >= dims[2]) break;
+			for (let dy = 0; dy < 2; dy++) { const y = 2 * j + dy; if (y >= dims[1]) break;
+				for (let dx = 0; dx < 2; dx++) { const x = 2 * i + dx; if (x >= dims[0]) break;
+					const c = (x + dims[0] * (y + dims[1] * z)) * comps;
+					if (comps === 1) { if (tex[c]) { acc[0] += tex[c]; cnt++; } }
+					else if (tex[c + 3]) { for (let a = 0; a < 4; a++) acc[a] += tex[c + a]; cnt++; }
+				} } }
+		if (!cnt) continue;
+		const o = (i + D[0] * (j + D[1] * k)) * comps;
+		for (let a = 0; a < comps; a++) out[o + a] = Math.round(acc[a] / cnt);
+	}
+	return { tex: out, dims: D };
+}
+/** 段の並び（s＝2, 4…）＝こまごとに縮める */
+export function pyramid(frames: Uint8Array[], dims: [number, number, number], comps: 1 | 4, L: number): Array<{ s: number; dims: [number, number, number]; frames: Uint8Array[] }> {
+	const out: Array<{ s: number; dims: [number, number, number]; frames: Uint8Array[] }> = [];
+	let cur = frames, d = dims;
+	for (let l = 1; l <= L; l++) { const r = cur.map(f => downsample(f, d, comps)); cur = r.map(x => x.tex); d = r[0].dims; out.push({ s: 2 ** l, dims: d, frames: cur }); }
+	return out;
+}
+/** 段 s の格子（frames）から、元の格子の持ち分 [lo, hi)（元のセル）を糊代 1 セルつきで切り出す。s＝1 はブリックそのもの */
+export function makeLevel(frames: Uint8Array[], Dl: [number, number, number], comps: 1 | 4, s: number, lo: ArrayLike<number>, hi: ArrayLike<number>, parent: Placement, pgeo: GeoGrid | null, dims: [number, number, number], rAx = 1): Level {
+	const clo = [0, 1, 2].map(i => lo[i] / s), chi = [0, 1, 2].map(i => hi[i] / s);
+	const off = [0, 1, 2].map(i => Math.max(0, Math.floor(clo[i]) - 1)) as [number, number, number], end = [0, 1, 2].map(i => Math.min(Dl[i], Math.ceil(chi[i]) + 1));
+	const bd = [0, 1, 2].map(i => end[i] - off[i]) as [number, number, number];
+	const fr = frames.map(f => extract(f, Dl, comps, off, bd)), tex = fr[0];
+	const own: Level["own"] = [clo[0] - off[0], clo[1] - off[1], clo[2] - off[2], chi[0] - off[0], chi[1] - off[1], chi[2] - off[2]];
+	const vmax = Math.max(...fr.map(f => maxOf(f, comps)));
+	const base = { s, off, own, dims: bd, tex, frames: fr.length > 1 ? fr : null, vmax };
+	if (pgeo) {
+		const g = pgeo, f = (i: number, v: number): number => v * s / dims[i];   // その段のセル → 元の割合（粗い段の端は元の外へ半端に出る＝own で切る）
+		const r = placeRegion([g.west + g.spanLon * f(0, off[0]), g.south + g.spanLat * f(1, off[1]), g.west + g.spanLon * f(0, end[0]), g.south + g.spanLat * f(1, end[1]), g.h0 + (g.h1 - g.h0) * f(2, off[2]), g.h0 + (g.h1 - g.h0) * f(2, end[2])], bd, rAx);
+		return { ...base, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
+	}
+	const A = Float64Array.from(parent.A, v => v * s);   // セル 1 個＝元の s 個ぶん（列ごとに同じ倍率）
+	return { ...base, anchor: parent.anchor, A, radius: parent.radius, geo: null };
+}
+/** 値 → 詰めた一こまずつ（R8／RGBA8） */
+const packFrames = (d: NormVoxel, range: [number, number], n: number): Uint8Array[] => { const T = d.times?.length ?? 1, out: Uint8Array[] = []; for (let t = 0; t < T; t++) { const v = T > 1 ? frameValues(d.values, n, d.components, t) : d.values; out.push(d.components === 4 ? toRgba8(v, d.noData) : quantize(v, range, d.noData, null)); } return out; };
+/** prepare の大きな格子版＝上限を越えればブリックに分ける（越えなければ prepare と同じ＋vmax）。o.lodBytes を越える格子は粗い段（lods）も作る */
 export function prepareGrid(data: unknown, o: PrepareOptions = {}, brick = BRICK, limit = BRICK_LIMIT): PreparedGrid {
-	const d = checkVoxelData(data), dims = d.dims;
-	if (!needsBricks(dims, limit)) { const p = prepare(d, o); return { ...p, vmax: Math.max(...(p.frames ?? [p.tex]).map(f => maxOf(f, p.comps))), bricks: null }; }
-	const T = d.times?.length ?? 1, nAll = dims[0] * dims[1] * dims[2];
-	const comps = d.components;
+	const d = checkVoxelData(data), dims = d.dims, comps = d.components, L = levelCount(dims, comps, o.lodBytes);
+	if (!needsBricks(dims, limit)) {
+		const p = prepare(d, o), fr = p.frames ?? [p.tex], vmax = Math.max(...fr.map(f => maxOf(f, p.comps)));
+		const lods = L ? pyramid(fr, dims, comps, L).map(lv => makeLevel(lv.frames, lv.dims, comps, lv.s, [0, 0, 0], dims, p, p.geo, dims, o.rAx ?? 1)) : null;
+		return { ...p, vmax, bricks: null, lods };
+	}
+	const nAll = dims[0] * dims[1] * dims[2];
 	let range: [number, number] = [0, 1];
 	if (comps === 1) { range = o.range ?? d.range ?? valueRange(d.values, d.noData); if (!(range[0] < range[1])) throw new RangeError("voxel: range must be [min, max] with min < max"); }
 	// 親の置き方（錨・A・半径）＝box はブリックも同じ物を使う。region は部分の region を作り直す
 	let parent: Placement, pgeo: GeoGrid | null = null;
 	if (d.shape === "box") { if (!d.box) throw new TypeError("voxel: shape \"box\" needs box"); parent = placeBox(d.box, dims); }
 	else { if (!d.region) throw new TypeError("voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); parent = r; pgeo = r.geo; }
+	const full = packFrames(d, range, nAll), pyr = L ? pyramid(full, dims, comps, L) : [];
 	const sx = brickSpans(dims[0], brick), sy = brickSpans(dims[1], brick), sz = brickSpans(dims[2], brick), bricks: Brick[] = [];
 	let vmax = 0;
 	for (const [z0, z1] of sz) for (const [y0, y1] of sy) for (const [x0, x1] of sx) {
 		const lo = [x0, y0, z0], hi = [x1, y1, z1];
-		const off = [0, 1, 2].map(i => Math.max(0, lo[i] - 1)) as [number, number, number], end = [0, 1, 2].map(i => Math.min(dims[i], hi[i] + 1));
-		const bd = [0, 1, 2].map(i => end[i] - off[i]) as [number, number, number];
-		const fr: Uint8Array[] = [];
-		for (let t = 0; t < T; t++) { const sub = extract(T > 1 ? frameValues(d.values, nAll, comps, t) : d.values, dims, comps, off, bd); fr.push(comps === 4 ? toRgba8(sub, d.noData) : quantize(sub, range, d.noData, null)); }
-		const tex = fr[0], frames = T > 1 ? fr : null;
-		const vm = Math.max(...fr.map(f => maxOf(f, comps))); vmax = Math.max(vmax, vm);
-		const own: Brick["own"] = [lo[0] - off[0], lo[1] - off[1], lo[2] - off[2], hi[0] - off[0], hi[1] - off[1], hi[2] - off[2]];
-		let b: Brick;
-		if (pgeo) {
-			const g = pgeo, f = (i: number, v: number): number => v / dims[i];
-			const r = placeRegion([g.west + g.spanLon * f(0, off[0]), g.south + g.spanLat * f(1, off[1]), g.west + g.spanLon * f(0, end[0]), g.south + g.spanLat * f(1, end[1]), g.h0 + (g.h1 - g.h0) * f(2, off[2]), g.h0 + (g.h1 - g.h0) * f(2, end[2])], bd, o.rAx ?? 1);
-			b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, frames, vmax: vm, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
-		} else b = { off, own, dims: bd, n: bd[0] * bd[1] * bd[2], tex, frames, vmax: vm, anchor: parent.anchor, A: Float64Array.from(parent.A), radius: parent.radius, geo: null };
-		bricks.push(b);
+		const b = makeLevel(full, dims, comps, 1, lo, hi, parent, pgeo, dims, o.rAx ?? 1);
+		vmax = Math.max(vmax, b.vmax);
+		bricks.push({ ...b, n: b.dims[0] * b.dims[1] * b.dims[2], lods: L ? pyr.map(lv => makeLevel(lv.frames, lv.dims, comps, lv.s, lo, hi, parent, pgeo, dims, o.rAx ?? 1)) : null });
 	}
 	const cmap = buildColormap(o.colormap, o.alphaRamp ?? null);
-	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n: dims[0] * dims[1] * dims[2], tex: new Uint8Array(0), cmap, anchor: parent.anchor, A: parent.A, radius: parent.radius, range, thr: comps === 4 ? 0 : thrOf(o.threshold, range), placed: parent.placed, geo: null, times: d.times ? Array.from(d.times) : null, frames: null, vmax, bricks };
+	return { shape: d.shape, dims: [dims[0], dims[1], dims[2]], comps, n: nAll, tex: new Uint8Array(0), cmap, anchor: parent.anchor, A: parent.A, radius: parent.radius, range, thr: comps === 4 ? 0 : thrOf(o.threshold, range), placed: parent.placed, geo: null, times: d.times ? Array.from(d.times) : null, frames: null, vmax, bricks, lods: null };
 }
 
 // ---- DDA（CPU 版＝GLSL と同じ手順・検定と当たりの参照）----
