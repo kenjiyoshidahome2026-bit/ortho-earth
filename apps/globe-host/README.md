@@ -1,12 +1,13 @@
-# ortho-globe
+# globe-host
 
-The globe's pages — pages that use `@ortho-earth/globe` with **no region declaration** — served at `www.ortho-earth.com/globe/` by this app's Worker.
-Since 2026-10-24 every page except the front page is its own app (`apps/<name>/`, with `"servedAt": "/globe/"` in its package.json);
-`npm run build` here builds the front page, then `packages/globe/scripts/lib/gather-apps.mjs` builds each of those apps and adds its output, so the URLs stay the same.
+The `/globe/` Worker (its Cloudflare name stays `ortho-globe`). It holds no page of its own: every page under `www.ortho-earth.com/globe/` — pages that use
+`@ortho-earth/globe` with **no region declaration** — is its own app (`apps/<name>/`, with `"servedAt": "/globe/"` in its package.json).
+`npm run build` here runs `packages/globe/scripts/lib/gather-apps.mjs /globe/ --clean`, which builds each of those apps and gathers their output into
+`dist/site/globe/`, so the URLs stay the same. Until 2026-10-24 this folder was `apps/ortho-globe` and also held the front page (now `apps/globe-map`).
 
 | Page | URL | App | Data |
 |---|---|---|---|
-| Globe ⇄ Equal Earth | `/globe/` (`?start=equal` opens on the Equal Earth side) | this app | bucket `GIS/world/` (rules: `@ortho-earth/core/worldcontent`) |
+| Globe ⇄ Equal Earth | `/globe/` (`?start=equal` opens on the Equal Earth side) | [`apps/globe-map`](../globe-map) | bucket `GIS/world/` (rules: `@ortho-earth/core/worldcontent`) |
 | Satellites | `/globe/sats` | [`apps/sats`](../sats) | `/sats/active.csv` (`apps/sats-mirror`), CelesTrak as fallback |
 | The shortest way is an arc | `/globe/arcs` (`?mode=cmp\|air\|csv` · `?csv=URL`) | [`apps/arcs`](../arcs) | Capitals from the world ledger (`NationDB` + `CityDB`, GitHub Pages `ortho-data/globe/`); airports and routes from OpenFlights (`airports.dat`, `routes.dat`, ODbL, frozen in June 2014) read by the browser from raw.githubusercontent.com and kept in the Cache API; country shapes = NE admin_0 50m (the engine's own geopbf). Arcs, lights and dots are `map.addData` (`arcs` / `trips` / `points`) |
 | Landforms of the World | `/globe/physical` (`?data=URL` swaps the catalogue) | [`apps/physical`](../physical) | GitHub Pages `ortho-data/globe/` (`packages/world` TerrainDB + `ne-physical.geopbf`), Köppen grid, PB2002 plates |
@@ -29,7 +30,7 @@ plus `map.gadget.lang()` (physical and parks keep their own language `<select>` 
 ## Develop
 
 ```
-npm run dev -w ortho-globe          # http://localhost:5186/globe/  (the front page)
+npm run dev -w globe-map            # http://localhost:5186/globe/  (the front page)
 npm run dev -w arcs                 # each page app has its own dev port (vite.config.js)
 ```
 
@@ -48,7 +49,7 @@ npm run verify:i18n -w <app>        # the gate (also run by build and by PR CI)
 ## Deploy
 
 ```
-npm run deploy -w ortho-globe       # build (i18n gate) → verify:prod (real Chrome on the built files) → wrangler deploy
+npm run deploy -w globe-host        # build every /globe/ app (each with its i18n gate) → verify:prod (real Chrome on the built files) → wrangler deploy
 ```
 
 License: GPL-3.0-or-later.

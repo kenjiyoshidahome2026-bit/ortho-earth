@@ -1,0 +1,15 @@
+{
+	"name": "globe-host",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The /globe/ Worker (named ortho-globe on Cloudflare). It serves only: every app with package.json servedAt \"/globe/\" (globe-map = the front page, hex, arcs, …) is built and gathered into dist/site/globe by packages/globe/scripts/lib/gather-apps.mjs, so the Worker serves them at the same URLs.",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"scripts": {
+		"build": "node ../../packages/globe/scripts/lib/gather-apps.mjs /globe/ --clean",
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "npm run build && npm run verify:prod && npm run deploy:built",
+		"deploy:built": "node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"og": "node scripts/og-shot.mjs"
+	}
+}
