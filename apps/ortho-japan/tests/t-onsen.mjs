@@ -13,7 +13,7 @@ const db = JSON.parse(fs.readFileSync(path.join(PUB, "onsen.json"), "utf8")), it
 const inJapan = c => Array.isArray(c) && c[0] >= 122 && c[0] <= 154.5 && c[1] >= 20 && c[1] <= 46;
 t("台帳：1,500 件以上", items.length >= 1500, String(items.length));
 t("台帳：id は一意", byId.size === items.length);
-t("台帳：全件に id・種別（o|g）・名前・座標", items.every(d => /^[jw]Q?\d+$/.test(d.id) && (d.k === "o" || d.k === "g") && d.n && d.c?.length === 2), JSON.stringify(items.find(d => !(/^[jw]Q?\d+$/.test(d.id) && d.n && d.c?.length === 2))));
+t("台帳：全件に id・種別（o|g）・名前・座標", items.every(d => /^([jw]Q?|kg?)\d+$/.test(d.id) && (d.k === "o" || d.k === "g") && d.n && d.c?.length === 2), JSON.stringify(items.find(d => !(/^([jw]Q?|kg?)\d+$/.test(d.id) && d.n && d.c?.length === 2))));
 t("台帳：座標は日本の範囲（lon 122〜154.5・lat 20〜46）", items.every(d => inJapan(d.c)), JSON.stringify(items.filter(d => !inJapan(d.c)).slice(0, 3).map(d => d.n)));
 t("台帳：精度 a は 0 以上・推定（a>0）には方法 e がある", items.every(d => d.a >= 0 && (d.a === 0 || ["osm", "addr", "muni", "region", "kyo"].includes(d.e))), JSON.stringify(items.find(d => !(d.a >= 0 && (d.a === 0 || d.e)))));
 t("台帳：推定は全体の 4 割未満", items.filter(d => d.a > 0).length < items.length * 0.4, String(items.filter(d => d.a > 0).length));
@@ -40,6 +40,17 @@ t("都道府県名：47・26 言語", Object.keys(db.prefNames || {}).length ===
 t("記事：w.ja は 1,500 件以上", items.filter(d => d.w?.ja).length >= 1500);
 t("名前が QID のままの物は居ない", !items.some(d => /^Q\d+$/.test(d.n)));
 t("文字列に undefined・null が混ざらない", !/"(undefined|null)"/.test(JSON.stringify(items)));
+
+// 温泉一覧（scripts/onsen-ledger/source/onsen-list.csv）を重ねた分
+t("一覧：測定値 x を持つ温泉が 4,000 件以上・深度は -1（自然湧出）か 0 以上", items.filter(d => d.x).length >= 4000 && items.every(d => !d.x || d.x.every(r => r.n && (r.dp == null || r.dp === -1 || r.dp >= 0) && (!r.c || inJapan(r.c)))));
+t("一覧：新しい温泉（k…）は 3,000 件以上・座標は一覧の実測（a=0・cs=1）", items.filter(d => /^k\d/.test(d.id)).length >= 3000 && items.filter(d => /^k/.test(d.id)).every(d => d.a === 0 && d.cs === 1));
+t("一覧：湯量・泉温の記録が 3,000 件以上（列の取り違えの見張り）", items.flatMap(d => d.x || []).filter(r => r.fl > 0).length >= 3000 && items.flatMap(d => d.x || []).filter(r => r.t > 0).length >= 3000);
+const edo = new Map(items.flatMap(d => (d.bz || []).map(r => [r, d])));
+t("一覧：江戸の番付 96 の位はすべて温泉に当たる", ["東", "西"].every(s => ["大関", "関脇", "小結", ...Array.from({ length: 42 }, (_, i) => "前頭" + (i + 1))].every(r => edo.has(s + r))) && ["行司1", "行司2", "行司3", "行司4", "勧進元", "差添"].every(r => edo.has(r)), String(edo.size));
+t("一覧：江戸の東大関は草津・西大関は有馬", edo.get("東大関")?.n === "草津温泉" && edo.get("西大関")?.n === "有馬温泉");
+const { onsenName } = await import("../onsen-names.ts");
+t("名前：よみから音写（ru・ko・el・he）", onsenName("ru", "じょうざんけいおんせん") === "Дзёдзанкэй Онсэн" && onsenName("ko", "くさつおんせん") === "구사쓰 온센" && onsenName("el", "どうごおんせん") === "Ντογκο Ονσεν" && onsenName("he", "はこね") === "הקונה" && onsenName("ru", "ゆふいん") === "Юфуин");
+t("名前：よみの無い・ラテン文字の言語は空（en へ落ちる）", onsenName("ru", "") === "" && onsenName("fr", "くさつおんせん") === "");
 
 // 辞書＝英語キー→25 言語。onsen.js の t("…") は全部この辞書か本体の ui.json に居る
 const dict = JSON.parse(fs.readFileSync(path.join(APP, "i18n/pages/onsen.json"), "utf8")).ui;

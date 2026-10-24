@@ -7,6 +7,7 @@ sh run-all.sh             # 全工程。生応答は .cache/raw/ にキャッシ
 sh run-all.sh --refresh   # 取り直し（Wikimedia の 429 待ちで 3 時間前後）
 sh test-mock.sh           # 網なしの検定（模擬サーバで全工程＋本文の解析）
 node ledger-build.mjs --data DIR   # 既にある data/（onsen.csv ほか）から台帳だけ組み直す
+node ledger-list.mjs               # 温泉一覧（source/onsen-list.csv）を台帳に重ねる（ledger-build の後に 1 回だけ）
 ```
 
 作業場は既定で `.cache/`（git に入れない）。`ONSEN_ROOT` で差し替えられる。プロキシ環境では `run-all.sh` が `NODE_USE_ENV_PROXY=1` を立てる。
@@ -22,6 +23,7 @@ node ledger-build.mjs --data DIR   # 既にある data/（onsen.csv ほか）か
 | `06-hitou.mjs` | 日本秘湯を守る会の会員宿一覧と各宿頁の JSON-LD（宿名・住所・座標）。紹介文は持たない |
 | `04-build.mjs` | 突き合わせ・篩（駅・ダム・ホテル・概念記事などを落とす）・温泉郷の結び付けと面・源泉・会員宿の対応 → `data/` |
 | `ledger-build.mjs` | `data/` → `ortho-data/japan/onsen.json`（短い鍵の台帳・形は先頭の註）。泉質を 10 分類の番号に、よみからローマ字の英語名を作る。後始末として、地域しか分からない推定は県の中心へ寄せ、郷から 25 km 超の所属は外し（推定の点は郷の位置へ置き直す）、郷の面を作り直す |
+| `ledger-list.mjs` | 温泉一覧（`source/onsen-list.csv`＝Kenji の元データ 4,566 行・本人 2026-10-24）を台帳に重ねる。県＋名前（温泉・鉱泉・括弧を除く）か wiki の題で突き合わせ、当たった温泉の推定の点を一覧の座標へ置き直し、測定値（深度・湯量・泉温・pH・成分）を `x` に、江戸番付の位を `bz` に持つ。当たらない行は新しい温泉（id `k<行>`）。一覧の温泉郷の列を正として所属を置き換え（無い郷は `kg<n>`）、郷の面を作り直す。有名さの段 `f`（0＝現代番付・1＝英語版 Wikipedia か湯量 3,000 L/分・2＝日本語版 Wikipedia・秘湯の宿・湯量 300 L/分）＝頁の LOD。江戸番付は有名さに使わない |
 
 ## 決め事
 
@@ -32,7 +34,7 @@ node ledger-build.mjs --data DIR   # 既にある data/（onsen.csv ほか）か
 
 ## 出典とライセンス
 
-Wikipedia 日本語版（CC BY-SA 4.0）・Wikidata（CC0）・推定座標 © OpenStreetMap contributors（ODbL）／国土地理院 住所検索・会員宿 日本秘湯を守る会（https://www.hitou.or.jp/）。頁の案内板に同じ表記がある。
+温泉一覧（source/onsen-list.csv・Kenji）・Wikipedia 日本語版（CC BY-SA 4.0）・Wikidata（CC0）・推定座標 © OpenStreetMap contributors（ODbL）／国土地理院 住所検索・会員宿 日本秘湯を守る会（https://www.hitou.or.jp/）。頁の案内板に同じ表記がある。
 
 ## 網の注意
 

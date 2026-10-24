@@ -21,7 +21,7 @@ const ALLOW = {
 	"apps/ortho-globe/physical.ts": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
 	"apps/ortho-globe/hex.ts": 5,   // 世界の人口の六角形（issue #310・2026-10-14）＝setFilter 2（密度のつまみ＝DataFilterExtension 相当）・setLayoutProperty 1（柱の出し入れ）・setPaintProperty 2（自分の点の柱の高さと色）＝addH3／addCells の層に MapLibre の意味で（deck.gl 相当を互換の口で見せる頁）
 	"apps/ortho-japan/terrain.ts": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
-	"apps/ortho-japan/onsen.ts": 16,   // 日本の温泉（2026-10-12）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
+	"apps/ortho-japan/onsen.ts": 14,   // 日本の温泉（2026-10-12・一覧の行の hover で点を光らせる setFilter 2 は common/bigtable の表に替えて無くなった 2026-10-24）＝terrain と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/ortho-japan/pointcloud.ts": 7,   // 静岡県の点群（2026-10-18）＝図郭の区画を addSource 2・addLayer 4・setLayoutProperty 1（visibility）＝onsen と同じく MapLibre の意味で良い
 	"apps/choju/choju.ts": 7,   // 鳥獣の捕獲記録（2026-10-14）＝onsen と同じ骨格＝MapLibre の意味で良い（addSource 1・addLayer 1・setFilter 3・setPaintProperty 2＝互換の口だけで描くドッグフード）
 	"apps/yokohama/twin.ts": 44,   // 横浜市デジタルツイン（2026-10-21）＝区の覆いと線・公共施設・鉄道と地下鉄・バス停・避難場所・地点と徒歩圏の線と輪・平面の区域（用途地域・校区・管轄）（addSource 11・addLayer 15・setLayoutProperty 14＝出し入れ（基図の押し出し building-extrusion を建物のしきいで伏せる 1・市外の覆いを外枠が見えたら消す 1・地下鉄を z で消す 1 を含む）・setFilter 3＝区の塗り・施設の区分・対応災害・queryRenderedFeatures 1＝区域の吹き出しで点を優先）＝onsen と同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）

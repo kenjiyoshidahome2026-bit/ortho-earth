@@ -10,7 +10,7 @@
 // 状態は URL の search（?tab=&hz=&ward=&spot=&tr=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
-import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝読むのは yokohama だけ＝束に焼く・「地域」の面を開いた時に遅延 import（2 つ目のアプリが読む時に engine の入口へ）
+import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「地域」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
