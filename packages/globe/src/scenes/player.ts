@@ -8,12 +8,43 @@ import { parseViewHash } from "@ortho-earth/core";
 import { parseScenes } from "../demo/scene-adapter.ts";     // 共有シーン台本→プレーヤー受け渡しの純関数
 import { buildSceneTimeline } from "../demo/scene-timeline.ts";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.ts";
-import { sceneTitlesOf, cardOf, pick } from "./titles.ts";
+import { sceneTitlesOf, cardOf, pick, gradeOf } from "./titles.ts";
 import { composeLayersToCanvas } from "../gadgets/compose.ts";   // 溶け替え（dissolve）の前の絵＝生スナップの合成   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
 import type { DemoHandle } from "../../globe.d.ts";
 import type { GlobeScope } from "../types/scope.ts";
 import type { SceneTimeline } from "../demo/scene-timeline.ts";
 import type { GlobeMap } from "../types/map.ts";
+import type { RasterAPI } from "../../globe.d.ts";
+
+// 画像タイルの切替（第5便・行キー raster）：ids＝点けたい地域カタログの id（基図 under は先頭の 1 枚・重ね over は全部）。
+// 重ねは fadeMs で溶かして出し入れ（0＝即）。基図は 1 枚の差し替え＝即。カタログに無い id は黙って飛ばす（他地域の台本でも止まらない）。
+const rasterFades = new Map<string, number>();
+let rasterQ: Promise<void> = Promise.resolve();   // 切替は 1 本の列で順に（select/toggle は非同期＝追い越すと古い選択が後から勝つ）
+//   1 回の切替は最長 10 秒で列を譲る（読み込みの詰まった画像が後ろの切替を止めない）
+const applyRaster = (R: RasterAPI, ids: string[], fadeMs = 0): Promise<void> => (rasterQ = rasterQ.then(() => Promise.race([applyRasterNow(R, ids, fadeMs), new Promise<void>(r => setTimeout(r, 10000))])).catch(() => undefined));
+async function applyRasterNow(R: RasterAPI, ids: string[], fadeMs: number): Promise<void> {
+	const kind = (id: string) => R.catalog.find(c => c.id === id)?.order ?? null;
+	const base = ids.find(id => kind(id) === "under") ?? null, overs = ids.filter(id => kind(id) === "over");
+	const cur = R.selected();
+	if (cur.base !== base) await R.select(base).catch(() => null);
+	const ramp = (id: string, a: number, b: number, done?: () => void) => {
+		cancelAnimationFrame(rasterFades.get(id) ?? 0);
+		const t0 = performance.now(), key = "ov:" + id;
+		if (!(fadeMs > 0)) { R.set(key, { opacity: b }); done?.(); return; }
+		const step = () => {
+			const u = Math.min(1, (performance.now() - t0) / fadeMs);
+			R.set(key, { opacity: a + (b - a) * u * u * (3 - 2 * u) });
+			if (u < 1) rasterFades.set(id, requestAnimationFrame(step)); else { rasterFades.delete(id); done?.(); }
+		};
+		rasterFades.set(id, requestAnimationFrame(step));
+	};
+	const full = (id: string) => R.catalog.find(c => c.id === id)?.opacity ?? 0.7;
+	for (const id of cur.overs) if (!overs.includes(id)) ramp(id, full(id), 0, () => { void R.toggle(id, false).catch(() => null); });
+	for (const id of overs) if (!cur.overs.includes(id) || rasterFades.has(id)) {
+		if (!cur.overs.includes(id)) { await R.toggle(id, true).catch(() => null); R.set("ov:" + id, { opacity: fadeMs > 0 ? 0 : full(id) }); }
+		ramp(id, fadeMs > 0 ? 0 : full(id), full(id));
+	}
+}
 const t = tr();
 
 /** demo ガジェットの手綱（demo-stub のファサード＝ready＝本体の到着） */
@@ -41,7 +72,7 @@ export interface ScenePlayer {
 export interface ScenePlayerEnv extends Pick<GlobeScope, "LOW_MEM" | "meshOn" | "meshMgr" | "flightCtl" | "CAM_ZOOM_MIN" | "flyView" | "applyCamView" | "applyViewLayers" | "switchTheme"> {
 	mapEl: HTMLElement; gpuBackend: boolean; themeFixed: boolean; bldLabels?: Record<string, string>;
 	/** 光と時刻（台本 light・行 time）と溶け替えのスナップが使う地図の公開面（呼ぶのは上映中＝組み上がった後） */
-	readonly map?: Pick<GlobeMap, "requestSnapshot" | "setSun" | "getSun" | "setShadows" | "clock">;
+	readonly map?: Pick<GlobeMap, "requestSnapshot" | "setSun" | "getSun" | "setShadows" | "clock" | "raster" | "getSunPosition">;
 	readonly themeName: string; readonly elevBusy: boolean;
 	onMove(): void; viewHash(): string; saveView(): void;
 }
@@ -80,17 +111,19 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 	const light = (obj as { light?: unknown }).light, M = env.map;
 	const restore = M && (light || tlRows.some(r => r.time != null)) ? { sun: M.getSun(), live: M.clock.isLive(), time: M.clock.time } : null;
 	let clockRaf = 0;
+	// 光の色（第5便）：light の上映中は太陽の高度で夕景・夜の色を絵全体に乗算（light.grade:false で切る）＝書き出し（export-video）も同じ gradeOf
+	const regrade = () => { if (M && light && (light as { grade?: unknown }).grade !== false) titles.grade(gradeOf(M.getSunPosition().altitude)); };
 	const clockTo = (i: number) => {
 		const r = tlRows[i]; if (!M || r?.time == null) return;
 		cancelAnimationFrame(clockRaf);
 		const from = M.clock.time, to = r.time, ms = Math.max(0, (r.tArrive - r.t0) * 1000), t0 = performance.now();
-		if (!(ms > 0) || from === to) { M.clock.setTime(to); return; }
-		const step = () => { const u = Math.min(1, (performance.now() - t0) / ms); M.clock.setTime(from + (to - from) * (u * u * (3 - 2 * u))); if (u < 1) clockRaf = requestAnimationFrame(step); };
+		if (!(ms > 0) || from === to) { M.clock.setTime(to); regrade(); return; }
+		const step = () => { const u = Math.min(1, (performance.now() - t0) / ms); M.clock.setTime(from + (to - from) * (u * u * (3 - 2 * u))); regrade(); if (u < 1) clockRaf = requestAnimationFrame(step); };
 		clockRaf = requestAnimationFrame(step);
 	};
 	const lightOn = () => {
 		if (!M) return;
-		if (light) { M.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(true); }
+		if (light) { M.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(true); regrade(); }
 	};
 	const lightOff = () => {
 		cancelAnimationFrame(clockRaf);
@@ -98,17 +131,24 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 		if (light) { M.setSun(restore.sun ?? null); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(false); }
 		if (restore.live) M.clock.live(); else M.clock.setTime(restore.time);
 	};
-	const onSceneHook = (i: number, sc: object) => { clockTo(i); onScene?.(i, sc); };
+	// 画像タイル（第5便）：行 raster＝遷移の頭で切替（重ねは遷移の尺で溶かす・最短 0.6 秒）。上映前の選択を覚えて終演/停止で戻す
+	const rasterRestore = M && tlRows.some(r => r.raster) ? M.raster.selected() : null;
+	const rasterTo = (i: number) => {
+		const r = tlRows[i]; if (!M || !r?.raster) return;
+		void applyRaster(M.raster, r.raster, Math.max(600, (r.tArrive - r.t0) * 1000));
+	};
+	const rasterOff = () => { if (M && rasterRestore) void applyRaster(M.raster, [...(rasterRestore.base ? [rasterRestore.base] : []), ...rasterRestore.overs]); };
+	const onSceneHook = (i: number, sc: object) => { clockTo(i); rasterTo(i); onScene?.(i, sc); };
 	const returnToStart = async (): Promise<void> => {
 		await sceneCover(true, { fade: true });
 		titles.caption(null);
 		if (ending && run === sceneRun) await titles.card(ending, lang);   // 黒の上に終幕カード（溶明→静止→溶暗）
-		titles.clear(); lightOff();
+		titles.clear(); lightOff(); rasterOff();
 		env.flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false;
 	};
 	// 終演フック（demo の exit から必ず1発）：フル上映の走破は finale=returnToStart が括弧を閉じて解除＝ここは素通し。
 	// それ以外（中断・quick の走破）はここで即解除＝ demoHandle.exit() 直叩きでもロックが残らない（旧バグの根治）
-	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); titles.clear(); lightOff(); } onEnd?.(r); };
+	const endHook = (r: "finished" | "stopped"): void => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); titles.clear(); lightOff(); rasterOff(); } onEnd?.(r); };
 	if (!quick) sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（quick＝試写は儀式なし）
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後の保険。通常は解決済み＝即）
 		if (!quick && waitLoading && meshOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
@@ -157,7 +197,7 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 		demoHandle!.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene: onSceneHook, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
-		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false; titles.clear(); lightOff();
+		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false; titles.clear(); lightOff(); rasterOff();
 		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { env.flyView(returnView, { jump: true }); sceneCover(false); }
 	});
@@ -188,6 +228,7 @@ function sceneTimeline(obj: object): SceneScrub | null {
 		if (f.i !== lastI) {   // 行を跨いだ＝この行までの l=/c= を累積適用
 			lastI = f.i;
 			for (let j = f.i; j >= 0; j--) if (rowV[j]?.layers || rowV[j]?.contour) { env.applyViewLayers(rowV[j]!); break; }
+			for (let j = f.i; j >= 0; j--) { const ra = tl.rows[j]?.raster; if (ra && env.map) { void applyRaster(env.map.raster, ra); break; } }   // raster（第5便）も同じ累積＝無ければ現状維持
 			for (let j = f.i; j >= 0; j--) if (rowV[j]?.theme) { if (!themeFixed && rowV[j]!.theme !== env.themeName) env.switchTheme(rowV[j]!.theme!); break; }
 		}
 		flightCtl.cancel();   // 手綱＝走行中の飛行があれば降ろしてから直書き

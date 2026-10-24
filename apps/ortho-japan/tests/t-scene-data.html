@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- UI回帰：scenes の第5便（2026-10-24）＝行の画像タイル（raster：タイムライン・スクラブの累積・上映の切替と復元・エディタの写し）と
+     光の色（day-for-night：gradeOf・light 上映中の #scene-grade）。t-scene の仮想時間の予算から分けた頁。判定はページ内・結果は<title>。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}</style><title>t-scene-data</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed"); localStorage.removeItem("t.sceneDraft5");</script>
+<script type="module">
+import orthoJapan from "../app.ts";
+import { mountSceneEditor } from "../demo/editor.ts";
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); document.title = "at " + t.join(" "); };
+try {
+	document.body.insertAdjacentHTML("beforeend",
+		`<div id="sc-stage" style="position:absolute;inset:0 300px 0 0;display:flex;align-items:center;justify-content:center">
+			<div id="sc-frame" style="position:relative;width:70%;height:70%"><div id="map"></div></div></div>
+		<aside id="sc-panel" style="position:absolute;right:0;top:0;bottom:0;width:300px;overflow:auto"></aside>`);
+	const stageEl = document.getElementById("sc-stage"), panelEl = document.getElementById("sc-panel");
+	const map = await orthoJapan({ target: "#map", view: "#7/36/138" });
+	map.gadget.demo({ player: true });
+	const ed = mountSceneEditor({ map, stageEl, panelEl, storageKey: "t.sceneDraft5" });
+	await new Promise(r => setTimeout(r, 200));
+	document.querySelector('#sc-start button[data-f="16:9"]')?.click();
+
+	// 第5便：行の画像タイル（raster）＝タイムラインの行に載る・スクラブで累積適用（l= と同じ：無し＝現状維持・[]＝全部外す）・エディタの「今のを写す」
+	{
+		const until = async (f, ms = 4000) => { for (const t0 = performance.now(); performance.now() - t0 < ms; await new Promise(r => setTimeout(r, 100))) if (f()) return true; return false; };
+		const sel0 = map.raster.selected();
+		const doc5 = { type: "scenes", scenes: [
+			{ title: "a", view: "#14/35.45/139.63", hold: 1, raster: "gsi-photo" },
+			{ title: "b", glide: "#14/35.46/139.64", travel: 1, hold: 1, raster: ["gsi-pale", "flood-max"] },
+			{ title: "c", glide: "#14/35.47/139.65", travel: 1, hold: 1 },
+			{ title: "d", glide: "#14/35.48/139.66", travel: 1, hold: 1, raster: [] } ] };
+		const tl = map.sceneTimeline(doc5);
+		ok("tlRaster", JSON.stringify(tl.rows.map(r => r.raster)) === JSON.stringify([["gsi-photo"], ["gsi-pale", "flood-max"], null, []]));
+		const at = i => tl.rows[i].tArrive + 0.5, cur = () => map.raster.selected();
+		tl.seek(at(0));
+		ok("seekRasterBase", await until(() => cur().base === "gsi-photo" && !cur().overs.length, 15000));
+		tl.seek(at(1));
+		ok("seekRasterOver", await until(() => cur().base === "gsi-pale" && cur().overs.includes("flood-max"), 15000));
+		tl.seek(at(2));
+		await new Promise(r => setTimeout(r, 600));
+		ok("seekRasterKeep", cur().base === "gsi-pale" && cur().overs.includes("flood-max"));
+		tl.seek(at(3));
+		ok("seekRasterNone", await until(() => cur().base === null && !cur().overs.length, 15000));
+		tl.end();
+		await map.raster.select("gsi-pale"); await map.raster.toggle("flood-max", true);   // 「今」を確定させてから写す（シークの切替は非同期）
+		// エディタ：今出ている画像を行に写す／現状維持（キー削除）／なし（[]）
+		ed.load({ type: "scenes", scenes: [{ title: "x", view: "#14/35.45/139.63" }] });
+		const op = name => { const b = panelEl.querySelector(`.sc-row[data-i="0"] button[data-op="${name}"]`); b && b.click(); return !!b; };
+		const okNow = op("rasterNow");
+		ok("rasterNow", okNow && JSON.stringify(ed.doc.scenes[0].raster) === JSON.stringify(["gsi-pale", "flood-max"]) && /\+/.test(panelEl.querySelector('.sc-row[data-i="0"] .sc-ras')?.textContent || ""));
+		op("rasterNone"); const none = JSON.stringify(ed.doc.scenes[0].raster) === "[]";
+		op("rasterKeep"); ok("rasterNoneKeep", none && !("raster" in ed.doc.scenes[0]));
+		await map.raster.select(sel0.base); for (const id of cur().overs) await map.raster.toggle(id, false);
+		ed.undo(); ed.undo(); ed.undo(); ed.undo();
+		// 上映：行の頭で切替（重ねは溶かして）・停止で上映前の選択へ戻す
+		const base0 = cur().base, overs0 = JSON.stringify(cur().overs);
+		map.playScenes({ type: "scenes", scenes: [{ title: "p", view: "#14/35.45/139.63", hold: 30, raster: ["gsi-photo", "flood-max"] }] }, { quick: true });
+		ok("playRaster", await until(() => cur().base === "gsi-photo" && cur().overs.includes("flood-max"), 15000));
+		map.stopScenes();
+		ok("playRasterRestored", await until(() => cur().base === base0 && JSON.stringify(cur().overs) === overs0, 15000));
+		// 時刻の土地：utcOffset 無し＝最初の視点の経度/15 の丸め（横浜 139.6° → +9 時間）。"12:00" は 2026-06-21T03:00Z
+		const tlz = map.sceneTimeline({ type: "scenes", date: "2026-06-21", scenes: [{ title: "z", view: "#14/35.45/139.63", hold: 1, time: "12:00" }] });
+		ok("timeLocalOffset", tlz.rows[0].time === Date.UTC(2026, 5, 21, 3));
+		// 光の色（day-for-night）：昼＝掛けない・夕＝暖色・夜＝紺。light の上映中だけ #scene-grade・停止で外す
+		const { gradeOf } = await import("@ortho-earth/globe/scenes/titles.js");
+		const gd = gradeOf(-20), gw = gradeOf(4);
+		ok("gradeCurve", gradeOf(30) === null && gd[2] > gd[0] && gd[0] < 60 && gw[0] > gw[2]);
+		map.playScenes({ type: "scenes", light: true, date: "2026-06-21", utcOffset: 9, scenes: [{ title: "n", view: "#14/35.45/139.63", hold: 30, time: "22:00" }] }, { quick: true });
+		ok("gradeNight", await until(() => { const g = map.mapEl.querySelector("#scene-grade"); const m = g && /rgb\((\d+), (\d+), (\d+)\)/.exec(g.style.background); return m && +m[1] < 60 && +m[3] > +m[1]; }, 8000));
+		map.stopScenes();
+		ok("gradeCleared", !map.mapEl.querySelector("#scene-grade"));
+	}
+
+	ed.destroy(); map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>
