@@ -1,7 +1,8 @@
 // voxel（3 次元格子）の受け口（第 4 波 V0・2026-10-23）＝契約だけ。描く段（箱の裏面から光線を入れて DDA で辿る・体積／ブロック／等値面・深度）は registry.dataKinds の "voxel" を plugin が足す
 //   map.addData(data, { kind: "voxel" })：data＝VoxelData（下）か、URL／bytes（読み手も plugin＝NetCDF／Zarr は後の段）
 //   VoxelData＝{ shape: "box"|"region", dims: [nx, ny, nz], box?: { origin:[lng,lat,alt], size:[m,m,m], orientation?:[h,p,r] } | { transform: 列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m） }, region?: [w,s,e,n（度）, h0,h1（m）],
-//               values: Float32Array|Uint16Array|Uint8Array（nx*ny*nz*components・x が最も速く変わる＝i + nx*(j + ny*k)）, components?: 1|4（1＝スカラー・4＝RGBA 直）, noData?, range?: [min,max] }
+//               values: Float32Array|Uint16Array|Uint8Array（nx*ny*nz*components・x が最も速く変わる＝i + nx*(j + ny*k)）, components?: 1|4（1＝スカラー・4＝RGBA 直）, noData?, range?: [min,max],
+//               times?: number[]（時間の次元＝こまの時刻 ms・昇順。values はこまを順に並べて ×こま数）}
 //   shape は box か region のどちらかが在れば省略できる。plugin はこの形で受け取る＝normVoxel が検める。計画＝sdk/plugin-voxel/PLAN.md
 import type { VoxelData } from "../globe.d.ts";
 
@@ -46,9 +47,18 @@ export const normVoxel = (data: unknown): string | ArrayBuffer | Uint8Array | No
 		if (!(r[4] < r[5])) throw new RangeError("voxel: region h0 must be < h1");
 		out.region = r;
 	}
-	const v = d.values, len = dims[0] * dims[1] * dims[2] * components;
+	// times＝時間の次元（2026-10-24・plugin-voxel 第 5 段）＝各こまの時刻（ms・昇順）。values はこまを順に並べた物（こま t は t*nx*ny*nz*components から）
+	let frames = 1;
+	if (d.times != null) {
+		const t = d.times as ArrayLike<number>;
+		if (typeof t !== "object" || typeof t.length !== "number" || t.length < 1) throw new TypeError("voxel: times must be a non-empty list of times (ms)");
+		const a = Array.from(t, Number);
+		if (!a.every(Number.isFinite) || a.some((x, i) => i > 0 && !(x > a[i - 1]))) throw new RangeError("voxel: times must be finite and strictly ascending (ms)");
+		out.times = a; frames = a.length;
+	}
+	const v = d.values, len = dims[0] * dims[1] * dims[2] * components * frames;
 	if (!(v instanceof Float32Array || v instanceof Uint16Array || v instanceof Uint8Array)) throw new TypeError("voxel: values must be a Float32Array | Uint16Array | Uint8Array");
-	if (v.length !== len) throw new RangeError(`voxel: values length ${v.length} != ${len} (nx*ny*nz*components)`);
+	if (v.length !== len) throw new RangeError(`voxel: values length ${v.length} != ${len} (nx*ny*nz*components${frames > 1 ? "*times" : ""})`);
 	out.values = v;
 	if (d.noData != null) { if (typeof d.noData !== "number" || !Number.isFinite(d.noData)) throw new TypeError("voxel: noData must be a finite number"); out.noData = d.noData; }
 	if (d.range != null) { const [lo, hi] = nums(d.range, "range", 2); if (!(lo < hi)) throw new RangeError("voxel: range must be [min, max] with min < max"); out.range = [lo, hi]; }

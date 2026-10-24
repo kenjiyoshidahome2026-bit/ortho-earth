@@ -21,8 +21,8 @@ export interface CamState { mvp: ArrayLike<number>; eye?: ArrayLike<number> | nu
 export type VoxelApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { depth?: OverlayFrameApi["depth"] };
 export interface PickContext { s: CamState; api: VoxelApi; size: { w: number; h: number } }
 export type VoxelAltitude = "relative" | "absolute";
-export interface VoxelStyle { mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
-export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
+export interface VoxelStyle { /** 見せるこま（時間の次元・frames の番号） */ frame?: number; mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
+export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとのテクスチャ（frames[0]＝tex）。style の frame で選ぶ（上げ直さない） */ frames?: Uint8Array[] | null; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
 export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
 export interface VoxelPickResult { id: number; q: string; layer: string; index: number; cell: [number, number, number]; value: number | null; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number; cell: [number, number, number]; value: number | null } }
 export interface EnuBasis { E: number[]; N: number[]; U: number[]; u: number[] }
@@ -177,6 +177,7 @@ interface Layer {
 	tex: WebGLTexture; cmap: WebGLTexture; on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array;
 	geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
+	/** こまごとのテクスチャ（一つなら [tex]）・見せているこま */ texs: WebGLTexture[]; frame: number;
 }
 let glc: GL | null = null, host: OverlayHost | null = null, prog: Program | null = null, pickProg: Program | null = null, boxVao: WebGLVertexArrayObject | null = null, wantDepth = false, dummyTex: WebGLTexture | null = null, max3d = 256;
 let pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
@@ -239,12 +240,16 @@ function build(d: VoxelLayerBody): Layer {
 	const gl = glc!;
 	const [nx, ny, nz] = d.dims;
 	if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`plugin-voxel: dims ${d.dims.join("×")} exceed MAX_3D_TEXTURE_SIZE ${max3d}`);
-	const tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_3D, tex);
-	gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-	if (d.comps === 4) gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, nx, ny, nz, 0, gl.RGBA, gl.UNSIGNED_BYTE, d.tex);
-	else gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, nx, ny, nz, 0, gl.RED, gl.UNSIGNED_BYTE, d.tex);
-	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, p, v);
-	gl.bindTexture(gl.TEXTURE_3D, null);
+	const mk = (data: Uint8Array): WebGLTexture => {
+		const tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_3D, tex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		if (d.comps === 4) gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, nx, ny, nz, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+		else gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, nx, ny, nz, 0, gl.RED, gl.UNSIGNED_BYTE, data);
+		for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, p, v);
+		gl.bindTexture(gl.TEXTURE_3D, null);
+		return tex;
+	};
+	const texs = (d.frames?.length ? d.frames : [d.tex]).map(mk), frame = Math.min(texs.length - 1, Math.max(0, d.frame ?? 0)), tex = texs[frame];
 	const cmap = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, cmap);
 	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
 	upCmap(cmap, d.cmap);
@@ -257,9 +262,9 @@ function build(d: VoxelLayerBody): Layer {
 		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 		gl.bindVertexArray(null); nVerts = geo.shell.length / 3;
 	}
-	return { shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, vao, vb, nVerts, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255 };
+	return { shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, vao, vb, nVerts, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255, texs, frame };
 }
-const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; gl.deleteTexture(L.tex); gl.deleteTexture(L.cmap); if (L.vb) gl.deleteBuffer(L.vb); if (L.vao) gl.deleteVertexArray(L.vao); };
+const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; for (const t of L.texs) gl.deleteTexture(t); gl.deleteTexture(L.cmap); if (L.vb) gl.deleteBuffer(L.vb); if (L.vao) gl.deleteVertexArray(L.vao); };
 function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 export function message(d: VoxelMessage): void {
 	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
@@ -271,6 +276,7 @@ export function message(d: VoxelMessage): void {
 	}
 	else if (d.type === "style") {
 		const L = layers.get(d.q); if (!L) return;
+		if (d.frame != null && L.texs.length > 1) { L.frame = Math.min(L.texs.length - 1, Math.max(0, d.frame)); L.tex = L.texs[L.frame]; }
 		if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
 		if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
 		if (d.cmap) upCmap(L.cmap, d.cmap);

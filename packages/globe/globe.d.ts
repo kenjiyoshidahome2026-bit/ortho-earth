@@ -968,6 +968,7 @@ export interface VoxelData {
 	/** 1＝スカラー（色表で塗る・既定）・4＝RGBA 直 */ components?: 1 | 4;
 	/** この値のセルは空 */ noData?: number;
 	/** 色表に写す値の幅（省略＝データの min/max） */ range?: [number, number];
+	/** 時間の次元（2.2.0〜）＝各こまの時刻（ms・昇順）。values はこまを順に並べた物（長さ＝nx*ny*nz*components*times.length・こま t は t*nx*ny*nz*components から）。plugin は map.clock でこまを選ぶ */ times?: number[];
 }
 /** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat"／"voxel" は契約が予約済み＝data は検めた SplatData／VoxelData か URL） */
 export interface DataKindImpl { create(map: GlobeMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }

@@ -1,5 +1,5 @@
 // node の検定：色表・値の詰め（R8／RGBA8）・置き方（origin/size/orientation・transform）・DDA（CPU 版）・prepare・plugin の形と手綱（偽の map＝描き手へ届く message）。描画は t-pvoxel（verify:ui）
-import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, BRICK, BRICK_LIMIT } from "../src/index.ts";
+import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT } from "../src/index.ts";
 import { drawBounds, isEmpty, centerDist, pickedCell, hitOf } from "../src/voxel-gl.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
@@ -178,6 +178,39 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	ok("brick.toSingle", hb.bricks === 0 && posts.filter(([d]) => d.type === "remove").map(([d]) => d.q).join() === "big#0,big#1,big#2" && posts.some(([d]) => d.type === "layer" && d.q === "big" && d.on === false));
 	posts.length = 0; hb.remove();
 	ok("brick.remove", posts.filter(([d]) => d.type === "remove").map(([d]) => d.q).join() === "big" && !ids.has("big"));
+}
+// ---- 時間の次元（第 5 段 ②・times） ----
+{
+	ok("time.frameAt", frameAt([10, 20, 30], 5) === 0 && frameAt([10, 20, 30], 10) === 0 && frameAt([10, 20, 30], 25) === 1 && frameAt([10, 20, 30], 30) === 2 && frameAt([10, 20, 30], 99) === 2 && frameAt([10], 0) === 0);
+	ok("time.frameValues", frameValues(new Float32Array([1, 2, 3, 4, 5, 6]), 3, 1, 1).join() === "4,5,6");
+	const v = new Float32Array(8 * 3); for (let t = 0; t < 3; t++) v.fill(t * 10, t * 8, t * 8 + 8);   // こま 0＝0・1＝10・2＝20
+	const d = { dims: [2, 2, 2], box: { origin: [139.76, 35.68, 0], size: [10, 10, 10] }, values: v, times: [1000, 2000, 3000] };
+	ok("time.bad", throws(() => checkVoxelData({ ...d, values: new Float32Array(8) }), /length 8 != 24/) && throws(() => checkVoxelData({ ...d, times: [3, 2, 1] }), /ascending/));
+	const p = prepare(d);
+	ok("time.prepare", p.times.join() === "1000,2000,3000" && p.frames.length === 3 && p.tex === p.frames[0] && p.range.join() === "0,20" && p.frames[0][0] === 1 && p.frames[1][0] === 1 + 127 && p.frames[2][0] === 255 && p.n === 8, `${p.range} ${p.frames.map(f => f[0])}`);
+	ok("time.none", prepare({ ...d, values: new Float32Array(8), times: undefined }).frames === null);
+	const g = prepareGrid({ dims: [300, 1, 1], box: { origin: [0, 0, 0], size: [300, 1, 1] }, values: new Float32Array(600).map((_, i) => i < 300 ? 0 : 1), times: [0, 1], range: [0, 1] });
+	ok("time.bricks", g.bricks.length === 3 && g.bricks.every(b => b.frames.length === 2 && b.frames[0][0] === 1 && b.frames[1][0] === 255) && g.vmax === 255 && g.times.join() === "0,1");
+	// 手綱＝map.clock に付いて行く・数で固定・当たりの値はそのこま
+	const posts = [], subs = { tick: new Set(), change: new Set() };
+	const clock = { time: 1500, on(ev, cb) { subs[ev].add(cb); return clock; }, off(ev, cb) { subs[ev].delete(cb); return clock; } };
+	const fire = () => subs.tick.forEach(cb => cb(clock));
+	const fake = { clock, overlay: (url, o) => ({ name: o.name, onmessage: null, post: (x, tr) => posts.push(x), remove: () => {}, addLayerId: () => {}, removeLayerId: () => {}, el: null }), pickOverlays: async () => [{ layer: "tv", index: 3, cell: [1, 1, 0], value: null, properties: { value: null }, distance: 0, lngLat: [0, 0], id: 4 }] };
+	const h = createVoxel(fake, d, { id: "tv" });
+	await h.ready;
+	const L = posts.find(x => x.type === "layer");
+	ok("time.handle", h.times.join() === "1000,2000,3000" && h.frame === 0 && L.frames.length === 3 && L.frame === 0 && subs.tick.size === 1 && subs.change.size === 1);
+	ok("time.pick0", (await h.pick(0, 0))[0].value === 0);
+	posts.length = 0; clock.time = 2500; fire();
+	ok("time.follow", h.frame === 1 && posts.length === 1 && posts[0].type === "style" && posts[0].frame === 1 && posts[0].q === "tv");
+	ok("time.pick1", (await h.pick(0, 0))[0].value === 10);
+	posts.length = 0; fire(); ok("time.same", posts.length === 0);   // 同じこま＝送らない
+	posts.length = 0; await h.setProps({ time: 3000 });
+	ok("time.pin", h.frame === 2 && posts.length === 1 && posts[0].frame === 2 && subs.tick.size === 0);
+	clock.time = 1000; fire(); ok("time.pinned", h.frame === 2);
+	await h.setProps({ time: "clock" }); ok("time.refollow", h.frame === 0 && subs.tick.size === 1);
+	ok("time.badOpt", throws(() => h.setProps({ time: "now" }), /time/));
+	h.remove(); ok("time.unsub", subs.tick.size === 0 && subs.change.size === 0);
 }
 // ---- plugin の形と手綱（偽の map） ----
 {

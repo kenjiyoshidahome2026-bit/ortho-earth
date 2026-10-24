@@ -9,7 +9,8 @@ Voxel grids for [`@ortho-earth/globe`](../../packages/globe). The plugin fills t
 - They are **picked** by the unified picking: `handle.pick(x, y)`, `map.on("click", id, …)` and `queryRenderedFeatures({ layers: [id] })`. A hit carries the cell `index`, its `[i, j, k]` `cell`, the cell's `value` (scalar grids, via `handle.pick`) and your `properties`. Picking marches only the pixels under the cursor (scissor), so it stays cheap.
 - **Preparation** runs in a worker (`voxel-reader.ts`): values are quantised to 8 bits (`R8`, or `RGBA8` for `components: 4`), the colormap is baked, the box is placed or the region shell is tessellated; the main thread only forwards the buffers.
 - **Large grids** are split into **bricks**: a grid with an axis beyond 256 cells (the 3D texture size every WebGL2 device guarantees) becomes bricks of 126 cells per axis, one texture each with a 1-cell apron so trilinear sampling and iso gradients run across the seams. Bricks are drawn far to near, a brick whose cells are all below `threshold` (or empty) is skipped, and `clip`, `threshold`, picking (`index` / `cell` of the whole grid) and every style change work across them. `handle.bricks` says how many.
-- Stages 1–4 are done (box and region grids, blocks / volume / iso, clipping, WebGPU and WebGL2, 3D Tiles `EXT_primitive_voxels`); stage 5 has bricks, while level of detail, time and file readers (NetCDF, Zarr) follow. See [PLAN.md](./PLAN.md).
+- **Time**: `times` (ms, ascending) makes `values` a run of frames, one per time. The layer follows `map.clock` by default (the last frame at or before the clock's time; scrub or play the clock and the frame changes without re-uploading), or `time: <ms>` pins one frame. One `range` covers every frame so colours compare across time.
+- Stages 1–4 are done (box and region grids, blocks / volume / iso, clipping, WebGPU and WebGL2, 3D Tiles `EXT_primitive_voxels`); stage 5 has bricks and time, while level of detail and file readers (NetCDF, Zarr) follow. See [PLAN.md](./PLAN.md).
 
 ```js
 import { createGlobe } from "@ortho-earth/globe";
@@ -46,10 +47,11 @@ map.on("click", "field", e => console.log(e.features[0].properties.cell));
 | `dims` | `[nx, ny, nz]` cells; `values[i + nx * (j + ny * k)]` |
 | `box` | `{ origin: [lng, lat, alt], size: [m, m, m], orientation?: [heading, pitch, roll] }` — the grid's x, y, z axes point east, north, up from the origin corner (heading rotates them clockwise from north); or `{ transform }`, a column-major 4×4 that takes the **unit cube `[0, 1]³`** to ECEF meters (the column lengths are the edges; the way a 3D Tiles tile transform × a glTF node matrix places a voxel primitive). A transform box is placed at its absolute height |
 | `region` | `[west, south, east, north, h0, h1]` degrees and meters: cell x follows longitude, y latitude, z height. `east < west` crosses the antimeridian. Placed at its absolute height |
-| `values` | `Float32Array`, `Uint16Array` or `Uint8Array`, `nx·ny·nz·components` long |
+| `values` | `Float32Array`, `Uint16Array` or `Uint8Array`, `nx·ny·nz·components` long (× the number of `times`) |
 | `components` | `1` (scalar, coloured by the colormap; default) or `4` (RGBA, drawn as is; alpha 0 = empty) |
 | `noData` | cells with this value are empty |
-| `range` | values mapped to the colormap's 0..1 (default the data's min / max) |
+| `range` | values mapped to the colormap's 0..1 (default the data's min / max over every frame) |
+| `times` | frame times in ms, strictly ascending; `values` holds the frames one after another (globe 2.2.0+) |
 
 ## Options
 
@@ -68,10 +70,11 @@ map.on("click", "field", e => console.log(e.features[0].properties.cell));
 | `depthTest` | hidden by terrain and buildings (default true) |
 | `above` | draw above the labels (default false) |
 | `properties` | merged into every pick hit's `properties` |
+| `time` | grids with `times`: `"clock"` (follow `map.clock`, default) or a time in ms (show the frame at or before it) |
 
 ## Handle
 
-`id`, `kind`, `shape`, `dims`, `n` (cells), `bricks` (0 = one texture), `anchor`, `range`, `backend` (`"webgpu"` | `"webgl2"`, null until the overlay has chosen), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond the 3D texture limit), `ready`, `setData(data)`, `setProps(opts)` (style-only changes do not re-upload the grid), `setVisible(on)`, `pick(x, y, r?)`, `remove()`.
+`id`, `kind`, `shape`, `dims`, `n` (cells), `bricks` (0 = one texture), `times` (null without frames), `frame` (the frame shown), `anchor`, `range`, `backend` (`"webgpu"` | `"webgl2"`, null until the overlay has chosen), `reader` (`"worker"` | `"main"`), `error` (the renderer refused the layer, e.g. a grid beyond the 3D texture limit), `ready`, `setData(data)`, `setProps(opts)` (style-only changes do not re-upload the grid), `setVisible(on)`, `pick(x, y, r?)` (the value of the frame shown), `remove()`.
 
 ## Notes
 

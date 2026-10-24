@@ -195,6 +195,7 @@ interface Layer {
 	tex: GPUTexture; cmap: GPUTexture; vb: GPUBuffer; nVerts: number; ub: GPUBuffer; bg: GPUBindGroup | null; bgDep: GPUTexture | null;
 	on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
+	/** こまごとのテクスチャ（一つなら [tex]）・見せているこま */ texs: GPUTexture[]; frame: number;
 }
 export interface VoxelGpuModule {
 	init(canvas: OffscreenCanvas, opts: { depth?: boolean }, host: OverlayHost | null): Promise<void>;
@@ -312,8 +313,12 @@ export function create(): VoxelGpuModule {
 	function build(d: VoxelLayerBody, q: string): Layer {
 		const [nx, ny, nz] = d.dims, max3d = device!.limits.maxTextureDimension3D || 256;
 		if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`plugin-voxel: dims ${d.dims.join("×")} exceed maxTextureDimension3D ${max3d}`);
-		const tex = device!.createTexture({ label: `voxel-${q}`, size: [nx, ny, nz], dimension: "3d", format: d.comps === 4 ? "rgba8unorm" : "r8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
-		device!.queue.writeTexture({ texture: tex }, d.tex, { bytesPerRow: nx * d.comps, rowsPerImage: ny }, [nx, ny, nz]);
+		const mk = (data: Uint8Array, f: number): GPUTexture => {
+			const tex = device!.createTexture({ label: `voxel-${q}${f ? `@${f}` : ""}`, size: [nx, ny, nz], dimension: "3d", format: d.comps === 4 ? "rgba8unorm" : "r8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
+			device!.queue.writeTexture({ texture: tex }, data, { bytesPerRow: nx * d.comps, rowsPerImage: ny }, [nx, ny, nz]);
+			return tex;
+		};
+		const texs = (d.frames?.length ? d.frames : [d.tex]).map(mk), frame = Math.min(texs.length - 1, Math.max(0, d.frame ?? 0)), tex = texs[frame];
 		const cmap = device!.createTexture({ label: `voxel-cmap-${q}`, size: [256, 1], format: "rgba8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
 		upCmap(cmap, d.cmap);
 		const A = Float64Array.from(d.A as ArrayLike<number>), Ainv = inv3(A), nrm = new Float32Array(9), gradM = new Float32Array(9);
@@ -322,9 +327,9 @@ export function create(): VoxelGpuModule {
 		const geo = d.shape === "region" ? d.geo ?? null : null;
 		const vb = geo ? mkBuf(geo.shell, BUF.VERTEX, `voxel-shell-${q}`) : boxVb!, nVerts = geo ? geo.shell.length / 3 : 36;
 		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
-		return { q, shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, vb, nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255 };
+		return { q, shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, vb, nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255, texs, frame };
 	}
-	const drop = (L: Layer | undefined): void => { if (!L) return; L.tex.destroy(); L.cmap.destroy(); L.ub.destroy(); if (L.vb !== boxVb) L.vb.destroy(); };
+	const drop = (L: Layer | undefined): void => { if (!L) return; for (const t of L.texs) t.destroy(); L.cmap.destroy(); L.ub.destroy(); if (L.vb !== boxVb) L.vb.destroy(); };
 	function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 	function message(d: VoxelMessage): void {
 		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
@@ -336,6 +341,7 @@ export function create(): VoxelGpuModule {
 		}
 		else if (d.type === "style") {
 			const L = layers.get(d.q); if (!L) return;
+			if (d.frame != null && L.texs.length > 1) { L.frame = Math.min(L.texs.length - 1, Math.max(0, d.frame)); L.tex = L.texs[L.frame]; L.bg = null; }   // bind group は tex を抱える＝作り直す
 			if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
 			if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
 			if (d.cmap) upCmap(L.cmap, d.cmap);
