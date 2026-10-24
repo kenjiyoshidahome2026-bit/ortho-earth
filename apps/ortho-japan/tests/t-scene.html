@@ -356,6 +356,38 @@ try {
 		ok("cardCleared", !document.querySelector("#scene-cards .st-card"));
 	}
 
+	// 第2便（2026-10-24）：保持中の動き（orbit/rise/push）・時刻（time）・溶け替え（dissolve）
+	{
+		const until = async (f, ms = 4000) => { for (const t0 = performance.now(); performance.now() - t0 < ms; await new Promise(r => setTimeout(r, 100))) if (f()) return true; return false; };
+		const R2D = 180 / Math.PI;
+		const doc2 = { type: "scenes", date: "2026-06-21", utcOffset: 9, scenes: [
+			{ title: "a", view: "#14/35.45/139.63/40t/0r", hold: 4, orbit: 90, rise: 10, time: "12:00" },
+			{ title: "b", fade: "#14/35.46/139.64", dissolve: true, travel: 1, hold: 2, time: "18:00" } ] };
+		const tl = map.sceneTimeline(doc2);
+		const mid = tl.at(tl.rows[0].tArrive + 2), end = tl.at(tl.rows[0].t1 - 0.001);
+		ok("tlOrbit", Math.abs(mid.bearing * R2D - 45) < 1 && Math.abs(end.bearing * R2D - 90) < 1 && Math.abs(end.pitch * R2D - 50) < 1);   // ease の中点＝半分・終わり＝全部
+		ok("tlTime", tl.rows[0].time === Date.UTC(2026, 5, 21, 3) && tl.rows[1].time === Date.UTC(2026, 5, 21, 9) && mid.time === tl.rows[0].time);
+		const half = tl.at(tl.rows[1].t0 + (tl.rows[1].tArrive - tl.rows[1].t0) / 2);
+		ok("tlTimeLerp", Math.abs(half.time - Date.UTC(2026, 5, 21, 6)) < 60e3 && half.cover === 0);   // 遷移の中点＝間の時刻・溶け替えは黒なし
+		ok("tlDissolveDur", Math.abs((tl.rows[1].tArrive - tl.rows[1].t0) - 1.3) < 0.01);
+		// 試写：保持の動きで方位が回る・行の時刻で時計が止まる
+		ed.load(doc2);
+		const b0 = map.getBearing();
+		ok("motionPlay", ed.play({ quick: true }) === true);
+		ok("motionOrbit", await until(() => Math.abs(map.getBearing() - b0) > 5, 6000));
+		ok("clockSet", Math.abs(map.clock.time - Date.UTC(2026, 5, 21, 3)) < 120e3);
+		ed.stop();
+		ok("clockRestored", map.clock.isLive());
+		// エディタ：遷移セレクタの「ディゾルブ」＝fade＋dissolve:true
+		const tsel = panelEl.querySelector('.sc-row[data-i="1"] select[data-k="trans"]');
+		ok("dissolveSel", tsel.value === "dissolve");
+		tsel.value = "fade"; tsel.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("dissolveOff", !!ed.doc.scenes[1].fade && !("dissolve" in ed.doc.scenes[1]));
+		const ts2 = panelEl.querySelector('.sc-row[data-i="1"] select[data-k="trans"]');
+		ts2.value = "dissolve"; ts2.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("dissolveOn", ed.doc.scenes[1].dissolve === true && !!ed.doc.scenes[1].fade);
+	}
+
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）
 	{
 		panelEl.querySelector("#sc-cloud").click();
