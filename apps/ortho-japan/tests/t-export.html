@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- UI回帰：🎞 動画の書き出し（demo/export-video.ts・第3便 2026-10-24）。小さな台本を 320×180・5fps で 1 コマずつ焼き、
+     MP4 の箱の並び（ftyp→mdat→moov）・標本数（＝総尺×fps）・avcC・進捗の呼び出しを見る。WebCodecs の符号器は実時間の callback＝realtime の頁。
+     H.264 の符号器が無いブラウザでは ok:skipNoH264 だけ（素の Chromium 等）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}</style><title>t-export</title></head>
+<body>
+<div id="sc-stage" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div id="sc-frame" style="position:relative;width:640px;height:360px"><div id="map"></div></div></div>
+<script>localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.ts";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const map = await orthoJapan({ target: "#map", view: "#7/36/138" });
+	map.gadget.demo({ player: true });
+	await new Promise(r => setTimeout(r, 1000));
+	const sup = typeof VideoEncoder !== "undefined" && (await VideoEncoder.isConfigSupported({ codec: "avc1.42001f", width: 320, height: 180, bitrate: 1e6, framerate: 5, avc: { format: "avc" } }).catch(() => ({}))).supported;
+	if (!sup) ok("skipNoH264", true);
+	else {
+		const { exportVideo } = await import("../demo/export-video.ts");
+		const doc = { type: "scenes", opening: { title: "開幕", hold: 0.2 }, ending: "終", credit: "credit", scenes: [
+			{ title: "a", look: "lower", sub: "sub", view: "#8/35/139", hold: 0.6, orbit: 20 },
+			{ title: "b", fade: "#8/35.1/139.1", dissolve: true, travel: 0.4, hold: 0.4, look: "pin" } ] };
+		let prog = 0;
+		const frameEl = document.getElementById("sc-frame"), w0 = frameEl.style.width;
+		const blob = await exportVideo({ map, frameEl, doc, width: 320, height: 180, fps: 5, waitMs: 800, onProgress: d => { prog = d; } });
+		ok("restored", frameEl.style.width === w0 && !map.mapEl.classList.contains("scene-clean"));
+		const buf = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(buf.buffer);
+		const boxes = {}; const order = [];
+		for (let o = 0; o + 8 <= buf.length;) { let n = dv.getUint32(o); const ty = String.fromCharCode(...buf.slice(o + 4, o + 8)); if (n === 1) n = Number(dv.getBigUint64(o + 8)); boxes[ty] = [o, n]; order.push(ty); if (!n) break; o += n; }
+		ok("boxes", order.join(",") === "ftyp,mdat,moov" && boxes.moov[0] + boxes.moov[1] === buf.length);
+		const moov = buf.slice(boxes.moov[0], buf.length), at = s => { for (let i = 0; i < moov.length - 4; i++) if (String.fromCharCode(moov[i], moov[i + 1], moov[i + 2], moov[i + 3]) === s) return i; return -1; };
+		const mv = new DataView(moov.buffer), sz = at("stsz");
+		const tl = map.sceneTimeline(doc), N = Math.ceil((0.2 + 1.6 + tl.dur + 1.2 + 3.5 + 1.6 + 0.2) * 5);
+		ok("frames", sz > 0 && mv.getUint32(sz + 12) === N && prog === N);
+		ok("avc", at("avcC") > 0 && at("avc1") > 0 && at("co64") > 0);
+	}
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script>
+</body></html>
