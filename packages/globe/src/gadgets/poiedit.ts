@@ -60,7 +60,7 @@ export function poiedit(this: GlobeMap, { getPOI, getOvr, setOvr, setClick, unpr
 			<b style="flex:1">台帳編集（手差分）</b>
 			<button data-act="hide" title="畳む" style="border:none;background:none;cursor:pointer">—</button>
 		</div>
-		<input data-el="key" type="password" placeholder="bucket APIキー" autocomplete="off" style="${S_INPUT};margin:0 0 6px">
+		<input data-el="key" type="password" placeholder="bucket APIキー（GIS/pbf 用）" autocomplete="off" style="${S_INPUT};margin:0 0 6px">
 		<div data-el="modes" style="display:flex;gap:4px;margin-bottom:6px"></div>
 		<div data-el="form" style="min-height:2em"></div>
 		<div data-el="status" style="color:#6a3d9a;margin-top:4px"></div>
@@ -68,8 +68,11 @@ export function poiedit(this: GlobeMap, { getPOI, getOvr, setOvr, setClick, unpr
 	mapEl.append(panel);   // 末尾append＝DOM順で最上面
 	const el = (k: string) => panel.querySelector<HTMLElement>(`[data-el="${k}"]`)!;
 	const keyEl = el("key") as HTMLInputElement;
-	keyEl.value = localStorage.getItem("poiEditKey") || "";
-	keyEl.addEventListener("change", () => localStorage.setItem("poiEditKey", keyEl.value.trim()), { signal });
+	// 鍵はタブの寿命だけ覚える（sessionStorage）。旧＝localStorage＝全アプリが同じオリジン（www）なので、どこか 1 つの XSS で全権の鍵が抜けた（2026-10-24 監査）。
+	// 置く鍵も GIS/pbf/ の下だけ書ける範囲付きの物（API_KEY_POI・native-bucket workers/bucket.ts）＝漏れても台帳の手差分しか書けない
+	try { localStorage.removeItem("poiEditKey"); } catch { /* 旧い置き場の掃除＝無くてもよい */ }
+	keyEl.value = sessionStorage.getItem("poiEditKey") || "";
+	keyEl.addEventListener("change", () => sessionStorage.setItem("poiEditKey", keyEl.value.trim()), { signal });
 
 	// ── 状態機械：mode（armed中の操作）＋pending（選択済み対象/位置）──
 	const st: { mode: PoiEditMode | null; sel: PoiPoint | null; to: LonLat | null; addLL: LonLat | null } = { mode: null, sel: null, to: null, addLL: null };
@@ -82,7 +85,7 @@ export function poiedit(this: GlobeMap, { getPOI, getOvr, setOvr, setClick, unpr
 	const bucketOf = (key: string) => (key === bktKey && bktReq) ? bktReq : (bktKey = key, bktReq = nativeBucket(apiBase, { apiKey: key }).Bucket("GIS/pbf"));
 	async function put(ovr: PoiOverrides): Promise<void> {
 		const key = keyEl.value.trim();
-		if (!key) throw new Error("APIキー未入力（uploader の .env.local と同じ値）");
+		if (!key) throw new Error("APIキー未入力（GIS/pbf 用の範囲付きの鍵＝API_KEY_POI）");
 		const bkt = await bucketOf(key);
 		if (!bkt) { bktReq = null; throw new Error("bucket に接続できない（ネットワーク？）"); }
 		await bkt.put(new File([JSON.stringify(ovr)], name, { type: "application/json" }));   // 403等は put failed で throw

@@ -16,6 +16,8 @@ export default {
 		const h = new Headers(res.headers);
 		h.set("Cross-Origin-Opener-Policy", "same-origin");
 		h.set("Cross-Origin-Embedder-Policy", "credentialless");
+		h.set("X-Content-Type-Options", "nosniff");   // 配信物の型を推測させない（2026-10-24 監査）
+		h.set("Referrer-Policy", "strict-origin-when-cross-origin");   // 外部のタイル鯖等へ URL の query（?g= 等）を漏らさない
 		return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 	},
 };

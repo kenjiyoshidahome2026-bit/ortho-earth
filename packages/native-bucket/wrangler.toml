@@ -18,7 +18,9 @@ bucket_name = "my-native-bucket"
 ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173,localhost:5174,localhost:5175"
 # TELLUS_TOKEN も secret（2026-09-16・`wrangler secret put TELLUS_TOKEN`）＝/tellus 代理口（workers/tellus.ts）が
 # Tellus Traveler API へ付ける Bearer。未設定なら /tellus は 503。ローカルは .dev.vars。
-# API_KEY は Cloudflare の secret（2026-07-19 移設・`wrangler secret list` で確認可）。
+# API_KEY は Cloudflare の secret（2026-07-19 移設・`wrangler secret list` で確認可）。2026-10-24 の監査＝旧い値が git 履歴に残っていたため差し替え。
+# API_KEY_POI も secret（2026-10-24・`wrangler secret put API_KEY_POI`）＝GIS/pbf/ の下だけ書ける範囲付きの鍵（poiedit がブラウザに置く分）。
+#   全権の鍵はブラウザに置かない。未設定なら poiedit は書けない（他は従来どおり）。
 # ここに書き戻すと次の deploy で secret と衝突する。ローカル開発は .dev.vars、値の控えはパスワードアプリ。
 
 # /proxy の転送先ホワイトリスト（2026-08-19 追加）。ここに載る先だけが「誰でも GET/HEAD」で通る。
@@ -39,9 +41,9 @@ PROXY_ALLOWED_HOSTS = "e-stat.go.jp,mlit.go.jp,gsi.go.jp,maff.go.jp,geospatial.j
 [[ratelimits]]
 name = "PROXY_RL"
 namespace_id = "1001"
-simple = { limit = 1200, period = 60 }
+simple = { limit = 300, period = 60 }   # 2026-10-24 監査で 1200→300（偽 Origin の踏み台を細く。COG の Range 読みは 1 分に数十〜百数十）
 
 [[ratelimits]]
 name = "TELLUS_RL"
 namespace_id = "1002"
-simple = { limit = 120, period = 60 }
+simple = { limit = 30, period = 60 }   # 2026-10-24 監査で 120→30（検索・一覧・署名 URL 発行＝1 分に数回あれば足りる）
