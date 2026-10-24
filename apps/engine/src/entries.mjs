@@ -45,6 +45,8 @@ export const ENTRIES = [
 		"common", "common/geoExec", "common/screenLogger", "common/gintView",
 		// 案内パネルの器（2026-10-18）＝ortho-globe・ortho-japan・quakes・yokohama・choju の頁が共に読む
 		"common/panel",
+		// 仮想スクロールの表（2026-10-24）＝yokohama の施設検索・ortho-japan の温泉の一覧が共に読む
+		"common/bigtable",
 		"world-data/data", "world-data/worldlayers", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts", "@ortho-earth/globe/wiki.js",
 	].map(spec => [spec, sub(spec), src(spec)]),
 ];
