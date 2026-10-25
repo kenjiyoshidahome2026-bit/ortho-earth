@@ -139,6 +139,23 @@ export function subOf(cat: number, kind: string): number {
 	const i = FACILITY_SUBS.findIndex(s => s.cat === cat && s.kinds.includes(kind));
 	return i >= 0 ? i : FACILITY_SUBS.findIndex(s => s.cat === cat);
 }
+/** 市の大きな病院＝市立 3・市大 2・地域中核 6（市「市立病院・地域中核病院等一覧」）。key＝台帳の名に含まれる語、name＝カードに出す短い名。
+ *  横浜市には病院の「管轄区域」が無い（市全体で 1 医療圏）＝わが家のまわりでは管轄の代わりに近い順で出す（本人 2026-10-25） */
+export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
+	{ key: "横浜市立市民病院", name: "横浜市立市民病院" },
+	{ key: "脳卒中・神経脊椎センター", name: "横浜市立脳卒中・神経脊椎センター" },
+	{ key: "みなと赤十字病院", name: "横浜市立みなと赤十字病院" },
+	{ key: "横浜市立大学附属病院", name: "横浜市立大学附属病院" },
+	{ key: "横浜市立大学附属市民総合医療センター", name: "横浜市立大学附属市民総合医療センター" },
+	{ key: "済生会横浜市南部病院", name: "済生会横浜市南部病院" },
+	{ key: "済生会横浜市東部病院", name: "済生会横浜市東部病院" },
+	{ key: "横浜市西部病院", name: "聖マリアンナ医科大学横浜市西部病院" },
+	{ key: "横浜労災病院", name: "横浜労災病院" },
+	{ key: "横浜市北部病院", name: "昭和医科大学横浜市北部病院" },   // 台帳は旧名「昭和大学」
+	{ key: "横浜医療センター", name: "国立病院機構横浜医療センター" },
+];
+/** 台帳の名 → 大きな病院の短い名（でなければ null） */
+export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
 /** 施設の 1 行＝[経度, 緯度, 名称, 区分の番号, 住所, 種別] */
 export type FacilityRow = [number, number, string, number, string, string];
 /** 施設の検索（common/bigtable の表・本人 2026-10-22）に載せる行＝区（ward・空＝全市）と出している種別（subs）で絞った台帳の行番号。並びは台帳のまま */
