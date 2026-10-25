@@ -26,7 +26,7 @@ import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当
 import { featureProperties } from "../mesh-features.ts";
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
-import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
+import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf, cylinderOf, cylinderFrame } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../tiles3d-metadata.ts";   // metadata（tileset・group・tile・content）
 import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
 import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
@@ -73,7 +73,9 @@ interface TileReply {
 	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null };
 }
 /** worker が返す voxel（meshdecode の VoxelPrimOut）＝box は単位立方体 → ECEF の transform・region は経緯度高（voxel の VoxelData にそのまま） */
-interface TileVoxel { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; noData?: number; property: string }
+interface TileVoxel { shape: "box" | "region" | "cylinder"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; cylinder?: VoxelCylinder; noData?: number; property: string }
+/** 円柱の voxel（meshdecode の VoxelCylinderOut＝voxel の契約の cylinder のまま） */
+interface VoxelCylinder { transform: number[]; radius: [number, number]; height: [number, number]; angle: [number, number] }
 /** worker が返す Gaussian splat（meshdecode の SplatPrimOut）＝局所の座標＋transform（ECEF）・spz＝圧縮の本体（plugin が解く） */
 interface TileSplat { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: number; transform: number[]; spz: Uint8Array | null; colorSpace: string }
 /** splat の手綱（使う口だけ） */
@@ -165,6 +167,12 @@ function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): Sphere 
 		let r = 0; for (const x of [w, e]) for (const y of [s, n]) for (const h of [h0, h1]) { const p = geo2ecef(x, y, h); r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2])); }
 		return { c, r };
 	}
+	const cy = cylinderOf(bv);
+	if (cy) {   // 円柱（3DTILES_bounding_volume_cylinder）＝高さの真ん中の軸上を中心に、外の半径と高さの半分の斜辺（扇形でも全周で測る＝大きめ）
+		const F = cylinderFrame(cy), W = m4mul(M, F.M), c = m4pt(W, [0, 0, (F.z[0] + F.z[1]) / 2]);
+		const k = Math.max(len(m4vec(W, [1, 0, 0])), len(m4vec(W, [0, 1, 0])), len(m4vec(W, [0, 0, 1])));
+		return { c, r: Math.hypot(F.r[1], (F.z[1] - F.z[0]) / 2) * k };
+	}
 	if (bv?.sphere) { const s = bv.sphere, c = m4pt(M, [s[0], s[1], s[2]]); const k = Math.max(len(m4vec(M, [1, 0, 0])), len(m4vec(M, [0, 1, 0])), len(m4vec(M, [0, 0, 1]))); return { c, r: s[3] * k }; }
 	return null;
 }
@@ -220,14 +228,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const hasSplat = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("splat") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
 	// voxel の描き手が居るか＝registry.dataKinds の "voxel"（@ortho-earth/voxel）。無ければ worker は EXT_primitive_voxels を飛ばす（tileset ごとに一度 warn）
 	const hasVoxel = (): boolean => { try { return typeof (map.registry?.dataKinds?.get("voxel") as { create?: unknown } | undefined)?.create === "function"; } catch { return false; } };
-	// タイルの境界体積（ECEF の box＝中心＋半軸 3 本・region＝rad）＝glTF に形（KHR_implicit_shapes）が無い voxel（tileset の 3DTILES_content_voxels の経路）の置き場
-	const voxVolume = (n: T3dNode): { box?: number[]; region?: number[] } | null => {
+	// タイルの境界体積（ECEF の box＝中心＋半軸 3 本・region＝rad・cylinder＝局所 m → ECEF の transform と範囲・角度は度）＝glTF に形（KHR_implicit_shapes）が無い voxel（tileset の 3DTILES_content_voxels の経路）の置き場
+	type VoxVolume = { box?: number[]; region?: number[]; cylinder?: VoxelCylinder };
+	const voxVolume = (n: T3dNode): VoxVolume | null => {
 		const bv = n.imp ? volumeAt(n.imp.R.bv, n.imp.c, n.imp.R.t.n) : n.json?.boundingVolume ?? null, M = n.M ?? I4;
 		if (bv?.box && bv.box.length === 12) { const b = bv.box; return { box: [...m4pt(M, [b[0], b[1], b[2]]), ...m4vec(M, [b[3], b[4], b[5]]), ...m4vec(M, [b[6], b[7], b[8]]), ...m4vec(M, [b[9], b[10], b[11]])] }; }
 		if (bv?.region && bv.region.length === 6) return { region: [...bv.region] };
+		const cy = cylinderOf(bv);
+		if (cy) { const F = cylinderFrame(cy), R2D = 180 / Math.PI; return { cylinder: { transform: Array.from(m4mul(M, F.M)), radius: F.r, height: F.z, angle: [F.a[0] * R2D, F.a[1] * R2D] } }; }
 		return null;
 	};
-	const voxOpts = (set: T3dSet, n: T3dNode): false | { property: string | null; declared: T3dSet["voxDecl"]; volume: { box?: number[]; region?: number[] } | null } => hasVoxel() ? { property: typeof set.opts.voxel?.property === "string" ? set.opts.voxel.property : null, declared: set.voxDecl ?? null, volume: voxVolume(n) } : false;
+	const voxOpts = (set: T3dSet, n: T3dNode): false | { property: string | null; declared: T3dSet["voxDecl"]; volume: VoxVolume | null } => hasVoxel() ? { property: typeof set.opts.voxel?.property === "string" ? set.opts.voxel.property : null, declared: set.voxDecl ?? null, volume: voxVolume(n) } : false;
 	const rpc = pool.rpc;
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, DEF_INFLIGHT = lowMem ? 3 : 6;
 	// 同時取得数の上限＝既定は lowMem 3／他 6。tileset の opts.maxInflight（1〜32）があれば、その最大で上書き（全 tileset で共通の枠・2026-10-20）。
@@ -407,12 +418,14 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				});
 			}
 			if (r.stats.splatPoints && !set.splatWarned) { set.splatWarned = true; console.warn(`[tiles3d] ${set.id}: KHR_gaussian_splatting drawn as points (${r.stats.splatPoints}+); map.use(splatPlugin()) from @ortho-earth/splat to draw Gaussian splats`); }
-			if (r.voxels?.length) {   // voxel（EXT_primitive_voxels）＝タイルごとに voxel の層（box＝transform・region＝経緯度高・絶対高さ）
+			if (r.voxels?.length) {   // voxel（EXT_primitive_voxels）＝タイルごとに voxel の層（box＝transform・region＝経緯度高・cylinder＝transform と範囲・絶対高さ）
 				n.voxel = [];
 				r.voxels.forEach((v, k) => {
 					const q = `tiles3d:${set.id}:${n.id}:v${k}`;
-					const data = v.shape === "box" ? { shape: "box", dims: v.dims, box: { transform: v.transform }, values: v.values, components: v.components, ...(v.noData != null ? { noData: v.noData } : {}) }
-						: { shape: "region", dims: v.dims, region: v.region, values: v.values, components: v.components, ...(v.noData != null ? { noData: v.noData } : {}) };
+					const nd = v.noData != null ? { noData: v.noData } : {};
+					const data = v.shape === "box" ? { shape: "box", dims: v.dims, box: { transform: v.transform }, values: v.values, components: v.components, ...nd }
+						: v.shape === "cylinder" ? { shape: "cylinder", dims: v.dims, cylinder: v.cylinder, values: v.values, components: v.components, ...nd }
+						: { shape: "region", dims: v.dims, region: v.region, values: v.values, components: v.components, ...nd };
 					try {
 						const h = map.addData(data, { kind: "voxel", id: q, altitude: "absolute", depthTest: true, properties: { tile: n.id, property: v.property }, ...(set.opts.voxel || {}) }) as unknown as SplatLayer;
 						h.ready?.catch?.((err: Error) => console.warn("[tiles3d] voxel", n.uri, err?.message || err));

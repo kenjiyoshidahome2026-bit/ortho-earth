@@ -911,7 +911,7 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;
 	/** voxel のタイル（glTF の EXT_primitive_voxels＋KHR_implicit_shapes・tileset の 3DTILES_content_voxels・2026-10-23）＝タイルごとに map.addData(…, { kind: "voxel" }) の層にする時の opts（render・colormap・threshold・opacity・clip・@ortho-earth/voxel の VoxelOptions）
-	 *  ＋ property（読む属性の名・class の性質名でも可・省略＝最初の独自属性）。描き手＝voxel（map.use(voxelPlugin())）。無ければ飛ばす（tileset ごとに一度 warn）。box（単位立方体 → transform）と EXT_implicit_ellipsoid_region（region）・cylinder は未対応 */
+	 *  ＋ property（読む属性の名・class の性質名でも可・省略＝最初の独自属性）。描き手＝voxel（map.use(voxelPlugin())）。無ければ飛ばす（tileset ごとに一度 warn）。box（単位立方体 → transform）・EXT_implicit_ellipsoid_region（region）・EXT_implicit_cylinder_region と 3DTILES_bounding_volume_cylinder（cylinder・2026-10-26） */
 	voxel?: Record<string, unknown> | null;
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
 	attribution?: string | ((copyrights: string[]) => string | null);
@@ -989,11 +989,15 @@ export interface SplatData {
 }
 /** voxel（V0・予約された kind "voxel" の契約・2026-10-23）：map.addData(data, { kind: "voxel" }) の data。描く段は plugin（registry.dataKinds "voxel"＝@ortho-earth/voxel・体積／ブロック／等値面を光線で辿る）。URL（.nc/.zarr/.vox/.npy）と bytes も受ける＝読み手は plugin */
 export interface VoxelData {
-	/** 格子の置き方（box か region が在れば省略できる） */ shape?: "box" | "region";
+	/** 格子の置き方（box・region・cylinder のどれかが在れば省略できる） */ shape?: "box" | "region" | "cylinder";
 	/** 各軸のセル数 [nx, ny, nz]（x が最も速く変わる＝values[i + nx*(j + ny*k)]） */ dims: [number, number, number];
 	/** shape "box"＝局所の直方体（x 東・y 北・z 上・m）。origin＝[lng, lat, alt m] に置き size＝[m, m, m]・orientation＝[heading（北から時計回り）, pitch, roll] 度、か transform＝列優先 4×4（局所の単位立方体 [0,1]³ → ECEF m＝列の長さが各辺の m・3D Tiles のタイル変換×ノード行列と同じ使い方・絶対高さ） */
 	box?: { origin: [number, number, number]; size: [number, number, number]; orientation?: [number, number, number] } | { transform: ArrayLike<number> };
 	/** shape "region"＝[west, south, east, north（度）, h0, h1（m）]（3D Tiles の region と同じ並び・単位は度） */ region?: [number, number, number, number, number, number];
+	/** shape "cylinder"（2026-10-26）＝円柱（の扇形・中空も可）の格子。dims＝[半径, 角度, 高さ]（半径が最も速く変わる＝3D Tiles の 3DTILES_bounding_volume_cylinder と同じ順）。
+	 *  局所＝z が軸・角度は局所の +x から反時計回り（+z から見て）。origin＝[lng, lat, alt m]（軸の z 0 の点・局所 x 東・y 北・z 上）・orientation＝[heading, pitch, roll] 度、か transform＝列優先 4×4（局所 m → ECEF m・絶対高さ）。
+	 *  radius＝[内, 外] m（数一つ＝[0, r]）・height＝[下, 上] m（数一つ＝[0, h]）・angle＝[始め, 終わり] 度（既定 [-180, 180]・終わり ≤ 始め＝±180 を跨ぐ）。検めた後は radius／height／angle とも [lo, hi]（angle は hi > lo・幅 360 まで） */
+	cylinder?: ({ origin: [number, number, number]; orientation?: [number, number, number] } | { transform: ArrayLike<number> }) & { radius: number | [number, number]; height: number | [number, number]; angle?: [number, number] };
 	/** セルの値（nx*ny*nz*components） */ values: Float32Array | Uint16Array | Uint8Array;
 	/** 1＝スカラー（色表で塗る・既定）・4＝RGBA 直 */ components?: 1 | 4;
 	/** この値のセルは空 */ noData?: number;
