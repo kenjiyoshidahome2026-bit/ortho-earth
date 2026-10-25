@@ -188,7 +188,7 @@ export class OrthoScene {
 	}
 	pickMetadata() { unsupported("scene.pickMetadata"); return undefined; }
 	pickMetadataSchema() { unsupported("scene.pickMetadataSchema"); return undefined; }
-	pickVoxel() { unsupported("scene.pickVoxel"); return undefined; }
+	pickVoxel(windowPosition: Cartesian2) { const v = (this as any).__voxels; if (!v) { unsupported("scene.pickVoxel"); return undefined; } return v.pickVoxel(windowPosition.x, windowPosition.y); }
 	pickFromRay() { unsupported("scene.pickFromRay"); return undefined; }
 	drillPickFromRay() { unsupported("scene.drillPickFromRay"); return []; }
 	sampleHeight(position: Cartographic) {

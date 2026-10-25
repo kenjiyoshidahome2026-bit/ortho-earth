@@ -7,7 +7,7 @@ import { Cartesian3, Clock, Ellipsoid, Event, EventHelper, JulianDate, Rectangle
 import { CesiumWidget as RealWidgetClass, CreditDisplay, ImageryLayer, DataSourceCollection, Entity, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, Cesium3DTileFeature as RealFeature } from "@cesium/engine";
 import {
 	Animation, AnimationViewModel, BaseLayerPicker, ClockViewModel, FullscreenButton, Geocoder,
-	HomeButton, InfoBox, NavigationHelpButton, SceneModePicker, SelectionIndicator, Timeline, Viewer as RealViewerClass,
+	HomeButton, InfoBox, NavigationHelpButton, ProjectionPicker, SceneModePicker, SelectionIndicator, Timeline, Viewer as RealViewerClass,
 } from "@cesium/widgets";
 import * as widgets from "@cesium/widgets";
 import * as engine from "@cesium/engine";
@@ -17,6 +17,7 @@ import { EntityDisplay } from "./display.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { syncImagery } from "./imagery.ts";
 import { PrimitiveDrawer, isGeometryPrimitive } from "./primitives.ts";
+import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
 import { unsupported } from "./report.ts";
 
@@ -119,19 +120,23 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	this._orthoPrimitives = prims;
 	const colls = new CollectionDrawer();
 	this._orthoCollections = colls;
+	const voxels = new VoxelDrawer(host, scene.context);
+	this._orthoVoxels = voxels;
+	(scene as Any).__voxels = voxels;
 	display.extra.sources.push(colls.source);
 	display.extra.lines = () => prims.lines.length && colls.lines.length ? [...prims.lines, ...colls.lines] : prims.lines.length ? prims.lines : colls.lines;
 	display.extra.pickers.push((x, y) => prims.pick(x, y));
-	scene.preRender.addEventListener(() => { prims.update(); colls.update(); });
+	scene.preRender.addEventListener(() => { prims.update(); colls.update(); voxels.update(); });
 	(scene as Any).__tilesets = tilesets;
 	const onAdd = (p: Any) => {
 		if (p instanceof Cesium3DTileset) { tilesets.push(p); p.__attach(host); }
 		else if (isGeometryPrimitive(p)) prims.add(p);
 		else if (isCollection(p)) colls.add(p);
+		else if (isVoxelPrimitive(p)) voxels.add(p);
 		else if (p && typeof p.add === "function" && typeof p.get === "function" && p.primitiveAdded) { for (let i = 0; i < p.length; i++) onAdd(p.get(i)); p.primitiveAdded.addEventListener(onAdd); p.primitiveRemoved.addEventListener(onRemove); }
 		else unsupported(`scene.primitives.add(${p?.constructor?.name ?? typeof p})`);
 	};
-	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
+	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
 	scene.primitives.primitiveAdded.addEventListener(onAdd); scene.primitives.primitiveRemoved.addEventListener(onRemove);
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
@@ -188,7 +193,7 @@ Object.assign(CesiumWidget.prototype, {
 		const ds = this.dataSources;
 		for (let i = 0; i < ds.length; i++) this._dataSourceRemoved(ds, ds.get(i));
 		this._dataSourceRemoved(undefined, this._dataSourceDisplay.defaultDataSource);
-		this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy();
+		this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy();
 		this._dataSourceDisplay.destroy();
 		this._scene.destroy();
 		this._host.map?.destroy?.();
@@ -240,7 +245,7 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 	const toolbar = document.createElement("div");
 	toolbar.className = "cesium-viewer-toolbar";
 	viewerContainer.appendChild(toolbar);
-	let geocoder: Any, homeButton: Any, sceneModePicker: Any, baseLayerPicker: Any, baseLayerPickerDropDown: Any, navigationHelpButton: Any, animation: Any, timeline: Any, fullscreenButton: Any;
+	let geocoder: Any, homeButton: Any, sceneModePicker: Any, projectionPicker: Any, baseLayerPicker: Any, baseLayerPickerDropDown: Any, navigationHelpButton: Any, animation: Any, timeline: Any, fullscreenButton: Any;
 	if (options.geocoder !== false) {
 		const c = document.createElement("div"); c.className = "cesium-viewer-geocoderContainer"; toolbar.appendChild(c);
 		try {
@@ -253,6 +258,10 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 		eventHelper.add(homeButton.viewModel.command.beforeExecute, RealViewer.prototype._clearTrackedObject, this);
 	}
 	if (!scene3DOnly && options.sceneModePicker !== false) { try { sceneModePicker = new SceneModePicker(toolbar, scene); } catch (e) { console.warn("[csshim] SceneModePicker", e); } }
+	if (options.projectionPicker) {   // the button is Cesium's; the globe draws in perspective only (an orthographic frustum is reported when chosen)
+		try { projectionPicker = new ProjectionPicker(toolbar, scene); projectionPicker.viewModel.switchToOrthographic.afterExecute.addEventListener(() => unsupported("orthographic frustum (ProjectionPicker)")); }
+		catch (e) { console.warn("[csshim] ProjectionPicker", e); }
+	}
 	if (createBaseLayerPicker) {
 		try {
 			baseLayerPicker = new BaseLayerPicker(toolbar, {
@@ -287,12 +296,11 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 		if (timeline) { timeline.container.style.right = `${c.clientWidth}px`; timeline.resize(); }
 	}
 	if (options.vrButton) unsupported("Viewer option vrButton");
-	if (options.projectionPicker) unsupported("Viewer option projectionPicker");
 	Object.assign(this, {
 		_baseLayerPickerDropDown: baseLayerPickerDropDown, _fullscreenSubscription: undefined, _vrSubscription: undefined, _vrModeSubscription: undefined,
 		_dataSourceChangedListeners: {}, _container: container, _bottomContainer: bottomContainer, _element: viewerContainer, _cesiumWidget: cesiumWidget,
 		_selectionIndicator: selectionIndicator, _infoBox: infoBox, _clockViewModel: clockViewModel, _destroyClockViewModel: destroyClockViewModel, _toolbar: toolbar,
-		_homeButton: homeButton, _sceneModePicker: sceneModePicker, _projectionPicker: undefined, _baseLayerPicker: baseLayerPicker, _navigationHelpButton: navigationHelpButton,
+		_homeButton: homeButton, _sceneModePicker: sceneModePicker, _projectionPicker: projectionPicker, _baseLayerPicker: baseLayerPicker, _navigationHelpButton: navigationHelpButton,
 		_animation: animation, _timeline: timeline, _fullscreenButton: fullscreenButton, _vrButton: undefined, _geocoder: geocoder, _eventHelper: eventHelper,
 		_lastWidth: 0, _lastHeight: 0, _enableInfoOrSelection: !!(infoBox || selectionIndicator), _selectedEntity: undefined, _selectedEntityChanged: new Event(),
 	});

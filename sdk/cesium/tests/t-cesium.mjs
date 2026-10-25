@@ -9,6 +9,7 @@ import { sphereOfVolume } from "../src/tileset.ts";
 import { rasterSourceOf } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
+import { gridOf, placementOf } from "../src/voxels.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -93,6 +94,29 @@ for (const g of [
 	ok("glb CESIUM_RTC centre is the mean", near(rtc[0], c.x + 100 / 3, 1e-6) && near(rtc[1], c.y + 100 / 3, 1e-6) && near(rtc[2], c.z, 1e-6));
 	ok("glb positions are y-up (ECEF Y → −z)", near(acc.max[2], -(c.y - rtc[1]), 1e-3) && near(acc.min[2], -(c.y + 100 - rtc[1]), 1e-3), JSON.stringify(acc));
 	ok("glb translucent colour → BLEND", blend && j.materials[0].alphaMode === "BLEND" && j.meshes[0].primitives[0].attributes._BATCHID === 2);
+}
+
+// ── voxels: provider tiles → one grid (finest level, padding stripped, glTF y-up order), and the placement ──
+{
+	const d = { x: 2, y: 2, z: 2 }, one = { x: 1, y: 1, z: 1 };
+	const prov = { dimensions: d, paddingBefore: one, paddingAfter: one, availableLevels: 2, types: ["VEC4"], names: ["color"],
+		requestData: async ({ tileLevel: l, tileX: x, tileY: y, tileZ: z }) => {   // cell value = (level, global x, y, z) of the cell; padding = −1
+			if (l === 1 && x === 1 && y === 1 && z === 1) throw new Error("not available");
+			const a = new Float32Array(4 * 4 * 4 * 4).fill(-1);
+			for (let k = 0; k < 2; k++) for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) a.set([l, x * 2 + i, y * 2 + j, z * 2 + k], ((i + 1) + 4 * ((j + 1) + 4 * (k + 1))) * 4);
+			return { metadata: [a] };
+		} };
+	const g = await gridOf({ provider: prov, shape: "BOX" });
+	const at = (i, j, k) => Array.from(g.values.subarray((i + 4 * (j + 4 * k)) * 4, (i + 4 * (j + 4 * k)) * 4 + 4));
+	ok("voxel grid at the finest level", g.dims.join() === "4,4,4" && g.comps === 4 && at(3, 2, 1).join() === "1,3,2,1", JSON.stringify(at(3, 2, 1)));
+	ok("voxel grid keeps the parent where a child is missing", at(3, 3, 3).join() === "0,1,1,1", JSON.stringify(at(3, 3, 3)));
+	const yup = { ...prov, metadataOrder: 1, availableLevels: 1, requestData: async () => { const a = new Float32Array(64 * 4); a[(1 + 4 * (1 + 4 * 2)) * 4] = 7; return { metadata: [a] }; } };   // stored (x 0, z 0, flipped y: 4 − 1 − (0 + 1) = 2)
+	const gy = await gridOf({ provider: yup, shape: "BOX" });
+	ok("voxel grid reads glTF y-up tiles", gy.values[0] === 7);
+	const pl = placementOf({ provider: { globalTransform: Matrix4.fromUniformScale(10) }, shape: "BOX", minBounds: new Cartesian3(-1, -1, -1), maxBounds: new Cartesian3(1, 1, 0), modelMatrix: Matrix4.IDENTITY });
+	ok("voxel box placement", pl.box.transform[0] === 20 && pl.box.transform[10] === 10 && pl.box.transform[12] === -10 && pl.box.transform[14] === -10, JSON.stringify(pl.box.transform));
+	const pr = placementOf({ provider: {}, shape: "ELLIPSOID", minBounds: new Cartesian3(-Math.PI, -Math.PI / 2, 0), maxBounds: new Cartesian3(Math.PI, Math.PI / 2, 1e6), modelMatrix: Matrix4.IDENTITY });
+	ok("voxel ellipsoid → region", pr.shape === "region" && near(pr.region[0], -180) && near(pr.region[3], 90) && pr.region[5] === 1e6);
 }
 
 // ── the unsupported report: once per kind on the console, every time in the counts ──
