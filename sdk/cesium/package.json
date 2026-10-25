@@ -21,7 +21,8 @@
 		"@cesium/widgets": "16.3.0"
 	},
 	"peerDependencies": {
-		"@ortho-earth/globe": "^2.0.0"
+		"@ortho-earth/globe": "^2.0.0",
+		"@ortho-earth/voxel": "^0.6.0"
 	},
 	"keywords": [
 		"cesium",
@@ -42,5 +43,10 @@
 		"LICENSE",
 		"NOTICE",
 		"README.md"
-	]
+	],
+	"peerDependenciesMeta": {
+		"@ortho-earth/voxel": {
+			"optional": true
+		}
+	}
 }
