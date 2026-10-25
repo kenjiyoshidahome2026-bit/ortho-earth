@@ -2,6 +2,8 @@
 //   VoxelData（globe の normVoxel が検めた物）→ { dims, comps, tex（R8 か RGBA8＝GPU の 3D テクスチャ）, cmap（256×RGBA8 の色表）, anchor, A（セル → 東北上 m の 3×3）, radius, range }
 //   値の詰め方（R8）＝0＝空（noData・range の外は端に寄せる）、1〜255＝range を [0,1] に写した物。色表は値 0〜1 を引く。RGBA（components 4）はそのまま（α 0＝空）。
 //   置き方＝box（origin＋size＋orientation）か transform（局所の単位立方体 [0,1]³ → ECEF m・列の長さが各辺の m）。region は第 2 段。
+//   cylinder（2026-10-26）＝局所（z が軸・角度は +x から反時計回り）を origin＋orientation か transform（局所 m → ECEF m）で置く。殻は扇形を包む凸な箱（凹の殻は裏面が二枚になり体積が二重に重なる）、
+//   光線の入口と出口は描き手が円柱と上下の面との交わりで求め、中空と角度の外はセルの範囲の外として飛ばす。
 //   DDA（セルを順に辿る・Amanatides–Woo）の CPU 版もここ＝GLSL の答え合わせと、描き手の無い器の当たり。
 import type { VoxelData } from "@ortho-earth/globe";
 
@@ -31,10 +33,13 @@ export interface GeoGrid {
 	/** 高さの範囲（m） */ h0: number; h1: number;
 	/** 殻（6 面を分割した三角形・錨からの東北上 m・外向き CCW）＝裏面を描く箱の代わり */ shell: Float32Array;
 	/** 殻を包む球（東北上 m・中心 xyz と半径）＝光線の入口の目安 */ bs: [number, number, number, number];
-	/** セルの大きさ（m・東・北・上）＝刻みと法線の尺 */ cellM: [number, number, number];
+	/** セルの大きさ（m・東・北・上）＝刻みと法線の尺（cylinder は 半径・外周の弧・高さ） */ cellM: [number, number, number];
+	/** cylinder の格子（region は無し） */ cyl?: CylGrid | null;
 }
+/** cylinder の描き手向けの欄（2026-10-26）＝F（局所 m → 錨の東北上 m・行優先 3×3）・inv（その逆）・範囲（半径 m・始めの角度と幅 度・高さ m） */
+export interface CylGrid { F: number[]; inv: number[]; r0: number; r1: number; a0: number; span: number; z0: number; z1: number }
 export interface Prepared {
-	shape: "box" | "region";
+	shape: "box" | "region" | "cylinder";
 	dims: [number, number, number]; comps: 1 | 4; n: number;
 	tex: Uint8Array; cmap: Uint8Array;
 	anchor: [number, number, number]; /** セルの座標（0〜dims）→ 錨からの東北上 m（行優先 3×3・region は対角＝セルの大きさ） */ A: Float64Array; /** 錨から格子の最遠点まで（m） */ radius: number;
@@ -217,6 +222,52 @@ export function placeRegion(region: ArrayLike<number>, dims: [number, number, nu
 	const A = Float64Array.from([cellM[0], 0, 0, 0, cellM[1], 0, 0, 0, cellM[2]]);
 	return { anchor, A, radius: Math.hypot(...bc) + rb, placed: true, geo: { west: w, south: s, spanLon, spanLat, h0, h1, shell, bs: [bc[0], bc[1], bc[2], rb], cellM } };
 }
+/** cylinder の置き方の入力（globe の normCylinder が検めた物・radius／height は数一つ＝[0, v] も通す） */
+export type CylinderIn = ({ origin: ArrayLike<number>; orientation?: Hpr } | { transform: ArrayLike<number> }) & { radius: number | ArrayLike<number>; height: number | ArrayLike<number>; angle?: ArrayLike<number> };
+const pair = (v: number | ArrayLike<number>): [number, number] => typeof v === "number" ? [0, v] : [Number(v[0]), Number(v[1])];
+/** VoxelData の cylinder → 錨（局所の原点＝軸の高さ 0）＋F（局所 m → 東北上 m）。transform＝局所 m → ECEF m（絶対高さ） */
+export function placeCylinder(c: CylinderIn, dims: [number, number, number]): Placement & { geo: GeoGrid } {
+	let anchor: [number, number, number], F: Mat3, placed = false;
+	if ("transform" in c && c.transform != null) {
+		const M = Array.from(c.transform, Number);
+		if (M.length !== 16 || !M.every(Number.isFinite)) throw new TypeError("voxel: cylinder.transform must be a column-major 4×4 (16 finite numbers)");
+		anchor = ecefToLngLat(M[12], M[13], M[14]); placed = true;
+		F = mul3(ecefEnuRows(anchor[0], anchor[1]), [M[0], M[4], M[8], M[1], M[5], M[9], M[2], M[6], M[10]]);
+	} else {
+		const o = (c as { origin: ArrayLike<number> }).origin;
+		anchor = [Number(o[0]), Number(o[1]), Number(o[2]) || 0];
+		F = hprMat((c as { orientation?: Hpr }).orientation ?? []);
+	}
+	const [a0, a1] = c.angle ? [Number(c.angle[0]), Number(c.angle[1])] : [-180, 180];
+	return cylinderGrid(anchor, F, pair(c.radius), [a0, a1 > a0 ? a1 : a1 + 360], pair(c.height), dims, placed);
+}
+/** 円柱の扇形 → 殻（扇形を包む局所の箱＝凸・東北上 m の 12 枚）＋包む球＋セルの大きさ。ブリック・粗い段は範囲だけ変えて呼ぶ */
+export function cylinderGrid(anchor: [number, number, number], F: ArrayLike<number>, r: [number, number], a: [number, number], z: [number, number], dims: [number, number, number], placed = true): Placement & { geo: GeoGrid } {
+	const Fm = Array.from(F, Number), inv = inv3(Fm), span = a[1] - a[0];
+	if (!(r[0] >= 0 && r[0] < r[1]) || !(z[0] < z[1]) || !(span > 0 && span <= 360 + 1e-9)) throw new RangeError("voxel: cylinder needs 0 <= inner < outer radius, bottom < top and 0 < angle span <= 360");
+	// 扇形の xy の外接の枠＝両端の角度と、範囲に入る 90° ごとの向きの、内外の半径の点
+	const angs = [a[0], a[1]]; for (let k = Math.ceil(a[0] / 90); k * 90 < a[1]; k++) angs.push(k * 90);
+	let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+	for (const g of angs) for (const rr of r) { const x = rr * Math.cos(g * D2R), y = rr * Math.sin(g * D2R); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+	const e = 1e-6 * r[1] + 1e-3, lo = [x0 - e, y0 - e, z[0] - e], hi = [x1 + e, y1 + e, z[1] + e];
+	const enu = (p: number[]): number[] => [Fm[0] * p[0] + Fm[1] * p[1] + Fm[2] * p[2], Fm[3] * p[0] + Fm[4] * p[1] + Fm[5] * p[2], Fm[6] * p[0] + Fm[7] * p[1] + Fm[8] * p[2]];
+	const flip = Fm[0] * (Fm[4] * Fm[8] - Fm[5] * Fm[7]) - Fm[1] * (Fm[3] * Fm[8] - Fm[5] * Fm[6]) + Fm[2] * (Fm[3] * Fm[7] - Fm[4] * Fm[6]) < 0;   // 鏡映（行列式が負）＝回りが裏返る
+	const out: number[] = [];
+	for (let i = 0; i < BOX36.length; i += 9) for (const k of flip ? [0, 2, 1] : [0, 1, 2]) out.push(...enu([0, 1, 2].map(c => lo[c] + BOX36[i + k * 3 + c] * (hi[c] - lo[c]))));
+	const shell = Float32Array.from(out);
+	const bc = [0, 0, 0]; for (let i = 0; i < out.length; i += 3) for (let c = 0; c < 3; c++) bc[c] += out[i + c] / (out.length / 3);
+	let rb = 0; for (let i = 0; i < out.length; i += 3) rb = Math.max(rb, Math.hypot(out[i] - bc[0], out[i + 1] - bc[1], out[i + 2] - bc[2]));
+	const sxy = Math.min(Math.hypot(Fm[0], Fm[3], Fm[6]), Math.hypot(Fm[1], Fm[4], Fm[7])), sz = Math.hypot(Fm[2], Fm[5], Fm[8]);
+	const cellM: [number, number, number] = [(r[1] - r[0]) / dims[0] * sxy, r[1] * span * D2R / dims[1] * sxy, (z[1] - z[0]) / dims[2] * sz];
+	const A = Float64Array.from([cellM[0], 0, 0, 0, cellM[1], 0, 0, 0, cellM[2]]);
+	return { anchor, A, radius: Math.hypot(...bc) + rb, placed, geo: { west: 0, south: 0, spanLon: 1, spanLat: 1, h0: z[0], h1: z[1], shell, bs: [bc[0], bc[1], bc[2], rb], cellM, cyl: { F: Fm, inv, r0: r[0], r1: r[1], a0: a[0], span, z0: z[0], z1: z[1] } } };
+}
+/** 単位立方体の 12 枚の三角形（外向きの CCW・x,y,z を 9 個ずつ）＝描き手の BOX と同じ */
+const BOX36 = ((): number[] => {
+	const f = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]], v = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], out: number[] = [];
+	for (const [a, b, c, d] of f) for (const i of [a, c, b, a, d, c]) out.push(...v[i]);
+	return out;
+})();
 const nums = (v: unknown, name: string, len: number): number[] => {
 	const a = v != null && typeof v === "object" && typeof (v as ArrayLike<number>).length === "number" ? Array.from(v as ArrayLike<number>, Number) : null;
 	if (!a || a.length !== len || !a.every(Number.isFinite)) throw new TypeError(`voxel: ${name} must be ${len} finite numbers`);
@@ -231,17 +282,17 @@ export function checkClip(c: unknown): Clip | null {
 }
 
 // ---- 下ごしらえ ----
-type NormVoxel = VoxelData & { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4 };
+type NormVoxel = VoxelData & { shape: "box" | "region" | "cylinder"; dims: [number, number, number]; components: 1 | 4 };
 export function checkVoxelData(d: unknown): NormVoxel {
 	const v = d as NormVoxel;
-	if (!v || typeof v !== "object" || !Array.isArray(v.dims) || v.dims.length !== 3 || !(v.values instanceof Float32Array || v.values instanceof Uint16Array || v.values instanceof Uint8Array)) throw new TypeError("voxel: data must be VoxelData (dims, values, box | region)");
+	if (!v || typeof v !== "object" || !Array.isArray(v.dims) || v.dims.length !== 3 || !(v.values instanceof Float32Array || v.values instanceof Uint16Array || v.values instanceof Uint8Array)) throw new TypeError("voxel: data must be VoxelData (dims, values, box | region | cylinder)");
 	const comps = (v.components ?? 1) as 1 | 4;
 	if (comps !== 1 && comps !== 4) throw new RangeError("voxel: components must be 1 | 4");
 	const T = v.times == null ? 1 : v.times.length;
 	if (v.times != null && (!(T >= 1) || !Array.from(v.times).every((x, i, a) => Number.isFinite(x) && (i === 0 || x > a[i - 1])))) throw new RangeError("voxel: times must be finite and strictly ascending (ms)");
 	if (v.values.length !== v.dims[0] * v.dims[1] * v.dims[2] * comps * T) throw new RangeError(`voxel: values length ${v.values.length} != ${v.dims[0] * v.dims[1] * v.dims[2] * comps * T}`);
-	const shape = v.shape ?? (v.box ? "box" : v.region ? "region" : undefined);
-	if (shape !== "box" && shape !== "region") throw new RangeError("voxel: shape must be box | region");
+	const shape = v.shape ?? (v.box ? "box" : v.region ? "region" : v.cylinder ? "cylinder" : undefined);
+	if (shape !== "box" && shape !== "region" && shape !== "cylinder") throw new RangeError("voxel: shape must be box | region | cylinder");
 	return { ...v, shape, components: comps };
 }
 /** こま t の値（times が無ければ全部）＝values の部分（写さない） */
@@ -250,12 +301,18 @@ export function frameValues<T extends Float32Array | Uint16Array | Uint8Array>(v
 export function frameAt(times: ArrayLike<number>, ms: number): number { let lo = 0, hi = times.length - 1; if (!(ms >= times[0])) return 0; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= ms) lo = m; else hi = m - 1; } return lo; }
 /** 閾（データの単位）→ R8 の 0〜1 */
 export const thrOf = (threshold: number | null | undefined, range: [number, number]): number => threshold == null ? 0 : Math.min(1, Math.max(0, (threshold - range[0]) / (range[1] - range[0])));
+/** region か cylinder の置き方（殻つき） */
+function placeCurved(d: NormVoxel, dims: [number, number, number], rAx: number): Placement & { geo: GeoGrid } {
+	if (d.shape === "cylinder") { if (!d.cylinder) throw new TypeError("voxel: shape \"cylinder\" needs cylinder"); return placeCylinder(d.cylinder as CylinderIn, dims); }
+	if (!d.region) throw new TypeError("voxel: shape \"region\" needs region");
+	return placeRegion(d.region, dims, rAx);
+}
 /** VoxelData → 描き手へ渡す物（worker で。配列は transfer できる物）。値は閾で切らない（閾は描き手が見る＝等値面は場の全体が要る） */
 export function prepare(data: unknown, o: PrepareOptions = {}): Prepared {
 	const d = checkVoxelData(data), dims = d.dims, comps = d.components, n = dims[0] * dims[1] * dims[2];
 	let place: Placement, geo: GeoGrid | null = null;
 	if (d.shape === "box") { if (!d.box) throw new TypeError("voxel: shape \"box\" needs box"); place = placeBox(d.box, dims); }
-	else { if (!d.region) throw new TypeError("voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); place = r; geo = r.geo; }
+	else { const r = placeCurved(d, dims, o.rAx ?? 1); place = r; geo = r.geo; }
 	const { anchor, A, radius, placed } = place;
 	let range: [number, number] = [0, 1], thr = 0;
 	if (comps === 1) {   // 色表の幅はこまを通して一つ（こまで色が変わらない）
@@ -291,7 +348,7 @@ export interface Level {
 	/** テクスチャの 0 番のセルの、その段の親の格子での位置 */ off: [number, number, number];
 	/** 描く範囲（テクスチャのセル座標・粗い段は端数あり）[x0, y0, z0, x1, y1, z1] */ own: [number, number, number, number, number, number];
 	dims: [number, number, number]; tex: Uint8Array; /** こまごとのテクスチャ（frames[0]＝tex）・こまが無ければ null */ frames: Uint8Array[] | null; /** 最大値（R8 の 0〜255・RGBA は α・こまを通して） */ vmax: number;
-	/** box＝親の錨と A×s（セル 1 個ぶん）・region＝部分の region */ anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
+	/** box＝親の錨と A×s（セル 1 個ぶん）・region＝部分の region・cylinder＝部分の扇形 */ anchor: [number, number, number]; A: Float64Array; radius: number; geo: GeoGrid | null;
 }
 export interface Brick extends Level { n: number; /** 粗い段（s＝2, 4…）・作らなければ null */ lods: Level[] | null }
 export interface PreparedGrid extends Prepared { /** 最大値（R8・RGBA は α） */ vmax: number; /** 分けた時のブリック（tex は空） */ bricks: Brick[] | null; /** 一枚の格子の粗い段（ブリックは各ブリックの lods）・作らなければ null */ lods: Level[] | null }
@@ -364,6 +421,11 @@ export function makeLevel(frames: Uint8Array[], Dl: [number, number, number], co
 	const own: Level["own"] = [clo[0] - off[0], clo[1] - off[1], clo[2] - off[2], chi[0] - off[0], chi[1] - off[1], chi[2] - off[2]];
 	const vmax = Math.max(...fr.map(f => maxOf(f, comps)));
 	const base = { s, off, own, dims: bd, tex, frames: fr.length > 1 ? fr : null, vmax };
+	if (pgeo?.cyl) {   // cylinder＝部分の扇形（同じ錨と F）
+		const c = pgeo.cyl, f = (i: number, v: number): number => v * s / dims[i];
+		const r = cylinderGrid(parent.anchor, c.F, [c.r0 + (c.r1 - c.r0) * f(0, off[0]), c.r0 + (c.r1 - c.r0) * f(0, end[0])], [c.a0 + c.span * f(1, off[1]), c.a0 + c.span * f(1, end[1])], [c.z0 + (c.z1 - c.z0) * f(2, off[2]), c.z0 + (c.z1 - c.z0) * f(2, end[2])], bd, parent.placed);
+		return { ...base, anchor: r.anchor, A: r.A, radius: r.radius, geo: r.geo };
+	}
 	if (pgeo) {
 		const g = pgeo, f = (i: number, v: number): number => v * s / dims[i];   // その段のセル → 元の割合（粗い段の端は元の外へ半端に出る＝own で切る）
 		const r = placeRegion([g.west + g.spanLon * f(0, off[0]), g.south + g.spanLat * f(1, off[1]), g.west + g.spanLon * f(0, end[0]), g.south + g.spanLat * f(1, end[1]), g.h0 + (g.h1 - g.h0) * f(2, off[2]), g.h0 + (g.h1 - g.h0) * f(2, end[2])], bd, rAx);
@@ -385,10 +447,10 @@ export function prepareGrid(data: unknown, o: PrepareOptions = {}, brick = BRICK
 	const nAll = dims[0] * dims[1] * dims[2];
 	let range: [number, number] = [0, 1];
 	if (comps === 1) { range = o.range ?? d.range ?? valueRange(d.values, d.noData); if (!(range[0] < range[1])) throw new RangeError("voxel: range must be [min, max] with min < max"); }
-	// 親の置き方（錨・A・半径）＝box はブリックも同じ物を使う。region は部分の region を作り直す
+	// 親の置き方（錨・A・半径）＝box はブリックも同じ物を使う。region・cylinder は部分の region・扇形を作り直す
 	let parent: Placement, pgeo: GeoGrid | null = null;
 	if (d.shape === "box") { if (!d.box) throw new TypeError("voxel: shape \"box\" needs box"); parent = placeBox(d.box, dims); }
-	else { if (!d.region) throw new TypeError("voxel: shape \"region\" needs region"); const r = placeRegion(d.region, dims, o.rAx ?? 1); parent = r; pgeo = r.geo; }
+	else { const r = placeCurved(d, dims, o.rAx ?? 1); parent = r; pgeo = r.geo; }
 	const full = packFrames(d, range, nAll), pyr = L ? pyramid(full, dims, comps, L) : [];
 	const sx = brickSpans(dims[0], brick), sy = brickSpans(dims[1], brick), sz = brickSpans(dims[2], brick), bricks: Brick[] = [];
 	let vmax = 0;

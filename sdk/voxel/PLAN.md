@@ -38,7 +38,7 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
 | **2 WebGPU・region・断面** | WGSL 版（device と深度を共有）・`shape: "region"`・iso・`clip` の箱で断面・picking（CPU で同じ DDA を辿り `[i,j,k]` と値） | 3〜4 日 |
 | **3 見本とデモ** | 合成 3 種（球・トーラス・ノイズの雲）・PLATEAU の街区を 2m ボクセル化（blocks）・震源密度の体積（quakes） | 2 日 |
 | **4 3D Tiles の voxel** | `EXT_primitive_voxels`＋`EXT_structural_metadata` の property attributes → `meshdecode.ts` が検出 → `tiles3d.ts` がタイルごとに `addData({kind:"voxel"})`（splat と同じ経路）。implicit tiling は既存。fixture＝CesiumJS Specs の voxel tileset（Apache-2.0）。**仕様の今の版を先に確かめる** | 3〜4 日 |
-| **5 大きな格子** | 64³ のブリック化・占有格子で空白飛ばし・3D Tiles の階層で LoD・時間次元を `map.clock` へ。後で cylinder・NetCDF／Zarr の読み手 | 4 日〜 |
+| **5 大きな格子** | 64³ のブリック化・占有格子で空白飛ばし・3D Tiles の階層で LoD・時間次元を `map.clock` へ。後で cylinder（2026-10-26 済）・NetCDF／Zarr の読み手 | 4 日〜 |
 
 第 1 段は WebGL2 から（Android は GL2 封印＝省けない・深度は貼った GLSL で読めて試しやすい・splat と同じ順）。
 
@@ -65,7 +65,7 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
 - [x] 第 3 段（2026-10-23）＝見本の頁 `/globe/voxel`（apps/ortho-globe の voxel.html／voxel-page.ts／voxel.ts・`?v=cloud|torus|fuji|quakes`）。雲（ノイズ・volume）・トーラス（距離場・iso）・富士山（`map.sampleTerrain` を 333 m×48×48・100 m 刻みのブロック）・地震（`/quakes/archive.geopbf` 68 MB を日本の箱 0.25°×0.25°×20 km に数えて region の体積・5.4 万件）。つまみは全部 `setProps` の "style"。rAx を prepare へ（`map.ellipsoidOn()`）。verify-prod（static＝生の .ts なし・run・address・console）PASS＝本番ビルドの検札済み。og 画像は `scripts/og-shot.mjs voxel` で撮った。
   踏んだ罠＝①`?scene=` は本体の scenes の口と衝突（JSON を取りに行く）＝`?v=` に。②場面の切り替えで remove → すぐ addData すると同じ名のオーバーレイの片付けと新しい登録が競い、新しい層が描かれない＝plugin の `release()` に猶予（`OVERLAY_LINGER_MS`＝250 ms・その間の acquire は続投）。③`flyTo` は離陸で秒単位＝場面の移動は `easeTo`。④`sampleTerrain` は 1 点 5 ms＝点数を 2304 に絞り 8 回に分けて進みを出す。
   見送り＝PLATEAU の 2 m ブロック（globe の家は地域を持てない＝japan のアプリに置く時に）・www の一覧（demos.json）への登録＝本番に出てから `npm run thumbs -w www -- --only=voxel` でサムネを撮って足す。
-- [x] 第 4 段（2026-10-23）＝3D Tiles の voxel。仕様の今の版（cesium-native 0.62 の実装で確認）＝`EXT_primitive_voxels { shape（KHR_implicit_shapes の索引）, dimensions, padding{before,after}, noData{属性: [値]} }`・mode 2147483647・値は独自の属性（x が最速）・形は `KHR_implicit_shapes.shapes[]`（box.size・原点が中心）か shape の拡張 `EXT_implicit_ellipsoid_region`（rad・min/max の経緯度と高さ）／`EXT_implicit_cylinder_region`（未対応）。Cesium の tileset の経路＝root.content の `3DTILES_content_voxels { class, dimensions, padding }`＋タイルの境界体積。
+- [x] 第 4 段（2026-10-23）＝3D Tiles の voxel。仕様の今の版（cesium-native 0.62 の実装で確認）＝`EXT_primitive_voxels { shape（KHR_implicit_shapes の索引）, dimensions, padding{before,after}, noData{属性: [値]} }`・mode 2147483647・値は独自の属性（x が最速）・形は `KHR_implicit_shapes.shapes[]`（box.size・原点が中心）か shape の拡張 `EXT_implicit_ellipsoid_region`（rad・min/max の経緯度と高さ）／`EXT_implicit_cylinder_region`（2026-10-26 に対応＝第 5 段 ⑥）。Cesium の tileset の経路＝root.content の `3DTILES_content_voxels { class, dimensions, padding }`＋タイルの境界体積。
   実装＝meshdecode `voxelPrim` → tiles3d-decode／model-worker → gadget tiles3d がタイルごとに `addData(kind "voxel")`（splat と同じ骨）。fixture 2 経路・node 15 件・`t-tiles3d-voxel`（verify:ui／verify:webgpu・noplugin）。
   踏んだ罠＝①`decodeTile3D` の「描く物なし＝null」の条件に voxels を足し忘れると層が立たない ②検定頁の配置（北東の箱が東の region の中に食い込んでいた）③面の陰影（0.55 倍）で色の判定が落ちる＝色相で判定。
 - [ ] 第 5 段（大きな格子＝ブリック・LoD・時間・NetCDF／Zarr）
@@ -86,4 +86,9 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
     読むのは worker（URL を取りに行く・bytes も）＝答えに読んだ値（main が当たりの値に使う）と meta。変数＝(time?, z?, y, x)・CF の座標で region と times（`<単位> since <日時>`）・降順は裏返す・scale／offset／fill／valid は NaN（空）。高さ＝m／km／深さは負、Pa／hPa は標準大気（間隔は一様と見なす近似・`heights` で上書き）。`frames`＝要るこまのチャンクだけ取る。
     読めない物は理由と変換の道を添えて投げる＝NetCDF-4（HDF5）・Zarr の blosc／zstd／sharding／filters・Fortran 順・(…, x, y) の並び。
     検定＝node `t-sources.mjs`（手で書いた CDF-1／2／5＝tests/nc-write.mjs・気圧・時刻・裏返し・fill・frames・Zarr v2／v3 を偽の fetch で・欠けたチャンク・codec の拒み・手綱）・t-pvoxel ⑭（tests/voxel-t.nc を URL で＝worker が読んで描く）。
+  - [x] ⑥cylinder（2026-10-26）＝globe の契約に `shape: "cylinder"`（dims＝[半径, 角度, 高さ]・局所の z が軸・角度は +x から反時計回り・origin＋orientation か transform・radius／height／angle）。
+    仕様（CesiumGS/3d-tiles の voxels 枝の 3DTILES_content_voxels の Notes・glTF の EXT_primitive_voxels／EXT_implicit_cylinder_region）＝glTF は y が軸で [半径, 高さ, 角度]・角度 0 は glTF の −x。3D Tiles は [半径, 角度, 高さ]・角度 0 は +x
+    ＝meshdecode が y と z の添字を入れ替え、角度に +180°（全周の境界体積だけ添字が半周ずれる＝範囲に +180° で同じ意味）。tileset の経路は境界体積（3DTILES_bounding_volume_cylinder・implicit は半径・角度・高さで分ける）が正。
+    描き手＝殻は扇形を包む凸な箱（凹の殻は光線に裏面が二枚＝体積が二重に重なる）・入口と出口は外の円柱と上下の面の交わり・中空と角度の外はセルの範囲の外・blocks の法線はセルの軸の局所の向き・iso の勾配は東北上 m の差分。ブリック・粗い段は部分の扇形。
+    検定＝node（t-voxel の cyl.*・globe の voxel.mjs・tiles3d-voxel.mjs の cylg／cylc／implicit）・t-pvoxel ⑮・t-tiles3d-voxel の cylinder（角度の向き・全周の半周ずれを画素で）。
   - [ ] ⑤（任意）NetCDF-4／HDF5・Zarr の blosc／zstd／sharding（wasm の解凍）・こまの間の補間・/globe/voxel に実データ（ERA5 などを ortho-data に）の場面
