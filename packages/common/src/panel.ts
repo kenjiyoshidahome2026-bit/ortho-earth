@@ -129,6 +129,8 @@ export function createPanel({ host, title, sub = "", cls = "", width = 320, fold
 		mark(); onFold?.(min);
 	};
 	fold.addEventListener("click", () => setFold(!el.classList.contains("min")), { signal: ac.signal });
+	// 畳んだ板（スマホの下のシート）は見出しのどこを押しても開く＝小さな「＋」を探させない（横浜・市民ファースト 2026-10-25）
+	head.addEventListener("click", e => { if (el.classList.contains("min") && !fold.contains(e.target as Node)) setFold(false); }, { signal: ac.signal });
 	mq.addEventListener("change", mark, { signal: ac.signal });
 	host.classList.add("oe-panel-host");
 	host.append(el);
