@@ -30,8 +30,12 @@ The facade replaces only what draws:
 | imagery layers (UrlTemplate, OpenStreetMap, Bing, ArcGIS, WMTS REST, WMS, SingleTile, ion) | raster layers, in the collection's order, with alpha, brightness, contrast, hue and saturation |
 | `Cesium3DTileset` (`fromUrl`, `fromIonAssetId`, `style`, `show`), `Cesium3DTileFeature` | the globe's 3D Tiles, picking and feature state. `instanceof` holds against the engine's classes |
 | terrain (`createWorldTerrainAsync`, `CesiumTerrainProvider`, `EllipsoidTerrainProvider`) | the globe's terrain |
+| `Primitive`, `GroundPrimitive`, `ClassificationPrimitive`, `GroundPolylinePrimitive` | Cesium's own `createGeometry` makes the triangles, drawn as an in-memory glTF model (per-instance colours, picking, `getGeometryInstanceAttributes`); line geometries go to the 3D lines |
+| `Model` in `scene.primitives` | a glTF model placed from `modelMatrix`, with `readyEvent` and `activeAnimations` |
+| `BillboardCollection`, `LabelCollection`, `PointPrimitiveCollection`, `PolylineCollection` | billboards, labels and points of the CZML overlay; polylines in the 3D lines |
+| `VoxelPrimitive` (procedural providers, `Cesium3DTilesVoxelProvider`), `scene.pickVoxel` | `@ortho-earth/voxel` (installed on first use): the provider's tiles in one grid at the finest level that fits, BOX as a box and ELLIPSOID as a region. The custom shader is not run: the field it reads is drawn as its colour, `nearestSampling` as blocks |
 
-What the facade does not do yet is reported once in the console as `[csshim] unsupported: …` (never thrown), and `Cesium.unsupportedReport()` counts them. Today that is mostly `scene.primitives.add(…)` of the low-level primitives (`Primitive`, `Model`, the Billboard / Label / Point / Polyline collections, particles, voxels, I3S), 2D and Columbus view, and imagery in a geographic tiling scheme.
+What the facade does not do yet is reported once in the console as `[csshim] unsupported: …` (never thrown), and `Cesium.unsupportedReport()` counts them. Today that is mostly particles, clouds, I3S, cylinder voxels, material patterns (drawn in their main colour), 2D and Columbus view, the orthographic frustum, and imagery in a geographic tiling scheme.
 
 `viewer.orthoMap` is the globe underneath, for anything else.
 
