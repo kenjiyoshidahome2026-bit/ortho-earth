@@ -1606,3 +1606,176 @@ void main() {
 	}
 	fragColor = vec4(max(v, 0.0), 0.0, 0.0, 1.0);
 }`;
+
+// ── 断面とクリッピング平面の WebGL2 版（P0 #3・2026-10-25）＝WebGPU の CLIP_WGSL・CLIP_STEPS（gpu/wgsl.ts）と同じ作法・同じ並び。
+// 切っている時だけ使う派生（本体の文字列は 1 バイトも変えない）。面と多角形は uniform block ClipP（std140）＝clip.ts packClip の並びそのまま
+// （pl[6]・p・capT・capB・edgeC・pe・pn・pv[64]＝1216B）。p.y＝縁の帯の幅は renderer が dpr を掛けて詰める（device px）。
+// 距離は VS で頂点ごと・面ごとに出して補間し、最小は FS で取る（両端が箱の外の大きな三角形を中身ごと消さない）。微分（fwidth）は discard より前。
+const CLIP_GLSL = /* glsl */`
+layout(std140) uniform ClipP { vec4 pl[6]; vec4 p; vec4 capT; vec4 capB; vec4 edgeC; vec4 pe; vec4 pn; vec4 pv[64]; } CL;
+vec2 polyXY(vec3 rel) { return vec2(dot(CL.pe.xyz, rel) + CL.pe.w, dot(CL.pn.xyz, rel) + CL.pn.w); }
+float polyD(vec2 q) {   // 多角形までの符号付きの距離（残る側が正・内外は偶奇）
+	int n = int(CL.p.z);
+	if (n == 0) return 1e30;
+	float d2 = 1e30;
+	bool inside = false;
+	for (int i = 0; i < 64; i++) {
+		if (i >= n) break;
+		vec2 a = CL.pv[i].xy, b = CL.pv[i].zw;
+		if ((a.y > q.y) != (b.y > q.y) && q.x < (b.x - a.x) * (q.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+		vec2 v = b - a; float t = clamp(dot(q - a, v) / max(dot(v, v), 1e-30), 0.0, 1.0); vec2 w = q - a - t * v;
+		d2 = min(d2, dot(w, w));
+	}
+	float d = sqrt(d2);
+	if (inside != (CL.p.w > 0.5)) d = -d;
+	return d;
+}
+float clipD(vec3 rel, int i) { return i < int(CL.p.x) ? dot(CL.pl[i].xyz, rel) + CL.pl[i].w : 1e30; }
+vec4 clipA(vec3 rel) { return vec4(clipD(rel, 0), clipD(rel, 1), clipD(rel, 2), clipD(rel, 3)); }
+vec4 clipB(vec3 rel) { return vec4(clipD(rel, 4), clipD(rel, 5), polyXY(rel)); }
+float clipMin(vec4 a, vec4 b) { return min(min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)), polyD(b.zw)); }
+float clipDist(vec3 rel) {   // 画素で位置が分かる時（球の床）＝全部の面と多角形の最小
+	float d = 1e30;
+	for (int i = 0; i < 6; i++) d = min(d, clipD(rel, i));
+	return min(d, polyD(polyXY(rel)));
+}
+`;
+const PREC = "precision highp float;\n";
+const withClip = (src: string): string => { if (src.split(PREC).length < 2) throw new Error("glsl clip: precision line missing"); return src.replace(PREC, PREC + CLIP_GLSL); };
+const VS_OUT = "out vec4 v_cdA;\nout vec4 v_cdB;\n", FS_IN = "in vec4 v_cdA;\nin vec4 v_cdB;\n";
+const CD_SET = (rel: string): string => `v_cdA = clipA(${rel}); v_cdB = clipB(${rel});`;
+const EDGE_HEAD = "\tfloat cm = clipMin(v_cdA, v_cdB); float cw = fwidth(cm);\n\tif (cm < 0.0) discard;\n\tif (CL.p.y > 0.0 && cm < CL.p.y * cw) { fragColor = vec4(CL.edgeC.rgb, 1.0); return; }\n";
+const DISCARD = "\tif (clipMin(v_cdA, v_cdB) < 0.0) discard;\n";
+type Pairs = readonly (readonly [string, string])[];
+const clipGL = (src: string, pairs: Pairs, label: string): string => withClip(derive(src, pairs, label));
+// 地形（帯は最後に＝この後に地面アトラスの texture がある）
+const TERR_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);", `\t${CD_SET("relW")}\n\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);`]];
+export const TERRAIN_CLIP_VS = clipGL(TERRAIN_VS, TERR_VS_C, "TERRAIN_CLIP_VS");
+export const TERRAIN_CLIP_FS = clipGL(TERRAIN_FS, [
+	["in float v_h;\n", "in float v_h;\n" + FS_IN],
+	["\tfloat mpp = fwidth(v_ll.y) * 111320.0;", "\tfloat cm = clipMin(v_cdA, v_cdB); float cw = fwidth(cm);\n\tif (cm < 0.0) discard;\n\tbool edgeOn = CL.p.y > 0.0 && cm < CL.p.y * cw;\n\tfloat mpp = fwidth(v_ll.y) * 111320.0;"],
+	["\tfragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);", "\tif (edgeOn) { fragColor = vec4(CL.edgeC.rgb, 1.0); return; }\n\tfragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);"],
+], "TERRAIN_CLIP_FS");
+// 基図の押し出し建物（向きが揃っていない＝疑似の蓋は付けず帯だけ）
+const BLD_VS_C: Pairs = [["out vec2  v_ll;", "out vec4 v_cdA;\nout vec4 v_cdB;\nout vec2  v_ll;"], ["\tv_shade = a_shade;\n", `\t${CD_SET("relW")}\n\tv_shade = a_shade;\n`]];
+export const BUILDING_CLIP_VS = clipGL(BUILDING_VS, BLD_VS_C, "BUILDING_CLIP_VS");
+export const BUILDING_MD_CLIP_VS = clipGL(BUILDING_MD_VS, BLD_VS_C, "BUILDING_MD_CLIP_VS");
+export const BUILDING_CLIP_FS = clipGL(BUILDING_FS, [
+	["in vec2  v_ll;\n", "in vec2  v_ll;\n" + FS_IN],
+	["void main() {\n\tif (v_front < 0.0) discard;\n", "void main() {\n" + EDGE_HEAD + "\tif (v_front < 0.0) discard;\n"],
+], "BUILDING_CLIP_FS");
+// 建物メッシュ・模型：u_clO＝メッシュの原点 − 切る原点（main・CPU f64 の差）。閉じた建物（裏面を捨てる物）は切り口から覗く裏面を蓋の色で（疑似の蓋）
+const MESH_VS_C: Pairs = [
+	["out float v_fog;\n", "out float v_fog;\n" + VS_OUT + "uniform vec3 u_clO;\n"],
+	["\tgl_Position = u_clipMesh + u_mvp * vec4(ap + h * liftDir(vec2(lon, lat), dir), 0.0);", `\tvec3 lp = ap + h * liftDir(vec2(lon, lat), dir);\n\t${CD_SET("u_clO + lp")}\n\tgl_Position = u_clipMesh + u_mvp * vec4(lp, 0.0);`],
+];
+const MESH_CAP: readonly [string, string] = ["\tif (u_cullBack > 0.5 && fe < -0.02) discard;", "\tif (u_cullBack > 0.5 && fe < -0.02) { if (CL.capB.w > 0.5) { fragColor = vec4(CL.capB.rgb, 1.0); return; } discard; }"];
+export const MESH_CLIP_VS = clipGL(MESH_VS, MESH_VS_C, "MESH_CLIP_VS");
+export const MESH_TEX_CLIP_VS = clipGL(MESH_TEX_VS, MESH_VS_C, "MESH_TEX_CLIP_VS");
+export const MESH_CLIP_FS = clipGL(MESH_FS, [
+	["in float v_fog;\n", "in float v_fog;\n" + FS_IN],
+	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n" + EDGE_HEAD],
+	MESH_CAP,
+], "MESH_CLIP_FS");
+export const MESH_TEX_CLIP_FS = clipGL(MESH_TEX_FS, [
+	["in float v_fog;\n", "in float v_fog;\n" + FS_IN],
+	["\tvec4 tx = texture(u_tex, v_uv) * v_col;\n", "\tvec4 tx = texture(u_tex, v_uv) * v_col;\n" + EDGE_HEAD],   // 標本は discard より前（ミップの微分）
+	MESH_CAP,
+], "MESH_TEX_CLIP_FS");
+// 基図の塗りと線（シーンの原点ごと）
+const FILL_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);", `\t${CD_SET("rel")}\n\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);`]];
+export const FILL_CLIP_VS = clipGL(FILL_VS, FILL_VS_C, "FILL_CLIP_VS");
+export const FILL_MD_CLIP_VS = clipGL(FILL_MD_VS, FILL_VS_C, "FILL_MD_CLIP_VS");
+export const FILL_CLIP_FS = clipGL(FILL_FS, [
+	["in vec2 v_guv3;\n", "in vec2 v_guv3;\n" + FS_IN],
+	["void main() {\n\tif (v_front < -0.0015) discard;", "void main() {\n" + DISCARD + "\tif (v_front < -0.0015) discard;"],
+], "FILL_CLIP_FS");
+const LINE_VS_C: Pairs = [["out float v_fog;\n", "out float v_fog;\n" + VS_OUT], ["\tv_fog = fogOf((wa + wb) * 0.5);\n", `\tv_fog = fogOf((wa + wb) * 0.5);\n\tvec3 cpos = corner.x < 0.5 ? relWa : relWb;   // 端点ごと＝線分に沿って線形（幅の張り出しは同じ値）\n\t${CD_SET("cpos")}\n`]];
+export const LINE_CLIP_VS = clipGL(LINE_VS, LINE_VS_C, "LINE_CLIP_VS");
+export const LINE_MD_CLIP_VS = clipGL(LINE_MD_VS, LINE_VS_C, "LINE_MD_CLIP_VS");
+export const LINE_CLIP_FS = clipGL(LINE_FS, [
+	["in vec2 v_pos;\n", "in vec2 v_pos;\n" + FS_IN],
+	["void main() {\n\tif (v_front < -0.0015) discard;", "void main() {\n" + DISCARD + "\tif (v_front < -0.0015) discard;"],
+], "LINE_CLIP_FS");
+// 球の床（海抜 0）＝交点の原点相対 δ（u_rayEO＋t·d）で測る＝空と大気のリムは切らない
+export const GLOBE_CLIP_FS = clipGL(GLOBE_FS, [
+	["\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);", "\tif (clipDist(u_rayEO + t * d) < 0.0) discard;\n\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);"],
+], "GLOBE_CLIP_FS");
+// 地形の蓋（WebGPU の CLIP_CAP_WGSL と同じ手順）：面ごとに窓を覆う四角を描き、画素で地表より下かつ海抜 0 より上の所を土の色に。
+// 他の面の外・多角形で消す側・地平線の向こう・窓の外は捨てる。深度は画素ごとに対数（頂点の z はクリップのためだけ）。
+// 四角は u_capQ[i*3..]＝(中心の原点相対, 軸 A, 軸 B)・u_capG＝(原点の格子座標 xy, 格子/度 xy)・u_capH＝(G−1, 遠窓の回, 0, 0)
+const PROJECT_NOLOG = (() => { const a = PROJECT.indexOf("void applyLogDepth()"), b = PROJECT.indexOf("}\n", a); if (a < 0 || b < 0) throw new Error("glsl cap: applyLogDepth missing"); return PROJECT.slice(0, a) + PROJECT.slice(b + 2); })();
+const CAP_COMMON = /* glsl */`
+uniform vec4 u_capQ[18];
+uniform vec4 u_capG;
+uniform vec4 u_capH;
+uniform vec4 u_mesh;
+`;
+export const CLIP_CAP_VS = `#version 300 es
+precision highp float;
+${PROJECT_NOLOG}
+${CAP_COMMON}
+out vec3 v_x;
+flat out int v_pi;
+void main() {
+	vec2 cs[6] = vec2[6](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(1.0, 1.0));
+	vec2 c = cs[gl_VertexID];
+	int q = gl_InstanceID * 3;
+	vec3 X = u_capQ[q].xyz + c.x * u_capQ[q + 1].xyz + c.y * u_capQ[q + 2].xyz;
+	vec4 p = u_clipT + u_mvp * vec4(X, 0.0);
+	p.z = 0.0;   // 深度は FS（目の後ろへ回った隅＝w<0 は −w≤z≤w を満たさず切られる＝見えている所は残る）
+	gl_Position = p;
+	v_x = X; v_pi = gl_InstanceID;
+}`;
+export const CLIP_CAP_FS = withClip(`#version 300 es
+precision highp float;
+${PROJECT_NOLOG}
+${CAP_COMMON}
+in vec3 v_x;
+flat in int v_pi;
+out vec4 fragColor;
+vec2 capLL(vec3 dl) {   // 原点相対 δ → 経緯度の差（deg・測地）＝GLOBE_FS の deltaLL と同式（錨は u_originPt）
+	vec3 O = u_originPt; float rhoO = length(O.xz), beta0 = atan(O.y, rhoO);
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = u_ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
+float capDf(vec2 dll) { vec3 dir = u_originPt + deltaToRel(dll); return 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir)); }   // 地形の頂点と同じ遠景の平ら化
+float capVert(vec2 gi) { vec2 ll = u_mesh.xy + u_mesh.zw * (gi / u_capH.x); return elev(ll) * capDf(ll - u_origin); }
+float log1pS(float w) { if (w < 0.1) return w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); return log(1.0 + w); }
+void main() {
+	vec3 X = v_x;
+	int n = int(CL.p.x);
+	for (int i = 0; i < 6; i++) { if (i >= n) break; if (i != v_pi && dot(CL.pl[i].xyz, X) + CL.pl[i].w < 0.0) discard; }   // 他の面の外（箱の角）
+	if (polyD(polyXY(X)) < 0.0) discard;   // 多角形で消す側
+	// 足と高さ：動径の足から始めて、測地法線に沿って 2 回詰める
+	vec3 O = u_originPt;
+	vec2 dll = capLL(X);
+	float z = 0.0;
+	for (int k = 0; k < 2; k++) {
+		vec3 u = deltaToRel(dll);
+		vec3 L = liftDir(u_origin + dll, O + u);
+		z = dot(X - u, L) / dot(L, L);
+		dll = capLL(X - z * L);
+	}
+	float zm = z / max(u_elevScale, 1e-30);
+	if (zm < 0.0) discard;   // 海抜 0 より下
+	if (dot(O + deltaToRel(dll), u_eye) - 1.0 < -0.0015) discard;   // 地平線の向こう
+	float N = u_capH.x;
+	vec2 gc = u_capG.xy + dll * u_capG.zw;
+	if (u_capH.y > 0.5) { vec2 uvN = (u_origin + dll - u_elevBounds.xy) / u_elevBounds.zw; if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) discard; }   // 遠窓の回＝近窓の内側は近の担当
+	if (gc.x < 0.0 || gc.y < 0.0 || gc.x > N || gc.y > N) discard;
+	vec2 g = min(gc, vec2(N - 1e-4)), gi = floor(g), gf = g - gi;   // 地表＝地形メッシュと同じ三角形
+	float ht;
+	if (gf.x + gf.y < 1.0) { float h00 = capVert(gi); ht = h00 + gf.x * (capVert(gi + vec2(1.0, 0.0)) - h00) + gf.y * (capVert(gi + vec2(0.0, 1.0)) - h00); }
+	else { float h11 = capVert(gi + vec2(1.0)); ht = h11 + (1.0 - gf.x) * (capVert(gi + vec2(0.0, 1.0)) - h11) + (1.0 - gf.y) * (capVert(gi + vec2(1.0, 0.0)) - h11); }
+	if (zm > ht) discard;   // 地表より上＝空
+	fragColor = vec4(mix(CL.capT.rgb, u_fogColor, fogOf(O + X)), 1.0);
+	vec4 pc = u_clipT + u_mvp * vec4(X, 0.0);
+	gl_FragDepth = clamp(log1pS(max(pc.w, 1e-30)) * 1.4426950 * u_logCoef * 0.5, 0.0, 1.0);
+}`);

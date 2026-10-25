@@ -26,12 +26,13 @@
 const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 try {
-	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	const GL = new URLSearchParams(location.search).has("gl");   // ?gl=1＝WebGL2 のレンダラ（P0 #3）＝同じ段を同じ物差しで（影 ⑫ は GL2 に無い＝飛ばす）
+	if (!GL && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
 	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
 	const canvas = document.getElementById("g"), N = 256;
-	const r = await createRendererGPU(canvas);
+	const r = GL ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
+	if (GL) { const gl = canvas.getContext("webgl2"); r.flush = () => {}; r.gpuErrors = { get length() { return gl.getError() === gl.NO_ERROR ? 0 : 1; }, 0: "gl.getError" }; }
 	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180), HT = 60;
 	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];   // ENU(m)→経緯度（近似）
 	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.6, 0.6, 0.6, 1], bldColor: [0.1, 0.25, 0.95], hypso: { color: [0.95, 0.1, 0.1], amount: 1, max: 50 } });
@@ -135,11 +136,13 @@ try {
 	ok(`⑥箱：建物は箱の中だけ(${fmt(rgb(B6, BLD))}→外 ${fmt(rgb(B6, BLD_W))})`, dist(rgb(A1, BLD), rgb(B6, BLD)) < 2 && !blue(rgb(B6, BLD_W)));
 	ok(`⑥箱の外は台地も床も消える(手前 ${fmt(rgb(B6, S150))}・北 300m ${fmt(rgb(B6, N300f))})`, dark(rgb(B6, S150)) && dark(rgb(B6, N300f)));
 	// ⑯ 多角形（P0 #4・Cesium の ClippingPolygon）：凹んだ L 字（東西 ±40m・南 200m〜北 60m から北西の角 [−40, 10]〜[10, 60] を欠く）の内側を消す
+	// 屋根の探り点は東 20m（屋根の穴から覗く箱の床＝北 23m が凹みの外＝消える側）。中央（東 0）は穴から凹みの中の床が見える＝青のまま（正しい絵）
+	const roofSE = at(20, -25, HT + 40);
 	const LP = [[-40, -200], [40, -200], [40, 60], [10, 60], [10, 10], [-40, 10]].map(([e, n]) => ll(e, n));
 	r.set("clip", { on: true, polygon: { type: "Polygon", coordinates: [[...LP, LP[0]]] } });
 	const B16 = await shot();
-	ok(`⑯多角形：内側の台地も床も消える(手前 ${fmt(rgb(B16, S150))})・箱の屋根の南は消える(${fmt(rgb(B16, roofS))})・凹みの屋根の北は残る(${fmt(rgb(B16, roofN))})・外の建物と北 300m の台地は残る(${fmt(rgb(B16, BLD))}/${fmt(rgb(B16, N300t))})`,
-		dark(rgb(B16, S150)) && !blue(rgb(B16, roofS)) && dist(rgb(A1, roofN), rgb(B16, roofN)) < 2 && dist(rgb(A1, BLD), rgb(B16, BLD)) < 2 && red(rgb(B16, N300t)));
+	ok(`⑯多角形：内側の台地も床も消える(手前 ${fmt(rgb(B16, S150))})・箱の屋根の南は消える(${fmt(rgb(B16, roofSE))})・凹みの屋根の北は残る(${fmt(rgb(B16, roofN))})・外の建物と北 300m の台地は残る(${fmt(rgb(B16, BLD))}/${fmt(rgb(B16, N300t))})`,
+		dark(rgb(B16, S150)) && !blue(rgb(B16, roofSE)) && dist(rgb(A1, roofN), rgb(B16, roofN)) < 2 && dist(rgb(A1, BLD), rgb(B16, BLD)) < 2 && red(rgb(B16, N300t)));
 	r.set("clip", { on: true, polygon: [LP], inverse: true });
 	const B16i = await shot();
 	ok(`⑯inverse＝内側だけ残す(手前 ${fmt(rgb(B16i, S150))}・外の建物 ${fmt(rgb(B16i, BLD))}・北 300m ${fmt(rgb(B16i, N300f))})`,
@@ -216,7 +219,7 @@ try {
 	ok(`⑪建物の疑似の蓋：切る前は壁(${fmt(rgb(A11, CB))})・切ると中は蓋の色(${fmt(rgb(B11, CB))})・cap:false は蓋の色でない(${fmt(rgb(B11n, CB))})`, blue(rgb(A11, CB)) && capB(rgb(B11, CB)) && !capB(rgb(B11n, CB)));
 	r.set("meshVis", false, "cbox");
 	// ⑫ 影と重ねる（真俯瞰＝建物は描かず影だけ落ちる・球の床が受ける）
-	{
+	if (!GL) {
 		const camS = { center: ll(0, 60), zoom: 17, pitch: 0, bearing: 0, dpr: 1 }, stS = cameraState(camS, N, N);
 		const atS = (e, n) => { const [lo, la] = ll(e, n), p = project(stS, lo, la); return [Math.round(p[0]), Math.round(p[1])]; };
 		const lum = c => (c[0] + c[1] + c[2]) / 3;
