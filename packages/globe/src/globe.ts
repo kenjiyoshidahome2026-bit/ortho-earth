@@ -2867,10 +2867,11 @@ installTerrain(map, {
 	get elevGen() { return elevGen; }, set elevGen(v) { elevGen = v; },
 	get noTerr() { return noTerr; }, set noTerr(v) { if (v !== noTerr) { noTerr = v; setPipelineDrape(); } },   // 地形の有無が替わる（setTerrain）＝線の細分（drape）を読み直し全タイルを再ビルド（§3.2・setStyle と同じ道）
 	get terrExag() { return TERR_EXAG; }, set terrExag(v) { TERR_EXAG = v; },
+	get t3dCtl() { return t3dCtl; },
 	get style() { return style; },
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
-}, { EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
+}, { EARTH_M, ELL_ON, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
 let videoCtl: GlobeLive["videoCtl"] = null;
 // 画像タイル層（map.raster）＝src/api/raster.ts（live＝createGlobe の変数を読み書きする口）
 const { onRasterInfo, onRasterError, rasterStatWait, rasterAttrHTML, imageAttrs, rasterChanged, protocolBitmap } = installRaster(map, {

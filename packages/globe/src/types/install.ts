@@ -56,8 +56,8 @@ export interface OverlaysReturn {
 /** installer の live＝RW は読み書き（getter と setter）・RO は読むだけ（getter） */
 type LiveOf<RW extends keyof GlobeLive, RO extends keyof GlobeLive = never> = Pick<GlobeLive, RW> & Readonly<Pick<GlobeLive, RO>>;
 
-export type TerrainLive = LiveOf<"demSpec" | "demMain" | "geGen" | "geBusy" | "geKey" | "elevGen" | "noTerr" | "terrExag", "mlSources" | "EXT" | "style" | "baseSidNow" | "modelCtl">;
-export type TerrainDeps = Pick<GlobeScope, "EARTH_M" | "cam" | "elevMemo" | "elevOf" | "heightAt" | "pluginHost" | "qmSpecOf" | "requestDraw" | "requester" | "terrLazy" | "wPost">;
+export type TerrainLive = LiveOf<"demSpec" | "demMain" | "geGen" | "geBusy" | "geKey" | "elevGen" | "noTerr" | "terrExag", "mlSources" | "EXT" | "style" | "baseSidNow" | "modelCtl" | "t3dCtl">;
+export type TerrainDeps = Pick<GlobeScope, "EARTH_M" | "ELL_ON" | "cam" | "elevMemo" | "elevOf" | "heightAt" | "pluginHost" | "qmSpecOf" | "requestDraw" | "requester" | "terrLazy" | "wPost">;
 
 export type RasterLive = LiveOf<"attrZone" | "videoCtl" | "rasterBoot", "iiifOpen">;
 export type RasterDeps = Pick<GlobeScope, "LOW_MEM" | "REGION_RASTERS" | "TILE_BIAS" | "URL_OWN" | "opts" | "ownDestroy" | "rasterBootQ" | "requestDraw" | "requester" | "t" | "wPost">;

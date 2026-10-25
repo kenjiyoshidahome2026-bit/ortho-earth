@@ -69,6 +69,45 @@ export function pickMeshes(items: Array<PickItem | null>, view: MeshPickEnv["vie
 	}
 	return best;
 }
+/** 読み込んである束の写し（tileset の id か模型の slot・地形への持ち上げ方・束）＝map.sampleHeight が集める */
+export interface MeshItemRef { id: string; mode: "drape" | "plane"; item: PickItem }
+/** 半直線の当たり（rayMeshes）＝束の番号・三角形・t（from + t·dir の t）・一番近い頂点の地物の番号・交点の世界座標 */
+export interface MeshRayHit { item: number; tri: number; t: number; featureId: number | null; world: number[] }
+// 半直線 from + t·dir（t > 0・世界座標）と束の三角形の一番近い交点（Möller–Trumbore）＝map.sampleHeight（Cesium の sampleHeight・2026-10-25）。
+//   dir は単位でなくてよい（t は dir の長さの何倍か）。画面を通さない＝今の視点に依らず、読み込んである三角形に当てる。裏表は問わない
+export function rayMeshes(items: Array<PickItem | null>, from: ArrayLike<number>, dir: ArrayLike<number>): MeshRayHit | null {
+	let best: MeshRayHit | null = null;
+	const a = [0, 0, 0], b = [0, 0, 0], c = [0, 0, 0];
+	for (let k = 0; k < items.length; k++) {
+		const it = items[k]; if (!it || !it.pos?.length || !it.idx?.length || it.hidden) continue;
+		const ol = Math.hypot(it.origin[0], it.origin[1], it.origin[2]) || 1; it._up = [it.origin[0] / ol, it.origin[1] / ol, it.origin[2] / ol];
+		if (!it.xf) {   // 箱で外れ判定（slab）＝原点相対の箱を持ち上げた所に置く
+			const bb = aabbOf(it), L = it.lift || 0; let t0 = -Infinity, t1 = Infinity, out = false;
+			for (let q = 0; q < 3 && !out; q++) {
+				const o = from[q] - it.origin[q] - L * it._up[q], d = dir[q];
+				if (Math.abs(d) < 1e-15) { if (o < bb[q] || o > bb[q + 3]) out = true; continue; }
+				let ta = (bb[q] - o) / d, tb = (bb[q + 3] - o) / d; if (ta > tb) [ta, tb] = [tb, ta];
+				t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) out = true;
+			}
+			if (out || t1 < 0 || (best && t0 > best.t)) continue;
+		}
+		const I = it.idx;
+		for (let t = 0; t + 2 < I.length; t += 3) {
+			const p0 = worldOf(it, I[t], a), p1 = worldOf(it, I[t+1], b), p2 = worldOf(it, I[t+2], c);
+			const e1x = p1[0] - p0[0], e1y = p1[1] - p0[1], e1z = p1[2] - p0[2], e2x = p2[0] - p0[0], e2y = p2[1] - p0[1], e2z = p2[2] - p0[2];
+			const px = dir[1] * e2z - dir[2] * e2y, py = dir[2] * e2x - dir[0] * e2z, pz = dir[0] * e2y - dir[1] * e2x;
+			const det = e1x * px + e1y * py + e1z * pz; if (Math.abs(det) < 1e-30) continue;
+			const inv = 1 / det, sx = from[0] - p0[0], sy = from[1] - p0[1], sz = from[2] - p0[2];
+			const u = (sx * px + sy * py + sz * pz) * inv; if (u < -1e-9 || u > 1 + 1e-9) continue;
+			const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+			const v = (dir[0] * qx + dir[1] * qy + dir[2] * qz) * inv; if (v < -1e-9 || u + v > 1 + 1e-9) continue;
+			const tt = (e2x * qx + e2y * qy + e2z * qz) * inv; if (tt <= 0 || (best && tt >= best.t)) continue;
+			const ids = it.features?.ids, w = [1 - u - v, u, v], vs = [I[t], I[t+1], I[t+2]], m = w.indexOf(Math.max(w[0], w[1], w[2])), fid = ids ? ids[vs[m]] : NO_FEATURE;
+			best = { item: k, tri: t / 3, t: tt, featureId: fid === NO_FEATURE ? null : fid, world: [from[0] + tt * dir[0], from[1] + tt * dir[1], from[2] + tt * dir[2]] };
+		}
+	}
+	return best;
+}
 // 世界座標（描いた頂点と同じ空間＝β の単位球・S は mvp 側）→ [経度, 緯度]（度・測地）。楕円体では y を直に asin すると β＝緯度 35° で約 0.09°（≒10 km 南）ずれる
 // （2026-10-13・t-plugin?v=gltf の f.lngLat が既定＝楕円体の器で落ちた）＝core の betaToLonLat（β → 測地緯度・球は恒等）に通す。worldToLonLat は S⁻¹ が二重に掛かり逆に 10 km 北へずれる（実測）
 export const lngLatOfWorld = (P: ArrayLike<number>): LonLat => betaToLonLat(P);

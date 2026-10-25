@@ -39,6 +39,11 @@ run(); async function run() { try {
 	ok("pixels", blue > 500 && yellow > 50 && purple > 30 && red < 50, `blue=${blue} yellow=${yellow} purple=${purple} red=${red}`);
 	// 点群＝同一フレームのオーバーレイ（撮影 snapshot には写らない）＝オーバーレイが立ち上がったことを見る
 	ok("points", window.__overlay?.["tiles3d:" + h.id]?.stage === "ready", JSON.stringify(window.__overlay?.["tiles3d:" + h.id] ?? null));
+	// 高さの取得＝紫の箱（北 −280・高さ 60＝根の楕円体高 40m＋60m・_BATCHID あり＝pickable "auto" でも当たりの写しを持つ）の屋上・箱の外は地形
+	const sh = await map.sampleHeight([[139.7671, 35.678676], [139.80, 35.70]]);
+	ok("sampleHeight", sh[0].source === "tiles3d" && Math.abs(sh[0].height - 100) < 6 && sh[0].id === h.id && sh[0].featureId === 0 && sh[1].source === "terrain", JSON.stringify(sh));
+	const sh2 = await map.sampleHeight([[139.80, 35.70]], { terrain: false });
+	ok("sampleHeightNoTerrain", sh2[0].source === null && sh2[0].height === null, JSON.stringify(sh2));
 	if (new URLSearchParams(location.search).has("hold")) { document.title = "HOLD " + t.join(" ") + " " + JSON.stringify(h.tiles) + " backend=" + map.backend; return; }   // ?hold=1＝寄った絵のまま止める（見た目の確認用）
 	// 離れる＝親だけ（子は伏せて GPU には残る）
 	map.jumpTo({ zoom: 12.5, pitch: 0 });
