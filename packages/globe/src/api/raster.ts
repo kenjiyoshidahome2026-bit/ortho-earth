@@ -43,7 +43,8 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 		const rec = rasterReg.get(id); if (!rec) return;
 		rec.info = info;
 		// 出典＝ソースの自己申告（PMTiles/MBTiles の metadata・カタログの宣言）を消毒して出す。無ければホスト名（無出典で他人の絵を出さない）
-		rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : (info?.name ? sanitizeHTML(String(info.name)) : null));
+		// 四隅で貼る絵（画像・動画・canvas）の name は呼び手が付けた内部の名（"viewshed"・"sunshadow"・style の layer id）＝出典ではない＝出さない（2026-10-25・横浜の出典欄に viewshed が出ていた）
+		rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : (info?.name && !rec.spec?.corners ? sanitizeHTML(String(info.name)) : null));
 		rec._res?.(info); rec._res = rec._rej = null;
 		rasterChanged();
 	}
