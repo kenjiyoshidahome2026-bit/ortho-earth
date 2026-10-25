@@ -10,6 +10,8 @@ import { rasterSourceOf } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
 import { gridOf, placementOf } from "../src/voxels.ts";
+import { cesiumSphereOf } from "../src/spheres.ts";
+import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -117,6 +119,15 @@ for (const g of [
 	ok("voxel box placement", pl.box.transform[0] === 20 && pl.box.transform[10] === 10 && pl.box.transform[12] === -10 && pl.box.transform[14] === -10, JSON.stringify(pl.box.transform));
 	const pr = placementOf({ provider: {}, shape: "ELLIPSOID", minBounds: new Cartesian3(-Math.PI, -Math.PI / 2, 0), maxBounds: new Cartesian3(Math.PI, Math.PI / 2, 1e6), modelMatrix: Matrix4.IDENTITY });
 	ok("voxel ellipsoid → region", pr.shape === "region" && near(pr.region[0], -180) && near(pr.region[3], 90) && pr.region[5] === 1e6);
+}
+
+// ── entity bounding spheres as Cesium frames them (the geometry's own sphere, single-precision centre) ──
+{
+	const scene = { context: { stencilBuffer: true, depthTexture: true }, frameState: { context: { stencilBuffer: true, depthTexture: true } } };
+	const at = Cartesian3.fromDegrees(-106, 45, 100000), t = EJulianDate.now();
+	const box = cesiumSphereOf(new Entity({ position: at, box: { dimensions: new Cartesian3(90000, 90000, 90000) } }), scene, t);
+	ok("sphere of a box", !!box && near(box.bs.radius, Math.hypot(45000, 45000, 45000), 1e-3) && near(box.bs.center.x, Math.fround(at.x), 1e-9) && !box.dynamic, JSON.stringify(box?.bs));
+	ok("no geometry → null", cesiumSphereOf(new Entity({ position: at, point: { pixelSize: 5 } }), scene, t) === null);
 }
 
 // ── the unsupported report: once per kind on the console, every time in the counts ──
