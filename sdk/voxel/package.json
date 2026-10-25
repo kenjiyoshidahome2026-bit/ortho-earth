@@ -3,7 +3,7 @@
 	"version": "0.6.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "Voxel grids for @ortho-earth/globe: fills the reserved map.addData kind \"voxel\" (VoxelData: a box or longitude/latitude/height region grid of scalar / RGBA cells), drawn as a same-frame overlay by ray marching (blocks: first solid cell, Minecraft-like; volume: trilinear, colormap, front-to-back; iso: the surface at a threshold) with clipping, scene depth, unified picking and a worker reader. WebGPU (shared device and depth) or WebGL2.",
+	"description": "Voxel grids for @ortho-earth/globe: fills the reserved map.addData kind \"voxel\" (VoxelData: a box, longitude/latitude/height region or cylinder grid of scalar / RGBA cells), drawn as a same-frame overlay by ray marching (blocks: first solid cell, Minecraft-like; volume: trilinear, colormap, front-to-back; iso: the surface at a threshold) with clipping, scene depth, unified picking and a worker reader. WebGPU (shared device and depth) or WebGL2.",
 	"main": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts"

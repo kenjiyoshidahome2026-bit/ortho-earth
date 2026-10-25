@@ -11,7 +11,8 @@
      第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く
      ⑫時間の次元（times＝2 こま）＝map.clock の時刻でこまが替わる（赤 → 青）・time で固定
      第 5 段 ③（2026-10-25）：⑬GPU の予算（voxelPlugin({ budget }) を小さく）＝⑪の格子に粗い段ができ、遠いブリックは粗い段で描かれ GPU の合計は予算の中・色はそのまま
-     第 5 段 ④（2026-10-25）：⑭NetCDF（tests/voxel-t.nc＝⑧と同じ枠の classic・緯度は北から）を URL で＝worker が取って読む・region・source の meta・色が出る -->)
+     第 5 段 ④（2026-10-25）：⑭NetCDF（tests/voxel-t.nc＝⑧と同じ枠の classic・緯度は北から）を URL で＝worker が取って読む・region・source の meta・色が出る
+     cylinder（2026-10-26）：⑮中空の半周（軸＝棟の南 250 m・半径 20〜60・高さ 60・角度 0〜180°＝北半分）の blocks＝北が緑・角度の最後のセル（西の端）だけ青・南（データの無い半分）は空・当たりのセル・volume でも色 -->)
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -193,6 +194,27 @@ try {
 	const dn = await until(async () => { const d = await probe(hn); return d && near(d, Q.Rg[0], Q.Rg[1], colored, 6) ? d : null; }, W);
 	ok("nc.draw", !!dn, dn ? "" : await (async () => { const d = await probe(hn); return d ? `${count(d, colored)} px got ${JSON.stringify(px(d, Q.Rg[0], Q.Rg[1]))} layers=${JSON.stringify(d.layers)}` : "no probe"; })());
 	hn.remove();
+	map.unuse("voxel");
+	// ⑮ cylinder（2026-10-26）＝中空の半周の blocks。角度は東（+x）から反時計回り＝0〜180° が北半分・最後のセル（150〜180°＝西の端）だけ青
+	stage = "cylinder";
+	await sleep(OVERLAY_LINGER_MS + 300);
+	map.use(voxelPlugin());
+	const CD = [4, 6, 3], rgbaC = new Uint8Array(CD[0] * CD[1] * CD[2] * 4), CO = [0, -250];
+	for (let k = 0; k < CD[2]; k++) for (let j = 0; j < CD[1]; j++) for (let i = 0; i < CD[0]; i++) rgbaC.set(j === CD[1] - 1 ? [32, 64, 255, 255] : [30, 220, 60, 255], (i + CD[0] * (j + CD[1] * k)) * 4);
+	const hy = map.addData({ dims: CD, cylinder: { origin: ll(CO[0], CO[1], 0), radius: [20, 60], height: 60, angle: [0, 180] }, values: rgbaC, components: 4 }, { kind: "voxel", id: "cyl", render: "blocks" });
+	await hy.ready;
+	ok("cyl.handle", hy.shape === "cylinder" && hy.n === 72 && hy.dims.join() === "4,6,3", `${hy.shape} ${hy.n} ${hy.dims}`);
+	const CY = (deg, r, h) => at(ll(CO[0] + r * Math.cos(deg * Math.PI / 180), CO[1] + r * Math.sin(deg * Math.PI / 180), h));
+	const opq = c => c[3] > 200;
+	const dy = await until(async () => { const d = await probe(hy); return d && near(d, CY(100, 40, 55)[0], CY(100, 40, 55)[1], green, 3) && near(d, CY(165, 40, 55)[0], CY(165, 40, 55)[1], blue, 3) ? d : null; }, W);
+	ok("cyl.blocks", !!dy && hy.error === null, dy ? "" : await (async () => { const d = await probe(hy); return d ? `${hy.error} N=${JSON.stringify(px(d, CY(100, 40, 55)[0], CY(100, 40, 55)[1]))} W=${JSON.stringify(px(d, CY(165, 40, 55)[0], CY(165, 40, 55)[1]))} layers=${JSON.stringify(d.layers)}` : "no probe"; })());
+	ok("cyl.southEmpty", !!dy && !near(dy, CY(-90, 40, 30)[0], CY(-90, 40, 30)[1], opq, 2), dy ? JSON.stringify(px(dy, CY(-90, 40, 30)[0], CY(-90, 40, 30)[1])) : "");
+	const py = await again(() => hy.pick(CY(100, 40, 55)[0], CY(100, 40, 55)[1]));
+	ok("cyl.pick", py.length === 1 && py[0].layer === "cyl" && py[0].cell[1] === 3 && py[0].cell[2] === 2 && py[0].cell[0] >= 1 && py[0].cell[0] <= 3 && Math.abs(py[0].lngLat[1] - (LAT + (CO[1] + 40) / K)) < 0.0005, JSON.stringify(py.map(h => ({ c: h.cell, ll: h.lngLat }))));
+	await hy.setProps({ render: "volume", opacity: 0.8 });
+	const dv = await until(async () => { const d = await probe(hy); return d && near(d, CY(100, 40, 30)[0], CY(100, 40, 30)[1], green, 3) && !near(d, CY(-90, 40, 30)[0], CY(-90, 40, 30)[1], opq, 2) ? d : null; }, W);
+	ok("cyl.volume", !!dv, dv ? "" : await (async () => { const d = await probe(hy); return d ? JSON.stringify(px(d, CY(100, 40, 30)[0], CY(100, 40, 30)[1])) : "no probe"; })());
+	hy.remove();
 	map.unuse("voxel");
 	clearInterval(heart);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");

@@ -9,11 +9,13 @@
 //   box の blocks＝DDA（Amanatides–Woo）で最初の空でないセルに止まり、面の法線で陰影。region の blocks＝一定の刻みで最近傍のセルを見る（セルの境界が経線・緯線・等高度面＝DDA は使えない・刻みはセルの 1/4）。
 //   volume＝一定の刻みで三線形に引き、色表の色と α を前から重ねる（α が 0.98 を越えたら打ち切り）。iso＝値が閾を跨いだ所を二分探索で詰め、勾配を法線に。
 //   region の点 → セル座標＝東北上 m → 単位球 → 経緯度・高さ（球・rAx で楕円体の緯度に戻す）。断面＝セル空間の範囲 [lo, hi]（box は箱そのものを狭める・region は範囲の外を空に）。
+//   cylinder（u_geo 2・2026-10-26）＝殻は扇形を包む凸な箱（東北上 m）。入口と出口は光線と円柱（外の半径）・上下の面の交わり（局所 m＝u_cylM で）。点 → セル＝局所の半径・角度・高さ。
+//     中空と角度の外はセルの範囲の外＝飛ばす。blocks の法線＝跨いだセルの軸（半径・角度・高さ）の局所の向き → 東北上（u_cylM の転置）。iso の勾配＝東北上 m で差分。
 //   シーンの深度＝対数深度を w に戻し（w＝exp2(2·s/logCoef)−1）、光線はそこで止まる（w は光線に沿って線形＝mvp の第 4 行）。
 // 当たり＝止まったセルの番号を RGBA8 に焼く別パス（volume は積算の α が 0.5 を越えたセル）・読む画素だけ scissor。
 // 精度＝目の位置（セル空間／東北上 m）と箱の mvp は CPU の倍精度で作る（RTE・splat と同じ）。
 import type { OverlayFrameApi } from "@ortho-earth/globe";
-import type { GeoGrid, Clip, Level } from "./grid.ts";
+import type { GeoGrid, CylGrid, Clip, Level } from "./grid.ts";
 
 type GL = WebGL2RenderingContext;
 interface Program { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }
@@ -23,7 +25,7 @@ export type VoxelApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { 
 export interface PickContext { s: CamState; api: VoxelApi; size: { w: number; h: number } }
 export type VoxelAltitude = "relative" | "absolute";
 export interface VoxelStyle { /** 見せるこま（時間の次元・frames の番号） */ frame?: number; mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
-export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとの値（frames[0]＝tex）。style の frame で選ぶ（GPU には見せるこまだけ） */ frames?: Uint8Array[] | null; /** 粗い段（s＝2, 4…）＝GPU の予算を越える時に遠い層で使う */ lods?: LevelBody[] | null; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
+export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとの値（frames[0]＝tex）。style の frame で選ぶ（GPU には見せるこまだけ） */ frames?: Uint8Array[] | null; /** 粗い段（s＝2, 4…）＝GPU の予算を越える時に遠い層で使う */ lods?: LevelBody[] | null; shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
 export type LevelBody = Pick<Level, "s" | "off" | "own" | "dims" | "tex" | "frames" | "vmax" | "anchor" | "A" | "radius" | "geo">;
 export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "budget"; bytes: number } | { type: "probe"; id: unknown };
 export interface VoxelPickResult { id: number; q: string; layer: string; index: number; cell: [number, number, number]; value: number | null; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number; cell: [number, number, number]; value: number | null } }
@@ -48,11 +50,17 @@ uniform mat3 u_nrm; uniform mat3 u_gradM; uniform vec3 u_light; uniform highp ui
 uniform vec3 u_lo; uniform vec3 u_hi;
 uniform vec3 u_o; uniform vec3 u_E; uniform vec3 u_N; uniform vec3 u_U; uniform float u_R; uniform float u_rAx;
 uniform vec4 u_geoW; uniform vec2 u_geoH; uniform vec4 u_bs;
+uniform mat3 u_cylM; uniform vec4 u_cyl; uniform float u_cylEps;
 in vec3 v_p;
 out vec4 o;
 // 光線の点 → セル座標（box＝そのまま・region＝東北上 m → 単位球 → 経緯度・高さ）
 vec3 cellOf(vec3 p) {
 	if (u_geo == 0) return p;
+	if (u_geo == 2) {   // cylinder＝東北上 m → 局所 m → 半径・角度（始めから反時計回り）・高さ
+		vec3 l = u_cylM * p;
+		float da = mod(degrees(atan(l.y, l.x)) - u_cyl.z, 360.0);
+		return vec3((length(l.xy) - u_cyl.x) / (u_cyl.y - u_cyl.x) * u_dims.x, da / u_cyl.w * u_dims.y, (l.z - u_geoH.x) / (u_geoH.y - u_geoH.x) * u_dims.z);
+	}
 	vec3 P = u_o + (u_E * p.x + u_N * p.y + u_U * p.z) / u_R;
 	float r = length(P);
 	float lat = asin(clamp(P.y / r, -1.0, 1.0));
@@ -76,6 +84,11 @@ float valueAt(vec3 c) {
 	if (u_comps == 4) return s.a > 0.0 ? s.a : -1.0;
 	return s.r > 0.5 / 255.0 ? (s.r * 255.0 - 1.0) / 254.0 : -1.0;
 }
+// cylinder のセルの軸の向き（nc＝±x 半径・±y 角度・±z 高さ）→ 東北上の法線（局所の法線は u_cylM の転置で）
+vec3 cylN(vec3 nc, vec3 p) {
+	vec3 l = u_cylM * p; vec2 u = dot(l.xy, l.xy) > 0.0 ? normalize(l.xy) : vec2(1.0, 0.0);
+	return normalize(transpose(u_cylM) * (nc.x * vec3(u, 0.0) + nc.y * vec3(-u.y, u.x, 0.0) + vec3(0.0, 0.0, nc.z)));
+}
 vec4 shade(vec4 col, vec3 ne) { float l = 0.55 + 0.45 * max(0.0, dot(ne, u_light)); float a = u_opacity; return vec4(col.rgb * l * a, a); }
 ${pick ? `vec4 encode(highp uint id) { return vec4(float(id & 255u), float((id >> 8) & 255u), float((id >> 16) & 255u), float((id >> 24) & 255u)) / 255.0; }
 highp uint cellId(ivec3 c) { return u_base + uint(c.x + int(u_dims.x) * (c.y + int(u_dims.y) * c.z)); }` : ""}
@@ -88,6 +101,15 @@ void main() {
 		t0 = max(max(tmin.x, tmin.y), tmin.z); t1 = min(min(tmax.x, tmax.y), tmax.z);
 		axis0 = t0 == tmin.x ? 0 : t0 == tmin.y ? 1 : 2;
 		inside = t0 < 0.0; t0 = max(t0, 0.0);
+	} else if (u_geo == 2) {   // cylinder＝箱の裏面まで。入口と出口は外の円柱と上下の面（局所 m・t は東北上 m と同じ）
+		t1 = length(v_p - ro);
+		vec3 lp = u_cylM * ro, ld = u_cylM * rd;
+		float a = dot(ld.xy, ld.xy), b = dot(lp.xy, ld.xy), c = dot(lp.xy, lp.xy) - u_cyl.y * u_cyl.y, ta = -1e30, tb = 1e30;
+		if (a > 1e-12) { float disc = b * b - a * c; if (disc < 0.0) discard; float sq = sqrt(disc); ta = (-b - sq) / a; tb = (-b + sq) / a; }
+		else if (c > 0.0) discard;
+		if (abs(ld.z) > 1e-12) { float za = (u_geoH.x - lp.z) / ld.z, zb = (u_geoH.y - lp.z) / ld.z; ta = max(ta, min(za, zb)); tb = min(tb, max(za, zb)); }
+		else if (lp.z < u_geoH.x || lp.z > u_geoH.y) discard;
+		t0 = max(ta, 0.0); t1 = min(t1, tb);
 	} else {   // 殻の裏面まで。入口は殻を包む球
 		t1 = length(v_p - ro);
 		vec3 oc = ro - u_bs.xyz; float b = dot(oc, rd), c = dot(oc, oc) - u_bs.w * u_bs.w, disc = b * b - c;
@@ -138,9 +160,9 @@ void main() {
 				ivec3 ci = ivec3(floor(c)); bool solid; vec4 col = cellColor(ci, solid);
 				if (solid) {
 					${pick ? `o = encode(cellId(ci)); return;` : `
-					vec3 nc = -rd;
-					if (havePrev) { ivec3 d = ci - prevC; nc = d.x != 0 ? vec3(-float(sign(d.x)), 0.0, 0.0) : d.y != 0 ? vec3(0.0, -float(sign(d.y)), 0.0) : d.z != 0 ? vec3(0.0, 0.0, -float(sign(d.z))) : -rd; }
-					o = shade(col, normalize(u_nrm * nc)); return;`}
+					vec3 nc = vec3(0.0);
+					if (havePrev) { ivec3 d = ci - prevC; nc = d.x != 0 ? vec3(-float(sign(d.x)), 0.0, 0.0) : d.y != 0 ? vec3(0.0, -float(sign(d.y)), 0.0) : d.z != 0 ? vec3(0.0, 0.0, -float(sign(d.z))) : vec3(0.0); }
+					o = shade(col, nc == vec3(0.0) ? -rd : u_geo == 2 ? cylN(nc, p) : normalize(u_nrm * nc)); return;`}
 				}
 				prevC = ci; havePrev = true;
 			} else if (u_mode == 1) {   // volume
@@ -160,9 +182,16 @@ void main() {
 					for (int k = 0; k < 6; k++) { float m = 0.5 * (a + b); float vm = valueAt(cellOf(ro + rd * m)); if ((vm - u_thr) * (va - u_thr) < 0.0) b = m; else { a = m; va = vm; } }
 					vec3 ch = cellOf(ro + rd * b);
 					${pick ? `o = encode(cellId(clamp(ivec3(floor(ch)), ivec3(0), ivec3(u_dims) - 1))); return;` : `
-					vec3 g = vec3(valueAt(ch + vec3(0.5, 0.0, 0.0)) - valueAt(ch - vec3(0.5, 0.0, 0.0)), valueAt(ch + vec3(0.0, 0.5, 0.0)) - valueAt(ch - vec3(0.0, 0.5, 0.0)), valueAt(ch + vec3(0.0, 0.0, 0.5)) - valueAt(ch - vec3(0.0, 0.0, 0.5)));
-					vec3 ne = u_gradM * g; ne = dot(ne, ne) > 1e-12 ? normalize(ne) : -rd;
-					if (dot(ne, u_nrm * rd) > 0.0) ne = -ne;   // 見ている側へ
+					vec3 ne;
+					if (u_geo == 2) {   // cylinder＝東北上 m で差分（セルの軸が場所ごとに回る）
+						vec3 ph = ro + rd * b; float e = u_cylEps;
+						ne = vec3(valueAt(cellOf(ph + vec3(e, 0.0, 0.0))) - valueAt(cellOf(ph - vec3(e, 0.0, 0.0))), valueAt(cellOf(ph + vec3(0.0, e, 0.0))) - valueAt(cellOf(ph - vec3(0.0, e, 0.0))), valueAt(cellOf(ph + vec3(0.0, 0.0, e))) - valueAt(cellOf(ph - vec3(0.0, 0.0, e))));
+					} else {
+						vec3 g = vec3(valueAt(ch + vec3(0.5, 0.0, 0.0)) - valueAt(ch - vec3(0.5, 0.0, 0.0)), valueAt(ch + vec3(0.0, 0.5, 0.0)) - valueAt(ch - vec3(0.0, 0.5, 0.0)), valueAt(ch + vec3(0.0, 0.0, 0.5)) - valueAt(ch - vec3(0.0, 0.0, 0.5)));
+						ne = u_gradM * g;
+					}
+					ne = dot(ne, ne) > 1e-12 ? normalize(ne) : -rd;
+					if (dot(ne, u_geo == 2 ? rd : u_nrm * rd) > 0.0) ne = -ne;   // 見ている側へ
 					vec4 col = u_comps == 4 ? texture(u_vol, ch / u_dims) : texture(u_cmap, vec2(u_thr, 0.5));
 					o = shade(col, ne); return;`}
 				}
@@ -174,7 +203,7 @@ void main() {
 	${pick ? `discard;` : `if (u_mode != 1 || acc.a < 1.0 / 255.0) discard; o = acc;`}
 }`;
 interface Layer {
-	shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; n: number; anchor: [number, number, number]; alt: VoxelAltitude; A: Float64Array; Ainv: Float64Array; radius: number;
+	shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; n: number; anchor: [number, number, number]; alt: VoxelAltitude; A: Float64Array; Ainv: Float64Array; radius: number;
 	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: WebGLTexture; cmap: WebGLTexture; on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array;
 	geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number;
@@ -243,7 +272,7 @@ export function normalMats(A: Float64Array, Ainv: Float64Array): { nrm: Float32A
 	return { nrm, gradM };
 }
 const upCmap = (t: WebGLTexture, cmap: Uint8Array): void => { const gl = glc!; gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, cmap); gl.bindTexture(gl.TEXTURE_2D, null); };
-/** 元のセルの大きさ（m）＝box は A の列の短い方・region は cellM の短い方 */
+/** 元のセルの大きさ（m）＝box は A の列の短い方・region／cylinder は cellM の短い方 */
 export const cellOf = (A: ArrayLike<number>, geo: GeoGrid | null): number => geo ? Math.min(...geo.cellM) : Math.min(...[0, 1, 2].map(c => Math.hypot(A[c], A[3 + c], A[6 + c])));
 function mkLvl(b: LevelBody, comps: 1 | 4, region: boolean, single: boolean): Lvl {
 	const gl = glc!, [nx, ny, nz] = b.dims;
@@ -285,13 +314,13 @@ function ensure(L: Layer): void {
 }
 const freeTex = (V: Lvl): void => { if (V.tex) { glc!.deleteTexture(V.tex); V.tex = null; V.up = -1; } };
 function build(d: VoxelLayerBody): Layer {
-	const gl = glc!, region = d.shape === "region", single = !d.off;
+	const gl = glc!, region = d.shape !== "box", single = !d.off;   // region・cylinder＝殻（geo）
 	const levels = [mkLvl({ s: 1, off: d.off ?? [0, 0, 0], own: d.own ?? [0, 0, 0, ...d.dims], dims: d.dims, tex: d.tex, frames: d.frames ?? null, vmax: d.vmax ?? 255, anchor: d.anchor, A: d.A as Float64Array, radius: d.radius, geo: d.geo ?? null }, d.comps, region, single), ...(d.lods ?? []).map(b => mkLvl(b, d.comps, region, false))];
 	const cmap = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, cmap);
 	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
 	upCmap(cmap, d.cmap);
 	const V = levels[0], fullFine = d.full ?? d.dims;
-	const L: Layer = { shape: region ? "region" : "box", dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+	const L: Layer = { shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
 		tex: null as unknown as WebGLTexture, cmap, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, vao: V.vao, vb: V.vb, nVerts: V.nVerts, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
 		frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
 	useLevel(L, 0);
@@ -381,7 +410,7 @@ function bindDepth(P: Program, api: VoxelApi | null | undefined): void {
 	if (P.u.u_sceneDepth) { if (!dummyTex) { dummyTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, dummyTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.bindTexture(gl.TEXTURE_2D, null); } gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, dummyTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(P.u.u_sceneDepth, 3); }
 }
 /** 刻み（box＝セル・region＝m）と最大の歩数（光線の空間で） */
-export function stepsOf(L: { shape: "box" | "region"; dims: [number, number, number]; mode: number; step: number; geo: GeoGrid | null }): { step: number; maxSteps: number } {
+export function stepsOf(L: { shape: "box" | "region" | "cylinder"; dims: [number, number, number]; mode: number; step: number; geo: GeoGrid | null }): { step: number; maxSteps: number } {
 	if (L.geo) { const cm = Math.min(...L.geo.cellM), step = (L.mode === 0 ? Math.min(L.step, 0.25) : L.step) * cm; return { step, maxSteps: Math.min(4096, Math.ceil(2 * L.geo.bs[3] / step) + 2) }; }
 	if (L.mode === 0) return { step: L.step, maxSteps: L.dims[0] + L.dims[1] + L.dims[2] + 2 };
 	return { step: L.step, maxSteps: Math.min(4096, Math.ceil(Math.hypot(L.dims[0], L.dims[1], L.dims[2]) / L.step) + 2) };
@@ -428,13 +457,15 @@ function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w
 		const { step, maxSteps } = stepsOf(L), { lo, hi } = drawBounds(L)!;
 		gl.uniformMatrix4fv(P.u.u_mvp, false, mvpC); gl.uniform3f(P.u.u_dims, L.dims[0], L.dims[1], L.dims[2]); gl.uniform3fv(P.u.u_eye, eyeC);
 		gl.uniformMatrix3fv(P.u.u_nrm, false, L.nrm); gl.uniformMatrix3fv(P.u.u_gradM, false, L.gradM);
-		gl.uniform1i(P.u.u_mode, L.mode); gl.uniform1i(P.u.u_comps, L.comps); gl.uniform1i(P.u.u_geo, L.geo ? 1 : 0); gl.uniform1i(P.u.u_maxSteps, maxSteps);
+		gl.uniform1i(P.u.u_mode, L.mode); gl.uniform1i(P.u.u_comps, L.comps); gl.uniform1i(P.u.u_geo, L.geo ? (L.geo.cyl ? 2 : 1) : 0); gl.uniform1i(P.u.u_maxSteps, maxSteps);
 		gl.uniform1f(P.u.u_thr, L.thr); gl.uniform1f(P.u.u_step, step); gl.uniform1f(P.u.u_opacity, L.opacity); gl.uniform1f(P.u.u_occl, L.occl ? 1 : 0);
 		gl.uniform3f(P.u.u_lo, lo[0], lo[1], lo[2]); gl.uniform3f(P.u.u_hi, hi[0], hi[1], hi[2]);
 		gl.uniform1ui(P.u.u_base, L.base);
 		if (L.geo) {
 			gl.uniform3fv(P.u.u_o, geoU.o); gl.uniform3fv(P.u.u_E, geoU.E); gl.uniform3fv(P.u.u_N, geoU.N); gl.uniform3fv(P.u.u_U, geoU.U); gl.uniform1f(P.u.u_R, geoU.R); gl.uniform1f(P.u.u_rAx, geoU.rAx);
 			gl.uniform4f(P.u.u_geoW, L.geo.west, L.geo.south, L.geo.spanLon, L.geo.spanLat); gl.uniform2f(P.u.u_geoH, L.geo.h0, L.geo.h1); gl.uniform4f(P.u.u_bs, L.geo.bs[0], L.geo.bs[1], L.geo.bs[2], L.geo.bs[3]);
+			const c = L.geo.cyl;
+			if (c) { gl.uniformMatrix3fv(P.u.u_cylM, false, colMajor(c.inv)); gl.uniform4f(P.u.u_cyl, c.r0, c.r1, c.a0, c.span); gl.uniform1f(P.u.u_cylEps, 0.5 * Math.min(...L.geo.cellM)); }
 		}
 		gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, L.tex);
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, L.cmap);
@@ -461,9 +492,17 @@ export function frame(cam: unknown, s: CamState, { w, h }: { w: number; h: numbe
 	return false;
 }
 const decodeId = (r: number, g: number, b: number, a: number): number => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
-/** 当たりの番号 → セル・経緯度（セルの中心＝box は A で・region は経緯度の枠で） */
+/** 行優先 3×3 → 列優先（uniformMatrix3fv） */
+export const colMajor = (m: ArrayLike<number>): Float32Array => Float32Array.of(m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]);
+/** cylinder のセルの中心 → 錨からの東北上 m */
+export function cylCellEnu(c: CylGrid, dims: [number, number, number], cc: number[]): number[] {
+	const r = c.r0 + (c.r1 - c.r0) * cc[0] / dims[0], g = (c.a0 + c.span * cc[1] / dims[1]) * D2R, l = [r * Math.cos(g), r * Math.sin(g), c.z0 + (c.z1 - c.z0) * cc[2] / dims[2]], F = c.F;
+	return [F[0] * l[0] + F[1] * l[1] + F[2] * l[2], F[3] * l[0] + F[4] * l[1] + F[5] * l[2], F[6] * l[0] + F[7] * l[1] + F[8] * l[2]];
+}
+/** 当たりの番号 → セル・経緯度（セルの中心＝box は A で・region は経緯度の枠で・cylinder は扇形の局所で） */
 export function hitOf(L: { dims: [number, number, number]; A: Float64Array; anchor: [number, number, number]; geo: GeoGrid | null; properties: Record<string, unknown> | null; off?: [number, number, number] | null }, index: number): { cell: [number, number, number]; lngLat: [number, number] } {
 	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny)), cc = [i + 0.5, j + 0.5, k + 0.5];
+	if (L.geo?.cyl) { const [e, nn] = cylCellEnu(L.geo.cyl, L.dims, cc), a = L.anchor; return { cell: [i, j, k], lngLat: [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)] }; }
 	if (L.geo) return { cell: [i, j, k], lngLat: [((L.geo.west + L.geo.spanLon * cc[0] / nx + 180) % 360 + 360) % 360 - 180, L.geo.south + L.geo.spanLat * cc[1] / ny] };
 	if (L.off) for (let a = 0; a < 3; a++) cc[a] += L.off[a];   // ブリック＝親のセル座標へ
 	const A = L.A, e = A[0] * cc[0] + A[1] * cc[1] + A[2] * cc[2], nn = A[3] * cc[0] + A[4] * cc[1] + A[5] * cc[2], a = L.anchor;
