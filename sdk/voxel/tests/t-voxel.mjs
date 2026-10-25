@@ -288,7 +288,7 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	ok("handle.region", hr.shape === "region" && rb.shape === "region" && rb.geo && rb.geo.shell instanceof Float32Array && rb.alt === "absolute" && near(rb.anchor[0], 139.5) && rb.mode === 0);
 	hr.remove();
 	const h5 = createVoxel(fake, "a.nc", { id: "v5" });
-	ok("handle.fileSource", await (async () => { try { await h5.ready; return false; } catch (e) { return /stage 5/.test(e.message); } })());
+	ok("handle.fileSource", await (async () => { try { await h5.ready; return false; } catch (e) { return /a\.nc|fetch|URL|Failed/i.test(e.message); } })());   // 取りに行って失敗＝理由つきで ready が落ちる（読み方は t-sources.mjs）
 	h5.remove();   // 読めなくても手綱は生きている（setData で直せる）＝外すまでオーバーレイを持つ
 	ok("handle.badData", throws(() => createVoxel(fake, { dims: [1, 1, 1], values: new Uint8Array(2), box: {} }, { id: "v6" }), /length/));
 	h.remove(); ok("handle.remove", posts.some(([d]) => d?.type === "remove" && d.q === "v1") && !ids.has("v1"));
