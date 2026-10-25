@@ -32,6 +32,7 @@ const ALLOW = {
 	"packages/globe/src/api/data.ts": 4,   // map.addData の面・線・柱（deck.gl 差分 PR-4・2026-10-12）＝addSource・addLayer・setLayoutProperty（visibility）・queryRenderedFeatures（h.pick）
 	                                      //   ＝利用者の層と同じ MapLibre の意味で良い（H3 と同じく既存の層経路に乗せる＝利用者が addLayer で描いたのと同じ姿・当たり）。globe.js から切り出した（分割 ⑤）
 	"packages/globe/src/cells/layer.ts": 7,   // セル・等高線の層（deck.gl 差分 PR-5・2026-10-12）＝addSource 2・addLayer 4・setPaintProperty 1＝H3（packages/h3）と同じく意図して MapLibre の意味の層経路（利用者が addLayer で描いたのと同じ姿・当たり）
+	"packages/globe/src/gadgets/czml-scene.ts": 4,   // CZML の polygon・polyline（P0 #5・2026-10-25）＝addSource 1・addLayer 3（fill・fill-extrusion・line）＝map.addData と同じく MapLibre の意味の層経路で良い（利用者が addLayer で描いたのと同じ姿）
 	"packages/globe/src/gadgets/inspect.ts": 2,   // 検査表示（#174・maplibre-gl-inspect 相当）＝検査の層は MapLibre の層の文書（addLayer）・札は queryRenderedFeatures＝MapLibre の意味そのもの
 };
 

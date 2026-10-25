@@ -26,7 +26,9 @@ type DrawTrack = CzmlTrack & { style?: CzmlStyle };
 /** 最後に描いた印（device px・r＝当たり半径） */
 interface Mark { x: number; y: number; r: number; tr: DrawTrack }
 /** main からの指示＋検定の probe */
-type CzmlDrawMsg = { type: "probe"; id?: unknown } | { type: "tracks"; tracks?: DrawTrack[] } | { type: "clear" };
+/** 高さのある線（CZML の polyline・P0 #5＝gadgets/czml-scene.ts の CzmlLine3D）＝ECEF の点列・出ている区間 */
+interface DrawLine { p: number[]; color: string; width: number; avail: [number, number][] | null; show: unknown }
+type CzmlDrawMsg = { type: "probe"; id?: unknown } | { type: "tracks"; tracks?: DrawTrack[] } | { type: "lines"; lines?: DrawLine[] } | { type: "clear" };
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 /** アトラスの中の絵（u0,v0,u1,v1＝0..1・w,h＝device px） */
@@ -36,7 +38,7 @@ const D2R = Math.PI / 180, MIN_EARTH_PX = 14;   // 地球の見かけの半径�
 const FONT = '"Noto Sans",system-ui,sans-serif';   // 地域の書体は名指ししない（regionless）＝各言語の文字は OS の書体が受ける
 const ATLAS = 2048, IMG_MAX = 256;   // アトラスの一辺・billboard の絵の長辺の上限（焼く時に縮める）
 let canvas: OffscreenCanvas | null = null, gl: WebGL2RenderingContext | null = null, host: OverlayHost | null = null, tracks: DrawTrack[] = [];
-let marks2: Mark[] = [];   // 最後に描いた印＝[{ x, y, r（当たり半径・device px）, tr }]（pick が読む）
+let marks2: Mark[] = [], lines: DrawLine[] = [];   // 最後に描いた印＝[{ x, y, r（当たり半径・device px）, tr }]（pick が読む）
 const images = new Map<string, ImageBitmap | "loading" | "bad">();   // src → ImageBitmap | "loading" | "bad"
 const probes: unknown[] = [];
 
@@ -201,10 +203,11 @@ export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 export function message(d: CzmlDrawMsg | null | undefined) {
 	if (d?.type === "probe") { probes.push(d.id); host?.requestDraw(); return; }   // 検定用＝次に描いた直後の画素を main へ（dbgHost.__ovPixels）
 	if (d?.type === "tracks") tracks = d.tracks || [];
-	else if (d?.type === "clear") tracks = [];
+	else if (d?.type === "lines") lines = d.lines || [];
+	else if (d?.type === "clear") { tracks = []; lines = []; }
 	host?.requestDraw();
 }
-export function destroy() { tracks = []; for (const v of images.values()) if (v instanceof ImageBitmap) v.close(); images.clear(); slots.clear(); gl?.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
+export function destroy() { tracks = []; lines = []; for (const v of images.values()) if (v instanceof ImageBitmap) v.close(); images.clear(); slots.clear(); gl?.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
 
 // 検定用の画素（premultiplied RGBA・上が先＝旧 canvas2D の getImageData と同じ向きに並べ直す）
 function answerProbes(w: number, h: number) {
@@ -224,7 +227,7 @@ export function frame(cam: CameraPose, s: CameraState, { w, h }: { w: number; h:
 function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameApi) {
 	const g = gl!;
 	marks2 = [];
-	if (!tracks.length) return false;
+	if (!tracks.length && !lines.length) return false;
 	const E = s.eye, m = s.mvp, dpr = api.dpr || 1;
 	if (s.focal / Math.sqrt(Math.max(E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1, 1e-12)) / dpr < MIN_EARTH_PX) return api.clock?.rate !== 0;
 	const ell = ellipsoidOn(), R = worldRadiusM(), rAx = api.rAx || 1, ms = api.time;
@@ -247,7 +250,42 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		g.bindVertexArray(segVao); g.bindBuffer(g.ARRAY_BUFFER, segBuf); g.bufferData(g.ARRAY_BUFFER, new Float32Array(out), g.STREAM_DRAW);
 		g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, out.length / 7);
 	};
+	// 線分の列（device px の [x0,y0,x1,y1,幅,継ぎ前,継ぎ後]×n）を 1 本の線として描く（尾・3D の線の共通）
+	const stroke = (out: number[], c: number[], lw: number) => {
+		if (out.length && c[3] >= 0.999) segDraw(out, c);
+		else if (out.length && c[3] > 0) {
+			if (!tmp || tmp.w !== w || tmp.h !== h) {
+				if (tmp) { g.deleteTexture(tmp.tex); g.deleteFramebuffer(tmp.fbo); }
+				const tex = g.createTexture(); g.bindTexture(g.TEXTURE_2D, tex); g.texStorage2D(g.TEXTURE_2D, 1, g.RGBA8, w, h);
+				g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.NEAREST); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.NEAREST);
+				const fbo = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, fbo); g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, tex, 0);
+				tmp = { tex, fbo, w, h };
+			}
+			let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+			for (let i = 0; i < out.length; i += 7) { x0 = Math.min(x0, out[i], out[i + 2]); x1 = Math.max(x1, out[i], out[i + 2]); y0 = Math.min(y0, out[i + 1], out[i + 3]); y1 = Math.max(y1, out[i + 1], out[i + 3]); }
+			const e = lw / 2 + 2, sx = Math.max(0, Math.floor(x0 - e)), sy = Math.max(0, Math.floor(h - y1 - e)), sw = Math.min(w, Math.ceil(x1 + e)) - sx, sh = Math.min(h, Math.ceil(h - y0 + e)) - sy;
+			if (sw > 0 && sh > 0) {
+				g.enable(g.SCISSOR_TEST); g.scissor(sx, sy, sw, sh);
+				g.bindFramebuffer(g.FRAMEBUFFER, tmp.fbo); g.clear(g.COLOR_BUFFER_BIT);
+				segDraw(out, [c[0] / c[3], c[1] / c[3], c[2] / c[3], 1]);
+				g.bindFramebuffer(g.FRAMEBUFFER, null);
+				g.useProgram(cmp!.p); g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tmp.tex); g.uniform1i(cmp!.u.u_t, 0); g.uniform1f(cmp!.u.u_a, c[3]);
+				g.bindVertexArray(markVao); g.drawArrays(g.TRIANGLE_STRIP, 0, 4);   // markVao の属性 0＝画面の四角（他の属性は使わない）
+				g.disable(g.SCISSOR_TEST);
+			}
+		}
+	};
 	const marks: Array<[[number, number], Partial<CzmlStyle>, DrawTrack]> = [];
+	// 高さのある線（CZML の polyline・P0 #5）＝尾と同じ描き方（隠れた所・切られた所で途切れる）
+	for (const L of lines) {
+		if ((L.avail && !L.avail.some(([a, b]) => ms >= a && ms <= b)) || !boolAt(L.show, ms, true)) continue;
+		const lw = L.width * dpr, out: number[] = [];
+		let run: Array<[number, number]> = [];
+		const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0); run = []; };
+		for (let i = 0; i + 2 < L.p.length; i += 3) { const P = toScreen([L.p[i], L.p[i + 1], L.p[i + 2]]); if (!P) { flush(); continue; } run.push(P); }
+		flush();
+		stroke(out, rgbaOf(L.color), lw);
+	}
 	for (const tr of tracks) {
 		if (!availableAt(tr, ms)) continue;
 		const st: Partial<CzmlStyle> = tr.style || {};
@@ -259,29 +297,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0); run = []; };   // 継ぎは丸・尾の端は butt
 			for (const t of times) { const q = positionAt(tr, t), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
 			flush();
-			const c = rgbaOf(ph.color);
-			if (out.length && c[3] >= 0.999) segDraw(out, c);
-			else if (out.length && c[3] > 0) {
-				if (!tmp || tmp.w !== w || tmp.h !== h) {
-					if (tmp) { g.deleteTexture(tmp.tex); g.deleteFramebuffer(tmp.fbo); }
-					const tex = g.createTexture(); g.bindTexture(g.TEXTURE_2D, tex); g.texStorage2D(g.TEXTURE_2D, 1, g.RGBA8, w, h);
-					g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.NEAREST); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.NEAREST);
-					const fbo = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, fbo); g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, tex, 0);
-					tmp = { tex, fbo, w, h };
-				}
-				let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-				for (let i = 0; i < out.length; i += 7) { x0 = Math.min(x0, out[i], out[i + 2]); x1 = Math.max(x1, out[i], out[i + 2]); y0 = Math.min(y0, out[i + 1], out[i + 3]); y1 = Math.max(y1, out[i + 1], out[i + 3]); }
-				const e = lw / 2 + 2, sx = Math.max(0, Math.floor(x0 - e)), sy = Math.max(0, Math.floor(h - y1 - e)), sw = Math.min(w, Math.ceil(x1 + e)) - sx, sh = Math.min(h, Math.ceil(h - y0 + e)) - sy;
-				if (sw > 0 && sh > 0) {
-					g.enable(g.SCISSOR_TEST); g.scissor(sx, sy, sw, sh);
-					g.bindFramebuffer(g.FRAMEBUFFER, tmp.fbo); g.clear(g.COLOR_BUFFER_BIT);
-					segDraw(out, [c[0] / c[3], c[1] / c[3], c[2] / c[3], 1]);
-					g.bindFramebuffer(g.FRAMEBUFFER, null);
-					g.useProgram(cmp!.p); g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, tmp.tex); g.uniform1i(cmp!.u.u_t, 0); g.uniform1f(cmp!.u.u_a, c[3]);
-					g.bindVertexArray(markVao); g.drawArrays(g.TRIANGLE_STRIP, 0, 4);   // markVao の属性 0＝画面の四角（他の属性は使わない）
-					g.disable(g.SCISSOR_TEST);
-				}
-			}
+			stroke(out, rgbaOf(ph.color), lw);
 		}
 		const q = positionAt(tr, ms), P = q && toScreen(q);
 		if (P) marks.push([P, st, tr]);

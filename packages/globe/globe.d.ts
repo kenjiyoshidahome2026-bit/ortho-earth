@@ -846,6 +846,14 @@ export interface ClassificationHandle {
 	setStyle(style: Partial<Omit<ClassificationOptions, "id">>): ClassificationHandle;
 	remove(): void;
 }
+/** map.loadCZML の戻り（Cesium の CzmlDataSource・P0 #5・2026-10-25）。数＝読んだ物の数（tracks＝時刻つきの点の軌跡・shapes＝地面の面と線・lines＝高さのある線・models＝模型） */
+export interface CzmlHandle {
+	readonly tracks: number; readonly shapes: number; readonly lines: number; readonly models: number;
+	/** 置いた模型（読み込みが済んだ物・区間の外の模型は外れている） */
+	readonly modelHandles: ModelHandle[];
+	/** 全部外す（時計の範囲も外す） */
+	remove(): void;
+}
 export interface SampleHeightResult { lng: number; lat: number; height: number | null; source: "tiles3d" | "model" | "terrain" | null; id?: string; featureId?: number }
 /** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.7.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
  *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。

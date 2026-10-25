@@ -1,0 +1,157 @@
+[
+ {
+  "id": "document",
+  "name": "scene",
+  "version": "1.0",
+  "clock": {
+   "interval": "2026-01-01T00:00:00Z/2026-01-01T01:00:00Z",
+   "currentTime": "2026-01-01T00:00:00Z",
+   "multiplier": 1,
+   "range": "CLAMPED"
+  }
+ },
+ {
+  "id": "block",
+  "name": "Block",
+  "availability": "2026-01-01T00:00:00Z/2026-01-01T00:30:00Z",
+  "polygon": {
+   "positions": {
+    "cartographicDegrees": [
+     139.705,
+     35.676,
+     0,
+     139.709,
+     35.676,
+     0,
+     139.709,
+     35.679,
+     0,
+     139.705,
+     35.679,
+     0
+    ]
+   },
+   "height": 0,
+   "extrudedHeight": 200,
+   "material": {
+    "solidColor": {
+     "color": {
+      "rgba": [
+       40,
+       80,
+       220,
+       255
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "road",
+  "name": "Road",
+  "polyline": {
+   "positions": {
+    "cartographicDegrees": [
+     139.69,
+     35.674,
+     0,
+     139.7,
+     35.674,
+     0
+    ]
+   },
+   "width": 8,
+   "clampToGround": true,
+   "material": {
+    "solidColor": {
+     "color": {
+      "rgba": [
+       255,
+       220,
+       0,
+       255
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "air",
+  "name": "Air",
+  "polyline": {
+   "positions": {
+    "cartographicDegrees": [
+     139.69,
+     35.677,
+     1500,
+     139.71,
+     35.677,
+     1500
+    ]
+   },
+   "width": 6,
+   "material": {
+    "polylineOutline": {
+     "color": {
+      "rgba": [
+       0,
+       230,
+       80,
+       255
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "statue",
+  "name": "Statue",
+  "position": {
+   "cartographicDegrees": [
+    139.7,
+    35.68,
+    0
+   ]
+  },
+  "orientation": {
+   "unitQuaternion": [
+    -0.4285377593391185,
+    0.15724673678269754,
+    0.8352781295283935,
+    0.3064951858077855
+   ]
+  },
+  "model": {
+   "gltf": "box.glb",
+   "heightReference": "CLAMP_TO_GROUND"
+  }
+ },
+ {
+  "id": "car",
+  "name": "Car",
+  "availability": "2026-01-01T00:00:00Z/2026-01-01T01:00:00Z",
+  "position": {
+   "epoch": "2026-01-01T00:00:00Z",
+   "cartographicDegrees": [
+    0,
+    139.69,
+    35.684,
+    0,
+    3600,
+    139.71,
+    35.684,
+    0
+   ]
+  },
+  "orientation": {
+   "velocityReference": "#position"
+  },
+  "model": {
+   "gltf": "box.glb",
+   "heightReference": "CLAMP_TO_GROUND"
+  }
+ }
+]
