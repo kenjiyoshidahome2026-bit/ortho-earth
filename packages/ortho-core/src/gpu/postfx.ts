@@ -8,16 +8,19 @@ const FULL_VS = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(positi
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
-// U＝(threshold, strength, radius, 0) / vig＝(strength, radius, softness, on) / size＝(W, H, 1/W, 1/H) / dir＝(dx, dy, 0, 0) / tm＝(mode 0..4, exposure, on, fxaaOn) / lut＝(size, intensity, on, 0)
-const HEAD = `struct PostP { b: vec4f, vig: vec4f, size: vec4f, dir: vec4f, tm: vec4f, lut: vec4f };
+// U＝(threshold, strength, radius, 0) / vig＝(strength, radius, softness, on) / size＝(W, H, 1/W, 1/H) / dir＝(dx, dy, 0, 0) / tm＝(mode 0..4, exposure, on, fxaaOn) / lut＝(size, intensity, on, 0) / gr＝(夜の色 rgb, on)
+// 夜の色（grade・2026-10-24）＝絵全体に乗算（夕景・夜の色）。ただし canvas の α＝1−窓の印（建物メッシュの街明かり・wgsl.js cityWin）の所は掛けない＝灯りだけ暗くならない。
+//   明部の抜き出し（bloom）も掛けた後の色から抜く＝夜は灯りだけが滲む。出す色の α は 1 に戻す（撮影の読み出しが α を拾わない）
+const HEAD = `struct PostP { b: vec4f, vig: vec4f, size: vec4f, dir: vec4f, tm: vec4f, lut: vec4f, gr: vec4f };
 @group(0) @binding(0) var<uniform> U: PostP;
 @group(0) @binding(1) var src: texture_2d<f32>;
 @group(0) @binding(2) var smp: sampler;
+fn graded(c: vec4f) -> vec3f { if (U.gr.w < 0.5) { return c.rgb; } return c.rgb * mix(U.gr.rgb, vec3f(1.0), 1.0 - c.a); }
 `;
 const BRIGHT = HEAD + FULL_VS + `
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	let p = vec2i(pos.xy) * 2;
-	let c = (textureLoad(src, p, 0).rgb + textureLoad(src, p + vec2i(1, 0), 0).rgb + textureLoad(src, p + vec2i(0, 1), 0).rgb + textureLoad(src, p + vec2i(1, 1), 0).rgb) * 0.25;
+	let c = (graded(textureLoad(src, p, 0)) + graded(textureLoad(src, p + vec2i(1, 0), 0)) + graded(textureLoad(src, p + vec2i(0, 1), 0)) + graded(textureLoad(src, p + vec2i(1, 1), 0))) * 0.25;
 	let l = dot(c, vec3f(0.2126, 0.7152, 0.0722));
 	let k = max(l - U.b.x, 0.0) / max(l, 1e-4);
 	return vec4f(c * k, 1.0);
@@ -87,6 +90,7 @@ fn lut3(c0: vec3f) -> vec3f {   // 帯＝x に B の板×size＋R・y に G
 	let uv = pos.xy * U.size.zw;
 	var c = textureLoad(src, vec2i(pos.xy), 0);
 	if (U.tm.w > 0.5) { c = vec4f(fxaa(pos.xy, U.size.zw), c.a); }
+	if (U.gr.w > 0.5) { c = vec4f(graded(c), 1.0); }   // 夜の色（窓の印の所は掛けない）
 	if (U.b.y > 0.0) { c = vec4f(c.rgb + textureSample(bloom, smp, uv).rgb * U.b.y, c.a); }
 	if (U.tm.z > 0.5) { c = vec4f(tonemap(c.rgb), c.a); }
 	if (U.lut.z > 0.5) { c = vec4f(mix(c.rgb, lut3(c.rgb), U.lut.y), c.a); }
@@ -103,6 +107,8 @@ export interface PostFrameOptions {
 	fxaa?: boolean;
 	tonemap?: { mode: string; exposure: number } | null;
 	lut?: { url: string; size: number; intensity: number } | null;
+	/** 夜の色（乗算 rgb 0..1）＝map.setGrade（2026-10-24）。窓の印（canvas の α）の所は掛けない */
+	grade?: number[] | null;
 }
 export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void; dispose(): void; bytes(): number }
 interface PostTargets { w: number; h: number; hw: number; hh: number; scratch: GPUTexture; half: GPUTexture[]; sv: GPUTextureView; hv: GPUTextureView[] }
@@ -124,7 +130,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 	const pipe = (code: string, layout: GPUBindGroupLayout, fmt: GPUTextureFormat): GPURenderPipeline => device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format: fmt }] }, primitive: { topology: "triangle-list" } });
 	const pBright = pipe(BRIGHT, bgl, "rgba8unorm"), pBlur = pipe(BLUR, bgl, "rgba8unorm"), pComp = pipe(COMP, bglComp, format);
 	const smp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
-	const ub = [0, 1, 2, 3].map(() => device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));   // 明部・横・縦・合成
+	const ub = [0, 1, 2, 3].map(() => device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));   // 明部・横・縦・合成
 	let T: PostTargets | null = null;   // { w, h, scratch, half: [3], views }
 	function ensure(W: number, H: number): void {
 		if (T && T.w === W && T.h === H) return;
@@ -135,8 +141,9 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 		T = { w: W, h: H, hw, hh, scratch, half, sv: scratch.createView(), hv: half.map(t => t.createView()) };
 	}
 	function free() { if (!T) return; T.scratch.destroy(); for (const t of T.half) t.destroy(); T = null; }
-	const f32 = new Float32Array(24);
-	function uni(i: number, b: ArrayLike<number>, vig: ArrayLike<number>, size: ArrayLike<number>, dir: ArrayLike<number>, tm: ArrayLike<number> = [0, 1, 0, 0], lp: ArrayLike<number> = [1, 0, 0, 0]): void { f32.set(b, 0); f32.set(vig, 4); f32.set(size, 8); f32.set(dir, 12); f32.set(tm, 16); f32.set(lp, 20); device.queue.writeBuffer(ub[i], 0, f32); }
+	const f32 = new Float32Array(28);
+	let gr: number[] = [1, 1, 1, 0];   // 夜の色（encode がフレームごとに詰める）
+	function uni(i: number, b: ArrayLike<number>, vig: ArrayLike<number>, size: ArrayLike<number>, dir: ArrayLike<number>, tm: ArrayLike<number> = [0, 1, 0, 0], lp: ArrayLike<number> = [1, 0, 0, 0]): void { f32.set(b, 0); f32.set(vig, 4); f32.set(size, 8); f32.set(dir, 12); f32.set(tm, 16); f32.set(lp, 20); f32.set(gr, 24); device.queue.writeBuffer(ub[i], 0, f32); }
 	// 3D LUT（W1）：url が変わったら読み直す。着くまでは LUT 無し（lut.z=0・束縛は 1×1 のダミー）。外したら返す
 	let L: PostLut | null = null, dummy: GPUTexture | null = null;   // L＝{ url, size, tex, view, n, ready }
 	const dummyView = () => { dummy ??= device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING }); return dummy.createView(); };
@@ -156,7 +163,8 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 	// enc＝開いたコマンドエンコーダ・canvasTex＝ctx.getCurrentTexture()（描き終えた色）・post＝normPost の形
 	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void {
 		ensure(W, H);
-		const b = post.bloom, v = post.vignette, t = post.tonemap;
+		const b = post.bloom, v = post.vignette, t = post.tonemap, g = post.grade;
+		gr = g && g.length >= 3 ? [g[0], g[1], g[2], 1] : [1, 1, 1, 0];
 		syncLut(post.lut);
 		const lutOn = !!(post.lut && L && L.ready && L.url === post.lut.url);
 		const tm = [t ? TM_MODE[t.mode] ?? 2 : 0, t ? t.exposure : 1, t ? 1 : 0, post.fxaa ? 1 : 0], lp = [lutOn ? L!.n : 1, lutOn ? post.lut!.intensity : 0, lutOn ? 1 : 0, 0];

@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- 実描画の検分：夜の街明かり（map.setCityLights＝建物メッシュの壁の窓）と夜の色（map.setGrade＝窓の印の所は暗くしない）・2026-10-24・WebGPU。
+     試料＝dark テーマ・東京（139.7/35.7）に 80m 角×高さ 120m の箱メッシュ 1 棟（面ごとの頂点と法線・PLATEAU と同じ素の建物メッシュ＝__rset("meshSet")）。南から見る（z18.2・pitch 60・遠景の平均は z16.6）。
+     読み出しは requestSnapshot の base（撮影・動画の書き出しと同じ口）。時刻は map.clock。
+     ①昼（正午）＝街明かりを点けても絵は変わらない（夜の度合い 0）
+     ②夜（20:30 JST）＝点けると壁に暖色の窓が出る（数えた画素が増える）・消すと元どおり
+     ③夜の色（grade 紺）＝窓の無い所は暗くなり、窓の所は明るいまま（grade だけの絵より明るい画素がある）
+     ④模型（uv と頂点色を持つメッシュ）の板は窓を出さない（素の建物メッシュだけ）
+     ⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:480px;height:360px}</style><title>t-citylights</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const { lonlatTo3D } = await import("@ortho-earth/core/camera");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+async function snap(map) {
+	await sleep(500);
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return new Uint8ClampedArray(r.base);
+}
+// 暖色の灯り＝赤が 150 以上で青より 40 以上強い
+const warm = px => { let c = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 150 && px[i] - px[i + 2] > 40) c++; return c; };
+const diff = (a, b) => { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m; };
+const bright = (px, th) => { let c = 0; for (let i = 0; i < px.length; i += 4) if ((px[i] + px[i + 1] + px[i + 2]) / 3 > th) c++; return c; };
+const mean = px => { let s = 0; for (let i = 0; i < px.length; i += 4) s += (px[i] + px[i + 1] + px[i + 2]) / 3; return s / (px.length / 4); };
+const alpha1 = px => { for (let i = 3; i < px.length; i += 4) if (px[i] !== 255) return false; return true; };
+try {
+	const map = await createGlobe({ target: "#map", view: "#18.2/35.7/139.7", theme: "dark", chips: false, persistView: false, debugGlobals: true });
+	await new Promise(r => map.on("load", r));
+	if (map.hud?.().backend !== "webgpu" && window.__backend !== "webgpu") {
+		ok("webgl2=setCityLights は false", map.setCityLights(true) === false && map.setGrade([42, 52, 96]) === false && map.getGrade() === null);
+	} else {
+	map.jumpTo({ center: [LON, LAT], zoom: 18.2, pitch: 60, bearing: 0 });   // 窓の粒が見える近さ（z16.6 では格子が 1〜3 画素＝平均の側＝下の farNotSunk で検める）
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const dirOf = (a, b) => { const d = a.map((v, i) => v - b[i]), l = Math.hypot(...d); return d.map(v => v / l); };
+	const up = dirOf(P(0, 0, 1), P(0, 0, -1)), east = dirOf(P(1, 0, 0), P(-1, 0, 0)), north = dirOf(P(0, 1, 0), P(0, -1, 0));
+	const neg = v => v.map(x => -x), q8 = v => v.map(x => Math.round(x * 127));
+	const H = 120, A = 40;
+	const faces = [
+		[[[-A, -A, 0], [A, -A, 0], [A, -A, H], [-A, -A, H]], neg(north)],
+		[[[A, -A, 0], [A, A, 0], [A, A, H], [A, -A, H]], east],
+		[[[A, A, 0], [-A, A, 0], [-A, A, H], [A, A, H]], north],
+		[[[-A, A, 0], [-A, -A, 0], [-A, -A, H], [-A, A, H]], neg(east)],
+		[[[-A, -A, H], [A, -A, H], [A, A, H], [-A, A, H]], up],
+	];
+	const V = [], N = [], I = [];
+	for (const [q, nv] of faces) { const b = V.length / 3; for (const [e, n, h] of q) { V.push(...P(e, n, h)); N.push(...q8(nv), 0); } I.push(b, b + 1, b + 2, b, b + 2, b + 3); }
+	const [bw, bs] = ll(-A, -A), [be, bn] = ll(A, A);
+	window.__rset("meshSet", { pos: new Float32Array(V), nrm: new Int8Array(N), idx: new Uint32Array(I), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(1000);
+	// ① 昼（正午 JST）
+	map.clock.setTime(Date.parse("2026-06-21T03:00:00Z"));
+	const day0 = await snap(map);
+	ok("setTrue", map.setCityLights(true) === true && map.getCityLights() === 1);
+	const day1 = await snap(map);
+	ok("dayUnchanged", diff(day0, day1) <= 2, `Δmax=${diff(day0, day1)}`);
+	// ② 夜（20:30 JST＝11:30Z・太陽高度 −10° 前後）
+	map.clock.setTime(Date.parse("2026-06-21T11:30:00Z"));
+	map.setCityLights(false);
+	const n0 = await snap(map);
+	map.setCityLights(1);
+	const n1 = await snap(map);
+	const w0 = warm(n0), w1 = warm(n1);
+	ok("nightWindows", w1 > w0 + 150, `warm ${w0}→${w1}`);
+	ok("nightNotAll", w1 < n1.length / 4 * 0.4, `warm=${w1}`);
+	ok("alphaOpaque", alpha1(n1), "grade 無し＝窓の印は α に書かない");
+	map.setCityLights(false);
+	const nOff = await snap(map);
+	ok("offRestores", diff(n0, nOff) <= 2, `Δmax=${diff(n0, nOff)}`);
+	// ③ 夜の色（紺）＝絵は暗くなるが、窓は暗くならない
+	ok("setGrade", map.setGrade([42, 52, 96], { glow: 0 }) === true && JSON.stringify(map.getGrade()) === "[42,52,96]", JSON.stringify(map.getGrade()));
+	const g0 = await snap(map);
+	map.setCityLights(true);
+	const g1 = await snap(map);
+	ok("gradeDarkens", mean(g0) < mean(n0) * 0.5, `mean ${mean(n0).toFixed(1)}→${mean(g0).toFixed(1)}`);
+	ok("gradeKeepsWindows", bright(g1, 110) > bright(g0, 110) + 100 && warm(g1) > 100, `bright ${bright(g0, 110)}→${bright(g1, 110)} warm=${warm(g1)}`);
+	ok("gradeAlphaOpaque", alpha1(g1), "後処理の出す α＝255");
+	map.setGrade([42, 52, 96], { glow: 1 });
+	const gl = await snap(map);
+	ok("glow", mean(gl) > mean(g1) + 0.05, `mean ${mean(g1).toFixed(2)}→${mean(gl).toFixed(2)}`);
+	map.setGrade(null);
+	ok("gradeNull", map.getGrade() === null);
+	const g2 = await snap(map);
+	ok("gradeOffRestores", diff(g2, n1) <= 2, `Δmax=${diff(g2, n1)}`);
+	// ③' 遠景（z16.6＝窓の格子が数画素）＝平均の灯りで、夜の色に沈まない（Mac 実測 2026-10-24：遠くの高層群が真っ暗だった）
+	map.jumpTo({ center: [LON, LAT], zoom: 16.6, pitch: 60, bearing: 0 });
+	map.setGrade([42, 52, 96], { glow: 0 });
+	map.setCityLights(false);
+	const f0 = await snap(map);
+	map.setCityLights(true);
+	const f1 = await snap(map);
+	const lifted = (() => { let c = 0; for (let i = 0; i < f0.length; i += 4) if ((f1[i] + f1[i + 1] + f1[i + 2]) - (f0[i] + f0[i + 1] + f0[i + 2]) > 45) c++; return c; })();
+	ok("farNotSunk", lifted > 300, `lifted=${lifted}`);
+	map.setGrade(null);
+	map.jumpTo({ center: [LON, LAT], zoom: 18.2, pitch: 60, bearing: 0 });
+	// ④ 模型（uv と頂点色＝MESH_TEX の経路）の壁＝窓は出さない（素の建物メッシュだけ）
+	window.__rset("meshSet", null, "box#0");
+	const mV = [], mN = [], mUV = [], mC = [];
+	for (const [e, n, h] of faces[0][0]) { mV.push(...P(e, n, h)); mN.push(...q8(neg(north)), 0); mUV.push(0, 0); mC.push(200, 200, 200, 255); }
+	window.__rset("meshSet", { pos: new Float32Array(mV), nrm: new Int8Array(mN), uv: new Float32Array(mUV), col: new Uint8Array(mC), idx: new Uint32Array([0, 1, 2, 0, 2, 3]), origin, bbox: [bw, bs, be, bn], ward: "model", twoSided: true, alphaMode: "OPAQUE" }, "model#0");
+	map.setCityLights(false);
+	const m0 = await snap(map);
+	map.setCityLights(true);
+	const m1 = await snap(map);
+	ok("modelNoWindows", diff(m0, m1) <= 2 && warm(m1) <= warm(m0) + 5, `Δmax=${diff(m0, m1)} warm ${warm(m0)}→${warm(m1)}`);
+	}
+	document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>
