@@ -6,6 +6,7 @@
 import { lonlatTo3D, worldRadiusM, ellAxisRatio } from "./camera.ts";
 
 export const CLIP_MAX = 6;   // 面の枚数の上限（箱＝6 枚・本人裁定）＝WGSL の ClipP と対
+export const CLIP_POLY_MAX = 64;   // 多角形の辺の上限（全部の輪の合計・超えたら間引く）＝WGSL の ClipP.pv と対
 
 /** 平面＝[nx, ny, nz, c]（β 空間） */
 export type ClipPlane = number[];
@@ -16,6 +17,8 @@ export interface ClipHorizontalSpec { at: [number, number] | number[]; h?: numbe
 /** 切り方の記述（1 群） */
 export interface ClipSpec {
 	planes?: (number[] | null | undefined)[]; vertical?: [number[], number[]][]; horizontal?: (ClipHorizontalSpec | null | undefined)[]; box?: ClipBoxSpec | null; param?: string | null;
+	/** 多角形（Cesium の ClippingPolygon）＝GeoJSON の Polygon・MultiPolygon（Feature・FeatureCollection も）か輪の列 [[lon,lat]…][]。既定は内側を消す・inverse＝内側だけ残す */
+	polygon?: unknown; inverse?: boolean;
 	targets?: string[]; on?: boolean;
 	cap?: false | { terrain?: number[]; building?: number[] } | null; edge?: false | { width?: number | string; color?: number[] } | null;
 }
@@ -103,6 +106,70 @@ export function clipPlanesFor(norm: ClipNorm | null | undefined, target: string)
 	for (const g of norm.groups) if (g.targets.has(target)) out.push(...clipPlanes(g.spec));
 	return out.slice(0, CLIP_MAX);
 }
+// ── 多角形で切る（Cesium の ClippingPolygon・P0 #4・2026-10-25）。面（平面）の交わりとは別に、多角形の内側（inverse＝外側）を消す。
+// 多角形の重心の接平面に平らに写した 2D（β 空間の東・北の単位ベクトルへの射影）で、画素の点の内外（偶奇）と辺までの距離を出す。
+// 距離の符号＝残る側が正＝面の距離と同じ扱いで最小を取れる（縁の帯もそのまま効く）。高さは問わない＝鉛直の柱で切る（Cesium と同じ）。
+// 射影の軸は重心の動径に垂直＝離れた点ほど鉛直から傾く（5 km 先の 300 m の塔で 0.24 m）
+export interface ClipPoly { C: number[]; e: number[]; n: number[]; edges: number[][]; inverse: boolean }
+type GeoIn = { type?: string; geometry?: GeoIn; features?: GeoIn[]; geometries?: GeoIn[]; coordinates?: unknown };
+/** 多角形の記述 → 輪の列（[lon,lat][]・閉じの重複なし） */
+export function clipPolygonRings(src: unknown): number[][][] {
+	const rings: number[][][] = [];
+	const ring = (r: unknown) => { if (!Array.isArray(r)) return; const out = r.filter(c => Array.isArray(c) && Number.isFinite(+c[0]) && Number.isFinite(+c[1])).map(c => [+c[0], +c[1]]); if (out.length > 1 && out[0][0] === out[out.length - 1][0] && out[0][1] === out[out.length - 1][1]) out.pop(); if (out.length >= 3) rings.push(out); };
+	const walk = (g: GeoIn | null | undefined): void => {
+		if (!g || typeof g !== "object") return;
+		if (Array.isArray(g)) { const a = g as unknown[]; if (Array.isArray(a[0]) && Array.isArray((a[0] as unknown[])[0])) for (const r of a) ring(r); else ring(a); return; }   // 輪の列か輪 1 本
+		if (g.type === "FeatureCollection") return void (g.features || []).forEach(walk);
+		if (g.type === "Feature") return walk(g.geometry);
+		if (g.type === "GeometryCollection") return void (g.geometries || []).forEach(walk);
+		const c = g.coordinates as unknown[];
+		if (g.type === "Polygon" && Array.isArray(c)) for (const r of c) ring(r);
+		else if (g.type === "MultiPolygon" && Array.isArray(c)) for (const p of c) for (const r of p as unknown[]) ring(r);
+	};
+	walk(src as GeoIn);
+	return rings;
+}
+/** 切り方の記述 → 多角形（輪が無ければ null）。辺が CLIP_POLY_MAX を超える時は輪ごとに一様に間引く */
+export function clipPolygon(spec: ClipSpec | null | undefined): ClipPoly | null {
+	if (!spec || spec.polygon == null) return null;
+	let rings = clipPolygonRings(spec.polygon);
+	if (!rings.length) return null;
+	const total = rings.reduce((a, r) => a + r.length, 0);
+	if (total > CLIP_POLY_MAX) {
+		const k = CLIP_POLY_MAX / total;
+		rings = rings.map(r => { const m = Math.max(3, Math.floor(r.length * k)); return Array.from({ length: m }, (_, i) => r[Math.floor(i * r.length / m)]); });
+		while (rings.reduce((a, r) => a + r.length, 0) > CLIP_POLY_MAX && rings.length > 1) rings.pop();   // 小さい輪が多すぎる＝後ろの輪を落とす
+	}
+	// 重心（経度は最初の点の近くへ寄せる＝日付変更線を跨ぐ輪）
+	const l0 = rings[0][0][0]; let sx = 0, sy = 0, n = 0;
+	for (const r of rings) for (const c of r) { let l = c[0]; while (l - l0 > 180) l -= 360; while (l - l0 < -180) l += 360; sx += l; sy += c[1]; n++; }
+	const C = lonlatTo3D(sx / n, sy / n), up = norm(C);
+	const e0 = cross(up, [0, 1, 0]), e = Math.hypot(e0[0], e0[1], e0[2]) < 1e-9 ? [0, 0, 1] : norm(e0), nn = cross(e, up);   // 東（上×y 軸・極では z）・北（東×上）＝β 空間の接平面の正規直交基底
+	const xy = (c: number[]) => { const p = lonlatTo3D(c[0], c[1]), d = [p[0] - C[0], p[1] - C[1], p[2] - C[2]]; return [dot(e, d), dot(nn, d)]; };
+	const edges: number[][] = [];
+	for (const r of rings) { const q = r.map(xy); for (let i = 0; i < q.length; i++) { const a = q[i], b = q[(i + 1) % q.length]; edges.push([a[0], a[1], b[0], b[1]]); } }
+	return { C, e, n: nn, edges: edges.slice(0, CLIP_POLY_MAX), inverse: !!spec.inverse };
+}
+/** その対象の多角形（最初に書いた群の物・対象を問う） */
+export function clipPolygonFor(norm: ClipNorm | null | undefined, target: string): ClipPoly | null {
+	if (!norm) return null;
+	for (const g of norm.groups) if (g.targets.has(target)) { const p = clipPolygon(g.spec); if (p) return p; }
+	return null;
+}
+/** 点 [lon,lat] が多角形で残る側か＝符号付きの距離（m・負＝切られる）。検定と問い合わせ用 */
+export function clipPolygonDistanceM(poly: ClipPoly, lon: number, lat: number): number {
+	const p = lonlatTo3D(lon, lat), d = [p[0] - poly.C[0], p[1] - poly.C[1], p[2] - poly.C[2]];
+	const x = dot(poly.e, d), y = dot(poly.n, d);
+	let inside = false, dm = Infinity;
+	for (const [ax, ay, bx, by] of poly.edges) {
+		if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) inside = !inside;
+		const vx = bx - ax, vy = by - ay, t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy || 1)));
+		dm = Math.min(dm, Math.hypot(x - ax - t * vx, y - ay - t * vy));
+	}
+	const s = (inside ? -1 : 1) * (poly.inverse ? -1 : 1);
+	return s * dm * worldRadiusM();
+}
+
 // 同一フレームのオーバーレイ（自前の GPU シェーダ）へ渡す面の uniform＝pl[6]＋p（112B・WGSL の ClipP の先頭と同じ並び）。K＝n·(その原点) − c を f64 で
 export function clipPackOrigin(planes: ClipPlane[], origin: ArrayLike<number>): Float32Array {
 	return packClip(planes, lonlatTo3D(origin[0], origin[1])).slice(0, (CLIP_MAX + 1) * 4);
@@ -145,8 +212,9 @@ export function clipStyle(spec: ClipSpec | null | undefined): ClipStyle {
 // 面の uniform（ClipP＝pl[6]・p・capT・capB・edgeC＝160B）＝pl[i]＝(n.xyz, K)・K＝n·originPt − c（f64 で引いてから f32 へ）・p＝(枚数, 帯の幅 px, 0, 0)。
 // capT＝地形の蓋の色（w＝点ける）・capB＝建物の疑似の蓋の色（w＝点ける）・edgeC＝帯の色。
 // originPt＝その描画の原点の単位球点（lonlatTo3D・f64）＝main（地形・建物・メッシュ・模型・球の床）／base／user（基図と利用者の層の塗りと線）
-export const CLIP_F32 = (CLIP_MAX + 4) * 4;
-export function packClip(planes: ClipPlane[], originPt: ArrayLike<number>, out: Float32Array = new Float32Array(CLIP_F32), style: ClipStyle = clipStyle(null)): Float32Array {
+// 多角形（P0 #4）＝pe・pn（東・北の単位ベクトル xyz, K＝軸·(originPt − C)）・pv[i]＝辺 (ax, ay, bx, by)（重心の接平面の 2D）・p.z＝辺の数・p.w＝1 で内側だけ残す
+export const CLIP_F32 = (CLIP_MAX + 4 + 2 + CLIP_POLY_MAX) * 4;
+export function packClip(planes: ClipPlane[], originPt: ArrayLike<number>, out: Float32Array = new Float32Array(CLIP_F32), style: ClipStyle = clipStyle(null), poly: ClipPoly | null = null): Float32Array {
 	out.fill(0, 0, CLIP_F32);
 	const n = Math.min(planes.length, CLIP_MAX);
 	for (let i = 0; i < n; i++) {
@@ -159,6 +227,13 @@ export function packClip(planes: ClipPlane[], originPt: ArrayLike<number>, out: 
 	out.set(style.capTerrain, o + 4); out[o + 7] = style.capOn ? 1 : 0;
 	out.set(style.capBuilding, o + 8); out[o + 11] = style.capOn ? 1 : 0;
 	out.set(style.edgeColor, o + 12);
+	if (poly && poly.edges.length) {
+		const d = [originPt[0] - poly.C[0], originPt[1] - poly.C[1], originPt[2] - poly.C[2]], q = o + 16;
+		out[o + 2] = poly.edges.length; out[o + 3] = poly.inverse ? 1 : 0;
+		out[q] = poly.e[0]; out[q + 1] = poly.e[1]; out[q + 2] = poly.e[2]; out[q + 3] = dot(poly.e, d);
+		out[q + 4] = poly.n[0]; out[q + 5] = poly.n[1]; out[q + 6] = poly.n[2]; out[q + 7] = dot(poly.n, d);
+		poly.edges.forEach((ed, i) => out.set(ed, q + 8 + i * 4));
+	}
 	return out;
 }
 

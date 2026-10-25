@@ -18,6 +18,7 @@
      ⑪建物の疑似の蓋：閉じた箱（面ごとの外向きの法線・裏面を捨てる）を東西の真ん中で切ると、切り口から見える中は蓋の色（cap:false で蓋の色は出ない）
      ⑫影と重ねる：真俯瞰・冬至の南中・箱（高さ 40m）を 20m で水平に切る＝影は北 33m までに縮み（北 50m は日向へ）、北 15m は影のまま（受け手も面の派生）
      段 4（対象ごとの面）：⑮同じ南北の面を targets:["models"] だけにすると模型の東は切れて基図の線の東は残る／["vector"] だけなら逆（線が切れて模型が残る）・台地は両方とも残る
+     ⑯多角形（P0 #4）：凹んだ L 字の内側を消す（台地・床・箱）・inverse で内側だけ残す・面と一緒に使える
      ⑬消す＝元の絵へ戻る（bit 一致）　⑭GPU の検証エラー 0。⚠実時間専用（verify-webgpu.mjs が回す） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-clip</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -133,6 +134,20 @@ try {
 	const B6 = await shot();
 	ok(`⑥箱：建物は箱の中だけ(${fmt(rgb(B6, BLD))}→外 ${fmt(rgb(B6, BLD_W))})`, dist(rgb(A1, BLD), rgb(B6, BLD)) < 2 && !blue(rgb(B6, BLD_W)));
 	ok(`⑥箱の外は台地も床も消える(手前 ${fmt(rgb(B6, S150))}・北 300m ${fmt(rgb(B6, N300f))})`, dark(rgb(B6, S150)) && dark(rgb(B6, N300f)));
+	// ⑯ 多角形（P0 #4・Cesium の ClippingPolygon）：凹んだ L 字（東西 ±40m・南 200m〜北 60m から北西の角 [−40, 10]〜[10, 60] を欠く）の内側を消す
+	const LP = [[-40, -200], [40, -200], [40, 60], [10, 60], [10, 10], [-40, 10]].map(([e, n]) => ll(e, n));
+	r.set("clip", { on: true, polygon: { type: "Polygon", coordinates: [[...LP, LP[0]]] } });
+	const B16 = await shot();
+	ok(`⑯多角形：内側の台地も床も消える(手前 ${fmt(rgb(B16, S150))})・箱の屋根の南は消える(${fmt(rgb(B16, roofS))})・凹みの屋根の北は残る(${fmt(rgb(B16, roofN))})・外の建物と北 300m の台地は残る(${fmt(rgb(B16, BLD))}/${fmt(rgb(B16, N300t))})`,
+		dark(rgb(B16, S150)) && !blue(rgb(B16, roofS)) && dist(rgb(A1, roofN), rgb(B16, roofN)) < 2 && dist(rgb(A1, BLD), rgb(B16, BLD)) < 2 && red(rgb(B16, N300t)));
+	r.set("clip", { on: true, polygon: [LP], inverse: true });
+	const B16i = await shot();
+	ok(`⑯inverse＝内側だけ残す(手前 ${fmt(rgb(B16i, S150))}・外の建物 ${fmt(rgb(B16i, BLD))}・北 300m ${fmt(rgb(B16i, N300f))})`,
+		dist(rgb(A1, S150), rgb(B16i, S150)) < 2 && !blue(rgb(B16i, BLD)) && dark(rgb(B16i, N300f)));
+	r.set("clip", { on: true, polygon: [LP], vertical: [[ns0, ns1]] });
+	const B16v = await shot();
+	ok(`⑯多角形と面を一緒に：どちらかで消える所が消える(模型の東 ${fmt(rgb(B16v, SL_E))}・手前 ${fmt(rgb(B16v, S150))}・外の建物 ${fmt(rgb(B16v, BLD))})`,
+		!green(rgb(B16v, SL_E)) && dark(rgb(B16v, S150)) && dist(rgb(A1, BLD), rgb(B16v, BLD)) < 2);
 	// ⑦ 水平面 30m（中心）：下を残す／上を残す
 	r.set("clip", { on: true, horizontal: [{ at: [LON, LAT], h: 30 }] });
 	const B7 = await shot();

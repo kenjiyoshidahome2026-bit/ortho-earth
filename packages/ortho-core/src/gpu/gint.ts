@@ -25,7 +25,7 @@ import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, lay
 import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
-import { clipDistanceM } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
+import { clipDistanceM, clipPolygonDistanceM, CLIP_POLY_MAX } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
 import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
 	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.ts";
 import { createFidExprRunner } from "./gintexprgpu.ts";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
@@ -34,7 +34,7 @@ import type { DrawData, DrawInput, ViewState, SubDep } from "../gint/drawdata.ts
 import type { ArcBuffer, EdgeChunk, WeightHist } from "../gint/utility.ts";
 import type { GintData, GintPayload, BakeBaseResult, BakedTier } from "../gint/bake.ts";
 import type { CameraPose, CameraState } from "../camera.ts";
-import type { ClipPlane } from "../clip.ts";
+import type { ClipPlane, ClipPoly } from "../clip.ts";
 import type { FidExprData, FidExprJob, FidExprRunner } from "./gintexprgpu.ts";
 import type { FidStyleWGSL } from "./gintexpr.ts";
 
@@ -49,7 +49,7 @@ export interface GintDepthCtx extends SubDep {
 	elevBounds?: ArrayLike<number> | null; edgeFade?: number; facesInAtlas?: boolean;
 }
 /** 断面（#111 段 3）＝renderer の clipInfo()（切らない時 null） */
-export interface GintClipInfo { planes: ClipPlane[]; st: CameraState }
+export interface GintClipInfo { planes: ClipPlane[]; poly?: ClipPoly | null; st: CameraState }
 /** host＝createRendererGPU の戻りのうち gint が読む面 */
 export interface GintHost {
 	device: GPUDevice; format: GPUTextureFormat; samples?: number; quad4?: boolean; gpuErrors?: string[];
@@ -581,7 +581,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const layers: GintLayer[] = [];       // 描画順（後の層が上）
 	let act: GintLayer | null = null;          // カーソルを持つ層（§4.1 常に1層。既定＝最後に addLayer した層）
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;
-	const GF_SLOT = 768;   // 案A: meshQ/meshP 追加で 64f 超過＝512B→遠方の要（float 128〜139）で 768B ストライド（dynamic offset は 256 倍数制約）
+	const GF_SLOT = 1792;   // 多角形（P0 #4）＝派生の GF の末尾 float 140〜403 で 1616B → 1792B（256 の倍数・それまで 768B）。   // 案A: meshQ/meshP 追加で 64f 超過＝512B→遠方の要（float 128〜139）で 768B ストライド（dynamic offset は 256 倍数制約）
 	function makeLayer(): GintLayer {
 		const L: Omit<GintLayer, "frameBG" | "gfBufA" | "frameBGA" | "paramBG"> & Partial<GintLayer> = {
 			...emptySlot() as GpuSlot,
@@ -601,7 +601,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			gfBuf: device.createBuffer({ size: GF_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
 			gpBuf: device.createBuffer({ size: GP_SLOT * 11, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
 			styleBuf: device.createBuffer({ size: 8192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
-			idRBuf: device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 素＝R（16B）・断面の派生＝RC（224B・#111 段 3）
+			idRBuf: device.createBuffer({ size: 1280, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 素＝R（16B）・断面の派生＝RC（224B・#111 段 3）
 		};
 		L.frameBG = [0, GF_SLOT, GF_SLOT * 2, GF_SLOT * 3].map(off => device.createBindGroup({ layout: bglFrame, entries: [
 			{ binding: 0, resource: { buffer: L.gfBuf, offset: off, size: GF_SLOT } },
@@ -827,12 +827,20 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		gfU[o + 138] = (!noPivot && L.pivotTex && L.compTex) ? (L.compW || 1) : 0;   // farBig.z＝辺→塗り扇の鍵の表の幅（0＝表なし＝鍵は fid）。境界メタ（noPivot）は読まない
 		gfU[o + 139] = 0;
 		const ci = clipInfo();   // 断面（#111 段 3）＝派生の GF だけが読む末尾（float 80〜127）
-		if (ci) packClip(gfF, o + 80, d.origin, ci);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
+		if (ci) packClip(gfF, o + 80, d.origin, ci, o + 140);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}
 	// 面と全画面レイを f に詰める（base から：clipPl 24・clipP 4・rayF/X/Y・eyeC・eyeO＝GF の末尾と ID 塗りの解決 RC で同じ並び）。K＝n·(gint の原点) − c を f64 で
-	function packClip(f: Float32Array, base: number, origin: number[], ci: GintClipInfo) {
+	// 多角形（P0 #4）は pbase へ（cpe・cpn・辺 64＝264 float）。辺の数と inverse は clipP.zw
+	function packClip(f: Float32Array, base: number, origin: number[], ci: GintClipInfo, pbase: number) {
 		const O = lonlatTo3D(origin[0], origin[1]), n = Math.min(ci.planes.length, 6);
 		f.fill(0, base, base + 48);
+		const pg = ci.poly;
+		if (pg && pg.edges.length) {
+			const d = [O[0] - pg.C[0], O[1] - pg.C[1], O[2] - pg.C[2]], m = Math.min(pg.edges.length, CLIP_POLY_MAX);
+			f[base + 26] = m; f[base + 27] = pg.inverse ? 1 : 0;
+			f.set([pg.e[0], pg.e[1], pg.e[2], pg.e[0] * d[0] + pg.e[1] * d[1] + pg.e[2] * d[2], pg.n[0], pg.n[1], pg.n[2], pg.n[0] * d[0] + pg.n[1] * d[1] + pg.n[2] * d[2]], pbase);
+			for (let i = 0; i < m; i++) f.set(pg.edges[i], pbase + 8 + i * 4);
+		}
 		for (let i = 0; i < n; i++) { const [x, y, z, c] = ci.planes[i]; f[base + i * 4] = x; f[base + i * 4 + 1] = y; f[base + i * 4 + 2] = z; f[base + i * 4 + 3] = x * O[0] + y * O[1] + z * O[2] - c; }
 		f[base + 24] = n;
 		const u = sphereRayUniforms(ci.st, origin);
@@ -996,7 +1004,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (idFill) {
 			idRCPU[0] = L.fidStyleW || 1; idRCPU[1] = L.fidStyleCount; idRCPU[2] = L.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
 			const ci = clipInfo();   // 断面（#111 段 3）＝解決の派生が読む（RC：r の後ろに面と全画面レイ・画面の大きさ）
-			if (ci) { packClip(idRF, 4, data.origin, ci); idRF[52] = V.width; idRF[53] = V.height; }
+			if (ci) { packClip(idRF, 4, data.origin, ci, 56); idRF[52] = V.width; idRF[53] = V.height; }
 			device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
 			const idPass = fr.enc.beginRenderPass({ timestampWrites: host.passTS?.("gint"), colorAttachments: [{ view: idTexView!, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 			idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
@@ -1125,7 +1133,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		}
 		pass.end();
 	}
-	const idRAB = new ArrayBuffer(256), idRCPU = new Uint32Array(idRAB), idRF = new Float32Array(idRAB);   // 素は先頭 16B（R）・断面の派生は 224B（RC）
+	const idRAB = new ArrayBuffer(1280), idRCPU = new Uint32Array(idRAB), idRF = new Float32Array(idRAB);   // 素は先頭 16B（R）・断面の派生は 1280B（RC＝面と全画面レイ 224B＋多角形 1056B）
 
 	// ── settle（picking buffer 構築）＝非MSAA rgba8 テクスチャへ別パス。pick は1枚＝アクティブ層のみ（§4.1）──
 	function drawn() {
@@ -1217,7 +1225,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (fid1 === 0 && L.gintData?.polyStream && V.cam) {
 			const geo = unproject(V.cam, data.x * V.dpr, data.y * V.dpr);
 			const ci = clipInfo();
-			if (geo && !(ci && clipDistanceM(ci.planes, geo[0], geo[1], 0) < 0)) {   // 断面で切られた側の面は当てない（#111 段 3・塗りの当たりは海抜 0 の点）
+			if (geo && !(ci && (clipDistanceM(ci.planes, geo[0], geo[1], 0) < 0 || (ci.poly && clipPolygonDistanceM(ci.poly, geo[0], geo[1]) < 0)))) {   // 断面で切られた側の面は当てない（#111 段 3・塗りの当たりは海抜 0 の点）
 				const SE = 1e7;
 				featureId = findPolygon(
 					L.gintData.arcBuffer as BigUint64Array, L.gintData.arcMeta!, L.gintData.polyStream,

@@ -115,6 +115,7 @@ export const STATIC_CAPABILITIES: Readonly<Record<CapabilityKey, Capability>> = 
 	"terrain.exaggeration": { status: "builtin", note: "setTerrain({ exaggeration }) / setTerrainExaggeration(k): terrain and what stands on it are lifted by k (object heights are not stretched, as in MapLibre); default 1 = true scale" },
 	"tiles3d.sampleHeight": { status: "builtin", note: "sampleHeight(positions): heights on the loaded 3D Tiles and models (top surface under each point), falling back to the terrain (Cesium sampleHeight / clampToHeight)" },
 	"tiles3d.classification": { status: "builtin", note: "addClassification(geojson, { color, type }): drape polygons and lines onto the terrain, 3D Tiles, models and buildings (Cesium ClassificationPrimitive / classificationType)" },
+	"clip.polygon": { status: "builtin", note: "setClipping({ polygon, inverse }): cut away the inside (or with inverse the outside) of a polygon from the terrain, buildings, 3D Tiles, models and vector layers (labels are not cut); WebGPU only like the other clipping (Cesium ClippingPolygonCollection)" },
 	"terrain.sample": { status: "builtin", note: "sampleTerrain(positions) resolves heights from the drawn terrain (DEM first, then the default DTM) (F6)" },
 	"picking": { status: "builtin", note: "unified picking (map.on(ev, id), queryRenderedFeatures, pickOverlays)" },
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
