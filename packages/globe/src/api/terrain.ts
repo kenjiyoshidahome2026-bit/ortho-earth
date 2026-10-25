@@ -16,19 +16,22 @@ type PtIn = { lng?: number | string; lon?: number | string; lat: number | string
 /** registry.handlers の中身（plugin）か builtin（walk.js）＝step 以下は builtin だけが持つ */
 type WalkImpl = ReturnType<HandlerImpl["create"]> & Partial<Pick<WalkInner, "step" | "turn" | "look" | "position">>;
 
+/** 地形の誇張の値（正の数・それ以外は 1＝実スケール） */
+export const exagOf = (v: unknown): number => { const k = Number(v ?? 1); return Number.isFinite(k) && k > 0 ? k : 1; };
+
 export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 	EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost
 }: TerrainDeps): void {
 	map.getHeight = heightAt;
 	// MapLibre 同名：setTerrain({ source: id|spec, exaggeration }) / setTerrain(null)。source＝raster-dem（tiles か TileJSON の url・encoding）。
-	// exaggeration は受け流す（地形は誇張しない＝本人の方針）。地形のセル（R01）と 1 点の標高の両方がこの DEM を見る
+	// exaggeration＝地形の誇張（本人裁定 2026-10-24＝指定した時だけ・省略＝1＝実スケール・null で外すと 1 に戻る）。地形のセル（R01）と 1 点の標高の両方がこの DEM を見る
 	map.setTerrain = async t => {
 		let sp: TerrainSpec | string | null = t?.source ?? null;
 		if (typeof sp === "string") sp = (live.mlSources.get(sp) ?? live.EXT?.ms.sources?.[sp] ?? null) as TerrainSpec | null;   // addSource の物（型は自由）は raster-dem／quantized-mesh として読む
 		if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
+		setExag(t ? exagOf(t.exaggeration) : 1);
 		if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
 		if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, live.EXT?.baseUrl || location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize は TileJSON の申告も（mapterhorn＝terrarium・旧＝捨てて mapbox で解いた＝256m ごとに折り返す鋸歯）
-		if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
 		if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map((u: string) => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
 		const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
 			redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
@@ -44,7 +47,18 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		requestDraw();
 		return map;
 	}
-	map.getTerrain = () => live.demSpec ? { source: live.demSpec, exaggeration: 1 } : null;
+	map.getTerrain = () => live.demSpec ? { source: live.demSpec, exaggeration: live.terrExag } : null;
+	// 地形の誇張（Cesium の scene.verticalExaggeration に当たる・2026-10-24）。地形と、地形に乗る物（建物・3D Tiles・模型・注記・マーカー）の足元を同じ倍率で持ち上げる。
+	//   建物や模型そのものの高さは伸ばさない（MapLibre の exaggeration と同じ）。既定の標高（setTerrain をしていない地図）にも効く
+	function setExag(k: number): void {
+		if (k === live.terrExag) return;
+		live.terrExag = k;
+		elevMemo.clear(); live.elevGen++;   // DOM オーバーレイの持ち上げを新しい倍率で引き直す
+		wPost({ type: "set", cmd: "terrainExag", data: k });
+		requestDraw();
+	}
+	map.setTerrainExaggeration = k => { setExag(exagOf(k)); return map; };
+	map.getTerrainExaggeration = () => live.terrExag;
 	map.queryTerrainElevation = (lon, lat) => (live.demSpec ? (elevOf(lon, lat) ?? null) : null);   // MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・メモに無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）2026-09-30   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 	// 地形の一括標本（第 2 波 F6・2026-10-12・実装つき）：map.sampleTerrain(positions, { concurrency }) → Promise<[{ lng, lat, height }]>。
 	//   出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝heightAt＝map.getHeight と同じ）。負の標高はそのまま（描く側は 0 に切る＝文書）。

@@ -550,8 +550,6 @@ export interface GlobeScope {
 	/** PMTiles の基図の層を足す（外来 style＝extBaseStyle） */
 	withPM(st: BaseStyle): BaseStyle;
 	withUserBg(st: BaseStyle): BaseStyle;
-	/** 標高の誇張（実スケール＝1） */
-	TERR_EXAG: number;
 	clipAllCut: ShadowsReturn["clipAllCut"]; clipCutXY: ShadowsReturn["clipCutXY"]; clipFor: ShadowsReturn["clipFor"];
 	/** 今伏せている基図の層の添字 */
 	hiddenAll(): Set<number>;
@@ -576,6 +574,8 @@ export type RasterAdjust = NonNullable<Extract<RasterSpec, { url: string }>["adj
 
 /** createGlobe の let（live） */
 export interface GlobeLive {
+	/** 地形の誇張（実スケール＝1・setTerrain の exaggeration／setTerrainExaggeration） */
+	terrExag: number;
 	mlSources: Map<string, UserSource>;
 	EXT: ExtStyle | null;
 	demSpec: TerrainSpec | null;

@@ -676,6 +676,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let lastCamDist = 0;   // 前のフレームの camDist（カメラが飛んだかを見る）
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
+	let exagMul = 1;        // 地形の誇張（setTerrain の exaggeration・既定 1＝実スケール）＝アトラスの scale に掛ける
 	let gintCtx: GintDepthCtx | null = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	// md（multi_draw モード）のシーンは draws でなく md={layers,bld}＝常駐プールへの参照リストだけを持つ。
@@ -1001,7 +1002,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -1126,13 +1127,18 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		elevStage = { tex, a, scale };
 	}
 	function setElevationCellStage(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (elevStage) putCellAny(elevStage.tex, cx, cy, data, cellRes); }
+	function setTerrainExag(k: number): void {
+		const m = Number.isFinite(+k) && +k > 0 ? +k : 1, r = m / exagMul;
+		exagMul = m;
+		if (elev.has) { elev.scale *= r; elev.exag = (elev.exag || 1) * r; }
+	}
 	function commitElevationStage(): void {
 		if (!elevStage) return;
 		if (elevTex) gl.deleteTexture(elevTex);
 		elevTex = elevStage.tex;
 		memAtlas = memStage; memStage = 0;
 		const a = elevStage.a, span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
@@ -2138,6 +2144,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "elevAtlasStage": setElevationAtlasStage(data as ElevAtlasDesc, prop as number); break;                   // 舞台裏アトラス（ダブルバッファ）
 			case "elevCellStage": setElevationCellStage((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
+			case "terrainExag": setTerrainExag(data as number); break;                          // 地形の誇張（既定 1）＝今のアトラスにも掛け直す
 			case "elevAtlasFar": setElevationAtlasFar(data as ElevAtlasDesc); break;                             // 遠景層（R10 第2アトラス）
 			case "elevCellFar": setElevationCellFar((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）

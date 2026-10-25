@@ -73,7 +73,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	addImage: "none", updateImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
 	addFontFace: "none",   // Web フォントを差す（段 2）
 	setGlobalStateProperty: "none", getGlobalState: "none",   // global-state（記号の残件③）
-	setTerrain: "none", getTerrain: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
+	setTerrain: "none", getTerrain: "none", setTerrainExaggeration: "none", getTerrainExaggeration: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
 	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none", clearFeatureServiceCache: "none", addPointCloud: "none", removePointCloud: "none",   // clearFeatureServiceCache＝フィーチャーサービスの控えの掃除（#176）
 	Marker: "none", Popup: "none",
 	// gint（ネイティブ）

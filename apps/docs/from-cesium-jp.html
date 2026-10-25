@@ -60,6 +60,7 @@ CesiumJS でしていることの多くに、ここでの書き方がありま�
 	<tr><td>quantized-mesh の地形</td><td><code>CesiumTerrainProvider.fromUrl(url)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", url: ".../layer.json" } })</code></td><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">quantized-mesh の例</a></td></tr>
 	<tr><td>Cesium ion の地形</td><td><code>CesiumTerrainProvider.fromIonAssetId(id)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", ion: { assetId, accessToken } } })</code></td><td>—</td></tr>
 	<tr><td>楕円体高と標高</td><td>楕円体からの高さ</td><td><code>heights: "ellipsoidal"</code>（既定・同梱の EGM96 ジオイドで標高に直す）か <code>"orthometric"</code></td><td>—</td></tr>
+	<tr><td>地形の誇張</td><td><code>scene.verticalExaggeration = 3</code></td><td><code>map.setTerrainExaggeration(3)</code> か <code>map.setTerrain({ source, exaggeration: 3 })</code>（既定は 1＝実スケール。地形に乗る建物・模型・注記は足元が持ち上がり、高さそのものは伸ばさない）</td><td>—</td></tr>
 	<tr><td>glTF / GLB の模型</td><td><code>Model.fromGltfAsync({ url, modelMatrix })</code></td><td><code>await map.gadget.model(url, { at: [lon, lat], heading, scale })</code>（ファイルに <code>CESIUM_RTC</code>・ECEF の置き場所があればそちらが勝つ）</td><td><a href="/japan/models">GLB の模型</a></td></tr>
 	<tr><td>three.js を場面に</td><td>—</td><td><code>map.addThree({ three, module })</code>（描画 worker の中で同じカメラ・地形と建物に隠れる）</td><td><a href="/maplibre/examples/add-3d-tiles-using-threejs.html">three.js で 3D Tiles</a></td></tr>
 </table>
