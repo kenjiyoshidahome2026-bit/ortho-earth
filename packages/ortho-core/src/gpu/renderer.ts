@@ -461,7 +461,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 扇形状の深度テストは不可（fan は winding の便法＝内部 frag は地形面に乗っていない）＝この bit が唯一の正解。
 	const SBLD: GPUStencilFaceState = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" };
 	const dsWriteBld: GPUDepthStencilState = { ...dsWrite, stencilFront: SBLD, stencilBack: SBLD, stencilWriteMask: 0x80 };
-	const dsWriteBldNoZ: GPUDepthStencilState = { ...dsWriteBld, depthWriteEnabled: false };   // 模型の半透明（BLEND）＝深度テストはするが書かない
+	const dsWriteBldNoZ: GPUDepthStencilState = { ...dsWriteBld, depthWriteEnabled: false };
+	const SNOTBLD: GPUStencilFaceState = { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" };
+	const dsNotBld: GPUDepthStencilState = { ...dsOff, stencilFront: SNOTBLD, stencilBack: SNOTBLD, stencilReadMask: 0x80, stencilWriteMask: 0 };   // 建物の画素（bit7）以外だけ（夜の色の α を揃える）   // 模型の半透明（BLEND）＝深度テストはするが書かない
 	const FILL_BUFS: GPUVertexBufferLayout[] = [
 		{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },   // a_delta
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "unorm8x4" }] },    // a_color
@@ -589,8 +591,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
 			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
-			alphaOne: device.createRenderPipeline({ layout: "auto", vertex: { module: alphaOneMod, entryPoint: "vs" },   // 夜の色の間＝建物メッシュの前に canvas の α を 1 に揃える（窓の印だけが α<1 になる）
-				fragment: { module: alphaOneMod, entryPoint: "fs", targets: [{ format, writeMask: 0x8 }] }, primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms }),
+			alphaOne: device.createRenderPipeline({ layout: "auto", vertex: { module: alphaOneMod, entryPoint: "vs" },   // 夜の色の間＝main パスの終わりに建物の画素（stencil bit7）以外の α を 1 に（窓の印だけが α<1 で残る・writeMask 0x8＝ALPHA）
+				fragment: { module: alphaOneMod, entryPoint: "fs", targets: [{ format, writeMask: 0x8 }] }, primitive: { topology: "triangle-list" }, depthStencil: dsNotBld, multisample: ms }),
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
@@ -3153,7 +3155,6 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
 				// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
 				const ex = st.eye, d2 = (p: MeshBatch) => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
-				if (post?.grade) { pass.setPipeline(P.alphaOne); pass.draw(3); }   // 窓の印の前に α を 1 へ（先に描いた層の α<1 を窓と取り違えない＝夕景で色の掛からない建物が出た・Mac 実測 2026-10-24）
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
 				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [TX.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
@@ -3182,6 +3183,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(0, skyBG);
 			pass.draw(3);
 		}
+		// 夜の色の間＝建物の画素（stencil bit7）以外の α を 1 に揃える＝窓の印だけが α<1 で残る（低地フェードの地形などが α<1 を書き、夕景で色の掛からない地面と倉庫が出た・Mac 実測 2026-10-24）
+		if (post?.grade) { pass.setStencilReference(0x80); pass.setPipeline(P.alphaOne); pass.draw(3); }
 		pass.end();
 		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）。
 		// 入口はフェード（チルト 0.02→0.10 rad で強さ 0→1）＝真俯瞰から傾けた瞬間に建物の周りの陰がポンと点かない
