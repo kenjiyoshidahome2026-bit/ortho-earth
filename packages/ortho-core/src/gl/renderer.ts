@@ -16,6 +16,7 @@ import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォー�
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { createDepthOutGL } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
+import { createClassifyGL } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝柱（体積）を深度に当てて地形・3D Tiles の面だけ塗る
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FAR_PIVOT } from "./gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
@@ -608,6 +609,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// worker が区をバッチ分割して逐次送ってくる＝完成した近傍から順に立つ。bbox は draw 時のフラスタムカリングに使う。
 	// 基図建物を伏せる被覆マスクは区単位で別管理（meshMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
 	const meshes = new Map<string, MeshBatch>();
+	const classify = createClassifyGL(gl);   // 面の貼り付け（set("classify"・"classifyStyle")）＝メッシュの後・夜面の前に描く
 	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
 	const meshMasks = new Map<string, MeshMask>();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
 	const meshHidden = new Set<string>();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は meshVis 切替のみで再アップロード不要）
@@ -2086,6 +2088,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			if (zOff) gl.depthMask(true);
 			bldStencil(false);
 		}
+		// 面の貼り付け（分類）＝描き終えた深度（地形・建物・3D Tiles・模型）に柱を当てる。bit7（建物・メッシュの画素）を読むので建物の後
+		if (classify.size) classify.draw(st, logCoefOf(st));
 		gl.disable(gl.DEPTH_TEST);
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：時計の時刻の太陽直下点（ephem/sun＝solar と同じ式・均時差込み。
 		// 旧＝v1 nightJSON の赤緯正弦近似＋UTC 時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
@@ -2109,7 +2113,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose(): void { for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
+	function dispose(): void { classify.dispose(); for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
 		for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeSlot("user"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
@@ -2150,6 +2154,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
 			case "meshSet": setMeshSet(prop as string, data as MeshIn | null); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
+			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
+			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;
 			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
 			case "meshVis":  setMeshVis(prop as string, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）

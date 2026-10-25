@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- 実描画の検分：面の貼り付け（分類・map.addClassification・P0 #1・2026-10-25）。試料＝tests/fixtures/tiles3d（東京駅の ENU の根・紫の箱＝北 −280m・60m 角・高さ 60m）。
+     紫の箱を囲む 100m 角の面を水色で貼る：①"both"＝箱（屋根・壁）も地面も水色・紫が消える ②"tiles3d"＝箱だけ（地面は塗らない）③"terrain"＝地面だけ（紫は残る）
+     ④setStyle で色だけ替える ⑤remove で消える ⑥線（幅 20m の帯）も貼れる ⑦真俯瞰でも貼れる。globe（地域なし）・実時間。?gl2=1 で WebGL2 を強いる -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-classify</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); document.title = "RUN " + t.join(" "); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (f()) return true; await sleep(250); } return false; };
+run(); async function run() { try {
+	const map = await createGlobe({ target: "#map", view: "#16.6/35.6795/139.7671/50t", chips: false, debugGlobals: true });
+	await sleep(2500);
+	const h = await map.add3DTiles("./fixtures/tiles3d/tileset.json", { fit: false });
+	ok("loaded", await until(() => h.stats.shown >= 7), JSON.stringify(h.stats));
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const count = (img, test) => { let k = 0; for (let i = 0; i < img.data.length; i += 4) if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; return k; };
+	const isPurple = (r, g, b) => r > 80 && b > 110 && g < 70, isCyan = (r, g, b) => r < 70 && g > 190 && b > 190, isRed = (r, g, b) => r > 190 && g < 70 && b < 70;
+	const measure = async () => { const img = await grab(); return { purple: count(img, isPurple), cyan: count(img, isCyan), red: count(img, isRed) }; };
+	// 揃うまで撮り直す（GPU への登録は 1 フレーム 1 件＝headless では数秒）
+	let base;
+	for (let k = 0; k < 8; k++) { base = await measure(); if (base.purple > 300) break; await sleep(2500); }
+	ok("base", base.purple > 300 && base.cyan < 20, JSON.stringify(base));
+	const d = 0.00055, lat0 = 35.678676, lng0 = 139.7671;
+	const sq = { type: "Polygon", coordinates: [[[lng0 - d * 1.2, lat0 - d], [lng0 + d * 1.2, lat0 - d], [lng0 + d * 1.2, lat0 + d], [lng0 - d * 1.2, lat0 + d], [lng0 - d * 1.2, lat0 - d]]] };
+	const c = map.addClassification(sq, { color: "#00ffff" });
+	await sleep(1500);
+	const both = await measure();
+	ok("both", both.cyan > 2000 && both.purple < base.purple * 0.1, JSON.stringify(both));
+	const hold = new URLSearchParams(location.search).get("hold");   // ?hold=both|tiles3d|terrain＝その絵のまま止める（見た目の確認用）
+	if (hold === "both") { document.title = "HOLD " + t.join(" "); return; }
+	c.setStyle({ type: "tiles3d" });
+	await sleep(1200);
+	const t3 = await measure();
+	ok("tiles3d", t3.cyan > 300 && t3.cyan < both.cyan * 0.8 && t3.purple < base.purple * 0.1, JSON.stringify(t3));
+	if (hold === "tiles3d") { document.title = "HOLD " + t.join(" "); return; }
+	c.setStyle({ type: "terrain" });
+	await sleep(1200);
+	const tr = await measure();
+	ok("terrain", tr.cyan > 1000 && tr.purple > base.purple * 0.7, JSON.stringify(tr));
+	if (hold === "terrain") { document.title = "HOLD " + t.join(" "); return; }
+	c.setStyle({ type: "both", color: "#ff0000" });
+	await sleep(1200);
+	const red = await measure();
+	ok("restyle", red.cyan < 20 && red.red > 2000, JSON.stringify(red));
+	c.remove();
+	await sleep(1200);
+	const gone = await measure();
+	ok("removed", gone.cyan < 20 && gone.red < base.red + 50 && gone.purple > base.purple * 0.7, JSON.stringify(gone));
+	// 線＝幅 20m の帯（東西 300m）
+	const ln = map.addClassification({ type: "LineString", coordinates: [[lng0 - 0.0017, lat0 + 0.0012], [lng0 + 0.0017, lat0 + 0.0012]] }, { color: [0, 255, 255], width: 20 });
+	await sleep(1500);
+	const line = await measure();
+	ok("line", line.cyan > 200 && line.cyan < both.cyan, JSON.stringify(line));
+	ln.remove();
+	// 真俯瞰（平面の地図）でも貼れる＝地面の深度が無い描き方でも塗りが出る
+	const flat = map.addClassification(sq, { color: "#00ffff" });
+	map.jumpTo({ pitch: 0, zoom: 16.6, center: [lng0, lat0] });
+	await sleep(2500);
+	const top = await measure();
+	ok("flat", top.cyan > 2000, JSON.stringify(top));
+	flat.remove();
+	ok("caps", map.capabilities()["tiles3d.classification"]?.status === "builtin");
+	h.remove();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ") + " backend=" + map.backend;
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+</script>
+</body></html>

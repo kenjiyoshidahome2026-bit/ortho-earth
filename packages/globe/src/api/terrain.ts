@@ -1,11 +1,13 @@
 // 地形と標高の口（map.setTerrain・getTerrain・queryTerrainElevation・sampleTerrain・getHeight）と一人称歩行（map.walk）＝createGlobe から切り出した（globe.js の分割 ④・2026-10-15）。
 // 中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { createDemSource, ellNormal3D, lonlatTo3D, resolveVectorSource } from "@ortho-earth/core";
+import { betaToLonLat, createDemSource, ellNormal3D, lonlatTo3D, resolveVectorSource } from "@ortho-earth/core";
 import { rayMeshes } from "../meshpick.ts";
+import { classifyGeometry } from "../classify.ts";
+import { cssColor } from "../hillshade.ts";
 import type { MeshItemRef, PickItem } from "../meshpick.ts";
 import { createWalk, pointInPolygon } from "../walk.ts";
-import type { HandlerImpl, LonLat, RenderedFeature, SampleHeightResult, WalkHandle, WalkOptions } from "../../globe.d.ts";
+import type { ClassificationHandle, ClassificationOptions, HandlerImpl, LonLat, RenderedFeature, SampleHeightResult, WalkHandle, WalkOptions } from "../../globe.d.ts";
 import type { Installing, TerrainDeps, TerrainLive } from "../types/install.ts";
 import type { GlobeMap, TerrainApi } from "../types/map.ts";
 import type { TerrainSpec } from "../types/scope.ts";
@@ -65,8 +67,47 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		live.terrExag = k;
 		elevMemo.clear(); live.elevGen++;   // DOM オーバーレイの持ち上げを新しい倍率で引き直す
 		wPost({ type: "set", cmd: "terrainExag", data: k });
+		for (const [id, c] of classes) if (c.opts.minHeight == null || c.opts.maxHeight == null) uploadCls(id);   // 既定の柱の高さは誇張に合わせる
 		requestDraw();
 	}
+	// 面の貼り付け（分類・Cesium の ClassificationPrimitive／GroundPrimitive の classificationType・P0 #1・2026-10-25）：
+	//   map.addClassification(geojson, { color, opacity, type, width, minHeight, maxHeight, id }) → { id, setData, setStyle, remove }。
+	//   面・線（幅 width m の帯）を上下に伸ばした柱にして、描いた地形・3D Tiles・模型・建物のうち柱の内側の面だけを塗る（src/classify.ts・core の set("classify")）。
+	//   type＝"both"（既定）・"terrain"（建物・メッシュの画素を除く）・"tiles3d"（建物・メッシュ＝3D Tiles・模型・LOD2 の画素だけ）。
+	//   柱の高さ（m・楕円体高）＝既定 −1000〜10000（誇張の倍率を掛ける）。柱の外の物（高い所を通る線など）は塗らない
+	const classes = new Map<string, { data: unknown; opts: ClassificationOptions }>();
+	let clsSeq = 0;
+	const CLS_TYPE: Record<string, number> = { both: 0, terrain: 1, tiles3d: 2 };
+	const clsTypeOf = (t: unknown): number => { const v = CLS_TYPE[String(t ?? "both")]; if (v == null) throw new Error(`addClassification: type must be "both" | "terrain" | "tiles3d" (got ${String(t)})`); return v; };
+	const clsColorOf = (o: ClassificationOptions): number[] => { const c = cssColor(o.color ?? "rgba(255, 200, 0, 0.5)", [1, 0.78, 0, 0.5]); return [c[0], c[1], c[2], c[3] * Math.max(0, Math.min(1, o.opacity ?? 1))]; };
+	function uploadCls(id: string): void {
+		const c = classes.get(id); if (!c) return;
+		const k = Math.max(1, live.terrExag), o = c.opts;
+		const g = classifyGeometry(c.data, { width: o.width, minHeight: o.minHeight ?? -1000 * k, maxHeight: o.maxHeight ?? 10000 * k, earthM: EARTH_M, ell: !!ELL_ON });
+		wPost({ type: "set", cmd: "classify", prop: id, data: g ? { pos: g.pos, idx: g.idx, origin: g.origin, color: clsColorOf(o), type: clsTypeOf(o.type) } : null }, g ? [g.pos.buffer, g.idx.buffer] : []);
+		requestDraw();
+	}
+	map.addClassification = (data, opts = {}) => {
+		const id = opts.id != null ? String(opts.id) : `cls${++clsSeq}`;
+		clsTypeOf(opts.type);
+		classes.set(id, { data, opts: { ...opts } });
+		uploadCls(id);
+		const h: ClassificationHandle = {
+			id,
+			setData(d) { const c = classes.get(id); if (c) { c.data = d; uploadCls(id); } return h; },
+			setStyle(st = {}) {
+				const c = classes.get(id); if (!c) return h;
+				const geomChanged = ["width", "minHeight", "maxHeight"].some(key => key in st);
+				if (st.type !== undefined) clsTypeOf(st.type);
+				c.opts = { ...c.opts, ...st };
+				if (geomChanged) uploadCls(id);
+				else { wPost({ type: "set", cmd: "classifyStyle", prop: id, data: { color: clsColorOf(c.opts), type: clsTypeOf(c.opts.type) } }); requestDraw(); }
+				return h;
+			},
+			remove() { if (classes.delete(id)) { wPost({ type: "set", cmd: "classify", prop: id, data: null }); requestDraw(); } },
+		};
+		return h;
+	};
 	map.setTerrainExaggeration = k => { setExag(exagOf(k)); return map; };
 	map.getTerrainExaggeration = () => live.terrExag;
 	map.queryTerrainElevation = (lon, lat) => (live.demSpec ? (elevOf(lon, lat) ?? null) : null);   // MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・メモに無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）2026-09-30   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
@@ -85,8 +126,7 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 	map.sampleHeight = async (positions, { terrain = true, from = 10000, concurrency = 8 } = {}) => {
 		const pts = positionsOf(positions), k = 1 / EARTH_M;
 		const originH = new Map<string, Promise<number>>();   // 束の原点の地面の高さ（地形へ持ち上げる束＝"drape" と模型）
-		const lonLatOf = (o: ArrayLike<number>): LonLat => { const l = Math.hypot(o[0], o[1], o[2]) || 1; return [Math.atan2(o[2], o[0]) * 180 / Math.PI, Math.asin(o[1] / l) * 180 / Math.PI]; };
-		const groundAt = (o: ArrayLike<number>) => { const ll = lonLatOf(o), key = ll[0].toFixed(5) + "," + ll[1].toFixed(5); let p = originH.get(key); if (!p) { p = heightAt(ll[0], ll[1]).then(h => Math.max(0, +h || 0), () => 0); originH.set(key, p); } return p; };
+		const groundAt = (o: ArrayLike<number>) => { const ll = betaToLonLat(o), key = ll[0].toFixed(5) + "," + ll[1].toFixed(5); let p = originH.get(key); if (!p) { p = heightAt(ll[0], ll[1]).then(h => Math.max(0, +h || 0), () => 0); originH.set(key, p); } return p; };
 		const raw: Array<MeshItemRef & { src: "tiles3d" | "model" }> = [
 			...(live.t3dCtl?.meshItems() ?? []).map(r => ({ ...r, src: "tiles3d" as const })),
 			...(live.modelCtl?.meshItems?.() ?? []).map(r => ({ ...r, src: "model" as const }))];

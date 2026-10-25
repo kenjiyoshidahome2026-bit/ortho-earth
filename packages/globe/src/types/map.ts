@@ -9,7 +9,7 @@
 
 import type {
 	Bbox, BodyPosition, COPCHandle, COPCOptions, CameraOptions, CameraPose,
-	CameraTarget, Capability, CapabilityKey, SampleHeightResult, CellsLayerHandle, CellsLayerOptions, ClipOptions,
+	CameraTarget, Capability, CapabilityKey, SampleHeightResult, ClassificationOptions, ClassificationHandle, CellsLayerHandle, CellsLayerOptions, ClipOptions,
 	CloudsSpec, ColumnarLayerHandle, ColumnarLayerOptions,
 	ContourLayerHandle, ContourLayerOptions, DataLayerHandle, DataLayerOptions,
 	FitBoundsOptions, FollowHandle, GeoPBF,
@@ -371,6 +371,9 @@ export interface TerrainApi {
 	/** 地形の一括標本（F6・2026-10-12・実装つき）。出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝getHeight）。到着を待つ。
 	 *  positions＝[lng,lat][]・{lng|lon,lat}[]・GeoJSON（Point/MultiPoint/LineString…の座標）。負の標高はそのまま返す（描く側は 0 に切る） */
 	sampleTerrain(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { concurrency?: number }): Promise<{ lng: number; lat: number; height: number }[]>;   // api/terrain.ts:52
+	/** 面の貼り付け（Cesium の ClassificationPrimitive／GroundPrimitive の classificationType・2026-10-25〜）。GeoJSON の面・線（width m の帯）を上下に伸ばした柱にして、
+	 *  描いた地形・3D Tiles・模型・建物のうち柱の内側の面だけを塗る（斜めの屋根・壁にも貼り付く）。type＝"both"（既定）・"terrain"・"tiles3d"。WebGL2・WebGPU の両方 */
+	addClassification(data: unknown, opts?: ClassificationOptions): ClassificationHandle;
 	/** 3D Tiles・模型の上の高さ（Cesium の scene.sampleHeight／clampToHeight・2026-10-25〜）。各点の真上（from m・既定 10000）から鉛直に下ろして、読み込んである 3D Tiles と模型の三角形の一番上の面に当てる。
 	 *  当たらない点は地形（sampleTerrain と同じ出どころ・source "terrain"）。terrain:false＝地形に落とさない（height null）。高さは実スケールの m。当てるのは今の視点で読み込んである詳細度のタイル。
 	 *  当たりの写しを持つタイルだけ当たる（pickable "auto"＝地物の番号を持つ束だけ・番号の無い Google 等の写実タイルは add3DTiles(url, { pickable: true })・lowMem では "auto" は持たない） */

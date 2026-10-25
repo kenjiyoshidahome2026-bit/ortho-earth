@@ -37,6 +37,7 @@ import type { RendererAnalysis } from "./analysis.ts";   // 日影時間・可�
 import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
+import { createClassifyGPU } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝gl/classify.ts と同じ手順の WebGPU 版
 import { createAoGPU } from "./ao.ts";
 import { createPostGPU } from "./postfx.ts";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 import { FAR_PIVOT } from "../gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
@@ -1799,6 +1800,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// meshMasks: 区名 → { ward, rev, tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
 	// ward/rev＝buildMaskBG のシグネチャ（どの区のどの版か）。rev は writeTexture ごとに全体通しの連番＝作り直した区とも衝突しない
 	const meshes = new Map<string, MeshBatch>();
+	const classify = createClassifyGPU(device, format, DEPTH, BLEND);   // 面の貼り付け（set("classify"・"classifyStyle")）＝メッシュの後・夜面の前に main パスの中で描く
 	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
 	const meshMasks = new Map<string, MeshMask>();
 	let maskRevSeq = 0;
@@ -3174,6 +3176,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				}
 			}
 		}
+		// 面の貼り付け（分類）＝描き終えた深度に柱を当てる（bit7＝建物・メッシュの画素を読むので建物の後・gl/renderer.ts と同じ所）
+		if (classify.size) { classify.draw(pass, S, st.mvp, logCoef); pass.setStencilReference(0x80); }
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽を平行光源に夜半球を夜紺で減光。
 		// 基図の全レイヤの上に重ねる（この後の gint 海岸線パスは loadOp:load で夜面の上に描く＝GL と同順）。view.night＝false で描かない（GL と同じ）
 		if (worldFade > 0 && view.night !== false) {
@@ -3352,6 +3356,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
+			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
+			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;
 			case "meshXf": { const p = meshes.get(prop as string); if (p) { p.xf = data && (data as ArrayLike<number>).length >= 12 ? data as ArrayLike<number> : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop as string, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data as ArrayLike<number> | null, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
@@ -3367,6 +3373,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 	}
 	function dispose() {
+		classify.dispose();
 		frame = null; gctx = null;
 		shadowFree(); clipFree();
 		disposeSlot("base"); disposeSlot("main"); disposeSlot("user");
