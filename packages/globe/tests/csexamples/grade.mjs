@@ -1,31 +1,42 @@
 // The Cesium examples gate (stage 0): the pure part. A run (run.mjs) records one side of one example; grade() compares the facade (ortho) with real CesiumJS (ref).
 //   level null = not graded: real Cesium does not run it here, or it starts in 2D / Columbus view (the globe is 3D only, by choice), or it is the Moon / Mars · 0 = ours does not run · 1 = runs · 2 = same answers · 3 = same picture
 // The answers: the counts (entities, data sources, primitives, imagery layers), the camera, and nothing reported unsupported.
-// The picture: the screenshots cut into a grid of cells, the mean colour of each cell compared (the widgets are the real ones on both sides, so they match too).
+// The picture: the screenshots cut into a grid of cells, the mean colour and the edge strength of each cell compared (the widgets are the real ones on both sides, so they match too).
 import { decodePng } from "../mlexamples/compare.mjs";
 export { decodePng };
 
 // first cut, to tune by eye on the contact sheet
-export const THRESH = { camRel: 0.02, camAbs: 50, angDeg: 2, cellTol: 40, cellMin: 0.8, gridW: 16, gridH: 12 };
+// the picture: gridW × gridH cells (64 × 48 on the 800 × 600 shot = 12.5 px), each cell's mean colour and its edge strength (mean luminance step to the
+// right and below neighbours): a cell matches when both are close. Colour alone let thin lines, text, a missing small model or a sharper / blurred ground through.
+export const THRESH = { camRel: 0.02, camAbs: 50, angDeg: 2, gridW: 64, gridH: 48, cellTol: 40, edgeTol: 6, edgeRel: 0.5, colorMin: 0.85, edgeMin: 0.7 };
 
-// mean colours of a gridW × gridH cut of the picture
+// mean colour and edge strength of each cell (row by row): { c: [[r, g, b]…], e: [edge…] }
 export function cells(img, T = THRESH) {
-	const out = [], cw = img.w / T.gridW, ch = img.h / T.gridH;
+	const c = [], e = [], cw = img.w / T.gridW, ch = img.h / T.gridH, px = img.rgba, W = img.w;
+	const lum = o => 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2];
 	for (let gy = 0; gy < T.gridH; gy++) for (let gx = 0; gx < T.gridW; gx++) {
-		let r = 0, g = 0, b = 0, n = 0;
-		for (let y = Math.floor(gy * ch); y < Math.floor((gy + 1) * ch); y += 2) for (let x = Math.floor(gx * cw); x < Math.floor((gx + 1) * cw); x += 2) {
-			const o = (y * img.w + x) * 4; r += img.rgba[o]; g += img.rgba[o + 1]; b += img.rgba[o + 2]; n++;
+		let r = 0, g = 0, b = 0, ed = 0, n = 0;
+		const y1 = Math.min(Math.floor((gy + 1) * ch), img.h - 1), x1 = Math.min(Math.floor((gx + 1) * cw), W - 1);
+		for (let y = Math.floor(gy * ch); y < y1; y++) for (let x = Math.floor(gx * cw); x < x1; x++) {
+			const o = (y * W + x) * 4, l = lum(o);
+			r += px[o]; g += px[o + 1]; b += px[o + 2]; ed += Math.abs(lum(o + 4) - l) + Math.abs(lum(o + W * 4) - l); n++;
 		}
-		out.push([r / n, g / n, b / n]);
+		c.push([Math.round(r / n), Math.round(g / n), Math.round(b / n)]); e.push(Math.round(ed / n * 10) / 10);
 	}
-	return out;
+	return { c, e };
 }
 export function pictureMatch(a, b, T = THRESH) {
-	if (!a || !b || a.length !== b.length) return null;
-	let ok = 0;
-	for (let i = 0; i < a.length; i++) if (Math.hypot(a[i][0] - b[i][0], a[i][1] - b[i][1], a[i][2] - b[i][2]) <= T.cellTol) ok++;
-	return { ok, n: a.length };
+	if (!a?.c || !b?.c || a.c.length !== b.c.length) return null;
+	let colour = 0, edge = 0, ok = 0;
+	for (let i = 0; i < a.c.length; i++) {
+		const p = a.c[i], q = b.c[i], cOk = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) <= T.cellTol;
+		const eOk = Math.abs(a.e[i] - b.e[i]) <= Math.max(T.edgeTol, T.edgeRel * Math.max(a.e[i], b.e[i]));
+		colour += cOk; edge += eOk; ok += cOk && eOk;
+	}
+	const n = a.c.length;
+	return { ok, n, colour: colour / n, edge: edge / n };
 }
+export const pictureSame = (pm, T = THRESH) => pm.colour >= T.colorMin && pm.edge >= T.edgeMin;
 
 // the error text with URLs, numbers and quoted bits masked (one line per cause)
 export const normError = e => String(e).replace(/https?:\/\/\S+/g, "<url>").replace(/(['"`])[^'"`]{1,80}\1/g, "$1…$1").replace(/\d+(\.\d+)?/g, "N").slice(0, 140);
@@ -83,8 +94,8 @@ export function grade(R, O, T = THRESH) {
 	else out.level = 2;
 	const pm = out.picture = pictureMatch(R.cells, O.cells, T);
 	if (pm && out.level === 2) {
-		if (pm.ok / pm.n >= T.cellMin) out.level = 3;
-		else { out.reasons.push(`picture ${pm.ok}/${pm.n} cells`); out.blockers.push("picture differs"); }
+		if (pictureSame(pm, T)) out.level = 3;
+		else { out.reasons.push(`picture: colour ${Math.round(pm.colour * 100)}% · edges ${Math.round(pm.edge * 100)}% of the cells match`); out.blockers.push("picture differs"); }
 	}
 	return out;
 }

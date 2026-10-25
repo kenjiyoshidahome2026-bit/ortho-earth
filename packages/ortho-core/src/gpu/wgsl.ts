@@ -1,3 +1,4 @@
+import { CS_ATMO_WGSL } from "../csatmo.ts";
 // WebGPU(WGSL) シェーダ＝gl/glsl.js の忠実移植。
 // Phase 1: globe / fill / line（基図コア）。Phase 2: 標高（elev）・地形サーフェス・深度・建物押し出し・等高線。
 // 数学は GLSL 版と1:1（sinP テイラー・deltaToRel の桁落ち回避 RTE・capsule SDF・対数深度・hillshade）。
@@ -1093,7 +1094,7 @@ struct Globe {
 	seaC: vec4f,         // 海の平色（NE流の淡青）
 	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
-	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
+	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, Cesium の地面の大気の効き 0..1, Cesium の大気を点ける 0/1, Cesium の空の大気 0/1)＝view.csAtmo（../csatmo.ts）
 	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
 	anc: vec4f,          // 錨（#65）：xyz＝シーン原点の β単位球の点 O・w＝cos β0
 	anc2: vec4f,         // xy＝原点 lon/lat（deg・測地）・z＝β0（rad）
@@ -1107,6 +1108,7 @@ struct Globe {
 	elevOff: vec4f,      // 近窓の標高（海面下 fsWdepr）＝同形
 };
 @group(0) @binding(0) var<uniform> G: Globe;
+${CS_ATMO_WGSL}
 ${RAY}
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
 @group(0) @binding(1) var gElevTex: texture_2d<f32>;
@@ -1238,6 +1240,12 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
 	let t = h.t;
 	if (t < 0.0) {                             // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続減衰
+		if (G.misc.z > 0.5) {   // Cesium の空の大気（gl と同じ）
+			if (G.misc.w < 0.5) { discard; }
+			let cs = csSky(A * CS_R, normalize(d));
+			if (cs.a <= 0.002) { discard; }
+			return cs;
+		}
 		let lenA = length(A);
 		var m = lenA;
 		if (tstar > 0.0) { m = sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0)); }
@@ -1302,7 +1310,9 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
-	return vec4f(col * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
+	var colC = col;
+	if (G.misc.z > 0.5) { colC = csGround(base, A * CS_R, Pt * CS_R, G.misc.y); }   // Cesium の地面の大気（従来の霞の代わり）
+	return vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 }
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側を「landK=1 強制のハイプソ本体」で塗る＝
 // 海→海面下→陸の描画順（2026-09-01 本人設計・gl/glsl.js WDEPR_FS と対）。同モジュール＝globe と同一バインド

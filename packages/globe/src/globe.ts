@@ -2814,6 +2814,9 @@ function drawDebug() {
 }
 map.setDebug = (o = {}) => { for (const k of ["tileBoundaries", "padding"] as const) if (k in o) dbgState[k] = !!o[k]; if (!dbgState.tileBoundaries && !dbgState.padding) { if (dbgCanvas) dbgCtx().clearRect(0, 0, size.w, size.h); } else requestDraw(); return map; };
 map.getDebug = () => ({ ...dbgState });
+// 見えているタイルが全部載ったか（MapLibre の areTilesLoaded・2026-10-25）＝idle の材料のうち読み込みだけ（動き・描き直し・時計の再生は問わない＝時計が回る頁でも答える）
+map.areTilesLoaded = () => mapLoaded && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
+	&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;

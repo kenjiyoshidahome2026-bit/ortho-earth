@@ -245,7 +245,8 @@ function makeGlobe(scene: OrthoScene): any {
 		const hit = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
 		return hit ? Ray.getPoint(ray, hit.start, result) : undefined;
 	};
-	Object.defineProperty(g, "tilesLoaded", { get: () => true, configurable: true });
+	// tilesLoaded: everything in view has loaded (the globe's areTilesLoaded: a running clock does not matter, as in Cesium)
+	Object.defineProperty(g, "tilesLoaded", { get: () => !!scene.host.map?.areTilesLoaded?.(), configurable: true });
 	return g;
 }
 

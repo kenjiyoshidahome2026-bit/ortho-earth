@@ -125,6 +125,8 @@ export interface WalkHandle {
 export interface CloudsImpl { apply(map: GlobeMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
 export interface LightTypeImpl { apply(map: GlobeMap, lights: LightSpec[]): void }
+/** setAtmosphere の形：model＝描き方（今は "cesium" だけ）・ground＝地面の大気（既定 true）・sky＝空の大気（既定 true） */
+export interface AtmosphereSpec { model: "cesium"; ground?: boolean; sky?: boolean }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
