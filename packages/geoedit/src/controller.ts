@@ -558,6 +558,7 @@ export function initEditor(map: EditorMap, { adopt = true, setDropOwner = null, 
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
 		}, toast, hostCloud) : null,
 		listOpen: hostTable ? openList : null,
+		toast,
 		close: onClose,   // 部品＝右端の「×」（持ち主へ戻る）。単独起動は null＝出さない
 		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
 		clearAll: async () => {
