@@ -13,7 +13,7 @@ import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネル�
 import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -93,6 +93,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			</section>
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
+				<h2>${esc(t("Around my home"))}</h2>
+				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
+				<p class="sub flat hm-msg">${esc(t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
+				<div class="detail home-out" hidden></div>
+				<h2>${esc(t("District"))}</h2>
 				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
 				<h2>${esc(t("Search facilities"))}</h2>
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
@@ -684,11 +689,17 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
 	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
 	const probeOut = $<HTMLElement>(".probe-out");
-	let probing = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false;
-	const setProbing = (on: boolean) => { probing = on; $(".probe").textContent = t(on ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on); mapEl.classList.toggle("yk-probing", on); };
+	let probing = false, probeHome = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false;
+	// 地図を押して調べる口は 2 つ＝防災の「地点を調べる」と暮らしの「わが家のまわり」（home）。どちらも同じ押し待ち（吹き出しを止める）
+	const setProbing = (on: boolean, home = false) => {
+		probing = on; probeHome = on && home;
+		$(".probe").textContent = t(on && !home ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on && !home);
+		$(".hm-tap").textContent = t(on && home ? "Tap a point on the map." : "Tap the map at your home"); $(".hm-tap").classList.toggle("on", on && home);
+		mapEl.classList.toggle("yk-probing", on);
+	};
 	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
 	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
-	$(".probe").onclick = () => { setProbing(!probing); if (probing && narrow()) P.setFold(true); };
+	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing && narrow()) P.setFold(true); };
 	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
 		const z = 17, p = tilePixel(lon, lat, z);
 		try {
@@ -749,7 +760,86 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const c = map.unproject([mapEl.clientWidth / 2, mapEl.clientHeight / 2 + (p.y - want)]);
 		if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 });
 	});
-	map.on("click", (e: { lngLat: LonLat | null }) => { if (!probing || !e.lngLat) return; probedAt = Date.now(); setProbing(false); if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); } if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat); });
+	map.on("click", (e: { lngLat: LonLat | null }) => {
+		if (!probing || !e.lngLat) return;
+		const home = probeHome; probedAt = Date.now(); setProbing(false);
+		if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); }
+		if (home) { homeAt(e.lngLat); return; }
+		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat);
+	});
+
+	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・警察／消防の管轄を 1 枚に（市民ファースト・本人 2026-10-25）──
+	// 東京都の頁は層を重ねて読む＝専門家の道具。ここは「自分の家」から引く＝答えが 1 枚で出る。台帳はどれも既にある物（読むだけ・層は足さない）
+	const homeOut = $<HTMLElement>(".home-out"), hmMsg = $<HTMLElement>(".hm-msg");
+	let homeMark: Marker | null = null;
+	const areaFile = (id: AreaId) => AREAS.find(a => a.id === id)!.file;
+	type AreaFC = { features: { geometry: { type: string; coordinates: unknown } | null; properties: { n?: string; a?: string; b?: number; f?: number } }[] };
+	const SUB = (name: string) => FACILITY_SUBS.findIndex(x => x.name === name);
+	const HOME_NEAR = ["Ward offices", "Libraries", "Hospitals", "Police boxes", "Fire stations and headquarters"].map(n => ({ n, i: SUB(n) }));
+	const clearHome = () => { homeOut.hidden = true; homeMark?.remove(); homeMark = null; };
+	async function homeAt(ll: LonLat) {
+		const at: [number, number] = [ll[0], ll[1]];
+		closePop(); homeMark?.remove();
+		const el = document.createElement("div"); el.className = "yk-probe yk-home";
+		homeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
+		if (st.tab !== "life") setTab("life");
+		homeOut.hidden = false;
+		const x = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`;
+		homeOut.innerHTML = `<div class="dh"><b>${esc(t("Loading…"))}</b>${x}</div>`;
+		const run = homeOut.dataset.run = String(Date.now());
+		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
+		const [wards, se, sj, zn, po, fi, rail, , sh, , here, depths, dz] = await Promise.all([
+			loadWards(), ledger<AreaFC>(areaFile("school-e")), ledger<AreaFC>(areaFile("school-j")), ledger<AreaFC>(areaFile("zoning")), ledger<AreaFC>(areaFile("police")), ledger<AreaFC>(areaFile("fire")),
+			loadRail(), loadBus(), loadShelters(), loadFac(),
+			map.getHeight(at[0], at[1]).catch(() => NaN),
+			Promise.all(water.map(h => samplePx(h.urls[0], at[0], at[1], h.legend))),
+			Promise.all(dosha.urls.map(u => samplePx(u, at[0], at[1], dosha.legend))).then(a => Math.max(...a)),
+		]);
+		if (homeOut.dataset.run !== run) return;
+		const ward = featureAt(wards as unknown as { features: { geometry: { type: string; coordinates: unknown } | null; properties: { code?: string } }[] } | null, at);
+		if (wards && !ward?.code) { homeOut.innerHTML = `<div class="dh"><b>${esc(t("Outside Yokohama City."))}</b>${x}</div>`; return; }
+		const row = (k: string, v: string) => `<div><small>${esc(k)}</small><span>${v}</span></div>`;
+		const walk = (m: number) => esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)));
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
+		const out: string[] = [];
+		out.push(`<div class="dh"><b>${esc(ward?.code ? wardName(ward.code) : "")}${Number.isFinite(here) ? ` · ${esc(t("Elevation about $1 m", num(Math.round(here))))}` : ""}</b>${x}</div>`);
+		// 学区
+		const e1 = featureAt(se, at), j1 = featureAt(sj, at);
+		if (e1 || j1) out.push(`<h3>${esc(t("School districts"))}</h3><div class="pr">${e1 ? row(t("Elementary schools"), esc(String(e1.n || ""))) : ""}${j1 ? row(t("Junior high schools"), esc(String(j1.n || ""))) : ""}</div>`);
+		// 交通＝最寄りの駅 2 つ（同じ名の駅は 1 つに）・バス停 1 つ
+		const sta: { row: StationRow; m: number }[] = [];
+		if (rail) for (const r of nearestRows(rail.stations, at, 12)) { if (!sta.some(s => s.row[2] === r.row[2])) sta.push(r); if (sta.length >= 2) break; }
+		const bs = bus ? nearestRows(bus, at, 1)[0] : null;
+		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, m }) => row(t("$1 Station", staName(r[2])), walk(m))).join("")}${bs ? row(t("Bus stops"), `${esc(bs.row[2])}<br><small>${walk(bs.m)}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
+		// 防災＝想定浸水（3 つの想定）・土砂・水が届く階・最寄りの避難場所
+		const worst = Math.max(...depths), ev = sh ? nearestSites(sh, at, 1)[0] : null;
+		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(ev.row[2])}<br><small>${walk(ev.m)}</small>`) : ""}</div>`
+			+ (floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""));
+		// 近くの施設（区役所・図書館・病院・交番・消防署）
+		if (fac) {
+			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: nearestRows(fac!.filter(r => subOf(r[3], r[5]) === i), at, 1)[0] })).filter(x => x.r);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(r!.row[2])}<br><small>${walk(r!.m)}</small>`)).join("")}</div>`);
+		}
+		// まちのきまり＝用途地域（建ぺい率・容積率）・警察署／消防署の管轄
+		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = featureAt(po, at), f1 = featureAt(fi, at);
+		if (z || p1 || f1) out.push(`<h3>${esc(t("Zones and districts"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
+		out.push(`<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
+		homeOut.innerHTML = out.join("");
+		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
+	}
+	homeOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) clearHome(); });
+	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing && narrow()) P.setFold(true); };
+	$(".hm-gps").onclick = () => {
+		if (!navigator.geolocation) { hmMsg.textContent = t("Could not get your location."); return; }
+		hmMsg.textContent = t("Loading…");
+		navigator.geolocation.getCurrentPosition(p => {
+			const ll: LonLat = [p.coords.longitude, p.coords.latitude];
+			hmMsg.textContent = "";
+			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { hmMsg.textContent = t("Outside Yokohama City."); return; }
+			setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
+			homeAt(ll);
+		}, () => { hmMsg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+	};
 
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {
@@ -914,6 +1004,12 @@ const CSS = `
 .yk-panel .near b{display:block;color:var(--qm-ink);font-size:12.5px}
 .yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
 .yk-probing canvas{cursor:crosshair}
+.yk-home{background:#1f6fc5}
+.yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.yk-panel .hm-btns .act{margin:0;text-align:center}
+.yk-panel .home-out .walkr{margin-top:8px;padding:6px 12px;border-radius:999px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
+.yk-panel .home-out .pr span small{color:var(--qm-text-dim)}
+.yk-panel .home-out .pr span{text-align:end;white-space:normal}
 .yk-probe{width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -62,5 +62,12 @@ t("公共施設の種別：どの区分にも 1 つ以上・種別名は重な�
 t("用途地域：13 種・正式名と色は重ならない／区域：id とファイルは重ならない", ZONES.length === 13 && new Set(ZONES.map(z => z.ja)).size === 13 && new Set(ZONES.map(z => z.color)).size === 13 && ZONES.every(z => /地域$/.test(z.ja)) && new Set(AREAS.map(a => a.id)).size === AREAS.length && new Set(AREAS.map(a => a.file)).size === AREAS.length);
 t("覆いの外枠：市の中の視野は内側・球の縁（null）や枠をはみ出す視野は外／地下鉄は全市の眺めで出る", insideBox([139.4, 35.3, 139.8, 35.6], MASK_BOX) && !insideBox(null, MASK_BOX) && !insideBox([138.0, 35.3, 139.8, 35.6], MASK_BOX) && CITY_VIEW.zoom >= SUBWAY_MIN_ZOOM);
 t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）より上・LOD1 の区の名所はその下限以上で寄る（ツアーで建物が出ない名所を作らない）", BUILDINGS_MIN_ZOOM > Math.max(...WARDS.map(w => w.zoom)) && BUILDINGS_MIN_ZOOM >= 15 && BUILDINGS_MIN_ZOOM <= 18 && SPOTS.filter(s => LOD1_WARDS.some(w => w.code === s.ward)).every(s => s.zoom >= BUILDINGS_MIN_ZOOM), SPOTS.filter(s => LOD1_WARDS.some(w => w.code === s.ward) && s.zoom < BUILDINGS_MIN_ZOOM).map(s => s.id).join());
+{	// わが家のまわり：点の内外（穴・MultiPolygon）と、点を含む地物の properties
+	const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+	const donut = { type: "Polygon", coordinates: [sq(0, 0, 10, 10), sq(4, 4, 6, 6)] }, multi = { type: "MultiPolygon", coordinates: [[sq(0, 0, 1, 1)], [sq(5, 5, 6, 6)]] };
+	const fc = { features: [{ geometry: donut, properties: { n: "A" } }, { geometry: multi, properties: { n: "B" } }] };
+	t("わが家のまわり：面の内外（穴は外・MultiPolygon の 2 つ目も中）・含む地物", inGeometry(donut, [1, 1]) && !inGeometry(donut, [5, 5]) && !inGeometry(donut, [11, 5]) && inGeometry(multi, [5.5, 5.5]) && !inGeometry(null, [0, 0])
+		&& featureAt(fc, [2, 2])?.n === "A" && featureAt(fc, [5.5, 5.5])?.n === "B" && featureAt(fc, [20, 20]) === null && featureAt(null, [0, 0]) === null);
+}
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
