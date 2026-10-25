@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 実描画の検分：夜の街明かり（map.setCityLights＝建物メッシュの壁の窓）と夜の色（map.setGrade＝窓の印の所は暗くしない）・2026-10-24・WebGPU。
-     試料＝dark テーマ・東京（139.7/35.7）に 80m 角×高さ 120m の箱メッシュ 1 棟（面ごとの頂点と法線・PLATEAU と同じ素の建物メッシュ＝__rset("meshSet")）。南から見る（z16.6・pitch 60）。
+     試料＝dark テーマ・東京（139.7/35.7）に 80m 角×高さ 120m の箱メッシュ 1 棟（面ごとの頂点と法線・PLATEAU と同じ素の建物メッシュ＝__rset("meshSet")）。南から見る（z18.2・pitch 60・遠景の平均は z16.6）。
      読み出しは requestSnapshot の base（撮影・動画の書き出しと同じ口）。時刻は map.clock。
      ①昼（正午）＝街明かりを点けても絵は変わらない（夜の度合い 0）
      ②夜（20:30 JST）＝点けると壁に暖色の窓が出る（数えた画素が増える）・消すと元どおり
@@ -30,12 +30,12 @@ const bright = (px, th) => { let c = 0; for (let i = 0; i < px.length; i += 4) i
 const mean = px => { let s = 0; for (let i = 0; i < px.length; i += 4) s += (px[i] + px[i + 1] + px[i + 2]) / 3; return s / (px.length / 4); };
 const alpha1 = px => { for (let i = 3; i < px.length; i += 4) if (px[i] !== 255) return false; return true; };
 try {
-	const map = await createGlobe({ target: "#map", view: "#16.6/35.7/139.7", theme: "dark", chips: false, persistView: false, debugGlobals: true });
+	const map = await createGlobe({ target: "#map", view: "#18.2/35.7/139.7", theme: "dark", chips: false, persistView: false, debugGlobals: true });
 	await new Promise(r => map.on("load", r));
 	if (map.hud?.().backend !== "webgpu" && window.__backend !== "webgpu") {
 		ok("webgl2=setCityLights は false", map.setCityLights(true) === false && map.setGrade([42, 52, 96]) === false && map.getGrade() === null);
 	} else {
-	map.jumpTo({ center: [LON, LAT], zoom: 16.6, pitch: 60, bearing: 0 });
+	map.jumpTo({ center: [LON, LAT], zoom: 18.2, pitch: 60, bearing: 0 });   // 窓の粒が見える近さ（z16.6 では格子が 1〜3 画素＝平均の側＝下の farNotSunk で検める）
 	const origin = lonlatTo3D(LON, LAT);
 	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
 	const dirOf = (a, b) => { const d = a.map((v, i) => v - b[i]), l = Math.hypot(...d); return d.map(v => v / l); };
@@ -88,6 +88,17 @@ try {
 	ok("gradeNull", map.getGrade() === null);
 	const g2 = await snap(map);
 	ok("gradeOffRestores", diff(g2, n1) <= 2, `Δmax=${diff(g2, n1)}`);
+	// ③' 遠景（z16.6＝窓の格子が数画素）＝平均の灯りで、夜の色に沈まない（Mac 実測 2026-10-24：遠くの高層群が真っ暗だった）
+	map.jumpTo({ center: [LON, LAT], zoom: 16.6, pitch: 60, bearing: 0 });
+	map.setGrade([42, 52, 96], { glow: 0 });
+	map.setCityLights(false);
+	const f0 = await snap(map);
+	map.setCityLights(true);
+	const f1 = await snap(map);
+	const lifted = (() => { let c = 0; for (let i = 0; i < f0.length; i += 4) if ((f1[i] + f1[i + 1] + f1[i + 2]) - (f0[i] + f0[i + 1] + f0[i + 2]) > 45) c++; return c; })();
+	ok("farNotSunk", lifted > 300, `lifted=${lifted}`);
+	map.setGrade(null);
+	map.jumpTo({ center: [LON, LAT], zoom: 18.2, pitch: 60, bearing: 0 });
 	// ④ 模型（uv と頂点色＝MESH_TEX の経路）の壁＝窓は出さない（素の建物メッシュだけ）
 	window.__rset("meshSet", null, "box#0");
 	const mV = [], mN = [], mUV = [], mC = [];

@@ -389,6 +389,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target: GPUColorTargetState = { format, blend: BLEND };
 	// 素の建物メッシュ（不透明）＝置き換え（α もそのまま書く）＝夜の街明かりの窓の印（α＝1−印・後処理の夜の色 grade が読む・2026-10-24）。α＝1 の間は BLEND と同じ絵
+	const alphaOneMod = device.createShaderModule({ label: "alphaOne", code: `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(p * 2.0 - 1.0, 0.0, 1.0); }
+@fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 0.0, 0.0, 1.0); }` });
 	const targetA: GPUColorTargetState = { format, blend: { color: { srcFactor: "one", dstFactor: "zero", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "zero", operation: "add" } } };
 	const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 
@@ -587,6 +589,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
 			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
+			alphaOne: device.createRenderPipeline({ layout: "auto", vertex: { module: alphaOneMod, entryPoint: "vs" },   // 夜の色の間＝建物メッシュの前に canvas の α を 1 に揃える（窓の印だけが α<1 になる）
+				fragment: { module: alphaOneMod, entryPoint: "fs", targets: [{ format, writeMask: 0x8 }] }, primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms }),
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
@@ -3140,7 +3144,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				writeXf(plBatchCPU, o, p.xf);   // バッチの剛体変換（W4）
 				if (light) { const lc = light.color || [1, 1, 1]; plBatchCPU[o + 212] = light.dir[0]; plBatchCPU[o + 213] = light.dir[1]; plBatchCPU[o + 214] = light.dir[2]; plBatchCPU[o + 215] = 1; plBatchCPU[o + 216] = lc[0]; plBatchCPU[o + 217] = lc[1]; plBatchCPU[o + 218] = lc[2]; plBatchCPU[o + 219] = light.intensity ?? 0.5; } else plBatchCPU[o + 215] = 0;   // style の light（sl0/sl1）
 				plBatchCPU[o + 220] = p.colSrgb ? 1 : 0;   // cs.x＝頂点色が sRGB（押し出し）
-				plBatchCPU[o + 221] = p.textured ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ）・cs.z＝窓の印を α に（夜の色 grade の間）
+				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
 			}
@@ -3149,6 +3153,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
 				// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
 				const ex = st.eye, d2 = (p: MeshBatch) => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
+				if (post?.grade) { pass.setPipeline(P.alphaOne); pass.draw(3); }   // 窓の印の前に α を 1 へ（先に描いた層の α<1 を窓と取り違えない＝夕景で色の掛からない建物が出た・Mac 実測 2026-10-24）
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
 				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [TX.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
