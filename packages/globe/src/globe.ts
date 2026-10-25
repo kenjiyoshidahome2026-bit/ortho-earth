@@ -3617,7 +3617,9 @@ const setDataLive: GlobeScope["setDataLive"] = id => {
 	q.p = (async () => { try { do { q!.again = false; await remountSource(id); } while (q!.again); } finally { setDataQ.delete(id); } })();
 	return q.p!;
 };
-const mountLayer: GlobeScope["mountLayer"] = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); sendLabelOrder(); } };
+// 載せ直し（setPaintProperty 等の relayer・removeLayer）で前の載せが取り消された＝"removed"＝失敗ではない＝null で返す（呼び手の多くは待たない＝未処理の reject にしない・Cesium の門 imagery-layers）
+const CANCELLED = /^removed( while opening)?$/;
+const mountLayer: GlobeScope["mountLayer"] = async v => { v.mounting = true; try { return await mountLayerRaw(v); } catch (e) { if (CANCELLED.test((e as Error)?.message)) return null; throw e; } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); sendLabelOrder(); } };
 // 利用者の注記の組（"vt:<id>"＝vector の描く層と geojson の symbol 層）の順＝MapLibre の層の順（下から）。注記層が焼いた sort の代わりにこの順位で比べる（後の層が先に置く・T-P3）
 let labelOrderSent = "";
 function sendLabelOrder() {
