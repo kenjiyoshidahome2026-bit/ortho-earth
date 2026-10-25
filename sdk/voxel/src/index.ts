@@ -7,21 +7,26 @@
 //   Preparation (quantising values to R8 / RGBA8, the colormap, placement, the region shell) runs in a worker (voxel-reader.ts); the main thread forwards the buffers (transfer).
 //   Stage 4 adds the 3D Tiles EXT_primitive_voxels. Stage 5 (2026-10-24): a grid with an axis beyond BRICK_LIMIT (256) is split into bricks (BRICK = 126 cells + a 1-cell apron,
 //   one texture each, drawn far to near, empty bricks skipped), a time dimension (times + map.clock) and a GPU budget: only the frame shown is on the GPU, and grids bigger than
-//   the budget also carry coarser levels (1/2, 1/4… per axis) that the overlay uses far away when the budget runs out (planLevels). File sources follow. Plan: ../PLAN.md.
+//   the budget also carry coarser levels (1/2, 1/4… per axis) that the overlay uses far away when the budget runs out (planLevels). NetCDF classic and Zarr v2 / v3 URLs (or NetCDF bytes)
+//   are read in the worker by sources.ts into region grids with CF coordinates and times. Plan: ../PLAN.md.
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick, VoxelData } from "@ortho-earth/globe";
-import { prepareGrid, transferables, levelBuffers, checkVoxelData, checkClip, buildColormap, thrOf, frameAt } from "./grid.ts";
+import { transferables, levelBuffers, checkVoxelData, checkClip, buildColormap, thrOf, frameAt } from "./grid.ts";
 import type { PrepareOptions, PreparedGrid, ColormapSpec, RenderMode, Clip } from "./grid.ts";
-import type { ReaderRequest, ReaderReply } from "./voxel-reader.ts";
+import type { ReaderRequest, ReaderReply, ReadExtra } from "./voxel-reader.ts";
+import { readAndPrepare } from "./voxel-reader.ts";
+import type { SourceMeta } from "./sources.ts";
 import type { VoxelStyle } from "./voxel-gl.ts";
 export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, makeLevel, levelBuffers } from "./grid.ts";
 export type { PrepareOptions, Prepared, PreparedGrid, Brick, Level, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
 export type { VoxelMessage, VoxelLayerBody, LevelBody, VoxelStyle, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
 export type { VoxelBackend, VoxelDrawOpts } from "./voxel-draw.ts";
+export { readSource, parseNetCDF, sniffNetCDF, openZarr, zarrArray, readZarr, toVoxelData, pickVariable, axisOf, cfTimes, heightsOf, pressureToHeight, edges, unpack, isZarrUrl } from "./sources.ts";
+export type { SourceOptions, SourceMeta, SourceData } from "./sources.ts";
 export type { VoxelGpuModule } from "./voxel-gpu.ts";
 import type { VoxelBackend } from "./voxel-draw.ts";
 // 描き手（worker）の URL＝入口（voxel-draw.js が兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const VOXEL_URL = new URL("./voxel-draw.js", import.meta.url).href;
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 export type VoxelSource = VoxelData | string | URL | ArrayBuffer | Uint8Array;
@@ -56,6 +61,12 @@ export interface VoxelOptions {
 	/** grids with `times` (a time dimension): "clock" (default) shows the frame of the map's clock (map.clock: the last frame at or before its time) and follows it as it plays;
 	 *  a number (ms) pins that time. Changes without re-uploading the grid */
 	time?: number | "clock";
+	/** NetCDF / Zarr sources: the variable to draw (default the non-coordinate numeric variable with the most dimensions) */
+	variable?: string;
+	/** NetCDF / Zarr sources: read only frames [start, end) of the time dimension */
+	frames?: [number, number];
+	/** NetCDF / Zarr sources: the height range [h0, h1] in meters (default from the vertical coordinate; pressure levels use the standard atmosphere) */
+	heights?: [number, number];
 }
 export interface VoxelPluginOptions {
 	/** "auto" (default): WebGPU when the map draws with WebGPU (shared device and depth texture), else WebGL2. "webgpu": WebGPU (own device under a WebGL2 map) or fail. "webgl2": always WebGL2 */
@@ -98,6 +109,8 @@ export interface VoxelHandle {
 	frame: number;
 	/** number of coarser levels made for the GPU budget (0 = the grid fits) */
 	levels: number;
+	/** what a NetCDF / Zarr source was read as (format, variable, units, long name, dimensions, attributes); null for VoxelData */
+	source: SourceMeta | null;
 	ready: Promise<VoxelHandle>;
 	setData(data: VoxelSource): Promise<VoxelHandle>;
 	setProps(p: Partial<VoxelOptions>): Promise<VoxelHandle>;
@@ -142,7 +155,7 @@ function acquire(map: VoxelMap, above: boolean, id: string, backend: VoxelBacken
 }
 
 // ---- 読み手の worker（一つ・怠けて立てる・手綱が全部外れたら少し待って片付ける） ----
-interface Reader { w: Worker; pending: Map<number, { res: (p: PreparedGrid) => void; rej: (e: Error) => void }>; seq: number }
+interface Reader { w: Worker; pending: Map<number, { res: (p: PreparedGrid & ReadExtra) => void; rej: (e: Error) => void }>; seq: number }
 let reader: Reader | null = null, readerBroken = false, liveHandles = 0, readerIdle: ReturnType<typeof setTimeout> | null = null;
 function spawnReader(): Reader | null {
 	if (reader) return reader;
@@ -163,19 +176,19 @@ function spawnReader(): Reader | null {
 const readerUsed = (): void => { liveHandles++; if (readerIdle) { clearTimeout(readerIdle); readerIdle = null; } };
 const readerFree = (): void => { if (--liveHandles > 0 || !reader) return; readerIdle = setTimeout(() => { readerIdle = null; if (liveHandles || !reader) return; reader.w.terminate(); reader = null; }, 5000); };
 const isFileSource = (src: VoxelSource): src is string | URL | ArrayBuffer | Uint8Array => typeof src === "string" || src instanceof URL || src instanceof ArrayBuffer || src instanceof Uint8Array;
-async function load(src: VoxelSource, o: VoxelOptions, rAx: number, budget: number): Promise<PreparedGrid & { reader: "worker" | "main" }> {
-	if (isFileSource(src)) throw new Error("voxel: file sources (.nc / .zarr / .vox / .npy) are not read yet (stage 5); pass VoxelData");
-	const d = checkVoxelData(src);
+async function load(src: VoxelSource, o: VoxelOptions, rAx: number, budget: number): Promise<PreparedGrid & ReadExtra & { reader: "worker" | "main" }> {
+	const file = isFileSource(src), d = file ? null : checkVoxelData(src);
+	const source = file ? { variable: o.variable, frames: o.frames ?? null, heights: o.heights ?? null } : undefined, fsrc = file ? (src instanceof URL ? src.href : src) : undefined;
 	const popts: PrepareOptions = { colormap: o.colormap, range: o.range ?? null, alphaRamp: o.alphaRamp ?? null, threshold: o.threshold ?? null, rAx, lodBytes: Number.isFinite(budget) ? budget * MB / 2 : null };   // 予算の半分を越える格子は粗い段も
 	const r = spawnReader();
 	if (r) {
 		try {
-			const seq = ++r.seq, req: ReaderRequest = { seq, data: d, opts: popts };
-			const p = await new Promise<PreparedGrid>((res, rej) => { r.pending.set(seq, { res, rej }); r.w.postMessage(req); });   // data は写し＝渡した人の配列は手放さない
+			const seq = ++r.seq, req: ReaderRequest = file ? { seq, src: fsrc, source, opts: popts } : { seq, data: d, opts: popts };
+			const p = await new Promise<PreparedGrid & ReadExtra>((res, rej) => { r.pending.set(seq, { res, rej }); r.w.postMessage(req); });   // data は写し＝渡した人の配列は手放さない
 			return { ...p, reader: "worker" };
 		} catch (e) { if (!(e as { fallback?: boolean })?.fallback) throw e; }
 	}
-	return { ...prepareGrid(d, popts), reader: "main" };
+	return { ...(await readAndPrepare(file ? { src: fsrc, source, opts: popts } : { data: d, opts: popts })), reader: "main" };
 }
 const isVoxelHit = (id: string) => (t: OverlayPick): t is VoxelHit => t.layer === id;
 const checkEnum = (v: unknown, allowed: readonly string[], name: string): void => { if (!allowed.includes(v as string)) throw new RangeError(`voxel: ${name} must be ${allowed.map(a => JSON.stringify(a)).join(" | ")}`); };
@@ -190,6 +203,9 @@ function checkOpts(opts: Partial<VoxelOptions>): void {
 	if (opts.threshold != null && !Number.isFinite(opts.threshold)) throw new TypeError("voxel: threshold must be a finite number (data units)");
 	checkClip(opts.clip);
 	if (opts.time != null && opts.time !== "clock" && !(typeof opts.time === "number" && Number.isFinite(opts.time))) throw new TypeError("voxel: time must be \"clock\" or a time in ms");
+	if (opts.variable != null && typeof opts.variable !== "string") throw new TypeError("voxel: variable must be a string");
+	if (opts.frames != null && !(Array.isArray(opts.frames) && opts.frames.length === 2 && opts.frames.every(Number.isInteger) && opts.frames[0] >= 0 && opts.frames[1] > opts.frames[0])) throw new RangeError("voxel: frames must be [start, end) frame numbers");
+	if (opts.heights != null && !(Array.isArray(opts.heights) && opts.heights.length === 2 && opts.heights.every(Number.isFinite) && opts.heights[0] < opts.heights[1])) throw new RangeError("voxel: heights must be [h0, h1] meters with h0 < h1");
 }
 
 let anonSeq = 0;
@@ -213,7 +229,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 		const my = ++seq;
 		const p = await load(src, o, rAxOf(map), budget);
 		if (removed || my !== seq) return h;
-		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; h.levels = (p.lods ?? p.bricks?.[0]?.lods)?.length ?? 0; times = h.times = p.times; h.frame = frameNow(); follow(!!times && (o.time ?? "clock") === "clock"); cur = src; values = (src as VoxelData).values; comps = p.comps; baked = true;
+		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; h.levels = (p.lods ?? p.bricks?.[0]?.lods)?.length ?? 0; times = h.times = p.times; h.frame = frameNow(); follow(!!times && (o.time ?? "clock") === "clock"); cur = src; values = p.values ?? (src as VoxelData).values; h.source = p.meta ?? null; comps = p.comps; baked = true;
 		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, properties: o.properties ?? null, range: p.range, on: visible, frame: h.frame, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
 		const next = p.bricks ? p.bricks.map((_, b) => `${id}#${b}`) : [id];
 		for (const q of qs) if (!next.includes(q)) { ov.post({ type: "remove", q }); slot.errors.delete(q); }   // 前の形の層（一枚 ↔ ブリック・ブリックの数）を片付ける
@@ -237,7 +253,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 	// 当たりの value＝main が持つ元の値（worker の答えは番号だけ）
 	const withValue = (t: VoxelHit): VoxelHit => { const k = t.index + (h.frame || 0) * (h.n || 0); if (values && comps === 1 && t.index >= 0 && k < values.length) { const v = values[k]; t.value = v; t.properties = { ...t.properties, value: v }; } return t; };
 	const h: VoxelHandle = {
-		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null, bricks: 0, levels: 0, times: null, frame: 0,
+		id, kind: "voxel", overlay: ov, dims: null, n: 0, anchor: null, range: null, reader: null, error: null, shape: null, bricks: 0, levels: 0, source: null, times: null, frame: 0,
 		get backend() { return slot.backend; },
 		ready: undefined as unknown as Promise<VoxelHandle>,
 		setData: (d: VoxelSource) => { if (!isFileSource(d)) checkVoxelData(d); return (h.ready = run(d, props)); },
