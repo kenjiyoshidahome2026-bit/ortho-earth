@@ -85,7 +85,7 @@ const ellipsePts = (a: number, b: number, rot: number, n = 64): Array<[number, n
 };
 /** heading (deg) for the globe's model of an orientation quaternion at a point. Cesium's model +X is the glTF's front (+Z, forwardAxis Z);
  *  the globe's model at heading 0 has the glTF's +Z facing south, turning clockwise: heading = bearing of +X − 180 */
-function headingOf(q: Quaternion | undefined, at: Cartesian3): number {
+export function headingOf(q: Quaternion | undefined, at: Cartesian3): number {
 	if (!q) return -90;   // no orientation: Cesium's model frame is the ENU frame (+X east)
 	const m = Matrix3.fromQuaternion(q), x = new Cartesian3(m[0], m[1], m[2]);
 	const enu = FixedFrameTransforms.eastNorthUpToFixedFrame(at), E = new Cartesian3(enu[0], enu[1], enu[2]), N = new Cartesian3(enu[4], enu[5], enu[6]);
@@ -143,6 +143,8 @@ export class EntityDisplay {
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
 	#marks: Array<{ e: Any; x: number; y: number; r: number }> = [];
+	/** what the scene's primitives draw through this display: 3D lines, and pickers ((x, y) → a pick result) */
+	readonly extra = { lines: () => [] as Any[], pickers: [] as Array<(x: number, y: number) => Any>, sources: [] as Any[] };
 
 	constructor(o: { scene: OrthoScene; dataSourceCollection: Any; host: Host }) {
 		this.scene = o.scene; this.dataSources = o.dataSourceCollection; this.host = o.host;
@@ -163,6 +165,7 @@ export class EntityDisplay {
 
 	#entities(): Any[] {
 		const out: Any[] = [...this.defaultDataSource.entities.values];
+		for (const ds of this.extra.sources) for (const e of ds.entities.values) out.push(e);
 		for (let i = 0; i < this.dataSources.length; i++) {
 			const ds = this.dataSources.get(i);
 			if (ds.show === false) continue;
@@ -202,6 +205,7 @@ export class EntityDisplay {
 			for (const s of d.shapes) shapes.push(s);
 			if (d.model) models.set(e, d.model);
 		}
+		for (const l of this.extra.lines()) lines.push(l);
 		if (!map) return true;
 		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities" });
 		const tk = tracksKey(tracks);
@@ -557,12 +561,14 @@ export class EntityDisplay {
 	}
 	pick(x: number, y: number): Any {
 		const e = this.#candidates(x, y)[0];
-		if (e) return { id: e, primitive: { id: e }, collection: undefined };
+		if (e) return e.__csPick?.() ?? { id: e, primitive: { id: e }, collection: undefined };
+		for (const f of this.extra.pickers) { const r = f(x, y); if (r) return r; }
 		for (const ts of (this.scene as Any).__tilesets ?? []) { const f = ts.__pick?.(x, y); if (f) return f; }
 		return undefined;
 	}
 	drillPick(x: number, y: number, limit?: number): Any[] {
-		const out: Any[] = this.#candidates(x, y).map(e => ({ id: e, primitive: { id: e } }));
+		const out: Any[] = this.#candidates(x, y).map(e => e.__csPick?.() ?? { id: e, primitive: { id: e } });
+		for (const f of this.extra.pickers) { const r = f(x, y); if (r) out.push(r); }
 		for (const ts of (this.scene as Any).__tilesets ?? []) { const f = ts.__pick?.(x, y); if (f) out.push(f); }
 		return limit ? out.slice(0, limit) : out;
 	}
