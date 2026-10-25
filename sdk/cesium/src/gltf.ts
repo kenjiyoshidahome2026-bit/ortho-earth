@@ -56,3 +56,8 @@ export function gltfSphere(url: string): Promise<{ center: V3; radius: number } 
 	}
 	return p;
 }
+
+/** the names of the glTF's nodes (Model.getNode, model._nodesByName) */
+export async function gltfNodeNames(url: string): Promise<string[]> {
+	try { const g = await gltfJson(url); return (g.nodes ?? []).map((n: any, i: number) => n.name ?? `node${i}`); } catch { return []; }
+}
