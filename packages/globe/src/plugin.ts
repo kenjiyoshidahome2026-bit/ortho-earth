@@ -112,6 +112,7 @@ export const STATIC_CAPABILITIES: Readonly<Record<CapabilityKey, Capability>> = 
 	"tiles3d.attribution": { status: "builtin", note: "add3DTiles(url, { attribution: text | (copyrights) => text }) shows the data providers of the tiles on screen (glTF asset.copyright, most frequent first) in the attribution panel; handle.copyrights (W8)" },
 	"terrain.dem": { status: "builtin", note: "setTerrain (raster-dem, quantized-mesh)" },
 	"terrain.queryElevation": { status: "builtin", note: "queryTerrainElevation (sync, 100m grid cache)" },
+	"terrain.exaggeration": { status: "builtin", note: "setTerrain({ exaggeration }) / setTerrainExaggeration(k): terrain and what stands on it are lifted by k (object heights are not stretched, as in MapLibre); default 1 = true scale" },
 	"terrain.sample": { status: "builtin", note: "sampleTerrain(positions) resolves heights from the drawn terrain (DEM first, then the default DTM) (F6)" },
 	"picking": { status: "builtin", note: "unified picking (map.on(ev, id), queryRenderedFeatures, pickOverlays)" },
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
