@@ -6,16 +6,8 @@
 // 柱の面は大きい三角形＝対数深度を頂点だけで焼くと内側が撓む＝画素ごとに書く（WebGPU の fragDepthOf と同じ式）。
 // 柱の頂点は β 単位球の原点相対（メッシュと同じ RTE）＝gl_Position＝clip(origin)＋mvp·delta。
 import * as mat from "../mat.ts";
+import type { ClassifyIn, ClassifyStyle } from "../classify.ts";
 
-/** set("classify", data, key) の data＝柱一式（原点相対の三角形・全体で閉じていること）。色は 0..1 の直の α（前乗算しない） */
-export interface ClassifyIn {
-	pos: Float32Array; idx: Uint32Array; origin: ArrayLike<number>;
-	color: ArrayLike<number>;
-	/** 0＝両方（既定）・1＝地形だけ（建物・メッシュの画素を除く）・2＝建物・メッシュ（3D Tiles・模型）だけ */
-	type?: number;
-}
-/** set("classifyStyle", { color, type }, key)＝塗りだけの差し替え（柱は据置） */
-export interface ClassifyStyle { color?: ArrayLike<number>; type?: number }
 interface Vol { vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number; origin: number[]; color: number[]; type: number }
 
 const VS = `#version 300 es

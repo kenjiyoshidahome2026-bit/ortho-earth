@@ -3,7 +3,7 @@
 // 本体の main パスの中（メッシュの後・夜面の前）で描く＝深度・stencil（depth24plus-stencil8）は本体の物をそのまま使う。
 // パイプラインは sampleCount ごと（本体の遷移時AA＝1x／4x と同じ）に遅延生成。柱ごとに uniform（mvp・原点の clip・色・logCoef）を 1 本。
 import * as mat from "../mat.ts";
-import type { ClassifyIn, ClassifyStyle } from "../gl/classify.ts";
+import type { ClassifyIn, ClassifyStyle } from "../classify.ts";
 
 const WGSL = /* wgsl */`
 struct U { mvp: mat4x4f, clip: vec4f, color: vec4f, p: vec4f };
