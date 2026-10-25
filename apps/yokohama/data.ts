@@ -9,8 +9,8 @@ export interface Legend { color: string; label: string; /** 画素の照合だ�
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
 /** 面＝観光・交通・防災・解析（2026-10-21 に「まち」→「観光」・「時間」を外し「交通」を足した） */
-export type Tab = "sight" | "area" | "transit" | "risk" | "tools";
-export const TAB_NAMES: Record<Tab, string> = { sight: "Sightseeing", area: "Area", transit: "Transport", risk: "Disasters", tools: "Analysis" };
+export type Tab = "life" | "transit" | "sight" | "risk" | "tools";
+export const TAB_NAMES: Record<Tab, string> = { life: "Daily life", transit: "Transport", sight: "Sightseeing", risk: "Disasters", tools: "Analysis" };
 
 /** 横浜市の外接矩形（18 区を包む）と全景の視点 */
 export const CITY_BBOX: [number, number, number, number] = [139.46, 35.31, 139.73, 35.60];
@@ -226,12 +226,12 @@ export function wardOfAddress(addr: string): Ward | null {
 export const flagsOf = (bits: number) => HINAN_FLAGS.filter((_, i) => bits & (1 << i));
 
 // ── URL の状態（共有できる）：?tab=risk&hz=flood,tsunami&ward=14104&spot=mm21&tr=subway,bus ──
-export const TABS: Tab[] = ["sight", "area", "transit", "risk", "tools"];   // 観光と地域を分ける（本人 2026-10-21）
-const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools" };   // 2026-10-21 より前の共有 URL
+export const TABS: Tab[] = ["life", "transit", "sight", "risk", "tools"];   // 暮らしを先頭に・次が交通・観光（本人 2026-10-25「地域を暮らしに変えて、先頭に」）＝既定の面は暮らし
+const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools", area: "life" };   // 旧い共有 URL（city／time＝2026-10-21 より前・area＝2026-10-25 より前の「地域」）
 export function parseState(search: string): TwinState {
 	const q = new URLSearchParams(search);
 	const t = q.get("tab") || "";
-	const tab = TABS.includes(t as Tab) ? t as Tab : OLD_TABS[t] || "sight";
+	const tab = TABS.includes(t as Tab) ? t as Tab : OLD_TABS[t] || TABS[0];
 	const hz = (q.get("hz") || "").split(",").filter(id => HAZARDS.some(h => h.id === id));
 	const ward = WARDS.some(w => w.code === q.get("ward")) ? q.get("ward")! : "";
 	const spot = SPOTS.some(s => s.id === q.get("spot")) ? q.get("spot")! : "";
@@ -243,7 +243,7 @@ export function parseState(search: string): TwinState {
 export function writeState(search: string, st: TwinState): string {
 	const q = new URLSearchParams(search);
 	const set = (k: string, v: string, def: string) => v && v !== def ? q.set(k, v) : q.delete(k);
-	set("tab", st.tab, "sight"); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
+	set("tab", st.tab, TABS[0]); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
 	const tr = TRANSIT.filter(x => st.tr.includes(x.id)).map(x => x.id).join(",");
 	if (tr === TRANSIT_DEFAULT.join(",")) q.delete("tr"); else q.set("tr", tr);
 	q.delete("era");   // 旧「時間」の鍵

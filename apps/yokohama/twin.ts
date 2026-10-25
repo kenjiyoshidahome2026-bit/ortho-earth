@@ -10,7 +10,7 @@
 // 状態は URL の search（?tab=&hz=&ward=&spot=&tr=）に写す＝その画面をそのまま共有できる（data.ts の parseState／writeState）。
 // UI は 26 言語（英語キー・t()・頁の辞書 i18n/pages/yokohama.json）。選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
-import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「地域」の面を開いた時に遅延 import
+import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
@@ -83,7 +83,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			<nav class="tabs" role="tablist">
 				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
 			</nav>
-			<section data-pane="sight">
+			<section data-pane="sight" hidden>
 				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
 				<button class="tour port" type="button">${esc(t("⚓ Port story (1859 to today)"))}</button>
 				<button class="act sea" type="button">${esc(t("View the city from the sea"))}</button>
@@ -91,7 +91,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(t(s.name))}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
 			</section>
-			<section data-pane="area" hidden>
+			<section data-pane="life">
 				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
 				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
 				<h2>${esc(t("Public facilities"))}</h2>
@@ -161,7 +161,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		st.tab = k; save(); closePop();
 		$$<HTMLButtonElement>("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === k)));
 		$$<HTMLElement>("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== k; });
-		if (k === "area") facTable();
+		if (k === "life") facTable();
 	}
 	$$<HTMLButtonElement>("[data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab as Tab));
 
@@ -291,9 +291,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	});
 	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
 
-	// ── 地域：施設の検索（common/bigtable の表・本人 2026-10-22）──
+	// ── 暮らし：施設の検索（common/bigtable の表・本人 2026-10-22）──
 	// 行＝選んだ地区（区・全市）× 出している種別（上のチップ）の施設。窓の文字＝名称・種別・区・住所の部分一致（表記の揺れは normJa で揃える）。
-	// 行を押す＝その施設へ飛んで吹き出し。表は「地域」の面を開いている時だけ組み直す（開くまで common/bigtable も読まない）
+	// 行を押す＝その施設へ飛んで吹き出し。表は「暮らし」の面を開いている時だけ組み直す（開くまで common/bigtable も読まない）
 	const fq = $(".fq"), fqN = $<HTMLElement>(".fq-n");
 	let tableReady: Promise<BigTable> | null = null;
 	const facTableOf = () => tableReady ??= import("common/bigtable").then(({ BigTable }) => new BigTable($<HTMLElement>(".fbt"), {
@@ -304,7 +304,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	}));
 	let table: BigTable | null = null;
 	async function facTable() {
-		if (!fac || st.tab !== "area") return;
+		if (!fac || st.tab !== "life") return;
 		const tb = table = await facTableOf();
 		tb.setQuery(normJa(fq.value));
 		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(r[2]), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(r[4]), i]; }));
