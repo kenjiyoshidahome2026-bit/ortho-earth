@@ -865,8 +865,11 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	let warm = vec3f(1.0, 0.70, 0.36); let cool = vec3f(0.90, 0.94, 1.0);
 	let col = mix(warm, cool, select(0.0, 1.0, h1 > mix(0.85, 0.55, tall))) * (0.75 + 0.25 * fract(h1 * 7.0));
 	let far = smoothstep(0.35, 0.9, max(fw.x, fw.y));   // 窓の格子が 1〜3 画素を切る＝平均へ
-	let m = mix(on * ex * ey, rate * 0.85, far);
-	return vec4f(mix(col, mix(vec3f(1.0, 0.76, 0.46), vec3f(0.95, 0.92, 0.85), tall * 0.5), far), clamp(m * k, 0.0, 1.0));
+	// 遠景の平均＝暗めの暖色を、4 列×4 階の塊ごとに明るさを揺らす（一様な乳白の面でなく「灯りの並ぶ高層」に読める・塊は数画素以上＝動いても揺れない）
+	let blk = cwHash(vec3i(cell.x >> 2u, cell.y >> 2u, face + 97));
+	let farCol = vec3f(0.95, 0.70, 0.40) * (0.35 + 0.65 * blk);
+	let m = mix(on * ex * ey, rate * 1.1, far);
+	return vec4f(mix(col, farCol, far), clamp(m * k, 0.0, 1.0));
 }
 @fragment fn fs(in: PlOut) -> @location(0) vec4f {
 	let wlx = dpdx(in.wl); let wly = dpdy(in.wl);   // 街明かりの窓の画素幅（discard より前＝一様制御フロー）
