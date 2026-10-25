@@ -100,10 +100,11 @@ const v3 = new Cartesian3(), n3 = new Cartesian3(), m3 = new Matrix3();
 const { GroundPolylineGeometry } = engine as Any;
 const lineGeometry = (g: Any) => !!g && (g instanceof PolylineGeometry || (GroundPolylineGeometry && g instanceof GroundPolylineGeometry));
 
+let SEQ = 0;   // the globe's model slots: one count for every drawer (the scene's and the entity display's)
 /** draws the scene's geometry primitives on the globe */
 export class PrimitiveDrawer {
 	readonly host: Host;
-	#items = new Map<Any, Item>(); #seq = 0;
+	#items = new Map<Any, Item>();
 	/** 3D lines for the entity overlay (EntityDisplay adds them to its own) */
 	lines: PrimLine[] = [];
 	constructor(host: Host) { this.host = host; }
@@ -111,7 +112,7 @@ export class PrimitiveDrawer {
 	get orthoModels() { return new Map([...this.#items].map(([p, it]) => [p, it.h])); }
 	add(p: Any) {
 		if (this.#items.has(p)) return;
-		const it: Item = { p, key: `cesium-prim:${++this.#seq}`, built: false, h: null, loading: false, dead: false, lines: [], ids: [], colors: [], shows: [] };
+		const it: Item = { p, key: `cesium-prim:${++SEQ}`, built: false, h: null, loading: false, dead: false, lines: [], ids: [], colors: [], shows: [] };
 		this.#items.set(p, it);
 		this.#instrument(it);
 	}

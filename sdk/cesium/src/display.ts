@@ -2,7 +2,8 @@
 // evaluated at the clock's time and handed to the globe's drawing:
 //   point / billboard / label / path → the czml overlay's tracks (time-sampled positions play on the globe's clock)
 //   polyline → a 3D line (the overlay) or, clamped to ground, a GeoJSON line layer
-//   polygon / rectangle / ellipse / box / cylinder / ellipsoid / corridor / wall / polylineVolume → GeoJSON fill, line and fill-extrusion layers
+//   box / cylinder / ellipsoid (constant, not on terrain) → Cesium's own geometry (the graphic's updater makes the fill and outline instances) drawn as a primitive is
+//   polygon / rectangle / ellipse / corridor / wall / polylineVolume (and the time-varying solids) → GeoJSON fill, line and fill-extrusion layers
 //   model → map.gadget.model (heading only: the globe's models do not pitch or roll)
 // It also answers what the CesiumWidget asks of a display: update(time), getBoundingSphere(entity) for zoomTo / flyTo / trackedEntity,
 // and picking (what is under a screen point).
@@ -13,10 +14,13 @@ import { unsupported } from "./report.ts";
 import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
 import { Cesium3DTileset } from "./tileset.ts";
+import { PrimitiveDrawer } from "./primitives.ts";
 import type { Host, OrthoScene } from "./scene.ts";
 
 type Any = any;
-const { BoundingSphereState, Property } = engine as Any;   // runtime exports the d.ts leaves out (and Property's static helpers)
+const { BoundingSphereState, Property, ColorGeometryInstanceAttribute } = engine as Any;   // runtime exports the d.ts leaves out (and Property's static helpers)
+// the solids drawn with Cesium's own geometry: [graphic, its updater]
+const SOLIDS: [string, Any][] = [["box", (engine as Any).BoxGeometryUpdater], ["cylinder", (engine as Any).CylinderGeometryUpdater], ["ellipsoid", (engine as Any).EllipsoidGeometryUpdater]];
 const R2D = 180 / Math.PI, D2R = Math.PI / 180, FAR = 8.64e15;
 const SRC = "__cs-shapes";
 const val = (p: Any, t: JulianDate, d?: Any) => { const v = Property.getValueOrUndefined(p, t); return v === undefined ? d : v; };
@@ -131,8 +135,10 @@ interface Desc {
 	lines: Array<{ p: number[]; color: string; width: number }>;
 	model: { uri: string; scale: number; at: [number, number]; altitude: number; heading: number; anim: boolean } | null;
 	sphere: { c: number[]; r: number } | null;
+	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
+	solids: { fill: Any[]; outline: Any[]; width: number } | null;
 }
-interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[] } | null; off: () => void }
+interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[] } | null; off: () => void; solids?: { d: Desc["solids"]; names: Set<string> } }
 
 export class EntityDisplay {
 	readonly defaultDataSource = new CustomDataSource("default");
@@ -145,11 +151,13 @@ export class EntityDisplay {
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
 	#marks: Array<{ e: Any; x: number; y: number; r: number }> = [];
+	#solids: PrimitiveDrawer; #solidPrims = new Map<Any, { of: Desc["solids"]; ps: Any[] }>();
 	/** what the scene's primitives draw through this display: 3D lines, and pickers ((x, y) → a pick result) */
 	readonly extra = { lines: () => [] as Any[], pickers: [] as Array<(x: number, y: number) => Any>, sources: [] as Any[] };
 
 	constructor(o: { scene: OrthoScene; dataSourceCollection: Any; host: Host }) {
 		this.scene = o.scene; this.dataSources = o.dataSourceCollection; this.host = o.host;
+		this.#solids = new PrimitiveDrawer(o.host);
 	}
 	get ready() { return true; }
 	/** the globe's model handles of the entities (entity → ModelHandle | null while loading) */
@@ -159,6 +167,7 @@ export class EntityDisplay {
 		this.#destroyed = true;
 		for (const r of this.#recs.values()) r.off();
 		for (const m of this.#models.values()) m.h?.clear?.();
+		this.#solids.destroy();
 		for (const e of [...this.#tilesets.keys()]) this.#dropTileset(e);
 		this.#ov?.remove?.(); this.#ov = null;
 		const map = this.host.map;
@@ -218,10 +227,11 @@ export class EntityDisplay {
 		const ents = this.#entities(), live = new Set(ents);
 		for (const [e, r] of this.#recs) if (!live.has(e)) { r.off(); this.#recs.delete(e); }
 		for (const e of [...this.#tilesets.keys()]) if (!live.has(e)) this.#dropTileset(e);
-		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], models = new Map<Any, NonNullable<Desc["model"]>>();
+		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
 		for (const e of ents) {
 			const r = this.#rec(e);
 			if (r.dirty || r.dynamic || !r.desc) {
+				if (r.dirty) r.solids = undefined;   // the definition changed: the solids are made again (a time-varying entity keeps its constant solids)
 				r.dirty = false;
 				try { r.desc = this.#describe(e, time, r); } catch (err) { console.warn("[csshim] entity", e.id, err); r.desc = null; }
 			}
@@ -234,7 +244,10 @@ export class EntityDisplay {
 			for (const l of d.lines) lines.push(l);
 			for (const s of d.shapes) shapes.push(s);
 			if (d.model) models.set(e, d.model);
+			if (d.solids) solids.set(e, d.solids);
 		}
+		this.#placeSolids(solids);
+		for (const l of this.#solids.lines) lines.push(l);
 		for (const l of this.extra.lines()) lines.push(l);
 		if (!map) return true;
 		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities" });
@@ -255,8 +268,46 @@ export class EntityDisplay {
 		return true;
 	}
 
+	// the solids as primitives of their own (one for the fills, one for the outlines: the outline width is the primitive's line width)
+	#placeSolids(solids: Map<Any, NonNullable<Desc["solids"]>>) {
+		for (const [e, sp] of this.#solidPrims) if (solids.get(e) !== sp.of) { for (const p of sp.ps) this.#solids.remove(p); this.#solidPrims.delete(e); }
+		for (const [e, g] of solids) {
+			if (this.#solidPrims.has(e)) continue;
+			const ps: Any[] = [];
+			if (g.fill.length) ps.push({ geometryInstances: g.fill, appearance: {}, modelMatrix: Matrix4.IDENTITY, show: true });
+			if (g.outline.length) ps.push({ geometryInstances: g.outline, appearance: { renderState: { lineWidth: g.width } }, modelMatrix: Matrix4.IDENTITY, show: true });
+			for (const p of ps) this.#solids.add(p);
+			this.#solidPrims.set(e, { of: g, ps });
+		}
+		this.#solids.update();
+	}
+	/** the entity's constant solids as Cesium's geometry instances (into d.solids): the names done so (a time-varying or ground one is not: the shapes below draw it) */
+	#solidsOf(e: Any, t: JulianDate, d: Desc, r: Rec): Set<string> {
+		if (r.solids) { d.solids = r.solids.d; return r.solids.names; }
+		const done = new Set<string>();
+		r.solids = { d: null, names: done };
+		for (const [name, U] of SOLIDS) {
+			if (!U || !e[name]) continue;
+			let u: Any;
+			try { u = new U(e, this.scene); } catch { continue; }
+			try {
+				if (u.isDynamic || u.onTerrain) continue;
+				done.add(name);
+				const g = d.solids ??= r.solids.d = { fill: [], outline: [], width: 1 };
+				if (u.fillEnabled) {
+					const inst = u.createFillGeometryInstance(t);
+					if (!inst.attributes?.color) (inst.attributes ??= {}).color = ColorGeometryInstanceAttribute.fromColor(materialColor(u.fillMaterialProperty, t));   // a material that is not a colour: drawn in its colour
+					g.fill.push(inst);
+				}
+				if (u.outlineEnabled) { g.outline.push(u.createOutlineGeometryInstance(t)); g.width = Math.max(g.width, u.outlineWidth ?? 1); }
+			} catch (err) { done.delete(name); console.warn("[csshim] entity", name, err); }
+			finally { u.destroy?.(); }
+		}
+		return done;
+	}
+
 	#describe(e: Any, t: JulianDate, r: Rec): Desc {
-		const d: Desc = { track: null, shapes: [], lines: [], model: null, sphere: null };
+		const d: Desc = { track: null, shapes: [], lines: [], model: null, sphere: null, solids: null };
 		let dynamic = false;
 		const dyn = (...ps: Any[]) => { for (const p of ps) if (!isConst(p)) dynamic = true; };
 		const pos: Cartesian3 | undefined = e.position ? val(e.position, t) : undefined;
@@ -396,8 +447,9 @@ export class EntityDisplay {
 			const a = val(el.semiMajorAxis, t), b = val(el.semiMinorAxis, t);
 			if (a > 0 && b > 0) addShape([enuRing(pos, ellipsePts(a, b, val(el.rotation, t, 0)), 0)], { ...common(el), ...vertical(val(el.height, t), val(el.extrudedHeight, t)) });
 		}
+		const solid = this.#solidsOf(e, t, d, r);
 		const bx = e.box;
-		if (bx && pos && val(bx.show, t, true)) {
+		if (bx && pos && val(bx.show, t, true) && !solid.has("box")) {
 			dyn(bx.dimensions, e.orientation); if (!isConst(e.position)) dynamic = true;
 			const dm: Cartesian3 = val(bx.dimensions, t), ll = llOf(pos);
 			if (dm && ll) {
@@ -407,13 +459,13 @@ export class EntityDisplay {
 			}
 		}
 		const cy = e.cylinder;
-		if (cy && pos && val(cy.show, t, true)) {
+		if (cy && pos && val(cy.show, t, true) && !solid.has("cylinder")) {
 			dyn(cy.length, cy.topRadius, cy.bottomRadius); if (!isConst(e.position)) dynamic = true;
 			const L = val(cy.length, t, 0), rr = Math.max(val(cy.topRadius, t, 0), val(cy.bottomRadius, t, 0)), ll = llOf(pos);
 			if (L > 0 && rr > 0 && ll) addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rr, rr, 0, 48), 0)], { ...common(cy), base: ll[2] - L / 2, top: ll[2] + L / 2 });
 		}
 		const es = e.ellipsoid;
-		if (es && pos && val(es.show, t, true)) {
+		if (es && pos && val(es.show, t, true) && !solid.has("ellipsoid")) {
 			dyn(es.radii); if (!isConst(e.position)) dynamic = true;
 			const rad: Cartesian3 = val(es.radii, t), ll = llOf(pos);
 			if (rad && ll) {
@@ -621,6 +673,8 @@ export class EntityDisplay {
 	pick(x: number, y: number): Any {
 		const e = this.#candidates(x, y)[0];
 		if (e) return e.__csPick?.() ?? { id: e, primitive: { id: e }, collection: undefined };
+		const sp = this.#solids.pick(x, y);
+		if (sp?.id) return sp.id.__csPick?.() ?? { id: sp.id, primitive: { id: sp.id }, collection: undefined };
 		for (const f of this.extra.pickers) { const r = f(x, y); if (r) return r; }
 		for (const ts of (this.scene as Any).__tilesets ?? []) { const f = ts.__pick?.(x, y); if (f) return f; }
 		return undefined;

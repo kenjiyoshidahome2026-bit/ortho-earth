@@ -147,10 +147,15 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		host.map = map;
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "";   // globe.baseColor → the background under the imagery
+		let base = "", atm = "", bg = "";   // globe.baseColor → the background under the imagery · scene.backgroundColor → space
 		scene.postRender.addEventListener(() => {
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
+			const b = scene.backgroundColor?.toCssColorString?.() ?? "rgb(0,0,0)";
+			if (b !== bg) { bg = b; map.setClearColor?.(b); }
+			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas
+			const ground = scene.globe?.show !== false && scene.globe?.showGroundAtmosphere !== false, sky = !!scene.skyAtmosphere && scene.skyAtmosphere.show !== false;
+			if (`${ground}${sky}` !== atm) { atm = `${ground}${sky}`; map.setAtmosphere?.({ model: "cesium", ground, sky }); }
 		});
 		this._forceResize = true;
 		resolveReady(map);

@@ -86,6 +86,20 @@ export function buildTileMesh(z: number, y: number, n: number): TileMesh {
 	}
 	return { pos, uv, idx, n };
 }
+// 極の蓋（2026-10-25）：メルカトルの端（±85.05°）から極までを、端の行のタイルの縁の 1 行で塗る帯（CesiumJS・MapLibre の globe と同じく画像の縁を極へ伸ばす）。
+// 頂点＝帯の北西隅（北の蓋＝(w, 90)・南の蓋＝(w, −85.05)）からの (dlon, dlat) 度・uv の v は縁の行（北＝0・南＝1）＝伸ばすだけ。2 行 × n 列
+export function buildPoleCapMesh(z: number, south: boolean, n: number): TileMesh {
+	const span = 360 / (1 << z), [, s0, , n0] = tileBounds(0, south ? (1 << z) - 1 : 0, z), h = south ? s0 + 90 : 90 - n0;
+	const pos = new Float32Array((n + 1) * 4), uv = new Float32Array((n + 1) * 4);
+	for (let j = 0; j <= 1; j++) for (let i = 0; i <= n; i++) {
+		const k = (j * (n + 1) + i) * 2;
+		pos[k] = span * i / n; pos[k + 1] = -h * j;
+		uv[k] = i / n; uv[k + 1] = south ? 1 : 0;
+	}
+	const idx = new Uint16Array(n * 6);
+	for (let i = 0, o = 0; i < n; i++) { const a = i, b = i + 1, c = i + n + 1, d = c + 1; idx[o++] = a; idx[o++] = c; idx[o++] = b; idx[o++] = b; idx[o++] = c; idx[o++] = d; }
+	return { pos, uv, idx, n };
+}
 // 細分数＝メルカトル→経緯度 warp の精度（アトラスは経緯度整列・タイルはメルカトル）。低 z ほど非線形＝細かく。z≥6 は 8 で十分
 export const subdivOf = (z: number): number => z < 3 ? 32 : z < 6 ? 16 : 8;
 
@@ -111,7 +125,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (!L.source || L.fresh) return 1;
 		if (!L.inView) return 0;
 		let n = 0;
-		for (const e of L.cache.values()) if (e.status === "queued" || e.status === "loading" || e.status === "retry") n++;
+		for (const e of L.cache.values()) if (e.status === "queued" || e.status === "loading" || e.status === "retry" || (e.status === "error" && (e.tries || 0) <= 3)) n++;   // 失敗して再試行待ち（400ms×回数の後に retry）も未着
 		return n;
 	}
 	function pending(): RasterPending { const layers_: Record<string, number> = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_, fading }; }
@@ -123,11 +137,11 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	}
 	const say = (m: unknown): void => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
-	function meshFor(z: number, y: number): RasterHandle {
-		const n = subdivOf(z), k = `${z}/${y}/${n}`;
+	function meshFor(z: number, y: number, cap: "" | "n" | "s" = ""): RasterHandle {
+		const n = subdivOf(z), k = `${z}/${y}/${n}${cap}`;
 		let m = meshes.get(k);
 		if (!m) {
-			const h = renderer.rasterMesh(buildTileMesh(z, y, n));
+			const h = renderer.rasterMesh(cap ? buildPoleCapMesh(z, cap === "s", n) : buildTileMesh(z, y, n));
 			meshBytes += h.bytes || 0;
 			m = { h, seen: 0 }; meshes.set(k, m);
 			if (meshes.size > MESH_CAP) {   // 最も古いものを落とす（LRU）
@@ -193,11 +207,24 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			if (sel.length * perTile <= share) break;
 			tilePx *= 1.6;
 		}
-		// 枚数の上限（低 z の巨大視野・極端なチルト）：中心に近い順に残す＝遠景の掠りタイルを落とす
+		// 枚数の上限（低 z の巨大視野・極端なチルト）：遠い順に親へまとめる（4 枚→1 枚）＝遠景を粗くして埋める。
+		// 旧＝遠い順に捨てる＝地平線の手前に下地の色（Cesium 例の既定は青）の帯が残った（2026-10-25・公式例の門）。まとめ切れない時だけ捨てる
 		if (sel.length > maxTiles) {
-			const c = cam.center;
-			for (const t of sel) { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); t._d = Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); }
-			sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles;
+			const c = cam.center, minZ = Math.max(0, src.minZoom);
+			const dist = (t: TileXYZ): number => { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); return Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); };
+			for (let guard = 0; sel.length > maxTiles && guard < 32; guard++) {
+				for (const t of sel) t._d = dist(t);
+				sel.sort((a, b) => a._d! - b._d!);
+				const far = Math.max(1, Math.ceil((sel.length - maxTiles) * 4 / 3)), up = new Map<string, TileXYZ>();
+				for (let i = sel.length - 1; i >= 0 && sel.length - i <= far; i--) { const t = sel[i]; if (t.z > minZ) up.set(keyOf(t.z - 1, t.x >> 1, t.y >> 1), { z: t.z - 1, x: t.x >> 1, y: t.y >> 1 }); }
+				if (!up.size) break;
+				const covered = (t: TileXYZ): boolean => { for (let z = t.z, x = t.x, y = t.y; z > minZ;) { z--; x >>= 1; y >>= 1; if (up.has(keyOf(z, x, y))) return true; } return false; };
+				const next = sel.filter(t => !covered(t) && !up.has(keyOf(t.z, t.x, t.y)));
+				for (const t of up.values()) if (!covered(t)) next.push(t);
+				if (next.length >= sel.length) break;
+				sel = next;
+			}
+			if (sel.length > maxTiles) { for (const t of sel) t._d = dist(t); sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles; }
 		}
 		L.sticky = new Set();
 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵
@@ -224,8 +251,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			e.seen = clock;
 			const [w, s, ea, n] = tileBounds(t.x, t.y, t.z), dist = Math.hypot((w + ea) / 2 - c[0], (s + n) / 2 - c[1]);
 			if (e.status === "queued") enqueue(k, t.z, t.x, t.y, dist);
-			else if (e.status === "empty") {
-				// 無い（404/索引外）＝v1 base.js と同じく祖先で埋める：連鎖の最初の「未知」の祖先を要求（ready/取得中に当たれば止まる）
+			else if (e.status === "empty" || (e.status === "error" && (e.tries || 0) > 3)) {
+				// 無い（404/索引外）・取得を諦めた（失敗 4 回）＝v1 base.js と同じく祖先で埋める：連鎖の最初の「未知」の祖先を要求（ready/取得中に当たれば止まる）
 				let z = t.z, x = t.x, y = t.y;
 				for (let d = 1; d <= MAX_UP && z > 0; d++) {
 					z--; x >>= 1; y >>= 1;
@@ -240,7 +267,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 					// まだ取りに行っていない祖先（前の巡で queued にしたが並列の絞り＝移動中 2 本で取り残された・失敗して retry）＝要求列に戻す。
 					// 旧＝「empty でなければ break」で放置＝queue は巡ごとに空にするので二度と要求されず、未着が永遠に残り idle が来ない（2026-09-28・公式例の門で発見）
 					if (ae.status === "queued" || ae.status === "retry") { ae.status = "queued"; keep.add(ak); enqueue(ak, z, x, y, dist + d); break; }
-					if (ae.status !== "empty") break;
+					if (ae.status !== "empty" && !(ae.status === "error" && (ae.tries || 0) > 3)) break;
 				}
 			}
 		}
@@ -269,6 +296,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 				if (ae) draws.push({ mesh, tex: ae.tex!, nw, bounds: b, uvT: ancestorUV(t.x, t.y, ad), z: t.z, a: 1, until: e.at! + L.fadeDur });
 			}
 			draws.push({ mesh, tex: e.tex!, nw, bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z, a: fade ? 0 : 1, at: fade ? e.at! : 0 });
+			const cap = t.y === 0 ? "n" : t.y === (1 << t.z) - 1 ? "s" : "";   // 端の行＝極の蓋も（縁の 1 行を極まで伸ばす）
+			if (cap) draws.push({ mesh: meshFor(t.z, t.y, cap), tex: e.tex!, nw: [b[0], cap === "n" ? 90 : b[1]], bounds: cap === "n" ? [b[0], b[3], b[2], 90] : [b[0], -90, b[2], b[1]], uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z, a: 1, at: 0 });
 		}
 		L.draws = draws;
 		L.selN = sel.length;
