@@ -20,7 +20,7 @@ import type {
 	OrthoClock, OrthoPlugin, OverlayHandle, OverlayPick, PaddingOptions,
 	Popup, PostPass, PostProcessOptions, ProtocolLoader, QuantizedMeshSource,
 	QueryOptions, RasterAPI, RasterDemSource, RenderedFeature, ResourceType, ScreenGridHandle,
-	ScreenGridOptions, SkySpecification, SnapshotOverlay, StyleExpression, SunSpec,
+	ScreenGridOptions, SkySpecification, AtmosphereSpec, SnapshotOverlay, StyleExpression, SunSpec,
 	TerrainSourceSpec, Tiles3DHandle, Tiles3DOptions, TransformRequestFunction, VideoHandle, WalkHandle, WalkOptions,
 } from "../../globe.d.ts";
 
@@ -332,16 +332,20 @@ export interface CameraApi {
 	setSky(sky: SkySpecification | null): GlobeMap;   // api/camera.ts:225
 	/** 今の sky（既定を補った物）。無指定なら undefined（MapLibre と同じ） */
 	getSky(): Required<SkySpecification> | undefined;   // api/camera.ts:226
+	/** 大気の描き方（2026-10-25）。{ model: "cesium" }＝CesiumJS の地面の大気（遠くから見た地球の霞と明るさ）と空の大気（縁の光・地上から見上げた空）をその式のまま描く（両レンダラ・@ortho-earth/cesium が使う）。ground／sky:false でそれぞれ消す。null＝従来（エンジンの霞とリム光・sky） */
+	setAtmosphere(a: AtmosphereSpec | null): GlobeMap;   // api/camera.ts:229
+	/** 今の大気の描き方（null＝従来） */
+	getAtmosphere(): AtmosphereSpec | null;   // api/camera.ts:234
 	/** 太陽の向き（F2・2026-10-12・ephem＝夜の側・日影と同じ出所・精度 約 0.05°）。ms 省略＝共通の時計の今・at 省略＝視点の中心 */
-	getSunPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;   // api/camera.ts:237
+	getSunPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;   // api/camera.ts:246
 	/** 月の向き（地心＝視差なし・精度 約 0.3°） */
-	getMoonPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;   // api/camera.ts:238
+	getMoonPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;   // api/camera.ts:247
 	/** directional の光（setLight と同じ 1 本）を太陽に合わせる。null＝外す（setLight(null)＝従来の固定光） */
-	setSun(sun: SunSpec | true | false | null): GlobeMap;   // api/camera.ts:241
-	getSun(): (Required<Pick<SunSpec, "follow" | "minAltitude">> & SunSpec) | null;   // api/camera.ts:247
+	setSun(sun: SunSpec | true | false | null): GlobeMap;   // api/camera.ts:250
+	getSun(): (Required<Pick<SunSpec, "follow" | "minAltitude">> & SunSpec) | null;   // api/camera.ts:256
 	/** 雲の spec。type "image" は builtin が描く（W6・読めたら on("clouds") に { state:"ready", tris, image }・失敗は { state:"error" }）。手続きの雲・降水は受けて保つだけ（plugin の registry.clouds が描ける）。null で外す */
-	setClouds(clouds: CloudsSpec | true | null): GlobeMap;   // api/camera.ts:253
-	getClouds(): Required<CloudsSpec> | null;   // api/camera.ts:268
+	setClouds(clouds: CloudsSpec | true | null): GlobeMap;   // api/camera.ts:262
+	getClouds(): Required<CloudsSpec> | null;   // api/camera.ts:277
 }
 
 /** installOverlays (api/overlays.ts:8), called at globe.js:2665. */
@@ -588,6 +592,8 @@ export interface StyleApi {
 	/** vector source（fill-extrusion・fill/line/circle/symbol）＝見えているタイルが今の式で組み上がって描画側に載るまで false（カメラが動いている間も false）。基図の source 名も受ける。
 	 *  raster/raster-dem（hillshade・color-relief＝1.8.0〜）/image/video の source（1.6.0〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
 	isSourceLoaded(id: string): boolean;   // api/style.ts:142
+	/** 見えているタイル（基図・画像層・標高・建物・利用者の source）が全部載ったか（MapLibre 同名）。idle と違い、動きや時計の再生は問わない */
+	areTilesLoaded(): boolean;   // globe.ts:2817
 	getLayer(id: string): MapLibreLayer | undefined;   // api/style.ts:147
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;   // api/style.ts:173
 	removeLayer(id: string): GlobeMap;   // api/style.ts:174
@@ -680,7 +686,7 @@ export interface GlobeInternals {
 	// 内部：render worker の口（globe.js:663）。地域パックは hostEnv から使う
 	readonly renderer: { set(cmd: string, data?: unknown, prop?: unknown, layer?: unknown): void; draw(cam: unknown, opts?: unknown): void };   // globe.js:2355
 	// 内部：雲の殻（api/camera.ts が setClouds の中で生やす検証窓）
-	readonly __clouds?: unknown;   // api/camera.ts:256
+	readonly __clouds?: unknown;   // api/camera.ts:265
 	// 内部：overlay の関数に globe.js が Object.assign した器（overlay.js の createOverlay）のメソッド＝census2020 の map.overlay.loadEstat 等の互換
 	readonly overlay: OverlaysApi["overlay"] & { setSelectionMask(geom: unknown, opts?: unknown): void; setHoverOutline(geom: unknown, opts?: unknown): void; loadOverlay(name: string): unknown; clearOverlay(): void; [k: string]: unknown };   // globe.js:2670
 }

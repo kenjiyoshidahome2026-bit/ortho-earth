@@ -2,19 +2,19 @@
 // The Cesium examples gate (stage 0): run each example on real CesiumJS (ref) and on the facade (ortho), record what each side did, grade (grade.mjs).
 // Needs the example server: (packages/globe) npx vite --config tests/csexamples/vite.config.mjs --port 5460 --strictPort
 // CHROME=<path> picks the browser binary (the cloud sandbox: /opt/pw-browsers/chromium).
-// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade]
+// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade]
 //   records: <out>/<side>/<name>.json and .png (default out: <repo>/.cache/csexamples/runs/latest) · summary: <out>/summary.json and summary.md
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { cells, decodePng, grade, rankBlockers } from "./grade.mjs";
+import { THRESH, cells, decodePng, grade, rankBlockers } from "./grade.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), REPO = path.resolve(HERE, "../../../..");
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ? d : process.argv[i + 1]; };
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
-const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
+const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
 const corpus = JSON.parse(fs.readFileSync(path.join(HERE, "corpus.json"), "utf8"));
 let examples = corpus.examples;
 if (arg("only")) { const s = new Set(arg("only").split(",")); examples = examples.filter(e => s.has(e.name)); }
@@ -43,6 +43,15 @@ const STATE = () => {
 	return out;
 };
 
+// everything in view loaded: the globe's tiles (globe.tilesLoaded, on ortho the map's idle) and each 3D tileset's
+const SETTLED = () => {
+	const v = window.__csx?.viewers?.[0], s = v?.scene;
+	if (!s) return true;
+	if (s.globe && s.globe.show !== false && s.globe.tilesLoaded === false) return false;
+	for (let i = 0; i < s.primitives.length; i++) { const p = s.primitives.get(i); if (p && p.show !== false && "tilesLoaded" in p && !p.tilesLoaded) return false; }
+	return true;
+};
+
 async function runOne(browser, side, ex) {
 	const ctx = await browser.newContext({ viewport: { width: 800, height: 600 } });
 	const page = await ctx.newPage();
@@ -60,10 +69,15 @@ async function runOne(browser, side, ex) {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/`, { timeout: 60000 });
 		await page.waitForFunction(() => window.__csx?.ran || window.__csx?.errors?.some(e => /^import:/.test(e)), null, { timeout: 45000 }).catch(() => {});
 		await page.waitForTimeout(WAIT);
+		// then until the globe and the tilesets say everything in view is loaded (real Cesium was often shot with its imagery still blurred)
+		const t1 = Date.now();
+		rec.settled = await page.waitForFunction(SETTLED, null, { timeout: SETTLE, polling: 250 }).then(() => true, () => false);
+		rec.settleMs = Date.now() - t1;
+		if (rec.settled) await page.waitForTimeout(500);   // the frame after the last tile
 		Object.assign(rec, await page.evaluate(STATE));
 		const shot = await page.screenshot({ timeout: 30000 });
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
-		rec.cells = cells(decodePng(shot)).map(c => c.map(Math.round));
+		rec.cells = cells(decodePng(shot));
 	} catch (e) { rec.harnessError = String(e?.message || e).split("\n")[0].slice(0, 300); }
 	rec.ms = Date.now() - rec.t0; delete rec.t0;
 	fs.writeFileSync(path.join(OUT, side, `${ex.name}.json`), JSON.stringify(rec));
@@ -71,7 +85,13 @@ async function runOne(browser, side, ex) {
 	return rec;
 }
 
-const load = (side, name) => { try { return JSON.parse(fs.readFileSync(path.join(OUT, side, `${name}.json`), "utf8")); } catch { return null; } };
+// a record, its cells measured again from the shot when they were measured another way (an older run, other THRESH)
+const load = (side, name) => {
+	let r;
+	try { r = JSON.parse(fs.readFileSync(path.join(OUT, side, `${name}.json`), "utf8")); } catch { return null; }
+	if (r.cells?.c?.length !== THRESH.gridW * THRESH.gridH) { try { r.cells = cells(decodePng(fs.readFileSync(path.join(OUT, side, `${name}.png`)))); } catch { r.cells = null; } }
+	return r;
+};
 
 if (!flag("regrade")) {
 	const { chromium } = createRequire(import.meta.url)("playwright");

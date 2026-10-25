@@ -8,7 +8,7 @@ import { ecefToLlh, positionAt } from "../czml-time.ts";
 import { moonAltAz, moonSubpoint, sunAltAz, sunSubpoint } from "@ortho-earth/ephem/sun";
 import { normClouds, normSun, sunToLight } from "../weather.ts";
 import { normSky } from "../sky-spec.ts";
-import type { CameraOptions, CameraTarget, LightSpec, LonLat, PaddingOptions } from "../../globe.d.ts";
+import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, PaddingOptions } from "../../globe.d.ts";
 import type { CameraDeps, CameraLive, CameraReturn, Installing } from "../types/install.ts";
 import type { CameraApi, GlobeMap } from "../types/map.ts";
 import type { FollowState } from "../types/scope.ts";
@@ -224,6 +224,14 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 	// null＝従来（宇宙へ抜けるリム光・霧は紙色）。getSky は MapLibre と同じく無指定なら undefined・指定があれば既定を補った物
 	map.setSky = s => { live.mlSky = s == null ? null : normSky(s); sendSky(); requestDraw(); return map; };
 	map.getSky = () => (live.mlSky ? normSky(live.mlSky) : undefined);
+	// 大気の描き方（2026-10-25）：{ model: "cesium" }＝CesiumJS の地面の大気と空の大気の式（ortho-core csatmo.ts）。renderer の view.csAtmo へ（両レンダラ）
+	let atmoCur: AtmosphereSpec | null = null;
+	map.setAtmosphere = a => {
+		if (a != null && a.model !== "cesium") throw new Error(`setAtmosphere: unknown model ${String((a as { model?: unknown }).model)}`);
+		atmoCur = a == null ? null : { model: "cesium", ground: a.ground !== false, sky: a.sky !== false };
+		renderer.set("view", { csAtmo: atmoCur && { ground: atmoCur.ground, sky: atmoCur.sky } }); requestDraw(); return map;
+	};
+	map.getAtmosphere = () => (atmoCur ? { ...atmoCur } : null);
 	// ── 太陽・月の向きと雲の口（第 2 波 F2・2026-10-12・src/weather.js・ephem/sun）──
 	//   getSunPosition(ms?, at?)／getMoonPosition(ms?, at?)＝{ time, subpoint:{lng,lat}, azimuth, altitude, enu }（度・at 省略＝視点の中心・ms 省略＝共通の時計）
 	//   setSun({ follow:"clock" } | { azimuth, altitude } | null)＝directional の光（setLight と同じ 1 本）を太陽に合わせる。follow＝時計の変化・静止・実時間なら 60 秒ごとに追う。null＝setLight(null)

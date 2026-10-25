@@ -3,11 +3,12 @@
 //   1. expandTemplate：{z}/{x}/{y}・{-y}（TMS）・{s}（サブドメイン巡回）・{q}（quadkey）
 //   2. normalizeSpec：xyz/pmtiles/port の判別と既定値・不正 spec は投げる
 //   3. buildTileMesh：四隅が tileBounds と一致・uv は [0,1] 単調・行の緯度は逆メルカトル（同 z 同 y なら x に依らず同一）
+//   3b. buildPoleCapMesh：端の行（±85.05°）から極までの帯・uv の v は縁の行に張り付く
 //   4. ancestorUV：子 (z,x,y) を祖先 d 段上のテクスチャで描く部分 uv（メルカトル線形＝厳密）
 //   5. createRaster：偽 renderer＋MessagePort プロバイダで add→update→描画リスト→hideFills→set/remove の一周（fetch/ImageBitmap 不要）
 // 使い方: node packages/ortho-core/tests/raster.mjs
 import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities, adjustRGBA } from "../src/raster-src.ts";
-import { buildTileMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.ts";
+import { buildTileMesh, buildPoleCapMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.ts";
 import { tileBounds, tileLocalToLonLat } from "../src/tile.ts";
 
 let fails = 0;
@@ -74,6 +75,21 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	for (const bad of [null, {}, { url: "https://h/no-template.png" }]) { try { normalizeSpec(bad); } catch { threw++; } }
 	ok(threw === 3, "invalid specs throw");
 	ok(normalizeSpec({ port: { postMessage() {} } }).kind === "port", "port kind");
+}
+
+// 3b. 極の蓋
+{
+	for (const z of [0, 2, 7]) for (const south of [false, true]) {
+		const n = subdivOf(z), m = buildPoleCapMesh(z, south, n), [, s0, , n0] = tileBounds(0, south ? (1 << z) - 1 : 0, z), span = 360 / (1 << z);
+		const tag = `cap z${z} ${south ? "S" : "N"}`;
+		ok(m.pos.length === (n + 1) * 4 && m.idx.length === n * 6, `${tag}: sizes`);
+		const h = south ? s0 + 90 : 90 - n0, last = ((n + 1) * 2 - 1) * 2;
+		ok(near(m.pos[0], 0) && near(m.pos[1], 0) && near(m.pos[last], span, 1e-4) && near(m.pos[last + 1], -h, 1e-4), `${tag}: spans the tile width and ${h.toFixed(3)}° to the edge`);
+		let v = true; for (let k = 1; k < m.uv.length; k += 2) if (m.uv[k] !== (south ? 1 : 0)) v = false;
+		ok(v, `${tag}: v pinned to the edge row`);
+		let inRange = true; for (const i of m.idx) if (i >= (n + 1) * 2) inRange = false;
+		ok(inRange, `${tag}: indices in range`);
+	}
 }
 
 // 3. メッシュ
