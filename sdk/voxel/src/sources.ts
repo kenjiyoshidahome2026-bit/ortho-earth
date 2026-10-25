@@ -49,9 +49,12 @@ export function axisOf(name: string, attrs: Attrs): Axis | null {
 const UNIT_MS = new Map<string, number>(Object.entries({ ms: 1, millisecond: 1, milliseconds: 1, s: 1e3, sec: 1e3, secs: 1e3, second: 1e3, seconds: 1e3, min: 6e4, mins: 6e4, minute: 6e4, minutes: 6e4, h: 3.6e6, hr: 3.6e6, hrs: 3.6e6, hour: 3.6e6, hours: 3.6e6, d: 8.64e7, day: 8.64e7, days: 8.64e7 }));
 /** CF の時刻（"hours since 1900-01-01 00:00:0.0" など）→ ms。読めなければ null */
 export function cfTimes(values: ArrayLike<number>, units: string | null): number[] | null {
-	const m = /^\s*(\w+)\s+since\s+(.+?)\s*$/i.exec(units || ""); if (!m) return null;
-	const k = UNIT_MS.get(m[1].toLowerCase()); if (!k) return null;
-	const s = m[2].trim().replace(/\s+UTC$/i, "").replace(/\s*Z$/i, "");
+	// 正規表現の繰り返しを避けて切る（ファイルの字は長さも中身も不定＝CodeQL の多項式 regex を出さない）
+	const u = (units || "").trim(), at = u.toLowerCase().search(/\ssince\s/); if (at < 0) return null;
+	const k = UNIT_MS.get(u.slice(0, at).trim().toLowerCase()); if (!k) return null;
+	let s = u.slice(at + 7).trim();
+	if (s.toUpperCase().endsWith("UTC")) s = s.slice(0, -3).trimEnd();
+	if (s.toUpperCase().endsWith("Z")) s = s.slice(0, -1).trimEnd();
 	const d = /^(-?\d{1,4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d*)?))?)?\s*([+-]\d{1,2}(?::?\d{2})?)?$/.exec(s);
 	if (!d) return null;
 	let base = Date.UTC(+d[1], +d[2] - 1, +d[3], +(d[4] || 0), +(d[5] || 0), 0) + Math.round(parseFloat(d[6] || "0") * 1000);
@@ -173,7 +176,7 @@ export function parseNetCDF(buf: ArrayBuffer | Uint8Array): Reader {
 	const vals = (type: number, n: number): string | number[] => {
 		const sz = NC_SIZE.get(type); if (!sz) throw new Error(`voxel: NetCDF type ${type} unknown`);
 		const start = p; p += (n * sz + 3) & ~3;
-		if (type === 2) return new TextDecoder().decode(u8.subarray(start, start + n)).replace(/\0+$/, "");
+		if (type === 2) { let e = start + n; while (e > start && u8[e - 1] === 0) e--; return new TextDecoder().decode(u8.subarray(start, e)); }
 		return Array.from({ length: n }, (_, i) => readNc(dv, type, start + i * sz));
 	};
 	const atts = (): Attrs => {
@@ -322,7 +325,7 @@ export async function readZarr(get: (path: string) => Promise<Uint8Array | null>
 /** Zarr の店（URL の根）→ 読み手。consolidated（.zmetadata／zarr.json の consolidated_metadata）があれば一覧、無ければ variable と座標を名前で取る */
 export async function openZarr(root: string, o: SourceOptions = {}): Promise<Reader> {
 	const f = o.fetch ?? ((u: string) => fetch(u));
-	const base = root.replace(/\/+$/, "");
+	let base = root; while (base.endsWith("/")) base = base.slice(0, -1);
 	const get = async (p: string): Promise<Uint8Array | null> => { const r = await f(`${base}/${p}`); if (r.status === 404 || r.status === 403) return null; if (!r.ok) throw new Error(`voxel: Zarr ${p}: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
 	const json = async (p: string): Promise<Attrs | null> => { const b = await get(p); return b ? JSON.parse(new TextDecoder().decode(b)) as Attrs : null; };
 	const arrays = new Map<string, ZArray>();
