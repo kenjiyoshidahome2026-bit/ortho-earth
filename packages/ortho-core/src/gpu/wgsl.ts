@@ -1572,19 +1572,36 @@ export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 // 段 2：CL に蓋と縁の帯（capT＝地形の蓋の色・capB＝建物の疑似の蓋の色（w＝点ける）・edgeC＝帯の色・p.y＝帯の幅 CSS px）。
 // 置き場は「空いている group の binding b0 から」＝影と重ねる時は影の束縛の後ろ（b0＝3・模型は 4）。
 const CLIP_WGSL = (g: number, b0 = 0): string => /* wgsl */`
-struct ClipP { pl: array<vec4f, 6>, p: vec4f, capT: vec4f, capB: vec4f, edgeC: vec4f };   // p.x＝面の枚数（clip.js CLIP_MAX と対）・p.y＝縁の帯の幅（CSS px・0＝無し）
+struct ClipP { pl: array<vec4f, 6>, p: vec4f, capT: vec4f, capB: vec4f, edgeC: vec4f, pe: vec4f, pn: vec4f, pv: array<vec4f, 64> };   // p.x＝面の枚数（clip.js CLIP_MAX と対）・p.y＝縁の帯の幅（CSS px・0＝無し）・p.z＝多角形の辺の数（CLIP_POLY_MAX と対）・p.w＝1 で内側だけ残す
 @group(${g}) @binding(${b0}) var<uniform> CL: ClipP;
-fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床・蓋）＝全部の面の最小
+// 多角形（P0 #4）：pe・pn＝重心の接平面の東・北（w＝K）・pv[i]＝辺 (a.xy, b.xy)。2D の点は原点相対の位置から線形＝頂点で出して補間してよい
+fn polyXY(rel: vec3f) -> vec2f { return vec2f(dot(CL.pe.xyz, rel) + CL.pe.w, dot(CL.pn.xyz, rel) + CL.pn.w); }
+fn polyD(q: vec2f) -> f32 {   // 符号付きの距離（残る側が正）＝辺までの最短・内外は偶奇
+	let n = u32(CL.p.z);
+	if (n == 0u) { return 1e30; }
+	var d2 = 1e30;
+	var inside = false;
+	for (var i = 0u; i < n; i++) {
+		let a = CL.pv[i].xy; let b = CL.pv[i].zw;
+		if ((a.y > q.y) != (b.y > q.y) && q.x < (b.x - a.x) * (q.y - a.y) / (b.y - a.y) + a.x) { inside = !inside; }
+		let v = b - a; let t = clamp(dot(q - a, v) / max(dot(v, v), 1e-30), 0.0, 1.0); let w = q - a - t * v;
+		d2 = min(d2, dot(w, w));
+	}
+	var d = sqrt(d2);
+	if (inside != (CL.p.w > 0.5)) { d = -d; }
+	return d;
+}
+fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床・蓋）＝全部の面と多角形の最小
 	var d = 1e30;
 	let n = u32(CL.p.x);
 	for (var i = 0u; i < n; i++) { d = min(d, dot(CL.pl[i].xyz, rel) + CL.pl[i].w); }
-	return d;
+	return min(d, polyD(polyXY(rel)));
 }
 fn clipD(rel: vec3f, i: u32) -> f32 { if (i < u32(CL.p.x)) { return dot(CL.pl[i].xyz, rel) + CL.pl[i].w; } return 1e30; }
 fn clipA(rel: vec3f) -> vec4f { return vec4f(clipD(rel, 0u), clipD(rel, 1u), clipD(rel, 2u), clipD(rel, 3u)); }   // 面 0〜3 の距離（頂点）
-fn clipB(rel: vec3f) -> vec2f { return vec2f(clipD(rel, 4u), clipD(rel, 5u)); }                                   // 面 4〜5
-fn clipMin(a: vec4f, b: vec2f) -> f32 { return min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)); }          // 画素で最小（負＝どれかの面の外）
-fn clipOut(a: vec4f, b: vec2f) -> bool { return clipMin(a, b) < 0.0; }
+fn clipB(rel: vec3f) -> vec4f { return vec4f(clipD(rel, 4u), clipD(rel, 5u), polyXY(rel)); }                    // 面 4〜5＋多角形の 2D の点
+fn clipMin(a: vec4f, b: vec4f) -> f32 { return min(min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)), polyD(b.zw)); }   // 画素で最小（負＝どれかの面の外か多角形で消す側）
+fn clipOut(a: vec4f, b: vec4f) -> bool { return clipMin(a, b) < 0.0; }
 `;
 // 切る派生を本体から作る（影の派生 *_SH_WGSL からも同じ差分で作れる＝影と重ねる版）。kind ごとの差分の表：
 // ・struct には cdA/cdB を足す（場所は影の sc と重ならない番号）・VS で面ごとの距離・FS の頭で discard（＋縁の帯・建物の疑似の蓋）
@@ -1595,7 +1612,7 @@ const deriveAlt = (src: string, steps: readonly WgslAlts[], label: string): stri
 	for (const [a, b] of alts) { const k = s.split(a).length; if (k === 2) return s.replace(a, b); if (k > 2) throw new Error(`wgsl derive(${label}): anchor ambiguous: ${a.slice(0, 50)}`); }
 	throw new Error(`wgsl derive(${label}): anchor missing: ${alts[0][0].slice(0, 50)}`);
 }, src);
-const CD = (at: string, loc: number): WgslAlts => [[at, `${at}\t@location(${loc}) cdA: vec4f,\n\t@location(${loc + 1}) cdB: vec2f,\n`]];
+const CD = (at: string, loc: number): WgslAlts => [[at, `${at}\t@location(${loc}) cdA: vec4f,\n\t@location(${loc + 1}) cdB: vec4f,\n`]];
 const CD_SET = (rel: string): string => `o.cdA = clipA(${rel}); o.cdB = clipB(${rel});`;
 // 縁の帯（地形・建物・模型）＝画素で最小の距離がその画面微分の p.y 倍（CSS px×dpr）より小さい所を帯の色に。微分は discard より前
 const EDGE_HEAD = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tif (CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw) { return vec4f(CL.edgeC.rgb, 1.0); }\n";
@@ -1730,6 +1747,7 @@ struct CapFrag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 	// 他の面の外（箱の角）
 	let n = u32(CL.p.x);
 	for (var i = 0u; i < n; i++) { if (i != in.pi && dot(CL.pl[i].xyz, X) + CL.pl[i].w < 0.0) { discard; } }
+	if (polyD(polyXY(X)) < 0.0) { discard; }   // 多角形で消す側（P0 #4）
 	// 足と高さ：動径の足から始めて、測地法線に沿って 2 回詰める（楕円体の法線は動径から最大 0.19° 開く）
 	let O = F.originPt; let rho = length(O.xz);
 	var dll = deltaLL(X, O, rho, F.eyeO.w, F.ellP.x);

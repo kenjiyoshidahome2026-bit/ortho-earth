@@ -34,7 +34,7 @@ import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from 
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
 import { SUN_COUNT_WGSL, SURFACE_WGSL, MARCH_WGSL, cellPositions, bboxPoints } from "./analysis.ts";
 import type { RendererAnalysis } from "./analysis.ts";   // 日影時間・可視域の GPU 版（2026-10-24）＝影の深度パスの使い回し＋compute
-import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
+import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createClassifyGPU } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝gl/classify.ts と同じ手順の WebGPU 版
@@ -943,7 +943,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 面の記述は clip.js（毎フレーム面を作り直す＝楕円体の切替にも追従・高々 6 枚）。K は原点ごと＝束縛も原点ごと（CLIP_SLOTS：main＝地形/建物/床/メッシュ/模型・base・user）。
 	// 段 2：地形の蓋（面ごとの板＝地面の中だけ塗る）・建物の疑似の蓋（閉じた建物の裏面を蓋の色）・縁の帯・影と重ねる（受け手は影＋面の派生・深度パスも面で切る）
 	// 段 4＝対象ごとの面：スロット＝対象（terrain＝地形・床・蓋／buildings＝基図の押し出し・建物メッシュ／models＝模型・3D Tiles・I3S・押し出し）＋塗りと線の原点（main/base/user＝vector の面）
-	const CLIP_SLOTS = ["terrain", "buildings", "models", "main", "base", "user"], CLIP_SLOT_B = 256;   // uniform のオフセット境界（ClipP＝160B）
+	const CLIP_SLOTS = ["terrain", "buildings", "models", "main", "base", "user"], CLIP_SLOT_B = 1280;   // uniform のオフセット境界（ClipP＝1216B＝面 160B＋多角形 1056B・256 の倍数）
 	const CS: Record<string, number> = Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, i]));
 	const CAP_SLOT_B = 512;   // 地形の蓋の CapP（320B）＝近窓・遠窓の 2 スロット
 	let clip: ClipNorm | null = null;   // 正規化した切り方（clip.js normClip＝{ groups, style }）・null＝切らない
@@ -1391,7 +1391,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const OC = clipFrame ? clipOvPipes(clipS) : null;
 		if (OC) {
 			const sty = clip!.style;
-			for (let i = 0; i < n; i++) { const o = scenes[i].origin; packClip(clipFrame!.planes, lonlatTo3D(o[0], o[1]), cl!.ovCPU.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), sty); }
+			for (let i = 0; i < n; i++) { const o = scenes[i].origin; packClip(clipFrame!.planes, lonlatTo3D(o[0], o[1]), cl!.ovCPU.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), sty, clipFrame!.poly); }
 			device.queue.writeBuffer(cl!.ovBuf, 0, cl!.ovCPU.buffer, 0, n * CLIP_SLOT_B);
 		}
 		const ovClipBG = (i: number) => { if (OC) pass.setBindGroup(2, cl!.ovBG, [i * CLIP_SLOT_B]); };
@@ -2640,7 +2640,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 断面（#111）の面＝対象ごと（段 4）にこのフレームで作り直す（楕円体の切替にも追従）。どれかの対象に面があれば「切っている」
 		const tp: Record<string, ClipPlane[]> | null = clip ? { terrain: clipPlanesFor(clip, "terrain"), buildings: clipPlanesFor(clip, "buildings"), models: clipPlanesFor(clip, "models"), vector: clipPlanesFor(clip, "vector") } : null;
-		const clipAny = !!tp && (tp.terrain.length + tp.buildings.length + tp.models.length + tp.vector.length) > 0;
+		const tg = clip ? { terrain: clipPolygonFor(clip, "terrain"), buildings: clipPolygonFor(clip, "buildings"), models: clipPolygonFor(clip, "models"), vector: clipPolygonFor(clip, "vector") } : null;   // 多角形（P0 #4）
+		const clipAny = !!tp && (tp.terrain.length + tp.buildings.length + tp.models.length + tp.vector.length > 0 || !!(tg!.terrain || tg!.buildings || tg!.models || tg!.vector));
 		const flat2d = !shWin && !clipAny && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // 影と断面の間は球の床を描く（真俯瞰の地面も影を受ける・床の切れ目を陸の色で埋めない）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (solid(view.clear) || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
@@ -2717,13 +2718,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 断面（#111）：面は描画の原点からの相対（K を f64 で）。main＝地形（terrain/terrainFar も main と同じ原点）・建物・球の床・メッシュと模型（バッチ原点との差は PB の clipO）／
 		// base・user＝そのシーンの原点（基図と利用者の層の塗りと線）
 		const clipOPt = clipAny ? lonlatTo3D(mainOrigin[0], mainOrigin[1]) : null;
-		clipFrame = clipAny && tp.vector.length ? { planes: tp.vector, st } : null;   // gint・外部ベクタ（#111 段 3）＝vector の面とカメラ（全画面レイ）
+		clipFrame = clipAny && (tp.vector.length || tg!.vector) ? { planes: tp.vector, poly: tg!.vector, st } : null;   // 多角形（P0 #4）も gint・外部ベクタへ   // gint・外部ベクタ（#111 段 3）＝vector の面とカメラ（全画面レイ）
 		if (clipOPt) {
 			clipRes();
 			const sty = clip!.style;
 			CLIP_SLOTS.forEach((k, i) => {   // 対象のスロット＝main 原点・塗りと線のスロット＝そのシーンの原点で vector の面。蓋はその対象に面がある時だけ
-				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : mainOrigin, pl = tp![k] || tp!.vector;
-				packClip(pl, lonlatTo3D(o[0], o[1]), cl!.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 });
+				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : mainOrigin, pl = tp![k] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[k] ?? (k in tg! ? null : tg!.vector);
+				packClip(pl, lonlatTo3D(o[0], o[1]), cl!.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 }, pg);
 			});
 			device.queue.writeBuffer(cl!.buf, 0, cl!.cpu);
 		}

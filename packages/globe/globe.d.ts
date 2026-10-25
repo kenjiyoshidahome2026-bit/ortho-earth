@@ -877,6 +877,10 @@ export interface ClipOptions {
 	box?: { center: LonLat; size?: [number, number]; h?: [number, number]; bearing?: number };
 	/** 単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す） */
 	planes?: [number, number, number, number][];
+	/** 多角形で切る（Cesium の ClippingPolygon）＝GeoJSON の Polygon・MultiPolygon（Feature も）か輪の列 [[lng,lat]…][]。既定は内側を消す（鉛直の柱で・高さは問わない）。辺は全部で 64 本まで（超えたら間引く） */
+	polygon?: unknown;
+	/** true＝多角形の内側だけ残す（Cesium の ClippingPolygonCollection.inverse） */
+	inverse?: boolean;
 	/** URL の ?clip= と同じ書き方の文字列 */
 	param?: string;
 	/** false＝切らない（setClipping(false) と同じ） */

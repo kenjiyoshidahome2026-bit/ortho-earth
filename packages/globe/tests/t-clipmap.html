@@ -71,6 +71,16 @@ try {
 	const n8 = await names(), s8 = await snap();
 	ok("⑦vector だけ：東の四角は消え・東の注記は残る", n8.has("EAST") && !blue(s8(...qE)), `${[...n8].filter(s => /EAST|WEST/.test(s))} ${fmt(s8(...qE))}`);
 	ok("⑦getClipping は配列の写し", Array.isArray(map.getClipping()) && map.getClipping()[0].targets[0] === "vector");
+	// ⑥ 多角形（P0 #4）：東の四角を囲む多角形の内側を消す＝東の四角は消え・問い合わせも返さない・西は元のまま
+	map.setClipping({ polygon: { type: "Polygon", coordinates: sq(150, 100, 90) } }); await settle();
+	const s6 = await snap();
+	const q6W = (await map.queryRenderedFeatures(qW, { layers: ["sq"] })).map(f => f.properties?.name);
+	const q6E = (await map.queryRenderedFeatures(qE, { layers: ["sq"] })).map(f => f.properties?.name);
+	ok("⑥多角形：東の四角は消え・西は元のまま", !blue(s6(...qE)) && near(s6(...qW), s0(...qW)), `${fmt(s6(...qW))} ${fmt(s6(...qE))}`);
+	ok("⑥多角形：queryRenderedFeatures も東を返さない", q6W.includes("WEST") && !q6E.length, `W=${q6W} E=${q6E}`);
+	map.setClipping({ polygon: sq(150, 100, 90), inverse: true }); await settle();
+	const s6i = await snap();
+	ok("⑥inverse：東の四角だけ残る", blue(s6i(...qE)) && !green(s6i(...qW)), `${fmt(s6i(...qW))} ${fmt(s6i(...qE))}`);
 	// ⑤ 消す
 	map.setClipping(false);
 	await settle();
