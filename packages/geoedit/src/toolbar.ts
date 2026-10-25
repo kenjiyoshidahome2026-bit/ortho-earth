@@ -30,6 +30,9 @@ const ICONS: Record<string, string> = {
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
 };
 
+/** 吹き出し説明の頭＝最初の括弧（半角/全角）の手前まで */
+const shortName = (tip: string): string => tip.split(/\s*[(（]/)[0].trim() || tip;
+
 /** ツールバーが呼ぶ口（controller が渡す） */
 export interface ToolbarApi {
 	setTool(tool: string): void; undo(): void; redo(): void;
@@ -41,6 +44,8 @@ export interface ToolbarApi {
 	cloudOpen?: (() => unknown) | null;
 	listOpen?: (() => unknown) | null;
 	close?: (() => unknown) | null;
+	/** 指で押した時に名前を一言で出す口（タッチは data-tip が出ない＝アイコンだけでは何のボタンか分からない） */
+	toast?: ((msg: string) => void) | null;
 	clearAll(): unknown;
 }
 
@@ -48,10 +53,13 @@ export function initToolbar(el: HTMLElement, api: ToolbarApi, signal: AbortSigna
 	el.hidden = false;
 	el.innerHTML = "";
 	// 吹き出し説明＝quiet-mono の data-tip 流儀（OS既定の title は廃止＝遅い/意匠が揃わない）。aria-label は読み上げ用に別途
+	// タッチ（指・ペン）で押した時だけ＝名前をトーストで一言（括弧の説明と鍵の手がかりは落とす＝「円を描く」まで）
+	let touch = false;
+	el.addEventListener("pointerdown", e => { touch = e.pointerType !== "mouse"; }, { signal, capture: true });
 	const btn = (icon: string, tip: string, fn: () => unknown): HTMLButtonElement => {
 		const b = document.createElement("button");
 		b.innerHTML = ICONS[icon] ?? icon; b.dataset.tip = tip; b.setAttribute("aria-label", tip);
-		b.addEventListener("click", fn, { signal });
+		b.addEventListener("click", () => { if (touch) api.toast?.(shortName(tip)); fn(); }, { signal });
 		el.append(b);
 		return b;
 	};

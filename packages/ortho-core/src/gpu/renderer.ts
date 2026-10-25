@@ -389,6 +389,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const FX: RenderFx = { atmosphere: false, pbr: false, ao: false, ...(rOpts.fx || {}) };
 	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target: GPUColorTargetState = { format, blend: BLEND };
+	// 素の建物メッシュ（不透明）＝置き換え（α もそのまま書く）＝夜の街明かりの窓の印（α＝1−印・後処理の夜の色 grade が読む・2026-10-24）。α＝1 の間は BLEND と同じ絵
+	const alphaOneMod = device.createShaderModule({ label: "alphaOne", code: `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(p * 2.0 - 1.0, 0.0, 1.0); }
+@fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 0.0, 0.0, 1.0); }` });
+	const targetA: GPUColorTargetState = { format, blend: { color: { srcFactor: "one", dstFactor: "zero", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "zero", operation: "add" } } };
 	const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 
 	// 共有レイアウト：group(0)=Frame＋標高（テクスチャは VS でも引く＝ドレープ）、group(1)=DrawP（役割別）
@@ -458,7 +462,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 扇形状の深度テストは不可（fan は winding の便法＝内部 frag は地形面に乗っていない）＝この bit が唯一の正解。
 	const SBLD: GPUStencilFaceState = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" };
 	const dsWriteBld: GPUDepthStencilState = { ...dsWrite, stencilFront: SBLD, stencilBack: SBLD, stencilWriteMask: 0x80 };
-	const dsWriteBldNoZ: GPUDepthStencilState = { ...dsWriteBld, depthWriteEnabled: false };   // 模型の半透明（BLEND）＝深度テストはするが書かない
+	const dsWriteBldNoZ: GPUDepthStencilState = { ...dsWriteBld, depthWriteEnabled: false };
+	const SNOTBLD: GPUStencilFaceState = { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" };
+	const dsNotBld: GPUDepthStencilState = { ...dsOff, stencilFront: SNOTBLD, stencilBack: SNOTBLD, stencilReadMask: 0x80, stencilWriteMask: 0 };   // 建物の画素（bit7）以外だけ（夜の色の α を揃える）   // 模型の半透明（BLEND）＝深度テストはするが書かない
 	const FILL_BUFS: GPUVertexBufferLayout[] = [
 		{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },   // a_delta
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "unorm8x4" }] },    // a_color
@@ -550,10 +556,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// でしか出来ない。セットは sampleCount 毎に遅延生成・恒久キャッシュ（1x/4x の2つが上限）。
 	function buildPipes(sc: number) {
 		const ms = { count: sc };
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[] | undefined, ds: GPUDepthStencilState, fsEntry = "fs", lay = layout, cull: GPUCullMode = "none") => device.createRenderPipeline({
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[] | undefined, ds: GPUDepthStencilState, fsEntry = "fs", lay = layout, cull: GPUCullMode = "none", tgt = target) => device.createRenderPipeline({
 			layout: lay,
 			vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: fsEntry, targets: [target] },
+			fragment: { module: mod, entryPoint: fsEntry, targets: [tgt] },
 			primitive: { topology: "triangle-list", cullMode: cull },
 			depthStencil: ds, multisample: ms,
 		});
@@ -572,7 +578,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			mesh: pipe(plMod, [
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
-			], dsWriteBld, "fs", plLayout),   // stencil bit7=建物マスク（bld と同じ）
+			], dsWriteBld, "fs", plLayout, "none", targetA),   // stencil bit7=建物マスク（bld と同じ）・targetA＝街明かりの窓の印（α）
 			meshTex: pipe(plTexMod, [   // 模型（glb 直読み）＝メッシュ派生＋uv/頂点色＋テクスチャ group(3)
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
@@ -586,6 +592,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
 			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
+			alphaOne: device.createRenderPipeline({ layout: "auto", vertex: { module: alphaOneMod, entryPoint: "vs" },   // 夜の色の間＝main パスの終わりに建物の画素（stencil bit7）以外の α を 1 に（窓の印だけが α<1 で残る・writeMask 0x8＝ALPHA）
+				fragment: { module: alphaOneMod, entryPoint: "fs", targets: [{ format, writeMask: 0x8 }] }, primitive: { topology: "triangle-list" }, depthStencil: dsNotBld, multisample: ms }),
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
@@ -764,14 +772,14 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function shadowPipes(sc: number): ShadowPipes {   // 受け手の派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点/深度/ブレンド
 		let p = sh!.pipes.get(sc); if (p) return p;
 		const ms = { count: sc }, m = sh0mods!, L = sh!.lay;
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
 		p = {
 			fillOff: pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: pipe(m.fill, FILL_BUFS, dsTest, L.fill),
 			lineOff: pipe(m.lineX, LINE_X_BUFS, dsOff, L.fill), lineTest: pipe(m.lineX, LINE_X_BUFS, dsTest, L.fill),
 			terrain: pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
 			bld: pipe(m.bld, SH_BLD_BUFS, dsWriteBld, L.bld),
-			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh),
+			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA),   // 街明かりの窓の印（α）
 			meshTex: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),          // 模型・3D Tiles・I3S・押し出し（#112 段 1）
 			meshTexBlend: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),  // その半透明（BLEND）＝同じ派生・深度書き込み無し
 			globe: device.createRenderPipeline({ layout: L.globe, vertex: { module: m.globe, entryPoint: "vs" },
@@ -996,11 +1004,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点・深度・ブレンド。mods＝切るだけ／影＋面・L＝その束縛
 	function clipPipeSet(sc: number, m: ClipModsBase, L: ClipLayouts): ClipPipeSet {
 		const ms = { count: sc };
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
 		return {
 			terrain: pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
-			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh),
+			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA),   // 街明かりの窓の印（α）
 			meshTex: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),
 			meshTexBlend: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),
 			fillOff: pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: pipe(m.fill, FILL_BUFS, dsTest, L.fill),
@@ -2304,8 +2312,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const ml = mdMod(`line${src.lbl}`, mdLineWgsl(src.line, `LINE_MD${src.lbl}`), `line${src.lbl}`);
 		const mb = mdMod(`bld${src.lbl}`, mdBldWgsl(src.bld, `BUILDING_MD${src.lbl}`), `building${src.lbl}`);
 		const ms = { count: sc };
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
 		p = { fillOff: pipe(mf, MD_FILL_BUFS, dsOff, layFill), fillTest: pipe(mf, MD_FILL_BUFS, dsTest, layFill), lineOff: pipe(ml, MD_LINE_BUFS, dsOff, layLine), lineTest: pipe(ml, MD_LINE_BUFS, dsTest, layLine), bld: pipe(mb, MD_BLD_BUFS, dsWriteBld, layBld) };
 		mdPipeCache.set(key, p);
 		return p;
@@ -3147,6 +3155,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				writeXf(plBatchCPU, o, p.xf);   // バッチの剛体変換（W4）
 				if (light) { const lc = light.color || [1, 1, 1]; plBatchCPU[o + 212] = light.dir[0]; plBatchCPU[o + 213] = light.dir[1]; plBatchCPU[o + 214] = light.dir[2]; plBatchCPU[o + 215] = 1; plBatchCPU[o + 216] = lc[0]; plBatchCPU[o + 217] = lc[1]; plBatchCPU[o + 218] = lc[2]; plBatchCPU[o + 219] = light.intensity ?? 0.5; } else plBatchCPU[o + 215] = 0;   // style の light（sl0/sl1）
 				plBatchCPU[o + 220] = p.colSrgb ? 1 : 0;   // cs.x＝頂点色が sRGB（押し出し）
+				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
 			}
@@ -3185,6 +3194,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(0, skyBG);
 			pass.draw(3);
 		}
+		// 夜の色の間＝建物の画素（stencil bit7）以外の α を 1 に揃える＝窓の印だけが α<1 で残る（低地フェードの地形などが α<1 を書き、夕景で色の掛からない地面と倉庫が出た・Mac 実測 2026-10-24）
+		if (post?.grade) { pass.setStencilReference(0x80); pass.setPipeline(P.alphaOne); pass.draw(3); }
 		pass.end();
 		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）。
 		// 入口はフェード（チルト 0.02→0.10 rad で強さ 0→1）＝真俯瞰から傾けた瞬間に建物の周りの陰がポンと点かない
@@ -3266,6 +3277,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
 	let light: { dir: number[]; color?: number[] | null; intensity?: number } | null = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
+	let cityLights = 0;   // 夜の街明かりの強さ（set("cityLights")）
 	let post: PostFrameOptions | null = null, postFx: PostGPU | null = null;   // 後処理（PR-8）＝set("post") の間だけ資源を持つ
 	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: () => ImageBitmap; gpu: { device: GPUDevice; texture: GPUTexture }; w: number; h: number; logCoef: number } | null } | null {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
@@ -3335,7 +3347,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "sea":     sea = { ...sea, ...(data as Partial<typeof sea>) }; break;
 			case "shadow":  shadow = { ...shadow, ...(data as Partial<typeof shadow>) }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
 			case "clip":    clip = normClip(data as Parameters<typeof normClip>[0]); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
-			case "post":    post = (data as PostFrameOptions | null) || null; break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1・normPost 済みの形）＝flush の終端で掛ける
+			case "post":    post = (data as PostFrameOptions | null) || null; break;
+			case "cityLights": cityLights = Math.max(0, Math.min(1, +(data as number) || 0)); break;   // 夜の街明かり（2026-10-24）＝素の建物メッシュの壁に窓（強さ 0..1 × 夜の度合い・MESH_WGSL cityWin）   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1・normPost 済みの形）＝flush の終端で掛ける
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "text": textMid = (data as typeof textMid) || null; break;   // 注記の字の GPU（T-P2）＝null で外す
 			case "bldFill": bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;

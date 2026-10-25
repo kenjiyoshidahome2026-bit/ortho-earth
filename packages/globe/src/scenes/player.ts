@@ -8,7 +8,7 @@ import { parseViewHash } from "@ortho-earth/core";
 import { parseScenes } from "../demo/scene-adapter.ts";     // 共有シーン台本→プレーヤー受け渡しの純関数
 import { buildSceneTimeline } from "../demo/scene-timeline.ts";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.ts";
-import { sceneTitlesOf, cardOf, pick, gradeOf } from "./titles.ts";
+import { sceneTitlesOf, cardOf, pick, gradeOf, glowOf } from "./titles.ts";
 import { composeLayersToCanvas } from "../gadgets/compose.ts";   // 溶け替え（dissolve）の前の絵＝生スナップの合成   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
 import type { DemoHandle } from "../../globe.d.ts";
 import type { GlobeScope } from "../types/scope.ts";
@@ -72,7 +72,7 @@ export interface ScenePlayer {
 export interface ScenePlayerEnv extends Pick<GlobeScope, "LOW_MEM" | "meshOn" | "meshMgr" | "flightCtl" | "CAM_ZOOM_MIN" | "flyView" | "applyCamView" | "applyViewLayers" | "switchTheme"> {
 	mapEl: HTMLElement; gpuBackend: boolean; themeFixed: boolean; bldLabels?: Record<string, string>;
 	/** 光と時刻（台本 light・行 time）と溶け替えのスナップが使う地図の公開面（呼ぶのは上映中＝組み上がった後） */
-	readonly map?: Pick<GlobeMap, "requestSnapshot" | "setSun" | "getSun" | "setShadows" | "clock" | "raster" | "getSunPosition">;
+	readonly map?: Pick<GlobeMap, "requestSnapshot" | "setSun" | "getSun" | "setShadows" | "clock" | "raster" | "getSunPosition" | "setGrade" | "setCityLights">;
 	readonly themeName: string; readonly elevBusy: boolean;
 	onMove(): void; viewHash(): string; saveView(): void;
 }
@@ -112,7 +112,14 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 	const restore = M && (light || tlRows.some(r => r.time != null)) ? { sun: M.getSun(), live: M.clock.isLive(), time: M.clock.time } : null;
 	let clockRaf = 0;
 	// 光の色（第5便）：light の上映中は太陽の高度で夕景・夜の色を絵全体に乗算（light.grade:false で切る）＝書き出し（export-video）も同じ gradeOf
-	const regrade = () => { if (M && light && (light as { grade?: unknown }).grade !== false) titles.grade(gradeOf(M.getSunPosition().altitude)); };
+	// 夜の街明かり（2026-10-24）：light の上映中は建物の窓が夕方から点く（light.cityLights:false で切る）。WebGPU は色をエンジンが掛ける（map.setGrade＝窓は暗くしない・灯りが滲む）。
+	//   WebGL2 は setGrade が false＝従来どおり絵の上の色板（#scene-grade）・街明かりは無し
+	const gradeOn = !!light && (light as { grade?: unknown }).grade !== false, lightsOn = !!light && (light as { cityLights?: unknown }).cityLights !== false;
+	const regrade = () => {
+		if (!M || !light) return;
+		const alt = M.getSunPosition().altitude, rgb = gradeOn ? gradeOf(alt) : null;
+		titles.grade(M.setGrade(rgb, { glow: lightsOn && rgb ? glowOf(alt) : 0 }) ? null : rgb);
+	};
 	const clockTo = (i: number) => {
 		const r = tlRows[i]; if (!M || r?.time == null) return;
 		cancelAnimationFrame(clockRaf);
@@ -123,12 +130,12 @@ function playScenes(obj: object, { from = 0, quick = false, onScene, onEnd, lang
 	};
 	const lightOn = () => {
 		if (!M) return;
-		if (light) { M.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(true); regrade(); }
+		if (light) { M.setSun({ follow: "clock" }); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(true); if (lightsOn) M.setCityLights(true); regrade(); }
 	};
 	const lightOff = () => {
 		cancelAnimationFrame(clockRaf);
 		if (!M || !restore) return;
-		if (light) { M.setSun(restore.sun ?? null); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(false); }
+		if (light) { M.setSun(restore.sun ?? null); if ((light as { shadows?: unknown }).shadows !== false) M.setShadows(false); M.setGrade(null); if (lightsOn) M.setCityLights(false); }
 		if (restore.live) M.clock.live(); else M.clock.setTime(restore.time);
 	};
 	// 画像タイル（第5便）：行 raster＝遷移の頭で切替（重ねは遷移の尺で溶かす・最短 0.6 秒）。上映前の選択を覚えて終演/停止で戻す
