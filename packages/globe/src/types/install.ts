@@ -56,8 +56,8 @@ export interface OverlaysReturn {
 /** installer の live＝RW は読み書き（getter と setter）・RO は読むだけ（getter） */
 type LiveOf<RW extends keyof GlobeLive, RO extends keyof GlobeLive = never> = Pick<GlobeLive, RW> & Readonly<Pick<GlobeLive, RO>>;
 
-export type TerrainLive = LiveOf<"demSpec" | "demMain" | "geGen" | "geBusy" | "geKey" | "elevGen" | "noTerr", "mlSources" | "EXT" | "style" | "baseSidNow" | "modelCtl">;
-export type TerrainDeps = Pick<GlobeScope, "EARTH_M" | "cam" | "elevMemo" | "elevOf" | "heightAt" | "pluginHost" | "qmSpecOf" | "requestDraw" | "requester" | "terrLazy" | "wPost">;
+export type TerrainLive = LiveOf<"demSpec" | "demMain" | "geGen" | "geBusy" | "geKey" | "elevGen" | "noTerr" | "terrExag", "mlSources" | "EXT" | "style" | "baseSidNow" | "modelCtl" | "t3dCtl">;
+export type TerrainDeps = Pick<GlobeScope, "EARTH_M" | "ELL_ON" | "cam" | "elevMemo" | "elevOf" | "heightAt" | "pluginHost" | "qmSpecOf" | "requestDraw" | "requester" | "terrLazy" | "wPost">;
 
 export type RasterLive = LiveOf<"attrZone" | "videoCtl" | "rasterBoot", "iiifOpen">;
 export type RasterDeps = Pick<GlobeScope, "LOW_MEM" | "REGION_RASTERS" | "TILE_BIAS" | "URL_OWN" | "opts" | "ownDestroy" | "rasterBootQ" | "requestDraw" | "requester" | "t" | "wPost">;
@@ -203,8 +203,8 @@ export interface StyleReturn {
 	/** addLayer の中身（dz を明示）。層＝addLayer の層か style.json の層（source に object も＝その id で source を足す） */
 	addLayerAt(layer: MLLayer | InlineSourceLayer, beforeId: string | null | undefined, dz: number): ReturnType<StyleApi["addLayer"]>;
 }
-export type QueryLive = LiveOf<never, "MAP_GS" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
-export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "TERR_EXAG" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"
+export type QueryLive = LiveOf<never, "terrExag" | "MAP_GS" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
+export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"
 	| "clipCutXY" | "clipFor" | "drawLayerOf" | "evXY" | "gint" | "hiddenAll" | "inZoomML" | "input" | "isOv" | "mlIdOf" | "mlLayers" | "mlPasses" | "mlVisible" | "noMixedR01" | "overlayFeature"
 	| "patItems" | "requester" | "size" | "srcId" | "stripMl" | "unprojectXY" | "vtdDesc" | "vtdOrder" | "vtxGround" | "vtxStateOf">;
 /** 押し出しの当たりの口（extrude-ml.js の env）＝地面 gnd の上の画面の点・屋根の面 */

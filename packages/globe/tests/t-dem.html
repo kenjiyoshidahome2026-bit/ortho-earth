@@ -3,7 +3,8 @@
      ①opts.terrain で起動 → map.getHeight が山頂 ≈3000m・中腹 ≈1500m・範囲外は既定（海＝0）
      ②描画：傾けた絵が DEM あり／なしで変わる（地形のセル R01 が上書きされている）
      ③setTerrain(null) で外れる ④addSource(raster-dem)＋setTerrain({ source:id }) で戻る。
-     ⑤DOM オーバーレイの持ち上げ（projectLL）も同じ DEM：傾けた絵で山頂の点が 3000m ぶん持ち上がる・外すと海面へ・戻すとまた乗る（2026-09-27）。実時間。 -->
+     ⑤DOM オーバーレイの持ち上げ（projectLL）も同じ DEM：傾けた絵で山頂の点が 3000m ぶん持ち上がる・外すと海面へ・戻すとまた乗る（2026-09-27）。
+     ⑥exaggeration（2026-10-24）：1.5 で持ち上げが 4500m ぶん・setTerrainExaggeration(1) で戻る・10 で描いた絵が変わる。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-dem</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -21,8 +22,8 @@ try {
 	ok("outside", h2 < 5, h2.toFixed(0));
 	ok("getTerrain", map.getTerrain()?.source?.encoding === "terrarium");
 	// ⑤ 基準＝地形なしの投影（海面＋hM）。got＝projectLL の海面からのずれ・want＝海面から 3000m 上のずれ（画面 px）・err＝projectLL と 3000m 上の点の距離
-	const lift = () => { const p0 = map.makeProjectorH({ terrain: false }), [bx, by] = p0(150.5, 30.5, 0), [ex, ey] = p0(150.5, 30.5, 3000), [x, y, f] = map.projectLL(150.5, 30.5); return { got: Math.hypot(x - bx, y - by), want: Math.hypot(ex - bx, ey - by), err: Math.hypot(x - ex, y - ey), front: f }; };
-	const pollLift = async (want, ms) => { const t0 = performance.now(); let r; while (performance.now() - t0 < ms) { r = lift(); if (want(r)) return r; await sleep(100); } return r; };   // 標高は非同期＝初回 0・届いたら乗る
+	const lift = (hm = 3000) => { const p0 = map.makeProjectorH({ terrain: false }), [bx, by] = p0(150.5, 30.5, 0), [ex, ey] = p0(150.5, 30.5, hm), [x, y, f] = map.projectLL(150.5, 30.5); return { got: Math.hypot(x - bx, y - by), want: Math.hypot(ex - bx, ey - by), err: Math.hypot(x - ex, y - ey), front: f }; };
+	const pollLift = async (want, ms, hm) => { const t0 = performance.now(); let r; while (performance.now() - t0 < ms) { r = lift(hm); if (want(r)) return r; await sleep(100); } return r; };   // 標高は非同期＝初回 0・届いたら乗る
 	const lifted = r => r.front > 0 && r.want > 10 && r.err < r.want * 0.1, liftNote = r => `${r.got.toFixed(1)}/${r.want.toFixed(1)}px err ${r.err.toFixed(1)}`;
 	const l0 = await pollLift(lifted, 20000);
 	ok("liftPeak", lifted(l0), liftNote(l0));
@@ -34,6 +35,13 @@ try {
 	const poll = async (want, ms) => { const t0 = performance.now(); let d; while (performance.now() - t0 < ms) { d = await grab(); if (want(d)) return d; await sleep(2000); } return d; };
 	const withDem = await poll(land, 60000);
 	ok("renderedLand", land(withDem), px(withDem, 480, 250).join(","));
+	// 描いた地形も変わる（誇張 10 と 1：高さ 30km の円錐が地平の空を隠す＝絵が大きく違う）
+	const before = withDem;
+	const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 16) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 6) n++; return n; };
+	map.setTerrainExaggeration(10);
+	const after = await poll(d => diff(d, before) > 300, 30000);
+	ok("exagDrawn", diff(after, before) > 300, String(diff(after, before)));
+	map.setTerrainExaggeration(1);
 	await map.setTerrain(null);
 	const g0 = await map.getHeight(150.5, 30.5);
 	ok("removed", g0 < 5 && map.getTerrain() === null, g0.toFixed(0));
@@ -45,8 +53,15 @@ try {
 	await map.setTerrain({ source: "d", exaggeration: 1.5 });
 	const g1 = await map.getHeight(150.5, 30.5);
 	ok("setTerrainById", Math.abs(g1 - 3000) < 40, g1.toFixed(0));
-	const l2 = await pollLift(lifted, 20000);
+	// ⑥ 地形の誇張（2026-10-24・指定した時だけ）：exaggeration 1.5＝山頂の点は 3000m×1.5＝4500m ぶん持ち上がる（標高そのものは 3000m のまま）
+	ok("exagGet", map.getTerrain()?.exaggeration === 1.5 && map.getTerrainExaggeration() === 1.5, String(map.getTerrain()?.exaggeration));
+	const l2 = await pollLift(lifted, 20000, 4500);
 	ok("liftById", lifted(l2), liftNote(l2));
+	map.setTerrainExaggeration(1);
+	const l3 = await pollLift(lifted, 20000, 3000);
+	ok("exagReset", lifted(l3) && map.getTerrain()?.exaggeration === 1, liftNote(l3));
+	map.setTerrainExaggeration(-3);   // 正の数以外＝1
+	ok("exagInvalid", map.getTerrainExaggeration() === 1);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>

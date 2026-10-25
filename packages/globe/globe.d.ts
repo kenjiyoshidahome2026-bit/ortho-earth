@@ -829,6 +829,8 @@ export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tol
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
  *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
 /** 1.3.0〜 encoding "custom"（redFactor/greenFactor/blueFactor/baseShift）・既定値は MapLibre どおり tileSize 512・maxzoom 22（setTerrain・addSource・style の terrain。?dem= の URL は従来の 256） */
+/** map.sampleHeight の 1 点（2026-10-25〜）。source＝当たった物（"tiles3d"＝id は tileset の id・"model"＝id は模型の slot・"terrain"＝地形・null＝terrain:false で何にも当たらない） */
+export interface SampleHeightResult { lng: number; lat: number; height: number | null; source: "tiles3d" | "model" | "terrain" | null; id?: string; featureId?: number }
 /** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.7.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
  *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。
  *  url＝layer.json（CORS が要る・相対は頁基準）か ion＝利用者の Cesium ion の鍵（{ assetId, accessToken }・Cesium World Terrain は assetId 1）。鍵は同梱しない。

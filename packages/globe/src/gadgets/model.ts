@@ -28,6 +28,7 @@ import type { AnimationState, Bbox, LonLat, ModelHandle, ModelTransform } from "
 import type { GltfPlace, GltfRig, WorldXf } from "../gltf-anim.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
 import type { MeshPickEnv } from "../types/install.ts";
+import type { MeshItemRef } from "../meshpick.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { MeshSetData, TileBatch } from "./tiles3d.ts";
 
@@ -105,6 +106,8 @@ export interface ModelGadget extends ModelHandle {
 	clearExtrude(slot?: string | null): void;
 	extrude(src: ExtrudeSrc, opts?: ModelExtrudeOptions): Promise<ExtrudeStats | null>;
 	load(src: File | string, opts?: ModelLoadOptions): Promise<ModelHandle>;
+	/** 読み込んである模型の三角形の束（map.sampleHeight） */
+	meshItems(): MeshItemRef[];
 }
 /** createModel の deps（globe.js の modelCtlGet が渡す） */
 export interface ModelEnv {
@@ -566,6 +569,12 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			return it.handle;
 		},
 		pick(x, y) { return pickAll(x, y)?.hit || null; },
+		// 読み込んである模型の三角形の束（map.sampleHeight・2026-10-25）。動かした模型は動かした先（pickItems と同じ）・地形へは "drape"（lift は呼ぶ側が入れる）
+		meshItems() {
+			const out: MeshItemRef[] = [];
+			for (const it of models.values()) { if (!live(it) || !it.pickable) continue; for (const p of pickItems(it, { lift: () => 0 } as unknown as MeshPickEnv)) if (p) out.push({ id: it.slot, mode: "drape", item: p }); }
+			return out;
+		},
 		get features() { return curH()?.features || null; },
 		setFeatureState(id, state) { curH()?.setFeatureState(id, state); return ctl; },
 		getFeatureState(id) { return curH()?.getFeatureState(id) || {}; },

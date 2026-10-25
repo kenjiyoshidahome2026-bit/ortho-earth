@@ -12,6 +12,7 @@ import type { DtmDecl, createGetHeight } from "@ortho-earth/core/elevation";
 import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF, Geometry } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.ts";
+import type { MeshItemRef } from "../meshpick.ts";
 import type { Aggregate } from "../gadgets/aggregate.ts";
 import type { GJLabels } from "../gadgets/gjlabels.ts";
 import type { Symbols } from "../gadgets/symbols.ts";
@@ -150,7 +151,11 @@ export interface MeshHit {
 	state?: Record<string, unknown>; table?: unknown;
 }
 /** 3D Tiles（gadgets/tiles3d.js の戻り）＝installer が読む分 */
-export interface T3dCtl { pickAll(x: number, y: number): Array<MeshHit & { id: string }> }
+export interface T3dCtl {
+	pickAll(x: number, y: number): Array<MeshHit & { id: string }>;
+	/** 読み込んである三角形の束（map.sampleHeight） */
+	meshItems(): MeshItemRef[];
+}
 /** URL の #hash の視点（core の parseViewHash の戻り） */
 export type ParsedView = NonNullable<ReturnType<typeof parseViewHash>>;
 /** 外来の MapLibre の style.json（core の MLStyle） */
@@ -190,6 +195,8 @@ export interface ModelCtl {
 	readonly name?: string | null;
 	/** 画面の点（CSS px）に一番手前の三角形 */
 	pick(x: number, y: number): MeshHit | null;
+	/** 読み込んである模型の三角形の束（map.sampleHeight） */
+	meshItems?(): MeshItemRef[];
 	/** 押し出しのスロットごと（新しいスロットが後ろ） */
 	readonly extrudeSets?: Array<{ slot: string; used: Array<{ f: { geometry: QueryGeometry; properties?: Record<string, unknown> | null }; h: number; base: number }>; mode: string; lift: number }>;
 	extrudedFeatures?: Array<{ h: number; f?: { geometry?: { type: string; coordinates?: unknown } | null } | null }>;
@@ -550,8 +557,6 @@ export interface GlobeScope {
 	/** PMTiles の基図の層を足す（外来 style＝extBaseStyle） */
 	withPM(st: BaseStyle): BaseStyle;
 	withUserBg(st: BaseStyle): BaseStyle;
-	/** 標高の誇張（実スケール＝1） */
-	TERR_EXAG: number;
 	clipAllCut: ShadowsReturn["clipAllCut"]; clipCutXY: ShadowsReturn["clipCutXY"]; clipFor: ShadowsReturn["clipFor"];
 	/** 今伏せている基図の層の添字 */
 	hiddenAll(): Set<number>;
@@ -576,6 +581,8 @@ export type RasterAdjust = NonNullable<Extract<RasterSpec, { url: string }>["adj
 
 /** createGlobe の let（live） */
 export interface GlobeLive {
+	/** 地形の誇張（実スケール＝1・setTerrain の exaggeration／setTerrainExaggeration） */
+	terrExag: number;
 	mlSources: Map<string, UserSource>;
 	EXT: ExtStyle | null;
 	demSpec: TerrainSpec | null;

@@ -31,7 +31,7 @@ interface LayerEv { ev: string; ids: Set<string>; cb: (e: LayerMouseEvent) => vo
 type OnOff = (ev: string, a: unknown, b?: (e: never) => void) => GlobeMap;
 
 export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
-	BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, TERR_EXAG, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor,
+	BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor,
 	drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester,
 	size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf
 }: QueryDeps): QueryReturn {
@@ -72,7 +72,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 	// envOf(gnd)＝地面の半径 gnd(lon, lat)（1＋持ち上げ）の上で { vtx, roof }。奥行き＝clip の w（二つの押し出しを同じ物差しで近い順に並べる）
 	const extView = (): ExtViewNow => {
 		const st = cameraState(cam, size.w, size.h), M = st.mvp, E = st.eye, eyeR = Math.hypot(E[0], E[1], E[2]);
-		const W = size.w / live.dpr, H = size.h / live.dpr, k = TERR_EXAG / EARTH_M;
+		const W = size.w / live.dpr, H = size.h / live.dpr, k = live.terrExag / EARTH_M;
 		const pos = (u: ArrayLike<number>, m: ArrayLike<number> | null, R: number): ArrayLike<number> => R === 1 ? u : m ? [u[0] + (R - 1) * m[0], u[1] + (R - 1) * m[1], u[2] + (R - 1) * m[2]] : [u[0] * R, u[1] * R, u[2] * R];   // core camera.js の liftedPos と同じ（楕円体は測地法線）
 		const clipOf = (p: ArrayLike<number>): [number, number, number] => [M[0] * p[0] + M[4] * p[1] + M[8] * p[2] + M[12], M[1] * p[0] + M[5] * p[1] + M[9] * p[2] + M[13], M[3] * p[0] + M[7] * p[1] + M[11] * p[2] + M[15]];
 		const screenAt = (lon: number, lat: number, R: number): [number, number, number] | null => {   // → [x, y, w]（CSS px・w＝奥行き）｜null（目の後ろ・球の陰）

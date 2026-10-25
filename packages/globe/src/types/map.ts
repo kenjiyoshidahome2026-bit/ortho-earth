@@ -9,7 +9,7 @@
 
 import type {
 	Bbox, BodyPosition, COPCHandle, COPCOptions, CameraOptions, CameraPose,
-	CameraTarget, Capability, CapabilityKey, CellsLayerHandle, CellsLayerOptions, ClipOptions,
+	CameraTarget, Capability, CapabilityKey, SampleHeightResult, CellsLayerHandle, CellsLayerOptions, ClipOptions,
 	CloudsSpec, ColumnarLayerHandle, ColumnarLayerOptions,
 	ContourLayerHandle, ContourLayerOptions, DataLayerHandle, DataLayerOptions,
 	FitBoundsOptions, FollowHandle, GeoPBF,
@@ -366,15 +366,24 @@ export interface TerrainApi {
 	 *  z≥12 は R01（10m＝日本は DEM10B・海外は AW3D30）。2026-09-25 の修正より前の版は z≥12 でも R10 に落ちていた（富士山頂 3567m 等）。
 	 *  1.0.4〜ローダ着荷（数秒）を待って返す（初期化失敗は reject）。1.0.3 以前は未着の間 0 を返す＝>0 になるまで再照会 */
 	getHeight(lon: number, lat: number): Promise<number>;   // api/terrain.ts:22
-	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
+	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ（誇張も 1 に戻る）。
+	 *  exaggeration＝地形の誇張（2026-10-24〜・省略＝1＝実スケール）。地形と、地形に乗る物の足元を持ち上げる（建物・模型そのものの高さは伸ばさない＝MapLibre と同じ） */
 	setTerrain(terrain: { source: string | RasterDemSource | QuantizedMeshSource; exaggeration?: number } | null): Promise<GlobeMap>;   // api/terrain.ts:25
 	// source は整えた後の spec（実体）＝叩き台の RasterDemSource | QuantizedMeshSource から実体に合わせた（TileJSON の申告の encoding・bounds は型の外の値も通る）
-	getTerrain(): { source: TerrainSourceSpec; exaggeration: 1 } | null;   // api/terrain.ts:47
+	getTerrain(): { source: TerrainSourceSpec; exaggeration: number } | null;   // api/terrain.ts:47
+	/** 地形の誇張だけを変える（Cesium の scene.verticalExaggeration・2026-10-24〜）。既定の標高（setTerrain をしていない地図）にも効く。正の数以外は 1（実スケール） */
+	setTerrainExaggeration(k: number): GlobeMap;
+	/** 今の地形の誇張（実スケール＝1） */
+	getTerrainExaggeration(): number;
 	/** 地形の標高 m（MapLibre 同名・同期）＝地形（setTerrain／style の terrain）がある時だけ。手元に無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も未着は null）。待てる口は sampleTerrain・既定の DTM は getHeight */
 	queryTerrainElevation(lon: number, lat: number): number | null;   // api/terrain.ts:48
 	/** 地形の一括標本（F6・2026-10-12・実装つき）。出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝getHeight）。到着を待つ。
 	 *  positions＝[lng,lat][]・{lng|lon,lat}[]・GeoJSON（Point/MultiPoint/LineString…の座標）。負の標高はそのまま返す（描く側は 0 に切る） */
 	sampleTerrain(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { concurrency?: number }): Promise<{ lng: number; lat: number; height: number }[]>;   // api/terrain.ts:52
+	/** 3D Tiles・模型の上の高さ（Cesium の scene.sampleHeight／clampToHeight・2026-10-25〜）。各点の真上（from m・既定 10000）から鉛直に下ろして、読み込んである 3D Tiles と模型の三角形の一番上の面に当てる。
+	 *  当たらない点は地形（sampleTerrain と同じ出どころ・source "terrain"）。terrain:false＝地形に落とさない（height null）。高さは実スケールの m。当てるのは今の視点で読み込んである詳細度のタイル。
+	 *  当たりの写しを持つタイルだけ当たる（pickable "auto"＝地物の番号を持つ束だけ・番号の無い Google 等の写実タイルは add3DTiles(url, { pickable: true })・lowMem では "auto" は持たない） */
+	sampleHeight(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { terrain?: boolean; from?: number; concurrency?: number }): Promise<SampleHeightResult[]>;
 	/** 一人称歩行（F6 の口・W3 で builtin の中身＝src/walk.js）。registry.handlers の "walk"（plugin）があればそれが勝つ。足元＝描いている地形・壁＝基図の建物の足跡と押し出し（簡易の衝突） */
 	walk(opts?: WalkOptions): WalkHandle;   // api/terrain.ts:77
 	// camera member living in installTerrain (terrain.js:77); the facade converts it (mlfacade.js FACADE_CONV). Move to CameraApi in the port
