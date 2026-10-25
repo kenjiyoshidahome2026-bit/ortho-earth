@@ -22,7 +22,7 @@ import { featureProperties } from "../mesh-features.ts";
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.ts";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.ts";
-import { evalExpr, truthy, parseRGBA, originOfLayer, lonlatTo3D, worldRadiusM } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）・lonlatTo3D＝β単位球の世界座標（模型を動かす回転の土台）
+import { evalExpr, truthy, parseRGBA, originOfLayer, lonlatTo3D, worldRadiusM, ellNormal3D } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）・lonlatTo3D＝β単位球の世界座標（模型を動かす回転の土台）
 import type { ExprContext } from "@ortho-earth/core";
 import type { AnimationState, Bbox, LonLat, ModelHandle, ModelTransform } from "../../globe.d.ts";
 import type { GltfPlace, GltfRig, WorldXf } from "../gltf-anim.ts";
@@ -267,8 +267,8 @@ export function modelWorldXf(base: { at: LonLat; heading: number; scale: number 
 	const Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // meshdecode と同じ並び（列優先）
 	const k = (now.scale || 1) / (base.scale || 1);
 	const L = m3mulF(B1, m3mulF(Rh, B0t)); for (let i = 0; i < 9; i++) L[i] *= k;
-	const ar = (now.altitude || 0) / worldRadiusM();
-	const C1 = [b1.P[0] + ar * b1.U[0], b1.P[1] + ar * b1.U[1], b1.P[2] + ar * b1.U[2]], LC0 = m3v(L, b0.P);
+	const ar = (now.altitude || 0) / worldRadiusM(), up = ellNormal3D(now.at[0], now.at[1]);   // 高さは測地法線の向き（β空間の像）＝楕円体で動径に足すと高度×0.3% ほど赤道側へずれる（5000m で約 17m・Cesium の互換の口の門で判明 2026-10-25）。球では動径と同じ
+	const C1 = [b1.P[0] + ar * up[0], b1.P[1] + ar * up[1], b1.P[2] + ar * up[2]], LC0 = m3v(L, b0.P);
 	return { L, t: [C1[0] - LC0[0], C1[1] - LC0[1], C1[2] - LC0[2]] };
 }
 /** 外接矩形（度）を base → now に写す（錨の周りで回して倍率を掛け、新しい錨へ） */

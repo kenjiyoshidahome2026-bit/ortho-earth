@@ -1,0 +1,6 @@
+@ortho-earth/cesium uses CesiumJS (@cesium/core, @cesium/engine, @cesium/widgets)
+Copyright 2011-2026 CesiumJS Contributors, licensed under the Apache License, Version 2.0
+https://github.com/CesiumGS/cesium/blob/main/LICENSE.md
+
+src/viewer.ts follows the constructors of CesiumJS's CesiumWidget and Viewer (the order in which they
+build the widgets and wire their events), so that the facade's Viewer behaves as Cesium's does.
