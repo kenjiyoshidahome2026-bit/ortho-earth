@@ -114,6 +114,7 @@ export const STATIC_CAPABILITIES: Readonly<Record<CapabilityKey, Capability>> = 
 	"terrain.queryElevation": { status: "builtin", note: "queryTerrainElevation (sync, 100m grid cache)" },
 	"terrain.exaggeration": { status: "builtin", note: "setTerrain({ exaggeration }) / setTerrainExaggeration(k): terrain and what stands on it are lifted by k (object heights are not stretched, as in MapLibre); default 1 = true scale" },
 	"tiles3d.sampleHeight": { status: "builtin", note: "sampleHeight(positions): heights on the loaded 3D Tiles and models (top surface under each point), falling back to the terrain (Cesium sampleHeight / clampToHeight)" },
+	"tiles3d.classification": { status: "builtin", note: "addClassification(geojson, { color, type }): drape polygons and lines onto the terrain, 3D Tiles, models and buildings (Cesium ClassificationPrimitive / classificationType)" },
 	"terrain.sample": { status: "builtin", note: "sampleTerrain(positions) resolves heights from the drawn terrain (DEM first, then the default DTM) (F6)" },
 	"picking": { status: "builtin", note: "unified picking (map.on(ev, id), queryRenderedFeatures, pickOverlays)" },
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
