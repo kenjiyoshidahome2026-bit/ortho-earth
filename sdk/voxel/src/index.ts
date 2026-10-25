@@ -8,7 +8,8 @@
 //   Stage 4 adds the 3D Tiles EXT_primitive_voxels. Stage 5 (2026-10-24): a grid with an axis beyond BRICK_LIMIT (256) is split into bricks (BRICK = 126 cells + a 1-cell apron,
 //   one texture each, drawn far to near, empty bricks skipped), a time dimension (times + map.clock) and a GPU budget: only the frame shown is on the GPU, and grids bigger than
 //   the budget also carry coarser levels (1/2, 1/4… per axis) that the overlay uses far away when the budget runs out (planLevels). NetCDF classic and Zarr v2 / v3 URLs (or NetCDF bytes)
-//   are read in the worker by sources.ts into region grids with CF coordinates and times. Plan: ../PLAN.md.
+//   are read in the worker by sources.ts into region grids with CF coordinates and times. Cylinder grids (2026-10-26: radius × angle × height, hollow or a sector) are drawn through a
+//   convex box around the sector; the ray enters and leaves where it meets the cylinder and its caps, and cells outside the radius / angle range are skipped. Plan: ../PLAN.md.
 import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick, VoxelData } from "@ortho-earth/globe";
 import { transferables, levelBuffers, checkVoxelData, checkClip, buildColormap, thrOf, frameAt } from "./grid.ts";
 import type { PrepareOptions, PreparedGrid, ColormapSpec, RenderMode, Clip } from "./grid.ts";
@@ -16,8 +17,8 @@ import type { ReaderRequest, ReaderReply, ReadExtra } from "./voxel-reader.ts";
 import { readAndPrepare } from "./voxel-reader.ts";
 import type { SourceMeta } from "./sources.ts";
 import type { VoxelStyle } from "./voxel-gl.ts";
-export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, makeLevel, levelBuffers } from "./grid.ts";
-export type { PrepareOptions, Prepared, PreparedGrid, Brick, Level, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, RayHit, EnuBasis, Mat3 } from "./grid.ts";
+export { prepare, checkVoxelData, checkClip, thrOf, buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, placeCylinder, cylinderGrid, unitAt, hprMat, enuBasis, ecefToLngLat, ecefEnuRows, inv3, mul3, rayBox, marchBlocks, COLORMAPS, COLORMAP_NAMES, SHELL_N, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, makeLevel, levelBuffers } from "./grid.ts";
+export type { PrepareOptions, Prepared, PreparedGrid, Brick, Level, ColormapSpec, ColorStop, RenderMode, Clip, Hpr, Placement, GeoGrid, CylGrid, CylinderIn, RayHit, EnuBasis, Mat3 } from "./grid.ts";
 export type { VoxelMessage, VoxelLayerBody, LevelBody, VoxelStyle, VoxelPickResult, VoxelAltitude, OverlayHost, CamState, VoxelApi, PickContext } from "./voxel-gl.ts";
 export type { VoxelBackend, VoxelDrawOpts } from "./voxel-draw.ts";
 export { readSource, parseNetCDF, sniffNetCDF, openZarr, zarrArray, readZarr, toVoxelData, pickVariable, axisOf, cfTimes, heightsOf, pressureToHeight, edges, unpack, isZarrUrl } from "./sources.ts";
@@ -50,7 +51,7 @@ export interface VoxelOptions {
 	step?: number;
 	/** multiplies every cell's opacity (default 1) */
 	opacity?: number;
-	/** "relative": the box origin's alt is above the ground (default for origin boxes); "absolute": above the ellipsoid (default for transform boxes and region grids) */
+	/** "relative": the box / cylinder origin's alt is above the ground (default for origin boxes and cylinders); "absolute": above the ellipsoid (default for transform boxes / cylinders and region grids) */
 	altitude?: "relative" | "absolute";
 	/** hidden by terrain and buildings (default true) */
 	depthTest?: boolean;
@@ -95,8 +96,8 @@ export interface VoxelHandle {
 	readonly overlay: OverlayHandle;
 	/** which renderer draws this map's voxels: "webgpu" | "webgl2", null until the overlay has chosen */
 	readonly backend: VoxelBackend | null;
-	/** "box" | "region" after the last bake */
-	shape: "box" | "region" | null;
+	/** "box" | "region" | "cylinder" after the last bake */
+	shape: "box" | "region" | "cylinder" | null;
 	/** where the last source was prepared: "worker" (voxel-reader.ts) or "main"; null before the first bake */
 	reader: "worker" | "main" | null;
 	/** the renderer refused the layer (e.g. dims beyond MAX_3D_TEXTURE_SIZE); null when it draws */

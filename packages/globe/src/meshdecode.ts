@@ -77,9 +77,11 @@ export interface SplatPrimOut { n: number; positions: Float32Array; scales: Floa
 export interface ImplicitShape { type?: string; box?: { size?: number[] }; extensions?: Record<string, unknown> }
 /** 3D Tiles の glTF の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）＝voxel の VoxelData の形：box＝単位立方体 [0,1]³ → ECEF の transform（列優先 4×4・heightOffset 込み）・region＝[w,s,e,n（度）,h0,h1]。
  *  values は padding を剥いだ物（x が最速）・components 1（スカラー）か 4（RGBA）・noData＝EXT_primitive_voxels.noData[属性]・property＝読んだ属性の名 */
-export interface VoxelPrimOut { shape: "box" | "region"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; noData?: number; property: string }
-/** tile.voxels の opts：property＝読む属性（class の性質名でも可・省略＝最初の独自属性）・declared＝tileset の 3DTILES_content_voxels（dimensions・padding）・volume＝タイルの境界体積（ECEF の box＝中心＋半軸 3 本 12 個・region＝rad）＝glTF に形が無い時 */
-export interface VoxelTileOpts { property?: string | null; declared?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null; volume?: { box?: number[]; region?: number[] } | null }
+export interface VoxelPrimOut { shape: "box" | "region" | "cylinder"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; cylinder?: VoxelCylinderOut; noData?: number; property: string }
+/** cylinder＝voxel の契約の cylinder（transform＝局所 m → ECEF・z が軸・角度は +x から反時計回り・度）。dims は [半径, 角度, 高さ] に並べ替え済み */
+export interface VoxelCylinderOut { transform: number[]; radius: [number, number]; height: [number, number]; angle: [number, number] }
+/** tile.voxels の opts：property＝読む属性（class の性質名でも可・省略＝最初の独自属性）・declared＝tileset の 3DTILES_content_voxels（dimensions・padding）・volume＝タイルの境界体積（ECEF の box＝中心＋半軸 3 本 12 個・region＝rad・cylinder＝3DTILES_bounding_volume_cylinder を ECEF の transform に・角度は度で 3D Tiles の向き）＝glTF に形が無い時（cylinder は glTF に形が有っても境界体積が正） */
+export interface VoxelTileOpts { property?: string | null; declared?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null; volume?: { box?: number[]; region?: number[]; cylinder?: VoxelCylinderOut } | null }
 /** decodeModel の stats */
 export interface ModelStats {
 	vertices: number; triangles: number; instances: number; mode: string; points?: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;   // splats＝splat の個数・splatPoints＝splat を点として描いた個数・voxels＝voxel の格子の数・voxelsSkipped＝plugin が無い／形が読めず飛ばした格子（plugin が無い時）
@@ -833,8 +835,11 @@ function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 }
 // ---- voxel のプリミティブ（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）----
 //   mode 2147483647（か extensions.EXT_primitive_voxels）。属性＝独自の意味（_DENSITY など・EXT_structural_metadata の propertyAttributes が class の性質に結ぶ）・accessor の count＝Π(dimensions＋padding)・並びは x が最速。
-//   形＝KHR_implicit_shapes の shapes[ext.shape]：box（size・原点が中心）→ 単位立方体 → ECEF の transform、EXT_implicit_ellipsoid_region（rad）→ region。cylinder は未対応（飛ばす）。
-//   形が無い（tileset の 3DTILES_content_voxels の経路）＝タイルの境界体積（box・region）を使う。noData＝ext.noData[属性名]。padding は剥ぐ（隣のタイルとの補間用＝第 5 段）。
+//   形＝KHR_implicit_shapes の shapes[ext.shape]：box（size・原点が中心）→ 単位立方体 → ECEF の transform、EXT_implicit_ellipsoid_region（rad）→ region、EXT_implicit_cylinder_region → cylinder（2026-10-26）。
+//   形が無い（tileset の 3DTILES_content_voxels の経路）＝タイルの境界体積（box・region・cylinder）を使う。noData＝ext.noData[属性名]。padding は剥ぐ（隣のタイルとの補間用＝第 5 段）。
+//   cylinder（仕様＝3DTILES_content_voxels の Notes）＝glTF は y が軸で dimensions／並びが [半径, 高さ, 角度]・角度 0 は glTF の −x。3D Tiles（と voxel の契約）は z が軸で [半径, 角度, 高さ]・角度 0 は +x
+//     ＝y と z の添字を入れ替え、角度に +180°（全周でない境界体積は並びが同じ＝範囲をそのまま・全周の境界体積だけ添字が半周ずれる＝範囲に +180°）。
+//     tileset の経路では glTF の形（大きさは単位の物）より境界体積が正（Cesium の見本も glTF に単位の形を持つ）。
 const VOXEL_EXT = "EXT_primitive_voxels", VOXEL_MODE = 2147483647, STD_ATTR = /^(POSITION|NORMAL|TANGENT|TEXCOORD_\d+|COLOR_\d+|JOINTS_\d+|WEIGHTS_\d+|_BATCHID|_FEATURE_ID_\d+)$/, R2D_ = 180 / Math.PI;
 const liftXf = (T: number[], lift: number): number[] => {   // heightOffset＝箱の中心の地心の上向きに沿って持ち上げる
 	if (!lift) return T;
@@ -842,9 +847,21 @@ const liftXf = (T: number[], lift: number): number[] => {   // heightOffset＝�
 	T[12] += lift * cx / l; T[13] += lift * cy / l; T[14] += lift * cz / l;
 	return T;
 };
+// 原点を地心の上向きに持ち上げる（cylinder＝原点が軸の上）
+const liftOrigin = (T: number[], lift: number): number[] => { if (!lift) return T; const l = Math.hypot(T[12], T[13], T[14]) || 1; T[12] += lift * T[12] / l; T[13] += lift * T[13] / l; T[14] += lift * T[14] / l; return T; };
+/** y と z の添字を入れ替える（glTF の [半径, 高さ, 角度] → [半径, 角度, 高さ]） */
+function swapYZ<T extends Float32Array | Uint16Array | Uint8Array>(v: T, d: number[], c: number): T {
+	const out = new (v.constructor as { new(n: number): T })(v.length);
+	for (let k = 0; k < d[2]; k++) for (let j = 0; j < d[1]; j++) { const src = (d[0] * (j + d[1] * k)) * c, dst = (d[0] * (k + d[2] * j)) * c; out.set(v.subarray(src, src + d[0] * c), dst); }
+	return out;
+}
 function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: ArrayLike<number>, lift: number, tv: VoxelTileOpts): VoxelPrimOut | null {
 	const ext = (pr.extensions?.[VOXEL_EXT] ?? {}) as { shape?: number; dimensions?: number[]; padding?: { before?: number[]; after?: number[] }; noData?: Record<string, number[]> };
-	const dimsAll = ext.dimensions ?? tv.declared?.dimensions, pad = ext.padding ?? tv.declared?.padding;
+	const shape = Number.isInteger(ext.shape) ? gltf.extensions?.KHR_implicit_shapes?.shapes?.[ext.shape!] : undefined;
+	const cr = shape?.extensions?.EXT_implicit_cylinder_region as { minRadius?: number; maxRadius?: number; height?: number; minAngle?: number; maxAngle?: number } | undefined, volCyl = tv.volume?.cylinder ?? null;
+	const cyl = !!(volCyl || cr);   // cylinder＝glTF の並び（[半径, 高さ, 角度]）。宣言（tileset）は [半径, 角度, 高さ]＝並べ替えて読む
+	const yUp = (a: number[] | undefined): number[] | undefined => a && cyl ? [a[0], a[2], a[1]] : a;
+	const dimsAll = ext.dimensions ?? yUp(tv.declared?.dimensions), pad = ext.padding ?? (tv.declared?.padding ? { before: yUp(tv.declared.padding.before), after: yUp(tv.declared.padding.after) } : undefined);
 	if (!dimsAll || dimsAll.length !== 3 || !dimsAll.every(n => Number.isInteger(n) && n > 0)) return null;
 	const pb = [0, 1, 2].map(i => pad?.before?.[i] ?? 0), pa = [0, 1, 2].map(i => pad?.after?.[i] ?? 0), full = [0, 1, 2].map(i => dimsAll[i] + pb[i] + pa[i]), dims: [number, number, number] = [dimsAll[0], dimsAll[1], dimsAll[2]];
 	// 属性＝指定の名（class の性質名なら propertyAttributes で属性名へ）か、最初の独自属性
@@ -865,11 +882,22 @@ function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 		else { for (let c = 0; c < 3; c++) out[dst + c] = V[src + c] * q; out[dst + 3] = comps === 4 ? V[src + 3] * q : keep8 ? 255 : 1; }
 	}
 	const nd = ext.noData?.[name]?.[0], base = { dims, components: outC as 1 | 4, values: out, property: name, ...(comps === 1 && typeof nd === "number" && Number.isFinite(nd) ? { noData: nd } : {}) };
-	const shape = Number.isInteger(ext.shape) ? gltf.extensions?.KHR_implicit_shapes?.shapes?.[ext.shape!] : undefined;
+	if (cyl) {   // cylinder＝[半径, 角度, 高さ] に並べ替え・境界体積が有ればそれ（tileset の経路）、無ければ glTF の形
+		const cbase = { ...base, dims: [dims[0], dims[2], dims[1]] as [number, number, number], values: swapYZ(out, dims, outC) };
+		if (volCyl) {
+			const full = volCyl.angle[1] - volCyl.angle[0] >= 360 - 1e-6, T = liftOrigin([...volCyl.transform], lift);
+			return { ...cbase, shape: "cylinder", cylinder: { transform: T, radius: [volCyl.radius[0], volCyl.radius[1]], height: [volCyl.height[0], volCyl.height[1]], angle: full ? [volCyl.angle[0] + 180, volCyl.angle[1] + 180] : [volCyl.angle[0], volCyl.angle[1]] } };
+		}
+		// glTF の局所（y が軸）→ 契約の局所（z が軸）＝x → x・y → −z_gl・z → y_gl（3D Tiles の向き）・角度は +180°
+		const h = cr!.height ?? 0, T = [lin[0], lin[1], lin[2], 0, -lin[6], -lin[7], -lin[8], 0, lin[3], lin[4], lin[5], 0, o[0], o[1], o[2], 1];
+		const a0 = (cr!.minAngle ?? -Math.PI) * R2D_ + 180, a1 = (cr!.maxAngle ?? Math.PI) * R2D_ + 180;
+		if (!(h > 0) || !((cr!.maxRadius ?? 0) > (cr!.minRadius ?? 0))) return null;
+		return { ...cbase, shape: "cylinder", cylinder: { transform: liftOrigin(T, lift), radius: [cr!.minRadius ?? 0, cr!.maxRadius!], height: [-h / 2, h / 2], angle: [a0, a1 > a0 ? a1 : a1 + 360] } };
+	}
 	if (shape) {
 		const er = shape.extensions?.EXT_implicit_ellipsoid_region as { minLongitude?: number; maxLongitude?: number; minLatitude?: number; maxLatitude?: number; minHeight?: number; maxHeight?: number } | undefined;
 		if (er) return { ...base, shape: "region", region: [(er.minLongitude ?? -Math.PI) * R2D_, (er.minLatitude ?? -Math.PI / 2) * R2D_, (er.maxLongitude ?? Math.PI) * R2D_, (er.maxLatitude ?? Math.PI / 2) * R2D_, (er.minHeight ?? 0) + lift, (er.maxHeight ?? 0) + lift] };
-		if (shape.extensions?.EXT_implicit_cylinder_region || shape.type === "cylinder") return null;   // 未対応（第 5 段）
+		if (shape.type === "cylinder") return null;   // KHR_implicit_shapes の素の cylinder（上下の半径・領域でない）＝voxel の格子の形ではない
 		if (shape.type === "box" || shape.box) {   // 中心が原点＝単位立方体 u → (u − ½)·size → lin·p + o（lin は列優先）
 			const s = shape.box?.size ?? [1, 1, 1];
 			const T = [lin[0] * s[0], lin[1] * s[0], lin[2] * s[0], 0, lin[3] * s[1], lin[4] * s[1], lin[5] * s[1], 0, lin[6] * s[2], lin[7] * s[2], lin[8] * s[2], 0,

@@ -5,7 +5,18 @@
 // 境界体積＝根の box／region を 2^level で割る（四分木は box の第 3 軸・region の高さを割らない）。sphere は仕様で不可。
 
 /** tileset.json の境界体積（box＝中心＋半軸 3 本・region＝[w,s,e,n（rad）, h0, h1]・sphere＝[x,y,z,r]） */
-export interface BoundingVolume { box?: number[]; region?: number[]; sphere?: number[] }
+export interface BoundingVolume { box?: number[]; region?: number[]; sphere?: number[]; extensions?: { [CYL_BV]?: CylinderVolume } & Record<string, unknown> }
+/** 3DTILES_bounding_volume_cylinder（2026-10-26・voxel の円柱）＝局所の z が軸（原点が高さの真ん中）・半径は x／y・角度は +x から反時計回り（rad・[-π, π]）。translation と rotation（[x, y, z, w]）で局所 → タイル。
+ *  minHeight／maxHeight＝implicit の子（本体の内部の形＝高さを分けた子は真ん中が原点でない）。無ければ ±height/2 */
+export interface CylinderVolume { minRadius: number; maxRadius: number; height: number; minAngle?: number; maxAngle?: number; translation?: number[]; rotation?: number[]; minHeight?: number; maxHeight?: number }
+export const CYL_BV = "3DTILES_bounding_volume_cylinder";
+export const cylinderOf = (bv: BoundingVolume | null | undefined): CylinderVolume | null => { const c = bv?.extensions?.[CYL_BV]; return c && Number.isFinite(c.maxRadius) && Number.isFinite(c.height) ? c : null; };
+/** 円柱の境界体積 → 局所 m → タイルの座標（列優先 4×4＝translation・rotation）と範囲（半径・角度 rad・高さ） */
+export function cylinderFrame(c: CylinderVolume): { M: number[]; r: [number, number]; a: [number, number]; z: [number, number] } {
+	const [x, y, z, w] = c.rotation ?? [0, 0, 0, 1], t = c.translation ?? [0, 0, 0];
+	const M = [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0, 2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0, 2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0, t[0], t[1], t[2], 1];
+	return { M, r: [c.minRadius ?? 0, c.maxRadius], a: [c.minAngle ?? -Math.PI, c.maxAngle ?? Math.PI], z: [c.minHeight ?? -c.height / 2, c.maxHeight ?? c.height / 2] };
+}
 /** implicitTiling を読む欄（1.1）。1.0 拡張は maximumLevel（＝availableLevels − 1） */
 export interface ImplicitTilingJson { subdivisionScheme?: string; subtreeLevels?: number; availableLevels?: number; maximumLevel?: number; subtrees?: { uri?: string } }
 /** 揃えた implicit tiling（n＝子の数 4｜8） */
@@ -99,6 +110,12 @@ export function volumeAt(root: BoundingVolume, c: TileCoord, n: 4 | 8): Bounding
 		for (let a = 0; a < 3; a++) for (let i = 0; i < 3; i++) box[i] += b[3 + a * 3 + i] * s[a];
 		for (let a = 0; a < 3; a++) for (let i = 0; i < 3; i++) box.push(b[3 + a * 3 + i] * k[a]);
 		return { box };
+	}
+	const cy = cylinderOf(root);
+	if (cy) {   // 円柱＝(半径, 角度, 高さ) を分ける（QUADTREE は半径と角度・OCTREE は高さも）
+		const { r, a, z } = cylinderFrame(cy), zz = oct ? c.z! : 0, hf = oct ? f : 1;
+		const sub: CylinderVolume = { ...cy, minRadius: r[0] + (r[1] - r[0]) * c.x / f, maxRadius: r[0] + (r[1] - r[0]) * (c.x + 1) / f, minAngle: a[0] + (a[1] - a[0]) * c.y / f, maxAngle: a[0] + (a[1] - a[0]) * (c.y + 1) / f, minHeight: z[0] + (z[1] - z[0]) * zz / hf, maxHeight: z[0] + (z[1] - z[0]) * (zz + 1) / hf };
+		return { extensions: { [CYL_BV]: sub } };
 	}
 	if (root.region) {
 		const [w, s, e, nn, h0, h1] = root.region, dw = e >= w ? e - w : e - w + 2 * Math.PI, dn = nn - s, dh = h1 - h0;   // 日付変更線を跨ぐ region（w > e）

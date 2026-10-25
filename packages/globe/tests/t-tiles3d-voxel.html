@@ -4,6 +4,8 @@
      worker（tile3d）が voxel のプリミティブを transform／region のまま返し、main（gadgets/tiles3d.ts）がタイルごとに voxel の層にする。
      ①寄ると子 2 枚がそろい stats.voxels＝2・各タイルが層 1 つ（tiles[].voxels）②画素（オーバーレイの probe）：東の region の中心に赤・南西の箱の中心に色（viridis）・北西の箱に黄
      ③当たり（handle.pick＝layer "tiles3d:…:v0"・properties.tile・cell）④remove で層が全部降りる。
+     cylinder（2026-10-26）：tileset-cylinder.json（glTF の EXT_implicit_cylinder_region・西の半周・南の端のセルだけ青）と tileset-cylinder-content.json（Cesium の経路＝3DTILES_bounding_volume_cylinder＋宣言・全周・
+     glTF の角度の添字 0＝3D Tiles の角度 0〜45°（東北東）だけ赤）＝角度の向きと並べ替え・全周の半周ずれを画素で見る・当たり。
      ?v=noplugin＝plugin 無し＝飛ばす（stats.voxels＝0・一度 warn・オーバーレイ無し）。実時間（worker の動的 import）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:520px}</style><title>t-tiles3d-voxel</title></head>
 <body><div id="map"></div>
@@ -67,6 +69,31 @@ try {
 		const q1 = at(P1);
 		const pk = await until(async () => { const r = await map.pickOverlays(q1[0], q1[1], { radius: 6, names: ["voxel"] }); return r.length ? r : null; }, 30000) ?? [];
 		ok("pick", pk.length >= 1 && /^tiles3d:.*:v0$/.test(pk[0].layer) && typeof pk[0].properties?.tile === "number" && pk[0].properties?.property === "_COLOR" && Array.isArray(pk[0].cell), JSON.stringify(pk.map(x => ({ l: x.layer, c: x.cell, p: x.properties }))));
+		// ⑤ cylinder（2026-10-26）＝glTF の形の経路（西の半周・緑・南の端だけ青）と Cesium の tileset の経路（全周・東北東だけ赤・他は青）
+		stage = "cylinder";
+		const hyg = await map.add3DTiles("./fixtures/tiles3d-voxel/tileset-cylinder.json", { fit: false, voxel: { render: "blocks", opacity: 1 } });
+		const hyc = await map.add3DTiles("./fixtures/tiles3d-voxel/tileset-cylinder-content.json", { fit: false, voxel: { render: "blocks", property: "density", colormap: ["#2040ff", "#ff2020"], opacity: 1, depthTest: false } });
+		map.jumpTo({ center: ll(0, 260).slice(0, 2), zoom: 16.9, pitch: 50, bearing: 0 });
+		const yl = await until(() => hyg.stats.voxels === 1 && hyc.stats.voxels === 1 ? true : null, 40000);
+		ok("cyl.loaded", !!yl && hyg.stats.failed === 0 && hyc.stats.failed === 0, JSON.stringify([hyg.stats, hyc.stats]));
+		const green = c => { const v = col(c); return v && v[1] > 1.6 * v[0] + 20 && v[1] > 1.6 * v[2] + 20; }, blue = c => { const v = col(c); return v && v[2] > 1.5 * v[0] + 20 && v[2] > 1.5 * v[1] + 20; };
+		const polar = (c, deg, r, h) => ll(c[0] + r * Math.cos(deg * Math.PI / 180), c[1] + r * Math.sin(deg * Math.PI / 180), h);
+		const G = [200, 250], C = [-200, 300];   // 軸（ENU m）＝glTF の形は高さ 40〜120 m・Cesium の経路は 50〜110 m（楕円体高）
+		const want = { gW: [polar(G, 180, 40, 115), green], gS: [polar(G, 262, 40, 115), blue], cR: [polar(C, 22, 30, 105), red], cB: [polar(C, 202, 30, 105), blue] }, sy = {};
+		await until(async () => { const d = await probe(); if (!d) return null;
+			for (const [k, [p, f]] of Object.entries(want)) if (!sy[k]) { const q = at(p); if (near(d, q[0], q[1], f, 4)) sy[k] = true; }
+			if (!("gE" in sy)) { const q = at(polar(G, 0, 40, 115)); sy.gE = !near(d, q[0], q[1], c => c[3] > 200, 2); }
+			return Object.keys(want).every(k => sy[k]) ? d : null; }, 40000);
+		const why = async k => { const d = await probe(), q = at(want[k][0]); return d ? `${JSON.stringify(px(d, q[0], q[1]))} at ${q.map(v => v.toFixed(0))}` : "no probe"; };
+		ok("cyl.gltfWest", !!sy.gW, sy.gW ? "" : await why("gW"));
+		ok("cyl.gltfAngleDir", !!sy.gS, sy.gS ? "" : await why("gS"));
+		ok("cyl.gltfEastEmpty", sy.gE === true);
+		ok("cyl.contentShift", !!sy.cR, sy.cR ? "" : await why("cR"));
+		ok("cyl.content", !!sy.cB, sy.cB ? "" : await why("cB"));
+		const qr = at(want.cR[0]);
+		const pc = await until(async () => { const r = await map.pickOverlays(qr[0], qr[1], { radius: 4, names: ["voxel"] }); return r.length ? r : null; }, 30000) ?? [];
+		ok("cyl.pick", pc.length >= 1 && /^tiles3d:.*:v0$/.test(pc[0].layer) && pc[0].properties?.property === "_DENSITY" && pc[0].cell?.[1] === 0, JSON.stringify(pc.map(x => ({ l: x.layer, c: x.cell, p: x.properties }))));
+		hyg.remove(); hyc.remove();
 		// ④ 撤去
 		stage = "remove";
 		window.__dbg = { map, h, hc, hp, at, P0, P1, PC }; if (V.has("hold")) { ok("hold", true); clearInterval(heart); document.title = "HOLD " + t.join(" "); await new Promise(() => {}); }

@@ -1,9 +1,9 @@
 // voxel の受け口（V0）＝契約の検め。描く段は plugin
-import { normVoxel, isVoxelUrl, VOXEL_SHAPES } from "../src/voxel.ts";
+import { normVoxel, normCylinder, isVoxelUrl, VOXEL_SHAPES } from "../src/voxel.ts";
 let fail = 0; const ok = (k, c) => { console.log((c ? "ok  " : "FAIL ") + k); if (!c) fail++; };
 const th = f => { try { f(); return ""; } catch (e) { return e.message; } };
 const box = (o = {}) => ({ dims: [2, 3, 4], box: { origin: [139.76, 35.68, 0], size: [100, 150, 200] }, values: new Float32Array(24), ...o });
-ok("shapes", VOXEL_SHAPES.join() === "box,region");
+ok("shapes", VOXEL_SHAPES.join() === "box,region,cylinder");
 ok("url", isVoxelUrl("a/b.nc") && isVoxelUrl("x.ZARR?v=1") && isVoxelUrl("x.vox#f") && isVoxelUrl("x.npy") && !isVoxelUrl("x.glb") && !isVoxelUrl(42));
 ok("urlPass", normVoxel("field.nc") === "field.nc");
 const bytes = new Uint8Array([1, 2, 3]);
@@ -17,7 +17,18 @@ ok("boxBad", /box/.test(th(() => normVoxel(box({ box: null })))) && /box.size/.t
 const r = normVoxel({ dims: [4, 2, 2], region: [139, 35, 140, 36, 0, 1000], values: new Uint8Array(16) });
 ok("region", r.shape === "region" && r.region.length === 6 && r.values instanceof Uint8Array);
 ok("regionBad", /south/.test(th(() => normVoxel({ dims: [1, 1, 1], region: [139, 36, 140, 35, 0, 1], values: new Uint8Array(1) }))) && /h0/.test(th(() => normVoxel({ dims: [1, 1, 1], region: [139, 35, 140, 36, 5, 5], values: new Uint8Array(1) }))));
-ok("shapeExplicit", normVoxel({ ...box(), shape: "box" }).shape === "box" && /shape/.test(th(() => normVoxel({ ...box(), shape: "cylinder" }))) && /shape/.test(th(() => normVoxel({ dims: [1, 1, 1], values: new Uint8Array(1) }))));
+ok("shapeExplicit", normVoxel({ ...box(), shape: "box" }).shape === "box" && /cylinder/.test(th(() => normVoxel({ ...box(), shape: "cylinder" }))) && /shape/.test(th(() => normVoxel({ ...box(), shape: "cone" }))) && /shape/.test(th(() => normVoxel({ dims: [1, 1, 1], values: new Uint8Array(1) }))));
+// cylinder（2026-10-26）＝dims [半径, 角度, 高さ]・radius／height は数一つ＝[0, v]・angle は度（既定 ±180・終わり ≤ 始め＝跨ぐ）
+const cyl = (c = {}, o = {}) => ({ dims: [2, 4, 3], cylinder: { origin: [139.76, 35.68, 0], radius: 500, height: 300, ...c }, values: new Float32Array(24), ...o });
+const c0 = normVoxel(cyl());
+ok("cylinder", c0.shape === "cylinder" && c0.cylinder.radius.join() === "0,500" && c0.cylinder.height.join() === "0,300" && c0.cylinder.angle.join() === "-180,180" && c0.cylinder.origin[1] === 35.68 && !("orientation" in c0.cylinder));
+const c1 = normVoxel(cyl({ radius: [100, 500], height: [-50, 250], angle: [-90, 90], orientation: [10, 0, 0] }));
+ok("cylinderSpans", c1.cylinder.radius.join() === "100,500" && c1.cylinder.height.join() === "-50,250" && c1.cylinder.angle.join() === "-90,90" && c1.cylinder.orientation[0] === 10);
+ok("cylinderWrap", normCylinder({ origin: [0, 0, 0], radius: 1, height: 1, angle: [150, -150] }).angle.join() === "150,210" && normCylinder({ origin: [0, 0, 0], radius: 1, height: 1, angle: [30, 30] }).angle.join() === "30,390");
+const cx = normVoxel({ dims: [2, 4, 3], cylinder: { transform: new Float64Array(xf), radius: [0, 1], height: [-1, 1] }, values: new Uint8Array(24) });
+ok("cylinderXf", cx.shape === "cylinder" && cx.cylinder.transform.length === 16 && !("origin" in cx.cylinder));
+ok("cylinderBad", /cylinder.radius/.test(th(() => normVoxel(cyl({ radius: [500, 100] })))) && /cylinder.radius/.test(th(() => normVoxel(cyl({ radius: [-1, 5] })))) && /cylinder.height/.test(th(() => normVoxel(cyl({ height: [5, 5] }))))
+	&& /cylinder.origin/.test(th(() => normVoxel(cyl({ origin: [1, 2] })))) && /cylinder.transform/.test(th(() => normVoxel(cyl({ transform: [1] })))) && /360/.test(th(() => normVoxel(cyl({ angle: [-180, 400] })))) && /cylinder/.test(th(() => normVoxel({ dims: [1, 1, 1], shape: "cylinder", values: new Uint8Array(1) }))));
 ok("rgba", normVoxel(box({ components: 4, values: new Uint8Array(96) })).components === 4 && /components/.test(th(() => normVoxel(box({ components: 3 })))));
 ok("badDims", /dims/.test(th(() => normVoxel(box({ dims: [2, 3] })))) && /dims/.test(th(() => normVoxel(box({ dims: [2, 0, 4] })))) && /dims/.test(th(() => normVoxel(box({ dims: [2, 1.5, 4] })))));
 ok("badValues", /values length 23 != 24/.test(th(() => normVoxel(box({ values: new Float32Array(23) })))) && /Float32Array/.test(th(() => normVoxel(box({ values: [0] })))));

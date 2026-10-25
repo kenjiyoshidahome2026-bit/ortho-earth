@@ -1,6 +1,6 @@
 // node の検定：色表・値の詰め（R8／RGBA8）・置き方（origin/size/orientation・transform）・DDA（CPU 版）・prepare・plugin の形と手綱（偽の map＝描き手へ届く message）。描画は t-pvoxel（verify:ui）
-import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, defaultBudgetMB } from "../src/index.ts";
-import { drawBounds, isEmpty, centerDist, pickedCell, hitOf, planLevels, cellOf } from "../src/voxel-gl.ts";
+import { buildColormap, colorStops, parseColor, quantize, toRgba8, valueRange, placeBox, placeRegion, placeCylinder, cylinderGrid, unitAt, checkClip, thrOf, hprMat, inv3, mul3, ecefEnuRows, ecefToLngLat, rayBox, marchBlocks, prepare, checkVoxelData, voxelPlugin, createVoxel, COLORMAP_NAMES, SHELL_N, STYLE_KEYS, OVERLAY_LINGER_MS, VERSION, prepareGrid, maxOf, needsBricks, brickSpans, extract, parentIndex, frameValues, frameAt, BRICK, BRICK_LIMIT, LOD_MAX, levelDims, levelCount, downsample, pyramid, defaultBudgetMB } from "../src/index.ts";
+import { drawBounds, isEmpty, centerDist, pickedCell, hitOf, planLevels, cellOf, cylCellEnu, colMajor } from "../src/voxel-gl.ts";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -80,6 +80,55 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	const dl = placeRegion([179, 0, -179, 1, 0, 10], [2, 2, 2]);
 	ok("region.antimeridian", near(dl.geo.spanLon, 2) && near(Math.abs(dl.anchor[0]), 180, 1e-9));
 	ok("unitAt", (() => { const u = unitAt(0, 0, 0); return near(u[0], 1) && near(u[1], 0) && near(u[2], 0) && near(unitAt(90, 0, 6371000)[2], 2); })());
+}
+// ---- cylinder（2026-10-26）----
+{
+	// シェーダの cellOf の写し（東北上 m → 局所 → 半径・角度・高さのセル座標）
+	const cellAt = (g, dims, p) => { const c = g.cyl, M = c.inv, l = [0, 1, 2].map(r => M[r * 3] * p[0] + M[r * 3 + 1] * p[1] + M[r * 3 + 2] * p[2]);
+		const a = Math.atan2(l[1], l[0]) * 180 / Math.PI - c.a0, da = a - 360 * Math.floor(a / 360);
+		return [(Math.hypot(l[0], l[1]) - c.r0) / (c.r1 - c.r0) * dims[0], da / c.span * dims[1], (l[2] - c.z0) / (c.z1 - c.z0) * dims[2]]; };
+	const dims = [4, 6, 3], c = placeCylinder({ origin: [139.76, 35.68, 5], radius: [20, 60], height: 90, angle: [0, 180] }, dims);
+	ok("cyl.anchor", c.anchor.join() === "139.76,35.68,5" && !c.placed && c.geo.cyl.F.join() === "1,0,0,0,1,0,0,0,1" && c.geo.cyl.r0 === 20 && c.geo.cyl.r1 === 60 && c.geo.cyl.a0 === 0 && c.geo.cyl.span === 180 && c.geo.h0 === 0 && c.geo.h1 === 90);
+	ok("cyl.cellM", near(c.geo.cellM[0], 10) && near(c.geo.cellM[1], 60 * Math.PI / 6) && near(c.geo.cellM[2], 30) && near(c.A[0], 10) && near(c.A[8], 30), c.geo.cellM.join());
+	// 殻＝扇形を包む箱（北半分＝x −60〜60・y 0〜60）・36 頂点・外向き
+	const sh = c.geo.shell, xs = [], ys = [];
+	for (let i = 0; i < sh.length; i += 3) { xs.push(sh[i]); ys.push(sh[i + 1]); }
+	ok("cyl.shell", sh.length === 36 * 3 && near(Math.min(...xs), -60, 0.01) && near(Math.max(...xs), 60, 0.01) && near(Math.min(...ys), 0, 0.01) && near(Math.max(...ys), 60, 0.01), `${Math.min(...xs)} ${Math.max(...ys)}`);
+	const inwardOf = g => { let n0 = 0; const sh = g.shell, bc = g.bs;   // 三角形の法線が殻の中心から外を向かない数
+		for (let i = 0; i < sh.length; i += 9) { const a = [sh[i], sh[i + 1], sh[i + 2]], b = [sh[i + 3], sh[i + 4], sh[i + 5]], d = [sh[i + 6], sh[i + 7], sh[i + 8]], u = b.map((v, k) => v - a[k]), w = d.map((v, k) => v - a[k]);
+			const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]], m = [0, 1, 2].map(k => (a[k] + b[k] + d[k]) / 3 - bc[k]); if (n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < 0) n0++; }
+		return n0; };
+	ok("cyl.shell.outward", inwardOf(c.geo) === 0, `${inwardOf(c.geo)} inward`);
+	// セルの中心 → 東北上 m → セル座標（シェーダと同じ式）で元に戻る＝角度の向き・始まり・半径・高さの約束
+	const back = [[0, 0, 0], [3, 5, 2], [1, 2, 1], [2, 4, 0]].every(([i, j, k]) => { const cc = [i + 0.5, j + 0.5, k + 0.5], q = cellAt(c.geo, dims, cylCellEnu(c.geo.cyl, dims, cc)); return q.every((v, a) => near(v, cc[a], 1e-6)); });
+	ok("cyl.roundTrip", back);
+	const e0 = cylCellEnu(c.geo.cyl, dims, [4, 0, 0]), e1 = cylCellEnu(c.geo.cyl, dims, [4, 6, 0]);   // 角度の始め＝東（+x）・終わり＝西（反時計回り）
+	ok("cyl.angleDir", near(e0[0], 60) && near(e0[1], 0) && near(e1[0], -60) && near(e1[1], 0, 1e-9) && cellAt(c.geo, dims, [0, 40, 10])[1] === 3 && cellAt(c.geo, dims, [0, -40, 10])[1] >= 6, `${e0} ${e1} ${cellAt(c.geo, dims, [0, -40, 10])}`);
+	ok("cyl.hollow", cellAt(c.geo, dims, [0, 10, 10])[0] < 0 && cellAt(c.geo, dims, [0, 70, 10])[0] > 4);
+	// 向き（orientation）＝heading 90°（北から時計回り）＝局所 x が南へ
+	const co = placeCylinder({ origin: [0, 0, 0], orientation: [90, 0, 0], radius: 10, height: 1 }, dims), eo = cylCellEnu(co.geo.cyl, dims, [4, 3, 0]);   // 角度 0（既定 −180〜180 の真ん中）＝局所 +x
+	ok("cyl.orientation", near(eo[0], 0, 1e-9) && near(eo[1], -10, 1e-9), eo.join());
+	// transform＝局所 m → ECEF（絶対高さ）・東京駅の上空 100 m に軸
+	const lat = 35.6812 * Math.PI / 180, lon = 139.7671 * Math.PI / 180, R = ecefEnuRows(139.7671, 35.6812), Nn = 6378137 / Math.sqrt(1 - 6.69437999014e-3 * Math.sin(lat) ** 2);
+	const O = [(Nn + 100) * Math.cos(lat) * Math.cos(lon), (Nn + 100) * Math.cos(lat) * Math.sin(lon), (Nn * (1 - 6.69437999014e-3) + 100) * Math.sin(lat)];
+	const ct = placeCylinder({ transform: [R[0], R[1], R[2], 0, R[3], R[4], R[5], 0, R[6], R[7], R[8], 0, ...O, 1], radius: [0, 30], height: [-10, 10], angle: [150, -150] }, dims);
+	ok("cyl.transform", ct.placed && near(ct.anchor[0], 139.7671, 1e-9) && near(ct.anchor[1], 35.6812, 1e-9) && near(ct.anchor[2], 100, 1e-6) && [0, 4, 8].every(k => near(ct.geo.cyl.F[k], 1, 1e-9)) && ct.geo.cyl.a0 === 150 && ct.geo.cyl.span === 60, `${ct.anchor} ${ct.geo.cyl.F.map(v => v.toFixed(3))}`);
+	ok("cyl.bad", throws(() => placeCylinder({ origin: [0, 0, 0], radius: [5, 5], height: 1 }, dims), /radius/) && throws(() => cylinderGrid([0, 0, 0], [1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 1], [0, 400], [0, 1], dims), /angle/));
+	// 鏡映の transform（行列式が負）＝殻の回りを裏返す
+	const cm = cylinderGrid([0, 0, 0], [1, 0, 0, 0, -1, 0, 0, 0, 1], [0, 10], [-180, 180], [0, 5], dims);
+	ok("cyl.mirror", inwardOf(cm.geo) === 0, `${inwardOf(cm.geo)} inward`);
+	// 当たり＝セルの中心の経緯度（局所 → 東北上 → 錨から）
+	const hh = hitOf({ dims, A: c.A, anchor: c.anchor, geo: c.geo, properties: null }, 3 + 4 * 3);   // セル (3, 3, 0)＝半径 55・角度 105°
+	const ee = cylCellEnu(c.geo.cyl, dims, [3.5, 3.5, 0.5]);
+	ok("cyl.hitOf", hh.cell.join() === "3,3,0" && near(hh.lngLat[0], 139.76 + ee[0] / (Math.cos(35.68 * Math.PI / 180) * Math.PI / 180 * 6371000), 1e-9) && near(hh.lngLat[1], 35.68 + ee[1] / (Math.PI / 180 * 6371000), 1e-9));
+	ok("colMajor", colMajor([1, 2, 3, 4, 5, 6, 7, 8, 9]).join() === "1,4,7,2,5,8,3,6,9");
+	// prepare・ブリック（半径で 3 枚＝部分の扇形が隣と揃う）・粗い段
+	const pc = prepare({ dims, cylinder: { origin: [139.76, 35.68, 0], radius: 50, height: 30 }, values: new Uint8Array(72).fill(3) });
+	ok("prep.cylinder", pc.shape === "cylinder" && pc.geo.cyl && pc.geo.cyl.span === 360 && !pc.placed && pc.tex.length === 72);
+	const bg = prepareGrid({ dims: [300, 8, 2], cylinder: { origin: [139.76, 35.68, 0], radius: [0, 300], height: 20, angle: [-90, 90] }, values: new Uint8Array(4800).fill(5) }), B = bg.bricks;
+	ok("brick.cylinder", B.length === 3 && B.every(b => b.geo?.cyl && b.geo.shell.length === 108) && near(B[0].geo.cyl.r0, 0) && near(B[1].geo.cyl.r0, 125) && near(B[1].geo.cyl.r1, 253) && near(B[2].geo.cyl.r1, 300) && B[1].geo.cyl.a0 === -90 && B[1].geo.cyl.span === 180 && B[1].anchor === bg.anchor, JSON.stringify(B.map(b => [b.geo.cyl.r0, b.geo.cyl.r1])));
+	ok("lod.cylinder", prepareGrid({ dims: [16, 16, 4], cylinder: { origin: [0, 0, 0], radius: 10, height: 2 }, values: new Uint8Array(1024).fill(9) }, { lodBytes: 300 }).lods?.every(l => l.geo?.cyl && near(l.geo.cyl.r1, 10 * l.dims[0] * l.s / 16 + 0, 1e-9)));
+	ok("check.cylinder", checkVoxelData({ dims: [1, 1, 1], cylinder: { origin: [0, 0, 0], radius: 1, height: 1 }, values: new Uint8Array(1) }).shape === "cylinder");
 }
 // ---- 断面・閾 ----
 {
@@ -287,6 +336,12 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	const rb = posts[posts.length - 1][0];
 	ok("handle.region", hr.shape === "region" && rb.shape === "region" && rb.geo && rb.geo.shell instanceof Float32Array && rb.alt === "absolute" && near(rb.anchor[0], 139.5) && rb.mode === 0);
 	hr.remove();
+	// cylinder の手綱＝geo.cyl が描き手へ届く・origin は相対高さ
+	const hy = createVoxel(fake, { dims: [4, 6, 3], cylinder: { origin: [139.76, 35.68, 0], radius: [20, 60], height: 90, angle: [0, 180] }, values: new Uint8Array(72).fill(9) }, { id: "y1", render: "blocks" });
+	await hy.ready;
+	const yb = posts[posts.length - 1][0];
+	ok("handle.cylinder", hy.shape === "cylinder" && yb.shape === "cylinder" && yb.geo?.cyl?.span === 180 && yb.geo.shell instanceof Float32Array && yb.alt === "relative", JSON.stringify({ s: yb.shape, alt: yb.alt, c: yb.geo?.cyl && { ...yb.geo.cyl, F: undefined, inv: undefined } }));
+	hy.remove();
 	const h5 = createVoxel(fake, "a.nc", { id: "v5" });
 	ok("handle.fileSource", await (async () => { try { await h5.ready; return false; } catch (e) { return /a\.nc|fetch|URL|Failed/i.test(e.message); } })());   // 取りに行って失敗＝理由つきで ready が落ちる（読み方は t-sources.mjs）
 	h5.remove();   // 読めなくても手綱は生きている（setData で直せる）＝外すまでオーバーレイを持つ
