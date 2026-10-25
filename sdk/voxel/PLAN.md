@@ -82,4 +82,8 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
     粗い段＝一こまが予算の半分を越える格子に、一番粗い段が lodBytes/4 以下になるまで（最大 4 段・1/16）。縮め方は子の 2×2×2 の空でないセルの平均（薄い壁・疎な点が消えない）。格子全体を縮めてからブリックごとに糊代つきで切る（`makeLevel`＝s＝1 がブリックそのもの）。粗い段の box は A×s、region は部分の region、奇数の端は own の端数で切る。
     割り振り＝`planLevels`：lv＝floor(x + log2(遠さ/元のセル))（0〜段の数−1）の x を二分で＝予算の中で一番細かく、遠い（セルが小さく見える）層から粗く。断面・当たり（元のセルの真ん中へ）・閾は粗い段でも同じ。
     検定＝node（段の数・縮め方・奇数の端・ピラミッド・一枚とブリックの段・継ぎ目・値・範囲・当たり・割り振り）・t-pvoxel ⑬（予算 6 KB＝⑪の格子の遠い 2 枚が粗い段・GPU の合計は予算の中・色はそのまま）。
-  - [ ] ④NetCDF／Zarr の読み手・こまの間の補間（任意）
+  - [x] ④NetCDF／Zarr の読み手（2026-10-25・0.6.0）＝`sources.ts`。NetCDF classic（CDF-1／2／5・記録変数・一つだけの記録変数は詰めて並ぶ）と Zarr v2（.zmetadata・_ARRAY_DIMENSIONS・gzip／zlib）・v3（consolidated_metadata・dimension_names・bytes＋gzip・"c/" のキー）。
+    読むのは worker（URL を取りに行く・bytes も）＝答えに読んだ値（main が当たりの値に使う）と meta。変数＝(time?, z?, y, x)・CF の座標で region と times（`<単位> since <日時>`）・降順は裏返す・scale／offset／fill／valid は NaN（空）。高さ＝m／km／深さは負、Pa／hPa は標準大気（間隔は一様と見なす近似・`heights` で上書き）。`frames`＝要るこまのチャンクだけ取る。
+    読めない物は理由と変換の道を添えて投げる＝NetCDF-4（HDF5）・Zarr の blosc／zstd／sharding／filters・Fortran 順・(…, x, y) の並び。
+    検定＝node `t-sources.mjs`（手で書いた CDF-1／2／5＝tests/nc-write.mjs・気圧・時刻・裏返し・fill・frames・Zarr v2／v3 を偽の fetch で・欠けたチャンク・codec の拒み・手綱）・t-pvoxel ⑭（tests/voxel-t.nc を URL で＝worker が読んで描く）。
+  - [ ] ⑤（任意）NetCDF-4／HDF5・Zarr の blosc／zstd／sharding（wasm の解凍）・こまの間の補間・/globe/voxel に実データ（ERA5 などを ortho-data に）の場面

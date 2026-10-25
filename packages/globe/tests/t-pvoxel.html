@@ -10,7 +10,8 @@
      ⑩断面（setProps({ clip })＝格子を上げ直さない）＝赤ブロックの東半分が消え西半分は残る
      第 5 段（2026-10-24）：⑪大きな格子（300×8×4＝x が 256 を越える）がブリック 3 枚に分かれて描かれる・継ぎ目に隙間なし・当たりは親のセル・断面と閾がブリックを跨いで効く
      ⑫時間の次元（times＝2 こま）＝map.clock の時刻でこまが替わる（赤 → 青）・time で固定
-     第 5 段 ③（2026-10-25）：⑬GPU の予算（voxelPlugin({ budget }) を小さく）＝⑪の格子に粗い段ができ、遠いブリックは粗い段で描かれ GPU の合計は予算の中・色はそのまま -->)
+     第 5 段 ③（2026-10-25）：⑬GPU の予算（voxelPlugin({ budget }) を小さく）＝⑪の格子に粗い段ができ、遠いブリックは粗い段で描かれ GPU の合計は予算の中・色はそのまま
+     第 5 段 ④（2026-10-25）：⑭NetCDF（tests/voxel-t.nc＝⑧と同じ枠の classic・緯度は北から）を URL で＝worker が取って読む・region・source の meta・色が出る -->)
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pvoxel</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -181,6 +182,17 @@ try {
 	const gpu = dl ? dl.layers.reduce((a, l) => a + l.gpu, 0) : -1;
 	ok("lod.draw", !!dl && gpu > 0 && gpu <= BUDGET * 2 ** 20, dl ? `lv=${dl.layers.map(l => l.lv).join("/")} gpu=${gpu}` : await (async () => { const d = await probe(hl); return d ? `lv=${d.layers?.map(l => l.lv).join("/")} W=${JSON.stringify(px(d, BX(-125)[0], BX(-125)[1]))} E=${JSON.stringify(px(d, BX(125)[0], BX(125)[1]))}` : "no probe"; })());
 	hl.remove();
+	map.unuse("voxel");
+	// ⑭ NetCDF の URL（第 5 段 ④・2026-10-25）＝worker が取りに行く（相対 URL は worker の場所で解かれる＝頁から絶対に）
+	stage = "netcdf";
+	await sleep(OVERLAY_LINGER_MS + 300);
+	map.use(voxelPlugin());
+	const hn = map.addData(new URL("voxel-t.nc", location.href).href, { kind: "voxel", id: "nc", render: "volume", colormap: "turbo", range: [0, 1], opacity: 0.6, step: 0.5 });
+	await hn.ready;
+	ok("nc.read", hn.shape === "region" && hn.dims.join() === "8,6,4" && hn.source?.variable === "density" && hn.source?.format === "netcdf" && hn.reader === "worker", `${hn.shape} ${hn.dims} ${hn.source?.variable} ${hn.reader}`);
+	const dn = await until(async () => { const d = await probe(hn); return d && near(d, Q.Rg[0], Q.Rg[1], colored, 6) ? d : null; }, W);
+	ok("nc.draw", !!dn, dn ? "" : await (async () => { const d = await probe(hn); return d ? `${count(d, colored)} px got ${JSON.stringify(px(d, Q.Rg[0], Q.Rg[1]))} layers=${JSON.stringify(d.layers)}` : "no probe"; })());
+	hn.remove();
 	map.unuse("voxel");
 	clearInterval(heart);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
