@@ -92,22 +92,24 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="spot-note" hidden></div>
 			</section>
 			<section data-pane="life">
-				<label class="msel"><span>${esc(t("District"))}</span><select class="ward"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select></label>
-				<button type="button" class="act fitc">${esc(t("Show the whole city"))}</button>
-				<h2>${esc(t("Public facilities"))}</h2>
-				<label class="grp"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
-				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
-				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
+				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
 				<h2>${esc(t("Search facilities"))}</h2>
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
 				<div class="fbt"></div>
 				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
-				<p class="sub flat">${esc(t("Lists the facilities in the chosen district whose types are switched on above. Tap a row to fly there."))}</p>
-				<h2>${esc(t("Zones and districts"))}</h2>
+				<p class="sub flat">${esc(t("Tap a row to fly there. Lists the chosen district and the facility types switched on below."))}</p>
+				<label class="grp fac-w"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
+				<details class="fold ftypes"><summary>${esc(t("Types of facilities on the map"))}</summary>
+				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
+					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
+				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				</details>
+				<details class="fold areas"><summary>${esc(t("Zones and districts"))}</summary>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
 				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
 				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
+				</details>
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
@@ -375,6 +377,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function setArea(id: AreaId, on: boolean) {
 		on ? areaOn.add(id) : areaOn.delete(id);
 		$(`[data-area="${id}"]`).checked = on;
+		if (on) $<HTMLDetailsElement>("details.areas").open = true;   // 畳んだ中の区域が点いている＝見えるように開く
 		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
 		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
 		areaVis(id);
@@ -858,6 +861,26 @@ const CSS = `
 .yk-panel .fbar small{color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .yk-panel .fcsv{margin-left:auto;font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 @media (max-width:640px){ .yk-panel .fbt{height:180px} }
+.yk-panel .wrow{display:flex;gap:6px;margin-top:2px}
+.yk-panel .wrow select{flex:1 1 auto}
+.yk-panel .fitc{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer;white-space:nowrap}
+.yk-panel .fac-w{margin-top:8px}
+.yk-panel details.fold{margin-top:6px;border-top:1px solid var(--qm-border-soft);padding-top:4px}
+.yk-panel details.fold>summary{cursor:pointer;padding:6px 0;font-size:12.5px;font-weight:600;color:var(--qm-text-dim);list-style:none;display:flex;align-items:center;gap:6px}
+.yk-panel details.fold>summary::-webkit-details-marker{display:none}
+.yk-panel details.fold>summary::before{content:"▸";font-size:11px;transition:transform .15s}
+.yk-panel details.fold[open]>summary::before{transform:rotate(90deg)}
+/* 指で押す画面（スマホ・タブレット）＝押す所を 40px 前後に（市民ファースト・本人 2026-10-25「スマホ画面は特に重要」） */
+@media (pointer:coarse){
+	.yk-panel .tabs button{min-height:40px}
+	.yk-panel select,.yk-panel input.fq,.yk-panel .fitc{min-height:40px;font-size:16px}   /* 16px 未満の入力は iOS が勝手に拡大する */
+	.yk-panel .act,.yk-panel .tour{min-height:44px}
+	.yk-panel .grp{min-height:36px}
+	.yk-panel .grp input{width:20px;height:20px}
+	.yk-panel .spots button,.yk-panel .cats button{min-height:32px;font-size:13px}
+	.yk-panel details.fold>summary{min-height:36px;font-size:14px}
+	.yk-panel .fcsv{min-height:32px}
+}
 .yk-panel .lines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 24px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel .sw{display:inline-block;font-style:normal;font-weight:700;font-size:10px;color:#fff;border-radius:3px;padding:0 4px;margin-right:5px}
 .yk-panel .legend{margin-top:8px}
