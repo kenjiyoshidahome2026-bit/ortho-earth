@@ -286,6 +286,18 @@ export function nearestSites<T extends [number, number, string, ...unknown[]]>(r
 	for (const x of nearestRows(rows, at, rows.length)) { const key = siteName(x.row[2]); if (seen.has(key)) continue; seen.add(key); out.push(x); if (out.length >= k) break; }
 	return out;
 }
+/** 点が面（Polygon／MultiPolygon・穴あり）の中か（偶奇則）。わが家のまわり（2026-10-25）＝押した所の区・校区・用途地域・管轄を台帳の面から引く */
+type Ring = number[][];
+export function inGeometry(g: { type: string; coordinates: unknown } | null | undefined, at: [number, number]): boolean {
+	if (!g) return false;
+	const polys = (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) as Ring[][];
+	const inRing = (r: Ring) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > at[1]) !== (yj > at[1]) && at[0] < (xj - xi) * (at[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+	return polys.some(rings => rings.length > 0 && inRing(rings[0]) && !rings.slice(1).some(inRing));
+}
+/** 点を含む最初の地物の properties（無い＝null） */
+export function featureAt<P>(fc: { features: { geometry: { type: string; coordinates: unknown } | null; properties: P }[] } | null | undefined, at: [number, number]): P | null {
+	return fc?.features.find(f => inGeometry(f.geometry, at))?.properties ?? null;
+}
 /** 歩いて何分（80m/分＝不動産の表示と同じ・道のりは直線の 1.3 倍とみなす） */
 export const walkMin = (m: number) => Math.max(1, Math.round(m * 1.3 / 80));
 /** 駅からの徒歩圏の輪（分）。半径＝分×80m を道のり 1.3 倍で割り戻した直線距離 */
