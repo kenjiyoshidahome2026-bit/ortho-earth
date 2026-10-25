@@ -101,13 +101,14 @@ const count = list => { const c = { null: 0, 0: 0, 1: 0, 2: 0, 3: 0 }; for (cons
 const blockers = rankBlockers(graded);
 const summary = { at: new Date().toISOString(), cesium: corpus.cesium.version, n: graded.length, levels: count(graded), levelsNonDev: count(graded.filter(g => !g.dev)), blockers, graded };
 fs.writeFileSync(path.join(OUT, "summary.json"), JSON.stringify(summary, null, 1));
+const cell = t => String(t).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");   // a markdown table cell
 const L = summary.levels, md = [
 	`# Cesium examples gate (CesiumJS ${summary.cesium}) — ${summary.at}`, "",
 	`${summary.n} examples · real Cesium does not run here: ${L.null} · ours does not run: ${L[0]} · runs: ${L[1]} · same answers: ${L[2]} · same picture: ${L[3]}`, "",
 	"## Blockers", "", "| n | blocker | examples |", "|---|---|---|",
-	...blockers.slice(0, 60).map(b => `| ${b.n} | ${b.blocker.replace(/\|/g, "\\|")} | ${b.examples.slice(0, 6).join(", ")}${b.examples.length > 6 ? " …" : ""} |`), "",
+	...blockers.slice(0, 60).map(b => `| ${b.n} | ${cell(b.blocker)} | ${b.examples.slice(0, 6).join(", ")}${b.examples.length > 6 ? " …" : ""} |`), "",
 	"## Examples", "", "| example | level | why |", "|---|---|---|",
-	...graded.map(g => `| ${g.name}${g.dev ? " (dev)" : ""} | ${g.level ?? "–"} | ${(g.level == null ? g.refWhy : g.reasons.join("; ")).replace(/\|/g, "\\|").slice(0, 200)} |`),
+	...graded.map(g => `| ${g.name}${g.dev ? " (dev)" : ""} | ${g.level ?? "–"} | ${cell((g.level == null ? g.refWhy : g.reasons.join("; ")).slice(0, 200))} |`),
 ].join("\n");
 fs.writeFileSync(path.join(OUT, "summary.md"), md + "\n");
 console.log(`levels ${JSON.stringify(L)} (non-dev ${JSON.stringify(summary.levelsNonDev)}) → ${path.join(OUT, "summary.md")}`);
