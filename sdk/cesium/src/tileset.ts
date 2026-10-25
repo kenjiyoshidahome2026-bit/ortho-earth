@@ -74,7 +74,9 @@ export class Cesium3DTileset {
 	set style(s: Any) { this.#style = s; this.#h?.setStyle(styleOf(s)); }
 	makeStyleDirty() { this.#h?.setStyle(styleOf(this.#style)); }
 	get timeSinceLoad() { return 0; }
-	get statistics() { return { numberOfLoadedTilesTotal: this.#h?.stats?.loaded ?? 0, numberOfTilesWithContentReady: this.#h?.stats?.shown ?? 0 }; }
+	get statistics() { return statsOf(this.#h); }
+	/** what the 3D Tiles inspector reads (per pass: render, pick…): the globe's counts, 0 for the rest */
+	get _statisticsPerPass() { const s = statsOf(this.#h); return new Proxy([], { get: (t, k) => (typeof k === "string" && /^\d+$/.test(k) ? s : (t as Any)[k]) }); }
 	/** the globe's tileset handle (null until it is on the globe) */
 	get orthoHandle() { return this.#h; }
 
@@ -121,6 +123,8 @@ export class Cesium3DTileset {
 }
 Object.setPrototypeOf(Cesium3DTileset.prototype, RealTileset.prototype);
 for (const k of ["fromUrl", "fromIonAssetId"] as const) void k;
+
+const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesWithContentReady: h?.stats?.shown ?? 0, numberOfPendingRequests: h?.stats?.inflight ?? 0, geometryByteLength: h?.stats?.bytes ?? 0 } as Any, { get: (t, k) => (k in t ? t[k] : 0) });
 
 /** a Cesium3DTileStyle (or its JSON) → the globe's Tiles3DStyle (it reads Cesium's styling language as is) */
 function styleOf(s: Any): Any {

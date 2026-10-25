@@ -53,7 +53,7 @@ export class OrthoScene {
 	readonly screenSpaceCameraController: any;
 	globe: any;
 	readonly frameState: any;
-	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, uniformState: {}, _gl: null };
+	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
 	readonly atmosphere = new Atmosphere(); readonly fog = new Fog(); readonly postProcessStages: any; light: any = new SunLight();
 	readonly shadowMap = { enabled: false, softShadows: false, size: 2048, darkness: 0.3, maximumDistance: 5000, normalOffset: true, fadingEnabled: true, isDestroyed: () => false, destroy: () => undefined };
 	skyBox: any = { show: true }; skyAtmosphere: any = { show: true, hueShift: 0, saturationShift: 0, brightnessShift: 0, atmosphereLightIntensity: 50 };

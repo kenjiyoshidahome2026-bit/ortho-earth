@@ -8,6 +8,7 @@ import { gltfSphere } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
 import { rasterSourceOf } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
+import { glbOf } from "../src/primitives.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -79,6 +80,19 @@ for (const g of [
 	class SingleTileImageryProvider { constructor(o) { Object.assign(this, o); } }
 	const one = rasterSourceOf(new SingleTileImageryProvider({ _resource: { _url: "https://x.example/a.png" }, rectangle: Rectangle.fromDegrees(-10, -5, 10, 5) }));
 	ok("SingleTile → image source", one?.type === "image" && near(one.coordinates[0][0], -10, 1e-9) && near(one.coordinates[0][1], 5, 1e-9), JSON.stringify(one));
+}
+
+// ── primitives: the glb the globe loads (CESIUM_RTC, y-up, COLOR_0, _BATCHID) ──
+{
+	const c = Cartesian3.fromDegrees(139.7, 35.6, 0);
+	const tris = { pos: [c.x, c.y, c.z, c.x + 100, c.y, c.z, c.x, c.y + 100, c.z], nrm: null, col: [255, 0, 0, 128, 255, 0, 0, 128, 255, 0, 0, 128], bid: [0, 0, 0], idx: [0, 1, 2] };
+	const { glb, blend } = glbOf(tris);
+	const dv = new DataView(glb.buffer), jl = dv.getUint32(12, true), j = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jl)));
+	const rtc = j.extensions.CESIUM_RTC.center, acc = j.accessors[0];
+	ok("glb header", dv.getUint32(0, true) === 0x46546c67 && dv.getUint32(8, true) === glb.length && jl % 4 === 0);
+	ok("glb CESIUM_RTC centre is the mean", near(rtc[0], c.x + 100 / 3, 1e-6) && near(rtc[1], c.y + 100 / 3, 1e-6) && near(rtc[2], c.z, 1e-6));
+	ok("glb positions are y-up (ECEF Y → −z)", near(acc.max[2], -(c.y - rtc[1]), 1e-3) && near(acc.min[2], -(c.y + 100 - rtc[1]), 1e-3), JSON.stringify(acc));
+	ok("glb translucent colour → BLEND", blend && j.materials[0].alphaMode === "BLEND" && j.meshes[0].primitives[0].attributes._BATCHID === 2);
 }
 
 // ── the unsupported report: once per kind on the console, every time in the counts ──
