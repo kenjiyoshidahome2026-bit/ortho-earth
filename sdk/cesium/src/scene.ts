@@ -53,7 +53,7 @@ export class OrthoScene {
 	readonly screenSpaceCameraController: any;
 	globe: any;
 	readonly frameState: any;
-	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
+	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, stencilBuffer: true, depthTexture: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
 	readonly atmosphere = new Atmosphere(); readonly fog = new Fog(); readonly postProcessStages: any; light: any = new SunLight();
 	readonly shadowMap = { enabled: false, softShadows: false, size: 2048, darkness: 0.3, maximumDistance: 5000, normalOffset: true, fadingEnabled: true, isDestroyed: () => false, destroy: () => undefined };
 	skyBox: any = { show: true }; skyAtmosphere: any = { show: true, hueShift: 0, saturationShift: 0, brightnessShift: 0, atmosphereLightIntensity: 50 };
@@ -250,11 +250,20 @@ function makeGlobe(scene: OrthoScene): any {
 }
 
 // terrain providers: the world terrain (ion) becomes the globe's own terrain; an ellipsoid provider turns terrain off
+// a terrain provider set after the viewer started flat: the globe gets the provider's quantized-mesh (Cesium World Terrain through the user's ion key)
 function onTerrain(scene: OrthoScene, p: any) {
-	const map = scene.host.map;
-	if (!map || !p) return;
-	const name = p.constructor?.name;
-	if (name === "EllipsoidTerrainProvider") map.setTerrain?.(null);
+	if (!p) return;
+	void scene.host.ready.then((map: any) => {
+		if (scene.terrainProvider !== p || !map) return;
+		const name = p.constructor?.name;
+		if (name === "EllipsoidTerrainProvider") { map.setTerrain?.(null); return; }
+		if (!(scene.host as any).flatStart || map.getTerrain?.()) return;
+		const r = p._layers?.[0]?.resource, token = (engine as any).Ion?.defaultAccessToken;
+		const source = p.__orthoWorldTerrain && token ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token } }
+			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers } : null;
+		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
+		else unsupported(`terrain provider ${name}`);
+	});
 }
 
 export { BoundingSphere, Matrix4 };
