@@ -22,6 +22,8 @@ export type PendingCallback = (n: number, range: number, stat?: string | null) =
 export interface TerrainOptions {
 	renderer: TerrainRenderer; requestDraw: () => void; exag: number; earthM: number; apiUrl?: string; onPending?: PendingCallback | null;
 	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
+	/** 検定用：標高タイルの読み手を直に渡す（無ければ createTileLoader＝altpbf） */
+	tileLoader?: TileLoader | null;
 }
 /** 視野を覆うセル窓（range 刻みの原点セルと枚数・cellRes＝1 セルの texel） */
 export interface CellWindow { range: number; originCX: number; originCY: number; cellsX: number; cellsY: number; cellRes: number; wanted?: Set<string> | null }
@@ -53,7 +55,7 @@ export function clipToDTM(box: number[] | null | undefined, dtm: number[] | null
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
 // dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
 //   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null, gMax = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
 	const dtmDecl = dtm || null;
 	const S = self as unknown as PerfSelf;
 	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
@@ -83,6 +85,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
 	let atlasKey = "", loadedCells = new Set<string>();
+	let demGen = 0;   // 外来の DEM の世代（setDem ごとに +1）＝差し替え前に出たセルの取得を、新しい窓・キャッシュに混ぜない
 	let cellFails = new Map<string, number>();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
 	// 遠景層（far）＝近窓が R01 級（cap4=4°）へ縮む深ズーム×チルトで、粗い R10 を第2アトラスへ常設。
 	// 特定の山の特別扱いはしない一般則：ズームインで近窓の外へ出た遠方の山（富士・アルプス・筑波…）は
@@ -126,7 +129,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			console.error("[tileLoader] setup failed", e, retry ? "-> retry" : "-> giving up");
 			if (retry) setTimeout(setupLoader, Math.min(30000, 1000 * 2 ** loaderTries));
 		});
-	setupLoader();
+	if (tileLoader) { loadTile = tileLoader; loaderStat = null; } else setupLoader();
 
 	// 地形読込インジケータ：R01 初回は JAXA から数秒かかるので「何が起きているか」を明示（表示自体は呼び出し側=DOMを持つ側の責務）。
 	let pendingElev = 0;
@@ -162,6 +165,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		demSrc = spec ? createDemSource(spec) : null;
 		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
+		demGen++;   // 窓の鍵に世代を入れる＝外す前と同じ窓でも別の窓（古い世代の .then は atlasKey === key に当たらない）
 		atlasKey = ""; requestDraw();
 	}
 	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
@@ -174,6 +178,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const k = range + "," + lngN + "," + cellLat;
 		const hit = r10Tiles.get(k);
 		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return hit; }   // ヒット＝LRU 末尾へ（追い出され順の更新）
+		const gen = demGen;   // 取りに行っている間に setDem が来たら、この結果は捨てる（キャッシュに入れると新しい DEM の窓がずっと古い標高を引く）
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
 		let tile: TerrainTile | null = await loadTile(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
@@ -182,6 +187,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			if (src !== demSrc) return null;   // 待っている間に差し替えられた
 			if (d) tile = mergeDemCell(d, tile && tile.data && tile.width ? tile : null);
 		}
+		if (gen !== demGen && (range === 1 || range === 10)) return null;   // 待っている間に DEM が差し替えられた（外した・付けた）＝R01・R10 は DEM で中身が変わる
 		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] malformed tile (Blob-contaminated cache?) -> treated as null", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
 		if (tile) cacheTile(k, tile);
 		return tile;
@@ -378,7 +384,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const mixed = !noMixed && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
 		const range = mixed ? 1 : selectRange(cam);
 		const r = viewCellRange(cam, size, range, mixed);
-		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
+		const key = [demGen, mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 		if (key !== atlasKey) {
 			atlasKey = key; loadedCells = new Set(); cellFails = new Map(); writtenCells = new Set(); auditTries = 0;
 			// 2枚目以降はダブルバッファ：舞台裏(stage)で構築し、初回分のセルが揃ったら一括スワップ。
