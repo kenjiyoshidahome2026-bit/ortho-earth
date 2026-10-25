@@ -22,6 +22,9 @@ try {
 	// 2 回目の呼び出しより先に届くと落ちた＝遅い機械／長い通しで負ける競走だった（2026-09-24 に不変量へ）。
 	ok("noBuildings", b.visibleRatio > v.visibleRatio, `ratio=${b.visibleRatio} vs ${v.visibleRatio} NE=${b.probes[0]}`);
 	ok("image", map.raster.list().some(r => r.id === "viewshed"));
+	await new Promise(r => setTimeout(r, 300));
+	const attrNow = map.mapEl.querySelector("#attr")?.textContent || "";
+	ok("attrNoInternalName", !/viewshed/i.test(attrNow), attrNow.slice(0, 160));   // 四隅の絵の name（内部の名）は出典に出さない（2026-10-25）
 	const L1 = await map.lineOfSight(O, ll(300, 300), { tilesets: TS });
 	const k = Math.cos(LAT * Math.PI / 180) * K, dBlock = L1.blockAt ? Math.hypot((L1.blockAt[0] - O[0]) * k, (L1.blockAt[1] - O[1]) * K) : -1;
 	ok("losBlocked", !L1.visible && dBlock > 125 && dBlock < 160, `d=${dBlock.toFixed(1)} dist=${L1.distance}`);
