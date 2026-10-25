@@ -133,7 +133,7 @@ export interface GlobeCoreApi {
 	setGrade(rgb: readonly number[] | null, opts?: { glow?: number }): boolean;
 	/** 掛けている夜の色（0..255）か null */
 	getGrade(): number[] | null;
-	/** 夜の街明かり（2026-10-24）＝建物メッシュ（PLATEAU など）の壁に窓の明かり。強さ 0..1（true＝1）× 夜の度合い（太陽高度 +6°→−6°）。WebGPU だけ＝戻り true */
+	/** 夜の街明かり（2026-10-24）＝建物メッシュ（PLATEAU など）の壁に窓の明かり。強さ 0..1（true＝1）× 夜の度合い（太陽高度 +2°→−8°）。WebGPU だけ＝戻り true */
 	setCityLights(on?: boolean | number): boolean;
 	/** 街明かりの強さ（0..1） */
 	getCityLights(): number;
