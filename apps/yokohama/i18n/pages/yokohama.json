@@ -6641,6 +6641,33 @@
 			"fa": "موقعیت شما به دست نیامد.",
 			"ur": "آپ کا مقام حاصل نہیں ہو سکا۔",
 			"he": "לא ניתן לקבל את מיקומך."
+		},
+		"New here? Start with “Around my home” in Daily life, then try walking distance in Transport and flood depths in Disasters.": {
+			"ja": "はじめての方へ：まず「暮らし」の「わが家のまわり」で家の場所を押してみてください。次に「交通」で駅からの徒歩圏、「防災」で浸水の深さを確かめられます。",
+			"zh": "初次使用？先在“生活”中试试“我家周边”，再到“交通”看车站步行圈，到“防灾”查看浸水深度。",
+			"ko": "처음이신가요? 먼저 ‘생활’의 ‘우리 집 주변’을 눌러 보세요. 이어서 ‘교통’에서 역 도보권, ‘방재’에서 침수 깊이를 확인할 수 있습니다.",
+			"fr": "Première visite ? Commencez par « Autour de chez moi » dans Au quotidien, puis la distance à pied dans Transports et les hauteurs d’inondation dans Risques.",
+			"de": "Neu hier? Beginnen Sie mit „Rund um mein Zuhause“ unter Alltag, dann Fußweg ab Bahnhof unter Verkehr und Überflutungstiefen unter Katastrophenschutz.",
+			"es": "¿Primera vez? Empiece por «Alrededor de mi casa» en Vida diaria; luego pruebe la distancia a pie en Transporte y la profundidad de inundación en Desastres.",
+			"pt": "Primeira vez? Comece por «Perto de casa» em Dia a dia; depois veja a distância a pé em Transporte e a profundidade de inundação em Desastres.",
+			"it": "Prima volta? Inizia da «Intorno a casa mia» in Vita quotidiana, poi prova la distanza a piedi in Trasporti e l’altezza dell’acqua in Rischi.",
+			"nl": "Nieuw hier? Begin met ‘Rond mijn huis’ onder Wonen, probeer dan loopafstand onder Vervoer en waterdiepte onder Rampen.",
+			"pl": "Pierwszy raz? Zacznij od „Wokół mojego domu” w zakładce Na co dzień, potem sprawdź dojście pieszo w Transporcie i głębokość zalania w Zagrożeniach.",
+			"ru": "Впервые здесь? Начните с «Вокруг моего дома» во вкладке «Жизнь», затем посмотрите пешую доступность в «Транспорте» и глубину затопления в «Бедствиях».",
+			"uk": "Уперше тут? Почніть із «Навколо мого дому» у вкладці «Життя», потім перегляньте пішу доступність у «Транспорті» та глибину затоплення в «Лихах».",
+			"hu": "Először jár itt? Kezdje a Mindennapok „Az otthonom környéke” részével, majd nézze meg a gyalogos elérhetőséget a Közlekedésben és a vízmélységet a Katasztrófáknál.",
+			"sv": "Ny här? Börja med ”Runt mitt hem” under Vardag, prova sedan gångavstånd under Trafik och översvämningsdjup under Katastrofer.",
+			"tr": "İlk kez mi? Yaşam sekmesinde “Evimin çevresi” ile başlayın; sonra Ulaşım’da yürüme mesafesine ve Afetler’de su derinliğine bakın.",
+			"el": "Πρώτη φορά; Ξεκινήστε με το «Γύρω από το σπίτι μου» στην Καθημερινότητα, μετά δείτε την απόσταση με τα πόδια στις Συγκοινωνίες και το βάθος πλημμύρας στις Καταστροφές.",
+			"id": "Baru pertama? Mulailah dengan “Sekitar rumah saya” di Sehari-hari, lalu coba jarak jalan kaki di Transportasi dan kedalaman banjir di Bencana.",
+			"vi": "Lần đầu? Hãy bắt đầu với “Quanh nhà tôi” trong Đời sống, sau đó xem phạm vi đi bộ trong Giao thông và độ sâu ngập trong Thiên tai.",
+			"th": "มาครั้งแรก? เริ่มจาก “รอบบ้านของฉัน” ในแท็บชีวิตประจำวัน แล้วลองดูระยะเดินจากสถานีในการเดินทาง และความลึกน้ำท่วมในภัยพิบัติ",
+			"bn": "প্রথমবার? দৈনন্দিন ট্যাবে “আমার বাড়ির আশেপাশে” দিয়ে শুরু করুন, তারপর পরিবহনে হাঁটার দূরত্ব ও দুর্যোগে বন্যার গভীরতা দেখুন।",
+			"hi": "पहली बार? दैनिक जीवन में “मेरे घर के आसपास” से शुरू करें, फिर परिवहन में पैदल दूरी और आपदा में बाढ़ की गहराई देखें।",
+			"ar": "أول مرة؟ ابدأ بـ«حول منزلي» في الحياة اليومية، ثم جرّب مسافة المشي في المواصلات وعمق الفيضان في الكوارث.",
+			"fa": "بار اول است؟ از «اطراف خانهٔ من» در زندگی روزمره شروع کنید، سپس فاصلهٔ پیاده‌روی را در حمل‌ونقل و عمق سیل را در بلایا ببینید.",
+			"ur": "پہلی بار؟ روزمرہ زندگی میں “میرے گھر کے آس پاس” سے شروع کریں، پھر ٹرانسپورٹ میں پیدل فاصلہ اور آفات میں سیلاب کی گہرائی دیکھیں۔",
+			"he": "פעם ראשונה? התחילו ב„סביב הבית שלי” ביום-יום, ואז נסו מרחק הליכה בתחבורה ועומק הצפה באסונות."
 		}
 	}
 }

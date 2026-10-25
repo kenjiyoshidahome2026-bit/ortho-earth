@@ -3903,13 +3903,13 @@
 			"ur": "یوکوہاما کا ڈیجیٹل ٹوئن",
 			"he": "התאום הדיגיטלי של יוקוהמה"
 		},
-		"A digital twin of Yokohama: PLATEAU 3D buildings with flood, storm surge, tsunami and landslide hazards, evacuation sites, aerial photos from 1945 to today, building shadows, viewsheds and cross sections.": {
-			"ja": "横浜市のデジタルツイン。PLATEAU の 3D 建物に、洪水・高潮・津波・土砂災害の想定と避難場所、1945 年からいままでの航空写真、建物の影、可視域、断面を重ねます。",
-			"zh": "横滨市的数字孪生：在 PLATEAU 3D 建筑上叠加洪水、风暴潮、海啸和滑坡风险、避难场所、1945 年至今的航拍照片、建筑阴影、可视域和剖面。",
-			"ko": "요코하마시의 디지털 트윈. PLATEAU 3D 건물 위에 홍수·고조·쓰나미·산사태 위험, 대피소, 1945년부터 현재까지의 항공사진, 건물 그림자, 가시권, 단면을 겹쳐 봅니다.",
-			"fr": "Un jumeau numérique de Yokohama : bâtiments 3D PLATEAU avec risques d'inondation, de surcote, de tsunami et de glissement de terrain, sites d'évacuation, photos aériennes de 1945 à aujourd'hui, ombres des bâtiments, champs de vision et coupes.",
-			"de": "Ein digitaler Zwilling Yokohamas: PLATEAU-3D-Gebäude mit Hochwasser-, Sturmflut-, Tsunami- und Hangrutschrisiken, Evakuierungsorten, Luftbildern von 1945 bis heute, Gebäudeschatten, Sichtfeldern und Schnitten.",
-			"es": "Un gemelo digital de Yokohama: edificios 3D de PLATEAU con riesgos de inundación, marejada, tsunami y deslizamiento, sitios de evacuación, fotos aéreas de 1945 a hoy, sombras de edificios, cuencas visuales y secciones."
+		"A citizen-first digital twin of Yokohama: tap your home to see your school districts, nearest stations, flood risk and nearest evacuation site on one card. Walking distance from stations, facility search and hazard maps over PLATEAU 3D buildings, in 26 languages.": {
+			"ja": "市民ファーストの横浜市デジタルツイン。家の場所を押すと、学区・最寄り駅・浸水の想定・最寄りの避難場所が 1 枚でわかります。駅からの徒歩圏、施設の検索、PLATEAU の 3D 建物に重ねるハザードマップ。26 言語。",
+			"zh": "市民优先的横滨市数字孪生：点按您家的位置，即可在一张卡片上看到学区、最近的车站、浸水风险和最近的避难场所。还有车站步行圈、设施搜索，以及叠加在 PLATEAU 3D 建筑上的灾害地图，支持 26 种语言。",
+			"ko": "시민 우선의 요코하마시 디지털 트윈. 집 위치를 누르면 학군, 가까운 역, 침수 위험, 가장 가까운 대피소를 한 장으로 볼 수 있습니다. 역 도보권, 시설 검색, PLATEAU 3D 건물 위의 재해 지도, 26개 언어.",
+			"fr": "Un jumeau numérique de Yokohama pensé pour les habitants : touchez votre domicile pour voir sur une seule fiche secteurs scolaires, gares les plus proches, risque d'inondation et lieu d'évacuation le plus proche. Distance à pied depuis les gares, recherche d'équipements et cartes des risques sur les bâtiments 3D PLATEAU, en 26 langues.",
+			"de": "Ein bürgernaher digitaler Zwilling Yokohamas: Tippen Sie auf Ihr Zuhause und sehen Sie Schulbezirke, nächste Bahnhöfe, Hochwasserrisiko und den nächsten Evakuierungsort auf einer Karte. Fußwege ab Bahnhöfen, Einrichtungssuche und Gefahrenkarten über PLATEAU-3D-Gebäuden, in 26 Sprachen.",
+			"es": "Un gemelo digital de Yokohama pensado para la ciudadanía: toque su casa para ver en una sola ficha los distritos escolares, las estaciones más cercanas, el riesgo de inundación y el sitio de evacuación más cercano. Distancia a pie desde las estaciones, búsqueda de instalaciones y mapas de riesgo sobre edificios 3D de PLATEAU, en 26 idiomas."
 		},
 		"Gaussian splats on the globe": {
 			"ja": "地球儀の上の Gaussian splat",

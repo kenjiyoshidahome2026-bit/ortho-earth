@@ -339,7 +339,7 @@
 			"icon": "🏙️",
 			"title": "Yokohama digital twin",
 			"lang": "ja",
-			"desc": "A digital twin of Yokohama: PLATEAU 3D buildings with flood, storm surge, tsunami and landslide hazards, evacuation sites, aerial photos from 1945 to today, building shadows, viewsheds and cross sections.",
+			"desc": "A citizen-first digital twin of Yokohama: tap your home to see your school districts, nearest stations, flood risk and nearest evacuation site on one card. Walking distance from stations, facility search and hazard maps over PLATEAU 3D buildings, in 26 languages.",
 			"img": "/thumbs/yokohama.webp",
 			"shot": {
 				"url": "/yokohama/?spot=mm21",

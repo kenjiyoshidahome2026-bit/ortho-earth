@@ -80,6 +80,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const panel = P.el;
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
 	P.body.innerHTML = `
+			<div class="intro" hidden><p>${esc(t("New here? Start with “Around my home” in Daily life, then try walking distance in Transport and flood depths in Disasters."))}</p><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			<nav class="tabs" role="tablist">
 				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
 			</nav>
@@ -162,6 +163,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
 	const $$ = <T extends HTMLElement = HTMLInputElement>(s: string) => [...panel.querySelectorAll<T>(s)];
+
+	// 初めての人への一言（閉じたら次からは出さない＝この端末だけ・保存できない時は毎回出る）
+	const intro = $<HTMLElement>(".intro");
+	try { intro.hidden = localStorage.getItem("yk-intro") === "1"; } catch { intro.hidden = false; }
+	intro.querySelector<HTMLButtonElement>(".x")!.onclick = () => { intro.hidden = true; try { localStorage.setItem("yk-intro", "1"); } catch { /* 保存できない＝次も出る */ } };
 
 	// ── 面の切り替え ──
 	function setTab(k: Tab) {
@@ -1005,6 +1011,10 @@ const CSS = `
 .yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
 .yk-probing canvas{cursor:crosshair}
 .yk-home{background:#1f6fc5}
+.yk-panel .intro{display:flex;gap:8px;align-items:flex-start;margin:8px 0 2px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.35)}
+.yk-panel .intro p{margin:0;font-size:12.5px;color:var(--qm-text)}
+/* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
+@media (max-width:640px){ .oe-panel-host #full,.oe-panel-host #qr-btn,.oe-panel-host #sunshadow-btn,.oe-panel-host #measure-btn,.oe-panel-host #profile-btn{display:none!important} }
 .yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .yk-panel .hm-btns .act{margin:0;text-align:center}
 .yk-panel .home-out .walkr{margin-top:8px;padding:6px 12px;border-radius:999px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
