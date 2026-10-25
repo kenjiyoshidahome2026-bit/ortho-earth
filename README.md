@@ -69,7 +69,7 @@ The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts ar
 | globe | [`packages/globe`](packages/globe) (`@ortho-earth/globe`) | The globe host: boot, world layers, region-independent gadgets, the MapLibre face, plugins, SDK types, gates |
 | region pack | [`packages/jp`](packages/jp) (`@ortho-earth/jp`) | A region's declaration (terrain, buildings, basemap, rasters, search, POI, rail) and the parts only that region needs |
 | apps | [`apps/*`](apps) | Shells. `japan` = globe + jp pack + Japanese UI; `world`, `equal`, `census2020`, `solar`, … |
-| sdk | [`sdk/*`](sdk) | SDKs and standalone tools for outside users: `@ortho-earth/japan` (the Japan SDK bundle), React bindings, KTX2, Google 3D Tiles, scene and splat plugins, `glbconv` |
+| sdk | [`sdk/*`](sdk) | SDKs and standalone tools for outside users: `@ortho-earth/japan` (the Japan SDK bundle), React bindings, KTX2, Google 3D Tiles, Google Maps API on MapLibre, scene and splat plugins, `glbconv` |
 
 Region names never appear in core or globe code (the `verify:regionless` gate counts them). Apps without a region load the shared engine from a versioned, immutable URL (`www.ortho-earth.com/globe/engine/<hash>/`); the Japan apps are two-stage: shared engine + their own bundle with `orthoJapan` and the jp pack.
 
@@ -102,6 +102,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/japan`](sdk/japan) | 2.0.2 | GPL-3.0-or-later | Self-contained Japan globe for any web page: the engine plus the Japan region pack, no API keys or servers |
 | [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/google3d`](sdk/google3d) | 0.2.0 | GPL-3.0-or-later | Google Photorealistic 3D Tiles: API key and session handling plus attribution |
+| [`@ortho-earth/gmaps`](sdk/gmaps) | 0.1.0 | GPL-3.0-or-later | Google Maps JavaScript API on MapLibre: a `google.maps` namespace (Map, Marker, InfoWindow, shapes, Data, geometry) for maplibre-gl or the globe |
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/scene`](sdk/scene) | 0.2.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/splat`](sdk/splat) | 0.6.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz` / `.ksplat` / `.sog`, and 3D Tiles with `KHR_gaussian_splatting`) as a `map.addData` kind: WebGPU renderer with spherical harmonics, GPU sort and LoD, files read in a worker, WebGL2 fallback |
