@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // CZML の model・polyline・polygon（P0 #5・src/gadgets/czml-scene.ts の純関数）。試料 fixtures/czml/scene.czml を geopbf で読み（GeoPBF の書き込みまで通す）、
 //   ・面＝押し出し（height〜extrudedHeight・色）・地面の線（clampToGround）・高さのある線（大円で刻む・高さ 1500m）・模型 2 体（静止＝四元数・動く＝進む向き）
-//   ・heading＝模型の +X の方位 − 90（静止＝南向き＝90°・東へ動く＝0°）・出ている区間・相対 URI の解決
+//   ・heading＝模型の +X の方位 − 180（静止＝南向き＝0°・東へ動く＝−90°）＝ortho の模型は heading 0 で glTF の +Z（Cesium の前）が南・出ている区間・相対 URI の解決
 // 使い方：node packages/globe/tests/czml-scene.mjs
 import fs from "node:fs";
 import path from "node:path";
@@ -37,10 +37,10 @@ ok(sc.models.length === 2, `模型 2 体＝${sc.models.map(m => m.id)}`);
 const st = sc.models.find(m => m.id === "statue"), car = sc.models.find(m => m.id === "car");
 ok(st.uri === "https://example.com/data/box.glb" && st.heightRef === "CLAMP_TO_GROUND" && !st.track && st.at[0] === 139.7, `静止の模型＝相対 URI を引く（${st.uri}）`);
 const hS = modelHeadingAt(st, T(0), 139.7, 35.68);
-ok(Math.abs(hS - 90) < 0.01, `静止の模型の heading＝四元数から 90°（${hS.toFixed(4)}）`);
+ok(Math.abs(hS) < 0.01, `静止の模型の heading＝四元数から 0°（${hS.toFixed(4)}）`);
 ok(!!car.track, `動く模型は軌跡を持つ`);
 const q = positionAt(car.track, T(1800)), ll = ecefToLlh(...q), hC = modelHeadingAt(car, T(1800), ll[0], ll[1]);
-ok(Math.abs(ll[0] - 139.70) < 1e-6 && Math.abs(hC) < 0.05, `動く模型＝東へ進む＝heading 0（${hC.toFixed(4)}・経度 ${ll[0].toFixed(5)}）`);
+ok(Math.abs(ll[0] - 139.70) < 1e-6 && Math.abs(hC + 90) < 0.05, `動く模型＝東へ進む＝heading −90（${hC.toFixed(4)}・経度 ${ll[0].toFixed(5)}）`);
 // 使った番号＝面・線・静止の模型は本道へ回さない・動く模型（軌跡）は czml.ts にも残す
 const ids = [...sc.used].map(i => fs_[i].properties.id).sort();
 ok(JSON.stringify(ids) === JSON.stringify(["air", "block", "road", "statue"]), `used＝${ids}`);

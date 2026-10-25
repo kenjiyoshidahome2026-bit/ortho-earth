@@ -4,7 +4,8 @@
 //   ・polyline＝clampToGround か高さが全部 0＝GeoJSON の line 層（地面に沿う）。高さのある線＝czml オーバーレイの 3D の線（尾と同じ描き方）
 //     arcType（既定 GEODESIC）＝大円に沿って 100 km ごとに刻む（ECEF の弦は地球を潜る）。NONE＝刻まない
 //   ・model＝map.gadget.model（slot "czml:<id>"）。静止＝その場に・時刻つきの位置＝時計ごとに setTransform（位置・向き）
-//     向き＝orientation の unitQuaternion（地球固定・静止か標本）か velocityReference（進む向き）。模型の +X が前（Cesium と同じ）＝heading＝前の方位 − 90°
+//     向き＝orientation の unitQuaternion（地球固定・静止か標本）か velocityReference（進む向き）。Cesium の模型の +X が前（glTF の +Z を前と読む＝forwardAxis Z）。
+//     ortho の模型は heading 0 で glTF の +Z が南を向く＝heading＝前の方位 − 180°（2026-10-25・旧 − 90° は 90° ずれていた）
 //     （ortho の模型は heading だけ＝pitch・roll は持たない）。高さ＝heightReference（NONE＝楕円体高から地面の高さを引く・RELATIVE_TO_GROUND＝そのまま・CLAMP＝0）
 //   ・出ている区間（availability）と show（区間の列）＝時計が変わるたびに引き直す（層は filter・模型は置く／外す・線はオーバーレイが引く）
 import { boolAt, colorOf, ecefToLlh, inIntervalsOf, llhToEcef, numberAt, parseIntervals, positionAt } from "../czml-time.ts";
@@ -150,10 +151,10 @@ export function quaternionAt(o: Loose | null | undefined, ms: number): number[] 
 export function modelHeadingAt(m: Pick<CzmlModelSpec, "orientation" | "track" | "at">, ms: number, lon: number, lat: number): number {
 	const o = m.orientation;
 	const q = quaternionAt(o, ms);
-	if (q) return bearingOf(lon, lat, rotX(q)) - 90;
+	if (q) return bearingOf(lon, lat, rotX(q)) - 180;
 	if (o?.velocityReference && m.track) {
 		const tr = m.track, a = positionAt(tr, ms - 500) ?? positionAt(tr, ms), b = positionAt(tr, ms + 500) ?? positionAt(tr, ms);
-		if (a && b && Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) > 1e-6) return bearingOf(lon, lat, [b[0] - a[0], b[1] - a[1], b[2] - a[2]]) - 90;
+		if (a && b && Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) > 1e-6) return bearingOf(lon, lat, [b[0] - a[0], b[1] - a[1], b[2] - a[2]]) - 180;
 	}
 	return 0;
 }
