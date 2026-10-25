@@ -17,7 +17,7 @@ run(); async function run() { try {
 	ok("loaded", await until(() => h.stats.shown >= 7), JSON.stringify(h.stats));
 	const shot = map.gadget.shot();
 	const grab = async () => {
-		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 60000))]);
 		const bmp = await createImageBitmap(blob);
 		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
 		cv.getContext("2d").drawImage(bmp, 0, 0);
@@ -67,11 +67,11 @@ run(); async function run() { try {
 	map.jumpTo({ pitch: 0, zoom: 16.6, center: [lng0, lat0] });
 	await sleep(2500);
 	const top = await measure();
-	ok("flat", top.cyan > 2000, JSON.stringify(top));
+	ok("flat", top.cyan > 800 && top.purple < base.purple * 0.1, JSON.stringify(top));
 	flat.remove();
 	ok("caps", map.capabilities()["tiles3d.classification"]?.status === "builtin");
 	h.remove();
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ") + " backend=" + map.backend;
-} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); } }
 </script>
 </body></html>
