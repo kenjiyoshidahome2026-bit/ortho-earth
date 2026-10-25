@@ -16,12 +16,13 @@
 const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 try {
-	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	const GL = new URLSearchParams(location.search).has("gl");   // ?gl=1＝WebGL2 のレンダラ（P0 #3）＝同じ段を同じ物差しで
+	if (!GL && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
 	else {
-	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
 	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
 	const canvas = document.getElementById("g");
-	const r = await createRendererGPU(canvas);
+	const r = GL ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
+	if (GL) r.flush = () => {};
 	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
 	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];   // ENU(m)→経緯度（近似）
 	// 箱（20m 角・高さ 100m）＝世界座標（単位球）を原点相対で

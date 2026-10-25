@@ -1779,3 +1779,97 @@ void main() {
 	vec4 pc = u_clipT + u_mvp * vec4(X, 0.0);
 	gl_FragDepth = clamp(log1pS(max(pc.w, 1e-30)) * 1.4426950 * u_logCoef * 0.5, 0.0, 1.0);
 }`);
+
+// ── 建物の影の WebGL2 版（P0 #3・2026-10-25）＝WebGPU の SHADOW_WGSL（gpu/wgsl.ts）と同じ段（カスケード）・同じ PCSS・同じ uniform の並び（ShadowP・std140・binding 1）。
+// 点けている間だけ使う派生（本体の文字列は 1 バイトも変えない）。深度は 2D 配列（層 0＝基の窓）・同じテクスチャを比較つき（u_shTex）と素（u_shRaw）の 2 つの標本器で読む。
+// 深度の向き：renderer が落とす側の行列の z を 2z−w に直す＝深度バッファの値が WebGPU と同じ 0..1（受け手は SH.mvp の z をそのまま比べる）。
+// GL のテクスチャは行 0 が下＝uv.y＝0.5＋y/2（WebGPU は 0.5−y/2）。
+const SH_BLOCK = /* glsl */`
+layout(std140) uniform ShadowP { mat4 mvp; vec4 clipT; vec4 anchor; vec4 p; vec4 cs[3]; vec4 cb[3]; vec4 q; } SH;
+vec4 shClip(vec3 relA) { return SH.clipT + SH.mvp * vec4(relA, 0.0); }
+`;
+const SH_FS = /* glsl */`
+uniform highp sampler2DArrayShadow u_shTex;
+uniform highp sampler2DArray u_shRaw;
+const vec2 SH_PD[16] = vec2[16](
+	vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725), vec2(-0.09418410, -0.92938870), vec2(0.34495938, 0.29387760),
+	vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464), vec2(-0.38277543, 0.27676845), vec2(0.97484398, 0.75648379),
+	vec2(0.44323325, -0.97511554), vec2(0.53742981, -0.47373420), vec2(-0.26496911, -0.41893023), vec2(0.79197514, 0.19090188),
+	vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590), vec2(0.19984126, 0.78641367), vec2(0.14383161, -0.14100790));
+float shPcss(vec2 uv, int layer, float d, int i) {
+	float g = SH.cb[i].w, tx = SH.cb[i].y;
+	vec2 dim = vec2(textureSize(u_shRaw, 0).xy);
+	float zs = 0.0, zn = 0.0;
+	for (int k = 0; k < 16; k++) {
+		vec2 o = SH_PD[k] * (tx * SH.q.w);
+		ivec2 q = clamp(ivec2((uv + o) * dim), ivec2(0), ivec2(dim) - 1);
+		float z = texelFetch(u_shRaw, ivec3(q, layer), 0).r;
+		if (z < d + length(o) * g) { zs += z; zn += 1.0; }
+	}
+	if (zn < 0.5) return 1.0;   // 周りに遮る物が無い＝日向
+	float w = clamp((d - zs / zn) * SH.q.y * SH.q.z / SH.cb[i].z, 1.0, 8.0) * tx;   // 半影の幅（uv）
+	float s = 0.0;
+	for (int k = 0; k < 16; k++) { vec2 o = SH_PD[k] * w; s += texture(u_shTex, vec4(uv + o, float(layer), d + length(o) * g)); }
+	return s / 16.0;
+}
+vec2 shAt(vec3 pb, int i) {   // 段 i の日向の度合い（x）と窓の縁までの距離（y・≤0＝窓の外）
+	vec4 c = SH.cs[i];
+	vec2 xy = pb.xy * c.x + c.yz;
+	vec2 uv = vec2(xy.x * 0.5 + 0.5, xy.y * 0.5 + 0.5);
+	float e = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+	if (e <= 0.0) return vec2(1.0, e);
+	float lit = shPcss(uv, int(c.w), pb.z - SH.cb[i].x, i);
+	if (i + 1 >= int(SH.q.x)) lit = mix(1.0, lit, 1.0 - smoothstep(SH.p.w, 1.0, length(xy)));   // 基の窓＝縁を丸く日向へ
+	return vec2(lit, e);
+}
+float shLit(vec4 sc) {   // 1＝日向・0＝影
+	if (sc.w <= 0.0) return 1.0;
+	vec3 pb = sc.xyz / sc.w;
+	if (pb.z <= 0.0 || pb.z >= 1.0) return 1.0;
+	int n = int(SH.q.x);
+	for (int i = 0; i < 3; i++) {
+		if (i >= n) break;
+		vec2 a = shAt(pb, i);
+		if (a.y <= 0.0) continue;
+		if (i + 1 < n && a.y < 0.04) { vec2 b = shAt(pb, i + 1); if (b.y > 0.0) return mix(b.x, a.x, a.y / 0.04); }   // 段の縁の帯＝次の段と混ぜる
+		return a.x;
+	}
+	return 1.0;
+}
+vec3 shShade(vec3 col, vec4 sc) { return col * mix(SH.p.x, 1.0, shLit(sc)); }
+`;
+const withSh = (src: string, fs: boolean): string => { if (src.split(PREC).length < 2) throw new Error("glsl shadow: precision line missing"); return src.replace(PREC, PREC + SH_BLOCK + (fs ? SH_FS : "")); };
+const SC_OUT = "out vec4 v_sc;\n", SC_IN = "in vec4 v_sc;\n";
+const SH_REL = "(u_originPt - SH.anchor.xyz)";
+/** 影の受け手の派生（fam＝描く物の族・src＝本体か切る派生の文字列） */
+export type ShadowFam = "terrain" | "fill" | "line" | "bld" | "mesh" | "meshTex" | "globe";
+const SH_VS: Record<ShadowFam, Pairs> = {
+	terrain: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_front = dot(dir, u_eye) - 1.0;\n`]],
+	fill: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);", `\tv_sc = shClip(rel + ${SH_REL});\n\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);`]],
+	line: [["out float v_fog;\n", "out float v_fog;\n" + SC_OUT], ["\tv_fog = fogOf((wa + wb) * 0.5);\n", `\tv_fog = fogOf((wa + wb) * 0.5);\n\tv_sc = shClip((corner.x < 0.5 ? relWa : relWb) + ${SH_REL});\n`]],
+	bld: [["out vec2  v_ll;", SC_OUT + "out vec2  v_ll;"], ["\tv_shade = a_shade;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_shade = a_shade;\n`]],
+	mesh: [["out float v_fog;\n", "out float v_fog;\n" + SC_OUT], ["\tgl_Position = u_clipMesh + u_mvp * vec4(", "\tv_sc = shClip(u_meshOrigin - SH.anchor.xyz + ap + h * liftDir(vec2(lon, lat), dir));   // バッチ原点−main 原点（f32 差＝バッチ内一定）\n\tgl_Position = u_clipMesh + u_mvp * vec4("]],
+	meshTex: [],
+	globe: [],
+};
+SH_VS.meshTex = SH_VS.mesh;
+// 影の間の地形の陰影＝北西の固定光でなく影と同じ太陽の方位（WebGPU の TERRAIN_SH_WGSL と同式）
+const TERR_SUN_SHADE = "\tvec3 sdir = -normalize(vec3(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tvec2 lr = v_ll * 0.017453292519943295;\n\tfloat cl = cos(lr.y), sl = sin(lr.y), co = cos(lr.x), so = sin(lr.x);\n\tvec2 sH = vec2(dot(sdir, vec3(-so, 0.0, co)), dot(sdir, vec3(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tvec2 aH = sH / max(length(sH), 1e-6);\n\tvec2 gEN = vec2(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tfloat shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);";
+const SH_FSP: Record<ShadowFam, Pairs> = {
+	terrain: [["in float v_h;\n", "in float v_h;\n" + SC_IN], ["\tfloat shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", TERR_SUN_SHADE], ["\tvec3 col = g.rgb * (1.0 - v_fog)", "\tg.rgb = shShade(g.rgb, v_sc);\n\tvec3 col = g.rgb * (1.0 - v_fog)"]],
+	fill: [["in vec2 v_guv3;\n", "in vec2 v_guv3;\n" + SC_IN], ["fragColor = vec4(mix(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);", "fragColor = vec4(mix(shShade(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), v_sc), u_fogColor, v_fog) * af, af);"]],
+	line: [["in vec2 v_pos;\n", "in vec2 v_pos;\n" + SC_IN], ["\tvec3 rgb = mix(lc.rgb, u_fogColor, v_fog);", "\tvec3 rgb = mix(shShade(lc.rgb, v_sc), u_fogColor, v_fog);"]],
+	bld: [["in vec2  v_ll;\n", "in vec2  v_ll;\n" + SC_IN], ["\tvec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(u_bldColor * v_shade, v_sc), u_fogColor, v_fog);"]],
+	mesh: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(u_bldColor * d, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(u_bldColor * d, v_sc), u_fogColor, v_fog);"]],
+	meshTex: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(tx.rgb * d, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(tx.rgb * d, v_sc), u_fogColor, v_fog);"]],
+	globe: [["\tvec3 viewDir = normalize(A - P);", "\tg.rgb = shShade(g.rgb, shClip(u_rayEO + t * d + (u_rayO - SH.anchor.xyz)));   // 球の床（海抜 0）＝低地と真俯瞰の地面\n\tvec3 viewDir = normalize(A - P);"]],
+};
+export const shadowVS = (fam: ShadowFam, src: string): string => fam === "globe" ? src : withSh(derive(src, SH_VS[fam], `SH_VS:${fam}`), false);
+export const shadowFS = (fam: ShadowFam, src: string): string => withSh(derive(src, SH_FSP[fam], `SH_FS:${fam}`), true);
+// 影を落とす側：本体（か切る派生）の頂点計算そのまま・対数深度だけ外す（正射影 w=1＝行列の z が線形の深度）。FS は深度だけ（切る間は面の外を捨てる・模型の MASK は α で抜く）
+export const castVS = (src: string): string => derive(src, [["\tapplyLogDepth();", ""]], "castVS");
+export const CAST_FS = "#version 300 es\nprecision highp float;\nvoid main() {}";
+export const CAST_CLIP_FS = withClip("#version 300 es\nprecision highp float;\n" + FS_IN + "void main() {\n" + DISCARD + "}");
+const CAST_TEX = "uniform sampler2D u_tex;\nuniform float u_alphaCut;\nin vec2 v_uv;\nin vec4 v_col;\n";
+export const CAST_TEX_FS = "#version 300 es\nprecision highp float;\n" + CAST_TEX + "void main() { if (texture(u_tex, v_uv).a * v_col.a < u_alphaCut) discard; }";
+export const CAST_TEX_CLIP_FS = withClip("#version 300 es\nprecision highp float;\n" + CAST_TEX + FS_IN + "void main() {\n" + DISCARD + "\tif (texture(u_tex, v_uv).a * v_col.a < u_alphaCut) discard;\n}");

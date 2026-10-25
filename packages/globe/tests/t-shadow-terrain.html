@@ -5,7 +5,8 @@
        影の長さ≈1000/tan36°≈1.4km＝頂の北縁 0.3km から北 1.7km まで）。北から南を向いて見る（南から見ると北の台地は尾根の陰に隠れる）
      ②南北の尾根（経度 150.50）・冬至の 15 時（太陽は南西）＝影の間は陰影の光が太陽に従う＝西の斜面が東の斜面より明るい
        （影なしの北西の固定光では逆＝東の斜面が明るい）
-     ③消灯で元どおり。⚠実時間・WebGPU だけ（verify-webgpu.mjs）。GL2 は影を持たない（本人裁定）＝スキップ扱いの PASS -->
+     ③消灯で元どおり。⚠実時間。WebGPU（verify-webgpu.mjs）と WebGL2（verify-ui.mjs・P0 #3）の両方で回す。
+     WebGL2 は ?world=0 で回す（試料は太平洋の中＝世界の下地が載ると一部の視点で尾根が海の色に沈む＝影とは別の以前からの挙動・2026-10-25） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-shadow-terrain</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -19,7 +20,6 @@ const at = (lon, lat, eM, nM) => [lon + eM / MX, lat + nM / MY];
 try {
 	const map = await createGlobe({ target: "#map", view: "#14/30.505/150.5/50t", chips: false, night: false, persistView: false, terrain: { source: SRC } });
 	await new Promise(r => map.on("load", r));
-	if (map.backend !== "webgpu") { ok("webgpu-unavailable→スキップ扱いPASS", true); throw "skip"; }
 	const hTop = await map.getHeight(150.5, 30.5), hPl = await map.getHeight(150.5, 30.52);
 	ok("dem", Math.abs(hTop - 1200) < 60 && Math.abs(hPl - 200) < 20, `${hTop.toFixed(0)}/${hPl.toFixed(0)}`);
 	const shot = map.gadget.shot();
