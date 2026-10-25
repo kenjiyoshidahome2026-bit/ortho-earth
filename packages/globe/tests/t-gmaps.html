@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/gmaps（Google Maps JS API → MapLibre の通訳・2026-10-25）を地球儀の MapLibre の口（@ortho-earth/globe/maplibre）の上で。
+     ①Map：google の zoom 15 ＝ MapLibre の 14・中心・heading/tilt・getBounds
+     ②Polygon／Polyline／Circle：source と layer が載る・queryRenderedFeatures が面の中で当たる・面の click が図形へ届き地図の click にならない
+     ③Marker／InfoWindow：DOM に出る・marker の上に開く・close
+     ④Data：GeoJSON と関数の様式が描かれる・click の feature
+     鍵は要らない（Google には何も送らない）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px;position:relative}</style><title>t-gmaps</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { maps: gm, Loader } = await import("@ortho-earth/gmaps/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = f(); if (v) return v; await sleep(200); } return null; };
+try {
+	// @googlemaps/js-api-loader の形
+	const { Map } = await new Loader({ apiKey: "unused" }).importLibrary("maps");
+	ok("loader", Map === gm.Map && globalThis.google.maps === gm);
+	const map = new Map(document.getElementById("map"), { center: { lat: 35.6812, lng: 139.7671 }, zoom: 15, heading: 20, tilt: 30 });
+	const ml = map.getMapLibre();
+	await new Promise(r => ml.once("load", r)); await sleep(500);
+	ok("zoom", Math.abs(map.getZoom() - 15) < 1e-6 && Math.abs(ml.getZoom() - 14) < 1e-6, `${map.getZoom()} ${ml.getZoom()}`);
+	ok("camera", Math.abs(map.getCenter().lat() - 35.6812) < 1e-4 && Math.abs(map.getHeading() - 20) < 1e-6 && Math.abs(map.getTilt() - 30) < 1e-6);
+	const b = map.getBounds();
+	ok("bounds", b && b.contains(map.getCenter()), JSON.stringify(b?.toJSON()));
+	// ② 図形
+	const c = map.getCenter(), d = 0.004;
+	const pg = new gm.Polygon({ map, paths: [{ lat: c.lat() - d, lng: c.lng() - d }, { lat: c.lat() - d, lng: c.lng() + d }, { lat: c.lat() + d, lng: c.lng() + d }, { lat: c.lat() + d, lng: c.lng() - d }], fillColor: "#ff0000", fillOpacity: 0.6, strokeColor: "#ffffff" });
+	new gm.Polyline({ map, path: [{ lat: c.lat() - 2 * d, lng: c.lng() - 2 * d }, { lat: c.lat() + 2 * d, lng: c.lng() + 2 * d }], strokeColor: "#00ff00", strokeWeight: 5 });
+	new gm.Circle({ map, center: { lat: c.lat() + 2 * d, lng: c.lng() - 2 * d }, radius: 100, fillColor: "#0000ff" });
+	const ids = ml.getStyle().layers.map(l => l.id).filter(id => id.startsWith("gm-"));
+	ok("shapes.layers", ids.length === 5, ids.join(","));
+	map.setHeading(0); map.setTilt(0); await sleep(800);
+	const mid = ml.project([c.lng(), c.lat()]);
+	const hit = await until(() => (ml.queryRenderedFeatures([mid.x, mid.y]) || []).some(f => f.layer?.id?.endsWith("-fill")), 8000);
+	ok("shapes.query", !!hit);
+	let shapeClick = 0, mapClick = 0;
+	pg.addListener("click", e => { if (e.latLng) shapeClick++; });
+	map.addListener("click", () => mapClick++);
+	const canvas = ml.getCanvas(), r = canvas.getBoundingClientRect();
+	const fireAt = (x, y) => { for (const type of ["mousedown", "mouseup", "click"]) canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, button: 0 })); };
+	fireAt(mid.x, mid.y); await sleep(300);
+	fireAt(20, 20); await sleep(300);
+	ok("shapes.click", shapeClick === 1 && mapClick === 1, `shape=${shapeClick} map=${mapClick}`);
+	// ③ Marker と InfoWindow
+	const mk = new gm.Marker({ map, position: c, title: "Tokyo Station", label: "T" });
+	await sleep(300);
+	const pin = [...document.querySelectorAll("#map [title='Tokyo Station']")];
+	ok("marker.dom", pin.length === 1, String(pin.length));
+	const iw = new gm.InfoWindow({ content: "<b id=iwbody>Tokyo</b>" });
+	iw.open({ map, anchor: mk });
+	await sleep(300);
+	ok("infowindow.open", !!document.getElementById("iwbody") && iw.isOpen);
+	iw.close(); await sleep(100);
+	ok("infowindow.close", !document.getElementById("iwbody") && !iw.isOpen);
+	// ④ Data
+	map.data.addGeoJson({ type: "FeatureCollection", features: [{ type: "Feature", id: "p1", properties: { kind: "a" }, geometry: { type: "Point", coordinates: [c.lng() + 3 * d, c.lat()] } }] });
+	map.data.setStyle(f => ({ fillColor: f.getProperty("kind") === "a" ? "#ffff00" : "#000000" }));
+	await sleep(800);
+	const pp = ml.project([c.lng() + 3 * d, c.lat()]);
+	const dhit = await until(() => (ml.queryRenderedFeatures([pp.x, pp.y]) || []).find(f => f.layer?.id?.endsWith("-point")), 8000);
+	ok("data.query", !!dhit && dhit.properties?._gm_pc === "#ffff00", JSON.stringify(dhit?.properties));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>
