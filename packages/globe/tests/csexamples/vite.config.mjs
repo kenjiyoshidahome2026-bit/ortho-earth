@@ -24,7 +24,14 @@ const MIME = { ".html": "text/html; charset=utf-8", ".mjs": "text/javascript", "
 const REF_WRAPPER = `export * from "./Build/Cesium/index.js";
 import * as real from "./Build/Cesium/index.js";
 const X = (window.__csx ||= { side: "ref", viewers: [], errors: [] });
+X.Cesium = real;
 export class Viewer extends real.Viewer {
+	constructor(c, o) {
+		super(c, o); X.viewers.push(this);
+		this.scene.renderError.addEventListener((s, e) => X.errors.push(String(e?.message || e)));
+	}
+}
+export class CesiumWidget extends real.CesiumWidget {
 	constructor(c, o) {
 		super(c, o); X.viewers.push(this);
 		this.scene.renderError.addEventListener((s, e) => X.errors.push(String(e?.message || e)));
