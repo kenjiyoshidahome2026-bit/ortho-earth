@@ -36,7 +36,7 @@ import type { MeshFeatures } from "../mesh-features.ts";
 import type { BoundingVolume, ImplicitTiling, ImplicitTilingJson, Subtree, TileCoord } from "../tiles3d-implicit.ts";
 import type { MetadataEntity, MetadataEntityJson, MetadataSchema } from "../tiles3d-metadata.ts";
 import type { CompiledStyle, StyleSpec } from "../tiles3d-style.ts";
-import type { PickItem } from "../meshpick.ts";
+import type { MeshItemRef, PickItem } from "../meshpick.ts";
 import type { Requester, ResolvedRequest } from "../request.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
@@ -704,6 +704,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			sets.delete(id);
 		},
 		get ids() { return [...sets.keys()]; },
+		// 読み込んである三角形の束（map.sampleHeight の半直線の当たり・2026-10-25）。mode＝地形への持ち上げ方（pick と同じ "drape"｜"plane"・lift は呼ぶ側が入れる）
+		meshItems() {
+			const out: MeshItemRef[] = [];
+			for (const s of sets.values()) { if (s.hidden) continue; const mode = s.opts.ground === "terrain" ? "drape" : "plane"; for (const n of s.loaded()) if (n.on && n.pick) for (const p of n.pick) if (p.pos && p.idx) out.push({ id: s.id, mode, item: { pos: p.pos, idx: p.idx, origin: p.origin, features: p.features } }); }
+			return out;
+		},
 		pickAll(x: number, y: number) { return [...sets.values()].filter(s => !s.hidden).map(s => { const h = pickSet(s, x, y); return h && { id: s.id, ...h }; }).filter(Boolean); },   // 全 tileset の当たり（W7・queryRenderedFeatures が使う）
 		destroy() { for (const id of [...sets.keys()]) ctl.remove(id); pool.destroy(); map.off("move", onMove); map.off("settle", onMove); },
 	};

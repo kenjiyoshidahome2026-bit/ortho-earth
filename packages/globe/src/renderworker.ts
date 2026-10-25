@@ -147,7 +147,8 @@ function depthOff(e: unknown) {
 }
 const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
 let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
-let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
+let elevBase = 0, elevEarthM = 0;
+const hBase = () => elevEarthM > 0 ? 1 / elevEarthM : elevBase;   // 地面からの高さ（hM）は誇張しない＝実スケール（地面の持ち上げだけが elevBase＝誇張つき）   // TERR_EXAG / EARTH_M（init で）・地球半径 m（誇張の差し替え＝"terrainExag" で elevBase を引き直す）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
 const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.ts"), imagequad: () => import("./gadgets/imagequad-draw.ts"), czml: () => import("./gadgets/czml-draw.ts"), three: () => import("./gadgets/three-draw.ts").then(m => m.create()),
@@ -200,11 +201,11 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
 				const lift = pf > 0 && terrain ? (lon: number, lat: number) => (terrain!.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon: number, lat: number, hM?: number) => {
-					const lz = lift(lon, lat), r = projectCss(project(s!, lon, lat, 1 + lz + (hM || 0) * elevBase), dpr);
+					const lz = lift(lon, lat), r = projectCss(project(s!, lon, lat, 1 + lz + (hM || 0) * hBase()), dpr);
 					if (ovPl && clipDistanceM(ovPl, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) r[2] = -1;   // 断面で切られた側＝見えない（front<0・#111 段 3・面はそのオーバーレイの対象）
 					return r;   // 写らない点（カメラ後方）は同次座標も運ぶ＝anno の塗りが近平面で切る（左上への楔・2026-10-24）
 				};
-				const clipH = (lon: number, lat: number, hM?: number) => projectClip(s!, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
+				const clipH = (lon: number, lat: number, hM?: number) => projectClip(s!, lon, lat, 1 + lift(lon, lat) + (hM || 0) * hBase());   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
 				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
 				api = { project: (lon: number, lat: number) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
 					elevM: terrain ? (lon: number, lat: number) => terrain!.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain,
@@ -446,7 +447,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelGpuCanvas = m.labelGpuCanvas ?? null;
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
-			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
+			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
 			depthOk = !m.lowMem;   // LOW_MEM＝深度を作らない（#47・Air3 jetsam の型＝FBO/ImageBitmap の上乗せを持ち込まない）
@@ -565,6 +566,11 @@ const dispatch = (e: { data: RwMsg }) => {
 				if (!terrain && terrLazyInit && m.data) { terrain = makeTerrain(terrLazyInit, m.data as TerrainOptions["dem"]); terrLazyInit = null; dirty = true; armRaf(); }
 				else terrain?.setDem((m.data || null) as Parameters<Terrain["setDem"]>[0]);
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam!) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
+			}
+			else if (m.cmd === "terrainExag") {   // 地形の誇張（setTerrain の exaggeration・既定 1）＝地形・持ち上げ・注記・オーバーレイを同じ倍率に
+				const k = Number.isFinite(+(m.data as number)) && +(m.data as number) > 0 ? +(m.data as number) : 1;
+				if (elevEarthM > 0) elevBase = k / elevEarthM;
+				labelLayer?.setElevBase(elevBase); renderer?.set("terrainExag", k); dirty = true; armRaf();
 			}
 			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
 			else if (m.cmd === "clock") { clockA = m.data as ClockAnchor | null; labelLayer?.setClock?.(clockA); noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）

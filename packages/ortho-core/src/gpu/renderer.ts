@@ -1503,6 +1503,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	let lastCamDist = 0;        // 前のフレームの camDist（カメラが飛んだかを見る）
 	let lastSt: FrameState | null = null, lastCam: CameraPose | null = null;   // 直近に描いたカメラ（解析＝analysis が使う）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
+	let exagMul = 1;            // 地形の誇張（setTerrain の exaggeration・既定 1＝実スケール）＝アトラスの scale に掛ける
 
 	// --- 標高アトラス（r16float）＋地形メッシュ ---
 	// GL 版と同じダブルバッファ：stage で舞台裏に組み、セルが揃ったら commit で一括スワップ（山影がパッと消えない）。
@@ -1630,9 +1631,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			half, { bytesPerRow: cellRes * 2 }, { width: cellRes, height: cellRes });
 		if (perf) (self as PerfSelf).__perfElevLast = { f16: t1 - t0, write: performance.now() - t1 };
 	}
+	function setTerrainExag(k: number) {
+		const m = Number.isFinite(+k) && +k > 0 ? +k : 1, r = m / exagMul;
+		exagMul = m;
+		if (elev.has) { elev.scale *= r; elev.exag = (elev.exag || 1) * r; }
+		castRev++;   // 建物の足元（リフト）が変わる＝影の深度を描き直す
+	}
 	function atlasMeta(a: ElevAtlasMeta, scale: number) {
 		const span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -3351,6 +3358,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasStage": setElevationAtlasStage(data as ElevAtlasMeta, prop as number); break;
 			case "elevCellStage": setElevationCellStage((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;
+			case "terrainExag": setTerrainExag(data as number); break;   // 地形の誇張（既定 1）＝今のアトラスにも掛け直す
 			case "elevAtlasFar": setElevationAtlasFar(data as ElevAtlasMeta); break;
 			case "elevCellFar": setElevationCellFar((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
 			case "elevAtlasFarOff": clearElevationFar(); break;

@@ -73,7 +73,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	addImage: "none", updateImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
 	addFontFace: "none",   // Web フォントを差す（段 2）
 	setGlobalStateProperty: "none", getGlobalState: "none",   // global-state（記号の残件③）
-	setTerrain: "none", getTerrain: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
+	setTerrain: "none", getTerrain: "none", setTerrainExaggeration: "none", getTerrainExaggeration: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
 	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none", clearFeatureServiceCache: "none", addPointCloud: "none", removePointCloud: "none",   // clearFeatureServiceCache＝フィーチャーサービスの控えの掃除（#176）
 	Marker: "none", Popup: "none",
 	// gint（ネイティブ）
@@ -97,7 +97,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない
 	getSunPosition: "none", getMoonPosition: "none", setSun: "none", getSun: "none", setClouds: "none", getClouds: "none",   // 太陽・月・雲の口（F2）＝度と m
 	setPostChain: "none", getPostChain: "none",   // 後処理の鎖（F3）
-	sampleTerrain: "none", walk: "none",   // 地形の一括標本・一人称歩行の口（F6）＝lon/lat と m
+	sampleTerrain: "none", sampleHeight: "none", walk: "none",   // 地形の一括標本・一人称歩行の口（F6）＝lon/lat と m
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他

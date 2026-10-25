@@ -116,6 +116,8 @@ export interface LabelLayer {
 	/** 利用者の注記の組の順（下から上・MapLibre の層の順）。載っている組は焼いた sort の代わりに −1e6 − 順位×1e3 + usk で置く（後の層が先） */
 	setUserOrder(ids: readonly string[] | null): void;
 	setElev(fn: (L: Label2D) => number): void;
+	/** elevBase（誇張/地球半径m）の差し替え＝setTerrain の exaggeration */
+	setElevBase(k: number): void;
 	setSky(data: SkyLabels | null): void;
 	setClip(planes: ClipPlane[] | null | undefined): void;
 	setMoon(data: SkyMoon | null): void;
@@ -538,6 +540,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		rebuild();
 	}
 	// 標高の付け直し（DEM が後から届いた・生き替わった時＝render worker が呼ぶ）：基図と利用者層の全ラベルに fn(L) の標高を入れ、衝突判定をやり直す
+	function setElevBase(k: number) { elevBase = Number.isFinite(+k) ? +k : 0; dirty = true; }
 	function setElev(fn: (L: Label2D) => number) { for (const L of labels) L.elev = fn(L); for (const st of userSets.values()) for (const L of st.list) L.elev = fn(L); dirty = true; }
 	function setUserVisible(id: string, v: unknown) {
 		const st = userSets.get(id);
@@ -974,5 +977,5 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; dirty = true; sink.fontsChanged(); }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
 	const stats = (): LabelStats => ({ drawMs, collideMs, labels: nDrawn, ...sink.stats() });
-	return { setLabels, setUserLabels, setUserVisible, setUserOrder, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache, stats };
+	return { setLabels, setUserLabels, setUserVisible, setUserOrder, setElev, setElevBase, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache, stats };
 }

@@ -12,7 +12,7 @@ import { normPostChain, POST_TYPES } from "./postchain.ts";   // 後処理の鎖
 import { createPluginHost } from "./plugin.ts";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 import { installOverlays } from "./api/overlays.ts";
 import { installQuery } from "./api/query.ts";
-import { installTerrain } from "./api/terrain.ts";
+import { exagOf, installTerrain } from "./api/terrain.ts";
 import { installData } from "./api/data.ts";
 import { installIntake } from "./api/intake.ts";
 import { installImages } from "./api/images.ts";
@@ -606,7 +606,9 @@ ELL_PAGE ??= ellDec;
 const ELL_ON: GlobeScope["ELL_ON"] = ELL_PAGE.ell;
 console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "sphere 6371km"} (${ELL_PAGE.why}; ?ell=1 / ?ell=0 to override; measurement always WGS84)`);   // 実機切り分けの計器（スクショのコンソールで世界が判る・走らせ台 ui-runner が読む）
 setEllipsoid(ELL_ON);
-const EARTH_M: GlobeScope["EARTH_M"] = worldRadiusM(), TERR_EXAG: GlobeScope["TERR_EXAG"] = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
+const EARTH_M: GlobeScope["EARTH_M"] = worldRadiusM();
+// 地形の誇張（setTerrain／opts.terrain の exaggeration・本人裁定 2026-10-24＝指定した時だけ）。既定 1＝実スケール。render worker へは "terrainExag" で渡す（init の材料は常に 1）
+let TERR_EXAG: GlobeLive["terrExag"] = exagOf((opts.terrain as TerrainOpt | undefined)?.exaggeration);   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。ラベル・地形・建物で共有
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
@@ -827,7 +829,8 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 };
 // ?flat=消える,全部出る（CSS px）＝傾きで潰れた道の名（線に沿う注記）を薄くして消す高さの調整（注記層の lineFlatPx・既定 4.5,5.5）。?flat=0＝潰れても出す（MapLibre と同じ）
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+if (TERR_EXAG !== 1) wPost({ type: "set", cmd: "terrainExag", data: TERR_EXAG });   // opts.terrain の exaggeration＝起動の材料（1）の上に掛ける
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -2578,7 +2581,7 @@ const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r =
 const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => projectCss(project(st, lon, lat, dispRadius(lon, lat)), dpr); };   // 写らない点は同次座標も運ぶ（geoedit の塗りが近平面で切る）
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
-const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
+const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) / EARTH_M), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
 const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
@@ -2887,10 +2890,12 @@ installTerrain(map, {
 	get geKey() { return geKey; }, set geKey(v) { geKey = v; },
 	get elevGen() { return elevGen; }, set elevGen(v) { elevGen = v; },
 	get noTerr() { return noTerr; }, set noTerr(v) { if (v !== noTerr) { noTerr = v; setPipelineDrape(); } },   // 地形の有無が替わる（setTerrain）＝線の細分（drape）を読み直し全タイルを再ビルド（§3.2・setStyle と同じ道）
+	get terrExag() { return TERR_EXAG; }, set terrExag(v) { TERR_EXAG = v; },
+	get t3dCtl() { return t3dCtl; },
 	get style() { return style; },
 	get baseSidNow() { return baseSidNow; },
 	get modelCtl() { return modelCtl; },
-}, { EARTH_M, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
+}, { EARTH_M, ELL_ON, cam, elevMemo, elevOf, heightAt, pluginHost, qmSpecOf, requestDraw, requester, terrLazy, wPost });
 let videoCtl: GlobeLive["videoCtl"] = null;
 // 画像タイル層（map.raster）＝src/api/raster.ts（live＝createGlobe の変数を読み書きする口）
 const { onRasterInfo, onRasterError, rasterStatWait, rasterAttrHTML, imageAttrs, rasterChanged, protocolBitmap } = installRaster(map, {
@@ -3792,6 +3797,7 @@ const { extExtras, remergeBase, addSourceAt, addLayerAt, remountSource, styleOrd
 }, { AUTO_BLD, BASE_SOURCE, BASE_SRC, DEBUG_GLOBALS, GJVT, NO_BG_WHITE, PUBLIC_DZ, R2D, STYLE_DZ, animNow, assertMLLayer, autoBldLayer, autoBldOn, autoBldReadOnly, baseOverrides, baseMoves, moveBefore, baseSidNow, baseSrcSpec, baseVis, bgOf, bldFillLi, cam, dbgHost, drawLayerOf, dropFollow, emitSourceData, extBaseStyle, extSourceFields, isVecSrc, kindOf, landDefault, landOf, loadExtStyle, mergeReq, mkThemes, mlFeatureState, mlGintData, mlIdOf, mlLayers, mlPasses, mlSourceDz, mlSources, mlVisible, mountLayer, onMove, rasterAdjust, rasterFade, rasterPaintOpts, rasterPend, rasterSampling, clusterOf, clusterNow, rebuildGint, reliefOpacity, renderer, reorderLayers, requestDraw, requester, seaLi, seaOf, sendLight, sendSky, sendUserAnchors, setAutoBld, setDataLive, setDataQ, setMapGS, setPipelineStyle, setSrcAttr, size, spriteDrop, spriteLoad, spriteNames, srcId, srcOf, stripMl, unmountLayer, userBg, vtRaw, vtRouted, vtdDesc, vtdMounting, vtdOrder, vtxDescs, vtxFS, vtxFSKey, vtxStateOf, wPost, withBaseOverrides, withPM, withUserBg });
 // 描画結果への問い合わせと層ごとのイベント＝src/api/query.ts（live＝後から差し替わる変数の口）
 const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
+	get terrExag() { return TERR_EXAG; },
 	get MAP_GS() { return MAP_GS; },
 	get clipMain() { return clipMain; },
 	get demSpec() { return demSpec; },
@@ -3805,7 +3811,7 @@ const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get t3dCtl() { return t3dCtl; },
 	get vtdCtl() { return vtdCtl; },
 	get vtxCtl() { return vtxCtl; },
-}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, TERR_EXAG, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
+}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
 // 検査表示・ファイルの取り込み・編集・デモの gadget＝src/api/tools.ts（live＝createGlobe の変数を読み書きする口）
 const { rasterDropFile } = installTools(map, {
 	get lastTileOrder() { return lastTileOrder; },
