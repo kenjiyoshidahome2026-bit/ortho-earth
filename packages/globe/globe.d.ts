@@ -830,6 +830,30 @@ export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tol
  *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
 /** 1.3.0〜 encoding "custom"（redFactor/greenFactor/blueFactor/baseShift）・既定値は MapLibre どおり tileSize 512・maxzoom 22（setTerrain・addSource・style の terrain。?dem= の URL は従来の 256） */
 /** map.sampleHeight の 1 点（2026-10-25〜）。source＝当たった物（"tiles3d"＝id は tileset の id・"model"＝id は模型の slot・"terrain"＝地形・null＝terrain:false で何にも当たらない） */
+/** map.addClassification の口（面の貼り付け・Cesium の ClassificationPrimitive／GroundPrimitive・2026-10-25） */
+export interface ClassificationOptions {
+	/** 塗りの色（CSS の色か [r,g,b,a]・既定 "rgba(255, 200, 0, 0.5)"） */ color?: string | number[];
+	/** 色の α に掛ける（0..1・既定 1） */ opacity?: number;
+	/** 塗る相手："both"（既定）＝地形も 3D も・"terrain"＝地形（基図）だけ・"tiles3d"＝3D Tiles・模型・建物の面だけ（Cesium の ClassificationType） */ type?: "both" | "terrain" | "tiles3d";
+	/** 線（LineString）の帯の幅（m・既定 4） */ width?: number;
+	/** 柱の下と上（m・楕円体高）。既定 −1000 と 10000（地形の誇張の倍率を掛ける）。この外の面は塗らない */ minHeight?: number; maxHeight?: number;
+	/** 名前（既定は自動） */ id?: string;
+}
+/** addClassification の戻り。setStyle は色・相手を描き直しだけで替える（width・高さを替えると柱を組み直す） */
+export interface ClassificationHandle {
+	readonly id: string;
+	setData(data: unknown): ClassificationHandle;
+	setStyle(style: Partial<Omit<ClassificationOptions, "id">>): ClassificationHandle;
+	remove(): void;
+}
+/** map.loadCZML の戻り（Cesium の CzmlDataSource・P0 #5・2026-10-25）。数＝読んだ物の数（tracks＝時刻つきの点の軌跡・shapes＝地面の面と線・lines＝高さのある線・models＝模型） */
+export interface CzmlHandle {
+	readonly tracks: number; readonly shapes: number; readonly lines: number; readonly models: number;
+	/** 置いた模型（読み込みが済んだ物・区間の外の模型は外れている） */
+	readonly modelHandles: ModelHandle[];
+	/** 全部外す（時計の範囲も外す） */
+	remove(): void;
+}
 export interface SampleHeightResult { lng: number; lat: number; height: number | null; source: "tiles3d" | "model" | "terrain" | null; id?: string; featureId?: number }
 /** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.7.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
  *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。
@@ -861,6 +885,10 @@ export interface ClipOptions {
 	box?: { center: LonLat; size?: [number, number]; h?: [number, number]; bearing?: number };
 	/** 単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す） */
 	planes?: [number, number, number, number][];
+	/** 多角形で切る（Cesium の ClippingPolygon）＝GeoJSON の Polygon・MultiPolygon（Feature も）か輪の列 [[lng,lat]…][]。既定は内側を消す（鉛直の柱で・高さは問わない）。辺は全部で 64 本まで（超えたら間引く） */
+	polygon?: unknown;
+	/** true＝多角形の内側だけ残す（Cesium の ClippingPolygonCollection.inverse） */
+	inverse?: boolean;
 	/** URL の ?clip= と同じ書き方の文字列 */
 	param?: string;
 	/** false＝切らない（setClipping(false) と同じ） */

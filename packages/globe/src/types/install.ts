@@ -88,7 +88,7 @@ export interface CameraReturn {
 export type IntakeLive = LiveOf<"czmlCtl" | "czmlUrlClock" | "gFollow", "annoCtl" | "rasterDropFile" | "editDocHook" | "placeImages" | "clearImages" | "autoExtrude">;
 export type IntakeDeps = Pick<GlobeScope, "D2R" | "cam" | "columnarOn" | "columnarProbe" | "columnarView" | "dbgHost" | "flyTo" | "gint" | "pageHash" | "remoteUrl" | "requester" | "size">;
 /** 取り込みの文脈（D&D の落とした地点・glb の向きと尺・gint:true＝列チャンク層を使わない・fit・persist） */
-export interface IntakeCtx { fit?: boolean; persist?: string; at?: LonLat; heading?: number; scale?: number; gint?: boolean }
+export interface IntakeCtx { fit?: boolean; persist?: string; at?: LonLat; heading?: number; scale?: number; gint?: boolean; /** CZML の模型の相対 URI の基準（map.loadCZML の URL・P0 #5） */ baseUrl?: string | null }
 /** 取り込みの答え＝トーストが使う { length }（GeoPBF も length を持つ）・載せなかった＝null */
 export type IntakeResult = { length?: number | string } | null | false;
 export interface IntakeReturn {

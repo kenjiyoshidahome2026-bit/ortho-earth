@@ -10,6 +10,8 @@ import { sanitizeHTML } from "geopbf/sanitize";
 import type { Feature } from "geopbf";
 import type { LonLat, OrthoClock, OverlayHandle, Popup } from "../../globe.d.ts";
 import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
+import { createCzmlScene, czmlSceneOf } from "./czml-scene.ts";   // model・polyline・polygon（P0 #5）
+import type { CzmlScene, CzmlSceneHandle } from "./czml-scene.ts";
 import type { GlobeMap } from "../types/map.ts";
 
 /** 再生している軌跡（見た目と説明つき） */
@@ -19,8 +21,12 @@ interface ClockSpec { start: number; end: number; current: number; multiplier: n
 /** CZML・GPX の時刻再生（render worker の組み込み czml・#113） */
 export interface CzmlPlayer {
 	readonly tracks: CzmlTrack[];
-	/** 時刻つきの地物を出す（packets＝CZML の生の packet・clock を読む）。戻り＝出した数 */
-	show(features: Feature[], opts?: { packets?: unknown }): number;
+	/** 時刻つきの地物を出す（packets＝CZML の生の packet・clock を読む・scene＝sceneOf の model・polyline・polygon）。戻り＝出した数（軌跡＋scene） */
+	show(features: Feature[], opts?: { packets?: unknown; scene?: CzmlScene | null }): number;
+	/** 地物の列 → model・polyline・polygon（used＝本道へ回さない番号）。baseUrl＝模型の相対 URI の基準 */
+	sceneOf(features: Feature[], baseUrl?: string | null): CzmlScene;
+	/** 置いた model・polyline・polygon の手綱 */
+	readonly scene: CzmlSceneHandle;
 	clear(): void;
 	/** 時刻つきの地物か */
 	isTimed(f: Feature): boolean;
@@ -60,27 +66,34 @@ function stepOfMultiplier(m: number) {
 
 export function createCzmlPlayer({ map, keepUrlClock = () => false }: { map: GlobeMap; keepUrlClock?: () => boolean }): CzmlPlayer {
 	let ov: OverlayHandle | null = null, tracks: PlayerTrack[] = [], ranged = false, popup: Popup | null = null;
+	const scene = createCzmlScene(map);
 	const self: CzmlPlayer = {
 		get tracks() { return tracks; },
+		get scene() { return scene; },
+		sceneOf: (features, baseUrl = null) => czmlSceneOf(features as never, { baseUrl, trackOf: f => trackOf(f) }),
 		// features＝geopbf の地物（時刻付き以外は無視）・packets＝CZML の生のパケット（clock を読む・GPX は null）。戻り＝軌跡の数
-		show(features, { packets = null } = {}) {
+		show(features, { packets = null, scene: sc = null } = {}) {
 			const list: PlayerTrack[] = [];
 			for (const f of features) { const tr = trackOf(f); if (tr) list.push({ ...tr, style: styleOf(f), description: f.properties?.description ?? null }); }
+			const nSc = sc ? sc.shapes.length + sc.lines.length + sc.models.length : 0;
+			if (!list.length && !nSc) { self.clear(); return 0; }
+			self.clear();
 			tracks = list;
-			if (!list.length) { self.clear(); return 0; }
 			ov ??= map.overlay({ builtin: "czml" }, { name: "czml" });
 			ov.post({ type: "tracks", tracks: list.map(({ description, ...tr }) => tr) });   // 説明は main に残す（吹き出し用）
+			if (sc) void scene.show(sc, lines => ov?.post({ type: "lines", lines }));
 			const ck = clockOfCzml(packets) || clockOfTracks(list);
 			if (ck) {
 				map.clock.setRange(ck.start, ck.end, ck.range);
 				ranged = true;
 				if (!keepUrlClock()) map.clock.setTime(ck.current).setStep(stepOfMultiplier(ck.multiplier));
 			}
-			return list.length;
+			return list.length + nSc - (sc ? sc.models.filter(m => m.track).length : 0);   // 動く模型は軌跡と同じ物＝二度数えない
 		},
 		clear() {
 			popup?.remove(); popup = null;
 			if (ov) ov.post({ type: "clear" });
+			scene.clear();
 			tracks = [];
 			if (ranged) { map.clock.clearRange(); ranged = false; }
 		},

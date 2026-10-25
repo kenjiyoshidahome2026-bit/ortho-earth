@@ -5,11 +5,12 @@
 //   3. packClip の K（f64 で引いてから f32）＋原点相対の位置（f32）で出した距離が、f64 の直の距離と mm で合う（東京駅・z17 の画面の範囲）
 //   4. 日付変更線を跨ぐ 2 点も短い方の中点で鉛直・面の枚数は 6 枚まで
 //   6. 段 4：対象ごとの面（群の配列・targets）・同一フレームのオーバーレイへ渡す uniform（clipPackOrigin）
+//   7. 多角形（P0 #4）：内側を消す（inverse で外側）・穴・GeoJSON・辺の間引き・packClip の pe/pn/pv（f32・原点相対）で出した距離が f64 と mm で合う
 //   5. 段 1：水平面（下を残す／上を残す・中心から 1 km で浮くのは 8 cm 程度）・箱（向きを回しても辺までの距離が幾何と合う・6 枚）・URL の書き方（?clip=）
 // 使い方: node packages/ortho-core/tests/clip.mjs
 import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.ts";
 import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.ts";
-import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS } from "../src/clip.ts";
+import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS, clipPolygon, clipPolygonFor, clipPolygonDistanceM, CLIP_POLY_MAX } from "../src/clip.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -96,6 +97,43 @@ console.log("― 段 4：対象ごとの面 ―");
 	const P = clipPlanesFor(n, "vector"), O = [139.71, 35.69], U = clipPackOrigin(P, O), Ok = lonlatTo3D(...O);
 	ok(U.length === (CLIP_MAX + 1) * 4 && U[CLIP_MAX * 4] === 1 && Math.abs(U[3] - (P[0][0] * Ok[0] + P[0][1] * Ok[1] + P[0][2] * Ok[2] - P[0][3])) < 1e-7, "オーバーレイへ渡す uniform（pl[6]＋p・K はその原点）");
 }
+
+// 7. 多角形（P0 #4）
+for (const ell of [false, true]) {
+	setEllipsoid(ell);
+	console.log(`― 多角形・${ell ? "楕円体" : "球"} ―`);
+	const lng0 = 139.7671, lat0 = 35.6812, dLng = 100 / (111320 * Math.cos(lat0 * Math.PI / 180)), dLat = 100 / 110950;
+	const sq = [[lng0 - dLng, lat0 - dLat], [lng0 + dLng, lat0 - dLat], [lng0 + dLng, lat0 + dLat], [lng0 - dLng, lat0 + dLat], [lng0 - dLng, lat0 - dLat]];
+	const pg = clipPolygon({ polygon: { type: "Polygon", coordinates: [sq] } });
+	ok(pg && pg.edges.length === 4 && !pg.inverse, "四角＝辺 4 本（閉じの重複は落とす）");
+	const dc = clipPolygonDistanceM(pg, lng0, lat0), de = clipPolygonDistanceM(pg, lng0 + dLng * 3, lat0);
+	ok(Math.abs(dc + 100) < 1.5 && Math.abs(de - 200) < 1.5, `内側は負（中心 ${dc.toFixed(2)}m）・外は正（東 300m で ${de.toFixed(2)}m）`);
+	const inv = clipPolygon({ polygon: [sq], inverse: true });
+	ok(Math.abs(clipPolygonDistanceM(inv, lng0, lat0) - 100) < 1.5 && clipPolygonDistanceM(inv, lng0 + dLng * 3, lat0) < 0, "inverse＝内側だけ残す");
+	const hole = clipPolygon({ polygon: { type: "Feature", geometry: { type: "Polygon", coordinates: [sq, sq.map(([x, y]) => [lng0 + (x - lng0) / 2, lat0 + (y - lat0) / 2])] } } });
+	ok(hole.edges.length === 8 && clipPolygonDistanceM(hole, lng0, lat0) > 40 && clipPolygonDistanceM(hole, lng0 + dLng * 0.75, lat0) < -20, "穴の中は残る・穴と外の輪の間は消える（Feature も読む）");
+	const circ = Array.from({ length: 200 }, (_, i) => [lng0 + dLng * Math.cos(i / 200 * 2 * Math.PI), lat0 + dLat * Math.sin(i / 200 * 2 * Math.PI)]);
+	const cg = clipPolygon({ polygon: [circ] });
+	ok(cg.edges.length <= CLIP_POLY_MAX && cg.edges.length >= 32 && clipPolygonDistanceM(cg, lng0, lat0) < -95, `辺が多い輪は間引く（${cg.edges.length} 本）`);
+	ok(clipPolygon({ polygon: { type: "Point", coordinates: [0, 0] } }) === null && clipPolygon({}) === null, "多角形が無い＝null");
+	ok(clipPolygonFor(normClip({ polygon: [sq], targets: ["models"] }), "terrain") === null && clipPolygonFor(normClip({ polygon: [sq], targets: ["models"] }), "models") !== null, "対象ごと（targets）");
+	// シェーダと同じ式（f32・原点相対）：polyXY(rel)＝(pe·rel + pe.w, pn·rel + pn.w)・polyD＝辺までの最短（偶奇で符号）
+	const Oo = lonlatTo3D(lng0 + dLng * 0.3, lat0 - dLat * 0.2), U = packClip([], Oo, undefined, undefined, pg), q = CLIP_MAX * 4 + 16;
+	ok(U[CLIP_MAX * 4 + 2] === 4 && U[CLIP_MAX * 4 + 3] === 0 && U.length === CLIP_F32, "packClip＝辺の数・inverse・長さ");
+	const polyD = (rel) => {
+		const x = f(f(U[q] * f(rel[0])) + f(U[q + 1] * f(rel[1])) + f(U[q + 2] * f(rel[2])) + U[q + 3]), y = f(f(U[q + 4] * f(rel[0])) + f(U[q + 5] * f(rel[1])) + f(U[q + 6] * f(rel[2])) + U[q + 7]);
+		let d2 = Infinity, ins = false;
+		for (let i = 0; i < U[CLIP_MAX * 4 + 2]; i++) { const [ax, ay, bx, by] = U.subarray(q + 8 + i * 4, q + 12 + i * 4); if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) ins = !ins; const vx = bx - ax, vy = by - ay, t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy))); d2 = Math.min(d2, (x - ax - t * vx) ** 2 + (y - ay - t * vy) ** 2); }
+		return (ins ? -1 : 1) * Math.sqrt(d2) * worldRadiusM();
+	};
+	let worst = 0;
+	for (const [lx, ly] of [[0, 0], [0.9, 0.3], [1.1, -0.5], [-2, 1.5], [0.5, 0.99]]) {
+		const P = lonlatTo3D(lng0 + dLng * lx, lat0 + dLat * ly), rel = [P[0] - Oo[0], P[1] - Oo[1], P[2] - Oo[2]];
+		worst = Math.max(worst, Math.abs(polyD(rel) - clipPolygonDistanceM(pg, lng0 + dLng * lx, lat0 + dLat * ly)));
+	}
+	ok(worst < 0.01, `シェーダの式（f32・原点相対）と f64 が合う（最大 ${(worst * 1000).toFixed(2)} mm）`);
+}
+setEllipsoid(false);
 
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }
 console.log("PASS clip");

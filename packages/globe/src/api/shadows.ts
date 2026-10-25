@@ -1,7 +1,7 @@
 // 日影（map.sunShadow）・影（map.setShadows）・切断（map.setClipping）・可視域と見通し線（map.viewshed／lineOfSight）・
 // 時計／撮影／QR／ホーム／印刷／閉じる等の gadget・POI 編集＝createGlobe から切り出した（globe.js の分割 ⑧・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
-import { clipDistanceM, clipPlanesFor, normClip } from "@ortho-earth/core/clip";
+import { clipDistanceM, clipPlanesFor, clipPolygonDistanceM, clipPolygonFor, normClip, type ClipPoly } from "@ortho-earth/core/clip";
 import { clockGadget } from "../gadgets/clock.ts";
 import { close as closeGadget } from "../gadgets/close.ts";
 import { createTileLoader } from "@ortho-earth/core/elevation";
@@ -89,17 +89,29 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	// map.setClipping(false | { vertical?: [[a, b]…], horizontal?: [{ at, h, keep }…], box?: { center, size, h, bearing }, planes?, cap?, edge? })
 	//   vertical＝2 点 a→b（[lon,lat]）を通る鉛直面（a→b に向かって右側を残す）・horizontal＝高さ h(m) の水平面（keep "below"＝既定／"above"）・
 	//   box＝箱の内側（center・size [幅, 奥行き] m・h [底, 天] m・bearing 度）。面は全部の交わり・6 枚まで。cap:false＝蓋なし・edge:false|{ width, color }＝縁の帯。
+	//   polygon＝多角形（GeoJSON か輪の列）の内側を消す・inverse:true＝内側だけ残す（Cesium の ClippingPolygon・P0 #4・2026-10-25）。面と一緒に使える（どちらかで消える所が消える）。注記は多角形では切らない（gint・基図の塗りと線・地形・建物・模型は切る）
 	// 切れる物＝地形（切り口に土の色の蓋）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は疑似の蓋）・模型/3D Tiles/I3S・gint・外部ベクタ・注記・
 	// 同一フレームのオーバーレイ（api.clip）。影は切った形で落ちる。日影図・可視域・見通し線（worker の計算）は切らない＝実物の地形と建物で測る。
 	// GL2 では何もしない（影と同じ扱い・本人裁定 2026-09-29）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
 	const clipFor = (t: string) => live.clipByT?.[t] ?? null;
+	const polyOf = new WeakMap<object, ClipPoly>();
+	// 点 (lon, lat, hM) が面か多角形で切られた側か
+	const cutAt = (pl: NonNullable<ReturnType<typeof clipFor>>, lon: number, lat: number, hM: number) => {
+		if (pl.length && clipDistanceM(pl, lon, lat, hM) < 0) return true;
+		const pg = polyOf.get(pl); return !!pg && clipPolygonDistanceM(pg, lon, lat) < 0;
+	};
 	map.setClipping = (o = false) => {
 		const v = Array.isArray(o) ? (o.length ? o.map(g => ({ ...g })) : null) : o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
 		const apply = () => {
 			if (v && live.renderBackend !== "webgpu") { console.warn("[clip] setClipping needs WebGPU (WebGL2 = no-op)"); return; }
 			const n = normClip(v);
 			live.clipSpec = n ? v : null;
-			live.clipByT = n ? Object.fromEntries(["terrain", "buildings", "models", "vector", "labels"].map(t => { const a = clipPlanesFor(n, t); return [t, a.length ? a : null]; })) : null;
+			// 多角形だけの対象も空でない印（空の面の列）を持つ＝識別・問い合わせの「切っているか」が効く。多角形は面の列に紐づけて引く（polyOf）
+			live.clipByT = n ? Object.fromEntries(["terrain", "buildings", "models", "vector", "labels"].map(t => {
+				const a = clipPlanesFor(n, t), pg = t === "labels" ? null : clipPolygonFor(n, t);
+				if (pg) polyOf.set(a, pg);
+				return [t, a.length || pg ? a : null];
+			})) : null;
 			live.clipMain = clipFor("vector");
 			renderer.set("clip", live.clipSpec || { on: false }); requestDraw(); onMove();
 		};
@@ -109,13 +121,13 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	dbgHost.__clip = (o: Parameters<ShadowsApi["setClipping"]>[0]) => map.setClipping(o);   // 検証窓
 	{ const q = new URLSearchParams(location.search).get("clip"); if (q) map.setClipping({ param: q }); }
 	// 画素 (x, y)（CSS px）の地面（海抜 0）が切られた側か＝識別・ホバー・問い合わせで外す
-	const clipCutXY = (x: number, y: number) => { if (!live.clipMain) return false; const ll = unprojectXY(x, y); return !!ll && clipDistanceM(live.clipMain, ll[0], ll[1], 0) < 0; };
+	const clipCutXY = (x: number, y: number) => { if (!live.clipMain) return false; const ll = unprojectXY(x, y); return !!ll && cutAt(live.clipMain, ll[0], ll[1], 0); };
 	// 地物の形が全部切られた側か（座標を最大 400 点だけ見る）＝箱の問い合わせと押し出しの当たりで外す
 	const clipAllCut: ShadowsReturn["clipAllCut"] = (g, hM = 0, pl = live.clipMain) => {
 		if (!pl || !g) return false;
 		const cs: number[][] = []; const walk = (c: Coords): void => { if (cs.length > 400) return; if (typeof c[0] === "number") cs.push(c as number[]); else for (const x of c) walk(x as Coords); };
 		walk((g.type === "GeometryCollection" ? g.geometries!.map(x => x.coordinates) : g.coordinates || []) as Coords);
-		return cs.length > 0 && cs.every(c => clipDistanceM(pl, c[0], c[1], hM) < 0);
+		return cs.length > 0 && cs.every(c => cutAt(pl, c[0], c[1], hM));
 	};
 	// ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
 	// map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）

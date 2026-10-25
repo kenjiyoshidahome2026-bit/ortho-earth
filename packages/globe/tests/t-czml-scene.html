@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- CZML の model・polyline・polygon（Cesium との機能差 P0 #5・2026-10-25）＝map.loadCZML（Cesium の CzmlDataSource.load）で fixtures/czml/scene.czml を読む。
+     ①数（面 2・高さのある線 1・模型 2・時刻つきの点 0）と document の clock ②押し出しの面（青・30 分まで）・地面の線（黄）を描く ③高さのある線（緑・1500m）はオーバーレイ
+     ④静止の模型＝四元数の向き（heading 90）・地面に置く ⑤動く模型＝時計で位置が進み、向きは進む向き（東＝heading 0） ⑥区間の外＝面が消える ⑦remove＝全部外す。WebGL2・WebGPU 共通。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-czml-scene</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const T = s => Date.parse("2026-01-01T00:00:00Z") + s * 1000;
+try {
+	const map = await createGlobe({ target: "#map", view: "#14.6/35.681/139.700/30t", chips: false, persistView: false, debugGlobals: true });
+	await new Promise(r => map.on("load", r));
+	const idle = () => new Promise(r => { map.once("idle", r); map.triggerRepaint?.(); });
+	const settle = async () => { await sleep(300); await Promise.race([idle(), sleep(8000)]); await sleep(400); };
+	const snap = async () => {
+		const s = await map.requestSnapshot(), r = s.render, d = new Uint8Array(r.base), w = r.w, h = r.h, k = w / 960;
+		return (px, py) => { const x = Math.round(px * k), y0 = Math.round(py * k), y = r.flip ? h - 1 - y0 : y0, i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+	};
+	const nearIn = (S, p, test, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(S(p[0] + dx, p[1] + dy))) return true; return false; };
+	const fmt = c => c.map(v => v.toFixed(0)).join("/");
+	const blue = c => c[2] > c[0] + 60 && c[2] > c[1] + 30, yellow = c => c[0] > 170 && c[1] > 150 && c[2] < 90, red = c => c[0] > 120 && c[0] > c[1] + 60 && c[0] > c[2] + 60;
+	const W = document.getElementById("map").clientWidth;
+	const grab = async () => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels("czml"); if (p && !p.error) return p; await sleep(250); } return null; };
+	const ovAt = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+	const ovNear = (p, q, test, r = 4) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(ovAt(p, q[0] + dx, q[1] + dy))) return true; return false; };
+	const ink = p => { let n = 0; if (p) for (let i = 3; i < p.data.length; i += 4) if (p.data[i] > 0) n++; return n; };
+	const green = c => c[3] > 150 && c[1] > 150 && c[0] < 90;
+
+	// ① 読む
+	const h = await map.loadCZML("./fixtures/czml/scene.czml", { fit: false });
+	ok("①数", h.tracks === 0 && h.shapes === 2 && h.lines === 1 && h.models === 2, `tracks ${h.tracks} shapes ${h.shapes} lines ${h.lines} models ${h.models}`);
+	ok("①clock", map.clock.rangeMode === "clamped" && map.clock.range[0] === T(0) && map.clock.range[1] === T(3600), `${map.clock.rangeMode} ${map.clock.range.map(v => new Date(v).toISOString().slice(11, 16))}`);
+	ok("①層", !!map.getLayer("__czml-ext") && !!map.getLayer("__czml-line"));
+	map.clock.setStep(0).setTime(T(600));
+	for (let i = 0; i < 60 && h.modelHandles.length < 2; i++) await sleep(250);
+	ok("①模型を読んだ", h.modelHandles.length === 2, `${h.modelHandles.length}`);
+	await settle();
+	// ② 面と地面の線
+	const S1 = await snap();
+	const pBlock = map.projectLL(139.707, 35.6775), pRoad = map.projectLL(139.695, 35.674);
+	ok("②押し出しの面（青）", nearIn(S1, pBlock, blue), fmt(S1(...pBlock)));
+	ok("②地面の線（黄）", nearIn(S1, pRoad, yellow, 4), fmt(S1(...pRoad)));
+	// ③ 高さのある線
+	const pj = map.makeProjectorH({ terrain: false }), [ax, ay] = pj(139.70, 35.677, 1500), P = await grab();
+	ok("③高さのある線（緑・オーバーレイ）", !!P && ovNear(P, [ax, ay], green), P ? `${ovAt(P, ax, ay).join(",")} at ${ax.toFixed(0)},${ay.toFixed(0)}` : "none");
+	// ④ 静止の模型
+	const byName = n => h.modelHandles.find(m => m.slot.startsWith(`czml:${n}:`));
+	const st = byName("statue"), car = byName("car"), tfS = st?.getTransform();
+	ok("④静止の模型：heading 90・その場・地面に置く", !!tfS && Math.abs(tfS.heading - 90) < 0.1 && Math.abs(tfS.at[0] - 139.70) < 1e-7 && Math.abs(tfS.at[1] - 35.68) < 1e-7 && tfS.altitude === 0, tfS ? `${tfS.heading.toFixed(2)} ${tfS.at.map(v => v.toFixed(5))} ${tfS.altitude}` : "none");
+	const pS = map.projectLL(139.70, 35.68);
+	ok("④静止の模型を描く（赤）", nearIn(S1, [pS[0], pS[1] - 3], red, 5), fmt(S1(pS[0], pS[1] - 3)));
+	// ⑤ 動く模型
+	const tf6 = car?.getTransform();
+	map.clock.setTime(T(1800)); await sleep(200);
+	const tf18 = car?.getTransform(), hd = v => ((v % 360) + 540) % 360 - 180;
+	ok("⑤動く模型：時計で東へ進む", !!tf6 && !!tf18 && Math.abs(tf6.at[0] - (139.69 + 0.02 * 600 / 3600)) < 1e-6 && Math.abs(tf18.at[0] - 139.70) < 1e-6 && Math.abs(tf18.at[1] - 35.684) < 1e-6, tf6 && tf18 ? `${tf6.at[0].toFixed(5)}→${tf18.at[0].toFixed(5)}` : "none");
+	ok("⑤動く模型：向き＝進む向き（heading 0）", !!tf18 && Math.abs(hd(tf18.heading)) < 0.1, tf18 ? tf18.heading.toFixed(3) : "none");
+	// ⑥ 区間の外＝面が消える
+	map.clock.setTime(T(2400)); await settle();
+	const S2 = await snap();
+	ok("⑥30 分を過ぎると面は消える・線は残る", !nearIn(S2, pBlock, blue, 1) && nearIn(S2, pRoad, yellow, 4), `${fmt(S2(...pBlock))} ${fmt(S2(...pRoad))}`);
+	// ⑦ 外す
+	h.remove(); await settle();
+	const Q = await grab();
+	ok("⑦remove：層・模型・線が消え、時計の範囲も外れる", !map.getLayer("__czml-ext") && h.modelHandles.length === 0 && ink(Q) === 0 && map.clock.rangeMode === null, `${!!map.getLayer("__czml-ext")} ${h.modelHandles.length} ink ${ink(Q)} ${map.clock.rangeMode}`);
+	// ⑧ 配列（packet）でも読める・模型の相対 URI はこの頁から
+	const pk = await (await fetch("./fixtures/czml/scene.czml")).json();
+	const h2 = await map.loadCZML(pk.filter(p => p.id !== "statue" && p.id !== "car"), { fit: false });
+	ok("⑧packet の配列", h2.shapes === 2 && h2.lines === 1 && h2.models === 0, `${h2.shapes} ${h2.lines} ${h2.models}`);
+	h2.remove();
+} catch (e) { t.push("NG:例外(" + (e && e.stack || e) + ")"); }
+document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>
