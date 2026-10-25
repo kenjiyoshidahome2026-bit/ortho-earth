@@ -92,7 +92,7 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	//   polygon＝多角形（GeoJSON か輪の列）の内側を消す・inverse:true＝内側だけ残す（Cesium の ClippingPolygon・P0 #4・2026-10-25）。面と一緒に使える（どちらかで消える所が消える）。注記は多角形では切らない（gint・基図の塗りと線・地形・建物・模型は切る）
 	// 切れる物＝地形（切り口に土の色の蓋）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は疑似の蓋）・模型/3D Tiles/I3S・gint・外部ベクタ・注記・
 	// 同一フレームのオーバーレイ（api.clip）。影は切った形で落ちる。日影図・可視域・見通し線（worker の計算）は切らない＝実物の地形と建物で測る。
-	// GL2 では何もしない（影と同じ扱い・本人裁定 2026-09-29）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
+	// WebGL2 も切る（P0 #3・2026-10-25＝旧 2026-09-29 裁定「GL2 は何もしない」を Cesium との機能差の計画で改めた）＝地形・床・建物・メッシュ・模型・基図の塗りと線。gint の層とオーバーレイは WebGPU だけ（段を分けて足す）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
 	const clipFor = (t: string) => live.clipByT?.[t] ?? null;
 	const polyOf = new WeakMap<object, ClipPoly>();
 	// 点 (lon, lat, hM) が面か多角形で切られた側か
@@ -103,7 +103,6 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	map.setClipping = (o = false) => {
 		const v = Array.isArray(o) ? (o.length ? o.map(g => ({ ...g })) : null) : o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
 		const apply = () => {
-			if (v && live.renderBackend !== "webgpu") { console.warn("[clip] setClipping needs WebGPU (WebGL2 = no-op)"); return; }
 			const n = normClip(v);
 			live.clipSpec = n ? v : null;
 			// 多角形だけの対象も空でない印（空の面の列）を持つ＝識別・問い合わせの「切っているか」が効く。多角形は面の列に紐づけて引く（polyOf）

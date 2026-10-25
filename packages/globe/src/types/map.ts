@@ -461,7 +461,7 @@ export interface ShadowsApi {
 	 *  識別・ホバー・queryRenderedFeatures も切られた側を返さない（押し出しは足元が全部切られた物だけ外す）。日影図・可視域・見通し線は切らない（実物で測る）。
 	 *  対象ごとの面：配列で群を並べ、群ごとに targets（ClipTarget）を指定できる（例：[{ box, targets: ["terrain"] }, { horizontal, targets: ["buildings", "models"] }]＝地形は箱・建物は水平面）。
 	 *  対象ごとに 6 枚まで・targets 省略＝全部・蓋と縁の帯は最初に cap／edge を書いた群の値。
-	 *  false で消す（消している間は描画に一切関与しない）。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影と同じ扱い）。URL の ?clip=（lon1,lat1,lon2,lat2／h:lon,lat,高さ[,above]／box:lon,lat,幅,奥行き[,底,天[,向き]]・; で重ねる） */
+	 *  false で消す（消している間は描画に一切関与しない）。WebGL2 でも切る（P0 #3・地形と蓋・球の床・基図の塗りと線と押し出し・建物メッシュと疑似の蓋・模型／3D Tiles。gint の層・外部ベクタ・オーバーレイ・影は WebGPU だけ）。URL の ?clip=（lon1,lat1,lon2,lat2／h:lon,lat,高さ[,above]／box:lon,lat,幅,奥行き[,底,天[,向き]]・; で重ねる） */
 	setClipping(opts?: false | ClipOptions | ClipOptions[]): void;   // api/shadows.ts:78
 	/** 今の切り方（setClipping に渡した物の写し）・切っていなければ null（1.7.0〜・#111） */
 	getClipping(): ClipOptions | ClipOptions[] | null;   // api/shadows.ts:90
