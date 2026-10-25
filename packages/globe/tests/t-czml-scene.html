@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- CZML の model・polyline・polygon（Cesium との機能差 P0 #5・2026-10-25）＝map.loadCZML（Cesium の CzmlDataSource.load）で fixtures/czml/scene.czml を読む。
      ①数（面 2・高さのある線 1・模型 2・時刻つきの点 0）と document の clock ②押し出しの面（青・30 分まで）・地面の線（黄）を描く ③高さのある線（緑・1500m）はオーバーレイ
-     ④静止の模型＝四元数の向き（heading 90）・地面に置く ⑤動く模型＝時計で位置が進み、向きは進む向き（東＝heading 0） ⑥区間の外＝面が消える ⑦remove＝全部外す。WebGL2・WebGPU 共通。 -->
+     ④静止の模型＝四元数の向き（heading 0）・地面に置く ⑤動く模型＝時計で位置が進み、向きは進む向き（東＝heading −90）
+     heading＝Cesium の前（glTF の +Z・forwardAxis Z）の方位 − 180（ortho の模型は heading 0 で glTF の +Z が南・#677 の 23ccbd8 で − 90 から改めた＝tests/czml-scene.mjs と同じ）。
+     箱は glTF の +X に長い 80m＝静止の模型（前が南）は東西に寝る ⑥区間の外＝面が消える ⑦remove＝全部外す。WebGL2・WebGPU 共通。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-czml-scene</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -47,17 +49,19 @@ try {
 	const pj = map.makeProjectorH({ terrain: false }), [ax, ay] = pj(139.70, 35.677, 1500), P = await grab();
 	ok("③高さのある線（緑・オーバーレイ）", !!P && ovNear(P, [ax, ay], green), P ? `${ovAt(P, ax, ay).join(",")} at ${ax.toFixed(0)},${ay.toFixed(0)}` : "none");
 	// ④ 静止の模型
+	const hd = v => ((v % 360) + 540) % 360 - 180;   // −180〜180 に畳む
 	const byName = n => h.modelHandles.find(m => m.slot.startsWith(`czml:${n}:`));
 	const st = byName("statue"), car = byName("car"), tfS = st?.getTransform();
-	ok("④静止の模型：heading 90・その場・地面に置く", !!tfS && Math.abs(tfS.heading - 90) < 0.1 && Math.abs(tfS.at[0] - 139.70) < 1e-7 && Math.abs(tfS.at[1] - 35.68) < 1e-7 && tfS.altitude === 0, tfS ? `${tfS.heading.toFixed(2)} ${tfS.at.map(v => v.toFixed(5))} ${tfS.altitude}` : "none");
-	const pS = map.projectLL(139.70, 35.68);
-	ok("④静止の模型を描く（赤）", nearIn(S1, [pS[0], pS[1] - 3], red, 5), fmt(S1(pS[0], pS[1] - 3)));
+	ok("④静止の模型：heading 0・その場・地面に置く", !!tfS && Math.abs(hd(tfS.heading)) < 0.1 && Math.abs(tfS.at[0] - 139.70) < 1e-7 && Math.abs(tfS.at[1] - 35.68) < 1e-7 && tfS.altitude === 0, tfS ? `${tfS.heading.toFixed(2)} ${tfS.at.map(v => v.toFixed(5))} ${tfS.altitude}` : "none");
+	// 箱は東西に 80m（±40m）・南北は 12m しかない＝錨の点と東西 ±20m（経度 ±0.00022°）のどれかに赤があれば描けている
+	const pS = map.projectLL(139.70, 35.68), pSs = [pS, map.projectLL(139.69978, 35.68), map.projectLL(139.70022, 35.68)];
+	ok("④静止の模型を描く（赤）", pSs.some(p => nearIn(S1, [p[0], p[1] - 2], red, 4)), pSs.map(p => fmt(S1(p[0], p[1] - 2))).join(" "));
 	// ⑤ 動く模型
 	const tf6 = car?.getTransform();
 	map.clock.setTime(T(1800)); await sleep(200);
-	const tf18 = car?.getTransform(), hd = v => ((v % 360) + 540) % 360 - 180;
+	const tf18 = car?.getTransform();
 	ok("⑤動く模型：時計で東へ進む", !!tf6 && !!tf18 && Math.abs(tf6.at[0] - (139.69 + 0.02 * 600 / 3600)) < 1e-6 && Math.abs(tf18.at[0] - 139.70) < 1e-6 && Math.abs(tf18.at[1] - 35.684) < 1e-6, tf6 && tf18 ? `${tf6.at[0].toFixed(5)}→${tf18.at[0].toFixed(5)}` : "none");
-	ok("⑤動く模型：向き＝進む向き（heading 0）", !!tf18 && Math.abs(hd(tf18.heading)) < 0.1, tf18 ? tf18.heading.toFixed(3) : "none");
+	ok("⑤動く模型：向き＝進む向き（heading −90）", !!tf18 && Math.abs(hd(tf18.heading) + 90) < 0.1, tf18 ? tf18.heading.toFixed(3) : "none");
 	// ⑥ 区間の外＝面が消える
 	map.clock.setTime(T(2400)); await settle();
 	const S2 = await snap();
