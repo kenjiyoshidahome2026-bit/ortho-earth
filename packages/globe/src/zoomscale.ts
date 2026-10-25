@@ -91,7 +91,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	overlay: "engine",   // worker の overlay 契約の cam はエンジン z
 	// deck.gl 差分（PR-1〜8・2026-10-11〜12）：overlay の統一 picking・H3・three.js・addData・セル／等高線／画面格子／集約・custom 層の口・後処理。座標は lon/lat・画素＝z の換算なし
 	pickOverlays: "none", addThree: "none", addH3: "none", addData: "none", addCells: "none", addContour: "none", addScreenGrid: "none", addAggregate: "none", getCustomLayerHandle: "none",
-	setPostProcess: "none", getPostProcess: "none",
+	setPostProcess: "none", getPostProcess: "none", setGrade: "none", getGrade: "none", setCityLights: "none", getCityLights: "none",
 	// plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12）＝zoom を運ばない（plugin の install は素の map を受ける＝地域パックと同じ）
 	use: "none", unuse: "none", plugins: "none", registry: "none", supports: "none", capabilities: "none",
 	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない

@@ -2667,10 +2667,34 @@ let postCur: ReturnType<typeof normPostChain>["post"] = null, postChain: ReturnT
 // 後処理の鎖（第 2 波 F3・2026-10-12・src/postchain.js）：map.setPostChain([{ type:"bloom"|"vignette"|"fxaa"|"smaa"|"tonemap"|"lut"|"dof"|"ssr"|<plugin>, ... }])／getPostChain()。
 //   描くのは bloom・vignette（従来の "post"）と fxaa・tonemap・lut（第 3 波 W1・2026-10-12・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は受けて保つだけ（capabilities "spec"）。plugin の type は registry.postEffects の { apply(map, passes) } が setPostChain のたびに呼ばれる。
 //   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette に写る（getPostProcess の形は不変・fxaa/tonemap/lut の鍵は on の時だけ生える）
+// 夜の色と街明かり（2026-10-24・動画の夜景）：map.setGrade([r, g, b] 0..255 | null, { glow })＝本体の絵に乗算（夕景・夜の色）・glow＝灯りの滲み（bloom の強さ・鎖に bloom が無い時だけ）／
+//   map.setCityLights(true | false | 0..1)＝建物メッシュ（PLATEAU など）の壁に窓の明かり（夜の度合い＝太陽高度で自動＝夕方に点き始めて夜に満ちる）。
+//   窓の明かりは grade に暗くされない（建物メッシュが canvas の α に窓の印を書き、後処理が読む）。WebGPU だけ＝戻り true（WebGL2 は何もせず false＝呼び手が自前の色板で代える）
+let gradeCur: { rgb: number[]; glow: number } | null = null;
+const sendPost = () => {
+	if (!gradeCur) { renderer.set("post", postCur); return; }
+	const base = postCur ?? { bloom: null, vignette: null };
+	const bloom = base.bloom ?? (gradeCur.glow > 0 ? { threshold: 0.6, strength: gradeCur.glow, radius: 1.5 } : null);
+	renderer.set("post", { ...base, bloom, grade: gradeCur.rgb });
+};
+map.setGrade = (rgb, o) => {
+	const ok = renderBackend === "webgpu";
+	const g = ok && Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(v => Number.isFinite(+v)) ? { rgb: rgb.slice(0, 3).map(v => Math.min(1, Math.max(0, +v / 255))), glow: Math.min(4, Math.max(0, +(o?.glow ?? 0) || 0)) } : null;
+	if (JSON.stringify(g) !== JSON.stringify(gradeCur)) { gradeCur = g; sendPost(); requestDraw(); }
+	return ok;
+};
+map.getGrade = () => (gradeCur ? gradeCur.rgb.map(v => Math.round(v * 255)) : null);
+let cityLightsCur = 0;
+map.setCityLights = (v = true) => {
+	const ok = renderBackend === "webgpu", k = !ok ? 0 : v === true ? 1 : v === false || v == null ? 0 : Math.min(1, Math.max(0, +v || 0));
+	if (k !== cityLightsCur) { cityLightsCur = k; renderer.set("cityLights", k); requestDraw(); }
+	return ok;
+};
+map.getCityLights = () => cityLightsCur;
 const applyPostChain = (chain: unknown) => {
 	const reg = pluginHost.registry.postEffects;
 	const r = normPostChain(chain, t => reg.has(t) && !POST_TYPES.includes(t));
-	postChain = r.passes; postCur = r.post; renderer.set("post", postCur);
+	postChain = r.passes; postCur = r.post; sendPost();
 	for (const t of reg.names()) if (!POST_TYPES.includes(t)) { try { reg.get(t)!.apply(map, postChain.filter(x => x.type === t)); } catch (e) { console.warn(`[post] ${t}: apply failed`, e); } }
 	requestDraw(); return map;
 };

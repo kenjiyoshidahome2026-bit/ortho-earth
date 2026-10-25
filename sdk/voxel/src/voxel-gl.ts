@@ -3,7 +3,8 @@
 // 一つの map の全部の層を一つのオーバーレイ＝一つの WebGL 文脈で描く（render worker の文脈は Chrome で 4 つまで）。当たりの答えに layer: q（本体の addLayerId と組む）。
 // message { type:"layer", q, shape, dims, comps, tex（R8 か RGBA8）, cmap（256×RGBA8）, anchor:[lng,lat,alt], alt, A: Float64Array(9)（セル → 東北上 m・行優先）, radius（m）, geo?（region＝殻・経緯度の枠・セルの大きさ）,
 //           mode: 0（blocks）|1（volume）|2（iso）, thr（0〜1）, step（セル）, opacity, clip?（[x0,x1,y0,y1,z0,z1] 割合）, depthTest, properties?, range, on }
-//         ／{ type:"style", q, …（mode・thr・step・opacity・clip・depthTest・cmap のどれか）}／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }／{ type:"probe", id }（検定）
+//         ／{ type:"style", q, …（mode・thr・step・opacity・clip・depthTest・cmap・frame のどれか）}／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"clear" }／{ type:"budget", bytes }／{ type:"probe", id }（検定）
+// GPU の予算（第 5 段 ③）＝テクスチャは描く層の、描く段の、見せるこまの一枚だけ（他のこま・段は CPU に持ち、要る時に上げる）。予算を越えれば遠い層から粗い段（lods）へ（planLevels）、描かない層のテクスチャは捨てる。
 // 描き方＝格子を包む箱（box＝セル空間 [0, dims]・region＝経緯度高の殻を東北上 m に）の裏面（cullFace FRONT＝目が中でも描ける）を描き、FS で目からの光線を辿る：
 //   box の blocks＝DDA（Amanatides–Woo）で最初の空でないセルに止まり、面の法線で陰影。region の blocks＝一定の刻みで最近傍のセルを見る（セルの境界が経線・緯線・等高度面＝DDA は使えない・刻みはセルの 1/4）。
 //   volume＝一定の刻みで三線形に引き、色表の色と α を前から重ねる（α が 0.98 を越えたら打ち切り）。iso＝値が閾を跨いだ所を二分探索で詰め、勾配を法線に。
@@ -12,7 +13,7 @@
 // 当たり＝止まったセルの番号を RGBA8 に焼く別パス（volume は積算の α が 0.5 を越えたセル）・読む画素だけ scissor。
 // 精度＝目の位置（セル空間／東北上 m）と箱の mvp は CPU の倍精度で作る（RTE・splat と同じ）。
 import type { OverlayFrameApi } from "@ortho-earth/globe";
-import type { GeoGrid, Clip } from "./grid.ts";
+import type { GeoGrid, Clip, Level } from "./grid.ts";
 
 type GL = WebGL2RenderingContext;
 interface Program { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> }
@@ -22,8 +23,9 @@ export type VoxelApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { 
 export interface PickContext { s: CamState; api: VoxelApi; size: { w: number; h: number } }
 export type VoxelAltitude = "relative" | "absolute";
 export interface VoxelStyle { /** 見せるこま（時間の次元・frames の番号） */ frame?: number; mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
-export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとのテクスチャ（frames[0]＝tex）。style の frame で選ぶ（上げ直さない） */ frames?: Uint8Array[] | null; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
-export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
+export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとの値（frames[0]＝tex）。style の frame で選ぶ（GPU には見せるこまだけ） */ frames?: Uint8Array[] | null; /** 粗い段（s＝2, 4…）＝GPU の予算を越える時に遠い層で使う */ lods?: LevelBody[] | null; shape: "box" | "region"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
+export type LevelBody = Pick<Level, "s" | "off" | "own" | "dims" | "tex" | "frames" | "vmax" | "anchor" | "A" | "radius" | "geo">;
+export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "budget"; bytes: number } | { type: "probe"; id: unknown };
 export interface VoxelPickResult { id: number; q: string; layer: string; index: number; cell: [number, number, number]; value: number | null; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number; cell: [number, number, number]; value: number | null } }
 export interface EnuBasis { E: number[]; N: number[]; U: number[]; u: number[] }
 
@@ -177,9 +179,14 @@ interface Layer {
 	tex: WebGLTexture; cmap: WebGLTexture; on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array;
 	geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
-	/** こまごとのテクスチャ（一つなら [tex]）・見せているこま */ texs: WebGLTexture[]; frame: number;
+	/** 見せているこま・段（levels の番号）・その段の倍率・段（0＝元の格子）・元のセルの大きさ（m・遠さの尺）・元の格子の dims（当たりと断面） */ frame: number; lv: number; s: number; levels: Lvl[]; cell: number; fullFine: [number, number, number];
 }
-let glc: GL | null = null, host: OverlayHost | null = null, prog: Program | null = null, pickProg: Program | null = null, boxVao: WebGLVertexArrayObject | null = null, wantDepth = false, dummyTex: WebGLTexture | null = null, max3d = 256;
+/** 一つの段＝置き方と CPU の値（こまごと）と、GPU に上げた一枚（無ければ null・up＝上げたこま） */
+interface Lvl {
+	s: number; dims: [number, number, number]; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; anchor: [number, number, number]; A: Float64Array; Ainv: Float64Array; radius: number;
+	nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number; frames: Uint8Array[]; tex: WebGLTexture | null; up: number; bytes: number;
+}
+let budget = Infinity, glc: GL | null = null, host: OverlayHost | null = null, prog: Program | null = null, pickProg: Program | null = null, boxVao: WebGLVertexArrayObject | null = null, wantDepth = false, dummyTex: WebGLTexture | null = null, max3d = 256;
 let pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
 const layers = new Map<string, Layer>(), probes: unknown[] = [];
 const R_SPHERE = 6371000, R_ELL = 6378137, D2R = Math.PI / 180;
@@ -236,38 +243,87 @@ export function normalMats(A: Float64Array, Ainv: Float64Array): { nrm: Float32A
 	return { nrm, gradM };
 }
 const upCmap = (t: WebGLTexture, cmap: Uint8Array): void => { const gl = glc!; gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, cmap); gl.bindTexture(gl.TEXTURE_2D, null); };
-function build(d: VoxelLayerBody): Layer {
-	const gl = glc!;
-	const [nx, ny, nz] = d.dims;
-	if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`voxel: dims ${d.dims.join("×")} exceed MAX_3D_TEXTURE_SIZE ${max3d}`);
-	const mk = (data: Uint8Array): WebGLTexture => {
-		const tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_3D, tex);
-		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-		if (d.comps === 4) gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, nx, ny, nz, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-		else gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, nx, ny, nz, 0, gl.RED, gl.UNSIGNED_BYTE, data);
-		for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, p, v);
-		gl.bindTexture(gl.TEXTURE_3D, null);
-		return tex;
-	};
-	const texs = (d.frames?.length ? d.frames : [d.tex]).map(mk), frame = Math.min(texs.length - 1, Math.max(0, d.frame ?? 0)), tex = texs[frame];
-	const cmap = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, cmap);
-	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
-	upCmap(cmap, d.cmap);
-	const A = Float64Array.from(d.A as ArrayLike<number>), Ainv = inv3(A), { nrm, gradM } = normalMats(A, Ainv);
+/** 元のセルの大きさ（m）＝box は A の列の短い方・region は cellM の短い方 */
+export const cellOf = (A: ArrayLike<number>, geo: GeoGrid | null): number => geo ? Math.min(...geo.cellM) : Math.min(...[0, 1, 2].map(c => Math.hypot(A[c], A[3 + c], A[6 + c])));
+function mkLvl(b: LevelBody, comps: 1 | 4, region: boolean, single: boolean): Lvl {
+	const gl = glc!, [nx, ny, nz] = b.dims;
+	if (nx > max3d || ny > max3d || nz > max3d) throw new Error(`voxel: dims ${b.dims.join("×")} exceed MAX_3D_TEXTURE_SIZE ${max3d}`);
+	const A = Float64Array.from(b.A as ArrayLike<number>), Ainv = inv3(A), { nrm, gradM } = normalMats(A, Ainv);
 	let vao: WebGLVertexArrayObject | null = null, vb: WebGLBuffer | null = null, nVerts = 36;
-	const geo = d.shape === "region" ? d.geo ?? null : null;
+	const geo = region ? b.geo ?? null : null;
 	if (geo) {   // region＝殻（東北上 m）
 		vao = gl.createVertexArray(); gl.bindVertexArray(vao);
 		vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, geo.shell, gl.STATIC_DRAW);
 		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 		gl.bindVertexArray(null); nVerts = geo.shell.length / 3;
 	}
-	return { shape: geo ? "region" : "box", dims: [nx, ny, nz], comps: d.comps, n: nx * ny * nz, anchor: d.anchor, alt: d.alt || "relative", A, Ainv, radius: d.radius || 0, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range, tex, cmap, on: d.on !== false, base: 0, dist: 0, nrm, gradM, geo, vao, vb, nVerts, layer: d.layer ?? null, off: d.off ?? null, own: d.own ?? null, full: d.full ?? null, vmax: d.vmax ?? 255, texs, frame };
+	const frames = b.frames?.length ? b.frames : [b.tex];
+	return { s: b.s, dims: [nx, ny, nz], off: single ? null : b.off, own: single ? null : b.own, anchor: b.anchor, A, Ainv, radius: b.radius || 0, nrm, gradM, geo, vao, vb, nVerts, frames, tex: null, up: -1, bytes: nx * ny * nz * comps };
 }
-const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; for (const t of L.texs) gl.deleteTexture(t); gl.deleteTexture(L.cmap); if (L.vb) gl.deleteBuffer(L.vb); if (L.vao) gl.deleteVertexArray(L.vao); };
+/** 段 i を層の「いま」にする（置き方・範囲・殻） */
+function useLevel(L: Layer, i: number): void {
+	const V = L.levels[i]; L.lv = i; L.s = V.s;
+	L.dims = V.dims; L.off = V.off; L.own = V.own; L.anchor = V.anchor; L.A = V.A; L.Ainv = V.Ainv; L.radius = V.radius; L.nrm = V.nrm; L.gradM = V.gradM; L.geo = V.geo; L.vao = V.vao; L.vb = V.vb; L.nVerts = V.nVerts;
+	L.full = V.off ? L.fullFine : null;
+}
+/** いまの段の、見せるこまを GPU に（無ければ作る・こまが違えば上げ直す） */
+function ensure(L: Layer): void {
+	const gl = glc!, V = L.levels[L.lv], f = Math.min(V.frames.length - 1, Math.max(0, L.frame)), [nx, ny, nz] = V.dims, data = V.frames[f];
+	gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+	if (!V.tex) {
+		V.tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_3D, V.tex);
+		if (L.comps === 4) gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, nx, ny, nz, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+		else gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, nx, ny, nz, 0, gl.RED, gl.UNSIGNED_BYTE, data);
+		for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, p, v);
+		gl.bindTexture(gl.TEXTURE_3D, null); V.up = f;
+	} else if (V.up !== f) {
+		gl.bindTexture(gl.TEXTURE_3D, V.tex);
+		gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, nx, ny, nz, L.comps === 4 ? gl.RGBA : gl.RED, gl.UNSIGNED_BYTE, data);
+		gl.bindTexture(gl.TEXTURE_3D, null); V.up = f;
+	}
+	L.tex = V.tex;
+}
+const freeTex = (V: Lvl): void => { if (V.tex) { glc!.deleteTexture(V.tex); V.tex = null; V.up = -1; } };
+function build(d: VoxelLayerBody): Layer {
+	const gl = glc!, region = d.shape === "region", single = !d.off;
+	const levels = [mkLvl({ s: 1, off: d.off ?? [0, 0, 0], own: d.own ?? [0, 0, 0, ...d.dims], dims: d.dims, tex: d.tex, frames: d.frames ?? null, vmax: d.vmax ?? 255, anchor: d.anchor, A: d.A as Float64Array, radius: d.radius, geo: d.geo ?? null }, d.comps, region, single), ...(d.lods ?? []).map(b => mkLvl(b, d.comps, region, false))];
+	const cmap = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, cmap);
+	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
+	upCmap(cmap, d.cmap);
+	const V = levels[0], fullFine = d.full ?? d.dims;
+	const L: Layer = { shape: region ? "region" : "box", dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+		tex: null as unknown as WebGLTexture, cmap, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, vao: V.vao, vb: V.vb, nVerts: V.nVerts, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
+		frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
+	useLevel(L, 0);
+	return L;
+}
+const drop = (L: Layer | undefined): void => { if (!L) return; const gl = glc!; for (const V of L.levels) { freeTex(V); if (V.vb) gl.deleteBuffer(V.vb); if (V.vao) gl.deleteVertexArray(V.vao); } gl.deleteTexture(L.cmap); };
+/** LoD の割り振り（第 5 段 ③）＝予算（bytes）に収まる中で一番細かく。遠い（元のセルが小さく見える）層から粗く：
+ *  lv_i = clamp(floor(x + log2(dist_i / cell_i)), 0, 段の数 − 1) の x を二分で（x が大きいほど粗い・合計は x に単調）。一番粗くしても越えるなら全部一番粗く */
+export function planLevels(items: ReadonlyArray<{ dist: number; cell: number; bytes: readonly number[] }>, budget: number): number[] {
+	if (!items.length) return [];
+	const g = items.map(it => Math.log2(Math.max(1e-9, it.dist) / Math.max(1e-9, it.cell)));
+	const at = (x: number): number[] => items.map((it, i) => Math.min(it.bytes.length - 1, Math.max(0, Math.floor(x + g[i]))));
+	const total = (lv: number[]): number => lv.reduce((a, l, i) => a + items[i].bytes[l], 0);
+	let lo = -Math.max(...g) - 1, hi = -Math.min(...g) + 9;   // lo＝全部 0・hi＝全部一番粗い
+	const fine = at(lo); if (total(fine) <= budget) return fine;
+	const coarse = at(hi); if (total(coarse) > budget) return coarse;
+	for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (total(at(m)) <= budget) hi = m; else lo = m; }
+	return at(hi);
+}
+/** 描く層の段を決めてテクスチャを揃え、予算を越えれば描かない層のテクスチャを捨てる */
+function settle(vis: Layer[]): void {
+	const lv = planLevels(vis.map(L => ({ dist: L.dist, cell: L.cell, bytes: L.levels.map(V => V.bytes) })), budget);
+	vis.forEach((L, i) => { if (L.lv !== lv[i]) useLevel(L, lv[i]); L.levels.forEach((V, k) => { if (k !== L.lv) freeTex(V); }); ensure(L); });
+	let used = 0; for (const L of layers.values()) for (const V of L.levels) if (V.tex) used += V.bytes;
+	if (used <= budget) return;
+	const on = new Set(vis);
+	for (const L of layers.values()) { if (on.has(L)) continue; for (const V of L.levels) if (V.tex) { used -= V.bytes; freeTex(V); } if (used <= budget) return; }
+}
 function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 export function message(d: VoxelMessage): void {
 	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
+	if (d.type === "budget" && !glc) { budget = d.bytes > 0 ? d.bytes : Infinity; return; }
 	if (!glc) return;
 	if (d.type === "layer") {
 		drop(layers.get(d.q)); layers.delete(d.q);
@@ -276,7 +332,7 @@ export function message(d: VoxelMessage): void {
 	}
 	else if (d.type === "style") {
 		const L = layers.get(d.q); if (!L) return;
-		if (d.frame != null && L.texs.length > 1) { L.frame = Math.min(L.texs.length - 1, Math.max(0, d.frame)); L.tex = L.texs[L.frame]; }
+		if (d.frame != null) L.frame = Math.max(0, d.frame);   // 次に描く時に上げ直す（ensure）
 		if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
 		if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
 		if (d.cmap) upCmap(L.cmap, d.cmap);
@@ -285,6 +341,7 @@ export function message(d: VoxelMessage): void {
 	else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); host?.requestDraw?.(); }
 	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; host?.requestDraw?.(); }
 	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); host?.requestDraw?.(); }
+	else if (d.type === "budget") { budget = d.bytes > 0 ? d.bytes : Infinity; host?.requestDraw?.(); }
 }
 // 層の mvp（box＝セル空間 → clip＝mvp × [E N U o] × A・region＝東北上 m → clip）と、目の位置（同じ空間）。倍精度で掛けてから f32
 const mvpL = new Float64Array(16), mvpC = new Float32Array(16), eyeC = new Float32Array(3), geoU = { o: new Float32Array(3), E: new Float32Array(3), N: new Float32Array(3), U: new Float32Array(3), R: 0, rAx: 1 };
@@ -331,11 +388,11 @@ export function stepsOf(L: { shape: "box" | "region"; dims: [number, number, num
 }
 /** 断面 → セル空間の範囲 */
 export const clipBounds = (dims: [number, number, number], clip: Clip | null): { lo: number[]; hi: number[] } => ({ lo: [0, 1, 2].map(i => (clip ? clip[i * 2] : 0) * dims[i]), hi: [0, 1, 2].map(i => (clip ? clip[i * 2 + 1] : 1) * dims[i]) });
-type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null };
-/** 描く範囲（テクスチャのセル座標）＝断面（親の割合）と持ち分の交わり。空なら null（そのブリックは描かない） */
+type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; s?: number };
+/** 描く範囲（テクスチャのセル座標）＝断面（親の割合）と持ち分の交わり。空なら null（そのブリックは描かない）。粗い段（s）は親もその段のセルで測る */
 export function drawBounds(L: BrickLike): { lo: number[]; hi: number[] } | null {
 	if (!L.full || !L.off || !L.own) return clipBounds(L.dims, L.clip);
-	const c = clipBounds(L.full, L.clip), lo = [0, 1, 2].map(i => Math.max(L.own![i], c.lo[i] - L.off![i])), hi = [0, 1, 2].map(i => Math.min(L.own![3 + i], c.hi[i] - L.off![i]));
+	const s = L.s ?? 1, c = clipBounds([L.full[0] / s, L.full[1] / s, L.full[2] / s], L.clip), lo = [0, 1, 2].map(i => Math.max(L.own![i], c.lo[i] - L.off![i])), hi = [0, 1, 2].map(i => Math.min(L.own![3 + i], c.hi[i] - L.off![i]));
 	return lo.every((v, i) => v < hi[i]) ? { lo, hi } : null;
 }
 /** 閾より下しか無い層（ブリック）＝描かない（vmax＝R8 の 0〜255。RGBA は α 0 の時だけ） */
@@ -347,11 +404,12 @@ export function centerDist(L: { dims: [number, number, number]; A: ArrayLike<num
 	else { const o = L.off ?? [0, 0, 0], m = [0, 1, 2].map(i => o[i] + L.dims[i] / 2), A = L.A; c = [0, 1, 2].map(r => A[r * 3] * m[0] + A[r * 3 + 1] * m[1] + A[r * 3 + 2] * m[2]); }
 	return Math.hypot(enu[0] - c[0], enu[1] - c[1], enu[2] - c[2]);
 }
-/** 当たり（層の中の番号）→ 親の層の id・番号・セル（ブリックは off と full で戻す） */
-export function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null }, index: number): { layer: string; index: number; cell: [number, number, number] } {
+/** 当たり（層の中の番号）→ 親の層の id・番号・セル（ブリックは off と full で戻す・粗い段は元のセルの真ん中へ） */
+export function pickedCell(q: string, L: { layer: string | null; dims: [number, number, number]; off: [number, number, number] | null; full: [number, number, number] | null; s?: number }, index: number): { layer: string; index: number; cell: [number, number, number] } {
 	const [nx, ny] = L.dims, i = index % nx, j = Math.floor(index / nx) % ny, k = Math.floor(index / (nx * ny));
 	if (!L.off || !L.full) return { layer: L.layer ?? q, index, cell: [i, j, k] };
-	const cell: [number, number, number] = [i + L.off[0], j + L.off[1], k + L.off[2]];
+	const s = L.s ?? 1, f = (v: number, a: number): number => s === 1 ? v : Math.min(L.full![a] - 1, Math.floor((v + 0.5) * s));
+	const cell: [number, number, number] = [f(i + L.off[0], 0), f(j + L.off[1], 1), f(k + L.off[2], 2)];
 	return { layer: L.layer ?? q, index: cell[0] + L.full[0] * (cell[1] + L.full[1] * cell[2]), cell };
 }
 function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w: number, h: number): void {
@@ -363,6 +421,7 @@ function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w
 	gl.uniform2f(P.u.u_vp, w, h); gl.uniform1i(P.u.u_vol, 0); gl.uniform1i(P.u.u_cmap, 1); gl.uniform3f(P.u.u_light, LIGHT[0], LIGHT[1], LIGHT[2]);
 	const vis: Layer[] = [];
 	for (const L of layers.values()) if (L.on && L.n && !isEmpty(L) && drawBounds(L) && place(L, s, api)) vis.push(L);
+	settle(vis);
 	vis.sort((a, b) => b.dist - a.dist);   // 層は奥から
 	for (const L of vis) {
 		place(L, s, api);
@@ -387,7 +446,7 @@ function answerProbes(w: number, h: number): void {
 	if (!probes.length) return;
 	const gl = glc!;
 	const ids = probes.splice(0);
-	const ls = [...layers].map(([q, L]) => ({ q, on: L.on, n: L.n, dims: L.dims, mode: L.mode, shape: L.shape, dist: +L.dist.toFixed(4), anchor: L.anchor, alt: L.alt }));
+	const ls = [...layers].map(([q, L]) => ({ q, on: L.on, n: L.n, dims: L.dims, mode: L.mode, shape: L.shape, dist: +L.dist.toFixed(4), anchor: L.anchor, alt: L.alt, lv: L.lv, s: L.s, gpu: L.levels.reduce((a, V) => a + (V.tex ? V.bytes : 0), 0) }));
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, layers: ls, data: id === ids[ids.length - 1] ? data : data.slice() }); }
 	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as { message?: string } | null)?.message || e) }); }
 }

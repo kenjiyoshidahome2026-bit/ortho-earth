@@ -55,22 +55,31 @@ jobs:
           set -eu
           for p in $PACKAGES; do case "$p" in *[!a-z0-9@/._-]*) echo "✗ package 名の形でない：$p"; exit 1;; esac; done
           node scripts/publish-npm.mjs $PACKAGES $([ "$DRY_RUN" = true ] && echo --dry-run)
-      - name: Chrome for Testing のキャッシュ
-        if: steps.pub.outputs.published != ''
-        uses: actions/cache@v6
+
+  # 公開物の検定は Mac（self-hosted・実 GPU）で＝ubuntu-latest では globe の頁が SwiftShader で 90 秒以内に申告せず、
+  # 公開は済んでいるのに run が赤くなっていた（run 7・8＝2026-10-23・10-25。maplibre の頁は PASS）。deploy.yml と同じ runner
+  verify-npm:
+    needs: publish
+    if: needs.publish.outputs.published != ''
+    runs-on: [self-hosted, macOS, ortho-deploy]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          path: ~/.cache/ortho-earth/chrome-for-testing
-          key: cft-${{ runner.os }}-${{ hashFiles('packages/globe/scripts/lib/chrome.mjs') }}
+          node-version: 22   # cache: npm は付けない＝Mac の ~/.npm がそのまま効く（deploy.yml と同じ）
+      - run: npm ci --no-audit --no-fund
+      - name: 検定用の Chrome（Mac の ~/.cache を共有＝入っていれば何もしない）
+        run: node packages/globe/scripts/lib/chrome.mjs --install
       - name: 公開物で検定（FROM_NPM=1 verify:npm）
-        if: steps.pub.outputs.published != ''
         run: |
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # deploy.yml と同じ（Chrome の sandbox）
-          node packages/globe/scripts/lib/chrome.mjs --install
           sleep 30   # 登録簿の CDN に新しい版が届くまで
           FROM_NPM=1 npm run verify:npm -w @ortho-earth/globe
 
   mirror:
-    needs: publish
+    needs: [publish, verify-npm]   # 公開物の検定が通ってから写す（前は同じジョブの続きだった＝同じ順）
     if: inputs.mirror && needs.publish.outputs.published != ''
     uses: ./.github/workflows/mirror.yml
     with:
