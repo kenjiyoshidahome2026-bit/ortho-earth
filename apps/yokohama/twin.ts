@@ -823,7 +823,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			+ (floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""));
 		// 近くの施設（区役所・図書館・病院・交番・消防署）
 		if (fac) {
-			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: nearestRows(fac!.filter(r => subOf(r[3], r[5]) === i), at, 1)[0] })).filter(x => x.r);
+			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
+			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), city = n === "Libraries" ? rows.filter(r => r[2].startsWith("横浜市")) : [];
+				return nearestRows(city.length ? city : rows, at, 1)[0]; };
+			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
 			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(r!.row[2])}<br><small>${walk(r!.m)}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）・警察署／消防署の管轄
@@ -844,7 +847,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { hmMsg.textContent = t("Outside Yokohama City."); return; }
 			setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
 			homeAt(ll);
-		}, () => { hmMsg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+		}, () => { hmMsg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
 	};
 
 	// ── 解析：影（WebGPU）と日影図 ──
