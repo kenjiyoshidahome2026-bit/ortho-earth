@@ -1,3 +1,4 @@
+import { CS_ATMO_GLSL } from "../csatmo.ts";
 // 透視カメラ（チルト対応）。経緯度→単位球3D→u_mvp でクリップ座標へ。
 // 頂点はシーン原点(u_origin)からの経緯度差分。fill は clip 直行、line/capsule はスクリーン空間で幅付け。
 
@@ -650,7 +651,9 @@ uniform vec3 u_skyColor;
 uniform vec3 u_horizonColor;
 uniform vec3 u_skyFogColor;
 uniform vec4 u_skyBlend;
-// 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
+// Cesium の大気（view.csAtmo・../csatmo.ts）＝(点ける 0/1, 地面の大気の効き 0..1, 空の大気 0/1, 0)。点けると従来の霞・リム光・sky の代わり
+uniform vec4 u_csAtm;
+${CS_ATMO_GLSL}// 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
 // レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
 // 配色本体は WORLD_HYPSO（TERRAIN_FS と共有＝ピッチで色が変わらない）。
 uniform sampler2D u_elevTex;
@@ -702,6 +705,13 @@ void main() {
 	float aDotd = bb * 0.5, tstar = -aDotd / aa;
 	float t = sphereT(bb, disc);   // 近い根を桁落ちなしで（disc<0 か後ろ向き＝−1）
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
+		if (u_csAtm.x > 0.5) {   // Cesium の空の大気（殻の奥の面で計る・星の上に α で重なる）
+			if (u_csAtm.z < 0.5) discard;
+			vec4 cs = csSky(A * CS_R, normalize(d));
+			if (cs.a <= 0.002) discard;
+			fragColor = cs;
+			return;
+		}
 		// ここには2種の光線が来る：(a)球ミス(disc<0)、(b)延長線は背後の地球に当たるが前方は素通り(t<0)。
 		// 旧実装は両方 discard 系＝高チルト・低高度で「見上げ境界」「背後ヒット円錐」が画面を横切り、
 		// ハロー帯が横一線でスパッと黒に切れて空が2段になった（ズームを上げるほど(b)の黒が下りてくる）。
@@ -767,6 +777,7 @@ void main() {
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
 	float hz = haze * u_atmo.a * 0.9;
 	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
+	if (u_csAtm.x > 0.5) col = csGround(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y) * g.a;   // Cesium の地面の大気（従来の霞の代わり）
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 }`;
 

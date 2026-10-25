@@ -8,7 +8,8 @@ import { sunVector, shadowWindow, shadowCascades, shadowDarkness, shadowHalfM, s
 import type { ShadowWindow, ShadowCascade } from "../shadow.ts";   // 断面（P0 #3）＝切る間だけの派生
 import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../clip.ts";
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
-import { groundWindows, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ）
+import { groundWindows, windowsKey } from "../ground.ts";
+import { csGroundFade } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
@@ -60,6 +61,7 @@ interface GLView {
 	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
 	gintFarPivot?: boolean; gintSub?: boolean;
 	dashDz?: number;   // 破線（S-P1-3）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1）
+	csAtmo?: { ground?: boolean; sky?: boolean } | null;   // Cesium の大気（../csatmo.ts）＝点けると球の霞・リム光・sky の代わり
 }
 /** style の sky（B4） */
 interface GLSky { sky: number[]; horizon: number[]; fog: number[]; groundBlend: number; horizonFogBlend: number; skyHorizonBlend: number; atmosphereBlend: number }
@@ -1890,6 +1892,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform4f(loc(gl, globeProg, "u_skyBlend"), sky.skyHorizonBlend, sky.horizonFogBlend, sky.atmosphereBlend, 0);
 			}
 			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
+			const csA = view.csAtmo;   // Cesium の大気：地面は遠くからだけ（中心から π/2·R → π·R で効く）
+			gl.uniform4f(loc(gl, globeProg, "u_csAtm"), csA ? 1 : 0, csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0, csA && csA.sky !== false ? 1 : 0, 0);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
 			// より手前。地形面（TERRAIN_FS u_whK）と同じ係数＝チルトでも色が連続。

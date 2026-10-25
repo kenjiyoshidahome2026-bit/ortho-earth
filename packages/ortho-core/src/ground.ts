@@ -13,7 +13,7 @@ export type GroundWindow = [number, number, number, number];
 const GND_SCALES = [1, 6, 36];
 const snapWin = (cx: number, cy: number, hw: number, hh: number): GroundWindow => {
 	const step = hw / 4, sx = Math.round(cx / step) * step, sy = Math.round(cy / step) * step;
-	return [sx - hw, Math.max(-85, sy - hh), sx + hw, Math.min(85, sy + hh)];
+	return [sx - hw, Math.max(-90, sy - hh), sx + hw, Math.min(90, sy + hh)];   // 極まで（画像層の極の蓋＝raster.ts buildPoleCapMesh が乗る）
 };
 export function groundWindows(cam: CameraPose, W: number, H: number): GroundWindow[] {
 	const dpr = cam.dpr || 1, zq = Math.floor(cam.zoom * 4) / 4;
