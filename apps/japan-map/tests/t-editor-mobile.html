@@ -71,6 +71,18 @@ try {
 	tb.querySelector('button[data-tip^="選択"]').click();
 	await sleep(100);
 
+	// ---- 指で押したボタン＝名前をトーストで一言（括弧の説明・鍵は落とす）。マウスでは出さない ----
+	const cb = tb.querySelector('button[data-tip^="円を描く"]');
+	cb.dispatchEvent(new PointerEvent("pointerdown", tev(0, 0))); cb.click();
+	await sleep(50);
+	const toastTxt = () => { const e = document.querySelector(".ge-toast"); return e && !e.classList.contains("gone") ? e.textContent : ""; };
+	ok("touchLabel", toastTxt() === "円を描く", toastTxt());
+	document.querySelector(".ge-toast")?.classList.add("gone");
+	const ub = tb.querySelector('button[data-tip^="選択"]');
+	ub.dispatchEvent(new PointerEvent("pointerdown", { ...tev(0, 0), pointerType: "mouse" })); ub.click();
+	await sleep(50);
+	ok("mouseNoLabel", toastTxt() === "", toastTxt());
+
 	// ---- 地物一覧（スマホ）：ツールバーの下・幅いっぱい・行が出る ----
 	tb.querySelector('button[data-tip^="地物の一覧"]').click();
 	for (let i = 0; i < 50 && !document.querySelector(".ge-list .oe-bt-row"); i++) await sleep(100);
