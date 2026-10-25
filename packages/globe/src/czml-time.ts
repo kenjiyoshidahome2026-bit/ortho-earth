@@ -34,13 +34,14 @@ export interface CzmlStyle {
 	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown } | null;
 }
 /** CZML の色（rgba 0..255・rgbaf 0..1・入れ子の material） */
-interface CzColor { color?: unknown; solidColor?: unknown; polylineOutline?: unknown; rgba?: number[]; rgbaf?: number[] }
+interface CzColor { color?: unknown; solidColor?: unknown; polylineOutline?: unknown; polylineGlow?: unknown; polylineArrow?: unknown; polylineDash?: unknown; rgba?: number[]; rgbaf?: number[] }
 /** CZML の packet の見た目の分（読む所だけ） */
 interface CzPacket {
 	point?: { pixelSize?: number; color?: unknown; outlineColor?: unknown; outlineWidth?: number; show?: unknown };
 	billboard?: { image?: unknown; scale?: number; pixelOffset?: unknown; show?: unknown };
 	label?: { text?: unknown; fillColor?: unknown; outlineColor?: unknown; font?: unknown; scale?: number; pixelOffset?: unknown; horizontalOrigin?: string; show?: unknown };
 	path?: { show?: unknown; width?: number; material?: unknown; leadTime?: unknown; trailTime?: unknown; resolution?: unknown };
+	model?: unknown;
 }
 const A = 6378137, F = 1 / 298.257223563, E2 = F * (2 - F), D2R = Math.PI / 180;
 
@@ -62,6 +63,8 @@ export function parseIntervals(v: unknown): Interval[] | null {
 	return list.length ? list : null;
 }
 const inIntervals = (ivs: Interval[] | null | undefined, ms: number): boolean => !ivs || ivs.some(([a, b]) => ms >= a && ms <= b);
+/** 区間の列に ms が入るか（null＝いつも） */
+export const inIntervalsOf = inIntervals;
 
 // 時刻付きの値（CZML の number プロパティ）：数・{ number }・区間ごと [{ interval, number（数か [t, v, …]）, epoch }]。標本の数列は線形（区間の外は dflt）
 export function numberAt<D = null>(v: unknown, ms: number, dflt: D = null as D): number | D {
@@ -168,6 +171,7 @@ export function colorOf<D = null>(c: unknown, dflt: D = null as D): string | D {
 	if ((c as CzColor).color) return colorOf((c as CzColor).color, dflt);
 	if ((c as CzColor).solidColor) return colorOf((c as CzColor).solidColor, dflt);
 	if ((c as CzColor).polylineOutline) return colorOf((c as CzColor).polylineOutline, dflt);
+	for (const k of ["polylineGlow", "polylineArrow", "polylineDash"] as const) if ((c as CzColor)[k]) return colorOf((c as CzColor)[k], dflt);   // 模様は色だけ写す（光彩・矢・破線の形は描かない）
 	const q = Array.isArray((c as CzColor).rgba) ? ((c as CzColor).rgba!.length > 4 ? (c as CzColor).rgba!.slice(1, 5) : (c as CzColor).rgba!).map((v, i) => i < 3 ? v : v / 255) : Array.isArray((c as CzColor).rgbaf) ? ((c as CzColor).rgbaf!.length > 4 ? (c as CzColor).rgbaf!.slice(1, 5) : (c as CzColor).rgbaf!).map((v, i) => i < 3 ? v * 255 : v) : null;
 	return q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${+(q[3] ?? 1).toFixed(3)})` : dflt;
 }
@@ -191,6 +195,7 @@ const imageOf = (v: unknown): string | null => typeof v === "string" ? v : typeo
 // 地物 → { point, image, label, path }（null＝描かない）。見た目の指定が無い（GPX など）＝点＋今までの軌跡・名前の札（本人裁定＝GPX も同じ再生）
 export function styleOf(f: CzmlFeature | null | undefined): CzmlStyle {
 	const pr: Loose = f?.properties || {}, cz = (pr.czml && typeof pr.czml === "object" ? pr.czml : null) as CzPacket | null;
+	if (cz?.model && !(cz.point || cz.billboard || cz.label || cz.path)) return { point: null, image: null, label: null, path: null };   // 模型だけ（P0 #5）＝模型を描く（gadgets/czml-scene.ts）・点も尾も足さない（Cesium と同じ）
 	if (!cz || !(cz.point || cz.billboard || cz.label || cz.path)) {
 		return { point: { size: 8, color: "rgba(255,127,14,1)", outline: "rgba(255,255,255,0.9)", outlineWidth: 1.5, show: true }, image: null,
 			label: pr.name ? { text: String(pr.name), color: "rgba(255,255,255,1)", px: 13, offset: [10, 0], align: "left", show: true } : null,

@@ -54,11 +54,12 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 			draw: async (file, ctx) => {
 				const fs = (await geopbf(file, { gint: false, name: `drop/${file.name}` }).catch(err => { console.error("[timed] geopbf", file.name, err); return null; }))?.geojson?.features || [];
 				let packets: unknown = null; if (/\.czml$/i.test(file.name)) try { packets = JSON.parse(await file.text()); } catch { /* 読めない＝clock は無し */ }
-				const c = await czmlGet(), timed = fs.filter(c.isTimed), rest = fs.filter(f => !c.isTimed(f));
-				if (!timed.length) { c.clear(); return mainRoad(file, ctx); }
+				const c = await czmlGet(), sc = packets ? c.sceneOf(fs, ctx?.baseUrl ?? null) : null;   // model・polyline・polygon（P0 #5）＝CZML だけ
+				const timed = fs.filter(c.isTimed), rest = fs.filter((f, i) => !c.isTimed(f) && !sc?.used.has(i));
+				if (!timed.length && !sc?.used.size) { c.clear(); return mainRoad(file, ctx); }
 				if (rest.length) await mainRoad(new File([JSON.stringify({ type: "FeatureCollection", features: rest })], file.name.replace(/\.[^.]+$/, "") + ".geojson"), { ...ctx, fit: false });
 				else { gint.clearUserGint(); live.annoCtl?.clear(); }
-				const n = c.show(timed, { packets });
+				const n = c.show(timed, { packets, scene: sc });
 				if (ctx?.fit !== false) { const b = c.bounds(); if (b) map.fitBounds(b, { padding: 40 }); }
 				return { length: n + rest.length };
 			},
@@ -180,6 +181,27 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 			break;
 		}
 		return mainRoad(file, { fit, persist });
+	};
+	// map.loadCZML（Cesium の CzmlDataSource.load・P0 #5）＝ドロップと同じ一本道（timed 行）へ CZML の File で入る。URL は模型の相対 URI の基準にもなる
+	map.loadCZML = async (src, { fit = true } = {}) => {
+		let text: string, baseUrl: string | null = null, name = "data.czml";
+		if (typeof src === "string" && !/^\s*[[{]/.test(src)) {
+			baseUrl = new URL(src, location.href).href;
+			const r = await map.fetchResource(baseUrl, "Unknown");
+			if (!r.ok) throw new Error(`loadCZML: ${r.status} ${baseUrl}`);
+			text = await r.text();
+			name = (baseUrl.split(/[?#]/)[0].split("/").pop() || name).replace(/(\.czml)?$/i, ".czml");
+		} else if (typeof src === "string") text = src;
+		else if (src instanceof Blob) { text = await src.text(); if ((src as File).name) name = (src as File).name.replace(/(\.czml)?$/i, ".czml"); }
+		else text = JSON.stringify(src);
+		await loadUserFile(new File([text], name), { fit, baseUrl });
+		const c = live.czmlCtl, k = c?.scene.counts;
+		const nTr = c?.tracks.filter(t => !(t.czml as { model?: unknown })?.model).length ?? 0;
+		return {
+			tracks: nTr, shapes: k?.shapes ?? 0, lines: k?.lines ?? 0, models: k?.models ?? 0,
+			get modelHandles() { return c?.scene.models ?? []; },
+			remove() { c?.clear(); gint.clearUserGint(); },
+		};
 	};
 	dbgHost.__loadUserFile = loadUserFile;   // 検証窓（ドロップと同じ一本道を CDP から＝自動押し出しの確認）
 	// 本道（gint 焼き→@検知で anno 再生 or gint スロット→bbox へ fit）＝取り込み表の draw 行からも合流できる（raster-gpkg の地物層フォールバック）

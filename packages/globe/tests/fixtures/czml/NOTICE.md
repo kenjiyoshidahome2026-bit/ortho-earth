@@ -4,3 +4,4 @@
   Copyright 2011-2026 CesiumJS Contributors。Apache License 2.0（https://www.apache.org/licenses/LICENSE-2.0）。改変していません。
 - `dateline.czml`・`dateline.gpx`：この repo で手作りした試料（±180° を跨ぐ時刻付きの機体と軌跡）。
 - `ref.json`：CesiumJS 1.145.0 に固定時刻の位置（地球固定）と「出ているか」を答えさせて焼いた正解表（`tests/t-czml-ref.html?bake=1`・`scripts/bake-czml-ref.mjs`）。
+- `scene.czml`・`box.glb`：この repo で手作りした試料（model・polyline・polygon＝P0 #5・`tests/t-czml-scene.html`・`tests/czml-scene.mjs`）。箱は +X に長い 80m×12m×12m の赤。
