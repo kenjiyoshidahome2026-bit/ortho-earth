@@ -141,7 +141,9 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
 	// the globe
-	const ready = createGlobe(globeOptions(options, element)).then((map: Any) => {
+	const gopts = globeOptions(options, element);
+	(host as Any).flatStart = gopts.terrain === false;   // the globe started flat: a terrain provider set later brings a DEM (scene.ts)
+	const ready = createGlobe(gopts).then((map: Any) => {
 		host.map = map;
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);

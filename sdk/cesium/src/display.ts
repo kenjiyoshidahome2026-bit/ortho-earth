@@ -10,7 +10,9 @@ import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, Ellipsoid,
 import * as engine from "@cesium/engine";
 import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference } from "@cesium/engine";
 import { unsupported } from "./report.ts";
+import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
+import { Cesium3DTileset } from "./tileset.ts";
 import type { Host, OrthoScene } from "./scene.ts";
 
 type Any = any;
@@ -130,7 +132,7 @@ interface Desc {
 	model: { uri: string; scale: number; at: [number, number]; altitude: number; heading: number; anim: boolean } | null;
 	sphere: { c: number[]; r: number } | null;
 }
-interface Rec { e: Any; desc: Desc | null; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[] } | null; off: () => void }
+interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[] } | null; off: () => void }
 
 export class EntityDisplay {
 	readonly defaultDataSource = new CustomDataSource("default");
@@ -157,6 +159,7 @@ export class EntityDisplay {
 		this.#destroyed = true;
 		for (const r of this.#recs.values()) r.off();
 		for (const m of this.#models.values()) m.h?.clear?.();
+		for (const e of [...this.#tilesets.keys()]) this.#dropTileset(e);
 		this.#ov?.remove?.(); this.#ov = null;
 		const map = this.host.map;
 		if (map) { for (const id of this.#layers) if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(SRC)) map.removeSource(SRC); }
@@ -184,11 +187,37 @@ export class EntityDisplay {
 	}
 
 	/** the CesiumWidget's per-tick update. true = everything is ready (the clock may animate) */
+	// entity.tileset: the facade's tileset on the globe, one per entity (made when the uri is known, shown with the entity)
+	#tilesets = new Map<Any, { uri: string; ts: Cesium3DTileset | null; failed: boolean }>();
+	#placeTileset(e: Any, time: JulianDate, shown: boolean) {
+		const uri = e.tileset ? val(e.tileset.uri, time) : undefined, url = uri == null ? undefined : String(uri?.url ?? uri);
+		let t = this.#tilesets.get(e);
+		if (t && t.uri !== url) { this.#dropTileset(e); t = undefined; }
+		if (!url) return;
+		if (!t) {
+			const rec = { uri: url, ts: null as Cesium3DTileset | null, failed: false };
+			this.#tilesets.set(e, rec);
+			Cesium3DTileset.fromUrl(uri, { maximumScreenSpaceError: val(e.tileset.maximumScreenSpaceError, time, 16) }).then(ts => {
+				if (this.#tilesets.get(e) !== rec) { ts.destroy(); return; }
+				rec.ts = ts; (ts as Any).id = e; ts.__attach(this.host); ((this.scene as Any).__tilesets ??= []).push(ts);
+			}, err => { rec.failed = true; console.warn("[csshim] entity.tileset", url, err); });
+			if (e.position || e.orientation) unsupported("entity.tileset placed by position / orientation (drawn where the tileset says)");
+			t = rec;
+		}
+		if (t.ts) t.ts.show = shown && val(e.tileset.show, time, true);
+	}
+	#dropTileset(e: Any) {
+		const t = this.#tilesets.get(e); if (!t) return;
+		this.#tilesets.delete(e);
+		if (t.ts) { const list = (this.scene as Any).__tilesets ?? [], i = list.indexOf(t.ts); if (i >= 0) list.splice(i, 1); t.ts.destroy(); }
+	}
+
 	update(time: JulianDate): boolean {
 		if (this.#destroyed) return true;
 		const map = this.host.map;
 		const ents = this.#entities(), live = new Set(ents);
 		for (const [e, r] of this.#recs) if (!live.has(e)) { r.off(); this.#recs.delete(e); }
+		for (const e of [...this.#tilesets.keys()]) if (!live.has(e)) this.#dropTileset(e);
 		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], models = new Map<Any, NonNullable<Desc["model"]>>();
 		for (const e of ents) {
 			const r = this.#rec(e);
@@ -199,6 +228,7 @@ export class EntityDisplay {
 			const d = r.desc;
 			if (!d) continue;
 			const shown = e.isShowing && e.isAvailable(time);
+			if (e.tileset || this.#tilesets.has(e)) this.#placeTileset(e, time, shown);
 			if (d.track && shown) tracks.push(d.track);
 			if (!shown) continue;
 			for (const l of d.lines) lines.push(l);
@@ -506,9 +536,16 @@ export class EntityDisplay {
 
 	/** the CesiumWidget asks for an entity's bounding sphere (zoomTo, flyTo, trackedEntity) */
 	getBoundingSphere(entity: Any, _allowPartial: boolean, result: BoundingSphere): number {
+		const tsr = this.#tilesets.get(entity);
+		if (tsr) {   // Cesium frames an entity's tileset by the tileset's own sphere
+			if (tsr.failed) return BoundingSphereState.FAILED;
+			if (!tsr.ts?.boundingSphere) return BoundingSphereState.PENDING;
+			BoundingSphere.clone(tsr.ts.boundingSphere, result); return BoundingSphereState.DONE;
+		}
 		const r = this.#recs.get(entity);
 		if (!r || !r.desc) {
-			if (!this.#recs.has(entity)) {
+			if (!this.#recs.has(entity)) {   // not drawn yet: wait for the next update, as Cesium's visualizers do (entities of no collection fail)
+				if (entity.entityCollection) return BoundingSphereState.PENDING;
 				const pos = entity.position ? val(entity.position, this.scene.frameState.time ?? JulianDate.now()) : undefined;
 				if (pos) { BoundingSphere.clone(new BoundingSphere(pos, 0), result); return BoundingSphereState.DONE; }
 			}
@@ -529,11 +566,33 @@ export class EntityDisplay {
 				return BoundingSphereState.DONE;
 			}
 		}
+		if (!r.desc.model) {   // geometry: measured as Cesium does (spheres.ts), once per description; a mark's position (now) joins it
+			if (r.csSphere?.desc !== r.desc || r.csSphere.dynamic) {
+				let cs: ReturnType<typeof cesiumSphereOf> = null;
+				try { cs = cesiumSphereOf(entity, this.scene, t); } catch { cs = null; }
+				if (cs === "pending") return BoundingSphereState.PENDING;
+				r.csSphere = { desc: r.desc, bs: cs?.bs ?? null, dynamic: !!cs?.dynamic };
+			}
+			if (r.csSphere.bs) {
+				BoundingSphere.clone(r.csSphere.bs, result);
+				const mark = (entity.point || entity.billboard || entity.label) && val(entity.position, t);
+				if (mark) { const m = new BoundingSphere(Cartesian3.clone(mark), 0); this.#clampMark(entity, m, t); BoundingSphere.union(result, m, result); }
+				return BoundingSphereState.DONE;
+			}
+		}
 		if (!s) return BoundingSphereState.FAILED;
 		result.center = new Cartesian3(s.c[0], s.c[1], s.c[2]); result.radius = s.r;
 		// a moving entity: the sphere is where it is now
 		if (entity.position && !isConst(entity.position)) { const p = val(entity.position, t); if (p) Cartesian3.clone(p, result.center); }
+		if (result.radius === 0) this.#clampMark(entity, result, t);
 		return BoundingSphereState.DONE;
+	}
+	/** a mark on the ground: Cesium frames its clamped position (the terrain height, plus the height for RELATIVE_*) */
+	#clampMark(entity: Any, s: BoundingSphere, t: Any) {
+		const g = entity.billboard ?? entity.point ?? entity.label, href = g ? val(g.heightReference, t, HeightReference.NONE) : HeightReference.NONE;
+		if (href === HeightReference.NONE) return;
+		const c = Cartographic.fromCartesian(s.center), th = c && this.host.map?.queryTerrainElevation?.(c.longitude * 180 / Math.PI, c.latitude * 180 / Math.PI);
+		if (c && Number.isFinite(th)) s.center = Cartesian3.fromRadians(c.longitude, c.latitude, th + (href % 2 === 0 ? c.height : 0));
 	}
 
 	// ── picking: marks (projected now), models, then ground shapes under the point ──

@@ -1,5 +1,5 @@
 // The Cesium examples gate (stage 0): the pure part. A run (run.mjs) records one side of one example; grade() compares the facade (ortho) with real CesiumJS (ref).
-//   level null = real Cesium does not run it here (out of the count) · 0 = ours does not run · 1 = runs · 2 = same answers · 3 = same picture
+//   level null = not graded: real Cesium does not run it here, or it starts in 2D / Columbus view (the globe is 3D only, by choice), or it is the Moon / Mars · 0 = ours does not run · 1 = runs · 2 = same answers · 3 = same picture
 // The answers: the counts (entities, data sources, primitives, imagery layers), the camera, and nothing reported unsupported.
 // The picture: the screenshots cut into a grid of cells, the mean colour of each cell compared (the widgets are the real ones on both sides, so they match too).
 import { decodePng } from "../mlexamples/compare.mjs";
@@ -49,12 +49,17 @@ export function runsWhy(rec, shared) {
 	return null;
 }
 
+// other bodies than the Earth: separate work, not graded here (Kenji 2026-10-25)
+export const NOT_EARTH = new Set(["mars", "moon"]);
+
 export function grade(R, O, T = THRESH) {
 	const out = { name: R?.name ?? O?.name, level: 0, reasons: [], blockers: [], unsupported: O?.unsupported || [] };
 	const shared = new Set((R?.exceptions || []).filter(e => O?.exceptions?.includes(e)));
 	const rw = runsWhy(R, shared);
 	if (rw) { out.level = null; out.refWhy = rw; return out; }
 	if (!R.viewers) { out.level = null; out.refWhy = "no viewer (not a globe example)"; return out; }
+	if (NOT_EARTH.has(out.name)) { out.level = null; out.refWhy = "another body than the Earth: not graded (separate work)"; return out; }
+	if (out.unsupported.some(u => /^sceneMode other than SCENE3D/.test(u.what))) { out.level = null; out.refWhy = "starts in 2D / Columbus view: not graded (the globe is 3D only)"; return out; }
 	const ow = runsWhy(O, shared);
 	if (ow) { out.reasons.push(ow); out.blockers.push(ow.startsWith("exception: ") ? `exception: ${normError(ow.slice(11))}` : ow); return out; }
 	out.level = 1;

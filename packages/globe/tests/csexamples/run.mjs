@@ -35,7 +35,9 @@ const STATE = () => {
 		let entities = v.entities?.values?.length || 0;
 		for (let i = 0; i < (ds?.length || 0); i++) entities += ds.get(i).entities.values.length;
 		let primitives = 0;   // the ones the example added (not the data source display's collections, nor what an entity's visualizer put there)
-		for (let i = 0; i < prims.length; i++) { const q = prims.get(i); if (q !== dsd?._primitives && q !== dsd?._groundPrimitives && !(X.Cesium?.Entity && q?.id instanceof X.Cesium.Entity)) primitives++; }
+		const own = new Set();   // what the visualizers put straight into scene.primitives (PathVisualizer's polyline collections, one per reference frame)
+		for (const d of [dsd?._defaultDataSource, ...Array.from({ length: ds?.length || 0 }, (_, i) => ds.get(i))]) for (const z of d?._visualizers || []) for (const u of Object.values(z?._updaters || {})) if (u?._polylineCollection) own.add(u._polylineCollection);
+		for (let i = 0; i < prims.length; i++) { const q = prims.get(i); if (q !== dsd?._primitives && q !== dsd?._groundPrimitives && !own.has(q) && !(X.Cesium?.Entity && q?.id instanceof X.Cesium.Entity)) primitives++; }
 		out.counts = { entities, dataSources: ds?.length || 0, primitives, imageryLayers: v.imageryLayers?.length ?? v.scene.imageryLayers?.length ?? 0 };
 	} catch (e) { out.countsError = String(e?.message || e); }
 	return out;
@@ -104,7 +106,7 @@ fs.writeFileSync(path.join(OUT, "summary.json"), JSON.stringify(summary, null, 1
 const cell = t => String(t).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");   // a markdown table cell
 const L = summary.levels, md = [
 	`# Cesium examples gate (CesiumJS ${summary.cesium}) — ${summary.at}`, "",
-	`${summary.n} examples · real Cesium does not run here: ${L.null} · ours does not run: ${L[0]} · runs: ${L[1]} · same answers: ${L[2]} · same picture: ${L[3]}`, "",
+	`${summary.n} examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): ${L.null} · ours does not run: ${L[0]} · runs: ${L[1]} · same answers: ${L[2]} · same picture: ${L[3]}`, "",
 	"## Blockers", "", "| n | blocker | examples |", "|---|---|---|",
 	...blockers.slice(0, 60).map(b => `| ${b.n} | ${cell(b.blocker)} | ${b.examples.slice(0, 6).join(", ")}${b.examples.length > 6 ? " …" : ""} |`), "",
 	"## Examples", "", "| example | level | why |", "|---|---|---|",
