@@ -128,6 +128,15 @@ export interface GlobeCoreApi {
 	/** 後処理（bloom・vignette）。本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない。null で外す。 */
 	setPostProcess(p: PostProcessOptions | PostPass[] | null): this;   // globe.js:2503
 	/** 正規化済みの後処理の設定（off なら null）。fxaa／tonemap／lut の鍵は on の時だけ生える（W1） */
+	/** 夜の色（2026-10-24）＝本体の絵に乗算する色（0..255・null で外す）。glow＝灯りの滲み（bloom の強さ 0..4・鎖に bloom が無い時だけ）。
+	 *  setCityLights の窓の明かりは暗くしない。WebGPU だけ＝戻り true（WebGL2 は何もしない＝false） */
+	setGrade(rgb: readonly number[] | null, opts?: { glow?: number }): boolean;
+	/** 掛けている夜の色（0..255）か null */
+	getGrade(): number[] | null;
+	/** 夜の街明かり（2026-10-24）＝建物メッシュ（PLATEAU など）の壁に窓の明かり。強さ 0..1（true＝1）× 夜の度合い（太陽高度 +2°→−8°）。WebGPU だけ＝戻り true */
+	setCityLights(on?: boolean | number): boolean;
+	/** 街明かりの強さ（0..1） */
+	getCityLights(): number;
 	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null; fxaa?: true; tonemap?: { mode: "linear" | "reinhard" | "aces" | "agx" | "filmic"; exposure: number }; lut?: { url: string; size: 16 | 32 | 64; intensity: number } } | null;   // globe.js:2504
 	// ── plugins
 	/** plugin を搭載（同期）。同名は投げる。install が投げたら、その install 中の registry への登録は巻き戻す。opts.plugins で起動時にも */
