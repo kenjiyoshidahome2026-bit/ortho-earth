@@ -1338,7 +1338,7 @@ const CSS = `
 .yk-panel .home-out .pr span small{color:var(--qm-text-dim)}
 .yk-panel .home-out .pr span{text-align:end;white-space:normal}
 .wv{display:block;width:100%;margin:6px 0 2px;padding:7px 10px;border:1px solid #1e88e5;border-radius:8px;background:#e3f2fd;color:#0d47a1;font:600 13px/1.3 system-ui,sans-serif;cursor:pointer}
-.yk-probe{width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.yk-probe{pointer-events:none;width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}
 .yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}
