@@ -95,9 +95,10 @@ const WORDS = [
 	["京急", "Keikyu", 1], ["相鉄", "Sotetsu", 1], ["入口", "Entrance", 1], ["営業所", "Depot", 1], ["車庫", "Depot", 1], ["折返場", "Turnaround", 1], ["ターミナル", "Terminal", 1], ["団地", "Danchi", 1],
 	// 駅・停留所・避難場所の見直し（2026-10-26）
 	["荏原", "ebara", 0], ["中延", "nakanobu", 0], ["捜真", "soshin", 0], ["桟橋", "sanbashi", 0], ["貯木場", "chobokujo", 0], ["慶珊寺", "keisanji", 0], ["矢之根", "yanone", 0], ["中ノ谷", "nakanoya", 0],
-	["公園口", "Park Entrance", 1], ["口", "guchi", 2], ["寺", "ji", 2], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
+	["公園口", "Park Entrance", 1], ["寺尾", "terao", 0], ["大口", "ooguchi", 0], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
 	["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
 	["綱島", "tsunashima", 0], ["北川", "kitagawa", 0], ["山内", "yamauchi", 0], ["元街", "motomachi", 0], ["南町田", "minami-machida", 0], ["グランベリー", "Grandberry", 1], ["横浜人形の家", "Yokohama Doll Museum", 1],
+	["港の見える丘公園前", "Minato-no-Mieru-Oka Park", 1], ["港の見える丘公園", "Minato-no-Mieru-Oka Park", 1], ["長松寺", "choshoji", 0],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -129,7 +130,7 @@ function consulate(s) {
 }
 // 駅の名で読みの決まりから外れる物（公式のローマ字）
 const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motomachi-Chukagai", "日本大通り": "Nihon-odori", "みなとみらい": "Minatomirai", "センター南": "Center-Minami", "センター北": "Center-Kita", "港南中央": "Konan-Chuo", "市大医学部": "Shidai-Igakubu", "海の公園南口": "Uminokoen-Minamiguchi", "海の公園柴口": "Uminokoen-Shibaguchi",
-	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
+	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "矢口渡": "Yaguchinowatashi", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
 	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 const STOP_EN = { "日本大通り駅県庁前": "Nihon-odori Station / Prefectural Office", "東急住宅前": "Tokyu Jutaku-mae" };
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
@@ -165,10 +166,10 @@ export function makeEn({ towns, wards, tokenize }) {
 				else for (const x of tokenize(part)) {
 					const f = x.surface_form;
 					if (f === "の" && / $/.test(out)) continue;   // 「青少年の地域」＝英語の語の後の「の」は落とす
-					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : f === "町" ? "cho" : romaji(x.reading || f);
+					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : f === "町" ? "cho" : f === "口" ? "guchi" : romaji(x.reading || f);
 					// ひらがな・「ノ」「之」・地名の末の字（町・寺・橋…）は前に続ける（くぬぎ台・初音が丘・高島町＝Takashimacho）
-					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || /^[ノ之町寺橋台谷坂丘]$/.test(f) || !/[a-z]$/.test(out);
-					out = /^[ノ之町寺橋台谷坂丘]$/.test(f) ? out.trimEnd() + r : out + (glue ? r : ` ${r}`);
+					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || /^[ノ之町寺橋台谷坂丘口]$/.test(f) || !/[a-z]$/.test(out);
+					out = /^[ノ之町寺橋台谷坂丘口]$/.test(f) ? out.trimEnd() + r : out + (glue ? r : ` ${r}`);
 				}
 			}
 			i = j;
