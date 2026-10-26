@@ -308,6 +308,11 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(windowsKey(groundWindows(tiny, 800, 600)) === k0, "snap: tiny pan keeps the key");
 	ok(windowsKey(groundWindows(big, 800, 600)) !== k0, "snap: half-window pan changes the key");
 	ok(windowsKey(groundWindows({ ...cam0, zoom: 14.6 }, 800, 600)) === k0, "zoom quantized to 1/4 steps (14.5→14.6 same key)");
+	// 宙の注視点（centerAlt）：窓は目から地面までの距離で取る（注視点の zoom のまま＝数 m 四方の窓＝地面が下地の色だった）
+	const camA = { ...cam0, zoom: 24, centerAlt: 100000 }, wA = groundWindows(camA, 800, 600), wZ = groundWindows({ ...cam0, zoom: 24 }, 800, 600);
+	ok(span(wA[0]) > span(wZ[0]) * 1000, `aloft: windows sized by the eye's distance to the ground (${span(wA[0]).toFixed(4)}° vs ${span(wZ[0]).toFixed(7)}°)`);
+	const wAT = groundWindows({ ...camA, pitch: 0.9 }, 800, 600), mid = w => (w[1] + w[3]) / 2;
+	ok(mid(wAT[wAT.length - 3]) > cam0.center[1] + 0.5, `aloft + tilt: the near window is centred on the ground the view ray meets (lat ${mid(wAT[wAT.length - 3]).toFixed(3)})`);
 }
 
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");

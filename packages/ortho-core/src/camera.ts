@@ -173,7 +173,8 @@ export function cameraState(cam: CameraPose, W: number, H: number): CameraState 
 	const view = mat.lookAt(eye, T, upCam);
 	const aspect = W / H;
 	// near/far を可視範囲（最近点camDist〜地平線limb）にタイトに。極端なオーバーズームでの精度崩壊を防ぐ。
-	const limb = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12));
+	// 注視点が宙にある（centerAlt）時は目の本当の高さから地平線までを測る（注視点の近くに寄っても、遠景の地球が far で切れない）
+	const limb0 = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12)), limb = alt ? Math.max(limb0, Math.sqrt(Math.max(mat.dot(eye, eye) - 1, 1e-12))) : limb0;
 	// 傾けるほど近景の足元がカメラに寄るので、near を浅くして下が抜けるのを防ぐ（真俯瞰0.3→急チルト0.03）。
 	const pf = Math.min(1, pitch / (60 * D2R));
 	const near = Math.max(camDist * (0.3 - 0.27 * pf), 1e-7), far = limb * 1.15 + camDist;
