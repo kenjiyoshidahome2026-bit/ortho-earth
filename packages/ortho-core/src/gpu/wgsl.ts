@@ -72,6 +72,9 @@ struct Frame {
 	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
 	eyeO: vec4f,       // xyz＝目−originPt（f64 で引く＝原点相対の目）・w＝原点の β（rad）。等高線の交点 δ＝eyeO＋t·d（#65）
 	elevOff: vec4f,    // 等高線の標高 uv 係数（f64 前計算）：(原点の uv, 1/span)＝uv＝off＋δll·inv
+	cg: vec4f,         // 地面の照明（setGroundLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き（cgLambert）
+	cgP: vec4f,        // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
+	cgC: vec4f,        // 光の色（czm_lightColor）
 	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
 };
 @group(0) @binding(0) var<uniform> F: Frame;
@@ -671,6 +674,16 @@ fn climUV(ll: vec2f) -> vec2f { return vec2f(fract(ll.x / 360.0 + 0.5), 0.5 - ll
 
 export const TERRAIN_WGSL = /* wgsl */`
 ${FRAME}
+// 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
+//   cg＝xyz 光へ向く単位ベクトル（世界）・w 0 無し／1 地形の法線（gEN＝勾配 東・北 m/m）／2 楕円体の上向き。cgP＝(倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ)
+fn cgLambert(ll: vec2f, gEN: vec2f, cg: vec4f, cgP: vec4f) -> f32 {
+	let lr = ll * 0.017453292519943295;
+	let cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);
+	let L = vec3f(dot(cg.xyz, vec3f(-so, 0.0, co)), dot(cg.xyz, vec3f(-sl * co, cl, -sl * so)), dot(cg.xyz, vec3f(cl * co, sl, cl * so)));
+	let n = select(normalize(vec3f(-gEN, 1.0)), vec3f(0.0, 0.0, 1.0), cg.w > 1.5);
+	let diff = clamp(max(dot(n, L), 0.0) * cgP.x + cgP.y, 0.0, 1.0);
+	return mix(1.0, diff, cgP.z);
+}
 ${WORLD_HYPSO_WGSL}
 // 気候場（全球ハイプソの cross-blend）＝terrain 専用 group(2)。未着は dummy（hasClim=P.p2.z=0 で不使用）
 @group(2) @binding(0) var climTex: texture_2d<f32>;
@@ -734,7 +747,12 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	let h0 = elev(in.ll);
 	let hx = elev(in.ll + vec2f(d, 0.0)) - h0;
 	let hy = elev(in.ll + vec2f(0.0, d)) - h0;
-	let shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	var shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	var cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
+	if (F.cg.w > 0.5) {   // 勾配はアトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
+		let dL = F.elevBounds.w / tsz.y; let hxL = elev(in.ll + vec2f(dL, 0.0)) - h0; let hyL = elev(in.ll + vec2f(0.0, dL)) - h0;
+		shade = 1.0; cgK = cgLambert(in.ll, vec2f(hxL / (dL * 111320.0 * max(cos(in.ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0)), F.cg, F.cgP);
+	}
 	// 標高ティント：land を高所ほど hypso 色へ寄せる（テーマのノブ・未指定は量0で恒等）。陰影の前
 	var landC = mix(P.p0.rgb, P.p1.rgb, clamp(h0 * P.p2.x, 0.0, 1.0) * P.p1.w);
 	// 全球ハイプソ（低ズーム帯・p2.y=出現度/p2.z=hasClim）＝globe パスと同色でピッチ不変（gl 側と同式）
@@ -745,7 +763,8 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）：不透明化した分（t≧tS）を「床と同色＝陰影なし」で埋める
 	// ＝ t·X + (1−t)·床 が旧 tS·地形 + (1−tS)·床 と一致（床≈landC）。低ズーム（t＝tS）は旧式と恒等
 	let tS = smoothstep(1.0, 100.0, in.h);
-	let colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	var colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);
+	if (F.cg.w > 0.5) { colBase *= F.cgC.rgb * cgK; }   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	let col = mix(colBase, F.fogColor, in.fog);
 	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
@@ -1155,8 +1174,21 @@ struct Globe {
 	gndOff2: vec4f,
 	gndOff3: vec4f,
 	elevOff: vec4f,      // 近窓の標高（海面下 fsWdepr）＝同形
+	cg: vec4f,           // 地面の照明（setGroundLighting・2026-10-26）＝Frame.cg と同形
+	cgP: vec4f,
+	cgC: vec4f,
 };
 @group(0) @binding(0) var<uniform> G: Globe;
+// 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
+//   cg＝xyz 光へ向く単位ベクトル（世界）・w 0 無し／1 地形の法線（gEN＝勾配 東・北 m/m）／2 楕円体の上向き。cgP＝(倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ)
+fn cgLambert(ll: vec2f, gEN: vec2f, cg: vec4f, cgP: vec4f) -> f32 {
+	let lr = ll * 0.017453292519943295;
+	let cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);
+	let L = vec3f(dot(cg.xyz, vec3f(-so, 0.0, co)), dot(cg.xyz, vec3f(-sl * co, cl, -sl * so)), dot(cg.xyz, vec3f(cl * co, sl, cl * so)));
+	let n = select(normalize(vec3f(-gEN, 1.0)), vec3f(0.0, 0.0, 1.0), cg.w > 1.5);
+	let diff = clamp(max(dot(n, L), 0.0) * cgP.x + cgP.y, 0.0, 1.0);
+	return mix(1.0, diff, cgP.z);
+}
 ${CS_ATMO_WGSL}
 ${RAY}
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -1328,7 +1360,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let dstep = G.elevBounds.w / tsz.y;
 		let hx = gElevAt(ll + vec2f(dstep, 0.0)) - e;
 		let hy = gElevAt(ll + vec2f(0.0, dstep)) - e;
-		let shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+		let shade = select(clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08), 1.0, G.cg.w > 0.5);   // 地面の照明（Cesium）の間は陰影は lambert が受け持つ
 		let landK = smoothstep(0.2, 4.0, e);   // 海(=0クランプ)↔陸の境（低平地を海に沈めない・干拓地級のみ海側）
 		let clim = textureSampleLevel(gClimTex, gSamp, climUV(ll), 0.0).rg;
 		let hyp = mix(G.seaC.rgb, worldHypsoColor(e, ll, clim, G.whP.w) * shade, landK);
@@ -1358,9 +1390,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
+	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	var colC = col;
-	if (G.misc.z > 0.5) { colC = csGround(base, A * CS_R, Pt * CS_R, G.misc.y); }   // Cesium の地面の大気（従来の霞の代わり）
+	if (G.misc.z > 0.5) { colC = csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, select(-1.0, G.cgP.w, G.cg.w > 0.5)); }   // Cesium の地面の大気（従来の霞の代わり）
 	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
@@ -1572,7 +1605,7 @@ export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	// 影の間の陰影（#112 段 2・本人裁定）＝北西の固定光でなく影と同じ太陽の方位（SH.mvp の 3 行目＝光の進む向き/Z＝shadow.time にも従う）。
 	// 強さは従来と同じ（勾配 1 あたり 0.44＝旧式 (−hx+hy)·0.0007 を歩幅 ≈445m で換算）＝平地は 0.82・向きだけ太陽へ回す。太陽の高度では強めない
 	//（ランバートを平地で割ると低い太陽で日向の斜面が全部 1.15 に飽和し、窓の外の遠い山がまだらになった＝富士で確認）。日の当たらない斜面は地形の影が暗くする
-	["\tlet shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tlet shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
+	["\tvar shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tvar shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
 ], "TERRAIN_SH_WGSL") + SHADOW_WGSL(3);
 export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],
@@ -1603,7 +1636,7 @@ export const MESH_TEX_SH_WGSL = deriveWgsl(MESH_TEX_WGSL, [
 	["\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）", "\tvar lit = shShade(srgbEncode(tx.rgb) * d, in.sc);   // 従来（fx.pbr off）"],
 ], "MESH_TEX_SH_WGSL") + SHADOW_WGSL(2, 1);
 export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
-	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet col = atmGround(", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround("],
+	["\tlet col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);", "\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);"],
 ], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
 // 影を落とす側（太陽からの深度だけ描く）：本体の頂点計算そのまま・対数深度だけ外す（正射影 w=1＝行列の z が線形の深度）。
 // 基図の押し出し建物は被覆マスクの discard だけ残す（PLATEAU メッシュが立つ所で二重に影を落とさない）。メッシュは頂点だけのパイプライン。

@@ -26,6 +26,32 @@ function customIbl(prims: Any, depth = 0): { sh: number[]; ibl: number[] } | nul
 	return null;
 }
 
+const R_MIN = 6356752.3142451793;   // Ellipsoid.WGS84.minimumRadius: Globe's fade distances
+let groundSent = "";
+/** globe.enableLighting → the globe's ground lighting (GlobeFS): terrain with normals = lambert × 0.9 + 0.3 (ENABLE_VERTEX_LIGHTING), without = lambert × 5 + 0.3 faded in between
+ *  lightingFadeOutDistance and lightingFadeInDistance (ENABLE_DAYNIGHT_SHADING); the ground atmosphere darkens on the night side between nightFadeOutDistance and nightFadeInDistance
+ *  (dynamicAtmosphereLighting). czm_lightColor = the HDR colour scaled so that its largest component is 1. */
+function groundLighting(scene: Any, map: Any, dir: Any, hdr: number[]) {
+	if (typeof map.setGroundLighting !== "function") return;
+	const globe = scene.globe, on = !!globe && globe.show !== false && !!globe.enableLighting;
+	let sig = on ? "on" : "";
+	let spec: Any = null;
+	if (on) {
+		const mx = Math.max(hdr[0], hdr[1], hdr[2], 1), color = [hdr[0] / mx, hdr[1] / mx, hdr[2] / mx];
+		const normals = !!globe.terrainProvider?.hasVertexNormals;
+		const rMin = globe.ellipsoid?.minimumRadius ?? R_MIN;
+		spec = {
+			dir: [dir.x, dir.y, dir.z], color,
+			lambert: normals ? [globe.lambertDiffuseMultiplier ?? 0.9, globe.vertexShadowDarkness ?? 0.3] : [5, 0.3], normal: normals ? "terrain" : "up",
+			fade: normals ? null : [globe.lightingFadeOutDistance ?? Math.PI / 2 * rMin, globe.lightingFadeInDistance ?? Math.PI * rMin],
+			night: globe.dynamicAtmosphereLighting !== false ? [globe.nightFadeOutDistance ?? Math.PI / 2 * rMin, globe.nightFadeInDistance ?? 5 * Math.PI / 2 * rMin] : null,
+		};
+		sig = JSON.stringify([spec.dir.map((v: number) => v.toFixed(4)), spec.color.map((v: number) => v.toFixed(3)), spec.lambert, spec.normal, spec.fade, spec.night]);
+	}
+	if (sig === groundSent) return;
+	groundSent = sig;
+	map.setGroundLighting(spec);
+}
 export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 	let envKey = "", sh: Float32Array | null = null, sent = "";
 	return (time: Any) => {
@@ -57,6 +83,7 @@ export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 				backgroundColor: bg ? [bg.red, bg.green, bg.blue] : undefined,
 			});
 		}
+		groundLighting(scene, map, dir, color);
 		const custom = customIbl(scene.primitives);
 		const sig = `${dir.x.toFixed(4)},${dir.y.toFixed(4)},${dir.z.toFixed(4)}|${color.map(v => v.toFixed(3)).join(",")}|${envKey}|${custom ? custom.sh.map(v => v.toFixed(4)).join(",") + custom.ibl.join(",") : ""}`;
 		if (sig === sent) return;
