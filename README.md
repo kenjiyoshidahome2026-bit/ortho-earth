@@ -102,7 +102,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/japan`](sdk/japan) | 2.0.2 | GPL-3.0-or-later | Self-contained Japan globe for any web page: the engine plus the Japan region pack, no API keys or servers |
 | [`@ortho-earth/react`](sdk/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/google3d`](sdk/google3d) | 0.2.0 | GPL-3.0-or-later | Google Photorealistic 3D Tiles: API key and session handling plus attribution |
-| [`@ortho-earth/gmaps`](sdk/gmaps) | 0.1.0 | GPL-3.0-or-later | Google Maps JavaScript API on MapLibre: a `google.maps` namespace (Map, Marker, InfoWindow, shapes, Data, geometry) for maplibre-gl or the globe |
+| [`@ortho-earth/gmaps`](sdk/gmaps) | 0.2.0 | GPL-3.0-or-later | Google Maps JavaScript API on MapLibre: a `google.maps` namespace (Map, Marker, InfoWindow, shapes, Data, geometry) for maplibre-gl or the globe; with an API key, Geocoder, Directions, Places and Street View are relayed to Google |
 | [`@ortho-earth/leaflet`](sdk/leaflet) | 0.1.0 | GPL-3.0-or-later | Leaflet on MapLibre: an `L` namespace (map, marker, popup, tooltip, tileLayer / WMS, polyline, polygon, circle, geoJSON, controls) for maplibre-gl or the globe |
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/scene`](sdk/scene) | 0.2.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
