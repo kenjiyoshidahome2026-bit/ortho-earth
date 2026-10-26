@@ -120,7 +120,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<p class="sub flat">${esc(t("Tap a row to fly there. Lists every public facility in the chosen district."))}</p>
 				</div>
 				<div data-sub-pane="show" hidden>
-				<!-- 公共施設＝区分ごとに 1 行（チェック）・種別は ▾ で開く・最初は区役所だけ（本人 2026-10-26「最初から全部出しすぎ・せめて区役所ぐらい」）。少ない種別（≤ FAC_FAR_MAX 件）は市全体の眺めから点が出る -->
+				<!-- 公共施設＝区分ごとに 1 行（チェック）・種別は ▾ で開く・最初は区役所だけ（本人 2026-10-26「最初から全部出しすぎ・せめて区役所ぐらい」）。出している施設の合計が少ない間（≤ FAC_FAR_MAX 件）は市全体の眺めからも点が出る -->
 				<h3>${esc(t("Types of facilities on the map"))}</h3>
 				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
@@ -359,9 +359,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const ALL_SUBS: ReadonlySet<number> = new Set(FACILITY_SUBS.map((_, i) => i)), subOn = new Set([FACILITY_SUBS.findIndex(x => x.kinds.includes("区役所"))]);   // 出している種別（最初は区役所だけ）。区分の行は中の種別をまとめて出し入れ
 	// 全種別＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
 	const facFilter = (): StyleExpression | null => subOn.size === FACILITY_SUBS.length ? null : ["match", ["get", "s"], [...subOn].length ? [...subOn] : [-1], true, false];
-	// 市全体の眺め（z 12.5 未満）でも出す種別＝件数が少ない（区役所 18 など）もの。多い種別まで出すと市全体が点で埋まる
+	// 市全体の眺め（z 12.5 未満）でも点を出すのは、出している施設の合計が少ない間だけ（区役所 19・図書館を足して 40 など）。学校を点けた途端に市全体が点で埋まらないように（Mac 実測 2026-10-26：種別ごとの件数で決めると学校 ON で 114 点）
 	const FAC_FAR_MAX = 60, subN: number[] = [];
-	const farFilter = (): StyleExpression => { const js = [...subOn].filter(j => subN[j] <= FAC_FAR_MAX); return ["match", ["get", "s"], js.length ? js : [-1], true, false]; };
+	const farFilter = (): StyleExpression => { const js = [...subOn], n = js.reduce((a, j) => a + subN[j], 0); return ["match", ["get", "s"], js.length && n <= FAC_FAR_MAX ? js : [-1], true, false]; };
 	const FAC_LAYERS = ["yk-fac", "yk-fac-far"];
 	let facReady: Promise<void> | null = null;
 	const loadFac = () => facReady ??= (async () => {
