@@ -1221,6 +1221,7 @@ const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "first
 	update(settled?: boolean) { if (meshReal) meshReal.update(settled); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },   // 起こした時は登録簿の到着で autoMesh(true) が一度走る（manager 側）
 	standUp: async (...a: Parameters<MeshManager["standUp"]>) => (await wakeMesh())?.standUp(...a),
 	prefetch: async (...a: Parameters<MeshManager["prefetch"]>) => (await wakeMesh())?.prefetch(...a) ?? [],
+	preload: async (...a: Parameters<MeshManager["preload"]>) => (await wakeMesh())?.preload(...a) ?? [],
 	openDb: async () => (await wakeMesh())?.openDb(),
 	firstRevealSets: (views: unknown[]) => meshReal?.firstRevealSets(views as Parameters<MeshManager["firstRevealSets"]>[0]) ?? [],
 	trimForScript: (views: string[]) => meshReal?.trimForScript(views),
@@ -2857,6 +2858,7 @@ map.setReduceMotion = v => { reduceMotionOpt = typeof v === "boolean" ? v : null
 map.getReduceMotion = () => reduceMotionOn();
 // 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21・横浜：引いた縮尺で区ごとに有る／無いを出さない）。
 // 伏せている間は表示も新しい読み込みもしない（常駐は保つ＝戻すと即）。opts.mesh=false の地図では何もしない（getMeshVisible は false）
+map.prefetchBuildings = async (o = {}) => (await meshMgr.preload(o)).map(s => s.name);   // 建物 3D を IDB へ先読み（名前か範囲・横浜 2026-10-26）＝起こす z を待たずに worker を立てる
 map.setMeshVisible = on => { meshVisible = !!on; meshReal?.setVisible(meshVisible); requestDraw(); return map; };
 map.getMeshVisible = () => meshOn && meshVisible;
 // 基図の表示項目（opts.layers と同じキー：place地名/terrain地形/rail鉄道/road道路/facility施設）を実行時に点ける／消す（2026-10-21・横浜：平面の地区図は全層）。
