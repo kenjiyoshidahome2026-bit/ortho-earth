@@ -19,13 +19,18 @@ function axesAt(p: Cartesian3): void {
 }
 
 /** the globe camera that shows what a Cesium camera at (pos, dir, up) shows (all ECEF, world frame) */
-export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3): GlobeCam | null {
+//   focus: the point the camera looks at (camera.lookAt / trackedEntity): when it is on the view ray and nearer than the ground, it is the target,
+//   so the globe's near plane follows the distance to it (a model seen from a few metres at 100 km up is not cut away)
+export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, focus?: Cartesian3 | null): GlobeCam | null {
 	Cartesian3.clone(pos, ray.origin); Cartesian3.normalize(dir, ray.direction);
 	const hit = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
 	const c = Ellipsoid.WGS84.cartesianToCartographic(pos, carto);
 	if (!c) return null;
 	let t: number;
-	if (hit && hit.start > 0) t = hit.start;
+	const ground = hit && hit.start > 0 ? hit.start : Infinity;
+	const ft = focus ? Cartesian3.dot(Cartesian3.subtract(focus, pos, v2), ray.direction) : 0;
+	if (focus && ft > 0 && ft < ground && Cartesian3.distance(Ray.getPoint(ray, ft, v3), focus) < ft * 1e-3 && (Ellipsoid.WGS84.cartesianToCartographic(focus, new Cartographic())?.height ?? 0) > 0) t = ft;
+	else if (hit && hit.start > 0) t = hit.start;
 	else if (hit && hit.stop > 0) t = hit.stop;   // inside the ellipsoid (below sea level)
 	else t = Math.max(1000, c.height);   // sky: a target along the ray as far as the camera is high
 	const target = Ray.getPoint(ray, t, v1);

@@ -38,7 +38,7 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 	const terrain = o.terrain != null || (o.terrainProvider != null && o.terrainProvider.constructor?.name !== "EllipsoidTerrainProvider");
 	return {
 		target, terrain: terrain ? undefined : false, chips: false, countryTip: false, persistView: false, urlHash: false, instruments: ["attr"], ellipsoid: true,
-		night: false, coastline: false, worldLines: false, maxPitch: 89,
+		night: false, coastline: false, worldLines: false, maxPitch: 89, zoomMax: 25,   // Cesium lets the camera come within metres of a model (trackedEntity); the globe default stops at z20 (≈100 m)
 		// the globe's own basemap is off: Cesium's imagery layers draw the ground, over the globe's base colour (Cesium's default is blue)
 		style: { version: 8, sources: {}, layers: [{ id: "__cs-base", type: "background", paint: { "background-color": "#0000ff" } }] },
 		...(o.skyBox === false && { stars: false }), ...o.ortho,
