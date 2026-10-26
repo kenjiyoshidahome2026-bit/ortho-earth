@@ -8,7 +8,8 @@ export { decodePng };
 // first cut, to tune by eye on the contact sheet
 // the picture: gridW × gridH cells (64 × 48 on the 800 × 600 shot = 12.5 px), each cell's mean colour and its edge strength (mean luminance step to the
 // right and below neighbours): a cell matches when both are close. Colour alone let thin lines, text, a missing small model or a sharper / blurred ground through.
-export const THRESH = { camRel: 0.02, camAbs: 50, angDeg: 2, gridW: 64, gridH: 48, cellTol: 40, edgeTol: 6, edgeRel: 0.5, colorMin: 0.85, edgeMin: 0.7 };
+// Same picture also needs no patch of more than blobMax touching cells whose colours are blobTol apart: the shares let a small missing object through (houses in 3d-tiles-batch-table-hierarchy).
+export const THRESH = { camRel: 0.02, camAbs: 50, angDeg: 2, gridW: 64, gridH: 48, cellTol: 40, edgeTol: 6, edgeRel: 0.5, colorMin: 0.85, edgeMin: 0.7, blobTol: 60, blobMax: 20 };
 
 // mean colour and edge strength of each cell (row by row): { c: [[r, g, b]…], e: [edge…] }
 export function cells(img, T = THRESH) {
@@ -34,9 +35,25 @@ export function pictureMatch(a, b, T = THRESH) {
 		colour += cOk; edge += eOk; ok += cOk && eOk;
 	}
 	const n = a.c.length;
-	return { ok, n, colour: colour / n, edge: edge / n };
+	return { ok, n, colour: colour / n, edge: edge / n, blob: blobOf(a, b, T) };
 }
-export const pictureSame = (pm, T = THRESH) => pm.colour >= T.colorMin && pm.edge >= T.edgeMin;
+// the largest patch of touching cells whose colours are far apart (a missing or misplaced object: the shares above miss a small one, 2026-10-26)
+function blobOf(a, b, T) {
+	const W = T.gridW, H = T.gridH, bad = a.c.map((p, i) => Math.hypot(p[0] - b.c[i][0], p[1] - b.c[i][1], p[2] - b.c[i][2]) > T.blobTol);
+	const seen = new Uint8Array(bad.length);
+	let best = 0;
+	for (let i = 0; i < bad.length; i++) {
+		if (!bad[i] || seen[i]) continue;
+		let n = 0; const st = [i]; seen[i] = 1;
+		while (st.length) {
+			const j = st.pop(), x = j % W, y = (j - x) / W; n++;
+			for (const k of [x > 0 && j - 1, x < W - 1 && j + 1, y > 0 && j - W, y < H - 1 && j + W]) if (k !== false && bad[k] && !seen[k]) { seen[k] = 1; st.push(k); }
+		}
+		best = Math.max(best, n);
+	}
+	return best;
+}
+export const pictureSame = (pm, T = THRESH) => pm.colour >= T.colorMin && pm.edge >= T.edgeMin && !(pm.blob > T.blobMax);
 
 // the error text with URLs, numbers and quoted bits masked (one line per cause)
 export const normError = e => String(e).replace(/https?:\/\/\S+/g, "<url>").replace(/(['"`])[^'"`]{1,80}\1/g, "$1…$1").replace(/\d+(\.\d+)?/g, "N").slice(0, 140);
@@ -95,7 +112,7 @@ export function grade(R, O, T = THRESH) {
 	const pm = out.picture = pictureMatch(R.cells, O.cells, T);
 	if (pm && out.level === 2) {
 		if (pictureSame(pm, T)) out.level = 3;
-		else { out.reasons.push(`picture: colour ${Math.round(pm.colour * 100)}% · edges ${Math.round(pm.edge * 100)}% of the cells match`); out.blockers.push("picture differs"); }
+		else { out.reasons.push(`picture: colour ${Math.round(pm.colour * 100)}% · edges ${Math.round(pm.edge * 100)}% of the cells match${pm.blob > T.blobMax ? ` · a patch of ${pm.blob} cells differs` : ""}`); out.blockers.push("picture differs"); }
 	}
 	return out;
 }
