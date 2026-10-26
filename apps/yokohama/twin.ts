@@ -966,18 +966,25 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		return snaps.length && snaps[0].m <= 150 ? { g, from: walkSearch(g, at, snaps) } : null;
 	}
 	// 道順の線（押した行の行き先まで）
-	let routeOn = false;
-	const routes: [number, number][][] = [];
+	let routeOn = false, destMark: Marker | null = null;
+	const routes: [number, number][][] = [], routeTo: string[] = [];   // routeTo＝行き先の名（終点のピンに出す）
 	async function showRoute(k: number) {
+		destMark?.remove(); destMark = null;
+		const line = routes[k];
+		if (line?.length) {   // 行き先のピン＋名（動画で「どこへ向かう線か」が分かるように・Mac の試し撮り 2026-10-26）
+			const el = document.createElement("div"); el.className = "yk-dest";
+			el.innerHTML = `<i></i>${routeTo[k] ? `<span>${esc(routeTo[k])}</span>` : ""}`;
+			destMark = new ML.Marker({ element: el, anchor: "bottom" }).setLngLat(line[line.length - 1]).addTo(map);
+		}
 		const fc = { type: "FeatureCollection" as const, features: routes[k] ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: routes[k] } }] : [] };
 		if (!routeOn) {
 			routeOn = true; map.addSource("yk-route", { type: "geojson", data: fc, attribution: OSM_ATTR });
-			await map.addLayer({ id: "yk-route-case", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
-			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#29b6f6", "line-width": 4 } });
+			await map.addLayer({ id: "yk-route-case", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 10 } });
+			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0288d1", "line-width": 6 } });   // 太め・濃いめ＝明るい基図の上でも傾けても見える（Mac の試し撮り 2026-10-26）
 		} else map.getSource("yk-route")?.setData?.(fc);
 		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
 	}
-	const clearHome = () => { homeOut.hidden = true; homeMark?.remove(); homeMark = null; routes.length = 0; if (routeOn) showRoute(-1); };
+	const clearHome = () => { homeOut.hidden = true; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } };
 	async function homeAt(ll: LonLat) {
 		const at: [number, number] = [ll[0], ll[1]];
 		closePop(); homeMark?.remove();
@@ -1002,14 +1009,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (wards && !ward?.code) { homeOut.innerHTML = `<div class="dh"><b>${esc(t("Outside Yokohama City."))}</b>${x}</div>`; return; }
 		const row = (k: string, v: string) => `<div><small>${esc(k)}</small><span>${v}</span></div>`;
 		// 道のり＝歩ける道（OSM）で。網の外・繋がらない＝直線（「直線」と書く・徒歩は 1.3 倍で見積もる）。cands は直線で近い順の候補＝道のりで並べ直す
-		routes.length = 0;
+		routes.length = 0; routeTo.length = 0;
 		type Way = { m: number; k: number };   // k＝道順の番号（-1＝直線）
 		const way = (to: [number, number]): Way => { const r = net && walkTo(net.g, net.from, to);
 			if (!r) return { m: distM(at, to), k: -1 };
 			routes.push(r.path); return { m: r.m, k: routes.length - 1 }; };
 		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
-		const walk = (w: Way) => w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
-			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`;
+		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
+			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`; };
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
 		const out: string[] = [];
 		out.push(`<div class="dh"><b>${esc(ward?.code ? wardName(ward.code) : "")}${Number.isFinite(here) ? ` · ${esc(t("Elevation about $1 m", num(Math.round(here))))}` : ""}</b>${x}</div>`);
@@ -1020,10 +1027,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const sta: { row: StationRow; w: Way }[] = [];
 		if (rail) for (const r of best(nearestRows(rail.stations, at, 8), 8)) { if (!sta.some(s => s.row[2] === r.row[2])) sta.push(r); if (sta.length >= 2) break; }
 		const bs = bus ? best(nearestRows(bus, at, 4))[0] : null;
-		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w)}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
+		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
 		// 防災＝想定浸水（3 つの想定）・土砂・水が届く階・最寄りの避難場所
 		const worst = Math.max(...depths), ev = sh ? best(nearestSites(sh, at, 4))[0] : null;
-		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(shName(ev.row))}<br><small>${walk(ev.w)}</small>`) : ""}</div>`
+		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(shName(ev.row))}<br><small>${walk(ev.w, shName(ev.row))}</small>`) : ""}</div>`
 			+ (floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""));
 		// 休日・夜間の急病＝区の休日急患診療所（区で決まる）・近い夜間急病センター・#7119（本人「休日急患診療所は絶対必要！」2026-10-26）。電話は押せばかかる
 		const tel = (n: string) => `<a href="tel:${n.replace(/-/g, "")}">${esc(n)}</a>`;
@@ -1035,14 +1042,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			+ `</div><p class="sub flat">${esc(t("Unsure whether to call an ambulance? Kanagawa emergency advice line, 24 hours:"))} <a href="tel:%237119">#7119</a></p>`);
 		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ
 		const big = fac ? best(nearestRows(fac.filter(r => majorHospital(r[2])), at, 4), 2) : [];
-		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => row(lang === "ja" ? majorHospital(r[2])! : facName(r), w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w))).join("")}</div>`);
+		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => { const nm = lang === "ja" ? majorHospital(r[2])! : facName(r); return row(nm, w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w, nm)); }).join("")}</div>`);
 		// 近くの施設（区役所・図書館・病院・交番・消防署）
 		if (fac) {
 			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
 			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), city = n === "Libraries" ? rows.filter(r => r[2].startsWith("横浜市")) : [];
 				return best(nearestRows(city.length ? city : rows, at, 3))[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
-			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w)}</small>`)).join("")}</div>`);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
@@ -1055,7 +1062,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	homeOut.addEventListener("click", e => { const el = e.target as HTMLElement, r = el.closest<HTMLElement>(".wroute");
 		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
 			const k = +r.dataset.k!, line = routes[k]; showRoute(k); if (narrow()) P.setFold(true);
-			if (line?.length) { const xs = line.map(p => p[0]), ys = line.map(p => p[1]); map.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 17 }); }
+			if (line?.length) {   // 引いても建物を残す（z 16.5 未満でも道順のまわりは立てたまま＝観光と同じ hold・Mac の試し撮り 2026-10-26）
+				const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], o = { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 17 };
+				const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
+				map.fitBounds(bb, o).finally(() => { if (h) h.armed = true; });
+			}
 			return; }
 		if (el.closest(".x")) clearHome(); });
 	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing && narrow()) P.setFold(true); };
@@ -1274,6 +1285,9 @@ const CSS = `
 .yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
 .yk-probing canvas{cursor:crosshair}
 .yk-home{background:#1f6fc5}
+.yk-dest{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.yk-dest span{order:-1;margin-bottom:3px;padding:3px 8px;border-radius:6px;background:#0288d1;color:#fff;font:600 13px/1.25 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.yk-dest i{width:14px;height:14px;border-radius:50%;background:#0288d1;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 /* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
 /* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
 .oe-panel-host #chips{display:none!important}
