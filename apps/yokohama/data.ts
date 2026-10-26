@@ -430,7 +430,7 @@ export function walkSnap(g: WalkGraph, at: [number, number]): { i: number; m: nu
 	return best < 0 ? null : { i: best, m: distM(at, [g.x[best] * WALK_Q, g.y[best] * WALK_Q]) };
 }
 /** 1 点から全部の点への道のり（m）と、来た点（道順を辿る用） */
-export function walkFrom(g: WalkGraph, src: number): { dist: Float64Array; prev: Int32Array } {
+export function walkSearch(g: WalkGraph, src: number): { dist: Float64Array; prev: Int32Array } {
 	const n = g.x.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
 	const hn: number[] = [], hd: number[] = [];   // 二分ヒープ（古い札は取り出した時に捨てる）
 	const push = (v: number, d: number) => { let i = hn.length; hn.push(v); hd.push(d); while (i > 0) { const p = (i - 1) >> 1; if (hd[p] <= d) break; hn[i] = hn[p]; hd[i] = hd[p]; i = p; } hn[i] = v; hd[i] = d; };
