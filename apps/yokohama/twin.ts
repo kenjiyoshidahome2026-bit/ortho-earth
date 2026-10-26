@@ -805,7 +805,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!d?.rows?.length) { map.setBaseLayers?.({ place: true }); return; }   // 無い＝基図の日本語の地名に戻す
 		map.addSource("yk-places", { type: "geojson", attribution: OSM_ATTR, data: { type: "FeatureCollection", features: d.rows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { en: r[4] === 4 ? t("$1 Station", r[3]) : r[3], k: r[4], o: [0, 2, 3, 4, 1][r[4]] ?? 5 } })) } });
 		await map.addLayer({ id: "yk-places", type: "symbol", source: "yk-places", filter: [">=", ["zoom"], ["match", ["get", "k"], 0, 10, 1, 12.5, 2, 14.5, 13]],
-			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 9, "symbol-sort-key": ["get", "o"] },   // 先に置く順＝区 → 駅 → 町 → 丁目 → 小字（駅が丁目に負けて消えていた・Mac 実測 2026-10-26）
+			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 16, "symbol-sort-key": ["get", "o"] },   // 先に置く順＝区 → 駅 → 町 → 丁目 → 小字（駅が丁目に負けて消えていた・Mac 実測 2026-10-26）
 			paint: { "text-color": ["match", ["get", "k"], 0, "#263238", 4, "#37474f", "#455a64"], "text-halo-color": "rgba(255,255,255,.92)", "text-halo-width": 1.6 } });
 	}
 	const walkBins = new Map<string, Promise<WalkLine[]>>();
