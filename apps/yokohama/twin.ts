@@ -90,6 +90,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const P = createPanel({ host: mapEl, title: t("Yokohama Digital Twin"), cls: "yk-panel",   // 副題は置かない（本人 2026-10-21）
 		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
 	const panel = P.el;
+	// 言語の切替は案内板の見出しへ（左の列から移す・本人 2026-10-26「言語切り替えはパネルへ」）。畳んだ見出しを押すと開く動きには乗せない
+	const langBtn = mapEl.querySelector<HTMLButtonElement>("#lang-btn");
+	if (langBtn) { P.head.insertBefore(langBtn, P.fold); langBtn.addEventListener("click", e => e.stopPropagation()); }
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
 	P.body.innerHTML = `
 			<div class="intro" hidden><p>${esc(t("New here? Start with “Around my home” in Daily life, then try walking distance in Transport and flood depths in Disasters."))}</p><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
@@ -1098,7 +1101,11 @@ const CSS = `
 /* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
 /* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
 .oe-panel-host #chips{display:none!important}
-@media (max-width:640px){ .oe-panel-host #full,.oe-panel-host #qr-btn,.oe-panel-host #sunshadow-btn,.oe-panel-host #measure-btn,.oe-panel-host #profile-btn{display:none!important} }
+/* 影・計測・断面は解析の面にあるので左の列には出さない（どの幅でも・本人 2026-10-26「重複するので不要」） */
+.oe-panel-host #sunshadow-btn,.oe-panel-host #measure-btn,.oe-panel-host #profile-btn{display:none!important}
+@media (max-width:640px){ .oe-panel-host #full,.oe-panel-host #qr-btn{display:none!important} }
+.yk-panel .oe-panel-head #lang-btn{flex:none;width:28px;height:28px;display:grid;place-items:center;padding:0;border-radius:8px;border:1px solid var(--qm-border-soft);background:transparent;box-shadow:none;cursor:pointer}
+.yk-panel .oe-panel-head #lang-btn svg{stroke:var(--qm-text-dim)}
 .yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .yk-panel .hm-btns .act{margin:0;text-align:center}
 .yk-panel .home-out .wroute{margin-left:4px;padding:1px 8px;border-radius:999px;border:1px solid #d81b60;background:transparent;color:#d81b60;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;vertical-align:1px}
