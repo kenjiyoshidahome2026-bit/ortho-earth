@@ -73,11 +73,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── カメラ ──
 	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路・施設）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
 	const ALL_LAYERS = { place: true, terrain: true, rail: true, road: true, facility: true };
+	// 日本語以外＝基図の地名（日本語の注記）は伏せ、OSM の英語の地名（places.json）を描く（本人 2026-10-26）
+	const OSM_NAMES = lang !== "ja";
+	const baseLayers = (o: Parameters<GlobeMap["setBaseLayers"]>[0]) => map.setBaseLayers(OSM_NAMES ? { ...o, place: false } : o);
 	let layersBefore: ReturnType<GlobeMap["getBaseLayers"]> | undefined;   // undefined＝平面にしていない
 	const setFlat = (on: boolean) => {
 		if (!map.setBaseLayers) { showAreas(on); return; }   // 旧エンジン（setBaseLayers 前）＝区域だけ
-		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = Object.values(now).every(Boolean) ? { ...now, terrain: false, rail: false, road: false, facility: false } : now; } showAreas(true); map.setBaseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
-		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); map.setBaseLayers(b); }
+		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = Object.values(now).every(Boolean) ? { ...now, terrain: false, rail: false, road: false, facility: false } : now; } showAreas(true); baseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
+		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
 	const flySpot = (s: Spot) => flyView(s);
@@ -797,6 +800,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const HOME_NEAR = ["Ward offices", "Libraries", "Hospitals", "Police boxes", "Fire stations and headquarters"].map(n => ({ n, i: SUB(n) }));
 	// 歩ける道（OSM）＝家のまわり 2.5km の区画だけ取る（一度だけ・無い区画＝空）。道の網は家ごとに組み、家から 1 度だけ探す（Mac の試作で 2km 四方 0.1 秒弱）
 	const WALK_R = 2500, OSM_ATTR = `<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>`;
+	// 地図の地名（英語）＝OSM の区・町・丁目・小字・駅。z で段を分ける（区 10・駅と小字 13・町 12.5・丁目 14.5）
+	async function osmNames() {
+		const d = await ledger<{ rows: [number, number, string, string, number][] }>("places.json");
+		if (!d?.rows?.length) { map.setBaseLayers?.({ place: true }); return; }   // 無い＝基図の日本語の地名に戻す
+		map.addSource("yk-places", { type: "geojson", attribution: OSM_ATTR, data: { type: "FeatureCollection", features: d.rows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { en: r[3], k: r[4] } })) } });
+		await map.addLayer({ id: "yk-places", type: "symbol", source: "yk-places", filter: [">=", ["zoom"], ["match", ["get", "k"], 0, 10, 1, 12.5, 2, 14.5, 13]],
+			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 9, "symbol-sort-key": ["get", "k"] },
+			paint: { "text-color": ["match", ["get", "k"], 0, "#263238", 4, "#37474f", "#455a64"], "text-halo-color": "rgba(255,255,255,.92)", "text-halo-width": 1.6 } });
+	}
 	const walkBins = new Map<string, Promise<WalkLine[]>>();
 	const walkBin = (k: string) => walkBins.get(k) ?? walkBins.set(k, fetch(`${opts.base}walk/${k}.bin`, { credentials: "omit" })
 		.then(r => r.ok ? r.arrayBuffer() : null).then(b => { const [cx, cy] = k.split("_").map(Number); return b ? decodeWalk(new Uint8Array(b), cx, cy) : []; })
@@ -967,6 +979,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const s0 = SPOTS.find(s => s.id === st.spot);
 	if (s0) { showSpot(s0); if (!location.hash) flySpot(s0); }
 	else if (!location.hash) setWard(st.ward);   // 初めて開いた＝「市全体」を押した時と同じ（真上から市を 9 割・基図は全層・本人 2026-10-26）。区つきの URL ならその区
+	if (OSM_NAMES && map.setBaseLayers) { map.setBaseLayers({ place: false }); osmNames().catch(e => console.warn("[yokohama] places", e)); }
 	else if (st.ward) wardSel.value = st.ward;
 	for (const id of st.hz) setHazard(id, true);
 	for (const id of st.tr) setTransit(id, true);
@@ -1080,6 +1093,8 @@ const CSS = `
 .yk-panel .intro{display:flex;gap:8px;align-items:flex-start;margin:8px 0 2px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.35)}
 .yk-panel .intro p{margin:0;font-size:12.5px;color:var(--qm-text)}
 /* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
+/* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
+.oe-panel-host #chips{display:none!important}
 @media (max-width:640px){ .oe-panel-host #full,.oe-panel-host #qr-btn,.oe-panel-host #sunshadow-btn,.oe-panel-host #measure-btn,.oe-panel-host #profile-btn{display:none!important} }
 .yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .yk-panel .hm-btns .act{margin:0;text-align:center}

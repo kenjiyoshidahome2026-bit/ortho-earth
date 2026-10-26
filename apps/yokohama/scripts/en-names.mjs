@@ -95,7 +95,7 @@ const WORDS = [
 	["京急", "Keikyu", 1], ["相鉄", "Sotetsu", 1], ["入口", "Entrance", 1], ["営業所", "Depot", 1], ["車庫", "Depot", 1], ["折返場", "Turnaround", 1], ["ターミナル", "Terminal", 1], ["団地", "Danchi", 1],
 	// 駅・停留所・避難場所の見直し（2026-10-26）
 	["荏原", "ebara", 0], ["中延", "nakanobu", 0], ["捜真", "soshin", 0], ["桟橋", "sanbashi", 0], ["貯木場", "chobokujo", 0], ["慶珊寺", "keisanji", 0], ["矢之根", "yanone", 0], ["中ノ谷", "nakanoya", 0],
-	["公園口", "Park Entrance", 1], ["口", "guchi", 2], ["寺", "ji", 2], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
+	["公園口", "Park Entrance", 1], ["寺尾", "terao", 0], ["大口", "ooguchi", 0], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
 	["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
 	["綱島", "tsunashima", 0], ["北川", "kitagawa", 0], ["山内", "yamauchi", 0], ["元街", "motomachi", 0], ["南町田", "minami-machida", 0], ["グランベリー", "Grandberry", 1], ["横浜人形の家", "Yokohama Doll Museum", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
@@ -112,7 +112,7 @@ export const EN_FIX = {
 	"聖マリアンナ医科大学横浜市西部病院": "St. Marianna University Yokohama Seibu Hospital", "横浜労災病院": "Yokohama Rosai Hospital",
 	"横浜市北部病院": "Showa Medical University Northern Yokohama Hospital", "横浜医療センター": "NHO Yokohama Medical Center",
 	"横浜市保健所": "Yokohama City Public Health Center", "八景島シーパラダイス": "Yokohama Hakkeijima Sea Paradise", "總持寺": "Sojiji Temple Treasure Hall",
-	"カップヌードルミュージアム": "Cup Noodles Museum", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ": "Tin Toy Museum", "東洋英和女学院大学": "Toyo Eiwa University Library", "つづきMYプラザ": "Tsuzuki Multicultural and Youth Plaza (Tsuzuki MY Plaza)",
+	"カップヌードルミュージアム": "Cup Noodles Museum", "港の見える丘公園": "Minato-no-Mieru-Oka Park", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ": "Tin Toy Museum", "東洋英和女学院大学": "Toyo Eiwa University Library", "つづきMYプラザ": "Tsuzuki Multicultural and Youth Plaza (Tsuzuki MY Plaza)",
 	"かながわ県民活動サポートセンター": "Kanagawa Citizens' Activity Support Center", "横浜地方気象台": "Yokohama Local Meteorological Office", "三殿台考古館": "Sandonodai Archaeological Museum",
 	"海上災害防止センター": "Maritime Disaster Prevention Center", "海難審判所": "Japan Marine Accident Tribunal", "国税不服審判所": "National Tax Tribunal", "京浜港湾事務所": "Keihin Port Office",
 	"東京工業大学": "Tokyo Institute of Technology", "東京都市大学": "Tokyo City University", "日本体育大学": "Nippon Sport Science University", "東京ガス": "Tokyo Gas Environmental Energy Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
@@ -165,10 +165,10 @@ export function makeEn({ towns, wards, tokenize }) {
 				else for (const x of tokenize(part)) {
 					const f = x.surface_form;
 					if (f === "の" && / $/.test(out)) continue;   // 「青少年の地域」＝英語の語の後の「の」は落とす
-					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : f === "町" ? "cho" : romaji(x.reading || f);
+					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : f === "町" ? "cho" : f === "口" ? "guchi" : romaji(x.reading || f);
 					// ひらがな・「ノ」「之」・地名の末の字（町・寺・橋…）は前に続ける（くぬぎ台・初音が丘・高島町＝Takashimacho）
-					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || /^[ノ之町寺橋台谷坂丘]$/.test(f) || !/[a-z]$/.test(out);
-					out = /^[ノ之町寺橋台谷坂丘]$/.test(f) ? out.trimEnd() + r : out + (glue ? r : ` ${r}`);
+					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || /^[ノ之町寺橋台谷坂丘口]$/.test(f) || !/[a-z]$/.test(out);
+					out = /^[ノ之町寺橋台谷坂丘口]$/.test(f) ? out.trimEnd() + r : out + (glue ? r : ` ${r}`);
 				}
 			}
 			i = j;
