@@ -4,7 +4,7 @@
 //   Viewer: the widgets' own prototype and its widgets (Animation, Timeline, HomeButton, Geocoder, InfoBox, SelectionIndicator…) built the way the
 //   widgets' Viewer constructor builds them, around that CesiumWidget.
 import { Cartesian3, Clock, Ellipsoid, Event, EventHelper, JulianDate, Rectangle } from "@cesium/core";
-import { CesiumWidget as RealWidgetClass, CreditDisplay, ImageryLayer, DataSourceCollection, Entity, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, Cesium3DTileFeature as RealFeature } from "@cesium/engine";
+import { CesiumWidget as RealWidgetClass, CreditDisplay, SkyBox, ImageryLayer, DataSourceCollection, Entity, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, Cesium3DTileFeature as RealFeature } from "@cesium/engine";
 import {
 	Animation, AnimationViewModel, BaseLayerPicker, ClockViewModel, FullscreenButton, Geocoder,
 	HomeButton, InfoBox, NavigationHelpButton, ProjectionPicker, SceneModePicker, SelectionIndicator, Timeline, Viewer as RealViewerClass,
@@ -16,6 +16,7 @@ import { OrthoScene, type Host } from "./scene.ts";
 import { EntityDisplay } from "./display.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { syncImagery } from "./imagery.ts";
+import { skyBoxLayer } from "./skybox.ts";
 import { PrimitiveDrawer, isGeometryPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
@@ -41,7 +42,8 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 		night: false, coastline: false, worldLines: false, maxPitch: 89, zoomMax: 25,   // Cesium lets the camera come within metres of a model (trackedEntity); the globe default stops at z20 (≈100 m)
 		// the globe's own basemap is off: Cesium's imagery layers draw the ground, over the globe's base colour (Cesium's default is blue)
 		style: { version: 8, sources: {}, layers: [{ id: "__cs-base", type: "background", paint: { "background-color": "#0000ff" } }] },
-		...(o.skyBox === false && { stars: false }), ...o.ortho,
+		stars: false, clearColor: "transparent",   // space is Cesium's: scene.backgroundColor and the sky box, drawn under the globe (skybox.ts)
+		...o.ortho,
 	};
 }
 
@@ -92,6 +94,8 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	if (options.terrainProvider) scene.terrainProvider = options.terrainProvider;
 	if (options.terrain) scene.setTerrain(options.terrain);
 	if (options.skyBox === false) { scene.skyBox = undefined; scene.sun = undefined; scene.moon = undefined; }
+	else { try { scene.skyBox = options.skyBox ?? SkyBox.createEarthSkyBox(); } catch (e) { console.warn("[csshim] sky box", e); } }
+	this._orthoSkyBox = skyBoxLayer(scene, canvas);
 	if (options.skyAtmosphere === false) scene.skyAtmosphere = undefined;
 	if (options.sceneMode != null && options.sceneMode !== 3) unsupported("sceneMode other than SCENE3D (the globe is 3D only)");
 	this._screenSpaceEventHandler = new ScreenSpaceEventHandler(canvas);
@@ -148,12 +152,10 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", bg = "";   // globe.baseColor → the background under the imagery · scene.backgroundColor → space
+		let base = "", atm = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		scene.postRender.addEventListener(() => {
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
-			const b = scene.backgroundColor?.toCssColorString?.() ?? "rgb(0,0,0)";
-			if (b !== bg) { bg = b; map.setClearColor?.(b); }
 			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas
 			const ground = scene.globe?.show !== false && scene.globe?.showGroundAtmosphere !== false, sky = !!scene.skyAtmosphere && scene.skyAtmosphere.show !== false;
 			if (`${ground}${sky}` !== atm) { atm = `${ground}${sky}`; map.setAtmosphere?.({ model: "cesium", ground, sky }); }
@@ -201,7 +203,7 @@ Object.assign(CesiumWidget.prototype, {
 		const ds = this.dataSources;
 		for (let i = 0; i < ds.length; i++) this._dataSourceRemoved(ds, ds.get(i));
 		this._dataSourceRemoved(undefined, this._dataSourceDisplay.defaultDataSource);
-		this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy();
+		this._orthoSkyBox?.(); this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy();
 		this._dataSourceDisplay.destroy();
 		this._scene.destroy();
 		this._host.map?.destroy?.();
