@@ -99,6 +99,7 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 		&& E.addr("横浜市港北区菊名7-8-27", "Kohoku-ku") === "7-8-27 Kikuna, Kohoku-ku" && E.addr("横浜市港北区菊名七丁目8番27号", "Kohoku-ku") === "7-8-27 Kikuna, Kohoku-ku"
 		&& E.name("鶴見駅西口行政サービスコーナー", 7) === "Tsurumi Station West Exit Administrative Service Corner" && E.name("日本新聞博物館（ニュースパーク）", 3) === "Japan Newspaper Museum (Newspark)"
 		&& E.name("南高等学校附属中学校", 2) === "Minami High School Affiliated Junior High School" && E.name("神奈川県社会福祉会館", 7) === "Kanagawa Social Welfare Hall" && E.name("日下小学校", 2) === "Kusaka Elementary School"
+		&& E.name("横浜市立盲特別支援学校", 2) === "Yokohama School for the Blind" && E.name("南が丘中学校", 2) === "Minamigaoka Junior High School" && E.name("在横浜ブルガリア共和国名誉領事館", 7) === "Honorary Consulate of Bulgaria in Yokohama"
 		&& WARDS.every(w => HOLIDAY_CLINICS[w.code].en.endsWith(w.en)) && NIGHT_CENTERS.every(c => c.enName && c.en));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
