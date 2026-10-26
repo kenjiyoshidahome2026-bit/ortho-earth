@@ -567,6 +567,18 @@ uniform vec3 u_land;
 uniform float u_landA;   // 床の不透明度（B5）＝globe パスの u_land.a と同じ（background 層の無い MapLibre の地図＝0）。1＝従来とビット同一
 uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
+uniform vec4  u_cg;          // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き
+uniform vec4  u_cgP;         // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
+uniform vec3  u_cgC;         // 光の色（czm_lightColor）
+// 経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert：n＝勾配（東・北・m/m）から、mode 2 は上向き
+float cgLambert(vec2 ll, vec2 gEN, float mode) {
+	vec2 lr = ll * 0.017453292519943295;
+	float cl = cos(lr.y), sl = sin(lr.y), co = cos(lr.x), so = sin(lr.x);
+	vec3 L = vec3(dot(u_cg.xyz, vec3(-so, 0.0, co)), dot(u_cg.xyz, vec3(-sl * co, cl, -sl * so)), dot(u_cg.xyz, vec3(cl * co, sl, cl * so)));   // 東・北・上
+	vec3 n = mode > 1.5 ? vec3(0.0, 0.0, 1.0) : normalize(vec3(-gEN, 1.0));
+	float diff = clamp(max(dot(n, L), 0.0) * u_cgP.x + u_cgP.y, 0.0, 1.0);
+	return mix(1.0, diff, u_cgP.z);
+}
 uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
 ${ELEV}
@@ -607,6 +619,11 @@ void main() {
 	float hx = elev(v_ll + vec2(d, 0.0)) - h0;
 	float hy = elev(v_ll + vec2(0.0, d)) - h0;
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	float cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
+	if (u_cg.w > 0.5) {   // 勾配はアトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
+		float dL = u_elevBounds.w / tsz.y, hxL = elev(v_ll + vec2(dL, 0.0)) - h0, hyL = elev(v_ll + vec2(0.0, dL)) - h0;
+		shade = 1.0; cgK = cgLambert(v_ll, vec2(hxL / (dL * 111320.0 * max(cos(v_ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0)), u_cg.w);
+	}
 	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
@@ -615,6 +632,7 @@ void main() {
 	float tS = smoothstep(1.0, 100.0, v_h);
 	float ba = mix(u_landA, 1.0, max(u_whK, u_hasCog));   // 床の不透明度（B5）＝全球ハイプソ・COG は不透明
 	vec4 g = gndOver(vec4(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv) * ba, ba), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgK;
 	vec3 col = g.rgb * (1.0 - v_fog) + u_fogColor * v_fog * g.a;   // ＝mix(colBase, fog, v_fog) を前乗算で
 	fragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
@@ -752,6 +770,18 @@ uniform vec4 u_gndOff0;   // 地面アトラス（前景/近/中/遠）＝同形
 uniform vec4 u_gndOff1;
 uniform vec4 u_gndOff2;
 uniform vec4 u_gndOff3;
+uniform vec4  u_cg;          // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き
+uniform vec4  u_cgP;         // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
+uniform vec3  u_cgC;         // 光の色（czm_lightColor）
+// 経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert：n＝勾配（東・北・m/m）から、mode 2 は上向き
+float cgLambert(vec2 ll, vec2 gEN, float mode) {
+	vec2 lr = ll * 0.017453292519943295;
+	float cl = cos(lr.y), sl = sin(lr.y), co = cos(lr.x), so = sin(lr.x);
+	vec3 L = vec3(dot(u_cg.xyz, vec3(-so, 0.0, co)), dot(u_cg.xyz, vec3(-sl * co, cl, -sl * so)), dot(u_cg.xyz, vec3(cl * co, sl, cl * so)));   // 東・北・上
+	vec3 n = mode > 1.5 ? vec3(0.0, 0.0, 1.0) : normalize(vec3(-gEN, 1.0));
+	float diff = clamp(max(dot(n, L), 0.0) * u_cgP.x + u_cgP.y, 0.0, 1.0);
+	return mix(1.0, diff, u_cgP.z);
+}
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
@@ -811,6 +841,7 @@ void main() {
 		float hx = elevAt(ll + vec2(dstep, 0.0)) - e;
 		float hy = elevAt(ll + vec2(0.0, dstep)) - e;
 		float shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+		if (u_cg.w > 0.5) shade = 1.0;   // 地面の照明（Cesium）＝陰影は lambert が受け持つ
 		// 陸海の境：R90/GEBCO の海はクランプで厳密に 0＝閾は低く攻められる（0.5-30m だと華北平原・
 		// 長江デルタ級の低平地が海色に沈む＝本人指摘 2026-08-30）。0.2→4m＝干拓地級だけ海側に残る
 		// （蘭ポルダー等の 0m 以下はクランプで 0＝負値解禁（海の深度ランプ）とセットの将来課題）
@@ -827,12 +858,13 @@ void main() {
 	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
 		g = gndOver(g, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
 	}
+	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgLambert(ll, vec2(0.0), 2.0);   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで（Cesium も法線の無い地形は位置の法線）
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
 	float hz = haze * u_atmo.a * 0.9;
 	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
-	if (u_csAtm.x > 0.5) col = csGround(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y) * g.a;   // Cesium の地面の大気（従来の霞の代わり）
+	if (u_csAtm.x > 0.5) col = csGroundL(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y, u_cg.xyz, u_cg.w > 0.5 ? u_cgP.w : -1.0) * g.a;   // Cesium の地面の大気（従来の霞の代わり）
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
 	if (u_csAtm.x > 0.5 && u_csAtm.z > 0.5 && u_globeAlpha < 1.0) { vec4 cs = csSky2(A * CS_R, normalize(d), u_globeAlpha > 0.0 ? 2.0 : 1.0); fragColor += cs * (1.0 - fragColor.a); }
@@ -902,6 +934,18 @@ float elevAt(vec2 ll) { return elevUV((ll - u_elevBounds.xy) / u_elevBounds.zw, 
 ${WORLD_HYPSO}
 ${COG}
 uniform vec4 u_elevOff;   // 近窓の標高 uv 係数（f64 前計算・#65）＝(原点の uv, 1/span)
+uniform vec4  u_cg;          // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き
+uniform vec4  u_cgP;         // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
+uniform vec3  u_cgC;         // 光の色（czm_lightColor）
+// 経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert：n＝勾配（東・北・m/m）から、mode 2 は上向き
+float cgLambert(vec2 ll, vec2 gEN, float mode) {
+	vec2 lr = ll * 0.017453292519943295;
+	float cl = cos(lr.y), sl = sin(lr.y), co = cos(lr.x), so = sin(lr.x);
+	vec3 L = vec3(dot(u_cg.xyz, vec3(-so, 0.0, co)), dot(u_cg.xyz, vec3(-sl * co, cl, -sl * so)), dot(u_cg.xyz, vec3(cl * co, sl, cl * so)));   // 東・北・上
+	vec3 n = mode > 1.5 ? vec3(0.0, 0.0, 1.0) : normalize(vec3(-gEN, 1.0));
+	float diff = clamp(max(dot(n, L), 0.0) * u_cgP.x + u_cgP.y, 0.0, 1.0);
+	return mix(1.0, diff, u_cgP.z);
+}
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底

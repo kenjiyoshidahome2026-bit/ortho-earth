@@ -129,6 +129,10 @@ export interface LightTypeImpl { apply(map: GlobeMap, lights: LightSpec[]): void
 export interface AtmosphereSpec { model: "cesium"; ground?: boolean; sky?: boolean }
 /** 模型の照明（setMeshLighting・2026-10-26）：CesiumJS の式でメッシュを描く。dir＝光へ向く単位ベクトル（ECEF）・color＝色×強さ（HDR）・sh＝Cesium の並びの SH9（27 値・立方体図の系＝x 東・y 上・z 南）・ibl＝拡散・鏡面の係数・invL00＝一様な環境で L00 が 1 になる倍率 */
 export interface MeshLightingSpec { dir: [number, number, number]; color?: [number, number, number]; sh: ArrayLike<number>; ibl?: [number, number]; invL00?: number }
+/** 地面の照明（setGroundLighting・2026-10-26）：CesiumJS の globe.enableLighting＝地形・遠景球の画像に太陽の lambert を掛ける。dir＝光へ向く単位ベクトル（ECEF）・color＝光の色（czm_lightColor・既定 白）・
+ *  lambert＝[倍率, 足す値]（既定 [0.9, 0.3]＝法線付き地形の式。法線の無い地形は Cesium は [5, 0.3]）・normal＝"terrain"（勾配から・既定）か "up"（楕円体の上向き＝Cesium の法線無し）・
+ *  fade＝[消える距離, 全開の距離]（m・地球中心から・null＝常に全開）・night＝地面の大気（setAtmosphere）を夜側で暗くする距離の組（同形・null＝暗くしない） */
+export interface GroundLightingSpec { dir: [number, number, number]; color?: [number, number, number]; lambert?: [number, number]; normal?: "terrain" | "up"; fade?: [number, number] | null; night?: [number, number] | null }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */

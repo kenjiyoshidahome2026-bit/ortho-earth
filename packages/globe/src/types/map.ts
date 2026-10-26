@@ -20,7 +20,7 @@ import type {
 	OrthoClock, OrthoPlugin, OverlayHandle, OverlayPick, PaddingOptions,
 	Popup, PostPass, PostProcessOptions, ProtocolLoader, QuantizedMeshSource,
 	QueryOptions, RasterAPI, RasterDemSource, RenderedFeature, ResourceType, ScreenGridHandle,
-	ScreenGridOptions, SkySpecification, AtmosphereSpec, MeshLightingSpec, SnapshotOverlay, StyleExpression, SunSpec,
+	ScreenGridOptions, SkySpecification, AtmosphereSpec, MeshLightingSpec, GroundLightingSpec, SnapshotOverlay, StyleExpression, SunSpec,
 	TerrainSourceSpec, Tiles3DHandle, Tiles3DOptions, TransformRequestFunction, VideoHandle, WalkHandle, WalkOptions,
 } from "../../globe.d.ts";
 
@@ -344,6 +344,10 @@ export interface CameraApi {
 	setMeshLighting(l: MeshLightingSpec | null): GlobeMap;   // api/camera.ts:236
 	/** 今の模型の照明（null＝従来） */
 	getMeshLighting(): MeshLightingSpec | null;   // api/camera.ts:244
+	/** 地面の照明（2026-10-26・@ortho-earth/cesium が使う）：CesiumJS の globe.enableLighting＝地形・遠景球の画像に太陽の lambert を掛け、地面の大気を夜側で暗くする（両レンダラ）。null＝従来（北西の陰影） */
+	setGroundLighting(l: GroundLightingSpec | null): GlobeMap;
+	/** 今の地面の照明（null＝従来） */
+	getGroundLighting(): GroundLightingSpec | null;
 	/** 太陽の向き（F2・2026-10-12・ephem＝夜の側・日影と同じ出所・精度 約 0.05°）。ms 省略＝共通の時計の今・at 省略＝視点の中心 */
 	getSunPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;   // api/camera.ts:246
 	/** 月の向き（地心＝視差なし・精度 約 0.3°） */
