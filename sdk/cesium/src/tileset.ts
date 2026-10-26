@@ -86,7 +86,10 @@ export class Cesium3DTileset {
 		this.#host = host;
 		void host.ready.then(async map => {
 			if (this.#destroyed || !this.#host) return;
-			const headers = this.resource.headers && Object.keys(this.resource.headers).length ? { ...this.resource.headers } : null;
+			const r: Any = this.resource;
+			// an ion asset's server wants the endpoint's token, which IonResource adds only as it sends each request (_makeRequest)
+			const ir: Any = r instanceof IonResource && !(r as Any)._isExternal ? r : null, ion = ir?._ionEndpoint?.accessToken ? { Authorization: `Bearer ${ir._ionEndpoint.accessToken}` } : null;
+			const headers = (r.headers && Object.keys(r.headers).length) || ion ? { ...r.headers, ...ion } : null;
 			const query = this.resource.queryParameters && Object.keys(this.resource.queryParameters).length ? this.resource.queryParameters : null;
 			const url = new URL(this.url, document.baseURI).href;   // a tileset given by a relative path ("../../SampleData/…")
 			const origin = new URL(url).origin;
