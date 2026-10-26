@@ -152,8 +152,22 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		scene.postRender.addEventListener(() => {
+			// the globe's opacity: none (viewer { globe: false }, globe.show = false: the 3D Tiles are the ground), translucent (globe.translucency) or opaque
+			const gb = scene.globe, tr = gb?.translucency, bd = tr?.frontFaceAlphaByDistance;
+			let op = 1;
+			if (!gb || gb.show === false) op = 0;
+			else if (tr?.enabled) {
+				op = typeof tr.frontFaceAlpha === "number" ? tr.frontFaceAlpha : 1;
+				if (bd) {   // by the distance to the ground (Cesium: to each tile; here the nearer of the camera's height and its distance to the target)
+					const h = scene.camera.positionCartographic?.height, d = Math.min(map.getCamera?.()?.distance ?? Infinity, Number.isFinite(h) ? Math.abs(h) : Infinity);
+					const t = !Number.isFinite(d) ? 1 : bd.far > bd.near ? Math.max(0, Math.min(1, (d - bd.near) / (bd.far - bd.near))) : (d < bd.near ? 0 : 1);
+					op *= bd.nearValue + (bd.farValue - bd.nearValue) * t;
+				}
+			}
+			op = Math.round(op * 100) / 100;
+			if (op !== gop) { gop = op; map.setGlobeOpacity?.(op); }
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
 			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas

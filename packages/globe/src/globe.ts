@@ -2820,6 +2820,8 @@ map.getDebug = () => ({ ...dbgState });
 map.areTilesLoaded = () => mapLoaded && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 	&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
+// 球の不透明度（1.17.0〜・2026-10-26）：0＝地面を描かない（3D Tiles だけの眺め・Cesium の globe:false）・0〜1＝半透明（Cesium の globe.translucency）。表示パネル「基図」のつまみと同じ経路（globe/terrain/湖/夜面/塗り）
+map.setGlobeOpacity = a => { const v = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 1; renderer.set("view", { baseAlpha: v, globeAlpha: v }); requestDraw(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
 	else { const v = Array.isArray(b[0]) ? [(b as LonLat[])[0][0], (b as LonLat[])[0][1], (b as LonLat[])[1][0], (b as LonLat[])[1][1]] : b as number[]; if (v.length >= 4 && v.every(Number.isFinite)) { const e = wrapLon(v[2]); camBounds = [wrapLon(v[0]), v[1], e === -180 && v[2] > v[0] ? 180 : e, v[3]]; } }   // 東端の 180 は 180 のまま（wrapLon は [-180,180) に畳む＝[-180,…,180] が幅 0 の可動域にならないように）
