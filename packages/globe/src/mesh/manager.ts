@@ -72,6 +72,8 @@ export interface MeshManager {
 	update(settled?: boolean): void;
 	standUp(set: MeshSet, tiles?: string[]): Promise<boolean>;
 	prefetch(views: unknown[], names?: string[] | null, onProgress?: OnProg | null): Promise<MeshSet[]>;
+	/** 頁の先読み（map.prefetchBuildings）＝名前か範囲の区を IDB へだけ焼く。prefetch と違いピン留め・台本の関所を立てない（表示の選び方は普段のまま） */
+	preload(o: { names?: string[] | null; bbox?: ArrayLike<number> | null }, onProgress?: OnProg | null): Promise<MeshSet[]>;
 	trimForScript(views: unknown[]): void;
 	firstRevealSets(views: Array<string | ParsedView> | null | undefined): MeshSet[];
 	setExcludeMap(map: Record<string, string[]> | null): void;
@@ -397,6 +399,16 @@ async function prefetchMeshForViews(views: unknown[], names?: string[] | null, o
 	}
 	meshScriptOnly = null;   // preload 無指定＝関所なし（前の台本の集合を持ち越さない＝台本の持ち物の掟）
 	return runPrefetch(deriveScriptSets(views), "derived from views", onProgress);
+}
+// 頁の先読み（2026-10-26・横浜「立ち上がったらすぐに PLATEAU の先読み」本人）＝名前（カタログ名）か範囲（bbox と交わる区・今の視点に近い順）。
+// 焼くだけ＝描画・常駐は autoMesh が普段どおり決める（ピン留めしない）。死んだ区・LOW_MEM でも走る（R2 焼きは Draco 無し・区あたり数 MB）
+async function preloadForApp({ names, bbox }: { names?: string[] | null; bbox?: ArrayLike<number> | null }, onProgress?: OnProg | null): Promise<MeshSet[]> {
+	if (!meshOn) return [];
+	await catalogReady;
+	const c = env.cam.center, d2 = (s: MeshSet) => ((s.bbox[0] + s.bbox[2]) / 2 - c[0]) ** 2 + ((s.bbox[1] + s.bbox[3]) / 2 - c[1]) ** 2;
+	const wanted = names?.length ? names.map(n => SETS.find(x => x.name === n)).filter((s): s is MeshSet => !!s && !meshDead(s.name))
+		: bbox ? SETS.filter(s => !meshDead(s.name) && bboxIntersects(s.bbox, bbox)).sort((a, b) => d2(a) - d2(b)) : [];
+	return runPrefetch(wanted, "app", onProgress);
 }
 // 台本の視点列→PLATEAU区集合の導出（2026-08-12 関数化＝先読みと静穏窓の大掃除で共用）。
 // 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
@@ -843,7 +855,7 @@ function terminate() {   // destroy：worker・デコーダ（main 所有＝道�
 	clearInterval(pollT); clearTimeout(pokeT);
 }
 return {
-	update: autoMesh, standUp: standUpWard, prefetch: prefetchMeshForViews, trimForScript: meshTrimForScript, firstRevealSets,
+	update: autoMesh, standUp: standUpWard, prefetch: prefetchMeshForViews, preload: preloadForApp, trimForScript: meshTrimForScript, firstRevealSets,
 	setExcludeMap, setProgressTap: fn => { sceneProgTap = fn; }, terminate,
 	get sets() { return SETS; }, progress: meshProg,
 	isActive: name => meshActive.has(name), isDead: meshDead,
