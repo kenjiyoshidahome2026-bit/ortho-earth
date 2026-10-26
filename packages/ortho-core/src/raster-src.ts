@@ -13,7 +13,7 @@
 //   { wms: { url, layers, styles?, format?, transparent?, version? } } … WMS（GetMap をタイルに割る・EPSG:3857）
 //   { wmts: { capabilities: URL, layer?, style?, format? } } … WMTS（GetCapabilities を読む）／{ wmts: { url, layer, tileMatrixSet, … } }（KVP を手で）
 //   url に {bbox-epsg-3857}（WMS）や {TileMatrix}/{TileRow}/{TileCol}（WMTS REST）を直に書いてもよい（MapLibre と同じ記法）
-//   adjust?: { hueRotate, saturation, contrast, brightnessMin, brightnessMax } … 色調整（MapLibre の raster-* paint・#39）＝どの種類にも掛かる
+//   adjust?: { hueRotate, saturation, contrast, brightnessMin, brightnessMax, colorToAlpha, cutout } … 色調整（MapLibre の raster-* paint・#39）＋色→透明・切り抜き（Cesium 由来）＝どの種類にも掛かる
 //   { port: MessagePort, … }             … 外部プロバイダ（ローカル GeoPackage/MBTiles の worker・第三者の実装）。
 //        プロトコル：port ← { type:"info", info:{ tileSize, minZoom, maxZoom, bbox, attribution, name } } を最初に 1 通。
 //        要求 port → { id, z, x, y }／応答 port ← { id, bitmap: ImageBitmap|null, error?: string }（bitmap は transfer）。
@@ -28,7 +28,13 @@ export interface WmsSpec { url: string; layers: string; styles?: string; format?
 /** WMTS の記述子（capabilities を読むか・KVP を手で） */
 export interface WmtsSpec { url?: string; capabilities?: string; layer?: string; style?: string; tileMatrixSet?: string; format?: string; matrixIds?: string[] }
 /** 色調整（MapLibre の raster-* paint） */
-export interface RasterAdjust { hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number }
+export interface RasterAdjust {
+	hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number;
+	/** この色（r,g,b 0..1）との差（最大成分）が threshold 未満の画素を透明に（Cesium の ImageryLayer.colorToAlpha と同じ・色調整の前） */
+	colorToAlpha?: [number, number, number, number] | null;
+	/** 切り抜き＝この経緯度矩形 [west, south, east, north]（度）の中を透明に（Cesium の cutoutRectangle） */
+	cutout?: [number, number, number, number] | null;
+}
 /** 外から与える記述子 */
 export interface RasterSpec {
 	url?: string; pmtiles?: string; port?: MessagePort; wms?: WmsSpec; wmts?: WmtsSpec; subdomains?: string | string[]; tms?: boolean;
@@ -161,7 +167,20 @@ async function decode(blobOrBytes: Blob | Uint8Array, mime?: string): Promise<Im
 // ラスタの色調整（MapLibre の raster-hue-rotate / raster-saturation / raster-contrast / raster-brightness-min・max・#39）。
 // 順番も MapLibre と同じ＝色相 → 彩度 → コントラスト → 明るさの幅。復号した画像に画素でかける（シェーダは触らない＝両バックエンド同じ）。
 // adj＝{ hueRotate:度, saturation:-1..1, contrast:-1..1, brightnessMin:0..1, brightnessMax:0..1 }（既定＝何もしない）
-export function adjustRGBA<T extends Uint8ClampedArray | Uint8Array>(px: T, adj: RasterAdjust): T {
+export function adjustRGBA<T extends Uint8ClampedArray | Uint8Array>(px: T, adj: RasterAdjust, tile?: { z: number; x: number; y: number; size: number }): T {
+	const c2a = adj.colorToAlpha;
+	if (c2a && c2a[3] > 0) {   // 色→透明（色調整の前・生の画素で）＝Cesium と同じ順
+		const cr = c2a[0] * 255, cg = c2a[1] * 255, cb = c2a[2] * 255, th = c2a[3] * 255;
+		for (let i = 0; i < px.length; i += 4) if (Math.max(Math.abs(px[i] - cr), Math.abs(px[i + 1] - cg), Math.abs(px[i + 2] - cb)) < th) px[i + 3] = 0;
+	}
+	if (adj.cutout && tile) {   // 切り抜き＝タイル（Web Mercator z/x/y）内の画素矩形を透明に
+		const [w, s, e, n] = adj.cutout, N = tile.size, k = 2 ** tile.z;
+		const my = (lat: number) => (1 - Math.log(Math.tan(Math.PI / 4 + Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI / 360)) / Math.PI) / 2 * k - tile.y;
+		const E = 1e-3;   // 画素の丸め（85.0511° の端など）
+		const x0 = Math.max(0, Math.ceil(((w + 180) / 360 * k - tile.x) * N - E)), x1 = Math.min(N, Math.floor(((e + 180) / 360 * k - tile.x) * N + E));
+		const y0 = Math.max(0, Math.ceil(my(n) * N - E)), y1 = Math.min(N, Math.floor(my(s) * N + E));
+		for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) px[(y * N + x) * 4 + 3] = 0;
+	}
 	const hr = (adj.hueRotate || 0) * Math.PI / 180, cs = Math.cos(hr), sn = Math.sin(hr);
 	// 色相の回転（CSS の hue-rotate と同じ行列）
 	const M = [0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928,
@@ -180,12 +199,12 @@ export function adjustRGBA<T extends Uint8ClampedArray | Uint8Array>(px: T, adj:
 	}
 	return px;
 }
-const needsAdjust = (a: RasterAdjust | null | undefined): boolean => !!a && !!(a.hueRotate || a.saturation || a.contrast || (a.brightnessMin ?? 0) !== 0 || (a.brightnessMax ?? 1) !== 1);
-async function adjustBitmap(bm: ImageBitmap, adj: RasterAdjust): Promise<ImageBitmap> {
-	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true })!;
-	g.drawImage(bm, 0, 0); bm.close?.();
-	const im = g.getImageData(0, 0, cv.width, cv.height);
-	adjustRGBA(im.data, adj);
+const needsAdjust = (a: RasterAdjust | null | undefined): boolean => !!a && !!(a.hueRotate || a.saturation || a.contrast || (a.brightnessMin ?? 0) !== 0 || (a.brightnessMax ?? 1) !== 1 || (a.colorToAlpha && a.colorToAlpha[3] > 0) || a.cutout);
+async function adjustBitmap(bm: ImageBitmap, adj: RasterAdjust, z: number, x: number, y: number): Promise<ImageBitmap> {
+	const W = bm.width, H = bm.height, cv = new OffscreenCanvas(W, H), g = cv.getContext("2d", { willReadFrequently: true })!;
+	g.drawImage(bm, 0, 0); bm.close?.();   // close の後は width/height が 0 になる＝先に取る
+	const im = g.getImageData(0, 0, W, H);
+	adjustRGBA(im.data, adj, W === H ? { z, x, y, size: W } : undefined);
 	g.putImageData(im, 0, 0);
 	return createImageBitmap(cv, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 }
@@ -194,7 +213,7 @@ export async function createRasterSource(spec: RasterSpec): Promise<RasterSource
 	const src = await createRasterSource0(spec);
 	if (!needsAdjust(spec?.adjust)) return src;
 	const get = src.get.bind(src);
-	src.get = async (z, x, y, signal) => { const bm = await get(z, x, y, signal); return bm ? adjustBitmap(bm, spec.adjust!) : bm; };   // 色調整（#39）は復号の直後に
+	src.get = async (z, x, y, signal) => { const bm = await get(z, x, y, signal); return bm ? adjustBitmap(bm, spec.adjust!, z, x, y) : bm; };   // 色調整（#39）は復号の直後に
 	return src;
 }
 async function createRasterSource0(spec: RasterSpec): Promise<RasterSource> {
