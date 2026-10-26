@@ -351,3 +351,107 @@ export function countRings<T extends [number, number, ...unknown[]]>(rows: T[], 
 	for (const r of rows) { if (!keep(r)) continue; const m = distM(at, [r[0], r[1]]); WALK_RINGS.forEach((w, i) => { if (m <= walkRadius(w)) out[i]++; }); }
 	return out;
 }
+
+// ── 歩ける道（OpenStreetMap・ODbL）＝わが家のまわりの道のりと道順（本人「お願いします」2026-10-26）──
+// 直線×1.3 は線路・川・緑道で大きく外れた（Mac の試作：鶴見で直線 669m→道のり 890m、地理院の道路だけでは自由通路が無く 1,309m）。
+// 台帳＝walk/<cx>_<cy>.bin（0.02° 四方の区画・bake-yokohama.mjs の walk）。頁は家のまわりの区画だけ読み、同じ座標の点を 1 つに束ねて道の網を作り、家から 1 度だけ Dijkstra を回す
+/** 区画の大きさ（度）と座標の刻み（度＝約 1m） */
+export const WALK_CELL = 0.02, WALK_Q = 1e-5;
+const WALK_FOOT = new Set(["footway", "path", "pedestrian", "cycleway", "track", "corridor", "bridleway"]);
+const WALK_ROAD = new Set(["living_street", "residential", "service", "unclassified", "road", "tertiary", "tertiary_link", "secondary", "secondary_link", "primary", "primary_link", "trunk", "trunk_link"]);
+/** OSM の道の札 → 種別（0 道路・1 歩行者の道・2 階段・-1 歩けない／入れない）。高速・私道・歩行者お断りは採らない */
+export function walkKind(tags: Record<string, string>): number {
+	const h = tags.highway ?? "", foot = tags.foot ?? "";
+	if (foot === "no" || foot === "private") return -1;
+	if (/^(private|no)$/.test(tags.access ?? "") && !/^(yes|designated|permissive)$/.test(foot)) return -1;
+	if (h === "steps") return 2;
+	if (WALK_FOOT.has(h)) return 1;
+	if (WALK_ROAD.has(h)) return tags.motorroad === "yes" && !/^(yes|designated)$/.test(foot) ? -1 : 0;
+	return -1;
+}
+export type WalkLine = { kind: number; pts: number[] };   // pts＝[x, y, …]（1e-5° の整数）
+const zz = (v: number) => (v << 1) ^ (v >> 31), unzz = (v: number) => (v >>> 1) ^ -(v & 1);
+/** 区画 1 つを詰める：[本数, (種別, 点の数, 区画の南西からの差分…)…]＝zigzag varint */
+export function encodeWalk(lines: WalkLine[], cx: number, cy: number): Uint8Array {
+	const out: number[] = [], put = (v: number) => { v >>>= 0; while (v > 127) { out.push((v & 127) | 128); v >>>= 7; } out.push(v); };
+	const ox = Math.round(cx * WALK_CELL / WALK_Q), oy = Math.round(cy * WALK_CELL / WALK_Q);
+	put(lines.length);
+	for (const l of lines) {
+		put(l.kind); put(l.pts.length / 2);
+		let px = ox, py = oy;
+		for (let i = 0; i < l.pts.length; i += 2) { put(zz(l.pts[i] - px)); put(zz(l.pts[i + 1] - py)); px = l.pts[i]; py = l.pts[i + 1]; }
+	}
+	return Uint8Array.from(out);
+}
+export function decodeWalk(buf: Uint8Array, cx: number, cy: number): WalkLine[] {
+	let o = 0;
+	const get = () => { let v = 0, s = 0, b: number; do { b = buf[o++]; v |= (b & 127) << s; s += 7; } while (b & 128); return v >>> 0; };
+	const ox = Math.round(cx * WALK_CELL / WALK_Q), oy = Math.round(cy * WALK_CELL / WALK_Q), out: WalkLine[] = [];
+	for (let n = get(); n-- > 0;) {
+		const kind = get(), k = get(), pts: number[] = new Array(k * 2);
+		let px = ox, py = oy;
+		for (let i = 0; i < k; i++) { px += unzz(get()); py += unzz(get()); pts[i * 2] = px; pts[i * 2 + 1] = py; }
+		out.push({ kind, pts });
+	}
+	return out;
+}
+/** 点のまわり r メートルに掛かる区画の名（"cx_cy"） */
+export function walkCells(at: [number, number], r: number): string[] {
+	const dy = r / 111320, dx = r / (111320 * Math.cos(at[1] * Math.PI / 180)), out: string[] = [];
+	for (let cx = Math.floor((at[0] - dx) / WALK_CELL); cx <= Math.floor((at[0] + dx) / WALK_CELL); cx++)
+		for (let cy = Math.floor((at[1] - dy) / WALK_CELL); cy <= Math.floor((at[1] + dy) / WALK_CELL); cy++) out.push(`${cx}_${cy}`);
+	return out;
+}
+/** 道の網：点（1e-5° の整数 xy）と隣り（CSR）。同じ座標の点は 1 つ＝区画の境で切った線もここで繋がる */
+export type WalkGraph = { x: Int32Array; y: Int32Array; start: Int32Array; to: Int32Array; len: Float32Array };
+export function buildWalkGraph(lines: WalkLine[]): WalkGraph {
+	const id = new Map<number, number>(), xs: number[] = [], ys: number[] = [], ea: number[] = [], eb: number[] = [], el: number[] = [];
+	const node = (x: number, y: number) => { const k = x * 4194304 + y; let i = id.get(k); if (i === undefined) { i = xs.length; id.set(k, i); xs.push(x); ys.push(y); } return i; };
+	for (const l of lines) {
+		let a = node(l.pts[0], l.pts[1]);
+		for (let i = 2; i < l.pts.length; i += 2) {
+			const b = node(l.pts[i], l.pts[i + 1]); if (b === a) continue;
+			const m = distM([xs[a] * WALK_Q, ys[a] * WALK_Q], [xs[b] * WALK_Q, ys[b] * WALK_Q]) * (l.kind === 2 ? 1.5 : 1);   // 階段は 1.5 倍に見る（上り下りの分）
+			ea.push(a); eb.push(b); el.push(m); a = b;
+		}
+	}
+	const n = xs.length, deg = new Int32Array(n + 1);
+	for (let i = 0; i < ea.length; i++) { deg[ea[i] + 1]++; deg[eb[i] + 1]++; }
+	for (let i = 0; i < n; i++) deg[i + 1] += deg[i];
+	const fill = deg.slice(0, n), to = new Int32Array(ea.length * 2), len = new Float32Array(ea.length * 2);
+	for (let i = 0; i < ea.length; i++) { let j = fill[ea[i]]++; to[j] = eb[i]; len[j] = el[i]; j = fill[eb[i]]++; to[j] = ea[i]; len[j] = el[i]; }
+	return { x: Int32Array.from(xs), y: Int32Array.from(ys), start: deg, to, len };
+}
+/** いちばん近い点（番号と、そこまでの直線 m）。点が無ければ null */
+export function walkSnap(g: WalkGraph, at: [number, number]): { i: number; m: number } | null {
+	const kx = Math.cos(at[1] * Math.PI / 180), ax = at[0] / WALK_Q, ay = at[1] / WALK_Q;
+	let best = -1, bd = Infinity;
+	for (let i = 0; i < g.x.length; i++) { const dx = (g.x[i] - ax) * kx, dy = g.y[i] - ay, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }
+	return best < 0 ? null : { i: best, m: distM(at, [g.x[best] * WALK_Q, g.y[best] * WALK_Q]) };
+}
+/** 1 点から全部の点への道のり（m）と、来た点（道順を辿る用） */
+export function walkFrom(g: WalkGraph, src: number): { dist: Float64Array; prev: Int32Array } {
+	const n = g.x.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
+	const hn: number[] = [], hd: number[] = [];   // 二分ヒープ（古い札は取り出した時に捨てる）
+	const push = (v: number, d: number) => { let i = hn.length; hn.push(v); hd.push(d); while (i > 0) { const p = (i - 1) >> 1; if (hd[p] <= d) break; hn[i] = hn[p]; hd[i] = hd[p]; i = p; } hn[i] = v; hd[i] = d; };
+	const pop = () => { const v = hn[0], lv = hn.pop()!, ld = hd.pop()!; if (hn.length) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hn.length) break; if (c + 1 < hn.length && hd[c + 1] < hd[c]) c++; if (hd[c] >= ld) break; hn[i] = hn[c]; hd[i] = hd[c]; i = c; } hn[i] = lv; hd[i] = ld; } return v; };
+	dist[src] = 0; push(src, 0);
+	while (hn.length) {
+		const d0 = hd[0], v = pop(); if (d0 > dist[v]) continue;
+		for (let j = g.start[v]; j < g.start[v + 1]; j++) { const w = g.to[j], d = d0 + g.len[j]; if (d < dist[w]) { dist[w] = d; prev[w] = v; push(w, d); } }
+	}
+	return { dist, prev };
+}
+/** 家から行き先までの道のり（家と行き先から網までの直線も足す）。繋がっていない・網から 150m 超え＝null（呼ぶ側は直線に戻す） */
+export function walkTo(g: WalkGraph, from: { dist: Float64Array }, home: { m: number }, to: [number, number]): { m: number; i: number } | null {
+	const s = walkSnap(g, to);
+	if (!s || s.m > 150 || !Number.isFinite(from.dist[s.i])) return null;
+	return { m: from.dist[s.i] + home.m + s.m, i: s.i };
+}
+/** 道順の折れ線（家 → 網 → 行き先） */
+export function walkPath(g: WalkGraph, prev: Int32Array, i: number, home: [number, number], to: [number, number]): [number, number][] {
+	const out: [number, number][] = [to];
+	for (let v = i; v >= 0; v = prev[v]) out.push([g.x[v] * WALK_Q, g.y[v] * WALK_Q]);
+	out.push(home);
+	return out.reverse();
+}
