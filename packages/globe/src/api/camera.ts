@@ -8,7 +8,7 @@ import { ecefToLlh, positionAt } from "../czml-time.ts";
 import { moonAltAz, moonSubpoint, sunAltAz, sunSubpoint } from "@ortho-earth/ephem/sun";
 import { normClouds, normSun, sunToLight } from "../weather.ts";
 import { normSky } from "../sky-spec.ts";
-import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, PaddingOptions } from "../../globe.d.ts";
+import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, MeshLightingSpec, PaddingOptions } from "../../globe.d.ts";
 import type { CameraDeps, CameraLive, CameraReturn, Installing } from "../types/install.ts";
 import type { CameraApi, GlobeMap } from "../types/map.ts";
 import type { FollowState } from "../types/scope.ts";
@@ -232,6 +232,15 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 		renderer.set("view", { csAtmo: atmoCur && { ground: atmoCur.ground, sky: atmoCur.sky } }); requestDraw(); return map;
 	};
 	map.getAtmosphere = () => (atmoCur ? { ...atmoCur } : null);
+	// 模型の照明（2026-10-26・@ortho-earth/cesium）：Cesium の式でメッシュを描く（両レンダラ・renderer "meshLight"）。dir は ECEF → 世界系（x, z, y）へ
+	let meshLightCur: MeshLightingSpec | null = null;
+	map.setMeshLighting = l => {
+		meshLightCur = l == null ? null : { ...l, sh: Float32Array.from(l.sh as ArrayLike<number>) };
+		if (!l) renderer.set("meshLight", null);
+		else { const d = l.dir, n = Math.hypot(d[0], d[1], d[2]) || 1; renderer.set("meshLight", { dir: [d[0] / n, d[2] / n, d[1] / n], color: l.color ?? [1, 1, 1], sh: Float32Array.from(l.sh as ArrayLike<number>), ibl: l.ibl ?? [1, 1], invL00: l.invL00 ?? 1 }); }
+		requestDraw(); return map;
+	};
+	map.getMeshLighting = () => (meshLightCur ? { ...meshLightCur } : null);
 	// ── 太陽・月の向きと雲の口（第 2 波 F2・2026-10-12・src/weather.js・ephem/sun）──
 	//   getSunPosition(ms?, at?)／getMoonPosition(ms?, at?)＝{ time, subpoint:{lng,lat}, azimuth, altitude, enu }（度・at 省略＝視点の中心・ms 省略＝共通の時計）
 	//   setSun({ follow:"clock" } | { azimuth, altitude } | null)＝directional の光（setLight と同じ 1 本）を太陽に合わせる。follow＝時計の変化・静止・実時間なら 60 秒ごとに追う。null＝setLight(null)

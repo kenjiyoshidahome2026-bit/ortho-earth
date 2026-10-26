@@ -11,6 +11,7 @@ import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
 import { gridOf, placementOf } from "../src/voxels.ts";
 import { cesiumSphereOf } from "../src/spheres.ts";
+import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } from "../src/envmap.ts";
 import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
@@ -136,6 +137,27 @@ for (const g of [
 	unsupported("test thing"); unsupported("test thing");
 	ok("unsupported warns once", warns.length - before === 1 && /\[csshim\] unsupported: test thing/.test(warns[warns.length - 1]));
 	ok("unsupported counts", unsupportedReport()["test thing"] === 2);
+}
+
+// ── envmap: Cesium's procedural environment map as SH9. Reference: environmentMapManager.sphericalHarmonicCoefficients read from the real
+//    Cesium (the 3d-models example: Cesium Air 5 km over Oregon, default atmosphere, dynamicLighting NONE) ──
+{
+	const pos = [-2507719.254607259, -3850587.6079121437, 4415594.838831293], radius = 6367843.849970561;
+	const ref = [[0.06361, 0.08863, 0.11976], [0.02933, 0.04739, 0.08296], [-0.00119, -0.00116, -0.00101], [-0.00115, -0.00093, -0.00093], [0.00001, 0.00003, 0.00009], [0.00026, 0.00022, 0.00004], [0.00071, 0.00445, 0.00340], [0.00159, 0.00181, 0.00164], [0.00451, 0.00934, 0.00773]];
+	const t0 = performance.now(), sh = cesiumEnvSH(pos, { radius }), ms = performance.now() - t0;
+	const rel = (i, c) => Math.abs(sh[i * 3 + c] - ref[i][c]) / Math.abs(ref[i][c]);
+	ok("envmap L00 (the mean) within 12% of Cesium's", [0, 1, 2].every(c => rel(0, c) < 0.12), Array.from(sh.subarray(0, 3), v => v.toFixed(4)).join(","));
+	ok("envmap L1-1 (sky over ground) within 3% of Cesium's", [0, 1, 2].every(c => rel(1, c) < 0.03), Array.from(sh.subarray(3, 6), v => v.toFixed(4)).join(","));
+	ok("envmap L20 within 25% of Cesium's", [1, 2].every(c => rel(6, c) < 0.25));
+	const up = cesiumEvalSH(sh, [0, 1, 0]), down = cesiumEvalSH(sh, [0, -1, 0]);
+	ok("envmap: the sky lights from above, blue", up[2] > down[2] * 2 && up[2] > up[0]);
+	ok("envmap: a uniform environment comes back as its radiance", near(cesiumEvalSH(new Float32Array(27).fill(0).map((v, i) => i < 3 ? CESIUM_SH_UNIFORM_L00 * 2 : 0), [0.3, 0.9, 0.3])[0] / (CESIUM_SH_UNIFORM_L00 * 2), 1, 1e-6));
+	ok("envmap: the ground is the ground colour under the zenith light", cesiumEnvRadiance(pos, [0, 0, -1], { radius }).every((v, c) => Math.abs(v - [113, 113, 69][c] / 255 * 0.31 * 2) < 0.15));
+	ok("envmap computes quickly", ms < 200, `${ms.toFixed(1)} ms`);
+	const ground = cesiumEnvSH([-2503858.174101297, -3844658.942363919, 4415712.092618074], { radius: 6367827.056697302 });   // a point on the surface (where the facade's camera looks): rays meet the ground at distance 0
+	ok("envmap on the surface has no NaN", Array.from(ground).every(Number.isFinite) && ground[0] > 0.01, Array.from(ground.subarray(0, 3), v => v.toFixed(4)).join(","));
+	const night = cesiumEnvSH(pos, { radius, dynamicLighting: 2, sunDirWC: [0.3, 0.3, -0.9] });   // SUNLIGHT with the sun below: darker
+	ok("envmap SUNLIGHT mode follows the sun", night[0] < sh[0] * 0.8, `${night[0].toFixed(4)} vs ${sh[0].toFixed(4)}`);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

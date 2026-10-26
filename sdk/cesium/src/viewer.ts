@@ -17,6 +17,7 @@ import { EntityDisplay } from "./display.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { syncImagery } from "./imagery.ts";
 import { skyBoxLayer } from "./skybox.ts";
+import { syncLighting } from "./lighting.ts";
 import { PrimitiveDrawer, isGeometryPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
@@ -154,7 +155,9 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
 		let base = "", atm = "", gop = -1;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
-		scene.postRender.addEventListener(() => {
+		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
+		scene.postRender.addEventListener((_s: unknown, time: Any) => {
+			lighting(time);
 			// the globe's opacity: none (viewer { globe: false }, globe.show = false: the 3D Tiles are the ground), translucent (globe.translucency) or opaque
 			const gb = scene.globe, tr = gb?.translucency, bd = tr?.frontFaceAlphaByDistance;
 			let op = 1;
