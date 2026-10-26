@@ -22,12 +22,16 @@
 //   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
 //   walk/<cx>_<cy>.bin … 歩ける道（OpenStreetMap・ODbL）＝わが家のまわりの道のりと道順（2026-10-26）。0.02° 四方の区画ごと（cx＝floor(経度/0.02)）。
 //                     中身＝data.ts の decodeWalk（区画の南西の角から 1e-5° 単位の差分を zigzag varint で詰めた折れ線の列・種別 0 道路／1 歩行者の道／2 階段）。
+//   facilities-en.json … 施設の名前・住所の英語（日本語以外の UI）{ rows: { "名称|住所": [英語の名, 英語の住所] }, guessed: [読みの辞書で当てた名…] }（--only=en）
+//                     読み＝郵便番号データ（KEN_ALL）の町名 → 区の名 → kuromoji（先に `npm i --no-save kuromoji@0.1.2`）。種類の語は scripts/en-names.mjs の表で英訳
 //                     線は区画の境で切る（切った点は両方の区画に入る＝頁は同じ座標を 1 つの点に束ねて繋ぐ）。取得は Overpass（.cache/osm-walk/ に置く・--only=walk）
 // 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { WARDS, SPOTS, PORT_STORY, CITY_BBOX, WALK_CELL, WALK_Q, walkKind, encodeWalk } from "../data.ts";
+import { createRequire } from "node:module";
+import { WARDS, SPOTS, PORT_STORY, CITY_BBOX, WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress, normJa } from "../data.ts";
+import { makeEn } from "./en-names.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, "../../..");
@@ -35,7 +39,7 @@ const OUT = path.join(ROOT, "ortho-data/japan/yokohama");
 const CACHE = path.join(HERE, ".cache");
 const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
-const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk").split(",");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
 const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
@@ -449,5 +453,34 @@ async function walk() {
 	if (ways < 50000) throw new Error(`歩ける道が ${ways} 本しか無い（Overpass の返事を確かめる）`);
 }
 
-for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
+// ── 8. 施設の英語（facilities.json の後に焼く）──
+async function en() {
+	const zip = unzip(await getBuf("https://www.post.japanpost.jp/zipcode/dl/utf/zip/utf_ken_all.zip"));
+	const csv = zip.get(pick(zip, /\.csv$/i))().toString("utf8");
+	const towns = new Map();
+	for (const line of csv.split(/\r?\n/)) {
+		const f = line.split(",").map(x => x.replace(/^"|"$/g, ""));
+		if (!f[7]?.startsWith("横浜市") || !f[8] || f[8].startsWith("以下に掲載がない")) continue;
+		const k = f[8].replace(/（.*$/, ""), r = f[5].normalize("NFKC").replace(/\(.*$/, "");
+		if (k && r && !towns.has(k)) towns.set(k, r);
+	}
+	console.log(`郵便番号データ：横浜市の町名 ${towns.size}`);
+	if (towns.size < 500) throw new Error("KEN_ALL の横浜市の町名が少なすぎる（列の並びを確かめる）");
+	let tokenize = null;
+	try { const km = createRequire(path.join(process.cwd(), "x.js"))("kuromoji"); const tk = await new Promise((ok, ng) => km.builder({ dicPath: path.join(path.dirname(createRequire(path.join(process.cwd(), "x.js")).resolve("kuromoji")), "../dict") }).build((e, t) => e ? ng(e) : ok(t))); tokenize = s => tk.tokenize(s); }
+	catch (e) { throw new Error(`kuromoji が無い（npm i --no-save kuromoji@0.1.2）：${e.message}`); }
+	const E = makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize });
+	const fac = JSON.parse(fs.readFileSync(path.join(OUT, "facilities.json"), "utf8"));
+	const rows = {}, guessed = [];
+	for (const r of fac.rows) {
+		const g0 = E.guessed(), n = E.name(r[2], r[3]), g1 = E.guessed();
+		rows[`${r[2]}|${r[4]}`] = [n, E.addr(r[4], wardOfAddress(normJa(r[4]))?.en)];
+		if (g1 > g0) guessed.push(`${r[2]} → ${n}`);
+	}
+	fs.writeFileSync(path.join(CACHE, "en-review.tsv"), fac.rows.map(r => [r[2], ...rows[`${r[2]}|${r[4]}`], r[4]].join("\t")).join("\n"));
+	console.log(`施設の英語：${fac.rows.length} 件（うち読みの辞書で当てた名 ${guessed.length}）・見直し用＝scripts/.cache/en-review.tsv`);
+	write("facilities-en.json", { rows, guessed });
+}
+
+for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
 console.log(INSPECT ? "\n（--inspect：何も書いていない）" : "\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write");

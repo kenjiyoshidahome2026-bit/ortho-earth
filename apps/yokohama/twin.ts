@@ -257,13 +257,18 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 
 	// ── 観光：公共施設（区分ごとに出し入れ・押すと吹き出し）──
 	let fac: FacilityRow[] | null = null, facOn = $(".fac").checked;
+	// 施設の名前・住所＝日本語以外は英語（facilities-en.json＝「名称|住所」→ [名, 住所]・無い行は日本語のまま・本人 2026-10-26）
+	let facEn: Record<string, [string, string]> | null = null;
+	const facName = (r: FacilityRow) => facEn?.[`${r[2]}|${r[4]}`]?.[0] || r[2];
+	const facAddr = (r: FacilityRow) => facEn?.[`${r[2]}|${r[4]}`]?.[1] || shortAddr(r[4]);
 	const subOn = new Set(FACILITY_SUBS.map((_, i) => i));   // 種別ごと（区分のチップは中の種別をまとめて出し入れ）
 	// 全区分＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
 	const facFilter = (): StyleExpression | null => subOn.size === FACILITY_SUBS.length ? null : ["match", ["get", "s"], [...subOn].length ? [...subOn] : [-1], true, false];
 	let facReady: Promise<void> | null = null;
 	const loadFac = () => facReady ??= (async () => {
 		$<HTMLElement>(".fac-n").textContent = t("Loading…");
-		const d = await ledger<{ rows: FacilityRow[] }>("facilities.json");
+		const [d, en] = await Promise.all([ledger<{ rows: FacilityRow[] }>("facilities.json"), lang === "ja" ? null : ledger<{ rows: Record<string, [string, string]> }>("facilities-en.json")]);
+		facEn = en?.rows ?? null;
 		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
 		fac = d.rows;
 		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc.", true),
@@ -274,7 +279,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				"circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
 		const tip = map.gadget.tip();
 		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
-		map.on("mousemove", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(r[2])}</b>` : null); });
+		map.on("mousemove", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(facName(r))}</b>` : null); });
 		map.on("mouseleave", "yk-fac", () => tip(null));
 		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null); facPop(r); });
 		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
@@ -284,7 +289,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	})();
 	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
 	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
-		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(shortAddr(r[4]))}</p>` : ""}`); };
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
 	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length)); };
 	async function setFac(on: boolean) {
 		facOn = on; $(".fac").checked = on;
@@ -322,7 +327,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!fac || st.tab !== "life") return;
 		const tb = table = await facTableOf();
 		tb.setQuery(normJa(fq.value));
-		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(r[2]), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), shortAddr(normJa(r[4])), i]; }));
+		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(facName(r)), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(facAddr(r)), i]; }));
 	}
 	fq.oninput = () => { table?.setQuery(normJa(fq.value)); };
 	async function goFac(r: FacilityRow) {
@@ -862,19 +867,19 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const hc = ward?.code ? HOLIDAY_CLINICS[ward.code] : undefined;
 		const nc = NIGHT_CENTERS.map(c => ({ c, m: distM(at, [c.lon, c.lat]) })).sort((a, b) => a.m - b.m)[0];
 		out.push(`<h3>${esc(t("Sudden illness on holidays or at night"))}</h3><div class="pr">`
-			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t("$1 Holiday Emergency Clinic", wardName(ward!.code!)))}<br><small>${esc(hc.addr)}</small><br>${tel(hc.tel)}<br><small>${esc(t("Internal medicine and pediatrics · Sundays, holidays and Dec 30–Jan 3, $1", clinicHours(ward!.code!)))}</small>`) : "")
-			+ row(t("Night emergency center"), `${esc(nc.c.name)}<br><small>${esc(nc.c.addr)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t("Internal medicine and pediatrics · every day, 20:00–24:00"))}</small>`)
+			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t("$1 Holiday Emergency Clinic", wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t("Internal medicine and pediatrics · Sundays, holidays and Dec 30–Jan 3, $1", clinicHours(ward!.code!)))}</small>`) : "")
+			+ row(t("Night emergency center"), `${esc(lang === "ja" ? nc.c.name : nc.c.enName)}<br><small>${esc(lang === "ja" ? nc.c.addr : nc.c.en)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t("Internal medicine and pediatrics · every day, 20:00–24:00"))}</small>`)
 			+ `</div><p class="sub flat">${esc(t("Unsure whether to call an ambulance? Kanagawa emergency advice line, 24 hours:"))} <a href="tel:%237119">#7119</a></p>`);
 		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ
 		const big = fac ? best(nearestRows(fac.filter(r => majorHospital(r[2])), at, 4), 2) : [];
-		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => row(majorHospital(r[2])!, w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w))).join("")}</div>`);
+		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => row(lang === "ja" ? majorHospital(r[2])! : facName(r), w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w))).join("")}</div>`);
 		// 近くの施設（区役所・図書館・病院・交番・消防署）
 		if (fac) {
 			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
 			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), city = n === "Libraries" ? rows.filter(r => r[2].startsWith("横浜市")) : [];
 				return best(nearestRows(city.length ? city : rows, at, 3))[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
-			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(r!.row[2])}<br><small>${walk(r!.w)}</small>`)).join("")}</div>`);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w)}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;

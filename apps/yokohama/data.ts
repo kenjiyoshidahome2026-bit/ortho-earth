@@ -155,24 +155,24 @@ export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
 	{ key: "横浜医療センター", name: "国立病院機構横浜医療センター" },
 ];
 /** 区の休日急患診療所（内科・小児科・日曜祝日と年末年始）＝区の番号 → 住所・電話。市「休日・夜間の急病」（kyubyo/14248.html）2026-10-26 */
-export const HOLIDAY_CLINICS: Record<string, { addr: string; tel: string }> = {
-	"14101": { addr: "鶴見区鶴見中央3-4-22", tel: "045-503-3851" }, "14102": { addr: "神奈川区反町1-8-4 はーと友神奈川3階", tel: "045-317-5474" },
-	"14103": { addr: "西区中央1-15-18", tel: "045-322-5715" }, "14104": { addr: "中区本牧町2-353", tel: "045-622-6372" },
-	"14105": { addr: "南区宿町4-76-1", tel: "045-711-7000" }, "14106": { addr: "保土ケ谷区天王町1-21", tel: "045-335-5975" },
-	"14107": { addr: "磯子区磯子1-3-13", tel: "045-753-6011" }, "14108": { addr: "金沢区金沢町48", tel: "045-782-8785" },
-	"14109": { addr: "港北区菊名7-8-27", tel: "045-433-2311" }, "14110": { addr: "戸塚区戸塚町4141-1", tel: "045-861-3335" },
-	"14111": { addr: "港南区港南中央通7-29", tel: "045-842-8806" }, "14112": { addr: "旭区二俣川1-88-16", tel: "045-363-2020" },
-	"14113": { addr: "緑区中山3-16-2", tel: "045-937-2300" }, "14114": { addr: "瀬谷区二ツ橋町489-46", tel: "045-360-8666" },
-	"14115": { addr: "栄区公田町635-15", tel: "045-893-2999" }, "14116": { addr: "泉区和泉中央北5-1-5", tel: "045-806-0921" },
-	"14117": { addr: "青葉区市ケ尾町31-21", tel: "045-973-2707" }, "14118": { addr: "都筑区牛久保西1-23-4", tel: "045-911-0088" },
+export const HOLIDAY_CLINICS: Record<string, { addr: string; tel: string; en: string }> = {   // en＝日本語以外の UI の住所
+	"14101": { addr: "鶴見区鶴見中央3-4-22", tel: "045-503-3851", en: "3-4-22 Tsurumi-chuo, Tsurumi-ku" }, "14102": { addr: "神奈川区反町1-8-4 はーと友神奈川3階", tel: "045-317-5474", en: "3F Heart-tomo Kanagawa, 1-8-4 Tammachi, Kanagawa-ku" },
+	"14103": { addr: "西区中央1-15-18", tel: "045-322-5715", en: "1-15-18 Chuo, Nishi-ku" }, "14104": { addr: "中区本牧町2-353", tel: "045-622-6372", en: "2-353 Honmokucho, Naka-ku" },
+	"14105": { addr: "南区宿町4-76-1", tel: "045-711-7000", en: "4-76-1 Shukumachi, Minami-ku" }, "14106": { addr: "保土ケ谷区天王町1-21", tel: "045-335-5975", en: "1-21 Tennocho, Hodogaya-ku" },
+	"14107": { addr: "磯子区磯子1-3-13", tel: "045-753-6011", en: "1-3-13 Isogo, Isogo-ku" }, "14108": { addr: "金沢区金沢町48", tel: "045-782-8785", en: "48 Kanazawacho, Kanazawa-ku" },
+	"14109": { addr: "港北区菊名7-8-27", tel: "045-433-2311", en: "7-8-27 Kikuna, Kohoku-ku" }, "14110": { addr: "戸塚区戸塚町4141-1", tel: "045-861-3335", en: "4141-1 Totsukacho, Totsuka-ku" },
+	"14111": { addr: "港南区港南中央通7-29", tel: "045-842-8806", en: "7-29 Konan-chuodori, Konan-ku" }, "14112": { addr: "旭区二俣川1-88-16", tel: "045-363-2020", en: "1-88-16 Futamatagawa, Asahi-ku" },
+	"14113": { addr: "緑区中山3-16-2", tel: "045-937-2300", en: "3-16-2 Nakayama, Midori-ku" }, "14114": { addr: "瀬谷区二ツ橋町489-46", tel: "045-360-8666", en: "489-46 Futatsubashicho, Seya-ku" },
+	"14115": { addr: "栄区公田町635-15", tel: "045-893-2999", en: "635-15 Kudencho, Sakae-ku" }, "14116": { addr: "泉区和泉中央北5-1-5", tel: "045-806-0921", en: "5-1-5 Izumi-chuo-kita, Izumi-ku" },
+	"14117": { addr: "青葉区市ケ尾町31-21", tel: "045-973-2707", en: "31-21 Ichigaocho, Aoba-ku" }, "14118": { addr: "都筑区牛久保西1-23-4", tel: "045-911-0088", en: "1-23-4 Ushikubo-nishi, Tsuzuki-ku" },
 };
 /** 青葉区だけ昼休みがある（9–12 時・13–16 時）。ほかは 10–16 時 */
 export const clinicHours = (code: string) => code === "14117" ? "9:00–12:00, 13:00–16:00" : "10:00–16:00";
 /** 夜間急病センター（毎日 20–24 時）＝市内 3 か所。位置は国土地理院の住所検索 */
-export const NIGHT_CENTERS: { name: string; addr: string; tel: string; lon: number; lat: number }[] = [
-	{ name: "横浜市夜間急病センター", addr: "中区桜木町1-1", tel: "045-212-3535", lon: 139.62924, lat: 35.45356 },
-	{ name: "横浜市北部夜間急病センター", addr: "都筑区牛久保西1-23-4", tel: "045-911-0088", lon: 139.58112, lat: 35.55659 },
-	{ name: "横浜市南西部夜間急病センター", addr: "泉区和泉中央北5-1-5", tel: "045-806-0921", lon: 139.48894, lat: 35.41826 },
+export const NIGHT_CENTERS: { name: string; addr: string; tel: string; lon: number; lat: number; enName: string; en: string }[] = [
+	{ name: "横浜市夜間急病センター", addr: "中区桜木町1-1", tel: "045-212-3535", lon: 139.62924, lat: 35.45356, enName: "Yokohama Night Emergency Center", en: "1-1 Sakuragicho, Naka-ku" },
+	{ name: "横浜市北部夜間急病センター", addr: "都筑区牛久保西1-23-4", tel: "045-911-0088", lon: 139.58112, lat: 35.55659, enName: "Yokohama Northern Night Emergency Center", en: "1-23-4 Ushikubo-nishi, Tsuzuki-ku" },
+	{ name: "横浜市南西部夜間急病センター", addr: "泉区和泉中央北5-1-5", tel: "045-806-0921", lon: 139.48894, lat: 35.41826, enName: "Yokohama Southwestern Night Emergency Center", en: "5-1-5 Izumi-chuo-kita, Izumi-ku" },
 ];
 /** 台帳の名 → 大きな病院の短い名（でなければ null） */
 export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
