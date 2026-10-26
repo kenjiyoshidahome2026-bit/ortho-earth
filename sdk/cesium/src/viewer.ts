@@ -89,6 +89,8 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const scene = new OrthoScene(host, canvas, { scene3DOnly: options.scene3DOnly, globe: options.globe });
 	this._scene = scene;
 	scene.camera.constrainedAxis = Cartesian3.UNIT_Z;
+	scene.shadowMap.enabled = !!options.shadows;   // Viewer.shadows reads and writes scene.shadowMap.enabled (lighting.ts shadows)
+	if (scene.globe) scene.globe.shadows = options.terrainShadows ?? engine.ShadowMode.RECEIVE_ONLY;
 	(scene.frameState as Any).creditDisplay = new CreditDisplay(innerCreditContainer, "•", this._creditViewport);   // the real one (the scene runs its frame: OrthoScene.render)
 	if (options.baseLayer === false || options.globe === false) scene.imageryLayers?.removeAll?.();
 	else if (options.baseLayer) scene.imageryLayers?.add(options.baseLayer);
