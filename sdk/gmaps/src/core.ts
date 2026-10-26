@@ -123,7 +123,7 @@ export class MVCObject {
 	setValues(o: Record<string, unknown> | null | undefined): void { for (const k in o) { const s = (this as unknown as Record<string, unknown>)[`set${k[0].toUpperCase()}${k.slice(1)}`]; typeof s === "function" ? s.call(this, o[k]) : this.set(k, o[k]); } }
 	notify(k: string): void { event.trigger(this, `${k}_changed`); }
 	addListener(name: string, fn: Fn): MapsEventListener { return event.addListener(this, name, fn); }
-	bindTo(k: string): void { unsupported(`MVCObject.bindTo("${k}")`); }
+	bindTo(k: string, _target?: unknown): void { unsupported(`MVCObject.bindTo("${k}")`); }
 	unbind(): void {}
 	unbindAll(): void {}
 }
