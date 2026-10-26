@@ -111,22 +111,24 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
 				<h2>${esc(t("District"))}</h2>
 				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
-				<h2>${esc(t("Search facilities"))}</h2>
+				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="find" aria-selected="true">${esc(t("Search facilities"))}</button><button type="button" role="tab" data-sub-tab="show" aria-selected="false">${esc(t("Map display"))}</button></nav>
+				<div data-sub-pane="find">
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
 				<div class="fbt"></div>
 				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
-				<p class="sub flat">${esc(t("Tap a row to fly there. Lists the chosen district and the facility types switched on below."))}</p>
+				<p class="sub flat">${esc(t("Tap a row to fly there. Lists the chosen district and the facility types switched on in Map display."))}</p>
+				</div>
+				<div data-sub-pane="show" hidden>
 				<label class="grp fac-w"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
-				<details class="fold ftypes"><summary>${esc(t("Types of facilities on the map"))}</summary>
+				<h3>${esc(t("Types of facilities on the map"))}</h3>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
 					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
-				</details>
-				<details class="fold areas"><summary>${esc(t("Zones and districts"))}</summary>
+				<h3>${esc(t("Zones and districts"))}</h3>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
 				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
 				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
-				</details>
+				</div>
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
@@ -146,6 +148,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${h.id}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${h.id}" hidden>${esc(t(h.note))}</p>`).join("")}
 				<label class="msel hzop-w" hidden><span>${esc(t("Opacity"))}</span><input type="range" class="hzop" min="0.2" max="1" step="0.05" value="0.7"></label>
 				<div class="legend" hidden></div>
+				<p class="sub flat">${esc(t("Inland flooding (rain the sewers cannot drain) is published by the city only as PDF maps."))} <a href="https://www.city.yokohama.lg.jp/bousai-kyukyu-bohan/bousai-saigai/map/shinsui/sinsuiHM.html" target="_blank" rel="noopener">${esc(t("City flood hazard maps"))}</a></p>
 				<h2>${esc(t("Designated emergency evacuation sites"))}</h2>
 				<label class="grp"><input type="checkbox" class="hinan"><b>${esc(t("Show evacuation sites"))}</b><small class="hn-n"></small></label>
 				<label class="msel"><span>${esc(t("Disaster type"))}</span><select class="hnf"><option value="-1">${esc(t("All"))}</option>${HINAN_FLAGS.map((f, i) => `<option value="${i}">${esc(t(f))}</option>`).join("")}</select></label>
@@ -190,6 +193,12 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (k === "transit") fillStations();
 	}
 	$$<HTMLButtonElement>("[data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab as Tab));
+	// 暮らし：「施設を探す」と「地図の表示」を札で分ける（本人 2026-10-26「一覧検索と表示設定をタブに」）
+	function setSubTab(k: string) {
+		$$<HTMLButtonElement>("[data-sub-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.subTab === k)));
+		$$<HTMLElement>("[data-sub-pane]").forEach(p => { p.hidden = p.dataset.subPane !== k; });
+	}
+	$$<HTMLButtonElement>("[data-sub-tab]").forEach(b => b.onclick = () => setSubTab(b.dataset.subTab!));
 
 	// ── 吹き出し（施設・駅・停留所で 1 つを使い回す）──
 	let pop: Popup | null = null;
@@ -404,7 +413,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function setArea(id: AreaId, on: boolean) {
 		on ? areaOn.add(id) : areaOn.delete(id);
 		$(`[data-area="${id}"]`).checked = on;
-		if (on) $<HTMLDetailsElement>("details.areas").open = true;   // 畳んだ中の区域が点いている＝見えるように開く
+		if (on) setSubTab("show");   // 区域が点いた（URL など）＝その札を見せる
 		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
 		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
 		areaVis(id);
@@ -1047,6 +1056,10 @@ const CSS = `
 .yk-panel .tabs{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 8px}
 .yk-panel .tabs button{flex:1 1 0;min-width:max-content;font:inherit;padding:6px 8px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
 .yk-panel .tabs button[aria-selected=true]{background:#fff;color:#0b1220;border-color:#fff;font-weight:700}
+.yk-panel .subtabs{display:flex;margin:12px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
+.yk-panel .subtabs button{flex:1 1 0;font:inherit;font-size:13px;padding:7px 6px;background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--qm-text-dim);cursor:pointer}
+.yk-panel .subtabs button[aria-selected=true]{color:var(--qm-text);border-bottom-color:#4fc3f7;font-weight:700}
+.yk-panel [data-sub-pane] h3{margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--qm-text-dim)}
 .yk-panel h2{font-size:12px;margin:12px 0 4px;color:var(--qm-text-dim);font-weight:600}
 .yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel select,.yk-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
