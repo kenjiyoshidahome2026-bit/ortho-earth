@@ -12,7 +12,7 @@ interface SpecIn {
 	url?: string; pmtiles?: string; wms?: Extract<RasterSpec, { wms: unknown }>["wms"]; file?: File; table?: string; port?: MessagePort; image?: Blob | ImageBitmap; iiif?: string | object;
 	video?: HTMLVideoElement | string | string[]; canvas?: HTMLCanvasElement | OffscreenCanvas; corners?: [LonLat, LonLat, LonLat, LonLat]; animate?: boolean;
 	tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox | null; attribution?: string | null; subdomains?: string[] | string; tms?: boolean; matrixIds?: string[];
-	headers?: Record<string, string>; credentials?: RequestCredentials; name?: string | null;
+	headers?: Record<string, string>; credentials?: RequestCredentials; name?: string | null; adjust?: Extract<RasterSpec, { url: string }>["adjust"];
 }
 /** 受けた spec（list() はそのまま返す）を SpecIn の項目で読む形 */
 type SpecRead = RasterSpec & SpecIn;
@@ -119,7 +119,7 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 			// 取得の前の手入れ（#37）：URL の型紙は worker が組む＝ヘッダ/credentials はソース単位で一度だけ決める。独自スキーム＝main が読み口で取って port で渡す
 			if (spec && (spec.url || spec.wms) && !spec.pmtiles && !/\.pmtiles(\?|#|$)|^pmtiles:/i.test(spec.url || "")) {
 				const tpl = spec.url || wmsTemplate(spec.wms!), rq = requester.resolve(tpl, "Tile");
-				if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null }; transfer = [ch.port2]; rec.port = ch.port1; }
+				if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null, adjust: spec.adjust ?? null }; transfer = [ch.port2]; rec.port = ch.port1; }   // adjust＝色調整・切り抜きは worker が復号の後に掛ける（どの種類にも）
 				else if (rq.url !== tpl || rq.headers || rq.credentials) wireSpec = { ...spec, wms: undefined, url: rq.url, headers: rq.headers ? { ...(spec.headers || {}), ...rq.headers } : spec.headers, credentials: rq.credentials ?? spec.credentials };
 			}
 			let iiifMaps: unknown[] | null = null, iiifAttr: string | null = null, iiifFallback: string | null = null;

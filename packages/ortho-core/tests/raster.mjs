@@ -59,6 +59,14 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(d[0] === 200 && d[1] === 100 && d[2] === 50, "no adjust = identity");
 	const e = adjustRGBA(px(), { hueRotate: 360 });
 	ok(Math.abs(e[0] - 200) <= 1 && Math.abs(e[1] - 100) <= 1, "hue-rotate 360 = identity");
+	const f = adjustRGBA(new Uint8ClampedArray([200, 100, 50, 255, 210, 100, 50, 255]), { colorToAlpha: [200 / 255, 100 / 255, 50 / 255, 0.02] });
+	ok(f[3] === 0 && f[7] === 255, "colorToAlpha: within threshold → alpha 0, 10/255 off → kept");
+	// cutout: tile 1/0/0 (lon −180..0, lat 0..85) 4×4 px; the hole [−90, 0, 0, 85] is the right half (x 2..3), every row
+	const g = adjustRGBA(new Uint8ClampedArray(4 * 4 * 4).fill(255), { cutout: [-90, 0, 0, 85.0511] }, { z: 1, x: 0, y: 0, size: 4 });
+	const col = (x) => [0, 1, 2, 3].map(y => g[(y * 4 + x) * 4 + 3]).join();
+	ok(col(0) === "255,255,255,255" && col(1) === "255,255,255,255" && col(2) === "0,0,0,0" && col(3) === "0,0,0,0", `cutout = transparent hole: ${col(0)}|${col(1)}|${col(2)}|${col(3)}`);
+	const h = adjustRGBA(new Uint8ClampedArray(4 * 4 * 4).fill(255), { cutout: [10, 10, 20, 20] }, { z: 1, x: 0, y: 0, size: 4 });
+	ok(h.every((v, i) => i % 4 !== 3 || v === 255), "cutout outside the tile = untouched");
 }
 
 // 2. spec 正規化
