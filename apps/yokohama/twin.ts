@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, type WalkLine, type WalkGraph } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -948,11 +948,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const walkBin = (k: string) => walkBins.get(k) ?? walkBins.set(k, fetch(`${opts.base}walk/${k}.bin`, { credentials: "omit" })
 		.then(r => r.ok ? r.arrayBuffer() : null).then(b => { const [cx, cy] = k.split("_").map(Number); return b ? decodeWalk(new Uint8Array(b), cx, cy) : []; })
 		.catch(() => [] as WalkLine[])).get(k)!;
-	async function walkNet(at: [number, number]): Promise<{ g: WalkGraph; home: { i: number; m: number }; dist: Float64Array; prev: Int32Array } | null> {
+	async function walkNet(at: [number, number]): Promise<{ g: WalkGraph; from: WalkFrom } | null> {
 		const lines = (await Promise.all(walkCells(at, WALK_R).map(walkBin))).flat();
 		if (!lines.length) return null;
-		const g = buildWalkGraph(lines), home = walkSnap(g, at);
-		return home && home.m <= 150 ? { g, home, ...walkSearch(g, home.i) } : null;
+		const g = buildWalkGraph(lines), snaps = walkSnap(g, at);
+		return snaps.length && snaps[0].m <= 150 ? { g, from: walkSearch(g, at, snaps) } : null;
 	}
 	// 道順の線（押した行の行き先まで）
 	let routeOn = false;
@@ -993,9 +993,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		// 道のり＝歩ける道（OSM）で。網の外・繋がらない＝直線（「直線」と書く・徒歩は 1.3 倍で見積もる）。cands は直線で近い順の候補＝道のりで並べ直す
 		routes.length = 0;
 		type Way = { m: number; k: number };   // k＝道順の番号（-1＝直線）
-		const way = (to: [number, number]): Way => { const r = net && walkTo(net.g, net, net.home, to);
+		const way = (to: [number, number]): Way => { const r = net && walkTo(net.g, net.from, to);
 			if (!r) return { m: distM(at, to), k: -1 };
-			routes.push(walkPath(net!.g, net!.prev, r.i, at, to)); return { m: r.m, k: routes.length - 1 }; };
+			routes.push(r.path); return { m: r.m, k: routes.length - 1 }; };
 		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
 		const walk = (w: Way) => w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
 			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`;
