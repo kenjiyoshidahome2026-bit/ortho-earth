@@ -779,6 +779,8 @@ void main() {
 	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
 	if (u_csAtm.x > 0.5) col = csGround(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y) * g.a;   // Cesium の地面の大気（従来の霞の代わり）
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
+	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
+	if (u_csAtm.x > 0.5 && u_csAtm.z > 0.5 && u_globeAlpha < 1.0) { vec4 cs = csSky2(A * CS_R, normalize(d), u_globeAlpha > 0.0 ? 2.0 : 1.0); fragColor += cs * (1.0 - fragColor.a); }
 }`;
 
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側をフラット色でなく「landK=1 強制のハイプソ本体」で
