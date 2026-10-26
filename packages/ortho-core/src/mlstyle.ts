@@ -15,7 +15,7 @@ import { ML_LAYER_PROPS, ML_SOURCE_TYPES, ML_LAYER_KEYS } from "./mlspec.ts";
 /** MapLibre 形の層（読み替えの入出力・他の欄は素通り） */
 export interface MLLayer { id: string; type: string; source?: string; "source-layer"?: string; filter?: unknown; layout?: Record<string, unknown>; paint?: Record<string, unknown>; minzoom?: number; maxzoom?: number; metadata?: Record<string, unknown>; dashInLineWidths?: boolean; [k: string]: unknown }
 /** MapLibre 形の source（vector・raster・raster-dem・geojson・image・video） */
-export interface MLSource { type?: string; url?: string; tiles?: string[]; scheme?: string; minzoom?: number; maxzoom?: number; bounds?: number[] | null; attribution?: string | null; encoding?: string; tileSize?: number | null; [k: string]: unknown }
+export interface MLSource { type?: string; url?: string; tiles?: string[]; scheme?: string; minzoom?: number; maxzoom?: number; bounds?: number[] | null; attribution?: string | null; encoding?: string; tileSize?: number | null; headers?: Record<string, string> | null; [k: string]: unknown }   // headers＝この地図の拡張（raster のタイル取得に付ける・ion の Bearer 等）
 /** MapLibre の style.json */
 export interface MLStyle { sources?: Record<string, MLSource>; layers?: MLLayer[]; [k: string]: unknown }
 /** 旧式の関数（{ stops, base, property, type, default }） */

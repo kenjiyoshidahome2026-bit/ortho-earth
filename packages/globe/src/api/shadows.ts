@@ -75,8 +75,8 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 		await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
 		return { ...r.stats, probes: r.probes, gpu: false };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
 	};
-	// ── 建物の影（リアルタイム・2026-09-24）＝描画の中で太陽から建物の深度を描き、地面・建物に落とす（WebGPU 専用。
-	// GL2 はフォールバック＝影をかけない仕様（本人裁定 2026-09-24）＝GL レンダラは "shadow" を素通しする）。
+	// ── 建物の影（リアルタイム・2026-09-24）＝描画の中で太陽から建物の深度を描き、地面・建物に落とす（WebGPU と WebGL2 の両方。
+	// GL2 版は P0 #3・2026-10-25〜＝旧裁定「GL2 は "shadow" を素通し」を改めた）。
 	// map.setShadows(true | false | { on, time: Date|ms|ISO, darkness: 0..1 })。time 無指定＝共通の時計（view.clock）。z13 以上・太陽が出ている時だけ。
 	// 消している間は描画に一切関与しない（資源も持たない）。
 	map.setShadows = (o = true) => {

@@ -52,9 +52,25 @@ function groundLighting(scene: Any, map: Any, dir: Any, hdr: number[]) {
 	groundSent = sig;
 	map.setGroundLighting(spec);
 }
+/** viewer.shadows / scene.shadowMap.enabled → the globe's real-time shadows (map.setShadows): the shadow map of the sun of the shared clock
+ *  (display.ts keeps it on the Cesium clock), darkness = ShadowMap.darkness (the light left in shadow, 0.3). Cesium casts from scene.light;
+ *  the globe's shadows always come from the sun, so a DirectionalLight shadows as the sun of that time would. Per-object ShadowMode
+ *  (terrainShadows RECEIVE_ONLY, model.shadows) has no counterpart: everything casts and receives while the map is on. */
+function shadows(scene: Any, map: Any, last: { sig: string }) {
+	if (typeof map.setShadows !== "function") return;
+	const sm = scene.shadowMap, on = !!sm?.enabled && !sm.isDestroyed?.();
+	const darkness = Math.max(0, Math.min(1, +(sm?.darkness ?? 0.3) || 0));
+	const sig = on ? `1|${darkness.toFixed(3)}` : "0";
+	if (sig === last.sig) return;
+	last.sig = sig;
+	map.setShadows(on ? { on: true, darkness } : false);
+}
+
 export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 	let envKey = "", sh: Float32Array | null = null, sent = "";
+	const shadowLast = { sig: "" };
 	return (time: Any) => {
+		shadows(scene, map, shadowLast);
 		if (typeof map.setMeshLighting !== "function") return;
 		const t = time ?? scene.frameState?.time ?? scene.lastRenderTime;
 		if (!t) return;
