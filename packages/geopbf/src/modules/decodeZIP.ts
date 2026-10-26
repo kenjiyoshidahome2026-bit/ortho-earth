@@ -129,6 +129,12 @@ export async function decodeZIP(source: Blob | string, target: string | false | 
 
 		// 名前のデコーダは 2 本だけ用意（旧＝エントリごとに new TextDecoder、しかも `encoding || (flags & 0x0800) ? …` の優先順位で encoding 指定が常に utf-8 になっていた・2026-09-15）
 		const decUtf8 = new TextDecoder("utf-8"), decOther = new TextDecoder(encoding || "shift-jis");   // bit 11（UTF-8 フラグ）> encoding 引数 > shift-jis
+		// フラグの無い名前＝まず UTF-8 として厳密に読み、壊れていたら encoding（UTF-8 系なら shift-jis）。
+		// 中身の文字コード（既定 utf8）が名前にまで渡ってくる呼び手（native-bucket の Fetch）で、国土数値情報の SJIS 名（A09・A53-2023 等）が
+		// 化けて target と一致せず「file is not exist」になっていた（2026-10-26）
+		const decStrict = new TextDecoder("utf-8", { fatal: true });
+		const decFallback = /^utf-?8$/i.test(encoding || "") ? new TextDecoder("shift-jis") : decOther;
+		const decodeName = (b: Uint8Array): string => { try { return decStrict.decode(b); } catch { return decFallback.decode(b); } };
 		for (let i = 0, off = 0; i < count; i++) {
 			if (off + 46 > cd.length) throw new Error(`Invalid ZIP: central directory entry ${i} is truncated`);
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
@@ -136,7 +142,8 @@ export async function decodeZIP(source: Blob | string, target: string | false | 
 			const cSiz = cv.getUint32(off + 20, true), uSiz = cv.getUint32(off + 24, true);   // off+16＝CRC32（読まない＝伸長後の照合はしない）
 			const nLen = cv.getUint16(off + 28, true), eLen = cv.getUint16(off + 30, true), cLen = cv.getUint16(off + 32, true);
 			const loc = cv.getUint32(off + 42, true);
-			const name = ((flags & 0x0800) ? decUtf8 : decOther).decode(cd.subarray(off + 46, off + 46 + nLen)).normalize("NFC");
+			const nameBytes = cd.subarray(off + 46, off + 46 + nLen);
+			const name = ((flags & 0x0800) ? decUtf8.decode(nameBytes) : decodeName(nameBytes)).normalize("NFC");
 
 			off += 46 + nLen + eLen + cLen;
 			if (name.endsWith('/')) continue;
