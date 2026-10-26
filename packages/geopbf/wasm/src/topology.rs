@@ -672,6 +672,7 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     const BASE_SHIFT: u32 = 16;   // 格子の基準＝セル 2^16 単位（約 730 m）
     const MAX_CELL: usize = 1500; // これを超えるセルは総当たりしない（JS と同じ）
     const COVER: u64 = 8;         // 登録の総数の上限＝線分数の何倍まで
+    const REG_BUDGET: u64 = 20_000_000;   // 基準の格子へ戻す時の登録の総数の上限（1 件 4 B＋セルの表＝数百 MB に収まる所）
     const SNAP: i128 = 125;   // 11 cm
     const UNIT: i128 = 10;    // 10 cm grid
 
@@ -720,7 +721,10 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut shift = BASE_SHIFT;
     while shift < 31 && cover(shift) > segs.len() as u64 * COVER { shift += 1; }
     let mut cells = build(shift);                                       // 格子セル（初出順）
-    if shift > BASE_SHIFT && cells.iter().any(|c| c.len() > MAX_CELL) { cells = build(BASE_SHIFT); }
+    // 基準へ戻すのは、基準の登録が予算内の時だけ。国土規模の長い直線が密に重なるデータ（国土数値情報の OD 線＝S10a 港湾間流通量・S05-d 地域流動量）は
+    // 粗い格子で 1500 本超のセルができ、基準へ戻すと登録が数百億回＝メモリが尽きて wasm が unreachable で止まっていた（2026-10-26）。
+    // 予算超えなら粗い格子のまま（1500 本超のセルは基準と同じく総当たりしない）
+    if shift > BASE_SHIFT && cells.iter().any(|c| c.len() > MAX_CELL) && cover(BASE_SHIFT) <= REG_BUDGET { cells = build(BASE_SHIFT); }
 
     // 端点スナップ／格子スナップ（JS getPt）
     let get_pt = |ix: i128, iy: i128, eps: &[(i64, i64, u64); 4]| -> (i64, i64, u64) {
