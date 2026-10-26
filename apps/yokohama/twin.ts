@@ -953,7 +953,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	setTab(st.tab);
 	const s0 = SPOTS.find(s => s.id === st.spot);
 	if (s0) { showSpot(s0); if (!location.hash) flySpot(s0); }
-	else if (st.ward && !location.hash) setWard(st.ward);
+	else if (!location.hash) setWard(st.ward);   // 初めて開いた＝「市全体」を押した時と同じ（真上から市を 9 割・基図は全層・本人 2026-10-26）。区つきの URL ならその区
 	else if (st.ward) wardSel.value = st.ward;
 	for (const id of st.hz) setHazard(id, true);
 	for (const id of st.tr) setTransit(id, true);
