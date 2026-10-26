@@ -1623,6 +1623,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		] });
 	}
 	rebuildBG0();
+	// 差し替えた標高アトラスは即 destroy しない＝次のフレームの submit を待ってから返す。開いているフレームの encoder・前フレームの gintCtx（gint の焼き・点の pick）が
+	// 古い view をまだ握っていると「Destroyed texture [4096x2048 R16Float] used in a submit」になる（Mac 実測 2026-10-26：建物を隠して引いた後に出た）
+	const retired: GPUTexture[] = [];
+	const retire = (t: GPUTexture) => { retired.push(t); };
 	const mkAtlasTex = (W: number, H: number) => device.createTexture({ size: [W, H], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });   // 生成時ゼロ初期化＝海。RENDER_ATTACHMENT＝GPU 再標本化の的（P1 step 1）・COPY_SRC＝検定の読み戻し
 	function writeCell(tex: GPUTexture, cx: number, cy: number, data: Float32Array, cellRes: number) {
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す
@@ -1647,7 +1651,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
 	function setElevationAtlas(a: ElevAtlasMeta, scale: number) {
-		if (elevTexObj) elevTexObj.destroy();
+		if (elevTexObj) retire(elevTexObj);
 		elevTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
 		memAtlas = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;   // r16float=2B/texel
 		atlasMeta(a, scale);
@@ -1655,14 +1659,14 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	function setElevationCell(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) { if (elevTexObj) putCellAny(elevTexObj, cx, cy, data, cellRes); }
 	function setElevationAtlasStage(a: ElevAtlasMeta, scale: number) {
-		if (elevStage) elevStage.tex.destroy();
+		if (elevStage) retire(elevStage.tex);
 		elevStage = { tex: mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes), a, scale };
 		memStage = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;
 	}
 	function setElevationCellStage(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) { if (elevStage) putCellAny(elevStage.tex, cx, cy, data, cellRes); }
 	function commitElevationStage() {
 		if (!elevStage) return;
-		if (elevTexObj) elevTexObj.destroy();
+		if (elevTexObj) retire(elevTexObj);
 		elevTexObj = elevStage.tex;
 		memAtlas = memStage; memStage = 0;
 		atlasMeta(elevStage.a, elevStage.scale);
@@ -1673,7 +1677,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// メッシュは近窓と同じ単位格子を Frame.mesh（terrainFar slot）で遠窓へ伸ばす＝専用メッシュ不要。
 	function setElevationAtlasFar(a: ElevAtlasMeta) {
 		const span = a.cellSpan || 10;
-		if (farTexObj) farTexObj.destroy();
+		if (farTexObj) retire(farTexObj);
 		farTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
 		memFar = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;
 		far = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 1, edgeFade: a.edgeFade || 0 };
@@ -1682,7 +1686,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function setElevationCellFar(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) { if (farTexObj) putCellAny(farTexObj, cx, cy, data, cellRes); }
 	function clearElevationFar() {   // 深ズーム離脱＝GPU メモリを返す（10-16MB）
 		if (!farTexObj) return;
-		farTexObj.destroy(); farTexObj = null;
+		retire(farTexObj); farTexObj = null;
 		far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
 		rebuildBG0();
 	}
@@ -3263,6 +3267,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
+		if (retired.length) { const r = retired.splice(0); device.queue.onSubmittedWorkDone().then(() => { for (const t of r) t.destroy(); }).catch(() => {}); }   // 差し替えた標高アトラスはこのフレームが GPU で終わってから返す
 		if (frame1Scoped === 1) { frame1Scoped = 2; device.popErrorScope().then(e => { if (e) gpuErr("初回フレーム検証", e.message); }).catch(() => {}); }
 		// ⚠WebKit(Safari) の轍：submit と同一タスクで mapAsync を呼ぶと canvas present が黙って止まる
 		//（例外・検証エラー・uncaptured 一切なし＝白画面。Playwright WebKit の二分探索で確定 2026-08-02：
@@ -3418,6 +3423,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }
 		if (farTexObj) { farTexObj.destroy(); farTexObj = null; }
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }
+		for (const t of retired.splice(0)) t.destroy();
 		for (const v of rawLRU.values()) v.buf.destroy(); rawLRU.clear(); rawBytes = 0;
 		if (rs) { rs.ubuf.destroy(); rs = null; }
 		dummyTex.destroy();

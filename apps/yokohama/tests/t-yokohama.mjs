@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -46,6 +46,7 @@ t("地点：タイルと画素（z17・横浜駅付近）", tp.x === Math.floor(
 const c0 = parseInt(DEPTH[2].color.slice(1), 16);
 t("地点：画素の色→凡例（透明は -1・近い色・遠い色は -1）", legendIndex(DEPTH, c0 >> 16, c0 >> 8 & 255, c0 & 255, 255) === 2 && legendIndex(DEPTH, c0 >> 16, c0 >> 8 & 255, c0 & 255, 0) === -1 && legendIndex(DEPTH, 0, 0, 0, 255) === -1);
 t("地点：浸水の帯→階（床下 0・5m 帯で 2 階・20m 以上 7）", floorsOfDepth(0) === 0 && floorsOfDepth(2) === 2 && floorsOfDepth(5) === 7 && floorsOfDepth(9) === 0);
+t("地点：水面の高さ＝帯の上端（床下 0.5m・0.5–3m 帯で 3m・範囲外 0）", depthTop(0) === 0.5 && depthTop(1) === 3 && depthTop(5) === 20 && depthTop(-1) === 0 && floorsOfDepth(1) * 3 >= depthTop(1));
 const d = distM([139.6380, 35.4437], [139.6380, 35.4537]);
 t("地点：距離（緯度 0.01 度＝約 1112m）・徒歩分（80m/分×1.3）", Math.abs(d - 1112) < 3 && walkMin(d) === 18 && walkMin(0) === 1, String(d));
 const nr = nearestRows([[139.70, 35.44, "遠"], [139.64, 35.444, "近"], [139.65, 35.45, "中"]], [139.638, 35.4437], 2);

@@ -7694,6 +7694,33 @@
 			"fa": "برای رفتن به آنجا روی یک ردیف بزنید. همهٔ امکانات عمومی منطقهٔ انتخاب‌شده را فهرست می‌کند.",
 			"ur": "وہاں جانے کے لیے کسی قطار پر ٹیپ کریں۔ منتخب ضلع کی تمام عوامی سہولیات کی فہرست۔",
 			"he": "הקישו על שורה כדי לעוף לשם. מציג את כל המתקנים הציבוריים ברובע שנבחר."
+		},
+		"See the water level in 3D": {
+			"ja": "水の高さを立体で見る",
+			"zh": "以 3D 查看水位",
+			"ko": "물 높이를 3D로 보기",
+			"fr": "Voir le niveau de l’eau en 3D",
+			"de": "Wasserstand in 3D ansehen",
+			"es": "Ver el nivel del agua en 3D",
+			"pt": "Ver o nível da água em 3D",
+			"it": "Vedi il livello dell’acqua in 3D",
+			"nl": "Waterstand in 3D bekijken",
+			"pl": "Zobacz poziom wody w 3D",
+			"ru": "Показать уровень воды в 3D",
+			"uk": "Показати рівень води в 3D",
+			"hu": "Vízszint megtekintése 3D-ben",
+			"sv": "Se vattennivån i 3D",
+			"tr": "Su seviyesini 3B görün",
+			"el": "Δείτε τη στάθμη του νερού σε 3D",
+			"id": "Lihat tinggi air dalam 3D",
+			"vi": "Xem mực nước dạng 3D",
+			"th": "ดูระดับน้ำแบบ 3 มิติ",
+			"bn": "৩ডি-তে পানির উচ্চতা দেখুন",
+			"hi": "पानी का स्तर 3D में देखें",
+			"ar": "عرض منسوب المياه بشكل ثلاثي الأبعاد",
+			"fa": "دیدن سطح آب به‌صورت سه‌بعدی",
+			"ur": "پانی کی سطح 3D میں دیکھیں",
+			"he": "הצגת גובה המים בתלת־ממד"
 		}
 	}
 }
