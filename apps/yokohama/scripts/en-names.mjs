@@ -29,9 +29,11 @@ export function romaji(kana) {
 	return out.replace(/ou/g, "o").replace(/uu/g, "u").replace(/ooo/g, "oo");
 }
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const SMALL = new Set(["of", "and", "for"]);   // 英語の小さい語は頭でなければ小文字
 
 // 種類の語（長い順に当てる）→ 英語。kind＝台帳の種別（出張所は消防か役所かで変える）
 const SUFFIX = [
+	["小コミュニティハウス", "Elementary School Community House"], ["中コミュニティハウス", "Junior High School Community House"],
 	["義務教育学校", "Compulsory Education School"], ["中等教育学校", "Secondary School"], ["特別支援学校", "Special Needs School"],
 	["小学校コミュニティスクール", "Elementary School Community School"], ["小学校コミュニティハウス", "Elementary School Community House"], ["中学校コミュニティハウス", "Junior High School Community House"],
 	["小学校", "Elementary School"], ["中学校", "Junior High School"], ["高等学校", "High School"], ["高校", "High School"], ["大学", "University"], ["短期大学", "Junior College"],
@@ -62,13 +64,21 @@ const WORDS = [
 	["国立", "National", 1], ["育成", "Development", 1], ["研修", "Training", 1], ["産業振興", "Industrial Promotion", 1], ["職能開発", "Vocational Training", 1],
 	["中央", "chuo", 0], ["開港", "kaiko", 0], ["西谷", "nishiya", 0], ["泉町", "izumicho", 0], ["南太田", "minamiota", 0], ["六角橋", "rokkakubashi", 0], ["中村", "nakamura", 0],
 	["上中里", "kaminakazato", 0], ["元町", "motomachi", 0], ["鶴寿", "kakuju", 0], ["荘", "so", 0], ["清風", "seifu", 0], ["緑風", "ryokufu", 0], ["晴嵐", "seiran", 0],
-	["養護学校", "Special Needs School", 1], ["分教室", "Branch Classroom", 1], ["専門学校", "Vocational School", 1], ["看護", "Nursing", 1], ["学校", "School", 1], ["附属", "Attached", 1],
+	["養護学校", "Special Needs School", 1], ["分教室", "Branch Classroom", 1], ["専門学校", "Vocational School", 1], ["看護", "Nursing", 1], ["学校", "School", 1], ["附属", "Affiliated", 1],
 	["教育学部", "Faculty of Education", 1], ["株式会社", "", 1], ["研究所", "Research Institute", 1], ["研究", "Research", 1], ["支店", "Branch", 1], ["支社", "Branch", 1], ["本館", "Main Building", 1],
 	["科学館", "Science Museum", 1], ["植物園", "Botanical Garden", 1], ["展示室", "Exhibition Room", 1], ["宝物殿", "Treasure Hall", 1], ["領事館", "Consulate", 1], ["機構", "Agency", 1],
 	["事務所", "Office", 1], ["本部", "Headquarters", 1], ["地方整備局", "Regional Development Bureau", 1], ["関東", "Kanto", 1], ["技術", "Technology", 1], ["調査", "Survey", 1], ["相談所", "Consultation Office", 1],
 	["キャンパス", "Campus", 1], ["ライブラリー", "Library", 1], ["ミュージアム", "Museum", 1], ["サテライト", "Satellite", 1], ["歴史", "History", 1], ["宇宙", "Space", 1], ["郷土", "Local History", 1],
 	["湘南", "shonan", 0], ["聖隷", "seirei", 0], ["掖済会", "ekisaikai", 0], ["嶮山", "kenzan", 0], ["十慈堂", "jujido", 0], ["寿楽荘", "jurakuso", 0], ["一丁目", " 1-chome", 0],
 	["リハビリテーション", "Rehabilitation", 1], ["ホスピタル", "Hospital", 1], ["女子短期大学部", "Women's Junior College", 1], ["短期大学", "Junior College", 1], ["大学", "University", 1], ["女学院", "Jogakuin", 1],
+	// 2 回目の焼き（2026-10-26）の見直し：読み違え・訳の抜け・組織の語
+	["日下", "kusaka", 0], ["下郷", "shimogo", 0], ["城郷", "shirosato", 0], ["大綱", "otsuna", 0], ["阿久和", "akuwa", 0], ["新田", "nitta", 0], ["千秀", "senshu", 0],
+	["福寿荘", "fukujuso", 0], ["柏桜荘", "hakuoso", 0], ["東希", "higashikibo", 0], ["東部", "tobu", 0], ["西部", "seibu", 0], ["南部", "nanbu", 0], ["北部", "hokubu", 0], ["中部", "chubu", 0],
+	["高等学校", "High School", 1], ["中学校", "Junior High School", 1], ["小学校", "Elementary School", 1], ["公園", "Park", 1], ["駅", "Station", 1], ["西口", "West Exit", 1], ["東口", "East Exit", 1],
+	["南口", "South Exit", 1], ["北口", "North Exit", 1], ["通", "dori", 0], ["局", "Bureau", 1], ["部", "Division", 1], ["県民局", "Citizens Bureau", 1], ["女性相談所", "Women's Consultation Office", 1],
+	["コーナー", "Corner", 1], ["システム", "System", 1], ["ニュース", "News", 1], ["マリタイム", "Maritime", 1], ["情報", "Information", 1], ["共同", "Joint", 1], ["事業", "Business", 1], ["組合", "Association", 1],
+	["教育", "Education", 1], ["社会教育", "Social Education", 1], ["技能", "Skills", 1], ["振興", "Promotion", 1], ["青年館", "Youth Hall", 1], ["医科学", "Medical Science", 1], ["薬業", "Pharmaceutical", 1],
+	["地域", "Community", 1], ["拠点", "Base", 1], ["町村", "Towns and Villages", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -83,12 +93,13 @@ export const EN_FIX = {
 	"聖マリアンナ医科大学横浜市西部病院": "St. Marianna University Yokohama Seibu Hospital", "横浜労災病院": "Yokohama Rosai Hospital",
 	"横浜市北部病院": "Showa Medical University Northern Yokohama Hospital", "横浜医療センター": "NHO Yokohama Medical Center",
 	"横浜市保健所": "Yokohama City Public Health Center", "八景島シーパラダイス": "Yokohama Hakkeijima Sea Paradise", "總持寺": "Sojiji Temple Treasure Hall",
-	"カップヌードルミュージアム": "Cup Noodles Museum", "日本郵船歴史博物館": "NYK Maritime Museum", "はまぎんこども宇宙科学館": "Yokohama Science Center",
+	"カップヌードルミュージアム": "Cup Noodles Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
+	"配偶者暴力相談支援センター": "Kanagawa Spousal Violence Counseling and Support Center", "地球市民かながわプラザ": "Kanagawa Plaza for Global Citizenship", "日本郵船歴史博物館": "NYK Maritime Museum", "はまぎんこども宇宙科学館": "Yokohama Science Center",
 };
 
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
 export function makeEn({ towns, wards, tokenize }) {
-	const W = [["横浜", "Yokohama"], ...wards];
+	const W = [["横浜", "Yokohama"], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
 	// 町名は「町」抜きでも引く（施設の名は「菅田消防出張所」＝菅田町の菅田）
 	const T0 = towns.map(([k, r]) => [normJp(k), toKata(r)]);
 	for (const [k, r] of [...T0]) { const m = k.endsWith("町") && r.match(/(チョウ|マチ)$/); if (m && k.length > 1 && !T0.some(([x]) => x === k.slice(0, -1))) T0.push([k.slice(0, -1), r.slice(0, -m[1].length)]); }
@@ -116,23 +127,30 @@ export function makeEn({ towns, wards, tokenize }) {
 			else {   // 読みの辞書：固有名詞と接尾（「台」「町」）は前に続け、普通の名詞は別の語にする
 				guessed++;
 				if (!tokenize) out += part;
-				else for (const x of tokenize(part)) { const r = /^[・「」『』（）()、。]$/.test(x.surface_form) ? " " : romaji(x.reading || x.surface_form); out += (x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || !/[a-z]$/.test(out)) ? r : ` ${r}`; }
+				else for (const x of tokenize(part)) {
+					const f = x.surface_form;
+					if (f === "の" && / $/.test(out)) continue;   // 「青少年の地域」＝英語の語の後の「の」は落とす
+					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : romaji(x.reading || f);
+					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || !/[a-z]$/.test(out);   // ひらがなは前に続ける（くぬぎ台・初音が丘）
+					out += glue ? r : ` ${r}`;
+				}
 			}
 			i = j;
 		}
-		return out.trim().split(/\s+/).filter(Boolean).map(cap).join(" ");
+		return out.trim().split(/\s+/).filter(Boolean).map((w, i) => i && SMALL.has(w.toLowerCase()) ? w.toLowerCase() : cap(w)).join(" ");
 	};
 	/** 施設の名 → 英語。cat＝区分の番号（4＝消防） */
-	const name = (ja, cat) => {
+	const name = (ja, cat) => name0(ja, cat).replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();   // 読めずに残った字は出さない
+	const name0 = (ja, cat) => {
 		if (EN_EXACT[ja]) return EN_EXACT[ja];
 		for (const [k, v] of Object.entries(EN_FIX)) if (ja.includes(k)) return v;
-		let s = normJp(ja);
+		let s = normJp(ja).replace(/\([^)]*\)/g, "");   // 括弧の中（愛称）は落とす
 		const sp = s.lastIndexOf(" "); if (sp > 0 && /法人/.test(s.slice(0, sp))) s = s.slice(sp + 1);   // 「医療法人社団◯◯会 金沢病院」＝法人の名は落とす
 		// 空きの無い法人の名（「医療法人社団恵生会竹山病院」）＝法人の種類の後の最初の「会」「団」まで落とす
 		const corp = ["医療法人社団", "医療法人財団", "医療法人", "社会福祉法人", "公益財団法人", "一般財団法人", "一般社団法人", "公益社団法人", "社会医療法人"].find(k => s.startsWith(k));
 		const coop = s.indexOf("生活協同組合"); if (coop > 0 && coop + 6 < s.length) s = s.slice(coop + 6);   // 「医療生協かながわ生活協同組合戸塚病院」→ 戸塚病院
 		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); if (e >= 0 && e + 1 < rest.length) s = rest.slice(e + 1); }
-		s = s.replace(/^(横浜市立|横浜市|神奈川県立|神奈川県|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
+		s = s.replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
