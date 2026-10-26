@@ -908,6 +908,9 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
  *  写しの量は stats.mainMB に出て、gpuMB との和が予算（低メモリ 160 MB・他 512 MB）に数えられる。featureIdSet＝何組目の番号で当てるか（既定 0） */
 export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限（px・既定 16・低メモリ端末 24）。予算（gpuMB + mainMB）を越えると stats.sseScale 倍に引き上げられる */ maxSSE?: number;
 	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
+	/** heights＝tileset の高さの基準：既定 "orthometric"＝そのまま（この地図の標高はジオイド基準）。"ellipsoidal"＝WGS84 の楕円体高（Cesium の物・Google の写実 3D Tiles
+	 *  など）＝根の中心の EGM96 の N を引いて載せる（ニューヨークで +33 m・日本で −37 m 前後）。heightOffset はその上に足す */
+	heights?: "ellipsoidal" | "orthometric";
 	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
