@@ -45,7 +45,9 @@ export const Util = {
 		return (!existingUrl || existingUrl.indexOf("?") === -1 ? "?" : "&") + params.join("&");
 	},
 	template(str: string, data: Record<string, any>): string {
-		return str.replace(/\{ *([\w_ -]+) *\}/g, (s, key) => {
+		return str.replace(/\{([^{}]*)\}/g, (s, k: string) => {   // Leaflet's /\{ *([\w_ -]+) *\}/, without its polynomial backtracking
+			const key = k.trim();
+			if (!/^[\w -]+$/.test(key)) return s;
 			let v = data[key];
 			if (v === undefined) throw new Error(`No value provided for variable ${s}`);
 			if (typeof v === "function") v = v(data);
