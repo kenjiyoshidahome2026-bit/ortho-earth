@@ -292,6 +292,12 @@ uniform vec4  u_lA[8];
 uniform vec4  u_lB[8];
 uniform vec4  u_lC[8];
 uniform vec4  u_lD[8];
+uniform float u_csOn;        // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting・2026-10-26）：1＝下の固定光・style の light の代わりに csLit（CesiumJS の式）で描く
+uniform vec3  u_csDir;       // 光へ向く単位ベクトル（世界系）
+uniform vec3  u_csColor;     // 光の色×強さ（HDR・SunLight は 2）
+uniform vec3  u_csSH[9];     // 環境光の SH9（Cesium の並び＝L00,L1-1,L10,L11,L2-2,L2-1,L20,L21,L22・立方体図の系＝x 東・y 上・z 南）
+uniform vec3  u_csIbl;       // (拡散の係数, 鏡面の係数, 一様な環境で L00 が 1 になる倍率＝鏡面の環境光を放射輝度に戻す)
+uniform vec2  u_csMR;        // バッチの材質（metallic, roughness）＝glTF の係数（GL は材質テクスチャを持たない）
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
@@ -314,6 +320,53 @@ vec3 localLights(vec3 n, vec3 pos, vec3 up) {
 		}
 	}
 	return acc;
+}
+// Cesium の模型の照明（@ortho-earth/cesium・2026-10-26）＝CesiumJS の LightingStageFS をそのまま：czm_pbrLighting（Lambert／π＋GGX＝直接光×色×強さ・NdotL は 0.001 で止める）
+// ＋環境光（ImageBasedLightingStageFS＝SH9 の拡散＋反射の向きの SH9 の鏡面・brdf LUT は Karis の近似）→ czm_pbrNeutralTonemapping → czm_linearToSrgb（pow 1/2.2）。
+// 法線・視線は世界系、環境光の SH は Cesium の立方体図の系（x 東・y 上・z 南）＝接地の局所系（東・北・上）から写す。gpu/wgsl.ts csLit と同式。
+vec3 csSH(vec3 n) {
+	vec3 L = u_csSH[0] + u_csSH[1] * n.y + u_csSH[2] * n.z + u_csSH[3] * n.x + u_csSH[4] * (n.y * n.x) + u_csSH[5] * (n.y * n.z)
+		+ u_csSH[6] * (3.0 * n.z * n.z - 1.0) + u_csSH[7] * (n.z * n.x) + u_csSH[8] * (n.x * n.x - n.y * n.y);
+	return max(L, vec3(0.0));
+}
+vec3 csTonemap(vec3 color) {   // czm_pbrNeutralTonemapping（Khronos PBR Neutral・startCompression 0.76・desaturation 0.15）
+	float x = min(color.r, min(color.g, color.b));
+	float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+	color -= offset;
+	float peak = max(color.r, max(color.g, color.b));
+	if (peak < 0.76) return color;
+	float dd = 0.24, newPeak = 1.0 - dd * dd / (peak + dd - 0.76);
+	color *= newPeak / peak;
+	float g = 1.0 - 1.0 / (0.15 * (peak - newPeak) + 1.0);
+	return mix(color, vec3(newPeak), g);
+}
+vec3 csSrgbToLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }   // czm_srgbToLinear
+vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向きの単位法線。戻り＝表示空間（sRGB）
+	vec3 v = normalize(v_toEye), l = normalize(u_csDir), h = normalize(v + l);
+	vec3 up = normalize(u_eye - v_toEye); vec3 e0 = cross(vec3(0.0, 1.0, 0.0), up);
+	vec3 east = dot(e0, e0) < 1e-12 ? vec3(1.0, 0.0, 0.0) : normalize(e0); vec3 north = cross(up, east);
+	float metallic = u_csMR.x, roughness = u_csMR.y;
+	vec3 diffuse = base * (1.0 - metallic), f0 = mix(vec3(0.04), base, metallic);
+	float VdotH = clamp(dot(v, h), 0.0, 1.0), NdotL = clamp(dot(n, l), 0.001, 1.0), NdotV = clamp(dot(n, v), 0.0, 1.0), NdotH = clamp(dot(n, h), 0.0, 1.0);
+	vec3 f90 = vec3(clamp(max(f0.r, max(f0.g, f0.b)) * 25.0, 0.0, 1.0));
+	float vs = 1.0 - VdotH; vec3 F = f0 + (f90 - f0) * vs * vs * vs * vs * vs;
+	float a = roughness * roughness, a2 = a * a;
+	float GGX = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2) + NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
+	float G = GGX > 0.0 ? 0.5 / GGX : 0.0;
+	float f = (NdotH * a2 - NdotH) * NdotH + 1.0;
+	float D = a2 / (3.14159265 * f * f);
+	vec3 color = ((1.0 - F) * diffuse / 3.14159265 + F * G * D) * NdotL * u_csColor;
+	// 環境光：拡散＝SH9（Cesium の係数＝散乱の強さ込み）・鏡面＝反射の向きの SH9 を放射輝度に戻した物（立方体図の mip の代わり）
+	vec3 nC = vec3(dot(n, east), dot(n, up), -dot(n, north)), r = reflect(-v, n), rC = vec3(dot(r, east), dot(r, up), -dot(r, north));
+	vec4 rr = roughness * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+	float a004 = min(rr.x * rr.x, exp2(-9.28 * NdotV)) * rr.x + rr.y;
+	vec2 AB = vec2(-1.04, 1.04) * a004 + rr.zw;
+	vec3 f90i = max(vec3(1.0 - roughness), f0); float vn = 1.0 - NdotV; vec3 Fn = f0 + (f90i - f0) * vn * vn * vn * vn * vn;
+	vec3 FssEss = Fn * AB.x + AB.y;
+	vec3 avgF = f0 + (1.0 - f0) / 21.0; float Ems = 1.0 - AB.x - AB.y;
+	vec3 FmsEms = FssEss * avgF * Ems / (1.0 - avgF * Ems);
+	color += csSH(nC) * (FmsEms + (1.0 - FssEss - FmsEms) * diffuse) * u_csIbl.x + csSH(rC) * u_csIbl.z * FssEss * u_csIbl.y;
+	return pow(max(csTonemap(color), 0.0), vec3(1.0 / 2.2));
 }
 void main() {
 	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
@@ -338,7 +391,9 @@ void main() {
 		d = u_lightColor * mix(1.0 - u_lightI, 1.0, clamp(dot(n, Ls), 0.0, 1.0));
 	}
 	if (u_lightN > 0) { vec3 pw = u_eye - v_toEye; d += localLights(n, pw, normalize(pw)); }   // 局所の光源（W2）
-	vec3 c = mix(u_bldColor * d, u_fogColor, v_fog);
+	vec3 base = u_bldColor * d;
+	if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）
+	vec3 c = mix(base, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
 
@@ -353,8 +408,8 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 ], "MESH_TEX_VS");
 export const MESH_TEX_FS = derive(MESH_FS, [
 	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
-	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 tx = texture(u_tex, v_uv) * v_col;\n"],
-	["\tvec3 c = mix(u_bldColor * d, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 c = mix(tx.rgb * d, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
+	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
+	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
@@ -1692,7 +1747,7 @@ export const MESH_CLIP_FS = clipGL(MESH_FS, [
 ], "MESH_CLIP_FS");
 export const MESH_TEX_CLIP_FS = clipGL(MESH_TEX_FS, [
 	["in float v_fog;\n", "in float v_fog;\n" + FS_IN],
-	["\tvec4 tx = texture(u_tex, v_uv) * v_col;\n", "\tvec4 tx = texture(u_tex, v_uv) * v_col;\n" + EDGE_HEAD],   // 標本は discard より前（ミップの微分）
+	["\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n", "\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n" + EDGE_HEAD],   // 標本は discard より前（ミップの微分）
 	MESH_CAP,
 ], "MESH_TEX_CLIP_FS");
 // 基図の塗りと線（シーンの原点ごと）
@@ -1873,8 +1928,8 @@ const SH_FSP: Record<ShadowFam, Pairs> = {
 	fill: [["in vec2 v_guv3;\n", "in vec2 v_guv3;\n" + SC_IN], ["fragColor = vec4(mix(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);", "fragColor = vec4(mix(shShade(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), v_sc), u_fogColor, v_fog) * af, af);"]],
 	line: [["in vec2 v_pos;\n", "in vec2 v_pos;\n" + SC_IN], ["\tvec3 rgb = mix(lc.rgb, u_fogColor, v_fog);", "\tvec3 rgb = mix(shShade(lc.rgb, v_sc), u_fogColor, v_fog);"]],
 	bld: [["in vec2  v_ll;\n", "in vec2  v_ll;\n" + SC_IN], ["\tvec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(u_bldColor * v_shade, v_sc), u_fogColor, v_fog);"]],
-	mesh: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(u_bldColor * d, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(u_bldColor * d, v_sc), u_fogColor, v_fog);"]],
-	meshTex: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(tx.rgb * d, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(tx.rgb * d, v_sc), u_fogColor, v_fog);"]],
+	mesh: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(base, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(base, v_sc), u_fogColor, v_fog);"]],
+	meshTex: [["in float v_fog;\n", "in float v_fog;\n" + SC_IN], ["\tvec3 c = mix(base, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(base, v_sc), u_fogColor, v_fog);"]],
 	globe: [["\tvec3 viewDir = normalize(A - P);", "\tg.rgb = shShade(g.rgb, shClip(u_rayEO + t * d + (u_rayO - SH.anchor.xyz)));   // 球の床（海抜 0）＝低地と真俯瞰の地面\n\tvec3 viewDir = normalize(A - P);"]],
 };
 export const shadowVS = (fam: ShadowFam, src: string): string => fam === "globe" ? src : withSh(derive(src, SH_VS[fam], `SH_VS:${fam}`), false);

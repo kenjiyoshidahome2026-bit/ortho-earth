@@ -221,6 +221,50 @@ fn pbrEnvBRDF(F0: vec3f, rough: f32, nv: f32) -> vec3f {   // Karis の解析近
 	let AB = vec2f(-1.04, 1.04) * a004 + r.zw;
 	return F0 * AB.x + AB.y;
 }
+// Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting・2026-10-26）＝gl/glsl.ts csLit と同式：czm_pbrLighting（直接光）＋環境光（SH9 の拡散＋反射の向きの SH9 の鏡面・Karis の brdf 近似）
+// → czm_pbrNeutralTonemapping → pow(1/2.2)。SH は Cesium の立方体図の系（x 東・y 上・z 南）＝局所系（東・北・上）から写す
+fn csSH(sh: array<vec4f, 9>, n: vec3f) -> vec3f {
+	let L = sh[0].xyz + sh[1].xyz * n.y + sh[2].xyz * n.z + sh[3].xyz * n.x + sh[4].xyz * (n.y * n.x) + sh[5].xyz * (n.y * n.z)
+		+ sh[6].xyz * (3.0 * n.z * n.z - 1.0) + sh[7].xyz * (n.z * n.x) + sh[8].xyz * (n.x * n.x - n.y * n.y);
+	return max(L, vec3f(0.0));
+}
+fn csTonemap(c0: vec3f) -> vec3f {
+	let x = min(c0.r, min(c0.g, c0.b));
+	let offset = select(0.04, x - 6.25 * x * x, x < 0.08);
+	var color = c0 - offset;
+	let peak = max(color.r, max(color.g, color.b));
+	if (peak < 0.76) { return color; }
+	let dd = 0.24; let newPeak = 1.0 - dd * dd / (peak + dd - 0.76);
+	color *= newPeak / peak;
+	let g = 1.0 - 1.0 / (0.15 * (peak - newPeak) + 1.0);
+	return mix(color, vec3f(newPeak), g);
+}
+struct CsIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, emissive: vec3f, sunK: f32 };
+fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {   // base＝リニア。戻り＝表示空間（sRGB）
+	let l = normalize(csL.xyz); let h = normalize(i.v + l);
+	let M = pbrLocal(i.pos);
+	let nl3 = transpose(M) * i.n; let rl3 = transpose(M) * reflect(-i.v, i.n);
+	let nC = vec3f(nl3.x, nl3.z, -nl3.y); let rC = vec3f(rl3.x, rl3.z, -rl3.y);
+	let diffuse = i.base * (1.0 - i.metallic); let f0 = mix(vec3f(0.04), i.base, i.metallic);
+	let VdotH = clamp(dot(i.v, h), 0.0, 1.0); let NdotL = clamp(dot(i.n, l), 0.001, 1.0); let NdotV = clamp(dot(i.n, i.v), 0.0, 1.0); let NdotH = clamp(dot(i.n, h), 0.0, 1.0);
+	let f90 = vec3f(clamp(max(f0.r, max(f0.g, f0.b)) * 25.0, 0.0, 1.0));
+	let vs = 1.0 - VdotH; let F = f0 + (f90 - f0) * vs * vs * vs * vs * vs;
+	let a = i.rough * i.rough; let a2 = a * a;
+	let GGX = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2) + NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
+	let G = select(0.0, 0.5 / GGX, GGX > 0.0);
+	let f = (NdotH * a2 - NdotH) * NdotH + 1.0;
+	let D = a2 / (PBR_PI * f * f);
+	var color = ((vec3f(1.0) - F) * diffuse / PBR_PI + F * G * D) * NdotL * csC.rgb * i.sunK + i.emissive;
+	let rr = i.rough * vec4f(-1.0, -0.0275, -0.572, 0.022) + vec4f(1.0, 0.0425, 1.04, -0.04);
+	let a004 = min(rr.x * rr.x, exp2(-9.28 * NdotV)) * rr.x + rr.y;
+	let AB = vec2f(-1.04, 1.04) * a004 + rr.zw;
+	let f90i = max(vec3f(1.0 - i.rough), f0); let vn = 1.0 - NdotV; let Fn = f0 + (f90i - f0) * vn * vn * vn * vn * vn;
+	let FssEss = Fn * AB.x + AB.y;
+	let avgF = f0 + (vec3f(1.0) - f0) / 21.0; let Ems = 1.0 - AB.x - AB.y;
+	let FmsEms = FssEss * avgF * Ems / (vec3f(1.0) - avgF * Ems);
+	color += (csSH(sh, nC) * (FmsEms + (vec3f(1.0) - FssEss - FmsEms) * diffuse) * csI.x + csSH(sh, rC) * csC.w * FssEss * csI.y) * i.ao;
+	return pow(max(csTonemap(color), vec3f(0.0)), vec3f(1.0 / 2.2));
+}
 struct PbrIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, sunK: f32, lp: vec4f, fill: f32 };
 // 戻り＝リニアの放射輝度（正規化）。metallic 0・rough 1・ao 1＝拡散だけ（素の建物メッシュ）
 fn pbrShade(i: PbrIn, sh: array<vec4f, 9>) -> vec3f {
@@ -782,7 +826,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f };   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f };   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -906,6 +950,10 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	if (B.emis.w > 0.5) {   // #46 段 2＝太陽＋空の環境光（拡散だけ・rough 1・metallic 0）。夜は固定光へ
 		var pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;
 		lit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));
+	}
+	if (B.csL.w > 0.5) {   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）＝固定光・style の light・fx.pbr の代わり
+		var ci: CsIn; ci.base = srgbDecode(P.p1.rgb); ci.n = n; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = B.pbr0.x; ci.rough = B.pbr0.y; ci.ao = 1.0; ci.emissive = vec3f(0.0); ci.sunK = sunK;
+		lit = csLit(ci, B.sh, B.csL, B.csC, B.csI);
 	}
 	if (B.ln.x > 0.5) { lit += ltBase * localLights(n, F.eye - in.toEye); }   // 局所の光源（W2）
 	let cwin = cityWin(select(n, normalize(gnRaw * sign(dot(gnRaw, n))), g2 > 1e-18), in.wl, wlx, wly);   // 夜の街明かり（cs.y＝0 のバッチ＝模型などは何もしない）・向きは面の幾何法線（面内で一定＝角で丸めた頂点法線でも壁は壁）
@@ -1388,6 +1436,8 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
 	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
 	 "\t\t// normal map via screen-space tangents (no TANGENT attribute; degenerate = plain normal). default 1x1 (128,128,255) = identity\n\t\tlet nmv = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);\n\t\tlet dp1 = -dpx; let dp2 = -dpy;\n\t\tlet dp2p = cross(dp2, n); let dp1p = cross(n, dp1);\n\t\tlet T = dp2p * dux.x + dp1p * duy.x; let Bt = dp2p * dux.y + dp1p * duy.y;\n\t\tlet mx = max(dot(T, T), dot(Bt, Bt));\n\t\tvar nn = n;\n\t\tif (mx > 1e-20) { let im = inverseSqrt(mx); nn = normalize(T * im * nmv.x + Bt * im * nmv.y + n * max(nmv.z, 0.05)); }\n\t\tvar pi: PbrIn; pi.base = tx.rgb; pi.n = nn; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); pi.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); pi.ao = mix(1.0, oc.r, B.pbr0.w); pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh) + B.emis.rgb * em.rgb, vec3f(1.0)));   // emissive (srgb view = linear) added as is\n"],
+	["\t\tvar ci: CsIn; ci.base = srgbDecode(P.p1.rgb); ci.n = n; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = B.pbr0.x; ci.rough = B.pbr0.y; ci.ao = 1.0; ci.emissive = vec3f(0.0); ci.sunK = sunK;\n",
+	 "\t\tlet cnm = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);   // 法線マップ（fx.pbr の経路と同じ接線）\n\t\tlet cdp1 = -dpx; let cdp2 = -dpy; let cdp2p = cross(cdp2, n); let cdp1p = cross(n, cdp1);\n\t\tlet cT = cdp2p * dux.x + cdp1p * duy.x; let cB = cdp2p * dux.y + cdp1p * duy.y; let cmx = max(dot(cT, cT), dot(cB, cB));\n\t\tvar cn = n; if (cmx > 1e-20) { let im = inverseSqrt(cmx); cn = normalize(cT * im * cnm.x + cB * im * cnm.y + n * max(cnm.z, 0.05)); }\n\t\tvar ci: CsIn; ci.base = tx.rgb; ci.n = cn; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); ci.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); ci.ao = mix(1.0, oc.r, B.pbr0.w); ci.emissive = B.emis.rgb * em.rgb; ci.sunK = sunK;\n"],
 	["\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
 
