@@ -10,7 +10,8 @@ startPage("yokohama", async () => {
 	// 初期視点＝横浜市の全景を真上から（twin.ts が続けて「市全体」＝市を画面の 9 割に収める平面の地区図にする・本人 2026-10-26）。共有 URL の hash があればそちら
 	const v = CITY_VIEW;
 	const map = await orthoJapan({ target: "#map", view: location.hash || `#${v.zoom}/${v.lat}/${v.lon}`,
-		instruments: ["pos", "scale", "attr"], urlHash: true });
+		instruments: ["pos", "scale", "attr"], urlHash: true,
+		layers: { facility: false } });   // 基図の施設名は封印＝公共施設の点と名が被る（本人 2026-10-26「基図の施設名は被るから外しましょう」）
 	map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.qr(); map.gadget.sunshadow(); map.gadget.hint(); map.gadget.lang();
 	const twin = await mountTwin(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ + "yokohama/" });
 	window.__map = map; window.__twin = twin;   // console 検証用

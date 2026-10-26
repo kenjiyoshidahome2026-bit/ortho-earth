@@ -1161,7 +1161,8 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		packGP(ROLE.pickLine, { width: (data.lineWidth ?? 1.0) + pickMargin });
 		packGP(ROLE.pickPoint, { radius: Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5), dpr: V.dpr });
 		device.queue.writeBuffer(L.gpBuf, ROLE.pickLine * GP_SLOT, gpAB, ROLE.pickLine * GP_SLOT, GP_SLOT * 2);
-		const aux = auxGroup(L, L._pickElev?.[0] ?? null, L._pickElev?.[1] ?? null);   // 点の pick＝描画と同じドレープ（線の pick はドレープしない＝標高を読まない）
+		const pc = L._pickElev ? host.gintCtx?.() : null;   // 標高の view は今のフレームのもの（層が覚えた view は標高アトラスの差し替えで古くなる＝destroy 済みを submit しない）
+		const aux = auxGroup(L, pc?.elevView ?? L._pickElev?.[0] ?? null, pc?.elevSampler ?? L._pickElev?.[1] ?? null);   // 点の pick＝描画と同じドレープ（線の pick はドレープしない＝標高を読まない）
 		const enc = device.createCommandEncoder();
 		const pass = enc.beginRenderPass({
 			colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }],

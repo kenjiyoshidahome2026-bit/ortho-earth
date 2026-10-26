@@ -109,8 +109,8 @@ export const AREAS = [
 	{ id: "zoning", file: "zoning.json", name: "Land-use zoning", color: "" },
 	{ id: "school-e", file: "school-e.json", name: "Elementary school districts", color: "#1e88e5" },
 	{ id: "school-j", file: "school-j.json", name: "Junior high school districts", color: "#8e24aa" },
-	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab" },
-	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935" },
+	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab", hide: true },   // hide＝一覧に出さない（本人 2026-10-26「警察署・消防署の管轄は非表示に」。台帳と描く仕組みは残す）
+	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935", hide: true },
 ] as const;
 export type AreaId = typeof AREAS[number]["id"];
 
@@ -322,6 +322,8 @@ export function legendIndex(legend: Legend[], r: number, g: number, b: number, a
 }
 /** 浸水の深さの帯（DEPTH の番号）→ 水が届く階（1 階＝3m とみなす・0.5m 未満は 0＝床下）。20m 以上は 7 */
 export const floorsOfDepth = (i: number) => [0, 1, 2, 4, 7, 7][i] ?? 0;
+/** 浸水の帯の上端（m）＝地点に立てる水面の高さ（最大想定なので帯の上端・20m 以上は 20m）。範囲外＝0 */
+export const depthTop = (i: number) => [0.5, 3, 5, 10, 20, 20][i] ?? 0;
 /** 2 点の距離（m・球面） */
 export function distM(a: [number, number], b: [number, number]): number {
 	const R = 6371008.8, r = Math.PI / 180, dla = (b[1] - a[1]) * r, dlo = (b[0] - a[0]) * r;
@@ -439,36 +441,63 @@ export function buildWalkGraph(lines: WalkLine[]): WalkGraph {
 	for (let i = 0; i < ea.length; i++) { let j = fill[ea[i]]++; to[j] = eb[i]; len[j] = el[i]; j = fill[eb[i]]++; to[j] = ea[i]; len[j] = el[i]; }
 	return { x: Int32Array.from(xs), y: Int32Array.from(ys), start: deg, to, len };
 }
-/** いちばん近い点（番号と、そこまでの直線 m）。点が無ければ null */
-export function walkSnap(g: WalkGraph, at: [number, number]): { i: number; m: number } | null {
-	const kx = Math.cos(at[1] * Math.PI / 180), ax = at[0] / WALK_Q, ay = at[1] / WALK_Q;
-	let best = -1, bd = Infinity;
-	for (let i = 0; i < g.x.length; i++) { const dx = (g.x[i] - ax) * kx, dy = g.y[i] - ay, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }
-	return best < 0 ? null : { i: best, m: distM(at, [g.x[best] * WALK_Q, g.y[best] * WALK_Q]) };
+/** 家や行き先を道に繋ぐ点＝いちばん近い道の線分に下ろした垂線の足（折れ点ではない：まっすぐな道の途中の家が、離れた角や裏の道へ斜めに飛ばないように）。
+ *  a・b＝線分の両端の点、ta・tb＝足から両端までの道のり（m・階段の割増し込み）、m＝元の地点から足までの直線（m）、pt＝足 */
+export type WalkSnap = { a: number; b: number; ta: number; tb: number; m: number; pt: [number, number] };
+/** 近い線分の候補（近い順・いちばん近いものから +30m まで・最大 6 本）。道が無ければ空。候補を複数持つのは、繋ぎの直線と道のりを足した合計で選ぶため */
+export function walkSnap(g: WalkGraph, at: [number, number], n = 6): WalkSnap[] {
+	const kx = Math.cos(at[1] * Math.PI / 180), px = at[0] / WALK_Q, py = at[1] / WALK_Q;
+	const best: { j: number; v: number; t: number; d: number }[] = [];   // d＝足までの距離²（刻み単位）
+	for (let v = 0; v < g.x.length; v++) for (let j = g.start[v]; j < g.start[v + 1]; j++) {
+		const w = g.to[j]; if (w < v) continue;   // 片向きだけ見る
+		const ax = (g.x[v] - px) * kx, ay = g.y[v] - py, sx = (g.x[w] - g.x[v]) * kx, sy = g.y[w] - g.y[v], ss = sx * sx + sy * sy;
+		const t = ss ? Math.min(1, Math.max(0, -(ax * sx + ay * sy) / ss)) : 0, qx = ax + sx * t, qy = ay + sy * t, d = qx * qx + qy * qy;
+		if (best.length === n && d >= best[n - 1].d) continue;
+		let i = best.length; if (i === n) i--; else best.push(null as never);
+		while (i > 0 && best[i - 1].d > d) { best[i] = best[i - 1]; i--; }
+		best[i] = { j, v, t, d };
+	}
+	if (!best.length) return [];
+	const lim = Math.sqrt(best[0].d) + 30 / 1.1132;   // 30m（1 刻み＝約 1.11m）
+	return best.filter(c => Math.sqrt(c.d) <= lim).map(({ j, v, t }) => {
+		const w = g.to[j], pt: [number, number] = [(g.x[v] + (g.x[w] - g.x[v]) * t) * WALK_Q, (g.y[v] + (g.y[w] - g.y[v]) * t) * WALK_Q];
+		return { a: v, b: w, ta: g.len[j] * t, tb: g.len[j] * (1 - t), m: distM(at, pt), pt };
+	});
 }
-/** 1 点から全部の点への道のり（m）と、来た点（道順を辿る用） */
-export function walkSearch(g: WalkGraph, src: number): { dist: Float64Array; prev: Int32Array } {
-	const n = g.x.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
+/** 家からの探索の結果：at＝家、snaps＝家を道に繋ぐ候補、dist＝各点までの道のり（家から繋ぎの直線を含む）、prev＝来た点、src＝出発した候補の番号（出発点の点だけ） */
+export type WalkFrom = { at: [number, number]; snaps: WalkSnap[]; dist: Float64Array; prev: Int32Array; src: Int32Array };
+/** 家から全部の点への道のり（m）と来た点（道順を辿る用）。候補の線分の両端を、繋ぎの直線＋足から端までの道のりを初期値にして一度に出発させる（合計が最短の繋ぎ方が自然に選ばれる） */
+export function walkSearch(g: WalkGraph, at: [number, number], snaps: WalkSnap[]): WalkFrom {
+	const n = g.x.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), src = new Int32Array(n).fill(-1);
 	const hn: number[] = [], hd: number[] = [];   // 二分ヒープ（古い札は取り出した時に捨てる）
 	const push = (v: number, d: number) => { let i = hn.length; hn.push(v); hd.push(d); while (i > 0) { const p = (i - 1) >> 1; if (hd[p] <= d) break; hn[i] = hn[p]; hd[i] = hd[p]; i = p; } hn[i] = v; hd[i] = d; };
 	const pop = () => { const v = hn[0], lv = hn.pop()!, ld = hd.pop()!; if (hn.length) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hn.length) break; if (c + 1 < hn.length && hd[c + 1] < hd[c]) c++; if (hd[c] >= ld) break; hn[i] = hn[c]; hd[i] = hd[c]; i = c; } hn[i] = lv; hd[i] = ld; } return v; };
-	dist[src] = 0; push(src, 0);
+	snaps.forEach((s, k) => { for (const [v, d] of [[s.a, s.m + s.ta], [s.b, s.m + s.tb]] as const) if (d < dist[v]) { dist[v] = d; src[v] = k; push(v, d); } });
 	while (hn.length) {
 		const d0 = hd[0], v = pop(); if (d0 > dist[v]) continue;
-		for (let j = g.start[v]; j < g.start[v + 1]; j++) { const w = g.to[j], d = d0 + g.len[j]; if (d < dist[w]) { dist[w] = d; prev[w] = v; push(w, d); } }
+		for (let j = g.start[v]; j < g.start[v + 1]; j++) { const w = g.to[j], d = d0 + g.len[j]; if (d < dist[w]) { dist[w] = d; prev[w] = v; src[w] = -1; push(w, d); } }
 	}
-	return { dist, prev };
+	return { at, snaps, dist, prev, src };
 }
-/** 家から行き先までの道のり（家と行き先から網までの直線も足す）。繋がっていない・網から 150m 超え＝null（呼ぶ側は直線に戻す） */
-export function walkTo(g: WalkGraph, from: { dist: Float64Array }, home: { m: number }, to: [number, number]): { m: number; i: number } | null {
-	const s = walkSnap(g, to);
-	if (!s || s.m > 150 || !Number.isFinite(from.dist[s.i])) return null;
-	return { m: from.dist[s.i] + home.m + s.m, i: s.i };
-}
-/** 道順の折れ線（家 → 網 → 行き先） */
-export function walkPath(g: WalkGraph, prev: Int32Array, i: number, home: [number, number], to: [number, number]): [number, number][] {
-	const out: [number, number][] = [to];
-	for (let v = i; v >= 0; v = prev[v]) out.push([g.x[v] * WALK_Q, g.y[v] * WALK_Q]);
-	out.push(home);
-	return out.reverse();
+/** 家から行き先までの道のり（m・家と行き先から道までの直線も足す）と道順（家 → 足 → 道なり → 足 → 行き先）。繋がっていない・道から 150m 超え＝null（呼ぶ側は直線に戻す） */
+export function walkTo(g: WalkGraph, from: WalkFrom, to: [number, number]): { m: number; path: [number, number][] } | null {
+	const ss = walkSnap(g, to);
+	if (!ss.length || ss[0].m > 150) return null;
+	let m = Infinity, via: { s: WalkSnap; v: number } | null = null, same: { h: WalkSnap; s: WalkSnap } | null = null;
+	for (const s of ss) {
+		for (const h of from.snaps) {   // 家と同じ線分の上＝道なりに真っ直ぐ（端まで行って戻らない）
+			const d = h.a === s.a && h.b === s.b ? Math.abs(h.ta - s.ta) : h.a === s.b && h.b === s.a ? Math.abs(h.ta - s.tb) : NaN;
+			if (d >= 0 && h.m + d + s.m < m) { m = h.m + d + s.m; same = { h, s }; via = null; }
+		}
+		for (const [v, t] of [[s.a, s.ta], [s.b, s.tb]] as const) if (from.dist[v] + t + s.m < m) { m = from.dist[v] + t + s.m; via = { s, v }; same = null; }
+	}
+	if (!Number.isFinite(m)) return null;
+	const path: [number, number][] = [];
+	const put = (p: [number, number]) => { const q = path[path.length - 1]; if (!q || Math.abs(q[0] - p[0]) > 1e-7 || Math.abs(q[1] - p[1]) > 1e-7) path.push(p); };   // 足が折れ点と重なる時の重複は省く
+	if (same) { [from.at, same.h.pt, same.s.pt, to].forEach(put); return { m, path }; }
+	put(to); put(via!.s.pt);
+	let v = via!.v;
+	for (; from.prev[v] >= 0; v = from.prev[v]) put([g.x[v] * WALK_Q, g.y[v] * WALK_Q]);
+	put([g.x[v] * WALK_Q, g.y[v] * WALK_Q]); put(from.snaps[from.src[v]].pt); put(from.at);
+	return { m, path: path.reverse() };
 }
