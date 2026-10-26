@@ -2,7 +2,7 @@
 // The Cesium examples gate (stage 0): run each example on real CesiumJS (ref) and on the facade (ortho), record what each side did, grade (grade.mjs).
 // Needs the example server: (packages/globe) npx vite --config tests/csexamples/vite.config.mjs --port 5460 --strictPort
 // CHROME=<path> picks the browser binary (the cloud sandbox: /opt/pw-browsers/chromium).
-// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm]
+// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>]
 //   records: <out>/<side>/<name>.json and .png (default out: <repo>/.cache/csexamples/runs/latest) · summary: <out>/summary.json and summary.md
 import fs from "node:fs";
 import path from "node:path";
@@ -15,6 +15,14 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ?
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
+const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot
+// runs in the page before any script: Date shifted by a constant (timers and performance.now keep running)
+function shiftDate(off) {
+	const D = Date, now = D.now.bind(D);
+	const F = function Date(...a) { if (!new.target) return new D(now() + off).toString(); return a.length ? new D(...a) : new D(now() + off); };
+	F.prototype = D.prototype; F.now = () => now() + off; F.parse = D.parse; F.UTC = D.UTC;
+	globalThis.Date = F;
+}
 const corpus = JSON.parse(fs.readFileSync(path.join(HERE, "corpus.json"), "utf8"));
 let examples = corpus.examples;
 if (arg("only")) { const s = new Set(arg("only").split(",")); examples = examples.filter(e => s.has(e.name)); }
@@ -81,6 +89,10 @@ async function runOne(browser, side, ex) {
 	page.on("requestfailed", () => rec.failedRequests++);
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
+	if (TIME_FROM) {
+		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")); rec.timeFrom = new Date(st.mtimeMs - (r.ms || 0)).toISOString(); await page.addInitScript(shiftDate, st.mtimeMs - (r.ms || 0) - Date.now()); }
+	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/`, { timeout: 60000 });
 		await page.waitForFunction(() => window.__csx?.ran || window.__csx?.errors?.some(e => /^import:/.test(e)), null, { timeout: 45000 }).catch(() => {});
