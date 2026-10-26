@@ -33,6 +33,7 @@ const SMALL = new Set(["of", "and", "for"]);   // 英語の小さい語は頭で
 
 // 種類の語（長い順に当てる）→ 英語。kind＝台帳の種別（出張所は消防か役所かで変える）
 const SUFFIX = [
+	["高等特別支援学校", "Special Needs High School"],
 	["盲特別支援学校", "School for the Blind"], ["ろう特別支援学校", "School for the Deaf"], ["区検察庁", "Public Prosecutors Office"], ["地方検察庁", "District Public Prosecutors Office"],
 	["埋蔵文化財センター", "Archaeological Center"], ["分校", "Branch School"],
 	["小コミュニティハウス", "Elementary School Community House"], ["中コミュニティハウス", "Junior High School Community House"],
@@ -59,7 +60,7 @@ const WORDS = [
 	["タワー", "Tower", 1], ["プール", "Pool", 1], ["アリーナ", "Arena", 1], ["スタジアム", "Stadium", 1], ["フォーラム", "Forum", 1], ["ワールド", "World", 1], ["ランド", "Land", 1],
 	["ハート", "Heart", 1], ["ホーム", "Home", 1], ["ラウンジ", "Lounge", 1], ["ワークピア", "Workpia", 1], ["シンポジア", "Symposia", 1], ["ユートピア", "Utopia", 1], ["フィリア", "Philia", 1],
 	["サンハート", "Sun Heart", 1], ["リリス", "Lilis", 1], ["みなくる", "Minakuru", 1], ["イソカツ", "Isokatsu", 1], ["たまプラーザ", "Tama Plaza", 1], ["みなとみらい", "Minato Mirai", 1],
-	["かながわ", "Kanagawa", 1], ["ほどがや", "Hodogaya", 1], ["いそご", "Isogo", 1], ["かなざわ", "Kanazawa", 1], ["なか", "Naka", 1],
+	["かながわ", "Kanagawa", 1], ["よこはま", "Yokohama", 1], ["ほどがや", "Hodogaya", 1], ["いそご", "Isogo", 1], ["かなざわ", "Kanazawa", 1], ["なか", "Naka", 1],
 	["劇場", "Theater", 1], ["能楽堂", "Noh Theater", 1], ["国際", "International", 1], ["交流", "Exchange", 1], ["会議", "Conference", 1], ["市民", "Civic", 1], ["区民", "Ward", 1], ["県民", "Kenmin", 1],
 	["社会福祉", "Social Welfare", 1], ["福祉保健", "Health and Welfare", 1], ["老人福祉", "Senior Welfare", 1], ["福祉", "Welfare", 1], ["活動", "Activity", 1], ["支援", "Support", 1], ["青少年", "Youth", 1],
 	["男女共同参画", "Gender Equality", 1], ["男女参画", "Gender Equality", 1], ["労働", "Labor", 1], ["文化", "Cultural", 1], ["記念", "Memorial", 1], ["総合", "General", 1], ["医療", "Medical", 1],
@@ -178,6 +179,7 @@ export function makeEn({ towns, wards, tokenize }) {
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
+		const hw = s.indexOf("ハローワーク"); if (hw >= 0) return `Hello Work ${proper(s.slice(hw + 6))}`.trim();   // 「ハローワーク戸塚」→ Hello Work Totsuka
 		const parts = [];
 		// 後ろの種類の語を 1 つ剥がす（「◯◯小学校コミュニティハウス」も表の 1 語で当てる）
 		const hit = SUFFIX.find(([k]) => s.endsWith(k) && s.length > k.length);
@@ -197,7 +199,7 @@ export function makeEn({ towns, wards, tokenize }) {
 		let s = normJp(ja).replace(/^神奈川県/, "").replace(/^横浜市/, "").replace(/^\S+?区/, "");
 		s = s.replace(/([一二三四五六七八九十]+)丁目/, (_, n) => kanjiNum(n) + "-").replace(/番地?の?/g, "-").replace(/号/g, "").replace(/-+$/, "").replace(/-{2,}/g, "-");
 		const m = s.match(/^(\D*?)(\d[\d-]*)(.*)$/);
-		const town = proper(m ? m[1] : s), nums = m ? m[2] : "", rest = m ? m[3].trim() : "";
+		const town = proper(m ? m[1] : s).replace(/oodoori$/, "odori").replace(/doori$/, "dori"), nums = m ? m[2] : "", rest = m ? m[3].trim() : "";
 		const bld = rest && /^[\x20-\x7e]*$/.test(rest) ? ` ${rest}` : "";   // 建物名（日本語）は落とす
 		return `${nums ? nums + " " : ""}${town}${bld}${wardEn ? `, ${wardEn}` : ""}`.trim();
 	};
