@@ -455,7 +455,7 @@ async function walk() {
 
 // ── 8. 施設の英語（facilities.json の後に焼く）──
 async function en() {
-	const zip = unzip(await getBuf("https://www.post.japanpost.jp/zipcode/dl/utf/zip/utf_ken_all.zip"));
+	const zip = unzip(await getBuf("https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip"));
 	const csv = zip.get(pick(zip, /\.csv$/i))().toString("utf8");
 	const towns = new Map();
 	for (const line of csv.split(/\r?\n/)) {
