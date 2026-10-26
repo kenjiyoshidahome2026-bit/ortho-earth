@@ -44,6 +44,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const LOD1_ATTR = t("MLIT PLATEAU (LOD1 buildings)");
 	const num = (n: number) => n.toLocaleString(lang);
 	document.title = t("Yokohama Digital Twin");
+	// 住所の頭の「横浜市」は出さない（区から始める・本人 2026-10-26）
+	const shortAddr = (a: string) => a.startsWith("横浜市") ? a.slice(3) : a;
 	const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? t(w.en) : ""; };
 	// 地下鉄の駅名＝日本語以外はローマ字（SUBWAY.romaji）。他の駅・停留所・施設の名は台帳の日本語のまま（固有名）
 	const staName = (ja: string) => { if (lang === "ja" || lang === "zh") return ja;   // 中国語は漢字の駅名がそのまま読める
@@ -282,7 +284,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	})();
 	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
 	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
-		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(r[4])}</p>` : ""}`); };
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(r[2])}</b>${r[4] ? `<p>${esc(shortAddr(r[4]))}</p>` : ""}`); };
 	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length)); };
 	async function setFac(on: boolean) {
 		facOn = on; $(".fac").checked = on;
@@ -320,7 +322,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!fac || st.tab !== "life") return;
 		const tb = table = await facTableOf();
 		tb.setQuery(normJa(fq.value));
-		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(r[2]), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(r[4]), i]; }));
+		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(r[2]), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), shortAddr(normJa(r[4])), i]; }));
 	}
 	fq.oninput = () => { table?.setQuery(normJa(fq.value)); };
 	async function goFac(r: FacilityRow) {
