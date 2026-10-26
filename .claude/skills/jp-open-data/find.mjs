@@ -64,7 +64,7 @@ async function getJson(url) {
 	return JSON.parse(text);
 }
 async function check(rows) {
-	for (const r of rows.slice(0, max)) {
+	for (const r of rows.filter(r => r.url).slice(0, max)) {
 		const u = String(r.url).split("#")[0];
 		try {
 			const res = await fetch(u, { headers: { Range: "bytes=0-0", "User-Agent": "ortho-earth jp-open-data" }, signal: AbortSignal.timeout(20000) });
@@ -74,6 +74,13 @@ async function check(rows) {
 	return rows;
 }
 const done = async rows => out(opt.check ? await check(rows) : rows);
+
+// 県コード＝目録の pref_code、無ければファイル名の「_13_」「_13.geojson」から（mesh500r6 等は目録が全国扱いで名前にだけ県が入る）
+const prefOf = f => {
+	if (f.pref_code != null && f.pref_code !== "") return String(f.pref_code).padStart(2, "0");
+	const m = [...String(f.target).split("/").pop().matchAll(/_(\d{2})(?=[_.])/g)].map(x => x[1]).filter(v => +v >= 1 && +v <= 47);
+	return m.length ? m[m.length - 1] : null;
+};
 
 // ---- 国土数値情報（国交省）＝R2 の目録（scripts/make-catalog-json.js が nlftp から作った物）----
 async function nlftp() {
@@ -90,13 +97,23 @@ async function nlftp() {
 	if (opt.year) files = files.filter(f => String(f.year) === String(opt.year));
 	else { const y = Math.max(...files.map(f => +f.year || 0)); if (y) files = files.filter(f => +f.year === y); }   // 既定＝最新年
 	if (opt.fmt) files = files.filter(f => f.format === opt.fmt);
+	if (opt.mesh) files = files.filter(f => String(f.location_code) === String(opt.mesh));
 	if (pc) {
-		const inPref = files.filter(f => String(f.pref_code ?? "").padStart(2, "0") === pc);
-		files = inPref.length ? inPref : files.filter(f => f.scope === "全国" || f.pref_code == null);   // 県の物が無ければ全国版
+		const inPref = files.filter(f => prefOf(f) === pc);
+		if (inPref.length) files = inPref;
+		else if (files.some(f => /^\d{4}$/.test(String(f.location_code ?? "")))) {   // 1 次メッシュ単位（A31b 等）＝県では絞れない
+			console.error(`※ ${ds.dataset_code} は 1 次メッシュ単位のファイル（${files.length} 本）＝県では絞れない。--mesh <4 桁>（例 東京 5339）で絞る`);
+			files = [];
+		} else files = files.filter(f => f.scope === "全国" || f.pref_code == null);   // 県の物が無ければ全国版
 	}
-	if (cc) { const inCity = files.filter(f => new RegExp(`_${cc}\\.(geojson|shp)$`, "i").test(f.target.split("#")[1] || "")); if (inCity.length) files = inCity; }
+	if (cc) {
+		const byCity = c => files.filter(f => new RegExp(`_${c}\\.(geojson|shp)$`, "i").test(f.target.split("#")[1] || ""));
+		let inCity = byCity(cc);
+		if (!inCity.length && !cc.endsWith("00")) inCity = byCity(`${cc.slice(0, 3)}00`);   // 政令市の区（14101）＝市（14100）のファイル
+		if (inCity.length) files = inCity;
+	}
 	await done(files.map(f => ({
-		dataset: ds.dataset_code, title: ds.title, year: f.year, scope: f.scope, pref: f.pref_code ?? null, format: f.format,
+		dataset: ds.dataset_code, title: ds.title, year: f.year, scope: f.scope, pref: prefOf(f), mesh: /^\d{4}$/.test(String(f.location_code ?? "")) ? f.location_code : undefined, format: f.format,
 		url: f.target, zip: f.target.split("#")[0], member: f.target.split("#")[1] || null, size: f.size ?? null,
 		license: ds.license, attribution: "国土交通省 国土数値情報", page: ds.page_url || null,
 	})));
@@ -170,5 +187,5 @@ async function fixed() {
 }
 
 const CMDS = { place: async () => out(place(opt._?.[0] || opt.q || "")), nlftp, moj, maff, estat, munic, fixed };
-if (!CMDS[cmd]) { console.error(`使い方：find.mjs ${Object.keys(CMDS).join("|")} [--q 語] [--code 国土数値情報のコード] [--pref 県] [--city 市区町村] [--year 年] [--fmt geojson|shp] [--check] [--max N]`); process.exit(1); }
+if (!CMDS[cmd]) { console.error(`使い方：find.mjs ${Object.keys(CMDS).join("|")} [--q 語] [--code 国土数値情報のコード] [--pref 県] [--city 市区町村] [--year 年] [--fmt geojson|shp] [--mesh 4 桁] [--check] [--max N]`); process.exit(1); }
 CMDS[cmd]().catch(e => { console.error(`✗ ${e.message}`); process.exit(1); });
