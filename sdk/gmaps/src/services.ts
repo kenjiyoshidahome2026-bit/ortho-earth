@@ -181,7 +181,8 @@ export function createServices(ctx: ServiceCtx): Services {
 			const panel: HTMLElement | undefined = this.#o.panel;
 			if (panel) {
 				panel.replaceChildren();
-				const esc = (s: string): string => s.replace(/<[^>]*>/g, "");
+				// Google's instructions are HTML; the panel shows them as text (textContent), tags stripped until none remain
+				const esc = (s: string): string => { let prev; do { prev = s; s = s.replace(/<[^>]*>?/g, ""); } while (s !== prev); return s; };
 				for (const g of r.legs) {
 					const h = document.createElement("div"); h.className = "gm-directions-leg"; h.textContent = `${g.distance.text} · ${g.duration.text}`; panel.appendChild(h);
 					const ol = document.createElement("ol"); ol.className = "gm-directions-steps";
