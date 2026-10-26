@@ -12,7 +12,7 @@ const K = {
 };
 const Y = { ャ: "a", ュ: "u", ョ: "o" };
 /** 表記ゆれを揃える（半角カナ・ヶ／ケ・保土ヶ谷） */
-export const normJp = s => s.normalize("NFKC").replace(/ヶ/g, "ケ");
+export const normJp = s => s.normalize("NFKC").replace(/ヶ/g, "ケ").replace(/([一-龯])ッ([一-龯])/g, "$1ツ$2");   // 三ッ沢＝三ツ沢（郵便番号データの字）
 const toKata = s => normJp(s).replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
 /** カタカナ（ひらがな可）→ ローマ字（小文字） */
 export function romaji(kana) {
@@ -97,6 +97,7 @@ const WORDS = [
 	["荏原", "ebara", 0], ["中延", "nakanobu", 0], ["捜真", "soshin", 0], ["桟橋", "sanbashi", 0], ["貯木場", "chobokujo", 0], ["慶珊寺", "keisanji", 0], ["矢之根", "yanone", 0], ["中ノ谷", "nakanoya", 0],
 	["公園口", "Park Entrance", 1], ["口", "guchi", 2], ["寺", "ji", 2], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
 	["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
+	["綱島", "tsunashima", 0], ["北川", "kitagawa", 0], ["山内", "yamauchi", 0], ["元街", "motomachi", 0], ["南町田", "minami-machida", 0], ["グランベリー", "Grandberry", 1], ["横浜人形の家", "Yokohama Doll Museum", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -128,7 +129,7 @@ function consulate(s) {
 }
 // 駅の名で読みの決まりから外れる物（公式のローマ字）
 const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motomachi-Chukagai", "日本大通り": "Nihon-odori", "みなとみらい": "Minatomirai", "センター南": "Center-Minami", "センター北": "Center-Kita", "港南中央": "Konan-Chuo", "市大医学部": "Shidai-Igakubu", "海の公園南口": "Uminokoen-Minamiguchi", "海の公園柴口": "Uminokoen-Shibaguchi",
-	"北新横浜": "Kita-Shin-Yokohama", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
+	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
 	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 const STOP_EN = { "日本大通り駅県庁前": "Nihon-odori Station / Prefectural Office", "東急住宅前": "Tokyu Jutaku-mae" };
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
@@ -164,10 +165,10 @@ export function makeEn({ towns, wards, tokenize }) {
 				else for (const x of tokenize(part)) {
 					const f = x.surface_form;
 					if (f === "の" && / $/.test(out)) continue;   // 「青少年の地域」＝英語の語の後の「の」は落とす
-					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : romaji(x.reading || f);
+					const r = /^[・「」『』（）()、。]$/.test(f) ? " " : f === "寺" ? "ji" : f === "町" ? "cho" : romaji(x.reading || f);
 					// ひらがな・「ノ」「之」・地名の末の字（町・寺・橋…）は前に続ける（くぬぎ台・初音が丘・高島町＝Takashimacho）
 					const glue = x.pos_detail_1 === "固有名詞" || x.pos_detail_1 === "接尾" || x.pos_detail_1 === "数" || /^[ぁ-ゖ]+$/.test(f) || /^[ノ之町寺橋台谷坂丘]$/.test(f) || !/[a-z]$/.test(out);
-					out += glue ? r : ` ${r}`;
+					out = /^[ノ之町寺橋台谷坂丘]$/.test(f) ? out.trimEnd() + r : out + (glue ? r : ` ${r}`);
 				}
 			}
 			i = j;
@@ -224,14 +225,23 @@ export function makeEn({ towns, wards, tokenize }) {
 		let s = normJp(ja).replace(/\([^)]*\)/g, "").trim();
 		const mae = s.length > 1 && s.endsWith("前"); if (mae) s = s.slice(0, -1);
 		if (s.endsWith("駅")) return `${station(s.slice(0, -1))} Station`;
-		if (mae && SUFFIX.some(([k]) => s.endsWith(k))) return name(s);
+		if (mae && SUFFIX.some(([k]) => s.endsWith(k))) return `${name(s)}-mae`;   // 停留所と分かるように（施設の名そのものにしない）
 		const r = proper(s);
 		return mae && !/(Station|Exit|Center|Park|Hall|Plaza|School|Office|Hospital|Library|House|Entrance|Depot)$/.test(r) ? `${r}-mae` : r;
 	};
 	/** 避難場所：「横浜市立市場小学校　校舎２８（３階以上）」→ Shijo Elementary School, Building 28 (3rd floor and above) */
 	const shelter = ja => {
 		let s = normJp(ja).trim(), tail = "";
-		const fl = s.match(/\((\d+)階以上\)$/); if (fl) { const n = +fl[1]; tail = ` (${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"} floor and above)`; s = s.slice(0, fl.index).trim(); }
+		// 末の括弧（「（３階以上）」「（※２階以上）」「（※洪水は計画規模）」）を全部読む＝計画規模と最大規模で階が違う行を分ける
+		const notes = [];
+		for (let m; (m = s.match(/\(([^()]*)\)$/)); s = s.slice(0, m.index).trim()) {
+			const c = m[1].replace(/^※/, ""), f = c.match(/^(\d+)階以上$/);
+			if (f) { const n = +f[1]; notes.unshift(`${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"} floor and above`); }
+			else if (c.includes("計画規模")) notes.push("planned-scale flood");
+			else if (c.includes("最大規模")) notes.push("maximum-scale flood");
+			else break;
+		}
+		if (notes.length) tail = ` (${notes.join("; ")})`;
 		const b = s.match(/\s*(校舎|体育館|講堂|武道館|プール棟)\s*([\d-]*)$/);
 		if (b) { s = s.slice(0, b.index).trim(); tail = `, ${{ 校舎: "Building", 体育館: "Gymnasium", 講堂: "Auditorium", 武道館: "Martial Arts Hall", プール棟: "Pool Building" }[b[1]]}${b[2] ? ` ${b[2]}` : ""}${tail}`; }
 		return `${name(s, 0)}${tail}`;
