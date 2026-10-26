@@ -110,7 +110,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
+				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="find" aria-selected="true">${esc(t("Search facilities"))}</button><button type="button" role="tab" data-sub-tab="show" aria-selected="false">${esc(t("Map display"))}</button></nav>
 				<div data-sub-pane="find">
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
@@ -245,6 +246,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	};
 	async function setWard(code: string) {
 		st.ward = code; save(); wardSel.value = code; closePop(); facTable();
+		statsBtn.hidden = !code; if (statsOn) code ? showStats(code) : hideStats();   // 統計は区を選んだ時だけ（開いていれば区に付いていく）
 		const w = WARDS.find(x => x.code === code);
 		const fc = await loadWards();
 		if (st.ward !== code) return;   // 読んでいる間に選び直した
@@ -256,6 +258,75 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
 	}
 	wardSel.onchange = () => { setWard(wardSel.value); };
+
+	// ── 区の統計（本人 2026-10-26）＝区を選ぶと地区の横に「統計」。2025 年国勢調査の人口・世帯・年齢ピラミッドと、町丁目ごとの人口（2020 年の小地域・地図に密度の塗り）──
+	type CensusWard = { pop: [number, number, number]; hh: number; pop2020: number; ages: number[] };
+	type CensusLedger = { year: number; smallYear: number; wards: Record<string, CensusWard> };
+	type SmallFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { k: string; n: string; en: string; p: number; h: number | null; a: number } })[] };
+	const statsBtn = $<HTMLButtonElement>(".stb"), statsOut = $<HTMLElement>(".stats-out");
+	let statsOn = false, statsLayer = false, statsRun = 0;
+	const census = () => ledger<CensusLedger>("census.json");
+	const AGE_LABELS = ["0–4", "5–9", "10–14", "15–19", "20–24", "25–29", "30–34", "35–39", "40–44", "45–49", "50–54", "55–59", "60–64", "65–69", "70–74", "75+"];
+	const DENS = [[0, "#f1eef6"], [2000, "#d4b9da"], [5000, "#c994c7"], [10000, "#df65b0"], [15000, "#dd1c77"], [20000, "#980043"]] as const;   // 人/km²
+	function pyramid(a: number[]) {   // 男＝左・女＝右・各階級の割合（%）
+		const tot = a.reduce((x, y) => x + y, 0) || 1, mx = Math.max(...a) / tot * 100, W = 300, mid = W / 2, half = mid - 22, rh = 13, top = 20;
+		const bar = (v: number) => v / tot * 100 / mx * (half - 4);
+		const rows = AGE_LABELS.map((l, i) => { const y = top + (15 - i) * rh, m = bar(a[i]), f = bar(a[16 + i]), c = i >= 13 ? 0.95 : i < 3 ? 0.55 : 0.75;
+			return `<rect x="${(mid - 22 - m).toFixed(1)}" y="${y}" width="${m.toFixed(1)}" height="${rh - 2}" fill="#4f8fe0" fill-opacity="${c}"/><rect x="${mid + 22}" y="${y}" width="${f.toFixed(1)}" height="${rh - 2}" fill="#e0607e" fill-opacity="${c}"/><text class="ag" x="${mid}" y="${y + rh - 3.5}">${l}</text>`; }).join("");
+		const ms = a.slice(0, 16).reduce((x, y) => x + y, 0), fs = tot - ms;
+		return `<svg class="pyr" viewBox="0 0 ${W} ${top + 16 * rh + 4}" role="img" aria-label="${esc(t("Population pyramid"))}"><text x="4" y="13" text-anchor="start" fill="#7fb0f0">${esc(t("Male"))} ${num(ms)}</text><text x="${W - 4}" y="13" text-anchor="end" fill="#f08aa2">${esc(t("Female"))} ${num(fs)}</text>${rows}</svg>`;
+	}
+	const pct = (a: number[], i0: number, i1: number) => { const tot = a.reduce((x, y) => x + y, 0) || 1; let s = 0; for (let i = i0; i < i1; i++) s += a[i] + a[16 + i]; return (s / tot * 100).toFixed(1); };
+	async function showStats(code: string) {
+		statsOn = true; statsBtn.setAttribute("aria-expanded", "true"); statsBtn.classList.add("on");
+		const run = ++statsRun, w = WARDS.find(x => x.code === code);
+		statsOut.hidden = false;
+		const head = `<div class="dh"><b>${esc(t("$1: population", w ? t(w.en) : ""))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		statsOut.innerHTML = head + `<p class="sub flat">${esc(t("Loading…"))}</p>`;
+		const [c, small] = await Promise.all([census(), ledger<SmallFC>(`census/${code}.json`)]);
+		if (run !== statsRun) return;
+		const d = c?.wards[code];
+		if (!d) { statsOut.innerHTML = head + `<p class="sub flat">${esc(t("Could not load the statistics."))}</p>`; return; }
+		const ch = (d.pop[0] / d.pop2020 - 1) * 100;
+		const feats = small?.features ?? [];
+		const list = [...feats].sort((x, y) => y.properties.p - x.properties.p), pmax = list[0]?.properties.p || 1;
+		statsOut.innerHTML = head + `<div class="kv"><span>${esc(t("Population"))}</span><b>${num(d.pop[0])}</b><small>${esc(t("$1% since 2020", (ch >= 0 ? "+" : "") + ch.toFixed(1)))}</small>
+			<span>${esc(t("Households"))}</span><b>${num(d.hh)}</b><small>${esc(t("$1 per household", (d.pop[0] / d.hh).toFixed(2)))}</small>
+			<span>${esc(t("Aged 65 and over"))}</span><b>${pct(d.ages, 13, 16)}%</b><small>${esc(t("Under 15: $1%", pct(d.ages, 0, 3)))}</small></div>
+			<h3>${esc(t("Age pyramid ($1 census)", c!.year))}</h3>${pyramid(d.ages)}
+			${feats.length ? `<h3>${esc(t("Population by neighborhood ($1 census)", c!.smallYear))}</h3>
+			<div class="lg dens">${DENS.map(([v, col], i) => `<span><i style="background:${col}"></i>${i ? num(v) : "0"}${i === DENS.length - 1 ? "+" : ""}</span>`).join("")}<small>${esc(t("people per km²"))}</small></div>
+			<ol class="sa">${list.map((f, i) => `<li data-k="${esc(f.properties.k)}"><span>${esc(lang === "ja" ? f.properties.n : f.properties.en)}</span><b>${num(f.properties.p)}</b><i style="width:${(f.properties.p / pmax * 100).toFixed(1)}%"></i></li>`).join("")}</ol>` : ""}
+			<p class="sub flat">${esc(t("Source: Population Census (Statistics Bureau of Japan). Ages include estimates for unknown ages."))}</p>`;
+		statsOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
+		if (!feats.length) return;
+		const data = { type: "FeatureCollection" as const, features: feats.map(f => ({ ...f, properties: { ...f.properties, d: f.properties.a > 0 ? f.properties.p / f.properties.a : 0 } })) };
+		if (!statsLayer) {
+			statsLayer = true;
+			map.addSource("yk-census", { type: "geojson", data, attribution: t("Population Census (Statistics Bureau of Japan)") });
+			await map.addLayer({ id: "yk-census", type: "fill", source: "yk-census", paint: { "fill-color": ["step", ["get", "d"], ...DENS.flatMap(([v, col], i) => i ? [v, col] : [col])] as StyleExpression, "fill-opacity": 0.55 } });
+			await map.addLayer({ id: "yk-census-line", type: "line", source: "yk-census", paint: { "line-color": "#6a3d6f", "line-width": 0.6, "line-opacity": 0.6 } });
+			map.on("click", "yk-census", e => { const f = e.features?.[0]; if (f) censusPop(f.properties, [e.lngLat!.lng, e.lngLat!.lat]); });
+		} else { map.getSource("yk-census")?.setData?.(data); for (const l of ["yk-census", "yk-census-line"]) map.setLayoutProperty(l, "visibility", "visible"); }
+	}
+	function censusPop(q: Record<string, any>, at: LonLat) {
+		openPop(at, `<div class="pk">${esc(t("Neighborhood"))}</div><b>${esc(lang === "ja" ? q.n : q.en)}</b><p>${esc(t("Population"))} ${num(q.p)}${q.h != null ? ` · ${esc(t("Households"))} ${num(q.h)}` : ""}<br>${esc(t("$1 people per km²", num(Math.round(q.a > 0 ? q.p / q.a : 0))))}</p>`);
+	}
+	function hideStats() {
+		statsOn = false; statsRun++; statsBtn.setAttribute("aria-expanded", "false"); statsBtn.classList.remove("on");
+		statsOut.hidden = true; statsOut.innerHTML = "";
+		if (statsLayer) for (const l of ["yk-census", "yk-census-line"]) map.setLayoutProperty(l, "visibility", "none");
+	}
+	statsBtn.onclick = () => { if (statsOn) hideStats(); else if (st.ward) showStats(st.ward); };
+	statsOut.addEventListener("click", async e => {
+		const el = e.target as HTMLElement;
+		if (el.closest(".x")) { hideStats(); return; }
+		const li = el.closest<HTMLElement>("li[data-k]"); if (!li) return;
+		const f = (await ledger<SmallFC>(`census/${st.ward}.json`))?.features.find(x => x.properties.k === li.dataset.k); if (!f) return;
+		const pts = (f.geometry as { coordinates: number[][][][] }).coordinates.flat(2), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+		await map.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 16 });
+		censusPop(f.properties, [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+	});
 	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
 
 	// ── 観光：名所（写真つき）──
@@ -1097,7 +1168,24 @@ const CSS = `
 .yk-panel .fcsv{margin-left:auto;font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 @media (max-width:640px){ .yk-panel .fbt{height:180px} }
 .yk-panel .wrow{display:flex;gap:6px;margin-top:2px}
-.yk-panel .wrow select{flex:1 1 auto}
+.yk-panel .wrow select{flex:1 1 auto;min-width:0}
+.yk-panel .stb{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;cursor:pointer;white-space:nowrap}
+.yk-panel .stb.on{background:#4fc3f7;color:#0b1a24}
+.yk-panel .stats-out .kv{display:grid;grid-template-columns:auto auto 1fr;gap:3px 10px;align-items:baseline;font-size:12.5px;margin:6px 0}
+.yk-panel .stats-out .kv span{color:var(--qm-text-dim)}
+.yk-panel .stats-out .kv b{text-align:end;font-variant-numeric:tabular-nums}
+.yk-panel .stats-out .kv small{color:var(--qm-text-faint)}
+.yk-panel .stats-out h3{margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--qm-text-dim)}
+.yk-panel .pyr{width:100%;height:auto;display:block}
+.yk-panel .pyr text{font-size:11px;font-weight:600}
+.yk-panel .pyr text.ag{font-size:9px;font-weight:400;fill:var(--qm-text-dim);text-anchor:middle}
+.yk-panel .dens{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:11px;color:var(--qm-text-dim);align-items:center}
+.yk-panel .dens i{display:inline-block;width:12px;height:9px;margin-inline-end:3px;vertical-align:-1px}
+.yk-panel ol.sa{list-style:none;margin:6px 0 4px;padding:0;max-height:260px;overflow:auto;font-size:12.5px}
+.yk-panel ol.sa li{position:relative;display:flex;justify-content:space-between;gap:8px;padding:4px 6px;cursor:pointer;border-radius:4px}
+.yk-panel ol.sa li:hover{background:rgba(255,255,255,.06)}
+.yk-panel ol.sa li i{position:absolute;inset-inline-start:0;bottom:1px;height:2px;background:#df65b0;opacity:.7}
+.yk-panel ol.sa li b{font-variant-numeric:tabular-nums;font-weight:600}
 .yk-panel .fitc{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer;white-space:nowrap}
 .yk-panel .fac-w{margin-top:8px}
 .yk-panel details.fold{margin-top:6px;border-top:1px solid var(--qm-border-soft);padding-top:4px}
@@ -1108,7 +1196,7 @@ const CSS = `
 /* 指で押す画面（スマホ・タブレット）＝押す所を 40px 前後に（市民ファースト・本人 2026-10-25「スマホ画面は特に重要」） */
 @media (pointer:coarse){
 	.yk-panel .tabs button{min-height:40px}
-	.yk-panel select,.yk-panel input.fq,.yk-panel .fitc{min-height:40px;font-size:16px}   /* 16px 未満の入力は iOS が勝手に拡大する */
+	.yk-panel select,.yk-panel input.fq,.yk-panel .fitc,.yk-panel .stb{min-height:40px;font-size:16px}   /* 16px 未満の入力は iOS が勝手に拡大する */
 	.yk-panel .act,.yk-panel .tour{min-height:44px}
 	.yk-panel .grp{min-height:36px}
 	.yk-panel .grp input{width:20px;height:20px}

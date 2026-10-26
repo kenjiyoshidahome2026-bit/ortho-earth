@@ -40,7 +40,7 @@ const OUT = path.join(ROOT, "ortho-data/japan/yokohama");
 const CACHE = path.join(HERE, ".cache");
 const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
-const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki").split(",");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki,census").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
 const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
@@ -368,6 +368,59 @@ async function stawiki() {
 	write("station-wiki.json", out);
 }
 
+// ── 5c. 区の統計（本人 2026-10-26「区を選ぶと統計ボタン・年齢ピラミッドと各小地域の人口」）──
+//   census.json        … { year, src, wards: { 区コード（14100＝市）: { pop: [総数, 男, 女], hh, pop2020, ages: [男 16 階級, 女 16 階級] } } }
+//                        年齢＝令和 7 年国勢調査 人口等基本集計 第 2-7 表の【不詳補完値】（年齢不詳を配分済み＝合計が総人口と合う）。0-4 … 70-74・75+（75 歳以上を合算）
+//                        人口＝年齢の合計（基本集計の総人口と一致）・世帯と 2020 年の人口＝packages/jp/census/2025-pop.json
+//   census/<区>.json   … 小地域（町丁・字）の人口＝令和 2 年国勢調査の小地域集計（2025 年の小地域はまだ公表前・2026-10-26 確認）。
+//                        FeatureCollection { k: KEY_CODE, n: 名, en: 英語名, p: 人口, h: 世帯, a: 面積 km² }・面は約 4m に間引き
+const AGES_2025 = "https://www.e-stat.go.jp/stat-search/file-download?statInfId=000040506659&fileKind=0";
+async function census() {
+	const { readXLSXRows } = await import("../../../packages/geopbf/src/convert/table.ts");
+	const { rows } = await readXLSXRows(new Uint8Array(await getBuf(AGES_2025)));
+	const num = v => { const n = Number(String(v ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
+	const ages = {};
+	for (const r of rows) {
+		const code = String(r[7] ?? "").trim().slice(0, 5), sex = String(r[1] ?? "").match(/^\s*([12])\b|^(男|女)/);
+		if (!/^141(00|0\d|1[0-8])$/.test(code) || !sex || !/総数|^\s*0/.test(String(r[0] ?? ""))) continue;
+		const v = [...Array.from({ length: 15 }, (_, i) => num(r[10 + i])), [25, 26, 27, 28, 29, 30].reduce((a, c) => a + num(r[c]), 0)];
+		const k = (sex[1] || (sex[2] === "男" ? "1" : "2")) === "1" ? 0 : 16;
+		(ages[code] ??= Array(32).fill(0)).splice(k, 16, ...v);
+	}
+	const pop = JSON.parse(fs.readFileSync(path.join(ROOT, "packages/jp/census/2025-pop.json"), "utf8"));
+	const wards = {};
+	for (const code of ["14100", ...WARDS.map(w => w.code)]) {
+		const a = ages[code], p = pop[code];
+		if (!a || !p) throw new Error(`統計が無い：${code}（年齢 ${!!a}・人口 ${!!p}）`);
+		const sum = a.reduce((x, y) => x + y, 0);
+		console.log(`統計：${code} 年齢の合計 ${sum}（速報の人口 ${p.pop[0]}）`);
+		const ms = a.slice(0, 16).reduce((x, y) => x + y, 0);
+		wards[code] = { pop: [sum, ms, sum - ms], hh: p.hh, pop2020: p.pop2020, ages: a };   // 人口＝基本集計（不詳補完値の年齢の合計＝総人口）。速報（2025-pop.json）とは少し違う
+	}
+	write("census.json", { year: 2025, src: { ages: "令和7年国勢調査 人口等基本集計 第2-7表（不詳補完値）", pop: "令和7年国勢調査", small: "令和2年国勢調査 小地域集計" }, smallYear: 2020, wards });
+	// 小地域（2020）＝エンジンの bucket の e-Stat 境界（census2020 と同じ焼き・JINKO/SETAI 入り）
+	const E = await makeE();
+	fs.mkdirSync(path.join(OUT, "census"), { recursive: true });
+	for (const w of WARDS) {
+		const buf = await getBuf(`https://api.ortho-earth.com/bucket/estat/2020/${w.code}.geojsonl`);
+		const text = (buf[0] === 0x1f && buf[1] === 0x8b ? zlib.gunzipSync(buf) : buf).toString("utf8");
+		const feats = [];
+		for (const line of text.split("\n")) {
+			if (!line.trim()) continue;
+			const f = JSON.parse(line), q = f.properties || {}, g = f.geometry && slimPoly(f.geometry);
+			if (!g || q.JINKO == null) continue;
+			const n = String(q.S_NAME || "").trim(), m = n.match(/^(.*?)([一二三四五六七八九十]+)丁目$/);
+			const en = m ? `${E.proper(m[1])} ${kanjiNum(m[2])}-chome` : E.proper(n);
+			feats.push({ type: "Feature", properties: { k: String(q.KEY_CODE), n, en: en.replace(/[^\x20-\x7e]/g, "").trim() || n, p: q.JINKO, h: q.SETAI ?? null, a: Math.round((q.AREA || 0) / 1e4) / 100 }, geometry: g });
+		}
+		const tot = feats.reduce((a, f) => a + f.properties.p, 0);
+		console.log(`小地域：${w.name} ${feats.length} 面・人口 ${tot}`);
+		if (feats.length < 20) throw new Error(`小地域が少ない：${w.name}`);
+		write(`census/${w.code}.json`, fc(feats));
+	}
+}
+const kanjiNum = s => { const d = "〇一二三四五六七八九"; if (s === "十") return 10; const m = s.match(/^([二三四五六七八九]?)十([一二三四五六七八九]?)$/); return m ? (m[1] ? d.indexOf(m[1]) : 1) * 10 + (m[2] ? d.indexOf(m[2]) : 0) : +[...s].map(c => d.indexOf(c)).join(""); };
+
 // ── 6. 平面の地図に重ねる面（用途地域・校区・警察／消防の管轄）──
 const AREA_TOL = 0.00004;   // 約 4m（1 本 2MB を超えるなら強める）
 /** 面の geometry → 間引いた MultiPolygon（環が潰れた物は落とす・外周が潰れたら面ごと落とす） */
@@ -505,7 +558,7 @@ async function walk() {
 }
 
 // ── 8. 施設の英語（facilities.json の後に焼く）──
-async function en() {
+async function makeE() {
 	const zip = unzip(await getBuf("https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip"));
 	const csv = zip.get(pick(zip, /\.csv$/i))().toString("utf8");
 	const towns = new Map();
@@ -520,7 +573,10 @@ async function en() {
 	let tokenize = null;
 	try { const km = createRequire(path.join(process.cwd(), "x.js"))("kuromoji"); const tk = await new Promise((ok, ng) => km.builder({ dicPath: path.join(path.dirname(createRequire(path.join(process.cwd(), "x.js")).resolve("kuromoji")), "../dict") }).build((e, t) => e ? ng(e) : ok(t))); tokenize = s => tk.tokenize(s); }
 	catch (e) { throw new Error(`kuromoji が無い（npm i --no-save kuromoji@0.1.2）：${e.message}`); }
-	const E = makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize });
+	return makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize });
+}
+async function en() {
+	const E = await makeE();
 	const fac = JSON.parse(fs.readFileSync(path.join(OUT, "facilities.json"), "utf8"));
 	const rows = {}, guessed = [];
 	for (const r of fac.rows) {
@@ -543,5 +599,5 @@ async function en() {
 	write("facilities-en.json", { rows, st, stop, school, hinan, guessed });
 }
 
-for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
+for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki, census })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
 console.log(INSPECT ? "\n（--inspect：何も書いていない）" : "\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write");
