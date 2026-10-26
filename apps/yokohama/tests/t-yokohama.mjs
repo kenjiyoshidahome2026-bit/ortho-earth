@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, WALK_Q, railLinesEn } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -84,11 +84,15 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	const lines = [{ kind: 0, pts: [q(A[0]), q(A[1]), q(C[0]), q(C[1])] }, { kind: 1, pts: [q(C[0]), q(C[1]), q(D[0]), q(D[1])] }, { kind: 2, pts: [q(A[0]), q(A[1]), q(B[0]), q(B[1])] }];
 	const back = decodeWalk(encodeWalk(lines, cx, cy), cx, cy);
 	t("歩ける道：詰めて戻すと同じ", JSON.stringify(back) === JSON.stringify(lines));
-	const g = buildWalkGraph(back), h = walkSnap(g, A), r = walkSearch(g, h.i), to = walkTo(g, r, h, D);
+	const g = buildWalkGraph(back), h = walkSnap(g, A), r = walkSearch(g, A, h), to = walkTo(g, r, D);
 	const ab = Math.hypot((B[0] - A[0]) * Math.cos(A[1] * Math.PI / 180), B[1] - A[1]) * 111195;
 	t("歩ける道：網（同じ座標は 1 点）・道のり・道順・階段は 1.5 倍・遠い行き先は null", g.x.length === 4 && to && Math.abs(to.m - (22.2 + 444)) < 15
-		&& walkPath(g, r.prev, to.i, A, D).length === 5 && Math.abs(r.dist[walkSnap(g, B).i] - ab * 1.5) < 1 && walkTo(g, r, h, [139.70, 35.60]) === null
-		&& walkCells([139.645, 35.555], 2500).length >= 9 && walkCells([139.645, 35.555], 2500).includes(`${cx}_${cy}`));
+		&& to.path.length === 3 && Math.abs(r.dist[3] - ab * 1.5) < 1 && walkTo(g, r, [139.70, 35.60]) === null
+		&& walkCells([139.645, 35.555], 2500).includes(`${cx}_${cy}`));
+	// 道の途中の家：角ではなく、家の真横の点（垂線の足）に繋ぐ。同じ道の先の行き先は道なりに真っ直ぐ（4 点）・D へは裏の歩道（C–D）に直接繋ぐ方が短い（足→D の 3 点）
+	const H = [139.6401 + 0.0001, 35.5502], h2 = walkSnap(g, H), r2 = walkSearch(g, H, h2), s2 = walkTo(g, r2, [139.6401 - 0.0001, 35.55025]), d2 = walkTo(g, r2, D);
+	t("歩ける道：道の途中の家は真横に繋ぐ・同じ道は道なり・近い方の道から出る", h2.length >= 1 && Math.abs(h2[0].pt[0] - 139.6401) < 2e-5 && Math.abs(h2[0].pt[1] - 35.5502) < 2e-5 && Math.abs(h2[0].m - 9.1) < 1
+		&& s2 && s2.path.length === 4 && Math.abs(s2.m - (9.1 + 9.1 + 5.6)) < 1.5 && d2 && d2.path.length === 3 && Math.abs(d2.m - (11.1 + 434)) < 5, JSON.stringify({ h2, s2, d2 }));
 }
 {
 	// 施設の英語：ローマ字（長音は書かない・オオは残す・促音）・種類の語の英訳・住所（横浜市は書かない）
