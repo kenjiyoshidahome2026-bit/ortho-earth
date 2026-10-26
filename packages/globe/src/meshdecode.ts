@@ -31,9 +31,10 @@ export interface TexTransform { texCoord?: number; rotation?: number; scale?: nu
 export interface GltfTexRef { texture?: GltfTexture | null; index?: number; texCoord?: number; scale?: number; strength?: number; extensions?: { KHR_texture_transform?: TexTransform } | null }
 export interface GltfMaterial {
 	pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: GltfTexRef; metallicRoughnessTexture?: GltfTexRef; metallicFactor?: number; roughnessFactor?: number } | null;
-	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null } | null;
+	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null; KHR_materials_unlit?: Record<string, never> | null } | null;
 	normalTexture?: GltfTexRef; occlusionTexture?: GltfTexRef; emissiveTexture?: GltfTexRef; emissiveFactor?: number[];
 	alphaMode?: string; alphaCutoff?: number;
+	/** loaders.gl が KHR_materials_unlit を畳んだ印（拡張は material から外される） */ unlit?: boolean;
 }
 export interface GltfPrimitive extends FeaturePrimitive { attributes?: Record<string, GltfAccessor | undefined> | null; indices?: GltfAccessor | null; mode?: number; material?: GltfMaterial | null }
 export interface GltfMesh { primitives?: GltfPrimitive[] }
@@ -64,7 +65,7 @@ export interface TexOut { bitmap?: ImageBitmap; rgba?: Uint8Array; w?: number; h
 /** 模型の束（decodeModel の batches の 1 件） */
 export interface ModelBatchOut {
 	mesh: MeshOut; tex: TexOut | null; texMR: TexOut | null; texN: TexOut | null; texOcc: TexOut | null; texEm: TexOut | null;
-	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[] };
+	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; unlit: boolean };   // unlit＝KHR_materials_unlit か法線無し（Cesium はどちらも照明を掛けない）
 	alphaMode: string; alphaCutoff: number; node: number; features: (MeshFeatures & { table: number | null; tblV: Int16Array | null }) | null;
 }
 /** 模型の点（経緯度 rad と RGBA） */
@@ -973,7 +974,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	const rig = tile ? null : rigFromGltf(gltf);
 	const animated = new Set(rig?.animated || []);
 	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
-	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number }>();   // material|node → { segs, totalV, totalI, mat, node }
+	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number; noNrm: boolean }>();   // material|node → { segs, totalV, totalI, mat, node }
 	const matNo = new Map<GltfMaterial | null, number>(); const gkOf = (prefix: string, mat: GltfMaterial | null) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
@@ -1021,7 +1022,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			const qLo = (P instanceof Int8Array || P instanceof Int16Array) ? -1 : 0;
 			const n = P.length / 3;
 			const mat = pr.material || null, gk = animNode >= 0 ? gkOf(`${animNode}|`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）
-			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: animNode });
+			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: animNode, noNrm: false });
+			if (!NRM) g.noNrm = true;   // 法線の無い primitive＝面法線を積むが、Cesium はこれを照明無し（unlit）で描く
 			const base = g.totalV;
 			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
 			for (let i = 0; i < n; i++) {
@@ -1123,7 +1125,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
 		const pb = pbrOf(g.mat, gltf);   // #46 段 2＝材質（数値）と 4 枚のテクスチャ（無ければ null）
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
-		batches.push({ mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive },
+		batches.push({ mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
 			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1,
 			features: fids ? { ids: fids, table: tbls.length === 1 ? tbls[0] : null, tblV } : null });   // features（W7）＝頂点ごとの地物の番号（NO_FEATURE＝無し）と property table の番号   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
