@@ -416,6 +416,9 @@ async function overpass(q, file) {
 }
 // 地図の地名（日本語以外の画面で基図の日本語の注記の代わりに描く・本人 2026-10-26「OSM から横浜の地名を日英で」）
 // OSM の place（区・町・丁目・小字）と駅の点 → places.json { rows: [経度, 緯度, 日本語, 英語, 種別] }＝種別 0 区・1 町・2 丁目・3 小字・4 駅。英語の無い点は載せない
+// OSM の英語名の揺れを揃える：長音の記号（Ōfuna）は外す＝施設の英語と同じ書き方・「・」は " / "。OSM の誤り（東大井＝Minami-Ōi）は直す
+const PLACE_FIX = { "東大井": "Higashi-Oi" };
+const plainEn = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s*・\s*/g, " / ").replace(/[^\x20-\x7e]/g, "").trim();
 async function places() {
 	const q = `[out:json][timeout:180];(node["place"~"^(suburb|quarter|neighbourhood|locality)$"](${BOX[1]},${BOX[0]},${BOX[3]},${BOX[2]});node["railway"="station"](${BOX[1]},${BOX[0]},${BOX[3]},${BOX[2]}););out;`;
 	const d = await overpass(q, path.join(CACHE, "osm-places.json"));
@@ -425,7 +428,7 @@ async function places() {
 		const t = e.tags || {}, ja = t.name || t["name:ja"], en = t["name:en"] || t["name:ja-Latn"] || t["name:ja_rm"], k = t.railway === "station" ? 4 : K[t.place];
 		if (!ja || !en || k == null || !inBox([e.lon, e.lat])) continue;
 		const key = `${k}|${ja}|${Math.round(e.lon * 200)}|${Math.round(e.lat * 200)}`; if (seen.has(key)) continue; seen.add(key);   // 同じ駅の別の点（事業者ごと）を 1 つに
-		rows.push([r5(e.lon), r5(e.lat), ja, en.replace(/ Station$/, ""), k]);
+		rows.push([r5(e.lon), r5(e.lat), ja, PLACE_FIX[ja] || plainEn(en).replace(/ Station$/, "").replace(/ ward$/, " Ward"), k]);
 	}
 	console.log(`地名：${rows.length} 点（${[0, 1, 2, 3, 4].map(k => rows.filter(r => r[4] === k).length).join("・")}＝区・町・丁目・小字・駅）`);
 	if (rows.length < 500) throw new Error("OSM の地名が少なすぎる（Overpass の答えを確かめる）");

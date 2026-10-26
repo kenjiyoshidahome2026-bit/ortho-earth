@@ -98,6 +98,7 @@ const WORDS = [
 	["公園口", "Park Entrance", 1], ["寺尾", "terao", 0], ["大口", "ooguchi", 0], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
 	["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
 	["綱島", "tsunashima", 0], ["北川", "kitagawa", 0], ["山内", "yamauchi", 0], ["元街", "motomachi", 0], ["南町田", "minami-machida", 0], ["グランベリー", "Grandberry", 1], ["横浜人形の家", "Yokohama Doll Museum", 1],
+	["港の見える丘公園前", "Minato-no-Mieru-Oka Park", 1], ["港の見える丘公園", "Minato-no-Mieru-Oka Park", 1], ["長松寺", "choshoji", 0],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -112,7 +113,7 @@ export const EN_FIX = {
 	"聖マリアンナ医科大学横浜市西部病院": "St. Marianna University Yokohama Seibu Hospital", "横浜労災病院": "Yokohama Rosai Hospital",
 	"横浜市北部病院": "Showa Medical University Northern Yokohama Hospital", "横浜医療センター": "NHO Yokohama Medical Center",
 	"横浜市保健所": "Yokohama City Public Health Center", "八景島シーパラダイス": "Yokohama Hakkeijima Sea Paradise", "總持寺": "Sojiji Temple Treasure Hall",
-	"カップヌードルミュージアム": "Cup Noodles Museum", "港の見える丘公園": "Minato-no-Mieru-Oka Park", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ": "Tin Toy Museum", "東洋英和女学院大学": "Toyo Eiwa University Library", "つづきMYプラザ": "Tsuzuki Multicultural and Youth Plaza (Tsuzuki MY Plaza)",
+	"カップヌードルミュージアム": "Cup Noodles Museum", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ": "Tin Toy Museum", "東洋英和女学院大学": "Toyo Eiwa University Library", "つづきMYプラザ": "Tsuzuki Multicultural and Youth Plaza (Tsuzuki MY Plaza)",
 	"かながわ県民活動サポートセンター": "Kanagawa Citizens' Activity Support Center", "横浜地方気象台": "Yokohama Local Meteorological Office", "三殿台考古館": "Sandonodai Archaeological Museum",
 	"海上災害防止センター": "Maritime Disaster Prevention Center", "海難審判所": "Japan Marine Accident Tribunal", "国税不服審判所": "National Tax Tribunal", "京浜港湾事務所": "Keihin Port Office",
 	"東京工業大学": "Tokyo Institute of Technology", "東京都市大学": "Tokyo City University", "日本体育大学": "Nippon Sport Science University", "東京ガス": "Tokyo Gas Environmental Energy Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
@@ -129,7 +130,7 @@ function consulate(s) {
 }
 // 駅の名で読みの決まりから外れる物（公式のローマ字）
 const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motomachi-Chukagai", "日本大通り": "Nihon-odori", "みなとみらい": "Minatomirai", "センター南": "Center-Minami", "センター北": "Center-Kita", "港南中央": "Konan-Chuo", "市大医学部": "Shidai-Igakubu", "海の公園南口": "Uminokoen-Minamiguchi", "海の公園柴口": "Uminokoen-Shibaguchi",
-	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
+	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "矢口渡": "Yaguchinowatashi", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
 	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 const STOP_EN = { "日本大通り駅県庁前": "Nihon-odori Station / Prefectural Office", "東急住宅前": "Tokyu Jutaku-mae" };
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */

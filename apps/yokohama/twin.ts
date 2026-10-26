@@ -95,7 +95,6 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	if (langBtn) { P.head.insertBefore(langBtn, P.fold); langBtn.addEventListener("click", e => e.stopPropagation()); }
 	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
 	P.body.innerHTML = `
-			<div class="intro" hidden><p>${esc(t("New here? Start with “Around my home” in Daily life, then try walking distance in Transport and flood depths in Disasters."))}</p><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			<nav class="tabs" role="tablist">
 				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
 			</nav>
@@ -109,10 +108,6 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			</section>
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
-				<h2>${esc(t("Around my home"))}</h2>
-				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
-				<p class="sub flat hm-msg">${esc(t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
-				<div class="detail home-out" hidden></div>
 				<h2>${esc(t("District"))}</h2>
 				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
 				<h2>${esc(t("Search facilities"))}</h2>
@@ -157,6 +152,11 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<p class="note">${esc(t("Tilt the map to compare flood depths with building heights. Scenarios are official estimates by the national government, Kanagawa Prefecture and others; real disasters can exceed them."))}</p>
 			</section>
 			<section data-pane="tools" hidden>
+				<!-- わが家のまわり＝暮らしの面ではかさばるので解析へ（本人 2026-10-26） -->
+				<h2>${esc(t("Around my home"))}</h2>
+				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
+				<p class="sub flat hm-msg">${esc(t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
+				<div class="detail home-out" hidden></div>
 				<h2>${esc(t("At the center of the screen"))}</h2>
 				<button type="button" class="act vs">${esc(t("Viewshed (1 km radius, eye height 1.6 m)"))}</button>
 				<button type="button" class="act vsclear" hidden>${esc(t("Clear the viewshed"))}</button>
@@ -179,10 +179,6 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
 	const $$ = <T extends HTMLElement = HTMLInputElement>(s: string) => [...panel.querySelectorAll<T>(s)];
 
-	// 初めての人への一言（閉じたら次からは出さない＝この端末だけ・保存できない時は毎回出る）
-	const intro = $<HTMLElement>(".intro");
-	try { intro.hidden = localStorage.getItem("yk-intro") === "1"; } catch { intro.hidden = false; }
-	intro.querySelector<HTMLButtonElement>(".x")!.onclick = () => { intro.hidden = true; try { localStorage.setItem("yk-intro", "1"); } catch { /* 保存できない＝次も出る */ } };
 
 	// ── 面の切り替え ──
 	function setTab(k: Tab) {
@@ -807,9 +803,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function osmNames() {
 		const d = await ledger<{ rows: [number, number, string, string, number][] }>("places.json");
 		if (!d?.rows?.length) { map.setBaseLayers?.({ place: true }); return; }   // 無い＝基図の日本語の地名に戻す
-		map.addSource("yk-places", { type: "geojson", attribution: OSM_ATTR, data: { type: "FeatureCollection", features: d.rows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { en: r[3], k: r[4] } })) } });
+		map.addSource("yk-places", { type: "geojson", attribution: OSM_ATTR, data: { type: "FeatureCollection", features: d.rows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { en: r[4] === 4 ? t("$1 Station", r[3]) : r[3], k: r[4], o: [0, 2, 3, 4, 1][r[4]] ?? 5 } })) } });
 		await map.addLayer({ id: "yk-places", type: "symbol", source: "yk-places", filter: [">=", ["zoom"], ["match", ["get", "k"], 0, 10, 1, 12.5, 2, 14.5, 13]],
-			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 9, "symbol-sort-key": ["get", "k"] },
+			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 9, "symbol-sort-key": ["get", "o"] },   // 先に置く順＝区 → 駅 → 町 → 丁目 → 小字（駅が丁目に負けて消えていた・Mac 実測 2026-10-26）
 			paint: { "text-color": ["match", ["get", "k"], 0, "#263238", 4, "#37474f", "#455a64"], "text-halo-color": "rgba(255,255,255,.92)", "text-halo-width": 1.6 } });
 	}
 	const walkBins = new Map<string, Promise<WalkLine[]>>();
@@ -830,7 +826,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!routeOn) {
 			routeOn = true; map.addSource("yk-route", { type: "geojson", data: fc, attribution: OSM_ATTR });
 			await map.addLayer({ id: "yk-route-case", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
-			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#d81b60", "line-width": 4 } });
+			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#29b6f6", "line-width": 4 } });
 		} else map.getSource("yk-route")?.setData?.(fc);
 		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
 	}
@@ -840,7 +836,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		closePop(); homeMark?.remove();
 		const el = document.createElement("div"); el.className = "yk-probe yk-home";
 		homeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
-		if (st.tab !== "life") setTab("life");
+		if (st.tab !== "tools") setTab("tools");
 		homeOut.hidden = false;
 		const x = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`;
 		homeOut.innerHTML = `<div class="dh"><b>${esc(t("Loading…"))}</b>${x}</div>`;
@@ -1096,8 +1092,6 @@ const CSS = `
 .yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
 .yk-probing canvas{cursor:crosshair}
 .yk-home{background:#1f6fc5}
-.yk-panel .intro{display:flex;gap:8px;align-items:flex-start;margin:8px 0 2px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.35)}
-.yk-panel .intro p{margin:0;font-size:12.5px;color:var(--qm-text)}
 /* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
 /* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
 .oe-panel-host #chips{display:none!important}
@@ -1108,8 +1102,8 @@ const CSS = `
 .yk-panel .oe-panel-head #lang-btn svg{stroke:var(--qm-text-dim)}
 .yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .yk-panel .hm-btns .act{margin:0;text-align:center}
-.yk-panel .home-out .wroute{margin-left:4px;padding:1px 8px;border-radius:999px;border:1px solid #d81b60;background:transparent;color:#d81b60;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;vertical-align:1px}
-.yk-panel .home-out .wroute.on{background:#d81b60;color:#fff}
+.yk-panel .home-out .wroute{margin-left:4px;padding:1px 8px;border-radius:999px;border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;vertical-align:1px}
+.yk-panel .home-out .wroute.on{background:#4fc3f7;color:#0b1a24}
 @media (pointer:coarse){.yk-panel .home-out .wroute{padding:4px 10px;min-height:28px}}
 .yk-panel .home-out .walkr{margin-top:8px;padding:6px 12px;border-radius:999px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
 .yk-panel .home-out .pr span small{color:var(--qm-text-dim)}
