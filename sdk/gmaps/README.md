@@ -1,6 +1,6 @@
 # @ortho-earth/gmaps
 
-The Google Maps JavaScript API on MapLibre GL. `createGoogleMaps(maplibregl)` returns a `google.maps` namespace whose `Map`, `Marker`, `InfoWindow`, shapes and `Data` draw through the `maplibregl` you give it: the real [`maplibre-gl`](https://maplibre.org/), or [`@ortho-earth/globe/maplibre`](../../packages/globe) (the 3D globe). Code written for Google Maps keeps its shape; only the import changes. No Google API key is needed, and nothing is sent to Google.
+The Google Maps JavaScript API on MapLibre GL. `createGoogleMaps(maplibregl)` returns a `google.maps` namespace whose `Map`, `Marker`, `InfoWindow`, shapes and `Data` draw through the `maplibregl` you give it: the real [`maplibre-gl`](https://maplibre.org/), or [`@ortho-earth/globe/maplibre`](../../packages/globe) (the 3D globe). Code written for Google Maps keeps its shape; only the import changes. The map itself needs no Google API key and sends nothing to Google. If you do pass a key, the services that live on Google's servers (Geocoder, Directions, Distance Matrix, Elevation, Places, Street View) are relayed to Google's REST APIs with it.
 
 ```js
 // on the globe
@@ -24,7 +24,36 @@ const maps = createGoogleMaps(maplibregl, { styles: { roadmap: "https://demotile
 installGlobal(maps);   // window.google.maps, for code that reads the global
 ```
 
-Code that loads the API with `@googlemaps/js-api-loader` can use the `Loader` from `@ortho-earth/gmaps/globe` instead (`new Loader({ apiKey }).importLibrary("maps")`; the key is ignored). `google.maps.importLibrary("maps" | "marker" | "core" | "geometry")` works too.
+Code that loads the API with `@googlemaps/js-api-loader` can use the `Loader` from `@ortho-earth/gmaps/globe` instead (`new Loader({ apiKey }).importLibrary("maps")`; the key goes to the services below). `google.maps.importLibrary("maps" | "marker" | "core" | "geometry" | "places" | "routes" | "geocoding" | "elevation" | "streetView")` works too.
+
+## Google's services, with your key
+
+```js
+import { createGlobeMaps } from "@ortho-earth/gmaps/globe";
+const maps = createGlobeMaps({ apiKey: MY_KEY, language: "ja", region: "JP" });   // or maps.setApiKey(MY_KEY) later, or new Loader({ apiKey })
+
+const geocoder = new maps.Geocoder();
+const { results } = await geocoder.geocode({ address: "東京駅" });
+new maps.DirectionsService().route({ origin: "東京駅", destination: "渋谷駅", travelMode: "TRANSIT" }, (res, status) => {
+	if (status === "OK") new maps.DirectionsRenderer({ map, directions: res, panel: document.getElementById("steps") });
+});
+new maps.places.PlacesService(map).nearbySearch({ location: map.getCenter(), radius: 500, type: "cafe" }, (places, status) => { … });
+new maps.places.Autocomplete(document.getElementById("search"), { fields: ["geometry", "name"] }).addListener("place_changed", …);
+```
+
+| Google Maps | Relayed to | Notes |
+|---|---|---|
+| `Geocoder.geocode` (`address`, `location`, `placeId`, `bounds`, `componentRestrictions`) | Geocoding API | results with `LatLng` / `LatLngBounds` geometry; callback `(results, status)`, promise `{ results }` |
+| `DirectionsService.route` (`origin` / `destination` / `waypoints` as address, `LatLng` or `{ placeId }`, `travelMode`, `avoid*`, `optimizeWaypoints`, `provideRouteAlternatives`, `unitSystem`, `drivingOptions`, `transitOptions`) | Routes API `computeRoutes` | `DirectionsResult` with `routes[].legs[].steps[]`, `overview_path`, `bounds`, `{ text, value }` distances and durations. Leg `start_address` / `end_address` are empty (the Routes API does not return them) |
+| `DirectionsRenderer` (`directions`, `routeIndex`, `polylineOptions`, `markerOptions`, `suppressMarkers`, `suppressPolylines`, `preserveViewport`, `panel`) | — | a `Polyline` and lettered `Marker`s on the map, text steps in the panel |
+| `DistanceMatrixService.getDistanceMatrix` | Routes API `computeRouteMatrix` | `rows[].elements[]` with `status`, `distance`, `duration` |
+| `ElevationService.getElevationForLocations` / `getElevationAlongPath` | Elevation API | |
+| `places.PlacesService.textSearch` / `nearbySearch` / `findPlaceFromQuery` / `getDetails` | Places API (New) | `PlaceResult` with `place_id`, `name`, `geometry`, `rating`, `opening_hours`, `photos[].getUrl()`, `reviews`… `nearbySearch` with a `keyword` goes through text search (the new API has no keyword). No paging (`hasNextPage` is false) |
+| `places.AutocompleteService.getPlacePredictions`, `places.Autocomplete` on an `<input>`, `AutocompleteSessionToken` | Places API (New) autocomplete | `Autocomplete` draws a plain dropdown (`.pac-container` / `.pac-item`) and fires `place_changed` after loading the details |
+| `StreetViewService.getPanorama` | Street View metadata API | pano id, position, date |
+| `StreetViewPanorama`, `map.getStreetView()` | Street View Static API | a **still image** for the position, heading, pitch and zoom; dragging turns it and fetches a new still, the wheel zooms. Google does not publish the panorama tiles outside its own JS API, so there is no smooth 360° view and no pegman |
+
+Statuses follow the JS API (`OK`, `ZERO_RESULTS`, `REQUEST_DENIED`, `INVALID_REQUEST`, `OVER_QUERY_LIMIT`, `NOT_FOUND`, `UNKNOWN_ERROR`); a rejected promise carries it as `error.code`. The key is sent only to `*.googleapis.com`. Enable the Geocoding, Routes, Elevation, Places (New) and Street View Static APIs for it in the Cloud console and restrict it to your origins; Google's usage terms and billing apply to these calls. Without a key the same methods report `[gmshim] unsupported` once and fail with `REQUEST_DENIED`, so the map keeps working.
 
 ## What is translated
 
@@ -43,7 +72,7 @@ Code that loads the API with `@googlemaps/js-api-loader` can use the `Loader` fr
 
 ## What is not
 
-- **Google's services** (`Geocoder`, `DirectionsService`, `DistanceMatrixService`, `places`, `StreetViewPanorama`, `ElevationService`…) need Google's servers. Their constructors exist so the page still runs, but their methods reject (callbacks get `REQUEST_DENIED`).
+- **Google's services without a key**: their constructors exist so the page still runs, but their methods reject (callbacks get `REQUEST_DENIED`). With a key see above. An interactive 360° Street View, the pegman and `StreetViewPanorama` links / pan controls stay out either way.
 - **Google JSON styling** (`styles: [{ featureType, … }]`) and cloud-based map styles have no counterpart; give MapLibre styles to `createGoogleMaps({ styles })` keyed by map type or `mapId`.
 - Editable or draggable shapes, `Polyline.icons`, marker animations, `Data` point icons (drawn as circles), map type / Street View / rotate controls, `overlayMapTypes`, `MVCObject.bindTo`.
 
@@ -51,4 +80,4 @@ Each of these is reported once in the console as `[gmshim] unsupported: …` (ne
 
 `map.getMapLibre()` returns the MapLibre map underneath for anything else.
 
-Tests: `npm test -w @ortho-earth/gmaps` (node, with a fake `maplibregl`: values, geometry, options and camera, events, markers, info windows, shapes, Data, the unsupported report) and, in `packages/globe`, `npm run verify:ui -- t-gmaps` (on the real globe: zoom shift, shapes drawn and hit by `queryRenderedFeatures`, a shape click is not a map click, marker and info window in the DOM, Data styled by function).
+Tests: `npm test -w @ortho-earth/gmaps` (node, with a fake `maplibregl`: values, geometry, options and camera, events, markers, info windows, shapes, Data, the unsupported report; and with a fake `fetch`: every service's request and the reshaped result, the key only on `googleapis.com`, `REQUEST_DENIED` without a key) and, in `packages/globe`, `npm run verify:ui -- t-gmaps` (on the real globe: zoom shift, shapes drawn and hit by `queryRenderedFeatures`, a shape click is not a map click, marker and info window in the DOM, Data styled by function).
