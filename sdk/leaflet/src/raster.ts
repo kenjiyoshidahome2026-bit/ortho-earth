@@ -61,8 +61,8 @@ export class GridLayer extends RasterBase {
 	}
 	/** createTile → a PNG for MapLibre */
 	async _tileBytes(url: string, size: number): Promise<ArrayBuffer> {
-		const m = /(\d+)\/(\d+)\/(\d+)/.exec(url)!, coords: any = new Point(+m[2], +m[3]);
-		coords.z = +m[1];
+		const [z, x, y] = url.slice(url.indexOf("://") + 3).split("/").map(Number), coords: any = new Point(x, y);   // "<protocol>://{z}/{x}/{y}"
+		coords.z = z;
 		const tile: any = await new Promise(res => { let el: any; const done = (err: unknown, t?: any): void => res(t ?? el); el = this.createTile(coords, done); if (this.createTile.length < 2) res(el); });
 		const canvas = document.createElement("canvas");
 		canvas.width = canvas.height = size;
@@ -103,7 +103,9 @@ export class TileLayer extends GridLayer {
 	/** the MapLibre tile URLs: one per subdomain, other placeholders filled from the options */
 	_mlTiles(): string[] {
 		const o = this.options;
-		const fill = (sub: string): string => this._url.replace(/\{ *([\w_ -]+) *\}/g, (s: string, key: string) => {
+		const fill = (sub: string): string => this._url.replace(/\{([^{}]*)\}/g, (s: string, k: string) => {
+			const key = k.trim();
+			if (!/^[\w -]+$/.test(key)) return s;
 			if (key === "s") return sub;
 			if (key === "r") return "";
 			if (key === "-y") return "{y}";
