@@ -597,6 +597,10 @@ function showResidentInFlight() {
 // 頁が伏せた（map.setMeshVisible(false)＝例：引いた縮尺では建物を全部出さない・横浜 2026-10-21）＝表示中・遠景箱を消し、新しく読み始めない。
 // 読み込み中の区は完走させる（完了時に伏せる＝下の stale 判定）。常駐は保つ＝戻すと常駐ヒットで即
 let meshShown = true;
+// 伏せたまま 20 秒＝常駐（GPU）も手放す（2026-10-26・横浜：市全体へ引いた後も LOD2 の 188 MB が残った Mac 実測）。すぐ戻す時は常駐ヒットのまま。IDB/OPFS の焼きは残る＝戻せば数秒
+const HIDE_EVICT_MS = 20000;
+let hideEvictT: ReturnType<typeof setTimeout> | undefined;
+function evictHidden() { if (meshShown) return; let n = 0; for (const name of [...meshResident.keys()]) if (!meshActive.has(name) && !meshLoading.has(name)) { meshEvict(name); n++; } if (n) { console.log(`[mesh] hidden 20 s → released ${n} resident wards`); requestDraw(); } }
 function hideAllMesh() {
 	for (const name of meshActive.keys()) meshHide(name);
 	if (meshActive.size) requestDraw();
@@ -852,7 +856,7 @@ function memStats() {   // HUD の物差し＝常駐（表示＋非表示）の�
 function terminate() {   // destroy：worker・デコーダ（main 所有＝道連れ）・見張りタイマー（残すと destroy 後に worker を起こし直す）
 	meshWorkers.forEach(w => w.terminate());
 	meshDecoders.forEach(w => w.terminate());
-	clearInterval(pollT); clearTimeout(pokeT);
+	clearInterval(pollT); clearTimeout(pokeT); clearTimeout(hideEvictT);
 }
 return {
 	update: autoMesh, standUp: standUpWard, prefetch: prefetchMeshForViews, preload: preloadForApp, trimForScript: meshTrimForScript, firstRevealSets,
@@ -861,7 +865,7 @@ return {
 	isActive: name => meshActive.has(name), isDead: meshDead,
 	visibleLoading: () => [...meshAutoLoading.keys()].filter(n => !meshCancelling.has(n)),   // 「これから見える区」＝cancel 中は載せない（旧 slow レーン在庫化＝demote は待ち行列制 9/8 で廃止）
 	memStats, openDb: meshDb.open,
-	setVisible: on => { if (meshShown === !!on) return; meshShown = !!on; autoMesh(true); requestDraw(); },
+	setVisible: on => { if (meshShown === !!on) return; meshShown = !!on; clearTimeout(hideEvictT); if (!meshShown) hideEvictT = setTimeout(evictHidden, HIDE_EVICT_MS); autoMesh(true); requestDraw(); },
 	get visible() { return meshShown; },
 };
 }
