@@ -127,6 +127,8 @@ export interface CloudsImpl { apply(map: GlobeMap, clouds: Required<CloudsSpec> 
 export interface LightTypeImpl { apply(map: GlobeMap, lights: LightSpec[]): void }
 /** setAtmosphere の形：model＝描き方（今は "cesium" だけ）・ground＝地面の大気（既定 true）・sky＝空の大気（既定 true） */
 export interface AtmosphereSpec { model: "cesium"; ground?: boolean; sky?: boolean }
+/** 模型の照明（setMeshLighting・2026-10-26）：CesiumJS の式でメッシュを描く。dir＝光へ向く単位ベクトル（ECEF）・color＝色×強さ（HDR）・sh＝Cesium の並びの SH9（27 値・立方体図の系＝x 東・y 上・z 南）・ibl＝拡散・鏡面の係数・invL00＝一様な環境で L00 が 1 になる倍率 */
+export interface MeshLightingSpec { dir: [number, number, number]; color?: [number, number, number]; sh: ArrayLike<number>; ibl?: [number, number]; invL00?: number }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
