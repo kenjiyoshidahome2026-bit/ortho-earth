@@ -160,13 +160,13 @@ interface MeshPbr { metallic: number; roughness: number; normalScale: number; oc
 export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
 	tex?: MeshTexSrc | null; texMR?: MeshTexSrc | null; texN?: MeshTexSrc | null; texOcc?: MeshTexSrc | null; texEm?: MeshTexSrc | null;
-	pbr?: MeshPbr | null; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null;
+	pbr?: MeshPbr | null; csLit?: string; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null;
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 }
 interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
-	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; count: number; origin: number[]; bbox: number[]; ward: string;
+	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; count: number; origin: number[]; bbox: number[]; ward: string;
 	lodH: number[] | null; lodCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
 }
 interface MeshMask { ward: string; rev: number; tex: GPUTexture; view: GPUTextureView; bbox: number[]; n: number; bytes: Uint8Array }
@@ -2139,7 +2139,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const pb = data.pbr || null;   // 材質の数値（metallic, roughness, normalScale, occlusion, emissive[3]）＝無ければ既定（金属 0・粗さ 1）
 			// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, count: data.idx.length, origin: data.origin || [0, 0, 0],
+			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true) });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
@@ -3161,7 +3161,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (light) { const lc = light.color || [1, 1, 1]; plBatchCPU[o + 212] = light.dir[0]; plBatchCPU[o + 213] = light.dir[1]; plBatchCPU[o + 214] = light.dir[2]; plBatchCPU[o + 215] = 1; plBatchCPU[o + 216] = lc[0]; plBatchCPU[o + 217] = lc[1]; plBatchCPU[o + 218] = lc[2]; plBatchCPU[o + 219] = light.intensity ?? 0.5; } else plBatchCPU[o + 215] = 0;   // style の light（sl0/sl1）
 				plBatchCPU[o + 220] = p.colSrgb ? 1 : 0;   // cs.x＝頂点色が sRGB（押し出し）
 				if (meshLight) {   // Cesium の模型の照明（csL/csC/csI＝float 224〜235）・sh[9] の xyz には Cesium の係数
-					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = 1;
+					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1;   // csL.w：1＝csLit・2＝素の色（unlit）・0＝固定光（entity geometry）
 					plBatchCPU[o + 228] = meshLight.color[0]; plBatchCPU[o + 229] = meshLight.color[1]; plBatchCPU[o + 230] = meshLight.color[2]; plBatchCPU[o + 231] = meshLight.invL00;
 					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = 0; plBatchCPU[o + 235] = 0;
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = meshLight.sh[i * 3]; plBatchCPU[o + 25 + i * 4] = meshLight.sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = meshLight.sh[i * 3 + 2]; }

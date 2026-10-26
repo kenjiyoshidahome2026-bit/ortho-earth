@@ -124,4 +124,18 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	ok("ncomp.unknown", [undefined, null, "", "STRING", "BOOLEAN", "ENUM", "scalar", "VEC5", 1].every(t => ncompOf(t) === undefined));
 	ok("ncomp.proto", ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"].every(t => ncompOf(t) === undefined));
 }
+// ── decodeModel の unlit（Cesium は KHR_materials_unlit と法線の無い primitive を照明無しで描く）──
+{
+	const tri = (attrs, material) => { const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+		meshes: [{ primitives: [{ attributes: attrs, indices: 1, ...(material && { material: 0 }) }] }], ...(material && { materials: [material] }),
+		accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 0, 10] }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 3, type: "VEC3" }] };
+		return glbOf(json, [B(Float32Array.of(0, 0, 0, 10, 0, 0, 10, 0, 10)), B(Uint16Array.of(0, 2, 1)), B(Float32Array.of(0, 1, 0, 0, 1, 0, 0, 1, 0))]); };
+	const at = { at: [139.7671, 35.6812] };
+	const lit = await decodeModel(tri({ POSITION: 0, NORMAL: 2 }, null), at), noNrm = await decodeModel(tri({ POSITION: 0 }, null), at);
+	const ext = await decodeModel(tri({ POSITION: 0, NORMAL: 2 }, { pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1] }, extensions: { KHR_materials_unlit: {} } }), at);
+	ok("unlit.normals", lit.batches[0].pbr.unlit === false, J(lit.batches[0].pbr));
+	ok("unlit.noNormals", noNrm.batches[0].pbr.unlit === true, J(noNrm.batches[0].pbr));
+	ok("unlit.extension", ext.batches[0].pbr.unlit === true, J(ext.batches[0].pbr));
+}
+
 if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS mesh-features");
