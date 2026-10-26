@@ -217,8 +217,8 @@ interface PerfSelf { __perfElev?: boolean; __perfElevLast?: { f16: number; write
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
 const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
-const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用480B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 120;     // 480B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
+const FRAME_SLOT = 768;    // frame UBO のスロット境界（実使用528B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
+const FRAME_F32 = 132;     // 528B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP のスロット境界
 const DRAWP_B = 144;       // DrawP（9×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP）の大きさ（wgsl.ts FRAME と対）
@@ -1082,7 +1082,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 384, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
+	const globeBuf = device.createBuffer({ size: 448, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG: GPUBindGroup = null!;   // rebuildBG0()（初期化の内）が作る   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	// 塗りの模様（S-P1-4/5）の束縛の既定＝1×1 の透明な絵（模様を使わない塗りも group(1) の binding 1/2 を満たす）・サンプラは repeat・linear（GL2 と同じ）
@@ -2408,6 +2408,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		a[at + 12] = u.E[0]; a[at + 13] = u.E[1]; a[at + 14] = u.E[2]; a[at + 15] = u.c;
 	}
 	const fogColorOf = (c: number[]) => (sky ? sky.fog : c);   // style の sky の fog-color（B4）＝霧の色の最優先（基図・建物・地形の遠山ブルーも）
+	// 地面の照明（setGroundLighting・Cesium の globe.enableLighting）を cg（方向・法線の取り方）・cgP（lambert の倍率・足す値・距離のフェード済みの効き・大気の夜側の明るさ）・cgC（色）に。フェードは CPU（camDist＝単位球からの高さ）
+	function packGroundLight(a: Float32Array, o: number, st: CameraState) {
+		const g = groundLight, dM = Math.hypot(st.eye[0], st.eye[1], st.eye[2]) * 6378137;   // Cesium の cameraDist＝地球中心からの距離
+		const fk = (f: number[] | null, lo: number) => f ? Math.max(lo, Math.min(1, (dM - f[0]) / (f[1] - f[0]))) : 1;
+		a[o] = g ? g.dir[0] : 0; a[o + 1] = g ? g.dir[1] : 0; a[o + 2] = g ? g.dir[2] : 1; a[o + 3] = g ? (g.normal === "up" ? 2 : 1) : 0;
+		a[o + 4] = g ? g.lambert[0] : 1; a[o + 5] = g ? g.lambert[1] : 0; a[o + 6] = g ? fk(g.fade, 0) : 0; a[o + 7] = g && g.night ? fk(g.night, 0.05) : -1;
+		a[o + 8] = g ? g.color[0] : 1; a[o + 9] = g ? g.color[1] : 1; a[o + 10] = g ? g.color[2] : 1; a[o + 11] = 0;
+	}
 	function packFrame(st: CameraState, origin: ArrayLike<number>, fogNear: number, fogFar: number, fogColor: ArrayLike<number>, logCoef: number, dpr: number, mesh?: ArrayLike<number> | null, farPass?: number): Float32Array {
 		const f = frameF32;
 		f.set(st.mvp, 0);
@@ -2450,6 +2458,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			f[112] = eo[0]; f[113] = eo[1]; f[114] = eo[2]; f[115] = eo[3];
 		}
 		f[116] = sunF[0]; f[117] = sunF[1]; f[118] = sunF[2]; f[119] = sunF[3];   // 太陽（#46 段 0）＝全スロット共通
+		packGroundLight(f, 120, st);   // 地面の照明（cg/cgP/cgC）
 		// 地面アトラス（近/中/遠）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
 		for (let k = 0; k < 4; k++) {
 			const i = 92 + k * 4, a = k < gnd.n ? gnd.w[k] : null;
@@ -2764,7 +2773,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(92);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
+			const g = new Float32Array(104);   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
@@ -2790,6 +2799,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				for (let k = 0; k < 4; k++) g.set(anchorUV(mainOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
 				g.set(anchorUV(mainOrigin, elev.bounds), 88);
 			}
+			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
 			g[64] = view.atmSun ?? 20; g[65] = view.atmExposure ?? 1; g[66] = view.atmGround ?? 0.5; g[67] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
@@ -3291,6 +3301,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
+	let groundLight: { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null } | null = null;   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）＝Frame.cg*／Globe.cg*
 	let meshLight: { dir: number[]; color: number[]; sh: Float32Array; ibl: number[]; invL00: number } | null = null;   // Cesium の模型の照明（setMeshLighting）＝PB の csL/csC/csI と sh[9]
 	let light: { dir: number[]; color?: number[] | null; intensity?: number } | null = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
@@ -3360,6 +3371,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "patImage": setPatImage(data as Parameters<typeof setPatImage>[0]); break;   // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）
 			case "sky":     sky = data && Array.isArray((data as SkyStyle).sky) ? data as SkyStyle : null; break;   // style の sky（B4）＝WebGPU は霧の色・濃さだけ写す（空の絵は従来のリム光・#46 の散乱のまま＝簡易の空は GL2 だけ）
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
+			case "groundLight": groundLight = data && Array.isArray((data as NonNullable<typeof groundLight>).dir) ? data as NonNullable<typeof groundLight> : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "meshLight": meshLight = data && Array.isArray((data as NonNullable<typeof meshLight>).dir) && (data as NonNullable<typeof meshLight>).sh ? data as NonNullable<typeof meshLight> : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":   light = data && Array.isArray((data as NonNullable<typeof light>).dir) ? data as NonNullable<typeof light> : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
 			case "sea":     sea = { ...sea, ...(data as Partial<typeof sea>) }; break;

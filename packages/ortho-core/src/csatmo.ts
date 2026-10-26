@@ -78,15 +78,21 @@ vec4 csColor(vec3 eye, vec3 p, vec3 L, vec3 ray, vec3 mie, float opac, float int
 	return vec4((phR * ray + phM * mie) * intensity, opac);
 }
 // 地面の大気（GlobeFS・HDR なし）：col は表示の色（Cesium も画像の色に直に足す）
-vec3 csGround(vec3 col, vec3 eye, vec3 p, float fade) {
+//   lightDir＝globe.enableLighting の光（地球固定・単位ベクトル）・night＝夜側の暗さ（GlobeFS の sunlitAtmosphereIntensity 0.05..1・負＝照明なし＝従来）
+vec3 csGroundL(vec3 col, vec3 eye, vec3 p, float fade, vec3 lightDir, float night) {
 	if (fade <= 0.0) return col;
-	vec3 L = normalize(p), ray, mie;
+	vec3 L = night >= 0.0 ? lightDir : normalize(p), ray, mie;   // 照明あり＝散乱も本物の光の向きで（夜側は暗い）・無し＝天頂の光
 	float op;
 	csScatter(eye, normalize(p - eye), length(p - eye), L, length(p), ray, mie, op);
 	vec4 a = csColor(eye, p, L, ray, mie, op, 10.0);
 	vec3 f = col + a.rgb * (0.5 + clamp(1.0 - a.a, 0.0, 1.0));
+	if (night >= 0.0) {   // 夜側＝地面を見せず大気の色だけ（darken）→ 距離で日向と混ぜる
+		float darken = clamp(dot(normalize(p), lightDir), 0.0, 1.0);
+		f = mix(mix(a.rgb, f, darken), f, night);
+	}
 	return mix(col, vec3(1.0) - exp(-2.0 * f), fade);
 }
+vec3 csGround(vec3 col, vec3 eye, vec3 p, float fade) { return csGroundL(col, eye, p, fade, vec3(0.0), -1.0); }
 vec3 csTone(vec3 c) {   // czm_pbrNeutralTonemapping
 	float x = min(c.r, min(c.g, c.b));
 	c -= x < 0.08 ? x - 6.25 * x * x : 0.04;
@@ -187,13 +193,15 @@ fn csColor(eye: vec3f, p: vec3f, L: vec3f, s: CsScat, intensity: f32) -> vec4f {
 	let phM = 3.0 / 25.1327412287 * ((1.0 - g2) * (c2 + 1.0)) / (pow(1.0 + g2 - 2.0 * c * CS_G, 1.5) * (2.0 + g2));
 	return vec4f((phR * s.ray + phM * s.mie) * intensity, s.opac);
 }
-fn csGround(col: vec3f, eye: vec3f, p: vec3f, fade: f32) -> vec3f {
+fn csGroundL(col: vec3f, eye: vec3f, p: vec3f, fade: f32, lightDir: vec3f, night: f32) -> vec3f {
 	if (fade <= 0.0) { return col; }
-	let L = normalize(p);
+	let L = select(normalize(p), lightDir, night >= 0.0);   // 照明あり＝散乱も本物の光の向きで（夜側は暗い）・無し＝天頂の光
 	let a = csColor(eye, p, L, csScatter(eye, normalize(p - eye), length(p - eye), L, length(p)), 10.0);
-	let f = col + a.rgb * (0.5 + clamp(1.0 - a.a, 0.0, 1.0));
+	var f = col + a.rgb * (0.5 + clamp(1.0 - a.a, 0.0, 1.0));
+	if (night >= 0.0) { let darken = clamp(dot(normalize(p), lightDir), 0.0, 1.0); f = mix(mix(a.rgb, f, darken), f, night); }
 	return mix(col, vec3f(1.0) - exp(-2.0 * f), fade);
 }
+fn csGround(col: vec3f, eye: vec3f, p: vec3f, fade: f32) -> vec3f { return csGroundL(col, eye, p, fade, vec3f(0.0), -1.0); }
 fn csTone(c0: vec3f) -> vec3f {
 	var c = c0;
 	let x = min(c.r, min(c.g, c.b));
