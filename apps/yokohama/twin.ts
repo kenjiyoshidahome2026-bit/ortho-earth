@@ -84,7 +84,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
-	const flySpot = (s: Spot) => { holdBuildings(s); return flyView(s); };
+	const flySpot = (s: Spot) => { const h = holdBuildings(s); return flyView(s).finally(() => { h.armed = true; }); };
 
 	// ── 案内板（右上）──
 	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（夜の配色）。ここは中身だけ
@@ -500,12 +500,13 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
 	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
 	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
-	function holdBuildings(v: { lon: number; lat: number; zoom: number }) { bldHold = v; lod1Gate(); }   // 飛ぶ前に立て始める（着いた時に読み終わっているように）
+	function holdBuildings(v: { lon: number; lat: number; zoom: number }) { const h = { lon: v.lon, lat: v.lat, zoom: v.zoom, armed: false }; bldHold = h; lod1Gate(); return h; }   // 飛ぶ前に立て始める（着いた時に読み終わっているように）・着いたら armed
 	const extrusion = (on: boolean) => { map.setMeshVisible(on); try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
 	// 観光の眺め（名所・港の物語・海から）＝その視点のまわりにいる間は z が小さくても建物を立てる（主役が遠くの街並み・本人 2026-10-26「z 値が小さく 3D が立ち上がらない」「観光での z の調整をうまく」）。
 	// 0.6 段より引くか 2 km より離れたら普段の z の決まりへ戻る
-	let bldHold: { lon: number; lat: number; zoom: number } | null = null;
-	const held = () => { if (!bldHold) return false; const c = map.getCenter(); if (map.getZoom() >= bldHold.zoom - 0.6 && distM([c.lng, c.lat], [bldHold.lon, bldHold.lat]) < 2000) return true; bldHold = null; return false; };
+	// 飛んでいる間（armed 前）は距離を見ない＝飛ぶ前の中心は名所から遠い（Mac 実測：飛ぶ前に外れて一度も効かなかった）
+	let bldHold: { lon: number; lat: number; zoom: number; armed: boolean } | null = null;
+	const held = () => { if (!bldHold) return false; if (!bldHold.armed) return true; const c = map.getCenter(); if (map.getZoom() >= bldHold.zoom - 0.6 && distM([c.lng, c.lat], [bldHold.lon, bldHold.lat]) < 2000) return true; bldHold = null; return false; };
 	const lod1Gate = () => { const on = held() || map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
 	extrusion(lod1Shown);
 	map.on("move", lod1Gate);
@@ -546,8 +547,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function seaView(run: number) {
 		for (const [i, v] of SEA_VIEWS.entries()) {
 			if (touring !== run) return;
-			holdBuildings(v);
+			const h = holdBuildings(v);
 			await (i ? map.easeTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing, duration: 7000 }) : flyView(v));
+			h.armed = true;
 			if (touring !== run) return;
 			await map.easeTo({ bearing: v.bearing + 25, duration: 5000 });   // 船の上から見渡す
 		}
