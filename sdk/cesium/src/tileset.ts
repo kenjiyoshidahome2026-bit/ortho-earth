@@ -144,7 +144,11 @@ export class Cesium3DTileFeature {
 	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }); }
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; if (!v) unsupported("Cesium3DTileFeature.show = false"); }
-	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {})); return result; }
+	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }
+	/** the batch table hierarchy (the globe puts the class in __class and the class with its ancestors in __classes) */
+	getExactClassName() { return this.#p.properties?.__class ?? undefined; }
+	isExactClass(name: string) { return this.getExactClassName() === name; }
+	isClass(name: string) { return !!this.#p.properties?.__classes?.includes?.(name); }
 	hasProperty(name: string) { return Object.prototype.hasOwnProperty.call(this.#p.properties || {}, name); }
 	getProperty(name: string) { return this.#p.properties?.[name]; }
 	getPropertyInherited(name: string) { return this.getProperty(name) ?? this.#p.contentMetadata?.properties?.[name] ?? this.#p.tileMetadata?.properties?.[name] ?? this.#p.groupMetadata?.properties?.[name]; }

@@ -163,14 +163,49 @@ export function batchTableOf(json: Record<string, unknown> | null | undefined, b
 	const columns: Record<string, unknown[]> = {};
 	for (const [k, v] of Object.entries(json)) {
 		if (k === "extensions" || k === "extras") continue;
-		if (Array.isArray(v)) { columns[k] = v.slice(0, count); continue; }
-		if (v && typeof v === "object" && (v as { byteOffset?: number }).byteOffset != null && bin) {
-			const T = batchCtorOf((v as { componentType?: string }).componentType);
-			const nc = ncompOf((v as { type: string }).type) || 1; if (!T) continue;
-			try { const a = typed(bin.subarray((v as { byteOffset: number }).byteOffset), T, count * nc); columns[k] = Array.from({ length: count }, (_, r) => nc === 1 ? a[r] : Array.from(a.subarray(r * nc, r * nc + nc) as ArrayLike<number | bigint>)); } catch { /* 短い＝落とす */ }
-		}
+		const col = batchColumn(v, bin, count, null);
+		if (col) columns[k] = col;
 	}
+	const hier = (json.extensions as Record<string, unknown> | undefined)?.["3DTILES_batch_table_hierarchy"];
+	if (hier) try { hierarchyColumns(hier as BatchHierarchy, bin, count, columns); } catch { /* 壊れた階層＝素の列だけ */ }
 	return { name: "batchTable", class: null, count, columns };
+}
+// batch table の 1 列（JSON の配列か binary 参照）→ 長さ n の配列（読めない＝null）。defType＝componentType が無い時（階層の classIds など）
+function batchColumn(v: unknown, bin: Uint8Array | null | undefined, n: number, defType: string | null): unknown[] | null {
+	if (Array.isArray(v)) return v.slice(0, n);
+	if (!v || typeof v !== "object" || (v as { byteOffset?: number }).byteOffset == null || !bin) return null;
+	const T = batchCtorOf((v as { componentType?: string }).componentType ?? defType ?? undefined);
+	const nc = ncompOf((v as { type?: string }).type ?? "SCALAR") || 1; if (!T) return null;
+	try { const a = typed(bin.subarray((v as { byteOffset: number }).byteOffset), T, n * nc); return Array.from({ length: n }, (_, r) => nc === 1 ? a[r] : Array.from(a.subarray(r * nc, r * nc + nc) as ArrayLike<number | bigint>)); } catch { return null; }   // 短い＝落とす
+}
+interface BatchHierarchy { classes?: Array<{ name?: string; length?: number; instances?: Record<string, unknown> }>; instancesLength?: number; classIds?: unknown; parentCounts?: unknown; parentIds?: unknown }
+/** 3DTILES_batch_table_hierarchy（b3dm の旧い階層）→ 地物ごとの列へ平らに：自分の class の値、無ければ親を幅優先で辿った最初の値（Cesium の getProperty と同じ）。
+ *  加えて __class（自分の class 名）・__classes（自分と祖先の class 名の配列）＝スタイルの isExactClass／isClass／getExactClassName が引く */
+function hierarchyColumns(h: BatchHierarchy, bin: Uint8Array | null | undefined, count: number, columns: Record<string, unknown[]>) {
+	const classes = h.classes || [], nI = h.instancesLength! | 0;
+	if (!(nI > 0) || !classes.length) return;
+	const classIds = batchColumn(h.classIds, bin, nI, "UNSIGNED_SHORT") as number[] | null; if (!classIds) return;
+	const nPar = h.parentCounts != null ? batchColumn(h.parentCounts, bin, nI, "UNSIGNED_SHORT") as number[] | null : null;
+	const nParIds = nPar ? nPar.reduce((a, b) => a + Number(b), 0) : nI;
+	const parentIds = h.parentIds != null ? batchColumn(h.parentIds, bin, nParIds, "UNSIGNED_SHORT") as number[] | null : null;
+	const parStart = new Int32Array(nI + 1); for (let i = 0; i < nI; i++) parStart[i + 1] = parStart[i] + (nPar ? Number(nPar[i]) : 1);
+	const indexInClass = new Int32Array(nI), seen = new Int32Array(classes.length);
+	for (let i = 0; i < nI; i++) { const c = Number(classIds[i]); indexInClass[i] = c >= 0 && c < classes.length ? seen[c]++ : -1; }
+	const inst = classes.map(c => { const m = new Map<string, unknown[]>(); for (const [k, v] of Object.entries(c.instances || {})) { const col = batchColumn(v, bin, c.length! | 0, null); if (col) m.set(k, col); } return m; });
+	const n = Math.min(count, nI), cls: unknown[] = new Array(count).fill(null), chain: unknown[] = new Array(count).fill(null);
+	for (let f = 0; f < n; f++) {
+		const seenI = new Set<number>([f]), q = [f], names: string[] = [];
+		while (q.length) {
+			const i = q.shift()!, c = Number(classIds[i]), k = indexInClass[i];
+			if (k >= 0) {
+				const name = classes[c].name ?? String(c); if (!names.includes(name)) names.push(name);
+				for (const [prop, col] of inst[c]) { const have = columns[prop] ||= new Array(count).fill(undefined); if (have[f] === undefined) have[f] = col[k]; }
+			}
+			if (parentIds) for (let j = parStart[i]; j < parStart[i + 1]; j++) { const p = Number(parentIds[j]); if (p >= 0 && p < nI && !seenI.has(p)) { seenI.add(p); q.push(p); } }
+		}
+		cls[f] = names[0] ?? null; chain[f] = names;
+	}
+	columns.__class = cls; columns.__classes = chain;
 }
 // 行（地物の番号）→ 属性の素のオブジェクト
 export function featureProperties(table: PropertyTable | null | undefined, id: number): Record<string, unknown> {
