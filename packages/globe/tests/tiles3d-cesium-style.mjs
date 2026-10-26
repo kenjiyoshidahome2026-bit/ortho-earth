@@ -18,6 +18,9 @@ ok("比較・論理", ev("${a} > 1 && ${a} <= 3", { a: 2 }) === true && ev("${a}
 ok("三項（右結合）", ev("${a} > 10 ? 'big' : ${a} > 5 ? 'mid' : 'small'", { a: 7 }) === "mid");
 ok("文字列の連結", ev("'id-' + ${n}", { n: 3 }) === "id-3" && ev("\"a\\\"b\"") === 'a"b');
 ok("${feature['名']}", ev("${feature['the name']}", { "the name": "x" }) === "x" && ev("${feature.h}", { h: 5 }) === 5);
+ok("batch table の階層（isExactClass・isClass・getExactClassName）", ev("isExactClass('door')", { __class: "door", __classes: ["door"] }) === true && ev("isExactClass('door')", { __class: "doorknob", __classes: ["doorknob", "door"] }) === false
+	&& ev("isClass('door')", { __class: "doorknob", __classes: ["doorknob", "door"] }) === true && ev("isClass('roof')", { __class: "door", __classes: ["door"] }) === false
+	&& ev("isClass('door')", {}) === false && ev("getExactClassName() + '!'", { __class: "wall" }) === "wall!");
 ok("Math 系", ev("abs(-2) + sqrt(16) + floor(1.7) + ceil(1.2) + round(1.5)") === 2 + 4 + 1 + 2 + 2 && Math.abs(ev("pow(2, 10) + exp2(3) + log2(8) + log(exp(2))") - (1024 + 8 + 3 + 2)) < 1e-9);
 ok("clamp・mix・sign・fract", ev("clamp(${a}, 0, 10)", { a: 15 }) === 10 && ev("mix(0, 10, 0.25)") === 2.5 && ev("sign(-3)") === -1 && Math.abs(ev("fract(2.75)") - 0.75) < 1e-12);
 ok("radians・degrees・atan2・Math.PI", Math.abs(ev("degrees(radians(90))") - 90) < 1e-9 && Math.abs(ev("atan2(1, -1)") - Math.atan2(1, -1)) < 1e-12 && Math.abs(ev("atan2(-1, 0)") + Math.PI / 2) < 1e-12 && Math.abs(ev("Math.PI") - Math.PI) < 1e-12);

@@ -6,7 +6,7 @@
 // GPU の経路（FBO に描いて読む）は tests/t-pick.html（verify:ui）。
 // 使い方：node packages/globe/tests/pick.mjs
 import { decodeId, nearestId } from "../src/gadgets/points-gl.ts";
-import { nearestMark } from "../src/gadgets/czml-draw.ts";
+import { nearestMark, dashRun, arrowRun } from "../src/gadgets/czml-draw.ts";
 import { rayMeshes } from "../src/meshpick.ts";
 
 let fails = 0;
@@ -57,6 +57,20 @@ console.log("rayMeshes");
 	ok(rayMeshes([hid], from, down) === null, "隠した束＝当てない");
 	const slant = rayMeshes([a], [1.01, 0, 0], [-2, 0, 0]);
 	ok(slant && Math.abs(slant.t - 0.0045) < 1e-6, `dir は単位でなくてよい（t は dir の倍数）: ${slant?.t}`);
+}
+
+// czml-draw の線の模様（Cesium の PolylineDash・PolylineArrow）：線分は [x0,y0,x1,y1,幅,継ぎ前,継ぎ後]
+{
+	const segs = out => { const r = []; for (let i = 0; i < out.length; i += 7) r.push(out.slice(i, i + 7)); return r; };
+	let out = []; dashRun([[0, 0], [32, 0]], 4, 16, 255, out);   // 255＝下位 8 ビット＝各巡の前半が線（8px 線・8px 隙）
+	const d = segs(out), lenOn = d.reduce((a, q) => a + Math.hypot(q[2] - q[0], q[3] - q[1]), 0);
+	ok(Math.abs(lenOn - 16) < 1e-6 && d.every(q => q[0] % 16 < 8), `dash 255: half of 32px drawn, at the start of each 16px (${lenOn})`);
+	out = []; dashRun([[0, 0], [10, 0], [10, 22]], 2, 16, 0xff00, out);   // 角を跨いでも模様は続く（後半が線）
+	const d2 = segs(out), on2 = d2.reduce((a, q) => a + Math.hypot(q[2] - q[0], q[3] - q[1]), 0);
+	ok(Math.abs(on2 - 16) < 1e-6 && d2[0][0] === 8, `dash across a corner keeps the phase (${on2}, starts at ${d2[0]?.[0]})`);
+	out = []; arrowRun([[0, 0], [100, 0]], 9, out);
+	const a = segs(out), shaft = a[0], tip = a[a.length - 1];
+	ok(Math.abs(shaft[2] - (100 - 13.5)) < 1e-6 && shaft[4] === 3 && tip[2] === 100 && tip[4] < 1 && a.slice(1).every((q, i, r) => !i || q[4] < r[i - 1][4]), `arrow: thin shaft to 1.5 widths from the tip, then a narrowing head (${a.map(q => q[4].toFixed(2)).join(" ")})`);
 }
 
 if (fails) { console.error(`pick: ${fails} failed`); process.exit(1); }

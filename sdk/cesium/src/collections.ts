@@ -55,7 +55,7 @@ export class CollectionDrawer {
 					lk += k + ";";
 					const ps = pl.loop ? [...pl.positions, pl.positions[0]] : pl.positions;
 					let p: number[];
-					try { p = Array.from(PolylinePipeline.generateArc({ positions: ps, granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { p = ps.flatMap((q: Any) => [q.x, q.y, q.z]); }
+					try { p = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { p = ps.flatMap((q: Any) => [q.x, q.y, q.z]); }
 					lines.push({ p, color: col.toCssColorString(), width: pl.width ?? 1 });
 				}
 				continue;

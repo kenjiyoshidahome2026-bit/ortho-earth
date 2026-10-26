@@ -3,12 +3,16 @@
 // corridors, ellipsoids…). The triangles go to the globe as a glTF model built here (CESIUM_RTC = ECEF, COLOR_0 = the instance colour,
 // _BATCHID = the instance), so picking (scene.pick → { primitive, id }) and getGeometryInstanceAttributes(id).color use the model's
 // features. Line geometries (outlines, SimplePolylineGeometry, PolylineGeometry, GroundPolylineGeometry) go to the entity overlay's 3D lines.
-// Not drawn: textures and procedural materials (the material's colour, else white, is used) and per-vertex polyline colours (the first one).
+// Stripe, Checkerboard, Grid and Image materials are painted into a texture over the geometry's st (materials.ts); other materials draw in
+// their colour (else white). Not drawn: per-vertex polyline colours (the first one is used).
 import { BoundingSphere, Cartesian3, Color, Ellipsoid, Event, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { headingOf } from "./display.ts";
 import { gltfNodeNames, gltfSphere } from "./gltf.ts";
+import { ownArrays } from "./spheres.ts";
+import { matKey, matOfMaterial, matTranslucent, paintSquare } from "./materials.ts";
+import type { MatDesc } from "./materials.ts";
 import type { Host } from "./scene.ts";
 
 type Any = any;
@@ -33,7 +37,8 @@ function colorOf(inst: Any, appearance: Any): Uint8Array {
 	const c = inst.attributes?.color?.value;
 	if (c && c.length >= 4) return Uint8Array.from(c);
 	const m = appearance?.material, u = m?.uniforms;
-	const main = u?.color ?? u?.evenColor ?? u?.lightColor ?? u?.baseWaterColor;   // Color, Stripe, Checkerboard / Grid, Water: their first colour
+	if (matOfMaterial(m)) return Uint8Array.of(255, 255, 255, 255);   // painted into a texture (the texture carries the colours)
+	const main = u?.color ?? u?.evenColor ?? u?.lightColor ?? u?.baseWaterColor;   // Color, Water: their first colour
 	if (main instanceof Color) {
 		if (m.type && m.type !== "Color") unsupported(`material ${m.type} (drawn in its colour)`);
 		return toBytes(main);
@@ -44,7 +49,8 @@ function colorOf(inst: Any, appearance: Any): Uint8Array {
 const shownOf = (inst: Any) => { const s = inst.attributes?.show?.value; return !s || !!s[0]; };
 
 // ── a glTF (glb) of triangles in ECEF ──
-export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[] }
+/** triangles: idx is drawn in its vertex colours; parts (with uv) each with a texture (an image URL, data: or http) multiplied in */
+export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }> }
 export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 	const n = t.pos.length / 3;
 	let cx = 0, cy = 0, cz = 0;
@@ -58,10 +64,12 @@ export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 	}
 	const N = t.nrm ? new Float32Array(n * 3) : null;
 	if (N && t.nrm) for (let i = 0; i < n; i++) { N[i * 3] = t.nrm[i * 3]; N[i * 3 + 1] = t.nrm[i * 3 + 2]; N[i * 3 + 2] = -t.nrm[i * 3 + 1]; }
-	const C = Uint8Array.from(t.col), B = Float32Array.from(t.bid), I = Uint32Array.from(t.idx);
+	const C = Uint8Array.from(t.col), B = Float32Array.from(t.bid), tparts = (t.parts ?? []).filter(q => q.idx.length), UV = tparts.length && t.uv ? Float32Array.from(t.uv) : null;
 	let blend = false;
 	for (let i = 3; i < C.length; i += 4) if (C[i] < 255) { blend = true; break; }
-	const parts: Array<{ data: ArrayBufferView; target: number }> = [{ data: P, target: 34962 }, { data: C, target: 34962 }, { data: B, target: 34962 }, ...(N ? [{ data: N, target: 34962 }] : []), { data: I, target: 34963 }];
+	const groups = [...(t.idx.length ? [{ idx: t.idx, tex: null as string | null, blend }] : []), ...(UV ? tparts.map(q => ({ idx: q.idx, tex: q.tex as string | null, blend: q.blend || blend })) : [])];
+	const parts: Array<{ data: ArrayBufferView; target: number }> = [{ data: P, target: 34962 }, { data: C, target: 34962 }, { data: B, target: 34962 }, ...(N ? [{ data: N, target: 34962 }] : []), ...(UV ? [{ data: UV, target: 34962 }] : []),
+		...groups.map(g => ({ data: Uint32Array.from(g.idx), target: 34963 }))];
 	const views: Any[] = [], chunks: Uint8Array[] = [];
 	let off = 0;
 	for (const p of parts) {
@@ -75,15 +83,24 @@ export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 		{ bufferView: a++, componentType: 5121, normalized: true, count: n, type: "VEC4" },
 		{ bufferView: a++, componentType: 5126, count: n, type: "SCALAR" },
 		...(N ? [{ bufferView: a++, componentType: 5126, count: n, type: "VEC3" }] : []),
-		{ bufferView: a++, componentType: 5125, count: I.length, type: "SCALAR" },
+		...(UV ? [{ bufferView: a++, componentType: 5126, count: n, type: "VEC2" }] : []),
 	];
-	const attributes: Any = { POSITION: 0, COLOR_0: 1, _BATCHID: 2, ...(N && { NORMAL: 3 }) };
+	const attributes: Any = { POSITION: 0, COLOR_0: 1, _BATCHID: 2, ...(N && { NORMAL: 3 }), ...(UV && { TEXCOORD_0: N ? 4 : 3 }) };
+	const images: Any[] = [], materials: Any[] = [], prims: Any[] = [];
+	for (const g of groups) {
+		const ia = accessors.length;
+		accessors.push({ bufferView: a++, componentType: 5125, count: g.idx.length, type: "SCALAR" });
+		const pbr: Any = { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 };
+		if (g.tex) { pbr.baseColorTexture = { index: images.length }; images.push({ uri: g.tex }); }
+		materials.push({ pbrMetallicRoughness: pbr, doubleSided: true, alphaMode: g.blend ? "BLEND" : "OPAQUE" });
+		prims.push({ attributes, indices: ia, material: materials.length - 1, mode: TRIANGLES });
+		if (g.blend) blend = true;
+	}
 	const json = {
 		asset: { version: "2.0", generator: "@ortho-earth/cesium" }, extensionsUsed: ["CESIUM_RTC"], extensions: { CESIUM_RTC: { center: [cx, cy, cz] } },
 		scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-		meshes: [{ primitives: [{ attributes, indices: accessors.length - 1, material: 0, mode: TRIANGLES }] }],
-		materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true, alphaMode: blend ? "BLEND" : "OPAQUE" }],
-		accessors, bufferViews: views, buffers: [{ byteLength: off }],
+		meshes: [{ primitives: prims }], materials, accessors, bufferViews: views, buffers: [{ byteLength: off }],
+		...(images.length && { images, textures: images.map((_, i) => ({ source: i, sampler: 0 })), samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }] }),
 	};
 	let js = new TextEncoder().encode(JSON.stringify(json));
 	if (js.length % 4) { const q = new Uint8Array(js.length + 4 - (js.length % 4)).fill(0x20); q.set(js); js = q; }
@@ -133,7 +150,7 @@ export class PrimitiveDrawer {
 			if ((it as Any).shown !== show) { (it as Any).shown = show; linesChanged = true; }
 			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (Model && p instanceof Model ? `|${p.scale}` : "");
-			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, scale: pl.scale / (it as Any).scale0 }); } continue; }
+			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
 		if (linesChanged) this.#collectLines();
@@ -176,8 +193,8 @@ export class PrimitiveDrawer {
 		const p = it.p, M = p.modelMatrix ?? Matrix4.IDENTITY, insts = instancesOf(p);
 		const firstBuild = !it.built;
 		it.built = true;
-		const tris: Tris = { pos: [], nrm: [], col: [], bid: [], idx: [] };
-		const lines: PrimLine[] = [];
+		const tris: Tris = { pos: [], nrm: [], col: [], bid: [], idx: [], uv: [] };
+		const lines: PrimLine[] = [], painted = new Map<string, { mat: MatDesc; idx: number[] }>(), appMat = matOfMaterial(p.appearance?.material);
 		insts.forEach((inst, i) => {
 			if (firstBuild) { it.ids[i] = inst.id; it.colors[i] = colorOf(inst, p.appearance); it.shows[i] = shownOf(inst); }
 			if (!it.shows[i]) return;
@@ -187,14 +204,14 @@ export class PrimitiveDrawer {
 				const ps: Cartesian3[] = g._positions, width = g._width ?? g.width ?? 1;
 				const pc = g._colors?.[0] ? toBytes(g._colors[0]) : col;
 				let pts: number[] = [];
-				try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
+				try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
 				lines.push({ p: pts, color: css(pc), width });
 				return;
 			}
 			let geom: Any = g;
 			if (g && !g.attributes) {
 				const C = g.constructor;
-				try { geom = C?.createGeometry?.(g); } catch (e) { console.warn("[csshim] createGeometry", C?.name, e); geom = undefined; }
+				try { geom = C?.createGeometry?.(ownArrays(g)); } catch (e) { console.warn("[csshim] createGeometry", C?.name, e); geom = undefined; }
 				if (!geom) { if (!C?.createGeometry) unsupported(`geometry ${C?.name ?? typeof g}`); return; }
 			}
 			const pv = geom.attributes?.position?.values;
@@ -215,19 +232,33 @@ export class PrimitiveDrawer {
 			}
 			if (mode !== TRIANGLES) { unsupported(`primitive type ${mode}`); return; }
 			const base = tris.pos.length / 3;
+			const mat: MatDesc | null = inst.__mat ?? appMat, st = mat ? geom.attributes?.st?.values : null;
 			Matrix4.getMatrix3(W, m3);
 			for (let k = 0; k < nVert; k++) {
 				tris.pos.push(world[k * 3], world[k * 3 + 1], world[k * 3 + 2]);
 				if (nv && tris.nrm) { Cartesian3.fromElements(nv[k * 3], nv[k * 3 + 1], nv[k * 3 + 2], n3); Matrix3.multiplyByVector(m3, n3, n3); Cartesian3.normalize(n3, n3); tris.nrm.push(n3.x, n3.y, n3.z); }
 				else tris.nrm = null;
 				tris.col.push(col[0], col[1], col[2], col[3]); tris.bid.push(i);
+				tris.uv!.push(st ? st[k * 2] : 0, st ? 1 - st[k * 2 + 1] : 0);   // glTF's v runs down the picture
 			}
-			for (let k = 0; k < idx.length; k++) tris.idx.push(base + idx[k]);
+			let into = tris.idx;
+			if (mat && st) { const k = matKey(mat); let g = painted.get(k); if (!g) painted.set(k, g = { mat, idx: [] }); into = g.idx; }
+			for (let k = 0; k < idx.length; k++) into.push(base + idx[k]);
 		});
 		it.lines = mergeLines(lines);
 		const old = it.h; it.h = null;
-		if (!tris.idx.length) { old?.clear?.(); this.#markReady(p); return; }
+		if (!tris.idx.length && !painted.size) { old?.clear?.(); this.#markReady(p); return; }
 		if (tris.nrm && tris.nrm.length !== tris.pos.length) tris.nrm = null;
+		it.loading = true;
+		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
+		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat))?.toDataURL() ?? null, blend: matTranslucent(g.mat) }))).then(ps => {
+			if (it.dead || (it as Any).gen !== gen) return;
+			tris.parts = [];
+			for (const q of ps) if (q.tex) tris.parts.push({ idx: q.idx, tex: q.tex, blend: q.blend }); else tris.idx.push(...q.idx);   // not painted (an image that did not load): white
+			this.#place(map, it, p, tris, old);
+		});
+	}
+	#place(map: Any, it: Item, p: Any, tris: Tris, old: Any) {
 		const { glb } = glbOf(tris);
 		let minH = Infinity;
 		for (let k = 0; k < tris.pos.length; k += 3) { const c = Ellipsoid.WGS84.cartesianToCartographic(Cartesian3.fromElements(tris.pos[k], tris.pos[k + 1], tris.pos[k + 2], v3)); if (c && c.height < minH) minH = c.height; }
@@ -250,7 +281,6 @@ export class PrimitiveDrawer {
 		if (!url || !pl) { unsupported("Model without a URL (a glTF given as JSON or a buffer)"); return; }
 		if (p.color && !Color.equals(p.color, Color.WHITE)) unsupported("Model color");
 		if (p.silhouetteSize) unsupported("Model silhouette");
-		(it as Any).scale0 = pl.scale;
 		it.loading = true;
 		// animations: the globe plays the glTF's own (all of them, looping) while any is active
 		const anims = p.activeAnimations, started: Any[] = [];
