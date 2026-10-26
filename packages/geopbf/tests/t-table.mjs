@@ -60,7 +60,8 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	const names = async (blob, enc) => (await decodeZIP(blob, null, enc)).map(e => e.name);
 	ok((await names(storedZip(sjisName, 0)))[0] === "駅.txt", "decodeZIP: フラグ無し・encoding 無し＝Shift_JIS");
 	ok((await names(storedZip(sjisName, 0), "shift-jis"))[0] === "駅.txt", "decodeZIP: encoding: shift-jis の明示が効く（旧: 常に utf-8 に化けていた）");
-	ok((await names(storedZip(sjisName, 0), "utf-8"))[0] !== "駅.txt", "decodeZIP: encoding: utf-8 を明示すれば Shift_JIS 名は化ける（指定が届いている証拠）");
+	// utf-8 の指定は中身の文字コードとして渡ってくる（native-bucket の Fetch）＝UTF-8 として壊れた名前は Shift_JIS で読む（2026-10-26・国土数値情報 A09 等が「file is not exist」）
+	ok((await names(storedZip(sjisName, 0), "utf-8"))[0] === "駅.txt", "decodeZIP: encoding: utf-8 でも UTF-8 として壊れた名前は Shift_JIS で読む");
 	ok((await names(storedZip(utf8Name, 0x0800), "shift-jis"))[0] === "駅.txt", "decodeZIP: UTF-8 フラグ（bit 11）は encoding 指定より優先");
 }
 // ── WKT ──────────────────────────────────────────────────────────────────────
