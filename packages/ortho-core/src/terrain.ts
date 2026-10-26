@@ -165,23 +165,32 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		demSrc = spec ? createDemSource(spec) : null;
 		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
+		inflightCells.clear();   // 取りに行っている最中の物も古い世代＝新しい要求は取り直す（古い方は gen の門で捨てられる）
 		demGen++;   // 窓の鍵に世代を入れる＝外す前と同じ窓でも別の窓（古い世代の .then は atlasKey === key に当たらない）
 		atlasKey = ""; requestDraw();
 	}
 	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
 	const demHeight = (lon: number, lat: number, zHint: number | null = null): Promise<number | null> => demSrc ? demSrc.height(lon, lat, zHint).then(v => (v === v ? v : null)) : Promise.resolve(null);
-	async function getCell(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null> {
-		if (!loadTile) return null;
+	// 取りに行っている最中のセル＝同じセルの並行要求は 1 回の取得を分け合う（2026-10-26）。mixed の窓は R01 のセルごとに親の R10 を頼む＝
+	// 同じ R10 が十数回並行に走り、外来 DEM の焼き直し・mergeDemCell・GPU への生タイル転送（rawTex は tile オブジェクトが鍵）まで十数回だった
+	const inflightCells = new Map<string, Promise<TerrainTile | null>>();
+	function getCell(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null> {
+		if (!loadTile) return Promise.resolve(null);
 		// 経度は周期正規化：日付変更線を跨いだ窓のセルは cellLng が 180 や -270 になり、そのまま
 		// タイル名にすると実在しない（E180等）＝空振りで陰影が欠けていた（実測: lat70の北極海チルト）。
 		const lngN = ((cellLng % 360) + 540) % 360 - 180;
 		const k = range + "," + lngN + "," + cellLat;
 		const hit = r10Tiles.get(k);
-		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return hit; }   // ヒット＝LRU 末尾へ（追い出され順の更新）
+		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return Promise.resolve(hit); }   // ヒット＝LRU 末尾へ（追い出され順の更新）
+		let p = inflightCells.get(k);
+		if (!p) { p = loadCell(k, lngN, cellLat, range).finally(() => { inflightCells.delete(k); }); inflightCells.set(k, p); }
+		return p;
+	}
+	async function loadCell(k: string, lngN: number, cellLat: number, range: number): Promise<TerrainTile | null> {
 		const gen = demGen;   // 取りに行っている間に setDem が来たら、この結果は捨てる（キャッシュに入れると新しい DEM の窓がずっと古い標高を引く）
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
-		let tile: TerrainTile | null = await loadTile(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		let tile: TerrainTile | null = await loadTile!(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
 		if ((range === 1 || range === 10) && demSrc?.covers(lngN, cellLat, range)) {   // 外来の DEM（#36）＝有効な画素だけ上書き（R01・R10。R90＝全球の眺めは既定のまま）
 			const src = demSrc, d = await src.cell(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] dem cell failed", k, (e as Error)?.message); return null; });
 			if (src !== demSrc) return null;   // 待っている間に差し替えられた

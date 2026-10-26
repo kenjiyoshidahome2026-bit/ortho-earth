@@ -62,6 +62,8 @@ interface Layer {
 const keyOf = (z: number, x: number, y: number): string => `${z}/${x}/${y}`;
 const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const MAX_UP = 5;   // 祖先フォールバックの段数（v1＝3段＋高緯度補正。5 段＝1/32 の部分 uv までは絵として成立）
+const COARSE_UP = 3;   // 先に取る粗い祖先の段（1 枚＝選抜 64 枚分・MAX_UP 以内＝描画の祖先フォールバックが届く）
+const coarseN = (sel: TileXYZ[], minZoom: number): number => { const s = new Set<string>(); for (const t of sel) { const d = Math.min(COARSE_UP, t.z - Math.max(0, minZoom)); if (d > 0) s.add(keyOf(t.z - d, t.x >> d, t.y >> d)); } return s.size; };
 
 // タイル 1 枚の格子メッシュ（純関数＝Node で検定）。頂点＝タイル北西隅からの (dlon, dlat) 度・uv＝(i/n, j/n)。
 // 同じ z・同じ行 y なら x に依らず同一（経度は線形・緯度は行で決まる）＝メッシュは (z, y, n) でキャッシュできる。
@@ -204,7 +206,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1 });
-			if (sel.length * perTile <= share) break;
+			if ((sel.length + coarseN(sel, src.minZoom)) * perTile <= share) break;   // 先に取る粗い祖先も在庫に居る＝予算に数える
 			tilePx *= 1.6;
 		}
 		// 枚数の上限（低 z の巨大視野・極端なチルト）：遠い順に親へまとめる（4 枚→1 枚）＝遠景を粗くして埋める。
@@ -273,6 +275,18 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		}
 		// 祖先（フォールバック候補）も「最近見えた」扱い＝LRU で先に消えて穴にならない
 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; for (let d = 1; d <= MAX_UP && z > 0; d++) { z--; x >>= 1; y >>= 1; const e = L.cache.get(keyOf(z, x, y)); if (e) { e.seen = clock; keep.add(keyOf(z, x, y)); } } }
+		// 粗い祖先を先に（Cesium の preloadAncestors と同じ考え・2026-10-26）：選抜タイルの COARSE_UP 段上の祖先を距離より先に取る＝
+		// 数枚で視野全体が粗く埋まり、細かいタイルが届くまで地平線側に下地の色（Cesium 例の既定は青）が残らない（旧＝距離順だけ＝遠景が最後）
+		for (const t of sel) {
+			const d = Math.min(COARSE_UP, t.z - Math.max(0, src.minZoom)); if (d <= 0) continue;
+			const z = t.z - d, x = t.x >> d, y = t.y >> d, k = keyOf(z, x, y);
+			if (pushed.has(k)) continue;
+			let e = L.cache.get(k);
+			if (!e) { e = { status: "queued", z, x, y, tex: null, bytes: 0, seen: clock, tries: 0 }; if (tileOutsideCoverage(x, y, z, src.bbox)) e.status = "empty"; L.cache.set(k, e); }
+			else if (e.status === "retry") e.status = "queued";
+			e.seen = clock; keep.add(k);
+			if (e.status === "queued") { const [w, s_, ea, n] = tileBounds(x, y, z); enqueue(k, z, x, y, Math.hypot((w + ea) / 2 - c[0], (s_ + n) / 2 - c[1]) - 1e6); }
+		}
 		// 取得に失敗して retry になった祖先＝上の祖先の連鎖は「empty でない」所で止まるので、ここで拾って要求列へ戻す（旧＝放置＝穴が残り・未着 1 が永遠に消えず idle が来ない・2026-09-28）
 		for (const [k, e] of L.cache) if ((e.status === "retry" || e.status === "queued") && keep.has(k) && !pushed.has(k)) { e.status = "queued"; const [w, s_, ea, n] = tileBounds(e.x, e.y, e.z); enqueue(k, e.z, e.x, e.y, Math.hypot((w + ea) / 2 - c[0], (s_ + n) / 2 - c[1]) + 1); }
 		L.queue.sort((a, b) => a.dist - b.dist);
