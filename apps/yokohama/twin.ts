@@ -13,7 +13,7 @@ import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネル�
 import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -774,13 +774,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat);
 	});
 
-	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・警察／消防の管轄を 1 枚に（市民ファースト・本人 2026-10-25）──
+	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・大きな病院を 1 枚に（市民ファースト・本人 2026-10-25）──
 	// 東京都の頁は層を重ねて読む＝専門家の道具。ここは「自分の家」から引く＝答えが 1 枚で出る。台帳はどれも既にある物（読むだけ・層は足さない）
 	const homeOut = $<HTMLElement>(".home-out"), hmMsg = $<HTMLElement>(".hm-msg");
 	let homeMark: Marker | null = null;
 	const areaFile = (id: AreaId) => AREAS.find(a => a.id === id)!.file;
 	type AreaFC = { features: { geometry: { type: string; coordinates: unknown } | null; properties: { n?: string; a?: string; b?: number; f?: number } }[] };
 	const SUB = (name: string) => FACILITY_SUBS.findIndex(x => x.name === name);
+	const HOME_JURIS = false;   // 警察署・消防署の管轄をカードに出すか（区と一致しない自治体なら true）
 	const HOME_NEAR = ["Ward offices", "Libraries", "Hospitals", "Police boxes", "Fire stations and headquarters"].map(n => ({ n, i: SUB(n) }));
 	const clearHome = () => { homeOut.hidden = true; homeMark?.remove(); homeMark = null; };
 	async function homeAt(ll: LonLat) {
@@ -795,7 +796,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const run = homeOut.dataset.run = String(Date.now());
 		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
 		const [wards, se, sj, zn, po, fi, rail, , sh, , here, depths, dz] = await Promise.all([
-			loadWards(), ledger<AreaFC>(areaFile("school-e")), ledger<AreaFC>(areaFile("school-j")), ledger<AreaFC>(areaFile("zoning")), ledger<AreaFC>(areaFile("police")), ledger<AreaFC>(areaFile("fire")),
+			loadWards(), ledger<AreaFC>(areaFile("school-e")), ledger<AreaFC>(areaFile("school-j")), ledger<AreaFC>(areaFile("zoning")), HOME_JURIS ? ledger<AreaFC>(areaFile("police")) : null, HOME_JURIS ? ledger<AreaFC>(areaFile("fire")) : null,
 			loadRail(), loadBus(), loadShelters(), loadFac(),
 			map.getHeight(at[0], at[1]).catch(() => NaN),
 			Promise.all(water.map(h => samplePx(h.urls[0], at[0], at[1], h.legend))),
@@ -828,10 +829,13 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				return nearestRows(city.length ? city : rows, at, 1)[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
 			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(r!.row[2])}<br><small>${walk(r!.m)}</small>`)).join("")}</div>`);
+			// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。2 km を超えたら km だけ
+			const big = nearestRows(fac.filter(r => majorHospital(r[2])), at, 2);
+			if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, m }) => row(majorHospital(r[2])!, m > 2000 ? esc(t("About $1 km", (m / 1000).toFixed(1))) : walk(m))).join("")}</div>`);
 		}
-		// まちのきまり＝用途地域（建ぺい率・容積率）・警察署／消防署の管轄
-		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = featureAt(po, at), f1 = featureAt(fi, at);
-		if (z || p1 || f1) out.push(`<h3>${esc(t("Zones and districts"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
+		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
+		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
+		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? "Zones and districts" : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
 		out.push(`<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
 		homeOut.innerHTML = out.join("");
 		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
