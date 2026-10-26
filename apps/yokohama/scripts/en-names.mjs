@@ -91,6 +91,8 @@ const WORDS = [
 	// 4 回目の焼きの見直し
 	["海上", "Maritime", 1], ["水上", "Marine", 1], ["立場", "tateba", 0], ["細谷戸", "hosoyado", 0], ["向谷", "mukaiya", 0], ["旭陵", "kyokuryo", 0], ["橋", "bashi", 2], ["丘の上", "okanoue", 0],
 	["地方法務局", "District Legal Affairs Bureau", 1], ["埠頭", "Pier", 1], ["税関", "Customs", 1], ["サポート", "Support", 1], ["多文化", "Multicultural", 1],
+	// 駅・停留所（2026-10-26）
+	["京急", "Keikyu", 1], ["相鉄", "Sotetsu", 1], ["入口", "Entrance", 1], ["営業所", "Depot", 1], ["車庫", "Depot", 1], ["折返場", "Turnaround", 1], ["ターミナル", "Terminal", 1], ["団地", "Danchi", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -120,6 +122,10 @@ function consulate(s) {
 	const c = COUNTRY.find(([k]) => s.includes(k)); if (!c) return null;
 	return `${s.includes("名誉") ? "Honorary " : ""}Consulate${s.includes("総領事館") ? " General" : ""} of ${c[1]} in Yokohama`;
 }
+// 駅の名で読みの決まりから外れる物（公式のローマ字）
+const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motomachi-Chukagai", "日本大通り": "Nihon-odori", "みなとみらい": "Minatomirai", "センター南": "Center Minami", "センター北": "Center Kita",
+	"北新横浜": "Kita Shin-Yokohama", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
+	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
 export function makeEn({ towns, wards, tokenize }) {
 	const W = [["横浜", "Yokohama"], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
@@ -203,7 +209,18 @@ export function makeEn({ towns, wards, tokenize }) {
 		const bld = rest && /^[\x20-\x7e]*$/.test(rest) ? ` ${rest}` : "";   // 建物名（日本語）は落とす
 		return `${nums ? nums + " " : ""}${town}${bld}${wardEn ? `, ${wardEn}` : ""}`.trim();
 	};
-	return { name, addr, proper, guessed: () => guessed };
+	/** 駅の名（「京急鶴見」）→ Keikyu Tsurumi（「駅」は付けない＝画面が "$1 Station" で付ける） */
+	const station = ja => STATION_EN[ja] || proper(normJp(ja).replace(/駅$/, ""));
+	/** バス停の名：「鶴見駅西口」→ Tsurumi Station West Exit・「奈良小学校前」→ Nara Elementary School・「最乗寺前」→ Saijoji-mae */
+	const stop = ja => {
+		let s = normJp(ja).replace(/\([^)]*\)/g, "").trim();
+		const mae = s.length > 1 && s.endsWith("前"); if (mae) s = s.slice(0, -1);
+		if (s.endsWith("駅")) return `${station(s.slice(0, -1))} Station`;
+		if (mae && SUFFIX.some(([k]) => s.endsWith(k))) return name(s);
+		const r = proper(s);
+		return mae && !/(Station|Exit|Center|Park|Hall|Plaza|School|Office|Hospital|Library|House|Entrance|Depot)$/.test(r) ? `${r}-mae` : r;
+	};
+	return { name, addr, proper, station, stop, guessed: () => guessed };
 }
 const KN = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
 function kanjiNum(s) { if (s === "十") return 10; if (s.startsWith("十")) return 10 + KN[s[1]]; if (s.endsWith("十")) return KN[s[0]] * 10; if (s.includes("十")) return KN[s[0]] * 10 + KN[s[2]]; return KN[s] ?? s; }

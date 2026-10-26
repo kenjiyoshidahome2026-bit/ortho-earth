@@ -248,6 +248,21 @@ export const HINAN_FLAGS = ["Flood", "Sediment disaster", "Storm surge", "Earthq
 /** 避難場所の 1 行＝[経度, 緯度, 名称, 住所, 対応災害ビット] */
 export type HinanRow = [number, number, string, string, number];
 /** 横浜市の避難場所だけ（県の一覧から住所で選ぶ） */
+/** 鉄道の路線名（rail.json の「事業者 路線」）→ 英語（日本語以外で出す・本人 2026-10-26） */
+export const RAIL_LINES_EN: Record<string, string> = {
+	"横浜高速鉄道 みなとみらい21線": "Minatomirai Line", "横浜市 1号線": "Blue Line", "横浜市 3号線": "Blue Line", "横浜市 4号線": "Green Line", "横浜シーサイドライン 金沢シーサイドライン": "Kanazawa Seaside Line",
+	"京王電鉄 相模原線": "Keio Sagamihara Line", "京浜急行電鉄 空港線": "Keikyu Airport Line", "京浜急行電鉄 逗子線": "Keikyu Zushi Line", "京浜急行電鉄 大師線": "Keikyu Daishi Line", "京浜急行電鉄 本線": "Keikyu Main Line",
+	"江ノ島電鉄 江ノ島電鉄線": "Enoden Line", "小田急電鉄 江ノ島線": "Odakyu Enoshima Line", "小田急電鉄 小田原線": "Odakyu Odawara Line", "小田急電鉄 多摩線": "Odakyu Tama Line", "湘南モノレール 江の島線": "Shonan Monorail",
+	"相模鉄道 相鉄いずみ野線": "Sotetsu Izumino Line", "相模鉄道 相鉄本線": "Sotetsu Main Line", "相模鉄道 相鉄新横浜線": "Sotetsu Shin-Yokohama Line", "東海旅客鉄道 東海道新幹線": "Tokaido Shinkansen",
+	"東京モノレール 東京モノレール羽田空港線": "Tokyo Monorail", "東急電鉄 こどもの国線": "Tokyu Kodomonokuni Line", "東急電鉄 大井町線": "Tokyu Oimachi Line", "東急電鉄 池上線": "Tokyu Ikegami Line",
+	"東急電鉄 田園都市線": "Tokyu Den-en-toshi Line", "東急電鉄 東横線": "Tokyu Toyoko Line", "東急電鉄 東急多摩川線": "Tokyu Tamagawa Line", "東急電鉄 目黒線": "Tokyu Meguro Line", "東急電鉄 東急新横浜線": "Tokyu Shin-Yokohama Line",
+	"東京都 1号線浅草線": "Toei Asakusa Line", "東京臨海高速鉄道 臨海副都心線": "Rinkai Line", "東日本旅客鉄道 横須賀線": "JR Yokosuka Line", "東日本旅客鉄道 横浜線": "JR Yokohama Line", "東日本旅客鉄道 根岸線": "JR Negishi Line",
+	"東日本旅客鉄道 山手線": "JR Yamanote Line", "東日本旅客鉄道 鶴見線": "JR Tsurumi Line", "東日本旅客鉄道 東海道線": "JR Tokaido Line", "東日本旅客鉄道 南武線": "JR Nambu Line",
+};
+/** 駅の路線の一覧（「・」区切り）→ 英語（同じ名は 1 つに・表に無い路線は日本語のまま） */
+export const railLinesEn = (s: string) => [...new Set(String(s || "").split("・").filter(Boolean).map(x => RAIL_LINES_EN[x] || x))].join("・");
+/** 神奈川県の指定緊急避難場所（census2020 と同じ焼き・gzip の JSON・[経度, 緯度, 名称, 住所, 対応災害ビット]） */
+export const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";
 export function yokohamaShelters(rows: HinanRow[]): HinanRow[] {
 	const out: HinanRow[] = [];
 	for (const r of rows) if (Array.isArray(r) && typeof r[3] === "string" && r[3].includes("横浜市") && Number.isFinite(r[0]) && Number.isFinite(r[1])) out.push(r);
