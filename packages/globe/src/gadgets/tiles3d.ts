@@ -30,7 +30,7 @@ import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childC
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../tiles3d-metadata.ts";   // metadata（tileset・group・tile・content）
 import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
 import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
-import { cameraState, ellipsoidOn } from "@ortho-earth/core";
+import { cameraState, ellipsoidOn, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform, Tiles3DStyle } from "../../globe.d.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
 import type { BoundingVolume, ImplicitTiling, ImplicitTilingJson, Subtree, TileCoord } from "../tiles3d-implicit.ts";
@@ -98,7 +98,7 @@ interface PaintPart { k: number; col0: Uint8Array; features: MeshFeatures | null
 /** 選びの節点（3D Tiles のタイルか I3S の節） */
 interface T3dNode {
 	id: number; set: T3dSet; parent: T3dNode | null; M?: ArrayLike<number>; ge: number; refine: string; sphere: Sphere | null; uri: string | null; children: T3dNode[] | null;
-	json?: TileJson; base?: string; external?: boolean; i3s?: I3SNodeMsg; kidsState?: "none" | "loading" | "ready" | "failed"; imp?: ImpNode;
+	json?: TileJson; base?: string; geoLift?: number; external?: boolean; i3s?: I3SNodeMsg; kidsState?: "none" | "loading" | "ready" | "failed"; imp?: ImpNode;
 	scope?: T3dScope; tileMeta?: MetadataEntity | null; contentMeta?: MetadataEntity | null; group?: number;
 	paint?: PaintPart[] | null;
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
@@ -113,7 +113,7 @@ interface T3dSet {
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number };
 	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
-	name?: string | null; copyright?: string | null;
+	name?: string | null; copyright?: string | null; ellipsoidal?: boolean;
 	root: T3dNode; ready: Set<T3dNode>; scope?: T3dScope; style?: CompiledStyle | null; styleSpec?: Tiles3DStyle | null; metaBase?: Record<string, unknown>; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
 }
 /** add の手綱（公開の Tiles3DHandle＋検分用の tiles） */
@@ -254,7 +254,15 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	let sseScale = 1, moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
-	const withQuery = (uri: string, set: T3dSet) => { if (!set.query.length) return uri; const u = new URL(uri); for (const [k, v] of set.query) if (!u.searchParams.has(k)) u.searchParams.set(k, v); return u.href; };   // 親の URL の鍵（?key= 等）を子へ引き継ぐ
+	// 親の URL の鍵（?key= 等）を子へ引き継ぐ：tileset の根の物と、子を書いた JSON（外部 tileset）の URL の物（Cesium の getDerivedResource と同じ＝
+	// Google の 3D Tiles は外部 tileset の URL に ?session= が付き、その子はそれ無しでは 400）・子自身の物が先
+	const withQuery = (uri: string, set: T3dSet, base?: string) => {
+		const bq = base && base.includes("?") ? [...new URL(base).searchParams] : [];
+		if (!set.query.length && !bq.length) return uri;
+		const u = new URL(uri);
+		for (const [k, v] of [...bq, ...set.query]) if (!u.searchParams.has(k)) u.searchParams.set(k, v);
+		return u.href;
+	};
 	const tileNode = (json: TileJson, parentM: ArrayLike<number>, base: string, set: T3dSet, parent: T3dNode | null, scope: T3dScope | null = parent?.scope ?? null): T3dNode => {
 		const M = json.transform ? m4mul(parentM, json.transform) : parentM;
 		const t = implicitOf(json);   // implicit の根＝content の URI はテンプレート・子は subtree から
@@ -264,7 +272,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const c0 = cs[0], uri = c0 ? uriOf(c0) : null;
 		const tileMeta = entityOf(json.metadata, scope?.schema), { bv, ge } = applySemantics(json.boundingVolume ?? null, json.geometricError ?? 0, semanticsOf(tileMeta, scope?.schema));   // 意味（TILE_*）で境界と誤差を上書き
 		const n: T3dNode = { id: ++tileSeq, set, parent, M, ge, refine: (json.refine || parent?.refine || "REPLACE").toUpperCase(),
-			sphere: sphereOf(bv ?? undefined, M), uri: uri && !t ? withQuery(new URL(uri, base).href, set) : null, children: null, json, base,
+			sphere: sphereOf(bv ?? undefined, M), uri: uri && !t ? withQuery(new URL(uri, base).href, set, base) : null, children: null, json, base,
 			state: "none", ward: null, bytes: 0, mainBytes: 0, pts: null, on: false, used: 0, err: 0, scope: scope ?? undefined, tileMeta, contentMeta: t ? null : entityOf(c0?.metadata, scope?.schema), group: c0?.group };
 		n.external = !!n.uri && isJsonUri(n.uri);
 		if (t) {
@@ -272,9 +280,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.imp = { R: { t, bv: json.boundingVolume || {}, ge: json.geometricError ?? 0, refine: n.refine, contents: cs.map(c => ({ uri: uriOf(c)!, group: c.group })), base, subtrees: new Map() }, c: r0, r: r0, st: null };
 			n.tileMeta = null;   // implicit の根の metadata は subtree から
 		}
-		else if (cs.length > 1) n.extra = cs.slice(1).map(c => contentNode(n, withQuery(new URL(uriOf(c)!, base).href, set), entityOf(c.metadata, scope?.schema), c.group));
+		else if (cs.length > 1) n.extra = cs.slice(1).map(c => contentNode(n, withQuery(new URL(uriOf(c)!, base).href, set, base), entityOf(c.metadata, scope?.schema), c.group));
 		return n;
 	};
+	// 足す高さ＝heightOffset＋楕円体高 → 標高の直し（heights: "ellipsoidal"＝タイルの境界球の中心の EGM96 の N を引く・タイルごと＝全球の tileset でも所の N）
+	const liftOf = (set: T3dSet, n?: T3dNode) => (set.opts.heightOffset || 0) + (set.ellipsoidal && n?.sphere ? (n.geoLift ??= geoLiftAt(n.sphere.c)) : 0);
+	const geoLiftAt = (c: ArrayLike<number>) => { const [lon, lat] = ecef2geo(c[0], c[1], c[2]), N = geoidHeight(lon * R2D, lat * R2D); return Number.isFinite(N) ? -N : 0; };
 	const isJsonUri = (u: string) => /\.json(\?|$)/i.test(u);
 	// 複数 content の 2 個目から＝タイルの境界・誤差・metadata を写した content の節点（木は歩かない＝子は空）
 	const contentNode = (owner: T3dNode, uri: string, contentMeta: MetadataEntity | null, group: number | undefined): T3dNode => ({ id: ++tileSeq, set: owner.set, parent: owner.parent, owner, M: owner.M, ge: owner.ge, refine: owner.refine, sphere: owner.sphere,
@@ -295,7 +306,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (sem) { const o = applySemantics(volumeAt(R.bv, c, R.t.n), geometricErrorAt(R.ge, c.level), sem); n.ge = o.ge; n.sphere = sphereOf(o.bv ?? undefined, n.M!); }
 		const parts = R.contents.map((ct, k) => {
 			const ca = st!.content[k], has = !!ca && isAvailable(ca, i), cm = st!.json.contentMetadata?.[k];
-			return has ? { uri: withQuery(new URL(expandUri(ct.uri, c), R.base).href, n.set), meta: tables && cm != null ? rowEntity(tables[cm], rankOf(ca, i)) : null, group: ct.group } : null;
+			return has ? { uri: withQuery(new URL(expandUri(ct.uri, c), R.base).href, n.set, R.base), meta: tables && cm != null ? rowEntity(tables[cm], rankOf(ca, i)) : null, group: ct.group } : null;
 		});
 		const p0 = parts[0];
 		n.uri = p0?.uri ?? null; n.contentMeta = p0?.meta ?? null; n.group = p0?.group ?? R.contents[0]?.group;
@@ -307,10 +318,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const I = n.imp!, R = I.R, key = `${I.c.level}/${I.c.x}/${I.c.y}/${I.c.z ?? 0}`;
 		let slot = R.subtrees.get(key);
 		if (!slot) {
-			const set = n.set, url = withQuery(new URL(expandUri(R.t.subtreeUri, I.c), R.base).href, set);
+			const set = n.set, url = withQuery(new URL(expandUri(R.t.subtreeUri, I.c), R.base).href, set, R.base);
 			slot = { state: "loading", st: null }; R.subtrees.set(key, slot);
 			const sl = slot;
-			getBin(url, set.opts.requestTransform).then(ab => parseSubtree(ab, R.t, uri => getBin(withQuery(new URL(uri, url).href, set), set.opts.requestTransform)))
+			getBin(url, set.opts.requestTransform).then(ab => parseSubtree(ab, R.t, uri => getBin(withQuery(new URL(uri, url).href, set, url), set.opts.requestTransform)))
 				.then(st => { sl.st = st; sl.state = "ready"; set.stats.subtrees++; })
 				.catch(err => { sl.state = "failed"; console.warn("[tiles3d] subtree", url, err.message); })
 				.finally(schedule);
@@ -374,8 +385,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const onGround = set.opts.ground === "terrain";
 		const rq: Partial<ResolvedRequest> = set.kind !== "i3s" ? resolveFor(set.opts.requestTransform, n.uri!, "Tile") : { url: n.uri! };
 		const body = (rq.load ? rq.load("arrayBuffer") : Promise.resolve(null)) as Promise<ArrayBuffer | null>;   // 独自スキーム＝main が読み口で取って本体を worker へ
-		body.then(ab => set.kind === "i3s" ? rpc<TileReply>({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s!.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
-			: rpc<TileReply>({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute", featureIdSet: set.opts.featureIdSet ?? 0, transcoders: transcodersOf(map), splats: hasSplat(), voxels: voxOpts(set, n) }, ab ? [ab] : [])).then(r => {
+		body.then(ab => set.kind === "i3s" ? rpc<TileReply>({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s!.id, token: set.opts.token, baseH: -liftOf(set, n), groundMode: onGround ? "terrain" : "absolute" })
+			: rpc<TileReply>({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -liftOf(set, n), textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute", featureIdSet: set.opts.featureIdSet ?? 0, transcoders: transcodersOf(map), splats: hasSplat(), voxels: voxOpts(set, n) }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
@@ -550,10 +561,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (const set of sets.values()) {
 			if (!set.root || set.hidden) continue;
 			const show = new Set<T3dNode>();
-			const baseH = -set.opts.heightOffset, maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * sseScale;
+			const maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * sseScale;
 			const visible = (n: T3dNode): { ok: true; dist: number; distC?: number } | { ok: false } => {
 				if (!n.sphere) return { ok: true, dist: 1 };
-				const c = worldOf(n.sphere.c, baseH, ell, EARTH_M), r = n.sphere.r / EARTH_M;
+				const c = worldOf(n.sphere.c, -liftOf(set, n), ell, EARTH_M), r = n.sphere.r / EARTH_M;
 				for (const p of planes) if (p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] < -r) return { ok: false };
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
@@ -675,8 +686,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			set.root = tileNode(j.root, I4, abs.href, set, null, set.scope);
 			if (!set.root.ge) set.root.ge = j.geometricError ?? 0;
 			set.loaded = () => [...set.ready];   // 中身が上がっている節点（load／unload が保つ＝毎回木を歩かない）
-			sets.set(id, set);
 			const sp = set.root.sphere;
+			if (opts.heights === "ellipsoidal") set.ellipsoidal = await loadGeoid().then(() => true, () => false);   // 楕円体高＝タイルを読む前に格子を（liftOf）
+			sets.set(id, set);
 			if (opts.fit !== false && sp) {   // 寄る＝境界球が画面に収まる所へ（傾けて）
 				const [lon, lat] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]);
 				const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320)));
