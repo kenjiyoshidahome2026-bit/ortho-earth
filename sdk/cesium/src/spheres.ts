@@ -20,10 +20,20 @@ void heights;
 
 const NO_PRIMITIVES = { add: (p: Any) => p, remove: () => true, removeAndDestroy: () => true, contains: () => false };
 
+/**
+ * the geometry with its own copies of the arrays it holds and their points: XGeometry.createGeometry may change them in place
+ * (PolylineVolumeGeometry moves its positions onto the ellipsoid surface, others reverse or drop points), and they are often the entity's own. Cesium never sees this, since
+ * its Primitive packs the geometry for a worker first.
+ */
+export const ownArrays = (g: Any): Any => {
+	for (const k of Object.keys(g)) if (Array.isArray(g[k])) g[k] = g[k].map((v: Any) => (typeof v?.clone === "function" ? v.clone() : v));
+	return g;
+};
+
 const sphereOfInstance = (inst: Any): BoundingSphere | null => {
 	const g = inst?.geometry;
 	if (!g) return null;
-	const geom = g.constructor?.createGeometry ? g.constructor.createGeometry(g) : g;
+	const geom = g.constructor?.createGeometry ? g.constructor.createGeometry(ownArrays(g)) : g;
 	const bs = geom?.boundingSphere;
 	if (!bs) return null;
 	const out = inst.modelMatrix && !Matrix4.equals(inst.modelMatrix, Matrix4.IDENTITY) ? BoundingSphere.transform(bs, inst.modelMatrix, new BoundingSphere()) : BoundingSphere.clone(bs);

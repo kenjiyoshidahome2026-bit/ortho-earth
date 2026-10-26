@@ -10,6 +10,7 @@ import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { headingOf } from "./display.ts";
 import { gltfNodeNames, gltfSphere } from "./gltf.ts";
+import { ownArrays } from "./spheres.ts";
 import { matKey, matOfMaterial, matTranslucent, paintSquare } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
 import type { Host } from "./scene.ts";
@@ -210,7 +211,7 @@ export class PrimitiveDrawer {
 			let geom: Any = g;
 			if (g && !g.attributes) {
 				const C = g.constructor;
-				try { geom = C?.createGeometry?.(g); } catch (e) { console.warn("[csshim] createGeometry", C?.name, e); geom = undefined; }
+				try { geom = C?.createGeometry?.(ownArrays(g)); } catch (e) { console.warn("[csshim] createGeometry", C?.name, e); geom = undefined; }
 				if (!geom) { if (!C?.createGeometry) unsupported(`geometry ${C?.name ?? typeof g}`); return; }
 			}
 			const pv = geom.attributes?.position?.values;
