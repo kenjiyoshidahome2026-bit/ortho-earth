@@ -71,7 +71,7 @@ const serve = {
 			const [, side, rest] = m;
 			if (side === "ref") { res.removeHeader("Cross-Origin-Opener-Policy"); res.removeHeader("Cross-Origin-Embedder-Policy"); }
 			let file = null, g;
-			if ((g = /^gallery\/([a-z0-9-]+)\/$/.exec(rest)) && fs.existsSync(path.join(CACHE, "gallery", g[1], "main.js"))) {
+			if ((g = /^gallery\/([a-z0-9.-]+)\/$/.exec(rest)) && fs.existsSync(path.join(CACHE, "gallery", g[1], "main.js"))) {
 				res.setHeader("Content-Type", MIME[".html"]); res.setHeader("Cache-Control", "no-store");
 				return res.end(page(side, g[1]));
 			}
