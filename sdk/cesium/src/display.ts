@@ -7,7 +7,7 @@
 //   model → map.gadget.model (heading only: the globe's models do not pitch or roll)
 // It also answers what the CesiumWidget asks of a display: update(time), getBoundingSphere(entity) for zoomTo / flyTo / trackedEntity,
 // and picking (what is under a screen point).
-import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType } from "@cesium/core";
+import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, CorridorOutlineGeometry, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference } from "@cesium/engine";
 import { unsupported } from "./report.ts";
@@ -15,12 +15,24 @@ import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { PrimitiveDrawer } from "./primitives.ts";
+import { matKey, matOfProperty, paint } from "./materials.ts";
+import type { MatDesc } from "./materials.ts";
 import type { Host, OrthoScene } from "./scene.ts";
 
 type Any = any;
 const { BoundingSphereState, Property, ColorGeometryInstanceAttribute } = engine as Any;   // runtime exports the d.ts leaves out (and Property's static helpers)
 // the solids drawn with Cesium's own geometry: [graphic, its updater]
-const SOLIDS: [string, Any][] = [["box", (engine as Any).BoxGeometryUpdater], ["cylinder", (engine as Any).CylinderGeometryUpdater], ["ellipsoid", (engine as Any).EllipsoidGeometryUpdater]];
+//   and the shapes off the ground (polygon, rectangle, ellipse, corridor at a height or extruded; wall; polylineVolume): Cesium's geometry gives
+//   their per-position heights, rotation, cross-section and outline (only the corner and every-few vertical lines) as Cesium draws them
+const E = engine as Any;
+const SOLIDS: [string, Any][] = [["box", E.BoxGeometryUpdater], ["cylinder", E.CylinderGeometryUpdater], ["ellipsoid", E.EllipsoidGeometryUpdater],
+	["polygon", E.PolygonGeometryUpdater], ["rectangle", E.RectangleGeometryUpdater], ["ellipse", E.EllipseGeometryUpdater], ["corridor", E.CorridorGeometryUpdater],
+	["wall", E.WallGeometryUpdater], ["polylineVolume", E.PolylineVolumeGeometryUpdater]];
+/** a height measured from the terrain (Cesium moves such geometry with the ground under it): the GeoJSON layers below draw it */
+const onGround = (g: Any, t: JulianDate) => [g.heightReference, g.extrudedHeightReference].some(p => { const v = val(p, t, HeightReference.NONE); return v !== HeightReference.NONE; });
+/** a polygon, rectangle, ellipse or corridor with neither height nor extrusion lies on the surface (the GeoJSON fill drapes it; Cesium's is a ground primitive) */
+const SURFACE = new Set(["polygon", "rectangle", "ellipse", "corridor"]);
+const onSurface = (name: string, g: Any, t: JulianDate) => SURFACE.has(name) && val(g.height, t) == null && val(g.extrudedHeight, t) == null && !val(g.perPositionHeight, t, false);
 const R2D = 180 / Math.PI, D2R = Math.PI / 180, FAR = 8.64e15;
 const SRC = "__cs-shapes";
 const val = (p: Any, t: JulianDate, d?: Any) => { const v = Property.getValueOrUndefined(p, t); return v === undefined ? d : v; };
@@ -128,12 +140,57 @@ function corridorRing(ps: Cartesian3[], width: number): number[][] {
 	return ring;
 }
 
+/** a polyline's material as the overlay draws it: outline = a wider line under, glow = fading wider lines, dash and arrow = the overlay's own */
+function styledLines(p: number[], m: Any, t: JulianDate, col: Color, width: number): Desc["lines"] {
+	const type = m?.getType?.(t), u = type ? m.getValue(t, {}) ?? {} : {};
+	switch (type) {
+		case "PolylineOutline": {
+			const ow = u.outlineWidth ?? 1;   // the line's width takes in the outline (half of outlineWidth on each side, as the shots of Cesium show)
+			return [{ p, color: css(u.outlineColor, Color.BLACK), width }, { p, color: css(col), width: Math.max(1, width - ow) }];
+		}
+		case "PolylineGlow": {   // Cesium fades the colour from the core (glowPower of the width) out to the edge
+			const gp = Math.max(0.05, Math.min(1, u.glowPower ?? 0.25)), c = (col ?? Color.WHITE);
+			return [1, 0.66, 0.4].map((k, i) => ({ p, color: css(Color.fromAlpha(c, c.alpha * [0.25, 0.45, 0.75][i])), width: Math.max(1, width * k) }))
+				.concat([{ p, color: css(Color.lerp(c, Color.WHITE, 0.6, new Color())), width: Math.max(1, width * gp) }]);   // the core runs to white
+		}
+		case "PolylineDash": {
+			const gap = u.gapColor;
+			const dash = { p, color: css(col), width, dash: { len: u.dashLength ?? 16, pattern: u.dashPattern ?? 255 } };
+			return gap && gap.alpha > 0 ? [{ p, color: css(gap), width }, dash] : [dash];
+		}
+		case "PolylineArrow": return [{ p, color: css(col), width, arrow: true }];
+	}
+	return [{ p, color: css(col), width }];
+}
+
+/** a corridor's outline as Cesium makes it (CorridorOutlineGeometry: the corners rounded, mitered or beveled) → lon/lat ring; the simple ring if that fails */
+function cesiumCorridorRing(ps: Cartesian3[], width: number, cornerType: number | undefined): number[][] {
+	try {
+		const g = CorridorOutlineGeometry.createGeometry(new CorridorOutlineGeometry({ positions: ps, width, cornerType, height: 0 }));
+		const pv = g?.attributes?.position?.values, idx: Any = g?.indices;
+		if (pv && idx?.length >= 6) {
+			const next = new Map<number, number[]>();   // the segments make one loop: walk it
+			for (let k = 0; k + 1 < idx.length; k += 2) for (const [a, b] of [[idx[k], idx[k + 1]], [idx[k + 1], idx[k]]]) { const l = next.get(a); if (l) l.push(b); else next.set(a, [b]); }
+			const ring: number[][] = [], seen = new Set<number>();
+			for (let i: number | undefined = idx[0], prev = -1; i !== undefined && !seen.has(i);) {
+				seen.add(i);
+				const q = llOf(new Cartesian3(pv[i * 3], pv[i * 3 + 1], pv[i * 3 + 2])); if (q) ring.push([q[0], q[1]]);
+				const nb: number | undefined = (next.get(i) ?? []).find(j => j !== prev && !seen.has(j)); prev = i; i = nb;
+			}
+			if (ring.length > 2 && seen.size === next.size) { ring.push(ring[0]); return ring; }
+		}
+	} catch { /* below */ }
+	return corridorRing(ps, width);
+}
+
 /** what one entity shows at a time (JSON-comparable) */
 interface Desc {
 	track: { id: string; name: string | null; t: number[]; p: number[]; style: Any; avail: number[][] | null } | null;
 	shapes: Any[];
-	lines: Array<{ p: number[]; color: string; width: number }>;
-	model: { uri: string; scale: number; at: [number, number]; altitude: number; heading: number; anim: boolean } | null;
+	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
+	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
+	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
+	model: { uri: string; scale: number; at: [number, number]; altitude: number; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
@@ -147,7 +204,7 @@ export class EntityDisplay {
 	readonly host: Host;
 	#recs = new Map<Any, Rec>();
 	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean }>();
-	#lastTracks = ""; #lastLines = ""; #lastShapes = "";
+	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; z: number; ready: boolean }>(); #patGen = 0;
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
 	#marks: Array<{ e: Any; x: number; y: number; r: number }> = [];
@@ -171,7 +228,7 @@ export class EntityDisplay {
 		for (const e of [...this.#tilesets.keys()]) this.#dropTileset(e);
 		this.#ov?.remove?.(); this.#ov = null;
 		const map = this.host.map;
-		if (map) { for (const id of this.#layers) if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(SRC)) map.removeSource(SRC); }
+		if (map) { for (const id of this.#layers) if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(SRC)) map.removeSource(SRC); this.#setPatterns(map, []); }
 		return undefined;
 	}
 
@@ -227,7 +284,7 @@ export class EntityDisplay {
 		const ents = this.#entities(), live = new Set(ents);
 		for (const [e, r] of this.#recs) if (!live.has(e)) { r.off(); this.#recs.delete(e); }
 		for (const e of [...this.#tilesets.keys()]) if (!live.has(e)) this.#dropTileset(e);
-		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
+		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], patterns: Desc["patterns"] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
 		for (const e of ents) {
 			const r = this.#rec(e);
 			if (r.dirty || r.dynamic || !r.desc) {
@@ -243,6 +300,7 @@ export class EntityDisplay {
 			if (!shown) continue;
 			for (const l of d.lines) lines.push(l);
 			for (const s of d.shapes) shapes.push(s);
+			for (const q of d.patterns) patterns.push(q);
 			if (d.model) models.set(e, d.model);
 			if (d.solids) solids.set(e, d.solids);
 		}
@@ -258,8 +316,18 @@ export class EntityDisplay {
 		}
 		const lk = JSON.stringify(lines);
 		if (lk !== this.#lastLines) { this.#lastLines = lk; this.#ov.post({ type: "lines", lines: lines.map(l => ({ ...l, avail: null, show: true })) }); }
+		shapes.sort((a, b) => (a.properties._z ?? 0) - (b.properties._z ?? 0));   // ground shapes in zIndex order (a stable sort: ties keep the entities' order)
+		// the painted ground shapes are image layers, and those draw under the fills: a fill with a lower zIndex than a painted shape goes into the images too (in its colour)
+		const zPat = patterns.length ? Math.max(...patterns.map(q => q.z)) : -Infinity;
+		for (let i = shapes.length - 1; i >= 0; i--) {
+			const f = shapes[i], pr = f.properties;
+			if (pr._k !== "fill" || !(pr._z < zPat)) continue;
+			patterns.push({ id: pr._id, polys: f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates], mat: { type: "Solid", u: { color: Color.fromCssColorString(pr._fc).withAlpha(pr._fo) } }, z: pr._z });
+			shapes.splice(i, 1);
+		}
 		const sk = JSON.stringify(shapes);
 		if (sk !== this.#lastShapes) { this.#lastShapes = sk; this.#setShapes(map, shapes); }
+		this.#setPatterns(map, patterns);
 		this.#placeModels(map, models);
 		// the globe's clock shows the Cesium clock's time (the overlay plays the tracks on it)
 		const ms = JulianDate.toDate(time).getTime();
@@ -291,12 +359,16 @@ export class EntityDisplay {
 			let u: Any;
 			try { u = new U(e, this.scene); } catch { continue; }
 			try {
-				if (u.isDynamic || u.onTerrain) continue;
+				if (u.isDynamic || u.onTerrain || onGround(e[name], t) || onSurface(name, e[name], t)) continue;
 				done.add(name);
 				const g = d.solids ??= r.solids.d = { fill: [], outline: [], width: 1 };
 				if (u.fillEnabled) {
 					const inst = u.createFillGeometryInstance(t);
-					if (!inst.attributes?.color) (inst.attributes ??= {}).color = ColorGeometryInstanceAttribute.fromColor(materialColor(u.fillMaterialProperty, t));   // a material that is not a colour: drawn in its colour
+					if (!inst.attributes?.color) {   // a material that is not a colour: painted (stripe, checkerboard, grid, image) or drawn in its colour
+						const m = matOfProperty(u.fillMaterialProperty, t);
+						if (m) inst.__mat = m;
+						(inst.attributes ??= {}).color = ColorGeometryInstanceAttribute.fromColor(m ? Color.WHITE : materialColor(u.fillMaterialProperty, t));
+					}
 					g.fill.push(inst);
 				}
 				if (u.outlineEnabled) { g.outline.push(u.createOutlineGeometryInstance(t)); g.width = Math.max(g.width, u.outlineWidth ?? 1); }
@@ -307,7 +379,7 @@ export class EntityDisplay {
 	}
 
 	#describe(e: Any, t: JulianDate, r: Rec): Desc {
-		const d: Desc = { track: null, shapes: [], lines: [], model: null, sphere: null, solids: null };
+		const d: Desc = { track: null, shapes: [], patterns: [], lines: [], model: null, sphere: null, solids: null };
 		let dynamic = false;
 		const dyn = (...ps: Any[]) => { for (const p of ps) if (!isConst(p)) dynamic = true; };
 		const pos: Cartesian3 | undefined = e.position ? val(e.position, t) : undefined;
@@ -378,20 +450,23 @@ export class EntityDisplay {
 			if (u && ll) {
 				const href = val(mo.heightReference, t, HeightReference.NONE);
 				const ground = href === HeightReference.NONE ? (this.host.map?.queryTerrainElevation?.(ll[0], ll[1]) ?? 0) : 0;
-				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2] - (Number.isFinite(ground) ? ground : 0), heading: headingOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true) };
+				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2] - (Number.isFinite(ground) ? ground : 0), heading: headingOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
+					minPx: val(mo.minimumPixelSize, t, 0), maxScale: val(mo.maximumScale, t, null), c: [pos.x, pos.y, pos.z] };
+				dyn(mo.minimumPixelSize, mo.maximumScale);
 				sphPts.push(pos);
 			}
 		}
 		// ── shapes ──
 		const id = String(e.id);
-		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number }, multi = false) => {
+		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number }, multi = false) => {
 			const geom = multi ? { type: "MultiPolygon", coordinates: rings } : { type: "Polygon", coordinates: rings };
 			const polys = (multi ? rings : [rings]) as number[][][][];
 			if (!polys.length || !polys[0]?.[0]?.length) return;
 			const ext = o.top != null;
-			if (o.fill) {
+			if (o.fill && o.mat && !ext) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 });
+			else if (o.fill) {
 				const [fc, fo] = rgbAlpha(o.color);
-				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? "ext" : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0 } });
+				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? "ext" : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
 			}
 			if (o.outline) {
 				const [lc, lo] = rgbAlpha(o.outlineColor, Color.BLACK);
@@ -408,15 +483,16 @@ export class EntityDisplay {
 		};
 		const common = (g: Any) => {
 			dyn(g.material, g.fill, g.outline, g.outlineColor, g.height, g.extrudedHeight, g.show);
-			return { fill: val(g.fill, t, true), color: materialColor(g.material, t), outline: val(g.outline, t, false), outlineColor: val(g.outlineColor, t, Color.BLACK), outlineWidth: val(g.outlineWidth, t, 1) };
+			return { fill: val(g.fill, t, true), color: materialColor(g.material, t), mat: matOfProperty(g.material, t), z: val(g.zIndex, t, 0), outline: val(g.outline, t, false), outlineColor: val(g.outlineColor, t, Color.BLACK), outlineWidth: val(g.outlineWidth, t, 1) };
 		};
 		const vertical = (h: number | undefined, x: number | undefined, perPos?: number) => {
 			const hh = perPos ?? h ?? 0;   // per-position heights: their mean (the globe's extrusions are flat-topped)
 			if (x != null) return { base: Math.min(hh, x), top: Math.max(hh, x) };
 			return Math.abs(hh) > 0.01 ? { base: hh - 0.5, top: hh + 0.5 } : {};   // a polygon in the air: a 1 m slab
 		};
+		const solid = this.#solidsOf(e, t, d, r);
 		const pg = e.polygon;
-		if (pg && val(pg.show, t, true)) {
+		if (pg && val(pg.show, t, true) && !solid.has("polygon")) {
 			dyn(pg.hierarchy, pg.perPositionHeight);
 			let hi = val(pg.hierarchy, t);
 			if (Array.isArray(hi)) hi = new PolygonHierarchy(hi);
@@ -428,7 +504,7 @@ export class EntityDisplay {
 			}
 		}
 		const re = e.rectangle;
-		if (re && val(re.show, t, true)) {
+		if (re && val(re.show, t, true) && !solid.has("rectangle")) {
 			dyn(re.coordinates, re.rotation);
 			const rc = val(re.coordinates, t);
 			if (rc) {
@@ -442,12 +518,11 @@ export class EntityDisplay {
 			}
 		}
 		const el = e.ellipse;
-		if (el && pos && val(el.show, t, true)) {
+		if (el && pos && val(el.show, t, true) && !solid.has("ellipse")) {
 			dyn(el.semiMajorAxis, el.semiMinorAxis, el.rotation); if (!isConst(e.position)) dynamic = true;
 			const a = val(el.semiMajorAxis, t), b = val(el.semiMinorAxis, t);
 			if (a > 0 && b > 0) addShape([enuRing(pos, ellipsePts(a, b, val(el.rotation, t, 0)), 0)], { ...common(el), ...vertical(val(el.height, t), val(el.extrudedHeight, t)) });
 		}
-		const solid = this.#solidsOf(e, t, d, r);
 		const bx = e.box;
 		if (bx && pos && val(bx.show, t, true) && !solid.has("box")) {
 			dyn(bx.dimensions, e.orientation); if (!isConst(e.position)) dynamic = true;
@@ -477,13 +552,13 @@ export class EntityDisplay {
 			}
 		}
 		const co = e.corridor;
-		if (co && val(co.show, t, true)) {
+		if (co && val(co.show, t, true) && !solid.has("corridor")) {
 			dyn(co.positions, co.width);
 			const ps = val(co.positions, t), w = val(co.width, t, 0);
-			if (ps?.length > 1 && w > 0) addShape([corridorRing(ps, w)], { ...common(co), ...vertical(val(co.height, t), val(co.extrudedHeight, t)) });
+			if (ps?.length > 1 && w > 0) addShape([cesiumCorridorRing(ps, w, val(co.cornerType, t))], { ...common(co), ...vertical(val(co.height, t), val(co.extrudedHeight, t)) });
 		}
 		const wa = e.wall;
-		if (wa && val(wa.show, t, true)) {
+		if (wa && val(wa.show, t, true) && !solid.has("wall")) {
 			dyn(wa.positions, wa.maximumHeights, wa.minimumHeights);
 			const ps: Cartesian3[] = val(wa.positions, t) || [], mx: number[] | undefined = val(wa.maximumHeights, t), mn: number[] | undefined = val(wa.minimumHeights, t), c = common(wa);
 			for (let i = 0; i + 1 < ps.length; i++) {
@@ -494,7 +569,7 @@ export class EntityDisplay {
 			}
 		}
 		const pv = e.polylineVolume;
-		if (pv && val(pv.show, t, true)) {
+		if (pv && val(pv.show, t, true) && !solid.has("polylineVolume")) {
 			dyn(pv.positions, pv.shape);
 			const ps = val(pv.positions, t), sh: Cartesian2[] = val(pv.shape, t) || [];
 			if (ps?.length > 1 && sh.length) {
@@ -515,10 +590,10 @@ export class EntityDisplay {
 					d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]) }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
 				} else {
 					const at = val(pl.arcType, t, ArcType.GEODESIC);
-					const pts = at === ArcType.NONE ? ps : at === ArcType.RHUMB ? PolylinePipeline.generateCartesianRhumbArc({ positions: ps }) : PolylinePipeline.generateCartesianArc({ positions: ps });
+					const pts = at === ArcType.NONE ? ps : at === ArcType.RHUMB ? PolylinePipeline.generateCartesianRhumbArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) }) : PolylinePipeline.generateCartesianArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) });   // the heights go along (Cesium's PolylineGeometry passes them so)
 					const flat: number[] = [];
 					for (let i = 0; i < pts.length; i++) { const q: Any = pts[i]; if (q instanceof Cartesian3) flat.push(q.x, q.y, q.z); else if (typeof q === "number") flat.push(q); }
-					d.lines.push({ p: flat, color: css(col), width });
+					d.lines.push(...styledLines(flat, pl.material, t, col, width));
 				}
 				sphPts.push(...ps);
 			}
@@ -570,9 +645,52 @@ export class EntityDisplay {
 		}
 	}
 
+	/** each patterned ground shape: its material painted over its longitude/latitude box (st across the box, as Cesium's rectangles map it),
+	 *  clipped to the shape, as an image layer under the outlines */
+	#setPatterns(map: Any, pats: Desc["patterns"]) {
+		const want = new Map<string, Desc["patterns"][number]>();
+		for (const q of pats) want.set(JSON.stringify(q.polys) + matKey(q.mat), q);
+		for (const [k, pt] of this.#pats) if (!want.has(k)) { const id = `__cs-pat-${pt.n}`; if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); this.#pats.delete(k); }
+		for (const [k, q] of want) {
+			if (this.#pats.has(k)) continue;
+			const n = ++this.#patGen, pt = { n, z: q.z, ready: false }; this.#pats.set(k, pt);
+			let w = Infinity, s = Infinity, e = -Infinity, nn = -Infinity;
+			for (const p of q.polys) for (const r of p) for (const [x, y] of r) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); nn = Math.max(nn, y); }
+			if (!(e > w && nn > s)) continue;
+			const k0 = Math.cos(((s + nn) / 2) * D2R), aspect = ((e - w) * k0) / (nn - s), W = Math.round(aspect >= 1 ? 1024 : Math.max(16, 1024 * aspect)), H = Math.round(aspect >= 1 ? Math.max(16, 1024 / aspect) : 1024);
+			void paint(q.mat, W, H, (x, y) => [x / W, 1 - y / H]).then(cv => {
+				if (!cv || this.#pats.get(k) !== pt || this.#destroyed) return;
+				const ctx = cv.getContext("2d")!;
+				ctx.globalCompositeOperation = "destination-in"; ctx.beginPath();
+				for (const p of q.polys) for (const r of p) r.forEach(([x, y], i) => { const px = ((x - w) / (e - w)) * W, py = ((nn - y) / (nn - s)) * H; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+				ctx.fill("evenodd");
+				const id = `__cs-pat-${n}`;
+				map.addSource(id, { type: "image", url: cv.toDataURL(), coordinates: [[w, nn], [e, nn], [e, s], [w, s]] });
+				pt.ready = true;
+				// stack the image layers in zIndex order (each paint lands in its own time: lay them all again)
+				const ready = [...this.#pats.values()].filter(x => x.ready).sort((a, b) => a.z - b.z || a.n - b.n);
+				for (const x of ready) if (map.getLayer?.(`__cs-pat-${x.n}`)) map.removeLayer(`__cs-pat-${x.n}`);
+				for (const x of ready) map.addLayer({ id: `__cs-pat-${x.n}`, type: "raster", source: `__cs-pat-${x.n}`, paint: { "raster-fade-duration": 0 } });
+			});
+		}
+	}
+
+	/** a model's scale as Cesium draws it: minimumPixelSize enlarges a far model to that many pixels across (Model's scaleInPixels), maximumScale caps it */
+	#modelScale(d: NonNullable<Desc["model"]>): number {
+		if (!(d.minPx! > 0) || !d.c) return d.scale;
+		const g = this.#gsph.get(d.uri);
+		if (g === undefined) { this.#gsph.set(d.uri, "pending"); void gltfSphere(d.uri).then(v => { this.#gsph.set(d.uri, v); this.invalidate(); }); }
+		if (!g || g === "pending" || !(g.radius > 0)) return d.scale;
+		const r = g.radius * d.scale, bs = new BoundingSphere(new Cartesian3(d.c[0], d.c[1], d.c[2]), r);
+		const mpp = this.scene.camera.getPixelSize(bs, this.scene.drawingBufferWidth, this.scene.drawingBufferHeight);
+		let k = d.scale;
+		if (Number.isFinite(mpp) && mpp > 0 && (2 * r) / mpp < d.minPx!) k = (d.minPx! * mpp) / (2 * g.radius);
+		return d.maxScale != null ? Math.min(k, d.maxScale) : k;
+	}
 	#placeModels(map: Any, models: Map<Any, NonNullable<Desc["model"]>>) {
 		for (const [e, m] of this.#models) if (!models.has(e)) { m.dead = true; m.h?.clear?.(); this.#models.delete(e); }
-		for (const [e, d] of models) {
+		for (const [e, d0] of models) {
+			const d = { ...d0, scale: this.#modelScale(d0) };
 			let m = this.#models.get(e);
 			if (m && (m.uri !== d.uri)) { m.dead = true; m.h?.clear?.(); this.#models.delete(e); m = undefined; }
 			if (!m) {
@@ -582,7 +700,7 @@ export class EntityDisplay {
 					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; if (d.anim && h.animations?.length) h.play(); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}
-			if (m.h) m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale / m.scale });
+			if (m.h) m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale });   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
 		}
 	}
 

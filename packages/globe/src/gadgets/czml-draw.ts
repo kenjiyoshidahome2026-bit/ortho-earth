@@ -27,7 +27,9 @@ type DrawTrack = CzmlTrack & { style?: CzmlStyle };
 interface Mark { x: number; y: number; r: number; tr: DrawTrack }
 /** main からの指示＋検定の probe */
 /** 高さのある線（CZML の polyline・P0 #5＝gadgets/czml-scene.ts の CzmlLine3D）＝ECEF の点列・出ている区間 */
-interface DrawLine { p: number[]; color: string; width: number; avail: [number, number][] | null; show: unknown }
+interface DrawLine { p: number[]; color: string; width: number; avail: [number, number][] | null; show: unknown; dash?: LineDash | null; arrow?: boolean }
+/** 破線（Cesium の PolylineDash）＝len＝16 ビットの模様 1 巡の長さ（CSS px）・pattern＝立っているビットが線（下位から） */
+interface LineDash { len: number; pattern: number }
 type CzmlDrawMsg = { type: "probe"; id?: unknown } | { type: "tracks"; tracks?: DrawTrack[] } | { type: "lines"; lines?: DrawLine[] } | { type: "clear" };
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
@@ -281,7 +283,12 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		if ((L.avail && !L.avail.some(([a, b]) => ms >= a && ms <= b)) || !boolAt(L.show, ms, true)) continue;
 		const lw = L.width * dpr, out: number[] = [];
 		let run: Array<[number, number]> = [];
-		const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0); run = []; };
+		const flush = () => {
+			if (L.arrow && run.length > 1) arrowRun(run, lw, out);
+			else if (L.dash) dashRun(run, lw, L.dash.len * dpr, L.dash.pattern, out);
+			else for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0);
+			run = [];
+		};
 		for (let i = 0; i + 2 < L.p.length; i += 3) { const P = toScreen([L.p[i], L.p[i + 1], L.p[i + 2]]); if (!P) { flush(); continue; } run.push(P); }
 		flush();
 		stroke(out, rgbaOf(L.color), lw);
@@ -338,6 +345,40 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 	}
 	g.bindVertexArray(null); g.disable(g.BLEND);
 	return api.clock?.rate !== 0;   // 時計が動いている（null＝実時間も）間は描き続ける
+}
+// 破線＝画面の長さで模様を刻む（Cesium の PolylineDash と同じ：1 巡 len px を 16 等分・ビットが立つ所が線）。線分の列 [x0,y0,x1,y1,幅,継ぎ前,継ぎ後] を out へ
+export function dashRun(run: Array<[number, number]>, lw: number, len: number, pattern: number, out: number[]) {
+	const bit = len / 16, on = (d: number) => ((pattern >> (Math.floor((((d % len) + len) % len) / bit) & 15)) & 1) === 1;
+	let d = 0;
+	for (let i = 0; i + 1 < run.length; i++) {
+		const [x0, y0] = run[i], [x1, y1] = run[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
+		let a = 0;
+		while (a < L) {
+			const r = bit - ((d + a) % bit), b = Math.min(L, a + (r > 1e-6 ? r : bit));   // 次のビットの境まで
+			if (on(d + (a + b) / 2)) out.push(x0 + (x1 - x0) * a / L, y0 + (y1 - y0) * a / L, x0 + (x1 - x0) * b / L, y0 + (y1 - y0) * b / L, lw, 0, 0);
+			a = b;
+		}
+		d += L;
+	}
+}
+// 矢印（Cesium の PolylineArrow）＝終点が先。軸は幅の 1/3、先の 1.5 幅ぶんは幅から 0 へ細る三角（細る段を短い線分で積む）
+export function arrowRun(run: Array<[number, number]>, lw: number, out: number[]) {
+	let total = 0;
+	for (let i = 0; i + 1 < run.length; i++) total += Math.hypot(run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1]);
+	const head = Math.min(total, lw * 1.5), shaft = Math.max(1, lw / 3), K = 8;
+	let d = 0;
+	for (let i = 0; i + 1 < run.length; i++) {
+		const [x0, y0] = run[i], [x1, y1] = run[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
+		if (!(L > 0)) continue;
+		const at = (u: number): [number, number] => [x0 + (x1 - x0) * (u - d) / L, y0 + (y1 - y0) * (u - d) / L];
+		const h0 = total - head, a = d, b = Math.min(d + L, h0);
+		if (b > a) { const p = at(a), q = at(b); out.push(p[0], p[1], q[0], q[1], shaft, i > 0 ? 1 : 0, b < d + L ? 1 : 0); }
+		for (let k = 0; k < K; k++) {   // 先の三角：k 段目の幅＝lw·(1 − (k+0.5)/K)
+			const u0 = h0 + head * k / K, u1 = h0 + head * (k + 1) / K, s0 = Math.max(u0, d), s1 = Math.min(u1, d + L);
+			if (s1 > s0) { const p = at(s0), q = at(s1); out.push(p[0], p[1], q[0], q[1], Math.max(0.5, lw * (1 - (k + 0.5) / K)), 0, 0); }
+		}
+		d += L;
+	}
 }
 // 印の列から (x, y) に一番近い物（中心の距離 − 印の半径 ≤ r）＝純関数（node の検定 tests/pick.mjs が読む）
 export function nearestMark<M extends { x: number; y: number; r: number }>(marks: M[], x: number, y: number, r: number) {
