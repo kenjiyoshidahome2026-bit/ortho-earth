@@ -75,7 +75,7 @@ async function runOne(browser, side, ex) {
 		rec.settleMs = Date.now() - t1;
 		if (rec.settled) await page.waitForTimeout(500);   // the frame after the last tile
 		Object.assign(rec, await page.evaluate(STATE));
-		const shot = await page.screenshot({ timeout: 30000 });
+		const shot = await page.screenshot({ timeout: 120000 });   // a frame of a city of 3D Tiles takes seconds on SwiftShader (on both sides)
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
 		rec.cells = cells(decodePng(shot));
 	} catch (e) { rec.harnessError = String(e?.message || e).split("\n")[0].slice(0, 300); }
