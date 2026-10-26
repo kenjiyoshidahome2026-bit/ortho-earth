@@ -8,7 +8,7 @@ import { sunVector, shadowWindow, shadowCascades, shadowDarkness, shadowHalfM, s
 import type { ShadowWindow, ShadowCascade } from "../shadow.ts";   // 断面（P0 #3）＝切る間だけの派生
 import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../clip.ts";
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
-import { groundWindows, windowsKey } from "../ground.ts";
+import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
@@ -799,7 +799,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
-		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
+		const N = rOpts.lowMem ? 1024 : 2048, sizes = groundSizes(wins, N);   // 前景・近は N（ground.ts）
 		for (let i = 0; i < wins.length; i++) {
 			const bb = wins[i], size = sizes[i];
 			if (!gnd.w[i] || gnd.w[i]!.size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); }
