@@ -111,7 +111,7 @@ type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number };
-	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
+	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null;
 	root: T3dNode; ready: Set<T3dNode>; scope?: T3dScope; style?: CompiledStyle | null; styleSpec?: Tiles3DStyle | null; metaBase?: Record<string, unknown>; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
@@ -520,6 +520,15 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (n.voxel) for (const h of n.voxel) { try { h.remove(); } catch (err) { console.warn("[tiles3d] voxel remove", (err as Error)?.message || err); } }
 		gpuBytes -= n.bytes; mainBytes -= n.mainBytes; n.bytes = 0; n.mainBytes = 0; n.pts = null; n.splat = null; n.voxel = null; n.pick = null; n.paint = null; n.ward = null; n.state = "none"; n.on = false; n.set.stats.loaded--; n.set.ready.delete(n);
 	};
+	// 伏せた tileset は 20 秒そのままなら持っているタイルを全部手放す（2026-10-26・横浜の LOD1 13 区＝伏せた後も予算 512 MB の手前まで 666 枚・約 490 MB を持ち続けた Mac 実測）。
+	// すぐ戻す（ズームの出し入れ）時は読み直さない＝猶予を置く。戻した時は普段どおり根から読み直す
+	const HIDE_RELEASE_MS = 20000;
+	const setHidden = (set: T3dSet, hidden: boolean) => {
+		set.hidden = hidden; for (const n of set.loaded()) setOn(n, false);
+		clearTimeout(set.releaseT); set.releaseT = 0;
+		if (hidden) set.releaseT = setTimeout(() => { set.releaseT = 0; if (set.hidden && !set.removed) { for (const n of set.loaded()) unload(n); } }, HIDE_RELEASE_MS) as unknown as number;
+		schedule();
+	};
 	const setOn = (n: T3dNode, on: boolean) => {
 		if (n.on === on || n.state !== "ready") return;
 		n.on = on;
@@ -679,7 +688,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				get asset() { return set.asset!; }, get metadata() { return set.metadata!; },
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
-				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); },
+				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
 				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
@@ -706,11 +715,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (opts.fit !== false && sp) { const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320))); map.flyTo(info.root.c[0], info.root.c[1], Math.max(2, Math.min(18, z)), 50); }
 			schedule();
 			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +sseScale.toFixed(2) } },
-				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); }, setOptions: o => { Object.assign(set.opts, o); schedule(); } };
+				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v), setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
 		remove(id: string) {
 			const set = sets.get(id); if (!set) return;
-			set.removed = true;
+			set.removed = true; clearTimeout(set.releaseT);
 			for (const n of set.loaded()) unload(n);
 			set.pts?.remove();
 			if (set.attrText) setAttribution?.(id, null);
