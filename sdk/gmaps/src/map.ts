@@ -9,6 +9,8 @@ export interface Ctx {
 	styles: Record<string, unknown>;
 	style?: unknown;
 	mapOptions: Record<string, unknown>;
+	/** StreetViewPanorama (services.ts) for Map.getStreetView(); set by createGoogleMaps */
+	StreetViewPanorama?: new (el: HTMLElement, o?: Record<string, unknown>) => any;
 }
 /** an overlay drawn as MapLibre sources/layers (shapes, Data) */
 export interface LayerOverlay {
@@ -54,7 +56,7 @@ export class GMap extends MVCObject {
 	static ctx: Ctx | null = null;
 	#ml: any; #div: HTMLElement; #ctx: Ctx; #bound = new Set<string>(); #overlays = new Set<LayerOverlay>(); #installed = new Set<LayerOverlay>();
 	#mapTypeId: string; #ready = false; #queue: (() => void)[] = []; #strips: Record<string, HTMLElement> = {}; #holders = new Map<number, HTMLElement>();
-	#data: any = null; #lastZoom: number | undefined;
+	#data: any = null; #lastZoom: number | undefined; #sv: any = null;
 	controls: MVCArray<HTMLElement>[] = [];
 	overlayMapTypes = new MVCArray<unknown>();
 	constructor(div: HTMLElement | null, opts: Record<string, any> = {}) {
@@ -198,7 +200,17 @@ export class GMap extends MVCObject {
 			fromPointToLatLng(p, noClamp) { const lng = p.x / 256 * 360 - 180, n = Math.PI - 2 * Math.PI * p.y / 256; return new LatLng(180 / Math.PI * Math.atan(Math.sinh(n)), lng, noClamp); },
 		};
 	}
-	getStreetView(): null { unsupported("Map.getStreetView (Street View)"); return null; }
+	/** the map's own Street View: a panorama over the map div, hidden until setVisible(true) (a still from the Static API; needs the apiKey) */
+	getStreetView(): any {
+		if (this.#sv) return this.#sv;
+		const SV = this.#ctx.StreetViewPanorama;
+		if (!SV || typeof document === "undefined") { unsupported("Map.getStreetView (Street View)"); return null; }
+		const el = document.createElement("div"); el.className = "gm-street-view"; el.style.cssText = "position:absolute;inset:0;z-index:5;display:none";
+		this.#div.appendChild(el);
+		this.#sv = new SV(el, { visible: false });
+		return this.#sv;
+	}
+	setStreetView(p: any): void { this.#sv = p; }
 	getRenderingType(): string { return "VECTOR"; }
 	get data(): any { if (!this.#data) this.#data = new (this.#ctx as Ctx & { Data: any }).Data({ map: this }); return this.#data; }
 }
