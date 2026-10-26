@@ -30,7 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
-import { WARDS, SPOTS, PORT_STORY, CITY_BBOX, WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress, normJa } from "../data.ts";
+import { WARDS, SPOTS, PORT_STORY, CITY_BBOX, WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress, normJa, HINAN_URL, yokohamaShelters } from "../data.ts";
 import { makeEn } from "./en-names.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
@@ -477,9 +477,19 @@ async function en() {
 		rows[`${r[2]}|${r[4]}`] = [n, E.addr(r[4], wardOfAddress(normJa(r[4]))?.en)];
 		if (g1 > g0) guessed.push(`${r[2]} → ${n}`);
 	}
+	// 駅・バス停（路線の「〜」区切りの停留所も）・学区の学校・避難場所（2026-10-26）
+	const rail = JSON.parse(fs.readFileSync(path.join(OUT, "rail.json"), "utf8")), bus = JSON.parse(fs.readFileSync(path.join(OUT, "bus.json"), "utf8"));
+	const st = {}, stop = {}, school = {}, hinan = {};
+	for (const s of rail.stations) st[s[2]] ??= E.station(s[2]);
+	for (const r of bus.stops) for (const n of [r[2], ...String(r[3] || "").split(/[・〜]/)]) if (n) stop[n] ??= E.stop(n);
+	for (const f of ["school-e", "school-j"]) for (const x of JSON.parse(fs.readFileSync(path.join(OUT, `${f}.json`), "utf8")).features) { const { n, a } = x.properties || {}; if (n) school[`${n}|${a || ""}`] ??= [E.name(n, 2), a ? E.addr(a, wardOfAddress(normJa(a))?.en) : ""]; }
+	for (const r of yokohamaShelters(JSON.parse((b => b[0] === 0x1f && b[1] === 0x8b ? zlib.gunzipSync(b) : b)(await getBuf(HINAN_URL)).toString("utf8")))) hinan[`${r[2]}|${r[3]}`] ??= [E.name(r[2], 0), E.addr(r[3], wardOfAddress(normJa(r[3]))?.en)];
+	console.log(`駅 ${Object.keys(st).length}・停留所 ${Object.keys(stop).length}・学校 ${Object.keys(school).length}・避難場所 ${Object.keys(hinan).length}`);
+	fs.writeFileSync(path.join(CACHE, "en-review-names.tsv"), [...Object.entries(st).map(([k, v]) => `駅\t${k}\t${v}`), ...Object.entries(stop).map(([k, v]) => `停\t${k}\t${v}`),
+		...Object.entries(school).map(([k, v]) => `学校\t${k}\t${v.join("\t")}`), ...Object.entries(hinan).map(([k, v]) => `避難\t${k}\t${v.join("\t")}`)].join("\n"));
 	fs.writeFileSync(path.join(CACHE, "en-review.tsv"), fac.rows.map(r => [r[2], ...rows[`${r[2]}|${r[4]}`], r[4]].join("\t")).join("\n"));
 	console.log(`施設の英語：${fac.rows.length} 件（うち読みの辞書で当てた名 ${guessed.length}）・見直し用＝scripts/.cache/en-review.tsv`);
-	write("facilities-en.json", { rows, guessed });
+	write("facilities-en.json", { rows, st, stop, school, hinan, guessed });
 }
 
 for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
