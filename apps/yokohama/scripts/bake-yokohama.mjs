@@ -381,7 +381,7 @@ async function census() {
 	const num = v => { const n = Number(String(v ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
 	const ages = {};
 	for (const r of rows) {
-		const code = String(r[7] ?? "").trim().slice(0, 5), sex = String(r[1] ?? "").match(/^\s*([12])\b|^(男|女)/);
+		const code = String(r[7] ?? "").trim().slice(0, 5), sex = String(r[1] ?? "").match(/^\s*([12])(?![0-9])|^(男|女)/);
 		if (!/^141(00|0\d|1[0-8])$/.test(code) || !sex || !/総数|^\s*0/.test(String(r[0] ?? ""))) continue;
 		const v = [...Array.from({ length: 15 }, (_, i) => num(r[10 + i])), [25, 26, 27, 28, 29, 30].reduce((a, c) => a + num(r[c]), 0)];
 		const k = (sex[1] || (sex[2] === "男" ? "1" : "2")) === "1" ? 0 : 16;
