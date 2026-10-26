@@ -392,7 +392,7 @@ void main() {
 	}
 	if (u_lightN > 0) { vec3 pw = u_eye - v_toEye; d += localLights(n, pw, normalize(pw)); }   // 局所の光源（W2）
 	vec3 base = u_bldColor * d;
-	if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）
+	if (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色
 	vec3 c = mix(base, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
@@ -409,7 +409,7 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 export const MESH_TEX_FS = derive(MESH_FS, [
 	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
 	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
-	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
+	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 1.5) base = tx.rgb; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝

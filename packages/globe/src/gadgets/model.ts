@@ -72,6 +72,8 @@ export interface ModelLoadOptions {
 	gizmo?: boolean | "auto";
 	/** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ・Cesium の互換の口の Primitive は真上からも見える） */
 	keep2d?: boolean;
+	/** "globe"＝setMeshLighting（Cesium の照明）があっても globe の固定光で描く（Cesium の entity geometry＝Phong の見た目・@ortho-earth/cesium の primitives が使う） */
+	lighting?: "globe";
 }
 /** worker の stats（公開の ModelHandle.stats＋地物の番号の数） */
 type ModelStats = NonNullable<ModelHandle["stats"]> & { features?: { primitives: number; texture: number; tables: number } };
@@ -533,7 +535,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
 		// slot＝置き場（既定 "default"＝置き換え・別名＝並ぶ）。altitude＝地面からの高さ（m）。gizmo＝置き方の取っ手（true／"auto"＝錨で置いた時だけ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, gizmo = false, keep2d = false } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, gizmo = false, keep2d = false, lighting = undefined } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab: ArrayBuffer, baseUri: string | null = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -562,7 +564,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set() };
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (altitude) setTransform(it, { altitude });
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);
