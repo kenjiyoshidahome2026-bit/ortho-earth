@@ -1078,7 +1078,8 @@ const attrTextNow: GlobeScope["attrTextNow"] = () => { const d = document.create
 // ズームの上限＝器ごとの頭打ち（opts.zoomMax・1.2.0〜 2026-09-23）＝データが在る所までしか寄らせない
 // （apps/world の国の地図＝世界データだけ＝z8）。入力・飛行・共有hash・fit の全経路がこの値に従う。
 // 既定 20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す。
-const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
+// 明示の zoomMax は 25 まで（≈3m・@ortho-earth/cesium の trackedEntity＝数 m 先の模型に寄る・2026-10-26）。既定は 20 のまま
+const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(25, opts.zoomMax ?? 20));
 let zoomMaxCur: GlobeLive["zoomMaxCur"] = ZOOM_MAX, camBounds: GlobeLive["camBounds"] = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
