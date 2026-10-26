@@ -58,6 +58,13 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	ok("fid.batchId", b.batchId && b.propertyTable === 0 && J([...featureIdsOf(b, 3)]) === J([1, 1, 0]) && featureSetOf({ attributes: {} }) === null);
 	const bt = batchTableOf({ name: ["x", "y"], height: { byteOffset: 0, componentType: "FLOAT", type: "SCALAR" }, extras: {} }, B(Float32Array.of(3, 4)), 2);
 	ok("batchTable", J(featureProperties(bt, 1)) === J({ name: "y", height: 4 }) && bt.count === 2);
+	// 3DTILES_batch_table_hierarchy：地物 0＝doorknob（親 door 2）・地物 1＝door（親 building 3）・2＝door（地物でない）・3＝building（根＝自分が親）
+	const hier = { classes: [{ name: "door", length: 2, instances: { door_name: ["d0", "d1"] } }, { name: "doorknob", length: 1, instances: { doorknob_size: { byteOffset: 0, componentType: "FLOAT" } } }, { name: "building", length: 1, instances: { building_name: ["b0"], door_name: ["not me"] } }],
+		instancesLength: 4, classIds: [1, 0, 0, 2], parentIds: [2, 3, 3, 3] };
+	const bh = batchTableOf({ height: [1, 2], extensions: { "3DTILES_batch_table_hierarchy": hier } }, B(Float32Array.of(0.5)), 2);
+	const p0 = featureProperties(bh, 0), p1 = featureProperties(bh, 1);
+	ok("batchTable.hierarchy", p0.__class === "doorknob" && J(p0.__classes) === J(["doorknob", "door", "building"]) && p0.doorknob_size === 0.5 && p0.door_name === "d1" && p0.building_name === "b0" && p0.height === 1
+		&& p1.__class === "door" && J(p1.__classes) === J(["door", "building"]) && p1.door_name === "d0" && p1.building_name === "b0", J([p0, p1]));
 }
 // ── 当たり（正射の物差し：clip = (x, y, 1)・画面 100x100・目は +z の遠く）──
 {

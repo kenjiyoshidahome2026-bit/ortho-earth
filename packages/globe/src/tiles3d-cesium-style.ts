@@ -3,7 +3,7 @@
 //       color: { conditions: [["${height} >= 100", "color('purple')"], ["true", "color('#ccc')"]] }
 //   式＝JavaScript の部分集合：${名}（${feature.名}・${feature['名']}・defines の名）・数・文字列・true／false／null／undefined・
 //   単項 ! - +・二項 * / % + - < <= > >= == != === !== && ||・三項 ?:・関数 color／rgb／rgba／hsl／hsla と Math 系（abs sqrt … clamp mix pow atan2）・
-//   Boolean／Number／String・isNaN／isFinite。訳せない物（正規表現・vecN・メンバー参照・未知の関数）は例外（setStyle が受け付けない）。
+//   Boolean／Number／String・isNaN／isFinite・isExactClass／isClass／getExactClassName（batch table の階層）。訳せない物（正規表現・vecN・メンバー参照・未知の関数）は例外（setStyle が受け付けない）。
 import { parseRGBA } from "@ortho-earth/core";
 import type { StyleSpec } from "./tiles3d-style.ts";
 
@@ -169,6 +169,10 @@ function call(name: string, a: Ex[] | null): Ex {
 		case "String": { n(1); return ["to-string", a![0]]; }
 		case "isNaN": { n(1); return ["let", "v", ["to-number", a![0]], ["!=", ["var", "v"], ["var", "v"]]]; }
 		case "isFinite": { n(1); return ["let", "v", ["to-number", a![0]], ["all", ["==", ["var", "v"], ["var", "v"]], ["<", ["abs", ["var", "v"]], Infinity]]]; }
+		// batch table の階層（3DTILES_batch_table_hierarchy）＝mesh-features が置く __class（自分の class）・__classes（自分と祖先）
+		case "getExactClassName": return ["get", "__class"];
+		case "isExactClass": { n(1); return ["==", ["get", "__class"], a![0]]; }
+		case "isClass": { n(1); return ["in", a![0], ["get", "__classes"]]; }
 	}
 	throw new Error(`expr: unsupported function ${name}`);
 }

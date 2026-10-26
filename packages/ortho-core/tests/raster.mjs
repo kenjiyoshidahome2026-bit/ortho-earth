@@ -313,6 +313,12 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(span(wA[0]) > span(wZ[0]) * 1000, `aloft: windows sized by the eye's distance to the ground (${span(wA[0]).toFixed(4)}° vs ${span(wZ[0]).toFixed(7)}°)`);
 	const wAT = groundWindows({ ...camA, pitch: 0.9 }, 800, 600), mid = w => (w[1] + w[3]) / 2;
 	ok(mid(wAT[wAT.length - 3]) > cam0.center[1] + 0.5, `aloft + tilt: the near window is centred on the ground the view ray meets (lat ${mid(wAT[wAT.length - 3]).toFixed(3)})`);
+	// 地平線：低い目で強く傾けると遠窓（36 倍）の外の地面が写る＝そこまで届く窓（Cesium の 3d-tiles-batch-table-hierarchy の紺の帯）
+	const camH = { ...cam0, zoom: 19, pitch: 1.35 }, wH = groundWindows(camH, 800, 600), sH = groundWindows({ ...cam0, zoom: 19 }, 800, 600);
+	const kH = span(wH[wH.length - 1]) / span(sH[0]);
+	ok(wH.length === 4 && kH > 36 * 1.4, `horizon: the last window reaches past the far one (${wH.length} windows, ×${kH.toFixed(0)})`);
+	ok(sH.length === 3 && span(sH[2]) / span(sH[0]) < 36.5, `horizon: none when looking straight down (${sH.length} windows)`);
+	ok(windowsKey(groundWindows({ ...camH, center: [camH.center[0] + 1e-7, camH.center[1]] }, 800, 600)) === windowsKey(wH), "horizon: a tiny pan keeps the key");
 }
 
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");
