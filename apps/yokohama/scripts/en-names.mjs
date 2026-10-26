@@ -87,6 +87,9 @@ const WORDS = [
 	["海上保安", "Coast Guard", 1], ["歯学部", "School of Dental Medicine", 1], ["文化館", "Cultural Museum", 1], ["館", "kan", 2], ["ガス", "Gas", 1], ["エネルギー", "Energy", 1], ["シルク", "Silk", 1],
 	["ユーラシア", "Eurasian", 1], ["フェリス", "Ferris", 1], ["ハローワーク", "Hello Work", 1], ["ポートサイド", "Portside", 1], ["ニュータウン", "New Town", 1], ["イムス", "IMS", 1], ["ウィメンズ", "Women's", 1],
 	["カメリア", "Camellia", 1], ["ズーラシア", "Zoorasia", 1], ["環境", "Environmental", 1],
+	// 4 回目の焼きの見直し
+	["海上", "Maritime", 1], ["水上", "Marine", 1], ["立場", "tateba", 0], ["細谷戸", "hosoyado", 0], ["向谷", "mukaiya", 0], ["旭陵", "kyokuryo", 0], ["橋", "bashi", 2], ["丘の上", "okanoue", 0],
+	["地方法務局", "District Legal Affairs Bureau", 1], ["埠頭", "Pier", 1], ["税関", "Customs", 1], ["サポート", "Support", 1], ["多文化", "Multicultural", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -101,7 +104,9 @@ export const EN_FIX = {
 	"聖マリアンナ医科大学横浜市西部病院": "St. Marianna University Yokohama Seibu Hospital", "横浜労災病院": "Yokohama Rosai Hospital",
 	"横浜市北部病院": "Showa Medical University Northern Yokohama Hospital", "横浜医療センター": "NHO Yokohama Medical Center",
 	"横浜市保健所": "Yokohama City Public Health Center", "八景島シーパラダイス": "Yokohama Hakkeijima Sea Paradise", "總持寺": "Sojiji Temple Treasure Hall",
-	"カップヌードルミュージアム": "Cup Noodles Museum", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ博物館": "Tin Toy Museum",
+	"カップヌードルミュージアム": "Cup Noodles Museum", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ": "Tin Toy Museum", "東洋英和女学院大学": "Toyo Eiwa University Library", "つづきMYプラザ": "Tsuzuki Multicultural and Youth Plaza (Tsuzuki MY Plaza)",
+	"かながわ県民活動サポートセンター": "Kanagawa Citizens' Activity Support Center", "横浜地方気象台": "Yokohama Local Meteorological Office", "三殿台考古館": "Sandonodai Archaeological Museum",
+	"海上災害防止センター": "Maritime Disaster Prevention Center", "海難審判所": "Japan Marine Accident Tribunal", "国税不服審判所": "National Tax Tribunal", "京浜港湾事務所": "Keihin Port Office",
 	"東京工業大学": "Tokyo Institute of Technology", "東京都市大学": "Tokyo City University", "日本体育大学": "Nippon Sport Science University", "東京ガス": "Tokyo Gas Environmental Energy Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
 	"配偶者暴力相談支援センター": "Kanagawa Spousal Violence Counseling and Support Center", "地球市民かながわプラザ": "Kanagawa Plaza for Global Citizenship", "日本郵船歴史博物館": "NYK Maritime Museum", "はまぎんこども宇宙科学館": "Yokohama Science Center",
 };
@@ -168,7 +173,8 @@ export function makeEn({ towns, wards, tokenize }) {
 		const corp = ["医療法人社団", "医療法人財団", "医療法人", "社会福祉法人", "公益財団法人", "一般財団法人", "一般社団法人", "公益社団法人", "社会医療法人", "宗教法人", "学校法人"].find(k => s.startsWith(k));
 		const coop = s.indexOf("生活協同組合"); if (coop > 0 && coop + 6 < s.length) s = s.slice(coop + 6);   // 「医療生協かながわ生活協同組合戸塚病院」→ 戸塚病院
 		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); s = e >= 0 && e + 1 < rest.length ? rest.slice(e + 1) : rest; }
-		s = s.replace(/^東京国税局/, "").replace(/^横浜地方検察庁(?=.)/, "").replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
+		const kai = s.indexOf("会"); if (kai > 0 && kai <= 4 && s.endsWith("病院") && s.length - kai > 4) s = s.slice(kai + 1);   // 「康心会汐見台病院」＝医療法人の名（〜会）は落とす
+		s = s.replace(/^東京国税局/, "").replace(/^横浜地方検察庁(?=.)/, "").replace(/^東京管区気象台(?=.)/, "").replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
