@@ -1527,8 +1527,8 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 // ── 建物の影（リアルタイム shadow map・2026-09-24）＝影を点けた時だけ使う派生シェーダ（本体は1バイトも変えない）。
 // 受け手＝本体の文字列派生＋SHADOW_WGSL(g, b0)（g＝空いている group 番号・b0＝その group の最初の binding）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
 // 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。
-// SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
-// 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
+// SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝窓の中心（視点の注視点）の単位球点の f32 値（2026-10-27〜・旧＝main 原点）＝
+// 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main の原点が近ければ両方小さい・遠くても模型と床は自分の錨との差＝窓の幅以下）。
 // SH.p＝(影の明るさ, 未使用, 未使用, 縁のフェードが始まる半径（基の窓の半幅に対する比）)。
 // カスケード（2026-10-23）：深度は 2d-array（層 0＝基の窓・層 1〜＝カメラに近い地面だけの細かい窓）。受け手が渡す sc は基の窓のクリップ座標のまま＝
 // 段 i のクリップ xy＝xy_b·s＋o（同じ基底・同じ奥行きなので z は共通）＝頂点の派生は 1 行も変えずに FS だけで段を選ぶ。

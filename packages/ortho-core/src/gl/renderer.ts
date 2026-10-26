@@ -533,11 +533,14 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.bindFramebuffer(gl.FRAMEBUFFER, prevFb);
 		gl.viewport(0, 0, W, H);
 		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		const mo = (scenes.main.origin || [0, 0]) as number[], oPt = lonlatTo3D(mo[0], mo[1]), cT = mat.transform(win.mvp, [oPt[0], oPt[1], oPt[2], 1]), u = S.cpu;
+		// 受け手の錨＝窓の中心（視点の注視点）の f32 値。旧＝main の原点（u_originPt）＝基図のタイルが無い地図（@ortho-earth/cesium）では
+		// 経度 0・緯度 0 のまま＝8000km 離れた錨から f32 で相対位置を取ると 1m 近くずれ、模型が 1m ずれた自分の影をまだらに被った（2026-10-27）。
+		// 窓の中心なら受け手（模型の原点・球の床の当たり・地形の頂点）との差が窓の幅（km）以下＝f32 で mm。clipT は同じ f32 の錨から f64 で。
+		const aC = lonlatTo3D(cam.center[0], cam.center[1]), aPt = [Math.fround(aC[0]), Math.fround(aC[1]), Math.fround(aC[2])], cT = mat.transform(win.mvp, [aPt[0], aPt[1], aPt[2], 1]), u = S.cpu;
 		u.fill(0);
 		u.set(win.mvp, 0);
 		u[16] = cT[0]; u[17] = cT[1]; u[18] = cT[2]; u[19] = cT[3];
-		u[20] = oPt[0]; u[21] = oPt[1]; u[22] = oPt[2];   // u_originPt と同じ f32 丸め（main で差が厳密 0）
+		u[20] = aPt[0]; u[21] = aPt[1]; u[22] = aPt[2];
 		u[24] = shadowDarkness(win.alt, shadow.darkness); u[27] = SH_FADE_R0;
 		const order = [...cas.map((c, k) => ({ w: c as ShadowWindow, s: c.s, ox: c.ox, oy: c.oy, layer: k + 1 })), { w: win, s: 1, ox: 0, oy: 0, layer: 0 }];
 		order.forEach((e, k) => {

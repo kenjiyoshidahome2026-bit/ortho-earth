@@ -89,6 +89,8 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const scene = new OrthoScene(host, canvas, { scene3DOnly: options.scene3DOnly, globe: options.globe });
 	this._scene = scene;
 	scene.camera.constrainedAxis = Cartesian3.UNIT_Z;
+	scene.shadowMap.enabled = !!options.shadows;   // Viewer.shadows reads and writes scene.shadowMap.enabled (lighting.ts shadows)
+	if (scene.globe) scene.globe.shadows = options.terrainShadows ?? engine.ShadowMode.RECEIVE_ONLY;
 	(scene.frameState as Any).creditDisplay = new CreditDisplay(innerCreditContainer, "•", this._creditViewport);   // the real one (the scene runs its frame: OrthoScene.render)
 	if (options.baseLayer === false || options.globe === false) scene.imageryLayers?.removeAll?.();
 	else if (options.baseLayer) scene.imageryLayers?.add(options.baseLayer);
@@ -253,7 +255,9 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 	else { clock = new Clock(); clockViewModel = new ClockViewModel(clock); destroyClockViewModel = true; }
 	const cesiumWidget: Any = new (CesiumWidget as Any)(cesiumWidgetContainer, {
 		...options,
-		baseLayer: options.baseLayer ?? ((createBaseLayerPicker && options.selectedImageryProviderViewModel) || options.imageryProvider ? false : undefined),
+		// as Cesium: the widget gets no base layer when the Viewer will add one itself (options.baseLayer) — if the widget added it, the picker's
+		// default selection removed it from index 0 and destroyed it, and a destroyed layer never becomes ready → every viewer { baseLayer } page stayed blue
+		baseLayer: (createBaseLayerPicker && options.selectedImageryProviderViewModel) || options.baseLayer != null || options.imageryProvider ? false : undefined,
 		clock, creditContainer: options.creditContainer ?? bottomContainer, scene3DOnly,
 	});
 	const scene = cesiumWidget.scene;
@@ -301,7 +305,8 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 	}
 	if (options.baseLayer && options.baseLayer !== false) {
 		if (baseLayerPicker) baseLayerPicker.viewModel.selectedImagery = undefined;
-		scene.imageryLayers.removeAll(); scene.imageryLayers.add(options.baseLayer);
+		scene.imageryLayers.removeAll();
+		scene.imageryLayers.add(options.baseLayer);
 	}
 	if (options.navigationHelpButton !== false) {
 		let showNavHelp = true;   // the widgets' Viewer: open the first time on this origin

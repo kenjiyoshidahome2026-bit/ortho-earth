@@ -6,7 +6,7 @@ import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
-import { rasterSourceOf } from "../src/imagery.ts";
+import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
 import { gridOf, placementOf } from "../src/voxels.ts";
@@ -79,8 +79,19 @@ for (const g of [
 	class BingMapsImageryProvider { constructor(o) { Object.assign(this, o); } }
 	const bing = rasterSourceOf(new BingMapsImageryProvider({ _imageUrlTemplate: "http://ecn.{subdomain}.example/a{quadkey}.jpeg?mkt={culture}", _imageUrlSubdomains: ["t0", "t1"], _culture: "en-US" }));
 	ok("Bing → raster with {quadkey}", bing?.tiles[1] === "https://ecn.t1.example/a{quadkey}.jpeg?mkt=en-US", JSON.stringify(bing));
-	const geo = rasterSourceOf(new UrlTemplateImageryProvider({ tilingScheme: new GeographicTilingScheme(), _resource: { _url: "https://g.example/{z}/{x}/{y}" } }));
-	ok("geographic tiling is reported, not drawn", geo === null && warns.some(w => /geographic tiling scheme/.test(w)));
+	const geoP = new UrlTemplateImageryProvider({ tilingScheme: new GeographicTilingScheme(), _resource: { _url: "https://g.example/{z}/{x}/{y}" }, maximumLevel: 6, rectangle: Rectangle.fromDegrees(-180, -90, 180, 90), requestImage() { return null; } });
+	const geo = rasterSourceOf(geoP), geo2 = rasterSourceOf(geoP);
+	ok("geographic tiling → Mercator tiles through the cs-geo protocol", geo?.type === "raster" && /^cs-geo:\/\/g\d+\/\{z\}\/\{x\}\/\{y\}$/.test(geo.tiles[0]) && geo.maxzoom === 7 && geo.tiles[0] === geo2.tiles[0], JSON.stringify(geo));
+	const rows = mercatorRows(0, 0, 1, 256);   // level 0: one geographic tile row over 180°
+	ok("Mercator rows map to geographic tile rows by latitude", near(rows[0], (90 - 85.0511) / 180, 1e-4) && near(rows[128], 0.5, 1e-9) && near(rows[256], (90 + 85.0511) / 180, 1e-4) && rows[1] > rows[0], `${rows[0]},${rows[128]},${rows[256]}`);
+	// ImageryLayer adjustments → the globe's paint: inverting its factors gives Cesium's mix() back (saturation 3 → factor −2 = mix(gray, c, 3); contrast 2 → ×2; 0.5 → ×0.5)
+	const sat = adjustPaint({ brightness: 1, contrast: 1, saturation: 3, hue: 0 })["raster-saturation"];
+	ok("saturation 3 → globe factor −2 (mix(gray, c, 3))", near(1 - 1 / (1.001 - sat), -2, 1e-6), String(sat));
+	const c2 = adjustPaint({ contrast: 2 })["raster-contrast"], c05 = adjustPaint({ contrast: 0.5 })["raster-contrast"];
+	ok("contrast 2 / 0.5 → factors 2 / 0.5", near(1 / (1 - c2), 2, 1e-9) && near(1 + c05, 0.5, 1e-9), `${c2},${c05}`);
+	ok("default adjustments → no paint; brightness 0.5 / hue π", Object.keys(adjustPaint({ brightness: 1, contrast: 1, saturation: 1, hue: 0 })).length === 0 && adjustPaint({ brightness: 0.5 })["raster-brightness-max"] === 0.5 && near(adjustPaint({ hue: Math.PI })["raster-hue-rotate"], 180, 1e-9));
+	const r1 = mercatorRows(1, 1, 2, 4);   // level 1, southern tile: rows run from the equator (tile row 1) to −85°
+	ok("Mercator rows at level 1", near(r1[0], 1, 1e-9) && r1[4] < 2 && r1[4] > 1.9, `${r1[0]},${r1[4]}`);
 	class SingleTileImageryProvider { constructor(o) { Object.assign(this, o); } }
 	const one = rasterSourceOf(new SingleTileImageryProvider({ _resource: { _url: "https://x.example/a.png" }, rectangle: Rectangle.fromDegrees(-10, -5, 10, 5) }));
 	ok("SingleTile → image source", one?.type === "image" && near(one.coordinates[0][0], -10, 1e-9) && near(one.coordinates[0][1], 5, 1e-9), JSON.stringify(one));
