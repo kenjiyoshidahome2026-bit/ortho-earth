@@ -322,6 +322,8 @@ export function legendIndex(legend: Legend[], r: number, g: number, b: number, a
 }
 /** 浸水の深さの帯（DEPTH の番号）→ 水が届く階（1 階＝3m とみなす・0.5m 未満は 0＝床下）。20m 以上は 7 */
 export const floorsOfDepth = (i: number) => [0, 1, 2, 4, 7, 7][i] ?? 0;
+/** 浸水の帯の上端（m）＝地点に立てる水面の高さ（最大想定なので帯の上端・20m 以上は 20m）。範囲外＝0 */
+export const depthTop = (i: number) => [0.5, 3, 5, 10, 20, 20][i] ?? 0;
 /** 2 点の距離（m・球面） */
 export function distM(a: [number, number], b: [number, number]): number {
 	const R = 6371008.8, r = Math.PI / 180, dla = (b[1] - a[1]) * r, dlo = (b[0] - a[0]) * r;
