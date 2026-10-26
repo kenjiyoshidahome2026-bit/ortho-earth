@@ -259,10 +259,14 @@ function onTerrain(scene: OrthoScene, p: any) {
 		if (scene.terrainProvider !== p || !map) return;
 		const name = p.constructor?.name;
 		if (name === "EllipsoidTerrainProvider") { map.setTerrain?.(null); return; }
-		if (!(scene.host as any).flatStart || map.getTerrain?.()) return;
 		const r = p._layers?.[0]?.resource, token = (engine as any).Ion?.defaultAccessToken;
-		const source = p.__orthoWorldTerrain && token ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token } }
-			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers } : null;
+		// Cesium World Terrain itself, in its own ellipsoid heights ("orthometric" = taken as they are, no geoid taken off): Cesium's
+		// tilesets, entities and camera are in ellipsoid heights, so the ground has to be too (on the globe's own geoid-based DEM
+		// New York's buildings sank 33 m into it)
+		const cwt = (p.__orthoWorldTerrain || (r?._ionEndpoint && /\/asset_depot\/1\//.test(r.url ?? ""))) && token;   // ours (createWorldTerrainAsync) or the engine's (Terrain.fromWorldTerrain)
+		if (!cwt && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
+		const source = cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric" }
+			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric" } : null;
 		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
 		else unsupported(`terrain provider ${name}`);
 	});
