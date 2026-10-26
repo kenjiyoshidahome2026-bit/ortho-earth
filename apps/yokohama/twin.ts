@@ -72,15 +72,16 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const enP: Promise<unknown> = lang === "ja" ? Promise.resolve() : ledger<EnNames>("facilities-en.json").then(d => { EN = d; });
 
 	// ── カメラ ──
-	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路・施設）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
-	const ALL_LAYERS = { place: true, terrain: true, rail: true, road: true, facility: true };
+	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
+	// 基図の施設名は点けない＝公共施設の点と被る（本人 2026-10-26・main.ts の opts.layers で封印）
+	const ALL_LAYERS = { place: true, terrain: true, rail: true, road: true };
 	// 日本語以外＝基図の地名（日本語の注記）は伏せ、OSM の英語の地名（places.json）を描く（本人 2026-10-26）
 	const OSM_NAMES = lang !== "ja";
 	const baseLayers = (o: Parameters<GlobeMap["setBaseLayers"]>[0]) => map.setBaseLayers(OSM_NAMES ? { ...o, place: false } : o);
 	let layersBefore: ReturnType<GlobeMap["getBaseLayers"]> | undefined;   // undefined＝平面にしていない
 	const setFlat = (on: boolean) => {
 		if (!map.setBaseLayers) { showAreas(on); return; }   // 旧エンジン（setBaseLayers 前）＝区域だけ
-		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = Object.values(now).every(Boolean) ? { ...now, terrain: false, rail: false, road: false, facility: false } : now; } showAreas(true); baseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
+		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = ["place", "terrain", "rail", "road"].every(k => now[k as keyof typeof now]) ? { ...now, terrain: false, rail: false, road: false } : now; } showAreas(true); baseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
 		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
