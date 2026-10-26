@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, type WalkLine, type WalkGraph } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, type WalkLine, type WalkGraph } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -324,8 +324,12 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const li = el.closest<HTMLElement>("li[data-k]"); if (!li) return;
 		const f = (await ledger<SmallFC>(`census/${st.ward}.json`))?.features.find(x => x.properties.k === li.dataset.k); if (!f) return;
 		const pts = (f.geometry as { coordinates: number[][][][] }).coordinates.flat(2), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-		await map.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 16 });
-		censusPop(f.properties, [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+		const bb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as [number, number, number, number];
+		await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 16 });
+		// 吹き出しは面の中の点に（いびつな町は外接矩形の中心が面の外）＝中心から 9×9 の格子で面の中を探す
+		let at: LonLat = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+		if (!inGeometry(f.geometry, at)) { let best: LonLat | null = null, bd = Infinity; for (let i = 1; i < 10; i++) for (let j = 1; j < 10; j++) { const q: LonLat = [bb[0] + (bb[2] - bb[0]) * i / 10, bb[1] + (bb[3] - bb[1]) * j / 10], d = (q[0] - at[0]) ** 2 + (q[1] - at[1]) ** 2; if (d < bd && inGeometry(f.geometry, q)) { best = q; bd = d; } } if (best) at = best; }
+		censusPop(f.properties, at);
 	});
 	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
 
@@ -545,6 +549,12 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 
 	// ── 港の物語（1859 の開港から今まで・章ごとに年と写真）と、海からの眺め＝東京都の頁に無い「横浜の物語」（本人 2026-10-21）──
 	async function seaView(run: number) {
+		// 眺めの間は施設の点を伏せる＝地平線に沿って何千もの丸が帯になり、街並みを隠す（Mac 実測 2026-10-26）
+		const facVis = (on: boolean) => { if (fac) map.setLayoutProperty("yk-fac", "visibility", on && facOn ? "visible" : "none"); };
+		facVis(false);
+		try { await seaRun(run); } finally { facVis(true); }
+	}
+	async function seaRun(run: number) {
 		for (const [i, v] of SEA_VIEWS.entries()) {
 			if (touring !== run) return;
 			const h = holdBuildings(v);
