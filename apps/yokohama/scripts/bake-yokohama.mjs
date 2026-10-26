@@ -4,7 +4,7 @@
 //
 //   node apps/yokohama/scripts/bake-yokohama.mjs            # 全部
 //   node apps/yokohama/scripts/bake-yokohama.mjs --inspect  # 各 zip の属性の鍵と見本 3 行だけ出す（KSJ の列名を確かめる）
-//   node apps/yokohama/scripts/bake-yokohama.mjs --only=wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire
+//   node apps/yokohama/scripts/bake-yokohama.mjs --only=wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk
 //
 // 出す物（座標は経度・緯度の小数 5 桁＝約 1m）：
 //   wards.json      … 18 区の境界（N03）{ type:"FeatureCollection", features:[{ properties:{ code, name, bbox:[w,s,e,n] }, geometry }], city:[[[lon,lat]…]…] }（間引き 約 10m）
@@ -20,11 +20,18 @@
 //   fire-areas.json   … 消防署の管轄区域（P17-12＝2012 年度・横浜市消防局の署）FeatureCollection（properties { n: 署名 }）
 //   ＊police-areas・fire-areas は properties に { lic: "非商用", src, y: 2012 }・FeatureCollection に license／source を付記（KSJ の使用許諾が非商用）
 //   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
+//   walk/<cx>_<cy>.bin … 歩ける道（OpenStreetMap・ODbL）＝わが家のまわりの道のりと道順（2026-10-26）。0.02° 四方の区画ごと（cx＝floor(経度/0.02)）。
+//                     中身＝data.ts の decodeWalk（区画の南西の角から 1e-5° 単位の差分を zigzag varint で詰めた折れ線の列・種別 0 道路／1 歩行者の道／2 階段）。
+//   facilities-en.json … 施設の名前・住所の英語（日本語以外の UI）{ rows: { "名称|住所": [英語の名, 英語の住所] }, guessed: [読みの辞書で当てた名…] }（--only=en）
+//                     読み＝郵便番号データ（KEN_ALL）の町名 → 区の名 → kuromoji（先に `npm i --no-save kuromoji@0.1.2`）。種類の語は scripts/en-names.mjs の表で英訳
+//                     線は区画の境で切る（切った点は両方の区画に入る＝頁は同じ座標を 1 つの点に束ねて繋ぐ）。取得は Overpass（.cache/osm-walk/ に置く・--only=walk）
 // 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { WARDS, SPOTS, PORT_STORY, CITY_BBOX } from "../data.ts";
+import { createRequire } from "node:module";
+import { WARDS, SPOTS, PORT_STORY, CITY_BBOX, WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress, normJa } from "../data.ts";
+import { makeEn } from "./en-names.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, "../../..");
@@ -32,7 +39,7 @@ const OUT = path.join(ROOT, "ortho-data/japan/yokohama");
 const CACHE = path.join(HERE, ".cache");
 const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
-const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire").split(",");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
 const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
@@ -394,5 +401,86 @@ async function fire() {
 	write("fire-areas.json", { ...fc(out), license: NC("P17-12").lic, source: "国土数値情報 P17-12（消防署・管轄区域・2012 年度）" });
 }
 
-for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
+// ── 7. 歩ける道（OpenStreetMap）──
+// Overpass を 0.04° 四方ずつ（区画 2×2）引く。同じ道（way id）は 1 度だけ。種別と除外は data.ts の walkKind（頁のテストと同じ規則）
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+async function overpass(q, file) {
+	if (!REFRESH && fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
+	for (let i = 0; ; i++) {
+		const url = OVERPASS[i % OVERPASS.length];
+		const r = await fetch(url, { method: "POST", headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) }).catch(e => ({ ok: false, status: String(e) }));
+		if (r.ok) { const t = await r.text(); if (t.startsWith("{")) { fs.writeFileSync(file, t); return JSON.parse(t); } }
+		if (i >= 7) throw new Error(`Overpass: HTTP ${r.status}`);
+		await sleep(5000 * 2 ** Math.min(i, 4));
+	}
+}
+async function walk() {
+	const dir = path.join(CACHE, "osm-walk"), out = path.join(OUT, "walk");
+	fs.mkdirSync(dir, { recursive: true }); fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(out, { recursive: true });
+	const Q = WALK_CELL * 2, seen = new Set(), cells = new Map();   // "cx_cy" → [{ kind, pts:[x,y,…] (1e-5° の整数) }]
+	const cx0 = Math.floor(BOX[0] / WALK_CELL), cy0 = Math.floor(BOX[1] / WALK_CELL), cx1 = Math.floor(BOX[2] / WALK_CELL), cy1 = Math.floor(BOX[3] / WALK_CELL);
+	let ways = 0, t0 = Date.now();
+	for (let x = BOX[0]; x < BOX[2]; x += Q) for (let y = BOX[1]; y < BOX[3]; y += Q) {
+		const bb = [y, x, Math.min(y + Q, BOX[3]), Math.min(x + Q, BOX[2])].map(v => v.toFixed(4));
+		const q = `[out:json][timeout:180];way["highway"](${bb.join(",")});out tags geom;`;
+		const d = await overpass(q, path.join(dir, `${bb.join("_")}.json`));
+		for (const w of d.elements || []) {
+			if (w.type !== "way" || seen.has(w.id) || !w.geometry) continue;
+			seen.add(w.id);
+			const kind = walkKind(w.tags || {}); if (kind < 0) continue;
+			ways++;
+			// 区画の境で切る＝線分の中点が入る区画ごとに続きを束ねる（境の点は両方に入る）
+			const P = w.geometry.map(g => [Math.round(g.lon / WALK_Q), Math.round(g.lat / WALK_Q)]);
+			let cur = null, key = "";
+			for (let i = 1; i < P.length; i++) {
+				const k = `${Math.floor((P[i - 1][0] + P[i][0]) / 2 * WALK_Q / WALK_CELL)}_${Math.floor((P[i - 1][1] + P[i][1]) / 2 * WALK_Q / WALK_CELL)}`;
+				if (k !== key) { key = k; cur = { kind, pts: [...P[i - 1]] }; (cells.get(k) ?? cells.set(k, []).get(k)).push(cur); }
+				cur.pts.push(...P[i]);
+			}
+		}
+		process.stdout.write(`\r歩ける道：${seen.size} 本を見た・採った ${ways} 本・${((Date.now() - t0) / 1000).toFixed(0)} 秒`);
+		await sleep(1500);
+	}
+	console.log("");
+	let bytes = 0;
+	for (const [k, lines] of cells) {
+		const [cx, cy] = k.split("_").map(Number);
+		if (cx < cx0 || cx > cx1 || cy < cy0 || cy > cy1) continue;   // 余白の外へはみ出た道の切れ端は置かない
+		const b = encodeWalk(lines, cx, cy); bytes += b.length;
+		fs.writeFileSync(path.join(out, `${k}.bin`), b);
+	}
+	console.log(`→ ortho-data/japan/yokohama/walk/  ${cells.size} 区画・${(bytes / 1024 / 1024).toFixed(2)} MB`);
+	if (ways < 50000) throw new Error(`歩ける道が ${ways} 本しか無い（Overpass の返事を確かめる）`);
+}
+
+// ── 8. 施設の英語（facilities.json の後に焼く）──
+async function en() {
+	const zip = unzip(await getBuf("https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip"));
+	const csv = zip.get(pick(zip, /\.csv$/i))().toString("utf8");
+	const towns = new Map();
+	for (const line of csv.split(/\r?\n/)) {
+		const f = line.split(",").map(x => x.replace(/^"|"$/g, ""));
+		if (!f[7]?.startsWith("横浜市") || !f[8] || f[8].startsWith("以下に掲載がない")) continue;
+		const k = f[8].replace(/（.*$/, ""), r = f[5].normalize("NFKC").replace(/\(.*$/, "");
+		if (k && r && !towns.has(k)) towns.set(k, r);
+	}
+	console.log(`郵便番号データ：横浜市の町名 ${towns.size}`);
+	if (towns.size < 500) throw new Error("KEN_ALL の横浜市の町名が少なすぎる（列の並びを確かめる）");
+	let tokenize = null;
+	try { const km = createRequire(path.join(process.cwd(), "x.js"))("kuromoji"); const tk = await new Promise((ok, ng) => km.builder({ dicPath: path.join(path.dirname(createRequire(path.join(process.cwd(), "x.js")).resolve("kuromoji")), "../dict") }).build((e, t) => e ? ng(e) : ok(t))); tokenize = s => tk.tokenize(s); }
+	catch (e) { throw new Error(`kuromoji が無い（npm i --no-save kuromoji@0.1.2）：${e.message}`); }
+	const E = makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize });
+	const fac = JSON.parse(fs.readFileSync(path.join(OUT, "facilities.json"), "utf8"));
+	const rows = {}, guessed = [];
+	for (const r of fac.rows) {
+		const g0 = E.guessed(), n = E.name(r[2], r[3]), g1 = E.guessed();
+		rows[`${r[2]}|${r[4]}`] = [n, E.addr(r[4], wardOfAddress(normJa(r[4]))?.en)];
+		if (g1 > g0) guessed.push(`${r[2]} → ${n}`);
+	}
+	fs.writeFileSync(path.join(CACHE, "en-review.tsv"), fac.rows.map(r => [r[2], ...rows[`${r[2]}|${r[4]}`], r[4]].join("\t")).join("\n"));
+	console.log(`施設の英語：${fac.rows.length} 件（うち読みの辞書で当てた名 ${guessed.length}）・見直し用＝scripts/.cache/en-review.tsv`);
+	write("facilities-en.json", { rows, guessed });
+}
+
+for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
 console.log(INSPECT ? "\n（--inspect：何も書いていない）" : "\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write");

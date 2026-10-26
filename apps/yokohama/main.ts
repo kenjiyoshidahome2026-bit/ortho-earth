@@ -7,9 +7,9 @@ import { startPage } from "@ortho-earth/globe/page.js";
 import { CITY_VIEW } from "./data.ts";
 startPage("yokohama", async () => {
 	const [{ default: orthoJapan }, { mountTwin }] = await Promise.all([import("@ortho-earth/regions/app"), import("./twin.ts")]);
-	// 初期視点＝横浜市の全景を少し傾けて（共有 URL の hash があればそちら）。建物 3D・施設・鉄道・道路は利用者がチップで選べるまま
+	// 初期視点＝横浜市の全景を真上から（twin.ts が続けて「市全体」＝市を画面の 9 割に収める平面の地区図にする・本人 2026-10-26）。共有 URL の hash があればそちら
 	const v = CITY_VIEW;
-	const map = await orthoJapan({ target: "#map", view: location.hash || `#${v.zoom}/${v.lat}/${v.lon}/${v.tilt}t`,
+	const map = await orthoJapan({ target: "#map", view: location.hash || `#${v.zoom}/${v.lat}/${v.lon}`,
 		instruments: ["pos", "scale", "attr"], urlHash: true });
 	map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.qr(); map.gadget.sunshadow(); map.gadget.hint(); map.gadget.lang();
 	const twin = await mountTwin(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ + "yokohama/" });

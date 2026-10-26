@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS } from "../data.ts";
+import { makeEn, romaji } from "../scripts/en-names.mjs";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, WALK_Q } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -73,6 +74,30 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 		&& majorHospital("公立大学法人 横浜市立大学附属市民総合医療センター") === "横浜市立大学附属市民総合医療センター" && majorHospital("横浜市立大学附属病院") === "横浜市立大学附属病院" && majorHospital("鶴見大学歯学部附属病院") === null);
 	t("休日急患診療所：18 区すべて（住所は区の名で始まる・電話は 045-）・青葉区だけ昼休み・夜間急病センター 3 か所は市内", WARDS.every(w => HOLIDAY_CLINICS[w.code]?.addr.startsWith(w.name) && /^045-\d{3}-\d{4}$/.test(HOLIDAY_CLINICS[w.code].tel))
 		&& Object.keys(HOLIDAY_CLINICS).length === 18 && clinicHours("14117") !== clinicHours("14109") && NIGHT_CENTERS.length === 3 && NIGHT_CENTERS.every(c => (c.lon > CITY_BBOX[0] && c.lon < CITY_BBOX[2] && c.lat > CITY_BBOX[1] && c.lat < CITY_BBOX[3])));
+}
+{
+	// 歩ける道：札の種別・詰めて戻す・区画の境で切った線が繋がる・遠回りでも繋がる方を通る・網から遠い行き先は null
+	t("歩ける道：札（高速・私道・歩行者お断りは外す・階段は 2）", walkKind({ highway: "footway" }) === 1 && walkKind({ highway: "steps" }) === 2 && walkKind({ highway: "residential" }) === 0
+		&& walkKind({ highway: "motorway" }) === -1 && walkKind({ highway: "service", access: "private" }) === -1 && walkKind({ highway: "service", access: "private", foot: "yes" }) === 0 && walkKind({ highway: "primary", foot: "no" }) === -1);
+	const q = v => Math.round(v / WALK_Q), cx = 6982, cy = 1777;   // 日吉のあたりの区画
+	const A = [139.6401, 35.5501], B = [139.6400 + 0.0002, 35.5501], C = [139.6401, 35.5503], D = [139.6450, 35.5503];
+	const lines = [{ kind: 0, pts: [q(A[0]), q(A[1]), q(C[0]), q(C[1])] }, { kind: 1, pts: [q(C[0]), q(C[1]), q(D[0]), q(D[1])] }, { kind: 2, pts: [q(A[0]), q(A[1]), q(B[0]), q(B[1])] }];
+	const back = decodeWalk(encodeWalk(lines, cx, cy), cx, cy);
+	t("歩ける道：詰めて戻すと同じ", JSON.stringify(back) === JSON.stringify(lines));
+	const g = buildWalkGraph(back), h = walkSnap(g, A), r = walkSearch(g, h.i), to = walkTo(g, r, h, D);
+	const ab = Math.hypot((B[0] - A[0]) * Math.cos(A[1] * Math.PI / 180), B[1] - A[1]) * 111195;
+	t("歩ける道：網（同じ座標は 1 点）・道のり・道順・階段は 1.5 倍・遠い行き先は null", g.x.length === 4 && to && Math.abs(to.m - (22.2 + 444)) < 15
+		&& walkPath(g, r.prev, to.i, A, D).length === 5 && Math.abs(r.dist[walkSnap(g, B).i] - ab * 1.5) < 1 && walkTo(g, r, h, [139.70, 35.60]) === null
+		&& walkCells([139.645, 35.555], 2500).length >= 9 && walkCells([139.645, 35.555], 2500).includes(`${cx}_${cy}`));
+}
+{
+	// 施設の英語：ローマ字（長音は書かない・オオは残す・促音）・種類の語の英訳・住所（横浜市は書かない）
+	const E = makeEn({ towns: [["日吉台", "ヒヨシダイ"], ["菊名", "キクナ"], ["菅田町", "スゲタチョウ"], ["下田町", "シモダチョウ"]], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize: null });
+	t("施設の英語：ローマ字・名前・住所", romaji("カミオオオカ") === "kamiooka" && romaji("コウホク") === "kohoku" && romaji("ニッパ") === "nippa" && romaji("シンヨコハマ") === "shinyokohama"
+		&& E.name("横浜市立日吉台小学校", 2) === "Hiyoshidai Elementary School" && E.name("横浜市港北図書館", 3) === "Kohoku Library" && E.name("横浜市消防局神奈川消防署菅田消防出張所", 4) === "Sugeta Fire Station Branch"
+		&& E.name("港北警察署下田町交番", 5) === "Shimodacho Police Box" && E.name("医療法人社団◯◯会 港北病院", 6) === "Kohoku Hospital" && E.name("横浜市立市民病院", 6) === "Yokohama Municipal Citizen's Hospital"
+		&& E.addr("横浜市港北区菊名7-8-27", "Kohoku-ku") === "7-8-27 Kikuna, Kohoku-ku" && E.addr("横浜市港北区菊名七丁目8番27号", "Kohoku-ku") === "7-8-27 Kikuna, Kohoku-ku"
+		&& WARDS.every(w => HOLIDAY_CLINICS[w.code].en.endsWith(w.en)) && NIGHT_CENTERS.every(c => c.enName && c.en));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
