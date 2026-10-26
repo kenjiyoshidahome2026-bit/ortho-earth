@@ -43,6 +43,7 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 		// the globe's own basemap is off: Cesium's imagery layers draw the ground, over the globe's base colour (Cesium's default is blue)
 		style: { version: 8, sources: {}, layers: [{ id: "__cs-base", type: "background", paint: { "background-color": "#0000ff" } }] },
 		stars: false, clearColor: "transparent",   // space is Cesium's: scene.backgroundColor and the sky box, drawn under the globe (skybox.ts)
+		fog: false,   // the globe's fog hazes everything past a few target distances toward the base colour; Cesium's fog is a faint km-scale haze and its distance look comes from the atmosphere (csatmo)
 		...o.ortho,
 	};
 }
