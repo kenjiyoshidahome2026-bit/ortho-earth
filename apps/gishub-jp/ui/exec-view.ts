@@ -32,7 +32,8 @@ export function renderExecView(entry: GeoExecInfo, onBack: (() => void) | null =
 
     const actionEl = d3select<HTMLElement, unknown>('#exec-action');
     const logEl    = d3select<HTMLElement, unknown>('#exec-log');
-    const tablesEl = d3select<HTMLElement, unknown>('#exec-tables').hide();
+    // 隠す/出す＝"hidden" 級を直に（.hide/.show は common の d3 拡張＝共有エンジン側の d3 にだけ付く。この束の d3 には無い＝呼ぶと落ちる・2026-10-26）
+    const tablesEl = d3select<HTMLElement, unknown>('#exec-tables').classed('hidden', true);
     const logger   = new screenLogger(logEl);
 
     geoExec(entry, {
@@ -110,9 +111,9 @@ export function showPropTable(pbf: GeoPBF, logEl: Sel, tablesEl: Sel, actionEl: 
     const esc = (s: unknown) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const cut = (s: unknown) => { const t = String(s); return esc(t.length > 20 ? t.slice(0, 19) + ' …' : t); };
 
-    logEl.hide();
-    actionEl.hide();
-    tablesEl.show().html(
+    logEl.classed('hidden', true);
+    actionEl.classed('hidden', true);
+    tablesEl.classed('hidden', false).html(
         `<div class="exec-prop-header"><h2>${esc(pbf.name() || '')}<span>${esc(pbf.description() || '')}</span></h2><div class="exec-prop-btns"></div></div>` +
         `<div class="exec-prop-table"><table><thead><tr>${headers.map((h: unknown) => `<th>${esc(String(h))}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`
     );
@@ -143,7 +144,7 @@ export function showPropTable(pbf: GeoPBF, logEl: Sel, tablesEl: Sel, actionEl: 
             saveProp(await encodeXLSX(pbf.getCSV(), nm + '.xlsx', { sheetName: nm }));
         } catch (e) { console.error('[excel]', e); showToast('Excel 変換に失敗しました'); }
     });
-    btnRow.append('button').text('✕ 閉じる').on('click', () => { tablesEl.hide().html(''); logEl.show(); actionEl.show(); });
+    btnRow.append('button').text('✕ 閉じる').on('click', () => { tablesEl.classed('hidden', true).html(''); logEl.classed('hidden', false); actionEl.classed('hidden', false); });
 }
 
 // ---- 書き出しの追加形式（GeoPBF のデモと同じ作り） ----

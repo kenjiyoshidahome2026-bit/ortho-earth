@@ -23,8 +23,11 @@ export class screenLogger {
 	bars: Record<string, [P, number, number]>;
 	mess: Record<string, [P, number, ReturnType<typeof setInterval>]>;
 	_ac: AbortController;
-	constructor (div: LogDiv) {
-		this.target = div.classed("log", true); this.time = performance.now();
+	constructor (div: LogDiv | HTMLElement) {
+		// 器は自分の d3 で選び直す＝呼び手の d3 が別の実体（共有エンジンの外でアプリが焼き込んだ d3）でも、
+		// .show/.hide/.empty 等の拡張（./d3/selection.ts）が付いた selection で持つ（2026-10-26・gishub-jp の読込が .hide で全部止まった）
+		const node = div instanceof Element ? div : div.node();
+		this.target = (d3.select(node) as LogDiv).classed("log", true); this.time = performance.now();
 		this.dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 		this.bars = {};
 		this.mess = {};
