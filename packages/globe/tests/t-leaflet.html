@@ -1,0 +1,79 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/leaflet（Leaflet → MapLibre の通訳・2026-10-26）を地球儀の MapLibre の口（@ortho-earth/globe/maplibre）の上で。
+     ①Map：Leaflet の zoom 15 ＝ MapLibre の 14・中心・getBounds・latLngToContainerPoint
+     ②GridLayer：createTile（canvas）が MapLibre の protocol 経由で呼ばれ raster 層になる
+     ③Polygon／Polyline／CircleMarker：一つの source と層・queryRenderedFeatures が面の中で当たる・面の click が図形へ届き地図へも伝わる（Leaflet の bubbling）
+     ④Marker／Popup／Tooltip：DOM に出る・marker の click は地図の click にならない・bindPopup が開く・permanent tooltip
+     ⑤GeoJSON：関数の様式が feature の properties に書かれ描かれる -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px;position:relative}</style><title>t-leaflet</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { default: L } = await import("@ortho-earth/leaflet/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = f(); if (v) return v; await sleep(200); } return null; };
+try {
+	const map = L.map("map", { center: [35.6812, 139.7671], zoom: 15 });
+	const ml = map.getMapLibre();
+	await new Promise(r => map.whenReady(r)); await sleep(500);
+	ok("zoom", Math.abs(map.getZoom() - 15) < 1e-6 && Math.abs(ml.getZoom() - 14) < 1e-6, `${map.getZoom()} ${ml.getZoom()}`);
+	const c = map.getCenter(), b = map.getBounds(), cp = map.latLngToContainerPoint(c);
+	ok("camera", Math.abs(c.lat - 35.6812) < 1e-4 && b.contains(c) && Math.abs(cp.x - 400) < 2 && Math.abs(cp.y - 300) < 2, `${cp.x},${cp.y}`);
+	// ② GridLayer：createTile の canvas
+	let tiles = 0;
+	const Grid = L.GridLayer.extend({ createTile(coords) { tiles++; const cv = document.createElement("canvas"); cv.width = cv.height = 256; const g = cv.getContext("2d"); g.fillStyle = "rgba(255,0,255,0.3)"; g.fillRect(0, 0, 256, 256); return cv; } });
+	const grid = new Grid().addTo(map);
+	const gridOk = await until(() => tiles > 0 && ml.getLayer(grid._rid()), 15000);
+	ok("gridlayer", !!gridOk, `tiles=${tiles}`);
+	// ③ 図形
+	const d = 0.004;
+	const pg = L.polygon([[c.lat - d, c.lng - d], [c.lat - d, c.lng + d], [c.lat + d, c.lng + d], [c.lat + d, c.lng - d]], { color: "#ffffff", fillColor: "#ff0000", fillOpacity: 0.6 }).addTo(map);
+	L.polyline([[c.lat - 2 * d, c.lng - 3 * d], [c.lat + 2 * d, c.lng - 1.5 * d]], { color: "#00ff00", weight: 5, dashArray: "6, 6" }).addTo(map);
+	L.circleMarker([c.lat + 2 * d, c.lng - 2 * d], { radius: 12, color: "#0000ff" }).addTo(map);
+	await sleep(500);
+	const ids = ml.getStyle().layers.map(l => l.id).filter(id => id.startsWith("lf-r"));
+	ok("paths.layers", ids.length === 4 && ids.indexOf(ids.find(i => i.endsWith("-fill"))) === 0, ids.join(","));
+	const mid = map.latLngToContainerPoint(c);
+	const hit = await until(() => (ml.queryRenderedFeatures([mid.x, mid.y]) || []).find(f => f.layer?.id?.endsWith("-fill")), 8000);
+	ok("paths.query", !!hit && hit.properties?._lid === L.stamp(pg) && hit.properties?._fc === "#ff0000", JSON.stringify(hit?.properties));
+	let shapeClick = 0, mapClick = 0, last = null;
+	pg.on("click", e => { if (e.latlng) shapeClick++; });
+	map.on("click", e => { mapClick++; last = e; });
+	const canvas = ml.getCanvas(), r = canvas.getBoundingClientRect();
+	const fireAt = (x, y) => { for (const type of ["mousedown", "mouseup", "click"]) canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, button: 0 })); };
+	fireAt(mid.x, mid.y); await sleep(300);
+	ok("paths.click", shapeClick === 1 && mapClick === 1, `shape=${shapeClick} map=${mapClick}`);
+	fireAt(20, 20); await sleep(300);
+	ok("map.click", shapeClick === 1 && mapClick === 2 && last?.latlng && Math.abs(last.containerPoint.x - 20) < 2, `map=${mapClick}`);
+	pg.bindPopup("<b id=pgpop>area</b>");
+	fireAt(mid.x, mid.y); await sleep(300);
+	ok("paths.popup", !!document.getElementById("pgpop") && pg.isPopupOpen() && mapClick === 2, `map=${mapClick}`);
+	// ④ Marker／Popup／Tooltip
+	const mk = L.marker([c.lat - 2 * d, c.lng + 2 * d], { title: "Tokyo Station" }).addTo(map).bindPopup("<b id=mkpop>Tokyo</b>");
+	await sleep(300);
+	const pins = [...document.querySelectorAll("#map img[title='Tokyo Station']")];
+	ok("marker.dom", pins.length === 1 && pins[0].src.startsWith("data:image/svg+xml"), String(pins.length));
+	let mkClick = 0; mk.on("click", () => mkClick++);
+	pins[0].dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 1, clientY: 1 }));
+	await sleep(300);
+	ok("marker.click", mkClick === 1 && mapClick === 2 && !!document.getElementById("mkpop") && !document.getElementById("pgpop"), `mk=${mkClick} map=${mapClick}`);
+	pins[0].dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 1, clientY: 1 }));
+	await sleep(300);
+	ok("marker.toggle", !document.getElementById("mkpop") && !mk.isPopupOpen());
+	L.circleMarker([c.lat + 3 * d, c.lng], { radius: 5 }).addTo(map).bindTooltip("<span id=tip>label</span>", { permanent: true, direction: "top" });
+	await sleep(300);
+	ok("tooltip", !!document.getElementById("tip"));
+	// ⑤ GeoJSON
+	const gj = L.geoJSON({ type: "FeatureCollection", features: [{ type: "Feature", properties: { kind: "a" }, geometry: { type: "Polygon", coordinates: [[[c.lng + 3 * d, c.lat - d], [c.lng + 5 * d, c.lat - d], [c.lng + 5 * d, c.lat + d], [c.lng + 3 * d, c.lat - d]]] } }] }, { style: f => ({ fillColor: f.properties.kind === "a" ? "#ffff00" : "#000000", fillOpacity: 0.8 }) }).addTo(map);
+	await sleep(800);
+	const gp = map.latLngToContainerPoint([c.lat - d / 3, c.lng + 4.5 * d]);
+	const ghit = await until(() => (ml.queryRenderedFeatures([gp.x, gp.y]) || []).find(f => f.layer?.id?.endsWith("-fill")), 8000);
+	ok("geojson.query", !!ghit && ghit.properties?._fc === "#ffff00" && ghit.properties?._lid === L.stamp(gj.getLayers()[0]), JSON.stringify(ghit?.properties));
+	L.marker([c.lat + d, c.lng + 2 * d]).addTo(map).bindTooltip("tooltip", { permanent: true }); mk.openPopup(); L.control.scale().addTo(map); L.control.layers({ A: grid }, {}, { collapsed: false }).addTo(map);
+	await sleep(500);
+	ok("controls", !!document.querySelector(".maplibregl-ctrl-bottom-right .leaflet-control-attribution") && !!document.querySelector(".maplibregl-ctrl-top-left .leaflet-control-zoom") && /m$/.test(document.querySelector(".leaflet-control-scale-line")?.textContent || ""));
+	ok("unsupported", L.unsupportedReport().length === 0, L.unsupportedReport().join(" / "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>
