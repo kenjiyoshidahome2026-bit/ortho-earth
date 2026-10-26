@@ -139,6 +139,8 @@
 		background: rgba(75,144,255,0.06);
 		.moj-city-name { color: $hi; }
 	}
+	// データの無い行（農水の筆ポリゴンの無い区など）＝押せない
+	&.disabled { cursor: default; opacity: 0.45; &:hover { background: none; .moj-city-name { color: inherit; } } }
 
 	.moj-city-code {
 		font-family: $mono;
