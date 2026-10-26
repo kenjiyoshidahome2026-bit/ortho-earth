@@ -175,8 +175,8 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	// set：visible=false → 描画リストから消える（テクスチャは保持）
 	// 6. 祖先の取得失敗（retry）＝選抜タイルは無い（null）・祖先 z−1 は 1 回だけ失敗して次は返る → 再要求されて未着 0・描画リストに祖先の部分 uv が載る
 	{
-		const ch3 = new MessageChannel(); let failed = 0, selZ = null;
-		ch3.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; selZ ??= q.z;   // 最初の要求＝選抜の z（要求列は選抜タイルが先）
+		const ch3 = new MessageChannel(); let failed = 0, selZ = null, firstZ = null;
+		ch3.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; selZ ??= 9; firstZ ??= q.z;   // 選抜の z＝maxZoom（要求列の先頭は粗い祖先＝z6・2026-10-26）
 			if (q.z === selZ) return ch3.port1.postMessage({ id: q.id, bitmap: null });
 			if (q.z === selZ - 1 && !failed++) return ch3.port1.postMessage({ id: q.id, bitmap: null, error: "boom" });
 			ch3.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
@@ -188,6 +188,7 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 		for (let i = 0; i < 60; i++) await tick3();   // 約 1.8 秒＝失敗→400ms 後の retry→再要求→到着 を跨ぐ（未着 0 で止めると retry の前に抜けてしまう）
 		const st3 = raster3.stats().layers[0];
 		ok(failed >= 1, `ancestor failed once (${failed} selZ=${selZ})`);
+		ok(firstZ === selZ - 3, `coarse ancestor (z−3) is requested before the selected tiles (first z=${firstZ})`);
 		ok(raster3.pending().total === 0, `pending: failed ancestor is re-queued and settles to 0 (${JSON.stringify(raster3.pending())} error=${st3.error})`);
 		ok(R.last && R.last.layers[0].draws.length > 0 && R.last.layers[0].draws.some(d => d.uvT[2] < 1), `draws include the recovered ancestor's partial uv (${R.last?.layers[0]?.draws.length ?? 0})`);
 		raster3.destroy();
@@ -277,13 +278,13 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 		raster.update(i % 2 ? cam : { ...cam, zoom: 12.0001 }, 800, 600);   // 静止と微動を交互＝両方の経路で退避が走る
 		await new Promise(r => setTimeout(r, 25));
 		if (R.last) for (const L of R.last.layers) for (const d of L.draws) if (freed.has(d.tex)) bad++;
-		if (R.last) maxDraws = Math.max(maxDraws, R.last.layers[0]?.draws.length || 0);
+		if (R.last) maxDraws = Math.max(maxDraws, new Set(R.last.layers[0]?.draws.map(d => d.tex)).size);   // 描画中のテクスチャの数（到着フェード中は祖先も載る）
 	}
 	// 20 フレーム静止＝在庫は予算超過のまま・描画リストは不変＝退避が描画中の物を触らないことの検分
 	for (let i = 0; i < 20; i++) { raster.update(cam, 800, 600); await new Promise(r => setTimeout(r, 25)); if (R.last) for (const L of R.last.layers) for (const d of L.draws) if (freed.has(d.tex)) bad++; }
 	const st = raster.stats();
 	ok(bad === 0, `evict never frees textures in the draw list (violations=${bad}, freed=${freed.size})`);
-	ok(maxDraws > 0 && maxDraws * 349525 <= 2 * 1048576 * 0.7 + 349525, `coarsening keeps visible set near budget (maxDraws=${maxDraws})`);
+	ok(maxDraws > 0 && maxDraws * 349525 <= 2 * 1048576 * 0.7 + 2 * 349525, `coarsening keeps visible set near budget (+1 coarse ancestor · textures=${maxDraws})`);
 	ok(st.texBytes <= 2 * 1048576 + 349525 * 2 || freed.size > 0, `budget enforced or eviction ran (texBytes=${(st.texBytes / 1048576).toFixed(1)}MB freed=${freed.size})`);
 	raster.destroy(); ch.port1.close();
 }
