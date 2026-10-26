@@ -13,14 +13,17 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const T = s => Date.parse("2026-01-01T00:00:00Z") + s * 1000;
 try {
-	const map = await createGlobe({ target: "#map", view: "#14.6/35.681/139.700/30t", chips: false, persistView: false, debugGlobals: true });
+	const map = await createGlobe({ target: "#map", view: "#14.6/35.681/139.700/30t", chips: false, persistView: false, debugGlobals: true, terrain: false });   // 地面は平ら（楕円体高 0）に固定：地域の無い globe 単体では CLAMP_TO_GROUND の模型は持ち上がらず海面に置かれる＝地形（東京 約 32m）が届くと 12m の箱が埋まる（Mac は地形が早く届いて NG・コンテナは届く前に撮って ok だった）
 	await new Promise(r => map.on("load", r));
 	const idle = () => new Promise(r => { map.once("idle", r); map.triggerRepaint?.(); });
+	// 落ち着く＝CZML の面の source が組み上がり、見えているタイルが全部載ってから idle（idle だけでは押し出しの組み上げより先に来ることがあった＝②⑥が 1 段遅れて NG）
 	const settle = async () => { await sleep(300); await Promise.race([idle(), sleep(8000)]); await sleep(400); };
 	const snap = async () => {
 		const s = await map.requestSnapshot(), r = s.render, d = new Uint8Array(r.base), w = r.w, h = r.h, k = w / 960;
 		return (px, py) => { const x = Math.round(px * k), y0 = Math.round(py * k), y = r.flip ? h - 1 - y0 : y0, i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
 	};
+	// 時計で出し入れする面は filter の掛け直しが idle より遅れて絵に出ることがある（地形なし・速い機械で 1 段遅れ）＝絵が条件を満たすまで撮り直す（最大 10 秒・満たさなければその絵で判定）
+	const snapUntil = async (cond, ms = 10000) => { const t0 = Date.now(); for (;;) { const S = await snap(); if (cond(S) || Date.now() - t0 > ms) return S; await sleep(250); } };
 	const nearIn = (S, p, test, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(S(p[0] + dx, p[1] + dy))) return true; return false; };
 	const fmt = c => c.map(v => v.toFixed(0)).join("/");
 	const blue = c => c[2] > c[0] + 60 && c[2] > c[1] + 30, yellow = c => c[0] > 170 && c[1] > 150 && c[2] < 90, red = c => c[0] > 120 && c[0] > c[1] + 60 && c[0] > c[2] + 60;
@@ -41,8 +44,8 @@ try {
 	ok("①模型を読んだ", h.modelHandles.length === 2, `${h.modelHandles.length}`);
 	await settle();
 	// ② 面と地面の線
-	const S1 = await snap();
 	const pBlock = map.projectLL(139.707, 35.6775), pRoad = map.projectLL(139.695, 35.674);
+	const S1 = await snapUntil(S => nearIn(S, pBlock, blue) && nearIn(S, pRoad, yellow, 4));
 	ok("②押し出しの面（青）", nearIn(S1, pBlock, blue), fmt(S1(...pBlock)));
 	ok("②地面の線（黄）", nearIn(S1, pRoad, yellow, 4), fmt(S1(...pRoad)));
 	// ③ 高さのある線
@@ -64,7 +67,7 @@ try {
 	ok("⑤動く模型：向き＝進む向き（heading −90）", !!tf18 && Math.abs(hd(tf18.heading) + 90) < 0.1, tf18 ? tf18.heading.toFixed(3) : "none");
 	// ⑥ 区間の外＝面が消える
 	map.clock.setTime(T(2400)); await settle();
-	const S2 = await snap();
+	const S2 = await snapUntil(S => !nearIn(S, pBlock, blue, 1));
 	ok("⑥30 分を過ぎると面は消える・線は残る", !nearIn(S2, pBlock, blue, 1) && nearIn(S2, pRoad, yellow, 4), `${fmt(S2(...pBlock))} ${fmt(S2(...pRoad))}`);
 	// ⑦ 外す
 	h.remove(); await settle();
