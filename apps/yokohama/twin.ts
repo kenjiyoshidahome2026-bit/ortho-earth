@@ -12,8 +12,9 @@
 import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
 import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
+import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, type WalkLine, type WalkGraph } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, walkPath, type WalkLine, type WalkGraph } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -83,7 +84,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
-	const flySpot = (s: Spot) => flyView(s);
+	const flySpot = (s: Spot) => { holdBuildings(s); return flyView(s); };
 
 	// ── 案内板（右上）──
 	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（夜の配色）。ここは中身だけ
@@ -133,7 +134,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${l.color}">${l.id}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
 				<p class="sub flat">${esc(t("Subway stations carry their station numbers (B = Blue Line, G = Green Line). Tap a station or stop to see its lines or routes."))}</p>
 				<h2>${esc(t("Walking distance from a station"))}</h2>
-				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a subway station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${l.id}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
+				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${l.id}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
 				<p class="sub flat">${esc(t("Or tap any station on the map and choose “Walking distance”."))}</p>
 				<div class="detail walk-out" hidden></div>
 			</section>
@@ -186,6 +187,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		$$<HTMLButtonElement>("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === k)));
 		$$<HTMLElement>("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== k; });
 		if (k === "life") facTable();
+		if (k === "transit") fillStations();
 	}
 	$$<HTMLButtonElement>("[data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab as Tab));
 
@@ -418,8 +420,13 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
 	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
 	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
+	function holdBuildings(v: { lon: number; lat: number; zoom: number }) { bldHold = v; lod1Gate(); }   // 飛ぶ前に立て始める（着いた時に読み終わっているように）
 	const extrusion = (on: boolean) => { map.setMeshVisible(on); try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn("[yokohama] extrusion", e); } };
-	const lod1Gate = () => { const on = map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
+	// 観光の眺め（名所・港の物語・海から）＝その視点のまわりにいる間は z が小さくても建物を立てる（主役が遠くの街並み・本人 2026-10-26「z 値が小さく 3D が立ち上がらない」「観光での z の調整をうまく」）。
+	// 0.6 段より引くか 2 km より離れたら普段の z の決まりへ戻る
+	let bldHold: { lon: number; lat: number; zoom: number } | null = null;
+	const held = () => { if (!bldHold) return false; const c = map.getCenter(); if (map.getZoom() >= bldHold.zoom - 0.6 && distM([c.lng, c.lat], [bldHold.lon, bldHold.lat]) < 2000) return true; bldHold = null; return false; };
+	const lod1Gate = () => { const on = held() || map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
 	extrusion(lod1Shown);
 	map.on("move", lod1Gate);
 
@@ -459,6 +466,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function seaView(run: number) {
 		for (const [i, v] of SEA_VIEWS.entries()) {
 			if (touring !== run) return;
+			holdBuildings(v);
 			await (i ? map.easeTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing, duration: 7000 }) : flyView(v));
 			if (touring !== run) return;
 			await map.easeTo({ bearing: v.bearing + 25, duration: 5000 });   // 船の上から見渡す
@@ -614,14 +622,50 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		walkOut.innerHTML = head + `<table class="wt"><thead><tr><th></th>${WALK_RINGS.map(m => `<th>${esc(t("$1 min", m))}</th>`).join("")}</tr></thead>
 			<tbody>${rows.map(([c, n, v]) => `<tr><td><i style="background:${c}"></i>${esc(n)}</td>${v.map(x => `<td>${num(x)}</td>`).join("")}</tr>`).join("")}</tbody></table>
 			<p class="sub flat">${esc(t("Rings are rough estimates: 80 m per minute, with routes 1.3 times the straight line."))}</p>`;
+		if (ja) stationWiki(ja, run);
 		walkOut.scrollIntoView({ block: "nearest", behavior: "smooth" });   // スマホ：表が板の下に隠れないよう（板の中を送る）
 	}
 	walkOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { clearWalk(); $<HTMLSelectElement>(".wsta").value = ""; } });
 	$<HTMLSelectElement>(".wsta").onchange = async () => {
 		const n = $<HTMLSelectElement>(".wsta").value; if (!n) { clearWalk(); return; }
-		const d = await loadRail(); const s = d?.stations.find(x => x[4] && subwayCodes(x[2]).some(c => c.line.stations[+c.code.slice(1) - 1] === n));
+		const d = await loadRail();
+		const s = n.startsWith("#") ? d?.stations[+n.slice(1)] : d?.stations.find(x => x[4] && subwayCodes(x[2]).some(c => c.line.stations[+c.code.slice(1) - 1] === n));   // "#i"＝JR・私鉄の駅（台帳の行）
 		if (s) walkFrom(s[0], s[1], staName(s[2]), s[2]);
 	};
+	// 駅を選ぶ一覧に市内の JR・私鉄の駅も足す（本人 2026-10-26）＝路線ごとの組・線に沿った順（駅の散らばりの長い向きに並べる）。市内＝区の境界の中
+	let stationsFilled = false;
+	function fillStations() {
+		if (stationsFilled) return; stationsFilled = true;
+		Promise.all([loadRail(), loadWards()]).then(([d, fc]) => {
+			if (!d) { stationsFilled = false; return; }
+			const groups = new Map<string, number[]>();
+			d.stations.forEach((s, i) => {
+				if (s[4] || (fc && !featureAt(fc, [s[0], s[1]]))) return;
+				for (const ln of s[3].split("・")) if (ln) (groups.get(ln) ?? groups.set(ln, []).get(ln)!).push(i);
+			});
+			const along = (ix: number[]) => {   // 主軸（共分散の長い向き）への射影で並べる
+				const p = ix.map(i => [d.stations[i][0] * 0.82, d.stations[i][1]]), mx = p.reduce((a, q) => a + q[0], 0) / p.length, my = p.reduce((a, q) => a + q[1], 0) / p.length;
+				let xx = 0, xy = 0, yy = 0; for (const [x, y] of p) { xx += (x - mx) ** 2; xy += (x - mx) * (y - my); yy += (y - my) ** 2; }
+				const a = 0.5 * Math.atan2(2 * xy, xx - yy), c = Math.cos(a), sn = Math.sin(a);
+				return ix.map((i, k) => [i, (p[k][0] - mx) * c + (p[k][1] - my) * sn] as const).sort((u, v) => u[1] - v[1]).map(u => u[0]);
+			};
+			const jr = (k: string) => /^(東日本|東海)旅客鉄道/.test(k) ? 0 : 1;
+			const keys = [...groups.keys()].sort((a, b) => jr(a) - jr(b) || a.localeCompare(b, "ja"));
+			$<HTMLSelectElement>(".wsta").insertAdjacentHTML("beforeend", keys.map(k => `<optgroup label="${esc(lang === "ja" ? k.replace(/^\S+ /, "") + `（${k.split(" ")[0]}）` : railLinesEn(k))}">${along(groups.get(k)!).map(i => `<option value="#${i}">${esc(staName(d.stations[i][2]))}</option>`).join("")}</optgroup>`).join(""));
+		});
+	}
+	// 駅の Wikipedia の冒頭（徒歩圏の下）＝ja の記事名を座標で決めて焼いた台帳（station-wiki.json）→ 表示言語・英語・日本語の順で最初にある記事
+	const wikiFrame = createWikiFrame({ host: mapEl, className: "yk-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
+	const staWiki = () => ledger<Record<string, Record<string, string>>>("station-wiki.json");
+	async function stationWiki(ja: string, run: string) {
+		const titles = (await staWiki())?.[ja]; if (!titles) return;
+		const s = await summaryIn(titles, lang === "ja" ? ["ja"] : langChain(lang, ["en", "ja"])).catch(() => null);
+		if (!s?.extract || walkOut.dataset.run !== run) return;
+		const box = document.createElement("div"); box.className = "wsum";
+		box.innerHTML = `${s.thumbnail ? `<img src="${esc(s.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<p>${esc(s.extract.length > 320 ? s.extract.slice(0, 300).replace(/[^。.！？!?]*$/, "") || s.extract.slice(0, 300) + "…" : s.extract)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("Read on Wikipedia"))}</a>`;
+		wikiFrame.link(box.querySelector("a")!, s.url, s.title);
+		walkOut.append(box);
+	}
 	document.addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".walkr"); if (b) walkFrom(+b.dataset.lon!, +b.dataset.lat!, b.dataset.name!, b.dataset.ja || ""); });
 
 	// ── 防災：ハザードの画像タイル ──
@@ -987,6 +1031,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	for (const id of st.tr) setTransit(id, true);
 	if (facOn) setFac(true);
 	loadWards();   // 市の外の覆いと区の線は最初から
+	map.prefetchBuildings({ names: LOD2_PREFETCH }).catch(e => console.warn("[yokohama] prefetch", e));   // PLATEAU の LOD2（5 区＋橋梁）を起動直後から IDB へ先読み＝寄った時にすぐ立つ（本人 2026-10-26）
 
 	return { state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour, lod1Ready,
 		get shelters() { return shelters; }, get lod1() { return lod1; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
@@ -1121,6 +1166,12 @@ const CSS = `
 .yk-panel .wt td{padding:3px 4px;text-align:right;color:var(--qm-ink);font-variant-numeric:tabular-nums}
 .yk-panel .wt td:first-child{text-align:start;color:var(--qm-text-dim)}
 .yk-panel .wt td i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:5px}
+.yk-panel .wsum{margin-top:10px;padding-top:8px;border-top:1px solid var(--qm-border-soft);font-size:12.5px;line-height:1.55;color:var(--qm-text)}
+.yk-panel .wsum img{float:inline-end;width:84px;height:84px;object-fit:cover;border-radius:var(--qm-r-m);margin:2px 0 4px 8px}
+.yk-panel .wsum p{margin:0 0 4px}
+.yk-panel .wsum a{color:var(--qm-accent,#4fc3f7)}
+.oe-wiki.yk-wiki{left:12px;top:12px;bottom:calc(40px + var(--qm-safe-b));width:min(560px,calc(100% - 380px));z-index:31}
+@media (max-width:640px){.oe-wiki.yk-wiki{left:8px;right:8px;top:8px;width:auto}}
 .yk-pop .pk i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
 .yk-sta{display:flex;flex-direction:column;align-items:center;transform:translateY(25%)}
 .yk-sta .sym{display:flex;gap:1px}

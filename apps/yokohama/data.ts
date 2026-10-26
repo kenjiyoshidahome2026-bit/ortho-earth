@@ -229,6 +229,8 @@ export const HAZARDS: Hazard[] = [
 
 /** PLATEAU の建物が LOD2（屋根の形まで）で配信される区＝エンジンの登録簿（plateau-sets.json）が自動で読む 5 区。残り 13 区は LOD1（箱）だけ＝この頁が任意で足す（2026-10-18 の配信を確認） */
 export const LOD2_WARDS = ["14101", "14102", "14103", "14104", "14114"];
+/** 先読みする PLATEAU LOD2（エンジンの登録簿 plateau-sets.json の名前）＝観光の主役から。起動直後に map.prefetchBuildings で IDB へ（本人 2026-10-26） */
+export const LOD2_PREFETCH = ["横浜西区", "横浜中区", "横浜市（橋梁）", "横浜神奈川区", "横浜鶴見区", "横浜瀬谷区"];
 export const LOD1_WARDS = WARDS.filter(w => !LOD2_WARDS.includes(w.code));
 /** 区の LOD1 建築物の 3D Tiles（PLATEAU の datacatalog・texture 版しか無い＝読む時にテクスチャは落とす） */
 /** LOD1 の建物を出すズームの下限（本人 2026-10-21「ないところがあるなら全部ない方がいい」「傾きに関係なく z で決めていい」）。

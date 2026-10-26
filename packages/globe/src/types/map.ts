@@ -232,6 +232,8 @@ export interface GlobeCoreApi {
 	getReduceMotion(): boolean;   // globe.js:2653
 	/** 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21）。伏せている間は描かず新しく読み込まない（読んだ物は保つ＝戻すと即）。opts.mesh=false の地図では効かない */
 	setMeshVisible(on: boolean): GlobeMap;
+	/** 建物 3D（PLATEAU LOD2 など）を IDB へ先読みする（2026-10-26）。names＝カタログ名・bbox＝[w,s,e,n] と交わる区（今の視点に近い順）。描かない・ピン留めしない＝出すかは普段どおり z と視界で決まる。戻り＝先読みした区の名前 */
+	prefetchBuildings(o?: { names?: string[]; bbox?: [number, number, number, number] }): Promise<string[]>;
 	/** 建物 3D を出しているか（opts.mesh=false の地図は false） */
 	getMeshVisible(): boolean;
 	/** 基図の表示項目を点ける／消す（2026-10-21）。キーは opts.layers と同じ（place/terrain/rail/road/facility）。チップ・共有 URL も一緒に変わる。opts.layers で固定したキーは変わらない */

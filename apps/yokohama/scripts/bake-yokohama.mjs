@@ -22,6 +22,7 @@
 //   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
 //   walk/<cx>_<cy>.bin … 歩ける道（OpenStreetMap・ODbL）＝わが家のまわりの道のりと道順（2026-10-26）。0.02° 四方の区画ごと（cx＝floor(経度/0.02)）。
 //                     中身＝data.ts の decodeWalk（区画の南西の角から 1e-5° 単位の差分を zigzag varint で詰めた折れ線の列・種別 0 道路／1 歩行者の道／2 階段）。
+//   station-wiki.json … 市内の駅の Wikipedia の題名 { 駅名: { ja, en, … } }（ja の記事を座標の近さで決め、言語間リンクで 26 言語・--only=stawiki・rail と wards の後）
 //   facilities-en.json … 施設の名前・住所の英語（日本語以外の UI）{ rows: { "名称|住所": [英語の名, 英語の住所] }, guessed: [読みの辞書で当てた名…] }（--only=en）
 //                     読み＝郵便番号データ（KEN_ALL）の町名 → 区の名 → kuromoji（先に `npm i --no-save kuromoji@0.1.2`）。種類の語は scripts/en-names.mjs の表で英訳
 //                     線は区画の境で切る（切った点は両方の区画に入る＝頁は同じ座標を 1 つの点に束ねて繋ぐ）。取得は Overpass（.cache/osm-walk/ に置く・--only=walk）
@@ -39,7 +40,7 @@ const OUT = path.join(ROOT, "ortho-data/japan/yokohama");
 const CACHE = path.join(HERE, ".cache");
 const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
-const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places").split(",");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
 const UA = { "User-Agent": "ortho-earth-yokohama/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)" };
 const N03_URL = `${KSJ}N03/N03-2025/N03-20250101_14_GML.zip`;
@@ -338,6 +339,35 @@ async function photos() {
 	write("photos.json", out);
 }
 
+// ── 5b. 駅の Wikipedia（市内の駅＝鉄道の台帳 × 市の外周）＝ja の記事名を座標の近さで決め（同名の駅の曖昧さ回避）、言語間リンクで 26 言語の題名 ──
+//   station-wiki.json … { 駅名: { ja: "日吉駅 (神奈川県)", en: "Hiyoshi Station (Kanagawa)", … } }（頁は summaryIn で表示言語→英語→日本語の順に冒頭を出す）
+const WIKI_LANGS = new Set("en ja zh ko ar bn de el es fa fr he hi hu id it nl pl pt ru sv th tr uk ur vi".split(" "));
+async function stawiki() {
+	const api = "https://ja.wikipedia.org/w/api.php";
+	const get = async q => { await sleep(300); const r = await fetch(`${api}?${new URLSearchParams({ format: "json", formatversion: "2", ...q })}`, { headers: UA }); if (!r.ok) throw new Error(`wiki: HTTP ${r.status}`); return r.json(); };
+	const rail = JSON.parse(fs.readFileSync(path.join(OUT, "rail.json"), "utf8")), city = JSON.parse(fs.readFileSync(path.join(OUT, "wards.json"), "utf8")).city || [];
+	const inCity = ([x, y]) => { let n = false; for (const r of city) for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) n = !n; return n; };
+	const k = s => s.replace(/ヶ/g, "ケ");
+	const out = {};
+	for (const s of rail.stations) {
+		if (out[s[2]] || !inCity([s[0], s[1]])) continue;
+		const re = new RegExp(`^${k(s[2]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}駅( \\(.+\\))?$`);
+		const near = (await get({ action: "query", list: "geosearch", gscoord: `${s[1]}|${s[0]}`, gsradius: "1500", gslimit: "100" })).query?.geosearch || [];
+		let title = near.filter(g => re.test(k(g.title))).sort((a, b) => a.dist - b.dist)[0]?.title;
+		if (!title) {   // 座標の無い記事＝題名で引く（曖昧さ回避の頁は採らない）
+			const pg = (await get({ action: "query", titles: `${s[2]}駅`, redirects: "1", prop: "pageprops" })).query?.pages?.[0];
+			if (pg && !pg.missing && !pg.pageprops?.disambiguation) title = pg.title;
+		}
+		if (!title) { console.warn(`✗ 記事なし：${s[2]}`); continue; }
+		const ll = (await get({ action: "query", titles: title, prop: "langlinks", lllimit: "max" })).query?.pages?.[0]?.langlinks || [];
+		out[s[2]] = { ja: title };
+		for (const l of ll) if (WIKI_LANGS.has(l.lang) && l.title) out[s[2]][l.lang] = l.title;
+		console.log(`駅の記事：${s[2]} → ${title}（${Object.keys(out[s[2]]).length} 言語）`);
+	}
+	if (Object.keys(out).length < 100) throw new Error(`駅の記事が少ない：${Object.keys(out).length}`);
+	write("station-wiki.json", out);
+}
+
 // ── 6. 平面の地図に重ねる面（用途地域・校区・警察／消防の管轄）──
 const AREA_TOL = 0.00004;   // 約 4m（1 本 2MB を超えるなら強める）
 /** 面の geometry → 間引いた MultiPolygon（環が潰れた物は落とす・外周が潰れたら面ごと落とす） */
@@ -513,5 +543,5 @@ async function en() {
 	write("facilities-en.json", { rows, st, stop, school, hinan, guessed });
 }
 
-for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
+for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) await fn();
 console.log(INSPECT ? "\n（--inspect：何も書いていない）" : "\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write");
