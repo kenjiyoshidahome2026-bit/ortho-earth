@@ -165,7 +165,8 @@ export class OrthoScene {
 		if (!map) return;
 		const pose = poseKey(this.camera);
 		if (sameKey(this.#lastPose, pose)) return;
-		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC);
+		const tf = this.camera.transform, focus = tf && !Matrix4.equals(tf, Matrix4.IDENTITY) ? Matrix4.getTranslation(tf, new Cartesian3()) : null;   // camera.lookAt / trackedEntity
+		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC, focus);
 		if (!g) return;
 		map.setCamera(g);
 		this.#lastPose = pose; this.#lastGlobe = map.getCamera();

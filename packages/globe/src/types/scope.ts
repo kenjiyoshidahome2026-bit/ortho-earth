@@ -434,7 +434,7 @@ export interface GlobeScope {
 	REGION_SEARCH: SearchProvider | null;
 	/** 建物データ管理ボタンの顔（地域の申告の SVG の文字列・null＝汎用） */
 	REGION_BLD_ICON: string | null;
-	/** 寄りの上限（opts.zoomMax・1..20） */
+	/** 寄りの上限（opts.zoomMax・1..25・既定 20） */
 	ZOOM_MAX: number;
 	/** 外来の DEM（setTerrain）が在ればその標高・無ければ fallback */
 	demFirst(lon: number, lat: number, fallback: () => Promise<number>): Promise<number>;
