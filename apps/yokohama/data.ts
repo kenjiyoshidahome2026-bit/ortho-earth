@@ -109,8 +109,8 @@ export const AREAS = [
 	{ id: "zoning", file: "zoning.json", name: "Land-use zoning", color: "" },
 	{ id: "school-e", file: "school-e.json", name: "Elementary school districts", color: "#1e88e5" },
 	{ id: "school-j", file: "school-j.json", name: "Junior high school districts", color: "#8e24aa" },
-	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab" },
-	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935" },
+	{ id: "police", file: "police-areas.json", name: "Police station jurisdictions", color: "#3949ab", hide: true },   // hide＝一覧に出さない（本人 2026-10-26「警察署・消防署の管轄は非表示に」。台帳と描く仕組みは残す）
+	{ id: "fire", file: "fire-areas.json", name: "Fire station jurisdictions", color: "#e53935", hide: true },
 ] as const;
 export type AreaId = typeof AREAS[number]["id"];
 
