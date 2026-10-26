@@ -25,7 +25,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 //   i18n＝各アプリの verify:i18n（6 本・ブラウザ不要）＝`npm run verify:i18n`（root）
 const GATES = {
 	test: [
-		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/h3", "test"], ["@ortho-earth/react", "test"], ["@ortho-earth/ktx2", "test"], ["@ortho-earth/google3d", "test"], ["@ortho-earth/gmaps", "test"], ["@ortho-earth/scene", "test"], ["@ortho-earth/splat", "test"], ["@ortho-earth/voxel", "test"], ["geopbf", "test"], ["altpbf", "test"],
+		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/h3", "test"], ["@ortho-earth/react", "test"], ["@ortho-earth/ktx2", "test"], ["@ortho-earth/google3d", "test"], ["@ortho-earth/gmaps", "test"], ["@ortho-earth/leaflet", "test"], ["@ortho-earth/scene", "test"], ["@ortho-earth/splat", "test"], ["@ortho-earth/voxel", "test"], ["geopbf", "test"], ["altpbf", "test"],
 		["@ortho-earth/ephem", "test"], ["world-data", "test"], ["glbconv", "test"], ["japan-map", "test"], ["japan-host", "test"], ["choju", "test"], ["yokohama", "test"], ["@ortho-earth/equal", "test"], ["solar", "test"], ["ortho-himekuri", "test"], ["quiz", "test"], ["sokutei", "test"],
 		["account", "test"], ["www", "test"], ["common", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"], ["native-bucket", "test:client"],
 		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], ["hex", "test"], ["arcs", "test"], ["clock", "test"], ["fireworks", "test"], ["onsen", "test"], ["pointcloud", "test"], ["terrain", "test"], ["ortho-quakes", "test"], ["ortho-engine", "test"], [".", "verify:app-imports"], [".", "test:mirrors"], [".", "typecheck"],
