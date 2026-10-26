@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -71,6 +71,8 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	t("大きな病院：11 院・台帳の長い名から短い名・ほかの病院は null", MAJOR_HOSPITALS.length === 11
 		&& majorHospital("社会福祉法人恩賜財団済生会支部神奈川県済生会横浜市南部病院") === "済生会横浜市南部病院" && majorHospital("昭和大学横浜市北部病院") === "昭和医科大学横浜市北部病院"
 		&& majorHospital("公立大学法人 横浜市立大学附属市民総合医療センター") === "横浜市立大学附属市民総合医療センター" && majorHospital("横浜市立大学附属病院") === "横浜市立大学附属病院" && majorHospital("鶴見大学歯学部附属病院") === null);
+	t("休日急患診療所：18 区すべて（住所は区の名で始まる・電話は 045-）・青葉区だけ昼休み・夜間急病センター 3 か所は市内", WARDS.every(w => HOLIDAY_CLINICS[w.code]?.addr.startsWith(w.name) && /^045-\d{3}-\d{4}$/.test(HOLIDAY_CLINICS[w.code].tel))
+		&& Object.keys(HOLIDAY_CLINICS).length === 18 && clinicHours("14117") !== clinicHours("14109") && NIGHT_CENTERS.length === 3 && NIGHT_CENTERS.every(c => (c.lon > CITY_BBOX[0] && c.lon < CITY_BBOX[2] && c.lat > CITY_BBOX[1] && c.lat < CITY_BBOX[3])));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

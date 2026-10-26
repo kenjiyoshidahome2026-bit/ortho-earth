@@ -13,7 +13,7 @@ import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネル�
 import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const HINAN_URL = "https://api.ortho-earth.com/bucket/bousai/hinan/14.json";   // 神奈川県の指定緊急避難場所（census2020 と同じ焼き・[経度, 緯度, 名称, 住所, 対応災害ビット]）
@@ -822,6 +822,17 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const worst = Math.max(...depths), ev = sh ? nearestSites(sh, at, 1)[0] : null;
 		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(ev.row[2])}<br><small>${walk(ev.m)}</small>`) : ""}</div>`
 			+ (floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""));
+		// 休日・夜間の急病＝区の休日急患診療所（区で決まる）・近い夜間急病センター・#7119（本人「休日急患診療所は絶対必要！」2026-10-26）。電話は押せばかかる
+		const tel = (n: string) => `<a href="tel:${n.replace(/-/g, "")}">${esc(n)}</a>`;
+		const hc = ward?.code ? HOLIDAY_CLINICS[ward.code] : undefined;
+		const nc = NIGHT_CENTERS.map(c => ({ c, m: distM(at, [c.lon, c.lat]) })).sort((a, b) => a.m - b.m)[0];
+		out.push(`<h3>${esc(t("Sudden illness on holidays or at night"))}</h3><div class="pr">`
+			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t("$1 Holiday Emergency Clinic", wardName(ward!.code!)))}<br><small>${esc(hc.addr)}</small><br>${tel(hc.tel)}<br><small>${esc(t("Internal medicine and pediatrics · Sundays, holidays and Dec 30–Jan 3, $1", clinicHours(ward!.code!)))}</small>`) : "")
+			+ row(t("Night emergency center"), `${esc(nc.c.name)}<br><small>${esc(nc.c.addr)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t("Internal medicine and pediatrics · every day, 20:00–24:00"))}</small>`)
+			+ `</div><p class="sub flat">${esc(t("Unsure whether to call an ambulance? Kanagawa emergency advice line, 24 hours:"))} <a href="tel:%237119">#7119</a></p>`);
+		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。2 km を超えたら km だけ
+		const big = fac ? nearestRows(fac.filter(r => majorHospital(r[2])), at, 2) : [];
+		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, m }) => row(majorHospital(r[2])!, m > 2000 ? esc(t("About $1 km", (m / 1000).toFixed(1))) : walk(m))).join("")}</div>`);
 		// 近くの施設（区役所・図書館・病院・交番・消防署）
 		if (fac) {
 			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
@@ -829,9 +840,6 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				return nearestRows(city.length ? city : rows, at, 1)[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
 			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(r!.row[2])}<br><small>${walk(r!.m)}</small>`)).join("")}</div>`);
-			// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。2 km を超えたら km だけ
-			const big = nearestRows(fac.filter(r => majorHospital(r[2])), at, 2);
-			if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, m }) => row(majorHospital(r[2])!, m > 2000 ? esc(t("About $1 km", (m / 1000).toFixed(1))) : walk(m))).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
