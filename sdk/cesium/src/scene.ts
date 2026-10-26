@@ -56,7 +56,7 @@ export class OrthoScene {
 	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, stencilBuffer: true, depthTexture: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
 	readonly atmosphere = new Atmosphere(); readonly fog = new Fog(); readonly postProcessStages: any; light: any = new SunLight();
 	readonly shadowMap = { enabled: false, softShadows: false, size: 2048, darkness: 0.3, maximumDistance: 5000, normalOffset: true, fadingEnabled: true, isDestroyed: () => false, destroy: () => undefined };
-	skyBox: any = { show: true }; skyAtmosphere: any = { show: true, hueShift: 0, saturationShift: 0, brightnessShift: 0, atmosphereLightIntensity: 50 };
+	skyBox: any = { show: true }; skyAtmosphere: any = { show: true, hueShift: 0, saturationShift: 0, brightnessShift: 0, atmosphereLightIntensity: 50, atmosphereRayleighCoefficient: { x: 5.5e-6, y: 13.0e-6, z: 28.4e-6 }, atmosphereMieCoefficient: { x: 21e-6, y: 21e-6, z: 21e-6 }, atmosphereMieAnisotropy: 0.9, atmosphereRayleighScaleHeight: 10000, atmosphereMieScaleHeight: 3200 };   // SkyAtmosphere's defaults (the atmosphere example reads them)
 	sun: any = { show: true, glowFactor: 1 }; moon: any = { show: true }; sunBloom = true;
 	backgroundColor = Color.clone(Color.BLACK);
 	rethrowRenderErrors = false; completeMorphOnUserInput = true; morphTime = 1;
