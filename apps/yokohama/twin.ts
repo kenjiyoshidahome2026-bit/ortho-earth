@@ -866,7 +866,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	};
 	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
 	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
-	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing && narrow()) P.setFold(true); };
+	// 地図を見せるために畳む＝操作方法カード（#hint）も閉じる（畳むと出てきて地図の上半分を覆っていた・Mac 390px 2026-10-26。閉じた選択は記憶＝以後は「?」）
+	const foldForMap = () => { if (!narrow()) return; P.setFold(true); const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click(); };
+	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing) foldForMap(); };
 	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
 		const z = 17, p = tilePixel(lon, lat, z);
 		try {
@@ -922,21 +924,27 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	}
 	// 想定の深さの水面＝押した地点のまわり半径 WATER_R の半透明の柱（地面から帯の上端まで）。建物の何階まで来るかを絵で見せる（「水の深さを建物の高さで」・動画の試し撮り 2026-10-26）
 	// 押し出しは頂点ごとに地表へ接地する＝坂でも地面から同じ深さ。浸水の面そのものではなく「この地点の想定」の目安（範囲外＝出さない）
-	const WATER_R = 90;
+	// 見た目（Mac 2026-10-26）：0.45 は淡く「青い円盤」にしか見えなかった＝0.6＋上端に濃い帯（水面の線）。半径 90m は街区の壁を覆った＝50m で「この家の壁のここまで」
+	const WATER_R = 50, WATER_LINE = 0.25;
 	let waterAt: [number, number] | null = null;
 	async function showWater(at: [number, number] | null, top = 0) {
 		waterAt = top > 0 ? at : null;
-		const fc = { type: "FeatureCollection" as const, features: waterAt ? [{ type: "Feature" as const, properties: { h: top }, geometry: { type: "Polygon" as const, coordinates: [circleRing(waterAt, WATER_R, 48)] } }] : [] };
+		const ring = waterAt ? circleRing(waterAt, WATER_R, 48) : [];
+		const fc = { type: "FeatureCollection" as const, features: waterAt ? [
+			{ type: "Feature" as const, properties: { h: top, b: 0, c: "#1e88e5", o: 0 }, geometry: { type: "Polygon" as const, coordinates: [ring] } },
+			{ type: "Feature" as const, properties: { h: top + 0.02, b: Math.max(0, top - WATER_LINE), c: "#0d47a1", o: 1 }, geometry: { type: "Polygon" as const, coordinates: [ring, circleRing(waterAt, WATER_R - 1.5, 48).reverse()] } },   // 上端の帯＝縁だけの輪（中は抜く）
+		] : [] };
 		if (!waterOn) {
 			if (!waterAt) return;
 			waterOn = true; map.addSource("yk-water", { type: "geojson", data: fc });
-			await map.addLayer({ id: "yk-water", type: "fill-extrusion", source: "yk-water", paint: { "fill-extrusion-color": "#1e88e5", "fill-extrusion-opacity": 0.45, "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": 0 } });
+			await map.addLayer({ id: "yk-water", type: "fill-extrusion", source: "yk-water", paint: { "fill-extrusion-color": ["get", "c"], "fill-extrusion-opacity": 0.6, "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": ["get", "b"] } });
 		} else map.getSource("yk-water")?.setData?.(fc);
 	}
-	// 「水の高さを立体で見る」＝その地点へ寄って傾ける（建物は寄る前から立て始める）
+	// 「水の高さを立体で見る」＝その地点へ寄って低く傾ける（人の目の高さに近い＝壁のどこまでかが分かる）。スマホはシートを畳む
 	const seeWater = () => {
 		if (!waterAt) return;
-		const v = { lon: waterAt[0], lat: waterAt[1], zoom: 17.6, tilt: 62, bearing: map.getBearing?.() ?? 0 };
+		foldForMap();
+		const v = { lon: waterAt[0], lat: waterAt[1], zoom: 18.3, tilt: 70, bearing: map.getBearing?.() ?? 0 };
 		const h = holdBuildings(v); flyView(v).finally(() => { h.armed = true; });
 	};
 	probeOut.addEventListener("click", e => {
@@ -1086,7 +1094,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	}
 	homeOut.addEventListener("click", e => { const el = e.target as HTMLElement, r = el.closest<HTMLElement>(".wroute");
 		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
-			const k = +r.dataset.k!, line = routes[k]; showRoute(k); if (narrow()) P.setFold(true);
+			const k = +r.dataset.k!, line = routes[k]; showRoute(k); foldForMap();
 			if (line?.length) {   // 引いても建物を残す（z 16.5 未満でも道順のまわりは立てたまま＝観光と同じ hold・Mac の試し撮り 2026-10-26）
 				const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], o = { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 17 };
 				const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
@@ -1094,7 +1102,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			}
 			return; }
 		if (el.closest(".x")) clearHome(); });
-	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing && narrow()) P.setFold(true); };
+	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing) foldForMap(); };
 	$(".hm-gps").onclick = () => {
 		if (!navigator.geolocation) { hmMsg.textContent = t("Could not get your location."); return; }
 		hmMsg.textContent = t("Loading…");
