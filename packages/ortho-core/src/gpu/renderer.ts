@@ -2713,11 +2713,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				// 地形を落とす側（#112 段 2）＝terrain スロットと同じ窓・同じ距離フェード（eye はカメラ＝画面の地形と同じ形）で行列だけ太陽
 				if (terrainActive) device.queue.writeBuffer(Ls.frameT, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain!.mesh));
 			}
-			const oPt = lonlatTo3D(mainOrigin[0], mainOrigin[1]), cT = mat.transform(shWin.mvp, [oPt[0], oPt[1], oPt[2], 1]), u = sh!.cpu;
+			// 受け手の錨＝窓の中心（視点の注視点）の f32 値（旧＝main の原点 Frame.originPt＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0
+			// のまま＝8000km 離れた錨から f32 で相対位置を取ると 1m 近くずれ、模型が 1m ずれた自分の影をまだらに被った・2026-10-27）。
+			// 受け手は「Frame 原点からの相対位置 + (F.originPt − SH.anchor)」＝main の原点が近ければ両方小さく、遠くても模型・床の錨との差は窓の幅以下
+			const aC = lonlatTo3D(cam.center[0], cam.center[1]), aPt = [Math.fround(aC[0]), Math.fround(aC[1]), Math.fround(aC[2])], cT = mat.transform(shWin.mvp, [aPt[0], aPt[1], aPt[2], 1]), u = sh!.cpu;
 			u.fill(0);
 			u.set(shWin.mvp, 0);
 			u[16] = cT[0]; u[17] = cT[1]; u[18] = cT[2]; u[19] = cT[3];
-			u[20] = oPt[0]; u[21] = oPt[1]; u[22] = oPt[2]; u[23] = 0;   // Frame.originPt と同じ f32 丸め（main スロットで差が厳密 0）
+			u[20] = aPt[0]; u[21] = aPt[1]; u[22] = aPt[2]; u[23] = 0;
 			u[24] = shadowDarkness(shWin.alt, shadow.darkness); u[27] = SH_FADE_R0;
 			// 段の表（細かい順・最後が基の窓）＝cs＝(s, ox, oy, 層)・cb＝(余白, 1texel(uv), 1texel(m), 面の傾きの上限)
 			// 面の傾きの上限＝平らな屋根と地面が太陽に対して持つ傾き cot(高度)（上限 6）を 深度/uv に直した物（1 uv＝窓の幅 m・深度 1＝奥行き m）
