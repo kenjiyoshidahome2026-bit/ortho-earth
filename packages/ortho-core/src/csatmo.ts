@@ -96,14 +96,25 @@ vec3 csTone(vec3 c) {   // czm_pbrNeutralTonemapping
 	c *= np / peak;
 	return mix(c, vec3(np), 1.0 - 1.0 / (0.15 * (peak - np) + 1.0));
 }
-// 空の大気（SkyAtmosphereCommon＋SkyAtmosphereFS・HDR なし）：殻（半径×1.025）の奥の面の点の色。前乗算の rgba
-vec4 csSky(vec3 eye, vec3 dir) {
+// 地面の向こうの空の大気（globe:false・translucency で地面が透ける時）＝Cesium の SkyAtmosphere は地面を知らず殻の奥の面まで描く。地面を通る視線だけ色を返す（通らない＝a<0）
+//   translucent（globe.translucency）：Cesium は球の裏面（backFaceAlpha 既定 1＝不透明・光の当たらない内側）が透けた表面の奥に見える＝黒
+//   それ以外（globe を描かない）：Cesium は地球の中まで標本化する＝密度 exp が溢れて NaN＝白く出る。浅い弦（地平の近く）は溢れず黒。その見た目を写す（深さ 282km＝exp(88) の 3200m）
+vec4 csSkyUnder(vec3 eye, vec3 dir, float inner, float translucent) {
+	vec2 g;
+	if (!csSphere(eye, dir, inner, g) || g.y <= 0.0) return vec4(-1.0);
+	if (translucent > 0.5) return vec4(0.0, 0.0, 0.0, 1.0);
+	vec3 pm = eye + dir * (max(g.x, 0.0) + g.y) * 0.5;
+	return inner - length(pm) > 282000.0 ? vec4(1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+}
+// 空の大気（SkyAtmosphereCommon＋SkyAtmosphereFS・HDR なし）：殻（半径×1.025）の奥の面の点の色。前乗算の rgba。under＝地面を通る視線も描く（0=描かない 1=不透明の地面の向こう 2=半透明の地面の向こう）
+vec4 csSky2(vec3 eye, vec3 dir, float under) {
 	vec2 s;
 	if (!csSphere(eye, dir, CS_R * 1.025, s) || s.y <= 0.0) return vec4(0.0);
 	vec3 p = eye + dir * s.y;
 	float eyeH = length(eye) - CS_R, rdiff = CS_R - CS_RP;
 	float rAdj = rdiff / 4.0 + rdiff / 2.0 * clamp((eyeH - CS_R / 4.0) / (CS_R - CS_R / 4.0), 0.0, 1.0);
 	float inner = CS_R - rAdj;
+	if (under > 0.5) { vec4 u = csSkyUnder(eye, dir, inner, under - 1.0); if (u.a >= 0.0) return u; }
 	vec3 L = normalize(p), ray, mie;
 	float op;
 	csScatter(eye, dir, length(p - eye), L, inner, ray, mie, op);
@@ -114,6 +125,7 @@ vec4 csSky(vec3 eye, vec3 dir) {
 	float a = clamp(mix(c.b, 1.0, c.a), 0.0, 1.0);
 	return vec4(c.rgb * a, a);
 }
+vec4 csSky(vec3 eye, vec3 dir) { return csSky2(eye, dir, 0.0); }
 `;
 
 /** WGSL（WebGPU）：同じ関数（名前も同じ） */
@@ -192,12 +204,21 @@ fn csTone(c0: vec3f) -> vec3f {
 	c *= np / peak;
 	return mix(c, vec3f(np), 1.0 - 1.0 / (0.15 * (peak - np) + 1.0));
 }
-fn csSky(eye: vec3f, dir: vec3f) -> vec4f {
+// 地面の向こうの空の大気（gl と同じ・csSkyUnder）
+fn csSkyUnder(eye: vec3f, dir: vec3f, inner: f32, translucent: f32) -> vec4f {
+	let g = csSphere(eye, dir, inner);
+	if (g.z < 0.5 || g.y <= 0.0) { return vec4f(-1.0); }
+	if (translucent > 0.5) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+	let pm = eye + dir * (max(g.x, 0.0) + g.y) * 0.5;
+	return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0), inner - length(pm) > 282000.0);
+}
+fn csSky2(eye: vec3f, dir: vec3f, under: f32) -> vec4f {
 	let s = csSphere(eye, dir, CS_R * 1.025);
 	if (s.z < 0.5 || s.y <= 0.0) { return vec4f(0.0); }
 	let p = eye + dir * s.y;
 	let eyeH = length(eye) - CS_R; let rdiff = CS_R - CS_RP;
 	let inner = CS_R - (rdiff / 4.0 + rdiff / 2.0 * clamp((eyeH - CS_R / 4.0) / (CS_R - CS_R / 4.0), 0.0, 1.0));
+	if (under > 0.5) { let u = csSkyUnder(eye, dir, inner, under - 1.0); if (u.a >= 0.0) { return u; } }
 	let L = normalize(p);
 	var sc = csScatter(eye, dir, length(p - eye), L, inner);
 	let outer = inner + CS_THICK;
@@ -207,4 +228,5 @@ fn csSky(eye: vec3f, dir: vec3f) -> vec4f {
 	let a = clamp(mix(rgb.b, 1.0, c.a), 0.0, 1.0);
 	return vec4f(rgb * a, a);
 }
+fn csSky(eye: vec3f, dir: vec3f) -> vec4f { return csSky2(eye, dir, 0.0); }
 `;
